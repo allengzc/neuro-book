@@ -9,6 +9,7 @@ import {Command} from "commander";
 import * as p from "@clack/prompts";
 
 const REPO_URL = "https://github.com/notnotype/neuro-book.git";
+const DEFAULT_IMAGE = "ghcr.io/notnotype/neuro-book:latest";
 const PROVIDERS = {
     deepseek: {
         name: "DeepSeek",
@@ -67,6 +68,8 @@ const program = new Command()
     .option("--api-key <key>", "Provider API key.")
     .option("--database <mode>", "Database mode: local or external.")
     .option("--database-url <url>", "External PostgreSQL DATABASE_URL.")
+    .option("--deploy-mode <mode>", "Deploy mode: image or build.", process.env.NEURO_BOOK_DEPLOY_MODE)
+    .option("--image <image>", "Prebuilt app image.", process.env.NEURO_BOOK_IMAGE ?? DEFAULT_IMAGE)
     .option("--yes", "Use defaults and skip interactive prompts.", false)
     .option("--dry-run", "Generate files but skip git and docker commands.", process.env.NEURO_BOOK_DEPLOY_DRY_RUN === "1");
 
@@ -260,13 +263,38 @@ async function readConfig(options) {
             initialValue: "postgresql://user:password@host:5432/neuro_book",
         })
         : "";
+    const deployMode = await askSelect({
+        interactive,
+        value: options.deployMode,
+        message: "部署模式",
+        initialValue: "image",
+        options: [
+            {value: "image", label: "使用 GHCR 预构建镜像", hint: "低内存服务器推荐"},
+            {value: "build", label: "在本机自行 build", hint: "会运行 Nuxt build"},
+        ],
+    });
+
+    if (deployMode !== "image" && deployMode !== "build") {
+        throw new Error(`部署模式必须是 image 或 build：${deployMode}`);
+    }
+
+    const image = deployMode === "image"
+        ? await askText({
+            interactive,
+            value: options.image,
+            message: "应用镜像",
+            initialValue: DEFAULT_IMAGE,
+        })
+        : options.image;
 
     return {
         apiKey,
         databaseMode,
         databaseUrl,
         deployDir,
+        deployMode,
         dryRun: Boolean(options.dryRun),
+        image,
         port,
         provider,
         repo: options.repo,
@@ -354,6 +382,15 @@ models:
 `;
 }
 
+/** 生成镜像部署 override，避免低内存服务器执行 Nuxt build。 */
+function renderImageCompose(config) {
+    return `services:
+    app:
+        image: ${config.image}
+        build: null
+`;
+}
+
 /** 以仅当前用户可读写的权限写入敏感部署文件。 */
 async function writePrivateFile(path, text) {
     await writeFile(path, text, {encoding: "utf-8", mode: 0o600});
@@ -396,9 +433,18 @@ async function runCompose(config) {
         return;
     }
 
-    const args = config.databaseMode === "external"
-        ? ["compose", "-f", "docker-compose.yml", "-f", "docker-compose.external-db.yml", "--env-file", ".env.docker", "up", "-d", "--build"]
-        : ["compose", "--env-file", ".env.docker", "up", "-d", "--build"];
+    const composeFiles = ["-f", "docker-compose.yml"];
+    if (config.deployMode === "image") {
+        composeFiles.push("-f", "docker-compose.image.yml");
+    }
+    if (config.databaseMode === "external") {
+        composeFiles.push("-f", "docker-compose.external-db.yml");
+    }
+
+    const args = ["compose", ...composeFiles, "--env-file", ".env.docker", "up", "-d"];
+    if (config.deployMode === "build") {
+        args.push("--build");
+    }
 
     await run("docker", args, {cwd: config.deployDir});
 }
@@ -422,9 +468,15 @@ async function main() {
     const sessionPassword = randomSecret();
     await writePrivateFile(resolve(config.deployDir, ".env.docker"), renderEnv(config, postgresPassword, sessionPassword));
     await writePrivateFile(resolve(config.deployDir, "config.yaml"), renderConfig(config));
+    if (config.deployMode === "image") {
+        await writeFile(resolve(config.deployDir, "docker-compose.image.yml"), renderImageCompose(config), "utf-8");
+    }
 
     p.log.success(`Wrote ${resolve(config.deployDir, ".env.docker")}`);
     p.log.success(`Wrote ${resolve(config.deployDir, "config.yaml")}`);
+    if (config.deployMode === "image") {
+        p.log.success(`Wrote ${resolve(config.deployDir, "docker-compose.image.yml")}`);
+    }
     await runCompose(config);
     p.outro(`Done. Open http://localhost:${config.port}`);
 }

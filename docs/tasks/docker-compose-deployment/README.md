@@ -5,6 +5,7 @@
 - 为项目设计并实现 Docker Compose 单机生产部署方案。
 - 真实 `config.yaml` 已包含模型 Provider token，需要从 Git 跟踪中移除并改成模板化配置。
 - 更新部署说明：改成 Node CLI 入口，补充 `config.yaml` 配置教程，为 `config.example.yaml` 添加注释，并提供远程一键交互式 `npx` 部署脚本。
+- Nuxt build 会在低内存服务器上 OOM，需要提供本地发布 GHCR 镜像和 release-only GitHub Actions 自动发布两条路径。
 
 ## Goal
 
@@ -13,6 +14,7 @@
 - 保持 `config.yaml` 作为应用可写的 Provider 配置真值源。
 - 阻止真实 `config.yaml` 后续继续提交。
 - 提供可从 GitHub 远程调用的 `npx` 部署入口，降低首次部署门槛。
+- 支持把 Nuxt build 从低内存服务器迁移到本地高配机器或 GitHub Actions。
 
 ## Current State
 
@@ -34,6 +36,10 @@
 - README 的 Docker 部署章节改为 `npx` 优先、手动 Node CLI 和纯手动 Compose 作为备选，并补充配置文件教程。
 - `config.example.yaml` 增加注释，解释 Provider key、adapter、baseURL、proxy、默认模型、profile 覆盖和 context window 配置。
 - `.env.docker.example` 补充 `NUXT_SESSION_PASSWORD`，匹配当前 Compose 运行时要求。
+- 新增 `scripts/publish-ghcr-image.mjs` 和 `docker:publish`，用于本地执行 `docker buildx build --push` 推送 `latest` 与版本 tag 到 GHCR。
+- 新增 `.github/workflows/release-container.yml`，只在 GitHub Release `published` 时构建并推送 release tag 与 `latest`。
+- README 增加低内存服务器说明：目标服务器优先使用预构建镜像，避免在服务器上执行 Nuxt build。
+- `scripts/neuro-book-deploy.mjs` 默认改为 GHCR 镜像部署，会生成 `docker-compose.image.yml` 覆盖 `app.image` 并禁用 `app.build`；用户选择 `--deploy-mode build` 时才执行本机 build。
 
 ## Decisions
 
@@ -50,6 +56,8 @@
 - `.env.docker.example`
 - `config.example.yaml`
 - `package.json`
+- `scripts/publish-ghcr-image.mjs`
+- `.github/workflows/release-container.yml`
 - `scripts/docker-entrypoint.sh`
 - `scripts/neuro-book-deploy.mjs`
 - `server/utils/env-template.ts`
@@ -66,6 +74,10 @@
 - `bun run typecheck`
 - `docker compose --env-file .env.docker.example config` 未执行成功：当前环境没有 Docker CLI。
 - `node --check scripts/neuro-book-deploy.mjs`
+- `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes --dir .agent/deploy-image-test`
+- `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes --deploy-mode build --dir .agent/deploy-build-test`
+- `node --check scripts/publish-ghcr-image.mjs`
+- `node scripts/publish-ghcr-image.mjs --dry-run`
 - `npm pack --dry-run --json`：tarball 只包含 README、package.json 和 Node 部署脚本。
 - 使用 `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes` 跑通脚本生成 `.env.docker` / `config.yaml`，并用 `yaml` 解析生成配置。
 - 当前环境仍没有 Docker CLI，`docker --version` 与 `docker compose --env-file .env.docker.example config` 均无法执行。
