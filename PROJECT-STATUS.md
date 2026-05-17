@@ -2,9 +2,9 @@
 
 ## Summary
 
-neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心逐步转向文件化 workspace，并围绕 Markdown Studio、引用系统、剧情结构和多 Agent 协作补齐核心体验。
+neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心逐步转向文件化 workspace，并围绕 Markdown Studio、引用系统、剧情结构、多 Agent 协作，以及现在这轮全站鉴权与管理员后台补齐核心体验。
 
-部署侧已补充 Docker Compose 单机生产方案：默认 `app + postgres`，运行时挂载 `workspace/` 与本机 `config.yaml`。`config.yaml` 是应用可写的 Provider 配置真值源，真实文件不再作为仓库文件维护，已提交过的模型 Provider token 应视为泄露并轮换。
+部署侧已补充 Docker Compose 单机生产方案：默认 `app + postgres`，运行时挂载 `workspace/` 与本机 `config.yaml`。`config.yaml` 是应用可写的 Provider 配置真值源，真实文件不再作为仓库文件维护，已提交过的模型 Provider token 应视为泄露并轮换。本轮进一步把部署入口收敛成 Node CLI + 远程 `npx` 交互脚本，并补齐 `config.example.yaml` 的注释化说明；同时加入 `auth.enabled` 全站鉴权开关，默认开启，关闭时整站与管理员接口都退化为无遮罩访问。
 
 本文档记录仓库级现状。每次重大任务完成后，需要同步更新本文档和对应 `docs/tasks/<task-slug>/README.md`。
 
@@ -16,6 +16,7 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 - Agent 系统：继续推进 v2 可用体验；v2 已加入 thread 级软 Plan Mode、无参数 enter/exit 工具、模型主动切换审批和前端快捷切换；TSX profile prompt 在 leader UI continue 主路径下会把当前用户输入保持为最后一条，`Reminder` / SkillCatalog 等运行时上下文贴近其前；TSX profile 模板可视化编辑器已升级为复用主 IDE 主题的低代码三栏工作台，左侧组件库可直接拖入画布，画布节点支持 dnd-kit 跨父级明确落点移动、拖拽中实时位置预览和本地撤销/重做；`leader-runtime` 已从演示模板变为接近生产 leader prompt 的模板副本，编辑器支持表达式属性和 Message TSX 片段保真，右侧预览展示纯 `<ProfilePrompt>...</ProfilePrompt>` 片段和消息列表，当前仍用于模板预览和验证，尚不接入真实 Agent 运行；同时在 `server/agent-v3` 中验证新的 NeuroAgent 内核。
 - 外部小说素材：新增番茄小说导入 skill，第一版支持免费小说 epub 与 Tomato Novel Downloader 本地结果导入到当前小说 workspace 的 `reference/tomato/`，用于后续拆书和结构分析。
 - 文档治理：把稳定规范、调研资料、任务 walkthrough 分开维护。
+- 全站鉴权：默认启用的 cookie session 登录、管理员用户管理页、`config.yaml` 开关和初始管理员创建脚本已经接入。
 
 ## Module Status
 
@@ -23,6 +24,7 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 | --- | --- | --- |
 | Workspace | Active | 已转向按 novel 隔离；root-external content node 以 warning 表达策略越界；内容节点支持可选 `state.md` 当前状态，CLI 可创建或补建 state 文件；frontmatter 区分 `inject` 与 `retrieval`；文件树和干净编辑器会响应真实文件变化，网页/磁盘同时修改时走保存冲突对话框。 |
 | Markdown Studio | Active | 主编辑器只保留富文本和源码两种模式；图片、inline code、workspace/domain reference 和表格在富文本侧使用真实 ProseMirror node / mark，并序列化回 Markdown；`StructuredTextEditor` 不再维护独立 schema，只作为表单工具栏包装层。 |
+| Auth | Active | 默认开启的全站 cookie session 鉴权已接入；`config.yaml` 可通过 `auth.enabled` 关闭整站守卫；包含登录页、管理员用户管理页、用户状态/角色/密码重置和初始管理员脚本。 |
 | Reference | Active | 文件化内容节点 refs 不再承载 visibility；Agent prompt 已收敛为 inline ref 表达自然提及、structured refs 表达稳定系统关系；Plot refs 已迁到内容节点路径，不再依赖数据库 Lorebook。 |
 | Plot / Story | Active | 剧情系统规范较完整；refs 指向设定/角色/地点时使用 `lorebook/.../` 内容节点路径，剧情内部对象仍使用 thread/scene/plot URI；数据库不再维护 `Volume` / `Chapter` 表，Scene 挂章使用 `chapterPath` 指向 `manuscript/.../` content-node 目录。 |
 | Agent v2 | Active | 仍是当前生产链路；支持软 Plan Mode reminder、需用户审批的 `enter_plan_mode` / `exit_plan_mode` 模型工具和前端 `Shift + Tab` 切换；Plan Mode 计划写入 `workspace/.agent/plan`；profile prompt 已按 TSX `HistorySet -> DynamicSet -> AppendingSet` 合同固化，`AppendingSet` 产物会追加进历史，并在 continue 主路径保证当前用户输入为最后一条；TSX profile 模板编辑器 preview 可读写 `server/agent/profiles/templates/*.tsx` 并验证/预览受限 DSL，UI 已对齐主 IDE 主题工作台，支持组件库拖入、跨父级节点移动、真实树/视觉树分离的实时 drop 预览、本地撤销/重做、纯 ProfilePrompt 片段预览、表达式属性保真和消息列表预览；`subagent.retrieval` 通过 `report_result.data: string[]` 返回内容节点路径清单，writer 根据参数自动读取 `index.md` / `state.md` 注入 prompt。 |
@@ -44,6 +46,8 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 - 扩展番茄小说导入：补基础数据、评论、全站搜索、正文下载含段评和图片等能力。
 - 将 workspace 保存冲突视图与后续 Git 版本控制能力整合。
 - 将 TSX profile 模板选择接入真实 Agent runtime，并决定全局/线程级模板覆盖策略。
+- 将 Docker 部署入口继续收敛到一键交互式脚本，并观察后续是否需要把部署模板拆成独立发布包。
+- 把 auth 设置做成 settings 页面可视化开关，减少直接手改 `config.yaml` 的频率。
 
 ## Risks
 
@@ -56,6 +60,8 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 
 | Task | Status | Walkthrough |
 | --- | --- | --- |
+| Full Site Auth | Done | [docs/tasks/fullsite-auth/README.md](docs/tasks/fullsite-auth/README.md) |
+| Docker Compose Deployment | Updated | [docs/tasks/docker-compose-deployment/README.md](docs/tasks/docker-compose-deployment/README.md) |
 | TSX Profile Template Editor | Low-code DnD Workbench | [docs/tasks/tsx-profile-template-editor/README.md](docs/tasks/tsx-profile-template-editor/README.md) |
 | Agent TSX Prompt Context | Done | [docs/tasks/agent-tsx-prompt-context/README.md](docs/tasks/agent-tsx-prompt-context/README.md) |
 | Agent Plan Mode | Done | [docs/tasks/agent-plan-mode/README.md](docs/tasks/agent-plan-mode/README.md) |

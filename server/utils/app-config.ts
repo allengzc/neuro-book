@@ -52,6 +52,9 @@ const RawConfiguredProviderSchema = z.object({
     models: z.record(z.string(), RawConfiguredModelSchema).optional(),
 });
 const RawAppConfigSchema = z.object({
+    auth: z.object({
+        enabled: z.boolean().optional(),
+    }).optional(),
     agent: z.object({
         tools: z.object({
             allow: ToolNameListSchema.optional(),
@@ -113,6 +116,9 @@ export type ModelSettingsConfig = {
 };
 
 export type AppConfig = {
+    auth: {
+        enabled: boolean;
+    };
     agent: {
         tools: AgentToolAccessConfig;
         profiles: Record<string, AgentProfileConfig>;
@@ -244,6 +250,9 @@ function parseAppConfigValue(input: unknown): AppConfig {
     }
 
     return {
+        auth: {
+            enabled: parsedConfig.auth?.enabled ?? true,
+        },
         agent: {
             tools: {
                 allow: normalizeToolNames([

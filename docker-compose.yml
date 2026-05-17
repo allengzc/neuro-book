@@ -7,6 +7,7 @@ services:
             HOST: 0.0.0.0
             PORT: ${NUXT_PORT:-3000}
             DATABASE_URL: ${DATABASE_URL:-postgresql://neuro_book:change-me@postgres:5432/neuro_book}
+            NUXT_SESSION_PASSWORD: ${NUXT_SESSION_PASSWORD:?NUXT_SESSION_PASSWORD must be set}
         ports:
             - "${NUXT_PORT:-3000}:3000"
         volumes:

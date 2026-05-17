@@ -4,6 +4,7 @@
 
 - 为项目设计并实现 Docker Compose 单机生产部署方案。
 - 真实 `config.yaml` 已包含模型 Provider token，需要从 Git 跟踪中移除并改成模板化配置。
+- 更新部署说明：改成 Node CLI 入口，补充 `config.yaml` 配置教程，为 `config.example.yaml` 添加注释，并提供远程一键交互式 `npx` 部署脚本。
 
 ## Goal
 
@@ -11,6 +12,7 @@
 - 保持 workspace、Postgres 数据、运行配置可持久化。
 - 保持 `config.yaml` 作为应用可写的 Provider 配置真值源。
 - 阻止真实 `config.yaml` 后续继续提交。
+- 提供可从 GitHub 远程调用的 `npx` 部署入口，降低首次部署门槛。
 
 ## Current State
 
@@ -27,6 +29,11 @@
 - 增加配置文本环境变量展开工具，并接入 v2 `loadAppConfig` 和 v3 `readRawAgentConfig`。
 - 执行 `git rm --cached config.yaml`，本地文件保留，仓库只跟踪模板。
 - 运行镜像显式携带 Prisma 生成客户端，并使用 POSIX `sh` 启动脚本，降低基础镜像 shell 差异风险。
+- 新增 `scripts/neuro-book-deploy.mjs` 作为 Node 交互部署 CLI：使用 `commander` 处理参数、`@clack/prompts` 处理交互，检查 Docker/Git，询问部署目录、端口、Provider、数据库模式，生成 `.env.docker` / `config.yaml` 并执行 Compose。
+- 更新 `package.json` 的 `bin` / `files` 配置，让 `npx --package github:notnotype/neuro-book neuro-book-deploy` 只安装部署入口文件，再由脚本 clone 真实应用仓库。
+- README 的 Docker 部署章节改为 `npx` 优先、手动 Node CLI 和纯手动 Compose 作为备选，并补充配置文件教程。
+- `config.example.yaml` 增加注释，解释 Provider key、adapter、baseURL、proxy、默认模型、profile 覆盖和 context window 配置。
+- `.env.docker.example` 补充 `NUXT_SESSION_PASSWORD`，匹配当前 Compose 运行时要求。
 
 ## Decisions
 
@@ -42,7 +49,9 @@
 - `.dockerignore`
 - `.env.docker.example`
 - `config.example.yaml`
+- `package.json`
 - `scripts/docker-entrypoint.sh`
+- `scripts/neuro-book-deploy.mjs`
 - `server/utils/env-template.ts`
 - `server/utils/env-template.test.ts`
 - `server/utils/app-config.ts`
@@ -56,6 +65,10 @@
 - `bun run test server/utils/env-template.test.ts server/utils/app-config.test.ts`
 - `bun run typecheck`
 - `docker compose --env-file .env.docker.example config` 未执行成功：当前环境没有 Docker CLI。
+- `node --check scripts/neuro-book-deploy.mjs`
+- `npm pack --dry-run --json`：tarball 只包含 README、package.json 和 Node 部署脚本。
+- 使用 `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes` 跑通脚本生成 `.env.docker` / `config.yaml`，并用 `yaml` 解析生成配置。
+- 当前环境仍没有 Docker CLI，`docker --version` 与 `docker compose --env-file .env.docker.example config` 均无法执行。
 
 ## TODO / Follow-ups
 

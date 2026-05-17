@@ -2,6 +2,21 @@ import {describe, expect, it} from "vitest";
 import {parseAppConfigText} from "nbook/server/utils/app-config";
 
 describe("parseAppConfigText", () => {
+    it("auth.enabled 未配置时默认开启", () => {
+        const config = parseAppConfigText(``);
+
+        expect(config.auth.enabled).toBe(true);
+    });
+
+    it("可以从 config.yaml 关闭全站鉴权", () => {
+        const config = parseAppConfigText(`
+auth:
+  enabled: false
+`);
+
+        expect(config.auth.enabled).toBe(false);
+    });
+
     it("会在解析 config.yaml 前展开环境变量占位符", () => {
         const config = parseAppConfigText(`
 models:

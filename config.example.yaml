@@ -1,8 +1,18 @@
+# neuro-book 运行时配置示例。
+# 复制为 config.yaml 后会挂载到容器内 /app/config.yaml，设置页也会直接写回这个文件。
+# 真实 API Key 可以写在部署机器的 config.yaml 中，但不要提交真实 config.yaml。
+# 全站鉴权。默认开启；设为 false 时，登录页与管理员守卫都会关闭。
+auth:
+  enabled: true
+
 agent:
   tools:
+    # Agent 工具白名单 / 黑名单。空数组表示不额外覆盖默认工具策略。
     allow: []
     deny: []
   profiles:
+    # 每个 profile 都可以单独覆盖模型。modelKey 为 null 时使用 models.default。
+    # modelKey 格式固定为 "provider/model"，例如 deepseek/deepseek-v4-flash。
     leader.default:
       model:
         modelKey: null
@@ -28,14 +38,19 @@ agent:
         topK: null
         stream: true
 models:
+  # 默认聊天模型。这里必须指向下面 providers 中 enabled: true 的模型。
   default: deepseek/deepseek-v4-flash
   providers:
+    # provider key 是模型引用里的第一段，例如 deepseek/deepseek-v4-flash 的 deepseek。
     deepseek:
       name: DeepSeek
+      # adapter 决定运行时协议。DeepSeek 官方接口使用 deepseek-official。
       adapter: deepseek-official
       options:
+        # 模型 Provider 密钥写在 config.yaml，不写入 .env.docker。
         apiKey: ""
         baseURL: https://api.deepseek.com/v1
+        # 如需代理，填写 http://127.0.0.1:7890 这类地址；留空表示不走代理。
         proxy: ""
       models:
         deepseek-v4-flash:
@@ -43,6 +58,7 @@ models:
           id: deepseek-v4-flash
           group: deepseek
           enabled: true
+          # 用于上下文预算估算；无法稳定确认窗口时填 null。
           contextWindowTokens: 262144
         deepseek-v4-pro:
           name: DeepSeek-V4-Pro
@@ -52,6 +68,7 @@ models:
           contextWindowTokens: 262144
     doubao:
       name: Doubao
+      # OpenAI-compatible Provider 使用 OpenAI 兼容协议，但 baseURL 指向各厂商网关。
       adapter: openai-compatible
       options:
         apiKey: ""

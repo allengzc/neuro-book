@@ -1,0 +1,38 @@
+import {UpdateUserRequestDtoSchema, type AdminUserListItemDto} from "nbook/shared/dto/auth.dto";
+import {assertCanChangeAdminState, isAuthEnabled, requireAdmin, requireUserId, toAdminUserListItem} from "nbook/server/utils/auth";
+import {prisma} from "nbook/server/utils/prisma";
+import {validateBody} from "nbook/server/utils/novel-chapter";
+
+/**
+ * 管理员更新用户资料、角色和状态。
+ */
+export default defineEventHandler(async (event): Promise<AdminUserListItemDto> => {
+    if (isAuthEnabled()) {
+        await requireAdmin(event);
+    }
+    const userId = requireUserId(event);
+    const body = await validateBody(event, UpdateUserRequestDtoSchema);
+    const currentUser = await prisma.user.findUnique({
+        where: {id: userId},
+    });
+    if (!currentUser) {
+        throw createError({
+            statusCode: 404,
+            message: "用户不存在",
+        });
+    }
+
+    await assertCanChangeAdminState(userId, body.role, body.status);
+    const revokesCurrentSession = body.role !== undefined || body.status !== undefined;
+    const user = await prisma.user.update({
+        where: {id: userId},
+        data: {
+            displayName: body.displayName,
+            role: body.role,
+            status: body.status,
+            sessionVersion: revokesCurrentSession ? {increment: 1} : undefined,
+        },
+    });
+
+    return toAdminUserListItem(user);
+});

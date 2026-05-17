@@ -24,15 +24,48 @@ bun run test
 
 ## Docker Compose 单机部署
 
-```powershell
-Copy-Item .env.docker.example .env.docker
-Copy-Item config.example.yaml config.yaml
+推荐使用一键交互式部署脚本。它会检查 Docker、拉取仓库、生成 `.env.docker` 和 `config.yaml`，然后执行 Compose 构建与启动。
+
+```bash
+npx --yes --package github:notnotype/neuro-book neuro-book-deploy
+```
+
+脚本会询问这些信息：
+
+- 部署目录，默认 `~/neuro-book`。
+- Web 端口，默认 `3000`。
+- 模型 Provider 和 API Key。
+- 使用内置 Postgres，或填写外部 `DATABASE_URL`。
+
+也可以 clone 仓库后手动运行 Node CLI：
+
+```bash
+git clone https://github.com/notnotype/neuro-book.git
+cd neuro-book
+node scripts/neuro-book-deploy.mjs
+```
+
+如果想完全手动部署：
+
+```bash
+cp .env.docker.example .env.docker
+cp config.example.yaml config.yaml
 docker compose --env-file .env.docker up -d --build
 ```
 
-- `.env.docker` 只保存端口和数据库连接，不要把模型 Provider 密钥放在这里。
-- `config.yaml` 是应用可写的 Provider 配置文件，模型 Provider 密钥直接写在挂载的 `config.yaml` 中，用户也可以在设置页动态添加或更新 Provider。
-- 默认 Compose 会启动内置 Postgres；如需外部数据库，把 `.env.docker` 中的 `DATABASE_URL` 改成外部连接串，并使用 `docker compose -f docker-compose.yml -f docker-compose.external-db.yml --env-file .env.docker up -d --build`。
+使用外部数据库时，把 `.env.docker` 中的 `DATABASE_URL` 改成外部连接串，并运行：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.external-db.yml --env-file .env.docker up -d --build
+```
+
+### 配置文件教程
+
+- `.env.docker` 只保存容器运行环境，例如 `NUXT_PORT`、`NUXT_SESSION_PASSWORD`、Postgres 用户名密码和 `DATABASE_URL`。不要把模型 Provider 密钥放在这里。
+- `config.yaml` 是应用可写的业务配置真值源，会挂载到容器内 `/app/config.yaml`。模型 Provider 密钥、默认模型、Provider baseURL、代理和 profile 模型覆盖都放在这里。
+- `models.default` 使用 `provider/model` 格式，例如 `deepseek/deepseek-v4-flash`，并且要指向 `models.providers` 下 `enabled: true` 的模型。
+- `adapter` 决定 Provider 协议：DeepSeek 官方接口使用 `deepseek-official`，OpenAI 兼容网关使用 `openai-compatible`，Gemini 使用 `gemini-compatible`。
+- `contextWindowTokens` 用于上下文预算估算；能确认模型窗口时填数字，不能确认时填 `null`。
 - `./workspace` 会挂载到容器内 `/app/workspace`，`./config.yaml` 会挂载到 `/app/config.yaml`。
 - 当前仓库历史里曾提交过真实 `config.yaml`，其中的 token 应视为已泄露并立即轮换；本次只阻止后续继续提交，未清理 Git 历史。
 

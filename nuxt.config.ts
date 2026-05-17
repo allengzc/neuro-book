@@ -91,6 +91,7 @@ export default defineNuxtConfig({
         "@vue-flow/minimap/dist/style.css",
     ],
     modules: [
+        "nuxt-auth-utils",
         "@pinia/nuxt",
         "pinia-plugin-persistedstate/nuxt",
         "@unocss/nuxt",
