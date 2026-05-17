@@ -1,5 +1,5 @@
 import {ResetUserPasswordRequestDtoSchema, type AdminUserListItemDto} from "nbook/shared/dto/auth.dto";
-import {hashUserPassword, isAuthEnabled, requireAdmin, requireUserId, toAdminUserListItem} from "nbook/server/utils/auth";
+import {assertCanChangeAdminState, hashUserPassword, isAuthEnabled, lockAdminStateChanges, requireAdmin, requireUserId, toAdminUserListItem} from "nbook/server/utils/auth";
 import {prisma} from "nbook/server/utils/prisma";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 
@@ -12,16 +12,26 @@ export default defineEventHandler(async (event): Promise<AdminUserListItemDto> =
     }
     const userId = requireUserId(event);
     const body = await validateBody(event, ResetUserPasswordRequestDtoSchema);
-    const user = await prisma.user.update({
-        where: {id: userId},
-        data: {
-            passwordHash: await hashUserPassword(body.password),
-            sessionVersion: {increment: 1},
-        },
-    }).catch(() => {
-        throw createError({
-            statusCode: 404,
-            message: "用户不存在",
+    const passwordHash = await hashUserPassword(body.password);
+    const user = await prisma.$transaction(async (transactionClient) => {
+        await lockAdminStateChanges(transactionClient);
+        const currentUser = await transactionClient.user.findUnique({
+            where: {id: userId},
+        });
+        if (!currentUser) {
+            throw createError({
+                statusCode: 404,
+                message: "用户不存在",
+            });
+        }
+
+        await assertCanChangeAdminState(transactionClient, userId);
+        return await transactionClient.user.update({
+            where: {id: userId},
+            data: {
+                passwordHash,
+                sessionVersion: {increment: 1},
+            },
         });
     });
 

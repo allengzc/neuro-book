@@ -1,5 +1,5 @@
-import {readFile, writeFile} from "node:fs/promises";
-import {readFileSync} from "node:fs";
+import {readFile, stat, writeFile} from "node:fs/promises";
+import {readFileSync, statSync} from "node:fs";
 import {resolve} from "node:path";
 import consola from "consola";
 import * as yaml from "yaml";
@@ -129,6 +129,7 @@ export type AppConfig = {
 type GlobalAppConfigCache = {
     appConfigPromise?: Promise<AppConfig>;
     appConfigSnapshot?: AppConfig;
+    appConfigMtimeMs?: number | null;
 };
 
 const DEFAULT_MODEL_ADAPTER: ModelProviderAdapter = "openai-compatible";
@@ -283,10 +284,33 @@ function getAppConfigPath(): string {
 /**
  * 更新全局配置缓存。
  */
-function setAppConfigCache(appConfig: AppConfig): AppConfig {
+function setAppConfigCache(appConfig: AppConfig, mtimeMs?: number | null): AppConfig {
     globalForAppConfig.appConfigSnapshot = appConfig;
     globalForAppConfig.appConfigPromise = Promise.resolve(appConfig);
+    globalForAppConfig.appConfigMtimeMs = mtimeMs;
     return appConfig;
+}
+
+/**
+ * 读取 config.yaml 的修改时间。缺失时返回 null，用于判断缓存是否需要刷新。
+ */
+async function readAppConfigMtimeMs(): Promise<number | null> {
+    try {
+        return (await stat(getAppConfigPath())).mtimeMs;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * 同步读取 config.yaml 的修改时间。缺失时返回 null。
+ */
+function readAppConfigMtimeMsSync(): number | null {
+    try {
+        return statSync(getAppConfigPath()).mtimeMs;
+    } catch {
+        return null;
+    }
 }
 
 /**
@@ -332,16 +356,15 @@ function readAppConfigTextSync(): string {
  * 读取并解析根目录 config.yaml。
  */
 export async function loadAppConfig(): Promise<AppConfig> {
-    if (globalForAppConfig.appConfigSnapshot) {
+    const currentMtimeMs = await readAppConfigMtimeMs();
+    if (globalForAppConfig.appConfigSnapshot && globalForAppConfig.appConfigMtimeMs === currentMtimeMs) {
         return globalForAppConfig.appConfigSnapshot;
     }
 
-    if (!globalForAppConfig.appConfigPromise) {
-        globalForAppConfig.appConfigPromise = (async () => {
-            const rawText = await readAppConfigText();
-            return setAppConfigCache(parseAppConfigText(rawText));
-        })();
-    }
+    globalForAppConfig.appConfigPromise = (async () => {
+        const rawText = await readAppConfigText();
+        return setAppConfigCache(parseAppConfigText(rawText), currentMtimeMs);
+    })();
 
     return globalForAppConfig.appConfigPromise;
 }
@@ -350,12 +373,13 @@ export async function loadAppConfig(): Promise<AppConfig> {
  * 同步读取并解析根目录 config.yaml。
  */
 export function loadAppConfigSync(): AppConfig {
-    if (globalForAppConfig.appConfigSnapshot) {
+    const currentMtimeMs = readAppConfigMtimeMsSync();
+    if (globalForAppConfig.appConfigSnapshot && globalForAppConfig.appConfigMtimeMs === currentMtimeMs) {
         return globalForAppConfig.appConfigSnapshot;
     }
 
     const rawText = readAppConfigTextSync();
-    return setAppConfigCache(parseAppConfigText(rawText));
+    return setAppConfigCache(parseAppConfigText(rawText), currentMtimeMs);
 }
 
 /**
@@ -364,6 +388,7 @@ export function loadAppConfigSync(): AppConfig {
 export function resetAppConfigCache(): void {
     globalForAppConfig.appConfigSnapshot = undefined;
     globalForAppConfig.appConfigPromise = undefined;
+    globalForAppConfig.appConfigMtimeMs = undefined;
 }
 
 /**
@@ -450,7 +475,7 @@ export async function saveAgentToolAccessConfig(config: AgentToolAccessConfig): 
     const nextText = String(document);
     await writeFile(configPath, nextText.endsWith("\n") ? nextText : `${nextText}\n`, "utf8");
 
-    return setAppConfigCache(parseAppConfigValue(document.toJS()));
+    return setAppConfigCache(parseAppConfigValue(document.toJS()), await readAppConfigMtimeMs());
 }
 
 /**
@@ -495,7 +520,7 @@ export async function saveModelSettingsConfig(config: ModelSettingsConfig): Prom
     const nextText = String(document);
     await writeFile(configPath, nextText.endsWith("\n") ? nextText : `${nextText}\n`, "utf8");
 
-    return setAppConfigCache(parseAppConfigValue(document.toJS()));
+    return setAppConfigCache(parseAppConfigValue(document.toJS()), await readAppConfigMtimeMs());
 }
 
 /**
@@ -514,7 +539,7 @@ export async function saveAgentProfileSettingsConfig(config: Record<string, Agen
     const nextText = String(document);
     await writeFile(configPath, nextText.endsWith("\n") ? nextText : `${nextText}\n`, "utf8");
 
-    return setAppConfigCache(parseAppConfigValue(document.toJS()));
+    return setAppConfigCache(parseAppConfigValue(document.toJS()), await readAppConfigMtimeMs());
 }
 
 /**

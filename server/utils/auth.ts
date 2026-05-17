@@ -1,14 +1,17 @@
 import {randomBytes, scrypt as scryptCallback, timingSafeEqual} from "node:crypto";
 import {promisify} from "node:util";
 import type {H3Event} from "h3";
-import type {User, UserRole} from "nbook/server/generated/prisma/client";
+import type {Prisma, PrismaClient, User, UserRole} from "nbook/server/generated/prisma/client";
 import {loadAppConfigSync} from "nbook/server/utils/app-config";
 import {prisma} from "nbook/server/utils/prisma";
 import type {AdminUserListItemDto, AuthUserDto} from "nbook/shared/dto/auth.dto";
 
+type PrismaExecutor = PrismaClient | Prisma.TransactionClient;
+
 const scrypt = promisify(scryptCallback);
 const passwordHashPrefix = "scrypt";
 const passwordKeyLength = 64;
+const adminStateLockId = 550317001;
 
 /**
  * 判断当前配置是否启用全站鉴权。未配置时默认启用。
@@ -155,10 +158,17 @@ export async function requireAdmin(event: H3Event): Promise<User> {
 }
 
 /**
+ * 在事务内串行化管理员状态变更，避免并发撤掉最后一个管理员。
+ */
+export async function lockAdminStateChanges(prismaClient: PrismaExecutor): Promise<void> {
+    await prismaClient.$executeRaw`SELECT pg_advisory_xact_lock(${adminStateLockId})`;
+}
+
+/**
  * 确保不会移除最后一个可用管理员。
  */
-export async function assertCanChangeAdminState(userId: number, nextRole?: UserRole, nextStatus?: "active" | "disabled"): Promise<void> {
-    const user = await prisma.user.findUnique({
+export async function assertCanChangeAdminState(prismaClient: PrismaExecutor, userId: number, nextRole?: UserRole, nextStatus?: "active" | "disabled"): Promise<void> {
+    const user = await prismaClient.user.findUnique({
         where: {id: userId},
     });
     if (!user || user.role !== "admin" || user.status !== "active") {
@@ -170,7 +180,7 @@ export async function assertCanChangeAdminState(userId: number, nextRole?: UserR
         return;
     }
 
-    const activeAdminCount = await prisma.user.count({
+    const activeAdminCount = await prismaClient.user.count({
         where: {
             role: "admin",
             status: "active",

@@ -4,6 +4,18 @@ import type {AuthSessionDto} from "nbook/shared/dto/auth.dto";
  * 前端路由鉴权，只负责页面跳转体验。
  */
 export default defineNuxtRouteMiddleware(async (to) => {
+    /**
+     * SSR 中使用 useRequestFetch 透传原始请求 cookie，避免已登录首屏被误判。
+     */
+    const fetchSession = async (): Promise<AuthSessionDto> => {
+        if (import.meta.server) {
+            const requestFetch = useRequestFetch();
+            return await requestFetch<AuthSessionDto>("/api/auth/me").catch(() => ({authEnabled: true, user: null}));
+        }
+
+        return await $fetch<AuthSessionDto>("/api/auth/me").catch(() => ({authEnabled: true, user: null}));
+    };
+
     const normalizeRedirect = (value: unknown): string => {
         if (typeof value !== "string") {
             return "/";
@@ -13,14 +25,14 @@ export default defineNuxtRouteMiddleware(async (to) => {
     };
 
     if (to.path === "/login") {
-        const session = await $fetch<AuthSessionDto>("/api/auth/me").catch(() => ({authEnabled: true, user: null}));
+        const session = await fetchSession();
         if (!session.authEnabled || session.user) {
             return navigateTo(normalizeRedirect(to.query.redirect));
         }
         return;
     }
 
-    const session = await $fetch<AuthSessionDto>("/api/auth/me").catch(() => ({authEnabled: true, user: null}));
+    const session = await fetchSession();
     if (!session.authEnabled) {
         return;
     }

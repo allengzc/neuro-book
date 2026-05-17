@@ -6,6 +6,7 @@ const {prismaMock} = vi.hoisted(() => ({
             findUnique: vi.fn(),
             count: vi.fn(),
         },
+        $executeRaw: vi.fn(),
     },
 }));
 
@@ -48,8 +49,16 @@ describe("auth utils", () => {
         prismaMock.user.count.mockResolvedValue(0);
 
         const {assertCanChangeAdminState} = await import("nbook/server/utils/auth");
-        await expect(assertCanChangeAdminState(1, "user", "active")).rejects.toMatchObject({
+        await expect(assertCanChangeAdminState(prismaMock as never, 1, "user", "active")).rejects.toMatchObject({
             statusCode: 400,
         });
+    });
+
+    it("管理员状态变更会使用事务级 advisory lock", async () => {
+        const {lockAdminStateChanges} = await import("nbook/server/utils/auth");
+
+        await lockAdminStateChanges(prismaMock as never);
+
+        expect(prismaMock.$executeRaw).toHaveBeenCalledTimes(1);
     });
 });
