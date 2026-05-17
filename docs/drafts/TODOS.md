@@ -133,6 +133,8 @@
 - [ ] Prompt 自动压缩，去除缩进
 - [ ] invoke writer subagent 调用要 validate 引用，plot 直接传引用
 - [ ] subagent 前端显示。前端不能实时显示 subagent
+- [ ] docker 部署脚本 oom 检测
+- [ ]
 - [ ]
 - [ ]
 
