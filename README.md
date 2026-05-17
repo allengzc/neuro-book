@@ -59,7 +59,7 @@ auth:
 
 ## Docker Compose 单机部署
 
-推荐使用一键交互式部署脚本。它会检查 Docker、拉取仓库、生成 `.env.docker` 和 `config.yaml`，然后执行 Compose 构建与启动。
+推荐使用一键交互式部署脚本。它会检查 Docker、拉取仓库、生成 `.env.docker` 和 `config.yaml`，默认使用 GHCR 预构建镜像启动，避免低内存服务器执行 Nuxt build。
 
 ```bash
 npx --yes --package github:notnotype/neuro-book neuro-book-deploy
@@ -71,6 +71,7 @@ npx --yes --package github:notnotype/neuro-book neuro-book-deploy
 - Web 端口，默认 `3000`。
 - 模型 Provider 和 API Key。
 - 使用内置 Postgres，或填写外部 `DATABASE_URL`。
+- 部署模式：默认使用 `ghcr.io/notnotype/neuro-book:latest`，也可以选择在本机自行 build。
 
 也可以 clone 仓库后手动运行 Node CLI：
 
@@ -78,6 +79,12 @@ npx --yes --package github:notnotype/neuro-book neuro-book-deploy
 git clone https://github.com/notnotype/neuro-book.git
 cd neuro-book
 node scripts/neuro-book-deploy.mjs
+```
+
+如需强制在本机构建：
+
+```bash
+node scripts/neuro-book-deploy.mjs --deploy-mode build
 ```
 
 如果想完全手动部署：
@@ -92,6 +99,34 @@ docker compose --env-file .env.docker up -d --build
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.external-db.yml --env-file .env.docker up -d --build
+```
+
+### GHCR 镜像发布
+
+低内存服务器不要在目标机器上执行 `docker compose up -d --build`。Nuxt build 内存占用较高，推荐先在本地高配机器或 GitHub Actions 构建镜像，再让服务器只 pull 镜像启动。
+
+本地手动发布到 GHCR：
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io -u notnotype --password-stdin
+bun run docker:publish
+```
+
+`GHCR_TOKEN` 需要至少有 `write:packages` 权限。
+
+默认会推送 `ghcr.io/notnotype/neuro-book:latest` 和 `ghcr.io/notnotype/neuro-book:<package.json version>`。如需指定 tag：
+
+```bash
+bun run docker:publish -- --tag v1.0.0
+```
+
+仓库也提供 release-only GitHub Actions：只有发布 GitHub Release 时才会自动构建并推送 `ghcr.io/<owner>/neuro-book:<release tag>` 和 `ghcr.io/<owner>/neuro-book:latest`。
+
+服务器使用预构建镜像时，把 compose 的 `app` 服务改成 `image: ghcr.io/notnotype/neuro-book:<tag>`，并移除 `build:`，然后运行：
+
+```bash
+docker compose pull
+docker compose up -d
 ```
 
 ### 配置文件教程
