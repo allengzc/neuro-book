@@ -12,6 +12,7 @@ neuro-book 是一个面向长篇小说创作的本地工作台。
 - 用统一的内容节点系统管理角色、地点、物品、规则、卷章和笔记。
 - 用 Plot System 组织剧情结构，把 Thread、Scene、Plot 分开表达。
 - 用 Agent 系统做写作、检索、规划、协作和局部自动化。
+- 用全站账号鉴权保护开发测试部署，并提供管理员后台进行用户管理。
 - 用 Docker Compose 直接单机部署，配合 `config.yaml` 管理 Provider 配置。
 
 ## 常用命令
@@ -20,7 +21,41 @@ neuro-book 是一个面向长篇小说创作的本地工作台。
 bun run dev
 bun run typecheck
 bun run test
+bun run auth:create-admin <username> <password>
 ```
+
+## 全站鉴权与管理员后台
+
+全站鉴权默认开启，适合把开发测试部署发布到互联网时先用账号密码保护整个站点。未登录用户会进入 `/login`，登录后可以访问主界面和已授权页面。
+
+管理员后台在 `/admin/users`，管理员可以创建用户、调整角色、禁用/启用账号、重置密码，并在创建或重置时自动生成复杂密码。主界面右上角用户头像菜单可以退出登录，管理员菜单还会提供进入后台入口。
+
+公开测试站点不直接暴露通用密码；需要访问时，联系 [notnotype@qq.com](mailto:notnotype@qq.com) 获取。
+
+登录接口会统一失败提示，避免暴露用户名是否存在；同时对同 IP 和同账号连续失败做短时限流，降低爆破风险。
+
+首次部署后先创建管理员：
+
+```powershell
+bun run auth:create-admin admin your-password
+```
+
+也可以使用环境变量创建：
+
+```powershell
+$env:AUTH_ADMIN_USERNAME="admin"
+$env:AUTH_ADMIN_PASSWORD="your-password"
+bun run auth:create-admin
+```
+
+鉴权开关写在 `config.yaml` 顶层：
+
+```yaml
+auth:
+  enabled: true
+```
+
+`auth.enabled` 未配置时默认视为 `true`。如果只在完全可信的本地环境调试，可以改成 `false` 临时关闭登录页和管理员守卫。
 
 ## Docker Compose 单机部署
 

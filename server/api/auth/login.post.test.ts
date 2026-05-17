@@ -1,5 +1,6 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
 import {hashUserPassword} from "nbook/server/utils/auth";
+import {loginFailureMessage, resetLoginSecurityState} from "nbook/server/utils/login-security";
 
 const {prismaMock} = vi.hoisted(() => ({
     prismaMock: {
@@ -14,8 +15,14 @@ vi.mock("nbook/server/utils/prisma", () => ({
     prisma: prismaMock,
 }));
 
+vi.mock("h3", () => ({
+    getRequestIP: vi.fn(() => "127.0.0.1"),
+}));
+
 describe("POST /api/auth/login", () => {
     beforeEach(() => {
+        vi.clearAllMocks();
+        resetLoginSecurityState();
         const globals = globalThis as typeof globalThis & {
             defineEventHandler?: unknown;
             readBody?: unknown;
@@ -66,7 +73,7 @@ describe("POST /api/auth/login", () => {
         });
 
         const handler = (await import("nbook/server/api/auth/login.post")).default;
-        const result = await handler({} as never);
+        const result = await handler({method: "POST", path: "/api/auth/login"} as never);
 
         expect(result.user).toMatchObject({
             id: "1",
@@ -76,5 +83,20 @@ describe("POST /api/auth/login", () => {
             sessionVersion: 3,
         });
         expect((globalThis as typeof globalThis & {setUserSession: ReturnType<typeof vi.fn>}).setUserSession).toHaveBeenCalledTimes(1);
+    });
+
+    it("未知用户只返回统一的登录失败提示", async () => {
+        prismaMock.user.findUnique.mockResolvedValue(null);
+        (globalThis as typeof globalThis & {readBody: ReturnType<typeof vi.fn>}).readBody.mockResolvedValue({
+            username: "missing",
+            password: "secret123",
+        });
+
+        const handler = (await import("nbook/server/api/auth/login.post")).default;
+
+        await expect(handler({method: "POST", path: "/api/auth/login"} as never)).rejects.toMatchObject({
+            statusCode: 401,
+            message: loginFailureMessage,
+        });
     });
 });

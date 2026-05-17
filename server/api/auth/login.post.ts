@@ -1,5 +1,7 @@
+import {getRequestIP} from "h3";
 import {LoginRequestDtoSchema, type AuthSessionDto} from "nbook/shared/dto/auth.dto";
 import {isAuthEnabled, toAuthUser, verifyUserPassword} from "nbook/server/utils/auth";
+import {assertLoginAttemptAllowed, clearLoginFailures, loginDummyPasswordHash, loginFailureMessage, recordLoginFailure} from "nbook/server/utils/login-security";
 import {prisma} from "nbook/server/utils/prisma";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 
@@ -16,24 +18,24 @@ export default defineEventHandler(async (event): Promise<AuthSessionDto> => {
     }
 
     const body = await validateBody(event, LoginRequestDtoSchema);
+    const requestIp = getRequestIP(event, {xForwardedFor: true}) ?? "unknown";
+    assertLoginAttemptAllowed(requestIp, body.username);
+
     const user = await prisma.user.findUnique({
         where: {username: body.username},
     });
-    if (!user || user.status !== "active") {
+    const passwordHash = user?.status === "active" ? user.passwordHash : loginDummyPasswordHash;
+    const passwordMatched = await verifyUserPassword(body.password, passwordHash);
+
+    if (!user || user.status !== "active" || !passwordMatched) {
+        recordLoginFailure(requestIp, body.username);
         throw createError({
             statusCode: 401,
-            message: "用户名或密码错误",
+            message: loginFailureMessage,
         });
     }
 
-    const passwordMatched = await verifyUserPassword(body.password, user.passwordHash);
-    if (!passwordMatched) {
-        throw createError({
-            statusCode: 401,
-            message: "用户名或密码错误",
-        });
-    }
-
+    clearLoginFailures(requestIp, body.username);
     const updatedUser = await prisma.user.update({
         where: {id: user.id},
         data: {lastLoginAt: new Date()},

@@ -1,18 +1,61 @@
 <script setup lang="ts">
 import type { DropdownItem } from "nbook/app/components/common/dropdown.types";
 import Dropdown from "nbook/app/components/common/Dropdown.vue";
+import type {AuthUserDto} from "nbook/shared/dto/auth.dto";
 
 const props = defineProps<{
     rightPanelOpen: boolean;
     novelTitle: string;
     novelItems: DropdownItem[];
+    currentUser: AuthUserDto | null;
 }>();
+const currentUser = toRef(props, "currentUser");
 
 const emit = defineEmits<{
     (e: "toggle-agent"): void;
     (e: "open-bookshelf"): void;
     (e: "switch-novel", value: string): void;
+    (e: "open-admin"): void;
+    (e: "logout"): void;
 }>();
+
+const userMenuItems = computed<DropdownItem[]>(() => {
+    const items: DropdownItem[] = [];
+    if (currentUser.value?.role === "admin") {
+        items.push({
+            label: "进入后台",
+            value: "admin",
+            iconClass: "i-lucide-shield",
+        });
+    }
+    items.push({
+        label: "退出登录",
+        value: "logout",
+        iconClass: "i-lucide-log-out",
+    });
+    return items;
+});
+
+/**
+ * 当前用户头像文字。
+ */
+const userInitial = computed(() => {
+    const name = currentUser.value?.displayName || currentUser.value?.username || "U";
+    return name.trim().slice(0, 1).toLocaleUpperCase();
+});
+
+/**
+ * 处理用户菜单动作。
+ */
+const handleUserMenuSelect = (value: string): void => {
+    if (value === "admin") {
+        emit("open-admin");
+        return;
+    }
+    if (value === "logout") {
+        emit("logout");
+    }
+};
 </script>
 
 <template>
@@ -60,9 +103,13 @@ const emit = defineEmits<{
 
             <div class="mx-2 h-4 w-px bg-[var(--border-color)]"></div>
 
-            <button class="flex h-9 w-9 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="更多">
-                <span class="i-lucide-ellipsis h-4 w-4"></span>
-            </button>
+            <div class="w-8 shrink-0">
+                <Dropdown :items="userMenuItems" menu-class="right-0 top-full mt-2 w-40" @select="handleUserMenuSelect">
+                    <button class="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color-hover)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="账户菜单">
+                        <span class="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent-bg)] text-[11px] font-semibold text-[var(--accent-text)]">{{ userInitial }}</span>
+                    </button>
+                </Dropdown>
+            </div>
         </div>
     </header>
 </template>

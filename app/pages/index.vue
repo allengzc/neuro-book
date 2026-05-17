@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {storeToRefs} from "pinia";
+import type {AuthSessionDto} from "nbook/shared/dto/auth.dto";
 import type {ModelSettingsDto} from "nbook/shared/dto/app-settings.dto";
 import type {NovelContinueRequestDto} from "nbook/shared/dto/novel.dto";
 import {isNovelIdeTab, type NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
@@ -46,6 +47,7 @@ type StreamErrorEvent = {
 const abortController = ref<AbortController | null>(null);
 const initialized = ref(false);
 const themeHostRef = ref<HTMLElement | null>(null);
+const currentUser = ref<AuthSessionDto["user"]>(null);
 const bookshelfOpen = ref(false);
 const settingsDialogOpen = ref(false);
 const frontmatterProfileKind = ref<FrontmatterProfileKind | null>(null);
@@ -909,6 +911,34 @@ const syncDefaultModelLabel = async (): Promise<void> => {
 };
 
 /**
+ * 同步当前登录用户，用于右上角账户菜单。
+ */
+const syncAuthSession = async (): Promise<void> => {
+    try {
+        const session = await $fetch<AuthSessionDto>("/api/auth/me");
+        currentUser.value = session.user;
+    } catch {
+        currentUser.value = null;
+    }
+};
+
+/**
+ * 退出登录并回到登录页。
+ */
+const logout = async (): Promise<void> => {
+    await $fetch("/api/auth/logout", {method: "POST"});
+    currentUser.value = null;
+    await navigateTo("/login");
+};
+
+/**
+ * 进入管理员后台。
+ */
+const openAdmin = async (): Promise<void> => {
+    await navigateTo("/admin/users");
+};
+
+/**
  * 切换左侧标签；若重复点击则收起。
  */
 const toggleLeftTab = (tab: NovelIdeTab): void => {
@@ -931,6 +961,7 @@ onMounted(() => {
 
         try {
             mountThemeHost(themeHostRef.value);
+            await syncAuthSession();
             await syncDefaultModelLabel();
             await initializeWorkspace();
             await validateWorkspace();
@@ -958,9 +989,12 @@ onBeforeUnmount(() => {
             :right-panel-open="displayRightPanelOpen"
             :novel-title="currentNovel?.title ?? ''"
             :novel-items="novelItems"
+            :current-user="currentUser"
             @toggle-agent="rightPanelOpen = !rightPanelOpen"
             @open-bookshelf="bookshelfOpen = true"
             @switch-novel="handleSwitchNovel"
+            @open-admin="void openAdmin()"
+            @logout="void logout()"
         />
 
         <div class="flex min-h-0 flex-1 overflow-hidden">

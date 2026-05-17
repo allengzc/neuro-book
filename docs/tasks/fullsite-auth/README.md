@@ -23,10 +23,14 @@
 
 - 在 `prisma/schema.prisma` 增加 `User`、`UserRole`、`UserStatus` 和 `sessionVersion`。
 - 新增登录、登出、当前会话查询与管理员用户管理 API。
+- 登录接口补齐统一失败提示、未知用户假哈希校验和同 IP / 同账号失败限流。
 - 新增服务端中间件和前端全局路由中间件，服务端负责权威守卫，前端负责跳转体验。
 - 新增 `/login` 登录页和 `/admin/users` 用户管理页。
 - 新增 `scripts/create-admin.ts`，用于部署后创建首个管理员。
 - 在 `config.example.yaml` 和 `server/utils/app-config.ts` 中加入 `auth.enabled`，未配置时默认开启。
+- 之后补齐主界面右上角账号头像菜单，支持一键退出登录。
+- 登录页和管理员页改为复用主界面的主题变量宿主，避免再单独维护一套固定深色样式。
+- 登录页显示测试站点密码获取邮箱，管理员创建和重置密码弹窗支持自动生成复杂密码。
 
 ## Decisions
 
@@ -34,27 +38,35 @@
 - 登录态只存轻量用户信息，不存密码或额外 token。
 - `auth.enabled=false` 时，整套认证守卫和管理员限制都关闭。
 - 第一版不开放公开注册。
+- 登录失败不区分用户名不存在、禁用和密码错误。
 
 ## Files Changed
 
 - `server/utils/auth.ts`
+- `server/utils/login-security.ts`
 - `server/utils/app-config.ts`
 - `server/middleware/auth.ts`
 - `app/middleware/auth.global.ts`
 - `server/api/auth/*`
 - `server/api/admin/users/*`
+- `app/components/novel-ide/NovelIdeHeader.vue`
+- `app/pages/index.vue`
+- `app/utils/password.ts`
 - `app/pages/login.vue`
 - `app/pages/admin/users.vue`
 - `prisma/schema.prisma`
 - `prisma/migrations/20260517120000_add_users_auth/migration.sql`
 - `config.example.yaml`
 - `scripts/create-admin.ts`
+- `README.md`
 
 ## Verification
 
 - `bun run nuxt:prepare`
 - `bun run generate`
 - `bunx vitest run server/utils/app-config.test.ts server/utils/auth.test.ts server/api/auth/login.post.test.ts`
+- `bunx vitest run server/utils/app-config.test.ts server/utils/auth.test.ts server/api/auth/login.post.test.ts server/api/admin/users/[userId]/password.put.test.ts`
+- `bunx vitest run server/utils/login-security.test.ts app/utils/password.test.ts server/api/auth/login.post.test.ts server/utils/auth.test.ts`
 - `bun run typecheck`
 
 ## TODO / Follow-ups

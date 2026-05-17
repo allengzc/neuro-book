@@ -7,8 +7,8 @@ export type AuthUserRole = z.infer<typeof UserRoleSchema>;
 export type AuthUserStatus = z.infer<typeof UserStatusSchema>;
 
 export const LoginRequestDtoSchema = z.object({
-    username: z.string().trim().min(1, "用户名不能为空"),
-    password: z.string().min(1, "密码不能为空"),
+    username: z.string().trim().min(1, "用户名不能为空").max(64, "用户名不能超过 64 个字符"),
+    password: z.string().min(1, "密码不能为空").max(256, "密码不能超过 256 个字符"),
 });
 
 export const CreateUserRequestDtoSchema = z.object({
