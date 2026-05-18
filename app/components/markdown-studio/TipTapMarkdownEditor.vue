@@ -7,7 +7,7 @@ import ContextMenu, {type ContextMenuItem} from "nbook/app/components/common/Con
 import ReferenceSelectorPopover from "nbook/app/components/common/form/ReferenceSelectorPopover.vue";
 import MarkdownSelectionMenu from "nbook/app/components/markdown-studio/MarkdownSelectionMenu.vue";
 import TipTapFrontmatterPanel from "nbook/app/components/markdown-studio/TipTapFrontmatterPanel.vue";
-import type {MarkdownInlineCommentItem, MarkdownStudioEditorHandle} from "nbook/app/composables/useMarkdownStudioController";
+import type {MarkdownFormatCommand, MarkdownInlineCommentItem, MarkdownStudioEditorHandle} from "nbook/app/composables/useMarkdownStudioController";
 import {createMarkdownEditorExtensions} from "nbook/app/components/markdown-studio/tiptap/markdown-editor-extensions";
 import {collectInlineComments, INLINE_COMMENT_PLUGIN_KEY, type InlineCommentRange} from "nbook/app/components/markdown-studio/tiptap/InlineComment";
 import {useDialog} from "nbook/app/composables/useDialog";
@@ -505,6 +505,62 @@ function setAlign(align: "left" | "center" | "right" | "justify"): void {
 }
 
 /**
+ * 执行表单工具条暴露的常用 Markdown 格式命令。
+ */
+function applyMarkdownFormat(command: MarkdownFormatCommand): void {
+    const currentEditor = editor.value;
+    if (!currentEditor || props.readonly) {
+        return;
+    }
+    const chain = currentEditor.chain().focus();
+    if (command === "paragraph") {
+        chain.setParagraph().run();
+        return;
+    }
+    if (command === "heading-2") {
+        chain.toggleHeading({level: 2}).run();
+        return;
+    }
+    if (command === "heading-3") {
+        chain.toggleHeading({level: 3}).run();
+        return;
+    }
+    if (command === "bold") {
+        chain.toggleBold().run();
+        return;
+    }
+    if (command === "italic") {
+        chain.toggleItalic().run();
+        return;
+    }
+    if (command === "underline") {
+        chain.toggleUnderline().run();
+        return;
+    }
+    if (command === "strike") {
+        chain.toggleStrike().run();
+        return;
+    }
+    if (command === "code") {
+        chain.toggleCode().run();
+        return;
+    }
+    if (command === "bullet-list") {
+        chain.toggleBulletList().run();
+        return;
+    }
+    if (command === "ordered-list") {
+        chain.toggleOrderedList().run();
+        return;
+    }
+    if (command === "blockquote") {
+        chain.toggleBlockquote().run();
+        return;
+    }
+    chain.unsetAllMarks().clearNodes().run();
+}
+
+/**
  * 读取当前选区纯文本。
  */
 function selectedText(): string {
@@ -729,6 +785,7 @@ defineExpose<MarkdownStudioEditorHandle>({
     updateInlineComment,
     deleteInlineComment,
     setAlign,
+    applyMarkdownFormat,
     getValue: getMarkdown,
 });
 

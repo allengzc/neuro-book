@@ -53,7 +53,7 @@ function displayInlineText(text: string | null): string {
         ref="elementRef"
         :data-dragging="isDragging || undefined"
         :data-drop-target="isDropTarget || undefined"
-        class="plot-workbench-plot-row group/plot grid w-full grid-cols-[16px_56px_minmax(0,1fr)_56px] items-start gap-2.5 rounded-md border border-[var(--border-color)]/60 bg-transparent px-2.5 py-2 text-left transition-colors hover:border-amber-500/40 hover:bg-[var(--bg-panel)]/50 hover:shadow-sm"
+        class="plot-workbench-plot-row group/plot grid w-full grid-cols-[16px_56px_minmax(0,1fr)_56px] items-start gap-2.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 py-2 text-left transition-colors hover:border-amber-500/40 hover:bg-[var(--bg-hover)] hover:shadow-sm"
     >
         <button ref="handleRef" type="button" class="mt-[1px] inline-flex h-5 w-4 cursor-grab items-center justify-center rounded text-[var(--text-muted)] opacity-50 transition-opacity hover:bg-[var(--bg-hover)] group-hover/plot:opacity-100 active:cursor-grabbing" title="拖拽排序 Plot" @click.stop>
             <span class="i-lucide-grip-vertical h-4 w-4"></span>
@@ -82,6 +82,7 @@ function displayInlineText(text: string | null): string {
 <style scoped>
 .plot-workbench-plot-row[data-dragging="true"] {
     opacity: 1 !important;
+    background: var(--bg-panel) !important;
 }
 
 .plot-kind-chip {

@@ -9,6 +9,7 @@ import FormField from "nbook/app/components/common/form/FormField.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import FormTextarea from "nbook/app/components/common/form/FormTextarea.vue";
+import StructuredTextEditor from "nbook/app/components/common/form/StructuredTextEditor.vue";
 import MarkdownSourceEditor from "nbook/app/components/markdown-studio/MarkdownSourceEditor.vue";
 import ProfileTemplateDropZone from "nbook/app/components/profile-template-editor/ProfileTemplateDropZone.vue";
 import ProfileTemplateLibraryItem from "nbook/app/components/profile-template-editor/ProfileTemplateLibraryItem.vue";
@@ -1451,18 +1452,18 @@ onMounted(async () => {
 
                                 <template v-if="selectedNode.type === 'Message'">
                                     <div class="field-label">{{ selectedNode.textKind === "source" ? "内容（TSX 源片段）" : "内容（支持变量引用）" }}</div>
-                                    <div class="editor-toolbar">
-                                        <button title="粗体"><span class="i-lucide-bold h-3.5 w-3.5"></span></button>
-                                        <button title="斜体"><span class="i-lucide-italic h-3.5 w-3.5"></span></button>
-                                        <button title="代码"><span class="i-lucide-code h-3.5 w-3.5"></span></button>
-                                        <button title="无序列表"><span class="i-lucide-list h-3.5 w-3.5"></span></button>
-                                        <button title="有序列表"><span class="i-lucide-list-ordered h-3.5 w-3.5"></span></button>
-                                        <button class="ml-auto gap-1 px-2" title="插入变量" @click="inspectorTab = 'variables'">
-                                            <span class="i-lucide-at-sign h-3.5 w-3.5"></span>
-                                            <span>插入变量</span>
-                                        </button>
-                                    </div>
-                                    <FormTextarea :model-value="selectedNode.text ?? ''" :rows="8" class="textarea" :class="selectedNode.textKind === 'source' ? 'font-mono' : ''" @focus="activeTextTarget = 'text'" @update:model-value="updateText($event)" />
+                                    <StructuredTextEditor
+                                        :model-value="selectedNode.text ?? ''"
+                                        :rows="8"
+                                        :min-height="172"
+                                        :max-height="420"
+                                        :default-mode="selectedNode.textKind === 'source' ? 'source' : 'rich'"
+                                        :show-format-toolbar="selectedNode.textKind !== 'source'"
+                                        :theme="theme"
+                                        placeholder="输入 Message 正文，可使用 Markdown 与变量引用"
+                                        @focus="activeTextTarget = 'text'"
+                                        @update:model-value="updateText($event)"
+                                    />
                                     <div class="text-right text-[11px] text-[var(--text-muted)]">字数：{{ selectedTextLength }} / 20000</div>
                                     <div class="space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 p-3">
                                         <div class="text-[11px] font-semibold text-[var(--text-secondary)]">变量插入提示</div>
@@ -1825,41 +1826,6 @@ onMounted(async () => {
 
 .source-preview {
     background: var(--source-bg);
-}
-
-.editor-toolbar {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    border: 1px solid var(--border-color);
-    border-bottom: 0;
-    border-radius: 7px 7px 0 0;
-    background: var(--bg-panel);
-    padding: 5px 6px;
-}
-
-.editor-toolbar button {
-    display: inline-flex;
-    height: 24px;
-    align-items: center;
-    justify-content: center;
-    border-radius: 5px;
-    color: var(--text-secondary);
-    font-size: 11px;
-}
-
-.editor-toolbar button:not(.ml-auto) {
-    width: 24px;
-}
-
-.editor-toolbar button:hover {
-    background: var(--bg-hover);
-    color: var(--text-main);
-}
-
-.editor-toolbar + .textarea {
-    border-top-left-radius: 0;
-    border-top-right-radius: 0;
 }
 
 .preview-dialog-content {

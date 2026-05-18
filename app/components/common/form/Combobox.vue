@@ -2,9 +2,11 @@
 import { ref, computed } from "vue";
 import { onClickOutside } from "@vueuse/core";
 
+import type { SelectOption } from "./FormSelect.vue";
+
 const props = defineProps<{
     modelValue: string | null;
-    options: string[];
+    options: (string | SelectOption)[];
     placeholder?: string;
 }>();
 
@@ -29,15 +31,34 @@ const handleInput = (e: Event) => {
     open.value = true;
 };
 
-const selectOption = (opt: string) => {
-    emit("update:modelValue", opt);
+const selectOption = (opt: string | SelectOption) => {
+    const val = typeof opt === 'string' ? opt : opt.value;
+    emit("update:modelValue", val);
     open.value = false;
 };
 
+const normalizedOptions = computed(() => {
+    return props.options.map(opt => {
+        if (typeof opt === 'string') {
+            return { value: opt, label: opt };
+        }
+        return opt;
+    });
+});
+
 const filteredOptions = computed(() => {
-    if (!props.modelValue) return props.options;
+    if (!props.modelValue) return normalizedOptions.value;
     const lower = props.modelValue.toLowerCase();
-    return props.options.filter(o => o.toLowerCase().includes(lower));
+    // Allow matching on value or label
+    return normalizedOptions.value.filter(o => 
+        o.label.toLowerCase().includes(lower) || o.value.toLowerCase().includes(lower)
+    );
+});
+
+const displayValue = computed(() => {
+    if (!props.modelValue) return '';
+    const opt = normalizedOptions.value.find(o => o.value === props.modelValue);
+    return opt ? opt.label : props.modelValue;
 });
 </script>
 
@@ -47,7 +68,7 @@ const filteredOptions = computed(() => {
             class="flex items-center rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] transition-colors focus-within:!border-[var(--accent-main)] focus-within:ring-1 focus-within:ring-[var(--accent-main)]/30 min-h-[28px] hover:border-[var(--border-color-hover)]"
         >
             <input 
-                :value="modelValue || ''" 
+                :value="displayValue" 
                 @input="handleInput"
                 @focus="onFocus"
                 @click="onFocus"
@@ -71,13 +92,13 @@ const filteredOptions = computed(() => {
             >
                 <div 
                     v-for="opt in filteredOptions" 
-                    :key="opt"
+                    :key="opt.value"
                     class="flex items-center gap-2 px-2.5 py-1.5 mb-1 last:mb-0 rounded-md text-[11px] cursor-pointer transition-colors hover:bg-[var(--bg-hover)]"
-                    :class="opt === modelValue ? 'text-[var(--text-main)] font-medium bg-[var(--bg-input)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-main)]'"
+                    :class="opt.value === modelValue ? 'text-[var(--text-main)] font-medium bg-[var(--bg-input)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-main)]'"
                     @click.stop="selectOption(opt)"
                 >
-                    <span class="truncate flex-1">{{ opt }}</span>
-                    <span v-if="opt === modelValue" class="i-lucide-check h-3 w-3 text-[var(--accent-main)] shrink-0"></span>
+                    <span class="truncate flex-1">{{ opt.label }}</span>
+                    <span v-if="opt.value === modelValue" class="i-lucide-check h-3 w-3 text-[var(--accent-main)] shrink-0"></span>
                 </div>
             </div>
         </transition>

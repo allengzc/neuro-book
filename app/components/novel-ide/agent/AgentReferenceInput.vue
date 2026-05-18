@@ -60,7 +60,6 @@ defineExpose({
         :max-height="150"
         mode="rich"
         :show-toolbar="false"
-        :show-counters="false"
         popover-direction="auto"
         :submit-on-enter="true"
         :enable-quick-triggers="true"

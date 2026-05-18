@@ -12,6 +12,8 @@ import type {
     PlotThreadPanelThread,
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
 import type {PlotPreviewStory, PlotPreviewPhase} from "nbook/app/components/novel-ide/plot/plot-preview.types";
+import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
+import type {WorkbenchManualRef} from "nbook/app/components/novel-ide/plot/workbench/plot-workbench.types";
 
 type WorkbenchInlineRefKind = "content" | "thread" | "scene" | "plot";
 type WorkbenchInlineRefSource = "thread" | "scene" | "plot";
@@ -23,13 +25,6 @@ type WorkbenchInlineRef = {
     source: WorkbenchInlineRefSource;
     field: "summary" | "purpose" | "writingTip" | "effect";
 };
-type WorkbenchManualRef = {
-    id: string;
-    relation: string;
-    target: string;
-    note: string | null;
-};
-
 const props = defineProps<{
     modelValue: boolean;
     story: PlotPreviewStory;
@@ -54,6 +49,8 @@ const emit = defineEmits<{
     (e: "toggleThreadPin", threadId: string): void;
     (e: "toggleThreadMain", threadId: string): void;
     (e: "deleteThread", threadId: string): void;
+    (e: "createScene", threadId: string): void;
+    (e: "autoSortScenes", sceneIds: string[]): void;
     (e: "reorderScenes", sceneIds: string[]): void;
     (e: "reorderPlots", payload: {sceneId: string; plotIds: string[]}): void;
     (e: "updateThread", threadId: string, patch: Partial<PlotThreadPanelThread>): void;
@@ -189,21 +186,21 @@ function updateManualRefs(refs: WorkbenchManualRef[]): void {
 /**
  * 生成 refs target 候选列表。
  */
-function buildRefTargetOptions(): string[] {
-    const options = new Set<string>();
+function buildRefTargetOptions(): SelectOption[] {
+    const options: SelectOption[] = [];
     for (const thread of props.threads) {
-        options.add(`thread://${thread.id}`);
+        options.push({ value: `thread://${thread.id}`, label: thread.title || "未命名 Thread", iconClass: "i-lucide-git-branch", description: thread.summary });
     }
     for (const scene of props.scenes) {
-        options.add(`scene://${scene.id}`);
+        options.push({ value: `scene://${scene.id}`, label: scene.title || "未命名 Scene", iconClass: "i-lucide-clapperboard", description: scene.summary });
     }
     for (const plot of props.plots) {
-        options.add(`plot://${plot.id}`);
+        options.push({ value: `plot://${plot.id}`, label: plot.summary || "未命名 Plot", iconClass: "i-lucide-message-square-dashed" });
     }
-    options.add("lorebook/location/initial-stage/");
-    options.add("lorebook/character/slave-girl/");
-    options.add("lorebook/item/debt-contract/");
-    return [...options];
+    options.push({ value: "lorebook/location/initial-stage/", label: "初始舞台", iconClass: "i-lucide-map-pin", description: "lorebook/location/initial-stage/" });
+    options.push({ value: "lorebook/character/slave-girl/", label: "奴隶少女", iconClass: "i-lucide-user", description: "lorebook/character/slave-girl/" });
+    options.push({ value: "lorebook/item/debt-contract/", label: "债务契约", iconClass: "i-lucide-box", description: "lorebook/item/debt-contract/" });
+    return options;
 }
 
 /**
@@ -385,6 +382,8 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
                     @edit-scene="editScene"
                     @edit-plot="editPlot"
                     @delete-plot="selectPlot"
+                    @create-scene="emit('createScene', $event)"
+                    @auto-sort-scenes="emit('autoSortScenes', $event)"
                     @reorder-scenes="emit('reorderScenes', $event)"
                     @reorder-plots="emit('reorderPlots', $event)"
                 />

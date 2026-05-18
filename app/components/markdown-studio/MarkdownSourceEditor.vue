@@ -19,6 +19,7 @@ const props = withDefaults(defineProps<{
     monacoPreferences?: MonacoEditorPreferences;
     temporaryFontSize?: number | null;
     submitOnEnter?: boolean;
+    compact?: boolean;
 }>(), {
     initialValue: "",
     readonly: false,
@@ -31,6 +32,7 @@ const props = withDefaults(defineProps<{
     monacoPreferences: () => ({...DEFAULT_MONACO_EDITOR_PREFERENCES}),
     temporaryFontSize: null,
     submitOnEnter: false,
+    compact: false,
 });
 
 const emit = defineEmits<{
@@ -148,10 +150,15 @@ const buildEditorOptions = (): Monaco.editor.IEditorOptions => {
         fontSize: effectiveFontSize.value,
         lineHeight: clampNumber(preferences.lineHeight, 16, 56, DEFAULT_MONACO_EDITOR_PREFERENCES.lineHeight),
         wordWrap: preferences.wordWrap ? "on" : "off",
+        lineDecorationsWidth: props.compact ? 6 : 12,
         minimap: {
             enabled: preferences.minimapEnabled,
         },
         lineNumbers: preferences.lineNumbers ? "on" : "off",
+        padding: {
+            top: props.compact ? 8 : 20,
+            bottom: props.compact ? 72 : 192,
+        },
         renderWhitespace: preferences.renderWhitespace ? "boundary" : "none",
     };
 };
@@ -314,6 +321,7 @@ watch(() => props.readonly, (readonly) => {
 watch([
     () => props.monacoPreferences,
     () => props.temporaryFontSize,
+    () => props.compact,
 ], () => {
     applyEditorOptions();
     applyModelOptions();
@@ -361,7 +369,7 @@ onMounted(async () => {
             enabled: false,
         },
         lineNumbers: "on",
-        lineDecorationsWidth: 12,
+        lineDecorationsWidth: props.compact ? 6 : 12,
         glyphMargin: false,
         folding: true,
         wordWrap: "on",
@@ -377,10 +385,6 @@ onMounted(async () => {
         },
         renderLineHighlight: "gutter",
         roundedSelection: true,
-        padding: {
-            top: 20,
-            bottom: 192,
-        },
         ...buildEditorOptions(),
         placeholder: props.placeholder,
     });

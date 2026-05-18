@@ -26,7 +26,8 @@
     "generate:openapi": "bun scripts/generate-openapi-meta.ts",
     "docker:publish": "node scripts/publish-ghcr-image.mjs",
     "auth:create-admin": "bun scripts/create-admin.ts",
-    "studio": "npx prisma studio --config ./prisma.config.ts"
+    "studio": "npx prisma studio --config ./prisma.config.ts",
+    "deploy": "bun scripts/deploy.mjs"
   },
   "dependencies": {
     "@clack/prompts": "^1.0.0",

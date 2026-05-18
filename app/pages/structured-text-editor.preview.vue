@@ -11,6 +11,8 @@ type StructuredTextMode = "rich" | "source";
 const theme = ref<IdeTheme>("sepia");
 const themeHostRef = ref<HTMLElement | null>(null);
 const editorMode = ref<StructuredTextMode>("rich");
+const editorSize = ref<"sm" | "md">("sm");
+const showFormatToolbar = ref(true);
 const markdown = ref([
     "# 场景摘要",
     "",
@@ -30,6 +32,10 @@ const themeOptions: Array<{value: IdeTheme; label: string}> = [
 const modeOptions: Array<{value: StructuredTextMode; label: string}> = [
     {value: "rich", label: "富文本"},
     {value: "source", label: "源码"},
+];
+const sizeOptions: Array<{value: "sm" | "md"; label: string}> = [
+    {value: "sm", label: "小"},
+    {value: "md", label: "中"},
 ];
 
 /**
@@ -167,6 +173,24 @@ onMounted(() => {
                         {{ option.label }}
                     </button>
                     <button
+                        v-for="option in sizeOptions"
+                        :key="option.value"
+                        type="button"
+                        class="rounded-md border px-3 py-1.5 text-xs transition-colors"
+                        :class="editorSize === option.value ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                        @click="editorSize = option.value"
+                    >
+                        {{ option.label }}
+                    </button>
+                    <button
+                        type="button"
+                        class="rounded-md border px-3 py-1.5 text-xs transition-colors"
+                        :class="showFormatToolbar ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                        @click="showFormatToolbar = !showFormatToolbar"
+                    >
+                        格式工具
+                    </button>
+                    <button
                         v-for="option in themeOptions"
                         :key="option.value"
                         type="button"
@@ -185,10 +209,10 @@ onMounted(() => {
                 <StructuredTextEditor
                     v-model="markdown"
                     v-model:mode="editorMode"
-                    :rows="14"
-                    :min-height="420"
-                    :max-height="620"
+                    :rows="5"
                     placeholder="输入 Markdown..."
+                    :size="editorSize"
+                    :show-format-toolbar="showFormatToolbar"
                     :resolve-menu="resolveMenu"
                     :resolve-reference="resolveReference"
                     :enable-quick-triggers="true"

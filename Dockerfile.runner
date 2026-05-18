@@ -1,0 +1,19 @@
+FROM oven/bun:1 AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=3000
+
+COPY package.json bun.lock ./
+RUN bun install --production
+
+COPY .output ./.output
+COPY prisma ./prisma
+COPY prisma.config.ts ./prisma.config.ts
+COPY server/generated/prisma ./server/generated/prisma
+COPY scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
+
+EXPOSE 3000
+
+ENTRYPOINT ["sh", "./scripts/docker-entrypoint.sh"]

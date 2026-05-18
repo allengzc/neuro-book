@@ -8,6 +8,7 @@ import type {
     PlotPreviewThread,
 } from "nbook/app/components/novel-ide/plot/plot-preview.types";
 import PlotThreadPanelShell from "nbook/app/components/novel-ide/plot/thread-panel/PlotThreadPanelShell.vue";
+import type {WorkbenchManualRef} from "nbook/app/components/novel-ide/plot/workbench/plot-workbench.types";
 import type {
     PlotThreadPanelDetail,
     PlotThreadPanelPlot,
@@ -16,13 +17,6 @@ import type {
     PlotThreadPanelThread,
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
 import PlotWorkbenchDialog from "nbook/app/components/novel-ide/plot/workbench/PlotWorkbenchDialog.vue";
-
-type WorkbenchManualRef = {
-    id: string;
-    relation: string;
-    target: string;
-    note: string | null;
-};
 
 const workbenchVisible = ref(true);
 const selectedThreadId = ref<string | null>("thread-main");
@@ -223,6 +217,32 @@ function reorderScenes(sceneIds: string[]): void {
         const nextOrder = orderMap.get(scene.id);
         return nextOrder === undefined ? scene : {...scene, threadSortOrder: nextOrder};
     });
+}
+
+/**
+ * 在当前 Thread 下新增一个 Scene 草稿。
+ */
+function createScene(threadId: string): void {
+    const threadScenes = scenes.value.filter((scene) => scene.threadId === threadId);
+    const nextOrder = threadScenes.length;
+    const nextScene: PlotThreadPanelScene = {
+        id: `scene-preview-${Date.now()}`,
+        threadId,
+        chapterPath: null,
+        title: `新建 Scene ${nextOrder + 1}`,
+        summary: "这里记录新 Scene 的主要事件、场面变化和读者需要获得的信息。",
+        purpose: "明确这个 Scene 推进哪一段冲突或揭示哪一条线索。",
+        status: "draft",
+        threadSortOrder: nextOrder,
+        chapterSortOrder: null,
+        writingTip: "先写目标，再补动作，不要让场景只承担说明功能。",
+        refs: [],
+    };
+
+    scenes.value = [...scenes.value, nextScene];
+    selectedThreadId.value = threadId;
+    selectedSceneId.value = nextScene.id;
+    selectedPlotId.value = null;
 }
 
 /**
@@ -507,6 +527,8 @@ function clonePlots(source: PlotPreviewPlot[]): PlotThreadPanelPlot[] {
             @toggle-thread-pin="toggleThreadPin"
             @toggle-thread-main="toggleThreadMain"
             @delete-thread="deleteThread"
+            @create-scene="createScene"
+            @auto-sort-scenes="reorderScenes"
             @reorder-scenes="reorderScenes"
             @reorder-plots="reorderPlots"
             @update-thread="updateThread"

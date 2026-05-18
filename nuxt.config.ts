@@ -72,6 +72,15 @@ export default defineNuxtConfig({
         alias: {
             nbook: rootDir,
         },
+        externals: {
+            external: [
+                "@langchain/core",
+                "@langchain/openai",
+                "@langchain/anthropic",
+                "@langchain/deepseek",
+                "langchain",
+            ],
+        },
         experimental: {
             openAPI: true,
         },

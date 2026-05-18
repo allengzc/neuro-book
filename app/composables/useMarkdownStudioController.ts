@@ -4,6 +4,19 @@ import { useTypewriterStream } from "nbook/app/composables/useTypewriterStream";
 export type ActiveEditor = "source" | "preview" | null;
 export type MarkdownStudioViewMode = "rich" | "source";
 export type MarkdownStreamTarget = "append-document" | "insert-cursor" | "replace-selection";
+export type MarkdownFormatCommand =
+    | "paragraph"
+    | "heading-2"
+    | "heading-3"
+    | "bold"
+    | "italic"
+    | "underline"
+    | "strike"
+    | "code"
+    | "bullet-list"
+    | "ordered-list"
+    | "blockquote"
+    | "clear-format";
 
 export interface MarkdownInlineCommentItem {
     index: number;
@@ -52,6 +65,7 @@ export type MarkdownStudioEditorHandle = {
     updateInlineComment?: (index: number, body: string) => void;
     deleteInlineComment?: (index: number) => void;
     setAlign?: (align: "left" | "center" | "right" | "justify") => void;
+    applyMarkdownFormat?: (command: MarkdownFormatCommand) => void;
 };
 
 type UseMarkdownStudioControllerOptions = {

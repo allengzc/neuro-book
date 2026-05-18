@@ -328,7 +328,6 @@ const cycleBranch = (direction: -1 | 1): void => {
                         :max-height="420"
                         mode="source"
                         :show-toolbar="false"
-                        :show-counters="false"
                         popover-direction="auto"
                         :submit-on-enter="false"
                         :enable-quick-triggers="true"

@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import type {MarkdownStudioEditorHandle} from "nbook/app/composables/useMarkdownStudioController";
+import type {MarkdownFormatCommand, MarkdownStudioEditorHandle} from "nbook/app/composables/useMarkdownStudioController";
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import TipTapMarkdownEditor from "nbook/app/components/markdown-studio/TipTapMarkdownEditor.vue";
 import MarkdownSourceEditor from "nbook/app/components/markdown-studio/MarkdownSourceEditor.vue";
 import type {WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
-import {countInlineComments, countInlineReferences} from "nbook/app/utils/structured-text";
 import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import {
     DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
@@ -16,17 +15,20 @@ import {
 
 type StructuredTextMode = "rich" | "source";
 type PopoverDirection = "auto" | "up" | "down";
+type StructuredTextSize = "sm" | "md";
 
 const props = withDefaults(defineProps<{
     modelValue: string;
     rows?: number;
+    size?: StructuredTextSize;
     placeholder?: string;
     minHeight?: number;
     maxHeight?: number;
     mode?: StructuredTextMode | null;
     defaultMode?: StructuredTextMode;
     showToolbar?: boolean;
-    showCounters?: boolean;
+    showFormatToolbar?: boolean;
+    resizable?: boolean;
     popoverDirection?: PopoverDirection;
     submitOnEnter?: boolean;
     enableQuickTriggers?: boolean;
@@ -44,13 +46,15 @@ const props = withDefaults(defineProps<{
     theme?: IdeTheme | null;
 }>(), {
     rows: 5,
+    size: "sm",
     placeholder: "",
     minHeight: undefined,
     maxHeight: undefined,
     mode: null,
     defaultMode: "rich",
     showToolbar: true,
-    showCounters: true,
+    showFormatToolbar: true,
+    resizable: true,
     popoverDirection: "auto",
     submitOnEnter: false,
     enableQuickTriggers: false,
@@ -82,27 +86,123 @@ const emit = defineEmits<{
 }>();
 
 const novelIdeStore = useNovelIdeStore();
+const rootRef = ref<HTMLDivElement | null>(null);
 const richEditorRef = ref<MarkdownStudioEditorHandle | null>(null);
 const sourceEditorRef = ref<MarkdownStudioEditorHandle | null>(null);
 const currentMode = ref<StructuredTextMode>(props.defaultMode);
+const compactToolbar = ref(true);
+let toolbarResizeObserver: ResizeObserver | null = null;
 
 const modeButtons: Array<{mode: StructuredTextMode; title: string; iconClass: string}> = [
     {mode: "rich", title: "富文本模式", iconClass: "i-lucide-book-open-text"},
     {mode: "source", title: "源码模式", iconClass: "i-lucide-file-code-2"},
 ];
+const formatButtons: Array<{
+    command: MarkdownFormatCommand;
+    title: string;
+    iconClass: string;
+    priority: "core" | "wide";
+}> = [
+    {command: "heading-2", title: "二级标题", iconClass: "i-lucide-heading-2", priority: "wide"},
+    {command: "heading-3", title: "三级标题", iconClass: "i-lucide-heading-3", priority: "wide"},
+    {command: "bold", title: "粗体", iconClass: "i-lucide-bold", priority: "core"},
+    {command: "italic", title: "斜体", iconClass: "i-lucide-italic", priority: "core"},
+    {command: "underline", title: "下划线", iconClass: "i-lucide-underline", priority: "wide"},
+    {command: "strike", title: "删除线", iconClass: "i-lucide-strikethrough", priority: "wide"},
+    {command: "code", title: "行内代码", iconClass: "i-lucide-code", priority: "core"},
+    {command: "bullet-list", title: "无序列表", iconClass: "i-lucide-list", priority: "wide"},
+    {command: "ordered-list", title: "有序列表", iconClass: "i-lucide-list-ordered", priority: "wide"},
+    {command: "blockquote", title: "引用块", iconClass: "i-lucide-text-quote", priority: "wide"},
+    {command: "clear-format", title: "清除格式", iconClass: "i-lucide-eraser", priority: "wide"},
+];
 
 const effectiveMode = computed<StructuredTextMode>(() => props.mode ?? currentMode.value);
 const isRichMode = computed(() => effectiveMode.value === "rich");
-const referenceCount = computed(() => countInlineReferences(props.modelValue));
-const commentCount = computed(() => countInlineComments(props.modelValue));
-const resolvedMinHeight = computed(() => props.minHeight ?? Math.max(props.rows * 28, 120));
-const resolvedMaxHeight = computed(() => props.maxHeight ?? Math.max(props.rows * 48, 180));
+const showFormatTools = computed(() => props.showToolbar && props.showFormatToolbar && isRichMode.value);
+const canResize = computed(() => props.resizable && props.showToolbar);
+const resolvedMinHeight = computed(() => {
+    if (props.minHeight !== undefined) {
+        return props.minHeight;
+    }
+    return props.size === "sm" ? Math.max(props.rows * 20, 80) : Math.max(props.rows * 28, 120);
+});
+const resolvedMaxHeight = computed(() => {
+    if (props.maxHeight !== undefined) {
+        return props.maxHeight;
+    }
+    return props.size === "sm" ? Math.max(props.rows * 34, 132) : Math.max(props.rows * 48, 180);
+});
 const bodyStyle = computed(() => ({
     height: `${resolvedMinHeight.value}px`,
     minHeight: `${resolvedMinHeight.value}px`,
     maxHeight: `${resolvedMaxHeight.value}px`,
 }));
 const sourceTheme = computed<IdeTheme>(() => props.theme ?? novelIdeStore.theme);
+const rootClass = computed(() => props.size === "md" ? "structured-text-editor--md" : "");
+const toolbarClass = computed(() => props.size === "sm" ? "px-2 py-1" : "px-3 py-2");
+const modeGroupClass = computed(() => props.size === "sm" ? "gap-0.5 rounded p-[1px]" : "gap-1 rounded-lg p-0.5");
+const modeButtonClass = computed(() => props.size === "sm" ? "h-5 w-5 rounded-[4px]" : "h-6 w-6 rounded-md");
+const modeIconClass = computed(() => props.size === "sm" ? "h-3 w-3" : "h-3.5 w-3.5");
+const formatButtonClass = computed(() => props.size === "sm" ? "h-5 w-5 rounded-[4px]" : "h-6 w-6 rounded-md");
+const fullToolbarMinWidth = computed(() => {
+    const buttonSize = props.size === "sm" ? 20 : 24;
+    const formatButtonCount = formatButtons.length + 1;
+    const formatGap = 2;
+    const modeGroupWidth = (buttonSize * modeButtons.length) + (props.size === "sm" ? 8 : 12);
+    const toolbarPadding = props.size === "sm" ? 16 : 24;
+    const toolbarGap = 8;
+    const safety = 10;
+    return (buttonSize * formatButtonCount)
+        + (formatGap * (formatButtonCount - 1))
+        + modeGroupWidth
+        + toolbarPadding
+        + toolbarGap
+        + safety;
+});
+const visibleFormatButtons = computed(() => compactToolbar.value
+    ? formatButtons.filter((button) => button.priority === "core")
+    : formatButtons);
+const sourceEditorPreferences = computed<MonacoEditorPreferences>(() => {
+    if (props.size === "md") {
+        return props.monacoPreferences;
+    }
+    return {
+        ...props.monacoPreferences,
+        fontSize: Math.min(props.monacoPreferences.fontSize, 12),
+        lineHeight: Math.min(props.monacoPreferences.lineHeight, 20),
+        lineNumbers: false,
+    };
+});
+
+/**
+ * 根据容器宽度压缩格式工具数量，避免表单侧栏里工具条溢出。
+ */
+function updateToolbarDensity(width: number): void {
+    compactToolbar.value = width < fullToolbarMinWidth.value;
+}
+
+onMounted(() => {
+    if (!rootRef.value) {
+        return;
+    }
+    updateToolbarDensity(rootRef.value.getBoundingClientRect().width);
+    toolbarResizeObserver = new ResizeObserver((entries) => {
+        const entry = entries[0];
+        if (entry) {
+            updateToolbarDensity(entry.contentRect.width);
+        }
+    });
+    toolbarResizeObserver.observe(rootRef.value);
+});
+
+onBeforeUnmount(() => {
+    toolbarResizeObserver?.disconnect();
+    toolbarResizeObserver = null;
+});
+
+watch(() => props.size, () => {
+    updateToolbarDensity(rootRef.value?.getBoundingClientRect().width ?? 0);
+});
 
 watch(() => props.defaultMode, (nextMode) => {
     if (props.mode === null) {
@@ -146,6 +246,20 @@ function insertText(text: string): void {
 }
 
 /**
+ * 执行富文本格式工具条命令。
+ */
+function applyFormat(command: MarkdownFormatCommand): void {
+    richEditorRef.value?.applyMarkdownFormat?.(command);
+}
+
+/**
+ * 给当前选区添加 inline comment。
+ */
+function addInlineComment(): void {
+    richEditorRef.value?.addComment?.("");
+}
+
+/**
  * 读取当前 Markdown 字符串。
  */
 function getMarkdown(): string {
@@ -171,36 +285,56 @@ defineExpose({
 
 <template>
     <!-- Markdown 表单编辑器：工具栏包装层，底层唯一编辑器是 TipTapMarkdownEditor -->
-    <div class="structured-text-editor relative overflow-visible rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)]">
+    <div ref="rootRef" class="structured-text-editor relative overflow-visible rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)]" :class="rootClass">
         <div
             v-if="props.showToolbar"
-            class="flex items-center justify-between gap-3 border-b border-[var(--border-color)] bg-[var(--bg-input)]/40 px-3 py-2"
+            class="structured-text-editor__toolbar flex min-w-0 items-center justify-between gap-2 border-b border-[var(--border-color)] bg-[var(--bg-input)]/40"
+            :class="toolbarClass"
         >
-            <div class="flex items-center gap-2">
-                <div class="flex items-center gap-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-0.5 text-[var(--text-muted)]">
+            <div class="flex min-w-0 flex-1 items-center">
+                <div v-if="showFormatTools" class="structured-text-editor__format-tools flex min-w-0 items-center gap-0.5 overflow-hidden text-[var(--text-muted)]">
                     <button
-                        v-for="button in modeButtons"
-                        :key="button.mode"
+                        v-for="button in visibleFormatButtons"
+                        :key="button.command"
                         type="button"
-                        class="inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors"
-                        :class="effectiveMode === button.mode ? 'bg-[var(--bg-hover)] text-[var(--text-main)]' : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                        class="inline-flex shrink-0 items-center justify-center transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-45"
+                        :class="formatButtonClass"
                         :title="button.title"
-                        @click="setMode(button.mode)"
+                        :disabled="props.readonly"
+                        @mousedown.prevent
+                        @click="applyFormat(button.command)"
                     >
-                        <span class="h-3.5 w-3.5" :class="button.iconClass"></span>
+                        <span :class="[modeIconClass, button.iconClass]"></span>
+                    </button>
+                    <button
+                        type="button"
+                        class="inline-flex shrink-0 items-center justify-center transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-45"
+                        :class="formatButtonClass"
+                        title="添加评论"
+                        :disabled="props.readonly"
+                        @mousedown.prevent
+                        @click="addInlineComment"
+                    >
+                        <span :class="[modeIconClass, 'i-lucide-message-square-plus']"></span>
                     </button>
                 </div>
             </div>
-            <div
-                v-if="props.showCounters"
-                class="flex items-center gap-2 text-[10px] text-[var(--text-muted)]"
-            >
-                <span>引用 {{ referenceCount }}</span>
-                <span>评论 {{ commentCount }}</span>
+            <div class="flex shrink-0 items-center border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-muted)]" :class="modeGroupClass">
+                <button
+                    v-for="button in modeButtons"
+                    :key="button.mode"
+                    type="button"
+                    class="inline-flex items-center justify-center transition-colors"
+                    :class="[modeButtonClass, effectiveMode === button.mode ? 'bg-[var(--bg-hover)] text-[var(--text-main)]' : 'hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]']"
+                    :title="button.title"
+                    @click="setMode(button.mode)"
+                >
+                    <span :class="[modeIconClass, button.iconClass]"></span>
+                </button>
             </div>
         </div>
 
-        <div class="structured-text-editor__body min-h-0 overflow-hidden" :style="bodyStyle">
+        <div class="structured-text-editor__body min-h-0 overflow-hidden" :class="canResize ? 'structured-text-editor__body--resizable' : ''" :style="bodyStyle">
             <TipTapMarkdownEditor
                 v-if="isRichMode"
                 ref="richEditorRef"
@@ -235,9 +369,10 @@ defineExpose({
                 :readonly="props.readonly"
                 :placeholder="props.placeholder"
                 :theme="sourceTheme"
-                :monaco-preferences="props.monacoPreferences"
+                :monaco-preferences="sourceEditorPreferences"
                 :temporary-font-size="props.monacoTemporaryFontSize"
                 :submit-on-enter="props.submitOnEnter"
+                :compact="props.size === 'sm'"
                 @change="emitChange"
                 @focus="emit('focus')"
                 @blur="emit('blur')"
@@ -250,8 +385,34 @@ defineExpose({
 </template>
 
 <style scoped>
+.structured-text-editor {
+    --structured-editor-padding: 6px 9px;
+    --structured-editor-font-size: 0.8125rem;
+    --structured-editor-line-height: 1.45rem;
+    --structured-editor-paragraph-margin: 0 0 0.2rem;
+    border-radius: 8px;
+}
+
+.structured-text-editor--md {
+    --structured-editor-padding: 12px;
+    --structured-editor-font-size: 0.9375rem;
+    --structured-editor-line-height: 1.8rem;
+    --structured-editor-paragraph-margin: 0 0 0.45rem;
+}
+
+.structured-text-editor__toolbar {
+    border-top-left-radius: calc(8px - 1px);
+    border-top-right-radius: calc(8px - 1px);
+}
+
 .structured-text-editor__body {
     background: var(--bg-panel);
+    border-bottom-left-radius: calc(8px - 1px);
+    border-bottom-right-radius: calc(8px - 1px);
+}
+
+.structured-text-editor__body--resizable {
+    resize: vertical;
 }
 
 :deep(.tiptap-markdown-wrapper) {
@@ -268,15 +429,15 @@ defineExpose({
     max-width: none;
     min-height: 100%;
     margin: 0;
-    padding: 12px;
+    padding: var(--structured-editor-padding);
     color: var(--text-main);
     font-family: inherit;
-    font-size: 0.875rem;
-    line-height: 1.75rem;
+    font-size: var(--structured-editor-font-size);
+    line-height: var(--structured-editor-line-height);
 }
 
 :deep(.nb-markdown-editor p) {
-    margin: 0 0 0.45rem;
+    margin: var(--structured-editor-paragraph-margin);
 }
 
 :deep(.nb-markdown-editor h1),

@@ -44,6 +44,8 @@ const emit = defineEmits<{
     (e: "editScene", sceneId: string): void;
     (e: "editPlot", plotId: string): void;
     (e: "deletePlot", plotId: string): void;
+    (e: "createScene", threadId: string): void;
+    (e: "autoSortScenes", sceneIds: string[]): void;
     (e: "reorderScenes", sceneIds: string[]): void;
     (e: "reorderPlots", payload: {sceneId: string; plotIds: string[]}): void;
 }>();
@@ -73,6 +75,7 @@ const sceneCount = computed(() => visibleScenes.value.length);
 const plotCount = computed(() => visibleScenes.value.reduce((count, scene) => count + scenePlots(scene.id).length, 0));
 const focusScene = computed(() => visibleScenes.value.find((scene) => scene.status === "active") ?? visibleScenes.value[0] ?? null);
 const expandedSceneIds = ref<string[]>([]);
+const sceneCheckMessage = ref<string | null>(null);
 const renderedScenes = computed(() => dragScenes.value ?? visibleScenes.value);
 
 /**
@@ -227,6 +230,50 @@ function moveScene(payload: {sceneId: string; direction: "up" | "down"}): void {
     const previousRects = snapshotSceneRects();
     emit("reorderScenes", nextScenes.map((item) => item.id));
     void animateSceneReorder(previousRects);
+}
+
+/**
+ * 创建当前 Thread 下的 Scene mock。
+ */
+function createScene(): void {
+    if (!props.thread) {
+        return;
+    }
+    emit("createScene", props.thread.id);
+    sceneCheckMessage.value = "已新增一个 Scene 草稿。";
+}
+
+/**
+ * 按章节顺序和当前 Thread 序号整理 Scene。
+ */
+function autoSortScenes(): void {
+    const nextScenes = [...visibleScenes.value].sort((left, right) => {
+        const leftChapter = left.chapterSortOrder ?? Number.MAX_SAFE_INTEGER;
+        const rightChapter = right.chapterSortOrder ?? Number.MAX_SAFE_INTEGER;
+        if (leftChapter !== rightChapter) {
+            return leftChapter - rightChapter;
+        }
+        return left.threadSortOrder - right.threadSortOrder;
+    });
+
+    emit("autoSortScenes", nextScenes.map((scene) => scene.id));
+    sceneCheckMessage.value = "已按章节顺序整理 Scene。";
+}
+
+/**
+ * 检查当前 Thread 下 Scene 的基础依赖信息。
+ */
+function checkSceneDependencies(): void {
+    const unmountedScenes = visibleScenes.value.filter((scene) => !scene.chapterPath).length;
+    const emptyPurposeScenes = visibleScenes.value.filter((scene) => !(scene.purpose ?? "").trim()).length;
+    const emptyPlotScenes = visibleScenes.value.filter((scene) => scenePlots(scene.id).length === 0).length;
+    const issues = [
+        unmountedScenes ? `${unmountedScenes} 个 Scene 未挂章` : "",
+        emptyPurposeScenes ? `${emptyPurposeScenes} 个 Scene 缺少目的` : "",
+        emptyPlotScenes ? `${emptyPlotScenes} 个 Scene 没有 Plot` : "",
+    ].filter(Boolean);
+
+    sceneCheckMessage.value = issues.length ? `检查完成：${issues.join("，")}。` : "检查完成：当前 Thread 依赖信息完整。";
 }
 
 /**
@@ -439,19 +486,18 @@ watch(() => props.thread?.id, () => {
         </section>
 
         <div class="mt-2.5 flex flex-wrap items-center justify-end gap-1.5">
-            <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-[11.5px] font-medium text-[var(--text-main)] shadow-sm transition-colors hover:bg-[var(--bg-hover)]">
+            <span v-if="sceneCheckMessage" class="mr-auto inline-flex min-h-7 items-center rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 text-[11px] leading-5 text-[var(--text-secondary)]">
+                {{ sceneCheckMessage }}
+            </span>
+            <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-[11.5px] font-medium text-[var(--text-main)] shadow-sm transition-colors hover:bg-[var(--bg-hover)]" @click="createScene">
                 <span class="i-lucide-plus h-3.5 w-3.5 opacity-70"></span>
                 Scene
             </button>
-            <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 text-[11.5px] font-medium text-[var(--text-main)] shadow-sm transition-colors hover:bg-[var(--bg-hover)]">
-                <span class="i-lucide-sparkles h-3.5 w-3.5 text-amber-500/70"></span>
-                批量操作
-            </button>
-            <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 text-[11.5px] font-medium text-[var(--text-main)] shadow-sm transition-colors hover:bg-[var(--bg-hover)]">
+            <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 text-[11.5px] font-medium text-[var(--text-main)] shadow-sm transition-colors hover:bg-[var(--bg-hover)]" @click="autoSortScenes">
                 <span class="i-lucide-route h-3.5 w-3.5 text-blue-500/70"></span>
                 自动排序
             </button>
-            <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 text-[11.5px] font-medium text-[var(--text-main)] shadow-sm transition-colors hover:bg-[var(--bg-hover)]">
+            <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 text-[11.5px] font-medium text-[var(--text-main)] shadow-sm transition-colors hover:bg-[var(--bg-hover)]" @click="checkSceneDependencies">
                 <span class="i-lucide-list-checks h-3.5 w-3.5 text-emerald-500/70"></span>
                 依赖检查
             </button>
@@ -519,10 +565,6 @@ watch(() => props.thread?.id, () => {
                 </div>
             </DragDropProvider>
 
-            <button type="button" class="mt-2 flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-dashed border-[var(--border-color)] bg-[var(--bg-panel)] text-[12px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]">
-                <span class="i-lucide-plus h-3.5 w-3.5"></span>
-                拖拽 Scene 到此处插入
-            </button>
         </section>
     </main>
 </template>
