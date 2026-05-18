@@ -6,6 +6,7 @@
 - 真实 `config.yaml` 已包含模型 Provider token，需要从 Git 跟踪中移除并改成模板化配置。
 - 更新部署说明：改成 Node CLI 入口，补充 `config.yaml` 配置教程，为 `config.example.yaml` 添加注释，并提供远程一键交互式 `npx` 部署脚本。
 - Nuxt build 会在低内存服务器上 OOM，需要提供本地发布 GHCR 镜像和 release-only GitHub Actions 自动发布两条路径。
+- source 模式已在 `arch` 开发服务器跑通，需要把旧 `scripts/deploy.mjs` 收敛为远端同步脚本，便于频繁快速同步最新开发成果。
 
 ## Goal
 
@@ -42,6 +43,8 @@
 - `scripts/neuro-book-deploy.mjs` 部署模式收敛为 `ghcr` 和 `source`：默认 GHCR 镜像部署，source 模式挂载宿主机源码到容器 `/app`，不再提供 `--deploy-mode build`。
 - 部署生成物统一写入 `.deploy/`：`.env.docker`、`config.yaml`、`docker-compose.generated.yml` 和本地说明文档，避免后续 `git pull` 与部署私有文件冲突。
 - GHCR runner 镜像改为保留完整项目源码和运行所需文件，使容器内 `bun run auth:create-admin` 可用。
+- `scripts/deploy.mjs` 改为开发服务器 source 模式快速同步入口：默认 SSH 到 `arch` 的 `/home/notnotype/composes/neuro-book`，检查 tracked worktree 干净后执行 `git pull --ff-only`、`bun install --frozen-lockfile`、加载 `.deploy/.env.docker`、Prisma generate、Nuxt build，并通过本地隐藏输入的 sudo 密码远端重启 `app` 容器。
+- README 增加常用部署入口说明，区分 `neuro-book-deploy`、`bun scripts/deploy.mjs` 和 `node scripts/publish-ghcr-image.mjs` 的职责，并补充 source 模式常见故障排查。
 
 ## Decisions
 
@@ -61,6 +64,7 @@
 - `package.json`
 - `scripts/publish-ghcr-image.mjs`
 - `.github/workflows/release-container.yml`
+- `scripts/deploy.mjs`
 - `scripts/docker-entrypoint.sh`
 - `scripts/neuro-book-deploy.mjs`
 - `server/utils/env-template.ts`
@@ -81,6 +85,7 @@
 - `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes --deploy-mode source --dir .agent/deploy-source-test`
 - `node --check scripts/publish-ghcr-image.mjs`
 - `node scripts/publish-ghcr-image.mjs --dry-run`
+- `bun scripts/deploy.mjs --dry-run`
 - `npm pack --dry-run --json`：tarball 只包含 README、package.json 和 Node 部署脚本。
 - 使用 `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes` 跑通脚本生成 `.deploy/.env.docker` / `.deploy/config.yaml` / `.deploy/docker-compose.generated.yml`，并用 `yaml` 解析生成配置。
 - 当前环境仍没有 Docker CLI，`docker --version` 与 `docker compose --env-file .env.docker.example config` 均无法执行。

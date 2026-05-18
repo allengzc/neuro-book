@@ -1,52 +1,204 @@
 #!/usr/bin/env bun
 /**
- * neuro-book 一键部署脚本
- * 本地构建 -> 打包上传 -> 服务器重建镜像 -> 重启服务
+ * 开发服务器 source 模式快速同步脚本。
  *
- * 前置条件：本地配置 ~/.ssh/config 中 aly 主机，服务器有 Docker + Compose
- * 使用：bun run deploy                    # 部署到 aly
- *       bun run deploy -- --host myserver # 部署到指定主机
+ * 使用：
+ *   bun scripts/deploy.mjs
+ *   bun scripts/deploy.mjs --host arch --dir /home/notnotype/composes/neuro-book
+ *   bun scripts/deploy.mjs --dry-run
  */
 
-import { $ } from "bun";
+import {spawn} from "node:child_process";
+import {Command} from "commander";
+import * as p from "@clack/prompts";
 
-const targetIdx = Bun.argv.indexOf("--host");
-const host = targetIdx !== -1 ? Bun.argv[targetIdx + 1] : "aly";
-const remoteDir = "/root/neuro-book";
-const archive = "/tmp/neuro-book-dist.tar.gz";
+const DEFAULT_HOST = "arch";
+const DEFAULT_REMOTE_DIR = "/home/notnotype/composes/neuro-book";
+const COMPOSE_FILES = "-f docker-compose.yml -f .deploy/docker-compose.generated.yml";
 
-async function run(cmd, label) {
-    const { exitCode, stderr } = await $`${{ raw: cmd }}`.quiet();
-    if (exitCode !== 0) {
-        console.error(`✗ ${label} 失败:\n${stderr.toString()}`);
-        process.exit(1);
+const program = new Command()
+    .name("neuro-book-dev-deploy")
+    .description("Sync the arch source-mode deployment and restart the app container.")
+    .option("--host <host>", "SSH host.", process.env.NEURO_BOOK_DEPLOY_HOST ?? DEFAULT_HOST)
+    .option("--dir <path>", "Remote source deployment directory.", process.env.NEURO_BOOK_DEPLOY_DIR ?? DEFAULT_REMOTE_DIR)
+    .option("--dry-run", "Print the remote script without connecting to the server.", false);
+
+program.parse();
+
+/** 把用户取消交互转成干净退出。 */
+function unwrapPrompt(value) {
+    if (p.isCancel(value)) {
+        p.cancel("部署已取消。");
+        process.exit(0);
     }
-    console.log(`   ${label} ✓`);
+
+    return value;
 }
 
-console.log("📦 Step 1: 本地构建");
-await run("bun run nuxt:prepare", "nuxt:prepare");
-await run("bun run generate", "prisma generate");
-await run("bun run nuxt:build", "nuxt:build");
+/** 返回安全的 shell 单引号字符串。 */
+function shellQuote(value) {
+    return `'${String(value).replaceAll("'", "'\\''")}'`;
+}
 
-console.log("\n📦 Step 2: 打包");
-await run(
-    `tar -czf ${archive} --exclude='./.git' --exclude='./node_modules' --exclude='./.nuxt' --exclude='./workspace' --exclude='./.agent' --exclude='./.env' --exclude='./.env.docker' --exclude='./config.yaml' --exclude='./*.tar.gz' --exclude='./.cache' --exclude='./coverage' --exclude='./dist' .`,
-    "tar"
-);
+/** 生成远端 source 模式同步脚本。 */
+function remoteScript(remoteDir) {
+    return `#!/bin/sh
+set -eu
 
-console.log(`\n📦 Step 3: 上传到 ${host}`);
-await run(`scp ${archive} ${host}:/tmp/`, "scp");
+read -r SUDO_PASSWORD
 
-console.log("\n📦 Step 4: 服务器重建并启动");
-const sshScript = `BUILD_DIR=$(mktemp -d) && tar -xzf /tmp/neuro-book-dist.tar.gz -C $BUILD_DIR && sed -i 's/^.output$/#.output/; s/^server\\/generated\\/prisma$/#server\\/generated\\/prisma/' $BUILD_DIR/.dockerignore && docker build -f $BUILD_DIR/Dockerfile.runner -t neuro-book-app $BUILD_DIR && rm -rf $BUILD_DIR && cd ${remoteDir} && docker compose --env-file .env.docker down && docker compose --env-file .env.docker up -d`;
+step() {
+    printf '\\n==> %s\\n' "$1"
+}
 
-const result = await $`ssh ${host} ${sshScript}`.quiet();
-console.log(result.stdout.toString());
-console.log(result.stderr.toString());
+run_sudo() {
+    printf '%s\\n' "$SUDO_PASSWORD" | sudo -S -p '' "$@"
+}
 
-// 验证
-const check = await $`ssh ${host} "docker compose --env-file ${remoteDir}/.env.docker -f ${remoteDir}/docker-compose.yml ps"`.quiet();
-console.log(check.stdout.toString());
+cd ${shellQuote(remoteDir)}
 
-console.log(`\n✅ 部署完成！访问 http://${host}:3001`);
+step "检查远端工作区"
+if [ ! -d .git ]; then
+    echo "远端目录不是 Git checkout：$(pwd)" >&2
+    exit 1
+fi
+
+if [ ! -f .deploy/.env.docker ] || [ ! -f .deploy/docker-compose.generated.yml ]; then
+    echo "缺少 .deploy 部署文件。请先运行 neuro-book-deploy --deploy-mode source 初始化部署。" >&2
+    exit 1
+fi
+
+dirty="$(git status --porcelain --untracked-files=no)"
+if [ -n "$dirty" ]; then
+    echo "远端 tracked worktree 不干净，已停止部署：" >&2
+    echo "$dirty" >&2
+    exit 1
+fi
+
+step "同步 Git"
+git pull --ff-only
+
+step "安装依赖"
+bun install --frozen-lockfile
+
+step "加载部署环境"
+set -a
+. .deploy/.env.docker
+set +a
+
+step "Nuxt prepare"
+bun run nuxt:prepare
+
+step "Prisma generate"
+bun run generate
+
+step "Nuxt build"
+bun run nuxt:build
+
+step "重启 app 容器"
+run_sudo docker compose --env-file .deploy/.env.docker ${COMPOSE_FILES} up -d --force-recreate app
+
+step "Compose 状态"
+run_sudo docker compose --env-file .deploy/.env.docker ${COMPOSE_FILES} ps
+
+step "App 最近日志"
+run_sudo docker compose --env-file .deploy/.env.docker ${COMPOSE_FILES} logs --tail=80 app
+`;
+}
+
+/** 把远端脚本上传到临时文件。 */
+function uploadRemoteScript({host, script, remoteScriptPath}) {
+    return new Promise((resolvePromise, rejectPromise) => {
+        const child = spawn("ssh", [host, `cat > ${shellQuote(remoteScriptPath)} && chmod 700 ${shellQuote(remoteScriptPath)}`], {
+            stdio: ["pipe", "inherit", "inherit"],
+        });
+
+        child.on("error", (error) => {
+            rejectPromise(new Error(`SSH 启动失败：${error.message}`));
+        });
+
+        child.on("exit", (code, signal) => {
+            if (signal) {
+                rejectPromise(new Error(`上传远端脚本被信号中断：${signal}`));
+                return;
+            }
+
+            if (code !== 0) {
+                rejectPromise(new Error(`上传远端脚本失败，退出码 ${code}`));
+                return;
+            }
+
+            resolvePromise();
+        });
+
+        child.stdin.end(script);
+    });
+}
+
+/** 执行远端临时脚本，并通过 stdin 向远端脚本传递 sudo 密码。 */
+function runRemoteScript({host, remoteScriptPath, sudoPassword}) {
+    return new Promise((resolvePromise, rejectPromise) => {
+        const child = spawn("ssh", [host, `sh ${shellQuote(remoteScriptPath)}; status=$?; rm -f ${shellQuote(remoteScriptPath)}; exit $status`], {
+            stdio: ["pipe", "inherit", "inherit"],
+        });
+
+        child.on("error", (error) => {
+            rejectPromise(new Error(`SSH 启动失败：${error.message}`));
+        });
+
+        child.on("exit", (code, signal) => {
+            if (signal) {
+                rejectPromise(new Error(`远程部署被信号中断：${signal}`));
+                return;
+            }
+
+            if (code !== 0) {
+                rejectPromise(new Error(`远程部署失败，退出码 ${code}`));
+                return;
+            }
+
+            resolvePromise();
+        });
+
+        child.stdin.end(`${sudoPassword}\n`);
+    });
+}
+
+/** CLI 主流程。 */
+async function main() {
+    const options = program.opts();
+    const script = remoteScript(options.dir);
+
+    p.intro("neuro-book arch source deployment");
+
+    if (options.dryRun) {
+        p.log.info(`ssh ${options.host} 'sh -s'`);
+        p.log.info(script);
+        p.outro("Dry run complete; no password was requested.");
+        return;
+    }
+
+    const sudoPassword = String(unwrapPrompt(await p.password({
+        message: `请输入 ${options.host} 的 sudo 密码`,
+        validate: (value) => value ? undefined : "sudo 密码不能为空",
+    })));
+    const remoteScriptPath = `/tmp/neuro-book-deploy-${Date.now()}.sh`;
+
+    await uploadRemoteScript({
+        host: options.host,
+        script,
+        remoteScriptPath,
+    });
+    await runRemoteScript({
+        host: options.host,
+        remoteScriptPath,
+        sudoPassword,
+    });
+
+    p.outro(`Done. Remote deployment updated on ${options.host}:${options.dir}`);
+}
+
+main().catch((error) => {
+    p.log.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+});

@@ -62,6 +62,12 @@ auth:
 
 ## Docker Compose 单机部署
 
+### 常用部署入口
+
+- `neuro-book-deploy`：首次部署或重新生成 `.deploy/` 本地配置，支持默认 `ghcr` 和 `source` 两种模式。
+- `bun scripts/deploy.mjs`：开发服务器快速同步入口，默认登录 `arch`，面向已经初始化好的 source 模式部署。
+- `node scripts/publish-ghcr-image.mjs`：本地构建并推送 GHCR 镜像，适合低内存服务器使用预构建镜像。
+
 推荐使用一键交互式部署脚本。它会检查 Docker、拉取仓库，在 `.deploy/` 下生成 `.env.docker`、`config.yaml` 和 compose override。默认使用 GHCR 预构建镜像启动，避免低内存服务器执行 Nuxt build。
 
 ```bash
@@ -95,11 +101,22 @@ node scripts/neuro-book-deploy.mjs --deploy-mode source
 ```bash
 git pull --ff-only
 bun install --frozen-lockfile
+set -a
+source .deploy/.env.docker
+set +a
 bun run nuxt:prepare
 bun run generate
 bun run nuxt:build
 docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d
 ```
+
+如果是本项目的开发服务器，source 模式初始化成功后可直接从本地快速同步：
+
+```bash
+bun scripts/deploy.mjs
+```
+
+该脚本默认登录 `arch`，进入 `/home/notnotype/composes/neuro-book`，执行 `git pull --ff-only`、宿主机依赖安装、Prisma generate、Nuxt build，并用 sudo 重启 `app` 容器。脚本会在本地隐藏输入 sudo 密码，密码只通过 SSH stdin 传给远端 `sudo -S`，不会写入命令行或文件。可用 `--host`、`--dir` 修改目标，也可用 `--dry-run` 查看将执行的远端脚本。
 
 如果部署时选择外部数据库，脚本会把 `DATABASE_URL` 写入 `.deploy/.env.docker`，并在启动命令中追加 `docker-compose.external-db.yml`。
 
@@ -149,6 +166,12 @@ docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/d
 - `./workspace` 会挂载到容器内 `/app/workspace`，`.deploy/config.yaml` 会挂载到 `/app/config.yaml`。
 - `.deploy/` 是本机部署状态目录，已加入 `.gitignore`，后续 `git pull` 不会与部署私有配置冲突。
 - 当前仓库历史里曾提交过真实 `config.yaml`，其中的 token 应视为已泄露并立即轮换；本次只阻止后续继续提交，未清理 Git 历史。
+
+### 部署故障排查
+
+- `Cannot resolve environment variable: DATABASE_URL`：宿主机执行 `bun run generate` 前没有加载 `.deploy/.env.docker`。先执行 `set -a && source .deploy/.env.docker && set +a`。
+- `P1000: Authentication failed`：旧 Postgres 数据卷已经初始化过，但 `.deploy/.env.docker` 重新生成了新密码。保留数据时，在 Postgres 容器内把 `neuro_book` 用户密码改成当前 `POSTGRES_PASSWORD`；不保留数据时可 `docker compose down -v` 后重建。
+- `Cannot find module '@clack/prompts'`：source 模式下容器看到的是宿主机 `node_modules`。在宿主机执行 `bun install --frozen-lockfile`，并确认 `node_modules` 不再是 root-only 权限。
 
 ## AGENT 系统
 
