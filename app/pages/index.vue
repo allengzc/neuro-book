@@ -946,6 +946,14 @@ const toggleLeftTab = (tab: NovelIdeTab): void => {
 };
 
 /**
+ * 从顶部栏打开剧本工作台，并确保剧情大纲面板已挂载。
+ */
+const openPlotWorkbench = (): void => {
+    activeLeftTab.value = "outline";
+    novelIdeStore.plotWorkbenchOpen = true;
+};
+
+/**
  * 打开当前 Markdown 文件的类型专属 frontmatter 档案。
  */
 function openFrontmatterProfile(kind: FrontmatterProfileKind): void {
@@ -992,6 +1000,7 @@ onBeforeUnmount(() => {
             :current-user="currentUser"
             @toggle-agent="rightPanelOpen = !rightPanelOpen"
             @open-bookshelf="bookshelfOpen = true"
+            @open-plot-workbench="openPlotWorkbench"
             @switch-novel="handleSwitchNovel"
             @open-admin="void openAdmin()"
             @logout="void logout()"

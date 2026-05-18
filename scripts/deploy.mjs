@@ -52,8 +52,25 @@ step() {
 }
 
 run_sudo() {
-    printf '%s\\n' "$SUDO_PASSWORD" | sudo -S -p '' "$@"
+    sudo -n "$@"
 }
+
+cleanup() {
+    if [ -n "\${SUDO_KEEPALIVE_PID:-}" ]; then
+        kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+
+printf '%s\\n' "$SUDO_PASSWORD" | sudo -S -p '' -v
+unset SUDO_PASSWORD
+exec </dev/null
+
+while true; do
+    sudo -n -v
+    sleep 60
+done &
+SUDO_KEEPALIVE_PID=$!
 
 cd ${shellQuote(remoteDir)}
 

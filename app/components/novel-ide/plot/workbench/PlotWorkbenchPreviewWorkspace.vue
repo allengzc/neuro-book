@@ -8,7 +8,6 @@ import type {
     PlotPreviewThread,
 } from "nbook/app/components/novel-ide/plot/plot-preview.types";
 import PlotThreadPanelShell from "nbook/app/components/novel-ide/plot/thread-panel/PlotThreadPanelShell.vue";
-import type {WorkbenchManualRef} from "nbook/app/components/novel-ide/plot/workbench/plot-workbench.types";
 import type {
     PlotThreadPanelDetail,
     PlotThreadPanelPlot,
@@ -115,22 +114,6 @@ const extraPlots: PlotThreadPanelPlot[] = [
 const threads = ref<PlotThreadPanelThread[]>(cloneThreads(plotPreviewDataset.threads));
 const scenes = ref<PlotThreadPanelScene[]>(cloneScenes(plotPreviewDataset.scenes));
 const plots = ref<PlotThreadPanelPlot[]>(clonePlots(plotPreviewDataset.plots));
-const plotRefs = ref<Record<string, WorkbenchManualRef[]>>({
-    "plot-system-setup": [
-        {
-            id: "ref-plot-system-location",
-            relation: "setup_for",
-            target: "lorebook/location/initial-stage/",
-            note: "系统触发依赖祭坛环境压迫。",
-        },
-        {
-            id: "ref-plot-system-conflict",
-            relation: "depends_on",
-            target: "plot://plot-ritual-conflict",
-            note: null,
-        },
-    ],
-});
 const chapters = plotPreviewDataset.chapters;
 
 const threadMap = computed(() => new Map(threads.value.map((thread) => [thread.id, thread])));
@@ -259,6 +242,26 @@ function reorderPlots(payload: {sceneId: string; plotIds: string[]}): void {
 }
 
 /**
+ * 在 Scene 下新增一个 Plot 草稿。
+ */
+function createPlot(sceneId: string): void {
+    const scenePlots = plots.value.filter((plot) => plot.sceneId === sceneId);
+    const nextPlot: PlotThreadPanelPlot = {
+        id: `plot-preview-${Date.now()}`,
+        sceneId,
+        sortOrder: scenePlots.length,
+        kind: "setup",
+        summary: "新建 Plot：记录这个情节点的动作、信息或转折。",
+        effect: null,
+        writingTip: null,
+        note: null,
+    };
+
+    plots.value = [...plots.value, nextPlot];
+    selectPlot(nextPlot.id);
+}
+
+/**
  * 新建一个 preview Thread。
  */
 function createThread(): void {
@@ -361,13 +364,18 @@ function updatePlot(plotId: string, patch: Partial<PlotThreadPanelPlot>): void {
 }
 
 /**
- * 更新 Plot preview 专用 refs。
+ * 删除一个 Plot。
  */
-function updatePlotRefs(plotId: string, refs: WorkbenchManualRef[]): void {
-    plotRefs.value = {
-        ...plotRefs.value,
-        [plotId]: refs,
-    };
+function deletePlot(plotId: string): void {
+    const target = plots.value.find((plot) => plot.id === plotId) ?? null;
+    plots.value = plots.value.filter((plot) => plot.id !== plotId);
+    if (selectedPlotId.value !== plotId || !target) {
+        return;
+    }
+
+    selectedPlotId.value = plots.value
+        .filter((plot) => plot.sceneId === target.sceneId)
+        .sort((left, right) => left.sortOrder - right.sortOrder)[0]?.id ?? null;
 }
 
 /**
@@ -518,7 +526,6 @@ function clonePlots(source: PlotPreviewPlot[]): PlotThreadPanelPlot[] {
             :selected-thread-id="selectedThreadId"
             :selected-scene-id="selectedSceneId"
             :selected-plot-id="selectedPlotId"
-            :plot-refs="plotRefs"
             :pinned-thread-ids="pinnedThreadIds"
             @select-thread="selectThread"
             @select-scene="selectScene"
@@ -528,13 +535,14 @@ function clonePlots(source: PlotPreviewPlot[]): PlotThreadPanelPlot[] {
             @toggle-thread-main="toggleThreadMain"
             @delete-thread="deleteThread"
             @create-scene="createScene"
+            @create-plot="createPlot"
+            @delete-plot="deletePlot"
             @auto-sort-scenes="reorderScenes"
             @reorder-scenes="reorderScenes"
             @reorder-plots="reorderPlots"
             @update-thread="updateThread"
             @update-scene="updateScene"
             @update-plot="updatePlot"
-            @update-plot-refs="updatePlotRefs"
         />
     </div>
 </template>

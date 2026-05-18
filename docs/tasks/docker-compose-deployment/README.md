@@ -43,14 +43,15 @@
 - `scripts/neuro-book-deploy.mjs` 部署模式收敛为 `ghcr` 和 `source`：默认 GHCR 镜像部署，source 模式挂载宿主机源码到容器 `/app`，不再提供 `--deploy-mode build`。
 - 部署生成物统一写入 `.deploy/`：`.env.docker`、`config.yaml`、`docker-compose.generated.yml` 和本地说明文档，避免后续 `git pull` 与部署私有文件冲突。
 - GHCR runner 镜像改为保留完整项目源码和运行所需文件，使容器内 `bun run auth:create-admin` 可用。
-- `scripts/deploy.mjs` 改为开发服务器 source 模式快速同步入口：默认 SSH 到 `arch` 的 `/home/notnotype/composes/neuro-book`，检查 tracked worktree 干净后执行 `git pull --ff-only`、`bun install --frozen-lockfile`、加载 `.deploy/.env.docker`、Prisma generate、Nuxt build，并通过本地隐藏输入的 sudo 密码远端重启 `app` 容器。
+- `scripts/deploy.mjs` 改为开发服务器 source 模式快速同步入口：默认 SSH 到 `arch` 的 `/home/notnotype/composes/neuro-book`，检查 tracked worktree 干净后执行 `git pull --ff-only`、`bun install --frozen-lockfile`、加载 `.deploy/.env.docker`、Prisma generate、Nuxt build，并通过本地隐藏输入的 sudo 密码在远端做一次 `sudo -v` 校验后重启 `app` 容器。
+- release-only GitHub Actions 改用 `docker/metadata-action` 生成 GHCR tag / OCI labels，并启用 GitHub Actions buildx cache。
 - README 增加常用部署入口说明，区分 `neuro-book-deploy`、`bun scripts/deploy.mjs` 和 `node scripts/publish-ghcr-image.mjs` 的职责，并补充 source 模式常见故障排查。
 
 ## Decisions
 
 - Redis 暂不加入 Compose 默认服务。
 - `config.yaml` 是运行时可写配置文件；设置页可以动态添加或更新 Provider，真实 key 直接写入该文件。
-- 已提交过的 token 视为泄露，需要用户轮换；清理 Git 历史不在本次默认改动内。
+- 当前主线历史已移除曾提交过的真实 `config.yaml`；已暴露过的 token 仍需要用户轮换，旧 clone、fork、缓存或本地临时 worktree 仍可能保留旧对象。
 
 ## Files Changed
 
@@ -94,4 +95,4 @@
 
 - 在有 Docker 的机器上执行 Compose config/build/up 验证。
 - 轮换所有曾出现在历史 `config.yaml` 中的模型 Provider token。
-- 如需彻底移除历史泄露内容，单独规划 Git history rewrite。
+- 如需让远端公开仓库也完成清理，需要把重写后的 `master` 用 `git push --force-with-lease origin master` 推送到 GitHub，并让其他 clone 重新同步。

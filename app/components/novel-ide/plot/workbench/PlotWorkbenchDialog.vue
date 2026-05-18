@@ -16,7 +16,7 @@ import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue
 import type {WorkbenchManualRef} from "nbook/app/components/novel-ide/plot/workbench/plot-workbench.types";
 
 type WorkbenchInlineRefKind = "content" | "thread" | "scene" | "plot";
-type WorkbenchInlineRefSource = "thread" | "scene" | "plot";
+type WorkbenchInlineRefSource = "scene";
 type WorkbenchInlineRef = {
     id: string;
     kind: WorkbenchInlineRefKind;
@@ -36,7 +36,6 @@ const props = defineProps<{
     selectedThreadId: string | null;
     selectedSceneId: string | null;
     selectedPlotId: string | null;
-    plotRefs: Record<string, WorkbenchManualRef[]>;
     pinnedThreadIds: string[];
 }>();
 
@@ -53,10 +52,11 @@ const emit = defineEmits<{
     (e: "autoSortScenes", sceneIds: string[]): void;
     (e: "reorderScenes", sceneIds: string[]): void;
     (e: "reorderPlots", payload: {sceneId: string; plotIds: string[]}): void;
+    (e: "createPlot", sceneId: string): void;
+    (e: "deletePlot", plotId: string): void;
     (e: "updateThread", threadId: string, patch: Partial<PlotThreadPanelThread>): void;
     (e: "updateScene", sceneId: string, patch: Partial<PlotThreadPanelScene>): void;
     (e: "updatePlot", plotId: string, patch: Partial<PlotThreadPanelPlot>): void;
-    (e: "updatePlotRefs", plotId: string, refs: WorkbenchManualRef[]): void;
 }>();
 
 const MARKDOWN_LINK_PATTERN = /\[([^\]]+)]\(([^)]+)\)/g;
@@ -88,20 +88,7 @@ const selectedPhase = computed(() => {
     return props.phases.find((phase) => phase.id === selectedThread.value?.phaseId) ?? props.phases[0] ?? null;
 });
 const effectiveRefs = computed<WorkbenchInlineRef[]>(() => {
-    if (inspectorMode.value === "thread" && selectedThread.value) {
-        return extractWorkbenchInlineRefs("thread", selectedThread.value.id, [
-            ["summary", selectedThread.value.summary],
-            ["writingTip", selectedThread.value.writingTip ?? ""],
-        ]);
-    }
-    if (inspectorMode.value === "plot" && selectedPlot.value) {
-        return extractWorkbenchInlineRefs("plot", selectedPlot.value.id, [
-            ["summary", selectedPlot.value.summary],
-            ["effect", selectedPlot.value.effect ?? ""],
-            ["writingTip", selectedPlot.value.writingTip ?? ""],
-        ]);
-    }
-    if (!selectedScene.value) {
+    if (inspectorMode.value !== "scene" || !selectedScene.value) {
         return [];
     }
     return extractWorkbenchInlineRefs("scene", selectedScene.value.id, [
@@ -112,11 +99,8 @@ const effectiveRefs = computed<WorkbenchInlineRef[]>(() => {
 });
 const refTargetOptions = computed(() => buildRefTargetOptions());
 const manualRefs = computed<WorkbenchManualRef[]>(() => {
-    if (inspectorMode.value === "thread") {
-        return toManualRefs(selectedThread.value?.refs ?? []);
-    }
-    if (inspectorMode.value === "plot") {
-        return selectedPlot.value ? (props.plotRefs[selectedPlot.value.id] ?? []) : [];
+    if (inspectorMode.value !== "scene") {
+        return [];
     }
     return toManualRefs(selectedScene.value?.refs ?? []);
 });
@@ -170,15 +154,7 @@ function editPlot(plotId: string): void {
  * 更新当前对象的手动 refs。
  */
 function updateManualRefs(refs: WorkbenchManualRef[]): void {
-    if (inspectorMode.value === "thread" && selectedThread.value) {
-        emit("updateThread", selectedThread.value.id, {refs: toPanelRefs(refs)});
-        return;
-    }
-    if (inspectorMode.value === "plot" && selectedPlot.value) {
-        emit("updatePlotRefs", selectedPlot.value.id, refs);
-        return;
-    }
-    if (selectedScene.value) {
+    if (inspectorMode.value === "scene" && selectedScene.value) {
         emit("updateScene", selectedScene.value.id, {refs: toPanelRefs(refs)});
     }
 }
@@ -317,10 +293,6 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
                     <span>刚刚</span>
                 </span>
 
-                <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 text-[12px] font-semibold text-amber-700 hover:bg-amber-500/15 dark:text-amber-300">
-                    <span class="i-lucide-save h-3.5 w-3.5"></span>
-                    保存
-                </button>
                 <button type="button" class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('update:modelValue', false)">
                     <span class="i-lucide-x h-4 w-4"></span>
                 </button>
@@ -371,7 +343,8 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
                     @select-plot="selectPlot"
                     @edit-scene="editScene"
                     @edit-plot="editPlot"
-                    @delete-plot="selectPlot"
+                    @delete-plot="emit('deletePlot', $event)"
+                    @create-plot="emit('createPlot', $event)"
                     @create-scene="emit('createScene', $event)"
                     @auto-sort-scenes="emit('autoSortScenes', $event)"
                     @reorder-scenes="emit('reorderScenes', $event)"

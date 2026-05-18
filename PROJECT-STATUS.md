@@ -4,7 +4,7 @@
 
 neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心逐步转向文件化 workspace，并围绕 Markdown Studio、引用系统、剧情结构、多 Agent 协作，以及现在这轮全站鉴权、管理员后台和主界面账户入口补齐核心体验。
 
-部署侧已补充 Docker Compose 单机生产方案：默认 `app + postgres`，运行时挂载 `workspace/` 与 `.deploy/config.yaml`。`config.yaml` 是应用可写的 Provider 配置真值源，真实文件不再作为仓库文件维护，已提交过的模型 Provider token 应视为泄露并轮换。本轮进一步把部署入口收敛成 Node CLI + 远程 `npx` 交互脚本，并补齐 `config.example.yaml` 的注释化说明；针对低内存服务器 Nuxt build OOM，已补充本地 GHCR 发布脚本和 release-only GitHub Actions 镜像发布路径，且 `neuro-book-deploy` 只保留 `ghcr` 与 `source` 两种模式，部署生成物统一落 `.deploy/` 避免 `git pull` 冲突；`scripts/deploy.mjs` 已改为 `arch` 开发服务器 source 模式快速同步入口，通过 SSH 拉取最新代码、宿主机构建并用 sudo 重启 app 容器；同时加入 `auth.enabled` 全站鉴权开关，默认开启，关闭时整站与管理员接口都退化为无遮罩访问。
+部署侧已补充 Docker Compose 单机生产方案：默认 `app + postgres`，运行时挂载 `workspace/` 与 `.deploy/config.yaml`。`config.yaml` 是应用可写的 Provider 配置真值源，真实文件不再作为仓库文件维护，主线历史已移除曾提交过的真实 `config.yaml`，已暴露过的模型 Provider token 仍应视为泄露并轮换。本轮进一步把部署入口收敛成 Node CLI + 远程 `npx` 交互脚本，并补齐 `config.example.yaml` 的注释化说明；针对低内存服务器 Nuxt build OOM，已补充本地 GHCR 发布脚本和 release-only GitHub Actions 镜像发布路径，且 `neuro-book-deploy` 只保留 `ghcr` 与 `source` 两种模式，部署生成物统一落 `.deploy/` 避免 `git pull` 冲突；`scripts/deploy.mjs` 已改为 `arch` 开发服务器 source 模式快速同步入口，通过 SSH 拉取最新代码、宿主机构建并用一次性 sudo 校验重启 app 容器；release-only 镜像工作流已补充 OCI metadata 和 buildx cache；同时加入 `auth.enabled` 全站鉴权开关，默认开启，关闭时整站与管理员接口都退化为无遮罩访问。
 
 本文档记录仓库级现状。每次重大任务完成后，需要同步更新本文档和对应 `docs/tasks/<task-slug>/README.md`。
 
