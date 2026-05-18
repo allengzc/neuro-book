@@ -21,7 +21,7 @@ neuro-book 是一个面向长篇小说创作的本地工作台。
 bun run dev
 bun run typecheck
 bun run test
-bun run auth:create-admin <username> <password>
+bun run auth:create-admin <username>
 ```
 
 ## 全站鉴权与管理员后台
@@ -37,15 +37,18 @@ bun run auth:create-admin <username> <password>
 首次部署后先创建管理员：
 
 ```powershell
-bun run auth:create-admin admin your-password
+bun run auth:create-admin admin
 ```
 
-也可以使用环境变量创建：
+脚本会隐藏输入密码，避免密码进入 shell history。不要把密码作为命令行参数传入。
+
+非交互环境可以使用环境变量创建；只建议在 CI secret 或一次性 shell 会话中使用：
 
 ```powershell
 $env:AUTH_ADMIN_USERNAME="admin"
-$env:AUTH_ADMIN_PASSWORD="your-password"
+$env:AUTH_ADMIN_PASSWORD="<从 secret 注入的密码>"
 bun run auth:create-admin
+Remove-Item Env:AUTH_ADMIN_PASSWORD
 ```
 
 鉴权开关写在 `config.yaml` 顶层：

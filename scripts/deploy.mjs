@@ -31,7 +31,7 @@ await run("bun run nuxt:build", "nuxt:build");
 
 console.log("\n📦 Step 2: 打包");
 await run(
-    `tar -czf ${archive} .output prisma prisma.config.ts server/generated/prisma scripts/docker-entrypoint.sh package.json bun.lock Dockerfile.runner`,
+    `tar -czf ${archive} .output prisma prisma.config.ts server shared scripts package.json bun.lock Dockerfile.runner tsconfig.json`,
     "tar"
 );
 
