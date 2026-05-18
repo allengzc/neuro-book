@@ -155,7 +155,7 @@ function uploadRemoteScript({host, script, remoteScriptPath}) {
 /** 执行远端临时脚本，并通过 stdin 向远端脚本传递 sudo 密码。 */
 function runRemoteScript({host, remoteScriptPath, sudoPassword}) {
     return new Promise((resolvePromise, rejectPromise) => {
-        const child = spawn("ssh", [host, `sh ${shellQuote(remoteScriptPath)}; status=$?; rm -f ${shellQuote(remoteScriptPath)}; exit $status`], {
+        const child = spawn("ssh", [host, `sh ${shellQuote(remoteScriptPath)}; deploy_exit_code=$?; rm -f ${shellQuote(remoteScriptPath)}; exit $deploy_exit_code`], {
             stdio: ["pipe", "inherit", "inherit"],
         });
 
