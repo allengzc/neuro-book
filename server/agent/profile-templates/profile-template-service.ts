@@ -12,7 +12,10 @@ import type {
     ProfileTemplatePreviewMessageDto,
     ProfileTemplatePropValue,
     ProfileTemplateSummaryDto,
+    ProfileTemplateVariableGroupDto,
+    ProfileTemplateVariableItemDto,
 } from "nbook/shared/dto/profile-template.dto";
+import type {AgentVariableScope, JsonValue} from "nbook/server/agent/types";
 
 const TEMPLATE_DIR = resolve(process.cwd(), "server/agent/profiles/templates");
 const require = createRequire(import.meta.url);
@@ -33,6 +36,11 @@ const COMPONENT_NAMES = new Set([
 type ParsedTemplate = {
     root: ProfileTemplateNodeDto | null;
     issues: ProfileTemplateIssueDto[];
+};
+
+type PreviewContext = {
+    scope?: AgentVariableScope;
+    inputOverrides?: Record<string, JsonValue>;
 };
 
 /**
@@ -113,18 +121,25 @@ export function validateProfileTemplate(input: {
 export function previewProfileTemplate(input: {
     source?: string;
     root?: ProfileTemplateNodeDto;
+    scope?: AgentVariableScope;
+    inputOverrides?: Record<string, JsonValue>;
 }): ProfileTemplatePreviewDto {
     const source = input.source ?? generateProfileTemplateSource("preview-template", input.root);
     const parsed = parseProfileTemplateSource(source);
     const messages: ProfileTemplatePreviewMessageDto[] = [];
+    const previewContext = {
+        scope: input.scope,
+        inputOverrides: input.inputOverrides,
+    };
     if (parsed.root && !parsed.issues.some((issue) => issue.severity === "error")) {
-        messages.push(...collectPreviewMessages(parsed.root));
+        messages.push(...collectPreviewMessages(parsed.root, previewContext));
     }
     return {
         source,
         root: parsed.root,
         issues: parsed.issues,
         messages,
+        variables: buildVariableCatalog(previewContext),
     };
 }
 
@@ -686,27 +701,39 @@ function validateTemplateTree(root: ProfileTemplateNodeDto | null, issues: Profi
 /**
  * 收集轻量预览消息。
  */
-function collectPreviewMessages(node: ProfileTemplateNodeDto): ProfileTemplatePreviewMessageDto[] {
+function collectPreviewMessages(node: ProfileTemplateNodeDto, context: PreviewContext): ProfileTemplatePreviewMessageDto[] {
     if (node.type === "Message") {
+        const source = node.props.source === "input" ? "input" : null;
+        const ownText = source === "input" && !node.text
+            ? readVariableAsText("input.prompt", context)
+            : replaceVariableTokens(renderPreviewMessageText(node), context);
         return [{
             role: String(node.props.role ?? "system"),
             text: [
-                node.text ? renderNodeText(node) : "",
-                ...node.children.flatMap((child) => collectPreviewMessages(child).map((message) => message.text)),
+                ownText,
+                ...node.children.flatMap((child) => collectPreviewMessages(child, context).map((message) => message.text)),
             ].filter(Boolean).join(""),
-            source: node.props.source === "input" ? "input" : null,
+            source,
         }];
     }
     if (node.type === "SkillCatalog") {
-        return [{role: "system", text: String(node.props.text ?? "{{skillCatalogText}}"), source: null}];
+        return [{role: "system", text: replaceVariableTokens(String(node.props.text ?? "{{skillCatalogText}}"), context), source: null}];
     }
     if (node.type === "ActivatedSkills") {
-        return [{role: "human", text: String(node.props.text ?? "{{activatedSkillsText}}"), source: null}];
+        return [{role: "human", text: replaceVariableTokens(String(node.props.text ?? "{{activatedSkillsText}}"), context), source: null}];
     }
     if (node.type === "Watch") {
-        return [{role: "system", text: String(node.props.previewText ?? `Watch: ${String(node.props.path ?? "")}`), source: null}];
+        const text = String(node.props.previewText ?? `Watch: ${String(node.props.path ?? "")}`);
+        return [{role: "system", text: replaceVariableTokens(text, context), source: null}];
     }
-    return node.children.flatMap((child) => collectPreviewMessages(child));
+    return node.children.flatMap((child) => collectPreviewMessages(child, context));
+}
+
+/**
+ * 渲染预览消息正文。预览关心最终消息内容，不复用 TSX 源码生成转义规则。
+ */
+function renderPreviewMessageText(node: ProfileTemplateNodeDto): string {
+    return node.text ?? "";
 }
 
 /**
@@ -823,6 +850,82 @@ function renderNodeText(node: ProfileTemplateNodeDto): string {
 }
 
 /**
+ * 预览阶段替换常见变量 token。
+ */
+function replaceVariableTokens(text: string, context: PreviewContext): string {
+    return text.replace(/\{\{([^{}]+)}}/g, (_match, rawPath: string) => {
+        return readVariableAsText(rawPath.trim(), context);
+    });
+}
+
+/**
+ * 将变量路径读成适合展示在 prompt 预览里的文本。
+ */
+function readVariableAsText(path: string, context: PreviewContext): string {
+    const value = readPreviewVariable(path, context);
+    if (value === undefined || value === null) {
+        return "";
+    }
+    if (typeof value === "string") {
+        return value;
+    }
+    return JSON.stringify(value, null, 2);
+}
+
+/**
+ * 读取预览上下文中的变量值。
+ */
+function readPreviewVariable(path: string, context: PreviewContext): JsonValue | undefined {
+    if (path in (context.inputOverrides ?? {})) {
+        return context.inputOverrides?.[path];
+    }
+    if (path === "input.text") {
+        return context.inputOverrides?.["input.prompt"] ?? readPathValue(context.scope, "input.prompt");
+    }
+    if (path === "runtime.thread.id" || path === "runtime.session.id") {
+        return readPathValue(context.scope, "agent.thread.id");
+    }
+    if (path === "runtime.user.id" || path === "skillCatalogText" || path === "activatedSkillsText" || path === "activatedSkills") {
+        return context.inputOverrides?.[path] ?? "";
+    }
+    return readPathValue(context.scope, path);
+}
+
+/**
+ * 按点路径读取 JSON 兼容值。
+ */
+function readPathValue(source: unknown, path: string): JsonValue | undefined {
+    if (!source) {
+        return undefined;
+    }
+    const normalizedPath = path.startsWith("scope.") ? path.slice("scope.".length) : path;
+    let current: unknown = source;
+    for (const segment of normalizedPath.split(".")) {
+        if (!current || typeof current !== "object" || Array.isArray(current) || !(segment in current)) {
+            return undefined;
+        }
+        current = (current as Record<string, unknown>)[segment];
+    }
+    return isJsonValue(current) ? current : JSON.parse(JSON.stringify(current)) as JsonValue;
+}
+
+/**
+ * 判断一个值是否可安全放进 JSON DTO。
+ */
+function isJsonValue(value: unknown): value is JsonValue {
+    if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        return true;
+    }
+    if (Array.isArray(value)) {
+        return value.every(isJsonValue);
+    }
+    if (typeof value === "object") {
+        return Object.values(value).every(isJsonValue);
+    }
+    return false;
+}
+
+/**
  * 文本规范化。
  */
 function normalizeText(text: string): string {
@@ -885,39 +988,56 @@ function toPascalCase(value: string): string {
 /**
  * 变量插入面板数据。
  */
-function buildVariableCatalog(): ProfileTemplateDetailDto["variables"] {
-    return [
+function buildVariableCatalog(context: PreviewContext = {}): ProfileTemplateDetailDto["variables"] {
+    const item = (
+        label: string,
+        value: string,
+        path: string,
+        editable = false,
+    ): ProfileTemplateVariableItemDto => ({
+        label,
+        value,
+        path,
+        editable,
+        currentValue: readPreviewVariable(path, context) ?? null,
+    });
+    const groups: ProfileTemplateVariableGroupDto[] = [
         {
             group: "input",
             items: [
-                {label: "用户输入", value: "{{input.text}}"},
-                {label: "输入文件", value: "{{input.files}}"},
-                {label: "输入元数据", value: "{{input.metadata}}"},
+                item("用户输入", "{{input.prompt}}", "input.prompt", true),
+                item("用户输入（兼容）", "{{input.text}}", "input.text", true),
+                item("输入文件", "{{input.files}}", "input.files"),
+                item("输入元数据", "{{input.metadata}}", "input.metadata"),
             ],
         },
         {
             group: "scope",
             items: [
-                {label: "当前时间", value: "{{scope.time.now}}"},
-                {label: "章节摘要", value: "{{scope.chapter.summary}}"},
-                {label: "工作区", value: "{{scope.studio.workspace}}"},
-                {label: "变更类型", value: "{{scope.change.type}}"},
+                item("工作区", "{{scope.studio.workspace}}", "scope.studio.workspace"),
+                item("当前章节", "{{scope.studio.currentChapterLabel}}", "scope.studio.currentChapterLabel"),
+                item("剧情线程", "{{scope.studio.extra.selectedStoryThreadId}}", "scope.studio.extra.selectedStoryThreadId"),
+                item("剧情场景", "{{scope.studio.extra.selectedStorySceneId}}", "scope.studio.extra.selectedStorySceneId"),
+                item("任务状态", "{{scope.agent.tasks}}", "scope.agent.tasks"),
+                item("关联 Subagent", "{{scope.agent.subagents}}", "scope.agent.subagents"),
             ],
         },
         {
             group: "skill",
             items: [
-                {label: "激活技能文本", value: "{{activatedSkillsText}}"},
-                {label: "激活技能", value: "{{activatedSkills}}"},
+                item("激活技能文本", "{{activatedSkillsText}}", "activatedSkillsText"),
+                item("激活技能", "{{activatedSkills}}", "activatedSkills"),
             ],
         },
         {
             group: "runtime",
             items: [
-                {label: "用户 ID", value: "{{runtime.user.id}}"},
-                {label: "会话 ID", value: "{{runtime.session.id}}"},
+                item("线程 ID", "{{runtime.thread.id}}", "runtime.thread.id"),
+                item("用户 ID", "{{runtime.user.id}}", "runtime.user.id"),
+                item("会话 ID", "{{runtime.session.id}}", "runtime.session.id"),
             ],
         },
     ];
+    return groups;
 }
 

@@ -14,10 +14,13 @@ import MarkdownSourceEditor from "nbook/app/components/markdown-studio/MarkdownS
 import ProfileTemplateDropZone from "nbook/app/components/profile-template-editor/ProfileTemplateDropZone.vue";
 import ProfileTemplateLibraryItem from "nbook/app/components/profile-template-editor/ProfileTemplateLibraryItem.vue";
 import ProfileTemplateNodeView from "nbook/app/components/profile-template-editor/ProfileTemplateNodeView.vue";
+import {buildNovelIdeClientVariables} from "nbook/app/components/novel-ide/agent/client-variables";
 import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
+import {useAgentApi} from "nbook/app/composables/useAgentApi";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {DEFAULT_MONACO_EDITOR_PREFERENCES} from "nbook/shared/editor-workbench";
 import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
+import {AGENT_CLIENT_VARIABLES_HEADER, type AgentThreadSummaryDto} from "nbook/shared/dto/agent-chat.dto";
 import type {
     ProfileTemplateExpressionValue,
     ProfileTemplateDetailDto,
@@ -40,6 +43,7 @@ type ComponentLibraryItem = {
 
 type ComponentLibraryGroup = "all" | "sets" | "messages" | "flow" | "variables" | "privileged";
 type InspectorTab = "props" | "variables" | "runtime";
+type StructuredTextMode = "rich" | "source";
 type DragStartPayload = DragDropProviderEmits["dragStart"][0];
 type DragOverPayload = DragDropProviderEmits["dragOver"][0];
 type DragEndPayload = DragDropProviderEmits["dragEnd"][0];
@@ -74,6 +78,19 @@ type ActiveDragSource = ProfileTemplateNodeDragData | (ProfileTemplateLibraryDra
 type HistoryEntry = {
     root: ProfileTemplateNodeDto;
     selectedNodeId: string;
+};
+
+type PreviewVariableItem = {
+    label: string;
+    value: string;
+    path: string;
+    currentValue?: unknown;
+    editable: boolean;
+};
+
+type PreviewVariableGroup = {
+    group: string;
+    items: PreviewVariableItem[];
 };
 
 type LibraryVariableItem = {
@@ -128,6 +145,14 @@ const previewing = ref(false);
 const previewDialogOpen = ref(false);
 const previewUpdatedAt = ref("");
 const statusText = ref("");
+const threads = ref<AgentThreadSummaryDto[]>([]);
+const selectedThreadId = ref("");
+const loadingThreads = ref(false);
+const previewVariableGroups = ref<PreviewVariableGroup[]>([]);
+const previewInputOverrides = ref<Record<string, string>>({
+    "input.prompt": "",
+});
+const messagePreviewModes = ref<Record<string, StructuredTextMode>>({});
 const componentSearch = ref("");
 const activeComponentGroup = ref<ComponentLibraryGroup>("all");
 const inspectorTab = ref<InspectorTab>("props");
@@ -145,6 +170,11 @@ const selectedPropEntries = computed(() => selectedNode.value ? Object.entries(s
 const templateOptions = computed(() => templates.value.map((template) => ({
     value: template.name,
     label: template.fileName,
+})));
+const threadOptions = computed(() => threads.value.map((thread) => ({
+    value: thread.id,
+    label: thread.title || thread.id,
+    description: thread.summary || thread.lastMessagePreview || thread.status,
 })));
 const issueCount = computed(() => issues.value.filter((issue) => issue.severity === "error").length);
 const sourceSnippet = computed(() => root.value ? generatePreviewNodeSource(root.value) : "");
@@ -189,8 +219,15 @@ const filteredComponentGroups = computed(() => {
     }));
 });
 
-const variableGroups = computed(() => detail.value?.variables ?? []);
-const runtimeVariableGroups = computed(() => variableGroups.value.filter((group) => ["input", "scope", "skill", "runtime"].includes(group.group)));
+const variableGroups = computed<PreviewVariableGroup[]>(() => {
+    if (previewVariableGroups.value.length > 0) {
+        return previewVariableGroups.value;
+    }
+    return mapPreviewVariableGroups(detail.value?.variables ?? []);
+});
+const runtimeVariableGroups = computed<PreviewVariableGroup[]>(() => {
+    return variableGroups.value.filter((group) => ["input", "scope", "skill", "runtime"].includes(group.group));
+});
 const inspectorTabs: Array<{value: InspectorTab; label: string}> = [
     {value: "props", label: "属性面板"},
     {value: "variables", label: "变量面板"},
@@ -233,6 +270,25 @@ const sourceEditorPreferences = {
     minimapEnabled: false,
     wordWrap: false,
 };
+const agentApi = useAgentApi({getClientVariables: buildClientVariables});
+
+/**
+ * 构造用于同步线程 scope 的 IDE 客户端变量。
+ */
+function buildClientVariables() {
+    return buildNovelIdeClientVariables({
+        activePanel: novelIdeStore.activeLeftTab,
+        theme: theme.value,
+        novelId: novelIdeStore.currentNovelId,
+        workspace: novelIdeStore.currentWorkspaceRoot || null,
+        selectedFilePath: novelIdeStore.selectedFilePath || null,
+        selectedStoryThreadId: novelIdeStore.selectedStoryThreadId,
+        selectedStorySceneId: novelIdeStore.selectedStorySceneId,
+        previousSelectedFilePath: null,
+        fileChangedSinceLastSend: false,
+        selectionVersion: 0,
+    });
+}
 
 /**
  * 加载模板列表。
@@ -242,6 +298,32 @@ async function loadTemplates(): Promise<void> {
     if (!templates.value.some((item) => item.name === selectedTemplate.value)) {
         selectedTemplate.value = templates.value[0]?.name ?? "";
     }
+}
+
+/**
+ * 加载 leader 线程，默认选择最近一条用于预览变量。
+ */
+async function loadThreads(): Promise<void> {
+    loadingThreads.value = true;
+    try {
+        threads.value = await agentApi.listThreads("leader");
+        if (!selectedThreadId.value || !threads.value.some((thread) => thread.id === selectedThreadId.value)) {
+            selectedThreadId.value = threads.value[0]?.id ?? "";
+        }
+        await syncSelectedThreadScope();
+    } finally {
+        loadingThreads.value = false;
+    }
+}
+
+/**
+ * 通过线程详情接口同步当前 IDE 客户端变量到线程 scope。
+ */
+async function syncSelectedThreadScope(): Promise<void> {
+    if (!selectedThreadId.value) {
+        return;
+    }
+    await agentApi.getThreadDetail(selectedThreadId.value);
 }
 
 /**
@@ -257,6 +339,7 @@ async function loadTemplate(): Promise<void> {
         detail.value = nextDetail;
         root.value = nextDetail.root ? cloneNode(nextDetail.root) : null;
         issues.value = nextDetail.issues;
+        previewVariableGroups.value = mapPreviewVariableGroups(nextDetail.variables);
         selectedNodeId.value = nextDetail.root ? findFirstEditableNodeId(nextDetail.root) : "";
         previewMessages.value = [];
         undoStack.value = [];
@@ -278,12 +361,19 @@ async function previewTemplate(): Promise<void> {
     previewing.value = true;
     statusText.value = "正在生成 Prompt 预览...";
     try {
+        await syncSelectedThreadScope();
         const result = await $fetch<ProfileTemplatePreviewDto>("/api/agent/profile-templates/preview", {
             method: "POST",
-            body: {root: root.value},
+            headers: buildAgentPreviewHeaders(),
+            body: {
+                root: root.value,
+                threadId: selectedThreadId.value || undefined,
+                inputOverrides: normalizePreviewInputOverrides(),
+            },
         });
         issues.value = result.issues;
         previewMessages.value = result.messages;
+        previewVariableGroups.value = mapPreviewVariableGroups(result.variables);
         const timeText = new Date().toLocaleTimeString("zh-CN", {hour12: false});
         previewUpdatedAt.value = timeText;
         statusText.value = result.issues.some((issue) => issue.severity === "error")
@@ -300,6 +390,28 @@ async function previewTemplate(): Promise<void> {
     } finally {
         previewing.value = false;
     }
+}
+
+/**
+ * 构造 profile 预览请求头。
+ */
+function buildAgentPreviewHeaders(): HeadersInit {
+    const json = JSON.stringify(buildClientVariables());
+    const bytes = new TextEncoder().encode(json);
+    const binString = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
+    return {
+        [AGENT_CLIENT_VARIABLES_HEADER]: btoa(binString),
+    };
+}
+
+/**
+ * 过滤空白输入覆盖，避免空值误伤真实线程输入。
+ */
+function normalizePreviewInputOverrides(): Record<string, string> {
+    return Object.fromEntries(
+        Object.entries(previewInputOverrides.value)
+            .filter(([, value]) => value.trim().length > 0),
+    );
 }
 
 /**
@@ -482,6 +594,79 @@ function insertVariable(value: string): void {
     }
     refreshRootView();
     void previewTemplate();
+}
+
+/**
+ * 更新预览调试中的可编辑变量。
+ */
+function updatePreviewVariable(item: PreviewVariableItem, value: string): void {
+    previewInputOverrides.value = {
+        ...previewInputOverrides.value,
+        [item.path]: value,
+        ...(item.path === "input.text" ? {"input.prompt": value} : {}),
+        ...(item.path === "input.prompt" ? {"input.text": value} : {}),
+    };
+}
+
+/**
+ * 变量当前值展示。
+ */
+function formatVariableValue(value: PreviewVariableItem["currentValue"]): string {
+    if (value === undefined || value === null) {
+        return "未设置";
+    }
+    if (typeof value === "string") {
+        return value || "空字符串";
+    }
+    return JSON.stringify(value, null, 2);
+}
+
+/**
+ * 读取变量在预览编辑器中的当前输入。
+ */
+function previewVariableInputValue(item: PreviewVariableItem): string {
+    const draft = previewInputOverrides.value[item.path];
+    if (draft !== undefined) {
+        return draft;
+    }
+    const value = item.currentValue;
+    if (typeof value === "string") {
+        return value;
+    }
+    return value === null || value === undefined ? "" : JSON.stringify(value, null, 2);
+}
+
+/**
+ * 更新单条预览消息的 Markdown/源码模式。
+ */
+function updateMessagePreviewMode(index: number, mode: StructuredTextMode): void {
+    messagePreviewModes.value = {
+        ...messagePreviewModes.value,
+        [String(index)]: mode,
+    };
+}
+
+/**
+ * 获取单条预览消息的展示模式。
+ */
+function messagePreviewMode(index: number): StructuredTextMode {
+    return messagePreviewModes.value[String(index)] ?? "rich";
+}
+
+/**
+ * 将服务端 DTO 映射为页面展示用的浅类型，避免 Vue 模板递归展开 z.json 类型。
+ */
+function mapPreviewVariableGroups(groups: Array<{group: string; items: Array<{label: string; value: string; path?: string; currentValue?: unknown; editable?: boolean}>}>): PreviewVariableGroup[] {
+    return groups.map((group) => ({
+        group: group.group,
+        items: group.items.map((item) => ({
+            label: item.label,
+            value: item.value,
+            path: item.path ?? item.value.replace(/^\{\{/, "").replace(/}}$/, ""),
+            currentValue: item.currentValue,
+            editable: item.editable ?? false,
+        })),
+    }));
 }
 
 /**
@@ -1196,9 +1381,19 @@ watch(selectedTemplate, () => {
     void loadTemplate();
 });
 
+watch(selectedThreadId, async () => {
+    await syncSelectedThreadScope();
+    if (previewDialogOpen.value) {
+        await previewTemplate();
+    }
+});
+
 onMounted(async () => {
     mountThemeHost(themeHostRef.value);
-    await loadTemplates();
+    await Promise.all([
+        loadTemplates(),
+        loadThreads(),
+    ]);
     await loadTemplate();
 });
 </script>
@@ -1497,7 +1692,10 @@ onMounted(async () => {
                             <section v-for="group in variableGroups" :key="group.group">
                                 <div class="mb-2 text-xs font-semibold text-[var(--text-secondary)]">{{ group.group }}</div>
                                 <div class="flex flex-wrap gap-2">
-                                    <button v-for="item in group.items" :key="item.value" class="variable-chip" @click="insertVariable(item.value)">{{ item.value }}</button>
+                                    <button v-for="item in group.items" :key="item.value" class="variable-chip" @click="insertVariable(item.value)">
+                                        <span>{{ item.value }}</span>
+                                        <span class="variable-chip-value">{{ formatVariableValue(item.currentValue) }}</span>
+                                    </button>
                                 </div>
                             </section>
                         </div>
@@ -1562,14 +1760,50 @@ onMounted(async () => {
 
                     <section class="preview-section">
                         <div class="preview-section-title">
+                            <span class="i-lucide-message-circle h-3.5 w-3.5"></span>
+                            <span>线程上下文</span>
+                        </div>
+                        <FormSelect
+                            v-model="selectedThreadId"
+                            :options="threadOptions"
+                            :placeholder="loadingThreads ? '加载线程中...' : '选择 leader 线程'"
+                            dropdown-direction="down"
+                        />
+                        <div class="mt-2 text-[11px] leading-5 text-[var(--text-muted)]">变量当前值来自所选线程 scope；切换线程后会重新生成预览。</div>
+                    </section>
+
+                    <section class="preview-section">
+                        <div class="preview-section-title">
                             <span class="i-lucide-braces h-3.5 w-3.5"></span>
                             <span>变量</span>
                         </div>
                         <div class="space-y-3">
                             <section v-for="group in runtimeVariableGroups" :key="`dialog-variable-${group.group}`">
                                 <div class="mb-2 text-[11px] font-semibold text-[var(--text-secondary)]">{{ group.group }}</div>
-                                <div class="flex flex-wrap gap-2">
-                                    <button v-for="item in group.items" :key="item.value" class="variable-chip" @click="insertVariable(item.value)">{{ item.value }}</button>
+                                <div class="space-y-2">
+                                    <div v-for="item in group.items" :key="item.value" class="preview-variable-card">
+                                        <div class="flex min-w-0 items-start justify-between gap-2">
+                                            <div class="min-w-0">
+                                                <div class="text-[11px] font-semibold text-[var(--text-main)]">{{ item.label }}</div>
+                                                <button class="variable-chip mt-1" @click="insertVariable(item.value)">{{ item.value }}</button>
+                                            </div>
+                                            <span v-if="item.editable" class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--accent-text)]">可编辑</span>
+                                        </div>
+                                        <StructuredTextEditor
+                                            v-if="item.editable"
+                                            class="mt-2"
+                                            :model-value="previewVariableInputValue(item)"
+                                            :min-height="92"
+                                            :max-height="180"
+                                            size="sm"
+                                            default-mode="rich"
+                                            :show-format-toolbar="false"
+                                            :theme="theme"
+                                            placeholder="输入本次预览使用的变量值"
+                                            @update:model-value="updatePreviewVariable(item, $event)"
+                                        />
+                                        <pre v-else class="preview-variable-value">{{ formatVariableValue(item.currentValue) }}</pre>
+                                    </div>
                                 </div>
                             </section>
                         </div>
@@ -1604,9 +1838,24 @@ onMounted(async () => {
                                     <span class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-0.5 text-[11px] font-semibold text-[var(--accent-text)]">{{ message.role }}</span>
                                     <span v-if="message.source" class="text-[11px] text-[var(--text-muted)]">{{ message.source }}</span>
                                 </div>
-                                <span class="text-[11px] text-[var(--text-muted)]">#{{ index + 1 }}</span>
+                                <div class="flex items-center gap-2">
+                                    <div class="message-mode-switch">
+                                        <button :class="messagePreviewMode(index) === 'rich' ? 'active' : ''" @click="updateMessagePreviewMode(index, 'rich')">渲染</button>
+                                        <button :class="messagePreviewMode(index) === 'source' ? 'active' : ''" @click="updateMessagePreviewMode(index, 'source')">源码</button>
+                                    </div>
+                                    <span class="text-[11px] text-[var(--text-muted)]">#{{ index + 1 }}</span>
+                                </div>
                             </div>
-                            <pre class="preview-message-text">{{ message.text }}</pre>
+                            <StructuredTextEditor
+                                :model-value="message.text"
+                                readonly
+                                :mode="messagePreviewMode(index)"
+                                :min-height="130"
+                                :max-height="360"
+                                :show-toolbar="false"
+                                :theme="theme"
+                                size="sm"
+                            />
                         </article>
                     </div>
                 </section>
@@ -1809,6 +2058,11 @@ onMounted(async () => {
 }
 
 .variable-chip {
+    display: inline-flex;
+    max-width: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
     border: 1px solid color-mix(in srgb, var(--accent-main) 30%, var(--border-color));
     border-radius: 5px;
     background: var(--accent-bg);
@@ -1817,6 +2071,16 @@ onMounted(async () => {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 11px;
     line-height: 1.4;
+}
+
+.variable-chip-value {
+    max-width: 180px;
+    overflow: hidden;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 10px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .variable-chip:hover {
@@ -1922,6 +2186,48 @@ onMounted(async () => {
     border-radius: 7px;
     background: var(--bg-input);
     padding: 10px;
+}
+
+.preview-variable-card {
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--bg-panel) 70%, var(--bg-input));
+    padding: 9px;
+}
+
+.preview-variable-value {
+    margin-top: 8px;
+    max-height: 110px;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: var(--text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+    line-height: 1.55;
+}
+
+.message-mode-switch {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-panel);
+    padding: 2px;
+}
+
+.message-mode-switch button {
+    height: 22px;
+    border-radius: 4px;
+    padding: 0 7px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.message-mode-switch button.active {
+    background: var(--bg-hover);
+    color: var(--text-main);
 }
 
 .preview-message-text {

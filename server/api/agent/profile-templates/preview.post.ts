@@ -1,3 +1,5 @@
+import {readClientVariablesHeader} from "nbook/server/agent/api";
+import {useAgentSystem} from "nbook/server/agent/http";
 import {PreviewProfileTemplateRequestDtoSchema} from "nbook/shared/dto/profile-template.dto";
 import {previewProfileTemplate} from "nbook/server/agent/profile-templates/profile-template-service";
 
@@ -6,5 +8,17 @@ import {previewProfileTemplate} from "nbook/server/agent/profile-templates/profi
  */
 export default defineEventHandler(async (event) => {
     const body = PreviewProfileTemplateRequestDtoSchema.parse(await readBody(event));
-    return previewProfileTemplate(body);
+    if (!body.threadId) {
+        return previewProfileTemplate(body);
+    }
+
+    const agentSystem = useAgentSystem();
+    const clientVariables = readClientVariablesHeader(event);
+    if (clientVariables) {
+        await agentSystem.syncClientVariables(body.threadId, clientVariables);
+    }
+    return previewProfileTemplate({
+        ...body,
+        scope: agentSystem.getThreadScope(body.threadId),
+    });
 });

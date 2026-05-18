@@ -108,6 +108,25 @@ export const ProfileTemplateSummaryDtoSchema = z.object({
 });
 
 /**
+ * 模板变量面板中的单个变量。
+ */
+export const ProfileTemplateVariableItemDtoSchema = z.object({
+    label: z.string().trim().min(1),
+    value: z.string().trim().min(1),
+    path: z.string().trim().min(1),
+    currentValue: z.json().nullable().optional(),
+    editable: z.boolean().default(false),
+});
+
+/**
+ * 模板变量分组。
+ */
+export const ProfileTemplateVariableGroupDtoSchema = z.object({
+    group: z.string().trim().min(1),
+    items: z.array(ProfileTemplateVariableItemDtoSchema),
+});
+
+/**
  * 模板详情。
  */
 export const ProfileTemplateDetailDtoSchema = z.object({
@@ -116,13 +135,7 @@ export const ProfileTemplateDetailDtoSchema = z.object({
     source: z.string(),
     root: ProfileTemplateNodeDtoSchema.nullable(),
     issues: z.array(ProfileTemplateIssueDtoSchema),
-    variables: z.array(z.object({
-        group: z.string().trim().min(1),
-        items: z.array(z.object({
-            label: z.string().trim().min(1),
-            value: z.string().trim().min(1),
-        })),
-    })),
+    variables: z.array(ProfileTemplateVariableGroupDtoSchema),
 });
 
 /**
@@ -151,6 +164,8 @@ export const ValidateProfileTemplateRequestDtoSchema = z.object({
 export const PreviewProfileTemplateRequestDtoSchema = z.object({
     source: z.string().optional(),
     root: ProfileTemplateNodeDtoSchema.optional(),
+    threadId: z.string().trim().min(1).optional(),
+    inputOverrides: z.record(z.string(), z.json()).optional(),
 }).refine((value) => value.source !== undefined || value.root !== undefined, {
     message: "source 和 root 至少提供一个",
 });
@@ -172,10 +187,13 @@ export const ProfileTemplatePreviewDtoSchema = z.object({
     root: ProfileTemplateNodeDtoSchema.nullable(),
     issues: z.array(ProfileTemplateIssueDtoSchema),
     messages: z.array(ProfileTemplatePreviewMessageDtoSchema),
+    variables: z.array(ProfileTemplateVariableGroupDtoSchema),
 });
 
 export type ProfileTemplateIssueDto = z.infer<typeof ProfileTemplateIssueDtoSchema>;
 export type ProfileTemplateSummaryDto = z.infer<typeof ProfileTemplateSummaryDtoSchema>;
+export type ProfileTemplateVariableItemDto = z.infer<typeof ProfileTemplateVariableItemDtoSchema>;
+export type ProfileTemplateVariableGroupDto = z.infer<typeof ProfileTemplateVariableGroupDtoSchema>;
 export type ProfileTemplateDetailDto = z.infer<typeof ProfileTemplateDetailDtoSchema>;
 export type SaveProfileTemplateRequestDto = z.infer<typeof SaveProfileTemplateRequestDtoSchema>;
 export type ValidateProfileTemplateRequestDto = z.infer<typeof ValidateProfileTemplateRequestDtoSchema>;

@@ -7,6 +7,7 @@ import {
     previewProfileTemplate,
 } from "nbook/server/agent/profile-templates/profile-template-service";
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
+import type {AgentVariableScope} from "nbook/server/agent/types";
 
 const VALID_SOURCE = `/** @jsxRuntime automatic */
 /** @jsxImportSource nbook/server/agent/prompts */
@@ -88,6 +89,42 @@ describe("profile-template-service", () => {
             "system:Watch: scope.studio.workspace",
             "human:hello",
         ]);
+    });
+
+    it("预览模板会返回带当前值的变量", () => {
+        const scope = createPreviewScope({
+            workspace: "workspace/demo",
+            threadId: "thread-1",
+        });
+
+        const result = previewProfileTemplate({source: VALID_SOURCE, scope});
+
+        const workspace = result.variables.flatMap((group) => group.items).find((item) => item.path === "scope.studio.workspace");
+        const thread = result.variables.flatMap((group) => group.items).find((item) => item.path === "runtime.thread.id");
+        expect(workspace?.currentValue).toBe("workspace/demo");
+        expect(thread?.currentValue).toBe("thread-1");
+    });
+
+    it("预览模板支持 input.prompt 覆盖 source=input 消息", () => {
+        const source = VALID_SOURCE.replace("hello", "");
+
+        const result = previewProfileTemplate({
+            source,
+            inputOverrides: {
+                "input.prompt": "用户的新输入",
+            },
+        });
+
+        expect(result.messages.at(-1)?.text).toBe("用户的新输入");
+    });
+
+    it("预览模板会替换正文中的变量 token", () => {
+        const source = VALID_SOURCE.replace("system prompt", "workspace={{scope.studio.workspace}}");
+        const scope = createPreviewScope({workspace: "workspace/demo"});
+
+        const result = previewProfileTemplate({source, scope});
+
+        expect(result.messages[0]?.text).toBe("workspace=workspace/demo");
     });
 
     it("保留表达式属性并生成 TSX 表达式", () => {
@@ -201,3 +238,47 @@ describe("profile-template-service", () => {
         expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
     });
 });
+
+function createPreviewScope(input: {
+    workspace?: string;
+    threadId?: string;
+}): AgentVariableScope {
+    return {
+        ide: {
+            panel: null,
+            activePanel: null,
+            theme: "sepia",
+            extra: {},
+        },
+        studio: {
+            novelId: "novel-1",
+            selectedChapterId: null,
+            previousSelectedChapterId: null,
+            currentChapterTitle: null,
+            previousChapterTitle: null,
+            currentChapterLabel: null,
+            previousChapterLabel: null,
+            workspace: input.workspace ?? null,
+            didSwitchChapter: false,
+            selectionVersion: 0,
+            extra: {},
+        },
+        agent: {
+            thread: {
+                id: input.threadId ?? "thread-1",
+                title: "Leader",
+                summary: "",
+                status: "idle",
+            },
+            profileKey: "leader.default",
+            kind: "leader",
+            tools: [],
+            subagents: [],
+            tasks: null,
+        },
+        input: {
+            mode: "prompt",
+            prompt: "默认输入",
+        },
+    };
+}

@@ -18,6 +18,7 @@
 - `leader-runtime` 模板从演示文案升级为接近真实 leader prompt 的模板副本；编辑器仍读写 `server/agent/profiles/templates/leader-runtime.tsx`，不直接修改生产 `server/agent/profiles/builtin/leader-default.profile.tsx`。
 - 右侧源码预览展示纯 `<ProfilePrompt>...</ProfilePrompt>` TSX 片段，不展示 import、函数包装或 `return (...)`。
 - 预览 Prompt 采用消息列表形式，展示解析后可能进入 prompt 的 role/text/source，而不是模拟聊天气泡。
+- 预览调试弹窗接入真实 leader 线程 scope：左侧可选择线程、查看变量当前值，并允许第一版编辑 `input.prompt`；右侧消息列表默认 Markdown 渲染，可切换源码视图。
 
 ## 关键决策
 
@@ -32,7 +33,7 @@
 - 画布拖拽不做“悬停即嵌套”，只接受 `before`、`after`、`inside`、`root` 四类显式落点；拖拽中渲染 `dragVisualRoot`，真实 `root` 只在松手成功后更新，避免不同高度节点因为自动排序和 transition 抖动。
 - 拖拽源子树和组件库临时预览节点的 drop zone 会在拖拽过程中禁用，避免拖到自身、后代或临时节点内部造成循环和跳动。
 - Preview 页面维护本地撤销/重做快照栈，只影响当前前端编辑会话，不进入 DTO、API 或 runtime。
-- 右侧变量面板只做模板文本插入，不改变服务端 DTO 或运行时变量解析规则。
+- 右侧变量面板仍可做模板文本插入；预览 DTO 额外返回变量 `path/currentValue/editable`，仅用于调试界面展示和本地 input 覆盖，不改变真实 profile runtime 运行语义。
 - `leader-runtime.tsx` 保持合法 TSX 模块包装，便于 typecheck、保存和后续接入 runtime；纯 `<ProfilePrompt>...</ProfilePrompt>` 只作为编辑器展示视图。
 - DTO 支持表达式属性 `{kind: "expression", code}` 和 `Message.textKind = "source"`，用于保留 `watchValue={...}`、`when={...}`、`render={...}` 和正文中的 `{...}` TSX 片段，避免保存时把真实模板逻辑拍平成普通字符串。
 - 节点与组件库共用同一套语义配色，使用纯色主题混合背景，不使用半透明渐变效果。
@@ -42,6 +43,7 @@
 - `shared/dto/profile-template.dto.ts`
 - `server/agent/profile-templates/profile-template-service.ts`
 - `server/api/agent/profile-templates*.ts`
+- `server/api/agent/threads/[threadId].get.ts`
 - `server/agent/profiles/templates/leader-runtime.tsx`
 - `server/agent/profiles/context-prompt.tsx`
 - `app/pages/tsx-profile-editor.preview.vue`
@@ -54,6 +56,7 @@
 - `bun run typecheck`
 - `bun run test server/agent/profile-templates/profile-template-service.test.ts server/agent/profiles/simple-profile.test.ts`
 - `profile-template-service.test.ts` 覆盖表达式属性往返、Message TSX 表达式片段保真，以及 `leader-runtime.tsx` 可解析为无错误 `ProfilePrompt`。
+- `profile-template-service.test.ts` 额外覆盖预览变量当前值、`input.prompt` 覆盖和变量 token 替换。
 - Dev server smoke:
   - `GET /api/agent/profile-templates` 返回 `leader-runtime`
   - `GET /api/agent/profile-templates/leader-runtime` 返回结构化 AST 且无 issues
@@ -67,6 +70,7 @@
   - 折叠容器仍保留内部落点，拖拽时可把节点或组件投放进折叠节点。
   - 撤销和重做对新增、删除、复制、拖拽、属性编辑和变量插入生效。
   - 右侧属性面板、变量面板、运行时变量和 Prompt 消息预览可切换；源码预览为暗色只读代码区。
+  - Prompt 预览调试弹窗为左右布局：左侧线程和变量，右侧消息卡片；消息卡片默认 Markdown 渲染，可切换源码。
 
 ## 后续 TODO
 
