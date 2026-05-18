@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, toRef } from "vue";
+import { ref, computed, onMounted, watch, nextTick } from "vue";
 import { onClickOutside } from "@vueuse/core";
-import FormInput from "nbook/app/components/common/form/FormInput.vue";
-import Combobox from "nbook/app/components/common/form/Combobox.vue";
+import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import type { SelectOption } from "nbook/app/components/common/form/FormSelect.vue";
 import type { WorkbenchManualRef } from "nbook/app/components/novel-ide/plot/workbench/plot-workbench.types";
 import { useFloatingPanelLayout } from "nbook/app/composables/useFloatingPanelLayout";
@@ -82,7 +81,30 @@ const targetSections = computed<AgentTriggerMenuSection[]>(() => {
 // Since the popover combines target/relation/note, when clicking a target item we update immediately.
 function updateTarget(targetId: string) {
     emit("update", { target: targetId });
+    emit("close");
 }
+
+const noteTextareaRef = ref<HTMLTextAreaElement | null>(null);
+
+function resizeTextarea() {
+    const el = noteTextareaRef.value;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+}
+
+function handleNoteInput(e: Event) {
+    resizeTextarea();
+}
+
+watch(() => props.refItem.note, async () => {
+    await nextTick();
+    resizeTextarea();
+});
+
+onMounted(() => {
+    resizeTextarea();
+});
 
 </script>
 
@@ -93,83 +115,112 @@ function updateTarget(targetId: string) {
         :class="resolvedDirection === 'up' ? 'bottom-full mb-2' : 'top-full mt-2'"
         :style="{ maxHeight: panelStyle.maxHeight }"
     >
-        <!-- Editor Header (Relation & Note) -->
-        <div class="flex flex-col gap-2 border-b border-[var(--border-color)] bg-[var(--bg-sidebar)] px-3 py-2.5">
+        <!-- Top Bar -->
+        <div class="flex items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-sidebar)] px-3 py-2">
             <div class="flex items-center gap-2">
-                <span class="font-mono text-xs font-bold text-[var(--accent-text)]">REF</span>
-                <span class="text-xs text-[var(--text-secondary)]">编辑引用</span>
+                <span class="font-mono text-[10px] font-bold tracking-wider text-[var(--accent-text)]">REF ATTRIBUTES</span>
+            </div>
+        </div>
+        
+        <!-- Properties (Notion Style) -->
+        <div class="flex flex-col gap-0.5 p-1.5">
+            <!-- Relation Property -->
+            <div class="flex items-center gap-2 rounded-md px-2 transition-colors hover:bg-[var(--bg-hover)] ghost-form-select">
+                <div class="flex w-16 shrink-0 items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+                    <span class="i-lucide-git-commit h-3.5 w-3.5"></span>
+                    <span>关联</span>
+                </div>
+                <div class="flex-1">
+                    <FormSelect
+                        :model-value="props.refItem.relation"
+                        :options="props.refRelationOptions"
+                        placeholder="选择关联类型..."
+                        @update:model-value="emit('update', {relation: $event})"
+                    />
+                </div>
             </div>
             
-            <div class="flex flex-col gap-2 pt-1">
-                <div class="flex items-center gap-2">
-                    <span class="w-10 shrink-0 text-[11px] text-[var(--text-muted)]">关联</span>
-                    <div class="flex-1">
-                        <Combobox
-                            :model-value="props.refItem.relation || null"
-                            :options="props.refRelationOptions"
-                            placeholder="选择关联..."
-                            @update:model-value="emit('update', {relation: $event ?? ''})"
-                        />
-                    </div>
+            <!-- Note Property -->
+            <div class="flex items-start gap-2 rounded-md px-2 transition-colors hover:bg-[var(--bg-hover)] focus-within:bg-[var(--bg-hover)]">
+                <div class="flex h-7 w-16 shrink-0 items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+                    <span class="i-lucide-file-text h-3.5 w-3.5"></span>
+                    <span>备注</span>
                 </div>
-                <div class="flex items-center gap-2">
-                    <span class="w-10 shrink-0 text-[11px] text-[var(--text-muted)]">备注</span>
-                    <div class="flex-1">
-                        <input
-                            type="text"
-                            class="w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 text-[12px] text-[var(--text-main)] outline-none transition-colors hover:border-[var(--border-color-hover)] focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/30"
-                            :value="props.refItem.note || ''"
-                            placeholder="添加备注 (可选)"
-                            @change="emit('update', {note: ($event.target as HTMLInputElement).value || null})"
-                        />
-                    </div>
+                <div class="flex-1 py-1">
+                    <textarea
+                        ref="noteTextareaRef"
+                        class="w-full resize-none bg-transparent py-0.5 pl-2.5 text-[12px] text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]/60 overflow-hidden leading-relaxed block"
+                        rows="1"
+                        :value="props.refItem.note || ''"
+                        placeholder="添加补充说明..."
+                        @input="handleNoteInput"
+                        @change="emit('update', {note: ($event.target as HTMLTextAreaElement).value || null})"
+                        style="min-height: 20px;"
+                    ></textarea>
                 </div>
             </div>
         </div>
 
-        <!-- Target Search -->
-        <div class="border-b border-[var(--border-color)] p-2">
-            <div class="relative flex items-center">
+        <!-- Divider -->
+        <div class="h-px bg-[var(--border-color)]"></div>
+
+        <!-- Search Bar -->
+        <div class="bg-[var(--bg-panel)] p-2 pb-1.5">
+            <div class="relative flex items-center overflow-hidden rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] focus-within:border-[var(--accent-main)] focus-within:ring-1 focus-within:ring-[var(--accent-main)]/30">
                 <span class="i-lucide-search absolute left-2 h-3.5 w-3.5 text-[var(--text-muted)]"></span>
                 <input
                     v-model="searchQuery"
                     type="text"
-                    class="w-full rounded-md bg-[var(--bg-input)] py-1.5 pl-7 pr-2 text-[11px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:ring-1 focus:ring-[var(--accent-main)]/30"
-                    placeholder="搜索目标 (Thread/Scene/Plot/Lorebook)..."
+                    class="w-full bg-transparent py-1.5 pl-7 pr-2 text-[11px] text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]"
+                    placeholder="搜索引用目标..."
                 />
             </div>
         </div>
 
-        <!-- Target List (ReferenceSelectorPopover Style) -->
-        <div class="min-h-0 flex-1 overflow-y-auto p-2 custom-scrollbar">
+        <!-- Target List -->
+        <div class="min-h-0 flex-1 overflow-y-auto p-1.5 custom-scrollbar">
             <template v-for="section in targetSections" :key="section.id">
-                <div class="px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">
+                <div class="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">
                     {{ section.title }}
                 </div>
                 <button
                     v-for="item in section.items"
                     :key="item.id"
                     type="button"
-                    class="mb-0.5 flex w-full items-start gap-3 rounded-xl px-3 py-2 text-left transition-colors last:mb-0"
+                    class="mb-0.5 flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors last:mb-0"
                     :class="item.id === props.refItem.target ? 'bg-[var(--bg-hover)] text-[var(--text-main)]' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
                     @mousedown.prevent="updateTarget(item.id)"
                 >
-                    <span class="mt-0.5 h-4 w-4 shrink-0" :class="item.id === props.refItem.target ? 'text-[var(--accent-main)]' : 'text-[var(--text-muted)]'">
+                    <span class="mt-0.5 h-3.5 w-3.5 shrink-0" :class="item.id === props.refItem.target ? 'text-[var(--accent-main)]' : 'text-[var(--text-muted)]'">
                         <span :class="item.iconClass" class="block h-full w-full"></span>
                     </span>
                     <span class="min-w-0 flex-1">
                         <span class="flex items-center gap-2">
-                            <span class="truncate text-sm font-medium">{{ item.label }}</span>
+                            <span class="truncate text-[12px] font-medium">{{ item.label }}</span>
                         </span>
-                        <span class="mt-0.5 block text-[11px] leading-5 text-[var(--text-muted)]">
+                        <span class="mt-0.5 block text-[10px] leading-4 text-[var(--text-muted)]">
                             {{ item.description }}
                         </span>
                     </span>
                 </button>
             </template>
-            <div v-if="targetSections.length === 0" class="py-4 text-center text-[11px] text-[var(--text-muted)]">
+            <div v-if="targetSections.length === 0" class="py-6 text-center text-[11px] text-[var(--text-muted)]">
                 没有找到匹配的目标
             </div>
         </div>
     </div>
 </template>
+
+<style scoped>
+/* Override FormSelect styles to make it completely borderless and seamless */
+.ghost-form-select :deep(.relative > div.border) {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    padding-left: 10px !important;
+    padding-right: 0 !important;
+}
+.ghost-form-select :deep(.relative > div.border:hover) {
+    background: transparent !important;
+}
+</style>

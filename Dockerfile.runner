@@ -9,6 +9,11 @@ COPY package.json bun.lock ./
 RUN bun install --production
 
 COPY .output ./.output
+
+# Windows 构建产物的 symlink 指向 /c/Users/... Linux 下无法解析。
+# Nitro 的 .output/server/node_modules/ 是部分打包的，
+# 删除后 symlink 到完整 root node_modules 确保全部依赖可解析。
+RUN rm -rf /app/.output/server/node_modules && ln -s /app/node_modules /app/.output/server/node_modules
 COPY prisma ./prisma
 COPY prisma.config.ts ./prisma.config.ts
 COPY server/generated/prisma ./server/generated/prisma

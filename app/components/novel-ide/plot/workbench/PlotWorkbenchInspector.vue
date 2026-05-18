@@ -46,6 +46,14 @@ const props = defineProps<{
     refTargetOptions: SelectOption[];
 }>();
 
+const emit = defineEmits<{
+    (e: "close"): void;
+    (e: "updateThread", threadId: string, patch: Partial<PlotThreadPanelThread>): void;
+    (e: "updateScene", sceneId: string, patch: Partial<PlotThreadPanelScene>): void;
+    (e: "updatePlot", plotId: string, patch: Partial<PlotThreadPanelPlot>): void;
+    (e: "updateRefs", refs: WorkbenchManualRef[]): void;
+}>();
+
 const activeRefId = ref<string | null>(null);
 const refCardRefs = ref<Record<string, HTMLElement>>({});
 
@@ -67,6 +75,12 @@ function getTargetLabel(target: string | null) {
     if (!target) return '未选择目标';
     const opt = props.refTargetOptions.find(o => o.value === target);
     return opt?.label || target;
+}
+
+function getTargetDescription(target: string | null) {
+    if (!target) return null;
+    const opt = props.refTargetOptions.find(o => o.value === target);
+    return opt?.description || null;
 }
 
 const threadStatusOptions: SelectOption[] = Object.entries(PLOT_THREAD_STATUS_LABELS).map(([value, label]) => ({
@@ -372,18 +386,22 @@ function removeManualRef(refId: string): void {
                                 <div class="flex items-start gap-2">
                                     <span class="mt-0.5 shrink-0 text-[14px] text-[var(--accent-main)] opacity-90" :class="getTargetIcon(refItem.target)"></span>
                                     <div class="min-w-0 flex-1">
-                                        <div class="flex items-center gap-1.5">
+                                        <div class="flex items-center gap-1.5" :title="refItem.target || '尚未选择目标路径'">
                                             <span class="shrink-0 whitespace-nowrap rounded-[4px] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">{{ getRelationLabel(refItem.relation) }}</span>
                                             <span class="truncate text-[12px] font-semibold text-[var(--text-main)]">{{ getTargetLabel(refItem.target) }}</span>
                                         </div>
-                                        <div class="mt-0.5 truncate font-mono text-[9px] text-[var(--text-muted)] opacity-60">{{ refItem.target || '尚未选择目标路径' }}</div>
-                                        <div v-if="refItem.note" class="mt-1.5 text-[11px] leading-relaxed text-[var(--text-secondary)]">{{ refItem.note }}</div>
+                                        <div v-if="getTargetDescription(refItem.target)" class="mt-1 text-[11px] leading-relaxed text-[var(--text-secondary)] line-clamp-2">
+                                            {{ getTargetDescription(refItem.target) }}
+                                        </div>
+                                        <div v-if="refItem.note" class="mt-1.5 rounded-md bg-[var(--bg-sidebar)] px-2 py-1 text-[11px] leading-relaxed text-[var(--text-main)]">
+                                            {{ refItem.note }}
+                                        </div>
                                     </div>
                                 </div>
                                 
-                                <div class="absolute right-2 top-2 flex opacity-0 transition-opacity group-hover:opacity-100">
-                                    <button type="button" class="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-rose-500/10 hover:text-rose-600" title="删除" @click.stop="removeManualRef(refItem.id)">
-                                        <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
+                                <div class="absolute right-1.5 top-1.5 flex opacity-0 transition-opacity group-hover:opacity-100">
+                                    <button type="button" class="flex h-5 w-5 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="删除" @click.stop="removeManualRef(refItem.id)">
+                                        <span class="i-lucide-x h-3.5 w-3.5"></span>
                                     </button>
                                 </div>
                             </div>
