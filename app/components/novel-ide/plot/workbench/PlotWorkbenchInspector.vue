@@ -25,7 +25,7 @@ import type {
 } from "nbook/shared/dto/plot.dto";
 
 type WorkbenchInlineRefKind = "content" | "thread" | "scene" | "plot";
-type WorkbenchInlineRefSource = "thread" | "scene" | "plot";
+type WorkbenchInlineRefSource = "scene";
 
 type WorkbenchInlineRef = {
     id: string;
@@ -148,6 +148,7 @@ const visibleRefGroups = computed(() => [
     {kind: "scene" as const, label: "Scene", items: refsByKind.value.scene},
     {kind: "plot" as const, label: "Plot", items: refsByKind.value.plot},
 ].filter((group) => group.items.length > 0));
+const showRefs = computed(() => props.mode === "scene" && Boolean(props.scene));
 
 /**
  * 更新当前 Thread mock。
@@ -226,15 +227,6 @@ function removeManualRef(refId: string): void {
                     <div class="mt-0.5 truncate text-[13px] font-semibold text-[var(--text-main)]">{{ currentTitle }}</div>
                 </div>
                 <div class="flex items-center gap-1">
-                    <button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="复制">
-                        <span class="i-lucide-copy h-3.5 w-3.5"></span>
-                    </button>
-                    <button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="刷新引用">
-                        <span class="i-lucide-refresh-cw h-3.5 w-3.5"></span>
-                    </button>
-                    <button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-rose-600" title="删除">
-                        <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
-                    </button>
                     <button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="关闭检查器" @click="emit('close')">
                         <span class="i-lucide-panel-right-close h-3.5 w-3.5"></span>
                     </button>
@@ -281,12 +273,9 @@ function removeManualRef(refId: string): void {
                         <FormSelect :model-value="props.scene.status" :options="sceneStatusOptions" @update:model-value="updateScene({status: $event as StorySceneStatusDto})" />
                     </FormField>
                 </div>
-                <div class="grid grid-cols-[minmax(0,1fr)_84px] gap-2">
+                <div class="grid grid-cols-1 gap-2">
                     <FormField label="所属章节">
                         <FormSelect :model-value="props.scene.chapterPath ?? ''" :options="chapterOptions" @update:model-value="updateScene({chapterPath: $event || null})" />
-                    </FormField>
-                    <FormField label="序号">
-                        <FormInput :model-value="String(props.scene.threadSortOrder + 1)" placeholder="序号" @update:model-value="updateScene({threadSortOrder: Math.max(0, Number($event || 1) - 1)})" />
                     </FormField>
                 </div>
                 <FormField label="摘要">
@@ -362,7 +351,7 @@ function removeManualRef(refId: string): void {
                 请选择一个对象开始编辑。
             </section>
 
-            <div class="mt-4 space-y-4">
+            <div v-if="showRefs" class="mt-4 space-y-4">
                 <div class="space-y-2">
                     <div class="flex items-center justify-between text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--text-muted)]">
                         <span>Refs (手动)</span>
@@ -456,32 +445,5 @@ function removeManualRef(refId: string): void {
             </div>
         </div>
 
-        <div class="shrink-0 border-t border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-3">
-            <button type="button" class="workbench-ai-button">
-                <span class="i-lucide-sparkles h-3.5 w-3.5"></span>
-                AI 批注
-            </button>
-        </div>
     </aside>
 </template>
-
-<style scoped>
-.workbench-ai-button {
-    display: flex;
-    height: 2.25rem;
-    width: 100%;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    border-radius: 0.375rem;
-    border: 1px solid color-mix(in srgb, var(--accent-main) 52%, var(--border-color));
-    background: color-mix(in srgb, var(--accent-main) 18%, var(--bg-panel));
-    font-size: 12px;
-    font-weight: 600;
-    color: color-mix(in srgb, var(--accent-main) 88%, #5f3300);
-}
-
-.workbench-ai-button:hover {
-    background: color-mix(in srgb, var(--accent-main) 24%, var(--bg-panel));
-}
-</style>

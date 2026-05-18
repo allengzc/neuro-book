@@ -213,6 +213,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const mutatingChapterTree = ref(false);
 
     const activeLeftTab = ref<NovelIdeTab | null>("files");
+    const plotWorkbenchOpen = ref(false);
     const rightPanelOpen = ref(false);
     const promptExpanded = ref(true);
     const requirement = ref("");
@@ -1872,6 +1873,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         openWorkspacePath,
         optimisticRenameWorkspacePath,
         pendingAgentChapterUpdate,
+        plotWorkbenchOpen,
         detailUndoStacks,
         getDetailUndoStack,
         pushDetailUndoSnapshot,

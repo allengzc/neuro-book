@@ -54,6 +54,8 @@ function displayInlineText(text: string | null): string {
     <!-- 工作台可排序 Plot 行 -->
     <div
         ref="elementRef"
+        :data-workbench-plot-id="props.plot.id"
+        :data-workbench-plot-scene-id="props.sceneId"
         :data-dragging="isDragging || undefined"
         :data-drop-target="isDropTarget || undefined"
         class="plot-workbench-plot-row group/plot grid w-full grid-cols-[16px_56px_minmax(0,1fr)_104px] items-start gap-2.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 py-2 text-left transition-colors hover:border-amber-500/40 hover:bg-[var(--bg-hover)] hover:shadow-sm"

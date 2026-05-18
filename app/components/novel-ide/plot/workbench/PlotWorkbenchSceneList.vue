@@ -44,6 +44,7 @@ const emit = defineEmits<{
     (e: "editScene", sceneId: string): void;
     (e: "editPlot", plotId: string): void;
     (e: "deletePlot", plotId: string): void;
+    (e: "createPlot", sceneId: string): void;
     (e: "createScene", threadId: string): void;
     (e: "autoSortScenes", sceneIds: string[]): void;
     (e: "reorderScenes", sceneIds: string[]): void;
@@ -155,6 +156,26 @@ function snapshotSceneRects(): Map<string, DOMRect> {
 }
 
 /**
+ * 记录指定 Scene 下 Plot 行的当前位置，供按钮排序后做 FLIP 动画。
+ */
+function snapshotPlotRects(sceneId: string): Map<string, DOMRect> {
+    const rects = new Map<string, DOMRect>();
+    const stack = sceneStackRef.value;
+    if (!stack) {
+        return rects;
+    }
+
+    stack.querySelectorAll<HTMLElement>(`[data-workbench-plot-id][data-workbench-plot-scene-id="${sceneId}"]`).forEach((element) => {
+        const plotId = element.dataset.workbenchPlotId;
+        if (plotId) {
+            rects.set(plotId, element.getBoundingClientRect());
+        }
+    });
+
+    return rects;
+}
+
+/**
  * 在数据提交后用 DOM 位移补间，避免上移/下移按钮造成卡片直接跳位。
  */
 async function animateSceneReorder(previousRects: Map<string, DOMRect>): Promise<void> {
@@ -208,6 +229,59 @@ async function animateSceneReorder(previousRects: Map<string, DOMRect>): Promise
 }
 
 /**
+ * 在 Plot 数据提交后用 DOM 位移补间，避免上移/下移按钮造成行直接跳位。
+ */
+async function animatePlotReorder(sceneId: string, previousRects: Map<string, DOMRect>): Promise<void> {
+    if (!previousRects.size) {
+        return;
+    }
+
+    await nextTick();
+    const stack = sceneStackRef.value;
+    if (!stack) {
+        return;
+    }
+
+    const animatedItems: HTMLElement[] = [];
+    stack.querySelectorAll<HTMLElement>(`[data-workbench-plot-id][data-workbench-plot-scene-id="${sceneId}"]`).forEach((element) => {
+        const plotId = element.dataset.workbenchPlotId;
+        const previousRect = plotId ? previousRects.get(plotId) : undefined;
+        if (!previousRect) {
+            return;
+        }
+
+        const nextRect = element.getBoundingClientRect();
+        const deltaY = previousRect.top - nextRect.top;
+        if (Math.abs(deltaY) < 1) {
+            return;
+        }
+
+        element.style.transition = "none";
+        element.style.transform = `translate3d(0, ${deltaY}px, 0)`;
+        animatedItems.push(element);
+    });
+
+    if (!animatedItems.length) {
+        return;
+    }
+
+    void stack.offsetHeight;
+    window.requestAnimationFrame(() => {
+        animatedItems.forEach((element) => {
+            const cleanup = (): void => {
+                element.style.transition = "";
+                element.style.transform = "";
+                element.removeEventListener("transitionend", cleanup);
+            };
+
+            element.addEventListener("transitionend", cleanup, {once: true});
+            element.style.transition = "transform 220ms cubic-bezier(0.2, 0, 0, 1)";
+            element.style.transform = "translate3d(0, 0, 0)";
+        });
+    });
+}
+
+/**
  * 通过按钮上移或下移 Scene。
  */
 function moveScene(payload: {sceneId: string; direction: "up" | "down"}): void {
@@ -254,10 +328,12 @@ function movePlot(payload: {sceneId: string; plotId: string; direction: "up" | "
     }
     nextPlots.splice(targetIndex, 0, plot);
 
+    const previousRects = snapshotPlotRects(payload.sceneId);
     emit("reorderPlots", {
         sceneId: payload.sceneId,
         plotIds: nextPlots.map((item) => item.id),
     });
+    void animatePlotReorder(payload.sceneId, previousRects);
 }
 
 /**
@@ -564,7 +640,7 @@ watch(() => props.thread?.id, () => {
                                         <span class="i-lucide-git-commit h-4 w-4 text-[var(--text-muted)]"></span>
                                         <div class="text-[12px] font-semibold text-[var(--text-main)]">Plots ({{ renderedScenePlots(scene.id).length }})</div>
                                     </div>
-                                    <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)]/80 bg-[var(--bg-panel)] px-2.5 text-[11px] font-medium text-[var(--text-secondary)] shadow-sm transition-colors hover:border-[var(--border-color-hover)] hover:text-[var(--text-main)]">
+                                    <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)]/80 bg-[var(--bg-panel)] px-2.5 text-[11px] font-medium text-[var(--text-secondary)] shadow-sm transition-colors hover:border-[var(--border-color-hover)] hover:text-[var(--text-main)]" @click="emit('createPlot', scene.id)">
                                         <span class="i-lucide-plus h-3.5 w-3.5"></span>
                                         添加 Plot
                                     </button>

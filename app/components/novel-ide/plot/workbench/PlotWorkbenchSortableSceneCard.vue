@@ -113,9 +113,6 @@ function displayInlineText(text: string | null): string {
                         <button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="编辑 Scene" @click.stop="emit('editScene', props.scene.id)">
                             <span class="i-lucide-pencil-line h-3.5 w-3.5"></span>
                         </button>
-                        <button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="更多操作">
-                            <span class="i-lucide-more-vertical h-4 w-4"></span>
-                        </button>
                         <span class="mx-1 h-3.5 w-[1px] bg-[var(--border-color)]"></span>
                         <button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md transition-all duration-200" :class="props.expanded ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'" :title="props.expanded ? '收起 Plots' : '展开 Plots'" @click.stop="emit('toggleScene', props.scene.id)">
                             <span class="i-lucide-chevron-down h-4 w-4 transition-transform duration-200" :class="props.expanded ? 'rotate-180' : ''"></span>

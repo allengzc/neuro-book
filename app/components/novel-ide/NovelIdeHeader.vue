@@ -14,6 +14,7 @@ const currentUser = toRef(props, "currentUser");
 const emit = defineEmits<{
     (e: "toggle-agent"): void;
     (e: "open-bookshelf"): void;
+    (e: "open-plot-workbench"): void;
     (e: "switch-novel", value: string): void;
     (e: "open-admin"): void;
     (e: "logout"): void;
@@ -84,12 +85,9 @@ const handleUserMenuSelect = (value: string): void => {
                 <span class="i-lucide-library h-4 w-4"></span>
                 <span>书架</span>
             </button>
-            <button class="flex h-9 w-9 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="搜索">
-                <span class="i-lucide-search h-4 w-4"></span>
-            </button>
-            <button class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" title="AI 分析">
-                <span class="i-lucide-sparkles h-4 w-4 text-[var(--accent-text)]"></span>
-                <span>AI 分析</span>
+            <button class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" title="剧本工作台" @click="emit('open-plot-workbench')">
+                <span class="i-lucide-panels-top-left h-4 w-4 text-[var(--accent-text)]"></span>
+                <span>剧本工作台</span>
             </button>
             <button
                 class="flex items-center gap-2 rounded-full border px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase transition-colors"
