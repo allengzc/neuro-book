@@ -316,18 +316,7 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
                     已保存
                     <span>刚刚</span>
                 </span>
-                <button type="button" class="workbench-top-button" @click="emit('createThread')">
-                    <span class="i-lucide-plus h-3.5 w-3.5"></span>
-                    线程
-                </button>
-                <button type="button" class="workbench-top-button">
-                    <span class="i-lucide-plus h-3.5 w-3.5"></span>
-                    Scene
-                </button>
-                <button type="button" class="workbench-top-button">
-                    <span class="i-lucide-plus h-3.5 w-3.5"></span>
-                    Plot
-                </button>
+
                 <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 text-[12px] font-semibold text-amber-700 hover:bg-amber-500/15 dark:text-amber-300">
                     <span class="i-lucide-save h-3.5 w-3.5"></span>
                     保存
@@ -340,17 +329,18 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
 
         <!-- 工作台主体 -->
         <div class="-m-5 flex min-h-0 flex-1 flex-col overflow-hidden bg-[color-mix(in_srgb,var(--bg-main)_96%,white)]">
-            <nav class="grid h-10 shrink-0 grid-cols-6 border-b border-[var(--border-color)] bg-[var(--bg-panel)]/88 text-[12px]">
+            <nav class="flex h-11 shrink-0 items-center justify-center gap-10 border-b border-[var(--border-color)] bg-[var(--bg-panel)]/88 px-8 text-[12px] font-medium shadow-sm">
                 <button
                     v-for="tab in tabs"
                     :key="tab.value"
                     type="button"
-                    class="inline-flex items-center justify-center gap-2 border-b-2 transition-colors"
-                    :class="activeTab === tab.value ? 'border-[var(--accent-main)] text-[var(--accent-main)]' : 'border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                    class="relative inline-flex h-full items-center justify-center gap-2 transition-colors"
+                    :class="activeTab === tab.value ? 'text-[var(--accent-main)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-main)]'"
                     @click="activeTab = tab.value"
                 >
-                    <span :class="tab.icon" class="h-4 w-4"></span>
+                    <span class="h-4 w-4 transition-opacity" :class="[tab.icon, activeTab === tab.value ? 'opacity-100' : 'opacity-60']"></span>
                     <span class="truncate">{{ tab.label }}</span>
+                    <div v-if="activeTab === tab.value" class="absolute bottom-0 left-0 right-0 h-[2px] rounded-t-full bg-[var(--accent-main)]"></div>
                 </button>
             </nav>
 
