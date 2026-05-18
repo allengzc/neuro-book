@@ -14,6 +14,8 @@ const props = defineProps<{
     chapter: PlotThreadPanelChapter | null;
     plotCount: number;
     expanded: boolean;
+    canMoveUp: boolean;
+    canMoveDown: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -102,10 +104,10 @@ function displayInlineText(text: string | null): string {
                     
                     <!-- 右侧操作区 -->
                     <div class="flex shrink-0 items-center gap-0.5 opacity-70 transition-opacity group-hover:opacity-100">
-                        <button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="上移 Scene" @click.stop="emit('moveScene', {sceneId: props.scene.id, direction: 'up'})">
+                        <button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[var(--text-muted)]" title="上移 Scene" :disabled="!props.canMoveUp" @click.stop="emit('moveScene', {sceneId: props.scene.id, direction: 'up'})">
                             <span class="i-lucide-arrow-up h-3.5 w-3.5"></span>
                         </button>
-                        <button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="下移 Scene" @click.stop="emit('moveScene', {sceneId: props.scene.id, direction: 'down'})">
+                        <button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[var(--text-muted)]" title="下移 Scene" :disabled="!props.canMoveDown" @click.stop="emit('moveScene', {sceneId: props.scene.id, direction: 'down'})">
                             <span class="i-lucide-arrow-down h-3.5 w-3.5"></span>
                         </button>
                         <button type="button" class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="编辑 Scene" @click.stop="emit('editScene', props.scene.id)">

@@ -10,11 +10,14 @@ const props = defineProps<{
     plot: PlotThreadPanelPlot;
     index: number;
     sceneId: string;
+    canMoveUp: boolean;
+    canMoveDown: boolean;
 }>();
 
 const emit = defineEmits<{
     (e: "editPlot", plotId: string): void;
     (e: "deletePlot", plotId: string): void;
+    (e: "movePlot", payload: {sceneId: string; plotId: string; direction: "up" | "down"}): void;
 }>();
 
 const elementRef = ref<HTMLElement | null>(null);
@@ -53,7 +56,7 @@ function displayInlineText(text: string | null): string {
         ref="elementRef"
         :data-dragging="isDragging || undefined"
         :data-drop-target="isDropTarget || undefined"
-        class="plot-workbench-plot-row group/plot grid w-full grid-cols-[16px_56px_minmax(0,1fr)_56px] items-start gap-2.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 py-2 text-left transition-colors hover:border-amber-500/40 hover:bg-[var(--bg-hover)] hover:shadow-sm"
+        class="plot-workbench-plot-row group/plot grid w-full grid-cols-[16px_56px_minmax(0,1fr)_104px] items-start gap-2.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 py-2 text-left transition-colors hover:border-amber-500/40 hover:bg-[var(--bg-hover)] hover:shadow-sm"
     >
         <button ref="handleRef" type="button" class="mt-[1px] inline-flex h-5 w-4 cursor-grab items-center justify-center rounded text-[var(--text-muted)] opacity-50 transition-opacity hover:bg-[var(--bg-hover)] group-hover/plot:opacity-100 active:cursor-grabbing" title="拖拽排序 Plot" @click.stop>
             <span class="i-lucide-grip-vertical h-4 w-4"></span>
@@ -68,7 +71,13 @@ function displayInlineText(text: string | null): string {
                 <p class="whitespace-pre-wrap text-[11px] leading-snug text-[var(--text-secondary)]">{{ displayInlineText(props.plot.effect) }}</p>
             </div>
         </div>
-        <div class="flex justify-end gap-0.5 opacity-0 transition-opacity group-hover/plot:opacity-100">
+        <div class="flex justify-end gap-0.5">
+            <button type="button" class="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[var(--text-muted)]" title="上移 Plot" :disabled="!props.canMoveUp" @click.stop="emit('movePlot', {sceneId: props.sceneId, plotId: props.plot.id, direction: 'up'})">
+                <span class="i-lucide-arrow-up h-3.5 w-3.5"></span>
+            </button>
+            <button type="button" class="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-[var(--text-muted)]" title="下移 Plot" :disabled="!props.canMoveDown" @click.stop="emit('movePlot', {sceneId: props.sceneId, plotId: props.plot.id, direction: 'down'})">
+                <span class="i-lucide-arrow-down h-3.5 w-3.5"></span>
+            </button>
             <button type="button" class="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="编辑 Plot" @click.stop="emit('editPlot', props.plot.id)">
                 <span class="i-lucide-pencil-line h-3.5 w-3.5"></span>
             </button>

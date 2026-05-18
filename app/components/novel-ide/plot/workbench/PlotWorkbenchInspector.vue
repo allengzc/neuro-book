@@ -356,9 +356,6 @@ function removeManualRef(refId: string): void {
                         @update:model-value="updatePlot({writingTip: $event || null})"
                     />
                 </FormField>
-                <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-[12px] text-[var(--text-secondary)]">
-                    当前类型：{{ PLOT_KIND_LABELS[props.plot.kind] }}
-                </div>
             </section>
 
             <section v-else class="rounded-lg border border-dashed border-[var(--border-color)] bg-[var(--bg-input)]/30 px-4 py-8 text-center text-[12px] text-[var(--text-muted)]">

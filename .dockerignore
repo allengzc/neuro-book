@@ -1,6 +1,7 @@
 .git
 .agent
 .cache
+.deploy
 .env
 .env.*
 !.env.example

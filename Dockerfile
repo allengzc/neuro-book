@@ -23,12 +23,19 @@ ENV HOST=0.0.0.0
 ENV PORT=3000
 
 COPY --from=build /app/.output ./.output
+COPY --from=build /app/.nuxt ./.nuxt
 COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/app ./app
+COPY --from=build /app/server ./server
+COPY --from=build /app/shared ./shared
+COPY --from=build /app/scripts ./scripts
+COPY --from=build /app/assets ./assets
 COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/bun.lock ./bun.lock
+COPY --from=build /app/nuxt.config.ts ./nuxt.config.ts
+COPY --from=build /app/tsconfig.json ./tsconfig.json
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/prisma.config.ts ./prisma.config.ts
-COPY --from=build /app/server/generated/prisma ./server/generated/prisma
-COPY --from=build /app/scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
 
 EXPOSE 3000
 

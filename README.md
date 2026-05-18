@@ -62,7 +62,7 @@ auth:
 
 ## Docker Compose 单机部署
 
-推荐使用一键交互式部署脚本。它会检查 Docker、拉取仓库、生成 `.env.docker` 和 `config.yaml`，默认使用 GHCR 预构建镜像启动，避免低内存服务器执行 Nuxt build。
+推荐使用一键交互式部署脚本。它会检查 Docker、拉取仓库，在 `.deploy/` 下生成 `.env.docker`、`config.yaml` 和 compose override。默认使用 GHCR 预构建镜像启动，避免低内存服务器执行 Nuxt build。
 
 ```bash
 npx --yes --package github:notnotype/neuro-book neuro-book-deploy
@@ -74,7 +74,7 @@ npx --yes --package github:notnotype/neuro-book neuro-book-deploy
 - Web 端口，默认 `3000`。
 - 模型 Provider 和 API Key。
 - 使用内置 Postgres，或填写外部 `DATABASE_URL`。
-- 部署模式：默认使用 `ghcr.io/notnotype/neuro-book:latest`，也可以选择在本机自行 build。
+- 部署模式：默认 `ghcr`，使用 `ghcr.io/notnotype/neuro-book:latest`；也可以选择 `source`，把宿主机源码挂载到容器 `/app`。
 
 也可以 clone 仓库后手动运行 Node CLI：
 
@@ -84,29 +84,36 @@ cd neuro-book
 node scripts/neuro-book-deploy.mjs
 ```
 
-如需强制在本机构建：
+如需使用源码挂载模式：
 
 ```bash
-node scripts/neuro-book-deploy.mjs --deploy-mode build
+node scripts/neuro-book-deploy.mjs --deploy-mode source
 ```
 
-如果想完全手动部署：
+本项目不提供“纯生产 build 镜像部署”作为部署脚本选项。source 模式下，容器内部看到的是宿主机完整项目源码；宿主机更新后执行：
 
 ```bash
-cp .env.docker.example .env.docker
-cp config.example.yaml config.yaml
-docker compose --env-file .env.docker up -d --build
+git pull --ff-only
+bun install --frozen-lockfile
+bun run nuxt:prepare
+bun run generate
+bun run nuxt:build
+docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d
 ```
 
-使用外部数据库时，把 `.env.docker` 中的 `DATABASE_URL` 改成外部连接串，并运行：
+如果部署时选择外部数据库，脚本会把 `DATABASE_URL` 写入 `.deploy/.env.docker`，并在启动命令中追加 `docker-compose.external-db.yml`。
+
+首次部署后在容器内创建管理员：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.external-db.yml --env-file .env.docker up -d --build
+docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun run auth:create-admin
 ```
+
+不要把管理员密码作为命令行参数传入；使用交互输入，或在一次性 shell / secret 环境中设置 `AUTH_ADMIN_PASSWORD`。
 
 ### GHCR 镜像发布
 
-低内存服务器不要在目标机器上执行 `docker compose up -d --build`。Nuxt build 内存占用较高，推荐先在本地高配机器或 GitHub Actions 构建镜像，再让服务器只 pull 镜像启动。
+低内存服务器不要在目标机器上执行 Nuxt build。默认 `ghcr` 部署模式会拉取预构建镜像；该镜像内部包含完整项目源码和运行所需文件，因此也可以在容器内执行 `bun run auth:create-admin` 等管理脚本。
 
 本地手动发布到 GHCR：
 
@@ -125,21 +132,22 @@ bun run docker:publish -- --tag v1.0.0
 
 仓库也提供 release-only GitHub Actions：只有发布 GitHub Release 时才会自动构建并推送 `ghcr.io/<owner>/neuro-book:<release tag>` 和 `ghcr.io/<owner>/neuro-book:latest`。
 
-服务器使用预构建镜像时，把 compose 的 `app` 服务改成 `image: ghcr.io/notnotype/neuro-book:<tag>`，并移除 `build:`，然后运行：
+服务器使用预构建镜像时，部署脚本会在 `.deploy/docker-compose.generated.yml` 中覆盖 `app.image` 并移除 `build`。更新镜像后运行：
 
 ```bash
-docker compose pull
-docker compose up -d
+docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml pull app
+docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d
 ```
 
 ### 配置文件教程
 
-- `.env.docker` 只保存容器运行环境，例如 `NUXT_PORT`、`NUXT_SESSION_PASSWORD`、Postgres 用户名密码和 `DATABASE_URL`。不要把模型 Provider 密钥放在这里。
-- `config.yaml` 是应用可写的业务配置真值源，会挂载到容器内 `/app/config.yaml`。模型 Provider 密钥、默认模型、Provider baseURL、代理和 profile 模型覆盖都放在这里。
+- `.deploy/.env.docker` 只保存容器运行环境，例如 `NUXT_PORT`、`NUXT_SESSION_PASSWORD`、Postgres 用户名密码和 `DATABASE_URL`。不要把模型 Provider 密钥放在这里。
+- `.deploy/config.yaml` 是应用可写的业务配置真值源，会挂载到容器内 `/app/config.yaml`。模型 Provider 密钥、默认模型、Provider baseURL、代理和 profile 模型覆盖都放在这里。
 - `models.default` 使用 `provider/model` 格式，例如 `deepseek/deepseek-v4-flash`，并且要指向 `models.providers` 下 `enabled: true` 的模型。
 - `adapter` 决定 Provider 协议：DeepSeek 官方接口使用 `deepseek-official`，OpenAI 兼容网关使用 `openai-compatible`，Gemini 使用 `gemini-compatible`。
 - `contextWindowTokens` 用于上下文预算估算；能确认模型窗口时填数字，不能确认时填 `null`。
-- `./workspace` 会挂载到容器内 `/app/workspace`，`./config.yaml` 会挂载到 `/app/config.yaml`。
+- `./workspace` 会挂载到容器内 `/app/workspace`，`.deploy/config.yaml` 会挂载到 `/app/config.yaml`。
+- `.deploy/` 是本机部署状态目录，已加入 `.gitignore`，后续 `git pull` 不会与部署私有配置冲突。
 - 当前仓库历史里曾提交过真实 `config.yaml`，其中的 token 应视为已泄露并立即轮换；本次只阻止后续继续提交，未清理 Git 历史。
 
 ## AGENT 系统

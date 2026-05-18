@@ -4,12 +4,13 @@ import {randomBytes} from "node:crypto";
 import {existsSync} from "node:fs";
 import {chmod, mkdir, readdir, stat, writeFile} from "node:fs/promises";
 import {homedir} from "node:os";
-import {dirname, resolve} from "node:path";
+import {dirname, relative, resolve} from "node:path";
 import {Command} from "commander";
 import * as p from "@clack/prompts";
 
 const REPO_URL = "https://github.com/notnotype/neuro-book.git";
 const DEFAULT_IMAGE = "ghcr.io/notnotype/neuro-book:latest";
+const DEPLOY_DIRNAME = ".deploy";
 const PROVIDERS = {
     deepseek: {
         name: "DeepSeek",
@@ -68,8 +69,8 @@ const program = new Command()
     .option("--api-key <key>", "Provider API key.")
     .option("--database <mode>", "Database mode: local or external.")
     .option("--database-url <url>", "External PostgreSQL DATABASE_URL.")
-    .option("--deploy-mode <mode>", "Deploy mode: image or build.", process.env.NEURO_BOOK_DEPLOY_MODE)
-    .option("--image <image>", "Prebuilt app image.", process.env.NEURO_BOOK_IMAGE ?? DEFAULT_IMAGE)
+    .option("--deploy-mode <mode>", "Deploy mode: ghcr or source.", process.env.NEURO_BOOK_DEPLOY_MODE)
+    .option("--image <image>", "GHCR app image.", process.env.NEURO_BOOK_IMAGE ?? DEFAULT_IMAGE)
     .option("--yes", "Use defaults and skip interactive prompts.", false)
     .option("--dry-run", "Generate files but skip git and docker commands.", process.env.NEURO_BOOK_DEPLOY_DRY_RUN === "1");
 
@@ -263,22 +264,22 @@ async function readConfig(options) {
             initialValue: "postgresql://user:password@host:5432/neuro_book",
         })
         : "";
-    const deployMode = await askSelect({
+    const deployMode = normalizeDeployMode(await askSelect({
         interactive,
         value: options.deployMode,
         message: "部署模式",
-        initialValue: "image",
+        initialValue: "ghcr",
         options: [
-            {value: "image", label: "使用 GHCR 预构建镜像", hint: "低内存服务器推荐"},
-            {value: "build", label: "在本机自行 build", hint: "会运行 Nuxt build"},
+            {value: "ghcr", label: "使用 GHCR 预构建镜像", hint: "默认推荐"},
+            {value: "source", label: "挂载宿主机源码", hint: "宿主机自行 install/build"},
         ],
-    });
+    }));
 
-    if (deployMode !== "image" && deployMode !== "build") {
-        throw new Error(`部署模式必须是 image 或 build：${deployMode}`);
+    if (deployMode !== "ghcr" && deployMode !== "source") {
+        throw new Error(`部署模式必须是 ghcr 或 source：${deployMode}`);
     }
 
-    const image = deployMode === "image"
+    const image = deployMode === "ghcr"
         ? await askText({
             interactive,
             value: options.image,
@@ -382,13 +383,156 @@ models:
 `;
 }
 
-/** 生成镜像部署 override，避免低内存服务器执行 Nuxt build。 */
-function renderImageCompose(config) {
-    return `services:
+/** 生成部署 override，避免把本地私有部署文件写进仓库根配置。 */
+function renderGeneratedCompose(config) {
+    const deployConfigPath = `${DEPLOY_DIRNAME}/config.yaml`;
+    if (config.deployMode === "ghcr") {
+        return `services:
     app:
         image: ${config.image}
         build: null
+        volumes:
+            - ./workspace:/app/workspace
+            - ./${deployConfigPath}:/app/config.yaml
 `;
+    }
+
+    return `services:
+    app:
+        image: oven/bun:1
+        build: null
+        working_dir: /app
+        command: ["sh", "./scripts/docker-entrypoint.sh"]
+        volumes:
+            - ./:/app
+            - ./workspace:/app/workspace
+            - ./${deployConfigPath}:/app/config.yaml
+`;
+}
+
+/** 返回部署私有文件目录。 */
+function deployStateDir(config) {
+    return resolve(config.deployDir, DEPLOY_DIRNAME);
+}
+
+/** 返回相对部署根目录的可读路径。 */
+function displayPath(config, path) {
+    return relative(config.deployDir, path).replaceAll("\\", "/");
+}
+
+/** 生成管理员创建命令提示。 */
+function adminCommand(config) {
+    const files = ["-f", "docker-compose.yml"];
+    if (config.databaseMode === "external") {
+        files.push("-f", "docker-compose.external-db.yml");
+    }
+    files.push("-f", `${DEPLOY_DIRNAME}/docker-compose.generated.yml`);
+
+    return `docker compose --env-file ${DEPLOY_DIRNAME}/.env.docker ${files.join(" ")} exec app bun run auth:create-admin`;
+}
+
+/** 生成容器启动命令提示。 */
+function upCommand(config) {
+    const files = ["-f", "docker-compose.yml"];
+    if (config.databaseMode === "external") {
+        files.push("-f", "docker-compose.external-db.yml");
+    }
+    files.push("-f", `${DEPLOY_DIRNAME}/docker-compose.generated.yml`);
+
+    return `docker compose --env-file ${DEPLOY_DIRNAME}/.env.docker ${files.join(" ")} up -d`;
+}
+
+/** 生成源码模式更新命令提示。 */
+function sourceUpdateCommands(config) {
+    return [
+        "git pull --ff-only",
+        "bun install --frozen-lockfile",
+        "bun run nuxt:prepare",
+        "bun run generate",
+        "bun run nuxt:build",
+        upCommand(config),
+    ];
+}
+
+/** 生成镜像模式更新命令提示。 */
+function ghcrUpdateCommands(config) {
+    return [
+        `docker compose --env-file ${DEPLOY_DIRNAME}/.env.docker -f docker-compose.yml -f ${DEPLOY_DIRNAME}/docker-compose.generated.yml pull app`,
+        upCommand(config),
+    ];
+}
+
+/** 生成模式说明。 */
+function deployNotes(config) {
+    if (config.deployMode === "source") {
+        return `source 模式使用宿主机源码挂载到容器 /app。宿主机需要安装 Bun，并在启动前完成：
+${sourceUpdateCommands(config).map((line) => `- ${line}`).join("\n")}`;
+    }
+
+    return `ghcr 模式使用预构建镜像 ${config.image}，容器内包含完整项目源码。更新镜像后运行：
+${ghcrUpdateCommands(config).map((line) => `- ${line}`).join("\n")}`;
+}
+
+/** 生成部署私有说明文件。 */
+function renderDeployReadme(config) {
+    return `# neuro-book deployment
+
+This directory is generated by neuro-book-deploy and should stay local.
+
+- Deploy mode: ${config.deployMode}
+- App URL: http://localhost:${config.port}
+- Env file: ${DEPLOY_DIRNAME}/.env.docker
+- Runtime config: ${DEPLOY_DIRNAME}/config.yaml
+- Compose override: ${DEPLOY_DIRNAME}/docker-compose.generated.yml
+
+Start or update:
+
+\`\`\`bash
+${upCommand(config)}
+\`\`\`
+
+Create or reset admin:
+
+\`\`\`bash
+${adminCommand(config)}
+\`\`\`
+
+Do not pass admin passwords as command arguments. Use the interactive prompt, or set AUTH_ADMIN_PASSWORD only in a short-lived shell/secret environment.
+
+${deployNotes(config)}
+`;
+}
+
+/** 兼容旧部署模式命名，并拒绝已停用的 build 模式。 */
+function normalizeDeployMode(value) {
+    if (!value) {
+        return value;
+    }
+
+    if (value === "image") {
+        return "ghcr";
+    }
+
+    if (value === "build") {
+        throw new Error("--deploy-mode build 已停用。请使用默认 ghcr，或使用 --deploy-mode source 挂载宿主机源码。");
+    }
+
+    return value;
+}
+
+/** 生成旧根目录部署文件清理提示。 */
+async function warnLegacyDeployFiles(config) {
+    const legacyFiles = [
+        resolve(config.deployDir, ".env.docker"),
+        resolve(config.deployDir, "config.yaml"),
+        resolve(config.deployDir, "docker-compose.image.yml"),
+    ];
+    const existing = legacyFiles.filter((path) => existsSync(path));
+    if (existing.length === 0) {
+        return;
+    }
+
+    p.log.warn(`检测到旧部署文件仍在仓库根目录：${existing.map((path) => displayPath(config, path)).join(", ")}。新部署状态已改用 .deploy/，可确认后手动迁移或删除旧文件。`);
 }
 
 /** 以仅当前用户可读写的权限写入敏感部署文件。 */
@@ -434,17 +578,12 @@ async function runCompose(config) {
     }
 
     const composeFiles = ["-f", "docker-compose.yml"];
-    if (config.deployMode === "image") {
-        composeFiles.push("-f", "docker-compose.image.yml");
-    }
     if (config.databaseMode === "external") {
         composeFiles.push("-f", "docker-compose.external-db.yml");
     }
+    composeFiles.push("-f", `${DEPLOY_DIRNAME}/docker-compose.generated.yml`);
 
-    const args = ["compose", ...composeFiles, "--env-file", ".env.docker", "up", "-d"];
-    if (config.deployMode === "build") {
-        args.push("--build");
-    }
+    const args = ["compose", ...composeFiles, "--env-file", `${DEPLOY_DIRNAME}/.env.docker`, "up", "-d"];
 
     await run("docker", args, {cwd: config.deployDir});
 }
@@ -463,20 +602,19 @@ async function main() {
 
     await ensureRepository(config);
     await mkdir(resolve(config.deployDir, "workspace"), {recursive: true});
+    await mkdir(deployStateDir(config), {recursive: true});
 
     const postgresPassword = randomSecret();
     const sessionPassword = randomSecret();
-    await writePrivateFile(resolve(config.deployDir, ".env.docker"), renderEnv(config, postgresPassword, sessionPassword));
-    await writePrivateFile(resolve(config.deployDir, "config.yaml"), renderConfig(config));
-    if (config.deployMode === "image") {
-        await writeFile(resolve(config.deployDir, "docker-compose.image.yml"), renderImageCompose(config), "utf-8");
-    }
+    await writePrivateFile(resolve(deployStateDir(config), ".env.docker"), renderEnv(config, postgresPassword, sessionPassword));
+    await writePrivateFile(resolve(deployStateDir(config), "config.yaml"), renderConfig(config));
+    await writeFile(resolve(deployStateDir(config), "docker-compose.generated.yml"), renderGeneratedCompose(config), "utf-8");
+    await writeFile(resolve(deployStateDir(config), "README.md"), renderDeployReadme(config), "utf-8");
+    await warnLegacyDeployFiles(config);
 
-    p.log.success(`Wrote ${resolve(config.deployDir, ".env.docker")}`);
-    p.log.success(`Wrote ${resolve(config.deployDir, "config.yaml")}`);
-    if (config.deployMode === "image") {
-        p.log.success(`Wrote ${resolve(config.deployDir, "docker-compose.image.yml")}`);
-    }
+    p.log.success(`Wrote ${resolve(deployStateDir(config), ".env.docker")}`);
+    p.log.success(`Wrote ${resolve(deployStateDir(config), "config.yaml")}`);
+    p.log.success(`Wrote ${resolve(deployStateDir(config), "docker-compose.generated.yml")}`);
     await runCompose(config);
     p.outro(`Done. Open http://localhost:${config.port}`);
 }

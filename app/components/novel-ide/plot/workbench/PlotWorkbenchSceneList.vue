@@ -233,6 +233,34 @@ function moveScene(payload: {sceneId: string; direction: "up" | "down"}): void {
 }
 
 /**
+ * 通过按钮上移或下移 Plot。
+ */
+function movePlot(payload: {sceneId: string; plotId: string; direction: "up" | "down"}): void {
+    const currentPlots = renderedScenePlots(payload.sceneId);
+    const currentIndex = currentPlots.findIndex((plot) => plot.id === payload.plotId);
+    if (currentIndex < 0) {
+        return;
+    }
+
+    const targetIndex = payload.direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= currentPlots.length) {
+        return;
+    }
+
+    const nextPlots = [...currentPlots];
+    const [plot] = nextPlots.splice(currentIndex, 1);
+    if (!plot) {
+        return;
+    }
+    nextPlots.splice(targetIndex, 0, plot);
+
+    emit("reorderPlots", {
+        sceneId: payload.sceneId,
+        plotIds: nextPlots.map((item) => item.id),
+    });
+}
+
+/**
  * 创建当前 Thread 下的 Scene mock。
  */
 function createScene(): void {
@@ -522,6 +550,8 @@ watch(() => props.thread?.id, () => {
                         :chapter="scene.chapterPath ? (chapterMap.get(scene.chapterPath) ?? null) : null"
                         :plot-count="renderedScenePlots(scene.id).length"
                         :expanded="isExpanded(scene.id)"
+                        :can-move-up="index > 0"
+                        :can-move-down="index < renderedScenes.length - 1"
                         @edit-scene="emit('editScene', $event)"
                         @move-scene="moveScene"
                         @toggle-scene="toggleScene"
@@ -554,8 +584,11 @@ watch(() => props.thread?.id, () => {
                                             :plot="plot"
                                             :index="plotIndex"
                                             :scene-id="scene.id"
+                                            :can-move-up="plotIndex > 0"
+                                            :can-move-down="plotIndex < renderedScenePlots(scene.id).length - 1"
                                             @edit-plot="emit('editPlot', $event)"
                                             @delete-plot="emit('deletePlot', $event)"
+                                            @move-plot="movePlot"
                                         />
                                     </div>
                                 </DragDropProvider>

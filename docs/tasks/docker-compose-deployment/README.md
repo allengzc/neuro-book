@@ -39,7 +39,9 @@
 - 新增 `scripts/publish-ghcr-image.mjs` 和 `docker:publish`，用于本地执行 `docker buildx build --push` 推送 `latest` 与版本 tag 到 GHCR。
 - 新增 `.github/workflows/release-container.yml`，只在 GitHub Release `published` 时构建并推送 release tag 与 `latest`。
 - README 增加低内存服务器说明：目标服务器优先使用预构建镜像，避免在服务器上执行 Nuxt build。
-- `scripts/neuro-book-deploy.mjs` 默认改为 GHCR 镜像部署，会生成 `docker-compose.image.yml` 覆盖 `app.image` 并禁用 `app.build`；用户选择 `--deploy-mode build` 时才执行本机 build。
+- `scripts/neuro-book-deploy.mjs` 部署模式收敛为 `ghcr` 和 `source`：默认 GHCR 镜像部署，source 模式挂载宿主机源码到容器 `/app`，不再提供 `--deploy-mode build`。
+- 部署生成物统一写入 `.deploy/`：`.env.docker`、`config.yaml`、`docker-compose.generated.yml` 和本地说明文档，避免后续 `git pull` 与部署私有文件冲突。
+- GHCR runner 镜像改为保留完整项目源码和运行所需文件，使容器内 `bun run auth:create-admin` 可用。
 
 ## Decisions
 
@@ -55,6 +57,7 @@
 - `.dockerignore`
 - `.env.docker.example`
 - `config.example.yaml`
+- `.gitignore`
 - `package.json`
 - `scripts/publish-ghcr-image.mjs`
 - `.github/workflows/release-container.yml`
@@ -74,12 +77,12 @@
 - `bun run typecheck`
 - `docker compose --env-file .env.docker.example config` 未执行成功：当前环境没有 Docker CLI。
 - `node --check scripts/neuro-book-deploy.mjs`
-- `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes --dir .agent/deploy-image-test`
-- `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes --deploy-mode build --dir .agent/deploy-build-test`
+- `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes --deploy-mode ghcr --dir .agent/deploy-ghcr-test`
+- `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes --deploy-mode source --dir .agent/deploy-source-test`
 - `node --check scripts/publish-ghcr-image.mjs`
 - `node scripts/publish-ghcr-image.mjs --dry-run`
 - `npm pack --dry-run --json`：tarball 只包含 README、package.json 和 Node 部署脚本。
-- 使用 `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes` 跑通脚本生成 `.env.docker` / `config.yaml`，并用 `yaml` 解析生成配置。
+- 使用 `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes` 跑通脚本生成 `.deploy/.env.docker` / `.deploy/config.yaml` / `.deploy/docker-compose.generated.yml`，并用 `yaml` 解析生成配置。
 - 当前环境仍没有 Docker CLI，`docker --version` 与 `docker compose --env-file .env.docker.example config` 均无法执行。
 
 ## TODO / Follow-ups

@@ -15,6 +15,7 @@ dist/
 /server/generated/prisma
 .DS_Store
 .runtime
+.deploy/
 
 # Nuxt
 .nuxt
