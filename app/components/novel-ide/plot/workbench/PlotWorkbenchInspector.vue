@@ -6,8 +6,7 @@ import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import StructuredTextEditor from "nbook/app/components/common/form/StructuredTextEditor.vue";
-import ReferenceSelectorPopover from "nbook/app/components/common/form/ReferenceSelectorPopover.vue";
-import type { AgentTriggerMenuSection } from "nbook/app/components/novel-ide/agent/trigger-menu";
+import RefEditorPopover from "./RefEditorPopover.vue";
 import type {WorkbenchManualRef} from "nbook/app/components/novel-ide/plot/workbench/plot-workbench.types";
 import {
     PLOT_KIND_LABELS,
@@ -47,50 +46,14 @@ const props = defineProps<{
     refTargetOptions: SelectOption[];
 }>();
 
-const emit = defineEmits<{
-    (e: "close"): void;
-    (e: "updateThread", threadId: string, patch: Partial<PlotThreadPanelThread>): void;
-    (e: "updateScene", sceneId: string, patch: Partial<PlotThreadPanelScene>): void;
-    (e: "updatePlot", plotId: string, patch: Partial<PlotThreadPanelPlot>): void;
-    (e: "updateRefs", refs: WorkbenchManualRef[]): void;
-}>();
+const activeRefId = ref<string | null>(null);
+const refCardRefs = ref<Record<string, HTMLElement>>({});
 
-import { useEventListener } from "@vueuse/core";
-
-const editingTargetId = ref<string | null>(null);
-const targetAnchorRect = ref<DOMRect | null>(null);
-const targetActiveIndex = ref(0);
-const targetPopoverRef = ref<HTMLElement | null>(null);
-
-const editingRelationId = ref<string | null>(null);
-const editingNoteId = ref<string | null>(null);
-
-useEventListener(window, "pointerdown", (e) => {
-    const el = e.target as HTMLElement;
-    if (targetPopoverRef.value && targetPopoverRef.value.contains(el)) return;
-    if (el.closest('.ref-card') || el.closest('.ref-popover') || el.closest('.n-combobox-dropdown')) return;
-    
-    editingTargetId.value = null;
-    editingRelationId.value = null;
-});
-
-function openTargetSelector(id: string, event: MouseEvent) {
-    if (editingTargetId.value === id) {
-        editingTargetId.value = null;
-        return;
-    }
-    editingRelationId.value = null;
-    editingNoteId.value = null;
-    editingTargetId.value = id;
-    const el = event.currentTarget as HTMLElement;
-    targetAnchorRect.value = el.getBoundingClientRect();
-    targetActiveIndex.value = 0;
-}
-
-function onTargetSelect(targetId: string) {
-    if (editingTargetId.value) {
-        updateManualRef(editingTargetId.value, {target: targetId});
-        editingTargetId.value = null;
+function setRefCardRef(el: any, id: string) {
+    if (el) {
+        refCardRefs.value[id] = el.$el || el;
+    } else {
+        delete refCardRefs.value[id];
     }
 }
 
@@ -144,21 +107,6 @@ const chapterOptions = computed<SelectOption[]>(() => [
         label: `${chapter.numberLabel} · ${chapter.title}`,
     })),
 ]);
-
-const refTargetMenuSections = computed<AgentTriggerMenuSection[]>(() => {
-    return [
-        {
-            id: "targets",
-            title: "引用目标",
-            items: props.refTargetOptions.map(opt => ({
-                id: String(opt.value),
-                label: opt.label,
-                description: String(opt.value),
-                iconClass: opt.iconClass || "i-lucide-bookmark"
-            }))
-        }
-    ];
-});
 const currentTitle = computed(() => {
     if (props.mode === "thread") {
         return props.thread?.title ?? "Thread";
@@ -231,8 +179,7 @@ function addManualRef(): void {
             note: null,
         },
     ]);
-    editingTargetId.value = newId;
-    // We can't set anchorRect easily here without DOM, but the user can click it to open.
+    activeRefId.value = newId;
 }
 
 /**
@@ -414,62 +361,43 @@ function removeManualRef(refId: string): void {
                         </button>
                     </div>
                     <div v-if="props.manualRefs.length" class="space-y-2">
-                        <div v-for="refItem in props.manualRefs" :key="refItem.id" class="relative" :class="editingTargetId === refItem.id ? 'z-50' : 'z-10'">
+                        <div v-for="refItem in props.manualRefs" :key="refItem.id" class="relative" :class="activeRefId === refItem.id ? 'z-50' : 'z-10'">
                             <!-- DISPLAY CARD -->
                             <div 
-                                class="ref-card group relative flex cursor-pointer flex-col gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-2.5 transition-all hover:border-[var(--border-color-hover)] hover:shadow-sm" 
-                                :class="editingTargetId === refItem.id ? 'ring-1 ring-[var(--accent-main)]/50 !border-[var(--accent-main)]/50 shadow-sm' : ''"
-                                @click.stop="openTargetSelector(refItem.id, $event)"
+                                :ref="(el) => setRefCardRef(el, refItem.id)"
+                                class="group relative flex cursor-pointer flex-col gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-2.5 transition-all hover:border-[var(--border-color-hover)] hover:shadow-sm" 
+                                :class="activeRefId === refItem.id ? 'ring-1 ring-[var(--accent-main)]/50 !border-[var(--accent-main)]/50 shadow-sm' : ''"
+                                @click.stop="activeRefId = activeRefId === refItem.id ? null : refItem.id"
                             >
                                 <div class="flex items-start gap-2">
                                     <span class="mt-0.5 shrink-0 text-[14px] text-[var(--accent-main)] opacity-90" :class="getTargetIcon(refItem.target)"></span>
                                     <div class="min-w-0 flex-1">
                                         <div class="flex items-center gap-1.5">
-                                            <div v-if="editingRelationId === refItem.id" class="relative w-24 shrink-0" @click.stop>
-                                                <Combobox
-                                                    :model-value="refItem.relation || null"
-                                                    :options="refRelationOptions"
-                                                    @update:model-value="updateManualRef(refItem.id, {relation: $event ?? ''}); editingRelationId = null"
-                                                />
-                                            </div>
-                                            <span 
-                                                v-else 
-                                                class="shrink-0 cursor-pointer whitespace-nowrap rounded-[4px] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] transition-colors"
-                                                @click.stop="editingRelationId = refItem.id; editingTargetId = null; editingNoteId = null"
-                                            >
-                                                {{ getRelationLabel(refItem.relation) }}
-                                            </span>
+                                            <span class="shrink-0 whitespace-nowrap rounded-[4px] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">{{ getRelationLabel(refItem.relation) }}</span>
                                             <span class="truncate text-[12px] font-semibold text-[var(--text-main)]">{{ getTargetLabel(refItem.target) }}</span>
                                         </div>
                                         <div class="mt-0.5 truncate font-mono text-[9px] text-[var(--text-muted)] opacity-60">{{ refItem.target || '尚未选择目标路径' }}</div>
-                                        
-                                        <!-- NOTE -->
-                                        <div v-if="editingNoteId === refItem.id" class="mt-1.5" @click.stop>
-                                            <input
-                                                type="text"
-                                                class="w-full bg-transparent outline-none text-[11px] text-[var(--text-main)] border-b border-[var(--border-color-hover)] px-0.5 py-0.5"
-                                                :value="refItem.note || ''"
-                                                placeholder="添加备注..."
-                                                @keydown.enter="updateManualRef(refItem.id, {note: ($event.target as HTMLInputElement).value || null}); editingNoteId = null"
-                                                @blur="updateManualRef(refItem.id, {note: ($event.target as HTMLInputElement).value || null}); editingNoteId = null"
-                                                autofocus
-                                            />
-                                        </div>
-                                        <div v-else-if="refItem.note" class="mt-1.5 cursor-text text-[11px] leading-relaxed text-[var(--text-secondary)] hover:text-[var(--text-main)] transition-colors" @click.stop="editingNoteId = refItem.id; editingTargetId = null; editingRelationId = null">
-                                            {{ refItem.note }}
-                                        </div>
+                                        <div v-if="refItem.note" class="mt-1.5 text-[11px] leading-relaxed text-[var(--text-secondary)]">{{ refItem.note }}</div>
                                     </div>
                                 </div>
                                 
-                                <div class="absolute right-2 top-2 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100" :class="editingTargetId === refItem.id ? 'opacity-100' : ''">
-                                    <button v-if="!refItem.note && editingNoteId !== refItem.id" type="button" class="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="添加备注" @click.stop="editingNoteId = refItem.id; editingTargetId = null; editingRelationId = null">
-                                        <span class="i-lucide-file-plus-2 h-3.5 w-3.5"></span>
-                                    </button>
+                                <div class="absolute right-2 top-2 flex opacity-0 transition-opacity group-hover:opacity-100">
                                     <button type="button" class="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-rose-500/10 hover:text-rose-600" title="删除" @click.stop="removeManualRef(refItem.id)">
                                         <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
                                     </button>
                                 </div>
                             </div>
+                            
+                            <!-- EDIT POPOVER -->
+                            <RefEditorPopover
+                                v-if="activeRefId === refItem.id"
+                                :ref-item="refItem"
+                                :ref-relation-options="refRelationOptions"
+                                :ref-target-options="props.refTargetOptions"
+                                :anchor-element="refCardRefs[refItem.id] ?? null"
+                                @update="updateManualRef(refItem.id, $event)"
+                                @close="activeRefId = null"
+                            />
                         </div>
                     </div>
                     <div v-else class="rounded-md border border-dashed border-[var(--border-color)] bg-transparent px-3 py-3 text-center text-[11px] text-[var(--text-muted)]">
@@ -510,21 +438,6 @@ function removeManualRef(refId: string): void {
                         暂无内联派生引用
                     </div>
                 </div>
-            </div>
-            
-            <!-- TARGET SELECTOR POPOVER -->
-            <div ref="targetPopoverRef" class="ref-popover">
-                <ReferenceSelectorPopover
-                    v-if="editingTargetId"
-                    title="修改引用目标"
-                    prefix="TARGET"
-                    :sections="refTargetMenuSections"
-                    :active-index="targetActiveIndex"
-                    :anchor-rect="targetAnchorRect"
-                    density="compact"
-                    @hover="targetActiveIndex = $event"
-                    @select="onTargetSelect"
-                />
             </div>
         </div>
 
