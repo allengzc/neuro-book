@@ -88,7 +88,7 @@ type ResolvedContextWindow = {
     source: "manual" | "unknown";
 };
 
-type DeepSeekUsageInputDetails = NonNullable<UsageMetadata["input_token_details"]> & {
+type ProviderUsageInputDetails = NonNullable<UsageMetadata["input_token_details"]> & {
     /**
      * DeepSeek KV Cache 未命中 token。LangChain 目前没有标准字段，先挂在 usage_metadata.input_token_details。
      */
@@ -249,9 +249,40 @@ function registerOpenAiCompatibleReasoningTranslator(): void {
 registerOpenAiCompatibleReasoningTranslator();
 
 /**
+ * OpenAI-compatible provider 的流式 delta 可能省略 role。
+ * LangChain 原始转换在缺 role 时会退化成 generic ChatMessageChunk，Agent runtime 会跳过 thinking。
+ */
+function convertOpenAiCompatibleDeltaToBaseMessageChunk(input: {
+    delta: Record<string, unknown>;
+    rawResponse: OpenAI.Chat.Completions.ChatCompletionChunk;
+    includeRawResponse: boolean;
+    defaultRole?: OpenAI.Chat.ChatCompletionRole;
+}): BaseMessageChunk {
+    const normalizedRole: OpenAI.Chat.ChatCompletionRole =
+        input.delta.role === "assistant"
+            || input.delta.role === "user"
+            || input.delta.role === "system"
+            || input.delta.role === "tool"
+            || input.delta.role === "function"
+            || input.delta.role === "developer"
+            ? input.delta.role
+            : input.defaultRole ?? "assistant";
+
+    return convertCompletionsDeltaToBaseMessageChunk({
+        delta: "role" in input.delta ? input.delta : {
+            ...input.delta,
+            role: normalizedRole,
+        },
+        rawResponse: input.rawResponse,
+        includeRawResponse: input.includeRawResponse,
+        defaultRole: normalizedRole,
+    });
+}
+
+/**
  * Gemini 兼容网关的流式 chunk 经常不带 role。
  * LangChain 在 role 缺失时会退化成 ChatMessageChunk，并直接丢掉 reasoning_content。
- * 这里仅对 Gemini 兼容链路做一个最小兜底：没有 role 时默认按 assistant 解析。
+ * 这里复用 OpenAI-compatible 的 role 兜底：没有 role 时默认按 assistant 解析。
  */
 class GeminiChatOpenAICompletions extends ChatOpenAICompletions {
     /**
@@ -262,24 +293,11 @@ class GeminiChatOpenAICompletions extends ChatOpenAICompletions {
         rawResponse: OpenAI.Chat.Completions.ChatCompletionChunk,
         defaultRole?: OpenAI.Chat.ChatCompletionRole,
     ): BaseMessageChunk {
-        const normalizedRole: OpenAI.Chat.ChatCompletionRole =
-            delta.role === "assistant"
-                || delta.role === "user"
-                || delta.role === "system"
-                || delta.role === "tool"
-                || delta.role === "function"
-                || delta.role === "developer"
-                ? delta.role
-                : defaultRole ?? "assistant";
-
-        return convertCompletionsDeltaToBaseMessageChunk({
-            delta: "role" in delta ? delta : {
-                ...delta,
-                role: normalizedRole,
-            },
+        return convertOpenAiCompatibleDeltaToBaseMessageChunk({
+            delta,
             rawResponse,
-            includeRawResponse: this.__includeRawResponse,
-            defaultRole: normalizedRole,
+            includeRawResponse: this.__includeRawResponse ?? false,
+            defaultRole,
         });
     }
 }
@@ -319,6 +337,22 @@ class NeuroBookChatOpenAICompatible extends ChatOpenAICompletions {
     }
 
     /**
+     * 兜底修正 OpenAI-compatible provider 缺失 role 的流式 chunk。
+     */
+    protected override _convertCompletionsDeltaToBaseMessageChunk(
+        delta: Record<string, unknown>,
+        rawResponse: OpenAI.Chat.Completions.ChatCompletionChunk,
+        defaultRole?: OpenAI.Chat.ChatCompletionRole,
+    ): BaseMessageChunk {
+        return convertOpenAiCompatibleDeltaToBaseMessageChunk({
+            delta,
+            rawResponse,
+            includeRawResponse: this.__includeRawResponse ?? false,
+            defaultRole,
+        });
+    }
+
+    /**
      * 归一化非流式 OpenAI-compatible 输出。
      */
     override async _generate(
@@ -332,7 +366,7 @@ class NeuroBookChatOpenAICompatible extends ChatOpenAICompletions {
             return super._generate(messages, options, runManager);
         }
 
-        const data = await super.completionWithRetry({
+        const data = await this.completionWithRetry({
             ...params,
             stream: false,
             messages: convertOpenAiCompatibleMessagesToCompletionsParams(messages, this.model, {
@@ -343,17 +377,11 @@ class NeuroBookChatOpenAICompatible extends ChatOpenAICompletions {
             ...options?.options,
         });
 
-        const usageMetadata: UsageMetadata | undefined = data?.usage
-            ? {
-                input_tokens: data.usage.prompt_tokens,
-                output_tokens: data.usage.completion_tokens,
-                total_tokens: data.usage.total_tokens,
-            }
-            : undefined;
+        const usageMetadata = buildUsageMetadataFromRawUsage(data?.usage ?? null);
         const generations = data?.choices?.map((part) => {
             const baseMessage = this._convertCompletionsMessageToBaseMessage(part.message ?? {role: "assistant"}, data);
             const message = AIMessage.isInstance(baseMessage)
-                ? normalizeOpenAiCompatibleReasoningMessage(baseMessage)
+                ? normalizeOpenAiCompatibleUsageMetadata(normalizeOpenAiCompatibleReasoningMessage(baseMessage))
                 : baseMessage;
             if (usageMetadata && AIMessage.isInstance(message)) {
                 message.usage_metadata = usageMetadata;
@@ -396,7 +424,7 @@ class NeuroBookChatOpenAICompatible extends ChatOpenAICompletions {
             }),
             stream: true,
         };
-        const streamIterable = await super.completionWithRetry(params as never, options as never) as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
+        const streamIterable = await this.completionWithRetry(params as never, options as never) as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
         let defaultRole: OpenAI.Chat.ChatCompletionRole | undefined;
         let usage: OpenAI.CompletionUsage | undefined;
 
@@ -412,7 +440,7 @@ class NeuroBookChatOpenAICompatible extends ChatOpenAICompletions {
                 continue;
             }
 
-            const chunk = this._convertCompletionsDeltaToBaseMessageChunk(choice.delta, data, defaultRole);
+            const chunk = this._convertCompletionsDeltaToBaseMessageChunk(choice.delta as Record<string, unknown>, data, defaultRole);
             defaultRole = choice.delta.role ?? defaultRole;
             if (typeof chunk.content !== "string") {
                 continue;
@@ -433,7 +461,7 @@ class NeuroBookChatOpenAICompatible extends ChatOpenAICompletions {
             }
 
             const generationChunk = new ChatGenerationChunk({
-                message: normalizeOpenAiCompatibleReasoningMessage(chunk as AIMessageChunk),
+                message: normalizeOpenAiCompatibleUsageMetadata(normalizeOpenAiCompatibleReasoningMessage(chunk as AIMessageChunk)),
                 text: chunk.content,
                 generationInfo,
             });
@@ -453,17 +481,12 @@ class NeuroBookChatOpenAICompatible extends ChatOpenAICompletions {
 
         if (usage) {
             const generationChunk = new ChatGenerationChunk({
-                message: new AIMessageChunk({
+                message: normalizeOpenAiCompatibleUsageMetadata(new AIMessageChunk({
                     content: "",
                     response_metadata: {
                         usage: {...usage},
                     },
-                    usage_metadata: {
-                        input_tokens: usage.prompt_tokens,
-                        output_tokens: usage.completion_tokens,
-                        total_tokens: usage.total_tokens,
-                    },
-                }),
+                })),
                 text: "",
             });
             yield generationChunk;
@@ -500,6 +523,19 @@ function readNumberField(value: unknown, key: string): number | null {
 }
 
 /**
+ * 从未知对象中安全读取对象字段。
+ */
+function readRecordField(value: unknown, key: string): Record<string, unknown> | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return null;
+    }
+    const field = (value as Record<string, unknown>)[key];
+    return field && typeof field === "object" && !Array.isArray(field)
+        ? field as Record<string, unknown>
+        : null;
+}
+
+/**
  * 读取 provider 原始 usage。
  */
 function readResponseUsage(message: {response_metadata?: Record<string, unknown>}): Record<string, unknown> | null {
@@ -510,26 +546,35 @@ function readResponseUsage(message: {response_metadata?: Record<string, unknown>
 }
 
 /**
- * 把 DeepSeek raw usage 归一化到 LangChain message.usage_metadata。
+ * 把 OpenAI Chat Completions usage 归一化到 LangChain usage_metadata。
  */
-export function normalizeDeepSeekUsageMetadata<T extends AIMessage | AIMessageChunk>(message: T): T {
-    const rawUsage = readResponseUsage(message);
+function buildUsageMetadataFromRawUsage(
+    rawUsage: unknown,
+    currentUsage?: UsageMetadata,
+): UsageMetadata | undefined {
     if (!rawUsage) {
-        return message;
+        return undefined;
     }
 
-    const inputTokens = message.usage_metadata?.input_tokens ?? readNumberField(rawUsage, "prompt_tokens");
-    const outputTokens = message.usage_metadata?.output_tokens ?? readNumberField(rawUsage, "completion_tokens");
-    const totalTokens = message.usage_metadata?.total_tokens ?? readNumberField(rawUsage, "total_tokens");
+    const inputTokens = currentUsage?.input_tokens ?? readNumberField(rawUsage, "prompt_tokens");
+    const outputTokens = currentUsage?.output_tokens ?? readNumberField(rawUsage, "completion_tokens");
+    const totalTokens = currentUsage?.total_tokens ?? readNumberField(rawUsage, "total_tokens");
     if (inputTokens === null && outputTokens === null && totalTokens === null) {
-        return message;
+        return undefined;
     }
 
-    const inputDetails: DeepSeekUsageInputDetails = {
-        ...(message.usage_metadata?.input_token_details ?? {}),
+    const promptTokensDetails = readRecordField(rawUsage, "prompt_tokens_details");
+    const completionTokensDetails = readRecordField(rawUsage, "completion_tokens_details");
+    const inputDetails: ProviderUsageInputDetails = {
+        ...(currentUsage?.input_token_details ?? {}),
     };
-    const cacheHitTokens = readNumberField(rawUsage, "prompt_cache_hit_tokens");
+    const promptAudioTokens = readNumberField(promptTokensDetails, "audio_tokens");
+    const cacheHitTokens = readNumberField(rawUsage, "prompt_cache_hit_tokens")
+        ?? readNumberField(promptTokensDetails, "cached_tokens");
     const cacheMissTokens = readNumberField(rawUsage, "prompt_cache_miss_tokens");
+    if (typeof inputDetails.audio !== "number" && promptAudioTokens !== null) {
+        inputDetails.audio = promptAudioTokens;
+    }
     if (typeof inputDetails.cache_read !== "number" && cacheHitTokens !== null) {
         inputDetails.cache_read = cacheHitTokens;
     }
@@ -537,13 +582,43 @@ export function normalizeDeepSeekUsageMetadata<T extends AIMessage | AIMessageCh
         inputDetails.cache_miss = cacheMissTokens;
     }
 
-    message.usage_metadata = {
+    const outputDetails: NonNullable<UsageMetadata["output_token_details"]> = {
+        ...(currentUsage?.output_token_details ?? {}),
+    };
+    const completionAudioTokens = readNumberField(completionTokensDetails, "audio_tokens");
+    const reasoningTokens = readNumberField(completionTokensDetails, "reasoning_tokens");
+    if (typeof outputDetails.audio !== "number" && completionAudioTokens !== null) {
+        outputDetails.audio = completionAudioTokens;
+    }
+    if (typeof outputDetails.reasoning !== "number" && reasoningTokens !== null) {
+        outputDetails.reasoning = reasoningTokens;
+    }
+
+    return {
         input_tokens: inputTokens ?? 0,
         output_tokens: outputTokens ?? 0,
         total_tokens: totalTokens ?? 0,
         ...(Object.keys(inputDetails).length > 0 ? {input_token_details: inputDetails} : {}),
-        ...(message.usage_metadata?.output_token_details ? {output_token_details: message.usage_metadata.output_token_details} : {}),
+        ...(Object.keys(outputDetails).length > 0 ? {output_token_details: outputDetails} : {}),
     };
+}
+
+/**
+ * 把 OpenAI-compatible raw usage 归一化到 LangChain message.usage_metadata。
+ */
+export function normalizeOpenAiCompatibleUsageMetadata<T extends AIMessage | AIMessageChunk>(message: T): T {
+    const usageMetadata = buildUsageMetadataFromRawUsage(readResponseUsage(message), message.usage_metadata);
+    if (usageMetadata) {
+        message.usage_metadata = usageMetadata;
+    }
+    return message;
+}
+
+/**
+ * 把 DeepSeek raw usage 归一化到 LangChain message.usage_metadata。
+ */
+export function normalizeDeepSeekUsageMetadata<T extends AIMessage | AIMessageChunk>(message: T): T {
+    normalizeOpenAiCompatibleUsageMetadata(message);
     return message;
 }
 
@@ -840,11 +915,6 @@ class NeuroBookChatDeepSeek extends ChatDeepSeek {
             return super._generate(messages, options, runManager);
         }
 
-        const usageMetadata: UsageMetadata = {
-            input_tokens: 0,
-            output_tokens: 0,
-            total_tokens: 0,
-        };
         const request: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming = {
             ...params,
             stream: false,
@@ -854,36 +924,11 @@ class NeuroBookChatDeepSeek extends ChatDeepSeek {
             signal: options?.signal,
             ...options?.options,
         });
-
-        const {
-            completion_tokens: completionTokens,
-            prompt_tokens: promptTokens,
-            total_tokens: totalTokens,
-            prompt_tokens_details: promptTokensDetails,
-            completion_tokens_details: completionTokensDetails,
-        } = data?.usage ?? {};
-
-        if (completionTokens) {
-            usageMetadata.output_tokens = (usageMetadata.output_tokens ?? 0) + completionTokens;
-        }
-        if (promptTokens) {
-            usageMetadata.input_tokens = (usageMetadata.input_tokens ?? 0) + promptTokens;
-        }
-        if (totalTokens) {
-            usageMetadata.total_tokens = (usageMetadata.total_tokens ?? 0) + totalTokens;
-        }
-        if (promptTokensDetails?.audio_tokens !== null || promptTokensDetails?.cached_tokens !== null) {
-            usageMetadata.input_token_details = {
-                ...(promptTokensDetails?.audio_tokens !== null ? {audio: promptTokensDetails?.audio_tokens} : {}),
-                ...(promptTokensDetails?.cached_tokens !== null ? {cache_read: promptTokensDetails?.cached_tokens} : {}),
-            };
-        }
-        if (completionTokensDetails?.audio_tokens !== null || completionTokensDetails?.reasoning_tokens !== null) {
-            usageMetadata.output_token_details = {
-                ...(completionTokensDetails?.audio_tokens !== null ? {audio: completionTokensDetails?.audio_tokens} : {}),
-                ...(completionTokensDetails?.reasoning_tokens !== null ? {reasoning: completionTokensDetails?.reasoning_tokens} : {}),
-            };
-        }
+        const usageMetadata = buildUsageMetadataFromRawUsage(data?.usage ?? null) ?? {
+            input_tokens: 0,
+            output_tokens: 0,
+            total_tokens: 0,
+        };
 
         const generations = [];
         for (const part of data?.choices ?? []) {

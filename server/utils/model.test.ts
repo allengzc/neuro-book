@@ -1,11 +1,45 @@
-import {AIMessage, HumanMessage, ToolMessage} from "@langchain/core/messages";
+import {AIMessage, AIMessageChunk, HumanMessage, ToolMessage} from "@langchain/core/messages";
 import {describe, expect, it} from "vitest";
+import {extractAssistantDeltaFromChunk} from "nbook/server/agent/runtime/thread-runner";
+import type {AppConfig} from "nbook/server/utils/app-config";
 import {
+    createConfiguredChatModel,
     convertDeepSeekMessagesToCompletionsParams,
     convertOpenAiCompatibleMessagesToCompletionsParams,
     normalizeOpenAiCompatibleReasoningMessage,
     normalizeDeepSeekUsageMetadata,
 } from "nbook/server/utils/model";
+
+function createMockOpenAiCompatibleModel(options: {stream?: boolean} = {}) {
+    return createConfiguredChatModel({
+        models: {
+            defaultModelKey: "mock-provider/mock-model",
+            providers: {
+                "mock-provider": {
+                    name: "Mock Provider",
+                    adapter: {
+                        type: "openai-compatible",
+                        reasoningContentReplay: true,
+                    },
+                    options: {
+                        apiKey: "test-key",
+                        baseURL: "https://example.test/v1",
+                        proxy: "",
+                    },
+                    models: {
+                        "mock-model": {
+                            name: "Mock Model",
+                            id: "mimo-v2.5-pro",
+                            group: null,
+                            enabled: true,
+                            contextWindowTokens: null,
+                        },
+                    },
+                },
+            },
+        },
+    } satisfies Pick<AppConfig, "models">, options);
+}
 
 describe("normalizeDeepSeekUsageMetadata", () => {
     it("会把 DeepSeek raw usage 归一化到 LangChain usage_metadata", () => {
@@ -356,5 +390,139 @@ describe("normalizeOpenAiCompatibleReasoningMessage", () => {
                 text: "正文",
             },
         ]);
+    });
+});
+
+describe("NeuroBookChatOpenAICompatible", () => {
+    it("流式 delta 缺少 role 时仍输出 AIMessageChunk 供 thread-runner 提取 thinking", async () => {
+        const model = createMockOpenAiCompatibleModel();
+        const patchableModel = model as unknown as {
+            /**
+             * 测试替换网络层，避免真实访问 provider。
+             */
+            completionWithRetry: () => Promise<AsyncIterable<unknown>>;
+        };
+        patchableModel.completionWithRetry = async () => (async function* () {
+            yield {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                created: 0,
+                model: "mimo-v2.5-pro",
+                choices: [{
+                    index: 0,
+                    delta: {
+                        reasoning_content: "先分析问题",
+                    },
+                    finish_reason: null,
+                }],
+            };
+            yield {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                created: 0,
+                model: "mimo-v2.5-pro",
+                choices: [{
+                    index: 0,
+                    delta: {
+                        content: "完成",
+                    },
+                    finish_reason: null,
+                }],
+            };
+            yield {
+                id: "chatcmpl-test",
+                object: "chat.completion.chunk",
+                created: 0,
+                model: "mimo-v2.5-pro",
+                choices: [],
+                usage: {
+                    prompt_tokens: 100,
+                    completion_tokens: 20,
+                    total_tokens: 120,
+                    prompt_tokens_details: {
+                        cached_tokens: 64,
+                    },
+                    completion_tokens_details: {
+                        reasoning_tokens: 11,
+                    },
+                },
+            };
+        })();
+
+        const chunks = [];
+        for await (const chunk of await model.stream([new HumanMessage("测试")])) {
+            chunks.push(chunk);
+        }
+
+        expect(AIMessageChunk.isInstance(chunks[0])).toBe(true);
+        expect(extractAssistantDeltaFromChunk(chunks[0] as AIMessageChunk)).toMatchObject({
+            thinkingText: "先分析问题",
+        });
+        expect((chunks.at(-1) as AIMessageChunk).usage_metadata).toEqual({
+            input_tokens: 100,
+            output_tokens: 20,
+            total_tokens: 120,
+            input_token_details: {
+                cache_read: 64,
+            },
+            output_token_details: {
+                reasoning: 11,
+            },
+        });
+    });
+
+    it("非流式响应会保留 OpenAI-compatible usage details", async () => {
+        const model = createMockOpenAiCompatibleModel({
+            stream: false,
+        });
+        const patchableModel = model as unknown as {
+            /**
+             * 测试替换网络层，避免真实访问 provider。
+             */
+            completionWithRetry: () => Promise<unknown>;
+        };
+        patchableModel.completionWithRetry = async () => ({
+            id: "chatcmpl-test",
+            object: "chat.completion",
+            created: 0,
+            model: "mimo-v2.5-pro",
+            choices: [{
+                index: 0,
+                message: {
+                    role: "assistant",
+                    content: "完成",
+                },
+                finish_reason: "stop",
+            }],
+            usage: {
+                prompt_tokens: 100,
+                completion_tokens: 20,
+                total_tokens: 120,
+                prompt_tokens_details: {
+                    audio_tokens: 3,
+                    cached_tokens: 64,
+                },
+                completion_tokens_details: {
+                    audio_tokens: 2,
+                    reasoning_tokens: 11,
+                },
+            },
+        });
+
+        const message = await model.invoke([new HumanMessage("测试")]);
+
+        expect(message.usage_metadata).toEqual({
+            input_tokens: 100,
+            output_tokens: 20,
+            total_tokens: 120,
+            input_token_details: {
+                audio: 3,
+                cache_read: 64,
+            },
+            output_token_details: {
+                audio: 2,
+                reasoning: 11,
+            },
+        });
     });
 });
