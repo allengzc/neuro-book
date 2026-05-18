@@ -36,10 +36,10 @@ await run(
 );
 
 console.log(`\n📦 Step 3: 上传到 ${host}`);
-await run(`scp ${archive} ${host}:${remoteDir}/`, "scp");
+await run(`scp ${archive} ${host}:/tmp/`, "scp");
 
 console.log("\n📦 Step 4: 服务器重建并启动");
-const sshScript = `cd ${remoteDir} && tar -xzf ${archive.split("/").pop()} && docker build -f Dockerfile.runner -t neuro-book-app . && docker compose --env-file .env.docker down && docker compose --env-file .env.docker up -d`;
+const sshScript = `BUILD_DIR=$(mktemp -d) && tar -xzf /tmp/neuro-book-dist.tar.gz -C $BUILD_DIR && docker build -f $BUILD_DIR/Dockerfile.runner -t neuro-book-app $BUILD_DIR && rm -rf $BUILD_DIR && cd ${remoteDir} && docker compose --env-file .env.docker down && docker compose --env-file .env.docker up -d`;
 
 const result = await $`ssh ${host} ${sshScript}`.quiet();
 console.log(result.stdout.toString());
