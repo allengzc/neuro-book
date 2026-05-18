@@ -18,12 +18,14 @@ describe("auth utils", () => {
     beforeEach(() => {
         const globals = globalThis as typeof globalThis & {
             createError?: unknown;
+            setUserSession?: unknown;
         };
         globals.createError = ((input: {statusCode?: number; message?: string}) => {
             const error = new Error(input.message ?? "未知错误") as Error & {statusCode?: number};
             error.statusCode = input.statusCode;
             return error;
         }) as never;
+        globals.setUserSession = vi.fn();
     });
 
     it("密码哈希可以正确校验", async () => {
@@ -60,5 +62,34 @@ describe("auth utils", () => {
         await lockAdminStateChanges(prismaMock as never);
 
         expect(prismaMock.$executeRaw).toHaveBeenCalledTimes(1);
+    });
+
+    it("HTTP 登录会写入非 Secure session cookie", async () => {
+        const {setAuthSession} = await import("nbook/server/utils/auth");
+
+        await setAuthSession({
+            node: {
+                req: {
+                    headers: {},
+                    connection: {},
+                },
+            },
+        } as never, {
+            id: "1",
+            username: "admin",
+            displayName: "管理员",
+            role: "admin",
+            sessionVersion: 1,
+        });
+
+        expect((globalThis as typeof globalThis & {setUserSession: ReturnType<typeof vi.fn>}).setUserSession).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.objectContaining({
+                cookie: expect.objectContaining({
+                    secure: false,
+                }),
+            }),
+        );
     });
 });

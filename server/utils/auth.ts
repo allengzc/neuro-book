@@ -1,6 +1,7 @@
 import {randomBytes, scrypt as scryptCallback, timingSafeEqual} from "node:crypto";
 import {promisify} from "node:util";
 import type {H3Event} from "h3";
+import {getRequestProtocol} from "h3";
 import type {Prisma, PrismaClient, User, UserRole} from "nbook/server/generated/prisma/client";
 import {loadAppConfigSync} from "nbook/server/utils/app-config";
 import {prisma} from "nbook/server/utils/prisma";
@@ -14,10 +15,36 @@ const passwordKeyLength = 64;
 const adminStateLockId = 550317001;
 
 /**
+ * 根据当前请求协议生成 session 配置。HTTP 测试站点不能使用 Secure cookie。
+ */
+function authSessionConfig(event: H3Event) {
+    return {
+        cookie: {
+            secure: getRequestProtocol(event) === "https",
+            sameSite: "lax" as const,
+        },
+    };
+}
+
+/**
  * 判断当前配置是否启用全站鉴权。未配置时默认启用。
  */
 export function isAuthEnabled(): boolean {
     return loadAppConfigSync().auth.enabled;
+}
+
+/**
+ * 写入当前用户 session。
+ */
+export async function setAuthSession(event: H3Event, user: AuthUserDto): Promise<void> {
+    await setUserSession(event, {user}, authSessionConfig(event));
+}
+
+/**
+ * 清理当前用户 session。
+ */
+export async function clearAuthSession(event: H3Event): Promise<void> {
+    await clearUserSession(event, authSessionConfig(event));
 }
 
 /**
@@ -112,7 +139,7 @@ export async function getCurrentUser(event: H3Event): Promise<User | null> {
 
     const userId = Number.parseInt(sessionUserId, 10);
     if (!Number.isSafeInteger(userId) || userId <= 0) {
-        await clearUserSession(event);
+        await clearAuthSession(event);
         return null;
     }
 
@@ -120,7 +147,7 @@ export async function getCurrentUser(event: H3Event): Promise<User | null> {
         where: {id: userId},
     });
     if (!user || user.status !== "active" || user.sessionVersion !== session.user?.sessionVersion) {
-        await clearUserSession(event);
+        await clearAuthSession(event);
         return null;
     }
 

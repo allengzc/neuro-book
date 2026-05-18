@@ -17,6 +17,7 @@ vi.mock("nbook/server/utils/prisma", () => ({
 
 vi.mock("h3", () => ({
     getRequestIP: vi.fn(() => "127.0.0.1"),
+    getRequestProtocol: vi.fn(() => "http"),
 }));
 
 describe("POST /api/auth/login", () => {

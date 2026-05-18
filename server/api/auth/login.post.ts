@@ -1,6 +1,6 @@
 import {getRequestIP} from "h3";
 import {LoginRequestDtoSchema, type AuthSessionDto} from "nbook/shared/dto/auth.dto";
-import {isAuthEnabled, toAuthUser, verifyUserPassword} from "nbook/server/utils/auth";
+import {clearAuthSession, isAuthEnabled, setAuthSession, toAuthUser, verifyUserPassword} from "nbook/server/utils/auth";
 import {assertLoginAttemptAllowed, clearLoginFailures, loginDummyPasswordHash, loginFailureMessage, recordLoginFailure} from "nbook/server/utils/login-security";
 import {prisma} from "nbook/server/utils/prisma";
 import {validateBody} from "nbook/server/utils/novel-chapter";
@@ -10,7 +10,7 @@ import {validateBody} from "nbook/server/utils/novel-chapter";
  */
 export default defineEventHandler(async (event): Promise<AuthSessionDto> => {
     if (!isAuthEnabled()) {
-        await clearUserSession(event);
+        await clearAuthSession(event);
         return {
             authEnabled: false,
             user: null,
@@ -41,9 +41,7 @@ export default defineEventHandler(async (event): Promise<AuthSessionDto> => {
         data: {lastLoginAt: new Date()},
     });
     const sessionUser = toAuthUser(updatedUser);
-    await setUserSession(event, {
-        user: sessionUser,
-    });
+    await setAuthSession(event, sessionUser);
 
     return {
         authEnabled: true,

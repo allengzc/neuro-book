@@ -32,6 +32,7 @@
 - 之后补齐主界面右上角账号头像菜单，支持一键退出登录。
 - 登录页和管理员页改为复用主界面的主题变量宿主，避免再单独维护一套固定深色样式。
 - 登录页显示测试站点密码获取邮箱，管理员创建和重置密码弹窗支持自动生成复杂密码。
+- 修复生产构建后 HTTP 测试站点无法保持登录的问题：session cookie 的 `secure` 按当前请求协议动态设置；HTTPS 或反代带 `x-forwarded-proto: https` 时仍写 Secure cookie，裸 HTTP 测试站点写非 Secure cookie。
 
 ## Decisions
 
