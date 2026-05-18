@@ -37,6 +37,8 @@ const props = defineProps<{
     selectedSceneId: string | null;
     selectedPlotId: string | null;
     pinnedThreadIds: string[];
+    loading?: boolean;
+    error?: string;
 }>();
 
 const emit = defineEmits<{
@@ -288,9 +290,9 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
                 <span class="hidden max-w-[260px] truncate text-[13px] text-[var(--text-secondary)] lg:inline">主线：{{ selectedThread?.title ?? props.story.title }}</span>
 
                 <span class="ml-auto flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
-                    <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
-                    已保存
-                    <span>刚刚</span>
+                    <span class="h-2 w-2 rounded-full" :class="props.error ? 'bg-rose-500' : props.loading ? 'bg-amber-500' : 'bg-emerald-500'"></span>
+                    {{ props.error ? "加载失败" : props.loading ? "加载中" : "已保存" }}
+                    <span v-if="!props.error">刚刚</span>
                 </span>
 
                 <button type="button" class="inline-flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('update:modelValue', false)">
@@ -316,7 +318,11 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
                 </button>
             </nav>
 
-            <div class="flex min-h-0 flex-1">
+            <div class="relative flex min-h-0 flex-1">
+                <div v-if="props.error" class="absolute left-1/2 top-[70px] z-20 -translate-x-1/2 rounded-md border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-[12px] text-rose-700 shadow-sm">
+                    {{ props.error }}
+                </div>
+
                 <PlotWorkbenchSidebar
                     v-model:search="search"
                     v-model:mode="threadMode"

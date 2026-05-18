@@ -1,7 +1,7 @@
 /**
- * Thread refs 详情 include。
+ * Scene refs 详情 include。
  */
-export const STORY_THREAD_REF_INCLUDE = {
+export const STORY_SCENE_REF_INCLUDE = {
     targetThread: {
         select: {
             id: true,
@@ -19,8 +19,3 @@ export const STORY_THREAD_REF_INCLUDE = {
         },
     },
 } as const;
-
-/**
- * Scene refs 详情 include。
- */
-export const STORY_SCENE_REF_INCLUDE = STORY_THREAD_REF_INCLUDE;

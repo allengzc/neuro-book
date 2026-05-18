@@ -34,28 +34,22 @@ export class PlotInputParser {
     /**
      * 解析线程创建输入。
      */
-    parseCreateThread(
-        input: CreateStoryThreadRequestDto & {resolvedRefs?: ResolvedStoryRefInput[]},
-    ): ParsedCreateStoryThreadInput {
+    parseCreateThread(input: CreateStoryThreadRequestDto): ParsedCreateStoryThreadInput {
         return {
             ...input,
             storyPhaseId: parseNullableEntityId("phaseId", input.storyPhaseId),
-            refs: input.refs ?? [],
         };
     }
 
     /**
      * 解析线程更新输入。
      */
-    parseUpdateThread(
-        input: UpdateStoryThreadRequestDto & {resolvedRefs?: ResolvedStoryRefInput[]},
-    ): ParsedUpdateStoryThreadInput {
+    parseUpdateThread(input: UpdateStoryThreadRequestDto): ParsedUpdateStoryThreadInput {
         return {
             ...input,
             storyPhaseId: input.storyPhaseId === undefined
                 ? undefined
                 : parseNullableEntityId("phaseId", input.storyPhaseId),
-            refs: input.refs,
         };
     }
 

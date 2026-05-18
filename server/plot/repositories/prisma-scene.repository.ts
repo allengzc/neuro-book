@@ -6,7 +6,7 @@ import type {
     ResolvedStoryRefInput,
     StorySceneWithDetails,
 } from "nbook/server/plot/core/types";
-import {STORY_SCENE_REF_INCLUDE, STORY_THREAD_REF_INCLUDE} from "nbook/server/plot/repositories/includes";
+import {STORY_SCENE_REF_INCLUDE} from "nbook/server/plot/repositories/includes";
 
 /**
  * Prisma 版 Scene 仓储。
@@ -44,14 +44,21 @@ export class PrismaSceneRepository implements SceneRepository {
                     include: STORY_SCENE_REF_INCLUDE,
                 },
                 thread: {
-                    include: {
-                        refs: {
-                            orderBy: [
-                                {sortOrder: "asc"},
-                                {id: "asc"},
-                            ],
-                            include: STORY_THREAD_REF_INCLUDE,
-                        },
+                    select: {
+                        id: true,
+                        storyId: true,
+                        storyPhaseId: true,
+                        sortOrder: true,
+                        name: true,
+                        title: true,
+                        isMainThread: true,
+                        status: true,
+                        summary: true,
+                        tags: true,
+                        writingTip: true,
+                        note: true,
+                        createdAt: true,
+                        updatedAt: true,
                     },
                 },
             },

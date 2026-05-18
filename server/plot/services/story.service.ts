@@ -14,6 +14,7 @@ import {OrderService} from "nbook/server/plot/services/order.service";
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
 import type {
     CreateStoryPhaseRequestDto,
+    PlotWorkbenchDto,
     PlotTreeDto,
     StoryDto,
     StoryPhaseDto,
@@ -85,6 +86,25 @@ export class StoryService {
         ]);
 
         return this.assembler.toPlotTreeDto({
+            story,
+            phases,
+            ungroupedThreads,
+            totalPlots,
+        });
+    }
+
+    /**
+     * 读取剧本工作台聚合数据。
+     */
+    async getPlotWorkbench(novelId: number): Promise<PlotWorkbenchDto> {
+        const story = await this.ensureStory(novelId);
+        const [phases, ungroupedThreads, totalPlots] = await Promise.all([
+            this.threadRepository.findWorkbenchPhaseThreads(story.id),
+            this.threadRepository.findUngroupedWorkbenchThreads(story.id),
+            this.plotRepository.countPlotsByStory(story.id),
+        ]);
+
+        return this.assembler.toPlotWorkbenchDto({
             story,
             phases,
             ungroupedThreads,

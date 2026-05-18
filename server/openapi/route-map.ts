@@ -25,6 +25,7 @@ import {
     CreateStorySceneRequestDtoSchema,
     CreateStoryThreadRequestDtoSchema,
     PlotTreeDtoSchema,
+    PlotWorkbenchDtoSchema,
     ReorderStoryPhasesRequestDtoSchema,
     ReorderStoryPlotsRequestDtoSchema,
     ReorderStoryScenesRequestDtoSchema,
@@ -245,6 +246,13 @@ export const routeMetaMap: RouteMetaEntry[] = [
         summary: "Get the full plot tree (story + phases + threads + scenes + plots)",
         responseBody: PlotTreeDtoSchema,
     },
+    {
+        file: "novels/[novelId]/plot/workbench.get.ts",
+        method: "get",
+        tags: ["Plot"],
+        summary: "Get plot workbench data with threads, scenes, plots, and scene refs",
+        responseBody: PlotWorkbenchDtoSchema,
+    },
 
     // ═══ Plot: Phases ═══
     {
@@ -297,7 +305,7 @@ export const routeMetaMap: RouteMetaEntry[] = [
         file: "novels/[novelId]/plot/threads/[threadId].get.ts",
         method: "get",
         tags: ["Plot Threads"],
-        summary: "Get a story thread with scenes and refs",
+        summary: "Get a story thread with scenes",
         responseBody: StoryThreadDetailDtoSchema,
     },
     {

@@ -23,6 +23,7 @@ import {
 import {STORY_STRUCTURED_REFERENCE_KINDS} from "nbook/shared/reference-core";
 import type {
     ChapterPlotDetailDto,
+    PlotWorkbenchDto,
     CreateStoryPhaseRequestDto,
     CreateStoryPlotRequestDto,
     CreateStorySceneRequestDto,
@@ -84,6 +85,13 @@ export class PlotFacade {
     }
 
     /**
+     * 查询剧本工作台聚合数据。
+     */
+    async getPlotWorkbench(novelId: number): Promise<PlotWorkbenchDto> {
+        return this.createModule(this.prisma).storyService.getPlotWorkbench(novelId);
+    }
+
+    /**
      * 查询阶段详情。
      */
     async getStoryPhaseDto(novelId: number, phaseId: number): Promise<StoryPhaseDto> {
@@ -133,24 +141,12 @@ export class PlotFacade {
     async createStoryThread(novelId: number, input: CreateStoryThreadRequestDto): Promise<StoryThreadWriteResponseDto> {
         const processedInput = processTextFieldsWithResults(input, ["summary", "writingTip", "note"]);
         return this.runInTransaction(async (module) => {
-            const story = await module.storyService.ensureStory(novelId);
-            const processedRefs = await processStructuredReferences({
-                refs: processedInput.values.refs ?? [],
-                allowedKinds: STORY_STRUCTURED_REFERENCE_KINDS,
-                label: "plot",
-                resolve: (nextRefs) => module.refResolverService.resolveRefs(novelId, story.id, nextRefs),
-            });
             const detail = await module.threadService.createStoryThread(novelId, module.inputParser.parseCreateThread({
                 ...processedInput.values,
-                refs: processedRefs.normalized,
-                resolvedRefs: processedRefs.resolved,
             }));
             return {
                 ...detail,
-                diagnostics: toResponseContentDiagnostics(mergeContentDiagnostics(
-                    processedInput.diagnostics,
-                    processedRefs.diagnostics,
-                )),
+                diagnostics: toResponseContentDiagnostics(processedInput.diagnostics),
             };
         });
     }
@@ -165,30 +161,16 @@ export class PlotFacade {
     ): Promise<StoryThreadWriteResponseDto> {
         const processedPatch = processTextFieldsWithResults(patch, ["summary", "writingTip", "note"]);
         return this.runInTransaction(async (module) => {
-            const story = await module.storyService.ensureStory(novelId);
-            const processedRefs = processedPatch.values.refs === undefined
-                ? null
-                : await processStructuredReferences({
-                    refs: processedPatch.values.refs,
-                    allowedKinds: STORY_STRUCTURED_REFERENCE_KINDS,
-                    label: "plot",
-                    resolve: (nextRefs) => module.refResolverService.resolveRefs(novelId, story.id, nextRefs),
-                });
             const detail = await module.threadService.updateStoryThread(
                 novelId,
                 threadId,
                 module.inputParser.parseUpdateThread({
                     ...processedPatch.values,
-                    refs: processedRefs?.normalized,
-                    resolvedRefs: processedRefs?.resolved,
                 }),
             );
             return {
                 ...detail,
-                diagnostics: toResponseContentDiagnostics(mergeContentDiagnostics(
-                    processedPatch.diagnostics,
-                    processedRefs?.diagnostics ?? {errors: [], warnings: [], notes: []},
-                )),
+                diagnostics: toResponseContentDiagnostics(processedPatch.diagnostics),
             };
         });
     }
@@ -405,7 +387,6 @@ export class PlotFacade {
             storyService,
             scopeGuard,
             orderService,
-            refResolverService,
             assembler,
         );
         const sceneService = new SceneService(

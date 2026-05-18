@@ -26,6 +26,7 @@ import type {
     CreateStorySceneRequestDto,
     CreateStoryThreadRequestDto,
     PlotTreeDto,
+    PlotWorkbenchDto,
     ReorderStoryPlotsRequestDto,
     ReorderStoryScenesRequestDto,
     StoryPlotDto,
@@ -80,11 +81,15 @@ const editingThreadId = ref<string | null>(null);
 const editingSceneId = ref<string | null>(null);
 const threadDetailMap = ref<Record<string, StoryThreadDetailDto>>({});
 const sceneDetailMap = ref<Record<string, StorySceneDetailDto>>({});
+const plotWorkbenchData = ref<PlotWorkbenchDto | null>(null);
 const detailPanelRef = ref<InstanceType<typeof PlotThreadDetailPanel> | null>(null);
 const selectedPlotId = ref<string | null>(null);
 const pinnedWorkbenchThreadIds = ref<string[]>([]);
+const loadingWorkbench = ref(false);
+const workbenchError = ref("");
 
 let treeRequestVersion = 0;
+let workbenchRequestVersion = 0;
 
 /**
  * 当前章节列表，直接从 manuscript content-node 派生。
@@ -151,26 +156,37 @@ const visiblePlots = computed<PlotThreadPanelPlot[]>(() => {
 });
 
 /**
- * 剧本工作台使用的已缓存 Plot 列表。
+ * 剧本工作台顶部展示的 Story 概要。
  */
-const workbenchPlots = computed<PlotThreadPanelPlot[]>(() => {
-    return Object.values(sceneDetailMap.value)
-        .flatMap((detail) => detail.plots.map(mapPlotDto));
+const workbenchStory = computed(() => {
+    const story = plotWorkbenchData.value?.story;
+    return {
+        id: story?.id ?? currentNovelId.value ?? "current-novel",
+        title: story?.title ?? currentNovel.value?.title ?? "当前小说",
+        summary: story?.summary ?? currentNovel.value?.summary ?? "",
+    };
 });
 
 /**
- * 剧本工作台顶部展示的 Story 概要。
- */
-const workbenchStory = computed(() => ({
-    id: currentNovelId.value ?? "current-novel",
-    title: currentNovel.value?.title ?? "当前小说",
-    summary: currentNovel.value?.summary ?? "",
-}));
-
-/**
- * 剧本工作台阶段数据。当前真实剧情树未单独暴露 Phase 列表时，用 Thread 上的 phaseId 做轻量展示。
+ * 剧本工作台阶段数据。
  */
 const workbenchPhases = computed(() => {
+    const data = plotWorkbenchData.value;
+    if (data) {
+        const phases = data.phases.map((phase) => ({
+            id: phase.id,
+            title: phase.title,
+            summary: phase.summary,
+        }));
+        return phases.length
+            ? phases
+            : [{
+                id: "ungrouped",
+                title: "未分阶段",
+                summary: "",
+            }];
+    }
+
     const phaseIds = [...new Set(threads.value.map((thread) => thread.phaseId).filter((phaseId): phaseId is string => Boolean(phaseId)))];
     return phaseIds.length
         ? phaseIds.map((phaseId, index) => ({
@@ -183,6 +199,66 @@ const workbenchPhases = computed(() => {
             title: "当前阶段",
             summary: "",
         }];
+});
+
+/**
+ * 剧本工作台线程视图，优先来自聚合接口。
+ */
+const workbenchThreads = computed<PlotThreadPanelThread[]>(() => {
+    const nodes = flattenWorkbenchThreads();
+    if (!nodes.length) {
+        return threads.value;
+    }
+
+    return nodes.map((item, index) => ({
+        id: item.thread.id,
+        phaseId: item.phaseId,
+        title: item.thread.title,
+        summary: item.thread.summary,
+        status: item.thread.status,
+        isMainThread: item.thread.isMainThread,
+        tags: [...item.thread.tags],
+        writingTip: item.thread.writingTip,
+        tone: resolveThreadTone(index),
+        refs: [],
+    }));
+});
+
+/**
+ * 剧本工作台 Scene 视图，优先来自聚合接口。
+ */
+const workbenchScenes = computed<PlotThreadPanelScene[]>(() => {
+    const nodes = flattenWorkbenchThreads();
+    if (!nodes.length) {
+        return scenes.value;
+    }
+
+    return nodes.flatMap((item) => item.thread.scenes.map((scene) => ({
+        id: scene.id,
+        threadId: scene.threadId,
+        chapterPath: scene.chapterPath,
+        title: scene.title,
+        summary: scene.summary,
+        purpose: scene.purpose,
+        status: scene.status,
+        threadSortOrder: scene.threadSortOrder,
+        chapterSortOrder: scene.chapterSortOrder,
+        writingTip: scene.writingTip,
+        refs: scene.refs.map((refItem, index) => mapStoryRefDto(refItem, `scene:${scene.id}:ref:${String(index)}`, "scene")),
+    })));
+});
+
+/**
+ * 剧本工作台 Plot 视图，优先来自聚合接口。
+ */
+const workbenchPlots = computed<PlotThreadPanelPlot[]>(() => {
+    const nodes = flattenWorkbenchThreads();
+    if (!nodes.length) {
+        return Object.values(sceneDetailMap.value)
+            .flatMap((detail) => detail.plots.map(mapPlotDto));
+    }
+
+    return nodes.flatMap((item) => item.thread.scenes.flatMap((scene) => scene.plots.map(mapPlotDto)));
 });
 
 /**
@@ -259,7 +335,8 @@ const deleteMessage = computed(() => {
     }
 
     if (deleteTarget.value.type === "plot") {
-        const plot = visiblePlots.value.find((item) => item.id === deleteTarget.value?.id);
+        const plot = workbenchPlots.value.find((item) => item.id === deleteTarget.value?.id)
+            ?? visiblePlots.value.find((item) => item.id === deleteTarget.value?.id);
         return `确认删除「${plot?.summary.slice(0, 40) || "当前 Plot"}」吗？`;
     }
 
@@ -342,31 +419,57 @@ function mapPlotDto(plot: StoryPlotDto): PlotThreadPanelPlot {
 }
 
 /**
- * 把缓存里的 Thread refs 映射到面板模型。
+ * 把接口 ref 映射成面板 ref。
  */
-function mapThreadRefs(threadId: string): PlotThreadPanelRef[] {
-    return (threadDetailMap.value[threadId]?.refs ?? []).map((refItem, index) => ({
-        id: `thread:${threadId}:ref:${String(index)}`,
+function mapStoryRefDto(refItem: StoryRefDto, id: string, source?: "thread" | "scene"): PlotThreadPanelRef {
+    return {
+        id,
         relation: refItem.relation,
         target: refItem.target,
         visibility: refItem.visibility,
         note: refItem.note,
-        source: "thread",
-    }));
+        source,
+    };
+}
+
+/**
+ * 展开剧本工作台聚合 Thread。
+ */
+function flattenWorkbenchThreads(): Array<{
+    phaseId: string | null;
+    thread: PlotWorkbenchDto["phases"][number]["threads"][number];
+}> {
+    const data = plotWorkbenchData.value;
+    if (!data) {
+        return [];
+    }
+
+    return [
+        ...data.phases.flatMap((phase) => phase.threads.map((thread) => ({
+            phaseId: phase.id,
+            thread,
+        }))),
+        ...data.ungroupedThreads.map((thread) => ({
+            phaseId: null,
+            thread,
+        })),
+    ];
+}
+
+/**
+ * 把缓存里的 Thread refs 映射到面板模型。
+ */
+function mapThreadRefs(_threadId: string): PlotThreadPanelRef[] {
+    return [];
 }
 
 /**
  * 把缓存里的 Scene refs 映射到面板模型。
  */
 function mapSceneRefs(sceneId: string): PlotThreadPanelRef[] {
-    return (sceneDetailMap.value[sceneId]?.refs ?? []).map((refItem, index) => ({
-        id: `scene:${sceneId}:ref:${String(index)}`,
-        relation: refItem.relation,
-        target: refItem.target,
-        visibility: refItem.visibility,
-        note: refItem.note,
-        source: "scene",
-    }));
+    return (sceneDetailMap.value[sceneId]?.refs ?? []).map((refItem, index) => (
+        mapStoryRefDto(refItem, `scene:${sceneId}:ref:${String(index)}`, "scene")
+    ));
 }
 
 /**
@@ -569,6 +672,43 @@ async function loadPlotTree(options: {
     } finally {
         if (requestVersion === treeRequestVersion) {
             loadingTree.value = false;
+        }
+    }
+}
+
+/**
+ * 拉取剧本工作台聚合数据。
+ */
+async function loadPlotWorkbench(force = false): Promise<void> {
+    if (!currentNovelId.value) {
+        plotWorkbenchData.value = null;
+        workbenchError.value = "";
+        return;
+    }
+
+    if (!force && plotWorkbenchData.value) {
+        return;
+    }
+
+    const requestVersion = ++workbenchRequestVersion;
+    loadingWorkbench.value = true;
+    workbenchError.value = "";
+
+    try {
+        const response = await $fetch<PlotWorkbenchDto>(`/api/novels/${currentNovelId.value}/plot/workbench`);
+        if (requestVersion !== workbenchRequestVersion) {
+            return;
+        }
+
+        plotWorkbenchData.value = response;
+    } catch (error) {
+        if (requestVersion !== workbenchRequestVersion) {
+            return;
+        }
+        workbenchError.value = resolveErrorMessage(error, "加载剧本工作台失败");
+    } finally {
+        if (requestVersion === workbenchRequestVersion) {
+            loadingWorkbench.value = false;
         }
     }
 }
@@ -951,6 +1091,7 @@ async function updateWorkbenchThread(threadId: string, patch: Partial<PlotThread
         });
         detailDiagnostics.value = formatDiagnosticsText(updated);
         applyThreadDetail(updated);
+        await loadPlotWorkbench(true);
     } catch (error) {
         treeError.value = resolveErrorMessage(error, "保存 Thread 失败");
     }
@@ -980,6 +1121,7 @@ async function updateWorkbenchScene(sceneId: string, patch: Partial<PlotThreadPa
         });
         detailDiagnostics.value = formatDiagnosticsText(updated);
         applySceneDetail(updated);
+        await loadPlotWorkbench(true);
     } catch (error) {
         detailError.value = resolveErrorMessage(error, "保存 Scene 失败");
     }
@@ -1010,6 +1152,7 @@ async function updateWorkbenchPlot(plotId: string, patch: Partial<PlotThreadPane
         if (sceneId) {
             await ensureSceneDetail(sceneId, true);
         }
+        await loadPlotWorkbench(true);
     } catch (error) {
         detailError.value = resolveErrorMessage(error, "保存 Plot 失败");
     }
@@ -1080,6 +1223,7 @@ async function saveThread(payload: PlotThreadEditorSave): Promise<void> {
             await loadPlotTree({
                 preferredThreadId: created.id,
             });
+            await loadPlotWorkbench(true);
             return;
         }
 
@@ -1105,6 +1249,7 @@ async function saveThread(payload: PlotThreadEditorSave): Promise<void> {
             preferredThreadId: updated.id,
             preferredSceneId: selectedSceneId.value,
         });
+        await loadPlotWorkbench(true);
     } catch (error) {
         treeError.value = resolveErrorMessage(error, "保存 Thread 失败");
         throw error;
@@ -1252,6 +1397,7 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
             preferredThreadId: selectedThreadId.value,
             preferredSceneId: sceneId,
         });
+        await loadPlotWorkbench(true);
 
         if (sceneId) {
             await ensureSceneDetail(sceneId, true);
@@ -1292,6 +1438,7 @@ async function deleteThread(threadId: string): Promise<void> {
 
     delete threadDetailMap.value[threadId];
     await loadPlotTree();
+    await loadPlotWorkbench(true);
 }
 
 /**
@@ -1311,6 +1458,7 @@ async function deleteScene(sceneId: string): Promise<void> {
     await loadPlotTree({
         preferredThreadId: fallbackThreadId,
     });
+    await loadPlotWorkbench(true);
 }
 
 /**
@@ -1321,7 +1469,9 @@ async function deletePlot(plotId: string): Promise<void> {
         return;
     }
 
-    const fallbackSceneId = visiblePlots.value.find((plot) => plot.id === plotId)?.sceneId ?? selectedSceneId.value;
+    const fallbackSceneId = workbenchPlots.value.find((plot) => plot.id === plotId)?.sceneId
+        ?? visiblePlots.value.find((plot) => plot.id === plotId)?.sceneId
+        ?? selectedSceneId.value;
     await $fetch(`/api/novels/${currentNovelId.value}/plot/plots/${plotId}`, {
         method: "DELETE",
     });
@@ -1332,6 +1482,7 @@ async function deletePlot(plotId: string): Promise<void> {
     if (fallbackSceneId) {
         await ensureSceneDetail(fallbackSceneId, true);
     }
+    await loadPlotWorkbench(true);
 }
 
 /**
@@ -1358,6 +1509,7 @@ async function createWorkbenchPlot(sceneId: string): Promise<void> {
         selectScene(sceneId);
         selectedPlotId.value = created.id;
         await ensureSceneDetail(sceneId, true);
+        await loadPlotWorkbench(true);
     } catch (error) {
         detailError.value = resolveErrorMessage(error, "创建 Plot 失败");
     }
@@ -1415,6 +1567,7 @@ async function reorderPlots(payload: {sceneId: string; plotIds: string[]}): Prom
         });
 
         await ensureSceneDetail(payload.sceneId, true);
+        await loadPlotWorkbench(true);
     } catch (error) {
         detailError.value = resolveErrorMessage(error, "保存 Plot 顺序失败");
     } finally {
@@ -1461,6 +1614,7 @@ async function reorderScenes(sceneIds: string[]): Promise<void> {
             preferredThreadId: selectedThreadId.value,
             preferredSceneId: selectedSceneId.value,
         });
+        await loadPlotWorkbench(true);
     } catch (error) {
         treeError.value = resolveErrorMessage(error, "保存 Scene 顺序失败");
     } finally {
@@ -1482,6 +1636,8 @@ watch(() => ({
     detailDiagnostics.value = "";
     threadDetailMap.value = {};
     sceneDetailMap.value = {};
+    plotWorkbenchData.value = null;
+    workbenchError.value = "";
 
     if (workspaceLoading || !novelId) {
         threads.value = [];
@@ -1494,6 +1650,12 @@ watch(() => ({
     await loadPlotTree();
 }, {immediate: true});
 
+watch(plotWorkbenchOpen, (open) => {
+    if (open) {
+        void loadPlotWorkbench();
+    }
+});
+
 watch(plotRefreshVersion, async (version, previousVersion) => {
     if (!version || version === previousVersion || loadingWorkspace.value || !currentNovelId.value) {
         return;
@@ -1503,6 +1665,7 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
         preferredThreadId: selectedThreadId.value,
         preferredSceneId: selectedSceneId.value,
     });
+    await loadPlotWorkbench(true);
 });
 </script>
 
@@ -1592,14 +1755,16 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
             v-model="plotWorkbenchOpen"
             :story="workbenchStory"
             :phases="workbenchPhases"
-            :threads="threads"
-            :scenes="scenes"
+            :threads="workbenchThreads"
+            :scenes="workbenchScenes"
             :plots="workbenchPlots"
             :chapters="chapters"
             :selected-thread-id="selectedThreadId"
             :selected-scene-id="selectedSceneId"
             :selected-plot-id="selectedPlotId"
             :pinned-thread-ids="pinnedWorkbenchThreadIds"
+            :loading="loadingWorkbench"
+            :error="workbenchError"
             @select-thread="selectThread"
             @select-scene="selectScene"
             @select-plot="selectPlot"

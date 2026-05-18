@@ -1,10 +1,10 @@
 import type {Prisma} from "nbook/server/generated/prisma/client";
 import type {
+    StoryPhase,
     StoryPlot,
     StoryScene,
     StorySceneRef,
     StoryThread,
-    StoryThreadRef,
 } from "nbook/server/generated/prisma/client";
 import type {
     CreateStoryPlotRequestDto,
@@ -29,19 +29,9 @@ export type PrismaExecutor = Prisma.TransactionClient | {
     storyThread: Prisma.TransactionClient["storyThread"];
     storyScene: Prisma.TransactionClient["storyScene"];
     storyPlot: Prisma.TransactionClient["storyPlot"];
-    storyThreadRef: Prisma.TransactionClient["storyThreadRef"];
     storySceneRef: Prisma.TransactionClient["storySceneRef"];
     novel: Prisma.TransactionClient["novel"];
     $executeRaw: Prisma.TransactionClient["$executeRaw"];
-};
-
-/**
- * Thread ref 查询结果。
- */
-export type StoryThreadRefWithTargets = StoryThreadRef & {
-    targetThread: Pick<StoryThread, "id" | "name"> | null;
-    targetScene: Pick<StoryScene, "id"> | null;
-    targetPlot: Pick<StoryPlot, "id"> | null;
 };
 
 /**
@@ -54,10 +44,10 @@ export type StorySceneRefWithTargets = StorySceneRef & {
 };
 
 /**
- * Thread 详情聚合结果。
+ * Thread 详情聚合结果，不包含 refs。
  */
-export type StoryThreadWithRefs = StoryThread & {
-    refs: StoryThreadRefWithTargets[];
+export type StoryThreadWithScenes = StoryThread & {
+    scenes: StoryScene[];
 };
 
 /**
@@ -66,7 +56,29 @@ export type StoryThreadWithRefs = StoryThread & {
 export type StorySceneWithDetails = StoryScene & {
     plots: StoryPlot[];
     refs: StorySceneRefWithTargets[];
-    thread: StoryThreadWithRefs;
+    thread: StoryThread;
+};
+
+/**
+ * Workbench Scene 聚合结果。
+ */
+export type StoryWorkbenchScene = StoryScene & {
+    plots: StoryPlot[];
+    refs: StorySceneRefWithTargets[];
+};
+
+/**
+ * Workbench Thread 聚合结果。
+ */
+export type StoryWorkbenchThread = StoryThread & {
+    scenes: StoryWorkbenchScene[];
+};
+
+/**
+ * Workbench Phase 聚合结果。
+ */
+export type StoryWorkbenchPhase = StoryPhase & {
+    threads: StoryWorkbenchThread[];
 };
 
 /**
@@ -133,22 +145,16 @@ export type ParsedReorderStoryPlotItem = {
 /**
  * 线程创建输入。
  */
-export type ParsedCreateStoryThreadInput = Omit<CreateStoryThreadRequestDto, "storyPhaseId" | "refs"> & {
+export type ParsedCreateStoryThreadInput = Omit<CreateStoryThreadRequestDto, "storyPhaseId"> & {
     storyPhaseId: number | null;
-    refs: StoryRefDto[];
-    // `resolvedRefs` 非空表示内容层已经完成目标存在性校验，可直接写库。
-    resolvedRefs?: ResolvedStoryRefInput[];
 };
 
 /**
  * 线程更新输入。
  */
-export type ParsedUpdateStoryThreadInput = Omit<UpdateStoryThreadRequestDto, "storyPhaseId" | "refs"> & {
+export type ParsedUpdateStoryThreadInput = Omit<UpdateStoryThreadRequestDto, "storyPhaseId"> & {
     // `storyPhaseId` 为 undefined 表示不修改；null 表示移动到未分组。
     storyPhaseId?: number | null;
-    refs?: StoryRefDto[];
-    // `resolvedRefs` 非空表示内容层已经完成目标存在性校验，可直接写库。
-    resolvedRefs?: ResolvedStoryRefInput[];
 };
 
 /**

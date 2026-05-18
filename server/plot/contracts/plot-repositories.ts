@@ -10,7 +10,9 @@ import type {
     ChapterPlotSceneWithThread,
     ResolvedStoryRefInput,
     StorySceneWithDetails,
-    StoryThreadWithRefs,
+    StoryThreadWithScenes,
+    StoryWorkbenchPhase,
+    StoryWorkbenchThread,
 } from "nbook/server/plot/core/types";
 
 /**
@@ -34,7 +36,7 @@ export interface StoryRepository {
  */
 export interface ThreadRepository {
     findThreadById(threadId: number): Promise<StoryThread | null>;
-    findThreadWithRefsById(threadId: number): Promise<StoryThreadWithRefs | null>;
+    findThreadWithScenesById(threadId: number): Promise<StoryThreadWithScenes | null>;
     findThreadIdsByStory(storyId: number): Promise<number[]>;
     findThreadsByStoryPhase(storyId: number, storyPhaseId: number | null): Promise<StoryThread[]>;
     findThreadByName(storyId: number, name: string, excludeThreadId?: number): Promise<StoryThread | null>;
@@ -56,11 +58,12 @@ export interface ThreadRepository {
         "storyPhaseId" | "sortOrder" | "name" | "title" | "isMainThread" | "status" | "summary" | "tags" | "writingTip" | "note"
     >>): Promise<StoryThread>;
     deleteThread(threadId: number): Promise<void>;
-    replaceRefs(threadId: number, refs: ResolvedStoryRefInput[]): Promise<void>;
     findThreadRefsOwnerIds(storyId: number, storyPhaseId: number): Promise<number[]>;
     findThreadRefTargetByName(storyId: number, name: string): Promise<Pick<StoryThread, "id" | "name"> | null>;
     findUngroupedThreads(storyId: number): Promise<Array<StoryThread & {scenes: StoryScene[]}>>;
     findPhaseThreadsWithScenes(storyId: number): Promise<Array<StoryPhase & {threads: Array<StoryThread & {scenes: StoryScene[]}>}>>;
+    findUngroupedWorkbenchThreads(storyId: number): Promise<StoryWorkbenchThread[]>;
+    findWorkbenchPhaseThreads(storyId: number): Promise<StoryWorkbenchPhase[]>;
 }
 
 /**

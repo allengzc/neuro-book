@@ -23,7 +23,6 @@ export const updateStoryThreadTool: AgentTool<typeof UpdateStoryThreadToolInputS
     description: [
         "Update a story thread in the current novel.",
         "When threadId is omitted, defaults to the currently selected story thread in the IDE.",
-        "For refs to lore/settings, use workspace content-node paths such as lorebook/character/foo/. Do not use lorebook:// or pending://.",
     ].join("\n"),
     schema: UpdateStoryThreadToolInputSchema,
     async execute(input, context) {

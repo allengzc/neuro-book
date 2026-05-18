@@ -9,14 +9,12 @@ describe("PlotInputParser", () => {
             storyPhaseId: "12",
             name: "main-thread",
             title: "主线",
-            refs: [],
         });
 
         expect(result).toEqual({
             storyPhaseId: 12,
             name: "main-thread",
             title: "主线",
-            refs: [],
         });
     });
 

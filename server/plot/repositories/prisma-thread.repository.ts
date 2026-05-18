@@ -1,7 +1,12 @@
 import type {StoryPhase, StoryScene, StoryThread} from "nbook/server/generated/prisma/client";
 import type {ThreadRepository} from "nbook/server/plot/contracts/plot-repositories";
-import type {PrismaExecutor, ResolvedStoryRefInput, StoryThreadWithRefs} from "nbook/server/plot/core/types";
-import {STORY_THREAD_REF_INCLUDE} from "nbook/server/plot/repositories/includes";
+import type {
+    PrismaExecutor,
+    StoryThreadWithScenes,
+    StoryWorkbenchPhase,
+    StoryWorkbenchThread,
+} from "nbook/server/plot/core/types";
+import {STORY_SCENE_REF_INCLUDE} from "nbook/server/plot/repositories/includes";
 
 /**
  * Prisma 版 Thread 仓储。
@@ -19,21 +24,20 @@ export class PrismaThreadRepository implements ThreadRepository {
     }
 
     /**
-     * 查询带 refs 的线程详情。
+     * 查询带 Scene 摘要的线程详情。
      */
-    async findThreadWithRefsById(threadId: number): Promise<StoryThreadWithRefs | null> {
+    async findThreadWithScenesById(threadId: number): Promise<StoryThreadWithScenes | null> {
         return this.prisma.storyThread.findUnique({
             where: {id: threadId},
             include: {
-                refs: {
+                scenes: {
                     orderBy: [
-                        {sortOrder: "asc"},
+                        {threadSortOrder: "asc"},
                         {id: "asc"},
                     ],
-                    include: STORY_THREAD_REF_INCLUDE,
                 },
             },
-        }) as Promise<StoryThreadWithRefs | null>;
+        }) as Promise<StoryThreadWithScenes | null>;
     }
 
     /**
@@ -125,34 +129,6 @@ export class PrismaThreadRepository implements ThreadRepository {
     }
 
     /**
-     * 全量替换线程 refs。
-     */
-    async replaceRefs(threadId: number, refs: ResolvedStoryRefInput[]): Promise<void> {
-        await this.prisma.storyThreadRef.deleteMany({
-            where: {threadId},
-        });
-
-        if (refs.length === 0) {
-            return;
-        }
-
-        await this.prisma.storyThreadRef.createMany({
-            data: refs.map((ref) => ({
-                threadId,
-                sortOrder: ref.sortOrder,
-                relation: ref.relation,
-                rawTarget: ref.rawTarget,
-                targetKind: ref.targetKind,
-                targetThreadId: ref.targetThreadId,
-                targetSceneId: ref.targetSceneId,
-                targetPlotId: ref.targetPlotId,
-                visibility: ref.visibility,
-                note: ref.note,
-            })),
-        });
-    }
-
-    /**
      * 返回指定阶段下的线程 ID。
      */
     async findThreadRefsOwnerIds(storyId: number, storyPhaseId: number): Promise<number[]> {
@@ -211,6 +187,45 @@ export class PrismaThreadRepository implements ThreadRepository {
     }
 
     /**
+     * 查询未分组线程工作台树。
+     */
+    async findUngroupedWorkbenchThreads(storyId: number): Promise<StoryWorkbenchThread[]> {
+        return this.prisma.storyThread.findMany({
+            where: {
+                storyId,
+                storyPhaseId: null,
+            },
+            orderBy: [
+                {sortOrder: "asc"},
+                {id: "asc"},
+            ],
+            include: {
+                scenes: {
+                    orderBy: [
+                        {threadSortOrder: "asc"},
+                        {id: "asc"},
+                    ],
+                    include: {
+                        plots: {
+                            orderBy: [
+                                {sortOrder: "asc"},
+                                {id: "asc"},
+                            ],
+                        },
+                        refs: {
+                            orderBy: [
+                                {sortOrder: "asc"},
+                                {id: "asc"},
+                            ],
+                            include: STORY_SCENE_REF_INCLUDE,
+                        },
+                    },
+                },
+            },
+        }) as Promise<StoryWorkbenchThread[]>;
+    }
+
+    /**
      * 查询阶段树。
      */
     async findPhaseThreadsWithScenes(storyId: number): Promise<Array<StoryPhase & {threads: Array<StoryThread & {scenes: StoryScene[]}>}>> {
@@ -238,5 +253,50 @@ export class PrismaThreadRepository implements ThreadRepository {
                 },
             },
         });
+    }
+
+    /**
+     * 查询阶段线程工作台树。
+     */
+    async findWorkbenchPhaseThreads(storyId: number): Promise<StoryWorkbenchPhase[]> {
+        return this.prisma.storyPhase.findMany({
+            where: {storyId},
+            orderBy: [
+                {sortOrder: "asc"},
+                {id: "asc"},
+            ],
+            include: {
+                threads: {
+                    where: {storyId},
+                    orderBy: [
+                        {sortOrder: "asc"},
+                        {id: "asc"},
+                    ],
+                    include: {
+                        scenes: {
+                            orderBy: [
+                                {threadSortOrder: "asc"},
+                                {id: "asc"},
+                            ],
+                            include: {
+                                plots: {
+                                    orderBy: [
+                                        {sortOrder: "asc"},
+                                        {id: "asc"},
+                                    ],
+                                },
+                                refs: {
+                                    orderBy: [
+                                        {sortOrder: "asc"},
+                                        {id: "asc"},
+                                    ],
+                                    include: STORY_SCENE_REF_INCLUDE,
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        }) as Promise<StoryWorkbenchPhase[]>;
     }
 }

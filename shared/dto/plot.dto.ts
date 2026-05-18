@@ -46,7 +46,7 @@ export const StoryRefDtoSchema = StructuredReferenceDtoSchema.extend({
 });
 
 export const StoryEffectiveRefDtoSchema = StoryRefDtoSchema.extend({
-    sourceType: z.enum(["thread", "scene"]),
+    sourceType: z.enum(["scene"]),
     sourceId: z.string(),
 });
 
@@ -113,11 +113,6 @@ export const StoryPlotDtoSchema = z.object({
     updatedAt: z.string(),
 });
 
-export const StoryThreadDetailDtoSchema = StoryThreadSummaryDtoSchema.extend({
-    refs: z.array(StoryRefDtoSchema),
-});
-export const StoryThreadWriteResponseDtoSchema = withWriteDiagnosticsSchema(StoryThreadDetailDtoSchema);
-
 export const StorySceneSummaryDtoSchema = z.object({
     id: z.string(),
     storyId: z.string(),
@@ -139,6 +134,11 @@ export const StorySceneSummaryDtoSchema = z.object({
     createdAt: z.string(),
     updatedAt: z.string(),
 });
+
+export const StoryThreadDetailDtoSchema = StoryThreadSummaryDtoSchema.extend({
+    scenes: z.array(StorySceneSummaryDtoSchema).optional(),
+});
+export const StoryThreadWriteResponseDtoSchema = withWriteDiagnosticsSchema(StoryThreadDetailDtoSchema);
 
 export const StorySceneDetailDtoSchema = StorySceneSummaryDtoSchema.extend({
     plots: z.array(StoryPlotDtoSchema),
@@ -182,6 +182,29 @@ export const PlotTreeDtoSchema = z.object({
     story: StoryDtoSchema,
     phases: z.array(StoryPhaseTreeNodeDtoSchema),
     ungroupedThreads: z.array(StoryThreadTreeNodeDtoSchema),
+    totalPhases: z.number().int().nonnegative(),
+    totalThreads: z.number().int().nonnegative(),
+    totalScenes: z.number().int().nonnegative(),
+    totalPlots: z.number().int().nonnegative(),
+});
+
+export const StoryWorkbenchSceneDtoSchema = StorySceneSummaryDtoSchema.extend({
+    plots: z.array(StoryPlotDtoSchema),
+    refs: z.array(StoryRefDtoSchema),
+});
+
+export const StoryWorkbenchThreadDtoSchema = StoryThreadSummaryDtoSchema.extend({
+    scenes: z.array(StoryWorkbenchSceneDtoSchema),
+});
+
+export const StoryWorkbenchPhaseDtoSchema = StoryPhaseDtoSchema.extend({
+    threads: z.array(StoryWorkbenchThreadDtoSchema),
+});
+
+export const PlotWorkbenchDtoSchema = z.object({
+    story: StoryDtoSchema,
+    phases: z.array(StoryWorkbenchPhaseDtoSchema),
+    ungroupedThreads: z.array(StoryWorkbenchThreadDtoSchema),
     totalPhases: z.number().int().nonnegative(),
     totalThreads: z.number().int().nonnegative(),
     totalScenes: z.number().int().nonnegative(),
@@ -242,7 +265,6 @@ export const CreateStoryThreadRequestDtoSchema = z.object({
     writingTip: StoryTipSchema.nullable().optional().describe("Writing tip for the thread. Null clears it."),
     // `note` 为空表示显式清空备注。
     note: StoryNoteSchema.nullable().optional().describe("Optional note. Null clears it."),
-    refs: StoryRefsInputSchema.optional().describe("Structured references (max 100). Use workspace content-node paths for lore, e.g. lorebook/character/foo/. Use thread://, scene://, plot:// for plot entities. pending:// is not supported."),
 });
 
 export const UpdateStoryThreadRequestDtoSchema = z.object({
@@ -258,7 +280,6 @@ export const UpdateStoryThreadRequestDtoSchema = z.object({
     writingTip: StoryTipSchema.nullable().optional().describe("Writing tip for the thread. Null clears it."),
     // `note` 为空表示显式清空备注。
     note: StoryNoteSchema.nullable().optional().describe("Optional note. Null clears it."),
-    refs: StoryRefsInputSchema.optional().describe("Structured references (max 100). Use workspace content-node paths for lore, e.g. lorebook/character/foo/. Use thread://, scene://, plot:// for plot entities. pending:// is not supported."),
 }).refine((value) => (
     value.storyPhaseId !== undefined
     || value.name !== undefined
@@ -269,7 +290,6 @@ export const UpdateStoryThreadRequestDtoSchema = z.object({
     || value.tags !== undefined
     || value.writingTip !== undefined
     || value.note !== undefined
-    || value.refs !== undefined
 ), {
     message: "至少提供一个更新字段",
 });
@@ -408,6 +428,10 @@ export type StoryPlotWriteResponseDto = z.infer<typeof StoryPlotWriteResponseDto
 export type StoryThreadTreeNodeDto = z.infer<typeof StoryThreadTreeNodeDtoSchema>;
 export type StoryPhaseTreeNodeDto = z.infer<typeof StoryPhaseTreeNodeDtoSchema>;
 export type PlotTreeDto = z.infer<typeof PlotTreeDtoSchema>;
+export type StoryWorkbenchSceneDto = z.infer<typeof StoryWorkbenchSceneDtoSchema>;
+export type StoryWorkbenchThreadDto = z.infer<typeof StoryWorkbenchThreadDtoSchema>;
+export type StoryWorkbenchPhaseDto = z.infer<typeof StoryWorkbenchPhaseDtoSchema>;
+export type PlotWorkbenchDto = z.infer<typeof PlotWorkbenchDtoSchema>;
 export type UpdateStoryRequestDto = z.infer<typeof UpdateStoryRequestDtoSchema>;
 export type CreateStoryPhaseRequestDto = z.infer<typeof CreateStoryPhaseRequestDtoSchema>;
 export type UpdateStoryPhaseRequestDto = z.infer<typeof UpdateStoryPhaseRequestDtoSchema>;

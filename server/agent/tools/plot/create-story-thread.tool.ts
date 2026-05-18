@@ -16,10 +16,7 @@ import {parseEntityId} from "nbook/server/utils/novel-chapter";
  */
 export const createStoryThreadTool: AgentTool<typeof CreateStoryThreadRequestDtoSchema> = {
     key: "create_story_thread",
-    description: [
-        "Create a new story thread in the current novel and return the full Thread detail.",
-        "For refs to lore/settings, use workspace content-node paths such as lorebook/character/foo/. Do not use lorebook:// or pending://.",
-    ].join("\n"),
+    description: "Create a new story thread in the current novel and return the full Thread detail.",
     schema: CreateStoryThreadRequestDtoSchema,
     async execute(input, context) {
         const novelId = resolvePlotNovelId(context);

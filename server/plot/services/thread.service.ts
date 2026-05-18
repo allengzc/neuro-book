@@ -8,7 +8,6 @@ import type {
 import {throwPlotNotFound} from "nbook/server/plot/core/errors";
 import {OrderService} from "nbook/server/plot/services/order.service";
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
-import {RefResolverService} from "nbook/server/plot/services/ref-resolver.service";
 import {StoryService} from "nbook/server/plot/services/story.service";
 import type {
     PlotTreeDto,
@@ -24,7 +23,6 @@ export class ThreadService {
         private readonly storyService: StoryService,
         private readonly scopeGuard: PlotScopeGuard,
         private readonly orderService: OrderService,
-        private readonly refResolverService: RefResolverService,
         private readonly assembler: PlotDtoAssembler,
     ) {}
 
@@ -34,11 +32,11 @@ export class ThreadService {
     async getStoryThreadDetailDto(novelId: number, threadId: number): Promise<StoryThreadDetailDto> {
         const story = await this.storyService.ensureStory(novelId);
         await this.scopeGuard.assertThread(story.id, threadId);
-        const thread = await this.threadRepository.findThreadWithRefsById(threadId);
+        const thread = await this.threadRepository.findThreadWithScenesById(threadId);
         if (!thread) {
             throwPlotNotFound("剧情线程不存在");
         }
-        return this.assembler.toStoryThreadDetailDto(thread);
+        return this.assembler.toStoryThreadDetailWithoutRefsDto(thread);
     }
 
     /**
@@ -52,8 +50,6 @@ export class ThreadService {
         }
 
         await this.scopeGuard.assertThreadNameUnique(story.id, input.name);
-        const refs = input.resolvedRefs ?? await this.refResolverService.resolveRefs(novelId, story.id, input.refs);
-
         const thread = await this.threadRepository.createThread({
             storyId: story.id,
             storyPhaseId: input.storyPhaseId,
@@ -67,8 +63,6 @@ export class ThreadService {
             writingTip: input.writingTip ?? null,
             note: input.note ?? null,
         });
-
-        await this.threadRepository.replaceRefs(thread.id, refs);
         return this.getStoryThreadDetailDto(novelId, thread.id);
     }
 
@@ -94,10 +88,6 @@ export class ThreadService {
         }
 
         const phaseChanged = nextStoryPhaseId !== thread.storyPhaseId;
-        const refs = patch.refs === undefined
-            ? null
-            : patch.resolvedRefs ?? await this.refResolverService.resolveRefs(novelId, story.id, patch.refs);
-
         await this.threadRepository.updateThread(thread.id, {
             storyPhaseId: nextStoryPhaseId,
             sortOrder: phaseChanged
@@ -113,9 +103,6 @@ export class ThreadService {
             note: patch.note,
         });
 
-        if (refs !== null) {
-            await this.threadRepository.replaceRefs(thread.id, refs);
-        }
         if (phaseChanged) {
             await this.orderService.normalizeThreads(story.id, thread.storyPhaseId);
         }
