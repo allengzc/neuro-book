@@ -14,10 +14,18 @@ COPY .output ./.output
 # Nitro 的 .output/server/node_modules/ 是部分打包的，
 # 删除后 symlink 到完整 root node_modules 确保全部依赖可解析。
 RUN rm -rf /app/.output/server/node_modules && ln -s /app/node_modules /app/.output/server/node_modules
+
 COPY prisma ./prisma
 COPY prisma.config.ts ./prisma.config.ts
 COPY server/generated/prisma ./server/generated/prisma
-COPY scripts/docker-entrypoint.sh ./scripts/docker-entrypoint.sh
+
+# 完整源码：供 create-admin 等运维脚本运行时解析 nbook/* 导入
+COPY server ./server
+COPY shared ./shared
+COPY scripts ./scripts
+COPY tsconfig.json ./
+# tsconfig.json extends ./.nuxt/tsconfig.json，容器内无 .nuxt/，创建占位文件
+RUN mkdir -p .nuxt && echo "{}" > .nuxt/tsconfig.json
 
 EXPOSE 3000
 
