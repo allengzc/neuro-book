@@ -52,7 +52,7 @@ export class RefResolverService {
             if (parsedTarget.kind === "thread") {
                 const thread = /^\d+$/.test(parsedTarget.targetId)
                     ? await this.scopeGuard.assertThread(storyId, Number.parseInt(parsedTarget.targetId, 10))
-                    : await this.threadRepository.findThreadRefTargetByName(storyId, parsedTarget.targetId);
+                    : await this.threadRepository.findThreadTargetByName(storyId, parsedTarget.targetId);
                 if (!thread) {
                     throwPlotBadRequest(`引用目标不存在：${normalizedTarget}`);
                 }

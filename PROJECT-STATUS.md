@@ -6,6 +6,8 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 
 部署侧已补充 Docker Compose 单机生产方案：默认 `app + postgres`，运行时挂载 `workspace/` 与 `.deploy/config.yaml`。`config.yaml` 是应用可写的 Provider 配置真值源，真实文件不再作为仓库文件维护，主线历史已移除曾提交过的真实 `config.yaml`，已暴露过的模型 Provider token 仍应视为泄露并轮换。本轮进一步把部署入口收敛成 Node CLI + 远程 `npx` 交互脚本，并补齐 `config.example.yaml` 的注释化说明；针对低内存服务器 Nuxt build OOM，已补充本地 GHCR 发布脚本和 release-only GitHub Actions 镜像发布路径，且 `neuro-book-deploy` 只保留 `ghcr` 与 `source` 两种模式，部署生成物统一落 `.deploy/` 避免 `git pull` 冲突；`scripts/deploy.mjs` 已改为 `arch` 开发服务器 source 模式快速同步入口，通过 SSH 拉取最新代码、宿主机构建并用一次性 sudo 校验重启 app 容器；release-only 镜像工作流已补充 OCI metadata 和 buildx cache；同时加入 `auth.enabled` 全站鉴权开关，默认开启，关闭时整站与管理员接口都退化为无遮罩访问。
 
+模型 Provider 侧已把 `openai-compatible` 收敛为增强版 OpenAI 兼容 adapter，默认接收、标准化并回放 `reasoning_content`，覆盖 MiMo、DeepSeek 网关等 Agent thinking 场景；严格 OpenAI 官方接口使用 `openai-official`，避免把 provider extension 字段发给官方 OpenAI。
+
 本文档记录仓库级现状。每次重大任务完成后，需要同步更新本文档和对应 `docs/tasks/<task-slug>/README.md`。
 
 ## Current Focus
@@ -27,7 +29,7 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 | Auth | Active | 默认开启的全站 cookie session 鉴权已接入；`config.yaml` 可通过 `auth.enabled` 关闭整站守卫；包含登录页、管理员用户管理页、主界面账户菜单、登录失败限流、复杂密码生成、用户状态/角色/密码重置和初始管理员脚本。 |
 | Reference | Active | 文件化内容节点 refs 不再承载 visibility；Agent prompt 已收敛为 inline ref 表达自然提及、structured refs 表达稳定系统关系；Plot refs 已迁到内容节点路径，不再依赖数据库 Lorebook。 |
 | Plot / Story | Active | 剧情系统规范较完整；refs 指向设定/角色/地点时使用 `lorebook/.../` 内容节点路径，剧情内部对象仍使用 thread/scene/plot URI；数据库不再维护 `Volume` / `Chapter` 表，Scene 挂章使用 `chapterPath` 指向 `manuscript/.../` content-node 目录。 |
-| Agent v2 | Active | 仍是当前生产链路；支持软 Plan Mode reminder、需用户审批的 `enter_plan_mode` / `exit_plan_mode` 模型工具和前端 `Shift + Tab` 切换；Plan Mode 计划写入 `workspace/.agent/plan`；profile prompt 已按 TSX `HistorySet -> DynamicSet -> AppendingSet` 合同固化，`AppendingSet` 产物会追加进历史，并在 continue 主路径保证当前用户输入为最后一条；TSX profile 模板编辑器 preview 可读写 `server/agent/profiles/templates/*.tsx` 并验证/预览受限 DSL，UI 已对齐主 IDE 主题工作台，支持组件库拖入、跨父级节点移动、真实树/视觉树分离的实时 drop 预览、本地撤销/重做、纯 ProfilePrompt 片段预览、表达式属性保真、真实线程 scope 变量调试和 Markdown/源码消息列表预览；`subagent.retrieval` 通过 `report_result.data: string[]` 返回内容节点路径清单，writer 根据参数自动读取 `index.md` / `state.md` 注入 prompt。 |
+| Agent v2 | Active | 仍是当前生产链路；支持软 Plan Mode reminder、需用户审批的 `enter_plan_mode` / `exit_plan_mode` 模型工具和前端 `Shift + Tab` 切换；Plan Mode 计划写入 `workspace/.agent/plan`；profile prompt 已按 TSX `HistorySet -> DynamicSet -> AppendingSet` 合同固化，`AppendingSet` 产物会追加进历史，并在 continue 主路径保证当前用户输入为最后一条；TSX profile 模板编辑器 preview 可读写 `server/agent/profiles/templates/*.tsx` 并验证/预览受限 DSL，UI 已对齐主 IDE 主题工作台，支持组件库拖入、跨父级节点移动、真实树/视觉树分离的实时 drop 预览、本地撤销/重做、纯 ProfilePrompt 片段预览、表达式属性保真、真实线程 scope 变量调试和 Markdown/源码消息列表预览；`subagent.retrieval` 通过 `report_result.data: string[]` 返回内容节点路径清单，writer 根据参数自动读取 `index.md` / `state.md` 注入 prompt；OpenAI-compatible provider 默认保留并回放 `reasoning_content`，用于 MiMo/DeepSeek 等 thinking + tool call 多轮场景。 |
 | Agent v3 | Prototype | v3 是从零重建，不替换 v2；局部状态继续记录在 `server/agent-v3/PARITY.md`。 |
 | Skills | Active | 写作流程 skill 继续通过 `assets/agent/skills/*/SKILL.md` 渐进式披露；新增番茄小说导入 skill，CLI 先支持本地 epub / 下载器结果转 Markdown，搜索、评论和段评抓取仍是后续 TODO。 |
 | Docs | Active | 本轮完成目录重排、状态报告和任务 walkthrough 约定。 |
@@ -62,6 +64,7 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 | --- | --- | --- |
 | Full Site Auth | Done | [docs/tasks/fullsite-auth/README.md](docs/tasks/fullsite-auth/README.md) |
 | Docker Compose Deployment | Updated | [docs/tasks/docker-compose-deployment/README.md](docs/tasks/docker-compose-deployment/README.md) |
+| Provider Reasoning Replay | Done | [docs/tasks/provider-reasoning-replay/README.md](docs/tasks/provider-reasoning-replay/README.md) |
 | TSX Profile Template Editor | Preview Debug Workbench | [docs/tasks/tsx-profile-template-editor/README.md](docs/tasks/tsx-profile-template-editor/README.md) |
 | Agent TSX Prompt Context | Done | [docs/tasks/agent-tsx-prompt-context/README.md](docs/tasks/agent-tsx-prompt-context/README.md) |
 | Agent Plan Mode | Done | [docs/tasks/agent-plan-mode/README.md](docs/tasks/agent-plan-mode/README.md) |

@@ -171,11 +171,11 @@ export class StoryService {
     async deleteStoryPhase(novelId: number, phaseId: number): Promise<void> {
         const story = await this.ensureStory(novelId);
         const phase = await this.scopeGuard.assertPhase(story.id, phaseId);
-        const phaseThreadIds = await this.threadRepository.findThreadRefsOwnerIds(story.id, phase.id);
+        const phaseThreads = await this.threadRepository.findThreadsByStoryPhase(story.id, phase.id);
 
         let nextSortOrder = await this.orderService.getNextThreadSortOrder(story.id, null);
-        for (const threadId of phaseThreadIds) {
-            await this.threadRepository.updateThread(threadId, {
+        for (const thread of phaseThreads) {
+            await this.threadRepository.updateThread(thread.id, {
                 storyPhaseId: null,
                 sortOrder: nextSortOrder,
             });

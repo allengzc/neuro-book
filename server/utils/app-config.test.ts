@@ -53,4 +53,48 @@ models:
 
         expect(config.models.providers.deepseek?.options.apiKey).toBe("");
     });
+
+    it("支持 adapter 字符串简写，并默认开启 openai-compatible reasoning replay", () => {
+        const config = parseAppConfigText(`
+models:
+  providers:
+    mimo:
+      adapter: openai-compatible
+`);
+
+        expect(config.models.providers.mimo?.adapter).toEqual({
+            type: "openai-compatible",
+            reasoningContentReplay: true,
+        });
+    });
+
+    it("支持 adapter 对象形式关闭 reasoning replay", () => {
+        const config = parseAppConfigText(`
+models:
+  providers:
+    custom:
+      adapter:
+        type: openai-compatible
+        reasoningContentReplay: false
+`);
+
+        expect(config.models.providers.custom?.adapter).toEqual({
+            type: "openai-compatible",
+            reasoningContentReplay: false,
+        });
+    });
+
+    it("支持严格 OpenAI 官方 adapter", () => {
+        const config = parseAppConfigText(`
+models:
+  providers:
+    openai:
+      adapter: openai-official
+`);
+
+        expect(config.models.providers.openai?.adapter).toEqual({
+            type: "openai-official",
+            reasoningContentReplay: false,
+        });
+    });
 });

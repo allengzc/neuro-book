@@ -13,6 +13,7 @@ import type {
     DiscoveredProviderModelDto,
     EnabledModelOptionDto,
     ModelProviderAdapter,
+    ModelProviderAdapterType,
     ModelSettingsDto,
     UpdateModelSettingsRequestDto,
 } from "nbook/shared/dto/app-settings.dto";
@@ -47,7 +48,7 @@ type ProviderPreset = {
     label: string;
     providerId: string;
     providerName: string;
-    adapter: ModelProviderAdapter;
+    adapter: ModelProviderAdapterType;
     baseURL: string;
     description: string;
 };
@@ -108,7 +109,7 @@ const providerPresetOptions: ProviderPreset[] = [
         label: "OpenAI",
         providerId: "openai",
         providerName: "OpenAI",
-        adapter: "openai-compatible",
+        adapter: "openai-official",
         baseURL: "",
         description: "官方 OpenAI 接口",
     },
@@ -124,10 +125,28 @@ const providerPresetOptions: ProviderPreset[] = [
 ];
 
 const adapterOptions: SelectOption[] = [
+    {value: "openai-official", label: "OpenAI Official"},
     {value: "openai-compatible", label: "OpenAI Compatible"},
     {value: "gemini-compatible", label: "Gemini Compatible"},
     {value: "deepseek-official", label: "DeepSeek Official"},
 ];
+
+/**
+ * 判断 adapter 默认是否回放 provider reasoning_content。
+ */
+function defaultReasoningContentReplay(adapterType: ModelProviderAdapterType): boolean {
+    return adapterType === "openai-compatible" || adapterType === "deepseek-official";
+}
+
+/**
+ * 创建 Provider adapter 配置。
+ */
+function createAdapterConfig(adapterType: ModelProviderAdapterType): ModelProviderAdapter {
+    return {
+        type: adapterType,
+        reasoningContentReplay: defaultReasoningContentReplay(adapterType),
+    };
+}
 
 const novelIdeStore = useNovelIdeStore();
 
@@ -210,6 +229,16 @@ function cloneProvider(provider: ModelSettingsDto["providers"][number]): Provide
         },
         models: provider.models.map(cloneModel),
     };
+}
+
+/**
+ * 更新当前 Provider adapter 类型。
+ */
+function updateActiveProviderAdapter(value: string): void {
+    if (!activeProvider.value) {
+        return;
+    }
+    activeProvider.value.adapter = createAdapterConfig(value as ModelProviderAdapterType);
 }
 
 /**
@@ -442,7 +471,7 @@ function addProvider(): void {
     draft.value.providers.push({
         id: providerId,
         name: preset.providerName,
-        adapter: preset.adapter,
+        adapter: createAdapterConfig(preset.adapter),
         options: {
             apiKey: "",
             baseURL: preset.baseURL,
@@ -1031,7 +1060,7 @@ onMounted(() => {
                                 </div>
                                 <div class="group space-y-1.5">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">Adapter</label>
-                                    <FormSelect v-model="activeProvider.adapter" :options="adapterOptions" />
+                                    <FormSelect :model-value="activeProvider.adapter.type" :options="adapterOptions" @update:model-value="updateActiveProviderAdapter" />
                                 </div>
                                 <div class="group space-y-1.5">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">API Base</label>

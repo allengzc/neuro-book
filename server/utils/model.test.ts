@@ -1,6 +1,11 @@
 import {AIMessage, HumanMessage, ToolMessage} from "@langchain/core/messages";
 import {describe, expect, it} from "vitest";
-import {convertDeepSeekMessagesToCompletionsParams, normalizeDeepSeekUsageMetadata} from "nbook/server/utils/model";
+import {
+    convertDeepSeekMessagesToCompletionsParams,
+    convertOpenAiCompatibleMessagesToCompletionsParams,
+    normalizeOpenAiCompatibleReasoningMessage,
+    normalizeDeepSeekUsageMetadata,
+} from "nbook/server/utils/model";
 
 describe("normalizeDeepSeekUsageMetadata", () => {
     it("会把 DeepSeek raw usage 归一化到 LangChain usage_metadata", () => {
@@ -223,5 +228,133 @@ describe("convertDeepSeekMessagesToCompletionsParams", () => {
             tool_calls: expect.any(Array),
         });
         expect("reasoning_content" in params[1]!).toBe(false);
+    });
+});
+
+describe("convertOpenAiCompatibleMessagesToCompletionsParams", () => {
+    it("默认会给 assistant tool-call 回填 reasoning_content", () => {
+        const params = convertOpenAiCompatibleMessagesToCompletionsParams([
+            new HumanMessage("查一下"),
+            new AIMessage({
+                content: "",
+                additional_kwargs: {
+                    reasoning_content: "需要调用工具",
+                },
+                tool_calls: [{
+                    id: "call-1",
+                    name: "read_file",
+                    args: {
+                        filePath: "AGENTS.md",
+                    },
+                    type: "tool_call",
+                }],
+            }),
+            new ToolMessage({
+                content: "文件内容",
+                tool_call_id: "call-1",
+            }),
+        ], "mimo-v2.5-pro");
+
+        expect(params[1]).toMatchObject({
+            role: "assistant",
+            reasoning_content: "需要调用工具",
+        });
+    });
+
+    it("会从 LangChain 标准 reasoning block 回填 reasoning_content", () => {
+        const params = convertOpenAiCompatibleMessagesToCompletionsParams([
+            new HumanMessage("查一下"),
+            new AIMessage({
+                content: [{
+                    type: "reasoning",
+                    reasoning: "标准思考块",
+                }, {
+                    type: "text",
+                    text: "",
+                }],
+                tool_calls: [{
+                    id: "call-1",
+                    name: "read_file",
+                    args: {
+                        filePath: "AGENTS.md",
+                    },
+                    type: "tool_call",
+                }],
+            }),
+            new ToolMessage({
+                content: "文件内容",
+                tool_call_id: "call-1",
+            }),
+        ], "mimo-v2.5-pro");
+
+        expect(params[1]).toMatchObject({
+            role: "assistant",
+            reasoning_content: "标准思考块",
+        });
+    });
+
+    it("关闭 reasoningContentReplay 后不会回填 reasoning_content", () => {
+        const params = convertOpenAiCompatibleMessagesToCompletionsParams([
+            new HumanMessage("查一下"),
+            new AIMessage({
+                content: "",
+                additional_kwargs: {
+                    reasoning_content: "需要调用工具",
+                },
+                tool_calls: [{
+                    id: "call-1",
+                    name: "read_file",
+                    args: {},
+                    type: "tool_call",
+                }],
+            }),
+        ], "mimo-v2.5-pro", {
+            reasoningContentReplay: false,
+        });
+
+        expect("reasoning_content" in params[1]!).toBe(false);
+    });
+
+    it("非严格模式不会误伤没有 reasoning_content 的普通工具调用历史", () => {
+        const params = convertOpenAiCompatibleMessagesToCompletionsParams([
+            new HumanMessage("查一下"),
+            new AIMessage({
+                content: "",
+                tool_calls: [{
+                    id: "call-1",
+                    name: "read_file",
+                    args: {},
+                    type: "tool_call",
+                }],
+            }),
+        ], "普通 OpenAI 兼容模型");
+
+        expect(params[1]).toMatchObject({
+            role: "assistant",
+            tool_calls: expect.any(Array),
+        });
+        expect("reasoning_content" in params[1]!).toBe(false);
+    });
+});
+
+describe("normalizeOpenAiCompatibleReasoningMessage", () => {
+    it("会把 reasoning_content 暴露为 LangChain 标准 reasoning block", () => {
+        const message = normalizeOpenAiCompatibleReasoningMessage(new AIMessage({
+            content: "正文",
+            additional_kwargs: {
+                reasoning_content: "思考",
+            },
+        }));
+
+        expect(message.contentBlocks).toEqual([
+            {
+                type: "reasoning",
+                reasoning: "思考",
+            },
+            {
+                type: "text",
+                text: "正文",
+            },
+        ]);
     });
 });

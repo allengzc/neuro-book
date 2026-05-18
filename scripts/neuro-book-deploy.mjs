@@ -41,7 +41,7 @@ const PROVIDERS = {
     },
     siliconflow: {
         name: "SiliconFlow",
-        adapter: "deepseek-official",
+        adapter: "openai-compatible",
         baseURL: "https://api.siliconflow.cn/v1",
         modelId: "deepseek-ai/DeepSeek-V4-Flash",
         modelName: "DeepSeek-V4-Flash",
@@ -366,7 +366,7 @@ models:
   providers:
     ${config.provider}:
       name: ${yamlQuote(provider.name)}
-      # adapter selects the runtime protocol: deepseek-official, openai-compatible, or gemini-compatible.
+      # adapter selects the runtime protocol: openai-official, openai-compatible, deepseek-official, or gemini-compatible.
       adapter: ${yamlQuote(provider.adapter)}
       options:
         apiKey: ${yamlQuote(config.apiKey)}

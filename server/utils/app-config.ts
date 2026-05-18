@@ -132,7 +132,10 @@ type GlobalAppConfigCache = {
     appConfigMtimeMs?: number | null;
 };
 
-const DEFAULT_MODEL_ADAPTER: ModelProviderAdapter = "openai-compatible";
+const DEFAULT_MODEL_ADAPTER: ModelProviderAdapter = {
+    type: "openai-compatible",
+    reasoningContentReplay: true,
+};
 const globalForAppConfig = globalThis as typeof globalThis & GlobalAppConfigCache;
 
 /**
@@ -164,6 +167,28 @@ function normalizeNullableNumber(value: number | null | undefined): number | nul
     return typeof value === "number" && Number.isFinite(value)
         ? value
         : null;
+}
+
+/**
+ * 判断 adapter 默认是否回放 provider reasoning_content。
+ */
+function defaultReasoningContentReplay(adapterType: ModelProviderAdapter["type"]): boolean {
+    return adapterType === "openai-compatible" || adapterType === "deepseek-official";
+}
+
+/**
+ * 序列化 adapter 配置。默认配置写回字符串，避免 config.yaml 变啰嗦。
+ */
+function serializeModelProviderAdapter(adapter: ModelProviderAdapter): ModelProviderAdapter["type"] | {
+    type: ModelProviderAdapter["type"];
+    reasoningContentReplay: boolean;
+} {
+    return adapter.reasoningContentReplay === defaultReasoningContentReplay(adapter.type)
+        ? adapter.type
+        : {
+            type: adapter.type,
+            reasoningContentReplay: adapter.reasoningContentReplay,
+        };
 }
 
 /**
@@ -398,7 +423,7 @@ function serializeModelSettings(config: ModelSettingsConfig): {
     default?: string;
     providers: Record<string, {
         name: string;
-        adapter: ModelProviderAdapter;
+        adapter: ReturnType<typeof serializeModelProviderAdapter>;
         options: ModelProviderOptionsConfig;
         models: Record<string, ConfiguredModelConfig>;
     }>;
@@ -417,7 +442,7 @@ function serializeModelSettings(config: ModelSettingsConfig): {
 
             return [providerId, {
                 name: provider.name,
-                adapter: provider.adapter,
+                adapter: serializeModelProviderAdapter(provider.adapter),
                 options: {
                     apiKey: normalizeConfigText(provider.options.apiKey),
                     baseURL: normalizeConfigText(provider.options.baseURL),

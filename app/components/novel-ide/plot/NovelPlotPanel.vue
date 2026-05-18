@@ -457,13 +457,6 @@ function flattenWorkbenchThreads(): Array<{
 }
 
 /**
- * 把缓存里的 Thread refs 映射到面板模型。
- */
-function mapThreadRefs(_threadId: string): PlotThreadPanelRef[] {
-    return [];
-}
-
-/**
  * 把缓存里的 Scene refs 映射到面板模型。
  */
 function mapSceneRefs(sceneId: string): PlotThreadPanelRef[] {
@@ -523,7 +516,7 @@ function applyPlotTree(tree: PlotTreeDto): void {
         tags: [...item.thread.tags],
         writingTip: item.thread.writingTip,
         tone: resolveThreadTone(index),
-        refs: mapThreadRefs(item.thread.id),
+        refs: [],
     }));
 
     scenes.value = threadNodes.flatMap((item) => item.thread.scenes.map((scene) => ({
@@ -596,7 +589,7 @@ function applyThreadDetail(detail: StoryThreadDetailDto): void {
             isMainThread: detail.isMainThread,
             tags: [...detail.tags],
             writingTip: detail.writingTip,
-            refs: mapThreadRefs(detail.id),
+            refs: [],
         }
         : thread);
 }

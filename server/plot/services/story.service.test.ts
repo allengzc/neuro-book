@@ -43,12 +43,14 @@ describe("StoryService", () => {
             }),
         } as StoryRepository;
         const threadRepository = {
-            findThreadRefsOwnerIds: vi.fn(async () => [11, 12]),
             findThreadsByStoryPhase: vi.fn(async (_storyId: number, storyPhaseId: number | null) => {
-                if (storyPhaseId !== null) {
-                    return [];
+                if (storyPhaseId === 2) {
+                    return [
+                        {id: 11, storyId: 10, storyPhaseId: 2, sortOrder: 0, name: "thread-11", title: "线程 11", isMainThread: false, status: "draft", summary: "", tags: [], writingTip: null, note: null, createdAt: new Date(), updatedAt: new Date()},
+                        {id: 12, storyId: 10, storyPhaseId: 2, sortOrder: 1, name: "thread-12", title: "线程 12", isMainThread: false, status: "draft", summary: "", tags: [], writingTip: null, note: null, createdAt: new Date(), updatedAt: new Date()},
+                    ];
                 }
-                return ungroupedThreads;
+                return storyPhaseId === null ? ungroupedThreads : [];
             }),
             updateThread: vi.fn(async (threadId: number, data: {storyPhaseId?: number | null; sortOrder?: number}) => {
                 threadUpdates.push({threadId, data});

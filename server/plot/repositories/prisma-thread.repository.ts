@@ -129,27 +129,9 @@ export class PrismaThreadRepository implements ThreadRepository {
     }
 
     /**
-     * 返回指定阶段下的线程 ID。
+     * 按 name 解析 Thread 引用目标。
      */
-    async findThreadRefsOwnerIds(storyId: number, storyPhaseId: number): Promise<number[]> {
-        const threads = await this.prisma.storyThread.findMany({
-            where: {
-                storyId,
-                storyPhaseId,
-            },
-            orderBy: [
-                {sortOrder: "asc"},
-                {id: "asc"},
-            ],
-            select: {id: true},
-        });
-        return threads.map((thread) => thread.id);
-    }
-
-    /**
-     * 按 name 解析 thread ref 目标。
-     */
-    async findThreadRefTargetByName(storyId: number, name: string): Promise<Pick<StoryThread, "id" | "name"> | null> {
+    async findThreadTargetByName(storyId: number, name: string): Promise<Pick<StoryThread, "id" | "name"> | null> {
         return this.prisma.storyThread.findFirst({
             where: {
                 storyId,

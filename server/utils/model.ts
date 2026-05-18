@@ -43,7 +43,9 @@ import {loadAppConfigSync, type AppConfig} from "nbook/server/utils/app-config";
 const OPENAI_HTTP_LOG = String(process.env.OPENAI_HTTP_LOG ?? "").toLowerCase();
 const enableOpenAiHttpLog = OPENAI_HTTP_LOG === "1" || OPENAI_HTTP_LOG === "true";
 const HELLO_PROMPT = "hello";
-const DEFAULT_PROVIDER_BASE_URLS: Record<ModelProviderAdapter, string> = {
+const OPENAI_COMPATIBLE_MODEL_PROVIDER = "openai-compatible";
+const DEFAULT_PROVIDER_BASE_URLS: Record<ModelProviderAdapter["type"], string> = {
+    "openai-official": "https://api.openai.com/v1",
     "openai-compatible": "https://api.openai.com/v1",
     "gemini-compatible": "https://generativelanguage.googleapis.com/v1beta/openai",
     "deepseek-official": "https://api.deepseek.com/v1",
@@ -95,16 +97,29 @@ type DeepSeekUsageInputDetails = NonNullable<UsageMetadata["input_token_details"
 
 type DeepSeekCompletionMessageParam = OpenAI.Chat.Completions.ChatCompletionMessageParam & {
     /**
-     * DeepSeek thinking mode 工具续跑要求回传的 provider 字段。
+     * reasoning provider 工具续跑要求回传的 provider 字段。
      */
     reasoning_content?: string;
 };
+
+type OpenAiCompatibleCompletionMessageParam = DeepSeekCompletionMessageParam;
 
 type DeepSeekToolCallParam = {
     id?: unknown;
     function?: {
         name?: unknown;
     };
+};
+
+type LangChainReasoningTranslatorMessage = AIMessage | AIMessageChunk;
+
+type LangChainReasoningTranslator = {
+    translateContent: (message: LangChainReasoningTranslatorMessage) => Array<Record<string, unknown>>;
+    translateContentChunk: (message: LangChainReasoningTranslatorMessage) => Array<Record<string, unknown>>;
+};
+
+type LangChainReasoningTranslatorGlobal = typeof globalThis & {
+    lc_block_translators_registry?: Map<string, LangChainReasoningTranslator>;
 };
 
 export type AgentProfileSettingDefinition = {
@@ -145,6 +160,95 @@ export type ResolvedAgentModelSelection = {
 const proxyAgentCache = new Map<string, ProxyAgent>();
 
 /**
+ * 读取 AIMessage 中的标准 reasoning block。
+ */
+function readStandardReasoningContent(message: AIMessage): string {
+    for (const block of message.contentBlocks) {
+        if (
+            block
+            && typeof block === "object"
+            && "type" in block
+            && block.type === "reasoning"
+            && "reasoning" in block
+            && typeof block.reasoning === "string"
+            && block.reasoning.trim()
+        ) {
+            return block.reasoning;
+        }
+    }
+    return "";
+}
+
+/**
+ * 将 OpenAI-compatible 的 reasoning_content 暴露为 LangChain 标准 content block。
+ */
+function translateOpenAiCompatibleReasoningMessage(message: LangChainReasoningTranslatorMessage): Array<Record<string, unknown>> {
+    const blocks: Array<Record<string, unknown>> = [];
+    const reasoningContent = message.additional_kwargs?.reasoning_content;
+    if (typeof reasoningContent === "string" && reasoningContent.trim()) {
+        blocks.push({
+            type: "reasoning",
+            reasoning: reasoningContent,
+        });
+    }
+
+    if (typeof message.content === "string") {
+        if (message.content) {
+            blocks.push({
+                type: "text",
+                text: message.content,
+            });
+        }
+    } else {
+        for (const block of message.content) {
+            if (
+                block
+                && typeof block === "object"
+                && "type" in block
+                && block.type === "text"
+                && "text" in block
+                && typeof block.text === "string"
+            ) {
+                blocks.push({
+                    type: "text",
+                    text: block.text,
+                });
+            }
+        }
+    }
+
+    for (const toolCall of message.tool_calls ?? []) {
+        blocks.push({
+            type: "tool_call",
+            id: toolCall.id,
+            name: toolCall.name,
+            args: toolCall.args,
+        });
+    }
+    return blocks;
+}
+
+/**
+ * 注册项目级 OpenAI-compatible reasoning translator。
+ *
+ * LangChain 已有 contentBlocks 标准，但默认 OpenAI converter 不会把 provider extension
+ * reasoning_content 转成标准 reasoning block，这里在项目 adapter 边界补齐。
+ */
+function registerOpenAiCompatibleReasoningTranslator(): void {
+    const registryGlobal = globalThis as LangChainReasoningTranslatorGlobal;
+    registryGlobal.lc_block_translators_registry ??= new Map();
+    if (registryGlobal.lc_block_translators_registry.has(OPENAI_COMPATIBLE_MODEL_PROVIDER)) {
+        return;
+    }
+    registryGlobal.lc_block_translators_registry.set(OPENAI_COMPATIBLE_MODEL_PROVIDER, {
+        translateContent: translateOpenAiCompatibleReasoningMessage,
+        translateContentChunk: translateOpenAiCompatibleReasoningMessage,
+    });
+}
+
+registerOpenAiCompatibleReasoningTranslator();
+
+/**
  * Gemini 兼容网关的流式 chunk 经常不带 role。
  * LangChain 在 role 缺失时会退化成 ChatMessageChunk，并直接丢掉 reasoning_content。
  * 这里仅对 Gemini 兼容链路做一个最小兜底：没有 role 时默认按 assistant 解析。
@@ -177,6 +281,208 @@ class GeminiChatOpenAICompletions extends ChatOpenAICompletions {
             includeRawResponse: this.__includeRawResponse,
             defaultRole: normalizedRole,
         });
+    }
+}
+
+type OpenAiCompatibleChatOpenAICompletionsFields = ConstructorParameters<typeof ChatOpenAICompletions>[0] & {
+    reasoningContentReplay?: boolean;
+};
+
+/**
+ * 归一化 OpenAI-compatible reasoning 输出。
+ */
+export function normalizeOpenAiCompatibleReasoningMessage<T extends AIMessage | AIMessageChunk>(message: T): T {
+    const reasoningContent = message.additional_kwargs.reasoning_content;
+    if (typeof reasoningContent !== "string" || !reasoningContent.trim()) {
+        return message;
+    }
+
+    message.response_metadata = {
+        ...message.response_metadata,
+        model_provider: OPENAI_COMPATIBLE_MODEL_PROVIDER,
+    };
+    return message;
+}
+
+/**
+ * 项目增强版 OpenAI-compatible 模型封装。
+ *
+ * 负责把 provider extension `reasoning_content` 转成 LangChain 标准 reasoning block，
+ * 并在后续请求里回放 assistant tool-call 历史的 reasoning_content。
+ */
+class NeuroBookChatOpenAICompatible extends ChatOpenAICompletions {
+    private readonly reasoningContentReplay: boolean;
+
+    constructor(fields?: OpenAiCompatibleChatOpenAICompletionsFields) {
+        super(fields);
+        this.reasoningContentReplay = fields?.reasoningContentReplay ?? true;
+    }
+
+    /**
+     * 归一化非流式 OpenAI-compatible 输出。
+     */
+    override async _generate(
+        messages: BaseMessage[],
+        options: this["ParsedCallOptions"],
+        runManager?: CallbackManagerForLLMRun,
+    ): Promise<ChatResult> {
+        options.signal?.throwIfAborted();
+        const params = this.invocationParams(options);
+        if (params.stream) {
+            return super._generate(messages, options, runManager);
+        }
+
+        const data = await super.completionWithRetry({
+            ...params,
+            stream: false,
+            messages: convertOpenAiCompatibleMessagesToCompletionsParams(messages, this.model, {
+                reasoningContentReplay: this.reasoningContentReplay,
+            }),
+        }, {
+            signal: options?.signal,
+            ...options?.options,
+        });
+
+        const usageMetadata: UsageMetadata | undefined = data?.usage
+            ? {
+                input_tokens: data.usage.prompt_tokens,
+                output_tokens: data.usage.completion_tokens,
+                total_tokens: data.usage.total_tokens,
+            }
+            : undefined;
+        const generations = data?.choices?.map((part) => {
+            const baseMessage = this._convertCompletionsMessageToBaseMessage(part.message ?? {role: "assistant"}, data);
+            const message = AIMessage.isInstance(baseMessage)
+                ? normalizeOpenAiCompatibleReasoningMessage(baseMessage)
+                : baseMessage;
+            if (usageMetadata && AIMessage.isInstance(message)) {
+                message.usage_metadata = usageMetadata;
+            }
+
+            return {
+                text: part.message?.content ?? "",
+                message,
+                generationInfo: {
+                    ...(part.finish_reason ? {finish_reason: part.finish_reason} : {}),
+                    ...(part.logprobs ? {logprobs: part.logprobs} : {}),
+                },
+            };
+        }) ?? [];
+
+        return {
+            generations,
+            llmOutput: {
+                tokenUsage: {
+                    promptTokens: data?.usage?.prompt_tokens,
+                    completionTokens: data?.usage?.completion_tokens,
+                    totalTokens: data?.usage?.total_tokens,
+                },
+            },
+        };
+    }
+
+    /**
+     * 归一化流式 OpenAI-compatible 输出。
+     */
+    override async *_streamResponseChunks(
+        messages: BaseMessage[],
+        options: this["ParsedCallOptions"],
+        runManager?: CallbackManagerForLLMRun,
+    ): AsyncGenerator<ChatGenerationChunk> {
+        const params = {
+            ...this.invocationParams(options, {streaming: true}),
+            messages: convertOpenAiCompatibleMessagesToCompletionsParams(messages, this.model, {
+                reasoningContentReplay: this.reasoningContentReplay,
+            }),
+            stream: true,
+        };
+        const streamIterable = await super.completionWithRetry(params as never, options as never) as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
+        let defaultRole: OpenAI.Chat.ChatCompletionRole | undefined;
+        let usage: OpenAI.CompletionUsage | undefined;
+
+        for await (const data of streamIterable) {
+            if (options.signal?.aborted) {
+                return;
+            }
+            const choice = data?.choices?.[0];
+            if (data.usage) {
+                usage = data.usage;
+            }
+            if (!choice?.delta) {
+                continue;
+            }
+
+            const chunk = this._convertCompletionsDeltaToBaseMessageChunk(choice.delta, data, defaultRole);
+            defaultRole = choice.delta.role ?? defaultRole;
+            if (typeof chunk.content !== "string") {
+                continue;
+            }
+
+            const generationInfo: Record<string, unknown> = {
+                prompt: options.promptIndex ?? 0,
+                completion: choice.index ?? 0,
+            };
+            if (choice.finish_reason !== null) {
+                generationInfo.finish_reason = choice.finish_reason;
+                generationInfo.system_fingerprint = data.system_fingerprint;
+                generationInfo.model_name = data.model;
+                generationInfo.service_tier = data.service_tier;
+            }
+            if (this.logprobs) {
+                generationInfo.logprobs = choice.logprobs;
+            }
+
+            const generationChunk = new ChatGenerationChunk({
+                message: normalizeOpenAiCompatibleReasoningMessage(chunk as AIMessageChunk),
+                text: chunk.content,
+                generationInfo,
+            });
+            yield generationChunk;
+            await runManager?.handleLLMNewToken(
+                generationChunk.text ?? "",
+                {
+                    prompt: options.promptIndex ?? 0,
+                    completion: choice.index ?? 0,
+                },
+                undefined,
+                undefined,
+                undefined,
+                {chunk: generationChunk},
+            );
+        }
+
+        if (usage) {
+            const generationChunk = new ChatGenerationChunk({
+                message: new AIMessageChunk({
+                    content: "",
+                    response_metadata: {
+                        usage: {...usage},
+                    },
+                    usage_metadata: {
+                        input_tokens: usage.prompt_tokens,
+                        output_tokens: usage.completion_tokens,
+                        total_tokens: usage.total_tokens,
+                    },
+                }),
+                text: "",
+            });
+            yield generationChunk;
+            await runManager?.handleLLMNewToken(
+                generationChunk.text ?? "",
+                {
+                    prompt: 0,
+                    completion: 0,
+                },
+                undefined,
+                undefined,
+                undefined,
+                {chunk: generationChunk},
+            );
+        }
+
+        if (options.signal?.aborted) {
+            throw new Error("AbortError");
+        }
     }
 }
 
@@ -242,6 +548,52 @@ export function normalizeDeepSeekUsageMetadata<T extends AIMessage | AIMessageCh
 }
 
 /**
+ * 将 LangChain 消息转换为 OpenAI-compatible Chat Completions 参数。
+ */
+export function convertOpenAiCompatibleMessagesToCompletionsParams(
+    messages: BaseMessage[],
+    model: string,
+    options: {
+        reasoningContentReplay?: boolean;
+        strictToolCallReasoning?: boolean;
+    } = {},
+): OpenAiCompatibleCompletionMessageParam[] {
+    const params = convertMessagesToCompletionsMessageParams({
+        messages,
+        model,
+    }) as OpenAiCompatibleCompletionMessageParam[];
+    stripStandardReasoningBlocks(params);
+    return options.reasoningContentReplay ?? true
+        ? attachOpenAiCompatibleReasoningContent(messages, params, {
+            strictToolCallReasoning: options.strictToolCallReasoning ?? false,
+        })
+        : params;
+}
+
+/**
+ * OpenAI Chat Completions 请求 content 不支持 LangChain 标准 reasoning block。
+ */
+function stripStandardReasoningBlocks(params: OpenAiCompatibleCompletionMessageParam[]): void {
+    for (const param of params) {
+        if (!("content" in param) || !Array.isArray(param.content)) {
+            continue;
+        }
+        param.content = param.content.filter((part) => {
+            const record = part as {type?: unknown};
+            return !(
+                part
+                && typeof part === "object"
+                && "type" in part
+                && record.type === "reasoning"
+            );
+        }) as typeof param.content;
+        if (Array.isArray(param.content) && param.content.length === 0) {
+            param.content = "";
+        }
+    }
+}
+
+/**
  * 将 LangChain 消息转换为 DeepSeek Chat Completions 参数。
  * DeepSeek thinking mode 在同一轮工具调用续跑时要求 assistant tool-call 消息携带 reasoning_content。
  */
@@ -249,33 +601,31 @@ export function convertDeepSeekMessagesToCompletionsParams(
     messages: BaseMessage[],
     model: string,
 ): DeepSeekCompletionMessageParam[] {
-    const params = convertMessagesToCompletionsMessageParams({
-        messages,
-        model,
-    }) as DeepSeekCompletionMessageParam[];
-    return shouldEnableDeepSeekThinking(model)
-        ? attachDeepSeekReasoningContent(messages, params)
-        : params;
+    const enableThinking = shouldEnableDeepSeekThinking(model);
+    return convertOpenAiCompatibleMessagesToCompletionsParams(messages, model, {
+        reasoningContentReplay: enableThinking,
+        strictToolCallReasoning: enableThinking,
+    });
 }
 
 /**
- * 给所有 assistant tool-call 回填 reasoning_content。
- *
- * DeepSeek thinking mode 要求：只要某轮 assistant 进行了工具调用，
- * 后续所有请求都必须完整回传该 assistant 的 reasoning_content。
+ * 给 assistant 消息回填 provider reasoning_content。
  */
-function attachDeepSeekReasoningContent(
+function attachOpenAiCompatibleReasoningContent(
     messages: BaseMessage[],
-    params: DeepSeekCompletionMessageParam[],
-): DeepSeekCompletionMessageParam[] {
+    params: OpenAiCompatibleCompletionMessageParam[],
+    options: {
+        strictToolCallReasoning: boolean;
+    },
+): OpenAiCompatibleCompletionMessageParam[] {
     const reasoningBySignature = collectReasoningByToolSignature(messages);
     const orderedAssistantReasoning = collectOrderedAssistantReasoning(messages);
     const orderedReasoning = collectOrderedToolCallReasoning(messages);
     let assistantIndex = 0;
     let orderedIndex = 0;
 
-    // DeepSeek 文档要求：进行了工具调用的轮次，后续请求必须回传该轮产生的 reasoning_content。
-    // 这里选择在 thinking mode 下回传所有已持久化 assistant reasoning，普通非工具轮次会被 DeepSeek 忽略。
+    // MiMo / DeepSeek 等 reasoning provider 要求：进行了工具调用的轮次，
+    // 后续请求必须回传该轮产生的 reasoning_content。
     for (const currentParam of params) {
         if (currentParam.role !== "assistant") {
             continue;
@@ -309,7 +659,9 @@ function attachDeepSeekReasoningContent(
             continue;
         }
 
-        throw new Error("DeepSeek thinking mode 历史缺少 reasoning_content：包含 tool_calls 的 assistant 消息必须完整回传 reasoning_content。请清空、截断或迁移旧线程历史。");
+        if (options.strictToolCallReasoning) {
+            throw new Error("OpenAI-compatible reasoning 历史缺少 reasoning_content：包含 tool_calls 的 assistant 消息必须完整回传 reasoning_content。请清空、截断或迁移旧线程历史。");
+        }
     }
 
     return params;
@@ -324,7 +676,7 @@ function collectReasoningByToolSignature(messages: BaseMessage[]): Map<string, s
         if (!AIMessage.isInstance(message)) {
             continue;
         }
-        const reasoningContent = readDeepSeekReasoningContent(message);
+        const reasoningContent = readOpenAiCompatibleReasoningContent(message);
         if (!reasoningContent) {
             continue;
         }
@@ -348,7 +700,7 @@ function collectOrderedAssistantReasoning(messages: BaseMessage[]): string[] {
             continue;
         }
 
-        const reasoningContent = readDeepSeekReasoningContent(message);
+        const reasoningContent = readOpenAiCompatibleReasoningContent(message);
         orderedReasoning.push(reasoningContent || (hasMessageToolCalls(message) ? pendingSplitReasoning : ""));
         pendingSplitReasoning = reasoningContent && !message.text.trim()
             ? reasoningContent
@@ -375,7 +727,7 @@ function collectOrderedToolCallReasoning(messages: BaseMessage[]): string[] {
             continue;
         }
 
-        const reasoningContent = readDeepSeekReasoningContent(message);
+        const reasoningContent = readOpenAiCompatibleReasoningContent(message);
         if (hasMessageToolCalls(message)) {
             orderedReasoning.push(reasoningContent || pendingSplitReasoning);
             pendingSplitReasoning = "";
@@ -442,12 +794,17 @@ function createParamToolCallSignature(toolCalls: unknown[]): string {
 }
 
 /**
- * 读取可回传给 DeepSeek 的 thinking 内容。
+ * 读取可回传给 OpenAI-compatible provider 的 thinking 内容。
  */
-function readDeepSeekReasoningContent(message: AIMessage): string {
+function readOpenAiCompatibleReasoningContent(message: AIMessage): string {
     const reasoningContent = message.additional_kwargs.reasoning_content;
     if (typeof reasoningContent === "string" && reasoningContent.trim()) {
         return reasoningContent;
+    }
+
+    const standardReasoningContent = readStandardReasoningContent(message);
+    if (standardReasoningContent) {
+        return standardReasoningContent;
     }
 
     const thinking = message.additional_kwargs.thinking;
@@ -1259,7 +1616,7 @@ function createLoggedFetch(providerName: string, proxy: string) {
  */
 function resolveProviderBaseURL(provider: Pick<ProviderRuntimeSource, "adapter" | "options">): string {
     const baseURL = provider.options.baseURL.trim();
-    return baseURL || DEFAULT_PROVIDER_BASE_URLS[provider.adapter];
+    return baseURL || DEFAULT_PROVIDER_BASE_URLS[provider.adapter.type];
 }
 
 /**
@@ -1339,14 +1696,14 @@ function createChatModelForSource(
 
     const runtimeOptions = buildModelRuntimeOptions(options);
 
-    if (provider.adapter === "gemini-compatible") {
+    if (provider.adapter.type === "gemini-compatible") {
         return new GeminiChatOpenAICompletions({
             ...buildOpenAiCompatibleConfig(provider, model),
             ...runtimeOptions,
         });
     }
 
-    if (provider.adapter === "deepseek-official") {
+    if (provider.adapter.type === "deepseek-official") {
         const mergedModelKwargs: Record<string, unknown> = {
             ...(runtimeOptions.modelKwargs ?? {}),
             ...(shouldEnableDeepSeekThinking(model.id)
@@ -1372,9 +1729,17 @@ function createChatModelForSource(
         });
     }
 
-    return new ChatOpenAI({
+    if (provider.adapter.type === "openai-official") {
+        return new ChatOpenAI({
+            ...buildOpenAiCompatibleConfig(provider, model),
+            ...runtimeOptions,
+        });
+    }
+
+    return new NeuroBookChatOpenAICompatible({
         ...buildOpenAiCompatibleConfig(provider, model),
         ...runtimeOptions,
+        reasoningContentReplay: provider.adapter.reasoningContentReplay,
     });
 }
 

@@ -71,13 +71,42 @@ export const UpdateAgentToolSettingsRequestDtoSchema = z.object({
 });
 
 /**
- * 模型 Provider 适配器。
+ * 模型 Provider 适配器类型。
  */
-export const ModelProviderAdapterSchema = z.enum([
+export const ModelProviderAdapterTypeSchema = z.enum([
+    "openai-official",
     "openai-compatible",
     "gemini-compatible",
     "deepseek-official",
 ]);
+
+/**
+ * 判断 adapter 默认是否回放 provider reasoning_content。
+ */
+function defaultReasoningContentReplay(adapterType: z.infer<typeof ModelProviderAdapterTypeSchema>): boolean {
+    return adapterType === "openai-compatible" || adapterType === "deepseek-official";
+}
+
+/**
+ * 模型 Provider 适配器。
+ *
+ * 配置文件允许写字符串简写，也允许写对象做细节调节。DTO 输出统一收敛为对象。
+ */
+export const ModelProviderAdapterSchema = z.union([
+    ModelProviderAdapterTypeSchema,
+    z.object({
+        type: ModelProviderAdapterTypeSchema,
+        reasoningContentReplay: z.boolean().optional(),
+    }),
+]).transform((value) => {
+    const type = typeof value === "string" ? value : value.type;
+    return {
+        type,
+        reasoningContentReplay: typeof value === "string"
+            ? defaultReasoningContentReplay(type)
+            : value.reasoningContentReplay ?? defaultReasoningContentReplay(type),
+    };
+});
 
 /**
  * Provider 连接配置。
@@ -323,6 +352,7 @@ export const CheckModelResponseDtoSchema = z.object({
 
 export type AgentToolSettingsDto = z.infer<typeof AgentToolSettingsDtoSchema>;
 export type UpdateAgentToolSettingsRequestDto = z.infer<typeof UpdateAgentToolSettingsRequestDtoSchema>;
+export type ModelProviderAdapterType = z.infer<typeof ModelProviderAdapterTypeSchema>;
 export type ModelProviderAdapter = z.infer<typeof ModelProviderAdapterSchema>;
 export type ModelProviderOptionsDto = z.infer<typeof ModelProviderOptionsDtoSchema>;
 export type ConfiguredModelDto = z.infer<typeof ConfiguredModelDtoSchema>;

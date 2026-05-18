@@ -149,8 +149,6 @@ model StoryThread {
   story             Story             @relation(fields: [storyId], references: [id], onDelete: Cascade)
   storyPhase        StoryPhase?       @relation(fields: [storyPhaseId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   scenes            StoryScene[]
-  refs              StoryThreadRef[]  @relation("StoryThreadRefs")
-  incomingThreadRefs StoryThreadRef[] @relation("StoryThreadRefTargetThread")
   incomingSceneRefs  StorySceneRef[]  @relation("StorySceneRefTargetThread")
 
   @@index([storyId, storyPhaseId, sortOrder])
@@ -177,7 +175,6 @@ model StoryScene {
   thread             StoryThread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
   plots              StoryPlot[]
   refs               StorySceneRef[]   @relation("StorySceneRefs")
-  incomingThreadRefs StoryThreadRef[]  @relation("StoryThreadRefTargetScene")
   incomingSceneRefs  StorySceneRef[]   @relation("StorySceneRefTargetScene")
 
   @@index([threadId, threadSortOrder])
@@ -198,7 +195,6 @@ model StoryPlot {
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @default(now())
   scene              StoryScene        @relation(fields: [sceneId], references: [id], onDelete: Cascade)
-  incomingThreadRefs StoryThreadRef[]  @relation("StoryThreadRefTargetPlot")
   incomingSceneRefs  StorySceneRef[]   @relation("StorySceneRefTargetPlot")
 
   @@index([sceneId, sortOrder])
@@ -245,31 +241,6 @@ model AgentMessage {
   @@index([threadId, parentId])
   @@index([threadId, createdAt])
   @@index([parentId])
-}
-
-model StoryThreadRef {
-  id                   Int                @id @default(autoincrement())
-  threadId             Int
-  sortOrder            Int
-  relation             String
-  rawTarget            String
-  targetKind           StoryRefTargetKind
-  targetThreadId       Int?
-  targetSceneId        Int?
-  targetPlotId         Int?
-  visibility           StoryRefVisibility @default(author)
-  note                 String?
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @default(now())
-  thread               StoryThread        @relation("StoryThreadRefs", fields: [threadId], references: [id], onDelete: Cascade)
-  targetThread         StoryThread?       @relation("StoryThreadRefTargetThread", fields: [targetThreadId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  targetScene          StoryScene?        @relation("StoryThreadRefTargetScene", fields: [targetSceneId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  targetPlot           StoryPlot?         @relation("StoryThreadRefTargetPlot", fields: [targetPlotId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-
-  @@index([threadId, sortOrder])
-  @@index([targetThreadId])
-  @@index([targetSceneId])
-  @@index([targetPlotId])
 }
 
 model StorySceneRef {

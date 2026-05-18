@@ -44,7 +44,7 @@ models:
     # provider key 是模型引用里的第一段，例如 deepseek/deepseek-v4-flash 的 deepseek。
     deepseek:
       name: DeepSeek
-      # adapter 决定运行时协议。DeepSeek 官方接口使用 deepseek-official。
+      # adapter 决定运行时协议。OpenAI 官方接口使用 openai-official；主流 OpenAI 兼容网关使用 openai-compatible。
       adapter: deepseek-official
       options:
         # 模型 Provider 密钥写在 config.yaml，不写入 .env.docker。
@@ -111,7 +111,7 @@ models:
           contextWindowTokens: 262144
     siliconflow:
       name: SiliconFlow
-      adapter: deepseek-official
+      adapter: openai-compatible
       options:
         apiKey: ""
         baseURL: https://api.siliconflow.cn/v1

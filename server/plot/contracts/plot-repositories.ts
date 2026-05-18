@@ -58,8 +58,7 @@ export interface ThreadRepository {
         "storyPhaseId" | "sortOrder" | "name" | "title" | "isMainThread" | "status" | "summary" | "tags" | "writingTip" | "note"
     >>): Promise<StoryThread>;
     deleteThread(threadId: number): Promise<void>;
-    findThreadRefsOwnerIds(storyId: number, storyPhaseId: number): Promise<number[]>;
-    findThreadRefTargetByName(storyId: number, name: string): Promise<Pick<StoryThread, "id" | "name"> | null>;
+    findThreadTargetByName(storyId: number, name: string): Promise<Pick<StoryThread, "id" | "name"> | null>;
     findUngroupedThreads(storyId: number): Promise<Array<StoryThread & {scenes: StoryScene[]}>>;
     findPhaseThreadsWithScenes(storyId: number): Promise<Array<StoryPhase & {threads: Array<StoryThread & {scenes: StoryScene[]}>}>>;
     findUngroupedWorkbenchThreads(storyId: number): Promise<StoryWorkbenchThread[]>;

@@ -2,7 +2,13 @@ import type {StoryPlot, StoryScene} from "nbook/server/generated/prisma/client";
 import type {PlotLookupRepository, ThreadRepository} from "nbook/server/plot/contracts/plot-repositories";
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
 import {RefResolverService} from "nbook/server/plot/services/ref-resolver.service";
-import {describe, expect, it, vi} from "vitest";
+import {beforeAll, describe, expect, it, vi} from "vitest";
+
+beforeAll(() => {
+    (globalThis as typeof globalThis & {
+        createError?: (input: {statusCode?: number; message?: string}) => Error & {statusCode?: number};
+    }).createError = ({statusCode, message}) => Object.assign(new Error(message), {statusCode});
+});
 
 function createScene(id: number, storyId: number): StoryScene {
     return {
@@ -42,7 +48,7 @@ describe("RefResolverService", () => {
     it("会解析内容节点与 plot 内部引用目标", async () => {
         const lookupRepository = {} as PlotLookupRepository;
         const threadRepository = {
-            findThreadRefTargetByName: vi.fn(async () => ({id: 22, name: "main-thread"})),
+            findThreadTargetByName: vi.fn(async () => ({id: 22, name: "main-thread"})),
         } as ThreadRepository;
         const scopeGuard = {
             assertScene: vi.fn(async () => createScene(23, 1)),
