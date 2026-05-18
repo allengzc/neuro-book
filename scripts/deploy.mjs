@@ -31,7 +31,7 @@ await run("bun run nuxt:build", "nuxt:build");
 
 console.log("\n📦 Step 2: 打包");
 await run(
-    `tar -czf ${archive} .output prisma prisma.config.ts server shared scripts package.json bun.lock Dockerfile.runner tsconfig.json`,
+    `tar -czf ${archive} --exclude='.git' --exclude='node_modules' --exclude='.nuxt' --exclude='workspace' --exclude='.agent' --exclude='.env' --exclude='.env.docker' --exclude='config.yaml' --exclude='*.tar.gz' --exclude='.cache' --exclude='coverage' --exclude='dist' .`,
     "tar"
 );
 
@@ -39,7 +39,7 @@ console.log(`\n📦 Step 3: 上传到 ${host}`);
 await run(`scp ${archive} ${host}:/tmp/`, "scp");
 
 console.log("\n📦 Step 4: 服务器重建并启动");
-const sshScript = `BUILD_DIR=$(mktemp -d) && tar -xzf /tmp/neuro-book-dist.tar.gz -C $BUILD_DIR && docker build -f $BUILD_DIR/Dockerfile.runner -t neuro-book-app $BUILD_DIR && rm -rf $BUILD_DIR && cd ${remoteDir} && docker compose --env-file .env.docker down && docker compose --env-file .env.docker up -d`;
+const sshScript = `BUILD_DIR=$(mktemp -d) && tar -xzf /tmp/neuro-book-dist.tar.gz -C $BUILD_DIR && sed -i 's/^.output$/#.output/; s/^server\\/generated\\/prisma$/#server\\/generated\\/prisma/' $BUILD_DIR/.dockerignore && docker build -f $BUILD_DIR/Dockerfile.runner -t neuro-book-app $BUILD_DIR && rm -rf $BUILD_DIR && cd ${remoteDir} && docker compose --env-file .env.docker down && docker compose --env-file .env.docker up -d`;
 
 const result = await $`ssh ${host} ${sshScript}`.quiet();
 console.log(result.stdout.toString());
