@@ -31,7 +31,7 @@ await run("bun run nuxt:build", "nuxt:build");
 
 console.log("\n📦 Step 2: 打包");
 await run(
-    `tar -czf ${archive} --exclude='.git' --exclude='node_modules' --exclude='.nuxt' --exclude='workspace' --exclude='.agent' --exclude='.env' --exclude='.env.docker' --exclude='config.yaml' --exclude='*.tar.gz' --exclude='.cache' --exclude='coverage' --exclude='dist' .`,
+    `tar -czf ${archive} --exclude='./.git' --exclude='./node_modules' --exclude='./.nuxt' --exclude='./workspace' --exclude='./.agent' --exclude='./.env' --exclude='./.env.docker' --exclude='./config.yaml' --exclude='./*.tar.gz' --exclude='./.cache' --exclude='./coverage' --exclude='./dist' .`,
     "tar"
 );
 
