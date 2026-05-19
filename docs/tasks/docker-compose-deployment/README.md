@@ -29,29 +29,29 @@
 - 新增生产 `Dockerfile`，多阶段安装依赖、生成 Prisma client、构建 Nuxt，并在运行阶段启动 Nitro。
 - 新增 `docker-compose.yml`，默认启动 app 与 Postgres，Postgres 使用健康检查和数据卷。
 - 新增 `docker-compose.external-db.yml`，用于外部数据库部署时关闭 app 对内置 Postgres 的依赖。
-- 新增 `.env.docker.example` 和 `config.example.yaml`，`.env.docker` 只承载端口和数据库配置，真实模型 Provider 密钥由挂载的 `config.yaml` 承载。
+- 初版新增过 `.env.docker.example` 和 `config.example.yaml`；当前部署私有环境已收敛为根目录 `.env`，只承载端口、数据库和 session 配置，真实模型 Provider 密钥由根目录 `config.yaml` 承载。
 - 增加配置文本环境变量展开工具，并接入 v2 `loadAppConfig` 和 v3 `readRawAgentConfig`。
 - 执行 `git rm --cached config.yaml`，本地文件保留，仓库只跟踪模板。
 - 运行镜像显式携带 Prisma 生成客户端，并使用 POSIX `sh` 启动脚本，降低基础镜像 shell 差异风险。
-- 新增 `scripts/neuro-book-deploy.mjs` 作为 Node 交互部署 CLI：使用 `commander` 处理参数、`@clack/prompts` 处理交互，检查 Docker/Git，询问部署目录、端口、Provider、数据库模式，生成 `.env.docker` / `config.yaml` 并执行 Compose。
+- 新增 `scripts/neuro-book-deploy.mjs` 作为 Node 交互部署 CLI：使用 `commander` 处理参数、`@clack/prompts` 处理交互，检查 Docker/Git，询问部署目录、端口、Provider、数据库模式，生成 `.env` / `config.yaml` 并执行 Compose。
 - 更新 `package.json` 的 `bin` / `files` 配置，让 `npx --package github:notnotype/neuro-book neuro-book-deploy` 只安装部署入口文件，再由脚本 clone 真实应用仓库。
 - README 的 Docker 部署章节改为 `npx` 优先、手动 Node CLI 和纯手动 Compose 作为备选，并补充配置文件教程。
 - `config.example.yaml` 增加注释，解释 Provider key、adapter、baseURL、proxy、默认模型、profile 覆盖和 context window 配置。
-- `.env.docker.example` 补充 `NUXT_SESSION_PASSWORD`，匹配当前 Compose 运行时要求。
+- 环境变量模板补充过 `NUXT_SESSION_PASSWORD`，当前由 `neuro-book-deploy` 写入根目录 `.env`。
 - 新增 `scripts/publish-ghcr-image.mjs` 和 `docker:publish`，用于本地执行 `docker buildx build --push` 推送 `latest` 与版本 tag 到 GHCR。
 - 新增 `.github/workflows/release-container.yml`，只在 GitHub Release `published` 时构建并推送 release tag 与 `latest`。
 - README 增加低内存服务器说明：目标服务器优先使用预构建镜像，避免在服务器上执行 Nuxt build。
 - `scripts/neuro-book-deploy.mjs` 部署模式收敛为 `ghcr` 和 `source`：默认 GHCR 镜像部署，source 模式挂载宿主机源码到容器 `/app`，不再提供 `--deploy-mode build`。
-- 部署生成物统一写入 `.deploy/`：`.env.docker`、`config.yaml`、`docker-compose.generated.yml` 和本地说明文档，避免后续 `git pull` 与部署私有文件冲突。
+- 部署私有配置收敛为根目录 `.env` 和 `config.yaml`，两者不进 Git；`.deploy/` 只保留 `docker-compose.generated.yml` 和本地说明文档，避免后续 `git pull` 与部署私有文件冲突。
 - GHCR runner 镜像改为保留完整项目源码和运行所需文件，使容器内 `bun run auth:create-admin` 可用。
-- `scripts/deploy.mjs` 改为开发服务器 source 模式快速同步入口：默认 SSH 到 `arch` 的 `/home/notnotype/composes/neuro-book`，检查 tracked worktree 干净后执行 `git pull --ff-only`、`bun install --frozen-lockfile`、加载 `.deploy/.env.docker`、Prisma generate、Nuxt build，并通过本地隐藏输入的 sudo 密码在远端做一次 `sudo -v` 校验后重启 `app` 容器。
+- `scripts/deploy.mjs` 改为开发服务器 source 模式快速同步入口：默认 SSH 到 `arch` 的 `/home/notnotype/composes/neuro-book`，检查 tracked worktree 干净后执行 `git pull --ff-only`、迁移旧 `.deploy/.env.docker` / `.deploy/config.yaml` 到根目录 `.env` / `config.yaml`、`bun install --frozen-lockfile`、加载 `.env`、Prisma generate、Nuxt build，并通过本地隐藏输入的 sudo 密码在远端做一次 `sudo -v` 校验后重启 `app` 容器。
 - release-only GitHub Actions 改用 `docker/metadata-action` 生成 GHCR tag / OCI labels，并启用 GitHub Actions buildx cache。
 - README 增加常用部署入口说明，区分 `neuro-book-deploy`、`bun scripts/deploy.mjs` 和 `node scripts/publish-ghcr-image.mjs` 的职责，并补充 source 模式常见故障排查。
 - `Dockerfile` 增加 `runtime-base` stage，基于 `oven/bun:1-debian` 安装 Bun、Node.js、Python 3、ripgrep、git、bash 和常见 coreutils；GHCR app 镜像基于该 stage，确保开箱即用容器内 agent 工具齐全。
 - 新增 `Dockerfile.source-runtime`，source 模式使用本地 build 的 `neuro-book-source-runtime:latest`，不依赖 GHCR，只负责提供同一套 agent 工具链，源码仍由宿主机挂载到 `/app`。
 - `scripts/publish-ghcr-image.mjs` 和 release-only GitHub Actions 改为发布两类 GHCR 镜像：`neuro-book-runtime` 基础 runtime 镜像，以及基于同一工具链的 `neuro-book` app 镜像。
 - 新增 `docs/operator-bridge.md`，作为连接开发者、用户和用户 Agent 的交付与运维桥梁，集中说明部署模型、执行步骤、敏感信息边界、常见问题和关键项目文档索引。
-- 修复 source 模式下整目录挂载与 `config.yaml` 单文件挂载冲突的问题：基础 `docker-compose.yml` 不再挂载根目录 `config.yaml`；GHCR 由 generated override 挂载 `.deploy/config.yaml` 到 `/app/config.yaml`，source 通过 `NEURO_BOOK_CONFIG_PATH=/app/.deploy/config.yaml` 读取配置。
+- 修复 source 模式下整目录挂载与 `config.yaml` 单文件挂载冲突的问题：基础 `docker-compose.yml` 不再挂载根目录 `config.yaml`；GHCR 由 generated override 挂载 `config.yaml` 到 `/app/config.yaml`，source 通过整目录挂载直接读取根目录 `config.yaml`。
 
 ## Decisions
 
@@ -66,7 +66,7 @@
 - `docker-compose.yml`
 - `docker-compose.external-db.yml`
 - `.dockerignore`
-- `.env.docker.example`
+- 根目录 `.env`
 - `config.example.yaml`
 - `.gitignore`
 - `package.json`
@@ -88,7 +88,7 @@
 
 - `bun run test server/utils/env-template.test.ts server/utils/app-config.test.ts`
 - `bun run typecheck`
-- `docker compose --env-file .env.docker.example config` 未执行成功：当前环境没有 Docker CLI。
+- `docker compose --env-file .env config` 未执行成功：当前环境没有 Docker CLI。
 - `node --check scripts/neuro-book-deploy.mjs`
 - `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes --deploy-mode ghcr --dir .agent/deploy-ghcr-test`
 - `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes --deploy-mode source --dir .agent/deploy-source-test`
@@ -97,8 +97,8 @@
 - `bun scripts/deploy.mjs --dry-run`
 - `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes --deploy-mode source --dir .agent/deploy-source-runtime-test`
 - `npm pack --dry-run --json`：tarball 只包含 README、package.json 和 Node 部署脚本。
-- 使用 `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes` 跑通脚本生成 `.deploy/.env.docker` / `.deploy/config.yaml` / `.deploy/docker-compose.generated.yml`，并用 `yaml` 解析生成配置。
-- 当前环境仍没有 Docker CLI，`docker --version` 与 `docker compose --env-file .env.docker.example config` 均无法执行。
+- 使用 `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes` 跑通脚本生成 `.env` / `config.yaml` / `.deploy/docker-compose.generated.yml`，并用 `yaml` 解析生成配置。
+- 当前环境仍没有 Docker CLI，`docker --version` 与 `docker compose --env-file .env config` 均无法执行。
 
 ## TODO / Follow-ups
 

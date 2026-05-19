@@ -300,11 +300,10 @@ function parseAppConfigValue(input: unknown): AppConfig {
 }
 
 /**
- * 返回运行时 config.yaml 绝对路径。部署时可通过环境变量改到 .deploy/config.yaml。
+ * 返回 config.yaml 绝对路径。
  */
 function getAppConfigPath(): string {
-    const configuredPath = process.env.NEURO_BOOK_CONFIG_PATH?.trim();
-    return configuredPath ? resolve(process.cwd(), configuredPath) : resolve(process.cwd(), "config.yaml");
+    return resolve(process.cwd(), "config.yaml");
 }
 
 /**

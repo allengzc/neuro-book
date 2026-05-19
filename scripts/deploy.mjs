@@ -15,6 +15,7 @@ import * as p from "@clack/prompts";
 const DEFAULT_HOST = "arch";
 const DEFAULT_REMOTE_DIR = "/home/notnotype/composes/neuro-book";
 const COMPOSE_FILES = "-f docker-compose.yml -f .deploy/docker-compose.generated.yml";
+const ENV_FILE = ".env";
 
 const program = new Command()
     .name("neuro-book-dev-deploy")
@@ -80,8 +81,18 @@ if [ ! -d .git ]; then
     exit 1
 fi
 
-if [ ! -f .deploy/.env.docker ] || [ ! -f .deploy/docker-compose.generated.yml ]; then
-    echo "缺少 .deploy 部署文件。请先运行 neuro-book-deploy --deploy-mode source 初始化部署。" >&2
+if [ ! -f .env ] && [ -f .deploy/.env.docker ]; then
+    mv .deploy/.env.docker .env
+    chmod 600 .env 2>/dev/null || true
+fi
+
+if [ ! -f config.yaml ] && [ -f .deploy/config.yaml ]; then
+    mv .deploy/config.yaml config.yaml
+    chmod 600 config.yaml 2>/dev/null || true
+fi
+
+if [ ! -f .env ] || [ ! -f config.yaml ] || [ ! -f .deploy/docker-compose.generated.yml ]; then
+    echo "缺少部署文件。请先运行 neuro-book-deploy --deploy-mode source 初始化部署。" >&2
     exit 1
 fi
 
@@ -93,8 +104,6 @@ services:
         build:
             context: .
             dockerfile: Dockerfile.source-runtime
-        environment:
-            NEURO_BOOK_CONFIG_PATH: /app/.deploy/config.yaml
         working_dir: /app
         command: ["sh", "./scripts/docker-entrypoint.sh"]
         volumes:
@@ -117,7 +126,7 @@ bun install --frozen-lockfile
 
 step "加载部署环境"
 set -a
-. .deploy/.env.docker
+. ${ENV_FILE}
 set +a
 
 step "Nuxt prepare"
@@ -130,13 +139,13 @@ step "Nuxt build"
 bun run nuxt:build
 
 step "重启 app 容器"
-run_sudo docker compose --env-file .deploy/.env.docker ${COMPOSE_FILES} up -d --build --force-recreate app
+run_sudo docker compose --env-file ${ENV_FILE} ${COMPOSE_FILES} up -d --build --force-recreate app
 
 step "Compose 状态"
-run_sudo docker compose --env-file .deploy/.env.docker ${COMPOSE_FILES} ps
+run_sudo docker compose --env-file ${ENV_FILE} ${COMPOSE_FILES} ps
 
 step "App 最近日志"
-run_sudo docker compose --env-file .deploy/.env.docker ${COMPOSE_FILES} logs --tail=80 app
+run_sudo docker compose --env-file ${ENV_FILE} ${COMPOSE_FILES} logs --tail=80 app
 `;
 }
 

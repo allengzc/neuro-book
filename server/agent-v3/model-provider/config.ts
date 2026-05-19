@@ -8,11 +8,10 @@ const DEEPSEEK_FLASH_MODEL_KEY = "deepseek/deepseek-v4-flash";
 const DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1";
 
 /**
- * 读取运行时 config.yaml。部署时可通过环境变量改到 .deploy/config.yaml。
+ * 读取项目根目录的 config.yaml。
  */
 export function readRawAgentConfig(): RawAgentConfig {
-    const configuredPath = process.env.NEURO_BOOK_CONFIG_PATH?.trim();
-    const configPath = configuredPath ? resolve(process.cwd(), configuredPath) : resolve(process.cwd(), "config.yaml");
+    const configPath = resolve(process.cwd(), "config.yaml");
     const text = readFileSync(configPath, "utf-8");
     return yaml.parse(expandEnvTemplate(text)) as RawAgentConfig;
 }

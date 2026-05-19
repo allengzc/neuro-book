@@ -16,7 +16,7 @@
 
 1. 用户要部署到哪里：本机、远程服务器、还是已有的 `arch` 开发服务器。
 2. 用户希望的模式：默认 `ghcr`，还是 `source` 源码挂载。
-3. 是否已有 `.deploy/`：已有时不要随意覆盖 `.deploy/.env.docker` 和 `.deploy/config.yaml`。
+3. 是否已有 `.env` / `config.yaml`：已有时不要随意覆盖这两个私有配置文件。
 4. 服务器内存是否足够执行 Nuxt build：低内存服务器优先使用 `ghcr`。
 5. 用户是否允许 Agent 执行需要 sudo 的 Docker 命令。
 
@@ -42,7 +42,7 @@ Agent 回答问题或执行任务时，应按问题类型读取这些文档：
 
 ## 部署模型
 
-NeuroBook 使用 Docker Compose 单机部署。基础模板由仓库提供，部署私有状态由 `.deploy/` 保存。
+NeuroBook 使用 Docker Compose 单机部署。基础模板由仓库提供，运行私有配置放在项目根目录 `.env` 和 `config.yaml`，部署生成物放在 `.deploy/`。
 
 仓库跟踪的模板文件：
 
@@ -53,14 +53,14 @@ NeuroBook 使用 Docker Compose 单机部署。基础模板由仓库提供，部
 
 部署脚本生成的本地状态：
 
-- `.deploy/.env.docker`：容器运行环境变量，例如端口、session password、Postgres 密码、`DATABASE_URL`。
-- `.deploy/config.yaml`：应用业务配置真值源，例如 Provider key、模型、baseURL、代理、profile 模型覆盖。
+- `.env`：容器运行环境变量，例如端口、session password、Postgres 密码、`DATABASE_URL`。
+- `config.yaml`：应用业务配置真值源，例如 Provider key、模型、baseURL、代理、profile 模型覆盖。
 - `.deploy/docker-compose.generated.yml`：根据 `ghcr` 或 `source` 模式生成的 compose override。
 - `.deploy/README.md`：当前部署目录的本地操作说明。
 
-`.deploy/` 不进 Git。`git pull` 不会更新 `.deploy/`。如果部署脚本或部署模式变化，需要重新生成或迁移 `.deploy/docker-compose.generated.yml`。
+`.env`、`config.yaml` 和 `.deploy/` 都不进 Git。`git pull` 不会更新这些本机部署状态。如果部署脚本或部署模式变化，需要重新生成或迁移 `.deploy/docker-compose.generated.yml`。
 
-基础 `docker-compose.yml` 不挂载根目录 `config.yaml`。`ghcr` 模式会由 `.deploy/docker-compose.generated.yml` 把 `.deploy/config.yaml` 挂载到容器内 `/app/config.yaml`。`source` 模式会把整个项目目录挂载到 `/app`，并通过 `NEURO_BOOK_CONFIG_PATH=/app/.deploy/config.yaml` 读取配置，避免整目录挂载遮住单文件挂载。
+基础 `docker-compose.yml` 不挂载根目录 `config.yaml`。`ghcr` 模式会由 `.deploy/docker-compose.generated.yml` 把 `config.yaml` 挂载到容器内 `/app/config.yaml`。`source` 模式会把整个项目目录挂载到 `/app`，因此容器内自然能看到 `/app/config.yaml`。
 
 ## 部署模式
 
@@ -222,32 +222,32 @@ node scripts/neuro-book-deploy.mjs --redeploy --deploy-mode source
 git pull --ff-only
 bun install --frozen-lockfile
 set -a
-source .deploy/.env.docker
+source .env
 set +a
 bun run nuxt:prepare
 bun run generate
 bun run nuxt:build
-docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d --build
+docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d --build
 ```
 
 如果 sudo 必须使用：
 
 ```bash
-sudo docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d --build
+sudo docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d --build
 ```
 
 ### Step 5: ghcr 模式更新
 
 ```bash
-docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml pull app
-docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d
+docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml pull app
+docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d
 ```
 
 如果用 sudo：
 
 ```bash
-sudo docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml pull app
-sudo docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d
+sudo docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml pull app
+sudo docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d
 ```
 
 ### Step 6: 创建管理员
@@ -255,20 +255,20 @@ sudo docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .dep
 容器启动后执行：
 
 ```bash
-docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun run auth:create-admin
+docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun run auth:create-admin
 ```
 
 不要把管理员密码作为命令参数传入。使用交互输入，或只在一次性 secret 环境中设置：
 
 ```bash
-AUTH_ADMIN_PASSWORD='<password>' docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun run auth:create-admin
+AUTH_ADMIN_PASSWORD='<password>' docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun run auth:create-admin
 ```
 
 ### Step 7: 检查运行状态
 
 ```bash
-docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml ps
-docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml logs --tail=120 app
+docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml ps
+docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml logs --tail=120 app
 ```
 
 如果 app 不可访问，先看容器是否反复重启，再看 app 日志和 Postgres 日志。
@@ -298,7 +298,7 @@ bun scripts/deploy.mjs
 4. `git pull --ff-only`。
 5. 刷新 source compose override。
 6. `bun install --frozen-lockfile`。
-7. 加载 `.deploy/.env.docker`。
+7. 加载 `.env`。
 8. `bun run nuxt:prepare`。
 9. `bun run generate`。
 10. `bun run nuxt:build`。
@@ -336,7 +336,7 @@ GitHub Actions 只在 GitHub Release `published` 时发布镜像，不在普通 
 
 ## 配置与敏感信息边界
 
-`.deploy/.env.docker` 只保存容器运行环境：
+`.env` 只保存容器运行环境：
 
 - `NUXT_PORT`
 - `NUXT_SESSION_PASSWORD`
@@ -345,7 +345,7 @@ GitHub Actions 只在 GitHub Release `published` 时发布镜像，不在普通 
 - `POSTGRES_DB`
 - `DATABASE_URL`
 
-`.deploy/config.yaml` 保存业务配置：
+`config.yaml` 保存业务配置：
 
 - Provider API key
 - Provider baseURL
@@ -354,7 +354,7 @@ GitHub Actions 只在 GitHub Release `published` 时发布镜像，不在普通 
 - 代理配置
 - `auth.enabled`
 
-不要把 `.deploy/` 加入 Git。不要提交真实 `config.yaml`。`config.example.yaml` 可以包含公开 provider baseURL，但不能包含真实 key。
+不要把 `.env`、`config.yaml` 或 `.deploy/` 加入 Git。`config.example.yaml` 可以包含公开 provider baseURL，但不能包含真实 key。
 
 如果历史中曾提交过真实 key，应视为泄露并轮换。即使主线历史已清理，旧 clone、fork、缓存、本地 worktree 仍可能保留旧对象。
 
@@ -378,28 +378,28 @@ bun scripts/deploy.mjs
 
 ### `Cannot resolve environment variable: DATABASE_URL`
 
-宿主机执行 Prisma 前没有加载 `.deploy/.env.docker`。
+宿主机执行 Prisma 前没有加载 `.env`。
 
 解决：
 
 ```bash
 set -a
-source .deploy/.env.docker
+source .env
 set +a
 bun run generate
 ```
 
 ### `P1000: Authentication failed`
 
-旧 Postgres 数据卷已经初始化过，但 `.deploy/.env.docker` 里的新密码和数据卷内旧密码不一致。
+旧 Postgres 数据卷已经初始化过，但 `.env` 里的新密码和数据卷内旧密码不一致。
 
 保留数据时，在 Postgres 容器内修改 `neuro_book` 用户密码为当前 `POSTGRES_PASSWORD`。
 
 不保留数据时，可以清理数据卷后重建：
 
 ```bash
-docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml down -v
-docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d
+docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml down -v
+docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d
 ```
 
 ### `Cannot find module '@clack/prompts'`
@@ -477,7 +477,7 @@ node scripts/neuro-book-deploy.mjs --redeploy --deploy-mode source
 用户的 Agent 完成部署或排障后，应向用户报告：
 
 - 选择了哪种部署模式，以及原因。
-- 改动了哪些文件，尤其是否改动 `.deploy/.env.docker` 或 `.deploy/config.yaml`。
+- 改动了哪些文件，尤其是否改动 `.env` 或 `config.yaml`。
 - 执行了哪些命令。
 - 当前容器状态。
 - 访问地址。

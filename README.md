@@ -79,7 +79,7 @@ auth:
 - `bun scripts/deploy.mjs`：开发服务器快速同步入口，默认登录 `arch`，面向已经初始化好的 source 模式部署。
 - `node scripts/publish-ghcr-image.mjs`：本地构建并推送 GHCR runtime/app 两类镜像，适合低内存服务器使用预构建镜像。
 
-推荐使用一键交互式部署脚本。它会检查 Docker、拉取仓库，在 `.deploy/` 下生成 `.env.docker`、`config.yaml` 和 compose override。默认使用 GHCR 预构建镜像启动，避免低内存服务器执行 Nuxt build。
+推荐使用一键交互式部署脚本。它会检查 Docker、拉取仓库，在项目根目录生成 `.env` 和 `config.yaml`，并在 `.deploy/` 下生成 compose override。默认使用 GHCR 预构建镜像启动，避免低内存服务器执行 Nuxt build。
 
 ```bash
 npx --yes --package github:notnotype/neuro-book neuro-book-deploy
@@ -113,12 +113,12 @@ node scripts/neuro-book-deploy.mjs --deploy-mode source
 git pull --ff-only
 bun install --frozen-lockfile
 set -a
-source .deploy/.env.docker
+source .env
 set +a
 bun run nuxt:prepare
 bun run generate
 bun run nuxt:build
-docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d --build
+docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d --build
 ```
 
 如果是本项目的开发服务器，source 模式初始化成功后可直接从本地快速同步：
@@ -129,12 +129,12 @@ bun scripts/deploy.mjs
 
 该脚本默认登录 `arch`，进入 `/home/notnotype/composes/neuro-book`，执行 `git pull --ff-only`、宿主机依赖安装、Prisma generate、Nuxt build，并用 sudo 重启 `app` 容器。脚本会在本地隐藏输入 sudo 密码，密码只通过 SSH stdin 传给远端做一次 `sudo -v` 校验，不会写入命令行或文件。可用 `--host`、`--dir` 修改目标，也可用 `--dry-run` 查看将执行的远端脚本。
 
-如果部署时选择外部数据库，脚本会把 `DATABASE_URL` 写入 `.deploy/.env.docker`，并在启动命令中追加 `docker-compose.external-db.yml`。
+如果部署时选择外部数据库，脚本会把 `DATABASE_URL` 写入 `.env`，并在启动命令中追加 `docker-compose.external-db.yml`。
 
 首次部署后在容器内创建管理员：
 
 ```bash
-docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun run auth:create-admin
+docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun run auth:create-admin
 ```
 
 不要把管理员密码作为命令行参数传入；使用交互输入，或在一次性 shell / secret 环境中设置 `AUTH_ADMIN_PASSWORD`。
@@ -170,26 +170,26 @@ bun run docker:publish -- --tag v1.0.0
 服务器使用预构建镜像时，部署脚本会在 `.deploy/docker-compose.generated.yml` 中覆盖 `app.image` 并移除 `build`。更新镜像后运行：
 
 ```bash
-docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml pull app
-docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d
+docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml pull app
+docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d
 ```
 
 ### 配置文件教程
 
-- `.deploy/.env.docker` 只保存容器运行环境，例如 `NUXT_PORT`、`NUXT_SESSION_PASSWORD`、Postgres 用户名密码和 `DATABASE_URL`。不要把模型 Provider 密钥放在这里。
-- `.deploy/config.yaml` 是应用可写的业务配置真值源，会挂载到容器内 `/app/config.yaml`。模型 Provider 密钥、默认模型、Provider baseURL、代理和 profile 模型覆盖都放在这里。
+- `.env` 只保存容器运行环境，例如 `NUXT_PORT`、`NUXT_SESSION_PASSWORD`、Postgres 用户名密码和 `DATABASE_URL`。不要把模型 Provider 密钥放在这里。
+- `config.yaml` 是应用可写的业务配置真值源，会挂载到容器内 `/app/config.yaml`。模型 Provider 密钥、默认模型、Provider baseURL、代理和 profile 模型覆盖都放在这里。
 - `models.default` 使用 `provider/model` 格式，例如 `deepseek/deepseek-v4-flash`，并且要指向 `models.providers` 下 `enabled: true` 的模型。
 - `adapter` 决定 Provider 协议：OpenAI 官方接口使用 `openai-official`，主流 OpenAI 兼容网关使用 `openai-compatible`，DeepSeek 官方接口使用 `deepseek-official`，Gemini 使用 `gemini-compatible`。`openai-compatible` 默认会保留并回放 provider 返回的 `reasoning_content`；如需关闭，可写成 `adapter: { type: openai-compatible, reasoningContentReplay: false }`。
 - `contextWindowTokens` 用于上下文预算估算；能确认模型窗口时填数字，不能确认时填 `null`。
-- `./workspace` 会挂载到容器内 `/app/workspace`。基础 `docker-compose.yml` 不挂载根目录 `config.yaml`；`ghcr` 模式会把 `.deploy/config.yaml` 挂载到 `/app/config.yaml`；`source` 模式会挂载整个项目目录，并通过 `NEURO_BOOK_CONFIG_PATH=/app/.deploy/config.yaml` 读取部署配置。
+- `./workspace` 会挂载到容器内 `/app/workspace`。`ghcr` 模式会把根目录 `config.yaml` 挂载到 `/app/config.yaml`；`source` 模式会挂载整个项目目录，容器内自然能看到 `/app/config.yaml`。
 - source 模式不依赖 GHCR，会使用 `Dockerfile.source-runtime` 本地构建 `neuro-book-source-runtime:latest`，再挂载宿主机源码。
 - `.deploy/` 是本机部署状态目录，已加入 `.gitignore`，后续 `git pull` 不会与部署私有配置冲突。
 - 当前主线历史已移除曾提交过的真实 `config.yaml`，但已经暴露过的 Provider token 仍应视为泄露并立即轮换；旧 clone、fork、缓存或本地临时 worktree 仍可能保留旧对象。
 
 ### 部署故障排查
 
-- `Cannot resolve environment variable: DATABASE_URL`：宿主机执行 `bun run generate` 前没有加载 `.deploy/.env.docker`。先执行 `set -a && source .deploy/.env.docker && set +a`。
-- `P1000: Authentication failed`：旧 Postgres 数据卷已经初始化过，但 `.deploy/.env.docker` 重新生成了新密码。保留数据时，在 Postgres 容器内把 `neuro_book` 用户密码改成当前 `POSTGRES_PASSWORD`；不保留数据时可 `docker compose down -v` 后重建。
+- `Cannot resolve environment variable: DATABASE_URL`：宿主机执行 `bun run generate` 前没有加载 `.env`。先执行 `set -a && source .env && set +a`。
+- `P1000: Authentication failed`：旧 Postgres 数据卷已经初始化过，但 `.env` 重新生成了新密码。保留数据时，在 Postgres 容器内把 `neuro_book` 用户密码改成当前 `POSTGRES_PASSWORD`；不保留数据时可 `docker compose down -v` 后重建。
 - `Cannot find module '@clack/prompts'`：source 模式下容器看到的是宿主机 `node_modules`。在宿主机执行 `bun install --frozen-lockfile`，并确认 `node_modules` 不再是 root-only 权限。
 
 ## AGENT 系统
