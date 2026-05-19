@@ -126,7 +126,7 @@ bun install --frozen-lockfile
 
 step "加载部署环境"
 set -a
-. ${ENV_FILE}
+. ./${ENV_FILE}
 set +a
 
 step "Nuxt prepare"
