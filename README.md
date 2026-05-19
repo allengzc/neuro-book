@@ -62,6 +62,8 @@ auth:
 
 ## Docker Compose 单机部署
 
+如果你要让自己的 Agent 协助部署、更新或排障，优先把 [docs/operator-bridge.md](docs/operator-bridge.md) 发给它。那份文档是连接开发者、用户和用户 Agent 的交付与运维桥梁，包含部署模式选择、执行步骤、敏感信息边界和关键项目文档索引。
+
 ### 常用部署入口
 
 - `neuro-book-deploy`：首次部署或重新生成 `.deploy/` 本地配置，支持默认 `ghcr` 和 `source` 两种模式。

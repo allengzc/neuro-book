@@ -50,6 +50,7 @@
 - `Dockerfile` 增加 `runtime-base` stage，基于 `oven/bun:1-debian` 安装 Bun、Node.js、Python 3、ripgrep、git、bash 和常见 coreutils；GHCR app 镜像基于该 stage，确保开箱即用容器内 agent 工具齐全。
 - 新增 `Dockerfile.source-runtime`，source 模式使用本地 build 的 `neuro-book-source-runtime:latest`，不依赖 GHCR，只负责提供同一套 agent 工具链，源码仍由宿主机挂载到 `/app`。
 - `scripts/publish-ghcr-image.mjs` 和 release-only GitHub Actions 改为发布两类 GHCR 镜像：`neuro-book-runtime` 基础 runtime 镜像，以及基于同一工具链的 `neuro-book` app 镜像。
+- 新增 `docs/operator-bridge.md`，作为连接开发者、用户和用户 Agent 的交付与运维桥梁，集中说明部署模型、执行步骤、敏感信息边界、常见问题和关键项目文档索引。
 
 ## Decisions
 
@@ -69,6 +70,7 @@
 - `.gitignore`
 - `package.json`
 - `scripts/publish-ghcr-image.mjs`
+- `docs/operator-bridge.md`
 - `.github/workflows/release-container.yml`
 - `scripts/deploy.mjs`
 - `scripts/docker-entrypoint.sh`
