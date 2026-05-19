@@ -170,6 +170,26 @@ class RuntimeReminderProfile extends SimpleProfile<"leader.default"> {
     }
 }
 
+class TestAssetsProfile extends AgentProfile<"leader.assets"> {
+    readonly key = "leader.assets";
+    readonly kind = "leader" as const;
+    readonly name = "Assets";
+    readonly inputSchema = new TestLeaderProfile().inputSchema;
+    readonly allowedToolKeys = [];
+
+    async prepare(_runtime: ProfileContextRuntime<"leader.assets", AgentProfile<"leader.assets">>) {
+        return {
+            modelMessages: [],
+            persistedMessages: {
+                prepend: [],
+                append: [],
+            },
+            immediateMetadata: {},
+            completedMetadata: {},
+        };
+    }
+}
+
 /**
  * 内存线程仓储。
  */
@@ -188,7 +208,7 @@ function createThreadRepository(): ThreadRepository {
             return persist(createThreadRecord({
                 id: nextId++,
                 kind: "leader",
-                profileKey: "leader.default",
+                profileKey: input.profileKey ?? "leader.default",
                 title: input.title ?? "新建线程",
             }));
         },
@@ -200,9 +220,10 @@ function createThreadRepository(): ThreadRepository {
                 title: input.title ?? "新建 Subagent",
             }));
         },
-        async listThreads(kind) {
+        async listThreads(input = {}) {
             return [...records.values()]
-                .filter((record) => !kind || record.kind === kind)
+                .filter((record) => !input.kind || record.kind === input.kind)
+                .filter((record) => !input.profileKey || record.profileKey === input.profileKey)
                 .map(toSummary);
         },
         async findById(threadId) {
@@ -290,6 +311,7 @@ function createThreadRepository(): ThreadRepository {
 function createAgentSystemHarness(leaderProfile: AgentProfile<"leader.default"> = new TestLeaderProfile()) {
     const profileRegistry = new InMemoryAgentProfileRegistry();
     profileRegistry.register(leaderProfile);
+    profileRegistry.register(new TestAssetsProfile());
     profileRegistry.register(new TestWriterProfile());
     const toolRegistry = new InMemoryAgentToolRegistry();
     const threadRepository = createThreadRepository();
@@ -502,6 +524,7 @@ describe("AgentSystem", () => {
                 currentChapterLabel: null,
                 previousChapterLabel: null,
                 workspace: "workspace/silver-dragon-hime",
+                workspaceKind: "novel",
                 didSwitchChapter: false,
                 selectionVersion: null,
                 extra: {},
@@ -585,6 +608,7 @@ describe("AgentSystem", () => {
                 currentChapterLabel: null,
                 previousChapterLabel: null,
                 workspace: "workspace/silver-dragon-hime",
+                workspaceKind: "novel",
                 didSwitchChapter: false,
                 selectionVersion: null,
                 extra: {},
@@ -837,6 +861,27 @@ describe("AgentSystem", () => {
         expect(result).toHaveLength(1);
         expect(threadProjection.enrichThreadSummary).toHaveBeenCalledTimes(1);
         expect(threadProjection.getThreadDetail).not.toHaveBeenCalled();
+    });
+
+    it("leader.assets 线程会按 profileKey 创建并可独立列表查询", async () => {
+        const {agentSystem} = createAgentSystemHarness();
+        await agentSystem.createLeaderThread({
+            title: "Novel Leader",
+        });
+        const assetsLeader = await agentSystem.createLeaderThread({
+            profileKey: "leader.assets",
+            title: "Assets Leader",
+        });
+
+        const assetsThreads = await agentSystem.listThreads({
+            kind: "leader",
+            profileKey: "leader.assets",
+        });
+
+        expect(assetsLeader.profileKey).toBe("leader.assets");
+        expect(assetsThreads).toHaveLength(1);
+        expect(assetsThreads[0]?.profileKey).toBe("leader.assets");
+        expect(assetsThreads[0]?.title).toBe("Assets Leader");
     });
 
     it("dispatchThreadRunById 会按线程类型分派到 leader 或 subagent", async () => {
@@ -1692,6 +1737,7 @@ describe("AgentSystem", () => {
                 currentChapterLabel: null,
                 previousChapterLabel: null,
                 workspace: "novel-ide",
+                workspaceKind: "novel",
                 didSwitchChapter: false,
                 selectionVersion: 1,
                 extra: {},

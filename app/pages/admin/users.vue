@@ -247,6 +247,7 @@ onMounted(() => {
                             <th class="px-4 py-3 text-left font-medium">角色</th>
                             <th class="px-4 py-3 text-left font-medium">状态</th>
                             <th class="px-4 py-3 text-left font-medium">最后登录</th>
+                            <th class="px-4 py-3 text-left font-medium">最后活跃</th>
                             <th class="px-4 py-3 text-left font-medium">操作</th>
                         </tr>
                     </thead>
@@ -257,6 +258,7 @@ onMounted(() => {
                             <td class="px-4 py-3">{{ user.role }}</td>
                             <td class="px-4 py-3">{{ user.status }}</td>
                             <td class="px-4 py-3">{{ user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : "-" }}</td>
+                            <td class="px-4 py-3">{{ user.lastSeenAt ? new Date(user.lastSeenAt).toLocaleString() : "-" }}</td>
                             <td class="px-4 py-3">
                                 <div class="flex flex-wrap gap-2">
                                     <button class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-1.5 text-xs hover:bg-[var(--bg-hover)]" @click="openEdit(user)">编辑</button>

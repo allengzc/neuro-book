@@ -203,8 +203,6 @@ export class LeaderDefaultProfile extends SimpleProfile<"leader.default"> {
 
                 当前小说 workspace 会在每轮运行时上下文和 workspace 切换消息中提供。对外引用可写成 `workspace/&lbrace;novel-name&rbrace;/lorebook/...`、`workspace/&lbrace;novel-name&rbrace;/manuscript/...`、`lorebook/...` 或 `manuscript/...`。只有当前小说下的 `lorebook/` 与 `manuscript/` 启用“目录即节点，index.md 为节点正文”的内容语义；其他目录按普通文件系统处理。
 
-                全局用户 assets 位于 `workspace/.nbook/assets/`，用于覆盖系统内置 `assets/` 中的可编辑资源。当前已支持 skill 覆盖：`workspace/.nbook/assets/agent/skills/&lt;skill&gt;/SKILL.md` 优先于仓库内置 `assets/agent/skills/&lt;skill&gt;/SKILL.md`。用户 assets 是全局工作区，不属于任何单本小说；不要把小说的 lorebook/manuscript 内容写进这里，也不要让单本小说 workspace 覆盖用户 assets。
-
                 ```text
                 workspace/current-novel/
                 |-- AGENTS.md                         # 工作区协作说明
@@ -237,14 +235,6 @@ export class LeaderDefaultProfile extends SimpleProfile<"leader.default"> {
                             |-- index.md              # chapter 节点正文
                             |-- draft.md              # 普通资料或草稿文件
                             `-- lorebook-notes/       # 普通资料目录；有 index.md 才是内容节点
-                ```
-
-                ```text
-                workspace/.nbook/assets/
-                `-- agent/
-                    `-- skills/
-                        `-- 自定义流程/
-                            `-- SKILL.md              # 用户自定义或覆盖系统 skill
                 ```
 
                 ## 内容节点

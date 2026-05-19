@@ -7,8 +7,9 @@ import {
     previewProfileTemplate,
 } from "nbook/server/agent/profile-templates/profile-template-service";
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
-import type {AgentVariableScope} from "nbook/server/agent/types";
+import {LeaderInputSchema, WriterInputSchema, type AgentVariableScope, type ProfileKey} from "nbook/server/agent/types";
 import {saveProfileTemplate} from "nbook/server/agent/profile-templates/profile-template-service";
+import type {AgentProfile} from "nbook/server/agent/profiles/agent-profile";
 
 const VALID_SOURCE = `/** @jsxRuntime automatic */
 /** @jsxImportSource nbook/server/agent/prompts */
@@ -104,6 +105,82 @@ describe("profile-template-service", () => {
         const thread = result.variables.flatMap((group) => group.items).find((item) => item.path === "runtime.thread.id");
         expect(workspace?.currentValue).toBe("workspace/demo");
         expect(thread?.currentValue).toBe("thread-1");
+    });
+
+    it("预览变量会使用当前 profile.inputSchema 展示 input 字段", () => {
+        const baseScope = createPreviewScope({threadId: "thread-writer"});
+        const writerProfile = createProfileStub("subagent.writer", WriterInputSchema);
+        const scope = {
+            ...baseScope,
+            agent: {
+                ...baseScope.agent,
+                profileKey: "subagent.writer",
+                kind: "subagent",
+            },
+            input: {
+                prompt: "写一段开场",
+                plotPoints: ["scene-1"],
+                lorebookEntries: [{path: "lorebook/world/index.md"}],
+                constraints: ["保持第三人称"],
+            },
+        } as AgentVariableScope;
+
+        const result = previewProfileTemplate({
+            source: VALID_SOURCE,
+            scope,
+            profile: writerProfile,
+        });
+        const variables = result.variables.flatMap((group) => group.items);
+        const prompt = variables.find((item) => item.path === "input.prompt");
+        const lorebookEntries = variables.find((item) => item.path === "input.lorebookEntries");
+
+        expect(prompt?.source).toBe("profile.inputSchema");
+        expect(prompt?.schema).toMatchObject({type: "string"});
+        expect(prompt?.currentValue).toBe("写一段开场");
+        expect(lorebookEntries?.valueType).toBe("array");
+        expect(lorebookEntries?.schema).toMatchObject({type: "array"});
+    });
+
+    it("预览变量会给 scope 分组提供 schema 与当前值", () => {
+        const profile = createProfileStub("leader.default", LeaderInputSchema);
+        const scope = createPreviewScope({
+            workspace: "workspace/demo",
+            threadId: "thread-1",
+        });
+
+        const result = previewProfileTemplate({
+            source: VALID_SOURCE,
+            scope,
+            profile,
+        });
+        const variables = result.variables.flatMap((group) => group.items);
+        const ide = variables.find((item) => item.path === "scope.ide");
+        const workspace = variables.find((item) => item.path === "scope.studio.workspace");
+        const subagents = variables.find((item) => item.path === "scope.agent.subagents");
+
+        expect(ide?.schema).toMatchObject({type: "object"});
+        expect(workspace?.currentValue).toBe("workspace/demo");
+        expect(workspace?.source).toBe("clientVariables.studio");
+        expect(subagents?.schema).toMatchObject({type: "array"});
+    });
+
+    it("预览变量会把 extra 这类动态对象按普通 object 展示", () => {
+        const scope = createPreviewScope({
+            workspace: "workspace/demo",
+            threadId: "thread-1",
+        });
+
+        const result = previewProfileTemplate({
+            source: VALID_SOURCE,
+            scope,
+            profile: createProfileStub("leader.default", LeaderInputSchema),
+        });
+        const selectedStoryThreadId = result.variables
+            .flatMap((group) => group.items)
+            .find((item) => item.path === "scope.studio.extra.selectedStoryThreadId");
+
+        expect(selectedStoryThreadId?.currentValue).toBe("story-thread-1");
+        expect(selectedStoryThreadId?.valueType).toBe("string");
     });
 
     it("预览模板支持 input.prompt 覆盖 source=input 消息", () => {
@@ -270,6 +347,36 @@ describe("profile-template-service", () => {
         expect(result.issues.map((issue) => issue.message)).toContain("Message 节点内不能放 Message 节点");
     });
 
+    it("AIMessage 支持 ToolCall 预览", () => {
+        const source = VALID_SOURCE
+            .replace('import {Message} from "nbook/server/agent/prompts";', 'import {AIMessage, Message, ToolCall} from "nbook/server/agent/prompts";')
+            .replace(
+                '<Watch path="scope.studio.workspace" />',
+                '<AIMessage>我会读取文件<ToolCall id="call-1" name="read_file">{`{"path":"workspace/index.md"}`}</ToolCall></AIMessage>',
+            );
+
+        const result = previewProfileTemplate({source});
+        const assistant = result.messages.find((message) => message.role === "assistant");
+        const generated = generateProfileTemplateSource("demo-template", result.root ?? undefined);
+
+        expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
+        expect(assistant?.text).toBe("我会读取文件");
+        expect(assistant?.toolCalls).toEqual([{id: "call-1", name: "read_file", argsText: "{\"path\":\"workspace/index.md\"}"}]);
+        expect(generated).toContain("AIMessage");
+        expect(generated).toContain("Message");
+        expect(generated).toContain("<ToolCall id=\"call-1\" name=\"read_file\">");
+    });
+
+    it("ToolCall 必须放在 AIMessage 内", () => {
+        const source = VALID_SOURCE
+            .replace('import {Message} from "nbook/server/agent/prompts";', 'import {Message, ToolCall} from "nbook/server/agent/prompts";')
+            .replace('<Watch path="scope.studio.workspace" />', '<ToolCall name="read_file" />');
+
+        const result = parseProfileTemplateSource(source);
+
+        expect(result.issues.map((issue) => issue.message)).toContain("ToolCall 必须放在 AIMessage 内");
+    });
+
     it("SkillCatalog 必须放在 Message 内", () => {
         const source = VALID_SOURCE.replace(
             '<Watch path="scope.studio.workspace" />',
@@ -335,21 +442,27 @@ function createPreviewScope(input: {
             panel: null,
             activePanel: null,
             theme: "sepia",
-            extra: {},
+            extra: {
+                customFlag: true,
+            },
         },
-        studio: {
-            novelId: "novel-1",
-            selectedChapterId: null,
-            previousSelectedChapterId: null,
-            currentChapterTitle: null,
-            previousChapterTitle: null,
-            currentChapterLabel: null,
-            previousChapterLabel: null,
-            workspace: input.workspace ?? null,
-            didSwitchChapter: false,
-            selectionVersion: 0,
-            extra: {},
-        },
+            studio: {
+                novelId: "novel-1",
+                selectedChapterId: null,
+                previousSelectedChapterId: null,
+                currentChapterTitle: null,
+                previousChapterTitle: null,
+                currentChapterLabel: null,
+                previousChapterLabel: null,
+                workspace: input.workspace ?? null,
+                workspaceKind: "novel",
+                didSwitchChapter: false,
+                selectionVersion: 0,
+                extra: {
+                    selectedStoryThreadId: "story-thread-1",
+                    selectedStorySceneId: "story-scene-1",
+                },
+            },
         agent: {
             thread: {
                 id: input.threadId ?? "thread-1",
@@ -368,6 +481,22 @@ function createPreviewScope(input: {
             prompt: "默认输入",
         },
     };
+}
+
+function createProfileStub<TKey extends ProfileKey>(key: TKey, inputSchema: AgentProfile<TKey>["inputSchema"]): AgentProfile<TKey> {
+    return {
+        key,
+        kind: key === "leader.default" ? "leader" : "subagent",
+        name: key,
+        inputSchema,
+        allowedToolKeys: [],
+        async prepare() {
+            throw new Error("profile stub 不应执行 prepare");
+        },
+        async ingest(input: Parameters<AgentProfile<TKey>["ingest"]>[0]) {
+            return input.messages;
+        },
+    } as unknown as AgentProfile<TKey>;
 }
 
 function stripLineIndent(text: string): string {

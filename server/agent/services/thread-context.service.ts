@@ -166,6 +166,7 @@ export class ThreadContextService {
                 currentChapterLabel: scope.studio.currentChapterLabel,
                 previousChapterLabel: scope.studio.previousChapterLabel,
                 workspace: scope.studio.workspace,
+                workspaceKind: scope.studio.workspaceKind,
                 didSwitchChapter: scope.studio.didSwitchChapter,
                 selectionVersion: scope.studio.selectionVersion,
             },

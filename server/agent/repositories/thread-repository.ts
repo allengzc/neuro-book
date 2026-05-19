@@ -1,4 +1,4 @@
-import type {AgentThreadKind, AgentThreadMetadata, AgentThreadRecord, AgentThreadStatus, CreateLeaderThreadInput, SubAgentProfileKey, SubAgentThreadSummary, ThreadId, ThreadSummary} from "nbook/server/agent/types";
+import type {AgentThreadMetadata, AgentThreadRecord, AgentThreadStatus, CreateLeaderThreadInput, ListThreadsInput, SubAgentProfileKey, SubAgentThreadSummary, ThreadId, ThreadSummary} from "nbook/server/agent/types";
 
 /**
  * Agent 线程仓储接口。
@@ -17,7 +17,7 @@ export interface ThreadRepository {
     /**
      * 列出线程。
      */
-    listThreads(kind?: AgentThreadKind): Promise<ThreadSummary[]>;
+    listThreads(input?: ListThreadsInput): Promise<ThreadSummary[]>;
 
     /**
      * 按主键查找线程。

@@ -49,6 +49,13 @@ function readNumber(value: JsonValue | undefined): number | null {
 }
 
 /**
+ * 读取当前工作区类型。
+ */
+function readWorkspaceKind(value: JsonValue | undefined): StudioVariables["workspaceKind"] {
+    return value === "novel" || value === "user-assets" ? value : null;
+}
+
+/**
  * 创建一个默认变量快照。
  */
 function createDefaultScope(): MutableAgentVariableScope {
@@ -68,6 +75,7 @@ function createDefaultScope(): MutableAgentVariableScope {
             currentChapterLabel: null,
             previousChapterLabel: null,
             workspace: null,
+            workspaceKind: null,
             didSwitchChapter: false,
             selectionVersion: null,
             extra: {},
@@ -233,6 +241,9 @@ export class AgentVariableStore {
         if (hasOwn(patch, "workspace")) {
             target.workspace = readString(patch.workspace);
         }
+        if (hasOwn(patch, "workspaceKind")) {
+            target.workspaceKind = readWorkspaceKind(patch.workspaceKind);
+        }
         if (hasOwn(patch, "didSwitchChapter")) {
             target.didSwitchChapter = readBoolean(patch.didSwitchChapter);
         }
@@ -250,6 +261,7 @@ export class AgentVariableStore {
                 || key === "currentChapterLabel"
                 || key === "previousChapterLabel"
                 || key === "workspace"
+                || key === "workspaceKind"
                 || key === "didSwitchChapter"
                 || key === "selectionVersion"
             ) {

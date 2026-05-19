@@ -64,6 +64,9 @@ const AgentPlanModeStateDtoSchema = z.object({
     active: z.boolean().default(false),
 });
 
+export const AgentLeaderProfileKeyDtoSchema = z.enum(["leader.default", "leader.assets"]);
+export const AgentProfileKeyDtoSchema = z.enum(["leader.default", "leader.assets", "subagent.writer", "subagent.retrieval"]);
+
 /**
  * 历史树节点快照。
  */
@@ -258,6 +261,7 @@ export const AgentSkillCatalogItemDtoSchema = z.object({
  */
 export const ListAgentThreadsQueryDtoSchema = z.object({
     kind: AgentThreadKindSchema.optional(),
+    profileKey: AgentProfileKeyDtoSchema.optional(),
 });
 
 /**
@@ -281,6 +285,7 @@ export const UpdateAgentPlanModeRequestDtoSchema = z.object({
  * 新建 leader 线程请求。
  */
 export const CreateAgentThreadRequestDtoSchema = z.object({
+    profileKey: AgentLeaderProfileKeyDtoSchema.optional(),
     title: z.string().trim().max(MAX_AGENT_THREAD_TITLE_LENGTH, `title 过长，最大 ${MAX_AGENT_THREAD_TITLE_LENGTH} 字符`).optional(),
     modelOverrideKey: z.string().trim().min(1, "modelOverrideKey 不能为空").nullable().optional(),
     modelOverride: z.object({

@@ -8,6 +8,7 @@ export type NovelIdeClientVariablesInput = {
     theme: string;
     novelId: string;
     workspace: string | null;
+    workspaceKind: "novel" | "user-assets";
     selectedFilePath: string | null;
     selectedStoryThreadId: string | null;
     selectedStorySceneId: string | null;
@@ -37,6 +38,7 @@ export function buildNovelIdeClientVariables(input: NovelIdeClientVariablesInput
             currentChapterLabel: null,
             previousChapterLabel: null,
             workspace: input.workspace,
+            workspaceKind: input.workspaceKind,
             didSwitchFile: input.fileChangedSinceLastSend,
             selectionVersion: input.selectionVersion,
             extra: "{}",

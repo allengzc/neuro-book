@@ -1467,7 +1467,7 @@ describe("ThreadRunCoordinator", () => {
             profile: new TestLeaderProfile(),
             input: {prompt: "plan"},
             scope: {
-                studio: {workspace: workspaceRoot},
+                studio: {workspace: workspaceRoot, workspaceKind: "novel"},
             } as AgentVariableScope<"leader.default">,
             skillCatalog: [],
             options: {},
@@ -1613,7 +1613,7 @@ describe("ThreadRunCoordinator", () => {
             profile: new TestLeaderProfile(),
             input: {prompt: "plan"},
             scope: {
-                studio: {workspace: workspaceRoot},
+                studio: {workspace: workspaceRoot, workspaceKind: "novel"},
             } as AgentVariableScope<"leader.default">,
             skillCatalog: [],
             options: {},
@@ -1742,7 +1742,7 @@ describe("ThreadRunCoordinator", () => {
             profile: new TestLeaderProfile(),
             input: {prompt: "plan"},
             scope: {
-                studio: {workspace: workspaceRoot},
+                studio: {workspace: workspaceRoot, workspaceKind: "novel"},
             } as AgentVariableScope<"leader.default">,
             skillCatalog: [],
             options: {},

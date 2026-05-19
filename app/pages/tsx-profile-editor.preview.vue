@@ -14,6 +14,7 @@ import MarkdownSourceEditor from "nbook/app/components/markdown-studio/MarkdownS
 import ProfileTemplateDropZone from "nbook/app/components/profile-template-editor/ProfileTemplateDropZone.vue";
 import ProfileTemplateLibraryItem from "nbook/app/components/profile-template-editor/ProfileTemplateLibraryItem.vue";
 import ProfileTemplateNodeView from "nbook/app/components/profile-template-editor/ProfileTemplateNodeView.vue";
+import ProfilePromptMessageList from "nbook/app/components/profile-template-editor/ProfilePromptMessageList.vue";
 import {buildNovelIdeClientVariables} from "nbook/app/components/novel-ide/agent/client-variables";
 import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
 import {useAgentApi} from "nbook/app/composables/useAgentApi";
@@ -43,7 +44,6 @@ type ComponentLibraryItem = {
 
 type ComponentLibraryGroup = "all" | "sets" | "messages" | "flow" | "variables" | "privileged";
 type InspectorTab = "props" | "variables" | "runtime";
-type StructuredTextMode = "rich" | "source";
 type DragStartPayload = DragDropProviderEmits["dragStart"][0];
 type DragOverPayload = DragDropProviderEmits["dragOver"][0];
 type DragEndPayload = DragDropProviderEmits["dragEnd"][0];
@@ -84,8 +84,14 @@ type PreviewVariableItem = {
     label: string;
     value: string;
     path: string;
+    token: string;
     currentValue?: unknown;
     editable: boolean;
+    description?: string;
+    valueType: string;
+    source: string;
+    schema?: Record<string, unknown> | null;
+    children?: PreviewVariableItem[];
 };
 
 type PreviewVariableGroup = {
@@ -105,6 +111,8 @@ const componentLibrary: ComponentLibraryItem[] = [
     {type: "DynamicSet", label: "DynamicSet", description: "本轮临时上下文集合。适合放只影响当前模型调用、不写入长期历史的说明或材料。", iconClass: "i-lucide-panel-top", group: "sets"},
     {type: "AppendingSet", label: "AppendingSet", description: "输出追加集合。适合把运行后产生的消息追加到历史尾部，用于沉淀结果或后续追踪。", iconClass: "i-lucide-panel-bottom", group: "sets"},
     {type: "Message", label: "Message", description: "普通消息节点。可编辑 role 与正文，常用于 system / user / assistant 提示词片段。", iconClass: "i-lucide-message-square", group: "messages"},
+    {type: "AIMessage", label: "AIMessage", description: "Assistant 消息节点。用于在预览中表达模型回复，可包含 ToolCall 子节点，适合调试工具调用结构。", iconClass: "i-lucide-sparkles", group: "messages"},
+    {type: "ToolCall", label: "ToolCall", description: "工具调用节点。必须放在 AIMessage 内，包含工具名与 JSON 参数，用于预览 assistant tool calls。", iconClass: "i-lucide-wrench", group: "messages"},
     {type: "Reminder", label: "Reminder", description: "提醒节点。用于注入可恢复的提醒内容，适合周期检查、延迟任务和状态回看。", iconClass: "i-lucide-bell-ring", group: "flow"},
     {type: "Watch", label: "Watch", description: "监听节点。观察指定变量或路径的变化，并在变化时补充上下文说明。", iconClass: "i-lucide-eye", group: "flow"},
     {type: "If", label: "If", description: "条件分支容器。只有 condition 成立时才渲染子节点，适合做模式开关和运行时分支。", iconClass: "i-lucide-git-branch", group: "flow"},
@@ -154,8 +162,9 @@ const previewVariableGroups = ref<PreviewVariableGroup[]>([]);
 const previewInputOverrides = ref<Record<string, string>>({
     "input.prompt": "",
 });
-const messagePreviewModes = ref<Record<string, StructuredTextMode>>({});
 const componentSearch = ref("");
+const variableSearch = ref("");
+const collapsedVariableGroups = ref<Record<string, boolean>>({});
 const activeComponentGroup = ref<ComponentLibraryGroup>("all");
 const inspectorTab = ref<InspectorTab>("props");
 const activeTextTarget = ref<"text" | string>("text");
@@ -255,8 +264,10 @@ const variableGroups = computed<PreviewVariableGroup[]>(() => {
     return mapPreviewVariableGroups(detail.value?.variables ?? []);
 });
 const runtimeVariableGroups = computed<PreviewVariableGroup[]>(() => {
-    return variableGroups.value.filter((group) => ["input", "scope", "skill", "runtime"].includes(group.group));
+    return variableGroups.value.filter((group) => ["Input", "IDE", "Studio", "Agent", "Skills", "Runtime", "input", "scope", "skill", "runtime"].includes(group.group));
 });
+const filteredVariableGroups = computed<PreviewVariableGroup[]>(() => filterVariableGroups(variableGroups.value, variableSearch.value));
+const filteredRuntimeVariableGroups = computed<PreviewVariableGroup[]>(() => filterVariableGroups(runtimeVariableGroups.value, variableSearch.value));
 const inspectorTabs: Array<{value: InspectorTab; label: string}> = [
     {value: "props", label: "属性面板"},
     {value: "variables", label: "变量面板"},
@@ -279,6 +290,12 @@ const roleOptions = [
     {value: "system", label: "system"},
     {value: "human", label: "human"},
     {value: "assistant", label: "assistant"},
+];
+const toolStatusOptions = [
+    {value: "drafting", label: "drafting"},
+    {value: "running", label: "running"},
+    {value: "success", label: "success"},
+    {value: "error", label: "error"},
 ];
 const sourceOptions = [
     {value: "context", label: "context"},
@@ -310,6 +327,7 @@ function buildClientVariables() {
         theme: theme.value,
         novelId: novelIdeStore.currentNovelId,
         workspace: novelIdeStore.currentWorkspaceRoot || null,
+        workspaceKind: "novel",
         selectedFilePath: novelIdeStore.selectedFilePath || null,
         selectedStoryThreadId: novelIdeStore.selectedStoryThreadId,
         selectedStorySceneId: novelIdeStore.selectedStorySceneId,
@@ -742,6 +760,24 @@ function formatVariableValue(value: PreviewVariableItem["currentValue"]): string
 }
 
 /**
+ * 变量 schema 摘要。
+ */
+function formatVariableSchema(item: PreviewVariableItem): string {
+    const schemaType = item.schema?.type;
+    if (typeof schemaType === "string") {
+        return schemaType;
+    }
+    return item.valueType;
+}
+
+/**
+ * 是否显示变量详情卡片，避免根对象在侧栏里过于吵。
+ */
+function shouldShowVariableValue(item: PreviewVariableItem): boolean {
+    return item.valueType !== "object" || !item.children?.length;
+}
+
+/**
  * 读取变量在预览编辑器中的当前输入。
  */
 function previewVariableInputValue(item: PreviewVariableItem): string {
@@ -757,36 +793,119 @@ function previewVariableInputValue(item: PreviewVariableItem): string {
 }
 
 /**
- * 更新单条预览消息的 Markdown/源码模式。
+ * 将服务端 DTO 映射为页面展示用的浅类型，避免 Vue 模板递归展开 z.json 类型。
  */
-function updateMessagePreviewMode(index: number, mode: StructuredTextMode): void {
-    messagePreviewModes.value = {
-        ...messagePreviewModes.value,
-        [String(index)]: mode,
+type RawPreviewVariableItem = {
+    label: string;
+    value: string;
+    path?: string;
+    token?: string;
+    currentValue?: unknown;
+    editable?: boolean;
+    description?: string;
+    valueType?: string;
+    source?: string;
+    schema?: Record<string, unknown> | null;
+    children?: RawPreviewVariableItem[];
+};
+
+function mapPreviewVariableGroups(groups: Array<{group: string; items: RawPreviewVariableItem[]}>): PreviewVariableGroup[] {
+    return groups.map((group) => ({
+        group: group.group,
+        items: group.items.map(mapPreviewVariableItem),
+    }));
+}
+
+/**
+ * 将服务端变量 DTO 映射为页面展示用类型。
+ */
+function mapPreviewVariableItem(item: RawPreviewVariableItem): PreviewVariableItem {
+    const path = item.path ?? item.value.replace(/^\{\{/, "").replace(/}}$/, "");
+    return {
+        label: item.label,
+        value: item.value,
+        token: item.token ?? item.value,
+        path,
+        currentValue: item.currentValue,
+        editable: item.editable ?? false,
+        description: item.description,
+        valueType: item.valueType ?? readPreviewValueType(item.currentValue),
+        source: item.source ?? "template",
+        schema: item.schema ?? null,
+        children: item.children?.map(mapPreviewVariableItem),
     };
 }
 
 /**
- * 获取单条预览消息的展示模式。
+ * 搜索变量分组，保留命中的父节点与子节点。
  */
-function messagePreviewMode(index: number): StructuredTextMode {
-    return messagePreviewModes.value[String(index)] ?? "rich";
+function filterVariableGroups(groups: PreviewVariableGroup[], keyword: string): PreviewVariableGroup[] {
+    const normalizedKeyword = keyword.trim().toLowerCase();
+    if (!normalizedKeyword) {
+        return groups;
+    }
+    return groups
+        .map((group) => ({
+            group: group.group,
+            items: group.items
+                .map((item) => filterVariableItem(item, normalizedKeyword))
+                .filter((item): item is PreviewVariableItem => Boolean(item)),
+        }))
+        .filter((group) => group.items.length > 0);
 }
 
 /**
- * 将服务端 DTO 映射为页面展示用的浅类型，避免 Vue 模板递归展开 z.json 类型。
+ * 搜索变量树中的单个节点。
  */
-function mapPreviewVariableGroups(groups: Array<{group: string; items: Array<{label: string; value: string; path?: string; currentValue?: unknown; editable?: boolean}>}>): PreviewVariableGroup[] {
-    return groups.map((group) => ({
-        group: group.group,
-        items: group.items.map((item) => ({
-            label: item.label,
-            value: item.value,
-            path: item.path ?? item.value.replace(/^\{\{/, "").replace(/}}$/, ""),
-            currentValue: item.currentValue,
-            editable: item.editable ?? false,
-        })),
-    }));
+function filterVariableItem(item: PreviewVariableItem, keyword: string): PreviewVariableItem | null {
+    const children = item.children
+        ?.map((child) => filterVariableItem(child, keyword))
+        .filter((child): child is PreviewVariableItem => Boolean(child));
+    const haystack = [
+        item.label,
+        item.path,
+        item.token,
+        item.description ?? "",
+        item.source,
+        formatVariableValue(item.currentValue),
+    ].join(" ").toLowerCase();
+    if (haystack.includes(keyword) || children?.length) {
+        return {
+            ...item,
+            children,
+        };
+    }
+    return null;
+}
+
+/**
+ * 切换变量分组折叠态。
+ */
+function toggleVariableGroup(group: string): void {
+    collapsedVariableGroups.value = {
+        ...collapsedVariableGroups.value,
+        [group]: !collapsedVariableGroups.value[group],
+    };
+}
+
+/**
+ * 判断变量分组是否折叠；搜索时自动展开命中结果。
+ */
+function isVariableGroupCollapsed(group: string): boolean {
+    return !variableSearch.value.trim() && Boolean(collapsedVariableGroups.value[group]);
+}
+
+/**
+ * 推断变量值类型。
+ */
+function readPreviewValueType(value: unknown): string {
+    if (value === null || value === undefined) {
+        return "null";
+    }
+    if (Array.isArray(value)) {
+        return "array";
+    }
+    return typeof value;
 }
 
 /**
@@ -906,6 +1025,15 @@ function createNode(type: ProfileTemplateNodeType): ProfileTemplateNodeDto {
     if (type === "Message") {
         base.props = {role: "system"};
         base.text = "新的消息内容";
+        base.textKind = "text";
+    }
+    if (type === "AIMessage") {
+        base.text = "Assistant 回复内容";
+        base.textKind = "text";
+    }
+    if (type === "ToolCall") {
+        base.props = {id: `call_${Date.now()}`, name: "read_file", status: "drafting"};
+        base.text = "{\n    \"path\": \"workspace/\"\n}";
         base.textKind = "text";
     }
     if (type === "Reminder") {
@@ -1197,7 +1325,7 @@ function isTextEditingTarget(target: EventTarget | null): boolean {
  * 节点是否可包含子节点。
  */
 function canHaveChildren(type: ProfileTemplateNodeType): boolean {
-    return !["SkillCatalog", "ActivatedSkills"].includes(type);
+    return !["Message", "ToolCall", "SkillCatalog", "ActivatedSkills"].includes(type);
 }
 
 /**
@@ -1207,7 +1335,13 @@ function canInsertNodeIntoParent(parent: ProfileTemplateNodeDto, node: ProfileTe
     if (!canHaveChildren(parent.type)) {
         return false;
     }
-    if (containsType(node, "SkillCatalog") && parent.type !== "Message") {
+    if (node.type === "ToolCall") {
+        return parent.type === "AIMessage";
+    }
+    if (parent.type === "AIMessage") {
+        return node.type === ("ToolCall" as ProfileTemplateNodeType);
+    }
+    if (containsType(node, "SkillCatalog")) {
         return false;
     }
     if (parent.type === "Message" && containsType(node, "Message")) {
@@ -1605,8 +1739,8 @@ function nodeTitle(node: ProfileTemplateNodeDto): string {
  */
 function generateFullTemplateSource(templateName: string, node: ProfileTemplateNodeDto): string {
     const componentNames = collectComponentNames(node);
-    const promptImportNames = ["Message", ...(componentNames.has("If") ? ["If"] : [])];
-    const profileImportNames = [...componentNames].filter((name) => name !== "Message" && name !== "If").sort();
+    const promptImportNames = ["Message", ...(componentNames.has("AIMessage") ? ["AIMessage"] : []), ...(componentNames.has("If") ? ["If"] : [])];
+    const profileImportNames = [...componentNames].filter((name) => !["Message", "AIMessage", "If", "ToolCall"].includes(name)).sort();
     const functionName = toPascalCase(templateName || "ProfileTemplate");
     return [
         "/** @jsxRuntime automatic */",
@@ -1666,7 +1800,7 @@ function generatePreviewNodeSource(node: ProfileTemplateNodeDto): string {
     if (node.children.length === 0 && !node.text) {
         return `<${node.type}${props} />`;
     }
-    if (node.type === "Message" && node.text) {
+    if ((node.type === "Message" || node.type === "AIMessage" || node.type === "ToolCall") && node.text) {
         const textSource = renderPreviewNodeText(node);
         const childLines = [
             indentPreviewSource(textSource, 1),
@@ -1720,16 +1854,6 @@ function indentPreviewSource(source: string, level: number): string {
 }
 
 /**
- * 转义 TSX 文本内容。
- */
-function escapePreviewText(text: string): string {
-    return text
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;");
-}
-
-/**
  * 渲染预览中的节点文本，source 模式保留原始 TSX children 片段。
  */
 function renderPreviewNodeText(node: ProfileTemplateNodeDto): string {
@@ -1765,6 +1889,8 @@ function propInputValue(value: ProfileTemplatePropValue): string {
 function propLabel(key: string): string {
     const labels: Record<string, string> = {
         id: "ID",
+        name: "名称",
+        status: "状态",
         role: "角色",
         source: "source",
         repeatEveryTurns: "repeatEveryTurns",
@@ -1809,16 +1935,6 @@ function describeFetchError(error: unknown): string {
         ?? payload.statusMessage
         ?? payload.message
         ?? "未知错误";
-}
-
-/**
- * 普通 Message 文本含尖括号时使用字符串表达式，和服务端生成规则保持一致。
- */
-function renderPreviewPlainText(text: string): string {
-    if (/[<>{}]/.test(text)) {
-        return `{${JSON.stringify(text)}}`;
-    }
-    return escapePreviewText(text);
 }
 
 /**
@@ -2115,6 +2231,7 @@ onBeforeUnmount(() => {
                                             <span v-if="isExpressionValue(value)" class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--accent-text)]">表达式</span>
                                         </div>
                                         <FormSelect v-if="key === 'role'" :model-value="String(value ?? 'system')" :options="roleOptions" @focus="activeTextTarget = key" @update:model-value="updateProp(key, $event)" />
+                                        <FormSelect v-else-if="key === 'status'" :model-value="String(value ?? 'drafting')" :options="toolStatusOptions" @focus="activeTextTarget = key" @update:model-value="updateProp(key, $event)" />
                                         <FormSelect v-else-if="key === 'source'" :model-value="String(value ?? 'context')" :options="sourceOptions" @focus="activeTextTarget = key" @update:model-value="updateProp(key, $event)" />
                                         <FormTextarea
                                             v-else-if="isExpressionValue(value)"
@@ -2131,12 +2248,12 @@ onBeforeUnmount(() => {
                                 </div>
                                 <div v-else class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 px-3 py-2 text-xs text-[var(--text-muted)]">此节点暂无属性。</div>
 
-                                <template v-if="selectedNode.type === 'Message'">
+                                <template v-if="selectedNode.type === 'Message' || selectedNode.type === 'AIMessage' || selectedNode.type === 'ToolCall'">
                                     <div class="field-label">{{ selectedNode.textKind === "source" ? "内容（TSX 表达式内容）" : "内容（支持变量引用）" }}</div>
                                     <StructuredTextEditor
                                         :model-value="selectedNode.text ?? ''"
-                                        :rows="8"
-                                        :min-height="172"
+                                        :rows="selectedNode.type === 'ToolCall' ? 5 : 8"
+                                        :min-height="selectedNode.type === 'ToolCall' ? 120 : 172"
                                         :max-height="420"
                                         :default-mode="selectedNode.textKind === 'source' ? 'source' : 'rich'"
                                         :show-format-toolbar="selectedNode.textKind !== 'source' && selectedNode.textKind !== 'template'"
@@ -2154,9 +2271,9 @@ onBeforeUnmount(() => {
                                                 v-for="item in (variableGroups[0]?.items ?? []).slice(0, 3)"
                                                 :key="item.value"
                                                 class="variable-chip"
-                                                @click="insertVariable(item.value)"
+                                                @click="insertVariable(item.token)"
                                             >
-                                                {{ item.value }}
+                                                {{ item.token }}
                                             </button>
                                         </div>
                                     </div>
@@ -2176,11 +2293,16 @@ onBeforeUnmount(() => {
 
                         <div v-else-if="inspectorTab === 'variables'" class="space-y-3">
                             <div class="text-[11px] leading-5 text-[var(--text-muted)]">点击变量会追加到当前聚焦字段；未聚焦时追加到选中节点文本。</div>
-                            <section v-for="group in variableGroups" :key="group.group">
-                                <div class="mb-2 text-xs font-semibold text-[var(--text-secondary)]">{{ group.group }}</div>
-                                <div class="flex flex-wrap gap-2">
-                                    <button v-for="item in group.items" :key="item.value" class="variable-chip" @click="insertVariable(item.value)">
-                                        <span>{{ item.value }}</span>
+                            <FormInput v-model="variableSearch" placeholder="搜索变量、路径或当前值" />
+                            <section v-for="group in filteredVariableGroups" :key="group.group" class="variable-group-section">
+                                <button class="variable-group-header" @click="toggleVariableGroup(group.group)">
+                                    <span :class="isVariableGroupCollapsed(group.group) ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'" class="h-3.5 w-3.5"></span>
+                                    <span>{{ group.group }}</span>
+                                    <span class="ml-auto text-[10px] text-[var(--text-muted)]">{{ group.items.length }}</span>
+                                </button>
+                                <div v-if="!isVariableGroupCollapsed(group.group)" class="mt-2 flex flex-wrap gap-2">
+                                    <button v-for="item in group.items" :key="item.path" class="variable-chip" :title="item.description ?? item.path" @click="insertVariable(item.token)">
+                                        <span>{{ item.token }}</span>
                                         <span class="variable-chip-value">{{ formatVariableValue(item.currentValue) }}</span>
                                     </button>
                                 </div>
@@ -2188,13 +2310,16 @@ onBeforeUnmount(() => {
                         </div>
 
                         <div v-else class="space-y-3">
-                            <section v-for="group in runtimeVariableGroups" :key="group.group">
-                                <div class="mb-2 flex items-center gap-2 text-xs font-semibold text-[var(--text-secondary)]">
+                            <FormInput v-model="variableSearch" placeholder="搜索运行时变量" />
+                            <section v-for="group in filteredRuntimeVariableGroups" :key="group.group" class="variable-group-section">
+                                <button class="variable-group-header" @click="toggleVariableGroup(group.group)">
+                                    <span :class="isVariableGroupCollapsed(group.group) ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'" class="h-3.5 w-3.5"></span>
                                     <span class="i-lucide-braces h-3.5 w-3.5"></span>
                                     <span>{{ group.group }}</span>
-                                </div>
-                                <div class="flex flex-wrap gap-2">
-                                    <button v-for="item in group.items" :key="item.value" class="variable-chip" @click="insertVariable(item.value)">{{ item.value }}</button>
+                                    <span class="ml-auto text-[10px] text-[var(--text-muted)]">{{ group.items.length }}</span>
+                                </button>
+                                <div v-if="!isVariableGroupCollapsed(group.group)" class="mt-2 flex flex-wrap gap-2">
+                                    <button v-for="item in group.items" :key="item.path" class="variable-chip" :title="item.description ?? item.path" @click="insertVariable(item.token)">{{ item.token }}</button>
                                 </div>
                             </section>
                         </div>
@@ -2207,9 +2332,10 @@ onBeforeUnmount(() => {
         <Dialog
             v-model="previewDialogOpen"
             title="Prompt 预览调试"
-            width="min(1100px, calc(100vw - 48px))"
-            height="min(780px, calc(100vh - 56px))"
+            width="min(1380px, calc(100vw - 48px))"
+            height="min(860px, calc(100vh - 48px))"
             overlay-type="blur"
+            body-class="!gap-0 !overflow-hidden"
             :show-footer="false"
         >
             <template #header-extra>
@@ -2225,7 +2351,7 @@ onBeforeUnmount(() => {
             </template>
 
             <div class="preview-dialog-content">
-                <aside class="preview-variable-pane custom-scrollbar">
+                <aside class="preview-variable-pane">
                     <div class="preview-summary-grid">
                         <div class="preview-summary-card">
                             <div class="preview-summary-label">消息</div>
@@ -2264,15 +2390,25 @@ onBeforeUnmount(() => {
                             <span class="i-lucide-braces h-3.5 w-3.5"></span>
                             <span>变量</span>
                         </div>
-                        <div class="space-y-3">
-                            <section v-for="group in runtimeVariableGroups" :key="`dialog-variable-${group.group}`">
-                                <div class="mb-2 text-[11px] font-semibold text-[var(--text-secondary)]">{{ group.group }}</div>
-                                <div class="space-y-2">
-                                    <div v-for="item in group.items" :key="item.value" class="preview-variable-card">
+                        <FormInput v-model="variableSearch" placeholder="搜索变量、路径或当前值" />
+                        <div class="preview-variable-list custom-scrollbar">
+                            <section v-for="group in filteredRuntimeVariableGroups" :key="`dialog-variable-${group.group}`" class="variable-group-section">
+                                <button class="variable-group-header" @click="toggleVariableGroup(group.group)">
+                                    <span :class="isVariableGroupCollapsed(group.group) ? 'i-lucide-chevron-right' : 'i-lucide-chevron-down'" class="h-3.5 w-3.5"></span>
+                                    <span>{{ group.group }}</span>
+                                    <span class="ml-auto text-[10px] text-[var(--text-muted)]">{{ group.items.length }}</span>
+                                </button>
+                                <div v-if="!isVariableGroupCollapsed(group.group)" class="mt-2 space-y-2">
+                                    <div v-for="item in group.items" :key="item.path" class="preview-variable-card">
                                         <div class="flex min-w-0 items-start justify-between gap-2">
                                             <div class="min-w-0">
-                                                <div class="text-[11px] font-semibold text-[var(--text-main)]">{{ item.label }}</div>
-                                                <button class="variable-chip mt-1" @click="insertVariable(item.value)">{{ item.value }}</button>
+                                                <div class="flex min-w-0 flex-wrap items-center gap-1.5">
+                                                    <span class="text-[11px] font-semibold text-[var(--text-main)]">{{ item.label }}</span>
+                                                    <span class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">{{ formatVariableSchema(item) }}</span>
+                                                    <span class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">{{ item.source }}</span>
+                                                </div>
+                                                <button class="variable-chip mt-1" @click="insertVariable(item.token)">{{ item.token }}</button>
+                                                <div v-if="item.description" class="mt-1 text-[11px] leading-5 text-[var(--text-muted)]">{{ item.description }}</div>
                                             </div>
                                             <span v-if="item.editable" class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--accent-text)]">可编辑</span>
                                         </div>
@@ -2280,16 +2416,20 @@ onBeforeUnmount(() => {
                                             v-if="item.editable"
                                             class="mt-2"
                                             :model-value="previewVariableInputValue(item)"
-                                            :min-height="92"
+                                            :min-rows="1"
+                                            :max-rows="5"
+                                            auto-height
+                                            :min-height="42"
                                             :max-height="180"
                                             size="sm"
                                             default-mode="rich"
+                                            :show-toolbar="false"
                                             :show-format-toolbar="false"
                                             :theme="theme"
                                             placeholder="输入本次预览使用的变量值"
                                             @update:model-value="updatePreviewVariable(item, $event)"
                                         />
-                                        <pre v-else class="preview-variable-value">{{ formatVariableValue(item.currentValue) }}</pre>
+                                        <pre v-else-if="shouldShowVariableValue(item)" class="preview-variable-value">{{ formatVariableValue(item.currentValue) }}</pre>
                                     </div>
                                 </div>
                             </section>
@@ -2316,35 +2456,7 @@ onBeforeUnmount(() => {
                         <span>Prompt 消息</span>
                         <span class="ml-auto text-[11px] font-medium text-[var(--text-muted)]">{{ previewMessages.length }} 条</span>
                     </div>
-                    <div v-if="previewing" class="empty-state min-h-[160px]">正在生成预览...</div>
-                    <div v-else-if="previewMessages.length === 0" class="empty-state min-h-[160px]">暂无预览消息。</div>
-                    <div v-else class="preview-message-list custom-scrollbar">
-                        <article v-for="(message, index) in previewMessages" :key="`${index}-${message.role}-${message.text}`" class="preview-message-card">
-                            <div class="mb-2 flex items-center justify-between gap-3">
-                                <div class="flex items-center gap-2">
-                                    <span class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-0.5 text-[11px] font-semibold text-[var(--accent-text)]">{{ message.role }}</span>
-                                    <span v-if="message.source" class="text-[11px] text-[var(--text-muted)]">{{ message.source }}</span>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <div class="message-mode-switch">
-                                        <button :class="messagePreviewMode(index) === 'rich' ? 'active' : ''" @click="updateMessagePreviewMode(index, 'rich')">渲染</button>
-                                        <button :class="messagePreviewMode(index) === 'source' ? 'active' : ''" @click="updateMessagePreviewMode(index, 'source')">源码</button>
-                                    </div>
-                                    <span class="text-[11px] text-[var(--text-muted)]">#{{ index + 1 }}</span>
-                                </div>
-                            </div>
-                            <StructuredTextEditor
-                                :model-value="message.text"
-                                readonly
-                                :mode="messagePreviewMode(index)"
-                                :min-height="130"
-                                :max-height="360"
-                                :show-toolbar="false"
-                                :theme="theme"
-                                size="sm"
-                            />
-                        </article>
-                    </div>
+                    <ProfilePromptMessageList :messages="previewMessages" :loading="previewing" :theme="theme" />
                 </section>
             </div>
         </Dialog>
@@ -2575,50 +2687,70 @@ onBeforeUnmount(() => {
     background: color-mix(in srgb, var(--accent-bg) 65%, var(--bg-hover));
 }
 
+.variable-group-section {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-input);
+    padding: 8px;
+}
+
+.variable-group-header {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    text-align: left;
+}
+
 .source-preview {
     background: var(--source-bg);
 }
 
 .preview-dialog-content {
     display: grid;
+    height: 100%;
     min-height: 0;
     flex: 1;
-    grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
-    gap: 14px;
+    grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+    gap: 12px;
+    overflow: hidden;
 }
 
 .preview-variable-pane,
 .preview-message-pane {
+    display: flex;
+    flex-direction: column;
     min-height: 0;
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    background: color-mix(in srgb, var(--bg-panel) 88%, var(--bg-input));
+    background: color-mix(in srgb, var(--bg-panel) 94%, var(--bg-input));
 }
 
 .preview-variable-pane {
-    overflow: auto;
-    padding: 12px;
+    overflow: hidden;
+    padding: 10px;
 }
 
 .preview-message-pane {
-    display: flex;
-    flex-direction: column;
     overflow: hidden;
-    padding: 12px;
+    padding: 10px;
 }
 
 .preview-summary-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-    margin-bottom: 12px;
+    gap: 8px;
+    margin-bottom: 10px;
 }
 
 .preview-summary-card {
     border: 1px solid var(--border-color);
     border-radius: 7px;
     background: var(--bg-input);
-    padding: 10px 12px;
+    padding: 8px 10px;
 }
 
 .preview-summary-label {
@@ -2628,7 +2760,7 @@ onBeforeUnmount(() => {
 }
 
 .preview-summary-value {
-    margin-top: 4px;
+    margin-top: 3px;
     overflow: hidden;
     color: var(--text-main);
     font-size: 20px;
@@ -2638,48 +2770,45 @@ onBeforeUnmount(() => {
 }
 
 .preview-section {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
     border: 1px solid var(--border-color);
     border-radius: 8px;
     background: var(--bg-input);
-    padding: 12px;
+    padding: 10px;
 }
 
 .preview-section + .preview-section {
-    margin-top: 12px;
+    margin-top: 10px;
 }
 
 .preview-section-title {
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
     color: var(--text-secondary);
     font-size: 12px;
     font-weight: 700;
 }
 
-.preview-message-list {
-    display: flex;
-    min-height: 0;
+.preview-variable-pane .preview-section:nth-of-type(3) {
     flex: 1;
-    flex-direction: column;
-    gap: 10px;
-    overflow: auto;
-    padding-right: 4px;
 }
 
-.preview-message-card {
-    border: 1px solid var(--border-color);
-    border-radius: 7px;
-    background: var(--bg-input);
-    padding: 10px;
+.preview-variable-list {
+    min-height: 0;
+    overflow: auto;
+    padding-right: 2px;
+    margin-top: 8px;
 }
 
 .preview-variable-card {
     border: 1px solid var(--border-color);
     border-radius: 7px;
-    background: color-mix(in srgb, var(--bg-panel) 70%, var(--bg-input));
-    padding: 9px;
+    background: color-mix(in srgb, var(--bg-panel) 82%, var(--bg-input));
+    padding: 8px;
 }
 
 .preview-variable-value {
@@ -2692,29 +2821,6 @@ onBeforeUnmount(() => {
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-size: 11px;
     line-height: 1.55;
-}
-
-.message-mode-switch {
-    display: inline-flex;
-    align-items: center;
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    background: var(--bg-panel);
-    padding: 2px;
-}
-
-.message-mode-switch button {
-    height: 22px;
-    border-radius: 4px;
-    padding: 0 7px;
-    color: var(--text-muted);
-    font-size: 11px;
-    font-weight: 600;
-}
-
-.message-mode-switch button.active {
-    background: var(--bg-hover);
-    color: var(--text-main);
 }
 
 .preview-message-text {

@@ -9,7 +9,10 @@ export default defineEventHandler(async (event) => {
     const body = await validateBody(event, CreateAgentThreadRequestDtoSchema);
     const agentSystem = useAgentSystem();
     const thread = await agentSystem.createLeaderThread(body);
-    const summaries = await agentSystem.listThreads();
+    const summaries = await agentSystem.listThreads({
+        kind: "leader",
+        profileKey: body.profileKey ?? "leader.default",
+    });
     const summary = summaries.find((item) => item.id === thread.id);
     if (!summary) {
         throw createError({

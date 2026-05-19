@@ -225,14 +225,16 @@ const plotMutationToolNames = new Set([
  * 组装 Client Variables。
  */
 const buildClientVariables = (): ClientVariablesDto => {
+    const isUserAssetsWorkspace = ideStore.workspaceKind === "user-assets";
     return buildNovelIdeClientVariables({
         activePanel: isNovelIdeTab(ideStore.activeLeftTab) ? ideStore.activeLeftTab : null,
         theme: ideStore.theme,
-        novelId: ideStore.currentNovelId,
+        novelId: isUserAssetsWorkspace ? "" : ideStore.currentNovelId,
         workspace: ideStore.currentWorkspaceRoot || null,
+        workspaceKind: ideStore.workspaceKind,
         selectedFilePath: props.selectedFilePath || null,
-        selectedStoryThreadId: selectedStoryThreadId.value,
-        selectedStorySceneId: selectedStorySceneId.value,
+        selectedStoryThreadId: isUserAssetsWorkspace ? null : selectedStoryThreadId.value,
+        selectedStorySceneId: isUserAssetsWorkspace ? null : selectedStorySceneId.value,
         previousSelectedFilePath: previousSelectedFilePath.value,
         fileChangedSinceLastSend: fileChangedSinceLastSend.value,
         selectionVersion: selectionVersion.value,
@@ -240,6 +242,10 @@ const buildClientVariables = (): ClientVariablesDto => {
 };
 
 const agentApi = useAgentApi({getClientVariables: buildClientVariables});
+
+const leaderProfileKey = computed<"leader.default" | "leader.assets">(() => {
+    return ideStore.workspaceKind === "user-assets" ? "leader.assets" : "leader.default";
+});
 
 /**
  * 读取可选模型列表。
@@ -395,6 +401,7 @@ function profileLabel(profileKey: string | undefined): string {
         case "subagent.writer": return "写手节点 (Drafter)";
         case "subagent.retrieval": return "内容节点召回 (Retrieval)";
         case "leader.default": return "主线调度";
+        case "leader.assets": return "用户资产助手";
         default: return profileKey ?? "未知节点";
     }
 }
@@ -404,7 +411,10 @@ function profileLabel(profileKey: string | undefined): string {
  */
 function buildCreateThreadPayload(): CreateAgentThreadRequestDto {
     const modelOverride = threadModelMode.value === "override" ? buildThreadModelOverrideConfig() : null;
-    return modelOverride ? {modelOverride} : {};
+    return {
+        profileKey: leaderProfileKey.value,
+        ...(modelOverride ? {modelOverride} : {}),
+    };
 }
 
 /**
@@ -418,7 +428,7 @@ const ensureThreadReady = async (forceNew = false): Promise<void> => {
         return;
     }
     try {
-        const threadsList = await agentApi.listThreads();
+        const threadsList = await agentApi.listThreads("leader", leaderProfileKey.value);
         threads.value = threadsList;
 
         const firstThreadId = threadsList[0]?.id;
@@ -438,12 +448,17 @@ const ensureThreadReady = async (forceNew = false): Promise<void> => {
  */
 const refreshThreads = async (): Promise<AgentThreadSummaryDto[]> => {
     try {
-        const response = await agentApi.listThreads();
+        const response = await agentApi.listThreads("leader", leaderProfileKey.value);
         threads.value = response;
         if (activeThreadId.value) {
             const nextActiveThread = response.find((thread) => thread.id === activeThreadId.value) ?? null;
             if (nextActiveThread) {
                 activeThread.value = nextActiveThread;
+            } else {
+                activeThreadId.value = "";
+                activeThread.value = null;
+                session.reset();
+                syncThreadModelState(null);
             }
         }
         return threads.value;
@@ -1239,6 +1254,24 @@ watch(() => props.isOpen, async (open) => {
         inputRef.value?.focus();
         scrollToBottom();
     });
+});
+
+watch(leaderProfileKey, async () => {
+    runAbortController.value?.abort();
+    runStreamThreadId.value = null;
+    activeThreadId.value = "";
+    activeThread.value = null;
+    threads.value = [];
+    subagents.value = [];
+    leaders.value = [];
+    subagentPanelOpen.value = false;
+    session.reset();
+    syncThreadModelState(null);
+    if (!props.isOpen) {
+        return;
+    }
+    await ensureThreadReady();
+    await refreshThreads();
 });
 
 onBeforeUnmount(() => {

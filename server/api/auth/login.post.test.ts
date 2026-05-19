@@ -15,6 +15,12 @@ vi.mock("nbook/server/utils/prisma", () => ({
     prisma: prismaMock,
 }));
 
+vi.mock("nbook/server/utils/app-config", () => ({
+    loadAppConfigSync: () => ({
+        auth: {enabled: true},
+    }),
+}));
+
 vi.mock("h3", () => ({
     getRequestIP: vi.fn(() => "127.0.0.1"),
     getRequestProtocol: vi.fn(() => "http"),
@@ -53,6 +59,7 @@ describe("POST /api/auth/login", () => {
             status: "active",
             sessionVersion: 3,
             lastLoginAt: null,
+            lastSeenAt: null,
             createdAt: new Date("2026-05-17T00:00:00.000Z"),
             updatedAt: new Date("2026-05-17T00:00:00.000Z"),
         });
@@ -65,6 +72,7 @@ describe("POST /api/auth/login", () => {
             status: "active",
             sessionVersion: 3,
             lastLoginAt: data.lastLoginAt,
+            lastSeenAt: null,
             createdAt: new Date("2026-05-17T00:00:00.000Z"),
             updatedAt: new Date("2026-05-17T00:00:00.000Z"),
         }));
@@ -84,6 +92,10 @@ describe("POST /api/auth/login", () => {
             sessionVersion: 3,
         });
         expect((globalThis as typeof globalThis & {setUserSession: ReturnType<typeof vi.fn>}).setUserSession).toHaveBeenCalledTimes(1);
+        expect(prismaMock.user.update).toHaveBeenCalledWith({
+            where: {id: 1},
+            data: {lastLoginAt: expect.any(Date)},
+        });
     });
 
     it("未知用户只返回统一的登录失败提示", async () => {

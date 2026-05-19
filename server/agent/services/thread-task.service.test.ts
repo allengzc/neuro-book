@@ -2,7 +2,7 @@ import {describe, expect, it} from "vitest";
 import type {ThreadRepository} from "nbook/server/agent/repositories/thread-repository";
 import {ThreadTaskService} from "nbook/server/agent/services/thread-task.service";
 import {createThreadRecord} from "nbook/server/agent/test/fixtures";
-import type {AgentThreadKind, AgentThreadMetadata, AgentThreadRecord, AgentThreadStatus, CreateLeaderThreadInput, SubAgentProfileKey, ThreadId} from "nbook/server/agent/types";
+import type {AgentThreadMetadata, AgentThreadRecord, AgentThreadStatus, CreateLeaderThreadInput, ListThreadsInput, SubAgentProfileKey, ThreadId} from "nbook/server/agent/types";
 
 /**
  * 创建只覆盖任务服务所需能力的线程仓储。
@@ -19,7 +19,7 @@ function createTaskRepository(initial: AgentThreadRecord = createThreadRecord())
         async createSubAgent(_input: {profileKey: SubAgentProfileKey; title?: string}) {
             throw new Error("测试未实现 createSubAgent");
         },
-        async listThreads(_kind?: AgentThreadKind) {
+        async listThreads(_input?: ListThreadsInput) {
             return [];
         },
         async findById(threadId: ThreadId) {

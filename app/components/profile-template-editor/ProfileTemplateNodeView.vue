@@ -30,6 +30,7 @@ const beforeDropRef = ref<HTMLElement | null>(null);
 const afterDropRef = ref<HTMLElement | null>(null);
 const insideDropRef = ref<HTMLElement | null>(null);
 const dropDisabled = computed(() => props.disabledDropNodeIds.includes(props.node.id));
+const hasChildrenPanel = computed(() => props.canHaveChildren && (!collapsed.value || props.node.children.length === 0));
 
 const {isDragging} = useSortable({
     id: computed(() => props.node.id),
@@ -92,7 +93,7 @@ useDroppable({
     })),
     element: insideDropRef,
     collisionPriority: CollisionPriority.Highest,
-    disabled: computed(() => !props.canHaveChildren || dropDisabled.value),
+    disabled: computed(() => !hasChildrenPanel.value || dropDisabled.value),
 });
 
 const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
@@ -101,6 +102,8 @@ const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
     DynamicSet: "i-lucide-panel-top",
     AppendingSet: "i-lucide-panel-bottom",
     Message: "i-lucide-message-square",
+    AIMessage: "i-lucide-sparkles",
+    ToolCall: "i-lucide-wrench",
     Reminder: "i-lucide-bell-ring",
     Watch: "i-lucide-eye",
     If: "i-lucide-git-branch",
@@ -112,8 +115,11 @@ const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
  * 返回节点展示标题。
  */
 function nodeTitle(node: ProfileTemplateNodeDto): string {
-    if (node.type === "Message") {
-        return "Message";
+    if (node.type === "Message" || node.type === "AIMessage") {
+        return node.type;
+    }
+    if (node.type === "ToolCall") {
+        return "ToolCall";
     }
     return node.type;
 }
@@ -124,6 +130,12 @@ function nodeTitle(node: ProfileTemplateNodeDto): string {
 function nodeMeta(node: ProfileTemplateNodeDto): string {
     if (node.type === "Message") {
         return `role: ${String(node.props.role ?? "system")}`;
+    }
+    if (node.type === "AIMessage") {
+        return "role: assistant";
+    }
+    if (node.type === "ToolCall") {
+        return `tool: ${String(node.props.name ?? "tool")}`;
     }
     if (node.type === "Reminder") {
         return `id: ${String(node.props.id ?? "")}`;
@@ -183,7 +195,7 @@ function prepareDrag(): void {
 </script>
 
 <template>
-    <div ref="elementRef" class="node-wrap" :data-dragging="isDragging || undefined" :style="{ marginLeft: `${props.depth === 0 ? 0 : 12}px` }">
+    <div ref="elementRef" class="node-wrap" :data-dragging="isDragging || undefined" :style="{ marginLeft: `${props.depth === 0 ? 0 : 6}px` }">
         <article
             class="node-card"
             :class="[{ selected: props.selectedId === props.node.id }, `node-${props.node.type}`]"
@@ -191,7 +203,7 @@ function prepareDrag(): void {
             @click.stop="selectNode"
         >
             <div ref="beforeDropRef" class="node-edge-drop node-edge-drop-before"></div>
-            <div ref="targetRef" class="node-sort-target flex items-start gap-2">
+            <div ref="targetRef" class="node-sort-target">
                 <button ref="handleRef" type="button" class="node-drag-handle mt-1" title="拖拽排序" @pointerdown="prepareDrag" @click.stop>
                     <span class="i-lucide-grip-vertical h-4 w-4"></span>
                 </button>
@@ -204,7 +216,7 @@ function prepareDrag(): void {
                     <span :class="nodeIconMap[props.node.type]" class="h-3.5 w-3.5"></span>
                 </div>
 
-                <div class="min-w-0 flex-1">
+                <div class="node-main">
                     <div class="flex min-w-0 items-center gap-2">
                         <span class="truncate text-sm font-semibold text-[var(--text-main)]">{{ nodeTitle(props.node) }}</span>
                         <span class="truncate text-[11px] text-[var(--text-muted)]">{{ nodeMeta(props.node) }}</span>
@@ -228,7 +240,7 @@ function prepareDrag(): void {
                 </div>
             </div>
 
-            <div v-if="props.canHaveChildren && (!collapsed || props.node.children.length === 0)" class="node-children" :data-empty="props.node.children.length === 0 || undefined">
+            <div v-if="hasChildrenPanel" class="node-children" :data-empty="props.node.children.length === 0 || undefined">
                 <ProfileTemplateNodeView
                     v-if="props.node.children.length > 0"
                     v-for="(child, childIndex) in props.node.children"
@@ -238,7 +250,7 @@ function prepareDrag(): void {
                     :depth="props.depth + 1"
                     :index="childIndex"
                     :parent-id="props.node.id"
-                    :can-have-children="!['SkillCatalog', 'ActivatedSkills'].includes(child.type)"
+                    :can-have-children="!['Message', 'SkillCatalog', 'ActivatedSkills'].includes(child.type)"
                     :disabled-drop-node-ids="props.disabledDropNodeIds"
                     @select="emit('select', $event)"
                     @prepare-drag="emit('prepareDrag', $event)"
@@ -268,7 +280,7 @@ function prepareDrag(): void {
     border: 1px solid var(--profile-node-border, var(--border-color));
     border-radius: 8px;
     background: var(--profile-node-bg, var(--bg-input));
-    padding: 10px 12px 10px 8px;
+    padding: 10px 10px 10px 8px;
     text-align: left;
     transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease;
 }
@@ -291,7 +303,16 @@ function prepareDrag(): void {
 }
 
 .node-sort-target {
+    display: grid;
+    grid-template-columns: 28px auto 24px minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: start;
     min-height: 34px;
+}
+
+.node-main {
+    min-width: 0;
+    grid-column: 4;
 }
 
 .node-inside-drop {
@@ -373,6 +394,8 @@ function prepareDrag(): void {
 .node-DynamicSet::before,
 .node-AppendingSet::before,
 .node-Message::before,
+.node-AIMessage::before,
+.node-ToolCall::before,
 .node-Reminder::before,
 .node-Watch::before,
 .node-If::before,
@@ -401,6 +424,14 @@ function prepareDrag(): void {
     --profile-node-accent: #c2693c;
 }
 
+.node-AIMessage {
+    --profile-node-accent: #7b68b3;
+}
+
+.node-ToolCall {
+    --profile-node-accent: #4f8c8f;
+}
+
 .node-Reminder {
     --profile-node-accent: #b65f5b;
 }
@@ -424,7 +455,7 @@ function prepareDrag(): void {
 .node-HistorySet,
 .node-DynamicSet,
 .node-AppendingSet {
-    padding: 12px;
+    padding: 10px;
 }
 
 .node-icon {
@@ -489,9 +520,9 @@ function prepareDrag(): void {
 }
 
 .node-children {
-    margin-top: 10px;
+    margin-top: 8px;
     border-left: 1px dashed var(--border-color);
-    padding-left: 12px;
+    padding-left: 6px;
 }
 
 .node-children[data-empty="true"] {
@@ -499,6 +530,7 @@ function prepareDrag(): void {
 }
 
 .node-message-body {
+    width: 100%;
     max-height: 180px;
     overflow: auto;
     border: 1px solid color-mix(in srgb, var(--profile-node-accent) 24%, var(--border-color));

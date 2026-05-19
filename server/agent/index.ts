@@ -4,6 +4,7 @@ export {LeaderThread} from "nbook/server/agent/threads/leader-thread";
 export {SubAgentThread} from "nbook/server/agent/threads/subagent-thread";
 export {PrismaThreadRepository} from "nbook/server/agent/repositories/prisma-thread.repository";
 export {InMemoryAgentProfileRegistry} from "nbook/server/agent/profiles/profile-registry";
+export {AssetsEditorProfile} from "nbook/server/agent/profiles/builtin/assets-editor.profile";
 export {LeaderDefaultProfile} from "nbook/server/agent/profiles/builtin/leader-default.profile";
 export {WriterProfile} from "nbook/server/agent/profiles/builtin/writer.profile";
 export {RetrievalProfile} from "nbook/server/agent/profiles/builtin/retrieval.profile";

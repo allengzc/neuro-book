@@ -510,6 +510,7 @@ async function createRuntime(input: {
                 currentChapterLabel: input.currentChapterLabel,
                 previousChapterLabel: null,
                 workspace: input.workspace === undefined ? "workspace/silver-dragon-hime" : input.workspace,
+                workspaceKind: "novel",
                 didSwitchChapter: false,
                 selectionVersion: null,
                 extra: input.studioExtra ?? {

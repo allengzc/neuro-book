@@ -161,6 +161,7 @@ function createRuntime(input: {
                 currentChapterLabel: null,
                 previousChapterLabel: null,
                 workspace,
+                workspaceKind: "novel",
                 didSwitchChapter: false,
                 selectionVersion: null,
                 extra: {},

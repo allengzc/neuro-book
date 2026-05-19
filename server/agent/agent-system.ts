@@ -4,6 +4,7 @@ import {PrismaAgentMessageStore} from "nbook/server/agent/messages/prisma-agent-
 import {toModelHistoryMessages} from "nbook/server/agent/messages/codec";
 import type {AgentMessageStore} from "nbook/server/agent/messages/agent-message-store";
 import type {ProfileContextRuntime} from "nbook/server/agent/profiles/profile-context";
+import {AssetsEditorProfile} from "nbook/server/agent/profiles/builtin/assets-editor.profile";
 import {LeaderDefaultProfile} from "nbook/server/agent/profiles/builtin/leader-default.profile";
 import {RetrievalProfile} from "nbook/server/agent/profiles/builtin/retrieval.profile";
 import {WriterProfile} from "nbook/server/agent/profiles/builtin/writer.profile";
@@ -80,6 +81,7 @@ import {
     type CreateSubAgentThreadInput,
     type JsonObject,
     type LeaderInput,
+    type ListThreadsInput,
     type ProfileInputMap,
     type ProfileKey,
     type RunOptions,
@@ -132,6 +134,7 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
     static createDefault(): AgentSystem {
         const profileRegistry = new InMemoryAgentProfileRegistry();
         profileRegistry.register(new LeaderDefaultProfile());
+        profileRegistry.register(new AssetsEditorProfile());
         profileRegistry.register(new WriterProfile());
         profileRegistry.register(new RetrievalProfile());
 
@@ -223,6 +226,11 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
      * 创建 leader thread。
      */
     async createLeaderThread(input: CreateLeaderThreadInput = {}): Promise<LeaderThread> {
+        const profileKey = input.profileKey ?? "leader.default";
+        const profile = this.profileRegistry.get(profileKey);
+        if (profile.kind !== "leader") {
+            throw new Error(`profile ${profileKey} 不是 leader profile`);
+        }
         const record = await this.threadRepository.createLeader(input);
         return this.toLeaderThread(record);
     }
@@ -230,8 +238,11 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
     /**
      * 列出线程摘要。
      */
-    async listThreads(kind: AgentThreadKind = "leader"): Promise<ThreadSummary[]> {
-        const threads = await this.threadRepository.listThreads(kind);
+    async listThreads(kindOrInput: AgentThreadKind | ListThreadsInput = "leader"): Promise<ThreadSummary[]> {
+        const input = typeof kindOrInput === "string"
+            ? {kind: kindOrInput}
+            : kindOrInput;
+        const threads = await this.threadRepository.listThreads(input);
         return Promise.all(threads.map(async (thread) => this.threadProjection.enrichThreadSummary(thread)));
     }
 
@@ -1323,6 +1334,7 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
     private requireProfileKey(profileKey: string): ProfileKey {
         if (
             profileKey === "leader.default"
+            || profileKey === "leader.assets"
             || profileKey === "subagent.writer"
             || profileKey === "subagent.retrieval"
         ) {

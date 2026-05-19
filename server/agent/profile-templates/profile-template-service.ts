@@ -3,6 +3,8 @@ import {createRequire} from "node:module";
 import {basename, resolve} from "node:path";
 import {createError} from "h3";
 import type * as TypeScript from "typescript";
+import {z, type ZodType} from "zod";
+import type {AgentProfile} from "nbook/server/agent/profiles/agent-profile";
 import type {
     ProfileTemplateExpressionValue,
     ProfileTemplateDetailDto,
@@ -15,17 +17,77 @@ import type {
     ProfileTemplateVariableGroupDto,
     ProfileTemplateVariableItemDto,
 } from "nbook/shared/dto/profile-template.dto";
-import type {AgentVariableScope, JsonValue} from "nbook/server/agent/types";
+import {
+    AgentTaskListSchema,
+    type AgentVariableScope,
+    type JsonValue,
+    type ProfileKey,
+} from "nbook/server/agent/types";
 
 const TEMPLATE_DIR = resolve(process.cwd(), "server/agent/profiles/templates");
 const require = createRequire(import.meta.url);
 const ts = require("typescript") as typeof TypeScript;
+const JsonObjectSchema = z.record(z.string(), z.json());
+const IdeVariableSchema = z.object({
+    panel: z.string().nullable(),
+    activePanel: z.string().nullable(),
+    theme: z.string().nullable(),
+    extra: JsonObjectSchema,
+});
+const StudioVariableSchema = z.object({
+    novelId: z.string().nullable(),
+    selectedChapterId: z.string().nullable(),
+    previousSelectedChapterId: z.string().nullable(),
+    currentChapterTitle: z.string().nullable(),
+    previousChapterTitle: z.string().nullable(),
+    currentChapterLabel: z.string().nullable(),
+    previousChapterLabel: z.string().nullable(),
+    workspace: z.string().nullable(),
+    workspaceKind: z.enum(["novel", "user-assets"]).nullable(),
+    didSwitchChapter: z.boolean(),
+    selectionVersion: z.number().nullable(),
+    extra: JsonObjectSchema,
+});
+const AgentThreadStatusSchema = z.enum(["idle", "running", "waiting_user", "completed", "stopped", "failed"]);
+const AgentThreadVariableSchema = z.object({
+    id: z.string(),
+    title: z.string(),
+    summary: z.string(),
+    status: AgentThreadStatusSchema,
+});
+const AgentSubagentVariableSchema = z.object({
+    id: z.string(),
+    title: z.string(),
+    profileKey: z.string(),
+    status: AgentThreadStatusSchema,
+});
+const AgentVariableSchema = z.object({
+    thread: AgentThreadVariableSchema,
+    profileKey: z.string(),
+    kind: z.enum(["leader", "subagent"]),
+    tools: z.array(z.string()),
+    subagents: z.array(AgentSubagentVariableSchema),
+    tasks: AgentTaskListSchema.nullable(),
+});
+const RuntimePreviewSchema = z.object({
+    thread: z.object({
+        id: z.string().nullable(),
+        status: AgentThreadStatusSchema.nullable(),
+    }),
+    profile: z.object({
+        key: z.string().nullable(),
+        kind: z.enum(["leader", "subagent"]).nullable(),
+        name: z.string().nullable(),
+    }),
+});
 const COMPONENT_NAMES = new Set([
     "ProfilePrompt",
     "HistorySet",
     "DynamicSet",
     "AppendingSet",
     "Message",
+    "AIMessage",
+    "ToolCall",
     "Reminder",
     "Watch",
     "If",
@@ -41,6 +103,7 @@ type ParsedTemplate = {
 type PreviewContext = {
     scope?: AgentVariableScope;
     inputOverrides?: Record<string, JsonValue>;
+    profile?: AgentProfile<ProfileKey>;
 };
 
 /**
@@ -123,6 +186,7 @@ export function previewProfileTemplate(input: {
     root?: ProfileTemplateNodeDto;
     scope?: AgentVariableScope;
     inputOverrides?: Record<string, JsonValue>;
+    profile?: AgentProfile<ProfileKey>;
 }): ProfileTemplatePreviewDto {
     const source = input.source ?? generateProfileTemplateSource("preview-template", input.root);
     const parsed = parseProfileTemplateSource(source);
@@ -130,6 +194,7 @@ export function previewProfileTemplate(input: {
     const previewContext = {
         scope: input.scope,
         inputOverrides: input.inputOverrides,
+        profile: input.profile,
     };
     if (parsed.root && !parsed.issues.some((issue) => issue.severity === "error")) {
         messages.push(...collectPreviewMessages(parsed.root, previewContext));
@@ -169,8 +234,8 @@ export function parseProfileTemplateSource(source: string): ParsedTemplate {
  */
 export function generateProfileTemplateSource(templateName: string, root: ProfileTemplateNodeDto | undefined): string {
     const componentNames = collectComponentNames(root);
-    const promptImportNames = ["Message", ...(componentNames.has("If") ? ["If"] : [])];
-    const profileImportNames = [...componentNames].filter((name) => name !== "Message" && name !== "If").sort();
+    const promptImportNames = ["Message", ...(componentNames.has("AIMessage") ? ["AIMessage"] : []), ...(componentNames.has("If") ? ["If"] : [])];
+    const profileImportNames = [...componentNames].filter((name) => !["Message", "AIMessage", "If", "ToolCall"].includes(name)).sort();
     const functionName = toPascalCase(templateName || "ProfileTemplate");
     return [
         "/** @jsxRuntime automatic */",
@@ -274,7 +339,7 @@ function parseJsxElement(
         issues.push(buildUnsupportedComponentIssue(sourceFile, type, element));
         return null;
     }
-    const parsedChildren = type === "Message"
+    const parsedChildren = type === "Message" || type === "AIMessage" || type === "ToolCall"
         ? parseMessageChildren(sourceFile, element.children, issues)
         : {text: undefined, children: parseChildren(sourceFile, element.children, issues)};
     return {
@@ -682,6 +747,22 @@ function validateTemplateTree(root: ProfileTemplateNodeDto | null, issues: Profi
                 });
             }
         }
+        if (node.type === "AIMessage") {
+            if (node.children.some((child) => child.type !== "ToolCall")) {
+                issues.push({
+                    severity: "error",
+                    message: "AIMessage 只能包含 ToolCall 子节点",
+                    nodeId: node.id,
+                });
+            }
+        }
+        if (node.type === "ToolCall" && ancestors.at(-1)?.type !== "AIMessage") {
+            issues.push({
+                severity: "error",
+                message: "ToolCall 必须放在 AIMessage 内",
+                nodeId: node.id,
+            });
+        }
         if (node.type === "SkillCatalog" && ancestors.at(-1)?.type !== "Message") {
             issues.push({
                 severity: "error",
@@ -709,7 +790,7 @@ function validateTemplateTree(root: ProfileTemplateNodeDto | null, issues: Profi
                 });
             }
         }
-        if (node.text?.trim() && node.type !== "Message" && ancestors.at(-1)?.type !== "Message" && node.editable) {
+        if (node.text?.trim() && node.type !== "Message" && node.type !== "AIMessage" && node.type !== "ToolCall" && ancestors.at(-1)?.type !== "Message" && node.editable) {
             issues.push({
                 severity: "error",
                 message: "非空文本必须放在 Message 内",
@@ -735,6 +816,20 @@ function collectPreviewMessages(node: ProfileTemplateNodeDto, context: PreviewCo
                 ...node.children.flatMap((child) => collectPreviewMessages(child, context).map((message) => message.text)),
             ].filter(Boolean).join(""),
             source,
+        }];
+    }
+    if (node.type === "AIMessage") {
+        return [{
+            role: "assistant",
+            text: replaceVariableTokens(renderPreviewMessageText(node), context),
+            source: null,
+            toolCalls: node.children
+                .filter((child) => child.type === "ToolCall")
+                .map((child) => ({
+                    id: String(child.props.id || child.id),
+                    name: String(child.props.name ?? "tool"),
+                    argsText: replaceVariableTokens(child.text ?? String(child.props.args ?? "{}"), context),
+                })),
         }];
     }
     if (node.type === "SkillCatalog") {
@@ -765,7 +860,7 @@ function generateNodeSource(node: ProfileTemplateNodeDto): string {
     if (node.children.length === 0 && !node.text) {
         return `<${node.type}${props} />`;
     }
-    if (node.type === "Message" && node.text) {
+    if ((node.type === "Message" || node.type === "AIMessage" || node.type === "ToolCall") && node.text) {
         const textSource = renderNodeText(node);
         const childLines = [
             indent(textSource, 1),
@@ -1069,55 +1164,342 @@ function toPascalCase(value: string): string {
  * 变量插入面板数据。
  */
 function buildVariableCatalog(context: PreviewContext = {}): ProfileTemplateDetailDto["variables"] {
-    const item = (
-        label: string,
-        value: string,
-        path: string,
-        editable = false,
-    ): ProfileTemplateVariableItemDto => ({
-        label,
-        value,
-        path,
-        editable,
-        currentValue: readPreviewVariable(path, context) ?? null,
-    });
+    const inputSchema = context.profile?.inputSchema ?? null;
+    const runtimeValue = buildRuntimePreviewValue(context);
     const groups: ProfileTemplateVariableGroupDto[] = [
         {
-            group: "input",
+            group: "Input",
+            items: buildSchemaItems({
+                label: "ctx.input",
+                path: "input",
+                value: context.scope?.input ?? {},
+                schema: inputSchema,
+                source: "profile.inputSchema",
+                editable: true,
+                description: "当前 profile 的输入参数。schema 来自 profile.inputSchema，预览时可用本地覆盖值。",
+                context,
+            }),
+        },
+        {
+            group: "IDE",
+            items: buildSchemaItems({
+                label: "scope.ide",
+                path: "scope.ide",
+                value: context.scope?.ide ?? {},
+                schema: IdeVariableSchema,
+                source: "clientVariables.ide",
+                editable: false,
+                description: "Novel IDE 客户端状态，来自 x-agent-client-variables。",
+                context,
+            }),
+        },
+        {
+            group: "Studio",
+            items: buildSchemaItems({
+                label: "scope.studio",
+                path: "scope.studio",
+                value: context.scope?.studio ?? {},
+                schema: StudioVariableSchema,
+                source: "clientVariables.studio",
+                editable: false,
+                description: "写作工作台客户端状态，来自 x-agent-client-variables。",
+                context,
+            }),
+        },
+        {
+            group: "Agent",
+            items: buildSchemaItems({
+                label: "scope.agent",
+                path: "scope.agent",
+                value: context.scope?.agent ?? {},
+                schema: AgentVariableSchema,
+                source: "server.threadContext",
+                editable: false,
+                description: "服务端线程状态、可用工具、subagent 和任务列表。",
+                context,
+            }),
+        },
+        {
+            group: "Skills",
             items: [
-                item("用户输入", "{{input.prompt}}", "input.prompt", true),
-                item("用户输入（兼容）", "{{input.text}}", "input.text", true),
-                item("输入文件", "{{input.files}}", "input.files"),
-                item("输入元数据", "{{input.metadata}}", "input.metadata"),
+                createVariableItem({
+                    label: "skillCatalogText",
+                    path: "skillCatalogText",
+                    value: readPreviewVariable("skillCatalogText", context) ?? "",
+                    schema: z.string(),
+                    source: "ctx.skillCatalogText",
+                    editable: false,
+                    description: "当前 profile 可见的 skill catalog 文本。",
+                    context,
+                }),
+                createVariableItem({
+                    label: "activatedSkillsText",
+                    path: "activatedSkillsText",
+                    value: readPreviewVariable("activatedSkillsText", context) ?? "",
+                    schema: z.string(),
+                    source: "ctx.activatedSkillsText",
+                    editable: false,
+                    description: "当前轮次显式激活的 skill 内容文本。",
+                    context,
+                }),
+                createVariableItem({
+                    label: "activatedSkills",
+                    path: "activatedSkills",
+                    value: readPreviewVariable("activatedSkills", context) ?? "",
+                    schema: z.string(),
+                    source: "legacy.alias",
+                    editable: false,
+                    description: "兼容旧模板的 activatedSkills 变量别名。",
+                    context,
+                }),
             ],
         },
         {
-            group: "scope",
-            items: [
-                item("工作区", "{{scope.studio.workspace}}", "scope.studio.workspace"),
-                item("当前章节", "{{scope.studio.currentChapterLabel}}", "scope.studio.currentChapterLabel"),
-                item("剧情线程", "{{scope.studio.extra.selectedStoryThreadId}}", "scope.studio.extra.selectedStoryThreadId"),
-                item("剧情场景", "{{scope.studio.extra.selectedStorySceneId}}", "scope.studio.extra.selectedStorySceneId"),
-                item("任务状态", "{{scope.agent.tasks}}", "scope.agent.tasks"),
-                item("关联 Subagent", "{{scope.agent.subagents}}", "scope.agent.subagents"),
-            ],
-        },
-        {
-            group: "skill",
-            items: [
-                item("激活技能文本", "{{activatedSkillsText}}", "activatedSkillsText"),
-                item("激活技能", "{{activatedSkills}}", "activatedSkills"),
-            ],
-        },
-        {
-            group: "runtime",
-            items: [
-                item("线程 ID", "{{runtime.thread.id}}", "runtime.thread.id"),
-                item("用户 ID", "{{runtime.user.id}}", "runtime.user.id"),
-                item("会话 ID", "{{runtime.session.id}}", "runtime.session.id"),
-            ],
+            group: "Runtime",
+            items: buildSchemaItems({
+                label: "ctx.runtime",
+                path: "runtime",
+                value: runtimeValue,
+                schema: RuntimePreviewSchema,
+                source: "runtime.summary",
+                editable: false,
+                description: "预览安全摘要；不展开完整 runtime 服务对象。",
+                context,
+            }),
         },
     ];
     return groups;
+}
+
+/**
+ * 递归构造 schema 驱动的变量树。
+ */
+function buildSchemaItems(input: {
+    label: string;
+    path: string;
+    value: unknown;
+    schema: ZodType | null;
+    source: string;
+    editable: boolean;
+    description: string;
+    context: PreviewContext;
+}): ProfileTemplateVariableItemDto[] {
+    const root = createVariableItem({
+        ...input,
+        value: input.value,
+    });
+    const children = buildChildItems({
+        parentPath: input.path,
+        value: input.value,
+        schema: input.schema,
+        source: input.source,
+        editable: input.editable,
+        context: input.context,
+    });
+    root.children = children;
+    return [root, ...flattenVariableItems(children)];
+}
+
+/**
+ * 构造对象变量的叶子条目。
+ */
+function buildChildItems(input: {
+    parentPath: string;
+    value: unknown;
+    schema: ZodType | null;
+    source: string;
+    editable: boolean;
+    context: PreviewContext;
+}): ProfileTemplateVariableItemDto[] {
+    const entries = readObjectEntries(input.value);
+    if (entries.length === 0) {
+        return [];
+    }
+    const shape = readZodShape(input.schema);
+    return entries.map(([key, value]) => {
+        const path = `${input.parentPath}.${key}`;
+        const schema = shape?.[key] ?? null;
+        const item = createVariableItem({
+            label: key,
+            path,
+            value,
+            schema,
+            source: input.source,
+            editable: input.editable,
+            description: readSchemaDescription(schema),
+            context: input.context,
+        });
+        item.children = buildChildItems({
+            parentPath: path,
+            value,
+            schema,
+            source: input.source,
+            editable: input.editable,
+            context: input.context,
+        });
+        return item;
+    });
+}
+
+/**
+ * 将变量树扁平化，保持旧侧栏和 token 搜索都能看到深层叶子。
+ */
+function flattenVariableItems(items: ProfileTemplateVariableItemDto[]): ProfileTemplateVariableItemDto[] {
+    const flattened: ProfileTemplateVariableItemDto[] = [];
+    for (const item of items) {
+        flattened.push(item);
+        if (item.children?.length) {
+            flattened.push(...flattenVariableItems(item.children));
+        }
+    }
+    return flattened;
+}
+
+/**
+ * 构造单个变量展示条目。
+ */
+function createVariableItem(input: {
+    label: string;
+    path: string;
+    value: unknown;
+    schema: ZodType | null;
+    source: string;
+    editable: boolean;
+    description?: string;
+    context: PreviewContext;
+}): ProfileTemplateVariableItemDto {
+    const currentValue = readPreviewVariable(input.path, input.context) ?? toJsonValue(input.value) ?? null;
+    return {
+        label: input.label,
+        value: toVariableToken(input.path),
+        token: toVariableToken(input.path),
+        path: input.path,
+        editable: input.editable && isEditablePreviewPath(input.path),
+        currentValue,
+        description: input.description || readSchemaDescription(input.schema),
+        valueType: readValueType(currentValue),
+        source: input.source,
+        schema: toJsonSchema(input.schema),
+    };
+}
+
+/**
+ * 构造 runtime 的安全摘要，避免把服务对象暴露给预览面板。
+ */
+function buildRuntimePreviewValue(context: PreviewContext): JsonValue {
+    return {
+        thread: {
+            id: context.scope?.agent.thread.id ?? null,
+            status: context.scope?.agent.thread.status ?? null,
+        },
+        profile: {
+            key: context.profile?.key ?? context.scope?.agent.profileKey ?? null,
+            kind: context.profile?.kind ?? context.scope?.agent.kind ?? null,
+            name: context.profile?.name ?? null,
+        },
+    };
+}
+
+/**
+ * 判断变量是否允许在预览调试面板覆盖。
+ */
+function isEditablePreviewPath(path: string): boolean {
+    return path === "input.prompt" || path === "input.text";
+}
+
+/**
+ * 变量 path 转模板 token。
+ */
+function toVariableToken(path: string): string {
+    return `{{${path}}}`;
+}
+
+/**
+ * 从 Zod schema 读取 JSON Schema。
+ */
+function toJsonSchema(schema: ZodType | null): Record<string, unknown> | null {
+    if (!schema) {
+        return null;
+    }
+    try {
+        const result = z.toJSONSchema(schema, {
+            unrepresentable: "any",
+        });
+        return result && typeof result === "object" ? result as Record<string, unknown> : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * 读取 schema 描述。
+ */
+function readSchemaDescription(schema: ZodType | null): string | undefined {
+    return typeof schema?.description === "string" && schema.description.trim()
+        ? schema.description
+        : undefined;
+}
+
+/**
+ * 尽量读取 Zod object shape。复杂 union 无法稳定展开时返回 null。
+ */
+function readZodShape(schema: ZodType | null): Record<string, ZodType> | null {
+    let current: unknown = schema;
+    while (current && typeof current === "object" && "_def" in current) {
+        const def = (current as {_def?: Record<string, unknown>})._def;
+        if (!def) {
+            break;
+        }
+        if (def.type === "optional" || def.type === "nullable" || def.type === "default") {
+            current = def.innerType;
+            continue;
+        }
+        if (def.type === "pipe" && def.out) {
+            current = def.out;
+            continue;
+        }
+        break;
+    }
+    if (!current || typeof current !== "object" || !("shape" in current)) {
+        return null;
+    }
+    const shape = (current as {shape: Record<string, ZodType> | (() => Record<string, ZodType>)}).shape;
+    return typeof shape === "function" ? shape() : shape;
+}
+
+/**
+ * 读取对象条目，非对象不展开。
+ */
+function readObjectEntries(value: unknown): Array<[string, unknown]> {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return [];
+    }
+    return Object.entries(value);
+}
+
+/**
+ * 读取变量值类型标签。
+ */
+function readValueType(value: unknown): string {
+    if (value === null || value === undefined) {
+        return "null";
+    }
+    if (Array.isArray(value)) {
+        return "array";
+    }
+    return typeof value;
+}
+
+/**
+ * 转换为 JSON DTO 可承载值。
+ */
+function toJsonValue(value: unknown): JsonValue | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    if (isJsonValue(value)) {
+        return value;
+    }
+    return JSON.parse(JSON.stringify(value)) as JsonValue;
 }
 

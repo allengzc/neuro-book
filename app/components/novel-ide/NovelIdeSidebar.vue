@@ -10,6 +10,7 @@ type SidebarItem = {
 
 const props = defineProps<{
     activeTab: NovelIdeTab | null;
+    userAssetsMode?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -23,12 +24,13 @@ const items: SidebarItem[] = [
     { value: "characters", label: "Characters", iconClass: "i-lucide-users-round" },
     { value: "outline", label: "Outline", iconClass: "i-lucide-puzzle" },
 ];
+const visibleItems = computed(() => props.userAssetsMode ? items.filter((item) => item.value === "files") : items);
 </script>
 
 <template>
     <!-- 左侧图标栏 -->
     <aside class="flex w-14 shrink-0 flex-col items-center border-r border-[var(--border-color)] bg-[var(--bg-sidebar)] py-4">
-        <template v-for="item in items" :key="item.value">
+        <template v-for="item in visibleItems" :key="item.value">
             <div v-if="item.bottom" class="mt-auto"></div>
             <button
                 class="group mb-3 flex h-9 w-9 items-center justify-center rounded-full border transition-all"

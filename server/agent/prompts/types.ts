@@ -31,6 +31,18 @@ export type PromptMessageNode = {
     role: RuntimeMessageRole;
     source: PromptMessageSource;
     children: PromptChild[];
+    toolCalls?: PromptToolCallNode[];
+};
+
+/**
+ * Assistant tool call 预览节点。
+ * 运行时真实 tool call 仍由模型与工具执行链路产生；模板侧仅用于表达静态示例或调试预览。
+ */
+export type PromptToolCallNode = {
+    kind: "tool_call";
+    id: string;
+    name: string;
+    argsText: string;
 };
 
 /**
@@ -100,6 +112,7 @@ export type PromptFragmentNode = {
  */
 export type PromptNode =
     | PromptMessageNode
+    | PromptToolCallNode
     | PromptHistoryNode
     | PromptFragmentNode
     | PromptProfileRootNode
@@ -124,3 +137,9 @@ export type RenderedPromptTemplate = {
     messages: BaseMessage[];
     inputMessages: BaseMessage[];
 };
+
+declare global {
+    namespace JSX {
+        interface IntrinsicElements {}
+    }
+}

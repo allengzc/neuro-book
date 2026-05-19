@@ -24,6 +24,9 @@ const props = withDefaults(defineProps<{
     placeholder?: string;
     minHeight?: number;
     maxHeight?: number;
+    minRows?: number;
+    maxRows?: number;
+    autoHeight?: boolean;
     mode?: StructuredTextMode | null;
     defaultMode?: StructuredTextMode;
     showToolbar?: boolean;
@@ -51,6 +54,9 @@ const props = withDefaults(defineProps<{
     placeholder: "",
     minHeight: undefined,
     maxHeight: undefined,
+    minRows: undefined,
+    maxRows: undefined,
+    autoHeight: false,
     mode: null,
     defaultMode: "rich",
     showToolbar: true,
@@ -121,21 +127,30 @@ const formatButtons: Array<{
 const effectiveMode = computed<StructuredTextMode>(() => props.mode ?? currentMode.value);
 const isRichMode = computed(() => effectiveMode.value === "rich");
 const showFormatTools = computed(() => props.showToolbar && props.showFormatToolbar && isRichMode.value);
-const canResize = computed(() => props.resizable && props.showToolbar);
+const canResize = computed(() => props.resizable && props.showToolbar && !props.readonly && !props.autoHeight);
 const resolvedMinHeight = computed(() => {
     if (props.minHeight !== undefined) {
         return props.minHeight;
     }
-    return props.size === "sm" ? Math.max(props.rows * 20, 80) : Math.max(props.rows * 28, 120);
+    const rows = props.minRows ?? props.rows;
+    return props.size === "sm" ? Math.max(rows * 20, 24) : Math.max(rows * 28, 40);
 });
 const resolvedMaxHeight = computed(() => {
     if (props.maxHeight !== undefined) {
         return props.maxHeight;
     }
-    return props.size === "sm" ? Math.max(props.rows * 34, 132) : Math.max(props.rows * 48, 180);
+    const rows = props.maxRows ?? props.rows;
+    return props.size === "sm" ? Math.max(rows * 34, resolvedMinHeight.value) : Math.max(rows * 48, resolvedMinHeight.value);
+});
+const resolvedAutoHeight = computed(() => {
+    const lineCount = Math.max(props.minRows ?? 1, props.modelValue.split(/\r\n|\r|\n/).length);
+    const cappedLineCount = props.maxRows ? Math.min(lineCount, props.maxRows) : lineCount;
+    const lineHeight = props.size === "sm" ? 20 : 28;
+    const padding = props.size === "sm" ? 18 : 28;
+    return Math.min(Math.max((cappedLineCount * lineHeight) + padding, resolvedMinHeight.value), resolvedMaxHeight.value);
 });
 const bodyStyle = computed(() => ({
-    height: `${resolvedMinHeight.value}px`,
+    height: `${props.autoHeight ? resolvedAutoHeight.value : resolvedMinHeight.value}px`,
     minHeight: `${resolvedMinHeight.value}px`,
     maxHeight: `${resolvedMaxHeight.value}px`,
 }));

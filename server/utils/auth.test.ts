@@ -5,6 +5,7 @@ const {prismaMock} = vi.hoisted(() => ({
         user: {
             findUnique: vi.fn(),
             count: vi.fn(),
+            updateMany: vi.fn(),
         },
         $executeRaw: vi.fn(),
     },
@@ -18,14 +19,19 @@ describe("auth utils", () => {
     beforeEach(() => {
         const globals = globalThis as typeof globalThis & {
             createError?: unknown;
+            getUserSession?: unknown;
             setUserSession?: unknown;
+            clearUserSession?: unknown;
         };
+        vi.clearAllMocks();
         globals.createError = ((input: {statusCode?: number; message?: string}) => {
             const error = new Error(input.message ?? "未知错误") as Error & {statusCode?: number};
             error.statusCode = input.statusCode;
             return error;
         }) as never;
+        globals.getUserSession = vi.fn();
         globals.setUserSession = vi.fn();
+        globals.clearUserSession = vi.fn();
     });
 
     it("密码哈希可以正确校验", async () => {
@@ -45,6 +51,7 @@ describe("auth utils", () => {
             status: "active",
             sessionVersion: 1,
             lastLoginAt: null,
+            lastSeenAt: null,
             createdAt: new Date("2026-05-17T00:00:00.000Z"),
             updatedAt: new Date("2026-05-17T00:00:00.000Z"),
         });
@@ -91,5 +98,106 @@ describe("auth utils", () => {
                 }),
             }),
         );
+    });
+
+    it("管理员用户列表 DTO 会输出最后活跃时间", async () => {
+        const {toAdminUserListItem} = await import("nbook/server/utils/auth");
+
+        const result = toAdminUserListItem({
+            id: 1,
+            username: "admin",
+            displayName: "管理员",
+            passwordHash: "x",
+            role: "admin",
+            status: "active",
+            sessionVersion: 1,
+            lastLoginAt: null,
+            lastSeenAt: new Date("2026-05-19T12:00:00.000Z"),
+            createdAt: new Date("2026-05-17T00:00:00.000Z"),
+            updatedAt: new Date("2026-05-17T00:00:00.000Z"),
+        });
+
+        expect(result.lastLoginAt).toBeNull();
+        expect(result.lastSeenAt).toBe("2026-05-19T12:00:00.000Z");
+    });
+
+    it("获取当前用户时会节流更新最后活跃时间", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-05-19T12:00:00.000Z"));
+        const user = {
+            id: 1,
+            username: "admin",
+            displayName: "管理员",
+            passwordHash: "x",
+            role: "admin",
+            status: "active",
+            sessionVersion: 1,
+            lastLoginAt: null,
+            lastSeenAt: new Date("2026-05-19T11:58:00.000Z"),
+            createdAt: new Date("2026-05-17T00:00:00.000Z"),
+            updatedAt: new Date("2026-05-17T00:00:00.000Z"),
+        };
+        (globalThis as typeof globalThis & {getUserSession: ReturnType<typeof vi.fn>}).getUserSession.mockResolvedValue({
+            user: {
+                id: "1",
+                sessionVersion: 1,
+            },
+        });
+        prismaMock.user.findUnique.mockResolvedValue(user);
+        prismaMock.user.updateMany.mockResolvedValue({count: 1});
+
+        try {
+            const {getCurrentUser} = await import("nbook/server/utils/auth");
+            const result = await getCurrentUser({} as never);
+
+            expect(result?.lastSeenAt?.toISOString()).toBe("2026-05-19T12:00:00.000Z");
+            expect(prismaMock.user.updateMany).toHaveBeenCalledWith({
+                where: {
+                    id: 1,
+                    OR: [
+                        {lastSeenAt: null},
+                        {lastSeenAt: {lt: new Date("2026-05-19T11:59:00.000Z")}},
+                    ],
+                },
+                data: {lastSeenAt: new Date("2026-05-19T12:00:00.000Z")},
+            });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("最后活跃时间未超过节流阈值时不会写库", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-05-19T12:00:00.000Z"));
+        const user = {
+            id: 1,
+            username: "admin",
+            displayName: "管理员",
+            passwordHash: "x",
+            role: "admin",
+            status: "active",
+            sessionVersion: 1,
+            lastLoginAt: null,
+            lastSeenAt: new Date("2026-05-19T11:59:30.000Z"),
+            createdAt: new Date("2026-05-17T00:00:00.000Z"),
+            updatedAt: new Date("2026-05-17T00:00:00.000Z"),
+        };
+        (globalThis as typeof globalThis & {getUserSession: ReturnType<typeof vi.fn>}).getUserSession.mockResolvedValue({
+            user: {
+                id: "1",
+                sessionVersion: 1,
+            },
+        });
+        prismaMock.user.findUnique.mockResolvedValue(user);
+
+        try {
+            const {getCurrentUser} = await import("nbook/server/utils/auth");
+            const result = await getCurrentUser({} as never);
+
+            expect(result?.lastSeenAt?.toISOString()).toBe("2026-05-19T11:59:30.000Z");
+            expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });

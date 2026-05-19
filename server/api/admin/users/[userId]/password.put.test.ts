@@ -51,6 +51,7 @@ describe("PUT /api/admin/users/:userId/password", () => {
             status: "active",
             sessionVersion: 1,
             lastLoginAt: null,
+            lastSeenAt: null,
             createdAt: new Date("2026-05-17T00:00:00.000Z"),
             updatedAt: new Date("2026-05-17T00:00:00.000Z"),
         };

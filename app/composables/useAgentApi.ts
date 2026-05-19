@@ -86,10 +86,13 @@ export function useAgentApi(options: UseAgentApiOptions = {}) {
     /**
      * 查询线程列表。
      */
-    const listThreads = async (kind: "leader" | "subagent" = "leader"): Promise<AgentThreadSummaryDto[]> => {
+    const listThreads = async (kind: "leader" | "subagent" = "leader", profileKey?: string): Promise<AgentThreadSummaryDto[]> => {
         return $fetch<AgentThreadSummaryDto[]>("/api/agent/threads", {
             headers: buildHeaders(),
-            query: {kind},
+            query: {
+                kind,
+                ...(profileKey ? {profileKey} : {}),
+            },
         });
     };
 

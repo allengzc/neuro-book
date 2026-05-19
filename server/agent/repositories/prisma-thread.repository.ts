@@ -2,7 +2,7 @@ import {AgentThreadKind, AgentThreadRunStatus} from "nbook/server/generated/pris
 import type {AgentThread} from "nbook/server/generated/prisma/client";
 import {parseEntityId, stringifyEntityId} from "nbook/server/utils/novel-chapter";
 import {prisma} from "nbook/server/utils/prisma";
-import {AgentThreadMetadataSchema, normalizeAgentThreadUsageSummary, type AgentThreadKind as LocalAgentThreadKind, type AgentThreadMetadata, type AgentThreadRecord, type AgentThreadStatus, type CreateLeaderThreadInput, type SubAgentProfileKey, type SubAgentThreadSummary, type ThreadId, type ThreadSummary} from "nbook/server/agent/types";
+import {AgentThreadMetadataSchema, normalizeAgentThreadUsageSummary, type AgentThreadMetadata, type AgentThreadRecord, type AgentThreadStatus, type CreateLeaderThreadInput, type ListThreadsInput, type SubAgentProfileKey, type SubAgentThreadSummary, type ThreadId, type ThreadSummary} from "nbook/server/agent/types";
 import type {ThreadRepository} from "nbook/server/agent/repositories/thread-repository";
 
 /**
@@ -28,7 +28,7 @@ export class PrismaThreadRepository implements ThreadRepository {
             data: {
                 kind: AgentThreadKind.leader,
                 runStatus: AgentThreadRunStatus.idle,
-                profileKey: "leader.default",
+                profileKey: input.profileKey ?? "leader.default",
                 metadata: {
                     ...(normalizedModelOverride ? {modelOverride: normalizedModelOverride} : {}),
                     ...(input.modelOverrideKey?.trim() ? {modelOverrideKey: input.modelOverrideKey.trim()} : {}),
@@ -60,9 +60,12 @@ export class PrismaThreadRepository implements ThreadRepository {
     /**
      * 列出线程。
      */
-    async listThreads(kind?: LocalAgentThreadKind): Promise<ThreadSummary[]> {
+    async listThreads(input: ListThreadsInput = {}): Promise<ThreadSummary[]> {
         const threads = await prisma.agentThread.findMany({
-            where: kind ? {kind} : undefined,
+            where: {
+                ...(input.kind ? {kind: input.kind} : {}),
+                ...(input.profileKey ? {profileKey: input.profileKey} : {}),
+            },
             orderBy: {
                 updatedAt: "desc",
             },

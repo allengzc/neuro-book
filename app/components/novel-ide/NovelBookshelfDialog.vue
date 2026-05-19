@@ -10,6 +10,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: boolean): void;
+    (e: "switched", novelId: string): void;
 }>();
 
 const { prompt, confirm, choose } = useDialog();
@@ -59,6 +60,7 @@ const handleCreateNovel = async () => {
         isCreating.value = true;
         const newNovelId = await createNovel(title);
         await switchNovel(newNovelId, {discardWorkspaceChanges: decision === "discard"});
+        emit("switched", newNovelId);
         handleClose();
     } finally {
         isCreating.value = false;
@@ -70,6 +72,7 @@ const handleSwitchNovel = async (novelId: string) => {
     const decision = await resolveUnsavedWorkspaceChanges();
     if (decision === "cancel") return;
     await switchNovel(novelId, {discardWorkspaceChanges: decision === "discard"});
+    emit("switched", novelId);
     handleClose();
 };
 

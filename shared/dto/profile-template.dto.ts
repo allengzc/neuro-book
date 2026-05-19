@@ -9,6 +9,8 @@ export const ProfileTemplateNodeTypeSchema = z.enum([
     "DynamicSet",
     "AppendingSet",
     "Message",
+    "AIMessage",
+    "ToolCall",
     "Reminder",
     "Watch",
     "If",
@@ -111,13 +113,33 @@ export const ProfileTemplateSummaryDtoSchema = z.object({
 /**
  * 模板变量面板中的单个变量。
  */
-export const ProfileTemplateVariableItemDtoSchema = z.object({
+export type ProfileTemplateVariableItemDto = {
+    label: string;
+    value: string;
+    path: string;
+    token: string;
+    currentValue?: unknown;
+    editable: boolean;
+    description?: string;
+    valueType: string;
+    source: string;
+    schema?: Record<string, unknown> | null;
+    children?: ProfileTemplateVariableItemDto[];
+};
+
+export const ProfileTemplateVariableItemDtoSchema: z.ZodType<ProfileTemplateVariableItemDto> = z.lazy(() => z.object({
     label: z.string().trim().min(1),
     value: z.string().trim().min(1),
     path: z.string().trim().min(1),
+    token: z.string().trim().min(1),
     currentValue: z.json().nullable().optional(),
     editable: z.boolean().default(false),
-});
+    description: z.string().trim().min(1).optional(),
+    valueType: z.string().trim().min(1),
+    source: z.string().trim().min(1),
+    schema: z.record(z.string(), z.json()).nullable().optional(),
+    children: z.array(ProfileTemplateVariableItemDtoSchema).optional(),
+}));
 
 /**
  * 模板变量分组。
@@ -178,6 +200,11 @@ export const ProfileTemplatePreviewMessageDtoSchema = z.object({
     role: z.string().trim().min(1),
     text: z.string(),
     source: z.string().trim().min(1).nullable(),
+    toolCalls: z.array(z.object({
+        id: z.string().trim().min(1),
+        name: z.string().trim().min(1),
+        argsText: z.string(),
+    })).optional(),
 });
 
 /**
@@ -193,7 +220,6 @@ export const ProfileTemplatePreviewDtoSchema = z.object({
 
 export type ProfileTemplateIssueDto = z.infer<typeof ProfileTemplateIssueDtoSchema>;
 export type ProfileTemplateSummaryDto = z.infer<typeof ProfileTemplateSummaryDtoSchema>;
-export type ProfileTemplateVariableItemDto = z.infer<typeof ProfileTemplateVariableItemDtoSchema>;
 export type ProfileTemplateVariableGroupDto = z.infer<typeof ProfileTemplateVariableGroupDtoSchema>;
 export type ProfileTemplateDetailDto = z.infer<typeof ProfileTemplateDetailDtoSchema>;
 export type SaveProfileTemplateRequestDto = z.infer<typeof SaveProfileTemplateRequestDtoSchema>;

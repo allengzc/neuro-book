@@ -213,6 +213,7 @@ function createWriterRuntime(input: {
                 currentChapterLabel: null,
                 previousChapterLabel: null,
                 workspace: input.workspace,
+                workspaceKind: "novel",
                 didSwitchChapter: false,
                 selectionVersion: null,
                 extra: {},

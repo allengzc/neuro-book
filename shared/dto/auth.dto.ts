@@ -54,6 +54,7 @@ export type AdminUserListItemDto = {
     status: AuthUserStatus;
     sessionVersion: number;
     lastLoginAt: string | null;
+    lastSeenAt: string | null;
     createdAt: string;
     updatedAt: string;
 };

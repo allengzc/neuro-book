@@ -8,8 +8,10 @@ const props = defineProps<{
     novelTitle: string;
     novelItems: DropdownItem[];
     currentUser: AuthUserDto | null;
+    workspaceMode?: "novel" | "user-assets";
 }>();
 const currentUser = toRef(props, "currentUser");
+const isUserAssetsMode = computed(() => props.workspaceMode === "user-assets");
 
 const emit = defineEmits<{
     (e: "toggle-agent"): void;
@@ -71,7 +73,7 @@ const handleUserMenuSelect = (value: string): void => {
                 <span class="text-[13px] font-bold tracking-[0.3em] uppercase">AI Writer</span>
             </div>
             <div class="h-4 w-px bg-[var(--border-color)]"></div>
-            <div class="flex items-center gap-3 text-sm">
+            <div v-if="!isUserAssetsMode" class="flex items-center gap-3 text-sm">
                 <Dropdown :items="novelItems" menu-class="left-0 top-full mt-2 w-56" @select="(v) => emit('switch-novel', v)">
                     <button class="group flex items-center gap-1 rounded-md px-2 py-1 transition-colors hover:bg-[var(--bg-hover)]">
                         <span class="font-serif text-[13px] italic text-[var(--text-secondary)] group-hover:text-[var(--text-main)] transition-colors">{{ novelTitle || '未选择小说' }}</span>
@@ -79,18 +81,21 @@ const handleUserMenuSelect = (value: string): void => {
                     </button>
                 </Dropdown>
             </div>
+            <div v-else class="flex items-center gap-2 text-sm">
+                <span class="font-serif text-[13px] italic text-[var(--text-secondary)]">用户资产</span>
+            </div>
         </div>
 
         <div class="flex items-center gap-2">
-            <button class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] md:flex" title="书架管理" @click="emit('open-bookshelf')">
+            <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] md:flex" title="书架管理" @click="emit('open-bookshelf')">
                 <span class="i-lucide-library h-4 w-4"></span>
                 <span>书架</span>
             </button>
-            <button class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" title="剧本工作台" @click="emit('open-plot-workbench')">
+            <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" title="剧本工作台" @click="emit('open-plot-workbench')">
                 <span class="i-lucide-panels-top-left h-4 w-4 text-[var(--accent-text)]"></span>
                 <span>剧本工作台</span>
             </button>
-            <button class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" title="用户资产" @click="emit('open-user-assets')">
+            <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" title="用户资产" @click="emit('open-user-assets')">
                 <span class="i-lucide-folder-cog h-4 w-4 text-[var(--accent-text)]"></span>
                 <span>用户资产</span>
             </button>

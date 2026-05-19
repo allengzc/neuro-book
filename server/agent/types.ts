@@ -33,9 +33,14 @@ export type ThreadId = string;
 export type ProfileKey = keyof ProfileInputMap;
 
 /**
+ * leader profile 唯一键。
+ */
+export type LeaderProfileKey = "leader.default" | "leader.assets";
+
+/**
  * subagent profile 唯一键。
  */
-export type SubAgentProfileKey = Exclude<ProfileKey, "leader.default">;
+export type SubAgentProfileKey = "subagent.writer" | "subagent.retrieval";
 
 /**
  * tool 唯一键。
@@ -500,6 +505,7 @@ export type SkillCatalogItem = {
  */
 export type ProfileInputMap = {
     "leader.default": LeaderInput;
+    "leader.assets": LeaderInput;
     "subagent.writer": WriterProfileInput;
     "subagent.retrieval": RetrievalProfileInput;
 };
@@ -509,6 +515,7 @@ export type ProfileInputMap = {
  */
 export type ProfileOutputMap = {
     "leader.default": JsonValue | undefined;
+    "leader.assets": JsonValue | undefined;
     "subagent.writer": JsonValue | undefined;
     "subagent.retrieval": RetrievalProfileOutput;
 };
@@ -554,6 +561,7 @@ export type StudioVariables = {
     currentChapterLabel: string | null;
     previousChapterLabel: string | null;
     workspace: string | null;
+    workspaceKind: "novel" | "user-assets" | null;
     didSwitchChapter: boolean;
     selectionVersion: number | null;
     extra: JsonObject;
@@ -635,9 +643,18 @@ export type SubAgentThreadSummary = ThreadSummary & {
  * 创建 leader 线程参数。
  */
 export type CreateLeaderThreadInput = {
+    profileKey?: LeaderProfileKey;
     title?: string;
     modelOverride?: AgentThreadModelOverride | null;
     modelOverrideKey?: string | null;
+};
+
+/**
+ * 线程列表查询参数。
+ */
+export type ListThreadsInput = {
+    kind?: AgentThreadKind;
+    profileKey?: ProfileKey;
 };
 
 /**

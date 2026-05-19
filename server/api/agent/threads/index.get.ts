@@ -9,6 +9,9 @@ import {toAgentThreadSummaryDto} from "nbook/server/agent/http";
 export default defineEventHandler(async (event) => {
     const query = ListAgentThreadsQueryDtoSchema.parse(getQuery(event));
     const agentSystem = useAgentSystem();
-    const threads = await agentSystem.listThreads(query.kind ?? "leader");
+    const threads = await agentSystem.listThreads({
+        kind: query.kind ?? "leader",
+        profileKey: query.profileKey,
+    });
     return threads.map(toAgentThreadSummaryDto);
 });

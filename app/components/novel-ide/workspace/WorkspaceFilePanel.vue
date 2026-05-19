@@ -24,6 +24,7 @@ const store = useNovelIdeStore();
 const {choose, confirm, prompt} = useDialog();
 const {error: notifyError} = useNotification();
 const {
+    canAccessWorkspace,
     loadingWorkspaceTree,
     selectedFileNode,
     selectedFilePath,
@@ -607,7 +608,7 @@ function saveExpandedPaths(paths: string[]): void {
 
 onMounted(() => {
     expandedPaths.value = loadExpandedPaths();
-    if (workspaceTree.value.length === 0) {
+    if (canAccessWorkspace.value && workspaceTree.value.length === 0) {
         void store.loadWorkspaceTree();
     }
 });
@@ -615,6 +616,12 @@ onMounted(() => {
 watch(expandedPaths, (paths) => {
     saveExpandedPaths(paths);
 }, {deep: true});
+
+watch(canAccessWorkspace, (canAccess) => {
+    if (canAccess && workspaceTree.value.length === 0) {
+        void store.loadWorkspaceTree();
+    }
+});
 </script>
 
 <template>

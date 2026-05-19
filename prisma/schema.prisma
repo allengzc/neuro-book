@@ -83,10 +83,12 @@ model User {
   status         UserStatus @default(active)
   sessionVersion Int        @default(1)
   lastLoginAt    DateTime?
+  lastSeenAt     DateTime?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @default(now()) @updatedAt
 
   @@index([role, status])
+  @@index([lastSeenAt])
   @@index([updatedAt])
 }
 

@@ -13,6 +13,7 @@ const scrypt = promisify(scryptCallback);
 const passwordHashPrefix = "scrypt";
 const passwordKeyLength = 64;
 const adminStateLockId = 550317001;
+const lastSeenWriteIntervalMs = 60_000;
 
 /**
  * 根据当前请求协议生成 session 配置。HTTP 测试站点不能使用 Secure cookie。
@@ -72,6 +73,7 @@ export function toAdminUserListItem(user: User): AdminUserListItemDto {
         status: user.status,
         sessionVersion: user.sessionVersion,
         lastLoginAt: user.lastLoginAt?.toISOString() ?? null,
+        lastSeenAt: user.lastSeenAt?.toISOString() ?? null,
         createdAt: user.createdAt.toISOString(),
         updatedAt: user.updatedAt.toISOString(),
     };
@@ -149,6 +151,25 @@ export async function getCurrentUser(event: H3Event): Promise<User | null> {
     if (!user || user.status !== "active" || user.sessionVersion !== session.user?.sessionVersion) {
         await clearAuthSession(event);
         return null;
+    }
+
+    const lastSeenThreshold = new Date(Date.now() - lastSeenWriteIntervalMs);
+    if (!user.lastSeenAt || user.lastSeenAt < lastSeenThreshold) {
+        const now = new Date();
+        await prisma.user.updateMany({
+            where: {
+                id: user.id,
+                OR: [
+                    {lastSeenAt: null},
+                    {lastSeenAt: {lt: lastSeenThreshold}},
+                ],
+            },
+            data: {lastSeenAt: now},
+        });
+        return {
+            ...user,
+            lastSeenAt: now,
+        };
     }
 
     return user;

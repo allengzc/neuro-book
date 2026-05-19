@@ -278,6 +278,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         : currentNovel.value?.workspaceSlug ? `workspace/${currentNovel.value.workspaceSlug}` : "");
     const workspaceSessionKey = computed(() => workspaceKind.value === "user-assets" ? "user-assets" : `novel:${currentNovelId.value}`);
     const isUserAssetsWorkspace = computed(() => workspaceKind.value === "user-assets");
+    const canAccessWorkspace = computed(() => workspaceKind.value === "user-assets" || Boolean(currentNovelId.value));
 
     /**
      * 当前活动文件路径。对外保留 selected 命名，内部只从 activeWorkspaceFile 投影。
@@ -892,6 +893,20 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
 
         triggerBrowserDownload(blob, filename);
         return filename;
+    };
+
+    /**
+     * 将系统 assets 中缺失的文件同步到用户 assets。
+     */
+    const syncUserAssetsFromSystem = async (): Promise<{copied: number; skipped: number}> => {
+        if (workspaceKind.value !== "user-assets") {
+            throw new Error("只有用户资产工作区可以同步系统 assets");
+        }
+        const result = await $fetch<{copied: number; skipped: number}>("/api/workspace-files/sync-user-assets", {
+            method: "POST",
+        });
+        await loadWorkspaceTree();
+        return result;
     };
 
     /**
@@ -1793,6 +1808,25 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     };
 
     /**
+     * 切换到小说 workspace；传入 novelId 时优先打开指定小说。
+     */
+    const switchToNovelWorkspace = async (novelId?: string): Promise<void> => {
+        if (workspaceKind.value === "novel" && (!novelId || novelId === currentNovelId.value)) {
+            await initializeWorkspace();
+            return;
+        }
+
+        persistWorkspaceSession();
+        workspaceKind.value = "novel";
+        if (novelId) {
+            currentNovelId.value = novelId;
+        }
+        selectedChapterId.value = "";
+        restoreWorkspaceSession();
+        await initializeWorkspace();
+    };
+
+    /**
      * 新建小说。
      */
     const createNovel = async (title: string, summary: string = ""): Promise<string> => {
@@ -1991,6 +2025,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         currentNovel,
         currentNovelId,
         currentWorkspaceRoot,
+        canAccessWorkspace,
         deleteNovel,
         deleteWorkspacePath,
         dismissPendingAgentChapterUpdate,
@@ -2058,7 +2093,9 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         setWorkspaceTabViewMode,
         toggleWorkspaceTabPinned,
         switchNovel,
+        switchToNovelWorkspace,
         switchToUserAssetsWorkspace,
+        syncUserAssetsFromSystem,
         syncChapterSummary,
         syncNovelTree,
         syncVolumeSummary,

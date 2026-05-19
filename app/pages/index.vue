@@ -58,6 +58,8 @@ let workspaceFileSyncRunning = false;
 let pendingWorkspaceFileEvents: WorkspaceFileChangeEventDto[] = [];
 
 const novelIdeStore = useNovelIdeStore();
+const route = useRoute();
+const router = useRouter();
 const {
     activeLeftTab,
     activeWorkspaceTabPath,
@@ -86,6 +88,7 @@ const {
     workspaceTabs,
     workspaceTree,
     workspaceKind,
+    isUserAssetsWorkspace,
 } = storeToRefs(novelIdeStore);
 const {
     applyAgentWorkspaceSync,
@@ -104,6 +107,8 @@ const {
     resolveWorkspaceWriteConflict,
     syncWorkspaceFromDisk,
     switchNovel,
+    switchToNovelWorkspace,
+    switchToUserAssetsWorkspace,
     validateWorkspace,
 } = novelIdeStore;
 const {mountThemeHost} = useIdeTheme(theme);
@@ -129,11 +134,17 @@ const displayActiveLeftTab = computed<NovelIdeTab | null>(() => {
     if (!isHydrated.value) {
         return "files";
     }
+    if (isUserAssetsWorkspace.value) {
+        return "files";
+    }
     if (activeLeftTab.value === null) {
         return null;
     }
     return isNovelIdeTab(activeLeftTab.value) ? activeLeftTab.value : "files";
 });
+const displayNovelTitle = computed(() => isUserAssetsWorkspace.value ? "用户资产" : currentNovel.value?.title ?? "");
+const displayNovelItems = computed(() => isUserAssetsWorkspace.value ? [] : novelItems.value);
+const displayNovelIdForAgent = computed(() => isUserAssetsWorkspace.value ? "" : currentNovelId.value);
 
 /**
  * 当前文件扩展名，统一用于编辑器类型判断。
@@ -409,6 +420,13 @@ async function openWorkspaceReference(target: string): Promise<void> {
 }
 
 /**
+ * 在页面关闭或刷新前同步落下当前 workspace 会话。
+ */
+function flushWorkspaceSession(): void {
+    novelIdeStore.persistWorkspaceSession();
+}
+
+/**
  * 为 TipTap 引用 chip 解析真实 workspace 节点。
  */
 function resolveWorkspaceReferencePreview(target: string, sourcePath: string): WorkspaceReferencePreviewMeta {
@@ -680,6 +698,9 @@ const resolveUnsavedWorkspaceChanges = async (): Promise<WorkspaceSwitchDecision
  */
 const handleSwitchNovel = async (novelId: string): Promise<void> => {
     if (novelId === currentNovelId.value) {
+        if (route.query.workspace !== "novel" || route.query.novelId !== novelId) {
+            await router.replace({path: "/", query: {workspace: "novel", novelId}});
+        }
         return;
     }
 
@@ -689,6 +710,7 @@ const handleSwitchNovel = async (novelId: string): Promise<void> => {
     }
 
     await switchNovel(novelId, {discardWorkspaceChanges: decision === "discard"});
+    await router.replace({path: "/", query: {workspace: "novel", novelId}});
 };
 
 /**
@@ -739,19 +761,25 @@ const handleWorkspaceFileEvent = (event: WorkspaceFileStreamEventDto): void => {
 };
 
 /**
- * 订阅当前小说 workspace 的文件变化。
+ * 订阅当前 workspace 的文件变化。
  */
-const subscribeWorkspaceEvents = (novelId: string): void => {
+const subscribeWorkspaceEvents = (): void => {
     workspaceEventAbortController.value?.abort();
     workspaceEventAbortController.value = null;
     pendingWorkspaceFileEvents = [];
-    if (!import.meta.client || !novelId) {
+    if (!import.meta.client) {
         return;
     }
 
     const abortController = new AbortController();
     workspaceEventAbortController.value = abortController;
-    void workspaceFileEvents.subscribe({novelId}, handleWorkspaceFileEvent, abortController.signal)
+    const target = workspaceKind.value === "user-assets"
+        ? {workspaceKind: "user-assets"} as const
+        : currentNovelId.value ? {novelId: currentNovelId.value} as const : null;
+    if (!target) {
+        return;
+    }
+    void workspaceFileEvents.subscribe(target, handleWorkspaceFileEvent, abortController.signal)
         .catch((error) => {
             if (abortController.signal.aborted) {
                 return;
@@ -760,13 +788,6 @@ const subscribeWorkspaceEvents = (novelId: string): void => {
             notification.warning("文件实时同步连接已断开，请手动刷新或重新打开小说。", {title: "同步中断"});
         });
 };
-
-watch(currentNovelId, (novelId) => {
-    if (workspaceKind.value !== "novel") {
-        return;
-    }
-    subscribeWorkspaceEvents(novelId);
-}, {immediate: true});
 
 /**
  * 把服务端 SSE 帧解析为续写事件。
@@ -953,6 +974,9 @@ const toggleLeftTab = (tab: NovelIdeTab): void => {
  * 从顶部栏直接打开剧本工作台。
  */
 const openPlotWorkbench = (): void => {
+    if (isUserAssetsWorkspace.value) {
+        return;
+    }
     novelIdeStore.plotWorkbenchOpen = true;
 };
 
@@ -960,8 +984,71 @@ const openPlotWorkbench = (): void => {
  * 打开全局用户 assets 工作区。
  */
 const openUserAssets = (): void => {
-    const route = useRouter().resolve("/assets");
-    window.open(route.href, "_blank", "noopener,noreferrer");
+    const resolved = router.resolve({path: "/", query: {workspace: "user-assets"}});
+    window.open(resolved.href, "_blank", "noopener,noreferrer");
+};
+
+/**
+ * 根据页面 query 初始化当前工作区。
+ */
+const initializeWorkspaceFromRoute = async (): Promise<void> => {
+    const workspaceQuery = typeof route.query.workspace === "string" ? route.query.workspace : "";
+    const novelIdQuery = typeof route.query.novelId === "string" ? route.query.novelId : "";
+
+    if (workspaceQuery === "user-assets") {
+        await switchToUserAssetsWorkspace();
+        activeLeftTab.value = "files";
+        return;
+    }
+
+    await switchToNovelWorkspace(workspaceQuery === "novel" ? novelIdQuery : undefined);
+};
+
+/**
+ * 判断当前 store 状态是否已经匹配页面 query。
+ */
+const workspaceRouteSynced = (): boolean => {
+    const workspaceQuery = typeof route.query.workspace === "string" ? route.query.workspace : "";
+    const novelIdQuery = typeof route.query.novelId === "string" ? route.query.novelId : "";
+    if (workspaceQuery === "user-assets") {
+        return isUserAssetsWorkspace.value;
+    }
+    if (workspaceQuery === "novel" && novelIdQuery && novels.value.some((novel) => novel.id === novelIdQuery)) {
+        return workspaceKind.value === "novel" && currentNovelId.value === novelIdQuery;
+    }
+    return workspaceKind.value === "novel";
+};
+
+/**
+ * 将当前小说页面规范成可分享的 query URL。
+ */
+const normalizeNovelRouteQuery = async (): Promise<void> => {
+    if (isUserAssetsWorkspace.value || !currentNovelId.value) {
+        return;
+    }
+    if (route.query.workspace === "novel" && route.query.novelId === currentNovelId.value) {
+        return;
+    }
+    await router.replace({path: "/", query: {workspace: "novel", novelId: currentNovelId.value}});
+};
+
+/**
+ * 监听页面 query 变化，允许主页面直接切换 novel/user-assets workspace。
+ */
+const syncWorkspaceRoute = async (): Promise<void> => {
+    if (workspaceRouteSynced()) {
+        subscribeWorkspaceEvents();
+        return;
+    }
+    const decision = await resolveUnsavedWorkspaceChanges();
+    if (decision === "cancel") {
+        return;
+    }
+    await initializeWorkspaceFromRoute();
+    if (!isUserAssetsWorkspace.value) {
+        await validateWorkspace();
+    }
+    subscribeWorkspaceEvents();
 };
 
 /**
@@ -980,15 +1067,28 @@ onMounted(() => {
 
         try {
             mountThemeHost(themeHostRef.value);
+            window.addEventListener("pagehide", flushWorkspaceSession);
+            window.addEventListener("beforeunload", flushWorkspaceSession);
             await syncAuthSession();
             await syncDefaultModelLabel();
-            await initializeWorkspace();
-            await validateWorkspace();
+            await initializeWorkspaceFromRoute();
+            if (!isUserAssetsWorkspace.value) {
+                await validateWorkspace();
+                await normalizeNovelRouteQuery();
+            }
+            subscribeWorkspaceEvents();
             initialized.value = true;
         } finally {
             isHydrated.value = true;
         }
     })();
+});
+
+watch(() => [route.query.workspace, route.query.novelId], () => {
+    if (!initialized.value) {
+        return;
+    }
+    void syncWorkspaceRoute();
 });
 
 onBeforeUnmount(() => {
@@ -997,6 +1097,10 @@ onBeforeUnmount(() => {
     abortController.value = null;
     workspaceEventAbortController.value?.abort();
     workspaceEventAbortController.value = null;
+    if (import.meta.client) {
+        window.removeEventListener("pagehide", flushWorkspaceSession);
+        window.removeEventListener("beforeunload", flushWorkspaceSession);
+    }
     novelIdeStore.persistWorkspaceSession();
 });
 </script>
@@ -1008,9 +1112,10 @@ onBeforeUnmount(() => {
             <NovelIdeHeader
                 class="ide-panel ide-header"
                 :right-panel-open="displayRightPanelOpen"
-                :novel-title="currentNovel?.title ?? ''"
-                :novel-items="novelItems"
+                :novel-title="displayNovelTitle"
+                :novel-items="displayNovelItems"
                 :current-user="currentUser"
+                :workspace-mode="isUserAssetsWorkspace ? 'user-assets' : 'novel'"
                 @toggle-agent="rightPanelOpen = !rightPanelOpen"
                 @open-bookshelf="bookshelfOpen = true"
                 @open-plot-workbench="openPlotWorkbench"
@@ -1026,9 +1131,9 @@ onBeforeUnmount(() => {
         </ClientOnly>
 
         <div class="flex min-h-0 flex-1 overflow-hidden">
-            <NovelIdeSidebar class="ide-sidebar" :active-tab="displayActiveLeftTab" @toggle-tab="toggleLeftTab" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" />
+            <NovelIdeSidebar class="ide-sidebar" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="toggleLeftTab" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" />
 
-            <NovelIdeToolPanel class="ide-panel" :active-tab="displayActiveLeftTab" @close="activeLeftTab = null" />
+            <NovelIdeToolPanel class="ide-panel" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @close="activeLeftTab = null" />
 
             <!-- 中央工作区 -->
             <main class="ide-editor-canvas relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--editor-canvas-bg)]">
@@ -1079,14 +1184,14 @@ onBeforeUnmount(() => {
             <NovelAgentDrawer
                 class="ide-agent-drawer"
                 :is-open="displayRightPanelOpen"
-                :novel-id="currentNovelId"
+                :novel-id="displayNovelIdForAgent"
                 :selected-file-path="selectedFilePath"
                 @close="rightPanelOpen = false"
                 @sync-workspace="void handleAgentWorkspaceUpdated($event)"
             />
         </div>
 
-        <NovelBookshelfDialog v-model="bookshelfOpen" />
+        <NovelBookshelfDialog v-model="bookshelfOpen" @switched="void router.replace({path: '/', query: {workspace: 'novel', novelId: $event}})" />
         <NovelIdeSettingsDialog v-model="settingsDialogOpen" />
         <WorkspaceFileConflictDialog
             v-model="novelIdeStore.workspaceConflictDialogOpen"

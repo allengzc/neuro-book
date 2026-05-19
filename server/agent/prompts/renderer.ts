@@ -111,6 +111,9 @@ function renderPromptNode(node: PromptNode): string {
     if (node.kind === "fragment") {
         return node.children.map((child) => renderInline(child)).join("");
     }
+    if (node.kind === "tool_call") {
+        return "";
+    }
     if (node.kind === "message" || node.kind === "history") {
         throw new Error(`${node.kind} 节点不能嵌套在消息内容内部`);
     }
