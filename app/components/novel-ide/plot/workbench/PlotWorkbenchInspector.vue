@@ -245,9 +245,9 @@ function removeManualRef(refId: string): void {
                 <FormField label="摘要">
                     <StructuredTextEditor
                         :model-value="props.thread.summary"
-                        :rows="5"
-                        :min-height="94"
-                        :max-height="160"
+                        :rows="12"
+                        :min-height="228"
+                        :max-height="380"
                         placeholder="Thread 摘要，可使用 [标题](lorebook/...) 或 [节点](plot://...)"
                         @update:model-value="updateThread({summary: $event})"
                     />
@@ -255,9 +255,9 @@ function removeManualRef(refId: string): void {
                 <FormField label="写作提示">
                     <StructuredTextEditor
                         :model-value="props.thread.writingTip ?? ''"
-                        :rows="4"
-                        :min-height="76"
-                        :max-height="132"
+                        :rows="6"
+                        :min-height="114"
+                        :max-height="380"
                         placeholder="写作提示，可写入 inline ref"
                         @update:model-value="updateThread({writingTip: $event || null})"
                     />
@@ -281,9 +281,9 @@ function removeManualRef(refId: string): void {
                 <FormField label="摘要">
                     <StructuredTextEditor
                         :model-value="props.scene.summary"
-                        :rows="6"
-                        :min-height="112"
-                        :max-height="188"
+                        :rows="12"
+                        :min-height="228"
+                        :max-height="380"
                         placeholder="Scene 摘要，可使用内容节点或 plot inline ref"
                         @update:model-value="updateScene({summary: $event})"
                     />
@@ -292,9 +292,9 @@ function removeManualRef(refId: string): void {
                 <FormField label="目的">
                     <StructuredTextEditor
                         :model-value="props.scene.purpose ?? ''"
-                        :rows="4"
-                        :min-height="76"
-                        :max-height="132"
+                        :rows="8"
+                        :min-height="152"
+                        :max-height="380"
                         placeholder="Scene 目的"
                         @update:model-value="updateScene({purpose: $event || null})"
                     />
@@ -302,9 +302,9 @@ function removeManualRef(refId: string): void {
                 <FormField label="写作提示">
                     <StructuredTextEditor
                         :model-value="props.scene.writingTip ?? ''"
-                        :rows="4"
-                        :min-height="76"
-                        :max-height="132"
+                        :rows="6"
+                        :min-height="114"
+                        :max-height="380"
                         placeholder="写作提示"
                         @update:model-value="updateScene({writingTip: $event || null})"
                     />
@@ -318,9 +318,9 @@ function removeManualRef(refId: string): void {
                 <FormField label="摘要">
                     <StructuredTextEditor
                         :model-value="props.plot.summary"
-                        :rows="6"
-                        :min-height="112"
-                        :max-height="188"
+                        :rows="12"
+                        :min-height="228"
+                        :max-height="380"
                         placeholder="Plot 摘要，可使用 [标题](lorebook/...) 或 [节点](plot://...)"
                         @update:model-value="updatePlot({summary: $event})"
                     />
@@ -328,9 +328,9 @@ function removeManualRef(refId: string): void {
                 <FormField label="效果">
                     <StructuredTextEditor
                         :model-value="props.plot.effect ?? ''"
-                        :rows="4"
-                        :min-height="76"
-                        :max-height="132"
+                        :rows="8"
+                        :min-height="152"
+                        :max-height="380"
                         placeholder="Plot 效果"
                         @update:model-value="updatePlot({effect: $event || null})"
                     />
@@ -338,9 +338,9 @@ function removeManualRef(refId: string): void {
                 <FormField label="写作提示">
                     <StructuredTextEditor
                         :model-value="props.plot.writingTip ?? ''"
-                        :rows="4"
-                        :min-height="76"
-                        :max-height="132"
+                        :rows="6"
+                        :min-height="114"
+                        :max-height="380"
                         placeholder="写作提示"
                         @update:model-value="updatePlot({writingTip: $event || null})"
                     />

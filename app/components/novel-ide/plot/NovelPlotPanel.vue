@@ -1618,11 +1618,14 @@ async function reorderScenes(sceneIds: string[]): Promise<void> {
 watch(() => ({
     novelId: currentNovelId.value,
     workspaceLoading: loadingWorkspace.value,
-}), async ({novelId, workspaceLoading}) => {
+}), async ({novelId, workspaceLoading}, previousState) => {
+    const isInitialMount = previousState === undefined;
     closeContextMenu();
     deleteTarget.value = null;
     editorVisible.value = false;
-    plotWorkbenchOpen.value = false;
+    if (!isInitialMount) {
+        plotWorkbenchOpen.value = false;
+    }
     selectedPlotId.value = null;
     treeError.value = "";
     detailError.value = "";
@@ -1641,6 +1644,9 @@ watch(() => ({
     }
 
     await loadPlotTree();
+    if (plotWorkbenchOpen.value) {
+        void loadPlotWorkbench(true);
+    }
 }, {immediate: true});
 
 watch(plotWorkbenchOpen, (open) => {

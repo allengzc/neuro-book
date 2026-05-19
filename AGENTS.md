@@ -76,6 +76,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Agent 文件工具读取当前小说 workspace 时，优先传 `lorebook/...`、`manuscript/...` 或 `workspace/...`；这些路径应映射到活跃小说 workspace，不应按项目根解析。
 - 如果遇到性能与复杂度权衡问题，报告、解释、给出你的建议、交给用户做最终决定
 - **Important: 永远不要用 shell 工具代替文件编辑工具。当你想这样做的时候，停止你的行为，请求用户同意**
+- **不要自动进行浏览器验证，你可以建议用户让你进行浏览器验证**
 
 ## 文档索引
 

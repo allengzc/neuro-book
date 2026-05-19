@@ -948,8 +948,9 @@ const toggleLeftTab = (tab: NovelIdeTab): void => {
 /**
  * 从顶部栏打开剧本工作台，并确保剧情大纲面板已挂载。
  */
-const openPlotWorkbench = (): void => {
+const openPlotWorkbench = async (): Promise<void> => {
     activeLeftTab.value = "outline";
+    await nextTick();
     novelIdeStore.plotWorkbenchOpen = true;
 };
 
@@ -992,19 +993,25 @@ onBeforeUnmount(() => {
 <template>
     <!-- IDE 页面根容器 -->
     <div ref="themeHostRef" class="novel-ide-page ide-shell flex h-screen flex-col overflow-hidden bg-[var(--bg-main)] text-[var(--text-main)] transition-colors duration-300">
-        <NovelIdeHeader
-            class="ide-panel ide-header"
-            :right-panel-open="displayRightPanelOpen"
-            :novel-title="currentNovel?.title ?? ''"
-            :novel-items="novelItems"
-            :current-user="currentUser"
-            @toggle-agent="rightPanelOpen = !rightPanelOpen"
-            @open-bookshelf="bookshelfOpen = true"
-            @open-plot-workbench="openPlotWorkbench"
-            @switch-novel="handleSwitchNovel"
-            @open-admin="void openAdmin()"
-            @logout="void logout()"
-        />
+        <ClientOnly>
+            <NovelIdeHeader
+                class="ide-panel ide-header"
+                :right-panel-open="displayRightPanelOpen"
+                :novel-title="currentNovel?.title ?? ''"
+                :novel-items="novelItems"
+                :current-user="currentUser"
+                @toggle-agent="rightPanelOpen = !rightPanelOpen"
+                @open-bookshelf="bookshelfOpen = true"
+                @open-plot-workbench="openPlotWorkbench"
+                @switch-novel="handleSwitchNovel"
+                @open-admin="void openAdmin()"
+                @logout="void logout()"
+            />
+            <template #fallback>
+                <!-- 顶部栏 SSR 占位，真实 Header 等客户端状态恢复后挂载。 -->
+                <header class="ide-panel ide-header flex h-12 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-panel)]"></header>
+            </template>
+        </ClientOnly>
 
         <div class="flex min-h-0 flex-1 overflow-hidden">
             <NovelIdeSidebar class="ide-sidebar" :active-tab="displayActiveLeftTab" @toggle-tab="toggleLeftTab" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" />

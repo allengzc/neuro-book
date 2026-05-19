@@ -36,6 +36,8 @@ const props = withDefaults(defineProps<{
     showFooter?: boolean;
     /** 是否处于忙碌态，忙碌时不允许关闭或再次确认 */
     busy?: boolean;
+    /** 自定义 body 区域 class，用于大尺寸工作台等需要接管内部滚动的场景 */
+    bodyClass?: string;
 }>(), {
     title: "",
     closable: true,
@@ -49,6 +51,7 @@ const props = withDefaults(defineProps<{
     showCancel: false,
     showFooter: true,
     busy: false,
+    bodyClass: "",
 });
 
 const emit = defineEmits<{
@@ -196,7 +199,7 @@ onMounted(() => {
                     </div>
 
                     <!-- body 区域 -->
-                    <div class="flex-1 flex flex-col gap-4 overflow-y-auto px-5 py-4 text-[14px] leading-relaxed text-[var(--text-secondary)]">
+                    <div class="flex-1 flex flex-col gap-4 overflow-y-auto px-5 py-4 text-[14px] leading-relaxed text-[var(--text-secondary)]" :class="props.bodyClass">
                         <slot />
                     </div>
 

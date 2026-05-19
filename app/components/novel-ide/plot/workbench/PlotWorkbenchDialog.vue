@@ -274,6 +274,7 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
         overlay-type="blur"
         :show-footer="false"
         :close-on-overlay="false"
+        body-class="!gap-0 !overflow-hidden !p-0"
         @update:model-value="emit('update:modelValue', $event)"
     >
         <template #header>
@@ -302,7 +303,7 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
         </template>
 
         <!-- 工作台主体 -->
-        <div class="-m-5 flex min-h-0 flex-1 flex-col overflow-hidden bg-[color-mix(in_srgb,var(--bg-main)_96%,white)]">
+        <div class="flex min-h-0 flex-1 flex-col overflow-hidden bg-[color-mix(in_srgb,var(--bg-main)_96%,white)]">
             <nav class="flex h-11 shrink-0 items-center justify-center gap-10 border-b border-[var(--border-color)] bg-[var(--bg-panel)]/88 px-8 text-[12px] font-medium shadow-sm">
                 <button
                     v-for="tab in tabs"
