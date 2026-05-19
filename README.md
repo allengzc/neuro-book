@@ -66,7 +66,7 @@ auth:
 
 - `neuro-book-deploy`：首次部署或重新生成 `.deploy/` 本地配置，支持默认 `ghcr` 和 `source` 两种模式。
 - `bun scripts/deploy.mjs`：开发服务器快速同步入口，默认登录 `arch`，面向已经初始化好的 source 模式部署。
-- `node scripts/publish-ghcr-image.mjs`：本地构建并推送 GHCR 镜像，适合低内存服务器使用预构建镜像。
+- `node scripts/publish-ghcr-image.mjs`：本地构建并推送 GHCR runtime/app 两类镜像，适合低内存服务器使用预构建镜像。
 
 推荐使用一键交互式部署脚本。它会检查 Docker、拉取仓库，在 `.deploy/` 下生成 `.env.docker`、`config.yaml` 和 compose override。默认使用 GHCR 预构建镜像启动，避免低内存服务器执行 Nuxt build。
 
@@ -80,7 +80,7 @@ npx --yes --package github:notnotype/neuro-book neuro-book-deploy
 - Web 端口，默认 `3000`。
 - 模型 Provider 和 API Key。
 - 使用内置 Postgres，或填写外部 `DATABASE_URL`。
-- 部署模式：默认 `ghcr`，使用 `ghcr.io/notnotype/neuro-book:latest`；也可以选择 `source`，把宿主机源码挂载到容器 `/app`。
+- 部署模式：默认 `ghcr`，使用 `ghcr.io/notnotype/neuro-book:latest`；也可以选择 `source`，本地构建 source runtime 镜像并把宿主机源码挂载到容器 `/app`。
 
 也可以 clone 仓库后手动运行 Node CLI：
 
@@ -107,7 +107,7 @@ set +a
 bun run nuxt:prepare
 bun run generate
 bun run nuxt:build
-docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d
+docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/docker-compose.generated.yml up -d --build
 ```
 
 如果是本项目的开发服务器，source 模式初始化成功后可直接从本地快速同步：
@@ -130,7 +130,12 @@ docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/d
 
 ### GHCR 镜像发布
 
-低内存服务器不要在目标机器上执行 Nuxt build。默认 `ghcr` 部署模式会拉取预构建镜像；该镜像内部包含完整项目源码和运行所需文件，因此也可以在容器内执行 `bun run auth:create-admin` 等管理脚本。
+低内存服务器不要在目标机器上执行 Nuxt build。默认 `ghcr` 部署模式会拉取预构建 app 镜像；该镜像内部包含完整项目源码、运行依赖和 agent 常用 shell 工具，因此也可以在容器内执行 `bun run auth:create-admin` 等管理脚本。
+
+项目发布两类 GHCR 镜像：
+
+- `ghcr.io/notnotype/neuro-book-runtime`：基础 runtime 镜像，包含 Bun、Node.js、Python 3、ripgrep、git、bash 和常见 coreutils。
+- `ghcr.io/notnotype/neuro-book`：开箱即用 app 镜像，基于同一 runtime 工具链，额外包含完整项目源码、`node_modules`、Prisma 和 Nuxt `.output`。
 
 本地手动发布到 GHCR：
 
@@ -141,13 +146,15 @@ bun run docker:publish
 
 `GHCR_TOKEN` 需要至少有 `write:packages` 权限。
 
-默认会推送 `ghcr.io/notnotype/neuro-book:latest` 和 `ghcr.io/notnotype/neuro-book:<package.json version>`。如需指定 tag：
+默认会同时推送 runtime/app 两类镜像的 `latest` 和 `<package.json version>`。如需指定 tag：
 
 ```bash
 bun run docker:publish -- --tag v1.0.0
 ```
 
 仓库也提供 release-only GitHub Actions：只有发布 GitHub Release 时才会自动构建并推送 `ghcr.io/<owner>/neuro-book:<release tag>` 和 `ghcr.io/<owner>/neuro-book:latest`。
+
+同一次 Release 也会推送 `ghcr.io/<owner>/neuro-book-runtime:<release tag>` 和 `ghcr.io/<owner>/neuro-book-runtime:latest`。
 
 服务器使用预构建镜像时，部署脚本会在 `.deploy/docker-compose.generated.yml` 中覆盖 `app.image` 并移除 `build`。更新镜像后运行：
 
@@ -164,6 +171,7 @@ docker compose --env-file .deploy/.env.docker -f docker-compose.yml -f .deploy/d
 - `adapter` 决定 Provider 协议：OpenAI 官方接口使用 `openai-official`，主流 OpenAI 兼容网关使用 `openai-compatible`，DeepSeek 官方接口使用 `deepseek-official`，Gemini 使用 `gemini-compatible`。`openai-compatible` 默认会保留并回放 provider 返回的 `reasoning_content`；如需关闭，可写成 `adapter: { type: openai-compatible, reasoningContentReplay: false }`。
 - `contextWindowTokens` 用于上下文预算估算；能确认模型窗口时填数字，不能确认时填 `null`。
 - `./workspace` 会挂载到容器内 `/app/workspace`，`.deploy/config.yaml` 会挂载到 `/app/config.yaml`。
+- source 模式不依赖 GHCR，会使用 `Dockerfile.source-runtime` 本地构建 `neuro-book-source-runtime:latest`，再挂载宿主机源码。
 - `.deploy/` 是本机部署状态目录，已加入 `.gitignore`，后续 `git pull` 不会与部署私有配置冲突。
 - 当前主线历史已移除曾提交过的真实 `config.yaml`，但已经暴露过的 Provider token 仍应视为泄露并立即轮换；旧 clone、fork、缓存或本地临时 worktree 仍可能保留旧对象。
 

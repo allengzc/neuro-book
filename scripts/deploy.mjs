@@ -113,7 +113,7 @@ step "Nuxt build"
 bun run nuxt:build
 
 step "重启 app 容器"
-run_sudo docker compose --env-file .deploy/.env.docker ${COMPOSE_FILES} up -d --force-recreate app
+run_sudo docker compose --env-file .deploy/.env.docker ${COMPOSE_FILES} up -d --build --force-recreate app
 
 step "Compose 状态"
 run_sudo docker compose --env-file .deploy/.env.docker ${COMPOSE_FILES} ps

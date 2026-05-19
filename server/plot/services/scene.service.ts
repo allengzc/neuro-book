@@ -6,6 +6,7 @@ import type {
     ParsedReorderStorySceneItem,
     ParsedUpdateStorySceneInput,
 } from "nbook/server/plot/core/types";
+import {throwPlotBadRequest} from "nbook/server/plot/core/errors";
 import {OrderService} from "nbook/server/plot/services/order.service";
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
 import {RefResolverService} from "nbook/server/plot/services/ref-resolver.service";
@@ -168,13 +169,31 @@ export class SceneService {
             existingThreadIds,
             items,
         );
+        const affectedThreadIds = new Set(parsedItems.map((item) => item.threadId));
 
-        for (const item of parsedItems) {
+        for (const threadId of affectedThreadIds) {
+            const existingThreadSceneIds = (await this.sceneRepository.findScenesByThread(threadId)).map((scene) => scene.id);
+            const inputThreadSceneIds = parsedItems.filter((item) => item.threadId === threadId).map((item) => item.sceneId);
+            if (
+                existingThreadSceneIds.length !== inputThreadSceneIds.length
+                || existingThreadSceneIds.some((sceneId) => !inputThreadSceneIds.includes(sceneId))
+            ) {
+                throwPlotBadRequest(`剧情线程 ${threadId} 下的 Scene 重排必须覆盖当前 Thread 的全部 Scene`);
+            }
+        }
+
+        for (const [index, item] of parsedItems.entries()) {
             await this.sceneRepository.updateScene(item.sceneId, {
                 threadId: item.threadId,
                 chapterPath: item.chapterPath,
-                threadSortOrder: item.threadSortOrder,
+                threadSortOrder: -(index + 1),
                 chapterSortOrder: item.chapterSortOrder,
+            });
+        }
+
+        for (const item of parsedItems) {
+            await this.sceneRepository.updateScene(item.sceneId, {
+                threadSortOrder: item.threadSortOrder,
             });
         }
 

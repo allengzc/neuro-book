@@ -151,7 +151,7 @@ const visibleRefGroups = computed(() => [
 const showRefs = computed(() => props.mode === "scene" && Boolean(props.scene));
 
 /**
- * 更新当前 Thread mock。
+ * 更新当前 Thread。
  */
 function updateThread(patch: Partial<PlotThreadPanelThread>): void {
     if (!props.thread) {
@@ -161,7 +161,7 @@ function updateThread(patch: Partial<PlotThreadPanelThread>): void {
 }
 
 /**
- * 更新当前 Scene mock。
+ * 更新当前 Scene。
  */
 function updateScene(patch: Partial<PlotThreadPanelScene>): void {
     if (!props.scene) {
@@ -171,7 +171,7 @@ function updateScene(patch: Partial<PlotThreadPanelScene>): void {
 }
 
 /**
- * 更新当前 Plot mock。
+ * 更新当前 Plot。
  */
 function updatePlot(patch: Partial<PlotThreadPanelPlot>): void {
     if (!props.plot) {

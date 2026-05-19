@@ -92,7 +92,7 @@ export async function saveProfileTemplate(name: string, input: {
             data: parsed.issues,
         });
     }
-    await writeFile(resolveTemplatePath(fileName), source.endsWith("\n") ? source : `${source}\n`, "utf-8");
+    await writeFile(resolveTemplatePath(fileName), source, "utf-8");
     return readProfileTemplate(fileName);
 }
 

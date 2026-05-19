@@ -111,6 +111,7 @@ function run(command, args, options = {}) {
     return new Promise((resolvePromise, rejectPromise) => {
         const child = spawn(command, args, {
             cwd: options.cwd,
+            env: options.env ? {...process.env, ...options.env} : process.env,
             stdio: options.stdio ?? "inherit",
         });
 
@@ -399,8 +400,10 @@ function renderGeneratedCompose(config) {
 
     return `services:
     app:
-        image: oven/bun:1
-        build: null
+        image: neuro-book-source-runtime:latest
+        build:
+            context: .
+            dockerfile: Dockerfile.source-runtime
         working_dir: /app
         command: ["sh", "./scripts/docker-entrypoint.sh"]
         volumes:
@@ -408,6 +411,26 @@ function renderGeneratedCompose(config) {
             - ./workspace:/app/workspace
             - ./${deployConfigPath}:/app/config.yaml
 `;
+}
+
+/** 解析当前脚本生成的 .env.docker 文本，用于宿主机 source build。 */
+function parseEnv(text) {
+    const result = {};
+    for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith("#")) {
+            continue;
+        }
+
+        const index = trimmed.indexOf("=");
+        if (index === -1) {
+            continue;
+        }
+
+        result[trimmed.slice(0, index)] = trimmed.slice(index + 1);
+    }
+
+    return result;
 }
 
 /** 返回部署私有文件目录。 */
@@ -439,7 +462,8 @@ function upCommand(config) {
     }
     files.push("-f", `${DEPLOY_DIRNAME}/docker-compose.generated.yml`);
 
-    return `docker compose --env-file ${DEPLOY_DIRNAME}/.env.docker ${files.join(" ")} up -d`;
+    const upArgs = config.deployMode === "source" ? "up -d --build" : "up -d";
+    return `docker compose --env-file ${DEPLOY_DIRNAME}/.env.docker ${files.join(" ")} ${upArgs}`;
 }
 
 /** 生成源码模式更新命令提示。 */
@@ -447,6 +471,9 @@ function sourceUpdateCommands(config) {
     return [
         "git pull --ff-only",
         "bun install --frozen-lockfile",
+        "set -a",
+        ". .deploy/.env.docker",
+        "set +a",
         "bun run nuxt:prepare",
         "bun run generate",
         "bun run nuxt:build",
@@ -584,8 +611,29 @@ async function runCompose(config) {
     composeFiles.push("-f", `${DEPLOY_DIRNAME}/docker-compose.generated.yml`);
 
     const args = ["compose", ...composeFiles, "--env-file", `${DEPLOY_DIRNAME}/.env.docker`, "up", "-d"];
+    if (config.deployMode === "source") {
+        args.push("--build");
+    }
 
     await run("docker", args, {cwd: config.deployDir});
+}
+
+/** source 模式在宿主机完成依赖安装、Prisma generate 和 Nuxt build。 */
+async function buildSource(config, env) {
+    if (config.deployMode !== "source") {
+        return;
+    }
+
+    if (config.dryRun) {
+        p.log.info("Dry run enabled; skipped source build steps.");
+        return;
+    }
+
+    p.log.info("Preparing source deployment on host.");
+    await run("bun", ["install", "--frozen-lockfile"], {cwd: config.deployDir, env});
+    await run("bun", ["run", "nuxt:prepare"], {cwd: config.deployDir, env});
+    await run("bun", ["run", "generate"], {cwd: config.deployDir, env});
+    await run("bun", ["run", "nuxt:build"], {cwd: config.deployDir, env});
 }
 
 /** CLI 主流程。 */
@@ -598,6 +646,9 @@ async function main() {
         await needCommand("git");
         await needCommand("docker");
         await needCommand("docker", ["compose", "version"]);
+        if (config.deployMode === "source") {
+            await needCommand("bun");
+        }
     }
 
     await ensureRepository(config);
@@ -606,7 +657,9 @@ async function main() {
 
     const postgresPassword = randomSecret();
     const sessionPassword = randomSecret();
-    await writePrivateFile(resolve(deployStateDir(config), ".env.docker"), renderEnv(config, postgresPassword, sessionPassword));
+    const envText = renderEnv(config, postgresPassword, sessionPassword);
+    const hostBuildEnv = parseEnv(envText);
+    await writePrivateFile(resolve(deployStateDir(config), ".env.docker"), envText);
     await writePrivateFile(resolve(deployStateDir(config), "config.yaml"), renderConfig(config));
     await writeFile(resolve(deployStateDir(config), "docker-compose.generated.yml"), renderGeneratedCompose(config), "utf-8");
     await writeFile(resolve(deployStateDir(config), "README.md"), renderDeployReadme(config), "utf-8");
@@ -615,6 +668,7 @@ async function main() {
     p.log.success(`Wrote ${resolve(deployStateDir(config), ".env.docker")}`);
     p.log.success(`Wrote ${resolve(deployStateDir(config), "config.yaml")}`);
     p.log.success(`Wrote ${resolve(deployStateDir(config), "docker-compose.generated.yml")}`);
+    await buildSource(config, hostBuildEnv);
     await runCompose(config);
     p.outro(`Done. Open http://localhost:${config.port}`);
 }

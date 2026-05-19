@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {readFile} from "node:fs/promises";
+import {mkdir, readFile, rm} from "node:fs/promises";
 import {resolve} from "node:path";
 import {
     generateProfileTemplateSource,
@@ -8,6 +8,7 @@ import {
 } from "nbook/server/agent/profile-templates/profile-template-service";
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
 import type {AgentVariableScope} from "nbook/server/agent/types";
+import {saveProfileTemplate} from "nbook/server/agent/profile-templates/profile-template-service";
 
 const VALID_SOURCE = `/** @jsxRuntime automatic */
 /** @jsxImportSource nbook/server/agent/prompts */
@@ -236,6 +237,21 @@ describe("profile-template-service", () => {
 
         expect(result.root?.type).toBe("ProfilePrompt");
         expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
+    });
+
+    it("保存源码时不会自动追加换行", async () => {
+        const templatePath = resolve(process.cwd(), "server/agent/profiles/templates/save-no-newline.test.tsx");
+        await mkdir(resolve(process.cwd(), "server/agent/profiles/templates"), {recursive: true});
+        try {
+            await saveProfileTemplate("save-no-newline.test", {source: VALID_SOURCE});
+
+            const saved = await readFile(templatePath, "utf-8");
+
+            expect(VALID_SOURCE.endsWith("\n")).toBe(false);
+            expect(saved).toBe(VALID_SOURCE);
+        } finally {
+            await rm(templatePath, {force: true});
+        }
     });
 });
 

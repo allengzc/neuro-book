@@ -188,8 +188,11 @@ export class OrderService {
     ): ParsedReorderStorySceneItem[] {
         const existingThreadIdSet = new Set(existingThreadIds);
 
-        this.assertCompleteCoverage(existingSceneIds, items.map((item) => item.sceneId), "剧情场景");
+        this.assertDistinctIds(items.map((item) => item.sceneId), "剧情场景");
         for (const item of items) {
+            if (!existingSceneIds.includes(item.sceneId)) {
+                throwPlotBadRequest(`剧情场景 ${item.sceneId} 不属于当前小说`);
+            }
             if (!existingThreadIdSet.has(item.threadId)) {
                 throwPlotBadRequest(`剧情线程 ${item.threadId} 不属于当前小说`);
             }
@@ -207,12 +210,14 @@ export class OrderService {
             (item) => item.threadSortOrder,
             (groupKey) => `剧情线程 ${groupKey} 下的 Scene`,
         );
-        this.assertGroupedContinuousOrders(
-            items.filter((item) => item.chapterPath !== null),
-            (item) => String(item.chapterPath),
-            (item) => item.chapterSortOrder ?? 0,
-            (groupKey) => `章节 ${groupKey} 下的 Scene`,
-        );
+        if (items.length === existingSceneIds.length) {
+            this.assertGroupedContinuousOrders(
+                items.filter((item) => item.chapterPath !== null),
+                (item) => String(item.chapterPath),
+                (item) => item.chapterSortOrder ?? 0,
+                (groupKey) => `章节 ${groupKey} 下的 Scene`,
+            );
+        }
 
         return items;
     }
@@ -227,7 +232,12 @@ export class OrderService {
     ): ParsedReorderStoryPlotItem[] {
         const existingSceneIdSet = new Set(existingSceneIds);
 
-        this.assertCompleteCoverage(existingPlotIds, items.map((item) => item.plotId), "情节点");
+        this.assertDistinctIds(items.map((item) => item.plotId), "情节点");
+        for (const item of items) {
+            if (!existingPlotIds.includes(item.plotId)) {
+                throwPlotBadRequest(`情节点 ${item.plotId} 不属于当前小说`);
+            }
+        }
         for (const item of items) {
             if (!existingSceneIdSet.has(item.sceneId)) {
                 throwPlotBadRequest(`剧情场景 ${item.sceneId} 不属于当前小说`);

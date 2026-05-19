@@ -5,6 +5,7 @@ import type {
     ParsedReorderStoryPlotItem,
     ParsedUpdateStoryPlotInput,
 } from "nbook/server/plot/core/types";
+import {throwPlotBadRequest} from "nbook/server/plot/core/errors";
 import {OrderService} from "nbook/server/plot/services/order.service";
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
 import {StoryService} from "nbook/server/plot/services/story.service";
@@ -110,10 +111,32 @@ export class PlotService {
             this.sceneRepository.findSceneIdsByStory(story.id),
         ]);
         const parsedItems = this.orderService.validatePlotReorderItems(existingPlotIds, existingSceneIds, items);
+        const affectedSceneIds = new Set(parsedItems.map((item) => item.sceneId));
+
+        for (const sceneId of affectedSceneIds) {
+            const existingScenePlotIds = (await this.plotRepository.findPlotsByScene(sceneId)).map((plot) => plot.id);
+            const inputScenePlotIds = parsedItems.filter((item) => item.sceneId === sceneId).map((item) => item.plotId);
+            if (
+                existingScenePlotIds.length !== inputScenePlotIds.length
+                || existingScenePlotIds.some((plotId) => !inputScenePlotIds.includes(plotId))
+            ) {
+                throwPlotBadRequest(`剧情场景 ${sceneId} 下的 Plot 重排必须覆盖当前 Scene 的全部 Plot`);
+            }
+        }
+
+        for (const sceneId of affectedSceneIds) {
+            await this.plotRepository.lockPlotOrderBucket(sceneId);
+        }
+
+        for (const [index, item] of parsedItems.entries()) {
+            await this.plotRepository.updatePlot(item.plotId, {
+                sceneId: item.sceneId,
+                sortOrder: -(index + 1),
+            });
+        }
 
         for (const item of parsedItems) {
             await this.plotRepository.updatePlot(item.plotId, {
-                sceneId: item.sceneId,
                 sortOrder: item.sortOrder,
             });
         }

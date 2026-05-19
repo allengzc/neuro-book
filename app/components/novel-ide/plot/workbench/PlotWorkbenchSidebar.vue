@@ -10,7 +10,7 @@ import {
     type PlotThreadPanelThread,
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
 
-type ThreadFilterMode = "all" | "main" | "support" | "active" | "draft" | "paused" | "unmounted" | "pinned" | "recent";
+type ThreadFilterMode = "all" | "main" | "support" | "active" | "draft" | "paused" | "unmounted" | "pinned";
 
 const props = defineProps<{
     threads: PlotThreadPanelThread[];
@@ -42,7 +42,6 @@ const modeItems: Array<{value: ThreadFilterMode; label: string}> = [
     {value: "paused", label: "暂停"},
     {value: "unmounted", label: "未挂载"},
     {value: "pinned", label: "已 Pin"},
-    {value: "recent", label: "最近"},
 ];
 
 const filterPanelOpen = ref(false);
@@ -88,8 +87,7 @@ const filteredThreads = computed(() => {
             || (props.mode === "draft" && thread.status === "draft")
             || (props.mode === "paused" && thread.status === "paused")
             || (props.mode === "unmounted" && !thread.phaseId)
-            || (props.mode === "pinned" && pinnedThreadSet.value.has(thread.id))
-            || props.mode === "recent";
+            || (props.mode === "pinned" && pinnedThreadSet.value.has(thread.id));
         return matchedKeyword && matchedMode;
     });
 });
@@ -201,25 +199,6 @@ onClickOutside(filterPanelRef, () => {
                     </div>
                 </button>
             </section>
-
-            <section>
-                <div class="mb-2 text-[11px] font-semibold text-[var(--text-main)]">最近使用</div>
-                <div class="space-y-1.5 text-[11px] text-[var(--text-secondary)]">
-                    <button
-                        v-for="thread in props.threads.slice(1, 4)"
-                        :key="thread.id"
-                        type="button"
-                        class="flex w-full items-center justify-between gap-2 rounded-md px-1.5 py-1 text-left hover:bg-[var(--bg-hover)]"
-                        @click="emit('selectThread', thread.id)"
-                    >
-                        <span class="flex min-w-0 items-center gap-2">
-                            <span class="i-lucide-clock-3 h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]"></span>
-                            <span class="truncate">{{ thread.title.replace(/^支线：|^未分组：/, "") }}</span>
-                        </span>
-                        <span class="shrink-0 text-[10px] text-[var(--text-muted)]">{{ thread.status === "active" ? "3 天前" : "7 天前" }}</span>
-                    </button>
-                </div>
-            </section>
         </div>
 
         <div class="min-h-0 flex-1 overflow-y-auto px-3 py-3 custom-scrollbar">
@@ -299,17 +278,13 @@ onClickOutside(filterPanelRef, () => {
 
         <transition name="fade">
             <div v-if="filterPanelOpen" ref="filterPanelRef" class="absolute left-[calc(100%+8px)] top-3 z-40 w-[260px] rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-3 shadow-2xl">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <div class="text-[12px] font-semibold text-[var(--text-main)]">管理视图与筛选</div>
-                        <div class="text-[10px] text-[var(--text-muted)]">仅影响当前 preview 列表</div>
-                    </div>
+                <div class="flex justify-end">
                     <button type="button" class="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)]" @click="closeFilterPanel">
                         <span class="i-lucide-x h-3.5 w-3.5"></span>
                     </button>
                 </div>
 
-                <div class="mt-3 space-y-2">
+                <div class="mt-1 space-y-2">
                     <div class="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">筛选模式</div>
                     <div class="flex flex-wrap gap-1.5">
                         <button

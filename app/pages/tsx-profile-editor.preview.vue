@@ -76,7 +76,7 @@ type ProfileTemplateDropState = {
 type ActiveDragSource = ProfileTemplateNodeDragData | (ProfileTemplateLibraryDragData & {previewNodeId: string}) | null;
 
 type HistoryEntry = {
-    root: ProfileTemplateNodeDto;
+    sourceText: string;
     selectedNodeId: string;
 };
 
@@ -134,12 +134,14 @@ const {mountThemeHost, setTheme} = useIdeTheme(theme);
 const templates = ref<ProfileTemplateSummaryDto[]>([]);
 const selectedTemplate = ref("leader-runtime");
 const detail = ref<ProfileTemplateDetailDto | null>(null);
+const sourceText = ref("");
 const root = ref<ProfileTemplateNodeDto | null>(null);
 const selectedNodeId = ref("");
 const previewMessages = ref<ProfileTemplatePreviewMessageDto[]>([]);
 const issues = ref<ProfileTemplateIssueDto[]>([]);
 const loading = ref(false);
 const saving = ref(false);
+const autosaving = ref(false);
 const validating = ref(false);
 const previewing = ref(false);
 const previewDialogOpen = ref(false);
@@ -164,6 +166,17 @@ const lastValidDropState = ref<ProfileTemplateDropState>(null);
 const dropState = ref<ProfileTemplateDropState>(null);
 const undoStack = ref<HistoryEntry[]>([]);
 const redoStack = ref<HistoryEntry[]>([]);
+const dirty = ref(false);
+const lastSavedAt = ref("");
+const lastSaveError = ref("");
+const parsingSource = ref(false);
+let sourceParseTimer: number | null = null;
+let sourceHistoryTimer: number | null = null;
+let autosaveTimer: number | null = null;
+let sourceEditHistoryOpen = false;
+let syncingSourceFromCanvas = false;
+let sourceParseVersion = 0;
+let keyboardListener: ((event: KeyboardEvent) => void) | null = null;
 
 const selectedNode = computed(() => root.value ? findNode(root.value, selectedNodeId.value) : null);
 const selectedPropEntries = computed(() => selectedNode.value ? Object.entries(selectedNode.value.props) : []);
@@ -177,14 +190,29 @@ const threadOptions = computed(() => threads.value.map((thread) => ({
     description: thread.summary || thread.lastMessagePreview || thread.status,
 })));
 const issueCount = computed(() => issues.value.filter((issue) => issue.severity === "error").length);
-const sourceSnippet = computed(() => root.value ? generatePreviewNodeSource(root.value) : "");
-const sourceLineCount = computed(() => sourceSnippet.value ? sourceSnippet.value.split("\n").length : 0);
+const canEditDerivedTree = computed(() => Boolean(root.value) && !parsingSource.value && issueCount.value === 0);
+const sourceLineCount = computed(() => sourceText.value ? sourceText.value.split("\n").length : 0);
 const selectedTemplateFileName = computed(() => templates.value.find((item) => item.name === selectedTemplate.value)?.fileName ?? `${selectedTemplate.value}.tsxprofile`);
 const selectedTextLength = computed(() => selectedNode.value?.text?.length ?? 0);
 const canUndo = computed(() => undoStack.value.length > 0);
 const canRedo = computed(() => redoStack.value.length > 0);
 const nodeCount = computed(() => root.value ? countNodes(root.value) - 1 : 0);
 const displayRoot = computed(() => dragVisualRoot.value ?? root.value);
+const editorStatusText = computed(() => {
+    if (saving.value) {
+        return "保存中...";
+    }
+    if (autosaving.value) {
+        return "自动保存中...";
+    }
+    if (lastSaveError.value) {
+        return `保存失败：${lastSaveError.value}`;
+    }
+    if (dirty.value) {
+        return parsingSource.value ? "源码解析中，等待自动保存" : "有未保存更改";
+    }
+    return statusText.value || "等待操作";
+});
 const disabledDropNodeIds = computed(() => {
     const source = activeDragSource.value;
     const snapshot = dragSnapshot.value;
@@ -337,6 +365,7 @@ async function loadTemplate(): Promise<void> {
     try {
         const nextDetail = await $fetch<ProfileTemplateDetailDto>(`/api/agent/profile-templates/${selectedTemplate.value}`);
         detail.value = nextDetail;
+        sourceText.value = nextDetail.source;
         root.value = nextDetail.root ? cloneNode(nextDetail.root) : null;
         issues.value = nextDetail.issues;
         previewVariableGroups.value = mapPreviewVariableGroups(nextDetail.variables);
@@ -344,6 +373,11 @@ async function loadTemplate(): Promise<void> {
         previewMessages.value = [];
         undoStack.value = [];
         redoStack.value = [];
+        dirty.value = false;
+        lastSaveError.value = "";
+        lastSavedAt.value = "";
+        clearAutosaveTimer();
+        clearSourceEditHistory();
         resetDragState();
         statusText.value = "已加载模板";
     } finally {
@@ -355,7 +389,7 @@ async function loadTemplate(): Promise<void> {
  * 请求预览并同步规范化源码。
  */
 async function previewTemplate(): Promise<void> {
-    if (!root.value) {
+    if (!sourceText.value) {
         return;
     }
     previewing.value = true;
@@ -366,12 +400,18 @@ async function previewTemplate(): Promise<void> {
             method: "POST",
             headers: buildAgentPreviewHeaders(),
             body: {
-                root: root.value,
+                source: sourceText.value,
                 threadId: selectedThreadId.value || undefined,
                 inputOverrides: normalizePreviewInputOverrides(),
             },
         });
         issues.value = result.issues;
+        if (result.root && !result.issues.some((issue) => issue.severity === "error")) {
+            root.value = reconcileNodeIds(root.value, result.root);
+            if (root.value && !findNode(root.value, selectedNodeId.value)) {
+                selectedNodeId.value = findFirstEditableNodeId(root.value);
+            }
+        }
         previewMessages.value = result.messages;
         previewVariableGroups.value = mapPreviewVariableGroups(result.variables);
         const timeText = new Date().toLocaleTimeString("zh-CN", {hour12: false});
@@ -426,16 +466,22 @@ async function openPreviewDialog(): Promise<void> {
  * 校验当前模板树。
  */
 async function validateTemplate(): Promise<void> {
-    if (!root.value) {
+    if (!sourceText.value) {
         return;
     }
     validating.value = true;
     try {
         const result = await $fetch<ProfileTemplateDetailDto>("/api/agent/profile-templates/validate", {
             method: "POST",
-            body: {root: root.value},
+            body: {source: sourceText.value},
         });
         issues.value = result.issues;
+        if (result.root && !result.issues.some((issue) => issue.severity === "error")) {
+            root.value = reconcileNodeIds(root.value, result.root);
+            if (root.value && !findNode(root.value, selectedNodeId.value)) {
+                selectedNodeId.value = findFirstEditableNodeId(root.value);
+            }
+        }
         statusText.value = result.issues.some((issue) => issue.severity === "error") ? "校验未通过" : "校验通过";
     } finally {
         validating.value = false;
@@ -446,22 +492,53 @@ async function validateTemplate(): Promise<void> {
  * 保存当前模板。
  */
 async function saveTemplate(): Promise<void> {
-    if (!root.value || !selectedTemplate.value) {
+    await persistTemplate(false);
+}
+
+/**
+ * 保存当前源码到模板文件。
+ */
+async function persistTemplate(silent: boolean): Promise<void> {
+    if (!sourceText.value || !selectedTemplate.value || issueCount.value > 0 || parsingSource.value) {
         return;
     }
-    saving.value = true;
+    const savedSourceText = sourceText.value;
+    if (silent) {
+        autosaving.value = true;
+    } else {
+        clearAutosaveTimer();
+        saving.value = true;
+    }
     try {
         const result = await $fetch<ProfileTemplateDetailDto>(`/api/agent/profile-templates/${selectedTemplate.value}`, {
             method: "PUT",
-            body: {root: root.value},
+            body: {source: savedSourceText},
         });
         detail.value = result;
-        root.value = result.root ? cloneNode(result.root) : null;
-        issues.value = result.issues;
-        selectedNodeId.value = result.root ? findFirstEditableNodeId(result.root) : "";
-        statusText.value = "已保存模板";
+        if (sourceText.value === savedSourceText) {
+            root.value = result.root ? reconcileNodeIds(root.value, result.root) : null;
+            issues.value = result.issues;
+            const currentRoot = root.value;
+            if (currentRoot && !findNode(currentRoot, selectedNodeId.value)) {
+                selectedNodeId.value = findFirstEditableNodeId(currentRoot);
+            }
+            dirty.value = false;
+        } else {
+            dirty.value = true;
+            scheduleAutosave();
+        }
+        lastSaveError.value = "";
+        lastSavedAt.value = new Date().toLocaleTimeString("zh-CN", {hour12: false});
+        statusText.value = silent ? `已自动保存 · ${lastSavedAt.value}` : `已保存模板 · ${lastSavedAt.value}`;
+    } catch (error) {
+        lastSaveError.value = describeFetchError(error);
+        statusText.value = silent ? `自动保存失败：${lastSaveError.value}` : `保存失败：${lastSaveError.value}`;
     } finally {
-        saving.value = false;
+        if (silent) {
+            autosaving.value = false;
+        } else {
+            saving.value = false;
+        }
     }
 }
 
@@ -469,6 +546,9 @@ async function saveTemplate(): Promise<void> {
  * 添加组件到当前选中节点。
  */
 function addNode(type: ProfileTemplateNodeType): void {
+    if (!ensureDerivedTreeEditable()) {
+        return;
+    }
     if (!root.value) {
         root.value = createNode("ProfilePrompt");
         selectedNodeId.value = root.value.id;
@@ -484,6 +564,7 @@ function addNode(type: ProfileTemplateNodeType): void {
     pushHistory();
     parent.children.push(node);
     selectedNodeId.value = node.id;
+    syncSourceTextFromRoot();
     inspectorTab.value = "props";
     void previewTemplate();
 }
@@ -492,12 +573,16 @@ function addNode(type: ProfileTemplateNodeType): void {
  * 删除指定节点。
  */
 function deleteNode(id: string = selectedNodeId.value): void {
+    if (!ensureDerivedTreeEditable()) {
+        return;
+    }
     if (!root.value || id === root.value.id) {
         return;
     }
     pushHistory();
     removeNode(root.value, id);
     selectedNodeId.value = findFirstEditableNodeId(root.value);
+    syncSourceTextFromRoot();
     void previewTemplate();
 }
 
@@ -505,6 +590,9 @@ function deleteNode(id: string = selectedNodeId.value): void {
  * 复制指定节点到同级后方。
  */
 function duplicateNode(id: string): void {
+    if (!ensureDerivedTreeEditable()) {
+        return;
+    }
     if (!root.value || id === root.value.id) {
         return;
     }
@@ -524,6 +612,7 @@ function duplicateNode(id: string): void {
         return;
     }
     selectedNodeId.value = copy.id;
+    syncSourceTextFromRoot();
     void previewTemplate();
 }
 
@@ -531,7 +620,7 @@ function duplicateNode(id: string): void {
  * 更新节点属性。
  */
 function updateProp(key: string, value: ProfileTemplatePropValue): void {
-    if (!selectedNode.value) {
+    if (!ensureDerivedTreeEditable() || !selectedNode.value) {
         return;
     }
     pushHistory();
@@ -544,7 +633,7 @@ function updateProp(key: string, value: ProfileTemplatePropValue): void {
  * 更新表达式属性，保留 TSX 源码而不是转成普通字符串。
  */
 function updateExpressionProp(key: string, code: string): void {
-    if (!selectedNode.value) {
+    if (!ensureDerivedTreeEditable() || !selectedNode.value) {
         return;
     }
     pushHistory();
@@ -560,7 +649,7 @@ function updateExpressionProp(key: string, code: string): void {
  * 更新节点文本。
  */
 function updateText(value: string): void {
-    if (!selectedNode.value) {
+    if (!ensureDerivedTreeEditable() || !selectedNode.value) {
         return;
     }
     pushHistory();
@@ -573,7 +662,7 @@ function updateText(value: string): void {
  * 插入变量到当前活跃字段。
  */
 function insertVariable(value: string): void {
-    if (!selectedNode.value) {
+    if (!ensureDerivedTreeEditable() || !selectedNode.value) {
         return;
     }
     pushHistory();
@@ -594,6 +683,19 @@ function insertVariable(value: string): void {
     }
     refreshRootView();
     void previewTemplate();
+}
+
+/**
+ * 确保当前源码已经成功解析，避免用旧画布树覆盖正在修复的源码。
+ */
+function ensureDerivedTreeEditable(): boolean {
+    if (canEditDerivedTree.value) {
+        return true;
+    }
+    statusText.value = parsingSource.value
+        ? "源码解析中，暂不能编辑画布"
+        : "源码存在错误，修复后才能编辑画布";
+    return false;
 }
 
 /**
@@ -674,7 +776,7 @@ function mapPreviewVariableGroups(groups: Array<{group: string; items: Array<{la
  */
 function handleNodeDragStart(event: DragStartPayload): void {
     const source = event.operation.source;
-    if (!root.value || !source || !isSupportedDragData(source.data)) {
+    if (!canEditDerivedTree.value || !root.value || !source || !isSupportedDragData(source.data)) {
         resetDragState(false);
         return;
     }
@@ -699,6 +801,9 @@ function handleNodeDragStart(event: DragStartPayload): void {
  * 拖拽前先选中节点，保证操作反馈和属性面板同步。
  */
 function prepareNodeDrag(nodeId: string): void {
+    if (!canEditDerivedTree.value) {
+        return;
+    }
     selectedNodeId.value = nodeId;
 }
 
@@ -706,6 +811,10 @@ function prepareNodeDrag(nodeId: string): void {
  * 处理节点拖拽经过，仅拦截非法排序目标。
  */
 function handleNodeDragOver(event: DragOverPayload): void {
+    if (!canEditDerivedTree.value) {
+        event.preventDefault();
+        return;
+    }
     const source = activeDragSource.value;
     const snapshot = dragSnapshot.value;
     if (!snapshot || !source) {
@@ -737,6 +846,10 @@ function handleNodeDragOver(event: DragOverPayload): void {
  * 处理节点拖拽结束，提交当前预览位置，取消时回滚。
  */
 function handleNodeDragEnd(event: DragEndPayload): void {
+    if (!canEditDerivedTree.value) {
+        resetDragState(false);
+        return;
+    }
     const snapshot = dragSnapshot.value;
     const source = activeDragSource.value;
     const finalDropState = lastValidDropState.value;
@@ -753,9 +866,10 @@ function handleNodeDragEnd(event: DragEndPayload): void {
         return;
     }
 
-    pushHistory(snapshot);
+    pushHistory();
     root.value = nextRoot.root;
     selectedNodeId.value = nextRoot.selectedNodeId;
+    syncSourceTextFromRoot();
     resetDragState(false);
     void previewTemplate();
 }
@@ -803,16 +917,14 @@ function createNodeId(type: ProfileTemplateNodeType): string {
  */
 function undoEdit(): void {
     const entry = undoStack.value.pop();
-    if (!entry || !root.value) {
+    if (!entry) {
         return;
     }
     redoStack.value.push({
-        root: cloneNode(root.value),
+        sourceText: sourceText.value,
         selectedNodeId: selectedNodeId.value,
     });
-    root.value = cloneNode(entry.root);
-    selectedNodeId.value = entry.selectedNodeId;
-    void previewTemplate();
+    applySourceSnapshot(entry);
 }
 
 /**
@@ -820,33 +932,244 @@ function undoEdit(): void {
  */
 function redoEdit(): void {
     const entry = redoStack.value.pop();
-    if (!entry || !root.value) {
+    if (!entry) {
         return;
     }
     undoStack.value.push({
-        root: cloneNode(root.value),
+        sourceText: sourceText.value,
         selectedNodeId: selectedNodeId.value,
     });
-    root.value = cloneNode(entry.root);
-    selectedNodeId.value = entry.selectedNodeId;
-    void previewTemplate();
+    applySourceSnapshot(entry);
 }
 
 /**
  * 记录编辑前快照。
  */
-function pushHistory(snapshot: ProfileTemplateNodeDto | undefined = root.value ?? undefined): void {
+function pushHistory(snapshot: string | undefined = sourceText.value): void {
     if (!snapshot) {
         return;
     }
     undoStack.value.push({
-        root: cloneNode(snapshot),
+        sourceText: snapshot,
         selectedNodeId: selectedNodeId.value,
     });
     if (undoStack.value.length > 80) {
         undoStack.value.shift();
     }
     redoStack.value = [];
+}
+
+/**
+ * 应用 sourceText 历史快照，并重新解析出画布结构。
+ */
+function applySourceSnapshot(entry: HistoryEntry): void {
+    sourceText.value = entry.sourceText;
+    selectedNodeId.value = entry.selectedNodeId;
+    clearSourceEditHistory();
+    markDirtyAndScheduleAutosave();
+    void validateSourceTextNow("历史已回退");
+}
+
+/**
+ * 画布结构编辑完成后，以完整 TSX 文本刷新页面真相源。
+ */
+function syncSourceTextFromRoot(): void {
+    if (!root.value) {
+        return;
+    }
+    syncingSourceFromCanvas = true;
+    sourceText.value = generateFullTemplateSource(selectedTemplate.value || "profile-template", root.value);
+    markDirtyAndScheduleAutosave();
+    queueMicrotask(() => {
+        syncingSourceFromCanvas = false;
+    });
+}
+
+/**
+ * 源码编辑器内容变化后，延迟解析并同步画布。
+ */
+function handleSourceTextChange(value: string): void {
+    if (value === sourceText.value) {
+        return;
+    }
+    if (!syncingSourceFromCanvas && !sourceEditHistoryOpen) {
+        pushHistory(sourceText.value);
+        sourceEditHistoryOpen = true;
+    }
+    sourceText.value = value;
+    parsingSource.value = true;
+    markDirtyAndScheduleAutosave();
+    scheduleSourceParse();
+    if (sourceHistoryTimer) {
+        window.clearTimeout(sourceHistoryTimer);
+    }
+    sourceHistoryTimer = window.setTimeout(() => {
+        sourceEditHistoryOpen = false;
+        sourceHistoryTimer = null;
+    }, 1200);
+}
+
+/**
+ * 源码编辑防抖解析。
+ */
+function scheduleSourceParse(): void {
+    if (sourceParseTimer) {
+        window.clearTimeout(sourceParseTimer);
+    }
+    sourceParseTimer = window.setTimeout(() => {
+        sourceParseTimer = null;
+        void validateSourceTextNow("源码已同步");
+    }, 500);
+}
+
+/**
+ * 立即用服务端受限 DSL 解析当前源码。
+ */
+async function validateSourceTextNow(successText: string): Promise<void> {
+    if (!sourceText.value) {
+        root.value = null;
+        issues.value = [];
+        return;
+    }
+    const version = ++sourceParseVersion;
+    parsingSource.value = true;
+    try {
+        const result = await $fetch<ProfileTemplateDetailDto>("/api/agent/profile-templates/validate", {
+            method: "POST",
+            body: {source: sourceText.value},
+        });
+        if (version !== sourceParseVersion) {
+            return;
+        }
+        detail.value = result;
+        issues.value = result.issues;
+        previewVariableGroups.value = mapPreviewVariableGroups(result.variables);
+        if (result.root && !result.issues.some((issue) => issue.severity === "error")) {
+            root.value = reconcileNodeIds(root.value, result.root);
+            if (root.value && !findNode(root.value, selectedNodeId.value)) {
+                selectedNodeId.value = findFirstEditableNodeId(root.value);
+            }
+            statusText.value = successText;
+            if (dirty.value) {
+                scheduleAutosave();
+            }
+        } else {
+            statusText.value = "源码未解析，画布显示上一份可用结构";
+        }
+    } catch (error) {
+        if (version !== sourceParseVersion) {
+            return;
+        }
+        issues.value = [{
+            severity: "error",
+            message: `源码解析失败：${describeFetchError(error)}`,
+        }];
+        statusText.value = "源码未解析，画布显示上一份可用结构";
+    } finally {
+        if (version === sourceParseVersion) {
+            parsingSource.value = false;
+        }
+    }
+}
+
+/**
+ * 清理源码编辑批次状态。
+ */
+function clearSourceEditHistory(): void {
+    sourceEditHistoryOpen = false;
+    if (sourceHistoryTimer) {
+        window.clearTimeout(sourceHistoryTimer);
+        sourceHistoryTimer = null;
+    }
+}
+
+/**
+ * 标记模板源码已变更，并安排自动保存。
+ */
+function markDirtyAndScheduleAutosave(): void {
+    dirty.value = true;
+    lastSaveError.value = "";
+    statusText.value = parsingSource.value ? "源码解析中，等待自动保存" : "有未保存更改";
+    scheduleAutosave();
+}
+
+/**
+ * 延迟自动保存，避免每次输入都写模板文件。
+ */
+function scheduleAutosave(delayMs: number = 1000): void {
+    clearAutosaveTimer();
+    autosaveTimer = window.setTimeout(() => {
+        autosaveTimer = null;
+        void runAutosave();
+    }, delayMs);
+}
+
+/**
+ * 尝试执行自动保存；源码未稳定时延后，源码有错误时保留 dirty。
+ */
+async function runAutosave(): Promise<void> {
+    if (!dirty.value) {
+        return;
+    }
+    if (parsingSource.value || saving.value || autosaving.value) {
+        scheduleAutosave(800);
+        return;
+    }
+    if (issueCount.value > 0) {
+        statusText.value = "源码存在错误，已暂停自动保存";
+        return;
+    }
+    await persistTemplate(true);
+}
+
+/**
+ * 清理待执行的自动保存。
+ */
+function clearAutosaveTimer(): void {
+    if (autosaveTimer) {
+        window.clearTimeout(autosaveTimer);
+        autosaveTimer = null;
+    }
+}
+
+/**
+ * 页面级撤销/重做快捷键，文本编辑器内部优先处理自己的 history。
+ */
+function handleEditorKeydown(event: KeyboardEvent): void {
+    if ((!event.ctrlKey && !event.metaKey) || event.key.toLowerCase() !== "z" || isTextEditingTarget(event.target)) {
+        return;
+    }
+    if (event.shiftKey) {
+        if (!canRedo.value) {
+            return;
+        }
+        event.preventDefault();
+        redoEdit();
+        return;
+    }
+    if (!canUndo.value) {
+        return;
+    }
+    event.preventDefault();
+    undoEdit();
+}
+
+/**
+ * 判断快捷键是否应交给当前文本编辑控件。
+ */
+function isTextEditingTarget(target: EventTarget | null): boolean {
+    if (!(target instanceof HTMLElement)) {
+        return false;
+    }
+    return Boolean(target.closest([
+        "input",
+        "textarea",
+        "select",
+        "[contenteditable='true']",
+        ".monaco-editor",
+        ".ProseMirror",
+        ".structured-text-editor",
+    ].join(",")));
 }
 
 /**
@@ -878,6 +1201,30 @@ function cloneNode(node: ProfileTemplateNodeDto): ProfileTemplateNodeDto {
         props: Object.fromEntries(Object.entries(node.props).map(([key, value]) => [key, clonePropValue(value)])),
         children: node.children.map(cloneNode),
     };
+}
+
+/**
+ * 用当前画布树的 id 对齐重新解析出的节点树，避免解析/保存后 dnd identity 抖动。
+ */
+function reconcileNodeIds(previous: ProfileTemplateNodeDto | null, next: ProfileTemplateNodeDto): ProfileTemplateNodeDto {
+    const cloned = cloneNode(next);
+    if (!previous || previous.type !== cloned.type) {
+        return cloned;
+    }
+    cloned.id = previous.id;
+    const usedPreviousIndexes = new Set<number>();
+    cloned.children = cloned.children.map((child) => {
+        const previousIndex = previous.children.findIndex((previousChild, index) => {
+            return !usedPreviousIndexes.has(index) && previousChild.type === child.type;
+        });
+        if (previousIndex < 0) {
+            return child;
+        }
+        usedPreviousIndexes.add(previousIndex);
+        const previousChild = previous.children[previousIndex];
+        return previousChild ? reconcileNodeIds(previousChild, child) : child;
+    });
+    return cloned;
 }
 
 /**
@@ -926,6 +1273,7 @@ function refreshRootView(): void {
         return;
     }
     root.value = cloneNode(root.value);
+    syncSourceTextFromRoot();
 }
 
 /**
@@ -1227,6 +1575,66 @@ function nodeTitle(node: ProfileTemplateNodeDto): string {
 }
 
 /**
+ * 生成完整 TSX 模板文件。
+ * 注意：这里必须和 server/agent/profile-templates/profile-template-service.ts 的
+ * generateProfileTemplateSource 保持同一套包装规则；后续若服务端生成器变化，需要同步这里。
+ */
+function generateFullTemplateSource(templateName: string, node: ProfileTemplateNodeDto): string {
+    const componentNames = collectComponentNames(node);
+    const promptImportNames = ["Message", ...(componentNames.has("If") ? ["If"] : [])];
+    const profileImportNames = [...componentNames].filter((name) => name !== "Message" && name !== "If").sort();
+    const functionName = toPascalCase(templateName || "ProfileTemplate");
+    return [
+        "/** @jsxRuntime automatic */",
+        "/** @jsxImportSource nbook/server/agent/prompts */",
+        "",
+        `import {${promptImportNames.join(", ")}} from "nbook/server/agent/prompts";`,
+        `import {${profileImportNames.join(", ")}} from "nbook/server/agent/profiles/simple-profile";`,
+        "import type {ProfilePromptContext} from \"nbook/server/agent/profiles/simple-profile\";",
+        "",
+        `export default function ${functionName}(ctx: ProfilePromptContext<"leader.default">) {`,
+        "    return (",
+        indentPreviewSource(generatePreviewNodeSource(node), 2),
+        "    );",
+        "}",
+    ].join("\n");
+}
+
+/**
+ * 收集模板使用到的组件名。
+ */
+function collectComponentNames(node: ProfileTemplateNodeDto): Set<string> {
+    const names = new Set<string>(["ProfilePrompt"]);
+    walkNode(node, (current) => {
+        names.add(current.type);
+    });
+    return names;
+}
+
+/**
+ * 遍历节点树。
+ */
+function walkNode(node: ProfileTemplateNodeDto, visit: (node: ProfileTemplateNodeDto) => void): void {
+    visit(node);
+    for (const child of node.children) {
+        walkNode(child, visit);
+    }
+}
+
+/**
+ * 转 PascalCase 函数名。
+ */
+function toPascalCase(value: string): string {
+    const normalized = value
+        .replace(/\.tsx$/, "")
+        .split(/[^A-Za-z0-9]+/)
+        .filter(Boolean)
+        .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+        .join("");
+    return normalized || "ProfileTemplate";
+}
+
+/**
  * 生成右侧预览用 TSX 标签片段。
  */
 function generatePreviewNodeSource(node: ProfileTemplateNodeDto): string {
@@ -1390,11 +1798,26 @@ watch(selectedThreadId, async () => {
 
 onMounted(async () => {
     mountThemeHost(themeHostRef.value);
+    keyboardListener = handleEditorKeydown;
+    window.addEventListener("keydown", keyboardListener);
     await Promise.all([
         loadTemplates(),
         loadThreads(),
     ]);
     await loadTemplate();
+});
+
+onBeforeUnmount(() => {
+    if (keyboardListener) {
+        window.removeEventListener("keydown", keyboardListener);
+        keyboardListener = null;
+    }
+    if (sourceParseTimer) {
+        window.clearTimeout(sourceParseTimer);
+        sourceParseTimer = null;
+    }
+    clearAutosaveTimer();
+    clearSourceEditHistory();
 });
 </script>
 
@@ -1430,24 +1853,24 @@ onMounted(async () => {
             <div class="ml-auto flex items-center gap-2">
                 <span class="hidden items-center gap-1 text-xs text-emerald-600 md:flex">
                     <span class="i-lucide-circle-check h-3.5 w-3.5"></span>
-                    <span>{{ statusText || "等待操作" }}</span>
+                    <span>{{ editorStatusText }}</span>
                 </span>
                 <div class="mx-2 hidden h-4 w-px bg-[var(--border-color)] lg:block"></div>
-                <button class="icon-btn" title="撤销" :disabled="!canUndo" @click="undoEdit">
+                <button class="icon-btn" title="撤销 Ctrl+Z" :disabled="!canUndo" @click="undoEdit">
                     <span class="i-lucide-undo-2 h-4 w-4"></span>
                 </button>
-                <button class="icon-btn" title="重做" :disabled="!canRedo" @click="redoEdit">
+                <button class="icon-btn" title="重做 Ctrl+Shift+Z" :disabled="!canRedo" @click="redoEdit">
                     <span class="i-lucide-redo-2 h-4 w-4"></span>
                 </button>
-                <button class="toolbar-btn" :disabled="previewing || !root" @click="void openPreviewDialog()">
+                <button class="toolbar-btn" :disabled="previewing || !sourceText" @click="void openPreviewDialog()">
                     <span class="i-lucide-play h-3.5 w-3.5"></span>
                     <span>预览</span>
                 </button>
-                <button class="toolbar-btn" :disabled="validating || !root" @click="void validateTemplate()">
+                <button class="toolbar-btn" :disabled="validating || !sourceText" @click="void validateTemplate()">
                     <span class="i-lucide-badge-check h-3.5 w-3.5"></span>
                     <span>验证</span>
                 </button>
-                <button class="toolbar-btn primary" :disabled="saving || !root || issueCount > 0" @click="void saveTemplate()">
+                <button class="toolbar-btn primary" :disabled="saving || parsingSource || !sourceText || issueCount > 0" @click="void saveTemplate()">
                     <span class="i-lucide-save h-3.5 w-3.5"></span>
                     <span>保存</span>
                     <span class="i-lucide-chevron-down h-3.5 w-3.5 opacity-80"></span>
@@ -1578,21 +2001,22 @@ onMounted(async () => {
             <aside class="flex min-h-0 flex-col gap-3">
                 <section class="panel flex min-h-0 flex-[0.9] flex-col">
                     <div class="mb-2 flex shrink-0 items-center justify-between">
-                        <div class="panel-title">TSX Profile 预览（JSONC / TSX）</div>
+                        <div class="panel-title">TSX 模板源码</div>
                         <div class="flex items-center gap-2">
-                            <button class="small-btn">格式化</button>
+                            <span v-if="parsingSource" class="text-[11px] text-[var(--text-muted)]">解析中...</span>
                             <span class="text-[11px] text-[var(--text-muted)]">{{ sourceLineCount }} 行</span>
                         </div>
                     </div>
                     <MarkdownSourceEditor
                         class="source-preview min-h-0 flex-1 overflow-hidden rounded-md border border-[var(--border-color)]"
-                        :initial-value="sourceSnippet"
-                        readonly
+                        :initial-value="sourceText"
                         visible
                         language="typescript"
-                        model-path="tsx-profile-preview.tsx"
+                        :model-path="selectedTemplateFileName"
                         :theme="theme"
                         :monaco-preferences="sourceEditorPreferences"
+                        @change="handleSourceTextChange"
+                        @save-request="void saveTemplate()"
                     />
                 </section>
 

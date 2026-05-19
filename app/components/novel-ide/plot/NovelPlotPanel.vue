@@ -353,6 +353,13 @@ function resolveErrorMessage(error: unknown, fallback: string): string {
 }
 
 /**
+ * 记录剧本工作台内触发的操作错误。
+ */
+function setWorkbenchError(error: unknown, fallback: string): void {
+    workbenchError.value = resolveErrorMessage(error, fallback);
+}
+
+/**
  * 拼接写接口 diagnostics 文案。
  */
 function formatDiagnosticsText(detail: {
@@ -778,7 +785,7 @@ async function preloadThreadScenes(threadId: string): Promise<void> {
  */
 function selectThread(threadId: string): void {
     selectedThreadId.value = threadId;
-    const nextScene = scenes.value
+    const nextScene = (workbenchScenes.value.length ? workbenchScenes.value : scenes.value)
         .filter((scene) => scene.threadId === threadId)
         .sort((left, right) => left.threadSortOrder - right.threadSortOrder)[0] ?? null;
     selectedSceneId.value = nextScene?.id ?? null;
@@ -808,7 +815,9 @@ async function selectThreadFromPanel(threadId: string): Promise<void> {
  * 选中 Scene，并同步所属 Thread。
  */
 function selectScene(sceneId: string): void {
-    const scene = scenes.value.find((item) => item.id === sceneId) ?? null;
+    const scene = workbenchScenes.value.find((item) => item.id === sceneId)
+        ?? scenes.value.find((item) => item.id === sceneId)
+        ?? null;
     if (!scene) {
         return;
     }
@@ -827,7 +836,8 @@ function selectScene(sceneId: string): void {
  * 选中 Plot，并同步所属 Scene。
  */
 function selectPlot(plotId: string): void {
-    const plot = visiblePlots.value.find((item) => item.id === plotId)
+    const plot = workbenchPlots.value.find((item) => item.id === plotId)
+        ?? visiblePlots.value.find((item) => item.id === plotId)
         ?? Object.values(sceneDetailMap.value).flatMap((detail) => detail.plots.map(mapPlotDto)).find((item) => item.id === plotId)
         ?? null;
     if (!plot) {
@@ -1070,6 +1080,8 @@ async function updateWorkbenchThread(threadId: string, patch: Partial<PlotThread
         return;
     }
 
+    workbenchError.value = "";
+
     try {
         const updated = await $fetch<StoryThreadWriteResponseDto>(`/api/novels/${currentNovelId.value}/plot/threads/${threadId}`, {
             method: "PATCH",
@@ -1084,9 +1096,13 @@ async function updateWorkbenchThread(threadId: string, patch: Partial<PlotThread
         });
         detailDiagnostics.value = formatDiagnosticsText(updated);
         applyThreadDetail(updated);
+        await loadPlotTree({
+            preferredThreadId: updated.id,
+            preferredSceneId: selectedSceneId.value,
+        });
         await loadPlotWorkbench(true);
     } catch (error) {
-        treeError.value = resolveErrorMessage(error, "保存 Thread 失败");
+        setWorkbenchError(error, "保存 Thread 失败");
     }
 }
 
@@ -1097,6 +1113,8 @@ async function updateWorkbenchScene(sceneId: string, patch: Partial<PlotThreadPa
     if (!currentNovelId.value) {
         return;
     }
+
+    workbenchError.value = "";
 
     try {
         const updated = await $fetch<StorySceneWriteResponseDto>(`/api/novels/${currentNovelId.value}/plot/scenes/${sceneId}`, {
@@ -1116,7 +1134,7 @@ async function updateWorkbenchScene(sceneId: string, patch: Partial<PlotThreadPa
         applySceneDetail(updated);
         await loadPlotWorkbench(true);
     } catch (error) {
-        detailError.value = resolveErrorMessage(error, "保存 Scene 失败");
+        setWorkbenchError(error, "保存 Scene 失败");
     }
 }
 
@@ -1127,6 +1145,8 @@ async function updateWorkbenchPlot(plotId: string, patch: Partial<PlotThreadPane
     if (!currentNovelId.value) {
         return;
     }
+
+    workbenchError.value = "";
 
     try {
         const updated = await $fetch<StoryPlotWriteResponseDto>(`/api/novels/${currentNovelId.value}/plot/plots/${plotId}`, {
@@ -1147,7 +1167,7 @@ async function updateWorkbenchPlot(plotId: string, patch: Partial<PlotThreadPane
         }
         await loadPlotWorkbench(true);
     } catch (error) {
-        detailError.value = resolveErrorMessage(error, "保存 Plot 失败");
+        setWorkbenchError(error, "保存 Plot 失败");
     }
 }
 
@@ -1486,6 +1506,8 @@ async function createWorkbenchPlot(sceneId: string): Promise<void> {
         return;
     }
 
+    workbenchError.value = "";
+
     try {
         const created = await $fetch<StoryPlotWriteResponseDto>(`/api/novels/${currentNovelId.value}/plot/plots`, {
             method: "POST",
@@ -1504,7 +1526,46 @@ async function createWorkbenchPlot(sceneId: string): Promise<void> {
         await ensureSceneDetail(sceneId, true);
         await loadPlotWorkbench(true);
     } catch (error) {
-        detailError.value = resolveErrorMessage(error, "创建 Plot 失败");
+        setWorkbenchError(error, "创建 Plot 失败");
+    }
+}
+
+/**
+ * 在指定 Thread 下创建一个 Scene 草稿。
+ */
+async function createWorkbenchScene(threadId: string): Promise<void> {
+    if (!currentNovelId.value) {
+        return;
+    }
+
+    workbenchError.value = "";
+
+    try {
+        const created = await $fetch<StorySceneWriteResponseDto>(`/api/novels/${currentNovelId.value}/plot/scenes`, {
+            method: "POST",
+            body: {
+                threadId,
+                chapterPath: null,
+                title: "新建 Scene",
+                status: "draft",
+                summary: "",
+                purpose: null,
+                writingTip: null,
+                refs: [],
+            } satisfies CreateStorySceneRequestDto,
+        });
+        detailDiagnostics.value = formatDiagnosticsText(created);
+        applySceneDetail(created);
+        await loadPlotTree({
+            preferredThreadId: threadId,
+            preferredSceneId: created.id,
+        });
+        selectedThreadId.value = threadId;
+        selectedSceneId.value = created.id;
+        selectedPlotId.value = null;
+        await loadPlotWorkbench(true);
+    } catch (error) {
+        setWorkbenchError(error, "创建 Scene 失败");
     }
 }
 
@@ -1518,6 +1579,11 @@ async function confirmDelete(): Promise<void> {
 
     const target = deleteTarget.value;
     deleteTarget.value = null;
+    if (plotWorkbenchOpen.value) {
+        workbenchError.value = "";
+    } else {
+        treeError.value = "";
+    }
 
     try {
         if (target.type === "thread") {
@@ -1532,7 +1598,11 @@ async function confirmDelete(): Promise<void> {
 
         await deleteScene(target.id);
     } catch (error) {
-        treeError.value = resolveErrorMessage(error, "删除剧情对象失败");
+        if (plotWorkbenchOpen.value) {
+            setWorkbenchError(error, "删除剧情对象失败");
+        } else {
+            treeError.value = resolveErrorMessage(error, "删除剧情对象失败");
+        }
     }
 }
 
@@ -1545,7 +1615,7 @@ async function reorderPlots(payload: {sceneId: string; plotIds: string[]}): Prom
     }
 
     reorderingPlots.value = true;
-    detailError.value = "";
+    workbenchError.value = "";
 
     try {
         await $fetch(`/api/novels/${currentNovelId.value}/plot/plots/reorder`, {
@@ -1562,7 +1632,7 @@ async function reorderPlots(payload: {sceneId: string; plotIds: string[]}): Prom
         await ensureSceneDetail(payload.sceneId, true);
         await loadPlotWorkbench(true);
     } catch (error) {
-        detailError.value = resolveErrorMessage(error, "保存 Plot 顺序失败");
+        setWorkbenchError(error, "保存 Plot 顺序失败");
     } finally {
         reorderingPlots.value = false;
     }
@@ -1576,26 +1646,30 @@ async function reorderScenes(sceneIds: string[]): Promise<void> {
         return;
     }
 
-    const sceneMap = new Map(scenes.value.map((scene) => [scene.id, scene]));
-    const items = sceneIds.map((sceneId, index) => {
-        const scene = sceneMap.get(sceneId);
-        if (!scene) {
-            throw new Error(`缺少待重排 Scene: ${sceneId}`);
-        }
-
-        return {
-            sceneId,
-            threadId: scene.threadId,
-            chapterPath: scene.chapterPath,
-            threadSortOrder: index,
-            chapterSortOrder: scene.chapterSortOrder,
-        };
-    });
-
     reorderingScenes.value = true;
-    treeError.value = "";
+    if (plotWorkbenchOpen.value) {
+        workbenchError.value = "";
+    } else {
+        treeError.value = "";
+    }
 
     try {
+        const sceneMap = new Map(scenes.value.map((scene) => [scene.id, scene]));
+        const items = sceneIds.map((sceneId, index) => {
+            const scene = sceneMap.get(sceneId);
+            if (!scene) {
+                throw new Error(`缺少待重排 Scene: ${sceneId}`);
+            }
+
+            return {
+                sceneId,
+                threadId: scene.threadId,
+                chapterPath: scene.chapterPath,
+                threadSortOrder: index,
+                chapterSortOrder: scene.chapterSortOrder,
+            };
+        });
+
         await $fetch(`/api/novels/${currentNovelId.value}/plot/scenes/reorder`, {
             method: "POST",
             body: {
@@ -1609,7 +1683,11 @@ async function reorderScenes(sceneIds: string[]): Promise<void> {
         });
         await loadPlotWorkbench(true);
     } catch (error) {
-        treeError.value = resolveErrorMessage(error, "保存 Scene 顺序失败");
+        if (plotWorkbenchOpen.value) {
+            setWorkbenchError(error, "保存 Scene 顺序失败");
+        } else {
+            treeError.value = resolveErrorMessage(error, "保存 Scene 顺序失败");
+        }
     } finally {
         reorderingScenes.value = false;
     }
@@ -1769,9 +1847,9 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
             @select-plot="selectPlot"
             @create-thread="openThreadEditor('create')"
             @toggle-thread-pin="toggleWorkbenchThreadPin"
-            @toggle-thread-main="(threadId) => void updateWorkbenchThread(threadId, {isMainThread: !threads.find((thread) => thread.id === threadId)?.isMainThread})"
+            @toggle-thread-main="(threadId) => void updateWorkbenchThread(threadId, {isMainThread: !workbenchThreads.find((thread) => thread.id === threadId)?.isMainThread})"
             @delete-thread="queueDelete('thread', $event)"
-            @create-scene="(threadId) => { selectThread(threadId); void openSceneEditor('create'); }"
+            @create-scene="(threadId) => void createWorkbenchScene(threadId)"
             @create-plot="(sceneId) => void createWorkbenchPlot(sceneId)"
             @delete-plot="queueDelete('plot', $event)"
             @auto-sort-scenes="reorderScenes"

@@ -5,9 +5,25 @@ import type {
     StoryRepository,
     ThreadRepository,
 } from "nbook/server/plot/contracts/plot-repositories";
-import {describe, expect, it} from "vitest";
+import {afterAll, beforeAll, describe, expect, it} from "vitest";
+
+type CreateErrorInput = {statusCode: number; message: string};
+type TestGlobal = typeof globalThis & {
+    createError?: (input: CreateErrorInput) => Error & CreateErrorInput;
+};
 
 describe("OrderService", () => {
+    const testGlobal = globalThis as TestGlobal;
+    const previousCreateError = testGlobal.createError;
+
+    beforeAll(() => {
+        testGlobal.createError = (input: CreateErrorInput) => Object.assign(new Error(input.message), input);
+    });
+
+    afterAll(() => {
+        testGlobal.createError = previousCreateError;
+    });
+
     it("会校验 Scene 在线程 bucket 内的连续排序", () => {
         const service = new OrderService(
             {} as StoryRepository,
@@ -41,5 +57,23 @@ describe("OrderService", () => {
                 {sceneId: 1, threadId: 10, chapterPath: null, threadSortOrder: 0, chapterSortOrder: 0},
             ],
         )).toThrowError("未挂入章节的 Scene 不能提供 chapterSortOrder");
+    });
+
+    it("局部重排 Thread 时不会要求 chapterSortOrder 连续", () => {
+        const service = new OrderService(
+            {} as StoryRepository,
+            {} as ThreadRepository,
+            {} as SceneRepository,
+            {} as PlotRepository,
+        );
+
+        expect(() => service.validateSceneReorderItems(
+            [1, 2, 3],
+            [10],
+            [
+                {sceneId: 1, threadId: 10, chapterPath: "manuscript/001/", threadSortOrder: 0, chapterSortOrder: 2},
+                {sceneId: 2, threadId: 10, chapterPath: "manuscript/001/", threadSortOrder: 1, chapterSortOrder: 3},
+            ],
+        )).not.toThrow();
     });
 });

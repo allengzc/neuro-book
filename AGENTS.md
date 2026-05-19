@@ -77,6 +77,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 如果遇到性能与复杂度权衡问题，报告、解释、给出你的建议、交给用户做最终决定
 - **Important: 永远不要用 shell 工具代替文件编辑工具。当你想这样做的时候，停止你的行为，请求用户同意**
 - **不要自动进行浏览器验证，你可以建议用户让你进行浏览器验证**
+- **代码审查报告使用直白的话语再解释一次**
 
 ## 文档索引
 
@@ -132,6 +133,9 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 通用组件索引：
   - app/components/common/NotificationViewport.vue
   - app/components/common/Dialog.vue
+- 前端 API 错误文案统一使用 `app/utils/api-error.ts` 的 `resolveApiErrorMessage(error, fallback)` 解析，不要在业务组件里重复解析 `$fetch` 错误结构。
+- 前端错误展示按入口归属：当前 Dialog/Panel 内可恢复的表单或加载错误写入该入口自己的局部 error state；跨入口、后台动作、复制/剪贴板/文件操作等即时反馈使用 `useNotification()`；不要把 A 入口触发的错误写进只有 B 入口能看到的 error state。
+- 如果同一业务函数会被多个入口复用，必须在函数内按调用入口显式选择错误出口，或拆成入口级 wrapper，避免隐藏宿主、Dialog、侧边栏之间错误不可见。
 
 ## Coding Style
 

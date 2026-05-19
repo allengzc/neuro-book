@@ -946,11 +946,9 @@ const toggleLeftTab = (tab: NovelIdeTab): void => {
 };
 
 /**
- * 从顶部栏打开剧本工作台，并确保剧情大纲面板已挂载。
+ * 从顶部栏直接打开剧本工作台。
  */
-const openPlotWorkbench = async (): Promise<void> => {
-    activeLeftTab.value = "outline";
-    await nextTick();
+const openPlotWorkbench = (): void => {
     novelIdeStore.plotWorkbenchOpen = true;
 };
 

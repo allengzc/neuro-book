@@ -11,9 +11,20 @@ import type {
     PlotThreadPanelScene,
     PlotThreadPanelThread,
 } from "nbook/app/components/novel-ide/plot/thread-panel/plot-thread-panel.types";
-import type {PlotPreviewStory, PlotPreviewPhase} from "nbook/app/components/novel-ide/plot/plot-preview.types";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import type {WorkbenchManualRef} from "nbook/app/components/novel-ide/plot/workbench/plot-workbench.types";
+
+type PlotWorkbenchStory = {
+    id: string;
+    title: string;
+    summary: string;
+};
+
+type PlotWorkbenchPhase = {
+    id: string;
+    title: string;
+    summary: string;
+};
 
 type WorkbenchInlineRefKind = "content" | "thread" | "scene" | "plot";
 type WorkbenchInlineRefSource = "scene";
@@ -27,8 +38,8 @@ type WorkbenchInlineRef = {
 };
 const props = defineProps<{
     modelValue: boolean;
-    story: PlotPreviewStory;
-    phases: PlotPreviewPhase[];
+    story: PlotWorkbenchStory;
+    phases: PlotWorkbenchPhase[];
     threads: PlotThreadPanelThread[];
     scenes: PlotThreadPanelScene[];
     plots: PlotThreadPanelPlot[];
@@ -66,7 +77,7 @@ const MARKDOWN_LINK_PATTERN = /\[([^\]]+)]\(([^)]+)\)/g;
 const activeTab = ref<"overview" | "chapter" | "thread" | "draft" | "timeline" | "tree">("thread");
 const inspectorMode = ref<"thread" | "scene" | "plot" | null>(null);
 const search = ref("");
-const threadMode = ref<"all" | "main" | "support" | "active" | "draft" | "paused" | "unmounted" | "pinned" | "recent">("all");
+const threadMode = ref<"all" | "main" | "support" | "active" | "draft" | "paused" | "unmounted" | "pinned">("all");
 
 const tabs: Array<{value: "overview" | "chapter" | "thread" | "draft" | "timeline" | "tree"; label: string; icon: string}> = [
     {value: "overview", label: "总览", icon: "i-lucide-layout-dashboard"},
@@ -255,7 +266,7 @@ function toManualRefs(refs: PlotThreadPanelRef[]): WorkbenchManualRef[] {
 }
 
 /**
- * 当前正式 plot 面板类型仍要求 visibility，preview 写回时内部补默认值。
+ * 当前面板引用类型仍要求 visibility，写回时内部补默认值。
  */
 function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
     return refs.map((refItem) => ({
@@ -342,6 +353,7 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
 
                 <PlotWorkbenchSceneList
                     :thread="selectedThread"
+                    :phase-title="selectedPhase?.title ?? null"
                     :scenes="props.scenes"
                     :plots="props.plots"
                     :chapters="props.chapters"

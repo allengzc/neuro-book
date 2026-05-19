@@ -19,6 +19,7 @@
 - 右侧源码预览展示纯 `<ProfilePrompt>...</ProfilePrompt>` TSX 片段，不展示 import、函数包装或 `return (...)`。
 - 预览 Prompt 采用消息列表形式，展示解析后可能进入 prompt 的 role/text/source，而不是模拟聊天气泡。
 - 预览调试弹窗接入真实 leader 线程 scope：左侧可选择线程、查看变量当前值，并允许第一版编辑 `input.prompt`；右侧消息列表默认 Markdown 渲染，可切换源码视图。
+- 编辑器真相源切换为完整 `leader-runtime.tsx` 文本：右侧源码区可直接编辑 TSX，画布和属性面板从源码解析出的最近可用 `ProfilePrompt` 派生。
 
 ## 关键决策
 
@@ -33,6 +34,8 @@
 - 画布拖拽不做“悬停即嵌套”，只接受 `before`、`after`、`inside`、`root` 四类显式落点；拖拽中渲染 `dragVisualRoot`，真实 `root` 只在松手成功后更新，避免不同高度节点因为自动排序和 transition 抖动。
 - 拖拽源子树和组件库临时预览节点的 drop zone 会在拖拽过程中禁用，避免拖到自身、后代或临时节点内部造成循环和跳动。
 - Preview 页面维护本地撤销/重做快照栈，只影响当前前端编辑会话，不进入 DTO、API 或 runtime。
+- History 快照记录完整 `sourceText`，支持 `Ctrl+Z` 撤销和 `Ctrl+Shift+Z` 重做；源码编辑器、表单输入和富文本正文聚焦时优先使用局部编辑器自己的撤销。
+- 自动保存以 `sourceText` dirty 状态为准，源码解析中或存在 error 级 issue 时暂停写入，解析恢复后继续通过现有保存 API 写回模板文件。
 - 右侧变量面板仍可做模板文本插入；预览 DTO 额外返回变量 `path/currentValue/editable`，仅用于调试界面展示和本地 input 覆盖，不改变真实 profile runtime 运行语义。
 - `leader-runtime.tsx` 保持合法 TSX 模块包装，便于 typecheck、保存和后续接入 runtime；纯 `<ProfilePrompt>...</ProfilePrompt>` 只作为编辑器展示视图。
 - DTO 支持表达式属性 `{kind: "expression", code}` 和 `Message.textKind = "source"`，用于保留 `watchValue={...}`、`when={...}`、`render={...}` 和正文中的 `{...}` TSX 片段，避免保存时把真实模板逻辑拍平成普通字符串。
@@ -69,6 +72,8 @@
   - 中间模板画布支持节点选择、复制、删除、折叠、跨父级拖拽、before / after / inside / root 落点、拖拽中实时位置预览，以及子节点在父节点卡片内嵌展示。
   - 折叠容器仍保留内部落点，拖拽时可把节点或组件投放进折叠节点。
   - 撤销和重做对新增、删除、复制、拖拽、属性编辑和变量插入生效。
+  - 右侧源码区直接编辑 TSX 后，解析成功会同步画布；解析失败时画布保留上一份可用结构并显示错误。
+  - 自动保存会在源码稳定且无错误后写回模板；`Ctrl+Z` / `Ctrl+Shift+Z` 在非文本编辑区回退完整源码快照。
   - 右侧属性面板、变量面板、运行时变量和 Prompt 消息预览可切换；源码预览为暗色只读代码区。
   - Prompt 预览调试弹窗为左右布局：左侧线程和变量，右侧消息卡片；消息卡片默认 Markdown 渲染，可切换源码。
 

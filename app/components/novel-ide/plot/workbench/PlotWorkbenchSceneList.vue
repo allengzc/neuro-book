@@ -32,6 +32,7 @@ type PlotDragData = {
 
 const props = defineProps<{
     thread: PlotThreadPanelThread | null;
+    phaseTitle: string | null;
     scenes: PlotThreadPanelScene[];
     plots: PlotThreadPanelPlot[];
     chapters: PlotThreadPanelChapter[];
@@ -302,8 +303,14 @@ function moveScene(payload: {sceneId: string; direction: "up" | "down"}): void {
     }
     nextScenes.splice(targetIndex, 0, scene);
     const previousRects = snapshotSceneRects();
+    dragScenes.value = nextScenes;
     emit("reorderScenes", nextScenes.map((item) => item.id));
     void animateSceneReorder(previousRects);
+    window.setTimeout(() => {
+        if (dragScenes.value === nextScenes) {
+            dragScenes.value = null;
+        }
+    }, 900);
 }
 
 /**
@@ -329,15 +336,24 @@ function movePlot(payload: {sceneId: string; plotId: string; direction: "up" | "
     nextPlots.splice(targetIndex, 0, plot);
 
     const previousRects = snapshotPlotRects(payload.sceneId);
+    dragPlots.value = {
+        sceneId: payload.sceneId,
+        plots: nextPlots,
+    };
     emit("reorderPlots", {
         sceneId: payload.sceneId,
         plotIds: nextPlots.map((item) => item.id),
     });
     void animatePlotReorder(payload.sceneId, previousRects);
+    window.setTimeout(() => {
+        if (dragPlots.value?.sceneId === payload.sceneId && dragPlots.value.plots === nextPlots) {
+            dragPlots.value = null;
+        }
+    }, 900);
 }
 
 /**
- * 创建当前 Thread 下的 Scene mock。
+ * 创建当前 Thread 下的 Scene。
  */
 function createScene(): void {
     if (!props.thread) {
@@ -531,7 +547,7 @@ watch(() => props.thread?.id, () => {
                     <span class="rounded-[4px] bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 ring-1 ring-inset ring-amber-500/20 dark:text-amber-400">
                         {{ props.thread.isMainThread ? "主线" : "支线" }}
                     </span>
-                    <span class="text-[11.5px] font-medium text-[var(--text-muted)]">第一阶段：开局逃亡</span>
+                    <span class="text-[11.5px] font-medium text-[var(--text-muted)]">{{ props.phaseTitle ?? "未分阶段" }}</span>
                 </div>
                 
                 <div class="mt-3 flex flex-col gap-1.5 text-[12px] leading-relaxed text-[var(--text-secondary)]">

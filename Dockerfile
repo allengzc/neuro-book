@@ -1,10 +1,25 @@
-FROM oven/bun:1 AS deps
+FROM oven/bun:1-debian AS runtime-base
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        coreutils \
+        findutils \
+        git \
+        nodejs \
+        python3 \
+        ripgrep \
+    && rm -rf /var/lib/apt/lists/*
+
+FROM runtime-base AS deps
 WORKDIR /app
 
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
-FROM oven/bun:1 AS build
+FROM runtime-base AS build
 WORKDIR /app
 
 ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/neuro_book
@@ -15,7 +30,7 @@ RUN bun run nuxt:prepare
 RUN bun run generate
 RUN bun run nuxt:build
 
-FROM oven/bun:1 AS runner
+FROM runtime-base AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production

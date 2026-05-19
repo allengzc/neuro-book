@@ -1,0 +1,14 @@
+FROM oven/bun:1-debian
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        bash \
+        ca-certificates \
+        coreutils \
+        findutils \
+        git \
+        nodejs \
+        python3 \
+        ripgrep \
+    && rm -rf /var/lib/apt/lists/*
