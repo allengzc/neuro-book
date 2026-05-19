@@ -39,7 +39,7 @@ const { panelStyle, resolvedDirection } = useFloatingPanelLayout({
     panelRef,
     direction: ref("auto"),
     maxHeight: 480, // Increased max height to accommodate list
-    matchAnchorWidth: false, // We want it fixed width or dynamic width, not matching the anchor exactly
+    matchAnchorWidth: true,
 });
 
 const targetSections = computed<AgentTriggerMenuSection[]>(() => {
@@ -111,9 +111,9 @@ onMounted(() => {
 <template>
     <div
         ref="panelRef"
-        class="absolute left-0 z-50 flex w-[320px] flex-col overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-2xl"
+        class="absolute left-0 z-50 flex flex-col overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-2xl"
         :class="resolvedDirection === 'up' ? 'bottom-full mb-2' : 'top-full mt-2'"
-        :style="{ maxHeight: panelStyle.maxHeight }"
+        :style="panelStyle"
     >
         <!-- Top Bar -->
         <div class="flex items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-sidebar)] px-3 py-2">

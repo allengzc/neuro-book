@@ -61,7 +61,8 @@ const virtualPanelLayout = computed(() => {
     const maxPanelHeight = props.density === "compact" ? 280 : 288;
     const preferredWidth = props.density === "compact" ? 264 : 360;
     const minWidth = props.density === "compact" ? 220 : 260;
-    const panelWidth = Math.min(preferredWidth, Math.max(window.innerWidth - viewportGap * 2, minWidth));
+    const basePanelWidth = Math.min(preferredWidth, Math.max(window.innerWidth - viewportGap * 2, minWidth));
+    const panelWidth = Math.max(basePanelWidth, rect.width);
     const wantedHeight = Math.min(panelRef.value?.scrollHeight || maxPanelHeight, maxPanelHeight);
     const bottomSpace = Math.max(window.innerHeight - rect.bottom - viewportGap - triggerGap, 0);
     const topSpace = Math.max(rect.top - viewportGap - triggerGap, 0);
