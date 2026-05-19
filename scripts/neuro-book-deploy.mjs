@@ -352,7 +352,7 @@ function renderConfig(config) {
     const context = provider.contextWindowTokens === null ? "null" : String(provider.contextWindowTokens);
 
     return `# neuro-book runtime config.
-# This file is mounted into the container as /app/config.yaml and can be updated by the settings UI.
+# This file is used as the runtime config and can be updated by the settings UI.
 # Put real model provider keys here in deployment; do not commit the generated config.yaml back to Git.
 agent:
   tools:
@@ -428,12 +428,13 @@ function renderGeneratedCompose(config) {
         build:
             context: .
             dockerfile: Dockerfile.source-runtime
+        environment:
+            NEURO_BOOK_CONFIG_PATH: /app/.deploy/config.yaml
         working_dir: /app
         command: ["sh", "./scripts/docker-entrypoint.sh"]
         volumes:
             - ./:/app
             - ./workspace:/app/workspace
-            - ./${deployConfigPath}:/app/config.yaml
 `;
 }
 

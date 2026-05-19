@@ -51,6 +51,7 @@
 - 新增 `Dockerfile.source-runtime`，source 模式使用本地 build 的 `neuro-book-source-runtime:latest`，不依赖 GHCR，只负责提供同一套 agent 工具链，源码仍由宿主机挂载到 `/app`。
 - `scripts/publish-ghcr-image.mjs` 和 release-only GitHub Actions 改为发布两类 GHCR 镜像：`neuro-book-runtime` 基础 runtime 镜像，以及基于同一工具链的 `neuro-book` app 镜像。
 - 新增 `docs/operator-bridge.md`，作为连接开发者、用户和用户 Agent 的交付与运维桥梁，集中说明部署模型、执行步骤、敏感信息边界、常见问题和关键项目文档索引。
+- 修复 source 模式下整目录挂载遮住 `/app/config.yaml` 单文件挂载的问题：source override 改为设置 `NEURO_BOOK_CONFIG_PATH=/app/.deploy/config.yaml`，应用配置读取层支持该环境变量。
 
 ## Decisions
 

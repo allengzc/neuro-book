@@ -93,12 +93,13 @@ services:
         build:
             context: .
             dockerfile: Dockerfile.source-runtime
+        environment:
+            NEURO_BOOK_CONFIG_PATH: /app/.deploy/config.yaml
         working_dir: /app
         command: ["sh", "./scripts/docker-entrypoint.sh"]
         volumes:
             - ./:/app
             - ./workspace:/app/workspace
-            - ./.deploy/config.yaml:/app/config.yaml
 YAML
 
 dirty="$(git status --porcelain --untracked-files=no)"

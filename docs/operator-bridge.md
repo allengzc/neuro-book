@@ -60,6 +60,8 @@ NeuroBook 使用 Docker Compose 单机部署。基础模板由仓库提供，部
 
 `.deploy/` 不进 Git。`git pull` 不会更新 `.deploy/`。如果部署脚本或部署模式变化，需要重新生成或迁移 `.deploy/docker-compose.generated.yml`。
 
+`ghcr` 模式会把 `.deploy/config.yaml` 挂载到容器内 `/app/config.yaml`。`source` 模式会把整个项目目录挂载到 `/app`，并通过 `NEURO_BOOK_CONFIG_PATH=/app/.deploy/config.yaml` 读取配置，避免整目录挂载遮住单文件挂载。
+
 ## 部署模式
 
 ### ghcr 模式
