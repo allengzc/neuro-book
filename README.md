@@ -6,9 +6,9 @@ neuro-book 是一个面向长篇小说创作的本地工作台。
 如果你是使用者，它提供文件化 workspace、Markdown Studio、引用系统、剧情系统和多 Agent 工作流，适合做长篇小说的持续创作与维护。
 
 <div style="display: flex; justify-content: space-between;">
-  <img src="./docs/images/主页.png" width="33%"/>
-  <img src="./docs/images/剧本工作台.png" width="33%"/>
-  <img src="./docs/images/TSX可视化编辑器.png" width="33%"/>
+  <img src="./docs/images/主页.png" width="31%"/>
+  <img src="./docs/images/剧本工作台.png" width="31%"/>
+  <img src="./docs/images/TSX可视化编辑器.png" width="31%"/>
 </div>
 <br/>
 
