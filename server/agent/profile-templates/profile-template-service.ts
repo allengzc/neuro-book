@@ -301,7 +301,7 @@ function parseMessageChildren(
     issues: ProfileTemplateIssueDto[],
 ): {
     text?: string;
-    textKind?: "text" | "source";
+    textKind?: "text" | "source" | "template";
     children: ProfileTemplateNodeDto[];
 } {
     const plainTextParts: string[] = [];
@@ -322,12 +322,26 @@ function parseMessageChildren(
         }
         if (ts.isJsxExpression(child) && child.expression) {
             const expression = child.expression;
-            if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
-                plainTextParts.push(expression.text);
-                sourceTextParts.push(expression.text);
+            const rawExpression = child.getText(sourceFile);
+            if (rawExpression.startsWith("{{") && rawExpression.endsWith("}}")) {
+                plainTextParts.push(rawExpression);
+                sourceTextParts.push(rawExpression);
                 continue;
             }
-            sourceTextParts.push(child.getText(sourceFile));
+            if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
+                const text = ts.isNoSubstitutionTemplateLiteral(expression)
+                    ? decodeTemplateText(expression.getText(sourceFile).slice(1, -1))
+                    : expression.text;
+                plainTextParts.push(text);
+                sourceTextParts.push(text);
+                continue;
+            }
+            if (ts.isTemplateExpression(expression)) {
+                sourceTextParts.push(decodeTemplateText(expression.getText(sourceFile).slice(1, -1)));
+                hasSourceText = true;
+                continue;
+            }
+            sourceTextParts.push("${" + expression.getText(sourceFile) + "}");
             hasSourceText = true;
             continue;
         }
@@ -361,8 +375,8 @@ function parseMessageChildren(
     }
     const hasInlineSource = hasSourceText;
     return {
-        ...(hasInlineSource ? {text: sourceTextParts.join("")} : plainTextParts.length > 0 ? {text: plainTextParts.join("\n")} : {}),
-        ...(hasInlineSource ? {textKind: "source" as const} : {}),
+        ...(hasInlineSource ? {text: sourceTextParts.join("")} : plainTextParts.length > 0 ? {text: plainTextParts.join("")} : {}),
+        ...(hasInlineSource ? {textKind: "template" as const} : {}),
         children: nestedChildren,
     };
 }
@@ -668,6 +682,13 @@ function validateTemplateTree(root: ProfileTemplateNodeDto | null, issues: Profi
                 });
             }
         }
+        if (node.type === "SkillCatalog" && ancestors.at(-1)?.type !== "Message") {
+            issues.push({
+                severity: "error",
+                message: "SkillCatalog 返回字符串，必须放在 Message 内",
+                nodeId: node.id,
+            });
+        }
         if (node.type === "Watch") {
             const path = node.props.path;
             if (typeof path !== "string" || !path.startsWith("scope.")) {
@@ -743,6 +764,18 @@ function generateNodeSource(node: ProfileTemplateNodeDto): string {
     const props = generateProps(node.props);
     if (node.children.length === 0 && !node.text) {
         return `<${node.type}${props} />`;
+    }
+    if (node.type === "Message" && node.text) {
+        const textSource = renderNodeText(node);
+        const childLines = [
+            indent(textSource, 1),
+            ...node.children.map((child) => indent(generateNodeSource(child), 1)),
+        ];
+        return [
+            `<${node.type}${props}>`,
+            ...childLines,
+            `</${node.type}>`,
+        ].join("\n");
     }
     const childLines = [
         node.text ? renderNodeText(node) : "",
@@ -844,9 +877,45 @@ function isExpressionValue(value: ProfileTemplatePropValue): value is ProfileTem
  */
 function renderNodeText(node: ProfileTemplateNodeDto): string {
     if (node.textKind === "source") {
-        return node.text ?? "";
+        return `{${node.text ?? ""}}`;
     }
-    return node.text ? renderPlainTextForJsx(node.text) : "";
+    return node.text ? renderMessageTextExpressions(node.text) : "";
+}
+
+/**
+ * 按行生成 Message 正文表达式，兼顾源码可读性与换行保真。
+ */
+function renderMessageTextExpressions(text: string): string {
+    const lines = text.replaceAll("\r\n", "\n").split("\n");
+    const chunks: string[] = [];
+    lines.forEach((line, index) => {
+        if (line) {
+            chunks.push("{`" + escapeTemplateLine(line) + "`}");
+        }
+        if (index < lines.length - 1) {
+            chunks.push("{\"\\n\"}");
+        }
+    });
+    return chunks.join("\n");
+}
+
+/**
+ * 转义单行模板字符串正文，保留 ${...} 作为 TSX 运行时插值。
+ */
+function escapeTemplateLine(text: string): string {
+    return text
+        .replaceAll("\\", "\\\\")
+        .replaceAll("`", "\\`");
+}
+
+/**
+ * 反解生成器写入模板字符串的常见转义，恢复编辑器中的真实正文。
+ */
+function decodeTemplateText(text: string): string {
+    return text
+        .replaceAll("\\n", "\n")
+        .replaceAll("\\`", "`")
+        .replaceAll("\\\\", "\\");
 }
 
 /**
@@ -929,7 +998,18 @@ function isJsonValue(value: unknown): value is JsonValue {
  * 文本规范化。
  */
 function normalizeText(text: string): string {
-    return text.split("\n").map((line) => line.trim()).filter(Boolean).join("\n");
+    const lines = text.replace(/\r\n/g, "\n").split("\n");
+    while (lines.length > 0 && !lines[0]?.trim()) {
+        lines.shift();
+    }
+    while (lines.length > 0 && !lines.at(-1)?.trim()) {
+        lines.pop();
+    }
+    const indents = lines
+        .filter((line) => line.trim())
+        .map((line) => line.match(/^\s*/)?.[0].length ?? 0);
+    const commonIndent = indents.length > 0 ? Math.min(...indents) : 0;
+    return lines.map((line) => line.slice(Math.min(commonIndent, line.length))).join("\n");
 }
 
 /**

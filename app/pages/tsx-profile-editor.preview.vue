@@ -170,6 +170,7 @@ const dirty = ref(false);
 const lastSavedAt = ref("");
 const lastSaveError = ref("");
 const parsingSource = ref(false);
+const pendingMessageTextNodeId = ref("");
 let sourceParseTimer: number | null = null;
 let sourceHistoryTimer: number | null = null;
 let autosaveTimer: number | null = null;
@@ -652,8 +653,25 @@ function updateText(value: string): void {
     if (!ensureDerivedTreeEditable() || !selectedNode.value) {
         return;
     }
-    pushHistory();
+    if (pendingMessageTextNodeId.value !== selectedNode.value.id) {
+        pushHistory();
+    }
     selectedNode.value.text = value;
+    pendingMessageTextNodeId.value = selectedNode.value.id;
+}
+
+/**
+ * Message 正文失焦后再提交到源码和自动保存，避免每个字符触发 API。
+ */
+function commitMessageText(): void {
+    if (!ensureDerivedTreeEditable() || !root.value || !pendingMessageTextNodeId.value) {
+        return;
+    }
+    const pendingNode = findNode(root.value, pendingMessageTextNodeId.value);
+    pendingMessageTextNodeId.value = "";
+    if (!pendingNode) {
+        return;
+    }
     refreshRootView();
     void previewTemplate();
 }
@@ -901,6 +919,9 @@ function createNode(type: ProfileTemplateNodeType): ProfileTemplateNodeDto {
     }
     if (type === "ActivatedSkills") {
         base.props = {text: "{{activatedSkillsText}}"};
+    }
+    if (type === "SkillCatalog") {
+        base.props = {text: "{{skillCatalogText}}"};
     }
     return base;
 }
@@ -1184,6 +1205,9 @@ function canHaveChildren(type: ProfileTemplateNodeType): boolean {
  */
 function canInsertNodeIntoParent(parent: ProfileTemplateNodeDto, node: ProfileTemplateNodeDto): boolean {
     if (!canHaveChildren(parent.type)) {
+        return false;
+    }
+    if (containsType(node, "SkillCatalog") && parent.type !== "Message") {
         return false;
     }
     if (parent.type === "Message" && containsType(node, "Message")) {
@@ -1642,6 +1666,18 @@ function generatePreviewNodeSource(node: ProfileTemplateNodeDto): string {
     if (node.children.length === 0 && !node.text) {
         return `<${node.type}${props} />`;
     }
+    if (node.type === "Message" && node.text) {
+        const textSource = renderPreviewNodeText(node);
+        const childLines = [
+            indentPreviewSource(textSource, 1),
+            ...node.children.map((child) => indentPreviewSource(generatePreviewNodeSource(child), 1)),
+        ];
+        return [
+            `<${node.type}${props}>`,
+            ...childLines,
+            `</${node.type}>`,
+        ].join("\n");
+    }
     const childLines = [
         node.text ? renderPreviewNodeText(node) : "",
         ...node.children.map((child) => generatePreviewNodeSource(child)),
@@ -1698,9 +1734,9 @@ function escapePreviewText(text: string): string {
  */
 function renderPreviewNodeText(node: ProfileTemplateNodeDto): string {
     if (node.textKind === "source") {
-        return node.text ?? "";
+        return `{${node.text ?? ""}}`;
     }
-    return node.text ? renderPreviewPlainText(node.text) : "";
+    return node.text ? renderMessageTextExpressions(node.text) : "";
 }
 
 /**
@@ -1783,6 +1819,32 @@ function renderPreviewPlainText(text: string): string {
         return `{${JSON.stringify(text)}}`;
     }
     return escapePreviewText(text);
+}
+
+/**
+ * 按行生成 Message 正文表达式，兼顾源码可读性与换行保真。
+ */
+function renderMessageTextExpressions(text: string): string {
+    const lines = text.replaceAll("\r\n", "\n").split("\n");
+    const chunks: string[] = [];
+    lines.forEach((line, index) => {
+        if (line) {
+            chunks.push("{`" + escapeTemplateLine(line) + "`}");
+        }
+        if (index < lines.length - 1) {
+            chunks.push("{\"\\n\"}");
+        }
+    });
+    return chunks.join("\n");
+}
+
+/**
+ * 转义单行模板字符串正文，保留 ${...} 作为 TSX 运行时插值。
+ */
+function escapeTemplateLine(text: string): string {
+    return text
+        .replaceAll("\\", "\\\\")
+        .replaceAll("`", "\\`");
 }
 
 watch(selectedTemplate, () => {
@@ -2070,17 +2132,18 @@ onBeforeUnmount(() => {
                                 <div v-else class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 px-3 py-2 text-xs text-[var(--text-muted)]">此节点暂无属性。</div>
 
                                 <template v-if="selectedNode.type === 'Message'">
-                                    <div class="field-label">{{ selectedNode.textKind === "source" ? "内容（TSX 源片段）" : "内容（支持变量引用）" }}</div>
+                                    <div class="field-label">{{ selectedNode.textKind === "source" ? "内容（TSX 表达式内容）" : "内容（支持变量引用）" }}</div>
                                     <StructuredTextEditor
                                         :model-value="selectedNode.text ?? ''"
                                         :rows="8"
                                         :min-height="172"
                                         :max-height="420"
                                         :default-mode="selectedNode.textKind === 'source' ? 'source' : 'rich'"
-                                        :show-format-toolbar="selectedNode.textKind !== 'source'"
+                                        :show-format-toolbar="selectedNode.textKind !== 'source' && selectedNode.textKind !== 'template'"
                                         :theme="theme"
                                         placeholder="输入 Message 正文，可使用 Markdown 与变量引用"
                                         @focus="activeTextTarget = 'text'"
+                                        @blur="commitMessageText"
                                         @update:model-value="updateText($event)"
                                     />
                                     <div class="text-right text-[11px] text-[var(--text-muted)]">字数：{{ selectedTextLength }} / 20000</div>

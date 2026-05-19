@@ -85,6 +85,22 @@ if [ ! -f .deploy/.env.docker ] || [ ! -f .deploy/docker-compose.generated.yml ]
     exit 1
 fi
 
+step "刷新 source compose override"
+cat > .deploy/docker-compose.generated.yml <<'YAML'
+services:
+    app:
+        image: neuro-book-source-runtime:latest
+        build:
+            context: .
+            dockerfile: Dockerfile.source-runtime
+        working_dir: /app
+        command: ["sh", "./scripts/docker-entrypoint.sh"]
+        volumes:
+            - ./:/app
+            - ./workspace:/app/workspace
+            - ./.deploy/config.yaml:/app/config.yaml
+YAML
+
 dirty="$(git status --porcelain --untracked-files=no)"
 if [ -n "$dirty" ]; then
     echo "远端 tracked worktree 不干净，已停止部署：" >&2

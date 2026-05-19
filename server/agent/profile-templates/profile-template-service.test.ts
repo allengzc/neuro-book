@@ -128,6 +128,18 @@ describe("profile-template-service", () => {
         expect(result.messages[0]?.text).toBe("workspace=workspace/demo");
     });
 
+    it("Message 中的变量 token 不会被 TSX 表达式解析吞掉一层大括号", () => {
+        const source = VALID_SOURCE.replace("system prompt", "{{scope.studio.workspace}}");
+
+        const result = parseProfileTemplateSource(source);
+        const message = result.root?.children[0]?.children[0];
+        const generated = generateProfileTemplateSource("demo-template", result.root ?? undefined);
+
+        expect(message?.textKind).toBeUndefined();
+        expect(message?.text).toBe("{{scope.studio.workspace}}");
+        expect(generated).toContain("{{scope.studio.workspace}}");
+    });
+
     it("保留表达式属性并生成 TSX 表达式", () => {
         const source = VALID_SOURCE.replace(
             '<Watch path="scope.studio.workspace" />',
@@ -142,16 +154,33 @@ describe("profile-template-service", () => {
         expect(generated).toContain("watchValue={ctx.scope.agent.tasks}");
     });
 
-    it("保留 Message 中的 TSX 表达式片段", () => {
+    it("保留 Message 中的模板字符串正文", () => {
         const source = VALID_SOURCE.replace("hello", "{`hello ${ctx.runtime.thread.id}`}");
 
         const result = parseProfileTemplateSource(source);
         const message = result.root?.children[1]?.children[1];
         const generated = generateProfileTemplateSource("demo-template", result.root ?? undefined);
 
-        expect(message?.textKind).toBe("source");
-        expect(message?.text).toContain("{`hello ${ctx.runtime.thread.id}`}");
+        expect(message?.textKind).toBe("template");
+        expect(message?.text).toBe("hello ${ctx.runtime.thread.id}");
         expect(generated).toContain("{`hello ${ctx.runtime.thread.id}`}");
+    });
+
+    it("Message 中的模板字符串只暴露可编辑正文，不暴露 JSX 包装", () => {
+        const source = VALID_SOURCE.replace(
+            "hello",
+            "{`\\n\\n【当前已关联 subagent】\\n${JSON.stringify(ctx.scope.agent.subagents ?? [])}`}",
+        );
+
+        const result = parseProfileTemplateSource(source);
+        const message = result.root?.children[1]?.children[1];
+        const generated = generateProfileTemplateSource("demo-template", result.root ?? undefined);
+        const normalizedGenerated = stripLineIndent(generated);
+
+        expect(message?.textKind).toBe("template");
+        expect(message?.text).toBe("\n\n【当前已关联 subagent】\n${JSON.stringify(ctx.scope.agent.subagents ?? [])}");
+        expect(message?.text).not.toContain("{`");
+        expect(normalizedGenerated).toContain("{\"\\n\"}\n{\"\\n\"}\n{`【当前已关联 subagent】`}\n{\"\\n\"}\n{`${JSON.stringify(ctx.scope.agent.subagents ?? [])}`}");
     });
 
     it("Message 普通正文允许直接编辑尖括号文本", () => {
@@ -179,9 +208,40 @@ describe("profile-template-service", () => {
 
         const source = generateProfileTemplateSource("demo-template", root);
         const result = parseProfileTemplateSource(source);
+        const normalizedSource = stripLineIndent(source);
 
-        expect(source).toContain('{"<system-reminder>\\n# 标题\\n</system-reminder>"}');
+        expect(normalizedSource).toContain("{`<system-reminder>`}\n{\"\\n\"}\n{`# 标题`}\n{\"\\n\"}\n{`</system-reminder>`}");
         expect(result.root?.children[0]?.children[0]?.text).toBe("<system-reminder>\n# 标题\n</system-reminder>");
+    });
+
+    it("Message 正文统一用模板字符串生成并保留空行", () => {
+        const root: ProfileTemplateNodeDto = {
+            id: "root",
+            type: "ProfilePrompt",
+            props: {},
+            editable: true,
+            children: [{
+                id: "history",
+                type: "HistorySet",
+                props: {},
+                editable: true,
+                children: [{
+                    id: "message",
+                    type: "Message",
+                    props: {role: "system"},
+                    text: "第一行\n\n    保留缩进\n最后一行",
+                    editable: true,
+                    children: [],
+                }],
+            }],
+        };
+
+        const source = generateProfileTemplateSource("demo-template", root);
+        const result = parseProfileTemplateSource(source);
+        const normalizedSource = stripLineIndent(source);
+
+        expect(normalizedSource).toContain("{`第一行`}\n{\"\\n\"}\n{\"\\n\"}\n{`    保留缩进`}\n{\"\\n\"}\n{`最后一行`}");
+        expect(result.root?.children[0]?.children[0]?.text).toBe("第一行\n\n    保留缩进\n最后一行");
     });
 
     it("Message 内的小写 JSX 标签按正文处理", () => {
@@ -196,7 +256,7 @@ describe("profile-template-service", () => {
 
         expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
         expect(message?.text).toBe("<system-reminder># 标题</system-reminder>");
-        expect(generated).toContain('{"<system-reminder># 标题</system-reminder>"}');
+        expect(generated).toContain("{`<system-reminder># 标题</system-reminder>`}");
     });
 
     it("Message 节点内不能放 Message 节点", () => {
@@ -208,6 +268,17 @@ describe("profile-template-service", () => {
         const result = parseProfileTemplateSource(source);
 
         expect(result.issues.map((issue) => issue.message)).toContain("Message 节点内不能放 Message 节点");
+    });
+
+    it("SkillCatalog 必须放在 Message 内", () => {
+        const source = VALID_SOURCE.replace(
+            '<Watch path="scope.studio.workspace" />',
+            "<SkillCatalog />",
+        );
+
+        const result = parseProfileTemplateSource(source);
+
+        expect(result.issues.map((issue) => issue.message)).toContain("SkillCatalog 返回字符串，必须放在 Message 内");
     });
 
     it("不支持的模板组件会返回源码定位", () => {
@@ -297,4 +368,8 @@ function createPreviewScope(input: {
             prompt: "默认输入",
         },
     };
+}
+
+function stripLineIndent(text: string): string {
+    return text.split("\n").map((line) => line.trimStart()).join("\n");
 }

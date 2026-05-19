@@ -42,6 +42,7 @@ export const ProfileTemplatePropValueSchema = z.union([
 export const ProfileTemplateTextKindSchema = z.enum([
     "text",
     "source",
+    "template",
 ]);
 
 export const ProfileTemplateIssueSeveritySchema = z.enum(["error", "warning"]);

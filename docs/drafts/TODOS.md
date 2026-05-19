@@ -135,6 +135,8 @@
 - [ ] subagent 前端显示。前端不能实时显示 subagent
 - [ ] docker 部署脚本 oom 检测
 - [ ] 迁移到 https://github.com/earendil-works/pi/tree/main/packages/ai
+- [ ] epub 格式支持
+- [ ]
 - [ ]
 - [ ]
 

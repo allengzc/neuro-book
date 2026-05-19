@@ -2,7 +2,7 @@
 import {spawn} from "node:child_process";
 import {randomBytes} from "node:crypto";
 import {existsSync} from "node:fs";
-import {chmod, mkdir, readdir, stat, writeFile} from "node:fs/promises";
+import {chmod, mkdir, readFile, readdir, stat, writeFile} from "node:fs/promises";
 import {homedir} from "node:os";
 import {dirname, relative, resolve} from "node:path";
 import {Command} from "commander";
@@ -71,6 +71,7 @@ const program = new Command()
     .option("--database-url <url>", "External PostgreSQL DATABASE_URL.")
     .option("--deploy-mode <mode>", "Deploy mode: ghcr or source.", process.env.NEURO_BOOK_DEPLOY_MODE)
     .option("--image <image>", "GHCR app image.", process.env.NEURO_BOOK_IMAGE ?? DEFAULT_IMAGE)
+    .option("--redeploy", "Regenerate .deploy compose files while preserving existing .env.docker and config.yaml.", false)
     .option("--yes", "Use defaults and skip interactive prompts.", false)
     .option("--dry-run", "Generate files but skip git and docker commands.", process.env.NEURO_BOOK_DEPLOY_DRY_RUN === "1");
 
@@ -203,6 +204,25 @@ async function askPassword({interactive, value, message}) {
     })));
 }
 
+/** 从已有 generated compose 推断部署模式，支持旧 source override。 */
+async function inferDeployMode(deployDir) {
+    const generatedComposePath = resolve(deployDir, DEPLOY_DIRNAME, "docker-compose.generated.yml");
+    if (!existsSync(generatedComposePath)) {
+        return null;
+    }
+
+    const content = await readFile(generatedComposePath, "utf-8");
+    if (content.includes("Dockerfile.source-runtime") || content.includes("neuro-book-source-runtime") || content.includes("oven/bun:1")) {
+        return "source";
+    }
+
+    if (content.includes("ghcr.io/")) {
+        return "ghcr";
+    }
+
+    return null;
+}
+
 /** 收集部署参数。 */
 async function readConfig(options) {
     const interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY && !options.yes);
@@ -265,9 +285,12 @@ async function readConfig(options) {
             initialValue: "postgresql://user:password@host:5432/neuro_book",
         })
         : "";
+    const inferredDeployMode = options.redeploy && !options.deployMode
+        ? await inferDeployMode(deployDir)
+        : null;
     const deployMode = normalizeDeployMode(await askSelect({
         interactive,
-        value: options.deployMode,
+        value: options.deployMode ?? inferredDeployMode,
         message: "部署模式",
         initialValue: "ghcr",
         options: [
@@ -299,6 +322,7 @@ async function readConfig(options) {
         image,
         port,
         provider,
+        redeploy: Boolean(options.redeploy),
         repo: options.repo,
     };
 }
@@ -618,6 +642,37 @@ async function runCompose(config) {
     await run("docker", args, {cwd: config.deployDir});
 }
 
+/** 写入部署文件；redeploy 时保留已有敏感配置。 */
+async function writeDeployFiles(config) {
+    const envPath = resolve(deployStateDir(config), ".env.docker");
+    const configPath = resolve(deployStateDir(config), "config.yaml");
+    const generatedComposePath = resolve(deployStateDir(config), "docker-compose.generated.yml");
+    const readmePath = resolve(deployStateDir(config), "README.md");
+
+    let envText = "";
+    if (config.redeploy && existsSync(envPath)) {
+        envText = await readFile(envPath, "utf-8");
+        p.log.info(`Preserved ${envPath}`);
+    } else {
+        envText = renderEnv(config, randomSecret(), randomSecret());
+        await writePrivateFile(envPath, envText);
+        p.log.success(`Wrote ${envPath}`);
+    }
+
+    if (config.redeploy && existsSync(configPath)) {
+        p.log.info(`Preserved ${configPath}`);
+    } else {
+        await writePrivateFile(configPath, renderConfig(config));
+        p.log.success(`Wrote ${configPath}`);
+    }
+
+    await writeFile(generatedComposePath, renderGeneratedCompose(config), "utf-8");
+    await writeFile(readmePath, renderDeployReadme(config), "utf-8");
+    p.log.success(`Wrote ${generatedComposePath}`);
+
+    return parseEnv(envText);
+}
+
 /** source 模式在宿主机完成依赖安装、Prisma generate 和 Nuxt build。 */
 async function buildSource(config, env) {
     if (config.deployMode !== "source") {
@@ -655,19 +710,9 @@ async function main() {
     await mkdir(resolve(config.deployDir, "workspace"), {recursive: true});
     await mkdir(deployStateDir(config), {recursive: true});
 
-    const postgresPassword = randomSecret();
-    const sessionPassword = randomSecret();
-    const envText = renderEnv(config, postgresPassword, sessionPassword);
-    const hostBuildEnv = parseEnv(envText);
-    await writePrivateFile(resolve(deployStateDir(config), ".env.docker"), envText);
-    await writePrivateFile(resolve(deployStateDir(config), "config.yaml"), renderConfig(config));
-    await writeFile(resolve(deployStateDir(config), "docker-compose.generated.yml"), renderGeneratedCompose(config), "utf-8");
-    await writeFile(resolve(deployStateDir(config), "README.md"), renderDeployReadme(config), "utf-8");
+    const hostBuildEnv = await writeDeployFiles(config);
     await warnLegacyDeployFiles(config);
 
-    p.log.success(`Wrote ${resolve(deployStateDir(config), ".env.docker")}`);
-    p.log.success(`Wrote ${resolve(deployStateDir(config), "config.yaml")}`);
-    p.log.success(`Wrote ${resolve(deployStateDir(config), "docker-compose.generated.yml")}`);
     await buildSource(config, hostBuildEnv);
     await runCompose(config);
     p.outro(`Done. Open http://localhost:${config.port}`);

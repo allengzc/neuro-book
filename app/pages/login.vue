@@ -89,7 +89,7 @@ onMounted(() => {
                     <p class="pt-1 text-center text-xs text-[var(--text-secondary)]">
                         测试站点的密码联系
                         <a class="text-[var(--accent-text)] hover:underline" href="mailto:notnotype@qq.com">notnotype@qq.com</a>
-                        获取
+                        获取，需要表明你从哪里得到这个站点的
                     </p>
                 </form>
             </div>
