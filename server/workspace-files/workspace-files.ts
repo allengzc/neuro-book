@@ -166,7 +166,7 @@ const HARD_EXCLUDED_DIRS = new Set([".git"]);
 const LOREBOOK_ENTRY_TYPES = new Set(["location", "character", "faction", "item", "rule", "note"]);
 const MANUSCRIPT_ENTRY_TYPES = new Set(["volume", "chapter"]);
 
-type WorkspaceIgnoreRule = {
+export type WorkspaceIgnoreRule = {
     pattern: string;
     directoryOnly: boolean;
     anchored: boolean;
@@ -1350,7 +1350,7 @@ function validateSingleContentNodeSiblingConflicts(
 /**
  * 读取工作区根目录下的 .gitignore，用于文件树显示过滤。
  */
-async function readWorkspaceIgnoreRules(root: string): Promise<WorkspaceIgnoreRule[]> {
+export async function readWorkspaceIgnoreRules(root: string): Promise<WorkspaceIgnoreRule[]> {
     const ignorePath = path.join(root, ".gitignore");
     if (!await pathExists(ignorePath)) {
         return [];
@@ -1397,7 +1397,7 @@ function parseWorkspaceIgnoreRule(line: string): WorkspaceIgnoreRule | null {
 /**
  * 判断某个工作区路径是否应该按 .gitignore 从文件树中隐藏。
  */
-function shouldSkipWorkspacePath(root: string, absolutePath: string, isDirectory: boolean, ignoreRules: WorkspaceIgnoreRule[]): boolean {
+export function shouldSkipWorkspacePath(root: string, absolutePath: string, isDirectory: boolean, ignoreRules: WorkspaceIgnoreRule[]): boolean {
     if (isDirectory && HARD_EXCLUDED_DIRS.has(path.basename(absolutePath))) {
         return true;
     }

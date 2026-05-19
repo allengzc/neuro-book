@@ -136,7 +136,7 @@
 - [ ] docker 部署脚本 oom 检测
 - [ ] 迁移到 https://github.com/earendil-works/pi/tree/main/packages/ai
 - [ ] epub 格式支持
-- [ ]
+- [ ] agent 创建工作区的tool
 - [ ]
 - [ ]
 

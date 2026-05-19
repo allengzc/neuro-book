@@ -21,12 +21,92 @@ export const countCodeFences = (text: string): number => {
     return matches ? matches.length : 0;
 };
 
+const GFM_TABLE_SEPARATOR_CELL_PATTERN = /^:?-{3,}:?$/;
+
+/**
+ * 判断一行是否像 GFM 表格行。
+ */
+function isLooseGfmTableRow(line: string): boolean {
+    const trimmed = line.trim();
+    return trimmed.includes("|") && (readLooseGfmCells(line).length > 1 || (trimmed.startsWith("|") && trimmed.endsWith("|")));
+}
+
+/**
+ * 读取 GFM 表格行的单元格内容。
+ */
+function readLooseGfmCells(line: string): string[] {
+    const trimmed = line.trim();
+    const withoutLeftPipe = trimmed.startsWith("|") ? trimmed.slice(1) : trimmed;
+    const withoutPipes = withoutLeftPipe.endsWith("|") ? withoutLeftPipe.slice(0, -1) : withoutLeftPipe;
+    return withoutPipes.split("|").map((cell) => cell.trim());
+}
+
+/**
+ * 判断一行是否像 GFM 表格分隔行。
+ */
+function isLooseGfmSeparator(line: string): boolean {
+    if (!isLooseGfmTableRow(line)) {
+        return false;
+    }
+
+    const cells = readLooseGfmCells(line);
+    return cells.length > 0 && cells.every((cell) => GFM_TABLE_SEPARATOR_CELL_PATTERN.test(cell));
+}
+
+/**
+ * 渲染宽松 GFM 表格行。
+ */
+function renderLooseGfmRow(cells: string[]): string {
+    return `| ${cells.join(" | ")} |`;
+}
+
+/**
+ * 修复 LLM 流式输出中列数不一致的 GFM 表格头。
+ */
+export const normalizeLooseGfmTables = (text: string): string => {
+    const lines = text.split("\n");
+    const normalized: string[] = [];
+    let inFence = false;
+
+    for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        if (/^\s*```/.test(line)) {
+            inFence = !inFence;
+            normalized.push(line);
+            continue;
+        }
+
+        const nextLine = lines[index + 1];
+        if (!inFence && nextLine && isLooseGfmTableRow(line) && isLooseGfmSeparator(nextLine)) {
+            const headerCells = readLooseGfmCells(line);
+            const separatorCells = readLooseGfmCells(nextLine);
+            const columnCount = Math.max(headerCells.length, separatorCells.length);
+
+            while (headerCells.length < columnCount) {
+                headerCells.push("");
+            }
+            while (separatorCells.length < columnCount) {
+                separatorCells.push("---");
+            }
+
+            normalized.push(renderLooseGfmRow(headerCells));
+            normalized.push(renderLooseGfmRow(separatorCells));
+            index += 1;
+            continue;
+        }
+
+        normalized.push(line);
+    }
+
+    return normalized.join("\n");
+};
+
 /**
  * 处理由于流式接收导致的 Markdown 未闭合代码块问题。
  */
 export const normalizeStreamingMarkdown = (text: string): string => {
     const lines = text.split("\n");
-    let markdown = lines.join("\n");
+    let markdown = normalizeLooseGfmTables(lines.join("\n"));
     const openFences = countCodeFences(markdown);
     if (openFences % 2 !== 0) {
         markdown += "\n```";
