@@ -589,117 +589,91 @@ watch(threadTags, (value) => {
         </template>
 
         <!-- Thread 表单 -->
-        <div v-if="props.target === 'thread'" class="space-y-3">
-            <!-- Thread 基础信息 -->
-            <section class="space-y-2.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
-                <div class="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">Thread</div>
+        <div v-if="props.target === 'thread'" class="space-y-3 px-1 mt-1">
+            <div class="grid grid-cols-[minmax(0,1fr)_112px] gap-2">
+                <FormField label="标题">
+                    <FormInput v-model="threadDraft.title" placeholder="Thread 标题" />
+                </FormField>
+                <FormField label="状态">
+                    <FormSelect v-model="threadDraft.status" :options="threadStatusOptions" />
+                </FormField>
+            </div>
 
-                <div class="grid grid-cols-[minmax(0,1fr)_120px] gap-2">
-                    <FormField label="标题">
-                        <FormInput v-model="threadDraft.title" placeholder="Thread 标题" />
-                    </FormField>
-                    <FormField label="状态">
-                        <FormSelect v-model="threadDraft.status" :options="threadStatusOptions" />
-                    </FormField>
-                </div>
+            <FormField label="标签">
+                <TagInput v-model="threadTags" placeholder="输入标签后回车" />
+            </FormField>
 
-                <div class="grid grid-cols-[minmax(0,1fr)_120px] gap-2">
-                    <FormField label="摘要">
-                        <StructuredTextEditor
-                            v-model="threadDraft.summary"
-                            :rows="5"
-                            default-mode="rich"
-                            placeholder="Thread 摘要"
-                            :menu-refresh-key="menuRefreshKey"
-                            :resolve-menu="resolveMenu"
-                        />
-                    </FormField>
-                    <label class="flex items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2 text-[12px] text-[var(--text-main)]">
-                        <input v-model="threadDraft.isMainThread" type="checkbox" class="h-4 w-4 rounded border-[var(--border-color)]">
-                        <span>设为主线</span>
-                    </label>
-                </div>
+            <FormField label="摘要">
+                <StructuredTextEditor
+                    v-model="threadDraft.summary"
+                    :rows="5"
+                    default-mode="rich"
+                    placeholder="Thread 摘要"
+                    :menu-refresh-key="menuRefreshKey"
+                    :resolve-menu="resolveMenu"
+                />
+            </FormField>
 
-                <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
-                    <FormField label="标签">
-                        <TagInput v-model="threadTags" placeholder="输入标签后回车" />
-                    </FormField>
-                    <FormField label="写作提示">
-                        <StructuredTextEditor
-                            v-model="threadDraft.writingTip"
-                            :rows="5"
-                            default-mode="rich"
-                            placeholder="写作提示"
-                            :menu-refresh-key="menuRefreshKey"
-                            :resolve-menu="resolveMenu"
-                        />
-                    </FormField>
-                </div>
-            </section>
+            <FormField label="写作提示">
+                <StructuredTextEditor
+                    v-model="threadDraft.writingTip"
+                    :rows="4"
+                    default-mode="rich"
+                    placeholder="写作提示"
+                    :menu-refresh-key="menuRefreshKey"
+                    :resolve-menu="resolveMenu"
+                />
+            </FormField>
         </div>
 
         <!-- Scene 表单 -->
-        <div v-else class="space-y-4">
-            <!-- 基础信息 -->
-            <section class="space-y-2.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
-                <div class="flex items-center justify-between gap-3">
-                    <div>
-                        <div class="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--text-muted)]">Scene</div>
-                    </div>
-                    <div class="flex items-center gap-1 text-[10px] text-[var(--text-muted)]">
-                        <span class="rounded-full border border-[var(--border-color)] px-1.5 py-0.5">R {{ sceneRefsDraft.length }}</span>
-                        <span class="rounded-full border border-[var(--border-color)] px-1.5 py-0.5">P {{ scenePlotsDraft.length }}</span>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-[minmax(0,1fr)_112px_180px] gap-2">
-                    <FormField label="标题">
-                        <FormInput v-model="sceneDraft.title" placeholder="Scene 标题" />
-                    </FormField>
-                    <FormField label="状态">
-                        <FormSelect v-model="sceneDraft.status" :options="sceneStatusOptions" />
-                    </FormField>
-                    <FormField label="章节">
-                        <FormSelect v-model="sceneDraft.chapterPath" :options="chapterOptions" />
-                    </FormField>
-                </div>
-
-                <div class="grid grid-cols-2 gap-2">
-                    <FormField label="摘要">
-                        <StructuredTextEditor
-                            v-model="sceneDraft.summary"
-                            :rows="5"
-                            default-mode="rich"
-                            placeholder="Scene 摘要"
-                            :menu-refresh-key="menuRefreshKey"
-                            :resolve-menu="resolveMenu"
-                        />
-                    </FormField>
-                    <FormField label="目的">
-                        <StructuredTextEditor
-                            v-model="sceneDraft.purpose"
-                            :rows="5"
-                            default-mode="rich"
-                            placeholder="Scene 目的"
-                            :menu-refresh-key="menuRefreshKey"
-                            :resolve-menu="resolveMenu"
-                        />
-                    </FormField>
-                </div>
-
-                <FormField label="写作提示">
-                    <StructuredTextEditor
-                        v-model="sceneDraft.writingTip"
-                        :rows="4"
-                        default-mode="rich"
-                        placeholder="写作提示"
-                        :menu-refresh-key="menuRefreshKey"
-                        :resolve-menu="resolveMenu"
-                    />
+        <div v-else class="space-y-3 px-1 mt-1">
+            <div class="grid grid-cols-[minmax(0,1fr)_112px] gap-2">
+                <FormField label="标题">
+                    <FormInput v-model="sceneDraft.title" placeholder="Scene 标题" />
                 </FormField>
-            </section>
+                <FormField label="状态">
+                    <FormSelect v-model="sceneDraft.status" :options="sceneStatusOptions" />
+                </FormField>
+            </div>
+            
+            <FormField label="所属章节">
+                <FormSelect v-model="sceneDraft.chapterPath" :options="chapterOptions" placeholder="未挂章" />
+            </FormField>
 
-            <!-- Refs -->
+            <FormField label="摘要">
+                <StructuredTextEditor
+                    v-model="sceneDraft.summary"
+                    :rows="5"
+                    default-mode="rich"
+                    placeholder="Scene 摘要"
+                    :menu-refresh-key="menuRefreshKey"
+                    :resolve-menu="resolveMenu"
+                />
+            </FormField>
+
+            <FormField label="目的">
+                <StructuredTextEditor
+                    v-model="sceneDraft.purpose"
+                    :rows="4"
+                    default-mode="rich"
+                    placeholder="Scene 目的"
+                    :menu-refresh-key="menuRefreshKey"
+                    :resolve-menu="resolveMenu"
+                />
+            </FormField>
+
+            <FormField label="写作提示">
+                <StructuredTextEditor
+                    v-model="sceneDraft.writingTip"
+                    :rows="3"
+                    default-mode="rich"
+                    placeholder="写作提示"
+                    :menu-refresh-key="menuRefreshKey"
+                    :resolve-menu="resolveMenu"
+                />
+            </FormField>
+
             <!-- Plots -->
             <section class="space-y-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-3">
                 <div class="flex items-center justify-between gap-3">

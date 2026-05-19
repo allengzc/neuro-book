@@ -813,6 +813,33 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     };
 
     /**
+     * 保存未落盘内容后下载当前小说 workspace 压缩包。
+     */
+    const downloadCurrentWorkspace = async (): Promise<string> => {
+        if (!currentNovelId.value) {
+            throw new Error("当前没有可下载的小说 workspace");
+        }
+
+        await saveDirtyWorkspaceFiles();
+        if (hasUnsavedWorkspaceChanges.value) {
+            throw new Error("还有未保存的 workspace 文件，请处理后再下载");
+        }
+
+        const response = await $fetch.raw<Blob>("/api/workspace-files/download", {
+            query: {novelId: currentNovelId.value},
+            responseType: "blob",
+        });
+        const filename = resolveDownloadFilename(response.headers.get("content-disposition")) ?? "workspace.zip";
+        const blob = response._data;
+        if (!blob) {
+            throw new Error("下载响应为空");
+        }
+
+        triggerBrowserDownload(blob, filename);
+        return filename;
+    };
+
+    /**
      * 创建工作区文本文件。
      */
     const createWorkspaceFile = async (filePath: string, nextContent = ""): Promise<WorkspaceFileNode> => {
@@ -1233,6 +1260,37 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      */
     const normalizeWorkspaceFilePath = (filePath: string): string => {
         return filePath.replace(/\\/g, "/").replace(/\/+$/, "");
+    };
+
+    /**
+     * 从 Content-Disposition 中读取下载文件名。
+     */
+    const resolveDownloadFilename = (contentDisposition: string | null): string | null => {
+        if (!contentDisposition) {
+            return null;
+        }
+
+        const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(contentDisposition);
+        if (utf8Match?.[1]) {
+            return decodeURIComponent(utf8Match[1]);
+        }
+
+        const asciiMatch = /filename="([^"]+)"/i.exec(contentDisposition);
+        return asciiMatch?.[1] ?? null;
+    };
+
+    /**
+     * 在浏览器中触发 Blob 下载。
+     */
+    const triggerBrowserDownload = (blob: Blob, filename: string): void => {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
     };
 
     /**
@@ -1848,6 +1906,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         deleteNovel,
         deleteWorkspacePath,
         dismissPendingAgentChapterUpdate,
+        downloadCurrentWorkspace,
         fetchChapterDetail,
         hasUnsavedChapterChanges,
         hasUnsavedFileChanges,

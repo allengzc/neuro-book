@@ -1813,21 +1813,6 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
             @close="closeContextMenu"
         />
 
-        <PlotThreadEditorDialog
-            :visible="editorVisible"
-            :target="editorTarget"
-            :mode="editorMode"
-            :thread="editingThread"
-            :scene="editingScene"
-            :chapters="chapters"
-            :scene-refs="editingSceneRefs"
-            :scene-plots="editingScenePlots"
-            :saving="savingEditor"
-            :error="detailError"
-            @update:visible="editorVisible = $event"
-            @save="handleEditorSave"
-        />
-
         <PlotWorkbenchDialog
             v-model="plotWorkbenchOpen"
             :story="workbenchStory"
@@ -1858,6 +1843,21 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
             @update-thread="(threadId, patch) => void updateWorkbenchThread(threadId, patch)"
             @update-scene="(sceneId, patch) => void updateWorkbenchScene(sceneId, patch)"
             @update-plot="(plotId, patch) => void updateWorkbenchPlot(plotId, patch)"
+        />
+
+        <PlotThreadEditorDialog
+            :visible="editorVisible"
+            :target="editorTarget"
+            :mode="editorMode"
+            :thread="editingThread"
+            :scene="editingScene"
+            :chapters="chapters"
+            :scene-refs="editingSceneRefs"
+            :scene-plots="editingScenePlots"
+            :saving="savingEditor"
+            :error="detailError"
+            @update:visible="editorVisible = $event"
+            @save="handleEditorSave"
         />
 
         <Dialog

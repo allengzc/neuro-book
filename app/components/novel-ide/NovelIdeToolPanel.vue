@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import {onMounted, ref, useAttrs} from "vue";
 import {storeToRefs} from "pinia";
+import Dialog from "nbook/app/components/common/Dialog.vue";
 import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
 import WorkspaceCharacterPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterPanel.vue";
 import NovelPlotPanel from "nbook/app/components/novel-ide/plot/NovelPlotPanel.vue";
 import type { NovelIdeTab } from "nbook/app/components/novel-ide/mock-data";
+import {useNotification} from "nbook/app/composables/useNotification";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
+import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 
 const props = defineProps<{
     activeTab: NovelIdeTab | null;
@@ -27,8 +30,41 @@ const titleMap: Record<NovelIdeTab, string> = {
 
 const novelIdeStore = useNovelIdeStore();
 const {plotWorkbenchOpen} = storeToRefs(novelIdeStore);
+const notification = useNotification();
 const attrs = useAttrs();
 const isMounted = ref(false);
+const downloadingWorkspace = ref(false);
+const downloadConfirmOpen = ref(false);
+
+/**
+ * 打开 workspace 下载确认框。
+ */
+function openDownloadConfirm(): void {
+    if (downloadingWorkspace.value) {
+        return;
+    }
+    downloadConfirmOpen.value = true;
+}
+
+/**
+ * 确认后保存未落盘内容并下载当前 workspace。
+ */
+async function confirmDownloadWorkspace(): Promise<void> {
+    if (downloadingWorkspace.value) {
+        return;
+    }
+
+    downloadingWorkspace.value = true;
+    try {
+        downloadConfirmOpen.value = false;
+        const filename = await novelIdeStore.downloadCurrentWorkspace();
+        notification.success(`已开始下载 ${filename}`);
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, "打包下载 workspace 失败"));
+    } finally {
+        downloadingWorkspace.value = false;
+    }
+}
 
 onMounted(() => {
     isMounted.value = true;
@@ -45,8 +81,8 @@ onMounted(() => {
                 </span>
 
                 <div class="flex items-center gap-0.5">
-                    <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]">
-                        <span class="i-lucide-ellipsis h-4 w-4"></span>
+                    <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" title="打包下载当前 workspace" :disabled="downloadingWorkspace" @click="openDownloadConfirm">
+                        <span :class="downloadingWorkspace ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-download'" class="h-4 w-4"></span>
                     </button>
                     <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('close')">
                         <span class="i-lucide-minus h-4 w-4"></span>
@@ -63,5 +99,9 @@ onMounted(() => {
 
         <!-- 剧本工作台 Dialog 宿主：允许顶部按钮直接打开，不强制切换左侧剧情大纲 tab。 -->
         <NovelPlotPanel v-if="isMounted && activeTab !== 'outline' && plotWorkbenchOpen" class="hidden" />
+
+        <Dialog v-model="downloadConfirmOpen" title="下载 workspace" width="420px" show-cancel :busy="downloadingWorkspace" @confirm="confirmDownloadWorkspace">
+            <p>将先保存所有未保存的 workspace 文件，然后打包下载当前 workspace。</p>
+        </Dialog>
     </div>
 </template>
