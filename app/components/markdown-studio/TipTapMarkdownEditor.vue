@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {EditorContent, useEditor} from "@tiptap/vue-3";
 import {getTextBetween, getTextSerializersFromSchema, type Editor} from "@tiptap/core";
-import type {AgentSuggestionMenuState} from "nbook/app/components/novel-ide/agent/tiptap/agent-suggestion";
+import {flattenAgentSuggestionItems, type AgentSuggestionMenuState} from "nbook/app/components/novel-ide/agent/tiptap/agent-suggestion";
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import ContextMenu, {type ContextMenuItem} from "nbook/app/components/common/ContextMenu.vue";
 import ReferenceSelectorPopover from "nbook/app/components/common/form/ReferenceSelectorPopover.vue";
@@ -36,6 +36,7 @@ const props = withDefaults(defineProps<{
     enableQuickTriggers?: boolean;
     onSkillTriggerStart?: () => void;
     popoverDirection?: PopoverDirection;
+    matchPopoverWidth?: boolean;
 }>(), {
     initialValue: "",
     visible: true,
@@ -56,6 +57,7 @@ const props = withDefaults(defineProps<{
     enableQuickTriggers: false,
     onSkillTriggerStart: () => {},
     popoverDirection: "auto",
+    matchPopoverWidth: false,
 });
 
 const emit = defineEmits<{
@@ -252,6 +254,27 @@ const frontmatterProfileKind = computed<FrontmatterProfileKind | null>(() => {
 
 watch(() => props.referenceRefreshKey, () => {
     refreshWorkspaceReferenceNodes();
+
+    if (suggestionMenuState.value) {
+        const menuState = props.resolveMenu({
+            kind: suggestionMenuState.value.contextKind,
+            query: suggestionMenuState.value.query,
+        });
+        const items = flattenAgentSuggestionItems(menuState.sections);
+        const activeIndex = Math.min(suggestionMenuState.value.items.length - 1, Math.max(0, activeIndex.value));
+        
+        suggestionMenuState.value = {
+            ...suggestionMenuState.value,
+            title: menuState.title,
+            prefix: menuState.prefix,
+            sections: menuState.sections,
+            items,
+        };
+        // 自动纠正索引避免越界
+        if (activeIndex >= items.length) {
+            activeIndex.value = 0;
+        }
+    }
 });
 
 watch(skillTriggerActive, (active) => {
@@ -1015,6 +1038,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
             :anchor-rect="suggestionMenuState.anchorRect"
             density="compact"
             :direction="props.popoverDirection"
+            :match-anchor-width="props.matchPopoverWidth"
             @hover="activeIndex = $event"
             @select="selectMenuItem"
         />

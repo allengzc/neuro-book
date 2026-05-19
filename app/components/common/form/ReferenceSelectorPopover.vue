@@ -15,11 +15,13 @@ const props = withDefaults(defineProps<{
     anchorRect?: FloatingAnchorRect | null;
     direction?: FloatingPanelDirection;
     density?: "normal" | "compact";
+    matchAnchorWidth?: boolean;
 }>(), {
     anchorElement: null,
     anchorRect: null,
     direction: "auto",
     density: "normal",
+    matchAnchorWidth: false,
 });
 
 const emit = defineEmits<{
@@ -38,6 +40,7 @@ const {
     panelRef,
     direction: toRef(props, "direction"),
     maxHeight: 288,
+    matchAnchorWidth: toRef(props, "matchAnchorWidth"),
 });
 
 const resolveItemIndex = (itemId: string): number => flatItems.value.findIndex((item) => item.id === itemId);
@@ -61,7 +64,8 @@ const virtualPanelLayout = computed(() => {
     const maxPanelHeight = props.density === "compact" ? 280 : 288;
     const preferredWidth = props.density === "compact" ? 264 : 360;
     const minWidth = props.density === "compact" ? 220 : 260;
-    const basePanelWidth = Math.min(preferredWidth, Math.max(window.innerWidth - viewportGap * 2, minWidth));
+    const anchorElWidth = props.matchAnchorWidth && props.anchorElement ? props.anchorElement.getBoundingClientRect().width : 0;
+    const basePanelWidth = anchorElWidth || Math.min(preferredWidth, Math.max(window.innerWidth - viewportGap * 2, minWidth));
     const panelWidth = Math.max(basePanelWidth, rect.width);
     const wantedHeight = Math.min(panelRef.value?.scrollHeight || maxPanelHeight, maxPanelHeight);
     const bottomSpace = Math.max(window.innerHeight - rect.bottom - viewportGap - triggerGap, 0);

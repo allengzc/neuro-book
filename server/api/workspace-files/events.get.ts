@@ -11,7 +11,8 @@ export default defineEventHandler(async (event) => {
     const query = getQuery(event);
     const root = typeof query.root === "string" ? query.root : undefined;
     const novelId = typeof query.novelId === "string" ? query.novelId : undefined;
-    const workspaceRoot = await resolveWorkspaceRootInput(prisma, {root, novelId});
+    const workspaceKind = query.workspaceKind === "user-assets" ? query.workspaceKind : undefined;
+    const workspaceRoot = await resolveWorkspaceRootInput(prisma, {root, novelId, workspaceKind});
     const eventStream = createEventStream(event);
     let streamClosed = false;
     let unsubscribe: (() => void) | null = null;

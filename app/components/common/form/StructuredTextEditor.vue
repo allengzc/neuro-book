@@ -32,6 +32,7 @@ const props = withDefaults(defineProps<{
     popoverDirection?: PopoverDirection;
     submitOnEnter?: boolean;
     enableQuickTriggers?: boolean;
+    matchPopoverWidth?: boolean;
     menuRefreshKey?: string | number;
     resolveMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     onSkillTriggerStart?: () => void;
@@ -58,6 +59,7 @@ const props = withDefaults(defineProps<{
     popoverDirection: "auto",
     submitOnEnter: false,
     enableQuickTriggers: false,
+    matchPopoverWidth: false,
     menuRefreshKey: "",
     readonly: false,
     activePath: "",
@@ -353,6 +355,7 @@ defineExpose({
                 :enable-quick-triggers="props.enableQuickTriggers"
                 :on-skill-trigger-start="props.onSkillTriggerStart"
                 :popover-direction="props.popoverDirection"
+                :match-popover-width="props.matchPopoverWidth"
                 @change="emitChange"
                 @focus="emit('focus')"
                 @blur="emit('blur')"

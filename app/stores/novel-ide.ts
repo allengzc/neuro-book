@@ -108,6 +108,16 @@ type WorkspaceSaveOptions = {
     force?: boolean;
 };
 
+export type WorkspaceKind = "novel" | "user-assets";
+type WorkspaceQueryInput = {novelId: string} | {workspaceKind: "user-assets"};
+
+type WorkspaceSessionState = {
+    activeWorkspaceTabPath: string;
+    workspaceTabs: WorkspaceEditorTab[];
+    workspaceBuffers: Record<string, WorkspaceFileBuffer>;
+    monacoFontSizeOverridesByPath: Record<string, number>;
+};
+
 export type WorkspaceFileConflictResolution =
     | {action: "reload-remote"}
     | {action: "overwrite-local"}
@@ -195,6 +205,8 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const workspaceTabs = ref<WorkspaceEditorTab[]>([]);
     const activeWorkspaceTabPath = ref("");
     const workspaceBuffers = ref<Record<string, WorkspaceFileBuffer>>({});
+    const workspaceSessions = ref<Record<string, WorkspaceSessionState>>({});
+    const workspaceKind = ref<WorkspaceKind>("novel");
     const activeWorkspaceFile = ref<WorkspaceActiveFile | null>(null);
     const workspaceIssues = ref<WorkspaceFileIssue[]>([]);
     const workspaceWriteConflict = ref<WorkspaceWriteConflictDto | null>(null);
@@ -261,7 +273,11 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const currentNovel = computed<NovelListItemDto | null>(() => {
         return novels.value.find((novel) => novel.id === currentNovelId.value) ?? null;
     });
-    const currentWorkspaceRoot = computed(() => currentNovel.value?.workspaceSlug ? `workspace/${currentNovel.value.workspaceSlug}` : "");
+    const currentWorkspaceRoot = computed(() => workspaceKind.value === "user-assets"
+        ? "workspace/.nbook/assets"
+        : currentNovel.value?.workspaceSlug ? `workspace/${currentNovel.value.workspaceSlug}` : "");
+    const workspaceSessionKey = computed(() => workspaceKind.value === "user-assets" ? "user-assets" : `novel:${currentNovelId.value}`);
+    const isUserAssetsWorkspace = computed(() => workspaceKind.value === "user-assets");
 
     /**
      * 当前活动文件路径。对外保留 selected 命名，内部只从 activeWorkspaceFile 投影。
@@ -370,9 +386,48 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     };
 
     /**
-     * 构造当前小说 workspace 查询参数。
+     * 持久化当前 workspace 会话。
      */
-    const workspaceQuery = (): {novelId: string} => {
+    const persistWorkspaceSession = (): void => {
+        persistActiveWorkspaceBuffer();
+        const key = workspaceSessionKey.value;
+        if (!key || key === "novel:") {
+            return;
+        }
+        workspaceSessions.value = {
+            ...workspaceSessions.value,
+            [key]: {
+                activeWorkspaceTabPath: activeWorkspaceTabPath.value,
+                workspaceTabs: workspaceTabs.value,
+                workspaceBuffers: workspaceBuffers.value,
+                monacoFontSizeOverridesByPath: monacoFontSizeOverridesByPath.value,
+            },
+        };
+    };
+
+    /**
+     * 恢复指定 workspace 会话的编辑状态。
+     */
+    const restoreWorkspaceSession = (): void => {
+        const snapshot = workspaceSessions.value[workspaceSessionKey.value];
+        activeWorkspaceTabPath.value = snapshot?.activeWorkspaceTabPath ?? "";
+        workspaceTabs.value = snapshot?.workspaceTabs ?? [];
+        workspaceBuffers.value = snapshot?.workspaceBuffers ?? {};
+        monacoFontSizeOverridesByPath.value = snapshot?.monacoFontSizeOverridesByPath ?? {};
+        activeWorkspaceFile.value = null;
+        workspaceTree.value = [];
+        workspaceIssues.value = [];
+        workspaceWriteConflict.value = null;
+        workspaceConflictDialogOpen.value = false;
+    };
+
+    /**
+     * 构造当前 workspace 查询参数。
+     */
+    const workspaceQuery = (): WorkspaceQueryInput => {
+        if (workspaceKind.value === "user-assets") {
+            return {workspaceKind: "user-assets"};
+        }
         if (!currentNovelId.value) {
             throw new Error("当前未选择小说，无法访问 workspace");
         }
@@ -747,7 +802,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             const nextNode = await $fetch<WorkspaceFileNode>("/api/workspace-files/write", {
                 method: "PUT",
                 body: {
-                    novelId: currentNovelId.value,
+                    ...workspaceQuery(),
                     path: pathToSave,
                     content: contentToSave,
                     baseContent: activeFile.lastSyncedContent,
@@ -816,7 +871,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 保存未落盘内容后下载当前小说 workspace 压缩包。
      */
     const downloadCurrentWorkspace = async (): Promise<string> => {
-        if (!currentNovelId.value) {
+        if (workspaceKind.value !== "user-assets" && !currentNovelId.value) {
             throw new Error("当前没有可下载的小说 workspace");
         }
 
@@ -826,7 +881,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         }
 
         const response = await $fetch.raw<Blob>("/api/workspace-files/download", {
-            query: {novelId: currentNovelId.value},
+            query: workspaceQuery(),
             responseType: "blob",
         });
         const filename = resolveDownloadFilename(response.headers.get("content-disposition")) ?? "workspace.zip";
@@ -846,7 +901,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         const node = await $fetch<WorkspaceFileNode>("/api/workspace-files/create-file", {
             method: "POST",
             body: {
-                novelId: currentNovelId.value,
+                ...workspaceQuery(),
                 path: filePath,
                 content: nextContent,
             },
@@ -862,7 +917,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         const node = await $fetch<WorkspaceFileNode>("/api/workspace-files/create-directory", {
             method: "POST",
             body: {
-                novelId: currentNovelId.value,
+                ...workspaceQuery(),
                 path: dirPath,
                 indexContent,
             },
@@ -878,7 +933,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         const node = await $fetch<WorkspaceFileNode>("/api/workspace-files/convert-file-to-directory", {
             method: "POST",
             body: {
-                novelId: currentNovelId.value,
+                ...workspaceQuery(),
                 path: filePath,
             },
         });
@@ -892,7 +947,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const renameWorkspacePath = async (from: string, to: string): Promise<WorkspaceFileNode> => {
         const node = await $fetch<WorkspaceFileNode>("/api/workspace-files/rename", {
             method: "PATCH",
-            body: {novelId: currentNovelId.value, from, to},
+            body: {...workspaceQuery(), from, to},
         });
         await loadWorkspaceTree();
         return node;
@@ -946,7 +1001,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         try {
             const node = await $fetch<WorkspaceFileNode>("/api/workspace-files/rename", {
                 method: "PATCH",
-                body: {novelId: currentNovelId.value, from, to},
+                body: {...workspaceQuery(), from, to},
             });
             await loadWorkspaceTree();
             return node;
@@ -964,7 +1019,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         await $fetch("/api/workspace-files/delete", {
             method: "DELETE",
             body: {
-                novelId: currentNovelId.value,
+                ...workspaceQuery(),
                 path: filePath,
                 recursive,
             },
@@ -1067,7 +1122,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 从磁盘同步外部文件变化。dirty 文件只标记冲突，不自动覆盖用户输入。
      */
     const syncWorkspaceFromDisk = async (events: WorkspaceFileChangeEventDto[]): Promise<WorkspaceDiskSyncResult> => {
-        if (!currentNovelId.value || events.length === 0) {
+        if ((workspaceKind.value !== "user-assets" && !currentNovelId.value) || events.length === 0) {
             return {
                 activeFile: "unchanged",
                 dirtyPaths: [],
@@ -1713,10 +1768,28 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             throw new Error("当前 workspace 仍有未保存修改，切换小说前请先保存或放弃修改");
         }
 
+        persistWorkspaceSession();
+        workspaceKind.value = "novel";
         currentNovelId.value = novelId;
         selectedChapterId.value = "";
-        clearWorkspaceState();
+        restoreWorkspaceSession();
         await initializeWorkspace();
+    };
+
+    /**
+     * 切换到全局用户 assets 工作区。
+     */
+    const switchToUserAssetsWorkspace = async (): Promise<void> => {
+        persistWorkspaceSession();
+        workspaceKind.value = "user-assets";
+        restoreWorkspaceSession();
+        loadingWorkspace.value = true;
+        try {
+            await loadWorkspaceTree();
+            await restoreWorkspaceTabFromPersistedState();
+        } finally {
+            loadingWorkspace.value = false;
+        }
     };
 
     /**
@@ -1743,9 +1816,10 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         await loadNovels();
 
         if (currentNovelId.value === novelId) {
+            persistWorkspaceSession();
             currentNovelId.value = novels.value[0]?.id ?? "";
             selectedChapterId.value = "";
-            clearWorkspaceState();
+            restoreWorkspaceSession();
             await initializeWorkspace();
         }
     };
@@ -1754,6 +1828,17 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 初始化小说工作区，并校验持久化后的小说/章节选择是否合法。
      */
     const initializeWorkspace = async (): Promise<void> => {
+        if (workspaceKind.value === "user-assets") {
+            loadingWorkspace.value = true;
+            try {
+                await loadWorkspaceTree();
+                await restoreWorkspaceTabFromPersistedState();
+            } finally {
+                loadingWorkspace.value = false;
+            }
+            return;
+        }
+
         loadingWorkspace.value = true;
 
         try {
@@ -1776,8 +1861,11 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             const previousNovelId = currentNovelId.value;
             const persistedNovel = list.find((item) => item.id === currentNovelId.value);
             currentNovelId.value = persistedNovel?.id ?? list[0]?.id ?? "";
+            if (workspaceKind.value !== "novel") {
+                workspaceKind.value = "novel";
+            }
             if (previousNovelId && previousNovelId !== currentNovelId.value) {
-                clearWorkspaceState();
+                restoreWorkspaceSession();
             }
             if (!currentNovelId.value) {
                 clearActiveChapter();
@@ -1911,7 +1999,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         hasUnsavedChapterChanges,
         hasUnsavedFileChanges,
         hasUnsavedWorkspaceChanges,
-         hydratesChapter: hydratingChapter,
+        hydratesChapter: hydratingChapter,
         hydratingChapter,
         initializeWorkspace,
         lastSyncedChapterContent,
@@ -1924,6 +2012,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         loadWorkspaceFile,
         loadWorkspaceTree,
         syncWorkspaceFromDisk,
+        persistWorkspaceSession,
         resolveWorkspaceWriteConflict,
         keepWorkspaceTab,
         moveWorkspaceTab,
@@ -1962,12 +2051,14 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         selectWorkspaceTab,
         setSelectedModelLabel,
         showEditorWorkspace,
+        isUserAssetsWorkspace,
         selectWorkspacePath,
         setMonacoFontSizeOverride,
         setWorkspaceTabPinned,
         setWorkspaceTabViewMode,
         toggleWorkspaceTabPinned,
         switchNovel,
+        switchToUserAssetsWorkspace,
         syncChapterSummary,
         syncNovelTree,
         syncVolumeSummary,
@@ -1986,18 +2077,20 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         restoringWorkspaceFile,
         savingFile,
         validateWorkspace,
+        workspaceKind,
         workspaceReady,
         workspaceConflictDialogOpen,
         workspaceWriteConflict,
         workspaceIssues,
         workspaceBuffers,
+        workspaceSessions,
         workspaceTabs,
         workspaceTree,
     };
 }, {
     persist: {
         key: "novel.ide",
-        storage: piniaPluginPersistedstate.localStorage(),
+        storage: piniaPluginPersistedstate.sessionStorage(),
         pick: [
             "activeLeftTab",
             "currentNovelId",
@@ -2007,8 +2100,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             "selectedChapterId",
             "selectedLorebookEntryId",
             "selectedCharacterId",
-            "workspaceTabs",
-            "activeWorkspaceTabPath",
+            "workspaceSessions",
             "selectedModel",
             "selectedReasoning",
             "theme",

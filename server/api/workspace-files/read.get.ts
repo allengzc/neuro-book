@@ -10,7 +10,8 @@ export default defineEventHandler(async (event) => {
     const filePath = readRequiredQueryString(query.path, "path");
     const root = typeof query.root === "string" ? query.root : undefined;
     const novelId = typeof query.novelId === "string" ? query.novelId : undefined;
-    const workspaceRoot = await resolveWorkspaceRootInput(prisma, {root, novelId});
+    const workspaceKind = query.workspaceKind === "user-assets" ? query.workspaceKind : undefined;
+    const workspaceRoot = await resolveWorkspaceRootInput(prisma, {root, novelId, workspaceKind});
     const [node, content] = await Promise.all([
         statWorkspacePath(workspaceRoot, filePath),
         readWorkspaceTextFile(workspaceRoot, filePath),

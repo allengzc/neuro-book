@@ -7,6 +7,8 @@ import {parseEntityId} from "nbook/server/utils/novel-chapter";
 type PrismaExecutor = PrismaClient | Prisma.TransactionClient;
 
 export const WORKSPACE_CONTAINER_ROOT = "workspace";
+export const USER_ASSETS_WORKSPACE_KIND = "user-assets";
+export const USER_ASSETS_WORKSPACE_ROOT = path.posix.join(WORKSPACE_CONTAINER_ROOT, ".nbook", "assets");
 export const DEFAULT_NOVEL_WORKSPACE_ID = "1";
 export const DEFAULT_NOVEL_WORKSPACE_SLUG = "silver-dragon-hime";
 
@@ -20,6 +22,8 @@ export type NovelWorkspaceMetadata = {
     createdAt: string;
     updatedAt: string;
 };
+
+export type WorkspaceRootKind = "novel" | typeof USER_ASSETS_WORKSPACE_KIND;
 
 /**
  * 将小说 workspace slug 归一成安全目录名。
@@ -62,8 +66,12 @@ export async function resolveNovelWorkspaceRoot(prismaClient: PrismaExecutor, no
  */
 export async function resolveWorkspaceRootInput(
     prismaClient: PrismaExecutor,
-    input: {root?: string; novelId?: string},
+    input: {root?: string; novelId?: string; workspaceKind?: WorkspaceRootKind},
 ): Promise<string | undefined> {
+    if (input.workspaceKind === USER_ASSETS_WORKSPACE_KIND) {
+        await ensureUserAssetsWorkspaceRoot();
+        return USER_ASSETS_WORKSPACE_ROOT;
+    }
     if (input.root?.trim()) {
         return input.root.trim();
     }
@@ -71,6 +79,15 @@ export async function resolveWorkspaceRootInput(
         return resolveNovelWorkspaceRoot(prismaClient, input.novelId);
     }
     return undefined;
+}
+
+/**
+ * 确保全局用户 assets 工作区存在。
+ */
+export async function ensureUserAssetsWorkspaceRoot(): Promise<string> {
+    const workspaceRoot = path.resolve(process.cwd(), USER_ASSETS_WORKSPACE_ROOT);
+    await fs.mkdir(workspaceRoot, {recursive: true});
+    return USER_ASSETS_WORKSPACE_ROOT;
 }
 
 /**

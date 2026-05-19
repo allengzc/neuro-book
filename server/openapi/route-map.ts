@@ -96,17 +96,20 @@ const ReadQuerySchema = z_.object({
     path: z_.string().trim().min(1, "path 不能为空").describe("File path to read"),
     root: z_.string().optional().describe("Workspace root directory"),
     novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
 });
 
 const StatQuerySchema = z_.object({
     path: z_.string().trim().min(1, "path 不能为空").describe("Path to stat"),
     root: z_.string().optional().describe("Workspace root directory"),
     novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
 });
 
 const TreeQuerySchema = z_.object({
     root: z_.string().optional().describe("Workspace root directory"),
     novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
     type: z_.string().optional().describe("Filter by content type"),
     depth: z_.string().optional().describe("Maximum tree depth (parsed as integer)"),
     target: z_.union([z_.string(), z_.array(z_.string())]).optional().describe("Target path(s) to scan"),
@@ -115,6 +118,7 @@ const TreeQuerySchema = z_.object({
 const ValidateQuerySchema = z_.object({
     root: z_.string().optional().describe("Workspace root directory"),
     novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
     target: z_.union([z_.string(), z_.array(z_.string())]).optional().describe("Target path(s) to validate"),
     recursive: z_.union([z_.string(), z_.boolean()]).optional().describe("Recursive validation"),
 });
@@ -124,6 +128,7 @@ const ValidateQuerySchema = z_.object({
 const WriteBodySchema = z_.object({
     root: z_.string().optional().describe("Workspace root directory"),
     novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
     path: z_.string().trim().min(1, "path 不能为空").describe("File path"),
     content: z_.string().describe("File content"),
 });
@@ -131,6 +136,7 @@ const WriteBodySchema = z_.object({
 const CreateFileBodySchema = z_.object({
     root: z_.string().optional().describe("Workspace root directory"),
     novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
     path: z_.string().trim().min(1, "path 不能为空").describe("File path"),
     content: z_.string().optional().describe("Initial file content"),
 });
@@ -138,6 +144,7 @@ const CreateFileBodySchema = z_.object({
 const CreateDirBodySchema = z_.object({
     root: z_.string().optional().describe("Workspace root directory"),
     novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
     path: z_.string().trim().min(1, "path 不能为空").describe("Directory path"),
     indexContent: z_.string().nullable().optional().describe("Index file content"),
 });
@@ -145,6 +152,7 @@ const CreateDirBodySchema = z_.object({
 const RenameBodySchema = z_.object({
     root: z_.string().optional().describe("Workspace root directory"),
     novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
     from: z_.string().trim().min(1, "from 不能为空").describe("Source path"),
     to: z_.string().trim().min(1, "to 不能为空").describe("Destination path"),
 });
@@ -152,6 +160,7 @@ const RenameBodySchema = z_.object({
 const DeleteBodySchema = z_.object({
     root: z_.string().optional().describe("Workspace root directory"),
     novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
     path: z_.string().trim().min(1, "path 不能为空").describe("Path to delete"),
     recursive: z_.boolean().optional().default(false).describe("Delete recursively"),
 });
@@ -159,6 +168,7 @@ const DeleteBodySchema = z_.object({
 const ConvertBodySchema = z_.object({
     root: z_.string().optional().describe("Workspace root directory"),
     novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
     path: z_.string().trim().min(1, "path 不能为空").describe("File path to convert"),
 });
 

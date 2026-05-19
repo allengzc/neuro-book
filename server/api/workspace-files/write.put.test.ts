@@ -12,6 +12,7 @@ let readBodyMock: ReturnType<typeof vi.fn>;
 
 describe("PUT /api/workspace-files/write", () => {
     beforeEach(() => {
+        vi.resetModules();
         readBodyMock = vi.fn();
         const globals = globalThis as typeof globalThis & {
             defineEventHandler?: <THandler>(handler: THandler) => THandler;
@@ -19,6 +20,9 @@ describe("PUT /api/workspace-files/write", () => {
         };
         globals.defineEventHandler = (handler) => handler;
         globals.readBody = readBodyMock;
+        vi.doMock("nbook/server/utils/prisma", () => ({
+            prisma: {},
+        }));
     });
 
     afterEach(async () => {
@@ -28,6 +32,7 @@ describe("PUT /api/workspace-files/write", () => {
         };
         globals.defineEventHandler = originalDefineEventHandler;
         globals.readBody = originalReadBody;
+        vi.doUnmock("nbook/server/utils/prisma");
         await Promise.all(createdRoots.splice(0).map((root) => fs.rm(root, {recursive: true, force: true})));
     });
 

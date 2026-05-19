@@ -6,6 +6,7 @@ import {prisma} from "nbook/server/utils/prisma";
 const RenameWorkspacePathBodySchema = z.object({
     root: z.string().optional(),
     novelId: z.string().optional(),
+    workspaceKind: z.literal("user-assets").optional(),
     from: z.string().trim().min(1, "from 不能为空"),
     to: z.string().trim().min(1, "to 不能为空"),
 });

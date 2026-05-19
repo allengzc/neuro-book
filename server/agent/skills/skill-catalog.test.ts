@@ -79,6 +79,8 @@ describe("LocalSkillCatalogProvider", () => {
             whenToUse: "用户显式要求写作",
             headerText: ["name: Writer", "description: 写作流程技能", "when_to_use:", "  - 用户显式要求写作"].join("\n"),
             location: expectedSkillPath,
+            displayLocation: "assets/agent/skills/writer/SKILL.md",
+            source: "builtin",
         }]);
     });
 
@@ -98,8 +100,42 @@ describe("LocalSkillCatalogProvider", () => {
         expect(catalog).toEqual([{
             name: "RAG",
             description: "检索技能",
+            whenToUse: undefined,
             headerText: ["name: RAG", "description: 检索技能"].join("\n"),
             location: expectedSkillPath,
+            displayLocation: "assets/agent/skills/rag/skill.md",
+            source: "builtin",
         }]);
+    });
+
+    it("用户 assets 中的同名 skill 会覆盖内置 skill", async () => {
+        const workspacePath = await createSkillWorkspace();
+        await writeSkillFile(workspacePath, "builtin-writer", "SKILL.md", [
+            "---",
+            "name: Writer",
+            "description: 内置写作流程",
+            "---",
+            "# Builtin",
+        ].join("\n"));
+        const userSkillDirectoryPath = path.join(workspacePath, "workspace", ".nbook", "assets", "agent", "skills", "writer");
+        await fs.mkdir(userSkillDirectoryPath, {recursive: true});
+        const userSkillPath = path.join(userSkillDirectoryPath, "SKILL.md");
+        await fs.writeFile(userSkillPath, [
+            "---",
+            "name: Writer",
+            "description: 用户写作流程",
+            "---",
+            "# User",
+        ].join("\n"), "utf-8");
+        const provider = new LocalSkillCatalogProvider(workspacePath);
+
+        const catalog = await provider.list();
+        expect(catalog).toEqual([expect.objectContaining({
+            name: "Writer",
+            description: "用户写作流程",
+            location: userSkillPath,
+            displayLocation: "workspace/.nbook/assets/agent/skills/writer/SKILL.md",
+            source: "user",
+        })]);
     });
 });

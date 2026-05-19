@@ -482,7 +482,8 @@ export function readAgentUsageMetadata(rawAdditionalKwargs: JsonObject): AgentTo
 
 /**
  * skills catalog 中的单个条目。
- * location 始终为可直接传给 read_file 的绝对路径。
+ * location 始终为服务端可直接读取的绝对路径。
+ * displayLocation 是给模型和前端看的稳定相对路径。
  */
 export type SkillCatalogItem = {
     name: string;
@@ -490,6 +491,8 @@ export type SkillCatalogItem = {
     whenToUse?: string;
     headerText: string;
     location: string;
+    displayLocation?: string;
+    source?: "user" | "builtin";
 };
 
 /**

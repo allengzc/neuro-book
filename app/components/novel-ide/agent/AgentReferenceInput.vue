@@ -63,6 +63,7 @@ defineExpose({
         popover-direction="auto"
         :submit-on-enter="true"
         :enable-quick-triggers="true"
+        :match-popover-width="true"
         :menu-refresh-key="props.menuRefreshKey"
         :resolve-menu="props.resolveMenu"
         :on-skill-trigger-start="props.onSkillTriggerStart"

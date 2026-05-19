@@ -10,7 +10,8 @@ export default defineEventHandler(async (event) => {
     const filePath = readRequiredQueryString(query.path, "path");
     const root = typeof query.root === "string" ? query.root : undefined;
     const novelId = typeof query.novelId === "string" ? query.novelId : undefined;
-    return statWorkspacePath(await resolveWorkspaceRootInput(prisma, {root, novelId}), filePath);
+    const workspaceKind = query.workspaceKind === "user-assets" ? query.workspaceKind : undefined;
+    return statWorkspacePath(await resolveWorkspaceRootInput(prisma, {root, novelId, workspaceKind}), filePath);
 });
 
 /**

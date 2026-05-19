@@ -40,7 +40,7 @@ const SkillDocumentFrontmatterSchema = z.object({
     name: z.string().trim().min(1).optional(),
     description: z.string().trim().min(1).optional(),
 });
-const SKILL_ROOT_HINT = "assets/agent/skills/";
+const SKILL_ROOT_HINT = "workspace/.nbook/assets/agent/skills/ > assets/agent/skills/";
 
 /**
  * SimpleProfile 的模板返回值。
@@ -819,7 +819,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
                 `- name: ${skillItem.name}`,
                 `  description: ${skillItem.description}`,
                 skillItem.whenToUse ? `  when_to_use: ${skillItem.whenToUse}` : "",
-                `  location: ${skillItem.location}`,
+                `  location: ${skillItem.displayLocation ?? skillItem.location}`,
             ].filter(Boolean).join("\n"))
             .join("\n\n");
 
@@ -881,7 +881,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
                 `【显式激活 Skill】`,
                 `用户在本轮输入中显式提到了 $${skillItem.name}。`,
                 `该 skill 已由系统自动预加载；如果需要启用其他 skill，继续使用 skill 工具。`,
-                `location: ${skillItem.location}`,
+                `location: ${skillItem.displayLocation ?? skillItem.location}`,
                 "",
                 "---",
                 skillItem.headerText.trim(),

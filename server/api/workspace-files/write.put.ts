@@ -8,6 +8,7 @@ import {prisma} from "nbook/server/utils/prisma";
 const WriteWorkspaceFileBodySchema = z.object({
     root: z.string().optional(),
     novelId: z.string().optional(),
+    workspaceKind: z.literal("user-assets").optional(),
     path: z.string().trim().min(1, "path 不能为空"),
     content: z.string(),
     baseContent: z.string().optional(),

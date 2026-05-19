@@ -9,10 +9,11 @@ export default defineEventHandler(async (event) => {
     const query = getQuery(event);
     const root = typeof query.root === "string" ? query.root : undefined;
     const novelId = typeof query.novelId === "string" ? query.novelId : undefined;
+    const workspaceKind = query.workspaceKind === "user-assets" ? query.workspaceKind : undefined;
     const targets = parseTargets(query.target);
     const recursive = parseBoolean(query.recursive);
     const result = await validateWorkspaceContentNodes({
-        root: await resolveWorkspaceRootInput(prisma, {root, novelId}),
+        root: await resolveWorkspaceRootInput(prisma, {root, novelId, workspaceKind}),
         targets: targets.length > 0 ? targets : ["."],
         recursive,
     });

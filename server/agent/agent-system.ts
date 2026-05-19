@@ -777,7 +777,7 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
         const skillContent = await readFile(skillItem.location, "utf-8");
         return [
             `Skill "${skillItem.name}" loaded.`,
-            `location: ${skillItem.location}`,
+            `location: ${skillItem.displayLocation ?? skillItem.location}`,
             "",
             "---",
             skillItem.headerText.trim(),

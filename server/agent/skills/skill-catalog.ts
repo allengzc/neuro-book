@@ -4,8 +4,13 @@ import path from "node:path";
 import {z} from "zod";
 import {parseFrontmatterDocument} from "nbook/server/utils/frontmatter-document";
 import type {SkillCatalogItem} from "nbook/server/agent/types";
+import {
+    USER_ASSETS_WORKSPACE_ROOT,
+    ensureUserAssetsWorkspaceRoot,
+} from "nbook/server/workspace-files/novel-workspace";
 
 const SKILL_ROOT_RELATIVE_PATH = path.join("assets", "agent", "skills");
+const USER_SKILL_ROOT_RELATIVE_PATH = path.join(USER_ASSETS_WORKSPACE_ROOT, "agent", "skills");
 const SKILL_FILE_CANDIDATES = ["SKILL.md", "skill.md"] as const;
 const SKILL_TOKEN_NAME_PATTERN = /^[\p{L}_-][\p{L}\p{N}_-]*$/u;
 const SkillFrontmatterSchema = z.object({
@@ -29,7 +34,7 @@ export interface SkillCatalogProvider {
 
 /**
  * 本地文件系统版 skills catalog。
- * v1 只扫描仓库内 `assets/agent/skills/`。
+ * 扫描用户 assets 与仓库内置 assets；同名 skill 用户版本优先。
  */
 export class LocalSkillCatalogProvider implements SkillCatalogProvider {
     constructor(
@@ -40,19 +45,40 @@ export class LocalSkillCatalogProvider implements SkillCatalogProvider {
      * 读取当前 skills catalog。
      */
     async list(): Promise<readonly SkillCatalogItem[]> {
-        const skillRoot = path.resolve(this.workspaceRoot, SKILL_ROOT_RELATIVE_PATH);
-        const skillDirectoryEntries = await this.readSkillDirectories(skillRoot);
-        const catalogItems: SkillCatalogItem[] = [];
+        const catalogByName = new Map<string, SkillCatalogItem>();
+        await this.appendSkillRoot(catalogByName, {
+            root: path.resolve(this.workspaceRoot, SKILL_ROOT_RELATIVE_PATH),
+            displayRoot: path.posix.join("assets", "agent", "skills"),
+            source: "builtin",
+        });
+        await this.appendSkillRoot(catalogByName, {
+            root: path.resolve(this.workspaceRoot, USER_SKILL_ROOT_RELATIVE_PATH),
+            displayRoot: path.posix.join(USER_ASSETS_WORKSPACE_ROOT, "agent", "skills"),
+            source: "user",
+        });
+
+        return [...catalogByName.values()].sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
+    }
+
+    /**
+     * 追加一个 skill 根目录；后追加的同名 skill 覆盖先前条目。
+     */
+    private async appendSkillRoot(
+        catalogByName: Map<string, SkillCatalogItem>,
+        input: {root: string; displayRoot: string; source: NonNullable<SkillCatalogItem["source"]>},
+    ): Promise<void> {
+        if (input.source === "user") {
+            await ensureUserAssetsWorkspaceRoot();
+        }
+        const skillDirectoryEntries = await this.readSkillDirectories(input.root);
 
         for (const skillDirectoryEntry of skillDirectoryEntries) {
-            const skillItem = await this.readSkillItem(path.join(skillRoot, skillDirectoryEntry.name));
+            const skillItem = await this.readSkillItem(path.join(input.root, skillDirectoryEntry.name), input);
             if (!skillItem) {
                 continue;
             }
-            catalogItems.push(skillItem);
+            catalogByName.set(skillItem.name, skillItem);
         }
-
-        return catalogItems.sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
     }
 
     /**
@@ -74,7 +100,10 @@ export class LocalSkillCatalogProvider implements SkillCatalogProvider {
      * 从单个 skill 目录中读取 catalog 条目。
      * 没有合法 frontmatter 的旧 skill 会被直接跳过。
      */
-    private async readSkillItem(skillDirectoryPath: string): Promise<SkillCatalogItem | null> {
+    private async readSkillItem(
+        skillDirectoryPath: string,
+        rootInput: {root: string; displayRoot: string; source: NonNullable<SkillCatalogItem["source"]>},
+    ): Promise<SkillCatalogItem | null> {
         const skillFilePath = await this.resolveSkillFilePath(skillDirectoryPath);
         if (!skillFilePath) {
             return null;
@@ -98,6 +127,11 @@ export class LocalSkillCatalogProvider implements SkillCatalogProvider {
             whenToUse: this.stringifyWhenToUse(parsedSkillDocument.metadata.when_to_use),
             headerText: parsedSkillDocument.rawFrontmatterText.trim(),
             location: skillFilePath,
+            displayLocation: path.posix.join(
+                rootInput.displayRoot,
+                path.relative(rootInput.root, skillFilePath).split(path.sep).join("/"),
+            ),
+            source: rootInput.source,
         };
     }
 

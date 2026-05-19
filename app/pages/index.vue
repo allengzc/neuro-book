@@ -85,6 +85,7 @@ const {
     workspaceIssues,
     workspaceTabs,
     workspaceTree,
+    workspaceKind,
 } = storeToRefs(novelIdeStore);
 const {
     applyAgentWorkspaceSync,
@@ -750,7 +751,7 @@ const subscribeWorkspaceEvents = (novelId: string): void => {
 
     const abortController = new AbortController();
     workspaceEventAbortController.value = abortController;
-    void workspaceFileEvents.subscribe(novelId, handleWorkspaceFileEvent, abortController.signal)
+    void workspaceFileEvents.subscribe({novelId}, handleWorkspaceFileEvent, abortController.signal)
         .catch((error) => {
             if (abortController.signal.aborted) {
                 return;
@@ -761,6 +762,9 @@ const subscribeWorkspaceEvents = (novelId: string): void => {
 };
 
 watch(currentNovelId, (novelId) => {
+    if (workspaceKind.value !== "novel") {
+        return;
+    }
     subscribeWorkspaceEvents(novelId);
 }, {immediate: true});
 
@@ -953,6 +957,14 @@ const openPlotWorkbench = (): void => {
 };
 
 /**
+ * 打开全局用户 assets 工作区。
+ */
+const openUserAssets = (): void => {
+    const route = useRouter().resolve("/assets");
+    window.open(route.href, "_blank", "noopener,noreferrer");
+};
+
+/**
  * 打开当前 Markdown 文件的类型专属 frontmatter 档案。
  */
 function openFrontmatterProfile(kind: FrontmatterProfileKind): void {
@@ -985,6 +997,7 @@ onBeforeUnmount(() => {
     abortController.value = null;
     workspaceEventAbortController.value?.abort();
     workspaceEventAbortController.value = null;
+    novelIdeStore.persistWorkspaceSession();
 });
 </script>
 
@@ -1001,6 +1014,7 @@ onBeforeUnmount(() => {
                 @toggle-agent="rightPanelOpen = !rightPanelOpen"
                 @open-bookshelf="bookshelfOpen = true"
                 @open-plot-workbench="openPlotWorkbench"
+                @open-user-assets="openUserAssets"
                 @switch-novel="handleSwitchNovel"
                 @open-admin="void openAdmin()"
                 @logout="void logout()"
