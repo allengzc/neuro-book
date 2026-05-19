@@ -247,6 +247,128 @@ describe("AgentThreadRunner", () => {
             "model_end",
         ]);
     });
+
+    it("流式参数和聚合参数不一致时优先使用 raw tool_call_chunks 参数", async () => {
+        const execute = vi.fn(async (input: {subagentThreadId: string; input: {prompt: string}}) => ({
+            content: `调用 ${input.subagentThreadId}: ${input.input.prompt}`,
+            toolArgs: JSON.stringify(input),
+        }));
+        const boundTool = createBoundInvokeSubagentTool(execute);
+        const model = {
+            bindTools: vi.fn(() => model),
+            stream: vi.fn(async (messages: unknown[]) => {
+                const hasToolResult = messages.some((message) => ToolMessage.isInstance(message));
+                if (!hasToolResult) {
+                    return streamMessages([
+                        Object.assign(new AIMessageChunk({
+                            content: "",
+                            tool_call_chunks: [{
+                                index: 0,
+                                id: "call-subagent-1",
+                                name: "invoke_subagent",
+                                args: "{\"subagentThreadId\":\"203\",\"input\":{\"prompt\":\"正确对象\"}}",
+                            }],
+                        }), {
+                            tool_calls: [{
+                                id: "call-subagent-1",
+                                name: "invoke_subagent",
+                                args: {
+                                    subagentThreadId: "203",
+                                    input: "{\"prompt\":\"错误字符串\"}",
+                                },
+                                type: "tool_call",
+                            }],
+                        }),
+                    ]);
+                }
+                return streamMessages([
+                    new AIMessageChunk("调用完成"),
+                ]);
+            }),
+        };
+        const runner = new AgentThreadRunner({
+            getChatModel: () => model as never,
+        });
+
+        const stream = await runner.streamPreparedEvents(
+            createThreadRecord(),
+            "leader.default",
+            [new HumanMessage("调用 subagent")],
+            [boundTool],
+        );
+        for await (const _event of stream) {
+            // drain stream
+        }
+
+        expect(execute).toHaveBeenCalledWith({
+            subagentThreadId: "203",
+            input: {
+                prompt: "正确对象",
+            },
+        }, expect.any(Object));
+    });
+
+    it("流式参数不完整时会回退使用聚合 tool_calls 参数", async () => {
+        const execute = vi.fn(async (input: {subagentThreadId: string; input: {prompt: string}}) => ({
+            content: `调用 ${input.subagentThreadId}: ${input.input.prompt}`,
+            toolArgs: JSON.stringify(input),
+        }));
+        const boundTool = createBoundInvokeSubagentTool(execute);
+        const model = {
+            bindTools: vi.fn(() => model),
+            stream: vi.fn(async (messages: unknown[]) => {
+                const hasToolResult = messages.some((message) => ToolMessage.isInstance(message));
+                if (!hasToolResult) {
+                    return streamMessages([
+                        Object.assign(new AIMessageChunk({
+                            content: "",
+                            tool_call_chunks: [{
+                                index: 0,
+                                id: "call-subagent-1",
+                                name: "invoke_subagent",
+                                args: "{\"subagentThreadId\":\"203\",",
+                            }],
+                        }), {
+                            tool_calls: [{
+                                id: "call-subagent-1",
+                                name: "invoke_subagent",
+                                args: {
+                                    subagentThreadId: "203",
+                                    input: {
+                                        prompt: "聚合参数",
+                                    },
+                                },
+                                type: "tool_call",
+                            }],
+                        }),
+                    ]);
+                }
+                return streamMessages([
+                    new AIMessageChunk("调用完成"),
+                ]);
+            }),
+        };
+        const runner = new AgentThreadRunner({
+            getChatModel: () => model as never,
+        });
+
+        const stream = await runner.streamPreparedEvents(
+            createThreadRecord(),
+            "leader.default",
+            [new HumanMessage("调用 subagent")],
+            [boundTool],
+        );
+        for await (const _event of stream) {
+            // drain stream
+        }
+
+        expect(execute).toHaveBeenCalledWith({
+            subagentThreadId: "203",
+            input: {
+                prompt: "聚合参数",
+            },
+        }, expect.any(Object));
+    });
 });
 
 function createBoundReadFileTool(execute: BoundAgentTool["definition"]["execute"]): BoundAgentTool {
@@ -265,6 +387,46 @@ function createBoundReadFileTool(execute: BoundAgentTool["definition"]["execute"
             schema: z.object({
                 path: z.string(),
             }),
+        }),
+        context: {
+            agentGateway: {
+                publishToolOutputDelta: vi.fn(),
+            } as never,
+            threadId: "1",
+            profileKey: "leader.default",
+            profile: {
+                key: "leader.default",
+            } as never,
+            runOptions: {},
+            writeToolOutput: () => {},
+            getHistory: async () => [],
+            getScope: () => ({}) as never,
+            setIde: () => ({}) as never,
+            setStudio: () => ({}) as never,
+        },
+        invoke: vi.fn(),
+    };
+}
+
+function createBoundInvokeSubagentTool(execute: BoundAgentTool["definition"]["execute"]): BoundAgentTool {
+    const schema = z.object({
+        subagentThreadId: z.string(),
+        input: z.object({
+            prompt: z.string(),
+        }),
+    });
+
+    return {
+        definition: {
+            key: "invoke_subagent",
+            description: "invoke subagent",
+            schema,
+            execute,
+        },
+        langChainTool: tool(async () => "unused", {
+            name: "invoke_subagent",
+            description: "invoke subagent",
+            schema,
         }),
         context: {
             agentGateway: {

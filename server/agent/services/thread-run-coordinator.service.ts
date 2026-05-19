@@ -1253,8 +1253,14 @@ export class ThreadRunCoordinator {
             return undefined;
         }
         try {
-            const parsed = JSON.parse(inputText) as {subagentThreadId?: string};
-            return parsed.subagentThreadId;
+            const parsed = JSON.parse(inputText) as {subagentThreadId?: unknown};
+            if (typeof parsed.subagentThreadId === "string") {
+                return parsed.subagentThreadId.trim() || undefined;
+            }
+            if (typeof parsed.subagentThreadId === "number") {
+                return String(parsed.subagentThreadId);
+            }
+            return undefined;
         } catch {
             return undefined;
         }

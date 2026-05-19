@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
     if (clientVariables) {
         await agentSystem.syncClientVariables(threadId, clientVariables);
     }
-    await agentSystem.attachSubAgent(threadId, body.subagentThreadId);
+    await agentSystem.attachSubAgent(threadId, String(body.subagentThreadId).trim());
     return {
         ok: true,
     };

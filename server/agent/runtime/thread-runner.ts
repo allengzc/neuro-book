@@ -320,9 +320,7 @@ export class AgentThreadRunner {
         toolDrafts: Map<number, ToolCallDraft>,
     ): AIMessage {
         if (aggregated) {
-            const toolCalls = normalizeToolCalls(aggregated.tool_calls?.length
-                ? aggregated.tool_calls
-                : [...toolDrafts.values()].map((draft) => toToolCall(draft)).filter((toolCall): toolCall is ToolCall => Boolean(toolCall)));
+            const toolCalls = resolveToolCalls(aggregated.tool_calls ?? [], toolDrafts);
             return new AIMessage({
                 id: aggregated.id,
                 content: aggregated.content,
@@ -347,6 +345,35 @@ export class AgentThreadRunner {
         }
         return new AIMessage("");
     }
+}
+
+/**
+ * 合并 LangChain 聚合结果与原始 tool_call_chunks 草稿。
+ * 原始参数能解析时优先使用原始参数；否则回退聚合结果，避免空/半截 chunk 覆盖完整参数。
+ */
+function resolveToolCalls(aggregatedToolCalls: ToolCall[], toolDrafts: Map<number, ToolCallDraft>): ToolCall[] {
+    if (toolDrafts.size === 0) {
+        return normalizeToolCalls(aggregatedToolCalls);
+    }
+
+    const maxCallCount = Math.max(aggregatedToolCalls.length, ...toolDrafts.keys().map((index) => index + 1));
+    const toolCalls: ToolCall[] = [];
+    for (let callIndex = 0; callIndex < maxCallCount; callIndex += 1) {
+        const draft = toolDrafts.get(callIndex);
+        const aggregated = aggregatedToolCalls[callIndex];
+        const draftArgs = parseCompleteToolArgs(draft?.argsText ?? "");
+        const name = draft?.toolName ?? aggregated?.name;
+        if (!name) {
+            continue;
+        }
+        toolCalls.push({
+            id: draft?.toolCallId ?? aggregated?.id,
+            name,
+            args: draftArgs ?? aggregated?.args ?? {},
+            type: "tool_call",
+        });
+    }
+    return normalizeToolCalls(toolCalls);
 }
 
 /**
@@ -549,6 +576,23 @@ function toToolCall(draft: ToolCallDraft): ToolCall | null {
 }
 
 /**
+ * 只在参数文本是完整 JSON object 时返回解析结果。
+ */
+function parseCompleteToolArgs(argsText: string): Record<string, unknown> | null {
+    if (!argsText.trim()) {
+        return null;
+    }
+    try {
+        const parsed = JSON.parse(argsText) as unknown;
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? parsed as Record<string, unknown>
+            : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
  * 为缺失 id 的 tool call 补齐稳定 id。
  */
 function normalizeToolCalls(toolCalls: ToolCall[]): ToolCall[] {
@@ -574,17 +618,7 @@ function requireToolCallId(toolCall: ToolCall): string {
  * 解析工具参数。
  */
 function parseToolArgs(argsText: string): Record<string, unknown> {
-    if (!argsText.trim()) {
-        return {};
-    }
-    try {
-        const parsed = JSON.parse(argsText) as unknown;
-        return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-            ? parsed as Record<string, unknown>
-            : {};
-    } catch {
-        return {};
-    }
+    return parseCompleteToolArgs(argsText) ?? {};
 }
 
 /**

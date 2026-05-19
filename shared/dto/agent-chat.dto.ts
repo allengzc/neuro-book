@@ -304,7 +304,10 @@ export const CreateSubAgentThreadRequestDtoSchema = z.object({
  * 关联已有 subagent 请求。
  */
 export const AttachSubAgentThreadRequestDtoSchema = z.object({
-    subagentThreadId: z.string().trim().min(1, "subagentThreadId 不能为空"),
+    subagentThreadId: z.union([
+        z.string().trim().min(1, "subagentThreadId 不能为空"),
+        z.number(),
+    ]),
 });
 
 /**

@@ -658,6 +658,138 @@ describe("ThreadRunCoordinator", () => {
         });
     });
 
+    it("会把 invoke_subagent 参数中的数字 subagentThreadId 归一化后绑定 live tool", async () => {
+        const publishedEvents: AgentStreamEvent[] = [];
+        const threadMessages = new ThreadMessageService({
+            appendMessages: async () => [],
+        } as unknown as AgentMessageStore);
+        vi.spyOn(threadMessages, "finalizeAssistantIteration").mockResolvedValue([
+            new AIMessage({
+                content: "",
+                additional_kwargs: {
+                    messageId: "assistant-1",
+                    messageStatus: "done",
+                    messageCreatedAt: "2026-04-05T00:00:00.000Z",
+                },
+            }),
+        ]);
+        vi.spyOn(threadMessages, "persistToolMessage").mockResolvedValue();
+        vi.spyOn(threadMessages, "finalizeAssistantSuccess").mockResolvedValue([
+            new AIMessage({
+                content: "完成",
+                additional_kwargs: {
+                    messageId: "assistant-2",
+                    messageStatus: "done",
+                    messageCreatedAt: "2026-04-05T00:00:01.000Z",
+                },
+            }),
+        ]);
+        vi.spyOn(threadMessages, "buildSummary").mockReturnValue("完成");
+
+        const coordinator = new ThreadRunCoordinator({
+            threadRunner: {
+                streamPreparedEvents: async () => createStream([
+                    {
+                        event: "on_chat_model_stream",
+                        data: {
+                            chunk: {
+                                text: "",
+                                tool_call_chunks: [{
+                                    index: 0,
+                                    id: "call-subagent-1",
+                                    name: "invoke_subagent",
+                                    args: JSON.stringify({
+                                        subagentThreadId: 203,
+                                        input: {
+                                            prompt: "写一章正文",
+                                            plotPoints: ["30"],
+                                            lorebookEntries: [{
+                                                path: "lorebook/character/test/",
+                                            }],
+                                        },
+                                    }),
+                                }],
+                            },
+                        },
+                    },
+                    {
+                        event: "on_tool_start",
+                        name: "invoke_subagent",
+                        run_id: "run-subagent-1",
+                        data: {
+                            input: JSON.stringify({
+                                subagentThreadId: 203,
+                                input: {
+                                    prompt: "写一章正文",
+                                    plotPoints: ["30"],
+                                    lorebookEntries: [{
+                                        path: "lorebook/character/test/",
+                                    }],
+                                },
+                            }),
+                        },
+                    },
+                    {
+                        event: "on_tool_end",
+                        name: "invoke_subagent",
+                        run_id: "run-subagent-1",
+                        data: {
+                            output: "完成",
+                        },
+                    },
+                ]),
+            } as never,
+            threadRepository: {
+                updateMetadata: vi.fn(async () => createThreadRecord()),
+                touchAfterRun: vi.fn(async () => createThreadRecord({
+                    runStatus: "completed",
+                })),
+            } as never,
+            threadEvents: {
+                publish: vi.fn((_threadId: string, event: AgentStreamEvent) => {
+                    publishedEvents.push(event);
+                }),
+            } as never,
+            threadMessages,
+            refreshThreadAgentScope: vi.fn(async () => ({}) as AgentVariableScope),
+            subscribeThreadActive: vi.fn(),
+            loadThreadHistoryMessages: vi.fn(async () => []),
+            closeRun: vi.fn(),
+            stringifyError: vi.fn((error: unknown) => error instanceof Error ? error.message : "unknown"),
+            isAbortError: vi.fn(() => false),
+        });
+        const runtime = {
+            thread: createThreadRecord(),
+            profile: new TestLeaderProfile(),
+            input: {
+                prompt: "hello",
+            },
+            scope: {} as AgentVariableScope<"leader.default">,
+            skillCatalog: [],
+            options: {},
+            messageStore: {} as AgentMessageStore,
+            loadHistoryMessages: async () => [],
+            threadRepository: {} as never,
+            variableStore: {} as never,
+        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        const session = new ActiveRunSession("thread-1", "leader.default");
+
+        await coordinator.runThread(createThreadRecord(), runtime, [], session);
+
+        expect(publishedEvents).toContainEqual(expect.objectContaining({
+            type: "tool_call_started",
+            subagentThreadId: "203",
+        }));
+        expect(publishedEvents).toContainEqual(expect.objectContaining({
+            type: "tool_exec_started",
+            subagentThreadId: "203",
+        }));
+        expect(publishedEvents).toContainEqual(expect.objectContaining({
+            type: "tool_finished",
+            subagentThreadId: "203",
+        }));
+    });
+
     it("会把重叠 assistant/thinking chunk 归一化后再广播并落盘", async () => {
         const publishedEvents: AgentStreamEvent[] = [];
         const threadMessages = new ThreadMessageService({

@@ -148,6 +148,32 @@ describe("tool schema compliance", () => {
         expect(requestUserInputTool.description).toContain("provide only meaningful choices");
     });
 
+    it("invoke_subagent accepts numeric subagentThreadId", () => {
+        expect(() => invokeSubagentTool.schema.parse({
+            subagentThreadId: 203,
+            input: {
+                prompt: "写一章正文",
+                plotPoints: ["30"],
+                lorebookEntries: [{
+                    path: "lorebook/character/test/",
+                }],
+            },
+        })).not.toThrow();
+    });
+
+    it("invoke_subagent accepts JSON string input payload", () => {
+        expect(() => invokeSubagentTool.schema.parse({
+            subagentThreadId: "203",
+            input: JSON.stringify({
+                prompt: "写一章正文",
+                plotPoints: ["30"],
+                lorebookEntries: [{
+                    path: "lorebook/character/test/",
+                }],
+            }),
+        })).not.toThrow();
+    });
+
     it("every tool has a non-empty description", () => {
         for (const tool of defaultTools) {
             expect(tool.description, `Tool "${tool.key}" has empty description`).toBeTruthy();

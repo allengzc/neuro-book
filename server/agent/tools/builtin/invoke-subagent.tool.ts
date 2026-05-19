@@ -3,9 +3,17 @@ import type {AgentTool} from "nbook/server/agent/tools/agent-tool";
 import {RetrievalInputSchema, WriterInputSchema} from "nbook/server/agent/types";
 import {createToolResultMessage} from "nbook/server/agent/tools/shared/tool-message";
 
+const SubagentProfileInputSchema = z.union([WriterInputSchema, RetrievalInputSchema]);
+
 const InvokeSubagentInputSchema = z.object({
-    subagentThreadId: z.string().trim().min(1, "subagentThreadId 不能为空").describe("The thread ID of the subagent to invoke. Must be an attached subagent of the current leader thread."),
-    input: z.union([WriterInputSchema, RetrievalInputSchema]).describe("The input payload for the subagent. Structure depends on the subagent's profile (writer or retrieval)."),
+    subagentThreadId: z.union([
+        z.string().trim().min(1, "subagentThreadId 不能为空"),
+        z.number(),
+    ]).describe("The thread ID of the subagent to invoke. Must be an attached subagent of the current leader thread."),
+    input: z.union([
+        SubagentProfileInputSchema,
+        z.string().trim().min(1),
+    ]).describe("The input payload for the subagent. Structure depends on the subagent's profile (writer or retrieval)."),
 });
 
 /**
@@ -17,12 +25,34 @@ export const invokeSubagentTool: AgentTool<typeof InvokeSubagentInputSchema> = {
     description: "Invoke an attached subagent and wait for it to complete. Returns the subagent's final result and optional structured data. Intermediate live messages are not embedded back into the leader thread.",
     schema: InvokeSubagentInputSchema,
     async execute(input, context) {
+        const subagentThreadId = String(input.subagentThreadId).trim();
+        const subagentInput = normalizeSubagentInput(input.input);
         const result = await context.agentGateway.runSubAgent(
             context.threadId,
-            input.subagentThreadId,
-            input.input,
+            subagentThreadId,
+            subagentInput,
             context.runOptions,
         );
-        return createToolResultMessage(result, JSON.stringify(input));
+        return createToolResultMessage(result, JSON.stringify({
+            subagentThreadId,
+            input: subagentInput,
+        }));
     },
 };
+
+/**
+ * 归一化 provider 可能字符串化的 subagent 输入。
+ */
+function normalizeSubagentInput(input: z.infer<typeof InvokeSubagentInputSchema>["input"]): z.infer<typeof SubagentProfileInputSchema> {
+    if (typeof input !== "string") {
+        return input;
+    }
+
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(input) as unknown;
+    } catch {
+        parsed = input;
+    }
+    return SubagentProfileInputSchema.parse(parsed);
+}
