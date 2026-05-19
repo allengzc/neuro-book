@@ -12,7 +12,6 @@ services:
             - "${NUXT_PORT:-3000}:3000"
         volumes:
             - ./workspace:/app/workspace
-            - ./config.yaml:/app/config.yaml
         depends_on:
             postgres:
                 condition: service_healthy
