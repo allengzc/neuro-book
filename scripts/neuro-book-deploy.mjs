@@ -496,7 +496,7 @@ function sourceUpdateCommands(config) {
         "git pull --ff-only",
         "bun install --frozen-lockfile",
         "set -a",
-        ". .env",
+        ". ./.env",
         "set +a",
         "bun run nuxt:prepare",
         "bun run generate",
