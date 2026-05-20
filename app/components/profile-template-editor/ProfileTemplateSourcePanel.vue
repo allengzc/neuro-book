@@ -10,6 +10,7 @@ const props = defineProps<{
     selectedTemplateFileName: string;
     theme: IdeTheme;
     monacoPreferences: MonacoEditorPreferences;
+    embedded?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -20,8 +21,8 @@ const emit = defineEmits<{
 
 <template>
     <!-- TSX 模板源码编辑面板 -->
-    <section class="panel flex min-h-0 flex-[0.9] flex-col">
-        <div class="mb-2 flex shrink-0 items-center justify-between">
+    <section class="panel flex min-h-0 flex-col" :class="props.embedded ? 'h-full border-0 bg-transparent p-0 shadow-none' : 'flex-[0.9]'">
+        <div v-if="!props.embedded" class="mb-2 flex shrink-0 items-center justify-between">
             <div class="panel-title">TSX 模板源码</div>
             <div class="flex items-center gap-2">
                 <span v-if="props.parsingSource" class="text-[11px] text-[var(--text-muted)]">解析中...</span>
@@ -29,7 +30,8 @@ const emit = defineEmits<{
             </div>
         </div>
         <MarkdownSourceEditor
-            class="source-preview min-h-0 flex-1 overflow-hidden rounded-md border border-[var(--border-color)]"
+            class="source-preview min-h-0 flex-1 overflow-hidden rounded-md"
+            :class="props.embedded ? 'border-0' : 'border border-[var(--border-color)]'"
             :initial-value="props.sourceText"
             visible
             language="typescript"

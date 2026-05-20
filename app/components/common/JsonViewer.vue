@@ -239,7 +239,7 @@ function collapseAll() {
     justify-content: space-between;
     gap: 0.35rem;
     padding: 0.25rem 0.35rem;
-    //border-bottom: 1px solid var(--border-color);
+    /* border-bottom: 1px solid var(--border-color); */
     background: color-mix(in srgb, var(--bg-input) 96%, transparent);
 }
 

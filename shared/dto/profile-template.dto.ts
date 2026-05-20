@@ -8,6 +8,7 @@ export const ProfileTemplateNodeTypeSchema = z.enum([
     "HistorySet",
     "DynamicSet",
     "AppendingSet",
+    "Text",
     "Message",
     "AIMessage",
     "ToolCall",

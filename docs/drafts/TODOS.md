@@ -139,7 +139,7 @@
 - [ ] agent 创建工作区的tool
 - [ ] subagent detach 工具
 - [ ] workspace 前端 pinia 变量
-- [ ]
+- [ ] 小说概念
 - [ ]
 - [ ]
 - [ ]

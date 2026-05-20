@@ -18,6 +18,8 @@ const props = withDefaults(defineProps<{
     title?: string;
     /** 是否显示关闭按钮（默认 true） */
     closable?: boolean;
+    /** 是否渲染默认 header 区域（默认 true） */
+    showHeader?: boolean;
     /** 点击遮罩是否关闭（默认 true） */
     closeOnOverlay?: boolean;
     /** Esc 键是否关闭（默认 true） */
@@ -40,10 +42,13 @@ const props = withDefaults(defineProps<{
     busy?: boolean;
     /** 自定义 body 区域 class，用于大尺寸工作台等需要接管内部滚动的场景 */
     bodyClass?: string;
+    /** 自定义 header 区域 class，用于工作台接管标题栏等场景 */
+    headerClass?: string;
 }>(), {
     title: "",
     size: "default",
     closable: true,
+    showHeader: true,
     closeOnOverlay: true,
     closeOnEsc: true,
     teleportTarget: `.${IDE_THEME_HOST_CLASS}`,
@@ -52,6 +57,7 @@ const props = withDefaults(defineProps<{
     showFooter: true,
     busy: false,
     bodyClass: "",
+    headerClass: "",
 });
 
 const emit = defineEmits<{
@@ -188,7 +194,7 @@ onMounted(() => {
                     :style="{ width: resolvedWidth, height: resolvedHeight, maxHeight: resolvedMaxHeight }"
                 >
                     <!-- header 区域 -->
-                    <div class="flex items-center justify-between px-5 py-2 border-b border-[var(--border-color)]">
+                    <div v-if="props.showHeader" class="flex items-center justify-between px-5 py-2 border-b border-[var(--border-color)]" :class="props.headerClass">
                         <slot name="header">
                             <div class="flex min-w-0 flex-1 items-center gap-3">
                                 <span class="min-w-0 flex-1 text-base font-semibold text-[var(--text-main)] leading-snug tracking-wide">{{ props.title }}</span>

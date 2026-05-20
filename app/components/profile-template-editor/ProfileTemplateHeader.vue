@@ -1,14 +1,12 @@
 <script setup lang="ts">
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
-import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import type {SelectOption} from "nbook/app/components/profile-template-editor/profile-template-editor-ui";
 
 const props = defineProps<{
+    title?: string;
+    subtitle?: string;
     selectedTemplate: string;
     templateOptions: SelectOption[];
-    selectedTemplateFileName: string;
-    theme: IdeTheme;
-    themeOptions: ReadonlyArray<{value: IdeTheme; label: string}>;
     editorStatusText: string;
     canUndo: boolean;
     canRedo: boolean;
@@ -20,17 +18,18 @@ const props = defineProps<{
     issueCount: number;
     restoreEnabled?: boolean;
     restoring?: boolean;
+    closable?: boolean;
 }>();
 
 const emit = defineEmits<{
     (e: "update:selectedTemplate", value: string): void;
-    (e: "set-theme", value: IdeTheme): void;
     (e: "undo"): void;
     (e: "redo"): void;
     (e: "preview"): void;
     (e: "validate"): void;
     (e: "restore"): void;
     (e: "save"): void;
+    (e: "close"): void;
 }>();
 </script>
 
@@ -41,26 +40,13 @@ const emit = defineEmits<{
             <div class="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--accent-main)] text-xs font-semibold text-white shadow-sm">TS</div>
             <div class="min-w-0">
                 <div class="flex items-center gap-2 text-[13px] font-semibold">
-                    <span class="truncate">TSX Profile 可视化编辑器</span>
-                    <span class="i-lucide-chevron-right h-3.5 w-3.5 text-[var(--text-muted)]"></span>
-                    <span class="truncate text-[12px] font-medium text-[var(--text-secondary)]">当前位置：{{ props.selectedTemplateFileName }}</span>
+                    <span class="truncate">{{ props.title ?? "TSX Profile 可视化编辑器" }}</span>
+                    <span v-if="props.subtitle" class="truncate text-[12px] font-medium text-[var(--text-muted)]">{{ props.subtitle }}</span>
                 </div>
             </div>
         </div>
 
         <FormSelect :model-value="props.selectedTemplate" :options="props.templateOptions" placeholder="选择模板" dropdown-direction="down" class="min-w-[220px]" @update:model-value="emit('update:selectedTemplate', $event)" />
-
-        <div class="hidden items-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-0.5 lg:flex">
-            <button
-                v-for="option in props.themeOptions"
-                :key="option.value"
-                class="h-6 rounded px-2 text-[11px] font-medium transition-colors"
-                :class="props.theme === option.value ? 'bg-[var(--bg-panel)] text-[var(--accent-text)] shadow-sm' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'"
-                @click="emit('set-theme', option.value)"
-            >
-                {{ option.label }}
-            </button>
-        </div>
 
         <div class="ml-auto flex items-center gap-2">
             <span class="hidden items-center gap-1 text-xs text-emerald-600 md:flex">
@@ -90,6 +76,9 @@ const emit = defineEmits<{
                 <span class="i-lucide-save h-3.5 w-3.5"></span>
                 <span>保存</span>
                 <span class="i-lucide-chevron-down h-3.5 w-3.5 opacity-80"></span>
+            </button>
+            <button v-if="props.closable" class="icon-btn" title="关闭" @click="emit('close')">
+                <span class="i-lucide-x h-4 w-4"></span>
             </button>
         </div>
     </header>

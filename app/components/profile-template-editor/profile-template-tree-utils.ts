@@ -18,7 +18,10 @@ export function createNode(type: ProfileTemplateNodeType): ProfileTemplateNodeDt
     };
     if (type === "Message") {
         base.props = {role: "system"};
-        base.text = "新的消息内容";
+        base.children = [createNode("Text")];
+    }
+    if (type === "Text") {
+        base.text = "文本片段";
         base.textKind = "text";
     }
     if (type === "AIMessage") {
@@ -40,10 +43,10 @@ export function createNode(type: ProfileTemplateNodeType): ProfileTemplateNodeDt
         base.props = {condition: "true"};
     }
     if (type === "ActivatedSkills") {
-        base.props = {text: "{{activatedSkillsText}}"};
+        base.props = {text: "${activatedSkillsText}"};
     }
     if (type === "SkillCatalog") {
-        base.props = {text: "{{skillCatalogText}}"};
+        base.props = {text: "${skillCatalogText}"};
     }
     return base;
 }
@@ -68,7 +71,7 @@ export function createNodeWithId(type: ProfileTemplateNodeType, id: string): Pro
  * 节点是否可包含子节点。
  */
 export function canHaveChildren(type: ProfileTemplateNodeType): boolean {
-    return !["ToolCall", "SkillCatalog", "ActivatedSkills"].includes(type);
+    return !["Text", "ToolCall", "SkillCatalog", "ActivatedSkills"].includes(type);
 }
 
 /**
@@ -82,13 +85,16 @@ export function canInsertNodeIntoParent(parent: ProfileTemplateNodeDto, node: Pr
         return false;
     }
     if (parent.type === "Message") {
-        return isInlineStringNodeType(node.type);
+        return isInlineStringNodeType(node.type) || node.type === "If";
     }
     if (node.type === "ToolCall") {
         return parent.type === "AIMessage";
     }
     if (parent.type === "AIMessage") {
-        return node.type === ("ToolCall" as ProfileTemplateNodeType);
+        return node.type === "Text" || node.type === "If" || node.type === ("ToolCall" as ProfileTemplateNodeType);
+    }
+    if (parent.type === "ToolCall") {
+        return node.type === "Text";
     }
     if (isInlineStringNodeType(node.type)) {
         return false;
@@ -123,7 +129,7 @@ export function canInsertNodeIntoParentInTree(root: ProfileTemplateNodeDto, pare
  * 返回该节点是否在运行时直接产出字符串，只能作为 Message 的内联子节点。
  */
 export function isInlineStringNodeType(type: ProfileTemplateNodeType): boolean {
-    return type === "SkillCatalog" || type === "ActivatedSkills";
+    return type === "Text" || type === "SkillCatalog" || type === "ActivatedSkills";
 }
 
 /**
@@ -331,6 +337,9 @@ export function collectNodeIds(node: ProfileTemplateNodeDto): string[] {
  * 返回节点展示标题。
  */
 export function nodeTitle(node: ProfileTemplateNodeDto): string {
+    if (node.type === "Text") {
+        return "Text";
+    }
     if (node.type === "Message") {
         return `${node.type} · ${String(node.props.role ?? "system")}`;
     }

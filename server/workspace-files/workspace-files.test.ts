@@ -472,11 +472,14 @@ describe("workspace-files", () => {
         await expect(readWorkspaceTextFile(root, "PROJECT-STATUS.md")).resolves.not.toContain("## Recent Updates");
         await expect(readWorkspaceTextFile(root, "PROJECT-STATUS.md")).resolves.toContain("不维护 `tasks/` walkthrough");
         await expect(readWorkspaceTextFile(root, "PROJECT-STATUS.md")).resolves.toContain("填写 `lorebook/note/project-positioning/`");
+        await expect(readWorkspaceTextFile(root, "PROJECT-STATUS.md")).resolves.toContain("填写 `lorebook/note/story-concept/`");
         await expect(readWorkspaceTextFile(root, ".nbook/icons.json")).resolves.toContain("\"lorebook\"");
         await expect(fs.access(path.join(root, ".agent/.gitkeep")).then(() => true)).resolves.toBe(true);
         await expect(readWorkspaceTextFile(root, "workspace.yaml")).resolves.toContain("slug: novel-template");
         await expect(readWorkspaceTextFile(root, "lorebook/note/project-positioning/index.md")).resolves.toContain("## 类型与基调");
         await expect(readWorkspaceTextFile(root, "lorebook/note/project-positioning/index.md")).resolves.toContain("- 小说初始化");
+        await expect(readWorkspaceTextFile(root, "lorebook/note/story-concept/index.md")).resolves.toContain("## 故事概述");
+        await expect(readWorkspaceTextFile(root, "lorebook/note/story-concept/index.md")).resolves.toContain("长简介式作品介绍");
         await expect(readWorkspaceTextFile(root, "lorebook/rule/writing-style/index.md")).resolves.toContain("inject:");
         await expect(readWorkspaceTextFile(root, "lorebook/rule/writing-style/index.md")).resolves.toContain("文风约束通常给 subagent.writer");
         await expect(readWorkspaceTextFile(root, "lorebook/note/initial-plot-seed/index.md")).resolves.toContain("剧情种子通常不直接注入");

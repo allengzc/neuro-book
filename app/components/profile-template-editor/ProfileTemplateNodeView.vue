@@ -3,7 +3,7 @@ import {CollisionPriority} from "@dnd-kit/abstract";
 import {useDroppable} from "@dnd-kit/vue";
 import {useSortable} from "@dnd-kit/vue/sortable";
 import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMarkdownContent.vue";
-import type {ProfileTemplateNodeDto, ProfileTemplateNodeType} from "nbook/shared/dto/profile-template.dto";
+import type {ProfileTemplateNodeDto, ProfileTemplateNodeType, ProfileTemplatePropValue} from "nbook/shared/dto/profile-template.dto";
 
 const props = defineProps<{
     node: ProfileTemplateNodeDto;
@@ -101,6 +101,7 @@ const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
     HistorySet: "i-lucide-archive",
     DynamicSet: "i-lucide-panel-top",
     AppendingSet: "i-lucide-panel-bottom",
+    Text: "i-lucide-type",
     Message: "i-lucide-message-square",
     AIMessage: "i-lucide-sparkles",
     ToolCall: "i-lucide-wrench",
@@ -115,6 +116,9 @@ const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
  * 返回节点展示标题。
  */
 function nodeTitle(node: ProfileTemplateNodeDto): string {
+    if (node.type === "Text") {
+        return "Text";
+    }
     if (node.type === "Message" || node.type === "AIMessage") {
         return node.type;
     }
@@ -131,6 +135,9 @@ function nodeMeta(node: ProfileTemplateNodeDto): string {
     if (node.type === "Message") {
         return `role: ${String(node.props.role ?? "system")}`;
     }
+    if (node.type === "Text") {
+        return node.textKind === "source" ? "source" : "text";
+    }
     if (node.type === "AIMessage") {
         return "role: assistant";
     }
@@ -138,15 +145,29 @@ function nodeMeta(node: ProfileTemplateNodeDto): string {
         return `tool: ${String(node.props.name ?? "tool")}`;
     }
     if (node.type === "Reminder") {
-        return `id: ${String(node.props.id ?? "")}`;
+        return ["id", "watchPath", "watchValue", "repeatEveryTurns"]
+            .filter((key) => node.props[key] !== undefined && node.props[key] !== "")
+            .map((key) => `${key}: ${formatPropValue(node.props[key])}`)
+            .join(" · ");
     }
     if (node.type === "Watch") {
         return `path: ${String(node.props.path ?? "")}`;
     }
     if (node.type === "If") {
-        return `condition: ${String(node.props.condition ?? "true")}`;
+        const condition = node.props.condition;
+        return `condition: ${typeof condition === "object" && condition !== null && "kind" in condition && condition.kind === "expression" ? condition.code : String(condition ?? "true")}`;
     }
     return node.id;
+}
+
+/**
+ * 将属性值转成适合节点标题行显示的短文本。
+ */
+function formatPropValue(value: ProfileTemplatePropValue | undefined): string {
+    if (typeof value === "object" && value !== null && "kind" in value && value.kind === "expression") {
+        return value.code;
+    }
+    return String(value ?? "");
 }
 
 /**
@@ -166,7 +187,7 @@ function nodeSummary(node: ProfileTemplateNodeDto): string {
         return "输出追加集合，写入历史尾部。";
     }
     if (node.type === "ActivatedSkills") {
-        return String(node.props.text ?? "{{activatedSkillsText}}");
+        return String(node.props.text ?? "${activatedSkillsText}");
     }
     return "";
 }
@@ -175,7 +196,7 @@ function nodeSummary(node: ProfileTemplateNodeDto): string {
  * 判断是否显示节点正文摘要。
  */
 function shouldShowSummary(node: ProfileTemplateNodeDto): boolean {
-    return node.type !== "ProfilePrompt";
+    return node.type !== "ProfilePrompt" && node.type !== "Text";
 }
 
 /**
@@ -217,9 +238,9 @@ function prepareDrag(): void {
                 </div>
 
                 <div class="node-main">
-                    <div class="flex min-w-0 items-center gap-2">
+                    <div class="node-title-row">
                         <span class="truncate text-sm font-semibold text-[var(--text-main)]">{{ nodeTitle(props.node) }}</span>
-                        <span class="truncate text-[11px] text-[var(--text-muted)]">{{ nodeMeta(props.node) }}</span>
+                        <span class="node-meta" :class="{ 'condition-meta': props.node.type === 'If' }">{{ nodeMeta(props.node) }}</span>
                     </div>
                     <div v-if="props.node.type === 'Message' && (props.node.text ?? '').trim()" class="node-message-body mt-2">
                         <pre v-if="props.node.textKind === 'source'" class="node-source-body">{{ props.node.text }}</pre>
@@ -231,12 +252,16 @@ function prepareDrag(): void {
                 </div>
 
                 <div v-if="props.depth > 0" class="node-actions">
-                    <button class="node-action-btn" title="复制" @click.stop="emit('duplicate', props.node.id)">
+                    <button type="button" class="node-action-btn" title="复制" @click.stop="emit('duplicate', props.node.id)">
                         <span class="i-lucide-copy h-3.5 w-3.5"></span>
                     </button>
-                    <button class="node-action-btn danger" title="删除" @click.stop="emit('delete', props.node.id)">
+                    <button type="button" class="node-action-btn danger" title="删除" @click.stop="emit('delete', props.node.id)">
                         <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
                     </button>
+                </div>
+                <div v-if="props.node.type === 'Text' && (props.node.text ?? '').trim()" class="node-message-body node-text-body-row" @click.stop="selectNode">
+                    <pre v-if="props.node.textKind === 'source'" class="node-source-body">{{ props.node.text }}</pre>
+                    <AgentMarkdownContent v-else :content="props.node.text ?? ''" />
                 </div>
             </div>
 
@@ -250,7 +275,7 @@ function prepareDrag(): void {
                     :depth="props.depth + 1"
                     :index="childIndex"
                     :parent-id="props.node.id"
-                    :can-have-children="!['ToolCall', 'SkillCatalog', 'ActivatedSkills'].includes(child.type)"
+                    :can-have-children="!['Text', 'ToolCall', 'SkillCatalog', 'ActivatedSkills'].includes(child.type)"
                     :disabled-drop-node-ids="props.disabledDropNodeIds"
                     @select="emit('select', $event)"
                     @prepare-drag="emit('prepareDrag', $event)"
@@ -313,6 +338,33 @@ function prepareDrag(): void {
 .node-main {
     min-width: 0;
     grid-column: 4;
+}
+
+.node-title-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+}
+
+.node-meta {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-muted);
+    font-size: 11px;
+}
+
+.condition-meta {
+    border: 1px solid color-mix(in srgb, var(--profile-node-accent) 42%, var(--border-color));
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--profile-node-accent) 14%, var(--bg-panel));
+    color: color-mix(in srgb, var(--profile-node-accent) 86%, var(--text-main));
+    padding: 2px 7px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-weight: 700;
 }
 
 .node-inside-drop {
@@ -511,6 +563,8 @@ function prepareDrag(): void {
     flex-shrink: 0;
     gap: 2px;
     opacity: 0;
+    position: relative;
+    z-index: 4;
     transition: opacity 0.18s ease;
 }
 
@@ -540,6 +594,32 @@ function prepareDrag(): void {
     color: var(--text-secondary);
     font-size: 12px;
     line-height: 1.55;
+}
+
+.node-text-body-row {
+    grid-column: 2 / -1;
+    max-height: 280px;
+    margin-top: 6px;
+    border: 0;
+    background: color-mix(in srgb, var(--profile-node-accent) 4%, var(--bg-panel));
+    padding: 10px 12px;
+    font-size: 13px;
+    line-height: 1.68;
+    user-select: text;
+}
+
+.node-text-body-row :deep(.agent-markdown) {
+    font-size: 14px;
+    line-height: 1.72;
+}
+
+.node-text-body-row :deep(pre) {
+    font-size: 12.5px;
+    line-height: 1.62;
+}
+
+.node-text-body-row :deep(code) {
+    font-size: 12.5px;
 }
 
 .node-source-body {

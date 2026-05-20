@@ -7,7 +7,7 @@
 ## Current Focus
 
 - 填写小说基础定位：类型、基调、核心 hook、目标读者和读者承诺。
-- 建立最小 lorebook：主题、简介、粗略剧情种子、文风约束和创作边界。
+- 建立最小 lorebook：主题、故事概念、简介、粗略剧情种子、文风约束和创作边界。
 - 在世界书初始化前，先把待定问题和稳定事实分开，避免把未确认内容写成长期约束。
 - 准备开局章节：示范章节只提供结构，可以重命名、改写或删除。
 
@@ -24,6 +24,7 @@
 
 - [ ] 填写 `lorebook/note/project-positioning/`：类型、基调、核心 hook、目标读者。
 - [ ] 填写 `lorebook/note/theme/`：主题、情绪底色、价值张力。
+- [ ] 填写 `lorebook/note/story-concept/`：长简介式故事概念，说明开局、世界背景、主角处境、主要矛盾、后续方向和故事气质。
 - [ ] 填写 `lorebook/note/synopsis/`：可同步到 novel summary 的简介。
 - [ ] 填写 `lorebook/note/initial-plot-seed/`：粗略开局剧情种子。
 - [ ] 填写 `lorebook/rule/writing-style/`：文风、视角、句式口味、节奏禁忌。

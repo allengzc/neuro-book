@@ -89,6 +89,7 @@ const COMPONENT_NAMES = new Set([
     "HistorySet",
     "DynamicSet",
     "AppendingSet",
+    "Text",
     "Message",
     "AIMessage",
     "ToolCall",
@@ -103,6 +104,11 @@ type ParsedTemplate = {
     root: ProfileTemplateNodeDto | null;
     issues: ProfileTemplateIssueDto[];
     promptRange: SourceRange | null;
+};
+
+type ParseContext = {
+    jsxBindings: Map<string, TypeScript.Expression>;
+    inlineTextDepth?: number;
 };
 
 type PreviewContext = {
@@ -320,7 +326,8 @@ export function parseProfileTemplateSource(source: string): ParsedTemplate {
             }],
         };
     }
-    const root = parseJsxExpression(sourceFile, rootExpression.expression, issues);
+    const context = createParseContext(sourceFile, rootExpression.scope);
+    const root = parseJsxExpression(sourceFile, rootExpression.expression, issues, context);
     validateTemplateTree(root, issues);
     return {
         root,
@@ -338,7 +345,7 @@ export function parseProfileTemplateSource(source: string): ParsedTemplate {
 export function generateProfileTemplateSource(templateName: string, root: ProfileTemplateNodeDto | undefined): string {
     const componentNames = collectComponentNames(root);
     const promptImportNames = ["Message", ...(componentNames.has("AIMessage") ? ["AIMessage"] : []), ...(componentNames.has("If") ? ["If"] : [])];
-    const profileImportNames = [...componentNames].filter((name) => !["Message", "AIMessage", "If", "ToolCall"].includes(name)).sort();
+    const profileImportNames = [...componentNames].filter((name) => !["Text", "Message", "AIMessage", "If", "ToolCall"].includes(name)).sort();
     const functionName = toPascalCase(templateName || "ProfileTemplate");
     return [
         "/** @jsxRuntime automatic */",
@@ -348,7 +355,13 @@ export function generateProfileTemplateSource(templateName: string, root: Profil
         `import {${profileImportNames.join(", ")}} from "nbook/server/agent/profiles/simple-profile";`,
         "import type {ProfilePromptContext} from \"nbook/server/agent/profiles/simple-profile\";",
         "",
-        `export default function ${functionName}(ctx: ProfilePromptContext<"leader.default">) {`,
+        `export default async function ${functionName}(ctx: ProfilePromptContext<"leader.default">) {`,
+        "    const input = ctx.input;",
+        "    const runtime = ctx.runtime;",
+        "    const scope = ctx.scope;",
+        "    const skillCatalogText = ctx.skillCatalogText;",
+        "    const activatedSkillsText = await ctx.activatedSkillsText();",
+        "",
         "    return (",
         root ? indent(generateNodeSource(root), 2) : "        <ProfilePrompt />",
         "    );",
@@ -499,15 +512,15 @@ function replacePromptTemplateRoot(source: string, root: ProfileTemplateNodeDto 
 /**
  * 找到导出函数里的 return JSX。
  */
-function findPromptRootExpression(sourceFile: TypeScript.SourceFile): {expression: TypeScript.Expression; inBuildPrompt: boolean} | null {
+function findPromptRootExpression(sourceFile: TypeScript.SourceFile): {expression: TypeScript.Expression; scope: TypeScript.Node; inBuildPrompt: boolean} | null {
     for (const buildPrompt of findBuildPromptLikeFunctions(sourceFile)) {
         const expression = findReturnedProfilePrompt(buildPrompt, sourceFile);
         if (expression) {
-            return {expression, inBuildPrompt: true};
+            return {expression, scope: buildPrompt, inBuildPrompt: true};
         }
     }
     const expression = findReturnedJsx(sourceFile);
-    return expression ? {expression, inBuildPrompt: false} : null;
+    return expression ? {expression, scope: sourceFile, inBuildPrompt: false} : null;
 }
 
 /**
@@ -607,18 +620,40 @@ function unwrapParenthesized(expression: TypeScript.Expression): TypeScript.Expr
 }
 
 /**
+ * 建立当前 prompt 构造函数内的 JSX 局部变量表。
+ */
+function createParseContext(sourceFile: TypeScript.SourceFile, scope: TypeScript.Node): ParseContext {
+    const jsxBindings = new Map<string, TypeScript.Expression>();
+    const visit = (node: TypeScript.Node): void => {
+        if (node !== scope && (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node) || ts.isMethodDeclaration(node))) {
+            return;
+        }
+        if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+            const initializer = unwrapParenthesized(node.initializer);
+            if (ts.isJsxElement(initializer) || ts.isJsxSelfClosingElement(initializer)) {
+                jsxBindings.set(node.name.getText(sourceFile), initializer);
+            }
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(scope);
+    return {jsxBindings};
+}
+
+/**
  * 解析 JSX 表达式为低代码节点。
  */
 function parseJsxExpression(
     sourceFile: TypeScript.SourceFile,
     expression: TypeScript.Expression,
     issues: ProfileTemplateIssueDto[],
+    context: ParseContext,
 ): ProfileTemplateNodeDto | null {
     if (ts.isJsxElement(expression)) {
-        return parseJsxElement(sourceFile, expression, issues);
+        return parseJsxElement(sourceFile, expression, issues, context);
     }
     if (ts.isJsxSelfClosingElement(expression)) {
-        return parseSelfClosingElement(sourceFile, expression, issues);
+        return parseSelfClosingElement(sourceFile, expression, issues, context);
     }
     issues.push({
         severity: "error",
@@ -634,15 +669,32 @@ function parseJsxElement(
     sourceFile: TypeScript.SourceFile,
     element: TypeScript.JsxElement,
     issues: ProfileTemplateIssueDto[],
+    context: ParseContext,
 ): ProfileTemplateNodeDto | null {
     const type = element.openingElement.tagName.getText(sourceFile);
     if (!isComponentType(type)) {
         issues.push(buildUnsupportedComponentIssue(sourceFile, type, element));
         return null;
     }
+    if (type === "If" && (context.inlineTextDepth ?? 0) > 0) {
+        return {
+            id: createNodeId(type),
+            type,
+            props: parseAttributes(sourceFile, element.openingElement.attributes, issues),
+            children: parseMessageChildren(sourceFile, element.children, issues, {
+                ...context,
+                inlineTextDepth: (context.inlineTextDepth ?? 0) + 1,
+            }).children,
+            editable: true,
+            sourceRange: {
+                start: element.getStart(sourceFile),
+                end: element.getEnd(),
+            },
+        };
+    }
     const parsedChildren = type === "Message" || type === "AIMessage" || type === "ToolCall"
-        ? parseMessageChildren(sourceFile, element.children, issues)
-        : {text: undefined, children: parseChildren(sourceFile, element.children, issues)};
+        ? parseMessageChildren(sourceFile, element.children, issues, context)
+        : {text: undefined, children: parseChildren(sourceFile, element.children, issues, context)};
     return {
         id: createNodeId(type),
         type,
@@ -665,86 +717,142 @@ function parseMessageChildren(
     sourceFile: TypeScript.SourceFile,
     children: TypeScript.NodeArray<TypeScript.JsxChild>,
     issues: ProfileTemplateIssueDto[],
+    context: ParseContext,
 ): {
     text?: string;
     textKind?: "text" | "source" | "template";
     children: ProfileTemplateNodeDto[];
 } {
-    const plainTextParts: string[] = [];
-    const sourceTextParts: string[] = [];
+    const childContext = {
+        ...context,
+        inlineTextDepth: (context.inlineTextDepth ?? 0) + 1,
+    };
     const nestedChildren: ProfileTemplateNodeDto[] = [];
-    let hasSourceText = false;
-    for (const child of children) {
+    let pendingText = "";
+    let pendingTextKind: ProfileTemplateNodeDto["textKind"] = "text";
+    let lastAppendedFromExpression = false;
+    const flushText = (end: number): void => {
+        if (!pendingText) {
+            return;
+        }
+        nestedChildren.push(createTextNode(pendingText, pendingTextKind, end - pendingText.length, end));
+        pendingText = "";
+        pendingTextKind = "text";
+    };
+    const appendText = (text: string, textKind: ProfileTemplateNodeDto["textKind"], end: number, fromExpression: boolean = false): void => {
+        if (!text) {
+            return;
+        }
+        if (textKind === "template" && text.startsWith("${") && pendingText.endsWith("$")) {
+            pendingText = pendingText.slice(0, -1);
+            pendingTextKind = "template";
+        }
+        if (pendingText && pendingTextKind !== textKind && !canMergeTextKinds(pendingTextKind, textKind)) {
+            flushText(end);
+        }
+        pendingText += text;
+        pendingTextKind = mergeTextKind(pendingTextKind, textKind);
+        lastAppendedFromExpression = fromExpression;
+    };
+    for (let childIndex = 0; childIndex < children.length; childIndex += 1) {
+        const child = children[childIndex];
+        if (!child) {
+            continue;
+        }
         if (ts.isJsxText(child)) {
-            const rawText = child.getText(sourceFile).replace(/\r\n/g, "\n");
-            const text = normalizeText(decodeJsxTextEntities(rawText));
-            if (text) {
-                plainTextParts.push(text);
+            const rawText = sourceFile.text.slice(child.pos, child.end).replace(/\r\n/g, "\n");
+            const decodedText = decodeJsxTextEntities(rawText);
+            const nextChild = children[childIndex + 1] ?? null;
+            const shouldPreserveExpressionGap = lastAppendedFromExpression
+                && Boolean(nextChild && ts.isJsxExpression(nextChild) && nextChild.expression)
+                && (!nextChild || !isExplicitNewlineExpression(sourceFile, nextChild))
+                && !pendingText.endsWith("\n");
+            let text = normalizeMessageTextSegment(decodedText, Boolean(pendingText), shouldPreserveExpressionGap);
+            if (text && lastAppendedFromExpression && decodedText.includes("\n") && !text.startsWith("\n") && !pendingText.endsWith("\n")) {
+                text = `\n${text}`;
             }
-            if (rawText.trim()) {
-                sourceTextParts.push(decodeJsxTextEntities(rawText));
+            if (text) {
+                appendText(text, "text", child.getEnd());
             }
             continue;
         }
         if (ts.isJsxExpression(child) && child.expression) {
             const expression = child.expression;
-            const rawExpression = child.getText(sourceFile);
-            if (rawExpression.startsWith("{{") && rawExpression.endsWith("}}")) {
-                plainTextParts.push(rawExpression);
-                sourceTextParts.push(rawExpression);
-                continue;
-            }
             if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
                 const text = ts.isNoSubstitutionTemplateLiteral(expression)
                     ? decodeTemplateText(expression.getText(sourceFile).slice(1, -1))
                     : expression.text;
-                plainTextParts.push(text);
-                sourceTextParts.push(text);
+                appendText(text, "text", child.getEnd(), true);
                 continue;
             }
             if (ts.isTemplateExpression(expression)) {
-                sourceTextParts.push(decodeTemplateText(expression.getText(sourceFile).slice(1, -1)));
-                hasSourceText = true;
+                appendText(renderTemplateExpressionText(sourceFile, expression), "template", child.getEnd(), true);
                 continue;
             }
-            sourceTextParts.push("${" + expression.getText(sourceFile) + "}");
-            hasSourceText = true;
+            appendText("${" + expression.getText(sourceFile) + "}", "template", child.getEnd(), true);
             continue;
         }
         if (ts.isJsxElement(child)) {
             if (isInlineTextElement(sourceFile, child)) {
                 const text = renderInlineTextElement(sourceFile, child);
-                plainTextParts.push(text);
-                sourceTextParts.push(text);
+                appendText(text, "text", child.getEnd());
                 continue;
             }
-            const node = parseJsxElement(sourceFile, child, issues);
+            flushText(child.getStart(sourceFile));
+            const node = parseJsxElement(sourceFile, child, issues, childContext);
             if (node) {
                 nestedChildren.push(node);
-                hasSourceText = true;
             }
             continue;
         }
         if (ts.isJsxSelfClosingElement(child)) {
             if (isInlineTextElement(sourceFile, child)) {
                 const text = renderInlineTextElement(sourceFile, child);
-                plainTextParts.push(text);
-                sourceTextParts.push(text);
+                appendText(text, "text", child.getEnd());
                 continue;
             }
-            const node = parseSelfClosingElement(sourceFile, child, issues);
+            flushText(child.getStart(sourceFile));
+            const node = parseSelfClosingElement(sourceFile, child, issues, childContext);
             if (node) {
                 nestedChildren.push(node);
-                hasSourceText = true;
             }
         }
     }
-    const hasInlineSource = hasSourceText;
+    flushText(children.end);
     return {
-        ...(hasInlineSource ? {text: sourceTextParts.join("")} : plainTextParts.length > 0 ? {text: plainTextParts.join("")} : {}),
-        ...(hasInlineSource ? {textKind: "template" as const} : {}),
         children: nestedChildren,
     };
+}
+
+/**
+ * Message 正文中的普通文本和模板表达式属于同一个可编辑文本块。
+ */
+function canMergeTextKinds(left: ProfileTemplateNodeDto["textKind"], right: ProfileTemplateNodeDto["textKind"]): boolean {
+    return (left === "text" || left === "template") && (right === "text" || right === "template");
+}
+
+/**
+ * 合并文本类型；只要包含模板表达式，整体按 template 生成。
+ */
+function mergeTextKind(left: ProfileTemplateNodeDto["textKind"], right: ProfileTemplateNodeDto["textKind"]): ProfileTemplateNodeDto["textKind"] {
+    if (left === "source" || right === "source") {
+        return right;
+    }
+    return left === "template" || right === "template" ? "template" : "text";
+}
+
+/**
+ * 判断 JSX 表达式是否是生成器用于保真换行的 {"\n"}。
+ */
+function isExplicitNewlineExpression(sourceFile: TypeScript.SourceFile, child: TypeScript.JsxChild): boolean {
+    if (!ts.isJsxExpression(child) || !child.expression) {
+        return false;
+    }
+    const expression = child.expression;
+    if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
+        return expression.text === "\n";
+    }
+    return expression.getText(sourceFile) === "\"\\n\"";
 }
 
 /**
@@ -754,6 +862,7 @@ function parseSelfClosingElement(
     sourceFile: TypeScript.SourceFile,
     element: TypeScript.JsxSelfClosingElement,
     issues: ProfileTemplateIssueDto[],
+    _context: ParseContext,
 ): ProfileTemplateNodeDto | null {
     const type = element.tagName.getText(sourceFile);
     if (!isComponentType(type)) {
@@ -780,49 +889,35 @@ function parseChildren(
     sourceFile: TypeScript.SourceFile,
     children: TypeScript.NodeArray<TypeScript.JsxChild>,
     issues: ProfileTemplateIssueDto[],
+    context: ParseContext,
 ): ProfileTemplateNodeDto[] {
     const result: ProfileTemplateNodeDto[] = [];
     for (const child of children) {
         if (ts.isJsxText(child)) {
             const text = child.getText(sourceFile).replace(/\r\n/g, "\n");
             if (text.trim()) {
-                result.push({
-                    id: createNodeId("Text"),
-                    type: "Message",
-                    props: {role: "system"},
-                    children: [],
-                    text: normalizeText(text),
-                    editable: false,
-                    sourceRange: {start: child.getStart(sourceFile), end: child.getEnd()},
-                });
-                issues.push({
-                    severity: "warning",
-                    message: "检测到裸文本；低代码编辑器会以不可编辑文本节点显示",
-                    nodeId: result.at(-1)?.id,
-                    path: buildSourceLocation(sourceFile, child.getStart(sourceFile)),
-                    sourceRange: {start: child.getStart(sourceFile), end: child.getEnd()},
-                });
+                result.push(createTextNode(normalizeText(text), "text", child.getStart(sourceFile), child.getEnd()));
             }
             continue;
         }
         if (ts.isJsxElement(child)) {
-            const node = parseJsxElement(sourceFile, child, issues);
+            const node = parseJsxElement(sourceFile, child, issues, context);
             if (node) {
                 result.push(node);
             }
             continue;
         }
         if (ts.isJsxSelfClosingElement(child)) {
-            const node = parseSelfClosingElement(sourceFile, child, issues);
+            const node = parseSelfClosingElement(sourceFile, child, issues, context);
             if (node) {
                 result.push(node);
             }
             continue;
         }
         if (ts.isJsxExpression(child) && child.expression) {
-            const node = parseExpressionChild(sourceFile, child.expression, issues);
-            if (node) {
-                result.push(node);
+            const nodes = parseExpressionChild(sourceFile, child.expression, issues, context);
+            if (nodes.length > 0) {
+                result.push(...nodes);
             }
         }
     }
@@ -836,40 +931,48 @@ function parseExpressionChild(
     sourceFile: TypeScript.SourceFile,
     expression: TypeScript.Expression,
     issues: ProfileTemplateIssueDto[],
-): ProfileTemplateNodeDto | null {
+    context: ParseContext,
+): ProfileTemplateNodeDto[] {
+    if (ts.isIdentifier(expression)) {
+        const boundExpression = context.jsxBindings.get(expression.getText(sourceFile));
+        if (boundExpression) {
+            return parseExpressionAsChildren(sourceFile, boundExpression, issues, context);
+        }
+    }
     if (ts.isStringLiteral(expression) || ts.isNoSubstitutionTemplateLiteral(expression)) {
-        return {
-            id: createNodeId("Text"),
-            type: "Message",
-            props: {role: "system"},
-            children: [],
-            text: `{${expression.getText(sourceFile)}}`,
-            textKind: "source",
-            editable: false,
-            sourceRange: {start: expression.getStart(sourceFile), end: expression.getEnd()},
-        };
+        return [createTextNode(expression.getText(sourceFile), "source", expression.getStart(sourceFile), expression.getEnd())];
     }
     if (ts.isConditionalExpression(expression)) {
-        const whenTrue = parseExpressionAsChildren(sourceFile, expression.whenTrue, issues);
-        return {
+        const whenTrue = parseExpressionAsChildren(sourceFile, expression.whenTrue, issues, context);
+        return [{
             id: createNodeId("If"),
             type: "If",
-            props: {condition: expression.condition.getText(sourceFile)},
+            props: {condition: {
+                kind: "expression",
+                code: expression.condition.getText(sourceFile),
+            }},
             children: whenTrue,
             editable: true,
             sourceRange: {start: expression.getStart(sourceFile), end: expression.getEnd()},
-        };
+        }];
     }
     const text = `{${expression.getText(sourceFile)}}`;
+    return [createTextNode(text, "source", expression.getStart(sourceFile), expression.getEnd())];
+}
+
+/**
+ * 创建字符串片段节点。
+ */
+function createTextNode(text: string, textKind: ProfileTemplateNodeDto["textKind"], start: number, end: number): ProfileTemplateNodeDto {
     return {
-        id: createNodeId("Expression"),
-        type: "Message",
-        props: {role: "system"},
+        id: createNodeId("Text"),
+        type: "Text",
+        props: {},
         children: [],
         text,
-        textKind: "source",
-        editable: false,
-        sourceRange: {start: expression.getStart(sourceFile), end: expression.getEnd()},
+        ...(textKind ? {textKind} : {}),
+        editable: true,
+        sourceRange: {start, end},
     };
 }
 
@@ -880,14 +983,15 @@ function parseExpressionAsChildren(
     sourceFile: TypeScript.SourceFile,
     expression: TypeScript.Expression,
     issues: ProfileTemplateIssueDto[],
+    context: ParseContext,
 ): ProfileTemplateNodeDto[] {
     const unwrapped = unwrapParenthesized(expression);
     if (ts.isJsxElement(unwrapped)) {
-        const node = parseJsxElement(sourceFile, unwrapped, issues);
+        const node = parseJsxElement(sourceFile, unwrapped, issues, context);
         return node ? [node] : [];
     }
     if (ts.isJsxSelfClosingElement(unwrapped)) {
-        const node = parseSelfClosingElement(sourceFile, unwrapped, issues);
+        const node = parseSelfClosingElement(sourceFile, unwrapped, issues, context);
         return node ? [node] : [];
     }
     return [];
@@ -1040,7 +1144,7 @@ function validateTemplateTree(root: ProfileTemplateNodeDto | null, issues: Profi
                     nodeId: node.id,
                 });
             }
-            const invalidChild = node.children.find((child) => !isInlineStringNodeType(child.type));
+            const invalidChild = node.children.find((child) => !isInlineStringNodeType(child.type) && child.type !== "If");
             if (invalidChild) {
                 issues.push({
                     severity: "error",
@@ -1050,10 +1154,10 @@ function validateTemplateTree(root: ProfileTemplateNodeDto | null, issues: Profi
             }
         }
         if (node.type === "AIMessage") {
-            if (node.children.some((child) => child.type !== "ToolCall")) {
+            if (node.children.some((child) => child.type !== "ToolCall" && child.type !== "Text" && child.type !== "If")) {
                 issues.push({
                     severity: "error",
-                    message: "AIMessage 只能包含 ToolCall 子节点",
+                    message: "AIMessage 只能包含 Text、If 或 ToolCall 子节点",
                     nodeId: node.id,
                 });
             }
@@ -1065,14 +1169,14 @@ function validateTemplateTree(root: ProfileTemplateNodeDto | null, issues: Profi
                 nodeId: node.id,
             });
         }
-        if (node.type === "SkillCatalog" && ancestors.at(-1)?.type !== "Message") {
+        if (node.type === "SkillCatalog" && !isInsideInlineTextContext(ancestors)) {
             issues.push({
                 severity: "error",
                 message: "SkillCatalog 返回字符串，必须放在 Message 内",
                 nodeId: node.id,
             });
         }
-        if (node.type === "ActivatedSkills" && ancestors.at(-1)?.type !== "Message") {
+        if (node.type === "ActivatedSkills" && !isInsideInlineTextContext(ancestors)) {
             issues.push({
                 severity: "error",
                 message: "ActivatedSkills 返回字符串，必须放在 Message 内",
@@ -1107,7 +1211,7 @@ function validateTemplateTree(root: ProfileTemplateNodeDto | null, issues: Profi
                 });
             }
         }
-        if (node.text?.trim() && node.type !== "Message" && node.type !== "AIMessage" && node.type !== "ToolCall" && ancestors.at(-1)?.type !== "Message" && node.editable) {
+        if (node.text?.trim() && node.type !== "Text" && node.type !== "Message" && node.type !== "AIMessage" && node.type !== "ToolCall" && !isInsideInlineTextContext(ancestors) && node.editable) {
             issues.push({
                 severity: "error",
                 message: "非空文本必须放在 Message 内",
@@ -1123,37 +1227,38 @@ function validateTemplateTree(root: ProfileTemplateNodeDto | null, issues: Profi
 function collectPreviewMessages(node: ProfileTemplateNodeDto, context: PreviewContext): ProfileTemplatePreviewMessageDto[] {
     if (node.type === "Message") {
         const source = node.props.source === "input" ? "input" : null;
-        const ownText = source === "input" && !node.text
+        const inlineText = renderInlineText(node, context);
+        const ownText = source === "input" && !inlineText
             ? readVariableAsText("input.prompt", context)
-            : replaceVariableTokens(renderPreviewMessageText(node), context);
+            : replaceVariableTokens(inlineText, context);
         return [{
             role: String(node.props.role ?? "system"),
-            text: [
-                ownText,
-                ...node.children.flatMap((child) => collectPreviewMessages(child, context).map((message) => message.text)),
-            ].filter(Boolean).join(""),
+            text: ownText,
             source,
         }];
     }
     if (node.type === "AIMessage") {
         return [{
             role: "assistant",
-            text: replaceVariableTokens(renderPreviewMessageText(node), context),
+            text: replaceVariableTokens(renderInlineText(node, context), context),
             source: null,
             toolCalls: node.children
                 .filter((child) => child.type === "ToolCall")
                 .map((child) => ({
                     id: String(child.props.id || child.id),
                     name: String(child.props.name ?? "tool"),
-                    argsText: replaceVariableTokens(child.text ?? String(child.props.args ?? "{}"), context),
+                    argsText: replaceVariableTokens(renderInlineText(child, context) || String(child.props.args ?? "{}"), context),
                 })),
         }];
     }
     if (node.type === "SkillCatalog") {
-        return [{role: "system", text: replaceVariableTokens(String(node.props.text ?? "{{skillCatalogText}}"), context), source: null}];
+        return [{role: "system", text: replaceVariableTokens(String(node.props.text ?? "${skillCatalogText}"), context), source: null}];
     }
     if (node.type === "ActivatedSkills") {
-        return [{role: "human", text: replaceVariableTokens(String(node.props.text ?? "{{activatedSkillsText}}"), context), source: null}];
+        return [{role: "human", text: replaceVariableTokens(String(node.props.text ?? "${activatedSkillsText}"), context), source: null}];
+    }
+    if (node.type === "Text") {
+        return [{role: "system", text: replaceVariableTokens(renderPreviewMessageText(node), context), source: null}];
     }
     if (node.type === "Watch") {
         const text = String(node.props.previewText ?? `Watch: ${String(node.props.path ?? "")}`);
@@ -1170,14 +1275,29 @@ function renderPreviewMessageText(node: ProfileTemplateNodeDto): string {
 }
 
 /**
+ * 渲染 Message/AIMessage 内联文本片段。
+ */
+function renderInlineText(node: ProfileTemplateNodeDto, context: PreviewContext): string {
+    return [
+        renderPreviewMessageText(node),
+        ...node.children
+            .filter((child) => child.type !== "ToolCall")
+            .flatMap((child) => collectPreviewMessages(child, context).map((message) => message.text)),
+    ].filter(Boolean).join("");
+}
+
+/**
  * 生成节点 TSX。
  */
 function generateNodeSource(node: ProfileTemplateNodeDto): string {
+    if (node.type === "Text") {
+        return renderNodeText(node);
+    }
     const props = generateProps(node.props);
     if (node.children.length === 0 && !node.text) {
         return `<${node.type}${props} />`;
     }
-    if ((node.type === "Message" || node.type === "AIMessage" || node.type === "ToolCall") && node.text) {
+    if (node.type === "ToolCall" && node.text) {
         const textSource = renderNodeText(node);
         const childLines = [
             indent(textSource, 1),
@@ -1274,7 +1394,14 @@ function isComponentType(type: string): type is ProfileTemplateNodeDto["type"] {
  * 运行时直接返回 string 的节点，只能作为 Message 的内联内容。
  */
 function isInlineStringNodeType(type: ProfileTemplateNodeDto["type"]): boolean {
-    return type === "SkillCatalog" || type === "ActivatedSkills";
+    return type === "Text" || type === "SkillCatalog" || type === "ActivatedSkills";
+}
+
+/**
+ * 判断当前祖先链是否位于 Message 的内联文本区域。
+ */
+function isInsideInlineTextContext(ancestors: ProfileTemplateNodeDto[]): boolean {
+    return ancestors.some((node) => node.type === "Message");
 }
 
 /**
@@ -1289,7 +1416,16 @@ function canContainChild(ancestors: ProfileTemplateNodeDto[], child: ProfileTemp
         return false;
     }
     if (parent === "If") {
-        const inheritedParent = [...ancestors].reverse().find((node) => node.type !== "If")?.type;
+        const inheritedParent = [...ancestors].reverse().slice(1).find((node) => node.type !== "If")?.type;
+        if (inheritedParent === "Message") {
+            return child === "If" || isInlineStringNodeType(child);
+        }
+        if (inheritedParent === "AIMessage") {
+            return child === "If" || child === "Text" || child === "ToolCall";
+        }
+        if (inheritedParent === "ToolCall") {
+            return child === "Text";
+        }
         return inheritedParent ? canContainChild([{id: "parent", type: inheritedParent, props: {}, children: [], editable: true}], child) : false;
     }
     if (parent === "ProfilePrompt") {
@@ -1305,10 +1441,13 @@ function canContainChild(ancestors: ProfileTemplateNodeDto[], child: ProfileTemp
         return ["Message", "AIMessage", "If"].includes(child);
     }
     if (parent === "Message") {
-        return isInlineStringNodeType(child);
+        return isInlineStringNodeType(child) || child === "If";
     }
     if (parent === "AIMessage") {
-        return child === "ToolCall";
+        return child === "Text" || child === "If" || child === "ToolCall";
+    }
+    if (parent === "ToolCall") {
+        return child === "Text";
     }
     return false;
 }
@@ -1374,10 +1513,22 @@ function decodeTemplateText(text: string): string {
 }
 
 /**
+ * 从模板字符串 AST 重建正文，只解码模板正文，不改写 ${...} 内的表达式源码。
+ */
+function renderTemplateExpressionText(sourceFile: TypeScript.SourceFile, expression: TypeScript.TemplateExpression): string {
+    return [
+        expression.head.text,
+        ...expression.templateSpans.map((span) => {
+            return "${" + span.expression.getText(sourceFile) + "}" + span.literal.text;
+        }),
+    ].join("");
+}
+
+/**
  * 预览阶段替换常见变量 token。
  */
 function replaceVariableTokens(text: string, context: PreviewContext): string {
-    return text.replace(/\{\{([^{}]+)}}/g, (_match, rawPath: string) => {
+    return text.replace(/\$\{([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)}/g, (_match, rawPath: string) => {
         return readVariableAsText(rawPath.trim(), context);
     });
 }
@@ -1465,6 +1616,22 @@ function normalizeText(text: string): string {
         .map((line) => line.match(/^\s*/)?.[0].length ?? 0);
     const commonIndent = indents.length > 0 ? Math.min(...indents) : 0;
     return lines.map((line) => line.slice(Math.min(commonIndent, line.length))).join("\n");
+}
+
+/**
+ * 规范化 Message 正文片段。JSX 会把表达式之间的换行放进纯空白 JsxText；
+ * 这些换行在 Markdown 代码围栏中是有效内容，不能简单丢弃。
+ */
+function normalizeMessageTextSegment(text: string, hasPendingText: boolean, shouldPreserveExpressionGap: boolean): string {
+    const hasTrailingNewline = /\n[ \t]*$/.test(text);
+    const normalized = normalizeText(text);
+    if (normalized) {
+        return hasTrailingNewline ? `${normalized}\n` : normalized;
+    }
+    if (hasPendingText && shouldPreserveExpressionGap && text.includes("\n")) {
+        return "\n";
+    }
+    return "";
 }
 
 /**
@@ -1771,7 +1938,7 @@ function isEditablePreviewPath(path: string): boolean {
  * 变量 path 转模板 token。
  */
 function toVariableToken(path: string): string {
-    return `{{${path}}}`;
+    return `\${${path}}`;
 }
 
 /**

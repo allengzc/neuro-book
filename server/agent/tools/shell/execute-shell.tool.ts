@@ -189,6 +189,7 @@ function renderShellResult(result: ShellExecutionResult): string {
         `Signal: ${result.signal ?? "null"}`,
         `Timed out: ${result.timedOut ? "true" : "false"}`,
         `Duration: ${String(result.durationMs)}ms`,
+        `Working directory: ${result.cwd}`,
     ];
 
     if (result.stdoutTruncated || result.stderrTruncated) {

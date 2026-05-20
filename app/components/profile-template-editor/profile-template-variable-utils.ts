@@ -31,7 +31,7 @@ export function mapPreviewVariableGroups(groups: Array<{group: string; items: Ra
  * 将服务端变量 DTO 映射为页面展示用类型。
  */
 export function mapPreviewVariableItem(item: RawPreviewVariableItem): PreviewVariableItem {
-    const path = item.path ?? item.value.replace(/^\{\{/, "").replace(/}}$/, "");
+    const path = item.path ?? item.value.replace(/^\$\{/, "").replace(/}$/, "");
     return {
         label: item.label,
         value: item.value,

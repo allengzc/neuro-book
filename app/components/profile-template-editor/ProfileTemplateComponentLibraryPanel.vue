@@ -19,6 +19,7 @@ const props = defineProps<{
 const emit = defineEmits<{
     (e: "update:search", value: string): void;
     (e: "update:activeGroup", value: ComponentLibraryGroup): void;
+    (e: "collapse"): void;
     (e: "add-node", type: ProfileTemplateNodeType): void;
     (e: "insert-variable", value: string): void;
 }>();
@@ -27,9 +28,14 @@ const emit = defineEmits<{
 <template>
     <!-- 左侧组件库：组件拖入画布或点击快速添加 -->
     <aside class="panel flex min-h-0 flex-col">
-        <div class="mb-3">
-            <div class="panel-title">组件库</div>
-            <div class="mt-1 text-[11px] text-[var(--text-muted)]">拖拽组件到画布中编辑</div>
+        <div class="mb-3 flex items-start justify-between gap-2">
+            <div>
+                <div class="panel-title">组件库</div>
+                <div class="mt-1 text-[11px] text-[var(--text-muted)]">拖拽组件到画布中编辑</div>
+            </div>
+            <button type="button" class="panel-icon-btn" title="收起组件库" @click="emit('collapse')">
+                <span class="i-lucide-panel-left-close h-4 w-4"></span>
+            </button>
         </div>
         <div class="relative mb-3">
             <span class="i-lucide-search absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--text-muted)]"></span>
@@ -97,6 +103,26 @@ const emit = defineEmits<{
     color: var(--text-main);
     font-size: 13px;
     font-weight: 700;
+}
+
+.panel-icon-btn {
+    display: inline-flex;
+    height: 28px;
+    width: 28px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    background: var(--bg-input);
+    color: var(--text-muted);
+    transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.panel-icon-btn:hover {
+    border-color: var(--border-color-hover);
+    background: var(--bg-hover);
+    color: var(--accent-text);
 }
 
 .component-item {

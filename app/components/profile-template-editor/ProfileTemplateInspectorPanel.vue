@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import FormCheckbox from "nbook/app/components/common/form/FormCheckbox.vue";
-import FormField from "nbook/app/components/common/form/FormField.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import FormTextarea from "nbook/app/components/common/form/FormTextarea.vue";
 import StructuredTextEditor from "nbook/app/components/common/form/StructuredTextEditor.vue";
+import ProfileTemplateSourcePanel from "nbook/app/components/profile-template-editor/ProfileTemplateSourcePanel.vue";
 import ProfileTemplateVariableGroups from "nbook/app/components/profile-template-editor/ProfileTemplateVariableGroups.vue";
 import type {
     InspectorTab,
@@ -25,6 +25,10 @@ const props = defineProps<{
     selectedNode: ProfileTemplateNodeDto | null;
     selectedPropEntries: SelectedPropEntry[];
     selectedTextLength: number;
+    sourceText: string;
+    sourceLineCount: number;
+    parsingSource: boolean;
+    selectedTemplateFileName: string;
     issues: ProfileTemplateIssueDto[];
     variableSearch: string;
     variableGroups: PreviewVariableGroup[];
@@ -34,6 +38,7 @@ const props = defineProps<{
     toolStatusOptions: SelectOption[];
     sourceOptions: SelectOption[];
     theme: IdeTheme;
+    monacoPreferences: import("nbook/shared/editor-workbench").MonacoEditorPreferences;
     isExpressionValue: (value: ProfileTemplatePropValue | undefined) => boolean;
     propInputValue: (value: ProfileTemplatePropValue) => string;
     propLabel: (key: string) => string;
@@ -46,6 +51,9 @@ const props = defineProps<{
 const emit = defineEmits<{
     (e: "update:activeTab", value: InspectorTab): void;
     (e: "update:variableSearch", value: string): void;
+    (e: "collapse"): void;
+    (e: "source-change", value: string): void;
+    (e: "source-save-request"): void;
     (e: "update-active-target", value: "text" | string): void;
     (e: "update-prop", key: string, value: ProfileTemplatePropValue): void;
     (e: "update-expression-prop", key: string, value: string): void;
@@ -58,32 +66,41 @@ const emit = defineEmits<{
 
 <template>
     <!-- 右侧属性检查器：属性、变量、运行时变量 -->
-    <section class="panel flex min-h-0 flex-1 flex-col overflow-hidden">
-        <div class="mb-3 flex shrink-0 border-b border-[var(--border-color)]">
-            <button
-                v-for="tab in props.tabs"
-                :key="tab.value"
-                class="relative h-8 px-4 text-xs font-medium transition-colors"
-                :class="props.activeTab === tab.value ? 'text-[var(--accent-text)] after:absolute after:bottom-[-1px] after:left-0 after:h-0.5 after:w-full after:bg-[var(--accent-main)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'"
-                @click="emit('update:activeTab', tab.value)"
-            >
-                {{ tab.label }}
+    <section class="panel flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden">
+        <div class="mb-3 flex shrink-0 items-center gap-2 border-b border-[var(--border-color)]">
+            <div class="flex min-w-0 flex-1 overflow-x-auto custom-scrollbar">
+                <button
+                    v-for="tab in props.tabs"
+                    :key="tab.value"
+                    class="relative h-8 shrink-0 px-3 text-xs font-medium transition-colors"
+                    :class="props.activeTab === tab.value ? 'text-[var(--accent-text)] after:absolute after:bottom-[-1px] after:left-0 after:h-0.5 after:w-full after:bg-[var(--accent-main)]' : 'text-[var(--text-muted)] hover:text-[var(--text-main)]'"
+                    @click="emit('update:activeTab', tab.value)"
+                >
+                    {{ tab.label }}
+                </button>
+            </div>
+            <button type="button" class="panel-icon-btn" title="收起右侧面板" @click="emit('collapse')">
+                <span class="i-lucide-panel-right-close h-4 w-4"></span>
             </button>
         </div>
 
         <div class="min-h-0 flex-1 overflow-auto pr-1 custom-scrollbar">
-            <div v-if="props.activeTab === 'props'">
-                <div v-if="props.selectedNode" class="space-y-3">
-                    <div class="flex items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-xs text-[var(--text-secondary)]">
-                        <span class="i-lucide-message-square h-3.5 w-3.5 text-[var(--accent-text)]"></span>
-                        <span>当前选中：</span>
-                        <span class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-0.5 font-semibold text-[var(--text-main)]">{{ props.nodeTitle(props.selectedNode) }}</span>
-                        <span class="truncate text-[var(--text-muted)]">/ id: {{ props.selectedNode.id }}</span>
-                    </div>
-                    <FormField label="ID">
-                        <FormInput :model-value="props.selectedNode.id" readonly />
-                    </FormField>
+            <div v-if="props.activeTab === 'source'" class="h-full min-h-[520px]">
+                <ProfileTemplateSourcePanel
+                    :source-text="props.sourceText"
+                    :source-line-count="props.sourceLineCount"
+                    :parsing-source="props.parsingSource"
+                    :selected-template-file-name="props.selectedTemplateFileName"
+                    :theme="props.theme"
+                    :monaco-preferences="props.monacoPreferences"
+                    embedded
+                    @change="emit('source-change', $event)"
+                    @save-request="emit('source-save-request')"
+                />
+            </div>
 
+            <div v-else-if="props.activeTab === 'props'">
+                <div v-if="props.selectedNode" class="space-y-3">
                     <div v-if="props.selectedPropEntries.length > 0" class="space-y-3">
                         <div v-for="[key, value] in props.selectedPropEntries" :key="key" class="space-y-1">
                             <div class="flex items-center justify-between gap-2">
@@ -108,17 +125,17 @@ const emit = defineEmits<{
                     </div>
                     <div v-else class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 px-3 py-2 text-xs text-[var(--text-muted)]">此节点暂无属性。</div>
 
-                    <template v-if="props.selectedNode.type === 'Message' || props.selectedNode.type === 'AIMessage' || props.selectedNode.type === 'ToolCall'">
-                        <div class="field-label">{{ props.selectedNode.textKind === "source" ? "内容（TSX 表达式内容）" : "内容（支持变量引用）" }}</div>
+                    <template v-if="props.selectedNode.type === 'Message' || props.selectedNode.type === 'AIMessage' || props.selectedNode.type === 'ToolCall' || props.selectedNode.type === 'Text'">
+                        <div class="field-label">{{ props.selectedNode.textKind === "source" ? "内容（TSX 表达式内容）" : props.selectedNode.type === "Text" ? "文本片段" : "内容（支持变量引用）" }}</div>
                         <StructuredTextEditor
                             :model-value="props.selectedNode.text ?? ''"
                             :rows="props.selectedNode.type === 'ToolCall' ? 5 : 8"
                             :min-height="props.selectedNode.type === 'ToolCall' ? 120 : 172"
                             :max-height="420"
                             :default-mode="props.selectedNode.textKind === 'source' ? 'source' : 'rich'"
-                            :show-format-toolbar="props.selectedNode.textKind !== 'source' && props.selectedNode.textKind !== 'template'"
+                            :show-format-toolbar="props.selectedNode.type !== 'Text' && props.selectedNode.textKind !== 'source' && props.selectedNode.textKind !== 'template'"
                             :theme="props.theme"
-                            placeholder="输入 Message 正文，可使用 Markdown 与变量引用"
+                            :placeholder="props.selectedNode.type === 'Text' ? '输入文本片段' : '输入 Message 正文，可使用 Markdown 与变量引用'"
                             @focus="emit('update-active-target', 'text')"
                             @blur="emit('commit-message-text')"
                             @update:model-value="emit('update-text', $event)"
@@ -163,7 +180,7 @@ const emit = defineEmits<{
                 />
             </div>
 
-            <div v-else class="space-y-3">
+            <div v-else-if="props.activeTab === 'runtime'" class="space-y-3">
                 <FormInput :model-value="props.variableSearch" placeholder="搜索运行时变量" @update:model-value="emit('update:variableSearch', $event)" />
                 <ProfileTemplateVariableGroups
                     :groups="props.filteredRuntimeVariableGroups"
@@ -173,6 +190,13 @@ const emit = defineEmits<{
                     @toggle-group="emit('toggle-variable-group', $event)"
                     @insert-variable="emit('insert-variable', $event)"
                 />
+            </div>
+
+            <div v-else class="space-y-3">
+                <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 p-3 text-xs leading-5 text-[var(--text-secondary)]">
+                    <div class="mb-1 font-semibold text-[var(--text-main)]">Agent Profile 设置</div>
+                    <div>后续这里承载 InputSchema / OutputSchema、profile key、工具范围等结构化设置。</div>
+                </div>
             </div>
         </div>
     </section>
@@ -185,6 +209,26 @@ const emit = defineEmits<{
     background: var(--bg-panel);
     padding: 12px;
     box-shadow: 0 16px 44px rgba(15, 23, 42, 0.05);
+}
+
+.panel-icon-btn {
+    display: inline-flex;
+    height: 28px;
+    width: 28px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    background: var(--bg-input);
+    color: var(--text-muted);
+    transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.panel-icon-btn:hover {
+    border-color: var(--border-color-hover);
+    background: var(--bg-hover);
+    color: var(--accent-text);
 }
 
 .field-label {

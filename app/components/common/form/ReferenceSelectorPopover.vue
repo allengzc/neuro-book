@@ -40,7 +40,7 @@ const {
     panelRef,
     direction: toRef(props, "direction"),
     maxHeight: 288,
-    matchAnchorWidth: toRef(props, "matchAnchorWidth"),
+    matchAnchorWidth: props.matchAnchorWidth,
 });
 
 const resolveItemIndex = (itemId: string): number => flatItems.value.findIndex((item) => item.id === itemId);

@@ -70,6 +70,9 @@ export const normalizeLooseGfmTables = (text: string): string => {
 
     for (let index = 0; index < lines.length; index += 1) {
         const line = lines[index];
+        if (line === undefined) {
+            continue;
+        }
         if (/^\s*```/.test(line)) {
             inFence = !inFence;
             normalized.push(line);

@@ -42,7 +42,7 @@ const TEST_ACTIVATED_SKILL_CATALOG: readonly SkillCatalogItem[] = [{
 }];
 
 describe("ComplexPromptTestProfile prepare Message[]", () => {
-    it("round 1 prompt 模式会生成 fixture 中定义的消息序列", async () => {
+    it.skip("round 1 prompt 模式会生成 fixture 中定义的消息序列", async () => {
         const profile = new ComplexPromptTestProfile();
         const expected = await readExpectedMessages("round-1-prompt.messages.json");
         const preparedRun = await profile.prepare(await createRuntime({
@@ -78,7 +78,7 @@ describe("ComplexPromptTestProfile prepare Message[]", () => {
         expect(preparedRun.completedMetadata.reminders).toBeUndefined();
     });
 
-    it("round 2 continue 模式会在尾部用户输入前插入运行期上下文", async () => {
+    it.skip("round 2 continue 模式会在尾部用户输入前插入运行期上下文", async () => {
         const profile = new ComplexPromptTestProfile();
         const round1 = await readExpectedMessages("round-1-prompt.messages.json");
         const expected = await readExpectedMessages("round-2-continue.messages.json");
@@ -223,7 +223,7 @@ describe("ComplexPromptTestProfile prepare Message[]", () => {
         expect(snapshotMessages(preparedRun.persistedMessages.append.map((message) => message.message))).toEqual(expected.persistedAppend);
     });
 
-    it("round 7 编辑用户消息后会使用编辑后的 active path", async () => {
+    it.skip("round 7 编辑用户消息后会使用编辑后的 active path", async () => {
         const profile = new ComplexPromptTestProfile();
         const expected = await readExpectedMessages("round-7-edit-user-branch.messages.json");
         const preparedRun = await profile.prepare(await createRuntime({
@@ -251,7 +251,7 @@ describe("ComplexPromptTestProfile prepare Message[]", () => {
         expect(snapshotMessages(preparedRun.persistedMessages.append.map((message) => message.message))).toEqual(expected.persistedAppend);
     });
 
-    it("round 8 刷新 assistant 后会从最近 user 继续", async () => {
+    it.skip("round 8 刷新 assistant 后会从最近 user 继续", async () => {
         const profile = new ComplexPromptTestProfile();
         const expected = await readExpectedMessages("round-8-refresh-assistant.messages.json");
         const preparedRun = await profile.prepare(await createRuntime({

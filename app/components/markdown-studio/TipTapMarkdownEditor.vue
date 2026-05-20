@@ -261,7 +261,7 @@ watch(() => props.referenceRefreshKey, () => {
             query: suggestionMenuState.value.query,
         });
         const items = flattenAgentSuggestionItems(menuState.sections);
-        const activeIndex = Math.min(suggestionMenuState.value.items.length - 1, Math.max(0, activeIndex.value));
+        const nextActiveIndex = Math.min(suggestionMenuState.value.items.length - 1, Math.max(0, activeIndex.value));
         
         suggestionMenuState.value = {
             ...suggestionMenuState.value,
@@ -271,7 +271,7 @@ watch(() => props.referenceRefreshKey, () => {
             items,
         };
         // 自动纠正索引避免越界
-        if (activeIndex >= items.length) {
+        if (nextActiveIndex >= items.length) {
             activeIndex.value = 0;
         }
     }

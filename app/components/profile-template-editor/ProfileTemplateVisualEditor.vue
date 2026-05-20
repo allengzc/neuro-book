@@ -8,7 +8,6 @@ import ProfileTemplateComponentLibraryPanel from "nbook/app/components/profile-t
 import ProfileTemplateHeader from "nbook/app/components/profile-template-editor/ProfileTemplateHeader.vue";
 import ProfileTemplateInspectorPanel from "nbook/app/components/profile-template-editor/ProfileTemplateInspectorPanel.vue";
 import ProfileTemplatePreviewDialog from "nbook/app/components/profile-template-editor/ProfileTemplatePreviewDialog.vue";
-import ProfileTemplateSourcePanel from "nbook/app/components/profile-template-editor/ProfileTemplateSourcePanel.vue";
 import {
     componentGroupTabs,
     componentLibrary,
@@ -18,7 +17,6 @@ import {
     roleOptions,
     sourceEditorPreferences,
     sourceOptions,
-    themeOptions,
     toolStatusOptions,
 } from "nbook/app/components/profile-template-editor/profile-template-editor-config";
 import type {
@@ -127,11 +125,17 @@ const props = withDefaults(defineProps<{
     mode?: "system-template" | "user-profile";
     preferredTemplate?: string;
     threadProfileKey?: string;
+    closable?: boolean;
 }>(), {
     mode: "system-template",
     preferredTemplate: "",
     threadProfileKey: "leader.default",
+    closable: false,
 });
+
+const emit = defineEmits<{
+    (e: "close"): void;
+}>();
 
 const themeHostRef = ref<HTMLElement | null>(null);
 const novelIdeStore = useNovelIdeStore();
@@ -141,7 +145,7 @@ const theme = computed<IdeTheme>({
         novelIdeStore.theme = value;
     },
 });
-const {mountThemeHost, setTheme} = useIdeTheme(theme);
+const {mountThemeHost} = useIdeTheme(theme);
 
 const templates = ref<ProfileTemplateSummaryDto[]>([]);
 const selectedTemplate = ref(props.preferredTemplate || (props.mode === "user-profile" ? "builtin/leader-default.profile.tsx" : "leader-runtime"));
@@ -171,7 +175,9 @@ const componentSearch = ref("");
 const variableSearch = ref("");
 const collapsedVariableGroups = ref<Record<string, boolean>>({});
 const activeComponentGroup = ref<ComponentLibraryGroup>("all");
-const inspectorTab = ref<InspectorTab>("props");
+const inspectorTab = ref<InspectorTab>("source");
+const libraryPanelCollapsed = ref(false);
+const inspectorPanelCollapsed = ref(false);
 const activeTextTarget = ref<"text" | string>("text");
 const dragSnapshot = ref<ProfileTemplateNodeDto | null>(null);
 const dragVisualRoot = ref<ProfileTemplateNodeDto | null>(null);
@@ -275,6 +281,19 @@ const variableGroups = computed<PreviewVariableGroup[]>(() => {
         return previewVariableGroups.value;
     }
     return mapPreviewVariableGroups(detail.value?.variables ?? []);
+});
+const compactComponentGroups = computed<ComponentLibraryGroupView[]>(() => {
+    const groups = new Map<ComponentLibraryGroup, ComponentLibraryItem[]>();
+    for (const item of componentLibrary) {
+        const current = groups.get(item.group) ?? [];
+        current.push(item);
+        groups.set(item.group, current);
+    }
+    return Array.from(groups.entries()).map(([group, items]) => ({
+        group,
+        label: groupLabels[group],
+        items,
+    }));
 });
 const runtimeVariableGroups = computed<PreviewVariableGroup[]>(() => {
     return variableGroups.value.filter((group) => ["Input", "IDE", "Studio", "Agent", "Skills", "Runtime", "input", "scope", "skill", "runtime"].includes(group.group));
@@ -744,7 +763,10 @@ function insertVariable(value: string): void {
     }
     pushHistory();
     if (activeTextTarget.value === "text") {
-        selectedNode.value.text = `${selectedNode.value.text ?? ""}${value}`;
+        const target = selectedNode.value.type === "Message" || selectedNode.value.type === "AIMessage"
+            ? ensureInlineTextNode(selectedNode.value)
+            : selectedNode.value;
+        target.text = `${target.text ?? ""}${value}`;
         refreshRootView();
         void previewTemplate();
         return;
@@ -760,6 +782,20 @@ function insertVariable(value: string): void {
     }
     refreshRootView();
     void previewTemplate();
+}
+
+/**
+ * 为消息容器补一个可编辑 Text 子节点。
+ */
+function ensureInlineTextNode(node: ProfileTemplateNodeDto): ProfileTemplateNodeDto {
+    const existing = node.children.find((child) => child.type === "Text");
+    if (existing) {
+        return existing;
+    }
+    const textNode = createNode("Text");
+    textNode.text = "";
+    node.children.unshift(textNode);
+    return textNode;
 }
 
 /**
@@ -1425,10 +1461,9 @@ onBeforeUnmount(() => {
     <div ref="themeHostRef" class="tsx-profile-editor-page flex h-full min-h-0 flex-col overflow-hidden bg-[var(--bg-main)] text-[var(--text-main)] transition-colors duration-300" :class="props.mode === 'system-template' ? 'h-screen' : ''">
         <ProfileTemplateHeader
             v-model:selected-template="selectedTemplate"
+            :title="props.mode === 'user-profile' ? 'TSX Profile 工作台' : 'TSX Profile 可视化编辑器'"
+            :subtitle="props.mode === 'user-profile' ? '用户资产' : ''"
             :template-options="templateOptions"
-            :selected-template-file-name="selectedTemplateFileName"
-            :theme="theme"
-            :theme-options="themeOptions"
             :editor-status-text="editorStatusText"
             :can-undo="canUndo"
             :can-redo="canRedo"
@@ -1440,13 +1475,14 @@ onBeforeUnmount(() => {
             :source-text="sourceText"
             :issue-count="issueCount"
             :restore-enabled="props.mode === 'user-profile'"
-            @set-theme="setTheme"
+            :closable="props.closable"
             @undo="undoEdit"
             @redo="redoEdit"
             @preview="void openPreviewDialog()"
             @validate="void validateTemplate()"
             @restore="void restoreTemplate()"
             @save="void saveTemplate()"
+            @close="emit('close')"
         />
 
         <DragDropProvider
@@ -1456,13 +1492,43 @@ onBeforeUnmount(() => {
             @drag-over="handleNodeDragOver"
             @drag-end="handleNodeDragEnd"
         >
-            <main class="grid min-h-0 flex-1 grid-cols-[290px_minmax(560px,1fr)_520px] gap-3 p-3">
+            <main
+                class="grid min-h-0 flex-1 gap-3 p-3"
+                :class="[
+                    libraryPanelCollapsed ? 'grid-cols-[42px_minmax(560px,1fr)_minmax(360px,30vw)]' : 'grid-cols-[290px_minmax(560px,1fr)_minmax(360px,30vw)]',
+                    inspectorPanelCollapsed ? (libraryPanelCollapsed ? '!grid-cols-[42px_minmax(560px,1fr)_42px]' : '!grid-cols-[290px_minmax(560px,1fr)_42px]') : '',
+                ]"
+            >
+            <aside v-if="libraryPanelCollapsed" class="component-rail">
+                <button type="button" class="rail-icon-btn" title="展开组件库" @click="libraryPanelCollapsed = false">
+                    <span class="i-lucide-panel-left-open h-4 w-4"></span>
+                </button>
+                <div class="rail-divider"></div>
+                <div class="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto overflow-x-hidden pr-0.5 custom-scrollbar">
+                    <template v-for="group in compactComponentGroups" :key="group.group">
+                        <div class="rail-group-divider" :title="group.label"></div>
+                        <button
+                            v-for="item in group.items"
+                            :key="item.type"
+                            type="button"
+                            class="rail-icon-btn"
+                            :class="`library-node-${item.type}`"
+                            :title="`${group.label} / ${item.label}：${item.description}`"
+                            @click="addNode(item.type)"
+                        >
+                            <span :class="item.iconClass" class="h-4 w-4"></span>
+                        </button>
+                    </template>
+                </div>
+            </aside>
             <ProfileTemplateComponentLibraryPanel
+                v-else
                 v-model:search="componentSearch"
                 v-model:active-group="activeComponentGroup"
                 :group-tabs="componentGroupTabs"
                 :component-groups="filteredComponentGroups"
                 :variable-items="libraryVariableItems"
+                @collapse="libraryPanelCollapsed = true"
                 @add-node="addNode"
                 @insert-variable="insertVariable"
             />
@@ -1482,19 +1548,12 @@ onBeforeUnmount(() => {
                 @add-message="addNode('Message')"
             />
 
-            <!-- 预览与属性 -->
-            <aside class="flex min-h-0 flex-col gap-3">
-                <ProfileTemplateSourcePanel
-                    :source-text="sourceText"
-                    :source-line-count="sourceLineCount"
-                    :parsing-source="parsingSource"
-                    :selected-template-file-name="selectedTemplateFileName"
-                    :theme="theme"
-                    :monaco-preferences="sourceEditorPreferences"
-                    @change="handleSourceTextChange"
-                    @save-request="void saveTemplate()"
-                />
-
+            <!-- 右侧源码、属性与变量面板 -->
+            <aside v-if="inspectorPanelCollapsed" class="panel-rail" title="展开右侧面板" @click="inspectorPanelCollapsed = false">
+                <span class="i-lucide-panel-right-open h-4 w-4"></span>
+                <span class="rail-label">面板</span>
+            </aside>
+            <aside v-else class="flex min-w-0 min-h-0 flex-col">
                 <ProfileTemplateInspectorPanel
                     v-model:active-tab="inspectorTab"
                     v-model:variable-search="variableSearch"
@@ -1502,6 +1561,10 @@ onBeforeUnmount(() => {
                     :selected-node="selectedNode"
                     :selected-prop-entries="selectedPropEntries"
                     :selected-text-length="selectedTextLength"
+                    :source-text="sourceText"
+                    :source-line-count="sourceLineCount"
+                    :parsing-source="parsingSource"
+                    :selected-template-file-name="selectedTemplateFileName"
                     :issues="issues"
                     :variable-groups="variableGroups"
                     :filtered-variable-groups="filteredVariableGroups"
@@ -1510,6 +1573,7 @@ onBeforeUnmount(() => {
                     :tool-status-options="toolStatusOptions"
                     :source-options="sourceOptions"
                     :theme="theme"
+                    :monaco-preferences="sourceEditorPreferences"
                     :is-expression-value="isExpressionValue"
                     :prop-input-value="propInputValue"
                     :prop-label="propLabel"
@@ -1517,7 +1581,10 @@ onBeforeUnmount(() => {
                     :issue-detail="issueDetail"
                     :format-variable-value="formatVariableValue"
                     :is-variable-group-collapsed="isVariableGroupCollapsed"
+                    @collapse="inspectorPanelCollapsed = true"
                     @update-active-target="activeTextTarget = $event"
+                    @source-change="handleSourceTextChange"
+                    @source-save-request="void saveTemplate()"
                     @update-prop="updateProp"
                     @update-expression-prop="updateExpressionProp"
                     @update-text="updateText"
@@ -1556,3 +1623,144 @@ onBeforeUnmount(() => {
         />
     </div>
 </template>
+
+<style scoped>
+.panel-rail {
+    display: flex;
+    min-height: 0;
+    cursor: pointer;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-panel);
+    padding: 10px 6px;
+    color: var(--text-muted);
+    box-shadow: 0 16px 44px rgba(15, 23, 42, 0.05);
+    transition: border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease;
+}
+
+.component-rail {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-panel);
+    padding: 8px 5px;
+    box-shadow: 0 16px 44px rgba(15, 23, 42, 0.05);
+}
+
+.rail-icon-btn {
+    --component-accent: var(--accent-main);
+    --component-bg: color-mix(in srgb, var(--component-accent) 8%, var(--bg-panel));
+    --component-border: color-mix(in srgb, var(--component-accent) 34%, var(--border-color));
+    --component-icon-color: color-mix(in srgb, var(--component-accent) 80%, var(--text-main));
+    display: inline-flex;
+    height: 30px;
+    width: 30px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--component-border);
+    border-radius: 7px;
+    background: var(--component-bg);
+    color: var(--component-icon-color);
+    transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.rail-icon-btn:hover {
+    border-color: var(--border-color-hover);
+    background: var(--bg-hover);
+    color: var(--accent-text);
+    transform: translateY(-1px);
+}
+
+.rail-divider {
+    align-self: center;
+    height: 1px;
+    width: 24px;
+    flex-shrink: 0;
+    background: var(--border-color);
+}
+
+.rail-group-divider {
+    align-self: center;
+    height: 1px;
+    width: 18px;
+    flex-shrink: 0;
+    margin: 4px 0 2px;
+    background: color-mix(in srgb, var(--border-color) 78%, transparent);
+}
+
+.rail-group-divider:first-child {
+    display: none;
+}
+
+.library-node-ProfilePrompt {
+    --component-accent: var(--accent-main);
+}
+
+.library-node-HistorySet {
+    --component-accent: #3f7f72;
+}
+
+.library-node-DynamicSet {
+    --component-accent: #47799a;
+}
+
+.library-node-AppendingSet {
+    --component-accent: #6f6aa8;
+}
+
+.library-node-Text,
+.library-node-Message {
+    --component-accent: #c2693c;
+}
+
+.library-node-AIMessage {
+    --component-accent: #7b68b3;
+}
+
+.library-node-ToolCall {
+    --component-accent: #4f8c8f;
+}
+
+.library-node-Reminder {
+    --component-accent: #b65f5b;
+}
+
+.library-node-Watch {
+    --component-accent: #b1843e;
+}
+
+.library-node-If {
+    --component-accent: #64895f;
+}
+
+.library-node-ActivatedSkills {
+    --component-accent: #8a639e;
+}
+
+.library-node-SkillCatalog {
+    --component-accent: #5f70a5;
+}
+
+.panel-rail:hover {
+    border-color: var(--border-color-hover);
+    background: var(--bg-hover);
+    color: var(--accent-text);
+}
+
+.rail-label {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0;
+}
+</style>

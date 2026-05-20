@@ -19,7 +19,7 @@ export type ComponentLibraryGroupView = {
     items: ComponentLibraryItem[];
 };
 
-export type InspectorTab = "props" | "variables" | "runtime";
+export type InspectorTab = "source" | "props" | "variables" | "runtime" | "agent";
 
 export type SelectOption = {
     value: string;

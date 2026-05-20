@@ -21,7 +21,13 @@ export function generateFullTemplateSource(templateName: string, node: ProfileTe
         `import {${profileImportNames.join(", ")}} from "nbook/server/agent/profiles/simple-profile";`,
         "import type {ProfilePromptContext} from \"nbook/server/agent/profiles/simple-profile\";",
         "",
-        `export default function ${functionName}(ctx: ProfilePromptContext<"leader.default">) {`,
+        `export default async function ${functionName}(ctx: ProfilePromptContext<"leader.default">) {`,
+        "    const input = ctx.input;",
+        "    const runtime = ctx.runtime;",
+        "    const scope = ctx.scope;",
+        "    const skillCatalogText = ctx.skillCatalogText;",
+        "    const activatedSkillsText = await ctx.activatedSkillsText();",
+        "",
         "    return (",
         indentPreviewSource(generatePreviewNodeSource(node), 2),
         "    );",
@@ -67,6 +73,9 @@ export function toPascalCase(value: string): string {
  * 生成右侧预览用 TSX 标签片段。
  */
 export function generatePreviewNodeSource(node: ProfileTemplateNodeDto): string {
+    if (node.type === "Text") {
+        return renderPreviewNodeText(node);
+    }
     const props = generatePreviewProps(node.props);
     if (node.children.length === 0 && !node.text) {
         return `<${node.type}${props} />`;

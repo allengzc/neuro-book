@@ -83,7 +83,7 @@ describe("profile-template-service", () => {
         const result = parseProfileTemplateSource(source);
 
         expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
-        expect(result.root?.children[0]?.children[0]?.text).toBe("hello");
+        expect(readFirstText(result.root?.children[0]?.children[0])).toBe("hello");
     });
 
     it("预览模板会返回消息序列", () => {
@@ -201,7 +201,7 @@ describe("profile-template-service", () => {
     });
 
     it("预览模板会替换正文中的变量 token", () => {
-        const source = VALID_SOURCE.replace("system prompt", "workspace={{scope.studio.workspace}}");
+        const source = VALID_SOURCE.replace("system prompt", "workspace=${scope.studio.workspace}");
         const scope = createPreviewScope({workspace: "workspace/demo"});
 
         const result = previewProfileTemplate({source, scope});
@@ -209,16 +209,28 @@ describe("profile-template-service", () => {
         expect(result.messages[0]?.text).toBe("workspace=workspace/demo");
     });
 
-    it("Message 中的变量 token 不会被 TSX 表达式解析吞掉一层大括号", () => {
-        const source = VALID_SOURCE.replace("system prompt", "{{scope.studio.workspace}}");
+    it("Message 中的变量 token 会保留为模板字符串插值", () => {
+        const source = VALID_SOURCE.replace("system prompt", "${scope.studio.workspace}");
 
         const result = parseProfileTemplateSource(source);
         const message = result.root?.children[0]?.children[0];
         const generated = generateProfileTemplateSource("demo-template", result.root ?? undefined);
 
         expect(message?.textKind).toBeUndefined();
-        expect(message?.text).toBe("{{scope.studio.workspace}}");
-        expect(generated).toContain("{{scope.studio.workspace}}");
+        expect(readFirstTextNode(message)?.text).toBe("${scope.studio.workspace}");
+        expect(generated).toContain("${scope.studio.workspace}");
+    });
+
+    it("属性预览不会兼容旧的双大括号变量 token", () => {
+        const source = VALID_SOURCE.replace(
+            '<Message role="system">system prompt</Message>',
+            '<Message role="system"><SkillCatalog text="{{skillCatalogText}}" /></Message>',
+        );
+        const scope = createPreviewScope({workspace: "workspace/demo"});
+
+        const result = previewProfileTemplate({source, scope});
+
+        expect(result.messages[0]?.text).toBe("{{skillCatalogText}}");
     });
 
     it("保留表达式属性并生成 TSX 表达式", () => {
@@ -242,8 +254,8 @@ describe("profile-template-service", () => {
         const message = result.root?.children[1]?.children[1];
         const generated = generateProfileTemplateSource("demo-template", result.root ?? undefined);
 
-        expect(message?.textKind).toBe("template");
-        expect(message?.text).toBe("hello ${ctx.runtime.thread.id}");
+        expect(readFirstTextNode(message)?.textKind).toBe("template");
+        expect(readFirstText(message)).toBe("hello ${ctx.runtime.thread.id}");
         expect(generated).toContain("{`hello ${ctx.runtime.thread.id}`}");
     });
 
@@ -258,9 +270,9 @@ describe("profile-template-service", () => {
         const generated = generateProfileTemplateSource("demo-template", result.root ?? undefined);
         const normalizedGenerated = stripLineIndent(generated);
 
-        expect(message?.textKind).toBe("template");
-        expect(message?.text).toBe("\n\n【当前已关联 subagent】\n${JSON.stringify(ctx.scope.agent.subagents ?? [])}");
-        expect(message?.text).not.toContain("{`");
+        expect(readFirstTextNode(message)?.textKind).toBe("template");
+        expect(readFirstText(message)).toBe("\n\n【当前已关联 subagent】\n${JSON.stringify(ctx.scope.agent.subagents ?? [])}");
+        expect(readFirstText(message)).not.toContain("{`");
         expect(normalizedGenerated).toContain("{\"\\n\"}\n{\"\\n\"}\n{`【当前已关联 subagent】`}\n{\"\\n\"}\n{`${JSON.stringify(ctx.scope.agent.subagents ?? [])}`}");
     });
 
@@ -292,7 +304,7 @@ describe("profile-template-service", () => {
         const normalizedSource = stripLineIndent(source);
 
         expect(normalizedSource).toContain("{`<system-reminder>`}\n{\"\\n\"}\n{`# 标题`}\n{\"\\n\"}\n{`</system-reminder>`}");
-        expect(result.root?.children[0]?.children[0]?.text).toBe("<system-reminder>\n# 标题\n</system-reminder>");
+        expect(readFirstText(result.root?.children[0]?.children[0])).toBe("<system-reminder>\n# 标题\n</system-reminder>");
     });
 
     it("Message 正文统一用模板字符串生成并保留空行", () => {
@@ -322,7 +334,7 @@ describe("profile-template-service", () => {
         const normalizedSource = stripLineIndent(source);
 
         expect(normalizedSource).toContain("{`第一行`}\n{\"\\n\"}\n{\"\\n\"}\n{`    保留缩进`}\n{\"\\n\"}\n{`最后一行`}");
-        expect(result.root?.children[0]?.children[0]?.text).toBe("第一行\n\n    保留缩进\n最后一行");
+        expect(readFirstText(result.root?.children[0]?.children[0])).toBe("第一行\n\n    保留缩进\n最后一行");
     });
 
     it("Message 内的小写 JSX 标签按正文处理", () => {
@@ -336,7 +348,7 @@ describe("profile-template-service", () => {
         const generated = generateProfileTemplateSource("demo-template", result.root ?? undefined);
 
         expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
-        expect(message?.text).toBe("<system-reminder># 标题</system-reminder>");
+        expect(readFirstText(message)).toBe("<system-reminder># 标题</system-reminder>");
         expect(generated).toContain("{`<system-reminder># 标题</system-reminder>`}");
     });
 
@@ -354,15 +366,15 @@ describe("profile-template-service", () => {
     it("Message 节点内允许放 SkillCatalog 这类字符串型内联节点", () => {
         const source = VALID_SOURCE.replace(
             '<Message role="system">system prompt</Message>',
-            '<Message role="system">system prompt<SkillCatalog text="{{skillCatalogText}}" /></Message>',
+            '<Message role="system">system prompt<SkillCatalog text="${skillCatalogText}" /></Message>',
         );
 
         const result = parseProfileTemplateSource(source);
         const generated = generateProfileTemplateSource("demo-template", result.root ?? undefined);
 
         expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
-        expect(result.root?.children[0]?.children[0]?.children[0]?.type).toBe("SkillCatalog");
-        expect(generated).toContain('<SkillCatalog text="{{skillCatalogText}}" />');
+        expect(result.root?.children[0]?.children[0]?.children[1]?.type).toBe("SkillCatalog");
+        expect(generated).toContain('<SkillCatalog text="${skillCatalogText}" />');
     });
 
     it("AIMessage 支持 ToolCall 预览", () => {
@@ -431,7 +443,7 @@ describe("profile-template-service", () => {
     it("ActivatedSkills 必须放在 Message 内", () => {
         const source = VALID_SOURCE.replace(
             '<Watch path="scope.studio.workspace" />',
-            '<ActivatedSkills text="{{activatedSkillsText}}" />',
+            '<ActivatedSkills text="${activatedSkillsText}" />',
         );
 
         const result = parseProfileTemplateSource(source);
@@ -476,6 +488,100 @@ describe("profile-template-service", () => {
         expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
     });
 
+    it("源码 builtin leader 会展开 buildPrompt 中的 JSX 局部变量", async () => {
+        const source = await readFile(resolve(process.cwd(), "server/agent/profiles/builtin/leader-default.profile.tsx"), "utf-8");
+        const result = parseProfileTemplateSource(source);
+
+        expect(result.root?.children.map((child) => child.type)).toEqual(["HistorySet", "DynamicSet", "AppendingSet"]);
+        expect(result.root?.children.some((child) => child.type === "Message" && child.text?.includes("historySet"))).toBe(false);
+    });
+
+    it("Message 内 If 的裸文本会解析为 Text 节点", async () => {
+        const source = await readFile(resolve(process.cwd(), "server/agent/profiles/builtin/leader-default.profile.tsx"), "utf-8");
+        const result = parseProfileTemplateSource(source);
+        const generated = generateProfileTemplateSource("leader-default", result.root ?? undefined);
+        const textNodes = collectNodes(result.root, "Text");
+
+        expect(result.issues.map((issue) => issue.message)).not.toContain("检测到裸文本；低代码编辑器会以不可编辑文本节点显示");
+        expect(textNodes.some((node) => node.text?.includes("PowerShell"))).toBe(true);
+        expect(textNodes.some((node) => node.text?.includes("bash"))).toBe(true);
+        expect(generated).toContain("{`PowerShell（Windows）：`}");
+        expect(generated).toContain("{`bash：`}");
+    });
+
+    it("三元 JSX 条件会保留为 If 表达式属性", () => {
+        const source = VALID_SOURCE.replace(
+            '<Message role="system">system prompt</Message>',
+            '{ctx.skillCatalogText ? (<Message role="system"><SkillCatalog text={ctx.skillCatalogText} /></Message>) : null}',
+        );
+
+        const result = parseProfileTemplateSource(source);
+        const ifNode = result.root?.children[0]?.children[0];
+        const generated = generateProfileTemplateSource("demo-template", result.root ?? undefined);
+
+        expect(ifNode?.type).toBe("If");
+        expect(ifNode?.props.condition).toEqual({kind: "expression", code: "ctx.skillCatalogText"});
+        expect(generated).toContain("condition={ctx.skillCatalogText}");
+    });
+
+    it("Message 内的 If 会按内联正文解析 Markdown 代码块", () => {
+        const source = VALID_SOURCE.replace(
+            "system prompt",
+            `<If condition={process.platform === "win32"}>
+PowerShell（Windows）：
+
+\`\`\`json
+{\`{"command":"rg --files -g index.md | workspace node parse --stdin --ndjson"}\`}
+{\`{"command":"rg --files -g index.md | workspace node validate --stdin"}\`}
+\`\`\`
+</If>`,
+        );
+
+        const result = parseProfileTemplateSource(source);
+        const ifNode = result.root?.children[0]?.children[0]?.children[0];
+        const generated = generateProfileTemplateSource("demo-template", result.root ?? undefined);
+
+        expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
+        expect(ifNode?.type).toBe("If");
+        expect(readFirstText(ifNode)).toContain("```json");
+        expect(readFirstText(ifNode)).toContain("```json\n");
+        expect(readFirstText(ifNode)).toContain("--ndjson\"}\n{\"command\"");
+        expect(readFirstText(ifNode)).toContain('"command":"rg --files -g index.md | workspace node parse --stdin --ndjson"');
+        expect(generated).toContain('<If condition={process.platform === "win32"}>');
+        expect(generated).toContain("{`PowerShell（Windows）：`}");
+        expect(generated).not.toContain("{`</If>`}");
+    });
+
+    it("Message 内混合实体文本和模板表达式时会合并为一个 Text", () => {
+        const source = VALID_SOURCE.replace(
+            '<Watch path="scope.studio.workspace" />',
+            `<If condition={compactSubagents.length > 0}>
+<Reminder id="leader-runtime-subagents" watchPath="scope.agent.subagents">
+    <Message role="human">
+        &lt;system-reminder&gt;
+        {\`\\n\\n【当前已关联 subagent】\\n\${compactSubagents.join("\\n")}\`}
+        &lt;/system-reminder&gt;
+    </Message>
+</Reminder>
+</If>`,
+        );
+
+        const result = parseProfileTemplateSource(source);
+        const message = collectNodes(result.root, "Message").find((node) => node.props.role === "human");
+        const textChildren = message?.children.filter((child) => child.type === "Text") ?? [];
+        const generated = generateProfileTemplateSource("demo-template", result.root ?? undefined);
+
+        expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
+        expect(textChildren).toHaveLength(1);
+        expect(textChildren[0]?.textKind).toBe("template");
+        expect(textChildren[0]?.text).toContain("<system-reminder>");
+        expect(textChildren[0]?.text).toContain("【当前已关联 subagent】");
+        expect(textChildren[0]?.text).toContain("${compactSubagents.join(\"\\n\")}");
+        expect(textChildren[0]?.text).toContain("</system-reminder>");
+        expect(generated).toContain("{`<system-reminder>`}");
+        expect(generated).toContain("{`</system-reminder>`}");
+    });
+
     it("完整动态 profile 会优先解析 buildPrompt 中返回的 ProfilePrompt", () => {
         const source = `/** @jsxRuntime automatic */
 /** @jsxImportSource nbook/server/agent/prompts */
@@ -507,7 +613,7 @@ export default defineAgentProfile({
 
         expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
         expect(result.root?.type).toBe("ProfilePrompt");
-        expect(result.root?.children[0]?.children[0]?.text).toBe("完整 profile");
+        expect(readFirstText(result.root?.children[0]?.children[0])).toBe("完整 profile");
     });
 
     it("保存用户 profile root 时只替换 buildPrompt 的 ProfilePrompt 片段", async () => {
@@ -520,7 +626,10 @@ export default defineAgentProfile({
             expect(root).not.toBeNull();
             const message = root?.children[0]?.children[0];
             if (message) {
-                message.text = "替换后的正文";
+                const text = readFirstTextNode(message);
+                if (text) {
+                    text.text = "替换后的正文";
+                }
             }
 
             const saved = await saveUserProfileTemplate("test/replace.profile.tsx", {root: root ?? undefined});
@@ -568,6 +677,24 @@ export default defineAgentProfile({
         }
     });
 });
+
+function collectNodes(root: ProfileTemplateNodeDto | null | undefined, type: ProfileTemplateNodeDto["type"]): ProfileTemplateNodeDto[] {
+    if (!root) {
+        return [];
+    }
+    return [
+        ...(root.type === type ? [root] : []),
+        ...root.children.flatMap((child) => collectNodes(child, type)),
+    ];
+}
+
+function readFirstText(node: ProfileTemplateNodeDto | null | undefined): string | undefined {
+    return readFirstTextNode(node)?.text;
+}
+
+function readFirstTextNode(node: ProfileTemplateNodeDto | null | undefined): ProfileTemplateNodeDto | undefined {
+    return node?.children.find((child) => child.type === "Text");
+}
 
 function createPreviewScope(input: {
     workspace?: string;

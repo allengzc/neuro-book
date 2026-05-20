@@ -29,17 +29,13 @@ export const groupLabels: Record<ComponentLibraryGroup, string> = {
     privileged: "特权节点",
 };
 
-export const inspectorTabs: Array<{value: "props" | "variables" | "runtime"; label: string}> = [
+export const inspectorTabs: Array<{value: "source" | "props" | "variables" | "runtime" | "agent"; label: string}> = [
+    {value: "source", label: "源码"},
     {value: "props", label: "属性面板"},
     {value: "variables", label: "变量面板"},
     {value: "runtime", label: "运行时变量"},
+    {value: "agent", label: "Agent"},
 ];
-
-export const themeOptions = [
-    {value: "light", label: "浅色"},
-    {value: "sepia", label: "暖色"},
-    {value: "dark", label: "暗色"},
-] as const;
 
 export const componentGroupTabs: Array<{value: ComponentLibraryGroup; label: string}> = [
     {value: "all", label: "全部"},
@@ -69,8 +65,8 @@ export const sourceOptions: SelectOption[] = [
 ];
 
 export const libraryVariableItems: LibraryVariableItem[] = [
-    {label: "变量引用", description: "插入运行时变量，如 {{scope.now}}", value: "{{scope.time.now}}", iconClass: "i-lucide-braces"},
-    {label: "变量", description: "定义或查看运行时变量", value: "{{scope.studio.workspace}}", iconClass: "i-lucide-triangle"},
+    {label: "变量引用", description: "插入运行时变量，如 ${scope.time.now}", value: "${scope.time.now}", iconClass: "i-lucide-braces"},
+    {label: "变量", description: "定义或查看运行时变量", value: "${scope.studio.workspace}", iconClass: "i-lucide-triangle"},
 ];
 
 export const sourceEditorPreferences = {
