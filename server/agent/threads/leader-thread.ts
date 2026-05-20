@@ -1,6 +1,6 @@
 import type {BaseMessage} from "@langchain/core/messages";
 import {BaseAgentThread} from "nbook/server/agent/threads/base-agent-thread";
-import type {AgentStreamEvent, AnySubAgentInput, CreateSubAgentThreadInput, LeaderInput, RunOptions, SubAgentCompletionResult, SubAgentProfileKey, SubAgentThreadSummary} from "nbook/server/agent/types";
+import type {AgentStreamEvent, AnySubAgentInput, CreateSubAgentThreadInput, LeaderInput, RunOptions, SubAgentCompletionResult, SubAgentThreadSummary} from "nbook/server/agent/types";
 import type {SubAgentThread} from "nbook/server/agent/threads/subagent-thread";
 
 /**
@@ -10,7 +10,7 @@ export class LeaderThread extends BaseAgentThread<"leader.default"> {
     /**
      * 创建并挂接 subagent。
      */
-    async createSubAgent<TKey extends SubAgentProfileKey>(
+    async createSubAgent<TKey extends string>(
         input: Omit<CreateSubAgentThreadInput<TKey>, "leaderThreadId">,
     ): Promise<SubAgentThread<TKey>> {
         return this.gateway.createSubAgentThread({

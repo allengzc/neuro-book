@@ -10,7 +10,9 @@ export default defineEventHandler(async (): Promise<AgentProfileModelSettingsDto
     const appConfig = await loadAppConfig();
     const agentSystem = useAgentSystem();
 
-    return buildAgentProfileModelSettingsDto(appConfig, agentSystem.profileRegistry.list().map((profile) => ({
+    const profiles = await agentSystem.profileRegistry.list();
+
+    return buildAgentProfileModelSettingsDto(appConfig, profiles.map((profile) => ({
         profileKey: profile.key,
         name: profile.name,
         kind: profile.kind,

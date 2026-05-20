@@ -14,7 +14,8 @@ import {validateBody} from "nbook/server/utils/novel-chapter";
 export default defineEventHandler(async (event): Promise<AgentProfileModelSettingsDto> => {
     const body = await validateBody<UpdateAgentProfileModelSettingsRequestDto>(event, UpdateAgentProfileModelSettingsRequestDtoSchema);
     const agentSystem = useAgentSystem();
-    const profileDefinitions = agentSystem.profileRegistry.list().map((profile) => ({
+    const profiles = await agentSystem.profileRegistry.list();
+    const profileDefinitions = profiles.map((profile) => ({
         profileKey: profile.key,
         name: profile.name,
         kind: profile.kind,

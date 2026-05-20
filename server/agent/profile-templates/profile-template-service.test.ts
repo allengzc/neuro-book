@@ -344,7 +344,21 @@ describe("profile-template-service", () => {
 
         const result = parseProfileTemplateSource(source);
 
-        expect(result.issues.map((issue) => issue.message)).toContain("Message 节点内不能放 Message 节点");
+        expect(result.issues.map((issue) => issue.message)).toContain("Message 节点内只能放字符串型内联节点");
+    });
+
+    it("Message 节点内允许放 SkillCatalog 这类字符串型内联节点", () => {
+        const source = VALID_SOURCE.replace(
+            '<Message role="system">system prompt</Message>',
+            '<Message role="system">system prompt<SkillCatalog text="{{skillCatalogText}}" /></Message>',
+        );
+
+        const result = parseProfileTemplateSource(source);
+        const generated = generateProfileTemplateSource("demo-template", result.root ?? undefined);
+
+        expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
+        expect(result.root?.children[0]?.children[0]?.children[0]?.type).toBe("SkillCatalog");
+        expect(generated).toContain('<SkillCatalog text="{{skillCatalogText}}" />');
     });
 
     it("AIMessage 支持 ToolCall 预览", () => {
@@ -386,6 +400,39 @@ describe("profile-template-service", () => {
         const result = parseProfileTemplateSource(source);
 
         expect(result.issues.map((issue) => issue.message)).toContain("SkillCatalog 返回字符串，必须放在 Message 内");
+    });
+
+    it("Reminder 和 Watch 不能放在 HistorySet 或 DynamicSet 内", () => {
+        const source = VALID_SOURCE
+            .replace('<Message role="system">system prompt</Message>', '<Reminder id="bad"><Message role="system">bad</Message></Reminder>')
+            .replace('<Watch path="scope.studio.workspace" />', '<Message role="system">ok</Message>');
+
+        const result = parseProfileTemplateSource(source);
+
+        expect(result.issues.map((issue) => issue.message)).toContain("Reminder 不能放在 HistorySet 内");
+    });
+
+    it("ToolCall 只能放在 AIMessage 内", () => {
+        const source = VALID_SOURCE.replace(
+            '<Watch path="scope.studio.workspace" />',
+            '<Message role="system"><ToolCall name="read_file">{`{"path":"a"}`}</ToolCall></Message>',
+        );
+
+        const result = parseProfileTemplateSource(source);
+
+        expect(result.issues.map((issue) => issue.message)).toContain("ToolCall 必须放在 AIMessage 内");
+        expect(result.issues.map((issue) => issue.message)).toContain("Message 节点内只能放字符串型内联节点");
+    });
+
+    it("ActivatedSkills 必须放在 Message 内", () => {
+        const source = VALID_SOURCE.replace(
+            '<Watch path="scope.studio.workspace" />',
+            '<ActivatedSkills text="{{activatedSkillsText}}" />',
+        );
+
+        const result = parseProfileTemplateSource(source);
+
+        expect(result.issues.map((issue) => issue.message)).toContain("ActivatedSkills 返回字符串，必须放在 Message 内");
     });
 
     it("不支持的模板组件会返回源码定位", () => {

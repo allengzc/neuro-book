@@ -67,7 +67,6 @@ export default function LeaderRuntime(ctx: ProfilePromptContext<"leader.default"
                     <Message role="human">
                         <SkillCatalog text={ctx.skillCatalogText} />
                     </Message>
-                    <Reminder id="leader-runtime-focus" watchPath="scope.studio.extra" />
                     <Message role="human">
                         {"\n"}
                         {"\n"}
@@ -78,6 +77,7 @@ export default function LeaderRuntime(ctx: ProfilePromptContext<"leader.default"
                         {`{{input.metadata}}{{scope.studio.extra.selectedStorySceneId}}{{scope.agent.subagents}}`}
                     </Message>
                 </Reminder>
+                <Reminder id="leader-runtime-focus" watchPath="scope.studio.extra" />
                 <Reminder id="leader-runtime-tasks" watchValue={JSON.stringify(ctx.scope.agent.tasks ?? null)} repeatEveryTurns={5} />
                 <Reminder id="workspace" when={Boolean(ctx.scope.studio.workspace)} watchPath="scope.studio.workspace" repeatEveryTurns={20}>
                     <Message role="system">

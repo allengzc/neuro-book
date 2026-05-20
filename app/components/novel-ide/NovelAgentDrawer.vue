@@ -1130,7 +1130,7 @@ const rollbackMessage = async (message: AgentMessage): Promise<void> => {
 /**
  * 创建 subagent。
  */
-const handleCreateSubagent = async (profileKey: "subagent.writer" | "subagent.retrieval", title?: string): Promise<void> => {
+const handleCreateSubagent = async (profileKey: string, title?: string): Promise<void> => {
     if (!activeThreadId.value) {
         return;
     }

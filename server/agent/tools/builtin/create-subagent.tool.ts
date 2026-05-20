@@ -3,7 +3,7 @@ import type {AgentTool} from "nbook/server/agent/tools/agent-tool";
 import {createToolResultMessage} from "nbook/server/agent/tools/shared/tool-message";
 
 const CreateSubagentInputSchema = z.object({
-    profileKey: z.enum(["subagent.writer", "subagent.retrieval"]).describe("The subagent profile to use. \"subagent.writer\" writes prose and \"subagent.retrieval\" selects content nodes for downstream profiles."),
+    profileKey: z.string().trim().min(1, "profileKey 不能为空").describe("The subagent profile key to use. It must be one of the currently available subagent profiles."),
     title: z.string().trim().min(1, "title 不能为空").optional().describe("Optional display title for the subagent thread."),
 });
 
@@ -12,9 +12,22 @@ const CreateSubagentInputSchema = z.object({
  */
 export const createSubagentTool: AgentTool<typeof CreateSubagentInputSchema> = {
     key: "create_subagent",
-    description: "Create a new subagent thread and attach it to the current leader. The subagent must be invoked separately via invoke_subagent to run.",
+    description: "Create a new subagent thread and attach it to the current leader. The profileKey must reference an available subagent profile from the current profile catalog. The subagent must be invoked separately via invoke_subagent to run.",
     schema: CreateSubagentInputSchema,
+    async resolveSchema(context) {
+        const subagentProfiles = await context.agentGateway.listProfiles("subagent");
+        const profileKeys = subagentProfiles.map((profile) => profile.key);
+        const profileKeySchema = profileKeys.length > 0
+            ? z.enum(profileKeys as [string, ...string[]])
+            : z.string().trim().min(1, "profileKey 不能为空");
+
+        return z.object({
+            profileKey: profileKeySchema.describe(`The subagent profile key to use. Available subagent profiles: ${profileKeys.join(", ") || "none"}.`),
+            title: z.string().trim().min(1, "title 不能为空").optional().describe("Optional display title for the subagent thread."),
+        });
+    },
     async execute(input, context) {
+        await context.agentGateway.assertSubAgentProfile(input.profileKey);
         const created = await context.agentGateway.createSubAgentThread({
             leaderThreadId: context.threadId,
             profileKey: input.profileKey,

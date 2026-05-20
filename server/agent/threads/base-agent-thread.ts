@@ -1,6 +1,6 @@
 import type {BaseMessage} from "@langchain/core/messages";
 import type {AgentThreadGateway} from "nbook/server/agent/contracts";
-import type {AgentMessage, AgentStreamEvent, AgentThreadRecord, AgentThreadStatus, ProfileInputMap, ProfileKey, RunOptions, SubAgentCompletionResult} from "nbook/server/agent/types";
+import type {AgentMessage, AgentStreamEvent, AgentThreadRecord, AgentThreadStatus, ProfileInput, ProfileKey, RunOptions, SubAgentCompletionResult} from "nbook/server/agent/types";
 
 /**
  * 线程公共接口。
@@ -14,7 +14,7 @@ export interface AgentThreadHandle<TKey extends ProfileKey> {
     /**
      * 派发一次新的运行任务。
      */
-    dispatchRun(input: ProfileInputMap[TKey], options?: RunOptions): Promise<void>;
+    dispatchRun(input: ProfileInput<TKey>, options?: RunOptions): Promise<void>;
 
     /**
      * 订阅当前线程的长期事件流。
@@ -24,12 +24,12 @@ export interface AgentThreadHandle<TKey extends ProfileKey> {
     /**
      * 触发一次输入，并返回当前线程流。
      */
-    invokeStream(input: ProfileInputMap[TKey], options?: RunOptions): AsyncIterable<AgentStreamEvent>;
+    invokeStream(input: ProfileInput<TKey>, options?: RunOptions): AsyncIterable<AgentStreamEvent>;
 
     /**
      * 执行本次输入并返回本次新增消息。
      */
-    run(input: ProfileInputMap[TKey], options?: RunOptions): Promise<BaseMessage[] | SubAgentCompletionResult>;
+    run(input: ProfileInput<TKey>, options?: RunOptions): Promise<BaseMessage[] | SubAgentCompletionResult>;
 }
 
 /**
@@ -100,17 +100,17 @@ export abstract class BaseAgentThread<TKey extends ProfileKey> implements AgentT
     /**
      * 子类必须声明如何发起 run。
      */
-    abstract dispatchRun(input: ProfileInputMap[TKey], options?: RunOptions): Promise<void>;
+    abstract dispatchRun(input: ProfileInput<TKey>, options?: RunOptions): Promise<void>;
 
     /**
      * 子类必须声明如何触发运行并返回线程流。
      */
-    abstract invokeStream(input: ProfileInputMap[TKey], options?: RunOptions): AsyncIterable<AgentStreamEvent>;
+    abstract invokeStream(input: ProfileInput<TKey>, options?: RunOptions): AsyncIterable<AgentStreamEvent>;
 
     /**
      * 子类必须声明如何收集 run 结果。
      */
-    abstract run(input: ProfileInputMap[TKey], options?: RunOptions): Promise<BaseMessage[] | SubAgentCompletionResult>;
+    abstract run(input: ProfileInput<TKey>, options?: RunOptions): Promise<BaseMessage[] | SubAgentCompletionResult>;
 }
 
 

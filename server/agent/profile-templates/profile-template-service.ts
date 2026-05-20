@@ -739,11 +739,12 @@ function validateTemplateTree(root: ProfileTemplateNodeDto | null, issues: Profi
                     nodeId: node.id,
                 });
             }
-            if (node.children.some((child) => child.type === "Message")) {
+            const invalidChild = node.children.find((child) => !isInlineStringNodeType(child.type));
+            if (invalidChild) {
                 issues.push({
                     severity: "error",
-                    message: "Message 节点内不能放 Message 节点",
-                    nodeId: node.id,
+                    message: "Message 节点内只能放字符串型内联节点",
+                    nodeId: invalidChild.id,
                 });
             }
         }
@@ -767,6 +768,21 @@ function validateTemplateTree(root: ProfileTemplateNodeDto | null, issues: Profi
             issues.push({
                 severity: "error",
                 message: "SkillCatalog 返回字符串，必须放在 Message 内",
+                nodeId: node.id,
+            });
+        }
+        if (node.type === "ActivatedSkills" && ancestors.at(-1)?.type !== "Message") {
+            issues.push({
+                severity: "error",
+                message: "ActivatedSkills 返回字符串，必须放在 Message 内",
+                nodeId: node.id,
+            });
+        }
+        const parent = ancestors.at(-1);
+        if (parent && !canContainChild(ancestors, node.type)) {
+            issues.push({
+                severity: "error",
+                message: `${node.type} 不能放在 ${parent.type} 内`,
                 nodeId: node.id,
             });
         }
@@ -951,6 +967,49 @@ function countNodes(root: ProfileTemplateNodeDto, type: ProfileTemplateNodeDto["
  */
 function isComponentType(type: string): type is ProfileTemplateNodeDto["type"] {
     return COMPONENT_NAMES.has(type);
+}
+
+/**
+ * 运行时直接返回 string 的节点，只能作为 Message 的内联内容。
+ */
+function isInlineStringNodeType(type: ProfileTemplateNodeDto["type"]): boolean {
+    return type === "SkillCatalog" || type === "ActivatedSkills";
+}
+
+/**
+ * 校验节点嵌套关系，保持与可视化编辑器拖拽规则一致。
+ */
+function canContainChild(ancestors: ProfileTemplateNodeDto[], child: ProfileTemplateNodeDto["type"]): boolean {
+    const parent = ancestors.at(-1)?.type;
+    if (!parent) {
+        return true;
+    }
+    if (child === "ProfilePrompt") {
+        return false;
+    }
+    if (parent === "If") {
+        const inheritedParent = [...ancestors].reverse().find((node) => node.type !== "If")?.type;
+        return inheritedParent ? canContainChild([{id: "parent", type: inheritedParent, props: {}, children: [], editable: true}], child) : false;
+    }
+    if (parent === "ProfilePrompt") {
+        return ["HistorySet", "DynamicSet", "AppendingSet", "Message", "AIMessage", "If"].includes(child);
+    }
+    if (parent === "HistorySet" || parent === "DynamicSet") {
+        return ["Message", "AIMessage", "If"].includes(child);
+    }
+    if (parent === "AppendingSet") {
+        return ["Message", "AIMessage", "Reminder", "Watch", "If"].includes(child);
+    }
+    if (parent === "Reminder" || parent === "Watch") {
+        return ["Message", "AIMessage", "If"].includes(child);
+    }
+    if (parent === "Message") {
+        return isInlineStringNodeType(child);
+    }
+    if (parent === "AIMessage") {
+        return child === "ToolCall";
+    }
+    return false;
 }
 
 /**
@@ -1393,11 +1452,11 @@ function buildRuntimePreviewValue(context: PreviewContext): JsonValue {
             status: context.scope?.agent.thread.status ?? null,
         },
         profile: {
-            key: context.profile?.key ?? context.scope?.agent.profileKey ?? null,
+            key: context.profile?.key ? String(context.profile.key) : context.scope?.agent.profileKey ? String(context.scope.agent.profileKey) : null,
             kind: context.profile?.kind ?? context.scope?.agent.kind ?? null,
             name: context.profile?.name ?? null,
         },
-    };
+    } satisfies JsonValue;
 }
 
 /**

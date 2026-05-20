@@ -82,6 +82,7 @@ import {
     type JsonObject,
     type LeaderInput,
     type ListThreadsInput,
+    type ProfileInput,
     type ProfileInputMap,
     type ProfileKey,
     type RunOptions,
@@ -227,7 +228,7 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
      */
     async createLeaderThread(input: CreateLeaderThreadInput = {}): Promise<LeaderThread> {
         const profileKey = input.profileKey ?? "leader.default";
-        const profile = this.profileRegistry.get(profileKey);
+        const profile = await this.profileRegistry.get(profileKey);
         if (profile.kind !== "leader") {
             throw new Error(`profile ${profileKey} 不是 leader profile`);
         }
@@ -315,7 +316,7 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
     /**
      * 创建 subagent thread 并挂接到 leader。
      */
-    async createSubAgentThread<TKey extends SubAgentProfileKey>(
+    async createSubAgentThread<TKey extends string>(
         input: CreateSubAgentThreadInput<TKey>,
     ): Promise<SubAgentThread<TKey>> {
         const leader = await this.requireThread(input.leaderThreadId);
@@ -323,10 +324,7 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
             throw new Error(`thread ${input.leaderThreadId} 不是 leader`);
         }
 
-        const profile = this.profileRegistry.get(input.profileKey);
-        if (profile.kind !== "subagent") {
-            throw new Error(`profile ${input.profileKey} 不是 subagent profile`);
-        }
+        await this.assertSubAgentProfile(input.profileKey);
 
         const created = await this.threadRepository.createSubAgent({
             profileKey: input.profileKey,
@@ -971,6 +969,26 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
     }
 
     /**
+     * 校验 profileKey 是否为当前可用 subagent profile。
+     */
+    async assertSubAgentProfile(profileKey: string): Promise<void> {
+        const profile = await this.profileRegistry.get(profileKey);
+        if (profile.kind !== "subagent") {
+            throw new Error(`profile ${profileKey} 不是 subagent profile`);
+        }
+    }
+
+    /**
+     * 列出当前可用 profile，供动态工具 schema 使用。
+     */
+    async listProfiles(kind?: AgentThreadKind): Promise<AgentProfile<ProfileKey>[]> {
+        if (kind) {
+            return this.profileRegistry.listByKind(kind);
+        }
+        return this.profileRegistry.list();
+    }
+
+    /**
      * 过滤 leader 线程本地运行选项，避免 subagent 复用 leader 消息锚点。
      */
     private toSubAgentRunOptions(_options: RunOptions): RunOptions {
@@ -982,7 +1000,7 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
      */
     async dispatchDetachedSubAgent<TKey extends SubAgentProfileKey = SubAgentProfileKey>(
         subAgentThreadId: ThreadId,
-        input: ProfileInputMap[TKey],
+        input: ProfileInput<TKey>,
         options: RunOptions = EMPTY_RUN_OPTIONS,
     ): Promise<void> {
         await this.runOutsideActiveTrace(async () => {
@@ -1012,7 +1030,7 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
      */
     async runDetachedSubAgent<TKey extends SubAgentProfileKey = SubAgentProfileKey>(
         subAgentThreadId: ThreadId,
-        input: ProfileInputMap[TKey],
+        input: ProfileInput<TKey>,
         options: RunOptions = EMPTY_RUN_OPTIONS,
     ): Promise<SubAgentCompletionResult<TKey>> {
         await this.runOutsideActiveTrace(async () => {
@@ -1026,7 +1044,7 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
      */
     private async dispatchThreadRun<TKey extends ProfileKey>(
         threadId: ThreadId,
-        input: ProfileInputMap[TKey] | AnySubAgentInput,
+        input: ProfileInput<TKey> | AnySubAgentInput,
         expectedKind: "leader" | "subagent",
         options: RunOptions,
     ): Promise<void> {
@@ -1040,8 +1058,8 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
 
         const parsedOptions = options;
         const profileKey = this.requireProfileKey(thread.profileKey) as TKey;
-        const profile = this.profileRegistry.get(profileKey);
-        const parsedInput = profile.inputSchema.parse(input) as ProfileInputMap[TKey];
+        const profile = await this.profileRegistry.get(profileKey);
+        const parsedInput = profile.inputSchema.parse(input) as ProfileInput<TKey>;
         const runTurn = parsedOptions.turn ?? await this.resolveRunTurn(thread, parsedInput);
         const planModeRunState = await this.preparePlanModeForRun(thread, runTurn);
         thread = planModeRunState.thread;
@@ -1166,7 +1184,7 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
      */
     private async resolveRunTurn<TKey extends ProfileKey>(
         thread: AgentThreadRecord,
-        input: ProfileInputMap[TKey] | AnySubAgentInput,
+        input: ProfileInput<TKey> | AnySubAgentInput,
     ): Promise<AgentRunTurn> {
         const history = await this.loadThreadHistoryMessages(String(thread.id));
         const lastMessage = history.at(-1);
@@ -1332,15 +1350,7 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
      * 校验并收窄 profileKey。
      */
     private requireProfileKey(profileKey: string): ProfileKey {
-        if (
-            profileKey === "leader.default"
-            || profileKey === "leader.assets"
-            || profileKey === "subagent.writer"
-            || profileKey === "subagent.retrieval"
-        ) {
-            return profileKey;
-        }
-        throw new Error(`未知的 profileKey: ${profileKey}`);
+        return profileKey;
     }
 
     /**
@@ -1380,7 +1390,7 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
         if (record.profileKey === "subagent.retrieval") {
             return new SubAgentThread<"subagent.retrieval">(this, record);
         }
-        throw new Error(`未知的 subagent profileKey: ${record.profileKey}`);
+        return new SubAgentThread<string>(this, record);
     }
 
     /**

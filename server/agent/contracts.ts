@@ -7,7 +7,8 @@ import type {
     AnySubAgentInput,
     CreateSubAgentThreadInput,
     LeaderInput,
-    ProfileInputMap,
+    ProfileKey,
+    ProfileInput,
     RunOptions,
     SubAgentCompletionResult,
     SubAgentProfileKey,
@@ -15,6 +16,7 @@ import type {
     ThreadId,
 } from "nbook/server/agent/types";
 import type {SubAgentThread} from "nbook/server/agent/threads/subagent-thread";
+import type {AgentProfile} from "nbook/server/agent/profiles/agent-profile";
 
 /**
  * tool 运行时最小能力端口。
@@ -66,9 +68,19 @@ export interface AgentToolGateway extends ToolRuntimePort {
     /**
      * 创建并挂接 subagent。
      */
-    createSubAgentThread<TKey extends SubAgentProfileKey>(
+    createSubAgentThread<TKey extends string>(
         input: CreateSubAgentThreadInput<TKey>,
     ): Promise<SubAgentThread<TKey>>;
+
+    /**
+     * 校验 profileKey 是否为当前可用 subagent profile。
+     */
+    assertSubAgentProfile(profileKey: string): Promise<void>;
+
+    /**
+     * 列出当前可用 profile。
+     */
+    listProfiles(kind?: "leader" | "subagent"): Promise<AgentProfile<ProfileKey>[]>;
 
     /**
      * 列出 leader 管理的 subagent。
@@ -101,21 +113,22 @@ export interface AgentThreadGateway {
      */
     subscribeThreadStream(threadId: ThreadId): AsyncIterable<AgentStreamEvent>;
 
-    createSubAgentThread<TKey extends SubAgentProfileKey>(input: CreateSubAgentThreadInput<TKey>): Promise<SubAgentThread<TKey>>;
+    createSubAgentThread<TKey extends string>(input: CreateSubAgentThreadInput<TKey>): Promise<SubAgentThread<TKey>>;
     attachSubAgent(leaderThreadId: ThreadId, subAgentThreadId: ThreadId): Promise<void>;
     listSubAgents(leaderThreadId: ThreadId): Promise<SubAgentThreadSummary[]>;
     runSubAgent(leaderThreadId: ThreadId, subAgentThreadId: ThreadId, input: AnySubAgentInput, options?: RunOptions): Promise<SubAgentCompletionResult>;
 
     dispatchLeaderRun(leaderThreadId: ThreadId, input: LeaderInput, options?: RunOptions): Promise<void>;
     runLeader(leaderThreadId: ThreadId, input: LeaderInput, options?: RunOptions): Promise<BaseMessage[]>;
+    assertSubAgentProfile(profileKey: string): Promise<void>;
     dispatchDetachedSubAgent<TKey extends SubAgentProfileKey = SubAgentProfileKey>(
         subAgentThreadId: ThreadId,
-        input: ProfileInputMap[TKey],
+        input: ProfileInput<TKey>,
         options?: RunOptions,
     ): Promise<void>;
     runDetachedSubAgent<TKey extends SubAgentProfileKey = SubAgentProfileKey>(
         subAgentThreadId: ThreadId,
-        input: ProfileInputMap[TKey],
+        input: ProfileInput<TKey>,
         options?: RunOptions,
     ): Promise<SubAgentCompletionResult<TKey>>;
 }

@@ -2,11 +2,14 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {z} from "zod";
+import {assetResolver} from "nbook/server/assets/asset-resolver";
 import {parseFrontmatterDocument} from "nbook/server/utils/frontmatter-document";
 
 export const DEFAULT_WRITING_STYLE_PRESET = "reborn-villain-loli-magic-girl.first-three-chapters.style";
 
 const WRITING_STYLE_DIR_CANDIDATES = [
+    path.join(assetResolver.userRoot, "agent", "profiles", "builtin", "writing-styles"),
+    path.join(assetResolver.systemRoot, "agent", "profiles", "builtin", "writing-styles"),
     path.join(path.dirname(fileURLToPath(import.meta.url)), "writing-styles"),
     path.join(process.cwd(), "server", "agent", "profiles", "builtin", "writing-styles"),
 ] as const;
@@ -27,12 +30,16 @@ export type WritingStyleDefinition = z.infer<typeof WritingStyleFrontmatterSchem
 };
 
 export type WritingStylePreset = string;
+type WritingStyleFile = {
+    readonly name: string;
+    readonly absolutePath: string;
+};
 
 /**
  * 解析可用的 writer 文风目录。
  */
 export async function resolveWritingStyleDirectory(candidates: readonly string[] = WRITING_STYLE_DIR_CANDIDATES): Promise<string> {
-    for (const candidate of candidates) {
+    for (const candidate of [...candidates].reverse()) {
         try {
             const stat = await fs.stat(candidate);
             if (stat.isDirectory()) {
@@ -52,17 +59,12 @@ export async function resolveWritingStyleDirectory(candidates: readonly string[]
 /**
  * 从 writing-styles 目录自动发现 Markdown 文风预设。
  */
-export async function loadWritingStylePresets(): Promise<WritingStyleDefinition[]> {
-    const writingStyleDirectory = await resolveWritingStyleDirectory();
-    const entries = await fs.readdir(writingStyleDirectory, {withFileTypes: true});
+export async function loadWritingStylePresets(candidates: readonly string[] = WRITING_STYLE_DIR_CANDIDATES): Promise<WritingStyleDefinition[]> {
+    const styleFiles = await listMergedWritingStyleFiles(candidates);
     const styles: WritingStyleDefinition[] = [];
 
-    for (const entry of entries) {
-        if (!entry.isFile() || !entry.name.endsWith(".md")) {
-            continue;
-        }
-
-        const sourceFile = path.join(writingStyleDirectory, entry.name);
+    for (const styleFile of styleFiles) {
+        const sourceFile = styleFile.absolutePath;
         const content = await fs.readFile(sourceFile, "utf-8");
         const parsed = parseFrontmatterDocument(content, WritingStyleFrontmatterSchema);
 
@@ -78,6 +80,36 @@ export async function loadWritingStylePresets(): Promise<WritingStyleDefinition[
     }
 
     return styles.sort((left, right) => left.key.localeCompare(right.key, "zh-Hans-CN"));
+}
+
+/**
+ * 按文件合并系统和用户文风资源；用户同名文件覆盖系统文件。
+ */
+async function listMergedWritingStyleFiles(candidates: readonly string[] = WRITING_STYLE_DIR_CANDIDATES): Promise<WritingStyleFile[]> {
+    const filesByName = new Map<string, WritingStyleFile>();
+    let foundDirectory = false;
+
+    for (const candidate of [...candidates].reverse()) {
+        const entries = await readOptionalDirectory(candidate);
+        if (!entries) {
+            continue;
+        }
+        foundDirectory = true;
+        for (const entry of entries) {
+            if (!entry.isFile() || !entry.name.endsWith(".md")) {
+                continue;
+            }
+            filesByName.set(entry.name, {
+                name: entry.name,
+                absolutePath: path.join(candidate, entry.name),
+            });
+        }
+    }
+
+    if (!foundDirectory) {
+        throw new Error(`Writing styles directory not found. Tried: ${candidates.join(", ")}`);
+    }
+    return [...filesByName.values()].sort((left, right) => left.name.localeCompare(right.name, "zh-Hans-CN"));
 }
 
 /**
@@ -112,6 +144,20 @@ function escapeXmlAttribute(value: string): string {
         .replace(/"/g, "&quot;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
+}
+
+/**
+ * 读取可选目录，目录不存在时返回 null。
+ */
+async function readOptionalDirectory(directoryPath: string): Promise<Array<import("node:fs").Dirent> | null> {
+    try {
+        return await fs.readdir(directoryPath, {withFileTypes: true});
+    } catch (error) {
+        if (isFileMissingError(error)) {
+            return null;
+        }
+        throw error;
+    }
 }
 
 /**

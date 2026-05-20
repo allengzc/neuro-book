@@ -250,7 +250,7 @@ function prepareDrag(): void {
                     :depth="props.depth + 1"
                     :index="childIndex"
                     :parent-id="props.node.id"
-                    :can-have-children="!['Message', 'SkillCatalog', 'ActivatedSkills'].includes(child.type)"
+                    :can-have-children="!['ToolCall', 'SkillCatalog', 'ActivatedSkills'].includes(child.type)"
                     :disabled-drop-node-ids="props.disabledDropNodeIds"
                     @select="emit('select', $event)"
                     @prepare-drag="emit('prepareDrag', $event)"

@@ -47,6 +47,11 @@ export type AgentTool<TSchema extends z.ZodType> = {
     key: ToolKey;
     description: string;
     schema: TSchema;
+    /**
+     * 按当前 run 的上下文动态生成参数 schema。
+     * 例如 invoke_subagent 需要把可用 subagent profile 的 inputSchema 注入给模型。
+     */
+    resolveSchema?(context: AgentToolContext): Promise<z.ZodType> | z.ZodType;
     execute(input: z.infer<TSchema>, context: AgentToolContext): Promise<AgentToolResult>;
 };
 
@@ -78,6 +83,7 @@ function renderToolArgumentError(toolName: ToolKey, error: ZodError): string {
 export function toLangChainTool<TSchema extends z.ZodType>(
     definition: AgentTool<TSchema>,
     context: AgentToolContext,
+    schema: z.ZodType = definition.schema,
 ): DynamicStructuredTool<TSchema> {
     return tool(
         async (input, config) => {
@@ -91,7 +97,7 @@ export function toLangChainTool<TSchema extends z.ZodType>(
                     context.agentGateway.publishToolOutputDelta(context.threadId, toolCallId, chunkText);
                 },
             };
-            const parsedInput = definition.schema.safeParse(input);
+            const parsedInput = schema.safeParse(input);
             if (!parsedInput.success) {
                 const result = createToolResultMessage(
                     renderToolArgumentError(definition.key, parsedInput.error),
@@ -116,7 +122,7 @@ export function toLangChainTool<TSchema extends z.ZodType>(
 
             let result;
             try {
-                result = await definition.execute(parsedInput.data, invocationContext);
+                result = await definition.execute(parsedInput.data as z.infer<TSchema>, invocationContext);
             } catch (error) {
                 result = createToolResultMessage(
                     error,
@@ -142,7 +148,7 @@ export function toLangChainTool<TSchema extends z.ZodType>(
         {
             name: definition.key,
             description: definition.description,
-            schema: definition.schema,
+            schema: schema as TSchema,
         },
     );
 }

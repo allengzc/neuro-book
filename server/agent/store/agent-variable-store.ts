@@ -6,6 +6,7 @@ import type {
     IdeVariables,
     JsonObject,
     JsonValue,
+    ProfileInput,
     ProfileInputMap,
     ProfileKey,
     StudioVariables,
@@ -16,7 +17,7 @@ type MutableAgentVariableScope = {
     ide: IdeVariables;
     studio: StudioVariables;
     agent: AgentVariables;
-    input: ProfileInputMap[ProfileKey];
+    input: ProfileInput<ProfileKey>;
 };
 
 /**
@@ -145,9 +146,9 @@ export class AgentVariableStore {
     /**
      * 覆盖当前线程的输入快照。
      */
-    setInput<TKey extends ProfileKey>(threadId: ThreadId, input: ProfileInputMap[TKey]): AgentVariableScope<TKey> {
+    setInput<TKey extends ProfileKey>(threadId: ThreadId, input: ProfileInput<TKey>): AgentVariableScope<TKey> {
         const scope = this.ensureScope(threadId);
-        scope.input = structuredClone(input) as ProfileInputMap[ProfileKey];
+        scope.input = structuredClone(input) as ProfileInput<ProfileKey>;
         return cloneReadonlyScope<TKey>(scope);
     }
 

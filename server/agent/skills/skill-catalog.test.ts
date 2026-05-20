@@ -110,7 +110,7 @@ describe("LocalSkillCatalogProvider", () => {
 
     it("用户 assets 中的同名 skill 会覆盖内置 skill", async () => {
         const workspacePath = await createSkillWorkspace();
-        await writeSkillFile(workspacePath, "builtin-writer", "SKILL.md", [
+        await writeSkillFile(workspacePath, "writer", "SKILL.md", [
             "---",
             "name: Writer",
             "description: 内置写作流程",

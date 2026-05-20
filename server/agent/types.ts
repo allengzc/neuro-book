@@ -30,7 +30,8 @@ export type ThreadId = string;
 /**
  * profile 唯一键。
  */
-export type ProfileKey = keyof ProfileInputMap;
+export type BuiltinProfileKey = keyof BuiltinProfileInputMap;
+export type ProfileKey = BuiltinProfileKey | (string & {});
 
 /**
  * leader profile 唯一键。
@@ -40,7 +41,8 @@ export type LeaderProfileKey = "leader.default" | "leader.assets";
 /**
  * subagent profile 唯一键。
  */
-export type SubAgentProfileKey = "subagent.writer" | "subagent.retrieval";
+export type BuiltinSubAgentProfileKey = "subagent.writer" | "subagent.retrieval";
+export type SubAgentProfileKey = BuiltinSubAgentProfileKey | (string & {});
 
 /**
  * tool 唯一键。
@@ -503,7 +505,7 @@ export type SkillCatalogItem = {
 /**
  * profile 输入映射。
  */
-export type ProfileInputMap = {
+export type BuiltinProfileInputMap = {
     "leader.default": LeaderInput;
     "leader.assets": LeaderInput;
     "subagent.writer": WriterProfileInput;
@@ -511,9 +513,20 @@ export type ProfileInputMap = {
 };
 
 /**
+ * profile 输入映射。
+ * 动态 profile 运行时通过 Zod 校验；静态映射只保留 builtin contract。
+ */
+export type ProfileInputMap = BuiltinProfileInputMap;
+
+/**
+ * 根据 profileKey 解析输入类型。
+ */
+export type ProfileInput<TKey extends ProfileKey> = TKey extends BuiltinProfileKey ? ProfileInputMap[TKey] : JsonValue;
+
+/**
  * profile 输出映射。
  */
-export type ProfileOutputMap = {
+export type BuiltinProfileOutputMap = {
     "leader.default": JsonValue | undefined;
     "leader.assets": JsonValue | undefined;
     "subagent.writer": JsonValue | undefined;
@@ -521,9 +534,20 @@ export type ProfileOutputMap = {
 };
 
 /**
+ * profile 输出映射。
+ * 动态 profile 的精确类型由后续 prepare 生成的类型增强提供。
+ */
+export type ProfileOutputMap = BuiltinProfileOutputMap;
+
+/**
+ * 根据 profileKey 解析输出类型。
+ */
+export type ProfileOutput<TKey extends ProfileKey> = TKey extends BuiltinProfileKey ? ProfileOutputMap[TKey] : JsonValue | undefined;
+
+/**
  * 任意 subagent 输入联合。
  */
-export type AnySubAgentInput = ProfileInputMap[SubAgentProfileKey];
+export type AnySubAgentInput = ProfileInputMap[BuiltinSubAgentProfileKey] | JsonValue;
 
 /**
  * subagent 最终完成结果。
@@ -534,7 +558,7 @@ export type SubAgentCompletionResult<TKey extends SubAgentProfileKey = SubAgentP
     subagentThreadId: ThreadId;
     status: "completed";
     walkthrough: string;
-    data?: ProfileOutputMap[TKey];
+    data?: ProfileOutput<TKey>;
 };
 
 /**
@@ -583,7 +607,7 @@ export type AgentThreadVariables = {
 export type AgentSubagentVariables = {
     id: ThreadId;
     title: string;
-    profileKey: SubAgentProfileKey;
+    profileKey: string;
     status: AgentThreadStatus;
 };
 
@@ -611,7 +635,7 @@ export type AgentVariableScope<TKey extends ProfileKey = ProfileKey> = DeepReado
     ide: IdeVariables;
     studio: StudioVariables;
     agent: AgentVariables<TKey>;
-    input: ProfileInputMap[TKey];
+    input: ProfileInput<TKey>;
 }>;
 
 /**
@@ -620,7 +644,7 @@ export type AgentVariableScope<TKey extends ProfileKey = ProfileKey> = DeepReado
 export type ThreadSummary = {
     id: ThreadId;
     kind: AgentThreadKind;
-    profileKey: ProfileKey;
+    profileKey: string;
     title: string;
     summary: string;
     status: AgentThreadStatus;
@@ -636,14 +660,14 @@ export type ThreadSummary = {
  * subagent 摘要。
  */
 export type SubAgentThreadSummary = ThreadSummary & {
-    profileKey: SubAgentProfileKey;
+    profileKey: string;
 };
 
 /**
  * 创建 leader 线程参数。
  */
 export type CreateLeaderThreadInput = {
-    profileKey?: LeaderProfileKey;
+    profileKey?: string;
     title?: string;
     modelOverride?: AgentThreadModelOverride | null;
     modelOverrideKey?: string | null;
@@ -654,13 +678,13 @@ export type CreateLeaderThreadInput = {
  */
 export type ListThreadsInput = {
     kind?: AgentThreadKind;
-    profileKey?: ProfileKey;
+    profileKey?: string;
 };
 
 /**
  * 创建 subagent 线程参数。
  */
-export type CreateSubAgentThreadInput<K extends SubAgentProfileKey = SubAgentProfileKey> = {
+export type CreateSubAgentThreadInput<K extends string = string> = {
     leaderThreadId: ThreadId;
     profileKey: K;
     title?: string;

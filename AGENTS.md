@@ -117,7 +117,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 命名推荐：名字尽量不超过 5 个单词。同时不要有这种名字：`getMessagesByChannel(channelKey: string)`，因为 ByChannel 的含义已经在参数中包涵了
 - 当使用 optional 属性（例如 { result:? string }）时，使用注释标注何时为空、非空表示什么
 - 当你编写代码的时候遇到项目设计等问题，不要用 hack 绕过问题、制造技术债、破坏类型系统。先停止编写代码告知用户问题
-- 不要一次性应用 800 行以上的超大补丁（防止出错）。可以考虑拆分多次进行应用（例如按照脚本逻辑 script、模板 template、样式 style）。或者提醒用户规划拆分为多个文件。
+- 不要一次性应用 800 行以上的超大补丁（防止出错）。可以考虑拆分多次进行应用（例如按照脚本逻辑 script、模板 template、样式 style）。或者提醒用户规划拆分为多个文件。但是要注意：强耦合，高相关的逻辑还是可以放在一个文件内的。（不要为了为拆而拆）
 - 简单逻辑不要主动写测试文件，复杂逻辑需要写测试
 - 只有在复杂、大型功能编写后才运行测试。简单的小功能不要主动测试
 

@@ -32,12 +32,12 @@ export interface AgentToolRegistry {
     /**
      * 根据 key 解析 LangChain tools。
      */
-    resolveTools(toolKeys: readonly ToolKey[], context: AgentToolContext): DynamicStructuredTool[];
+    resolveTools(toolKeys: readonly ToolKey[], context: AgentToolContext): Promise<DynamicStructuredTool[]>;
 
     /**
      * 根据 key 解析项目自研 runner 使用的绑定工具。
      */
-    resolveBoundTools(toolKeys: readonly ToolKey[], context: AgentToolContext): BoundAgentTool[];
+    resolveBoundTools(toolKeys: readonly ToolKey[], context: AgentToolContext): Promise<BoundAgentTool[]>;
 }
 
 /**
@@ -63,26 +63,33 @@ export class InMemoryAgentToolRegistry implements AgentToolRegistry {
     /**
      * 解析 tools。
      */
-    resolveTools(toolKeys: readonly ToolKey[], context: AgentToolContext): DynamicStructuredTool[] {
-        return this.resolveBoundTools(toolKeys, context).map((tool) => tool.langChainTool);
+    async resolveTools(toolKeys: readonly ToolKey[], context: AgentToolContext): Promise<DynamicStructuredTool[]> {
+        return (await this.resolveBoundTools(toolKeys, context)).map((tool) => tool.langChainTool);
     }
 
     /**
      * 解析绑定 tools。
      */
-    resolveBoundTools(toolKeys: readonly ToolKey[], context: AgentToolContext): BoundAgentTool[] {
-        return toolKeys.map((toolKey) => {
+    async resolveBoundTools(toolKeys: readonly ToolKey[], context: AgentToolContext): Promise<BoundAgentTool[]> {
+        return Promise.all(toolKeys.map(async (toolKey) => {
             const definition = this.tools.get(toolKey);
             if (!definition) {
                 throw new Error(`未注册的 toolKey: ${toolKey}`);
             }
-            const langChainTool = toLangChainTool(definition, context);
+            const schema = definition.resolveSchema
+                ? await definition.resolveSchema(context)
+                : definition.schema;
+            const boundDefinition = {
+                ...definition,
+                schema,
+            } satisfies AgentTool<z.ZodType>;
+            const langChainTool = toLangChainTool(boundDefinition, context, schema);
             return {
-                definition,
+                definition: boundDefinition,
                 langChainTool,
                 context,
                 invoke: langChainTool.invoke.bind(langChainTool),
             };
-        });
+        }));
     }
 }

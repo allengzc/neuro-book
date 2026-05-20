@@ -1,7 +1,7 @@
 import type {BaseMessage} from "@langchain/core/messages";
 import type {ZodType} from "zod";
 import type {ProfileContext, ProfileContextRuntime} from "nbook/server/agent/profiles/profile-context";
-import type {AgentMessageCreateInput, AgentThreadKind, AgentThreadMetadata, ProfileInputMap, ProfileKey, ProfileOutputMap, ToolKey} from "nbook/server/agent/types";
+import type {AgentMessageCreateInput, AgentThreadKind, AgentThreadMetadata, ProfileInput, ProfileKey, ProfileOutput, ToolKey} from "nbook/server/agent/types";
 
 /**
  * Profile 运行前需要持久化的上下文消息。
@@ -87,13 +87,13 @@ export abstract class AgentProfile<TKey extends ProfileKey> implements ProfileCo
     /**
      * profile 输入 schema。
      */
-    abstract readonly inputSchema: ZodType<ProfileInputMap[TKey]>;
+    abstract readonly inputSchema: ZodType<ProfileInput<TKey>>;
 
     /**
      * profile 结构化输出 schema。
      * 存在时，report_result.data 必须符合该结构。
      */
-    readonly outputSchema?: ZodType<ProfileOutputMap[TKey]>;
+    readonly outputSchema?: ZodType<ProfileOutput<TKey>>;
 
     /**
      * 当前 profile 允许调用的工具列表。

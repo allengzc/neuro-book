@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 import type {Novel, Prisma, PrismaClient} from "nbook/server/generated/prisma/client";
@@ -14,6 +15,7 @@ export const DEFAULT_NOVEL_WORKSPACE_SLUG = "silver-dragon-hime";
 
 const NOVEL_DIRECTORY_TEMPLATE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../assets/server/workspace/novel-directory-template");
 const SYSTEM_ASSETS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../assets");
+const USER_NOVEL_DIRECTORY_TEMPLATE_ROOT = path.resolve(process.cwd(), USER_ASSETS_WORKSPACE_ROOT, "server", "workspace", "novel-directory-template");
 
 export type NovelWorkspaceMetadata = {
     schemaVersion: 1;
@@ -138,11 +140,28 @@ export async function writeNovelWorkspaceMetadata(novel: Pick<Novel, "id" | "wor
  * 把小说目录脚手架复制到 workspace，只补缺失文件，不覆盖用户已编辑内容。
  */
 export async function copyNovelDirectoryTemplate(workspaceRoot: string): Promise<void> {
-    await fs.cp(NOVEL_DIRECTORY_TEMPLATE_ROOT, workspaceRoot, {
-        recursive: true,
-        force: false,
-        errorOnExist: false,
-    });
+    const mergedRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-novel-template-"));
+    try {
+        await fs.cp(NOVEL_DIRECTORY_TEMPLATE_ROOT, mergedRoot, {
+            recursive: true,
+            force: true,
+            errorOnExist: false,
+        });
+        if (await isDirectory(USER_NOVEL_DIRECTORY_TEMPLATE_ROOT)) {
+            await fs.cp(USER_NOVEL_DIRECTORY_TEMPLATE_ROOT, mergedRoot, {
+                recursive: true,
+                force: true,
+                errorOnExist: false,
+            });
+        }
+        await fs.cp(mergedRoot, workspaceRoot, {
+            recursive: true,
+            force: false,
+            errorOnExist: false,
+        });
+    } finally {
+        await fs.rm(mergedRoot, {recursive: true, force: true});
+    }
 }
 
 /**
@@ -173,6 +192,20 @@ async function copyMissingAssetEntries(sourceRoot: string, targetRoot: string, r
             }
             throw error;
         }
+    }
+}
+
+/**
+ * 判断路径是否为目录。
+ */
+async function isDirectory(directoryPath: string): Promise<boolean> {
+    try {
+        return (await fs.stat(directoryPath)).isDirectory();
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return false;
+        }
+        throw error;
     }
 }
 

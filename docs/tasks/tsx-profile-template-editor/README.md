@@ -40,6 +40,7 @@
 - `leader-runtime.tsx` 保持合法 TSX 模块包装，便于 typecheck、保存和后续接入 runtime；纯 `<ProfilePrompt>...</ProfilePrompt>` 只作为编辑器展示视图。
 - DTO 支持表达式属性 `{kind: "expression", code}` 和 `Message.textKind = "source"`，用于保留 `watchValue={...}`、`when={...}`、`render={...}` 和正文中的 `{...}` TSX 片段，避免保存时把真实模板逻辑拍平成普通字符串。
 - 节点与组件库共用同一套语义配色，使用纯色主题混合背景，不使用半透明渐变效果。
+- 节点 children 规则记录在 [`CHILDREN-RULES.md`](./CHILDREN-RULES.md)。`Message` 的正文仍是字符串字段，但允许 `SkillCatalog`、`ActivatedSkills` 这类返回 string 的内联节点作为 children；不允许嵌套 `Message` 或其他消息/容器节点。
 
 ## 变更文件
 

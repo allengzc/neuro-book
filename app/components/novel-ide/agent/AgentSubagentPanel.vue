@@ -11,7 +11,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-    (e: "create", profileKey: "subagent.writer" | "subagent.retrieval", title?: string): void;
+    (e: "create", profileKey: string, title?: string): void;
     (e: "attach", subagentThreadId: string): void;
     (e: "select", threadId: string): void;
     (e: "refresh"): void;
@@ -21,7 +21,7 @@ const emit = defineEmits<{
 const showCreateForm = ref(false);
 const showAttachForm = ref(false);
 
-const newProfileKey = ref<"subagent.writer" | "subagent.retrieval">("subagent.writer");
+const newProfileKey = ref("subagent.writer");
 const newTitle = ref("");
 const attachThreadId = ref("");
 

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import {fileURLToPath} from "node:url";
+import {assetResolver} from "nbook/server/assets/asset-resolver";
 import type {WorkspaceContentStatus, WorkspaceContentType} from "nbook/server/workspace-files/content-node-schema";
 
 export type WorkspaceContentTemplateInput = {
@@ -14,13 +14,13 @@ export type WorkspaceContentTemplateBundle = {
     stateContent: string | null;
 };
 
-const TEMPLATE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../assets/server/workspace/content-node-templates");
+const TEMPLATE_ROOT_RELATIVE_PATH = path.join("server", "workspace", "content-node-templates");
 
 /**
  * 按内容节点类型读取 index.md 模板，并替换基础变量。
  */
 export function renderWorkspaceContentTemplate(input: WorkspaceContentTemplateInput): string {
-    const templatePath = path.join(TEMPLATE_ROOT, input.type, "index.md");
+    const templatePath = path.join(TEMPLATE_ROOT_RELATIVE_PATH, input.type, "index.md");
     return renderTemplateFile(templatePath, input);
 }
 
@@ -28,11 +28,12 @@ export function renderWorkspaceContentTemplate(input: WorkspaceContentTemplateIn
  * 按内容节点类型读取可选 state.md 模板，并替换基础变量。
  */
 export function renderWorkspaceStateTemplate(input: WorkspaceContentTemplateInput): string {
-    const templatePath = path.join(TEMPLATE_ROOT, input.type, "state.md");
-    if (!fs.existsSync(templatePath)) {
+    const templatePath = path.join(TEMPLATE_ROOT_RELATIVE_PATH, input.type, "state.md");
+    const resolvedTemplatePath = resolveTemplatePath(templatePath);
+    if (!resolvedTemplatePath) {
         throw new Error(`内容节点类型 ${input.type} 暂无 state.md 模板`);
     }
-    return renderTemplateFile(templatePath, input);
+    return renderTemplateFilePath(resolvedTemplatePath, input);
 }
 
 /**
@@ -49,10 +50,37 @@ export function renderWorkspaceContentTemplateBundle(input: WorkspaceContentTemp
  * 读取模板文件并替换基础变量。
  */
 function renderTemplateFile(templatePath: string, input: WorkspaceContentTemplateInput): string {
+    const resolvedTemplatePath = resolveTemplatePath(templatePath);
+    if (!resolvedTemplatePath) {
+        throw new Error(`assets 模板不存在: ${templatePath.split(path.sep).join("/")}`);
+    }
+    return renderTemplateFilePath(resolvedTemplatePath, input);
+}
+
+/**
+ * 读取已解析模板文件并替换基础变量。
+ */
+function renderTemplateFilePath(templatePath: string, input: WorkspaceContentTemplateInput): string {
     const template = fs.readFileSync(templatePath, "utf-8");
     return template
         .replaceAll("{{title}}", formatYamlString(input.title))
         .replaceAll("{{status}}", input.status);
+}
+
+/**
+ * 同步解析模板路径。该 CLI 路径仍是同步渲染，所以这里只做最小文件探测。
+ */
+function resolveTemplatePath(relativePath: string): string | null {
+    const normalizedPath = relativePath.split(path.sep).join(path.sep);
+    const userPath = path.resolve(process.cwd(), "workspace", ".nbook", "assets", normalizedPath);
+    if (fs.existsSync(userPath) && fs.statSync(userPath).isFile()) {
+        return userPath;
+    }
+    const systemPath = path.join(assetResolver.systemRoot, normalizedPath);
+    if (fs.existsSync(systemPath) && fs.statSync(systemPath).isFile()) {
+        return systemPath;
+    }
+    return null;
 }
 
 /**

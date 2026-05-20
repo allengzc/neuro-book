@@ -353,7 +353,7 @@ function createAgentSystemHarness(leaderProfile: AgentProfile<"leader.default"> 
         patchToolStudioScope: vi.fn((threadId: string, patch) => variableStore.patchStudioScope(threadId, patch)),
         refreshThreadScope: vi.fn(async () => ({ide: {}, studio: {}, agent: {}, input: {}} as AgentVariableScope)),
         refreshThreadAgentScope: vi.fn(async () => ({ide: {}, studio: {}, agent: {}, input: {}} as AgentVariableScope)),
-        resolveProfileTools: vi.fn(() => []),
+        resolveProfileTools: vi.fn(async () => []),
     };
     const threadEvents = {
         publish: vi.fn(),
@@ -1718,9 +1718,9 @@ describe("AgentSystem", () => {
         });
     });
 
-    it("createDefault 会注册 leader 可用的 plot tools", () => {
+    it("createDefault 会注册 leader 可用的 plot tools", async () => {
         const agentSystem = AgentSystem.createDefault();
-        const leaderProfile = agentSystem.profileRegistry.get("leader.default");
+        const leaderProfile = await agentSystem.profileRegistry.get("leader.default");
         const scope: AgentVariableScope<"leader.default"> = {
             ide: {
                 panel: null,
@@ -1759,12 +1759,14 @@ describe("AgentSystem", () => {
                 prompt: "",
             },
         };
-        const tools = agentSystem.toolRegistry.resolveTools(leaderProfile.allowedToolKeys, {
+        const tools = await agentSystem.toolRegistry.resolveTools(leaderProfile.allowedToolKeys, {
             agentGateway: {
                 publishToolOutputDelta: vi.fn(),
                 createSubAgentThread: vi.fn(),
                 listSubAgents: vi.fn(),
                 runSubAgent: vi.fn(),
+                assertSubAgentProfile: vi.fn(),
+                listProfiles: vi.fn(async () => []),
                 createTaskList: vi.fn(),
                 setTaskStatus: vi.fn(),
                 enterPlanMode: vi.fn(),

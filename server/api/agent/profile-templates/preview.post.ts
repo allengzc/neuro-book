@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
         await agentSystem.syncClientVariables(body.threadId, clientVariables);
     }
     const scope = agentSystem.getThreadScope(body.threadId);
-    const profile = agentSystem.profileRegistry.get(scope.agent.profileKey as ProfileKey);
+    const profile = await agentSystem.profileRegistry.get(scope.agent.profileKey as ProfileKey);
     return previewProfileTemplate({
         ...body,
         scope,

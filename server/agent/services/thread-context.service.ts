@@ -12,6 +12,7 @@ import type {
     ClientVariables,
     JsonObject,
     ProfileInputMap,
+    ProfileInput,
     ProfileKey,
     RunOptions,
     ThreadId,
@@ -39,7 +40,7 @@ export class ThreadContextService {
         thread: AgentThreadRecord,
         profileKey: ProfileKey,
     ): Promise<AgentVariableScope> {
-        const profile = this.profileRegistry.get(profileKey);
+        const profile = await this.profileRegistry.get(profileKey);
         this.variableStore.setAgent(threadId, await this.buildAgentVariables(thread, profile));
         return this.variableStore.syncClientVariables(threadId, clientVariables);
     }
@@ -89,7 +90,7 @@ export class ThreadContextService {
     async refreshThreadScope<TKey extends ProfileKey>(
         thread: AgentThreadRecord,
         profile: AgentProfile<TKey>,
-        input: ProfileInputMap[TKey],
+        input: ProfileInput<TKey>,
     ): Promise<AgentVariableScope<TKey>> {
         const agent = await this.buildAgentVariables(thread, profile);
         this.variableStore.setAgent(String(thread.id), agent);
@@ -100,7 +101,7 @@ export class ThreadContextService {
      * 只刷新 agent 命名空间。
      */
     async refreshThreadAgentScope(threadId: ThreadId, thread: AgentThreadRecord, profileKey: ProfileKey): Promise<AgentVariableScope> {
-        const profile = this.profileRegistry.get(profileKey);
+        const profile = await this.profileRegistry.get(profileKey);
         return this.variableStore.setAgent(threadId, await this.buildAgentVariables(thread, profile));
     }
 

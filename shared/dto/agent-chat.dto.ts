@@ -64,8 +64,8 @@ const AgentPlanModeStateDtoSchema = z.object({
     active: z.boolean().default(false),
 });
 
-export const AgentLeaderProfileKeyDtoSchema = z.enum(["leader.default", "leader.assets"]);
-export const AgentProfileKeyDtoSchema = z.enum(["leader.default", "leader.assets", "subagent.writer", "subagent.retrieval"]);
+export const AgentLeaderProfileKeyDtoSchema = z.string().trim().min(1, "profileKey 不能为空");
+export const AgentProfileKeyDtoSchema = z.string().trim().min(1, "profileKey 不能为空");
 
 /**
  * 历史树节点快照。
@@ -301,7 +301,7 @@ export const CreateAgentThreadRequestDtoSchema = z.object({
  * 新建 subagent 请求。
  */
 export const CreateSubAgentThreadRequestDtoSchema = z.object({
-    profileKey: z.enum(["subagent.writer", "subagent.retrieval"]),
+    profileKey: z.string().trim().min(1, "profileKey 不能为空"),
     title: z.string().trim().max(MAX_AGENT_THREAD_TITLE_LENGTH, `title 过长，最大 ${MAX_AGENT_THREAD_TITLE_LENGTH} 字符`).optional(),
 });
 

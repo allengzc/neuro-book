@@ -60,6 +60,7 @@
         "diff": "^8.0.3",
         "dompurify": "^3.3.3",
         "dotenv": "^17.2.3",
+        "esbuild": "^0.27.2",
         "express": "^5.2.1",
         "fuse.js": "^7.3.0",
         "global-agent": "^3.0.0",

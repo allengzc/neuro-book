@@ -279,7 +279,7 @@ function renderMarkdownDocument(text: string, body: string): string {
     if (parsed.error || Object.keys(parsed.frontmatter).length === 0) {
         return body;
     }
-    return `---\n${YAML.stringify(parsed.frontmatter).trimEnd()}\n---\n\n${body}`;
+    return `---\n${text.trimEnd()}\n---\n\n${body}`;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

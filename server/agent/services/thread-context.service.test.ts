@@ -111,6 +111,8 @@ describe("ThreadContextService", () => {
             createSubAgentThread: vi.fn(),
             listSubAgents: vi.fn(async () => []),
             runSubAgent: vi.fn(),
+            assertSubAgentProfile: vi.fn(),
+            listProfiles: vi.fn(async () => []),
             createTaskList: vi.fn(),
             setTaskStatus: vi.fn(),
             enterPlanMode: vi.fn(),

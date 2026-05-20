@@ -2,7 +2,7 @@ import {AgentThreadKind, AgentThreadRunStatus} from "nbook/server/generated/pris
 import type {AgentThread} from "nbook/server/generated/prisma/client";
 import {parseEntityId, stringifyEntityId} from "nbook/server/utils/novel-chapter";
 import {prisma} from "nbook/server/utils/prisma";
-import {AgentThreadMetadataSchema, normalizeAgentThreadUsageSummary, type AgentThreadMetadata, type AgentThreadRecord, type AgentThreadStatus, type CreateLeaderThreadInput, type ListThreadsInput, type SubAgentProfileKey, type SubAgentThreadSummary, type ThreadId, type ThreadSummary} from "nbook/server/agent/types";
+import {AgentThreadMetadataSchema, normalizeAgentThreadUsageSummary, type AgentThreadMetadata, type AgentThreadRecord, type AgentThreadStatus, type CreateLeaderThreadInput, type ListThreadsInput, type SubAgentThreadSummary, type ThreadId, type ThreadSummary} from "nbook/server/agent/types";
 import type {ThreadRepository} from "nbook/server/agent/repositories/thread-repository";
 
 /**
@@ -43,7 +43,7 @@ export class PrismaThreadRepository implements ThreadRepository {
     /**
      * 创建 subagent 线程。
      */
-    async createSubAgent(input: {profileKey: SubAgentProfileKey; title?: string}): Promise<AgentThreadRecord> {
+    async createSubAgent(input: {profileKey: string; title?: string}): Promise<AgentThreadRecord> {
         const created = await prisma.agentThread.create({
             data: {
                 kind: AgentThreadKind.subagent,
@@ -179,7 +179,7 @@ export class PrismaThreadRepository implements ThreadRepository {
             return {
                 id: stringifyEntityId(thread.id),
                 kind: thread.kind,
-                profileKey: thread.profileKey as SubAgentProfileKey,
+                profileKey: thread.profileKey,
                 title: thread.title,
                 summary: thread.lastMessagePreview,
                 status: this.fromRunStatus(thread.runStatus),

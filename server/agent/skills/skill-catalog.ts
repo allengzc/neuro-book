@@ -9,8 +9,7 @@ import {
     ensureUserAssetsWorkspaceRoot,
 } from "nbook/server/workspace-files/novel-workspace";
 
-const SKILL_ROOT_RELATIVE_PATH = path.join("assets", "agent", "skills");
-const USER_SKILL_ROOT_RELATIVE_PATH = path.join(USER_ASSETS_WORKSPACE_ROOT, "agent", "skills");
+const SKILL_ROOT_RELATIVE_PATH = path.join("agent", "skills");
 const SKILL_FILE_CANDIDATES = ["SKILL.md", "skill.md"] as const;
 const SKILL_TOKEN_NAME_PATTERN = /^[\p{L}_-][\p{L}\p{N}_-]*$/u;
 const SkillFrontmatterSchema = z.object({
@@ -45,55 +44,23 @@ export class LocalSkillCatalogProvider implements SkillCatalogProvider {
      * 读取当前 skills catalog。
      */
     async list(): Promise<readonly SkillCatalogItem[]> {
-        const catalogByName = new Map<string, SkillCatalogItem>();
-        await this.appendSkillRoot(catalogByName, {
-            root: path.resolve(this.workspaceRoot, SKILL_ROOT_RELATIVE_PATH),
-            displayRoot: path.posix.join("assets", "agent", "skills"),
-            source: "builtin",
-        });
-        await this.appendSkillRoot(catalogByName, {
-            root: path.resolve(this.workspaceRoot, USER_SKILL_ROOT_RELATIVE_PATH),
-            displayRoot: path.posix.join(USER_ASSETS_WORKSPACE_ROOT, "agent", "skills"),
-            source: "user",
-        });
+        const catalogItems: SkillCatalogItem[] = [];
+        const resolver = new AssetResolverForWorkspace(this.workspaceRoot);
+        const skillDirectories = await resolver.listSkillDirectories();
 
-        return [...catalogByName.values()].sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
-    }
-
-    /**
-     * 追加一个 skill 根目录；后追加的同名 skill 覆盖先前条目。
-     */
-    private async appendSkillRoot(
-        catalogByName: Map<string, SkillCatalogItem>,
-        input: {root: string; displayRoot: string; source: NonNullable<SkillCatalogItem["source"]>},
-    ): Promise<void> {
-        if (input.source === "user") {
-            await ensureUserAssetsWorkspaceRoot();
-        }
-        const skillDirectoryEntries = await this.readSkillDirectories(input.root);
-
-        for (const skillDirectoryEntry of skillDirectoryEntries) {
-            const skillItem = await this.readSkillItem(path.join(input.root, skillDirectoryEntry.name), input);
+        for (const skillDirectory of skillDirectories) {
+            const skillItem = await this.readSkillItem(skillDirectory.absolutePath, {
+                root: skillDirectory.absoluteRoot,
+                displayRoot: skillDirectory.displayRoot,
+                source: skillDirectory.source,
+            });
             if (!skillItem) {
                 continue;
             }
-            catalogByName.set(skillItem.name, skillItem);
+            catalogItems.push(skillItem);
         }
-    }
 
-    /**
-     * 读取根目录下的一级 skill 目录。
-     */
-    private async readSkillDirectories(skillRoot: string): Promise<Dirent[]> {
-        try {
-            const directoryEntries = await fs.readdir(skillRoot, {withFileTypes: true});
-            return directoryEntries.filter((directoryEntry) => directoryEntry.isDirectory());
-        } catch (error) {
-            if (this.isMissingDirectoryError(error)) {
-                return [];
-            }
-            throw error;
-        }
+        return catalogItems.sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
     }
 
     /**
@@ -185,4 +152,67 @@ export class LocalSkillCatalogProvider implements SkillCatalogProvider {
  */
 function isValidSkillTokenName(name: string): boolean {
     return SKILL_TOKEN_NAME_PATTERN.test(name);
+}
+
+type SkillDirectory = {
+    absolutePath: string;
+    absoluteRoot: string;
+    displayRoot: string;
+    source: NonNullable<SkillCatalogItem["source"]>;
+};
+
+/**
+ * workspace 绑定的 skill 目录解析器。
+ */
+class AssetResolverForWorkspace {
+    constructor(
+        private readonly workspaceRoot: string,
+    ) {}
+
+    /**
+     * 按 skill 目录 slug 列出覆盖后的目录。
+     */
+    async listSkillDirectories(): Promise<SkillDirectory[]> {
+        const directoriesByName = new Map<string, SkillDirectory>();
+        const systemRoot = path.resolve(this.workspaceRoot, "assets", SKILL_ROOT_RELATIVE_PATH);
+        const userRoot = path.resolve(this.workspaceRoot, USER_ASSETS_WORKSPACE_ROOT, SKILL_ROOT_RELATIVE_PATH);
+
+        await this.appendSkillDirectories(directoriesByName, systemRoot, path.posix.join("assets", "agent", "skills"), "builtin");
+        await ensureUserAssetsWorkspaceRoot();
+        await this.appendSkillDirectories(directoriesByName, userRoot, path.posix.join(USER_ASSETS_WORKSPACE_ROOT, "agent", "skills"), "user");
+
+        return [...directoriesByName.values()].sort((left, right) => path.basename(left.absolutePath).localeCompare(path.basename(right.absolutePath), "zh-CN"));
+    }
+
+    /**
+     * 追加一级 skill 目录；后追加的用户目录按 slug 整体覆盖系统目录。
+     */
+    private async appendSkillDirectories(
+        directoriesByName: Map<string, SkillDirectory>,
+        root: string,
+        displayRoot: string,
+        source: NonNullable<SkillCatalogItem["source"]>,
+    ): Promise<void> {
+        let entries: Dirent[];
+        try {
+            entries = await fs.readdir(root, {withFileTypes: true});
+        } catch (error) {
+            if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+                return;
+            }
+            throw error;
+        }
+
+        for (const entry of entries) {
+            if (!entry.isDirectory()) {
+                continue;
+            }
+            directoriesByName.set(entry.name, {
+                absolutePath: path.join(root, entry.name),
+                absoluteRoot: root,
+                displayRoot,
+                source,
+            });
+        }
+    }
 }

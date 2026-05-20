@@ -1,4 +1,5 @@
 import {describe, expect, it, vi} from "vitest";
+import {z} from "zod";
 import {invokeSubagentTool} from "nbook/server/agent/tools/builtin/invoke-subagent.tool";
 import type {AgentToolContext} from "nbook/server/agent/tools/agent-tool";
 
@@ -22,6 +23,7 @@ describe("invokeSubagentTool", () => {
         }, {
             agentGateway: {
                 runSubAgent,
+                listProfiles: vi.fn(async () => []),
             },
             threadId: "leader-1",
             profileKey: "leader.default",
@@ -34,7 +36,7 @@ describe("invokeSubagentTool", () => {
             getScope: () => ({}) as never,
             setIde: () => ({}) as never,
             setStudio: () => ({}) as never,
-        } as AgentToolContext);
+        } as unknown as AgentToolContext);
 
         expect(runSubAgent).toHaveBeenCalledWith(
             "leader-1",
@@ -48,5 +50,31 @@ describe("invokeSubagentTool", () => {
             },
             {},
         );
+    });
+
+    it("动态 schema 会合并当前可用 subagent profile 的 inputSchema", async () => {
+        const customInputSchema = z.object({
+            instruction: z.string(),
+            depth: z.number(),
+        });
+
+        const schema = await invokeSubagentTool.resolveSchema?.({
+            agentGateway: {
+                listProfiles: vi.fn(async () => [
+                    {
+                        key: "subagent.custom",
+                        inputSchema: customInputSchema,
+                    },
+                ]),
+            },
+        } as unknown as AgentToolContext);
+
+        expect(() => schema?.parse({
+            subagentThreadId: "subagent-1",
+            input: {
+                instruction: "整理 assets",
+                depth: 2,
+            },
+        })).not.toThrow();
     });
 });

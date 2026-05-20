@@ -830,6 +830,8 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
             "Skills 是可复用工作法，不是长期记忆，也不是每轮都必须执行的流程。",
             "",
             `- skills 根目录：${SKILL_ROOT_HINT}`,
+            "- 用户 assets 优先于系统 assets；同名 skill 目录按整个目录覆盖，不按单个文件混合。",
+            "- 其他 assets 通常按同路径文件覆盖：`workspace/.nbook/assets/...` 优先于 `assets/...`。",
             "- 当前只存在一个 skill 相关工具：`skill`。",
             "- 需要启用 skill 时，调用 `skill({ skill: \"catalog 中的原始名称\" })`，不要用 read_file 读取 SKILL.md；`skill` 工具是读取完整 SKILL.md 的入口。",
             "- skill 名允许中文。必须使用下方 catalog 中的原始 name，不要把中文名翻译成英文、拼音或 slug。",

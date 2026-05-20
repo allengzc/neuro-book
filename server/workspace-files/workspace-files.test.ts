@@ -7,7 +7,7 @@ import YAML from "yaml";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {createWorkspaceContentFrontmatterDefaults, workspaceContentJsonSchema} from "nbook/server/workspace-files/content-node-schema";
 import {renderWorkspaceContentTemplate, renderWorkspaceContentTemplateBundle, renderWorkspaceStateTemplate} from "nbook/server/workspace-files/content-node-templates";
-import {copyNovelDirectoryTemplate, writeNovelWorkspaceMetadata} from "nbook/server/workspace-files/novel-workspace";
+import {copyNovelDirectoryTemplate, USER_ASSETS_WORKSPACE_ROOT, writeNovelWorkspaceMetadata} from "nbook/server/workspace-files/novel-workspace";
 import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 
 const WORKSPACE_SCRIPT_PATH = "assets/agent/scripts/workspace.ts";
@@ -411,6 +411,34 @@ describe("workspace-files", () => {
         })).toThrow("暂无 state.md 模板");
     });
 
+    it("用户 assets 可以按文件覆盖内容节点模板", async () => {
+        const userTemplatePath = path.join(USER_ASSETS_WORKSPACE_ROOT, "server", "workspace", "content-node-templates", "character", "index.md");
+        const backup = await backupOptionalFile(userTemplatePath);
+        await fs.mkdir(path.dirname(userTemplatePath), {recursive: true});
+        await fs.writeFile(userTemplatePath, [
+            "---",
+            "title: {{title}}",
+            "type: character",
+            "status: {{status}}",
+            "---",
+            "",
+            "## 用户覆盖模板",
+        ].join("\n"), "utf-8");
+
+        try {
+            const content = renderWorkspaceContentTemplate({
+                title: "苏雪",
+                type: "character",
+                status: "draft",
+            });
+
+            expect(content).toContain("## 用户覆盖模板");
+            expect(content).not.toContain("## 角色定义");
+        } finally {
+            await restoreOptionalFile(userTemplatePath, backup);
+        }
+    });
+
     it("小说目录模板会创建最小 lorebook 骨架且通过内容节点校验", async () => {
         await copyNovelDirectoryTemplate(root);
 
@@ -459,6 +487,24 @@ describe("workspace-files", () => {
 
         await expect(readWorkspaceTextFile(root, "lorebook/rule/writing-style/index.md")).resolves.toBe("用户已经写好的文风");
         await expect(readWorkspaceTextFile(root, "lorebook/note/synopsis/index.md")).resolves.toContain("## 简介");
+    });
+
+    it("用户 assets 可以覆盖小说目录模板但不覆盖目标 workspace 既有文件", async () => {
+        const userTemplatePath = path.join(USER_ASSETS_WORKSPACE_ROOT, "server", "workspace", "novel-directory-template", "PROJECT-STATUS.md");
+        const backup = await backupOptionalFile(userTemplatePath);
+        await fs.mkdir(path.dirname(userTemplatePath), {recursive: true});
+        await fs.writeFile(userTemplatePath, "# 用户覆盖状态模板\n", "utf-8");
+
+        try {
+            await copyNovelDirectoryTemplate(root);
+            await expect(readWorkspaceTextFile(root, "PROJECT-STATUS.md")).resolves.toBe("# 用户覆盖状态模板\n");
+
+            await writeWorkspaceTextFile(root, "PROJECT-STATUS.md", "# 小说自己的状态\n");
+            await copyNovelDirectoryTemplate(root);
+            await expect(readWorkspaceTextFile(root, "PROJECT-STATUS.md")).resolves.toBe("# 小说自己的状态\n");
+        } finally {
+            await restoreOptionalFile(userTemplatePath, backup);
+        }
     });
 
     it("写入小说 workspace 元数据时会加载模板并覆盖占位 workspace.yaml", async () => {
@@ -565,5 +611,31 @@ describe("workspace-files", () => {
         const yaml = YAML.stringify(frontmatter).trimEnd();
         await fs.mkdir(path.dirname(absolutePath), {recursive: true});
         await fs.writeFile(absolutePath, `---\n${yaml}\n---\n\n${body}`, "utf-8");
+    }
+
+    /**
+     * 备份真实用户 assets 中可能已经存在的同路径测试文件。
+     */
+    async function backupOptionalFile(filePath: string): Promise<string | null> {
+        try {
+            return await fs.readFile(filePath, "utf-8");
+        } catch (error) {
+            if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+                return null;
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * 还原被测试临时覆盖的用户 assets 文件。
+     */
+    async function restoreOptionalFile(filePath: string, content: string | null): Promise<void> {
+        if (content === null) {
+            await fs.rm(filePath, {force: true});
+            return;
+        }
+        await fs.mkdir(path.dirname(filePath), {recursive: true});
+        await fs.writeFile(filePath, content, "utf-8");
     }
 });

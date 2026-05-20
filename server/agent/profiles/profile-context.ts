@@ -2,7 +2,7 @@ import type {BaseMessage} from "@langchain/core/messages";
 import type {AgentMessageStore} from "nbook/server/agent/messages/agent-message-store";
 import type {ThreadRepository} from "nbook/server/agent/repositories/thread-repository";
 import type {PreparedProfileRun} from "nbook/server/agent/profiles/agent-profile";
-import type {AgentThreadRecord, ProfileInputMap, ProfileKey, RunOptions, AgentVariableScope, SkillCatalogItem} from "nbook/server/agent/types";
+import type {AgentThreadRecord, ProfileInput, ProfileKey, RunOptions, AgentVariableScope, SkillCatalogItem} from "nbook/server/agent/types";
 import type {AgentVariableStore} from "nbook/server/agent/store/agent-variable-store";
 
 /**
@@ -12,7 +12,7 @@ import type {AgentVariableStore} from "nbook/server/agent/store/agent-variable-s
 export type ProfileContextRuntime<TKey extends ProfileKey, TProfile> = {
     thread: AgentThreadRecord;
     profile: TProfile;
-    input: ProfileInputMap[TKey];
+    input: ProfileInput<TKey>;
     scope: AgentVariableScope<TKey>;
     skillCatalog: readonly SkillCatalogItem[];
     options: RunOptions;
