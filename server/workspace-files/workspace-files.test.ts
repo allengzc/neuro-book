@@ -7,7 +7,7 @@ import YAML from "yaml";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {createWorkspaceContentFrontmatterDefaults, workspaceContentJsonSchema} from "nbook/server/workspace-files/content-node-schema";
 import {renderWorkspaceContentTemplate, renderWorkspaceContentTemplateBundle, renderWorkspaceStateTemplate} from "nbook/server/workspace-files/content-node-templates";
-import {copyNovelDirectoryTemplate, USER_ASSETS_WORKSPACE_ROOT, writeNovelWorkspaceMetadata} from "nbook/server/workspace-files/novel-workspace";
+import {copyNovelDirectoryTemplate, syncSystemAssetsToUserAssets, USER_ASSETS_WORKSPACE_ROOT, writeNovelWorkspaceMetadata} from "nbook/server/workspace-files/novel-workspace";
 import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 
 const WORKSPACE_SCRIPT_PATH = "assets/agent/scripts/workspace.ts";
@@ -417,9 +417,9 @@ describe("workspace-files", () => {
         await fs.mkdir(path.dirname(userTemplatePath), {recursive: true});
         await fs.writeFile(userTemplatePath, [
             "---",
-            "title: {{title}}",
+            "title: \"{{title}}\"",
             "type: character",
-            "status: {{status}}",
+            "status: \"{{status}}\"",
             "---",
             "",
             "## 用户覆盖模板",
@@ -433,9 +433,29 @@ describe("workspace-files", () => {
             });
 
             expect(content).toContain("## 用户覆盖模板");
+            expect(content).toContain("title: 苏雪");
+            expect(content).toContain("status: draft");
             expect(content).not.toContain("## 角色定义");
         } finally {
             await restoreOptionalFile(userTemplatePath, backup);
+        }
+    });
+
+    it("同步系统 assets 会补齐默认 leader profile 覆盖文件", async () => {
+        const userProfilePath = path.join(USER_ASSETS_WORKSPACE_ROOT, "agent", "profiles", "builtin", "leader-default.profile.tsx");
+        const backup = await backupOptionalFile(userProfilePath);
+        await fs.rm(userProfilePath, {force: true});
+
+        try {
+            const result = await syncSystemAssetsToUserAssets();
+            const content = await fs.readFile(userProfilePath, "utf-8");
+
+            expect(result.copied).toBeGreaterThan(0);
+            expect(content).toContain("class LeaderDefaultProfile");
+            expect(content).toContain("buildLeaderPrompt");
+            expect(content).toContain("export default new LeaderDefaultProfile()");
+        } finally {
+            await restoreOptionalFile(userProfilePath, backup);
         }
     });
 
@@ -453,7 +473,7 @@ describe("workspace-files", () => {
         await expect(readWorkspaceTextFile(root, "PROJECT-STATUS.md")).resolves.toContain("不维护 `tasks/` walkthrough");
         await expect(readWorkspaceTextFile(root, "PROJECT-STATUS.md")).resolves.toContain("填写 `lorebook/note/project-positioning/`");
         await expect(readWorkspaceTextFile(root, ".nbook/icons.json")).resolves.toContain("\"lorebook\"");
-        await expect(fs.access(path.join(root, ".agent/.gitkeep"))).resolves.toBeUndefined();
+        await expect(fs.access(path.join(root, ".agent/.gitkeep")).then(() => true)).resolves.toBe(true);
         await expect(readWorkspaceTextFile(root, "workspace.yaml")).resolves.toContain("slug: novel-template");
         await expect(readWorkspaceTextFile(root, "lorebook/note/project-positioning/index.md")).resolves.toContain("## 类型与基调");
         await expect(readWorkspaceTextFile(root, "lorebook/note/project-positioning/index.md")).resolves.toContain("- 小说初始化");

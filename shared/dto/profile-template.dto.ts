@@ -111,6 +111,13 @@ export const ProfileTemplateSummaryDtoSchema = z.object({
 });
 
 /**
+ * 用户 assets profile 文件请求。
+ */
+export const UserProfileTemplateFileRequestDtoSchema = z.object({
+    fileName: z.string().trim().min(1),
+});
+
+/**
  * 模板变量面板中的单个变量。
  */
 export type ProfileTemplateVariableItemDto = {
@@ -220,6 +227,7 @@ export const ProfileTemplatePreviewDtoSchema = z.object({
 
 export type ProfileTemplateIssueDto = z.infer<typeof ProfileTemplateIssueDtoSchema>;
 export type ProfileTemplateSummaryDto = z.infer<typeof ProfileTemplateSummaryDtoSchema>;
+export type UserProfileTemplateFileRequestDto = z.infer<typeof UserProfileTemplateFileRequestDtoSchema>;
 export type ProfileTemplateVariableGroupDto = z.infer<typeof ProfileTemplateVariableGroupDtoSchema>;
 export type ProfileTemplateDetailDto = z.infer<typeof ProfileTemplateDetailDtoSchema>;
 export type SaveProfileTemplateRequestDto = z.infer<typeof SaveProfileTemplateRequestDtoSchema>;

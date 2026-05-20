@@ -16,6 +16,7 @@
 - 用户 assets 页面和 novel 页面允许同时打开，workspace 编辑会话按 `novel:<id>` 与 `user-assets` 隔离。
 - 用户 assets Agent 使用独立 profile `leader.assets`，与小说默认 profile `leader.default` 的线程列表和提示词隔离。
 - profile 覆盖采用渐进迁移：`workspace/.nbook/assets/agent/profiles/**/*.profile.tsx` 优先于 `assets/agent/profiles/**/*.profile.tsx`，再回落到源码 builtin 注册。用户覆盖 builtin key 时必须保留原 key、kind、InputSchema、OutputSchema，只允许调整 prompt 和工具列表等实现细节。
+- `leader.default` 第一阶段通过“同步系统 assets”从源码 builtin 生成 `agent/profiles/builtin/leader-default.profile.tsx` 用户 assets 覆盖文件；源码 builtin 仍作为 fallback，后续迁移到 assets component 后再清理。
 - 动态 profile 是可信本地 TSX 代码，运行时用 esbuild 编译后加载，不做 sandbox；旧 thread 下次运行时会重新从 profile registry 读取当前 profile。
 
 ## 实现记录
@@ -32,6 +33,7 @@
 - Agent thread 创建和列表支持按 leader profile 过滤，用户资产界面只使用 `leader.assets` 线程，小说界面继续使用 `leader.default`。
 - `novel-ide` store 增加 workspace session 快照，避免两个浏览器界面互相覆盖 tabs 和当前文件。
 - Markdown 预览保留原始 frontmatter 文本，避免模板中的 `{{title}}` 被 YAML 解析为对象键时触发 stringified warning。
+- 用户资产模式顶部新增 Profile 工作台入口；工作台复用 TSX profile 可视化编辑器，只列出用户 assets 内的 `.profile.tsx`，支持画布拖拽、源码编辑、校验、预览、手动保存和恢复系统版本。普通文件编辑器仍只负责自由编辑文件，不承担 profile 语义校验。
 
 ## 验证
 
@@ -45,6 +47,8 @@
 - 设计系统 assets 更新后的用户覆盖冲突提示。
 - 如果未来需要单本小说专属 assets，应单独设计 `workspace/<novel>/.nbook/assets` 语义，不在当前版本隐式支持。
 - 删除源码 builtin fallback：profile TSX、写作风格、写作参考样例全部稳定迁入系统 assets 后，清理 `server/agent/profiles/builtin` 里的迁移期资源 fallback。
-- 接入 profile 可视化编辑器：提示词预览需要读取当前 profile 的 InputSchema / OutputSchema，并支持动态 profile 的 schema catalog 展示。
+- 拆分 Profile 工作台内的导航、创建 profile、schema 低代码编辑与 catalog issue 展示，避免继续膨胀单个编辑器组件。
+- 设计 InputSchema / OutputSchema 低代码 schema DSL，用于用户新建 profile。
+- 设计 `profile-components` assets 覆盖层，用于 `renderPlanModeReminder` 这类自定义函数 / node 组件。
 - 增加 prepare/codegen：为开发者生成动态 profile 的 key/schema 类型增强，但运行时不依赖 prepare 才能加载用户 profile。
 - 增加 profile catalog issue API/UI：当用户或系统动态 profile 声明了 key 但加载失败时，除运行时报错外，还应在用户资产界面集中展示加载错误。

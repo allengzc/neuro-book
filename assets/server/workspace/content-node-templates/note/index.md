@@ -1,8 +1,8 @@
 ---
-title: {{title}}
+title: "{{title}}"
 type: note
 subtype: null # 内容节点细分类别
-status: {{status}} # 内容节点状态：draft 草稿、pending 待定、active 已确认、archived 已归档。
+status: "{{status}}" # 内容节点状态：draft 草稿、pending 待定、active 已确认、archived 已归档。
 icon: null # Lucide 图标名
 aliases: [] # 别名列表
 tags: [] # 中文短标签；有明确分类意义、易理解、可复用，不要为了填字段随意设置。

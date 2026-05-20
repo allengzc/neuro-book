@@ -182,6 +182,40 @@ const applyModelOptions = (): void => {
 };
 
 /**
+ * 创建或复用当前文件的 Monaco model。
+ */
+const createEditorModel = (): Monaco.editor.ITextModel | null => {
+    if (!monacoApi) {
+        return null;
+    }
+
+    const modelUri = props.modelPath ? monacoApi.Uri.parse(`file:///workspace/${encodeURIComponent(props.modelPath).replace(/%2F/g, "/")}`) : undefined;
+    if (!modelUri) {
+        return monacoApi.editor.createModel(props.initialValue, props.language);
+    }
+
+    const existingModel = monacoApi.editor.getModel(modelUri);
+    if (existingModel) {
+        monacoApi.editor.setModelLanguage(existingModel, props.language);
+        if (existingModel.getValue() !== props.initialValue) {
+            runOutsideSync(() => {
+                existingModel.pushEditOperations(
+                    [],
+                    [{
+                        range: existingModel.getFullModelRange(),
+                        text: props.initialValue,
+                    }],
+                    () => null,
+                );
+            });
+        }
+        return existingModel;
+    }
+
+    return monacoApi.editor.createModel(props.initialValue, props.language, modelUri);
+};
+
+/**
  * 处理 Ctrl/Cmd + 滚轮临时调整当前标签页源码字号。
  */
 const handleWheelZoom = (event: WheelEvent): void => {
@@ -356,8 +390,10 @@ onMounted(async () => {
     monacoApi = monacoModule;
     applyTheme();
 
-    const modelUri = props.modelPath ? monacoApi.Uri.parse(`file:///workspace/${encodeURIComponent(props.modelPath).replace(/%2F/g, "/")}`) : undefined;
-    modelInstance = monacoApi.editor.createModel(props.initialValue, props.language, modelUri);
+    modelInstance = createEditorModel();
+    if (!modelInstance) {
+        return;
+    }
 
     editorInstance = monacoApi.editor.create(editorRootRef.value, {
         model: modelInstance,

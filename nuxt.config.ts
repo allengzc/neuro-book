@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 const rootDir = fileURLToPath(new URL("./", import.meta.url));
 
 export default defineNuxtConfig({
+    ssr: false,
     alias: {
         nbook: rootDir,
     },
@@ -94,6 +95,7 @@ export default defineNuxtConfig({
     },
     css: [
         "the-new-css-reset/css/reset.css",
+        "nbook/app/styles/theme-vars.css",
         "@vue-flow/core/dist/style.css",
         "@vue-flow/core/dist/theme-default.css",
         "@vue-flow/controls/dist/style.css",

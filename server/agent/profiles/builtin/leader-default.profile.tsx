@@ -60,6 +60,13 @@ export class LeaderDefaultProfile extends SimpleProfile<"leader.default"> {
     ] as const;
 
     protected override async buildPrompt(ctx: ProfilePromptContext<"leader.default">) {
+        return this.buildLeaderPrompt(ctx);
+    }
+
+    /**
+     * 构造默认 leader prompt。动态 assets profile 会复用这个方法作为迁移期 fallback。
+     */
+    protected async buildLeaderPrompt(ctx: ProfilePromptContext<"leader.default">) {
         const scope = ctx.scope;
         const compactSubagents = scope.agent.subagents
             .map((item) => [item.title, item.profileKey, item.status].filter(Boolean).join(" | "))

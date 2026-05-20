@@ -1,10 +1,14 @@
 import {describe, expect, it} from "vitest";
-import {mkdir, readFile, rm} from "node:fs/promises";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {
     generateProfileTemplateSource,
+    listUserProfileTemplates,
     parseProfileTemplateSource,
     previewProfileTemplate,
+    readUserProfileTemplate,
+    restoreUserProfileTemplate,
+    saveUserProfileTemplate,
 } from "nbook/server/agent/profile-templates/profile-template-service";
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
 import {LeaderInputSchema, WriterInputSchema, type AgentVariableScope, type ProfileKey} from "nbook/server/agent/types";
@@ -462,6 +466,91 @@ describe("profile-template-service", () => {
 
         expect(result.root?.type).toBe("ProfilePrompt");
         expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
+    });
+
+    it("源码 builtin leader 可以解析出 buildLeaderPrompt 的 ProfilePrompt", async () => {
+        const source = await readFile(resolve(process.cwd(), "server/agent/profiles/builtin/leader-default.profile.tsx"), "utf-8");
+        const result = parseProfileTemplateSource(source);
+
+        expect(result.root?.type).toBe("ProfilePrompt");
+        expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
+    });
+
+    it("完整动态 profile 会优先解析 buildPrompt 中返回的 ProfilePrompt", () => {
+        const source = `/** @jsxRuntime automatic */
+/** @jsxImportSource nbook/server/agent/prompts */
+
+import {Message} from "nbook/server/agent/prompts";
+import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {ProfilePrompt, HistorySet} from "nbook/server/agent/profiles/simple-profile";
+
+function helper() {
+    return <Message role="system">不是根节点</Message>;
+}
+
+export default defineAgentProfile({
+    manifest: {key: "leader.default", kind: "leader", name: "Leader"},
+    inputSchema: {} as never,
+    allowedToolKeys: [],
+    buildPrompt() {
+        return (
+            <ProfilePrompt>
+                <HistorySet>
+                    <Message role="system">完整 profile</Message>
+                </HistorySet>
+            </ProfilePrompt>
+        );
+    },
+});`;
+
+        const result = parseProfileTemplateSource(source);
+
+        expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
+        expect(result.root?.type).toBe("ProfilePrompt");
+        expect(result.root?.children[0]?.children[0]?.text).toBe("完整 profile");
+    });
+
+    it("保存用户 profile root 时只替换 buildPrompt 的 ProfilePrompt 片段", async () => {
+        const userProfilePath = resolve(process.cwd(), "workspace/.nbook/assets/agent/profiles/test/replace.profile.tsx");
+        await mkdir(resolve(process.cwd(), "workspace/.nbook/assets/agent/profiles/test"), {recursive: true});
+        try {
+            await saveUserProfileTemplate("test/replace.profile.tsx", {source: VALID_SOURCE});
+            const detail = await readUserProfileTemplate("test/replace.profile.tsx");
+            const root = detail.root;
+            expect(root).not.toBeNull();
+            const message = root?.children[0]?.children[0];
+            if (message) {
+                message.text = "替换后的正文";
+            }
+
+            const saved = await saveUserProfileTemplate("test/replace.profile.tsx", {root: root ?? undefined});
+
+            expect(saved.source).toContain("export default function Demo");
+            expect(saved.source).toContain("替换后的正文");
+            expect(saved.source).not.toContain("system prompt");
+        } finally {
+            await rm(userProfilePath, {force: true});
+        }
+    });
+
+    it("用户 profile 列表与恢复只作用于用户 assets profile", async () => {
+        const systemProfilePath = resolve(process.cwd(), "assets/agent/profiles/test/restore.profile.tsx");
+        const userProfilePath = resolve(process.cwd(), "workspace/.nbook/assets/agent/profiles/test/restore.profile.tsx");
+        await mkdir(resolve(process.cwd(), "assets/agent/profiles/test"), {recursive: true});
+        await mkdir(resolve(process.cwd(), "workspace/.nbook/assets/agent/profiles/test"), {recursive: true});
+        try {
+            await saveUserProfileTemplate("test/restore.profile.tsx", {source: VALID_SOURCE.replace("system prompt", "用户版本")});
+            await writeFile(systemProfilePath, VALID_SOURCE.replace("system prompt", "系统版本"), "utf-8");
+
+            const profiles = await listUserProfileTemplates();
+            const restored = await restoreUserProfileTemplate("test/restore.profile.tsx");
+
+            expect(profiles.some((profile) => profile.fileName === "test/restore.profile.tsx")).toBe(true);
+            expect(restored.source).toContain("系统版本");
+        } finally {
+            await rm(systemProfilePath, {force: true});
+            await rm(userProfilePath, {force: true});
+        }
     });
 
     it("保存源码时不会自动追加换行", async () => {

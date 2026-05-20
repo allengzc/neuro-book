@@ -18,6 +18,7 @@ const emit = defineEmits<{
     (e: "open-bookshelf"): void;
     (e: "open-plot-workbench"): void;
     (e: "open-user-assets"): void;
+    (e: "open-profile-workbench"): void;
     (e: "switch-novel", value: string): void;
     (e: "open-admin"): void;
     (e: "logout"): void;
@@ -98,6 +99,10 @@ const handleUserMenuSelect = (value: string): void => {
             <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" title="用户资产" @click="emit('open-user-assets')">
                 <span class="i-lucide-folder-cog h-4 w-4 text-[var(--accent-text)]"></span>
                 <span>用户资产</span>
+            </button>
+            <button v-if="isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" title="Profile 工作台" @click="emit('open-profile-workbench')">
+                <span class="i-lucide-square-code h-4 w-4 text-[var(--accent-text)]"></span>
+                <span>Profile</span>
             </button>
             <button
                 class="flex items-center gap-2 rounded-full border px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase transition-colors"

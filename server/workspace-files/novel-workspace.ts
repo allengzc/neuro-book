@@ -4,6 +4,7 @@ import path from "node:path";
 import {fileURLToPath} from "node:url";
 import type {Novel, Prisma, PrismaClient} from "nbook/server/generated/prisma/client";
 import {parseEntityId} from "nbook/server/utils/novel-chapter";
+import {ensureDefaultUserProfileTemplates} from "nbook/server/agent/profile-templates/profile-template-service";
 
 type PrismaExecutor = PrismaClient | Prisma.TransactionClient;
 
@@ -104,6 +105,8 @@ export async function syncSystemAssetsToUserAssets(): Promise<UserAssetsSyncResu
     const targetRoot = path.resolve(process.cwd(), await ensureUserAssetsWorkspaceRoot());
     const result: UserAssetsSyncResult = {copied: 0, skipped: 0};
     await copyMissingAssetEntries(SYSTEM_ASSETS_ROOT, targetRoot, result);
+    const leaderProfileStatus = await ensureDefaultUserProfileTemplates();
+    result[leaderProfileStatus] += 1;
     return result;
 }
 

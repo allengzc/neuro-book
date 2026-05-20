@@ -12,6 +12,7 @@ import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSetti
 import NovelIdeToolPanel from "nbook/app/components/novel-ide/NovelIdeToolPanel.vue";
 import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
 import NovelBookshelfDialog from "nbook/app/components/novel-ide/NovelBookshelfDialog.vue";
+import UserProfileWorkbenchDialog from "nbook/app/components/profile-template-editor/UserProfileWorkbenchDialog.vue";
 import WorkspaceCharacterDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterDetailPanel.vue";
 import WorkspaceFileConflictDialog from "nbook/app/components/novel-ide/workspace/WorkspaceFileConflictDialog.vue";
 import WorkspaceLocationProfileDialog from "nbook/app/components/novel-ide/workspace/WorkspaceLocationProfileDialog.vue";
@@ -50,6 +51,7 @@ const themeHostRef = ref<HTMLElement | null>(null);
 const currentUser = ref<AuthSessionDto["user"]>(null);
 const bookshelfOpen = ref(false);
 const settingsDialogOpen = ref(false);
+const profileWorkbenchOpen = ref(false);
 const frontmatterProfileKind = ref<FrontmatterProfileKind | null>(null);
 const fileDiagnosticsText = ref("");
 const saveQueued = ref(false);
@@ -128,10 +130,10 @@ const novelItems = computed(() => novels.value.map((novel) => ({
     active: novel.id === currentNovelId.value,
 })));
 
-const isHydrated = ref(false);
-const displayRightPanelOpen = computed(() => isHydrated.value && rightPanelOpen.value);
+const workspaceBootstrapped = ref(false);
+const displayRightPanelOpen = computed(() => workspaceBootstrapped.value && rightPanelOpen.value);
 const displayActiveLeftTab = computed<NovelIdeTab | null>(() => {
-    if (!isHydrated.value) {
+    if (!workspaceBootstrapped.value) {
         return "files";
     }
     if (isUserAssetsWorkspace.value) {
@@ -156,16 +158,16 @@ const currentFileExtension = computed(() => {
 const activeWorkspaceTab = computed(() => workspaceTabs.value.find((tab) => tab.path === activeWorkspaceTabPath.value) ?? null);
 const currentWorkspaceViewMode = computed(() => activeWorkspaceTab.value?.viewMode ?? (isMarkdownFile.value ? "rich" : "source"));
 const currentEditorKind = computed(() => activeWorkspaceTab.value?.editorKind ?? (isMarkdownFile.value ? "markdown" : selectedFileNode.value?.editable ? "monaco" : "readonly"));
-const workspaceDisplayReady = computed(() => isHydrated.value && workspaceReady.value);
+const workspaceDisplayReady = computed(() => workspaceBootstrapped.value && workspaceReady.value);
 const displayWorkspaceTabs = computed(() => workspaceDisplayReady.value ? workspaceTabs.value : []);
 const displayActiveWorkspaceTabPath = computed(() => workspaceDisplayReady.value ? activeWorkspaceTabPath.value : "");
 const displaySelectedFileNode = computed(() => workspaceDisplayReady.value ? selectedFileNode.value : null);
 const displayCurrentEditorKind = computed<WorkspaceEditorKind>(() => workspaceDisplayReady.value ? currentEditorKind.value : "readonly");
 const displayCurrentWorkspaceViewMode = computed<WorkspaceEditorViewMode>(() => workspaceDisplayReady.value ? currentWorkspaceViewMode.value : "source");
-const displayPromptExpanded = computed(() => isHydrated.value ? promptExpanded.value : true);
-const displayRequirement = computed(() => isHydrated.value ? requirement.value : "");
-const displaySelectedModel = computed(() => isHydrated.value ? selectedModel.value : "未配置模型");
-const displaySelectedReasoning = computed(() => isHydrated.value ? selectedReasoning.value : "中");
+const displayPromptExpanded = computed(() => workspaceBootstrapped.value ? promptExpanded.value : true);
+const displayRequirement = computed(() => workspaceBootstrapped.value ? requirement.value : "");
+const displaySelectedModel = computed(() => workspaceBootstrapped.value ? selectedModel.value : "未配置模型");
+const displaySelectedReasoning = computed(() => workspaceBootstrapped.value ? selectedReasoning.value : "中");
 const displayMonacoTemporaryFontSize = computed(() => displayActiveWorkspaceTabPath.value
     ? monacoFontSizeOverridesByPath.value[displayActiveWorkspaceTabPath.value] ?? null
     : null);
@@ -1061,7 +1063,7 @@ function openFrontmatterProfile(kind: FrontmatterProfileKind): void {
 onMounted(() => {
     void (async () => {
         if (!import.meta.client) {
-            isHydrated.value = true;
+            workspaceBootstrapped.value = true;
             return;
         }
 
@@ -1079,7 +1081,7 @@ onMounted(() => {
             subscribeWorkspaceEvents();
             initialized.value = true;
         } finally {
-            isHydrated.value = true;
+            workspaceBootstrapped.value = true;
         }
     })();
 });
@@ -1108,27 +1110,22 @@ onBeforeUnmount(() => {
 <template>
     <!-- IDE 页面根容器 -->
     <div ref="themeHostRef" class="novel-ide-page ide-shell flex h-screen flex-col overflow-hidden bg-[var(--bg-main)] text-[var(--text-main)] transition-colors duration-300">
-        <ClientOnly>
-            <NovelIdeHeader
-                class="ide-panel ide-header"
-                :right-panel-open="displayRightPanelOpen"
-                :novel-title="displayNovelTitle"
-                :novel-items="displayNovelItems"
-                :current-user="currentUser"
-                :workspace-mode="isUserAssetsWorkspace ? 'user-assets' : 'novel'"
-                @toggle-agent="rightPanelOpen = !rightPanelOpen"
-                @open-bookshelf="bookshelfOpen = true"
-                @open-plot-workbench="openPlotWorkbench"
-                @open-user-assets="openUserAssets"
-                @switch-novel="handleSwitchNovel"
-                @open-admin="void openAdmin()"
-                @logout="void logout()"
-            />
-            <template #fallback>
-                <!-- 顶部栏 SSR 占位，真实 Header 等客户端状态恢复后挂载。 -->
-                <header class="ide-panel ide-header flex h-12 shrink-0 border-b border-[var(--border-color)] bg-[var(--bg-panel)]"></header>
-            </template>
-        </ClientOnly>
+        <NovelIdeHeader
+            class="ide-panel ide-header"
+            :right-panel-open="displayRightPanelOpen"
+            :novel-title="displayNovelTitle"
+            :novel-items="displayNovelItems"
+            :current-user="currentUser"
+            :workspace-mode="isUserAssetsWorkspace ? 'user-assets' : 'novel'"
+            @toggle-agent="rightPanelOpen = !rightPanelOpen"
+            @open-bookshelf="bookshelfOpen = true"
+            @open-plot-workbench="openPlotWorkbench"
+            @open-user-assets="openUserAssets"
+            @open-profile-workbench="profileWorkbenchOpen = true"
+            @switch-novel="handleSwitchNovel"
+            @open-admin="void openAdmin()"
+            @logout="void logout()"
+        />
 
         <div class="flex min-h-0 flex-1 overflow-hidden">
             <NovelIdeSidebar class="ide-sidebar" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="toggleLeftTab" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" />
@@ -1193,6 +1190,7 @@ onBeforeUnmount(() => {
 
         <NovelBookshelfDialog v-model="bookshelfOpen" @switched="void router.replace({path: '/', query: {workspace: 'novel', novelId: $event}})" />
         <NovelIdeSettingsDialog v-model="settingsDialogOpen" />
+        <UserProfileWorkbenchDialog v-if="isUserAssetsWorkspace" v-model="profileWorkbenchOpen" />
         <WorkspaceFileConflictDialog
             v-model="novelIdeStore.workspaceConflictDialogOpen"
             :conflict="novelIdeStore.workspaceWriteConflict"

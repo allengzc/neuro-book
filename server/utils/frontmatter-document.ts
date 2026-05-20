@@ -31,7 +31,7 @@ export function parseFrontmatterDocument<T>(
 
     const frontmatterText = match[1] ?? "";
     const body = match[2] ?? "";
-    const parsedFrontmatter = yaml.parse(frontmatterText);
+    const parsedFrontmatter = yaml.parse(frontmatterText, {logLevel: "silent"});
     const rawFrontmatter = isRecord(parsedFrontmatter) ? parsedFrontmatter : {};
 
     return {

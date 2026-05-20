@@ -258,7 +258,7 @@ function parseFrontmatterText(text: string): {
     }
 
     try {
-        const parsed = YAML.parse(text) as unknown;
+        const parsed = YAML.parse(text, {logLevel: "silent"}) as unknown;
         if (parsed === null) {
             return {frontmatter: {}, error: null};
         }

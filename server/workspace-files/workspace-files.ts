@@ -804,7 +804,7 @@ export function parseMarkdownDocument(content: string): {
 
     const rawFrontmatter = match[1] ?? "";
     try {
-        const parsed = YAML.parse(rawFrontmatter);
+        const parsed = YAML.parse(rawFrontmatter, {logLevel: "silent"});
         return {
             frontmatter: isPlainObject(parsed) ? parsed : {},
             body: content.slice(match[0].length),

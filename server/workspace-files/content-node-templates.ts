@@ -63,8 +63,10 @@ function renderTemplateFile(templatePath: string, input: WorkspaceContentTemplat
 function renderTemplateFilePath(templatePath: string, input: WorkspaceContentTemplateInput): string {
     const template = fs.readFileSync(templatePath, "utf-8");
     return template
+        .replaceAll("\"{{title}}\"", formatYamlString(input.title))
         .replaceAll("{{title}}", formatYamlString(input.title))
-        .replaceAll("{{status}}", input.status);
+        .replaceAll("\"{{status}}\"", formatYamlString(input.status))
+        .replaceAll("{{status}}", formatYamlString(input.status));
 }
 
 /**

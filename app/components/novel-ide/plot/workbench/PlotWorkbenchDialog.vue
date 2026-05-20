@@ -279,9 +279,7 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
 <template>
     <Dialog
         :model-value="props.modelValue"
-        width="min(1840px, calc(100vw - 24px))"
-        height="min(1080px, calc(100vh - 24px))"
-        max-height="calc(100vh - 24px)"
+        size="workbench"
         overlay-type="blur"
         :show-footer="false"
         :close-on-overlay="false"

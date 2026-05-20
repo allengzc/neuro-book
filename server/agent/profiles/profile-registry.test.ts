@@ -4,7 +4,9 @@ import path from "node:path";
 import {describe, expect, it} from "vitest";
 import {z} from "zod";
 import {AgentProfile} from "nbook/server/agent/profiles/agent-profile";
+import {ensureDefaultUserProfileTemplates} from "nbook/server/agent/profile-templates/profile-template-service";
 import {InMemoryAgentProfileRegistry} from "nbook/server/agent/profiles/profile-registry";
+import {LeaderDefaultProfile} from "nbook/server/agent/profiles/builtin/leader-default.profile";
 import type {ProfileContextRuntime} from "nbook/server/agent/profiles/profile-context";
 import type {ProfileKey} from "nbook/server/agent/types";
 
@@ -125,6 +127,25 @@ describe("InMemoryAgentProfileRegistry", () => {
 
         await expect(readPreparedSystemMessage(await registry.get("subagent.custom"))).resolves.toContain("second prompt");
     });
+
+    it("同步生成的默认 leader 用户 profile 可以覆盖源码 builtin", async () => {
+        const userProfilePath = path.resolve(process.cwd(), "workspace/.nbook/assets/agent/profiles/builtin/leader-default.profile.tsx");
+        const backup = await readOptionalFile(userProfilePath);
+        await fs.rm(userProfilePath, {force: true});
+        try {
+            await ensureDefaultUserProfileTemplates();
+            const builtinProfile = new LeaderDefaultProfile();
+            const registry = new InMemoryAgentProfileRegistry(process.cwd());
+            registry.register(builtinProfile);
+
+            const profile = await registry.get("leader.default");
+
+            expect(profile.key).toBe("leader.default");
+            expect(profile.inputSchema).toBe(builtinProfile.inputSchema);
+        } finally {
+            await restoreOptionalFile(userProfilePath, backup);
+        }
+    });
 });
 
 /**
@@ -182,6 +203,32 @@ async function writeDynamicProfileDependency(workspaceRoot: string, relativePath
     const absolutePath = path.join(workspaceRoot, relativePath);
     await fs.mkdir(path.dirname(absolutePath), {recursive: true});
     await fs.writeFile(absolutePath, `export const PROMPT_TEXT = ${JSON.stringify(prompt)};\n`, "utf-8");
+}
+
+/**
+ * 读取可选文件内容。
+ */
+async function readOptionalFile(filePath: string): Promise<string | null> {
+    try {
+        return await fs.readFile(filePath, "utf-8");
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return null;
+        }
+        throw error;
+    }
+}
+
+/**
+ * 还原可选文件。
+ */
+async function restoreOptionalFile(filePath: string, content: string | null): Promise<void> {
+    if (content === null) {
+        await fs.rm(filePath, {force: true});
+        return;
+    }
+    await fs.mkdir(path.dirname(filePath), {recursive: true});
+    await fs.writeFile(filePath, content, "utf-8");
 }
 
 /**

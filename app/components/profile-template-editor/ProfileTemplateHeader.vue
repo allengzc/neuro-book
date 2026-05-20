@@ -18,6 +18,8 @@ const props = defineProps<{
     parsingSource: boolean;
     sourceText: string;
     issueCount: number;
+    restoreEnabled?: boolean;
+    restoring?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -27,6 +29,7 @@ const emit = defineEmits<{
     (e: "redo"): void;
     (e: "preview"): void;
     (e: "validate"): void;
+    (e: "restore"): void;
     (e: "save"): void;
 }>();
 </script>
@@ -78,6 +81,10 @@ const emit = defineEmits<{
             <button class="toolbar-btn" :disabled="props.validating || !props.sourceText" @click="emit('validate')">
                 <span class="i-lucide-badge-check h-3.5 w-3.5"></span>
                 <span>验证</span>
+            </button>
+            <button v-if="props.restoreEnabled" class="toolbar-btn" :disabled="props.restoring || props.saving || !props.sourceText" @click="emit('restore')">
+                <span class="i-lucide-rotate-ccw h-3.5 w-3.5"></span>
+                <span>恢复系统版本</span>
             </button>
             <button class="toolbar-btn primary" :disabled="props.saving || props.parsingSource || !props.sourceText || props.issueCount > 0" @click="emit('save')">
                 <span class="i-lucide-save h-3.5 w-3.5"></span>

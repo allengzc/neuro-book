@@ -1,6 +1,6 @@
-import {readdir, readFile, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, writeFile} from "node:fs/promises";
 import {createRequire} from "node:module";
-import {basename, resolve} from "node:path";
+import path, {basename, resolve} from "node:path";
 import {createError} from "h3";
 import type * as TypeScript from "typescript";
 import {z, type ZodType} from "zod";
@@ -25,6 +25,10 @@ import {
 } from "nbook/server/agent/types";
 
 const TEMPLATE_DIR = resolve(process.cwd(), "server/agent/profiles/templates");
+const USER_PROFILE_DIR = resolve(process.cwd(), "workspace/.nbook/assets/agent/profiles");
+const SYSTEM_PROFILE_DIR = resolve(process.cwd(), "assets/agent/profiles");
+const BUILTIN_LEADER_PROFILE_FILE = "builtin/leader-default.profile.tsx";
+const BUILTIN_LEADER_SOURCE_PATH = resolve(process.cwd(), "server/agent/profiles/builtin/leader-default.profile.tsx");
 const require = createRequire(import.meta.url);
 const ts = require("typescript") as typeof TypeScript;
 const JsonObjectSchema = z.record(z.string(), z.json());
@@ -98,12 +102,18 @@ const COMPONENT_NAMES = new Set([
 type ParsedTemplate = {
     root: ProfileTemplateNodeDto | null;
     issues: ProfileTemplateIssueDto[];
+    promptRange: SourceRange | null;
 };
 
 type PreviewContext = {
     scope?: AgentVariableScope;
     inputOverrides?: Record<string, JsonValue>;
     profile?: AgentProfile<ProfileKey>;
+};
+
+type SourceRange = {
+    start: number;
+    end: number;
 };
 
 /**
@@ -122,6 +132,38 @@ export async function listProfileTemplates(): Promise<ProfileTemplateSummaryDto[
 }
 
 /**
+ * 列出用户 assets 中可编辑的动态 profile。
+ */
+export async function listUserProfileTemplates(): Promise<ProfileTemplateSummaryDto[]> {
+    const entries = await listProfileFiles(USER_PROFILE_DIR);
+    return entries.map((entry) => ({
+        name: entry.relativePath.replace(/\.profile\.tsx$/, ""),
+        fileName: entry.relativePath,
+        profileKey: null,
+    }));
+}
+
+/**
+ * 确保用户 assets 中存在默认 leader profile 覆盖文件。
+ */
+export async function ensureDefaultUserProfileTemplates(): Promise<"copied" | "skipped"> {
+    const targetPath = resolveUserProfilePath(BUILTIN_LEADER_PROFILE_FILE);
+    await mkdir(path.dirname(targetPath), {recursive: true});
+    try {
+        await writeFile(targetPath, await readSystemProfileTemplateSource(BUILTIN_LEADER_PROFILE_FILE), {
+            encoding: "utf-8",
+            flag: "wx",
+        });
+        return "copied";
+    } catch (error) {
+        if (isFileExistsError(error)) {
+            return "skipped";
+        }
+        throw error;
+    }
+}
+
+/**
  * 读取模板详情。
  */
 export async function readProfileTemplate(name: string): Promise<ProfileTemplateDetailDto> {
@@ -131,6 +173,23 @@ export async function readProfileTemplate(name: string): Promise<ProfileTemplate
     return {
         name: fileName.replace(/\.tsx$/, ""),
         fileName,
+        source,
+        root: parsed.root,
+        issues: parsed.issues,
+        variables: buildVariableCatalog(),
+    };
+}
+
+/**
+ * 读取用户 assets 中的动态 profile 详情。
+ */
+export async function readUserProfileTemplate(filePath: string): Promise<ProfileTemplateDetailDto> {
+    const normalizedPath = normalizeProfileFilePath(filePath);
+    const source = await readFile(resolveUserProfilePath(normalizedPath), "utf-8");
+    const parsed = parseProfileTemplateSource(source);
+    return {
+        name: normalizedPath.replace(/\.profile\.tsx$/, ""),
+        fileName: normalizedPath,
         source,
         root: parsed.root,
         issues: parsed.issues,
@@ -157,6 +216,42 @@ export async function saveProfileTemplate(name: string, input: {
     }
     await writeFile(resolveTemplatePath(fileName), source, "utf-8");
     return readProfileTemplate(fileName);
+}
+
+/**
+ * 保存用户 assets 中的动态 profile。
+ * 传入 root 时只替换 buildPrompt 返回的 ProfilePrompt JSX，保留其它源码区域。
+ */
+export async function saveUserProfileTemplate(filePath: string, input: {
+    source?: string;
+    root?: ProfileTemplateNodeDto;
+}): Promise<ProfileTemplateDetailDto> {
+    const normalizedPath = normalizeProfileFilePath(filePath);
+    const absolutePath = resolveUserProfilePath(normalizedPath);
+    const previousSource = input.source === undefined ? await readFile(absolutePath, "utf-8") : "";
+    const source = input.source ?? replacePromptTemplateRoot(previousSource, input.root);
+    const parsed = parseProfileTemplateSource(source);
+    if (parsed.issues.some((issue) => issue.severity === "error")) {
+        throw createError({
+            statusCode: 400,
+            message: "profile 校验失败",
+            data: parsed.issues,
+        });
+    }
+    await mkdir(path.dirname(absolutePath), {recursive: true});
+    await writeFile(absolutePath, source, "utf-8");
+    return readUserProfileTemplate(normalizedPath);
+}
+
+/**
+ * 从系统 assets 恢复用户 profile 覆盖文件。
+ */
+export async function restoreUserProfileTemplate(filePath: string): Promise<ProfileTemplateDetailDto> {
+    const normalizedPath = normalizeProfileFilePath(filePath);
+    const targetPath = resolveUserProfilePath(normalizedPath);
+    await mkdir(path.dirname(targetPath), {recursive: true});
+    await writeFile(targetPath, await readSystemProfileTemplateSource(normalizedPath), "utf-8");
+    return readUserProfileTemplate(normalizedPath);
 }
 
 /**
@@ -214,19 +309,27 @@ export function previewProfileTemplate(input: {
 export function parseProfileTemplateSource(source: string): ParsedTemplate {
     const sourceFile = ts.createSourceFile("template.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
     const issues: ProfileTemplateIssueDto[] = [];
-    const rootExpression = findReturnedJsx(sourceFile);
-    if (!rootExpression) {
+    const rootExpression = findPromptRootExpression(sourceFile);
+    if (!rootExpression?.expression) {
         return {
             root: null,
+            promptRange: null,
             issues: [{
                 severity: "error",
-                message: "模板必须导出函数并 return <ProfilePrompt> 根节点",
+                message: "模板必须在 buildPrompt 或默认函数中 return <ProfilePrompt> 根节点",
             }],
         };
     }
-    const root = parseJsxExpression(sourceFile, rootExpression, issues);
+    const root = parseJsxExpression(sourceFile, rootExpression.expression, issues);
     validateTemplateTree(root, issues);
-    return {root, issues};
+    return {
+        root,
+        issues,
+        promptRange: {
+            start: rootExpression.expression.getStart(sourceFile),
+            end: rootExpression.expression.getEnd(),
+        },
+    };
 }
 
 /**
@@ -276,9 +379,141 @@ function resolveTemplatePath(fileName: string): string {
 }
 
 /**
+ * 归一化用户 profile 文件路径，禁止逃逸用户 assets profile 目录。
+ */
+function normalizeProfileFilePath(filePath: string): string {
+    const normalized = filePath.replace(/\\/g, "/").replace(/^\/+/, "").trim();
+    if (!normalized || normalized.includes("..") || path.isAbsolute(normalized) || !normalized.endsWith(".profile.tsx")) {
+        throw createError({statusCode: 400, message: "非法 profile 文件路径"});
+    }
+    return normalized;
+}
+
+/**
+ * 返回用户 assets profile 绝对路径。
+ */
+function resolveUserProfilePath(filePath: string): string {
+    return resolveProfilePath(USER_PROFILE_DIR, filePath);
+}
+
+/**
+ * 返回系统 assets profile 绝对路径。
+ */
+function resolveSystemProfilePath(filePath: string): string {
+    return resolveProfilePath(SYSTEM_PROFILE_DIR, filePath);
+}
+
+/**
+ * 读取系统 profile 源码。leader.default 在迁移期来自源码 builtin fallback。
+ */
+async function readSystemProfileTemplateSource(filePath: string): Promise<string> {
+    if (filePath === BUILTIN_LEADER_PROFILE_FILE) {
+        const source = await readFile(BUILTIN_LEADER_SOURCE_PATH, "utf-8");
+        if (source.includes("export default new LeaderDefaultProfile()")) {
+            return source;
+        }
+        return `${source.trimEnd()}\n\nexport default new LeaderDefaultProfile();\n`;
+    }
+    return readFile(resolveSystemProfilePath(filePath), "utf-8");
+}
+
+/**
+ * 解析 profile 路径并确认仍在根目录内。
+ */
+function resolveProfilePath(root: string, filePath: string): string {
+    const absolutePath = resolve(root, filePath);
+    if (absolutePath !== root && !absolutePath.startsWith(`${root}${path.sep}`)) {
+        throw createError({statusCode: 400, message: "非法 profile 文件路径"});
+    }
+    return absolutePath;
+}
+
+/**
+ * 列出 profile 文件。
+ */
+async function listProfileFiles(root: string, current: string = root): Promise<Array<{relativePath: string; absolutePath: string}>> {
+    let entries: Array<import("node:fs").Dirent>;
+    try {
+        entries = await readdir(current, {withFileTypes: true});
+    } catch (error) {
+        if (isMissingPathError(error)) {
+            return [];
+        }
+        throw error;
+    }
+    const files: Array<{relativePath: string; absolutePath: string}> = [];
+    for (const entry of entries) {
+        const absolutePath = resolve(current, entry.name);
+        if (entry.isDirectory()) {
+            files.push(...await listProfileFiles(root, absolutePath));
+            continue;
+        }
+        if (entry.isFile() && entry.name.endsWith(".profile.tsx")) {
+            files.push({
+                absolutePath,
+                relativePath: path.relative(root, absolutePath).split(path.sep).join("/"),
+            });
+        }
+    }
+    return files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+}
+
+/**
+ * 判断文件系统错误是否是路径不存在。
+ */
+function isMissingPathError(error: unknown): boolean {
+    return Boolean(
+        error
+        && typeof error === "object"
+        && "code" in error
+        && (error as {code?: unknown}).code === "ENOENT",
+    );
+}
+
+/**
+ * 判断文件系统错误是否是文件已存在。
+ */
+function isFileExistsError(error: unknown): boolean {
+    return Boolean(
+        error
+        && typeof error === "object"
+        && "code" in error
+        && (error as {code?: unknown}).code === "EEXIST",
+    );
+}
+
+/**
+ * 将新的 ProfilePrompt JSX 写回完整 profile 源码。
+ */
+function replacePromptTemplateRoot(source: string, root: ProfileTemplateNodeDto | undefined): string {
+    if (!root) {
+        throw createError({statusCode: 400, message: "缺少 profile prompt 根节点"});
+    }
+    const parsed = parseProfileTemplateSource(source);
+    if (!parsed.promptRange) {
+        throw createError({statusCode: 400, message: "无法定位 buildPrompt 中的 ProfilePrompt"});
+    }
+    return `${source.slice(0, parsed.promptRange.start)}${indent(generateNodeSource(root), 3)}${source.slice(parsed.promptRange.end)}`;
+}
+
+/**
  * 找到导出函数里的 return JSX。
  */
-function findReturnedJsx(sourceFile: TypeScript.SourceFile): TypeScript.Expression | null {
+function findPromptRootExpression(sourceFile: TypeScript.SourceFile): {expression: TypeScript.Expression; inBuildPrompt: boolean} | null {
+    for (const buildPrompt of findBuildPromptLikeFunctions(sourceFile)) {
+        const expression = findReturnedProfilePrompt(buildPrompt, sourceFile);
+        if (expression) {
+            return {expression, inBuildPrompt: true};
+        }
+    }
+    const expression = findReturnedJsx(sourceFile);
+    return expression ? {expression, inBuildPrompt: false} : null;
+}
+
+/**
+ * 查找第一个 return JSX，保留模板编辑器对非法根节点的错误提示。
+ */
+function findReturnedJsx(root: TypeScript.Node): TypeScript.Expression | null {
     let found: TypeScript.Expression | null = null;
     const visit = (node: TypeScript.Node): void => {
         if (found) {
@@ -290,8 +525,74 @@ function findReturnedJsx(sourceFile: TypeScript.SourceFile): TypeScript.Expressi
         }
         ts.forEachChild(node, visit);
     };
+    visit(root);
+    return found;
+}
+
+/**
+ * 查找完整 profile 文件中的 prompt 构造函数或方法。
+ */
+function findBuildPromptLikeFunctions(sourceFile: TypeScript.SourceFile): TypeScript.Node[] {
+    const found: TypeScript.Node[] = [];
+    const visit = (node: TypeScript.Node): void => {
+        if (ts.isMethodDeclaration(node) && node.body && isPromptBuilderName(node.name.getText(sourceFile))) {
+            found.push(node.body);
+            return;
+        }
+        if (ts.isPropertyAssignment(node) && isPromptBuilderName(node.name.getText(sourceFile))) {
+            found.push(node.initializer);
+            return;
+        }
+        if (ts.isShorthandPropertyAssignment(node) && node.name.getText(sourceFile) === "buildPrompt") {
+            found.push(node);
+            return;
+        }
+        ts.forEachChild(node, visit);
+    };
     visit(sourceFile);
     return found;
+}
+
+/**
+ * 动态 profile 中可承载 ProfilePrompt 的构造入口名。
+ */
+function isPromptBuilderName(name: string): boolean {
+    return name === "buildPrompt" || name === "buildLeaderPrompt";
+}
+
+/**
+ * 查找返回 ProfilePrompt 的 return 表达式。
+ */
+function findReturnedProfilePrompt(root: TypeScript.Node, sourceFile: TypeScript.SourceFile): TypeScript.Expression | null {
+    let found: TypeScript.Expression | null = null;
+    const visit = (node: TypeScript.Node): void => {
+        if (found) {
+            return;
+        }
+        if (ts.isReturnStatement(node) && node.expression) {
+            const expression = unwrapParenthesized(node.expression);
+            if (isProfilePromptExpression(expression, sourceFile)) {
+                found = expression;
+                return;
+            }
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(root);
+    return found;
+}
+
+/**
+ * 判断表达式是否是 ProfilePrompt 根节点。
+ */
+function isProfilePromptExpression(expression: TypeScript.Expression, sourceFile: TypeScript.SourceFile): boolean {
+    if (ts.isJsxElement(expression)) {
+        return expression.openingElement.tagName.getText(sourceFile) === "ProfilePrompt";
+    }
+    if (ts.isJsxSelfClosingElement(expression)) {
+        return expression.tagName.getText(sourceFile) === "ProfilePrompt";
+    }
+    return false;
 }
 
 /**

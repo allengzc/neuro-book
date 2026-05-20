@@ -12,6 +12,8 @@ import {computed, onBeforeUnmount, onMounted, ref, useAttrs, watch} from "vue";
 const props = withDefaults(defineProps<{
     /** 控制对话框显隐 */
     modelValue: boolean;
+    /** 语义尺寸，适合复用大型工作台这类标准尺寸 */
+    size?: "default" | "workbench";
     /** header 默认标题 */
     title?: string;
     /** 是否显示关闭按钮（默认 true） */
@@ -40,12 +42,10 @@ const props = withDefaults(defineProps<{
     bodyClass?: string;
 }>(), {
     title: "",
+    size: "default",
     closable: true,
     closeOnOverlay: true,
     closeOnEsc: true,
-    width: "420px",
-    height: "auto",
-    maxHeight: "85vh",
     teleportTarget: `.${IDE_THEME_HOST_CLASS}`,
     overlayType: "transparent",
     showCancel: false,
@@ -164,6 +164,9 @@ onBeforeUnmount(() => {
 });
 
 const isMounted = ref(false);
+const resolvedWidth = computed(() => props.width ?? (props.size === "workbench" ? "min(1840px, calc(100vw - 24px))" : "420px"));
+const resolvedHeight = computed(() => props.height ?? (props.size === "workbench" ? "min(1080px, calc(100vh - 24px))" : "auto"));
+const resolvedMaxHeight = computed(() => props.maxHeight ?? (props.size === "workbench" ? "calc(100vh - 24px)" : "85vh"));
 
 onMounted(() => {
     isMounted.value = true;
@@ -172,8 +175,7 @@ onMounted(() => {
 
 <template>
     <!-- 对话框遮罩 + 容器 -->
-    <ClientOnly>
-        <Teleport v-if="isMounted" :to="typeof teleportTarget === 'string' ? teleportTarget : 'body'" :disabled="teleportTarget === false">
+    <Teleport v-if="isMounted" :to="typeof teleportTarget === 'string' ? teleportTarget : 'body'" :disabled="teleportTarget === false">
         <Transition name="nb-dialog">
             <div v-if="modelValue" class="fixed inset-0 z-[9000] flex items-center justify-center transition-colors duration-300" :class="[
                 overlayType === 'blur' ? 'bg-black/20 backdrop-blur-sm' :
@@ -183,7 +185,7 @@ onMounted(() => {
                 <!-- 对话框主体 -->
                 <div 
                     class="flex flex-col overflow-hidden rounded-xl shadow-[0_12px_48px_rgba(0,0,0,0.22)] border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-main)] transition-all duration-300 transform"
-                    :style="{ width: props.width, height: props.height, maxHeight: props.maxHeight }"
+                    :style="{ width: resolvedWidth, height: resolvedHeight, maxHeight: resolvedMaxHeight }"
                 >
                     <!-- header 区域 -->
                     <div class="flex items-center justify-between px-5 py-2 border-b border-[var(--border-color)]">
@@ -213,8 +215,7 @@ onMounted(() => {
                 </div>
             </div>
         </Transition>
-        </Teleport>
-    </ClientOnly>
+    </Teleport>
 </template>
 
 <style scoped>
