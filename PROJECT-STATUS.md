@@ -50,6 +50,9 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 - 后续补用户 assets 与系统 assets 的更新同步/冲突提示；当前只支持用户手动覆盖。
 - 清理动态 profile 渐进迁移 fallback：profile TSX、写作风格、写作参考样例稳定迁入系统 assets 后，删除源码 builtin 资源 fallback。
 - 将 TSX profile 模板选择接入真实 Agent runtime，并让预览/编辑器加载动态 profile 的 InputSchema / OutputSchema。
+- 为 skill catalog 增加类似 tool 的白名单或启用控制，避免所有可发现 skill 默认进入模型可见 catalog。
+- 后续如果支持加载第三方 profile，新增 profile 审查 skill，用于检查陌生 `.profile.tsx` 的危险代码、工具权限、schema contract 和提示词行为；当前动态 profile 不做 sandbox，按用户可信本地代码处理。
+- 后续如有需要，再把系统默认 leader profile 暴露到系统设置；当前用户 assets 工作区计划第一版只做 workspace `.nbook/agent-profile-settings.json` 覆盖，system default 仍写死为小说 `leader.default`、用户 assets `leader.assets`。
 - 观察 `arch` source 模式快速同步脚本的稳定性，并决定是否要把远端部署目标做成可配置 preset。
 - 把 auth 设置做成 settings 页面可视化开关，减少直接手改 `config.yaml` 的频率。
 

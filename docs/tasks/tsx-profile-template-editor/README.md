@@ -6,6 +6,17 @@
 
 第一版范围收敛为：模板真值源使用 TSX 文件，入口使用独立 preview 页面，保存模板后只用于预览和验证，不接入真实 Agent 运行。
 
+## 当前定位更新
+
+后续用户 assets 工作区的 profile 方向已经调整：不再把“profile 模板与 profile 代码拆分”作为长期主线。完整 `.profile.tsx` 单文件是 profile 真相源，用户或 Agent 直接编辑 TSX；低代码编辑器保留为结构编辑辅助，只处理可定位的 `ProfilePrompt` 区域。
+
+本任务产出的 AST 解析、受限 TSX 节点树、画布拖拽、源码编辑和静态 preview 能力会被用户 assets Profile 工作台复用，但 runtime 语义由 [用户 Assets 工作区](../user-assets-workspace/README.md) 继续推进：
+
+- Inspector / schema / catalog / load issue 归用户 assets Profile 工作台。
+- `/api/agent/profile-templates/preview` 继续作为 AST 静态结构预览。
+- 真实 Message[] 预览以后走 agent profile 语义 API，例如 `/api/agent/profiles/preview-prepare`，并以真实 `profile.prepare()` 结果为准。
+- “模板选择接入真实 profile runtime”不再是推荐方向；后续应以动态 `.profile.tsx` catalog、scope 默认 profile 配置和用户 assets 覆盖为主。
+
 ## 目标
 
 - 在 `server/agent/profiles/templates/` 下维护可编辑 TSX 模板。
