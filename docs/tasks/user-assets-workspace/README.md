@@ -16,8 +16,8 @@
 - 用户 assets 页面和 novel 页面允许同时打开，workspace 编辑会话按 `novel:<id>` 与 `user-assets` 隔离。
 - 用户 assets Agent 使用独立 profile `leader.assets`，与小说默认 profile `leader.default` 的线程列表和提示词隔离。
 - 用户 assets Agent 直接复用普通文件工具编辑 profile TSX，不新增 profile 专用 Agent 工具。`leader.assets` 提示词需要介绍 TSX profile 系统、`defineAgentProfile` 契约、常用 ProfilePrompt 节点、编码规范、校验/预览/恢复流程。
-- profile 覆盖采用渐进迁移：`workspace/.nbook/assets/agent/profiles/**/*.profile.tsx` 优先于 `assets/agent/profiles/**/*.profile.tsx`，再回落到源码 builtin 注册。用户覆盖 builtin key 时必须保留原 key、kind、InputSchema、OutputSchema，只允许调整 prompt 和工具列表等实现细节。
-- `leader.default` 第一阶段通过“同步系统 assets”从源码 builtin 生成 `agent/profiles/builtin/leader-default.profile.tsx` 用户 assets 覆盖文件；源码 builtin 仍作为 fallback，后续迁移到 assets component 后再清理。
+- profile 覆盖采用渐进迁移：`workspace/.nbook/assets/agent/profiles/**/*.profile.tsx` 优先于 `assets/agent/profiles/**/*.profile.tsx`。用户覆盖 builtin key 时必须保留原 key、kind、InputSchema、OutputSchema，只允许调整 prompt 和工具列表等实现细节。
+- `同步系统 assets` 只从仓库内置 `assets/` 复制缺失文件到用户 assets，不再从源码 builtin 生成 profile 覆盖文件。
 - 动态 profile 是可信本地 TSX 代码，运行时用 esbuild 编译后加载，不做 sandbox；旧 thread 下次运行时会重新从 profile registry 读取当前 profile。
 - 用户自定义 profile 的安全边界是“用户自己负责的可信本地代码”。不做 VM sandbox，不做权限隔离；工具白名单只限制模型可调用工具，不限制 `.profile.tsx` 模块自身的服务端代码能力。
 - Profile TSX 允许 import 项目源码 API。系统 assets profile 是随项目发布的可信模块，不是完全独立插件；用户自定义 profile 也可 import 项目 API，但文档应推荐稳定 import surface，降低升级破坏。
@@ -34,31 +34,41 @@
 - 内容节点模板创建和新小说目录模板复制支持用户 assets 覆盖。
 - 写作风格与参考样例资源迁入 `assets/agent/profiles/builtin/`，用户可通过同路径 assets 覆盖。
 - 动态 profile registry 扫描系统 assets 与用户 assets 中的 `.profile.tsx`，按同相对路径用户优先，并对 builtin override 做 schema contract 校验。
+- `AgentSystem.createDefault()` 已停用源码 builtin profile 注册路径，只注册静态 builtin contract；运行实现来自系统或用户 assets 中的 `.profile.tsx`。
 - `create_subagent.profileKey` 与 `invoke_subagent.input` 不再写死 builtin 枚举；`invoke_subagent` 绑定工具时会把当前可用 subagent profile 的 InputSchema 注入给模型，执行时仍由目标 profile 的 inputSchema 做最终校验。
 - 新增 `leader.assets` profile，聚焦用户 assets、skill 覆盖、模板和资源编辑；`leader-default` 保持小说协作提示。
 - 前端用户资产入口复用主页面、工作区文件面板、主编辑器和 Agent 抽屉。
 - Agent thread 创建和列表支持按 leader profile 过滤，用户资产界面只使用 `leader.assets` 线程，小说界面继续使用 `leader.default`。
 - `novel-ide` store 增加 workspace session 快照，避免两个浏览器界面互相覆盖 tabs 和当前文件。
 - Markdown 预览保留原始 frontmatter 文本，避免模板中的 `{{title}}` 被 YAML 解析为对象键时触发 stringified warning。
-- 用户资产模式顶部新增 Profile 工作台入口；工作台复用 TSX profile 可视化编辑器，只列出用户 assets 内的 `.profile.tsx`，支持画布拖拽、源码编辑、校验、预览、手动保存和恢复系统版本。普通文件编辑器仍只负责自由编辑文件，不承担 profile 语义校验。
+- 用户资产模式顶部新增 Profile 工作台入口；工作台复用 TSX profile 可视化编辑器，使用系统 + 用户合成 catalog 展示 `.profile.tsx`，支持画布拖拽、源码编辑、catalog/detail 诊断、真实 prepare 预览、手动保存、恢复系统版本和新建自定义 profile。普通文件编辑器仍只负责自由编辑文件，不承担 profile 语义校验。
+- 新增 `GET /api/agent/profiles/catalog`、`POST /api/agent/profiles/detail` 和 `POST /api/agent/profiles/preview-prepare` 对应的服务能力；profile 加载失败以 issue 形式进入 catalog/detail/preview，不阻塞源码继续编辑。
+- 新增 `POST /api/agent/user-profile-templates/create`，从 Profile 工作台创建 `leader.*` / `subagent.*` 自定义 profile，并生成标准 `defineAgentProfile` TSX 骨架。
+- 新增 `scripts/check-profile.ts <profile-file>`，用于 Agent 或开发者主动检查单个 `.profile.tsx`，不把用户 assets 自动加入主 `tsconfig.include`。
+- 新增 workspace 级默认 leader profile 设置，读写 `workspace/.nbook/assets/.nbook/agent-profile-settings.json` 或普通小说 workspace 的 `.nbook/agent-profile-settings.json`；设置入口放在 Novel IDE 设置弹窗的“默认 Profile”，服务端创建线程时也会按同一 resolver 解析默认值。
+- 系统 assets 下的四个 builtin profile 已改为 `defineAgentProfile` 模块契约，不再 default export `new XxxProfile()`；源码 builtin class 仅作为迁移期测试/复用 helper 保留。
+- Profile 工作台新增 Schema Builder 第一版，可把简单对象字段局部替换到 `InputSchema` / `OutputSchema` 声明；复杂 Zod 继续源码编辑。
+- 新增 `scripts/prepare-profile-types.ts` 和 `server/agent/profiles/dynamic-profile-types.generated.ts`，用于开发期生成用户自定义 profile 的 key/input/output 类型增强；运行时不依赖 prepare。
 
 ## 验证
 
-- 已运行用户资产 profile、Agent thread 创建/过滤、AgentSystem 相关测试。
-- 已运行 `bun run test server/agent/tools/builtin/invoke-subagent.tool.test.ts server/agent/services/thread-context.service.test.ts server/agent/profiles/profile-registry.test.ts server/agent/skills/skill-catalog.test.ts server/workspace-files/workspace-files.test.ts`。
-- typecheck 当前仍有既有非本任务错误；本轮新增的 Agent thread profileKey 类型错误已修复。
+- 已运行 `bun run typecheck`。
+- 已运行 `bun scripts/check-profile.ts` 检查四个系统 assets builtin profile：`leader-default`、`assets-editor`、`writer`、`retrieval`。
+- 已运行 `bun scripts/prepare-profile-types.ts`。
+- 已运行 `bun run test server/agent/profiles/profile-registry.test.ts server/agent/profiles/profile-preview.service.test.ts server/agent/profile-templates/profile-template-service.test.ts server/agent/agent-system.test.ts server/agent/tools/builtin/invoke-subagent.tool.test.ts server/agent/services/thread-context.service.test.ts server/workspace-files/workspace-files.test.ts server/agent/skills/skill-catalog.test.ts server/agent/profile-settings/workspace-profile-settings.test.ts server/api/agent/threads/index.post.test.ts`，结果为 10 个测试文件、136 个用例通过。
+- 已运行 `bun run test server/agent/profiles/profile-registry.test.ts server/agent/profiles/profile-preview.service.test.ts server/agent/profile-templates/profile-template-service.test.ts server/agent/profiles/builtin/assets-editor.profile.test.ts server/agent/profiles/builtin/writer.profile.test.ts server/agent/profiles/builtin/retrieval.profile.test.ts server/agent/tools/builtin/invoke-subagent.tool.test.ts`，结果为 7 个测试文件、61 个用例通过。
+- 本轮新增验证目标：`server/agent/profile-settings/workspace-profile-settings.test.ts` 与 `server/api/agent/threads/index.post.test.ts` 覆盖 workspace 默认 profile resolver、拒绝 subagent 设为 leader 默认值，以及创建线程传递 client variables。
 - 不做浏览器自动验证；如需确认页面交互，可后续手动打开 `/?workspace=user-assets` 或再请求浏览器验证。
 
 ## 后续
 
 - 设计系统 assets 更新后的用户覆盖冲突提示。
 - 如果未来需要单本小说专属 assets，应单独设计 `workspace/<novel>/.nbook/assets` 语义，不在当前版本隐式支持。
-- 删除源码 builtin fallback：profile TSX、写作风格、写作参考样例全部稳定迁入系统 assets 后，清理 `server/agent/profiles/builtin` 里的迁移期资源 fallback。
-- 拆分 Profile 工作台内的导航、创建 profile、schema 低代码编辑与 catalog issue 展示，避免继续膨胀单个编辑器组件。
-- 设计 InputSchema / OutputSchema 低代码 schema DSL，用于用户新建 profile。
+- 清理源码 builtin profile class：当前系统 assets profile 已不再 `new` 旧 class，但仍复用源码里的 prompt helper 函数；后续把 prompt helper 完全迁入 assets 或稳定公共 helper 后删除旧 class。
+- 拆分 Profile 工作台内的导航、schema 低代码编辑与 catalog issue 展示，避免继续膨胀单个编辑器组件。
+- 继续扩展 InputSchema / OutputSchema 低代码 schema DSL；当前第一版只支持简单对象字段、枚举、数组和默认值，复杂 Zod 仍需源码编辑。
 - 暂不设计独立 `profile-components` assets 覆盖层；`renderPlanModeReminder` 这类自定义函数 / node 组件先保留在 profile TSX 源码中，后续有明确复用压力再考虑拆分。
-- 增加 prepare/codegen：为开发者生成动态 profile 的 key/schema 类型增强，但运行时不依赖 prepare 才能加载用户 profile。
-- 增加 profile catalog issue API/UI：当用户或系统动态 profile 声明了 key 但加载失败时，除运行时报错外，还应在用户资产界面集中展示加载错误。
+- 扩展 prepare/codegen：当前已能生成类型索引骨架，后续补用户 assets 扫描参数的 UI/文档入口与更多静态校验。
 
 ## 完整实现计划
 
@@ -93,7 +103,7 @@
 - Schema 编辑能力信息不放进 catalog 列表的重 DTO。Profile catalog 只返回列表、来源、加载状态、schema 是否锁定和编辑摘要；打开 Inspector 时再请求 profile detail，返回 InputSchema / OutputSchema 的 JSON Schema、编辑模式、原因和可选源码范围。
 - Profile 加载、detail 与 prepare preview 的错误统一走 profile issue DTO。该 DTO 沿用现有 `ProfileTemplateIssueDto` 的 `severity/message/path/sourceText/sourceRange` 展示形状，并扩展 `code`、`profileKey`、`fileName`、`stack` 等运行时字段；不要让各入口继续解析裸字符串错误。
 - profile 默认选择配置使用显式配置文件，不继续散落在前端硬编码里：user scope 写入 `workspace/.nbook/assets/.nbook/agent-profile-settings.json`；普通小说 workspace scope 写入 `workspace/<novel>/.nbook/agent-profile-settings.json`；用户 assets 工作区自身的 workspace scope 复用 `workspace/.nbook/assets/.nbook/agent-profile-settings.json`，先不再引入第二个 assets 内配置文件。
-- Profile scope 设置第一版简化为系统设置 + workspace 设置。当前已存在的系统设置继续作为系统级默认；用户 scope 暂不做。workspace 设置用 JSON 存放到对应工作区 `.nbook` 文件夹下。Profile scope 设置 UI 归属现有 Novel IDE 设置弹窗，而不是 Profile 工作台。
+- Profile scope 设置第一版简化为系统设置 + workspace 设置。当前已存在的系统设置继续作为系统级默认；用户 scope 暂不做。workspace 设置用 JSON 存放到对应工作区 `.nbook` 文件夹下。Profile scope 设置 UI 归属现有 Novel IDE 设置弹窗，而不是 Profile 工作台。第一版已实现 leader 默认 profile 选择；subagent 偏好仍延期。
 - 第一版不新增系统默认 profile 设置项；system default 仍写死为小说 `leader.default`、用户 assets `leader.assets`。后续如有需要再把系统默认 profile 暴露到系统设置。
 - builtin profile 的静态类型不由 assets 覆盖改变。`leader.default` 等 builtin key 在源码开发中继续使用 builtin contract registry 的类型；用户自定义 profile 依赖运行时 Zod 校验，可选 prepare/codegen 再生成静态类型索引。
 - 类型系统目标：源码开发者应能通过 profile key 静态指定一个 profile，并获得该 profile 的 InputSchema / OutputSchema 类型推导；同时 TSX Profile 低代码编辑器应能通过 runtime schema/detail 加载这些 schema 数据，提供表单编辑和预览输入能力。

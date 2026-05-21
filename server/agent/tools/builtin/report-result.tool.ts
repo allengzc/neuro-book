@@ -49,9 +49,36 @@ function validateProfileOutput(data: unknown, profile: {key: string; outputSchem
     if (data === undefined) {
         throw new Error(`${profile.key} 必须通过 report_result.data 提交结构化输出`);
     }
-    const parsed = profile.outputSchema.safeParse(data);
+    const parsed = parseProfileOutput(data, profile.outputSchema);
     if (!parsed.success) {
         throw new Error(`${profile.key} 的 report_result.data 不符合 profile 输出结构`);
     }
     return parsed.data as JsonValue;
+}
+
+/**
+ * 先按原值校验；失败后再兼容 provider 字符串化的 JSON 结构。
+ */
+function parseProfileOutput(data: unknown, outputSchema: z.ZodType): z.ZodSafeParseResult<unknown> {
+    const parsed = outputSchema.safeParse(data);
+    if (parsed.success || typeof data !== "string") {
+        return parsed;
+    }
+
+    const normalizedData = parseStringifiedJson(data);
+    return normalizedData.parsed ? outputSchema.safeParse(normalizedData.value) : parsed;
+}
+
+/**
+ * 尝试解析字符串化 JSON。
+ */
+function parseStringifiedJson(data: string): {parsed: true; value: unknown} | {parsed: false} {
+    try {
+        return {
+            parsed: true,
+            value: JSON.parse(data) as unknown,
+        };
+    } catch {
+        return {parsed: false};
+    }
 }

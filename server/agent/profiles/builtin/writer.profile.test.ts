@@ -179,7 +179,7 @@ function createWriterRuntime(input: {
     skillCatalog?: readonly SkillCatalogItem[];
     tools?: ToolKey[];
     plotPoints?: string[];
-}): ProfileContextRuntime<"subagent.writer", AgentProfile<"subagent.writer">> {
+}): ProfileContextRuntime<"subagent.writer"> {
     const runtimeInput: ProfileInputMap["subagent.writer"] = {
         prompt: "写一段测试正文。",
         plotPoints: input.plotPoints ?? ["1"],

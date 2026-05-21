@@ -97,4 +97,16 @@ models:
             reasoningContentReplay: false,
         });
     });
+
+    it("支持配置 provider 请求超时时间", () => {
+        const config = parseAppConfigText(`
+models:
+  providers:
+    mimo:
+      options:
+        timeoutMs: 180000
+`);
+
+        expect(config.models.providers.mimo?.options.timeoutMs).toBe(180000);
+    });
 });

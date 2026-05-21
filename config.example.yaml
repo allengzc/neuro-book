@@ -52,6 +52,10 @@ models:
         baseURL: https://api.deepseek.com/v1
         # 如需代理，填写 http://127.0.0.1:7890 这类地址；留空表示不走代理。
         proxy: ""
+        # Provider HTTP 请求超时，单位毫秒；留空使用默认 180000。
+        timeoutMs: 180000
+        # OpenAI-compatible 请求体扩展参数，会并入 /chat/completions body。
+        requestOptions: {}
       models:
         deepseek-v4-flash:
           name: DeepSeek-V4-Flash
@@ -74,6 +78,8 @@ models:
         apiKey: ""
         baseURL: https://ark.cn-beijing.volces.com/api/v3
         proxy: ""
+        timeoutMs: 180000
+        requestOptions: {}
       models:
         doubao-seed-2-0-pro:
           name: Doubao Seed 2.0 Pro
@@ -88,6 +94,8 @@ models:
         apiKey: ""
         baseURL: ""
         proxy: ""
+        timeoutMs: 180000
+        requestOptions: {}
       models:
         gemini-3-pro-preview-maxthinking:
           name: Gemini 3 Pro Preview MaxThinking
@@ -102,6 +110,8 @@ models:
         apiKey: ""
         baseURL: https://dashscope.aliyuncs.com/compatible-mode/v1
         proxy: ""
+        timeoutMs: 180000
+        requestOptions: {}
       models:
         qwen3.6-plus:
           name: Qwen 3.6 Plus
@@ -116,6 +126,8 @@ models:
         apiKey: ""
         baseURL: https://api.siliconflow.cn/v1
         proxy: ""
+        timeoutMs: 180000
+        requestOptions: {}
       models:
         deepseek-ai/DeepSeek-V4-Flash:
           name: DeepSeek-V4-Flash
@@ -130,6 +142,9 @@ models:
         apiKey: ""
         baseURL: https://token-plan-cn.xiaomimimo.com/v1
         proxy: ""
+        timeoutMs: 180000
+        requestOptions:
+          store: false
       models:
         mimo-v2.5-pro:
           name: mimo-v2.5-pro

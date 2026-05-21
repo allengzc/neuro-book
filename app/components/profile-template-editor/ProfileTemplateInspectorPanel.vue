@@ -13,6 +13,7 @@ import type {
     SelectedPropEntry,
 } from "nbook/app/components/profile-template-editor/profile-template-editor-ui";
 import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
+import type {AgentProfileDetailDto, AgentProfileSchemaFieldDto} from "nbook/shared/dto/agent-profile.dto";
 import type {
     ProfileTemplateIssueDto,
     ProfileTemplateNodeDto,
@@ -46,6 +47,7 @@ const props = defineProps<{
     issueDetail: (issue: ProfileTemplateIssueDto) => string;
     formatVariableValue: (value: unknown) => string;
     isVariableGroupCollapsed: (group: string) => boolean;
+    profileDetail?: AgentProfileDetailDto | null;
 }>();
 
 const emit = defineEmits<{
@@ -61,7 +63,180 @@ const emit = defineEmits<{
     (e: "commit-message-text"): void;
     (e: "insert-variable", value: string): void;
     (e: "toggle-variable-group", group: string): void;
+    (e: "save-schema", payload: {schemaName: "InputSchema" | "OutputSchema"; fields: AgentProfileSchemaFieldDto[]}): void;
 }>();
+
+const schemaTypeOptions = [
+    {value: "string", label: "string"},
+    {value: "number", label: "number"},
+    {value: "boolean", label: "boolean"},
+    {value: "enum", label: "enum"},
+    {value: "array", label: "array"},
+    {value: "object", label: "object"},
+];
+const editingSchemaName = ref<"InputSchema" | "OutputSchema">("InputSchema");
+const schemaFields = ref<SchemaFieldDraft[]>([]);
+
+type SchemaFieldDraft = {
+    name: string;
+    type: AgentProfileSchemaFieldDto["type"];
+    required: boolean;
+    description: string;
+    defaultValueText: string;
+    enumValuesText: string;
+    itemType: AgentProfileSchemaFieldDto["type"];
+};
+
+watch(() => props.profileDetail, () => {
+    resetSchemaDraft();
+}, {immediate: true});
+
+watch(editingSchemaName, () => {
+    resetSchemaDraft();
+});
+
+/**
+ * 从 JSON Schema 初始化可编辑字段草稿。
+ */
+function resetSchemaDraft(): void {
+    const schema = editingSchemaName.value === "InputSchema"
+        ? props.profileDetail?.inputSchema.jsonSchema
+        : props.profileDetail?.outputSchema.jsonSchema;
+    schemaFields.value = schema ? fieldsFromJsonSchema(schema) : [];
+}
+
+/**
+ * 判断当前 schema 是否允许低代码保存。
+ */
+function canSaveSchema(): boolean {
+    const detail = editingSchemaName.value === "InputSchema"
+        ? props.profileDetail?.inputSchema
+        : props.profileDetail?.outputSchema;
+    return Boolean(detail && detail.editMode === "source");
+}
+
+/**
+ * 从 JSON Schema 读取第一版 builder 支持的对象字段。
+ */
+function fieldsFromJsonSchema(schema: Record<string, unknown>): SchemaFieldDraft[] {
+    const properties = isRecord(schema.properties) ? schema.properties : {};
+    const required = Array.isArray(schema.required) ? new Set(schema.required.filter((item): item is string => typeof item === "string")) : new Set<string>();
+    return Object.entries(properties).map(([name, value]) => {
+        const property = isRecord(value) ? value : {};
+        const type = readSchemaType(property);
+        return {
+            name,
+            type,
+            required: required.has(name),
+            description: typeof property.description === "string" ? property.description : "",
+            defaultValueText: property.default === undefined ? "" : JSON.stringify(property.default),
+            enumValuesText: Array.isArray(property.enum) ? property.enum.filter((item): item is string => typeof item === "string").join("\n") : "",
+            itemType: readSchemaType(isRecord(property.items) ? property.items : {}),
+        };
+    });
+}
+
+/**
+ * 读取 JSON Schema 类型标签。
+ */
+function readSchemaType(schema: Record<string, unknown>): AgentProfileSchemaFieldDto["type"] {
+    if (Array.isArray(schema.enum)) {
+        return "enum";
+    }
+    if (schema.type === "number" || schema.type === "integer") {
+        return "number";
+    }
+    if (schema.type === "boolean") {
+        return "boolean";
+    }
+    if (schema.type === "array") {
+        return "array";
+    }
+    if (schema.type === "object") {
+        return "object";
+    }
+    return "string";
+}
+
+/**
+ * 新增 schema 字段。
+ */
+function addSchemaField(): void {
+    schemaFields.value.push({
+        name: `field${schemaFields.value.length + 1}`,
+        type: "string",
+        required: false,
+        description: "",
+        defaultValueText: "",
+        enumValuesText: "",
+        itemType: "string",
+    });
+}
+
+/**
+ * 删除 schema 字段。
+ */
+function removeSchemaField(index: number): void {
+    schemaFields.value.splice(index, 1);
+}
+
+/**
+ * 保存当前 schema 草稿。
+ */
+function saveSchemaDraft(): void {
+    emit("save-schema", {
+        schemaName: editingSchemaName.value,
+        fields: schemaFields.value
+            .filter((field) => field.name.trim())
+            .map(toSchemaFieldDto),
+    });
+}
+
+/**
+ * 转成服务端 schema builder DTO。
+ */
+function toSchemaFieldDto(field: SchemaFieldDraft): AgentProfileSchemaFieldDto {
+    const result: AgentProfileSchemaFieldDto = {
+        name: field.name.trim(),
+        type: field.type,
+        required: field.required,
+    };
+    if (field.description.trim()) {
+        result.description = field.description.trim();
+    }
+    if (field.defaultValueText.trim()) {
+        result.defaultValue = parseDefaultValue(field.defaultValueText);
+    }
+    if (field.type === "enum") {
+        result.enumValues = field.enumValuesText.split("\n").map((item) => item.trim()).filter(Boolean);
+    }
+    if (field.type === "array") {
+        result.item = {
+            name: "item",
+            type: field.itemType,
+            required: true,
+        };
+    }
+    return result;
+}
+
+/**
+ * 解析默认值；简单裸字符串按字符串处理，合法 JSON 按 JSON 处理。
+ */
+function parseDefaultValue(value: string): AgentProfileSchemaFieldDto["defaultValue"] {
+    try {
+        return JSON.parse(value);
+    } catch {
+        return value;
+    }
+}
+
+/**
+ * 判断普通对象。
+ */
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
 </script>
 
 <template>
@@ -194,8 +369,65 @@ const emit = defineEmits<{
 
             <div v-else class="space-y-3">
                 <div class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 p-3 text-xs leading-5 text-[var(--text-secondary)]">
-                    <div class="mb-1 font-semibold text-[var(--text-main)]">Agent Profile 设置</div>
-                    <div>后续这里承载 InputSchema / OutputSchema、profile key、工具范围等结构化设置。</div>
+                    <div class="mb-2 font-semibold text-[var(--text-main)]">Agent Profile</div>
+                    <template v-if="props.profileDetail">
+                        <div class="profile-row"><span>key</span><code>{{ props.profileDetail.catalogItem.profileKey }}</code></div>
+                        <div class="profile-row"><span>kind</span><code>{{ props.profileDetail.catalogItem.kind ?? "unknown" }}</code></div>
+                        <div class="profile-row"><span>来源</span><code>{{ props.profileDetail.catalogItem.source }} / {{ props.profileDetail.catalogItem.overrideState }}</code></div>
+                        <div class="profile-row"><span>加载</span><code>{{ props.profileDetail.catalogItem.loadStatus }}</code></div>
+                        <div class="profile-row"><span>schema</span><code>{{ props.profileDetail.catalogItem.schemaLocked ? "builtin locked" : props.profileDetail.inputSchema.editMode }}</code></div>
+                    </template>
+                    <div v-else>当前模板不是动态 Agent Profile。</div>
+                </div>
+                <div v-if="props.profileDetail" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 p-3 text-xs leading-5 text-[var(--text-secondary)]">
+                    <div class="mb-2 font-semibold text-[var(--text-main)]">工具权限</div>
+                    <div v-if="props.profileDetail.allowedToolKeys.length" class="flex flex-wrap gap-1.5">
+                        <code v-for="toolKey in props.profileDetail.allowedToolKeys" :key="toolKey" class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-0.5">{{ toolKey }}</code>
+                    </div>
+                    <div v-else>未声明工具。</div>
+                </div>
+                <div v-if="props.profileDetail" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 p-3 text-xs leading-5 text-[var(--text-secondary)]">
+                    <div class="mb-2 font-semibold text-[var(--text-main)]">InputSchema</div>
+                    <div>{{ props.profileDetail.inputSchema.reason }}</div>
+                    <pre v-if="props.profileDetail.inputSchema.jsonSchema" class="schema-preview">{{ JSON.stringify(props.profileDetail.inputSchema.jsonSchema, null, 2) }}</pre>
+                </div>
+                <div v-if="props.profileDetail" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 p-3 text-xs leading-5 text-[var(--text-secondary)]">
+                    <div class="mb-2 flex items-center justify-between gap-2">
+                        <div class="font-semibold text-[var(--text-main)]">Schema Builder</div>
+                        <FormSelect v-model="editingSchemaName" class="w-36" :options="[{value: 'InputSchema', label: 'InputSchema'}, {value: 'OutputSchema', label: 'OutputSchema'}]" />
+                    </div>
+                    <div class="mb-3 text-[11px] text-[var(--text-muted)]">
+                        {{ editingSchemaName === "InputSchema" ? props.profileDetail.inputSchema.reason : props.profileDetail.outputSchema.reason }}
+                    </div>
+                    <div class="space-y-2">
+                        <div v-for="(field, index) in schemaFields" :key="index" class="schema-field-row">
+                            <div class="grid grid-cols-[minmax(0,1fr)_108px_74px_28px] gap-2">
+                                <FormInput v-model="field.name" placeholder="字段名" />
+                                <FormSelect v-model="field.type" :options="schemaTypeOptions" />
+                                <FormCheckbox v-model="field.required" label="必填" />
+                                <button type="button" class="schema-icon-btn" title="删除字段" @click="removeSchemaField(index)">
+                                    <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
+                                </button>
+                            </div>
+                            <FormInput v-model="field.description" placeholder="description，可选" />
+                            <FormTextarea v-if="field.type === 'enum'" v-model="field.enumValuesText" :rows="2" placeholder="enum 选项，每行一个" />
+                            <div v-if="field.type === 'array'" class="grid grid-cols-[80px_minmax(0,1fr)] items-center gap-2">
+                                <span class="text-[11px] text-[var(--text-muted)]">item</span>
+                                <FormSelect v-model="field.itemType" :options="schemaTypeOptions.filter((item) => item.value !== 'array' && item.value !== 'object')" />
+                            </div>
+                            <FormInput v-model="field.defaultValueText" placeholder="default，可选。支持 JSON 或裸字符串" />
+                        </div>
+                    </div>
+                    <div class="mt-3 flex items-center justify-between gap-2">
+                        <button type="button" class="schema-action-btn" @click="addSchemaField">
+                            <span class="i-lucide-plus h-3.5 w-3.5"></span>
+                            添加字段
+                        </button>
+                        <button type="button" class="schema-action-btn primary" :disabled="!canSaveSchema()" @click="saveSchemaDraft">
+                            <span class="i-lucide-save h-3.5 w-3.5"></span>
+                            保存 Schema
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -287,5 +519,81 @@ const emit = defineEmits<{
     background: color-mix(in srgb, var(--bg-input) 55%, transparent);
     color: var(--text-muted);
     font-size: 13px;
+}
+
+.profile-row {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+}
+
+.profile-row + .profile-row {
+    margin-top: 4px;
+}
+
+.schema-preview {
+    margin-top: 8px;
+    max-height: 260px;
+    overflow: auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    background: var(--bg-panel);
+    padding: 8px;
+    font-size: 11px;
+    line-height: 1.5;
+}
+
+.schema-field-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    background: color-mix(in srgb, var(--bg-panel) 72%, transparent);
+    padding: 8px;
+}
+
+.schema-icon-btn,
+.schema-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    background: var(--bg-input);
+    color: var(--text-secondary);
+    font-size: 12px;
+    transition: background-color 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.schema-icon-btn {
+    height: 28px;
+    width: 28px;
+}
+
+.schema-action-btn {
+    height: 30px;
+    padding: 0 10px;
+}
+
+.schema-action-btn.primary {
+    border-color: color-mix(in srgb, var(--accent-main) 42%, var(--border-color));
+    color: var(--accent-text);
+}
+
+.schema-action-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.schema-icon-btn:hover,
+.schema-action-btn:not(:disabled):hover {
+    border-color: var(--border-color-hover);
+    background: var(--bg-hover);
+    color: var(--accent-text);
 }
 </style>

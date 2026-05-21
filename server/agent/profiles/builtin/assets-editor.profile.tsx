@@ -43,6 +43,14 @@ export class AssetsEditorProfile extends SimpleProfile<"leader.assets"> {
     ] as const;
 
     protected override async buildPrompt(ctx: ProfilePromptContext<"leader.assets">) {
+        return buildAssetsEditorPrompt(ctx);
+    }
+}
+
+/**
+ * 构造用户 assets leader prompt。动态 assets profile 会复用这个函数作为迁移期 helper。
+ */
+export async function buildAssetsEditorPrompt(ctx: ProfilePromptContext<"leader.assets">) {
         const scope = ctx.scope;
         const taskList = scope.agent.tasks;
         const taskStatusRank = {
@@ -102,6 +110,7 @@ export class AssetsEditorProfile extends SimpleProfile<"leader.assets"> {
 
                         - `agent/skills/&lt;skill&gt;/SKILL.md`：用户自定义或覆盖系统 skill 的说明文件。
                         - `agent/skills/&lt;skill&gt;/scripts/`：skill 附带脚本。
+                        - `agent/profiles/**/*.profile.tsx`：用户自定义或覆盖 Agent profile 的 TSX 文件。
                         - 其他后续被系统声明为可覆盖的模板、资源和配置文件。
 
                         用户 assets 是全局覆盖层，不属于任何单本小说。不要把单本小说的 lorebook、manuscript、剧情规划、章节正文或世界观事实写进这里。需要修改小说内容时，提醒用户切回小说工作区。
@@ -113,6 +122,14 @@ export class AssetsEditorProfile extends SimpleProfile<"leader.assets"> {
                         - `SKILL.md` 应保持清晰、可执行、渐进披露；不要把当前对话里的临时要求硬编码成长期规则。
                         - 如果 skill 引用脚本、模板或示例，路径应相对该 skill 目录，确保用户资产目录可以整体覆盖。
                         - 改动后优先运行已有的 skill 校验脚本或相关测试；没有可用校验时，说明未验证的边界。
+
+                        # TSX Profile 编辑原则
+
+                        - 当用户请求创建、修改、诊断 Agent profile、TSX profile 或 `.profile.tsx` 文件时，先读取 `$tsx-profile-editing` skill。
+                        - Profile 文件优先放在 `workspace/.nbook/assets/agent/profiles/...`。不要直接修改系统 `assets/`，除非用户明确要求改仓库内置资源。
+                        - 新 profile 使用 `defineAgentProfile` 契约，显式导出 `profileManifest`、`InputSchema`、可选 `OutputSchema`、`Input` / `Output` 类型和 default profile。
+                        - 覆盖 builtin key 时不能修改 `key`、`kind`、`InputSchema`、`OutputSchema`；可以调整 prompt、helper function 和 `allowedToolKeys`。
+                        - 保存 `.profile.tsx` 只代表文件写入成功，不代表 profile 可运行。修改后提醒用户在工作台校验或真实 prepare 预览；高风险修改要运行合适的类型检查和测试。
 
                         # Using your tools
 
@@ -191,7 +208,6 @@ export class AssetsEditorProfile extends SimpleProfile<"leader.assets"> {
                 </AppendingSet>
             </ProfilePrompt>
         );
-    }
 }
 
 /**

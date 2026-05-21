@@ -1,3 +1,4 @@
+import type {AgentProfileCatalogItemDto} from "nbook/shared/dto/agent-profile.dto";
 import type {
     ProfileTemplateNodeType,
     ProfileTemplatePropValue,
@@ -25,6 +26,7 @@ export type SelectOption = {
     value: string;
     label: string;
     description?: string;
+    meta?: AgentProfileCatalogItemDto;
 };
 
 export type LibraryVariableItem = {

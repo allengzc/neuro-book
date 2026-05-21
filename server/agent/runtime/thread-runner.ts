@@ -3,6 +3,7 @@ import {AIMessage, AIMessageChunk, HumanMessage, SystemMessage, ToolMessage, isB
 import type {DynamicStructuredTool} from "@langchain/core/tools";
 import type {z} from "zod";
 import {createToolMessage, createToolResultMessage, normalizeToolMessageContent} from "nbook/server/agent/tools/shared/tool-message";
+import {normalizeModelMessages} from "nbook/server/agent/messages/codec";
 import type {AgentToolContext, AgentToolResult} from "nbook/server/agent/tools/agent-tool";
 import type {BoundAgentTool} from "nbook/server/agent/tools/tool-registry";
 import type {ModelProvider} from "nbook/server/agent/runtime/model-provider";
@@ -130,7 +131,7 @@ export class AgentThreadRunner {
         const messages = input.messages;
         for (let iteration = 0; iteration < MAX_REACT_ITERATIONS; iteration += 1) {
             throwIfAborted(input.signal);
-            const modelResult = yield* this.streamModelIteration(input.runnable, messages, input.signal);
+            const modelResult = yield* this.streamModelIteration(input.runnable, normalizeModelMessages(messages), input.signal);
             messages.push(modelResult.message);
             if (modelResult.toolCalls.length === 0) {
                 return;
@@ -596,10 +597,34 @@ function parseCompleteToolArgs(argsText: string): Record<string, unknown> | null
  * 为缺失 id 的 tool call 补齐稳定 id。
  */
 function normalizeToolCalls(toolCalls: ToolCall[]): ToolCall[] {
-    return toolCalls.map((toolCall) => ({
-        ...toolCall,
-        id: toolCall.id?.trim() ? toolCall.id : `tool-call-${crypto.randomUUID()}`,
-    }));
+    const seenIds = new Set<string>();
+    return toolCalls.map((toolCall, index) => {
+        const originalId = toolCall.id?.trim() ? toolCall.id : `tool-call-${crypto.randomUUID()}`;
+        const id = createUniqueRuntimeToolCallId(originalId, index, seenIds);
+        seenIds.add(id);
+        return {
+            ...toolCall,
+            id,
+        };
+    });
+}
+
+/**
+ * 生成单轮模型输出内唯一的 tool call id。
+ */
+function createUniqueRuntimeToolCallId(originalId: string, index: number, seenIds: Set<string>): string {
+    if (!seenIds.has(originalId)) {
+        return originalId;
+    }
+    const baseId = `${originalId}__call_${String(index + 1)}`;
+    if (!seenIds.has(baseId)) {
+        return baseId;
+    }
+    let suffix = 1;
+    while (seenIds.has(`${baseId}_${String(suffix)}`)) {
+        suffix += 1;
+    }
+    return `${baseId}_${String(suffix)}`;
 }
 
 /**

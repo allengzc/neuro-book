@@ -25,7 +25,7 @@ import AgentComposer from "nbook/app/components/novel-ide/agent/AgentComposer.vu
 import AgentSubagentPanel from "nbook/app/components/novel-ide/agent/AgentSubagentPanel.vue";
 import AgentThreadDialog from "nbook/app/components/novel-ide/agent/AgentThreadDialog.vue";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
-import type {ModelSettingsDto} from "nbook/shared/dto/app-settings.dto";
+import type {ModelSettingsDto, WorkspaceAgentProfileSettingsDto} from "nbook/shared/dto/app-settings.dto";
 
 type ThreadModelDraft = {
     modelKey: string | null;
@@ -70,6 +70,7 @@ let streamReadyPromise: Promise<void> | null = null;
 const editingMessageId = ref<string | null>(null);
 const messageActionId = ref<string | null>(null);
 const selectableModels = ref<ModelSettingsDto["enabledModels"]>([]);
+const resolvedLeaderProfileKey = ref("leader.default");
 const threadModelMode = ref<"default" | "override">("default");
 const threadModelDraft = ref<ThreadModelDraft>({
     modelKey: null,
@@ -83,6 +84,7 @@ const threadModelSaving = ref(false);
 const submittingUserInput = ref(false);
 const userInputSelectedAnswers = ref<Record<string, number[]>>({});
 const userInputNotes = ref<Record<string, string>>({});
+let leaderProfileResolveRequest = 0;
 
 const sanitizeHtml = ref<((html: string) => string) | null>(null);
 const session = useAgentThreadSession();
@@ -243,8 +245,12 @@ const buildClientVariables = (): ClientVariablesDto => {
 
 const agentApi = useAgentApi({getClientVariables: buildClientVariables});
 
-const leaderProfileKey = computed<"leader.default" | "leader.assets">(() => {
+const systemLeaderProfileKey = computed(() => {
     return ideStore.workspaceKind === "user-assets" ? "leader.assets" : "leader.default";
+});
+
+const leaderProfileKey = computed(() => {
+    return resolvedLeaderProfileKey.value || systemLeaderProfileKey.value;
 });
 
 /**
@@ -257,6 +263,44 @@ const loadSelectableModels = async (): Promise<void> => {
     } catch (error) {
         console.error("读取模型列表失败", error);
         selectableModels.value = [];
+    }
+};
+
+/**
+ * 当前 workspace settings API 查询参数。
+ */
+function profileSettingsQuery(): Record<string, string> {
+    if (ideStore.workspaceKind === "user-assets") {
+        return {workspaceKind: "user-assets"};
+    }
+    return {novelId: ideStore.currentNovelId};
+}
+
+/**
+ * 按当前 workspace 解析默认 leader profile。
+ */
+const loadResolvedLeaderProfileKey = async (): Promise<void> => {
+    const requestId = ++leaderProfileResolveRequest;
+    if (ideStore.workspaceKind !== "user-assets" && !ideStore.currentNovelId) {
+        if (requestId === leaderProfileResolveRequest) {
+            resolvedLeaderProfileKey.value = systemLeaderProfileKey.value;
+        }
+        return;
+    }
+    try {
+        const settings = await $fetch<WorkspaceAgentProfileSettingsDto>("/api/settings/workspace-agent-profiles", {
+            query: profileSettingsQuery(),
+        });
+        if (requestId !== leaderProfileResolveRequest) {
+            return;
+        }
+        resolvedLeaderProfileKey.value = settings.effectiveLeaderProfileKey || systemLeaderProfileKey.value;
+    } catch (error) {
+        if (requestId !== leaderProfileResolveRequest) {
+            return;
+        }
+        console.error("读取默认 leader profile 失败", error);
+        resolvedLeaderProfileKey.value = systemLeaderProfileKey.value;
     }
 };
 
@@ -412,7 +456,6 @@ function profileLabel(profileKey: string | undefined): string {
 function buildCreateThreadPayload(): CreateAgentThreadRequestDto {
     const modelOverride = threadModelMode.value === "override" ? buildThreadModelOverrideConfig() : null;
     return {
-        profileKey: leaderProfileKey.value,
         ...(modelOverride ? {modelOverride} : {}),
     };
 }
@@ -428,6 +471,7 @@ const ensureThreadReady = async (forceNew = false): Promise<void> => {
         return;
     }
     try {
+        await loadResolvedLeaderProfileKey();
         const threadsList = await agentApi.listThreads("leader", leaderProfileKey.value);
         threads.value = threadsList;
 
@@ -1247,6 +1291,7 @@ watch(() => props.isOpen, async (open) => {
     }
 
     await loadSelectableModels();
+    await loadResolvedLeaderProfileKey();
     await ensureThreadReady();
     await refreshThreads();
     await nextTick();
@@ -1274,6 +1319,10 @@ watch(leaderProfileKey, async () => {
     await refreshThreads();
 });
 
+watch(() => [ideStore.workspaceKind, ideStore.currentNovelId] as const, async () => {
+    await loadResolvedLeaderProfileKey();
+});
+
 onBeforeUnmount(() => {
     runAbortController.value?.abort();
     runStreamThreadId.value = null;
@@ -1285,6 +1334,7 @@ onMounted(() => {
             return;
         }
         await loadSelectableModels();
+        await loadResolvedLeaderProfileKey();
         const {default: createDOMPurify} = await import("dompurify");
         const purifier = createDOMPurify(window);
         sanitizeHtml.value = (html) => purifier.sanitize(html) as string;

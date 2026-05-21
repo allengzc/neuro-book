@@ -5,7 +5,7 @@ import {
     type ProfilePromptContext,
     type SimpleProfileTemplate,
 } from "nbook/server/agent/profiles/simple-profile";
-import type {AgentThreadKind, ProfileInput, ProfileKey, ProfileOutput, ToolKey} from "nbook/server/agent/types";
+import type {AgentThreadKind, JsonValue, ProfileInput, ProfileKey, ProfileOutput, ToolKey} from "nbook/server/agent/types";
 
 /**
  * 动态 profile manifest。
@@ -20,12 +20,16 @@ export type AgentProfileManifest<TKey extends string = string> = {
 /**
  * defineAgentProfile 输入。
  */
-export type DefineAgentProfileInput<TKey extends ProfileKey> = {
+export type DefineAgentProfileInput<
+    TKey extends ProfileKey,
+    TInput = ProfileInput<TKey>,
+    TOutput = ProfileOutput<TKey>,
+> = {
     manifest: AgentProfileManifest<TKey>;
-    inputSchema: ZodType<ProfileInput<TKey>>;
-    outputSchema?: ZodType<ProfileOutput<TKey>>;
+    inputSchema: ZodType<TInput>;
+    outputSchema?: ZodType<TOutput>;
     allowedToolKeys: readonly ToolKey[];
-    buildPrompt(ctx: ProfilePromptContext<TKey>): SimpleProfileTemplate | Promise<SimpleProfileTemplate>;
+    buildPrompt(ctx: ProfilePromptContext<TKey, TInput, TOutput>): SimpleProfileTemplate | Promise<SimpleProfileTemplate>;
 };
 
 const ManifestSchema = z.object({
@@ -38,10 +42,14 @@ const ManifestSchema = z.object({
 /**
  * 定义一个可动态加载的 SimpleProfile。
  */
-export function defineAgentProfile<TKey extends ProfileKey>(input: DefineAgentProfileInput<TKey>): SimpleProfile<TKey> {
+export function defineAgentProfile<
+    const TKey extends ProfileKey,
+    TInput = JsonValue,
+    TOutput = JsonValue | undefined,
+>(input: DefineAgentProfileInput<TKey, TInput, TOutput>): SimpleProfile<TKey, TInput, TOutput> {
     assertManifest(input.manifest);
 
-    return new class extends SimpleProfile<TKey> {
+    return new class extends SimpleProfile<TKey, TInput, TOutput> {
         readonly key = input.manifest.key;
         readonly kind = input.manifest.kind;
         readonly name = input.manifest.name;
@@ -49,7 +57,7 @@ export function defineAgentProfile<TKey extends ProfileKey>(input: DefineAgentPr
         override readonly outputSchema = input.outputSchema;
         readonly allowedToolKeys = input.allowedToolKeys;
 
-        protected override buildPrompt(ctx: ProfilePromptContext<TKey>) {
+        protected override buildPrompt(ctx: ProfilePromptContext<TKey, TInput, TOutput>) {
             return input.buildPrompt(ctx);
         }
     }();

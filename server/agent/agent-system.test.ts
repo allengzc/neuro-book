@@ -44,23 +44,16 @@ import type {
     SubAgentThreadSummary,
     ThreadSummary,
 } from "nbook/server/agent/types";
+import {LeaderInputSchema, WriterInputSchema} from "nbook/server/agent/types";
 
 class TestLeaderProfile extends AgentProfile<"leader.default"> {
     readonly key = "leader.default";
     readonly kind = "leader" as const;
     readonly name = "测试 Leader";
-    readonly inputSchema = z.union([
-        z.object({
-            mode: z.literal("prompt"),
-            prompt: z.string().min(1),
-        }),
-        z.object({
-            mode: z.literal("continue"),
-        }),
-    ]);
+    readonly inputSchema = LeaderInputSchema;
     readonly allowedToolKeys = [];
 
-    async prepare(_runtime: ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>) {
+    async prepare(_runtime: ProfileContextRuntime<"leader.default">) {
         return {
             modelMessages: [],
             persistedMessages: {
@@ -77,19 +70,10 @@ class TestWriterProfile extends AgentProfile<"subagent.writer"> {
     readonly key = "subagent.writer";
     readonly kind = "subagent" as const;
     readonly name = "测试 Writer";
-    readonly inputSchema = z.object({
-        prompt: z.string().min(1),
-        plotPoints: z.array(z.string()).min(1),
-        lorebookEntries: z.array(z.object({
-            path: z.string(),
-            priority: z.number().optional(),
-            reason: z.string().optional(),
-        })).min(1),
-        constraints: z.array(z.string()).optional(),
-    });
+    readonly inputSchema = WriterInputSchema;
     readonly allowedToolKeys = [];
 
-    async prepare(_runtime: ProfileContextRuntime<"subagent.writer", AgentProfile<"subagent.writer">>) {
+    async prepare(_runtime: ProfileContextRuntime<"subagent.writer">) {
         return {
             modelMessages: [],
             persistedMessages: {
@@ -174,10 +158,30 @@ class TestAssetsProfile extends AgentProfile<"leader.assets"> {
     readonly key = "leader.assets";
     readonly kind = "leader" as const;
     readonly name = "Assets";
-    readonly inputSchema = new TestLeaderProfile().inputSchema;
+    readonly inputSchema = LeaderInputSchema;
     readonly allowedToolKeys = [];
 
-    async prepare(_runtime: ProfileContextRuntime<"leader.assets", AgentProfile<"leader.assets">>) {
+    async prepare(_runtime: ProfileContextRuntime<"leader.assets">) {
+        return {
+            modelMessages: [],
+            persistedMessages: {
+                prepend: [],
+                append: [],
+            },
+            immediateMetadata: {},
+            completedMetadata: {},
+        };
+    }
+}
+
+class TestCustomLeaderProfile extends AgentProfile<"leader.custom"> {
+    readonly key = "leader.custom";
+    readonly kind = "leader" as const;
+    readonly name = "Custom";
+    readonly inputSchema = LeaderInputSchema;
+    readonly allowedToolKeys = [];
+
+    async prepare(_runtime: ProfileContextRuntime<"leader.custom">) {
         return {
             modelMessages: [],
             persistedMessages: {
@@ -312,6 +316,7 @@ function createAgentSystemHarness(leaderProfile: AgentProfile<"leader.default"> 
     const profileRegistry = new InMemoryAgentProfileRegistry();
     profileRegistry.register(leaderProfile);
     profileRegistry.register(new TestAssetsProfile());
+    profileRegistry.register(new TestCustomLeaderProfile());
     profileRegistry.register(new TestWriterProfile());
     const toolRegistry = new InMemoryAgentToolRegistry();
     const threadRepository = createThreadRepository();
@@ -334,7 +339,7 @@ function createAgentSystemHarness(leaderProfile: AgentProfile<"leader.default"> 
     const threadRunCoordinator = {
         runThread: vi.fn(async (
             _thread: AgentThreadRecord,
-            _runtime: ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>,
+            _runtime: ProfileContextRuntime<"leader.default">,
             _tools: unknown[],
             _session: unknown,
         ) => {}),
@@ -454,7 +459,7 @@ describe("AgentSystem", () => {
             turnsSinceReminder: 0,
             reminderCount: 0,
         }));
-        const runtime = vi.mocked(threadRunCoordinator.runThread).mock.calls[0]?.[1] as unknown as ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        const runtime = vi.mocked(threadRunCoordinator.runThread).mock.calls[0]?.[1] as unknown as ProfileContextRuntime<"leader.default">;
         expect(runtime.options.planModeReminder).toBe("full");
         expect(runtime.options.planModeCommitMetadata?.planMode).toEqual(expect.objectContaining({
             active: true,
@@ -557,7 +562,7 @@ describe("AgentSystem", () => {
         });
 
         const record = await threadRepository.findById(leader.id);
-        const runtime = vi.mocked(threadRunCoordinator.runThread).mock.calls[0]?.[1] as ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        const runtime = vi.mocked(threadRunCoordinator.runThread).mock.calls[0]?.[1] as ProfileContextRuntime<"leader.default">;
         const preparedRun = await runtime.profile.prepare(runtime);
 
         expect(record?.metadata.planMode).toEqual(expect.objectContaining({
@@ -646,7 +651,7 @@ describe("AgentSystem", () => {
             mode: "continue",
         });
 
-        const runtime = vi.mocked(threadRunCoordinator.runThread).mock.calls[0]?.[1] as ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        const runtime = vi.mocked(threadRunCoordinator.runThread).mock.calls[0]?.[1] as ProfileContextRuntime<"leader.default">;
         const preparedRun = await runtime.profile.prepare(runtime);
 
         expect(runtime.options.turn).toEqual({
@@ -706,7 +711,7 @@ describe("AgentSystem", () => {
             mode: "continue",
         });
 
-        const runtime = vi.mocked(threadRunCoordinator.runThread).mock.calls[0]?.[1] as ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        const runtime = vi.mocked(threadRunCoordinator.runThread).mock.calls[0]?.[1] as ProfileContextRuntime<"leader.default">;
 
         expect(runtime.options.turn).toEqual({
             kind: "new_user_turn",
@@ -758,7 +763,7 @@ describe("AgentSystem", () => {
             mode: "continue",
         });
 
-        const runtime = vi.mocked(threadRunCoordinator.runThread).mock.calls[0]?.[1] as ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        const runtime = vi.mocked(threadRunCoordinator.runThread).mock.calls[0]?.[1] as ProfileContextRuntime<"leader.default">;
         const record = await threadRepository.findById(leader.id);
 
         expect(runtime.options.planModeReminder).toBeUndefined();
@@ -808,7 +813,7 @@ describe("AgentSystem", () => {
             mode: "continue",
         });
 
-        const runtime = vi.mocked(threadRunCoordinator.runThread).mock.calls[0]?.[1] as ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        const runtime = vi.mocked(threadRunCoordinator.runThread).mock.calls[0]?.[1] as ProfileContextRuntime<"leader.default">;
 
         expect(runtime.options.planModeReminder).toBe("full");
     });
@@ -850,6 +855,25 @@ describe("AgentSystem", () => {
         );
     });
 
+    it("createSubAgentThread 会把 leader 的 studio novelId 继承给 subagent", async () => {
+        const {agentSystem, threadContext} = createAgentSystemHarness();
+        const leader = await agentSystem.createLeaderThread();
+        await agentSystem.syncClientVariables(leader.id, {
+            studio: {
+                novelId: "1",
+                workspace: "workspace/silver-dragon-hime",
+                workspaceKind: "novel",
+            },
+        });
+
+        const subagent = await agentSystem.createSubAgentThread({
+            leaderThreadId: leader.id,
+            profileKey: "subagent.writer",
+        });
+
+        expect(threadContext.inheritClientScope).toHaveBeenCalledWith(leader.id, subagent.id, expect.anything(), "subagent.writer");
+    });
+
     it("listThreads 走轻量 summary 补全，不会退化为 detail 查询", async () => {
         const {agentSystem, threadProjection} = createAgentSystemHarness();
         await agentSystem.createLeaderThread({
@@ -882,6 +906,43 @@ describe("AgentSystem", () => {
         expect(assetsThreads).toHaveLength(1);
         expect(assetsThreads[0]?.profileKey).toBe("leader.assets");
         expect(assetsThreads[0]?.title).toBe("Assets Leader");
+    });
+
+    it("createLeaderThread 未显式传 profileKey 时会读取 workspace 默认 profile", async () => {
+        const {agentSystem, threadContext} = createAgentSystemHarness();
+        const workspaceRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-agent-profile-settings-"));
+        await fs.mkdir(path.join(workspaceRoot, ".nbook"), {recursive: true});
+        await fs.writeFile(path.join(workspaceRoot, ".nbook", "agent-profile-settings.json"), JSON.stringify({
+            leader: {
+                defaultProfileKey: "leader.custom",
+            },
+        }), "utf-8");
+
+        try {
+            const leader = await agentSystem.createLeaderThread({
+                title: "Custom Leader",
+                clientVariables: {
+                    studio: {
+                        workspace: workspaceRoot,
+                        workspaceKind: "novel",
+                    },
+                },
+            });
+
+            expect(leader.profileKey).toBe("leader.custom");
+            expect(threadContext.syncClientVariables).toHaveBeenCalledWith(
+                leader.id,
+                expect.objectContaining({
+                    studio: expect.objectContaining({
+                        workspace: workspaceRoot,
+                    }),
+                }),
+                expect.objectContaining({profileKey: "leader.custom"}),
+                "leader.custom",
+            );
+        } finally {
+            await fs.rm(workspaceRoot, {recursive: true, force: true});
+        }
     });
 
     it("dispatchThreadRunById 会按线程类型分派到 leader 或 subagent", async () => {

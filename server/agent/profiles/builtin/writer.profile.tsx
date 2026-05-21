@@ -54,6 +54,14 @@ export class WriterProfile extends SimpleProfile<"subagent.writer"> {
     readonly inputSchema = WriterInputSchema;
 
     protected override async buildPrompt(ctx: ProfilePromptContext<"subagent.writer">) {
+        return buildWriterPrompt(ctx);
+    }
+}
+
+/**
+ * 构造 writer prompt。动态 assets profile 会复用这个函数作为迁移期 helper。
+ */
+export async function buildWriterPrompt(ctx: ProfilePromptContext<"subagent.writer">) {
         const input = ctx.input;
         const plotPointsText = await buildPlotPointsText(ctx.scope.studio.novelId, input.plotPoints);
         const lorebookText = await buildLorebookText(ctx.scope.studio.workspace ?? "", input.lorebookEntries);
@@ -256,7 +264,6 @@ export class WriterProfile extends SimpleProfile<"subagent.writer"> {
                 {appendingSet}
             </ProfilePrompt>
         );
-    }
 }
 
 /**

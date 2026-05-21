@@ -4,7 +4,6 @@ import path from "node:path";
 import {describe, expect, it} from "vitest";
 import {z} from "zod";
 import {AgentProfile} from "nbook/server/agent/profiles/agent-profile";
-import {ensureDefaultUserProfileTemplates} from "nbook/server/agent/profile-templates/profile-template-service";
 import {InMemoryAgentProfileRegistry} from "nbook/server/agent/profiles/profile-registry";
 import {LeaderDefaultProfile} from "nbook/server/agent/profiles/builtin/leader-default.profile";
 import type {ProfileContextRuntime} from "nbook/server/agent/profiles/profile-context";
@@ -19,7 +18,7 @@ class TestLeaderProfile extends AgentProfile<"leader.default"> {
     });
     readonly allowedToolKeys = [];
 
-    async prepare(_runtime: ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>) {
+    async prepare(_runtime: ProfileContextRuntime<"leader.default">) {
         return {
             modelMessages: [],
             persistedMessages: {
@@ -86,6 +85,26 @@ describe("InMemoryAgentProfileRegistry", () => {
         await expect(registry.get("leader.default")).rejects.toThrow("不允许修改 InputSchema");
     });
 
+    it("动态 profile 加载失败会进入 inspectDynamicProfiles", async () => {
+        const workspaceRoot = await createTempWorkspace();
+        await writeDynamicProfile(workspaceRoot, "workspace/.nbook/assets/agent/profiles/leader-default.profile.tsx", {
+            key: "leader.default",
+            kind: "leader",
+            name: "User Leader",
+            prompt: "bad schema",
+            inputSchemaSource: "z.object({task: z.string()})",
+        });
+        const registry = new InMemoryAgentProfileRegistry(workspaceRoot);
+        registry.register(new TestLeaderProfile());
+
+        const inspected = await registry.inspectDynamicProfiles();
+
+        expect(inspected.errors).toHaveLength(1);
+        expect(inspected.errors[0]?.profileKey).toBe("leader.default");
+        expect(inspected.errors[0]?.relativePath).toBe("leader-default.profile.tsx");
+        expect(inspected.errors[0]?.message).toContain("不允许修改 InputSchema");
+    });
+
     it("覆盖 builtin key 时允许复用等价 InputSchema 并保留 builtin schema 对象", async () => {
         const workspaceRoot = await createTempWorkspace();
         const builtinProfile = new TestLeaderProfile();
@@ -128,23 +147,15 @@ describe("InMemoryAgentProfileRegistry", () => {
         await expect(readPreparedSystemMessage(await registry.get("subagent.custom"))).resolves.toContain("second prompt");
     });
 
-    it("同步生成的默认 leader 用户 profile 可以覆盖源码 builtin", async () => {
-        const userProfilePath = path.resolve(process.cwd(), "workspace/.nbook/assets/agent/profiles/builtin/leader-default.profile.tsx");
-        const backup = await readOptionalFile(userProfilePath);
-        await fs.rm(userProfilePath, {force: true});
-        try {
-            await ensureDefaultUserProfileTemplates();
-            const builtinProfile = new LeaderDefaultProfile();
-            const registry = new InMemoryAgentProfileRegistry(process.cwd());
-            registry.register(builtinProfile);
+    it("系统 assets 的默认 leader profile 会覆盖静态 builtin contract", async () => {
+        const builtinProfile = new LeaderDefaultProfile();
+        const registry = new InMemoryAgentProfileRegistry(process.cwd());
+        registry.register(builtinProfile);
 
-            const profile = await registry.get("leader.default");
+        const profile = await registry.get("leader.default");
 
-            expect(profile.key).toBe("leader.default");
-            expect(profile.inputSchema).toBe(builtinProfile.inputSchema);
-        } finally {
-            await restoreOptionalFile(userProfilePath, backup);
-        }
+        expect(profile.key).toBe("leader.default");
+        expect(profile.inputSchema).toBe(builtinProfile.inputSchema);
     });
 });
 
@@ -206,32 +217,6 @@ async function writeDynamicProfileDependency(workspaceRoot: string, relativePath
 }
 
 /**
- * 读取可选文件内容。
- */
-async function readOptionalFile(filePath: string): Promise<string | null> {
-    try {
-        return await fs.readFile(filePath, "utf-8");
-    } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-            return null;
-        }
-        throw error;
-    }
-}
-
-/**
- * 还原可选文件。
- */
-async function restoreOptionalFile(filePath: string, content: string | null): Promise<void> {
-    if (content === null) {
-        await fs.rm(filePath, {force: true});
-        return;
-    }
-    await fs.mkdir(path.dirname(filePath), {recursive: true});
-    await fs.writeFile(filePath, content, "utf-8");
-}
-
-/**
  * 读取测试 profile 渲染出的 system message。
  */
 async function readPreparedSystemMessage(profile: AgentProfile<ProfileKey>): Promise<string> {
@@ -277,6 +262,6 @@ async function readPreparedSystemMessage(profile: AgentProfile<ProfileKey>): Pro
         messageStore: {} as never,
         threadRepository: {} as never,
         variableStore: {} as never,
-    } as unknown as ProfileContextRuntime<ProfileKey, AgentProfile<ProfileKey>>);
+    } as unknown as ProfileContextRuntime<ProfileKey>);
     return prepared.persistedMessages.prepend[0]?.message.text ?? "";
 }

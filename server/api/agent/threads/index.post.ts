@@ -1,3 +1,4 @@
+import {readClientVariablesHeader} from "nbook/server/agent/api";
 import {useAgentSystem, toAgentThreadSummaryDto} from "nbook/server/agent/http";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 import {CreateAgentThreadRequestDtoSchema} from "nbook/shared/dto/agent-chat.dto";
@@ -8,10 +9,14 @@ import {CreateAgentThreadRequestDtoSchema} from "nbook/shared/dto/agent-chat.dto
 export default defineEventHandler(async (event) => {
     const body = await validateBody(event, CreateAgentThreadRequestDtoSchema);
     const agentSystem = useAgentSystem();
-    const thread = await agentSystem.createLeaderThread(body);
+    const clientVariables = readClientVariablesHeader(event);
+    const thread = await agentSystem.createLeaderThread({
+        ...body,
+        clientVariables,
+    });
     const summaries = await agentSystem.listThreads({
         kind: "leader",
-        profileKey: body.profileKey ?? "leader.default",
+        profileKey: thread.profileKey,
     });
     const summary = summaries.find((item) => item.id === thread.id);
     if (!summary) {

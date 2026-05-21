@@ -461,7 +461,7 @@ async function createRuntime(input: {
     subagents?: readonly AgentSubagentVariables[];
     planModeReminder?: RunOptions["planModeReminder"];
     studioExtra?: JsonObject;
-}): Promise<ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>> {
+}): Promise<ProfileContextRuntime<"leader.default">> {
     const tasks: AgentTaskVariables | null = input.tasks === undefined ? {
         title: "推进剧情测试",
         updatedAt: "2026-05-05T00:00:00.000Z",

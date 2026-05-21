@@ -58,17 +58,38 @@ export type ProfileIngestPhase =
  * Profile ingest 输入。
  * messages 是即将写入历史的候选消息，profile 可以按阶段过滤或改写。
  */
-export type ProfileIngestInput<TKey extends ProfileKey> = {
-    runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>;
+export type ProfileIngestInput<
+    TKey extends ProfileKey,
+    TInput = ProfileInput<TKey>,
+    TOutput = ProfileOutput<TKey>,
+> = {
+    runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>;
     phase: ProfileIngestPhase;
     messages: AgentMessageCreateInput[];
+};
+
+/**
+ * 运行时列表和工具 schema 只需要读取 profile 元数据，不直接调用 prepare。
+ * 这里刻意和 AgentProfile 分离，避免动态 profile 把整个系统的 input/output 类型收窄打散。
+ */
+export type RuntimeAgentProfile = {
+    readonly key: ProfileKey;
+    readonly kind: AgentThreadKind;
+    readonly name: string;
+    readonly inputSchema: ZodType<unknown>;
+    readonly outputSchema?: ZodType<unknown>;
+    readonly allowedToolKeys: readonly ToolKey[];
 };
 
 /**
  * AgentProfile 最低层抽象。
  * 复杂 profile 可以完全掌控 prepare。
  */
-export abstract class AgentProfile<TKey extends ProfileKey> implements ProfileContext<TKey, AgentProfile<TKey>> {
+export abstract class AgentProfile<
+    TKey extends ProfileKey,
+    TInput = ProfileInput<TKey>,
+    TOutput = ProfileOutput<TKey>,
+> implements ProfileContext<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>> {
     /**
      * profile 唯一键。
      */
@@ -87,13 +108,13 @@ export abstract class AgentProfile<TKey extends ProfileKey> implements ProfileCo
     /**
      * profile 输入 schema。
      */
-    abstract readonly inputSchema: ZodType<ProfileInput<TKey>>;
+    abstract readonly inputSchema: ZodType<TInput>;
 
     /**
      * profile 结构化输出 schema。
      * 存在时，report_result.data 必须符合该结构。
      */
-    readonly outputSchema?: ZodType<ProfileOutput<TKey>>;
+    readonly outputSchema?: ZodType<TOutput>;
 
     /**
      * 当前 profile 允许调用的工具列表。
@@ -104,14 +125,14 @@ export abstract class AgentProfile<TKey extends ProfileKey> implements ProfileCo
      * 构造本次发送给模型的完整消息。
      */
     abstract prepare(
-        runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>,
+        runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>,
     ): Promise<PreparedProfileRun>;
 
     /**
      * 处理 ReAct loop 产物如何写回历史。
      * 默认透传；需要清洗错误工具结果、压缩中间轨迹时由具体 profile 覆盖。
      */
-    async ingest(input: ProfileIngestInput<TKey>): Promise<AgentMessageCreateInput[]> {
+    async ingest(input: ProfileIngestInput<TKey, TInput, TOutput>): Promise<AgentMessageCreateInput[]> {
         return input.messages;
     }
 }

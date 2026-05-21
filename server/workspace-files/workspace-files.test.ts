@@ -443,17 +443,19 @@ describe("workspace-files", () => {
 
     it("同步系统 assets 会补齐默认 leader profile 覆盖文件", async () => {
         const userProfilePath = path.join(USER_ASSETS_WORKSPACE_ROOT, "agent", "profiles", "builtin", "leader-default.profile.tsx");
+        const systemProfilePath = path.join("assets", "agent", "profiles", "builtin", "leader-default.profile.tsx");
         const backup = await backupOptionalFile(userProfilePath);
         await fs.rm(userProfilePath, {force: true});
 
         try {
             const result = await syncSystemAssetsToUserAssets();
             const content = await fs.readFile(userProfilePath, "utf-8");
+            const systemContent = await fs.readFile(systemProfilePath, "utf-8");
 
             expect(result.copied).toBeGreaterThan(0);
-            expect(content).toContain("class LeaderDefaultProfile");
-            expect(content).toContain("buildLeaderPrompt");
-            expect(content).toContain("export default new LeaderDefaultProfile()");
+            expect(content).toBe(systemContent);
+            expect(content).toContain("profileManifest");
+            expect(content).toContain("export default");
         } finally {
             await restoreOptionalFile(userProfilePath, backup);
         }

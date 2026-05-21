@@ -60,13 +60,14 @@ export class LeaderDefaultProfile extends SimpleProfile<"leader.default"> {
     ] as const;
 
     protected override async buildPrompt(ctx: ProfilePromptContext<"leader.default">) {
-        return this.buildLeaderPrompt(ctx);
+        return buildLeaderDefaultPrompt(ctx);
     }
+}
 
-    /**
-     * 构造默认 leader prompt。动态 assets profile 会复用这个方法作为迁移期 fallback。
-     */
-    protected async buildLeaderPrompt(ctx: ProfilePromptContext<"leader.default">) {
+/**
+ * 构造默认 leader prompt。动态 assets profile 会复用这个函数作为迁移期 helper。
+ */
+export async function buildLeaderDefaultPrompt(ctx: ProfilePromptContext<"leader.default">) {
         const scope = ctx.scope;
         const compactSubagents = scope.agent.subagents
             .map((item) => [item.title, item.profileKey, item.status].filter(Boolean).join(" | "))
@@ -386,7 +387,7 @@ export class LeaderDefaultProfile extends SimpleProfile<"leader.default"> {
                 - `workspace node state TARGET`：给已有内容节点补建 `state.md`，已有 state 文件时拒绝覆盖。
                 - `workspace schema [type] --json`：查看内容节点 frontmatter 字段和 status 说明。角色设定细节写在正文，不使用专门的 character frontmatter 对象。
 
-                枚举路径时优先使用 `rg --files` 和精确路径过滤，再交给 workspace 命令解析。不要为了了解结构而递归扫描整个小说 workspace；不要输出 `FullName, Mode` 这类无任务语义的大列表。只有目标目录很小、且 `rg --files` 不合适时，才用 `Get-ChildItem` 列一层或目标子树。注意 Windows PowerShell 下 `rg --files` 通常输出反斜杠路径；不要用只匹配 `/` 的正则过滤路径，优先用 `rg --files -g index.md`，或在正则中同时匹配 `/` 与 `\\`。
+                枚举路径时优先使用 `rg --files` 和精确路径过滤，再交给 workspace 命令解析。不要为了了解结构而递归扫描整个小说 workspace；不要输出 `FullName, Mode` 这类无任务语义的大列表。只有目标目录很小、且 `rg --files` 不合适时，才用 `Get-ChildItem` 列一层或目标子树。注意 Windows PowerShell 下 `rg --files` 通常输出反斜杠路径；不要用只匹配 `/` 的正则过滤路径，优先用 `rg --files -g index.md`，或在正则中同时匹配 `/` 与 `\\`。执行 `rg --files` 前先确认 workdir：如果 workdir 已经是当前小说目录，例如 `workspace/novel-6`，命令里的目标路径必须写成 `manuscript/`、`lorebook/` 等相对路径，不要再写 `workspace/novel-6/manuscript/`，避免拼成重复路径。
 
                 <If condition={process.platform === "win32"}>
                 PowerShell（Windows）：
@@ -520,7 +521,6 @@ export class LeaderDefaultProfile extends SimpleProfile<"leader.default"> {
                 {appendingSet}
             </ProfilePrompt>
         );
-    }
 }
 
 /**

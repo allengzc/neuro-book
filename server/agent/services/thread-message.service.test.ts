@@ -199,6 +199,35 @@ describe("ThreadMessageService", () => {
         expect(messages).toHaveLength(1);
         expect((messages[0] as ToolMessage).tool_call_id).toBe("call-2");
         expect((messages[0] as ToolMessage).status).toBe("error");
+        expect(appendMessages.mock.calls[0]?.[1].messages[0]?.id).toBeUndefined();
+    });
+
+    it("工具结果落盘不会把 provider tool_call_id 当作消息主键", async () => {
+        const appendMessages = vi.fn<AgentMessageStore["appendMessages"]>(async (_threadId, input: AgentMessageAppendInput) => {
+            return input.messages.map((message, index) => createPersistedInput(message, index));
+        });
+        const service = new ThreadMessageService({
+            appendMessages,
+        } as unknown as AgentMessageStore);
+
+        await service.persistToolMessage("thread-1", new ToolMessage({
+            id: "call-1",
+            content: "第一次",
+            tool_call_id: "call-1",
+        }), "success");
+        await service.persistToolMessage("thread-1", new ToolMessage({
+            id: "call-1",
+            content: "第二次",
+            tool_call_id: "call-1",
+        }), "success");
+
+        const persistedInputs = appendMessages.mock.calls.flatMap((call) => call[1].messages);
+        expect(persistedInputs).toHaveLength(2);
+        expect(persistedInputs.map((message) => message.id)).toEqual([undefined, undefined]);
+        expect(persistedInputs.map((message) => (message.message as ToolMessage).tool_call_id)).toEqual([
+            "call-1",
+            "call-1",
+        ]);
     });
 
     it("失败时会保留已有 assistant 文本并追加错误消息", async () => {

@@ -1,4 +1,4 @@
-import {mkdir, readdir, readFile, writeFile} from "node:fs/promises";
+import {mkdir, readdir, readFile, stat, writeFile} from "node:fs/promises";
 import {createRequire} from "node:module";
 import path, {basename, resolve} from "node:path";
 import {createError} from "h3";
@@ -6,6 +6,7 @@ import type * as TypeScript from "typescript";
 import {z, type ZodType} from "zod";
 import type {AgentProfile} from "nbook/server/agent/profiles/agent-profile";
 import type {
+    CreateUserProfileTemplateRequestDto,
     ProfileTemplateExpressionValue,
     ProfileTemplateDetailDto,
     ProfileTemplateIssueDto,
@@ -17,6 +18,7 @@ import type {
     ProfileTemplateVariableGroupDto,
     ProfileTemplateVariableItemDto,
 } from "nbook/shared/dto/profile-template.dto";
+import type {AgentProfileSchemaFieldDto} from "nbook/shared/dto/agent-profile.dto";
 import {
     AgentTaskListSchema,
     type AgentVariableScope,
@@ -28,7 +30,6 @@ const TEMPLATE_DIR = resolve(process.cwd(), "server/agent/profiles/templates");
 const USER_PROFILE_DIR = resolve(process.cwd(), "workspace/.nbook/assets/agent/profiles");
 const SYSTEM_PROFILE_DIR = resolve(process.cwd(), "assets/agent/profiles");
 const BUILTIN_LEADER_PROFILE_FILE = "builtin/leader-default.profile.tsx";
-const BUILTIN_LEADER_SOURCE_PATH = resolve(process.cwd(), "server/agent/profiles/builtin/leader-default.profile.tsx");
 const require = createRequire(import.meta.url);
 const ts = require("typescript") as typeof TypeScript;
 const JsonObjectSchema = z.record(z.string(), z.json());
@@ -150,6 +151,56 @@ export async function listUserProfileTemplates(): Promise<ProfileTemplateSummary
 }
 
 /**
+ * 读取用户 assets profile 根目录。
+ */
+export function userProfileRoot(): string {
+    return USER_PROFILE_DIR;
+}
+
+/**
+ * 读取系统 assets profile 根目录。
+ */
+export function systemProfileRoot(): string {
+    return SYSTEM_PROFILE_DIR;
+}
+
+/**
+ * 公开 profile 文件路径归一化，供 profile catalog 复用同一越界规则。
+ */
+export function normalizeUserProfileFilePath(filePath: string): string {
+    return normalizeProfileFilePath(filePath);
+}
+
+/**
+ * 公开读取用户 profile 源码。
+ */
+export async function readUserProfileTemplateSource(filePath: string): Promise<string> {
+    return readFile(resolveUserProfilePath(normalizeProfileFilePath(filePath)), "utf-8");
+}
+
+/**
+ * 公开读取系统 profile 源码。
+ */
+export async function readSystemProfileTemplateSource(filePath: string): Promise<string> {
+    return readFile(resolveSystemProfilePath(normalizeProfileFilePath(filePath)), "utf-8");
+}
+
+/**
+ * 判断用户 assets 中是否存在某个 profile 文件。
+ */
+export async function userProfileTemplateExists(filePath: string): Promise<boolean> {
+    try {
+        const fileStat = await stat(resolveUserProfilePath(normalizeProfileFilePath(filePath)));
+        return fileStat.isFile();
+    } catch (error) {
+        if (isMissingPathError(error)) {
+            return false;
+        }
+        throw error;
+    }
+}
+
+/**
  * 确保用户 assets 中存在默认 leader profile 覆盖文件。
  */
 export async function ensureDefaultUserProfileTemplates(): Promise<"copied" | "skipped"> {
@@ -167,6 +218,20 @@ export async function ensureDefaultUserProfileTemplates(): Promise<"copied" | "s
         }
         throw error;
     }
+}
+
+/**
+ * 在用户 assets 中创建一个新的动态 profile。
+ */
+export async function createUserProfileTemplate(input: CreateUserProfileTemplateRequestDto): Promise<ProfileTemplateDetailDto> {
+    const normalizedInput = normalizeNewProfileInput(input);
+    const absolutePath = resolveUserProfilePath(normalizedInput.fileName);
+    await mkdir(path.dirname(absolutePath), {recursive: true});
+    await writeFile(absolutePath, generateUserProfileSource(normalizedInput), {
+        encoding: "utf-8",
+        flag: "wx",
+    });
+    return readUserProfileTemplate(normalizedInput.fileName);
 }
 
 /**
@@ -237,7 +302,7 @@ export async function saveUserProfileTemplate(filePath: string, input: {
     const previousSource = input.source === undefined ? await readFile(absolutePath, "utf-8") : "";
     const source = input.source ?? replacePromptTemplateRoot(previousSource, input.root);
     const parsed = parseProfileTemplateSource(source);
-    if (parsed.issues.some((issue) => issue.severity === "error")) {
+    if (input.root && parsed.issues.some((issue) => issue.severity === "error")) {
         throw createError({
             statusCode: 400,
             message: "profile 校验失败",
@@ -257,6 +322,27 @@ export async function restoreUserProfileTemplate(filePath: string): Promise<Prof
     const targetPath = resolveUserProfilePath(normalizedPath);
     await mkdir(path.dirname(targetPath), {recursive: true});
     await writeFile(targetPath, await readSystemProfileTemplateSource(normalizedPath), "utf-8");
+    return readUserProfileTemplate(normalizedPath);
+}
+
+/**
+ * 局部替换用户 profile 的 InputSchema 或 OutputSchema 声明。
+ */
+export async function updateUserProfileSchema(filePath: string, schemaName: "InputSchema" | "OutputSchema", fields: AgentProfileSchemaFieldDto[]): Promise<ProfileTemplateDetailDto> {
+    const normalizedPath = normalizeProfileFilePath(filePath);
+    const absolutePath = resolveUserProfilePath(normalizedPath);
+    const previousSource = await readFile(absolutePath, "utf-8");
+    const sourceRange = findExportedConstInitializerRange(previousSource, schemaName);
+    if (!sourceRange) {
+        throw createError({
+            statusCode: 400,
+            message: `未找到 export const ${schemaName} = ... 声明，只能源码编辑。`,
+        });
+    }
+
+    const schemaSource = generateZodObjectSchemaSource(fields);
+    const nextSource = ensureZodImport(`${previousSource.slice(0, sourceRange.start)}${schemaSource}${previousSource.slice(sourceRange.end)}`);
+    await writeFile(absolutePath, nextSource, "utf-8");
     return readUserProfileTemplate(normalizedPath);
 }
 
@@ -403,6 +489,128 @@ function normalizeProfileFilePath(filePath: string): string {
 }
 
 /**
+ * 规范化新建 profile 的参数。
+ */
+function normalizeNewProfileInput(input: CreateUserProfileTemplateRequestDto): CreateUserProfileTemplateRequestDto & {fileName: string} {
+    const profileKey = input.profileKey.trim();
+    const kind = input.kind;
+    if (!profileKey.startsWith(`${kind}.`)) {
+        throw createError({statusCode: 400, message: `profileKey 必须以 ${kind}. 开头`});
+    }
+    if (["leader.default", "leader.assets", "subagent.writer", "subagent.retrieval"].includes(profileKey)) {
+        throw createError({statusCode: 400, message: "不能通过新建入口覆盖 builtin profile，请先从系统版本复制或恢复。"});
+    }
+    const defaultFileName = `${profileKey.replace(/\./g, "/")}.profile.tsx`;
+    return {
+        ...input,
+        profileKey,
+        name: input.name.trim(),
+        description: input.description?.trim() || undefined,
+        prompt: input.prompt.trim(),
+        fileName: normalizeProfileFilePath(input.fileName || defaultFileName),
+    };
+}
+
+/**
+ * 生成新动态 profile 的标准 TSX 骨架。
+ */
+function generateUserProfileSource(input: CreateUserProfileTemplateRequestDto & {fileName: string}): string {
+    const inputSchemaSource = input.kind === "leader"
+        ? "LeaderInputSchema"
+        : "z.object({\n    prompt: z.string().trim().min(1, \"prompt 不能为空\").describe(\"交给该 subagent 的任务说明。\"),\n})";
+    const allowedToolKeys = input.kind === "leader"
+        ? [
+            "request_user_input",
+            "skill",
+            "task_create",
+            "task_set_status",
+            "execute_shell",
+            "read_file",
+            "edit_file",
+            "apply_patch",
+            "write_file",
+            "report_result",
+        ]
+        : [
+            "read_file",
+            "edit_file",
+            "apply_patch",
+            "write_file",
+            "report_result",
+        ];
+
+    return [
+        "/** @jsxRuntime automatic */",
+        "/** @jsxImportSource nbook/server/agent/prompts */",
+        "",
+        "import {z} from \"zod\";",
+        "import {Message} from \"nbook/server/agent/prompts\";",
+        ...(input.kind === "leader" ? ["import {LeaderInputSchema} from \"nbook/server/agent/types\";"] : []),
+        "import {defineAgentProfile} from \"nbook/server/agent/profiles/define-agent-profile\";",
+        "import {AppendingSet, DynamicSet, HistorySet, ProfilePrompt, SkillCatalog} from \"nbook/server/agent/profiles/simple-profile\";",
+        "",
+        "export const profileManifest = {",
+        `    key: ${JSON.stringify(input.profileKey)},`,
+        `    kind: ${JSON.stringify(input.kind)},`,
+        `    name: ${JSON.stringify(input.name)},`,
+        ...(input.description ? [`    description: ${JSON.stringify(input.description)},`] : []),
+        "} as const;",
+        "",
+        "export const InputSchema = " + inputSchemaSource + ";",
+        "export const OutputSchema = undefined;",
+        "",
+        "export type Input = z.infer<typeof InputSchema>;",
+        "export type Output = undefined;",
+        "",
+        "export default defineAgentProfile<typeof profileManifest.key, Input, Output>({",
+        "    manifest: profileManifest,",
+        "    inputSchema: InputSchema,",
+        "    allowedToolKeys: [",
+        ...allowedToolKeys.map((toolKey) => `        ${JSON.stringify(toolKey)},`),
+        "    ],",
+        "    async buildPrompt(ctx) {",
+        "        const input = ctx.input;",
+        "",
+        "        return (",
+        "            <ProfilePrompt>",
+        "                <HistorySet>",
+        "                    <Message role=\"system\">",
+        input.prompt
+            .split("\n")
+            .map((line) => `                        {${JSON.stringify(line)}}`)
+            .join("\n                        {\"\\n\"}\n"),
+        "                    </Message>",
+        "                    {ctx.skillCatalogText ? (",
+        "                        <Message role=\"system\">",
+        "                            <SkillCatalog text={ctx.skillCatalogText} />",
+        "                        </Message>",
+        "                    ) : null}",
+        "                </HistorySet>",
+        "                <DynamicSet />",
+        "                <AppendingSet>",
+        ...(input.kind === "leader"
+            ? [
+                "                    {\"prompt\" in input ? (",
+                "                        <Message role=\"human\" source=\"input\">",
+                "                            {input.prompt}",
+                "                        </Message>",
+                "                    ) : null}",
+            ]
+            : [
+                "                    <Message role=\"human\" source=\"input\">",
+                "                        {input.prompt}",
+                "                    </Message>",
+            ]),
+        "                </AppendingSet>",
+        "            </ProfilePrompt>",
+        "        );",
+        "    },",
+        "});",
+        "",
+    ].join("\n");
+}
+
+/**
  * 返回用户 assets profile 绝对路径。
  */
 function resolveUserProfilePath(filePath: string): string {
@@ -417,20 +625,6 @@ function resolveSystemProfilePath(filePath: string): string {
 }
 
 /**
- * 读取系统 profile 源码。leader.default 在迁移期来自源码 builtin fallback。
- */
-async function readSystemProfileTemplateSource(filePath: string): Promise<string> {
-    if (filePath === BUILTIN_LEADER_PROFILE_FILE) {
-        const source = await readFile(BUILTIN_LEADER_SOURCE_PATH, "utf-8");
-        if (source.includes("export default new LeaderDefaultProfile()")) {
-            return source;
-        }
-        return `${source.trimEnd()}\n\nexport default new LeaderDefaultProfile();\n`;
-    }
-    return readFile(resolveSystemProfilePath(filePath), "utf-8");
-}
-
-/**
  * 解析 profile 路径并确认仍在根目录内。
  */
 function resolveProfilePath(root: string, filePath: string): string {
@@ -439,6 +633,118 @@ function resolveProfilePath(root: string, filePath: string): string {
         throw createError({statusCode: 400, message: "非法 profile 文件路径"});
     }
     return absolutePath;
+}
+
+/**
+ * 定位 `export const InputSchema = ...` 的 initializer。
+ */
+function findExportedConstInitializerRange(source: string, constName: string): SourceRange | null {
+    const sourceFile = ts.createSourceFile("profile.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    let found: SourceRange | null = null;
+    const visit = (node: TypeScript.Node): void => {
+        if (found) {
+            return;
+        }
+        if (ts.isVariableStatement(node) && hasExportModifier(node)) {
+            for (const declaration of node.declarationList.declarations) {
+                if (ts.isIdentifier(declaration.name) && declaration.name.text === constName && declaration.initializer) {
+                    found = {
+                        start: declaration.initializer.getStart(sourceFile),
+                        end: declaration.initializer.getEnd(),
+                    };
+                    return;
+                }
+            }
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    return found;
+}
+
+/**
+ * 判断节点是否带 export 修饰符。
+ */
+function hasExportModifier(node: TypeScript.Node): boolean {
+    return Boolean(ts.getCombinedModifierFlags(node as TypeScript.Declaration) & ts.ModifierFlags.Export);
+}
+
+/**
+ * 生成 schema builder 支持子集对应的 Zod object 源码。
+ */
+function generateZodObjectSchemaSource(fields: AgentProfileSchemaFieldDto[]): string {
+    if (fields.length === 0) {
+        return "z.object({})";
+    }
+    return [
+        "z.object({",
+        ...fields.map((field) => `    ${JSON.stringify(field.name)}: ${generateZodFieldSource(field)},`),
+        "})",
+    ].join("\n");
+}
+
+/**
+ * 生成单个字段的 Zod 源码。
+ */
+function generateZodFieldSource(field: AgentProfileSchemaFieldDto): string {
+    let source = generateZodRequiredFieldSource(field);
+    if (field.description) {
+        source += `.describe(${JSON.stringify(field.description)})`;
+    }
+    if (field.defaultValue !== undefined) {
+        source += `.default(${JSON.stringify(field.defaultValue)})`;
+    }
+    if (!field.required && field.defaultValue === undefined) {
+        source += ".optional()";
+    }
+    return source;
+}
+
+/**
+ * 生成字段 required 部分的 Zod 源码。
+ */
+function generateZodRequiredFieldSource(field: AgentProfileSchemaFieldDto): string {
+    if (field.type === "string") {
+        return "z.string()";
+    }
+    if (field.type === "number") {
+        return "z.number()";
+    }
+    if (field.type === "boolean") {
+        return "z.boolean()";
+    }
+    if (field.type === "enum") {
+        const enumValues = [...new Set(field.enumValues ?? [])].filter(Boolean);
+        if (enumValues.length === 0) {
+            throw createError({statusCode: 400, message: `枚举字段 ${field.name} 至少需要一个选项`});
+        }
+        if (enumValues.length === 1) {
+            return `z.literal(${JSON.stringify(enumValues[0])})`;
+        }
+        return `z.enum([${enumValues.map((value) => JSON.stringify(value)).join(", ")}])`;
+    }
+    if (field.type === "array") {
+        const item = field.item ?? {
+            name: "item",
+            type: "string",
+            required: true,
+        } satisfies AgentProfileSchemaFieldDto;
+        return `z.array(${generateZodRequiredFieldSource(item)})`;
+    }
+    if (field.type === "object") {
+        return generateZodObjectSchemaSource(field.fields ?? []);
+    }
+    throw createError({statusCode: 400, message: `不支持的 schema 字段类型：${field.type}`});
+}
+
+/**
+ * schema builder 生成 z.xxx，因此目标文件必须有 z import。
+ */
+function ensureZodImport(source: string): string {
+    if (/import\s+\{[^}]*\bz\b[^}]*\}\s+from\s+["']zod["'];?/u.test(source)) {
+        return source;
+    }
+    return `import {z} from "zod";\n${source}`;
 }
 
 /**
@@ -548,6 +854,10 @@ function findReturnedJsx(root: TypeScript.Node): TypeScript.Expression | null {
 function findBuildPromptLikeFunctions(sourceFile: TypeScript.SourceFile): TypeScript.Node[] {
     const found: TypeScript.Node[] = [];
     const visit = (node: TypeScript.Node): void => {
+        if (ts.isFunctionDeclaration(node) && node.body && node.name && isPromptBuilderName(node.name.getText(sourceFile))) {
+            found.push(node.body);
+            return;
+        }
         if (ts.isMethodDeclaration(node) && node.body && isPromptBuilderName(node.name.getText(sourceFile))) {
             found.push(node.body);
             return;
@@ -570,7 +880,7 @@ function findBuildPromptLikeFunctions(sourceFile: TypeScript.SourceFile): TypeSc
  * 动态 profile 中可承载 ProfilePrompt 的构造入口名。
  */
 function isPromptBuilderName(name: string): boolean {
-    return name === "buildPrompt" || name === "buildLeaderPrompt";
+    return ["buildPrompt", "buildLeaderPrompt", "buildLeaderDefaultPrompt", "buildAssetsEditorPrompt", "buildWriterPrompt", "buildRetrievalPrompt"].includes(name);
 }
 
 /**

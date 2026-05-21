@@ -104,8 +104,8 @@ function createDefaultScope(): MutableAgentVariableScope {
  * 克隆为只读 scope。
  * 这里通过 unknown 做泛型桥接：运行时 scope 已由 setAgent/setInput 保证和 TKey 对齐。
  */
-function cloneReadonlyScope<TKey extends ProfileKey = ProfileKey>(scope: MutableAgentVariableScope): AgentVariableScope<TKey> {
-    return structuredClone(scope) as unknown as AgentVariableScope<TKey>;
+function cloneReadonlyScope<TKey extends ProfileKey = ProfileKey, TInput = ProfileInput<TKey>>(scope: MutableAgentVariableScope): AgentVariableScope<TKey, TInput> {
+    return structuredClone(scope) as unknown as AgentVariableScope<TKey, TInput>;
 }
 
 /**
@@ -118,8 +118,8 @@ export class AgentVariableStore {
     /**
      * 读取当前线程的变量快照。
      */
-    getScope<TKey extends ProfileKey>(threadId: ThreadId): AgentVariableScope<TKey> {
-        return cloneReadonlyScope<TKey>(this.ensureScope(threadId));
+    getScope<TKey extends ProfileKey, TInput = ProfileInput<TKey>>(threadId: ThreadId): AgentVariableScope<TKey, TInput> {
+        return cloneReadonlyScope<TKey, TInput>(this.ensureScope(threadId));
     }
 
     /**
@@ -146,19 +146,19 @@ export class AgentVariableStore {
     /**
      * 覆盖当前线程的输入快照。
      */
-    setInput<TKey extends ProfileKey>(threadId: ThreadId, input: ProfileInput<TKey>): AgentVariableScope<TKey> {
+    setInput<TKey extends ProfileKey, TInput = ProfileInput<TKey>>(threadId: ThreadId, input: TInput): AgentVariableScope<TKey, TInput> {
         const scope = this.ensureScope(threadId);
         scope.input = structuredClone(input) as ProfileInput<ProfileKey>;
-        return cloneReadonlyScope<TKey>(scope);
+        return cloneReadonlyScope<TKey, TInput>(scope);
     }
 
     /**
      * 覆盖当前线程的 agent 命名空间。
      */
-    setAgent<TKey extends ProfileKey>(threadId: ThreadId, agent: AgentVariables<TKey>): AgentVariableScope<TKey> {
+    setAgent<TKey extends ProfileKey, TInput = ProfileInput<TKey>>(threadId: ThreadId, agent: AgentVariables<TKey>): AgentVariableScope<TKey, TInput> {
         const scope = this.ensureScope(threadId);
         scope.agent = structuredClone(agent) as AgentVariables;
-        return cloneReadonlyScope<TKey>(scope);
+        return cloneReadonlyScope<TKey, TInput>(scope);
     }
 
     /**

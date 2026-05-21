@@ -2,7 +2,7 @@ import type {BaseMessage} from "@langchain/core/messages";
 import {tool, type DynamicStructuredTool} from "@langchain/core/tools";
 import {z, type ZodError} from "zod";
 import type {AgentToolGateway} from "nbook/server/agent/contracts";
-import type {AgentProfile} from "nbook/server/agent/profiles/agent-profile";
+import type {RuntimeAgentProfile} from "nbook/server/agent/profiles/agent-profile";
 import {createToolMessage, createToolResultMessage, normalizeToolMessageContent} from "nbook/server/agent/tools/shared/tool-message";
 import type {AgentVariableScope, JsonObject, JsonValue, ProfileKey, RunOptions, ThreadId, ToolKey} from "nbook/server/agent/types";
 
@@ -13,7 +13,7 @@ export type AgentToolContext = {
     agentGateway: AgentToolGateway;
     threadId: ThreadId;
     profileKey: ProfileKey;
-    profile: AgentProfile<ProfileKey>;
+    profile: RuntimeAgentProfile;
     runOptions: RunOptions;
     /**
      * 向当前 tool 节点写入输出增量。

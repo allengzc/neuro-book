@@ -112,9 +112,7 @@ export class ThreadMessageService {
         ingest?: ThreadMessageIngest,
     ): Promise<void> {
         const messages = await this.ingestMessages("tool_result", [
-            toAgentMessageCreateInput(message, {
-                id: message.id || message.additional_kwargs.messageId as string | undefined,
-            }),
+            toAgentMessageCreateInput(message),
         ], ingest);
         if (messages.length === 0) {
             return;
@@ -373,9 +371,7 @@ export class ThreadMessageService {
                     assistantMessageId: tool.assistantMessageId,
                     toolName: tool.toolName,
                     result: createToolResultMessage(content, tool.argsText, status),
-                }), {
-                    id: toolCallId,
-                });
+                }));
             });
     }
 

@@ -2,6 +2,10 @@ import type {BaseMessage, StoredMessage} from "@langchain/core/messages";
 import {z} from "zod";
 import type {AgentThread as PrismaAgentThread} from "nbook/server/generated/prisma/client";
 import type {RetrievalProfileInput, RetrievalProfileOutput} from "nbook/server/agent/profiles/builtin/retrieval.contract";
+import type {
+    DynamicProfileInputMap,
+    DynamicProfileOutputMap,
+} from "nbook/server/agent/profiles/dynamic-profile-types.generated";
 export {
     RetrievalInputSchema,
     RetrievalOutputSchema,
@@ -30,6 +34,7 @@ export type ThreadId = string;
 /**
  * profile 唯一键。
  */
+export type KnownProfileKey = keyof ProfileInputMap;
 export type BuiltinProfileKey = keyof BuiltinProfileInputMap;
 export type ProfileKey = BuiltinProfileKey | (string & {});
 
@@ -516,12 +521,12 @@ export type BuiltinProfileInputMap = {
  * profile 输入映射。
  * 动态 profile 运行时通过 Zod 校验；静态映射只保留 builtin contract。
  */
-export type ProfileInputMap = BuiltinProfileInputMap;
+export type ProfileInputMap = BuiltinProfileInputMap & DynamicProfileInputMap;
 
 /**
  * 根据 profileKey 解析输入类型。
  */
-export type ProfileInput<TKey extends ProfileKey> = TKey extends BuiltinProfileKey ? ProfileInputMap[TKey] : JsonValue;
+export type ProfileInput<TKey extends ProfileKey> = TKey extends keyof ProfileInputMap ? ProfileInputMap[TKey] : JsonValue;
 
 /**
  * profile 输出映射。
@@ -537,12 +542,12 @@ export type BuiltinProfileOutputMap = {
  * profile 输出映射。
  * 动态 profile 的精确类型由后续 prepare 生成的类型增强提供。
  */
-export type ProfileOutputMap = BuiltinProfileOutputMap;
+export type ProfileOutputMap = BuiltinProfileOutputMap & DynamicProfileOutputMap;
 
 /**
  * 根据 profileKey 解析输出类型。
  */
-export type ProfileOutput<TKey extends ProfileKey> = TKey extends BuiltinProfileKey ? ProfileOutputMap[TKey] : JsonValue | undefined;
+export type ProfileOutput<TKey extends ProfileKey> = TKey extends keyof ProfileOutputMap ? ProfileOutputMap[TKey] : JsonValue | undefined;
 
 /**
  * 任意 subagent 输入联合。
@@ -631,11 +636,11 @@ export type AgentVariables<TKey extends ProfileKey = ProfileKey> = {
 /**
  * Profile 可消费的强类型变量快照。
  */
-export type AgentVariableScope<TKey extends ProfileKey = ProfileKey> = DeepReadonly<{
+export type AgentVariableScope<TKey extends ProfileKey = ProfileKey, TInput = ProfileInput<TKey>> = DeepReadonly<{
     ide: IdeVariables;
     studio: StudioVariables;
     agent: AgentVariables<TKey>;
-    input: ProfileInput<TKey>;
+    input: TInput;
 }>;
 
 /**
@@ -671,6 +676,7 @@ export type CreateLeaderThreadInput = {
     title?: string;
     modelOverride?: AgentThreadModelOverride | null;
     modelOverrideKey?: string | null;
+    clientVariables?: ClientVariables | null;
 };
 
 /**

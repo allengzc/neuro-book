@@ -25,7 +25,7 @@ class TestLeaderProfile extends AgentProfile<"leader.default"> {
     /**
      * 测试中不需要真实 prompt 组装。
      */
-    async prepare(_runtime: ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>) {
+    async prepare(_runtime: ProfileContextRuntime<"leader.default">) {
         return {
             modelMessages: [],
             persistedMessages: {
@@ -49,7 +49,7 @@ class MetadataLeaderProfile extends TestLeaderProfile {
     /**
      * 测试 metadata 提交时机。
      */
-    override async prepare(_runtime: ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>) {
+    override async prepare(_runtime: ProfileContextRuntime<"leader.default">) {
         return {
             modelMessages: [],
             persistedMessages: {
@@ -130,7 +130,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
         const session = new ActiveRunSession("thread-1", "leader.default");
 
         await coordinator.runThread(createThreadRecord(), runtime, [], session);
@@ -197,7 +197,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
 
         await coordinator.runThread(createThreadRecord(), runtime, [], new ActiveRunSession("thread-1", "leader.default"));
 
@@ -274,7 +274,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
 
         await coordinator.runThread(createThreadRecord(), runtime, [], new ActiveRunSession("thread-1", "leader.default"));
 
@@ -353,7 +353,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
 
         await coordinator.runThread(createThreadRecord(), runtime, [], new ActiveRunSession("thread-1", "leader.default"));
 
@@ -426,7 +426,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
         const session = new ActiveRunSession("thread-1", "leader.default");
 
         await coordinator.runThread(createThreadRecord(), runtime, [], session);
@@ -509,7 +509,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
         const session = new ActiveRunSession("thread-1", "leader.default");
 
         await coordinator.runThread(createThreadRecord(), runtime, [], session);
@@ -633,7 +633,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
         const session = new ActiveRunSession("thread-1", "leader.default");
 
         await coordinator.runThread(createThreadRecord(), runtime, [], session);
@@ -771,7 +771,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
         const session = new ActiveRunSession("thread-1", "leader.default");
 
         await coordinator.runThread(createThreadRecord(), runtime, [], session);
@@ -865,7 +865,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
         const session = new ActiveRunSession("thread-1", "leader.default");
 
         await coordinator.runThread(createThreadRecord(), runtime, [], session);
@@ -968,7 +968,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
         const session = new ActiveRunSession("thread-1", "leader.default");
 
         await coordinator.runThread(createThreadRecord(), runtime, [], session);
@@ -1046,7 +1046,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
         const session = new ActiveRunSession("thread-1", "leader.default");
 
         await coordinator.runThread(createThreadRecord(), runtime, [], session);
@@ -1198,7 +1198,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
         const session = new ActiveRunSession("thread-1", "leader.default");
 
         await coordinator.runThread(createThreadRecord(), runtime, [], session);
@@ -1345,7 +1345,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
         const session = new ActiveRunSession("thread-1", "leader.default");
 
         await coordinator.runThread(createThreadRecord(), runtime, [], session);
@@ -1475,7 +1475,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
         const session = new ActiveRunSession("thread-1", "leader.default");
 
         try {
@@ -1621,7 +1621,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
         const session = new ActiveRunSession("thread-1", "leader.default");
 
         try {
@@ -1750,7 +1750,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
         const session = new ActiveRunSession("thread-1", "leader.default");
 
         try {
@@ -1872,7 +1872,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
 
         await coordinator.runThread(createThreadRecord(), runtime, [], new ActiveRunSession("thread-1", "leader.default"));
 
@@ -1979,7 +1979,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
 
         await coordinator.runThread(createThreadRecord(), runtime, [], new ActiveRunSession("thread-1", "leader.default"));
 
@@ -2121,7 +2121,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
 
         await coordinator.runThread(createThreadRecord(), runtime, [], new ActiveRunSession("thread-1", "leader.default"));
 
@@ -2271,7 +2271,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
 
         await coordinator.runThread(createThreadRecord(), runtime, [], new ActiveRunSession("thread-1", "leader.default"));
 
@@ -2405,7 +2405,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
 
         await coordinator.runThread(createThreadRecord(), runtime, [], new ActiveRunSession("thread-1", "leader.default"));
 
@@ -2515,7 +2515,7 @@ describe("ThreadRunCoordinator", () => {
             loadHistoryMessages: async () => [],
             threadRepository: {} as never,
             variableStore: {} as never,
-        } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+        } satisfies ProfileContextRuntime<"leader.default">;
 
         await coordinator.runThread(createThreadRecord(), runtime, [], new ActiveRunSession("thread-1", "leader.default"));
 

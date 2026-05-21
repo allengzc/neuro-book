@@ -42,7 +42,14 @@ export function toLangChainMessages(messages: AgentMessage[]): BaseMessage[] {
  * 将持久化消息投影为可重新发送给模型的合法历史序列。
  */
 export function toModelHistoryMessages(messages: AgentMessage[]): BaseMessage[] {
-    return normalizeToolResultSequence(toLangChainMessages(messages).map(sanitizeMessageForModel));
+    return normalizeModelMessages(toLangChainMessages(messages));
+}
+
+/**
+ * 将任意 LangChain 消息序列投影为可重新发送给模型的合法序列。
+ */
+export function normalizeModelMessages(messages: BaseMessage[]): BaseMessage[] {
+    return uniquifyToolCallIds(normalizeToolResultSequence(messages.map(sanitizeMessageForModel)));
 }
 
 /**
@@ -268,6 +275,19 @@ function attachProductMetadata(message: BaseMessage, metadata: {
  * 移除不能重新发给模型的后端内部字段。
  */
 function sanitizeMessageForModel(message: BaseMessage): BaseMessage {
+    if (AIMessage.isInstance(message)) {
+        return new AIMessage({
+            id: message.id,
+            name: message.name,
+            content: sanitizeAssistantContentForModel(message.content),
+            additional_kwargs: message.additional_kwargs,
+            response_metadata: message.response_metadata,
+            tool_calls: message.tool_calls,
+            invalid_tool_calls: message.invalid_tool_calls,
+            usage_metadata: message.usage_metadata,
+        });
+    }
+
     if (!ToolMessage.isInstance(message)) {
         return message;
     }
@@ -285,6 +305,28 @@ function sanitizeMessageForModel(message: BaseMessage): BaseMessage {
 }
 
 /**
+ * tool_calls 是工具调用历史的 canonical 结构；content 内的工具调用块只会让 provider 重放时重复。
+ */
+function sanitizeAssistantContentForModel(content: AIMessage["content"]): AIMessage["content"] {
+    if (!Array.isArray(content)) {
+        return content;
+    }
+    const safeBlocks = content.filter((block) => !isToolCallContentBlock(block));
+    return safeBlocks.length > 0 ? safeBlocks : "";
+}
+
+/**
+ * 判断 content block 是否代表工具调用。
+ */
+function isToolCallContentBlock(block: unknown): boolean {
+    if (!block || typeof block !== "object" || Array.isArray(block) || !("type" in block)) {
+        return false;
+    }
+    const type = (block as {type?: unknown}).type;
+    return type === "tool_call" || type === "tool_use" || type === "server_tool_use";
+}
+
+/**
  * 修复发送给模型前的 tool_call / tool_result 序列。
  * OpenAI 兼容协议要求带 tool_calls 的 assistant 后面必须紧跟每个 tool_call_id 的 ToolMessage。
  */
@@ -296,22 +338,24 @@ function normalizeToolResultSequence(messages: BaseMessage[]): BaseMessage[] {
         const message = messages[index]!;
         if (AIMessage.isInstance(message) && message.tool_calls?.length) {
             const toolCalls = message.tool_calls;
-            const pendingToolCallIds = new Set(toolCalls.map((toolCall) => toolCall.id).filter((id): id is string => Boolean(id)));
+            const pendingToolCallIds = toolCalls.map((toolCall) => toolCall.id).filter((id): id is string => Boolean(id));
             normalizedMessages.push(message);
             index += 1;
 
             while (index < messages.length && ToolMessage.isInstance(messages[index]!)) {
                 const toolMessage = messages[index]! as ToolMessage;
-                if (pendingToolCallIds.has(toolMessage.tool_call_id)) {
+                const pendingIndex = pendingToolCallIds.indexOf(toolMessage.tool_call_id);
+                if (pendingIndex >= 0) {
                     normalizedMessages.push(toolMessage);
-                    pendingToolCallIds.delete(toolMessage.tool_call_id);
+                    pendingToolCallIds.splice(pendingIndex, 1);
                 }
                 index += 1;
             }
 
             for (const toolCall of toolCalls) {
-                if (toolCall.id && pendingToolCallIds.has(toolCall.id)) {
+                if (toolCall.id && pendingToolCallIds.includes(toolCall.id)) {
                     normalizedMessages.push(createInterruptedToolMessage(message, toolCall));
+                    pendingToolCallIds.splice(pendingToolCallIds.indexOf(toolCall.id), 1);
                 }
             }
             continue;
@@ -324,6 +368,147 @@ function normalizeToolResultSequence(messages: BaseMessage[]): BaseMessage[] {
     }
 
     return normalizedMessages;
+}
+
+/**
+ * 在单次模型请求内为重复 provider tool_call_id 生成唯一 id。
+ * 部分 provider 每轮都从 call-1 / index 型 id 开始；Bedrock 会拒绝同一请求内重复 toolUse id。
+ * 这里仅改写发给模型的临时历史，不改数据库原始历史。
+ */
+function uniquifyToolCallIds(messages: BaseMessage[]): BaseMessage[] {
+    const seenToolCallIds = new Set<string>();
+    const currentToolCallIds = new Map<string, string[]>();
+    const normalizedMessages: BaseMessage[] = [];
+    const currentToolCallIdMap = new Map<string, string[]>();
+    let assistantTurn = 0;
+
+    for (const message of messages) {
+        if (AIMessage.isInstance(message)) {
+            assistantTurn += 1;
+            currentToolCallIds.clear();
+            currentToolCallIdMap.clear();
+            const toolCalls = message.tool_calls?.map((toolCall, toolCallIndex) => {
+                if (!toolCall.id) {
+                    return toolCall;
+                }
+                const currentIds = currentToolCallIds.get(toolCall.id) ?? [];
+                if (!seenToolCallIds.has(toolCall.id)) {
+                    seenToolCallIds.add(toolCall.id);
+                    currentIds.push(toolCall.id);
+                    currentToolCallIds.set(toolCall.id, currentIds);
+                    appendToolCallIdMapping(currentToolCallIdMap, toolCall.id, toolCall.id);
+                    return toolCall;
+                }
+                const nextId = createUniqueToolCallId(toolCall.id, assistantTurn, toolCallIndex, seenToolCallIds);
+                seenToolCallIds.add(nextId);
+                currentIds.push(nextId);
+                currentToolCallIds.set(toolCall.id, currentIds);
+                appendToolCallIdMapping(currentToolCallIdMap, toolCall.id, nextId);
+                return {
+                    ...toolCall,
+                    id: nextId,
+                };
+            }) ?? [];
+            const additionalKwargs = rewriteAdditionalKwargsToolCalls(message.additional_kwargs, currentToolCallIdMap);
+            normalizedMessages.push(new AIMessage({
+                id: message.id,
+                name: message.name,
+                content: message.content,
+                additional_kwargs: additionalKwargs,
+                response_metadata: message.response_metadata,
+                tool_calls: toolCalls,
+                invalid_tool_calls: message.invalid_tool_calls,
+                usage_metadata: message.usage_metadata,
+            }));
+            continue;
+        }
+
+        const currentIds = ToolMessage.isInstance(message)
+            ? currentToolCallIds.get(message.tool_call_id)
+            : undefined;
+        if (ToolMessage.isInstance(message) && currentIds && currentIds.length > 0) {
+            normalizedMessages.push(new ToolMessage({
+                id: message.id,
+                name: message.name,
+                content: message.content,
+                status: message.status,
+                tool_call_id: currentIds.shift()!,
+                metadata: message.metadata,
+                additional_kwargs: message.additional_kwargs,
+            }));
+            continue;
+        }
+
+        normalizedMessages.push(message);
+    }
+
+    return normalizedMessages;
+}
+
+/**
+ * 记录单轮 assistant 内原始 provider id 到临时唯一 id 的映射。
+ */
+function appendToolCallIdMapping(target: Map<string, string[]>, originalId: string, nextId: string): void {
+    const ids = target.get(originalId) ?? [];
+    ids.push(nextId);
+    target.set(originalId, ids);
+}
+
+/**
+ * 同步改写 additional_kwargs.tool_calls，避免 provider 转换层继续读到旧 id。
+ */
+function rewriteAdditionalKwargsToolCalls(additionalKwargs: Record<string, unknown>, toolCallIdMap: Map<string, string[]>): Record<string, unknown> {
+    const rawToolCalls = additionalKwargs.tool_calls;
+    if (!Array.isArray(rawToolCalls) || toolCallIdMap.size === 0) {
+        return additionalKwargs;
+    }
+
+    const localIds = new Map([...toolCallIdMap.entries()].map(([key, ids]) => [key, [...ids]]));
+    return {
+        ...additionalKwargs,
+        tool_calls: rawToolCalls.map((toolCall) => rewriteAdditionalKwargsToolCall(toolCall, localIds)),
+    };
+}
+
+/**
+ * 改写单个 OpenAI-compatible raw tool_call id。
+ */
+function rewriteAdditionalKwargsToolCall(toolCall: unknown, toolCallIdMap: Map<string, string[]>): unknown {
+    if (!toolCall || typeof toolCall !== "object" || Array.isArray(toolCall) || !("id" in toolCall)) {
+        return toolCall;
+    }
+    const originalId = (toolCall as {id?: unknown}).id;
+    if (typeof originalId !== "string") {
+        return toolCall;
+    }
+    const ids = toolCallIdMap.get(originalId);
+    if (!ids?.length) {
+        return toolCall;
+    }
+    return {
+        ...toolCall,
+        id: ids.shift()!,
+    };
+}
+
+/**
+ * 生成 Bedrock 可接受的请求内 tool call id。
+ */
+function createUniqueToolCallId(
+    originalId: string,
+    assistantTurn: number,
+    toolCallIndex: number,
+    seenToolCallIds: Set<string>,
+): string {
+    const baseId = `${originalId}__turn_${String(assistantTurn)}`;
+    if (!seenToolCallIds.has(baseId)) {
+        return baseId;
+    }
+    let suffix = toolCallIndex + 1;
+    while (seenToolCallIds.has(`${baseId}_${String(suffix)}`)) {
+        suffix += 1;
+    }
+    return `${baseId}_${String(suffix)}`;
 }
 
 /**

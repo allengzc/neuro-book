@@ -18,6 +18,8 @@ import type {
     UpdateModelSettingsRequestDto,
 } from "nbook/shared/dto/app-settings.dto";
 
+type ProviderRequestOptions = UpdateModelSettingsRequestDto["providers"][number]["options"]["requestOptions"];
+
 type ModelDraft = {
     name: string;
     id: string;
@@ -34,6 +36,8 @@ type ProviderDraft = {
         apiKey: string;
         baseURL: string;
         proxy: string;
+        timeoutMs: string;
+        requestOptions: string;
     };
     models: ModelDraft[];
 };
@@ -215,6 +219,42 @@ function parseContextWindowTokens(value: string): number | null {
 }
 
 /**
+ * 将 Provider 请求超时输入框解析为可空整数。
+ */
+function parseProviderTimeoutMs(value: string): number | null {
+    const normalizedValue = value.trim();
+    if (!normalizedValue) {
+        return null;
+    }
+
+    const parsedValue = Number(normalizedValue);
+    if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
+        return null;
+    }
+
+    return Math.trunc(parsedValue);
+}
+
+/**
+ * 将 Provider 请求扩展参数解析为 JSON 对象。
+ */
+function parseProviderRequestOptions(value: string): ProviderRequestOptions {
+    const normalizedValue = value.trim();
+    if (!normalizedValue) {
+        return {};
+    }
+
+    try {
+        const parsedValue = JSON.parse(normalizedValue);
+        return parsedValue && typeof parsedValue === "object" && !Array.isArray(parsedValue)
+            ? parsedValue as ProviderRequestOptions
+            : {};
+    } catch {
+        return {};
+    }
+}
+
+/**
  * 克隆 Provider 草稿。
  */
 function cloneProvider(provider: ModelSettingsDto["providers"][number]): ProviderDraft {
@@ -226,6 +266,10 @@ function cloneProvider(provider: ModelSettingsDto["providers"][number]): Provide
             apiKey: provider.options.apiKey,
             baseURL: provider.options.baseURL,
             proxy: provider.options.proxy,
+            timeoutMs: typeof provider.options.timeoutMs === "number" ? String(provider.options.timeoutMs) : "",
+            requestOptions: Object.keys(provider.options.requestOptions).length > 0
+                ? JSON.stringify(provider.options.requestOptions, null, 2)
+                : "",
         },
         models: provider.models.map(cloneModel),
     };
@@ -288,6 +332,8 @@ function buildSavePayload(): UpdateModelSettingsRequestDto {
                 apiKey: provider.options.apiKey.trim(),
                 baseURL: provider.options.baseURL.trim(),
                 proxy: provider.options.proxy.trim(),
+                timeoutMs: parseProviderTimeoutMs(provider.options.timeoutMs),
+                requestOptions: parseProviderRequestOptions(provider.options.requestOptions),
             },
             models: provider.models.map((model) => ({
                 name: model.name.trim(),
@@ -476,6 +522,8 @@ function addProvider(): void {
             apiKey: "",
             baseURL: preset.baseURL,
             proxy: "",
+            timeoutMs: "",
+            requestOptions: "",
         },
         models: [],
     });
@@ -596,6 +644,8 @@ function buildProviderRequest(provider: ProviderDraft) {
                 apiKey: provider.options.apiKey.trim(),
                 baseURL: provider.options.baseURL.trim(),
                 proxy: provider.options.proxy.trim(),
+                timeoutMs: parseProviderTimeoutMs(provider.options.timeoutMs),
+                requestOptions: parseProviderRequestOptions(provider.options.requestOptions),
             },
         },
     };
@@ -1073,6 +1123,14 @@ onMounted(() => {
                                 <div class="group space-y-1.5 md:col-span-2">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">代理</label>
                                     <FormInput v-model="activeProvider.options.proxy" placeholder="http://127.0.0.1:7890" />
+                                </div>
+                                <div class="group space-y-1.5 md:col-span-2">
+                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">请求超时</label>
+                                    <FormInput v-model="activeProvider.options.timeoutMs" placeholder="默认 180000" type="number" />
+                                </div>
+                                <div class="group space-y-1.5 md:col-span-2">
+                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">请求扩展参数</label>
+                                    <textarea v-model="activeProvider.options.requestOptions" rows="4" placeholder="{&quot;store&quot;:false}" class="w-full resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-2 font-mono text-[12px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] placeholder:opacity-80 focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20"></textarea>
                                 </div>
                             </div>
                         </div>

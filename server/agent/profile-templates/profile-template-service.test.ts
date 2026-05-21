@@ -2,6 +2,7 @@ import {describe, expect, it} from "vitest";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {
+    createUserProfileTemplate,
     generateProfileTemplateSource,
     listUserProfileTemplates,
     parseProfileTemplateSource,
@@ -9,11 +10,13 @@ import {
     readUserProfileTemplate,
     restoreUserProfileTemplate,
     saveUserProfileTemplate,
+    updateUserProfileSchema,
 } from "nbook/server/agent/profile-templates/profile-template-service";
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
 import {LeaderInputSchema, WriterInputSchema, type AgentVariableScope, type ProfileKey} from "nbook/server/agent/types";
 import {saveProfileTemplate} from "nbook/server/agent/profile-templates/profile-template-service";
 import type {AgentProfile} from "nbook/server/agent/profiles/agent-profile";
+import {InMemoryAgentProfileRegistry} from "nbook/server/agent/profiles/profile-registry";
 
 const VALID_SOURCE = `/** @jsxRuntime automatic */
 /** @jsxImportSource nbook/server/agent/prompts */
@@ -480,7 +483,7 @@ describe("profile-template-service", () => {
         expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
     });
 
-    it("源码 builtin leader 可以解析出 buildLeaderPrompt 的 ProfilePrompt", async () => {
+    it("源码 builtin leader 可以解析出 buildLeaderDefaultPrompt 的 ProfilePrompt", async () => {
         const source = await readFile(resolve(process.cwd(), "server/agent/profiles/builtin/leader-default.profile.tsx"), "utf-8");
         const result = parseProfileTemplateSource(source);
 
@@ -662,6 +665,53 @@ export default defineAgentProfile({
         }
     });
 
+    it("新建用户 profile 会生成可被动态 registry 加载的 defineAgentProfile 文件", async () => {
+        const profileKey = `subagent.create-test-${crypto.randomUUID().slice(0, 8)}`;
+        const filePath = `${profileKey.replace(/\./g, "/")}.profile.tsx`;
+        const userProfilePath = resolve(process.cwd(), "workspace/.nbook/assets/agent/profiles", filePath);
+        try {
+            const created = await createUserProfileTemplate({
+                profileKey,
+                kind: "subagent",
+                name: "Create Test",
+                prompt: "测试新建 profile。",
+            });
+            const registry = new InMemoryAgentProfileRegistry(process.cwd());
+
+            const loaded = await registry.get(profileKey);
+
+            expect(created.fileName).toBe(filePath);
+            expect(created.source).toContain("defineAgentProfile");
+            expect(loaded.key).toBe(profileKey);
+            expect(loaded.kind).toBe("subagent");
+            expect(loaded.name).toBe("Create Test");
+        } finally {
+            await rm(userProfilePath, {force: true});
+        }
+    });
+
+    it("新建 leader profile 会接受真实聊天 continue 输入", async () => {
+        const profileKey = `leader.create-test-${crypto.randomUUID().slice(0, 8)}`;
+        const filePath = `${profileKey.replace(/\./g, "/")}.profile.tsx`;
+        const userProfilePath = resolve(process.cwd(), "workspace/.nbook/assets/agent/profiles", filePath);
+        try {
+            await createUserProfileTemplate({
+                profileKey,
+                kind: "leader",
+                name: "Leader Create Test",
+                prompt: "测试新建 leader profile。",
+            });
+            const registry = new InMemoryAgentProfileRegistry(process.cwd());
+
+            const loaded = await registry.get(profileKey);
+
+            expect(loaded.kind).toBe("leader");
+            expect(loaded.inputSchema.parse({mode: "continue"})).toEqual({mode: "continue"});
+        } finally {
+            await rm(userProfilePath, {force: true});
+        }
+    });
+
     it("保存源码时不会自动追加换行", async () => {
         const templatePath = resolve(process.cwd(), "server/agent/profiles/templates/save-no-newline.test.tsx");
         await mkdir(resolve(process.cwd(), "server/agent/profiles/templates"), {recursive: true});
@@ -674,6 +724,55 @@ export default defineAgentProfile({
             expect(saved).toBe(VALID_SOURCE);
         } finally {
             await rm(templatePath, {force: true});
+        }
+    });
+
+    it("局部替换用户 profile schema 时不改写 prompt 实现", async () => {
+        const profileKey = `subagent.schema-test-${crypto.randomUUID().slice(0, 8)}`;
+        const filePath = `${profileKey.replace(/\./g, "/")}.profile.tsx`;
+        const userProfilePath = resolve(process.cwd(), "workspace/.nbook/assets/agent/profiles", filePath);
+        try {
+            await createUserProfileTemplate({
+                profileKey,
+                kind: "subagent",
+                name: "Schema Test",
+                prompt: "schema builder prompt marker",
+            });
+
+            const updated = await updateUserProfileSchema(filePath, "InputSchema", [{
+                name: "prompt",
+                type: "string",
+                required: true,
+                description: "任务说明",
+            }, {
+                name: "mode",
+                type: "enum",
+                required: false,
+                enumValues: ["draft", "final"],
+                defaultValue: "draft",
+            }, {
+                name: "refs",
+                type: "array",
+                required: false,
+                item: {
+                    name: "item",
+                    type: "string",
+                    required: true,
+                },
+            }]);
+            const registry = new InMemoryAgentProfileRegistry(process.cwd());
+            const loaded = await registry.get(profileKey);
+
+            expect(updated.source).toContain("schema builder prompt marker");
+            expect(updated.source).toContain("\"prompt\": z.string().describe(\"任务说明\")");
+            expect(updated.source).toContain("\"mode\": z.enum([\"draft\", \"final\"]).default(\"draft\")");
+            expect(updated.source).toContain("\"refs\": z.array(z.string()).optional()");
+            expect(loaded.inputSchema.parse({prompt: "写一段"})).toEqual({
+                prompt: "写一段",
+                mode: "draft",
+            });
+        } finally {
+            await rm(userProfilePath, {force: true});
         }
     });
 });

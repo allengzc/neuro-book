@@ -41,6 +41,36 @@ describe("report_result tool", () => {
         });
     });
 
+    it("会兼容 provider 字符串化的 retrieval data", async () => {
+        const result = await reportResultTool.execute({
+            walkthrough: "完成检索",
+            data: JSON.stringify(["lorebook/character/a"]),
+        }, createContext({
+            key: "subagent.retrieval",
+            outputSchema: RetrievalOutputSchema,
+        }));
+
+        expect(result.rawResult).toEqual({
+            walkthrough: "完成检索",
+            data: ["lorebook/character/a"],
+        });
+    });
+
+    it("原值符合 outputSchema 时不会被当作 JSON 字符串强行解析", async () => {
+        const result = await reportResultTool.execute({
+            walkthrough: "完成检索",
+            data: JSON.stringify(["lorebook/character/a"]),
+        }, createContext({
+            key: "subagent.custom",
+            outputSchema: z.string(),
+        }));
+
+        expect(result.rawResult).toEqual({
+            walkthrough: "完成检索",
+            data: JSON.stringify(["lorebook/character/a"]),
+        });
+    });
+
     it("有 outputSchema 的 profile 缺少 data 时失败", async () => {
         await expect(reportResultTool.execute({
             walkthrough: "完成检索",
@@ -54,6 +84,36 @@ describe("report_result tool", () => {
         await expect(reportResultTool.execute({
             walkthrough: "完成检索",
             data: [{path: "lorebook/character/a"}],
+        }, createContext({
+            key: "subagent.retrieval",
+            outputSchema: RetrievalOutputSchema,
+        }))).rejects.toThrow("report_result.data 不符合 profile 输出结构");
+    });
+
+    it("有 outputSchema 的 profile 收到 JSON object 字符串时仍按结构失败", async () => {
+        await expect(reportResultTool.execute({
+            walkthrough: "完成检索",
+            data: JSON.stringify({path: "lorebook/character/a"}),
+        }, createContext({
+            key: "subagent.retrieval",
+            outputSchema: RetrievalOutputSchema,
+        }))).rejects.toThrow("report_result.data 不符合 profile 输出结构");
+    });
+
+    it("有 outputSchema 的 profile 收到非法 JSON 字符串时仍按结构失败", async () => {
+        await expect(reportResultTool.execute({
+            walkthrough: "完成检索",
+            data: "[",
+        }, createContext({
+            key: "subagent.retrieval",
+            outputSchema: RetrievalOutputSchema,
+        }))).rejects.toThrow("report_result.data 不符合 profile 输出结构");
+    });
+
+    it("有 outputSchema 的 profile 收到空路径数组时失败", async () => {
+        await expect(reportResultTool.execute({
+            walkthrough: "完成检索",
+            data: JSON.stringify([""]),
         }, createContext({
             key: "subagent.retrieval",
             outputSchema: RetrievalOutputSchema,

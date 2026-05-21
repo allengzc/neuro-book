@@ -17,6 +17,8 @@ const props = defineProps<{
     sourceText: string;
     issueCount: number;
     restoreEnabled?: boolean;
+    createEnabled?: boolean;
+    allowSaveWithIssues?: boolean;
     restoring?: boolean;
     closable?: boolean;
 }>();
@@ -28,6 +30,7 @@ const emit = defineEmits<{
     (e: "preview"): void;
     (e: "validate"): void;
     (e: "restore"): void;
+    (e: "create"): void;
     (e: "save"): void;
     (e: "close"): void;
 }>();
@@ -46,7 +49,7 @@ const emit = defineEmits<{
             </div>
         </div>
 
-        <FormSelect :model-value="props.selectedTemplate" :options="props.templateOptions" placeholder="选择模板" dropdown-direction="down" class="min-w-[220px]" @update:model-value="emit('update:selectedTemplate', $event)" />
+        <FormSelect :model-value="props.selectedTemplate" :options="props.templateOptions" placeholder="选择模板" dropdown-direction="down" class="min-w-[320px]" @update:model-value="emit('update:selectedTemplate', $event)" />
 
         <div class="ml-auto flex items-center gap-2">
             <span class="hidden items-center gap-1 text-xs text-emerald-600 md:flex">
@@ -72,7 +75,11 @@ const emit = defineEmits<{
                 <span class="i-lucide-rotate-ccw h-3.5 w-3.5"></span>
                 <span>恢复系统版本</span>
             </button>
-            <button class="toolbar-btn primary" :disabled="props.saving || props.parsingSource || !props.sourceText || props.issueCount > 0" @click="emit('save')">
+            <button v-if="props.createEnabled" class="toolbar-btn" :disabled="props.saving" @click="emit('create')">
+                <span class="i-lucide-file-plus-2 h-3.5 w-3.5"></span>
+                <span>新建</span>
+            </button>
+            <button class="toolbar-btn primary" :disabled="props.saving || props.parsingSource || !props.sourceText || (!props.allowSaveWithIssues && props.issueCount > 0)" @click="emit('save')">
                 <span class="i-lucide-save h-3.5 w-3.5"></span>
                 <span>保存</span>
                 <span class="i-lucide-chevron-down h-3.5 w-3.5 opacity-80"></span>

@@ -38,12 +38,14 @@ import type {
     ModelSettingsConfig,
 } from "nbook/server/utils/app-config";
 import type {AgentThreadModelOverride} from "nbook/server/agent/types";
+import type {JsonValue} from "nbook/server/agent/types";
 import {loadAppConfigSync, type AppConfig} from "nbook/server/utils/app-config";
 
 const OPENAI_HTTP_LOG = String(process.env.OPENAI_HTTP_LOG ?? "").toLowerCase();
 const enableOpenAiHttpLog = OPENAI_HTTP_LOG === "1" || OPENAI_HTTP_LOG === "true";
 const HELLO_PROMPT = "hello";
 const OPENAI_COMPATIBLE_MODEL_PROVIDER = "openai-compatible";
+const DEFAULT_PROVIDER_TIMEOUT_MS = 180_000;
 const DEFAULT_PROVIDER_BASE_URLS: Record<ModelProviderAdapter["type"], string> = {
     "openai-official": "https://api.openai.com/v1",
     "openai-compatible": "https://api.openai.com/v1",
@@ -59,6 +61,8 @@ type ProviderRuntimeSource = {
         apiKey: string;
         baseURL: string;
         proxy: string;
+        timeoutMs: number | null;
+        requestOptions: Record<string, JsonValue>;
     };
 };
 
@@ -366,7 +370,7 @@ class NeuroBookChatOpenAICompatible extends ChatOpenAICompletions {
             return super._generate(messages, options, runManager);
         }
 
-        const data = await this.completionWithRetry({
+        const data = await runTimedProviderRequest(this.model, this.timeout, async () => this.completionWithRetry({
             ...params,
             stream: false,
             messages: convertOpenAiCompatibleMessagesToCompletionsParams(messages, this.model, {
@@ -375,7 +379,7 @@ class NeuroBookChatOpenAICompatible extends ChatOpenAICompletions {
         }, {
             signal: options?.signal,
             ...options?.options,
-        });
+        }));
 
         const usageMetadata = buildUsageMetadataFromRawUsage(data?.usage ?? null);
         const generations = data?.choices?.map((part) => {
@@ -424,7 +428,11 @@ class NeuroBookChatOpenAICompatible extends ChatOpenAICompletions {
             }),
             stream: true,
         };
-        const streamIterable = await this.completionWithRetry(params as never, options as never) as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
+        const streamIterable = await runTimedProviderRequest(
+            this.model,
+            this.timeout,
+            async () => this.completionWithRetry(params as never, options as never) as Promise<AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>>,
+        );
         let defaultRole: OpenAI.Chat.ChatCompletionRole | undefined;
         let usage: OpenAI.CompletionUsage | undefined;
 
@@ -638,11 +646,15 @@ export function convertOpenAiCompatibleMessagesToCompletionsParams(
         model,
     }) as OpenAiCompatibleCompletionMessageParam[];
     stripStandardReasoningBlocks(params);
-    return options.reasoningContentReplay ?? true
+    stripToolCallContentBlocks(params);
+    ensureUniqueToolCallIdsInParams(params);
+    const normalizedParams = options.reasoningContentReplay ?? true
         ? attachOpenAiCompatibleReasoningContent(messages, params, {
             strictToolCallReasoning: options.strictToolCallReasoning ?? false,
         })
         : params;
+    ensureUniqueToolCallIdsInParams(normalizedParams);
+    return normalizedParams;
 }
 
 /**
@@ -666,6 +678,105 @@ function stripStandardReasoningBlocks(params: OpenAiCompatibleCompletionMessageP
             param.content = "";
         }
     }
+}
+
+/**
+ * OpenAI-compatible 请求里 tool_calls 是 canonical 结构；content 内残留的工具块会让 Bedrock 重放出重复 toolUse id。
+ */
+function stripToolCallContentBlocks(params: OpenAiCompatibleCompletionMessageParam[]): void {
+    for (const param of params) {
+        if (!("content" in param) || !Array.isArray(param.content)) {
+            continue;
+        }
+        param.content = param.content.filter((part) => !isToolCallContentPart(part)) as typeof param.content;
+        if (Array.isArray(param.content) && param.content.length === 0) {
+            param.content = "";
+        }
+    }
+}
+
+/**
+ * 判断 Chat Completions content part 是否代表工具调用。
+ */
+function isToolCallContentPart(part: unknown): boolean {
+    if (!part || typeof part !== "object" || Array.isArray(part) || !("type" in part)) {
+        return false;
+    }
+    const type = (part as {type?: unknown}).type;
+    return type === "tool_call" || type === "tool_use" || type === "server_tool_use";
+}
+
+/**
+ * 在最终请求参数层确保 tool id 全局唯一，并同步 tool result 的 tool_call_id。
+ * 这是 provider adapter 的最后防线，覆盖绕过历史 codec 的临时消息。
+ */
+function ensureUniqueToolCallIdsInParams(params: OpenAiCompatibleCompletionMessageParam[]): void {
+    const seenToolCallIds = new Set<string>();
+    const pendingToolCallIds = new Map<string, string[]>();
+    let assistantTurn = 0;
+
+    for (const param of params) {
+        if (param.role === "assistant") {
+            assistantTurn += 1;
+            const toolCalls = "tool_calls" in param && Array.isArray(param.tool_calls)
+                ? param.tool_calls
+                : [];
+            for (let index = 0; index < toolCalls.length; index += 1) {
+                const toolCall = toolCalls[index];
+                if (!toolCall || typeof toolCall !== "object" || Array.isArray(toolCall)) {
+                    continue;
+                }
+                const originalId = typeof toolCall.id === "string" && toolCall.id.trim()
+                    ? toolCall.id
+                    : `tool-call-${String(assistantTurn)}-${String(index + 1)}`;
+                const nextId = seenToolCallIds.has(originalId)
+                    ? createUniqueParamToolCallId(originalId, assistantTurn, index, seenToolCallIds)
+                    : originalId;
+                seenToolCallIds.add(nextId);
+                toolCall.id = nextId;
+                appendPendingToolCallId(pendingToolCallIds, originalId, nextId);
+            }
+            continue;
+        }
+
+        if (param.role !== "tool" || typeof param.tool_call_id !== "string") {
+            continue;
+        }
+
+        const nextIds = pendingToolCallIds.get(param.tool_call_id);
+        if (nextIds?.length) {
+            param.tool_call_id = nextIds.shift()!;
+        }
+    }
+}
+
+/**
+ * 记录原始 tool id 到最终请求 id 的顺序映射。
+ */
+function appendPendingToolCallId(target: Map<string, string[]>, originalId: string, nextId: string): void {
+    const ids = target.get(originalId) ?? [];
+    ids.push(nextId);
+    target.set(originalId, ids);
+}
+
+/**
+ * 生成 provider 请求内唯一的 tool id。
+ */
+function createUniqueParamToolCallId(
+    originalId: string,
+    assistantTurn: number,
+    toolCallIndex: number,
+    seenToolCallIds: Set<string>,
+): string {
+    const baseId = `${originalId}__turn_${String(assistantTurn)}`;
+    if (!seenToolCallIds.has(baseId)) {
+        return baseId;
+    }
+    let suffix = toolCallIndex + 1;
+    while (seenToolCallIds.has(`${baseId}_${String(suffix)}`)) {
+        suffix += 1;
+    }
+    return `${baseId}_${String(suffix)}`;
 }
 
 /**
@@ -887,6 +998,20 @@ function readOpenAiCompatibleReasoningContent(message: AIMessage): string {
 }
 
 /**
+ * 给 provider 请求失败补充耗时与配置超时，区分客户端超时和上游快速失败。
+ */
+async function runTimedProviderRequest<T>(model: string, timeoutMs: number | undefined, task: () => Promise<T>): Promise<T> {
+    const startedAt = Date.now();
+    try {
+        return await task();
+    } catch (error) {
+        const elapsedMs = Date.now() - startedAt;
+        const baseMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(`Provider 请求失败：model=${model}; elapsedMs=${String(elapsedMs)}; timeoutMs=${String(timeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS)}; ${baseMessage}`);
+    }
+}
+
+/**
  * 判断 DeepSeek 模型是否启用 thinking mode。
  */
 function shouldEnableDeepSeekThinking(model: string): boolean {
@@ -920,10 +1045,10 @@ class NeuroBookChatDeepSeek extends ChatDeepSeek {
             stream: false,
             messages: convertDeepSeekMessagesToCompletionsParams(messages, this.model),
         };
-        const data = await super.completionWithRetry(request, {
+        const data = await runTimedProviderRequest(this.model, this.timeout, async () => super.completionWithRetry(request, {
             signal: options?.signal,
             ...options?.options,
-        });
+        }));
         const usageMetadata = buildUsageMetadataFromRawUsage(data?.usage ?? null) ?? {
             input_tokens: 0,
             output_tokens: 0,
@@ -975,7 +1100,11 @@ class NeuroBookChatDeepSeek extends ChatDeepSeek {
             messages: messagesMapped,
             stream: true,
         };
-        const streamIterable = await super.completionWithRetry(params as never, options as never) as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
+        const streamIterable = await runTimedProviderRequest(
+            this.model,
+            this.timeout,
+            async () => super.completionWithRetry(params as never, options as never) as Promise<AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>>,
+        );
         let defaultRole: OpenAI.Chat.ChatCompletionRole | undefined;
         let usage: OpenAI.CompletionUsage | undefined;
 
@@ -1175,6 +1304,8 @@ export function convertModelSettingsRequestToConfig(request: UpdateModelSettings
                     apiKey: provider.options.apiKey.trim(),
                     baseURL: provider.options.baseURL.trim(),
                     proxy: provider.options.proxy.trim(),
+                    timeoutMs: provider.options.timeoutMs,
+                    requestOptions: provider.options.requestOptions,
                 },
                 models: Object.fromEntries(
                     provider.models.map((model) => [model.id, {
@@ -1218,6 +1349,8 @@ export function buildModelSettingsDto(
             apiKey: provider.options.apiKey,
             baseURL: provider.options.baseURL,
             proxy: provider.options.proxy,
+            timeoutMs: provider.options.timeoutMs,
+            requestOptions: provider.options.requestOptions,
         },
         models: Object.values(provider.models).map((model) => ({
             name: model.name,
@@ -1601,11 +1734,15 @@ function resolveDispatcher(proxy: string): Dispatcher | undefined {
  * 构造统一的 HTTP fetch 日志包装。
  * 这里抽出来给 OpenAI 兼容 provider 复用，避免每个模型工厂重复实现。
  */
-function createLoggedFetch(providerName: string, proxy: string) {
+function createLoggedFetch(providerName: string, proxy: string, timeoutMs: number | null) {
     return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const context = buildHttpLogContext(providerName, input, init);
         const dispatcher = resolveDispatcher(proxy);
         const requestUrl = typeof input === "string" || input instanceof URL ? input : input.url;
+        const controller = new AbortController();
+        const timeout = normalizeProviderTimeout(timeoutMs);
+        const timeoutHandle = setTimeout(() => controller.abort(), timeout);
+        const signal = mergeAbortSignals(init?.signal, controller.signal);
 
         if (enableOpenAiHttpLog) {
             consola.info(`${providerName}.request\n${formatLogPayload({
@@ -1616,44 +1753,108 @@ function createLoggedFetch(providerName: string, proxy: string) {
             })}`);
         }
 
-        const response = dispatcher
-            ? await fetch(requestUrl, {
-                ...init,
-                dispatcher,
-            } as RequestInit & {dispatcher: Dispatcher})
-            : await fetch(requestUrl, init);
+        try {
+            const response = dispatcher
+                ? await fetch(requestUrl, {
+                    ...init,
+                    signal,
+                    dispatcher,
+                } as RequestInit & {dispatcher: Dispatcher})
+                : await fetch(requestUrl, {
+                    ...init,
+                    signal,
+                });
 
-        if (!response.ok) {
-            const responseText = await response.clone().text();
-            consola.error(`${providerName}.request_failed\n${formatLogPayload({
-                method: context.method,
-                url: context.url,
-                status: response.status,
-                statusText: response.statusText,
-                headers: context.headerObject,
-                requestBodySummary: summarizeRequestBody(context.bodyText),
-                responseBody: parseJson(responseText),
-            })}`);
+            if (!response.ok) {
+                const responseText = await response.clone().text();
+                consola.error(`${providerName}.request_failed\n${formatLogPayload({
+                    method: context.method,
+                    url: context.url,
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: context.headerObject,
+                    requestBodySummary: summarizeRequestBody(context.bodyText),
+                    responseBody: parseJson(responseText),
+                })}`);
+            }
+
+            if (enableOpenAiHttpLog) {
+                const responseText = await response.clone().text();
+                const responseHeaders: Record<string, string> = {};
+                response.headers.forEach((value, key) => {
+                    responseHeaders[key] = value;
+                });
+                consola.info(`${providerName}.response\n${formatLogPayload({
+                    method: context.method,
+                    url: context.url,
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: responseHeaders,
+                    body: parseJson(responseText),
+                })}`);
+            }
+
+            return response;
+        } catch (error) {
+            if (controller.signal.aborted && !init?.signal?.aborted) {
+                throw new Error(`Provider 请求超时：${String(timeout)}ms`);
+            }
+            throw error;
+        } finally {
+            clearTimeout(timeoutHandle);
         }
-
-        if (enableOpenAiHttpLog) {
-            const responseText = await response.clone().text();
-            const responseHeaders: Record<string, string> = {};
-            response.headers.forEach((value, key) => {
-                responseHeaders[key] = value;
-            });
-            consola.info(`${providerName}.response\n${formatLogPayload({
-                method: context.method,
-                url: context.url,
-                status: response.status,
-                statusText: response.statusText,
-                headers: responseHeaders,
-                body: parseJson(responseText),
-            })}`);
-        }
-
-        return response;
     };
+}
+
+/**
+ * 解析 provider 请求超时时间。
+ */
+function normalizeProviderTimeout(timeoutMs: number | null): number {
+    return typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0
+        ? Math.trunc(timeoutMs)
+        : DEFAULT_PROVIDER_TIMEOUT_MS;
+}
+
+/**
+ * 读取 provider 级请求体扩展参数。
+ */
+function normalizeProviderRequestOptions(value: Record<string, JsonValue>): Record<string, unknown> | undefined {
+    return value && Object.keys(value).length > 0 ? value : undefined;
+}
+
+/**
+ * 合并 provider 默认请求扩展与运行时模型参数。
+ */
+function mergeModelKwargs(
+    providerOptions: Record<string, unknown> | undefined,
+    runtimeOptions: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+    const merged = {
+        ...(providerOptions ?? {}),
+        ...(runtimeOptions ?? {}),
+    };
+    return Object.keys(merged).length > 0 ? merged : undefined;
+}
+
+/**
+ * 合并调用方取消信号与 provider timeout 信号。
+ */
+function mergeAbortSignals(left: AbortSignal | null | undefined, right: AbortSignal): AbortSignal {
+    if (!left) {
+        return right;
+    }
+    if (left.aborted) {
+        return left;
+    }
+
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    left.addEventListener("abort", abort, {once: true});
+    right.addEventListener("abort", abort, {once: true});
+    if (left.aborted || right.aborted) {
+        controller.abort();
+    }
+    return controller.signal;
 }
 
 /**
@@ -1677,15 +1878,18 @@ function resolveApiUrl(provider: Pick<ProviderRuntimeSource, "adapter" | "option
  * 构造 OpenAI 兼容 provider 的公共配置。
  */
 function buildOpenAiCompatibleConfig(provider: ProviderRuntimeSource, model: ModelRuntimeSource) {
+    const providerRequestOptions = normalizeProviderRequestOptions(provider.options.requestOptions);
     return {
         model: model.id,
         apiKey: provider.options.apiKey,
+        timeout: normalizeProviderTimeout(provider.options.timeoutMs),
         streamUsage: true,
         supportsStrictToolCalling: false,
         configuration: {
             baseURL: resolveProviderBaseURL(provider),
-            fetch: createLoggedFetch(provider.providerName, provider.options.proxy),
+            fetch: createLoggedFetch(provider.providerName, provider.options.proxy, provider.options.timeoutMs),
         },
+        ...(providerRequestOptions ? {modelKwargs: providerRequestOptions} : {}),
     };
 }
 
@@ -1742,48 +1946,67 @@ function createChatModelForSource(
     const runtimeOptions = buildModelRuntimeOptions(options);
 
     if (provider.adapter.type === "gemini-compatible") {
+        const modelKwargs = mergeModelKwargs(
+            normalizeProviderRequestOptions(provider.options.requestOptions),
+            runtimeOptions.modelKwargs,
+        );
         return new GeminiChatOpenAICompletions({
             ...buildOpenAiCompatibleConfig(provider, model),
             ...runtimeOptions,
+            ...(modelKwargs ? {modelKwargs} : {}),
         });
     }
 
     if (provider.adapter.type === "deepseek-official") {
-        const mergedModelKwargs: Record<string, unknown> = {
-            ...(runtimeOptions.modelKwargs ?? {}),
-            ...(shouldEnableDeepSeekThinking(model.id)
-                ? {
-                    thinking: {
-                        type: "enabled" as const,
-                    },
-                }
-                : {}),
-        };
+        const mergedModelKwargs = mergeModelKwargs(
+            normalizeProviderRequestOptions(provider.options.requestOptions),
+            {
+                ...(runtimeOptions.modelKwargs ?? {}),
+                ...(shouldEnableDeepSeekThinking(model.id)
+                    ? {
+                        thinking: {
+                            type: "enabled" as const,
+                        },
+                    }
+                    : {}),
+            },
+        );
 
         return new NeuroBookChatDeepSeek({
             model: model.id,
             apiKey: provider.options.apiKey,
+            timeout: normalizeProviderTimeout(provider.options.timeoutMs),
             streamUsage: true,
             ...(typeof runtimeOptions.temperature === "number" ? {temperature: runtimeOptions.temperature} : {}),
             streaming: runtimeOptions.streaming,
             configuration: {
                 baseURL: resolveProviderBaseURL(provider),
-                fetch: createLoggedFetch(provider.providerName, provider.options.proxy),
+                fetch: createLoggedFetch(provider.providerName, provider.options.proxy, provider.options.timeoutMs),
             },
-            modelKwargs: Object.keys(mergedModelKwargs).length > 0 ? mergedModelKwargs : undefined,
+            ...(mergedModelKwargs ? {modelKwargs: mergedModelKwargs} : {}),
         });
     }
 
     if (provider.adapter.type === "openai-official") {
+        const modelKwargs = mergeModelKwargs(
+            normalizeProviderRequestOptions(provider.options.requestOptions),
+            runtimeOptions.modelKwargs,
+        );
         return new ChatOpenAI({
             ...buildOpenAiCompatibleConfig(provider, model),
             ...runtimeOptions,
+            ...(modelKwargs ? {modelKwargs} : {}),
         });
     }
 
+    const modelKwargs = mergeModelKwargs(
+        normalizeProviderRequestOptions(provider.options.requestOptions),
+        runtimeOptions.modelKwargs,
+    );
     return new NeuroBookChatOpenAICompatible({
         ...buildOpenAiCompatibleConfig(provider, model),
         ...runtimeOptions,
+        ...(modelKwargs ? {modelKwargs} : {}),
         reasoningContentReplay: provider.adapter.reasoningContentReplay,
     });
 }
@@ -1800,6 +2023,8 @@ function convertDraftProvider(provider: ModelProviderDraftDto): ProviderRuntimeS
             apiKey: provider.options.apiKey.trim(),
             baseURL: provider.options.baseURL.trim(),
             proxy: provider.options.proxy.trim(),
+            timeoutMs: provider.options.timeoutMs,
+            requestOptions: provider.options.requestOptions,
         },
     };
 }
@@ -1823,7 +2048,7 @@ async function fetchDiscoveredModels(provider: ProviderRuntimeSource): Promise<D
         throw new Error("请先填写 API Key");
     }
 
-    const response = await createLoggedFetch(provider.providerName, provider.options.proxy)(
+    const response = await createLoggedFetch(provider.providerName, provider.options.proxy, provider.options.timeoutMs)(
         resolveApiUrl(provider, "models"),
         {
             method: "GET",
@@ -1960,6 +2185,8 @@ export function createConfiguredChatModel(
             apiKey: resolvedModel.provider.options.apiKey,
             baseURL: resolvedModel.provider.options.baseURL,
             proxy: resolvedModel.provider.options.proxy,
+            timeoutMs: resolvedModel.provider.options.timeoutMs,
+            requestOptions: resolvedModel.provider.options.requestOptions,
         },
     }, {
         name: resolvedModel.model.name,

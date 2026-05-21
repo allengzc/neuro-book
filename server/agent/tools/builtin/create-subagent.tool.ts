@@ -1,6 +1,7 @@
 import {z} from "zod";
 import type {AgentTool} from "nbook/server/agent/tools/agent-tool";
 import {createToolResultMessage} from "nbook/server/agent/tools/shared/tool-message";
+import {syncSubagentStudioScope} from "nbook/server/agent/tools/builtin/subagent-scope";
 
 const CreateSubagentInputSchema = z.object({
     profileKey: z.string().trim().min(1, "profileKey 不能为空").describe("The subagent profile key to use. It must be one of the currently available subagent profiles."),
@@ -27,6 +28,7 @@ export const createSubagentTool: AgentTool<typeof CreateSubagentInputSchema> = {
         });
     },
     async execute(input, context) {
+        syncSubagentStudioScope(context);
         await context.agentGateway.assertSubAgentProfile(input.profileKey);
         const created = await context.agentGateway.createSubAgentThread({
             leaderThreadId: context.threadId,

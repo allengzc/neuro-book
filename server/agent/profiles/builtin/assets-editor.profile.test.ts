@@ -71,7 +71,7 @@ function createAssetsRuntime(input: {
         loadHistoryMessages: async () => input.history ?? [new HumanMessage("history")],
         threadRepository: {} as never,
         variableStore: {} as never,
-    } satisfies ProfileContextRuntime<"leader.assets", AgentProfile<"leader.assets">>;
+    } satisfies ProfileContextRuntime<"leader.assets">;
 }
 
 describe("AssetsEditorProfile", () => {

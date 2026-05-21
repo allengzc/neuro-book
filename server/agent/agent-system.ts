@@ -4,12 +4,9 @@ import {PrismaAgentMessageStore} from "nbook/server/agent/messages/prisma-agent-
 import {toModelHistoryMessages} from "nbook/server/agent/messages/codec";
 import type {AgentMessageStore} from "nbook/server/agent/messages/agent-message-store";
 import type {ProfileContextRuntime} from "nbook/server/agent/profiles/profile-context";
-import {AssetsEditorProfile} from "nbook/server/agent/profiles/builtin/assets-editor.profile";
-import {LeaderDefaultProfile} from "nbook/server/agent/profiles/builtin/leader-default.profile";
-import {RetrievalProfile} from "nbook/server/agent/profiles/builtin/retrieval.profile";
-import {WriterProfile} from "nbook/server/agent/profiles/builtin/writer.profile";
+import {createBuiltinProfileContracts} from "nbook/server/agent/profiles/builtin/profile-contracts";
 import {LocalSkillCatalogProvider, type SkillCatalogProvider} from "nbook/server/agent/skills/skill-catalog";
-import type {AgentProfile} from "nbook/server/agent/profiles/agent-profile";
+import type {AgentProfile, RuntimeAgentProfile} from "nbook/server/agent/profiles/agent-profile";
 import type {AgentProfileRegistry} from "nbook/server/agent/profiles/profile-registry";
 import {InMemoryAgentProfileRegistry} from "nbook/server/agent/profiles/profile-registry";
 import {PrismaThreadRepository} from "nbook/server/agent/repositories/prisma-thread.repository";
@@ -51,6 +48,7 @@ import {
     createPlanModePlanDirectoryPath,
 } from "nbook/server/agent/plan-mode-path";
 import {readFile} from "node:fs/promises";
+import {resolveWorkspaceDefaultLeaderProfileKey} from "nbook/server/agent/profile-settings/workspace-profile-settings";
 import type {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import {InMemoryAgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import {AgentVariableStore} from "nbook/server/agent/store/agent-variable-store";
@@ -85,6 +83,7 @@ import {
     type ProfileInput,
     type ProfileInputMap,
     type ProfileKey,
+    type ProfileOutput,
     type RunOptions,
     type SubAgentCompletionResult,
     type SubAgentProfileKey,
@@ -134,10 +133,9 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
      */
     static createDefault(): AgentSystem {
         const profileRegistry = new InMemoryAgentProfileRegistry();
-        profileRegistry.register(new LeaderDefaultProfile());
-        profileRegistry.register(new AssetsEditorProfile());
-        profileRegistry.register(new WriterProfile());
-        profileRegistry.register(new RetrievalProfile());
+        for (const contract of createBuiltinProfileContracts()) {
+            profileRegistry.registerContract(contract);
+        }
 
         const toolRegistry = new InMemoryAgentToolRegistry();
         toolRegistry.register(createSubagentTool);
@@ -227,12 +225,25 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
      * 创建 leader thread。
      */
     async createLeaderThread(input: CreateLeaderThreadInput = {}): Promise<LeaderThread> {
-        const profileKey = input.profileKey ?? "leader.default";
+        const profileKey = await resolveWorkspaceDefaultLeaderProfileKey({
+            agentSystem: this,
+            workspaceRoot: typeof input.clientVariables?.studio?.workspace === "string"
+                ? input.clientVariables.studio.workspace
+                : null,
+            workspaceKind: input.clientVariables?.studio?.workspaceKind === "user-assets" ? "user-assets" : "novel",
+            explicitProfileKey: input.profileKey,
+        });
         const profile = await this.profileRegistry.get(profileKey);
         if (profile.kind !== "leader") {
             throw new Error(`profile ${profileKey} 不是 leader profile`);
         }
-        const record = await this.threadRepository.createLeader(input);
+        const record = await this.threadRepository.createLeader({
+            ...input,
+            profileKey,
+        });
+        if (input.clientVariables) {
+            await this.threadContext.syncClientVariables(String(record.id), input.clientVariables, record, profileKey);
+        }
         return this.toLeaderThread(record);
     }
 
@@ -981,7 +992,7 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
     /**
      * 列出当前可用 profile，供动态工具 schema 使用。
      */
-    async listProfiles(kind?: AgentThreadKind): Promise<AgentProfile<ProfileKey>[]> {
+    async listProfiles(kind?: AgentThreadKind): Promise<RuntimeAgentProfile[]> {
         if (kind) {
             return this.profileRegistry.listByKind(kind);
         }
@@ -1058,7 +1069,7 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
 
         const parsedOptions = options;
         const profileKey = this.requireProfileKey(thread.profileKey) as TKey;
-        const profile = await this.profileRegistry.get(profileKey);
+        const profile = await this.profileRegistry.get(profileKey) as AgentProfile<TKey, ProfileInput<TKey>, ProfileOutput<TKey>>;
         const parsedInput = profile.inputSchema.parse(input) as ProfileInput<TKey>;
         const runTurn = parsedOptions.turn ?? await this.resolveRunTurn(thread, parsedInput);
         const planModeRunState = await this.preparePlanModeForRun(thread, runTurn);
@@ -1070,7 +1081,7 @@ export class AgentSystem implements AgentThreadGateway, AgentToolGateway {
             ...(planModeRunState.commitMetadata ? {planModeCommitMetadata: planModeRunState.commitMetadata} : {}),
         };
         const scope = await this.threadContext.refreshThreadScope(thread, profile, parsedInput);
-        const runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>> = {
+        const runtime: ProfileContextRuntime<TKey, ProfileInput<TKey>, ProfileOutput<TKey>, AgentProfile<TKey, ProfileInput<TKey>, ProfileOutput<TKey>>> = {
             thread,
             profile,
             input: parsedInput,

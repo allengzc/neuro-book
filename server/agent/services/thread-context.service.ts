@@ -1,6 +1,6 @@
 import type {BaseMessage} from "@langchain/core/messages";
 import type {AgentToolGateway} from "nbook/server/agent/contracts";
-import type {AgentProfile} from "nbook/server/agent/profiles/agent-profile";
+import type {AgentProfile, RuntimeAgentProfile} from "nbook/server/agent/profiles/agent-profile";
 import type {AgentProfileRegistry} from "nbook/server/agent/profiles/profile-registry";
 import type {ThreadRepository} from "nbook/server/agent/repositories/thread-repository";
 import type {AgentVariableStore} from "nbook/server/agent/store/agent-variable-store";
@@ -89,12 +89,22 @@ export class ThreadContextService {
      */
     async refreshThreadScope<TKey extends ProfileKey>(
         thread: AgentThreadRecord,
-        profile: AgentProfile<TKey>,
+        profile: AgentProfile<TKey, ProfileInput<TKey>>,
         input: ProfileInput<TKey>,
-    ): Promise<AgentVariableScope<TKey>> {
+    ): Promise<AgentVariableScope<TKey>>;
+    async refreshThreadScope<TKey extends ProfileKey, TInput>(
+        thread: AgentThreadRecord,
+        profile: AgentProfile<TKey, TInput>,
+        input: TInput,
+    ): Promise<AgentVariableScope<TKey, TInput>>;
+    async refreshThreadScope<TKey extends ProfileKey, TInput>(
+        thread: AgentThreadRecord,
+        profile: AgentProfile<TKey, TInput>,
+        input: TInput,
+    ): Promise<AgentVariableScope<TKey, TInput>> {
         const agent = await this.buildAgentVariables(thread, profile);
         this.variableStore.setAgent(String(thread.id), agent);
-        return this.variableStore.setInput(String(thread.id), input);
+        return this.variableStore.setInput<TKey, TInput>(String(thread.id), input);
     }
 
     /**
@@ -111,7 +121,7 @@ export class ThreadContextService {
     createToolContext<TKey extends ProfileKey>(input: {
         agentGateway: AgentToolGateway;
         thread: AgentThreadRecord;
-        profile: AgentProfile<TKey>;
+        profile: RuntimeAgentProfile;
         profileKey: ProfileKey;
         options: RunOptions;
         loadThreadHistoryMessages(threadId: ThreadId): Promise<BaseMessage[]>;
@@ -120,7 +130,7 @@ export class ThreadContextService {
             agentGateway: input.agentGateway,
             threadId: String(input.thread.id),
             profileKey: input.profileKey,
-            profile: input.profile as AgentProfile<ProfileKey>,
+            profile: input.profile,
             runOptions: input.options,
             writeToolOutput: () => {},
             getHistory: async () => input.loadThreadHistoryMessages(String(input.thread.id)),
@@ -136,7 +146,7 @@ export class ThreadContextService {
     async resolveProfileTools<TKey extends ProfileKey>(input: {
         agentGateway: AgentToolGateway;
         thread: AgentThreadRecord;
-        profile: AgentProfile<TKey>;
+        profile: RuntimeAgentProfile;
         profileKey: ProfileKey;
         options: RunOptions;
         loadThreadHistoryMessages(threadId: ThreadId): Promise<BaseMessage[]>;
@@ -179,7 +189,7 @@ export class ThreadContextService {
      */
     private async buildAgentVariables<TKey extends ProfileKey>(
         thread: AgentThreadRecord,
-        profile: AgentProfile<TKey>,
+        profile: RuntimeAgentProfile,
     ): Promise<AgentVariables<TKey>> {
         const subagents = thread.kind === "leader"
             ? await this.threadRepository.listSubAgents(String(thread.id))
@@ -193,7 +203,7 @@ export class ThreadContextService {
                 summary: thread.lastMessagePreview,
                 status: thread.runStatus,
             },
-            profileKey: profile.key,
+            profileKey: profile.key as TKey,
             kind: profile.kind,
             tools,
             subagents: subagents.map((subagent) => ({

@@ -24,8 +24,8 @@ const emit = defineEmits<{
     >
         <ProfileTemplateVisualEditor
             mode="user-profile"
-            preferred-template="builtin/leader-default.profile.tsx"
-            thread-profile-key="leader.default"
+            preferred-template="builtin/assets-editor.profile.tsx"
+            thread-profile-key="leader.assets"
             closable
             class="h-full"
             @close="emit('update:modelValue', false)"

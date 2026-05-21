@@ -9,7 +9,7 @@ describe("POST /api/agent/threads", () => {
 
     it("创建 leader 后会返回对应摘要 DTO", async () => {
         const agentSystem = {
-            createLeaderThread: vi.fn(async () => ({id: "thread-1"})),
+            createLeaderThread: vi.fn(async () => ({id: "thread-1", profileKey: "leader.default"})),
             listThreads: vi.fn(async () => [{
                 id: "thread-1",
                 kind: "leader",
@@ -28,6 +28,9 @@ describe("POST /api/agent/threads", () => {
         vi.doMock("nbook/server/utils/novel-chapter", () => ({
             validateBody: vi.fn(async () => ({title: "线程"})),
         }));
+        vi.doMock("nbook/server/agent/api", () => ({
+            readClientVariablesHeader: vi.fn(() => null),
+        }));
         vi.doMock("nbook/server/agent/http", () => ({
             useAgentSystem: () => agentSystem,
             toAgentThreadSummaryDto,
@@ -36,7 +39,10 @@ describe("POST /api/agent/threads", () => {
         const handler = (await import("nbook/server/api/agent/threads/index.post")).default;
         const result = await handler({} as never);
 
-        expect(agentSystem.createLeaderThread).toHaveBeenCalledWith({title: "线程"});
+        expect(agentSystem.createLeaderThread).toHaveBeenCalledWith({
+            title: "线程",
+            clientVariables: null,
+        });
         expect(agentSystem.listThreads).toHaveBeenCalledWith({
             kind: "leader",
             profileKey: "leader.default",
@@ -49,7 +55,7 @@ describe("POST /api/agent/threads", () => {
 
     it("创建用户资产 leader 时会按 profileKey 查询摘要", async () => {
         const agentSystem = {
-            createLeaderThread: vi.fn(async () => ({id: "thread-assets"})),
+            createLeaderThread: vi.fn(async () => ({id: "thread-assets", profileKey: "leader.assets"})),
             listThreads: vi.fn(async () => [{
                 id: "thread-assets",
                 kind: "leader",
@@ -64,6 +70,9 @@ describe("POST /api/agent/threads", () => {
         vi.doMock("nbook/server/utils/novel-chapter", () => ({
             validateBody: vi.fn(async () => ({title: "用户资产", profileKey: "leader.assets"})),
         }));
+        vi.doMock("nbook/server/agent/api", () => ({
+            readClientVariablesHeader: vi.fn(() => null),
+        }));
         vi.doMock("nbook/server/agent/http", () => ({
             useAgentSystem: () => agentSystem,
             toAgentThreadSummaryDto: vi.fn((thread) => thread),
@@ -75,6 +84,7 @@ describe("POST /api/agent/threads", () => {
         expect(agentSystem.createLeaderThread).toHaveBeenCalledWith({
             title: "用户资产",
             profileKey: "leader.assets",
+            clientVariables: null,
         });
         expect(agentSystem.listThreads).toHaveBeenCalledWith({
             kind: "leader",
@@ -82,14 +92,61 @@ describe("POST /api/agent/threads", () => {
         });
     });
 
+    it("未显式传 profileKey 时会把 clientVariables 传给服务端 resolver", async () => {
+        const clientVariables = {
+            studio: {
+                workspace: "workspace/custom",
+                workspaceKind: "novel",
+            },
+        };
+        const agentSystem = {
+            createLeaderThread: vi.fn(async () => ({id: "thread-custom", profileKey: "leader.custom"})),
+            listThreads: vi.fn(async () => [{
+                id: "thread-custom",
+                kind: "leader",
+                profileKey: "leader.custom",
+                title: "自定义",
+                summary: "摘要",
+                status: "idle",
+                lastMessageAt: new Date("2026-04-05T00:00:00.000Z"),
+            }]),
+        };
+
+        vi.doMock("nbook/server/utils/novel-chapter", () => ({
+            validateBody: vi.fn(async () => ({title: "自定义"})),
+        }));
+        vi.doMock("nbook/server/agent/api", () => ({
+            readClientVariablesHeader: vi.fn(() => clientVariables),
+        }));
+        vi.doMock("nbook/server/agent/http", () => ({
+            useAgentSystem: () => agentSystem,
+            toAgentThreadSummaryDto: vi.fn((thread) => thread),
+        }));
+
+        const handler = (await import("nbook/server/api/agent/threads/index.post")).default;
+        await handler({} as never);
+
+        expect(agentSystem.createLeaderThread).toHaveBeenCalledWith({
+            title: "自定义",
+            clientVariables,
+        });
+        expect(agentSystem.listThreads).toHaveBeenCalledWith({
+            kind: "leader",
+            profileKey: "leader.custom",
+        });
+    });
+
     it("创建后找不到摘要时会抛 500", async () => {
         const agentSystem = {
-            createLeaderThread: vi.fn(async () => ({id: "thread-1"})),
+            createLeaderThread: vi.fn(async () => ({id: "thread-1", profileKey: "leader.default"})),
             listThreads: vi.fn(async () => []),
         };
 
         vi.doMock("nbook/server/utils/novel-chapter", () => ({
             validateBody: vi.fn(async () => ({title: "线程"})),
+        }));
+        vi.doMock("nbook/server/agent/api", () => ({
+            readClientVariablesHeader: vi.fn(() => null),
         }));
         vi.doMock("nbook/server/agent/http", () => ({
             useAgentSystem: () => agentSystem,

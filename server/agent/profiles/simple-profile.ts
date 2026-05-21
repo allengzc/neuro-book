@@ -27,7 +27,9 @@ import type {
     AgentThreadMetadata,
     AgentVariableScope,
     JsonValue,
+    ProfileInput,
     ProfileKey,
+    ProfileOutput,
     ToolKey,
     WatchedVariableBaseline,
 } from "nbook/server/agent/types";
@@ -91,10 +93,10 @@ type ObjectPathLevel3<TValue, TPrefix extends string> = {
  * 监听路径。
  * 约定始终从 `scope.` 开始，避免和 runtime / history 等其他上下文对象混淆。
  */
-export type WatchedVariablePath<TKey extends ProfileKey> =
-    | ObjectPathLevel1<AgentVariableScope<TKey>, "scope">
-    | ObjectPathLevel2<AgentVariableScope<TKey>, "scope">
-    | ObjectPathLevel3<AgentVariableScope<TKey>, "scope">;
+export type WatchedVariablePath<TKey extends ProfileKey, TInput = ProfileInput<TKey>> =
+    | ObjectPathLevel1<AgentVariableScope<TKey, TInput>, "scope">
+    | ObjectPathLevel2<AgentVariableScope<TKey, TInput>, "scope">
+    | ObjectPathLevel3<AgentVariableScope<TKey, TInput>, "scope">;
 
 type StripScopePrefix<TPath extends string> = TPath extends `scope.${infer TRest}` ? TRest : never;
 
@@ -115,34 +117,41 @@ type PathValue<TValue, TPath extends string> =
  */
 export type WatchedVariableValue<
     TKey extends ProfileKey,
-    TPath extends WatchedVariablePath<TKey>,
-> = PathValue<AgentVariableScope<TKey>, StripScopePrefix<TPath>>;
+    TPath extends WatchedVariablePath<TKey, TInput>,
+    TInput = ProfileInput<TKey>,
+> = PathValue<AgentVariableScope<TKey, TInput>, StripScopePrefix<TPath>>;
 
 /**
  * watched variable 变化上下文。
  */
 export type WatchedVariableChange<
     TKey extends ProfileKey,
-    TPath extends WatchedVariablePath<TKey> = WatchedVariablePath<TKey>,
+    TInput = ProfileInput<TKey>,
+    TOutput = ProfileOutput<TKey>,
+    TPath extends WatchedVariablePath<TKey, TInput> = WatchedVariablePath<TKey, TInput>,
 > = {
-    previousValue: WatchedVariableValue<TKey, TPath> | undefined;
-    currentValue: WatchedVariableValue<TKey, TPath> | undefined;
+    previousValue: WatchedVariableValue<TKey, TPath, TInput> | undefined;
+    currentValue: WatchedVariableValue<TKey, TPath, TInput> | undefined;
     history: BaseMessage[];
-    scope: AgentVariableScope<TKey>;
-    runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>;
+    scope: AgentVariableScope<TKey, TInput>;
+    runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>;
 };
 
 /**
  * 构造 profile prompt 时的上下文。
  */
-export type ProfilePromptContext<TKey extends ProfileKey> = {
-    runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>;
-    input: ProfileContextRuntime<TKey, AgentProfile<TKey>>["input"];
-    scope: AgentVariableScope<TKey>;
+export type ProfilePromptContext<
+    TKey extends ProfileKey,
+    TInput = ProfileInput<TKey>,
+    TOutput = ProfileOutput<TKey>,
+> = {
+    runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>;
+    input: TInput;
+    scope: AgentVariableScope<TKey, TInput>;
     history: BaseMessage[];
     skillCatalogText: string;
     activatedSkillsText(): Promise<string>;
-    var<TPath extends WatchedVariablePath<TKey>>(path: TPath): WatchedVariableValue<TKey, TPath> | undefined;
+    var<TPath extends WatchedVariablePath<TKey, TInput>>(path: TPath): WatchedVariableValue<TKey, TPath, TInput> | undefined;
     hasTool(toolKey: ToolKey): boolean;
 };
 
@@ -192,16 +201,20 @@ type ContinueHistorySplit = {
  * 提供常见的 system prompt / dynamic prompt / watched variable 默认编排。
  * 这里消费的是变量快照，不是响应式运行时。
  */
-export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfile<TKey> {
+export abstract class SimpleProfile<
+    TKey extends ProfileKey,
+    TInput = ProfileInput<TKey>,
+    TOutput = ProfileOutput<TKey>,
+> extends AgentProfile<TKey, TInput, TOutput> {
     /**
      * 构造三段式 profile prompt。
      */
-    protected abstract buildPrompt(ctx: ProfilePromptContext<TKey>): SimpleProfileTemplateResult;
+    protected abstract buildPrompt(ctx: ProfilePromptContext<TKey, TInput, TOutput>): SimpleProfileTemplateResult;
 
     /**
      * 构造本次发送给模型的完整消息。
      */
-    override async prepare(runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>): Promise<PreparedProfileRun> {
+    override async prepare(runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>): Promise<PreparedProfileRun> {
         return this.buildContext(runtime);
     }
 
@@ -209,7 +222,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
      * 统一构造 SimpleProfile 本次运行上下文。
      */
     protected async buildContext(
-        runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>,
+        runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>,
     ): Promise<SimpleProfileBuildResult> {
         const messageSets = await this.buildContextMessageSets(runtime);
 
@@ -231,7 +244,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
      * 按声明顺序构造 History / Dynamic 上下文，并将 Appending 统一放到末尾。
      */
     private async buildContextMessageSets(
-        runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>,
+        runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>,
     ): Promise<BuiltContextMessageSets> {
         const loadedHistory = await runtime.loadHistoryMessages();
         const continueHistory = this.splitContinueHistory(runtime, loadedHistory);
@@ -282,7 +295,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
      * 这里临时取出尾部用户消息，确保最新 runtime 上下文位于它之前，而用户输入仍是模型最后一条消息。
      */
     private splitContinueHistory(
-        runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>,
+        runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>,
         history: BaseMessage[],
     ): ContinueHistorySplit {
         if (!this.isContinueInput(runtime.input) || history.length === 0) {
@@ -309,7 +322,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
     /**
      * 判断本轮是否为 UI 主路径的 continue run。
      */
-    private isContinueInput(input: ProfileContextRuntime<TKey, AgentProfile<TKey>>["input"]): boolean {
+    private isContinueInput(input: TInput): boolean {
         return Boolean(
             typeof input === "object"
             && input !== null
@@ -322,10 +335,10 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
      * 创建 profile prompt 构造上下文。
      */
     private async createPromptContext(
-        runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>,
+        runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>,
         history: BaseMessage[],
         currentUserInputMessage: BaseMessage | null,
-    ): Promise<ProfilePromptContext<TKey>> {
+    ): Promise<ProfilePromptContext<TKey, TInput, TOutput>> {
         let activatedSkillsText: string | null = null;
         return {
             runtime,
@@ -337,8 +350,8 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
                 activatedSkillsText ??= await this.buildActivatedSkillsText(runtime, currentUserInputMessage?.text);
                 return activatedSkillsText;
             },
-            var: <TPath extends WatchedVariablePath<TKey>>(path: TPath) => (
-                readScopeValue(runtime.scope as AgentVariableScope<ProfileKey>, path) as WatchedVariableValue<TKey, TPath> | undefined
+            var: <TPath extends WatchedVariablePath<TKey, TInput>>(path: TPath) => (
+                readScopeValue(runtime.scope as AgentVariableScope<ProfileKey>, path) as WatchedVariableValue<TKey, TPath, TInput> | undefined
             ),
             hasTool: (toolKey) => runtime.scope.agent.tools.includes(toolKey),
         };
@@ -457,7 +470,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
      * 渲染 HistorySet。
      */
     private renderHistorySet(
-        runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>,
+        runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>,
         section: PromptProfileSetNode,
     ): BaseMessage[] {
         const messages: BaseMessage[] = [];
@@ -471,7 +484,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
      * 渲染 HistorySet 子节点。
      */
     private renderHistoryChild(
-        runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>,
+        runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>,
         child: PromptChild,
         messages: BaseMessage[],
     ): void {
@@ -497,7 +510,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
      * 渲染 DynamicSet。
      */
     private async renderDynamicSet(
-        runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>,
+        runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>,
         section: PromptProfileSetNode,
     ): Promise<BaseMessage[]> {
         const messages: BaseMessage[] = [];
@@ -512,7 +525,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
      * AppendingSet 产出的消息会写入当前历史光标；对应状态也随历史写入立即提交。
      */
     private async renderAppendingSet(
-        runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>,
+        runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>,
         history: BaseMessage[],
         section: PromptProfileSetNode,
         currentUserInputMessage: BaseMessage | null,
@@ -600,7 +613,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
      * 渲染 DynamicSet 子节点。
      */
     private async renderDynamicChild(
-        runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>,
+        runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>,
         child: PromptChild,
         messages: BaseMessage[],
     ): Promise<void> {
@@ -626,7 +639,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
      * 渲染 AppendingSet 子节点。
      */
     private async renderAppendingChild(
-        runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>,
+        runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>,
         history: BaseMessage[],
         currentWatched: Record<string, WatchedVariableBaseline>,
         nextWatched: Record<string, WatchedVariableBaseline>,
@@ -726,7 +739,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
      * 渲染 watched variable 节点。
      */
     private renderWatchNode(
-        runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>,
+        runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>,
         history: BaseMessage[],
         currentWatched: Record<string, WatchedVariableBaseline>,
         nextWatched: Record<string, WatchedVariableBaseline>,
@@ -754,7 +767,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
             history,
             scope: runtime.scope,
             runtime,
-        } satisfies WatchedVariableChange<TKey>);
+        } satisfies WatchedVariableChange<TKey, TInput, TOutput>);
         if (!rendered) {
             return [];
         }
@@ -766,7 +779,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
      * 渲染 reminder 节点。
      */
     private renderReminderNode(
-        runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>,
+        runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>,
         currentReminders: Record<string, AgentReminderState>,
         nextReminders: Record<string, AgentReminderState>,
         reminderState: AppendingRenderState,
@@ -809,7 +822,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
     /**
      * 构造 skill catalog 文本。
      */
-    private buildSkillCatalogText(runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>): string {
+    private buildSkillCatalogText(runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>): string {
         if (!runtime.scope.agent.tools.includes("skill") || runtime.skillCatalog.length === 0) {
             return "";
         }
@@ -853,7 +866,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
      * 根据显式 `$skill` 提及自动激活 skills。
      */
     private async buildActivatedSkillsText(
-        runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>,
+        runtime: ProfileContextRuntime<TKey, TInput, TOutput, AgentProfile<TKey, TInput, TOutput>>,
         currentUserInputText?: string,
     ): Promise<string> {
         const prompt = currentUserInputText ?? this.getPromptText(runtime.input);
@@ -899,7 +912,7 @@ export abstract class SimpleProfile<TKey extends ProfileKey> extends AgentProfil
     /**
      * 从 profile 输入中提取主 prompt 文本。
      */
-    private getPromptText(input: ProfileContextRuntime<TKey, AgentProfile<TKey>>["input"]): string {
+    private getPromptText(input: TInput): string {
         if (typeof input !== "object" || input === null) {
             return "";
         }

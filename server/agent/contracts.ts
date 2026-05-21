@@ -16,7 +16,7 @@ import type {
     ThreadId,
 } from "nbook/server/agent/types";
 import type {SubAgentThread} from "nbook/server/agent/threads/subagent-thread";
-import type {AgentProfile} from "nbook/server/agent/profiles/agent-profile";
+import type {RuntimeAgentProfile} from "nbook/server/agent/profiles/agent-profile";
 
 /**
  * tool 运行时最小能力端口。
@@ -80,7 +80,7 @@ export interface AgentToolGateway extends ToolRuntimePort {
     /**
      * 列出当前可用 profile。
      */
-    listProfiles(kind?: "leader" | "subagent"): Promise<AgentProfile<ProfileKey>[]>;
+    listProfiles(kind?: "leader" | "subagent"): Promise<RuntimeAgentProfile[]>;
 
     /**
      * 列出 leader 管理的 subagent。

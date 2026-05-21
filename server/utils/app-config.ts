@@ -5,6 +5,7 @@ import consola from "consola";
 import * as yaml from "yaml";
 import {z} from "zod";
 import {ModelProviderAdapterSchema} from "nbook/shared/dto/app-settings.dto";
+import type {JsonValue} from "nbook/server/agent/types";
 import {expandEnvTemplate} from "nbook/server/utils/env-template";
 
 const ToolNameListSchema = z.array(z.string().trim().min(1)).default([]);
@@ -15,6 +16,12 @@ const NullableModelKeySchema = z.string().trim().min(1).nullable().optional().tr
 });
 const NullableNumberSchema = z.number().nullable().optional().transform((value) => {
     return typeof value === "number" ? value : null;
+});
+const NullablePositiveIntegerSchema = z.number().int().positive().nullable().optional().transform((value) => {
+    return typeof value === "number" ? value : null;
+});
+const JsonRecordSchema = z.record(z.string(), z.json()).nullable().optional().transform((value) => {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 });
 const ReasoningEffortSchema = z.enum(["low", "medium", "high"]).nullable().optional().transform((value) => value ?? null);
 const ContextWindowTokensSchema = z.number().int().positive().nullable().optional().transform((value) => {
@@ -48,6 +55,8 @@ const RawConfiguredProviderSchema = z.object({
         apiKey: ConfigTextSchema.optional(),
         baseURL: ConfigTextSchema.optional(),
         proxy: ConfigTextSchema.optional(),
+        timeoutMs: NullablePositiveIntegerSchema,
+        requestOptions: JsonRecordSchema,
     }).optional(),
     models: z.record(z.string(), RawConfiguredModelSchema).optional(),
 });
@@ -101,6 +110,8 @@ export type ModelProviderOptionsConfig = {
     apiKey: string;
     baseURL: string;
     proxy: string;
+    timeoutMs: number | null;
+    requestOptions: Record<string, JsonValue>;
 };
 
 export type ConfiguredProviderConfig = {
@@ -167,6 +178,15 @@ function normalizeNullableNumber(value: number | null | undefined): number | nul
     return typeof value === "number" && Number.isFinite(value)
         ? value
         : null;
+}
+
+/**
+ * 规范化 JSON 对象字段。
+ */
+function normalizeJsonRecord(value: Record<string, JsonValue> | null | undefined): Record<string, JsonValue> {
+    return value && typeof value === "object" && !Array.isArray(value)
+        ? value
+        : {};
 }
 
 /**
@@ -270,6 +290,8 @@ function parseAppConfigValue(input: unknown): AppConfig {
                 apiKey: normalizeConfigText(provider.options?.apiKey),
                 baseURL: normalizeConfigText(provider.options?.baseURL),
                 proxy: normalizeConfigText(provider.options?.proxy),
+                timeoutMs: normalizeNullableNumber(provider.options?.timeoutMs),
+                requestOptions: normalizeJsonRecord(provider.options?.requestOptions),
             },
             models: normalizeProviderModels(provider.models),
         };
@@ -447,6 +469,8 @@ function serializeModelSettings(config: ModelSettingsConfig): {
                     apiKey: normalizeConfigText(provider.options.apiKey),
                     baseURL: normalizeConfigText(provider.options.baseURL),
                     proxy: normalizeConfigText(provider.options.proxy),
+                    timeoutMs: normalizeNullableNumber(provider.options.timeoutMs),
+                    requestOptions: normalizeJsonRecord(provider.options.requestOptions),
                 },
                 models,
             }];
@@ -521,6 +545,8 @@ export async function saveModelSettingsConfig(config: ModelSettingsConfig): Prom
                     apiKey: normalizeConfigText(provider.options.apiKey),
                     baseURL: normalizeConfigText(provider.options.baseURL),
                     proxy: normalizeConfigText(provider.options.proxy),
+                    timeoutMs: normalizeNullableNumber(provider.options.timeoutMs),
+                    requestOptions: normalizeJsonRecord(provider.options.requestOptions),
                 },
                 models: Object.fromEntries(
                     Object.values(provider.models).map((model) => [model.id, {

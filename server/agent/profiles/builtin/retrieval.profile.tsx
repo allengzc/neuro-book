@@ -30,6 +30,14 @@ export class RetrievalProfile extends SimpleProfile<"subagent.retrieval"> {
     override readonly outputSchema = RetrievalOutputSchema;
 
     protected override buildPrompt(ctx: ProfilePromptContext<"subagent.retrieval">) {
+        return buildRetrievalPrompt(ctx);
+    }
+}
+
+/**
+ * 构造 retrieval prompt。动态 assets profile 会复用这个函数作为迁移期 helper。
+ */
+export function buildRetrievalPrompt(ctx: ProfilePromptContext<"subagent.retrieval">) {
         const input = ctx.input;
         const workspace = ctx.scope.studio.workspace ?? "";
         const constraintsText = [
@@ -98,5 +106,4 @@ Efficient retrieval method:
                 </AppendingSet>
             </ProfilePrompt>
         );
-    }
 }

@@ -189,7 +189,7 @@ function createRuntime(input: {
         loadHistoryMessages: async () => history,
         threadRepository: {} as never,
         variableStore: {} as never,
-    } satisfies ProfileContextRuntime<"leader.default", AgentProfile<"leader.default">>;
+    } satisfies ProfileContextRuntime<"leader.default">;
 }
 
 const createdWorkspacePaths: string[] = [];

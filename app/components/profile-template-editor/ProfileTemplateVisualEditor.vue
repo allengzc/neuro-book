@@ -3,6 +3,10 @@ import type {Data} from "@dnd-kit/abstract";
 import {defaultPreset} from "@dnd-kit/dom";
 import {DragDropProvider, KeyboardSensor, PointerSensor} from "@dnd-kit/vue";
 import type {DragDropProviderEmits} from "@dnd-kit/vue";
+import Dialog from "nbook/app/components/common/Dialog.vue";
+import FormInput from "nbook/app/components/common/form/FormInput.vue";
+import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
+import FormTextarea from "nbook/app/components/common/form/FormTextarea.vue";
 import ProfileTemplateCanvasPanel from "nbook/app/components/profile-template-editor/ProfileTemplateCanvasPanel.vue";
 import ProfileTemplateComponentLibraryPanel from "nbook/app/components/profile-template-editor/ProfileTemplateComponentLibraryPanel.vue";
 import ProfileTemplateHeader from "nbook/app/components/profile-template-editor/ProfileTemplateHeader.vue";
@@ -75,6 +79,12 @@ import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import {AGENT_CLIENT_VARIABLES_HEADER, type AgentThreadSummaryDto} from "nbook/shared/dto/agent-chat.dto";
 import type {
+    AgentProfileCatalogItemDto,
+    AgentProfileDetailDto,
+    AgentProfilePreparePreviewDto,
+    AgentProfileSchemaFieldDto,
+} from "nbook/shared/dto/agent-profile.dto";
+import type {
     ProfileTemplateDetailDto,
     ProfileTemplateIssueDto,
     ProfileTemplateNodeDto,
@@ -121,6 +131,14 @@ type HistoryEntry = {
     selectedNodeId: string;
 };
 
+type NewProfileForm = {
+    profileKey: string;
+    kind: "leader" | "subagent";
+    name: string;
+    description: string;
+    prompt: string;
+};
+
 const props = withDefaults(defineProps<{
     mode?: "system-template" | "user-profile";
     preferredTemplate?: string;
@@ -148,8 +166,10 @@ const theme = computed<IdeTheme>({
 const {mountThemeHost} = useIdeTheme(theme);
 
 const templates = ref<ProfileTemplateSummaryDto[]>([]);
+const profileCatalog = ref<AgentProfileCatalogItemDto[]>([]);
 const selectedTemplate = ref(props.preferredTemplate || (props.mode === "user-profile" ? "builtin/leader-default.profile.tsx" : "leader-runtime"));
 const detail = ref<ProfileTemplateDetailDto | null>(null);
+const profileDetail = ref<AgentProfileDetailDto | null>(null);
 const sourceText = ref("");
 const root = ref<ProfileTemplateNodeDto | null>(null);
 const selectedNodeId = ref("");
@@ -160,6 +180,9 @@ const saving = ref(false);
 const autosaving = ref(false);
 const validating = ref(false);
 const restoring = ref(false);
+const creating = ref(false);
+const createDialogOpen = ref(false);
+const newProfileForm = ref<NewProfileForm>(createDefaultProfileForm());
 const previewing = ref(false);
 const previewDialogOpen = ref(false);
 const previewUpdatedAt = ref("");
@@ -203,8 +226,24 @@ const selectedNode = computed(() => root.value ? findNode(root.value, selectedNo
 const selectedPropEntries = computed(() => selectedNode.value ? Object.entries(selectedNode.value.props) : []);
 const templateOptions = computed(() => templates.value.map((template) => ({
     value: props.mode === "user-profile" ? template.fileName : template.name,
-    label: template.fileName,
+    label: props.mode === "user-profile" && template.profileKey ? `${template.profileKey} · ${template.fileName}` : template.fileName,
+    description: props.mode === "user-profile"
+        ? formatCatalogDescription(profileCatalog.value.find((item) => item.fileName === template.fileName))
+        : undefined,
+    meta: props.mode === "user-profile" ? profileCatalog.value.find((item) => item.fileName === template.fileName) : undefined,
 })));
+const profileKindOptions = [
+    {
+        value: "leader",
+        label: "leader",
+        description: "可作为主线程 profile",
+    },
+    {
+        value: "subagent",
+        label: "subagent",
+        description: "可由 leader 创建和调用",
+    },
+];
 const threadOptions = computed(() => threads.value.map((thread) => ({
     value: thread.id,
     label: thread.title || thread.id,
@@ -219,6 +258,12 @@ const selectedTemplateFileName = computed(() => {
         ? item.fileName === selectedTemplate.value
         : item.name === selectedTemplate.value);
     return matched?.fileName ?? selectedTemplate.value;
+});
+const canRestoreSelectedTemplate = computed(() => {
+    if (props.mode !== "user-profile") {
+        return false;
+    }
+    return Boolean(profileCatalog.value.find((item) => item.fileName === selectedTemplate.value)?.canRestore);
 });
 const selectedTextLength = computed(() => selectedNode.value?.text?.length ?? 0);
 const canUndo = computed(() => undoStack.value.length > 0);
@@ -308,6 +353,19 @@ const agentApi = useAgentApi({getClientVariables: buildClientVariables});
 const notification = useNotification();
 
 /**
+ * 新建 profile 表单默认值。
+ */
+function createDefaultProfileForm(): NewProfileForm {
+    return {
+        profileKey: "subagent.custom",
+        kind: "subagent",
+        name: "Custom Agent",
+        description: "",
+        prompt: "你是一个自定义 Agent。根据用户输入完成任务，必要时使用工具，完成后调用 report_result。",
+    };
+}
+
+/**
  * 构造用于同步线程 scope 的 IDE 客户端变量。
  */
 function buildClientVariables() {
@@ -327,12 +385,39 @@ function buildClientVariables() {
 }
 
 /**
+ * 下拉项展示 profile 来源与加载状态。
+ */
+function formatCatalogDescription(item: AgentProfileCatalogItemDto | undefined): string {
+    if (!item) {
+        return "";
+    }
+    const sourceText = item.overrideState === "user_override"
+        ? "用户覆盖"
+        : item.source === "system"
+            ? "系统"
+            : item.source === "user"
+                ? "用户"
+                : "静态契约";
+    const statusText = item.loadStatus === "loaded" ? "已加载" : item.loadStatus === "error" ? "加载失败" : "缺失";
+    return `${sourceText} · ${item.kind ?? "unknown"} · ${statusText}`;
+}
+
+/**
  * 加载模板列表。
  */
 async function loadTemplates(): Promise<void> {
-    templates.value = props.mode === "user-profile"
-        ? await $fetch<ProfileTemplateSummaryDto[]>("/api/agent/user-profile-templates")
-        : await $fetch<ProfileTemplateSummaryDto[]>("/api/agent/profile-templates");
+    if (props.mode === "user-profile") {
+        profileCatalog.value = await $fetch<AgentProfileCatalogItemDto[]>("/api/agent/profiles/catalog");
+        templates.value = profileCatalog.value
+            .filter((item) => item.fileName)
+            .map((item) => ({
+                name: item.profileKey,
+                fileName: item.fileName!,
+                profileKey: item.profileKey,
+            }));
+    } else {
+        templates.value = await $fetch<ProfileTemplateSummaryDto[]>("/api/agent/profile-templates");
+    }
     const preferred = props.preferredTemplate || selectedTemplate.value;
     const hasPreferred = templates.value.some((item) => props.mode === "user-profile"
         ? item.fileName === preferred
@@ -352,11 +437,21 @@ async function loadTemplates(): Promise<void> {
  */
 async function fetchTemplateDetail(): Promise<ProfileTemplateDetailDto> {
     if (props.mode === "user-profile") {
-        return await $fetch<ProfileTemplateDetailDto>("/api/agent/user-profile-templates/read", {
+        const nextProfileDetail = await $fetch<AgentProfileDetailDto>("/api/agent/profiles/detail", {
             method: "POST",
             body: {fileName: selectedTemplate.value},
         });
+        profileDetail.value = nextProfileDetail;
+        return {
+            name: nextProfileDetail.catalogItem.profileKey,
+            fileName: nextProfileDetail.fileName ?? selectedTemplate.value,
+            source: nextProfileDetail.source,
+            root: nextProfileDetail.root,
+            issues: nextProfileDetail.issues,
+            variables: nextProfileDetail.variables,
+        };
     }
+    profileDetail.value = null;
     return await $fetch<ProfileTemplateDetailDto>(`/api/agent/profile-templates/${selectedTemplate.value}`);
 }
 
@@ -366,7 +461,7 @@ async function fetchTemplateDetail(): Promise<ProfileTemplateDetailDto> {
 async function loadThreads(): Promise<void> {
     loadingThreads.value = true;
     try {
-        threads.value = await agentApi.listThreads("leader", props.threadProfileKey);
+        threads.value = await agentApi.listThreads("leader", currentThreadProfileKey());
         if (!selectedThreadId.value || !threads.value.some((thread) => thread.id === selectedThreadId.value)) {
             selectedThreadId.value = threads.value[0]?.id ?? "";
         }
@@ -413,15 +508,17 @@ async function previewTemplate(): Promise<void> {
     statusText.value = "正在生成 Prompt 预览...";
     try {
         await syncSelectedThreadScope();
-        const result = await $fetch<ProfileTemplatePreviewDto>("/api/agent/profile-templates/preview", {
-            method: "POST",
-            headers: buildAgentPreviewHeaders(),
-            body: {
-                source: sourceText.value,
-                threadId: selectedThreadId.value || undefined,
-                inputOverrides: normalizePreviewInputOverrides(),
-            },
-        });
+        const result = props.mode === "user-profile"
+            ? await previewPreparedProfile()
+            : await $fetch<ProfileTemplatePreviewDto>("/api/agent/profile-templates/preview", {
+                method: "POST",
+                headers: buildAgentPreviewHeaders(),
+                body: {
+                    source: sourceText.value,
+                    threadId: selectedThreadId.value || undefined,
+                    inputOverrides: normalizePreviewInputOverrides(),
+                },
+            });
         issues.value = result.issues;
         if (result.root && !result.issues.some((issue) => issue.severity === "error")) {
             root.value = reconcileNodeIds(root.value, result.root);
@@ -447,6 +544,29 @@ async function previewTemplate(): Promise<void> {
     } finally {
         previewing.value = false;
     }
+}
+
+/**
+ * 用户 profile 模式下走真实 profile.prepare 预览。
+ */
+async function previewPreparedProfile(): Promise<ProfileTemplatePreviewDto> {
+    const profileKey = currentThreadProfileKey();
+    const result = await $fetch<AgentProfilePreparePreviewDto>("/api/agent/profiles/preview-prepare", {
+        method: "POST",
+        headers: buildAgentPreviewHeaders(),
+        body: {
+            profileKey,
+            threadId: selectedThreadId.value || undefined,
+            inputOverrides: normalizePreviewInputOverrides(),
+        },
+    });
+    return {
+        source: sourceText.value,
+        root: root.value,
+        issues: result.issues,
+        messages: result.messages,
+        variables: result.variables,
+    };
 }
 
 /**
@@ -521,10 +641,12 @@ async function restoreTemplate(): Promise<void> {
     }
     restoring.value = true;
     try {
-        const result = await $fetch<ProfileTemplateDetailDto>("/api/agent/user-profile-templates/restore", {
+        await $fetch<ProfileTemplateDetailDto>("/api/agent/user-profile-templates/restore", {
             method: "POST",
             body: {fileName: selectedTemplate.value},
         });
+        await loadTemplates();
+        const result = await fetchTemplateDetail();
         applyTemplateDetail(result, "已恢复系统版本");
         notification.success("已恢复系统 profile");
     } catch (error) {
@@ -537,10 +659,101 @@ async function restoreTemplate(): Promise<void> {
 }
 
 /**
+ * 打开新建 profile 弹窗。
+ */
+function openCreateProfileDialog(): void {
+    newProfileForm.value = createDefaultProfileForm();
+    createDialogOpen.value = true;
+}
+
+/**
+ * 同步 profile kind 与 key 前缀。
+ */
+function updateNewProfileKind(value: string): void {
+    const kind = value === "leader" ? "leader" : "subagent";
+    const currentKey = newProfileForm.value.profileKey.trim();
+    const suffix = currentKey.includes(".") ? currentKey.split(".").slice(1).join(".") : "custom";
+    newProfileForm.value = {
+        ...newProfileForm.value,
+        kind,
+        profileKey: `${kind}.${suffix || "custom"}`,
+    };
+}
+
+/**
+ * 创建用户 assets profile。
+ */
+async function createUserProfile(): Promise<void> {
+    if (props.mode !== "user-profile" || creating.value) {
+        return;
+    }
+    creating.value = true;
+    try {
+        const created = await $fetch<ProfileTemplateDetailDto>("/api/agent/user-profile-templates/create", {
+            method: "POST",
+            body: {
+                profileKey: newProfileForm.value.profileKey,
+                kind: newProfileForm.value.kind,
+                name: newProfileForm.value.name,
+                description: newProfileForm.value.description || undefined,
+                prompt: newProfileForm.value.prompt,
+            },
+        });
+        createDialogOpen.value = false;
+        selectedTemplate.value = created.fileName;
+        await loadTemplates();
+        const result = await fetchTemplateDetail();
+        applyTemplateDetail(result, "已创建用户 profile");
+        notification.success("已创建用户 profile");
+    } catch (error) {
+        notification.error(describeFetchError(error), {title: "创建 profile 失败"});
+    } finally {
+        creating.value = false;
+    }
+}
+
+/**
+ * 低代码保存用户 profile 的 InputSchema 或 OutputSchema。
+ */
+async function saveProfileSchema(payload: {schemaName: "InputSchema" | "OutputSchema"; fields: AgentProfileSchemaFieldDto[]}): Promise<void> {
+    if (props.mode !== "user-profile" || !selectedTemplate.value || saving.value) {
+        return;
+    }
+    if (dirty.value) {
+        notification.error("请先保存或放弃当前源码修改，再使用 Schema Builder。", {title: "Schema 未保存"});
+        return;
+    }
+    saving.value = true;
+    try {
+        await $fetch<ProfileTemplateDetailDto>("/api/agent/user-profile-templates/schema", {
+            method: "POST",
+            body: {
+                fileName: selectedTemplate.value,
+                schemaName: payload.schemaName,
+                fields: payload.fields,
+            },
+        });
+        await loadTemplates();
+        const result = await fetchTemplateDetail();
+        applyTemplateDetail(result, `已保存 ${payload.schemaName}`);
+        notification.success(`已保存 ${payload.schemaName}`);
+    } catch (error) {
+        lastSaveError.value = describeFetchError(error);
+        statusText.value = `Schema 保存失败：${lastSaveError.value}`;
+        notification.error(lastSaveError.value, {title: "Schema 保存失败"});
+    } finally {
+        saving.value = false;
+    }
+}
+
+/**
  * 保存当前源码到模板文件。
  */
 async function persistTemplate(silent: boolean): Promise<void> {
-    if (!sourceText.value || !selectedTemplate.value || issueCount.value > 0 || parsingSource.value) {
+    if (!sourceText.value || !selectedTemplate.value || parsingSource.value) {
+        return;
+    }
+    if (props.mode !== "user-profile" && issueCount.value > 0) {
         return;
     }
     const savedSourceText = sourceText.value;
@@ -607,18 +820,40 @@ function applyTemplateDetail(nextDetail: ProfileTemplateDetailDto, status: strin
  */
 async function saveTemplateSource(source: string): Promise<ProfileTemplateDetailDto> {
     if (props.mode === "user-profile") {
-        return await $fetch<ProfileTemplateDetailDto>("/api/agent/user-profile-templates/save", {
+        const saved = await $fetch<ProfileTemplateDetailDto>("/api/agent/user-profile-templates/save", {
             method: "POST",
             body: {
                 fileName: selectedTemplate.value,
                 source,
             },
         });
+        await loadTemplates();
+        const nextProfileDetail = await $fetch<AgentProfileDetailDto>("/api/agent/profiles/detail", {
+            method: "POST",
+            body: {fileName: selectedTemplate.value},
+        });
+        profileDetail.value = nextProfileDetail;
+        return {
+            ...saved,
+            issues: nextProfileDetail.issues,
+            variables: nextProfileDetail.variables,
+        };
     }
     return await $fetch<ProfileTemplateDetailDto>(`/api/agent/profile-templates/${selectedTemplate.value}`, {
         method: "PUT",
         body: {source},
     });
+}
+
+/**
+ * 当前选中 profile key。
+ */
+function currentThreadProfileKey(): string {
+    if (props.mode !== "user-profile") {
+        return props.threadProfileKey;
+    }
+    const selected = profileCatalog.value.find((item) => item.fileName === selectedTemplate.value);
+    return selected?.profileKey ?? profileDetail.value?.catalogItem.profileKey ?? props.threadProfileKey;
 }
 
 /**
@@ -1038,7 +1273,7 @@ function syncSourceTextFromRoot(): void {
  * 用户 profile 是完整 TSX 文件，画布编辑只替换已解析的 ProfilePrompt 片段。
  */
 function replacePromptRootSource(source: string, nextRoot: ProfileTemplateNodeDto): string {
-    const range = detail.value?.root?.sourceRange;
+    const range = root.value?.sourceRange ?? detail.value?.root?.sourceRange;
     if (!range) {
         return source;
     }
@@ -1420,6 +1655,10 @@ function buildDragVisualRoot(snapshot: ProfileTemplateNodeDto, source: NonNullab
 }
 
 watch(selectedTemplate, () => {
+    if (props.mode === "user-profile") {
+        selectedThreadId.value = "";
+        void loadThreads();
+    }
     void loadTemplate();
 });
 
@@ -1474,13 +1713,16 @@ onBeforeUnmount(() => {
             :parsing-source="parsingSource"
             :source-text="sourceText"
             :issue-count="issueCount"
-            :restore-enabled="props.mode === 'user-profile'"
+            :restore-enabled="canRestoreSelectedTemplate"
+            :create-enabled="props.mode === 'user-profile'"
+            :allow-save-with-issues="props.mode === 'user-profile'"
             :closable="props.closable"
             @undo="undoEdit"
             @redo="redoEdit"
             @preview="void openPreviewDialog()"
             @validate="void validateTemplate()"
             @restore="void restoreTemplate()"
+            @create="openCreateProfileDialog"
             @save="void saveTemplate()"
             @close="emit('close')"
         />
@@ -1581,6 +1823,7 @@ onBeforeUnmount(() => {
                     :issue-detail="issueDetail"
                     :format-variable-value="formatVariableValue"
                     :is-variable-group-collapsed="isVariableGroupCollapsed"
+                    :profile-detail="profileDetail"
                     @collapse="inspectorPanelCollapsed = true"
                     @update-active-target="activeTextTarget = $event"
                     @source-change="handleSourceTextChange"
@@ -1591,6 +1834,7 @@ onBeforeUnmount(() => {
                     @commit-message-text="commitMessageText"
                     @insert-variable="insertVariable"
                     @toggle-variable-group="toggleVariableGroup"
+                    @save-schema="saveProfileSchema"
                 />
             </aside>
             </main>
@@ -1621,6 +1865,46 @@ onBeforeUnmount(() => {
             @insert-variable="insertVariable"
             @update-preview-variable="updatePreviewVariable"
         />
+
+        <Dialog
+            v-model="createDialogOpen"
+            title="新建 TSX Profile"
+            width="560px"
+            overlay-type="blur"
+            :busy="creating"
+            @confirm="void createUserProfile()"
+        >
+            <div class="space-y-3">
+                <label class="form-row">
+                    <span class="form-label">类型</span>
+                    <FormSelect
+                        :model-value="newProfileForm.kind"
+                        :options="profileKindOptions"
+                        dropdown-direction="down"
+                        @update:model-value="updateNewProfileKind"
+                    />
+                </label>
+                <label class="form-row">
+                    <span class="form-label">Profile Key</span>
+                    <FormInput v-model="newProfileForm.profileKey" placeholder="subagent.custom" />
+                </label>
+                <label class="form-row">
+                    <span class="form-label">名称</span>
+                    <FormInput v-model="newProfileForm.name" placeholder="Custom Agent" />
+                </label>
+                <label class="form-row">
+                    <span class="form-label">描述</span>
+                    <FormInput v-model="newProfileForm.description" placeholder="可选，用于 catalog 展示" />
+                </label>
+                <label class="form-row">
+                    <span class="form-label">初始提示词</span>
+                    <FormTextarea v-model="newProfileForm.prompt" :rows="7" placeholder="写入这个 profile 的系统提示词" />
+                </label>
+                <p class="text-[11px] leading-5 text-[var(--text-muted)]">
+                    将创建到用户 assets 的 <code>agent/profiles/...</code> 下，并生成标准 defineAgentProfile TSX 骨架。
+                </p>
+            </div>
+        </Dialog>
     </div>
 </template>
 
@@ -1762,5 +2046,17 @@ onBeforeUnmount(() => {
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0;
+}
+
+.form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.form-label {
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
 }
 </style>

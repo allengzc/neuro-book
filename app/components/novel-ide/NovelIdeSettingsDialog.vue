@@ -3,6 +3,7 @@ import {storeToRefs} from "pinia";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
+import NovelIdeAgentProfileDefaultSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeAgentProfileDefaultSettingsPanel.vue";
 import NovelIdeAgentProfileModelSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeAgentProfileModelSettingsPanel.vue";
 import NovelIdeModelSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeModelSettingsPanel.vue";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
@@ -11,7 +12,7 @@ import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStud
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 import type {AgentToolSettingsDto, UpdateAgentToolSettingsRequestDto} from "nbook/shared/dto/app-settings.dto";
 
-type SettingsSection = "frontend" | "editor" | "agent-tools" | "models" | "agent-profile-models";
+type SettingsSection = "frontend" | "editor" | "agent-tools" | "models" | "agent-profile-defaults" | "agent-profile-models";
 type ToolState = "default" | "allow" | "deny";
 
 const props = defineProps<{
@@ -68,6 +69,12 @@ const frontendSectionItems: Array<{value: SettingsSection; label: string; descri
         label: "模型设置",
         description: "管理 Provider、Model 与默认模型。",
         iconClass: "i-lucide-cpu",
+    },
+    {
+        value: "agent-profile-defaults",
+        label: "默认 Profile",
+        description: "配置当前 workspace 新线程默认使用的 Profile。",
+        iconClass: "i-lucide-route",
     },
     {
         value: "agent-profile-models",
@@ -411,7 +418,7 @@ watch(() => props.modelValue, (visible) => {
                     <div class="rounded-xl border border-[var(--border-color)]/60 bg-[var(--bg-panel)]/50 px-3.5 py-3 shadow-sm">
                         <span class="i-lucide-info mb-1.5 block h-3.5 w-3.5 text-[var(--text-muted)]"></span>
                         <div class="text-[11px] leading-relaxed text-[var(--text-secondary)]">
-                            {{ activeSection === "frontend" ? "前端设定即时生效并自动保存。" : activeSection === "editor" ? "编辑器显示偏好只影响本地 UI。" : activeSection === "agent-tools" ? (backendDirty ? "Agent 工具有未保存修改。" : "Agent 工具配置已持久化。") : activeSection === "models" ? "模型设置修改后须手动保存。" : "Profile 模型参数修改后须手动保存。" }}
+                            {{ activeSection === "frontend" ? "前端设定即时生效并自动保存。" : activeSection === "editor" ? "编辑器显示偏好只影响本地 UI。" : activeSection === "agent-tools" ? (backendDirty ? "Agent 工具有未保存修改。" : "Agent 工具配置已持久化。") : activeSection === "models" ? "模型设置修改后须手动保存。" : activeSection === "agent-profile-defaults" ? "默认 Profile 只影响新建线程。" : "Profile 模型参数修改后须手动保存。" }}
                         </div>
                     </div>
                 </div>
@@ -736,6 +743,11 @@ watch(() => props.modelValue, (visible) => {
                         <div v-else-if="activeSection === 'models'" key="models">
                             <!-- 注意：ModelSettingsPanel 内部不使用 h-full，让外层自动撑开或根据内容滚动 -->
                             <NovelIdeModelSettingsPanel />
+                        </div>
+
+                        <!-- 默认 Profile 设定 -->
+                        <div v-else-if="activeSection === 'agent-profile-defaults'" key="agent-profile-defaults">
+                            <NovelIdeAgentProfileDefaultSettingsPanel />
                         </div>
 
                         <!-- Agent Profile 模型设定 -->

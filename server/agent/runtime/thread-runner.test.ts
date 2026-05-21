@@ -174,6 +174,98 @@ describe("AgentThreadRunner", () => {
         expect(toolEnd).toMatchObject({toolCallId});
     });
 
+    it("第二轮模型调用前会清理本轮 assistant content 内的工具调用块", async () => {
+        const execute = vi.fn(async (input: {path: string}) => ({
+            content: `文件 ${input.path} 的内容`,
+            toolArgs: JSON.stringify(input),
+        }));
+        const boundTool = createBoundReadFileTool(execute);
+        let secondCallMessages: unknown[] = [];
+        const model = {
+            bindTools: vi.fn(() => model),
+            stream: vi.fn(async (messages: unknown[]) => {
+                const hasToolResult = messages.some((message) => ToolMessage.isInstance(message));
+                if (!hasToolResult) {
+                    return streamMessages([
+                        Object.assign(new AIMessageChunk({
+                            content: [
+                                {
+                                    type: "tool_call",
+                                    id: "call-1",
+                                    name: "read_file",
+                                    args: {},
+                                },
+                                {
+                                    type: "tool_use",
+                                    id: "call-1",
+                                    name: "read_file",
+                                    input: {},
+                                },
+                            ],
+                            tool_call_chunks: [
+                                {
+                                    index: 0,
+                                    id: "call-1",
+                                    name: "read_file",
+                                    args: "{\"path\":\"chapter-1.md\"}",
+                                },
+                                {
+                                    index: 1,
+                                    id: "call-1",
+                                    name: "read_file",
+                                    args: "{\"path\":\"chapter-2.md\"}",
+                                },
+                            ],
+                        }), {
+                            tool_calls: [
+                                {
+                                    id: "call-1",
+                                    name: "read_file",
+                                    args: {
+                                        path: "chapter-1.md",
+                                    },
+                                    type: "tool_call",
+                                },
+                                {
+                                    id: "call-1",
+                                    name: "read_file",
+                                    args: {
+                                        path: "chapter-2.md",
+                                    },
+                                    type: "tool_call",
+                                },
+                            ],
+                        }),
+                    ]);
+                }
+                secondCallMessages = messages;
+                return streamMessages([
+                    new AIMessageChunk("都读完了"),
+                ]);
+            }),
+        };
+        const runner = new AgentThreadRunner({
+            getChatModel: () => model as never,
+        });
+
+        const stream = await runner.streamPreparedEvents(
+            createThreadRecord(),
+            "leader.default",
+            [new HumanMessage("读两份资料")],
+            [boundTool],
+        );
+        for await (const _event of stream) {
+            // drain stream
+        }
+
+        const assistantWithToolCall = secondCallMessages.find((message) => AIMessage.isInstance(message) && Boolean(message.tool_calls?.length)) as AIMessage | undefined;
+        const toolMessages = secondCallMessages.filter((message) => ToolMessage.isInstance(message)) as ToolMessage[];
+
+        expect(assistantWithToolCall?.content).toBe("");
+        expect(assistantWithToolCall?.tool_calls?.map((toolCall) => toolCall.id)).toEqual(["call-1", "call-1__call_2"]);
+        expect(toolMessages.map((message) => message.tool_call_id)).toEqual(["call-1", "call-1__call_2"]);
+    });
+
     it("同一批 tool calls 会并发执行", async () => {
         let inFlight = 0;
         let maxInFlight = 0;

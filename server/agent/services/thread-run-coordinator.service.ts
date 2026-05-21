@@ -412,7 +412,7 @@ export class ThreadRunCoordinator {
      */
     async runThread<TKey extends ProfileKey>(
         thread: AgentThreadRecord,
-        runtime: ProfileContextRuntime<TKey, AgentProfile<TKey>>,
+        runtime: ProfileContextRuntime<TKey>,
         tools: BoundAgentTool[],
         session: ActiveRunSession,
     ): Promise<void> {
@@ -1360,7 +1360,7 @@ export class ThreadRunCoordinator {
     private async transitionToWaitingUser(
         thread: AgentThreadRecord,
         session: ActiveRunSession,
-        runtime: ProfileContextRuntime<ProfileKey, AgentProfile<ProfileKey>>,
+        runtime: ProfileContextRuntime<ProfileKey>,
         currentMetadata: AgentThreadMetadata,
         pendingUserInputTools: PendingUserInputTool[],
     ): Promise<void> {

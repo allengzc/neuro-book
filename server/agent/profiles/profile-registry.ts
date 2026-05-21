@@ -5,7 +5,7 @@ import {pathToFileURL} from "node:url";
 import {build, type Metafile} from "esbuild";
 import {z} from "zod";
 import type {AgentThreadKind, BuiltinProfileKey, ProfileKey} from "nbook/server/agent/types";
-import type {AgentProfile} from "nbook/server/agent/profiles/agent-profile";
+import type {AgentProfile, RuntimeAgentProfile} from "nbook/server/agent/profiles/agent-profile";
 import type {AgentProfileManifest} from "nbook/server/agent/profiles/define-agent-profile";
 
 /**
@@ -13,18 +13,23 @@ import type {AgentProfileManifest} from "nbook/server/agent/profiles/define-agen
  */
 export interface AgentProfileRegistry {
     get<TKey extends ProfileKey>(profileKey: TKey): Promise<AgentProfile<TKey>>;
-    list(): Promise<AgentProfile<ProfileKey>[]>;
-    listByKind(kind: AgentThreadKind): Promise<AgentProfile<ProfileKey>[]>;
+    list(): Promise<RuntimeAgentProfile[]>;
+    listByKind(kind: AgentThreadKind): Promise<RuntimeAgentProfile[]>;
     register<TKey extends ProfileKey>(profile: AgentProfile<TKey>): void;
+    registerContract(profile: RuntimeAgentProfile): void;
+    refreshDynamicProfiles(): Promise<void>;
+    inspectDynamicProfiles(): Promise<DynamicProfileInspection>;
 }
 
 /**
  * 支持 assets 动态覆盖的 profile 注册表。
  */
 export class InMemoryAgentProfileRegistry implements AgentProfileRegistry {
-    private readonly builtinProfiles = new Map<ProfileKey, AgentProfile<ProfileKey>>();
-    private dynamicProfiles: Map<ProfileKey, AgentProfile<ProfileKey>> | null = null;
-    private dynamicErrors = new Map<ProfileKey, Error>();
+    private readonly builtinProfiles = new Map<ProfileKey, RuntimeAgentProfile>();
+    private readonly contractProfileKeys = new Set<ProfileKey>();
+    private dynamicProfiles: Map<ProfileKey, RuntimeAgentProfile> | null = null;
+    private dynamicErrors = new Map<ProfileKey, DynamicProfileError>();
+    private dynamicFiles: DynamicProfileFile[] = [];
 
     constructor(
         private readonly workspaceRoot = process.cwd(),
@@ -34,61 +39,114 @@ export class InMemoryAgentProfileRegistry implements AgentProfileRegistry {
         await this.refreshDynamicProfiles();
         const dynamicError = this.dynamicErrors.get(profileKey);
         if (dynamicError) {
-            throw dynamicError;
+            throw new Error(dynamicError.message);
         }
         const profile = this.dynamicProfiles?.get(profileKey) ?? this.builtinProfiles.get(profileKey);
         if (!profile) {
             throw new Error(`未注册的 profileKey: ${profileKey}`);
         }
+        if (this.contractProfileKeys.has(profile.key) && !this.dynamicProfiles?.has(profile.key)) {
+            throw new Error(`profile ${profileKey} 只有静态 contract，缺少可运行的 assets profile 实现`);
+        }
         return profile as AgentProfile<TKey>;
     }
 
-    async list(): Promise<AgentProfile<ProfileKey>[]> {
+    async list(): Promise<RuntimeAgentProfile[]> {
         await this.refreshDynamicProfiles();
-        const profiles = new Map<ProfileKey, AgentProfile<ProfileKey>>(this.builtinProfiles);
+        const profiles = new Map<ProfileKey, RuntimeAgentProfile>(this.builtinProfiles);
         for (const [key, profile] of this.dynamicProfiles ?? []) {
             profiles.set(key, profile);
         }
         return [...profiles.values()];
     }
 
-    async listByKind(kind: AgentThreadKind): Promise<AgentProfile<ProfileKey>[]> {
+    async listByKind(kind: AgentThreadKind): Promise<RuntimeAgentProfile[]> {
         return (await this.list()).filter((profile) => profile.kind === kind);
     }
 
     register<TKey extends ProfileKey>(profile: AgentProfile<TKey>): void {
-        this.builtinProfiles.set(profile.key, profile as AgentProfile<ProfileKey>);
+        this.builtinProfiles.set(profile.key, profile);
+        this.contractProfileKeys.delete(profile.key);
+    }
+
+    registerContract(profile: RuntimeAgentProfile): void {
+        this.builtinProfiles.set(profile.key, profile);
+        this.contractProfileKeys.add(profile.key);
+    }
+
+    /**
+     * 返回动态 profile 的加载快照，供 catalog/detail 展示错误和来源。
+     */
+    async inspectDynamicProfiles(): Promise<DynamicProfileInspection> {
+        await this.refreshDynamicProfiles();
+        return {
+            contracts: [...this.builtinProfiles.values()],
+            profiles: [...(this.dynamicProfiles?.values() ?? [])],
+            files: [...this.dynamicFiles],
+            errors: [...this.dynamicErrors.values()],
+        };
     }
 
     /**
      * 刷新动态 profile 缓存。
      */
     async refreshDynamicProfiles(): Promise<void> {
-        const nextProfiles = new Map<ProfileKey, AgentProfile<ProfileKey>>();
-        const nextErrors = new Map<ProfileKey, Error>();
+        const nextProfiles = new Map<ProfileKey, RuntimeAgentProfile>();
+        const nextErrors = new Map<ProfileKey, DynamicProfileError>();
         const profileFiles = await listProfileFiles(this.workspaceRoot);
+        const nextFiles: DynamicProfileFile[] = [];
 
         for (const file of profileFiles) {
             const manifest = await readProfileManifestSafely(file.absolutePath);
+            nextFiles.push({
+                ...file,
+                profileKey: manifest?.key ?? null,
+                kind: manifest?.kind ?? null,
+                name: manifest?.name ?? null,
+                description: manifest?.description ?? null,
+            });
             try {
                 const profile = await loadDynamicProfile(file.absolutePath);
                 const builtinProfile = this.builtinProfiles.get(profile.key as BuiltinProfileKey);
                 assertBuiltinOverrideContract(profile, builtinProfile);
-                nextProfiles.set(profile.key, overrideBuiltinSchemaContract(profile, builtinProfile) as AgentProfile<ProfileKey>);
+                nextProfiles.set(profile.key, overrideBuiltinSchemaContract(profile, builtinProfile));
             } catch (error) {
                 const key = manifest?.key ?? `invalid:${file.absolutePath}`;
-                nextErrors.set(key, normalizeProfileLoadError(file.absolutePath, error));
+                nextErrors.set(key, normalizeProfileLoadError(file.absolutePath, file.relativePath, manifest?.key ?? null, error));
             }
         }
 
         this.dynamicProfiles = nextProfiles;
         this.dynamicErrors = nextErrors;
+        this.dynamicFiles = nextFiles;
     }
 }
 
 type ProfileFile = {
     absolutePath: string;
+    relativePath: string;
     source: "system" | "user";
+};
+
+export type DynamicProfileFile = ProfileFile & {
+    profileKey: string | null;
+    kind: AgentThreadKind | null;
+    name: string | null;
+    description: string | null;
+};
+
+export type DynamicProfileError = Error & {
+    filePath: string;
+    relativePath: string;
+    profileKey: string | null;
+    code: string;
+};
+
+export type DynamicProfileInspection = {
+    contracts: RuntimeAgentProfile[];
+    profiles: RuntimeAgentProfile[];
+    files: DynamicProfileFile[];
+    errors: DynamicProfileError[];
 };
 
 const PROFILE_ROOT_RELATIVE_PATH = path.join("agent", "profiles");
@@ -137,6 +195,7 @@ async function appendProfileFiles(filesByRelativePath: Map<string, ProfileFile>,
         }
         filesByRelativePath.set(path.relative(baseRoot, absolutePath), {
             absolutePath,
+            relativePath: path.relative(baseRoot, absolutePath).split(path.sep).join("/"),
             source,
         });
     }
@@ -145,7 +204,7 @@ async function appendProfileFiles(filesByRelativePath: Map<string, ProfileFile>,
 /**
  * 加载动态 TSX profile。
  */
-async function loadDynamicProfile(filePath: string): Promise<AgentProfile<ProfileKey>> {
+async function loadDynamicProfile(filePath: string): Promise<RuntimeAgentProfile> {
     const compiledPath = await compileDynamicProfile(filePath);
     const loadedModule = await import(await toVersionedModuleUrl(compiledPath)) as {
         default?: unknown;
@@ -264,21 +323,21 @@ async function toVersionedModuleUrl(filePath: string): Promise<string> {
 /**
  * 判断值是否为 AgentProfile。
  */
-function isAgentProfile(value: unknown): value is AgentProfile<ProfileKey> {
+function isAgentProfile(value: unknown): value is RuntimeAgentProfile {
     return typeof value === "object"
         && value !== null
-        && "key" in value
-        && "kind" in value
-        && "name" in value
-        && "inputSchema" in value
-        && "allowedToolKeys" in value
-        && "prepare" in value;
+        && typeof (value as RuntimeAgentProfile).key === "string"
+        && ((value as RuntimeAgentProfile).kind === "leader" || (value as RuntimeAgentProfile).kind === "subagent")
+        && typeof (value as RuntimeAgentProfile).name === "string"
+        && typeof (value as {inputSchema?: {parse?: unknown}}).inputSchema?.parse === "function"
+        && Array.isArray((value as RuntimeAgentProfile).allowedToolKeys)
+        && typeof (value as {prepare?: unknown}).prepare === "function";
 }
 
 /**
  * 覆盖 builtin key 时不允许修改 schema contract。
  */
-function assertBuiltinOverrideContract(profile: AgentProfile<ProfileKey>, builtinProfile: AgentProfile<ProfileKey> | undefined): void {
+function assertBuiltinOverrideContract(profile: RuntimeAgentProfile, builtinProfile: RuntimeAgentProfile | undefined): void {
     if (!builtinProfile) {
         return;
     }
@@ -299,7 +358,7 @@ function assertBuiltinOverrideContract(profile: AgentProfile<ProfileKey>, builti
 /**
  * builtin 覆盖只允许改实现，不让动态模块的 schema 对象替换静态契约。
  */
-function overrideBuiltinSchemaContract(profile: AgentProfile<ProfileKey>, builtinProfile: AgentProfile<ProfileKey> | undefined): AgentProfile<ProfileKey> {
+function overrideBuiltinSchemaContract(profile: RuntimeAgentProfile, builtinProfile: RuntimeAgentProfile | undefined): RuntimeAgentProfile {
     if (!builtinProfile) {
         return profile;
     }
@@ -384,9 +443,17 @@ function stableJsonStringify(value: unknown): string {
 /**
  * 包装 profile 加载错误。
  */
-function normalizeProfileLoadError(filePath: string, error: unknown): Error {
+function normalizeProfileLoadError(filePath: string, relativePath: string, profileKey: string | null, error: unknown): DynamicProfileError {
     const message = error instanceof Error ? error.message : String(error ?? "未知错误");
-    return new Error(`动态 profile 加载失败: ${filePath}\n${message}`);
+    const normalized = new Error(`动态 profile 加载失败: ${filePath}\n${message}`) as DynamicProfileError;
+    normalized.filePath = filePath;
+    normalized.relativePath = relativePath;
+    normalized.profileKey = profileKey;
+    normalized.code = "dynamic_profile_load_failed";
+    if (error instanceof Error && error.stack) {
+        normalized.stack = error.stack;
+    }
+    return normalized;
 }
 
 /**

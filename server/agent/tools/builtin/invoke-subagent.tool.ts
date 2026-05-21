@@ -1,6 +1,7 @@
 import {z} from "zod";
 import type {AgentTool} from "nbook/server/agent/tools/agent-tool";
 import {createToolResultMessage} from "nbook/server/agent/tools/shared/tool-message";
+import {assertWriterScopeForInput, syncSubagentStudioScope} from "nbook/server/agent/tools/builtin/subagent-scope";
 
 const DynamicSubagentInputSchema = z.json();
 
@@ -42,8 +43,10 @@ export const invokeSubagentTool: AgentTool<typeof InvokeSubagentInputSchema> = {
         });
     },
     async execute(input, context) {
+        syncSubagentStudioScope(context);
         const subagentThreadId = String(input.subagentThreadId).trim();
         const subagentInput = normalizeSubagentInput(input.input);
+        await assertWriterScopeForInput(context, subagentThreadId, subagentInput);
         const result = await context.agentGateway.runSubAgent(
             context.threadId,
             subagentThreadId,
