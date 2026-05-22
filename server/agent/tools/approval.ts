@@ -8,6 +8,7 @@ import type {AgentResolution} from "nbook/server/agent/tools/types";
 export function findPendingApprovalCall(messages: Message[], approvalToolKeys: readonly string[]): {
     toolCallId: string;
     toolName: string;
+    args: Record<string, unknown>;
 } | null {
     const completed = new Set(messages.filter((message) => message.role === "toolResult").map((message) => message.toolCallId));
 
@@ -23,6 +24,7 @@ export function findPendingApprovalCall(messages: Message[], approvalToolKeys: r
             return {
                 toolCallId: toolCall.id,
                 toolName: toolCall.name,
+                args: toolCall.arguments,
             };
         }
     }

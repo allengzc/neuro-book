@@ -13,7 +13,7 @@ describe("AgentProfileCatalog", () => {
     let userRoot: string;
 
     beforeEach(async () => {
-        root = resolve(".agent", "agent-v3-profile-catalog-test", randomUUID());
+        root = resolve(".agent", "agent-profile-catalog-test", randomUUID());
         systemRoot = join(root, "assets", ".nbook", "agent", "profiles");
         userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
         await mkdir(systemRoot, {recursive: true});

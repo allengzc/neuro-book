@@ -2,6 +2,15 @@ import type {AgentEvent} from "@earendil-works/pi-agent-core";
 import type {AgentUserMessageInput, JsonValue, Usage} from "nbook/server/agent/messages/types";
 import type {SessionMetadata, SessionTreeNode} from "nbook/server/agent/session/types";
 import type {AgentResolution} from "nbook/server/agent/tools/types";
+import type {
+    AgentAbortRequestDto,
+    AgentActiveInvocationDto,
+    AgentCommandRequestDto,
+    AgentFollowUpQueueItemDto,
+    AgentSessionSnapshotDto,
+    AgentSessionSummaryDto,
+    AgentTreeRequestDto,
+} from "nbook/shared/dto/agent-session.dto";
 
 export type CreateAgentInput = {
     profileKey: string;
@@ -24,6 +33,7 @@ export type InvokeAgentInput = {
     resolution?: AgentResolution;
     block?: boolean;
     onEvent?: (event: AgentEvent) => void | Promise<void>;
+    internalQueued?: boolean;
 };
 
 export type InvokeAgentStatus = "completed" | "waiting" | "error";
@@ -67,4 +77,35 @@ export type SessionQueryResult = {
     usage?: Usage;
     linkedAgents: AgentSummary[];
     recentMessages: SessionRecentMessage[];
+};
+
+export type AgentRuntimeState = {
+    activeInvocation: AgentActiveInvocationDto | null;
+    followUpQueue: AgentFollowUpQueueItemDto[];
+};
+
+export type AgentCommandResult = {
+    status: "completed" | "started";
+    sessionId: number;
+    snapshot?: AgentSessionSnapshotDto;
+    createdSession?: AgentSessionSummaryDto;
+};
+
+export type AgentTreeResult = {
+    status: "completed" | "invoked";
+    snapshot: AgentSessionSnapshotDto;
+    invocation?: InvokeAgentResult;
+};
+
+export type AgentAbortResult = {
+    status: "idle" | "aborted";
+    sessionId: number;
+};
+
+export type AgentSessionService = {
+    listSessions(workspaceKey?: string, includeArchived?: boolean): Promise<AgentSessionSummaryDto[]>;
+    getSessionSnapshot(sessionId: number): Promise<AgentSessionSnapshotDto>;
+    runCommand(sessionId: number, body: AgentCommandRequestDto): Promise<AgentCommandResult>;
+    moveTree(sessionId: number, body: AgentTreeRequestDto): Promise<AgentTreeResult>;
+    abortInvocation(sessionId: number, body?: AgentAbortRequestDto): Promise<AgentAbortResult>;
 };

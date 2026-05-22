@@ -128,6 +128,24 @@ export type VariableChangeEntry = {
     value: JsonValue;
 };
 
+export type SessionArchivedEntry = {
+    id: SessionEntryId;
+    parentId: SessionEntryId | null;
+    timestamp: number;
+    type: "session_archived";
+    reason?: string;
+};
+
+export type InvocationLifecycleEntry = {
+    id: SessionEntryId;
+    parentId: SessionEntryId | null;
+    timestamp: number;
+    type: "invocation_lifecycle";
+    invocationId: string;
+    status: "start" | "end" | "error" | "aborted";
+    error?: string;
+};
+
 export type SessionEntry =
     | MessageSessionEntry
     | SessionUpdateEntry
@@ -140,7 +158,9 @@ export type SessionEntry =
     | ModelChangeEntry
     | ThinkingLevelChangeEntry
     | ProfileChangeEntry
-    | VariableChangeEntry;
+    | VariableChangeEntry
+    | SessionArchivedEntry
+    | InvocationLifecycleEntry;
 
 export type SessionFileRecord =
     | {
@@ -169,6 +189,8 @@ export type NeuroSessionContext = {
     linkedAgents: LinkedAgentSummary[];
     title?: string;
     summary?: string;
+    archived: boolean;
+    planModeActive: boolean;
 };
 
 export type LinkedAgentSummary = {

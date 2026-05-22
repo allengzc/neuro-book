@@ -40,7 +40,7 @@ async function main(): Promise<void> {
             sessionId: agent.sessionId,
             mode: "prompt",
             message: {
-                text: "用一句中文回复：agent v3 smoke ok。",
+                text: "用一句中文回复：agent session smoke ok。",
             },
         });
         const snapshot = await harness.repo.readSession(agent.sessionId);

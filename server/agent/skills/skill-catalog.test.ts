@@ -10,7 +10,7 @@ describe("SkillCatalog", () => {
     let userRoot: string;
 
     beforeEach(async () => {
-        root = resolve(".agent", "agent-v3-skill-catalog-test", randomUUID());
+        root = resolve(".agent", "agent-skill-catalog-test", randomUUID());
         systemRoot = join(root, "assets", ".nbook", "agent", "skills");
         userRoot = join(root, "workspace", ".nbook", "agent", "skills");
     });

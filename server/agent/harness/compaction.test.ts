@@ -14,7 +14,7 @@ describe("compaction", () => {
     let faux: FauxProviderRegistration;
 
     beforeEach(() => {
-        root = join(".agent", "agent-v3-compaction-test", randomUUID());
+        root = join(".agent", "agent-compaction-test", randomUUID());
         repo = new JsonlSessionRepository(root);
         faux = registerFauxProvider({
             models: [{

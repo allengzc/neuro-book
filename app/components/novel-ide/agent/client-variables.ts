@@ -1,4 +1,4 @@
-import type {ClientVariablesDto} from "nbook/shared/dto/agent-chat.dto";
+import type {ClientVariablesDto} from "nbook/shared/dto/agent-session.dto";
 
 /**
  * Novel IDE 发给 Agent 的客户端变量输入。

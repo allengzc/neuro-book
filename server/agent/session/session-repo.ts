@@ -1,9 +1,9 @@
-import {appendFile, mkdir, readFile, writeFile} from "node:fs/promises";
+import {appendFile, mkdir, readFile, readdir, writeFile} from "node:fs/promises";
 import {existsSync} from "node:fs";
 import {dirname, join, resolve} from "node:path";
 import {randomUUID} from "node:crypto";
 import type {AgentMessage, JsonValue, Message} from "nbook/server/agent/messages/types";
-import {createUserMessage} from "nbook/server/agent/messages/message-utils";
+import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import type {
     CompactionSessionEntry,
     LinkedAgentSummary,
@@ -17,6 +17,7 @@ import type {
     SessionTreeNode,
     SessionEntryDraft,
 } from "nbook/server/agent/session/types";
+import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 
 type CreateSessionInput = {
     profileKey: string;
@@ -89,6 +90,41 @@ export class JsonlSessionRepository {
             entries,
             leafId: this.resolveLeaf(entries),
         };
+    }
+
+    /**
+     * 列出指定 workspace 下的 session 摘要。默认隐藏 archived session。
+     */
+    async listSessions(input: {workspaceKey?: string; includeArchived?: boolean} = {}): Promise<AgentSessionSummaryDto[]> {
+        const sessionsRoot = join(this.rootWorkspace, ".nbook", "agent", "sessions");
+        const workspaceNames = input.workspaceKey
+            ? [this.safeWorkspaceKey(input.workspaceKey)]
+            : (await readdir(sessionsRoot, {withFileTypes: true}).catch(() => []))
+                .filter((entry) => entry.isDirectory())
+                .map((entry) => entry.name);
+        const summaries: AgentSessionSummaryDto[] = [];
+
+        for (const workspaceName of workspaceNames) {
+            const workspaceRoot = join(sessionsRoot, workspaceName);
+            const files = await readdir(workspaceRoot, {withFileTypes: true}).catch(() => []);
+            for (const file of files) {
+                if (!file.isFile() || !file.name.endsWith(".jsonl")) {
+                    continue;
+                }
+                const sessionId = Number(file.name.slice(0, -".jsonl".length));
+                if (!Number.isInteger(sessionId) || sessionId <= 0) {
+                    continue;
+                }
+                const snapshot = await this.readSession(sessionId, workspaceName);
+                const summary = this.summary(snapshot);
+                if (!input.includeArchived && summary.archived) {
+                    continue;
+                }
+                summaries.push(summary);
+            }
+        }
+
+        return summaries.sort((left, right) => right.updatedAt - left.updatedAt);
     }
 
     /**
@@ -191,6 +227,8 @@ export class JsonlSessionRepository {
         let summary = snapshot.metadata.summary;
         let compaction: CompactionSessionEntry | null = null;
         const linkedAgents = new Map<SessionId, LinkedAgentSummary>();
+        let archived = false;
+        let planModeActive = false;
 
         for (const entry of path) {
             if (entry.type === "message") {
@@ -204,6 +242,9 @@ export class JsonlSessionRepository {
             if (entry.type === "custom") {
                 customState[entry.key] = entry.value;
                 this.reduceLinkedAgent(entry.key, entry.value, linkedAgents);
+                if (entry.key === "ui.planMode.active") {
+                    planModeActive = entry.value === true;
+                }
                 continue;
             }
             if (entry.type === "session_update") {
@@ -227,6 +268,10 @@ export class JsonlSessionRepository {
                 customState[`variable:${entry.key}`] = entry.value;
                 continue;
             }
+            if (entry.type === "session_archived") {
+                archived = true;
+                continue;
+            }
             if (entry.type === "compaction") {
                 compaction = entry;
             }
@@ -245,6 +290,37 @@ export class JsonlSessionRepository {
             linkedAgents: [...linkedAgents.values()].sort((left, right) => left.sessionId - right.sessionId),
             title,
             summary,
+            archived,
+            planModeActive,
+        };
+    }
+
+    /**
+     * 从 session active path 生成前端列表摘要。
+     */
+    summary(snapshot: SessionSnapshot): AgentSessionSummaryDto {
+        const context = this.reduce(snapshot);
+        const path = this.activePath(snapshot);
+        const lastMessage = [...path].reverse().find((entry) => entry.type === "message");
+        const lastAssistant = [...context.messages].reverse().find((message) => message.role === "assistant");
+        const updatedAt = path.at(-1)?.timestamp ?? snapshot.metadata.createdAt;
+        const interrupted = [...path].reverse().find((entry) => entry.type === "invocation_lifecycle");
+
+        return {
+            sessionId: snapshot.metadata.sessionId,
+            profileKey: context.profileKey,
+            workspaceKey: snapshot.metadata.workspaceKey,
+            workspaceRoot: context.workspaceRoot,
+            parentSessionId: snapshot.metadata.parentSessionId,
+            title: context.title,
+            summary: context.summary,
+            status: context.archived
+                ? "archived"
+                : interrupted?.type === "invocation_lifecycle" && interrupted.status === "start" ? "interrupted" : "idle",
+            updatedAt,
+            archived: context.archived,
+            lastMessagePreview: lastMessage?.type === "message" ? messageText(lastMessage.message).slice(0, 160) : undefined,
+            usage: lastAssistant?.role === "assistant" ? lastAssistant.usage : undefined,
         };
     }
 

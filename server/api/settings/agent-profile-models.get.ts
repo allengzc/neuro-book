@@ -1,5 +1,5 @@
 import type {AgentProfileModelSettingsDto} from "nbook/shared/dto/app-settings.dto";
-import {useAgentV3Harness} from "nbook/server/agent/http";
+import {useAgentHarness} from "nbook/server/agent/http";
 import {loadAppConfig} from "nbook/server/utils/app-config";
 import {buildAgentProfileModelSettingsDto} from "nbook/server/utils/model-settings";
 
@@ -8,7 +8,7 @@ import {buildAgentProfileModelSettingsDto} from "nbook/server/utils/model-settin
  */
 export default defineEventHandler(async (): Promise<AgentProfileModelSettingsDto> => {
     const appConfig = await loadAppConfig();
-    const harness = useAgentV3Harness();
+    const harness = useAgentHarness();
     const catalog = await harness.profiles.snapshot();
 
     return buildAgentProfileModelSettingsDto(appConfig, catalog.profiles.map((profile) => ({

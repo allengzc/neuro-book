@@ -10,7 +10,7 @@ describe("JsonlSessionRepository", () => {
     let repo: JsonlSessionRepository;
 
     beforeEach(() => {
-        root = join(".agent", "agent-v3-session-test", randomUUID());
+        root = join(".agent", "agent-session-test", randomUUID());
         repo = new JsonlSessionRepository(root);
     });
 

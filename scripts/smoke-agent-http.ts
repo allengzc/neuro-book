@@ -1,7 +1,7 @@
-const baseUrl = process.env.AGENT_V3_HTTP_BASE_URL ?? "http://localhost:3000";
+const baseUrl = process.env.AGENT_HTTP_BASE_URL ?? "http://localhost:3000";
 
 async function main(): Promise<void> {
-    const created = await request("/api/agent-v3/sessions", {
+    const created = await request("/api/agent/sessions", {
         method: "POST",
         body: {
             profileKey: "leader.default",
@@ -11,12 +11,12 @@ async function main(): Promise<void> {
         },
     }) as {sessionId: number};
 
-    const invoked = await request(`/api/agent-v3/sessions/${created.sessionId}/invoke`, {
+    const invoked = await request(`/api/agent/sessions/${created.sessionId}/invocations`, {
         method: "POST",
         body: {
             mode: "prompt",
             message: {
-                text: "用一句中文回复：agent v3 http smoke ok。任务完成时请调用 report_result，result 填 http smoke ok，success 填 true。",
+                text: "用一句中文回复：agent http smoke ok。任务完成时请调用 report_result，result 填 http smoke ok，success 填 true。",
             },
         },
     });

@@ -1,5 +1,4 @@
 import {z} from "zod";
-import {AgentThreadKindSchema} from "nbook/shared/dto/agent-chat.dto";
 import {
     ProfileTemplateIssueDtoSchema,
     ProfileTemplateNodeDtoSchema,
@@ -10,6 +9,7 @@ import {
 } from "nbook/shared/dto/profile-template.dto";
 
 export const AgentProfileSourceSchema = z.enum(["system", "user", "contract"]);
+export const AgentProfileKindSchema = z.enum(["leader", "subagent", "agent"]);
 export const AgentProfileLoadStatusSchema = z.enum(["loaded", "error", "missing"]);
 export const AgentProfileOverrideStateSchema = z.enum(["system", "user_override", "user_only", "contract_only"]);
 export const AgentProfileSchemaEditModeSchema = z.enum(["locked", "source", "unavailable"]);
@@ -56,7 +56,7 @@ export const AgentProfileIssueDtoSchema = ProfileTemplateIssueDtoSchema.extend({
  */
 export const AgentProfileManifestDtoSchema = z.object({
     key: z.string().trim().min(1),
-    kind: AgentThreadKindSchema,
+    kind: AgentProfileKindSchema,
     name: z.string().trim().min(1),
     description: z.string().trim().min(1).nullable(),
 });
@@ -66,7 +66,7 @@ export const AgentProfileManifestDtoSchema = z.object({
  */
 export const AgentProfileCatalogItemDtoSchema = z.object({
     profileKey: z.string().trim().min(1),
-    kind: AgentThreadKindSchema.nullable(),
+    kind: AgentProfileKindSchema.nullable(),
     name: z.string().trim().min(1),
     description: z.string().trim().min(1).nullable(),
     fileName: z.string().trim().min(1).nullable(),
@@ -136,7 +136,7 @@ export const AgentProfilePreparePreviewRequestDtoSchema = z.object({
      * 完整 input JSON。未提供时服务端会根据 inputOverrides 做一次最小构造。
      */
     input: z.json().optional(),
-    threadId: z.string().trim().min(1).optional(),
+    sessionId: z.string().trim().min(1).optional(),
     inputOverrides: z.record(z.string(), z.string()).optional(),
     historyMessages: z.array(z.object({
         role: z.enum(["system", "human", "assistant"]),

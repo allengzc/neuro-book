@@ -16,7 +16,7 @@ describe("NeuroAgentHarness", () => {
     let harness: NeuroAgentHarness;
 
     beforeEach(() => {
-        root = join(".agent", "agent-v3-harness-test", randomUUID());
+        root = join(".agent", "agent-harness-test", randomUUID());
         faux = registerFauxProvider({
             models: [{
                 id: `faux-${randomUUID()}`,
@@ -337,6 +337,135 @@ describe("NeuroAgentHarness", () => {
         expect(await harness.getAgent(undefined, parent.sessionId)).toEqual([]);
     });
 
+    it("session snapshot 暴露 linked agents、pending approval、plan/model/followUp 状态", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.snapshot-approval",
+                name: "Snapshot Approval",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("request_user_input", {
+                    questions: [{question: "Name?"}],
+                }, {id: "ask-snapshot"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const parent = await harness.createAgent({
+            profileKey: "test.snapshot-approval",
+            input: {},
+            workspaceRoot: root,
+        });
+        const child = await harness.createAgent({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+            parentSessionId: parent.sessionId,
+        });
+
+        const waiting = await harness.invokeAgent({
+            sessionId: parent.sessionId,
+            mode: "prompt",
+            message: {text: "wait"},
+        });
+        const queued = await harness.invokeAgent({
+            sessionId: parent.sessionId,
+            mode: "prompt",
+            message: {
+                text: "queued",
+                images: [{
+                    type: "image",
+                    mimeType: "image/png",
+                    data: "data:image/png;base64,AA==",
+                }],
+            },
+        });
+
+        const snapshot = await harness.getSessionSnapshot(parent.sessionId);
+
+        expect(waiting.status).toBe("waiting");
+        expect(queued.status).toBe("waiting");
+        expect(snapshot.pendingApproval).toEqual({
+            toolCallId: "ask-snapshot",
+            toolName: "request_user_input",
+            args: {
+                questions: [{question: "Name?"}],
+            },
+        });
+        expect(snapshot.followUpQueue).toEqual([
+            expect.objectContaining({
+                message: {
+                    text: "queued",
+                    images: [{
+                        type: "image",
+                        mimeType: "image/png",
+                        data: "data:image/png;base64,AA==",
+                    }],
+                },
+            }),
+        ]);
+        expect(snapshot.linkedAgents).toEqual([
+            expect.objectContaining({
+                sessionId: child.sessionId,
+                detached: false,
+            }),
+        ]);
+
+        await expect(harness.runCommand(parent.sessionId, {
+            command: "model",
+            modelKey: null,
+        })).rejects.toThrow("active_invocation_exists");
+    });
+
+    it("session command 和 tree API 支持 plan、archive、retry、tree+invoke", async () => {
+        faux.setResponses([
+            fauxAssistantMessage(fauxText("first")),
+            fauxAssistantMessage(fauxText("retry")),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+        });
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const beforeRetry = await harness.getSessionSnapshot(created.sessionId);
+        const assistantEntry = beforeRetry.entries.findLast((entry) => entry.type === "message" && entry.message.role === "assistant");
+
+        await harness.runCommand(created.sessionId, {
+            command: "plan",
+            active: true,
+        });
+        expect((await harness.getSessionSnapshot(created.sessionId)).planModeActive).toBe(true);
+
+        const moved = await harness.moveTree(created.sessionId, {
+            targetEntryId: assistantEntry!.id,
+            position: "before",
+            next: {
+                type: "invoke",
+                mode: "continue",
+            },
+        });
+        expect(moved.status).toBe("invoked");
+        expect(moved.invocation?.finalMessage).toBe("retry");
+
+        await harness.runCommand(created.sessionId, {
+            command: "archive",
+            reason: "done",
+        });
+        expect((await harness.getSessionSnapshot(created.sessionId)).summary.archived).toBe(true);
+        expect(await harness.listSessions("global")).toEqual([]);
+        expect(await harness.listSessions("global", true)).toHaveLength(1);
+    });
+
     it("linked agents 状态来自 session entry，重建 harness 后仍能 reduce", async () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
@@ -496,7 +625,7 @@ describe("NeuroAgentHarness", () => {
         expect(context.messages.some((message) => message.role === "toolResult" && message.isError)).toBe(true);
     });
 
-    it("/compact 使用真实 provider 摘要并且命令不写成普通 user message", async () => {
+    it("compact command 使用真实 provider 摘要并且命令不写成普通 user message", async () => {
         faux.setResponses([
             fauxAssistantMessage(fauxText("COMPACTED")),
         ]);
@@ -507,18 +636,38 @@ describe("NeuroAgentHarness", () => {
         });
         await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "old context"}));
 
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "/compact prefer concise"},
+        const result = await harness.runCommand(created.sessionId, {
+            command: "compact",
+            instructions: "prefer concise",
+        });
+        await waitFor(async () => {
+            const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+            expect(context.messages[0] && messageText(context.messages[0] as never)).toContain("COMPACTED");
         });
 
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
 
-        expect(result.status).toBe("completed");
-        expect(result.finalMessage).toBe("compact completed");
+        expect(result.status).toBe("started");
         expect(context.messages.map((message) => message.role)).toEqual(["user", "user"]);
         expect(context.messages[0] && messageText(context.messages[0] as never)).toContain("COMPACTED");
         expect(context.messages.every((message) => !messageText(message as never).includes("/compact"))).toBe(true);
     });
 });
+
+async function waitFor(assertion: () => Promise<void> | void, timeoutMs = 1_000): Promise<void> {
+    const startedAt = Date.now();
+    let lastError: unknown;
+    while (Date.now() - startedAt < timeoutMs) {
+        try {
+            await assertion();
+            return;
+        } catch (error) {
+            lastError = error;
+            await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+    }
+    if (lastError instanceof Error) {
+        throw lastError;
+    }
+    throw new Error(String(lastError));
+}

@@ -2,7 +2,7 @@
 import type {AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
 import {z} from "zod";
-import {RequestUserInputToolArgsSchema, RequestUserInputToolAnswerSchema} from "nbook/shared/dto/agent-chat.dto";
+import {RequestUserInputToolArgsSchema, RequestUserInputToolAnswerSchema} from "nbook/app/components/novel-ide/agent/agent-message";
 
 const NONE_OF_ABOVE_OPTION_INDEX = -1;
 const RequestUserInputToolRawResultSchema = z.object({

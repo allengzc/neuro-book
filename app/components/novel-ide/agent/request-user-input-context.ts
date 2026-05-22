@@ -1,5 +1,5 @@
 import type {InjectionKey, Ref} from "vue";
-import type {AgentPendingUserInputSessionDto} from "nbook/shared/dto/agent-chat.dto";
+import type {AgentPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
 
 export type AgentUserInputAnswerDraft = {
     selectedAnswers: Ref<Record<string, number[]>>;
@@ -7,7 +7,7 @@ export type AgentUserInputAnswerDraft = {
 };
 
 export type AgentRequestUserInputContext = {
-    pendingSession: Ref<AgentPendingUserInputSessionDto | null>;
+    pendingSession: Ref<AgentPendingUserInputSession | null>;
     submitting: Ref<boolean>;
     draft: AgentUserInputAnswerDraft;
     submitAnswers: () => void;

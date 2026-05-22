@@ -19,24 +19,16 @@ export type AgentToolRenderConfig = {
     component?: Component;
 };
 
-const AgentSubagentBubble = markRaw(defineAsyncComponent(() => import("nbook/app/components/novel-ide/agent/AgentSubagentBubble.vue")));
-
 const DEFAULT_TOOL_RENDER_CONFIG: AgentToolRenderConfig = {
     mode: "inline",
     typeLabel: "Tool Call",
 };
 
 const TOOL_RENDER_REGISTRY: Record<string, AgentToolRenderConfig> = {
-    invoke_subagent: {
-        mode: "block",
-        typeLabel: "Subagent",
-        collapsedPreview: "Subagent Execution",
-        component: AgentSubagentBubble,
-    },
-    create_subagent: {
+    create_agent: {
         mode: "block",
         typeLabel: "Create",
-        collapsedPreview: "Create Subagent",
+        collapsedPreview: "Create Agent",
         component: markRaw(AgentCreateSubagentNode),
     },
     request_user_input: {
@@ -57,13 +49,13 @@ const TOOL_RENDER_REGISTRY: Record<string, AgentToolRenderConfig> = {
         collapsedPreview: "计划审批",
         component: markRaw(AgentExitPlanModeBubble),
     },
-    write_file: {
+    write: {
         mode: "block",
         typeLabel: "Write",
         collapsedPreview: "写入文件",
         component: markRaw(AgentWriteFileBubble),
     },
-    edit_file: {
+    edit: {
         mode: "block",
         typeLabel: "Edit",
         collapsedPreview: "编辑文件",

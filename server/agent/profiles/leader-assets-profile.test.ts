@@ -22,6 +22,8 @@ describe("assets leader.default v3 profile", () => {
                 workspaceRoot: resolve("workspace"),
                 customState: {},
                 linkedAgents: [],
+                archived: false,
+                planModeActive: false,
             },
             input: {},
             catalog: await catalog.snapshot(),

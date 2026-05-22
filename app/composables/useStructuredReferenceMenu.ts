@@ -4,7 +4,7 @@ import type {
     AgentTriggerMenuItem,
     AgentTriggerMenuState,
 } from "nbook/app/components/novel-ide/agent/trigger-menu";
-import type {AgentSkillCatalogItemDto} from "nbook/shared/dto/agent-chat.dto";
+import type {AgentSkillCatalogItemDto} from "nbook/shared/dto/agent-session.dto";
 import type {
     PlotTreeDto,
     StorySceneDetailDto,

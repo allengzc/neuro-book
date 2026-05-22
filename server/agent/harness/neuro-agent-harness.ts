@@ -2,29 +2,51 @@ import {randomUUID} from "node:crypto";
 import {resolve} from "node:path";
 import type {AgentEvent, AgentToolResult} from "@earendil-works/pi-agent-core";
 import {streamSimple, validateToolArguments} from "@earendil-works/pi-ai";
-import type {AgentMessage, AgentToolCall, AssistantMessage, JsonValue, Message, Model, ToolResultMessage} from "nbook/server/agent/messages/types";
+import type {AgentMessage, AgentToolCall, AgentUserMessageInput, AssistantMessage, JsonValue, Message, Model, ToolResultMessage} from "nbook/server/agent/messages/types";
 import {createTextToolResult, createToolResultFromResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import type {AgentProfile, PreparedTurn, ProfileIngestResult} from "nbook/server/agent/profiles/types";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
-import type {SessionSnapshot} from "nbook/server/agent/session/types";
+import type {ModelChangeEntry, SessionEntry, SessionEntryId, SessionSnapshot} from "nbook/server/agent/session/types";
 import {SkillCatalog} from "nbook/server/agent/skills/skill-catalog";
-import {handleSlashCommand} from "nbook/server/agent/session/slash-commands";
 import {findPendingApprovalCall, resolutionToToolResult} from "nbook/server/agent/tools/approval";
 import {createBuiltinTools} from "nbook/server/agent/tools/builtin-tools";
 import {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import type {AgentResolution, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {appendCompaction, compactIfNeeded} from "nbook/server/agent/harness/compaction";
 import {resolvePiApiKey, resolvePiModel} from "nbook/server/agent/harness/model-resolver";
-import type {AgentSummary, CreateAgentInput, CreateAgentResult, InvokeAgentInput, InvokeAgentResult, SessionQueryResult} from "nbook/server/agent/harness/types";
+import type {
+    AgentAbortResult,
+    AgentCommandResult,
+    AgentSummary,
+    AgentTreeResult,
+    CreateAgentInput,
+    CreateAgentResult,
+    InvokeAgentInput,
+    InvokeAgentResult,
+    SessionQueryResult,
+} from "nbook/server/agent/harness/types";
+import type {
+    AgentAbortRequestDto,
+    AgentActiveInvocationDto,
+    AgentCommandRequestDto,
+    AgentFollowUpQueueItemDto,
+    AgentLinkedSessionDto,
+    AgentSessionEventDto,
+    AgentSessionSnapshotDto,
+    AgentSessionSummaryDto,
+    AgentTreeRequestDto,
+} from "nbook/shared/dto/agent-session.dto";
+import {AgentSessionEventHub} from "nbook/server/agent/events/session-event-hub";
 
 type HarnessOptions = {
     repo?: JsonlSessionRepository;
     profiles?: AgentProfileCatalog;
     skills?: SkillCatalog;
     tools?: AgentToolRegistry;
-    modelResolver?: (profileKey: string) => Model<any>;
+    modelResolver?: (profileKey: string, override?: {modelKey?: string | null} | null) => Model<any>;
+    eventHub?: AgentSessionEventHub;
 };
 
 type RunToolBatchResult = {
@@ -45,13 +67,18 @@ export class NeuroAgentHarness {
     readonly profiles: AgentProfileCatalog;
     readonly skills: SkillCatalog;
     readonly tools: AgentToolRegistry;
-    private readonly modelResolver: (profileKey: string) => Model<any>;
+    readonly eventHub: AgentSessionEventHub;
+    private readonly modelResolver: (profileKey: string, override?: {modelKey?: string | null} | null) => Model<any>;
+    private readonly activeInvocations = new Map<number, AgentActiveInvocationDto>();
+    private readonly followUpQueues = new Map<number, AgentFollowUpQueueItemDto[]>();
+    private readonly abortControllers = new Map<number, AbortController>();
 
     constructor(options: HarnessOptions = {}) {
         this.repo = options.repo ?? new JsonlSessionRepository();
         this.profiles = options.profiles ?? new AgentProfileCatalog();
         this.skills = options.skills ?? new SkillCatalog();
         this.tools = options.tools ?? new AgentToolRegistry();
+        this.eventHub = options.eventHub ?? new AgentSessionEventHub();
         this.modelResolver = options.modelResolver ?? resolvePiModel;
         this.profiles.register(defaultAgentProfile);
         for (const tool of createBuiltinTools(this)) {
@@ -74,7 +101,7 @@ export class NeuroAgentHarness {
             title: profile.manifest.name,
         });
         if (input.parentSessionId) {
-            await this.repo.appendEntry(input.parentSessionId, {
+            const entry = await this.repo.appendEntry(input.parentSessionId, {
                 type: "custom",
                 key: `agent.link.${snapshot.metadata.sessionId}`,
                 value: {
@@ -82,7 +109,10 @@ export class NeuroAgentHarness {
                     profileKey: input.profileKey,
                 },
             });
+            this.publishSessionEntry(input.parentSessionId, undefined, entry);
+            await this.publishSessionState(input.parentSessionId);
         }
+        await this.publishSessionState(snapshot.metadata.sessionId);
         return {
             sessionId: snapshot.metadata.sessionId,
             profileKey: input.profileKey,
@@ -98,89 +128,78 @@ export class NeuroAgentHarness {
             throw new Error("block:false 第一版尚未实现");
         }
         const invocationId = randomUUID();
+        if (this.activeInvocations.has(input.sessionId) && !input.resolution && !input.internalQueued) {
+            if (input.mode === "prompt" && input.message) {
+                const item = this.enqueueFollowUp(input.sessionId, input.message);
+                return {
+                    sessionId: input.sessionId,
+                    invocationId,
+                    status: "waiting",
+                    finalMessage: `follow up queued: ${item.id}`,
+                    events: [],
+                };
+            }
+            throw new Error("active_invocation_exists");
+        }
+
+        const activeInvocation: AgentActiveInvocationDto = {
+            invocationId,
+            sessionId: input.sessionId,
+            status: "running",
+            mode: input.mode,
+            startedAt: Date.now(),
+        };
+        const abortController = new AbortController();
+        this.activeInvocations.set(input.sessionId, activeInvocation);
+        this.abortControllers.set(input.sessionId, abortController);
+        const lifecycleEntry = await this.repo.appendEntry(input.sessionId, {
+            type: "invocation_lifecycle",
+            invocationId,
+            status: "start",
+        });
+        this.publishSessionEntry(input.sessionId, invocationId, lifecycleEntry);
+        await this.publishSessionState(input.sessionId, invocationId);
+
         let snapshot = await this.repo.readSession(input.sessionId);
         let pendingUserMessage: Message | null = null;
         let pendingResolution: AgentResolution | null = null;
 
-        if (input.mode === "prompt") {
-            if (!input.message) {
-                throw new Error("prompt 模式必须提供 message");
-            }
-            const slashResult = await handleSlashCommand({
-                repo: this.repo,
-                sessionId: input.sessionId,
-                text: input.message.text,
-            });
-            if (slashResult.kind === "new" || slashResult.kind === "fork" || slashResult.kind === "tree" || slashResult.kind === "retry") {
-                return {
-                    sessionId: slashResult.session.metadata.sessionId,
-                    invocationId,
-                    status: "completed",
-                    finalMessage: slashResult.kind,
-                    events: [],
-                };
-            }
-            if (slashResult.kind === "compact") {
-                try {
-                    const context = this.repo.reduce(snapshot);
-                    const model = context.model ?? this.modelResolver(context.profileKey);
-                    await appendCompaction({
-                        repo: this.repo,
-                        snapshot,
-                        messages: context.messages,
-                        model,
-                        apiKey: await resolvePiApiKey(model.provider),
-                        thinkingLevel: context.thinkingLevel,
-                        instructions: slashResult.instructions,
-                    });
-                    return {
-                        sessionId: input.sessionId,
-                        invocationId,
-                        status: "completed",
-                        finalMessage: "compact completed",
-                        events: [],
-                    };
-                } catch (error) {
-                    return {
-                        sessionId: input.sessionId,
-                        invocationId,
-                        status: "error",
-                        error: error instanceof Error ? error.message : String(error),
-                        events: [],
-                    };
-                }
-            }
-            pendingUserMessage = createUserMessage(input.message);
-        }
-
-        if (input.mode === "continue" && input.resolution) {
-            pendingResolution = input.resolution;
-        }
-
-        if (pendingResolution) {
-            await this.appendResolution(snapshot, pendingResolution);
-            snapshot = await this.repo.readSession(input.sessionId);
-        }
-        const prepared = await this.prepare(snapshot);
-        snapshot = await this.repo.readSession(input.sessionId);
-        if (pendingUserMessage) {
-            await this.repo.appendMessage(input.sessionId, pendingUserMessage, snapshot.metadata.workspaceKey);
-            snapshot = await this.repo.readSession(input.sessionId);
-        }
-        let context = this.repo.reduce(snapshot);
-        const model = context.model ?? this.modelResolver(context.profileKey);
-        await compactIfNeeded({
-            repo: this.repo,
-            snapshot,
-            messages: [...context.messages, ...(prepared.dynamicMessages ?? [])],
-            model,
-            apiKey: await resolvePiApiKey(model.provider),
-            thinkingLevel: context.thinkingLevel,
-        });
-        snapshot = await this.repo.readSession(input.sessionId);
-        context = this.repo.reduce(snapshot);
-
         try {
+            if (input.mode === "prompt") {
+                if (!input.message) {
+                    throw new Error("prompt 模式必须提供 message");
+                }
+                pendingUserMessage = createUserMessage(input.message);
+            }
+
+            if (input.mode === "continue" && input.resolution) {
+                pendingResolution = input.resolution;
+            }
+
+            if (pendingResolution) {
+                await this.appendResolution(snapshot, pendingResolution);
+                snapshot = await this.repo.readSession(input.sessionId);
+            }
+            const prepared = await this.prepare(snapshot);
+            snapshot = await this.repo.readSession(input.sessionId);
+            if (pendingUserMessage) {
+                const entry = await this.repo.appendMessage(input.sessionId, pendingUserMessage, snapshot.metadata.workspaceKey);
+                this.publishSessionEntry(input.sessionId, invocationId, entry);
+                snapshot = await this.repo.readSession(input.sessionId);
+            }
+            let context = this.repo.reduce(snapshot);
+            const model = context.model ?? this.modelResolver(context.profileKey);
+            await compactIfNeeded({
+                repo: this.repo,
+                snapshot,
+                messages: [...context.messages, ...(prepared.dynamicMessages ?? [])],
+                model,
+                apiKey: await resolvePiApiKey(model.provider),
+                thinkingLevel: context.thinkingLevel,
+            });
+            snapshot = await this.repo.readSession(input.sessionId);
+            context = this.repo.reduce(snapshot);
+
             const result = await this.runLoop({
                 sessionId: input.sessionId,
                 workspaceKey: snapshot.metadata.workspaceKey,
@@ -193,51 +212,39 @@ export class NeuroAgentHarness {
                 model,
                 toolKeys: prepared.toolKeys ?? [],
                 thinkingLevel: context.thinkingLevel,
+                abortSignal: abortController.signal,
+                invocationId,
                 onEvent: input.onEvent,
             });
-            if (result.waiting) {
-                return {
-                    sessionId: input.sessionId,
-                    invocationId,
-                    status: "waiting",
-                    finalMessage: `waiting for ${result.waiting.toolName}`,
-                    usage: result.finalAssistant?.usage,
-                    events: result.events,
-                };
-            }
-
-            if (!result.reportResult && (prepared.toolKeys ?? []).includes("report_result")) {
-                return this.remindReportResult(input, invocationId, result.events, result.finalAssistant, {
-                    workspaceKey: snapshot.metadata.workspaceKey,
-                    workspaceRoot: context.workspaceRoot,
-                    systemPrompt: prepared.systemPrompt ?? context.systemPrompt,
-                    model,
-                    toolKeys: prepared.toolKeys ?? [],
-                    thinkingLevel: context.thinkingLevel,
-                });
-            }
-
-            const ingestError = await this.applyIngest(input.sessionId);
-            if (ingestError) {
-                return {
-                    sessionId: input.sessionId,
-                    invocationId,
-                    status: "error",
-                    error: ingestError,
-                    events: result.events,
-                };
-            }
-
-            return {
-                sessionId: input.sessionId,
+            const finalResult = await this.finalizeInvokeResult({
+                input,
                 invocationId,
-                status: "completed",
-                finalMessage: result.finalAssistant ? messageText(result.finalAssistant) : undefined,
-                reportResult: result.reportResult,
-                usage: result.finalAssistant?.usage,
-                events: result.events,
-            };
+                snapshot,
+                context,
+                prepared,
+                result,
+            });
+            const lifecycleEntry = await this.repo.appendEntry(input.sessionId, {
+                type: "invocation_lifecycle",
+                invocationId,
+                status: finalResult.status === "error" ? "error" : finalResult.status === "waiting" ? "start" : "end",
+                error: finalResult.error,
+            }, snapshot.metadata.workspaceKey);
+            this.publishSessionEntry(input.sessionId, invocationId, lifecycleEntry);
+            if (finalResult.status !== "waiting") {
+                await this.finishInvocation(input.sessionId, invocationId);
+                void this.drainFollowUps(input.sessionId);
+            }
+            return finalResult;
         } catch (error) {
+            const lifecycleEntry = await this.repo.appendEntry(input.sessionId, {
+                type: "invocation_lifecycle",
+                invocationId,
+                status: abortController.signal.aborted ? "aborted" : "error",
+                error: error instanceof Error ? error.message : String(error),
+            }, snapshot.metadata.workspaceKey);
+            this.publishSessionEntry(input.sessionId, invocationId, lifecycleEntry);
+            await this.finishInvocation(input.sessionId, invocationId);
             return {
                 sessionId: input.sessionId,
                 invocationId,
@@ -246,6 +253,64 @@ export class NeuroAgentHarness {
                 events: [],
             };
         }
+    }
+
+    private async finalizeInvokeResult(input: {
+        input: InvokeAgentInput;
+        invocationId: string;
+        snapshot: SessionSnapshot;
+        context: ReturnType<JsonlSessionRepository["reduce"]>;
+        prepared: Awaited<ReturnType<NeuroAgentHarness["prepare"]>>;
+        result: Awaited<ReturnType<NeuroAgentHarness["runLoop"]>>;
+    }): Promise<InvokeAgentResult> {
+        const {input: invokeInput, invocationId, snapshot, context, prepared, result} = input;
+        if (result.waiting) {
+            const active = this.activeInvocations.get(invokeInput.sessionId);
+            if (active) {
+                active.status = "waiting";
+            }
+            await this.publishSessionState(invokeInput.sessionId, invocationId);
+            return {
+                sessionId: invokeInput.sessionId,
+                invocationId,
+                status: "waiting",
+                finalMessage: `waiting for ${result.waiting.toolName}`,
+                usage: result.finalAssistant?.usage,
+                events: result.events,
+            };
+        }
+
+        if (!result.reportResult && (prepared.toolKeys ?? []).includes("report_result")) {
+            return this.remindReportResult(invokeInput, invocationId, result.events, result.finalAssistant, {
+                workspaceKey: snapshot.metadata.workspaceKey,
+                workspaceRoot: context.workspaceRoot,
+                systemPrompt: prepared.systemPrompt ?? context.systemPrompt,
+                model: context.model ?? this.modelResolver(context.profileKey),
+                toolKeys: prepared.toolKeys ?? [],
+                thinkingLevel: context.thinkingLevel,
+            });
+        }
+
+        const ingestError = await this.applyIngest(invokeInput.sessionId);
+        if (ingestError) {
+            return {
+                sessionId: invokeInput.sessionId,
+                invocationId,
+                status: "error",
+                error: ingestError,
+                events: result.events,
+            };
+        }
+
+        return {
+            sessionId: invokeInput.sessionId,
+            invocationId,
+            status: "completed",
+            finalMessage: result.finalAssistant ? messageText(result.finalAssistant) : undefined,
+            reportResult: result.reportResult,
+            usage: result.finalAssistant?.usage,
+            events: result.events,
+        };
     }
 
     /**
@@ -282,11 +347,238 @@ export class NeuroAgentHarness {
                     sessionId,
                 },
             });
+            await this.publishSessionState(ownerSessionId);
         }
         return {
             sessionId,
             detached: true,
         };
+    }
+
+    /**
+     * 列出前端可打开的顶层 session。
+     */
+    async listSessions(workspaceKey?: string, includeArchived = false): Promise<AgentSessionSummaryDto[]> {
+        return this.repo.listSessions({workspaceKey, includeArchived});
+    }
+
+    /**
+     * 返回完整前端 snapshot，作为 UI 恢复真相。
+     */
+    async getSessionSnapshot(sessionId: number): Promise<AgentSessionSnapshotDto> {
+        const snapshot = await this.repo.readSession(sessionId);
+        const context = this.repo.reduce(snapshot);
+        const pendingMessages = context.messages.filter((message): message is Message => {
+            return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
+        });
+        const pendingApproval = findPendingApprovalCall(pendingMessages, this.tools.approvalToolKeys());
+        const linkedAgents: AgentLinkedSessionDto[] = [];
+        for (const linked of context.linkedAgents) {
+            const linkedSnapshot = await this.repo.readSession(linked.sessionId);
+            linkedAgents.push({
+                ...this.repo.summary(linkedSnapshot),
+                detached: linked.detached,
+            });
+        }
+
+        return {
+            summary: {
+                ...this.repo.summary(snapshot),
+                status: this.resolveSessionStatus(sessionId, context.archived),
+            },
+            activeLeafId: snapshot.leafId,
+            messages: context.messages,
+            tree: this.repo.tree(snapshot),
+            entries: this.repo.activePath(snapshot),
+            linkedAgents,
+            pendingApproval: pendingApproval
+                ? {
+                    toolCallId: pendingApproval.toolCallId,
+                    toolName: pendingApproval.toolName,
+                    args: pendingApproval.args as never,
+                }
+                : null,
+            followUpQueue: this.followUpQueues.get(sessionId) ?? [],
+            activeInvocation: this.activeInvocations.get(sessionId) ?? null,
+            model: context.model,
+            planModeActive: context.planModeActive,
+            lastSeq: this.eventHub.lastSeq,
+            usage: [...context.messages].reverse().find((message) => message.role === "assistant")?.usage,
+        };
+    }
+
+    /**
+     * 执行 session 控制命令。命令不作为普通用户消息进入模型。
+     */
+    async runCommand(sessionId: number, body: AgentCommandRequestDto): Promise<AgentCommandResult> {
+        if (body.command !== "compact") {
+            this.assertSessionIdle(sessionId);
+        }
+        const snapshot = await this.repo.readSession(sessionId);
+        if (body.command === "new") {
+            const created = await this.createAgent({
+                profileKey: snapshot.metadata.profileKey,
+                input: snapshot.metadata.input,
+                workspaceRoot: snapshot.metadata.workspaceRoot,
+                workspaceKey: snapshot.metadata.workspaceKey,
+            });
+            return {
+                status: "completed",
+                sessionId: created.sessionId,
+                createdSession: this.repo.summary(await this.repo.readSession(created.sessionId)),
+            };
+        }
+        if (body.command === "fork") {
+            const forked = await this.repo.forkSession(sessionId, body.entryId ?? snapshot.leafId ?? undefined);
+            await this.publishSessionState(forked.metadata.sessionId);
+            return {
+                status: "completed",
+                sessionId: forked.metadata.sessionId,
+                createdSession: this.repo.summary(forked),
+            };
+        }
+        if (body.command === "retry") {
+            const targetId = body.entryId ?? snapshot.leafId;
+            if (targetId) {
+                await this.moveLeafForPosition(sessionId, targetId, "before", snapshot.metadata.workspaceKey);
+            }
+            await this.publishSessionState(sessionId);
+            return {
+                status: "completed",
+                sessionId,
+                snapshot: await this.getSessionSnapshot(sessionId),
+            };
+        }
+        if (body.command === "tree") {
+            await this.moveLeafForPosition(sessionId, body.targetEntryId, body.position, snapshot.metadata.workspaceKey);
+            await this.publishSessionState(sessionId);
+            return {
+                status: "completed",
+                sessionId,
+                snapshot: await this.getSessionSnapshot(sessionId),
+            };
+        }
+        if (body.command === "plan") {
+            const entry = await this.repo.appendEntry(sessionId, {
+                type: "custom",
+                key: "ui.planMode.active",
+                value: body.active,
+            }, snapshot.metadata.workspaceKey);
+            this.publishSessionEntry(sessionId, undefined, entry);
+            await this.publishSessionState(sessionId);
+            return {
+                status: "completed",
+                sessionId,
+                snapshot: await this.getSessionSnapshot(sessionId),
+            };
+        }
+        if (body.command === "model") {
+            const entry: Omit<ModelChangeEntry, "id" | "parentId" | "timestamp"> = {
+                type: "model_change",
+                model: body.modelKey ? this.modelResolver(snapshot.metadata.profileKey, {modelKey: body.modelKey}) : null,
+            };
+            const written = await this.repo.appendEntry(sessionId, entry, snapshot.metadata.workspaceKey);
+            this.publishSessionEntry(sessionId, undefined, written);
+            await this.publishSessionState(sessionId);
+            return {
+                status: "completed",
+                sessionId,
+                snapshot: await this.getSessionSnapshot(sessionId),
+            };
+        }
+        if (body.command === "archive") {
+            const entry = await this.repo.appendEntry(sessionId, {
+                type: "session_archived",
+                reason: body.reason,
+            }, snapshot.metadata.workspaceKey);
+            this.publishSessionEntry(sessionId, undefined, entry);
+            await this.publishSessionState(sessionId);
+            return {
+                status: "completed",
+                sessionId,
+                snapshot: await this.getSessionSnapshot(sessionId),
+            };
+        }
+        if (body.command === "compact") {
+            this.assertSessionIdle(sessionId);
+            void this.runCompactCommand(sessionId, body.instructions);
+            return {
+                status: "started",
+                sessionId,
+                snapshot: await this.getSessionSnapshot(sessionId),
+            };
+        }
+        return {
+            status: "completed",
+            sessionId,
+            snapshot: await this.getSessionSnapshot(sessionId),
+        };
+    }
+
+    /**
+     * 原子移动树分支，并可在移动后立即发起下一次 invoke。
+     */
+    async moveTree(sessionId: number, body: AgentTreeRequestDto): Promise<AgentTreeResult> {
+        this.assertSessionIdle(sessionId);
+        const snapshot = await this.repo.readSession(sessionId);
+        await this.moveLeafForPosition(sessionId, body.targetEntryId, body.position, snapshot.metadata.workspaceKey);
+        await this.publishSessionState(sessionId);
+        if (body.next?.type === "invoke") {
+            const invocation = await this.invokeAgent({
+                sessionId,
+                mode: body.next.mode,
+                message: body.next.message,
+                internalQueued: true,
+            });
+            return {
+                status: "invoked",
+                snapshot: await this.getSessionSnapshot(sessionId),
+                invocation,
+            };
+        }
+        return {
+            status: "completed",
+            snapshot: await this.getSessionSnapshot(sessionId),
+        };
+    }
+
+    /**
+     * 请求中断当前 invocation。底层 provider/tool 会通过 AbortSignal 尽量停止。
+     */
+    async abortInvocation(sessionId: number, body: AgentAbortRequestDto = {}): Promise<AgentAbortResult> {
+        const active = this.activeInvocations.get(sessionId);
+        if (!active) {
+            return {
+                status: "idle",
+                sessionId,
+            };
+        }
+        active.status = "aborting";
+        this.abortControllers.get(sessionId)?.abort(body.reason);
+        if (body.clearQueue ?? true) {
+            this.followUpQueues.delete(sessionId);
+        }
+        this.eventHub.publish({
+            sessionId,
+            invocationId: active.invocationId,
+            kind: "session",
+            event: {
+                type: "invocation_aborted",
+                reason: body.reason,
+            },
+        });
+        await this.publishSessionState(sessionId, active.invocationId);
+        return {
+            status: "aborted",
+            sessionId,
+        };
+    }
+
+    /**
+     * 订阅 session 级事件流。
+     */
+    subscribeSessionEvents(sessionId: number, after?: number): AsyncIterable<AgentSessionEventDto> {
+        return this.eventHub.subscribe(sessionId, after);
     }
 
     /**
@@ -335,19 +627,23 @@ export class NeuroAgentHarness {
 
         if (prepared.historyMessages?.length && !context.customState["profile.history.injected"]) {
             for (const message of prepared.historyMessages) {
-                await this.repo.appendMessage(snapshot.metadata.sessionId, message, snapshot.metadata.workspaceKey);
+                const entry = await this.repo.appendMessage(snapshot.metadata.sessionId, message, snapshot.metadata.workspaceKey);
+                this.publishSessionEntry(snapshot.metadata.sessionId, undefined, entry);
             }
-            await this.repo.appendEntry(snapshot.metadata.sessionId, {
+            const entry = await this.repo.appendEntry(snapshot.metadata.sessionId, {
                 type: "custom",
                 key: "profile.history.injected",
                 value: true,
             }, snapshot.metadata.workspaceKey);
+            this.publishSessionEntry(snapshot.metadata.sessionId, undefined, entry);
         }
         for (const message of prepared.appendingMessages ?? []) {
-            await this.repo.appendMessage(snapshot.metadata.sessionId, message, snapshot.metadata.workspaceKey);
+            const entry = await this.repo.appendMessage(snapshot.metadata.sessionId, message, snapshot.metadata.workspaceKey);
+            this.publishSessionEntry(snapshot.metadata.sessionId, undefined, entry);
         }
         for (const write of prepared.sessionWrites ?? []) {
-            await this.repo.appendEntry(snapshot.metadata.sessionId, write, snapshot.metadata.workspaceKey);
+            const entry = await this.repo.appendEntry(snapshot.metadata.sessionId, write, snapshot.metadata.workspaceKey);
+            this.publishSessionEntry(snapshot.metadata.sessionId, undefined, entry);
         }
 
         return {
@@ -372,13 +668,15 @@ export class NeuroAgentHarness {
             });
             this.assertValidIngest(profile, ingest);
             for (const message of ingest.messageWrites ?? []) {
-                await this.repo.appendMessage(sessionId, message, snapshot.metadata.workspaceKey);
+                const entry = await this.repo.appendMessage(sessionId, message, snapshot.metadata.workspaceKey);
+                this.publishSessionEntry(sessionId, undefined, entry);
             }
             if (ingest.sessionUpdates?.title || ingest.sessionUpdates?.summary) {
-                await this.repo.appendEntry(sessionId, {
+                const entry = await this.repo.appendEntry(sessionId, {
                     type: "session_update",
                     updates: ingest.sessionUpdates,
                 }, snapshot.metadata.workspaceKey);
+                this.publishSessionEntry(sessionId, undefined, entry);
             }
             return null;
         } catch (error) {
@@ -416,7 +714,8 @@ export class NeuroAgentHarness {
         if (!pending) {
             throw new Error("当前 session 没有等待中的审批 tool call");
         }
-        await this.repo.appendMessage(snapshot.metadata.sessionId, resolutionToToolResult(resolution, pending), snapshot.metadata.workspaceKey);
+        const entry = await this.repo.appendMessage(snapshot.metadata.sessionId, resolutionToToolResult(resolution, pending), snapshot.metadata.workspaceKey);
+        this.publishSessionEntry(snapshot.metadata.sessionId, undefined, entry);
     }
 
     private async runLoop(input: {
@@ -428,6 +727,8 @@ export class NeuroAgentHarness {
         model: Model<any>;
         toolKeys: string[];
         thinkingLevel: string;
+        abortSignal?: AbortSignal;
+        invocationId?: string;
         onEvent?: (event: AgentEvent) => void | Promise<void>;
     }): Promise<{
         events: AgentEvent[];
@@ -439,6 +740,7 @@ export class NeuroAgentHarness {
         const emit = async (event: AgentEvent) => {
             events.push(event);
             await input.onEvent?.(event);
+            this.publishPiEvent(input.sessionId, input.invocationId, event);
             await this.persistEvent(input.sessionId, input.workspaceKey, event);
         };
         const visibleTools = this.tools.allowed(input.toolKeys);
@@ -457,6 +759,7 @@ export class NeuroAgentHarness {
                 tools: visibleTools,
                 sessionId: input.sessionId,
                 thinkingLevel: input.thinkingLevel,
+                abortSignal: input.abortSignal,
                 emit,
             });
             messages.push(assistant);
@@ -474,6 +777,7 @@ export class NeuroAgentHarness {
                 assistant,
                 toolCalls,
                 allowedToolKeys: input.toolKeys,
+                abortSignal: input.abortSignal,
                 emit,
             });
             for (const toolResult of toolBatch.toolResults) {
@@ -507,6 +811,7 @@ export class NeuroAgentHarness {
         tools: ReturnType<AgentToolRegistry["allowed"]>;
         sessionId: number;
         thinkingLevel: string;
+        abortSignal?: AbortSignal;
         emit: (event: AgentEvent) => Promise<void>;
     }): Promise<AssistantMessage> {
         const llmMessages = input.messages.filter((message): message is Message => {
@@ -520,6 +825,7 @@ export class NeuroAgentHarness {
             sessionId: String(input.sessionId),
             reasoning: input.thinkingLevel === "off" ? undefined : input.thinkingLevel as never,
             apiKey: await resolvePiApiKey(input.model.provider),
+            signal: input.abortSignal,
         });
 
         let started = false;
@@ -562,6 +868,7 @@ export class NeuroAgentHarness {
         assistant: AssistantMessage;
         toolCalls: AgentToolCall[];
         allowedToolKeys: string[];
+        abortSignal?: AbortSignal;
         emit: (event: AgentEvent) => Promise<void>;
     }): Promise<RunToolBatchResult> {
         if (input.toolCalls.length === 0) {
@@ -612,6 +919,7 @@ export class NeuroAgentHarness {
                 workspaceKey: input.workspaceKey,
                 workspaceRoot: input.workspaceRoot,
                 allowedToolKeys: input.allowedToolKeys,
+                abortSignal: input.abortSignal,
                 toolCall,
             });
             await input.emit({
@@ -657,7 +965,7 @@ export class NeuroAgentHarness {
             }
             const skill = await this.skills.get(skillKey);
             if (!skill) {
-                return `Skill ${skillKey} is not visible in v3 skill catalog`;
+                return `Skill ${skillKey} is not visible in the skill catalog`;
             }
         }
         return null;
@@ -668,6 +976,7 @@ export class NeuroAgentHarness {
         workspaceKey: string;
         workspaceRoot: string;
         allowedToolKeys: string[];
+        abortSignal?: AbortSignal;
         toolCall: AgentToolCall;
     }): Promise<{
         result: AgentToolResult<unknown>;
@@ -702,8 +1011,8 @@ export class NeuroAgentHarness {
                 workspaceKey: input.workspaceKey,
             };
             const result = tool.executeWithContext
-                ? await tool.executeWithContext(context, input.toolCall.id, args)
-                : await tool.execute(input.toolCall.id, args);
+                ? await tool.executeWithContext(context, input.toolCall.id, args, input.abortSignal)
+                : await tool.execute(input.toolCall.id, args, input.abortSignal);
             return {
                 result,
                 isError: false,
@@ -720,8 +1029,176 @@ export class NeuroAgentHarness {
         if (event.type === "message_end") {
             const message = event.message;
             if (message.role === "user" || message.role === "assistant" || message.role === "toolResult") {
-                await this.repo.appendMessage(sessionId, message, workspaceKey);
+                const entry = await this.repo.appendMessage(sessionId, message, workspaceKey);
+                this.publishSessionEntry(sessionId, undefined, entry);
             }
+        }
+    }
+
+    private assertSessionIdle(sessionId: number): void {
+        if (this.activeInvocations.has(sessionId)) {
+            throw new Error("active_invocation_exists");
+        }
+    }
+
+    private enqueueFollowUp(sessionId: number, message: AgentUserMessageInput): AgentFollowUpQueueItemDto {
+        const item: AgentFollowUpQueueItemDto = {
+            id: randomUUID(),
+            message,
+            createdAt: Date.now(),
+        };
+        const queue = this.followUpQueues.get(sessionId) ?? [];
+        queue.push(item);
+        this.followUpQueues.set(sessionId, queue);
+        this.eventHub.publish({
+            sessionId,
+            kind: "session",
+            event: {
+                type: "follow_up_queued",
+                item,
+            },
+        });
+        return item;
+    }
+
+    private async drainFollowUps(sessionId: number): Promise<void> {
+        if (this.activeInvocations.has(sessionId)) {
+            return;
+        }
+        const queue = this.followUpQueues.get(sessionId) ?? [];
+        const next = queue.shift();
+        if (!next) {
+            this.followUpQueues.delete(sessionId);
+            return;
+        }
+        if (queue.length === 0) {
+            this.followUpQueues.delete(sessionId);
+        } else {
+            this.followUpQueues.set(sessionId, queue);
+        }
+        await this.invokeAgent({
+            sessionId,
+            mode: "prompt",
+            message: next.message,
+            internalQueued: true,
+        });
+    }
+
+    private async finishInvocation(sessionId: number, invocationId?: string): Promise<void> {
+        this.activeInvocations.delete(sessionId);
+        this.abortControllers.delete(sessionId);
+        await this.publishSessionState(sessionId, invocationId);
+    }
+
+    private publishPiEvent(sessionId: number, invocationId: string | undefined, event: AgentEvent): void {
+        this.eventHub.publish({
+            sessionId,
+            invocationId,
+            kind: "pi",
+            event,
+        });
+    }
+
+    private publishSessionEntry(sessionId: number, invocationId: string | undefined, entry: SessionEntry): void {
+        this.eventHub.publish({
+            sessionId,
+            invocationId,
+            kind: "session",
+            event: {
+                type: "session_entry",
+                entry,
+            },
+        });
+    }
+
+    private async publishSessionState(sessionId: number, invocationId?: string): Promise<void> {
+        this.eventHub.publish({
+            sessionId,
+            invocationId,
+            kind: "session",
+            event: {
+                type: "session_state_changed",
+                snapshot: await this.getSessionSnapshot(sessionId),
+            },
+        });
+    }
+
+    private resolveSessionStatus(sessionId: number, archived: boolean): AgentSessionSummaryDto["status"] {
+        if (archived) {
+            return "archived";
+        }
+        const active = this.activeInvocations.get(sessionId);
+        if (active?.status === "waiting") {
+            return "waiting";
+        }
+        if (active) {
+            return "running";
+        }
+        return "idle";
+    }
+
+    private async moveLeafForPosition(
+        sessionId: number,
+        targetEntryId: SessionEntryId,
+        position: "at" | "before",
+        workspaceKey?: string,
+    ): Promise<void> {
+        const snapshot = await this.repo.readSession(sessionId, workspaceKey);
+        const target = snapshot.entries.find((entry) => entry.id === targetEntryId);
+        if (!target || target.type === "leaf") {
+            throw new Error(`未找到目标 entry：${targetEntryId}`);
+        }
+        await this.repo.moveLeaf(sessionId, position === "before" ? target.parentId : target.id, snapshot.metadata.workspaceKey);
+    }
+
+    private async runCompactCommand(sessionId: number, instructions?: string): Promise<void> {
+        const invocationId = randomUUID();
+        const activeInvocation: AgentActiveInvocationDto = {
+            invocationId,
+            sessionId,
+            status: "running",
+            mode: "compact",
+            startedAt: Date.now(),
+        };
+        this.activeInvocations.set(sessionId, activeInvocation);
+        const startSnapshot = await this.repo.readSession(sessionId);
+        const startEntry = await this.repo.appendEntry(sessionId, {
+            type: "invocation_lifecycle",
+            invocationId,
+            status: "start",
+        }, startSnapshot.metadata.workspaceKey);
+        this.publishSessionEntry(sessionId, invocationId, startEntry);
+        await this.publishSessionState(sessionId, invocationId);
+        try {
+            const snapshot = await this.repo.readSession(sessionId);
+            const context = this.repo.reduce(snapshot);
+            const model = context.model ?? this.modelResolver(context.profileKey);
+            await appendCompaction({
+                repo: this.repo,
+                snapshot,
+                messages: context.messages,
+                model,
+                apiKey: await resolvePiApiKey(model.provider),
+                thinkingLevel: context.thinkingLevel,
+                instructions,
+            });
+            const entry = await this.repo.appendEntry(sessionId, {
+                type: "invocation_lifecycle",
+                invocationId,
+                status: "end",
+            }, snapshot.metadata.workspaceKey);
+            this.publishSessionEntry(sessionId, invocationId, entry);
+        } catch (error) {
+            const snapshot = await this.repo.readSession(sessionId);
+            const entry = await this.repo.appendEntry(sessionId, {
+                type: "invocation_lifecycle",
+                invocationId,
+                status: "error",
+                error: error instanceof Error ? error.message : String(error),
+            }, snapshot.metadata.workspaceKey);
+            this.publishSessionEntry(sessionId, invocationId, entry);
+        } finally {
+            await this.finishInvocation(sessionId, invocationId);
         }
     }
 
@@ -742,7 +1219,8 @@ export class NeuroAgentHarness {
         const reminder = createUserMessage({
             text: "你必须使用 report_result 工具返回最终结果。请不要只回复普通文本。",
         });
-        await this.repo.appendMessage(input.sessionId, reminder, runInput?.workspaceKey);
+        const reminderEntry = await this.repo.appendMessage(input.sessionId, reminder, runInput?.workspaceKey);
+        this.publishSessionEntry(input.sessionId, invocationId, reminderEntry);
         if (runInput) {
             const snapshot = await this.repo.readSession(input.sessionId);
             const context = this.repo.reduce(snapshot);
@@ -755,6 +1233,7 @@ export class NeuroAgentHarness {
                 model: runInput.model,
                 toolKeys: runInput.toolKeys,
                 thinkingLevel: runInput.thinkingLevel,
+                invocationId,
                 onEvent: input.onEvent,
             });
             if (reminded.reportResult) {
@@ -813,13 +1292,6 @@ export class NeuroAgentHarness {
             summary: context.summary,
             status: detached ? "detached" : "idle",
         };
-    }
-
-    private toolResultText(result: AgentToolResult<unknown>): string {
-        return result.content
-            .filter((block) => block.type === "text")
-            .map((block) => block.text)
-            .join("\n");
     }
 
     private errorToolResult(message: string): AgentToolResult<Record<string, never>> {
