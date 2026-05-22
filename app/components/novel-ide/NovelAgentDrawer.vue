@@ -13,6 +13,8 @@ import AgentChatFlow from "nbook/app/components/novel-ide/agent/AgentChatFlow.vu
 import AgentComposer from "nbook/app/components/novel-ide/agent/AgentComposer.vue";
 import AgentLinkedAgentPanel from "nbook/app/components/novel-ide/agent/AgentLinkedAgentPanel.vue";
 import AgentSessionDialog from "nbook/app/components/novel-ide/agent/AgentSessionDialog.vue";
+import AgentSessionTreeDialog from "nbook/app/components/novel-ide/agent/AgentSessionTreeDialog.vue";
+import {deriveAgentTreeState, resolveBranchSwitchTarget} from "nbook/app/components/novel-ide/agent/session-tree";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
 import type {ModelSettingsDto} from "nbook/shared/dto/app-settings.dto";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
@@ -49,6 +51,7 @@ const previousSelectedFilePath = ref<string | null>(props.selectedFilePath || nu
 const fileChangedSinceLastSend = ref(false);
 const selectionVersion = ref(0);
 const sessionDialogOpen = ref(false);
+const sessionTreeDialogOpen = ref(false);
 const sessionActionId = ref<number | null>(null);
 const eventsAbortController = ref<AbortController | null>(null);
 const eventsSessionId = ref<number | null>(null);
@@ -139,9 +142,8 @@ const sessionModelSelectionValue = computed(() => sessionModelMode.value === "ov
 const activeDrawerTitle = computed(() => activeSummary.value?.profileKey === "leader.assets" ? "用户资产助手" : "AI 写作助手");
 const drawerIconClass = computed(() => "i-lucide-sparkles text-[var(--accent-text)]");
 
-const branchSwitcherStateByMessageId = computed<Record<string, {nodeIds: string[]; currentIndex: number; total: number}>>(() => {
-    return {};
-});
+const sessionTreeState = computed(() => deriveAgentTreeState(activeSnapshot.value?.tree ?? []));
+const branchSwitcherStateByMessageId = computed(() => sessionTreeState.value.switcherByMessageId);
 
 const threadModelDraft = sessionModelDraft;
 const threadModelPopoverOpen = sessionModelPopoverOpen;
@@ -658,29 +660,6 @@ const cancelEditingMessage = (): void => {
 };
 
 /**
- * 沿当前消息 tree 节点切换。
- */
-const activateMessage = async (messageId: string): Promise<void> => {
-    if (!activeSessionId.value || messageActionId.value || running.value) {
-        return;
-    }
-    messageActionId.value = messageId;
-    try {
-        await agentApi.moveTree(activeSessionId.value, {
-            targetEntryId: messageId,
-            position: "at",
-        });
-        await syncActiveSessionSnapshot();
-        editingMessageId.value = null;
-    } catch (error) {
-        console.error("切换分支失败", error);
-        notification.error(error instanceof Error ? error.message : "切换分支失败");
-    } finally {
-        messageActionId.value = null;
-    }
-};
-
-/**
  * 更新当前 session 模型覆盖。
  */
 const updateSessionModelSelection = async (modelKey: string | null): Promise<void> => {
@@ -732,10 +711,44 @@ function syncSessionModelState(_summary: AgentSessionSummaryDto | null): void {
 }
 
 const cycleMessageBranch = async (messageId: string, direction: -1 | 1): Promise<void> => {
-    const switcher = branchSwitcherStateByMessageId.value[messageId];
-    const nextNodeId = switcher?.nodeIds[(switcher.currentIndex + direction + switcher.total) % switcher.total];
-    if (nextNodeId) {
-        await activateMessage(nextNodeId);
+    if (!activeSessionId.value || messageActionId.value || running.value) {
+        return;
+    }
+    const target = resolveBranchSwitchTarget(sessionTreeState.value, messageId, direction);
+    if (!target) {
+        return;
+    }
+    messageActionId.value = messageId;
+    try {
+        await agentApi.moveTree(activeSessionId.value, {
+            targetEntryId: target.id,
+            position: "at",
+        });
+        await syncActiveSessionSnapshot();
+    } catch (error) {
+        console.error("切换消息分支失败", error);
+        notification.error(error instanceof Error ? error.message : "切换消息分支失败");
+    } finally {
+        messageActionId.value = null;
+    }
+};
+
+const selectTreeNode = async (entryId: string): Promise<void> => {
+    if (!activeSessionId.value || messageActionId.value || running.value) {
+        return;
+    }
+    messageActionId.value = entryId;
+    try {
+        await agentApi.moveTree(activeSessionId.value, {
+            targetEntryId: entryId,
+            position: "at",
+        });
+        await syncActiveSessionSnapshot();
+    } catch (error) {
+        console.error("切换 Session Tree 节点失败", error);
+        notification.error(error instanceof Error ? error.message : "切换 Session Tree 节点失败");
+    } finally {
+        messageActionId.value = null;
     }
 };
 
@@ -1000,6 +1013,9 @@ function formatSelectedAnswer(
                         <span class="i-lucide-users h-4 w-4"></span>
                         <span v-if="linkedAgents.length" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-white">{{ linkedAgents.length }}</span>
                     </button>
+                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" title="Session Tree" :disabled="!activeSessionId" @click="sessionTreeDialogOpen = true">
+                        <span class="i-lucide-git-branch h-4 w-4"></span>
+                    </button>
                     <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="Session 列表" @click="void openSessionDialog()">
                         <span class="i-lucide-messages-square h-4 w-4"></span>
                     </button>
@@ -1092,6 +1108,14 @@ function formatSelectedAnswer(
                 @select="void selectSession($event)"
                 @create="void createSessionFromDialog()"
                 @archive="void archiveSessionFromDialog($event)"
+            />
+
+            <AgentSessionTreeDialog
+                v-model="sessionTreeDialogOpen"
+                :tree="activeSnapshot?.tree ?? []"
+                :active-leaf-id="activeSnapshot?.activeLeafId ?? null"
+                :running="running"
+                @select="void selectTreeNode($event)"
             />
         </template>
     </aside>

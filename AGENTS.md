@@ -84,6 +84,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - `PROJECT-STATUS.md`：仓库级现状、当前重点、模块状态、风险和近期任务。TODO 也记录在这里，注意 TODO 完成后记得删除
 - `docs/README.md`：文档体系入口，说明 `docs/` 目录分工。
 - `spec/README.md`：稳定规范索引，按模块链接到 `spec/<module>/`。
+- `spec/workspace/TERMS.md`：Workspace Root、Workspace Root `.nbook`、Project Workspace、Project Workspace `.nbook`、user-assets、Bundled Workspace Template 的标准术语。涉及 workspace / project / user-assets / assets 覆盖时必须优先引用这里，不要把 Project Workspace 缩写成 workspace。
 - `docs/modules/README.md`：模块文档索引，链接模块说明、需求整理和开发参考。
 - `docs/tasks/README.md`：重大任务 walkthrough 规则和维护要求。
 - `docs/tasks/TEMPLATE.md`：新任务 walkthrough 模板。

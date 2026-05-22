@@ -1,0 +1,398 @@
+import {readFile} from "node:fs/promises";
+import {basename, relative, resolve, sep} from "node:path";
+import {createError} from "h3";
+import type {TSchema} from "typebox";
+import type {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import type {AgentCatalogItem, AgentCatalogSnapshot, AgentProfileIssue, ProfilePrepareContext} from "nbook/server/agent/profiles/types";
+import {createAssistantTextMessage, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
+import type {AgentMessage, JsonValue, Message} from "nbook/server/agent/messages/types";
+import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
+import type {NeuroSessionContext} from "nbook/server/agent/session/types";
+import type {
+    AgentProfileCatalogItemDto,
+    AgentProfileDetailDto,
+    AgentProfileDetailRequestDto,
+    AgentProfileIssueDto,
+    AgentProfilePreparePreviewDto,
+    AgentProfilePreparePreviewRequestDto,
+    AgentProfileSchemaDetailDto,
+} from "nbook/shared/dto/agent-profile.dto";
+import type {ProfileTemplateVariableGroupDto} from "nbook/shared/dto/profile-template.dto";
+
+const SYSTEM_PROFILE_ROOT = resolve(process.cwd(), "assets", ".nbook", "agent", "profiles");
+const USER_PROFILE_ROOT = resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles");
+
+/**
+ * 列出 v3 Agent Profile catalog，并适配旧 profile 工作台 DTO。
+ */
+export async function listAgentProfileCatalog(profiles: AgentProfileCatalog): Promise<AgentProfileCatalogItemDto[]> {
+    const snapshot = await profiles.snapshot();
+    const loadedItems = snapshot.profiles.map((profile) => toCatalogItem(snapshot, profile));
+    const issueItems = snapshot.issues
+        .filter((issue) => issue.sourcePath && !snapshot.profiles.some((profile) => profile.sourcePath === issue.sourcePath))
+        .map((issue) => issueOnlyCatalogItem(snapshot, issue));
+    return [...loadedItems, ...issueItems].sort((left, right) => {
+        const sourceCompare = left.source.localeCompare(right.source);
+        return sourceCompare || left.profileKey.localeCompare(right.profileKey);
+    });
+}
+
+/**
+ * 读取单个 v3 Agent Profile 的源码和 schema 摘要。
+ */
+export async function readAgentProfileDetail(
+    profiles: AgentProfileCatalog,
+    request: AgentProfileDetailRequestDto,
+): Promise<AgentProfileDetailDto> {
+    const snapshot = await profiles.snapshot();
+    const catalog = await listAgentProfileCatalog(profiles);
+    const catalogItem = resolveCatalogItem(catalog, request);
+    const profile = snapshot.profiles.find((item) => item.key === catalogItem.profileKey);
+    const source = profile?.sourcePath ? await readFile(profile.sourcePath, "utf-8") : "";
+    const runtimeProfile = catalogItem.loadStatus === "loaded" ? await profiles.get(catalogItem.profileKey) : null;
+
+    return {
+        catalogItem,
+        manifest: profile
+            ? {
+                key: profile.key,
+                kind: "agent",
+                name: profile.name,
+                description: profile.description ?? null,
+            }
+            : null,
+        fileName: catalogItem.fileName,
+        source,
+        root: null,
+        issues: catalogItem.issues,
+        variables: buildProfileVariableGroups(profile),
+        allowedToolKeys: runtimeProfile ? [...runtimeProfile.allowedToolKeys] : [],
+        inputSchema: buildSchemaDetail({
+            schema: profile?.inputSchema ?? null,
+            locked: catalogItem.schemaLocked,
+            sourceAvailable: Boolean(source),
+            label: "InputSchema",
+        }),
+        outputSchema: buildSchemaDetail({
+            schema: profile?.outputSchema ?? null,
+            locked: catalogItem.schemaLocked,
+            sourceAvailable: Boolean(source),
+            label: "OutputSchema",
+        }),
+    };
+}
+
+/**
+ * 调用真实 profile.prepare，给 TSX Profile 工作台生成消息预览。
+ */
+export async function previewAgentProfilePrepare(
+    harness: NeuroAgentHarness,
+    request: AgentProfilePreparePreviewRequestDto,
+): Promise<AgentProfilePreparePreviewDto> {
+    const profile = await harness.profiles.get(request.profileKey);
+    const input = harness.profiles.parseInput(profile, buildPreviewInput(request));
+    const session = await buildPreviewSession(harness, request);
+    const catalog = await harness.profiles.snapshot();
+
+    try {
+        const prepared = await profile.prepare({
+            session,
+            input,
+            catalog,
+        } as ProfilePrepareContext);
+        const historyMessages = prepared.historyMessages ?? [];
+        const appendingMessages = prepared.appendingMessages ?? [];
+        const messages = [
+            ...prepared.systemPrompt ? [systemPromptPreviewMessage(prepared.systemPrompt)] : [],
+            ...historyMessages.map((message) => toPreviewMessage(message, "history")),
+            ...(prepared.dynamicMessages ?? []).map((message) => toPreviewMessage(message, "dynamic")),
+            ...appendingMessages.map((message) => toPreviewMessage(message, "appending")),
+        ];
+
+        return {
+            profileKey: request.profileKey,
+            ok: true,
+            issues: [],
+            messages,
+            persistedMessageCount: historyMessages.length + appendingMessages.length,
+            variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === request.profileKey)),
+        };
+    } catch (error) {
+        return {
+            profileKey: request.profileKey,
+            ok: false,
+            issues: [{
+                severity: "error",
+                message: error instanceof Error ? error.message : String(error),
+                code: "prepare_failed",
+                profileKey: request.profileKey,
+            }],
+            messages: [],
+            persistedMessageCount: 0,
+            variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === request.profileKey)),
+        };
+    }
+}
+
+/**
+ * 将 v3 catalog item 映射为前端工作台 catalog DTO。
+ */
+function toCatalogItem(snapshot: AgentCatalogSnapshot, profile: AgentCatalogItem): AgentProfileCatalogItemDto {
+    const fileName = profile.sourcePath ? relativeProfilePath(profile.sourcePath, profile.source) : null;
+    const issues = snapshot.issues
+        .filter((issue) => issue.profileKey === profile.key || issue.sourcePath === profile.sourcePath)
+        .map((issue) => toProfileIssueDto(issue, profile.key, fileName));
+    const source = profile.source === "memory" ? "contract" : profile.source;
+
+    return {
+        profileKey: profile.key,
+        kind: "agent",
+        name: profile.name,
+        description: profile.description ?? null,
+        fileName,
+        source,
+        overrideState: resolveOverrideState(profile),
+        loadStatus: profile.loadStatus,
+        schemaLocked: profile.builtin,
+        canEdit: source === "user" && Boolean(fileName),
+        canRestore: false,
+        issues,
+    };
+}
+
+/**
+ * 将无法加载的坏 profile 文件也暴露给工作台问题面板。
+ */
+function issueOnlyCatalogItem(snapshot: AgentCatalogSnapshot, issue: AgentProfileIssue): AgentProfileCatalogItemDto {
+    const source = issue.source === "memory" || !issue.source ? "contract" : issue.source;
+    const fileName = issue.sourcePath ? relativeProfilePath(issue.sourcePath, issue.source ?? "memory") : null;
+    const profileKey = issue.profileKey ?? `invalid:${fileName ?? issue.message}`;
+
+    return {
+        profileKey,
+        kind: "agent",
+        name: profileKey,
+        description: null,
+        fileName,
+        source,
+        overrideState: source === "contract" ? "contract_only" : source === "user" ? "user_only" : "system",
+        loadStatus: "error",
+        schemaLocked: false,
+        canEdit: source === "user" && Boolean(fileName),
+        canRestore: false,
+        issues: snapshot.issues
+            .filter((item) => item.sourcePath === issue.sourcePath)
+            .map((item) => toProfileIssueDto(item, profileKey, fileName)),
+    };
+}
+
+/**
+ * 根据 profileKey 或 fileName 定位 catalog 项。
+ */
+function resolveCatalogItem(catalog: AgentProfileCatalogItemDto[], request: AgentProfileDetailRequestDto): AgentProfileCatalogItemDto {
+    const item = request.profileKey
+        ? catalog.find((profile) => profile.profileKey === request.profileKey)
+        : catalog.find((profile) => profile.fileName === request.fileName);
+    if (!item) {
+        throw createError({
+            statusCode: 404,
+            message: `未找到 agent profile: ${request.profileKey ?? request.fileName}`,
+        });
+    }
+    return item;
+}
+
+/**
+ * 生成 profile schema 详情。v3 第一版只读展示，不重接低代码 schema 改写。
+ */
+function buildSchemaDetail(input: {
+    schema: TSchema | null;
+    locked: boolean;
+    sourceAvailable: boolean;
+    label: "InputSchema" | "OutputSchema";
+}): AgentProfileSchemaDetailDto {
+    if (input.locked) {
+        return {
+            jsonSchema: cloneJsonObject(input.schema),
+            editMode: "locked",
+            reason: "builtin profile 的 Input/Output schema 由静态 contract 锁定。",
+            sourceRange: null,
+        };
+    }
+    return {
+        jsonSchema: cloneJsonObject(input.schema),
+        editMode: input.sourceAvailable ? "source" : "unavailable",
+        reason: input.sourceAvailable
+            ? `${input.label} 需要在 TSX 源码中编辑；Schema Builder 会在新 profile 工作台中重接。`
+            : `当前 profile 没有可读取源码，无法编辑 ${input.label}。`,
+        sourceRange: null,
+    };
+}
+
+/**
+ * 构造预览用 session context。传 sessionId 时复用真实 session，否则用请求中的临时历史。
+ */
+async function buildPreviewSession(harness: NeuroAgentHarness, request: AgentProfilePreparePreviewRequestDto): Promise<NeuroSessionContext> {
+    if (request.sessionId) {
+        const snapshot = await harness.repo.readSession(Number(request.sessionId));
+        return harness.repo.reduce(snapshot);
+    }
+    return {
+        systemPrompt: "",
+        messages: (request.historyMessages ?? []).map(toPreviewHistoryMessage),
+        model: null,
+        thinkingLevel: "off",
+        profileKey: request.profileKey,
+        workspaceRoot: resolve(process.cwd(), "workspace"),
+        customState: {},
+        linkedAgents: [],
+        archived: false,
+        planModeActive: false,
+    };
+}
+
+/**
+ * 请求 input 优先，其次用 inputOverrides 的自由文本字段构造 JSON 对象。
+ */
+function buildPreviewInput(request: AgentProfilePreparePreviewRequestDto): JsonValue {
+    if (request.input !== undefined) {
+        return request.input as JsonValue;
+    }
+    return JSON.parse(JSON.stringify(request.inputOverrides ?? {})) as JsonValue;
+}
+
+/**
+ * 将工作台临时历史转换为 v3 message。v3 不允许 SystemMessage，因此 system 作为 user 文本预览。
+ */
+function toPreviewHistoryMessage(input: {role: "system" | "human" | "assistant"; text: string}): Message {
+    if (input.role === "assistant") {
+        return createAssistantTextMessage({text: input.text});
+    }
+    return createUserMessage({
+        text: input.role === "system" ? `[system preview]\n${input.text}` : input.text,
+    });
+}
+
+/**
+ * 将 v3 Message 映射到 profile 工作台预览消息。
+ */
+function toPreviewMessage(message: AgentMessage, source: string): AgentProfilePreparePreviewDto["messages"][number] {
+    if (message.role === "assistant") {
+        return {
+            role: message.role,
+            text: messageText(message as Message),
+            source,
+            toolCalls: message.content
+                .filter((block) => block.type === "toolCall")
+                .map((block) => ({
+                    id: block.id,
+                    name: block.name,
+                    argsText: JSON.stringify(block.arguments ?? {}, null, 2),
+                })),
+        };
+    }
+    if (message.role === "custom") {
+        return {
+            role: "custom",
+            text: JSON.stringify(message, null, 2),
+            source,
+        };
+    }
+    return {
+        role: message.role,
+        text: messageText(message as Message),
+        source,
+    };
+}
+
+/**
+ * systemPrompt 在 v3 中是独立字段，预览时作为只读 system-prompt 卡片展示。
+ */
+function systemPromptPreviewMessage(systemPrompt: string): AgentProfilePreparePreviewDto["messages"][number] {
+    return {
+        role: "systemPrompt",
+        text: systemPrompt,
+        source: "systemPrompt",
+    };
+}
+
+/**
+ * 工作台变量面板先展示 profile schema 摘要。
+ */
+function buildProfileVariableGroups(profile: AgentCatalogItem | undefined): ProfileTemplateVariableGroupDto[] {
+    if (!profile) {
+        return [];
+    }
+    return [{
+        group: "Profile Schema",
+        items: [
+            {
+                label: "InputSchema",
+                value: "inputSchema",
+                path: "inputSchema",
+                token: "{{inputSchema}}",
+                editable: false,
+                valueType: "jsonSchema",
+                source: "profile",
+                schema: cloneJsonObject(profile.inputSchema),
+            },
+            {
+                label: "OutputSchema",
+                value: "outputSchema",
+                path: "outputSchema",
+                token: "{{outputSchema}}",
+                editable: false,
+                valueType: "jsonSchema",
+                source: "profile",
+                schema: cloneJsonObject(profile.outputSchema),
+            },
+        ],
+    }];
+}
+
+/**
+ * 解析 profile 覆盖状态。
+ */
+function resolveOverrideState(profile: AgentCatalogItem): AgentProfileCatalogItemDto["overrideState"] {
+    if (profile.source === "memory") {
+        return "contract_only";
+    }
+    if (profile.source === "user") {
+        return "user_only";
+    }
+    return "system";
+}
+
+/**
+ * 统一 issue DTO。
+ */
+function toProfileIssueDto(issue: AgentProfileIssue, profileKey: string, fileName: string | null): AgentProfileIssueDto {
+    return {
+        severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" ? "warning" : "error",
+        message: issue.message,
+        code: issue.code,
+        profileKey: issue.profileKey ?? profileKey,
+        fileName: fileName ?? undefined,
+    };
+}
+
+/**
+ * 计算 profile root 相对路径，保持前端文件选择器的 fileName 语义。
+ */
+function relativeProfilePath(sourcePath: string, source: AgentCatalogItem["source"] | AgentProfileIssue["source"]): string {
+    const root = source === "user" ? USER_PROFILE_ROOT : source === "system" ? SYSTEM_PROFILE_ROOT : null;
+    if (!root) {
+        return basename(sourcePath);
+    }
+    return relative(root, sourcePath).split(sep).join("/");
+}
+
+/**
+ * TypeBox schema 本身就是 JSON Schema，复制后作为 DTO 返回。
+ */
+function cloneJsonObject(value: unknown): Record<string, JsonValue> | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return null;
+    }
+    return JSON.parse(JSON.stringify(value)) as Record<string, JsonValue>;
+}

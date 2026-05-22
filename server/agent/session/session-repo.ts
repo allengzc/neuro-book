@@ -329,6 +329,17 @@ export class JsonlSessionRepository {
      */
     tree(snapshot: SessionSnapshot): SessionTreeNode[] {
         const activeIds = new Set(this.activePath(snapshot).map((entry) => entry.id));
+        const childCountByParentId = new Map<SessionEntryId | null, number>();
+        const labelsByTargetId = new Map<SessionEntryId, string>();
+        for (const entry of snapshot.entries) {
+            if (entry.type === "leaf") {
+                continue;
+            }
+            childCountByParentId.set(entry.parentId, (childCountByParentId.get(entry.parentId) ?? 0) + 1);
+            if (entry.type === "label") {
+                labelsByTargetId.set(entry.targetEntryId, entry.label);
+            }
+        }
         return snapshot.entries
             .filter((entry) => entry.type !== "leaf")
             .map((entry) => ({
@@ -337,7 +348,47 @@ export class JsonlSessionRepository {
                 type: entry.type,
                 timestamp: entry.timestamp,
                 active: activeIds.has(entry.id),
+                terminal: !childCountByParentId.has(entry.id),
+                childCount: childCountByParentId.get(entry.id) ?? 0,
+                role: entry.type === "message" ? entry.message.role : entry.type === "custom_message" ? entry.message.role : undefined,
+                messageId: entry.type === "message" || entry.type === "custom_message" ? entry.id : undefined,
+                preview: this.treeNodePreview(entry),
+                toolName: entry.type === "message" && entry.message.role === "toolResult"
+                    ? entry.message.toolName
+                    : undefined,
+                label: labelsByTargetId.get(entry.id),
             }));
+    }
+
+    /**
+     * 生成 tree 面板用的短预览。只用于 UI 摘要，不参与 reduce。
+     */
+    private treeNodePreview(entry: SessionEntry): string | undefined {
+        if (entry.type === "message") {
+            return messageText(entry.message).replace(/\s+/g, " ").trim().slice(0, 180) || undefined;
+        }
+        if (entry.type === "custom_message") {
+            return entry.message.role;
+        }
+        if (entry.type === "compaction") {
+            return entry.summary.replace(/\s+/g, " ").trim().slice(0, 180) || undefined;
+        }
+        if (entry.type === "branch_summary") {
+            return entry.summary.replace(/\s+/g, " ").trim().slice(0, 180) || undefined;
+        }
+        if (entry.type === "session_update") {
+            return entry.updates.title || entry.updates.summary;
+        }
+        if (entry.type === "label") {
+            return entry.label;
+        }
+        if (entry.type === "invocation_lifecycle") {
+            return `${entry.invocationId} ${entry.status}`;
+        }
+        if (entry.type === "custom") {
+            return entry.key;
+        }
+        return undefined;
     }
 
     /**

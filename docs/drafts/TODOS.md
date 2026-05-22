@@ -142,6 +142,9 @@
 - [ ] 小说概念
 - [ ] invoke_workflow
 - [ ] auid agent uuid
+- [ ] todo 角色卡 schema
+- [ ] 如果用户选中的目录，不是内容节点
+- [ ]
 - [ ]
 
 ------
