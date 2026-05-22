@@ -58,5 +58,5 @@ ext: {}
 - `state.md` 存在但 frontmatter 非法时报 `invalid-state-frontmatter`。
 - `state.md` 字段不符合 schema 时报 `invalid-state-field`。
 - `knowledge[]` 字符串里的 Markdown 内容节点链接会按 workspace 相对路径进行断链校验。
-- `workspace node validate --recursive <target>` 会递归校验目标目录下所有内容节点。
+- `bun scripts/workspace.ts node validate --recursive <target>` 会递归校验目标目录下所有内容节点。
 - 旧 URI 协议不作为状态引用目标。

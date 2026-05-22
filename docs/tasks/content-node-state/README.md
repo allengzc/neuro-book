@@ -22,9 +22,9 @@
 - 内容节点目录可选同级 `state.md`。
 - `state.md` 支持轻量 frontmatter 与正文状态说明。
 - `knowledge[]` 已改为自然语言字符串数组，字符串内 Markdown 内容节点链接会参与断链校验。
-- `workspace node validate` 支持 `--recursive` 递归校验目标目录下的内容节点。
+- `bun scripts/workspace.ts node validate` 支持 `--recursive` 递归校验目标目录下的内容节点。
 - 内容节点模板已迁移为 `{type}/index.md`，并为 `character`、`item`、`location` 提供 `{type}/state.md`。
-- `workspace node new --state` 可创建带状态文件的新节点，`workspace node state TARGET` 可为已有节点补建状态文件。
+- `bun scripts/workspace.ts node new --state` 可创建带状态文件的新节点，`bun scripts/workspace.ts node state TARGET` 可为已有节点补建状态文件。
 - 内容节点通用 frontmatter 字段 `writingTip` 已停止生成和编辑；剧情系统的 `writingTip` 不受影响。
 - Plot refs 已迁到内容节点路径：设定/角色/地点引用使用 `lorebook/.../`，不再写入数据库 Lorebook 外键，也不再支持 `pending://`。
 
@@ -51,7 +51,7 @@
 - `inventory`、`goal` 等专属状态字段不作为标准 frontmatter 字段，优先写入正文；frontmatter 仍保持 loose，允许用户自由扩展。
 - `scope` 不再作为 state 标准字段；剧情系统章节绑定内容节点后，再由剧情系统表达章节范围。
 - 首批 state 模板只覆盖 `character`、`item`、`location`。
-- `workspace node validate` 默认非递归；显式传 `--recursive` 时递归校验目标目录。
+- `bun scripts/workspace.ts node validate` 默认非递归；显式传 `--recursive` 时递归校验目标目录。
 - 剧情系统仍负责情节与冲突；读者信息差留给叙事模块。
 - `writingTip` 不再是内容节点标准字段；写作建议如果是长期创作约束，应作为 note 内容节点或剧情系统字段表达。
 - 未落地目标不再用 `pending://`；应先创建 `status: pending` 的内容节点，再在 Plot refs 中引用其路径。
@@ -61,7 +61,7 @@
 - `server/workspace-files/content-node-schema.ts`
 - `server/workspace-files/workspace-files.ts`
 - `server/workspace-files/workspace-files.test.ts`
-- `assets/agent/scripts/workspace.ts`
+- `scripts/workspace.ts`
 - `app/stores/novel-ide.ts`
 - `app/components/novel-ide/workspace/*`
 - `server/agent/profiles/builtin/leader-default.profile.tsx`

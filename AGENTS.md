@@ -72,7 +72,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 安装新依赖时，使用 bun 安装最新版本的依赖
 - 当前是沙盒环境，执行 bun 命令时，提权在沙盒外执行
 - 执行命令时注意 PowerShell 路径转义
-- Windows 下通过 PowerShell 管道传中文路径给 `workspace node ... --stdin` 时，必须保证三层 UTF-8 初始化：`chcp 65001`、`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8`、`$OutputEncoding = [System.Text.Encoding]::UTF8`。Agent 的 `execute_shell` 工具应默认注入该初始化；如果手工在终端运行，使用同样前缀。
+- Windows 下通过 PowerShell 管道传中文路径给 `bun scripts/workspace.ts node ... --stdin` 时，必须保证三层 UTF-8 初始化：`chcp 65001`、`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8`、`$OutputEncoding = [System.Text.Encoding]::UTF8`。Agent 的 `bash` 工具第一版不负责 PowerShell 管道编码；如果手工在 PowerShell 运行，使用同样前缀。
 - Agent 文件工具读取当前小说 workspace 时，优先传 `lorebook/...`、`manuscript/...` 或 `workspace/...`；这些路径应映射到活跃小说 workspace，不应按项目根解析。
 - 如果遇到性能与复杂度权衡问题，报告、解释、给出你的建议、交给用户做最终决定
 - **Important: 永远不要用 shell 工具代替文件编辑工具。当你想这样做的时候，停止你的行为，请求用户同意**

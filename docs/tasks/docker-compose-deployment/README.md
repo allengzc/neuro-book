@@ -80,7 +80,7 @@
 - `server/utils/env-template.test.ts`
 - `server/utils/app-config.ts`
 - `server/utils/app-config.test.ts`
-- `server/agent-v3/model-provider/config.ts`
+- `server/agent/harness/model-resolver.ts`
 - `README.md`
 - `PROJECT-STATUS.md`
 

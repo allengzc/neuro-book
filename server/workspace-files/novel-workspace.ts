@@ -10,11 +10,13 @@ type PrismaExecutor = PrismaClient | Prisma.TransactionClient;
 export const WORKSPACE_CONTAINER_ROOT = "workspace";
 export const USER_ASSETS_WORKSPACE_KIND = "user-assets";
 export const USER_ASSETS_WORKSPACE_ROOT = path.posix.join(WORKSPACE_CONTAINER_ROOT, ".nbook", "assets");
+export const USER_NBOOK_ROOT = path.posix.join(WORKSPACE_CONTAINER_ROOT, ".nbook");
 export const DEFAULT_NOVEL_WORKSPACE_ID = "1";
 export const DEFAULT_NOVEL_WORKSPACE_SLUG = "silver-dragon-hime";
 
 const NOVEL_DIRECTORY_TEMPLATE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../assets/server/workspace/novel-directory-template");
-const SYSTEM_ASSETS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../assets");
+const SYSTEM_NBOOK_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../assets/.nbook");
+const LEGACY_WORKSPACE_ASSETS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../assets/server/workspace");
 const USER_NOVEL_DIRECTORY_TEMPLATE_ROOT = path.resolve(process.cwd(), USER_ASSETS_WORKSPACE_ROOT, "server", "workspace", "novel-directory-template");
 
 export type NovelWorkspaceMetadata = {
@@ -101,9 +103,16 @@ export async function ensureUserAssetsWorkspaceRoot(): Promise<string> {
  * 将系统 assets 中缺失的文件补到用户 assets，不覆盖用户已经编辑过的文件。
  */
 export async function syncSystemAssetsToUserAssets(): Promise<UserAssetsSyncResult> {
-    const targetRoot = path.resolve(process.cwd(), await ensureUserAssetsWorkspaceRoot());
+    await ensureUserAssetsWorkspaceRoot();
+    const nbookTargetRoot = path.resolve(process.cwd(), USER_NBOOK_ROOT);
+    const legacyWorkspaceTargetRoot = path.resolve(process.cwd(), USER_ASSETS_WORKSPACE_ROOT, "server", "workspace");
     const result: UserAssetsSyncResult = {copied: 0, skipped: 0};
-    await copyMissingAssetEntries(SYSTEM_ASSETS_ROOT, targetRoot, result);
+    if (await isDirectory(SYSTEM_NBOOK_ROOT)) {
+        await copyMissingAssetEntries(SYSTEM_NBOOK_ROOT, nbookTargetRoot, result);
+    }
+    if (await isDirectory(LEGACY_WORKSPACE_ASSETS_ROOT)) {
+        await copyMissingAssetEntries(LEGACY_WORKSPACE_ASSETS_ROOT, legacyWorkspaceTargetRoot, result);
+    }
     return result;
 }
 

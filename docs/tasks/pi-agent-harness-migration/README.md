@@ -19,7 +19,7 @@
 - 旧 thread/message Prisma 模型已删除；新的 session 真相来自 JSONL append-only entry tree。
 - TSX Profile 系统已经支持 builtin/user assets 动态加载、profile preview、InputSchema/OutputSchema、allowed tools、workspace 默认 leader profile 和用户资产工作区。
 - 旧 `/api/agent/**`、旧 workspace profile settings 和旧 profile-template API 第一版返回 501；前端仍未迁移，后续再从 thread/SSE DTO 切到 session/invocation/event contract。
-- 临时 `/api/agent-v3/**` 仍保留作为后端 smoke / 调试入口，正式 HTTP 命名后续和前端迁移一起处理。
+- 临时 `/api/agent-v3/**` 仍保留作为后端 smoke / 调试入口；正式前端迁移时主入口回到 `/api/agent/**`，新 contract 和内部命名不继续使用 `v3` 后缀。
 - 本地 Pi 仓库位于 `.agent/workspace/pi`；已完成基础调研，见 `docs/research/pi-agent-harness.md`。
 - Pi TUI / coding-agent 产品层作为 Neuro Book harness 的主要参考：它证明“产品自己拥有 session manager、资源解析、UI/TUI 状态，再调用 Pi core Agent”是可行路径。
 
@@ -56,6 +56,7 @@
 - 已新增独立 `/api/agent-v3` 后端入口，不替换旧 `/api/agent`：支持创建 session、查询轻量 session、blocking invoke、单次 invoke SSE、查询 agent summary / owner agents、detach agent。
 - 已给 `NeuroAgentHarness.invokeAgent()` 增加 `onEvent` 回调；blocking JSON 仍返回完整 events 数组，SSE route 可在 run 过程中按 Pi-like event type 推送，最后固定发送 `result` 终帧。
 - 已新增 `scripts/smoke-agent-http.ts`，用于在本地 dev server 已启动时通过 HTTP create + invoke 验证临时 `/api/agent-v3` API。
+- 已完成前端迁移 API 方向调研：Pi TUI 通过 snapshot/reduce 加载 session，通过 `AgentSession.subscribe()` 订阅事件，通过 `/tree` 移动 leaf，通过 `/fork` 创建新 session；Pi 不支持原地编辑聊天消息，编辑用户消息等价于回到该消息之前并追加修改后的新输入，保留旧分支。
 - 已确认基础工具迁移不只是工具 registry 改名：v3 `leader.default` / 后续完整 leader profile 也必须迁移到 Pi 风格工具名 `read` / `write` / `edit` / `bash` / `apply_patch`，不再向模型暴露 v2 `read_file` / `write_file` / `edit_file` / `execute_shell` 心智。
 - 已确认完整 v3 leader 的真实落点是系统 assets：把当前 v2 完整 leader 改写为 v3 TypeBox/TSX profile 后放入 `assets/.nbook/agent/profiles/builtin/leader.default.profile.tsx`，让它经过动态 profile catalog、用户覆盖、typecheck 和 preview 这条真实链路。
 - 已确认完整 leader 第一版只做结构迁移与工具名迁移：通用工程/文件/agent 协作能力切到 v3 contract，小说业务提示块（剧情结构、内容节点、Markdown Studio 写作格式、Plan Mode reminder 等）可以先按原语义搬迁，不在本阶段深度改写。
@@ -80,12 +81,15 @@
 - 已把非 Agent 的旧 LangChain 调用禁用：`server/api/writing/continue.post.ts` 和 `server/content/ai-annotation-executor.ts` 明确返回迁移待办错误，后续再接 Pi provider。
 - 已把 workspace 内容节点 CLI 从归档的 `assets/agent-v2/scripts/workspace.ts` 复制为 active `scripts/workspace.ts`，主测试和规范不再依赖 v2 归档脚本。
 - 已收窄“同步系统 assets”：Agent profile/skill 从 `assets/.nbook` 补到 `workspace/.nbook`；旧 workspace 模板在未硬切前只从 `assets/server/workspace` 补到 `workspace/.nbook/assets/server/workspace`，不再把 `assets/agent-v2` 归档同步给用户。
+- 已确认前端 Agent 迁移目标是尽量还原旧抽屉完整功能，而不是只恢复最小聊天入口。普通聊天、session 列表、linked agents、message edit、refresh/retry、rollback、branch 切换、model override、Plan Mode soft toggle、request_user_input / approval resume 都进入新 session/invocation/event contract 的设计范围。
+- 已确认正式前端迁移时删除旧 `/api/agent/threads/**` contract，不做 thread -> session 兼容层；新前端只使用 `/api/agent/sessions/**`、session command、session events 和 profile/skill catalog 等新入口。
+- 已确认前端 session stream 第一版直接暴露 Pi `AgentEvent` 语义，不再设计一套旧 UI projection event。Neuro Book 只额外提供少量 session control event，例如 `snapshot_required`、`follow_up_queued`、`session_entry`、`session_state_changed`。
 
 ## Decisions
 
 - 后端 harness 内部运行时事件主干采用 Pi `AgentEvent` 语义。
 - 后端 harness 第一版不直接依赖 Pi `AgentHarness`。Neuro Book 自建 `NeuroAgentHarness`，底层使用 `pi-ai` + `pi-agent-core` 的 `Agent` / `AgentLoop` 能力。
-- 前端暂不作为本阶段主约束；后端 v3 直接产出 Pi-like event DTO，不兼容当前前端旧 SSE DTO。后续前端接入时再基于 Pi event 与 Neuro Book custom event 设计新的 adapter。
+- 前端暂不作为已完成实现约束；后端第一阶段直接产出 Pi-like event DTO，不兼容当前前端旧 SSE DTO。前端接入时以新 session/invocation/event contract 为准，不为旧 thread DTO 做兼容 adapter。
 - 第一版启用 `custom` entry 承载产品/运行时状态，例如 agent link/detach、session metadata、UI 状态和内部索引。`custom_message` 作为 entry 类型保留，但默认不主动使用；只有确实需要“模型可见 + UI 可自定义渲染 + 不归类为普通 user/assistant/toolResult”的内容时再启用。
 - 采用 Pi 的 `Context` 形状：
 
@@ -333,21 +337,20 @@ workspace/.nbook/agent/sessions/
   - `invoke_agent` 的 `prompt` 模式必须带 `message`；`continue` 模式不允许带 `message`。
   - `continue` 模式可以携带 `resolution`，用于补齐尾部未完成 approval tool call 的 `toolResult` 后再继续运行。`resolution` 是 harness control-plane 入参，不直接暴露给模型；模型最终只看到由 harness 生成的标准 textual `toolResult`。
   - `resolution` 第一版只支持 hardcoded approval tool 集合：`request_user_input`、`enter_plan_mode`、`exit_plan_mode`、`skill`。harness 必须验证 session 尾部 assistant message 中存在匹配 `toolCallId` / `toolName`，且尚无对应 `toolResult`，否则拒绝恢复。
-  - `resolution` 建议 DTO：
+  - `resolution` 使用 `server/agent/tools/types.ts` 中的 `AgentResolution`：
 
     ```ts
-    type InvokeAgentResolution =
+    type AgentResolution =
         | {
             kind: "tool_approval";
             toolCallId: string;
-            toolName: "request_user_input" | "enter_plan_mode" | "exit_plan_mode" | "skill";
             approved: boolean;
-            payload?: Record<string, unknown>;
+            resultText?: string;
+            data?: JsonValue;
         }
         | {
             kind: "user_input";
             toolCallId: string;
-            toolName: "request_user_input";
             answers: Array<{
                 questionIndex: number;
                 text: string;
@@ -494,6 +497,10 @@ type ProfileIngestResult = {
   - NeuroAgentHarness 第一版只暴露 `steer/followUp` 运行期队列；后续如果需要“下一次用户 prompt 前插入”的语义，再作为独立产品层能力评估。
 - `steer`：用户或系统在 agent 工作中追加的“纠偏/补充”消息。它不打断当前 assistant message 和当前 tool batch；等当前 assistant turn 及其 tool result 完成后，在下一次 LLM 调用前注入上下文。
 - `followUp`：等待 agent 本来要停止时再送入的后续消息。只有当当前 run 没有更多 tool calls、没有 steering messages 时才注入，然后继续下一轮。
+- 同一个 `sessionId` 第一版不允许同时运行多个 active invocation。所谓“多个正在运行的 invocation”是指用户在一个 session 还在 streaming/tool 执行/等待本轮结束时，又从另一个浏览器窗口或同一窗口提交了新的 prompt/continue。v3 不启动并行 run，也不让两个 provider loop 同时写同一个 session tree；新的用户 prompt 会进入当前 active invocation 的 `followUp` queue，等当前 run 到达 safe point 后继续执行。
+- active invocation lock 指每个 session 同一时刻最多只有一个正在修改 session / 调 provider / 跑工具 / compact 的 active invocation。它不是数据库锁，也不是跨进程锁；第一版是 harness 内的 session 级运行态互斥。它防止两个 provider loop 同时追加同一棵 session tree，也防止 `/tree`、`/model`、`/compact` 等控制命令在运行中移动 leaf 或改 state。
+- 运行中收到 followUp 后，应通过 session event hub 广播 `follow_up_queued` / queued message 事件，让所有订阅该 session 的窗口都能看到“后续消息已排队”。queued followUp 本身不立刻改写 active leaf；只有真正 drain 并进入下一轮 provider context 时，才作为标准 user message 写入 session。
+- `continue + resolution` 是审批恢复控制流，不走 followUp queue。如果 session 正在等待 approval resolution，这时提交 resolution 会补齐对应 toolResult 并继续当前 invocation；如果同一时刻又提交普通 prompt，则普通 prompt 进入 followUp queue。
 - `steer` / `followUp` 的固定提示词不交给 profile 决定。它们属于 harness 交互协议，由 NeuroAgentHarness 写死或通过 harness-level policy 配置；profile 只负责常规 SystemSet/HistorySet/DynamicSet/AppendingSet。
 - `steer` / `followUp` / `abort` / clear queue 第一版全部由 harness 写死，不开放给 profile 直接触发或改写。
 - `abort` / interrupt：取消当前低层 run，向 provider/tools 传递 abort signal，清空 steering/followUp 队列。已完成的 session writes 不回滚，pending writes 按 save point / failure cleanup 规则落盘或标记中断。
@@ -526,13 +533,19 @@ type ProfileIngestResult = {
 - NeuroAgentHarness 的 continue 应沿用这个语义：当用户输入已经先写入 session，或 tool result 已经落入 session，需要继续触发模型时，使用 continue run。Profile prepare 负责把 session history、DynamicSet、AppendingSet 和当前尾部用户输入整理成合法 provider context。
 - 当 session 尾部是需要审批/用户输入的 assistant tool call 时，不能直接调用 Pi `continue()`；必须先通过 `continue(sessionId, { resolution })` 让 harness append 对应 `toolResult`。这样重启后也能从 session 尾部自然恢复，而不需要额外 custom pending entry。
 - `CurrentUserInput` 是 v2 为适配“前端先写用户消息，再 continue run”而引入的 prepare 内部技巧，不作为 v3 概念保留。
-- v3 第一版实现 session slash command，命令本身对 LLM 透明，不作为普通 user message 写入模型上下文：
+- v3 第一版实现 session command，命令本身对 LLM 透明，不作为普通 user message 写入模型上下文：
   - `/new`：基于当前 session 的 `profileKey + input + workspaceRoot` 新建空 session，不清空旧 session，返回新 `sessionId`。新 session 初始没有 user message，LLM 对该命令无感。
   - `/retry [entryId?]`：在同一个 session tree 内重新生成。若未传 entryId，默认从当前 leaf 找到可继续点；如果当前 leaf 是 assistant message，则把 leaf 移回其 parent，再重新 continue，生成 sibling assistant branch；如果当前 leaf 是 user/toolResult，则直接从当前 leaf continue。旧回复保留，用户后续可用 `/tree` 切换。
   - `/tree [entryId?]`：查看或切换当前 session tree。无参数时返回 tree 摘要；带 entryId 时把当前 leaf 移到目标 entry。它承接“回溯”“回退到某条消息”“切换旧回复/新回复”等操作，不再单独设计 `/back`、`/rollback`。
   - `/fork [entryId?]`：从当前 session 的当前 leaf 或指定 entry 创建一个新 session，保留 parent session 关系。它适合从历史点另开一条线，不影响当前会话。
   - `/compact [instructions]`：手动压缩当前 session，instructions 作为本次 compact 的附加要求进入压缩请求，并写入 `compaction.details.instructions`。
+  - `/plan on|off|toggle [reason]`：手动切换当前 session 的软 Plan Mode。命令写 append-only session state entry，并通过 event hub 广播；命令本身不作为 user message 进入模型上下文。
+  - `/model <modelKey|default>`：切换当前 session 的 per-session model override，写 append-only model state entry，并通过 event hub 广播。`default` 表示清空 override，回到 profile/default model resolver。
 - `/tree` 参考 Pi 的 tree navigation：在当前 session 内移动 leaf，并在跨分支离开当前路径时可生成 `branch_summary` 保存被离开分支的上下文。`/fork` 参考 Pi coding-agent 的 `/fork`：创建新 session，而不是只在当前 tree 内移动 leaf。
+- 前端按钮触发的 Plan Mode、manual compact、tree/retry/fork、model override 等控制动作都走同一个 session command dispatcher，而不是各自设计散落 endpoint。第一版提供 `POST /api/agent/sessions/:sessionId/commands`，body 为 `{ text: "/compact ..." }`、`{ text: "/plan on ..." }` 或 `{ text: "/model ..." }`。
+- command routing 由前端负责。`POST /api/agent/sessions/:sessionId/invocations` 允许用户发送以 `/` 开头的普通文本，后端不在 invoke 入口自动解析 command；只有 `/commands` 入口会按 session command 解析。这避免用户想让模型“解释 `/compact` 这个字符串”时被后端吞掉。
+- session command 是 control-plane 操作，不走 followUp queue。已有 active invocation 时，`/tree`、`/fork`、`/retry`、`/compact`、`/plan`、`/model` 等 command 都返回 `active_invocation_exists`，要求用户先 abort 或等待 idle，避免同一 session tree 被运行中的 provider loop 和控制命令同时修改。
+- `/commands` HTTP 入口本身不长时间等待。它负责解析并发起 command：短命令同步写 entry 并返回完成结果；`/compact` 这类需要 provider 的命令只启动 compact active invocation 并立即返回 `started`。compact 过程通过同一个 session SSE/event hub 同步，完成后写 `compaction` entry 并广播 state/event。
 - v3 参考 Pi 重新设计用户输入流：
   - prompt run：用户输入作为新 `message` entry 写入 session，并作为 prompts 传给低层 loop；profile prepare 不再负责伪造这一条输入。
   - continue run：session/context 已经以 `user` 或 `toolResult` 结尾，不新增 prompt message，直接调用 continue loop。
@@ -570,10 +583,224 @@ Another language model started to solve this problem and produced a summary of i
 
 - harness 负责压缩提示词、cut point、token budget、entry 写入和 tool-call/result 完整性。profile 不参与 compaction prompt / summary 生成策略。
 
+## Frontend Session API Plan
+
+- 正式前端迁移后，Agent HTTP 主入口使用 `/api/agent/**`。`/api/agent-v3/**` 只作为迁移过程中的临时 smoke / 调试历史，不进入新前端 contract；代码命名也应逐步移除 `V3` / `agent-v3` 后缀。
+- 旧 `/api/agent/threads/**` contract 在前端迁移时删除或保持 removed stub，不做兼容重定向。新 UI、composable、DTO 都应使用 `sessionId/session` 命名，不再沿用 `threadId/thread`。
+- 新前端 DTO 放入 `shared/dto/agent-session.dto.ts`。本次迁移不考虑 legacy 兼容：旧 `shared/dto/agent-chat.dto.ts`、旧 `useAgentApi`、旧 thread/subagent API 引用随前端迁移直接删除或替换为新 session API/store，不保留 legacy wrapper 或 thread -> session adapter。`useAgentApi` 是旧前端封装 `/api/agent/threads/**`、stream、subagent、model / plan-mode 请求的 composable；迁移后它不再作为兼容层存在。
+- 用户直接创建的顶层 session 与 agent 创建/拥有的 linked session 第一版用 `SessionMetadata.parentSessionId` 区分：没有 `parentSessionId` 的 session 是 workspace 顶层 session；有 `parentSessionId` 的 session 是某个 owner session 的 linked agent。用户在某个 session 面板里手动创建 linked agent，也按 linked session 处理。若后续 UI 需要区分“用户手动创建 linked agent”和“模型通过 create_agent 工具创建 linked agent”，再补 `custom` entry 或 metadata `createdBy`，但第一版列表分组不依赖这个细分。
+- session 列表分两个视角：主对话列表只展示当前 workspace 下的顶层 sessions；当前 session 的 linked agents 由 linked agent 面板展示，数据来自 owner session 的 linked agent reduce 结果。
+- session list summary 需要支持旧抽屉的浏览体验，但不返回完整 messages。第一版返回 `sessionId`、`profileKey`、`parentSessionId`、`title`、`summary`、`lastMessagePreview`、`updatedAt`、`status`、`model` / `modelOverride`、`planMode` 等轻量字段。
+- session 创建与列表 API 第一版固定为：
+  - `GET /api/agent/sessions?workspaceKey=...`：列当前 workspace 下的顶层 sessions，不返回 linked agents 的完整列表。
+  - `POST /api/agent/sessions`：创建 session，body 包含 `workspaceKey`、`profileKey`、`input`、可选 `parentSessionId`。有 `parentSessionId` 时创建 linked session；无 `parentSessionId` 时创建顶层 session。
+  - `GET /api/agent/sessions/:sessionId`：返回 snapshot。
+  - `/new` command 只是 UI / command dispatcher 的快捷入口，底层复用同一个 create session service。
+- 首次打开 Agent 抽屉时的 session 选择策略：前端按当前 workspace 调 `GET /api/agent/sessions`，优先打开本浏览器记住的 `lastSessionId`；如果该 session 不存在或已归档，则打开最近更新的顶层 session；如果列表为空，才自动创建一个 `leader.default` session。这样避免每次打开抽屉都新建 session，同时支持同一 workspace 多窗口工作。
+- session 删除第一版采用归档/隐藏，不做物理删除。用户点击删除时写 append-only `session_archived` entry，session 列表默认不显示 archived session；调试、恢复和后续管理功能仍可找到 JSONL 历史。物理删除后续再作为单独管理能力设计。
+- 创建运行的正式入口是 `POST /api/agent/sessions/:sessionId/invocations`。它不表示一定创建一个并发 provider run；如果该 session 当前 idle，则创建新的 active invocation；如果该 session 已有 active invocation，则按请求类型排队或恢复当前 invocation。
+- `POST /api/agent/sessions/:sessionId/invocations` 请求参数建议为：
+
+```ts
+type AgentInvocationRequest = {
+    mode: "prompt" | "continue";
+    message?: AgentUserMessageInput;
+    resolution?: AgentResolution;
+    queue?: {
+        whenRunning: "follow_up" | "reject";
+    };
+    response?: {
+        block: boolean;
+    };
+};
+
+type AgentUserMessageInput = {
+    text: string;
+    images?: Array<{
+        type: "image";
+        mimeType: string;
+        data: string;
+    }>;
+};
+```
+
+- 参数规则：
+  - `mode: "prompt"` 必须带 `message`。
+  - `mode: "continue"` 不允许带 `message`，但可以带 `resolution`。
+  - `resolution` 使用现有 `AgentResolution` 结构，只用于恢复尾部未完成 approval tool call，例如 `request_user_input`、`enter_plan_mode`、`exit_plan_mode`、`skill`。它不是模型最终回答，而是前端/用户对等待中 tool call 的恢复动作，后端会转换成标准 tool result message 后继续运行。
+  - `queue.whenRunning` 默认是 `"follow_up"`。当 session 已有 active invocation 且收到新的 `prompt` 时，不启动并行 invocation，而是把 `message` 放入当前 active invocation 的 followUp queue，并返回 queued 状态。
+  - `queue.whenRunning: "reject"` 用于前端某些显式按钮，例如不希望误把请求排队的 destructive / control action。
+  - `response.block` 默认 `false` 给前端使用：HTTP 尽快返回 `invocationId` 或 queued 结果，后续通过 `/events` 更新 UI。模型工具 `invoke_agent` 仍可保持阻塞语义，由后端 service 层等待目标 agent 完成。
+- 返回值建议为：
+
+```ts
+type AgentInvocationResponse =
+    | {
+        status: "started";
+        sessionId: number;
+        invocationId: number;
+    }
+    | {
+        status: "queued";
+        sessionId: number;
+        activeInvocationId: number;
+        queueItemId: string;
+        queueKind: "follow_up";
+    }
+    | {
+        status: "completed" | "waiting" | "error";
+        sessionId: number;
+        invocationId: number;
+        finalMessage?: string;
+        reportResult?: unknown;
+        error?: { message: string; code?: string };
+};
+```
+
+- `response.block: false` 时通常返回 `started` 或 `queued`；`response.block: true` 时可以返回 `completed` / `waiting` / `error`。如果请求在已有 active invocation 的 session 上被排入 followUp，即使 `block: true` 第一版也不等待整个队列跑完，仍返回 `queued`，避免一个 HTTP 请求跨多个 turn 长时间挂住。
+- 第一版不支持取消 queued followUp。queued message 尚未 drain 时也不提供删除接口；如果用户误发，可以继续发送新的 followUp 纠正。若 queued message 已经 drain 并写入 session，则通过 `tree` 回退或分支切换处理。
+- followUp queue 第一版使用 FIFO 自动执行：当前 active invocation 完整结束后，harness 自动取下一条 queued prompt 继续运行。如果当前 session 停在 approval pending，followUp 只排队并进入 snapshot，不抢占 approval resolution；用户提交 `continue + resolution` 后先恢复当前 tool call。abort 默认清空尚未 drain 的 followUp queue。
+- active invocation lock 是 session 级运行互斥：同一个 `sessionId` 在同一时刻只能有一个正在修改 session tree、调用 provider、执行工具或执行 compact / command 的 active invocation。它不是数据库锁，也不是跨进程锁；第一版是 harness 进程内的运行态保护，用来防止两个浏览器窗口或两个请求同时向同一棵 JSONL entry tree 追加互相交错的消息。
+- active invocation lock 拦截的是“会改变 session 真相”的并发动作：并行 provider loop、compact、tree/fork/retry、model/plan command、approval resume 等。普通 prompt 在运行中默认进入 followUp queue；控制命令在运行中返回 `active_invocation_exists`；approval resolution 恢复当前 active invocation，不创建第二个 run。
+- active invocation 建议带 `invocationKind: "prompt" | "continue" | "compact" | "command"`。它仍然共享同一个 session active invocation lock；UI 可以根据 kind 显示“正在回复”“正在继续”“正在压缩上下文”等不同状态。
+- invocation lifecycle 需要写入轻量 session entry，例如 `invocation_start`、`invocation_end`、`invocation_error`、`invocation_aborted`。第一版 event hub 和 lock 仍是内存态，但这些 entry 让进程重启后的 snapshot 能识别“上次运行中断/未正常结束”，而不是静默显示 idle。重启后不自动恢复 provider/tool run，只把状态暴露给 UI 和后续命令处理。
+- session command 入口建议返回与 invocation 相似但更明确的结果：
+
+```ts
+type AgentCommandRequest = {
+    text: string;
+};
+
+type AgentCommandResponse =
+    | {
+        status: "completed";
+        sessionId: number;
+        command: string;
+        message?: string;
+    }
+    | {
+        status: "started";
+        sessionId: number;
+        invocationId: string;
+        command: "compact";
+    }
+    | {
+        status: "error";
+        sessionId: number;
+        command?: string;
+        error: { code: string; message: string };
+    };
+```
+
+- `/commands` 不允许长 HTTP 阻塞。`/compact` 返回 `started` 后，压缩过程通过 `/events` 推送；前端如果需要最终状态，从后续 `message_end` / `session_entry` / `session_state_changed` 或重新拉 snapshot 获得。
+- 中断运行的正式入口是 `POST /api/agent/sessions/:sessionId/abort`，建议请求参数为：
+
+```ts
+type AgentAbortRequest = {
+    reason?: string;
+    clearQueue?: boolean;
+};
+```
+
+- abort 语义：
+  - 取消当前 active invocation 的 provider stream 和正在执行的工具。
+  - 已经写入 session 的 user、assistant partial、tool result、session writes 不回滚。
+  - `clearQueue` 默认 `true`，清掉尚未 drain 的 followUp queue；第一版不提供“保留 queued followUp”UI。
+  - abort 后通过 session event hub 广播 `invocation_aborted`，session 回到 idle。
+  - 如果当前 session 没有 active invocation，返回 `{ status: "idle" }`，不报错。
+- 前端加载 session 采用 `snapshot + event patches`：
+  - 首次打开某个 Agent 抽屉或独立窗口时，调用 `GET /api/agent/sessions/:sessionId` 拉取 snapshot。
+  - snapshot 返回 metadata、activeLeafId、active path messages、tree summary、linked agents、pending approval、model/thinking/plan-mode state 等 UI 初始化所需状态。
+  - 后续主要通过 `GET /api/agent/sessions/:sessionId/events?after=<seq>` 同步增量事件。
+  - SSE 重连、切窗口、发现 event gap、用户手动刷新或服务端返回 `snapshot_required` 时，前端重新 `GET /api/agent/sessions/:sessionId` 对齐真相。
+- snapshot 指服务端从 session JSONL active path reducer 加上当前内存运行态合成的一次完整 UI 状态快照。它不是单纯的历史消息列表，还应包含 active invocation、pending approval、尚未 drain 的 followUp queue、linked agents、tree summary、model / thinking / Plan Mode 等当前状态。首次加载、重连缺 event、手动刷新和 `snapshot_required` 都应重新拉 snapshot。
+- snapshot 的 active path messages 使用原始 `AgentMessage[]`，不返回旧前端 conversation tree projection。前端基于 `AgentMessage[]` 与 Pi `AgentEvent` 做渲染转换；tree 只返回轻量 entry summary 与 active leaf 信息。
+- 前端 store 的 canonical 数据形态是新 session contract：`AgentSessionSnapshot`、原始 `AgentMessage[]`、`AgentSessionEvent[]`、`liveInvocation`、`followUpQueue` 等。ChatDrawer 需要的不是 legacy message DTO，而是新的卡片渲染模型：把 session message、Pi event、tool execution 和 live state 派生成一组卡片，用于展示普通 assistant/user 文本、通用 tool call、以及针对 `read` / `write` / `edit` / `apply_patch` / `bash` 等工具做过 UI 适配的卡片。
+- ChatDrawer 第一版应把“卡片列表”作为渲染目标：通用 tool call 有基础卡片，文件编辑类工具可以显示 diff / path / 状态，`bash` 可以显示命令、运行状态和流式输出尾部。流式工具输出不要求写进 `snapshot.messages`，但需要进入 live card state，让同一工具卡片能随 `tool_execution_update` 增量刷新；最终仍以后端 snapshot / session entry 作为历史真相。
+- ChatDrawer 卡片模型放在前端专用派生层，不进入后端 DTO，也不塞进 store 作为持久真相。建议新建 `app/components/novel-ide/agent/session-cards/` 或 `app/composables/agent-session-cards.ts`，输入 `AgentMessage[] + AgentSessionEvent[] + liveInvocation`，输出卡片列表；`AgentChatFlow` 只负责渲染卡片，不直接理解 Pi event 细节。
+- session JSONL / reducer 是真相；SSE 只是增量广播通道。前端不能把 event stream 当作唯一历史来源，也不能依赖单个 invoke 请求返回的 events 重建全量历史。
+- event hub 第一版不持久化 SSE / stream events。事件只进入内存 bounded replay buffer；重启、buffer 过期或客户端 event gap 时，前端通过 session snapshot 恢复。JSONL 只保存 message、leaf、session_update、custom、compaction 等最终事实 entry。
+- 需要新增 session 级 event hub，而不是继续使用当前单次 `invoke-stream`：
+  - 同一个 `sessionId` 允许多个 subscriber。
+  - 同一轮 invocation 的事件 fan-out 给所有正在订阅该 session 的浏览器窗口。
+  - event 使用 session 内递增 `seq` 或全局递增 `eventSeq`，客户端保存最后收到的序号。
+  - 服务端保留 bounded replay buffer；新窗口先拉 snapshot，再订阅 events，若当前 session 正在流式输出，应能 replay 当前 invocation 的已发生事件。
+  - 如果 `after` 太旧或 replay buffer 不足，服务端发送 `snapshot_required`，由前端重新拉 snapshot。
+  - 第一版 event hub 不做跨进程同步。这里的“跨进程”指多个 Node / Nuxt worker 或多台实例之间共享实时事件；如果 A 请求落在进程 1、B 的 SSE 连接落在进程 2，纯内存 event hub 无法互相广播。第一版按单进程本地使用设计，丢失事件时靠 snapshot 恢复；后续多实例部署再考虑 Redis pub/sub、数据库通知或消息队列。
+- `snapshot_required` 是服务端控制事件，表示当前 SSE replay 已不足以让客户端安全补齐状态，例如客户端请求的 `after` 太旧、replay buffer 已被截断、服务端重启导致内存事件丢失，或者 session state 发生了无法只靠增量事件安全合并的变化。客户端收到后不继续猜测历史，直接重拉 snapshot。
+- `seq gap` 是客户端本地发现事件序号不连续，例如上一次收到 `seq=42`，下一条却是 `seq=45`。这说明中间事件丢失或连接切换期间错过了事件；处理方式和 `snapshot_required` 一样，重拉 snapshot 并清理当前 live patch。
+- SSE 的运行期事件直接使用 Pi `AgentEvent` 语义：`agent_start`、`turn_start`、`message_start`、`message_update`、`message_end`、`tool_execution_start`、`tool_execution_update`、`tool_execution_end`、`turn_end`、`agent_end`。服务端可以在外层附加 `seq/sessionId/invocationId` 等 transport metadata，但不把 Pi event 映射成旧前端的 `assistant_delta`、`tool_call_started`、`thread_snapshot` 等另一套生命周期。
+- Neuro Book 只新增少量 session control event，用来表达 Pi loop 之外的状态：`snapshot_required`、`follow_up_queued`、`session_entry`、`session_state_changed`、`invocation_aborted`。这些事件不替代 Pi event，只补齐 session hub、queue 和 UI state 的需要。
+- SSE event envelope 固定为“transport 外壳 + 原始 Pi event / session control event”：
+
+```ts
+type AgentSessionEvent =
+    | {
+        seq: number;
+        sessionId: number;
+        invocationId?: string;
+        kind: "pi";
+        event: AgentEvent;
+    }
+    | {
+        seq: number;
+        sessionId: number;
+        invocationId?: string;
+        kind: "session";
+        event: AgentSessionControlEvent;
+    };
+```
+
+- `seq` 用于 replay/gap detection；`invocationId` 用于 UI 把事件归到当前 run 或 compact run；`event` 内部尽量保持 Pi 原始形状，避免重建第二套运行期生命周期。
+- followUp queue 需要进入 snapshot，也需要通过 event hub 广播：
+  - 运行中收到新的 prompt 时，后端先创建内存 queue item，不立刻写 session history。
+  - event hub 广播 `follow_up_queued`，让同一 session 的其他浏览器窗口也看到“后续消息已排队”。
+  - 新打开窗口拉 snapshot 时，也应能看到尚未 drain 的 queued followUp。
+  - 到 safe point drain 时，queued followUp 才作为标准 user message 写入 session，并广播正常 message / entry 事件。
+- PI assistant streaming 持久化参考与第一版决策：
+  - `message_update` 是 UI / event stream 层的增量事件，不直接写 session JSONL。
+  - `AgentSession` 在收到 `message_end` 时持久化 user / assistant / toolResult message，以保持 transcript ordering。
+  - provider abort/error 会产出最终 assistant message，`stopReason` 为 `"aborted"` 或 `"error"`；只要 core 发出 `message_end`，PI 仍按最终 message 写 session。
+  - PI 的 `getLastAssistantText()` 会跳过没有内容的 aborted assistant message，但不会禁止有内容的 aborted message 留在历史里。
+  - Neuro Book 第一版跟随这个策略：`message_update` 只广播，`message_end` 才写 session；abort 时若有最终 assistant message，就按 `stopReason: "aborted"` 写入，空内容 aborted message 可选择不在 UI 主历史突出展示。
+- `retry`、`edit message`、`rollback/fallback` 都归一到底层 `tree` 语义：
+  - `tree` 本身只移动 active leaf，不删除历史，不调用 LLM。
+  - `edit message` 等价于移动到目标 user/custom message 的 parent，再把 edited message 作为新 prompt 追加并 invoke；旧分支保留。
+  - `retry/refresh` 等价于移动到目标 assistant message 的 parent，再重新 continue 或 prompt，生成 sibling assistant branch；旧回复保留。
+  - `rollback/fallback` 等价于移动到目标 entry 或目标 entry 的 parent，后续由用户选择继续、重新发或切换分支。
+- 第一版 session 有 active invocation 时禁止 `tree` 操作，包括 `tree + next.invoke`。如果当前 session 正在 streaming、执行工具或等待本轮结束，后端返回 `active_invocation_exists`；用户需要先 abort 当前 invocation，等 session idle 后再 edit/retry/rollback/fallback。这样避免 active run 的后续事件写入已经移动过 leaf 的 session tree。
+- API 层应提供原子 `tree + invoke` 能力，避免前端先 tree 成功、后 invoke 失败导致 UI 停在半切换状态。建议形态：
+
+```ts
+type AgentTreeRequest = {
+    targetEntryId: string;
+    position: "at" | "before";
+    next?: {
+        type: "invoke";
+        mode: "prompt" | "continue";
+        message?: AgentUserMessageInput;
+    };
+};
+```
+
+- 旧 UI 的“删除/回退/编辑/刷新”按钮可以保留，但交互语义需要改成 append-only branch navigation：
+  - 不原地改 message entry。
+  - 不物理删除旧 branch。
+  - 主聊天区第一版展示 active path 线性消息，不直接展开完整 session tree。分支信息通过 message switcher、tree summary 或专门分支入口展示。
+  - UI 上应明确当前 active branch，并允许用户切换旧回复和新回复。
+  - 编辑消息可以保留“原地编辑”的交互感觉，但提交时底层执行 `tree + next.invoke`：移动到目标消息 parent，追加 edited user message，生成新分支；旧分支保留。
+- 前端渲染和核心交互完整保留：`AgentChatFlow`、message bubble、tool bubble、composer、消息操作、审批/输入恢复、模型选择、Plan Mode、refresh/retry、rollback/fallback、edit message 等现有抽屉能力都要迁移到新 session/event 数据源。允许做代码优化、bug 修复和小幅重构，但目标是还原旧 Agent 抽屉的核心功能，而不是重写成只支持最小聊天入口。旧 `useAgentApi` 直接删除或替换为新的 session API/store，不做 legacy wrapper。
+- 前端命名做一次性硬切：`thread` 心智迁到 `session`，`subagent` 心智迁到 `linked agent` / `agent`。建议把 `AgentThreadDialog.vue` 改为 `AgentSessionDialog.vue`，`useAgentThreadSession.ts` 改为 `useAgentSession.ts`，旧 thread DTO、store state、route helper、事件名和局部变量同步改名；如果某些组件仍叫 `Thread` 只因为 UI 文案是“对话列表”，也应在迁移中改为 session 命名，避免新旧概念混用。
+- `model override` 是 per-session 状态，不是 per-invocation 参数。前端切换模型时应写 append-only session state entry，影响后续 invocation；当前已经启动的 active invocation 不被中途切换模型。assistant message 自身仍应记录本次实际使用的 provider / model，方便历史解释。
+- `model override` 不单独设计 `PATCH /model` endpoint。模型选择 UI 调用 `/commands`，使用 `/model <modelKey|default>` 命令；这样模型切换、Plan Mode、compact、tree/retry/fork 都共享同一个 session command 入口。
+- `Plan Mode soft toggle` 是 per-session 状态，但不单独设计 patch endpoint；它走通用 session command dispatcher，例如 `/plan on`、`/plan off`、`/plan toggle`。command 写 session state entry，并通过 event hub 广播，确保同一个 session 的多个浏览器窗口看到一致状态。
+- `/compact` 同样走通用 session command dispatcher。它负责发起 compact active invocation，实际压缩进度和结果通过 SSE 同步；它不是普通 user prompt，也不进入 followUp queue。
+- approval resume 仍通过 `continue + AgentResolution` 恢复当前 pending tool call，不写成普通 user message。
+
 ## Remaining Questions
 
-- `get_agent(id?: number)` 已定为轻量模型工具，不返回完整 history、完整 input 或运行统计噪声。是否支持按 `invocationId` 精确查询单次 run 后续放到 session/API 调试面评估。恢复/继续动作不放在查询工具里，统一由 `invoke_agent` 的 `prompt` / `continue` 模式承接。
-- 当前阶段不兼容旧前端 SSE DTO；后端直接切到 Pi-like event DTO，并允许 Neuro Book 用 Pi custom/custom_message 语义扩展自定义事件。
+- 前端迁移实现前仍需细化具体 DTO 命名、event payload 最小字段、replay buffer 生命周期，以及 queued followUp 在 UI 中的展示方式。第一版 queued followUp 不支持取消。
+- 前端 Agent 代码允许适度重构。可以重做 session 管理 UI，例如 `AgentThreadDialog.vue` 和 `NovelAgentDrawer.vue` 的对话列表区域，但要保留核心功能，并把旧 thread 心智收敛为新 session/invocation/event contract。
 
 ## Files Changed
 
@@ -618,7 +845,10 @@ Another language model started to solve this problem and produced a summary of i
 - TODO：继续做更完整的 prompt parity。第一轮已对齐 Pi 基础工具 description 和 `leader.default` 工具选择规则；后续需要迁移/校准 `leader.assets`、skill 激活文案、Plan Mode reminder 和更完整的小说业务提示块。
 - TODO：未来区分“可被 invoke_agent 调用的 agent”和“只能由用户直接打开/运行的 agent”，避免没有合适完成协议的 agent 被其他 agent 误调用。
 - TODO：为 `invoke_agent` 预留非阻塞调用。`block: false` 后续应立即返回 invocationId / sessionId，并通过 session event 或订阅 API 观察完成状态；第一版不实现非阻塞调用。
-- 后续前端 adapter 接入新的 Agent session/invocation/event contract；当前旧 `/api/agent/**` 返回 501，临时 `/api/agent-v3/**` 只作为后端调试入口。
+- 后续前端 adapter 接入新的 Agent session/invocation/event contract；正式入口使用 `/api/agent/**`，临时 `/api/agent-v3/**` 只作为后端调试入口并在前端迁移完成后删除。
+- TODO：实现 session 级 event hub、多 subscriber fan-out、bounded replay buffer 和 `snapshot_required` 恢复协议，替换当前单次 `invoke-stream` SSE。
+- TODO：实现 session active invocation 锁。同一个 `sessionId` 串行运行；已有 active invocation 时收到新 prompt 按 `queue.whenRunning` 进入 followUp queue 或拒绝，不启动并行 provider loop。
+- TODO：实现 `tree + next.invoke` 原子 API，并用它承载旧前端的 edit message、refresh/retry、rollback/fallback 功能。
 - 为动态 agent catalog 增加 lazy detail 查询能力；当前 prepare 已可读取 catalog snapshot 中的 InputSchema / OutputSchema，但还没有针对大 catalog 的分页/按 key 查询优化。
 - 调整用户资产工作区计划：用户覆盖根为 `workspace/.nbook`，系统资源根为 `assets/.nbook`，agent profile/skill 放入 `.nbook/agent`，workspace 模板放入 `.nbook/assets/templates`。
 - 执行 assets 路径硬切迁移时，先用 `rg` 列出旧路径引用，移动文件后逐一改为新路径，并删除旧路径 fallback/TODO。
