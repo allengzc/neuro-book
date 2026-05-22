@@ -140,8 +140,8 @@
 - [ ] subagent detach 工具
 - [ ] workspace 前端 pinia 变量
 - [ ] 小说概念
-- [ ]
-- [ ]
+- [ ] invoke_workflow
+- [ ] auid agent uuid
 - [ ]
 
 ------

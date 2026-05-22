@@ -56,6 +56,8 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 - 后续如有需要，再把系统默认 leader profile 暴露到系统设置；当前已实现 workspace `.nbook/agent-profile-settings.json` 覆盖，system default 仍写死为小说 `leader.default`、用户 assets `leader.assets`。
 - 让 workspace 默认 Profile 设置页复用 profile catalog 的 loadStatus / issue 信息，避免 contract-only 或 missing profile 在设置列表中被当作普通可运行项展示；当前运行路径已阻止 contract-only profile 执行。
 - 推进 Pi Agent Harness 迁移 spike：验证 Pi `Context` / `AgentLoop` / TypeBox tool / append-only session / TSX profile adapter 的后端最小闭环，并决定是否直接依赖 Pi `AgentHarness`。
+- Pi Agent Harness 迁移后续补 `invoke_agent` 非阻塞调用、session 查询 API / tool、以及 v3 owned / linked agents 存储；v3 agent 工具收敛为 `create_agent`、`invoke_agent`、`get_agent(id?: number)`、`detach_agent`；`invoke_agent` 工具返回 sessionId、usage、finalMessage、report_result 摘要，不返回完整 history；`request_user_input`、`enter_plan_mode`、`exit_plan_mode`、`skill` 的审批/回答恢复统一走 `continue + resolution`，由 harness 补齐 toolResult 后继续。
+- Pi Agent Harness 迁移后续评估文件/变量回溯：变量可通过 session custom state entry reduce，文件回溯需要专门的 `file_snapshot` / `file_patch` entry 或接入 Git/worktree snapshot，第一版不承诺文件内容回滚。
 - 观察 `arch` source 模式快速同步脚本的稳定性，并决定是否要把远端部署目标做成可配置 preset。
 - 把 auth 设置做成 settings 页面可视化开关，减少直接手改 `config.yaml` 的频率。
 

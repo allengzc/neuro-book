@@ -4,6 +4,8 @@
 
 用户维护 skill 或其他可覆盖 assets 时，不应修改仓库源码。系统需要提供一个全局用户 assets 目录，并让前端复用现有 Novel IDE 文件树、tab、Markdown/Monaco 编辑器和保存冲突处理。
 
+> 迁移提示：本文记录的是第一阶段已经完成的 `workspace/.nbook/assets` 方案。Pi Agent Harness 迁移讨论中已决定重新评估用户资产工作区根目录，倾向让 `workspace` 直接作为全局用户工作区；用户覆盖根改为 `workspace/.nbook`，系统资源根改为 `assets/.nbook`。Agent profile / skill 放到 `.nbook/agent/...`，workspace 模板放到 `.nbook/assets/templates/...`。后续迁移计划以 `docs/tasks/pi-agent-harness-migration/README.md` 为准。
+
 ## 决策
 
 - 用户 assets 固定放在 `workspace/.nbook/assets`。
@@ -390,6 +392,7 @@
 - UI 从 “Subagents 管理” 改成 “Agent Graph / 协作节点”。
 - 任意 agent 只要 `allowedToolKeys` 允许，就能创建和调用子 agent。
 - 迁移期保留旧 API/tool 名称作为兼容层。
+- Pi-based v3 已决定删除 `leader` / `subagent` 架构分层，统一为 agent；`leader.default` 和 `leader.assets` 只是系统内置 agent key/name。旧 `create_subagent` / `invoke_subagent` 命名迁移为 `create_agent` / `invoke_agent`：`create_agent` 使用目标 agent/profile 的 `InputSchema` 创建实例配置和空 session，`invoke_agent` 使用 `sessionId + message` 调用已有 agent session。
 
 ### 验收测试
 
