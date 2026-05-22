@@ -73,11 +73,11 @@ import {
 } from "nbook/app/components/profile-template-editor/profile-template-tree-utils";
 import {buildNovelIdeClientVariables} from "nbook/app/components/novel-ide/agent/client-variables";
 import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
-import {useAgentApi} from "nbook/app/composables/useAgentApi";
+import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
-import {AGENT_CLIENT_VARIABLES_HEADER, type AgentThreadSummaryDto} from "nbook/shared/dto/agent-chat.dto";
+import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import type {
     AgentProfileCatalogItemDto,
     AgentProfileDetailDto,
@@ -187,7 +187,7 @@ const previewing = ref(false);
 const previewDialogOpen = ref(false);
 const previewUpdatedAt = ref("");
 const statusText = ref("");
-const threads = ref<AgentThreadSummaryDto[]>([]);
+const threads = ref<AgentSessionSummaryDto[]>([]);
 const selectedThreadId = ref("");
 const loadingThreads = ref(false);
 const previewVariableGroups = ref<PreviewVariableGroup[]>([]);
@@ -245,8 +245,8 @@ const profileKindOptions = [
     },
 ];
 const threadOptions = computed(() => threads.value.map((thread) => ({
-    value: thread.id,
-    label: thread.title || thread.id,
+    value: String(thread.sessionId),
+    label: thread.title || `Session #${thread.sessionId}`,
     description: thread.summary || thread.lastMessagePreview || thread.status,
 })));
 const issueCount = computed(() => issues.value.filter((issue) => issue.severity === "error").length);
@@ -349,7 +349,7 @@ const dndSensors = [
     PointerSensor,
     KeyboardSensor,
 ];
-const agentApi = useAgentApi({getClientVariables: buildClientVariables});
+const agentApi = useAgentSessionApi();
 const notification = useNotification();
 
 /**
@@ -461,9 +461,10 @@ async function fetchTemplateDetail(): Promise<ProfileTemplateDetailDto> {
 async function loadThreads(): Promise<void> {
     loadingThreads.value = true;
     try {
-        threads.value = await agentApi.listThreads("leader", currentThreadProfileKey());
-        if (!selectedThreadId.value || !threads.value.some((thread) => thread.id === selectedThreadId.value)) {
-            selectedThreadId.value = threads.value[0]?.id ?? "";
+        threads.value = (await agentApi.listSessions({workspaceKey: novelIdeStore.workspaceKind === "user-assets" ? "user-assets" : `novel-${novelIdeStore.currentNovelId}`}))
+            .filter((session) => session.profileKey === currentThreadProfileKey());
+        if (!selectedThreadId.value || !threads.value.some((thread) => String(thread.sessionId) === selectedThreadId.value)) {
+            selectedThreadId.value = threads.value[0]?.sessionId ? String(threads.value[0].sessionId) : "";
         }
         await syncSelectedThreadScope();
     } finally {
@@ -478,7 +479,7 @@ async function syncSelectedThreadScope(): Promise<void> {
     if (!selectedThreadId.value) {
         return;
     }
-    await agentApi.getThreadDetail(selectedThreadId.value);
+    await agentApi.getSession(Number(selectedThreadId.value));
 }
 
 /**
@@ -515,7 +516,7 @@ async function previewTemplate(): Promise<void> {
                 headers: buildAgentPreviewHeaders(),
                 body: {
                     source: sourceText.value,
-                    threadId: selectedThreadId.value || undefined,
+                    sessionId: selectedThreadId.value || undefined,
                     inputOverrides: normalizePreviewInputOverrides(),
                 },
             });
@@ -556,7 +557,7 @@ async function previewPreparedProfile(): Promise<ProfileTemplatePreviewDto> {
         headers: buildAgentPreviewHeaders(),
         body: {
             profileKey,
-            threadId: selectedThreadId.value || undefined,
+            sessionId: selectedThreadId.value || undefined,
             inputOverrides: normalizePreviewInputOverrides(),
         },
     });
@@ -573,12 +574,7 @@ async function previewPreparedProfile(): Promise<ProfileTemplatePreviewDto> {
  * 构造 profile 预览请求头。
  */
 function buildAgentPreviewHeaders(): HeadersInit {
-    const json = JSON.stringify(buildClientVariables());
-    const bytes = new TextEncoder().encode(json);
-    const binString = Array.from(bytes, (byte) => String.fromCharCode(byte)).join("");
-    return {
-        [AGENT_CLIENT_VARIABLES_HEADER]: btoa(binString),
-    };
+    return {};
 }
 
 /**

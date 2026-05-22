@@ -1,12 +1,7 @@
-import type {
-    AgentConversationMessageDto,
-    AgentConversationNodeDto,
-    AgentPendingUserInputQuestionDto,
-    AgentPendingUserInputSessionDto,
-    AgentConversationToolCallDto,
-    AgentConversationTreeSnapshotDto,
-    AgentToolNodeStatusDto,
-} from "nbook/shared/dto/agent-chat.dto";
+import {z} from "zod";
+import type {AgentEvent} from "@earendil-works/pi-agent-core";
+import type {AgentMessage as PiAgentMessage, AgentToolCall as PiAgentToolCall, Message as PiMessage, ToolResultMessage} from "nbook/server/agent/messages/types";
+import type {AgentSessionSnapshotDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
 import {toStableArgsJson} from "nbook/app/components/novel-ide/agent/tool-args-stream";
 
 /**
@@ -42,9 +37,11 @@ export type AgentToolCall = {
     error?: string;
     result?: string;
     rawResult?: unknown;
-    /** subagent 调度使用的线程 ID */
+    /** invoke_agent 调度使用的 session ID。 */
+    linkedSessionId?: number;
+    /** 兼容旧工具气泡字段。 */
     subagentThreadId?: string;
-    /** 所属 assistant 消息 ID */
+    /** 所属 assistant 消息 ID。 */
     assistantMessageId?: string;
 };
 
@@ -66,20 +63,48 @@ export type AgentMessage = {
     thinking?: string;
 };
 
-/**
- * 前端使用的历史树索引。
- */
-export type AgentConversationTreeIndex = {
-    revision: number;
-    activeCursorId: string | null;
-    rootNodeId: string | null;
-    nodes: AgentConversationNodeDto[];
-    nodeMap: Map<string, AgentConversationNodeDto>;
-    activePathIds: string[];
+export const AgentUserInputQuestionOptionSchema = z.object({
+    label: z.string(),
+    description: z.string().optional(),
+    recommended: z.boolean().optional(),
+});
+
+export const AgentUserInputQuestionSchema = z.object({
+    header: z.string().optional(),
+    question: z.string(),
+    options: z.array(AgentUserInputQuestionOptionSchema).default([]),
+    multiSelect: z.boolean().default(false),
+});
+
+export const RequestUserInputToolArgsSchema = z.object({
+    questions: z.array(AgentUserInputQuestionSchema).default([]),
+});
+
+export const RequestUserInputToolAnswerSchema = z.object({
+    questionIndex: z.number().int().nonnegative().optional(),
+    selectedOptionIndex: z.number().int().min(-1).optional(),
+    selectedOptionIndexes: z.array(z.number().int().min(-1)).optional(),
+    note: z.string().trim().optional(),
+    ignored: z.boolean().optional(),
+});
+
+export type AgentPendingUserInputQuestion = z.infer<typeof AgentUserInputQuestionSchema> & {
+    toolNodeId: string;
+    questionIndex: number;
+    toolCallId?: string | null;
+    toolName: string;
+    kind: "question" | "tool_approval";
+    approvalAction?: "enter_plan_mode" | "exit_plan_mode" | "skill";
+    approvalToolArgsText?: string;
+    planFilePath?: string;
+    planContent?: string;
 };
 
-export type AgentPendingUserInputQuestion = AgentPendingUserInputQuestionDto;
-export type AgentPendingUserInputSession = AgentPendingUserInputSessionDto;
+export type AgentPendingUserInputSession = {
+    assistantMessageId: string;
+    status: "pending";
+    questions: AgentPendingUserInputQuestion[];
+};
 
 /**
  * 消息级 continuation 切换状态。
@@ -125,9 +150,9 @@ export const toChatNodes = (messages: AgentMessage[]): ChatNode[] => {
 /**
  * 格式化相对时间。
  */
-export const formatTimestamp = (isoString?: string): string => {
-    if (!isoString) return "";
-    const date = new Date(isoString);
+export const formatTimestamp = (value?: string | number): string => {
+    if (value === undefined || value === null || value === "") return "";
+    const date = typeof value === "number" ? new Date(value) : new Date(value);
     const now = new Date();
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
@@ -223,11 +248,13 @@ export const mergeToolCalls = (nextToolCalls?: AgentToolCall[], previousToolCall
             return toolCall;
         }
         return {
+            ...previous,
             ...toolCall,
             status: mergeToolCallStatus(toolCall.status, previous.status),
             error: toolCall.error ?? previous.error,
             result: toolCall.result ?? previous.result,
             rawResult: toolCall.rawResult ?? previous.rawResult,
+            linkedSessionId: toolCall.linkedSessionId ?? previous.linkedSessionId,
             subagentThreadId: toolCall.subagentThreadId ?? previous.subagentThreadId,
         };
     });
@@ -239,183 +266,6 @@ export const mergeToolCalls = (nextToolCalls?: AgentToolCall[], previousToolCall
     }
 
     return merged.sort((left, right) => left.index - right.index);
-};
-
-/**
- * 将服务端快照工具节点转换为本地模型。
- */
-export const toLocalToolCall = (toolCall: AgentConversationToolCallDto): AgentToolCall => {
-    return {
-        id: toolCall.id,
-        assistantMessageId: toolCall.assistantMessageId,
-        index: toolCall.callIndex,
-        name: toolCall.toolName,
-        argsText: toolCall.argsText,
-        argsJson: toStableArgsJson(toolCall.argsText),
-        status: mapToolNodeStatus(toolCall.status),
-        result: toolCall.outputText,
-        rawResult: toolCall.rawResult,
-        subagentThreadId: toolCall.subagentThreadId,
-    };
-};
-
-/**
- * 将服务端草稿消息转换为本地模型。
- */
-export const toLocalMessage = (message: AgentConversationMessageDto): AgentMessage => ({
-    id: message.id,
-    type: message.role === "assistant" ? "ai" : message.role === "system" ? "system" : "user",
-    content: message.content,
-    status: message.status,
-    timestamp: formatTimestamp(message.createdAt),
-    model: message.model,
-    tokens: message.tokens,
-    thinking: message.thinking,
-    toolCalls: message.toolCalls?.map(toLocalToolCall),
-});
-
-/**
- * 从历史 metadata 推断系统消息展示类型。
- */
-const resolveSystemDisplayKind = (rawAdditionalKwargs: Record<string, unknown>): SystemMessageDisplayKind | undefined => {
-    if (rawAdditionalKwargs.messageOrigin === "system_prompt") {
-        return "prompt";
-    }
-    if (typeof rawAdditionalKwargs.systemMessageKind === "string") {
-        return "reminder";
-    }
-    return undefined;
-};
-
-/**
- * 建立历史树索引。
- */
-export const createConversationTreeIndex = (
-    tree: AgentConversationTreeSnapshotDto,
-): AgentConversationTreeIndex => {
-    const nodes = [...tree.nodes].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-    const nodeMap = new Map(nodes.map((node) => [node.id, node]));
-    const activePathIds: string[] = [];
-    let currentId = tree.activeCursorId;
-
-    while (currentId) {
-        const current = nodeMap.get(currentId);
-        if (!current || current.archivedAt) {
-            break;
-        }
-        activePathIds.push(current.id);
-        currentId = current.parentId;
-    }
-
-    return {
-        revision: tree.revision,
-        activeCursorId: tree.activeCursorId,
-        rootNodeId: tree.rootNodeId,
-        nodes,
-        nodeMap,
-        activePathIds: activePathIds.reverse(),
-    };
-};
-
-/**
- * 从历史树派生当前聊天界面的 message 列表。
- */
-export const deriveMessagesFromConversationTree = (treeIndex: AgentConversationTreeIndex): AgentMessage[] => {
-    const messages: AgentMessage[] = [];
-
-    for (const nodeId of treeIndex.activePathIds) {
-        const node = treeIndex.nodeMap.get(nodeId);
-        if (!node || node.archivedAt) {
-            continue;
-        }
-
-        if (node.role === "tool") {
-            const assistant = messages.at(-1);
-            if (!assistant || assistant.type !== "ai") {
-                continue;
-            }
-            const toolCalls = [...(assistant.toolCalls ?? [])];
-            toolCalls.push(toToolCallFromNode(node));
-            assistant.toolCalls = toolCalls.sort((left, right) => left.index - right.index);
-            continue;
-        }
-
-        messages.push({
-            id: node.id,
-            type: node.role === "assistant" ? "ai" : node.role === "system" ? "system" : "user",
-            systemDisplayKind: node.role === "system"
-                ? resolveSystemDisplayKind(node.rawAdditionalKwargs)
-                : undefined,
-            content: node.content,
-            status: node.status,
-            timestamp: formatTimestamp(node.createdAt),
-            model: typeof node.rawAdditionalKwargs.model === "string"
-                ? node.rawAdditionalKwargs.model
-                : undefined,
-            tokens: typeof node.rawAdditionalKwargs.tokens === "number"
-                ? node.rawAdditionalKwargs.tokens
-                : undefined,
-            thinking: typeof node.rawAdditionalKwargs.thinking === "string"
-                ? node.rawAdditionalKwargs.thinking
-                : undefined,
-        });
-    }
-
-    return messages;
-};
-
-/**
- * 计算某条用户消息对应的 continuation 切换状态。
- */
-export const resolveMessageSwitcher = (
-    treeIndex: AgentConversationTreeIndex,
-    messageId: string,
-): AgentMessageSwitcherState | null => {
-    const target = treeIndex.nodeMap.get(messageId);
-    if (!target || target.archivedAt || target.role !== "user") {
-        return null;
-    }
-
-    const siblingUserIds = resolveVisibleSiblingUserIds(treeIndex, target);
-    if (siblingUserIds.length > 1) {
-        return {
-            nodeIds: siblingUserIds,
-            currentIndex: Math.max(0, siblingUserIds.indexOf(target.id)),
-            total: siblingUserIds.length,
-        };
-    }
-
-    const childContinuationIds = target.childIds
-        .map((childId) => treeIndex.nodeMap.get(childId))
-        .filter((node): node is AgentConversationNodeDto => node !== undefined && node.archivedAt === null)
-        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-        .map((node) => node.id);
-    if (childContinuationIds.length <= 1) {
-        return null;
-    }
-
-    const currentNodeId = childContinuationIds.find((nodeId) => treeIndex.activePathIds.includes(nodeId)) ?? childContinuationIds[0];
-    if (!currentNodeId) {
-        return null;
-    }
-
-    return {
-        nodeIds: childContinuationIds,
-        currentIndex: Math.max(0, childContinuationIds.indexOf(currentNodeId)),
-        total: childContinuationIds.length,
-    };
-};
-
-/**
- * 读取当前活动光标的角色。
- */
-export const resolveActiveCursorRole = (
-    treeIndex: AgentConversationTreeIndex | null,
-): AgentConversationNodeDto["role"] | null => {
-    if (!treeIndex?.activeCursorId) {
-        return null;
-    }
-    return treeIndex.nodeMap.get(treeIndex.activeCursorId)?.role ?? null;
 };
 
 /**
@@ -437,90 +287,326 @@ export const reconcileMessages = (previousMessages: AgentMessage[], nextMessages
 };
 
 /**
- * 从输入参数提取 subagentThreadId。
+ * 从 Pi snapshot 消息派生前端卡片消息。
  */
-export const parseSubagentThreadIdInfo = (inputText: string): string | undefined => {
-    try {
-        const parsed = JSON.parse(inputText);
-        return parsed.subagentThreadId as string | undefined;
-    } catch {
-        return undefined;
+export const deriveMessagesFromSessionSnapshot = (snapshot: AgentSessionSnapshotDto): AgentMessage[] => {
+    const messages: AgentMessage[] = [];
+    const assistantByToolCallId = new Map<string, AgentMessage>();
+
+    for (const entry of snapshot.entries) {
+        if (entry.type !== "message") {
+            continue;
+        }
+        const message = entry.message as PiMessage;
+        if (message.role === "toolResult") {
+            const assistant = assistantByToolCallId.get(message.toolCallId) ?? messages.findLast((item) => item.type === "ai");
+            if (!assistant) {
+                continue;
+            }
+            upsertToolResult(assistant, message);
+            continue;
+        }
+        const localMessage = toLocalMessage(entry.id, message);
+        messages.push(localMessage);
+        if (message.role === "assistant") {
+            for (const toolCall of message.content.filter((block): block is PiAgentToolCall => block.type === "toolCall")) {
+                assistantByToolCallId.set(toolCall.id, localMessage);
+            }
+        }
     }
+
+    return messages;
 };
 
 /**
- * 从工具调用结果中提取 subagentThreadId。
+ * 从 Pi message_start/update/end 派生本地消息。
  */
-export const parseSubagentResultThreadId = (resultText?: string): string | undefined => {
-    if (!resultText) {
-        return undefined;
+export const toLocalMessage = (id: string, message: PiMessage | PiAgentMessage, streaming = false): AgentMessage => {
+    if (message.role === "assistant") {
+        const text = message.content.filter((block) => block.type === "text").map((block) => block.text).join("");
+        const thinking = message.content.filter((block) => block.type === "thinking").map((block) => block.thinking).join("");
+        const toolCalls = message.content
+            .filter((block): block is PiAgentToolCall => block.type === "toolCall")
+            .map((toolCall, index) => toLocalToolCall(toolCall, index, id));
+        return {
+            id,
+            type: "ai",
+            content: text,
+            status: streaming ? "streaming" : "done",
+            timestamp: formatTimestamp(message.timestamp),
+            model: message.model,
+            tokens: message.usage?.totalTokens,
+            thinking: thinking || undefined,
+            toolCalls,
+        };
     }
-    try {
-        const parsed = JSON.parse(resultText) as {subagentThreadId?: string};
-        return parsed.subagentThreadId;
-    } catch {
-        return undefined;
-    }
-};
 
-/**
- * 读取某条用户消息的可见 sibling user 节点。
- */
-const resolveVisibleSiblingUserIds = (
-    treeIndex: AgentConversationTreeIndex,
-    node: AgentConversationNodeDto,
-): string[] => {
-    if (!node.parentId) {
-        return [node.id];
+    if (message.role === "user") {
+        return {
+            id,
+            type: "user",
+            content: messageContentText(message),
+            status: "done",
+            timestamp: formatTimestamp(message.timestamp),
+        };
     }
-    const parent = treeIndex.nodeMap.get(node.parentId);
-    if (!parent) {
-        return [node.id];
-    }
-    return parent.childIds
-        .map((childId) => treeIndex.nodeMap.get(childId))
-        .filter((child): child is AgentConversationNodeDto => child !== undefined && child.archivedAt === null && child.role === "user")
-        .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
-        .map((child) => child.id);
-};
 
-/**
- * 将树中的 tool 节点转换为本地 ToolCall。
- */
-const toToolCallFromNode = (node: AgentConversationNodeDto): AgentToolCall => {
-    const toolNodeId = typeof node.rawAdditionalKwargs.toolNodeId === "string"
-        ? node.rawAdditionalKwargs.toolNodeId
-        : node.toolCallId ?? node.id;
+    if (message.role === "toolResult") {
+        return {
+            id,
+            type: "system",
+            systemDisplayKind: "system",
+            content: messageContentText(message),
+            status: "done",
+            timestamp: formatTimestamp(message.timestamp),
+        };
+    }
+
     return {
-        id: toolNodeId,
-        assistantMessageId: node.assistantMessageId ?? undefined,
-        index: parseToolCallIndex(toolNodeId),
-        name: node.toolName ?? "unknown",
-        argsText: node.toolArgs ?? "",
-        argsJson: toStableArgsJson(node.toolArgs ?? ""),
-        status: node.toolStatus === "error" ? "error" : "success",
-        result: node.content,
-        rawResult: node.rawAdditionalKwargs.toolResultRaw,
-        subagentThreadId: typeof node.rawAdditionalKwargs.subagentThreadId === "string"
-            ? node.rawAdditionalKwargs.subagentThreadId
-            : undefined,
+        id,
+        type: "system",
+        systemDisplayKind: "system",
+        content: "",
+        status: "done",
+        timestamp: "刚刚",
     };
 };
 
-const mapToolNodeStatus = (backendStatus: AgentToolNodeStatusDto): ToolCallStatus => {
-    switch (backendStatus) {
-        case "drafting": return "streaming";
-        case "running": return "running";
-        case "error": return "error";
-        case "success": return "success";
+/**
+ * 把 pending approval 转成旧 composer 可复用的 PendingUserInputSession。
+ */
+export const toPendingUserInputSession = (
+    pending: AgentPendingApprovalDto | null,
+    messages: AgentMessage[],
+): AgentPendingUserInputSession | null => {
+    if (!pending) {
+        return null;
+    }
+    const assistantMessage = messages.find((message) => message.toolCalls?.some((toolCall) => toolCall.id === pending.toolCallId));
+    const args = pending.args && typeof pending.args === "object" && !Array.isArray(pending.args)
+        ? pending.args as Record<string, unknown>
+        : {};
+    if (pending.toolName === "request_user_input") {
+        const parsed = RequestUserInputToolArgsSchema.safeParse(args);
+        const questions = parsed.success ? parsed.data.questions : [];
+        return {
+            assistantMessageId: assistantMessage?.id ?? pending.assistantMessageId ?? pending.toolCallId,
+            status: "pending",
+            questions: questions.map((question, index) => ({
+                ...question,
+                toolNodeId: pending.toolCallId,
+                questionIndex: index,
+                toolCallId: pending.toolCallId,
+                toolName: pending.toolName,
+                kind: "question",
+            })),
+        };
+    }
+
+    return {
+        assistantMessageId: assistantMessage?.id ?? pending.assistantMessageId ?? pending.toolCallId,
+        status: "pending",
+        questions: [{
+            toolNodeId: pending.toolCallId,
+            questionIndex: 0,
+            toolCallId: pending.toolCallId,
+            toolName: pending.toolName,
+            kind: "tool_approval",
+            approvalAction: pending.toolName === "enter_plan_mode" || pending.toolName === "exit_plan_mode" || pending.toolName === "skill"
+                ? pending.toolName
+                : undefined,
+            approvalToolArgsText: JSON.stringify(args, null, 2),
+            header: pending.toolName === "skill" ? "Skill" : "审批",
+            question: approvalQuestion(pending.toolName, args),
+            options: [
+                {label: "批准", description: "允许 Agent 继续执行该动作。", recommended: true},
+                {label: "拒绝", description: "阻止该动作，并把结果返回给 Agent。"},
+            ],
+            multiSelect: false,
+        }],
+    };
+};
+
+/**
+ * 从 Pi event 更新 live message。
+ */
+export const applyPiEventToMessages = (previousMessages: AgentMessage[], event: AgentEvent): AgentMessage[] => {
+    if (event.type === "message_start" || event.type === "message_update" || event.type === "message_end") {
+        if (event.message.role === "toolResult") {
+            const toolResult = event.message;
+            const assistant = previousMessages.findLast((message) => message.type === "ai" && message.toolCalls?.some((toolCall) => toolCall.id === toolResult.toolCallId));
+            if (!assistant) {
+                return previousMessages;
+            }
+            const nextMessages = previousMessages.map((message) => message.id === assistant.id ? {...message} : message);
+            const nextAssistant = nextMessages.find((message) => message.id === assistant.id);
+            if (nextAssistant) {
+                upsertToolResult(nextAssistant, toolResult);
+            }
+            return reconcileMessages(previousMessages, nextMessages);
+        }
+        if (event.message.role !== "assistant" && event.message.role !== "user") {
+            return previousMessages;
+        }
+        const messageId = resolveLiveMessageId(event.message);
+        const localMessage = toLocalMessage(messageId, event.message, event.type !== "message_end");
+        const nextMessages = previousMessages.some((message) => message.id === localMessage.id)
+            ? previousMessages.map((message) => message.id === localMessage.id ? localMessage : message)
+            : [...previousMessages, localMessage];
+        return reconcileMessages(previousMessages, nextMessages);
+    }
+
+    if (event.type === "tool_execution_start") {
+        return updateToolCall(previousMessages, event.toolCallId, {
+            name: event.toolName,
+            argsText: JSON.stringify(event.args ?? {}, null, 2),
+            argsJson: toStableArgsJson(JSON.stringify(event.args ?? {})),
+            status: "running",
+        });
+    }
+
+    if (event.type === "tool_execution_update") {
+        return updateToolCall(previousMessages, event.toolCallId, {
+            result: resultText(event.partialResult),
+            rawResult: event.partialResult,
+            status: "running",
+        });
+    }
+
+    if (event.type === "tool_execution_end") {
+        return updateToolCall(previousMessages, event.toolCallId, {
+            result: resultText(event.result),
+            rawResult: event.result,
+            status: event.isError ? "error" : "success",
+            error: event.isError ? resultText(event.result) : undefined,
+            linkedSessionId: extractLinkedSessionId(event.result),
+        });
+    }
+
+    return previousMessages;
+};
+
+const messageContentText = (message: PiMessage): string => {
+    if (typeof message.content === "string") {
+        return message.content;
+    }
+    return message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
+};
+
+const resolveLiveMessageId = (message: PiAgentMessage): string => {
+    if (message.role === "toolResult") {
+        return `tool-result:${message.toolCallId}:${String(message.timestamp)}`;
+    }
+    return `${message.role}:${String(message.timestamp)}`;
+};
+
+const toLocalToolCall = (toolCall: PiAgentToolCall, index: number, assistantMessageId: string): AgentToolCall => {
+    const argsText = JSON.stringify(toolCall.arguments ?? {}, null, 2);
+    const linkedSessionId = extractLinkedSessionId(toolCall.arguments);
+    return {
+        id: toolCall.id,
+        assistantMessageId,
+        index,
+        name: toolCall.name,
+        argsText,
+        argsJson: toStableArgsJson(argsText),
+        status: "streaming",
+        linkedSessionId,
+        subagentThreadId: linkedSessionId ? String(linkedSessionId) : undefined,
+    };
+};
+
+const upsertToolResult = (assistant: AgentMessage, toolResult: ToolResultMessage): void => {
+    const toolCalls = [...(assistant.toolCalls ?? [])];
+    const index = toolCalls.findIndex((toolCall) => toolCall.id === toolResult.toolCallId);
+    const result = messageContentText(toolResult);
+    const nextToolCall: AgentToolCall = {
+        id: toolResult.toolCallId,
+        assistantMessageId: assistant.id,
+        index: index >= 0 ? toolCalls[index]!.index : toolCalls.length,
+        name: toolResult.toolName,
+        argsText: index >= 0 ? toolCalls[index]!.argsText : "",
+        argsJson: index >= 0 ? toolCalls[index]!.argsJson : undefined,
+        status: toolResult.isError ? "error" : "success",
+        error: toolResult.isError ? result : undefined,
+        result,
+        rawResult: toolResult.details,
+        linkedSessionId: extractLinkedSessionId(toolResult.details),
+    };
+    nextToolCall.subagentThreadId = nextToolCall.linkedSessionId ? String(nextToolCall.linkedSessionId) : undefined;
+    if (index >= 0) {
+        toolCalls[index] = {
+            ...toolCalls[index],
+            ...nextToolCall,
+        };
+    } else {
+        toolCalls.push(nextToolCall);
+    }
+    assistant.toolCalls = toolCalls.sort((left, right) => left.index - right.index);
+};
+
+const updateToolCall = (messages: AgentMessage[], toolCallId: string, patch: Partial<AgentToolCall>): AgentMessage[] => {
+    return messages.map((message) => {
+        if (!message.toolCalls?.some((toolCall) => toolCall.id === toolCallId)) {
+            return message;
+        }
+        return {
+            ...message,
+            toolCalls: message.toolCalls.map((toolCall) => toolCall.id === toolCallId
+                ? {
+                    ...toolCall,
+                    ...patch,
+                    status: mergeToolCallStatus(patch.status ?? toolCall.status, toolCall.status),
+                }
+                : toolCall),
+        };
+    });
+};
+
+const resultText = (result: unknown): string => {
+    if (!result) {
+        return "";
+    }
+    if (typeof result === "string") {
+        return result;
+    }
+    if (typeof result === "object" && "content" in result && Array.isArray((result as {content?: unknown}).content)) {
+        return ((result as {content: Array<{type?: string; text?: string}>}).content)
+            .filter((block) => block.type === "text")
+            .map((block) => block.text ?? "")
+            .join("\n");
+    }
+    try {
+        return JSON.stringify(result, null, 2);
+    } catch {
+        return String(result);
     }
 };
 
-const parseToolCallIndex = (toolNodeId: string): number => {
-    const separatorIndex = toolNodeId.lastIndexOf("-tool-");
-    if (separatorIndex < 0) {
-        return 0;
+const extractLinkedSessionId = (value: unknown): number | undefined => {
+    if (!value || typeof value !== "object") {
+        return undefined;
     }
-    const rawIndex = Number(toolNodeId.slice(separatorIndex + "-tool-".length));
-    return Number.isInteger(rawIndex) && rawIndex >= 0 ? rawIndex : 0;
+    const record = value as Record<string, unknown>;
+    if (typeof record.sessionId === "number") {
+        return record.sessionId;
+    }
+    if (record.details && typeof record.details === "object" && typeof (record.details as Record<string, unknown>).sessionId === "number") {
+        return (record.details as Record<string, unknown>).sessionId as number;
+    }
+    return undefined;
+};
+
+const approvalQuestion = (toolName: string, args: Record<string, unknown>): string => {
+    if (toolName === "enter_plan_mode") {
+        return typeof args.reason === "string" && args.reason ? `Agent 请求进入 Plan Mode：${args.reason}` : "Agent 请求进入 Plan Mode。";
+    }
+    if (toolName === "exit_plan_mode") {
+        return typeof args.reason === "string" && args.reason ? `Agent 请求退出 Plan Mode：${args.reason}` : "Agent 请求退出 Plan Mode。";
+    }
+    if (toolName === "skill") {
+        const skillKey = typeof args.skillKey === "string" ? args.skillKey : "未知 skill";
+        return `Agent 请求激活 skill：${skillKey}`;
+    }
+    return `Agent 请求执行 ${toolName}。`;
 };

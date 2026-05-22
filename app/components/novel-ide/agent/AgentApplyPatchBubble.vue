@@ -2,7 +2,6 @@
 import { computed } from "vue";
 import type { AgentToolCall } from "nbook/app/components/novel-ide/agent/agent-message";
 import {
-    extractStreamingBooleanField,
     extractStreamingNumberField,
     extractStreamingStringField,
     extractStreamingTextField,
@@ -14,10 +13,9 @@ const props = defineProps<{
 }>();
 
 interface ApplyPatchArgs {
-    filePath?: string;
+    path?: string;
     patch?: string;
     fuzzFactor?: number;
-    replaceAll?: boolean;
 }
 
 /** apply_patch 的 patch 文本通常较长，需要优先展示已解析出的 patch 内容。 */
@@ -26,7 +24,7 @@ const parsedArgs = computed<ApplyPatchArgs>(() => {
     return parsed ?? {};
 });
 
-const filePathText = computed(() => parsedArgs.value.filePath ?? extractStreamingStringField(props.toolCall.argsText, "filePath"));
+const filePathText = computed(() => parsedArgs.value.path ?? extractStreamingStringField(props.toolCall.argsText, "path"));
 const patchText = computed(() => parsedArgs.value.patch ?? extractStreamingTextField(props.toolCall.argsText, "patch"));
 const fuzzFactorText = computed(() => {
     if (typeof parsedArgs.value.fuzzFactor === "number") {
@@ -35,7 +33,6 @@ const fuzzFactorText = computed(() => {
     const extracted = extractStreamingNumberField(props.toolCall.argsText, "fuzzFactor");
     return extracted === null ? "" : String(extracted);
 });
-const replaceAllValue = computed(() => extractStreamingBooleanField(props.toolCall.argsText, "replaceAll"));
 </script>
 
 <template>
@@ -48,9 +45,6 @@ const replaceAllValue = computed(() => extractStreamingBooleanField(props.toolCa
             </span>
             <span v-if="fuzzFactorText" class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1 font-mono text-[10px] text-[var(--text-muted)]">
                 fuzz: {{ fuzzFactorText }}
-            </span>
-            <span v-if="replaceAllValue !== null" class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1 font-mono text-[10px] text-[var(--text-muted)]">
-                replaceAll: {{ replaceAllValue ? "true" : "false" }}
             </span>
         </div>
 

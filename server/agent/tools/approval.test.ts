@@ -18,6 +18,9 @@ describe("approval helpers", () => {
         expect(findPendingApprovalCall([assistant], ["request_user_input"])).toEqual({
             toolCallId: "call-1",
             toolName: "request_user_input",
+            args: {
+                questions: [{question: "Name?"}],
+            },
         });
 
         const completed = createTextToolResult({

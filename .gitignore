@@ -30,6 +30,7 @@ dist/
 .agent/generated/
 .agent/diagnostics/
 .agent/agent-smoke/
+.agent/agent-*/
 .agent/manual-retrieval-e2e-build-check/
 .agent/workspace
 /workspace/

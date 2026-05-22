@@ -2,7 +2,6 @@
 import { computed } from "vue";
 import type { AgentToolCall } from "nbook/app/components/novel-ide/agent/agent-message";
 import {
-    extractStreamingBooleanField,
     extractStreamingStringField,
     parseToolArgsObject,
 } from "nbook/app/components/novel-ide/agent/tool-args-stream";
@@ -12,10 +11,11 @@ const props = defineProps<{
 }>();
 
 interface EditFileArgs {
-    filePath?: string;
-    oldString?: string;
-    newString?: string;
-    replaceAll?: boolean;
+    path?: string;
+    edits?: Array<{
+        oldText?: string;
+        newText?: string;
+    }>;
 }
 
 /** edit_file 参数在流式阶段可能是半截 JSON，需要按字段兜底展示。 */
@@ -24,15 +24,10 @@ const parsedArgs = computed<EditFileArgs>(() => {
     return parsed ?? {};
 });
 
-const filePathText = computed(() => parsedArgs.value.filePath ?? extractStreamingStringField(props.toolCall.argsText, "filePath"));
-const oldStringText = computed(() => parsedArgs.value.oldString ?? extractStreamingStringField(props.toolCall.argsText, "oldString"));
-const newStringText = computed(() => parsedArgs.value.newString ?? extractStreamingStringField(props.toolCall.argsText, "newString"));
-const replaceAllValue = computed(() => {
-    if (typeof parsedArgs.value.replaceAll === "boolean") {
-        return parsedArgs.value.replaceAll;
-    }
-    return extractStreamingBooleanField(props.toolCall.argsText, "replaceAll");
-});
+const firstEdit = computed(() => parsedArgs.value.edits?.[0] ?? {});
+const filePathText = computed(() => parsedArgs.value.path ?? extractStreamingStringField(props.toolCall.argsText, "path"));
+const oldStringText = computed(() => firstEdit.value.oldText ?? extractStreamingStringField(props.toolCall.argsText, "oldText"));
+const newStringText = computed(() => firstEdit.value.newText ?? extractStreamingStringField(props.toolCall.argsText, "newText"));
 
 const resultText = computed(() => props.toolCall.result?.trim() ?? "");
 </script>
@@ -45,9 +40,7 @@ const resultText = computed(() => props.toolCall.result?.trim() ?? "");
                 <span class="i-lucide-file-edit h-3 w-3 mr-1 inline-block align-text-bottom"></span>
                 {{ filePathText || "解析路径中..." }}
             </span>
-            <span v-if="replaceAllValue !== null" class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1 font-mono text-[10px] text-[var(--text-muted)]">
-                replaceAll: {{ replaceAllValue ? "true" : "false" }}
-            </span>
+            <span v-if="(parsedArgs.edits?.length ?? 0) > 1" class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1 font-mono text-[10px] text-[var(--text-muted)]">{{ parsedArgs.edits?.length }} edits</span>
         </div>
         
         <!-- Diff 预览：old/new 都允许在半截 JSON 阶段逐步增长 -->

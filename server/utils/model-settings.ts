@@ -255,7 +255,7 @@ export async function checkProviderConnection(providerDraft: ModelProviderDraftD
     return {
         success: false,
         latencyMs: null,
-        message: `${providerDraft.name} 的旧 LangChain 连通性测试已移除；请使用 Agent v3 smoke 或后续 Pi provider 检查入口。`,
+        message: `${providerDraft.name} 的旧 LangChain 连通性测试已移除；请使用 Agent smoke 或后续 Pi provider 检查入口。`,
     };
 }
 
@@ -279,7 +279,7 @@ export async function checkModelHealth(
     return {
         success: false,
         latencyMs: null,
-        message: `${providerDraft.name}/${modelDraft.id} 的旧 LangChain 健康检查已移除；请使用 Agent v3 smoke 或后续 Pi provider 检查入口。`,
+        message: `${providerDraft.name}/${modelDraft.id} 的旧 LangChain 健康检查已移除；请使用 Agent smoke 或后续 Pi provider 检查入口。`,
     };
 }
 

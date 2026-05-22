@@ -14,7 +14,7 @@ describe("v3 file tools", () => {
     let context: ToolExecutionContext;
 
     beforeEach(async () => {
-        root = resolve(".agent", "agent-v3-file-tools-test", randomUUID());
+        root = resolve(".agent", "agent-file-tools-test", randomUUID());
         workspaceRoot = join(root, "workspace");
         await mkdir(workspaceRoot, {recursive: true});
         harness = new NeuroAgentHarness({

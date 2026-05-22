@@ -3,7 +3,7 @@ import type {
     UpdateAgentProfileModelSettingsRequestDto,
 } from "nbook/shared/dto/app-settings.dto";
 import {UpdateAgentProfileModelSettingsRequestDtoSchema} from "nbook/shared/dto/app-settings.dto";
-import {useAgentV3Harness} from "nbook/server/agent/http";
+import {useAgentHarness} from "nbook/server/agent/http";
 import {saveAgentProfileSettingsConfig, loadAppConfig} from "nbook/server/utils/app-config";
 import {buildAgentProfileModelSettingsDto, convertAgentProfileModelSettingsRequestToConfig, resolveConfiguredModel} from "nbook/server/utils/model-settings";
 import {validateBody} from "nbook/server/utils/novel-chapter";
@@ -13,7 +13,7 @@ import {validateBody} from "nbook/server/utils/novel-chapter";
  */
 export default defineEventHandler(async (event): Promise<AgentProfileModelSettingsDto> => {
     const body = await validateBody<UpdateAgentProfileModelSettingsRequestDto>(event, UpdateAgentProfileModelSettingsRequestDtoSchema);
-    const harness = useAgentV3Harness();
+    const harness = useAgentHarness();
     const catalog = await harness.profiles.snapshot();
     const profileDefinitions = catalog.profiles.map((profile) => ({
         profileKey: profile.key,

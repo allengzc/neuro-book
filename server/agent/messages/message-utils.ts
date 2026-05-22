@@ -99,7 +99,7 @@ export function createAssistantTextMessage(input: {
         content: [{type: "text", text: input.text}],
         api: input.api ?? "neuro-book",
         provider: input.provider ?? "neuro-book",
-        model: input.model ?? "neuro-agent-v3",
+        model: input.model ?? "neuro-agent",
         usage: input.usage ?? EMPTY_USAGE,
         stopReason: input.stopReason ?? "stop",
         timestamp: input.timestamp ?? now(),

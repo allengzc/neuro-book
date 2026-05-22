@@ -1,33 +1,23 @@
 <script setup lang="ts">
 import {storeToRefs} from "pinia";
-import {useAgentApi} from "nbook/app/composables/useAgentApi";
 import {useNovelIdeStore, type AgentWorkspaceSyncPayload} from "nbook/app/stores/novel-ide";
 import {isNovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
-import type {
-    ClientVariablesDto,
-    AgentStreamEventDto,
-    AgentThreadDetailDto,
-    AgentThreadModelConfigDto,
-    AgentThreadSummaryDto,
-    AgentSubagentSummaryDto,
-    CreateAgentThreadRequestDto,
-} from "nbook/shared/dto/agent-chat.dto";
 import type {AgentMessage, AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
 import {buildNovelIdeClientVariables} from "nbook/app/components/novel-ide/agent/client-variables";
-import {resolveActiveCursorRole, resolveMessageSwitcher} from "nbook/app/components/novel-ide/agent/agent-message";
 import {useStructuredReferenceMenu} from "nbook/app/composables/useStructuredReferenceMenu";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
-import {useAgentThreadSession} from "nbook/app/components/novel-ide/agent/useAgentThreadSession";
-
+import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
+import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
 import AgentChatFlow from "nbook/app/components/novel-ide/agent/AgentChatFlow.vue";
 import AgentComposer from "nbook/app/components/novel-ide/agent/AgentComposer.vue";
-import AgentSubagentPanel from "nbook/app/components/novel-ide/agent/AgentSubagentPanel.vue";
-import AgentThreadDialog from "nbook/app/components/novel-ide/agent/AgentThreadDialog.vue";
+import AgentLinkedAgentPanel from "nbook/app/components/novel-ide/agent/AgentLinkedAgentPanel.vue";
+import AgentSessionDialog from "nbook/app/components/novel-ide/agent/AgentSessionDialog.vue";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
 import type {ModelSettingsDto, WorkspaceAgentProfileSettingsDto} from "nbook/shared/dto/app-settings.dto";
+import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 
-type ThreadModelDraft = {
+type SessionModelDraft = {
     modelKey: string | null;
     temperature: string;
     topK: string;
@@ -50,68 +40,127 @@ const inputText = ref("");
 const chatFlowRef = ref<InstanceType<typeof AgentChatFlow> | null>(null);
 const inputRef = ref<InstanceType<typeof AgentComposer> | null>(null);
 
-const threads = ref<AgentThreadSummaryDto[]>([]);
-const activeThreadId = ref("");
-const activeThread = ref<AgentThreadSummaryDto | null>(null);
-const subagents = ref<AgentSubagentSummaryDto[]>([]);
-const leaders = ref<AgentThreadSummaryDto[]>([]);
-const subagentPanelOpen = ref(false);
-
-const loadingThread = ref(false);
+const sessions = ref<AgentSessionSummaryDto[]>([]);
+const activeSessionId = ref<number | null>(null);
+const linkedAgentPanelOpen = ref(false);
+const loadingSession = ref(false);
 const previousSelectedFilePath = ref<string | null>(props.selectedFilePath || null);
 const fileChangedSinceLastSend = ref(false);
 const selectionVersion = ref(0);
-
-const threadDialogOpen = ref(false);
-const threadActionId = ref<string | null>(null);
-const runAbortController = ref<AbortController | null>(null);
-const runStreamThreadId = ref<string | null>(null);
-let streamReadyPromise: Promise<void> | null = null;
+const sessionDialogOpen = ref(false);
+const sessionActionId = ref<number | null>(null);
+const eventsAbortController = ref<AbortController | null>(null);
+const eventsSessionId = ref<number | null>(null);
+let eventStreamReadyPromise: Promise<void> | null = null;
 const editingMessageId = ref<string | null>(null);
 const messageActionId = ref<string | null>(null);
 const selectableModels = ref<ModelSettingsDto["enabledModels"]>([]);
 const resolvedLeaderProfileKey = ref("leader.default");
-const threadModelMode = ref<"default" | "override">("default");
-const threadModelDraft = ref<ThreadModelDraft>({
+const sessionModelMode = ref<"default" | "override">("default");
+const sessionModelDraft = ref<SessionModelDraft>({
     modelKey: null,
     temperature: "",
     topK: "",
     reasoningEffort: null,
     stream: true,
 });
-const threadModelPopoverOpen = ref(false);
-const threadModelSaving = ref(false);
+const sessionModelPopoverOpen = ref(false);
+const sessionModelSaving = ref(false);
 const submittingUserInput = ref(false);
 const userInputSelectedAnswers = ref<Record<string, number[]>>({});
 const userInputNotes = ref<Record<string, string>>({});
 let leaderProfileResolveRequest = 0;
 
 const sanitizeHtml = ref<((html: string) => string) | null>(null);
-const session = useAgentThreadSession();
+const session = useAgentSession();
+const agentApi = useAgentSessionApi();
 const messages = session.messages;
 const running = session.running;
-const treeIndex = session.treeIndex;
 const pendingUserInputSession = session.pendingUserInputSession;
 const {confirm} = useDialog();
 const notification = useNotification();
 
-const planModeActive = computed(() => activeThread.value?.planMode.active ?? false);
+const ideStore = useNovelIdeStore();
+const {
+    selectedStoryThreadId,
+    selectedStorySceneId,
+} = storeToRefs(ideStore);
+
+const novelIdRef = toRef(props, "novelId");
+const {
+    resolveMenu: resolveInputMenu,
+    menuRefreshKey: agentMenuRefreshKey,
+    refreshSkillCatalog,
+} = useStructuredReferenceMenu({
+    novelId: novelIdRef,
+    selectedStoryThreadId,
+    selectedStorySceneId,
+});
 
 provide("sanitizeHtml", sanitizeHtml);
 
-/**
- * 当前挂起问题是否都已填写完成。
- */
-const canSubmitPendingUserInput = computed(() => {
-    if (!pendingUserInputSession.value) {
-        return false;
+const activeSnapshot = computed(() => session.snapshot.value);
+const activeSummary = computed(() => activeSnapshot.value?.summary ?? null);
+const linkedAgents = computed(() => activeSnapshot.value?.linkedAgents ?? []);
+const planModeActive = computed(() => activeSnapshot.value?.planModeActive ?? false);
+const renderNodes = computed(() => messages.value);
+const messageActionsDisabled = computed(() => running.value || Boolean(messageActionId.value));
+const canContinueWithoutInput = computed(() => !running.value && !inputText.value.trim() && messages.value.length > 0 && messages.value.at(-1)?.type !== "ai");
+
+const systemLeaderProfileKey = computed(() => {
+    return ideStore.workspaceKind === "user-assets" ? "leader.assets" : "leader.default";
+});
+
+const leaderProfileKey = computed(() => {
+    return resolvedLeaderProfileKey.value || systemLeaderProfileKey.value;
+});
+
+const workspaceKey = computed(() => {
+    if (ideStore.workspaceKind === "user-assets") {
+        return "user-assets";
     }
-    return pendingUserInputSession.value.questions.every((question) => {
-        const key = `${question.toolNodeId}\n${question.questionIndex}`;
-        return question.options.length === 0
-            ? Boolean(userInputNotes.value[key]?.trim())
-            : Boolean(userInputSelectedAnswers.value[key]?.length);
-    });
+    return ideStore.currentNovelId ? `novel-${ideStore.currentNovelId}` : "global";
+});
+
+const workspaceRoot = computed(() => ideStore.currentWorkspaceRoot || undefined);
+
+/**
+ * 当前挂起提问 session 变化时，重置本地答案草稿。
+ */
+watch(() => pendingUserInputSession.value?.assistantMessageId ?? null, () => {
+    userInputSelectedAnswers.value = {};
+    userInputNotes.value = {};
+}, {immediate: true});
+
+const activeSessionTitle = computed(() => activeSummary.value?.title || (activeSessionId.value ? `Session #${String(activeSessionId.value)}` : "未命名对话"));
+const sessionModelDefaultLabel = computed(() => "跟随 Profile 默认");
+const sessionModelSelectionValue = computed(() => sessionModelMode.value === "override" ? sessionModelDraft.value.modelKey : null);
+const activeDrawerTitle = computed(() => activeSummary.value?.profileKey === "leader.assets" ? "用户资产助手" : "AI 写作助手");
+const drawerIconClass = computed(() => "i-lucide-sparkles text-[var(--accent-text)]");
+
+const branchSwitcherStateByMessageId = computed<Record<string, {nodeIds: string[]; currentIndex: number; total: number}>>(() => {
+    return {};
+});
+
+const threadModelDraft = sessionModelDraft;
+const threadModelPopoverOpen = sessionModelPopoverOpen;
+const threadModelSaving = sessionModelSaving;
+const threadModelSelectionValue = sessionModelSelectionValue;
+const threadModelDefaultLabel = sessionModelDefaultLabel;
+
+const contextUsageCompactLabel = computed(() => formatCompactTokenCount(activeSnapshot.value?.usage?.input));
+const contextUsageExactLabel = computed(() => formatTokenCount(activeSnapshot.value?.usage?.input));
+const contextPercentCompactLabel = computed(() => "");
+const cumulativeInputCompactLabel = computed(() => formatCompactTokenCount(activeSummary.value?.usage?.input));
+const cumulativeOutputCompactLabel = computed(() => formatCompactTokenCount(activeSummary.value?.usage?.output));
+const cumulativeCacheCompactLabel = computed(() => formatCompactTokenCount(activeSummary.value?.usage?.cacheRead));
+const cumulativeCacheWriteCompactLabel = computed(() => formatCompactTokenCount(activeSummary.value?.usage?.cacheWrite));
+const cumulativeUsageExactLabel = computed(() => {
+    const usage = activeSummary.value?.usage;
+    if (!usage) {
+        return "输入 -- / 输出 -- / 缓存 --";
+    }
+    return `输入 ${formatTokenCount(usage.input)} / 输出 ${formatTokenCount(usage.output)} / 缓存 ${formatTokenCount(usage.cacheRead)}`;
 });
 
 /**
@@ -140,93 +189,10 @@ function formatCompactTokenCount(value: number | null | undefined): string {
     return `${value}`;
 }
 
-const ideStore = useNovelIdeStore();
-const {
-    selectedStoryThreadId,
-    selectedStorySceneId,
-} = storeToRefs(ideStore);
-
-const threadTokenStats = computed(() => activeThread.value?.tokenStats ?? null);
-
-const contextUsageCompactLabel = computed(() => {
-    const lastRun = threadTokenStats.value?.lastRun;
-    const contextWindowTokens = threadTokenStats.value?.contextWindowTokens ?? null;
-    return `${formatCompactTokenCount(lastRun?.inputTokens)} / ${formatCompactTokenCount(contextWindowTokens)}`;
-});
-
-const contextUsageExactLabel = computed(() => {
-    const lastRun = threadTokenStats.value?.lastRun;
-    const contextWindowTokens = threadTokenStats.value?.contextWindowTokens ?? null;
-    return `${formatTokenCount(lastRun?.inputTokens)} / ${formatTokenCount(contextWindowTokens)}`;
-});
-
-const contextPercentCompactLabel = computed(() => {
-    const percent = threadTokenStats.value?.lastRunContextPercent;
-    if (typeof percent !== "number" || !Number.isFinite(percent)) {
-        return "";
-    }
-    return `${percent.toFixed(1)}%`;
-});
-
-const cumulativeInputCompactLabel = computed(() => {
-    return formatCompactTokenCount(threadTokenStats.value?.cumulative?.inputTokens);
-});
-
-const cumulativeOutputCompactLabel = computed(() => {
-    return formatCompactTokenCount(threadTokenStats.value?.cumulative?.outputTokens);
-});
-
-const cumulativeCacheCompactLabel = computed(() => {
-    return formatCompactTokenCount(threadTokenStats.value?.cumulative?.cacheReadTokens);
-});
-
-const cumulativeCacheWriteCompactLabel = computed(() => {
-    const cacheCreationTokens = threadTokenStats.value?.cumulative?.cacheCreationTokens;
-    if (typeof cacheCreationTokens !== "number" || cacheCreationTokens <= 0) {
-        return "";
-    }
-    return formatCompactTokenCount(cacheCreationTokens);
-});
-
-const cumulativeUsageExactLabel = computed(() => {
-    const cumulative = threadTokenStats.value?.cumulative;
-    if (!cumulative) {
-        return "输入 -- / 输出 -- / 缓存 --";
-    }
-
-    const cacheMiss = typeof cumulative.cacheMissTokens === "number" && cumulative.cacheMissTokens > 0
-        ? ` / 未命中 ${formatTokenCount(cumulative.cacheMissTokens)}`
-        : "";
-    const cacheWrite = typeof cumulative.cacheCreationTokens === "number" && cumulative.cacheCreationTokens > 0
-        ? ` / 写入 ${formatTokenCount(cumulative.cacheCreationTokens)}`
-        : "";
-
-    return `输入 ${formatTokenCount(cumulative.inputTokens)} / 输出 ${formatTokenCount(cumulative.outputTokens)} / 缓存 ${formatTokenCount(cumulative.cacheReadTokens)}${cacheMiss}${cacheWrite}`;
-});
-const novelIdRef = toRef(props, "novelId");
-const {
-    resolveMenu: resolveInputMenu,
-    menuRefreshKey: agentMenuRefreshKey,
-    refreshSkillCatalog,
-} = useStructuredReferenceMenu({
-    novelId: novelIdRef,
-    selectedStoryThreadId,
-    selectedStorySceneId,
-});
-
-const plotMutationToolNames = new Set([
-    "create_story_thread",
-    "update_story_thread",
-    "create_story_scene",
-    "update_story_scene",
-    "create_story_plot",
-    "update_story_plot",
-]);
-
 /**
- * 组装 Client Variables。
+ * 组装 Novel IDE 客户端变量快照。目前新 profile 第一版不走 header，但保留本地上下文组装入口。
  */
-const buildClientVariables = (): ClientVariablesDto => {
+const buildClientVariables = () => {
     const isUserAssetsWorkspace = ideStore.workspaceKind === "user-assets";
     return buildNovelIdeClientVariables({
         activePanel: isNovelIdeTab(ideStore.activeLeftTab) ? ideStore.activeLeftTab : null,
@@ -242,16 +208,6 @@ const buildClientVariables = (): ClientVariablesDto => {
         selectionVersion: selectionVersion.value,
     });
 };
-
-const agentApi = useAgentApi({getClientVariables: buildClientVariables});
-
-const systemLeaderProfileKey = computed(() => {
-    return ideStore.workspaceKind === "user-assets" ? "leader.assets" : "leader.default";
-});
-
-const leaderProfileKey = computed(() => {
-    return resolvedLeaderProfileKey.value || systemLeaderProfileKey.value;
-});
 
 /**
  * 读取可选模型列表。
@@ -305,274 +261,83 @@ const loadResolvedLeaderProfileKey = async (): Promise<void> => {
 };
 
 /**
- * 将数字配置转成输入框文本。
+ * 刷新 session 列表。
  */
-function stringifyNullableNumber(value: number | null): string {
-    return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
-}
-
-/**
- * 将输入框文本解析为可空数字。
- */
-function parseNullableNumber(value: string, integerOnly = false): number | null {
-    const normalized = value.trim();
-    if (!normalized) {
-        return null;
-    }
-
-    const parsed = Number(normalized);
-    if (!Number.isFinite(parsed)) {
-        return null;
-    }
-
-    return integerOnly ? Math.trunc(parsed) : parsed;
-}
-
-/**
- * 从线程模型配置构造本地草稿。
- */
-function createThreadModelDraft(config: AgentThreadModelConfigDto | null): ThreadModelDraft {
-    return {
-        modelKey: config?.modelKey ?? null,
-        temperature: stringifyNullableNumber(config?.temperature ?? null),
-        topK: stringifyNullableNumber(config?.topK ?? null),
-        reasoningEffort: config?.reasoningEffort ?? null,
-        stream: config?.stream ?? true,
-    };
-}
-
-/**
- * 从线程摘要同步当前模型状态。
- */
-function syncThreadModelState(summary: AgentThreadSummaryDto | null): void {
-    threadModelMode.value = summary?.modelOverride ? "override" : "default";
-    threadModelDraft.value = createThreadModelDraft(summary?.modelOverride ?? summary?.effectiveModel ?? null);
-}
-
-/**
- * 基于当前草稿构造线程模型覆盖配置。
- */
-function buildThreadModelOverrideConfig(): CreateAgentThreadRequestDto["modelOverride"] | null {
-    if (!threadModelDraft.value.modelKey) {
-        return null;
-    }
-
-    return {
-        modelKey: threadModelDraft.value.modelKey,
-        temperature: parseNullableNumber(threadModelDraft.value.temperature),
-        topK: parseNullableNumber(threadModelDraft.value.topK, true),
-        reasoningEffort: threadModelDraft.value.reasoningEffort,
-        stream: threadModelDraft.value.stream,
-    };
-}
-
-/**
- * 同步本地线程摘要缓存。
- */
-const patchThreadSummary = (summary: AgentThreadSummaryDto): void => {
-    const exists = threads.value.some((thread) => thread.id === summary.id);
-    threads.value = exists
-        ? threads.value.map((thread) => thread.id === summary.id ? summary : thread)
-        : [summary, ...threads.value];
-    if (activeThreadId.value === summary.id) {
-        activeThread.value = summary;
-        syncThreadModelState(summary);
-    }
-};
-
-/**
- * 当挂起提问 session 变化时，重置本地答案草稿。
- */
-watch(() => pendingUserInputSession.value?.assistantMessageId ?? null, () => {
-    userInputSelectedAnswers.value = {};
-    userInputNotes.value = {};
-}, {immediate: true});
-
-const activeThreadTitle = computed(() => activeThread.value?.title || activeThreadId.value.slice(0, 8) || "未命名对话");
-const threadModelDefaultLabel = computed(() => {
-    const effectiveLabel = activeThread.value?.effectiveModel?.modelLabel?.trim()
-        || activeThread.value?.effectiveModelLabel?.trim()
-        || "";
-    return effectiveLabel ? `跟随默认 (${effectiveLabel})` : "跟随默认";
-});
-const threadModelSelectionValue = computed(() => threadModelMode.value === "override" ? threadModelDraft.value.modelKey : null);
-
-const activeDrawerTitle = computed(() => {
-    if (activeThread.value?.kind === "subagent") {
-        return `协作节点：${profileLabel(activeThread.value.profileKey)}`;
-    }
-    return "AI 写作助手";
-});
-
-const drawerIconClass = computed(() => (
-    activeThread.value?.kind === "subagent"
-        ? "i-lucide-bot text-[var(--accent-text)]"
-        : "i-lucide-sparkles text-[var(--accent-text)]"
-));
-
-const renderNodes = computed(() => messages.value);
-const messageActionsDisabled = computed(() => running.value || Boolean(messageActionId.value));
-const activeCursorRole = computed(() => resolveActiveCursorRole(treeIndex.value));
-const canContinueWithoutInput = computed(() => {
-    return !running.value && !inputText.value.trim() && activeCursorRole.value !== null && activeCursorRole.value !== "assistant";
-});
-
-type BranchSwitcherState = {
-    nodeIds: string[];
-    currentIndex: number;
-    total: number;
-};
-
-const branchSwitcherStateByMessageId = computed<Record<string, BranchSwitcherState>>(() => {
-    const result: Record<string, BranchSwitcherState> = {};
-    if (!treeIndex.value) {
-        return result;
-    }
-    for (const message of messages.value) {
-        const switcher = resolveMessageSwitcher(treeIndex.value, message.id);
-        if (switcher) {
-            result[message.id] = switcher;
-        }
-    }
-    return result;
-});
-
-/**
- * profile 文案。
- */
-function profileLabel(profileKey: string | undefined): string {
-    switch (profileKey) {
-        case "subagent.writer": return "写手节点 (Drafter)";
-        case "subagent.retrieval": return "内容节点召回 (Retrieval)";
-        case "leader.default": return "主线调度";
-        case "leader.assets": return "用户资产助手";
-        default: return profileKey ?? "未知节点";
-    }
-}
-
-/**
- * 构造新线程的模型创建参数。
- */
-function buildCreateThreadPayload(): CreateAgentThreadRequestDto {
-    const modelOverride = threadModelMode.value === "override" ? buildThreadModelOverrideConfig() : null;
-    return {
-        ...(modelOverride ? {modelOverride} : {}),
-    };
-}
-
-/**
- * 初始化或获取有效线程。
- */
-const ensureThreadReady = async (forceNew = false): Promise<void> => {
-    if (!props.isOpen && !forceNew) {
-        return;
-    }
-    if (activeThreadId.value && !forceNew) {
-        return;
-    }
+const refreshSessions = async (): Promise<AgentSessionSummaryDto[]> => {
     try {
-        await loadResolvedLeaderProfileKey();
-        const threadsList = await agentApi.listThreads("leader", leaderProfileKey.value);
-        threads.value = threadsList;
-
-        const firstThreadId = threadsList[0]?.id;
-        if (firstThreadId && !forceNew) {
-            await loadThread(firstThreadId);
-        } else {
-            const created = await agentApi.createThread(buildCreateThreadPayload());
-            await loadThread(created.id);
-        }
+        sessions.value = await agentApi.listSessions({workspaceKey: workspaceKey.value});
+        return sessions.value;
     } catch (error) {
-        console.error("Agent 线程初始化失败", error);
-    }
-};
-
-/**
- * 刷新线程列表。
- */
-const refreshThreads = async (): Promise<AgentThreadSummaryDto[]> => {
-    try {
-        const response = await agentApi.listThreads("leader", leaderProfileKey.value);
-        threads.value = response;
-        if (activeThreadId.value) {
-            const nextActiveThread = response.find((thread) => thread.id === activeThreadId.value) ?? null;
-            if (nextActiveThread) {
-                activeThread.value = nextActiveThread;
-            } else {
-                activeThreadId.value = "";
-                activeThread.value = null;
-                session.reset();
-                syncThreadModelState(null);
-            }
-        }
-        return threads.value;
-    } catch (error) {
-        console.error("刷新线程列表失败", error);
+        console.error("刷新 session 列表失败", error);
         return [];
     }
 };
 
 /**
- * 刷新 subagent 列表。
+ * 初始化或获取有效 session。
  */
-const refreshSubagents = async (): Promise<void> => {
-    if (!activeThreadId.value) {
+const ensureSessionReady = async (forceNew = false): Promise<void> => {
+    if (!props.isOpen && !forceNew) {
         return;
     }
-    try {
-        subagents.value = await agentApi.listThreadSubagents(activeThreadId.value);
-    } catch (error) {
-        console.error("获取 Subagents 失败", error);
+    if (activeSessionId.value && !forceNew) {
+        return;
     }
+    await loadResolvedLeaderProfileKey();
+    const list = await refreshSessions();
+    const rememberedId = readLastSessionId();
+    const rememberedSession = rememberedId ? list.find((item) => item.sessionId === rememberedId) : undefined;
+    const target = forceNew ? undefined : rememberedSession ?? list[0];
+    if (target) {
+        await loadSession(target.sessionId);
+        return;
+    }
+    const created = await agentApi.createSession({
+        profileKey: leaderProfileKey.value,
+        input: buildClientVariables(),
+        workspaceRoot: workspaceRoot.value,
+        workspaceKey: workspaceKey.value,
+    });
+    await refreshSessions();
+    await loadSession(created.sessionId);
 };
 
 /**
- * 切换到指定线程，并拉取历史。
+ * 切换到指定 session，并拉取 snapshot。
  */
-const loadThread = async (threadId: string): Promise<void> => {
-    runAbortController.value?.abort();
-    runStreamThreadId.value = null;
-    activeThreadId.value = threadId;
+const loadSession = async (sessionId: number): Promise<void> => {
+    eventsAbortController.value?.abort();
+    activeSessionId.value = sessionId;
     session.reset();
-    activeThread.value = null;
-    syncThreadModelState(null);
-    subagents.value = [];
-    leaders.value = [];
-    subagentPanelOpen.value = false;
     editingMessageId.value = null;
     messageActionId.value = null;
+    linkedAgentPanelOpen.value = false;
+    saveLastSessionId(sessionId);
 
     try {
-        void subscribeThreadStream(threadId);
-        const detail: AgentThreadDetailDto = await agentApi.getThreadDetail(threadId);
-        activeThread.value = detail.thread;
-        syncThreadModelState(detail.thread);
-        subagents.value = detail.subagents || [];
-        leaders.value = (detail as AgentThreadDetailDto & {leaders?: AgentThreadSummaryDto[]}).leaders || [];
-        session.applyConversationTree(detail.conversationTree);
-        session.setPendingUserInputSession(detail.pendingUserInputSession);
+        const snapshot = await agentApi.getSession(sessionId);
+        session.applySnapshot(snapshot);
+        syncSessionModelState(snapshot.summary);
+        void subscribeSessionEvents(sessionId);
         fileChangedSinceLastSend.value = false;
         await nextTick();
         scrollToBottom();
     } catch (error) {
-        console.error(`加载线程 ${threadId} 失败`, error);
+        console.error(`加载 session ${String(sessionId)} 失败`, error);
+        notification.error(error instanceof Error ? error.message : "加载 Agent session 失败");
     }
 };
 
 /**
- * 从服务端重新同步当前线程详情。
+ * 从服务端重新同步当前 session snapshot。
  */
-const syncActiveThreadDetail = async (): Promise<void> => {
-    if (!activeThreadId.value) {
+const syncActiveSessionSnapshot = async (): Promise<void> => {
+    if (!activeSessionId.value) {
         return;
     }
-    const detail: AgentThreadDetailDto = await agentApi.getThreadDetail(activeThreadId.value);
-    activeThread.value = detail.thread;
-    patchThreadSummary(detail.thread);
-    subagents.value = detail.subagents || [];
-    leaders.value = (detail as AgentThreadDetailDto & {leaders?: AgentThreadSummaryDto[]}).leaders || [];
-    session.applyConversationTree(detail.conversationTree);
-    session.setPendingUserInputSession(detail.pendingUserInputSession);
+    const snapshot = await agentApi.getSession(activeSessionId.value);
+    session.applySnapshot(snapshot);
+    syncSessionModelState(snapshot.summary);
 };
 
 /**
@@ -583,126 +348,77 @@ const scrollToBottom = (): void => {
 };
 
 /**
- * 处理 Agent SSE 事件。
+ * 订阅 session 长连接事件。
  */
-const handleAgentEvent = (payload: AgentStreamEventDto): void => {
-    session.applyEvent(payload);
-
-    if (payload.type === "thread_snapshot") {
-        activeThread.value = payload.thread;
-        syncThreadModelState(payload.thread);
-        patchThreadSummary(payload.thread);
-        subagents.value = payload.subagents;
-        leaders.value = payload.leaders;
+const subscribeSessionEvents = async (sessionId: number): Promise<void> => {
+    if (eventsAbortController.value && eventsSessionId.value === sessionId) {
+        await eventStreamReadyPromise;
         return;
     }
 
-    if (payload.type === "run_state" && ["completed", "stopped", "failed"].includes(payload.status)) {
-        fileChangedSinceLastSend.value = false;
-        return;
-    }
-
-    if (payload.type !== "tool_finished") {
-        return;
-    }
-
-    if (payload.toolCall.toolName === "invoke_subagent") {
-        void refreshSubagents();
-    }
-
-    if (
-        payload.status === "success"
-        && plotMutationToolNames.has(payload.toolCall.toolName)
-    ) {
-        emit("sync-workspace", {
-            kind: "plot_tree",
-            toolName: payload.toolCall.toolName,
-            toolCallId: payload.toolCall.toolCallId ?? payload.toolCall.toolNodeId,
-        });
-    }
-
-};
-
-/**
- * 订阅线程流。
- */
-const subscribeThreadStream = async (threadId: string): Promise<void> => {
-    if (runAbortController.value && runStreamThreadId.value === threadId) {
-        await streamReadyPromise;
-        return;
-    }
-
-    runAbortController.value?.abort();
+    eventsAbortController.value?.abort();
     const controller = new AbortController();
-    runAbortController.value = controller;
-    runStreamThreadId.value = threadId;
-    let resolveStreamReady: () => void = () => {};
-    let rejectStreamReady: (error: unknown) => void = () => {};
+    eventsAbortController.value = controller;
+    eventsSessionId.value = sessionId;
+    let resolveReady: () => void = () => {};
+    let rejectReady: (error: unknown) => void = () => {};
     const readyPromise = new Promise<void>((resolve, reject) => {
-        resolveStreamReady = resolve;
-        rejectStreamReady = reject;
+        resolveReady = resolve;
+        rejectReady = reject;
     });
-    streamReadyPromise = readyPromise;
+    eventStreamReadyPromise = readyPromise;
     void readyPromise.catch(() => {});
 
     try {
-        await agentApi.subscribeThreadStream(threadId, (event) => {
-            if (threadId !== activeThreadId.value) {
+        await agentApi.subscribeSessionEvents(sessionId, session.lastSeq.value, async (event) => {
+            if (sessionId !== activeSessionId.value) {
                 return;
             }
-            handleAgentEvent(event);
+            session.applyEvent(event);
+            if (session.needsSnapshot.value) {
+                await syncActiveSessionSnapshot();
+            }
+            if (event.kind === "session" && event.event.type === "session_state_changed" && event.event.snapshot) {
+                syncSessionModelState(event.event.snapshot.summary);
+            }
+            if (event.kind === "pi" && event.event.type === "tool_execution_end" && event.event.toolName === "invoke_agent") {
+                await syncActiveSessionSnapshot();
+            }
         }, controller.signal, {
-            onOpen: resolveStreamReady,
+            onOpen: resolveReady,
         });
     } catch (error) {
-        rejectStreamReady(error);
-        if (threadId === activeThreadId.value && !(error instanceof DOMException && error.name === "AbortError")) {
+        rejectReady(error);
+        if (sessionId === activeSessionId.value && !(error instanceof DOMException && error.name === "AbortError")) {
             running.value = false;
-            handleAgentEvent({
-                type: "run_state",
-                threadId,
-                status: "failed",
-                error: error instanceof Error ? error.message : "Agent 请求失败",
-            });
+            console.error("Agent event stream 断开", error);
         }
     } finally {
-        if (runAbortController.value === controller) {
-            runAbortController.value = null;
-            runStreamThreadId.value = null;
-            streamReadyPromise = null;
+        if (eventsAbortController.value === controller) {
+            eventsAbortController.value = null;
+            eventsSessionId.value = null;
+            eventStreamReadyPromise = null;
         }
     }
 };
 
 /**
- * 发送或继续前确保当前线程 SSE 处于连接状态。
+ * 发送或继续前确保当前 session SSE 处于连接状态。
  */
-const ensureActiveThreadStream = async (): Promise<void> => {
-    if (!activeThreadId.value) {
+const ensureActiveSessionEvents = async (): Promise<void> => {
+    if (!activeSessionId.value) {
         return;
     }
-    if (runAbortController.value) {
-        if (runStreamThreadId.value === activeThreadId.value) {
-            await streamReadyPromise;
+    if (eventsAbortController.value) {
+        if (eventsSessionId.value === activeSessionId.value) {
+            await eventStreamReadyPromise;
             return;
         }
-        runAbortController.value.abort();
-        runStreamThreadId.value = null;
+        eventsAbortController.value.abort();
+        eventsSessionId.value = null;
     }
-    void subscribeThreadStream(activeThreadId.value);
-    await streamReadyPromise;
-};
-
-/**
- * 派发一次 continue，不追加新的用户消息。
- */
-const dispatchContinueThreadRun = async (threadId: string): Promise<void> => {
-    scrollToBottom();
-    await ensureActiveThreadStream();
-    await agentApi.invokeThread(
-        threadId,
-        agentApi.createContinueDispatchBody(),
-    );
+    void subscribeSessionEvents(activeSessionId.value);
+    await eventStreamReadyPromise;
 };
 
 /**
@@ -720,29 +436,54 @@ const submitUserInputAnswers = async (payload: {
         ignored?: boolean;
     }>;
 }): Promise<void> => {
-    if (!activeThreadId.value) {
+    if (!activeSessionId.value || !pendingUserInputSession.value) {
         return;
     }
     try {
         submittingUserInput.value = true;
-        await ensureActiveThreadStream();
-        await agentApi.submitUserInputAnswers(activeThreadId.value, payload);
-        await syncActiveThreadDetail();
+        await ensureActiveSessionEvents();
+        const toolCallId = pendingUserInputSession.value.questions[0]?.toolCallId ?? pendingUserInputSession.value.questions[0]?.toolNodeId;
+        const firstQuestion = pendingUserInputSession.value.questions[0];
+        if (!toolCallId || !firstQuestion) {
+            return;
+        }
+        const answers = payload.answers.map((answer, index) => ({
+            questionIndex: answer.questionIndex ?? index,
+            text: answer.ignored
+                ? "用户选择终止本轮。"
+                : answer.note || formatSelectedAnswer(firstQuestion.options, answer.selectedOptionIndex, answer.selectedOptionIndexes),
+        }));
+        await agentApi.invokeSession(activeSessionId.value, {
+            mode: "continue",
+            resolution: firstQuestion.kind === "tool_approval"
+                ? {
+                    kind: "tool_approval",
+                    toolCallId,
+                    approved: answers[0]?.text !== "拒绝",
+                    resultText: answers.map((answer) => answer.text).join("\n"),
+                }
+                : {
+                    kind: "user_input",
+                    toolCallId,
+                    answers,
+                },
+        });
+        await syncActiveSessionSnapshot();
     } catch (error) {
         console.error("提交问题答案失败", error);
-        await syncActiveThreadDetail();
+        await syncActiveSessionSnapshot();
         notification.error(error instanceof Error ? error.message : "提交问题答案失败");
         throw error;
     } finally {
         submittingUserInput.value = false;
-      }
-  };
+    }
+};
 
 /**
  * 提交当前挂起中的整组结构化答案。
  */
 const submitPendingUserInputAnswers = (): void => {
-    if (!pendingUserInputSession.value || submittingUserInput.value || !canSubmitPendingUserInput.value) {
+    if (!pendingUserInputSession.value || submittingUserInput.value) {
         return;
     }
     void submitUserInputAnswers({
@@ -775,40 +516,29 @@ provide(AGENT_REQUEST_USER_INPUT_CONTEXT_KEY, {
  * 停止当前运行。
  */
 const stopRun = async (): Promise<void> => {
-    if (!activeThreadId.value || !running.value) {
+    if (!activeSessionId.value || !running.value) {
         return;
     }
     try {
-        await agentApi.abortThreadRun(activeThreadId.value);
-        await syncActiveThreadDetail();
+        await agentApi.abortSession(activeSessionId.value, {reason: "user abort"});
+        await syncActiveSessionSnapshot();
     } catch (error) {
         console.error("停止 Agent 运行失败", error);
     }
 };
 
 /**
- * 切换当前线程软 Plan Mode。
- */
-const setPlanMode = async (active: boolean): Promise<void> => {
-    if (running.value) {
-        return;
-    }
-    if (!active && !activeThreadId.value) {
-        return;
-    }
-    await ensureThreadReady();
-    if (!activeThreadId.value) {
-        return;
-    }
-    await agentApi.updateThreadPlanMode(activeThreadId.value, {active});
-    await syncActiveThreadDetail();
-};
-
-/**
  * 快捷键切换 Plan Mode。
  */
 const togglePlanMode = async (): Promise<void> => {
-    await setPlanMode(!planModeActive.value);
+    if (!activeSessionId.value || running.value) {
+        return;
+    }
+    await agentApi.runCommand(activeSessionId.value, {
+        command: "plan",
+        active: !planModeActive.value,
+    });
+    await syncActiveSessionSnapshot();
 };
 
 /**
@@ -816,64 +546,74 @@ const togglePlanMode = async (): Promise<void> => {
  */
 const send = async (): Promise<void> => {
     const message = inputText.value.trim();
-    if (running.value) {
-        return;
-    }
     if (pendingUserInputSession.value) {
         return;
     }
-
-    if (message && (message === "/new" || message === "/clear")) {
-        await ensureThreadReady(true);
-        resetInput();
+    await ensureSessionReady();
+    if (!activeSessionId.value) {
         return;
     }
 
-    if (message && message === "/settings") {
+    if (message.startsWith("/") && await handleSlashCommand(message)) {
         resetInput();
-        return;
-    }
-
-    if (message === "/plan" || message.startsWith("/plan ")) {
-        const planPrompt = message.slice("/plan".length).trim();
-        resetInput();
-        if (planPrompt === "off") {
-            await setPlanMode(false);
-            return;
-        }
-        await setPlanMode(true);
-        if (!planPrompt || !activeThreadId.value) {
-            return;
-        }
-        await ensureActiveThreadStream();
-        const result = await agentApi.createMessage(activeThreadId.value, {
-            content: planPrompt,
-        });
-        session.applyConversationTree(result.conversationTree);
-        await dispatchContinueThreadRun(activeThreadId.value);
-        return;
-    }
-
-    await ensureThreadReady();
-    if (!activeThreadId.value) {
         return;
     }
 
     if (!message) {
         if (canContinueWithoutInput.value) {
-            await dispatchContinueThreadRun(activeThreadId.value);
+            await ensureActiveSessionEvents();
+            await agentApi.invokeSession(activeSessionId.value, {mode: "continue"});
         }
         return;
     }
 
     const prompt = inputText.value;
     resetInput();
-    await ensureActiveThreadStream();
-    const result = await agentApi.createMessage(activeThreadId.value, {
-        content: prompt,
+    session.appendOptimisticUserMessage(prompt);
+    await ensureActiveSessionEvents();
+    await agentApi.invokeSession(activeSessionId.value, {
+        mode: "prompt",
+        message: {text: prompt},
     });
-    session.applyConversationTree(result.conversationTree);
-    await dispatchContinueThreadRun(activeThreadId.value);
+};
+
+/**
+ * 处理前端识别的 slash command。
+ */
+const handleSlashCommand = async (message: string): Promise<boolean> => {
+    if (!activeSessionId.value) {
+        return false;
+    }
+    const [command, ...rest] = message.trim().split(/\s+/);
+    if (command === "/new" || command === "/clear") {
+        await ensureSessionReady(true);
+        return true;
+    }
+    if (command === "/plan") {
+        await agentApi.runCommand(activeSessionId.value, {
+            command: "plan",
+            active: rest[0] === "off" ? false : true,
+        });
+        await syncActiveSessionSnapshot();
+        return true;
+    }
+    if (command === "/compact") {
+        await ensureActiveSessionEvents();
+        await agentApi.runCommand(activeSessionId.value, {
+            command: "compact",
+            instructions: rest.join(" ") || undefined,
+        });
+        return true;
+    }
+    if (command === "/model") {
+        await agentApi.runCommand(activeSessionId.value, {
+            command: "model",
+            modelKey: rest[0] ?? null,
+        });
+        await syncActiveSessionSnapshot();
+        return true;
+    }
+    return false;
 };
 
 /**
@@ -908,9 +648,6 @@ const copyToolCall = async (toolCall: AgentToolCall): Promise<void> => {
     notification.success("工具结果已复制");
 };
 
-/**
- * 进入消息编辑态。
- */
 const startEditingMessage = (message: AgentMessage): void => {
     if (messageActionsDisabled.value) {
         return;
@@ -918,201 +655,111 @@ const startEditingMessage = (message: AgentMessage): void => {
     editingMessageId.value = message.id;
 };
 
-/**
- * 取消消息编辑态。
- */
 const cancelEditingMessage = (): void => {
     editingMessageId.value = null;
 };
 
 /**
- * 激活指定 continuation 节点。
+ * 沿当前消息 tree 节点切换。
  */
 const activateMessage = async (messageId: string): Promise<void> => {
-    if (!activeThreadId.value || messageActionId.value || running.value) {
+    if (!activeSessionId.value || messageActionId.value || running.value) {
         return;
     }
-
     messageActionId.value = messageId;
     try {
-        const result = await agentApi.activateMessage(activeThreadId.value, messageId);
-        session.applyConversationTree(result.conversationTree);
+        await agentApi.moveTree(activeSessionId.value, {
+            targetEntryId: messageId,
+            position: "at",
+        });
+        await syncActiveSessionSnapshot();
         editingMessageId.value = null;
     } catch (error) {
-        console.error("切换 continuation 失败", error);
-        notification.error(error instanceof Error ? error.message : "切换 continuation 失败");
+        console.error("切换分支失败", error);
+        notification.error(error instanceof Error ? error.message : "切换分支失败");
     } finally {
         messageActionId.value = null;
     }
 };
 
 /**
- * 更新当前线程的模型覆盖。
+ * 更新当前 session 模型覆盖。
  */
-const updateThreadModelSelection = async (modelKey: string | null): Promise<void> => {
-    if (modelKey === null) {
-        threadModelMode.value = "default";
-        if (activeThread.value?.effectiveModel) {
-            threadModelDraft.value = createThreadModelDraft(activeThread.value.effectiveModel);
-        }
-    } else {
-        threadModelMode.value = "override";
-        threadModelDraft.value = {
-            ...threadModelDraft.value,
-            modelKey,
-        };
-    }
+const updateSessionModelSelection = async (modelKey: string | null): Promise<void> => {
+    sessionModelMode.value = modelKey === null ? "default" : "override";
+    sessionModelDraft.value = {
+        ...sessionModelDraft.value,
+        modelKey,
+    };
 
-    if (!activeThreadId.value || running.value || threadModelSaving.value) {
+    if (!activeSessionId.value || running.value || sessionModelSaving.value) {
         return;
     }
-
-    threadModelSaving.value = true;
+    sessionModelSaving.value = true;
     try {
-        const summary = modelKey === null
-            ? await agentApi.updateThreadModel(activeThreadId.value, {
-                mode: "default",
-            })
-            : await agentApi.updateThreadModel(activeThreadId.value, {
-                mode: "override",
-                config: buildThreadModelOverrideConfig() ?? {
-                    modelKey,
-                    temperature: null,
-                    topK: null,
-                    reasoningEffort: null,
-                    stream: true,
-                },
-            });
-        patchThreadSummary(summary);
+        await agentApi.runCommand(activeSessionId.value, {
+            command: "model",
+            modelKey,
+        });
+        await syncActiveSessionSnapshot();
     } catch (error) {
-        console.error("更新线程模型失败", error);
-        notification.error(error instanceof Error ? error.message : "更新线程模型失败");
-        syncThreadModelState(activeThread.value);
+        console.error("更新 session 模型失败", error);
+        notification.error(error instanceof Error ? error.message : "更新 session 模型失败");
     } finally {
-        threadModelSaving.value = false;
+        sessionModelSaving.value = false;
     }
 };
 
-/**
- * 打开当前线程模型参数弹层。
- */
-function toggleThreadModelPopover(): void {
-    if (threadModelPopoverOpen.value) {
-        threadModelPopoverOpen.value = false;
-        return;
-    }
-
-    if (activeThread.value) {
-        syncThreadModelState(activeThread.value);
-    }
-    threadModelPopoverOpen.value = true;
+function toggleSessionModelPopover(): void {
+    sessionModelPopoverOpen.value = !sessionModelPopoverOpen.value;
 }
 
-/**
- * 应用当前线程模型参数覆盖。
- */
-async function applyThreadModelSettings(): Promise<void> {
-    if (!threadModelDraft.value.modelKey) {
-        notification.error("请先选择一个线程模型");
-        return;
-    }
-
-    threadModelMode.value = "override";
-
-    if (!activeThreadId.value || running.value || threadModelSaving.value) {
-        threadModelPopoverOpen.value = false;
-        return;
-    }
-
-    threadModelSaving.value = true;
-    try {
-        const summary = await agentApi.updateThreadModel(activeThreadId.value, {
-            mode: "override",
-            config: buildThreadModelOverrideConfig() ?? {
-                modelKey: threadModelDraft.value.modelKey,
-                temperature: null,
-                topK: null,
-                reasoningEffort: threadModelDraft.value.reasoningEffort,
-                stream: threadModelDraft.value.stream,
-            },
-        });
-        patchThreadSummary(summary);
-        threadModelPopoverOpen.value = false;
-    } catch (error) {
-        console.error("更新线程模型参数失败", error);
-        notification.error(error instanceof Error ? error.message : "更新线程模型参数失败");
-        syncThreadModelState(activeThread.value);
-    } finally {
-        threadModelSaving.value = false;
-    }
+async function applySessionModelSettings(): Promise<void> {
+    await updateSessionModelSelection(sessionModelDraft.value.modelKey);
+    sessionModelPopoverOpen.value = false;
 }
 
-/**
- * 回到 Profile 默认模型参数。
- */
-async function resetThreadModelSettings(): Promise<void> {
-    threadModelMode.value = "default";
-    if (activeThread.value?.effectiveModel) {
-        threadModelDraft.value = createThreadModelDraft(activeThread.value.effectiveModel);
-    }
-
-    if (!activeThreadId.value || running.value || threadModelSaving.value) {
-        threadModelPopoverOpen.value = false;
-        return;
-    }
-
-    threadModelSaving.value = true;
-    try {
-        const summary = await agentApi.updateThreadModel(activeThreadId.value, {
-            mode: "default",
-        });
-        patchThreadSummary(summary);
-        threadModelPopoverOpen.value = false;
-    } catch (error) {
-        console.error("重置线程模型参数失败", error);
-        notification.error(error instanceof Error ? error.message : "重置线程模型参数失败");
-        syncThreadModelState(activeThread.value);
-    } finally {
-        threadModelSaving.value = false;
-    }
+async function resetSessionModelSettings(): Promise<void> {
+    await updateSessionModelSelection(null);
+    sessionModelPopoverOpen.value = false;
 }
 
-/**
- * 沿当前消息的 continuation 组切换分支。
- */
+function syncSessionModelState(_summary: AgentSessionSummaryDto | null): void {
+    const model = session.snapshot.value?.model ?? null;
+    sessionModelMode.value = model ? "override" : "default";
+    sessionModelDraft.value = {
+        ...sessionModelDraft.value,
+        modelKey: model?.modelKey ?? null,
+    };
+}
+
 const cycleMessageBranch = async (messageId: string, direction: -1 | 1): Promise<void> => {
     const switcher = branchSwitcherStateByMessageId.value[messageId];
-    if (!switcher) {
-        return;
+    const nextNodeId = switcher?.nodeIds[(switcher.currentIndex + direction + switcher.total) % switcher.total];
+    if (nextNodeId) {
+        await activateMessage(nextNodeId);
     }
-    const nextIndex = (switcher.currentIndex + direction + switcher.total) % switcher.total;
-    const nextNodeId = switcher.nodeIds[nextIndex];
-    if (!nextNodeId) {
-        return;
-    }
-    await activateMessage(nextNodeId);
 };
 
-/**
- * 保存消息改写。
- */
 const saveEditedMessage = async (payload: {message: AgentMessage; content: string}): Promise<void> => {
-    if (!activeThreadId.value || messageActionId.value || running.value) {
+    if (!activeSessionId.value || messageActionId.value || running.value) {
         return;
     }
-
     messageActionId.value = payload.message.id;
     try {
-        await ensureActiveThreadStream();
-        const result = await agentApi.updateMessage(activeThreadId.value, payload.message.id, {
-            content: payload.content,
+        await ensureActiveSessionEvents();
+        await agentApi.moveTree(activeSessionId.value, {
+            targetEntryId: payload.message.id,
+            position: "before",
+            next: {
+                type: "invoke",
+                mode: "prompt",
+                message: {text: payload.content},
+            },
         });
-        session.applyConversationTree(result.conversationTree);
         editingMessageId.value = null;
+        await syncActiveSessionSnapshot();
         notification.success("消息已更新");
-        if (payload.message.type === "user") {
-            await dispatchContinueThreadRun(activeThreadId.value);
-        }
     } catch (error) {
         console.error("改写消息失败", error);
         notification.error(error instanceof Error ? error.message : "改写消息失败");
@@ -1121,21 +768,23 @@ const saveEditedMessage = async (payload: {message: AgentMessage; content: strin
     }
 };
 
-/**
- * 基于指定消息触发刷新。
- */
 const refreshMessage = async (message: AgentMessage): Promise<void> => {
-    if (!activeThreadId.value || messageActionId.value || running.value) {
+    if (!activeSessionId.value || messageActionId.value || running.value) {
         return;
     }
-
     messageActionId.value = message.id;
     try {
-        await ensureActiveThreadStream();
-        const result = await agentApi.refreshMessage(activeThreadId.value, message.id);
-        session.applyConversationTree(result.conversationTree);
+        await ensureActiveSessionEvents();
+        await agentApi.moveTree(activeSessionId.value, {
+            targetEntryId: message.id,
+            position: "before",
+            next: {
+                type: "invoke",
+                mode: "continue",
+            },
+        });
         editingMessageId.value = null;
-        await dispatchContinueThreadRun(activeThreadId.value);
+        await syncActiveSessionSnapshot();
     } catch (error) {
         console.error("刷新消息失败", error);
         notification.error(error instanceof Error ? error.message : "刷新消息失败");
@@ -1144,23 +793,21 @@ const refreshMessage = async (message: AgentMessage): Promise<void> => {
     }
 };
 
-/**
- * 回退到指定消息，并丢弃它之后的当前历史。
- */
 const rollbackMessage = async (message: AgentMessage): Promise<void> => {
-    if (!activeThreadId.value || messageActionId.value || running.value) {
+    if (!activeSessionId.value || messageActionId.value || running.value) {
         return;
     }
-
-    const confirmed = await confirm("确定要回退到这条消息，并丢弃它之后的全部历史吗？", "回退消息");
+    const confirmed = await confirm("确定要回退到这条消息吗？", "回退消息");
     if (!confirmed) {
         return;
     }
-
     messageActionId.value = message.id;
     try {
-        const result = await agentApi.rollbackMessage(activeThreadId.value, message.id);
-        session.applyConversationTree(result.conversationTree);
+        await agentApi.moveTree(activeSessionId.value, {
+            targetEntryId: message.id,
+            position: "at",
+        });
+        await syncActiveSessionSnapshot();
         editingMessageId.value = null;
         notification.success("消息已回退");
     } catch (error) {
@@ -1171,98 +818,64 @@ const rollbackMessage = async (message: AgentMessage): Promise<void> => {
     }
 };
 
-/**
- * 创建 subagent。
- */
-const handleCreateSubagent = async (profileKey: string, title?: string): Promise<void> => {
-    if (!activeThreadId.value) {
-        return;
-    }
-    await agentApi.createThreadSubagent(activeThreadId.value, {profileKey, title});
-    await refreshSubagents();
+const openSessionDialog = async (): Promise<void> => {
+    await ensureSessionReady();
+    await refreshSessions();
+    sessionDialogOpen.value = true;
 };
 
-/**
- * 绑定已有 subagent。
- */
-const handleAttachSubagent = async (subagentThreadId: string): Promise<void> => {
-    if (!activeThreadId.value) {
+const selectSession = async (sessionId: number): Promise<void> => {
+    if (loadingSession.value || sessionActionId.value) {
         return;
     }
-    await agentApi.attachThreadSubagent(activeThreadId.value, {subagentThreadId});
-    await refreshSubagents();
-};
-
-/**
- * 打开线程列表对话框。
- */
-const openThreadDialog = async (): Promise<void> => {
-    await ensureThreadReady();
-    await refreshThreads();
-    threadDialogOpen.value = true;
-};
-
-/**
- * 选择线程。
- */
-const selectThread = async (threadId: string): Promise<void> => {
-    if (loadingThread.value || threadActionId.value) {
+    if (sessionId === activeSessionId.value) {
+        sessionDialogOpen.value = false;
         return;
     }
-    if (threadId === activeThreadId.value) {
-        threadDialogOpen.value = false;
-        return;
-    }
-    loadingThread.value = true;
+    loadingSession.value = true;
     try {
-        await loadThread(threadId);
-        threadDialogOpen.value = false;
+        await loadSession(sessionId);
+        sessionDialogOpen.value = false;
     } finally {
-        loadingThread.value = false;
+        loadingSession.value = false;
     }
 };
 
-/**
- * 从弹窗创建线程。
- */
-const createThreadFromDialog = async (): Promise<void> => {
-    if (loadingThread.value || threadActionId.value) {
+const createSessionFromDialog = async (): Promise<void> => {
+    if (loadingSession.value || sessionActionId.value) {
         return;
     }
-    loadingThread.value = true;
+    loadingSession.value = true;
     try {
-        const created = await agentApi.createThread({
-            ...buildCreateThreadPayload(),
+        await ensureSessionReady(true);
+        await refreshSessions();
+        sessionDialogOpen.value = false;
+    } finally {
+        loadingSession.value = false;
+    }
+};
+
+const archiveSessionFromDialog = async (target: AgentSessionSummaryDto): Promise<void> => {
+    if (target.status === "running" || target.status === "waiting" || loadingSession.value || sessionActionId.value) {
+        return;
+    }
+    sessionActionId.value = target.sessionId;
+    try {
+        await agentApi.runCommand(target.sessionId, {
+            command: "archive",
+            reason: "archived from drawer",
         });
-        await refreshThreads();
-        await loadThread(created.id);
-        threadDialogOpen.value = false;
-    } finally {
-        loadingThread.value = false;
-    }
-};
-
-/**
- * 从弹窗删除线程。
- */
-const deleteThreadFromDialog = async (thread: AgentThreadSummaryDto): Promise<void> => {
-    if (thread.status === "running" || thread.status === "waiting_user" || loadingThread.value || threadActionId.value) {
-        return;
-    }
-    threadActionId.value = thread.id;
-    try {
-        await agentApi.deleteThread(thread.id);
-        const nextThreads = await refreshThreads();
-        if (thread.id !== activeThreadId.value) {
+        const nextSessions = await refreshSessions();
+        if (target.sessionId !== activeSessionId.value) {
             return;
         }
-        if (nextThreads[0]?.id) {
-            await loadThread(nextThreads[0].id);
+        if (nextSessions[0]?.sessionId) {
+            await loadSession(nextSessions[0].sessionId);
             return;
         }
-        await ensureThreadReady(true);
+        await ensureSessionReady(true);
     } finally {
-        threadActionId.value = null;
+        sessionActionId.value = null;
     }
 };
 
@@ -1272,7 +885,6 @@ watch(() => props.selectedFilePath, (nextFilePath, previousFilePath) => {
     if (nextValue === previousValue) {
         return;
     }
-
     previousSelectedFilePath.value = previousValue;
     fileChangedSinceLastSend.value = true;
     selectionVersion.value += 1;
@@ -1280,20 +892,19 @@ watch(() => props.selectedFilePath, (nextFilePath, previousFilePath) => {
 
 watch(() => props.isOpen, async (open) => {
     if (!open) {
-        threadDialogOpen.value = false;
-        subagentPanelOpen.value = false;
-        threadModelPopoverOpen.value = false;
+        sessionDialogOpen.value = false;
+        linkedAgentPanelOpen.value = false;
+        sessionModelPopoverOpen.value = false;
         editingMessageId.value = null;
         messageActionId.value = null;
-        runAbortController.value?.abort();
-        runStreamThreadId.value = null;
+        eventsAbortController.value?.abort();
+        eventsSessionId.value = null;
         return;
     }
-
     await loadSelectableModels();
     await loadResolvedLeaderProfileKey();
-    await ensureThreadReady();
-    await refreshThreads();
+    await ensureSessionReady();
+    await refreshSessions();
     await nextTick();
     requestAnimationFrame(() => {
         inputRef.value?.focus();
@@ -1302,21 +913,18 @@ watch(() => props.isOpen, async (open) => {
 });
 
 watch(leaderProfileKey, async () => {
-    runAbortController.value?.abort();
-    runStreamThreadId.value = null;
-    activeThreadId.value = "";
-    activeThread.value = null;
-    threads.value = [];
-    subagents.value = [];
-    leaders.value = [];
-    subagentPanelOpen.value = false;
+    eventsAbortController.value?.abort();
+    eventsSessionId.value = null;
+    activeSessionId.value = null;
+    sessions.value = [];
+    linkedAgentPanelOpen.value = false;
     session.reset();
-    syncThreadModelState(null);
+    syncSessionModelState(null);
     if (!props.isOpen) {
         return;
     }
-    await ensureThreadReady();
-    await refreshThreads();
+    await ensureSessionReady();
+    await refreshSessions();
 });
 
 watch(() => [ideStore.workspaceKind, ideStore.currentNovelId] as const, async () => {
@@ -1324,8 +932,8 @@ watch(() => [ideStore.workspaceKind, ideStore.currentNovelId] as const, async ()
 });
 
 onBeforeUnmount(() => {
-    runAbortController.value?.abort();
-    runStreamThreadId.value = null;
+    eventsAbortController.value?.abort();
+    eventsSessionId.value = null;
 });
 
 onMounted(() => {
@@ -1340,6 +948,32 @@ onMounted(() => {
         sanitizeHtml.value = (html) => purifier.sanitize(html) as string;
     })();
 });
+
+function readLastSessionId(): number | null {
+    if (!import.meta.client) {
+        return null;
+    }
+    const raw = localStorage.getItem(`agent:last-session:${workspaceKey.value}`);
+    const parsed = raw ? Number(raw) : NaN;
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function saveLastSessionId(sessionId: number): void {
+    if (!import.meta.client) {
+        return;
+    }
+    localStorage.setItem(`agent:last-session:${workspaceKey.value}`, String(sessionId));
+}
+
+function formatSelectedAnswer(
+    options: Array<{label: string}>,
+    selectedOptionIndex?: number,
+    selectedOptionIndexes?: number[],
+): string {
+    const indexes = selectedOptionIndexes?.length ? selectedOptionIndexes : selectedOptionIndex === undefined ? [] : [selectedOptionIndex];
+    const labels = indexes.map((index) => index === -1 ? "其他答案" : options[index]?.label ?? String(index));
+    return labels.join("、") || "继续";
+}
 </script>
 
 <template>
@@ -1357,18 +991,18 @@ onMounted(() => {
                     </div>
                     <div class="min-w-0">
                         <div class="text-sm font-medium tracking-wide text-[var(--text-main)]">{{ activeDrawerTitle }}</div>
-                        <div class="truncate text-[10px] uppercase tracking-[0.24em] text-[var(--text-muted)]">{{ activeThreadTitle }}</div>
+                        <div class="truncate text-[10px] uppercase tracking-[0.24em] text-[var(--text-muted)]">{{ activeSessionTitle }}</div>
                     </div>
                 </div>
                 <div class="flex items-center gap-1">
-                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="新建对话" :disabled="loadingThread" @click="void ensureThreadReady(true)">
+                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="新建对话" :disabled="loadingSession" @click="void ensureSessionReady(true)">
                         <span class="i-lucide-plus h-4 w-4"></span>
                     </button>
-                    <button class="flex items-center gap-1.5 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': subagentPanelOpen}" title="Subagents 管理" @click="subagentPanelOpen = !subagentPanelOpen">
+                    <button class="flex items-center gap-1.5 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': linkedAgentPanelOpen}" title="关联 Agent" @click="linkedAgentPanelOpen = !linkedAgentPanelOpen">
                         <span class="i-lucide-users h-4 w-4"></span>
-                        <span v-if="subagents.length" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-white">{{ subagents.length }}</span>
+                        <span v-if="linkedAgents.length" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-white">{{ linkedAgents.length }}</span>
                     </button>
-                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="线程列表" @click="void openThreadDialog()">
+                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="Session 列表" @click="void openSessionDialog()">
                         <span class="i-lucide-messages-square h-4 w-4"></span>
                     </button>
                     <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('close')">
@@ -1377,19 +1011,15 @@ onMounted(() => {
                 </div>
             </div>
 
-            <!-- Subagents 面板 -->
-            <AgentSubagentPanel
-                v-if="subagentPanelOpen"
-                :thread-id="activeThreadId"
-                :active-thread-kind="activeThread?.kind ?? 'leader'"
-                :subagents="subagents"
-                :leaders="leaders"
-                :loading="loadingThread"
-                @create="handleCreateSubagent"
-                @attach="handleAttachSubagent"
-                @select="void loadThread($event); subagentPanelOpen = false"
-                @refresh="refreshSubagents"
-                @close="subagentPanelOpen = false"
+            <!-- Linked Agent 面板 -->
+            <AgentLinkedAgentPanel
+                v-if="linkedAgentPanelOpen"
+                :session-id="activeSessionId"
+                :agents="linkedAgents"
+                :loading="loadingSession"
+                @select="void loadSession($event); linkedAgentPanelOpen = false"
+                @refresh="void syncActiveSessionSnapshot()"
+                @close="linkedAgentPanelOpen = false"
             />
 
             <!-- 消息序列 -->
@@ -1425,7 +1055,7 @@ onMounted(() => {
                 :pending-session="pendingUserInputSession"
                 :submitting-user-input="submittingUserInput"
                 :running="running"
-                :loading-thread="loadingThread"
+                :loading-thread="loadingSession"
                 :thread-model-saving="threadModelSaving"
                 :thread-model-selection-value="threadModelSelectionValue"
                 :thread-model-default-label="threadModelDefaultLabel"
@@ -1447,23 +1077,23 @@ onMounted(() => {
                 @send="void send()"
                 @stop="void stopRun()"
                 @toggle-plan-mode="void togglePlanMode()"
-                @toggle-thread-model-popover="toggleThreadModelPopover"
-                @update-thread-model-selection="void updateThreadModelSelection($event)"
-                @apply-thread-model-settings="void applyThreadModelSettings()"
-                @reset-thread-model-settings="void resetThreadModelSettings()"
+                @toggle-thread-model-popover="toggleSessionModelPopover"
+                @update-thread-model-selection="void updateSessionModelSelection($event)"
+                @apply-thread-model-settings="void applySessionModelSettings()"
+                @reset-thread-model-settings="void resetSessionModelSettings()"
             />
 
-            <!-- 线程管理弹窗 -->
-            <AgentThreadDialog
-                v-model="threadDialogOpen"
-                :threads="threads"
-                :active-thread-id="activeThreadId"
-                :loading="loadingThread"
+            <!-- Session 管理弹窗 -->
+            <AgentSessionDialog
+                v-model="sessionDialogOpen"
+                :sessions="sessions"
+                :active-session-id="activeSessionId"
+                :loading="loadingSession"
                 :running="running"
-                :action-id="threadActionId"
-                @select="void selectThread($event)"
-                @create="void createThreadFromDialog()"
-                @delete="void deleteThreadFromDialog($event)"
+                :action-id="sessionActionId"
+                @select="void selectSession($event)"
+                @create="void createSessionFromDialog()"
+                @archive="void archiveSessionFromDialog($event)"
             />
         </template>
     </aside>

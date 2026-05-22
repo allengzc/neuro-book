@@ -1,22 +1,25 @@
 import {describe, expect, it, vi} from "vitest";
 import {
-    createAgentV3Session,
-    detachAgentV3Agent,
-    getAgentV3Agent,
-    invokeAgentV3Session,
-    pushAgentV3Event,
+    abortAgentSession,
+    createAgentSession,
+    getAgentSessionSnapshot,
+    invokeAgentSession,
+    listAgentSessions,
+    moveAgentSessionTree,
+    pushAgentSessionEvent,
+    runAgentSessionCommand,
     toInvokeInput,
 } from "nbook/server/agent/http";
 
-describe("agent-v3 http helpers", () => {
-    it("createAgentV3Session 调用 harness.createAgent", async () => {
+describe("agent session http helpers", () => {
+    it("createAgentSession 调用 harness.createAgent", async () => {
         const createAgent = vi.fn(async () => ({
             sessionId: 7,
             profileKey: "leader.default",
             title: "Leader",
         }));
 
-        await expect(createAgentV3Session({
+        await expect(createAgentSession({
             profileKey: "leader.default",
             input: {role: "tester"},
             workspaceRoot: "workspace",
@@ -35,7 +38,23 @@ describe("agent-v3 http helpers", () => {
         });
     });
 
-    it("invokeAgentV3Session 调用 harness.invokeAgent", async () => {
+    it("listAgentSessions 调用 harness.listSessions", async () => {
+        const listSessions = vi.fn(async () => []);
+
+        await listAgentSessions({workspaceKey: "global", includeArchived: true}, {listSessions} as never);
+
+        expect(listSessions).toHaveBeenCalledWith("global", true);
+    });
+
+    it("getAgentSessionSnapshot 调用 harness.getSessionSnapshot", async () => {
+        const getSessionSnapshot = vi.fn(async () => ({sessionId: 12}));
+
+        await getAgentSessionSnapshot(12, {getSessionSnapshot} as never);
+
+        expect(getSessionSnapshot).toHaveBeenCalledWith(12);
+    });
+
+    it("invokeAgentSession 调用 harness.invokeAgent", async () => {
         const invokeAgent = vi.fn(async () => ({
             sessionId: 12,
             invocationId: "run-1",
@@ -43,7 +62,7 @@ describe("agent-v3 http helpers", () => {
             events: [],
         }));
 
-        await invokeAgentV3Session(12, {
+        await invokeAgentSession(12, {
             mode: "prompt",
             message: {text: "hello"},
         }, {invokeAgent} as never);
@@ -58,50 +77,56 @@ describe("agent-v3 http helpers", () => {
         });
     });
 
-    it("getAgentV3Agent 支持 owner 列表和单 agent 查询", async () => {
-        const getAgent = vi.fn(async () => []);
-
-        await getAgentV3Agent(undefined, {ownerSessionId: 1}, {getAgent} as never);
-        await getAgentV3Agent(2, {}, {getAgent} as never);
-
-        expect(getAgent).toHaveBeenNthCalledWith(1, undefined, 1);
-        expect(getAgent).toHaveBeenNthCalledWith(2, 2, undefined);
-    });
-
-    it("detachAgentV3Agent 调用 harness.detachAgent", async () => {
-        const detachAgent = vi.fn(async () => ({
-            sessionId: 3,
-            detached: true,
+    it("runAgentSessionCommand 调用 harness.runCommand", async () => {
+        const runCommand = vi.fn(async () => ({
+            status: "completed",
+            sessionId: 12,
         }));
 
-        await detachAgentV3Agent(3, {ownerSessionId: 1}, {detachAgent} as never);
+        await runAgentSessionCommand(12, {command: "plan", active: true}, {runCommand} as never);
 
-        expect(detachAgent).toHaveBeenCalledWith(3, 1);
+        expect(runCommand).toHaveBeenCalledWith(12, {command: "plan", active: true});
     });
 
-    it("pushAgentV3Event 使用事件 type 作为 SSE event name", async () => {
+    it("moveAgentSessionTree 调用 harness.moveTree", async () => {
+        const moveTree = vi.fn(async () => ({
+            status: "completed",
+            snapshot: {},
+        }));
+
+        await moveAgentSessionTree(12, {targetEntryId: "entry-1", position: "at"}, {moveTree} as never);
+
+        expect(moveTree).toHaveBeenCalledWith(12, {targetEntryId: "entry-1", position: "at"});
+    });
+
+    it("abortAgentSession 调用 harness.abortInvocation", async () => {
+        const abortInvocation = vi.fn(async () => ({
+            status: "aborted",
+            sessionId: 12,
+        }));
+
+        await abortAgentSession(12, {reason: "stop"}, {abortInvocation} as never);
+
+        expect(abortInvocation).toHaveBeenCalledWith(12, {reason: "stop"});
+    });
+
+    it("pushAgentSessionEvent 使用 event.type 作为 SSE event name", async () => {
         const push = vi.fn(async () => {});
-
-        await pushAgentV3Event({push}, {type: "agent_start"});
-        await pushAgentV3Event({push}, {
-            type: "result",
-            result: {
-                status: "completed",
+        const payload = {
+            seq: 1,
+            sessionId: 4,
+            kind: "session",
+            event: {
+                type: "snapshot_required",
+                reason: "gap",
             },
-        });
+        } as const;
 
-        expect(push).toHaveBeenNthCalledWith(1, {
-            event: "agent_start",
-            data: JSON.stringify({type: "agent_start"}),
-        });
-        expect(push).toHaveBeenNthCalledWith(2, {
-            event: "result",
-            data: JSON.stringify({
-                type: "result",
-                result: {
-                    status: "completed",
-                },
-            }),
+        await pushAgentSessionEvent({push}, payload);
+
+        expect(push).toHaveBeenCalledWith({
+            event: "snapshot_required",
+            data: JSON.stringify(payload),
         });
     });
 

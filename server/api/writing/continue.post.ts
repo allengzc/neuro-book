@@ -29,6 +29,6 @@ export default defineEventHandler(async (event) => {
     throw createError({
         statusCode: 501,
         statusMessage: "Writing continue API disabled",
-        message: "旧小说续写接口依赖 LangChain provider，已在 Agent v3 迁移中禁用；后续会改接 Pi provider。",
+        message: "旧小说续写接口依赖 LangChain provider，已在 Agent 迁移中禁用；后续会改接 Pi provider。",
     });
 });

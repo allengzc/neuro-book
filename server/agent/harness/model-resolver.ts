@@ -2,16 +2,20 @@ import type {Model} from "@earendil-works/pi-ai";
 import {loadAppConfigSync} from "nbook/server/utils/app-config";
 import type {AgentProfileModelConfig} from "nbook/server/utils/app-config";
 
+type ModelOverrideInput = Partial<AgentProfileModelConfig> & {
+    model?: string | null;
+};
+
 const DEFAULT_CONTEXT_WINDOW = 128_000;
 const DEFAULT_MAX_TOKENS = 16_384;
 
 /**
  * 将 config.yaml 的模型引用解析成 Pi Model。
  */
-export function resolvePiModel(profileKey: string, override?: AgentProfileModelConfig): Model<any> {
+export function resolvePiModel(profileKey: string, override?: ModelOverrideInput | null): Model<any> {
     const appConfig = loadAppConfigSync();
     const profileModelKey = appConfig.agent.profiles[profileKey]?.model.modelKey ?? null;
-    const modelKey = override?.modelKey ?? profileModelKey ?? appConfig.models.defaultModelKey;
+    const modelKey = override?.modelKey ?? override?.model ?? profileModelKey ?? appConfig.models.defaultModelKey;
     if (!modelKey) {
         throw new Error("config.yaml 未配置 models.default");
     }

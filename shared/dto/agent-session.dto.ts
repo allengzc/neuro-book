@@ -1,0 +1,229 @@
+import {z} from "zod";
+import type {AgentEvent} from "@earendil-works/pi-agent-core";
+import type {AgentMessage, JsonValue, Model, Usage} from "nbook/server/agent/messages/types";
+import type {SessionEntry, SessionTreeNode} from "nbook/server/agent/session/types";
+
+const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(JsonValueSchema),
+    z.record(z.string(), JsonValueSchema),
+]));
+
+export const AgentSessionIdSchema = z.number().int().positive();
+
+export const AgentUserMessageInputDtoSchema = z.object({
+    text: z.string(),
+    images: z.array(z.object({
+        type: z.literal("image"),
+        mimeType: z.string().trim().min(1),
+        data: z.string().trim().min(1),
+    })).optional(),
+});
+
+export const AgentResolutionDtoSchema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("tool_approval"),
+        toolCallId: z.string().trim().min(1),
+        approved: z.boolean(),
+        resultText: z.string().optional(),
+        data: JsonValueSchema.optional(),
+    }),
+    z.object({
+        kind: z.literal("user_input"),
+        toolCallId: z.string().trim().min(1),
+        answers: z.array(z.object({
+            questionIndex: z.number().int().nonnegative(),
+            text: z.string(),
+        })),
+    }),
+]);
+
+export const AgentCreateSessionRequestDtoSchema = z.object({
+    profileKey: z.string().trim().min(1, "profileKey 不能为空"),
+    input: JsonValueSchema.optional(),
+    workspaceRoot: z.string().trim().min(1).optional(),
+    workspaceKey: z.string().trim().min(1).optional(),
+    parentSessionId: AgentSessionIdSchema.optional(),
+});
+
+export const AgentInvokeRequestDtoSchema = z.object({
+    mode: z.enum(["prompt", "continue"]),
+    message: AgentUserMessageInputDtoSchema.optional(),
+    resolution: AgentResolutionDtoSchema.optional(),
+    block: z.boolean().optional(),
+}).superRefine((value, ctx) => {
+    if (value.mode === "prompt" && !value.message) {
+        ctx.addIssue({
+            code: "custom",
+            path: ["message"],
+            message: "prompt 模式必须提供 message",
+        });
+    }
+    if (value.mode === "continue" && value.message) {
+        ctx.addIssue({
+            code: "custom",
+            path: ["message"],
+            message: "continue 模式不能提供 message",
+        });
+    }
+});
+
+export const AgentSessionListQueryDtoSchema = z.object({
+    workspaceKey: z.string().trim().min(1).optional(),
+    includeArchived: z.coerce.boolean().optional(),
+});
+
+export const AgentSessionEventsQueryDtoSchema = z.object({
+    after: z.coerce.number().int().nonnegative().optional(),
+});
+
+export const AgentCommandRequestDtoSchema = z.discriminatedUnion("command", [
+    z.object({command: z.literal("new")}),
+    z.object({command: z.literal("archive"), reason: z.string().optional()}),
+    z.object({command: z.literal("compact"), instructions: z.string().optional()}),
+    z.object({command: z.literal("plan"), active: z.boolean()}),
+    z.object({command: z.literal("model"), modelKey: z.string().trim().min(1).nullable()}),
+    z.object({command: z.literal("retry"), entryId: z.string().trim().min(1).optional()}),
+    z.object({command: z.literal("fork"), entryId: z.string().trim().min(1).optional()}),
+    z.object({
+        command: z.literal("tree"),
+        targetEntryId: z.string().trim().min(1),
+        position: z.enum(["at", "before"]).default("at"),
+    }),
+]);
+
+export const AgentTreeRequestDtoSchema = z.object({
+    targetEntryId: z.string().trim().min(1),
+    position: z.enum(["at", "before"]).default("at"),
+    next: z.object({
+        type: z.literal("invoke"),
+        mode: z.enum(["prompt", "continue"]),
+        message: AgentUserMessageInputDtoSchema.optional(),
+    }).optional(),
+});
+
+export const AgentAbortRequestDtoSchema = z.object({
+    reason: z.string().optional(),
+    clearQueue: z.boolean().optional(),
+});
+
+export type AgentCreateSessionRequestDto = z.infer<typeof AgentCreateSessionRequestDtoSchema>;
+export type AgentUserMessageInputDto = z.infer<typeof AgentUserMessageInputDtoSchema>;
+export type AgentInvokeRequestDto = z.infer<typeof AgentInvokeRequestDtoSchema>;
+export type AgentSessionListQueryDto = z.infer<typeof AgentSessionListQueryDtoSchema>;
+export type AgentSessionEventsQueryDto = z.infer<typeof AgentSessionEventsQueryDtoSchema>;
+export type AgentCommandRequestDto = z.infer<typeof AgentCommandRequestDtoSchema>;
+export type AgentTreeRequestDto = z.infer<typeof AgentTreeRequestDtoSchema>;
+export type AgentAbortRequestDto = z.infer<typeof AgentAbortRequestDtoSchema>;
+
+export const AgentSkillCatalogItemDtoSchema = z.object({
+    name: z.string().trim().min(1, "skill.name 不能为空"),
+    description: z.string().trim().min(1, "skill.description 不能为空"),
+});
+
+export const ClientVariablesDtoSchema = z.object({
+    ide: z.record(z.string(), JsonValueSchema).optional(),
+    studio: z.record(z.string(), JsonValueSchema).optional(),
+});
+
+export type AgentSkillCatalogItemDto = z.infer<typeof AgentSkillCatalogItemDtoSchema>;
+export type ClientVariablesDto = z.infer<typeof ClientVariablesDtoSchema>;
+
+export type AgentSessionStatus = "idle" | "running" | "waiting" | "archived" | "interrupted";
+
+export type AgentSessionSummaryDto = {
+    sessionId: number;
+    profileKey: string;
+    workspaceKey: string;
+    workspaceRoot: string;
+    parentSessionId?: number;
+    title?: string;
+    summary?: string;
+    status: AgentSessionStatus;
+    updatedAt: number;
+    archived: boolean;
+    lastMessagePreview?: string;
+    usage?: Usage;
+};
+
+export type AgentLinkedSessionDto = AgentSessionSummaryDto & {
+    detached: boolean;
+};
+
+export type AgentPendingApprovalDto = {
+    assistantMessageId?: string;
+    toolCallId: string;
+    toolName: string;
+    args?: JsonValue;
+};
+
+export type AgentFollowUpQueueItemDto = {
+    id: string;
+    message: AgentUserMessageInputDto;
+    createdAt: number;
+};
+
+export type AgentActiveInvocationDto = {
+    invocationId: string;
+    sessionId: number;
+    status: "running" | "waiting" | "aborting";
+    mode: "prompt" | "continue" | "compact";
+    startedAt: number;
+};
+
+export type AgentSessionControlEvent =
+    | {
+        type: "snapshot_required";
+        reason: string;
+    }
+    | {
+        type: "follow_up_queued";
+        item: AgentFollowUpQueueItemDto;
+    }
+    | {
+        type: "session_entry";
+        entry: SessionEntry;
+    }
+    | {
+        type: "session_state_changed";
+        snapshot?: AgentSessionSnapshotDto;
+    }
+    | {
+        type: "invocation_aborted";
+        reason?: string;
+    };
+
+export type AgentSessionEventDto =
+    | {
+        seq: number;
+        sessionId: number;
+        invocationId?: string;
+        kind: "pi";
+        event: AgentEvent;
+    }
+    | {
+        seq: number;
+        sessionId: number;
+        invocationId?: string;
+        kind: "session";
+        event: AgentSessionControlEvent;
+    };
+
+export type AgentSessionSnapshotDto = {
+    summary: AgentSessionSummaryDto;
+    activeLeafId: string | null;
+    messages: AgentMessage[];
+    tree: SessionTreeNode[];
+    entries: SessionEntry[];
+    linkedAgents: AgentLinkedSessionDto[];
+    pendingApproval: AgentPendingApprovalDto | null;
+    followUpQueue: AgentFollowUpQueueItemDto[];
+    activeInvocation: AgentActiveInvocationDto | null;
+    model: Model<any> | null;
+    planModeActive: boolean;
+    lastSeq: number;
+    usage?: Usage;
+};

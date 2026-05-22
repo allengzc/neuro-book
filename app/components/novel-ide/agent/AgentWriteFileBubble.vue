@@ -10,9 +10,8 @@ const props = defineProps<{
 
 
 interface WriteFileArgs {
-    filePath?: string;
+    path?: string;
     content?: string;
-    append?: boolean;
 }
 
 const parsedArgs = computed<WriteFileArgs>(() => {
@@ -20,9 +19,8 @@ const parsedArgs = computed<WriteFileArgs>(() => {
     return parsed ?? {};
 });
 
-const filePathText = computed(() => parsedArgs.value.filePath ?? extractStreamingStringField(props.toolCall.argsText, "filePath"));
+const filePathText = computed(() => parsedArgs.value.path ?? extractStreamingStringField(props.toolCall.argsText, "path"));
 const contentText = computed(() => parsedArgs.value.content ?? extractStreamingStringField(props.toolCall.argsText, "content"));
-const appendMode = computed(() => parsedArgs.value.append === true);
 
 </script>
 
@@ -34,9 +32,7 @@ const appendMode = computed(() => parsedArgs.value.append === true);
                 <span class="i-lucide-file-code h-3 w-3 mr-1 inline-block align-text-bottom"></span>
                 {{ filePathText || "解析路径中..." }}
             </span>
-            <span class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1 font-mono text-[10px] text-[var(--text-muted)]">
-                {{ appendMode ? "append" : "overwrite" }}
-            </span>
+            <span class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1 font-mono text-[10px] text-[var(--text-muted)]">overwrite</span>
         </div>
         
         <!-- Content Preview：content 在流式阶段实时增长 -->

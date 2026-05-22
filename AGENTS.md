@@ -146,5 +146,5 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 - 可读取 node_modules 下的源代码
 - 可以使用 get_file_contents、search_code、issue_read 搜寻 github 项目
-- .agent/workspace 为你可随意操作的目录，你可以再此编写临时文件、clone 代码等
+- .agent/workspace 为你可随意操作的目录（.agent 目录不是），你可以再此编写临时文件、clone 代码等
 - 可以通过编写测试脚本并运行来测试数据

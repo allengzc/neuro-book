@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type {AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
-import {RequestUserInputToolAnswerSchema} from "nbook/shared/dto/agent-chat.dto";
+import {RequestUserInputToolAnswerSchema} from "nbook/app/components/novel-ide/agent/agent-message";
 import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMarkdownContent.vue";
 import {z} from "zod";
 
