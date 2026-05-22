@@ -176,6 +176,9 @@ export type AgentActiveInvocationDto = {
 
 export type AgentSessionControlEvent =
     | {
+        type: "connected";
+    }
+    | {
         type: "snapshot_required";
         reason: string;
     }

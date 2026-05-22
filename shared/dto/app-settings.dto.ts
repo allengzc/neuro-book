@@ -16,7 +16,6 @@ const TemperatureSchema = z.number().nonnegative("temperature 不能小于 0").n
 const TopKSchema = z.number().int("topK 必须是整数").positive("topK 必须大于 0").nullable().default(null);
 const ContextWindowTokensSchema = z.number().int("contextWindowTokens 必须是整数").positive("contextWindowTokens 必须大于 0").nullable().default(null);
 const ReasoningEffortSchema = z.enum(["low", "medium", "high"]).nullable().default(null);
-const WorkspaceKindSchema = z.enum(["novel", "user-assets"]);
 
 /**
  * Agent tools 设定。
@@ -266,51 +265,6 @@ export const AgentProfileModelSettingsDtoSchema = z.object({
 });
 
 /**
- * workspace 级 Agent Profile 默认选择。
- */
-export const WorkspaceAgentProfileSettingsDtoSchema = z.object({
-    workspaceKind: WorkspaceKindSchema,
-    workspaceRoot: z.string().trim().min(1),
-    systemDefaultLeaderProfileKey: AgentProfileKeySchema,
-    workspaceDefaultLeaderProfileKey: AgentProfileKeySchema.nullable(),
-    effectiveLeaderProfileKey: AgentProfileKeySchema,
-    leaderProfiles: z.array(z.object({
-        profileKey: AgentProfileKeySchema,
-        name: z.string().trim().min(1),
-        description: z.string().trim().min(1).nullable(),
-        loadStatus: z.enum(["loaded", "error", "missing"]),
-    })).default([]),
-});
-
-/**
- * workspace 级 Agent Profile 默认选择查询。
- */
-export const WorkspaceAgentProfileSettingsQueryDtoSchema = z.object({
-    novelId: z.string().trim().min(1, "novelId 不能为空").optional(),
-    workspaceKind: z.literal("user-assets").optional(),
-}).superRefine((value, ctx) => {
-    if (value.workspaceKind === "user-assets") {
-        return;
-    }
-    if (!value.novelId) {
-        ctx.addIssue({
-            code: "custom",
-            path: ["novelId"],
-            message: "小说工作区必须提供 novelId",
-        });
-    }
-});
-
-/**
- * 更新 workspace 级 Agent Profile 默认选择请求。
- */
-export const UpdateWorkspaceAgentProfileSettingsRequestDtoSchema = z.object({
-    leader: z.object({
-        defaultProfileKey: AgentProfileKeySchema.nullable(),
-    }),
-});
-
-/**
  * 更新 Agent Profile 模型设定请求。
  */
 export const UpdateAgentProfileModelSettingsRequestDtoSchema = z.object({
@@ -414,9 +368,6 @@ export type ModelSettingsDto = z.infer<typeof ModelSettingsDtoSchema>;
 export type UpdateModelSettingsRequestDto = z.infer<typeof UpdateModelSettingsRequestDtoSchema>;
 export type AgentProfileModelSettingsDto = z.infer<typeof AgentProfileModelSettingsDtoSchema>;
 export type UpdateAgentProfileModelSettingsRequestDto = z.infer<typeof UpdateAgentProfileModelSettingsRequestDtoSchema>;
-export type WorkspaceAgentProfileSettingsDto = z.infer<typeof WorkspaceAgentProfileSettingsDtoSchema>;
-export type WorkspaceAgentProfileSettingsQueryDto = z.infer<typeof WorkspaceAgentProfileSettingsQueryDtoSchema>;
-export type UpdateWorkspaceAgentProfileSettingsRequestDto = z.infer<typeof UpdateWorkspaceAgentProfileSettingsRequestDtoSchema>;
 export type ModelProviderDraftDto = z.infer<typeof ModelProviderDraftDtoSchema>;
 export type DiscoveredProviderModelDto = z.infer<typeof DiscoveredProviderModelDtoSchema>;
 export type CheckProviderRequestDto = z.infer<typeof CheckProviderRequestDtoSchema>;

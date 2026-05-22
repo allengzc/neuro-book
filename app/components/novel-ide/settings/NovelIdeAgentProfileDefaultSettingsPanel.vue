@@ -3,10 +3,7 @@ import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
-import type {
-    WorkspaceAgentProfileSettingsDto,
-    UpdateWorkspaceAgentProfileSettingsRequestDto,
-} from "nbook/shared/dto/app-settings.dto";
+import type {WorkspaceSettingsDto, UpdateWorkspaceSettingsRequestDto} from "nbook/shared/dto/workspace-settings.dto";
 
 const emit = defineEmits<{
     (e: "saved", profileKey: string): void;
@@ -17,15 +14,15 @@ const notification = useNotification();
 const loading = ref(false);
 const saving = ref(false);
 const errorText = ref("");
-const settings = ref<WorkspaceAgentProfileSettingsDto | null>(null);
+const settings = ref<WorkspaceSettingsDto | null>(null);
 const selectedProfileKey = ref("");
 const snapshotProfileKey = ref("");
 
 const workspaceLabel = computed(() => novelIdeStore.workspaceKind === "user-assets" ? "用户资产工作区" : "当前小说工作区");
-const effectiveProfileKey = computed(() => settings.value?.effectiveLeaderProfileKey ?? "");
+const effectiveProfileKey = computed(() => settings.value?.agent.effectiveProfileKey ?? "");
 const dirty = computed(() => selectedProfileKey.value !== snapshotProfileKey.value);
 const profileOptions = computed<SelectOption[]>(() => {
-    const options = settings.value?.leaderProfiles.map((profile) => ({
+    const options = settings.value?.agent.profiles.map((profile) => ({
         value: profile.profileKey,
         label: profile.profileKey,
         description: profile.name,
@@ -34,7 +31,7 @@ const profileOptions = computed<SelectOption[]>(() => {
     return [
         {
             value: "",
-            label: `跟随系统默认 (${settings.value?.systemDefaultLeaderProfileKey ?? "-"})`,
+            label: `跟随系统默认 (${settings.value?.agent.systemDefaultProfileKey ?? "-"})`,
             description: "不写入 workspace 覆盖设置。",
             indicatorClass: "bg-slate-400",
         },
@@ -55,9 +52,9 @@ function settingsQuery(): Record<string, string> {
 /**
  * 应用接口响应。
  */
-function applySettings(nextSettings: WorkspaceAgentProfileSettingsDto): void {
+function applySettings(nextSettings: WorkspaceSettingsDto): void {
     settings.value = nextSettings;
-    selectedProfileKey.value = nextSettings.workspaceDefaultLeaderProfileKey ?? "";
+    selectedProfileKey.value = nextSettings.agent.workspaceDefaultProfileKey ?? "";
     snapshotProfileKey.value = selectedProfileKey.value;
 }
 
@@ -71,7 +68,7 @@ async function loadSettings(): Promise<void> {
     loading.value = true;
     errorText.value = "";
     try {
-        applySettings(await $fetch<WorkspaceAgentProfileSettingsDto>("/api/settings/workspace-agent-profiles", {
+        applySettings(await $fetch<WorkspaceSettingsDto>("/api/workspace-settings", {
             query: settingsQuery(),
         }));
     } catch (error) {
@@ -90,21 +87,21 @@ async function saveSettings(): Promise<void> {
     }
     saving.value = true;
     errorText.value = "";
-    const body: UpdateWorkspaceAgentProfileSettingsRequestDto = {
-        leader: {
+    const body: UpdateWorkspaceSettingsRequestDto = {
+        agent: {
             defaultProfileKey: selectedProfileKey.value || null,
         },
     };
 
     try {
-        const nextSettings = await $fetch<WorkspaceAgentProfileSettingsDto>("/api/settings/workspace-agent-profiles", {
+        const nextSettings = await $fetch<WorkspaceSettingsDto>("/api/workspace-settings", {
             method: "PUT",
             query: settingsQuery(),
             body,
         });
         applySettings(nextSettings);
-        emit("saved", nextSettings.effectiveLeaderProfileKey);
-        notification.success("默认 Profile 已保存，新建线程会使用新的默认值。");
+        emit("saved", nextSettings.agent.effectiveProfileKey);
+        notification.success("默认 Profile 已保存，新建 session 会使用新的默认值。");
     } catch (error) {
         errorText.value = error instanceof Error ? error.message : "保存默认 Profile 设置失败";
     } finally {
@@ -127,7 +124,7 @@ onMounted(() => {
         <div class="flex flex-wrap items-center justify-between gap-4">
             <div class="max-w-xl">
                 <h3 class="text-base font-semibold text-[var(--text-main)]">默认 Agent Profile</h3>
-                <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ workspaceLabel }}的新建 leader 线程会使用这里的默认 Profile；已有线程不受影响。</p>
+                <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ workspaceLabel }}的新建 Agent session 会使用这里的默认 Profile；已有 session 不受影响。</p>
             </div>
 
             <button
@@ -158,13 +155,13 @@ onMounted(() => {
         <div v-else class="grid gap-3">
             <section class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-sm">
                 <div class="mb-4 border-b border-[var(--border-color)] pb-4">
-                    <h4 class="text-sm font-semibold text-[var(--text-main)]">Leader 默认 Profile</h4>
-                    <p class="mt-1 text-xs text-[var(--text-secondary)]">设置会写入当前 workspace 的 <code class="rounded bg-[var(--bg-input)] px-1">.nbook/agent-profile-settings.json</code>。</p>
+                    <h4 class="text-sm font-semibold text-[var(--text-main)]">默认 Agent Profile</h4>
+                    <p class="mt-1 text-xs text-[var(--text-secondary)]">设置会写入当前 workspace 的 <code class="rounded bg-[var(--bg-input)] px-1">.nbook/settings.json</code>。</p>
                 </div>
 
                 <div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                     <div class="space-y-1.5">
-                        <label class="text-xs font-medium text-[var(--text-secondary)]">默认 leader profile</label>
+                        <label class="text-xs font-medium text-[var(--text-secondary)]">默认 Agent Profile</label>
                         <FormSelect v-model="selectedProfileKey" :options="profileOptions" placeholder="选择默认 Profile" />
                     </div>
                     <div class="rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)]/30 px-4 py-3">

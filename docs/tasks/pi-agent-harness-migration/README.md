@@ -63,13 +63,14 @@
 - 已确认实现顺序：先确认 v3 profile 路径统一使用复数 `agent/profiles`，同步 catalog、typegen、check-profile、测试 fixture 与最小 profile 验证；确认扫描和 contract 正常后，再迁移完整 `leader.default`。
 - 已确认 v3 profile 文件命名约定：默认使用 `<profileKey>.profile.tsx`，例如 `leader.default.profile.tsx`、`writer.default.profile.tsx`、`custom.my-agent.profile.tsx`。目录只负责分组，例如 `builtin/leader.default.profile.tsx`。
 - 已确认 v3 typegen 读取系统/user assets profiles，但 builtin key 继续使用源码内 builtin contract 作为静态类型来源；用户或系统 assets 覆盖 builtin key 只影响运行实现，不覆盖开发期 Input/Output 静态类型。自定义新 key 才从 assets `.profile.tsx` 生成类型索引。
-- 已确认完整 leader 迁移第一轮只迁 `leader.default`。`leader.assets` 属于用户资产编辑工作区专用 agent，和 assets 编辑提示词、profile 工作台、用户覆盖结构耦合更强，等 `leader.default` + 基础工具链跑通后单独迁移。
+- 已确认 `leader.assets` 是用户资产编辑工作区专用 agent；验收阶段已从 v2 assets editor 迁移为 v3 TypeBox/TSX profile，放入 `assets/.nbook/agent/profiles/builtin/leader.assets.profile.tsx`，并使用同一套 Pi 风格基础工具。
 - 已确认 v3 `leader.default` 第一版 allowed tools：`read`、`write`、`edit`、`apply_patch`、`bash`、`create_agent`、`invoke_agent`、`get_agent`、`get_session`、`detach_agent`、`request_user_input`、`enter_plan_mode`、`exit_plan_mode`、`skill`。顶层 leader 不默认启用 `report_result`，避免主对话被被调用 agent 的完成协议绑死。
 - 已确认 `invoke_agent` 对 `report_result` 的完成规则：只有目标 profile 的 `allowedToolKeys` 包含 `report_result` 时，harness 才要求目标 agent 以 `report_result` 结束并启用一次自动提醒；如果目标 profile 没有允许 `report_result`，则按普通 completion 返回 `finalMessage`，不触发缺失 report 提醒。
 - 已确认在后端基础任务全部完成后，新增独立 prompt 阶段 checklist：先回查本地 PI 源码，再统一校准 v3 基础工具 description / prompt guidelines / model-visible result wording，以及 v3 leader 提示词里的工具使用规则。
 - 已实现 Pi 风格基础工具：`read`、`write`、`edit`、`apply_patch`、`bash`。这些工具都绑定 agent session 的 `workspaceRoot`，不暴露 `workdir`；`bash` 只调用真实 bash，stdout/stderr 合并，长输出写系统临时 `.log` 并把尾部与 `Full output` 路径返回给模型。
 - 已让 v3 harness 的 toolResult 保留工具原始 content，避免 `read` 图片等非文本结果被压扁成纯文本。
 - 已把完整 v3 `leader.default` 主实现放入 `assets/.nbook/agent/profiles/builtin/leader.default.profile.tsx`，通过动态 profile catalog 加载。源码内 `server/agent/profiles/default-profile.ts` 仍保留为最小 fallback，但不再默认允许 `report_result`。
+- 已把 v3 `leader.assets` 主实现放入 `assets/.nbook/agent/profiles/builtin/leader.assets.profile.tsx`，使用户资产 workspace 的系统默认 profile 可以被真实 catalog 加载；`leader.assets` 作为 builtin key 不进入 dynamic profile type index。
 - 已新增 profile 文件名 warning：`<profileKey>.profile.tsx` 与 `manifest.key` 不一致时进入 catalog issue，但不阻断加载，`loadStatus` 仍保持 loaded。
 - 已补测试证明：默认 leader 不包含 `report_result` 时普通 completion 不触发缺失 report 提醒；显式允许 `report_result` 的 profile 仍触发结构化完成协议与一次自动提醒。
 - 已完成第一轮 Prompt Phase 校准：回查本地 Pi `read/write/edit/bash` 源码后，对齐 v3 基础工具 description、read 截断续读提示、bash 输出说明和 `leader.default` 的工具选择规则；同时修复 assets profile 中 `String.raw` 导致中文提示词被转成模型可见 unicode escape 的问题。
@@ -93,6 +94,7 @@
 - 已完成前端 Agent 抽屉迁移：删除旧 `useAgentApi` / `useAgentThreadSession`，新增 `useAgentSessionApi` / `useAgentSession`；`AgentThreadDialog.vue` 改为 `AgentSessionDialog.vue`，`AgentSubagentPanel.vue` 改为 `AgentLinkedAgentPanel.vue`。
 - 已把 `NovelAgentDrawer.vue` 接到新 session snapshot/event store，保留发送、停止、继续、审批/输入恢复、Plan Mode、模型选择、compact、session 列表、linked agents、edit/retry/rollback/fallback 等核心入口。
 - 已把聊天渲染切到新 card 派生层：输入为原始 `AgentMessage[]`、session event 和 live invocation，输出用户/assistant 文本卡、通用工具卡，以及 `read` / `write` / `edit` / `apply_patch` / `bash` 等专用工具卡；`message_update` 与 `tool_execution_update` 只更新 live card，历史真相仍以后端 snapshot 为准。
+- 验收阶段已删除旧 `/api/settings/workspace-agent-profiles` 专用接口，改为 `/api/workspace-settings`。默认 Agent Profile 现在写入 `<workspaceRoot>/.nbook/settings.json` 的 `agent.defaultProfileKey`，新建 session 读取 `agent.effectiveProfileKey`。
 
 ## Decisions
 
@@ -387,25 +389,27 @@ workspace/.nbook/agent/sessions/
 - `sessionId` 与 `invocationId`：
   - `sessionId` 是长期 agent session 标识，绑定一个 `AgentInstance` 和 append-only entry tree。第一版使用全局唯一数字递增 ID；一个 session 可以被多次 `invoke_agent` / prompt / continue。
   - `invocationId` 是单次调用/run 标识，只表示“这一次 invoke_agent 请求”。它用于非阻塞调用、事件订阅、日志追踪和精确查询某一次 run；不是 agent 长期身份。
-  - 第一版如果只做阻塞 `invoke_agent`，可以不把 `invocationId` 暴露给模型工具；等实现 `block: false` 或 run 级查询时再引入。引入时建议同样使用全局唯一数字递增 ID。
+  - 当前 `invocationId` 使用 UUID 字符串；`sessionId` 继续使用全局数字递增 ID。
 - `invoke_agent` 阻塞返回契约：
   - Pi core 的 `prompt()` / `continue()` await 到 `agent_end`，事件里 `turn_end` 带本 turn 的 assistant message 和 toolResults，`agent_end` 带本次 run 新产生的 messages。Pi coding-agent 的 subagent extension 返回 model-visible content，同时把完整子进程结果放在 tool details：每个结果包含 messages、usage、model、stopReason、errorMessage 等。
   - Neuro Book v2 `invoke_subagent` 当前会同步等待 subagent 完成，然后从子线程历史中优先解析最后一次 `report_result`，否则退回最后一条 assistant 文本；中间 live 消息不嵌回父线程。
   - v3 采用两者折中：`invoke_agent` 返回目标 session 的本次运行摘要、最终 assistant 摘要、usage 汇总和 `report_result` 结果；完整 history 只通过 session API 查询，不塞入工具返回。
-  - 建议 DTO：
+  - 当前 service 返回：
 
     ```ts
     type InvokeAgentResult = {
         sessionId: number;
-        invocationId: number;
-        status: "completed" | "failed" | "stopped";
-        block: true;
+        invocationId: string;
+        status: "completed" | "waiting" | "error";
         finalMessage?: string;
-        reportResult?: unknown;
-        error?: {
-            message: string;
-            code?: string;
+        reportResult?: {
+            result: string;
+            success?: boolean;
+            data?: unknown;
         };
+        error?: string;
+        usage?: Usage;
+        events: AgentEvent[];
     };
     ```
 
@@ -551,8 +555,8 @@ type ProfileIngestResult = {
   - `/plan on|off|toggle [reason]`：手动切换当前 session 的软 Plan Mode。命令写 append-only session state entry，并通过 event hub 广播；命令本身不作为 user message 进入模型上下文。
   - `/model <modelKey|default>`：切换当前 session 的 per-session model override，写 append-only model state entry，并通过 event hub 广播。`default` 表示清空 override，回到 profile/default model resolver。
 - `/tree` 参考 Pi 的 tree navigation：在当前 session 内移动 leaf，并在跨分支离开当前路径时可生成 `branch_summary` 保存被离开分支的上下文。`/fork` 参考 Pi coding-agent 的 `/fork`：创建新 session，而不是只在当前 tree 内移动 leaf。
-- 前端按钮触发的 Plan Mode、manual compact、tree/retry/fork、model override 等控制动作都走同一个 session command dispatcher，而不是各自设计散落 endpoint。第一版提供 `POST /api/agent/sessions/:sessionId/commands`，body 为 `{ text: "/compact ..." }`、`{ text: "/plan on ..." }` 或 `{ text: "/model ..." }`。
-- command routing 由前端负责。`POST /api/agent/sessions/:sessionId/invocations` 允许用户发送以 `/` 开头的普通文本，后端不在 invoke 入口自动解析 command；只有 `/commands` 入口会按 session command 解析。这避免用户想让模型“解释 `/compact` 这个字符串”时被后端吞掉。
+- 前端按钮触发的 Plan Mode、manual compact、tree/retry/fork、model override 等控制动作都走同一个 session command dispatcher，而不是各自设计散落 endpoint。当前 `POST /api/agent/sessions/:sessionId/commands` 接收 discriminated union body，例如 `{ command: "compact", instructions }`、`{ command: "plan", active }` 或 `{ command: "model", modelKey }`。
+- command routing 由前端负责。`POST /api/agent/sessions/:sessionId/invocations` 允许用户发送以 `/` 开头的普通文本，后端不在 invoke 入口自动解析 command；只有 `/commands` 入口会执行 control-plane command。这避免用户想让模型“解释 `/compact` 这个字符串”时被后端吞掉。
 - session command 是 control-plane 操作，不走 followUp queue。已有 active invocation 时，`/tree`、`/fork`、`/retry`、`/compact`、`/plan`、`/model` 等 command 都返回 `active_invocation_exists`，要求用户先 abort 或等待 idle，避免同一 session tree 被运行中的 provider loop 和控制命令同时修改。
 - `/commands` HTTP 入口本身不长时间等待。它负责解析并发起 command：短命令同步写 entry 并返回完成结果；`/compact` 这类需要 provider 的命令只启动 compact active invocation 并立即返回 `started`。compact 过程通过同一个 session SSE/event hub 同步，完成后写 `compaction` entry 并广播 state/event。
 - v3 参考 Pi 重新设计用户输入流：
@@ -592,35 +596,30 @@ Another language model started to solve this problem and produced a summary of i
 
 - harness 负责压缩提示词、cut point、token budget、entry 写入和 tool-call/result 完整性。profile 不参与 compaction prompt / summary 生成策略。
 
-## Frontend Session API Plan
+## Frontend Session API Contract
 
-- 正式前端迁移后，Agent HTTP 主入口使用 `/api/agent/**`。`/api/agent-v3/**` 只作为迁移过程中的临时 smoke / 调试历史，不进入新前端 contract；代码命名也应逐步移除 `V3` / `agent-v3` 后缀。
-- 旧 `/api/agent/threads/**` contract 在前端迁移时删除或保持 removed stub，不做兼容重定向。新 UI、composable、DTO 都应使用 `sessionId/session` 命名，不再沿用 `threadId/thread`。
-- 新前端 DTO 放入 `shared/dto/agent-session.dto.ts`。本次迁移不考虑 legacy 兼容：旧 `shared/dto/agent-chat.dto.ts`、旧 `useAgentApi`、旧 thread/subagent API 引用随前端迁移直接删除或替换为新 session API/store，不保留 legacy wrapper 或 thread -> session adapter。`useAgentApi` 是旧前端封装 `/api/agent/threads/**`、stream、subagent、model / plan-mode 请求的 composable；迁移后它不再作为兼容层存在。
+- Agent HTTP 主入口已经是 `/api/agent/**`。临时 `/api/agent-v3/**` 和旧 `/api/agent/threads/**` 已删除，不做兼容重定向。
+- 新 UI、composable、DTO 都使用 `sessionId/session` 命名，不沿用旧 `threadId/thread`。
+- 前后端 DTO 放入 `shared/dto/agent-session.dto.ts`。本次迁移不考虑 legacy 兼容：旧 `shared/dto/agent-chat.dto.ts`、旧 `useAgentApi`、旧 thread/subagent API 引用已经删除或替换为新 session API/store，不保留 legacy wrapper 或 thread -> session adapter。
 - 用户直接创建的顶层 session 与 agent 创建/拥有的 linked session 第一版用 `SessionMetadata.parentSessionId` 区分：没有 `parentSessionId` 的 session 是 workspace 顶层 session；有 `parentSessionId` 的 session 是某个 owner session 的 linked agent。用户在某个 session 面板里手动创建 linked agent，也按 linked session 处理。若后续 UI 需要区分“用户手动创建 linked agent”和“模型通过 create_agent 工具创建 linked agent”，再补 `custom` entry 或 metadata `createdBy`，但第一版列表分组不依赖这个细分。
 - session 列表分两个视角：主对话列表只展示当前 workspace 下的顶层 sessions；当前 session 的 linked agents 由 linked agent 面板展示，数据来自 owner session 的 linked agent reduce 结果。
-- session list summary 需要支持旧抽屉的浏览体验，但不返回完整 messages。第一版返回 `sessionId`、`profileKey`、`parentSessionId`、`title`、`summary`、`lastMessagePreview`、`updatedAt`、`status`、`model` / `modelOverride`、`planMode` 等轻量字段。
-- session 创建与列表 API 第一版固定为：
-  - `GET /api/agent/sessions?workspaceKey=...`：列当前 workspace 下的顶层 sessions，不返回 linked agents 的完整列表。
-  - `POST /api/agent/sessions`：创建 session，body 包含 `workspaceKey`、`profileKey`、`input`、可选 `parentSessionId`。有 `parentSessionId` 时创建 linked session；无 `parentSessionId` 时创建顶层 session。
+- session summary 不返回完整 messages。当前返回 `sessionId`、`profileKey`、`workspaceKey`、`workspaceRoot`、`parentSessionId`、`title`、`summary`、`status`、`updatedAt`、`archived`、`lastMessagePreview`、`usage` 等轻量字段。
+- session 创建与列表 API 固定为：
+  - `GET /api/agent/sessions?workspaceKey=...&includeArchived=false`：列当前 workspace 下的顶层 sessions，不返回 linked agents 的完整列表。
+  - `POST /api/agent/sessions`：创建 session，body 包含 `profileKey`、可选 `input`、`workspaceRoot`、`workspaceKey`、`parentSessionId`。有 `parentSessionId` 时创建 linked session；无 `parentSessionId` 时创建顶层 session。
   - `GET /api/agent/sessions/:sessionId`：返回 snapshot。
   - `/new` command 只是 UI / command dispatcher 的快捷入口，底层复用同一个 create session service。
-- 首次打开 Agent 抽屉时的 session 选择策略：前端按当前 workspace 调 `GET /api/agent/sessions`，优先打开本浏览器记住的 `lastSessionId`；如果该 session 不存在或已归档，则打开最近更新的顶层 session；如果列表为空，才自动创建一个 `leader.default` session。这样避免每次打开抽屉都新建 session，同时支持同一 workspace 多窗口工作。
+- 首次打开 Agent 抽屉时的 session 选择策略：前端按当前 workspace 调 `GET /api/agent/sessions`，优先打开本浏览器记住的 `lastSessionId`；如果该 session 不存在或已归档，则打开最近更新的顶层 session；如果列表为空，才自动创建一个当前 workspace 默认 profile session。这样避免每次打开抽屉都新建 session，同时支持同一 workspace 多窗口工作。
 - session 删除第一版采用归档/隐藏，不做物理删除。用户点击删除时写 append-only `session_archived` entry，session 列表默认不显示 archived session；调试、恢复和后续管理功能仍可找到 JSONL 历史。物理删除后续再作为单独管理能力设计。
 - 创建运行的正式入口是 `POST /api/agent/sessions/:sessionId/invocations`。它不表示一定创建一个并发 provider run；如果该 session 当前 idle，则创建新的 active invocation；如果该 session 已有 active invocation，则按请求类型排队或恢复当前 invocation。
-- `POST /api/agent/sessions/:sessionId/invocations` 请求参数建议为：
+- `POST /api/agent/sessions/:sessionId/invocations` 当前请求参数为：
 
 ```ts
 type AgentInvocationRequest = {
     mode: "prompt" | "continue";
     message?: AgentUserMessageInput;
     resolution?: AgentResolution;
-    queue?: {
-        whenRunning: "follow_up" | "reject";
-    };
-    response?: {
-        block: boolean;
-    };
+    block?: boolean;
 };
 
 type AgentUserMessageInput = {
@@ -637,72 +636,59 @@ type AgentUserMessageInput = {
   - `mode: "prompt"` 必须带 `message`。
   - `mode: "continue"` 不允许带 `message`，但可以带 `resolution`。
   - `resolution` 使用现有 `AgentResolution` 结构，只用于恢复尾部未完成 approval tool call，例如 `request_user_input`、`enter_plan_mode`、`exit_plan_mode`、`skill`。它不是模型最终回答，而是前端/用户对等待中 tool call 的恢复动作，后端会转换成标准 tool result message 后继续运行。
-  - `queue.whenRunning` 默认是 `"follow_up"`。当 session 已有 active invocation 且收到新的 `prompt` 时，不启动并行 invocation，而是把 `message` 放入当前 active invocation 的 followUp queue，并返回 queued 状态。
-  - `queue.whenRunning: "reject"` 用于前端某些显式按钮，例如不希望误把请求排队的 destructive / control action。
-  - `response.block` 默认 `false` 给前端使用：HTTP 尽快返回 `invocationId` 或 queued 结果，后续通过 `/events` 更新 UI。模型工具 `invoke_agent` 仍可保持阻塞语义，由后端 service 层等待目标 agent 完成。
-- 返回值建议为：
+  - `block: false` 字段已预留，但当前 harness 会返回错误；前端第一版不要传 `block: false`。
+  - 当前没有 `queue.whenRunning` / `response.block` 包装字段。运行中收到 prompt 时自动进入 FIFO followUp queue；控制动作通过 `/commands` 或 `/tree`，并在 running session 时返回 `active_invocation_exists`。
+- 当前返回值为：
 
 ```ts
-type AgentInvocationResponse =
-    | {
-        status: "started";
-        sessionId: number;
-        invocationId: number;
-    }
-    | {
-        status: "queued";
-        sessionId: number;
-        activeInvocationId: number;
-        queueItemId: string;
-        queueKind: "follow_up";
-    }
-    | {
-        status: "completed" | "waiting" | "error";
-        sessionId: number;
-        invocationId: number;
-        finalMessage?: string;
-        reportResult?: unknown;
-        error?: { message: string; code?: string };
+type AgentInvocationResponse = {
+    sessionId: number;
+    invocationId: string;
+    status: "completed" | "waiting" | "error";
+    finalMessage?: string;
+    reportResult?: {
+        result: string;
+        success?: boolean;
+        data?: unknown;
+    };
+    error?: string;
+    usage?: Usage;
+    events: AgentEvent[];
 };
 ```
 
-- `response.block: false` 时通常返回 `started` 或 `queued`；`response.block: true` 时可以返回 `completed` / `waiting` / `error`。如果请求在已有 active invocation 的 session 上被排入 followUp，即使 `block: true` 第一版也不等待整个队列跑完，仍返回 `queued`，避免一个 HTTP 请求跨多个 turn 长时间挂住。
+- followUp queued 当前也复用 `waiting` 返回，并在 `finalMessage` 中包含 `follow up queued: <queueItemId>`；同时通过 session event hub 广播 `follow_up_queued`。这是第一版实现细节，后续可以再独立成显式 `queued` status。
 - 第一版不支持取消 queued followUp。queued message 尚未 drain 时也不提供删除接口；如果用户误发，可以继续发送新的 followUp 纠正。若 queued message 已经 drain 并写入 session，则通过 `tree` 回退或分支切换处理。
 - followUp queue 第一版使用 FIFO 自动执行：当前 active invocation 完整结束后，harness 自动取下一条 queued prompt 继续运行。如果当前 session 停在 approval pending，followUp 只排队并进入 snapshot，不抢占 approval resolution；用户提交 `continue + resolution` 后先恢复当前 tool call。abort 默认清空尚未 drain 的 followUp queue。
 - active invocation lock 是 session 级运行互斥：同一个 `sessionId` 在同一时刻只能有一个正在修改 session tree、调用 provider、执行工具或执行 compact / command 的 active invocation。它不是数据库锁，也不是跨进程锁；第一版是 harness 进程内的运行态保护，用来防止两个浏览器窗口或两个请求同时向同一棵 JSONL entry tree 追加互相交错的消息。
 - active invocation lock 拦截的是“会改变 session 真相”的并发动作：并行 provider loop、compact、tree/fork/retry、model/plan command、approval resume 等。普通 prompt 在运行中默认进入 followUp queue；控制命令在运行中返回 `active_invocation_exists`；approval resolution 恢复当前 active invocation，不创建第二个 run。
-- active invocation 建议带 `invocationKind: "prompt" | "continue" | "compact" | "command"`。它仍然共享同一个 session active invocation lock；UI 可以根据 kind 显示“正在回复”“正在继续”“正在压缩上下文”等不同状态。
-- invocation lifecycle 需要写入轻量 session entry，例如 `invocation_start`、`invocation_end`、`invocation_error`、`invocation_aborted`。第一版 event hub 和 lock 仍是内存态，但这些 entry 让进程重启后的 snapshot 能识别“上次运行中断/未正常结束”，而不是静默显示 idle。重启后不自动恢复 provider/tool run，只把状态暴露给 UI 和后续命令处理。
-- session command 入口建议返回与 invocation 相似但更明确的结果：
+- active invocation 当前带 `mode: "prompt" | "continue" | "compact"`，并共享同一个 session active invocation lock。
+- invocation lifecycle 会写入轻量 session entry。第一版 event hub 和 lock 仍是内存态；重启后不自动恢复 provider/tool run，只把状态暴露给 UI 和后续命令处理。
+- session command 当前请求为 discriminated union：
 
 ```ts
-type AgentCommandRequest = {
-    text: string;
-};
+type AgentCommandRequest =
+    | { command: "new" }
+    | { command: "archive"; reason?: string }
+    | { command: "compact"; instructions?: string }
+    | { command: "plan"; active: boolean }
+    | { command: "model"; modelKey: string | null }
+    | { command: "retry"; entryId?: string }
+    | { command: "fork"; entryId?: string }
+    | { command: "tree"; targetEntryId: string; position?: "at" | "before" };
+```
 
-type AgentCommandResponse =
-    | {
-        status: "completed";
-        sessionId: number;
-        command: string;
-        message?: string;
-    }
-    | {
-        status: "started";
-        sessionId: number;
-        invocationId: string;
-        command: "compact";
-    }
-    | {
-        status: "error";
-        sessionId: number;
-        command?: string;
-        error: { code: string; message: string };
-    };
+```ts
+type AgentCommandResponse = {
+    status: "completed" | "started";
+    sessionId: number;
+    snapshot?: AgentSessionSnapshot;
+    createdSession?: AgentSessionSummary;
+};
 ```
 
 - `/commands` 不允许长 HTTP 阻塞。`/compact` 返回 `started` 后，压缩过程通过 `/events` 推送；前端如果需要最终状态，从后续 `message_end` / `session_entry` / `session_state_changed` 或重新拉 snapshot 获得。
-- 中断运行的正式入口是 `POST /api/agent/sessions/:sessionId/abort`，建议请求参数为：
+- 中断运行的正式入口是 `POST /api/agent/sessions/:sessionId/abort`，请求参数为：
 
 ```ts
 type AgentAbortRequest = {
@@ -726,10 +712,10 @@ type AgentAbortRequest = {
 - snapshot 的 active path messages 使用原始 `AgentMessage[]`，不返回旧前端 conversation tree projection。前端基于 `AgentMessage[]` 与 Pi `AgentEvent` 做渲染转换；tree 只返回轻量 entry summary 与 active leaf 信息。
 - 前端 store 的 canonical 数据形态是新 session contract：`AgentSessionSnapshot`、原始 `AgentMessage[]`、`AgentSessionEvent[]`、`liveInvocation`、`followUpQueue` 等。ChatDrawer 需要的不是 legacy message DTO，而是新的卡片渲染模型：把 session message、Pi event、tool execution 和 live state 派生成一组卡片，用于展示普通 assistant/user 文本、通用 tool call、以及针对 `read` / `write` / `edit` / `apply_patch` / `bash` 等工具做过 UI 适配的卡片。
 - ChatDrawer 第一版应把“卡片列表”作为渲染目标：通用 tool call 有基础卡片，文件编辑类工具可以显示 diff / path / 状态，`bash` 可以显示命令、运行状态和流式输出尾部。流式工具输出不要求写进 `snapshot.messages`，但需要进入 live card state，让同一工具卡片能随 `tool_execution_update` 增量刷新；最终仍以后端 snapshot / session entry 作为历史真相。
-- ChatDrawer 卡片模型放在前端专用派生层，不进入后端 DTO，也不塞进 store 作为持久真相。建议新建 `app/components/novel-ide/agent/session-cards/` 或 `app/composables/agent-session-cards.ts`，输入 `AgentMessage[] + AgentSessionEvent[] + liveInvocation`，输出卡片列表；`AgentChatFlow` 只负责渲染卡片，不直接理解 Pi event 细节。
+- ChatDrawer 卡片模型放在前端专用派生层，不进入后端 DTO，也不塞进 store 作为持久真相。当前落点是 `app/components/novel-ide/agent/agent-message.ts` 与 `useAgentSession.ts`：输入 snapshot `AgentMessage[]`、session event 和 live invocation，输出 `AgentChatFlow` 使用的 text/tool card 列表。
 - session JSONL / reducer 是真相；SSE 只是增量广播通道。前端不能把 event stream 当作唯一历史来源，也不能依赖单个 invoke 请求返回的 events 重建全量历史。
 - event hub 第一版不持久化 SSE / stream events。事件只进入内存 bounded replay buffer；重启、buffer 过期或客户端 event gap 时，前端通过 session snapshot 恢复。JSONL 只保存 message、leaf、session_update、custom、compaction 等最终事实 entry。
-- 需要新增 session 级 event hub，而不是继续使用当前单次 `invoke-stream`：
+- 已新增 session 级 event hub，不再使用旧单次 `invoke-stream`：
   - 同一个 `sessionId` 允许多个 subscriber。
   - 同一轮 invocation 的事件 fan-out 给所有正在订阅该 session 的浏览器窗口。
   - event 使用 session 内递增 `seq` 或全局递增 `eventSeq`，客户端保存最后收到的序号。
@@ -778,7 +764,7 @@ type AgentSessionEvent =
   - `retry/refresh` 等价于移动到目标 assistant message 的 parent，再重新 continue 或 prompt，生成 sibling assistant branch；旧回复保留。
   - `rollback/fallback` 等价于移动到目标 entry 或目标 entry 的 parent，后续由用户选择继续、重新发或切换分支。
 - 第一版 session 有 active invocation 时禁止 `tree` 操作，包括 `tree + next.invoke`。如果当前 session 正在 streaming、执行工具或等待本轮结束，后端返回 `active_invocation_exists`；用户需要先 abort 当前 invocation，等 session idle 后再 edit/retry/rollback/fallback。这样避免 active run 的后续事件写入已经移动过 leaf 的 session tree。
-- API 层应提供原子 `tree + invoke` 能力，避免前端先 tree 成功、后 invoke 失败导致 UI 停在半切换状态。建议形态：
+- API 层已提供原子 `tree + invoke` 能力，避免前端先 tree 成功、后 invoke 失败导致 UI 停在半切换状态。当前形态：
 
 ```ts
 type AgentTreeRequest = {
@@ -798,8 +784,8 @@ type AgentTreeRequest = {
   - 主聊天区第一版展示 active path 线性消息，不直接展开完整 session tree。分支信息通过 message switcher、tree summary 或专门分支入口展示。
   - UI 上应明确当前 active branch，并允许用户切换旧回复和新回复。
   - 编辑消息可以保留“原地编辑”的交互感觉，但提交时底层执行 `tree + next.invoke`：移动到目标消息 parent，追加 edited user message，生成新分支；旧分支保留。
-- 前端渲染和核心交互完整保留：`AgentChatFlow`、message bubble、tool bubble、composer、消息操作、审批/输入恢复、模型选择、Plan Mode、refresh/retry、rollback/fallback、edit message 等现有抽屉能力都要迁移到新 session/event 数据源。允许做代码优化、bug 修复和小幅重构，但目标是还原旧 Agent 抽屉的核心功能，而不是重写成只支持最小聊天入口。旧 `useAgentApi` 直接删除或替换为新的 session API/store，不做 legacy wrapper。
-- 前端命名做一次性硬切：`thread` 心智迁到 `session`，`subagent` 心智迁到 `linked agent` / `agent`。建议把 `AgentThreadDialog.vue` 改为 `AgentSessionDialog.vue`，`useAgentThreadSession.ts` 改为 `useAgentSession.ts`，旧 thread DTO、store state、route helper、事件名和局部变量同步改名；如果某些组件仍叫 `Thread` 只因为 UI 文案是“对话列表”，也应在迁移中改为 session 命名，避免新旧概念混用。
+- 前端渲染和核心交互已迁移到新 session/event 数据源：`AgentChatFlow`、message bubble、tool bubble、composer、消息操作、审批/输入恢复、模型选择、Plan Mode、refresh/retry、rollback/fallback、edit message 等旧抽屉核心入口继续保留。旧 `useAgentApi` 已删除，不做 legacy wrapper。
+- 前端命名已做一次性硬切：`thread` 心智迁到 `session`，`subagent` 心智迁到 `linked agent` / `agent`。`AgentThreadDialog.vue` 已改为 `AgentSessionDialog.vue`，`useAgentThreadSession.ts` 已改为 `useAgentSession.ts`，`AgentSubagentPanel.vue` 已改为 `AgentLinkedAgentPanel.vue`。
 - `model override` 是 per-session 状态，不是 per-invocation 参数。前端切换模型时应写 append-only session state entry，影响后续 invocation；当前已经启动的 active invocation 不被中途切换模型。assistant message 自身仍应记录本次实际使用的 provider / model，方便历史解释。
 - `model override` 不单独设计 `PATCH /model` endpoint。模型选择 UI 调用 `/commands`，使用 `/model <modelKey|default>` 命令；这样模型切换、Plan Mode、compact、tree/retry/fork 都共享同一个 session command 入口。
 - `Plan Mode soft toggle` 是 per-session 状态，但不单独设计 patch endpoint；它走通用 session command dispatcher，例如 `/plan on`、`/plan off`、`/plan toggle`。command 写 session state entry，并通过 event hub 广播，确保同一个 session 的多个浏览器窗口看到一致状态。
@@ -836,6 +822,9 @@ type AgentTreeRequest = {
 - `app/components/novel-ide/agent/AgentSessionDialog.vue`、`AgentLinkedAgentPanel.vue`：替换旧 thread dialog 与 subagent panel。
 - `app/components/novel-ide/agent/agent-message.ts`：从 Pi message/session event 派生聊天卡片模型。
 - `app/composables/useAgentApi.ts`、`app/components/novel-ide/agent/useAgentThreadSession.ts`、`AgentThreadDialog.vue`、`AgentSubagentPanel.vue`、`AgentSubagentBubble.vue`：已删除旧 Agent 前端入口。
+- `assets/.nbook/agent/profiles/builtin/leader.assets.profile.tsx`：新增 v3 用户资产助手 profile，替代 v2 `leader.assets` 的运行入口。
+- `shared/dto/workspace-settings.dto.ts`、`server/workspace-settings/workspace-settings.ts`、`server/api/workspace-settings/**`：新增工作区设置接口，替代旧 workspace 默认 profile 专用接口。
+- `server/api/settings/workspace-agent-profiles.*`：已删除。
 - `server/utils/model.ts` / `server/utils/model.test.ts` / `server/utils/agent-message-utils.ts`：已删除，旧 provider 代码只保留在 v2 归档历史中。
 - `PROJECT-STATUS.md`
 
@@ -843,23 +832,25 @@ type AgentTreeRequest = {
 
 - `bunx prisma generate`：通过；Prisma client 已按删除旧 Agent thread/message schema 重新生成。
 - `bun test server/agent`：Agent harness / API helper / profile / tool / session event hub 测试通过。
+- `bun test server/workspace-settings server/agent`：workspace settings 与 Agent 回归测试通过。
 - `bunx tsc --noEmit --pretty false`：通过。
 - `bun scripts/prepare-profile-types.ts --v3 --all`：通过；builtin key 不生成动态类型索引，当前输出 0 个 dynamic profile type entries。
+- `bun test server/workspace-settings server/agent`：通过；覆盖 `leader.assets` 真实 catalog 加载和 workspace settings query 400。
 - `bun scripts/smoke-agent.ts`：通过；使用真实 provider `xiaomimimo/mimo-v2.5-pro`，通过 assets 版 `leader.default` 普通 completion 返回 `agent session smoke ok`，并拿到 usage 与 session JSONL。
 - `scripts/smoke-agent-http.ts` 需要本地 dev server，当前只作为手动 HTTP smoke 入口记录；本轮未自动启动浏览器或 dev server 做交互验收。
 - 搜索检查：active `app` / `server` / `shared` / `scripts` 中不再引用 `agent-v3`、`AgentV3`、`useAgentV3`、`agent-v3.dto`、`useAgentApi`、`/api/agent/threads`、`AgentThreadDialog`、`AgentSubagentPanel`、`useAgentThreadSession`；旧 `agent-chat.dto` 命中仅保留在 `server/agent-v2` 归档目录。
+- 搜索检查：active `app` / `server` / `shared` 中不再引用 `/api/settings/workspace-agent-profiles` 或 `WorkspaceAgentProfileSettings`。
 - 设计依据来自本地 Pi 源码和调研文档 `docs/research/pi-agent-harness.md`。
 
 ## TODO / Follow-ups
 
 - 补完整 session history HTTP/API 或调试 API：当前正式 HTTP 只提供前端 snapshot 和轻量 session query，不提供完整 history 原文下载。
 - 强化 v3 tool policy：当前已按 `allowedToolKeys` 控制模型可见工具与执行硬权限，并接入 SkillCatalog 可见性校验；后续还需要补更细粒度 skill 白名单硬权限。第一版不做 workspaceRoot 路径硬沙箱。
-- TODO：`leader.assets` 不进入本轮完整 leader 迁移。后续在 `leader.default` 跑通后，把用户资产编辑工作区专用提示词迁到 `assets/.nbook/agent/profiles/builtin/leader.assets.profile.tsx`，并复用 v3 基础工具、profile preview、用户覆盖和 typecheck 链路。
 - TODO：源码内 `server/agent/profiles/default-profile.ts` 最小 fallback 先保留，后续当系统 assets profile、测试 fixture、smoke 和用户覆盖链路稳定后评估删除，避免长期维护两套 `leader.default` prompt。
 - leader prompt 第一版迁移范围已收窄：当前优先保证 TypeBox schema、history/dynamic/appending 映射、allowedToolKeys、agent catalog/linked agents 注入和新工具名正确；第一轮 Prompt Phase 已校准基础工具选择规则，剧情结构、内容节点、Markdown Studio 写作格式、Plan Mode reminder 等重型业务提示块后续再继续做完整 wording parity。
 - `leader.default` allowedToolKeys 第一版不包含 `report_result`。如果未来某个 leader 需要被其他 agent 调用并以结构化结果结束，应通过专门 profile 或“可被 invoke_agent 调用”能力声明处理，不把顶层默认 leader 绑定到 report 协议。
 - `invoke_agent` 不把 `report_result` 当成所有 agent 的隐式完成协议。目标 profile 允许 `report_result` 时，调用方期待结构化结果，harness 会在普通结束时提醒一次；目标 profile 不允许 `report_result` 时，调用方只拿普通 `finalMessage`，不做缺失 report 纠错。
-- TODO：继续做更完整的 prompt parity。第一轮已对齐 Pi 基础工具 description 和 `leader.default` 工具选择规则；后续需要迁移/校准 `leader.assets`、skill 激活文案、Plan Mode reminder 和更完整的小说业务提示块。
+- TODO：继续做更完整的 prompt parity。第一轮已对齐 Pi 基础工具 description 和 `leader.default` / `leader.assets` 工具选择规则；后续需要继续校准 skill 激活文案、Plan Mode reminder 和更完整的小说业务提示块。
 - TODO：未来区分“可被 invoke_agent 调用的 agent”和“只能由用户直接打开/运行的 agent”，避免没有合适完成协议的 agent 被其他 agent 误调用。
 - TODO：为 `invoke_agent` 预留非阻塞调用。`block: false` 后续应立即返回 invocationId / sessionId，并通过 session event 或订阅 API 观察完成状态；第一版不实现非阻塞调用。
 - TODO：补浏览器端真实交互验收，重点看多窗口同步、流式工具卡、approval resume、followUp queue、compact 和 tree+invoke 操作。

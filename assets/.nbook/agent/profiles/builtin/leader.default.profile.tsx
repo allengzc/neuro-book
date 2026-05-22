@@ -1,7 +1,7 @@
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
-import {createAssistantTextMessage, createUserMessage} from "nbook/server/agent/messages/message-utils";
+import {createUserMessage} from "nbook/server/agent/messages/message-utils";
 import {LeaderDefaultInputSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 
 export const profileManifest = {
@@ -57,9 +57,6 @@ export default defineAgentProfile({
 
         return {
             systemPrompt: renderSystemPrompt(),
-            historyMessages: ctx.session.messages.length === 0
-                ? [createAssistantTextMessage({text: "Agent profile initialized."})]
-                : [],
             dynamicMessages,
             toolKeys: [...allowedToolKeys],
         };

@@ -14,8 +14,9 @@ import AgentComposer from "nbook/app/components/novel-ide/agent/AgentComposer.vu
 import AgentLinkedAgentPanel from "nbook/app/components/novel-ide/agent/AgentLinkedAgentPanel.vue";
 import AgentSessionDialog from "nbook/app/components/novel-ide/agent/AgentSessionDialog.vue";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
-import type {ModelSettingsDto, WorkspaceAgentProfileSettingsDto} from "nbook/shared/dto/app-settings.dto";
+import type {ModelSettingsDto} from "nbook/shared/dto/app-settings.dto";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import type {WorkspaceSettingsDto} from "nbook/shared/dto/workspace-settings.dto";
 
 type SessionModelDraft = {
     modelKey: string | null;
@@ -55,7 +56,7 @@ let eventStreamReadyPromise: Promise<void> | null = null;
 const editingMessageId = ref<string | null>(null);
 const messageActionId = ref<string | null>(null);
 const selectableModels = ref<ModelSettingsDto["enabledModels"]>([]);
-const resolvedLeaderProfileKey = ref("leader.default");
+const resolvedDefaultProfileKey = ref("leader.default");
 const sessionModelMode = ref<"default" | "override">("default");
 const sessionModelDraft = ref<SessionModelDraft>({
     modelKey: null,
@@ -69,7 +70,7 @@ const sessionModelSaving = ref(false);
 const submittingUserInput = ref(false);
 const userInputSelectedAnswers = ref<Record<string, number[]>>({});
 const userInputNotes = ref<Record<string, string>>({});
-let leaderProfileResolveRequest = 0;
+let defaultProfileResolveRequest = 0;
 
 const sanitizeHtml = ref<((html: string) => string) | null>(null);
 const session = useAgentSession();
@@ -112,7 +113,7 @@ const systemLeaderProfileKey = computed(() => {
 });
 
 const leaderProfileKey = computed(() => {
-    return resolvedLeaderProfileKey.value || systemLeaderProfileKey.value;
+    return resolvedDefaultProfileKey.value || systemLeaderProfileKey.value;
 });
 
 const workspaceKey = computed(() => {
@@ -233,30 +234,30 @@ function profileSettingsQuery(): Record<string, string> {
 }
 
 /**
- * 按当前 workspace 解析默认 leader profile。
+ * 按当前 workspace 解析默认 Agent Profile。
  */
 const loadResolvedLeaderProfileKey = async (): Promise<void> => {
-    const requestId = ++leaderProfileResolveRequest;
+    const requestId = ++defaultProfileResolveRequest;
     if (ideStore.workspaceKind !== "user-assets" && !ideStore.currentNovelId) {
-        if (requestId === leaderProfileResolveRequest) {
-            resolvedLeaderProfileKey.value = systemLeaderProfileKey.value;
+        if (requestId === defaultProfileResolveRequest) {
+            resolvedDefaultProfileKey.value = systemLeaderProfileKey.value;
         }
         return;
     }
     try {
-        const settings = await $fetch<WorkspaceAgentProfileSettingsDto>("/api/settings/workspace-agent-profiles", {
+        const settings = await $fetch<WorkspaceSettingsDto>("/api/workspace-settings", {
             query: profileSettingsQuery(),
         });
-        if (requestId !== leaderProfileResolveRequest) {
+        if (requestId !== defaultProfileResolveRequest) {
             return;
         }
-        resolvedLeaderProfileKey.value = settings.effectiveLeaderProfileKey || systemLeaderProfileKey.value;
+        resolvedDefaultProfileKey.value = settings.agent.effectiveProfileKey || systemLeaderProfileKey.value;
     } catch (error) {
-        if (requestId !== leaderProfileResolveRequest) {
+        if (requestId !== defaultProfileResolveRequest) {
             return;
         }
-        console.error("读取默认 leader profile 失败", error);
-        resolvedLeaderProfileKey.value = systemLeaderProfileKey.value;
+        console.error("读取默认 Agent Profile 失败", error);
+        resolvedDefaultProfileKey.value = systemLeaderProfileKey.value;
     }
 };
 
@@ -380,9 +381,6 @@ const subscribeSessionEvents = async (sessionId: number): Promise<void> => {
             }
             if (event.kind === "session" && event.event.type === "session_state_changed" && event.event.snapshot) {
                 syncSessionModelState(event.event.snapshot.summary);
-            }
-            if (event.kind === "pi" && event.event.type === "tool_execution_end" && event.event.toolName === "invoke_agent") {
-                await syncActiveSessionSnapshot();
             }
         }, controller.signal, {
             onOpen: resolveReady,
@@ -777,7 +775,7 @@ const refreshMessage = async (message: AgentMessage): Promise<void> => {
         await ensureActiveSessionEvents();
         await agentApi.moveTree(activeSessionId.value, {
             targetEntryId: message.id,
-            position: "before",
+            position: message.type === "user" ? "at" : "before",
             next: {
                 type: "invoke",
                 mode: "continue",

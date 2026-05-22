@@ -466,6 +466,41 @@ describe("NeuroAgentHarness", () => {
         expect(await harness.listSessions("global", true)).toHaveLength(1);
     });
 
+    it("从用户消息刷新时保留该用户消息，并从其后继续生成", async () => {
+        faux.setResponses([
+            fauxAssistantMessage(fauxText("first")),
+            fauxAssistantMessage(fauxText("retry after user")),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+        });
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const beforeRetry = await harness.getSessionSnapshot(created.sessionId);
+        const userEntry = beforeRetry.entries.find((entry) => entry.type === "message" && entry.message.role === "user");
+
+        const moved = await harness.moveTree(created.sessionId, {
+            targetEntryId: userEntry!.id,
+            position: "at",
+            next: {
+                type: "invoke",
+                mode: "continue",
+            },
+        });
+        expect(moved.status).toBe("invoked");
+
+        const afterRetry = await harness.getSessionSnapshot(created.sessionId);
+        expect(afterRetry.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+        const activeText = afterRetry.messages.map((message) => JSON.stringify(message));
+        expect(activeText[0]).toContain("run");
+        expect(activeText[1]).toContain("retry after user");
+    });
+
     it("linked agents 状态来自 session entry，重建 harness 后仍能 reduce", async () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",

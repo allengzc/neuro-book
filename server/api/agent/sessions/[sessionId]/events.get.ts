@@ -20,6 +20,14 @@ export default defineEventHandler(async (event) => {
 
     void (async () => {
         try {
+            await pushAgentSessionEvent(eventStream, {
+                seq: query.after ?? 0,
+                sessionId,
+                kind: "session",
+                event: {
+                    type: "connected",
+                },
+            });
             for await (const payload of subscription) {
                 if (closed) {
                     break;

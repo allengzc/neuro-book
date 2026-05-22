@@ -51,11 +51,20 @@ export function useAgentSession() {
      * 应用恢复真相的 snapshot。
      */
     const applySnapshot = (payload: AgentSessionSnapshotDto): void => {
+        const nextSeq = Math.max(lastSeq.value, payload.lastSeq);
+        const snapshotMessages = deriveMessagesFromSessionSnapshot(payload);
+        const pendingOptimisticMessages = messages.value.filter((message) => {
+            return message.id.startsWith("optimistic-user-")
+                && !snapshotMessages.some((snapshotMessage) => snapshotMessage.type === "user" && snapshotMessage.content === message.content);
+        });
         snapshot.value = payload;
-        messages.value = reconcileMessages(messages.value, deriveMessagesFromSessionSnapshot(payload));
+        messages.value = reconcileMessages(messages.value, [
+            ...snapshotMessages,
+            ...pendingOptimisticMessages,
+        ]);
         running.value = Boolean(payload.activeInvocation);
         pendingUserInputSession.value = toPendingUserInputSession(payload.pendingApproval, messages.value);
-        lastSeq.value = payload.lastSeq;
+        lastSeq.value = nextSeq;
         needsSnapshot.value = false;
     };
 
@@ -79,6 +88,10 @@ export function useAgentSession() {
             if (payload.event.type === "agent_end") {
                 running.value = false;
             }
+            return;
+        }
+
+        if (payload.event.type === "connected") {
             return;
         }
 

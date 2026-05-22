@@ -54,7 +54,7 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 - 继续扩展 TSX profile 的 schema builder：当前 Profile 工作台已支持简单对象字段低代码编辑与局部替换 `InputSchema` / `OutputSchema` 声明，后续补 nested object 的完整 UI、复杂 Zod 识别和更好的错误定位。
 - 为 skill catalog 增加类似 tool 的白名单或启用控制，避免所有可发现 skill 默认进入模型可见 catalog。
 - 后续如果支持加载第三方 profile，新增 profile 审查 skill，用于检查陌生 `.profile.tsx` 的危险代码、工具权限、schema contract 和提示词行为；当前动态 profile 不做 sandbox，按用户可信本地代码处理。
-- 后续如有需要，再把系统默认 leader profile 暴露到系统设置；当前已实现 workspace `.nbook/agent-profile-settings.json` 覆盖，system default 仍写死为小说 `leader.default`、用户 assets `leader.assets`。
+- 后续如有需要，再把系统默认 profile 暴露到系统设置；当前 workspace 默认 Agent Profile 写入 `.nbook/settings.json` 的 `agent.defaultProfileKey`，system default 仍写死为小说 `leader.default`、用户 assets `leader.assets`。
 - 让 workspace 默认 Profile 设置页复用 profile catalog 的 loadStatus / issue 信息，避免 contract-only 或 missing profile 在设置列表中被当作普通可运行项展示；当前运行路径已阻止 contract-only profile 执行。
 - Agent 前端迁移后补一次浏览器交互验收：重点验证多窗口事件同步、followUp queue、approval resume、Plan Mode、model command、compact、edit/retry/rollback/fallback 和流式工具卡片。
 - Agent session event hub 后续支持跨进程/多实例广播；第一版是单进程内存 replay，重启或多 worker 场景通过 snapshot 恢复，不保证实时 fan-out。

@@ -1,5 +1,4 @@
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {createAssistantTextMessage} from "nbook/server/agent/messages/message-utils";
 import {LeaderDefaultInputSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 
 /**
@@ -35,9 +34,6 @@ export const defaultAgentProfile = defineAgentProfile({
                 "You are Neuro Book Agent.",
                 ctx.input.role ? `Role: ${ctx.input.role}` : "",
             ].filter(Boolean).join("\n"),
-            historyMessages: ctx.session.messages.length === 0
-                ? [createAssistantTextMessage({text: "Agent profile initialized."})]
-                : [],
         };
     },
 });

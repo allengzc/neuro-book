@@ -38,4 +38,6 @@ dist/
 /.agent/manual-retrieval-e2e/
 /.agent/workspace-files-test/
 /.agent/file-tool-test/
+/.agent/*.test
+/.agent/deploy*
 /.traces/
