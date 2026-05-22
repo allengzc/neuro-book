@@ -5,7 +5,7 @@ import consola from "consola";
 import * as yaml from "yaml";
 import {z} from "zod";
 import {ModelProviderAdapterSchema} from "nbook/shared/dto/app-settings.dto";
-import type {JsonValue} from "nbook/server/agent/types";
+import type {JsonValue} from "nbook/server/agent/messages/types";
 import {expandEnvTemplate} from "nbook/server/utils/env-template";
 
 const ToolNameListSchema = z.array(z.string().trim().min(1)).default([]);

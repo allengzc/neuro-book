@@ -1,17 +1,8 @@
-import {getQuery} from "h3";
-import {useAgentSystem} from "nbook/server/agent/http";
-import {ListAgentThreadsQueryDtoSchema} from "nbook/shared/dto/agent-chat.dto";
-import {toAgentThreadSummaryDto} from "nbook/server/agent/http";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 查询 Agent 线程列表。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async (event) => {
-    const query = ListAgentThreadsQueryDtoSchema.parse(getQuery(event));
-    const agentSystem = useAgentSystem();
-    const threads = await agentSystem.listThreads({
-        kind: query.kind ?? "leader",
-        profileKey: query.profileKey,
-    });
-    return threads.map(toAgentThreadSummaryDto);
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

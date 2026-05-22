@@ -8,20 +8,6 @@ datasource db {
   provider = "postgresql"
 }
 
-enum AgentThreadKind {
-  leader
-  subagent
-}
-
-enum AgentThreadRunStatus {
-  idle
-  running
-  waiting_user
-  completed
-  stopped
-  failed
-}
-
 enum StoryThreadStatus {
   active
   draft
@@ -201,48 +187,6 @@ model StoryPlot {
 
   @@index([sceneId, sortOrder])
   @@unique([sceneId, sortOrder])
-}
-
-model AgentThread {
-  id                    Int                  @id @default(autoincrement())
-  kind                  AgentThreadKind      @default(leader)
-  runStatus             AgentThreadRunStatus @default(idle)
-  profileKey            String               @default("leader.default")
-  metadata              Json                 @default("{}")
-  title                 String               @default("")
-  activeCursorMessageId String?
-  lastMessageAt         DateTime             @default(now())
-  lastMessagePreview    String               @default("")
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @default(now())
-  messages              AgentMessage[]
-  managedSubagents      AgentThread[]        @relation("AgentThreadSubagents")
-  managingLeaders       AgentThread[]        @relation("AgentThreadSubagents")
-
-  @@index([updatedAt])
-  @@index([lastMessageAt])
-  @@index([kind])
-  @@index([runStatus])
-  @@index([profileKey])
-}
-
-model AgentMessage {
-  id            String         @id
-  threadId      Int
-  parentId      String?
-  status        String         @default("done")
-  storedMessage Json
-  archivedAt    DateTime?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @default(now()) @updatedAt
-  thread        AgentThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  parent        AgentMessage?  @relation("AgentMessageChildren", fields: [parentId], references: [id], onDelete: SetNull)
-  children      AgentMessage[] @relation("AgentMessageChildren")
-
-  @@index([threadId])
-  @@index([threadId, parentId])
-  @@index([threadId, createdAt])
-  @@index([parentId])
 }
 
 model StorySceneRef {

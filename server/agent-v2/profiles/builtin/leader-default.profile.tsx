@@ -374,8 +374,7 @@ export async function buildLeaderDefaultPrompt(ctx: ProfilePromptContext<"leader
 
                 普通文件读写优先使用 read_file、write_file、edit_file、apply_patch。对于同一文件的连续多处修改，优先多次 edit_file 逐处处理；只有在单次变更天然适合统一补丁时才用 apply_patch。只有需要运行仓库脚本、检查项目状态、执行验证或进行真实终端操作时，才使用 execute_shell。
 
-                execute_shell 使用 `command: string`，不要传 argv 数组。execute_shell 默认在 `workspace/` 容器目录运行，但常规任务必须以当前小说 workspace 为边界；当前小说目录会在 runtime reminder 中提供，例如 `workspace/silver-dragon-hime/`。需要只针对当前小说运行命令时显式传入该目录作为 workdir。只有用户明确要求跨小说或容器级检查时，才访问其他小说 workspace。需要运行仓库根命令时，显式传入 `workdir: "."`。
-                {/*Windows 下 execute_shell 会自动初始化 UTF-8 管道编码：`chcp 65001`、`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8`、`$OutputEncoding = [System.Text.Encoding]::UTF8`。通过 PowerShell 管道把中文路径传给 `workspace node parse --stdin` 或 `workspace node validate --stdin` 时，不要重复试探编码；若仍失败，直接读取错误并报告。*/}
+                execute_shell 使用 `command: string`，不要传 argv 数组。命令按 bash 语法编写。execute_shell 默认在 `workspace/` 容器目录运行，但常规任务必须以当前小说 workspace 为边界；当前小说目录会在 runtime reminder 中提供，例如 `workspace/silver-dragon-hime/`。需要只针对当前小说运行命令时显式传入该目录作为 workdir。只有用户明确要求跨小说或容器级检查时，才访问其他小说 workspace。需要运行仓库根命令时，显式传入 `workdir: "."`。
 
                 - `workspace node parse [paths...]`：解析指定内容节点，输出 path、type、status、words、refs、title。目标可以是内容节点目录或 `index.md`。
                 - `workspace node parse --stdin --ndjson`：从管道读取路径并输出每行一个 JSON，适合批量读取节点元数据。
@@ -387,28 +386,18 @@ export async function buildLeaderDefaultPrompt(ctx: ProfilePromptContext<"leader
                 - `workspace node state TARGET`：给已有内容节点补建 `state.md`，已有 state 文件时拒绝覆盖。
                 - `workspace schema [type] --json`：查看内容节点 frontmatter 字段和 status 说明。角色设定细节写在正文，不使用专门的 character frontmatter 对象。
 
-                枚举路径时优先使用 `rg --files` 和精确路径过滤，再交给 workspace 命令解析。不要为了了解结构而递归扫描整个小说 workspace；不要输出 `FullName, Mode` 这类无任务语义的大列表。只有目标目录很小、且 `rg --files` 不合适时，才用 `Get-ChildItem` 列一层或目标子树。注意 Windows PowerShell 下 `rg --files` 通常输出反斜杠路径；不要用只匹配 `/` 的正则过滤路径，优先用 `rg --files -g index.md`，或在正则中同时匹配 `/` 与 `\\`。执行 `rg --files` 前先确认 workdir：如果 workdir 已经是当前小说目录，例如 `workspace/novel-6`，命令里的目标路径必须写成 `manuscript/`、`lorebook/` 等相对路径，不要再写 `workspace/novel-6/manuscript/`，避免拼成重复路径。
+                枚举路径时优先使用 `rg --files` 和精确路径过滤，再交给 workspace 命令解析。不要为了了解结构而递归扫描整个小说 workspace；不要输出没有任务语义的大列表。只有目标目录很小、且 `rg --files` 不合适时，才用 `find` 或 `ls` 做局部检查。执行 `rg --files` 前先确认 workdir：如果 workdir 已经是当前小说目录，例如 `workspace/novel-6`，命令里的目标路径必须写成 `manuscript/`、`lorebook/` 等相对路径，不要再写 `workspace/novel-6/manuscript/`，避免拼成重复路径。
 
-                <If condition={process.platform === "win32"}>
-                PowerShell（Windows）：
-
-                ```json
-                {`{"command":"rg --files -g index.md | workspace node parse --stdin --ndjson"}`}
-                {`{"command":"rg --files -g index.md | workspace node validate --stdin"}`}
-                ```
-                </If>
-                <If condition={process.platform !== "win32"}>
-                bash：
+                bash 示例：
 
                 ```json
                 {`{"command":"rg --files | rg '(^|/)index\\.md$' | workspace node parse --stdin --ndjson"}`}
                 {`{"command":"rg --files | rg '(^|/)index\\.md$' | workspace node validate --stdin"}`}
                 ```
-                </If>
 
                 使用原则：
 
-                - `workspace node parse` 是内容节点解析器；它不负责查找路径，查找优先交给 `rg --files` 和精确过滤。不要用 `Get-ChildItem -Path "workspace/..." -Recurse -Force | Select-Object FullName, Mode` 这类整库枚举来探索。
+                - `workspace node parse` 是内容节点解析器；它不负责查找路径，查找优先交给 `rg --files` 和精确过滤。不要用无筛选的整库枚举来探索。
                 - `workspace node validate` 是安全网；出现 P1/P2 时，先修复能明确处理的问题，再继续写作或迁移。
                 - 脚本失败时，读取错误信息并说明阻塞原因；不要假装脚本已经成功。
                 - 文件工具的 filePath 搜索顺序：当前小说目录、`workspace/` 容器目录、相对文件路径、项目内绝对路径。`lorebook/...` 与 `manuscript/...` 优先映射到当前小说；`workspace/...` 表示容器级路径，但不要用它跨小说、跨 session 或跨 thread 探索，除非用户明确要求。

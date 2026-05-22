@@ -1,22 +1,8 @@
-import {readClientVariablesHeader, requireThreadId} from "nbook/server/agent/api";
-import {toAgentThreadDetailDto, useAgentSystem} from "nbook/server/agent/http";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 查询单个 Agent 线程详情。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async (event) => {
-    const threadId = requireThreadId(event);
-    const agentSystem = useAgentSystem();
-    const clientVariables = readClientVariablesHeader(event);
-    if (clientVariables) {
-        await agentSystem.syncClientVariables(threadId, clientVariables);
-    }
-    const detail = await agentSystem.getThreadDetailProjection(threadId);
-    if (!detail) {
-        throw createError({
-            statusCode: 404,
-            message: "线程不存在",
-        });
-    }
-    return toAgentThreadDetailDto(detail);
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

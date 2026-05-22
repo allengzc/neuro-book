@@ -1,9 +1,8 @@
-import {readProfileTemplate} from "nbook/server/agent/profile-templates/profile-template-service";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 读取 TSX profile 模板详情。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async (event) => {
-    const name = getRouterParam(event, "name") ?? "";
-    return readProfileTemplate(name);
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

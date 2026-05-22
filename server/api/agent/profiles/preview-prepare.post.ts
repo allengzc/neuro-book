@@ -1,14 +1,8 @@
-import {readClientVariablesHeader} from "nbook/server/agent/api";
-import {useAgentSystem} from "nbook/server/agent/http";
-import {previewAgentProfilePrepare} from "nbook/server/agent/profiles/profile-preview.service";
-import {AgentProfilePreparePreviewRequestDtoSchema} from "nbook/shared/dto/agent-profile.dto";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 真实调用当前 profile.prepare 生成 Message[] 预览。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async (event) => {
-    const body = AgentProfilePreparePreviewRequestDtoSchema.parse(await readBody(event));
-    const agentSystem = useAgentSystem();
-    const clientVariables = readClientVariablesHeader(event);
-    return previewAgentProfilePrepare(agentSystem, body, clientVariables);
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

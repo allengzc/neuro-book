@@ -1,27 +1,8 @@
-import {createError} from "h3";
-import {requireThreadId} from "nbook/server/agent/api";
-import {toAgentConversationTreeSnapshotDto, useAgentSystem} from "nbook/server/agent/http";
-import {validateBody} from "nbook/server/utils/novel-chapter";
-import {CreateAgentMessageRequestDtoSchema} from "nbook/shared/dto/agent-chat.dto";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 创建新的用户消息节点，并返回最新历史树快照。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async (event) => {
-    const threadId = requireThreadId(event);
-    const body = await validateBody(event, CreateAgentMessageRequestDtoSchema);
-
-    const agentSystem = useAgentSystem();
-    await agentSystem.createThreadMessage(threadId, body.content);
-    const detail = await agentSystem.getThreadDetailProjection(threadId);
-    if (!detail) {
-        throw createError({
-            statusCode: 404,
-            message: "线程不存在",
-        });
-    }
-    return {
-        ok: true,
-        conversationTree: toAgentConversationTreeSnapshotDto(detail.conversationTree),
-    };
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

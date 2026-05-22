@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { AgentSubagentSummaryDto, AgentThreadSummaryDto } from "nbook/shared/dto/agent-chat.dto";
-import type { AgentThreadStatus, AgentThreadKind } from "nbook/server/agent/types";
+
+type AgentThreadKind = "leader" | "subagent";
+type AgentThreadStatus = "idle" | "running" | "waiting_user" | "completed" | "stopped" | "failed";
 
 const props = defineProps<{
     threadId: string;

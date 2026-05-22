@@ -1,8 +1,9 @@
-import {mergeAttributes, Node, type Editor} from "@tiptap/core";
+import {mergeAttributes, Node, type Editor, type NodeViewProps} from "@tiptap/core";
 import type {MarkdownToken} from "@tiptap/core";
 import {PluginKey} from "@tiptap/pm/state";
 import {VueNodeViewRenderer} from "@tiptap/vue-3";
 import {Suggestion, type SuggestionMatch} from "@tiptap/suggestion";
+import type {Component} from "vue";
 import type {
     AgentTriggerMenuContext,
     AgentTriggerMenuState,
@@ -82,7 +83,7 @@ export const AgentSkill = Node.create<AgentSkillOptions>({
     },
 
     addNodeView() {
-        return VueNodeViewRenderer(AgentSkillNodeView);
+        return VueNodeViewRenderer(AgentSkillNodeView as Component<NodeViewProps>);
     },
 
     markdownTokenizer: {

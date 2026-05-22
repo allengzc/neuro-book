@@ -1,218 +1,102 @@
-import fs from "node:fs/promises";
-import type {Dirent} from "node:fs";
-import path from "node:path";
-import {z} from "zod";
-import {parseFrontmatterDocument} from "nbook/server/utils/frontmatter-document";
-import type {SkillCatalogItem} from "nbook/server/agent/types";
-import {
-    USER_ASSETS_WORKSPACE_ROOT,
-    ensureUserAssetsWorkspaceRoot,
-} from "nbook/server/workspace-files/novel-workspace";
+import {existsSync} from "node:fs";
+import {readFile, readdir} from "node:fs/promises";
+import {join, resolve} from "node:path";
 
-const SKILL_ROOT_RELATIVE_PATH = path.join("agent", "skills");
-const SKILL_FILE_CANDIDATES = ["SKILL.md", "skill.md"] as const;
-const SKILL_TOKEN_NAME_PATTERN = /^[\p{L}_-][\p{L}\p{N}_-]*$/u;
-const SkillFrontmatterSchema = z.object({
-    name: z.string().trim().min(1).optional(),
-    description: z.string().trim().min(1).optional(),
-    when_to_use: z.union([
-        z.string().trim().min(1),
-        z.array(z.string().trim().min(1)),
-    ]).optional(),
-});
+export type SkillCatalogSource = "system" | "user";
+
+export type SkillCatalogItem = {
+    key: string;
+    name: string;
+    description?: string;
+    source: SkillCatalogSource;
+    rootPath: string;
+    skillPath: string;
+};
 
 /**
- * skills catalog 的读取接口。
+ * v3 skill catalog。用户同名目录整体覆盖系统目录。
  */
-export interface SkillCatalogProvider {
-    /**
-     * 列出当前仓库中可发现的 skills 元数据。
-     */
-    list(): Promise<readonly SkillCatalogItem[]>;
-}
-
-/**
- * 本地文件系统版 skills catalog。
- * 扫描用户 assets 与仓库内置 assets；同名 skill 用户版本优先。
- */
-export class LocalSkillCatalogProvider implements SkillCatalogProvider {
+export class SkillCatalog {
     constructor(
-        private readonly workspaceRoot = process.cwd(),
+        private readonly systemRoot = resolve(process.cwd(), "assets", ".nbook", "agent", "skills"),
+        private readonly userRoot = resolve(process.cwd(), "workspace", ".nbook", "agent", "skills"),
     ) {}
 
     /**
-     * 读取当前 skills catalog。
+     * 列出当前可见 skill。目录名是第一版稳定 key。
      */
-    async list(): Promise<readonly SkillCatalogItem[]> {
-        const catalogItems: SkillCatalogItem[] = [];
-        const resolver = new AssetResolverForWorkspace(this.workspaceRoot);
-        const skillDirectories = await resolver.listSkillDirectories();
+    async list(): Promise<SkillCatalogItem[]> {
+        const skills = new Map<string, SkillCatalogItem>();
+        for (const skill of await this.loadRoot(this.systemRoot, "system")) {
+            skills.set(skill.key, skill);
+        }
+        for (const skill of await this.loadRoot(this.userRoot, "user")) {
+            skills.set(skill.key, skill);
+        }
+        return [...skills.values()].sort((left, right) => left.key.localeCompare(right.key));
+    }
 
-        for (const skillDirectory of skillDirectories) {
-            const skillItem = await this.readSkillItem(skillDirectory.absolutePath, {
-                root: skillDirectory.absoluteRoot,
-                displayRoot: skillDirectory.displayRoot,
-                source: skillDirectory.source,
-            });
-            if (!skillItem) {
+    /**
+     * 读取单个 skill。返回 null 表示该 skill 对当前 v3 catalog 不可见。
+     */
+    async get(skillKey: string): Promise<SkillCatalogItem | null> {
+        return (await this.list()).find((skill) => skill.key === skillKey) ?? null;
+    }
+
+    private async loadRoot(root: string, source: SkillCatalogSource): Promise<SkillCatalogItem[]> {
+        if (!existsSync(root)) {
+            return [];
+        }
+        const entries = await readdir(root, {withFileTypes: true});
+        const skills: SkillCatalogItem[] = [];
+        for (const entry of entries) {
+            if (!entry.isDirectory()) {
                 continue;
             }
-            catalogItems.push(skillItem);
-        }
-
-        return catalogItems.sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
-    }
-
-    /**
-     * 从单个 skill 目录中读取 catalog 条目。
-     * 没有合法 frontmatter 的旧 skill 会被直接跳过。
-     */
-    private async readSkillItem(
-        skillDirectoryPath: string,
-        rootInput: {root: string; displayRoot: string; source: NonNullable<SkillCatalogItem["source"]>},
-    ): Promise<SkillCatalogItem | null> {
-        const skillFilePath = await this.resolveSkillFilePath(skillDirectoryPath);
-        if (!skillFilePath) {
-            return null;
-        }
-
-        const skillContent = await fs.readFile(skillFilePath, "utf-8");
-        const parsedSkillDocument = parseFrontmatterDocument(skillContent, SkillFrontmatterSchema);
-        if (!parsedSkillDocument.hasFrontmatter) {
-            return null;
-        }
-
-        const name = parsedSkillDocument.metadata.name?.trim();
-        const description = parsedSkillDocument.metadata.description?.trim();
-        if (!name || !description || !isValidSkillTokenName(name)) {
-            return null;
-        }
-
-        return {
-            name,
-            description,
-            whenToUse: this.stringifyWhenToUse(parsedSkillDocument.metadata.when_to_use),
-            headerText: parsedSkillDocument.rawFrontmatterText.trim(),
-            location: skillFilePath,
-            displayLocation: path.posix.join(
-                rootInput.displayRoot,
-                path.relative(rootInput.root, skillFilePath).split(path.sep).join("/"),
-            ),
-            source: rootInput.source,
-        };
-    }
-
-    /**
-     * 将 skill 适用场景归一化为一行提示。
-     */
-    private stringifyWhenToUse(value: z.infer<typeof SkillFrontmatterSchema>["when_to_use"]): string | undefined {
-        if (Array.isArray(value)) {
-            return value.map((item) => item.trim()).filter(Boolean).join("；") || undefined;
-        }
-        return value?.trim() || undefined;
-    }
-
-    /**
-     * 解析 skill 文件路径。
-     * 优先读取标准命名 `SKILL.md`，其次兼容旧版 `skill.md`。
-     */
-    private async resolveSkillFilePath(skillDirectoryPath: string): Promise<string | null> {
-        let directoryEntries: string[];
-        try {
-            directoryEntries = await fs.readdir(skillDirectoryPath);
-        } catch (error) {
-            if (this.isMissingDirectoryError(error)) {
-                return null;
+            const rootPath = join(root, entry.name);
+            const skillPath = await this.findSkillFile(rootPath);
+            if (!skillPath) {
+                continue;
             }
-            throw error;
+            const metadata = this.readMetadata(await readFile(skillPath, "utf8"));
+            skills.push({
+                key: entry.name,
+                name: metadata.name ?? entry.name,
+                description: metadata.description,
+                source,
+                rootPath,
+                skillPath,
+            });
         }
+        return skills;
+    }
 
-        for (const skillFileName of SKILL_FILE_CANDIDATES) {
-            const matchedFileName = directoryEntries.find((directoryEntry) => directoryEntry === skillFileName);
-            if (matchedFileName) {
-                return path.join(skillDirectoryPath, matchedFileName);
+    private async findSkillFile(rootPath: string): Promise<string | null> {
+        for (const name of ["SKILL.md", "skill.md"]) {
+            const skillPath = join(rootPath, name);
+            if (existsSync(skillPath)) {
+                return skillPath;
             }
         }
         return null;
     }
 
-    /**
-     * 判断是否为文件不存在错误。
-     */
-    private isMissingDirectoryError(error: unknown): boolean {
-        return typeof error === "object"
-            && error !== null
-            && "code" in error
-            && error.code === "ENOENT";
-    }
-}
-
-/**
- * 判断 skill 名称是否可直接序列化为 `$技能名` token。
- */
-function isValidSkillTokenName(name: string): boolean {
-    return SKILL_TOKEN_NAME_PATTERN.test(name);
-}
-
-type SkillDirectory = {
-    absolutePath: string;
-    absoluteRoot: string;
-    displayRoot: string;
-    source: NonNullable<SkillCatalogItem["source"]>;
-};
-
-/**
- * workspace 绑定的 skill 目录解析器。
- */
-class AssetResolverForWorkspace {
-    constructor(
-        private readonly workspaceRoot: string,
-    ) {}
-
-    /**
-     * 按 skill 目录 slug 列出覆盖后的目录。
-     */
-    async listSkillDirectories(): Promise<SkillDirectory[]> {
-        const directoriesByName = new Map<string, SkillDirectory>();
-        const systemRoot = path.resolve(this.workspaceRoot, "assets", SKILL_ROOT_RELATIVE_PATH);
-        const userRoot = path.resolve(this.workspaceRoot, USER_ASSETS_WORKSPACE_ROOT, SKILL_ROOT_RELATIVE_PATH);
-
-        await this.appendSkillDirectories(directoriesByName, systemRoot, path.posix.join("assets", "agent", "skills"), "builtin");
-        await ensureUserAssetsWorkspaceRoot();
-        await this.appendSkillDirectories(directoriesByName, userRoot, path.posix.join(USER_ASSETS_WORKSPACE_ROOT, "agent", "skills"), "user");
-
-        return [...directoriesByName.values()].sort((left, right) => path.basename(left.absolutePath).localeCompare(path.basename(right.absolutePath), "zh-CN"));
-    }
-
-    /**
-     * 追加一级 skill 目录；后追加的用户目录按 slug 整体覆盖系统目录。
-     */
-    private async appendSkillDirectories(
-        directoriesByName: Map<string, SkillDirectory>,
-        root: string,
-        displayRoot: string,
-        source: NonNullable<SkillCatalogItem["source"]>,
-    ): Promise<void> {
-        let entries: Dirent[];
-        try {
-            entries = await fs.readdir(root, {withFileTypes: true});
-        } catch (error) {
-            if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-                return;
-            }
-            throw error;
+    private readMetadata(source: string): {name?: string; description?: string} {
+        const frontmatter = source.match(/^---\r?\n(?<body>[\s\S]*?)\r?\n---/u)?.groups?.body;
+        if (!frontmatter) {
+            const heading = source.split(/\r?\n/).find((line) => line.trim().startsWith("# "))?.replace(/^#\s+/, "").trim();
+            return {
+                name: heading || undefined,
+            };
         }
-
-        for (const entry of entries) {
-            if (!entry.isDirectory()) {
+        const metadata: {name?: string; description?: string} = {};
+        for (const line of frontmatter.split(/\r?\n/)) {
+            const match = line.match(/^(name|description):\s*(?<value>.*)$/u);
+            if (!match?.groups?.value) {
                 continue;
             }
-            directoriesByName.set(entry.name, {
-                absolutePath: path.join(root, entry.name),
-                absoluteRoot: root,
-                displayRoot,
-                source,
-            });
+            metadata[match[1] as "name" | "description"] = match.groups.value.replace(/^["']|["']$/g, "").trim();
         }
+        return metadata;
     }
 }

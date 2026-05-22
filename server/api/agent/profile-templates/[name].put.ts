@@ -1,11 +1,8 @@
-import {SaveProfileTemplateRequestDtoSchema} from "nbook/shared/dto/profile-template.dto";
-import {saveProfileTemplate} from "nbook/server/agent/profile-templates/profile-template-service";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 保存 TSX profile 模板。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async (event) => {
-    const name = getRouterParam(event, "name") ?? "";
-    const body = SaveProfileTemplateRequestDtoSchema.parse(await readBody(event));
-    return saveProfileTemplate(name, body);
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

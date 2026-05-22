@@ -10,7 +10,7 @@ import {renderWorkspaceContentTemplate, renderWorkspaceContentTemplateBundle, re
 import {copyNovelDirectoryTemplate, syncSystemAssetsToUserAssets, USER_ASSETS_WORKSPACE_ROOT, writeNovelWorkspaceMetadata} from "nbook/server/workspace-files/novel-workspace";
 import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 
-const WORKSPACE_SCRIPT_PATH = "assets/agent/scripts/workspace.ts";
+const WORKSPACE_SCRIPT_PATH = "scripts/workspace.ts";
 const execFileAsync = promisify(execFile);
 
 describe("workspace-files", () => {
@@ -442,8 +442,8 @@ describe("workspace-files", () => {
     });
 
     it("同步系统 assets 会补齐默认 leader profile 覆盖文件", async () => {
-        const userProfilePath = path.join(USER_ASSETS_WORKSPACE_ROOT, "agent", "profiles", "builtin", "leader-default.profile.tsx");
-        const systemProfilePath = path.join("assets", "agent", "profiles", "builtin", "leader-default.profile.tsx");
+        const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
+        const systemProfilePath = path.join("assets", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
         const backup = await backupOptionalFile(userProfilePath);
         await fs.rm(userProfilePath, {force: true});
 

@@ -1,10 +1,8 @@
-import {UserProfileTemplateFileRequestDtoSchema} from "nbook/shared/dto/profile-template.dto";
-import {restoreUserProfileTemplate} from "nbook/server/agent/profile-templates/profile-template-service";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 用系统 assets 同路径文件恢复用户 profile。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async (event) => {
-    const body = UserProfileTemplateFileRequestDtoSchema.parse(await readBody(event));
-    return restoreUserProfileTemplate(body.fileName);
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

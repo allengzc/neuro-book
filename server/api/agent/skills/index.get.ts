@@ -1,13 +1,8 @@
-import {useAgentSystem} from "nbook/server/agent/http";
-import type {AgentSkillCatalogItemDto} from "nbook/shared/dto/agent-chat.dto";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 返回当前仓库可见的 skills catalog。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async (): Promise<AgentSkillCatalogItemDto[]> => {
-    const catalog = await useAgentSystem().skillCatalog.list();
-    return catalog.map((skill) => ({
-        name: skill.name,
-        description: skill.description,
-    }));
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

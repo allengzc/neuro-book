@@ -1,25 +1,8 @@
-import {toAgentThreadSummaryDto, useAgentSystem} from "nbook/server/agent/http";
-import {UpdateAgentThreadModelRequestDtoSchema, type AgentThreadSummaryDto, type UpdateAgentThreadModelRequestDto} from "nbook/shared/dto/agent-chat.dto";
-import {validateBody} from "nbook/server/utils/novel-chapter";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 更新线程模型覆盖。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async (event): Promise<AgentThreadSummaryDto> => {
-    const threadId = getRouterParam(event, "threadId");
-    if (!threadId) {
-        throw createError({
-            statusCode: 400,
-            message: "threadId 不能为空",
-        });
-    }
-
-    const body = await validateBody<UpdateAgentThreadModelRequestDto>(event, UpdateAgentThreadModelRequestDtoSchema);
-    const agentSystem = useAgentSystem();
-    const summary = body.mode === "default"
-        ? await agentSystem.updateThreadModelOverride(threadId, null)
-        : body.mode === "override" && body.config
-            ? await agentSystem.updateThreadModelOverride(threadId, body.config)
-            : await agentSystem.updateThreadModelOverride(threadId, null, body.modelKey ?? null);
-    return toAgentThreadSummaryDto(summary);
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

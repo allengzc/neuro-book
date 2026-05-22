@@ -1,7 +1,7 @@
 import type {CheckModelRequestDto, CheckModelResponseDto} from "nbook/shared/dto/app-settings.dto";
 import {CheckModelRequestDtoSchema} from "nbook/shared/dto/app-settings.dto";
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {checkModelHealth} from "nbook/server/utils/model";
+import {checkModelHealth} from "nbook/server/utils/model-settings";
 
 /**
  * 单模型健康检查。

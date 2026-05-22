@@ -1,10 +1,8 @@
-import {UserProfileTemplateFileRequestDtoSchema} from "nbook/shared/dto/profile-template.dto";
-import {readUserProfileTemplate} from "nbook/server/agent/profile-templates/profile-template-service";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 读取用户 assets profile 文件详情。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async (event) => {
-    const body = UserProfileTemplateFileRequestDtoSchema.parse(await readBody(event));
-    return readUserProfileTemplate(body.fileName);
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

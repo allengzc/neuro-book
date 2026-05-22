@@ -1,20 +1,19 @@
 import type {AgentProfileModelSettingsDto} from "nbook/shared/dto/app-settings.dto";
-import {useAgentSystem} from "nbook/server/agent/http";
+import {useAgentV3Harness} from "nbook/server/agent/http";
 import {loadAppConfig} from "nbook/server/utils/app-config";
-import {buildAgentProfileModelSettingsDto} from "nbook/server/utils/model";
+import {buildAgentProfileModelSettingsDto} from "nbook/server/utils/model-settings";
 
 /**
  * 读取 Agent Profile 模型设定。
  */
 export default defineEventHandler(async (): Promise<AgentProfileModelSettingsDto> => {
     const appConfig = await loadAppConfig();
-    const agentSystem = useAgentSystem();
+    const harness = useAgentV3Harness();
+    const catalog = await harness.profiles.snapshot();
 
-    const profiles = await agentSystem.profileRegistry.list();
-
-    return buildAgentProfileModelSettingsDto(appConfig, profiles.map((profile) => ({
+    return buildAgentProfileModelSettingsDto(appConfig, catalog.profiles.map((profile) => ({
         profileKey: profile.key,
         name: profile.name,
-        kind: profile.kind,
+        kind: profile.key.startsWith("subagent.") ? "subagent" : "leader",
     })));
 });

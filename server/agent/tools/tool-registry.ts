@@ -1,95 +1,51 @@
-import type {DynamicStructuredTool} from "@langchain/core/tools";
-import {z} from "zod";
-import type {AgentTool, AgentToolContext} from "nbook/server/agent/tools/agent-tool";
-import {toLangChainTool} from "nbook/server/agent/tools/agent-tool";
-import type {ToolKey} from "nbook/server/agent/types";
+import type {AgentTool} from "@earendil-works/pi-agent-core";
+import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
 
 /**
- * 绑定到某次 run 的工具。
- * langChainTool 只负责给模型提供 tool schema；真正执行走 definition。
+ * v3 工具注册表。allowedToolKeys 是模型可见工具集合，也是执行硬权限上限。
  */
-export type BoundAgentTool = {
-    definition: AgentTool<z.ZodType>;
-    langChainTool: DynamicStructuredTool;
-    context: AgentToolContext;
-    invoke: DynamicStructuredTool["invoke"];
-};
-
-/**
- * Agent tool 注册表接口。
- */
-export interface AgentToolRegistry {
-    /**
-     * 注册 tool。
-     */
-    register(tool: AgentTool<z.ZodType>): void;
+export class AgentToolRegistry {
+    private readonly tools = new Map<string, NeuroAgentTool>();
 
     /**
-     * 列出当前已注册的全部 tool key。
+     * 注册一个工具。后注册同 key 工具会覆盖旧工具。
      */
-    listToolKeys(): ToolKey[];
-
-    /**
-     * 根据 key 解析 LangChain tools。
-     */
-    resolveTools(toolKeys: readonly ToolKey[], context: AgentToolContext): Promise<DynamicStructuredTool[]>;
-
-    /**
-     * 根据 key 解析项目自研 runner 使用的绑定工具。
-     */
-    resolveBoundTools(toolKeys: readonly ToolKey[], context: AgentToolContext): Promise<BoundAgentTool[]>;
-}
-
-/**
- * 内存版 tool 注册表。
- */
-export class InMemoryAgentToolRegistry implements AgentToolRegistry {
-    private readonly tools = new Map<ToolKey, AgentTool<z.ZodType>>();
-
-    /**
-     * 注册 tool。
-     */
-    register(tool: AgentTool<z.ZodType>): void {
+    register(tool: NeuroAgentTool): void {
         this.tools.set(tool.key, tool);
     }
 
     /**
-     * 列出当前已注册的全部 tool key。
+     * 读取单个工具。
      */
-    listToolKeys(): ToolKey[] {
-        return [...this.tools.keys()];
+    get(toolKey: string): NeuroAgentTool | undefined {
+        return this.tools.get(toolKey);
     }
 
     /**
-     * 解析 tools。
+     * 返回 profile 允许的工具，过滤掉不存在的 key。
      */
-    async resolveTools(toolKeys: readonly ToolKey[], context: AgentToolContext): Promise<DynamicStructuredTool[]> {
-        return (await this.resolveBoundTools(toolKeys, context)).map((tool) => tool.langChainTool);
+    allowed(toolKeys: readonly string[]): AgentTool<any, any>[] {
+        return toolKeys.flatMap((toolKey) => {
+            const tool = this.tools.get(toolKey);
+            return tool ? [tool] : [];
+        });
     }
 
     /**
-     * 解析绑定 tools。
+     * 判断工具是否是需要前端/用户恢复的审批工具。
      */
-    async resolveBoundTools(toolKeys: readonly ToolKey[], context: AgentToolContext): Promise<BoundAgentTool[]> {
-        return Promise.all(toolKeys.map(async (toolKey) => {
-            const definition = this.tools.get(toolKey);
-            if (!definition) {
-                throw new Error(`未注册的 toolKey: ${toolKey}`);
-            }
-            const schema = definition.resolveSchema
-                ? await definition.resolveSchema(context)
-                : definition.schema;
-            const boundDefinition = {
-                ...definition,
-                schema,
-            } satisfies AgentTool<z.ZodType>;
-            const langChainTool = toLangChainTool(boundDefinition, context, schema);
-            return {
-                definition: boundDefinition,
-                langChainTool,
-                context,
-                invoke: langChainTool.invoke.bind(langChainTool),
-            };
-        }));
+    approvalToolKeys(): string[] {
+        return [...this.tools.values()]
+            .filter((tool) => tool.approvalRequired)
+            .map((tool) => tool.key)
+            .sort((left, right) => left.localeCompare(right));
+    }
+
+    /**
+     * 列出已注册工具 key。
+     */
+    keys(): string[] {
+        return [...this.tools.keys()].sort((left, right) => left.localeCompare(right));
     }
 }
+

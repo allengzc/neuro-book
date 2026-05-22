@@ -7,11 +7,13 @@ import ts from "typescript";
  * 单文件检查动态 TSX profile。
  *
  * 用法：
- *   bun scripts/check-profile.ts assets/agent/profiles/builtin/leader-default.profile.tsx
- *   bun scripts/check-profile.ts workspace/.nbook/assets/agent/profiles/custom.profile.tsx
+ *   bun scripts/check-profile.ts assets/.nbook/agent/profiles/builtin/leader.default.profile.tsx
+ *   bun scripts/check-profile.ts workspace/.nbook/agent/profiles/custom.profile.tsx
+ *   bun scripts/check-profile.ts --v3 assets/.nbook/agent/profiles/custom.profile.tsx
  */
 function main(): void {
-    const profilePath = process.argv[2]?.trim();
+    const v3 = process.argv.includes("--v3");
+    const profilePath = process.argv.find((argument, index) => index > 1 && argument !== "--v3")?.trim();
     if (!profilePath) {
         printUsage();
         process.exitCode = 1;
@@ -21,6 +23,11 @@ function main(): void {
     const absoluteProfilePath = path.resolve(process.cwd(), profilePath);
     if (!absoluteProfilePath.endsWith(".profile.tsx")) {
         console.error("profile 文件必须以 .profile.tsx 结尾。");
+        process.exitCode = 1;
+        return;
+    }
+    if (v3 && !isV3ProfilePath(absoluteProfilePath)) {
+        console.error("v3 profile 只能位于 assets/.nbook/agent/profiles 或 workspace/.nbook/agent/profiles。");
         process.exitCode = 1;
         return;
     }
@@ -59,6 +66,16 @@ function main(): void {
     }
 
     console.log(`profile typecheck passed: ${path.relative(process.cwd(), absoluteProfilePath)}`);
+}
+
+/**
+ * v3 模式只允许检查新 .nbook profile root。
+ */
+function isV3ProfilePath(absoluteProfilePath: string): boolean {
+    const normalized = absoluteProfilePath.replace(/\\/g, "/");
+    const cwd = process.cwd().replace(/\\/g, "/");
+    return normalized.startsWith(`${cwd}/assets/.nbook/agent/profiles/`)
+        || normalized.startsWith(`${cwd}/workspace/.nbook/agent/profiles/`);
 }
 
 /**
@@ -130,7 +147,7 @@ function createSyntheticDiagnostic(message: string): ts.Diagnostic {
  * 输出用法。
  */
 function printUsage(): void {
-    console.error("用法：bun scripts/check-profile.ts <profile-file>");
+    console.error("用法：bun scripts/check-profile.ts [--v3] <profile-file>");
 }
 
 main();

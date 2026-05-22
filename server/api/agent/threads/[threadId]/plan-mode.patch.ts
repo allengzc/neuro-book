@@ -1,23 +1,8 @@
-import {readClientVariablesHeader, requireThreadId} from "nbook/server/agent/api";
-import {useAgentSystem} from "nbook/server/agent/http";
-import {validateBody} from "nbook/server/utils/novel-chapter";
-import {UpdateAgentPlanModeRequestDtoSchema} from "nbook/shared/dto/agent-chat.dto";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 切换 thread 级软 Plan Mode。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async (event) => {
-    const threadId = requireThreadId(event);
-    const body = await validateBody(event, UpdateAgentPlanModeRequestDtoSchema);
-    const agentSystem = useAgentSystem();
-    const clientVariables = readClientVariablesHeader(event);
-    if (clientVariables) {
-        await agentSystem.syncClientVariables(threadId, clientVariables);
-    }
-    if (body.active) {
-        await agentSystem.enterPlanMode(threadId);
-    } else {
-        await agentSystem.exitPlanMode(threadId);
-    }
-    return {ok: true};
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

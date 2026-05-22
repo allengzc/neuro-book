@@ -1,10 +1,8 @@
-import {ValidateProfileTemplateRequestDtoSchema} from "nbook/shared/dto/profile-template.dto";
-import {validateProfileTemplate} from "nbook/server/agent/profile-templates/profile-template-service";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 校验 TSX profile 模板。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async (event) => {
-    const body = ValidateProfileTemplateRequestDtoSchema.parse(await readBody(event));
-    return validateProfileTemplate(body);
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

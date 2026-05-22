@@ -1,282 +1,114 @@
-import {AgentSystem} from "nbook/server/agent/agent-system";
-import type {ThreadDetailProjection, ThreadSnapshotProjection} from "nbook/server/agent/services/thread-projection.service";
+import {createError, getRouterParam} from "h3";
+import type {AgentEvent} from "@earendil-works/pi-agent-core";
+import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
+import type {InvokeAgentInput} from "nbook/server/agent/harness/types";
+import {AgentV3SessionIdSchema} from "nbook/shared/dto/agent-v3.dto";
 import type {
-    AgentConversationNode,
-    AgentConversationTreeSnapshot,
-    AgentStreamEvent,
-    PendingUserInputSession,
-    LiveRunSnapshot,
-    LiveToolState,
-    AgentTokenUsage,
-    ThreadSummary,
-} from "nbook/server/agent/types";
-import type {
-    AgentConversationNodeDto,
-    AgentConversationTreeSnapshotDto,
-    AgentConversationToolCallDto,
-    AgentPendingUserInputQuestionDto,
-    AgentPendingUserInputSessionDto,
-    AgentStreamEventDto,
-    AgentSubagentSummaryDto,
-    AgentThreadDetailDto,
-    AgentThreadSnapshotEventDto,
-    AgentThreadSummaryDto,
-} from "nbook/shared/dto/agent-chat.dto";
-import {RequestUserInputToolArgsSchema} from "nbook/shared/dto/agent-chat.dto";
-import {loadAppConfigSync} from "nbook/server/utils/app-config";
-import {resolveAgentModelSelection} from "nbook/server/utils/model";
+    AgentV3CreateSessionRequestDto,
+    AgentV3DetachRequestDto,
+    AgentV3InvokeRequestDto,
+    AgentV3OwnerQueryDto,
+} from "nbook/shared/dto/agent-v3.dto";
 
-type GlobalAgentHttp = {
-    agentSystem?: AgentSystem;
+type GlobalAgentV3Http = {
+    agentV3Harness?: NeuroAgentHarness;
 };
 
-const globalForAgentHttp = globalThis as typeof globalThis & GlobalAgentHttp;
+const globalForAgentV3Http = globalThis as typeof globalThis & GlobalAgentV3Http;
 
 /**
- * 获取全局 AgentSystem 单例。
+ * 获取 v3 Harness 单例。session 真相仍在 JSONL，单例只保存运行期依赖。
  */
-export function useAgentSystem(): AgentSystem {
-    if (!globalForAgentHttp.agentSystem) {
-        globalForAgentHttp.agentSystem = AgentSystem.createDefault();
+export function useAgentV3Harness(): NeuroAgentHarness {
+    if (!globalForAgentV3Http.agentV3Harness) {
+        globalForAgentV3Http.agentV3Harness = new NeuroAgentHarness();
     }
-    return globalForAgentHttp.agentSystem;
+    return globalForAgentV3Http.agentV3Harness;
 }
 
 /**
- * 将线程摘要转换为 DTO。
+ * 读取数字 sessionId 路由参数。
  */
-export function toAgentThreadSummaryDto(thread: ThreadSummary): AgentThreadSummaryDto {
-    const appConfig = loadAppConfigSync();
-    const modelSelection = resolveAgentModelSelection(appConfig, thread.profileKey, thread.modelOverride, thread.modelOverrideKey);
-    const contextWindowTokens = modelSelection.effectiveModel?.contextWindowTokens ?? null;
-    const lastRunInputTokens = thread.usageSummary?.lastRun?.inputTokens ?? null;
-    const lastRunContextRatio = contextWindowTokens && typeof lastRunInputTokens === "number"
-        ? lastRunInputTokens / contextWindowTokens
-        : null;
-
-    return {
-        id: thread.id,
-        kind: thread.kind,
-        profileKey: thread.profileKey,
-        title: thread.title,
-        summary: thread.summary,
-        lastMessagePreview: thread.summary,
-        status: thread.status,
-        modelOverrideKey: thread.modelOverrideKey,
-        modelOverride: modelSelection.modelOverride,
-        effectiveModelKey: modelSelection.effectiveModelKey,
-        effectiveModelLabel: modelSelection.effectiveModelLabel,
-        effectiveModel: modelSelection.effectiveModel,
-        tokenStats: {
-            lastRun: normalizeTokenUsage(thread.usageSummary?.lastRun ?? null),
-            cumulative: normalizeTokenUsage(thread.usageSummary?.cumulative ?? null),
-            contextWindowTokens,
-            lastRunContextRatio,
-            lastRunContextPercent: lastRunContextRatio === null
-                ? null
-                : Number((lastRunContextRatio * 100).toFixed(1)),
-        },
-        planMode: {
-            active: thread.planMode?.active ?? false,
-        },
-        lastMessageAt: thread.lastMessageAt.toISOString(),
-    };
-}
-
-/**
- * 归一化 token 使用量，统一返回 null 或完整结构。
- */
-function normalizeTokenUsage(usage: AgentTokenUsage | null): AgentThreadSummaryDto["tokenStats"]["lastRun"] {
-    if (!usage) {
-        return null;
+export function requireAgentV3SessionId(event: Parameters<typeof getRouterParam>[0]): number {
+    const raw = getRouterParam(event, "sessionId");
+    const parsed = AgentV3SessionIdSchema.safeParse(Number(raw));
+    if (!parsed.success) {
+        throw createError({
+            statusCode: 400,
+            message: "sessionId 必须是正整数",
+        });
     }
-
-    return {
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        totalTokens: usage.totalTokens,
-        cacheReadTokens: usage.cacheReadTokens,
-        cacheMissTokens: usage.cacheMissTokens,
-        cacheCreationTokens: usage.cacheCreationTokens,
-    };
+    return parsed.data;
 }
 
 /**
- * 将 subagent 摘要转换为 DTO。
+ * 将 v3 事件推送为 SSE 帧。
  */
-export function toAgentSubagentSummaryDto(thread: ThreadSummary): AgentSubagentSummaryDto {
-    return {
-        ...toAgentThreadSummaryDto(thread),
-        profileKey: thread.profileKey,
-    };
+export async function pushAgentV3Event(
+    eventStream: {push(input: {event: string; data: string}): Promise<void>},
+    payload: AgentEvent | {type: "result"; result: unknown},
+): Promise<void> {
+    await eventStream.push({
+        event: payload.type,
+        data: JSON.stringify(payload),
+    });
 }
 
 /**
- * 构造线程详情 DTO。
+ * 创建 v3 session 的 HTTP service 入口。
  */
-export function toAgentThreadDetailDto(input: ThreadDetailProjection): AgentThreadDetailDto {
-    return {
-        thread: toAgentThreadSummaryDto(input.thread),
-        subagents: input.subagents.map(toAgentSubagentSummaryDto),
-        leaders: input.leaders.map(toAgentThreadSummaryDto),
-        conversationTree: toAgentConversationTreeSnapshotDto(input.conversationTree),
-        pendingUserInputSession: toPendingUserInputSessionDto(input.thread.pendingUserInputSession ?? null),
-    };
+export async function createAgentV3Session(body: AgentV3CreateSessionRequestDto, harness = useAgentV3Harness()) {
+    return harness.createAgent({
+        profileKey: body.profileKey,
+        input: body.input,
+        workspaceRoot: body.workspaceRoot,
+        workspaceKey: body.workspaceKey,
+        parentSessionId: body.parentSessionId,
+    });
 }
 
 /**
- * 将线程历史树与当前 draft 投影为首帧快照。
+ * 阻塞调用 v3 session 的 HTTP service 入口。
  */
-export function toAgentThreadSnapshotEventDto(input: ThreadSnapshotProjection): AgentThreadSnapshotEventDto {
-    return {
-        type: "thread_snapshot",
-        thread: toAgentThreadSummaryDto(input.thread),
-        subagents: input.subagents.map(toAgentSubagentSummaryDto),
-        leaders: input.leaders.map(toAgentThreadSummaryDto),
-        conversationTree: toAgentConversationTreeSnapshotDto(input.conversationTree),
-        draft: input.activeRun ? toDraftConversationMessage(input.activeRun) : null,
-        pendingUserInputSession: toPendingUserInputSessionDto(input.thread.pendingUserInputSession ?? null),
-    };
+export async function invokeAgentV3Session(sessionId: number, body: AgentV3InvokeRequestDto, harness = useAgentV3Harness()) {
+    return harness.invokeAgent(toInvokeInput(sessionId, body));
 }
 
 /**
- * 将历史树快照转换为 DTO。
+ * 查询 v3 session 轻量摘要。
  */
-export function toAgentConversationTreeSnapshotDto(tree: AgentConversationTreeSnapshot): AgentConversationTreeSnapshotDto {
-    return {
-        revision: tree.revision,
-        activeCursorId: tree.activeCursorId,
-        rootNodeId: tree.rootNodeId,
-        nodes: tree.nodes.map(toAgentConversationNodeDto),
-    };
+export async function getAgentV3Session(sessionId: number, harness = useAgentV3Harness()) {
+    return harness.getSession(sessionId);
 }
 
 /**
- * 将树节点转换为 DTO。
+ * 查询 v3 agent 摘要或 owner 列表。
  */
-function toAgentConversationNodeDto(node: AgentConversationNode): AgentConversationNodeDto {
-    return {
-        id: node.id,
-        parentId: node.parentId,
-        childIds: [...node.childIds],
-        role: node.role,
-        status: node.status,
-        content: node.content,
-        createdAt: node.createdAt,
-        archivedAt: node.archivedAt,
-        assistantMessageId: node.assistantMessageId,
-        toolCallId: node.toolCallId,
-        toolName: node.toolName,
-        toolArgs: node.toolArgs,
-        toolStatus: node.toolStatus,
-        rawAdditionalKwargs: node.rawAdditionalKwargs,
-    };
+export async function getAgentV3Agent(sessionId: number | undefined, query: AgentV3OwnerQueryDto, harness = useAgentV3Harness()) {
+    return harness.getAgent(sessionId, query.ownerSessionId);
 }
 
 /**
- * 将运行时事件转换为 SSE DTO。
+ * 解除 v3 agent link。
  */
-export function toAgentStreamEventDto(
-    event: AgentStreamEvent,
-): AgentStreamEventDto {
-    if (event.type === "thread_snapshot") {
-        return {
-            type: "thread_snapshot",
-            thread: toAgentThreadSummaryDto(event.thread),
-            subagents: event.subagents.map(toAgentSubagentSummaryDto),
-            leaders: event.leaders.map(toAgentThreadSummaryDto),
-            conversationTree: toAgentConversationTreeSnapshotDto(event.conversationTree),
-            draft: event.draft,
-            pendingUserInputSession: toPendingUserInputSessionDto(event.pendingUserInputSession),
-        };
-    }
-    if (event.type === "history_snapshot") {
-        return {
-            type: "history_snapshot",
-            threadId: event.threadId,
-            conversationTree: toAgentConversationTreeSnapshotDto(event.conversationTree),
-        };
-    }
-    if (event.type === "user_input_requested") {
-        return {
-            type: "user_input_requested",
-            threadId: event.threadId,
-            session: toPendingUserInputSessionDto(event.session)!,
-        };
-    }
-    return event;
-}
-
-function toPendingUserInputSessionDto(session: PendingUserInputSession | null): AgentPendingUserInputSessionDto | null {
-    if (!session) {
-        return null;
-    }
-    return {
-        assistantMessageId: session.assistantMessageId,
-        status: session.status,
-        questions: session.questions.map((question) => ({
-            ...toPendingQuestionDto(question.toolArgsText, question.questionIndex),
-            toolNodeId: question.toolNodeId,
-            questionIndex: question.questionIndex,
-            toolCallId: question.toolCallId ?? null,
-            toolName: question.toolName,
-            kind: question.kind ?? "question",
-            approvalAction: question.approvalAction,
-            approvalToolArgsText: question.approvalToolArgsText,
-            planFilePath: question.planFilePath,
-            planContent: question.planContent,
-        })),
-    };
-}
-
-function toPendingQuestionDto(
-    toolArgsText: string,
-    questionIndex: number,
-): Omit<AgentPendingUserInputQuestionDto, "toolNodeId" | "toolCallId" | "toolName"> {
-    const parsed = RequestUserInputToolArgsSchema.parse(JSON.parse(toolArgsText));
-    const question = parsed.questions[questionIndex] ?? parsed.questions[0]!;
-    return {
-        kind: "question",
-        questionIndex,
-        header: question.header,
-        question: question.question,
-        options: question.options,
-        multiSelect: question.multiSelect,
-    };
+export async function detachAgentV3Agent(sessionId: number, body: AgentV3DetachRequestDto, harness = useAgentV3Harness()) {
+    return harness.detachAgent(sessionId, body.ownerSessionId);
 }
 
 /**
- * 将 live run draft 投影为前端草稿消息。
+ * 将 HTTP DTO 转成 harness invoke 输入。
  */
-function toDraftConversationMessage(activeRun: LiveRunSnapshot) {
-    if (!activeRun.text && !activeRun.thinkingText && activeRun.tools.length === 0) {
-        return null;
-    }
+export function toInvokeInput(
+    sessionId: number,
+    body: AgentV3InvokeRequestDto,
+    onEvent?: InvokeAgentInput["onEvent"],
+): InvokeAgentInput {
     return {
-        id: activeRun.messageId,
-        role: "assistant" as const,
-        content: activeRun.text,
-        status: "streaming" as const,
-        createdAt: new Date().toISOString(),
-        thinking: activeRun.thinkingText || undefined,
-        toolCalls: activeRun.tools.map(toLiveToolCall),
-    };
-}
-
-/**
- * 将 live 工具节点投影为前端工具调用。
- */
-function toLiveToolCall(tool: LiveToolState): AgentConversationToolCallDto {
-    return {
-        id: tool.toolNodeId,
-        assistantMessageId: tool.assistantMessageId,
-        toolNodeId: tool.toolNodeId,
-        callIndex: tool.callIndex,
-        toolCallId: tool.toolCallId,
-        toolName: tool.toolName,
-        argsText: tool.argsText,
-        status: tool.status,
-        outputText: tool.outputText,
-        subagentThreadId: tool.subagentThreadId,
+        sessionId,
+        mode: body.mode,
+        message: body.message,
+        resolution: body.resolution,
+        block: body.block,
+        onEvent,
     };
 }

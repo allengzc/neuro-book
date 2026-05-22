@@ -1,11 +1,8 @@
-import {useAgentSystem} from "nbook/server/agent/http";
-import {readAgentProfileDetail} from "nbook/server/agent/profiles/profile-catalog.service";
-import {AgentProfileDetailRequestDtoSchema} from "nbook/shared/dto/agent-profile.dto";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 读取 profile 详情。加载失败的 profile 也返回源码和 issue。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async (event) => {
-    const body = AgentProfileDetailRequestDtoSchema.parse(await readBody(event));
-    return readAgentProfileDetail(useAgentSystem(), body);
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

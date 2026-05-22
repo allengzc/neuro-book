@@ -1,10 +1,8 @@
-import {updateUserProfileSchema} from "nbook/server/agent/profile-templates/profile-template-service";
-import {UpdateAgentProfileSchemaRequestDtoSchema} from "nbook/shared/dto/agent-profile.dto";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 局部替换用户 assets profile 的 InputSchema 或 OutputSchema 声明。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async (event) => {
-    const body = UpdateAgentProfileSchemaRequestDtoSchema.parse(await readBody(event));
-    return updateUserProfileSchema(body.fileName, body.schemaName, body.fields);
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

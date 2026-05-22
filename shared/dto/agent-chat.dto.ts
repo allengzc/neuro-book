@@ -1,9 +1,10 @@
 import {z} from "zod";
-import {AgentThreadKindSchema, AgentThreadRunStatusSchema} from "nbook/shared/dto/prisma-enums";
 
 export const MAX_AGENT_THREAD_TITLE_LENGTH = 120;
 export const AGENT_CLIENT_VARIABLES_HEADER = "x-agent-client-variables";
 
+export const AgentThreadKindSchema = z.enum(["leader", "subagent"]);
+export const AgentThreadRunStatusSchema = z.enum(["idle", "running", "waiting_user", "completed", "stopped", "failed"]);
 export const AgentMessageRoleSchema = z.enum(["user", "assistant", "tool", "system"]);
 export const AgentMessageStatusSchema = z.enum(["streaming", "done", "stopped"]);
 export const AgentToolStatusSchema = z.enum(["running", "success", "error"]);

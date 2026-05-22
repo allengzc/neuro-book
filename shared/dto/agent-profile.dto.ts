@@ -1,5 +1,5 @@
 import {z} from "zod";
-import {AgentThreadKindSchema} from "nbook/shared/dto/prisma-enums";
+import {AgentThreadKindSchema} from "nbook/shared/dto/agent-chat.dto";
 import {
     ProfileTemplateIssueDtoSchema,
     ProfileTemplateNodeDtoSchema,

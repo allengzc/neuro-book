@@ -1,9 +1,8 @@
-import {useAgentSystem} from "nbook/server/agent/http";
-import {listAgentProfileCatalog} from "nbook/server/agent/profiles/profile-catalog.service";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 列出当前系统 assets 与用户 assets 合成后的 profile catalog。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async () => {
-    return listAgentProfileCatalog(useAgentSystem());
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

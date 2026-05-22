@@ -1,16 +1,8 @@
-import {readClientVariablesHeader, requireThreadId} from "nbook/server/agent/api";
-import {toAgentSubagentSummaryDto, useAgentSystem} from "nbook/server/agent/http";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 列出 leader 当前关联的 subagent。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async (event) => {
-    const threadId = requireThreadId(event);
-    const agentSystem = useAgentSystem();
-    const clientVariables = readClientVariablesHeader(event);
-    if (clientVariables) {
-        await agentSystem.syncClientVariables(threadId, clientVariables);
-    }
-    const subagents = await agentSystem.listSubAgents(threadId);
-    return subagents.map(toAgentSubagentSummaryDto);
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

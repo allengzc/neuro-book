@@ -5,7 +5,6 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "jsxImportSource": "nbook/server/agent/prompts",
     "baseUrl": ".",
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
@@ -27,9 +26,12 @@
     ".nuxt/**/*.d.ts",
     "app/**/*",
     "server/agent/**/*",
-    "server/agent-v3/**/*",
     "shared/**/*",
     "*.d.ts",
     "nuxt.config.ts"
+  ],
+  "exclude": [
+    "server/agent-v2/**/*",
+    "assets/agent-v2/**/*"
   ]
 }

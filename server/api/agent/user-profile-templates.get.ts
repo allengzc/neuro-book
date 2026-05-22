@@ -1,8 +1,8 @@
-import {listUserProfileTemplates} from "nbook/server/agent/profile-templates/profile-template-service";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 列出用户 assets 中可编辑的动态 profile。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async () => {
-    return listUserProfileTemplates();
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

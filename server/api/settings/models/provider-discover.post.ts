@@ -1,7 +1,7 @@
 import type {DiscoverProviderModelsRequestDto, DiscoverProviderModelsResponseDto} from "nbook/shared/dto/app-settings.dto";
 import {DiscoverProviderModelsRequestDtoSchema} from "nbook/shared/dto/app-settings.dto";
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {discoverProviderModels} from "nbook/server/utils/model";
+import {discoverProviderModels} from "nbook/server/utils/model-settings";
 
 /**
  * Provider 远程模型发现。

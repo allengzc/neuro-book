@@ -1,6 +1,6 @@
 import type {ModelSettingsDto} from "nbook/shared/dto/app-settings.dto";
 import {loadAppConfig} from "nbook/server/utils/app-config";
-import {buildModelSettingsDto} from "nbook/server/utils/model";
+import {buildModelSettingsDto} from "nbook/server/utils/model-settings";
 
 /**
  * 读取模型设定。

@@ -2,7 +2,7 @@ import type {ModelSettingsDto, UpdateModelSettingsRequestDto} from "nbook/shared
 import {UpdateModelSettingsRequestDtoSchema} from "nbook/shared/dto/app-settings.dto";
 import {saveModelSettingsConfig} from "nbook/server/utils/app-config";
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {buildModelSettingsDto, convertModelSettingsRequestToConfig} from "nbook/server/utils/model";
+import {buildModelSettingsDto, convertModelSettingsRequestToConfig} from "nbook/server/utils/model-settings";
 
 /**
  * 保存模型设定。

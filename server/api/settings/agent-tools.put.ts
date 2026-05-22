@@ -1,7 +1,7 @@
 import {createError} from "h3";
 import type {UpdateAgentToolSettingsRequestDto, AgentToolSettingsDto} from "nbook/shared/dto/app-settings.dto";
 import {UpdateAgentToolSettingsRequestDtoSchema} from "nbook/shared/dto/app-settings.dto";
-import {useAgentSystem} from "nbook/server/agent/http";
+import {useAgentV3Harness} from "nbook/server/agent/http";
 import {saveAgentToolAccessConfig} from "nbook/server/utils/app-config";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 
@@ -24,8 +24,8 @@ function assertKnownToolKeys(toolNames: string[], knownToolSet: ReadonlySet<stri
  */
 export default defineEventHandler(async (event): Promise<AgentToolSettingsDto> => {
     const body = await validateBody<UpdateAgentToolSettingsRequestDto>(event, UpdateAgentToolSettingsRequestDtoSchema);
-    const agentSystem = useAgentSystem();
-    const allTools = agentSystem.toolRegistry.listToolKeys().sort((left, right) => left.localeCompare(right));
+    const harness = useAgentV3Harness();
+    const allTools = harness.tools.keys();
     const knownToolSet = new Set(allTools);
 
     assertKnownToolKeys(body.allow, knownToolSet);

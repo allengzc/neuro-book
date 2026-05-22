@@ -1,14 +1,8 @@
-import {requireThreadId} from "nbook/server/agent/api";
-import {useAgentSystem} from "nbook/server/agent/http";
+import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
 
 /**
- * 删除 Agent 线程。
+ * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
  */
-export default defineEventHandler(async (event) => {
-    const threadId = requireThreadId(event);
-    const agentSystem = useAgentSystem();
-    await agentSystem.deleteThread(threadId);
-    return {
-        ok: true,
-    };
+export default defineEventHandler(() => {
+    throwAgentV2Removed();
 });

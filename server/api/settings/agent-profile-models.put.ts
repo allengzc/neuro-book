@@ -3,9 +3,9 @@ import type {
     UpdateAgentProfileModelSettingsRequestDto,
 } from "nbook/shared/dto/app-settings.dto";
 import {UpdateAgentProfileModelSettingsRequestDtoSchema} from "nbook/shared/dto/app-settings.dto";
-import {useAgentSystem} from "nbook/server/agent/http";
+import {useAgentV3Harness} from "nbook/server/agent/http";
 import {saveAgentProfileSettingsConfig, loadAppConfig} from "nbook/server/utils/app-config";
-import {buildAgentProfileModelSettingsDto, convertAgentProfileModelSettingsRequestToConfig, resolveConfiguredModel} from "nbook/server/utils/model";
+import {buildAgentProfileModelSettingsDto, convertAgentProfileModelSettingsRequestToConfig, resolveConfiguredModel} from "nbook/server/utils/model-settings";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 
 /**
@@ -13,12 +13,12 @@ import {validateBody} from "nbook/server/utils/novel-chapter";
  */
 export default defineEventHandler(async (event): Promise<AgentProfileModelSettingsDto> => {
     const body = await validateBody<UpdateAgentProfileModelSettingsRequestDto>(event, UpdateAgentProfileModelSettingsRequestDtoSchema);
-    const agentSystem = useAgentSystem();
-    const profiles = await agentSystem.profileRegistry.list();
-    const profileDefinitions = profiles.map((profile) => ({
+    const harness = useAgentV3Harness();
+    const catalog = await harness.profiles.snapshot();
+    const profileDefinitions = catalog.profiles.map((profile) => ({
         profileKey: profile.key,
         name: profile.name,
-        kind: profile.kind,
+        kind: profile.key.startsWith("subagent.") ? "subagent" as const : "leader" as const,
     }));
     const knownProfileKeys = new Set<string>(profileDefinitions.map((profile) => profile.profileKey));
     const currentConfig = await loadAppConfig();
