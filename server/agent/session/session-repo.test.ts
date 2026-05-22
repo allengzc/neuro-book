@@ -77,4 +77,51 @@ describe("JsonlSessionRepository", () => {
         expect(fork.metadata.parentSessionId).toBe(session.metadata.sessionId);
         expect(forkContext.customState["fork.fromEntryId"]).toBe(userEntry.id);
     });
+
+    it("tree 返回消息展示元数据和终端节点信息", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+        });
+        const userEntry = await repo.appendUserMessage(session.metadata.sessionId, "first message", session.metadata.workspaceKey);
+        const firstAssistantEntry = await repo.appendMessage(session.metadata.sessionId, createAssistantTextMessage({text: "first answer"}), session.metadata.workspaceKey);
+
+        await repo.moveLeaf(session.metadata.sessionId, userEntry.id, session.metadata.workspaceKey);
+        const secondAssistantEntry = await repo.appendMessage(session.metadata.sessionId, createAssistantTextMessage({text: "second answer"}), session.metadata.workspaceKey);
+        await repo.appendEntry(session.metadata.sessionId, {
+            type: "label",
+            targetEntryId: secondAssistantEntry.id,
+            label: "selected",
+        }, session.metadata.workspaceKey);
+
+        const tree = repo.tree(await repo.readSession(session.metadata.sessionId));
+        const userNode = tree.find((node) => node.id === userEntry.id);
+        const firstAssistantNode = tree.find((node) => node.id === firstAssistantEntry.id);
+        const secondAssistantNode = tree.find((node) => node.id === secondAssistantEntry.id);
+
+        expect(userNode).toMatchObject({
+            role: "user",
+            messageId: userEntry.id,
+            preview: "first message",
+            childCount: 2,
+            terminal: false,
+            active: true,
+        });
+        expect(firstAssistantNode).toMatchObject({
+            role: "assistant",
+            preview: "first answer",
+            childCount: 0,
+            terminal: true,
+            active: false,
+        });
+        expect(secondAssistantNode).toMatchObject({
+            role: "assistant",
+            preview: "second answer",
+            label: "selected",
+            terminal: false,
+            active: true,
+        });
+    });
 });

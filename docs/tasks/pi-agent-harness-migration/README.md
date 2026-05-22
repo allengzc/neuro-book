@@ -19,7 +19,7 @@
 - 旧 thread/message Prisma 模型已删除；新的 session 真相来自 JSONL append-only entry tree，前端也已经从 thread/subagent 心智迁到 session/linked agent 心智。
 - 正式 HTTP 入口已经回到 `/api/agent/**`：前端使用 `/api/agent/sessions/**` 的 snapshot、invocation、command、tree、abort 和 events contract；临时 `/api/agent-v3/**` 已删除。
 - Agent 抽屉已接入新的 session snapshot + session event hub：支持聊天、停止、审批/输入恢复、模型选择、Plan Mode、compact、linked agents、edit/retry/rollback/fallback、分支切换和多窗口事件同步的基础链路。
-- TSX Profile runtime 支持 builtin/user assets 动态加载、InputSchema/OutputSchema、allowed tools、workspace 默认 leader profile 和用户资产工作区；旧 profile-template 视觉预览 endpoint 仍待按新 session/profile contract 重接。
+- TSX Profile runtime 支持 builtin/user assets 动态加载、InputSchema/OutputSchema、allowed tools、workspace 默认 leader profile 和用户资产工作区；profile 工作台的 catalog/detail/prepare preview 已接到 v3 profile catalog，低代码保存/新建/restore 仍等待按新 TSX profile 工作台重做。
 - 本地 Pi 仓库位于 `.agent/workspace/pi`；已完成基础调研，见 `docs/research/pi-agent-harness.md`。
 - Pi TUI / coding-agent 产品层作为 Neuro Book harness 的主要参考：它证明“产品自己拥有 session manager、资源解析、UI/TUI 状态，再调用 Pi core Agent”是可行路径。
 
@@ -48,6 +48,8 @@
 - 已补第一批回归测试：session JSONL、leaf/tree/fork、approval pending/resolution、harness faux provider 端到端、report_result、缺失 report 自动提醒、AppendingSet 去重、owned agent link、LLM compaction summary、tool call/result cut point。
 - 已完成 v3 动态 profile catalog 硬切：只扫描 `assets/.nbook/agent/profiles` 与 `workspace/.nbook/agent/profiles`，单个坏 profile 只进入 catalog issue，不阻断其他 profile；snapshot 会暴露 source、builtin/user、loadStatus、issue、InputSchema/OutputSchema。
 - 已实现 builtin schema 锁定：用户覆盖 `leader.default` 等 builtin key 时，运行时实现可以覆盖，但 Input/Output schema 会继续使用内置 schema；schema 冲突进入 catalog issue。
+- 验收阶段修复 TSX profile 运行时加载边界：Nuxt dev server 是 Node 进程，不能像 Bun 测试一样无条件原生 import `.profile.tsx`；`AgentProfileCatalog` 现在优先使用当前运行时 native dynamic import，只有遇到 Node 不认识 `.tsx` 的错误时才 fallback 到 `tsx/esm/api` 的 `tsImport`，避免已经启用 TS loader 的 Node/Nuxt 进程二次套 loader 卡住。
+- 验收阶段已把 `/api/agent/profiles/catalog`、`/api/agent/profiles/detail`、`/api/agent/profiles/preview-prepare` 从 v2 removed stub 改为 v3 profile 只读/预览适配：catalog 返回 `AgentProfileCatalogItemDto`，detail 返回源码、manifest、allowed tools 与 TypeBox schema 摘要，preview 调用真实 `profile.prepare()` 并展示 `systemPrompt`、History/Dynamic/Appending 消息。
 - 已为新 Agent 增加动态 profile 类型索引输出 `server/agent/profiles/dynamic-profile-types.generated.ts`，`scripts/prepare-profile-types.ts --v3` 只读取新 `.nbook/agent/profiles` root，`scripts/check-profile.ts --v3` 只允许检查新 profile 路径。
 - 已实现轻量 session query service 与模型工具 `get_session`：返回 metadata、active leaf、tree、title/summary、usage、linked agents 和最近消息摘要，不返回完整 history 原文。
 - 已接入 `profile.ingest()`：harness run save point 后调用 ingest；第一版只允许写 `messageWrites` 与 `sessionUpdates.title/summary`，越权字段会使本次 run 返回 error，且不会写入部分 ingest 结果。
@@ -795,7 +797,7 @@ type AgentTreeRequest = {
 ## Remaining Questions
 
 - 前端仍需要一次真实浏览器交互验收：多窗口订阅、followUp queue、approval resume、Plan Mode、model command、compact、edit/retry/rollback/fallback 的端到端体验需要在开发服务器里手动确认。
-- Profile template visual editor 目前只是改到 session API 获取 session 列表；`preview-prepare` 仍是迁移期 stub。后续需要按新的 TSX profile runtime、schema 和模拟请求预览重新设计该工作台。
+- Profile template visual editor 目前已能读取 v3 profile catalog/detail，并通过真实 `profile.prepare()` 做只读预览；后续仍需要把保存、新建、restore、schema builder 等旧低代码写入接口重做为新的 TSX profile 工作台。
 - Session event hub 第一版是单进程内存广播；跨 Nuxt worker / 多实例部署时仍需要 Redis pub/sub、数据库通知或其他共享事件通道。
 
 ## Files Changed
@@ -836,6 +838,8 @@ type AgentTreeRequest = {
 - `bunx tsc --noEmit --pretty false`：通过。
 - `bun scripts/prepare-profile-types.ts --v3 --all`：通过；builtin key 不生成动态类型索引，当前输出 0 个 dynamic profile type entries。
 - `bun test server/workspace-settings server/agent`：通过；覆盖 `leader.assets` 真实 catalog 加载和 workspace settings query 400。
+- 手动 HTTP 复现：`GET /api/workspace-settings?workspaceKind=user-assets` 能返回 `leader.assets` 且 catalog 中 `leader.assets` / `leader.default` 均为 `loaded`；`POST /api/agent/sessions` 使用 `profileKey: "leader.assets"` 能成功创建 session，不再报 `未找到 agent profile: leader.assets`。
+- 验收阶段追加验证：`node --import tsx` 下直接调用 v3 profile HTTP service，`catalog` / `detail` / `previewAgentProfilePrepare` 均能在本地返回，`leader.assets` 预览得到 `systemPrompt` + dynamic message。当前 3000 dev server 进程对 `/` 与 `/api/workspace-settings` 都超时，说明进程整体卡住；需重启 dev server 后再做浏览器/HTTP 交互复验。
 - `bun scripts/smoke-agent.ts`：通过；使用真实 provider `xiaomimimo/mimo-v2.5-pro`，通过 assets 版 `leader.default` 普通 completion 返回 `agent session smoke ok`，并拿到 usage 与 session JSONL。
 - `scripts/smoke-agent-http.ts` 需要本地 dev server，当前只作为手动 HTTP smoke 入口记录；本轮未自动启动浏览器或 dev server 做交互验收。
 - 搜索检查：active `app` / `server` / `shared` / `scripts` 中不再引用 `agent-v3`、`AgentV3`、`useAgentV3`、`agent-v3.dto`、`useAgentApi`、`/api/agent/threads`、`AgentThreadDialog`、`AgentSubagentPanel`、`useAgentThreadSession`；旧 `agent-chat.dto` 命中仅保留在 `server/agent-v2` 归档目录。
@@ -855,7 +859,7 @@ type AgentTreeRequest = {
 - TODO：为 `invoke_agent` 预留非阻塞调用。`block: false` 后续应立即返回 invocationId / sessionId，并通过 session event 或订阅 API 观察完成状态；第一版不实现非阻塞调用。
 - TODO：补浏览器端真实交互验收，重点看多窗口同步、流式工具卡、approval resume、followUp queue、compact 和 tree+invoke 操作。
 - TODO：event hub 后续支持跨进程/多实例广播；第一版是单进程内存 replay，重启或多 worker 场景通过 snapshot 恢复，不保证实时 fan-out。
-- TODO：完善 ProfileTemplateVisualEditor 的新 profile preview。当前 Agent 抽屉已经迁移，但 profile 工作台的 `preview-prepare` 仍是迁移期 stub。
+- TODO：重做 ProfileTemplateVisualEditor 的写入能力。当前 Agent 抽屉已经迁移，profile 工作台已能读取 v3 catalog/detail 并进行 prepare preview；保存、新建、restore 和 schema builder 仍是旧接口，需要按 TSX 源码编辑优先的方向重接。
 - 为动态 agent catalog 增加 lazy detail 查询能力；当前 prepare 已可读取 catalog snapshot 中的 InputSchema / OutputSchema，但还没有针对大 catalog 的分页/按 key 查询优化。
 - 调整用户资产工作区计划：用户覆盖根为 `workspace/.nbook`，系统资源根为 `assets/.nbook`，agent profile/skill 放入 `.nbook/agent`，workspace 模板放入 `.nbook/assets/templates`。
 - 执行 assets 路径硬切迁移时，先用 `rg` 列出旧路径引用，移动文件后逐一改为新路径，并删除旧路径 fallback/TODO。

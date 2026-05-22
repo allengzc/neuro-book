@@ -10,6 +10,8 @@ import type {
 } from "nbook/app/components/novel-ide/agent/trigger-menu";
 
 const THINKING_SUMMARY_LENGTH = 48;
+const SWIPE_MIN_DELTA_X = 48;
+const SWIPE_MAX_DELTA_Y = 24;
 
 const props = defineProps<{
     node: Extract<ChatNode, { kind: "text" }>;
@@ -39,6 +41,7 @@ const emit = defineEmits<{
 const { isCollapsed: isThinkingCollapsed, toggle: toggleThinking } = useCollapsible(true);
 const editingDraft = ref("");
 const isSystemCollapsed = ref(true);
+const swipeStart = ref<{x: number; y: number} | null>(null);
 
 /**
  * 编辑态统一解码 HTML 实体。
@@ -211,6 +214,36 @@ const cycleBranch = (direction: -1 | 1): void => {
         direction,
     });
 };
+
+/**
+ * 记录消息正文横向滑动起点。
+ */
+const startSwipe = (event: PointerEvent): void => {
+    if (!props.branchSwitcher || props.actionDisabled || isEditing.value) {
+        return;
+    }
+    swipeStart.value = {
+        x: event.clientX,
+        y: event.clientY,
+    };
+};
+
+/**
+ * 横向滑动切换消息分支，纵向滚动不拦截。
+ */
+const endSwipe = (event: PointerEvent): void => {
+    if (!swipeStart.value || !props.branchSwitcher || props.actionDisabled || isEditing.value) {
+        swipeStart.value = null;
+        return;
+    }
+    const deltaX = event.clientX - swipeStart.value.x;
+    const deltaY = event.clientY - swipeStart.value.y;
+    swipeStart.value = null;
+    if (Math.abs(deltaX) < SWIPE_MIN_DELTA_X || Math.abs(deltaY) > SWIPE_MAX_DELTA_Y) {
+        return;
+    }
+    cycleBranch(deltaX < 0 ? 1 : -1);
+};
 </script>
 
 <template>
@@ -318,7 +351,12 @@ const cycleBranch = (direction: -1 | 1): void => {
 
         <!-- 消息正文 -->
         <div v-if="hasMessageContent" class="min-w-0 w-full pl-6">
-            <div class="min-w-0 max-w-full rounded-2xl border border-[var(--border-color)] bg-[var(--bg-sidebar)] px-4 py-3 shadow-sm">
+            <div
+                class="min-w-0 max-w-full touch-pan-y rounded-2xl border border-[var(--border-color)] bg-[var(--bg-sidebar)] px-4 py-3 shadow-sm"
+                @pointerdown="startSwipe"
+                @pointerup="endSwipe"
+                @pointercancel="swipeStart = null"
+            >
                 <div v-if="isEditing" class="space-y-3">
                     <!-- 消息编辑器 -->
                     <StructuredTextEditor

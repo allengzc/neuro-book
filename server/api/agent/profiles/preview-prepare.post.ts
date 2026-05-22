@@ -1,8 +1,12 @@
-import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
+import {validateBody} from "nbook/server/utils/novel-chapter";
+import {useAgentHarness} from "nbook/server/agent/http";
+import {previewAgentProfilePrepare} from "nbook/server/agent/profiles/profile-http-service";
+import {AgentProfilePreparePreviewRequestDtoSchema} from "nbook/shared/dto/agent-profile.dto";
 
 /**
- * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
+ * 调用真实 profile.prepare 生成 TSX Profile 预览。
  */
-export default defineEventHandler(() => {
-    throwAgentV2Removed();
+export default defineEventHandler(async (event) => {
+    const body = await validateBody(event, AgentProfilePreparePreviewRequestDtoSchema);
+    return previewAgentProfilePrepare(useAgentHarness(), body);
 });

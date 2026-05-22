@@ -173,7 +173,7 @@ export class AgentProfileCatalog {
     private async importProfile(file: string): Promise<AgentProfile> {
         const fileStat = await stat(file);
         const moduleUrl = `${pathToFileURL(file).href}?mtime=${Math.trunc(fileStat.mtimeMs)}`;
-        const mod = await import(moduleUrl) as {
+        const mod = await this.importTsModule(moduleUrl) as {
             default?: unknown;
         };
         const profile = mod.default;
@@ -181,6 +181,29 @@ export class AgentProfileCatalog {
             throw new ProfileCatalogError(this.profileIssueCode(profile), `profile 文件没有默认导出有效的 defineAgentProfile 结果：${file}`);
         }
         return profile;
+    }
+
+    private async importTsModule(moduleUrl: string): Promise<unknown> {
+        try {
+            return await import(moduleUrl);
+        } catch (error) {
+            if (!this.shouldFallbackToTsx(error)) {
+                throw error;
+            }
+            const {tsImport} = await import("tsx/esm/api");
+            return tsImport(moduleUrl, {
+                parentURL: import.meta.url,
+                tsconfig: resolve(process.cwd(), "tsconfig.json"),
+            });
+        }
+    }
+
+    private shouldFallbackToTsx(error: unknown): boolean {
+        return error instanceof Error
+            && (
+                "code" in error && error.code === "ERR_UNKNOWN_FILE_EXTENSION"
+                || error.message.includes("Unknown file extension")
+            );
     }
 
     private isProfile(value: unknown): value is AgentProfile {

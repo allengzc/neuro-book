@@ -205,6 +205,13 @@ export type SessionTreeNode = {
     type: SessionEntry["type"];
     timestamp: number;
     active: boolean;
+    terminal: boolean;
+    childCount: number;
+    role?: string;
+    messageId?: string;
+    preview?: string;
+    toolName?: string;
+    label?: string;
 };
 
 export type SessionEntryDraft = SessionEntry extends infer TEntry

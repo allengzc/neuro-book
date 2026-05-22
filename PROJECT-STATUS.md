@@ -31,7 +31,7 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 | Plot / Story | Active | 剧情系统规范较完整；refs 指向设定/角色/地点时使用 `lorebook/.../` 内容节点路径，剧情内部对象仍使用 thread/scene/plot URI；数据库不再维护 `Volume` / `Chapter` 表，Scene 挂章使用 `chapterPath` 指向 `manuscript/.../` content-node 目录。 |
 | Agent v2 | Archived | 旧实现已移动到 `server/agent-v2` 与 `assets/agent-v2`，只作为迁移参考，不进入 active typecheck、测试或运行时。旧 `AgentThread` / `AgentMessage` Prisma 模型已删除。 |
 | Agent | Active | Pi-based harness 已成为 `server/agent` 主实现：TypeBox profile、动态 `.nbook` profile/skill catalog、JSONL session、slash command、approval resume、profile ingest、linked agents、compaction、Pi 风格基础文件工具、agent 工具和真实 provider smoke 均已跑通。正式 HTTP 入口是 `/api/agent/sessions/**`；前端 Agent 抽屉已迁到 session snapshot + event hub + command/tree/invocation contract，保留聊天、停止、审批恢复、模型选择、Plan Mode、compact、linked agents、edit/retry/rollback/fallback 的核心入口。 |
-| Skills | Active | 新 Agent 后端只扫描 `assets/.nbook/agent/skills` 与 `workspace/.nbook/agent/skills`；旧写作流程 skill 已归档到 `assets/agent-v2/skills`。前端用户资产工作区的 skill/profile 编辑体验仍等待按新 `.nbook` 结构重接。 |
+| Skills | Active | 新 Agent 后端只扫描 `assets/.nbook/agent/skills` 与 `workspace/.nbook/agent/skills`；旧写作流程 skill 已归档到 `assets/agent-v2/skills`。前端用户资产工作区的 profile 工作台已能读 v3 catalog/detail 并做 prepare 预览，skill/profile 写入体验仍等待按新 `.nbook` 结构重接。 |
 | Docs | Active | 本轮完成目录重排、状态报告和任务 walkthrough 约定。 |
 
 ## TODO
@@ -58,7 +58,7 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 - 让 workspace 默认 Profile 设置页复用 profile catalog 的 loadStatus / issue 信息，避免 contract-only 或 missing profile 在设置列表中被当作普通可运行项展示；当前运行路径已阻止 contract-only profile 执行。
 - Agent 前端迁移后补一次浏览器交互验收：重点验证多窗口事件同步、followUp queue、approval resume、Plan Mode、model command、compact、edit/retry/rollback/fallback 和流式工具卡片。
 - Agent session event hub 后续支持跨进程/多实例广播；第一版是单进程内存 replay，重启或多 worker 场景通过 snapshot 恢复，不保证实时 fan-out。
-- Agent profile 工作台后续重接新 preview：当前 Agent 抽屉已迁移，但 profile template visual editor 的 `preview-prepare` 仍是迁移期 stub，需要按 TSX profile runtime、schema 和模拟请求预览重新设计。
+- Agent profile 工作台后续重接写入链路：当前 Agent 抽屉已迁移，profile template visual editor 已能读取 v3 profile catalog/detail 并调用真实 `profile.prepare()` 预览；保存、新建、restore 和 schema builder 仍需要按 TSX profile runtime 重新设计。
 - Pi Agent Harness 迁移后续补 `invoke_agent` 非阻塞调用；v3 agent 工具已收敛为 `create_agent`、`invoke_agent`、`get_agent(id?: number)`、`detach_agent`；`invoke_agent` 工具返回 sessionId、usage、finalMessage、report_result 摘要，不返回完整 history；`request_user_input`、`enter_plan_mode`、`exit_plan_mode`、`skill` 的审批/回答恢复统一走 `continue + resolution`，由 harness 补齐 toolResult 后继续。
 - Pi Agent Harness 迁移后续评估文件/变量回溯：变量可通过 session custom state entry reduce，文件回溯需要专门的 `file_snapshot` / `file_patch` entry 或接入 Git/worktree snapshot，第一版不承诺文件内容回滚。
 - 观察 `arch` source 模式快速同步脚本的稳定性，并决定是否要把远端部署目标做成可配置 preset。

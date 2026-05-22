@@ -1,8 +1,9 @@
-import {throwAgentV2Removed} from "nbook/server/api/agent/_removed";
+import {useAgentHarness} from "nbook/server/agent/http";
+import {listAgentProfileCatalog} from "nbook/server/agent/profiles/profile-http-service";
 
 /**
- * 旧 Agent v2 API 已移除，等待前端迁移到新 session/invocation API。
+ * 列出新 Agent Profile catalog，供 TSX Profile 工作台读取。
  */
-export default defineEventHandler(() => {
-    throwAgentV2Removed();
+export default defineEventHandler(async () => {
+    return listAgentProfileCatalog(useAgentHarness().profiles);
 });

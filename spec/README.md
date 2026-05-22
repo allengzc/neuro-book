@@ -10,3 +10,4 @@
 - [plot/](plot/)：剧情模块和前端 UI/UX 规范。
 - [reference/](reference/)：统一引用系统和 inline 引用规范。
 - [theme/](theme/)：主题系统规范。
+- [workspace/TERMS.md](workspace/TERMS.md)：Workspace Root、Project Workspace、user-assets 和 Bundled Workspace Template 的标准术语。
