@@ -23,6 +23,9 @@ describe("SkillCatalog", () => {
         await writeSkill(systemRoot, "writer", `---
 name: Writer Skill
 description: Write prose.
+when_to_use:
+  - 用户需要写正文时
+  - 用户显式提到写作 skill 时
 ---
 # Body
 `);
@@ -32,6 +35,7 @@ description: Write prose.
             key: "writer",
             name: "Writer Skill",
             description: "Write prose.",
+            whenToUse: "用户需要写正文时；用户显式提到写作 skill 时",
             source: "system",
         }));
     });

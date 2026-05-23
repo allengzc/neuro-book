@@ -5,18 +5,22 @@ import {z} from "zod";
  */
 export const ProfileTemplateNodeTypeSchema = z.enum([
     "ProfilePrompt",
+    "System",
     "HistorySet",
-    "DynamicSet",
+    "ModelContext",
     "AppendingSet",
     "Text",
     "Message",
     "AIMessage",
     "ToolCall",
+    "ToolResult",
     "Reminder",
     "Watch",
     "If",
+    "AgentCatalog",
     "SkillCatalog",
     "ActivatedSkills",
+    "SqlSchemaSummary",
 ]);
 
 /**

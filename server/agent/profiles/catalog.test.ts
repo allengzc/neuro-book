@@ -6,6 +6,7 @@ import {Type} from "typebox";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
+import {messageText} from "nbook/server/agent/messages/message-utils";
 
 describe("AgentProfileCatalog", () => {
     let root: string;
@@ -13,7 +14,7 @@ describe("AgentProfileCatalog", () => {
     let userRoot: string;
 
     beforeEach(async () => {
-        root = resolve(".agent", "agent-profile-catalog-test", randomUUID());
+        root = resolve(".agent", "workspace", "agent-profile-catalog-test", randomUUID());
         systemRoot = join(root, "assets", ".nbook", "agent", "profiles");
         userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
         await mkdir(systemRoot, {recursive: true});
@@ -67,6 +68,69 @@ describe("AgentProfileCatalog", () => {
             source: "user",
             loadStatus: "loaded",
         }));
+    });
+
+    it("加载 TSX DSL profile 时使用自动 JSX runtime", async () => {
+        await writeProfile(systemRoot, "custom.jsx.profile.tsx", `
+            /** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
+            /** @jsxRuntime automatic */
+            import {Type} from "typebox";
+            import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+            import {AppendingSet, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
+
+            export const profileManifest = { key: "custom.jsx", name: "JSX" } as const;
+            export default defineAgentProfile({
+                manifest: profileManifest,
+                inputSchema: Type.Object({}),
+                outputSchema: Type.Object({}),
+                allowedToolKeys: [],
+                context() {
+                    return (
+                        <ProfilePrompt>
+                            <System>system</System>
+                            <AppendingSet>
+                                <Message>append</Message>
+                            </AppendingSet>
+                        </ProfilePrompt>
+                    );
+                },
+            });
+        `);
+        const catalog = new AgentProfileCatalog(systemRoot, userRoot);
+
+        const profile = await catalog.get("custom.jsx");
+        const prepared = await profile.prepare!(context());
+
+        expect(prepared.systemPrompt).toBe("system");
+        expect((prepared.appendingMessages ?? []).map(messageText)).toEqual(["append"]);
+    });
+
+    it("TSX profile 依赖 helper 文件变化时重新编译缓存", async () => {
+        const cacheRoot = join(root, "profile-module-cache");
+        await writeProfile(systemRoot, "prompt-helper.ts", `export const helperText = "v1";`);
+        await writeProfile(systemRoot, "custom.helper.profile.tsx", `
+            import {Type} from "typebox";
+            import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+            import {helperText} from "./prompt-helper";
+
+            export const profileManifest = { key: "custom.helper", name: "Helper" } as const;
+            export default defineAgentProfile({
+                manifest: profileManifest,
+                inputSchema: Type.Object({}),
+                outputSchema: Type.Object({}),
+                allowedToolKeys: [],
+                prepare() { return { systemPrompt: helperText }; },
+            });
+        `);
+
+        const firstCatalog = new AgentProfileCatalog(systemRoot, userRoot, cacheRoot);
+        const firstProfile = await firstCatalog.get("custom.helper");
+        expect((await firstProfile.prepare!(context())).systemPrompt).toBe("v1");
+
+        await writeProfile(systemRoot, "prompt-helper.ts", `export const helperText = "v2";`);
+        const secondProfile = await firstCatalog.get("custom.helper");
+
+        expect((await secondProfile.prepare!(context())).systemPrompt).toBe("v2");
     });
 
     it("builtin 覆盖只替换运行时实现，不替换锁定 schema", async () => {
@@ -187,4 +251,31 @@ function profileSource(key: string, name: string): string {
             prepare() { return { systemPrompt: ${JSON.stringify(name)} }; },
         });
     `;
+}
+
+function context() {
+    return {
+        session: {
+            systemPrompt: "",
+            messages: [],
+            model: null,
+            thinkingLevel: "off" as const,
+            profileKey: "custom.jsx",
+            workspaceRoot: "workspace",
+            customState: {},
+            linkedAgents: [],
+            archived: false,
+            planModeActive: false,
+        },
+        input: {},
+        catalog: {
+            profiles: [],
+            issues: [],
+        },
+        skills: [],
+        runtime: {
+            now: "2026-05-23T00:00:00.000Z",
+            promptUserTurnCount: 0,
+        },
+    };
 }

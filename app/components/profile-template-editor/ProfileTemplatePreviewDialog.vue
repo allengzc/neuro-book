@@ -90,7 +90,7 @@ const emit = defineEmits<{
                         <span class="i-lucide-file-code-2 h-3.5 w-3.5"></span>
                         <span>{{ props.selectedTemplateFileName }}</span>
                     </div>
-                    <div class="text-[11px] leading-5 text-[var(--text-muted)]">预览会使用当前画布结构生成消息，不会保存模板。</div>
+                    <div class="text-[11px] leading-5 text-[var(--text-muted)]">预览会编译当前源码，展示 ProfileTurnPlan 分区，不会保存文件。</div>
                 </section>
 
                 <section class="preview-section">

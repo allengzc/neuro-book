@@ -44,6 +44,7 @@ const PLAN_MODE_APPROVAL_ARGS_TEXT = JSON.stringify({
                 label: "批准",
                 description: "允许 Agent 执行这次 Plan Mode 切换。",
                 recommended: true,
+                defaultSelected: true,
             },
             {
                 label: "取消",
@@ -62,6 +63,7 @@ const SKILL_APPROVAL_ARGS_TEXT = JSON.stringify({
                 label: "批准",
                 description: "允许 Agent 读取并使用这个 skill。",
                 recommended: true,
+                defaultSelected: true,
             },
             {
                 label: "取消",

@@ -52,6 +52,20 @@ describe("v3 file tools", () => {
         ]);
     });
 
+    it("read 图片时保留模型可见 image block", async () => {
+        await writeFile(join(workspaceRoot, "cover.jpg"), Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+        const tool = mustTool("read", harness);
+
+        const result = await tool.executeWithContext?.(context, "read-image-1", {
+            path: "cover.jpg",
+        });
+
+        expect(result?.content).toEqual([
+            {type: "text", text: "Read image file [image/jpeg]"},
+            {type: "image", mimeType: "image/jpeg", data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]).toString("base64")},
+        ]);
+    });
+
     it("write 创建父目录并写入内容", async () => {
         const tool = mustTool("write", harness);
 
@@ -141,6 +155,23 @@ describe("v3 file tools", () => {
 
         expect(foundGitBash).toBe(gitBash);
         expect(foundPathBash).toBe("bash.exe");
+    });
+
+    it("Windows bash 解析支持 Scoop 用户级 Git 安装路径", () => {
+        const scoopBash = "C:\\Users\\Ada\\scoop\\apps\\git\\current\\bin\\bash.exe";
+
+        const found = resolveBashPathForPlatform({
+            platform: "win32",
+            env: {
+                USERPROFILE: "C:\\Users\\Ada",
+                PATH: "",
+            },
+            pathExists(path) {
+                return path === scoopBash;
+            },
+        });
+
+        expect(found).toBe(scoopBash);
     });
 
     it("基础工具 description 对齐 Pi 风格工具选择规则", () => {

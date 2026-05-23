@@ -7,7 +7,7 @@ import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 
 const DEFAULT_SYSTEM_PROFILE_ROOT = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profiles");
 const DEFAULT_USER_PROFILE_ROOT = resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles");
-const PROFILE_SOURCE_CHECK_ROOT = resolve(process.cwd(), ".agent", "profile-source-check");
+const PROFILE_SOURCE_CHECK_ROOT = resolve(process.cwd(), ".agent", "workspace", "profile-source-check");
 
 export type ProfileSourceCheckRoots = {
     systemProfileRoot?: string;
@@ -35,7 +35,7 @@ export async function withProfileSourceOverride<T>(
         const targetPath = resolveProfileFilePath(input.fileName, temporaryRoot);
         await mkdir(dirname(targetPath), {recursive: true});
         await writeFile(targetPath, input.source, "utf8");
-        const catalog = new AgentProfileCatalog(systemRoot, temporaryRoot);
+        const catalog = new AgentProfileCatalog(systemRoot, temporaryRoot, resolve(temporaryRoot, ".profile-module-cache"));
         return await callback(catalog, temporaryRoot);
     } finally {
         await rm(temporaryRoot, {recursive: true, force: true});

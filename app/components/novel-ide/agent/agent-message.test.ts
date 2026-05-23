@@ -26,6 +26,21 @@ const baseSnapshot = (entries: AgentSessionSnapshotDto["entries"]): AgentSession
 });
 
 describe("agent message projection", () => {
+    it("在对话顶部展示当前 profile system prompt", () => {
+        const snapshot = baseSnapshot([]);
+        snapshot.systemPrompt = "# Leader\n\n保持协作。";
+
+        const messages = deriveMessagesFromSessionSnapshot(snapshot);
+
+        expect(messages[0]).toEqual(expect.objectContaining({
+            id: "system-prompt:1:leader.default",
+            type: "system",
+            systemDisplayKind: "prompt",
+            systemLabel: "System Prompt",
+            content: "# Leader\n\n保持协作。",
+        }));
+    });
+
     it("把 system-reminder custom_message 投影为轻量系统提醒", () => {
         const messages = deriveMessagesFromSessionSnapshot(baseSnapshot([{
             id: "reminder-1",
@@ -99,4 +114,5 @@ describe("agent message projection", () => {
             {id: "branch-1", label: "Branch Summary", content: "分支摘要"},
         ]);
     });
+
 });

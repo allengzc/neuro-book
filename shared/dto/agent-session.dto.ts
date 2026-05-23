@@ -30,6 +30,14 @@ export const AgentResolutionDtoSchema = z.discriminatedUnion("kind", [
         approved: z.boolean(),
         resultText: z.string().optional(),
         data: JsonValueSchema.optional(),
+        answers: z.array(z.object({
+            questionIndex: z.number().int().nonnegative(),
+            text: z.string(),
+            selectedOptionIndex: z.number().int().min(-1).optional(),
+            selectedOptionIndexes: z.array(z.number().int().min(-1)).optional(),
+            note: z.string().optional(),
+            ignored: z.boolean().optional(),
+        })).optional(),
     }),
     z.object({
         kind: z.literal("user_input"),
@@ -37,6 +45,10 @@ export const AgentResolutionDtoSchema = z.discriminatedUnion("kind", [
         answers: z.array(z.object({
             questionIndex: z.number().int().nonnegative(),
             text: z.string(),
+            selectedOptionIndex: z.number().int().min(-1).optional(),
+            selectedOptionIndexes: z.array(z.number().int().min(-1)).optional(),
+            note: z.string().optional(),
+            ignored: z.boolean().optional(),
         })),
     }),
 ]);
@@ -224,6 +236,8 @@ export type AgentSessionEventDto =
 export type AgentSessionSnapshotDto = {
     summary: AgentSessionSummaryDto;
     activeLeafId: string | null;
+    /** 当前 profile 的 provider 级 system prompt，用于前端只读展示；不作为普通历史消息。 */
+    systemPrompt?: string;
     messages: AgentMessage[];
     tree: SessionTreeNode[];
     entries: SessionEntry[];

@@ -204,11 +204,43 @@ export const AgentProfileSourceRequestDtoSchema = z.object({
 });
 
 /**
+ * 轻量源码草稿解析请求。只解析 TSX DSL tree，不加载 runtime profile。
+ */
+export const AgentProfileSourceDraftRequestDtoSchema = z.object({
+    fileName: z.string().trim().min(1),
+    source: z.string().optional(),
+});
+
+/**
  * profile 源码保存请求。
  */
 export const AgentProfileSaveRequestDtoSchema = z.object({
     fileName: z.string().trim().min(1),
     source: z.string(),
+});
+
+/**
+ * 手动编译用户 profile 源码。编译在后台 worker 中执行，避免阻塞 Nitro 主线程。
+ */
+export const AgentProfileCompileRequestDtoSchema = z.object({
+    fileName: z.string().trim().min(1),
+    source: z.string(),
+    preview: z.boolean().default(false),
+    sessionId: z.string().trim().min(1).optional(),
+    input: z.json().optional(),
+    inputOverrides: z.record(z.string(), z.string()).optional(),
+});
+
+/**
+ * 手动编译结果。detail 是 runtime profile 详情，preview 只有请求 preview=true 时返回。
+ */
+export const AgentProfileCompileResultDtoSchema = z.object({
+    ok: z.boolean(),
+    stale: z.boolean().default(false),
+    detail: AgentProfileDetailDtoSchema.nullable(),
+    preview: AgentProfilePreparePreviewDtoSchema.nullable().optional(),
+    issues: z.array(AgentProfileIssueDtoSchema),
+    elapsedMs: z.number().nonnegative().optional(),
 });
 
 /**
@@ -249,6 +281,13 @@ export type AgentProfilePreparePreviewRequestDto = z.infer<typeof AgentProfilePr
 export type AgentProfilePreparePreviewDto = z.infer<typeof AgentProfilePreparePreviewDtoSchema>;
 export type AgentProfileFileItemDto = z.infer<typeof AgentProfileFileItemDtoSchema>;
 export type AgentProfileSourceRequestDto = z.infer<typeof AgentProfileSourceRequestDtoSchema>;
+export type AgentProfileSourceDraftRequestDto = z.infer<typeof AgentProfileSourceDraftRequestDtoSchema>;
 export type AgentProfileSaveRequestDto = z.infer<typeof AgentProfileSaveRequestDtoSchema>;
+export type AgentProfileCompileRequestDto = z.infer<typeof AgentProfileCompileRequestDtoSchema>;
+export type AgentProfileCompileResultDto = Omit<z.infer<typeof AgentProfileCompileResultDtoSchema>, "detail" | "preview" | "issues"> & {
+    detail: AgentProfileDetailDto | null;
+    preview?: AgentProfilePreparePreviewDto | null;
+    issues: AgentProfileIssueDto[];
+};
 export type AgentProfileCreateRequestDto = z.infer<typeof AgentProfileCreateRequestDtoSchema>;
 export type AgentProfileTemplateItemDto = z.infer<typeof AgentProfileTemplateItemDtoSchema>;

@@ -5,28 +5,22 @@ import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto
 
 /**
  * 生成完整 TSX 模板文件。
- * 注意：这里必须和 server/agent/profile-templates/profile-template-service.ts 的
- * generateProfileTemplateSource 保持同一套包装规则；后续若服务端生成器变化，需要同步这里。
+ * 注意：这里生成的是新 v3 Profile DSL 调试源码，不再使用旧 simple-profile 运行时。
  */
 export function generateFullTemplateSource(templateName: string, node: ProfileTemplateNodeDto): string {
     const componentNames = collectComponentNames(node);
-    const promptImportNames = ["Message", ...(componentNames.has("AIMessage") ? ["AIMessage"] : []), ...(componentNames.has("If") ? ["If"] : [])];
-    const profileImportNames = [...componentNames].filter((name) => !["Message", "AIMessage", "If", "ToolCall"].includes(name)).sort();
     const functionName = toPascalCase(templateName || "ProfileTemplate");
     return [
+        "/** @jsxImportSource nbook/server/agent/profiles/profile-dsl */",
         "/** @jsxRuntime automatic */",
-        "/** @jsxImportSource nbook/server/agent/prompts */",
         "",
-        `import {${promptImportNames.join(", ")}} from "nbook/server/agent/prompts";`,
-        `import {${profileImportNames.join(", ")}} from "nbook/server/agent/profiles/simple-profile";`,
-        "import type {ProfilePromptContext} from \"nbook/server/agent/profiles/simple-profile\";",
+        `import {${[...componentNames].sort().join(", ")}} from "nbook/server/agent/profiles/profile-dsl";`,
+        "import type {ProfilePrepareContext} from \"nbook/server/agent/profiles/types\";",
         "",
-        `export default async function ${functionName}(ctx: ProfilePromptContext<"leader.default">) {`,
+        `export default async function ${functionName}(ctx: ProfilePrepareContext) {`,
         "    const input = ctx.input;",
         "    const runtime = ctx.runtime;",
-        "    const scope = ctx.scope;",
-        "    const skillCatalogText = ctx.skillCatalogText;",
-        "    const activatedSkillsText = await ctx.activatedSkillsText();",
+        "    const session = ctx.session;",
         "",
         "    return (",
         indentPreviewSource(generatePreviewNodeSource(node), 2),
@@ -41,6 +35,9 @@ export function generateFullTemplateSource(templateName: string, node: ProfileTe
 export function collectComponentNames(node: ProfileTemplateNodeDto): Set<string> {
     const names = new Set<string>(["ProfilePrompt"]);
     walkNode(node, (current) => {
+        if (current.type === "Text") {
+            return;
+        }
         names.add(current.type);
     });
     return names;
@@ -76,11 +73,14 @@ export function generatePreviewNodeSource(node: ProfileTemplateNodeDto): string 
     if (node.type === "Text") {
         return renderPreviewNodeText(node);
     }
-    const props = generatePreviewProps(node.props);
+    if (node.type === "ToolCall") {
+        return generateToolCallSource(node);
+    }
+    const props = generatePreviewProps(publicRuntimeProps(node));
     if (node.children.length === 0 && !node.text) {
         return `<${node.type}${props} />`;
     }
-    if ((node.type === "Message" || node.type === "AIMessage" || node.type === "ToolCall") && node.text) {
+    if ((node.type === "System" || node.type === "Message" || node.type === "AIMessage" || node.type === "ToolResult") && node.text) {
         const textSource = renderPreviewNodeText(node);
         const childLines = [
             indentPreviewSource(textSource, 1),
@@ -104,6 +104,18 @@ export function generatePreviewNodeSource(node: ProfileTemplateNodeDto): string 
 }
 
 /**
+ * ToolCall 在 runtime DSL 中没有 children，画布正文编辑的是 args 参数。
+ */
+function generateToolCallSource(node: ProfileTemplateNodeDto): string {
+    const props = generatePreviewProps(publicRuntimeProps(node));
+    const argsText = node.text?.trim();
+    if (!argsText) {
+        return `<ToolCall${props} />`;
+    }
+    return `<ToolCall${props} args={${argsText}} />`;
+}
+
+/**
  * 生成 TSX 标签属性。
  */
 export function generatePreviewProps(props: ProfileTemplateNodeDto["props"]): string {
@@ -123,6 +135,14 @@ export function generatePreviewProps(props: ProfileTemplateNodeDto["props"]): st
         }
     }
     return chunks.length > 0 ? ` ${chunks.join(" ")}` : "";
+}
+
+/**
+ * 过滤低代码编辑器内部展示字段，只把 runtime DSL 接受的属性写回 TSX。
+ */
+export function publicRuntimeProps(node: ProfileTemplateNodeDto): ProfileTemplateNodeDto["props"] {
+    const internalProps = new Set(["status", "source", "previewText"]);
+    return Object.fromEntries(Object.entries(node.props).filter(([key]) => !internalProps.has(key)));
 }
 
 /**

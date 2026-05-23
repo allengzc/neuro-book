@@ -42,7 +42,7 @@ export default defineAgentProfile({
     prepare(ctx) {
         return {
             systemPrompt: renderSystemPrompt(),
-            dynamicMessages: [
+            modelContextMessages: [
                 createUserMessage({
                     text: [
                         "<dynamic-context>",
@@ -55,7 +55,6 @@ export default defineAgentProfile({
                     ].filter(Boolean).join("\n"),
                 }),
             ],
-            toolKeys: [...allowedToolKeys],
         };
     },
 });

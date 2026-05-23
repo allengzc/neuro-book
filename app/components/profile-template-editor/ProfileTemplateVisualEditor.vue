@@ -48,6 +48,8 @@ import {
     generateFullTemplateSource,
     generatePreviewNodeSource,
     indentPreviewSource,
+    publicRuntimeProps,
+    renderPreviewNodeText,
 } from "nbook/app/components/profile-template-editor/profile-template-source-utils";
 import {
     canHaveChildren,
@@ -80,6 +82,7 @@ import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import type {
     AgentProfileCatalogItemDto,
+    AgentProfileCompileResultDto,
     AgentProfileDetailDto,
     AgentProfileFileItemDto,
     AgentProfileIssueDto,
@@ -145,6 +148,8 @@ type ProfileValidationResult = {
     detail: AgentProfileDetailDto;
     preview: AgentProfilePreparePreviewDto | null;
 };
+
+type ProfileCompileState = "never" | "stale" | "running" | "passed" | "failed";
 
 const props = withDefaults(defineProps<{
     mode?: "system-template" | "user-profile";
@@ -221,6 +226,8 @@ const dirty = ref(false);
 const lastSavedAt = ref("");
 const lastSaveError = ref("");
 const parsingSource = ref(false);
+const compileState = ref<ProfileCompileState>("never");
+const compiledSourceText = ref("");
 const pendingMessageTextNodeId = ref("");
 let sourceParseTimer: number | null = null;
 let sourceHistoryTimer: number | null = null;
@@ -278,7 +285,11 @@ const canUndo = computed(() => undoStack.value.length > 0);
 const canRedo = computed(() => redoStack.value.length > 0);
 const nodeCount = computed(() => root.value ? countNodes(root.value) - 1 : 0);
 const displayRoot = computed(() => dragVisualRoot.value ?? root.value);
+const profileCompileReady = computed(() => props.mode !== "user-profile" || (compileState.value === "passed" && compiledSourceText.value === sourceText.value));
 const editorStatusText = computed(() => {
+    if (props.mode === "user-profile" && compileState.value === "running") {
+        return "编译中...";
+    }
     if (saving.value) {
         return "保存中...";
     }
@@ -292,6 +303,18 @@ const editorStatusText = computed(() => {
         return parsingSource.value
             ? (autosaveEnabled.value ? "源码解析中，等待自动保存" : "源码解析中")
             : "有未保存更改";
+    }
+    if (props.mode === "user-profile") {
+        if (compileState.value === "passed" && compiledSourceText.value === sourceText.value) {
+            return "编译通过";
+        }
+        if (compileState.value === "failed") {
+            return "编译失败";
+        }
+        if (compileState.value === "stale" || (compileState.value === "passed" && compiledSourceText.value !== sourceText.value)) {
+            return "源码已修改，需重新编译";
+        }
+        return statusText.value || "未编译";
     }
     return statusText.value || "等待操作";
 });
@@ -415,11 +438,8 @@ function formatCatalogDescription(item: AgentProfileCatalogItemDto | undefined):
  */
 async function loadTemplates(): Promise<void> {
     if (props.mode === "user-profile") {
-        const [catalog, files] = await Promise.all([
-            $fetch<AgentProfileCatalogItemDto[]>("/api/agent/profiles/catalog"),
-            $fetch<AgentProfileFileItemDto[]>("/api/agent/profiles/files"),
-        ]);
-        profileCatalog.value = catalog;
+        const files = await $fetch<AgentProfileFileItemDto[]>("/api/agent/profiles/files");
+        profileCatalog.value = files.map((item) => fileItemToCatalogItem(item));
         profileFiles.value = files;
         templates.value = profileFiles.value
             .map((item) => ({
@@ -449,12 +469,12 @@ async function loadTemplates(): Promise<void> {
  */
 async function fetchTemplateDetail(): Promise<ProfileTemplateDetailDto> {
     if (props.mode === "user-profile") {
-        const nextProfileDetail = await $fetch<AgentProfileDetailDto>("/api/agent/profiles/source", {
+        const nextDetail = await $fetch<ProfileTemplateDetailDto>("/api/agent/profiles/source-draft", {
             method: "POST",
             body: {fileName: selectedTemplate.value},
         });
-        profileDetail.value = nextProfileDetail;
-        return templateDetailFromProfile(nextProfileDetail);
+        profileDetail.value = null;
+        return nextDetail;
     }
     profileDetail.value = null;
     return await $fetch<ProfileTemplateDetailDto>(`/api/agent/profile-templates/${selectedTemplate.value}`);
@@ -556,43 +576,42 @@ async function previewTemplate(): Promise<void> {
  * 用户 profile 模式下走真实 profile.prepare 预览。
  */
 async function previewPreparedProfile(): Promise<ProfileTemplatePreviewDto> {
-    const sourceDetail = await $fetch<AgentProfileDetailDto>("/api/agent/profiles/source", {
-        method: "POST",
-        body: {
-            fileName: selectedTemplate.value,
-            source: sourceText.value,
-        },
-    });
-    profileDetail.value = sourceDetail;
-    const sourceIssues = profileIssuesToTemplate(sourceDetail.issues);
-    if (sourceIssues.some((issue) => issue.severity === "error") || !sourceDetail.manifest?.key) {
+    const compileResult = await compileUserProfile(true);
+    if (!compileResult.detail || !compileResult.preview) {
         return {
             source: sourceText.value,
-            root: sourceDetail.root ?? root.value,
-            issues: sourceIssues,
+            root: root.value,
+            issues: profileIssuesToTemplate(compileResult.issues),
             messages: [],
-            variables: profileVariablesToTemplate(sourceDetail.variables),
+            variables: [],
         };
     }
-    const result = await $fetch<AgentProfilePreparePreviewDto>("/api/agent/profiles/preview-prepare", {
-        method: "POST",
-        headers: buildAgentPreviewHeaders(),
-        body: {
-            profileKey: sourceDetail.manifest.key,
-            sessionId: selectedThreadId.value || undefined,
-            inputOverrides: normalizePreviewInputOverrides(),
-            sourceOverride: {
-                fileName: selectedTemplate.value,
-                source: sourceText.value,
-            },
-        },
-    });
     return {
         source: sourceText.value,
-        root: sourceDetail.root ?? root.value,
-        issues: [...sourceIssues, ...profileIssuesToTemplate(result.issues)],
-        messages: result.messages,
-        variables: profileVariablesToTemplate(result.variables),
+        root: compileResult.detail.root ?? root.value,
+        issues: profileIssuesToTemplate(compileResult.issues),
+        messages: compileResult.preview.messages,
+        variables: profileVariablesToTemplate(compileResult.preview.variables),
+    };
+}
+
+/**
+ * 轻量文件列表项转成下拉展示元数据，不触发 runtime catalog。
+ */
+function fileItemToCatalogItem(item: AgentProfileFileItemDto): AgentProfileCatalogItemDto {
+    return {
+        profileKey: item.profileKey ?? item.fileName,
+        kind: "agent",
+        name: item.name,
+        description: null,
+        fileName: item.fileName,
+        source: "user",
+        overrideState: "user_only",
+        loadStatus: item.loadStatus,
+        schemaLocked: false,
+        canEdit: true,
+        canRestore: true,
+        issues: item.issues,
     };
 }
 
@@ -662,36 +681,25 @@ async function validateTemplate(): Promise<void> {
  * user-profile 显式验证：当前源码契约、真实 prepare 和 report_result schema 一起跑。
  */
 async function validateUserProfile(): Promise<ProfileValidationResult> {
-    const detailResult = await $fetch<AgentProfileDetailDto>("/api/agent/profiles/source", {
-        method: "POST",
-        body: {
-            fileName: selectedTemplate.value,
-            source: sourceText.value,
-        },
-    });
-    profileDetail.value = detailResult;
+    const compileResult = await compileUserProfile(true);
+    if (!compileResult.detail) {
+        previewMessages.value = [];
+        return {
+            detail: emptyProfileDetail(compileResult.issues),
+            preview: null,
+        };
+    }
+    const detailResult = compileResult.detail;
     detail.value = templateDetailFromProfile(detailResult);
     previewVariableGroups.value = mapPreviewVariableGroups(detail.value.variables);
-    if (detailResult.issues.some((issue) => issue.severity === "error") || !detailResult.manifest?.key) {
+    if (!compileResult.preview) {
         previewMessages.value = [];
         return {
             detail: detailResult,
             preview: null,
         };
     }
-    const previewResult = await $fetch<AgentProfilePreparePreviewDto>("/api/agent/profiles/preview-prepare", {
-        method: "POST",
-        headers: buildAgentPreviewHeaders(),
-        body: {
-            profileKey: detailResult.manifest.key,
-            sessionId: selectedThreadId.value || undefined,
-            inputOverrides: normalizePreviewInputOverrides(),
-            sourceOverride: {
-                fileName: selectedTemplate.value,
-                source: sourceText.value,
-            },
-        },
-    });
+    const previewResult = compileResult.preview;
     previewMessages.value = previewResult.messages;
     previewVariableGroups.value = mapPreviewVariableGroups(profileVariablesToTemplate(previewResult.variables));
     return {
@@ -713,6 +721,116 @@ function validationSuccessText(result: ProfileTemplateDetailDto | ProfileValidat
         : "无 report_result";
     const messageCount = validation.preview?.messages.length ?? 0;
     return `校验通过 · prepare ${messageCount} 条消息 · ${reportSchemaText}`;
+}
+
+/**
+ * 手动编译当前用户 profile。真实 TSX loader 在后端 worker 中执行。
+ */
+async function compileUserProfile(preview: boolean): Promise<AgentProfileCompileResultDto> {
+    const submittedFileName = selectedTemplate.value;
+    const submittedSource = sourceText.value;
+    compileState.value = "running";
+    statusText.value = "编译中...";
+    try {
+        const result = await $fetch<AgentProfileCompileResultDto>("/api/agent/profiles/compile", {
+            method: "POST",
+            headers: buildAgentPreviewHeaders(),
+            body: {
+                fileName: submittedFileName,
+                source: submittedSource,
+                preview,
+                sessionId: selectedThreadId.value || undefined,
+                inputOverrides: normalizePreviewInputOverrides(),
+            },
+        });
+        if (result.stale || selectedTemplate.value !== submittedFileName || sourceText.value !== submittedSource) {
+            compileState.value = "stale";
+            statusText.value = "源码已修改，需重新编译";
+            return staleCompileResult(result);
+        }
+        profileDetail.value = result.detail;
+        compiledSourceText.value = submittedSource;
+        compileState.value = result.ok ? "passed" : "failed";
+        statusText.value = result.ok ? "编译通过" : "编译失败";
+        return result;
+    } catch (error) {
+        if (selectedTemplate.value !== submittedFileName || sourceText.value !== submittedSource) {
+            compileState.value = "stale";
+            statusText.value = "源码已修改，需重新编译";
+            return staleCompileResult();
+        }
+        compileState.value = "failed";
+        const message = describeFetchError(error);
+        statusText.value = `编译失败：${message}`;
+        return {
+            ok: false,
+            stale: false,
+            detail: null,
+            preview: null,
+            issues: [{
+                severity: "error",
+                message,
+                code: "compile_failed",
+                fileName: submittedFileName,
+            }],
+        };
+    }
+}
+
+/**
+ * 编译结果已不再对应当前源码时，不把旧 detail/preview 写回 UI。
+ */
+function staleCompileResult(result?: AgentProfileCompileResultDto): AgentProfileCompileResultDto {
+    return {
+        ok: false,
+        stale: true,
+        detail: null,
+        preview: null,
+        issues: [],
+        elapsedMs: result?.elapsedMs,
+    };
+}
+
+/**
+ * 编译完全失败时给旧验证返回一个占位 detail，避免 UI 需要处理 null。
+ */
+function emptyProfileDetail(compileIssues: AgentProfileIssueDto[]): AgentProfileDetailDto {
+    return {
+        catalogItem: {
+            profileKey: `invalid:${selectedTemplate.value}`,
+            kind: "agent",
+            name: selectedTemplate.value,
+            description: null,
+            fileName: selectedTemplate.value,
+            source: "user",
+            overrideState: "user_only",
+            loadStatus: "error",
+            schemaLocked: false,
+            canEdit: true,
+            canRestore: true,
+            issues: compileIssues,
+        },
+        manifest: null,
+        fileName: selectedTemplate.value,
+        source: sourceText.value,
+        issues: compileIssues,
+        variables: [],
+        allowedToolKeys: [],
+        inputSchema: {
+            jsonSchema: null,
+            editMode: "source",
+            reason: "编译失败，无法读取 InputSchema。",
+            sourceRange: null,
+        },
+        outputSchema: {
+            jsonSchema: null,
+            editMode: "source",
+            reason: "编译失败，无法读取 OutputSchema。",
+            sourceRange: null,
+        },
+        reportResultSchema: null,
+        root: root.value,
+    };
 }
 
 /**
@@ -781,7 +899,7 @@ async function createUserProfile(): Promise<void> {
     }
     creating.value = true;
     try {
-        const created = await $fetch<AgentProfileDetailDto>("/api/agent/profiles/create", {
+        const created = await $fetch<ProfileTemplateDetailDto>("/api/agent/profiles/create", {
             method: "POST",
             body: {
                 profileKey: newProfileForm.value.profileKey,
@@ -792,7 +910,7 @@ async function createUserProfile(): Promise<void> {
             },
         });
         createDialogOpen.value = false;
-        selectedTemplate.value = created.fileName ?? `${newProfileForm.value.profileKey}.profile.tsx`;
+        selectedTemplate.value = created.fileName;
         await loadTemplates();
         const result = await fetchTemplateDetail();
         applyTemplateDetail(result, "已创建用户 profile");
@@ -808,8 +926,8 @@ async function createUserProfile(): Promise<void> {
  * 用当前 profile 创建真实 Agent session，但不自动 invoke。
  */
 async function createSessionForProfile(): Promise<void> {
-    if (props.mode !== "user-profile" || !profileDetail.value?.manifest?.key) {
-        notification.error("当前 profile 尚未成功加载，不能创建 session。", {title: "创建 Session 失败"});
+    if (props.mode !== "user-profile" || !profileCompileReady.value || !profileDetail.value?.manifest?.key) {
+        notification.error("当前 profile 需要先编译通过，才能创建 session。", {title: "创建 Session 失败"});
         return;
     }
     try {
@@ -901,6 +1019,8 @@ function applyTemplateDetail(nextDetail: ProfileTemplateDetailDto, status: strin
     dirty.value = false;
     lastSaveError.value = "";
     lastSavedAt.value = "";
+    compileState.value = props.mode === "user-profile" ? "never" : compileState.value;
+    compiledSourceText.value = "";
     clearAutosaveTimer();
     clearSourceEditHistory();
     resetDragState();
@@ -912,7 +1032,7 @@ function applyTemplateDetail(nextDetail: ProfileTemplateDetailDto, status: strin
  */
 async function saveTemplateSource(source: string): Promise<ProfileTemplateDetailDto> {
     if (props.mode === "user-profile") {
-        const saved = await $fetch<AgentProfileDetailDto>("/api/agent/profiles/save", {
+        const saved = await $fetch<ProfileTemplateDetailDto>("/api/agent/profiles/save", {
             method: "POST",
             body: {
                 fileName: selectedTemplate.value,
@@ -920,8 +1040,7 @@ async function saveTemplateSource(source: string): Promise<ProfileTemplateDetail
             },
         });
         await loadTemplates();
-        profileDetail.value = saved;
-        return templateDetailFromProfile(saved);
+        return saved;
     }
     return await $fetch<ProfileTemplateDetailDto>(`/api/agent/profile-templates/${selectedTemplate.value}`, {
         method: "PUT",
@@ -1101,7 +1220,7 @@ function insertVariable(value: string): void {
     }
     pushHistory();
     if (activeTextTarget.value === "text") {
-        const target = selectedNode.value.type === "Message" || selectedNode.value.type === "AIMessage"
+        const target = ["System", "Message", "AIMessage", "ToolResult"].includes(selectedNode.value.type)
             ? ensureInlineTextNode(selectedNode.value)
             : selectedNode.value;
         target.text = `${target.text ?? ""}${value}`;
@@ -1380,43 +1499,86 @@ function replacePromptRootSource(source: string, nextRoot: ProfileTemplateNodeDt
     if (!range) {
         return source;
     }
-    const nextSource = editablePromptText(nextRoot);
+    const nextSource = editablePromptText(nextRoot, source, range.start);
     return `${source.slice(0, range.start)}${nextSource}${source.slice(range.end)}`;
 }
 
-/**
- * 第一版只把可解析的 systemPrompt 文本 range 写回源码。
- */
 function editablePromptRange(node: ProfileTemplateNodeDto | null): ProfileTemplateNodeDto["sourceRange"] | undefined {
-    if (!node) {
+    if (!node || node.type !== "ProfilePrompt") {
         return undefined;
     }
-    if (node.sourceRange && node.editable) {
-        return node.sourceRange;
-    }
-    for (const child of node.children) {
-        const found = editablePromptRange(child);
-        if (found) {
-            return found;
-        }
-    }
-    return undefined;
+    return node.sourceRange;
 }
 
 /**
- * 从画布树中提取当前可视化编辑的 systemPrompt 文本。
+ * 从画布树生成新的 ProfilePrompt JSX 片段。
  */
-function editablePromptText(node: ProfileTemplateNodeDto): string {
-    if (node.editable && node.sourceRange && typeof node.text === "string") {
-        return node.text;
+function editablePromptText(node: ProfileTemplateNodeDto, source: string, start: number): string {
+    const lineStart = Math.max(source.lastIndexOf("\n", Math.max(0, start - 1)) + 1, 0);
+    const linePrefix = source.slice(lineStart, start).match(/^[\t ]*/)?.[0] ?? "";
+    return generateProfilePromptSource(node)
+        .split("\n")
+        .map((line, index) => index === 0 ? line : `${linePrefix}${line}`)
+        .join("\n");
+}
+
+/**
+ * 生成 Workbench 写回源码使用的 TSX 片段；复杂 source Text 保留为原表达式源码。
+ */
+function generateProfilePromptSource(node: ProfileTemplateNodeDto): string {
+    if (node.type === "Text") {
+        return renderPreviewNodeText(node);
     }
-    for (const child of node.children) {
-        const text = editablePromptText(child);
-        if (text) {
-            return text;
+    if (node.type === "ToolCall") {
+        return generateToolCallSource(node);
+    }
+    const props = generateProfilePromptProps(publicRuntimeProps(node));
+    if (node.children.length === 0 && !node.text) {
+        return `<${node.type}${props} />`;
+    }
+    const childLines = [
+        node.text ? renderPreviewNodeText(node) : "",
+        ...node.children.map((child) => generateProfilePromptSource(child)),
+    ].filter(Boolean);
+    return [
+        `<${node.type}${props}>`,
+        ...childLines.map((line) => indentPreviewSource(line, 1)),
+        `</${node.type}>`,
+    ].join("\n");
+}
+
+/**
+ * ToolCall 的正文编辑区对应 runtime DSL 的 args 参数。
+ */
+function generateToolCallSource(node: ProfileTemplateNodeDto): string {
+    const props = generateProfilePromptProps(publicRuntimeProps(node));
+    const argsText = node.text?.trim();
+    if (!argsText) {
+        return `<ToolCall${props} />`;
+    }
+    return `<ToolCall${props} args={${argsText}} />`;
+}
+
+/**
+ * 生成 TSX 属性源码。
+ */
+function generateProfilePromptProps(props: ProfileTemplateNodeDto["props"]): string {
+    const chunks: string[] = [];
+    for (const [key, value] of Object.entries(props)) {
+        if (value === null || value === "") {
+            continue;
+        }
+        if (isExpressionValue(value)) {
+            chunks.push(`${key}={${value.code}}`);
+            continue;
+        }
+        if (typeof value === "string") {
+            chunks.push(`${key}=${JSON.stringify(value)}`);
+        } else {
+            chunks.push(`${key}={${String(value)}}`);
         }
     }
-    return "";
+    return chunks.length > 0 ? ` ${chunks.join(" ")}` : "";
 }
 
 /**
@@ -1469,7 +1631,7 @@ async function validateSourceTextNow(successText: string): Promise<void> {
     parsingSource.value = true;
     try {
         const result = props.mode === "user-profile"
-            ? await $fetch<AgentProfileDetailDto>("/api/agent/profiles/source", {
+            ? await $fetch<ProfileTemplateDetailDto>("/api/agent/profiles/source-draft", {
                 method: "POST",
                 body: {
                     fileName: selectedTemplate.value,
@@ -1484,11 +1646,8 @@ async function validateSourceTextNow(successText: string): Promise<void> {
             return;
         }
         const nextDetail: ProfileTemplateDetailDto = props.mode === "user-profile"
-            ? templateDetailFromProfile(result as AgentProfileDetailDto)
+            ? result as ProfileTemplateDetailDto
             : result as ProfileTemplateDetailDto;
-        if (props.mode === "user-profile") {
-            profileDetail.value = result as AgentProfileDetailDto;
-        }
         detail.value = nextDetail;
         issues.value = nextDetail.issues;
         previewVariableGroups.value = mapPreviewVariableGroups(nextDetail.variables);
@@ -1565,6 +1724,9 @@ function clearSourceEditHistory(): void {
  */
 function markDirtyAndScheduleAutosave(): void {
     dirty.value = true;
+    if (props.mode === "user-profile") {
+        compileState.value = compiledSourceText.value ? "stale" : "never";
+    }
     lastSaveError.value = "";
     statusText.value = parsingSource.value
         ? (autosaveEnabled.value ? "源码解析中，等待自动保存" : "源码解析中")
@@ -1895,7 +2057,9 @@ onBeforeUnmount(() => {
             :restore-enabled="canRestoreSelectedTemplate"
             :create-enabled="props.mode === 'user-profile'"
             :run-enabled="props.mode === 'user-profile'"
+            :run-disabled="!profileCompileReady"
             :allow-save-with-issues="props.mode === 'user-profile'"
+            :validate-label="props.mode === 'user-profile' ? '编译' : '验证'"
             :closable="props.closable"
             @undo="undoEdit"
             @redo="redoEdit"
@@ -2170,11 +2334,15 @@ onBeforeUnmount(() => {
     --component-accent: var(--accent-main);
 }
 
+.library-node-System {
+    --component-accent: #5f70a5;
+}
+
 .library-node-HistorySet {
     --component-accent: #3f7f72;
 }
 
-.library-node-DynamicSet {
+.library-node-ModelContext {
     --component-accent: #47799a;
 }
 
@@ -2195,6 +2363,10 @@ onBeforeUnmount(() => {
     --component-accent: #4f8c8f;
 }
 
+.library-node-ToolResult {
+    --component-accent: #4b9272;
+}
+
 .library-node-Reminder {
     --component-accent: #b65f5b;
 }
@@ -2211,8 +2383,16 @@ onBeforeUnmount(() => {
     --component-accent: #8a639e;
 }
 
+.library-node-AgentCatalog {
+    --component-accent: #4e7f9f;
+}
+
 .library-node-SkillCatalog {
     --component-accent: #5f70a5;
+}
+
+.library-node-SqlSchemaSummary {
+    --component-accent: #4f8a8b;
 }
 
 .panel-rail:hover {

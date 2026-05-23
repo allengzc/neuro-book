@@ -4,7 +4,6 @@ import path from "node:path";
 import {createError} from "h3";
 import {useAgentHarness} from "nbook/server/agent/http";
 import type {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
-import {prisma} from "nbook/server/utils/prisma";
 import {
     USER_ASSETS_WORKSPACE_KIND,
     USER_ASSETS_WORKSPACE_ROOT,
@@ -218,6 +217,7 @@ export async function resolveConfigTarget(query: ConfigWorkspaceQueryDto): Promi
         };
     }
 
+    const {prisma} = await import("nbook/server/utils/prisma");
     const workspaceRoot = await resolveWorkspaceRootInput(prisma, {
         novelId: query.novelId,
         workspaceKind,

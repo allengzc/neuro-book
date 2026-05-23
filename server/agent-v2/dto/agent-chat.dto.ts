@@ -102,6 +102,7 @@ export const AgentUserInputQuestionOptionDtoSchema = z.object({
     label: z.string().trim().min(1, "option.label 不能为空").describe("User-facing option label, preferably 1-5 words."),
     description: z.string().trim().optional().describe("Optional short sentence explaining the impact or tradeoff of this option."),
     recommended: z.boolean().optional().describe("Whether this option is recommended. Prefer placing recommended options first."),
+    defaultSelected: z.boolean().optional().describe("Whether this option should be selected by default when the prompt opens."),
 });
 
 export const AgentUserInputQuestionDtoSchema = z.object({
@@ -111,6 +112,8 @@ export const AgentUserInputQuestionDtoSchema = z.object({
         .default([])
         .describe("Options for this question. Empty options means this is an open-ended question."),
     multiSelect: z.boolean().default(false).describe("Whether the user may select multiple options. Ignored when options is empty."),
+    defaultOptionIndex: z.number().int().min(-1, "defaultOptionIndex 不能小于 -1").optional().describe("Default selected option index for single-select questions. -1 selects the alternative answer option."),
+    defaultOptionIndexes: z.array(z.number().int().min(-1, "defaultOptionIndexes 不能小于 -1")).optional().describe("Default selected option indexes for multi-select questions. -1 selects the alternative answer option."),
 });
 
 export const AgentPendingUserInputQuestionDtoSchema = z.object({
@@ -127,6 +130,8 @@ export const AgentPendingUserInputQuestionDtoSchema = z.object({
     question: z.string().trim().min(1, "question 不能为空"),
     options: z.array(AgentUserInputQuestionOptionDtoSchema).default([]),
     multiSelect: z.boolean().default(false),
+    defaultOptionIndex: z.number().int().min(-1, "defaultOptionIndex 不能小于 -1").optional(),
+    defaultOptionIndexes: z.array(z.number().int().min(-1, "defaultOptionIndexes 不能小于 -1")).optional(),
 });
 
 export const AgentPendingUserInputSessionDtoSchema = z.object({

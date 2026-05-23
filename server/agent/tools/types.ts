@@ -31,6 +31,7 @@ export type ToolApprovalResolution = {
     approved: boolean;
     resultText?: string;
     data?: JsonValue;
+    answers?: UserInputResolution["answers"];
 };
 
 export type UserInputResolution = {
@@ -39,6 +40,10 @@ export type UserInputResolution = {
     answers: Array<{
         questionIndex: number;
         text: string;
+        selectedOptionIndex?: number;
+        selectedOptionIndexes?: number[];
+        note?: string;
+        ignored?: boolean;
     }>;
 };
 

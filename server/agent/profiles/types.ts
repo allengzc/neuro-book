@@ -1,6 +1,8 @@
 import type {Static, TSchema} from "typebox";
 import type {AgentMessage, JsonValue, Message} from "nbook/server/agent/messages/types";
 import type {NeuroSessionContext, SessionEntryDraft} from "nbook/server/agent/session/types";
+import type {ProfileDslNode} from "nbook/server/agent/profiles/profile-dsl";
+import type {SkillCatalogItem} from "nbook/server/agent/skills/skill-catalog";
 
 export type AgentProfileManifest<TKey extends string = string> = {
     key: TKey;
@@ -18,6 +20,7 @@ export type AgentProfileIssueCode =
     | "schema_missing"
     | "builtin_schema_locked"
     | "filename_mismatch"
+    | "system_profile_shadowed"
     | "file_missing";
 
 export type AgentProfileIssue = {
@@ -32,6 +35,7 @@ export type AgentCatalogItem = {
     key: string;
     name: string;
     description?: string;
+    allowedToolKeys?: readonly string[];
     inputSchema?: TSchema;
     outputSchema?: TSchema;
     source: AgentProfileSourceKind;
@@ -49,16 +53,26 @@ export type AgentCatalogSnapshot = {
 export type ProfilePrepareContext<TInput = JsonValue> = {
     session: NeuroSessionContext;
     input: TInput;
+    /** Agent profile catalog snapshot，用于 AgentCatalog 和 create_agent/invoke_agent 提示。 */
     catalog: AgentCatalogSnapshot;
+    /** 当前可见 skill 快照，用于 SkillCatalog。 */
+    skills: SkillCatalogItem[];
+    runtime?: {
+        now: string;
+        promptUserTurnCount: number;
+        /** prompt 模式下尚未写入 session 的本轮用户输入；continue 时为空。 */
+        pendingUserMessage?: Message;
+    };
 };
 
-export type PreparedTurn = {
+export type ProfileTurnPlan = {
     systemPrompt?: string;
-    historyMessages?: Message[];
-    dynamicMessages?: AgentMessage[];
+    historyInitMessages?: Message[];
     appendingMessages?: Message[];
-    toolKeys?: string[];
-    sessionWrites?: SessionEntryDraft[];
+    /** ModelContext 内需要按 AppendingSet 语义写入 session 的运行时提醒。 */
+    modelContextAppendingMessages?: Message[];
+    modelContextMessages?: AgentMessage[];
+    stateWrites?: SessionEntryDraft[];
 };
 
 export type ProfileIngestResult = {
@@ -77,6 +91,7 @@ export type AgentProfile<
     inputSchema: TInputSchema;
     outputSchema?: TOutputSchema;
     allowedToolKeys: readonly string[];
-    prepare(ctx: ProfilePrepareContext<Static<TInputSchema>>): PreparedTurn | Promise<PreparedTurn>;
+    context?(ctx: ProfilePrepareContext<Static<TInputSchema>>): ProfileDslNode | Promise<ProfileDslNode>;
+    prepare?(ctx: ProfilePrepareContext<Static<TInputSchema>>): ProfileTurnPlan | Promise<ProfileTurnPlan>;
     ingest?(ctx: ProfilePrepareContext<Static<TInputSchema>>): ProfileIngestResult | Promise<ProfileIngestResult>;
 };

@@ -166,10 +166,10 @@ watch(isEditing, (nextValue) => {
 }, {immediate: true});
 
 /**
- * 首条系统提示默认展开并限制高度；运行时 reminder 默认收起。
+ * System Prompt 和运行时系统卡片默认收起，避免新会话顶部过重。
  */
 watch(() => props.node.message.id, () => {
-    isSystemCollapsed.value = systemDisplayKind.value !== "prompt";
+    isSystemCollapsed.value = true;
 }, {immediate: true});
 
 /**
@@ -362,6 +362,7 @@ const endSwipe = (event: PointerEvent): void => {
         >
             <div
                 class="min-w-0 max-w-full rounded-2xl border border-[var(--border-color)] bg-[var(--bg-sidebar)] px-4 py-3 shadow-sm"
+                :class="props.node.message.error ? 'border-rose-500/40 bg-rose-500/5' : ''"
             >
                 <div v-if="isEditing" class="space-y-3">
                     <!-- 消息编辑器 -->

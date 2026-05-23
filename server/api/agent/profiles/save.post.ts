@@ -1,6 +1,5 @@
 import {validateBody} from "nbook/server/utils/novel-chapter";
-import {useAgentHarness} from "nbook/server/agent/http";
-import {saveProfileSource} from "nbook/server/agent/profiles/workbench-service";
+import {saveProfileSourceDraft} from "nbook/server/agent/profiles/workbench-service";
 import {AgentProfileSaveRequestDtoSchema} from "nbook/shared/dto/agent-profile.dto";
 
 /**
@@ -8,5 +7,5 @@ import {AgentProfileSaveRequestDtoSchema} from "nbook/shared/dto/agent-profile.d
  */
 export default defineEventHandler(async (event) => {
     const body = await validateBody(event, AgentProfileSaveRequestDtoSchema);
-    return saveProfileSource(useAgentHarness().profiles, body);
+    return saveProfileSourceDraft(body);
 });

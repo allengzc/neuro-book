@@ -93,11 +93,15 @@ const {isDragging} = useDraggable({
     --component-accent: var(--accent-main);
 }
 
+.library-node-System {
+    --component-accent: #5f70a5;
+}
+
 .library-node-HistorySet {
     --component-accent: #3f7f72;
 }
 
-.library-node-DynamicSet {
+.library-node-ModelContext {
     --component-accent: #47799a;
 }
 
@@ -107,6 +111,10 @@ const {isDragging} = useDraggable({
 
 .library-node-Message {
     --component-accent: #c2693c;
+}
+
+.library-node-ToolResult {
+    --component-accent: #4b9272;
 }
 
 .library-node-Reminder {
@@ -125,7 +133,15 @@ const {isDragging} = useDraggable({
     --component-accent: #8a639e;
 }
 
+.library-node-AgentCatalog {
+    --component-accent: #4e7f9f;
+}
+
 .library-node-SkillCatalog {
     --component-accent: #5f70a5;
+}
+
+.library-node-SqlSchemaSummary {
+    --component-accent: #4f8a8b;
 }
 </style>

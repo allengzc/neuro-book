@@ -793,6 +793,7 @@ export type AgentUserInputQuestionOption = {
     label: string;
     description?: string;
     recommended?: boolean;
+    defaultSelected?: boolean;
 };
 
 /**
@@ -805,6 +806,10 @@ export type AgentUserInputQuestion = {
     options: AgentUserInputQuestionOption[];
     /** true 表示当前问题允许多选；开放问题忽略该字段。 */
     multiSelect: boolean;
+    /** 单选题默认选中的选项索引；-1 表示默认选择其他答案。 */
+    defaultOptionIndex?: number;
+    /** 多选题默认选中的选项索引；-1 表示默认选择其他答案。 */
+    defaultOptionIndexes?: number[];
 };
 
 /**

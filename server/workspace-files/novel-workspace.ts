@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
+import {createHash} from "node:crypto";
 import type {Novel, Prisma, PrismaClient} from "nbook/server/generated/prisma/client";
 import {parseEntityId} from "nbook/server/utils/novel-chapter";
 
@@ -16,6 +17,10 @@ export const DEFAULT_NOVEL_WORKSPACE_SLUG = "silver-dragon-hime";
 
 const SYSTEM_WORKSPACE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../assets/workspace");
 const SYSTEM_NBOOK_ROOT = path.join(SYSTEM_WORKSPACE_ROOT, ".nbook");
+const SYSTEM_PROFILE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "profiles");
+const USER_PROFILE_ROOT = path.resolve(process.cwd(), USER_NBOOK_ROOT, "agent", "profiles");
+const SYSTEM_PROFILE_METADATA_PATH = path.join(SYSTEM_PROFILE_ROOT, ".system-profile-metadata.json");
+const USER_PROFILE_SYNC_STATE_PATH = path.join(USER_PROFILE_ROOT, ".profile-sync-state.json");
 const NOVEL_DIRECTORY_TEMPLATE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "templates", "novel-directory-templates");
 const USER_NOVEL_DIRECTORY_TEMPLATE_ROOT = path.resolve(process.cwd(), USER_ASSETS_WORKSPACE_ROOT, "templates", "novel-directory-templates");
 
@@ -32,6 +37,39 @@ export type WorkspaceRootKind = "novel" | typeof USER_ASSETS_WORKSPACE_KIND;
 export type UserAssetsSyncResult = {
     copied: number;
     skipped: number;
+    updatedProfiles?: number;
+    profileWarnings?: UserAssetsProfileSyncWarning[];
+};
+
+export type UserAssetsProfileSyncWarning = {
+    fileName: string;
+    profileKey: string;
+    message: string;
+};
+
+export type SystemProfileMetadata = {
+    generatedAt: string;
+    profilesRoot: string;
+    profiles: SystemProfileMetadataItem[];
+};
+
+export type SystemProfileMetadataItem = {
+    fileName: string;
+    profileKey: string;
+    sha256: string;
+    bytes: number;
+};
+
+type UserProfileSyncState = {
+    profiles: UserProfileSyncStateItem[];
+};
+
+type UserProfileSyncStateItem = {
+    fileName: string;
+    profileKey: string;
+    upstreamHash: string;
+    lastSyncedUserHash: string;
+    syncedAt: string;
 };
 
 /**
@@ -105,11 +143,41 @@ export async function ensureUserAssetsWorkspaceRoot(): Promise<string> {
 export async function syncSystemAssetsToUserAssets(): Promise<UserAssetsSyncResult> {
     await ensureUserAssetsWorkspaceRoot();
     const nbookTargetRoot = path.resolve(process.cwd(), USER_NBOOK_ROOT);
-    const result: UserAssetsSyncResult = {copied: 0, skipped: 0};
+    const result: UserAssetsSyncResult = {copied: 0, skipped: 0, updatedProfiles: 0, profileWarnings: []};
     if (await isDirectory(SYSTEM_NBOOK_ROOT)) {
         await copyMissingAssetEntries(SYSTEM_NBOOK_ROOT, nbookTargetRoot, result);
     }
+    await syncSystemProfilesToUserAssets(result, nbookTargetRoot);
     return result;
+}
+
+/**
+ * 读取系统 profile metadata。不存在时返回空 metadata，兼容开发期首次生成前的状态。
+ */
+export async function readSystemProfileMetadata(): Promise<SystemProfileMetadata> {
+    try {
+        return JSON.parse(await fs.readFile(SYSTEM_PROFILE_METADATA_PATH, "utf-8")) as SystemProfileMetadata;
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return {
+                generatedAt: new Date(0).toISOString(),
+                profilesRoot: "assets/workspace/.nbook/agent/profiles",
+                profiles: [],
+            };
+        }
+        throw error;
+    }
+}
+
+/**
+ * 计算文件 sha256。系统 profile metadata 与用户 sync state 共用这一判断。
+ */
+export async function sha256File(filePath: string): Promise<{sha256: string; bytes: number}> {
+    const buffer = await fs.readFile(filePath);
+    return {
+        sha256: createHash("sha256").update(buffer).digest("hex"),
+        bytes: buffer.byteLength,
+    };
 }
 
 /**
@@ -198,6 +266,130 @@ async function copyMissingAssetEntries(sourceRoot: string, targetRoot: string, r
             throw error;
         }
     }
+}
+
+async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, nbookTargetRoot: string): Promise<void> {
+    const metadata = await readSystemProfileMetadata();
+    if (metadata.profiles.length === 0) {
+        return;
+    }
+    const syncState = await readUserProfileSyncState();
+    let stateChanged = false;
+    for (const item of metadata.profiles) {
+        const systemPath = path.join(SYSTEM_PROFILE_ROOT, item.fileName);
+        const userPath = path.join(USER_PROFILE_ROOT, item.fileName);
+        const stateItem = syncState.profiles.find((profile) => profile.fileName === item.fileName);
+        if (!stateItem && await pathExists(userPath) && await sameFile(systemPath, userPath)) {
+            const hash = await sha256File(userPath);
+            upsertUserProfileSyncState(syncState, item, hash.sha256);
+            stateChanged = true;
+            continue;
+        }
+        if (!await pathExists(userPath)) {
+            await fs.mkdir(path.dirname(userPath), {recursive: true});
+            await fs.copyFile(systemPath, userPath);
+            const hash = await sha256File(userPath);
+            upsertUserProfileSyncState(syncState, item, hash.sha256);
+            result.updatedProfiles = (result.updatedProfiles ?? 0) + 1;
+            stateChanged = true;
+            continue;
+        }
+        const currentUserHash = (await sha256File(userPath)).sha256;
+        if (!stateItem) {
+            result.profileWarnings?.push({
+                fileName: item.fileName,
+                profileKey: item.profileKey,
+                message: `系统 profile ${item.profileKey} 有 metadata，但用户覆盖缺少 sync state，已保留用户文件。`,
+            });
+            continue;
+        }
+        if (currentUserHash !== stateItem.lastSyncedUserHash) {
+            if (item.sha256 !== stateItem.upstreamHash) {
+                result.profileWarnings?.push({
+                    fileName: item.fileName,
+                    profileKey: item.profileKey,
+                    message: `系统 profile ${item.profileKey} 已更新，但用户覆盖已手改，未自动覆盖。`,
+                });
+            }
+            continue;
+        }
+        if (item.sha256 === stateItem.upstreamHash) {
+            continue;
+        }
+        await fs.copyFile(systemPath, userPath);
+        const hash = await sha256File(userPath);
+        upsertUserProfileSyncState(syncState, item, hash.sha256);
+        result.updatedProfiles = (result.updatedProfiles ?? 0) + 1;
+        stateChanged = true;
+    }
+    if (stateChanged) {
+        await writeUserProfileSyncState(syncState);
+    }
+    await removeCopiedSystemMetadata(nbookTargetRoot);
+}
+
+async function readUserProfileSyncState(): Promise<UserProfileSyncState> {
+    try {
+        return JSON.parse(await fs.readFile(USER_PROFILE_SYNC_STATE_PATH, "utf-8")) as UserProfileSyncState;
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return {profiles: []};
+        }
+        throw error;
+    }
+}
+
+async function writeUserProfileSyncState(syncState: UserProfileSyncState): Promise<void> {
+    await fs.mkdir(path.dirname(USER_PROFILE_SYNC_STATE_PATH), {recursive: true});
+    await fs.writeFile(USER_PROFILE_SYNC_STATE_PATH, `${JSON.stringify(syncState, null, 2)}\n`, "utf-8");
+}
+
+function upsertUserProfileSyncState(syncState: UserProfileSyncState, metadata: SystemProfileMetadataItem, userHash: string): void {
+    const next: UserProfileSyncStateItem = {
+        fileName: metadata.fileName,
+        profileKey: metadata.profileKey,
+        upstreamHash: metadata.sha256,
+        lastSyncedUserHash: userHash,
+        syncedAt: new Date().toISOString(),
+    };
+    const index = syncState.profiles.findIndex((item) => item.fileName === metadata.fileName);
+    if (index >= 0) {
+        syncState.profiles[index] = next;
+    } else {
+        syncState.profiles.push(next);
+    }
+    syncState.profiles.sort((left, right) => left.fileName.localeCompare(right.fileName));
+}
+
+async function pathExists(filePath: string): Promise<boolean> {
+    try {
+        await fs.access(filePath);
+        return true;
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return false;
+        }
+        throw error;
+    }
+}
+
+async function sameFile(leftPath: string, rightPath: string): Promise<boolean> {
+    if (!await pathExists(leftPath) || !await pathExists(rightPath)) {
+        return false;
+    }
+    const [left, right] = await Promise.all([
+        sha256File(leftPath),
+        sha256File(rightPath),
+    ]);
+    return left.sha256 === right.sha256;
+}
+
+async function removeCopiedSystemMetadata(nbookTargetRoot: string): Promise<void> {
+    const copiedMetadataPath = path.join(nbookTargetRoot, "agent", "profiles", ".system-profile-metadata.json");
+    if (copiedMetadataPath === SYSTEM_PROFILE_METADATA_PATH) {
+        return;
+    }
+    await fs.rm(copiedMetadataPath, {force: true});
 }
 
 /**

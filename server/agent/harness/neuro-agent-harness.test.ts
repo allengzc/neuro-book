@@ -9,6 +9,7 @@ import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness"
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {createAssistantTextMessage, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
+import {Message, ModelContext, ProfilePrompt, Reminder, System} from "nbook/server/agent/profiles/profile-dsl";
 
 describe("NeuroAgentHarness", () => {
     let root: string;
@@ -80,6 +81,43 @@ describe("NeuroAgentHarness", () => {
 
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
         expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult"]);
+    });
+
+    it("新建 session snapshot 会展示 profile system prompt 且不触发动态提醒", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.snapshot-system",
+                name: "Snapshot System",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: [
+                        System({children: "# Snapshot System\n\n只读展示。"}),
+                        ModelContext({
+                            children: Reminder({
+                                id: "should-not-render",
+                                children: Message({children: "DYNAMIC_REMINDER"}),
+                            }),
+                        }),
+                    ],
+                });
+            },
+        }), false);
+        const created = await harness.createAgent({
+            profileKey: "test.snapshot-system",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        const session = await harness.repo.readSession(created.sessionId);
+
+        expect(snapshot.systemPrompt).toBe("# Snapshot System\n\n只读展示。");
+        expect(session.entries.some((entry) => {
+            return entry.type === "custom_message" && messageText(entry.message as never) === "DYNAMIC_REMINDER";
+        })).toBe(false);
     });
 
     it("approval 工具调用会停在 assistant tool call，resolution 后继续", async () => {
@@ -304,6 +342,143 @@ describe("NeuroAgentHarness", () => {
         expect(result.finalMessage).toBe("APPENDING|PROMPT");
     });
 
+    it("repeatEveryTurns 只计算真实 prompt 用户消息", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.prompt-turns",
+                name: "Prompt Turns",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare({runtime}) {
+                return {
+                    appendingMessages: runtime?.promptUserTurnCount === 0
+                        ? [createUserMessage({text: "APPENDING_BEFORE_FIRST_PROMPT"})]
+                        : [],
+                };
+            },
+        }));
+        faux.setResponses([
+            (context) => {
+                return fauxAssistantMessage(fauxText(`count=${context.messages.filter((message) => message.role === "user").length}`));
+            },
+            fauxAssistantMessage(fauxText("second")),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.prompt-turns",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const first = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "PROMPT_ONE"},
+        });
+        const second = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "continue",
+        });
+        const entries = (await harness.repo.readSession(created.sessionId)).entries;
+
+        expect(first.finalMessage).toBe("count=2");
+        expect(second.status).toBe("completed");
+        expect(entries.filter((entry) => entry.type === "message" && entry.origin === "prompt")).toHaveLength(1);
+        expect(entries.filter((entry) => entry.type === "custom_message" && messageText(entry.message as never) === "APPENDING_BEFORE_FIRST_PROMPT")).toHaveLength(1);
+    });
+
+    it("prepare 能读取尚未写入 session 的本轮 prompt 消息", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.pending-prompt",
+                name: "Pending Prompt",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare({runtime}) {
+                return {
+                    appendingMessages: runtime?.pendingUserMessage
+                        ? [createUserMessage({text: `PENDING=${messageText(runtime.pendingUserMessage)}`})]
+                        : [],
+                };
+            },
+        }));
+        faux.setResponses([
+            fauxAssistantMessage(fauxText("done")),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.pending-prompt",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "$skill run"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(context.messages.map((message) => message.role)).toEqual(["user", "user", "assistant"]);
+        expect(messageText(context.messages[0] as never)).toBe("PENDING=$skill run");
+        expect(messageText(context.messages[1] as never)).toBe("$skill run");
+    });
+
+    it("ModelContext 内 Reminder 会按 AppendingSet 语义提前写入并推送 snapshot", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.model-reminder-visible",
+                name: "Model Reminder Visible",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {
+                    systemPrompt: "SYSTEM",
+                    modelContextAppendingMessages: [createUserMessage({text: "MODEL_REMINDER"})],
+                    modelContextMessages: [createUserMessage({text: "MODEL_ONLY"})],
+                };
+            },
+        }));
+        const sessionStates: string[][] = [];
+        harness.eventHub.subscribe(1);
+        faux.setResponses([
+            (context) => {
+                return fauxAssistantMessage(fauxText(context.messages.map(messageText).join("|")));
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.model-reminder-visible",
+            input: {},
+            workspaceRoot: root,
+        });
+        const subscription = harness.subscribeSessionEvents(created.sessionId);
+        const collect = (async () => {
+            for await (const event of subscription) {
+                if (event.kind === "session" && event.event.type === "session_state_changed" && event.event.snapshot) {
+                    sessionStates.push(event.event.snapshot.entries
+                        .filter((entry) => entry.type === "custom_message" || entry.type === "message")
+                        .map((entry) => entry.type === "custom_message"
+                            ? messageText(entry.message as never)
+                            : messageText(entry.message as never)));
+                }
+                if (event.kind === "pi" && event.event.type === "agent_end") {
+                    break;
+                }
+            }
+        })();
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "PROMPT"},
+        });
+        await collect;
+
+        expect(result.finalMessage).toBe("MODEL_REMINDER|PROMPT|MODEL_ONLY");
+        expect(sessionStates.some((texts) => texts.includes("MODEL_REMINDER") && !texts.includes("PROMPT"))).toBe(true);
+    });
+
     it("create_agent 会自动 link 到父 session，get_agent 无参返回当前拥有的 agent", async () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
@@ -490,10 +665,9 @@ describe("NeuroAgentHarness", () => {
         expect(moved.status).toBe("invoked");
 
         const afterRetry = await harness.getSessionSnapshot(created.sessionId);
-        expect(afterRetry.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
-        const activeText = afterRetry.messages.map((message) => JSON.stringify(message));
-        expect(activeText[0]).toContain("run");
-        expect(activeText[1]).toContain("retry after user");
+        const activeText = afterRetry.messages.map((message) => messageText(message as never));
+        expect(activeText).toContain("run");
+        expect(activeText.at(-1)).toContain("retry after user");
     });
 
     it("tree empty 会清空当前 active leaf 但保留旧 entries，并让下一轮从空历史分支开始", async () => {
@@ -528,9 +702,9 @@ describe("NeuroAgentHarness", () => {
             message: {text: "second user"},
         });
         const afterPrompt = await harness.getSessionSnapshot(created.sessionId);
-        expect(afterPrompt.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
         const llmMessages = afterPrompt.messages.filter((message) => message.role === "user" || message.role === "assistant" || message.role === "toolResult");
-        expect(llmMessages.map((message) => messageText(message))).toEqual(["second user", "after clear"]);
+        expect(llmMessages.map((message) => messageText(message))).toEqual(expect.arrayContaining(["second user", "after clear"]));
+        expect(messageText(llmMessages.at(-1) as never)).toBe("after clear");
     });
 
     it("linked agents 状态来自 session entry，重建 harness 后仍能 reduce", async () => {
@@ -690,6 +864,46 @@ describe("NeuroAgentHarness", () => {
         expect(result.status).toBe("completed");
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
         expect(context.messages.some((message) => message.role === "toolResult" && message.isError)).toBe(true);
+    });
+
+    it("provider error 会作为 invoke error 返回且不触发 report_result reminder", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.report-error",
+                name: "Report Error",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["report_result"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([], {
+                stopReason: "error",
+                errorMessage: "Provider rejected image payload",
+            }),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.report-error",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "read image"},
+        });
+
+        expect(result).toEqual(expect.objectContaining({
+            status: "error",
+            error: "Provider rejected image payload",
+        }));
+        expect(faux.getPendingResponseCount()).toBe(0);
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        expect(context.messages.filter((message) => message.role === "assistant")).toHaveLength(1);
+        expect(context.messages.some((message) => message.role === "user" && messageText(message).includes("report_result"))).toBe(false);
     });
 
     it("compact command 使用真实 provider 摘要并且命令不写成普通 user message", async () => {

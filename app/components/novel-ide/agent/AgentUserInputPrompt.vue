@@ -132,6 +132,47 @@ function questionKey(toolNodeId: string, questionIndex: number): string {
     return `${toolNodeId}\n${questionIndex}`;
 }
 
+function normalizeDefaultAnswers(question: AgentPendingUserInputSession["questions"][number]): number[] {
+    if (question.options.length === 0) {
+        return [];
+    }
+    const candidateIndexes = question.defaultOptionIndexes?.length
+        ? question.defaultOptionIndexes
+        : question.defaultOptionIndex !== undefined
+            ? [question.defaultOptionIndex]
+            : question.options
+                .map((option, index) => option.defaultSelected ? index : null)
+                .filter((index): index is number => index !== null);
+    const uniqueIndexes = [...new Set(candidateIndexes)]
+        .filter((index) => index === NONE_OF_ABOVE_OPTION_INDEX || Boolean(question.options[index]));
+    if (!question.multiSelect && uniqueIndexes.length > 1) {
+        return uniqueIndexes.slice(0, 1);
+    }
+    return uniqueIndexes.includes(NONE_OF_ABOVE_OPTION_INDEX)
+        ? [NONE_OF_ABOVE_OPTION_INDEX]
+        : uniqueIndexes;
+}
+
+function applyDefaultAnswers(): void {
+    const nextAnswers = {...props.selectedAnswers};
+    let changed = false;
+    for (const question of props.session.questions) {
+        const key = questionKey(question.toolNodeId, question.questionIndex);
+        if (nextAnswers[key]?.length || props.notes[key]?.trim()) {
+            continue;
+        }
+        const defaultAnswers = normalizeDefaultAnswers(question);
+        if (defaultAnswers.length === 0) {
+            continue;
+        }
+        nextAnswers[key] = defaultAnswers;
+        changed = true;
+    }
+    if (changed) {
+        emit("update:selectedAnswers", nextAnswers);
+    }
+}
+
 /**
  * 忽略整组当前等待，写入默认答案并终止本轮 ReAct loop。
  */
@@ -195,9 +236,11 @@ watch(() => props.session.assistantMessageId, () => {
     activeToolNodeId.value = props.session.questions[0]?.toolNodeId ?? "";
     activeQuestionIndexValue.value = props.session.questions[0]?.questionIndex ?? 0;
     isCollapsed.value = false;
+    applyDefaultAnswers();
 }, {immediate: true});
 
 watch(() => props.session.questions.map((question) => `${question.toolNodeId}\n${question.questionIndex}`).join("\n"), () => {
+    applyDefaultAnswers();
     if (props.session.questions.some((question) => question.toolNodeId === activeToolNodeId.value && question.questionIndex === activeQuestionIndexValue.value)) {
         return;
     }
