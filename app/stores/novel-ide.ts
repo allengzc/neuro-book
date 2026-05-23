@@ -274,7 +274,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         return novels.value.find((novel) => novel.id === currentNovelId.value) ?? null;
     });
     const currentWorkspaceRoot = computed(() => workspaceKind.value === "user-assets"
-        ? "workspace/.nbook/assets"
+        ? "workspace/.nbook"
         : currentNovel.value?.workspaceSlug ? `workspace/${currentNovel.value.workspaceSlug}` : "");
     const workspaceSessionKey = computed(() => workspaceKind.value === "user-assets" ? "user-assets" : `novel:${currentNovelId.value}`);
     const isUserAssetsWorkspace = computed(() => workspaceKind.value === "user-assets");

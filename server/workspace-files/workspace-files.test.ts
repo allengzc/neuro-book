@@ -412,7 +412,7 @@ describe("workspace-files", () => {
     });
 
     it("用户 assets 可以按文件覆盖内容节点模板", async () => {
-        const userTemplatePath = path.join(USER_ASSETS_WORKSPACE_ROOT, "server", "workspace", "content-node-templates", "character", "index.md");
+        const userTemplatePath = path.join(USER_ASSETS_WORKSPACE_ROOT, "templates", "content-node-templates", "character", "index.md");
         const backup = await backupOptionalFile(userTemplatePath);
         await fs.mkdir(path.dirname(userTemplatePath), {recursive: true});
         await fs.writeFile(userTemplatePath, [
@@ -443,7 +443,7 @@ describe("workspace-files", () => {
 
     it("同步系统 assets 会补齐默认 leader profile 覆盖文件", async () => {
         const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
-        const systemProfilePath = path.join("assets", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
+        const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
         const backup = await backupOptionalFile(userProfilePath);
         await fs.rm(userProfilePath, {force: true});
 
@@ -515,7 +515,7 @@ describe("workspace-files", () => {
     });
 
     it("用户 assets 可以覆盖小说目录模板但不覆盖目标 workspace 既有文件", async () => {
-        const userTemplatePath = path.join(USER_ASSETS_WORKSPACE_ROOT, "server", "workspace", "novel-directory-template", "PROJECT-STATUS.md");
+        const userTemplatePath = path.join(USER_ASSETS_WORKSPACE_ROOT, "templates", "novel-directory-templates", "PROJECT-STATUS.md");
         const backup = await backupOptionalFile(userTemplatePath);
         await fs.mkdir(path.dirname(userTemplatePath), {recursive: true});
         await fs.writeFile(userTemplatePath, "# 用户覆盖状态模板\n", "utf-8");

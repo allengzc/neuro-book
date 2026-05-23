@@ -4,9 +4,9 @@ import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 
 describe("assets builtin v3 profiles", () => {
-    it("leader.default 从 assets/.nbook 加载并使用 v3 工具名", async () => {
+    it("leader.default 从 assets/workspace/.nbook 加载并使用 v3 工具名", async () => {
         const catalog = new AgentProfileCatalog(
-            resolve("assets", ".nbook", "agent", "profiles"),
+            resolve("assets", "workspace", ".nbook", "agent", "profiles"),
             resolve(".agent", "missing-user-profiles"),
         );
         catalog.register(defaultAgentProfile);
@@ -66,9 +66,9 @@ describe("assets builtin v3 profiles", () => {
         expect(prepared.historyMessages ?? []).toEqual([]);
     });
 
-    it("leader.assets 从 assets/.nbook 加载并使用用户资产提示词", async () => {
+    it("leader.assets 从 assets/workspace/.nbook 加载并使用用户资产提示词", async () => {
         const catalog = new AgentProfileCatalog(
-            resolve("assets", ".nbook", "agent", "profiles"),
+            resolve("assets", "workspace", ".nbook", "agent", "profiles"),
             resolve(".agent", "missing-user-profiles"),
         );
         catalog.register(defaultAgentProfile);
@@ -81,7 +81,7 @@ describe("assets builtin v3 profiles", () => {
                 model: null,
                 thinkingLevel: "off",
                 profileKey: "leader.assets",
-                workspaceRoot: resolve("workspace", ".nbook", "assets"),
+                workspaceRoot: resolve("workspace", ".nbook"),
                 customState: {},
                 linkedAgents: [],
                 archived: false,
@@ -115,7 +115,7 @@ describe("assets builtin v3 profiles", () => {
         ]);
         expect(prompt).toContain("用户资产助手");
         expect(prompt).toContain("workspace/.nbook/agent/profiles");
-        expect(prompt).toContain("assets/.nbook/agent/skills");
+        expect(prompt).toContain("assets/workspace/.nbook/agent/skills");
         expect(prompt).toContain("defineAgentProfile");
         expect(prompt).toContain("read");
         expect(prompt).toContain("bash");

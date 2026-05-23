@@ -7,9 +7,9 @@ import ts from "typescript";
  * 单文件检查动态 TSX profile。
  *
  * 用法：
- *   bun scripts/check-profile.ts assets/.nbook/agent/profiles/builtin/leader.default.profile.tsx
+ *   bun scripts/check-profile.ts assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx
  *   bun scripts/check-profile.ts workspace/.nbook/agent/profiles/custom.profile.tsx
- *   bun scripts/check-profile.ts --v3 assets/.nbook/agent/profiles/custom.profile.tsx
+ *   bun scripts/check-profile.ts --v3 assets/workspace/.nbook/agent/profiles/custom.profile.tsx
  */
 function main(): void {
     const v3 = process.argv.includes("--v3");
@@ -27,7 +27,7 @@ function main(): void {
         return;
     }
     if (v3 && !isV3ProfilePath(absoluteProfilePath)) {
-        console.error("v3 profile 只能位于 assets/.nbook/agent/profiles 或 workspace/.nbook/agent/profiles。");
+        console.error("profile 只能位于 assets/workspace/.nbook/agent/profiles 或 workspace/.nbook/agent/profiles。");
         process.exitCode = 1;
         return;
     }
@@ -74,7 +74,7 @@ function main(): void {
 function isV3ProfilePath(absoluteProfilePath: string): boolean {
     const normalized = absoluteProfilePath.replace(/\\/g, "/");
     const cwd = process.cwd().replace(/\\/g, "/");
-    return normalized.startsWith(`${cwd}/assets/.nbook/agent/profiles/`)
+    return normalized.startsWith(`${cwd}/assets/workspace/.nbook/agent/profiles/`)
         || normalized.startsWith(`${cwd}/workspace/.nbook/agent/profiles/`);
 }
 

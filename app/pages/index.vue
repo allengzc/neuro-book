@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {storeToRefs} from "pinia";
 import type {AuthSessionDto} from "nbook/shared/dto/auth.dto";
-import type {ModelSettingsDto} from "nbook/shared/dto/app-settings.dto";
+import type {ConfigEditorSnapshotDto} from "nbook/shared/dto/config.dto";
 import type {NovelContinueRequestDto} from "nbook/shared/dto/novel.dto";
 import {isNovelIdeTab, type NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import MarkdownStudioWorkbench from "nbook/app/components/markdown-studio/MarkdownStudioWorkbench.vue";
@@ -930,8 +930,13 @@ const startContinue = async (): Promise<void> => {
  */
 const syncDefaultModelLabel = async (): Promise<void> => {
     try {
-        const settings = await $fetch<ModelSettingsDto>("/api/settings/models");
-        setSelectedModelLabel(settings.defaultModelLabel);
+        const query = studio.workspaceKind === "user-assets" || !studio.currentNovelId
+            ? {workspaceKind: "user-assets"} as const
+            : {workspaceKind: "novel", novelId: studio.currentNovelId} as const;
+        const settings = await $fetch<ConfigEditorSnapshotDto>("/api/config/editor-snapshot", {
+            query,
+        });
+        setSelectedModelLabel(settings.modelSettings.defaultModelLabel);
     } catch {
         setSelectedModelLabel(null);
     }
@@ -1072,8 +1077,8 @@ onMounted(() => {
             window.addEventListener("pagehide", flushWorkspaceSession);
             window.addEventListener("beforeunload", flushWorkspaceSession);
             await syncAuthSession();
-            await syncDefaultModelLabel();
             await initializeWorkspaceFromRoute();
+            await syncDefaultModelLabel();
             if (!isUserAssetsWorkspace.value) {
                 await validateWorkspace();
                 await normalizeNovelRouteQuery();

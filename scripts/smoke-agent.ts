@@ -20,7 +20,7 @@ async function main(): Promise<void> {
         const model = resolvePiModel(PROFILE_KEY);
         const apiKey = resolvePiApiKey(model.provider);
         if (!apiKey) {
-            throw new Error(`provider ${model.provider} 未配置 apiKey，请先在 config.yaml 中填写真实 Provider 密钥`);
+            throw new Error(`provider ${model.provider} 未配置 apiKey，请先在 workspace/.nbook/config.json 或设置页中填写真实 Provider 密钥`);
         }
 
         await fs.mkdir(workspaceRoot, {recursive: true});

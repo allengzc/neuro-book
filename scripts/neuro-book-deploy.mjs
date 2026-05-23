@@ -7,12 +7,14 @@ import {homedir} from "node:os";
 import {dirname, relative, resolve} from "node:path";
 import {Command} from "commander";
 import * as p from "@clack/prompts";
+import * as yaml from "yaml";
 
 const REPO_URL = "https://github.com/notnotype/neuro-book.git";
 const DEFAULT_IMAGE = "ghcr.io/notnotype/neuro-book:latest";
 const DEPLOY_DIRNAME = ".deploy";
 const ENV_FILENAME = ".env";
 const CONFIG_FILENAME = "config.yaml";
+const GLOBAL_CONFIG_FILENAME = "workspace/.nbook/config.json";
 const PROVIDERS = {
     deepseek: {
         name: "DeepSeek",
@@ -73,7 +75,7 @@ const program = new Command()
     .option("--database-url <url>", "External PostgreSQL DATABASE_URL.")
     .option("--deploy-mode <mode>", "Deploy mode: ghcr or source.", process.env.NEURO_BOOK_DEPLOY_MODE)
     .option("--image <image>", "GHCR app image.", process.env.NEURO_BOOK_IMAGE ?? DEFAULT_IMAGE)
-    .option("--redeploy", "Regenerate .deploy compose files while preserving existing .env and config.yaml.", false)
+    .option("--redeploy", "Regenerate .deploy compose files while preserving existing .env, config.yaml and workspace config.", false)
     .option("--yes", "Use defaults and skip interactive prompts.", false)
     .option("--dry-run", "Generate files but skip git and docker commands.", process.env.NEURO_BOOK_DEPLOY_DRY_RUN === "1");
 
@@ -262,7 +264,7 @@ async function readConfig(options) {
     const apiKey = await askPassword({
         interactive,
         value: options.apiKey,
-        message: "Provider API Key（可留空，稍后在 config.yaml 配置）",
+        message: "Provider API Key（可留空，稍后在设置页或 workspace/.nbook/config.json 配置）",
     });
     const databaseMode = await askSelect({
         interactive,
@@ -347,67 +349,119 @@ function renderEnv(config, postgresPassword, sessionPassword) {
     ].join("\n");
 }
 
-/** 生成应用运行时配置文件。 */
-function renderConfig(config) {
+/** 生成启动/部署期 Boot Config。 */
+function renderBootConfig(config, env) {
+    return `# neuro-book Boot Config.
+# This file is for startup/deployment settings only.
+# Provider keys, model defaults and Agent profile settings live in ${GLOBAL_CONFIG_FILENAME}.
+server:
+  host: '0.0.0.0'
+  port: ${config.port}
+database:
+  url: ${yamlQuote(env.DATABASE_URL ?? "")}
+`;
+}
+
+/** 生成 Workspace Root `.nbook/config.json` 业务配置。 */
+function renderGlobalConfig(config, legacyText = null) {
     const provider = PROVIDERS[config.provider];
     const modelKey = `${config.provider}/${provider.modelId}`;
-    const context = provider.contextWindowTokens === null ? "null" : String(provider.contextWindowTokens);
+    const legacy = legacyText ? parseLegacyGlobalConfig(legacyText) : null;
+    const providers = legacy?.models?.providers?.length
+        ? ensureSelectedProvider(legacy.models.providers, config)
+        : [createSelectedProvider(config)];
 
-    return `# neuro-book runtime config.
-# This file is used as the runtime config and can be updated by the settings UI.
-# Put real model provider keys here in deployment; do not commit the generated config.yaml back to Git.
-agent:
-  tools:
-    # Tool names allowed or denied for agent runs. Empty arrays mean no extra allow/deny override.
-    allow: []
-    deny: []
-  profiles:
-    # null means the profile uses models.default. Set modelKey to "provider/model" to override one profile.
-    leader.default:
-      model:
-        modelKey: null
-        temperature: null
-        topK: null
-        stream: true
-    subagent.writer:
-      model:
-        modelKey: null
-        temperature: null
-        topK: null
-        stream: true
-    subagent.loreRetriever:
-      model:
-        modelKey: null
-        temperature: null
-        topK: null
-        stream: true
-    subagent.retrieval:
-      model:
-        modelKey: ${yamlQuote(modelKey)}
-        temperature: null
-        topK: null
-        stream: true
-models:
-  # Default chat model, formatted as "provider/model".
-  default: ${yamlQuote(modelKey)}
-  providers:
-    ${config.provider}:
-      name: ${yamlQuote(provider.name)}
-      # adapter selects the runtime protocol: openai-official, openai-compatible, deepseek-official, or gemini-compatible.
-      adapter: ${yamlQuote(provider.adapter)}
-      options:
-        apiKey: ${yamlQuote(config.apiKey)}
-        baseURL: ${yamlQuote(provider.baseURL)}
-        proxy: ''
-      models:
-        ${yamlQuote(provider.modelId)}:
-          name: ${yamlQuote(provider.modelName)}
-          id: ${yamlQuote(provider.modelId)}
-          group: ${yamlQuote(provider.modelGroup)}
-          enabled: true
-          # Use null when the provider does not publish a stable context window.
-          contextWindowTokens: ${context}
-`;
+    return `${JSON.stringify({
+        auth: {
+            enabled: legacy?.auth?.enabled ?? true,
+        },
+        models: {
+            default: legacy?.models?.default ?? modelKey,
+            providers,
+        },
+        agent: {
+            defaultProfileKey: {
+                novel: legacy?.agent?.defaultProfileKey?.novel ?? "leader.default",
+                userAssets: legacy?.agent?.defaultProfileKey?.userAssets ?? "leader.assets",
+            },
+            profiles: legacy?.agent?.profiles ?? {},
+        },
+        ui: {
+            theme: legacy?.ui?.theme ?? "sepia",
+        },
+        editor: legacy?.editor ?? {},
+    }, null, 4)}\n`;
+}
+
+/** 确保本次交互选择的 Provider 也存在，但不丢弃旧配置中的其他 Provider。 */
+function ensureSelectedProvider(providers, config) {
+    if (providers.some((item) => item.id === config.provider)) {
+        return providers;
+    }
+    return [...providers, createSelectedProvider(config)];
+}
+
+/** 根据交互输入创建默认 Provider 配置。 */
+function createSelectedProvider(config) {
+    const provider = PROVIDERS[config.provider];
+    return {
+        id: config.provider,
+        name: provider.name,
+        adapter: provider.adapter,
+        options: {
+            apiKey: config.apiKey,
+            baseURL: provider.baseURL,
+            proxy: "",
+            timeoutMs: 180000,
+            requestOptions: {},
+        },
+        models: [
+            {
+                name: provider.modelName,
+                id: provider.modelId,
+                group: provider.modelGroup,
+                enabled: true,
+                contextWindowTokens: provider.contextWindowTokens,
+            },
+        ],
+    };
+}
+
+/** 从旧 config.yaml 提取可迁移的 Global Config 字段。 */
+function parseLegacyGlobalConfig(text) {
+    const parsed = yaml.parse(text);
+    if (!parsed || typeof parsed !== "object") {
+        return null;
+    }
+
+    const providers = parsed.models?.providers && typeof parsed.models.providers === "object" && !Array.isArray(parsed.models.providers)
+        ? Object.entries(parsed.models.providers).map(([providerId, provider]) => ({
+            id: providerId,
+            name: provider?.name ?? providerId,
+            adapter: provider?.adapter ?? "openai-compatible",
+            options: provider?.options ?? {},
+            models: provider?.models && typeof provider.models === "object" && !Array.isArray(provider.models)
+                ? Object.entries(provider.models).map(([modelId, model]) => ({
+                    id: model?.id ?? modelId,
+                    name: model?.name ?? modelId,
+                    group: model?.group ?? null,
+                    enabled: model?.enabled ?? true,
+                    contextWindowTokens: model?.contextWindowTokens ?? null,
+                }))
+                : [],
+        }))
+        : Array.isArray(parsed.models?.providers) ? parsed.models.providers : [];
+
+    return {
+        auth: parsed.auth,
+        models: {
+            default: parsed.models?.default ?? null,
+            providers,
+        },
+        agent: parsed.agent,
+        ui: parsed.ui,
+        editor: parsed.editor,
+    };
 }
 
 /** 生成部署 override，避免把本地私有部署文件写进仓库根配置。 */
@@ -533,7 +587,8 @@ This directory is generated by neuro-book-deploy and should stay local.
 - Deploy mode: ${config.deployMode}
 - App URL: http://localhost:${config.port}
 - Env file: ${ENV_FILENAME}
-- Runtime config: ${CONFIG_FILENAME}
+- Boot config: ${CONFIG_FILENAME}
+- Global config: ${GLOBAL_CONFIG_FILENAME}
 - Compose override: ${DEPLOY_DIRNAME}/docker-compose.generated.yml
 
 Start or update:
@@ -584,7 +639,7 @@ async function warnLegacyDeployFiles(config) {
         return;
     }
 
-    p.log.warn(`检测到旧部署文件：${existing.map((path) => displayPath(config, path)).join(", ")}。当前部署只使用根目录 .env / config.yaml 和 .deploy/docker-compose.generated.yml，可确认后手动删除旧文件。`);
+    p.log.warn(`检测到旧部署文件：${existing.map((path) => displayPath(config, path)).join(", ")}。当前部署使用根目录 .env / config.yaml、${GLOBAL_CONFIG_FILENAME} 和 .deploy/docker-compose.generated.yml，可确认后手动删除旧文件。`);
 }
 
 /** 以仅当前用户可读写的权限写入敏感部署文件。 */
@@ -597,7 +652,7 @@ async function writePrivateFile(path, text) {
     }
 }
 
-/** 迁移旧 .deploy 私有配置到根目录 .env / config.yaml；不覆盖已有文件。 */
+/** 迁移旧 .deploy 私有配置到新位置；不覆盖已有文件。 */
 async function migrateLegacyPrivateFile({from, to, label}) {
     if (existsSync(to) || !existsSync(from)) {
         return;
@@ -662,13 +717,13 @@ async function runCompose(config) {
 async function writeDeployFiles(config) {
     const envPath = resolve(config.deployDir, ENV_FILENAME);
     const configPath = resolve(config.deployDir, CONFIG_FILENAME);
+    const globalConfigPath = resolve(config.deployDir, GLOBAL_CONFIG_FILENAME);
     const legacyEnvPath = resolve(deployStateDir(config), ".env.docker");
     const legacyConfigPath = resolve(deployStateDir(config), "config.yaml");
     const generatedComposePath = resolve(deployStateDir(config), "docker-compose.generated.yml");
     const readmePath = resolve(deployStateDir(config), "README.md");
 
     await migrateLegacyPrivateFile({from: legacyEnvPath, to: envPath, label: ENV_FILENAME});
-    await migrateLegacyPrivateFile({from: legacyConfigPath, to: configPath, label: CONFIG_FILENAME});
 
     let envText = "";
     if (existsSync(envPath)) {
@@ -683,8 +738,21 @@ async function writeDeployFiles(config) {
     if (existsSync(configPath)) {
         p.log.info(`Preserved ${configPath}`);
     } else {
-        await writePrivateFile(configPath, renderConfig(config));
+        await writePrivateFile(configPath, renderBootConfig(config, parseEnv(envText)));
         p.log.success(`Wrote ${configPath}`);
+    }
+
+    const legacyConfigText = existsSync(legacyConfigPath) ? await readFile(legacyConfigPath, "utf-8") : null;
+    if (existsSync(globalConfigPath)) {
+        p.log.info(`Preserved ${globalConfigPath}`);
+    } else {
+        await mkdir(dirname(globalConfigPath), {recursive: true});
+        await writePrivateFile(globalConfigPath, renderGlobalConfig(config, legacyConfigText));
+        p.log.success(`Wrote ${globalConfigPath}`);
+    }
+
+    if (legacyConfigText) {
+        p.log.warn(`检测到旧 Provider 配置 ${legacyConfigPath}，已用于初始化 ${GLOBAL_CONFIG_FILENAME}。确认无误后可手动删除旧文件。`);
     }
 
     await writeFile(generatedComposePath, renderGeneratedCompose(config), "utf-8");

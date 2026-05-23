@@ -1,6 +1,7 @@
 import type {Model} from "@earendil-works/pi-ai";
-import {loadAppConfigSync} from "nbook/server/utils/app-config";
 import type {AgentProfileModelConfig} from "nbook/server/utils/app-config";
+import {loadGlobalEffectiveConfigSync} from "nbook/server/config/config-service";
+import type {EffectiveConfig} from "nbook/server/config/types";
 
 type ModelOverrideInput = Partial<AgentProfileModelConfig> & {
     model?: string | null;
@@ -10,14 +11,17 @@ const DEFAULT_CONTEXT_WINDOW = 128_000;
 const DEFAULT_MAX_TOKENS = 16_384;
 
 /**
- * 将 config.yaml 的模型引用解析成 Pi Model。
+ * 将当前 effective config 的模型引用解析成 Pi Model。
  */
-export function resolvePiModel(profileKey: string, override?: ModelOverrideInput | null): Model<any> {
-    const appConfig = loadAppConfigSync();
-    const profileModelKey = appConfig.agent.profiles[profileKey]?.model.modelKey ?? null;
-    const modelKey = override?.modelKey ?? override?.model ?? profileModelKey ?? appConfig.models.defaultModelKey;
+export function resolvePiModelFromConfig(
+    config: Pick<EffectiveConfig, "agent" | "models">,
+    profileKey: string,
+    override?: ModelOverrideInput | null,
+): Model<any> {
+    const profileModelKey = config.agent.profiles[profileKey]?.model.modelKey ?? null;
+    const modelKey = override?.modelKey ?? override?.model ?? profileModelKey ?? config.models.defaultModelKey;
     if (!modelKey) {
-        throw new Error("config.yaml 未配置 models.default");
+        throw new Error("配置未设置 models.default");
     }
 
     const [providerId, ...modelIdParts] = modelKey.split("/");
@@ -25,7 +29,7 @@ export function resolvePiModel(profileKey: string, override?: ModelOverrideInput
     if (!providerId || !modelId) {
         throw new Error(`模型 key 格式错误：${modelKey}`);
     }
-    const provider = appConfig.models.providers[providerId];
+    const provider = config.models.providers[providerId];
     const model = provider?.models[modelId];
     if (!provider || !model || !model.enabled) {
         throw new Error(`模型未启用或不存在：${modelKey}`);
@@ -58,11 +62,27 @@ export function resolvePiModel(profileKey: string, override?: ModelOverrideInput
 }
 
 /**
- * 返回当前模型 provider 的 API key。
+ * 将 Global Config 的模型引用解析成 Pi Model。主要给测试和旧同步入口使用。
+ */
+export function resolvePiModel(profileKey: string, override?: ModelOverrideInput | null): Model<any> {
+    return resolvePiModelFromConfig(loadGlobalEffectiveConfigSync(), profileKey, override);
+}
+
+/**
+ * 从 effective config 返回当前模型 provider 的 API key。
+ */
+export function resolvePiApiKeyFromConfig(
+    config: Pick<EffectiveConfig, "models">,
+    providerId: string,
+): string | undefined {
+    return config.models.providers[providerId]?.options.apiKey || undefined;
+}
+
+/**
+ * 返回 Global Config 中当前模型 provider 的 API key。
  */
 export function resolvePiApiKey(providerId: string): string | undefined {
-    const appConfig = loadAppConfigSync();
-    return appConfig.models.providers[providerId]?.options.apiKey || undefined;
+    return resolvePiApiKeyFromConfig(loadGlobalEffectiveConfigSync(), providerId);
 }
 
 function resolvePiApi(adapterType: string): Model<any>["api"] {

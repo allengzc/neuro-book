@@ -16,7 +16,7 @@
 
 1. 用户要部署到哪里：本机、远程服务器、还是已有的 `arch` 开发服务器。
 2. 用户希望的模式：默认 `ghcr`，还是 `source` 源码挂载。
-3. 是否已有 `.env` / `config.yaml`：已有时不要随意覆盖这两个私有配置文件。
+3. 是否已有 `.env` / `config.yaml` / `workspace/.nbook/config.json`：已有时不要随意覆盖这些私有配置文件。
 4. 服务器内存是否足够执行 Nuxt build：低内存服务器优先使用 `ghcr`。
 5. 用户是否允许 Agent 执行需要 sudo 的 Docker 命令。
 
@@ -42,7 +42,7 @@ Agent 回答问题或执行任务时，应按问题类型读取这些文档：
 
 ## 部署模型
 
-NeuroBook 使用 Docker Compose 单机部署。基础模板由仓库提供，运行私有配置放在项目根目录 `.env` 和 `config.yaml`，部署生成物放在 `.deploy/`。
+NeuroBook 使用 Docker Compose 单机部署。基础模板由仓库提供，运行私有配置放在项目根目录 `.env`、Boot Config `config.yaml` 和 Global Config `workspace/.nbook/config.json`，部署生成物放在 `.deploy/`。
 
 仓库跟踪的模板文件：
 
@@ -54,13 +54,14 @@ NeuroBook 使用 Docker Compose 单机部署。基础模板由仓库提供，运
 部署脚本生成的本地状态：
 
 - `.env`：容器运行环境变量，例如端口、session password、Postgres 密码、`DATABASE_URL`。
-- `config.yaml`：应用业务配置真值源，例如 Provider key、模型、baseURL、代理、profile 模型覆盖。
+- `config.yaml`：Boot Config，只保存启动/部署期配置，例如 server host/port 和 database url。
+- `workspace/.nbook/config.json`：Global Config，保存 Provider key、模型、baseURL、代理、profile 模型覆盖、`auth.enabled` 和长期 UI/editor 偏好。
 - `.deploy/docker-compose.generated.yml`：根据 `ghcr` 或 `source` 模式生成的 compose override。
 - `.deploy/README.md`：当前部署目录的本地操作说明。
 
-`.env`、`config.yaml` 和 `.deploy/` 都不进 Git。`git pull` 不会更新这些本机部署状态。如果部署脚本或部署模式变化，需要重新生成或迁移 `.deploy/docker-compose.generated.yml`。
+`.env`、`config.yaml`、`workspace/` 和 `.deploy/` 都不进 Git。`git pull` 不会更新这些本机部署状态。如果部署脚本或部署模式变化，需要重新生成或迁移 `.deploy/docker-compose.generated.yml`。
 
-基础 `docker-compose.yml` 不挂载根目录 `config.yaml`。`ghcr` 模式会由 `.deploy/docker-compose.generated.yml` 把 `config.yaml` 挂载到容器内 `/app/config.yaml`。`source` 模式会把整个项目目录挂载到 `/app`，因此容器内自然能看到 `/app/config.yaml`。
+基础 `docker-compose.yml` 不挂载根目录 `config.yaml`。`ghcr` 模式会由 `.deploy/docker-compose.generated.yml` 把 `config.yaml` 挂载到容器内 `/app/config.yaml`，并把 `workspace/` 挂载到 `/app/workspace`。`source` 模式会把整个项目目录挂载到 `/app`，因此容器内自然能看到 `/app/config.yaml` 和 `/app/workspace`。
 
 ## 部署模式
 
@@ -347,7 +348,13 @@ GitHub Actions 只在 GitHub Release `published` 时发布镜像，不在普通 
 - `POSTGRES_DB`
 - `DATABASE_URL`
 
-`config.yaml` 保存业务配置：
+`config.yaml` 保存 Boot Config：
+
+- `server.host`
+- `server.port`
+- `database.url`
+
+`workspace/.nbook/config.json` 保存业务配置：
 
 - Provider API key
 - Provider baseURL
@@ -356,7 +363,15 @@ GitHub Actions 只在 GitHub Release `published` 时发布镜像，不在普通 
 - 代理配置
 - `auth.enabled`
 
-不要把 `.env`、`config.yaml` 或 `.deploy/` 加入 Git。`config.example.yaml` 可以包含公开 provider baseURL，但不能包含真实 key。
+不要把 `.env`、`config.yaml`、`workspace/` 或 `.deploy/` 加入 Git。`assets/workspace/*.example.json` 可以包含公开 provider baseURL，但不能包含真实 key。
+
+旧版本如果把业务配置写在根 `config.yaml`，在仓库内执行：
+
+```bash
+bun run config:migrate
+```
+
+脚本会把 Provider/API key、模型和 Agent profile 配置迁移到 `workspace/.nbook/config.json`，并把根 `config.yaml` 收窄为 Boot Config。脚本不会把 secret 打印到终端。
 
 如果历史中曾提交过真实 key，应视为泄露并轮换。即使主线历史已清理，旧 clone、fork、缓存、本地 worktree 仍可能保留旧对象。
 
@@ -479,11 +494,11 @@ node scripts/neuro-book-deploy.mjs --redeploy --deploy-mode source
 用户的 Agent 完成部署或排障后，应向用户报告：
 
 - 选择了哪种部署模式，以及原因。
-- 改动了哪些文件，尤其是否改动 `.env` 或 `config.yaml`。
+- 改动了哪些文件，尤其是否改动 `.env`、`config.yaml` 或 `workspace/.nbook/config.json`。
 - 执行了哪些命令。
 - 当前容器状态。
 - 访问地址。
 - 管理员是否已创建。
 - 是否存在未解决风险，例如 OOM、旧数据卷密码不一致、GHCR 镜像未发布。
 
-如果没有用户明确授权，不要删除数据卷，不要轮换数据库密码，不要覆盖 Provider key，不要提交 `.deploy/`。
+如果没有用户明确授权，不要删除数据卷，不要轮换数据库密码，不要覆盖 Provider key，不要提交 `.deploy/` 或 `workspace/`。

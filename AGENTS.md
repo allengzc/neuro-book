@@ -78,6 +78,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - **Important: 永远不要用 shell 工具代替文件编辑工具。当你想这样做的时候，停止你的行为，请求用户同意**
 - **不要自动进行浏览器验证，你可以建议用户让你进行浏览器验证**
 - **代码审查报告使用直白的话语再解释一次**
+- 任务完成后的 walkthrough 要报告实际结果与任务计划的出入
 
 ## 文档索引
 

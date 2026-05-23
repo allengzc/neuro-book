@@ -65,6 +65,7 @@ export async function createAgentSession(body: AgentCreateSessionRequestDto, har
         input: body.input,
         workspaceRoot: body.workspaceRoot,
         workspaceKey: body.workspaceKey,
+        novelId: body.novelId,
         parentSessionId: body.parentSessionId,
     });
 }

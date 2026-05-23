@@ -5,6 +5,8 @@ import type {
     UpdateAgentProfileModelSettingsRequestDto,
 } from "nbook/shared/dto/app-settings.dto";
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
+import {useConfigApi} from "nbook/app/composables/useConfigApi";
+import type {ConfigEditorSnapshotDto, GlobalConfigDto} from "nbook/shared/dto/config.dto";
 
 type AgentProfileDraft = {
     profileKey: string;
@@ -33,6 +35,8 @@ const successText = ref("");
 const enabledModels = ref<AgentProfileModelSettingsDto["enabledModels"]>([]);
 const profiles = ref<AgentProfileDraft[]>([]);
 const snapshotText = ref("");
+const configApi = useConfigApi();
+const editorSnapshot = ref<ConfigEditorSnapshotDto | null>(null);
 
 /**
  * 将数字配置转成表单文本。
@@ -97,6 +101,22 @@ function buildSavePayload(): UpdateAgentProfileModelSettingsRequestDto {
 }
 
 /**
+ * 构造 Global Config 写回体，只替换 agent.profiles。
+ */
+function buildGlobalConfigPayload(): GlobalConfigDto {
+    const base = editorSnapshot.value?.global ?? {};
+    return {
+        ...base,
+        agent: {
+            ...(base.agent ?? {}),
+            profiles: Object.fromEntries(buildSavePayload().agentProfiles.map((profile) => [profile.profileKey, {
+                model: profile.model,
+            }])),
+        },
+    };
+}
+
+/**
  * 将接口响应应用到本地。
  */
 function applySettings(settings: AgentProfileModelSettingsDto): void {
@@ -114,8 +134,9 @@ async function loadSettings(): Promise<void> {
     successText.value = "";
 
     try {
-        const settings = await $fetch<AgentProfileModelSettingsDto>("/api/settings/agent-profile-models");
-        applySettings(settings);
+        const snapshot = await configApi.editorSnapshot();
+        editorSnapshot.value = snapshot;
+        applySettings(snapshot.agentProfileSettings);
     } catch (error) {
         errorText.value = error instanceof Error ? error.message : "读取 Agent Profile 模型设定失败";
     } finally {
@@ -136,12 +157,10 @@ async function saveSettings(): Promise<void> {
     successText.value = "";
 
     try {
-        const settings = await $fetch<AgentProfileModelSettingsDto>("/api/settings/agent-profile-models", {
-            method: "PUT",
-            body: buildSavePayload(),
-        });
-        applySettings(settings);
-        successText.value = "Agent Profile 模型设定已写入 config.yaml。";
+        const snapshot = await configApi.saveGlobal(buildGlobalConfigPayload());
+        editorSnapshot.value = snapshot;
+        applySettings(snapshot.agentProfileSettings);
+        successText.value = "Agent Profile 模型设定已写入 Global Config。";
     } catch (error) {
         errorText.value = error instanceof Error ? error.message : "保存 Agent Profile 模型设定失败";
     } finally {

@@ -1,0 +1,78 @@
+import type {ConfigItemMeta} from "nbook/server/config/types";
+
+export const CONFIG_VERSION = "config-v1";
+
+export const CONFIG_REGISTRY: ConfigItemMeta[] = [
+    {
+        key: "auth.enabled",
+        scope: "global",
+        effect: "hot",
+        merge: "replace",
+        secret: false,
+        description: "是否启用整站鉴权。关闭时管理员接口也退化为本地无鉴权访问。",
+    },
+    {
+        key: "models.default",
+        scope: "global-workspace",
+        effect: "next-run",
+        merge: "replace",
+        secret: false,
+        description: "默认模型 key，格式为 provider/model。",
+    },
+    {
+        key: "models.providers",
+        scope: "global",
+        effect: "next-run",
+        merge: "replace",
+        secret: false,
+        description: "全局模型 Provider 列表，Project Config 不能覆盖。",
+    },
+    {
+        key: "models.providers.*.options.apiKey",
+        scope: "global",
+        effect: "next-run",
+        merge: "replace",
+        secret: true,
+        description: "模型 Provider API Key，只在设置页展示脱敏状态。",
+    },
+    {
+        key: "agent.defaultProfileKey",
+        scope: "global-workspace",
+        effect: "next-session",
+        merge: "replace",
+        secret: false,
+        description: "新建 Agent session 默认使用的 profileKey。",
+    },
+    {
+        key: "agent.profiles",
+        scope: "global-workspace",
+        effect: "next-run",
+        merge: "deep-merge",
+        secret: false,
+        description: "Agent Profile 默认模型参数。",
+    },
+    {
+        key: "ui.theme",
+        scope: "global",
+        effect: "hot",
+        merge: "replace",
+        secret: false,
+        description: "Novel IDE 默认主题。",
+    },
+    {
+        key: "editor.markdown",
+        scope: "global-workspace",
+        effect: "hot",
+        merge: "deep-merge",
+        secret: false,
+        description: "Markdown 富文本编辑器显示偏好。",
+    },
+    {
+        key: "editor.monaco",
+        scope: "global-workspace",
+        effect: "hot",
+        merge: "deep-merge",
+        secret: false,
+        description: "Monaco 源码编辑器显示偏好。",
+    },
+];

@@ -1,6 +1,5 @@
 import {z} from "zod";
 
-const ToolNameSchema = z.string().trim().min(1, "toolKey 不能为空");
 const ProviderIdSchema = z.string().trim().min(1, "providerId 不能为空").regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "providerId 格式不合法");
 const ModelIdSchema = z.string().trim().min(1, "modelId 不能为空").regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/, "modelId 格式不合法");
 const NullableTextSchema = z.string().trim().nullable().optional().transform((value) => {
@@ -16,61 +15,6 @@ const TemperatureSchema = z.number().nonnegative("temperature 不能小于 0").n
 const TopKSchema = z.number().int("topK 必须是整数").positive("topK 必须大于 0").nullable().default(null);
 const ContextWindowTokensSchema = z.number().int("contextWindowTokens 必须是整数").positive("contextWindowTokens 必须大于 0").nullable().default(null);
 const ReasoningEffortSchema = z.enum(["low", "medium", "high"]).nullable().default(null);
-
-/**
- * Agent tools 设定。
- */
-export const AgentToolSettingsDtoSchema = z.object({
-    allow: z.array(ToolNameSchema).default([]),
-    deny: z.array(ToolNameSchema).default([]),
-    allTools: z.array(ToolNameSchema).default([]),
-});
-
-/**
- * 更新 Agent tools 设定请求。
- */
-export const UpdateAgentToolSettingsRequestDtoSchema = z.object({
-    allow: z.array(ToolNameSchema).default([]),
-    deny: z.array(ToolNameSchema).default([]),
-}).superRefine((value, ctx) => {
-    const allowSet = new Set<string>();
-    const denySet = new Set<string>();
-
-    for (const toolName of value.allow) {
-        if (allowSet.has(toolName)) {
-            ctx.addIssue({
-                code: "custom",
-                path: ["allow"],
-                message: `allow 中存在重复 tool: ${toolName}`,
-            });
-            break;
-        }
-        allowSet.add(toolName);
-    }
-
-    for (const toolName of value.deny) {
-        if (denySet.has(toolName)) {
-            ctx.addIssue({
-                code: "custom",
-                path: ["deny"],
-                message: `deny 中存在重复 tool: ${toolName}`,
-            });
-            break;
-        }
-        denySet.add(toolName);
-    }
-
-    for (const toolName of value.allow) {
-        if (denySet.has(toolName)) {
-            ctx.addIssue({
-                code: "custom",
-                path: ["deny"],
-                message: `tool ${toolName} 不能同时存在于 allow 与 deny`,
-            });
-            break;
-        }
-    }
-});
 
 /**
  * 模型 Provider 适配器类型。
@@ -354,8 +298,6 @@ export const CheckModelResponseDtoSchema = z.object({
     message: z.string().trim().min(1),
 });
 
-export type AgentToolSettingsDto = z.infer<typeof AgentToolSettingsDtoSchema>;
-export type UpdateAgentToolSettingsRequestDto = z.infer<typeof UpdateAgentToolSettingsRequestDtoSchema>;
 export type ModelProviderAdapterType = z.infer<typeof ModelProviderAdapterTypeSchema>;
 export type ModelProviderAdapter = z.infer<typeof ModelProviderAdapterSchema>;
 export type ModelProviderOptionsDto = z.infer<typeof ModelProviderOptionsDtoSchema>;

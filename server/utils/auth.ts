@@ -3,7 +3,7 @@ import {promisify} from "node:util";
 import type {H3Event} from "h3";
 import {getRequestProtocol} from "h3";
 import type {Prisma, PrismaClient, User, UserRole} from "nbook/server/generated/prisma/client";
-import {loadAppConfigSync} from "nbook/server/utils/app-config";
+import {loadGlobalEffectiveConfigSync} from "nbook/server/config/config-service";
 import {prisma} from "nbook/server/utils/prisma";
 import type {AdminUserListItemDto, AuthUserDto} from "nbook/shared/dto/auth.dto";
 
@@ -31,7 +31,7 @@ function authSessionConfig(event: H3Event) {
  * 判断当前配置是否启用全站鉴权。未配置时默认启用。
  */
 export function isAuthEnabled(): boolean {
-    return loadAppConfigSync().auth.enabled;
+    return loadGlobalEffectiveConfigSync().auth.enabled;
 }
 
 /**

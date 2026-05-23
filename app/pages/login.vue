@@ -20,6 +20,15 @@ const {theme} = storeToRefs(novelIdeStore);
 const {mountThemeHost} = useIdeTheme(theme);
 
 /**
+ * 解析安全的登录后跳转地址。
+ */
+const resolveRedirect = (): string => {
+    return typeof route.query.redirect === "string" && route.query.redirect.trim().startsWith("/") && !route.query.redirect.trim().startsWith("//")
+        ? route.query.redirect
+        : "/";
+};
+
+/**
  * 登录提交。
  */
 const submit = async (): Promise<void> => {
@@ -37,10 +46,7 @@ const submit = async (): Promise<void> => {
                 password: password.value,
             },
         });
-        const redirect = typeof route.query.redirect === "string" && route.query.redirect.trim().startsWith("/") && !route.query.redirect.trim().startsWith("//")
-            ? route.query.redirect
-            : "/";
-        await router.push(redirect);
+        await router.push(resolveRedirect());
     } catch (error) {
         errorMessage.value = error instanceof Error ? error.message : "登录失败";
     } finally {
@@ -50,6 +56,16 @@ const submit = async (): Promise<void> => {
 
 onMounted(() => {
     mountThemeHost(themeHostRef.value);
+    void (async () => {
+        try {
+            const session = await $fetch<AuthSessionDto>("/api/auth/me");
+            if (!session.authEnabled || session.user) {
+                await router.replace(resolveRedirect());
+            }
+        } catch {
+            // 路由守卫已经处理常规鉴权失败；这里仅兜底 auth disabled / 已登录场景。
+        }
+    })();
 });
 </script>
 

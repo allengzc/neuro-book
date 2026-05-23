@@ -28,14 +28,14 @@ const BUILTIN_PROFILE_KEYS = new Set([
     "subagent.writer",
     "subagent.retrieval",
 ]);
-const SYSTEM_PROFILE_ROOT = path.resolve(process.cwd(), "assets/.nbook/agent/profiles");
+const SYSTEM_PROFILE_ROOT = path.resolve(process.cwd(), "assets/workspace/.nbook/agent/profiles");
 const USER_PROFILE_ROOT = path.resolve(process.cwd(), "workspace/.nbook/agent/profiles");
 const OUTPUT_PATH = path.resolve(process.cwd(), "server/agent/profiles/dynamic-profile-types.generated.ts");
 const V3_BUILTIN_PROFILE_KEYS = new Set([
     "leader.default",
     "leader.assets",
 ]);
-const V3_SYSTEM_PROFILE_ROOT = path.resolve(process.cwd(), "assets/.nbook/agent/profiles");
+const V3_SYSTEM_PROFILE_ROOT = path.resolve(process.cwd(), "assets/workspace/.nbook/agent/profiles");
 const V3_USER_PROFILE_ROOT = path.resolve(process.cwd(), "workspace/.nbook/agent/profiles");
 const V3_OUTPUT_PATH = OUTPUT_PATH;
 

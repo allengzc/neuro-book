@@ -24,6 +24,7 @@
     "migrate": "bunx prisma migrate dev",
     "generate": "bunx prisma generate",
     "generate:openapi": "bun scripts/generate-openapi-meta.ts",
+    "config:migrate": "bun scripts/migrate-config-system.ts",
     "docker:publish": "node scripts/publish-ghcr-image.mjs",
     "auth:create-admin": "bun scripts/create-admin.ts",
     "studio": "npx prisma studio --config ./prisma.config.ts",

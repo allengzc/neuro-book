@@ -2,7 +2,7 @@ import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profi
 import {LeaderDefaultInputSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 
 /**
- * 最小内置 profile。真实 builtin profile 后续从 assets/.nbook 迁移。
+ * 最小内置 profile。真实 builtin profile 从 assets/workspace/.nbook 迁移。
  */
 export const defaultAgentProfile = defineAgentProfile({
     manifest: {

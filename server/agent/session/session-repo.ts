@@ -24,6 +24,7 @@ type CreateSessionInput = {
     input: JsonValue;
     workspaceRoot: string;
     workspaceKey?: string;
+    novelId?: string;
     parentSessionId?: SessionId;
     title?: string;
 };
@@ -56,6 +57,7 @@ export class JsonlSessionRepository {
             input: input.input,
             workspaceRoot: input.workspaceRoot,
             workspaceKey: input.workspaceKey ?? "global",
+            novelId: input.novelId,
             parentSessionId: input.parentSessionId,
             createdAt: now,
             title: input.title,
@@ -401,6 +403,7 @@ export class JsonlSessionRepository {
             input: snapshot.metadata.input,
             workspaceRoot: snapshot.metadata.workspaceRoot,
             workspaceKey: snapshot.metadata.workspaceKey,
+            novelId: snapshot.metadata.novelId,
             parentSessionId: sessionId,
             title: snapshot.metadata.title,
         });

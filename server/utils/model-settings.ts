@@ -68,7 +68,7 @@ export function buildModelLabel(providerName: string, modelName: string): string
 }
 
 /**
- * 解析模型上下文窗口。当前只信任 config.yaml 的手动配置。
+ * 解析模型上下文窗口。当前只信任 Global Config 中的手动配置。
  */
 export function resolveModelContextWindow(model: Pick<ConfiguredModelConfig, "contextWindowTokens">): ResolvedContextWindow {
     if (typeof model.contextWindowTokens === "number" && Number.isFinite(model.contextWindowTokens)) {

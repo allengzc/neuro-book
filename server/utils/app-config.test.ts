@@ -8,7 +8,7 @@ describe("parseAppConfigText", () => {
         expect(config.auth.enabled).toBe(true);
     });
 
-    it("可以从 config.yaml 关闭全站鉴权", () => {
+    it("兼容旧 config.yaml 文本里的 auth.enabled", () => {
         const config = parseAppConfigText(`
 auth:
   enabled: false
@@ -17,7 +17,7 @@ auth:
         expect(config.auth.enabled).toBe(false);
     });
 
-    it("会在解析 config.yaml 前展开环境变量占位符", () => {
+    it("会在解析旧配置文本前展开环境变量占位符", () => {
         const config = parseAppConfigText(`
 models:
   default: deepseek/deepseek-v4-flash

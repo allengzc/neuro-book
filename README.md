@@ -22,7 +22,7 @@ neuro-book 是一个面向长篇小说创作的本地工作台。
 - 用 Plot System 组织剧情结构，把 Thread、Scene、Plot 分开表达。
 - 用 Agent 系统做写作、检索、规划、协作和局部自动化。
 - 用全站账号鉴权保护开发测试部署，并提供管理员后台进行用户管理。
-- 用 Docker Compose 直接单机部署，配合 `config.yaml` 管理 Provider 配置。
+- 用 Docker Compose 直接单机部署，配合 Boot Config + Workspace Root `.nbook/config.json` 管理部署与模型配置。
 
 ## 常用命令
 
@@ -60,11 +60,14 @@ bun run auth:create-admin
 Remove-Item Env:AUTH_ADMIN_PASSWORD
 ```
 
-鉴权开关写在 `config.yaml` 顶层：
+鉴权开关写在 Global Config：`workspace/.nbook/config.json`。
 
-```yaml
-auth:
-  enabled: true
+```json
+{
+    "auth": {
+        "enabled": true
+    }
+}
 ```
 
 `auth.enabled` 未配置时默认视为 `true`。如果只在完全可信的本地环境调试，可以改成 `false` 临时关闭登录页和管理员守卫。
@@ -79,7 +82,7 @@ auth:
 - `bun scripts/deploy.mjs`：开发服务器快速同步入口，默认登录 `arch`，面向已经初始化好的 source 模式部署。
 - `node scripts/publish-ghcr-image.mjs`：本地构建并推送 GHCR runtime/app 两类镜像，适合低内存服务器使用预构建镜像。
 
-推荐使用一键交互式部署脚本。它会检查 Docker、拉取仓库，在项目根目录生成 `.env` 和 `config.yaml`，并在 `.deploy/` 下生成 compose override。默认使用 GHCR 预构建镜像启动，避免低内存服务器执行 Nuxt build。
+推荐使用一键交互式部署脚本。它会检查 Docker、拉取仓库，在项目根目录生成 `.env`、Boot Config `config.yaml`、Global Config `workspace/.nbook/config.json`，并在 `.deploy/` 下生成 compose override。默认使用 GHCR 预构建镜像启动，避免低内存服务器执行 Nuxt build。
 
 ```bash
 npx --yes --package github:notnotype/neuro-book neuro-book-deploy
@@ -177,11 +180,14 @@ docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.g
 ### 配置文件教程
 
 - `.env` 只保存容器运行环境，例如 `NUXT_PORT`、`NUXT_SESSION_PASSWORD`、Postgres 用户名密码和 `DATABASE_URL`。不要把模型 Provider 密钥放在这里。
-- `config.yaml` 是应用可写的业务配置真值源，会挂载到容器内 `/app/config.yaml`。模型 Provider 密钥、默认模型、Provider baseURL、代理和 profile 模型覆盖都放在这里。
+- `config.yaml` 是 Boot Config，只保存启动/部署期配置，例如 server host/port 和 database url。它不再保存模型 Provider 密钥。
+- `workspace/.nbook/config.json` 是 Global Config，保存模型 Provider 密钥、默认模型、Provider baseURL、代理、profile 模型覆盖、`auth.enabled` 和长期 UI/editor 偏好。
+- `workspace/{project}/.nbook/config.json` 是 Project Config，只保存当前 Project Workspace 对允许字段的覆盖。
 - `models.default` 使用 `provider/model` 格式，例如 `deepseek/deepseek-v4-flash`，并且要指向 `models.providers` 下 `enabled: true` 的模型。
 - `adapter` 决定 Provider 协议：OpenAI 官方接口使用 `openai-official`，主流 OpenAI 兼容网关使用 `openai-compatible`，DeepSeek 官方接口使用 `deepseek-official`，Gemini 使用 `gemini-compatible`。`openai-compatible` 默认会保留并回放 provider 返回的 `reasoning_content`；如需关闭，可写成 `adapter: { type: openai-compatible, reasoningContentReplay: false }`。
 - `contextWindowTokens` 用于上下文预算估算；能确认模型窗口时填数字，不能确认时填 `null`。
-- `./workspace` 会挂载到容器内 `/app/workspace`。`ghcr` 模式会把根目录 `config.yaml` 挂载到 `/app/config.yaml`；`source` 模式会挂载整个项目目录，容器内自然能看到 `/app/config.yaml`。
+- `./workspace` 会挂载到容器内 `/app/workspace`。部署脚本会创建 `workspace/` 和 `workspace/.nbook/config.json`；应用启动也会确保 `workspace/` 存在，但不会自动创建配置文件。
+- 旧 `config.yaml` 可以通过 `bun run config:migrate` 迁移：业务配置会写入 `workspace/.nbook/config.json`，根 `config.yaml` 会收窄为 Boot Config。
 - source 模式不依赖 GHCR，会使用 `Dockerfile.source-runtime` 本地构建 `neuro-book-source-runtime:latest`，再挂载宿主机源码。
 - `.deploy/` 是本机部署状态目录，已加入 `.gitignore`，后续 `git pull` 不会与部署私有配置冲突。
 - 当前主线历史已移除曾提交过的真实 `config.yaml`，但已经暴露过的 Provider token 仍应视为泄露并立即轮换；旧 clone、fork、缓存或本地临时 worktree 仍可能保留旧对象。

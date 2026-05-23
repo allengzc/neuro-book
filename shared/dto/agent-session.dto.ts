@@ -46,6 +46,7 @@ export const AgentCreateSessionRequestDtoSchema = z.object({
     input: JsonValueSchema.optional(),
     workspaceRoot: z.string().trim().min(1).optional(),
     workspaceKey: z.string().trim().min(1).optional(),
+    novelId: z.string().trim().min(1).optional(),
     parentSessionId: AgentSessionIdSchema.optional(),
 });
 

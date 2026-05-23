@@ -16,9 +16,9 @@ import AgentSessionDialog from "nbook/app/components/novel-ide/agent/AgentSessio
 import AgentSessionTreeDialog from "nbook/app/components/novel-ide/agent/AgentSessionTreeDialog.vue";
 import {deriveAgentTreeState, resolveBranchSwitchTarget} from "nbook/app/components/novel-ide/agent/session-tree";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
-import type {ModelSettingsDto} from "nbook/shared/dto/app-settings.dto";
+import {useConfigApi} from "nbook/app/composables/useConfigApi";
+import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
-import type {WorkspaceSettingsDto} from "nbook/shared/dto/workspace-settings.dto";
 
 type SessionModelDraft = {
     modelKey: string | null;
@@ -58,7 +58,7 @@ const eventsSessionId = ref<number | null>(null);
 let eventStreamReadyPromise: Promise<void> | null = null;
 const editingMessageId = ref<string | null>(null);
 const messageActionId = ref<string | null>(null);
-const selectableModels = ref<ModelSettingsDto["enabledModels"]>([]);
+const selectableModels = ref<ConfigModelSettingsDto["enabledModels"]>([]);
 const resolvedDefaultProfileKey = ref("leader.default");
 const sessionModelMode = ref<"default" | "override">("default");
 const sessionModelDraft = ref<SessionModelDraft>({
@@ -78,6 +78,7 @@ let defaultProfileResolveRequest = 0;
 const sanitizeHtml = ref<((html: string) => string) | null>(null);
 const session = useAgentSession();
 const agentApi = useAgentSessionApi();
+const configApi = useConfigApi();
 const messages = session.messages;
 const running = session.running;
 const pendingUserInputSession = session.pendingUserInputSession;
@@ -217,23 +218,13 @@ const buildClientVariables = () => {
  */
 const loadSelectableModels = async (): Promise<void> => {
     try {
-        const settings = await $fetch<ModelSettingsDto>("/api/settings/models");
-        selectableModels.value = settings.enabledModels;
+        const snapshot = await configApi.editorSnapshot();
+        selectableModels.value = snapshot.modelSettings.enabledModels;
     } catch (error) {
         console.error("读取模型列表失败", error);
         selectableModels.value = [];
     }
 };
-
-/**
- * 当前 workspace settings API 查询参数。
- */
-function profileSettingsQuery(): Record<string, string> {
-    if (ideStore.workspaceKind === "user-assets") {
-        return {workspaceKind: "user-assets"};
-    }
-    return {novelId: ideStore.currentNovelId};
-}
 
 /**
  * 按当前 workspace 解析默认 Agent Profile。
@@ -247,13 +238,11 @@ const loadResolvedLeaderProfileKey = async (): Promise<void> => {
         return;
     }
     try {
-        const settings = await $fetch<WorkspaceSettingsDto>("/api/workspace-settings", {
-            query: profileSettingsQuery(),
-        });
+        const settings = await configApi.editorSnapshot();
         if (requestId !== defaultProfileResolveRequest) {
             return;
         }
-        resolvedDefaultProfileKey.value = settings.agent.effectiveProfileKey || systemLeaderProfileKey.value;
+        resolvedDefaultProfileKey.value = settings.defaultProfileSettings.effectiveProfileKey || systemLeaderProfileKey.value;
     } catch (error) {
         if (requestId !== defaultProfileResolveRequest) {
             return;
@@ -300,6 +289,7 @@ const ensureSessionReady = async (forceNew = false): Promise<void> => {
         input: buildClientVariables(),
         workspaceRoot: workspaceRoot.value,
         workspaceKey: workspaceKey.value,
+        novelId: ideStore.workspaceKind === "user-assets" ? undefined : ideStore.currentNovelId,
     });
     await refreshSessions();
     await loadSession(created.sessionId);

@@ -28,7 +28,7 @@ export type ResolvedAssetDirectory = {
     source: AssetSource;
 };
 
-const SYSTEM_ASSETS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../assets");
+const SYSTEM_ASSETS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../assets/workspace/.nbook");
 
 /**
  * 解析系统 assets 与用户 assets 的覆盖关系。

@@ -17,6 +17,7 @@ export type CreateAgentInput = {
     input?: JsonValue;
     workspaceRoot?: string;
     workspaceKey?: string;
+    novelId?: string;
     parentSessionId?: number;
 };
 

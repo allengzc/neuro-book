@@ -18,7 +18,7 @@ export type SkillCatalogItem = {
  */
 export class SkillCatalog {
     constructor(
-        private readonly systemRoot = resolve(process.cwd(), "assets", ".nbook", "agent", "skills"),
+        private readonly systemRoot = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "skills"),
         private readonly userRoot = resolve(process.cwd(), "workspace", ".nbook", "agent", "skills"),
     ) {}
 

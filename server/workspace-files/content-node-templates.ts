@@ -14,7 +14,7 @@ export type WorkspaceContentTemplateBundle = {
     stateContent: string | null;
 };
 
-const TEMPLATE_ROOT_RELATIVE_PATH = path.join("server", "workspace", "content-node-templates");
+const TEMPLATE_ROOT_RELATIVE_PATH = path.join("templates", "content-node-templates");
 
 /**
  * 按内容节点类型读取 index.md 模板，并替换基础变量。
@@ -74,7 +74,7 @@ function renderTemplateFilePath(templatePath: string, input: WorkspaceContentTem
  */
 function resolveTemplatePath(relativePath: string): string | null {
     const normalizedPath = relativePath.split(path.sep).join(path.sep);
-    const userPath = path.resolve(process.cwd(), "workspace", ".nbook", "assets", normalizedPath);
+    const userPath = path.resolve(process.cwd(), "workspace", ".nbook", normalizedPath);
     if (fs.existsSync(userPath) && fs.statSync(userPath).isFile()) {
         return userPath;
     }

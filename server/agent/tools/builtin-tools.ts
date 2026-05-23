@@ -29,6 +29,7 @@ const CreateAgentSchema = Type.Object({
     profileKey: Type.String(),
     input: Type.Optional(Type.Unknown()),
     workspaceRoot: Type.Optional(Type.String()),
+    novelId: Type.Optional(Type.String()),
 });
 
 const InvokeAgentSchema = Type.Object({
@@ -154,6 +155,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
                     profileKey: agentInput.profileKey,
                     input: (agentInput.input ?? {}) as never,
                     workspaceRoot: agentInput.workspaceRoot,
+                    novelId: agentInput.novelId,
                 });
                 return {
                     content: [{type: "text", text: `created agent session ${result.sessionId}`}],
@@ -167,6 +169,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
                     input: (agentInput.input ?? {}) as never,
                     workspaceRoot: agentInput.workspaceRoot ?? context.workspaceRoot,
                     workspaceKey: context.workspaceKey,
+                    novelId: agentInput.novelId,
                     parentSessionId: context.sessionId,
                 });
                 return {

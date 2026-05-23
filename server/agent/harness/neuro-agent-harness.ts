@@ -15,7 +15,9 @@ import {createBuiltinTools} from "nbook/server/agent/tools/builtin-tools";
 import {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import type {AgentResolution, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {appendCompaction, compactIfNeeded} from "nbook/server/agent/harness/compaction";
-import {resolvePiApiKey, resolvePiModel} from "nbook/server/agent/harness/model-resolver";
+import {resolvePiApiKeyFromConfig, resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
+import {loadEffectiveConfigForWorkspaceRoot} from "nbook/server/config/config-service";
+import type {EffectiveConfig} from "nbook/server/config/types";
 import type {
     AgentAbortResult,
     AgentCommandResult,
@@ -45,7 +47,7 @@ type HarnessOptions = {
     profiles?: AgentProfileCatalog;
     skills?: SkillCatalog;
     tools?: AgentToolRegistry;
-    modelResolver?: (profileKey: string, override?: {modelKey?: string | null} | null) => Model<any>;
+    modelResolver?: (config: Pick<EffectiveConfig, "agent" | "models">, profileKey: string, override?: {modelKey?: string | null} | null) => Model<any>;
     eventHub?: AgentSessionEventHub;
 };
 
@@ -68,7 +70,7 @@ export class NeuroAgentHarness {
     readonly skills: SkillCatalog;
     readonly tools: AgentToolRegistry;
     readonly eventHub: AgentSessionEventHub;
-    private readonly modelResolver: (profileKey: string, override?: {modelKey?: string | null} | null) => Model<any>;
+    private readonly modelResolver: (config: Pick<EffectiveConfig, "agent" | "models">, profileKey: string, override?: {modelKey?: string | null} | null) => Model<any>;
     private readonly activeInvocations = new Map<number, AgentActiveInvocationDto>();
     private readonly followUpQueues = new Map<number, AgentFollowUpQueueItemDto[]>();
     private readonly abortControllers = new Map<number, AbortController>();
@@ -79,7 +81,7 @@ export class NeuroAgentHarness {
         this.skills = options.skills ?? new SkillCatalog();
         this.tools = options.tools ?? new AgentToolRegistry();
         this.eventHub = options.eventHub ?? new AgentSessionEventHub();
-        this.modelResolver = options.modelResolver ?? resolvePiModel;
+        this.modelResolver = options.modelResolver ?? resolvePiModelFromConfig;
         this.profiles.register(defaultAgentProfile);
         for (const tool of createBuiltinTools(this)) {
             this.tools.register(tool);
@@ -97,6 +99,7 @@ export class NeuroAgentHarness {
             input: parsedInput,
             workspaceRoot: input.workspaceRoot ?? resolve(process.cwd(), "workspace"),
             workspaceKey: input.workspaceKey ?? "global",
+            novelId: input.novelId,
             parentSessionId: input.parentSessionId,
             title: profile.manifest.name,
         });
@@ -188,13 +191,15 @@ export class NeuroAgentHarness {
                 snapshot = await this.repo.readSession(input.sessionId);
             }
             let context = this.repo.reduce(snapshot);
-            const model = context.model ?? this.modelResolver(context.profileKey);
+            const config = await loadEffectiveConfigForWorkspaceRoot(context.workspaceRoot);
+            const model = context.model ?? this.modelResolver(config, context.profileKey);
+            const apiKey = resolvePiApiKeyFromConfig(config, model.provider);
             await compactIfNeeded({
                 repo: this.repo,
                 snapshot,
                 messages: [...context.messages, ...(prepared.dynamicMessages ?? [])],
                 model,
-                apiKey: await resolvePiApiKey(model.provider),
+                apiKey,
                 thinkingLevel: context.thinkingLevel,
             });
             snapshot = await this.repo.readSession(input.sessionId);
@@ -210,6 +215,7 @@ export class NeuroAgentHarness {
                     ...(prepared.dynamicMessages ?? []),
                 ],
                 model,
+                apiKey,
                 toolKeys: prepared.toolKeys ?? [],
                 thinkingLevel: context.thinkingLevel,
                 abortSignal: abortController.signal,
@@ -222,6 +228,8 @@ export class NeuroAgentHarness {
                 snapshot,
                 context,
                 prepared,
+                model,
+                apiKey,
                 result,
             });
             const lifecycleEntry = await this.repo.appendEntry(input.sessionId, {
@@ -261,9 +269,11 @@ export class NeuroAgentHarness {
         snapshot: SessionSnapshot;
         context: ReturnType<JsonlSessionRepository["reduce"]>;
         prepared: Awaited<ReturnType<NeuroAgentHarness["prepare"]>>;
+        model: Model<any>;
+        apiKey?: string;
         result: Awaited<ReturnType<NeuroAgentHarness["runLoop"]>>;
     }): Promise<InvokeAgentResult> {
-        const {input: invokeInput, invocationId, snapshot, context, prepared, result} = input;
+        const {input: invokeInput, invocationId, snapshot, context, prepared, model, apiKey, result} = input;
         if (result.waiting) {
             const active = this.activeInvocations.get(invokeInput.sessionId);
             if (active) {
@@ -285,7 +295,8 @@ export class NeuroAgentHarness {
                 workspaceKey: snapshot.metadata.workspaceKey,
                 workspaceRoot: context.workspaceRoot,
                 systemPrompt: prepared.systemPrompt ?? context.systemPrompt,
-                model: context.model ?? this.modelResolver(context.profileKey),
+                model,
+                apiKey,
                 toolKeys: prepared.toolKeys ?? [],
                 thinkingLevel: context.thinkingLevel,
             });
@@ -473,9 +484,10 @@ export class NeuroAgentHarness {
             };
         }
         if (body.command === "model") {
+            const config = await loadEffectiveConfigForWorkspaceRoot(snapshot.metadata.workspaceRoot);
             const entry: Omit<ModelChangeEntry, "id" | "parentId" | "timestamp"> = {
                 type: "model_change",
-                model: body.modelKey ? this.modelResolver(snapshot.metadata.profileKey, {modelKey: body.modelKey}) : null,
+                model: body.modelKey ? this.modelResolver(config, snapshot.metadata.profileKey, {modelKey: body.modelKey}) : null,
             };
             const written = await this.repo.appendEntry(sessionId, entry, snapshot.metadata.workspaceKey);
             this.publishSessionEntry(sessionId, undefined, written);
@@ -725,6 +737,7 @@ export class NeuroAgentHarness {
         systemPrompt: string;
         messages: AgentMessage[];
         model: Model<any>;
+        apiKey?: string;
         toolKeys: string[];
         thinkingLevel: string;
         abortSignal?: AbortSignal;
@@ -756,6 +769,7 @@ export class NeuroAgentHarness {
                 systemPrompt: input.systemPrompt,
                 messages,
                 model: input.model,
+                apiKey: input.apiKey,
                 tools: visibleTools,
                 sessionId: input.sessionId,
                 thinkingLevel: input.thinkingLevel,
@@ -808,6 +822,7 @@ export class NeuroAgentHarness {
         systemPrompt: string;
         messages: AgentMessage[];
         model: Model<any>;
+        apiKey?: string;
         tools: ReturnType<AgentToolRegistry["allowed"]>;
         sessionId: number;
         thinkingLevel: string;
@@ -824,7 +839,7 @@ export class NeuroAgentHarness {
         }, {
             sessionId: String(input.sessionId),
             reasoning: input.thinkingLevel === "off" ? undefined : input.thinkingLevel as never,
-            apiKey: await resolvePiApiKey(input.model.provider),
+            apiKey: input.apiKey,
             signal: input.abortSignal,
         });
 
@@ -1172,13 +1187,14 @@ export class NeuroAgentHarness {
         try {
             const snapshot = await this.repo.readSession(sessionId);
             const context = this.repo.reduce(snapshot);
-            const model = context.model ?? this.modelResolver(context.profileKey);
+            const config = await loadEffectiveConfigForWorkspaceRoot(context.workspaceRoot);
+            const model = context.model ?? this.modelResolver(config, context.profileKey);
             await appendCompaction({
                 repo: this.repo,
                 snapshot,
                 messages: context.messages,
                 model,
-                apiKey: await resolvePiApiKey(model.provider),
+                apiKey: resolvePiApiKeyFromConfig(config, model.provider),
                 thinkingLevel: context.thinkingLevel,
                 instructions,
             });
@@ -1212,6 +1228,7 @@ export class NeuroAgentHarness {
             workspaceRoot: string;
             systemPrompt: string;
             model: Model<any>;
+            apiKey?: string;
             toolKeys: string[];
             thinkingLevel: string;
         },
@@ -1231,6 +1248,7 @@ export class NeuroAgentHarness {
                 systemPrompt: runInput.systemPrompt,
                 messages: context.messages,
                 model: runInput.model,
+                apiKey: runInput.apiKey,
                 toolKeys: runInput.toolKeys,
                 thinkingLevel: runInput.thinkingLevel,
                 invocationId,

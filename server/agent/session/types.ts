@@ -9,6 +9,7 @@ export type SessionMetadata = {
     input: JsonValue;
     workspaceRoot: string;
     workspaceKey: string;
+    novelId?: string;
     parentSessionId?: SessionId;
     createdAt: number;
     title?: string;

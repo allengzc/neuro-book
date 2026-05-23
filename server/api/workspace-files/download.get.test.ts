@@ -29,7 +29,7 @@ describe("GET /api/workspace-files/download", () => {
             resolveNovelWorkspaceRoot,
             ensureUserAssetsWorkspaceRoot: vi.fn(),
             USER_ASSETS_WORKSPACE_KIND: "user-assets",
-            USER_ASSETS_WORKSPACE_ROOT: "workspace/.nbook/assets",
+            USER_ASSETS_WORKSPACE_ROOT: "workspace/.nbook",
         }));
         vi.doMock("nbook/server/workspace-files/workspace-archive", () => ({
             createWorkspaceZipStream,
@@ -58,7 +58,7 @@ describe("GET /api/workspace-files/download", () => {
             resolveNovelWorkspaceRoot: vi.fn(),
             ensureUserAssetsWorkspaceRoot: vi.fn(),
             USER_ASSETS_WORKSPACE_KIND: "user-assets",
-            USER_ASSETS_WORKSPACE_ROOT: "workspace/.nbook/assets",
+            USER_ASSETS_WORKSPACE_ROOT: "workspace/.nbook",
         }));
         vi.doMock("nbook/server/workspace-files/workspace-archive", () => ({
             createWorkspaceZipStream: vi.fn(),

@@ -33,7 +33,7 @@ export class AgentProfileCatalog {
     private readonly memoryProfiles = new Map<string, ProfileSource>();
 
     constructor(
-        private readonly systemRoot = resolve(process.cwd(), "assets", ".nbook", "agent", "profiles"),
+        private readonly systemRoot = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profiles"),
         private readonly userRoot = resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles"),
     ) {}
 

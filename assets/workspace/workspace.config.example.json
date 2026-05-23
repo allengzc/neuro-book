@@ -1,0 +1,10 @@
+{
+    "models": {
+        "default": null
+    },
+    "agent": {
+        "defaultProfileKey": null,
+        "profiles": {}
+    },
+    "editor": {}
+}

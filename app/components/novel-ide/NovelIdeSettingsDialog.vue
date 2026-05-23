@@ -10,10 +10,8 @@ import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStudioController";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
-import type {AgentToolSettingsDto, UpdateAgentToolSettingsRequestDto} from "nbook/shared/dto/app-settings.dto";
 
-type SettingsSection = "frontend" | "editor" | "agent-tools" | "models" | "agent-profile-defaults" | "agent-profile-models";
-type ToolState = "default" | "allow" | "deny";
+type SettingsSection = "frontend" | "editor" | "models" | "agent-profile-defaults" | "agent-profile-models";
 
 const props = defineProps<{
     modelValue: boolean;
@@ -34,16 +32,6 @@ const {
 } = storeToRefs(novelIdeStore);
 
 const activeSection = ref<SettingsSection>("frontend");
-const loadingBackend = ref(false);
-const savingBackend = ref(false);
-const backendError = ref("");
-const backendSuccessText = ref("");
-const backendTools = ref<string[]>([]);
-const backendDraft = ref<Record<string, ToolState>>({});
-const backendSnapshot = ref<UpdateAgentToolSettingsRequestDto>({
-    allow: [],
-    deny: [],
-});
 
 const frontendSectionItems: Array<{value: SettingsSection; label: string; description: string; iconClass: string}> = [
     {
@@ -57,12 +45,6 @@ const frontendSectionItems: Array<{value: SettingsSection; label: string; descri
         label: "编辑器",
         description: "Markdown 富文本显示偏好。",
         iconClass: "i-lucide-type",
-    },
-    {
-        value: "agent-tools",
-        label: "Agent 工具",
-        description: "配置 allow / deny，影响后续新 run。",
-        iconClass: "i-lucide-server-cog",
     },
     {
         value: "models",
@@ -142,12 +124,6 @@ const monacoFontOptions: SelectOption[] = [
     },
 ];
 
-const toolStateOptions: SelectOption[] = [
-    {value: "default", label: "默认", indicatorClass: "bg-slate-400"},
-    {value: "allow", label: "允许", indicatorClass: "bg-emerald-500"},
-    {value: "deny", label: "禁止", indicatorClass: "bg-rose-500"},
-];
-
 const promptExpandedValue = computed({
     get: (): string => promptExpanded.value ? "expanded" : "collapsed",
     set: (value: string): void => {
@@ -217,135 +193,11 @@ function resetMonacoPreferences(): void {
     monacoEditorPreferences.value = {...DEFAULT_MONACO_EDITOR_PREFERENCES};
 }
 
-const backendSummary = computed(() => {
-    let allowCount = 0;
-    let denyCount = 0;
-
-    for (const toolName of backendTools.value) {
-        const state = backendDraft.value[toolName] ?? "default";
-        if (state === "allow") {
-            allowCount += 1;
-            continue;
-        }
-        if (state === "deny") {
-            denyCount += 1;
-        }
-    }
-
-    return {
-        allowCount,
-        denyCount,
-        defaultCount: Math.max(backendTools.value.length - allowCount - denyCount, 0),
-    };
-});
-
-const backendDirty = computed(() => {
-    const nextPayload = buildBackendPayload();
-    return nextPayload.allow.join("\n") !== backendSnapshot.value.allow.join("\n")
-        || nextPayload.deny.join("\n") !== backendSnapshot.value.deny.join("\n");
-});
-
 /**
  * 关闭设定弹窗。
  */
 function closeDialog(): void {
     emit("update:modelValue", false);
-}
-
-/**
- * 根据接口响应重建后端草稿。
- */
-function applyBackendSettings(settings: AgentToolSettingsDto): void {
-    const allowSet = new Set(settings.allow);
-    const denySet = new Set(settings.deny);
-    const nextDraft: Record<string, ToolState> = {};
-
-    for (const toolName of settings.allTools) {
-        if (denySet.has(toolName)) {
-            nextDraft[toolName] = "deny";
-            continue;
-        }
-        if (allowSet.has(toolName)) {
-            nextDraft[toolName] = "allow";
-            continue;
-        }
-        nextDraft[toolName] = "default";
-    }
-
-    backendTools.value = [...settings.allTools];
-    backendDraft.value = nextDraft;
-    backendSnapshot.value = {
-        allow: [...settings.allow],
-        deny: [...settings.deny],
-    };
-}
-
-/**
- * 将当前后端草稿收敛为接口请求体。
- */
-function buildBackendPayload(): UpdateAgentToolSettingsRequestDto {
-    const allow: string[] = [];
-    const deny: string[] = [];
-
-    for (const toolName of backendTools.value) {
-        const state = backendDraft.value[toolName] ?? "default";
-        if (state === "allow") {
-            allow.push(toolName);
-            continue;
-        }
-        if (state === "deny") {
-            deny.push(toolName);
-        }
-    }
-
-    return {
-        allow,
-        deny,
-    };
-}
-
-/**
- * 读取后端设定。
- */
-async function loadBackendSettings(): Promise<void> {
-    loadingBackend.value = true;
-    backendError.value = "";
-    backendSuccessText.value = "";
-
-    try {
-        const settings = await $fetch<AgentToolSettingsDto>("/api/settings/agent-tools");
-        applyBackendSettings(settings);
-    } catch (error) {
-        backendError.value = error instanceof Error ? error.message : "读取后端设定失败";
-    } finally {
-        loadingBackend.value = false;
-    }
-}
-
-/**
- * 保存后端设定到 config.yaml。
- */
-async function saveBackendSettings(): Promise<void> {
-    if (!backendDirty.value || savingBackend.value) {
-        return;
-    }
-
-    savingBackend.value = true;
-    backendError.value = "";
-    backendSuccessText.value = "";
-
-    try {
-        const settings = await $fetch<AgentToolSettingsDto>("/api/settings/agent-tools", {
-            method: "PUT",
-            body: buildBackendPayload(),
-        });
-        applyBackendSettings(settings);
-        backendSuccessText.value = "已写入 config.yaml，后续新发起的 Agent run 会使用新工具集。";
-    } catch (error) {
-        backendError.value = error instanceof Error ? error.message : "保存后端设定失败";
-    } finally {
-        savingBackend.value = false;
-    }
 }
 
 /**
@@ -366,13 +218,6 @@ function updateViewMode(value: string): void {
     }
 }
 
-watch(() => props.modelValue, (visible) => {
-    if (!visible) {
-        return;
-    }
-
-    void loadBackendSettings();
-});
 </script>
 
 <template>
@@ -382,7 +227,7 @@ watch(() => props.modelValue, (visible) => {
         width="1060px"
         height="740px"
         overlay-type="blur"
-        :busy="savingBackend"
+        :busy="false"
         :show-footer="false"
         @update:model-value="emit('update:modelValue', $event)"
     >
@@ -418,7 +263,7 @@ watch(() => props.modelValue, (visible) => {
                     <div class="rounded-xl border border-[var(--border-color)]/60 bg-[var(--bg-panel)]/50 px-3.5 py-3 shadow-sm">
                         <span class="i-lucide-info mb-1.5 block h-3.5 w-3.5 text-[var(--text-muted)]"></span>
                         <div class="text-[11px] leading-relaxed text-[var(--text-secondary)]">
-                            {{ activeSection === "frontend" ? "前端设定即时生效并自动保存。" : activeSection === "editor" ? "编辑器显示偏好只影响本地 UI。" : activeSection === "agent-tools" ? (backendDirty ? "Agent 工具有未保存修改。" : "Agent 工具配置已持久化。") : activeSection === "models" ? "模型设置修改后须手动保存。" : activeSection === "agent-profile-defaults" ? "默认 Profile 只影响新建线程。" : "Profile 模型参数修改后须手动保存。" }}
+                            {{ activeSection === "frontend" ? "前端设定即时生效并自动保存。" : activeSection === "editor" ? "编辑器显示偏好只影响本地 UI。" : activeSection === "models" ? "模型设置写入 Workspace Root Global Config。" : activeSection === "agent-profile-defaults" ? "默认 Profile 写入 Global 或 Project Config。" : "Profile 模型参数写入 Global Config。" }}
                         </div>
                     </div>
                 </div>
@@ -627,114 +472,6 @@ watch(() => props.modelValue, (visible) => {
                                         <span><span class="block text-sm font-medium text-[var(--text-main)]">空白字符</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">显示边界空格与制表符。</span></span>
                                         <span class="h-2.5 w-2.5 rounded-full" :class="monacoEditorPreferences.renderWhitespace ? 'bg-emerald-500' : 'bg-slate-400'"></span>
                                     </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Agent 工具设定 -->
-                        <div v-else-if="activeSection === 'agent-tools'" key="agent-tools" class="space-y-4 pt-1">
-                            <div class="flex flex-wrap items-center justify-between gap-4">
-                                <div class="max-w-xl">
-                                    <h3 class="text-base font-semibold text-[var(--text-main)]">Agent 工具配置</h3>
-                                    <p class="mt-1 text-xs text-[var(--text-secondary)]">此配置仅影响后续新发起的 Agent Run。</p>
-                                </div>
-
-                                <button
-                                    class="group relative inline-flex h-8 shrink-0 items-center justify-center overflow-hidden rounded-lg px-4 text-xs font-medium transition-all duration-300 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
-                                    :class="backendDirty ? 'bg-[var(--accent-main)] text-white shadow-md hover:shadow-lg' : 'border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-muted)]'"
-                                    :disabled="!backendDirty || savingBackend"
-                                    @click="void saveBackendSettings()"
-                                >
-                                    <span v-if="backendDirty" class="absolute inset-0 translate-y-full bg-white/20 transition-transform duration-300 ease-out group-hover:translate-y-0"></span>
-                                    <span class="relative flex items-center gap-1.5">
-                                        <span v-if="savingBackend" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
-                                        <span v-else class="i-lucide-save h-3.5 w-3.5"></span>
-                                        {{ savingBackend ? "保存中..." : "保存设定" }}
-                                    </span>
-                                </button>
-                            </div>
-
-                            <!-- 状态仪表盘 -->
-                            <div class="grid gap-3 md:grid-cols-3">
-                                <div class="group relative overflow-hidden rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 shadow-sm transition-all duration-300 hover:shadow-md">
-                                    <div class="absolute -right-3 -top-3 opacity-5 transition-opacity group-hover:opacity-10"><span class="i-lucide-circle-dashed h-20 w-20"></span></div>
-                                    <div class="relative">
-                                        <div class="flex items-center gap-2">
-                                            <div class="h-2 w-2 rounded-full bg-slate-400"></div>
-                                            <div class="text-[11px] font-bold uppercase tracking-widest text-[var(--text-muted)]">默认</div>
-                                        </div>
-                                        <div class="mt-1 text-xl font-bold text-[var(--text-main)]">{{ backendSummary.defaultCount }}</div>
-                                    </div>
-                                </div>
-                                <div class="group relative overflow-hidden rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 shadow-sm transition-all duration-300 hover:shadow-md">
-                                    <div class="absolute -right-3 -top-3 text-emerald-500 opacity-5 transition-opacity group-hover:opacity-10"><span class="i-lucide-check-circle h-20 w-20"></span></div>
-                                    <div class="relative">
-                                        <div class="flex items-center gap-2">
-                                            <div class="h-2 w-2 rounded-full bg-emerald-500"></div>
-                                            <div class="text-[11px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Allow</div>
-                                        </div>
-                                        <div class="mt-1 text-xl font-bold text-emerald-600">{{ backendSummary.allowCount }}</div>
-                                    </div>
-                                </div>
-                                <div class="group relative overflow-hidden rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 shadow-sm transition-all duration-300 hover:shadow-md">
-                                    <div class="absolute -right-3 -top-3 text-rose-500 opacity-5 transition-opacity group-hover:opacity-10"><span class="i-lucide-x-circle h-20 w-20"></span></div>
-                                    <div class="relative">
-                                        <div class="flex items-center gap-2">
-                                            <div class="h-2 w-2 rounded-full bg-rose-500"></div>
-                                            <div class="text-[11px] font-bold uppercase tracking-widest text-[var(--text-muted)]">Deny</div>
-                                        </div>
-                                        <div class="mt-1 text-xl font-bold text-rose-600">{{ backendSummary.denyCount }}</div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- 状态提示条 -->
-                            <TransitionGroup
-                                tag="div"
-                                enter-active-class="transition-all duration-300 ease-out"
-                                enter-from-class="opacity-0 -translate-y-2 scale-[0.98]"
-                                enter-to-class="opacity-100 translate-y-0 scale-100"
-                                leave-active-class="absolute w-full transition-all duration-200 ease-in"
-                                leave-from-class="opacity-100"
-                                leave-to-class="opacity-0 scale-[0.98]"
-                                class="relative flex flex-col gap-2"
-                            >
-                                <div v-if="backendError" key="error" class="flex items-start gap-3 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 shadow-sm backdrop-blur-md">
-                                    <span class="i-lucide-alert-circle mt-0.5 h-4 w-4 shrink-0 text-rose-500"></span>
-                                    <div class="text-sm text-rose-700">{{ backendError }}</div>
-                                </div>
-                                <div v-if="backendSuccessText" key="success" class="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 shadow-sm backdrop-blur-md">
-                                    <span class="i-lucide-check-circle-2 mt-0.5 h-4 w-4 shrink-0 text-emerald-500"></span>
-                                    <div class="text-sm text-emerald-700">{{ backendSuccessText }}</div>
-                                </div>
-                            </TransitionGroup>
-
-                            <div v-if="loadingBackend" class="flex min-h-[260px] flex-col items-center justify-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm">
-                                <span class="i-lucide-loader-2 h-8 w-8 animate-spin text-[var(--text-muted)]"></span>
-                                <span class="text-sm text-[var(--text-secondary)]">正在读取后端设定...</span>
-                            </div>
-
-                            <div v-else class="flex flex-col rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm overflow-hidden">
-                                <div class="grid grid-cols-[minmax(0,1fr)_160px] gap-4 border-b border-[var(--border-color)] bg-[var(--bg-input)]/50 px-5 py-3 text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                                    <span>Tool Name</span>
-                                    <span>状态 (State)</span>
-                                </div>
-
-                                <div class="flex-1 custom-scrollbar overflow-y-auto">
-                                    <div
-                                        v-for="toolName in backendTools"
-                                        :key="toolName"
-                                        class="group grid grid-cols-[minmax(0,1fr)_160px] items-center gap-4 border-b border-[var(--border-color)] px-5 py-3 transition-colors hover:bg-[var(--bg-hover)]/40 last:border-b-0"
-                                    >
-                                        <div class="min-w-0">
-                                            <div class="truncate font-mono text-[13px] font-medium text-[var(--text-main)] transition-colors group-hover:text-[var(--accent-text)]">{{ toolName }}</div>
-                                        </div>
-                                        <FormSelect
-                                            :model-value="backendDraft[toolName] ?? 'default'"
-                                            :options="toolStateOptions"
-                                            @update:model-value="backendDraft[toolName] = $event as ToolState"
-                                        />
-                                    </div>
                                 </div>
                             </div>
                         </div>

@@ -86,13 +86,13 @@ if [ ! -f .env ] && [ -f .deploy/.env.docker ]; then
     chmod 600 .env 2>/dev/null || true
 fi
 
-if [ ! -f config.yaml ] && [ -f .deploy/config.yaml ]; then
-    mv .deploy/config.yaml config.yaml
-    chmod 600 config.yaml 2>/dev/null || true
-fi
-
 if [ ! -f .env ] || [ ! -f config.yaml ] || [ ! -f .deploy/docker-compose.generated.yml ]; then
     echo "缺少部署文件。请先运行 neuro-book-deploy --deploy-mode source 初始化部署。" >&2
+    exit 1
+fi
+
+if [ -f .deploy/config.yaml ]; then
+    echo "检测到旧 .deploy/config.yaml。请先在远端运行 bun run config:migrate 或 neuro-book-deploy --redeploy，让旧 Provider 配置进入 workspace/.nbook/config.json。" >&2
     exit 1
 fi
 

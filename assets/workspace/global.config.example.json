@@ -1,0 +1,42 @@
+{
+    "auth": {
+        "enabled": true
+    },
+    "models": {
+        "default": "deepseek/deepseek-v4-flash",
+        "providers": [
+            {
+                "id": "deepseek",
+                "name": "DeepSeek",
+                "adapter": "deepseek-official",
+                "options": {
+                    "apiKey": "",
+                    "baseURL": "https://api.deepseek.com/v1",
+                    "proxy": "",
+                    "timeoutMs": 180000,
+                    "requestOptions": {}
+                },
+                "models": [
+                    {
+                        "name": "DeepSeek-V4-Flash",
+                        "id": "deepseek-v4-flash",
+                        "group": "deepseek",
+                        "enabled": true,
+                        "contextWindowTokens": 262144
+                    }
+                ]
+            }
+        ]
+    },
+    "agent": {
+        "defaultProfileKey": {
+            "novel": "leader.default",
+            "userAssets": "leader.assets"
+        },
+        "profiles": {}
+    },
+    "ui": {
+        "theme": "sepia"
+    },
+    "editor": {}
+}

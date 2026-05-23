@@ -2,8 +2,9 @@
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import {useNotification} from "nbook/app/composables/useNotification";
+import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
-import type {WorkspaceSettingsDto, UpdateWorkspaceSettingsRequestDto} from "nbook/shared/dto/workspace-settings.dto";
+import type {ConfigDefaultProfileSettingsDto, ConfigEditorSnapshotDto, GlobalConfigDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
 
 const emit = defineEmits<{
     (e: "saved", profileKey: string): void;
@@ -11,18 +12,20 @@ const emit = defineEmits<{
 
 const novelIdeStore = useNovelIdeStore();
 const notification = useNotification();
+const configApi = useConfigApi();
 const loading = ref(false);
 const saving = ref(false);
 const errorText = ref("");
-const settings = ref<WorkspaceSettingsDto | null>(null);
+const settings = ref<ConfigDefaultProfileSettingsDto | null>(null);
+const editorSnapshot = ref<ConfigEditorSnapshotDto | null>(null);
 const selectedProfileKey = ref("");
 const snapshotProfileKey = ref("");
 
 const workspaceLabel = computed(() => novelIdeStore.workspaceKind === "user-assets" ? "用户资产工作区" : "当前小说工作区");
-const effectiveProfileKey = computed(() => settings.value?.agent.effectiveProfileKey ?? "");
+const effectiveProfileKey = computed(() => settings.value?.effectiveProfileKey ?? "");
 const dirty = computed(() => selectedProfileKey.value !== snapshotProfileKey.value);
 const profileOptions = computed<SelectOption[]>(() => {
-    const options = settings.value?.agent.profiles.map((profile) => ({
+    const options = settings.value?.profiles.map((profile) => ({
         value: profile.profileKey,
         label: profile.profileKey,
         description: profile.name,
@@ -31,8 +34,8 @@ const profileOptions = computed<SelectOption[]>(() => {
     return [
         {
             value: "",
-            label: `跟随系统默认 (${settings.value?.agent.systemDefaultProfileKey ?? "-"})`,
-            description: "不写入 workspace 覆盖设置。",
+            label: `跟随默认 (${settings.value?.systemDefaultProfileKey ?? "-"})`,
+            description: "清除当前配置文件中的覆盖设置。",
             indicatorClass: "bg-slate-400",
         },
         ...options,
@@ -40,22 +43,46 @@ const profileOptions = computed<SelectOption[]>(() => {
 });
 
 /**
- * 当前 workspace settings API 查询参数。
+ * 应用接口响应。
  */
-function settingsQuery(): Record<string, string> {
-    if (novelIdeStore.workspaceKind === "user-assets") {
-        return {workspaceKind: "user-assets"};
-    }
-    return {novelId: novelIdeStore.currentNovelId};
+function applySettings(snapshot: ConfigEditorSnapshotDto): void {
+    editorSnapshot.value = snapshot;
+    settings.value = snapshot.defaultProfileSettings;
+    selectedProfileKey.value = novelIdeStore.workspaceKind === "user-assets"
+        ? snapshot.defaultProfileSettings.globalDefaultProfileKey ?? ""
+        : snapshot.defaultProfileSettings.projectDefaultProfileKey ?? "";
+    snapshotProfileKey.value = selectedProfileKey.value;
 }
 
 /**
- * 应用接口响应。
+ * 构造 Global Config 写回体。
  */
-function applySettings(nextSettings: WorkspaceSettingsDto): void {
-    settings.value = nextSettings;
-    selectedProfileKey.value = nextSettings.agent.workspaceDefaultProfileKey ?? "";
-    snapshotProfileKey.value = selectedProfileKey.value;
+function buildGlobalConfigPayload(): GlobalConfigDto {
+    const base = editorSnapshot.value?.global ?? {};
+    return {
+        ...base,
+        agent: {
+            ...(base.agent ?? {}),
+            defaultProfileKey: {
+                ...base.agent?.defaultProfileKey,
+                [novelIdeStore.workspaceKind === "user-assets" ? "userAssets" : "novel"]: selectedProfileKey.value || null,
+            },
+        },
+    };
+}
+
+/**
+ * 构造 Project Config 写回体。
+ */
+function buildProjectConfigPayload(): ProjectConfigDto {
+    const base = editorSnapshot.value?.project ?? {};
+    return {
+        ...base,
+        agent: {
+            ...(base.agent ?? {}),
+            defaultProfileKey: selectedProfileKey.value || null,
+        },
+    };
 }
 
 /**
@@ -68,9 +95,7 @@ async function loadSettings(): Promise<void> {
     loading.value = true;
     errorText.value = "";
     try {
-        applySettings(await $fetch<WorkspaceSettingsDto>("/api/workspace-settings", {
-            query: settingsQuery(),
-        }));
+        applySettings(await configApi.editorSnapshot());
     } catch (error) {
         errorText.value = error instanceof Error ? error.message : "读取默认 Profile 设置失败";
     } finally {
@@ -87,20 +112,13 @@ async function saveSettings(): Promise<void> {
     }
     saving.value = true;
     errorText.value = "";
-    const body: UpdateWorkspaceSettingsRequestDto = {
-        agent: {
-            defaultProfileKey: selectedProfileKey.value || null,
-        },
-    };
 
     try {
-        const nextSettings = await $fetch<WorkspaceSettingsDto>("/api/workspace-settings", {
-            method: "PUT",
-            query: settingsQuery(),
-            body,
-        });
-        applySettings(nextSettings);
-        emit("saved", nextSettings.agent.effectiveProfileKey);
+        const snapshot = novelIdeStore.workspaceKind === "user-assets"
+            ? await configApi.saveGlobal(buildGlobalConfigPayload())
+            : await configApi.saveProject(buildProjectConfigPayload());
+        applySettings(snapshot);
+        emit("saved", snapshot.defaultProfileSettings.effectiveProfileKey);
         notification.success("默认 Profile 已保存，新建 session 会使用新的默认值。");
     } catch (error) {
         errorText.value = error instanceof Error ? error.message : "保存默认 Profile 设置失败";
@@ -156,7 +174,7 @@ onMounted(() => {
             <section class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-sm">
                 <div class="mb-4 border-b border-[var(--border-color)] pb-4">
                     <h4 class="text-sm font-semibold text-[var(--text-main)]">默认 Agent Profile</h4>
-                    <p class="mt-1 text-xs text-[var(--text-secondary)]">设置会写入当前 workspace 的 <code class="rounded bg-[var(--bg-input)] px-1">.nbook/settings.json</code>。</p>
+                    <p class="mt-1 text-xs text-[var(--text-secondary)]">用户资产入口写入 Workspace Root <code class="rounded bg-[var(--bg-input)] px-1">.nbook/config.json</code>；小说入口写入 Project Workspace <code class="rounded bg-[var(--bg-input)] px-1">.nbook/config.json</code>。</p>
                 </div>
 
                 <div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">

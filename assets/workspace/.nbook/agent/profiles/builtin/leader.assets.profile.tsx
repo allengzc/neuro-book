@@ -74,13 +74,13 @@ function renderSystemPrompt(): string {
 # 用户资产目录
 
 v3 Agent 资源使用新的 .nbook 结构：
-- 系统内置资源：assets/.nbook/agent/profiles、assets/.nbook/agent/skills。
+- 系统内置资源：assets/workspace/.nbook/agent/profiles、assets/workspace/.nbook/agent/skills。
 - 用户覆盖资源：workspace/.nbook/agent/profiles、workspace/.nbook/agent/skills。
-- 工作区设置：workspace/.nbook/settings.json 或小说 workspace 下的 .nbook/settings.json。
+- Global Config：workspace/.nbook/config.json。
+- Project Config：workspace/{project}/.nbook/config.json。
 
-当前前端用户资产工作区仍可能显示为 workspace/.nbook/assets。遇到路径选择时：
 - 编辑 Agent profile 或 skill，优先使用 workspace/.nbook/agent/...。
-- 读取系统内置参考，可以读取 assets/.nbook/agent/...。
+- 读取系统内置参考，可以读取 assets/workspace/.nbook/agent/...。
 - 不要直接修改系统 assets，除非用户明确要求修改仓库内置资源。
 - 旧 assets/agent-v2 和 server/agent-v2 只作为归档参考，不作为新运行时入口。
 
@@ -88,14 +88,14 @@ v3 Agent 资源使用新的 .nbook 结构：
 
 - 当用户请求创建、修改、诊断 Agent profile、TSX profile 或 .profile.tsx 文件时，先了解现有 profile contract 和目标 key。
 - 新 profile 使用 defineAgentProfile 契约，显式导出 profileManifest、InputSchema、OutputSchema、Input / Output 类型和 default profile。
-- Profile 文件默认放在 workspace/.nbook/agent/profiles/...；系统 builtin 放在 assets/.nbook/agent/profiles/builtin/...。
+- Profile 文件默认放在 workspace/.nbook/agent/profiles/...；系统 builtin 放在 assets/workspace/.nbook/agent/profiles/builtin/...。
 - 覆盖 builtin key 时不能修改 key、InputSchema、OutputSchema；可以调整 prompt、helper function 和 allowedToolKeys。
 - 保存 .profile.tsx 只代表文件写入成功，不代表 profile 可运行。修改后应运行合适的类型检查、profile check 或真实 prepare 预览。
 - 如果用户要求 Agent 工具用户编辑 TSX，目标是让用户直接审阅 TSX 和 prepare 后的 Message[]，不要强行回到低代码编辑。
 
 # Skill 编辑原则
 
-- 修改已有 skill 前，先读取用户覆盖目录 workspace/.nbook/agent/skills/<skill>/SKILL.md；不存在时再读取系统内置 assets/.nbook/agent/skills/<skill>/SKILL.md。
+- 修改已有 skill 前，先读取用户覆盖目录 workspace/.nbook/agent/skills/<skill>/SKILL.md；不存在时再读取系统内置 assets/workspace/.nbook/agent/skills/<skill>/SKILL.md。
 - 自定义或覆盖 skill 时，优先写入 workspace/.nbook/agent/skills/<skill>/SKILL.md。
 - SKILL.md 应保持清晰、可执行、渐进披露；引用脚本、模板或示例时使用相对该 skill 目录的路径。
 - skill 当前通过 catalog 控制可见性，细粒度硬白名单仍是后续事项；不要承诺不存在的权限隔离。
@@ -131,7 +131,6 @@ function renderWorkspaceSnapshot(ctx: ProfilePrepareContext<Input>): string {
         : "";
     return [
         "User assets workspace:",
-        "- runtime workspace may point at workspace/.nbook/assets during frontend migration",
         "- agent profiles/skills should use workspace/.nbook/agent",
         workspaceKind,
     ].filter(Boolean).join("\n");

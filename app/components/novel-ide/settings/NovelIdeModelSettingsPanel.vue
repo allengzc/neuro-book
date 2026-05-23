@@ -5,6 +5,7 @@ import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
+import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import type {
     CheckModelResponseDto,
     CheckProviderResponseDto,
@@ -14,9 +15,10 @@ import type {
     EnabledModelOptionDto,
     ModelProviderAdapter,
     ModelProviderAdapterType,
-    ModelSettingsDto,
+    ModelProviderDraftDto,
     UpdateModelSettingsRequestDto,
 } from "nbook/shared/dto/app-settings.dto";
+import type {ConfigEditorSnapshotDto, ConfigModelSettingsDto, GlobalConfigDto, SecretConfigValueDto} from "nbook/shared/dto/config.dto";
 
 type ProviderRequestOptions = UpdateModelSettingsRequestDto["providers"][number]["options"]["requestOptions"];
 
@@ -34,6 +36,9 @@ type ProviderDraft = {
     adapter: ModelProviderAdapter;
     options: {
         apiKey: string;
+        apiKeyConfigured: boolean;
+        apiKeyMaskedValue: string | null;
+        apiKeyCleared: boolean;
         baseURL: string;
         proxy: string;
         timeoutMs: string;
@@ -153,6 +158,7 @@ function createAdapterConfig(adapterType: ModelProviderAdapterType): ModelProvid
 }
 
 const novelIdeStore = useNovelIdeStore();
+const configApi = useConfigApi();
 
 const loading = ref(false);
 const saving = ref(false);
@@ -174,6 +180,7 @@ const providerDiscoveringId = ref("");
 const modelTestingKey = ref("");
 const manualModelDrafts = ref<Record<string, {name: string; id: string; group: string; contextWindowTokens: string}>>({});
 const libraryDialogOpen = ref(false);
+const editorSnapshot = ref<ConfigEditorSnapshotDto | null>(null);
 
 const expandedGroups = ref<Record<string, boolean>>({});
 const editingModel = ref<ModelDraft | null>(null);
@@ -257,13 +264,16 @@ function parseProviderRequestOptions(value: string): ProviderRequestOptions {
 /**
  * 克隆 Provider 草稿。
  */
-function cloneProvider(provider: ModelSettingsDto["providers"][number]): ProviderDraft {
+function cloneProvider(provider: ConfigModelSettingsDto["providers"][number]): ProviderDraft {
     return {
         id: provider.id,
         name: provider.name,
         adapter: provider.adapter,
         options: {
-            apiKey: provider.options.apiKey,
+            apiKey: "",
+            apiKeyConfigured: provider.options.apiKey.configured,
+            apiKeyMaskedValue: provider.options.apiKey.maskedValue,
+            apiKeyCleared: false,
             baseURL: provider.options.baseURL,
             proxy: provider.options.proxy,
             timeoutMs: typeof provider.options.timeoutMs === "number" ? String(provider.options.timeoutMs) : "",
@@ -288,7 +298,7 @@ function updateActiveProviderAdapter(value: string): void {
 /**
  * 将接口响应应用到本地草稿。
  */
-function applySettings(settings: ModelSettingsDto): void {
+function applySettings(settings: ConfigModelSettingsDto): void {
     draft.value = {
         defaultModelKey: settings.defaultModelKey,
         providers: settings.providers.map(cloneProvider),
@@ -321,6 +331,31 @@ function resolveDisplayedContextWindow(providerId: string, model: ModelDraft): s
 /**
  * 构造保存请求体。
  */
+function buildSecretPayload(provider: ProviderDraft): SecretConfigValueDto {
+    return {
+        configured: provider.options.apiKeyConfigured,
+        maskedValue: provider.options.apiKeyMaskedValue,
+        ...(provider.options.apiKeyCleared ? {value: ""} : {}),
+        ...(!provider.options.apiKeyCleared && provider.options.apiKey.trim() ? {value: provider.options.apiKey.trim()} : {}),
+    };
+}
+
+/**
+ * 标记清空当前 Provider API key。保存后后端会写入空字符串。
+ */
+function clearActiveProviderApiKey(): void {
+    if (!activeProvider.value) {
+        return;
+    }
+    activeProvider.value.options.apiKey = "";
+    activeProvider.value.options.apiKeyConfigured = false;
+    activeProvider.value.options.apiKeyMaskedValue = null;
+    activeProvider.value.options.apiKeyCleared = true;
+}
+
+/**
+ * 构造模型设置保存请求体。
+ */
 function buildSavePayload(): UpdateModelSettingsRequestDto {
     return {
         defaultModelKey: draft.value.defaultModelKey,
@@ -347,6 +382,38 @@ function buildSavePayload(): UpdateModelSettingsRequestDto {
 }
 
 /**
+ * 构造 Global Config 写回体，secret 字段遵守“空输入保留旧值”语义。
+ */
+function buildGlobalConfigPayload(): GlobalConfigDto {
+    const base = editorSnapshot.value?.global ?? {};
+    return {
+        ...base,
+        models: {
+            default: draft.value.defaultModelKey,
+            providers: draft.value.providers.map((provider) => ({
+                id: provider.id.trim(),
+                name: provider.name.trim(),
+                adapter: provider.adapter,
+                options: {
+                    apiKey: buildSecretPayload(provider),
+                    baseURL: provider.options.baseURL.trim(),
+                    proxy: provider.options.proxy.trim(),
+                    timeoutMs: parseProviderTimeoutMs(provider.options.timeoutMs),
+                    requestOptions: parseProviderRequestOptions(provider.options.requestOptions),
+                },
+                models: provider.models.map((model) => ({
+                    name: model.name.trim(),
+                    id: model.id.trim(),
+                    group: model.group.trim() || null,
+                    enabled: model.enabled,
+                    contextWindowTokens: parseContextWindowTokens(model.contextWindowTokens),
+                })),
+            })),
+        },
+    };
+}
+
+/**
  * 读取模型设定。
  */
 async function loadSettings(): Promise<void> {
@@ -355,8 +422,9 @@ async function loadSettings(): Promise<void> {
     successText.value = "";
 
     try {
-        const settings = await $fetch<ModelSettingsDto>("/api/settings/models");
-        applySettings(settings);
+        const snapshot = await configApi.editorSnapshot();
+        editorSnapshot.value = snapshot;
+        applySettings(snapshot.modelSettings);
     } catch (error) {
         errorText.value = error instanceof Error ? error.message : "读取模型设定失败";
     } finally {
@@ -524,6 +592,9 @@ function addProvider(): void {
             proxy: "",
             timeoutMs: "",
             requestOptions: "",
+            apiKeyConfigured: false,
+            apiKeyMaskedValue: null,
+            apiKeyCleared: false,
         },
         models: [],
     });
@@ -545,12 +616,10 @@ async function saveSettings(): Promise<void> {
     successText.value = "";
 
     try {
-        const settings = await $fetch<ModelSettingsDto>("/api/settings/models", {
-            method: "PUT",
-            body: buildSavePayload(),
-        });
-        applySettings(settings);
-        successText.value = "模型设定已写入 config.yaml，后续新发起的请求会使用新的默认模型。";
+        const snapshot = await configApi.saveGlobal(buildGlobalConfigPayload());
+        editorSnapshot.value = snapshot;
+        applySettings(snapshot.modelSettings);
+        successText.value = "模型设定已写入 Global Config，后续新发起的请求会使用新的默认模型。";
     } catch (error) {
         errorText.value = error instanceof Error ? error.message : "保存模型设定失败";
     } finally {
@@ -634,7 +703,7 @@ function renameActiveProviderId(nextProviderId: string): void {
 /**
  * 读取当前 Provider 草稿请求体。
  */
-function buildProviderRequest(provider: ProviderDraft) {
+function buildProviderRequest(provider: ProviderDraft): {provider: ModelProviderDraftDto} {
     return {
         provider: {
             id: provider.id.trim(),
@@ -664,7 +733,7 @@ async function checkProvider(): Promise<void> {
     setProviderStatus(provider.id, true, "");
 
     try {
-        const result = await $fetch<CheckProviderResponseDto>("/api/settings/models/provider-check", {
+        const result = await $fetch<CheckProviderResponseDto>("/api/config/models/provider-check", {
             method: "POST",
             body: buildProviderRequest(provider),
         });
@@ -689,7 +758,7 @@ async function discoverModels(): Promise<void> {
     setProviderStatus(provider.id, true, "");
 
     try {
-        const result = await $fetch<DiscoverProviderModelsResponseDto>("/api/settings/models/provider-discover", {
+        const result = await $fetch<DiscoverProviderModelsResponseDto>("/api/config/models/provider-discover", {
             method: "POST",
             body: buildProviderRequest(provider),
         });
@@ -804,7 +873,7 @@ async function checkModel(model: ModelDraft): Promise<void> {
     setModelStatus(modelKey, true, "");
 
     try {
-        const result = await $fetch<CheckModelResponseDto>("/api/settings/models/model-check", {
+        const result = await $fetch<CheckModelResponseDto>("/api/config/models/model-check", {
             method: "POST",
             body: {
                 provider: buildProviderRequest(provider).provider,
@@ -936,7 +1005,7 @@ onMounted(() => {
         <div class="flex flex-wrap items-center justify-between gap-4">
             <div class="max-w-xl">
                 <h3 class="text-base font-semibold text-[var(--text-main)]">模型连接设置</h3>
-                <p class="mt-1 text-xs text-[var(--text-secondary)]">配置 Provider、API 凭证与模型白名单，这会直接修改底层的 config.yaml。</p>
+                <p class="mt-1 text-xs text-[var(--text-secondary)]">配置 Provider、API 凭证与模型白名单，这会写入 Workspace Root .nbook/config.json。</p>
             </div>
             
             <button
@@ -1117,8 +1186,11 @@ onMounted(() => {
                                     <FormInput v-model="activeProvider.options.baseURL" placeholder="可留空，使用 adapter 默认地址" />
                                 </div>
                                 <div class="group space-y-1.5 md:col-span-2">
-                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">API Key</label>
-                                    <FormInput v-model="activeProvider.options.apiKey" placeholder="sk-..." type="password" />
+                                    <div class="flex items-center justify-between gap-3">
+                                        <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">API Key</label>
+                                        <button v-if="activeProvider.options.apiKeyConfigured" type="button" class="text-[11px] text-rose-500 transition-colors hover:text-rose-600" @click="clearActiveProviderApiKey">清空密钥</button>
+                                    </div>
+                                    <FormInput v-model="activeProvider.options.apiKey" :placeholder="activeProvider.options.apiKeyConfigured ? `已配置 ${activeProvider.options.apiKeyMaskedValue ?? ''}；留空则保留` : 'sk-...'" type="password" />
                                 </div>
                                 <div class="group space-y-1.5 md:col-span-2">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">代理</label>
