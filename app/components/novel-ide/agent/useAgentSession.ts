@@ -1,6 +1,7 @@
 import type {AgentSessionEventDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
 import {
     applyPiEventToMessages,
+    applySessionEntryToMessages,
     deriveMessagesFromSessionSnapshot,
     reconcileMessages,
     toPendingUserInputSession,
@@ -29,6 +30,10 @@ export function useAgentSession() {
         pendingUserInputSession.value = null;
         lastSeq.value = 0;
         needsSnapshot.value = false;
+    };
+
+    const clearPendingUserInputSession = (): void => {
+        pendingUserInputSession.value = null;
     };
 
     /**
@@ -100,6 +105,11 @@ export function useAgentSession() {
             return;
         }
 
+        if (payload.event.type === "session_entry") {
+            messages.value = applySessionEntryToMessages(messages.value, payload.event.entry);
+            return;
+        }
+
         if (payload.event.type === "session_state_changed" && payload.event.snapshot) {
             applySnapshot(payload.event.snapshot);
             return;
@@ -123,6 +133,7 @@ export function useAgentSession() {
         appendOptimisticUserMessage,
         applyEvent,
         applySnapshot,
+        clearPendingUserInputSession,
         lastSeq,
         messages,
         needsSnapshot,

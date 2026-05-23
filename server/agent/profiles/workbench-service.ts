@@ -11,9 +11,11 @@ import type {
     AgentProfileFileItemDto,
     AgentProfileIssueDto,
     AgentProfileSaveRequestDto,
+    AgentProfileSourceDraftRequestDto,
     AgentProfileSourceRequestDto,
     AgentProfileTemplateItemDto,
 } from "nbook/shared/dto/agent-profile.dto";
+import type {ProfileTemplateDetailDto} from "nbook/shared/dto/profile-template.dto";
 
 const USER_PROFILE_ROOT = resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles");
 const TEMPLATE_ROOT = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profile-templates");
@@ -41,36 +43,42 @@ export async function listProfileTemplates(roots: WorkbenchRoots = {}): Promise<
 }
 
 /**
- * 列出用户 profile root 下的源码文件，包含坏文件。
+ * 列出用户 profile root 下的源码文件，包含坏文件。这里不加载 runtime catalog，
+ * 避免打开 Workbench 时触发 TSX profile 编译。
  */
-export async function listProfileFiles(profiles: AgentProfileCatalog, roots: WorkbenchRoots = {}): Promise<AgentProfileFileItemDto[]> {
+export async function listProfileFiles(roots: WorkbenchRoots = {}): Promise<AgentProfileFileItemDto[]> {
     const userProfileRoot = roots.userProfileRoot ?? USER_PROFILE_ROOT;
-    const [files, snapshot] = await Promise.all([
-        findProfileFiles(userProfileRoot),
-        profiles.snapshot(),
-    ]);
+    const files = await findProfileFiles(userProfileRoot);
     const items: AgentProfileFileItemDto[] = [];
     for (const fileName of files) {
-        const sourcePath = join(userProfileRoot, fileName);
-        const loaded = snapshot.profiles.find((profile) => profile.sourcePath === sourcePath);
-        const issues = snapshot.issues
-            .filter((issue) => issue.sourcePath === sourcePath)
-            .map((issue) => ({
-                severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" ? "warning" as const : "error" as const,
-                message: issue.message,
-                code: issue.code,
-                profileKey: issue.profileKey,
-                fileName,
-            }));
+        const source = await readFile(join(userProfileRoot, fileName), "utf8").catch(() => "");
+        const manifest = readManifestSummary(source);
         items.push({
             fileName,
-            profileKey: loaded?.key ?? issues.find((issue) => issue.profileKey)?.profileKey ?? null,
-            name: loaded?.name ?? fileName,
-            loadStatus: loaded?.loadStatus ?? "error",
-            issues,
+            profileKey: manifest?.key ?? null,
+            name: manifest?.name ?? fileName,
+            loadStatus: manifest ? "loaded" : "missing",
+            issues: [],
         });
     }
     return items.sort((left, right) => left.fileName.localeCompare(right.fileName));
+}
+
+/**
+ * 轻量读取 profile 源码草稿。只解析 TSX DSL tree，不加载 runtime catalog。
+ */
+export async function readProfileSourceDraft(request: AgentProfileSourceDraftRequestDto, roots: WorkbenchRoots = {}): Promise<ProfileTemplateDetailDto> {
+    const userProfileRoot = roots.userProfileRoot ?? USER_PROFILE_ROOT;
+    const filePath = resolveUserProfilePath(request.fileName, userProfileRoot);
+    if (!existsSync(filePath)) {
+        throw createError({
+            statusCode: 404,
+            statusMessage: "profile_file_missing",
+            message: `未找到 profile 文件：${request.fileName}`,
+        });
+    }
+    const source = request.source ?? await readFile(filePath, "utf8");
+    return buildProfileSourceDraft(request.fileName, source);
 }
 
 /**
@@ -107,7 +115,7 @@ export async function readProfileSource(profiles: AgentProfileCatalog, request: 
         const issueDtos: AgentProfileIssueDto[] = snapshot?.issues
             .filter((issue) => issue.sourcePath === filePath)
             .map((issue) => ({
-                severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" ? "warning" as const : "error" as const,
+                severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" ? "warning" as const : "error" as const,
                 message: issue.message,
                 code: issue.code,
                 profileKey: issue.profileKey,
@@ -173,6 +181,17 @@ export async function saveProfileSource(profiles: AgentProfileCatalog, request: 
 }
 
 /**
+ * 保存用户 profile 源码并返回轻量草稿解析结果。
+ */
+export async function saveProfileSourceDraft(request: AgentProfileSaveRequestDto, roots: WorkbenchRoots = {}): Promise<ProfileTemplateDetailDto> {
+    const userProfileRoot = roots.userProfileRoot ?? USER_PROFILE_ROOT;
+    const filePath = resolveUserProfilePath(request.fileName, userProfileRoot);
+    await mkdir(dirname(filePath), {recursive: true});
+    await writeFile(filePath, request.source, "utf8");
+    return buildProfileSourceDraft(request.fileName, request.source);
+}
+
+/**
  * 从模板创建用户 profile。
  */
 export async function createProfileSource(profiles: AgentProfileCatalog, request: AgentProfileCreateRequestDto, roots: WorkbenchRoots = {}): Promise<AgentProfileDetailDto> {
@@ -200,6 +219,28 @@ export async function createProfileSource(profiles: AgentProfileCatalog, request
     await mkdir(dirname(filePath), {recursive: true});
     await writeFile(filePath, source, "utf8");
     return readProfileSource(profiles, {fileName}, roots);
+}
+
+/**
+ * 从模板创建用户 profile，并返回轻量草稿解析结果。
+ */
+export async function createProfileSourceDraft(request: AgentProfileCreateRequestDto, roots: WorkbenchRoots = {}): Promise<ProfileTemplateDetailDto> {
+    const userProfileRoot = roots.userProfileRoot ?? USER_PROFILE_ROOT;
+    const templateRoot = roots.templateRoot ?? TEMPLATE_ROOT;
+    const fileName = request.fileName ?? `${request.profileKey}.profile.tsx`;
+    const filePath = resolveUserProfilePath(fileName, userProfileRoot);
+    if (existsSync(filePath)) {
+        throw createError({
+            statusCode: 409,
+            statusMessage: "fileName_conflict",
+            message: `profile 文件已存在：${fileName}`,
+        });
+    }
+    const template = await readFile(resolveTemplatePath(`${request.templateName}.profile-template.tsx`, templateRoot), "utf8");
+    const source = renderTemplate(template, request);
+    await mkdir(dirname(filePath), {recursive: true});
+    await writeFile(filePath, source, "utf8");
+    return buildProfileSourceDraft(fileName, source);
 }
 
 /**
@@ -252,6 +293,33 @@ function resolveUserProfilePath(fileName: string, userProfileRoot: string): stri
 }
 
 /**
+ * 将源码构造成旧三栏 UI 可消费的轻量 detail。
+ */
+function buildProfileSourceDraft(fileName: string, source: string): ProfileTemplateDetailDto {
+    const manifest = readManifestSummary(source);
+    return {
+        name: manifest?.key ?? fileName,
+        fileName,
+        source,
+        root: buildSystemPromptRoot(source),
+        issues: [],
+        variables: [],
+    };
+}
+
+/**
+ * 从常见 profileManifest 字面量中读取展示信息。失败时返回 null，不做 TSX 编译。
+ */
+function readManifestSummary(source: string): {key: string; name: string} | null {
+    const key = source.match(/\bkey\s*:\s*["']([^"']+)["']/)?.[1]?.trim();
+    const name = source.match(/\bname\s*:\s*["']([^"']+)["']/)?.[1]?.trim();
+    if (!key || !name) {
+        return null;
+    }
+    return {key, name};
+}
+
+/**
  * 解析模板路径，只允许系统模板目录下的模板文件。
  */
 function resolveTemplatePath(fileName: string, templateRoot: string): string {
@@ -269,7 +337,7 @@ function resolveTemplatePath(fileName: string, templateRoot: string): string {
 /**
  * 扫描用户 profile 文件。
  */
-async function findProfileFiles(root: string): Promise<string[]> {
+async function findProfileFiles(root: string, prefix = ""): Promise<string[]> {
     if (!existsSync(root)) {
         return [];
     }
@@ -278,13 +346,12 @@ async function findProfileFiles(root: string): Promise<string[]> {
     for (const entry of entries) {
         const fullPath = join(root, entry.name);
         if (entry.isDirectory()) {
-            const children = await findProfileFiles(fullPath);
-            result.push(...children.map((child) => `${entry.name}/${child}`));
+            result.push(...await findProfileFiles(fullPath, prefix ? `${prefix}/${entry.name}` : entry.name));
             continue;
         }
         if (entry.isFile() && /\.profile\.(tsx|ts|mjs|js)$/.test(entry.name)) {
             await stat(fullPath);
-            result.push(entry.name);
+            result.push(prefix ? `${prefix}/${entry.name}` : entry.name);
         }
     }
     return result;

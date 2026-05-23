@@ -1,14 +1,16 @@
 import {randomUUID} from "node:crypto";
-import {resolve} from "node:path";
+import {join, resolve} from "node:path";
 import type {AgentEvent, AgentToolResult} from "@earendil-works/pi-agent-core";
 import {streamSimple, validateToolArguments} from "@earendil-works/pi-ai";
 import type {AgentMessage, AgentToolCall, AgentUserMessageInput, AssistantMessage, JsonValue, Message, Model, ToolResultMessage} from "nbook/server/agent/messages/types";
 import {createTextToolResult, createToolResultFromResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
-import type {AgentProfile, PreparedTurn, ProfileIngestResult} from "nbook/server/agent/profiles/types";
+import type {AgentProfile, ProfileIngestResult, ProfileTurnPlan} from "nbook/server/agent/profiles/types";
+import {compileProfileSystemPrompt, profileStateKey, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
-import type {ModelChangeEntry, SessionEntry, SessionEntryId, SessionSnapshot} from "nbook/server/agent/session/types";
+import {AGENT_PLAN_MODE_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
+import type {ModelChangeEntry, NeuroSessionContext, SessionEntry, SessionEntryDraft, SessionEntryId, SessionSnapshot} from "nbook/server/agent/session/types";
 import {SkillCatalog} from "nbook/server/agent/skills/skill-catalog";
 import {findPendingApprovalCall, resolutionToToolResult} from "nbook/server/agent/tools/approval";
 import {createBuiltinTools, createReportResultTool} from "nbook/server/agent/tools/builtin-tools";
@@ -16,7 +18,6 @@ import {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import type {AgentResolution, NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {appendCompaction, compactIfNeeded} from "nbook/server/agent/harness/compaction";
 import {resolvePiApiKeyFromConfig, resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
-import {loadEffectiveConfigForWorkspaceRoot} from "nbook/server/config/config-service";
 import type {EffectiveConfig} from "nbook/server/config/types";
 import type {
     AgentAbortResult,
@@ -126,6 +127,27 @@ export class NeuroAgentHarness {
     }
 
     /**
+     * 读取 session 当前 active path 的 reduce 结果，供工具读取 profile/session custom state。
+     */
+    async readSessionContext(sessionId: number, workspaceKey?: string): Promise<NeuroSessionContext> {
+        return this.repo.reduce(await this.repo.readSession(sessionId, workspaceKey));
+    }
+
+    /**
+     * 追加 session custom entry。工具写状态必须走这里，确保 SSE 与 session snapshot 同步。
+     */
+    async appendCustomState(sessionId: number, key: string, value: JsonValue, workspaceKey?: string, invocationId?: string): Promise<SessionEntry> {
+        const entry = await this.repo.appendEntry(sessionId, {
+            type: "custom",
+            key,
+            value,
+        }, workspaceKey);
+        this.publishSessionEntry(sessionId, invocationId, entry);
+        await this.publishSessionState(sessionId, invocationId);
+        return entry;
+    }
+
+    /**
      * 调用 agent。prompt 会写入用户消息；continue 只从当前 session 尾部继续。
      */
     async invokeAgent(input: InvokeAgentInput): Promise<InvokeAgentResult> {
@@ -185,21 +207,23 @@ export class NeuroAgentHarness {
                 await this.appendResolution(snapshot, pendingResolution);
                 snapshot = await this.repo.readSession(input.sessionId);
             }
-            const prepared = await this.prepare(snapshot);
+            const prepared = await this.prepare(snapshot, invocationId, pendingUserMessage ?? undefined);
             snapshot = await this.repo.readSession(input.sessionId);
             if (pendingUserMessage) {
-                const entry = await this.repo.appendMessage(input.sessionId, pendingUserMessage, snapshot.metadata.workspaceKey);
+                const entry = await this.repo.appendMessage(input.sessionId, pendingUserMessage, snapshot.metadata.workspaceKey, "prompt");
                 this.publishSessionEntry(input.sessionId, invocationId, entry);
                 snapshot = await this.repo.readSession(input.sessionId);
             }
             let context = this.repo.reduce(snapshot);
-            const config = await loadEffectiveConfigForWorkspaceRoot(context.workspaceRoot);
+            const config = await loadEffectiveConfig(context.workspaceRoot);
             const model = context.model ?? this.modelResolver(config, context.profileKey);
             const apiKey = resolvePiApiKeyFromConfig(config, model.provider);
+            const runProfile = await this.profiles.get(context.profileKey);
+            const toolKeys = [...runProfile.allowedToolKeys];
             await compactIfNeeded({
                 repo: this.repo,
                 snapshot,
-                messages: [...context.messages, ...(prepared.dynamicMessages ?? [])],
+                messages: [...context.messages, ...(prepared.modelContextMessages ?? [])],
                 model,
                 apiKey,
                 thinkingLevel: context.thinkingLevel,
@@ -214,11 +238,11 @@ export class NeuroAgentHarness {
                 systemPrompt: prepared.systemPrompt ?? context.systemPrompt,
                 messages: [
                     ...context.messages,
-                    ...(prepared.dynamicMessages ?? []),
+                    ...(prepared.modelContextMessages ?? []),
                 ],
                 model,
                 apiKey,
-                toolKeys: prepared.toolKeys ?? [],
+                toolKeys,
                 profileKey: context.profileKey,
                 thinkingLevel: context.thinkingLevel,
                 abortSignal: abortController.signal,
@@ -231,6 +255,7 @@ export class NeuroAgentHarness {
                 snapshot,
                 context,
                 prepared,
+                toolKeys,
                 model,
                 apiKey,
                 result,
@@ -272,11 +297,24 @@ export class NeuroAgentHarness {
         snapshot: SessionSnapshot;
         context: ReturnType<JsonlSessionRepository["reduce"]>;
         prepared: Awaited<ReturnType<NeuroAgentHarness["prepare"]>>;
+        toolKeys: string[];
         model: Model<any>;
         apiKey?: string;
         result: Awaited<ReturnType<NeuroAgentHarness["runLoop"]>>;
     }): Promise<InvokeAgentResult> {
-        const {input: invokeInput, invocationId, snapshot, context, prepared, model, apiKey, result} = input;
+        const {input: invokeInput, invocationId, snapshot, context, prepared, toolKeys, model, apiKey, result} = input;
+        if (result.finalAssistant?.stopReason === "error" || result.finalAssistant?.stopReason === "aborted") {
+            return {
+                sessionId: invokeInput.sessionId,
+                invocationId,
+                status: "error",
+                error: result.finalAssistant.errorMessage || (result.finalAssistant.stopReason === "aborted" ? "生成已中断。" : "生成失败，provider 未返回错误详情。"),
+                finalMessage: messageText(result.finalAssistant),
+                usage: result.finalAssistant.usage,
+                events: result.events,
+            };
+        }
+
         if (result.waiting) {
             const active = this.activeInvocations.get(invokeInput.sessionId);
             if (active) {
@@ -293,14 +331,14 @@ export class NeuroAgentHarness {
             };
         }
 
-        if (!result.reportResult && (prepared.toolKeys ?? []).includes("report_result")) {
+        if (!result.reportResult && toolKeys.includes("report_result")) {
             return this.remindReportResult(invokeInput, invocationId, result.events, result.finalAssistant, {
                 workspaceKey: snapshot.metadata.workspaceKey,
                 workspaceRoot: context.workspaceRoot,
                 systemPrompt: prepared.systemPrompt ?? context.systemPrompt,
                 model,
                 apiKey,
-                toolKeys: prepared.toolKeys ?? [],
+                toolKeys,
                 profileKey: context.profileKey,
                 thinkingLevel: context.thinkingLevel,
             });
@@ -395,6 +433,7 @@ export class NeuroAgentHarness {
                 detached: linked.detached,
             });
         }
+        const systemPrompt = await this.snapshotSystemPrompt(snapshot, context);
 
         return {
             summary: {
@@ -402,6 +441,7 @@ export class NeuroAgentHarness {
                 status: this.resolveSessionStatus(sessionId, context.archived),
             },
             activeLeafId: snapshot.leafId,
+            ...systemPrompt ? {systemPrompt} : {},
             messages: context.messages,
             tree: this.repo.tree(snapshot),
             entries: this.repo.activePath(snapshot),
@@ -420,6 +460,28 @@ export class NeuroAgentHarness {
             lastSeq: this.eventHub.lastSeq,
             usage: [...context.messages].reverse().find((message) => message.role === "assistant")?.usage,
         };
+    }
+
+    /**
+     * 解析当前 profile 的 provider system prompt，供前端只读展示。
+     */
+    private async snapshotSystemPrompt(snapshot: SessionSnapshot, context: NeuroSessionContext): Promise<string | undefined> {
+        const profile = await this.profiles.get(context.profileKey);
+        const input = this.profiles.parseInput(profile, snapshot.metadata.input);
+        const prepareContext = {
+            session: context,
+            input: input as never,
+            catalog: await this.profiles.snapshot(),
+            skills: await this.skills.list(),
+            runtime: {
+                now: new Date().toISOString(),
+                promptUserTurnCount: this.countPromptUserTurns(snapshot),
+            },
+        };
+        if (profile.context) {
+            return compileProfileSystemPrompt(profile, prepareContext, await profile.context(prepareContext));
+        }
+        return undefined;
     }
 
     /**
@@ -488,7 +550,7 @@ export class NeuroAgentHarness {
             };
         }
         if (body.command === "model") {
-            const config = await loadEffectiveConfigForWorkspaceRoot(snapshot.metadata.workspaceRoot);
+            const config = await loadEffectiveConfig(snapshot.metadata.workspaceRoot);
             const entry: Omit<ModelChangeEntry, "id" | "parentId" | "timestamp"> = {
                 type: "model_change",
                 model: body.modelKey ? this.modelResolver(config, snapshot.metadata.profileKey, {modelKey: body.modelKey}) : null,
@@ -639,42 +701,67 @@ export class NeuroAgentHarness {
         };
     }
 
-    private async prepare(snapshot: SessionSnapshot): Promise<PreparedTurn> {
+    private async prepare(snapshot: SessionSnapshot, invocationId?: string, pendingUserMessage?: Message): Promise<ProfileTurnPlan> {
         const profile = await this.profiles.get(snapshot.metadata.profileKey);
         const context = this.repo.reduce(snapshot);
         const parsedInput = this.profiles.parseInput(profile, snapshot.metadata.input);
-        const prepared = await profile.prepare({
+        const prepared = await profile.prepare!({
             session: context,
             input: parsedInput as never,
             catalog: await this.profiles.snapshot(),
+            skills: await this.skills.list(),
+            runtime: {
+                now: new Date().toISOString(),
+                promptUserTurnCount: this.countPromptUserTurns(snapshot),
+                pendingUserMessage,
+            },
         });
-        const toolKeys = prepared.toolKeys ?? [...profile.allowedToolKeys];
+        validateProfileTurnPlan(profile.manifest.key, prepared);
 
-        if (prepared.historyMessages?.length && !context.customState["profile.history.injected"]) {
-            for (const message of prepared.historyMessages) {
-                const entry = await this.repo.appendMessage(snapshot.metadata.sessionId, message, snapshot.metadata.workspaceKey);
-                this.publishSessionEntry(snapshot.metadata.sessionId, undefined, entry);
+        const appendingMessages = [
+            ...prepared.modelContextAppendingMessages ?? [],
+            ...prepared.appendingMessages ?? [],
+        ];
+        if (prepared.historyInitMessages?.length && context.messages.length === 0) {
+            for (const message of prepared.historyInitMessages) {
+                const entry = await this.repo.appendEntry(snapshot.metadata.sessionId, {
+                    type: "custom_message",
+                    message,
+                    visibleToModel: true,
+                }, snapshot.metadata.workspaceKey);
+                this.publishSessionEntry(snapshot.metadata.sessionId, invocationId, entry);
             }
+        }
+        for (const message of appendingMessages) {
             const entry = await this.repo.appendEntry(snapshot.metadata.sessionId, {
-                type: "custom",
-                key: "profile.history.injected",
-                value: true,
+                type: "custom_message",
+                message,
+                visibleToModel: true,
             }, snapshot.metadata.workspaceKey);
-            this.publishSessionEntry(snapshot.metadata.sessionId, undefined, entry);
+            this.publishSessionEntry(snapshot.metadata.sessionId, invocationId, entry);
         }
-        for (const message of prepared.appendingMessages ?? []) {
-            const entry = await this.repo.appendMessage(snapshot.metadata.sessionId, message, snapshot.metadata.workspaceKey);
-            this.publishSessionEntry(snapshot.metadata.sessionId, undefined, entry);
-        }
-        for (const write of prepared.sessionWrites ?? []) {
+        for (const write of prepared.stateWrites ?? []) {
+            this.assertValidProfileStateWrite(profile.manifest.key, write);
             const entry = await this.repo.appendEntry(snapshot.metadata.sessionId, write, snapshot.metadata.workspaceKey);
-            this.publishSessionEntry(snapshot.metadata.sessionId, undefined, entry);
+            this.publishSessionEntry(snapshot.metadata.sessionId, invocationId, entry);
+        }
+        if ((prepared.historyInitMessages?.length && context.messages.length === 0) || appendingMessages.length || prepared.stateWrites?.length) {
+            await this.publishSessionState(snapshot.metadata.sessionId, invocationId);
         }
 
-        return {
-            ...prepared,
-            toolKeys,
-        };
+        return prepared;
+    }
+
+    private assertValidProfileStateWrite(profileKey: string, write: SessionEntryDraft): void {
+        if (write.type !== "custom" || write.key !== profileStateKey(profileKey)) {
+            throw new Error(`profile ${profileKey} stateWrites 只允许写 ${profileStateKey(profileKey)} custom entry。`);
+        }
+    }
+
+    private countPromptUserTurns(snapshot: SessionSnapshot): number {
+        return this.repo.activePath(snapshot).filter((entry) => {
+            return entry.type === "message" && entry.origin === "prompt" && entry.message.role === "user";
+        }).length;
     }
 
     private async applyIngest(sessionId: number): Promise<string | null> {
@@ -690,10 +777,11 @@ export class NeuroAgentHarness {
                 session: context,
                 input: parsedInput as never,
                 catalog: await this.profiles.snapshot(),
+                skills: await this.skills.list(),
             });
             this.assertValidIngest(profile, ingest);
             for (const message of ingest.messageWrites ?? []) {
-                const entry = await this.repo.appendMessage(sessionId, message, snapshot.metadata.workspaceKey);
+                const entry = await this.repo.appendMessage(sessionId, message, snapshot.metadata.workspaceKey, "ingest");
                 this.publishSessionEntry(sessionId, undefined, entry);
             }
             if (ingest.sessionUpdates?.title || ingest.sessionUpdates?.summary) {
@@ -739,8 +827,42 @@ export class NeuroAgentHarness {
         if (!pending) {
             throw new Error("当前 session 没有等待中的审批 tool call");
         }
-        const entry = await this.repo.appendMessage(snapshot.metadata.sessionId, resolutionToToolResult(resolution, pending), snapshot.metadata.workspaceKey);
+        const entry = await this.repo.appendMessage(snapshot.metadata.sessionId, resolutionToToolResult(resolution, pending), snapshot.metadata.workspaceKey, "harness");
         this.publishSessionEntry(snapshot.metadata.sessionId, undefined, entry);
+        if (resolution.kind === "tool_approval" && (pending.toolName === "enter_plan_mode" || pending.toolName === "exit_plan_mode")) {
+            await this.appendPlanModeResolution(snapshot, context, pending, resolution.approved);
+        }
+    }
+
+    private async appendPlanModeResolution(
+        snapshot: SessionSnapshot,
+        context: NeuroSessionContext,
+        pending: {toolName: string; args: Record<string, unknown>},
+        approved: boolean,
+    ): Promise<void> {
+        const active = pending.toolName === "enter_plan_mode"
+            ? approved
+            : approved ? false : context.planModeActive;
+        const previous = context.customState[AGENT_PLAN_MODE_STATE_KEY];
+        const previousRecord = previous && typeof previous === "object" && !Array.isArray(previous)
+            ? previous as Record<string, JsonValue>
+            : {};
+        const hasExited = Boolean(previousRecord.hasExited) || (pending.toolName === "exit_plan_mode" && approved);
+        const reminderKind = pending.toolName === "enter_plan_mode" && approved
+            ? previousRecord.hasExited ? "reentry_full" : "full"
+            : pending.toolName === "exit_plan_mode" && approved ? "exit" : "sparse";
+        const reason = typeof pending.args.reason === "string" ? pending.args.reason : undefined;
+        await this.appendCustomState(snapshot.metadata.sessionId, "ui.planMode.active", active, snapshot.metadata.workspaceKey);
+        await this.appendCustomState(snapshot.metadata.sessionId, AGENT_PLAN_MODE_STATE_KEY, {
+            active,
+            reminderKind,
+            workDirectory: join(context.workspaceRoot, ".agent", String(snapshot.metadata.sessionId)),
+            lastTransition: pending.toolName,
+            approved,
+            hasExited,
+            updatedAt: new Date().toISOString(),
+            ...(reason ? {reason} : {}),
+        }, snapshot.metadata.workspaceKey);
     }
 
     private async runLoop(input: {
@@ -1063,7 +1185,7 @@ export class NeuroAgentHarness {
         if (event.type === "message_end") {
             const message = event.message;
             if (message.role === "user" || message.role === "assistant" || message.role === "toolResult") {
-                const entry = await this.repo.appendMessage(sessionId, message, workspaceKey);
+                const entry = await this.repo.appendMessage(sessionId, message, workspaceKey, "harness");
                 this.publishSessionEntry(sessionId, undefined, entry);
             }
         }
@@ -1206,7 +1328,7 @@ export class NeuroAgentHarness {
         try {
             const snapshot = await this.repo.readSession(sessionId);
             const context = this.repo.reduce(snapshot);
-            const config = await loadEffectiveConfigForWorkspaceRoot(context.workspaceRoot);
+            const config = await loadEffectiveConfig(context.workspaceRoot);
             const model = context.model ?? this.modelResolver(config, context.profileKey);
             await appendCompaction({
                 repo: this.repo,
@@ -1256,7 +1378,7 @@ export class NeuroAgentHarness {
         const reminder = createUserMessage({
             text: "你必须使用 report_result 工具返回最终结果。请不要只回复普通文本。",
         });
-        const reminderEntry = await this.repo.appendMessage(input.sessionId, reminder, runInput?.workspaceKey);
+        const reminderEntry = await this.repo.appendMessage(input.sessionId, reminder, runInput?.workspaceKey, "harness");
         this.publishSessionEntry(input.sessionId, invocationId, reminderEntry);
         if (runInput) {
             const snapshot = await this.repo.readSession(input.sessionId);
@@ -1367,4 +1489,9 @@ export class NeuroAgentHarness {
         };
     }
 
+}
+
+async function loadEffectiveConfig(workspaceRoot: string): Promise<EffectiveConfig> {
+    const {loadEffectiveConfigForWorkspaceRoot} = await import("nbook/server/config/config-service");
+    return loadEffectiveConfigForWorkspaceRoot(workspaceRoot);
 }

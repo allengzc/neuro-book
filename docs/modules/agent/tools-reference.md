@@ -73,7 +73,8 @@ The schema metadata (tool `description` and field-level `.describe()`) is part o
 - The UI presents the question with the provided options and waits for the user's answer.
 - On answer, the agent run resumes with the selected option as the tool result.
 - Options must be mutually exclusive; the recommended option should be listed first.
-- `allowNoneOfAbove` enables a "none of these" choice; `allowNote` enables a free-form note.
+- `defaultOptionIndex` / `defaultOptionIndexes` preselect option indexes when the prompt opens. Option-level `defaultSelected: true` is also accepted.
+- The UI always offers an additional free-form answer path for option questions, and an open text answer for questions without options.
 
 ## Tool Schema Authoring Spec
 

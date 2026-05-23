@@ -20,6 +20,7 @@ import type {
 } from "nbook/shared/dto/agent-profile.dto";
 import {reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
+import {buildProfilePromptRoot} from "nbook/server/agent/profiles/profile-dsl-source-parser";
 
 const SYSTEM_PROFILE_ROOT = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profiles");
 const USER_PROFILE_ROOT = resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles");
@@ -95,20 +96,46 @@ export async function previewAgentProfilePrepare(
     const input = harness.profiles.parseInput(profile, buildPreviewInput(request));
     const session = await buildPreviewSession(harness, request);
     const catalog = await harness.profiles.snapshot();
+    const skills = await harness.skills.list();
 
     try {
-        const prepared = await profile.prepare({
+        const prepared = await profile.prepare!({
             session,
             input,
             catalog,
+            skills,
+            runtime: {
+                now: new Date().toISOString(),
+                promptUserTurnCount: session.messages.filter((message) => message.role === "user").length,
+            },
         } as ProfilePrepareContext);
-        const historyMessages = prepared.historyMessages ?? [];
-        const appendingMessages = prepared.appendingMessages ?? [];
+        const historyMessages = prepared.historyInitMessages ?? [];
+        const modelContextAppendingMessages = prepared.modelContextAppendingMessages ?? [];
+        const explicitAppendingMessages = prepared.appendingMessages ?? [];
+        const appendingMessages = [
+            ...modelContextAppendingMessages,
+            ...explicitAppendingMessages,
+        ];
+        const modelContextMessages = prepared.modelContextMessages ?? [];
+        const historyMessagesForReact = session.messages.length === 0 ? historyMessages : [];
+        const finalMessages = [
+            ...session.messages,
+            ...historyMessagesForReact,
+            ...appendingMessages,
+            ...modelContextMessages,
+        ];
         const messages = [
             ...prepared.systemPrompt ? [systemPromptPreviewMessage(prepared.systemPrompt)] : [],
             ...historyMessages.map((message) => toPreviewMessage(message, "history")),
-            ...(prepared.dynamicMessages ?? []).map((message) => toPreviewMessage(message, "dynamic")),
-            ...appendingMessages.map((message) => toPreviewMessage(message, "appending")),
+            ...modelContextAppendingMessages.map((message) => toPreviewMessage(message, "modelContextAppending")),
+            ...explicitAppendingMessages.map((message) => toPreviewMessage(message, "appending")),
+            ...modelContextMessages.map((message) => toPreviewMessage(message, "modelContext")),
+            ...finalMessages.map((message) => toPreviewMessage(message, "reactMessages")),
+            ...(prepared.stateWrites ?? []).map((write) => ({
+                role: "custom",
+                text: JSON.stringify(write, null, 2),
+                source: "stateWrites",
+            })),
         ];
 
         return {
@@ -350,7 +377,7 @@ function resolveOverrideState(profile: AgentCatalogItem): AgentProfileCatalogIte
  */
 function toProfileIssueDto(issue: AgentProfileIssue, profileKey: string, fileName: string | null): AgentProfileIssueDto {
     return {
-        severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" ? "warning" : "error",
+        severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" ? "warning" : "error",
         message: issue.message,
         code: issue.code,
         profileKey: issue.profileKey ?? profileKey,
@@ -380,66 +407,8 @@ function cloneJsonObject(value: unknown): Record<string, JsonValue> | null {
 }
 
 /**
- * 为旧三栏 UI 提供一个源码优先的 System Prompt 可视化占位节点。
+ * 为旧三栏 UI 提供一个源码优先的 ProfilePrompt 可视化树。
  */
 export function buildSystemPromptRoot(source: string): ProfileTemplateNodeDto | null {
-    const range = systemPromptRange(source);
-    if (!range) {
-        return null;
-    }
-    return {
-        id: "root",
-        type: "ProfilePrompt",
-        props: {},
-        editable: false,
-        children: [{
-            id: "system-prompt",
-            type: "Message",
-            props: {
-                role: "system",
-                source: "systemPrompt",
-            },
-            text: range.text,
-            textKind: "text",
-            editable: true,
-            sourceRange: {
-                start: range.start,
-                end: range.end,
-            },
-            children: [],
-        }],
-    };
-}
-
-/**
- * 定位模板推荐的 systemPrompt 字符串或 renderSystemPrompt 模板字符串。
- */
-function systemPromptRange(source: string): {start: number; end: number; text: string} | null {
-    const constMatch = /const\s+systemPrompt\s*=\s*(['"`])([\s\S]*?)\1\s*;/.exec(source);
-    if (constMatch && constMatch.index >= 0) {
-        const text = constMatch[2];
-        if (text === undefined) {
-            return null;
-        }
-        const valueStart = constMatch.index + constMatch[0].indexOf(text);
-        return {
-            start: valueStart,
-            end: valueStart + text.length,
-            text,
-        };
-    }
-    const functionMatch = /function\s+renderSystemPrompt\s*\([^)]*\)\s*:\s*string\s*\{\s*return\s*`([\s\S]*?)`\.trim\(\)\s*;\s*\}/.exec(source);
-    if (!functionMatch || functionMatch.index < 0) {
-        return null;
-    }
-    const text = functionMatch[1];
-    if (text === undefined) {
-        return null;
-    }
-    const valueStart = functionMatch.index + functionMatch[0].indexOf(text);
-    return {
-        start: valueStart,
-        end: valueStart + text.length,
-        text,
-    };
+    return buildProfilePromptRoot(source);
 }

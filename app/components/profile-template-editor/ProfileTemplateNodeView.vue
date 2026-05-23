@@ -98,18 +98,22 @@ useDroppable({
 
 const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
     ProfilePrompt: "i-lucide-code-2",
+    System: "i-lucide-terminal-square",
     HistorySet: "i-lucide-archive",
-    DynamicSet: "i-lucide-panel-top",
+    ModelContext: "i-lucide-panel-top",
     AppendingSet: "i-lucide-panel-bottom",
     Text: "i-lucide-type",
     Message: "i-lucide-message-square",
     AIMessage: "i-lucide-sparkles",
     ToolCall: "i-lucide-wrench",
+    ToolResult: "i-lucide-check-circle",
     Reminder: "i-lucide-bell-ring",
     Watch: "i-lucide-eye",
     If: "i-lucide-git-branch",
+    AgentCatalog: "i-lucide-bot",
     SkillCatalog: "i-lucide-library",
     ActivatedSkills: "i-lucide-sparkles",
+    SqlSchemaSummary: "i-lucide-database",
 };
 
 /**
@@ -133,7 +137,7 @@ function nodeTitle(node: ProfileTemplateNodeDto): string {
  */
 function nodeMeta(node: ProfileTemplateNodeDto): string {
     if (node.type === "Message") {
-        return `role: ${String(node.props.role ?? "system")}`;
+        return `role: ${String(node.props.role ?? "user")}`;
     }
     if (node.type === "Text") {
         return node.textKind === "source" ? "source" : "text";
@@ -143,6 +147,9 @@ function nodeMeta(node: ProfileTemplateNodeDto): string {
     }
     if (node.type === "ToolCall") {
         return `tool: ${String(node.props.name ?? "tool")}`;
+    }
+    if (node.type === "ToolResult") {
+        return `tool: ${String(node.props.toolName ?? "tool")}`;
     }
     if (node.type === "Reminder") {
         return ["id", "watchPath", "watchValue", "repeatEveryTurns"]
@@ -180,7 +187,10 @@ function nodeSummary(node: ProfileTemplateNodeDto): string {
     if (node.type === "HistorySet") {
         return "长期记忆上下文，进长期历史。";
     }
-    if (node.type === "DynamicSet") {
+    if (node.type === "System") {
+        return "Provider systemPrompt，不写入 session。";
+    }
+    if (node.type === "ModelContext") {
         return "本轮临时上下文，仅用于模型。";
     }
     if (node.type === "AppendingSet") {
@@ -188,6 +198,12 @@ function nodeSummary(node: ProfileTemplateNodeDto): string {
     }
     if (node.type === "ActivatedSkills") {
         return String(node.props.text ?? "${activatedSkillsText}");
+    }
+    if (node.type === "AgentCatalog") {
+        return String(node.props.text ?? "${agentCatalogText}");
+    }
+    if (node.type === "SkillCatalog") {
+        return String(node.props.text ?? "${skillCatalogText}");
     }
     return "";
 }
@@ -275,7 +291,7 @@ function prepareDrag(): void {
                     :depth="props.depth + 1"
                     :index="childIndex"
                     :parent-id="props.node.id"
-                    :can-have-children="!['Text', 'ToolCall', 'SkillCatalog', 'ActivatedSkills'].includes(child.type)"
+                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'ActivatedSkills', 'SqlSchemaSummary'].includes(child.type)"
                     :disabled-drop-node-ids="props.disabledDropNodeIds"
                     @select="emit('select', $event)"
                     @prepare-drag="emit('prepareDrag', $event)"
@@ -442,15 +458,18 @@ function prepareDrag(): void {
 }
 
 .node-ProfilePrompt::before,
+.node-System::before,
 .node-HistorySet::before,
-.node-DynamicSet::before,
+.node-ModelContext::before,
 .node-AppendingSet::before,
 .node-Message::before,
 .node-AIMessage::before,
 .node-ToolCall::before,
+.node-ToolResult::before,
 .node-Reminder::before,
 .node-Watch::before,
 .node-If::before,
+.node-AgentCatalog::before,
 .node-ActivatedSkills::before,
 .node-SkillCatalog::before {
     background: var(--profile-node-accent);
@@ -464,7 +483,11 @@ function prepareDrag(): void {
     --profile-node-accent: #3f7f72;
 }
 
-.node-DynamicSet {
+.node-System {
+    --profile-node-accent: #5f70a5;
+}
+
+.node-ModelContext {
     --profile-node-accent: #47799a;
 }
 
@@ -484,6 +507,10 @@ function prepareDrag(): void {
     --profile-node-accent: #4f8c8f;
 }
 
+.node-ToolResult {
+    --profile-node-accent: #4b9272;
+}
+
 .node-Reminder {
     --profile-node-accent: #b65f5b;
 }
@@ -500,12 +527,16 @@ function prepareDrag(): void {
     --profile-node-accent: #8a639e;
 }
 
+.node-AgentCatalog {
+    --profile-node-accent: #4e7f9f;
+}
+
 .node-SkillCatalog {
     --profile-node-accent: #5f70a5;
 }
 
 .node-HistorySet,
-.node-DynamicSet,
+.node-ModelContext,
 .node-AppendingSet {
     padding: 10px;
 }

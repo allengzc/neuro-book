@@ -1,7 +1,7 @@
 import {spawn} from "node:child_process";
 import {existsSync} from "node:fs";
 import {mkdir, readFile, writeFile} from "node:fs/promises";
-import {dirname, join} from "node:path";
+import {dirname, join, win32} from "node:path";
 import {applyPatch, createPatch} from "diff";
 import {Type} from "typebox";
 import type {Static} from "typebox";
@@ -355,13 +355,33 @@ export function resolveBashPathForPlatform(input: {
     pathExists(path: string): boolean;
 }): string | undefined {
     return input.platform === "win32"
-        ? firstExistingPath([
-            input.env.GIT_BASH,
-            "C:\\Program Files\\Git\\bin\\bash.exe",
-            "C:\\Program Files\\Git\\usr\\bin\\bash.exe",
-            "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
-        ], input.pathExists) ?? firstCommandOnPath(["bash.exe", "bash"], input.env.PATH, input.platform, input.pathExists)
+        ? firstExistingPath(windowsBashCandidates(input.env), input.pathExists) ?? firstCommandOnPath(["bash.exe", "bash"], input.env.PATH, input.platform, input.pathExists)
         : firstExistingPath([input.env.BASH, "/bin/bash", "/usr/bin/bash"], input.pathExists) ?? firstCommandOnPath(["bash"], input.env.PATH, input.platform, input.pathExists);
+}
+
+function windowsBashCandidates(env: NodeJS.ProcessEnv): Array<string | undefined> {
+    const programFiles = env.ProgramFiles ?? "C:\\Program Files";
+    const programFilesX86 = env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)";
+    const localAppData = env.LOCALAPPDATA;
+    const userProfile = env.USERPROFILE;
+    const programData = env.ProgramData ?? "C:\\ProgramData";
+    const chocolateyInstall = env.ChocolateyInstall;
+
+    return [
+        env.GIT_BASH,
+        win32.join(programFiles, "Git", "bin", "bash.exe"),
+        win32.join(programFiles, "Git", "usr", "bin", "bash.exe"),
+        win32.join(programFilesX86, "Git", "bin", "bash.exe"),
+        win32.join(programFilesX86, "Git", "usr", "bin", "bash.exe"),
+        localAppData ? win32.join(localAppData, "Programs", "Git", "bin", "bash.exe") : undefined,
+        localAppData ? win32.join(localAppData, "Programs", "Git", "usr", "bin", "bash.exe") : undefined,
+        userProfile ? win32.join(userProfile, "scoop", "apps", "git", "current", "bin", "bash.exe") : undefined,
+        userProfile ? win32.join(userProfile, "scoop", "apps", "git", "current", "usr", "bin", "bash.exe") : undefined,
+        win32.join(programData, "scoop", "apps", "git", "current", "bin", "bash.exe"),
+        win32.join(programData, "scoop", "apps", "git", "current", "usr", "bin", "bash.exe"),
+        chocolateyInstall ? win32.join(chocolateyInstall, "lib", "git.install", "tools", "bin", "bash.exe") : undefined,
+        chocolateyInstall ? win32.join(chocolateyInstall, "lib", "git.install", "tools", "usr", "bin", "bash.exe") : undefined,
+    ];
 }
 
 /**
@@ -377,7 +397,7 @@ function firstExistingPath(candidates: Array<string | undefined>, pathExists: (p
 function firstCommandOnPath(commands: string[], pathValue: string | undefined, platform: NodeJS.Platform, pathExists: (path: string) => boolean): string | undefined {
     const pathEntries = (pathValue ?? "").split(platform === "win32" ? ";" : ":").filter(Boolean);
     return commands.find((command) => {
-        return pathEntries.some((entry) => pathExists(join(entry, command)));
+        return pathEntries.some((entry) => pathExists(platform === "win32" ? win32.join(entry, command) : join(entry, command)));
     });
 }
 

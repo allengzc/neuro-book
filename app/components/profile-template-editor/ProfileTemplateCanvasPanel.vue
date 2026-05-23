@@ -35,7 +35,7 @@ const emit = defineEmits<{
                     <div class="panel-title">ProfilePrompt（根节点）</div>
                     <span class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">{{ props.nodeCount }} 节点</span>
                 </div>
-                <div class="mt-1 text-[11px] text-[var(--text-muted)]">最多包含一个 HistorySet，多个 AppendingSet 会自动合并。</div>
+                <div class="mt-1 text-[11px] text-[var(--text-muted)]">System、HistorySet、ModelContext、AppendingSet 分别映射到 ProfileTurnPlan 分区。</div>
             </div>
             <div class="flex shrink-0 gap-2">
                 <button class="small-btn">折叠全部</button>

@@ -4,15 +4,32 @@ import {Value} from "typebox/value";
 import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
 import {createFileTools} from "nbook/server/agent/tools/file-tools";
+import {createPlotTools} from "nbook/server/agent/tools/plot-tools";
+import {createSqlTool} from "nbook/server/agent/tools/sql-tool";
+import {createTaskTools} from "nbook/server/agent/tools/task-tools";
 
 const ReportResultSchema = Type.Object({
     walkthrough: Type.String(),
 });
 
+const RequestUserInputQuestionOptionSchema = Type.Object({
+    label: Type.String({description: "User-facing option label, preferably 1-5 words."}),
+    description: Type.Optional(Type.String({description: "Optional short sentence explaining the impact or tradeoff of this option."})),
+    recommended: Type.Optional(Type.Boolean({description: "Whether this option is visually marked as recommended."})),
+    defaultSelected: Type.Optional(Type.Boolean({description: "Whether this option should be selected by default when the prompt opens."})),
+});
+
+const RequestUserInputQuestionSchema = Type.Object({
+    header: Type.Optional(Type.String({description: "Short header shown above this question."})),
+    question: Type.String({description: "Prompt shown to the user."}),
+    options: Type.Optional(Type.Array(RequestUserInputQuestionOptionSchema, {description: "Options for this question. Omit or pass an empty array for open-ended questions."})),
+    multiSelect: Type.Optional(Type.Boolean({description: "Whether the user may select multiple options. Ignored when options is empty."})),
+    defaultOptionIndex: Type.Optional(Type.Integer({minimum: -1, description: "Default selected option index for single-select questions. -1 selects the alternative answer option."})),
+    defaultOptionIndexes: Type.Optional(Type.Array(Type.Integer({minimum: -1}), {description: "Default selected option indexes for multi-select questions. -1 selects the alternative answer option."})),
+});
+
 const RequestUserInputSchema = Type.Object({
-    questions: Type.Array(Type.Object({
-        question: Type.String(),
-    })),
+    questions: Type.Array(RequestUserInputQuestionSchema, {minItems: 1, description: "Questions to ask in one user-input request."}),
 });
 
 const PlanModeSchema = Type.Object({
@@ -55,6 +72,9 @@ const DetachAgentSchema = Type.Object({
 export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[] {
     return [
         ...createFileTools(),
+        ...createTaskTools(),
+        ...createPlotTools(),
+        createSqlTool(),
         {
             key: "report_result",
             name: "report_result",

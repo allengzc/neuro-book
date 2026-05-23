@@ -2,6 +2,7 @@ import {z} from "zod";
 import type {AgentEvent} from "@earendil-works/pi-agent-core";
 import type {AgentMessage as PiAgentMessage, AgentToolCall as PiAgentToolCall, Message as PiMessage, ToolResultMessage} from "nbook/server/agent/messages/types";
 import type {AgentSessionSnapshotDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
+import type {SessionEntry} from "nbook/server/agent/session/types";
 import {toStableArgsJson} from "nbook/app/components/novel-ide/agent/tool-args-stream";
 
 /**
@@ -61,12 +62,15 @@ export type AgentMessage = {
     model?: string;
     tokens?: number;
     thinking?: string;
+    /** assistant 生成失败时的 provider/runtime 错误文本。 */
+    error?: string;
 };
 
 export const AgentUserInputQuestionOptionSchema = z.object({
     label: z.string(),
     description: z.string().optional(),
     recommended: z.boolean().optional(),
+    defaultSelected: z.boolean().optional(),
 });
 
 export const AgentUserInputQuestionSchema = z.object({
@@ -74,6 +78,8 @@ export const AgentUserInputQuestionSchema = z.object({
     question: z.string(),
     options: z.array(AgentUserInputQuestionOptionSchema).default([]),
     multiSelect: z.boolean().default(false),
+    defaultOptionIndex: z.number().int().min(-1).optional(),
+    defaultOptionIndexes: z.array(z.number().int().min(-1)).optional(),
 });
 
 export const RequestUserInputToolArgsSchema = z.object({
@@ -82,10 +88,15 @@ export const RequestUserInputToolArgsSchema = z.object({
 
 export const RequestUserInputToolAnswerSchema = z.object({
     questionIndex: z.number().int().nonnegative().optional(),
+    text: z.string().optional(),
     selectedOptionIndex: z.number().int().min(-1).optional(),
     selectedOptionIndexes: z.array(z.number().int().min(-1)).optional(),
     note: z.string().trim().optional(),
     ignored: z.boolean().optional(),
+});
+
+const RequestUserInputToolRawResultSchema = z.object({
+    answers: z.array(RequestUserInputToolAnswerSchema),
 });
 
 export type AgentPendingUserInputQuestion = z.infer<typeof AgentUserInputQuestionSchema> & {
@@ -104,6 +115,17 @@ export type AgentPendingUserInputSession = {
     assistantMessageId: string;
     status: "pending";
     questions: AgentPendingUserInputQuestion[];
+};
+
+export type RequestUserInputAnswerView = {
+    questionIndex: number;
+    question: string;
+    options: z.infer<typeof AgentUserInputQuestionOptionSchema>[];
+    selectedLabel: string;
+    text?: string;
+    note?: string;
+    ignored: boolean;
+    openAnswer: boolean;
 };
 
 /**
@@ -204,6 +226,9 @@ export const toolStatusIcon = (toolCall: AgentToolCall): string => {
  * 返回消息状态文本。
  */
 export const messageStatusLabel = (message: AgentMessage): string => {
+    if (message.error) {
+        return "生成失败";
+    }
     if (message.toolCalls?.some((toolCall) => toolCall.status === "running")) {
         return "执行工具中";
     }
@@ -292,6 +317,17 @@ export const deriveMessagesFromSessionSnapshot = (snapshot: AgentSessionSnapshot
     const messages: AgentMessage[] = [];
     const assistantByToolCallId = new Map<string, AgentMessage>();
 
+    if (snapshot.systemPrompt?.trim()) {
+        messages.push({
+            id: `system-prompt:${snapshot.summary.sessionId}:${snapshot.summary.profileKey}`,
+            type: "system",
+            systemDisplayKind: "prompt",
+            systemLabel: "System Prompt",
+            content: snapshot.systemPrompt,
+            status: "done",
+        });
+    }
+
     for (const entry of snapshot.entries) {
         if (entry.type === "custom_message") {
             messages.push(toCustomSessionMessage(entry));
@@ -345,6 +381,69 @@ export const deriveMessagesFromSessionSnapshot = (snapshot: AgentSessionSnapshot
     return messages;
 };
 
+/**
+ * 将 session_entry 增量事件投影到前端消息，避免等待下一次完整 snapshot。
+ */
+export const applySessionEntryToMessages = (
+    previousMessages: AgentMessage[],
+    entry: SessionEntry,
+): AgentMessage[] => {
+    const nextMessage = deriveMessageFromSessionEntry(entry);
+    if (!nextMessage) {
+        return previousMessages;
+    }
+    const withoutOptimisticDuplicate = nextMessage.type === "user"
+        ? previousMessages.filter((message) => !(message.id.startsWith("optimistic-user-") && message.content === nextMessage.content))
+        : previousMessages;
+    if (nextMessage.type === "system") {
+        const optimisticIndex = withoutOptimisticDuplicate.findIndex((message) => message.id.startsWith("optimistic-user-"));
+        if (optimisticIndex >= 0 && !withoutOptimisticDuplicate.some((message) => message.id === nextMessage.id)) {
+            const nextMessages = [...withoutOptimisticDuplicate];
+            nextMessages.splice(optimisticIndex, 0, nextMessage);
+            return reconcileMessages(previousMessages, nextMessages);
+        }
+    }
+    const nextMessages = previousMessages.some((message) => message.id === nextMessage.id)
+        ? withoutOptimisticDuplicate.map((message) => message.id === nextMessage.id ? nextMessage : message)
+        : [...withoutOptimisticDuplicate, nextMessage];
+    return reconcileMessages(previousMessages, nextMessages);
+};
+
+/**
+ * 将单个 session entry 转成前端消息。
+ */
+const deriveMessageFromSessionEntry = (entry: SessionEntry): AgentMessage | null => {
+    if (entry.type === "custom_message") {
+        return toCustomSessionMessage(entry);
+    }
+    if (entry.type === "compaction") {
+        return {
+            id: entry.id,
+            type: "system",
+            systemDisplayKind: "system",
+            systemLabel: "Compaction",
+            content: entry.summary,
+            status: "done",
+            timestamp: formatTimestamp(entry.timestamp),
+        };
+    }
+    if (entry.type === "branch_summary") {
+        return {
+            id: entry.id,
+            type: "system",
+            systemDisplayKind: "system",
+            systemLabel: "Branch Summary",
+            content: entry.summary,
+            status: "done",
+            timestamp: formatTimestamp(entry.timestamp),
+        };
+    }
+    if (entry.type === "message" && entry.origin === "prompt" && entry.message.role === "user") {
+        return toLocalMessage(entry.id, entry.message);
+    }
+    return null;
+};
+
 const toCustomSessionMessage = (entry: AgentSessionSnapshotDto["entries"][number] & {type: "custom_message"}): AgentMessage => {
     const message = entry.message as unknown as Record<string, unknown>;
     const content = customMessageText(message);
@@ -375,18 +474,22 @@ export const toLocalMessage = (id: string, message: PiMessage | PiAgentMessage, 
     if (message.role === "assistant") {
         const text = message.content.filter((block) => block.type === "text").map((block) => block.text).join("");
         const thinking = message.content.filter((block) => block.type === "thinking").map((block) => block.thinking).join("");
+        const errorText = message.stopReason === "error" || message.stopReason === "aborted"
+            ? message.errorMessage?.trim() || (message.stopReason === "aborted" ? "生成已中断。" : "生成失败，provider 未返回错误详情。")
+            : "";
         const toolCalls = message.content
             .filter((block): block is PiAgentToolCall => block.type === "toolCall")
             .map((toolCall, index) => toLocalToolCall(toolCall, index, id));
         return {
             id,
             type: "ai",
-            content: text,
-            status: streaming ? "streaming" : "done",
+            content: text || errorText,
+            status: streaming ? "streaming" : errorText ? "stopped" : "done",
             timestamp: formatTimestamp(message.timestamp),
             model: message.model,
             tokens: message.usage?.totalTokens,
             thinking: thinking || undefined,
+            error: errorText || undefined,
             toolCalls,
         };
     }
@@ -469,12 +572,63 @@ export const toPendingUserInputSession = (
             header: pending.toolName === "skill" ? "Skill" : "审批",
             question: approvalQuestion(pending.toolName, args),
             options: [
-                {label: "批准", description: "允许 Agent 继续执行该动作。", recommended: true},
+                {label: "批准", description: "允许 Agent 继续执行该动作。", recommended: true, defaultSelected: true},
                 {label: "拒绝", description: "阻止该动作，并把结果返回给 Agent。"},
             ],
             multiSelect: false,
+            defaultOptionIndex: 0,
         }],
     };
+};
+
+/**
+ * 从 request_user_input 的 args/rawResult 推导历史气泡展示数据。
+ */
+export const deriveRequestUserInputAnswerViews = (
+    args: z.infer<typeof RequestUserInputToolArgsSchema> | null,
+    rawResult: unknown,
+    options?: {
+        fallbackQuestion?: AgentPendingUserInputQuestion | null;
+        otherLabel?: string;
+    },
+): RequestUserInputAnswerView[] => {
+    const parsedRawResult = RequestUserInputToolRawResultSchema.safeParse(rawResult);
+    const answers = parsedRawResult.success
+        ? parsedRawResult.data.answers
+        : (() => {
+            const parsedAnswer = RequestUserInputToolAnswerSchema.safeParse(rawResult);
+            return parsedAnswer.success ? [parsedAnswer.data] : [];
+        })();
+    if (answers.length === 0) {
+        return [];
+    }
+
+    return answers.map((answer, answerIndex) => {
+        const questionIndex = answer.questionIndex ?? answerIndex;
+        const question = options?.fallbackQuestion?.questionIndex === questionIndex
+            ? options.fallbackQuestion
+            : args?.questions[questionIndex] ?? options?.fallbackQuestion ?? args?.questions[0];
+        const questionOptions = question?.options ?? [];
+        const selectedIndexes = answer.selectedOptionIndexes?.length
+            ? answer.selectedOptionIndexes
+            : answer.selectedOptionIndex === undefined ? [] : [answer.selectedOptionIndex];
+        const selectedLabel = selectedIndexes.map((optionIndex) => {
+            return optionIndex === -1
+                ? options?.otherLabel ?? "其他答案"
+                : questionOptions[optionIndex]?.label ?? String(optionIndex);
+        }).join("、");
+
+        return {
+            questionIndex,
+            question: question?.question ?? "",
+            options: questionOptions,
+            selectedLabel,
+            text: selectedIndexes.length === 0 && !answer.note ? answer.text : undefined,
+            note: answer.note,
+            ignored: Boolean(answer.ignored),
+            openAnswer: !answer.ignored && selectedIndexes.length === 0,
+        };
+    });
 };
 
 /**

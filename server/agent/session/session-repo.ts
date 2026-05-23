@@ -166,10 +166,11 @@ export class JsonlSessionRepository {
     /**
      * 追加普通 message entry。
      */
-    async appendMessage(sessionId: SessionId, message: Message, workspaceKey?: string): Promise<SessionEntry> {
+    async appendMessage(sessionId: SessionId, message: Message, workspaceKey?: string, origin?: "prompt" | "harness" | "manual" | "ingest"): Promise<SessionEntry> {
         return this.appendEntry(sessionId, {
             type: "message",
             message,
+            origin,
         }, workspaceKey);
     }
 
@@ -177,7 +178,7 @@ export class JsonlSessionRepository {
      * 追加用户输入 message。
      */
     async appendUserMessage(sessionId: SessionId, text: string, workspaceKey?: string): Promise<SessionEntry> {
-        return this.appendMessage(sessionId, createUserMessage({text}), workspaceKey);
+        return this.appendMessage(sessionId, createUserMessage({text}), workspaceKey, "manual");
     }
 
     /**

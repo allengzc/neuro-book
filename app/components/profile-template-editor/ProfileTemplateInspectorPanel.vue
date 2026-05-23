@@ -278,7 +278,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
                                 <div class="field-label">{{ props.propLabel(key) }}</div>
                                 <span v-if="props.isExpressionValue(value)" class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--accent-text)]">表达式</span>
                             </div>
-                            <FormSelect v-if="key === 'role'" :model-value="String(value ?? 'system')" :options="props.roleOptions" @focus="emit('update-active-target', key)" @update:model-value="emit('update-prop', key, $event)" />
+                            <FormSelect v-if="key === 'role'" :model-value="String(value ?? 'user')" :options="props.roleOptions" @focus="emit('update-active-target', key)" @update:model-value="emit('update-prop', key, $event)" />
                             <FormSelect v-else-if="key === 'status'" :model-value="String(value ?? 'drafting')" :options="props.toolStatusOptions" @focus="emit('update-active-target', key)" @update:model-value="emit('update-prop', key, $event)" />
                             <FormSelect v-else-if="key === 'source'" :model-value="String(value ?? 'context')" :options="props.sourceOptions" @focus="emit('update-active-target', key)" @update:model-value="emit('update-prop', key, $event)" />
                             <FormTextarea
@@ -296,7 +296,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
                     </div>
                     <div v-else class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 px-3 py-2 text-xs text-[var(--text-muted)]">此节点暂无属性。</div>
 
-                    <template v-if="props.selectedNode.type === 'Message' || props.selectedNode.type === 'AIMessage' || props.selectedNode.type === 'ToolCall' || props.selectedNode.type === 'Text'">
+                    <template v-if="props.selectedNode.type === 'System' || props.selectedNode.type === 'Message' || props.selectedNode.type === 'AIMessage' || props.selectedNode.type === 'ToolCall' || props.selectedNode.type === 'ToolResult' || props.selectedNode.type === 'Text'">
                         <div class="field-label">{{ props.selectedNode.textKind === "source" ? "内容（TSX 表达式内容）" : props.selectedNode.type === "Text" ? "文本片段" : "内容（支持变量引用）" }}</div>
                         <StructuredTextEditor
                             :model-value="props.selectedNode.text ?? ''"

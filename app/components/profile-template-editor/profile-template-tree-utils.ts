@@ -16,8 +16,11 @@ export function createNode(type: ProfileTemplateNodeType): ProfileTemplateNodeDt
         children: [],
         editable: true,
     };
+    if (type === "System") {
+        base.children = [createNode("Text")];
+    }
     if (type === "Message") {
-        base.props = {role: "system"};
+        base.props = {role: "user"};
         base.children = [createNode("Text")];
     }
     if (type === "Text") {
@@ -29,24 +32,35 @@ export function createNode(type: ProfileTemplateNodeType): ProfileTemplateNodeDt
         base.textKind = "text";
     }
     if (type === "ToolCall") {
-        base.props = {id: `call_${Date.now()}`, name: "read_file", status: "drafting"};
+        base.props = {id: `call_${Date.now()}`, name: "read"};
         base.text = "{\n    \"path\": \"workspace/\"\n}";
+        base.textKind = "text";
+    }
+    if (type === "ToolResult") {
+        base.props = {toolCallId: `call_${Date.now()}`, toolName: "read"};
+        base.text = "工具返回内容";
         base.textKind = "text";
     }
     if (type === "Reminder") {
         base.props = {id: `reminder_${Date.now()}`, repeatEveryTurns: 5};
     }
     if (type === "Watch") {
-        base.props = {path: "scope.studio.workspace", previewText: "workspace 发生变化"};
+        base.props = {path: "ctx.workspace.root"};
     }
     if (type === "If") {
-        base.props = {condition: "true"};
+        base.props = {condition: {kind: "expression", code: "true"}};
     }
     if (type === "ActivatedSkills") {
         base.props = {text: "${activatedSkillsText}"};
     }
+    if (type === "AgentCatalog") {
+        base.props = {text: "${agentCatalogText}"};
+    }
     if (type === "SkillCatalog") {
         base.props = {text: "${skillCatalogText}"};
+    }
+    if (type === "SqlSchemaSummary") {
+        base.props = {text: "${sqlSchemaSummaryText}"};
     }
     return base;
 }
@@ -71,7 +85,7 @@ export function createNodeWithId(type: ProfileTemplateNodeType, id: string): Pro
  * 节点是否可包含子节点。
  */
 export function canHaveChildren(type: ProfileTemplateNodeType): boolean {
-    return !["Text", "ToolCall", "SkillCatalog", "ActivatedSkills"].includes(type);
+    return !["Text", "ToolCall", "ToolResult", "AgentCatalog", "SkillCatalog", "ActivatedSkills", "SqlSchemaSummary"].includes(type);
 }
 
 /**
@@ -90,6 +104,9 @@ export function canInsertNodeIntoParent(parent: ProfileTemplateNodeDto, node: Pr
     if (node.type === "ToolCall") {
         return parent.type === "AIMessage";
     }
+    if (node.type === "ToolResult") {
+        return ["HistorySet", "ModelContext", "AppendingSet", "Reminder", "Watch"].includes(parent.type);
+    }
     if (parent.type === "AIMessage") {
         return node.type === "Text" || node.type === "If" || node.type === ("ToolCall" as ProfileTemplateNodeType);
     }
@@ -97,16 +114,22 @@ export function canInsertNodeIntoParent(parent: ProfileTemplateNodeDto, node: Pr
         return node.type === "Text";
     }
     if (isInlineStringNodeType(node.type)) {
-        return false;
+        return parent.type === "System";
     }
     if (parent.type === "ProfilePrompt") {
-        return ["HistorySet", "DynamicSet", "AppendingSet", "Message", "AIMessage", "If"].includes(node.type);
+        return ["System", "HistorySet", "ModelContext", "AppendingSet", "If"].includes(node.type);
     }
-    if (parent.type === "HistorySet" || parent.type === "DynamicSet") {
-        return ["Message", "AIMessage", "If"].includes(node.type);
+    if (parent.type === "System") {
+        return isInlineStringNodeType(node.type) || node.type === "If";
+    }
+    if (parent.type === "HistorySet") {
+        return ["Message", "AIMessage", "ToolResult", "If"].includes(node.type);
+    }
+    if (parent.type === "ModelContext") {
+        return ["Message", "AIMessage", "ToolResult", "Reminder", "Watch", "If"].includes(node.type);
     }
     if (parent.type === "AppendingSet") {
-        return ["Message", "AIMessage", "Reminder", "Watch", "If"].includes(node.type);
+        return ["Message", "AIMessage", "ToolResult", "Reminder", "Watch", "If"].includes(node.type);
     }
     if (parent.type === "Reminder" || parent.type === "Watch") {
         return ["Message", "AIMessage", "If"].includes(node.type);
@@ -129,7 +152,7 @@ export function canInsertNodeIntoParentInTree(root: ProfileTemplateNodeDto, pare
  * 返回该节点是否在运行时直接产出字符串，只能作为 Message 的内联子节点。
  */
 export function isInlineStringNodeType(type: ProfileTemplateNodeType): boolean {
-    return type === "Text" || type === "SkillCatalog" || type === "ActivatedSkills";
+    return type === "Text" || type === "AgentCatalog" || type === "SkillCatalog" || type === "ActivatedSkills" || type === "SqlSchemaSummary";
 }
 
 /**
@@ -341,7 +364,7 @@ export function nodeTitle(node: ProfileTemplateNodeDto): string {
         return "Text";
     }
     if (node.type === "Message") {
-        return `${node.type} · ${String(node.props.role ?? "system")}`;
+        return `${node.type} · ${String(node.props.role ?? "user")}`;
     }
     if (node.type === "Reminder") {
         return `${node.type} · ${String(node.props.id ?? "")}`;

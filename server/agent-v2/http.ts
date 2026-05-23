@@ -242,6 +242,8 @@ function toPendingQuestionDto(
         question: question.question,
         options: question.options,
         multiSelect: question.multiSelect,
+        defaultOptionIndex: question.defaultOptionIndex,
+        defaultOptionIndexes: question.defaultOptionIndexes,
     };
 }
 

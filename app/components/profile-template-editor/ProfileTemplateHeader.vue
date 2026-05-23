@@ -20,6 +20,8 @@ const props = defineProps<{
     createEnabled?: boolean;
     runEnabled?: boolean;
     allowSaveWithIssues?: boolean;
+    validateLabel?: string;
+    runDisabled?: boolean;
     restoring?: boolean;
     closable?: boolean;
 }>();
@@ -71,7 +73,7 @@ const emit = defineEmits<{
             </button>
             <button class="toolbar-btn" :disabled="props.validating || !props.sourceText" @click="emit('validate')">
                 <span class="i-lucide-badge-check h-3.5 w-3.5"></span>
-                <span>验证</span>
+                <span>{{ props.validateLabel ?? "验证" }}</span>
             </button>
             <button v-if="props.restoreEnabled" class="toolbar-btn" :disabled="props.restoring || props.saving || !props.sourceText" @click="emit('restore')">
                 <span class="i-lucide-rotate-ccw h-3.5 w-3.5"></span>
@@ -81,7 +83,7 @@ const emit = defineEmits<{
                 <span class="i-lucide-file-plus-2 h-3.5 w-3.5"></span>
                 <span>新建</span>
             </button>
-            <button v-if="props.runEnabled" class="toolbar-btn" :disabled="props.saving || props.issueCount > 0" @click="emit('run')">
+            <button v-if="props.runEnabled" class="toolbar-btn" :disabled="props.saving || props.issueCount > 0 || props.runDisabled" @click="emit('run')">
                 <span class="i-lucide-message-circle-plus h-3.5 w-3.5"></span>
                 <span>创建 Session</span>
             </button>

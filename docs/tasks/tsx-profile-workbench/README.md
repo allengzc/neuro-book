@@ -10,15 +10,20 @@
 - 为新的 TSX Profile Workbench 建立当前任务真相源。
 - 跑通自定义 profile / agent 闭环：用户和 Agent 都能创建、编辑、校验、预览并运行自定义 `.profile.tsx`。
 - 让 user-assets 入口重新具备 profile 管理能力，但不把旧 `profile-templates` / `user-profile-templates` 写入 API 作为新实现合同。
-- 第一版采用 TSX 源码优先：外层入口负责 profile 可见性、选择、新建和 runtime 状态；Workbench 编辑器组件只负责编辑调用方传入的 TSX profile 文件路径，提供源码编辑、`ProfilePrompt` 可视化辅助编辑和真实 prepare 预览。通用文件导航、tab 和保存冲突处理继续复用 user-assets 文件树与编辑器基础设施。
+- 第一版采用 TSX 源码优先：外层入口负责 profile 可见性、选择、新建和 runtime 状态；Workbench 编辑器组件只负责编辑调用方传入的 TSX profile 文件路径，提供源码编辑、`ProfilePrompt` 可视化辅助编辑和真实 prepare 预览。通用文件导航、tab 和保存冲突处理继续复用 user-assets 文件树与编辑器基础设施。当前实现中独立 Workbench dialog 自带受控 profile 文件下拉，但它仍只扫描用户 profile 根，不扫描系统 profile。
 
 ## Current State
 
-- 当前 Agent 主链路已切到 Pi-based `server/agent`，profile runtime 使用 `defineAgentProfile({ manifest, inputSchema, outputSchema, allowedToolKeys, prepare, ingest? })`。
-- 当前 active v3 profile 的 `prepare(ctx)` 直接返回 `PreparedTurn`：`systemPrompt`、`historyMessages`、`dynamicMessages`、`appendingMessages`、`toolKeys` 和可选 `sessionWrites`。`ProfilePrompt` / `HistorySet` / `DynamicSet` / `AppendingSet` 是 v2 以及迁移文档中的重要提示词 DSL 经验，但还不是 `server/agent` active profile 的可执行 JSX API。
+- 当前 Agent 主链路已切到 Pi-based `server/agent`，profile runtime 使用 `defineAgentProfile({ manifest, inputSchema, outputSchema, allowedToolKeys, context?, prepare?, ingest? })`。
+- 当前 active v3 profile 底层输出是 `ProfileTurnPlan`：`systemPrompt`、`historyInitMessages`、`appendingMessages`、`modelContextAppendingMessages`、`modelContextMessages`、`stateWrites`。普通 profile 推荐写 `context(ctx) => <ProfilePrompt />`，由 `server/agent/profiles/profile-dsl.ts` 编译为 `ProfileTurnPlan`；高级 profile 可以直接覆写 `prepare(ctx) => ProfileTurnPlan`。`context` 与 `prepare` 不能同时存在。
+- `ProfilePrompt` / `System` / `HistorySet` / `ModelContext` / `AppendingSet` / `Reminder` / `Watch` / `SkillCatalog` / `ActivatedSkills` 已成为 `server/agent` active profile 的可执行 TSX DSL。旧 `DynamicSet` 已硬切删除，model-only 分区统一使用 `ModelContext`。
 - Profile 真相源是完整 `.profile.tsx` 单文件：
   - 系统 profile root：`assets/workspace/.nbook/agent/profiles`
   - 用户 profile root：`workspace/.nbook/agent/profiles`
+- Workbench 的用户 profile 模式已切成两阶段：
+  - 自动阶段只调用 `POST /api/agent/profiles/source-draft` 做轻量 TSX DSL tree 解析，不触发 `AgentProfileCatalog` / runtime profile loader。
+  - 手动阶段由用户点击顶部“编译”按钮触发 `POST /api/agent/profiles/compile`，真实 TSX profile 加载、detail 和可选 prepare preview 在后台 worker 中执行。
+  - “创建 Session”只有在最近一次编译通过且源码未再次修改时启用；保存文件本身不等于编译。
 - `user-assets` 是前端入口，挂载目标是 Workspace Root `.nbook`，即 `workspace/.nbook/`；它不是新的配置 scope，也不是嵌套资产根。
 - `leader.default` 和 `leader.assets` 只是系统内置 agent key/name，不再表达 leader/subagent 架构分层。
 - `InputSchema` / `OutputSchema` 使用 TypeBox / JSON Schema；旧文档中基于 Zod 的 Schema Builder 设计不是当前实现真相。v3 `InputSchema` 表示创建 agent/session 时传入的实例初始化参数，不承载每轮任务 prompt；每轮任务输入通过 `invoke_agent` 或 `/api/agent/sessions/:sessionId/invocations` 传递。profile contract 仍要求 `inputSchema` 字段存在；产品语义中的“InputSchema 为空”指 `InputSchema = Type.Object({})` 这类空对象 schema，表示这是普通 agent，没有特殊实例配置，创建后直接通过 invoke 对话即可。
@@ -71,12 +76,30 @@
 - 已实现第一版用户 profile 源码 API：runtime catalog 只返回可加载 profile，坏文件通过 `files/source/save` 按 `fileName` 读取、保存和诊断。
 - 已实现两个系统模板：`assets/workspace/.nbook/agent/profile-templates/basic-agent.profile-template.tsx` 与 `report-agent.profile-template.tsx`。模板只做 key/name/description/systemPrompt 占位替换，不引入模板引擎。
 - 已把 `ProfileTemplateVisualEditor mode="user-profile"` 切到新 `/api/agent/profiles/*` 写入 API。旧 `profile-templates` / `user-profile-templates` tombstone route 仍保留 501 helper，避免开发服务器启动期 import 崩溃；普通 user profile 工作台不再依赖这些旧写入 API。
-- 第一版可视化辅助编辑没有恢复完整旧 `ProfilePrompt` AST round-trip；后端只从推荐模板中的 `systemPrompt` / `renderSystemPrompt()` 源码 range 构造一个 System Prompt 占位节点。源码仍是真相源，复杂 prompt/helper/schema/工具逻辑继续走源码编辑。
+- 第一版可视化辅助编辑已从旧 `systemPrompt` / `renderSystemPrompt()` range 升级为解析 `context()` 返回的 `<ProfilePrompt>` TSX DSL tree。源码仍是真相源，复杂 prompt/helper/schema/工具逻辑继续走源码编辑；画布写回只替换已定位的 `ProfilePrompt` JSX 片段。
+- Prepare Preview 现在展示 `systemPrompt`、`history`、`modelContextAppending`、`appending`、`modelContext`、`stateWrites` 与 `reactMessages`。`reactMessages` 按真实 harness 规则近似组装：非空 session 不重复注入 HistorySet，AppendingSet 与 ModelContext 内触发的 Reminder 作为 pre-loop 可见消息进入最终输入，ModelContext 普通消息只作为 model-only 片段进入最终输入。
 - 已把 user-assets 顶部 Header 的 Agent 按钮旁接入 Profile 工作台入口，挂载 `UserProfileWorkbenchDialog`；默认打开用户资产中的 `builtin/leader.assets.profile.tsx`。
 - 已把 `/tsx-profile-editor.preview` 调试页切到 `ProfileTemplateVisualEditor mode="user-profile"`，不再默认触发旧 `profile-templates` tombstone API。
-- 已把 user-profile 模式下的源码解析、预览和显式验证改为基于当前编辑器源码：服务端在 `.agent/profile-source-check/*` 临时 user profile root 中覆盖当前文件，再走真实 catalog/detail/prepare 链路，不污染 `workspace/.nbook/agent/profiles`。
-- 已修复第一版可视化辅助编辑的写回边界：画布编辑只替换已定位的 editable `systemPrompt` 文本源码 range，不再尝试把旧 `<ProfilePrompt>/<Message>` 片段写入 active v3 `.profile.tsx`。
+- 已把 user-profile 模式下的源码解析、预览和显式验证改为基于当前编辑器源码：服务端在 `.agent/workspace/profile-source-check/*` 临时 user profile root 中覆盖当前文件，再走真实 catalog/detail/prepare 链路，不污染 `workspace/.nbook/agent/profiles`。
+- 已修复第一版可视化辅助编辑的写回边界：画布编辑只替换已定位的 `<ProfilePrompt>` JSX 片段，不再走旧 editable `systemPrompt` 文本源码 range。写回时会过滤 `status`、`previewText` 等低代码内部展示属性，`ToolCall` 正文写回为 runtime DSL 的 `args` prop，`If.condition` 默认保留为 TSX 表达式。
 - 坏 profile 文件按 `fileName` 读取时会尽量保留 catalog loader 的真实 diagnostics；只有没有匹配 issue 时才回落到 `load_failed`。
+- 已把 Workbench 自动编辑阶段从真实 profile 编译链路中拆出：
+  - `GET /api/agent/profiles/files` 只扫描用户 profile root 并用源码正则读取 manifest 摘要，不调用 runtime catalog。
+  - `POST /api/agent/profiles/source-draft` 只解析源码中的 `context() => <ProfilePrompt />` 稳定 DSL tree，不加载 `.profile.tsx` 模块。
+  - 保存和新建用户 profile 返回轻量 draft detail，不自动跑完整 runtime 编译。
+- 已新增手动后台编译链路：
+  - `POST /api/agent/profiles/compile` 接收 `fileName`、未保存源码、`preview`、`sessionId` 和 input overrides。
+  - `server/agent/profiles/profile-compile-worker.ts` 维护单例 long-lived worker、串行队列和同 `fileName` stale 等待任务。
+  - worker 内调用 `withProfileSourceOverride()` 生成临时用户 profile root，再走真实 runtime detail 和可选 `previewAgentProfilePrepare()`。
+  - worker 崩溃会结构化失败当前任务，并重建后续 worker。
+- 已完成 review 修复：
+  - 前端手动编译捕获提交时的 `fileName/source` 快照；如果编译期间用户继续编辑或切换文件，旧结果返回后只标记 `stale`，不会把新源码误判为“编译通过”。
+  - worker crash / dispose 不再让 compile endpoint 抛 rejected promise；当前任务和等待任务都会 resolve 为 `ok:false`、`code=compile_worker_failed` 的结构化 issue。
+  - 源码覆盖编译不再把随机临时 root 的产物写进全局 `.agent/workspace/profile-module-cache`；临时 profile catalog 的 module cache 放在临时 root 内随 `withProfileSourceOverride()` 清理。普通 runtime catalog 会先用入口源码 + 源码路径 + tsconfig 定位依赖 manifest，再用 esbuild `metafile.inputs` 中的实际输入文件内容 hash 生成最终 bundle cache key，避免 helper/prompt 依赖更新后继续复用旧 `.mjs`。
+- 已修复 TSX profile loader 在 worker 中的两个问题：
+  - 真实 worker service 曾失败于 `tsx://...` 虚拟模块和 `Unexpected token '{'`，原因是 `tsx/esm/api` 的虚拟模块 URL 在 Bun worker / 被 `tsImport` 加载的 catalog 中不稳定。
+  - 当前 `.profile.tsx/.profile.ts` 加载改为 esbuild 编译到 `.agent/workspace/profile-module-cache/*.mjs` 后再 native import；缓存文件按源码路径和 query hash 生成，可由运行时重新创建，不作为仓库文件维护。
+  - Node worker 使用 inline entry + `tsImport()` 加载 worker runtime；Bun worker 使用真实 `.ts` entry，避免 Bun worker 中 `tsImport()` 生成无法解析的 `tsx://` 模块。
 
 ## Decisions
 
@@ -87,7 +110,7 @@
 - Profile Workbench 不复制一套通用文件 IDE；通用文件树、tab、Monaco 承载和保存冲突处理继续复用 user-assets 既有基础设施。
 - Workbench 编辑器不允许编辑系统 profile。user-assets 同步会自动把需要的系统 profile 复制到用户资产，因此正常情况下 `leader.assets` 这类 profile 会以用户资产文件形式出现；不再提供显式“创建用户覆盖”动作。
 - Profile Workbench 不承担默认 profile 配置；默认 profile 仍归 Config/设置页。
-- 保存文件和 profile 可运行性分离：允许保存编译失败或契约失败的 TSX 文件，catalog/detail/preview 展示 issue，运行同 key profile 时阻止执行。
+- 保存文件和 profile 可运行性分离：允许保存编译失败或契约失败的 TSX 文件；自动解析只展示轻量 DSL/source issue，手动“编译”展示 runtime detail / prepare issue，运行同 key profile 前必须有一次最新源码对应的编译通过结果。
 - Runtime profile catalog 面向可被 profile/runtime 使用的 agent 列表，不承担“坏文件浏览器”职责。坏 `.profile.tsx` 文件不进入运行时 catalog；外层入口如需修复坏文件，应通过文件清单/diagnostics 按 `fileName` 调用 Workbench 编辑器打开源码。
 - 自定义 profile / agent 是第一版成功标准，不再只做 builtin profile 浏览或系统 profile 覆盖。
 - 保留 `tsx-profile-editor.preview` 独立 debug page，并基于当前已调好的 `ProfileTemplateVisualEditor` 页面继续调整。
@@ -102,12 +125,12 @@
 - 可视化辅助编辑保存时只局部替换已定位的提示词源码 range，参考旧可视化编辑器与旧任务文档的 AST/round-trip 经验；helper function、schema、imports、allowed tools 和 prepare 外围逻辑保留源码编辑。若后续模板采用 v3 `systemPrompt` 字符串或对象 DSL，则替换边界应落在该结构的源码 range，而不是强行寻找不存在的 `<ProfilePrompt>`。
 - 第一版提供模板 TSX 文件用于新建 profile。所有模板都显式导出 `InputSchema`、`OutputSchema`、`Input` 和 `Output`；“空 OutputSchema”用 `OutputSchema = Type.Object({})` 表达，不省略 schema 常量。普通 agent 的 `OutputSchema = Type.Object({})` 且不允许 `report_result`；通用报告 agent 的 `OutputSchema = Type.Object({})` 且允许 `report_result`。
 - 第一版模板必须清楚展示 `InputSchema` 语义，但普通模板默认使用空对象 schema。`profile.inputSchema` 不应为空；`InputSchema = Type.Object({})` 是“无特殊实例配置”的源码表达，UI/API 可以不传 `input`，运行时会按 `{}` 校验。
-- 模板不创建特殊 TSX 节点来表达 system prompt，也不把 system prompt 写进 JSX `<Message role="system">`。推荐先复用 active v3 的 `prepare(ctx) -> PreparedTurn` 合同：简单模板可写 `const systemPrompt = "...";`，长模板可写 `function renderSystemPrompt(): string { return `...`.trim(); }`，然后在 `prepare()` 中返回 `{ systemPrompt: renderSystemPrompt(), ... }`。可视化编辑器可以把这个字符串源码 range 当作“System Prompt”编辑区，但这只是 UI 节点，不是新的 runtime TSX 节点。
+- 模板使用 active TSX DSL 表达 system prompt：`context() { return <ProfilePrompt><System>{renderSystemPrompt()}</System></ProfilePrompt>; }`。不把 provider 级 system prompt 写进 JSX `<Message role="system">`；`Message role="system"` 在 runtime 中会报 contract error。
 - 不使用 `<Message role="system">` 表达 provider 级 system prompt 的原因：Pi/当前 v3 的 provider 入口是 `Context.systemPrompt?: string`；迁移文档已决定不 fork Pi 的 message union 去加入中间 `SystemMessage`。如果后续重新引入 JSX DSL，也应先设计一个 active runtime 可执行的 `SystemSet` / prompt builder，而不是在模板里临时创造特殊节点。
 - 模板固定导出 `profileManifest`，推荐形态是 `export const profileManifest = {...} as const`，再传入 `defineAgentProfile({ manifest: profileManifest, ... })`。这样 Workbench 能稳定定位并辅助编辑 key、name、description，不需要在 `defineAgentProfile()` 的对象字面量里做脆弱匹配。
 - 模板固定导出顶层 `allowedToolKeys` 数组，推荐形态是 `export const allowedToolKeys = [...] as const`。工具 checklist 第一版只编辑这个稳定数组；如果用户改成复杂表达式，Workbench 降级为只读展示和源码编辑，不尝试重写表达式。
-- 模板默认 `prepare(ctx)` 保持最小，只返回 `systemPrompt` 和 `toolKeys`，不默认塞入 `dynamicMessages` / `appendingMessages`。是否把 Workspace、history、实例 input 或 invocation 内容渲染进上下文由 profile 作者决定。
-- `ProfilePrompt` 可视化辅助编辑第一版只承诺编辑稳定源码 range：`profileManifest`、`systemPrompt` 和顶层 `allowedToolKeys`。`dynamicMessages`、`appendingMessages`、helper function 和条件逻辑先只读预览或源码编辑，避免把任意 TypeScript 逻辑误当成可视化节点树。
+- 模板默认 `context()` 保持最小，只声明 `System`，不默认塞入 `ModelContext` / `AppendingSet`。是否把 Workspace、history、实例 input 或 invocation 内容渲染进上下文由 profile 作者决定。
+- `ProfilePrompt` 可视化辅助编辑第一版承诺编辑稳定的 TSX DSL tree：`ProfilePrompt`、`System`、`HistorySet`、`ModelContext`、`AppendingSet`、`Message`、`AIMessage`、`ToolCall`、`ToolResult`、`Reminder`、`Watch`、`If`、`SkillCatalog`、`ActivatedSkills`。复杂 TypeScript helper、schema、imports、allowed tools 和无法稳定 round-trip 的 `Watch.render` 继续源码编辑。
 - `InputSchema` 和 `OutputSchema` 产品语义上都可以为空，但源码模板仍显式导出 schema 常量：
   - `InputSchema` 为空表示源码中导出的 `InputSchema = Type.Object({})`，也就是普通 agent，没有特殊实例配置；创建 session 时可不传 `input`，任务通过 invoke 对话传入。
   - `OutputSchema` 为空表示源码中导出的 `OutputSchema = Type.Object({})`。
@@ -123,7 +146,7 @@
 - “文件源码详情”是区别于 runtime detail 的概念：坏 `.profile.tsx` 无法作为 runtime profile 加载时，仍可以按 `fileName` 读取源码、展示 diagnostics，并尝试解析可视化 `ProfilePrompt` 片段。
 - 模板 TSX 文件放在系统 assets 的非 runtime profile 目录，例如 `assets/workspace/.nbook/agent/profile-templates/*.profile-template.tsx`；模板不是可运行 profile，不进入 `agent/profiles` catalog。
 - 新建 profile 从模板生成时只做少量占位替换：`profileManifest.key`、`name`、`description` 和初始 system prompt 文本；不引入复杂模板引擎。
-- 新建模板优先贴合 active v3 `PreparedTurn` 合同，同时让 system prompt 与动态/appending 消息源码 range 尽量稳定，便于可视化辅助编辑做局部 round-trip。纯函数式 `prepare()` 的好处是 TypeScript 逻辑更自由、类型推导更直接、对复杂动态 prompt 更自然，也更适合未来 LSP/代码审查；缺点是无法天然得到旧 `ProfilePrompt` 节点树。第一版先不为 system prompt 创造特殊 TSX 节点；是否重新引入 JSX DSL 作为 active v3 prompt builder，后续单独评估。
+- 新建模板贴合 active v3 `ProfileTurnPlan` / TSX DSL 合同，同时让 `<ProfilePrompt>` 源码 range 稳定，便于可视化辅助编辑做局部 round-trip。纯函数式 `prepare()` 仍保留为高级覆写入口；普通模板推荐 `context()`，因为它能被 Workbench 解析为结构化 DSL tree。
 - 模板文案默认使用中文；变量名、profile key、文件名和 TypeScript 标识符保持英文。
 - 第一版模板数量先收敛为两个：普通 `basic-agent` 与结构化 `report-agent`。
 - `basic-agent` 模板默认只允许读取能力，避免用户刚创建的普通 agent 默认获得写文件或 shell 权限；后续再通过工具权限选择器扩展。
@@ -158,7 +181,7 @@
    - Workbench 编辑器不内置 profile 文件清单；user-assets host 如需列表，只扫描用户 profile 根，不扫描系统级 profile。调用方可以直接指定受控相对文件打开。
    - Workbench 另行提供按 `fileName` 定位的文件源码详情或 diagnostics 入口，用于打开、保存和修复坏 `.profile.tsx`。
    - Detail 面板展示源码摘要、manifest、allowed tools、InputSchema/OutputSchema JSON、issues。
-   - 保留源码编辑面板作为主编辑路径；同时保留 `ProfilePrompt` 可视化辅助编辑，用于查看和编辑可解析 prompt 区域。第一版如果模板使用 active v3 `systemPrompt` / messages 数组，则可视化编辑器先解析这些稳定源码片段，不强依赖 `<ProfilePrompt>` JSX。
+   - 保留源码编辑面板作为主编辑路径；同时保留 `ProfilePrompt` 可视化辅助编辑，用于查看和编辑可解析 prompt 区域。第一版解析 active v3 `context()` 返回的 `<ProfilePrompt>` JSX tree；无法解析时降级源码编辑。
    - 可视化辅助编辑解析失败时，源码编辑仍是唯一真相源；可视化区只做降级展示，不阻止保存。
    - 保存冲突不在编辑器内重造弹窗，优先调用外层或共享保存 wrapper，复用 user-assets 既有保存冲突处理。
    - 如复用旧 `ProfileTemplateVisualEditor`，必须先去掉旧 tombstone API 依赖和旧 `leader/subagent` / Zod Schema Builder 假设。
@@ -188,10 +211,11 @@
    - Agent 可通过普通文件工具编辑 `workspace/.nbook/agent/profiles/**/*.profile.tsx`，修改后由 catalog/check/preview 验证。
 
 5. Prepare Preview
-   - 继续使用真实 `profile.prepare()` 预览。
-   - 第一版支持 JSON input、简单 history 和当前 workspace context；这里的 input 是 agent 实例初始化参数，不是每轮任务 prompt。input 编辑器先用 JSON textarea/editor，不从 InputSchema 自动生成表单。
-   - 不调用 LLM、不创建真实 session、不写 session metadata。
-   - 显式验证同时展示 runtime profile 契约检查、prepare preview 和动态 `report_result` 参数 schema preview。
+- 继续使用真实 `profile.prepare()` 预览。
+- 第一版支持 JSON input、简单 history 和当前 workspace context；这里的 input 是 agent 实例初始化参数，不是每轮任务 prompt。input 编辑器先用 JSON textarea/editor，不从 InputSchema 自动生成表单。
+- 不调用 LLM、不创建真实 session、不写 session metadata。
+- 显式验证同时展示 runtime profile 契约检查、prepare preview 和动态 `report_result` 参数 schema preview。
+- 预览会额外展示 `reactMessages` 分区，让用户看到 harness 最终会传给 ReAct loop 的消息形态；它仍是 dry-run 预览，不写 session。
 
 6. 后续辅助编辑
    - TypeBox Schema Builder 基于当前 v3 profile 经验重新设计；只在 TypeBox schema 可稳定定位时做局部辅助替换。
@@ -204,6 +228,8 @@
 
 - `docs/tasks/tsx-profile-workbench/README.md`
 - `docs/tasks/pi-agent-harness-migration/README.md`
+- `docs/tasks/leader-profile-v2-adaptation/README.md`
+- `docs/modules/agent/harness.md`
 - `assets/workspace/.nbook/agent/profile-templates/basic-agent.profile-template.tsx`
 - `assets/workspace/.nbook/agent/profile-templates/report-agent.profile-template.tsx`
 - `app/components/profile-template-editor/ProfileTemplateHeader.vue`
@@ -215,6 +241,7 @@
 - `app/pages/tsx-profile-editor.preview.vue`
 - `server/api/agent/profiles/*`
 - `server/agent/profiles/profile-source-check.ts`
+- `server/agent/profiles/profile-dsl-source-parser.ts`
 - `server/agent/profiles/workbench-service.ts`
 - `server/agent/profiles/report-result-schema.ts`
 - `server/agent/profiles/profile-http-service.ts`
@@ -227,16 +254,24 @@
 
 ## Verification
 
+- `bunx tsc --noEmit --pretty false` 通过。
+- `bunx vitest run server/agent/profiles/workbench-service.test.ts server/agent/profiles/profile-compile-worker.test.ts server/agent/profiles/catalog.test.ts` 通过，覆盖轻量 draft 读取不触发 runtime catalog、真实 worker service 后台编译、worker crash 结构化 issue、source override 不污染全局 profile module cache、catalog 加载和 user profile 文件读写。
+- 手动跑过 Node worker service 探针：`useProfileCompileWorker().compile({ fileName: "builtin/leader.default.profile.tsx", preview: false })` 返回 `ok: true`、`manifest.key = leader.default`、error issue 数为 0。
+- 手动跑过 Bun worker service 探针：同样返回 `ok: true`、`manifest.key = leader.default`、error issue 数为 0。
+- `rg -n "profiles/source\"|profiles/source'|preview-prepare|sourceOverride|AgentProfileCatalog\(|snapshot\(" app/components/profile-template-editor server/api/agent/profiles/source-draft.post.ts server/api/agent/profiles/compile.post.ts server/api/agent/profiles/files.get.ts server/api/agent/profiles/save.post.ts server/api/agent/profiles/create.post.ts server/agent/profiles/workbench-service.ts server/agent/profiles/profile-compile-worker.ts server/agent/profiles/catalog.ts` 无匹配，确认 Workbench 自动编辑路径不再走旧 sourceOverride/preview-prepare/runtime catalog。
 - `bunx vitest run server/agent/profiles/workbench-service.test.ts server/agent/profiles/report-result-schema.test.ts server/agent/profiles/catalog.test.ts` 通过，覆盖模板发现、受控 `fileName`、新建 profile 加载、临时源码覆盖不写入真实用户 profile 文件、runtime catalog 与 report_result schema 派生。
-- `bun run typecheck` 仍失败，但剩余错误来自本轮前已存在的无关 Novel IDE/settings/index 类型问题：
-  - `app/components/novel-ide/NovelAgentDrawer.vue` 的 `modelKey`
-  - `NovelIdeAgentProfileDefaultSettingsPanel.vue` / `NovelIdeAgentProfileModelSettingsPanel.vue` 的 `defaultProfileKey`
-  - `app/pages/index.vue` 的 `workspaceKind/currentNovelId`
+- `bunx vitest run server/agent/profiles/workbench-service.test.ts` 通过，覆盖新 TSX DSL tree 解析：`ProfilePrompt` / `System` / `HistorySet` / `ModelContext` / `AppendingSet` / `ToolCall` / `ToolResult`。
+- `bunx vitest run server/agent/profiles/profile-dsl.test.ts server/agent/profiles/catalog.test.ts server/agent/profiles/leader-assets-profile.test.ts server/agent/profiles/workbench-service.test.ts` 通过，覆盖 active DSL、catalog、leader profile 和 Workbench parser。
 - 未自动做浏览器验证；按项目规则需要用户明确要求后再打开浏览器检查 UI。
+
+## Plan Deviations
+
+- 原计划写的是 `.profile.tsx/.profile.ts` 直接走 `tsx/esm/api.tsImport`。实现中改为 esbuild 编译到真实 `.mjs` 缓存再 import，因为真实 worker service 在 Bun worker 和被 `tsImport` 加载的 catalog 场景下会生成不可解析的 `tsx://...` 虚拟模块。
+- 第一版仍是单 worker 串行队列，没有实现 worker pool。当前目标是避免 Nitro 主线程被 TSX 编译卡住，不承诺降低单次冷态 profile 编译时间。
 
 ## TODO / Follow-ups
 
 - 后续补 TypeBox Schema Builder，只在能稳定定位 `InputSchema` / `OutputSchema` 源码 range 时做局部替换。
 - 后续补完整 `allowedToolKeys` checklist 局部替换；当前 UI 只读展示工具权限，源码仍是真相源。
-- 后续补完整 `ProfilePrompt` / messages AST round-trip；当前只提供 System Prompt 占位节点。
+- 后续补更完整的 `ProfilePrompt` AST round-trip，包括复杂 `Watch.render`、helper 变量绑定和跨函数片段；当前已支持稳定 `context()` 返回的 TSX DSL tree 与整段 `ProfilePrompt` 局部替换。
 - 后续按用户要求做浏览器交互验收：新建、保存坏文件、验证、创建 session、preview debug route。

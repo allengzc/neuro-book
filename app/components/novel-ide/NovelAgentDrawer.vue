@@ -423,28 +423,43 @@ const submitUserInputAnswers = async (payload: {
     if (!activeSessionId.value || !pendingUserInputSession.value) {
         return;
     }
+    const pendingSession = pendingUserInputSession.value;
     try {
         submittingUserInput.value = true;
         await ensureActiveSessionEvents();
-        const toolCallId = pendingUserInputSession.value.questions[0]?.toolCallId ?? pendingUserInputSession.value.questions[0]?.toolNodeId;
-        const firstQuestion = pendingUserInputSession.value.questions[0];
+        const toolCallId = pendingSession.questions[0]?.toolCallId ?? pendingSession.questions[0]?.toolNodeId;
+        const firstQuestion = pendingSession.questions[0];
         if (!toolCallId || !firstQuestion) {
             return;
         }
-        const answers = payload.answers.map((answer, index) => ({
-            questionIndex: answer.questionIndex ?? index,
-            text: answer.ignored
-                ? "用户选择终止本轮。"
-                : answer.note || formatSelectedAnswer(firstQuestion.options, answer.selectedOptionIndex, answer.selectedOptionIndexes),
-        }));
+        const answers = payload.answers.map((answer, index) => {
+            const questionIndex = answer.questionIndex ?? index;
+            const question = pendingSession.questions.find((item) => {
+                return item.toolNodeId === answer.toolNodeId && item.questionIndex === questionIndex;
+            }) ?? pendingSession.questions[questionIndex] ?? firstQuestion;
+            return {
+                questionIndex,
+                text: answer.ignored
+                    ? "用户选择终止本轮。"
+                    : formatAnswerText(question.options, answer.selectedOptionIndex, answer.selectedOptionIndexes, answer.note),
+                selectedOptionIndex: answer.selectedOptionIndex,
+                selectedOptionIndexes: answer.selectedOptionIndexes,
+                note: answer.note,
+                ignored: answer.ignored,
+            };
+        });
+        session.clearPendingUserInputSession();
+        userInputSelectedAnswers.value = {};
+        userInputNotes.value = {};
         await agentApi.invokeSession(activeSessionId.value, {
             mode: "continue",
             resolution: firstQuestion.kind === "tool_approval"
                 ? {
                     kind: "tool_approval",
                     toolCallId,
-                    approved: answers[0]?.text !== "拒绝",
+                    approved: isApprovalApproved(payload.answers[0]),
                     resultText: answers.map((answer) => answer.text).join("\n"),
+                    answers,
                 }
                 : {
                     kind: "user_input",
@@ -454,6 +469,9 @@ const submitUserInputAnswers = async (payload: {
         });
         await syncActiveSessionSnapshot();
     } catch (error) {
+        if (!pendingUserInputSession.value) {
+            pendingUserInputSession.value = pendingSession;
+        }
         console.error("提交问题答案失败", error);
         await syncActiveSessionSnapshot();
         notification.error(error instanceof Error ? error.message : "提交问题答案失败");
@@ -720,7 +738,7 @@ function syncSessionModelState(_summary: AgentSessionSummaryDto | null): void {
     sessionModelMode.value = model ? "override" : "default";
     sessionModelDraft.value = {
         ...sessionModelDraft.value,
-        modelKey: model?.modelKey ?? null,
+        modelKey: model ? `${model.provider}/${model.id}` : null,
     };
 }
 
@@ -990,14 +1008,33 @@ function saveLastSessionId(sessionId: number): void {
     localStorage.setItem(`agent:last-session:${workspaceKey.value}`, String(sessionId));
 }
 
-function formatSelectedAnswer(
+function formatAnswerText(
     options: Array<{label: string}>,
     selectedOptionIndex?: number,
     selectedOptionIndexes?: number[],
+    note?: string,
 ): string {
     const indexes = selectedOptionIndexes?.length ? selectedOptionIndexes : selectedOptionIndex === undefined ? [] : [selectedOptionIndex];
     const labels = indexes.map((index) => index === -1 ? "其他答案" : options[index]?.label ?? String(index));
-    return labels.join("、") || "继续";
+    const selectedText = labels.join("、");
+    if (selectedText && note?.trim()) {
+        return `${selectedText}\n备注：${note.trim()}`;
+    }
+    return note?.trim() || selectedText || "继续";
+}
+
+function isApprovalApproved(answer?: {
+    selectedOptionIndex?: number;
+    selectedOptionIndexes?: number[];
+    ignored?: boolean;
+}): boolean {
+    if (!answer || answer.ignored) {
+        return false;
+    }
+    const indexes = answer.selectedOptionIndexes?.length
+        ? answer.selectedOptionIndexes
+        : answer.selectedOptionIndex === undefined ? [] : [answer.selectedOptionIndex];
+    return indexes.includes(0);
 }
 </script>
 

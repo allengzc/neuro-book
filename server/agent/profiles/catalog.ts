@@ -1,9 +1,12 @@
-import {pathToFileURL} from "node:url";
-import {readdir, stat} from "node:fs/promises";
+import {createHash, randomUUID} from "node:crypto";
+import {fileURLToPath, pathToFileURL} from "node:url";
+import {mkdir, readFile, readdir, rename, rm, stat, writeFile} from "node:fs/promises";
 import {existsSync} from "node:fs";
 import {basename, join, resolve} from "node:path";
+import {build, type Metafile} from "esbuild";
 import {Value} from "typebox/value";
 import type {JsonValue} from "nbook/server/agent/messages/types";
+import {readSystemProfileMetadata, sha256File} from "nbook/server/workspace-files/novel-workspace";
 import type {
     AgentCatalogSnapshot,
     AgentCatalogItem,
@@ -37,6 +40,12 @@ type ProfileInventory = {
     user: ProfileFileEntry[];
 };
 
+type ProfileShadowWarning = {
+    fileName: string;
+    profileKey: string;
+    issue: AgentProfileIssue;
+};
+
 type CatalogCache = {
     signature: string;
     catalog: LoadedProfileCatalog;
@@ -45,6 +54,22 @@ type CatalogCache = {
 type PendingCatalogLoad = {
     signature: string;
     promise: Promise<LoadedProfileCatalog>;
+};
+
+const PROFILE_TSX_PARENT_URL = pathToFileURL(resolve(process.cwd(), "server", "agent", "profiles", "catalog.ts")).href;
+const PROFILE_MODULE_CACHE_ROOT = resolve(process.cwd(), ".agent", "workspace", "profile-module-cache");
+const PROFILE_MODULE_CACHE_VERSION = 1;
+
+type ProfileModuleCacheDependency = {
+    path: string;
+    sha256: string;
+    bytes: number;
+};
+
+type ProfileModuleCacheManifest = {
+    version: typeof PROFILE_MODULE_CACHE_VERSION;
+    outputHash: string;
+    dependencies: ProfileModuleCacheDependency[];
 };
 
 /**
@@ -59,6 +84,7 @@ export class AgentProfileCatalog {
     constructor(
         private readonly systemRoot = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profiles"),
         private readonly userRoot = resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles"),
+        private readonly moduleCacheRoot = PROFILE_MODULE_CACHE_ROOT,
     ) {}
 
     /**
@@ -109,6 +135,7 @@ export class AgentProfileCatalog {
                 key: profile.manifest.key,
                 name: profile.manifest.name,
                 description: profile.manifest.description,
+                allowedToolKeys: profile.allowedToolKeys,
                 inputSchema: profile.inputSchema,
                 outputSchema: profile.outputSchema,
                 source,
@@ -125,7 +152,7 @@ export class AgentProfileCatalog {
 
     private async loadAll(): Promise<LoadedProfileCatalog> {
         const inventory = await this.readProfileInventory();
-        const signature = this.catalogSignature(inventory);
+        const signature = await this.catalogSignature(inventory);
         if (this.catalogCache?.signature === signature) {
             return this.catalogCache.catalog;
         }
@@ -148,6 +175,7 @@ export class AgentProfileCatalog {
     private async loadInventory(inventory: ProfileInventory): Promise<LoadedProfileCatalog> {
         const profiles = new Map<string, ProfileSource>(this.memoryProfiles);
         const issues: AgentProfileIssue[] = [];
+        const shadowWarnings = await this.readProfileShadowWarnings(inventory.user);
         const system = await this.loadDirectory(inventory.system, "system", true);
         issues.push(...system.issues);
         for (const source of system.sources) {
@@ -156,6 +184,11 @@ export class AgentProfileCatalog {
         const user = await this.loadDirectory(inventory.user, "user", false);
         issues.push(...user.issues);
         for (const source of user.sources) {
+            const shadowWarning = source.sourcePath ? shadowWarnings.find((warning) => warning.profileKey === source.profile.manifest.key) : undefined;
+            if (shadowWarning) {
+                source.issue = source.issue ?? shadowWarning.issue;
+                issues.push(shadowWarning.issue);
+            }
             profiles.set(source.profile.manifest.key, source);
         }
         return {
@@ -230,14 +263,25 @@ export class AgentProfileCatalog {
         return files.sort((left, right) => left.file.localeCompare(right.file));
     }
 
-    private catalogSignature(inventory: ProfileInventory): string {
+    private async catalogSignature(inventory: ProfileInventory): Promise<string> {
         return JSON.stringify({
             memoryRevision: this.memoryRevision,
             systemRoot: this.systemRoot,
             userRoot: this.userRoot,
             system: inventory.system,
             user: inventory.user,
+            profileModuleDependencies: await this.profileModuleDependencySignatures(inventory),
         });
+    }
+
+    private async profileModuleDependencySignatures(inventory: ProfileInventory): Promise<unknown[]> {
+        const files = [...inventory.system, ...inventory.user].filter((entry) => /\.(tsx|ts)$/.test(entry.file));
+        if (files.length === 0) {
+            return [];
+        }
+        const tsconfigPath = resolve(process.cwd(), "tsconfig.json");
+        const tsconfigBytes = await readFile(tsconfigPath);
+        return Promise.all(files.map((entry) => profileModuleDependencySignature(entry.file, this.moduleCacheRoot, tsconfigBytes)));
     }
 
     private async importProfile(entry: ProfileFileEntry): Promise<AgentProfile> {
@@ -253,18 +297,22 @@ export class AgentProfileCatalog {
     }
 
     private async importTsModule(moduleUrl: string): Promise<unknown> {
+        if (/\.(tsx|ts)(?:[?#]|$)/.test(moduleUrl)) {
+            return this.importTsx(moduleUrl);
+        }
         try {
             return await import(moduleUrl);
         } catch (error) {
             if (!this.shouldFallbackToTsx(error)) {
                 throw error;
             }
-            const {tsImport} = await import("tsx/esm/api");
-            return tsImport(moduleUrl, {
-                parentURL: import.meta.url,
-                tsconfig: resolve(process.cwd(), "tsconfig.json"),
-            });
+            return this.importTsx(moduleUrl);
         }
+    }
+
+    private async importTsx(moduleUrl: string): Promise<unknown> {
+        const compiledModuleUrl = await compileProfileModule(moduleUrl, this.moduleCacheRoot);
+        return import(compiledModuleUrl);
     }
 
     private shouldFallbackToTsx(error: unknown): boolean {
@@ -354,8 +402,240 @@ export class AgentProfileCatalog {
     }
 
     private issueIsFatal(issue: AgentProfileIssue | undefined): boolean {
-        return Boolean(issue && issue.code !== "filename_mismatch" && issue.code !== "builtin_schema_locked");
+        return Boolean(issue && issue.code !== "filename_mismatch" && issue.code !== "builtin_schema_locked" && issue.code !== "system_profile_shadowed");
     }
+
+    private async readProfileShadowWarnings(userFiles: ProfileFileEntry[]): Promise<ProfileShadowWarning[]> {
+        const metadata = await readSystemProfileMetadata();
+        if (metadata.profiles.length === 0) {
+            return [];
+        }
+        const warnings: ProfileShadowWarning[] = [];
+        for (const item of metadata.profiles) {
+            const userFile = userFiles.find((file) => this.relativeProfilePath(file.file, this.userRoot) === item.fileName);
+            if (!userFile) {
+                continue;
+            }
+            const userHash = await sha256File(userFile.file);
+            if (userHash.sha256 === item.sha256) {
+                continue;
+            }
+            warnings.push({
+                fileName: item.fileName,
+                profileKey: item.profileKey,
+                issue: {
+                    code: "system_profile_shadowed",
+                    message: `系统 profile ${item.profileKey} 与用户覆盖不同；运行时使用用户覆盖，系统更新不会自动覆盖手改内容。`,
+                    profileKey: item.profileKey,
+                    source: "user",
+                    sourcePath: userFile.file,
+                },
+            });
+        }
+        return warnings;
+    }
+
+    private relativeProfilePath(sourcePath: string, root: string): string {
+        return sourcePath.slice(root.length).replace(/^[\\/]+/, "").split(/[\\/]+/).join("/");
+    }
+}
+
+async function compileProfileModule(moduleUrl: string, moduleCacheRoot: string): Promise<string> {
+    const sourceUrl = new URL(moduleUrl);
+    const sourcePath = fileURLToPath(sourceUrl);
+    const sourceBytes = await readFile(sourcePath);
+    const tsconfigPath = resolve(process.cwd(), "tsconfig.json");
+    const tsconfigBytes = await readFile(tsconfigPath);
+    const entryHash = hashProfileModuleEntry(sourcePath, sourceBytes, tsconfigBytes);
+    await mkdir(moduleCacheRoot, {recursive: true});
+
+    const manifestPath = resolve(moduleCacheRoot, `${entryHash}.deps.json`);
+    const cached = await readProfileModuleCacheManifest(manifestPath);
+    const cachedHash = cached ? await validateProfileModuleCache(cached, moduleCacheRoot) : null;
+    if (cachedHash) {
+        return `${pathToFileURL(resolve(moduleCacheRoot, `${cachedHash}.mjs`)).href}?profile=${cachedHash}`;
+    }
+
+    const temporaryOutputPath = resolve(moduleCacheRoot, `${entryHash}.${randomUUID()}.building.mjs`);
+    let temporaryMoved = false;
+    try {
+        const result = await build({
+            absWorkingDir: process.cwd(),
+            bundle: true,
+            entryPoints: [sourcePath],
+            format: "esm",
+            jsx: "automatic",
+            jsxImportSource: "nbook/server/agent/profiles/profile-dsl",
+            logLevel: "silent",
+            metafile: true,
+            outfile: temporaryOutputPath,
+            packages: "external",
+            platform: "node",
+            target: "esnext",
+            tsconfig: tsconfigPath,
+        });
+        if (!result.metafile) {
+            throw new Error(`profile ${sourcePath} 编译缺少 esbuild metafile。`);
+        }
+        const dependencies = await readProfileModuleDependencies(result.metafile, tsconfigPath);
+        const outputHash = hashProfileModuleDependencies(sourcePath, dependencies);
+        const outputPath = resolve(moduleCacheRoot, `${outputHash}.mjs`);
+        temporaryMoved = await promoteProfileModuleOutput(temporaryOutputPath, outputPath);
+        await writeFile(manifestPath, `${JSON.stringify({
+            version: PROFILE_MODULE_CACHE_VERSION,
+            outputHash,
+            dependencies,
+        } satisfies ProfileModuleCacheManifest, null, 2)}\n`, "utf8");
+        return `${pathToFileURL(outputPath).href}?profile=${outputHash}`;
+    } finally {
+        if (!temporaryMoved) {
+            await rm(temporaryOutputPath, {force: true});
+        }
+    }
+}
+
+async function profileModuleDependencySignature(sourcePath: string, moduleCacheRoot: string, tsconfigBytes: Buffer): Promise<unknown> {
+    const sourceBytes = await readFile(sourcePath);
+    const entryHash = hashProfileModuleEntry(sourcePath, sourceBytes, tsconfigBytes);
+    const manifest = await readProfileModuleCacheManifest(resolve(moduleCacheRoot, `${entryHash}.deps.json`));
+    if (!manifest) {
+        return {
+            entry: normalizeProfileModuleCachePath(sourcePath),
+            entryHash,
+            dependencies: null,
+        };
+    }
+    const dependencies = await Promise.all(manifest.dependencies.map(async (dependency) => {
+        const current = await hashProfileModuleDependency(dependency.path).catch(() => null);
+        return current ?? {
+            path: dependency.path,
+            sha256: "missing",
+            bytes: -1,
+        };
+    }));
+    return {
+        entry: normalizeProfileModuleCachePath(sourcePath),
+        entryHash,
+        outputHash: manifest.outputHash,
+        dependencies,
+    };
+}
+
+async function readProfileModuleCacheManifest(manifestPath: string): Promise<ProfileModuleCacheManifest | null> {
+    try {
+        const value = JSON.parse(await readFile(manifestPath, "utf8")) as unknown;
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+            return null;
+        }
+        const record = value as Record<string, unknown>;
+        if (record.version !== PROFILE_MODULE_CACHE_VERSION || typeof record.outputHash !== "string" || !Array.isArray(record.dependencies)) {
+            return null;
+        }
+        const dependencies = record.dependencies.flatMap((item): ProfileModuleCacheDependency[] => {
+            if (!item || typeof item !== "object" || Array.isArray(item)) {
+                return [];
+            }
+            const dependency = item as Record<string, unknown>;
+            return typeof dependency.path === "string" && typeof dependency.sha256 === "string" && typeof dependency.bytes === "number"
+                ? [{
+                    path: dependency.path,
+                    sha256: dependency.sha256,
+                    bytes: dependency.bytes,
+                }]
+                : [];
+        });
+        return dependencies.length === record.dependencies.length
+            ? {
+                version: PROFILE_MODULE_CACHE_VERSION,
+                outputHash: record.outputHash,
+                dependencies,
+            }
+            : null;
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return null;
+        }
+        throw error;
+    }
+}
+
+async function validateProfileModuleCache(manifest: ProfileModuleCacheManifest, moduleCacheRoot: string): Promise<string | null> {
+    if (!/^[0-9a-f]{24}$/.test(manifest.outputHash) || !existsSync(resolve(moduleCacheRoot, `${manifest.outputHash}.mjs`))) {
+        return null;
+    }
+    for (const dependency of manifest.dependencies) {
+        const current = await hashProfileModuleDependency(dependency.path).catch(() => null);
+        if (!current || current.sha256 !== dependency.sha256 || current.bytes !== dependency.bytes) {
+            return null;
+        }
+    }
+    return manifest.outputHash;
+}
+
+async function promoteProfileModuleOutput(temporaryOutputPath: string, outputPath: string): Promise<boolean> {
+    if (existsSync(outputPath)) {
+        return false;
+    }
+    try {
+        await rename(temporaryOutputPath, outputPath);
+        return true;
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST") {
+            return false;
+        }
+        throw error;
+    }
+}
+
+async function readProfileModuleDependencies(metafile: Metafile, tsconfigPath: string): Promise<ProfileModuleCacheDependency[]> {
+    const paths = new Set<string>([tsconfigPath]);
+    for (const inputPath of Object.keys(metafile.inputs)) {
+        if (!inputPath.startsWith("<")) {
+            paths.add(resolve(process.cwd(), inputPath));
+        }
+    }
+    const dependencies = await Promise.all([...paths].sort((left, right) => left.localeCompare(right)).map(hashProfileModuleDependency));
+    return dependencies.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+async function hashProfileModuleDependency(filePath: string): Promise<ProfileModuleCacheDependency> {
+    const bytes = await readFile(filePath);
+    return {
+        path: normalizeProfileModuleCachePath(filePath),
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+        bytes: bytes.byteLength,
+    };
+}
+
+function hashProfileModuleDependencies(sourcePath: string, dependencies: ProfileModuleCacheDependency[]): string {
+    const hash = createHash("sha256")
+        .update("profile-module-cache")
+        .update("\0")
+        .update(normalizeProfileModuleCachePath(sourcePath));
+    for (const dependency of dependencies) {
+        hash.update("\0")
+            .update(dependency.path)
+            .update("\0")
+            .update(dependency.sha256)
+            .update("\0")
+            .update(String(dependency.bytes));
+    }
+    return hash.digest("hex").slice(0, 24);
+}
+
+function hashProfileModuleEntry(sourcePath: string, sourceBytes: Buffer, tsconfigBytes: Buffer): string {
+    return createHash("sha256")
+        .update(sourceBytes)
+        .update("\0")
+        .update(sourcePath)
+        .update("\0")
+        .update(tsconfigBytes)
+        .digest("hex")
+        .slice(0, 24);
+}
+
+function normalizeProfileModuleCachePath(filePath: string): string {
+    return resolve(filePath).split(/[\\/]+/).join("/");
 }
 
 class ProfileCatalogError extends Error {

@@ -1,13 +1,9 @@
 <script setup lang="ts">
 import type {AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
-import {z} from "zod";
-import {RequestUserInputToolArgsSchema, RequestUserInputToolAnswerSchema} from "nbook/app/components/novel-ide/agent/agent-message";
+import {RequestUserInputToolArgsSchema, deriveRequestUserInputAnswerViews} from "nbook/app/components/novel-ide/agent/agent-message";
 
-const NONE_OF_ABOVE_OPTION_INDEX = -1;
-const RequestUserInputToolRawResultSchema = z.object({
-    answers: z.array(RequestUserInputToolAnswerSchema),
-});
+const DEFAULT_QUESTION_OPTIONS: Array<{label: string; description?: string; recommended?: boolean}> = [];
 
 const props = defineProps<{
     toolCall: AgentToolCall;
@@ -18,18 +14,6 @@ const userInputContext = inject(AGENT_REQUEST_USER_INPUT_CONTEXT_KEY, null);
 const parsedArgs = computed(() => {
     try {
         return RequestUserInputToolArgsSchema.parse(JSON.parse(props.toolCall.argsJson ?? props.toolCall.argsText));
-    } catch {
-        return null;
-    }
-});
-
-const parsedAnswer = computed(() => {
-    try {
-        const parsed = RequestUserInputToolRawResultSchema.safeParse(props.toolCall.rawResult);
-        if (parsed.success) {
-            return parsed.data.answers[0] ?? null;
-        }
-        return RequestUserInputToolAnswerSchema.parse(props.toolCall.rawResult);
     } catch {
         return null;
     }
@@ -69,7 +53,14 @@ const questionText = computed(() => {
  * 当前问题选项。
  */
 const questionOptions = computed(() => {
-    return pendingQuestion.value?.options ?? parsedArgs.value?.questions[0]?.options ?? [];
+    return pendingQuestion.value?.options ?? parsedArgs.value?.questions[0]?.options ?? DEFAULT_QUESTION_OPTIONS;
+});
+
+const answerViews = computed(() => {
+    return deriveRequestUserInputAnswerViews(parsedArgs.value, props.toolCall.rawResult, {
+        fallbackQuestion: pendingQuestion.value,
+        otherLabel: isExitPlanModeApproval.value ? "追加建议" : "其他答案",
+    });
 });
 
 /**
@@ -77,27 +68,6 @@ const questionOptions = computed(() => {
  */
 const toolArgsText = computed(() => {
     return props.toolCall.argsJson ?? props.toolCall.argsText;
-});
-
-const selectedLabel = computed(() => {
-    if (!parsedAnswer.value) {
-        return "";
-    }
-    if (parsedAnswer.value.ignored) {
-        return "已忽略";
-    }
-    if (parsedAnswer.value.selectedOptionIndex === NONE_OF_ABOVE_OPTION_INDEX) {
-        return isExitPlanModeApproval.value ? "追加建议" : "其他答案";
-    }
-    if (parsedAnswer.value.selectedOptionIndexes?.length) {
-        return parsedAnswer.value.selectedOptionIndexes.map((optionIndex) => optionIndex === NONE_OF_ABOVE_OPTION_INDEX
-            ? isExitPlanModeApproval.value ? "追加建议" : "其他答案"
-            : questionOptions.value[optionIndex]?.label ?? String(optionIndex)).join("、");
-    }
-    if (parsedAnswer.value.selectedOptionIndex === undefined) {
-        return "开放回答";
-    }
-    return questionOptions.value[parsedAnswer.value.selectedOptionIndex]?.label ?? String(parsedAnswer.value.selectedOptionIndex);
 });
 </script>
 
@@ -139,7 +109,7 @@ const selectedLabel = computed(() => {
 
         <div
             class="rounded-lg p-3"
-            :class="isPendingQuestion ? 'border border-amber-500/30 bg-amber-500/5' : parsedAnswer ? 'border border-emerald-500/20 bg-emerald-500/5' : 'border border-[var(--border-color)] bg-[var(--bg-main)]'"
+            :class="isPendingQuestion ? 'border border-amber-500/30 bg-amber-500/5' : answerViews.length > 0 ? 'border border-emerald-500/20 bg-emerald-500/5' : 'border border-[var(--border-color)] bg-[var(--bg-main)]'"
         >
             <div class="mb-1 text-[9px] uppercase tracking-[0.24em] text-[var(--text-muted)]">{{ isPlanModeApproval ? "Decision" : "Answer" }}</div>
 
@@ -148,13 +118,15 @@ const selectedLabel = computed(() => {
                 <span>{{ isPlanModeApproval ? "等待用户审批，请在输入框上方完成选择。" : "等待用户回答，请在输入框上方完成选择。" }}</span>
             </div>
 
-            <div v-else-if="parsedAnswer && parsedAnswer.selectedOptionIndex === undefined && !parsedAnswer.selectedOptionIndexes?.length && parsedAnswer.note" class="text-sm leading-6 text-[var(--text-main)]">
-                回答：{{ parsedAnswer.note }}
-            </div>
-
-            <div v-else-if="parsedAnswer" class="space-y-2">
-                <div class="text-sm text-[var(--text-main)]">选择：{{ selectedLabel }}</div>
-                <div v-if="parsedAnswer.note" class="text-xs leading-5 text-[var(--text-muted)]">备注：{{ parsedAnswer.note }}</div>
+            <div v-else-if="answerViews.length > 0" class="space-y-3">
+                <div v-for="answer in answerViews" :key="answer.questionIndex" class="space-y-1">
+                    <div v-if="answerViews.length > 1 && answer.question" class="text-xs leading-5 text-[var(--text-muted)]">{{ answer.questionIndex + 1 }}. {{ answer.question }}</div>
+                    <div v-if="answer.ignored" class="text-sm leading-6 text-[var(--text-main)]">已忽略</div>
+                    <div v-else-if="answer.openAnswer && answer.text" class="text-sm leading-6 text-[var(--text-main)]">回答：{{ answer.text }}</div>
+                    <div v-else-if="answer.openAnswer && answer.note" class="text-sm leading-6 text-[var(--text-main)]">回答：{{ answer.note }}</div>
+                    <div v-else class="text-sm text-[var(--text-main)]">选择：{{ answer.selectedLabel || "开放回答" }}</div>
+                    <div v-if="answer.note && !answer.openAnswer" class="text-xs leading-5 text-[var(--text-muted)]">备注：{{ answer.note }}</div>
+                </div>
             </div>
 
             <div v-else class="text-xs whitespace-pre-wrap break-all text-[var(--text-secondary)]">

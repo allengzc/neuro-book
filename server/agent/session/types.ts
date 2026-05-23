@@ -22,6 +22,8 @@ export type MessageSessionEntry = {
     timestamp: number;
     type: "message";
     message: Message;
+    /** 为空表示旧 entry 或手工追加；prompt 表示真实用户 prompt。 */
+    origin?: "prompt" | "harness" | "manual" | "ingest";
 };
 
 export type SessionUpdateEntry = {

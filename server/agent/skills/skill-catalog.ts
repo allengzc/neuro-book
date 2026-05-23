@@ -8,6 +8,7 @@ export type SkillCatalogItem = {
     key: string;
     name: string;
     description?: string;
+    whenToUse?: string;
     source: SkillCatalogSource;
     rootPath: string;
     skillPath: string;
@@ -63,6 +64,7 @@ export class SkillCatalog {
                 key: entry.name,
                 name: metadata.name ?? entry.name,
                 description: metadata.description,
+                whenToUse: metadata.whenToUse,
                 source,
                 rootPath,
                 skillPath,
@@ -81,7 +83,7 @@ export class SkillCatalog {
         return null;
     }
 
-    private readMetadata(source: string): {name?: string; description?: string} {
+    private readMetadata(source: string): {name?: string; description?: string; whenToUse?: string} {
         const frontmatter = source.match(/^---\r?\n(?<body>[\s\S]*?)\r?\n---/u)?.groups?.body;
         if (!frontmatter) {
             const heading = source.split(/\r?\n/).find((line) => line.trim().startsWith("# "))?.replace(/^#\s+/, "").trim();
@@ -89,14 +91,38 @@ export class SkillCatalog {
                 name: heading || undefined,
             };
         }
-        const metadata: {name?: string; description?: string} = {};
+        const metadata: {name?: string; description?: string; whenToUse?: string} = {};
+        let currentListKey: "when_to_use" | null = null;
+        const whenToUseItems: string[] = [];
         for (const line of frontmatter.split(/\r?\n/)) {
-            const match = line.match(/^(name|description):\s*(?<value>.*)$/u);
-            if (!match?.groups?.value) {
+            const listMatch = line.match(/^\s*-\s*(?<value>.+)$/u);
+            if (currentListKey === "when_to_use" && listMatch?.groups?.value) {
+                whenToUseItems.push(cleanYamlScalar(listMatch.groups.value));
                 continue;
             }
-            metadata[match[1] as "name" | "description"] = match.groups.value.replace(/^["']|["']$/g, "").trim();
+            currentListKey = null;
+            const match = line.match(/^(name|description|when_to_use):\s*(?<value>.*)$/u);
+            if (!match?.groups || !match[1]) {
+                continue;
+            }
+            const value = cleanYamlScalar(match.groups.value ?? "");
+            if (match[1] === "when_to_use") {
+                if (value) {
+                    metadata.whenToUse = value;
+                } else {
+                    currentListKey = "when_to_use";
+                }
+                continue;
+            }
+            metadata[match[1] as "name" | "description"] = value;
+        }
+        if (!metadata.whenToUse && whenToUseItems.length > 0) {
+            metadata.whenToUse = whenToUseItems.join("；");
         }
         return metadata;
     }
+}
+
+function cleanYamlScalar(value: string): string {
+    return value.replace(/^["']|["']$/g, "").trim();
 }
