@@ -11,9 +11,9 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {ModelChangeEntry, SessionEntry, SessionEntryId, SessionSnapshot} from "nbook/server/agent/session/types";
 import {SkillCatalog} from "nbook/server/agent/skills/skill-catalog";
 import {findPendingApprovalCall, resolutionToToolResult} from "nbook/server/agent/tools/approval";
-import {createBuiltinTools} from "nbook/server/agent/tools/builtin-tools";
+import {createBuiltinTools, createReportResultTool} from "nbook/server/agent/tools/builtin-tools";
 import {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
-import type {AgentResolution, ToolExecutionContext} from "nbook/server/agent/tools/types";
+import type {AgentResolution, NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {appendCompaction, compactIfNeeded} from "nbook/server/agent/harness/compaction";
 import {resolvePiApiKeyFromConfig, resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
 import {loadEffectiveConfigForWorkspaceRoot} from "nbook/server/config/config-service";
@@ -41,6 +41,7 @@ import type {
     AgentTreeRequestDto,
 } from "nbook/shared/dto/agent-session.dto";
 import {AgentSessionEventHub} from "nbook/server/agent/events/session-event-hub";
+import {isEmptyObjectSchema, reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 
 type HarnessOptions = {
     repo?: JsonlSessionRepository;
@@ -54,6 +55,7 @@ type HarnessOptions = {
 type RunToolBatchResult = {
     toolResults: ToolResultMessage[];
     reportResult?: InvokeAgentResult["reportResult"];
+    toolOverrides?: Record<string, NeuroAgentTool>;
     waiting?: {
         toolCallId: string;
         toolName: string;
@@ -217,6 +219,7 @@ export class NeuroAgentHarness {
                 model,
                 apiKey,
                 toolKeys: prepared.toolKeys ?? [],
+                profileKey: context.profileKey,
                 thinkingLevel: context.thinkingLevel,
                 abortSignal: abortController.signal,
                 invocationId,
@@ -298,6 +301,7 @@ export class NeuroAgentHarness {
                 model,
                 apiKey,
                 toolKeys: prepared.toolKeys ?? [],
+                profileKey: context.profileKey,
                 thinkingLevel: context.thinkingLevel,
             });
         }
@@ -528,11 +532,20 @@ export class NeuroAgentHarness {
     }
 
     /**
-     * 原子移动树分支，并可在移动后立即发起下一次 invoke。
+     * 移动树分支，并可在移动后立即发起下一次 invoke。
      */
     async moveTree(sessionId: number, body: AgentTreeRequestDto): Promise<AgentTreeResult> {
         this.assertSessionIdle(sessionId);
         const snapshot = await this.repo.readSession(sessionId);
+        if (body.position === "empty") {
+            await this.repo.moveLeaf(sessionId, null, snapshot.metadata.workspaceKey);
+            await this.publishSessionState(sessionId);
+            return {
+                status: "completed",
+                snapshot: await this.getSessionSnapshot(sessionId),
+            };
+        }
+        // TODO: 当前 next.invoke 失败时不会回滚 leaf；后续需要改成真正的原子 tree + invoke。
         await this.moveLeafForPosition(sessionId, body.targetEntryId, body.position, snapshot.metadata.workspaceKey);
         await this.publishSessionState(sessionId);
         if (body.next?.type === "invoke") {
@@ -739,6 +752,7 @@ export class NeuroAgentHarness {
         model: Model<any>;
         apiKey?: string;
         toolKeys: string[];
+        profileKey: string;
         thinkingLevel: string;
         abortSignal?: AbortSignal;
         invocationId?: string;
@@ -756,7 +770,8 @@ export class NeuroAgentHarness {
             this.publishPiEvent(input.sessionId, input.invocationId, event);
             await this.persistEvent(input.sessionId, input.workspaceKey, event);
         };
-        const visibleTools = this.tools.allowed(input.toolKeys);
+        const toolOverrides = await this.toolOverrides(input.toolKeys, input.profileKey);
+        const visibleTools = this.tools.allowedWithOverrides(input.toolKeys, toolOverrides);
         const messages = input.messages.slice();
         let reportResult: InvokeAgentResult["reportResult"] | undefined;
         let finalAssistant: AssistantMessage | undefined;
@@ -791,6 +806,7 @@ export class NeuroAgentHarness {
                 assistant,
                 toolCalls,
                 allowedToolKeys: input.toolKeys,
+                toolOverrides,
                 abortSignal: input.abortSignal,
                 emit,
             });
@@ -883,6 +899,7 @@ export class NeuroAgentHarness {
         assistant: AssistantMessage;
         toolCalls: AgentToolCall[];
         allowedToolKeys: string[];
+        toolOverrides: Record<string, NeuroAgentTool>;
         abortSignal?: AbortSignal;
         emit: (event: AgentEvent) => Promise<void>;
     }): Promise<RunToolBatchResult> {
@@ -934,6 +951,7 @@ export class NeuroAgentHarness {
                 workspaceKey: input.workspaceKey,
                 workspaceRoot: input.workspaceRoot,
                 allowedToolKeys: input.allowedToolKeys,
+                toolOverrides: input.toolOverrides,
                 abortSignal: input.abortSignal,
                 toolCall,
             });
@@ -991,13 +1009,14 @@ export class NeuroAgentHarness {
         workspaceKey: string;
         workspaceRoot: string;
         allowedToolKeys: string[];
+        toolOverrides: Record<string, NeuroAgentTool>;
         abortSignal?: AbortSignal;
         toolCall: AgentToolCall;
     }): Promise<{
         result: AgentToolResult<unknown>;
         isError: boolean;
     }> {
-        const tool = this.tools.get(input.toolCall.name);
+        const tool = input.toolOverrides[input.toolCall.name] ?? this.tools.get(input.toolCall.name);
         if (!tool) {
             return {
                 result: this.errorToolResult(`Tool ${input.toolCall.name} not found`),
@@ -1230,6 +1249,7 @@ export class NeuroAgentHarness {
             model: Model<any>;
             apiKey?: string;
             toolKeys: string[];
+            profileKey: string;
             thinkingLevel: string;
         },
     ): Promise<InvokeAgentResult> {
@@ -1250,6 +1270,7 @@ export class NeuroAgentHarness {
                 model: runInput.model,
                 apiKey: runInput.apiKey,
                 toolKeys: runInput.toolKeys,
+                profileKey: runInput.profileKey,
                 thinkingLevel: runInput.thinkingLevel,
                 invocationId,
                 onEvent: input.onEvent,
@@ -1320,13 +1341,29 @@ export class NeuroAgentHarness {
     }
 
     private readReportResult(details: unknown): InvokeAgentResult["reportResult"] | undefined {
-        if (!details || typeof details !== "object" || !("result" in details) || typeof (details as {result?: unknown}).result !== "string") {
+        if (!details || typeof details !== "object" || !("walkthrough" in details) || typeof (details as {walkthrough?: unknown}).walkthrough !== "string") {
             return undefined;
         }
         return {
-            result: (details as {result: string}).result,
-            success: typeof (details as {success?: unknown}).success === "boolean" ? (details as unknown as {success: boolean}).success : undefined,
+            result: (details as {walkthrough: string}).walkthrough,
             data: (details as {data?: unknown}).data,
+        };
+    }
+
+    /**
+     * 根据当前 profile 派生模型可见工具 schema 与执行校验。
+     */
+    private async toolOverrides(toolKeys: readonly string[], profileKey: string): Promise<Record<string, NeuroAgentTool>> {
+        if (!toolKeys.includes("report_result")) {
+            return {};
+        }
+        const profile = await this.profiles.get(profileKey);
+        const reportTool = createReportResultTool(
+            reportResultSchemaForProfile(profile),
+            isEmptyObjectSchema(profile.outputSchema) ? undefined : profile.outputSchema,
+        );
+        return {
+            report_result: reportTool,
         };
     }
 

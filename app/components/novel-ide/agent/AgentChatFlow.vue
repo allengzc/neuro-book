@@ -15,8 +15,8 @@ const props = defineProps<{
     messages: AgentMessage[];
     /** 是否正在执行中。 */
     running: boolean;
-    /** 模式区分。leader 显示空状态引导，subagent 显示简洁空状态。 */
-    mode: "leader" | "subagent";
+    /** 模式区分。main 显示空状态引导，compact 显示简洁空状态。 */
+    mode: "main" | "compact";
     /** 当前处于编辑态的消息 ID。 */
     editingMessageId?: string | null;
     /** 是否禁用消息工具栏动作。 */
@@ -184,8 +184,8 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
 
         <!-- 空状态 -->
         <div v-else class="flex h-full flex-col items-center justify-center space-y-6 px-4 text-center">
-            <!-- leader 模式空状态 -->
-            <template v-if="props.mode === 'leader'">
+            <!-- main 模式空状态 -->
+            <template v-if="props.mode === 'main'">
                 <div class="flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--border-color)] bg-[var(--bg-input)] shadow-sm">
                     <span class="i-lucide-bot h-6 w-6 text-[var(--text-muted)]"></span>
                 </div>
@@ -194,12 +194,12 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
                     <p class="text-sm leading-relaxed text-[var(--text-muted)]">你可以让我帮你设计角色、规划大纲，或者直接讨论接下来的剧情走向。</p>
                 </div>
             </template>
-            <!-- subagent 模式空状态 -->
+            <!-- compact 模式空状态 -->
             <template v-else>
                 <div class="flex h-8 w-8 items-center justify-center rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)]">
                     <span class="i-lucide-loader-circle h-4 w-4 animate-spin text-[var(--text-muted)]"></span>
                 </div>
-                <p class="text-xs text-[var(--text-muted)]">等待 Subagent 响应…</p>
+                <p class="text-xs text-[var(--text-muted)]">等待 Agent 响应…</p>
             </template>
         </div>
     </div>

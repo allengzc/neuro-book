@@ -5,51 +5,45 @@ const props = defineProps<{
     toolCall: AgentToolCall;
 }>();
 
-type CreateSubagentArgs = {
+type CreateAgentArgs = {
     profileKey?: string;
     title?: string;
 };
 
-type CreateSubagentResult = {
-    subagentThreadId?: string;
+type CreateAgentResult = {
+    sessionId?: number;
     profileKey?: string;
     title?: string;
 };
 
 /**
- * 解析 create_subagent 的调用参数。
+ * 解析 create_agent 的调用参数。
  */
-const args = computed<CreateSubagentArgs>(() => {
+const args = computed<CreateAgentArgs>(() => {
     try {
-        return JSON.parse(props.toolCall.argsJson ?? "{}") as CreateSubagentArgs;
+        return JSON.parse(props.toolCall.argsJson ?? "{}") as CreateAgentArgs;
     } catch {
         return {};
     }
 });
 
 /**
- * 解析 create_subagent 的返回结果。
+ * 解析 create_agent 的返回结果。
  */
-const result = computed<CreateSubagentResult>(() => {
+const result = computed<CreateAgentResult>(() => {
     try {
-        return JSON.parse(props.toolCall.result ?? "{}") as CreateSubagentResult;
+        return JSON.parse(props.toolCall.result ?? "{}") as CreateAgentResult;
     } catch {
         return {};
     }
 });
 
 /**
- * 人类可读的子智能体类型标签。
+ * 人类可读的 Agent 类型标签。
  */
 const profileLabel = computed(() => {
     const profileKey = result.value.profileKey ?? args.value.profileKey;
-    if (profileKey === "subagent.writer") {
-        return "Writer";
-    }
-    if (profileKey === "subagent.retrieval") {
-        return "Retrieval";
-    }
-    return "Unknown";
+    return profileKey ?? "Unknown";
 });
 
 /**
@@ -60,10 +54,10 @@ const title = computed(() => {
 });
 
 /**
- * 展示 threadId。优先取 result，其次复用已经解析过的 subagentThreadId。
+ * 展示 linked session ID。
  */
-const threadId = computed(() => {
-    return result.value.subagentThreadId ?? props.toolCall.subagentThreadId ?? "";
+const linkedSessionId = computed(() => {
+    return result.value.sessionId ?? props.toolCall.linkedSessionId ?? null;
 });
 
 /**
@@ -85,7 +79,7 @@ const statusLabel = computed(() => {
 </script>
 
 <template>
-    <!-- create_subagent 专用卡片 -->
+    <!-- create_agent 专用卡片 -->
     <div class="mt-2 space-y-3">
         <div class="rounded-xl border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
             <div class="flex items-center justify-between gap-3">
@@ -94,7 +88,7 @@ const statusLabel = computed(() => {
                         <span class="i-lucide-users h-4 w-4"></span>
                     </div>
                     <div class="min-w-0">
-                        <div class="text-sm font-medium text-[var(--text-main)]">创建子智能体</div>
+                        <div class="text-sm font-medium text-[var(--text-main)]">创建 Agent</div>
                         <div class="truncate text-[10px] uppercase tracking-[0.24em] text-[var(--text-muted)]">{{ statusLabel }}</div>
                     </div>
                 </div>
@@ -109,9 +103,9 @@ const statusLabel = computed(() => {
                     <span class="text-right text-[var(--text-main)]">{{ title }}</span>
                 </div>
                 <div class="flex items-start justify-between gap-3 rounded-lg border border-[var(--border-color)]/60 bg-[var(--bg-input)] px-3 py-2">
-                    <span class="shrink-0 text-[var(--text-muted)]">线程</span>
+                    <span class="shrink-0 text-[var(--text-muted)]">Session</span>
                     <span class="font-mono text-right text-[var(--text-main)]">
-                        {{ threadId ? `#${threadId.slice(-6)}` : "等待返回" }}
+                        {{ linkedSessionId ? `#${String(linkedSessionId).slice(-6)}` : "等待返回" }}
                     </span>
                 </div>
             </div>
@@ -121,7 +115,7 @@ const statusLabel = computed(() => {
             {{ props.toolCall.error }}
         </div>
 
-        <div v-if="!result.subagentThreadId && props.toolCall.result" class="rounded-lg border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
+        <div v-if="!result.sessionId && props.toolCall.result" class="rounded-lg border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
             <div class="mb-1 text-[9px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Raw Result</div>
             <div class="break-all whitespace-pre-wrap font-mono text-xs text-[var(--text-secondary)]">
                 {{ props.toolCall.result }}

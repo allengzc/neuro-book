@@ -71,7 +71,7 @@ const handleUserMenuSelect = (value: string): void => {
                 <div class="flex h-7 w-7 items-center justify-center rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] shadow-sm">
                     <span class="i-lucide-feather h-3.5 w-3.5 text-[var(--accent-text)]"></span>
                 </div>
-                <span class="text-[13px] font-bold tracking-[0.3em] uppercase">AI Writer</span>
+                <span class="text-[13px] font-bold tracking-[0.3em] uppercase">Neuro Book</span>
             </div>
             <div class="h-4 w-px bg-[var(--border-color)]"></div>
             <div v-if="!isUserAssetsMode" class="flex items-center gap-3 text-sm">
@@ -100,8 +100,8 @@ const handleUserMenuSelect = (value: string): void => {
                 <span class="i-lucide-folder-cog h-4 w-4 text-[var(--accent-text)]"></span>
                 <span>用户资产</span>
             </button>
-            <button v-if="isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" title="Profile 工作台" @click="emit('open-profile-workbench')">
-                <span class="i-lucide-square-code h-4 w-4 text-[var(--accent-text)]"></span>
+            <button v-if="isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" title="TSX Profile 工作台" @click="emit('open-profile-workbench')">
+                <span class="i-lucide-file-code-2 h-4 w-4 text-[var(--accent-text)]"></span>
                 <span>Profile</span>
             </button>
             <button

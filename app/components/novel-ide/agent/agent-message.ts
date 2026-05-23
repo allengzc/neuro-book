@@ -39,8 +39,6 @@ export type AgentToolCall = {
     rawResult?: unknown;
     /** invoke_agent 调度使用的 session ID。 */
     linkedSessionId?: number;
-    /** 兼容旧工具气泡字段。 */
-    subagentThreadId?: string;
     /** 所属 assistant 消息 ID。 */
     assistantMessageId?: string;
 };
@@ -53,6 +51,8 @@ export type AgentMessage = {
     type: MessageType;
     /** 仅 system 消息使用：用于区分首轮系统提示和运行时提醒。 */
     systemDisplayKind?: SystemMessageDisplayKind;
+    /** 系统消息可选标题，不存在时使用默认 System/System Reminder。 */
+    systemLabel?: string;
     content: string;
     html?: string;
     status?: MessageStatus;
@@ -255,7 +255,6 @@ export const mergeToolCalls = (nextToolCalls?: AgentToolCall[], previousToolCall
             result: toolCall.result ?? previous.result,
             rawResult: toolCall.rawResult ?? previous.rawResult,
             linkedSessionId: toolCall.linkedSessionId ?? previous.linkedSessionId,
-            subagentThreadId: toolCall.subagentThreadId ?? previous.subagentThreadId,
         };
     });
 
@@ -294,6 +293,34 @@ export const deriveMessagesFromSessionSnapshot = (snapshot: AgentSessionSnapshot
     const assistantByToolCallId = new Map<string, AgentMessage>();
 
     for (const entry of snapshot.entries) {
+        if (entry.type === "custom_message") {
+            messages.push(toCustomSessionMessage(entry));
+            continue;
+        }
+        if (entry.type === "compaction") {
+            messages.push({
+                id: entry.id,
+                type: "system",
+                systemDisplayKind: "system",
+                systemLabel: "Compaction",
+                content: entry.summary,
+                status: "done",
+                timestamp: formatTimestamp(entry.timestamp),
+            });
+            continue;
+        }
+        if (entry.type === "branch_summary") {
+            messages.push({
+                id: entry.id,
+                type: "system",
+                systemDisplayKind: "system",
+                systemLabel: "Branch Summary",
+                content: entry.summary,
+                status: "done",
+                timestamp: formatTimestamp(entry.timestamp),
+            });
+            continue;
+        }
         if (entry.type !== "message") {
             continue;
         }
@@ -316,6 +343,29 @@ export const deriveMessagesFromSessionSnapshot = (snapshot: AgentSessionSnapshot
     }
 
     return messages;
+};
+
+const toCustomSessionMessage = (entry: AgentSessionSnapshotDto["entries"][number] & {type: "custom_message"}): AgentMessage => {
+    const message = entry.message as unknown as Record<string, unknown>;
+    const content = customMessageText(message);
+    const customType = typeof message.customType === "string"
+        ? message.customType
+        : typeof message.role === "string"
+            ? message.role
+            : "custom";
+    const isReminder = customType === "system-reminder"
+        || customType === "reminder"
+        || content.includes("<system-reminder>");
+
+    return {
+        id: entry.id,
+        type: "system",
+        systemDisplayKind: isReminder ? "reminder" : "system",
+        systemLabel: isReminder ? "System Reminder" : `Custom: ${customType}`,
+        content,
+        status: "done",
+        timestamp: formatTimestamp(entry.timestamp),
+    };
 };
 
 /**
@@ -493,6 +543,29 @@ const messageContentText = (message: PiMessage): string => {
     return message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
 };
 
+const customMessageText = (message: Record<string, unknown>): string => {
+    const content = message.content;
+    if (typeof content === "string") {
+        return content;
+    }
+    if (Array.isArray(content)) {
+        return content
+            .filter((block): block is {type?: string; text?: string} => Boolean(block) && typeof block === "object")
+            .filter((block) => block.type === "text")
+            .map((block) => block.text ?? "")
+            .join("\n");
+    }
+    const details = message.details;
+    if (typeof details === "string") {
+        return details;
+    }
+    try {
+        return JSON.stringify(message, null, 2);
+    } catch {
+        return String(message.role ?? "custom message");
+    }
+};
+
 const resolveLiveMessageId = (message: PiAgentMessage): string => {
     if (message.role === "toolResult") {
         return `tool-result:${message.toolCallId}:${String(message.timestamp)}`;
@@ -512,7 +585,6 @@ const toLocalToolCall = (toolCall: PiAgentToolCall, index: number, assistantMess
         argsJson: toStableArgsJson(argsText),
         status: "streaming",
         linkedSessionId,
-        subagentThreadId: linkedSessionId ? String(linkedSessionId) : undefined,
     };
 };
 
@@ -533,7 +605,6 @@ const upsertToolResult = (assistant: AgentMessage, toolResult: ToolResultMessage
         rawResult: toolResult.details,
         linkedSessionId: extractLinkedSessionId(toolResult.details),
     };
-    nextToolCall.subagentThreadId = nextToolCall.linkedSessionId ? String(nextToolCall.linkedSessionId) : undefined;
     if (index >= 0) {
         toolCalls[index] = {
             ...toolCalls[index],

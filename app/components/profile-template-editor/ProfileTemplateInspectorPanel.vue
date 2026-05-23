@@ -211,11 +211,7 @@ function toSchemaFieldDto(field: SchemaFieldDraft): AgentProfileSchemaFieldDto {
         result.enumValues = field.enumValuesText.split("\n").map((item) => item.trim()).filter(Boolean);
     }
     if (field.type === "array") {
-        result.item = {
-            name: "item",
-            type: field.itemType,
-            required: true,
-        };
+        result.itemType = field.itemType === "array" ? "string" : field.itemType;
     }
     return result;
 }
@@ -393,40 +389,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
                 </div>
                 <div v-if="props.profileDetail" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 p-3 text-xs leading-5 text-[var(--text-secondary)]">
                     <div class="mb-2 flex items-center justify-between gap-2">
-                        <div class="font-semibold text-[var(--text-main)]">Schema Builder</div>
+                        <div class="font-semibold text-[var(--text-main)]">TypeBox Schema</div>
                         <FormSelect v-model="editingSchemaName" class="w-36" :options="[{value: 'InputSchema', label: 'InputSchema'}, {value: 'OutputSchema', label: 'OutputSchema'}]" />
                     </div>
                     <div class="mb-3 text-[11px] text-[var(--text-muted)]">
                         {{ editingSchemaName === "InputSchema" ? props.profileDetail.inputSchema.reason : props.profileDetail.outputSchema.reason }}
                     </div>
-                    <div class="space-y-2">
-                        <div v-for="(field, index) in schemaFields" :key="index" class="schema-field-row">
-                            <div class="grid grid-cols-[minmax(0,1fr)_108px_74px_28px] gap-2">
-                                <FormInput v-model="field.name" placeholder="字段名" />
-                                <FormSelect v-model="field.type" :options="schemaTypeOptions" />
-                                <FormCheckbox v-model="field.required" label="必填" />
-                                <button type="button" class="schema-icon-btn" title="删除字段" @click="removeSchemaField(index)">
-                                    <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
-                                </button>
-                            </div>
-                            <FormInput v-model="field.description" placeholder="description，可选" />
-                            <FormTextarea v-if="field.type === 'enum'" v-model="field.enumValuesText" :rows="2" placeholder="enum 选项，每行一个" />
-                            <div v-if="field.type === 'array'" class="grid grid-cols-[80px_minmax(0,1fr)] items-center gap-2">
-                                <span class="text-[11px] text-[var(--text-muted)]">item</span>
-                                <FormSelect v-model="field.itemType" :options="schemaTypeOptions.filter((item) => item.value !== 'array' && item.value !== 'object')" />
-                            </div>
-                            <FormInput v-model="field.defaultValueText" placeholder="default，可选。支持 JSON 或裸字符串" />
-                        </div>
-                    </div>
-                    <div class="mt-3 flex items-center justify-between gap-2">
-                        <button type="button" class="schema-action-btn" @click="addSchemaField">
-                            <span class="i-lucide-plus h-3.5 w-3.5"></span>
-                            添加字段
-                        </button>
-                        <button type="button" class="schema-action-btn primary" :disabled="!canSaveSchema()" @click="saveSchemaDraft">
-                            <span class="i-lucide-save h-3.5 w-3.5"></span>
-                            保存 Schema
-                        </button>
+                    <pre v-if="editingSchemaName === 'InputSchema' ? props.profileDetail.inputSchema.jsonSchema : props.profileDetail.outputSchema.jsonSchema" class="schema-preview">{{ JSON.stringify(editingSchemaName === "InputSchema" ? props.profileDetail.inputSchema.jsonSchema : props.profileDetail.outputSchema.jsonSchema, null, 2) }}</pre>
+                    <div class="mt-3 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 text-[11px] text-[var(--text-muted)]">
+                        TypeBox Schema Builder 第一版暂不写回；请在源码面板中编辑 `InputSchema` / `OutputSchema`。
                     </div>
                 </div>
             </div>

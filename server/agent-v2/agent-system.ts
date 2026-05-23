@@ -92,7 +92,7 @@ import {
     type ThreadSummary,
     type LiveToolState,
 } from "nbook/server/agent/types";
-import {RequestUserInputToolAnswerSchema, RequestUserInputToolArgsSchema} from "nbook/shared/dto/agent-chat.dto";
+import {RequestUserInputToolAnswerSchema, RequestUserInputToolArgsSchema} from "nbook/server/agent-v2/dto/agent-chat.dto";
 import {z} from "zod";
 
 const EMPTY_RUN_OPTIONS: RunOptions = {};

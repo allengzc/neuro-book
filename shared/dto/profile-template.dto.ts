@@ -123,7 +123,7 @@ export const UserProfileTemplateFileRequestDtoSchema = z.object({
  */
 export const CreateUserProfileTemplateRequestDtoSchema = z.object({
     profileKey: z.string().trim().min(1),
-    kind: z.enum(["leader", "subagent"]),
+    kind: z.enum(["basic", "report"]),
     name: z.string().trim().min(1),
     description: z.string().trim().min(1).optional(),
     prompt: z.string().trim().min(1),

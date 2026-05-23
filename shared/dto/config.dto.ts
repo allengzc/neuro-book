@@ -90,7 +90,6 @@ export const ConfigAgentProfileSettingsDtoSchema = z.object({
     agentProfiles: z.array(z.object({
         profileKey: ProfileKeySchema,
         name: z.string().trim().min(1),
-        kind: z.enum(["leader", "subagent"]),
         model: AgentProfileModelConfigDtoSchema,
     })).default([]),
 });

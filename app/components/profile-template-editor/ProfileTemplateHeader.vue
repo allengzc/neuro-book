@@ -18,6 +18,7 @@ const props = defineProps<{
     issueCount: number;
     restoreEnabled?: boolean;
     createEnabled?: boolean;
+    runEnabled?: boolean;
     allowSaveWithIssues?: boolean;
     restoring?: boolean;
     closable?: boolean;
@@ -31,6 +32,7 @@ const emit = defineEmits<{
     (e: "validate"): void;
     (e: "restore"): void;
     (e: "create"): void;
+    (e: "run"): void;
     (e: "save"): void;
     (e: "close"): void;
 }>();
@@ -78,6 +80,10 @@ const emit = defineEmits<{
             <button v-if="props.createEnabled" class="toolbar-btn" :disabled="props.saving" @click="emit('create')">
                 <span class="i-lucide-file-plus-2 h-3.5 w-3.5"></span>
                 <span>新建</span>
+            </button>
+            <button v-if="props.runEnabled" class="toolbar-btn" :disabled="props.saving || props.issueCount > 0" @click="emit('run')">
+                <span class="i-lucide-message-circle-plus h-3.5 w-3.5"></span>
+                <span>创建 Session</span>
             </button>
             <button class="toolbar-btn primary" :disabled="props.saving || props.parsingSource || !props.sourceText || (!props.allowSaveWithIssues && props.issueCount > 0)" @click="emit('save')">
                 <span class="i-lucide-save h-3.5 w-3.5"></span>

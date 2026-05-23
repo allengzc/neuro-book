@@ -23,7 +23,7 @@ import type {
     GlobalConfigDto,
     ProjectConfigDto,
 } from "nbook/shared/dto/config.dto";
-import type {ConfiguredAgentProfileDto, ModelProviderAdapter} from "nbook/shared/dto/app-settings.dto";
+import type {ModelProviderAdapter} from "nbook/shared/dto/app-settings.dto";
 import {CONFIG_REGISTRY, CONFIG_VERSION} from "nbook/server/config/registry";
 import {
     normalizeAgentProfileModelConfig,
@@ -88,7 +88,6 @@ export async function readConfigEditorSnapshot(
         agentProfileSettings: buildConfigAgentProfileSettingsDto(effective, catalog.profiles.map((profile) => ({
             profileKey: profile.key,
             name: profile.name,
-            kind: profile.key.startsWith("subagent.") ? "subagent" : "leader",
         }))),
         defaultProfileSettings: buildDefaultProfileSettingsDto({
             workspaceKind: target.workspaceKind,
@@ -300,14 +299,13 @@ function buildConfigModelSettingsDto(effective: EffectiveConfig): ConfigModelSet
 
 function buildConfigAgentProfileSettingsDto(
     effective: EffectiveConfig,
-    profileDefinitions: Array<Pick<ConfiguredAgentProfileDto, "profileKey" | "name" | "kind">>,
+    profileDefinitions: Array<{profileKey: string; name: string}>,
 ): ConfigAgentProfileSettingsDto {
     return {
         enabledModels: listEnabledModels(effective.models),
         agentProfiles: profileDefinitions.map((definition) => ({
             profileKey: definition.profileKey,
             name: definition.name,
-            kind: definition.kind,
             model: normalizeAgentProfileModelConfig(effective.agent.profiles[definition.profileKey]?.model),
         })),
     };

@@ -1,3 +1,5 @@
+import {createError} from "h3";
+
 /**
  * 旧 Agent v2 HTTP API 已在 Pi Agent Harness 迁移中移除。
  */

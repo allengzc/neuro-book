@@ -4,7 +4,7 @@
 
 用户维护 skill 或其他可覆盖 assets 时，不应修改仓库源码。系统需要提供一个全局用户 assets 目录，并让前端复用现有 Novel IDE 文件树、tab、Markdown/Monaco 编辑器和保存冲突处理。
 
-> 迁移提示：本文记录的是第一阶段已经完成的 `workspace/.nbook/assets` 方案。Pi Agent Harness 迁移讨论中已决定重新评估用户资产工作区根目录，倾向让 `workspace` 直接作为全局用户工作区；用户覆盖根改为 `workspace/.nbook`，系统资源根改为 `assets/.nbook`。Agent profile / skill 放到 `.nbook/agent/...`，workspace 模板放到 `.nbook/assets/templates/...`。后续迁移计划以 `docs/tasks/pi-agent-harness-migration/README.md` 为准。
+> 迁移提示：本文记录的是较早的 `workspace/.nbook/assets` 方案和旧低代码 Profile 工作台设想。当前 user-assets 稳定形态已经改为直接挂载 `workspace/.nbook`，系统资源根是 `assets/workspace/.nbook`，Agent profile / skill 放到 `.nbook/agent/...`，workspace 模板放到 `.nbook/templates/...`。TSX Profile Workbench 的当前计划以 `docs/tasks/tsx-profile-workbench/README.md` 为准；旧正文中的 Zod Schema Builder、`profile-templates` / `user-profile-templates` API、`leader/subagent` 新建限制和 profile 可见性方案不再代表当前计划。Pi Agent runtime 和 assets root 以 `docs/tasks/pi-agent-harness-migration/README.md` 与 `spec/workspace/TERMS.md` 为准。
 
 ## 决策
 

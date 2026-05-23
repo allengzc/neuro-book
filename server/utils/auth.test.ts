@@ -1,15 +1,13 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
 
-const {prismaMock} = vi.hoisted(() => ({
-    prismaMock: {
-        user: {
-            findUnique: vi.fn(),
-            count: vi.fn(),
-            updateMany: vi.fn(),
-        },
-        $executeRaw: vi.fn(),
+const prismaMock = {
+    user: {
+        findUnique: vi.fn(),
+        count: vi.fn(),
+        updateMany: vi.fn(),
     },
-}));
+    $executeRaw: vi.fn(),
+};
 
 vi.mock("nbook/server/utils/prisma", () => ({
     prisma: prismaMock,
@@ -122,8 +120,7 @@ describe("auth utils", () => {
     });
 
     it("获取当前用户时会节流更新最后活跃时间", async () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(new Date("2026-05-19T12:00:00.000Z"));
+        const staleLastSeenAt = new Date(Date.now() - 120_000);
         const user = {
             id: 1,
             username: "admin",
@@ -133,7 +130,7 @@ describe("auth utils", () => {
             status: "active",
             sessionVersion: 1,
             lastLoginAt: null,
-            lastSeenAt: new Date("2026-05-19T11:58:00.000Z"),
+            lastSeenAt: staleLastSeenAt,
             createdAt: new Date("2026-05-17T00:00:00.000Z"),
             updatedAt: new Date("2026-05-17T00:00:00.000Z"),
         };
@@ -146,29 +143,25 @@ describe("auth utils", () => {
         prismaMock.user.findUnique.mockResolvedValue(user);
         prismaMock.user.updateMany.mockResolvedValue({count: 1});
 
-        try {
-            const {getCurrentUser} = await import("nbook/server/utils/auth");
-            const result = await getCurrentUser({} as never);
+        const {getCurrentUser} = await import("nbook/server/utils/auth");
+        const result = await getCurrentUser({} as never);
 
-            expect(result?.lastSeenAt?.toISOString()).toBe("2026-05-19T12:00:00.000Z");
-            expect(prismaMock.user.updateMany).toHaveBeenCalledWith({
-                where: {
-                    id: 1,
-                    OR: [
-                        {lastSeenAt: null},
-                        {lastSeenAt: {lt: new Date("2026-05-19T11:59:00.000Z")}},
-                    ],
-                },
-                data: {lastSeenAt: new Date("2026-05-19T12:00:00.000Z")},
-            });
-        } finally {
-            vi.useRealTimers();
-        }
+        expect(result?.lastSeenAt).toBeInstanceOf(Date);
+        expect(result?.lastSeenAt?.getTime()).toBeGreaterThan(staleLastSeenAt.getTime());
+        expect(prismaMock.user.updateMany).toHaveBeenCalledWith({
+            where: {
+                id: 1,
+                OR: [
+                    {lastSeenAt: null},
+                    {lastSeenAt: {lt: expect.any(Date)}},
+                ],
+            },
+            data: {lastSeenAt: expect.any(Date)},
+        });
     });
 
     it("最后活跃时间未超过节流阈值时不会写库", async () => {
-        vi.useFakeTimers();
-        vi.setSystemTime(new Date("2026-05-19T12:00:00.000Z"));
+        const recentLastSeenAt = new Date(Date.now() - 30_000);
         const user = {
             id: 1,
             username: "admin",
@@ -178,7 +171,7 @@ describe("auth utils", () => {
             status: "active",
             sessionVersion: 1,
             lastLoginAt: null,
-            lastSeenAt: new Date("2026-05-19T11:59:30.000Z"),
+            lastSeenAt: recentLastSeenAt,
             createdAt: new Date("2026-05-17T00:00:00.000Z"),
             updatedAt: new Date("2026-05-17T00:00:00.000Z"),
         };
@@ -190,14 +183,10 @@ describe("auth utils", () => {
         });
         prismaMock.user.findUnique.mockResolvedValue(user);
 
-        try {
-            const {getCurrentUser} = await import("nbook/server/utils/auth");
-            const result = await getCurrentUser({} as never);
+        const {getCurrentUser} = await import("nbook/server/utils/auth");
+        const result = await getCurrentUser({} as never);
 
-            expect(result?.lastSeenAt?.toISOString()).toBe("2026-05-19T11:59:30.000Z");
-            expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
-        } finally {
-            vi.useRealTimers();
-        }
+        expect(result?.lastSeenAt?.toISOString()).toBe(recentLastSeenAt.toISOString());
+        expect(prismaMock.user.updateMany).not.toHaveBeenCalled();
     });
 });

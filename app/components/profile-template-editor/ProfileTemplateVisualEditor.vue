@@ -81,6 +81,8 @@ import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import type {
     AgentProfileCatalogItemDto,
     AgentProfileDetailDto,
+    AgentProfileFileItemDto,
+    AgentProfileIssueDto,
     AgentProfilePreparePreviewDto,
     AgentProfileSchemaFieldDto,
 } from "nbook/shared/dto/agent-profile.dto";
@@ -133,10 +135,15 @@ type HistoryEntry = {
 
 type NewProfileForm = {
     profileKey: string;
-    kind: "leader" | "subagent";
+    kind: "basic" | "report";
     name: string;
     description: string;
     prompt: string;
+};
+
+type ProfileValidationResult = {
+    detail: AgentProfileDetailDto;
+    preview: AgentProfilePreparePreviewDto | null;
 };
 
 const props = withDefaults(defineProps<{
@@ -167,6 +174,7 @@ const {mountThemeHost} = useIdeTheme(theme);
 
 const templates = ref<ProfileTemplateSummaryDto[]>([]);
 const profileCatalog = ref<AgentProfileCatalogItemDto[]>([]);
+const profileFiles = ref<AgentProfileFileItemDto[]>([]);
 const selectedTemplate = ref(props.preferredTemplate || (props.mode === "user-profile" ? "builtin/leader-default.profile.tsx" : "leader-runtime"));
 const detail = ref<ProfileTemplateDetailDto | null>(null);
 const profileDetail = ref<AgentProfileDetailDto | null>(null);
@@ -234,14 +242,14 @@ const templateOptions = computed(() => templates.value.map((template) => ({
 })));
 const profileKindOptions = [
     {
-        value: "leader",
-        label: "leader",
-        description: "可作为主线程 profile",
+        value: "basic",
+        label: "basic-agent",
+        description: "普通 Agent，默认只给读取能力",
     },
     {
-        value: "subagent",
-        label: "subagent",
-        description: "可由 leader 创建和调用",
+        value: "report",
+        label: "report-agent",
+        description: "通用报告模式，允许 report_result",
     },
 ];
 const threadOptions = computed(() => threads.value.map((thread) => ({
@@ -263,7 +271,7 @@ const canRestoreSelectedTemplate = computed(() => {
     if (props.mode !== "user-profile") {
         return false;
     }
-    return Boolean(profileCatalog.value.find((item) => item.fileName === selectedTemplate.value)?.canRestore);
+    return Boolean(selectedTemplate.value && profileFiles.value.some((item) => item.fileName === selectedTemplate.value));
 });
 const selectedTextLength = computed(() => selectedNode.value?.text?.length ?? 0);
 const canUndo = computed(() => undoStack.value.length > 0);
@@ -357,11 +365,11 @@ const notification = useNotification();
  */
 function createDefaultProfileForm(): NewProfileForm {
     return {
-        profileKey: "subagent.custom",
-        kind: "subagent",
+        profileKey: "agent.custom",
+        kind: "basic",
         name: "Custom Agent",
         description: "",
-        prompt: "你是一个自定义 Agent。根据用户输入完成任务，必要时使用工具，完成后调用 report_result。",
+        prompt: "你是一个自定义 Agent。根据用户输入完成任务，必要时使用工具。",
     };
 }
 
@@ -407,12 +415,16 @@ function formatCatalogDescription(item: AgentProfileCatalogItemDto | undefined):
  */
 async function loadTemplates(): Promise<void> {
     if (props.mode === "user-profile") {
-        profileCatalog.value = await $fetch<AgentProfileCatalogItemDto[]>("/api/agent/profiles/catalog");
-        templates.value = profileCatalog.value
-            .filter((item) => item.fileName)
+        const [catalog, files] = await Promise.all([
+            $fetch<AgentProfileCatalogItemDto[]>("/api/agent/profiles/catalog"),
+            $fetch<AgentProfileFileItemDto[]>("/api/agent/profiles/files"),
+        ]);
+        profileCatalog.value = catalog;
+        profileFiles.value = files;
+        templates.value = profileFiles.value
             .map((item) => ({
-                name: item.profileKey,
-                fileName: item.fileName!,
+                name: item.profileKey ?? item.fileName,
+                fileName: item.fileName,
                 profileKey: item.profileKey,
             }));
     } else {
@@ -426,7 +438,7 @@ async function loadTemplates(): Promise<void> {
         selectedTemplate.value = preferred;
         return;
     }
-    const defaultUserProfile = templates.value.find((item) => item.fileName.includes("leader-default.profile.tsx"));
+    const defaultUserProfile = templates.value.find((item) => item.fileName.includes("leader.default.profile.tsx") || item.fileName.includes("leader-default.profile.tsx"));
     selectedTemplate.value = props.mode === "user-profile"
         ? defaultUserProfile?.fileName ?? templates.value[0]?.fileName ?? ""
         : templates.value[0]?.name ?? "";
@@ -437,19 +449,12 @@ async function loadTemplates(): Promise<void> {
  */
 async function fetchTemplateDetail(): Promise<ProfileTemplateDetailDto> {
     if (props.mode === "user-profile") {
-        const nextProfileDetail = await $fetch<AgentProfileDetailDto>("/api/agent/profiles/detail", {
+        const nextProfileDetail = await $fetch<AgentProfileDetailDto>("/api/agent/profiles/source", {
             method: "POST",
             body: {fileName: selectedTemplate.value},
         });
         profileDetail.value = nextProfileDetail;
-        return {
-            name: nextProfileDetail.catalogItem.profileKey,
-            fileName: nextProfileDetail.fileName ?? selectedTemplate.value,
-            source: nextProfileDetail.source,
-            root: nextProfileDetail.root,
-            issues: nextProfileDetail.issues,
-            variables: nextProfileDetail.variables,
-        };
+        return templateDetailFromProfile(nextProfileDetail);
     }
     profileDetail.value = null;
     return await $fetch<ProfileTemplateDetailDto>(`/api/agent/profile-templates/${selectedTemplate.value}`);
@@ -551,22 +556,43 @@ async function previewTemplate(): Promise<void> {
  * 用户 profile 模式下走真实 profile.prepare 预览。
  */
 async function previewPreparedProfile(): Promise<ProfileTemplatePreviewDto> {
-    const profileKey = currentThreadProfileKey();
+    const sourceDetail = await $fetch<AgentProfileDetailDto>("/api/agent/profiles/source", {
+        method: "POST",
+        body: {
+            fileName: selectedTemplate.value,
+            source: sourceText.value,
+        },
+    });
+    profileDetail.value = sourceDetail;
+    const sourceIssues = profileIssuesToTemplate(sourceDetail.issues);
+    if (sourceIssues.some((issue) => issue.severity === "error") || !sourceDetail.manifest?.key) {
+        return {
+            source: sourceText.value,
+            root: sourceDetail.root ?? root.value,
+            issues: sourceIssues,
+            messages: [],
+            variables: profileVariablesToTemplate(sourceDetail.variables),
+        };
+    }
     const result = await $fetch<AgentProfilePreparePreviewDto>("/api/agent/profiles/preview-prepare", {
         method: "POST",
         headers: buildAgentPreviewHeaders(),
         body: {
-            profileKey,
+            profileKey: sourceDetail.manifest.key,
             sessionId: selectedThreadId.value || undefined,
             inputOverrides: normalizePreviewInputOverrides(),
+            sourceOverride: {
+                fileName: selectedTemplate.value,
+                source: sourceText.value,
+            },
         },
     });
     return {
         source: sourceText.value,
-        root: root.value,
-        issues: result.issues,
+        root: sourceDetail.root ?? root.value,
+        issues: [...sourceIssues, ...profileIssuesToTemplate(result.issues)],
         messages: result.messages,
-        variables: result.variables,
+        variables: profileVariablesToTemplate(result.variables),
     };
 }
 
@@ -604,21 +630,89 @@ async function validateTemplate(): Promise<void> {
     }
     validating.value = true;
     try {
-        const result = await $fetch<ProfileTemplateDetailDto>("/api/agent/profile-templates/validate", {
-            method: "POST",
-            body: {source: sourceText.value},
-        });
-        issues.value = result.issues;
-        if (result.root && !result.issues.some((issue) => issue.severity === "error")) {
-            root.value = reconcileNodeIds(root.value, result.root);
+        const result = props.mode === "user-profile"
+            ? await validateUserProfile()
+            : await $fetch<ProfileTemplateDetailDto>("/api/agent/profile-templates/validate", {
+                method: "POST",
+                body: {source: sourceText.value},
+            });
+        const resultIssues = props.mode === "user-profile"
+            ? [
+                ...profileIssuesToTemplate((result as ProfileValidationResult).detail.issues),
+                ...profileIssuesToTemplate((result as ProfileValidationResult).preview?.issues ?? []),
+            ]
+            : (result as ProfileTemplateDetailDto).issues;
+        issues.value = resultIssues;
+        const resultRoot = props.mode === "user-profile"
+            ? (result as ProfileValidationResult).detail.root
+            : (result as ProfileTemplateDetailDto).root;
+        if (resultRoot && !resultIssues.some((issue) => issue.severity === "error")) {
+            root.value = reconcileNodeIds(root.value, resultRoot);
             if (root.value && !findNode(root.value, selectedNodeId.value)) {
                 selectedNodeId.value = findFirstEditableNodeId(root.value);
             }
         }
-        statusText.value = result.issues.some((issue) => issue.severity === "error") ? "校验未通过" : "校验通过";
+        statusText.value = resultIssues.some((issue) => issue.severity === "error") ? "校验未通过" : validationSuccessText(result);
     } finally {
         validating.value = false;
     }
+}
+
+/**
+ * user-profile 显式验证：当前源码契约、真实 prepare 和 report_result schema 一起跑。
+ */
+async function validateUserProfile(): Promise<ProfileValidationResult> {
+    const detailResult = await $fetch<AgentProfileDetailDto>("/api/agent/profiles/source", {
+        method: "POST",
+        body: {
+            fileName: selectedTemplate.value,
+            source: sourceText.value,
+        },
+    });
+    profileDetail.value = detailResult;
+    detail.value = templateDetailFromProfile(detailResult);
+    previewVariableGroups.value = mapPreviewVariableGroups(detail.value.variables);
+    if (detailResult.issues.some((issue) => issue.severity === "error") || !detailResult.manifest?.key) {
+        previewMessages.value = [];
+        return {
+            detail: detailResult,
+            preview: null,
+        };
+    }
+    const previewResult = await $fetch<AgentProfilePreparePreviewDto>("/api/agent/profiles/preview-prepare", {
+        method: "POST",
+        headers: buildAgentPreviewHeaders(),
+        body: {
+            profileKey: detailResult.manifest.key,
+            sessionId: selectedThreadId.value || undefined,
+            inputOverrides: normalizePreviewInputOverrides(),
+            sourceOverride: {
+                fileName: selectedTemplate.value,
+                source: sourceText.value,
+            },
+        },
+    });
+    previewMessages.value = previewResult.messages;
+    previewVariableGroups.value = mapPreviewVariableGroups(profileVariablesToTemplate(previewResult.variables));
+    return {
+        detail: detailResult,
+        preview: previewResult,
+    };
+}
+
+/**
+ * 根据验证结果生成简短状态。
+ */
+function validationSuccessText(result: ProfileTemplateDetailDto | ProfileValidationResult): string {
+    if (props.mode !== "user-profile") {
+        return "校验通过";
+    }
+    const validation = result as ProfileValidationResult;
+    const reportSchemaText = validation.detail.reportResultSchema || validation.preview?.reportResultSchema
+        ? "report_result schema 已生成"
+        : "无 report_result";
+    const messageCount = validation.preview?.messages.length ?? 0;
+    return `校验通过 · prepare ${messageCount} 条消息 · ${reportSchemaText}`;
 }
 
 /**
@@ -637,7 +731,7 @@ async function restoreTemplate(): Promise<void> {
     }
     restoring.value = true;
     try {
-        await $fetch<ProfileTemplateDetailDto>("/api/agent/user-profile-templates/restore", {
+        await $fetch("/api/agent/profiles/delete", {
             method: "POST",
             body: {fileName: selectedTemplate.value},
         });
@@ -666,13 +760,15 @@ function openCreateProfileDialog(): void {
  * 同步 profile kind 与 key 前缀。
  */
 function updateNewProfileKind(value: string): void {
-    const kind = value === "leader" ? "leader" : "subagent";
+    const kind = value === "report" ? "report" : "basic";
     const currentKey = newProfileForm.value.profileKey.trim();
-    const suffix = currentKey.includes(".") ? currentKey.split(".").slice(1).join(".") : "custom";
     newProfileForm.value = {
         ...newProfileForm.value,
         kind,
-        profileKey: `${kind}.${suffix || "custom"}`,
+        prompt: kind === "report"
+            ? "你是一个自定义报告 Agent。完成任务后调用 report_result，并在 walkthrough 中总结过程和结论。"
+            : "你是一个自定义 Agent。根据用户输入完成任务，必要时使用工具。",
+        profileKey: currentKey || "agent.custom",
     };
 }
 
@@ -685,18 +781,18 @@ async function createUserProfile(): Promise<void> {
     }
     creating.value = true;
     try {
-        const created = await $fetch<ProfileTemplateDetailDto>("/api/agent/user-profile-templates/create", {
+        const created = await $fetch<AgentProfileDetailDto>("/api/agent/profiles/create", {
             method: "POST",
             body: {
                 profileKey: newProfileForm.value.profileKey,
-                kind: newProfileForm.value.kind,
+                templateName: newProfileForm.value.kind === "report" ? "report-agent" : "basic-agent",
                 name: newProfileForm.value.name,
                 description: newProfileForm.value.description || undefined,
-                prompt: newProfileForm.value.prompt,
+                systemPrompt: newProfileForm.value.prompt,
             },
         });
         createDialogOpen.value = false;
-        selectedTemplate.value = created.fileName;
+        selectedTemplate.value = created.fileName ?? `${newProfileForm.value.profileKey}.profile.tsx`;
         await loadTemplates();
         const result = await fetchTemplateDetail();
         applyTemplateDetail(result, "已创建用户 profile");
@@ -709,37 +805,37 @@ async function createUserProfile(): Promise<void> {
 }
 
 /**
+ * 用当前 profile 创建真实 Agent session，但不自动 invoke。
+ */
+async function createSessionForProfile(): Promise<void> {
+    if (props.mode !== "user-profile" || !profileDetail.value?.manifest?.key) {
+        notification.error("当前 profile 尚未成功加载，不能创建 session。", {title: "创建 Session 失败"});
+        return;
+    }
+    try {
+        const created = await agentApi.createSession({
+            profileKey: profileDetail.value.manifest.key,
+            input: {},
+            workspaceKey: novelIdeStore.workspaceKind === "user-assets" ? "user-assets" : `novel-${novelIdeStore.currentNovelId}`,
+            novelId: novelIdeStore.currentNovelId || undefined,
+        });
+        notification.success(`已创建 session #${created.sessionId}`);
+        await loadThreads();
+        selectedThreadId.value = String(created.sessionId);
+    } catch (error) {
+        notification.error(describeFetchError(error), {title: "创建 Session 失败"});
+    }
+}
+
+/**
  * 低代码保存用户 profile 的 InputSchema 或 OutputSchema。
  */
 async function saveProfileSchema(payload: {schemaName: "InputSchema" | "OutputSchema"; fields: AgentProfileSchemaFieldDto[]}): Promise<void> {
     if (props.mode !== "user-profile" || !selectedTemplate.value || saving.value) {
         return;
     }
-    if (dirty.value) {
-        notification.error("请先保存或放弃当前源码修改，再使用 Schema Builder。", {title: "Schema 未保存"});
-        return;
-    }
-    saving.value = true;
-    try {
-        await $fetch<ProfileTemplateDetailDto>("/api/agent/user-profile-templates/schema", {
-            method: "POST",
-            body: {
-                fileName: selectedTemplate.value,
-                schemaName: payload.schemaName,
-                fields: payload.fields,
-            },
-        });
-        await loadTemplates();
-        const result = await fetchTemplateDetail();
-        applyTemplateDetail(result, `已保存 ${payload.schemaName}`);
-        notification.success(`已保存 ${payload.schemaName}`);
-    } catch (error) {
-        lastSaveError.value = describeFetchError(error);
-        statusText.value = `Schema 保存失败：${lastSaveError.value}`;
-        notification.error(lastSaveError.value, {title: "Schema 保存失败"});
-    } finally {
-        saving.value = false;
-    }
+    void payload;
+    notification.error("TypeBox Schema Builder 第一版暂不开放写回，请在源码中编辑 InputSchema / OutputSchema。", {title: "请使用源码编辑"});
 }
 
 /**
@@ -816,7 +912,7 @@ function applyTemplateDetail(nextDetail: ProfileTemplateDetailDto, status: strin
  */
 async function saveTemplateSource(source: string): Promise<ProfileTemplateDetailDto> {
     if (props.mode === "user-profile") {
-        const saved = await $fetch<ProfileTemplateDetailDto>("/api/agent/user-profile-templates/save", {
+        const saved = await $fetch<AgentProfileDetailDto>("/api/agent/profiles/save", {
             method: "POST",
             body: {
                 fileName: selectedTemplate.value,
@@ -824,16 +920,8 @@ async function saveTemplateSource(source: string): Promise<ProfileTemplateDetail
             },
         });
         await loadTemplates();
-        const nextProfileDetail = await $fetch<AgentProfileDetailDto>("/api/agent/profiles/detail", {
-            method: "POST",
-            body: {fileName: selectedTemplate.value},
-        });
-        profileDetail.value = nextProfileDetail;
-        return {
-            ...saved,
-            issues: nextProfileDetail.issues,
-            variables: nextProfileDetail.variables,
-        };
+        profileDetail.value = saved;
+        return templateDetailFromProfile(saved);
     }
     return await $fetch<ProfileTemplateDetailDto>(`/api/agent/profile-templates/${selectedTemplate.value}`, {
         method: "PUT",
@@ -849,7 +937,26 @@ function currentThreadProfileKey(): string {
         return props.threadProfileKey;
     }
     const selected = profileCatalog.value.find((item) => item.fileName === selectedTemplate.value);
-    return selected?.profileKey ?? profileDetail.value?.catalogItem.profileKey ?? props.threadProfileKey;
+    return selected?.profileKey ?? profileDetail.value?.manifest?.key ?? profileDetail.value?.catalogItem.profileKey ?? props.threadProfileKey;
+}
+
+/**
+ * 将 runtime profile 变量 DTO 转成旧模板编辑器变量 DTO。
+ */
+function profileVariablesToTemplate(groups: AgentProfileDetailDto["variables"]): ProfileTemplateDetailDto["variables"] {
+    return groups.map((group) => ({
+        group: group.group,
+        items: group.items.map((item) => ({
+            label: item.label,
+            value: item.value,
+            path: item.path,
+            token: item.token,
+            editable: item.editable,
+            valueType: item.valueType ?? "unknown",
+            source: item.source ?? "profile",
+            schema: item.schema ?? null,
+        })),
+    }));
 }
 
 /**
@@ -1269,12 +1376,47 @@ function syncSourceTextFromRoot(): void {
  * 用户 profile 是完整 TSX 文件，画布编辑只替换已解析的 ProfilePrompt 片段。
  */
 function replacePromptRootSource(source: string, nextRoot: ProfileTemplateNodeDto): string {
-    const range = root.value?.sourceRange ?? detail.value?.root?.sourceRange;
+    const range = editablePromptRange(nextRoot) ?? editablePromptRange(detail.value?.root ?? null);
     if (!range) {
         return source;
     }
-    const nextSource = indentPreviewSource(generatePreviewNodeSource(nextRoot), 3);
+    const nextSource = editablePromptText(nextRoot);
     return `${source.slice(0, range.start)}${nextSource}${source.slice(range.end)}`;
+}
+
+/**
+ * 第一版只把可解析的 systemPrompt 文本 range 写回源码。
+ */
+function editablePromptRange(node: ProfileTemplateNodeDto | null): ProfileTemplateNodeDto["sourceRange"] | undefined {
+    if (!node) {
+        return undefined;
+    }
+    if (node.sourceRange && node.editable) {
+        return node.sourceRange;
+    }
+    for (const child of node.children) {
+        const found = editablePromptRange(child);
+        if (found) {
+            return found;
+        }
+    }
+    return undefined;
+}
+
+/**
+ * 从画布树中提取当前可视化编辑的 systemPrompt 文本。
+ */
+function editablePromptText(node: ProfileTemplateNodeDto): string {
+    if (node.editable && node.sourceRange && typeof node.text === "string") {
+        return node.text;
+    }
+    for (const child of node.children) {
+        const text = editablePromptText(child);
+        if (text) {
+            return text;
+        }
+    }
+    return "";
 }
 
 /**
@@ -1326,18 +1468,32 @@ async function validateSourceTextNow(successText: string): Promise<void> {
     const version = ++sourceParseVersion;
     parsingSource.value = true;
     try {
-        const result = await $fetch<ProfileTemplateDetailDto>("/api/agent/profile-templates/validate", {
-            method: "POST",
-            body: {source: sourceText.value},
-        });
+        const result = props.mode === "user-profile"
+            ? await $fetch<AgentProfileDetailDto>("/api/agent/profiles/source", {
+                method: "POST",
+                body: {
+                    fileName: selectedTemplate.value,
+                    source: sourceText.value,
+                },
+            })
+            : await $fetch<ProfileTemplateDetailDto>("/api/agent/profile-templates/validate", {
+                method: "POST",
+                body: {source: sourceText.value},
+            });
         if (version !== sourceParseVersion) {
             return;
         }
-        detail.value = result;
-        issues.value = result.issues;
-        previewVariableGroups.value = mapPreviewVariableGroups(result.variables);
-        if (result.root && !result.issues.some((issue) => issue.severity === "error")) {
-            root.value = reconcileNodeIds(root.value, result.root);
+        const nextDetail: ProfileTemplateDetailDto = props.mode === "user-profile"
+            ? templateDetailFromProfile(result as AgentProfileDetailDto)
+            : result as ProfileTemplateDetailDto;
+        if (props.mode === "user-profile") {
+            profileDetail.value = result as AgentProfileDetailDto;
+        }
+        detail.value = nextDetail;
+        issues.value = nextDetail.issues;
+        previewVariableGroups.value = mapPreviewVariableGroups(nextDetail.variables);
+        if (nextDetail.root && !nextDetail.issues.some((issue) => issue.severity === "error")) {
+            root.value = reconcileNodeIds(root.value, nextDetail.root);
             if (root.value && !findNode(root.value, selectedNodeId.value)) {
                 selectedNodeId.value = findFirstEditableNodeId(root.value);
             }
@@ -1362,6 +1518,35 @@ async function validateSourceTextNow(successText: string): Promise<void> {
             parsingSource.value = false;
         }
     }
+}
+
+/**
+ * 将 runtime profile detail 转成旧三栏 UI 使用的模板 detail。
+ */
+function templateDetailFromProfile(profile: AgentProfileDetailDto): ProfileTemplateDetailDto {
+    return {
+        name: profile.catalogItem.profileKey,
+        fileName: profile.fileName ?? selectedTemplate.value,
+        source: profile.source,
+        root: profile.root ?? null,
+        issues: profileIssuesToTemplate(profile.issues),
+        variables: profileVariablesToTemplate(profile.variables),
+    };
+}
+
+/**
+ * 将 runtime profile diagnostics 映射到旧三栏 UI 使用的问题 DTO。
+ */
+function profileIssuesToTemplate(profileIssues: AgentProfileIssueDto[]): ProfileTemplateIssueDto[] {
+    return profileIssues.map((issue) => ({
+        severity: issue.severity,
+        message: issue.message,
+        path: [
+            issue.code ? `code=${issue.code}` : "",
+            issue.fileName ? `file=${issue.fileName}` : "",
+            issue.profileKey ? `profile=${issue.profileKey}` : "",
+        ].filter(Boolean).join(" "),
+    }));
 }
 
 /**
@@ -1711,6 +1896,7 @@ onBeforeUnmount(() => {
             :issue-count="issueCount"
             :restore-enabled="canRestoreSelectedTemplate"
             :create-enabled="props.mode === 'user-profile'"
+            :run-enabled="props.mode === 'user-profile'"
             :allow-save-with-issues="props.mode === 'user-profile'"
             :closable="props.closable"
             @undo="undoEdit"
@@ -1719,6 +1905,7 @@ onBeforeUnmount(() => {
             @validate="void validateTemplate()"
             @restore="void restoreTemplate()"
             @create="openCreateProfileDialog"
+            @run="void createSessionForProfile()"
             @save="void saveTemplate()"
             @close="emit('close')"
         />
@@ -1882,7 +2069,7 @@ onBeforeUnmount(() => {
                 </label>
                 <label class="form-row">
                     <span class="form-label">Profile Key</span>
-                    <FormInput v-model="newProfileForm.profileKey" placeholder="subagent.custom" />
+                    <FormInput v-model="newProfileForm.profileKey" placeholder="agent.custom" />
                 </label>
                 <label class="form-row">
                     <span class="form-label">名称</span>

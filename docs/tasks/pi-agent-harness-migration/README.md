@@ -18,8 +18,8 @@
 - 当前 Agent 主链路已硬切到 Pi-based `server/agent`。旧 v2 已移动到 `server/agent-v2` 与 `assets/agent-v2`，只作为迁移参考，不进入 active typecheck、测试或运行时。
 - 旧 thread/message Prisma 模型已删除；新的 session 真相来自 JSONL append-only entry tree，前端也已经从 thread/subagent 心智迁到 session/linked agent 心智。
 - 正式 HTTP 入口已经回到 `/api/agent/**`：前端使用 `/api/agent/sessions/**` 的 snapshot、invocation、command、tree、abort 和 events contract；临时 `/api/agent-v3/**` 已删除。
-- Agent 抽屉已接入新的 session snapshot + session event hub：支持聊天、停止、审批/输入恢复、模型选择、Plan Mode、compact、linked agents、edit/retry/rollback/fallback、分支切换和多窗口事件同步的基础链路。
-- TSX Profile runtime 支持 builtin/user assets 动态加载、InputSchema/OutputSchema、allowed tools、workspace 默认 leader profile 和用户资产工作区；profile 工作台的 catalog/detail/prepare preview 已接到 v3 profile catalog，低代码保存/新建/restore 仍等待按新 TSX profile 工作台重做。
+- Agent 抽屉已接入新的 session snapshot + session event hub：支持聊天、停止、审批/输入恢复、模型选择、Plan Mode、compact slash command、linked agents、edit/retry/rollback/fallback、分支切换和多窗口事件同步的基础链路。
+- TSX Profile runtime 支持 builtin/user assets 动态加载、InputSchema/OutputSchema、allowed tools、workspace 默认 profile 和用户资产工作区；旧低代码 profile 工作台入口与写入 API 已从 active surface 移除，因为它还没有按新的 TSX profile 契约重做，当前只保留 v3 profile catalog/detail/prepare preview 只读能力。新的 TSX profile 写入工作台后续独立设计。
 - 本地 Pi 仓库位于 `.agent/workspace/pi`；已完成基础调研，见 `docs/research/pi-agent-harness.md`。
 - Pi TUI / coding-agent 产品层作为 Neuro Book harness 的主要参考：它证明“产品自己拥有 session manager、资源解析、UI/TUI 状态，再调用 Pi core Agent”是可行路径。
 
@@ -35,44 +35,45 @@
 - 已确认 Pi 推荐把可编辑资源和会话状态放到清晰的本地目录约定下，例如 project-local `.pi/skills` / `.pi/prompts` / `.pi/extensions`、global `~/.pi/agent/...`、session JSONL 目录等；Neuro Book 应借鉴“约定目录直接挂在项目配置根下”，而不是继续把所有覆盖资源都塞进 `workspace/.nbook/assets`。
 - Pi 相关参考文档已确认并用于本计划：`packages/coding-agent/README.md`（`/tree`、`/fork`、`/clone`、session 存储与互动命令）、`packages/coding-agent/docs/session-format.md`（JSONL session tree、`leaf`、`branchWithSummary`、`getTree`）、`packages/coding-agent/docs/compaction.md`（auto/manual compaction、branch summarization）、`packages/agent/docs/agent-harness.md`（harness phase、leaf 持久化、compaction/tree navigation）。
 - Pi-based 后端主实现已落到 `server/agent`：包含 `messages`、`events`、`session`、`profiles`、`tools`、`harness` 模块，并添加 `@earendil-works/pi-ai`、`@earendil-works/pi-agent-core`、`typebox` 依赖。
-- 已实现 `JsonlSessionRepository`：全局数字 `sessionId`、`session-seq.json`、`workspace/.nbook/agent/sessions/<workspace-key>/<session-id>.jsonl`、append entry、leaf 持久化、active path reduce、tree、fork 和 `/new`、`/tree`、`/fork`、`/retry`、`/compact` session slash command。
+- 已实现 `JsonlSessionRepository`：全局数字 `sessionId`、`session-seq.json`、`workspace/.nbook/agent/sessions/<workspace-key>/<session-id>.jsonl`、append entry、leaf 持久化、active path reduce、tree 和 fork。session command 由 `NeuroAgentHarness.runCommand()` 处理，前端只把识别到的 slash command 路由到 `/api/agent/sessions/:sessionId/commands`；`/invocations` 不解析 slash command，用户输入 `/xxx` 时仍可作为普通文本发给模型。
 - 已实现 TypeBox profile contract：`defineAgentProfile({ manifest, inputSchema, outputSchema, allowedToolKeys, prepare, ingest? })`，默认 builtin `leader.default` 先用于 v3 闭环；`prepare()` 的 `toolKeys` 缺省回落到 profile `allowedToolKeys`，不把所有工具默认暴露给模型。
-- 已实现第一批内置工具：`report_result`、`request_user_input`、`enter_plan_mode`、`exit_plan_mode`、`skill`、`create_agent`、`invoke_agent`、`get_agent`、`detach_agent`。`create_agent` 由父 session 调用时会写 owned link，`get_agent()` 无参返回当前父 session 拥有且未 detach 的 agent 列表。
+- 已实现第一批内置工具：基础文件/命令工具 `read`、`write`、`edit`、`apply_patch`、`bash`，以及 `report_result`、`request_user_input`、`enter_plan_mode`、`exit_plan_mode`、`skill`、`create_agent`、`invoke_agent`、`get_agent`、`get_session`、`detach_agent`。`leader.default` / `leader.assets` 默认暴露除 `report_result` 外的这些工具；`report_result` 只给需要结构化输出的目标 agent 使用。`create_agent` 由父 session 调用时会写 owned link，`get_agent()` 无参返回当前父 session 拥有且未 detach 的 agent 列表。
 - 已实现 `NeuroAgentHarness` 第一版。底层 provider streaming 使用 Pi `streamSimple` 和 Pi message/event 类型；tool loop 由 Neuro Book 自己控制，以支持 approval tool call 挂起时不生成 toolResult。Pi core `Agent` / `AgentLoop` 第一版不作为主循环直接使用，因为公开 hook 只能 block 并生成错误 toolResult，不能表达“等待用户审批并保留未完成 tool call”。
 - 已实现 approval resume：hardcoded approval tool call 会停在 assistant message，session 尾部没有对应 toolResult；`continue + resolution` 会校验 pending tool call、append 标准 `ToolResultMessage`，再继续 provider run。
 - 已实现 `report_result` 收集和缺失提醒：如果 profile 可见工具包含 `report_result` 但目标 agent 普通结束，harness 会追加一条用户提醒并再跑一轮；第二轮仍未 report 时返回最后普通消息和“未正确 report”的说明。
 - 已修正 AppendingSet 顺序：prompt run 先 prepare 并写入 History/Appending，再写当前 user message，provider context 中当前用户输入仍是最后一条；AppendingSet 已写 session 后不会在同一轮 provider context 中重复出现。
 - 已实现 compaction LLM summary：保留固定压缩 prompt 与 summary prefix，自动压缩按 Pi token estimate/threshold 判断，手动 `/compact` 使用真实 provider 生成摘要并追加 `compaction` entry；summary 生成失败时不写 entry。
 - 已补 compaction cut point 安全规则：保留 recent messages 时不会从 `toolResult` 半截开始；若 active tail 存在未完成 tool call，则拒绝 compact，避免破坏 approval / continue 恢复语义。
-- 已补真实 provider smoke 脚本 `scripts/smoke-agent.ts`，用根 `config.yaml` 创建 `leader.default` session，验证真实 provider、usage、event 和 session JSONL 落盘链路。
+- 已补真实 provider smoke 脚本 `scripts/smoke-agent.ts`，通过 Global Config `workspace/.nbook/config.json` 或设置页中的 provider/model 配置创建 `leader.default` session，验证真实 provider、usage、event 和 session JSONL 落盘链路。根 `config.yaml` 只保留启动/部署类 Boot Config，不再作为模型 Provider 真值源。
 - 已补第一批回归测试：session JSONL、leaf/tree/fork、approval pending/resolution、harness faux provider 端到端、report_result、缺失 report 自动提醒、AppendingSet 去重、owned agent link、LLM compaction summary、tool call/result cut point。
-- 已完成 v3 动态 profile catalog 硬切：只扫描 `assets/.nbook/agent/profiles` 与 `workspace/.nbook/agent/profiles`，单个坏 profile 只进入 catalog issue，不阻断其他 profile；snapshot 会暴露 source、builtin/user、loadStatus、issue、InputSchema/OutputSchema。
+- 已完成 v3 动态 profile catalog 硬切：只扫描 `assets/workspace/.nbook/agent/profiles` 与 `workspace/.nbook/agent/profiles`；runtime catalog 面向可加载、可运行的 profile 列表，坏 `.profile.tsx` 不作为可运行 profile 项进入 catalog。坏文件修复由后续 TSX Profile Workbench 的 file diagnostics 按 `fileName` 打开源码处理，catalog snapshot 只保留运行时可用 profile 及必要加载问题摘要，不把 catalog 当成坏文件浏览器。
 - 已实现 builtin schema 锁定：用户覆盖 `leader.default` 等 builtin key 时，运行时实现可以覆盖，但 Input/Output schema 会继续使用内置 schema；schema 冲突进入 catalog issue。
 - 验收阶段修复 TSX profile 运行时加载边界：Nuxt dev server 是 Node 进程，不能像 Bun 测试一样无条件原生 import `.profile.tsx`；`AgentProfileCatalog` 现在优先使用当前运行时 native dynamic import，只有遇到 Node 不认识 `.tsx` 的错误时才 fallback 到 `tsx/esm/api` 的 `tsImport`，避免已经启用 TS loader 的 Node/Nuxt 进程二次套 loader 卡住。
 - 验收阶段已把 `/api/agent/profiles/catalog`、`/api/agent/profiles/detail`、`/api/agent/profiles/preview-prepare` 从 v2 removed stub 改为 v3 profile 只读/预览适配：catalog 返回 `AgentProfileCatalogItemDto`，detail 返回源码、manifest、allowed tools 与 TypeBox schema 摘要，preview 调用真实 `profile.prepare()` 并展示 `systemPrompt`、History/Dynamic/Appending 消息。
-- 已为新 Agent 增加动态 profile 类型索引输出 `server/agent/profiles/dynamic-profile-types.generated.ts`，`scripts/prepare-profile-types.ts --v3` 只读取新 `.nbook/agent/profiles` root，`scripts/check-profile.ts --v3` 只允许检查新 profile 路径。
+- 已为新 Agent 增加动态 profile 类型索引输出 `server/agent/profiles/dynamic-profile-types.generated.ts`，`scripts/prepare-profile-types.ts` 只读取新 `.nbook/agent/profiles` root，`scripts/check-profile.ts` 只允许检查新 profile 路径。
 - 已实现轻量 session query service 与模型工具 `get_session`：返回 metadata、active leaf、tree、title/summary、usage、linked agents 和最近消息摘要，不返回完整 history 原文。
 - 已接入 `profile.ingest()`：harness run save point 后调用 ingest；第一版只允许写 `messageWrites` 与 `sessionUpdates.title/summary`，越权字段会使本次 run 返回 error，且不会写入部分 ingest 结果。
 - 已把 owned / linked agents 完全改为 append-only session state：`create_agent` 和 `detach_agent` 写父 session 的 `custom` entry，`get_agent()` 与 profile prepare 的 `session.linkedAgents` 都从 active path reduce 得到，不再依赖内存 `detachedSessions`。
-- 已新增 v3 `SkillCatalog`，只扫描 `assets/.nbook/agent/skills` 与 `workspace/.nbook/agent/skills`；同名 skill 目录由用户目录整体覆盖。`skill` 工具第一版在挂起审批前校验 skill 是否可见，不做更细的 `allowedSkillKeys` 硬白名单。
+- 已新增 v3 `SkillCatalog`，只扫描 `assets/workspace/.nbook/agent/skills` 与 `workspace/.nbook/agent/skills`；同名 skill 目录由用户目录整体覆盖。`skill` 工具第一版在挂起审批前校验 skill 是否可见，不做更细的 `allowedSkillKeys` 硬白名单。
 - 已新增正式 `/api/agent/sessions/**` 后端入口：支持 list/create/snapshot、blocking invocation、command、abort、tree、session event SSE 和 session archive/list 隐藏。
 - 已给 `NeuroAgentHarness.invokeAgent()` 增加 session event hub 集成；blocking JSON 仍返回运行结果，SSE route 通过 envelope 推送 Pi-like event 与 session control event。
 - 已新增 `scripts/smoke-agent-http.ts`，用于在本地 dev server 已启动时通过 HTTP create + invoke 验证正式 `/api/agent/sessions/**` API。
 - 已完成前端迁移 API 方向调研：Pi TUI 通过 snapshot/reduce 加载 session，通过 `AgentSession.subscribe()` 订阅事件，通过 `/tree` 移动 leaf，通过 `/fork` 创建新 session；Pi 不支持原地编辑聊天消息，编辑用户消息等价于回到该消息之前并追加修改后的新输入，保留旧分支。
 - 已确认基础工具迁移不只是工具 registry 改名：v3 `leader.default` / 后续完整 leader profile 也必须迁移到 Pi 风格工具名 `read` / `write` / `edit` / `bash` / `apply_patch`，不再向模型暴露 v2 `read_file` / `write_file` / `edit_file` / `execute_shell` 心智。
-- 已确认完整 v3 leader 的真实落点是系统 assets：把当前 v2 完整 leader 改写为 v3 TypeBox/TSX profile 后放入 `assets/.nbook/agent/profiles/builtin/leader.default.profile.tsx`，让它经过动态 profile catalog、用户覆盖、typecheck 和 preview 这条真实链路。
+- 已确认完整 v3 leader 的真实落点是系统 assets：把当前 v2 完整 leader 改写为 v3 TypeBox/TSX profile 后放入 `assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`，让它经过动态 profile catalog、用户覆盖、typecheck 和 preview 这条真实链路。
 - 已确认完整 leader 第一版只做结构迁移与工具名迁移：通用工程/文件/agent 协作能力切到 v3 contract，小说业务提示块（剧情结构、内容节点、Markdown Studio 写作格式、Plan Mode reminder 等）可以先按原语义搬迁，不在本阶段深度改写。
 - 已确认实现顺序：先确认 v3 profile 路径统一使用复数 `agent/profiles`，同步 catalog、typegen、check-profile、测试 fixture 与最小 profile 验证；确认扫描和 contract 正常后，再迁移完整 `leader.default`。
 - 已确认 v3 profile 文件命名约定：默认使用 `<profileKey>.profile.tsx`，例如 `leader.default.profile.tsx`、`writer.default.profile.tsx`、`custom.my-agent.profile.tsx`。目录只负责分组，例如 `builtin/leader.default.profile.tsx`。
 - 已确认 v3 typegen 读取系统/user assets profiles，但 builtin key 继续使用源码内 builtin contract 作为静态类型来源；用户或系统 assets 覆盖 builtin key 只影响运行实现，不覆盖开发期 Input/Output 静态类型。自定义新 key 才从 assets `.profile.tsx` 生成类型索引。
-- 已确认 `leader.assets` 是用户资产编辑工作区专用 agent；验收阶段已从 v2 assets editor 迁移为 v3 TypeBox/TSX profile，放入 `assets/.nbook/agent/profiles/builtin/leader.assets.profile.tsx`，并使用同一套 Pi 风格基础工具。
+- 已确认 `leader.assets` 是用户资产编辑工作区专用 agent；验收阶段已从 v2 assets editor 迁移为 v3 TypeBox/TSX profile，放入 `assets/workspace/.nbook/agent/profiles/builtin/leader.assets.profile.tsx`，并使用同一套 Pi 风格基础工具。
 - 已确认 v3 `leader.default` 第一版 allowed tools：`read`、`write`、`edit`、`apply_patch`、`bash`、`create_agent`、`invoke_agent`、`get_agent`、`get_session`、`detach_agent`、`request_user_input`、`enter_plan_mode`、`exit_plan_mode`、`skill`。顶层 leader 不默认启用 `report_result`，避免主对话被被调用 agent 的完成协议绑死。
 - 已确认 `invoke_agent` 对 `report_result` 的完成规则：只有目标 profile 的 `allowedToolKeys` 包含 `report_result` 时，harness 才要求目标 agent 以 `report_result` 结束并启用一次自动提醒；如果目标 profile 没有允许 `report_result`，则按普通 completion 返回 `finalMessage`，不触发缺失 report 提醒。
+- 已确认后续 TSX Profile Workbench 的 schema 语义：`profile.inputSchema` / `profile.outputSchema` 字段仍应存在；普通 agent 使用 `InputSchema = Type.Object({})` 表示无特殊实例配置，使用 `OutputSchema = Type.Object({})` 表示无额外结构化输出约束。是否走 `report_result` 由 `allowedToolKeys` 是否包含 `report_result` 决定；`OutputSchema = Type.Object({})` 但允许 `report_result` 时，目标 agent 仍使用 report 完成协议，但 report 参数只要求通用 `walkthrough`，没有额外结构化 payload 限定。`OutputSchema` 非空时，`report_result.data` 需要按目标 profile 的 `OutputSchema` 生成模型可见类型并执行 TypeBox 校验。当前 active `report_result` 工具仍是旧的 `result/data` schema，后续实现 Workbench/template 时需要同步调整工具 schema、collector 和输出校验。
 - 已确认在后端基础任务全部完成后，新增独立 prompt 阶段 checklist：先回查本地 PI 源码，再统一校准 v3 基础工具 description / prompt guidelines / model-visible result wording，以及 v3 leader 提示词里的工具使用规则。
 - 已实现 Pi 风格基础工具：`read`、`write`、`edit`、`apply_patch`、`bash`。这些工具都绑定 agent session 的 `workspaceRoot`，不暴露 `workdir`；`bash` 只调用真实 bash，stdout/stderr 合并，长输出写系统临时 `.log` 并把尾部与 `Full output` 路径返回给模型。
 - 已让 v3 harness 的 toolResult 保留工具原始 content，避免 `read` 图片等非文本结果被压扁成纯文本。
-- 已把完整 v3 `leader.default` 主实现放入 `assets/.nbook/agent/profiles/builtin/leader.default.profile.tsx`，通过动态 profile catalog 加载。源码内 `server/agent/profiles/default-profile.ts` 仍保留为最小 fallback，但不再默认允许 `report_result`。
-- 已把 v3 `leader.assets` 主实现放入 `assets/.nbook/agent/profiles/builtin/leader.assets.profile.tsx`，使用户资产 workspace 的系统默认 profile 可以被真实 catalog 加载；`leader.assets` 作为 builtin key 不进入 dynamic profile type index。
+- 已把完整 v3 `leader.default` 主实现放入 `assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`，通过动态 profile catalog 加载。源码内 `server/agent/profiles/default-profile.ts` 仍保留为最小 fallback，但不再默认允许 `report_result`。
+- 已把 v3 `leader.assets` 主实现放入 `assets/workspace/.nbook/agent/profiles/builtin/leader.assets.profile.tsx`，使用户资产 workspace 的系统默认 profile 可以被真实 catalog 加载；`leader.assets` 作为 builtin key 不进入 dynamic profile type index。
 - 已新增 profile 文件名 warning：`<profileKey>.profile.tsx` 与 `manifest.key` 不一致时进入 catalog issue，但不阻断加载，`loadStatus` 仍保持 loaded。
 - 已补测试证明：默认 leader 不包含 `report_result` 时普通 completion 不触发缺失 report 提醒；显式允许 `report_result` 的 profile 仍触发结构化完成协议与一次自动提醒。
 - 已完成第一轮 Prompt Phase 校准：回查本地 Pi `read/write/edit/bash` 源码后，对齐 v3 基础工具 description、read 截断续读提示、bash 输出说明和 `leader.default` 的工具选择规则；同时修复 assets profile 中 `String.raw` 导致中文提示词被转成模型可见 unicode escape 的问题。
@@ -83,7 +84,7 @@
 - 已删除旧 `/api/agent/threads/**` 路由与旧 thread message route；正式 `/api/agent/**` 现在指向新 session contract。
 - 已把非 Agent 的旧 LangChain 调用禁用：`server/api/writing/continue.post.ts` 和 `server/content/ai-annotation-executor.ts` 明确返回迁移待办错误，后续再接 Pi provider。
 - 已把 workspace 内容节点 CLI 从归档的 `assets/agent-v2/scripts/workspace.ts` 复制为 active `scripts/workspace.ts`，主测试和规范不再依赖 v2 归档脚本。
-- 已收窄“同步系统 assets”：Agent profile/skill 从 `assets/.nbook` 补到 `workspace/.nbook`；旧 workspace 模板在未硬切前只从 `assets/server/workspace` 补到 `workspace/.nbook/assets/server/workspace`，不再把 `assets/agent-v2` 归档同步给用户。
+- 已收窄“同步系统 assets”：Agent profile/skill 从 `assets/workspace/.nbook` 补到 `workspace/.nbook`；旧 workspace 模板已迁到 `assets/workspace/.nbook/templates` 与 `workspace/.nbook/templates`，不再把 `assets/agent-v2` 归档同步给用户。
 - 已确认前端 Agent 迁移目标是尽量还原旧抽屉完整功能，而不是只恢复最小聊天入口。普通聊天、session 列表、linked agents、message edit、refresh/retry、rollback、branch 切换、model override、Plan Mode soft toggle、request_user_input / approval resume 都进入新 session/invocation/event contract 的设计范围。
 - 已确认正式前端迁移时删除旧 `/api/agent/threads/**` contract，不做 thread -> session 兼容层；新前端只使用 `/api/agent/sessions/**`、session command、session events 和 profile/skill catalog 等新入口。
 - 已确认前端 session stream 第一版直接暴露 Pi `AgentEvent` 语义，不再设计一套旧 UI projection event。Neuro Book 只额外提供少量 session control event，例如 `snapshot_required`、`follow_up_queued`、`session_entry`、`session_state_changed`。
@@ -91,12 +92,15 @@
 - 已实现 session event hub：同一个 session 支持多 subscriber、递增 `seq`、bounded replay、`snapshot_required`、Pi event envelope 和 `follow_up_queued` / `session_entry` / `session_state_changed` / `invocation_aborted` 等 control event。
 - 已实现 active invocation lock：同一 `sessionId` 串行运行 provider loop / compact / control command；运行中新的普通 prompt 进入 FIFO followUp queue，approval resolution 优先恢复当前 pending tool call。
 - 已实现 abort 控制入口：取消当前 provider/tool run，默认清空未 drain followUp queue，已落盘消息和状态不回滚，无 active invocation 时幂等返回 idle。
-- 已实现 `tree + next.invoke` 原子 API，前端 edit message、retry/refresh、rollback/fallback 都走 append-only branch navigation，不原地修改或删除旧分支。
+- 已实现 `tree + next.invoke` API，前端 edit message、retry/refresh、rollback/fallback 都走 append-only branch navigation，不原地修改或删除旧分支；当前实现先移动 leaf 再 invoke，失败时不会自动回滚 leaf，后续需补真正原子语义。
 - 已实现 session command dispatcher：`/plan`、`/model`、`/compact` 等控制动作走 `/api/agent/sessions/:sessionId/commands`；`/invocations` 不解析 slash command，用户输入 `/xxx` 时仍可作为普通文本发送给模型。
+- 已调整 Agent 抽屉 slash command：`/plan` 是唯一 Plan Mode 命令，行为等同按钮/Shift+Tab toggle；底部压缩按钮已移除，但 `/compact` 仍保留；当输入框已有普通文本时不再提示 `/compact`、`/clear`、`/new` 这类 session-control 命令。
+- 已调整 `/clear` 语义：不再新建 session，而是通过 session tree 把当前 `active leaf` 移到空历史。旧 entries 和分支仍保留，后续 prompt 从同一 session 的空 leaf 下追加新分支。
+- 已调整前端 session message 投影：`custom_message` 会显示为系统卡片，其中 `<system-reminder>` / `system-reminder` custom message 使用轻量 System Reminder 样式；`compaction` 与 `branch_summary` 也会作为可见系统卡片展示，避免 session 中模型可见或历史结构变化对用户完全不透明。
 - 已完成前端 Agent 抽屉迁移：删除旧 `useAgentApi` / `useAgentThreadSession`，新增 `useAgentSessionApi` / `useAgentSession`；`AgentThreadDialog.vue` 改为 `AgentSessionDialog.vue`，`AgentSubagentPanel.vue` 改为 `AgentLinkedAgentPanel.vue`。
 - 已把 `NovelAgentDrawer.vue` 接到新 session snapshot/event store，保留发送、停止、继续、审批/输入恢复、Plan Mode、模型选择、compact、session 列表、linked agents、edit/retry/rollback/fallback 等核心入口。
-- 已把聊天渲染切到新 card 派生层：输入为原始 `AgentMessage[]`、session event 和 live invocation，输出用户/assistant 文本卡、通用工具卡，以及 `read` / `write` / `edit` / `apply_patch` / `bash` 等专用工具卡；`message_update` 与 `tool_execution_update` 只更新 live card，历史真相仍以后端 snapshot 为准。
-- 验收阶段已删除旧 `/api/settings/workspace-agent-profiles` 专用接口，改为 `/api/workspace-settings`。默认 Agent Profile 现在写入 `<workspaceRoot>/.nbook/settings.json` 的 `agent.defaultProfileKey`，新建 session 读取 `agent.effectiveProfileKey`。
+- 已把聊天渲染切到新 card 派生层：输入为原始 `AgentMessage[]`、session event 和 live invocation，输出用户/assistant 文本卡、通用工具卡，以及 `write` / `edit` / `apply_patch` 等专用工具卡；`read`、`bash` 当前先走通用工具卡，后续按实际体验再补专用渲染。`message_update` 与 `tool_execution_update` 只更新 live card，历史真相仍以后端 snapshot 为准。
+- 配置系统已切到 `/api/config/*`：旧 `/api/settings/workspace-agent-profiles`、`/api/settings/*` 与 `/api/workspace-settings` 已删除，不做兼容 adapter。默认 Agent Profile 现在由 Config 系统解析：Global Config `workspace/.nbook/config.json` 保存 `agent.defaultProfileKey.userAssets` / `agent.defaultProfileKey.novel`，Project Config `workspace/{project}/.nbook/config.json` 可覆盖当前小说 Project Workspace 的 `agent.defaultProfileKey`，新建 session 读取最新 effective default profile。
 
 ## Decisions
 
@@ -115,24 +119,25 @@ type Context = {
 
 - `messages[]` 不允许直接放 LangChain `SystemMessage` 或 OpenAI 风格 `{ role: "system" }`。现有 TSX Profile 迁移时必须适配这一点。
 - 当前阶段不 fork Pi 的 `Message` union 去加入 `SystemMessage`。system prompt 可以属于 session 可追踪历史，但发送给 provider 时走 `Context.systemPrompt`。
+- 当前前端不把 `systemPrompt` 展示为普通聊天历史，也不伪装成 `custom_message`；后续如需防止 TSX profile 变动破坏缓存，应单独记录 systemPrompt metadata/hash。
 - v3 彻底禁止 TSX Profile 在 `messages[]` 中生成中间 `SystemMessage`。Profile prepare contract 只能输出 `systemPrompt?: string` 与 Pi-compatible `messages: Message[]`。旧 profile 如果需要“中途提醒”，应改成普通 user/assistant message、dynamic context 或 custom session state，而不是 SystemMessage。
 - TSX Profile 机制保留。Pi 不替代 Neuro Book profile，Pi 替代的是 profile 之后的 provider/message/tool/runtime 形状。
 - 未来 `prepare()` 不再返回 LangChain `BaseMessage[]`，而应返回 Pi/Neuro Book harness 可消费的 prepared turn plan，例如 `systemPrompt`、`messages`、`toolKeys`、`sessionWrites`、metadata writes。
 - Pi append-only entry tree 语义全面采用。实现上可以先用 JSONL，也可以直接做 DB-compatible entry schema；长期应能从 JSONL 迁移到 DB。
 - Profile 即 Agent。用户可以像开发本地插件一样开发 `.profile.tsx`，系统在不重启的情况下动态发现、加载和校验这些 agent。
-- 删除 leader/subagent 领域分层，统一为 agent。`leader.default`、`leader.assets` 只是历史命名保留的 agent key，和其他 agent 没有类型层级差异。旧 `create_subagent` / `invoke_subagent` 在 v3 迁移为 `create_agent` / `invoke_agent`；Pi subagent 示例只借鉴 single / parallel / chain、输出截断、失败诊断、usage 汇总等模式。
+- 删除 leader/subagent 领域分层，统一为 agent。`leader.default`、`leader.assets` 只是历史命名保留的 agent key，和其他 agent 没有类型层级差异。旧 `create_subagent` / `invoke_subagent` 已迁移为 `create_agent` / `invoke_agent`；Pi subagent 示例只作为多 agent 编排模式参考，不进入 Neuro Book 的 active API 命名。
 - Agent runtime 统一采用 TypeBox / JSON Schema。v3 profile 的 `InputSchema` / `OutputSchema`、内置工具 schema 和 agent catalog schema 都迁移为 TypeBox，不保留 Zod 兼容层。非 Agent 的 API DTO 暂不作为本重构范围。
 - 新 Agent 主实现直接落在 `server/agent`。旧 v2 归档在 `server/agent-v2`，不再作为运行时 fallback。
 - v2 后端测试不作为迁移包袱保留。新 v3 根据新的 harness/session/tool/profile contract 重新建立测试。
 - 不直接把 Pi `AgentHarness` 作为 Neuro Book 后端主干。Neuro Book 实现自己的 `NeuroAgentHarness`，参照 Pi TUI / coding-agent 的产品层做法：产品层拥有 session、workspace、profile、resource、tool policy、SSE/事件适配和前端状态语义，底层使用 Pi core `Agent` / `AgentLoop`、Pi message/tool/event 类型。
 - JSONL session 第一版放在 `workspace/.nbook/agent/sessions`。这是 Neuro Book workspace 容器级运行时状态目录，不是用户 assets 覆盖目录；session entry schema 要保持 append-only tree，并预留未来迁移到数据库的字段形状。
-- 用户资产工作区根目录从旧的 `workspace/.nbook/assets` 重新评估为 `workspace`。第一阶段先限定可打开工作区为 `workspace/{novel}` 与 `workspace` 两类，不做任意文件夹选择器；长期再演进到 VS Code 式指定文件夹作为 workspace。
+- 用户资产工作区根目录从旧的 `workspace/.nbook/assets` 重新评估为 Workspace Root `.nbook`，当前 `user-assets` 入口直接挂载 `workspace/.nbook`。第一阶段仍保留 `workspaceKind: "user-assets"` 作为前端/API 查询入口，但它只表示“打开 Workspace Root `.nbook`”，不是新的配置 scope；长期再演进到显式 workspace root / workspace scope。
 - `.nbook` 作为 Neuro Book workspace 配置目录，既承载运行时元数据，也承载用户可编辑的配置/资源覆盖层。
 - 去掉 `resources` 目录层级。参照 Pi 的 project-local `.pi/...` 习惯，资源目录直接挂在 `.nbook` 下。
 - Agent 相关可编辑资源放在 `.nbook/agent/...` 下：profiles、skills 与 sessions 同属 agent 体系，但通过子目录区分“可编辑定义”和“运行时会话”。
-- 完整 builtin leader profile 不再长期放在 `server/agent/profiles/default-profile.ts` 作为主实现。主实现落到 `assets/.nbook/agent/profiles/builtin/leader.default.profile.tsx`；源码内最小 builtin 先保留为 contract / smoke fallback，后续评估删除，不能成为用户可编辑链路之外的第二套真实 prompt。
-- 非 Agent 的可覆盖资源放在 `.nbook/assets/...` 下，但不再保留旧的 `.nbook/assets/server/workspace/...`。旧 `server/workspace` 暴露实现分层，迁移后改成更领域化的 `templates`。
-- 系统级 Agent assets 已采用和用户 workspace 配置根镜像的结构：系统根为 `assets/.nbook/agent`，用户根为 `workspace/.nbook/agent`。workspace 模板覆盖仍在旧 `assets/server/workspace` 与 `workspace/.nbook/assets/server/workspace` 路径上，后续按 `.nbook/assets/templates` 单独硬切。
+- 完整 builtin leader profile 不再长期放在 `server/agent/profiles/default-profile.ts` 作为主实现。主实现落到 `assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`；源码内最小 builtin 先保留为 contract / smoke fallback，后续评估删除，不能成为用户可编辑链路之外的第二套真实 prompt。
+- 非 Agent 的可覆盖资源放在 `.nbook/templates/...` 等领域目录下，不再保留旧的 `.nbook/assets/server/workspace/...`。旧 `server/workspace` 暴露实现分层，迁移后改成更领域化的 `templates`。
+- 系统级 Agent assets 已采用和用户 workspace 配置根镜像的结构：系统根为 `assets/workspace/.nbook/agent`，用户根为 `workspace/.nbook/agent`。workspace 模板覆盖已切到 `assets/workspace/.nbook/templates` 与 `workspace/.nbook/templates`。
 
 ## Pi Tool Execution Notes
 
@@ -254,47 +259,45 @@ workspace/.nbook/agent/sessions/
 - session entry 不保存完整 prepared prompt。持久化历史由真实 user/assistant/tool messages、`HistorySet` 首次稳定前缀、`AppendingSet` 需要写入历史的运行期消息，以及 profile/session state entry 组成。
 - `HistorySet` 渲染结果是 `message[]`，并作为普通 `message` entries 写入 session。第一版不引入 `profile_history` entry 作为历史容器，也不写 origin metadata。
 - `create_agent` 创建空 session 时不立刻注入 `HistorySet`。空 session 只保存实例配置、metadata 和必要 session entries；第一次 `invoke_agent(prompt)` 或 `continue` 实际运行时再 prepare，并在需要时把 `HistorySet` 写入 session。
-- `HistorySet` 首次写入 session 后，不因 profile 源码更新自动替换。profile 更新只影响后续 `SystemSet` / `DynamicSet` / prepare 行为，不改写已经落入 history 的稳定前缀。
+- `HistorySet` 首次写入 session 后，不因 profile 源码更新自动替换。profile 更新只影响后续 `PreparedTurn.systemPrompt`、dynamic/appending 上下文和 prepare 行为，不改写已经落入 history 的稳定前缀。
 - `DynamicSet` 是本轮临时上下文：进入本轮 provider context，不写 session。
 - `AppendingSet` 是贴近当前输入的最新上下文区域：进入本轮 provider context，并且渲染出的非空 messages 默认全部写入 session。v3 可以优化具体 entry 形态，但不能把它降级成“不进上下文”或“只是不持久化”的区域。
 - `AppendingSet`、本轮 user message、需要写入 history 的运行期上下文，应在 provider 调用前写入 session。这样即使 run 被 abort 或 provider 报错，session 仍记录模型实际看到过的上下文。
 - run 被 abort、provider error 或工具系统错误时，已经写入的 user message / AppendingSet / 部分 assistant streaming message 都保留，并追加 run status / error entry 标记结果，不做回滚。
-- v3 profile DSL 新增 `SystemSet`，并把现有 `HistorySet` 的“唯一 system prompt”职责拆出去：
-  - `SystemSet` 只生成 Pi `Context.systemPrompt` 字段。Pi 当前 `systemPrompt` 类型是 `string`，因此第一版 `SystemSet` 输出也只支持最终 string，不支持 image/content blocks 等富文本片段。
-  - `SystemSet` 第一版严格只接受 string system prompt，不设计富文本 systemPrompt。原因是 Pi 当前 `Context.systemPrompt` 就是 string，强行加富文本会制造额外 provider adapter 复杂度。
-  - `SystemSet` 不进入 `Context.messages[]`，也不作为普通 session message 反复追加。
-  - `HistorySet` 继续表达稳定历史前缀。它在新 session 或显式新 profile 历史前缀需要落地时进入 session history；后续普通 turn 不重复注入。
-  - compact 不重新注入原始 `HistorySet`。compact 前，profile 看到的 history 来自 session active path；compact 后，history reducer 按 Pi 语义提供 compaction summary + recent messages。
+- v3 prompt contract 采用 `PreparedTurn.systemPrompt?: string` 作为 active runtime 的 provider 级 system prompt。早期草案中的 `SystemSet` / `HistorySet` / `DynamicSet` / `AppendingSet` 仍是重要 DSL 经验，但还不是 `server/agent` active profile 的可执行 JSX API。第一版 TSX profile 模板不创建特殊 TSX 节点，也不在 JSX `<Message role="system">` 中表达 provider 级 system prompt；模板直接返回 `systemPrompt` 字符串，后续若要重新引入 JSX DSL，应单独设计 active prompt builder。
 - `reserveTokens` / `keepRecentTokens` 属于 compaction policy，第一版跟随 harness/config 设置。profile 不提供 compaction 建议值，也不提供压缩提示词。
 
 ## Workspace / Assets Redesign Notes
 
-- 当前代码仍大量使用 `workspaceKind: "user-assets"` 和 `workspace/.nbook/assets`：
-  - Novel IDE store 把用户资产工作区显示为 `workspace/.nbook/assets`。
-  - workspace-files API 通过 `workspaceKind: "user-assets"` 固定解析到该目录。
-  - asset resolver、skill catalog、profile registry、workspace 模板覆盖和 profile settings 都依赖这个常量。
-- 新方向是把“用户资产工作区”改成普通 workspace 根的一种：打开 `workspace`，而不是打开 `workspace/.nbook/assets`。
-- 第一版只支持两类 workspace root：
-  - `workspace/{novel}`：单本小说工作区。
-  - `workspace`：全局用户工作区，替代旧 `?workspace=user-assets`。
-- 这意味着 `workspaceKind` 后续不应继续表达为 `"novel" | "user-assets"`，而应逐步转向 workspace root / workspace scope 概念。旧 query 可以保留短期迁移入口，但内部应收敛到“当前打开的 workspace root”。
-- `.nbook` 是 workspace 级 Neuro Book 配置目录，不再只表达 metadata/internal。
-- 目标目录结构：
-  - `.nbook/agent/profiles`：用户自定义或覆盖 Agent profile。
-  - `.nbook/agent/skills`：用户自定义或覆盖 skill；同名 skill 继续按整个目录覆盖。
-  - `.nbook/agent/sessions`：Pi-style append-only session JSONL。
-  - `.nbook/assets/templates/content-nodes`：内容节点模板，替代旧 `server/workspace/content-node-templates`。
-  - `.nbook/assets/templates/novel-workspace`：新小说 workspace 初始模板，替代旧 `server/workspace/novel-directory-template`。
-- 系统内置 `assets/.nbook/` 同步调整为相同结构：
-  - `assets/.nbook/agent/profiles` 覆盖到 `workspace/.nbook/agent/profiles`。
-  - `assets/.nbook/agent/skills` 覆盖到 `workspace/.nbook/agent/skills`。
-  - `assets/.nbook/assets/templates/content-nodes` 覆盖到 `workspace/.nbook/assets/templates/content-nodes`。
-  - `assets/.nbook/assets/templates/novel-workspace` 覆盖到 `workspace/.nbook/assets/templates/novel-workspace`。
-- 覆盖机制以 `.nbook` root 为统一边界比较内部相对路径。系统 `assets/.nbook/<relative>` 被用户 `workspace/.nbook/<relative>` 覆盖；同名 skill 目录仍按整个目录覆盖，其他资源按文件覆盖。
+- 当前稳定术语见 `spec/workspace/TERMS.md`：
+  - Workspace Root：应用运行数据根目录，默认 `workspace/`。
+  - Workspace Root `.nbook`：全局控制区，默认 `workspace/.nbook/`。
+  - Project Workspace：单本小说或具体项目目录，默认 `workspace/{project}/`。
+  - user-assets：前端用于编辑 Workspace Root `.nbook` 的入口，不是独立配置层。
+- `user-assets` 入口当前直接挂载 `workspace/.nbook`，不再使用 `workspace/.nbook/assets` 作为嵌套资产根。
+- 第一版仍使用 `workspaceKind: "user-assets"` 作为前端和 workspace-files API 的查询入口；这只是兼容入口命名，内部解析到 `workspace/.nbook`。后续若继续演进，可把查询模型收敛到显式 workspace root / workspace scope。
+- 当前只支持两类编辑目标：
+  - Project Workspace：`workspace/{project}`，用于单本小说内容。
+  - Workspace Root `.nbook`：`workspace/.nbook`，用于全局配置、用户 assets、Agent profiles/skills 覆盖层和运行状态。
+- `.nbook` 是 Neuro Book 控制目录，既承载运行时元数据，也承载用户可编辑的配置/资源覆盖层。
+- 当前目标目录结构：
+  - `workspace/.nbook/config.json`：Global Config。
+  - `workspace/{project}/.nbook/config.json`：Project Config。
+  - `workspace/.nbook/agent/profiles`：用户自定义或覆盖 Agent profile。
+  - `workspace/.nbook/agent/skills`：用户自定义或覆盖 skill；同名 skill 继续按整个目录覆盖。
+  - `workspace/.nbook/agent/sessions`：Pi-style append-only session JSONL。
+  - `workspace/.nbook/templates/content-node-templates`：内容节点模板用户覆盖。
+  - `workspace/.nbook/templates/novel-directory-templates`：新小说 Project Workspace 初始模板用户覆盖。
+- 系统内置 `assets/workspace/.nbook/` 同步调整为相同结构：
+  - `assets/workspace/.nbook/agent/profiles` 覆盖到 `workspace/.nbook/agent/profiles`。
+  - `assets/workspace/.nbook/agent/skills` 覆盖到 `workspace/.nbook/agent/skills`。
+  - `assets/workspace/.nbook/templates/content-node-templates` 覆盖到 `workspace/.nbook/templates/content-node-templates`。
+  - `assets/workspace/.nbook/templates/novel-directory-templates` 覆盖到 `workspace/.nbook/templates/novel-directory-templates`。
+- 覆盖机制以 `.nbook` root 为统一边界比较内部相对路径。系统 `assets/workspace/.nbook/<relative>` 被用户 `workspace/.nbook/<relative>` 覆盖；同名 skill 目录仍按整个目录覆盖，其他资源按文件覆盖。
 - 系统 assets 路径迁移采用一次性硬切，不保留旧 `assets/agent/...`、`assets/server/workspace/...`、`workspace/.nbook/assets/...` 的兼容扫描 fallback。迁移实现必须同步更新 resolver、同步系统 assets、profile catalog、skill catalog、workspace template loader、profile check/prepare 脚本、测试 fixture 和提示词中的路径说明。
-- 全局 `workspace` 工作区的文件树默认显示 `.nbook`，包括 `.nbook/agent/sessions`。这个入口用于编辑和检查 Neuro Book 配置、资源与运行时会话。普通 `workspace/{novel}` 小说工作区可以继续隐藏或弱化 `.nbook`，避免写作时被内部配置和 session 文件干扰。
+- user-assets 文件树默认显示 `workspace/.nbook` 内容，包括 `agent/sessions`。这个入口用于编辑和检查 Neuro Book 配置、资源与运行时会话。普通 `workspace/{project}` Project Workspace 可以继续隐藏或弱化自身 `.nbook`，避免写作时被内部配置和 session 文件干扰。
 - 旧 `workspace/.nbook/assets/...` 用户目录不做迁移脚本，也不做运行时 fallback；当前还没有真实用户数据，直接硬切。
-- “同步系统 assets”迁移后从 `assets/.nbook` 复制缺失文件到 `workspace/.nbook`，目标已存在时继续跳过，不覆盖用户文件。
+- “同步系统 assets”迁移后从 `assets/workspace/.nbook` 复制缺失文件到 `workspace/.nbook`，目标已存在时继续跳过，不覆盖用户文件。
 
 ## Profile Fusion Plan
 
@@ -309,7 +312,7 @@ workspace/.nbook/agent/sessions/
   - 允许空 session：`create_agent` 可以只创建 `AgentInstance + AgentSession`，不立即写入 user message。`profileKey + input` 必须已知并通过 schema 校验，但 `title` / `summary` 初始可以为空；第一次 run 后再由 profile/harness 生成或更新。`get_agent` 列表中如果 `title` 为空，展示层可退回 `profileKey`。
   - 同一个 session 不允许中途切换 `profileKey` / agent definition；要换 agent 就创建或打开另一个 session。
   - 第一版不允许修改已创建 agent 的 `input`。要调整实例配置就创建新 agent。未来如果需要支持修改，应采用 append-only input update entry，并由 reducer 取 active path 上最后一次合法 update 作为当前 input，不做原地覆盖。
-  - 这样可以避免 `HistorySet`、`SystemSet`、compact summary、tool allowlist 和实例 input 在同一条历史里混用。
+  - 这样可以避免稳定历史前缀、provider 级 systemPrompt、compact summary、tool allowlist 和实例 input 在同一条历史里混用。
   - `create_agent` 返回最小可识别信息：`sessionId`、`profileKey`，以及可选 `title`。调用方后续只用全局 `sessionId` 调用或查询该 agent。
   - `workspaceRoot` 在 `create_agent` 时固定，第一版不允许修改。要换 workspace 就创建新 agent，避免文件工具权限、相对路径和历史消息里的路径语义混用。
 - 用户自定义 agent 开发方式：
@@ -317,7 +320,7 @@ workspace/.nbook/agent/sessions/
   - 模块显式导出 `profileManifest`、`InputSchema`、`OutputSchema`、`Input`、`Output`。
   - 用户或 Agent 修改 `.profile.tsx` 后，通过单文件 typecheck 命令校验；共享源码变化再跑 `bun run typecheck`。第一版不依赖任何准备好的兼容层，profile 源码与静态类型索引保持同一套 TypeBox 约束。
   - 动态 loader 监听或按需扫描系统/用户 `.nbook/agent/profiles/**/*.profile.tsx`，支持不重启发现新增、删除和修改的 agent。
-  - 文件名建议与 manifest key 对齐为 `<profileKey>.profile.tsx`。loader 第一版不因为文件名不一致而拒绝加载，避免用户重命名文件时直接破坏运行；`scripts/check-profile.ts --v3` 和 catalog issue 应提示文件名与 manifest key 不一致。
+  - 文件名建议与 manifest key 对齐为 `<profileKey>.profile.tsx`。loader 第一版不因为文件名不一致而拒绝加载，避免用户重命名文件时直接破坏运行；`scripts/check-profile.ts` 和 catalog issue 应提示文件名与 manifest key 不一致。
   - 用户自定义 profile 的运行时加载与静态类型推导分两层：运行时直接动态 import + TypeBox 校验，不依赖 prepare/typegen；开发期如果需要按 `profileKey` 静态推导 `Input` / `Output`，则通过 typegen 生成 `DynamicProfileInputMap` / `DynamicProfileOutputMap` 并与 builtin map 合并。builtin key 的静态类型永远不被用户覆盖改写。
 - Profile catalog 是运行时事实源：可以列出动态发现的 agent，并读取每个 agent 的 manifest、InputSchema、OutputSchema、allowed tools、加载错误和可预览的 prepare 结果；v3 runtime 删除 `kind` 字段，不再区分 leader/subagent。
 - Profile catalog loader 的错误策略分层处理：单个 profile 加载失败时，catalog snapshot 继续可用，只记录该 profile 的加载错误且不把它作为可调用 agent；当前 session 正在使用的 profile 本身加载或 prepare 失败时，本次 run 直接失败并返回明确错误，不静默 fallback 到旧版本或系统默认 profile。
@@ -393,8 +396,8 @@ workspace/.nbook/agent/sessions/
   - `invocationId` 是单次调用/run 标识，只表示“这一次 invoke_agent 请求”。它用于非阻塞调用、事件订阅、日志追踪和精确查询某一次 run；不是 agent 长期身份。
   - 当前 `invocationId` 使用 UUID 字符串；`sessionId` 继续使用全局数字递增 ID。
 - `invoke_agent` 阻塞返回契约：
-  - Pi core 的 `prompt()` / `continue()` await 到 `agent_end`，事件里 `turn_end` 带本 turn 的 assistant message 和 toolResults，`agent_end` 带本次 run 新产生的 messages。Pi coding-agent 的 subagent extension 返回 model-visible content，同时把完整子进程结果放在 tool details：每个结果包含 messages、usage、model、stopReason、errorMessage 等。
-  - Neuro Book v2 `invoke_subagent` 当前会同步等待 subagent 完成，然后从子线程历史中优先解析最后一次 `report_result`，否则退回最后一条 assistant 文本；中间 live 消息不嵌回父线程。
+  - Pi core 的 `prompt()` / `continue()` await 到 `agent_end`，事件里 `turn_end` 带本 turn 的 assistant message 和 toolResults，`agent_end` 带本次 run 新产生的 messages。Pi coding-agent 的多 agent extension 返回 model-visible content，同时把完整子进程结果放在 tool details：每个结果包含 messages、usage、model、stopReason、errorMessage 等。
+  - 旧 v2 子线程调用曾同步等待子线程完成，再从子线程历史中优先解析最后一次 `report_result`，否则退回最后一条 assistant 文本；中间 live 消息不嵌回父线程。
   - v3 采用两者折中：`invoke_agent` 返回目标 session 的本次运行摘要、最终 assistant 摘要、usage 汇总和 `report_result` 结果；完整 history 只通过 session API 查询，不塞入工具返回。
   - 当前 service 返回：
 
@@ -418,37 +421,44 @@ workspace/.nbook/agent/sessions/
   - 阻塞返回值必须包含 `sessionId` 与 `invocationId`。`sessionId` 是目标 agent 长期身份；`invocationId` 是本次 run 的追踪号，用于后续事件订阅、调试和非阻塞调用。第一版 `invocationId` 只在 API/tool 返回值中出现，不额外暴露给模型提示词。
   - `block: false` 第一版不实现，只保留 TODO。当前 `invoke_agent` 默认并实际只支持阻塞调用。
 
-- `report_result` 是 OutputSchema 的提交点：如果目标 agent 的 `OutputSchema` 校验失败，`report_result` 工具返回 tool error，让目标 agent 在自己的 session 内观察错误并更正；这不是立刻返回给父 agent 的失败。
+- `report_result` 是 OutputSchema 的提交点：`OutputSchema = Type.Object({})` 时只要求 `walkthrough`；非空 OutputSchema 时要求 `walkthrough + data`，其中 `data` 的模型可见类型由目标 profile 的 `OutputSchema` 派生。如果目标 agent 的 `data` 校验失败，`report_result` 工具返回 tool error，让目标 agent 在自己的 session 内观察错误并更正；这不是立刻返回给父 agent 的失败。
   - 目标 agent 只有遇到不可挽回错误才向调用方返回错误，例如 provider/API 错误、工具系统错误、被显式停止且没有可用结果，或运行结束但目标 profile/policy 要求 `report_result` 而始终没有成功提交。
   - v3 可以参考 v2 `collectSubAgentCompletion` / `resolveSubAgentCompletionResult` 的完成判定：等待目标 session run 结束后，从历史里优先解析最后一次成功的 `report_result`；没有时再按 profile/policy 决定是否退回最后 assistant 文本，或报“未产出可用最终结果”。
   - 如果目标 agent 没有调用 `report_result`，但产出了最终 assistant 文本，`invoke_agent` 是否可返回 `finalMessage` 由目标 profile/policy 决定；通用 agent 可以允许，结构化输出 agent 应要求 `report_result`。
 
 ## Agent Tool Inventory
 
-### 当前 v2 已注册工具
+### 当前系统已注册工具
 
-- `create_subagent`：创建并挂接 subagent，按当前可用 subagent profile 选型。
-- `list_subagents`：列出当前 leader 线程挂接的 subagent。
-- `invoke_subagent`：同步调用已挂接 subagent，等待完成后返回最终结果。
-- `report_result`：agent 提交最终结果，校验输出结构。
-- `request_user_input`：请求用户补充输入。
-- `enter_plan_mode` / `exit_plan_mode`：软 Plan Mode 入口。
-- `skill`：skill 相关入口。
-- `task_create` / `task_set_status`：任务列表创建与状态更新。
-- `execute_sql`：数据库查询/写入工具。
-- `execute_shell`：命令执行工具。
-- `read_file` / `edit_file` / `apply_patch` / `write_file`：文件读写编辑工具。
-- `update_novel`：小说元数据/工作区更新工具。
-- `get_plot_tree` / `get_story_thread` / `get_story_scene_context` / `get_chapter_plot`：剧情与内容节点查询工具。
-- `create_story_thread` / `update_story_thread` / `create_story_scene` / `update_story_scene` / `create_story_plot` / `update_story_plot`：剧情结构编辑工具。
+当前 `server/agent` 工具 registry 已存在这些工具：
 
-### v3 计划中的 agent 相关工具
+- `read`：读取文本文件或图片；文本支持 `offset` / `limit`，大文件返回 continuation/truncation 提示。
+- `write`：创建或完整覆写文件。
+- `edit`：对单文件做精确文本替换。
+- `apply_patch`：对单文件应用 unified diff patch。
+- `bash`：在绑定 workspace root 下执行 bash 命令，合并 stdout/stderr，并记录长输出截断详情。
+- `report_result`：agent 提交最终结果；只应暴露给需要 report 完成协议的目标 agent。当前代码仍是旧 `result/data` 参数，后续目标语义是：`OutputSchema = Type.Object({})` 时只提交 `walkthrough`，非空 OutputSchema 时还提交按 schema 校验的 `data`。
+- `request_user_input`：发起需要用户回答的 approval tool call，恢复时走 `continue + resolution`。
+- `enter_plan_mode` / `exit_plan_mode`：请求进入或退出软 Plan Mode。
+- `skill`：请求激活或使用可见 skill。
+- `create_agent`：创建新的 agent session，并在父 session 调用时写入 owned link。
+- `invoke_agent`：调用已有 agent session，支持 prompt / continue。
+- `get_agent`：无参列出当前 session 拥有的 agents；传 `sessionId` 时查询指定 owned agent 摘要。
+- `get_session`：查询轻量 session metadata、tree、linked agents、usage 和最近消息摘要。
+- `detach_agent`：解除当前父 agent 对某个 owned agent 的拥有/可见关系，不删除目标 session。
+
+Profile 仍通过 `allowedToolKeys` 决定最终暴露给模型的工具集合。当前 `leader.default` / `leader.assets` 默认暴露 `read`、`write`、`edit`、`apply_patch`、`bash`、`create_agent`、`invoke_agent`、`get_agent`、`get_session`、`detach_agent`、`request_user_input`、`enter_plan_mode`、`exit_plan_mode`、`skill`，不默认暴露 `report_result`。后续 Workbench 第一版只把 `allowedToolKeys` 作为简单 checklist 辅助编辑，不做复杂危险等级分组；`bash` 默认不选并显示高风险提示。
+
+旧 v2 工具名和业务工具不在当前 registry 中：`read_file` / `write_file` / `edit_file` / `execute_shell` 已迁移为 Pi 风格命名；`execute_sql`、task 工具、小说元数据工具、剧情/Plot 查询与编辑工具尚未作为新 `server/agent` 工具重建。后续若需要恢复，应按新工具合同重新设计，而不是恢复旧 v2 命名。
+
+### v3 agent 相关工具命名结论
 
 - `create_agent`：创建任意 agent 实例和空 session。
-- `invoke_agent`：按 `sessionId` 调用 agent，支持 `prompt` / `continue`，支持 `block`。
+- `invoke_agent`：按 `sessionId` 调用 agent，支持 `prompt` / `continue`；第一版同步等待目标 session 完成。
 - `get_agent(id?: number)`：无参列出当前拥有的 agents；有参查询指定 owned agent 详情。
+- `get_session(id?: number)`：查询当前或指定 owned session 的轻量状态。
 - `detach_agent`：解除当前父 agent 对某个 owned agent 的拥有/可见关系，不删除目标 session。
-- 第一版不再单独设计 `query_agent` / `get_agent_status` / `list_agents` / `list_linked_agents`，统一收敛到 `get_agent`。
+- 第一版不再单独设计 `query_agent` / `get_agent_status` / `list_agents` / `list_linked_agents`，统一收敛到 `get_agent` / `get_session`。
 
 ### v3 计划中的基础文件/命令工具
 
@@ -465,10 +475,10 @@ workspace/.nbook/agent/sessions/
 - 迁移重点是 profile output contract：
   - 从 LangChain `BaseMessage[]` 改为 Pi-compatible prepared turn。
   - `SystemMessage` 不允许出现在 Pi `messages[]`。
-  - 首要系统提示词由 `SystemSet` 进入 `systemPrompt`。
+  - 首要系统提示词由当前 active profile 的 `PreparedTurn.systemPrompt` 进入 provider `Context.systemPrompt`。
   - 中间位置已有 `SystemMessage` 的 profile 直接迁移为非法输出，profile 作者需要改写为 dynamic context 或普通 message。
 - Profile prepare 仍然是“History + 动态内容”：
-  - SystemSet 来自当前 profile，生成本轮唯一 `systemPrompt`。它可以随 profile 源码变化在下一次运行生效，但不写为普通历史消息。
+  - `PreparedTurn.systemPrompt` 来自当前 profile，生成本轮唯一 provider 级 `systemPrompt`。它可以随 profile 源码变化在下一次运行生效，但不写为普通历史消息。
   - History 来自 session active path，包含真实对话历史、profile `HistorySet` 首次稳定前缀，以及已持久化的 `AppendingSet` 运行期消息。
   - DynamicSet 来自当前 profile、runtime scope、workspace 状态等，是本轮临时上下文；它进入 provider context，但不写 session。
   - AppendingSet 是贴近当前输入的最新上下文区域；它进入 provider context，并且其中的非空 messages 默认全部写入 session。
@@ -486,7 +496,7 @@ type ProfileIngestResult = {
 
 - `ingest()` 第一版不允许写任意 `custom` entry，不允许修改 `profileKey`、model、thinking level，不允许 link/detach agent，也不触发 queue、compact 或 tool policy。`Reminder` / `Watch` 的 state 更新仍由 harness 的 `AppendingSet` renderer 处理。
 - `HistorySet` 的新边界：
-  - 它不再承担 system prompt 角色；需要 provider 级系统提示的内容必须进入 `SystemSet`。
+  - 它不再承担 system prompt 角色；需要 provider 级系统提示的内容必须进入 `PreparedTurn.systemPrompt`。
   - 它仍然适合放 SkillCatalog、长期规则、工作区初始背景等需要首轮持久化的上下文。
   - 新 session 首轮把 `HistorySet` 渲染结果写成普通 session message entries。旧 session 下次运行时不会因为 profile 源码变化自动重写这段历史，也不会写 profile 来源审计 entry。
   - compact 后 context reducer 用 compaction summary + recent messages 取代被压缩的旧历史；profile 不应该再把原始 `HistorySet` 当作“补丁”重新塞回上下文。
@@ -516,7 +526,7 @@ type ProfileIngestResult = {
 - active invocation lock 指每个 session 同一时刻最多只有一个正在修改 session / 调 provider / 跑工具 / compact 的 active invocation。它不是数据库锁，也不是跨进程锁；第一版是 harness 内的 session 级运行态互斥。它防止两个 provider loop 同时追加同一棵 session tree，也防止 `/tree`、`/model`、`/compact` 等控制命令在运行中移动 leaf 或改 state。
 - 运行中收到 followUp 后，应通过 session event hub 广播 `follow_up_queued` / queued message 事件，让所有订阅该 session 的窗口都能看到“后续消息已排队”。queued followUp 本身不立刻改写 active leaf；只有真正 drain 并进入下一轮 provider context 时，才作为标准 user message 写入 session。
 - `continue + resolution` 是审批恢复控制流，不走 followUp queue。如果 session 正在等待 approval resolution，这时提交 resolution 会补齐对应 toolResult 并继续当前 invocation；如果同一时刻又提交普通 prompt，则普通 prompt 进入 followUp queue。
-- `steer` / `followUp` 的固定提示词不交给 profile 决定。它们属于 harness 交互协议，由 NeuroAgentHarness 写死或通过 harness-level policy 配置；profile 只负责常规 SystemSet/HistorySet/DynamicSet/AppendingSet。
+- `steer` / `followUp` 的固定提示词不交给 profile 决定。它们属于 harness 交互协议，由 NeuroAgentHarness 写死或通过 harness-level policy 配置；profile 只负责常规 systemPrompt、history、dynamic/appending 上下文。
 - `steer` / `followUp` / `abort` / clear queue 第一版全部由 harness 写死，不开放给 profile 直接触发或改写。
 - `abort` / interrupt：取消当前低层 run，向 provider/tools 传递 abort signal，清空 steering/followUp 队列。已完成的 session writes 不回滚，pending writes 按 save point / failure cleanup 规则落盘或标记中断。
 - queue drain mode 第一版可跟 Pi 一样支持 `"one-at-a-time"` 与 `"all"`，默认 `"one-at-a-time"`：
@@ -766,7 +776,7 @@ type AgentSessionEvent =
   - `retry/refresh` 等价于移动到目标 assistant message 的 parent，再重新 continue 或 prompt，生成 sibling assistant branch；旧回复保留。
   - `rollback/fallback` 等价于移动到目标 entry 或目标 entry 的 parent，后续由用户选择继续、重新发或切换分支。
 - 第一版 session 有 active invocation 时禁止 `tree` 操作，包括 `tree + next.invoke`。如果当前 session 正在 streaming、执行工具或等待本轮结束，后端返回 `active_invocation_exists`；用户需要先 abort 当前 invocation，等 session idle 后再 edit/retry/rollback/fallback。这样避免 active run 的后续事件写入已经移动过 leaf 的 session tree。
-- API 层已提供原子 `tree + invoke` 能力，避免前端先 tree 成功、后 invoke 失败导致 UI 停在半切换状态。当前形态：
+- API 层已提供 `tree + invoke` 能力，减少前端分两次请求导致的竞态。当前实现仍是先移动 leaf 再 invoke，若后续 invoke 失败不会自动回滚 leaf；真正原子语义后续补齐。当前形态：
 
 ```ts
 type AgentTreeRequest = {
@@ -797,7 +807,7 @@ type AgentTreeRequest = {
 ## Remaining Questions
 
 - 前端仍需要一次真实浏览器交互验收：多窗口订阅、followUp queue、approval resume、Plan Mode、model command、compact、edit/retry/rollback/fallback 的端到端体验需要在开发服务器里手动确认。
-- Profile template visual editor 目前已能读取 v3 profile catalog/detail，并通过真实 `profile.prepare()` 做只读预览；后续仍需要把保存、新建、restore、schema builder 等旧低代码写入接口重做为新的 TSX profile 工作台。
+- 旧低代码 Profile template visual editor 已从 active UI/API 移除，`profile-templates` 与 `user-profile-templates` 墓碑路由也已删除；这是因为旧编辑器还没按新的 TSX profile 契约重做，不是 user-assets Header 条件丢失造成的入口回归。当前只保留 v3 profile catalog/detail 与真实 `profile.prepare()` 预览能力。新的 TSX profile 写入工作台后续独立设计，不恢复旧低代码保存/新建/restore/schema builder 兼容层。
 - Session event hub 第一版是单进程内存广播；跨 Nuxt worker / 多实例部署时仍需要 Redis pub/sub、数据库通知或其他共享事件通道。
 
 ## Files Changed
@@ -807,8 +817,8 @@ type AgentTreeRequest = {
 - `scripts/smoke-agent.ts`：真实 provider 手动 smoke。
 - `scripts/smoke-agent-http.ts`：HTTP smoke，调用正式 `/api/agent/sessions/**` 入口。
 - `scripts/workspace.ts`：active workspace 内容节点 CLI，从 v2 归档目录解耦。
-- `scripts/check-profile.ts`：`--v3` 模式检查新 `.nbook/agent/profiles` root 下的 profile。
-- `scripts/prepare-profile-types.ts`：`--v3` 模式输出动态 profile 类型索引到 `server/agent/profiles/dynamic-profile-types.generated.ts`。
+- `scripts/check-profile.ts`：检查新 `.nbook/agent/profiles` root 下的 profile。
+- `scripts/prepare-profile-types.ts`：输出动态 profile 类型索引到 `server/agent/profiles/dynamic-profile-types.generated.ts`。
 - `shared/dto/agent-session.dto.ts`：正式 session/invocation/event HTTP DTO。
 - `server/api/agent/sessions/**`：正式 session / invocation / command / abort / tree / events HTTP 路由。
 - `package.json` / `bun.lock`：保留 Pi 与 TypeBox 依赖，移除 LangChain 依赖。
@@ -824,9 +834,9 @@ type AgentTreeRequest = {
 - `app/components/novel-ide/agent/AgentSessionDialog.vue`、`AgentLinkedAgentPanel.vue`：替换旧 thread dialog 与 subagent panel。
 - `app/components/novel-ide/agent/agent-message.ts`：从 Pi message/session event 派生聊天卡片模型。
 - `app/composables/useAgentApi.ts`、`app/components/novel-ide/agent/useAgentThreadSession.ts`、`AgentThreadDialog.vue`、`AgentSubagentPanel.vue`、`AgentSubagentBubble.vue`：已删除旧 Agent 前端入口。
-- `assets/.nbook/agent/profiles/builtin/leader.assets.profile.tsx`：新增 v3 用户资产助手 profile，替代 v2 `leader.assets` 的运行入口。
-- `shared/dto/workspace-settings.dto.ts`、`server/workspace-settings/workspace-settings.ts`、`server/api/workspace-settings/**`：新增工作区设置接口，替代旧 workspace 默认 profile 专用接口。
-- `server/api/settings/workspace-agent-profiles.*`：已删除。
+- `assets/workspace/.nbook/agent/profiles/builtin/leader.assets.profile.tsx`：新增 v3 用户资产助手 profile，替代 v2 `leader.assets` 的运行入口。
+- `shared/dto/config.dto.ts`、`server/config/**`、`server/api/config/**`、`app/composables/useConfigApi.ts`：统一 Config 系统入口，替代旧 workspace 默认 profile 专用接口。
+- `server/api/settings/workspace-agent-profiles.*`、`server/api/workspace-settings/**`、`server/workspace-settings/**`、`shared/dto/workspace-settings.dto.ts`：已删除。
 - `server/utils/model.ts` / `server/utils/model.test.ts` / `server/utils/agent-message-utils.ts`：已删除，旧 provider 代码只保留在 v2 归档历史中。
 - `PROJECT-STATUS.md`
 
@@ -834,16 +844,16 @@ type AgentTreeRequest = {
 
 - `bunx prisma generate`：通过；Prisma client 已按删除旧 Agent thread/message schema 重新生成。
 - `bun test server/agent`：Agent harness / API helper / profile / tool / session event hub 测试通过。
-- `bun test server/workspace-settings server/agent`：workspace settings 与 Agent 回归测试通过。
+- `bun test server/config server/agent`：Config 与 Agent 回归测试通过。
 - `bunx tsc --noEmit --pretty false`：通过。
-- `bun scripts/prepare-profile-types.ts --v3 --all`：通过；builtin key 不生成动态类型索引，当前输出 0 个 dynamic profile type entries。
-- `bun test server/workspace-settings server/agent`：通过；覆盖 `leader.assets` 真实 catalog 加载和 workspace settings query 400。
-- 手动 HTTP 复现：`GET /api/workspace-settings?workspaceKind=user-assets` 能返回 `leader.assets` 且 catalog 中 `leader.assets` / `leader.default` 均为 `loaded`；`POST /api/agent/sessions` 使用 `profileKey: "leader.assets"` 能成功创建 session，不再报 `未找到 agent profile: leader.assets`。
-- 验收阶段追加验证：`node --import tsx` 下直接调用 v3 profile HTTP service，`catalog` / `detail` / `previewAgentProfilePrepare` 均能在本地返回，`leader.assets` 预览得到 `systemPrompt` + dynamic message。当前 3000 dev server 进程对 `/` 与 `/api/workspace-settings` 都超时，说明进程整体卡住；需重启 dev server 后再做浏览器/HTTP 交互复验。
+- `bun scripts/prepare-profile-types.ts --all`：通过；builtin key 不生成动态类型索引，当前输出 0 个 dynamic profile type entries。
+- `bun test server/config server/agent`：通过；覆盖 `leader.assets` 真实 catalog 加载和 Config editor snapshot 默认 profile 解析。
+- 手动 HTTP 复现：`GET /api/config/editor-snapshot?workspaceKind=user-assets` 能通过 `defaultProfileSettings.effectiveProfileKey` 返回 `leader.assets`，且 catalog 中 `leader.assets` / `leader.default` 均为 `loaded`；`POST /api/agent/sessions` 使用 `profileKey: "leader.assets"` 能成功创建 session，不再报 `未找到 agent profile: leader.assets`。
+- 验收阶段追加验证：`node --import tsx` 下直接调用 v3 profile HTTP service，`catalog` / `detail` / `previewAgentProfilePrepare` 均能在本地返回，`leader.assets` 预览得到 `systemPrompt` + dynamic message。当前 3000 dev server 进程若对 `/` 与 `/api/config/editor-snapshot` 超时，应先判断 dev server 进程整体状态，再做浏览器/HTTP 交互复验。
 - `bun scripts/smoke-agent.ts`：通过；使用真实 provider `xiaomimimo/mimo-v2.5-pro`，通过 assets 版 `leader.default` 普通 completion 返回 `agent session smoke ok`，并拿到 usage 与 session JSONL。
 - `scripts/smoke-agent-http.ts` 需要本地 dev server，当前只作为手动 HTTP smoke 入口记录；本轮未自动启动浏览器或 dev server 做交互验收。
 - 搜索检查：active `app` / `server` / `shared` / `scripts` 中不再引用 `agent-v3`、`AgentV3`、`useAgentV3`、`agent-v3.dto`、`useAgentApi`、`/api/agent/threads`、`AgentThreadDialog`、`AgentSubagentPanel`、`useAgentThreadSession`；旧 `agent-chat.dto` 命中仅保留在 `server/agent-v2` 归档目录。
-- 搜索检查：active `app` / `server` / `shared` 中不再引用 `/api/settings/workspace-agent-profiles` 或 `WorkspaceAgentProfileSettings`。
+- 搜索检查：active `app` / `server` / `shared` 中不再引用 `/api/settings/workspace-agent-profiles`、`/api/workspace-settings` 或 `WorkspaceAgentProfileSettings`。
 - 设计依据来自本地 Pi 源码和调研文档 `docs/research/pi-agent-harness.md`。
 
 ## TODO / Follow-ups
@@ -859,9 +869,9 @@ type AgentTreeRequest = {
 - TODO：为 `invoke_agent` 预留非阻塞调用。`block: false` 后续应立即返回 invocationId / sessionId，并通过 session event 或订阅 API 观察完成状态；第一版不实现非阻塞调用。
 - TODO：补浏览器端真实交互验收，重点看多窗口同步、流式工具卡、approval resume、followUp queue、compact 和 tree+invoke 操作。
 - TODO：event hub 后续支持跨进程/多实例广播；第一版是单进程内存 replay，重启或多 worker 场景通过 snapshot 恢复，不保证实时 fan-out。
-- TODO：重做 ProfileTemplateVisualEditor 的写入能力。当前 Agent 抽屉已经迁移，profile 工作台已能读取 v3 catalog/detail 并进行 prepare preview；保存、新建、restore 和 schema builder 仍是旧接口，需要按 TSX 源码编辑优先的方向重接。
+- TODO：重新设计 TSX profile 写入工作台。当前 Agent 抽屉已经迁移，user-assets 入口可以直接编辑 `workspace/.nbook/agent/profiles` 下的 TSX profile 源文件；旧 `ProfileTemplateVisualEditor` 与旧写入接口因尚未适配新 TSX profile 契约，已从 active surface 移除。后续按 TSX 源码编辑优先的方向重接，不恢复旧低代码兼容层。
 - 为动态 agent catalog 增加 lazy detail 查询能力；当前 prepare 已可读取 catalog snapshot 中的 InputSchema / OutputSchema，但还没有针对大 catalog 的分页/按 key 查询优化。
-- 调整用户资产工作区计划：用户覆盖根为 `workspace/.nbook`，系统资源根为 `assets/.nbook`，agent profile/skill 放入 `.nbook/agent`，workspace 模板放入 `.nbook/assets/templates`。
-- 执行 assets 路径硬切迁移时，先用 `rg` 列出旧路径引用，移动文件后逐一改为新路径，并删除旧路径 fallback/TODO。
+- user-assets 当前稳定形态：用户覆盖根为 `workspace/.nbook`，系统资源根为 `assets/workspace/.nbook`，agent profile/skill 放入 `.nbook/agent`，workspace 模板放入 `.nbook/templates`。后续如继续改入口命名，应以 `spec/workspace/TERMS.md` 为术语真值。
+- assets 路径硬切已完成；后续若新增系统资源，先放到 `assets/workspace/.nbook/<relative>`，再确认同步逻辑和用户覆盖层 `workspace/.nbook/<relative>` 一致，不恢复旧路径 fallback。
 - 后续评估文件/变量回溯能力：变量可通过 `variable_set` / custom state entry reduce；文件回溯需要专门的 `file_snapshot` / `file_patch` entry 或接入 Git/worktree snapshot，第一版 session 只记录文件操作事实，不承诺文件内容回滚。
 - 若开始实现，持续更新本文档和 `PROJECT-STATUS.md`。

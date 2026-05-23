@@ -1,6 +1,6 @@
 import type {AgentTool} from "nbook/server/agent/tools/agent-tool";
 import {createToolResultMessage} from "nbook/server/agent/tools/shared/tool-message";
-import {RequestUserInputToolArgsSchema} from "nbook/shared/dto/agent-chat.dto";
+import {RequestUserInputToolArgsSchema} from "nbook/server/agent-v2/dto/agent-chat.dto";
 
 /**
  * 向前端发起结构化提问。

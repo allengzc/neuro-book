@@ -32,8 +32,8 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 | Reference | Active | 文件化内容节点 refs 不再承载 visibility；Agent prompt 已收敛为 inline ref 表达自然提及、structured refs 表达稳定系统关系；Plot refs 已迁到内容节点路径，不再依赖数据库 Lorebook。 |
 | Plot / Story | Active | 剧情系统规范较完整；refs 指向设定/角色/地点时使用 `lorebook/.../` 内容节点路径，剧情内部对象仍使用 thread/scene/plot URI；数据库不再维护 `Volume` / `Chapter` 表，Scene 挂章使用 `chapterPath` 指向 `manuscript/.../` content-node 目录。 |
 | Agent v2 | Archived | 旧实现已移动到 `server/agent-v2` 与 `assets/agent-v2`，只作为迁移参考，不进入 active typecheck、测试或运行时。旧 `AgentThread` / `AgentMessage` Prisma 模型已删除。 |
-| Agent | Active | Pi-based harness 已成为 `server/agent` 主实现：TypeBox profile、动态 `.nbook` profile/skill catalog、JSONL session、slash command、approval resume、profile ingest、linked agents、compaction、Pi 风格基础文件工具、agent 工具和真实 provider smoke 均已跑通。正式 HTTP 入口是 `/api/agent/sessions/**`；前端 Agent 抽屉已迁到 session snapshot + event hub + command/tree/invocation contract，保留聊天、停止、审批恢复、模型选择、Plan Mode、compact、linked agents、edit/retry/rollback/fallback 的核心入口。 |
-| Skills | Active | 新 Agent 后端只扫描 `assets/workspace/.nbook/agent/skills` 与 `workspace/.nbook/agent/skills`；旧写作流程 skill 已归档到 `assets/agent-v2/skills`。前端用户资产工作区的 profile 工作台已能读 v3 catalog/detail 并做 prepare 预览，skill/profile 写入体验仍等待按新 `.nbook` 结构重接。 |
+| Agent | Active | Pi-based harness 已成为 `server/agent` 主实现：TypeBox profile、动态 `.nbook` profile/skill catalog、JSONL session、slash command、approval resume、profile ingest、linked agents、compaction、Pi 风格基础文件工具、agent 工具和真实 provider smoke 均已跑通。正式 HTTP 入口是 `/api/agent/sessions/**`；前端 Agent 抽屉已迁到 session snapshot + event hub + command/tree/invocation contract，保留聊天、停止、审批恢复、模型选择、Plan Mode、`/compact`、linked agents、edit/retry/rollback/fallback 的核心入口；`/clear` 现在通过 tree 清空同一 session 的 active leaf。 |
+| Skills | Active | 新 Agent 后端只扫描 `assets/workspace/.nbook/agent/skills` 与 `workspace/.nbook/agent/skills`；旧写作流程 skill 已归档到 `assets/agent-v2/skills`。TSX Profile Workbench 第一版已接入用户 profile 源码写入、新建模板、文件 diagnostics、prepare preview 和创建 session 入口；旧 `profile-templates` / `user-profile-templates` API 仍作为 501 tombstone，不再作为新合同。 |
 | Docs | Active | 本轮完成目录重排、状态报告和任务 walkthrough 约定。 |
 
 ## TODO
@@ -53,14 +53,15 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 - 后续补用户 assets 与系统 assets 的更新冲突提示；当前同步只补缺失文件，不覆盖用户文件。系统模板层为 `assets/workspace/.nbook`，用户覆盖层为 `workspace/.nbook`。
 - 设置页后续进一步做真正的 Global / Project 双文件视图和清除覆盖 UI；当前模型设置、Agent 默认 profile、Agent profile model 已经走 `/api/config/*`。
 - 清理动态 profile 渐进迁移 fallback：生产注册路径已切到 assets profile + builtin contract，系统 assets profile 也已改成 `defineAgentProfile`；后续删除旧源码 builtin class，或把仍被复用的 prompt helper 迁成稳定公共 helper。
-- 继续扩展 TSX profile 的 schema builder：当前 Profile 工作台已支持简单对象字段低代码编辑与局部替换 `InputSchema` / `OutputSchema` 声明，后续补 nested object 的完整 UI、复杂 Zod 识别和更好的错误定位。
+- 重新设计 TSX profile 的 TypeBox Schema Builder：旧 Zod 低代码 schema 编辑不再作为新合同保留；新的 Profile Workbench 第一版只做 schema 只读展示和 TypeBox 骨架生成，后续再基于 v3 profile 经验补可稳定定位的局部辅助编辑。
 - 为 skill catalog 增加类似 tool 的白名单或启用控制，避免所有可发现 skill 默认进入模型可见 catalog。
 - 后续如果支持加载第三方 profile，新增 profile 审查 skill，用于检查陌生 `.profile.tsx` 的危险代码、工具权限、schema contract 和提示词行为；当前动态 profile 不做 sandbox，按用户可信本地代码处理。
 - 后续如有需要，再把系统默认 profile 暴露到系统设置；当前默认 Agent Profile 写入 Global / Project Config，system default 仍为小说 `leader.default`、用户 assets `leader.assets`。
 - 让 workspace 默认 Profile 设置页复用 profile catalog 的 loadStatus / issue 信息，避免 contract-only 或 missing profile 在设置列表中被当作普通可运行项展示；当前运行路径已阻止 contract-only profile 执行。
 - Agent 前端迁移后补一次浏览器交互验收：重点验证多窗口事件同步、followUp queue、approval resume、Plan Mode、model command、compact、edit/retry/rollback/fallback 和流式工具卡片。
+- 后续为 Agent session 增加 provider 级 `systemPrompt` metadata/hash 记录，避免 TSX profile 源码变化后旧 session 的系统提示不可追踪；当前前端不把 systemPrompt 展示成聊天消息。
 - Agent session event hub 后续支持跨进程/多实例广播；第一版是单进程内存 replay，重启或多 worker 场景通过 snapshot 恢复，不保证实时 fan-out。
-- Agent profile 工作台后续重接写入链路：当前 Agent 抽屉已迁移，profile template visual editor 已能读取 v3 profile catalog/detail 并调用真实 `profile.prepare()` 预览；保存、新建、restore 和 schema builder 仍需要按 TSX profile runtime 重新设计。
+- TSX Profile Workbench 后续补完整辅助编辑：当前第一版已能从系统模板新建、保存、诊断、预览并创建自定义 profile session，但 TypeBox Schema Builder、工具权限 checklist 局部替换和完整 ProfilePrompt/messages AST round-trip 仍待重做。
 - Pi Agent Harness 迁移后续补 `invoke_agent` 非阻塞调用；v3 agent 工具已收敛为 `create_agent`、`invoke_agent`、`get_agent(id?: number)`、`detach_agent`；`invoke_agent` 工具返回 sessionId、usage、finalMessage、report_result 摘要，不返回完整 history；`request_user_input`、`enter_plan_mode`、`exit_plan_mode`、`skill` 的审批/回答恢复统一走 `continue + resolution`，由 harness 补齐 toolResult 后继续。
 - Pi Agent Harness 迁移后续评估文件/变量回溯：变量可通过 session custom state entry reduce，文件回溯需要专门的 `file_snapshot` / `file_patch` entry 或接入 Git/worktree snapshot，第一版不承诺文件内容回滚。
 - 观察 `arch` source 模式快速同步脚本的稳定性，并决定是否要把远端部署目标做成可配置 preset。

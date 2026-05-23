@@ -1,13 +1,6 @@
 import * as yaml from "yaml";
 import {expandEnvTemplate} from "nbook/server/utils/env-template";
 import {
-    loadEffectiveConfig,
-    loadGlobalEffectiveConfigSync,
-    saveAgentProfileSettings,
-    saveModelSettings,
-} from "nbook/server/config/config-service";
-import {
-    normalizeAgentProfiles,
     normalizeGlobalConfig,
     resolveEffectiveConfig,
 } from "nbook/server/config/normalizer";
@@ -15,10 +8,7 @@ import type {
     AgentProfileConfig,
     AgentProfileModelConfig,
     ConfiguredModelConfig,
-    ConfiguredProviderConfig,
     EffectiveConfig,
-    ModelProviderOptionsConfig,
-    ModelSettingsConfig,
     StoredGlobalConfig,
     StoredProviderConfig,
 } from "nbook/server/config/types";
@@ -27,9 +17,6 @@ export type {
     AgentProfileConfig,
     AgentProfileModelConfig,
     ConfiguredModelConfig,
-    ConfiguredProviderConfig,
-    ModelProviderOptionsConfig,
-    ModelSettingsConfig,
 };
 
 export type AgentToolAccessConfig = {
@@ -44,61 +31,14 @@ export type AppConfig = EffectiveConfig & {
 };
 
 /**
- * 解析旧 config.yaml 文本。保留给旧测试和迁移脚本使用；运行时真值源已迁到 Global Config JSON。
+ * 仅用于旧 config.yaml 迁移脚本和 legacy parser 测试。
+ *
+ * 运行时真值源是 server/config/config-service.ts，不要从新代码导入本文件。
  */
 export function parseAppConfigText(rawText: string, env: NodeJS.ProcessEnv = process.env): AppConfig {
     const expandedText = expandEnvTemplate(rawText, env);
     const parsedYaml = expandedText.trim() ? yaml.parse(expandedText) as unknown : {};
     return withLegacyTools(resolveEffectiveConfig(normalizeGlobalConfig(normalizeLegacyConfig(parsedYaml)), null));
-}
-
-/**
- * 异步读取最新 effective config。默认读取 Workspace Root `.nbook/config.json`。
- */
-export async function loadAppConfig(): Promise<AppConfig> {
-    return withLegacyTools(await loadEffectiveConfig({workspaceKind: "user-assets"}));
-}
-
-/**
- * 同步读取 Global Config。用于 auth middleware 这类同步路径。
- */
-export function loadAppConfigSync(): AppConfig {
-    return withLegacyTools(loadGlobalEffectiveConfigSync());
-}
-
-/**
- * 旧缓存接口已无状态化，保留空实现避免测试辅助漂移。
- */
-export function resetAppConfigCache(): void {}
-
-/**
- * 保存模型设置到 Global Config。
- */
-export async function saveModelSettingsConfig(config: ModelSettingsConfig): Promise<AppConfig> {
-    await saveModelSettings(config, {workspaceKind: "user-assets"});
-    return loadAppConfig();
-}
-
-/**
- * 保存 Agent Profile 模型设置到 Global Config。
- */
-export async function saveAgentProfileSettingsConfig(config: Record<string, AgentProfileConfig>): Promise<AppConfig> {
-    await saveAgentProfileSettings(normalizeAgentProfiles(config), {workspaceKind: "user-assets"});
-    return loadAppConfig();
-}
-
-/**
- * 全局工具 allow/deny 已删除。调用方应改用 profile allowedToolKeys。
- */
-export async function saveAgentToolAccessConfig(): Promise<AppConfig> {
-    throw new Error("agent.tools.allow/deny 已删除，请使用 profile allowedToolKeys。");
-}
-
-/**
- * 全局工具 allow/deny 已删除；保留原函数签名时直接返回原始工具集合。
- */
-export function resolveEnabledToolNames(allToolNames: string[]): string[] {
-    return [...allToolNames];
 }
 
 function withLegacyTools(config: EffectiveConfig): AppConfig {

@@ -32,6 +32,16 @@ export class AgentToolRegistry {
     }
 
     /**
+     * 返回 profile 允许的工具定义，允许调用方按当前 profile 覆盖某些工具 schema。
+     */
+    allowedWithOverrides(toolKeys: readonly string[], overrides: Record<string, AgentTool<any, any>>): AgentTool<any, any>[] {
+        return toolKeys.flatMap((toolKey) => {
+            const tool = overrides[toolKey] ?? this.tools.get(toolKey);
+            return tool ? [tool] : [];
+        });
+    }
+
+    /**
      * 判断工具是否是需要前端/用户恢复的审批工具。
      */
     approvalToolKeys(): string[] {
@@ -48,4 +58,3 @@ export class AgentToolRegistry {
         return [...this.tools.keys()].sort((left, right) => left.localeCompare(right));
     }
 }
-

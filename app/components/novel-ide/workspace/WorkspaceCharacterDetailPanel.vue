@@ -544,7 +544,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
                 <div class="grid grid-cols-2 gap-2">
                     <label class="space-y-1">
                         <span class="text-[var(--text-secondary)]">直接注入 Profile</span>
-                        <TagInput :model-value="editForm.inject.profiles" placeholder="例如 subagent.writer..." @update:model-value="editForm.inject.profiles = $event; void saveDraft()" />
+                        <TagInput :model-value="editForm.inject.profiles" placeholder="例如 leader.default..." @update:model-value="editForm.inject.profiles = $event; void saveDraft()" />
                     </label>
                     <label class="space-y-1">
                         <span class="text-[var(--text-secondary)]">治理状态</span>

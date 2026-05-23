@@ -17,7 +17,8 @@ export type AgentProfileIssueCode =
     | "invalid_export"
     | "schema_missing"
     | "builtin_schema_locked"
-    | "filename_mismatch";
+    | "filename_mismatch"
+    | "file_missing";
 
 export type AgentProfileIssue = {
     code: AgentProfileIssueCode;

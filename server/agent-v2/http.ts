@@ -21,8 +21,8 @@ import type {
     AgentThreadDetailDto,
     AgentThreadSnapshotEventDto,
     AgentThreadSummaryDto,
-} from "nbook/shared/dto/agent-chat.dto";
-import {RequestUserInputToolArgsSchema} from "nbook/shared/dto/agent-chat.dto";
+} from "nbook/server/agent-v2/dto/agent-chat.dto";
+import {RequestUserInputToolArgsSchema} from "nbook/server/agent-v2/dto/agent-chat.dto";
 import {loadAppConfigSync} from "nbook/server/utils/app-config";
 import {resolveAgentModelSelection} from "nbook/server/utils/model";
 

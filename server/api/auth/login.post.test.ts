@@ -2,21 +2,19 @@ import {beforeEach, describe, expect, it, vi} from "vitest";
 import {hashUserPassword} from "nbook/server/utils/auth";
 import {loginFailureMessage, resetLoginSecurityState} from "nbook/server/utils/login-security";
 
-const {prismaMock} = vi.hoisted(() => ({
-    prismaMock: {
-        user: {
-            findUnique: vi.fn(),
-            update: vi.fn(),
-        },
+const prismaMock = {
+    user: {
+        findUnique: vi.fn(),
+        update: vi.fn(),
     },
-}));
+};
 
 vi.mock("nbook/server/utils/prisma", () => ({
     prisma: prismaMock,
 }));
 
-vi.mock("nbook/server/utils/app-config", () => ({
-    loadAppConfigSync: () => ({
+vi.mock("nbook/server/config/config-service", () => ({
+    loadGlobalEffectiveConfigSync: () => ({
         auth: {enabled: true},
     }),
 }));

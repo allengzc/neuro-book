@@ -269,7 +269,7 @@ assets/
 - `bun test server/utils/app-config.test.ts`
 - `bun test server/agent`
 - `bun test server/workspace-files`
-- `bun scripts/prepare-profile-types.ts --v3 --all`
+- `bun scripts/prepare-profile-types.ts --all`
 - `bunx tsc --noEmit --pretty false`
 - `node --check scripts/neuro-book-deploy.mjs`
 - `node --check scripts/deploy.mjs`

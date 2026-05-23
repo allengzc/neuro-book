@@ -1,47 +1,33 @@
 import {z} from "zod";
-import {
-    ProfileTemplateIssueDtoSchema,
-    ProfileTemplateNodeDtoSchema,
-    ProfileTemplateVariableGroupDtoSchema,
-    type ProfileTemplateIssueDto,
-    type ProfileTemplateNodeDto,
-    type ProfileTemplateVariableGroupDto,
-} from "nbook/shared/dto/profile-template.dto";
+
+// 这里用 any 是为了避免和 profile-template.dto.ts 形成运行时循环；字段仍在本地 schema 中校验。
+const AgentProfilePromptNodeDtoSchema: z.ZodType<any> = z.lazy(() => z.object({
+    id: z.string().trim().min(1),
+    type: z.string().trim().min(1),
+    props: z.record(z.string(), z.json()).default({}),
+    children: z.array(AgentProfilePromptNodeDtoSchema as z.ZodType<any>).default([]),
+    text: z.string().optional(),
+    textKind: z.string().optional(),
+    editable: z.boolean().default(true),
+    sourceRange: z.object({
+        start: z.number().int().nonnegative(),
+        end: z.number().int().nonnegative(),
+    }).optional(),
+}));
 
 export const AgentProfileSourceSchema = z.enum(["system", "user", "contract"]);
-export const AgentProfileKindSchema = z.enum(["leader", "subagent", "agent"]);
+export const AgentProfileKindSchema = z.enum(["agent"]);
 export const AgentProfileLoadStatusSchema = z.enum(["loaded", "error", "missing"]);
 export const AgentProfileOverrideStateSchema = z.enum(["system", "user_override", "user_only", "contract_only"]);
 export const AgentProfileSchemaEditModeSchema = z.enum(["locked", "source", "unavailable"]);
-export const AgentProfileSchemaBuilderTypeSchema = z.enum(["object", "string", "number", "boolean", "enum", "array"]);
 export type AgentProfileSchemaJsonValue = z.infer<ReturnType<typeof z.json>>;
-
-export type AgentProfileSchemaFieldDto = {
-    name: string;
-    type: z.infer<typeof AgentProfileSchemaBuilderTypeSchema>;
-    required: boolean;
-    description?: string;
-    defaultValue?: AgentProfileSchemaJsonValue;
-    enumValues?: string[];
-    item?: AgentProfileSchemaFieldDto;
-    fields?: AgentProfileSchemaFieldDto[];
-};
-
-export const AgentProfileSchemaFieldDtoSchema: z.ZodType<AgentProfileSchemaFieldDto> = z.lazy(() => z.object({
-    name: z.string().trim().min(1),
-    type: AgentProfileSchemaBuilderTypeSchema,
-    required: z.boolean(),
-    description: z.string().trim().min(1).optional(),
-    defaultValue: z.json().optional(),
-    enumValues: z.array(z.string().trim().min(1)).optional(),
-    item: AgentProfileSchemaFieldDtoSchema.optional(),
-    fields: z.array(AgentProfileSchemaFieldDtoSchema).optional(),
-}));
 
 /**
  * profile 加载、解析与预览统一问题结构。
  */
-export const AgentProfileIssueDtoSchema = ProfileTemplateIssueDtoSchema.extend({
+export const AgentProfileIssueDtoSchema = z.object({
+    severity: z.enum(["error", "warning"]),
+    message: z.string().trim().min(1),
     code: z.string().trim().min(1).optional(),
     profileKey: z.string().trim().min(1).optional(),
     fileName: z.string().trim().min(1).optional(),
@@ -49,6 +35,36 @@ export const AgentProfileIssueDtoSchema = ProfileTemplateIssueDtoSchema.extend({
      * 仅开发环境返回，用于定位动态 TSX 编译/运行错误。
      */
     stack: z.string().optional(),
+});
+
+/**
+ * Schema Builder 的旧字段 DTO。TSX Profile Workbench V1 只保留类型给旧 UI 使用，
+ * TypeBox schema 的低代码写回暂不开放。
+ */
+export const AgentProfileSchemaFieldDtoSchema = z.object({
+    name: z.string().trim().min(1),
+    type: z.enum(["string", "number", "boolean", "array", "object", "enum"]),
+    required: z.boolean().default(false),
+    description: z.string().optional(),
+    defaultValue: z.json().optional(),
+    itemType: z.enum(["string", "number", "boolean", "object", "enum"]).optional(),
+    enumValues: z.array(z.string()).optional(),
+});
+
+export const AgentProfileVariableItemDtoSchema = z.object({
+    label: z.string().trim().min(1),
+    value: z.string(),
+    path: z.string().trim().min(1),
+    token: z.string().trim().min(1),
+    editable: z.boolean().default(false),
+    valueType: z.string().trim().min(1).nullable().default(null),
+    source: z.string().trim().min(1).nullable().default(null),
+    schema: z.record(z.string(), z.json()).nullable().default(null),
+});
+
+export const AgentProfileVariableGroupDtoSchema = z.object({
+    group: z.string().trim().min(1),
+    items: z.array(AgentProfileVariableItemDtoSchema),
 });
 
 /**
@@ -103,15 +119,6 @@ export const AgentProfileDetailRequestDtoSchema = z.object({
 });
 
 /**
- * 更新用户 profile schema 声明请求。
- */
-export const UpdateAgentProfileSchemaRequestDtoSchema = z.object({
-    fileName: z.string().trim().min(1),
-    schemaName: z.enum(["InputSchema", "OutputSchema"]),
-    fields: z.array(AgentProfileSchemaFieldDtoSchema),
-});
-
-/**
  * profile 详情。
  */
 export const AgentProfileDetailDtoSchema = z.object({
@@ -119,12 +126,13 @@ export const AgentProfileDetailDtoSchema = z.object({
     manifest: AgentProfileManifestDtoSchema.nullable(),
     fileName: z.string().trim().min(1).nullable(),
     source: z.string(),
-    root: ProfileTemplateNodeDtoSchema.nullable(),
     issues: z.array(AgentProfileIssueDtoSchema),
-    variables: z.array(ProfileTemplateVariableGroupDtoSchema),
+    variables: z.array(AgentProfileVariableGroupDtoSchema),
     allowedToolKeys: z.array(z.string()),
     inputSchema: AgentProfileSchemaDetailDtoSchema,
     outputSchema: AgentProfileSchemaDetailDtoSchema,
+    reportResultSchema: z.record(z.string(), z.json()).nullable().optional(),
+    root: AgentProfilePromptNodeDtoSchema.nullable().optional(),
 });
 
 /**
@@ -138,6 +146,13 @@ export const AgentProfilePreparePreviewRequestDtoSchema = z.object({
     input: z.json().optional(),
     sessionId: z.string().trim().min(1).optional(),
     inputOverrides: z.record(z.string(), z.string()).optional(),
+    /**
+     * 仅用于 Workbench 显式验证未保存源码；服务端会在临时 profile root 中预览。
+     */
+    sourceOverride: z.object({
+        fileName: z.string().trim().min(1),
+        source: z.string(),
+    }).optional(),
     historyMessages: z.array(z.object({
         role: z.enum(["system", "human", "assistant"]),
         text: z.string(),
@@ -162,20 +177,78 @@ export const AgentProfilePreparePreviewDtoSchema = z.object({
         })).optional(),
     })),
     persistedMessageCount: z.number().int().nonnegative(),
-    variables: z.array(ProfileTemplateVariableGroupDtoSchema),
+    variables: z.array(AgentProfileVariableGroupDtoSchema),
+    reportResultSchema: z.record(z.string(), z.json()).nullable().optional(),
 });
 
-export type AgentProfileIssueDto = ProfileTemplateIssueDto & z.infer<typeof AgentProfileIssueDtoSchema>;
+/**
+ * 用户 profile 文件摘要。这里面可以包含坏文件，和 runtime catalog 分开。
+ */
+export const AgentProfileFileItemDtoSchema = z.object({
+    fileName: z.string().trim().min(1),
+    profileKey: z.string().trim().min(1).nullable(),
+    name: z.string().trim().min(1),
+    loadStatus: AgentProfileLoadStatusSchema,
+    issues: z.array(AgentProfileIssueDtoSchema),
+});
+
+/**
+ * profile 源码文件详情请求。fileName 是用户 profile root 下的相对路径。
+ */
+export const AgentProfileSourceRequestDtoSchema = z.object({
+    fileName: z.string().trim().min(1),
+    /**
+     * 仅用于显式验证未保存源码；普通读取不传，仍读取磁盘文件。
+     */
+    source: z.string().optional(),
+});
+
+/**
+ * profile 源码保存请求。
+ */
+export const AgentProfileSaveRequestDtoSchema = z.object({
+    fileName: z.string().trim().min(1),
+    source: z.string(),
+});
+
+/**
+ * 新建用户 profile 请求。
+ */
+export const AgentProfileCreateRequestDtoSchema = z.object({
+    profileKey: z.string().trim().min(1),
+    templateName: z.enum(["basic-agent", "report-agent"]).default("basic-agent"),
+    name: z.string().trim().min(1),
+    description: z.string().optional(),
+    systemPrompt: z.string().trim().min(1),
+    fileName: z.string().trim().min(1).optional(),
+});
+
+/**
+ * profile 模板摘要。
+ */
+export const AgentProfileTemplateItemDtoSchema = z.object({
+    name: z.string().trim().min(1),
+    fileName: z.string().trim().min(1),
+    label: z.string().trim().min(1),
+    description: z.string().trim().min(1),
+});
+
+export type AgentProfileIssueDto = z.infer<typeof AgentProfileIssueDtoSchema>;
+export type AgentProfileSchemaFieldDto = z.infer<typeof AgentProfileSchemaFieldDtoSchema>;
+export type AgentProfileVariableItemDto = z.infer<typeof AgentProfileVariableItemDtoSchema>;
+export type AgentProfileVariableGroupDto = z.infer<typeof AgentProfileVariableGroupDtoSchema>;
 export type AgentProfileCatalogItemDto = z.infer<typeof AgentProfileCatalogItemDtoSchema>;
 export type AgentProfileManifestDto = z.infer<typeof AgentProfileManifestDtoSchema>;
 export type AgentProfileSchemaDetailDto = z.infer<typeof AgentProfileSchemaDetailDtoSchema>;
 export type AgentProfileDetailRequestDto = z.infer<typeof AgentProfileDetailRequestDtoSchema>;
-export type AgentProfileSchemaBuilderType = z.infer<typeof AgentProfileSchemaBuilderTypeSchema>;
-export type UpdateAgentProfileSchemaRequestDto = z.infer<typeof UpdateAgentProfileSchemaRequestDtoSchema>;
-export type AgentProfileDetailDto = Omit<z.infer<typeof AgentProfileDetailDtoSchema>, "root" | "issues" | "variables"> & {
-    root: ProfileTemplateNodeDto | null;
+export type AgentProfileDetailDto = Omit<z.infer<typeof AgentProfileDetailDtoSchema>, "issues" | "variables"> & {
     issues: AgentProfileIssueDto[];
-    variables: ProfileTemplateVariableGroupDto[];
+    variables: AgentProfileVariableGroupDto[];
 };
 export type AgentProfilePreparePreviewRequestDto = z.infer<typeof AgentProfilePreparePreviewRequestDtoSchema>;
 export type AgentProfilePreparePreviewDto = z.infer<typeof AgentProfilePreparePreviewDtoSchema>;
+export type AgentProfileFileItemDto = z.infer<typeof AgentProfileFileItemDtoSchema>;
+export type AgentProfileSourceRequestDto = z.infer<typeof AgentProfileSourceRequestDtoSchema>;
+export type AgentProfileSaveRequestDto = z.infer<typeof AgentProfileSaveRequestDtoSchema>;
+export type AgentProfileCreateRequestDto = z.infer<typeof AgentProfileCreateRequestDtoSchema>;
+export type AgentProfileTemplateItemDto = z.infer<typeof AgentProfileTemplateItemDtoSchema>;

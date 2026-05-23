@@ -277,7 +277,7 @@ watch(() => [props.modelValue, props.node?.path, selectedFileContent.value], () 
                     </label>
                 </div>
                 <textarea :value="draft.retrieval.trigger ?? ''" rows="2" class="textarea" placeholder="自然语言触发条件；为空表示不需要额外触发判断" @input="draft.retrieval.trigger = ($event.target as HTMLTextAreaElement).value || null" @blur="void saveDraft()"></textarea>
-                <TagInput :model-value="draft.inject.profiles" placeholder="直接注入 profile，例如 subagent.writer..." @update:model-value="draft.inject.profiles = $event; void saveDraft()" />
+                <TagInput :model-value="draft.inject.profiles" placeholder="直接注入 profile，例如 leader.default..." @update:model-value="draft.inject.profiles = $event; void saveDraft()" />
                 <div class="grid grid-cols-2 gap-2">
                     <input v-model="draft.governance.source" class="field" placeholder="source" @blur="void saveDraft()">
                     <input v-model="draft.governance.review" class="field" placeholder="review" @blur="void saveDraft()">

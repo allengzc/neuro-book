@@ -29,7 +29,7 @@ import type {
     ThreadId,
 } from "nbook/server/agent/types";
 import {normalizeAgentTokenUsage} from "nbook/server/agent/types";
-import {RequestUserInputToolArgsSchema} from "nbook/shared/dto/agent-chat.dto";
+import {RequestUserInputToolArgsSchema} from "nbook/server/agent-v2/dto/agent-chat.dto";
 
 const REPORT_RESULT_TOOL_KEY = "report_result";
 const REQUEST_USER_INPUT_TOOL_KEY = "request_user_input";

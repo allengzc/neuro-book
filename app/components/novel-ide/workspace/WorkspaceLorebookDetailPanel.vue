@@ -407,7 +407,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
                         <span>允许 AI 检索召回</span>
                     </label>
                     <textarea :value="editForm.retrieval.trigger ?? ''" rows="2" class="w-full resize-y rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent-main)]" placeholder="自然语言触发条件；为空表示不需要额外触发判断" @input="editForm.retrieval.trigger = ($event.target as HTMLTextAreaElement).value || null" @blur="void saveDraft()"></textarea>
-                    <TagInput :model-value="editForm.inject.profiles" placeholder="直接注入 profile，例如 subagent.writer..." @update:model-value="editForm.inject.profiles = $event; void saveDraft()" />
+                    <TagInput :model-value="editForm.inject.profiles" placeholder="直接注入 profile，例如 leader.default..." @update:model-value="editForm.inject.profiles = $event; void saveDraft()" />
                     <label class="flex items-center gap-2 text-[var(--text-secondary)]">
                         <input v-model="editForm.inject.always" type="checkbox" class="h-4 w-4 rounded border-[var(--border-color)]" @change="void saveDraft()">
                         <span>对上述 profile 默认直接注入</span>

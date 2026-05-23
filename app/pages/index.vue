@@ -1195,7 +1195,7 @@ onBeforeUnmount(() => {
 
         <NovelBookshelfDialog v-model="bookshelfOpen" @switched="void router.replace({path: '/', query: {workspace: 'novel', novelId: $event}})" />
         <NovelIdeSettingsDialog v-model="settingsDialogOpen" />
-        <UserProfileWorkbenchDialog v-if="isUserAssetsWorkspace" v-model="profileWorkbenchOpen" />
+        <UserProfileWorkbenchDialog v-model="profileWorkbenchOpen" />
         <WorkspaceFileConflictDialog
             v-model="novelIdeStore.workspaceConflictDialogOpen"
             :conflict="novelIdeStore.workspaceWriteConflict"

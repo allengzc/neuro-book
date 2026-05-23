@@ -13,7 +13,7 @@ retrieval:
   enabled: true
   trigger: null
 inject:
-  profiles: [] # 直接上下文目标 profile key；主题稳定后可按需加入 leader.default 或 subagent.writer。
+  profiles: [] # 直接上下文目标 profile key；主题稳定后可按需加入 leader.default 或用户自定义 profile key。
   always: false # 只有长期稳定主题约束才设 true；探索期保持 false。
 governance:
   source: manual

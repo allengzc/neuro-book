@@ -1,22 +1,20 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
 
-const {prismaMock} = vi.hoisted(() => ({
-    prismaMock: {
-        user: {
-            findUnique: vi.fn(),
-            update: vi.fn(),
-        },
-        $executeRaw: vi.fn(),
-        $transaction: vi.fn(),
+const prismaMock = {
+    user: {
+        findUnique: vi.fn(),
+        update: vi.fn(),
     },
-}));
+    $executeRaw: vi.fn(),
+    $transaction: vi.fn(),
+};
 
 vi.mock("nbook/server/utils/prisma", () => ({
     prisma: prismaMock,
 }));
 
-vi.mock("nbook/server/utils/app-config", () => ({
-    loadAppConfigSync: () => ({
+vi.mock("nbook/server/config/config-service", () => ({
+    loadGlobalEffectiveConfigSync: () => ({
         auth: {enabled: false},
     }),
 }));

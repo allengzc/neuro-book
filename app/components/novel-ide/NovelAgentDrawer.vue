@@ -146,12 +146,6 @@ const drawerIconClass = computed(() => "i-lucide-sparkles text-[var(--accent-tex
 const sessionTreeState = computed(() => deriveAgentTreeState(activeSnapshot.value?.tree ?? []));
 const branchSwitcherStateByMessageId = computed(() => sessionTreeState.value.switcherByMessageId);
 
-const threadModelDraft = sessionModelDraft;
-const threadModelPopoverOpen = sessionModelPopoverOpen;
-const threadModelSaving = sessionModelSaving;
-const threadModelSelectionValue = sessionModelSelectionValue;
-const threadModelDefaultLabel = sessionModelDefaultLabel;
-
 const contextUsageCompactLabel = computed(() => formatCompactTokenCount(activeSnapshot.value?.usage?.input));
 const contextUsageExactLabel = computed(() => formatTokenCount(activeSnapshot.value?.usage?.input));
 const contextPercentCompactLabel = computed(() => "");
@@ -524,11 +518,21 @@ const togglePlanMode = async (): Promise<void> => {
     if (!activeSessionId.value || running.value) {
         return;
     }
-    await agentApi.runCommand(activeSessionId.value, {
-        command: "plan",
-        active: !planModeActive.value,
-    });
-    await syncActiveSessionSnapshot();
+    try {
+        const result = await agentApi.runCommand(activeSessionId.value, {
+            command: "plan",
+            active: !planModeActive.value,
+        });
+        if (result.snapshot) {
+            session.applySnapshot(result.snapshot);
+            syncSessionModelState(result.snapshot.summary);
+            return;
+        }
+        await syncActiveSessionSnapshot();
+    } catch (error) {
+        console.error("切换 Plan Mode 失败", error);
+        notification.error(error instanceof Error ? error.message : "切换 Plan Mode 失败");
+    }
 };
 
 /**
@@ -575,24 +579,24 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
         return false;
     }
     const [command, ...rest] = message.trim().split(/\s+/);
-    if (command === "/new" || command === "/clear") {
+    if (command === "/new") {
         await ensureSessionReady(true);
         return true;
     }
-    if (command === "/plan") {
-        await agentApi.runCommand(activeSessionId.value, {
-            command: "plan",
-            active: rest[0] === "off" ? false : true,
+    if (command === "/clear") {
+        const result = await agentApi.moveTree(activeSessionId.value, {
+            position: "empty",
         });
-        await syncActiveSessionSnapshot();
+        session.applySnapshot(result.snapshot);
+        syncSessionModelState(result.snapshot.summary);
+        return true;
+    }
+    if (command === "/plan") {
+        await togglePlanMode();
         return true;
     }
     if (command === "/compact") {
-        await ensureActiveSessionEvents();
-        await agentApi.runCommand(activeSessionId.value, {
-            command: "compact",
-            instructions: rest.join(" ") || undefined,
-        });
+        await compactSession(rest.join(" ") || undefined);
         return true;
     }
     if (command === "/model") {
@@ -604,6 +608,26 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
         return true;
     }
     return false;
+};
+
+/**
+ * 手动压缩当前 Session 上下文。压缩过程走 session SSE，同步一次 snapshot 让 UI 立刻进入 running。
+ */
+const compactSession = async (instructions?: string): Promise<void> => {
+    if (!activeSessionId.value || running.value) {
+        return;
+    }
+    try {
+        await ensureActiveSessionEvents();
+        await agentApi.runCommand(activeSessionId.value, {
+            command: "compact",
+            instructions,
+        });
+        await syncActiveSessionSnapshot();
+    } catch (error) {
+        console.error("压缩 Session 失败", error);
+        notification.error(error instanceof Error ? error.message : "压缩 Session 失败");
+    }
 };
 
 /**
@@ -1031,7 +1055,7 @@ function formatSelectedAnswer(
                 ref="chatFlowRef"
                 :messages="renderNodes"
                 :running="running"
-                mode="leader"
+                mode="main"
                 :editing-message-id="editingMessageId"
                 :message-action-disabled="messageActionsDisabled"
                 :saving-edit="Boolean(messageActionId)"
@@ -1054,15 +1078,15 @@ function formatSelectedAnswer(
                 v-model:input-text="inputText"
                 v-model:selected-answers="userInputSelectedAnswers"
                 v-model:notes="userInputNotes"
-                v-model:thread-model-popover-open="threadModelPopoverOpen"
-                v-model:thread-model-draft="threadModelDraft"
+                v-model:session-model-popover-open="sessionModelPopoverOpen"
+                v-model:session-model-draft="sessionModelDraft"
                 :pending-session="pendingUserInputSession"
                 :submitting-user-input="submittingUserInput"
                 :running="running"
-                :loading-thread="loadingSession"
-                :thread-model-saving="threadModelSaving"
-                :thread-model-selection-value="threadModelSelectionValue"
-                :thread-model-default-label="threadModelDefaultLabel"
+                :loading-session="loadingSession"
+                :session-model-saving="sessionModelSaving"
+                :session-model-selection-value="sessionModelSelectionValue"
+                :session-model-default-label="sessionModelDefaultLabel"
                 :selectable-models="selectableModels"
                 :plan-mode-active="planModeActive"
                 :can-continue-without-input="canContinueWithoutInput"
@@ -1081,10 +1105,10 @@ function formatSelectedAnswer(
                 @send="void send()"
                 @stop="void stopRun()"
                 @toggle-plan-mode="void togglePlanMode()"
-                @toggle-thread-model-popover="toggleSessionModelPopover"
-                @update-thread-model-selection="void updateSessionModelSelection($event)"
-                @apply-thread-model-settings="void applySessionModelSettings()"
-                @reset-thread-model-settings="void resetSessionModelSettings()"
+                @toggle-session-model-popover="toggleSessionModelPopover"
+                @update-session-model-selection="void updateSessionModelSelection($event)"
+                @apply-session-model-settings="void applySessionModelSettings()"
+                @reset-session-model-settings="void resetSessionModelSettings()"
             />
 
             <!-- Session 管理弹窗 -->

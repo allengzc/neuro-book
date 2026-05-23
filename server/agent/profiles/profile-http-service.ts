@@ -16,22 +16,21 @@ import type {
     AgentProfilePreparePreviewDto,
     AgentProfilePreparePreviewRequestDto,
     AgentProfileSchemaDetailDto,
+    AgentProfileVariableGroupDto,
 } from "nbook/shared/dto/agent-profile.dto";
-import type {ProfileTemplateVariableGroupDto} from "nbook/shared/dto/profile-template.dto";
+import {reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
+import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
 
-const SYSTEM_PROFILE_ROOT = resolve(process.cwd(), "assets", ".nbook", "agent", "profiles");
+const SYSTEM_PROFILE_ROOT = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profiles");
 const USER_PROFILE_ROOT = resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles");
 
 /**
  * 列出 v3 Agent Profile catalog，并适配旧 profile 工作台 DTO。
  */
 export async function listAgentProfileCatalog(profiles: AgentProfileCatalog): Promise<AgentProfileCatalogItemDto[]> {
-    const snapshot = await profiles.snapshot();
+    const snapshot = await profiles.snapshot({includeFileIssues: false});
     const loadedItems = snapshot.profiles.map((profile) => toCatalogItem(snapshot, profile));
-    const issueItems = snapshot.issues
-        .filter((issue) => issue.sourcePath && !snapshot.profiles.some((profile) => profile.sourcePath === issue.sourcePath))
-        .map((issue) => issueOnlyCatalogItem(snapshot, issue));
-    return [...loadedItems, ...issueItems].sort((left, right) => {
+    return loadedItems.sort((left, right) => {
         const sourceCompare = left.source.localeCompare(right.source);
         return sourceCompare || left.profileKey.localeCompare(right.profileKey);
     });
@@ -63,7 +62,6 @@ export async function readAgentProfileDetail(
             : null,
         fileName: catalogItem.fileName,
         source,
-        root: null,
         issues: catalogItem.issues,
         variables: buildProfileVariableGroups(profile),
         allowedToolKeys: runtimeProfile ? [...runtimeProfile.allowedToolKeys] : [],
@@ -79,6 +77,10 @@ export async function readAgentProfileDetail(
             sourceAvailable: Boolean(source),
             label: "OutputSchema",
         }),
+        reportResultSchema: runtimeProfile && runtimeProfile.allowedToolKeys.includes("report_result")
+            ? cloneJsonObject(reportResultSchemaForProfile(runtimeProfile))
+            : null,
+        root: buildSystemPromptRoot(source),
     };
 }
 
@@ -116,6 +118,9 @@ export async function previewAgentProfilePrepare(
             messages,
             persistedMessageCount: historyMessages.length + appendingMessages.length,
             variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === request.profileKey)),
+            reportResultSchema: profile.allowedToolKeys.includes("report_result")
+                ? cloneJsonObject(reportResultSchemaForProfile(profile))
+                : null,
         };
     } catch (error) {
         return {
@@ -130,6 +135,9 @@ export async function previewAgentProfilePrepare(
             messages: [],
             persistedMessageCount: 0,
             variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === request.profileKey)),
+            reportResultSchema: profile.allowedToolKeys.includes("report_result")
+                ? cloneJsonObject(reportResultSchemaForProfile(profile))
+                : null,
         };
     }
 }
@@ -157,32 +165,6 @@ function toCatalogItem(snapshot: AgentCatalogSnapshot, profile: AgentCatalogItem
         canEdit: source === "user" && Boolean(fileName),
         canRestore: false,
         issues,
-    };
-}
-
-/**
- * 将无法加载的坏 profile 文件也暴露给工作台问题面板。
- */
-function issueOnlyCatalogItem(snapshot: AgentCatalogSnapshot, issue: AgentProfileIssue): AgentProfileCatalogItemDto {
-    const source = issue.source === "memory" || !issue.source ? "contract" : issue.source;
-    const fileName = issue.sourcePath ? relativeProfilePath(issue.sourcePath, issue.source ?? "memory") : null;
-    const profileKey = issue.profileKey ?? `invalid:${fileName ?? issue.message}`;
-
-    return {
-        profileKey,
-        kind: "agent",
-        name: profileKey,
-        description: null,
-        fileName,
-        source,
-        overrideState: source === "contract" ? "contract_only" : source === "user" ? "user_only" : "system",
-        loadStatus: "error",
-        schemaLocked: false,
-        canEdit: source === "user" && Boolean(fileName),
-        canRestore: false,
-        issues: snapshot.issues
-            .filter((item) => item.sourcePath === issue.sourcePath)
-            .map((item) => toProfileIssueDto(item, profileKey, fileName)),
     };
 }
 
@@ -319,7 +301,7 @@ function systemPromptPreviewMessage(systemPrompt: string): AgentProfilePreparePr
 /**
  * 工作台变量面板先展示 profile schema 摘要。
  */
-function buildProfileVariableGroups(profile: AgentCatalogItem | undefined): ProfileTemplateVariableGroupDto[] {
+function buildProfileVariableGroups(profile: AgentCatalogItem | undefined): AgentProfileVariableGroupDto[] {
     if (!profile) {
         return [];
     }
@@ -395,4 +377,69 @@ function cloneJsonObject(value: unknown): Record<string, JsonValue> | null {
         return null;
     }
     return JSON.parse(JSON.stringify(value)) as Record<string, JsonValue>;
+}
+
+/**
+ * 为旧三栏 UI 提供一个源码优先的 System Prompt 可视化占位节点。
+ */
+export function buildSystemPromptRoot(source: string): ProfileTemplateNodeDto | null {
+    const range = systemPromptRange(source);
+    if (!range) {
+        return null;
+    }
+    return {
+        id: "root",
+        type: "ProfilePrompt",
+        props: {},
+        editable: false,
+        children: [{
+            id: "system-prompt",
+            type: "Message",
+            props: {
+                role: "system",
+                source: "systemPrompt",
+            },
+            text: range.text,
+            textKind: "text",
+            editable: true,
+            sourceRange: {
+                start: range.start,
+                end: range.end,
+            },
+            children: [],
+        }],
+    };
+}
+
+/**
+ * 定位模板推荐的 systemPrompt 字符串或 renderSystemPrompt 模板字符串。
+ */
+function systemPromptRange(source: string): {start: number; end: number; text: string} | null {
+    const constMatch = /const\s+systemPrompt\s*=\s*(['"`])([\s\S]*?)\1\s*;/.exec(source);
+    if (constMatch && constMatch.index >= 0) {
+        const text = constMatch[2];
+        if (text === undefined) {
+            return null;
+        }
+        const valueStart = constMatch.index + constMatch[0].indexOf(text);
+        return {
+            start: valueStart,
+            end: valueStart + text.length,
+            text,
+        };
+    }
+    const functionMatch = /function\s+renderSystemPrompt\s*\([^)]*\)\s*:\s*string\s*\{\s*return\s*`([\s\S]*?)`\.trim\(\)\s*;\s*\}/.exec(source);
+    if (!functionMatch || functionMatch.index < 0) {
+        return null;
+    }
+    const text = functionMatch[1];
+    if (text === undefined) {
+        return null;
+    }
+    const valueStart = functionMatch.index + functionMatch[0].indexOf(text);
+    return {
+        start: valueStart,
+        end: valueStart + text.length,
+        text,
+    };
 }

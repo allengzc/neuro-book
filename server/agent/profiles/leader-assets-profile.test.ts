@@ -55,13 +55,13 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).toContain("原始文件");
         expect(prompt).toContain("workspace root");
         expect(prompt).toContain("搜索文本优先用 rg");
+        expect(prompt).toContain("create_agent");
+        expect(prompt).toContain("invoke_agent");
+        expect(prompt).toContain("get_agent");
         expect(prompt).not.toContain("read_file");
         expect(prompt).not.toContain("write_file");
         expect(prompt).not.toContain("edit_file");
         expect(prompt).not.toContain("execute_shell");
-        expect(prompt).not.toContain("create_subagent");
-        expect(prompt).not.toContain("invoke_subagent");
-        expect(prompt).not.toContain("list_subagents");
         expect(prompt).not.toContain("PowerShell");
         expect(prepared.historyMessages ?? []).toEqual([]);
     });

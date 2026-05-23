@@ -17,8 +17,6 @@ const visibleAgents = computed(() => props.agents.filter((agent) => !agent.detac
 
 const profileLabel = (profileKey: string) => {
     switch(profileKey) {
-        case "subagent.writer": return "写手节点";
-        case "subagent.retrieval": return "内容节点召回";
         case "leader.default": return "主线调度";
         case "leader.assets": return "用户资产助手";
         default: return profileKey;

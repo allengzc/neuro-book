@@ -9,11 +9,9 @@ import ts from "typescript";
  * 用法：
  *   bun scripts/check-profile.ts assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx
  *   bun scripts/check-profile.ts workspace/.nbook/agent/profiles/custom.profile.tsx
- *   bun scripts/check-profile.ts --v3 assets/workspace/.nbook/agent/profiles/custom.profile.tsx
  */
 function main(): void {
-    const v3 = process.argv.includes("--v3");
-    const profilePath = process.argv.find((argument, index) => index > 1 && argument !== "--v3")?.trim();
+    const profilePath = process.argv[2]?.trim();
     if (!profilePath) {
         printUsage();
         process.exitCode = 1;
@@ -26,7 +24,7 @@ function main(): void {
         process.exitCode = 1;
         return;
     }
-    if (v3 && !isV3ProfilePath(absoluteProfilePath)) {
+    if (!isAgentProfilePath(absoluteProfilePath)) {
         console.error("profile 只能位于 assets/workspace/.nbook/agent/profiles 或 workspace/.nbook/agent/profiles。");
         process.exitCode = 1;
         return;
@@ -69,9 +67,9 @@ function main(): void {
 }
 
 /**
- * v3 模式只允许检查新 .nbook profile root。
+ * 只允许检查新 .nbook agent profile root。
  */
-function isV3ProfilePath(absoluteProfilePath: string): boolean {
+function isAgentProfilePath(absoluteProfilePath: string): boolean {
     const normalized = absoluteProfilePath.replace(/\\/g, "/");
     const cwd = process.cwd().replace(/\\/g, "/");
     return normalized.startsWith(`${cwd}/assets/workspace/.nbook/agent/profiles/`)
@@ -147,7 +145,7 @@ function createSyntheticDiagnostic(message: string): ts.Diagnostic {
  * 输出用法。
  */
 function printUsage(): void {
-    console.error("用法：bun scripts/check-profile.ts [--v3] <profile-file>");
+    console.error("用法：bun scripts/check-profile.ts <profile-file>");
 }
 
 main();

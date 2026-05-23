@@ -65,8 +65,8 @@ const ROOT_REFERENCE_ITEMS: RootReferenceItem[] = [
 ];
 
 const COMMAND_ITEMS: QuickTextItem[] = [
-    {id: "command:plan", label: "plan", description: "进入 Plan Mode。", iconClass: "i-lucide-clipboard-list", value: "/plan"},
-    {id: "command:plan-off", label: "plan off", description: "退出 Plan Mode。", iconClass: "i-lucide-clipboard-x", value: "/plan off"},
+    {id: "command:plan", label: "plan", description: "切换 Plan Mode。", iconClass: "i-lucide-clipboard-list", value: "/plan"},
+    {id: "command:compact", label: "compact", description: "压缩当前 Agent Session 上下文。", iconClass: "i-lucide-archive", value: "/compact"},
     {id: "command:clear", label: "clear", description: "清空当前上下文并新建线程。", iconClass: "i-lucide-trash", value: "/clear"},
     {id: "command:new", label: "new", description: "新建对话线程。", iconClass: "i-lucide-plus", value: "/new"},
     {id: "command:settings", label: "settings", description: "保留设置入口。", iconClass: "i-lucide-settings", value: "/settings"},

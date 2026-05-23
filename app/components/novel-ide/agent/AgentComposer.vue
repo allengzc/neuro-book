@@ -10,7 +10,7 @@ import type {
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
 import type {ModelSettingsDto} from "nbook/shared/dto/app-settings.dto";
 
-type AgentComposerThreadModelDraft = {
+type AgentComposerSessionModelDraft = {
     modelKey: string | null;
     temperature: string;
     topK: string;
@@ -25,12 +25,12 @@ const props = defineProps<{
     notes: Record<string, string>;
     submittingUserInput: boolean;
     running: boolean;
-    loadingThread: boolean;
-    threadModelSaving: boolean;
-    threadModelPopoverOpen: boolean;
-    threadModelSelectionValue: string | null;
-    threadModelDefaultLabel: string;
-    threadModelDraft: AgentComposerThreadModelDraft;
+    loadingSession: boolean;
+    sessionModelSaving: boolean;
+    sessionModelPopoverOpen: boolean;
+    sessionModelSelectionValue: string | null;
+    sessionModelDefaultLabel: string;
+    sessionModelDraft: AgentComposerSessionModelDraft;
     selectableModels: ModelSettingsDto["enabledModels"];
     planModeActive: boolean;
     canContinueWithoutInput: boolean;
@@ -51,9 +51,9 @@ const emit = defineEmits<{
     (e: "update:inputText", value: string): void;
     (e: "update:selectedAnswers", value: Record<string, number[]>): void;
     (e: "update:notes", value: Record<string, string>): void;
-    (e: "update:threadModelPopoverOpen", value: boolean): void;
-    (e: "update:threadModelDraft", value: AgentComposerThreadModelDraft): void;
-    (e: "update-thread-model-selection", value: string | null): void;
+    (e: "update:sessionModelPopoverOpen", value: boolean): void;
+    (e: "update:sessionModelDraft", value: AgentComposerSessionModelDraft): void;
+    (e: "update-session-model-selection", value: string | null): void;
     (e: "submit-user-input", payload: {
         assistantMessageId: string;
         resume?: boolean;
@@ -69,13 +69,13 @@ const emit = defineEmits<{
     (e: "send"): void;
     (e: "stop"): void;
     (e: "toggle-plan-mode"): void;
-    (e: "toggle-thread-model-popover"): void;
-    (e: "apply-thread-model-settings"): void;
-    (e: "reset-thread-model-settings"): void;
+    (e: "toggle-session-model-popover"): void;
+    (e: "apply-session-model-settings"): void;
+    (e: "reset-session-model-settings"): void;
 }>();
 
 const inputRef = ref<InstanceType<typeof AgentReferenceInput> | null>(null);
-const threadModelControlsRef = ref<HTMLElement | null>(null);
+const sessionModelControlsRef = ref<HTMLElement | null>(null);
 const activeQuestionKey = ref("");
 
 const activeComposerValue = computed(() => {
@@ -109,8 +109,33 @@ const sendIconClass = computed(() => {
     return "i-lucide-send";
 });
 
-onClickOutside(threadModelControlsRef, () => {
-    emit("update:threadModelPopoverOpen", false);
+const resolveComposerMenu = (context: AgentTriggerMenuContext): AgentTriggerMenuState => {
+    const state = props.resolveMenu(context);
+    if (context.kind !== "command") {
+        return state;
+    }
+
+    const currentText = activeComposerValue.value;
+    const slashIndex = currentText.lastIndexOf(`/${context.query}`);
+    const hasPlainTextBeforeSlash = slashIndex > 0 && currentText.slice(0, slashIndex).trim().length > 0;
+    if (!hasPlainTextBeforeSlash) {
+        return state;
+    }
+
+    const blockedIds = new Set(["command:compact", "command:clear", "command:new"]);
+    return {
+        ...state,
+        sections: state.sections
+            .map((section) => ({
+                ...section,
+                items: section.items.filter((item) => !blockedIds.has(item.id)),
+            }))
+            .filter((section) => section.items.length > 0),
+    };
+};
+
+onClickOutside(sessionModelControlsRef, () => {
+    emit("update:sessionModelPopoverOpen", false);
 });
 
 /**
@@ -144,9 +169,9 @@ function setActiveQuestion(payload: {toolNodeId: string; questionIndex: number; 
 /**
  * 更新模型参数草稿。
  */
-function updateThreadModelDraft(patch: Partial<AgentComposerThreadModelDraft>): void {
-    emit("update:threadModelDraft", {
-        ...props.threadModelDraft,
+function updateSessionModelDraft(patch: Partial<AgentComposerSessionModelDraft>): void {
+    emit("update:sessionModelDraft", {
+        ...props.sessionModelDraft,
         ...patch,
     });
 }
@@ -188,7 +213,7 @@ defineExpose({focus});
                 :model-value="activeComposerValue"
                 :placeholder="composerPlaceholder"
                 :menu-refresh-key="props.menuRefreshKey"
-                :resolve-menu="props.resolveMenu"
+                :resolve-menu="resolveComposerMenu"
                 :on-skill-trigger-start="props.onSkillTriggerStart"
                 @update:model-value="updateComposerValue"
                 @submit="submitComposer"
@@ -197,35 +222,35 @@ defineExpose({focus});
 
             <div class="flex items-center justify-between border-t border-[var(--border-color)]/50 px-2 py-2">
                 <div class="flex min-w-0 items-center gap-2">
-                    <div ref="threadModelControlsRef" class="relative flex w-[230px] shrink-0 items-center gap-1.5">
+                    <div ref="sessionModelControlsRef" class="relative flex w-[230px] shrink-0 items-center gap-1.5">
                         <div class="min-w-0 flex-1">
                             <NovelIdeModelSelect
-                                :model-value="props.threadModelSelectionValue"
+                                :model-value="props.sessionModelSelectionValue"
                                 :models="props.selectableModels"
                                 allow-default
-                                :default-label="props.threadModelDefaultLabel"
-                                placeholder="选择线程模型"
-                                :disabled="props.running || props.loadingThread || props.threadModelSaving"
+                                :default-label="props.sessionModelDefaultLabel"
+                                placeholder="选择 Session 模型"
+                                :disabled="props.running || props.loadingSession || props.sessionModelSaving"
                                 dropdown-direction="up"
-                                @update:model-value="emit('update-thread-model-selection', $event)"
+                                @update:model-value="emit('update-session-model-selection', $event)"
                             />
                         </div>
                         <button
                             class="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50"
-                            :disabled="props.running || props.loadingThread"
-                            title="当前线程模型参数"
-                            @click="emit('toggle-thread-model-popover')"
+                            :disabled="props.running || props.loadingSession"
+                            title="当前 Session 模型参数"
+                            @click="emit('toggle-session-model-popover')"
                         >
                             <span class="i-lucide-sliders-horizontal h-3.5 w-3.5"></span>
                         </button>
 
-                        <div v-if="props.threadModelPopoverOpen" class="absolute bottom-full left-0 z-40 mb-2 w-[320px] rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-3 shadow-2xl">
+                        <div v-if="props.sessionModelPopoverOpen" class="absolute bottom-full left-0 z-40 mb-2 w-[320px] rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-3 shadow-2xl">
                             <div class="mb-3 flex items-center justify-between gap-3">
                                 <div>
-                                    <div class="text-sm font-medium text-[var(--text-main)]">当前线程模型参数</div>
-                                    <div class="mt-1 text-[11px] text-[var(--text-muted)]">仅影响当前线程后续新发起的 run。</div>
+                                    <div class="text-sm font-medium text-[var(--text-main)]">当前 Session 模型参数</div>
+                                    <div class="mt-1 text-[11px] text-[var(--text-muted)]">仅影响当前 Session 后续新发起的 run。</div>
                                 </div>
-                                <button class="rounded p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('update:threadModelPopoverOpen', false)">
+                                <button class="rounded p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('update:sessionModelPopoverOpen', false)">
                                     <span class="i-lucide-x h-3.5 w-3.5"></span>
                                 </button>
                             </div>
@@ -234,21 +259,21 @@ defineExpose({focus});
                                 <div class="space-y-1.5">
                                     <label class="text-xs font-medium text-[var(--text-secondary)]">模型</label>
                                     <NovelIdeModelSelect
-                                        :model-value="props.threadModelDraft.modelKey"
+                                        :model-value="props.sessionModelDraft.modelKey"
                                         :models="props.selectableModels"
-                                        placeholder="选择线程模型"
+                                        placeholder="选择 Session 模型"
                                         dropdown-direction="up"
-                                        @update:model-value="updateThreadModelDraft({modelKey: $event})"
+                                        @update:model-value="updateSessionModelDraft({modelKey: $event})"
                                     />
                                 </div>
                                 <div class="grid grid-cols-2 gap-3">
                                     <div class="space-y-1.5">
                                         <label class="text-xs font-medium text-[var(--text-secondary)]">温度</label>
-                                        <input :value="props.threadModelDraft.temperature" type="number" step="0.1" min="0" placeholder="留空" class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20" @input="updateThreadModelDraft({temperature: ($event.target as HTMLInputElement).value})">
+                                        <input :value="props.sessionModelDraft.temperature" type="number" step="0.1" min="0" placeholder="留空" class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20" @input="updateSessionModelDraft({temperature: ($event.target as HTMLInputElement).value})">
                                     </div>
                                     <div class="space-y-1.5">
                                         <label class="text-xs font-medium text-[var(--text-secondary)]">TopK</label>
-                                        <input :value="props.threadModelDraft.topK" type="number" step="1" min="1" placeholder="留空" class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20" @input="updateThreadModelDraft({topK: ($event.target as HTMLInputElement).value})">
+                                        <input :value="props.sessionModelDraft.topK" type="number" step="1" min="1" placeholder="留空" class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20" @input="updateSessionModelDraft({topK: ($event.target as HTMLInputElement).value})">
                                     </div>
                                 </div>
                                 <div class="flex items-center justify-between rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2">
@@ -258,21 +283,21 @@ defineExpose({focus});
                                     </div>
                                     <button
                                         class="inline-flex h-7 min-w-[56px] items-center justify-center rounded-md border px-3 text-[12px] font-medium transition-colors"
-                                        :class="props.threadModelDraft.stream ? 'border-emerald-600/20 bg-emerald-500/10 text-emerald-600' : 'border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-secondary)]'"
-                                        @click="updateThreadModelDraft({stream: !props.threadModelDraft.stream})"
+                                        :class="props.sessionModelDraft.stream ? 'border-emerald-600/20 bg-emerald-500/10 text-emerald-600' : 'border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-secondary)]'"
+                                        @click="updateSessionModelDraft({stream: !props.sessionModelDraft.stream})"
                                     >
-                                        {{ props.threadModelDraft.stream ? "开启" : "关闭" }}
+                                        {{ props.sessionModelDraft.stream ? "开启" : "关闭" }}
                                     </button>
                                 </div>
                             </div>
 
                             <div class="mt-4 flex items-center justify-between gap-2">
-                                <button class="inline-flex h-8 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :disabled="props.threadModelSaving" @click="emit('reset-thread-model-settings')">
+                                <button class="inline-flex h-8 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :disabled="props.sessionModelSaving" @click="emit('reset-session-model-settings')">
                                     回到 profile 默认
                                 </button>
-                                <button class="inline-flex h-8 items-center justify-center rounded-md bg-[var(--accent-main)] px-3 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.threadModelSaving || !props.threadModelDraft.modelKey" @click="emit('apply-thread-model-settings')">
-                                    <span v-if="props.threadModelSaving" class="i-lucide-loader-2 mr-1.5 h-3.5 w-3.5 animate-spin"></span>
-                                    应用到当前线程
+                                <button class="inline-flex h-8 items-center justify-center rounded-md bg-[var(--accent-main)] px-3 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.sessionModelSaving || !props.sessionModelDraft.modelKey" @click="emit('apply-session-model-settings')">
+                                    <span v-if="props.sessionModelSaving" class="i-lucide-loader-2 mr-1.5 h-3.5 w-3.5 animate-spin"></span>
+                                    应用到当前 Session
                                 </button>
                             </div>
                         </div>

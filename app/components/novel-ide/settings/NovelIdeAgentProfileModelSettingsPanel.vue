@@ -11,7 +11,6 @@ import type {ConfigEditorSnapshotDto, GlobalConfigDto} from "nbook/shared/dto/co
 type AgentProfileDraft = {
     profileKey: string;
     name: string;
-    kind: "leader" | "subagent";
     model: {
         modelKey: string | null;
         temperature: string;
@@ -69,7 +68,6 @@ function cloneProfile(profile: ConfiguredAgentProfileDto): AgentProfileDraft {
     return {
         profileKey: profile.profileKey,
         name: profile.name,
-        kind: profile.kind,
         model: {
             modelKey: profile.model.modelKey,
             temperature: stringifyNullableNumber(profile.model.temperature),
@@ -88,7 +86,6 @@ function buildSavePayload(): UpdateAgentProfileModelSettingsRequestDto {
         agentProfiles: profiles.value.map((profile) => ({
             profileKey: profile.profileKey,
             name: profile.name,
-            kind: profile.kind,
             model: {
                 modelKey: profile.model.modelKey,
                 temperature: parseNullableNumber(profile.model.temperature),
@@ -183,22 +180,7 @@ function resetProfile(profile: AgentProfileDraft): void {
 
 const dirty = computed(() => JSON.stringify(buildSavePayload()) !== snapshotText.value);
 
-const groupedProfiles = computed(() => {
-    return [
-        {
-            key: "leader",
-            title: "Leader Profiles",
-            description: "主线调度节点的默认模型参数。",
-            items: profiles.value.filter((profile) => profile.kind === "leader"),
-        },
-        {
-            key: "subagent",
-            title: "Subagent Profiles",
-            description: "子 Agent 的默认模型参数。",
-            items: profiles.value.filter((profile) => profile.kind === "subagent"),
-        },
-    ].filter((group) => group.items.length > 0);
-});
+const sortedProfiles = computed(() => [...profiles.value].sort((left, right) => left.profileKey.localeCompare(right.profileKey)));
 
 onMounted(() => {
     void loadSettings();
@@ -211,7 +193,7 @@ onMounted(() => {
         <div class="flex flex-wrap items-center justify-between gap-4">
             <div class="max-w-xl">
                 <h3 class="text-base font-semibold text-[var(--text-main)]">Agent Profile 模型</h3>
-                <p class="mt-1 text-xs text-[var(--text-secondary)]">按 Profile 配置默认模型、温度、TopK 与流式选项。线程级覆盖只影响当前线程的后续新 run。</p>
+                <p class="mt-1 text-xs text-[var(--text-secondary)]">按 Profile 配置默认模型、温度、TopK 与流式选项。session 级覆盖只影响当前 session 的后续新 run。</p>
             </div>
 
             <button
@@ -255,14 +237,14 @@ onMounted(() => {
         </div>
 
         <div v-else class="space-y-5">
-            <section v-for="group in groupedProfiles" :key="group.key" class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-sm">
+            <section class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-sm">
                 <div class="mb-4 border-b border-[var(--border-color)] pb-4">
-                    <h4 class="text-sm font-semibold text-[var(--text-main)]">{{ group.title }}</h4>
-                    <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ group.description }}</p>
+                    <h4 class="text-sm font-semibold text-[var(--text-main)]">Agent Profiles</h4>
+                    <p class="mt-1 text-xs text-[var(--text-secondary)]">所有 Agent Profile 使用同一套模型参数配置。</p>
                 </div>
 
                 <div class="grid gap-3">
-                    <div v-for="profile in group.items" :key="profile.profileKey" class="rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)]/25 p-4">
+                    <div v-for="profile in sortedProfiles" :key="profile.profileKey" class="rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)]/25 p-4">
                         <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
                             <div>
                                 <div class="text-sm font-medium text-[var(--text-main)]">{{ profile.name }}</div>

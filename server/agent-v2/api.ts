@@ -1,7 +1,7 @@
 import {createEventStream, createError, getHeader, getRouterParam} from "h3";
 import type {ClientVariables} from "nbook/server/agent/types";
-import type {AgentStreamEventDto} from "nbook/shared/dto/agent-chat.dto";
-import {AGENT_CLIENT_VARIABLES_HEADER, ClientVariablesDtoSchema} from "nbook/shared/dto/agent-chat.dto";
+import type {AgentStreamEventDto} from "nbook/server/agent-v2/dto/agent-chat.dto";
+import {AGENT_CLIENT_VARIABLES_HEADER, ClientVariablesDtoSchema} from "nbook/server/agent-v2/dto/agent-chat.dto";
 
 /**
  * 读取 threadId。

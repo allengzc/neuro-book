@@ -34,7 +34,7 @@ export const WorkspaceRetrievalSchema = z.object({
 }).describe("AI 检索候选配置。");
 
 export const WorkspaceInjectSchema = z.object({
-    profiles: z.array(z.string()).describe("直接上下文目标 profile key 列表。可选：leader.default（规划/协调）、subagent.writer（正文写作）、subagent.retrieval（内容节点召回）。inject 用于长期稳定、低判断成本的上下文；任务相关候选召回使用 retrieval。"),
+    profiles: z.array(z.string()).describe("直接上下文目标 profile key 列表。可选：leader.default 或用户自定义 profile key。inject 用于长期稳定、低判断成本的上下文；任务相关候选召回使用 retrieval。"),
     always: z.boolean().describe("当目标 profile 运行且 profiles 命中时，是否默认作为直接上下文候选。仅对文风、创作边界、固定读者承诺等长期稳定约束开启；临时剧情、待定问题、章节状态应保持 false。"),
 }).describe("AI profile 直接上下文配置；区别于 retrieval 的任务相关召回。");
 

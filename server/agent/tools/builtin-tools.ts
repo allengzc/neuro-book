@@ -1,13 +1,12 @@
 import {Type} from "typebox";
-import type {Static} from "typebox";
+import type {Static, TSchema} from "typebox";
+import {Value} from "typebox/value";
 import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
 import {createFileTools} from "nbook/server/agent/tools/file-tools";
 
 const ReportResultSchema = Type.Object({
-    result: Type.String(),
-    success: Type.Optional(Type.Boolean()),
-    data: Type.Optional(Type.Unknown()),
+    walkthrough: Type.String(),
 });
 
 const RequestUserInputSchema = Type.Object({
@@ -65,7 +64,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             async execute(_toolCallId, params: unknown) {
                 const report = params as Static<typeof ReportResultSchema>;
                 return {
-                    content: [{type: "text", text: report.result}],
+                    content: [{type: "text", text: report.walkthrough}],
                     details: report,
                     terminate: true,
                 };
@@ -268,4 +267,36 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             },
         },
     ];
+}
+
+/**
+ * 创建带当前 profile OutputSchema 的 report_result 工具。
+ */
+export function createReportResultTool(parameters: TSchema, outputSchema?: TSchema): NeuroAgentTool {
+    return {
+        key: "report_result",
+        name: "report_result",
+        label: "Report Result",
+        description: "Report final agent result to the caller.",
+        parameters,
+        async execute(_toolCallId, params: unknown) {
+            const report = params as {walkthrough: string; data?: unknown};
+            if (outputSchema && !("data" in report)) {
+                throw new Error("report_result.data 是当前 profile OutputSchema 要求的必填字段。");
+            }
+            if (outputSchema) {
+                try {
+                    Value.Parse(outputSchema, report.data);
+                } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    throw new Error(`report_result.data 校验失败：${message}`);
+                }
+            }
+            return {
+                content: [{type: "text", text: report.walkthrough}],
+                details: report,
+                terminate: true,
+            };
+        },
+    };
 }

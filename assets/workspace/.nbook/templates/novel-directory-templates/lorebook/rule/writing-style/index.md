@@ -14,8 +14,8 @@ retrieval:
   enabled: true
   trigger: null
 inject:
-  profiles: # 直接上下文目标 profile key；文风约束通常给 subagent.writer，必要时也可给 leader.default。
-    - subagent.writer
+  profiles: # 直接上下文目标 profile key；文风约束通常给默认 profile，必要时可换成用户自定义 profile key。
+    - leader.default
   always: false # 确认是长期稳定文风后才设 true；本章临时口味保持 false。
 governance:
   source: manual

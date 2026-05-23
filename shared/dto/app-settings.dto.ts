@@ -115,7 +115,6 @@ export const AgentProfileModelConfigDtoSchema = z.object({
 export const ConfiguredAgentProfileDtoSchema = z.object({
     profileKey: AgentProfileKeySchema,
     name: z.string().trim().min(1, "Profile 名称不能为空"),
-    kind: z.enum(["leader", "subagent"]),
     model: AgentProfileModelConfigDtoSchema,
 });
 

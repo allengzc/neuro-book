@@ -9,7 +9,6 @@ const ts = require("typescript") as typeof TypeScript;
 
 type ProfileTypeEntry = {
     profileKey: string;
-    kind: "leader" | "subagent" | "agent";
     relativePath: string;
 };
 
@@ -19,25 +18,15 @@ type PrepareConfig = {
     roots: string[];
     outputPath: string;
     builtinKeys: Set<string>;
-    v3: boolean;
 };
 
-const BUILTIN_PROFILE_KEYS = new Set([
-    "leader.default",
-    "leader.assets",
-    "subagent.writer",
-    "subagent.retrieval",
-]);
 const SYSTEM_PROFILE_ROOT = path.resolve(process.cwd(), "assets/workspace/.nbook/agent/profiles");
 const USER_PROFILE_ROOT = path.resolve(process.cwd(), "workspace/.nbook/agent/profiles");
 const OUTPUT_PATH = path.resolve(process.cwd(), "server/agent/profiles/dynamic-profile-types.generated.ts");
-const V3_BUILTIN_PROFILE_KEYS = new Set([
+const BUILTIN_PROFILE_KEYS = new Set([
     "leader.default",
     "leader.assets",
 ]);
-const V3_SYSTEM_PROFILE_ROOT = path.resolve(process.cwd(), "assets/workspace/.nbook/agent/profiles");
-const V3_USER_PROFILE_ROOT = path.resolve(process.cwd(), "workspace/.nbook/agent/profiles");
-const V3_OUTPUT_PATH = OUTPUT_PATH;
 
 /**
  * 生成动态 profile 的开发期类型索引。
@@ -48,7 +37,7 @@ async function main(): Promise<void> {
         : process.argv.includes("--all")
             ? "all"
             : "system";
-    const config = createConfig(mode, process.argv.includes("--v3"));
+    const config = createConfig(mode);
     const entries = await readProfileTypeEntries(config);
     await fs.mkdir(path.dirname(config.outputPath), {recursive: true});
     await fs.writeFile(config.outputPath, renderTypeIndex(entries), "utf-8");
@@ -56,20 +45,17 @@ async function main(): Promise<void> {
 }
 
 /**
- * 根据 v2/v3 和 roots mode 生成脚本配置。
+ * 根据 roots mode 生成脚本配置。
  */
-function createConfig(mode: PrepareMode, v3: boolean): PrepareConfig {
-    const systemRoot = v3 ? V3_SYSTEM_PROFILE_ROOT : SYSTEM_PROFILE_ROOT;
-    const userRoot = v3 ? V3_USER_PROFILE_ROOT : USER_PROFILE_ROOT;
+function createConfig(mode: PrepareMode): PrepareConfig {
     return {
         roots: mode === "all"
-            ? [systemRoot, userRoot]
+            ? [SYSTEM_PROFILE_ROOT, USER_PROFILE_ROOT]
             : mode === "user"
-                ? [userRoot]
-                : [systemRoot],
-        outputPath: v3 ? V3_OUTPUT_PATH : OUTPUT_PATH,
-        builtinKeys: v3 ? V3_BUILTIN_PROFILE_KEYS : BUILTIN_PROFILE_KEYS,
-        v3,
+                ? [USER_PROFILE_ROOT]
+                : [SYSTEM_PROFILE_ROOT],
+        outputPath: OUTPUT_PATH,
+        builtinKeys: BUILTIN_PROFILE_KEYS,
     };
 }
 
@@ -80,13 +66,12 @@ async function readProfileTypeEntries(config: PrepareConfig): Promise<ProfileTyp
     const filesByProfileKey = new Map<string, ProfileTypeEntry>();
     for (const root of config.roots) {
         for (const filePath of await listProfileFiles(root)) {
-            const manifest = readProfileManifest(await fs.readFile(filePath, "utf-8"), config.v3);
+            const manifest = readProfileManifest(await fs.readFile(filePath, "utf-8"));
             if (!manifest || config.builtinKeys.has(manifest.key)) {
                 continue;
             }
             filesByProfileKey.set(manifest.key, {
                 profileKey: manifest.key,
-                kind: config.v3 ? "agent" : manifest.kind,
                 relativePath: toImportPath(filePath),
             });
         }
@@ -131,7 +116,7 @@ async function appendProfileFiles(root: string, files: string[]): Promise<void> 
 /**
  * 从源码中静态读取 profileManifest。
  */
-function readProfileManifest(source: string, v3: boolean): {key: string; kind: "leader" | "subagent" | "agent"} | null {
+function readProfileManifest(source: string): {key: string} | null {
     const sourceFile = ts.createSourceFile("profile.tsx", source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
     for (const statement of sourceFile.statements) {
         if (!ts.isVariableStatement(statement) || !hasExportModifier(statement)) {
@@ -146,12 +131,8 @@ function readProfileManifest(source: string, v3: boolean): {key: string; kind: "
                 return null;
             }
             const key = readStringProperty(objectLiteral, "key");
-            const kind = readStringProperty(objectLiteral, "kind");
-            if (key && v3) {
-                return {key, kind: "agent"};
-            }
-            if (key && (kind === "leader" || kind === "subagent")) {
-                return {key, kind};
+            if (key) {
+                return {key};
             }
         }
     }
@@ -210,10 +191,6 @@ function renderTypeIndex(entries: ProfileTypeEntry[]): string {
         "",
         "export type DynamicProfileOutputMap = {",
         ...entries.map((entry) => `    ${JSON.stringify(entry.profileKey)}: import(${JSON.stringify(entry.relativePath)}).Output;`),
-        "};",
-        "",
-        "export type DynamicProfileKindMap = {",
-        ...entries.map((entry) => `    ${JSON.stringify(entry.profileKey)}: ${JSON.stringify(entry.kind)};`),
         "};",
         "",
     ].join("\n");

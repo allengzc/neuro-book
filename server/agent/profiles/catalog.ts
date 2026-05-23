@@ -26,11 +26,35 @@ type LoadedProfileCatalog = {
     issues: AgentProfileIssue[];
 };
 
+type ProfileFileEntry = {
+    file: string;
+    mtimeMs: number;
+    size: number;
+};
+
+type ProfileInventory = {
+    system: ProfileFileEntry[];
+    user: ProfileFileEntry[];
+};
+
+type CatalogCache = {
+    signature: string;
+    catalog: LoadedProfileCatalog;
+};
+
+type PendingCatalogLoad = {
+    signature: string;
+    promise: Promise<LoadedProfileCatalog>;
+};
+
 /**
  * 动态 profile catalog。用户 profile 按 key 覆盖系统 profile。
  */
 export class AgentProfileCatalog {
     private readonly memoryProfiles = new Map<string, ProfileSource>();
+    private memoryRevision = 0;
+    private catalogCache?: CatalogCache;
+    private pendingCatalogLoad?: PendingCatalogLoad;
 
     constructor(
         private readonly systemRoot = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profiles"),
@@ -46,6 +70,9 @@ export class AgentProfileCatalog {
             builtin,
             source: "memory",
         });
+        this.memoryRevision += 1;
+        this.catalogCache = undefined;
+        this.pendingCatalogLoad = undefined;
     }
 
     /**
@@ -75,7 +102,7 @@ export class AgentProfileCatalog {
     /**
      * 提供给 profile prepare 的只读 snapshot。
      */
-    async snapshot(): Promise<AgentCatalogSnapshot> {
+    async snapshot(options: {includeFileIssues?: boolean} = {}): Promise<AgentCatalogSnapshot> {
         const catalog = await this.loadAll();
         return {
             profiles: [...catalog.profiles.values()].map(({profile, source, sourcePath, builtin, issue}): AgentCatalogItem => ({
@@ -90,19 +117,43 @@ export class AgentProfileCatalog {
                 loadStatus: this.issueIsFatal(issue) ? "error" : "loaded",
                 issue,
             })).sort((left, right) => left.key.localeCompare(right.key)),
-            issues: catalog.issues,
+            issues: options.includeFileIssues === false
+                ? catalog.issues.filter((issue) => Boolean(issue.profileKey))
+                : catalog.issues,
         };
     }
 
     private async loadAll(): Promise<LoadedProfileCatalog> {
+        const inventory = await this.readProfileInventory();
+        const signature = this.catalogSignature(inventory);
+        if (this.catalogCache?.signature === signature) {
+            return this.catalogCache.catalog;
+        }
+        if (this.pendingCatalogLoad?.signature === signature) {
+            return this.pendingCatalogLoad.promise;
+        }
+
+        const promise = this.loadInventory(inventory).then((catalog) => {
+            this.catalogCache = {signature, catalog};
+            return catalog;
+        }).finally(() => {
+            if (this.pendingCatalogLoad?.promise === promise) {
+                this.pendingCatalogLoad = undefined;
+            }
+        });
+        this.pendingCatalogLoad = {signature, promise};
+        return promise;
+    }
+
+    private async loadInventory(inventory: ProfileInventory): Promise<LoadedProfileCatalog> {
         const profiles = new Map<string, ProfileSource>(this.memoryProfiles);
         const issues: AgentProfileIssue[] = [];
-        const system = await this.loadDirectory(this.systemRoot, "system", true);
+        const system = await this.loadDirectory(inventory.system, "system", true);
         issues.push(...system.issues);
         for (const source of system.sources) {
             profiles.set(source.profile.manifest.key, source);
         }
-        const user = await this.loadDirectory(this.userRoot, "user", false);
+        const user = await this.loadDirectory(inventory.user, "user", false);
         issues.push(...user.issues);
         for (const source of user.sources) {
             profiles.set(source.profile.manifest.key, source);
@@ -113,27 +164,20 @@ export class AgentProfileCatalog {
         };
     }
 
-    private async loadDirectory(root: string, source: AgentProfileSourceKind, builtin: boolean): Promise<{
+    private async loadDirectory(files: ProfileFileEntry[], source: AgentProfileSourceKind, builtin: boolean): Promise<{
         sources: ProfileSource[];
         issues: AgentProfileIssue[];
     }> {
-        if (!existsSync(root)) {
-            return {
-                sources: [],
-                issues: [],
-            };
-        }
-        const files = await this.findProfileFiles(root);
         const sources: ProfileSource[] = [];
         const issues: AgentProfileIssue[] = [];
         for (const file of files) {
             try {
                 const profile = await this.importProfile(file);
-                const locked = this.applyBuiltinSchemaLock(profile, source, file);
-                const filenameIssue = this.filenameIssue(locked.profile, source, file);
+                const locked = this.applyBuiltinSchemaLock(profile, source, file.file);
+                const filenameIssue = this.filenameIssue(locked.profile, source, file.file);
                 sources.push({
                     profile: locked.profile,
-                    sourcePath: file,
+                    sourcePath: file.file,
                     builtin,
                     source,
                     issue: locked.issue ?? filenameIssue,
@@ -145,7 +189,7 @@ export class AgentProfileCatalog {
                     issues.push(filenameIssue);
                 }
             } catch (error) {
-                issues.push(this.issueFromError(error, source, file));
+                issues.push(this.issueFromError(error, source, file.file));
             }
         }
         return {
@@ -154,8 +198,19 @@ export class AgentProfileCatalog {
         };
     }
 
-    private async findProfileFiles(root: string): Promise<string[]> {
-        const files: string[] = [];
+    private async readProfileInventory(): Promise<ProfileInventory> {
+        const [system, user] = await Promise.all([
+            this.findProfileFiles(this.systemRoot),
+            this.findProfileFiles(this.userRoot),
+        ]);
+        return {system, user};
+    }
+
+    private async findProfileFiles(root: string): Promise<ProfileFileEntry[]> {
+        if (!existsSync(root)) {
+            return [];
+        }
+        const files: ProfileFileEntry[] = [];
         const entries = await readdir(root, {withFileTypes: true});
         for (const entry of entries) {
             const fullPath = join(root, entry.name);
@@ -164,21 +219,35 @@ export class AgentProfileCatalog {
                 continue;
             }
             if (entry.isFile() && /\.profile\.(tsx|ts|mjs|js)$/.test(entry.name)) {
-                files.push(fullPath);
+                const fileStat = await stat(fullPath);
+                files.push({
+                    file: fullPath,
+                    mtimeMs: fileStat.mtimeMs,
+                    size: fileStat.size,
+                });
             }
         }
-        return files.sort((left, right) => left.localeCompare(right));
+        return files.sort((left, right) => left.file.localeCompare(right.file));
     }
 
-    private async importProfile(file: string): Promise<AgentProfile> {
-        const fileStat = await stat(file);
-        const moduleUrl = `${pathToFileURL(file).href}?mtime=${Math.trunc(fileStat.mtimeMs)}`;
+    private catalogSignature(inventory: ProfileInventory): string {
+        return JSON.stringify({
+            memoryRevision: this.memoryRevision,
+            systemRoot: this.systemRoot,
+            userRoot: this.userRoot,
+            system: inventory.system,
+            user: inventory.user,
+        });
+    }
+
+    private async importProfile(entry: ProfileFileEntry): Promise<AgentProfile> {
+        const moduleUrl = `${pathToFileURL(entry.file).href}?mtime=${entry.mtimeMs}&size=${entry.size}`;
         const mod = await this.importTsModule(moduleUrl) as {
             default?: unknown;
         };
         const profile = mod.default;
         if (!this.isProfile(profile)) {
-            throw new ProfileCatalogError(this.profileIssueCode(profile), `profile 文件没有默认导出有效的 defineAgentProfile 结果：${file}`);
+            throw new ProfileCatalogError(this.profileIssueCode(profile), `profile 文件没有默认导出有效的 defineAgentProfile 结果：${entry.file}`);
         }
         return profile;
     }

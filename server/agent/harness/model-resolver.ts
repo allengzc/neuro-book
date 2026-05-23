@@ -1,5 +1,5 @@
 import type {Model} from "@earendil-works/pi-ai";
-import type {AgentProfileModelConfig} from "nbook/server/utils/app-config";
+import type {AgentProfileModelConfig} from "nbook/server/config/types";
 import {loadGlobalEffectiveConfigSync} from "nbook/server/config/config-service";
 import type {EffectiveConfig} from "nbook/server/config/types";
 

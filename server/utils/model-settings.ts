@@ -16,12 +16,11 @@ import type {
 import type {
     AgentProfileConfig,
     AgentProfileModelConfig,
-    AppConfig,
     ConfiguredModelConfig,
     ConfiguredProviderConfig,
     ModelProviderOptionsConfig,
     ModelSettingsConfig,
-} from "nbook/server/utils/app-config";
+} from "nbook/server/config/types";
 
 type ResolvedDefaultModel = {
     providerId: string;
@@ -37,7 +36,6 @@ type ResolvedContextWindow = {
 export type AgentProfileSettingDefinition = {
     profileKey: string;
     name: string;
-    kind: "leader" | "subagent";
 };
 
 /**
@@ -131,7 +129,7 @@ export function convertAgentProfileModelSettingsRequestToConfig(
 /**
  * 把运行时配置转成 API DTO。
  */
-export function buildModelSettingsDto(appConfig: Pick<AppConfig, "models">): ModelSettingsDto {
+export function buildModelSettingsDto(appConfig: {models: ModelSettingsConfig}): ModelSettingsDto {
     const config = appConfig.models;
     const providers = Object.entries(config.providers).map(([providerId, provider]) => ({
         id: providerId,
@@ -166,7 +164,7 @@ export function buildModelSettingsDto(appConfig: Pick<AppConfig, "models">): Mod
  * 把 Agent Profile 配置转成 API DTO。
  */
 export function buildAgentProfileModelSettingsDto(
-    appConfig: Pick<AppConfig, "agent" | "models">,
+    appConfig: {agent: {profiles: Record<string, AgentProfileConfig>}; models: ModelSettingsConfig},
     profileDefinitions: AgentProfileSettingDefinition[],
 ): AgentProfileModelSettingsDto {
     return {
@@ -174,7 +172,6 @@ export function buildAgentProfileModelSettingsDto(
         agentProfiles: profileDefinitions.map((definition): ConfiguredAgentProfileDto => ({
             profileKey: definition.profileKey,
             name: definition.name,
-            kind: definition.kind,
             model: resolveAgentProfileModelConfig(appConfig, definition.profileKey),
         })),
     };
@@ -244,7 +241,7 @@ export function resolveDefaultModel(config: ModelSettingsConfig): ResolvedDefaul
 /**
  * 解析单个 profile 的模型配置。
  */
-export function resolveAgentProfileModelConfig(appConfig: Pick<AppConfig, "agent">, profileKey: string): AgentProfileModelConfig {
+export function resolveAgentProfileModelConfig(appConfig: {agent: {profiles: Record<string, AgentProfileConfig>}}, profileKey: string): AgentProfileModelConfig {
     return normalizeAgentProfileModelConfig(appConfig.agent.profiles[profileKey]?.model);
 }
 

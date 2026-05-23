@@ -8,7 +8,7 @@
 
 ## 当前定位更新
 
-后续用户 assets 工作区的 profile 方向已经调整：不再把“profile 模板与 profile 代码拆分”作为长期主线。完整 `.profile.tsx` 单文件是 profile 真相源，用户或 Agent 直接编辑 TSX；低代码编辑器保留为结构编辑辅助，只处理可定位的 `ProfilePrompt` 区域。
+后续用户 assets 工作区的 profile 方向已经调整：不再把“profile 模板与 profile 代码拆分”作为长期主线。完整 `.profile.tsx` 单文件是 profile 真相源，用户或 Agent 直接编辑 TSX；旧 `profile-templates` / `user-profile-templates` 写入 API 已从 active surface 移除。新的 TSX Profile Workbench 计划以 `docs/tasks/tsx-profile-workbench/README.md` 为准；本文只作为旧 AST/受限 TSX 编辑实验的历史背景。本文中的旧 API、Zod Schema Builder 和 `leader/subagent` 新建语义不再代表当前计划；已调好的可视化编辑器 UI 可作为 `ProfilePrompt` 可视化辅助编辑基底继续微调。
 
 本任务产出的 AST 解析、受限 TSX 节点树、画布拖拽、源码编辑和静态 preview 能力会被用户 assets Profile 工作台复用，但 runtime 语义由 [用户 Assets 工作区](../user-assets-workspace/README.md) 继续推进：
 

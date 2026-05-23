@@ -99,7 +99,9 @@ export async function runAgentSessionCommand(sessionId: number, body: AgentComma
 }
 
 /**
- * 原子切换 session tree，并可在切换后立即 invoke。
+ * 切换 session tree，并可在切换后立即 invoke。
+ *
+ * 当前实现先移动 leaf 再 invoke；若 invoke 失败，leaf 不会自动回滚。
  */
 export async function moveAgentSessionTree(sessionId: number, body: AgentTreeRequestDto, harness = useAgentHarness()) {
     return harness.moveTree(sessionId, body);

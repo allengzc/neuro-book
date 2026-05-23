@@ -9,6 +9,3 @@ export type DynamicProfileInputMap = {
 
 export type DynamicProfileOutputMap = {
 };
-
-export type DynamicProfileKindMap = {
-};

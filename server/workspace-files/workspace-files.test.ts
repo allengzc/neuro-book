@@ -323,7 +323,7 @@ describe("workspace-files", () => {
         expect(properties.title.description).toContain("内容节点显示标题");
         expect(properties.status.default).toBe("draft");
         expect((properties.retrieval.properties as Record<string, Record<string, unknown>>).trigger.description).toContain("自然语言触发条件");
-        expect((properties.inject.properties as Record<string, Record<string, unknown>>).profiles.description).toContain("subagent.writer");
+        expect((properties.inject.properties as Record<string, Record<string, unknown>>).profiles.description).toContain("用户自定义 profile key");
         expect((properties.inject.properties as Record<string, Record<string, unknown>>).profiles.description).toContain("leader.default");
         expect((properties.inject.properties as Record<string, Record<string, unknown>>).profiles.description).toContain("任务相关候选召回使用 retrieval");
         expect((properties.inject.properties as Record<string, Record<string, unknown>>).always.description).toContain("长期稳定约束");
@@ -346,29 +346,31 @@ describe("workspace-files", () => {
         expect(stdout).not.toContain("ext.character");
     });
 
-    it("角色内容节点模板包含 frontmatter 注释与正文结构", () => {
-        const content = renderWorkspaceContentTemplate({
-            title: "苏雪",
-            type: "character",
-            status: "draft",
-        });
+    it("角色内容节点模板包含 frontmatter 注释与正文结构", async () => {
+        await withSystemTemplate("templates/content-node-templates/character/index.md", () => {
+            const content = renderWorkspaceContentTemplate({
+                title: "苏雪",
+                type: "character",
+                status: "draft",
+            });
 
-        expect(content).toContain("title: 苏雪");
-        expect(content).toContain("status: draft # 内容节点状态");
-        expect(content).toContain("retrieval:");
-        expect(content).toContain("enabled: true");
-        expect(content).toContain("inject:");
-        expect(content).toContain("profiles: []");
-        expect(content).toContain("subagent.writer 写作");
-        expect(content).toContain("临时剧情、待定问题、章节状态保持 false");
-        expect(content).toContain("## 概要");
-        expect(content).toContain("## 角色定义");
-        expect(content).toContain("## 角色画像");
-        expect(content).toContain("## 动机与矛盾");
-        expect(content).toContain("## 关系与角色弧");
-        expect(content).not.toContain("character:");
-        expect(content).not.toContain("writingTip:");
-        expect(content).not.toContain("## 写作注意");
+            expect(content).toContain("title: 苏雪");
+            expect(content).toContain("status: draft # 内容节点状态");
+            expect(content).toContain("retrieval:");
+            expect(content).toContain("enabled: true");
+            expect(content).toContain("inject:");
+            expect(content).toContain("profiles: []");
+            expect(content).toContain("leader.default");
+            expect(content).toContain("临时剧情、待定问题、章节状态保持 false");
+            expect(content).toContain("## 概要");
+            expect(content).toContain("## 角色定义");
+            expect(content).toContain("## 角色画像");
+            expect(content).toContain("## 动机与矛盾");
+            expect(content).toContain("## 关系与角色弧");
+            expect(content).not.toContain("character:");
+            expect(content).not.toContain("writingTip:");
+            expect(content).not.toContain("## 写作注意");
+        });
     });
 
     it("势力内容节点模板包含 frontmatter 注释与当前状态结构", () => {
@@ -462,7 +464,9 @@ describe("workspace-files", () => {
     });
 
     it("小说目录模板会创建最小 lorebook 骨架且通过内容节点校验", async () => {
-        await copyNovelDirectoryTemplate(root);
+        await withSystemTemplate("templates/novel-directory-templates/lorebook/rule/writing-style/index.md", async () => {
+            await copyNovelDirectoryTemplate(root);
+        });
 
         await expect(readWorkspaceTextFile(root, "AGENTS.md")).resolves.toContain("Novel Workspace");
         await expect(readWorkspaceTextFile(root, "AGENTS.md")).resolves.toContain("PROJECT-STATUS.md");
@@ -483,7 +487,7 @@ describe("workspace-files", () => {
         await expect(readWorkspaceTextFile(root, "lorebook/note/story-concept/index.md")).resolves.toContain("## 故事概述");
         await expect(readWorkspaceTextFile(root, "lorebook/note/story-concept/index.md")).resolves.toContain("长简介式作品介绍");
         await expect(readWorkspaceTextFile(root, "lorebook/rule/writing-style/index.md")).resolves.toContain("inject:");
-        await expect(readWorkspaceTextFile(root, "lorebook/rule/writing-style/index.md")).resolves.toContain("文风约束通常给 subagent.writer");
+        await expect(readWorkspaceTextFile(root, "lorebook/rule/writing-style/index.md")).resolves.toContain("文风约束通常给默认 profile");
         await expect(readWorkspaceTextFile(root, "lorebook/note/initial-plot-seed/index.md")).resolves.toContain("剧情种子通常不直接注入");
         await expect(readWorkspaceTextFile(root, "manuscript/001-opening/index.md")).resolves.toContain("## 正文草稿");
         await expect(readWorkspaceTextFile(root, "manuscript/001-opening/index.md")).resolves.toContain("- 开局示例");
@@ -662,5 +666,19 @@ describe("workspace-files", () => {
         }
         await fs.mkdir(path.dirname(filePath), {recursive: true});
         await fs.writeFile(filePath, content, "utf-8");
+    }
+
+    /**
+     * 临时移开用户覆盖模板，让断言只验证 bundled system template。
+     */
+    async function withSystemTemplate<T>(templateRelativePath: string, callback: () => T | Promise<T>): Promise<T> {
+        const userTemplatePath = path.join(USER_ASSETS_WORKSPACE_ROOT, templateRelativePath);
+        const backup = await backupOptionalFile(userTemplatePath);
+        await fs.rm(userTemplatePath, {force: true});
+        try {
+            return await callback();
+        } finally {
+            await restoreOptionalFile(userTemplatePath, backup);
+        }
     }
 });
