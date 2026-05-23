@@ -12,6 +12,7 @@ import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStud
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
 type SettingsSection = "frontend" | "editor" | "models" | "agent-profile-defaults" | "agent-profile-models";
+type SettingsScope = "global" | "project" | "browser";
 
 const props = defineProps<{
     modelValue: boolean;
@@ -32,6 +33,8 @@ const {
 } = storeToRefs(novelIdeStore);
 
 const activeSection = ref<SettingsSection>("frontend");
+const activeScope = ref<SettingsScope>("global");
+const targetNovelId = ref("");
 
 const frontendSectionItems: Array<{value: SettingsSection; label: string; description: string; iconClass: string}> = [
     {
@@ -65,6 +68,30 @@ const frontendSectionItems: Array<{value: SettingsSection; label: string; descri
         iconClass: "i-lucide-bot-message-square",
     },
 ];
+
+const scopeOptions: Array<{value: SettingsScope; label: string; description: string; iconClass: string}> = [
+    {
+        value: "global",
+        label: "Global Config",
+        description: "Workspace Root .nbook/config.json",
+        iconClass: "i-lucide-globe-2",
+    },
+    {
+        value: "project",
+        label: "Project Config",
+        description: "所选 Project Workspace .nbook/config.json",
+        iconClass: "i-lucide-folder-cog",
+    },
+    {
+        value: "browser",
+        label: "Browser State",
+        description: "本地 UI 状态，不写入 config 文件",
+        iconClass: "i-lucide-monitor",
+    },
+];
+
+const configSections: SettingsSection[] = ["models", "agent-profile-defaults", "agent-profile-models"];
+const browserSections: SettingsSection[] = ["frontend", "editor"];
 
 const themeOptions: SelectOption[] = [
     {value: "sepia", label: "Sepia Paper"},
@@ -130,6 +157,63 @@ const promptExpandedValue = computed({
         promptExpanded.value = value === "expanded";
     },
 });
+
+const projectOptions = computed<SelectOption[]>(() => novelIdeStore.novels.map((novel) => ({
+    value: novel.id,
+    label: novel.title || novel.workspaceSlug || novel.id,
+    description: novel.workspaceSlug ? `workspace/${novel.workspaceSlug}` : novel.id,
+})));
+
+const targetNovel = computed(() => novelIdeStore.novels.find((novel) => novel.id === targetNovelId.value) ?? null);
+const targetQuery = computed(() => activeScope.value === "project" && targetNovelId.value
+    ? {workspaceKind: "novel" as const, novelId: targetNovelId.value}
+    : {workspaceKind: "user-assets" as const});
+const settingsPanelKey = computed(() => `${activeScope.value}:${targetQuery.value.workspaceKind}:${targetQuery.value.novelId ?? "global"}`);
+const targetLabel = computed(() => activeScope.value === "project"
+    ? targetNovel.value?.title || targetNovel.value?.workspaceSlug || targetNovelId.value || "Project Workspace"
+    : "Workspace Root");
+const targetConfigPath = computed(() => {
+    if (activeScope.value === "browser") {
+        return "Pinia / localStorage / sessionStorage";
+    }
+    if (activeScope.value === "project") {
+        return targetNovel.value?.workspaceSlug
+            ? `workspace/${targetNovel.value.workspaceSlug}/.nbook/config.json`
+            : "workspace/{project}/.nbook/config.json";
+    }
+    return "workspace/.nbook/config.json";
+});
+
+const visibleSectionItems = computed(() => {
+    const allowed = activeScope.value === "browser" ? browserSections : configSections;
+    return frontendSectionItems.filter((item) => allowed.includes(item.value));
+});
+
+const sidebarHint = computed(() => {
+    if (activeScope.value === "browser") {
+        return "本地状态即时生效，不写入配置文件。";
+    }
+    if (activeSection.value === "models") {
+        return activeScope.value === "project" ? "Project Config 只覆盖默认模型。" : "Provider、API Key 与全局默认模型写入 Global Config。";
+    }
+    if (activeSection.value === "agent-profile-defaults") {
+        return activeScope.value === "project" ? "默认 Profile 写入所选 Project Config。" : "默认 Profile 写入 Global Config。";
+    }
+    return activeScope.value === "project" ? "Profile 模型参数写入所选 Project Config。" : "Profile 模型参数写入 Global Config。";
+});
+
+/**
+ * 选择设置页配置目标，不改变当前 IDE 打开的小说。
+ */
+function selectScope(scope: SettingsScope): void {
+    if (scope === "project" && novelIdeStore.workspaceKind === "user-assets") {
+        activeScope.value = "global";
+        activeSection.value = "agent-profile-defaults";
+        return;
+    }
+    activeScope.value = scope;
+    activeSection.value = scope === "browser" ? "frontend" : "models";
+}
 
 /**
  * 更新 Markdown 编辑器显示偏好。
@@ -218,30 +302,101 @@ function updateViewMode(value: string): void {
     }
 }
 
+watch(() => props.modelValue, (open) => {
+    if (!open) {
+        return;
+    }
+    if (novelIdeStore.novels.length === 0) {
+        void novelIdeStore.loadNovels();
+    }
+    targetNovelId.value = novelIdeStore.currentNovelId || novelIdeStore.novels[0]?.id || "";
+    if (novelIdeStore.workspaceKind === "user-assets" && activeScope.value === "project") {
+        activeScope.value = "global";
+        activeSection.value = "agent-profile-defaults";
+    }
+}, {immediate: true});
+
+watch(() => novelIdeStore.currentNovelId, (novelId) => {
+    if (!targetNovelId.value) {
+        targetNovelId.value = novelId;
+    }
+});
+
+watch(() => novelIdeStore.novels, (novels) => {
+    if (!targetNovelId.value) {
+        targetNovelId.value = novelIdeStore.currentNovelId || novels[0]?.id || "";
+    }
+}, {deep: true});
+
+watch(activeScope, (scope) => {
+    const allowed = scope === "browser" ? browserSections : configSections;
+    if (!allowed.includes(activeSection.value)) {
+        activeSection.value = allowed[0] ?? "frontend";
+    }
+});
+
 </script>
 
 <template>
     <Dialog
         :model-value="props.modelValue"
-        title="工作区设定"
-        width="1060px"
-        height="740px"
+        title="配置中心"
+        width="1280px"
+        height="86vh"
         overlay-type="blur"
         :busy="false"
         :show-footer="false"
         @update:model-value="emit('update:modelValue', $event)"
     >
-        <!-- 固定高度，左右分栏 -->
-        <div class="flex h-full gap-6">
+        <!-- 固定高度，顶部配置目标栏 + 左右分栏 -->
+        <div class="flex h-full flex-col gap-4">
+            <!-- 配置目标栏 -->
+            <section class="shrink-0 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 shadow-sm">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex min-w-0 flex-wrap items-center gap-2">
+                        <button
+                            v-for="scope in scopeOptions"
+                            :key="scope.value"
+                            type="button"
+                            class="inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-45"
+                            :class="activeScope === scope.value ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                            :disabled="scope.value === 'project' && novelIdeStore.workspaceKind === 'user-assets'"
+                            :title="scope.description"
+                            @click="selectScope(scope.value)"
+                        >
+                            <span :class="scope.iconClass" class="h-3.5 w-3.5"></span>
+                            <span>{{ scope.label }}</span>
+                        </button>
+                    </div>
+
+                    <div v-if="activeScope === 'project'" class="flex min-w-[280px] items-center gap-2">
+                        <span class="shrink-0 text-[11px] font-medium text-[var(--text-muted)]">Project</span>
+                        <FormSelect v-model="targetNovelId" :options="projectOptions" placeholder="选择 Project Workspace" />
+                    </div>
+                </div>
+
+                <div class="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-secondary)]">
+                    <span class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-1">
+                        <span class="i-lucide-file-json-2 h-3 w-3 text-[var(--text-muted)]"></span>
+                        {{ targetConfigPath }}
+                    </span>
+                    <span v-if="activeScope === 'project'" class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-1">
+                        <span class="i-lucide-pin h-3 w-3 text-[var(--text-muted)]"></span>
+                        只修改所选 Project，不切换当前小说
+                    </span>
+                </div>
+            </section>
+
+            <div class="flex min-h-0 flex-1 gap-6">
             <!-- 左侧导航栏 - 清爽无边框 -->
-            <aside class="flex w-[160px] shrink-0 flex-col pb-2">
+            <aside class="flex w-[220px] shrink-0 flex-col pb-2">
                 <div class="mb-3 mt-1 px-3">
-                    <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Preferences</div>
+                    <div class="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">{{ activeScope === "browser" ? "Browser State" : "Config File" }}</div>
                 </div>
 
                 <div class="flex flex-col gap-1.5">
                     <button
-                        v-for="item in frontendSectionItems"
+                        v-for="item in visibleSectionItems"
                         :key="item.value"
                         class="group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-all duration-200"
                         :class="activeSection === item.value ? 'bg-[var(--bg-input)] text-[var(--text-main)] shadow-[0_2px_8px_rgba(0,0,0,0.04)] border border-[var(--border-color)]' : 'border border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]/40 hover:text-[var(--text-main)]'"
@@ -254,6 +409,7 @@ function updateViewMode(value: string): void {
                         
                         <div class="min-w-0 flex-1">
                             <span class="block text-[13px] font-medium">{{ item.label }}</span>
+                            <span class="mt-0.5 block truncate text-[10px] text-[var(--text-muted)]">{{ item.description }}</span>
                         </div>
                     </button>
                 </div>
@@ -263,7 +419,7 @@ function updateViewMode(value: string): void {
                     <div class="rounded-xl border border-[var(--border-color)]/60 bg-[var(--bg-panel)]/50 px-3.5 py-3 shadow-sm">
                         <span class="i-lucide-info mb-1.5 block h-3.5 w-3.5 text-[var(--text-muted)]"></span>
                         <div class="text-[11px] leading-relaxed text-[var(--text-secondary)]">
-                            {{ activeSection === "frontend" ? "前端设定即时生效并自动保存。" : activeSection === "editor" ? "编辑器显示偏好只影响本地 UI。" : activeSection === "models" ? "模型设置写入 Workspace Root Global Config。" : activeSection === "agent-profile-defaults" ? "默认 Profile 写入 Global 或 Project Config。" : "Profile 模型参数写入 Global Config。" }}
+                            {{ sidebarHint }}
                         </div>
                     </div>
                 </div>
@@ -479,21 +635,22 @@ function updateViewMode(value: string): void {
                         <!-- 模型设定 -->
                         <div v-else-if="activeSection === 'models'" key="models">
                             <!-- 注意：ModelSettingsPanel 内部不使用 h-full，让外层自动撑开或根据内容滚动 -->
-                            <NovelIdeModelSettingsPanel />
+                            <NovelIdeModelSettingsPanel :key="`models:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
                         </div>
 
                         <!-- 默认 Profile 设定 -->
                         <div v-else-if="activeSection === 'agent-profile-defaults'" key="agent-profile-defaults">
-                            <NovelIdeAgentProfileDefaultSettingsPanel />
+                            <NovelIdeAgentProfileDefaultSettingsPanel :key="`defaults:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
                         </div>
 
                         <!-- Agent Profile 模型设定 -->
                         <div v-else-if="activeSection === 'agent-profile-models'" key="agent-profile-models">
-                            <NovelIdeAgentProfileModelSettingsPanel />
+                            <NovelIdeAgentProfileModelSettingsPanel :key="`profile-models:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
                         </div>
                     </Transition>
                 </div>
             </section>
+            </div>
         </div>
     </Dialog>
 </template>

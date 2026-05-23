@@ -160,17 +160,29 @@ Agent 读取规则：
 
 ## Settings UI
 
-设置页已切到 `/api/config/editor-snapshot`：
+设置页已切到配置中心视图，并固定显示当前编辑目标：
 
-- 模型设置保存到 Global Config。
-- Agent profile model 保存到 Global Config。
-- user-assets 默认 profile 保存到 Global `agent.defaultProfileKey.userAssets`。
-- novel 默认 profile 保存到 Project `agent.defaultProfileKey`。
-- 模型健康检查、Provider 检查、模型发现入口移动到 `/api/config/models/*`。
+- Dialog 顶部可在 `Global Config`、`Project Config`、`Browser State` 间切换。
+- `Global Config` 写入 Workspace Root `workspace/.nbook/config.json`。
+- `Project Config` 可选择任意 Project Workspace，写入 `workspace/{project}/.nbook/config.json`，不会切换当前 IDE 打开的小说。
+- `Browser State` 只包含本地 UI 状态与编辑器显示偏好，不写入 config 文件。
+- `user-assets` 入口只允许编辑 Global Config 与 Browser State，不提供 Project Config 目标。
+
+Global Config 面板：
+
+- 模型 Provider、API Key、模型白名单和 Global 默认模型保存到 Global Config。
+- Agent 默认 Profile 保存到 Global `agent.defaultProfileKey.novel` / `agent.defaultProfileKey.userAssets`。
+- Agent Profile 模型参数保存到 Global `agent.profiles`。
 - Secret 字段显示已配置/未配置与脱敏值；不会把脱敏值当明文写回。
-- 旧 Agent 工具 allow/deny 设置分区已从设置 Dialog 删除。
 
-当前设置页仍以现有功能面板为主，后续可以继续做更强的“Global / Project 双文件视图”和清除覆盖 UI。
+Project Config 面板：
+
+- Project 默认模型保存到 Project `models.default`；选择“跟随 Global 默认模型”会清除覆盖值。
+- Project 默认 Profile 保存到 Project `agent.defaultProfileKey`。
+- Project Agent Profile 模型参数保存到 Project `agent.profiles`；留空字段按运行时合并规则回落 Global。
+- Provider/API key、Provider 列表仍是 Global-only，不在 Project Config 中编辑。
+
+模型健康检查、Provider 检查、模型发现入口已移动到 `/api/config/models/*`。旧 Agent 工具 allow/deny 设置分区已从设置 Dialog 删除。
 
 ## Bundled Workspace Template
 
@@ -274,6 +286,10 @@ assets/
 - `node --check scripts/neuro-book-deploy.mjs`
 - `node --check scripts/deploy.mjs`
 
+本轮设置页重构追加验证：
+
+- `bunx tsc --noEmit --pretty false`
+
 已知非本轮业务失败：
 
 - `server/api/workspace-files/download.get.test.ts`
@@ -284,7 +300,7 @@ assets/
 
 ## TODO / Follow-ups
 
-- 设置页进一步做真正的 Global / Project 双文件视图和清除覆盖 UI。
+- 设置页后续可继续增强 raw/effective 差异展示，目前已支持 Global / Project 目标切换、Project selector 和核心覆盖项清除。
 - Boot Config schema 后续继续细化，并决定是否把 `server` / `database` 字段接入真正的启动期读取链路。
 - 写入原子锁、version conflict、跨进程配置广播后续再做。
 - 修复 workspace-files API tests 的 Vitest mock API 兼容问题。

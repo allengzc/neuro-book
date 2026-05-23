@@ -14,6 +14,7 @@ import type {
     ModelProviderOptionsConfig,
     ModelSettingsConfig,
     StoredGlobalConfig,
+    StoredAgentProfileConfig,
     StoredProjectConfig,
     StoredProviderConfig,
 } from "nbook/server/config/types";
@@ -69,7 +70,7 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
                 novel: normalizeNullableModelKey(raw.agent?.defaultProfileKey?.novel),
                 userAssets: normalizeNullableModelKey(raw.agent?.defaultProfileKey?.userAssets),
             },
-            profiles: normalizeAgentProfiles(raw.agent?.profiles),
+            profiles: normalizeCompleteAgentProfiles(raw.agent?.profiles),
         },
         ui: {
             theme: normalizeTheme(raw.ui?.theme),
@@ -120,7 +121,7 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
         novel: normalizeNullableModelKey(globalConfig.agent?.defaultProfileKey?.novel),
         userAssets: normalizeNullableModelKey(globalConfig.agent?.defaultProfileKey?.userAssets),
     };
-    effective.agent.profiles = normalizeAgentProfiles(globalConfig.agent?.profiles);
+    effective.agent.profiles = normalizeCompleteAgentProfiles(globalConfig.agent?.profiles);
     effective.ui.theme = normalizeTheme(globalConfig.ui?.theme);
     effective.editor.markdown = normalizeMarkdownPreferences(globalConfig.editor?.markdown);
     effective.editor.monaco = normalizeMonacoPreferences(globalConfig.editor?.monaco);
@@ -136,10 +137,16 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
         effective.agent.defaultProfileKey.novel = normalizeNullableModelKey(projectConfig.agent.defaultProfileKey);
     }
     if (projectConfig.agent?.profiles) {
-        effective.agent.profiles = {
-            ...effective.agent.profiles,
-            ...normalizeAgentProfiles(projectConfig.agent.profiles),
-        };
+        const projectProfiles = normalizeAgentProfiles(projectConfig.agent.profiles);
+        effective.agent.profiles = Object.fromEntries(
+            [...new Set([...Object.keys(effective.agent.profiles), ...Object.keys(projectProfiles)])]
+                .map((profileKey) => [profileKey, {
+                    model: normalizeAgentProfileModelConfig({
+                        ...(effective.agent.profiles[profileKey]?.model ?? {}),
+                        ...(projectProfiles[profileKey]?.model ?? {}),
+                    }),
+                } satisfies AgentProfileConfig]),
+        );
     }
     if (projectConfig.editor?.markdown) {
         effective.editor.markdown = {
@@ -210,7 +217,7 @@ export function normalizeAgentProfileModelConfig(input: Partial<AgentProfileMode
 /**
  * 规范化 profile 配置 map。
  */
-export function normalizeAgentProfiles(input: Record<string, Partial<AgentProfileConfig>> | undefined): Record<string, AgentProfileConfig> {
+export function normalizeAgentProfiles(input: Record<string, Partial<StoredAgentProfileConfig>> | undefined): Record<string, StoredAgentProfileConfig> {
     if (!input) {
         return {};
     }
@@ -222,12 +229,33 @@ export function normalizeAgentProfiles(input: Record<string, Partial<AgentProfil
                     return null;
                 }
                 return [key, {
-                    model: normalizeAgentProfileModelConfig(profile.model),
+                    model: normalizeAgentProfileModelPatch(profile.model),
                 }] as const;
             })
-            .filter((entry): entry is readonly [string, AgentProfileConfig] => entry !== null)
+            .filter((entry): entry is readonly [string, StoredAgentProfileConfig] => entry !== null)
             .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey)),
     );
+}
+
+function normalizeCompleteAgentProfiles(input: Record<string, Partial<StoredAgentProfileConfig>> | undefined): Record<string, AgentProfileConfig> {
+    return Object.fromEntries(
+        Object.entries(normalizeAgentProfiles(input)).map(([profileKey, profile]) => [profileKey, {
+            model: normalizeAgentProfileModelConfig(profile.model),
+        } satisfies AgentProfileConfig]),
+    );
+}
+
+function normalizeAgentProfileModelPatch(input: Partial<AgentProfileModelConfig> | undefined): Partial<AgentProfileModelConfig> {
+    if (!input) {
+        return {};
+    }
+    return {
+        ...(Object.hasOwn(input, "modelKey") ? {modelKey: normalizeNullableModelKey(input.modelKey)} : {}),
+        ...(Object.hasOwn(input, "temperature") ? {temperature: normalizeNullableNumber(input.temperature)} : {}),
+        ...(Object.hasOwn(input, "topK") ? {topK: normalizeNullableInteger(input.topK)} : {}),
+        ...(Object.hasOwn(input, "reasoningEffort") ? {reasoningEffort: input.reasoningEffort === "low" || input.reasoningEffort === "medium" || input.reasoningEffort === "high" ? input.reasoningEffort : null} : {}),
+        ...(Object.hasOwn(input, "stream") ? {stream: input.stream ?? true} : {}),
+    };
 }
 
 function normalizeStoredProviders(input: StoredProviderConfig[] | undefined): StoredProviderConfig[] {

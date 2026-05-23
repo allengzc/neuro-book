@@ -62,14 +62,6 @@ const emit = defineEmits<{
                         @delete="emit('delete', $event)"
                     />
                 </div>
-                <ProfileTemplateDropZone
-                    :id="`drop-root-${props.displayRoot.id}`"
-                    :parent-id="props.displayRoot.id"
-                    position="root"
-                    :active="props.isRootDropActive()"
-                    :disabled="props.disabledDropNodeIds.includes(props.displayRoot.id)"
-                    label="拖拽组件到根节点末尾"
-                />
             </template>
             <div v-else class="empty-state">暂无模板</div>
             <button class="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-md border border-dashed border-[var(--border-color)] bg-[var(--bg-input)]/35 text-xs font-medium text-[var(--accent-text)] transition-colors hover:bg-[var(--accent-bg)]" @click="emit('add-message')">

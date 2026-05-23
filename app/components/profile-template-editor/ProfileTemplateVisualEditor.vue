@@ -1851,9 +1851,7 @@ watch(selectedThreadId, async () => {
 });
 
 onMounted(async () => {
-    if (props.mode === "system-template") {
-        mountThemeHost(themeHostRef.value);
-    }
+    mountThemeHost(themeHostRef.value);
     keyboardListener = handleEditorKeydown;
     window.addEventListener("keydown", keyboardListener);
     await Promise.all([

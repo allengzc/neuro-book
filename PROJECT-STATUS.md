@@ -27,7 +27,7 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 | --- | --- | --- |
 | Workspace | Active | 已转向按 novel 隔离，术语以 [spec/workspace/TERMS.md](spec/workspace/TERMS.md) 为准：Workspace Root 默认 `workspace/`，Project Workspace 默认 `workspace/{project}/`。内容节点模板和新小说目录模板已切到 Bundled Workspace Template `assets/workspace/.nbook/templates/...`，用户覆盖层是 `workspace/.nbook/templates/...`；文件树和干净编辑器会响应真实文件变化，网页/磁盘同时修改时走保存冲突对话框。 |
 | Markdown Studio | Active | 主编辑器只保留富文本和源码两种模式；图片、inline code、workspace/domain reference 和表格在富文本侧使用真实 ProseMirror node / mark，并序列化回 Markdown；`StructuredTextEditor` 不再维护独立 schema，只作为表单工具栏包装层。 |
-| Config | Active | 新配置真值源为 `/api/config/*`：Boot Config `config.yaml` 只放启动/部署字段，Global Config `workspace/.nbook/config.json` 保存 auth/models/agent/UI/editor 长期偏好，Project Config `workspace/{project}/.nbook/config.json` 只覆盖 registry 允许的字段；Provider API Key GET 脱敏、PUT 支持保留/清空/覆盖。 |
+| Config | Active | 新配置真值源为 `/api/config/*`：Boot Config `config.yaml` 只放启动/部署字段，Global Config `workspace/.nbook/config.json` 保存 auth/models/agent/UI/editor 长期偏好，Project Config `workspace/{project}/.nbook/config.json` 只覆盖 registry 允许的字段；Provider API Key GET 脱敏、PUT 支持保留/清空/覆盖。设置 Dialog 已升级为配置中心，可显式切换 Global Config / Project Config / Browser State，并能选择任意 Project Config 编辑默认模型、默认 Profile 和 Agent Profile 模型覆盖。 |
 | Auth | Active | 默认开启的全站 cookie session 鉴权已接入；Global Config `auth.enabled` 可关闭整站守卫；包含登录页、管理员用户管理页、主界面账户菜单、登录失败限流、复杂密码生成、用户状态/角色/密码重置和初始管理员脚本。 |
 | Reference | Active | 文件化内容节点 refs 不再承载 visibility；Agent prompt 已收敛为 inline ref 表达自然提及、structured refs 表达稳定系统关系；Plot refs 已迁到内容节点路径，不再依赖数据库 Lorebook。 |
 | Plot / Story | Active | 剧情系统规范较完整；refs 指向设定/角色/地点时使用 `lorebook/.../` 内容节点路径，剧情内部对象仍使用 thread/scene/plot URI；数据库不再维护 `Volume` / `Chapter` 表，Scene 挂章使用 `chapterPath` 指向 `manuscript/.../` content-node 目录。 |
@@ -51,7 +51,7 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 - 扩展番茄小说导入：补基础数据、评论、全站搜索、正文下载含段评和图片等能力。
 - 将 workspace 保存冲突视图与后续 Git 版本控制能力整合。
 - 后续补用户 assets 与系统 assets 的更新冲突提示；当前同步只补缺失文件，不覆盖用户文件。系统模板层为 `assets/workspace/.nbook`，用户覆盖层为 `workspace/.nbook`。
-- 设置页后续进一步做真正的 Global / Project 双文件视图和清除覆盖 UI；当前模型设置、Agent 默认 profile、Agent profile model 已经走 `/api/config/*`。
+- 设置页后续继续增强 raw/effective 差异展示；当前配置中心已支持 Global / Project / Browser State 目标切换、Project selector、Project 默认模型、默认 Profile 和 Agent Profile 模型覆盖。
 - 清理动态 profile 渐进迁移 fallback：生产注册路径已切到 assets profile + builtin contract，系统 assets profile 也已改成 `defineAgentProfile`；后续删除旧源码 builtin class，或把仍被复用的 prompt helper 迁成稳定公共 helper。
 - 重新设计 TSX profile 的 TypeBox Schema Builder：旧 Zod 低代码 schema 编辑不再作为新合同保留；新的 Profile Workbench 第一版只做 schema 只读展示和 TypeBox 骨架生成，后续再基于 v3 profile 经验补可稳定定位的局部辅助编辑。
 - 为 skill catalog 增加类似 tool 的白名单或启用控制，避免所有可发现 skill 默认进入模型可见 catalog。

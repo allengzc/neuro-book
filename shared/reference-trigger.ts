@@ -20,6 +20,8 @@ export interface AgentTriggerMatch {
     query: string;
     from: number;
     to: number;
+    /** true 表示 trigger 之前已经有普通文本内容。 */
+    hasPlainTextBeforeTrigger: boolean;
 }
 
 const ROOT_REFERENCE_TRIGGER_PATTERN = /(?:^|[\s(])(@[a-z-]*)$/i;
@@ -54,6 +56,7 @@ export function findAgentTriggerMatch(text: string, kind: AgentTriggerKind): Age
         query,
         from,
         to: text.length,
+        hasPlainTextBeforeTrigger: text.slice(0, from).trim().length > 0,
     };
 }
 

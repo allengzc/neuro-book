@@ -18,9 +18,20 @@ import type {
     ModelProviderDraftDto,
     UpdateModelSettingsRequestDto,
 } from "nbook/shared/dto/app-settings.dto";
-import type {ConfigEditorSnapshotDto, ConfigModelSettingsDto, GlobalConfigDto, SecretConfigValueDto} from "nbook/shared/dto/config.dto";
+import type {ConfigEditorSnapshotDto, ConfigModelSettingsDto, ConfigWorkspaceQueryDto, GlobalConfigDto, ProjectConfigDto, SecretConfigValueDto} from "nbook/shared/dto/config.dto";
 
 type ProviderRequestOptions = UpdateModelSettingsRequestDto["providers"][number]["options"]["requestOptions"];
+type ConfigSettingsScope = "global" | "project";
+
+const props = withDefaults(defineProps<{
+    scope?: ConfigSettingsScope;
+    targetQuery?: ConfigWorkspaceQueryDto;
+    targetLabel?: string;
+}>(), {
+    scope: "global",
+    targetQuery: undefined,
+    targetLabel: "",
+});
 
 type ModelDraft = {
     name: string;
@@ -185,6 +196,7 @@ const editorSnapshot = ref<ConfigEditorSnapshotDto | null>(null);
 const expandedGroups = ref<Record<string, boolean>>({});
 const editingModel = ref<ModelDraft | null>(null);
 const modelEditDialogOpen = ref(false);
+const isProjectScope = computed(() => props.scope === "project");
 
 function toggleGroup(group: string): void {
     expandedGroups.value[group] = !expandedGroups.value[group];
@@ -316,6 +328,36 @@ function applySettings(settings: ConfigModelSettingsDto): void {
 }
 
 /**
+ * 读取 Project Config 中显式保存的默认模型覆盖。
+ */
+function readProjectDefaultModelKey(snapshot: ConfigEditorSnapshotDto): string | null {
+    return snapshot.project?.models && Object.hasOwn(snapshot.project.models, "default")
+        ? snapshot.project.models.default ?? null
+        : null;
+}
+
+/**
+ * 将 Project Config 默认模型覆盖应用到表单草稿。
+ */
+function applyProjectSettings(snapshot: ConfigEditorSnapshotDto): void {
+    editorSnapshot.value = snapshot;
+    draft.value = {
+        defaultModelKey: readProjectDefaultModelKey(snapshot),
+        providers: snapshot.modelSettings.providers.map(cloneProvider),
+    };
+    snapshotText.value = JSON.stringify({defaultModelKey: draft.value.defaultModelKey});
+    activeProviderId.value = draft.value.providers[0]?.id ?? "";
+    discoveredModels.value = {};
+    providerStatusMap.value = {};
+    modelStatusMap.value = {};
+    resolvedContextWindowMap.value = Object.fromEntries(
+        snapshot.modelSettings.enabledModels.map((model) => [model.key, model.contextWindowTokens]),
+    );
+    manualModelDrafts.value = {};
+    novelIdeStore.setSelectedModelLabel(snapshot.modelSettings.defaultModelLabel);
+}
+
+/**
  * 读取当前显示给用户的上下文窗口。
  * 已保存模型优先显示后端解析结果；本地草稿回退到手动输入值。
  */
@@ -414,6 +456,20 @@ function buildGlobalConfigPayload(): GlobalConfigDto {
 }
 
 /**
+ * 构造 Project Config 写回体，只更新 models.default 覆盖值。
+ */
+function buildProjectConfigPayload(): ProjectConfigDto {
+    const base = editorSnapshot.value?.project ?? {};
+    return {
+        ...base,
+        models: {
+            ...(base.models ?? {}),
+            default: draft.value.defaultModelKey,
+        },
+    };
+}
+
+/**
  * 读取模型设定。
  */
 async function loadSettings(): Promise<void> {
@@ -422,9 +478,13 @@ async function loadSettings(): Promise<void> {
     successText.value = "";
 
     try {
-        const snapshot = await configApi.editorSnapshot();
+        const snapshot = await configApi.editorSnapshot(props.targetQuery);
         editorSnapshot.value = snapshot;
-        applySettings(snapshot.modelSettings);
+        if (isProjectScope.value) {
+            applyProjectSettings(snapshot);
+        } else {
+            applySettings(snapshot.modelSettings);
+        }
     } catch (error) {
         errorText.value = error instanceof Error ? error.message : "读取模型设定失败";
     } finally {
@@ -478,7 +538,12 @@ const activeProvider = computed<ProviderDraft | null>(() => {
 /**
  * 当前草稿是否有未保存修改。
  */
-const dirty = computed(() => JSON.stringify(buildSavePayload()) !== snapshotText.value);
+const dirty = computed(() => {
+    if (isProjectScope.value) {
+        return JSON.stringify({defaultModelKey: draft.value.defaultModelKey}) !== snapshotText.value;
+    }
+    return JSON.stringify(buildSavePayload()) !== snapshotText.value;
+});
 
 /**
  * 默认模型候选列表。
@@ -616,10 +681,17 @@ async function saveSettings(): Promise<void> {
     successText.value = "";
 
     try {
-        const snapshot = await configApi.saveGlobal(buildGlobalConfigPayload());
+        const snapshot = isProjectScope.value
+            ? await configApi.saveProject(buildProjectConfigPayload(), props.targetQuery)
+            : await configApi.saveGlobal(buildGlobalConfigPayload(), props.targetQuery);
         editorSnapshot.value = snapshot;
-        applySettings(snapshot.modelSettings);
-        successText.value = "模型设定已写入 Global Config，后续新发起的请求会使用新的默认模型。";
+        if (isProjectScope.value) {
+            applyProjectSettings(snapshot);
+            successText.value = "Project 默认模型覆盖已保存，后续新发起的请求会使用新的合并配置。";
+        } else {
+            applySettings(snapshot.modelSettings);
+            successText.value = "模型设定已写入 Global Config，后续新发起的请求会使用新的默认模型。";
+        }
     } catch (error) {
         errorText.value = error instanceof Error ? error.message : "保存模型设定失败";
     } finally {
@@ -996,6 +1068,10 @@ watch(() => activeProviderId.value, (providerId) => {
 onMounted(() => {
     void loadSettings();
 });
+
+watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.novelId] as const, () => {
+    void loadSettings();
+});
 </script>
 
 <template>
@@ -1004,8 +1080,8 @@ onMounted(() => {
         <!-- 精简版顶部栏 -->
         <div class="flex flex-wrap items-center justify-between gap-4">
             <div class="max-w-xl">
-                <h3 class="text-base font-semibold text-[var(--text-main)]">模型连接设置</h3>
-                <p class="mt-1 text-xs text-[var(--text-secondary)]">配置 Provider、API 凭证与模型白名单，这会写入 Workspace Root .nbook/config.json。</p>
+                <h3 class="text-base font-semibold text-[var(--text-main)]">{{ isProjectScope ? "Project 默认模型" : "模型连接设置" }}</h3>
+                <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? `只覆盖 ${props.targetLabel || "当前 Project"} 的默认模型；Provider 与 API Key 仍来自 Global Config。` : "配置 Provider、API 凭证与模型白名单，这会写入 Workspace Root .nbook/config.json。" }}</p>
             </div>
             
             <button
@@ -1024,24 +1100,26 @@ onMounted(() => {
         </div>
 
         <!-- 顶部默认模型与新增 Provider -->
-        <div class="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+        <div class="grid gap-4" :class="isProjectScope ? '' : 'lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]'">
             <div class="group flex flex-col justify-center rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-md">
                 <div class="mb-3 flex items-center gap-2">
                     <div class="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--accent-bg)] text-[var(--accent-text)]">
                         <span class="i-lucide-cpu h-3.5 w-3.5"></span>
                     </div>
-                    <div class="text-sm font-semibold text-[var(--text-main)]">全局默认模型</div>
+                    <div class="text-sm font-semibold text-[var(--text-main)]">{{ isProjectScope ? "Project 默认模型覆盖" : "全局默认模型" }}</div>
                 </div>
-                <div class="mb-3 text-xs leading-5 text-[var(--text-secondary)]">Agent、续写和 AI 批注都会默认使用该模型。</div>
+                <div class="mb-3 text-xs leading-5 text-[var(--text-secondary)]">{{ isProjectScope ? "选择“跟随 Global 默认模型”会清除 Project Config 中的覆盖值。" : "Agent、续写和 AI 批注都会默认使用该模型。" }}</div>
                 <NovelIdeModelSelect
                     :model-value="draft.defaultModelKey"
                     :models="defaultModelOptions"
+                    :allow-default="isProjectScope"
+                    default-label="跟随 Global 默认模型"
                     placeholder="尚未启用任何模型"
                     @update:model-value="draft.defaultModelKey = $event"
                 />
             </div>
 
-            <div class="group flex flex-col justify-center rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-md">
+            <div v-if="!isProjectScope" class="group flex flex-col justify-center rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-md">
                 <div class="mb-3 flex items-center gap-2">
                     <div class="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--bg-input)] text-[var(--text-secondary)]">
                         <span class="i-lucide-network h-3.5 w-3.5"></span>
@@ -1089,7 +1167,7 @@ onMounted(() => {
         </div>
 
         <!-- 模型设置双栏布局 -->
-        <div v-else class="grid min-h-[500px] gap-5 xl:grid-cols-[260px_minmax(0,1fr)]">
+        <div v-else-if="!isProjectScope" class="grid min-h-[500px] gap-5 xl:grid-cols-[260px_minmax(0,1fr)]">
             <!-- 左侧 Provider 列表 -->
             <aside class="flex flex-col rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-sm">
                 <div class="px-3 pb-3 pt-2">

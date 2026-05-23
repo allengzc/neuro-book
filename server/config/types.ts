@@ -27,6 +27,10 @@ export type AgentProfileConfig = {
     model: AgentProfileModelConfig;
 };
 
+export type StoredAgentProfileConfig = {
+    model: Partial<AgentProfileModelConfig>;
+};
+
 export type ConfiguredModelConfig = {
     name: string;
     id: string;
@@ -94,7 +98,7 @@ export type StoredGlobalConfig = {
             novel?: string | null;
             userAssets?: string | null;
         };
-        profiles?: Record<string, AgentProfileConfig>;
+        profiles?: Record<string, StoredAgentProfileConfig>;
     };
     ui?: Partial<EffectiveConfig["ui"]>;
     editor?: {
@@ -109,7 +113,7 @@ export type StoredProjectConfig = {
     };
     agent?: {
         defaultProfileKey?: string | null;
-        profiles?: Record<string, AgentProfileConfig>;
+        profiles?: Record<string, StoredAgentProfileConfig>;
     };
     editor?: {
         markdown?: Partial<MarkdownEditorPreferences>;

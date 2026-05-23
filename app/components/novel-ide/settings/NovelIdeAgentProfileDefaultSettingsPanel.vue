@@ -4,7 +4,19 @@ import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
-import type {ConfigDefaultProfileSettingsDto, ConfigEditorSnapshotDto, GlobalConfigDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
+import type {ConfigDefaultProfileSettingsDto, ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
+
+type ConfigSettingsScope = "global" | "project";
+
+const props = withDefaults(defineProps<{
+    scope?: ConfigSettingsScope;
+    targetQuery?: ConfigWorkspaceQueryDto;
+    targetLabel?: string;
+}>(), {
+    scope: "global",
+    targetQuery: undefined,
+    targetLabel: "",
+});
 
 const emit = defineEmits<{
     (e: "saved", profileKey: string): void;
@@ -21,8 +33,23 @@ const editorSnapshot = ref<ConfigEditorSnapshotDto | null>(null);
 const selectedProfileKey = ref("");
 const snapshotProfileKey = ref("");
 
-const workspaceLabel = computed(() => novelIdeStore.workspaceKind === "user-assets" ? "用户资产工作区" : "当前小说工作区");
-const effectiveProfileKey = computed(() => settings.value?.effectiveProfileKey ?? "");
+const isProjectScope = computed(() => props.scope === "project");
+const globalDefaultProfileSlot = computed<"novel" | "userAssets">(() => novelIdeStore.workspaceKind === "user-assets" ? "userAssets" : "novel");
+const systemDefaultProfileKey = computed(() => {
+    if (isProjectScope.value) {
+        return settings.value?.systemDefaultProfileKey ?? "leader.default";
+    }
+    return globalDefaultProfileSlot.value === "userAssets" ? "leader.assets" : "leader.default";
+});
+const workspaceLabel = computed(() => {
+    if (isProjectScope.value) {
+        return props.targetLabel || "当前 Project";
+    }
+    return globalDefaultProfileSlot.value === "userAssets" ? "Workspace Root 用户资产默认" : "Workspace Root 小说默认";
+});
+const effectiveProfileKey = computed(() => isProjectScope.value
+    ? settings.value?.effectiveProfileKey ?? ""
+    : selectedProfileKey.value || systemDefaultProfileKey.value);
 const dirty = computed(() => selectedProfileKey.value !== snapshotProfileKey.value);
 const profileOptions = computed<SelectOption[]>(() => {
     const options = settings.value?.profiles.map((profile) => ({
@@ -34,7 +61,7 @@ const profileOptions = computed<SelectOption[]>(() => {
     return [
         {
             value: "",
-            label: `跟随默认 (${settings.value?.systemDefaultProfileKey ?? "-"})`,
+            label: `跟随默认 (${systemDefaultProfileKey.value})`,
             description: "清除当前配置文件中的覆盖设置。",
             indicatorClass: "bg-slate-400",
         },
@@ -48,8 +75,8 @@ const profileOptions = computed<SelectOption[]>(() => {
 function applySettings(snapshot: ConfigEditorSnapshotDto): void {
     editorSnapshot.value = snapshot;
     settings.value = snapshot.defaultProfileSettings;
-    selectedProfileKey.value = novelIdeStore.workspaceKind === "user-assets"
-        ? snapshot.defaultProfileSettings.globalDefaultProfileKey ?? ""
+    selectedProfileKey.value = !isProjectScope.value
+        ? snapshot.global.agent?.defaultProfileKey?.[globalDefaultProfileSlot.value] ?? ""
         : snapshot.defaultProfileSettings.projectDefaultProfileKey ?? "";
     snapshotProfileKey.value = selectedProfileKey.value;
 }
@@ -65,7 +92,7 @@ function buildGlobalConfigPayload(): GlobalConfigDto {
             ...(base.agent ?? {}),
             defaultProfileKey: {
                 ...base.agent?.defaultProfileKey,
-                [novelIdeStore.workspaceKind === "user-assets" ? "userAssets" : "novel"]: selectedProfileKey.value || null,
+                [globalDefaultProfileSlot.value]: selectedProfileKey.value || null,
             },
         },
     };
@@ -89,13 +116,13 @@ function buildProjectConfigPayload(): ProjectConfigDto {
  * 读取当前 workspace 默认 profile 设置。
  */
 async function loadSettings(): Promise<void> {
-    if (novelIdeStore.workspaceKind !== "user-assets" && !novelIdeStore.currentNovelId) {
+    if (!props.targetQuery && novelIdeStore.workspaceKind !== "user-assets" && !novelIdeStore.currentNovelId) {
         return;
     }
     loading.value = true;
     errorText.value = "";
     try {
-        applySettings(await configApi.editorSnapshot());
+        applySettings(await configApi.editorSnapshot(props.targetQuery));
     } catch (error) {
         errorText.value = error instanceof Error ? error.message : "读取默认 Profile 设置失败";
     } finally {
@@ -114,9 +141,9 @@ async function saveSettings(): Promise<void> {
     errorText.value = "";
 
     try {
-        const snapshot = novelIdeStore.workspaceKind === "user-assets"
-            ? await configApi.saveGlobal(buildGlobalConfigPayload())
-            : await configApi.saveProject(buildProjectConfigPayload());
+        const snapshot = isProjectScope.value
+            ? await configApi.saveProject(buildProjectConfigPayload(), props.targetQuery)
+            : await configApi.saveGlobal(buildGlobalConfigPayload(), props.targetQuery);
         applySettings(snapshot);
         emit("saved", snapshot.defaultProfileSettings.effectiveProfileKey);
         notification.success("默认 Profile 已保存，新建 session 会使用新的默认值。");
@@ -127,7 +154,7 @@ async function saveSettings(): Promise<void> {
     }
 }
 
-watch(() => [novelIdeStore.workspaceKind, novelIdeStore.currentNovelId] as const, () => {
+watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.novelId, novelIdeStore.workspaceKind, novelIdeStore.currentNovelId] as const, () => {
     void loadSettings();
 });
 
@@ -174,7 +201,7 @@ onMounted(() => {
             <section class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-sm">
                 <div class="mb-4 border-b border-[var(--border-color)] pb-4">
                     <h4 class="text-sm font-semibold text-[var(--text-main)]">默认 Agent Profile</h4>
-                    <p class="mt-1 text-xs text-[var(--text-secondary)]">用户资产入口写入 Workspace Root <code class="rounded bg-[var(--bg-input)] px-1">.nbook/config.json</code>；小说入口写入 Project Workspace <code class="rounded bg-[var(--bg-input)] px-1">.nbook/config.json</code>。</p>
+                    <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? "写入所选 Project Workspace 的 .nbook/config.json；清除覆盖后回落到 Global Config。" : "写入 Workspace Root .nbook/config.json，作为全局默认值。" }}</p>
                 </div>
 
                 <div class="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">

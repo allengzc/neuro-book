@@ -8,6 +8,7 @@ describe("findAgentTriggerMatch", () => {
             query: "ch",
             from: 3,
             to: 6,
+            hasPlainTextBeforeTrigger: true,
         });
     });
 
@@ -17,6 +18,7 @@ describe("findAgentTriggerMatch", () => {
             query: "12",
             from: 3,
             to: 16,
+            hasPlainTextBeforeTrigger: true,
         });
     });
 
@@ -26,6 +28,7 @@ describe("findAgentTriggerMatch", () => {
             query: "world.kingdom",
             from: 4,
             to: 29,
+            hasPlainTextBeforeTrigger: true,
         });
     });
 
@@ -35,18 +38,38 @@ describe("findAgentTriggerMatch", () => {
             query: "8",
             from: 4,
             to: 15,
+            hasPlainTextBeforeTrigger: true,
         });
         expect(findAgentTriggerMatch("看场景 @scene://23", "scene")).toEqual({
             text: "@scene://23",
             query: "23",
             from: 4,
             to: 15,
+            hasPlainTextBeforeTrigger: true,
         });
         expect(findAgentTriggerMatch("看节点 @plot://24", "plot")).toEqual({
             text: "@plot://24",
             query: "24",
             from: 4,
             to: 14,
+            hasPlainTextBeforeTrigger: true,
+        });
+    });
+
+    it("标记 trigger 前是否已有普通文本", () => {
+        expect(findAgentTriggerMatch("/pl", "command")).toEqual({
+            text: "/pl",
+            query: "pl",
+            from: 0,
+            to: 3,
+            hasPlainTextBeforeTrigger: false,
+        });
+        expect(findAgentTriggerMatch("已有内容 /pl", "command")).toEqual({
+            text: "/pl",
+            query: "pl",
+            from: 5,
+            to: 8,
+            hasPlainTextBeforeTrigger: true,
         });
     });
 
@@ -74,6 +97,7 @@ describe("extractSkillMentions", () => {
             query: "小说初始化流程",
             from: 0,
             to: 10,
+            hasPlainTextBeforeTrigger: false,
         });
         expect(extractSkillMentions("${小说初始化流程}")).toEqual(["小说初始化流程"]);
     });

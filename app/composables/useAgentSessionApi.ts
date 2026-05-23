@@ -40,14 +40,23 @@ export function useAgentSessionApi() {
     };
 
     const runCommand = (sessionId: number, body: AgentCommandRequestDto) => {
-        return $fetch(`/api/agent/sessions/${sessionId}/commands`, {
+        return $fetch<{
+            status: "completed" | "started";
+            sessionId: number;
+            snapshot?: AgentSessionSnapshotDto;
+            createdSession?: AgentSessionSummaryDto;
+        }>(`/api/agent/sessions/${sessionId}/commands`, {
             method: "POST",
             body,
         });
     };
 
     const moveTree = (sessionId: number, body: AgentTreeRequestDto) => {
-        return $fetch(`/api/agent/sessions/${sessionId}/tree`, {
+        return $fetch<{
+            status: "completed" | "invoked";
+            snapshot: AgentSessionSnapshotDto;
+            invocation?: unknown;
+        }>(`/api/agent/sessions/${sessionId}/tree`, {
             method: "POST",
             body,
         });

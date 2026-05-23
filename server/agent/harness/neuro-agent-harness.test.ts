@@ -51,8 +51,7 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage([
                 fauxText("done"),
                 fauxToolCall("report_result", {
-                    result: "ok",
-                    success: true,
+                    walkthrough: "ok",
                     data: {
                         paths: ["lorebook/foo/index.md"],
                     },
@@ -74,7 +73,6 @@ describe("NeuroAgentHarness", () => {
         expect(result.status).toBe("completed");
         expect(result.reportResult).toEqual({
             result: "ok",
-            success: true,
             data: {
                 paths: ["lorebook/foo/index.md"],
             },
@@ -105,8 +103,7 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage([
                 fauxText("received"),
                 fauxToolCall("report_result", {
-                    result: "done",
-                    success: true,
+                    walkthrough: "done",
                 }, {id: "report-2"}),
             ], {stopReason: "toolUse"}),
         ]);
@@ -166,8 +163,7 @@ describe("NeuroAgentHarness", () => {
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage([
                 fauxToolCall("report_result", {
-                    result: "done",
-                    success: true,
+                    walkthrough: "done",
                 }, {id: "report-appending"}),
             ], {stopReason: "toolUse"}),
         ]);
@@ -216,8 +212,7 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage([
                 fauxText("retrying"),
                 fauxToolCall("report_result", {
-                    result: "fixed",
-                    success: true,
+                    walkthrough: "fixed",
                 }, {id: "report-after-reminder"}),
             ], {stopReason: "toolUse"}),
         ]);
@@ -499,6 +494,43 @@ describe("NeuroAgentHarness", () => {
         const activeText = afterRetry.messages.map((message) => JSON.stringify(message));
         expect(activeText[0]).toContain("run");
         expect(activeText[1]).toContain("retry after user");
+    });
+
+    it("tree empty 会清空当前 active leaf 但保留旧 entries，并让下一轮从空历史分支开始", async () => {
+        faux.setResponses([
+            fauxAssistantMessage(fauxText("first")),
+            fauxAssistantMessage(fauxText("after clear")),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+        });
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "first user"},
+        });
+        const beforeClear = await harness.getSessionSnapshot(created.sessionId);
+
+        const cleared = await harness.moveTree(created.sessionId, {
+            position: "empty",
+        });
+
+        expect(cleared.snapshot.activeLeafId).toBeNull();
+        expect(cleared.snapshot.messages).toEqual([]);
+        expect((await harness.repo.readSession(created.sessionId)).entries.length).toBeGreaterThan(beforeClear.entries.length);
+        expect(cleared.snapshot.tree.some((node) => node.type === "message" && !node.active)).toBe(true);
+
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "second user"},
+        });
+        const afterPrompt = await harness.getSessionSnapshot(created.sessionId);
+        expect(afterPrompt.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+        const llmMessages = afterPrompt.messages.filter((message) => message.role === "user" || message.role === "assistant" || message.role === "toolResult");
+        expect(llmMessages.map((message) => messageText(message))).toEqual(["second user", "after clear"]);
     });
 
     it("linked agents 状态来自 session entry，重建 harness 后仍能 reduce", async () => {
