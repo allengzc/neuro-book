@@ -96,15 +96,20 @@ export const AgentCommandRequestDtoSchema = z.discriminatedUnion("command", [
     }),
 ]);
 
-export const AgentTreeRequestDtoSchema = z.object({
-    targetEntryId: z.string().trim().min(1),
-    position: z.enum(["at", "before"]).default("at"),
-    next: z.object({
-        type: z.literal("invoke"),
-        mode: z.enum(["prompt", "continue"]),
-        message: AgentUserMessageInputDtoSchema.optional(),
-    }).optional(),
-});
+export const AgentTreeRequestDtoSchema = z.union([
+    z.object({
+        position: z.literal("empty"),
+    }),
+    z.object({
+        targetEntryId: z.string().trim().min(1),
+        position: z.enum(["at", "before"]).default("at"),
+        next: z.object({
+            type: z.literal("invoke"),
+            mode: z.enum(["prompt", "continue"]),
+            message: AgentUserMessageInputDtoSchema.optional(),
+        }).optional(),
+    }),
+]);
 
 export const AgentAbortRequestDtoSchema = z.object({
     reason: z.string().optional(),

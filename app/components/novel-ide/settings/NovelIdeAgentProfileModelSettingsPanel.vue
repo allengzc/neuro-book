@@ -1,12 +1,25 @@
 <script setup lang="ts">
 import type {
+    AgentProfileModelConfigDto,
     AgentProfileModelSettingsDto,
     ConfiguredAgentProfileDto,
     UpdateAgentProfileModelSettingsRequestDto,
 } from "nbook/shared/dto/app-settings.dto";
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
-import type {ConfigEditorSnapshotDto, GlobalConfigDto} from "nbook/shared/dto/config.dto";
+import type {ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
+
+type ConfigSettingsScope = "global" | "project";
+
+const props = withDefaults(defineProps<{
+    scope?: ConfigSettingsScope;
+    targetQuery?: ConfigWorkspaceQueryDto;
+    targetLabel?: string;
+}>(), {
+    scope: "global",
+    targetQuery: undefined,
+    targetLabel: "",
+});
 
 type AgentProfileDraft = {
     profileKey: string;
@@ -36,6 +49,7 @@ const profiles = ref<AgentProfileDraft[]>([]);
 const snapshotText = ref("");
 const configApi = useConfigApi();
 const editorSnapshot = ref<ConfigEditorSnapshotDto | null>(null);
+const isProjectScope = computed(() => props.scope === "project");
 
 /**
  * 将数字配置转成表单文本。
@@ -114,12 +128,78 @@ function buildGlobalConfigPayload(): GlobalConfigDto {
 }
 
 /**
+ * 构造 Project Config 写回体，只替换 agent.profiles 覆盖。
+ */
+function buildProjectConfigPayload(): ProjectConfigDto {
+    const base = editorSnapshot.value?.project ?? {};
+    return {
+        ...base,
+        agent: {
+            ...(base.agent ?? {}),
+            profiles: Object.fromEntries(buildSavePayload().agentProfiles.flatMap((profile) => {
+                const modelPatch = buildProjectModelPatch(profile.model);
+                return Object.keys(modelPatch).length > 0
+                    ? [[profile.profileKey, {model: modelPatch}] as const]
+                    : [];
+            })),
+        },
+    };
+}
+
+/**
+ * Project 覆盖只写用户显式填写的字段，空字段回落 Global。
+ */
+function buildProjectModelPatch(model: AgentProfileModelConfigDto): Partial<AgentProfileModelConfigDto> {
+    return {
+        ...(model.modelKey ? {modelKey: model.modelKey} : {}),
+        ...(model.temperature !== null ? {temperature: model.temperature} : {}),
+        ...(model.topK !== null ? {topK: model.topK} : {}),
+        ...(model.reasoningEffort !== null ? {reasoningEffort: model.reasoningEffort} : {}),
+        ...(!model.stream ? {stream: model.stream} : {}),
+    };
+}
+
+/**
  * 将接口响应应用到本地。
  */
 function applySettings(settings: AgentProfileModelSettingsDto): void {
     enabledModels.value = settings.enabledModels;
     profiles.value = settings.agentProfiles.map(cloneProfile);
     snapshotText.value = JSON.stringify(buildSavePayload());
+}
+
+/**
+ * 将 Project Config 中的 profile 覆盖应用到本地草稿。
+ */
+function applyProjectSettings(snapshot: ConfigEditorSnapshotDto): void {
+    enabledModels.value = snapshot.agentProfileSettings.enabledModels;
+    profiles.value = snapshot.agentProfileSettings.agentProfiles.map((profile) => {
+        const override = snapshot.project?.agent?.profiles?.[profile.profileKey]?.model;
+        return {
+            profileKey: profile.profileKey,
+            name: profile.name,
+            model: {
+                modelKey: override?.modelKey ?? null,
+                temperature: stringifyNullableNumber(override?.temperature ?? null),
+                topK: stringifyNullableNumber(override?.topK ?? null),
+                reasoningEffort: override?.reasoningEffort ?? null,
+                stream: override?.stream ?? true,
+            },
+        };
+    });
+    snapshotText.value = JSON.stringify(buildProjectSavePayload());
+}
+
+/**
+ * 读取 Project 覆盖保存形态，用于脏检查。
+ */
+function buildProjectSavePayload(): Record<string, {model: Partial<AgentProfileModelConfigDto>}> {
+    return Object.fromEntries(buildSavePayload().agentProfiles.flatMap((profile) => {
+        const modelPatch = buildProjectModelPatch(profile.model);
+        return Object.keys(modelPatch).length > 0
+            ? [[profile.profileKey, {model: modelPatch}] as const]
+            : [];
+    }));
 }
 
 /**
@@ -131,9 +211,13 @@ async function loadSettings(): Promise<void> {
     successText.value = "";
 
     try {
-        const snapshot = await configApi.editorSnapshot();
+        const snapshot = await configApi.editorSnapshot(props.targetQuery);
         editorSnapshot.value = snapshot;
-        applySettings(snapshot.agentProfileSettings);
+        if (isProjectScope.value) {
+            applyProjectSettings(snapshot);
+        } else {
+            applySettings(snapshot.agentProfileSettings);
+        }
     } catch (error) {
         errorText.value = error instanceof Error ? error.message : "读取 Agent Profile 模型设定失败";
     } finally {
@@ -154,10 +238,17 @@ async function saveSettings(): Promise<void> {
     successText.value = "";
 
     try {
-        const snapshot = await configApi.saveGlobal(buildGlobalConfigPayload());
+        const snapshot = isProjectScope.value
+            ? await configApi.saveProject(buildProjectConfigPayload(), props.targetQuery)
+            : await configApi.saveGlobal(buildGlobalConfigPayload(), props.targetQuery);
         editorSnapshot.value = snapshot;
-        applySettings(snapshot.agentProfileSettings);
-        successText.value = "Agent Profile 模型设定已写入 Global Config。";
+        if (isProjectScope.value) {
+            applyProjectSettings(snapshot);
+            successText.value = "Agent Profile 模型覆盖已写入 Project Config。";
+        } else {
+            applySettings(snapshot.agentProfileSettings);
+            successText.value = "Agent Profile 模型设定已写入 Global Config。";
+        }
     } catch (error) {
         errorText.value = error instanceof Error ? error.message : "保存 Agent Profile 模型设定失败";
     } finally {
@@ -178,11 +269,15 @@ function resetProfile(profile: AgentProfileDraft): void {
     };
 }
 
-const dirty = computed(() => JSON.stringify(buildSavePayload()) !== snapshotText.value);
+const dirty = computed(() => JSON.stringify(isProjectScope.value ? buildProjectSavePayload() : buildSavePayload()) !== snapshotText.value);
 
 const sortedProfiles = computed(() => [...profiles.value].sort((left, right) => left.profileKey.localeCompare(right.profileKey)));
 
 onMounted(() => {
+    void loadSettings();
+});
+
+watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.novelId] as const, () => {
     void loadSettings();
 });
 </script>
@@ -192,8 +287,8 @@ onMounted(() => {
     <div class="space-y-4 pt-1">
         <div class="flex flex-wrap items-center justify-between gap-4">
             <div class="max-w-xl">
-                <h3 class="text-base font-semibold text-[var(--text-main)]">Agent Profile 模型</h3>
-                <p class="mt-1 text-xs text-[var(--text-secondary)]">按 Profile 配置默认模型、温度、TopK 与流式选项。session 级覆盖只影响当前 session 的后续新 run。</p>
+                <h3 class="text-base font-semibold text-[var(--text-main)]">{{ isProjectScope ? "Project Agent Profile 模型覆盖" : "Agent Profile 模型" }}</h3>
+                <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? `只覆盖 ${props.targetLabel || "当前 Project"} 的 Profile 模型参数；留空表示回落 Global。` : "按 Profile 配置默认模型、温度、TopK 与流式选项。session 级覆盖只影响当前 session 的后续新 run。" }}</p>
             </div>
 
             <button
@@ -240,7 +335,7 @@ onMounted(() => {
             <section class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-sm">
                 <div class="mb-4 border-b border-[var(--border-color)] pb-4">
                     <h4 class="text-sm font-semibold text-[var(--text-main)]">Agent Profiles</h4>
-                    <p class="mt-1 text-xs text-[var(--text-secondary)]">所有 Agent Profile 使用同一套模型参数配置。</p>
+                    <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? "这些值写入所选 Project Workspace 的 .nbook/config.json。" : "所有 Agent Profile 使用同一套 Global 模型参数配置。" }}</p>
                 </div>
 
                 <div class="grid gap-3">
@@ -264,7 +359,7 @@ onMounted(() => {
                                     :model-value="profile.model.modelKey"
                                     :models="enabledModels"
                                     allow-default
-                                    default-label="跟随全局默认模型"
+                                    :default-label="isProjectScope ? '跟随 Global/Profile 默认模型' : '跟随全局默认模型'"
                                     placeholder="选择默认模型"
                                     @update:model-value="profile.model.modelKey = $event"
                                 />

@@ -53,6 +53,7 @@ export const AgentQuickTrigger = Extension.create<AgentQuickTriggerOptions>({
     addProseMirrorPlugins() {
         return this.options.suggestions.map((suggestion) => {
             let currentMenuState: AgentTriggerMenuState | null = null;
+            let hasPlainTextBeforeTrigger = false;
             return Suggestion({
                 editor: this.editor,
                 pluginKey: suggestion.pluginKey,
@@ -69,6 +70,7 @@ export const AgentQuickTrigger = Extension.create<AgentQuickTriggerOptions>({
                         return null;
                     }
 
+                    hasPlainTextBeforeTrigger = matched.hasPlainTextBeforeTrigger;
                     const textStart = $position.pos - text.length;
                     return {
                         range: {
@@ -83,6 +85,7 @@ export const AgentQuickTrigger = Extension.create<AgentQuickTriggerOptions>({
                     currentMenuState = this.options.resolveMenu({
                         kind: suggestion.kind,
                         query,
+                        hasPlainTextBeforeTrigger,
                     });
                     return flattenAgentSuggestionItems(currentMenuState.sections);
                 },
@@ -95,6 +98,7 @@ export const AgentQuickTrigger = Extension.create<AgentQuickTriggerOptions>({
                             currentMenuState = this.options.resolveMenu({
                                 kind: suggestion.kind,
                                 query,
+                                hasPlainTextBeforeTrigger,
                             });
                         }
                         return currentMenuState;

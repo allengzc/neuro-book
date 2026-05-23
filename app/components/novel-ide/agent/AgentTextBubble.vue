@@ -130,6 +130,9 @@ const isSystemReminder = computed(() => systemDisplayKind.value === "reminder");
 
 /** 系统消息标题。 */
 const systemLabel = computed(() => {
+    if (props.node.message.systemLabel) {
+        return props.node.message.systemLabel;
+    }
     if (systemDisplayKind.value === "prompt") {
         return "System Prompt";
     }
@@ -350,12 +353,15 @@ const endSwipe = (event: PointerEvent): void => {
         </div>
 
         <!-- 消息正文 -->
-        <div v-if="hasMessageContent" class="min-w-0 w-full pl-6">
+        <div
+            v-if="hasMessageContent"
+            class="min-w-0 w-full touch-pan-y pl-6"
+            @pointerdown="startSwipe"
+            @pointerup="endSwipe"
+            @pointercancel="swipeStart = null"
+        >
             <div
-                class="min-w-0 max-w-full touch-pan-y rounded-2xl border border-[var(--border-color)] bg-[var(--bg-sidebar)] px-4 py-3 shadow-sm"
-                @pointerdown="startSwipe"
-                @pointerup="endSwipe"
-                @pointercancel="swipeStart = null"
+                class="min-w-0 max-w-full rounded-2xl border border-[var(--border-color)] bg-[var(--bg-sidebar)] px-4 py-3 shadow-sm"
             >
                 <div v-if="isEditing" class="space-y-3">
                     <!-- 消息编辑器 -->

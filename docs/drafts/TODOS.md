@@ -145,8 +145,8 @@
 - [ ] todo 角色卡 schema
 - [ ] 如果用户选中的目录，不是内容节点
 - [ ] 有内容的时候不允许 /compact 出现
-- [ ]
-- [ ]
+- [ ] compact 后读文件
+- [ ] plan mode + PROJECT_STATUS
 - [ ]
 - [ ]
 - [ ]

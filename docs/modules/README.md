@@ -4,6 +4,7 @@
 
 ## Agent
 
+- [agent/harness.md](agent/harness.md)：Agent Harness 的 session、profile、ReAct loop、SSE 和消息持久化流程。
 - [agent/tools-reference.md](agent/tools-reference.md)：Agent 工具清单、行为边界和 schema 编写约定。
 - [../../spec/agent/](../../spec/agent/)：Agent 稳定规范。
 - [../tasks/pi-agent-harness-migration/README.md](../tasks/pi-agent-harness-migration/README.md)：Pi-based Agent v3 后端 harness 迁移计划。

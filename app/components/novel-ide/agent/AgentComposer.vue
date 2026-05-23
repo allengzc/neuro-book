@@ -115,10 +115,7 @@ const resolveComposerMenu = (context: AgentTriggerMenuContext): AgentTriggerMenu
         return state;
     }
 
-    const currentText = activeComposerValue.value;
-    const slashIndex = currentText.lastIndexOf(`/${context.query}`);
-    const hasPlainTextBeforeSlash = slashIndex > 0 && currentText.slice(0, slashIndex).trim().length > 0;
-    if (!hasPlainTextBeforeSlash) {
+    if (!context.hasPlainTextBeforeTrigger) {
         return state;
     }
 

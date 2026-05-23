@@ -139,7 +139,7 @@ export const EditorConfigDtoSchema = z.object({
 });
 
 export const ConfigAgentProfileMapDtoSchema = z.record(z.string(), z.object({
-    model: AgentProfileModelConfigDtoSchema,
+    model: AgentProfileModelConfigDtoSchema.partial(),
 })).default({});
 
 export const GlobalConfigDtoSchema = z.object({
