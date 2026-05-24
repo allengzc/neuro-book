@@ -99,12 +99,236 @@ describe("v3 file tools", () => {
         })).rejects.toThrow("multiple occurrences");
     });
 
-    it("apply_patch 应用 unified diff", async () => {
+    it("apply_patch 应用 Codex patch JSON 参数", async () => {
         await writeFile(join(workspaceRoot, "patch.txt"), "old\nline\n", "utf-8");
         const tool = mustTool("apply_patch", harness);
 
-        await tool.executeWithContext?.(context, "patch-1", {
-            path: "patch.txt",
+        await tool.executeWithContext?.(context, "patch-1", patchInput([
+            "*** Begin Patch",
+            "*** Update File: patch.txt",
+            "@@",
+            "-old",
+            "+new",
+            " line",
+            "*** End Patch",
+        ]));
+
+        await expect(readFile(join(workspaceRoot, "patch.txt"), "utf-8")).resolves.toBe("new\nline\n");
+    });
+
+    it("apply_patch 支持同一文件多 hunk", async () => {
+        await writeFile(join(workspaceRoot, "multi-hunk.txt"), "alpha\nmiddle\nomega\n", "utf-8");
+        const tool = mustTool("apply_patch", harness);
+
+        await tool.executeWithContext?.(context, "patch-multi-hunk", patchInput([
+            "*** Begin Patch",
+            "*** Update File: multi-hunk.txt",
+            "@@",
+            "-alpha",
+            "+ALPHA",
+            " middle",
+            "@@",
+            "-omega",
+            "+OMEGA",
+            "*** End Patch",
+        ]));
+
+        await expect(readFile(join(workspaceRoot, "multi-hunk.txt"), "utf-8")).resolves.toBe("ALPHA\nmiddle\nOMEGA\n");
+    });
+
+    it("apply_patch 支持 End of File 标记移除尾随换行", async () => {
+        await writeFile(join(workspaceRoot, "no-newline.txt"), "old\n", "utf-8");
+        const tool = mustTool("apply_patch", harness);
+
+        await tool.executeWithContext?.(context, "patch-no-newline", patchInput([
+            "*** Begin Patch",
+            "*** Update File: no-newline.txt",
+            "@@",
+            "-old",
+            "+new",
+            "*** End of File",
+            "*** End Patch",
+        ]));
+
+        await expect(readFile(join(workspaceRoot, "no-newline.txt"), "utf-8")).resolves.toBe("new");
+    });
+
+    it("apply_patch 支持新增、删除和移动文件", async () => {
+        await writeFile(join(workspaceRoot, "old-name.txt"), "alpha\n", "utf-8");
+        await writeFile(join(workspaceRoot, "delete-me.txt"), "bye\n", "utf-8");
+        const tool = mustTool("apply_patch", harness);
+
+        const result = await tool.executeWithContext?.(context, "patch-multi", patchInput([
+            "*** Begin Patch",
+            "*** Add File: added.txt",
+            "+hello",
+            "*** Update File: old-name.txt",
+            "*** Move to: nested/new-name.txt",
+            "@@",
+            "-alpha",
+            "+beta",
+            "*** Delete File: delete-me.txt",
+            "*** End Patch",
+        ]));
+
+        await expect(readFile(join(workspaceRoot, "added.txt"), "utf-8")).resolves.toBe("hello\n");
+        await expect(readFile(join(workspaceRoot, "nested", "new-name.txt"), "utf-8")).resolves.toBe("beta\n");
+        await expect(readFile(join(workspaceRoot, "delete-me.txt"), "utf-8")).rejects.toThrow();
+        expect(result?.details).toEqual(expect.objectContaining({
+            files: expect.arrayContaining([
+                {path: "added.txt", action: "add"},
+                {path: "old-name.txt", action: "delete"},
+                {path: "nested/new-name.txt", action: "add"},
+                {path: "delete-me.txt", action: "delete"},
+            ]),
+        }));
+    });
+
+    it("apply_patch 失败时不产生部分写入", async () => {
+        await writeFile(join(workspaceRoot, "keep.txt"), "old\n", "utf-8");
+        const tool = mustTool("apply_patch", harness);
+
+        await expect(tool.executeWithContext?.(context, "patch-fail", patchInput([
+            "*** Begin Patch",
+            "*** Update File: keep.txt",
+            "@@",
+            "-old",
+            "+new",
+            "*** Update File: missing.txt",
+            "@@",
+            "-x",
+            "+y",
+            "*** End Patch",
+        ]))).rejects.toThrow("文件不存在");
+
+        await expect(readFile(join(workspaceRoot, "keep.txt"), "utf-8")).resolves.toBe("old\n");
+    });
+
+    it("apply_patch 拒绝 Add File 覆盖已有文件", async () => {
+        await writeFile(join(workspaceRoot, "existing.txt"), "original\n", "utf-8");
+        const tool = mustTool("apply_patch", harness);
+
+        await expect(tool.executeWithContext?.(context, "patch-existing-add", patchInput([
+            "*** Begin Patch",
+            "*** Add File: existing.txt",
+            "+replacement",
+            "*** End Patch",
+        ]))).rejects.toThrow("文件已存在");
+
+        await expect(readFile(join(workspaceRoot, "existing.txt"), "utf-8")).resolves.toBe("original\n");
+    });
+
+    it("apply_patch 先更新再删除时失败会回滚到 patch 前内容", async () => {
+        await writeFile(join(workspaceRoot, "keep.txt"), "old\n", "utf-8");
+        await writeFile(join(workspaceRoot, "blocked"), "not a directory\n", "utf-8");
+        const tool = mustTool("apply_patch", harness);
+
+        await expect(tool.executeWithContext?.(context, "patch-delete-after-update-fail", patchInput([
+            "*** Begin Patch",
+            "*** Update File: keep.txt",
+            "@@",
+            "-old",
+            "+new",
+            "*** Delete File: keep.txt",
+            "*** Add File: blocked/file.txt",
+            "+created",
+            "*** End Patch",
+        ]))).rejects.toThrow();
+
+        await expect(readFile(join(workspaceRoot, "keep.txt"), "utf-8")).resolves.toBe("old\n");
+        await expect(readFile(join(workspaceRoot, "blocked"), "utf-8")).resolves.toBe("not a directory\n");
+    });
+
+    it("apply_patch 缺失上下文时失败", async () => {
+        await writeFile(join(workspaceRoot, "context.txt"), "present\n", "utf-8");
+        const tool = mustTool("apply_patch", harness);
+
+        await expect(tool.executeWithContext?.(context, "patch-missing-context", patchInput([
+            "*** Begin Patch",
+            "*** Update File: context.txt",
+            "@@",
+            "-missing",
+            "+new",
+            "*** End Patch",
+        ]))).rejects.toThrow("missing context");
+
+        await expect(readFile(join(workspaceRoot, "context.txt"), "utf-8")).resolves.toBe("present\n");
+    });
+
+    it("apply_patch 拒绝无效 patch 头", async () => {
+        const tool = mustTool("apply_patch", harness);
+
+        await expect(tool.executeWithContext?.(context, "patch-invalid-header", {
+            patch: [
+            "--- a/file.txt",
+            "+++ b/file.txt",
+            "@@",
+            "-old",
+            "+new",
+            ].join("\n"),
+        })).rejects.toThrow("*** Begin Patch");
+    });
+
+    it("apply_patch 写入阶段失败时会回滚已写文件", async () => {
+        await writeFile(join(workspaceRoot, "keep.txt"), "old\n", "utf-8");
+        await writeFile(join(workspaceRoot, "blocked"), "not a directory\n", "utf-8");
+        const tool = mustTool("apply_patch", harness);
+
+        await expect(tool.executeWithContext?.(context, "patch-write-fail", patchInput([
+            "*** Begin Patch",
+            "*** Update File: keep.txt",
+            "@@",
+            "-old",
+            "+new",
+            "*** Add File: blocked/file.txt",
+            "+created",
+            "*** End Patch",
+        ]))).rejects.toThrow();
+
+        await expect(readFile(join(workspaceRoot, "keep.txt"), "utf-8")).resolves.toBe("old\n");
+        await expect(readFile(join(workspaceRoot, "blocked"), "utf-8")).resolves.toBe("not a directory\n");
+    });
+
+    it("apply_patch 暴露 JSON patch 参数", () => {
+        const tool = mustTool("apply_patch", harness);
+
+        expect(tool.parameters).toEqual(expect.objectContaining({
+            type: "object",
+            additionalProperties: false,
+            properties: expect.objectContaining({
+                patch: expect.objectContaining({type: "string"}),
+            }),
+        }));
+        expect(tool.description).toContain("patch");
+    });
+
+    it("apply_patch 拒绝越过 workspaceRoot", async () => {
+        const tool = mustTool("apply_patch", harness);
+
+        await expect(tool.executeWithContext?.(context, "patch-outside", patchInput([
+            "*** Begin Patch",
+            "*** Add File: ../outside.txt",
+            "+nope",
+            "*** End Patch",
+        ]))).rejects.toThrow("越过 workspaceRoot");
+    });
+
+    it("apply_patch 拒绝删除目录", async () => {
+        await mkdir(join(workspaceRoot, "folder"), {recursive: true});
+        const tool = mustTool("apply_patch", harness);
+
+        await expect(tool.executeWithContext?.(context, "patch-delete-directory", patchInput([
+            "*** Begin Patch",
+            "*** Delete File: folder",
+            "*** End Patch",
+        ]))).rejects.toThrow("不能修改目录");
+    });
+
+    it("apply_patch 不接受旧 unified diff patch 内容", async () => {
+        await writeFile(join(workspaceRoot, "patch.txt"), "old\nline\n", "utf-8");
+        const tool = mustTool("apply_patch", harness);
+
+        await expect(tool.executeWithContext?.(context, "patch-old-json", {
             patch: [
                 "@@ -1,2 +1,2 @@",
                 "-old",
@@ -112,9 +336,7 @@ describe("v3 file tools", () => {
                 " line",
                 "",
             ].join("\n"),
-        });
-
-        await expect(readFile(join(workspaceRoot, "patch.txt"), "utf-8")).resolves.toBe("new\nline\n");
+        })).rejects.toThrow("*** Begin Patch");
     });
 
     it("bash 在 workspace root 执行真实 bash 并合并输出", async () => {
@@ -276,6 +498,10 @@ describe("v3 file tools", () => {
         expect(bash.description).toContain("not for file reading or editing");
     });
 });
+
+function patchInput(lines: string[]): {patch: string} {
+    return {patch: lines.join("\n")};
+}
 
 function mustTool(key: string, harness: NeuroAgentHarness) {
     const tool = harness.tools.get(key);

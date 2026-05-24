@@ -127,6 +127,7 @@ const systemDisplayKind = computed(() => props.node.message.systemDisplayKind ??
 
 /** 是否为低权重运行时提醒。 */
 const isSystemReminder = computed(() => systemDisplayKind.value === "reminder");
+const isSystemError = computed(() => systemDisplayKind.value === "error");
 
 /** 系统消息标题。 */
 const systemLabel = computed(() => {
@@ -138,6 +139,9 @@ const systemLabel = computed(() => {
     }
     if (systemDisplayKind.value === "reminder") {
         return "System Reminder";
+    }
+    if (systemDisplayKind.value === "error") {
+        return "Run Error";
     }
     return "System";
 });
@@ -169,7 +173,7 @@ watch(isEditing, (nextValue) => {
  * System Prompt 和运行时系统卡片默认收起，避免新会话顶部过重。
  */
 watch(() => props.node.message.id, () => {
-    isSystemCollapsed.value = true;
+    isSystemCollapsed.value = !isSystemError.value;
 }, {immediate: true});
 
 /**
@@ -254,12 +258,14 @@ const endSwipe = (event: PointerEvent): void => {
     <div v-if="props.node.message.type === 'system'" class="group flex min-w-0 w-full flex-col pl-6" :class="isSystemReminder ? 'my-2' : 'my-3'">
         <button
             class="flex min-w-0 w-full items-center gap-2 rounded-md border text-left transition-colors"
-            :class="isSystemReminder
-                ? 'border-[var(--border-color)]/50 bg-[var(--bg-panel)]/45 px-2.5 py-1.5 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]/60 hover:text-[var(--text-secondary)]'
-                : 'border-[var(--border-color)] bg-[var(--bg-main)] px-3 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+            :class="isSystemError
+                ? 'border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-600 hover:bg-rose-500/15'
+                : isSystemReminder
+                    ? 'border-[var(--border-color)]/50 bg-[var(--bg-panel)]/45 px-2.5 py-1.5 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]/60 hover:text-[var(--text-secondary)]'
+                    : 'border-[var(--border-color)] bg-[var(--bg-main)] px-3 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
             @click="toggleSystem"
         >
-            <span :class="isSystemReminder ? 'i-lucide-bell-ring h-3 w-3' : 'i-lucide-settings-2 h-3.5 w-3.5'" class="shrink-0"></span>
+            <span :class="isSystemError ? 'i-lucide-alert-triangle h-3.5 w-3.5' : isSystemReminder ? 'i-lucide-bell-ring h-3 w-3' : 'i-lucide-settings-2 h-3.5 w-3.5'" class="shrink-0"></span>
             <span class="shrink-0 font-medium uppercase tracking-[0.18em]">{{ systemLabel }}</span>
             <span v-if="isSystemCollapsed && systemSummary" class="min-w-0 flex-1 truncate normal-case tracking-normal opacity-75">{{ systemSummary }}</span>
             <span v-else class="min-w-0 flex-1"></span>
@@ -269,9 +275,9 @@ const endSwipe = (event: PointerEvent): void => {
         <div v-show="!isSystemCollapsed" class="mt-2 min-w-0 w-full">
             <div
                 class="min-w-0 max-w-full overflow-y-auto rounded-lg border border-[var(--border-color)] bg-[var(--bg-sidebar)]/55 px-3 py-2 shadow-sm"
-                :class="isSystemReminder ? 'max-h-[180px]' : 'max-h-[320px]'"
+                :class="isSystemError ? 'max-h-[240px] border-rose-500/30 bg-rose-500/5' : isSystemReminder ? 'max-h-[180px]' : 'max-h-[320px]'"
             >
-                <div v-if="props.node.message.content" class="min-w-0 text-xs leading-relaxed text-[var(--text-muted)]">
+                <div v-if="props.node.message.content" class="min-w-0 text-xs leading-relaxed" :class="isSystemError ? 'text-rose-700' : 'text-[var(--text-muted)]'">
                     <AgentMarkdownContent :content="props.node.message.content" :html="props.node.message.html" />
                 </div>
             </div>

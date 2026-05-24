@@ -225,7 +225,7 @@ Skills are discovered by directory key:
 
 Model-visible skill catalog is produced by `<SkillCatalog />`. The current runtime does not expose a separate `skill` tool. The agent should use the catalog `location` and the normal `read` tool to open the relevant `SKILL.md`. If that entry points to references, scripts, templates, or examples, read only the specific relative files needed for the task.
 
-Current runtime discovers profile sources from `.profile.tsx` files, but the next hard boundary is `.compiled`: source files are the editing truth, while compiled artifacts are the runtime truth. A loaded profile becomes runnable through its `manifest.key`. Bad or stale profile files should be fixed through source editing and compile diagnostics; they are not normal runnable catalog items.
+Current runtime discovers profile source files, but it only runs fresh `.compiled` artifacts. Source files are the editing truth, while compiled artifacts are the runtime truth. A loaded profile becomes runnable through its `manifest.key`. Bad, uncompiled, or stale profile files should be fixed through source editing and compile diagnostics; they are not normal runnable catalog items.
 
 ## User-Assets Overlay
 
@@ -274,7 +274,7 @@ Agent runtime CLI:
 Developer source-tree checks:
 
 - Repository-root `scripts/` are for development and deployment, not the Agent runtime contract.
-- Old repository-root profile scripts such as `scripts/compile-profile.ts`, `scripts/check-profile.ts`, and `scripts/profile-compile-cli.ts` are transition implementation details. Do not present them as the normal user-assets Agent workflow.
+- Old repository-root profile scripts such as `scripts/compile-profile.ts`, `scripts/check-profile.ts`, and `scripts/profile-compile-cli.ts` have been removed. Do not present them as the normal user-assets Agent workflow.
 
 Run/create session:
 
@@ -288,7 +288,7 @@ Planned `.compiled` artifact layout:
 - user artifacts: `workspace/.nbook/agent/profiles/.compiled/`
 - system artifacts ship with system assets and Docker images
 - user artifacts are generated at runtime by Workbench or `profile compile`
-- `.agent/workspace/profile-module-cache` is only a temporary cache and is not the runtime contract
+- `.agent/workspace/profile-module-cache` is not the runtime contract
 
 ## Common Troubleshooting
 

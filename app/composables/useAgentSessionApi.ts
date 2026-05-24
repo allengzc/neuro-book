@@ -1,5 +1,8 @@
 import {readSseStream} from "nbook/app/utils/http/read-sse";
 import type {
+    InvokeAgentResult,
+} from "nbook/server/agent/harness/types";
+import type {
     AgentAbortRequestDto,
     AgentCommandRequestDto,
     AgentCreateSessionRequestDto,
@@ -33,7 +36,7 @@ export function useAgentSessionApi() {
     };
 
     const invokeSession = (sessionId: number, body: AgentInvokeRequestDto) => {
-        return $fetch(`/api/agent/sessions/${sessionId}/invocations`, {
+        return $fetch<InvokeAgentResult>(`/api/agent/sessions/${sessionId}/invocations`, {
             method: "POST",
             body,
         });
@@ -55,7 +58,7 @@ export function useAgentSessionApi() {
         return $fetch<{
             status: "completed" | "invoked";
             snapshot: AgentSessionSnapshotDto;
-            invocation?: unknown;
+            invocation?: InvokeAgentResult;
         }>(`/api/agent/sessions/${sessionId}/tree`, {
             method: "POST",
             body,

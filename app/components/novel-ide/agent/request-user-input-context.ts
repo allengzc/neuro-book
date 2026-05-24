@@ -8,7 +8,7 @@ export type AgentUserInputAnswerDraft = {
 
 export type AgentRequestUserInputContext = {
     pendingSession: Ref<AgentPendingUserInputSession | null>;
-    submitting: Ref<boolean>;
+    submitting: Readonly<Ref<boolean>>;
     draft: AgentUserInputAnswerDraft;
     submitAnswers: () => void;
 };

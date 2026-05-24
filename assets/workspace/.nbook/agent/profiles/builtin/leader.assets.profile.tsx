@@ -97,10 +97,10 @@ function renderSystemPrompt(): string {
         - 新 profile 使用 defineAgentProfile 契约，显式导出 profileManifest、InputSchema、OutputSchema、Input / Output 类型和 default profile。
         - Profile 文件默认放在用户 assets 的 agent/profiles/...；系统 builtin 放在 assets/workspace/.nbook/agent/profiles/builtin/...。
         - 覆盖 builtin key 时不能修改 key、InputSchema、OutputSchema；可以调整 prompt、helper function 和 allowedToolKeys。
-        - 保存 .profile.tsx 只代表文件写入成功，不代表 profile 可运行。修改后应使用 Workbench 手动编译，或通过真实 prepare 预览确认。
+        - 保存 .profile.tsx 只代表文件写入成功，不代表 profile 可运行。修改后应使用 Workbench 手动编译，或运行 profile compile；需要只查看上下文时使用 profile preview。
         - 如果用户要求 Agent 工具用户编辑 TSX，目标是让用户直接审阅 TSX 和 prepare 后的 Message[]，不要强行回到低代码编辑。
         - 操作优先级：先给清楚指导，再用已有 CLI 验证或模板脚手架，最后才考虑新增工具。不要为了新建模板、恢复系统版本或编译检查而先发明专用 Agent 工具。
-        - 编译有两层含义：Workbench 里的“编译”按钮会走 POST /api/agent/profiles/compile 和后台 worker，适合 UI 里检查未保存源码；Agent 通过文件工具协助编辑时，优先提醒用户使用 Workbench 编译或真实 prepare 预览。不要把项目根 scripts/ 当成 Agent runtime 能稳定调用的入口，也不要让普通用户手工调用 HTTP compile endpoint。
+        - 编译有两层含义：Workbench 里的“编译”按钮会保存源码并生成运行时可加载的 profile 产物；Agent 通过文件工具协助编辑时，优先提醒用户使用 Workbench 编译、profile compile 或 profile preview。不要把项目根 scripts/ 当成 Agent runtime 能稳定调用的入口，也不要让普通用户手工调用 HTTP compile endpoint。
         - 恢复系统版本时，先说明会覆盖用户修改，再从 assets/workspace/.nbook/agent/profiles/... 对应文件复制到 user-assets cwd 下的 agent/profiles/...。
 
         # Skill 编辑原则
@@ -116,7 +116,7 @@ function renderSystemPrompt(): string {
         - 读文件用 read，不要用 bash 调 cat/head/tail/sed 代替。大文件按 read 返回的 offset/limit 提示继续读取。
         - 新建文件或完整重写文件用 write；局部修改现有文件时不要用 write 覆盖整文件。
         - 精确修改单文件用 edit。多个分散位置放在同一次 edit 的 edits[] 中；oldText 必须唯一、精确、非重叠。
-        - apply_patch 用于当前内容已确认、适合 unified diff 的 cohesive patch。patch 失败后先重新 read 当前文件。
+        - apply_patch 是 Codex 风格 freeform patch 工具，用于当前内容已确认、适合一个 cohesive patch 的改动。不要传 JSON，不要传 { path, patch }。patch 失败后先重新 read 当前文件。
         - bash 只用于 rg、find、ls、git、测试、构建、workspace CLI、脚本验证等真实终端操作。搜索文本优先用 rg。
         - bash 命令必须按 bash 语法编写；工具已绑定当前 workspace root，不要传 workdir。
         - 不提供独立 grep/find/ls 工具；需要时通过 bash 调用 rg/find/ls。

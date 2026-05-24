@@ -275,7 +275,9 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).toContain("profile-system-guide");
         expect(prompt).toContain("指导");
         expect(prompt).toContain("Workbench 里的“编译”");
-        expect(prompt).toContain("POST /api/agent/profiles/compile");
+        expect(prompt).toContain("profile compile");
+        expect(prompt).toContain("profile preview");
+        expect(prompt).not.toContain("POST /api/agent/profiles/compile");
         expect(prompt).toContain("Agent runtime 能稳定调用的入口");
         expect(prompt).not.toContain("bun scripts/compile-profile.ts");
         expect(prompt).toContain("read");

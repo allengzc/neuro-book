@@ -453,6 +453,64 @@ describe("NeuroAgentHarness", () => {
         expect(messageText(context.messages[3] as never)).toBe("APPENDING_AFTER_RESOLUTION");
     });
 
+    it("continue resolution 不会发布带旧 pending approval 的启动 snapshot", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.approval-state",
+                name: "Approval State",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("request_user_input", {
+                    questions: [{question: "继续？"}],
+                }, {id: "ask-state"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage(fauxText("done")),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.approval-state",
+            input: {},
+            workspaceRoot: root,
+        });
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "wait"},
+        });
+        const subscription = harness.subscribeSessionEvents(created.sessionId, harness.eventHub.lastSeq);
+        const pendingAfterContinue: Array<string | null> = [];
+        const collect = (async () => {
+            for await (const event of subscription) {
+                if (event.kind === "session" && event.event.type === "session_state_changed" && event.event.snapshot) {
+                    pendingAfterContinue.push(event.event.snapshot.pendingApproval?.toolCallId ?? null);
+                }
+                if (event.kind === "pi" && event.event.type === "agent_end") {
+                    break;
+                }
+            }
+        })();
+
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "continue",
+            resolution: {
+                kind: "user_input",
+                toolCallId: "ask-state",
+                answers: [{questionIndex: 0, text: "继续"}],
+            },
+        });
+        await collect;
+
+        expect(pendingAfterContinue).not.toContain("ask-state");
+        expect(pendingAfterContinue).toContain(null);
+    });
+
     it("Plan Mode 使用 Project Workspace .agent/plan 并支持 exit preview", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
@@ -1429,8 +1487,60 @@ describe("NeuroAgentHarness", () => {
         }));
         expect(faux.getPendingResponseCount()).toBe(0);
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const snapshot = await harness.repo.readSession(created.sessionId);
         expect(context.messages.filter((message) => message.role === "assistant")).toHaveLength(1);
         expect(context.messages.some((message) => message.role === "user" && messageText(message).includes("report_result"))).toBe(false);
+        expect(snapshot.entries).toContainEqual(expect.objectContaining({
+            type: "invocation_lifecycle",
+            status: "error",
+            errorInfo: expect.objectContaining({
+                message: "Provider rejected image payload",
+                phase: "model",
+            }),
+        }));
+    });
+
+    it("模型前 harness 错误会写 lifecycle error 且不写 assistant message", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.pre-loop-error",
+                name: "Pre Loop Error",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                throw new Error("prepare exploded");
+            },
+        }), false);
+        const created = await harness.createAgent({
+            profileKey: "test.pre-loop-error",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const snapshot = await harness.repo.readSession(created.sessionId);
+        const context = harness.repo.reduce(snapshot);
+
+        expect(result).toEqual(expect.objectContaining({
+            status: "error",
+            error: "prepare exploded",
+            errorPhase: "pre_loop",
+        }));
+        expect(context.messages.filter((message) => message.role === "assistant")).toHaveLength(0);
+        expect(snapshot.entries).toContainEqual(expect.objectContaining({
+            type: "invocation_lifecycle",
+            status: "error",
+            error: "prepare exploded",
+            errorInfo: expect.objectContaining({
+                message: "prepare exploded",
+                phase: "pre_loop",
+            }),
+        }));
     });
 
     it("compact command 使用真实 provider 摘要并且命令不写成普通 user message", async () => {
@@ -1459,6 +1569,32 @@ describe("NeuroAgentHarness", () => {
         expect(context.messages.map((message) => message.role)).toEqual(["user", "user"]);
         expect(context.messages[0] && messageText(context.messages[0] as never)).toContain("COMPACTED");
         expect(context.messages.every((message) => !messageText(message as never).includes("/compact"))).toBe(true);
+    });
+
+    it("compact command 失败时写 lifecycle errorInfo", async () => {
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+        });
+        await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "old context"}));
+
+        const result = await harness.runCommand(created.sessionId, {
+            command: "compact",
+            instructions: "prefer concise",
+        });
+        await waitFor(async () => {
+            const snapshot = await harness.repo.readSession(created.sessionId);
+            expect(snapshot.entries).toContainEqual(expect.objectContaining({
+                type: "invocation_lifecycle",
+                status: "error",
+                errorInfo: expect.objectContaining({
+                    phase: "compaction",
+                }),
+            }));
+        });
+
+        expect(result.status).toBe("started");
     });
 });
 

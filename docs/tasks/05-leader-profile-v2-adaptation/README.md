@@ -633,8 +633,8 @@ export default defineAgentProfile({
      - prompt 明确 `request_user_input` 只用于结构化选择、跨轮阻塞等待或审批式决策。
    - 验证命令：
      - `bunx vitest run server/agent/profiles/leader-assets-profile.test.ts server/agent/profiles/catalog.test.ts`
-     - `bun scripts/check-profile.ts assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`
-     - 如同步用户覆盖，再运行 `bun scripts/check-profile.ts workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`
+     - `bun scripts/profile.ts check builtin/leader.default.profile.tsx --system`
+     - 如同步用户覆盖，再运行 `bun scripts/profile.ts check builtin/leader.default.profile.tsx`
 
 11. Documentation
    - 更新 `docs/tasks/02-pi-agent-harness-migration/README.md`，把“TODO：继续做更完整 prompt parity”改成当前实际完成范围与剩余缺口。
@@ -782,8 +782,8 @@ export default defineAgentProfile({
 - `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts`
 - `bunx vitest run server/agent/profiles/workbench-service.test.ts`
 - `bun scripts/prepare-system-profile-metadata.ts`
-- `bun scripts/check-profile.ts assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`
-- `bun scripts/check-profile.ts workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`（仅当同步用户覆盖）
+- `bun scripts/profile.ts check builtin/leader.default.profile.tsx --system`
+- `bun scripts/profile.ts check builtin/leader.default.profile.tsx`（仅当同步用户覆盖）
 - `rg -n "read_file|write_file|edit_file|execute_shell|create_subagent|invoke_subagent|list_subagents|task_create|task_set_status|execute_sql|get_plot_tree|get_story_thread|get_story_scene_context|get_chapter_plot" assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx server/agent/profiles/leader-assets-profile.test.ts`
 
 ## Verification Results
@@ -791,8 +791,8 @@ export default defineAgentProfile({
 - `bunx vitest run server/agent/profiles/profile-dsl.test.ts server/agent/profiles/catalog.test.ts server/agent/profiles/leader-assets-profile.test.ts server/agent/profiles/workbench-service.test.ts` 通过，19 tests passed。
 - `$env:DATABASE_URL='postgresql://user:pass@127.0.0.1:5432/neuro_book_test'; bunx vitest run server/agent/harness/neuro-agent-harness.test.ts` 通过，19 tests passed。
 - `bun scripts/prepare-system-profile-metadata.ts` 通过，生成 2 个系统 profile metadata。
-- `bun scripts/check-profile.ts assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx` 通过。
-- `bun scripts/check-profile.ts workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx` 通过。
+- `bun scripts/profile.ts check builtin/leader.default.profile.tsx --system` 通过。
+- `bun scripts/profile.ts check builtin/leader.default.profile.tsx` 通过。
 - 旧工具名搜索只命中 `server/agent/profiles/leader-assets-profile.test.ts` 中的 `not.toContain(...)` 断言，系统和用户 `leader.default.profile.tsx` 未命中旧工具名。
 - `bun run typecheck` 仍失败，但本轮新增类型错误已修复；剩余为既有无关问题：
   - `app/components/novel-ide/NovelAgentDrawer.vue` 的 `modelKey`。
@@ -805,4 +805,4 @@ export default defineAgentProfile({
 - 记录后续方向：可以研究把 steer / follow-up 也交给 profile 管理，而不是继续全部由 harness 管理。
 - 继续增强 TSX 可视化编辑器：复杂 `Watch.render`、跨函数 JSX 片段、TypeBox Schema Builder、allowedToolKeys checklist 和更完整的 AST round-trip。
 - 旧 Plot / task / SQL 等工具以后单独迁移；本任务不恢复旧工具名，但 DSL 和 leader prompt 不应阻塞未来工具补回。
-- 跟进 `.compiled` profile 运行真相源：`leader.default`、`leader.assets`、`writer`、`retrieval` 等系统 profile 的 compiled artifact 需要随 system assets 预编译并发布；用户覆盖只在 sync state 证明未手改时同步源码和 artifact。`leader.assets` 提示词和 `profile-system-guide` 需要改为推荐 Workbench 编译或 `profile status/check/compile/preview`，不再推荐旧 `scripts/compile-profile.ts` / `scripts/check-profile.ts`。
+- `.compiled` profile 运行真相源已落地：`leader.default`、`leader.assets`、`writer`、`retrieval` 等系统 profile 的 compiled artifact 随 system assets 预编译并发布；用户覆盖只在 sync state 证明未手改时同步源码和 artifact。`leader.assets` 提示词和 `profile-system-guide` 已改为推荐 Workbench 编译或 `profile status/check/compile/preview`，不再推荐旧 `scripts/compile-profile.ts` / `scripts/check-profile.ts`。

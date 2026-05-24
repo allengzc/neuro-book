@@ -3,6 +3,7 @@ import {storeToRefs} from "pinia";
 import {useNovelIdeStore, type AgentWorkspaceSyncPayload} from "nbook/app/stores/novel-ide";
 import {isNovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import type {AgentMessage, AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
+import {hasVisibleInvocationError} from "nbook/app/components/novel-ide/agent/agent-message";
 import {buildNovelIdeClientVariables} from "nbook/app/components/novel-ide/agent/client-variables";
 import {useStructuredReferenceMenu} from "nbook/app/composables/useStructuredReferenceMenu";
 import {useDialog} from "nbook/app/composables/useDialog";
@@ -19,6 +20,7 @@ import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-i
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
 
 type SessionModelDraft = {
     modelKey: string | null;
@@ -70,7 +72,7 @@ const sessionModelDraft = ref<SessionModelDraft>({
 });
 const sessionModelPopoverOpen = ref(false);
 const sessionModelSaving = ref(false);
-const submittingUserInput = ref(false);
+const submittingUserInputKey = ref<string | null>(null);
 const userInputSelectedAnswers = ref<Record<string, number[]>>({});
 const userInputNotes = ref<Record<string, string>>({});
 let defaultProfileResolveRequest = 0;
@@ -128,6 +130,23 @@ const workspaceKey = computed(() => {
 });
 
 const agentWorkspaceRoot = computed(() => ideStore.workspaceKind === "user-assets" ? "workspace/.nbook" : "workspace");
+
+/**
+ * 生成等待用户输入实例的稳定 key，用来避免旧 pending 的提交态影响下一组问题。
+ */
+function pendingUserInputKey(session: typeof pendingUserInputSession.value): string | null {
+    if (!session) {
+        return null;
+    }
+    const firstQuestion = session.questions[0];
+    const toolKey = firstQuestion?.toolCallId ?? firstQuestion?.toolNodeId;
+    return toolKey ? `${session.assistantMessageId}\n${toolKey}` : session.assistantMessageId;
+}
+
+const currentPendingUserInputKey = computed(() => pendingUserInputKey(pendingUserInputSession.value));
+const submittingCurrentUserInput = computed(() => {
+    return Boolean(submittingUserInputKey.value && submittingUserInputKey.value === currentPendingUserInputKey.value);
+});
 
 /**
  * 当前挂起提问 session 变化时，重置本地答案草稿。
@@ -328,6 +347,20 @@ const syncActiveSessionSnapshot = async (): Promise<void> => {
 };
 
 /**
+ * 统一处理阻塞 invoke 的 HTTP 返回。SSE 正常时错误会以 session entry 进入消息流；
+ * 这里负责补 snapshot，并在事件流缺失时给一个即时通知兜底。
+ */
+const handleInvokeResult = async (result: InvokeAgentResult): Promise<void> => {
+    if (result.status !== "error") {
+        return;
+    }
+    await syncActiveSessionSnapshot();
+    if (!hasVisibleInvocationError(messages.value, result.invocationId)) {
+        notification.error(result.error ?? "Agent 运行失败", {title: "Agent 运行失败"});
+    }
+};
+
+/**
  * 委托 AgentChatFlow 滚动到底部。
  */
 const scrollToBottom = (): void => {
@@ -424,8 +457,12 @@ const submitUserInputAnswers = async (payload: {
         return;
     }
     const pendingSession = pendingUserInputSession.value;
+    const pendingKey = pendingUserInputKey(pendingSession);
+    if (pendingKey && submittingUserInputKey.value === pendingKey) {
+        return;
+    }
     try {
-        submittingUserInput.value = true;
+        submittingUserInputKey.value = pendingKey;
         await ensureActiveSessionEvents();
         const toolCallId = pendingSession.questions[0]?.toolCallId ?? pendingSession.questions[0]?.toolNodeId;
         const firstQuestion = pendingSession.questions[0];
@@ -451,7 +488,7 @@ const submitUserInputAnswers = async (payload: {
         session.clearPendingUserInputSession();
         userInputSelectedAnswers.value = {};
         userInputNotes.value = {};
-        await agentApi.invokeSession(activeSessionId.value, {
+        const result = await agentApi.invokeSession(activeSessionId.value, {
             mode: "continue",
             resolution: firstQuestion.kind === "tool_approval"
                 ? {
@@ -467,9 +504,10 @@ const submitUserInputAnswers = async (payload: {
                     answers,
                 },
         });
+        await handleInvokeResult(result);
         await syncActiveSessionSnapshot();
     } catch (error) {
-        if (!pendingUserInputSession.value) {
+        if (!pendingUserInputSession.value && submittingUserInputKey.value === pendingKey) {
             pendingUserInputSession.value = pendingSession;
         }
         console.error("提交问题答案失败", error);
@@ -477,7 +515,9 @@ const submitUserInputAnswers = async (payload: {
         notification.error(error instanceof Error ? error.message : "提交问题答案失败");
         throw error;
     } finally {
-        submittingUserInput.value = false;
+        if (submittingUserInputKey.value === pendingKey) {
+            submittingUserInputKey.value = null;
+        }
     }
 };
 
@@ -485,7 +525,7 @@ const submitUserInputAnswers = async (payload: {
  * 提交当前挂起中的整组结构化答案。
  */
 const submitPendingUserInputAnswers = (): void => {
-    if (!pendingUserInputSession.value || submittingUserInput.value) {
+    if (!pendingUserInputSession.value || submittingCurrentUserInput.value) {
         return;
     }
     void submitUserInputAnswers({
@@ -506,7 +546,7 @@ const submitPendingUserInputAnswers = (): void => {
 
 provide(AGENT_REQUEST_USER_INPUT_CONTEXT_KEY, {
     pendingSession: pendingUserInputSession,
-    submitting: submittingUserInput,
+    submitting: submittingCurrentUserInput,
     draft: {
         selectedAnswers: userInputSelectedAnswers,
         notes: userInputNotes,
@@ -574,7 +614,8 @@ const send = async (): Promise<void> => {
     if (!message) {
         if (canContinueWithoutInput.value) {
             await ensureActiveSessionEvents();
-            await agentApi.invokeSession(activeSessionId.value, {mode: "continue"});
+            const result = await agentApi.invokeSession(activeSessionId.value, {mode: "continue"});
+            await handleInvokeResult(result);
         }
         return;
     }
@@ -583,10 +624,11 @@ const send = async (): Promise<void> => {
     resetInput();
     session.appendOptimisticUserMessage(prompt);
     await ensureActiveSessionEvents();
-    await agentApi.invokeSession(activeSessionId.value, {
+    const result = await agentApi.invokeSession(activeSessionId.value, {
         mode: "prompt",
         message: {text: prompt},
     });
+    await handleInvokeResult(result);
 };
 
 /**
@@ -794,7 +836,7 @@ const saveEditedMessage = async (payload: {message: AgentMessage; content: strin
     messageActionId.value = payload.message.id;
     try {
         await ensureActiveSessionEvents();
-        await agentApi.moveTree(activeSessionId.value, {
+        const result = await agentApi.moveTree(activeSessionId.value, {
             targetEntryId: payload.message.id,
             position: "before",
             next: {
@@ -803,6 +845,9 @@ const saveEditedMessage = async (payload: {message: AgentMessage; content: strin
                 message: {text: payload.content},
             },
         });
+        if (result.invocation) {
+            await handleInvokeResult(result.invocation);
+        }
         editingMessageId.value = null;
         await syncActiveSessionSnapshot();
         notification.success("消息已更新");
@@ -821,7 +866,7 @@ const refreshMessage = async (message: AgentMessage): Promise<void> => {
     messageActionId.value = message.id;
     try {
         await ensureActiveSessionEvents();
-        await agentApi.moveTree(activeSessionId.value, {
+        const result = await agentApi.moveTree(activeSessionId.value, {
             targetEntryId: message.id,
             position: message.type === "user" ? "at" : "before",
             next: {
@@ -829,6 +874,9 @@ const refreshMessage = async (message: AgentMessage): Promise<void> => {
                 mode: "continue",
             },
         });
+        if (result.invocation) {
+            await handleInvokeResult(result.invocation);
+        }
         editingMessageId.value = null;
         await syncActiveSessionSnapshot();
     } catch (error) {
@@ -1121,7 +1169,7 @@ function isApprovalApproved(answer?: {
                 v-model:session-model-popover-open="sessionModelPopoverOpen"
                 v-model:session-model-draft="sessionModelDraft"
                 :pending-session="pendingUserInputSession"
-                :submitting-user-input="submittingUserInput"
+                :submitting-user-input="submittingCurrentUserInput"
                 :running="running"
                 :loading-session="loadingSession"
                 :session-model-saving="sessionModelSaving"

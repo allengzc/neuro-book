@@ -13,7 +13,7 @@ The schema metadata (tool `description` and field-level `.describe()`) is part o
 | `read_file` | Read a local text file with line numbers | Yes (filePath) |
 | `write_file` | Create or overwrite a local text file | Yes (filePath, content) |
 | `edit_file` | Replace a string in a local text file | Yes (filePath, oldString, newString) |
-| `apply_patch` | Apply a unified diff patch to a file | Yes (filePath, patch) |
+| `apply_patch` | Apply a Codex freeform patch | Yes (raw patch text) |
 | `execute_shell` | Run a local shell command | Yes (command) |
 | `execute_sql` | Run a single SQL statement | Yes (sql) |
 | `update_novel` | Update the current novel's title/summary | Yes (title or summary) |
@@ -40,7 +40,7 @@ The schema metadata (tool `description` and field-level `.describe()`) is part o
 - **Read-before-write rule**: `write_file`, `edit_file`, and `apply_patch` require that `read_file` was called on the same file within the last 6 visible messages (enforced by `assertRecentlyReadResource()`).
 - All paths must be within the project root.
 - `edit_file` auto-strips line-number prefixes when the user pastes text from `read_file` output.
-- `apply_patch` uses standard unified diff format; `fuzzFactor` controls context matching tolerance.
+- `apply_patch` is a freeform Codex-style patch tool. The model passes raw patch text wrapped by `*** Begin Patch` / `*** End Patch`; it must not pass JSON, `{ path, patch }`, or `fuzzFactor`.
 
 ### SQL Tool (`execute_sql`)
 

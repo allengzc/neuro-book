@@ -1,4 +1,4 @@
-import {mkdir, readFile, rm} from "node:fs/promises";
+import {mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 import {ProfileCompileWorkerService, useProfileCompileWorker} from "nbook/server/agent/profiles/profile-compile-worker";
@@ -12,6 +12,7 @@ describe("profile compile worker runtime", () => {
         const result = await runProfileCompile({
             fileName,
             source,
+            dryRun: false,
             preview: false,
         });
 
@@ -29,6 +30,7 @@ describe("profile compile worker runtime", () => {
             const result = await worker.compile({
                 fileName,
                 source,
+                dryRun: false,
                 preview: false,
             });
 
@@ -45,6 +47,7 @@ describe("profile compile worker runtime", () => {
         const running = worker.compile({
             fileName: "builtin/leader.default.profile.tsx",
             source: "export default null;",
+            dryRun: false,
             preview: false,
         });
 
@@ -74,12 +77,40 @@ describe("profile compile worker runtime", () => {
         const result = await runProfileCompile({
             fileName: "builtin/leader.default.profile.tsx",
             source,
+            dryRun: false,
             preview: false,
         });
         const cacheEntries = await readDirNames(globalCacheRoot);
 
         expect(result.ok).toBe(true);
         expect(cacheEntries.filter((name) => name.endsWith(".mjs"))).toEqual([]);
+    }, 120000);
+
+    it("dry-run preview 不写入真实用户源码或 compiled artifact", async () => {
+        const fileName = "builtin/leader.default.profile.tsx";
+        const sourcePath = "workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx";
+        const source = await readFile(sourcePath, "utf8");
+        const compiledManifest = resolve("workspace", ".nbook", "agent", "profiles", ".compiled", "manifest.json");
+        const originalManifest = await readFile(compiledManifest, "utf8").catch(() => null);
+        await rm(compiledManifest, {force: true});
+        try {
+            const result = await runProfileCompile({
+                fileName,
+                source: source.replace("Neuro Book", "Dry Run Neuro Book"),
+                dryRun: true,
+                preview: true,
+            });
+
+            expect(result.ok).toBe(true);
+            expect(result.preview?.ok).toBe(true);
+            await expect(readFile(sourcePath, "utf8")).resolves.toBe(source);
+            await expect(pathExists(compiledManifest)).resolves.toBe(false);
+        } finally {
+            if (originalManifest !== null) {
+                await mkdir(resolve("workspace", ".nbook", "agent", "profiles", ".compiled"), {recursive: true});
+                await writeFile(compiledManifest, originalManifest, "utf8");
+            }
+        }
     }, 120000);
 });
 
@@ -89,5 +120,17 @@ async function readDirNames(root: string): Promise<string[]> {
         return entries;
     } catch {
         return [];
+    }
+}
+
+async function pathExists(filePath: string): Promise<boolean> {
+    try {
+        await stat(filePath);
+        return true;
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return false;
+        }
+        throw error;
     }
 }

@@ -17,7 +17,14 @@ const AgentProfilePromptNodeDtoSchema: z.ZodType<any> = z.lazy(() => z.object({
 
 export const AgentProfileSourceSchema = z.enum(["system", "user", "contract"]);
 export const AgentProfileKindSchema = z.enum(["agent"]);
-export const AgentProfileLoadStatusSchema = z.enum(["loaded", "error", "missing"]);
+export const AgentProfileLoadStatusSchema = z.enum([
+    "loaded",
+    "not_compiled",
+    "compile_stale",
+    "compiled_load_failed",
+    "source_error",
+    "missing",
+]);
 export const AgentProfileOverrideStateSchema = z.enum(["system", "user_override", "user_only", "contract_only"]);
 export const AgentProfileSchemaEditModeSchema = z.enum(["locked", "source", "unavailable"]);
 export type AgentProfileSchemaJsonValue = z.infer<ReturnType<typeof z.json>>;
@@ -224,7 +231,15 @@ export const AgentProfileSaveRequestDtoSchema = z.object({
  */
 export const AgentProfileCompileRequestDtoSchema = z.object({
     fileName: z.string().trim().min(1),
-    source: z.string(),
+    /**
+     * 兼容旧 Workbench 请求；runtime artifact 编译只读取已保存磁盘源码。
+     * 传入时仅用于 compile 前保存，或后续 dry-run preview。
+     */
+    source: z.string().optional(),
+    /**
+     * 为 true 时只在后台 worker 中用临时 profile root 做 prepare preview，不写用户 `.compiled`。
+     */
+    dryRun: z.boolean().default(false),
     preview: z.boolean().default(false),
     sessionId: z.string().trim().min(1).optional(),
     input: z.json().optional(),

@@ -12,7 +12,12 @@ export type AgentProfileManifest<TKey extends string = string> = {
 
 export type AgentProfileSourceKind = "memory" | "system" | "user";
 
-export type AgentProfileLoadStatus = "loaded" | "error";
+export type AgentProfileLoadStatus =
+    | "loaded"
+    | "not_compiled"
+    | "compile_stale"
+    | "compiled_load_failed"
+    | "source_error";
 
 export type AgentProfileIssueCode =
     | "load_failed"
@@ -21,7 +26,11 @@ export type AgentProfileIssueCode =
     | "builtin_schema_locked"
     | "filename_mismatch"
     | "system_profile_shadowed"
-    | "file_missing";
+    | "file_missing"
+    | "not_compiled"
+    | "compile_stale"
+    | "compiled_load_failed"
+    | "source_error";
 
 export type AgentProfileIssue = {
     code: AgentProfileIssueCode;

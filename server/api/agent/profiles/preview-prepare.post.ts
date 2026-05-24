@@ -1,8 +1,7 @@
 import {validateBody} from "nbook/server/utils/novel-chapter";
 import {useAgentHarness} from "nbook/server/agent/http";
-import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {previewAgentProfilePrepare} from "nbook/server/agent/profiles/profile-http-service";
-import {withProfileSourceOverride} from "nbook/server/agent/profiles/profile-source-check";
+import {useProfileCompileWorker} from "nbook/server/agent/profiles/profile-compile-worker";
 import {AgentProfilePreparePreviewRequestDtoSchema} from "nbook/shared/dto/agent-profile.dto";
 
 /**
@@ -14,12 +13,25 @@ export default defineEventHandler(async (event) => {
     if (!body.sourceOverride) {
         return previewAgentProfilePrepare(harness, body);
     }
-    return withProfileSourceOverride(body.sourceOverride, async (profiles) => {
-        const previewHarness = new NeuroAgentHarness({
-            repo: harness.repo,
-            profiles,
-            skills: harness.skills,
-        });
-        return previewAgentProfilePrepare(previewHarness, body);
+    const result = await useProfileCompileWorker().compile({
+        fileName: body.sourceOverride.fileName,
+        source: body.sourceOverride.source,
+        dryRun: true,
+        preview: true,
+        sessionId: body.sessionId,
+        input: body.input,
+        inputOverrides: body.inputOverrides,
     });
+    if (result.preview) {
+        return result.preview;
+    }
+    return {
+        profileKey: body.profileKey,
+        ok: false,
+        issues: result.issues,
+        messages: [],
+        persistedMessageCount: 0,
+        variables: [],
+        reportResultSchema: null,
+    };
 });

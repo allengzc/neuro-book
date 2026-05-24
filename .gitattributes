@@ -1,3 +1,4 @@
 assets/workspace/.nbook/agent/bin/workspace text eol=lf
+assets/workspace/.nbook/agent/bin/profile text eol=lf
 assets/workspace/.nbook/agent/bin/*.cmd text eol=crlf
 assets/workspace/.nbook/agent/scripts/*.ts text eol=lf

@@ -2,9 +2,8 @@ import {existsSync} from "node:fs";
 import {mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {basename, dirname, join, relative, resolve, sep} from "node:path";
 import {createError} from "h3";
-import type {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {buildSystemPromptRoot, readAgentProfileDetail} from "nbook/server/agent/profiles/profile-http-service";
-import {withProfileSourceOverride} from "nbook/server/agent/profiles/profile-source-check";
 import type {
     AgentProfileCreateRequestDto,
     AgentProfileDetailDto,
@@ -18,6 +17,7 @@ import type {
 import type {ProfileTemplateDetailDto} from "nbook/shared/dto/profile-template.dto";
 
 const USER_PROFILE_ROOT = resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles");
+const SYSTEM_PROFILE_ROOT = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profiles");
 const TEMPLATE_ROOT = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profile-templates");
 
 type WorkbenchRoots = {
@@ -43,22 +43,32 @@ export async function listProfileTemplates(roots: WorkbenchRoots = {}): Promise<
 }
 
 /**
- * 列出用户 profile root 下的源码文件，包含坏文件。这里不加载 runtime catalog，
- * 避免打开 Workbench 时触发 TSX profile 编译。
+ * 列出用户 profile root 下的源码文件，包含坏文件。这里只读取 compiled-only catalog 状态，
+ * 不触发 TSX profile 编译。
  */
 export async function listProfileFiles(roots: WorkbenchRoots = {}): Promise<AgentProfileFileItemDto[]> {
     const userProfileRoot = roots.userProfileRoot ?? USER_PROFILE_ROOT;
     const files = await findProfileFiles(userProfileRoot);
+    const catalog = await new AgentProfileCatalog(SYSTEM_PROFILE_ROOT, userProfileRoot).snapshot().catch(() => null);
     const items: AgentProfileFileItemDto[] = [];
     for (const fileName of files) {
+        const filePath = join(userProfileRoot, ...fileName.split("/"));
         const source = await readFile(join(userProfileRoot, fileName), "utf8").catch(() => "");
         const manifest = readManifestSummary(source);
+        const catalogItem = catalog?.profiles.find((profile) => profile.sourcePath === filePath);
+        const catalogIssues = catalog?.issues.filter((issue) => issue.sourcePath === filePath) ?? [];
         items.push({
             fileName,
-            profileKey: manifest?.key ?? null,
-            name: manifest?.name ?? fileName,
-            loadStatus: manifest ? "loaded" : "missing",
-            issues: [],
+            profileKey: catalogItem?.key ?? manifest?.key ?? null,
+            name: catalogItem?.name ?? manifest?.name ?? fileName,
+            loadStatus: catalogItem?.loadStatus ?? (manifest ? "not_compiled" : "missing"),
+            issues: catalogIssues.map((issue) => ({
+                severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "not_compiled" || issue.code === "compile_stale" ? "warning" as const : "error" as const,
+                message: issue.message,
+                code: issue.code,
+                profileKey: issue.profileKey,
+                fileName,
+            })),
         });
     }
     return items.sort((left, right) => left.fileName.localeCompare(right.fileName));
@@ -94,18 +104,6 @@ export async function readProfileSource(profiles: AgentProfileCatalog, request: 
             message: `未找到 profile 文件：${request.fileName}`,
         });
     }
-    if (request.source !== undefined) {
-        return withProfileSourceOverride({
-            fileName: request.fileName,
-            source: request.source,
-            roots: {
-                userProfileRoot,
-            },
-        }, (temporaryProfiles, temporaryUserRoot) => readProfileSource(temporaryProfiles, {fileName: request.fileName}, {
-            ...roots,
-            userProfileRoot: temporaryUserRoot,
-        }));
-    }
     try {
         const snapshot = await profiles.snapshot();
         const loaded = snapshot.profiles.find((profile) => profile.sourcePath === filePath);
@@ -115,7 +113,7 @@ export async function readProfileSource(profiles: AgentProfileCatalog, request: 
         const issueDtos: AgentProfileIssueDto[] = snapshot?.issues
             .filter((issue) => issue.sourcePath === filePath)
             .map((issue) => ({
-                severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" ? "warning" as const : "error" as const,
+                severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "not_compiled" || issue.code === "compile_stale" ? "warning" as const : "error" as const,
                 message: issue.message,
                 code: issue.code,
                 profileKey: issue.profileKey,
@@ -139,7 +137,7 @@ export async function readProfileSource(profiles: AgentProfileCatalog, request: 
                 fileName: request.fileName,
                 source: "user",
                 overrideState: "user_only",
-                loadStatus: "error",
+                loadStatus: "source_error",
                 schemaLocked: false,
                 canEdit: true,
                 canRestore: true,
