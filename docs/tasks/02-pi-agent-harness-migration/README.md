@@ -20,6 +20,7 @@
 - 正式 HTTP 入口已经回到 `/api/agent/**`：前端使用 `/api/agent/sessions/**` 的 snapshot、invocation、command、tree、abort 和 events contract；临时 `/api/agent-v3/**` 已删除。
 - Agent 抽屉已接入新的 session snapshot + session event hub：支持聊天、停止、审批/输入恢复、模型选择、Plan Mode、compact slash command、linked agents、edit/retry/rollback/fallback、分支切换和多窗口事件同步的基础链路。
 - TSX Profile runtime 支持 builtin/user assets 动态加载、InputSchema/OutputSchema、allowed tools、workspace 默认 profile、用户资产工作区和 active TSX DSL。profile 输出合同已切到 `ProfileTurnPlan`，普通 profile 可通过 `context(ctx) => <ProfilePrompt />` 声明 `System` / `HistorySet` / `ModelContext` / `AppendingSet` 等分区；高级 profile 可直接覆写 `prepare(ctx) => ProfileTurnPlan`。TSX Profile Workbench 已接入用户 profile 源码写入、新建模板、文件 diagnostics、真实 prepare preview、创建 session 入口和稳定 `<ProfilePrompt>` DSL tree 解析/局部写回。
+- 当前 Workbench 自动编辑路径已经避免自动触发 runtime profile loader，但普通 runtime catalog 仍可能在读取 `.profile.tsx` 时执行 esbuild/runtime import。下一阶段已决定把 profile runtime 硬切为 `.compiled` 运行真相源：源码只负责编辑，catalog/config snapshot/创建 session/invoke 只读 `.compiled/manifest.json` 与 compiled artifact，不再自动编译 TSX。
 - 本地 Pi 仓库位于 `.agent/workspace/pi`；已完成基础调研，见 `docs/research/pi-agent-harness.md`。
 - Pi TUI / coding-agent 产品层作为 Neuro Book harness 的主要参考：它证明“产品自己拥有 session manager、资源解析、UI/TUI 状态，再调用 Pi core Agent”是可行路径。
 
@@ -50,7 +51,7 @@
 - 已实现 builtin schema 锁定：用户覆盖 `leader.default` 等 builtin key 时，运行时实现可以覆盖，但 Input/Output schema 会继续使用内置 schema；schema 冲突进入 catalog issue。
 - 验收阶段修复 TSX profile 运行时加载边界：Nuxt dev server 是 Node 进程，不能像 Bun 测试一样无条件原生 import `.profile.tsx`；`AgentProfileCatalog` 现在优先使用当前运行时 native dynamic import，只有遇到 Node 不认识 `.tsx` 的错误时才 fallback 到 `tsx/esm/api` 的 `tsImport`，避免已经启用 TS loader 的 Node/Nuxt 进程二次套 loader 卡住。
 - 验收阶段已把 `/api/agent/profiles/catalog`、`/api/agent/profiles/detail`、`/api/agent/profiles/preview-prepare` 从 v2 removed stub 改为 v3 profile 只读/预览适配：catalog 返回 `AgentProfileCatalogItemDto`，detail 返回源码、manifest、allowed tools 与 TypeBox schema 摘要，preview 调用真实 `profile.prepare()` 并展示 `systemPrompt`、History/Dynamic/Appending 消息。
-- 已为新 Agent 增加动态 profile 类型索引输出 `server/agent/profiles/dynamic-profile-types.generated.ts`，`scripts/prepare-profile-types.ts` 只读取新 `.nbook/agent/profiles` root，`scripts/check-profile.ts` 只允许检查新 profile 路径。
+- 已为新 Agent 增加动态 profile 类型索引输出 `server/agent/profiles/dynamic-profile-types.generated.ts`，`scripts/prepare-profile-types.ts` 只读取新 `.nbook/agent/profiles` root。旧 `scripts/check-profile.ts` / `scripts/compile-profile.ts` 是过渡期开发脚本；下一阶段 CLI 统一为 Agent runtime `profile status/check/compile/preview`，并删除旧脚本别名。
 - 已实现轻量 session query service 与模型工具 `get_session`：默认返回 metadata、active leaf、title/summary、usage 和 linked agents，不返回 tree，也不返回历史消息；只有显式传 `includeRecentMessages` 时才按 token budget 返回当前 active path 的最近消息。
 - 已接入 `profile.ingest()`：harness run save point 后调用 ingest；第一版只允许写 `messageWrites` 与 `sessionUpdates.title/summary`，越权字段会使本次 run 返回 error，且不会写入部分 ingest 结果。
 - 已把 owned / linked agents 完全改为 append-only session state：`create_agent` 和 `detach_agent` 写父 session 的 `custom` entry，`get_agent()` 与 profile prepare 的 `session.linkedAgents` 都从 active path reduce 得到，不再依赖内存 `detachedSessions`。
@@ -864,7 +865,7 @@ type AgentTreeRequest = {
 - 设计依据来自本地 Pi 源码和调研文档 `docs/research/pi-agent-harness.md`。Bash PATH 修复参考 Pi `createBashTool(..., { commandPrefix, spawnHook })` 的 runtime 注入模型：在 bash runtime 统一前置 Agent bin，而不是让 profile/prompt 猜路径。
 - Agent CLI / bash PATH 追加验证：`bun test server/agent/tools/file-tools.test.ts server/workspace-files/workspace-files.test.ts server/agent/profiles/leader-assets-profile.test.ts` 通过，覆盖 `workspace --help`、`workspace node parse/validate`、user-assets bin 优先级、user-assets bin 覆盖实际执行、Git Bash 内 PATH 前置、系统 assets 同步补齐 `agent/bin` 与 `agent/scripts`、已有用户覆盖不被 sync 覆盖、prompt 不再推荐根级 `bun scripts/workspace.ts node ...`，以及 active profile 不再使用 PowerShell 示例、`--path-separator=/` 或只匹配 `/` 的 `rg --files | rg '(^|/)index.md$'` 管道。
 - Agent CLI 交付约束：`assets/workspace/.nbook/agent/bin/workspace` 已进入 Git 索引并标记为 `100755`；`.gitattributes` 固定无扩展 shell wrapper 与 `.ts` 为 LF，避免 Windows `core.autocrlf` 把 shebang wrapper 转成 CRLF。
-- Profile compile 追加验证：系统与用户覆盖的 `leader.default`、`leader.assets`、`retrieval` 均通过 `bun scripts/compile-profile.ts`；当前仅剩 `leader.default` 用户覆盖与系统版不同的预期 warning，符合“用户手改覆盖不自动覆盖”的 sync 规则。
+- Profile compile 追加验证：系统与用户覆盖的 `leader.default`、`leader.assets`、`retrieval` 均通过过渡期开发脚本 `bun scripts/compile-profile.ts`；当前仅剩 `leader.default` 用户覆盖与系统版不同的预期 warning，符合“用户手改覆盖不自动覆盖”的 sync 规则。下一阶段该验证口径应迁到 `profile check` / `profile compile` CLI，不再继续推荐旧脚本名。
 
 ## TODO / Follow-ups
 
@@ -880,6 +881,7 @@ type AgentTreeRequest = {
 - TODO：补浏览器端真实交互验收，重点看多窗口同步、流式工具卡、approval resume、followUp queue、compact 和 tree+invoke 操作。
 - TODO：event hub 后续支持跨进程/多实例广播；第一版是单进程内存 replay，重启或多 worker 场景通过 snapshot 恢复，不保证实时 fan-out。
 - TODO：重新设计 TSX profile 写入工作台。当前 Agent 抽屉已经迁移，user-assets 入口可以直接编辑 `workspace/.nbook/agent/profiles` 下的 TSX profile 源文件；旧 `ProfileTemplateVisualEditor` 与旧写入接口因尚未适配新 TSX profile 契约，已从 active surface 移除。后续按 TSX 源码编辑优先的方向重接，不恢复旧低代码兼容层。
+- TODO：实现 `.compiled` profile 运行真相源。系统 `.compiled` artifact 随 system assets 构建/发布；用户 `.compiled` artifact 由 Workbench 或 `profile compile` 手动生成；runtime catalog/config snapshot/创建 session/invoke 不再自动编译 TSX。同步更新 `leader.assets`、`profile-system-guide`、相关 CLI 和旧脚本删除。
 - 为动态 agent catalog 增加 lazy detail 查询能力；当前 prepare 已可读取 catalog snapshot 中的 InputSchema / OutputSchema，但还没有针对大 catalog 的分页/按 key 查询优化。
 - user-assets 当前稳定形态：用户覆盖根为 `workspace/.nbook`，系统资源根为 `assets/workspace/.nbook`，agent profile/skill 放入 `.nbook/agent`，workspace 模板放入 `.nbook/templates`。后续如继续改入口命名，应以 `spec/workspace/TERMS.md` 为术语真值。
 - assets 路径硬切已完成；后续若新增系统资源，先放到 `assets/workspace/.nbook/<relative>`，再确认同步逻辑和用户覆盖层 `workspace/.nbook/<relative>` 一致，不恢复旧路径 fallback。
