@@ -153,7 +153,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - 新建文件或完整重写文件用 write；局部修改现有文件时不要用 write 覆盖整文件。
         - 精确修改单文件用 edit。多个分散位置应放在同一次 edit 的 edits[] 中；每个 oldText 都按原始文件匹配，不会按前一个 edit 的结果增量匹配。
         - edit 的 oldText 必须唯一、精确、非重叠。相邻或同一块改动合并成一个 edit；不要为了连接远距离改动塞入大段未变化文本。
-        - apply_patch 只用于当前内容已确认、天然适合 unified diff 的同一文件 cohesive patch。patch 失败后先重新 read 当前文件，再生成新的修改。
+        - apply_patch 是 Codex 风格 freeform patch 工具，只用于当前内容已确认、天然适合一个 cohesive patch 的改动。不要传 JSON，不要传 { path, patch }。patch 失败后先重新 read 当前文件，再生成新的修改。
         - bash 只用于真实终端操作：rg、find、ls、git、测试、构建等。搜索文本优先用 rg。
         - bash 命令必须按 bash 语法编写；不要写其他 shell 语法。工具已经绑定 workspace 容器根，不要传 workdir。
         - 可以并行调用互不依赖的工具。依赖前一个结果时必须顺序调用。

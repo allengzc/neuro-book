@@ -143,6 +143,15 @@ export type SessionArchivedEntry = {
     reason?: string;
 };
 
+export type InvocationErrorPhase = "prepare" | "pre_loop" | "model" | "tool" | "ingest" | "compaction" | "unknown";
+
+export type InvocationErrorInfo = {
+    message: string;
+    phase: InvocationErrorPhase;
+    retryable?: boolean;
+    code?: string;
+};
+
 export type InvocationLifecycleEntry = {
     id: SessionEntryId;
     parentId: SessionEntryId | null;
@@ -151,6 +160,7 @@ export type InvocationLifecycleEntry = {
     invocationId: string;
     status: "start" | "end" | "error" | "aborted";
     error?: string;
+    errorInfo?: InvocationErrorInfo;
 };
 
 export type SessionEntry =

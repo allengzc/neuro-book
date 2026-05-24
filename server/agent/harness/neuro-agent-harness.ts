@@ -11,7 +11,7 @@ import type {AgentProfile, ProfileCompactionPlan, ProfileIngestResult, ProfileTu
 import {compileProfileSystemPrompt, profileStateKey, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {AGENT_PLAN_MODE_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
-import type {ModelChangeEntry, NeuroSessionContext, SessionEntry, SessionEntryDraft, SessionEntryId, SessionSnapshot} from "nbook/server/agent/session/types";
+import type {InvocationErrorInfo, InvocationErrorPhase, ModelChangeEntry, NeuroSessionContext, SessionEntry, SessionEntryDraft, SessionEntryId, SessionSnapshot} from "nbook/server/agent/session/types";
 import {SkillCatalog} from "nbook/server/agent/skills/skill-catalog";
 import {findPendingApprovalCall, resolutionToToolResult} from "nbook/server/agent/tools/approval";
 import {createBuiltinTools, createReportResultTool} from "nbook/server/agent/tools/builtin-tools";
@@ -190,11 +190,11 @@ export class NeuroAgentHarness {
             status: "start",
         });
         this.publishSessionEntry(input.sessionId, invocationId, lifecycleEntry);
-        await this.publishSessionState(input.sessionId, invocationId);
 
         let snapshot = await this.repo.readSession(input.sessionId);
         let pendingUserMessage: Message | null = null;
         let pendingResolution: AgentResolution | null = null;
+        let errorPhase: InvocationErrorPhase = "pre_loop";
 
         try {
             if (input.mode === "prompt") {
@@ -209,9 +209,10 @@ export class NeuroAgentHarness {
             }
 
             if (pendingResolution) {
-                await this.appendResolution(snapshot, pendingResolution);
+                await this.appendResolution(snapshot, pendingResolution, invocationId);
                 snapshot = await this.repo.readSession(input.sessionId);
             }
+            await this.publishSessionState(input.sessionId, invocationId);
             const prepared = await this.prepare(snapshot, invocationId, pendingUserMessage ?? undefined);
             snapshot = await this.repo.readSession(input.sessionId);
             if (pendingUserMessage) {
@@ -232,6 +233,7 @@ export class NeuroAgentHarness {
                 ...preparedModelContextMessages,
             ];
             this.assertNoUnclosedToolCallsForModel(modelMessages);
+            errorPhase = "compaction";
             await compactIfNeeded({
                 repo: this.repo,
                 snapshot,
@@ -243,6 +245,7 @@ export class NeuroAgentHarness {
                 requestOptions: providerOptions.requestOptions,
                 compaction: prepared.compaction,
             });
+            errorPhase = "model";
             snapshot = await this.repo.readSession(input.sessionId);
             context = this.repo.reduce(snapshot);
 
@@ -267,6 +270,7 @@ export class NeuroAgentHarness {
                 invocationId,
                 onEvent: input.onEvent,
             });
+            errorPhase = "ingest";
             const finalResult = await this.finalizeInvokeResult({
                 input,
                 invocationId,
@@ -283,6 +287,7 @@ export class NeuroAgentHarness {
                 invocationId,
                 status: finalResult.status === "error" ? "error" : finalResult.status === "waiting" ? "start" : "end",
                 error: finalResult.error,
+                errorInfo: finalResult.error ? this.toInvocationErrorInfo(finalResult.error, finalResult.errorPhase ?? "unknown") : undefined,
             }, snapshot.metadata.workspaceKey);
             this.publishSessionEntry(input.sessionId, invocationId, lifecycleEntry);
             if (finalResult.status !== "waiting") {
@@ -291,11 +296,13 @@ export class NeuroAgentHarness {
             }
             return finalResult;
         } catch (error) {
+            const errorInfo = this.toInvocationErrorInfo(error, abortController.signal.aborted ? "unknown" : errorPhase);
             const lifecycleEntry = await this.repo.appendEntry(input.sessionId, {
                 type: "invocation_lifecycle",
                 invocationId,
                 status: abortController.signal.aborted ? "aborted" : "error",
-                error: error instanceof Error ? error.message : String(error),
+                error: errorInfo.message,
+                errorInfo,
             }, snapshot.metadata.workspaceKey);
             this.publishSessionEntry(input.sessionId, invocationId, lifecycleEntry);
             await this.finishInvocation(input.sessionId, invocationId);
@@ -303,7 +310,8 @@ export class NeuroAgentHarness {
                 sessionId: input.sessionId,
                 invocationId,
                 status: "error",
-                error: error instanceof Error ? error.message : String(error),
+                error: errorInfo.message,
+                errorPhase: errorInfo.phase,
                 events: [],
             };
         }
@@ -327,6 +335,7 @@ export class NeuroAgentHarness {
                 invocationId,
                 status: "error",
                 error: result.finalAssistant.errorMessage || (result.finalAssistant.stopReason === "aborted" ? "生成已中断。" : "生成失败，provider 未返回错误详情。"),
+                errorPhase: "model",
                 finalMessage: messageText(result.finalAssistant),
                 usage: result.finalAssistant.usage,
                 events: result.events,
@@ -373,6 +382,7 @@ export class NeuroAgentHarness {
                 invocationId,
                 status: "error",
                 error: ingestError,
+                errorPhase: "ingest",
                 events: result.events,
             };
         }
@@ -937,7 +947,7 @@ export class NeuroAgentHarness {
         }
     }
 
-    private async appendResolution(snapshot: SessionSnapshot, resolution: AgentResolution): Promise<void> {
+    private async appendResolution(snapshot: SessionSnapshot, resolution: AgentResolution, invocationId?: string): Promise<void> {
         const context = this.repo.reduce(snapshot);
         const messages = context.messages.filter((message): message is Message => {
             return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
@@ -947,10 +957,11 @@ export class NeuroAgentHarness {
             throw new Error("当前 session 没有等待中的审批 tool call");
         }
         const entry = await this.repo.appendMessage(snapshot.metadata.sessionId, resolutionToToolResult(resolution, pending), snapshot.metadata.workspaceKey, "harness");
-        this.publishSessionEntry(snapshot.metadata.sessionId, undefined, entry);
+        this.publishSessionEntry(snapshot.metadata.sessionId, invocationId, entry);
         if (resolution.kind === "tool_approval" && (pending.toolName === "enter_plan_mode" || pending.toolName === "exit_plan_mode")) {
-            await this.appendPlanModeResolution(snapshot, context, pending, resolution.approved);
+            await this.appendPlanModeResolution(snapshot, context, pending, resolution.approved, invocationId);
         }
+        await this.publishSessionState(snapshot.metadata.sessionId, invocationId);
     }
 
     private async appendPlanModeResolution(
@@ -958,6 +969,7 @@ export class NeuroAgentHarness {
         context: NeuroSessionContext,
         pending: {toolName: string; args: Record<string, unknown>},
         approved: boolean,
+        invocationId?: string,
     ): Promise<void> {
         const active = pending.toolName === "enter_plan_mode"
             ? approved
@@ -971,7 +983,7 @@ export class NeuroAgentHarness {
             ? previousRecord.hasExited ? "reentry_full" : "full"
             : pending.toolName === "exit_plan_mode" && approved ? "exit" : "sparse";
         const reason = typeof pending.args.reason === "string" ? pending.args.reason : undefined;
-        await this.appendCustomState(snapshot.metadata.sessionId, "ui.planMode.active", active, snapshot.metadata.workspaceKey);
+        await this.appendCustomState(snapshot.metadata.sessionId, "ui.planMode.active", active, snapshot.metadata.workspaceKey, invocationId);
         await this.appendCustomState(snapshot.metadata.sessionId, AGENT_PLAN_MODE_STATE_KEY, this.planModeState(
             snapshot,
             context,
@@ -979,7 +991,7 @@ export class NeuroAgentHarness {
             reminderKind,
             pending.toolName,
             {approved, hasExited, reason},
-        ), snapshot.metadata.workspaceKey);
+        ), snapshot.metadata.workspaceKey, invocationId);
     }
 
     private async runLoop(input: {
@@ -1110,18 +1122,20 @@ export class NeuroAgentHarness {
         const llmMessages = input.messages.filter((message): message is Message => {
             return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
         });
-        const stream = await streamSimple(input.model, {
+        const context = {
             systemPrompt: input.systemPrompt,
             messages: llmMessages,
             tools: input.tools,
-        }, {
+        };
+        const options = {
             sessionId: String(input.sessionId),
             reasoning: input.thinkingLevel === "off" ? undefined : input.thinkingLevel as never,
             apiKey: input.apiKey,
             timeoutMs: input.timeoutMs ?? undefined,
             ...this.piStreamOptions(input.requestOptions),
             signal: input.abortSignal,
-        });
+        };
+        const stream = await streamSimple(input.model, context, options);
 
         let started = false;
         for await (const event of stream) {
@@ -1523,16 +1537,25 @@ export class NeuroAgentHarness {
             this.publishSessionEntry(sessionId, invocationId, entry);
         } catch (error) {
             const snapshot = await this.repo.readSession(sessionId);
+            const errorInfo = this.toInvocationErrorInfo(error, "compaction");
             const entry = await this.repo.appendEntry(sessionId, {
                 type: "invocation_lifecycle",
                 invocationId,
                 status: "error",
-                error: error instanceof Error ? error.message : String(error),
+                error: errorInfo.message,
+                errorInfo,
             }, snapshot.metadata.workspaceKey);
             this.publishSessionEntry(sessionId, invocationId, entry);
         } finally {
             await this.finishInvocation(sessionId, invocationId);
         }
+    }
+
+    private toInvocationErrorInfo(error: unknown, phase: InvocationErrorPhase): InvocationErrorInfo {
+        return {
+            message: error instanceof Error ? error.message : String(error),
+            phase,
+        };
     }
 
     private async remindReportResult(

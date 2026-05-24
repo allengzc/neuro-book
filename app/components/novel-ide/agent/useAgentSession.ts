@@ -86,7 +86,7 @@ export function useAgentSession() {
         lastSeq.value = payload.seq;
 
         if (payload.kind === "pi") {
-            messages.value = applyPiEventToMessages(messages.value, payload.event);
+            messages.value = applyPiEventToMessages(messages.value, payload.event, payload.invocationId);
             if (payload.event.type === "agent_start") {
                 running.value = true;
             }
@@ -107,6 +107,12 @@ export function useAgentSession() {
 
         if (payload.event.type === "session_entry") {
             messages.value = applySessionEntryToMessages(messages.value, payload.event.entry);
+            if (payload.event.entry.type === "message" && payload.event.entry.message.role === "toolResult") {
+                const toolCallId = payload.event.entry.message.toolCallId;
+                if (pendingUserInputSession.value?.questions.some((question) => (question.toolCallId ?? question.toolNodeId) === toolCallId)) {
+                    pendingUserInputSession.value = null;
+                }
+            }
             return;
         }
 

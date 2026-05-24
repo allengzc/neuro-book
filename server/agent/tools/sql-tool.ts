@@ -10,6 +10,7 @@ const ExecuteSqlSchema = Type.Object({
 
 const AGENT_SQL_ROW_LIMIT = 200;
 const AGENT_SQL_TIMEOUT_MS = 1_500;
+const AGENT_SQL_SCHEMA_CACHE_TTL_MS = 30_000;
 const AGENT_SQL_SCHEMA_QUERY = `
     SELECT
         columns.table_name AS "tableName",
@@ -82,6 +83,7 @@ type ExecuteSqlResult = {
 };
 
 let agentSqlSchemaSummaryCache = "";
+let agentSqlSchemaSummaryCacheAt = 0;
 let agentSqlSchemaSummaryPromise: Promise<string> | undefined;
 
 /**
@@ -134,7 +136,7 @@ export function buildAgentSqlSchemaSummary(rows: AgentSqlSchemaRow[], foreignKey
  * 读取并缓存 Agent SQL schema 摘要。
  */
 export async function getAgentSqlSchemaSummary(): Promise<string> {
-    if (agentSqlSchemaSummaryCache) {
+    if (agentSqlSchemaSummaryCache && Date.now() - agentSqlSchemaSummaryCacheAt < AGENT_SQL_SCHEMA_CACHE_TTL_MS) {
         return agentSqlSchemaSummaryCache;
     }
     if (!agentSqlSchemaSummaryPromise) {
@@ -143,6 +145,8 @@ export async function getAgentSqlSchemaSummary(): Promise<string> {
             const columnsResult = await pool.query<AgentSqlSchemaRow>(AGENT_SQL_SCHEMA_QUERY);
             const foreignKeysResult = await pool.query<AgentSqlForeignKeyRow>(AGENT_SQL_FOREIGN_KEY_QUERY);
             agentSqlSchemaSummaryCache = buildAgentSqlSchemaSummary(columnsResult.rows, foreignKeysResult.rows);
+            agentSqlSchemaSummaryCacheAt = Date.now();
+            agentSqlSchemaSummaryPromise = undefined;
             return agentSqlSchemaSummaryCache;
         })().catch((error) => {
             agentSqlSchemaSummaryPromise = undefined;
@@ -150,6 +154,15 @@ export async function getAgentSqlSchemaSummary(): Promise<string> {
         });
     }
     return agentSqlSchemaSummaryPromise;
+}
+
+/**
+ * 清空 schema summary 缓存。测试和迁移后刷新可以显式调用。
+ */
+export function clearAgentSqlSchemaSummaryCache(): void {
+    agentSqlSchemaSummaryCache = "";
+    agentSqlSchemaSummaryCacheAt = 0;
+    agentSqlSchemaSummaryPromise = undefined;
 }
 
 /**
@@ -238,26 +251,121 @@ function detectSqlCommand(sql: string): AgentSqlCommand {
     throw new Error("sql 只允许 SELECT / WITH / INSERT / UPDATE / DELETE");
 }
 
-function validateExecuteSql(sql: string): void {
+export function validateExecuteSql(sql: string): void {
     const normalized = normalizeSql(sql);
     const leadingKeyword = getSqlLeadingKeyword(normalized);
-    const blockedReadPattern = /\b(insert|update|delete|alter|create|drop|truncate|grant|revoke|begin|commit|rollback|copy|vacuum|analyze|set|reset|show|call)\b/;
-    const blockedWritePattern = /\b(alter|create|drop|truncate|grant|revoke|begin|commit|rollback|copy|vacuum|analyze|set|reset|show|call)\b/;
     if (!normalized) {
         throw new Error("sql 不能为空");
     }
-    if (normalized.includes(";")) {
+    if (hasSqlStatementSeparator(normalized)) {
         throw new Error("sql 只允许单条语句");
     }
     if (!["select", "with", "insert", "update", "delete"].includes(leadingKeyword)) {
         throw new Error("sql 只允许 SELECT / WITH / INSERT / UPDATE / DELETE");
     }
-    if (isReadSql(normalized) && blockedReadPattern.test(normalized.toLowerCase())) {
-        throw new Error("sql 包含被禁止的关键字");
+}
+
+/**
+ * 检测真正的 SQL 语句分隔符。字符串、quoted identifier、dollar quote 和注释内的分号不算多语句。
+ */
+export function hasSqlStatementSeparator(sql: string): boolean {
+    let index = 0;
+    let dollarQuoteTag: string | null = null;
+    let inSingleQuote = false;
+    let inDoubleQuote = false;
+    let inLineComment = false;
+    let inBlockComment = false;
+
+    while (index < sql.length) {
+        const char = sql[index] ?? "";
+        const nextChar = sql[index + 1] ?? "";
+
+        if (inLineComment) {
+            if (char === "\n" || char === "\r") {
+                inLineComment = false;
+            }
+            index++;
+            continue;
+        }
+
+        if (inBlockComment) {
+            if (char === "*" && nextChar === "/") {
+                inBlockComment = false;
+                index += 2;
+                continue;
+            }
+            index++;
+            continue;
+        }
+
+        if (dollarQuoteTag) {
+            if (sql.startsWith(dollarQuoteTag, index)) {
+                index += dollarQuoteTag.length;
+                dollarQuoteTag = null;
+                continue;
+            }
+            index++;
+            continue;
+        }
+
+        if (inSingleQuote) {
+            if (char === "'" && nextChar === "'") {
+                index += 2;
+                continue;
+            }
+            if (char === "'") {
+                inSingleQuote = false;
+            }
+            index++;
+            continue;
+        }
+
+        if (inDoubleQuote) {
+            if (char === "\"" && nextChar === "\"") {
+                index += 2;
+                continue;
+            }
+            if (char === "\"") {
+                inDoubleQuote = false;
+            }
+            index++;
+            continue;
+        }
+
+        if (char === "-" && nextChar === "-") {
+            inLineComment = true;
+            index += 2;
+            continue;
+        }
+        if (char === "/" && nextChar === "*") {
+            inBlockComment = true;
+            index += 2;
+            continue;
+        }
+        if (char === "'") {
+            inSingleQuote = true;
+            index++;
+            continue;
+        }
+        if (char === "\"") {
+            inDoubleQuote = true;
+            index++;
+            continue;
+        }
+        if (char === "$") {
+            const match = /^\$[a-zA-Z_][a-zA-Z0-9_]*\$|^\$\$/.exec(sql.slice(index));
+            if (match) {
+                dollarQuoteTag = match[0];
+                index += dollarQuoteTag.length;
+                continue;
+            }
+        }
+        if (char === ";") {
+            return true;
+        }
+        index++;
     }
-    if (!isReadSql(normalized) && blockedWritePattern.test(normalized.toLowerCase())) {
-        throw new Error("sql 包含被禁止的关键字");
-    }
+    return false;
 }
 
 function shouldRefreshChapterTree(sql: string): boolean {
