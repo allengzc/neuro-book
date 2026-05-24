@@ -2350,6 +2350,12 @@ onBeforeUnmount(() => {
     --component-accent: #6f6aa8;
 }
 
+.library-node-Compaction,
+.library-node-CompactionPrompt,
+.library-node-CompactionSummaryPrefix {
+    --component-accent: #7a7f4e;
+}
+
 .library-node-Text,
 .library-node-Message {
     --component-accent: #c2693c;
@@ -2377,6 +2383,32 @@ onBeforeUnmount(() => {
 
 .library-node-If {
     --component-accent: #64895f;
+}
+
+.library-node-SystemReminder,
+.library-node-WorkspaceReminder,
+.library-node-LinkedAgentsReminder {
+    --component-accent: #b65f5b;
+}
+
+.library-node-RuntimeContext,
+.library-node-LinkedAgentsSummary {
+    --component-accent: #4f8c8f;
+}
+
+.library-node-TaskReminder,
+.library-node-PlanModeReminder,
+.library-node-PlanModeFull,
+.library-node-PlanModeSparse,
+.library-node-PlanModeExit,
+.library-node-PlanModeReentry,
+.library-node-ActivePlanModeReminder {
+    --component-accent: #8a639e;
+}
+
+.library-node-MentionedSkillsReminder,
+.library-node-PlotFocusReminder {
+    --component-accent: #b1843e;
 }
 
 .library-node-ActivatedSkills {

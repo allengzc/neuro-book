@@ -18,7 +18,7 @@
 | Workspace | Active | 已创建 `workspace.yaml`、`.nbook/`、`.agent/`、`lorebook/` 与 `manuscript/`。 |
 | Lorebook | Draft | 已预置初始化节点，等待填充作品定位、主题、简介、剧情种子、文风和创作边界。 |
 | Manuscript | Draft | 已预置一个示范开篇章节节点，用于说明章节结构。 |
-| Agent Notes | Draft | `AGENTS.md` 只保留轻量协作入口，长期状态统一写在本文件。 |
+| Agent Notes | Draft | `.agent/plan/` 保存 Agent 计划、walkthrough 和调研 notes；临时 scratch/cache 使用系统临时目录。 |
 
 ## TODO
 

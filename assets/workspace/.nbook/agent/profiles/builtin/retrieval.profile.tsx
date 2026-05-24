@@ -19,7 +19,7 @@ export const OutputSchema = RetrievalOutputSchema;
 export type Input = Static<typeof InputSchema>;
 export type Output = Static<typeof OutputSchema>;
 
-const allowedToolKeys = ["bash", "read", "skill", "report_result"] as const;
+const allowedToolKeys = ["bash", "read", "report_result"] as const;
 
 export default defineAgentProfile({
     manifest: profileManifest,
@@ -50,7 +50,7 @@ function renderSystemPrompt(): string {
 
         # 内容节点事实
 
-        - 当前 workspace 是小说 workspace。bash 默认在该 workspace root 执行。
+        - Agent cwd 是 workspace 容器根，不一定是单本小说 Project Workspace。当前小说路径通常带 novel-slug 前缀，例如 novel-slug/lorebook/... 或 novel-slug/manuscript/...。
         - 内容节点通常是目录 + index.md。frontmatter 存 title、type、status、summary、refs、retrieval、inject 等元数据。
         - 同级 state.md 存当前世界状态、角色位置、物品、目标和信息差；缺失 state.md 是正常情况。
         - retrieval.enabled=false 表示该节点通常不应作为自动检索候选。
@@ -61,7 +61,7 @@ function renderSystemPrompt(): string {
 
         # 固定检索流程
 
-        1. 第一条搜索命令必须建立“内容节点元数据清单”，不能先用 rg。
+        1. 第一条搜索命令必须建立“内容节点元数据清单”，不能先做正文关键词搜索。
            - PowerShell: Get-ChildItem . -Recurse -Filter index.md | ForEach-Object FullName | workspace node parse --stdin --ndjson
            - Unix: rg --files | rg '(^|/)index\\.md$' | workspace node parse --stdin --ndjson
         2. 用任务、搜索 prompt、章节 outline、recent text、节点 title/type/status/summary/refs/retrieval.trigger 初筛候选。除非任务就是未决事实，否则优先 active 节点，谨慎使用 draft/pending。
@@ -82,7 +82,7 @@ function renderRunContext(ctx: ProfilePrepareContext<Input>): string {
     const input = ctx.input;
     return [
         "<dynamic-context>",
-        `Workspace root: ${ctx.session.workspaceRoot}`,
+        `Agent cwd: ${ctx.session.workspaceRoot}`,
         `Target profile: ${input.targetProfile}`,
         `Task: ${input.task}`,
         input.chapterOutline ? `Chapter outline:\n${input.chapterOutline}` : "",

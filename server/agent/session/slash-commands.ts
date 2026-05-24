@@ -51,6 +51,7 @@ export async function handleSlashCommand(input: {
             input: snapshot.metadata.input,
             workspaceRoot: snapshot.metadata.workspaceRoot,
             workspaceKey: snapshot.metadata.workspaceKey,
+            novelId: snapshot.metadata.novelId,
             title: snapshot.metadata.title,
         });
         return {kind: "new", session};
@@ -105,4 +106,3 @@ export async function handleSlashCommand(input: {
 
     return {kind: "not_command"};
 }
-

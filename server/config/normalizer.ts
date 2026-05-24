@@ -4,7 +4,6 @@ import {
     type MarkdownEditorPreferences,
     type MonacoEditorPreferences,
 } from "nbook/shared/editor-workbench";
-import {ModelProviderAdapterSchema} from "nbook/shared/dto/app-settings.dto";
 import type {
     AgentProfileConfig,
     AgentProfileModelConfig,
@@ -173,7 +172,6 @@ export function normalizeModelSettings(input: StoredGlobalConfig["models"] | und
         providers: Object.fromEntries(
             normalizeStoredProviders(input?.providers).map((provider) => [provider.id, {
                 name: normalizeText(provider.name) || provider.id,
-                adapter: ModelProviderAdapterSchema.parse(provider.adapter),
                 options: normalizeProviderOptions(provider.options),
                 models: Object.fromEntries(provider.models.map((model) => [model.id, normalizeModel(model)])),
             } satisfies ConfiguredProviderConfig]),
@@ -191,7 +189,6 @@ export function serializeModelSettings(config: ModelSettingsConfig): StoredGloba
             .map(([providerId, provider]) => ({
                 id: providerId,
                 name: provider.name,
-                adapter: provider.adapter,
                 options: provider.options,
                 models: Object.values(provider.models)
                     .map((model) => ({...model}))
@@ -266,7 +263,6 @@ function normalizeStoredProviders(input: StoredProviderConfig[] | undefined): St
         .map((provider) => ({
             id: normalizeText(provider.id),
             name: normalizeText(provider.name),
-            adapter: ModelProviderAdapterSchema.parse(provider.adapter ?? "openai-compatible"),
             options: normalizeProviderOptions(provider.options),
             models: Array.isArray(provider.models) ? provider.models.map(normalizeModel) : [],
         }))
@@ -281,7 +277,15 @@ function normalizeModel(input: Partial<ConfiguredModelConfig>): ConfiguredModelC
         id,
         group: normalizeNullableText(input.group),
         enabled: input.enabled ?? true,
-        contextWindowTokens: normalizeNullableInteger(input.contextWindowTokens),
+        provider: normalizeNullableText(input.provider),
+        api: normalizeNullableText(input.api),
+        baseUrl: normalizeNullableText(input.baseUrl),
+        reasoning: typeof input.reasoning === "boolean" ? input.reasoning : null,
+        input: normalizeModelInput(input.input),
+        maxTokens: normalizeNullablePositiveInteger(input.maxTokens),
+        cost: normalizeModelCost(input.cost),
+        compat: normalizeNullableJsonRecord(input.compat),
+        contextWindowTokens: normalizeNullablePositiveInteger(input.contextWindowTokens),
     };
 }
 
@@ -335,8 +339,44 @@ function normalizeNullableInteger(input: unknown): number | null {
     return value === null ? null : Math.trunc(value);
 }
 
+function normalizeNullablePositiveInteger(input: unknown): number | null {
+    const value = normalizeNullableInteger(input);
+    return value !== null && value > 0 ? value : null;
+}
+
 function normalizeJsonRecord(input: unknown): Record<string, JsonValue> {
     return input && typeof input === "object" && !Array.isArray(input)
         ? input as Record<string, JsonValue>
         : {};
+}
+
+function normalizeNullableJsonRecord(input: unknown): Record<string, JsonValue> | null {
+    const record = normalizeJsonRecord(input);
+    return Object.keys(record).length > 0 ? record : null;
+}
+
+function normalizeModelInput(input: unknown): ("text" | "image")[] | null {
+    if (!Array.isArray(input)) {
+        return null;
+    }
+    const values = [...new Set(input.filter((item): item is "text" | "image" => item === "text" || item === "image"))];
+    return values.length > 0 ? values : null;
+}
+
+function normalizeModelCost(input: unknown): ConfiguredModelConfig["cost"] {
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+        return null;
+    }
+    const cost = input as Record<string, unknown>;
+    const normalized = {
+        input: normalizeFiniteNumber(cost.input),
+        output: normalizeFiniteNumber(cost.output),
+        cacheRead: normalizeFiniteNumber(cost.cacheRead),
+        cacheWrite: normalizeFiniteNumber(cost.cacheWrite),
+    };
+    return normalized;
+}
+
+function normalizeFiniteNumber(input: unknown): number {
+    return typeof input === "number" && Number.isFinite(input) ? input : 0;
 }

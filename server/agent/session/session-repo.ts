@@ -34,6 +34,7 @@ type AppendEntryInput = SessionEntryDraft & {
     parentId?: SessionEntryId | null;
     timestamp?: number;
 };
+type AppendBatchEntryInput = Exclude<AppendEntryInput, {type: "leaf"}>;
 
 /**
  * JSONL session 仓库。所有状态变化都通过 append entry 表达。
@@ -86,7 +87,15 @@ export class JsonlSessionRepository {
             throw new Error(`session ${sessionId} 缺少 header`);
         }
 
-        const entries = records.flatMap((record) => record.kind === "entry" ? [record.entry] : []);
+        const entries = records.flatMap((record) => {
+            if (record.kind === "entry") {
+                return [record.entry];
+            }
+            if (record.kind === "batch") {
+                return record.entries;
+            }
+            return [];
+        });
         return {
             metadata: header.metadata,
             entries,
@@ -161,6 +170,51 @@ export class JsonlSessionRepository {
             });
         }
         return entry;
+    }
+
+    /**
+     * 一次性追加多条 entry，并只在 batch 最后移动 leaf。
+     * 用于普通 agent turn commit，避免 assistant/toolResult 之间出现可见半提交状态。
+     */
+    async appendEntries(sessionId: SessionId, inputs: AppendBatchEntryInput[], workspaceKey?: string): Promise<SessionEntry[]> {
+        if (inputs.length === 0) {
+            return [];
+        }
+        const snapshot = existsSync(this.sessionPath(workspaceKey ?? "global", sessionId)) || workspaceKey
+            ? await this.readSession(sessionId, workspaceKey)
+            : await this.readSession(sessionId);
+        const entries: SessionEntry[] = [];
+        let currentParentId = this.resolveLeaf(snapshot.entries);
+
+        for (const input of inputs) {
+            const parentId = input.parentId === undefined ? currentParentId : input.parentId;
+            const entry = {
+                ...input,
+                id: input.id ?? this.createEntryId(),
+                parentId,
+                timestamp: input.timestamp ?? Date.now(),
+            } as SessionEntry;
+            entries.push(entry);
+            if (entry.type !== "leaf") {
+                currentParentId = entry.id;
+            }
+        }
+
+        const lastNonLeaf = [...entries].reverse().find((entry) => entry.type !== "leaf");
+        if (lastNonLeaf) {
+            entries.push({
+                id: this.createEntryId(),
+                parentId: lastNonLeaf.id,
+                timestamp: Date.now(),
+                type: "leaf",
+                leafId: lastNonLeaf.id,
+            });
+        }
+
+        const sessionPath = this.sessionPath(snapshot.metadata.workspaceKey, sessionId);
+        await mkdir(dirname(sessionPath), {recursive: true});
+        await this.appendLine(sessionPath, {kind: "batch", entries});
+        return entries.filter((entry) => entry.type !== "leaf");
     }
 
     /**
@@ -289,6 +343,7 @@ export class JsonlSessionRepository {
             thinkingLevel,
             profileKey,
             workspaceRoot: snapshot.metadata.workspaceRoot,
+            novelId: snapshot.metadata.novelId,
             customState,
             linkedAgents: [...linkedAgents.values()].sort((left, right) => left.sessionId - right.sessionId),
             title,

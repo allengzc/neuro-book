@@ -44,7 +44,6 @@ function buildGlobalConfig(oldBootText: string | null, existingGlobal: StoredGlo
             providers: Object.entries(legacy.models.providers).map(([providerId, provider]) => ({
                 id: providerId,
                 name: provider.name,
-                adapter: provider.adapter,
                 options: provider.options,
                 models: Object.values(provider.models),
             })),

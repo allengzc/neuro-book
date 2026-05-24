@@ -9,7 +9,7 @@ import {
 import {prisma} from "nbook/server/utils/prisma";
 
 /**
- * 打包下载当前小说 workspace。
+ * 打包下载当前 Project Workspace；user-assets 入口打包 Workspace Root .nbook。
  */
 export default defineEventHandler(async (event) => {
     const query = getQuery(event);
@@ -30,7 +30,7 @@ export default defineEventHandler(async (event) => {
 });
 
 /**
- * 发送 workspace 压缩包。
+ * 发送当前挂载目标压缩包。
  */
 function sendArchive(event: Parameters<typeof setResponseHeader>[0], archive: Awaited<ReturnType<typeof createWorkspaceZipStream>>) {
     const filename = encodeURIComponent(archive.filename);

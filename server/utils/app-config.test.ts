@@ -24,7 +24,6 @@ models:
   providers:
     deepseek:
       name: DeepSeek
-      adapter: deepseek-official
       options:
         apiKey: \${DEEPSEEK_API_KEY}
         baseURL: \${DEEPSEEK_API_BASE:-https://api.deepseek.com/v1}
@@ -54,7 +53,7 @@ models:
         expect(config.models.providers.deepseek?.options.apiKey).toBe("");
     });
 
-    it("支持 adapter 字符串简写，并默认开启 openai-compatible reasoning replay", () => {
+    it("迁移旧配置时忽略 provider adapter 字符串简写", () => {
         const config = parseAppConfigText(`
 models:
   providers:
@@ -62,13 +61,14 @@ models:
       adapter: openai-compatible
 `);
 
-        expect(config.models.providers.mimo?.adapter).toEqual({
-            type: "openai-compatible",
-            reasoningContentReplay: true,
+        expect(config.models.providers.mimo).toMatchObject({
+            name: "mimo",
+            options: {apiKey: ""},
         });
+        expect("adapter" in (config.models.providers.mimo ?? {})).toBe(false);
     });
 
-    it("支持 adapter 对象形式关闭 reasoning replay", () => {
+    it("迁移旧配置时忽略 provider adapter 对象形式", () => {
         const config = parseAppConfigText(`
 models:
   providers:
@@ -78,24 +78,7 @@ models:
         reasoningContentReplay: false
 `);
 
-        expect(config.models.providers.custom?.adapter).toEqual({
-            type: "openai-compatible",
-            reasoningContentReplay: false,
-        });
-    });
-
-    it("支持严格 OpenAI 官方 adapter", () => {
-        const config = parseAppConfigText(`
-models:
-  providers:
-    openai:
-      adapter: openai-official
-`);
-
-        expect(config.models.providers.openai?.adapter).toEqual({
-            type: "openai-official",
-            reasoningContentReplay: false,
-        });
+        expect("adapter" in (config.models.providers.custom ?? {})).toBe(false);
     });
 
     it("支持配置 provider 请求超时时间", () => {
@@ -108,5 +91,71 @@ models:
 `);
 
         expect(config.models.providers.mimo?.options.timeoutMs).toBe(180000);
+    });
+
+    it("迁移旧配置时保留 Pi Model 字段", () => {
+        const config = parseAppConfigText(`
+models:
+  default: custom/mimo-vl
+  providers:
+    custom:
+      name: Custom
+      models:
+        mimo-vl:
+          name: Mimo Vision
+          provider: xiaomi-token-plan-cn
+          api: openai-completions
+          baseUrl: https://model.example/v1
+          reasoning: true
+          input:
+            - text
+            - image
+          maxTokens: 1234
+          cost:
+            input: 1
+            output: 2
+            cacheRead: 3
+            cacheWrite: 4
+          compat:
+            thinkingFormat: deepseek
+            supportsStrictMode: false
+          contextWindowTokens: 98765
+`);
+
+        expect(config.models.defaultModelKey).toBe("custom/mimo-vl");
+        expect(config.models.providers.custom?.models["mimo-vl"]).toMatchObject({
+            provider: "xiaomi-token-plan-cn",
+            api: "openai-completions",
+            baseUrl: "https://model.example/v1",
+            reasoning: true,
+            input: ["text", "image"],
+            maxTokens: 1234,
+            cost: {
+                input: 1,
+                output: 2,
+                cacheRead: 3,
+                cacheWrite: 4,
+            },
+            compat: {
+                thinkingFormat: "deepseek",
+                supportsStrictMode: false,
+            },
+            contextWindowTokens: 98765,
+        });
+    });
+
+    it("迁移旧配置时丢弃非正 maxTokens 和 contextWindowTokens", () => {
+        const config = parseAppConfigText(`
+models:
+  providers:
+    custom:
+      models:
+        broken:
+          maxTokens: 0
+          contextWindowTokens: -1
+`);
+
+        expect(config.models.providers.custom?.models.broken?.maxTokens).toBeNull();
+        expect(config.models.providers.custom?.models.broken?.contextWindowTokens).toBeNull();
     });
 });

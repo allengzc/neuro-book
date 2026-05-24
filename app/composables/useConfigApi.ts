@@ -5,6 +5,7 @@ import type {
     GlobalConfigDto,
     ProjectConfigDto,
 } from "nbook/shared/dto/config.dto";
+import type {PiBuiltinCatalogDto} from "nbook/shared/dto/app-settings.dto";
 
 /**
  * 统一构造当前 IDE 上下文对应的 Config API 查询与保存入口。
@@ -87,6 +88,13 @@ export function useConfigApi() {
         });
     }
 
+    /**
+     * 读取 Pi 内置 Provider/Model 目录。
+     */
+    async function piModelCatalog(): Promise<PiBuiltinCatalogDto> {
+        return $fetch<PiBuiltinCatalogDto>("/api/config/models/pi-catalog");
+    }
+
     return {
         globalQuery,
         novelProjectQuery,
@@ -95,5 +103,6 @@ export function useConfigApi() {
         editorSnapshot,
         saveGlobal,
         saveProject,
+        piModelCatalog,
     };
 }

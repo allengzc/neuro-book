@@ -3,9 +3,10 @@ import {basename, relative, resolve, sep} from "node:path";
 import {createError} from "h3";
 import type {TSchema} from "typebox";
 import type {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
-import type {AgentCatalogItem, AgentCatalogSnapshot, AgentProfileIssue, ProfilePrepareContext} from "nbook/server/agent/profiles/types";
+import type {AgentCatalogItem, AgentCatalogSnapshot, AgentProfileIssue, ProfileCompactionPlan, ProfilePrepareContext} from "nbook/server/agent/profiles/types";
+import {resolveCompactionOptions} from "nbook/server/agent/harness/compaction";
 import {createAssistantTextMessage, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
-import type {AgentMessage, JsonValue, Message} from "nbook/server/agent/messages/types";
+import type {AgentMessage, JsonValue, Message, Model} from "nbook/server/agent/messages/types";
 import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import type {NeuroSessionContext} from "nbook/server/agent/session/types";
 import type {
@@ -130,6 +131,7 @@ export async function previewAgentProfilePrepare(
             ...modelContextAppendingMessages.map((message) => toPreviewMessage(message, "modelContextAppending")),
             ...explicitAppendingMessages.map((message) => toPreviewMessage(message, "appending")),
             ...modelContextMessages.map((message) => toPreviewMessage(message, "modelContext")),
+            ...prepared.compaction ? [compactionPreviewMessage(prepared.compaction, session.model)] : [],
             ...finalMessages.map((message) => toPreviewMessage(message, "reactMessages")),
             ...(prepared.stateWrites ?? []).map((write) => ({
                 role: "custom",
@@ -324,6 +326,44 @@ function systemPromptPreviewMessage(systemPrompt: string): AgentProfilePreparePr
         source: "systemPrompt",
     };
 }
+
+/**
+ * Compaction policy 在工作台预览中作为独立配置卡片展示。
+ */
+function compactionPreviewMessage(compaction: ProfileCompactionPlan, model: NeuroSessionContext["model"]): AgentProfilePreparePreviewDto["messages"][number] {
+    const options = resolveCompactionOptions(compaction, model ?? PREVIEW_COMPACTION_MODEL);
+    return {
+        role: "compaction",
+        text: JSON.stringify({
+            enabled: options.enabled,
+            triggerPercent: options.triggerPercent ?? null,
+            triggerTokens: options.triggerTokens ?? null,
+            reserveTokens: options.reserveTokens,
+            keepRecentTokens: options.keepRecentTokens,
+            promptSource: options.promptSource,
+            summaryPrefixSource: options.summaryPrefixSource,
+        }, null, 2),
+        source: "compaction",
+    };
+}
+
+const PREVIEW_COMPACTION_MODEL = {
+    id: "preview",
+    name: "Preview",
+    api: "openai-completions",
+    provider: "custom",
+    baseUrl: "",
+    reasoning: false,
+    input: ["text"],
+    cost: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+    },
+    contextWindow: 128_000,
+    maxTokens: 8_000,
+} satisfies Model<any>;
 
 /**
  * 工作台变量面板先展示 profile schema 摘要。

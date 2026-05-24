@@ -25,6 +25,8 @@ export type MessageStatus = "streaming" | "done" | "stopped";
  */
 export type ToolCallStatus = "streaming" | "invalid" | "running" | "success" | "error";
 
+const INTERRUPTED_TOOL_CALL_ERROR = "工具调用未完成：服务重启或运行中断后，已经无法继续等待这个结果。";
+
 /**
  * 单个 Tool Call 实体。
  */
@@ -316,6 +318,8 @@ export const reconcileMessages = (previousMessages: AgentMessage[], nextMessages
 export const deriveMessagesFromSessionSnapshot = (snapshot: AgentSessionSnapshotDto): AgentMessage[] => {
     const messages: AgentMessage[] = [];
     const assistantByToolCallId = new Map<string, AgentMessage>();
+    const hasActiveInvocation = Boolean(snapshot.activeInvocation);
+    const pendingToolCallId = snapshot.pendingApproval?.toolCallId ?? null;
 
     if (snapshot.systemPrompt?.trim()) {
         messages.push({
@@ -377,6 +381,11 @@ export const deriveMessagesFromSessionSnapshot = (snapshot: AgentSessionSnapshot
             }
         }
     }
+
+    markInterruptedToolCalls(messages, {
+        hasActiveInvocation,
+        pendingToolCallId,
+    });
 
     return messages;
 };
@@ -740,6 +749,34 @@ const toLocalToolCall = (toolCall: PiAgentToolCall, index: number, assistantMess
         status: "streaming",
         linkedSessionId,
     };
+};
+
+const markInterruptedToolCalls = (
+    messages: AgentMessage[],
+    input: {
+        hasActiveInvocation: boolean;
+        pendingToolCallId: string | null;
+    },
+): void => {
+    if (input.hasActiveInvocation) {
+        return;
+    }
+    for (const message of messages) {
+        if (!message.toolCalls?.length) {
+            continue;
+        }
+        message.toolCalls = message.toolCalls.map((toolCall) => {
+            if (toolCall.id === input.pendingToolCallId || toolCall.status === "success" || toolCall.status === "error" || toolCall.status === "invalid") {
+                return toolCall;
+            }
+            return {
+                ...toolCall,
+                status: "error",
+                error: toolCall.error ?? INTERRUPTED_TOOL_CALL_ERROR,
+                result: toolCall.result ?? INTERRUPTED_TOOL_CALL_ERROR,
+            };
+        });
+    }
 };
 
 const upsertToolResult = (assistant: AgentMessage, toolResult: ToolResultMessage): void => {

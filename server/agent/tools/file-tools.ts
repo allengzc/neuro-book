@@ -1,7 +1,7 @@
 import {spawn} from "node:child_process";
 import {existsSync} from "node:fs";
 import {mkdir, readFile, writeFile} from "node:fs/promises";
-import {dirname, join, win32} from "node:path";
+import {dirname, join, resolve, win32} from "node:path";
 import {applyPatch, createPatch} from "diff";
 import {Type} from "typebox";
 import type {Static} from "typebox";
@@ -241,7 +241,7 @@ function createBashTool(): NeuroAgentTool {
         key: "bash",
         name: "bash",
         label: "bash",
-        description: "Execute a bash command in the agent workspace root. Returns stdout and stderr merged. Output is truncated to the last 2000 lines or 50KB (whichever is hit first). If truncated, the full output is saved to a temp file and the result includes its path. Use bash for rg/find/ls/git/tests/build/scripts/workspace CLI, not for file reading or editing when a dedicated tool exists.",
+        description: "Execute a bash command in the agent workspace root. The agent bin directories are prepended to PATH, with user assets before system assets, so use workspace node ... for content-node CLI tasks. Returns stdout and stderr merged. Output is truncated to the last 2000 lines or 50KB (whichever is hit first). If truncated, the full output is saved to a temp file and the result includes its path. Use bash for rg/find/ls/git/tests/build/workspace CLI, not for file reading or editing when a dedicated tool exists.",
         parameters: BashSchema,
         async executeWithContext(
             context: ToolExecutionContext,
@@ -257,6 +257,7 @@ function createBashTool(): NeuroAgentTool {
                 bash,
                 command: input.command,
                 cwd: context.workspaceRoot,
+                env: createBashEnvironment(),
                 timeout: input.timeout,
                 signal,
                 onData(data) {
@@ -347,6 +348,22 @@ function resolveBashPath(): string {
 }
 
 /**
+ * 注入 Agent assets 的 bin 目录。用户覆盖优先于系统内置。
+ */
+function createBashEnvironment(): NodeJS.ProcessEnv {
+    const userAgentBin = resolve(process.cwd(), "workspace", ".nbook", "agent", "bin");
+    const systemAgentBin = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "bin");
+    const currentPath = process.env.PATH ?? process.env.Path ?? "";
+    return {
+        ...process.env,
+        NEURO_BOOK_AGENT_BIN: userAgentBin,
+        NEURO_BOOK_SYSTEM_AGENT_BIN: systemAgentBin,
+        PATH: currentPath,
+        Path: currentPath,
+    };
+}
+
+/**
  * 按平台解析 bash 路径。Windows 优先使用真实存在的 Git Bash 路径，再查 PATH。
  */
 export function resolveBashPathForPlatform(input: {
@@ -405,6 +422,7 @@ async function runBash(input: {
     bash: string;
     command: string;
     cwd: string;
+    env: NodeJS.ProcessEnv;
     timeout?: number;
     signal?: AbortSignal;
     onData(data: Buffer): void;
@@ -412,9 +430,11 @@ async function runBash(input: {
     if (!existsSync(input.cwd)) {
         throw new Error(`Working directory does not exist: ${input.cwd}`);
     }
+    const command = withAgentPathPrefix(input.command);
     return new Promise((resolve, reject) => {
-        const child = spawn(input.bash, ["-lc", input.command], {
+        const child = spawn(input.bash, ["-lc", command], {
             cwd: input.cwd,
+            env: input.env,
             stdio: ["ignore", "pipe", "pipe"],
             windowsHide: true,
         });
@@ -449,6 +469,23 @@ async function runBash(input: {
             resolve({exitCode});
         });
     });
+}
+
+/**
+ * Git Bash 会在启动时重排 Windows PATH。这里在 shell 内重新前置 Agent bin，
+ * 确保 user-assets 覆盖目录比系统目录和宿主 PATH 更早命中。
+ */
+function withAgentPathPrefix(command: string): string {
+    return [
+        "NEURO_BOOK_AGENT_BIN_POSIX=\"$NEURO_BOOK_AGENT_BIN\"",
+        "NEURO_BOOK_SYSTEM_AGENT_BIN_POSIX=\"$NEURO_BOOK_SYSTEM_AGENT_BIN\"",
+        "if command -v cygpath >/dev/null 2>&1; then",
+        "  NEURO_BOOK_AGENT_BIN_POSIX=$(cygpath -u \"$NEURO_BOOK_AGENT_BIN\" 2>/dev/null || printf '%s' \"$NEURO_BOOK_AGENT_BIN\")",
+        "  NEURO_BOOK_SYSTEM_AGENT_BIN_POSIX=$(cygpath -u \"$NEURO_BOOK_SYSTEM_AGENT_BIN\" 2>/dev/null || printf '%s' \"$NEURO_BOOK_SYSTEM_AGENT_BIN\")",
+        "fi",
+        "export PATH=\"$NEURO_BOOK_AGENT_BIN_POSIX:$NEURO_BOOK_SYSTEM_AGENT_BIN_POSIX:$PATH\"",
+        command,
+    ].join("\n");
 }
 
 function formatBashOutput(snapshot: ReturnType<OutputAccumulator["snapshot"]>, exitCode: number | null): string {

@@ -1,30 +1,30 @@
 {
-  "generatedAt": "2026-05-23T16:23:59.921Z",
+  "generatedAt": "2026-05-24T05:09:28.655Z",
   "profilesRoot": "assets/workspace/.nbook/agent/profiles",
   "profiles": [
     {
       "fileName": "builtin/leader.assets.profile.tsx",
       "profileKey": "leader.assets",
-      "sha256": "eac3d12b60058df72224d5c5a8dca954c45e23122b6b6a96ac70e54cfb2f7c8e",
-      "bytes": 8019
+      "sha256": "05b9552af8192cd518a24cc1f13914dc4e3318a8aa67e12daec1a71da6aaa222",
+      "bytes": 11344
     },
     {
       "fileName": "builtin/leader.default.profile.tsx",
       "profileKey": "leader.default",
-      "sha256": "d7a4b94d6b9438c3872e965c07e241fa9fb2c510977a9113200adc29bd96a531",
-      "bytes": 28140
+      "sha256": "efc2b48f2b511b049367c432226c0824c4c87901c10dd8494cfada9dfe1be3e4",
+      "bytes": 28426
     },
     {
       "fileName": "builtin/retrieval.profile.tsx",
       "profileKey": "retrieval",
-      "sha256": "ffdf96ea689643b985873775fc7122273030a0a9b534e384024a5a650ef6232a",
-      "bytes": 5634
+      "sha256": "09b6bb357491088007e4791635592a5be50287a2747787c36d31d6e8efc92466",
+      "bytes": 5749
     },
     {
       "fileName": "builtin/writer.profile.tsx",
       "profileKey": "writer",
-      "sha256": "729811fb96fdc00f1b5794a5db18aab302bcf73ce90f643200813f041130990f",
-      "bytes": 23573
+      "sha256": "3b9ba214ee4687c105a974dddb376b991bdcae9a39e007dc05db029a330392db",
+      "bytes": 23934
     }
   ]
 }

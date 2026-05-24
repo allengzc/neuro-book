@@ -1,6 +1,7 @@
 import {completeSimple} from "@earendil-works/pi-ai";
-import {estimateContextTokens, estimateTokens, shouldCompact} from "@earendil-works/pi-agent-core";
-import type {AgentMessage, Message, Model, ThinkingLevel} from "nbook/server/agent/messages/types";
+import {estimateContextTokens, estimateTokens} from "@earendil-works/pi-agent-core";
+import type {AgentMessage, JsonValue, Message, Model, ThinkingLevel} from "nbook/server/agent/messages/types";
+import type {ProfileCompactionPlan} from "nbook/server/agent/profiles/types";
 import type {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {MessageSessionEntry, SessionEntry, SessionSnapshot} from "nbook/server/agent/session/types";
 import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
@@ -21,12 +22,22 @@ export type CompactionOptions = {
     enabled: boolean;
     reserveTokens: number;
     keepRecentTokens: number;
+    triggerPercent?: number;
+    triggerTokens?: number;
+    prompt: string;
+    summaryPrefix: string;
+    promptSource: "default" | "profile";
+    summaryPrefixSource: "default" | "profile";
 };
 
 export const DEFAULT_NEURO_COMPACTION_OPTIONS: CompactionOptions = {
     enabled: true,
     reserveTokens: 8_000,
     keepRecentTokens: 24_000,
+    prompt: COMPACTION_PROMPT,
+    summaryPrefix: COMPACTION_SUMMARY_PREFIX,
+    promptSource: "default",
+    summaryPrefixSource: "default",
 };
 
 type CompactionPlan = {
@@ -44,16 +55,18 @@ export async function compactIfNeeded(input: {
     messages: AgentMessage[];
     model: Model<any>;
     apiKey?: string;
+    timeoutMs?: number | null;
+    requestOptions?: Record<string, JsonValue>;
     thinkingLevel?: ThinkingLevel;
-    options?: CompactionOptions;
+    compaction?: ProfileCompactionPlan;
 }): Promise<boolean> {
-    const options = input.options ?? DEFAULT_NEURO_COMPACTION_OPTIONS;
+    const options = resolveCompactionOptions(input.compaction, input.model);
     if (!options.enabled) {
         return false;
     }
 
     const usage = estimateContextTokens(input.messages);
-    if (!shouldCompact(usage.tokens, input.model.contextWindow, options)) {
+    if (!shouldCompactWithOptions(usage.tokens, input.model.contextWindow, options)) {
         return false;
     }
 
@@ -64,6 +77,8 @@ export async function compactIfNeeded(input: {
         tokensBefore: usage.tokens,
         model: input.model,
         apiKey: input.apiKey,
+        timeoutMs: input.timeoutMs,
+        requestOptions: input.requestOptions,
         thinkingLevel: input.thinkingLevel,
         options,
     });
@@ -79,12 +94,15 @@ export async function appendCompaction(input: {
     messages: AgentMessage[];
     model: Model<any>;
     apiKey?: string;
+    timeoutMs?: number | null;
+    requestOptions?: Record<string, JsonValue>;
     thinkingLevel?: ThinkingLevel;
     tokensBefore?: number;
     instructions?: string;
+    compaction?: ProfileCompactionPlan;
     options?: CompactionOptions;
 }): Promise<void> {
-    const options = input.options ?? DEFAULT_NEURO_COMPACTION_OPTIONS;
+    const options = input.options ?? resolveCompactionOptions(input.compaction, input.model);
     const path = input.repo.activePath(input.snapshot);
     const messageEntries = path.filter((entry): entry is MessageSessionEntry => entry.type === "message");
     assertNoPendingToolCall(messageEntries.map((entry) => entry.message));
@@ -93,12 +111,15 @@ export async function appendCompaction(input: {
         messages: plan.messagesToSummarize,
         model: input.model,
         apiKey: input.apiKey,
+        timeoutMs: input.timeoutMs,
+        requestOptions: input.requestOptions,
         instructions: input.instructions,
         previousSummary: plan.previousSummary,
         thinkingLevel: input.thinkingLevel,
         reserveTokens: options.reserveTokens,
+        prompt: options.prompt,
     });
-    const summary = `${COMPACTION_SUMMARY_PREFIX}\n\n${generatedSummary}`;
+    const summary = `${options.summaryPrefix}\n\n${generatedSummary}`;
 
     await input.repo.appendEntry(input.snapshot.metadata.sessionId, {
         type: "compaction",
@@ -109,8 +130,48 @@ export async function appendCompaction(input: {
             instructions: input.instructions,
             reserveTokens: options.reserveTokens,
             keepRecentTokens: options.keepRecentTokens,
+            triggerPercent: options.triggerPercent,
+            triggerTokens: options.triggerTokens,
+            promptSource: options.promptSource,
+            summaryPrefixSource: options.summaryPrefixSource,
         },
     }, input.snapshot.metadata.workspaceKey);
+}
+
+/**
+ * 将 profile compaction plan 解析成当前模型下的执行策略。
+ */
+export function resolveCompactionOptions(plan: ProfileCompactionPlan | undefined, model: Model<any>): CompactionOptions {
+    const keepRecentTokens = typeof plan?.keepRecentPercent === "number"
+        ? Math.max(1, Math.floor(model.contextWindow * plan.keepRecentPercent))
+        : plan?.keepRecentTokens ?? DEFAULT_NEURO_COMPACTION_OPTIONS.keepRecentTokens;
+    return {
+        enabled: plan?.enabled ?? DEFAULT_NEURO_COMPACTION_OPTIONS.enabled,
+        reserveTokens: plan?.reserveTokens ?? DEFAULT_NEURO_COMPACTION_OPTIONS.reserveTokens,
+        keepRecentTokens,
+        triggerPercent: plan?.triggerPercent,
+        triggerTokens: plan?.triggerTokens,
+        prompt: plan?.prompt ?? COMPACTION_PROMPT,
+        summaryPrefix: plan?.summaryPrefix ?? COMPACTION_SUMMARY_PREFIX,
+        promptSource: plan?.prompt ? "profile" : "default",
+        summaryPrefixSource: plan?.summaryPrefix ? "profile" : "default",
+    };
+}
+
+/**
+ * 根据 profile/harness 策略判断是否需要自动压缩。
+ */
+export function shouldCompactWithOptions(contextTokens: number, contextWindow: number, options: CompactionOptions): boolean {
+    if (!options.enabled) {
+        return false;
+    }
+    if (typeof options.triggerTokens === "number") {
+        return contextTokens >= options.triggerTokens;
+    }
+    if (typeof options.triggerPercent === "number") {
+        return contextTokens / contextWindow >= options.triggerPercent;
+    }
+    return contextTokens > contextWindow - options.reserveTokens;
 }
 
 /**
@@ -120,10 +181,13 @@ async function generateCompactionSummary(input: {
     messages: Message[];
     model: Model<any>;
     apiKey?: string;
+    timeoutMs?: number | null;
+    requestOptions?: Record<string, JsonValue>;
     instructions?: string;
     previousSummary?: string;
     thinkingLevel?: ThinkingLevel;
     reserveTokens: number;
+    prompt: string;
 }): Promise<string> {
     const conversation = input.messages.length
         ? input.messages.map((message) => `${message.role}: ${messageText(message)}`).join("\n\n")
@@ -134,12 +198,15 @@ async function generateCompactionSummary(input: {
         input.previousSummary ? `<previous-summary>\n${input.previousSummary}\n</previous-summary>` : "",
         `<conversation>\n${conversation}\n</conversation>`,
     ].filter(Boolean).join("\n\n");
+    const requestOptions = piStreamOptions(input.requestOptions);
     const response = await completeSimple(input.model, {
-        systemPrompt: COMPACTION_PROMPT,
+        systemPrompt: input.prompt,
         messages: [createUserMessage({text: prompt})],
     }, {
         apiKey: input.apiKey,
-        headers: input.model.headers,
+        timeoutMs: input.timeoutMs ?? undefined,
+        ...requestOptions,
+        headers: mergeHeaders(readHeaders(requestOptions.headers), input.model.headers),
         maxTokens: Math.min(Math.floor(input.reserveTokens * 0.8), input.model.maxTokens),
         reasoning: input.thinkingLevel && input.thinkingLevel !== "off" ? input.thinkingLevel as never : undefined,
     });
@@ -258,4 +325,31 @@ function assertNoPendingToolCall(messages: Message[]): void {
     if (pendingToolCall) {
         throw new Error(`当前 session 存在未完成 tool call，无法压缩：${pendingToolCall.name}`);
     }
+}
+
+function piStreamOptions(requestOptions: Record<string, JsonValue> | undefined): Record<string, unknown> {
+    if (!requestOptions) {
+        return {};
+    }
+    const allowedKeys = new Set(["headers", "maxRetries", "maxRetryDelayMs", "metadata", "transport", "cacheRetention"]);
+    return Object.fromEntries(
+        Object.entries(requestOptions).filter(([key]) => allowedKeys.has(key)),
+    );
+}
+
+function readHeaders(value: unknown): Record<string, string> | undefined {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return undefined;
+    }
+    return Object.fromEntries(
+        Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    );
+}
+
+function mergeHeaders(left: Record<string, string> | undefined, right: Record<string, string> | undefined): Record<string, string> | undefined {
+    const headers = {
+        ...left,
+        ...right,
+    };
+    return Object.keys(headers).length ? headers : undefined;
 }

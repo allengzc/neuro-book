@@ -66,6 +66,32 @@ name: User Writer
 
         await expect(catalog.get("empty")).resolves.toBeNull();
     });
+
+    it("默认系统 catalog 包含 profile-system-guide 和已迁移 v2 skills", async () => {
+        const catalog = new SkillCatalog();
+
+        const skills = await catalog.list();
+        const keys = skills.map((skill) => skill.key);
+        const skill = skills.find((item) => item.key === "profile-system-guide");
+
+        expect(skill?.source).toBe("system");
+        expect(skill?.skillPath.replaceAll("\\", "/")).toContain("assets/workspace/.nbook/agent/skills/profile-system-guide/SKILL.md");
+        expect(skill?.description).toContain("harness");
+        expect(keys).toEqual(expect.arrayContaining([
+            "番茄小说导入",
+            "角色设计流程",
+            "剧情规划流程",
+            "开局剧情设计",
+            "世界模拟",
+            "世界书初始化流程",
+            "爽文",
+            "小说初始化流程",
+            "小说灵感探索流程",
+            "skill-creator",
+            "skill-creator-zh",
+            "tsx-profile-editing",
+        ]));
+    });
 });
 
 async function writeSkill(root: string, key: string, source: string): Promise<void> {

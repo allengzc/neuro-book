@@ -176,6 +176,8 @@ export type AgentPendingApprovalDto = {
     toolCallId: string;
     toolName: string;
     args?: JsonValue;
+    planFilePath?: string;
+    planContent?: string;
 };
 
 export type AgentFollowUpQueueItemDto = {

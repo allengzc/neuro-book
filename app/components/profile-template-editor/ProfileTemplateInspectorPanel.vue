@@ -296,7 +296,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
                     </div>
                     <div v-else class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 px-3 py-2 text-xs text-[var(--text-muted)]">此节点暂无属性。</div>
 
-                    <template v-if="props.selectedNode.type === 'System' || props.selectedNode.type === 'Message' || props.selectedNode.type === 'AIMessage' || props.selectedNode.type === 'ToolCall' || props.selectedNode.type === 'ToolResult' || props.selectedNode.type === 'Text'">
+                    <template v-if="props.selectedNode.type === 'System' || props.selectedNode.type === 'Message' || props.selectedNode.type === 'AIMessage' || props.selectedNode.type === 'ToolCall' || props.selectedNode.type === 'ToolResult' || props.selectedNode.type === 'Text' || props.selectedNode.type === 'CompactionPrompt' || props.selectedNode.type === 'CompactionSummaryPrefix'">
                         <div class="field-label">{{ props.selectedNode.textKind === "source" ? "内容（TSX 表达式内容）" : props.selectedNode.type === "Text" ? "文本片段" : "内容（支持变量引用）" }}</div>
                         <StructuredTextEditor
                             :model-value="props.selectedNode.text ?? ''"

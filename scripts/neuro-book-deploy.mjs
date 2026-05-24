@@ -18,8 +18,7 @@ const GLOBAL_CONFIG_FILENAME = "workspace/.nbook/config.json";
 const PROVIDERS = {
     deepseek: {
         name: "DeepSeek",
-        adapter: "deepseek-official",
-        baseURL: "https://api.deepseek.com/v1",
+        baseURL: "",
         modelId: "deepseek-v4-flash",
         modelName: "DeepSeek-V4-Flash",
         modelGroup: "deepseek",
@@ -27,7 +26,6 @@ const PROVIDERS = {
     },
     doubao: {
         name: "Doubao",
-        adapter: "openai-compatible",
         baseURL: "https://ark.cn-beijing.volces.com/api/v3",
         modelId: "doubao-seed-2-0-pro",
         modelName: "Doubao Seed 2.0 Pro",
@@ -36,7 +34,6 @@ const PROVIDERS = {
     },
     qwen: {
         name: "Qwen",
-        adapter: "openai-compatible",
         baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
         modelId: "qwen3.6-plus",
         modelName: "Qwen 3.6 Plus",
@@ -45,7 +42,6 @@ const PROVIDERS = {
     },
     siliconflow: {
         name: "SiliconFlow",
-        adapter: "openai-compatible",
         baseURL: "https://api.siliconflow.cn/v1",
         modelId: "deepseek-ai/DeepSeek-V4-Flash",
         modelName: "DeepSeek-V4-Flash",
@@ -54,7 +50,6 @@ const PROVIDERS = {
     },
     gemini: {
         name: "Gemini",
-        adapter: "gemini-compatible",
         baseURL: "",
         modelId: "gemini-3-pro-preview-maxthinking",
         modelName: "Gemini 3 Pro Preview MaxThinking",
@@ -407,7 +402,6 @@ function createSelectedProvider(config) {
     return {
         id: config.provider,
         name: provider.name,
-        adapter: provider.adapter,
         options: {
             apiKey: config.apiKey,
             baseURL: provider.baseURL,
@@ -438,7 +432,6 @@ function parseLegacyGlobalConfig(text) {
         ? Object.entries(parsed.models.providers).map(([providerId, provider]) => ({
             id: providerId,
             name: provider?.name ?? providerId,
-            adapter: provider?.adapter ?? "openai-compatible",
             options: provider?.options ?? {},
             models: provider?.models && typeof provider.models === "object" && !Array.isArray(provider.models)
                 ? Object.entries(provider.models).map(([modelId, model]) => ({

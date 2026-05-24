@@ -5,8 +5,8 @@
 ## 文档状态
 
 - 当前实现事实：`server/agent/harness/neuro-agent-harness.ts`、`server/agent/profiles/types.ts`、`server/agent/profiles/profile-dsl.ts`、`server/agent/session/session-repo.ts`。
-- 关联任务：`docs/tasks/leader-profile-v2-adaptation/README.md`、`docs/tasks/tsx-profile-workbench/README.md`、`docs/tasks/pi-agent-harness-migration/README.md`。
-- 暂缓内容：`ingest` 作为 ReAct loop 结果归档策略的重设计先不做；当前仍由 harness 在 streaming `message_end` 时持久化 assistant / toolResult。
+- 关联任务：`docs/tasks/05-leader-profile-v2-adaptation/README.md`、`docs/tasks/04-tsx-profile-workbench/README.md`、`docs/tasks/02-pi-agent-harness-migration/README.md`。
+- 暂缓内容：`ingest` 作为 ReAct loop 结果归档策略的重设计先不做；当前 assistant / toolResult 由 harness 在 `turn_end` 作为一组 durable turn commit 写入 session。
 
 ## 关键位置
 
@@ -30,7 +30,7 @@
 - pre-loop 写入后重新 reduce session，组装 provider 可见 messages。
 - 根据 profile `allowedToolKeys` 选择可见工具，并为 `report_result` 按目标 profile 动态派生 schema。
 - 调用 Pi provider streaming，执行 tool call，并广播 Pi-like events。
-- 将 assistant / toolResult 的 `message_end` 结果写回 session。
+- 将普通 ReAct turn 的 assistant / toolResult 在 `turn_end` 成组写回 session。
 - 管理 active invocation、follow-up queue、abort、approval waiting、compaction 和 tree command。
 
 ## Session 模型
@@ -123,7 +123,7 @@ active DSL 节点：
 - `Reminder`：可在 `AppendingSet` 或 `ModelContext` 内，按状态决定是否产出 pre-loop 可见 message。
 - `Watch`：可在 `AppendingSet` 或 `ModelContext` 内，观察路径变化并更新 baseline。
 - `If`：条件 false 时不渲染子树，也不更新子树状态。
-- `SkillCatalog` / `ActivatedSkills`：string fragment，可放在支持 string children 的节点内。
+- `SkillCatalog` / `ActivatedSkills`：string fragment，可放在支持 string children 的节点内。当前没有独立 `skill` 工具；Agent 通过 catalog 的 `location` 用 `read` 打开 `SKILL.md`，reference/scripts/templates/examples 按入口说明按需继续读取。
 
 `DynamicSet` 不再是公开 DSL 节点。需要 model-only context 时使用 `ModelContext`。
 
@@ -143,7 +143,7 @@ active DSL 节点：
 9. 如需要，基于 reduced messages + modelContextMessages 做 compaction。
 10. 再次 reduce，组装 ReAct loop 输入。
 11. 进入 ReAct loop。
-12. ReAct loop 内 assistant / toolResult 的 message_end 事件写入 session。
+12. ReAct loop 内 `message_end` / `tool_execution_*` 只作为 live event 广播；普通 assistant / toolResult 在 `turn_end` 成组写入 session。
 13. loop 完成后运行当前 ingest。
 14. 写 invocation_lifecycle:end/error/aborted。
 15. 清理 active invocation，drain follow-up queue。
@@ -173,6 +173,17 @@ active DSL 节点：
 }
 ```
 
+`workspaceRoot` 是 agent 工具执行 cwd，不等同于当前小说 Project Workspace。普通小说入口现在把 cwd 固定为 Workspace Root `workspace`，这样同一个 agent 可以显式访问多个 Project Workspace；当前小说通过 session `novelId` 和 RuntimeContext 的 `Current Project Workspace` 提示给模型。`user-assets` 入口仍使用 `workspace/.nbook` 作为 cwd。
+
+### Agent Bash CLI
+
+`bash` 工具启动时会把 Agent assets bin 目录加入 PATH：
+
+- 用户覆盖：`workspace/.nbook/agent/bin`
+- 系统内置：`assets/workspace/.nbook/agent/bin`
+
+用户覆盖目录优先于系统目录。内容节点 CLI 的 Agent 稳定入口是 `workspace node ...`，对应脚本位于 `.nbook/agent/scripts/workspace.ts`。项目根 `scripts/` 只用于开发、部署和源码级检查，不作为 Agent runtime 合同写入 profile/skill prompt。
+
 流程：
 
 ```text
@@ -180,10 +191,11 @@ agent_start
 while shouldContinue:
     turn_start
     streamAssistant(systemPrompt, messages, visibleTools)
-    assistant message_end -> session
+    assistant message_end -> live event
     collect assistant tool calls
     runToolBatch(toolCalls)
-    toolResult message_end -> session
+    toolResult message_end -> live event
+    commitTurn(assistant, toolResults) -> one JSONL batch record
     turn_end
     if waiting approval/input:
         agent_end
@@ -209,6 +221,18 @@ Harness 通过 `AgentSessionEventHub` 广播：
 - `modelContextMessages` 不展示；`ModelContext` 内的 `Reminder` 已转成 pre-loop 可见消息，因此会展示。
 - 需要用户看见、需要分支保存、需要 replay 的内容必须通过 `AppendingSet` 写入 session。
 
+### Durable Turn Commit
+
+普通 ReAct turn 的持久化边界是 `turn_end`，不是 assistant `message_end`。
+
+- `message_start` / `message_update` / `message_end`、`tool_execution_start` / `tool_execution_end` 会立即通过 SSE 发给前端，用于当前运行中的 UI。
+- 普通 turn 结束后，harness 一次性写入 assistant message，再按 assistant tool call 的 source order 写入 toolResult messages；这些 entry 与最终 leaf 移动会落在同一条 JSONL `batch` record 中。
+- 无工具 assistant 也在 `turn_end` 写入，保持统一 durable commit 入口。
+- 如果服务在普通工具执行中重启，当前 turn 尚未 commit，JSONL 不会留下半截普通 tool call。
+- 如果服务在 commit 期间崩溃，普通 turn 也不会留下 assistant 已可见、toolResult 未可见的中间 leaf；旧 `entry` record 仍可读取，新 turn 使用 `batch` record。
+- approval / request-user-input 类工具是合法 suspend point：waiting 时会持久化 assistant toolCall，等待用户 resolution 后再写对应 toolResult。
+- 如果历史里已经存在旧的未闭合普通 tool call，harness 会拒绝继续发送给 provider，并提示需要切换干净分支或执行显式 session repair。
+
 ## Ingest
 
 当前 `profile.ingest()` 在 ReAct loop 完成后运行，允许返回：
@@ -223,7 +247,7 @@ Harness 通过 `AgentSessionEventHub` 广播：
 }
 ```
 
-本阶段不把 `ingest` 改造成 assistant / toolResult 归档策略。assistant / toolResult 仍由 harness 在 ReAct loop `message_end` 时持久化，以保证 live event、session replay、waiting resume 和 append-only tree 一致。
+本阶段不把 `ingest` 改造成 assistant / toolResult 归档策略。assistant / toolResult 仍由 harness 归档，但 durable 边界已经从 `message_end` 收敛到 `turn_end`，以避免服务重启留下普通未闭合 tool call。
 
 ## Compaction
 
@@ -235,6 +259,17 @@ reduced session messages + prepared.modelContextMessages
 
 如果发生 compaction，会写 `compaction` entry。之后重新 reduce session，再进入 ReAct loop。手动 `/compact` 走 command 入口，不作为普通用户消息进入模型。
 
+compaction policy 由 profile 的 `ProfileTurnPlan.compaction` 提供；profile 未配置时使用 harness 默认策略。TSX Profile 可以在 `<ProfilePrompt>` 顶层声明：
+
+- `<Compaction triggerPercent={0.8}>`：按 `contextTokens / model.contextWindow` 自动触发。
+- `<Compaction triggerTokens={120000}>`：按绝对 token 阈值自动触发。
+- `reserveTokens`：默认 `8000`，也是 summary 输出预算来源。
+- `keepRecentTokens` / `keepRecentPercent`：控制 recent context 保留预算；默认 `24000`。
+- `<CompactionPrompt>`：覆盖压缩摘要调用的 provider `systemPrompt`。
+- `<CompactionSummaryPrefix>`：覆盖 summary 写入 session 后注入后续上下文的前缀。
+
+`triggerPercent` 与 `triggerTokens` 不能同时配置；`keepRecentPercent` 与 `keepRecentTokens` 不能同时配置。自动 compaction 和手动 `/compact` 共用同一套解析后的 policy；手动命令只读取 compaction policy，不写入 `HistorySet` / `AppendingSet` / `stateWrites`。
+
 ## Workbench Preview
 
 TSX Profile Workbench 预览调用真实 profile `prepare()`，展示：
@@ -244,6 +279,7 @@ TSX Profile Workbench 预览调用真实 profile `prepare()`，展示：
 - `appendingMessages`
 - `modelContextAppendingMessages`
 - `modelContextMessages`
+- `compaction`
 - `stateWrites`
 - 当前目标 profile 派生出的 `report_result` schema
 

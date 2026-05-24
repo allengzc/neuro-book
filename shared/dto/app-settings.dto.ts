@@ -1,7 +1,7 @@
 import {z} from "zod";
 
 const ProviderIdSchema = z.string().trim().min(1, "providerId 不能为空").regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "providerId 格式不合法");
-const ModelIdSchema = z.string().trim().min(1, "modelId 不能为空").regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/, "modelId 格式不合法");
+const ModelIdSchema = z.string().trim().min(1, "modelId 不能为空");
 const NullableTextSchema = z.string().trim().nullable().optional().transform((value) => {
     const normalized = value?.trim() ?? "";
     return normalized ? normalized : null;
@@ -15,44 +15,20 @@ const TemperatureSchema = z.number().nonnegative("temperature 不能小于 0").n
 const TopKSchema = z.number().int("topK 必须是整数").positive("topK 必须大于 0").nullable().default(null);
 const ContextWindowTokensSchema = z.number().int("contextWindowTokens 必须是整数").positive("contextWindowTokens 必须大于 0").nullable().default(null);
 const ReasoningEffortSchema = z.enum(["low", "medium", "high"]).nullable().default(null);
-
-/**
- * 模型 Provider 适配器类型。
- */
-export const ModelProviderAdapterTypeSchema = z.enum([
-    "openai-official",
-    "openai-compatible",
-    "gemini-compatible",
-    "deepseek-official",
-]);
-
-/**
- * 判断 adapter 默认是否回放 provider reasoning_content。
- */
-function defaultReasoningContentReplay(adapterType: z.infer<typeof ModelProviderAdapterTypeSchema>): boolean {
-    return adapterType === "openai-compatible" || adapterType === "deepseek-official";
-}
-
-/**
- * 模型 Provider 适配器。
- *
- * 配置文件允许写字符串简写，也允许写对象做细节调节。DTO 输出统一收敛为对象。
- */
-export const ModelProviderAdapterSchema = z.union([
-    ModelProviderAdapterTypeSchema,
-    z.object({
-        type: ModelProviderAdapterTypeSchema,
-        reasoningContentReplay: z.boolean().optional(),
-    }),
-]).transform((value) => {
-    const type = typeof value === "string" ? value : value.type;
-    return {
-        type,
-        reasoningContentReplay: typeof value === "string"
-            ? defaultReasoningContentReplay(type)
-            : value.reasoningContentReplay ?? defaultReasoningContentReplay(type),
-    };
+const ModelInputKindSchema = z.enum(["text", "image"]);
+const PiModelApiSchema = z.string().trim().min(1, "api 不能为空").nullable().default(null);
+const PiModelBaseUrlSchema = NullableTextSchema;
+const PiModelInputSchema = z.array(ModelInputKindSchema).min(1, "input 至少需要声明一种输入类型").nullable().default(null);
+const PiModelReasoningSchema = z.boolean().nullable().default(null);
+const PiModelMaxTokensSchema = z.number().int("maxTokens 必须是整数").positive("maxTokens 必须大于 0").nullable().default(null);
+const PiModelCostObjectSchema = z.object({
+    input: z.number().default(0),
+    output: z.number().default(0),
+    cacheRead: z.number().default(0),
+    cacheWrite: z.number().default(0),
 });
+const PiModelCostSchema = PiModelCostObjectSchema.nullable().default(null);
+const PiModelCompatSchema = z.record(z.string(), z.json()).nullable().default(null);
 
 /**
  * Provider 连接配置。
@@ -73,6 +49,17 @@ export const ConfiguredModelDtoSchema = z.object({
     id: ModelIdSchema,
     group: NullableTextSchema,
     enabled: z.boolean().default(true),
+    /**
+     * 为空表示继承 Pi 内置 registry；自定义模型可显式声明 Pi Model 字段。
+     */
+    provider: NullableTextSchema,
+    api: PiModelApiSchema,
+    baseUrl: PiModelBaseUrlSchema,
+    reasoning: PiModelReasoningSchema,
+    input: PiModelInputSchema,
+    maxTokens: PiModelMaxTokensSchema,
+    cost: PiModelCostSchema,
+    compat: PiModelCompatSchema,
     contextWindowTokens: ContextWindowTokensSchema,
 });
 
@@ -82,7 +69,6 @@ export const ConfiguredModelDtoSchema = z.object({
 export const ConfiguredProviderDtoSchema = z.object({
     id: ProviderIdSchema,
     name: z.string().trim().min(1, "Provider 名称不能为空"),
-    adapter: ModelProviderAdapterSchema,
     options: ModelProviderOptionsDtoSchema,
     models: z.array(ConfiguredModelDtoSchema).default([]),
 });
@@ -234,7 +220,6 @@ export const UpdateAgentProfileModelSettingsRequestDtoSchema = z.object({
 export const ModelProviderDraftDtoSchema = z.object({
     id: ProviderIdSchema,
     name: z.string().trim().min(1, "Provider 名称不能为空"),
-    adapter: ModelProviderAdapterSchema,
     options: ModelProviderOptionsDtoSchema,
 });
 
@@ -297,8 +282,41 @@ export const CheckModelResponseDtoSchema = z.object({
     message: z.string().trim().min(1),
 });
 
-export type ModelProviderAdapterType = z.infer<typeof ModelProviderAdapterTypeSchema>;
-export type ModelProviderAdapter = z.infer<typeof ModelProviderAdapterSchema>;
+/**
+ * Pi 内置模型目录。前端用它把 provider/model 添加到 Global Config。
+ */
+export const PiBuiltinModelDtoSchema = z.object({
+    id: ModelIdSchema,
+    name: z.string().trim().min(1),
+    api: z.string().trim().min(1),
+    provider: ProviderIdSchema,
+    baseUrl: z.string().trim(),
+    reasoning: z.boolean(),
+    input: z.array(ModelInputKindSchema).min(1),
+    cost: PiModelCostObjectSchema,
+    contextWindowTokens: z.number().int().positive(),
+    maxTokens: z.number().int().positive(),
+    compat: PiModelCompatSchema,
+});
+
+/**
+ * Pi 内置 Provider 目录项。
+ */
+export const PiBuiltinProviderDtoSchema = z.object({
+    id: ProviderIdSchema,
+    name: z.string().trim().min(1),
+    baseUrl: z.string().trim(),
+    models: z.array(PiBuiltinModelDtoSchema).default([]),
+});
+
+/**
+ * Pi 内置 Provider/Model 目录响应。
+ */
+export const PiBuiltinCatalogDtoSchema = z.object({
+    providers: z.array(PiBuiltinProviderDtoSchema).default([]),
+});
+
+export type ModelInputKind = z.infer<typeof ModelInputKindSchema>;
 export type ModelProviderOptionsDto = z.infer<typeof ModelProviderOptionsDtoSchema>;
 export type ConfiguredModelDto = z.infer<typeof ConfiguredModelDtoSchema>;
 export type ConfiguredProviderDto = z.infer<typeof ConfiguredProviderDtoSchema>;
@@ -317,3 +335,6 @@ export type DiscoverProviderModelsRequestDto = z.infer<typeof DiscoverProviderMo
 export type DiscoverProviderModelsResponseDto = z.infer<typeof DiscoverProviderModelsResponseDtoSchema>;
 export type CheckModelRequestDto = z.infer<typeof CheckModelRequestDtoSchema>;
 export type CheckModelResponseDto = z.infer<typeof CheckModelResponseDtoSchema>;
+export type PiBuiltinModelDto = z.infer<typeof PiBuiltinModelDtoSchema>;
+export type PiBuiltinProviderDto = z.infer<typeof PiBuiltinProviderDtoSchema>;
+export type PiBuiltinCatalogDto = z.infer<typeof PiBuiltinCatalogDtoSchema>;

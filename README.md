@@ -184,7 +184,10 @@ docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.g
 - `workspace/.nbook/config.json` 是 Global Config，保存模型 Provider 密钥、默认模型、Provider baseURL、代理、profile 模型覆盖、`auth.enabled` 和长期 UI/editor 偏好。
 - `workspace/{project}/.nbook/config.json` 是 Project Config，只保存当前 Project Workspace 对允许字段的覆盖。
 - `models.default` 使用 `provider/model` 格式，例如 `deepseek/deepseek-v4-flash`，并且要指向 `models.providers` 下 `enabled: true` 的模型。
-- `adapter` 决定 Provider 协议：OpenAI 官方接口使用 `openai-official`，主流 OpenAI 兼容网关使用 `openai-compatible`，DeepSeek 官方接口使用 `deepseek-official`，Gemini 使用 `gemini-compatible`。`openai-compatible` 默认会保留并回放 provider 返回的 `reasoning_content`；如需关闭，可写成 `adapter: { type: openai-compatible, reasoningContentReplay: false }`。
+- Provider 不再配置项目自有 `adapter`。运行时统一解析 Pi `Model`：如果 `provider/model` 存在于 Pi 内置 registry，就继承 `api`、`baseUrl`、`input`、`reasoning`、`compat`、`contextWindow` 和 `maxTokens`；如果是自定义模型，则在模型项上显式配置这些 Pi Model 字段。
+- 允许同一个 Pi Provider 添加多份本地连接，例如 `deepseek` 和 `deepseek-2`。此时模型 key 使用本地连接 ID，例如 `deepseek-2/deepseek-v4-flash`；模型项的 `provider: "deepseek"` 负责声明真实 Pi Provider，便于继续继承 Pi registry 与兼容性判断。
+- 模型项里的 `input: ["text", "image"]` 才表示支持图片输入；留空表示继承 Pi registry，自定义未知模型留空时按 text-only 处理。比如 Pi registry 中 `xiaomi-token-plan-cn/mimo-v2.5` 支持图片，`xiaomi-token-plan-cn/mimo-v2.5-pro` 是纯文本。
+- Provider 的 `requestOptions` 现在作为 Pi stream options 的 JSON 补充使用，只透传 `headers`、`maxRetries`、`maxRetryDelayMs`、`metadata`、`transport`、`cacheRetention`。`apiKey`、`timeoutMs`、`sessionId`、`reasoning`、`maxTokens` 由系统一等字段掌管，不从这里覆盖。
 - `contextWindowTokens` 用于上下文预算估算；能确认模型窗口时填数字，不能确认时填 `null`。
 - `./workspace` 会挂载到容器内 `/app/workspace`。部署脚本会创建 `workspace/` 和 `workspace/.nbook/config.json`；应用启动也会确保 `workspace/` 存在，但不会自动创建配置文件。
 - 旧 `config.yaml` 可以通过 `bun run config:migrate` 迁移：业务配置会写入 `workspace/.nbook/config.json`，根 `config.yaml` 会收窄为 Boot Config。
@@ -200,30 +203,35 @@ docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.g
 
 ## AGENT 系统
 
-这个仓库里的 AGENT 系统不是单一聊天机器人，而是一套可组合的线程、角色、工具和提示词合同。
+这个仓库里的 AGENT 系统不是单一聊天机器人，而是一套可组合的 session、profile、工具、skill 和提示词合同。当前主路径是 Pi-based `server/agent`，旧 v2 只作为归档参考。
 
 核心概念：
 
-- `leader thread` 是主入口，用户主要在这里发起任务。
-- `subagent thread` 是独立的专业线程，可以被 leader 创建、关联和复用。
-- `skill` 是可读取的能力单元，`workflow` 在当前阶段按 skill 统一处理。
-- `walkthrough` 是 subagent 执行后的可见总结，用户和 leader 都能看到。
-- `Plan Mode` 是线程级软规划模式，先规划、再审批、再执行。
+- `session` 是对话与执行历史真相源，使用 JSONL append-only entry tree 保存 active branch、消息、状态和工具结果。
+- `profile` 定义一个 agent 的身份、输入/输出 schema、可见工具和 TSX prompt。
+- `linked agent` 是由当前 session 创建、关联和复用的专用 agent，不再使用旧 subagent/thread 心智。
+- `SkillCatalog` 是可发现的能力索引；独立 `skill` 工具已禁用，Agent 需要使用 skill 时按 catalog 的 `location` 用 `read` 打开 `SKILL.md`。
+- `Plan Mode` 是 session 级软规划模式，计划文件统一写到当前 Project Workspace 的 `.agent/plan/`，先规划、再审批、再执行。
 
 这套系统的关键点是：
 
-- leader 负责理解任务、查 skill、组织上下文、调用 subagent 和汇总结果。
-- subagent 负责执行具体工作，并且可以在过程中提问用户。
-- 工具层负责真实执行，比如读写文件、检索、创建 subagent、请求用户输入、报告结果。
-- 前端会把 subagent 的执行过程、状态和 walkthrough 显示成可感知的执行气泡。
+- `leader.default` 负责理解任务、查 skill、组织上下文、创建/调用 linked agent 并汇总结果。
+- `writer`、`retrieval` 等专用 profile 可以通过 `create_agent` / `invoke_agent` 运行。
+- 工具层负责真实执行，比如读写文件、检索、创建 agent、请求用户输入、报告结果、维护任务列表、读写 Plot 和安全 SQL。
+- 前端 Agent 抽屉使用 `/api/agent/sessions/**` 的 snapshot、invocation、command、tree、abort 和 SSE event contract。
 
 和 AGENT 相关的说明主要在这些地方：
 
 - [spec/agent/system.md](spec/agent/system.md)：多 Agent 需求规格。
 - [spec/agent/profile-guide.md](spec/agent/profile-guide.md)：profile 实现指南。
 - [spec/agent/context.md](spec/agent/context.md)：TSX prompt 的上下文拼接规则。
-- [docs/tasks/agent-plan-mode/README.md](docs/tasks/agent-plan-mode/README.md)：Plan Mode 任务报告。
-- [docs/tasks/agent-tsx-prompt-context/README.md](docs/tasks/agent-tsx-prompt-context/README.md)：TSX prompt 合同调整报告。
+- [docs/modules/agent/harness.md](docs/modules/agent/harness.md)：当前 Agent Harness 的 session、profile、ReAct loop、SSE 和消息持久化流程。
+- [docs/tasks/02-pi-agent-harness-migration/README.md](docs/tasks/02-pi-agent-harness-migration/README.md)：Pi-based Agent 主路径迁移记录。
+- [docs/tasks/04-tsx-profile-workbench/README.md](docs/tasks/04-tsx-profile-workbench/README.md)：TSX Profile Workbench 当前任务记录。
+- [docs/tasks/05-leader-profile-v2-adaptation/README.md](docs/tasks/05-leader-profile-v2-adaptation/README.md)：leader.default v2 适配与 TSX DSL/harness 调整记录。
+- [docs/tasks/06-leader-default-prompt-parity/README.md](docs/tasks/06-leader-default-prompt-parity/README.md)：leader.default prompt parity、工具迁移和 skill 迁移记录。
+- [docs/tasks/archived/agent-plan-mode/README.md](docs/tasks/archived/agent-plan-mode/README.md)：Plan Mode 任务报告。
+- [docs/tasks/archived/agent-tsx-prompt-context/README.md](docs/tasks/archived/agent-tsx-prompt-context/README.md)：TSX prompt 合同调整报告。
 
 ## TSX Profile
 
@@ -232,21 +240,25 @@ neuro-book 的 Agent profile 不是纯字符串 prompt，而是用 TSX 组件树
 你会经常看到这几个层次：
 
 - `HistorySet`：长期稳定上下文，比如身份、规则、首轮持久化的 skill catalog。
-- `DynamicSet`：本轮动态信息，比如当前 workspace、任务状态、临时变量。
-- `AppendingSet`：贴近当前输入的上下文，比如 reminder、activated skills、当前用户输入。
+- `ModelContext`：本轮只给模型看的动态上下文，比如当前 workspace、任务状态、linked agents、SQL schema summary。
+- `AppendingSet`：本轮写入 session 且贴近当前输入的上下文，比如 reminder、activated skills、当前任务状态提醒。
 
 几个常见规则：
 
-- profile 会显式声明 `inputSchema`，需要结构化输出时也会声明 `outputSchema`。
-- `SimpleProfile` 是当前推荐基类。
-- `leader-default`、`writer`、`retrieval` 是最常见的内置 profile。
-- `leader-runtime.tsx` 是 TSX profile 模板编辑器使用的预览模板，不直接等同于生产运行时。
+- profile 会显式声明 TypeBox `inputSchema` 和 `outputSchema`；`inputSchema` 是创建 agent/session 时的实例初始化参数，不是每轮用户 prompt。
+- 普通 profile 推荐使用 `defineAgentProfile({ context })` + TSX DSL；高级 profile 可以直接返回 `ProfileTurnPlan`。
+- `leader.default`、`leader.assets`、`writer`、`retrieval` 是最常见的内置 profile。
+- 系统 profile 位于 `assets/workspace/.nbook/agent/profiles`，用户覆盖位于 `workspace/.nbook/agent/profiles`，系统更新通过 metadata 同步未手改的用户覆盖。
+- Workbench 以 `.profile.tsx` 源码为真相源：保存源码不等于编译通过，创建 Session 需要最近一次编译通过且源码未改动。
 
 TSX profile 相关文档：
 
 - [spec/agent/profile-guide.md](spec/agent/profile-guide.md)
 - [spec/agent/context.md](spec/agent/context.md)
-- [docs/tasks/tsx-profile-template-editor/README.md](docs/tasks/tsx-profile-template-editor/README.md)
+- [docs/tasks/04-tsx-profile-workbench/README.md](docs/tasks/04-tsx-profile-workbench/README.md)
+- [docs/tasks/05-leader-profile-v2-adaptation/README.md](docs/tasks/05-leader-profile-v2-adaptation/README.md)
+- [docs/tasks/06-leader-default-prompt-parity/README.md](docs/tasks/06-leader-default-prompt-parity/README.md)
+- [docs/tasks/archived/tsx-profile-template-editor/README.md](docs/tasks/archived/tsx-profile-template-editor/README.md)
 
 ## 文档入口
 
@@ -257,6 +269,6 @@ TSX profile 相关文档：
 
 ## 当前开发约定
 
-- 重大任务需要同步更新 `PROJECT-STATUS.md` 和对应 `docs/tasks/<task-slug>/README.md`。
+- 重大任务需要同步更新 `PROJECT-STATUS.md` 和对应 active `docs/tasks/<order>-<task-slug>/README.md` 或 archived `docs/tasks/archived/<task-slug>/README.md`。
 - 稳定规范放在 `spec/<module>/`，调研与草案放在 `docs/` 下对应目录。
 - 具体编码约束以 [AGENTS.md](AGENTS.md) 为准。

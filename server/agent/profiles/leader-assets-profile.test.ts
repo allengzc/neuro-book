@@ -51,12 +51,12 @@ describe("assets builtin v3 profiles", () => {
             "create_agent",
             "invoke_agent",
             "get_agent",
+            "get_agent_profile",
             "get_session",
             "detach_agent",
             "request_user_input",
             "enter_plan_mode",
             "exit_plan_mode",
-            "skill",
             "task_create",
             "task_set_status",
             "get_plot_tree",
@@ -76,18 +76,27 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).toContain("bash");
         expect(prompt).toContain("offset/limit");
         expect(prompt).toContain("edits[]");
-        expect(prompt).toContain("原始文件");
         expect(prompt).toContain("workspace root");
         expect(prompt).toContain("搜索文本优先用 rg");
         expect(prompt).toContain("create_agent");
         expect(prompt).toContain("invoke_agent");
         expect(prompt).toContain("get_agent");
+        expect(prompt).toContain("get_agent_profile");
         expect(prompt).toContain("Task Management");
+        expect(prompt).toContain("Task tools are for execution tracking, not for storing novel facts");
         expect(prompt).toContain("task_create");
         expect(prompt).toContain("execute_sql");
         expect(prompt).toContain("get_plot_tree");
         expect(prompt).toContain("writer");
         expect(prompt).toContain("retrieval");
+        expect(prompt).toContain("内容节点引用分流");
+        expect(prompt).toContain("retrieval.trigger");
+        expect(prompt).toContain("workspace node parse --stdin --ndjson");
+        expect(prompt).toContain("\"novelId\"");
+        expect(prompt).toContain("\"createdAt\"");
+        expect(prompt).toContain("角色动机是否连续");
+        expect(prompt).toContain("Plan Mode 工作目录会在 runtime context");
+        expect(prompt).not.toContain("{sessionId}");
         expect(prompt).not.toContain("read_file");
         expect(prompt).not.toContain("write_file");
         expect(prompt).not.toContain("edit_file");
@@ -96,9 +105,66 @@ describe("assets builtin v3 profiles", () => {
         const historyText = (prepared.historyInitMessages ?? []).map(messageText).join("\n");
         expect(historyText).toContain("Available Agents");
         expect(historyText).toContain("writer");
-        expect(historyText).toContain("本次写作任务");
+        expect(historyText).toContain("get_agent_profile");
+        expect(historyText).not.toContain("本次写作任务");
+        expect(historyText).not.toContain("allowedTools:");
         expect(historyText).toContain("Available Skills");
         expect(historyText).toContain("Draft Skill");
+        expect(historyText).toContain("Skills are reusable work methods");
+        expect(historyText).toContain("These agent profiles are currently available");
+        const planModePrepared = await profile.prepare!({
+            session: {
+                systemPrompt: "",
+                messages: [],
+                model: null,
+                thinkingLevel: "off",
+                profileKey: "leader.default",
+                workspaceRoot: resolve("workspace"),
+                customState: {
+                    "agent.planMode": {
+                        active: true,
+                        reminderKind: "full",
+                        workDirectory: "workspace/.agent/123",
+                    },
+                },
+                linkedAgents: [],
+                archived: false,
+                planModeActive: true,
+            },
+            input: {},
+            catalog: await catalog.snapshot(),
+            skills: [],
+        });
+        const planModeText = (planModePrepared.appendingMessages ?? []).map(messageText).join("\n");
+        expect(planModeText).toContain("## Thread Work Directory");
+        expect(planModeText).toContain("## Restrictions");
+        expect(planModeText).toContain("## Workflow");
+        expect(planModeText).toContain("Do not create or invoke Explore agents");
+        expect(planModeText).not.toContain("{sessionId}");
+        const exitPrepared = await profile.prepare!({
+            session: {
+                systemPrompt: "",
+                messages: [],
+                model: null,
+                thinkingLevel: "off",
+                profileKey: "leader.default",
+                workspaceRoot: resolve("workspace"),
+                customState: {
+                    "agent.planMode": {
+                        active: false,
+                        reminderKind: "exit",
+                        workDirectory: "workspace/.agent/123",
+                    },
+                },
+                linkedAgents: [],
+                archived: false,
+                planModeActive: false,
+            },
+            input: {},
+            catalog: await catalog.snapshot(),
+            skills: [],
+        });
+        expect((exitPrepared.appendingMessages ?? []).map(messageText).join("\n")).toContain("## Exited Plan Mode");
         const snapshot = await catalog.snapshot();
         expect(snapshot.profiles.map((item) => item.key)).toContain("leader.default");
     });
@@ -126,12 +192,20 @@ describe("assets builtin v3 profiles", () => {
             },
             input: {},
             catalog: await catalog.snapshot(),
-            skills: [],
+            skills: [{
+                key: "profile-system-guide",
+                name: "profile-system-guide",
+                description: "Guide users and agents through Neuro Book harness, TSX profiles, skills, profile checks, templates, and safe profile editing.",
+                whenToUse: "用户想创建、修改、诊断或理解 agent/profile/.profile.tsx。",
+                source: "system",
+                rootPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "profile-system-guide"),
+                skillPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"),
+            }],
         });
         const prompt = prepared.systemPrompt ?? "";
         const dynamicText = prepared.modelContextMessages
             ?.filter((message) => message.role === "user")
-            .map((message) => JSON.stringify(message.content))
+            .map(messageText)
             .join("\n") ?? "";
 
         expect(profile.manifest.name).toBe("用户资产助手");
@@ -144,24 +218,34 @@ describe("assets builtin v3 profiles", () => {
             "create_agent",
             "invoke_agent",
             "get_agent",
+            "get_agent_profile",
             "get_session",
             "detach_agent",
             "request_user_input",
             "enter_plan_mode",
             "exit_plan_mode",
-            "skill",
         ]);
-        expect(prompt).toContain("用户资产助手");
         expect(prompt).toContain("workspace/.nbook/agent/profiles");
         expect(prompt).toContain("assets/workspace/.nbook/agent/skills");
         expect(prompt).toContain("defineAgentProfile");
+        expect(prompt).toContain("agent 的配方");
+        expect(prompt).toContain("harness");
+        expect(prompt).toContain("profile-system-guide");
+        expect(prompt).toContain("指导");
+        expect(prompt).toContain("Workbench 里的“编译”");
+        expect(prompt).toContain("POST /api/agent/profiles/compile");
+        expect(prompt).toContain("Agent runtime 能稳定调用的入口");
+        expect(prompt).not.toContain("bun scripts/compile-profile.ts");
         expect(prompt).toContain("read");
         expect(prompt).toContain("bash");
         expect(prompt).not.toContain("read_file");
         expect(prompt).not.toContain("write_file");
         expect(prompt).not.toContain("edit_file");
         expect(prompt).not.toContain("execute_shell");
-        expect(dynamicText).toContain("workspace/.nbook/agent");
+        expect(dynamicText).toContain("agent profiles/skills should use agent/ under current user-assets cwd");
+        expect(dynamicText).toContain("Available skills");
+        expect(dynamicText).toContain("profile-system-guide");
+        expect(dynamicText).toContain(resolve("assets", "workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"));
         expect(prepared.historyInitMessages ?? []).toEqual([]);
     });
 

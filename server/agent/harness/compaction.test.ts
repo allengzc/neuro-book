@@ -4,7 +4,7 @@ import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {fauxAssistantMessage, fauxText, fauxToolCall, registerFauxProvider} from "@earendil-works/pi-ai";
 import type {Context, FauxProviderRegistration} from "@earendil-works/pi-ai";
-import {appendCompaction, COMPACTION_SUMMARY_PREFIX} from "nbook/server/agent/harness/compaction";
+import {appendCompaction, COMPACTION_PROMPT, COMPACTION_SUMMARY_PREFIX, compactIfNeeded, resolveCompactionOptions, shouldCompactWithOptions} from "nbook/server/agent/harness/compaction";
 import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 
@@ -54,8 +54,7 @@ describe("compaction", () => {
             messages: repo.reduce(snapshot).messages,
             model: faux.getModel(),
             instructions: "focus on files",
-            options: {
-                enabled: true,
+            compaction: {
                 reserveTokens: 2_000,
                 keepRecentTokens: 1,
             },
@@ -96,8 +95,7 @@ describe("compaction", () => {
             snapshot,
             messages: repo.reduce(snapshot).messages,
             model: faux.getModel(),
-            options: {
-                enabled: true,
+            compaction: {
                 reserveTokens: 2_000,
                 keepRecentTokens: 1,
             },
@@ -127,6 +125,74 @@ describe("compaction", () => {
             messages: repo.reduce(snapshot).messages,
             model: faux.getModel(),
         })).rejects.toThrow("未完成 tool call");
+    });
+
+    it("解析默认 prompt/prefix、百分比触发和 recent 百分比", () => {
+        const options = resolveCompactionOptions({
+            triggerPercent: 0.8,
+            keepRecentPercent: 0.25,
+        }, faux.getModel());
+
+        expect(options.prompt).toBe(COMPACTION_PROMPT);
+        expect(options.summaryPrefix).toBe(COMPACTION_SUMMARY_PREFIX);
+        expect(options.keepRecentTokens).toBe(32_000);
+        expect(shouldCompactWithOptions(102_400, 128_000, options)).toBe(true);
+        expect(shouldCompactWithOptions(102_399, 128_000, options)).toBe(false);
+    });
+
+    it("triggerTokens 生效并把自定义 prompt/prefix 写入 summary 调用和 compaction entry", async () => {
+        let summaryPrompt: Context | null = null;
+        let summaryHeaders: Record<string, string> | undefined;
+        faux.setResponses([
+            (context, options) => {
+                summaryPrompt = context;
+                summaryHeaders = options?.headers;
+                return fauxAssistantMessage(fauxText("CUSTOM SUMMARY"));
+            },
+        ]);
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+        });
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old context"}), session.metadata.workspaceKey);
+        const snapshot = await repo.readSession(session.metadata.sessionId);
+
+        const compacted = await compactIfNeeded({
+            repo,
+            snapshot,
+            messages: repo.reduce(snapshot).messages,
+            model: {
+                ...faux.getModel(),
+                headers: {
+                    "x-model": "model",
+                    "x-shared": "model",
+                },
+            },
+            requestOptions: {
+                headers: {
+                    "x-request": "request",
+                    "x-shared": "request",
+                },
+            },
+            compaction: {
+                triggerTokens: 1,
+                keepRecentTokens: 1,
+                prompt: "CUSTOM PROMPT",
+                summaryPrefix: "CUSTOM PREFIX",
+            },
+        });
+
+        const reduced = repo.reduce(await repo.readSession(session.metadata.sessionId));
+        expect(compacted).toBe(true);
+        const capturedPrompt = summaryPrompt as Context | null;
+        expect(capturedPrompt?.systemPrompt).toBe("CUSTOM PROMPT");
+        expect(summaryHeaders).toEqual({
+            "x-request": "request",
+            "x-model": "model",
+            "x-shared": "model",
+        });
+        expect(messageText(reduced.messages[0] as never)).toContain("CUSTOM PREFIX");
     });
 });
 

@@ -3,7 +3,6 @@ import {
     AgentProfileModelConfigDtoSchema,
     ConfiguredModelDtoSchema,
     EnabledModelOptionDtoSchema,
-    ModelProviderAdapterSchema,
 } from "nbook/shared/dto/app-settings.dto";
 import {
     DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
@@ -73,7 +72,6 @@ export const ConfigModelProviderOptionsDtoSchema = z.object({
 export const ConfiguredProviderConfigDtoSchema = z.object({
     id: ProviderIdSchema,
     name: z.string().trim().min(1),
-    adapter: ModelProviderAdapterSchema,
     options: ConfigModelProviderOptionsDtoSchema,
     models: z.array(ConfiguredModelDtoSchema).default([]),
 });
