@@ -286,6 +286,11 @@ const canRedo = computed(() => redoStack.value.length > 0);
 const nodeCount = computed(() => root.value ? countNodes(root.value) - 1 : 0);
 const displayRoot = computed(() => dragVisualRoot.value ?? root.value);
 const profileCompileReady = computed(() => props.mode !== "user-profile" || (compileState.value === "passed" && compiledSourceText.value === sourceText.value));
+const selectedProfileCatalogItem = computed(() => profileCatalog.value.find((item) => item.fileName === selectedTemplate.value));
+const selectedProfileKey = computed(() => profileDetail.value?.manifest?.key
+    ?? selectedProfileCatalogItem.value?.profileKey
+    ?? detail.value?.name
+    ?? "");
 const editorStatusText = computed(() => {
     if (props.mode === "user-profile" && compileState.value === "running") {
         return "编译中...";
@@ -429,8 +434,20 @@ function formatCatalogDescription(item: AgentProfileCatalogItemDto | undefined):
             : item.source === "user"
                 ? "用户"
                 : "静态契约";
-    const statusText = item.loadStatus === "loaded" ? "已加载" : item.loadStatus === "error" ? "加载失败" : "缺失";
+    const statusText = formatLoadStatus(item.loadStatus);
     return `${sourceText} · ${item.kind ?? "unknown"} · ${statusText}`;
+}
+
+function formatLoadStatus(loadStatus: AgentProfileCatalogItemDto["loadStatus"]): string {
+    switch (loadStatus) {
+        case "loaded": return "已加载";
+        case "not_compiled": return "未编译";
+        case "compile_stale": return "需重新编译";
+        case "compiled_load_failed": return "编译产物加载失败";
+        case "source_error": return "源码错误";
+        case "missing": return "缺失";
+        default: return loadStatus;
+    }
 }
 
 /**
@@ -573,26 +590,56 @@ async function previewTemplate(): Promise<void> {
 }
 
 /**
- * 用户 profile 模式下走真实 profile.prepare 预览。
+ * 用户 profile 模式下用后台 worker dry-run 当前源码，不写 runtime `.compiled`。
  */
 async function previewPreparedProfile(): Promise<ProfileTemplatePreviewDto> {
-    const compileResult = await compileUserProfile(true);
-    if (!compileResult.detail || !compileResult.preview) {
+    const submittedFileName = selectedTemplate.value;
+    const submittedSource = sourceText.value;
+    try {
+        const result = await $fetch<AgentProfileCompileResultDto>("/api/agent/profiles/compile", {
+            method: "POST",
+            headers: buildAgentPreviewHeaders(),
+            body: {
+                fileName: submittedFileName,
+                source: submittedSource,
+                dryRun: true,
+                preview: true,
+                sessionId: selectedThreadId.value || undefined,
+                inputOverrides: normalizePreviewInputOverrides(),
+            },
+        });
+        if (selectedTemplate.value !== submittedFileName || sourceText.value !== submittedSource) {
+            return {
+                source: sourceText.value,
+                root: root.value,
+                issues: [],
+                messages: [],
+                variables: [],
+            };
+        }
+        if (result.detail) {
+            detail.value = templateDetailFromProfile(result.detail);
+            profileDetail.value = result.detail;
+        }
+        return {
+            source: submittedSource,
+            root: result.detail?.root ?? root.value,
+            issues: profileIssuesToTemplate(result.issues),
+            messages: result.preview?.messages ?? [],
+            variables: profileVariablesToTemplate(result.preview?.variables ?? result.detail?.variables ?? []),
+        };
+    } catch (error) {
         return {
             source: sourceText.value,
             root: root.value,
-            issues: profileIssuesToTemplate(compileResult.issues),
+            issues: [{
+                severity: "error",
+                message: describeFetchError(error),
+            }],
             messages: [],
             variables: [],
         };
     }
-    return {
-        source: sourceText.value,
-        root: compileResult.detail.root ?? root.value,
-        issues: profileIssuesToTemplate(compileResult.issues),
-        messages: compileResult.preview.messages,
-        variables: profileVariablesToTemplate(compileResult.preview.variables),
-    };
 }
 
 /**
@@ -681,7 +728,7 @@ async function validateTemplate(): Promise<void> {
  * user-profile 显式验证：当前源码契约、真实 prepare 和 report_result schema 一起跑。
  */
 async function validateUserProfile(): Promise<ProfileValidationResult> {
-    const compileResult = await compileUserProfile(true);
+    const compileResult = await compileUserProfile();
     if (!compileResult.detail) {
         previewMessages.value = [];
         return {
@@ -726,9 +773,15 @@ function validationSuccessText(result: ProfileTemplateDetailDto | ProfileValidat
 /**
  * 手动编译当前用户 profile。真实 TSX loader 在后端 worker 中执行。
  */
-async function compileUserProfile(preview: boolean): Promise<AgentProfileCompileResultDto> {
+async function compileUserProfile(): Promise<AgentProfileCompileResultDto> {
     const submittedFileName = selectedTemplate.value;
     const submittedSource = sourceText.value;
+    await persistTemplate(false);
+    if (selectedTemplate.value !== submittedFileName || sourceText.value !== submittedSource || dirty.value) {
+        compileState.value = "stale";
+        statusText.value = "源码已修改，需重新编译";
+        return staleCompileResult();
+    }
     compileState.value = "running";
     statusText.value = "编译中...";
     try {
@@ -737,8 +790,7 @@ async function compileUserProfile(preview: boolean): Promise<AgentProfileCompile
             headers: buildAgentPreviewHeaders(),
             body: {
                 fileName: submittedFileName,
-                source: submittedSource,
-                preview,
+                preview: true,
                 sessionId: selectedThreadId.value || undefined,
                 inputOverrides: normalizePreviewInputOverrides(),
             },
@@ -792,6 +844,17 @@ function staleCompileResult(result?: AgentProfileCompileResultDto): AgentProfile
 }
 
 /**
+ * 画布辅助编辑后只做轻量 DSL 解析，不自动触发真实 prepare 或写 `.compiled`。
+ */
+function refreshDraftAfterCanvasEdit(): void {
+    if (props.mode === "user-profile") {
+        void validateSourceTextNow("源码已同步");
+        return;
+    }
+    void previewTemplate();
+}
+
+/**
  * 编译完全失败时给旧验证返回一个占位 detail，避免 UI 需要处理 null。
  */
 function emptyProfileDetail(compileIssues: AgentProfileIssueDto[]): AgentProfileDetailDto {
@@ -804,7 +867,7 @@ function emptyProfileDetail(compileIssues: AgentProfileIssueDto[]): AgentProfile
             fileName: selectedTemplate.value,
             source: "user",
             overrideState: "user_only",
-            loadStatus: "error",
+            loadStatus: "source_error",
             schemaLocked: false,
             canEdit: true,
             canRestore: true,
@@ -926,13 +989,13 @@ async function createUserProfile(): Promise<void> {
  * 用当前 profile 创建真实 Agent session，但不自动 invoke。
  */
 async function createSessionForProfile(): Promise<void> {
-    if (props.mode !== "user-profile" || !profileCompileReady.value || !profileDetail.value?.manifest?.key) {
+    if (props.mode !== "user-profile" || !profileCompileReady.value || !selectedProfileKey.value) {
         notification.error("当前 profile 需要先编译通过，才能创建 session。", {title: "创建 Session 失败"});
         return;
     }
     try {
         const created = await agentApi.createSession({
-            profileKey: profileDetail.value.manifest.key,
+            profileKey: selectedProfileKey.value,
             input: {},
             workspaceKey: novelIdeStore.workspaceKind === "user-assets" ? "user-assets" : `novel-${novelIdeStore.currentNovelId}`,
             novelId: novelIdeStore.currentNovelId || undefined,
@@ -1019,8 +1082,9 @@ function applyTemplateDetail(nextDetail: ProfileTemplateDetailDto, status: strin
     dirty.value = false;
     lastSaveError.value = "";
     lastSavedAt.value = "";
-    compileState.value = props.mode === "user-profile" ? "never" : compileState.value;
-    compiledSourceText.value = "";
+    const selectedCatalogItem = selectedProfileCatalogItem.value;
+    compileState.value = props.mode === "user-profile" && selectedCatalogItem?.loadStatus === "loaded" ? "passed" : props.mode === "user-profile" ? "never" : compileState.value;
+    compiledSourceText.value = props.mode === "user-profile" && selectedCatalogItem?.loadStatus === "loaded" ? nextDetail.source : "";
     clearAutosaveTimer();
     clearSourceEditHistory();
     resetDragState();
@@ -1054,6 +1118,9 @@ async function saveTemplateSource(source: string): Promise<ProfileTemplateDetail
 function currentThreadProfileKey(): string {
     if (props.mode !== "user-profile") {
         return props.threadProfileKey;
+    }
+    if (detail.value?.name && detail.value.name !== selectedTemplate.value) {
+        return detail.value.name;
     }
     const selected = profileCatalog.value.find((item) => item.fileName === selectedTemplate.value);
     return selected?.profileKey ?? profileDetail.value?.manifest?.key ?? profileDetail.value?.catalogItem.profileKey ?? props.threadProfileKey;
@@ -1102,7 +1169,7 @@ function addNode(type: ProfileTemplateNodeType): void {
     selectedNodeId.value = node.id;
     syncSourceTextFromRoot();
     inspectorTab.value = "props";
-    void previewTemplate();
+    refreshDraftAfterCanvasEdit();
 }
 
 /**
@@ -1119,7 +1186,7 @@ function deleteNode(id: string = selectedNodeId.value): void {
     removeNode(root.value, id);
     selectedNodeId.value = findFirstEditableNodeId(root.value);
     syncSourceTextFromRoot();
-    void previewTemplate();
+    refreshDraftAfterCanvasEdit();
 }
 
 /**
@@ -1149,7 +1216,7 @@ function duplicateNode(id: string): void {
     }
     selectedNodeId.value = copy.id;
     syncSourceTextFromRoot();
-    void previewTemplate();
+    refreshDraftAfterCanvasEdit();
 }
 
 /**
@@ -1162,7 +1229,7 @@ function updateProp(key: string, value: ProfileTemplatePropValue): void {
     pushHistory();
     selectedNode.value.props[key] = value;
     refreshRootView();
-    void previewTemplate();
+    refreshDraftAfterCanvasEdit();
 }
 
 /**
@@ -1178,7 +1245,7 @@ function updateExpressionProp(key: string, code: string): void {
         code,
     };
     refreshRootView();
-    void previewTemplate();
+    refreshDraftAfterCanvasEdit();
 }
 
 /**
@@ -1208,7 +1275,7 @@ function commitMessageText(): void {
         return;
     }
     refreshRootView();
-    void previewTemplate();
+    refreshDraftAfterCanvasEdit();
 }
 
 /**
@@ -1225,7 +1292,7 @@ function insertVariable(value: string): void {
             : selectedNode.value;
         target.text = `${target.text ?? ""}${value}`;
         refreshRootView();
-        void previewTemplate();
+        refreshDraftAfterCanvasEdit();
         return;
     }
     const current = selectedNode.value.props[activeTextTarget.value];
@@ -1238,7 +1305,7 @@ function insertVariable(value: string): void {
         selectedNode.value.props[activeTextTarget.value] = `${typeof current === "string" ? current : ""}${value}`;
     }
     refreshRootView();
-    void previewTemplate();
+    refreshDraftAfterCanvasEdit();
 }
 
 /**
@@ -1412,7 +1479,7 @@ function handleNodeDragEnd(event: DragEndPayload): void {
     selectedNodeId.value = nextRoot.selectedNodeId;
     syncSourceTextFromRoot();
     resetDragState(false);
-    void previewTemplate();
+    refreshDraftAfterCanvasEdit();
 }
 
 /**

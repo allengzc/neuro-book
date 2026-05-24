@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {RequestUserInputToolArgsSchema, applySessionEntryToMessages, deriveRequestUserInputAnswerViews, messageStatusLabel, toLocalMessage, toPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
+import {RequestUserInputToolArgsSchema, applyPiEventToMessages, applySessionEntryToMessages, deriveMessagesFromSessionSnapshot, deriveRequestUserInputAnswerViews, hasVisibleInvocationError, messageStatusLabel, toLocalMessage, toPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
 
 describe("agent message projection helpers", () => {
     it("request_user_input schema 保留默认选项字段", () => {
@@ -182,5 +182,227 @@ describe("agent message projection helpers", () => {
             status: "stopped",
         }));
         expect(messageStatusLabel(message)).toBe("生成失败");
+    });
+
+    it("snapshot lifecycle error 会展示为 Run Error 系统消息", () => {
+        const messages = deriveMessagesFromSessionSnapshot({
+            summary: {
+                sessionId: 1,
+                profileKey: "leader.default",
+                workspaceKey: "novel-1",
+                workspaceRoot: "workspace",
+                status: "idle",
+                updatedAt: Date.now(),
+                archived: false,
+            },
+            activeLeafId: "error-1",
+            messages: [],
+            tree: [],
+            entries: [{
+                id: "start-1",
+                parentId: null,
+                timestamp: Date.now(),
+                type: "invocation_lifecycle",
+                invocationId: "invoke-1",
+                status: "start",
+            }, {
+                id: "error-1",
+                parentId: "start-1",
+                timestamp: Date.now(),
+                type: "invocation_lifecycle",
+                invocationId: "invoke-1",
+                status: "error",
+                error: "Provider rejected image payload",
+            }],
+            linkedAgents: [],
+            pendingApproval: null,
+            followUpQueue: [],
+            activeInvocation: null,
+            model: null,
+            planModeActive: false,
+            lastSeq: 0,
+        });
+
+        expect(messages).toEqual([
+            expect.objectContaining({
+                id: "error-1",
+                type: "system",
+                systemDisplayKind: "error",
+                systemLabel: "Run Error",
+                content: "Provider rejected image payload",
+                invocationId: "invoke-1",
+            }),
+        ]);
+    });
+
+    it("session_entry lifecycle error 能增量展示", () => {
+        const messages = applySessionEntryToMessages([], {
+            id: "error-1",
+            parentId: null,
+            timestamp: Date.now(),
+            type: "invocation_lifecycle",
+            invocationId: "invoke-1",
+            status: "error",
+            errorInfo: {
+                message: "prepare failed",
+                phase: "pre_loop",
+            },
+        });
+
+        expect(messages).toEqual([
+            expect.objectContaining({
+                id: "error-1",
+                systemDisplayKind: "error",
+                content: "prepare failed",
+            }),
+        ]);
+    });
+
+    it("session_entry lifecycle error 不会被其他 invocation 的 assistant error 吞掉", () => {
+        const messages = applySessionEntryToMessages([{
+            id: "assistant-error",
+            type: "ai",
+            content: "old error",
+            status: "stopped",
+            error: "old error",
+            invocationId: "invoke-old",
+        }], {
+            id: "error-1",
+            parentId: null,
+            timestamp: Date.now(),
+            type: "invocation_lifecycle",
+            invocationId: "invoke-new",
+            status: "error",
+            error: "new error",
+        });
+
+        expect(messages).toEqual([
+            expect.objectContaining({id: "assistant-error"}),
+            expect.objectContaining({
+                id: "error-1",
+                systemDisplayKind: "error",
+                invocationId: "invoke-new",
+                content: "new error",
+            }),
+        ]);
+    });
+
+    it("已有 assistant error 时不重复展示 lifecycle error", () => {
+        const timestamp = Date.now();
+        const messages = deriveMessagesFromSessionSnapshot({
+            summary: {
+                sessionId: 1,
+                profileKey: "leader.default",
+                workspaceKey: "novel-1",
+                workspaceRoot: "workspace",
+                status: "idle",
+                updatedAt: timestamp,
+                archived: false,
+            },
+            activeLeafId: "error-1",
+            messages: [],
+            tree: [],
+            entries: [{
+                id: "start-1",
+                parentId: null,
+                timestamp,
+                type: "invocation_lifecycle",
+                invocationId: "invoke-1",
+                status: "start",
+            }, {
+                id: "assistant-1",
+                parentId: "start-1",
+                timestamp,
+                type: "message",
+                origin: "harness",
+                message: {
+                    role: "assistant",
+                    content: [],
+                    stopReason: "error",
+                    errorMessage: "Provider rejected image payload",
+                    timestamp,
+                } as never,
+            }, {
+                id: "error-1",
+                parentId: "assistant-1",
+                timestamp,
+                type: "invocation_lifecycle",
+                invocationId: "invoke-1",
+                status: "error",
+                error: "Provider rejected image payload",
+            }],
+            linkedAgents: [],
+            pendingApproval: null,
+            followUpQueue: [],
+            activeInvocation: null,
+            model: null,
+            planModeActive: false,
+            lastSeq: 0,
+        });
+
+        expect(messages.filter((message) => message.systemDisplayKind === "error")).toHaveLength(0);
+        expect(messages.filter((message) => message.type === "ai" && message.error)).toHaveLength(1);
+        expect(hasVisibleInvocationError(messages, "invoke-1")).toBe(true);
+    });
+
+    it("session_entry toolResult 能增量完成对应工具调用", () => {
+        const messages = applySessionEntryToMessages([{
+            id: "assistant-1",
+            type: "ai",
+            content: "",
+            status: "done",
+            toolCalls: [{
+                id: "approval-call",
+                assistantMessageId: "assistant-1",
+                index: 0,
+                name: "request_user_input",
+                argsText: "{\"questions\":[{\"question\":\"继续吗？\"}]}",
+                status: "streaming",
+            }],
+        }], {
+            id: "tool-result-1",
+            parentId: "assistant-1",
+            timestamp: Date.now(),
+            type: "message",
+            origin: "harness",
+            message: {
+                role: "toolResult",
+                toolCallId: "approval-call",
+                toolName: "request_user_input",
+                content: [{type: "text", text: "用户已选择：继续"}],
+                isError: false,
+                timestamp: Date.now(),
+            } as never,
+        });
+
+        expect(messages[0]?.toolCalls?.[0]).toEqual(expect.objectContaining({
+            status: "success",
+            result: "用户已选择：继续",
+        }));
+    });
+
+    it("tool_execution_start 展示 JSON 参数", () => {
+        const messages = applyPiEventToMessages([{
+            id: "assistant-1",
+            type: "ai",
+            content: "",
+            status: "streaming",
+            toolCalls: [{
+                id: "patch-1",
+                assistantMessageId: "assistant-1",
+                index: 0,
+                name: "apply_patch",
+                argsText: "",
+                status: "streaming",
+            }],
+        }], {
+            type: "tool_execution_start",
+            toolCallId: "patch-1",
+            toolName: "apply_patch",
+            args: {patch: "*** Begin Patch\n*** Add File: a.txt\n+hello\n*** End Patch"},
+        });
+
+        expect(messages[0]?.toolCalls?.[0]?.argsText).toContain("*** Begin Patch");
+        expect(messages[0]?.toolCalls?.[0]?.argsJson).toContain("\"patch\"");
     });
 });

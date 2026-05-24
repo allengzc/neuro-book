@@ -21,18 +21,17 @@
 
 ## Profile Compile Boundary
 
-当前实现中，Workbench 自动编辑路径已经拆成“轻量源码解析 + 手动后台 worker 编译”，不会在用户每次输入时触发 runtime profile loader。但普通 runtime catalog 仍可能在读取 `.profile.tsx` 时进行 esbuild/runtime import；这会让 config snapshot、catalog、创建 session 或 invoke 在 profile 源码变更后出现编译卡顿。
+当前 profile runtime 已硬切为 `.compiled` 运行真相源：
 
-下一阶段目标是把 profile 运行边界硬切为 `.compiled`：
-
-- `.profile.tsx` / `.profile.ts` 是编辑真相源。
+- `.profile.tsx` / `.profile.ts` / `.profile.js` / `.profile.mjs` 是编辑真相源。
 - `.compiled/manifest.json` 与 `.compiled/*.mjs` 是运行真相源。
-- 普通 runtime API 只读 `.compiled`，不自动编译 TSX。
-- 系统 profile 在 `bun run dev`、`bun run build`、`bun run nuxt:build` 和 Docker build 链路中预编译一次，并作为 system assets 发布。
+- `AgentProfileCatalog` 仍扫描源码文件以判断存在性、source hash 和覆盖关系，但不会在 catalog、config snapshot、创建 session 或 invoke 中自动编译 TSX。
+- catalog 只在 manifest 中的源码 hash、依赖 hash 和 artifact hash 都匹配时 import `.compiled/*.mjs`。
+- 未编译或过期的 profile 会进入 `not_compiled` / `compile_stale` / `compiled_load_failed` / `source_error` 状态，`get(profileKey)` 不会回退到源码自动编译，也不会静默使用同 key memory fallback。
+- 系统 profile 在 `bun run dev`、`bun run build`、`bun run nuxt:build` 前由 `scripts/prepare-system-profile-metadata.ts` 预编译，并作为 system assets 发布。
 - 用户 profile 由 Workbench “编译”按钮或 Agent runtime CLI `profile compile` 手动生成用户侧 `.compiled` 产物。
-- `profile preview` 可以 dry-run 已保存源码的 `prepare()`，但不写 `.compiled`，也不改变运行可用状态。
-
-计划落点详见 [TSX Profile Workbench](../tasks/04-tsx-profile-workbench/README.md)。在该方案实现前，本文档中关于 catalog 加载的描述仍代表当前实现事实；实现后需要把 catalog 章节改为 compiled-only。
+- Workbench 自动编辑路径只走 `source-draft` 轻量源码解析；保存源码不等于可运行。
+- `profile preview` dry-run 已保存源码的 `prepare()`，但不写 `.compiled`，也不改变运行可用状态。
 
 ## Harness 职责
 
@@ -235,6 +234,44 @@ Harness 通过 `AgentSessionEventHub` 广播：
 - `session_entry` 事件会即时投影 profile system reminder / prompt 用户消息，避免等 invocation 结束后才刷新。
 - `modelContextMessages` 不展示；`ModelContext` 内的 `Reminder` 已转成 pre-loop 可见消息，因此会展示。
 - 需要用户看见、需要分支保存、需要 replay 的内容必须通过 `AppendingSet` 写入 session。
+
+### Run Error 可见化
+
+运行失败的后端真相源是 `invocation_lifecycle` entry：
+
+```ts
+{
+    type: "invocation_lifecycle",
+    status: "error",
+    error: string,
+    errorInfo?: {
+        message: string;
+        phase: "prepare" | "pre_loop" | "model" | "tool" | "ingest" | "compaction" | "unknown";
+        retryable?: boolean;
+        code?: string;
+    };
+}
+```
+
+当前 phase 规则：
+
+- profile catalog / config / tool compatibility / `prepare()` 前后失败归为 `pre_loop`。
+- 自动压缩失败归为 `compaction`。
+- provider streaming 抛错，或 provider 返回 assistant `stopReason: "error"`，归为 `model`。
+- `profile.ingest()` 失败归为 `ingest`。
+- 手动 `/compact` 失败归为 `compaction`。
+- abort 暂不显示为错误卡，phase 仍可能是 `unknown`。
+
+前端收到 snapshot 或 `session_entry` 增量中的 lifecycle error 后，会投影为可见的 system 消息：
+
+- `systemDisplayKind: "error"`
+- `systemLabel: "Run Error"`
+- `content = errorInfo.message ?? error`
+- `invocationId = entry.invocationId`
+
+这条 Run Error 卡片只是前端投影，不是 `message` entry，也不会进入 `JsonlSessionRepository.reduce().messages`，因此不会污染下一轮模型上下文。如果同一个 invocation 已经有 provider assistant error message，前端只显示 assistant error，不再额外生成 Run Error 卡；但 lifecycle error 仍保留为运行状态真相。
+
+阻塞式 `/api/agent/sessions/:sessionId/invocations` 返回 `{status: "error", invocationId, error, errorPhase}` 时，前端会先重新同步 snapshot。若同步后仍没有同 invocation 的 Run Error 或 assistant error，再用 notification 提示一次，覆盖 SSE 断开或事件丢失场景。
 
 ### Durable Turn Commit
 

@@ -4,6 +4,7 @@ import {existsSync} from "node:fs";
 import {dirname, relative, resolve, sep} from "node:path";
 import {createError} from "h3";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
 
 const DEFAULT_SYSTEM_PROFILE_ROOT = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profiles");
 const DEFAULT_USER_PROFILE_ROOT = resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles");
@@ -35,7 +36,12 @@ export async function withProfileSourceOverride<T>(
         const targetPath = resolveProfileFilePath(input.fileName, temporaryRoot);
         await mkdir(dirname(targetPath), {recursive: true});
         await writeFile(targetPath, input.source, "utf8");
-        const catalog = new AgentProfileCatalog(systemRoot, temporaryRoot, resolve(temporaryRoot, ".profile-module-cache"));
+        await compileProfileArtifacts({
+            profileRoot: temporaryRoot,
+            fileName: input.fileName,
+            rootLabel: "temporary-profile-source-check",
+        });
+        const catalog = new AgentProfileCatalog(systemRoot, temporaryRoot);
         return await callback(catalog, temporaryRoot);
     } finally {
         await rm(temporaryRoot, {recursive: true, force: true});

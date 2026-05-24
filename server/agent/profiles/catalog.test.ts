@@ -1,9 +1,15 @@
 import {randomUUID} from "node:crypto";
-import {mkdir, rm, writeFile} from "node:fs/promises";
-import {join, resolve} from "node:path";
+import {copyFile, mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {dirname, join, relative, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {Type} from "typebox";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import {
+    compileProfileArtifacts,
+    readProfileArtifactManifest,
+    rehomeProfileArtifactItem,
+    validateProfileArtifact,
+} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {messageText} from "nbook/server/agent/messages/message-utils";
@@ -41,6 +47,7 @@ describe("AgentProfileCatalog", () => {
             });
         `);
         await writeProfile(systemRoot, "bad.profile.tsx", "export default { manifest: { key: 'bad', name: 'Bad' } };");
+        await compileRoot(systemRoot, "good.profile.tsx");
         const catalog = new AgentProfileCatalog(systemRoot, userRoot);
         catalog.register(defaultAgentProfile);
 
@@ -49,7 +56,7 @@ describe("AgentProfileCatalog", () => {
         expect(snapshot.profiles.map((profile) => profile.key)).toContain("custom.good");
         expect(snapshot.issues).toEqual(expect.arrayContaining([
             expect.objectContaining({
-                code: "schema_missing",
+                code: "not_compiled",
             }),
         ]));
     });
@@ -57,6 +64,8 @@ describe("AgentProfileCatalog", () => {
     it("用户 profile 按 key 覆盖系统 profile", async () => {
         await writeProfile(systemRoot, "custom.same.profile.tsx", profileSource("custom.same", "System"));
         await writeProfile(userRoot, "custom.same.profile.tsx", profileSource("custom.same", "User"));
+        await compileRoot(systemRoot);
+        await compileRoot(userRoot);
         const catalog = new AgentProfileCatalog(systemRoot, userRoot);
 
         const profile = await catalog.get("custom.same");
@@ -96,6 +105,7 @@ describe("AgentProfileCatalog", () => {
                 },
             });
         `);
+        await compileRoot(systemRoot);
         const catalog = new AgentProfileCatalog(systemRoot, userRoot);
 
         const profile = await catalog.get("custom.jsx");
@@ -106,7 +116,6 @@ describe("AgentProfileCatalog", () => {
     });
 
     it("TSX profile 依赖 helper 文件变化时重新编译缓存", async () => {
-        const cacheRoot = join(root, "profile-module-cache");
         await writeProfile(systemRoot, "prompt-helper.ts", `export const helperText = "v1";`);
         await writeProfile(systemRoot, "custom.helper.profile.tsx", `
             import {Type} from "typebox";
@@ -123,11 +132,17 @@ describe("AgentProfileCatalog", () => {
             });
         `);
 
-        const firstCatalog = new AgentProfileCatalog(systemRoot, userRoot, cacheRoot);
+        await compileRoot(systemRoot);
+        const firstCatalog = new AgentProfileCatalog(systemRoot, userRoot);
         const firstProfile = await firstCatalog.get("custom.helper");
         expect((await firstProfile.prepare!(context())).systemPrompt).toBe("v1");
 
         await writeProfile(systemRoot, "prompt-helper.ts", `export const helperText = "v2";`);
+        const staleSnapshot = await firstCatalog.snapshot();
+        expect(staleSnapshot.profiles.find((item) => item.key === "custom.helper")?.loadStatus).toBe("compile_stale");
+
+        await compileRoot(systemRoot);
+        firstCatalog.invalidate();
         const secondProfile = await firstCatalog.get("custom.helper");
 
         expect((await secondProfile.prepare!(context())).systemPrompt).toBe("v2");
@@ -148,6 +163,7 @@ describe("AgentProfileCatalog", () => {
                 prepare() { return { systemPrompt: "user" }; },
             });
         `);
+        await compileRoot(userRoot);
         const catalog = new AgentProfileCatalog(systemRoot, userRoot);
         catalog.register(defaultAgentProfile);
 
@@ -179,6 +195,7 @@ describe("AgentProfileCatalog", () => {
                 prepare() { return { systemPrompt: "system" }; },
             });
         `);
+        await compileRoot(systemRoot);
         const catalog = new AgentProfileCatalog(systemRoot, userRoot);
         catalog.register(defaultAgentProfile);
 
@@ -216,6 +233,7 @@ describe("AgentProfileCatalog", () => {
 
     it("文件名与 manifest key 不一致只产生 warning issue，不阻断加载", async () => {
         await writeProfile(systemRoot, "wrong-name.profile.tsx", profileSource("custom.right-name", "Right"));
+        await compileRoot(systemRoot);
         const catalog = new AgentProfileCatalog(systemRoot, userRoot);
 
         const profile = await catalog.get("custom.right-name");
@@ -229,10 +247,71 @@ describe("AgentProfileCatalog", () => {
             }),
         ]);
     });
+
+    it("未编译 profile 不可运行，并在 snapshot 中标记 not_compiled", async () => {
+        await writeProfile(systemRoot, "custom.needs-compile.profile.tsx", profileSource("custom.needs-compile", "Needs Compile"));
+        const catalog = new AgentProfileCatalog(systemRoot, userRoot);
+
+        const snapshot = await catalog.snapshot();
+
+        expect(snapshot.profiles.find((item) => item.key === "custom.needs-compile")?.loadStatus).toBe("not_compiled");
+        await expect(catalog.get("custom.needs-compile")).rejects.toThrow("不可运行");
+    });
+
+    it("未编译的系统文件会遮蔽同 key 内存 fallback", async () => {
+        await writeProfile(systemRoot, "leader.default.profile.tsx", profileSource("leader.default", "Stale Leader"));
+        const catalog = new AgentProfileCatalog(systemRoot, userRoot);
+        catalog.register(defaultAgentProfile);
+
+        const snapshot = await catalog.snapshot();
+
+        expect(snapshot.profiles.find((item) => item.key === "leader.default")?.loadStatus).toBe("not_compiled");
+        await expect(catalog.get("leader.default")).rejects.toThrow("不可运行");
+    });
+
+    it("全量编译失败时保留上一版 compiled manifest 和 artifact", async () => {
+        await writeProfile(systemRoot, "custom.safe.profile.tsx", profileSource("custom.safe", "Safe"));
+        await compileRoot(systemRoot);
+        const manifestPath = join(systemRoot, ".compiled", "manifest.json");
+        const previousManifest = await readFile(manifestPath, "utf8");
+        const previousCatalog = new AgentProfileCatalog(systemRoot, userRoot);
+        await expect(previousCatalog.get("custom.safe")).resolves.toEqual(expect.objectContaining({
+            manifest: expect.objectContaining({key: "custom.safe"}),
+        }));
+
+        await writeProfile(systemRoot, "custom.bad.profile.tsx", "export default null;");
+        await expect(compileRoot(systemRoot)).rejects.toThrow("compiled profile");
+
+        await expect(readFile(manifestPath, "utf8")).resolves.toBe(previousManifest);
+        const nextCatalog = new AgentProfileCatalog(systemRoot, userRoot);
+        await expect(nextCatalog.get("custom.safe")).resolves.toEqual(expect.objectContaining({
+            manifest: expect.objectContaining({key: "custom.safe"}),
+        }));
+    });
+
+    it("系统 artifact 同步到用户 root 后入口源码依赖可重定位", async () => {
+        await writeProfile(systemRoot, "builtin/custom.synced.profile.tsx", profileSource("custom.synced", "Synced"));
+        await writeProfile(userRoot, "builtin/custom.synced.profile.tsx", profileSource("custom.synced", "Synced"));
+        await compileRoot(systemRoot);
+        const systemManifest = await readProfileArtifactManifest(systemRoot);
+        const systemItem = systemManifest.profiles.find((item) => item.profileKey === "custom.synced")!;
+        await mkdir(join(userRoot, ".compiled"), {recursive: true});
+        await copyFile(
+            join(systemRoot, ".compiled", systemItem.artifactFileName),
+            join(userRoot, ".compiled", systemItem.artifactFileName),
+        );
+        const userItem = rehomeProfileArtifactItem(systemItem, {
+            fromRootLabel: relative(process.cwd(), systemRoot).split(/[\\/]+/).join("/"),
+            toRootLabel: relative(process.cwd(), userRoot).split(/[\\/]+/).join("/"),
+        });
+
+        expect(userItem.dependencies.some((dependency) => dependency.path.endsWith("workspace/.nbook/agent/profiles/builtin/custom.synced.profile.tsx"))).toBe(true);
+        await expect(validateProfileArtifact(userRoot, userItem)).resolves.toEqual({fresh: true});
+    });
 });
 
 async function writeProfile(root: string, name: string, source: string): Promise<void> {
-    await mkdir(root, {recursive: true});
+    await mkdir(dirname(join(root, name)), {recursive: true});
     await writeFile(join(root, name), source, "utf8");
 }
 
@@ -278,4 +357,11 @@ function context() {
             promptUserTurnCount: 0,
         },
     };
+}
+
+async function compileRoot(profileRoot: string, fileName?: string): Promise<void> {
+    await compileProfileArtifacts({
+        profileRoot,
+        fileName,
+    });
 }

@@ -1,6 +1,10 @@
 import {performance} from "node:perf_hooks";
-import {withProfileSourceOverride} from "nbook/server/agent/profiles/profile-source-check";
-import {readProfileSource} from "nbook/server/agent/profiles/workbench-service";
+import {randomUUID} from "node:crypto";
+import {cp, rm} from "node:fs/promises";
+import {resolve} from "node:path";
+import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import {readProfileSource, saveProfileSourceDraft} from "nbook/server/agent/profiles/workbench-service";
 import type {
     AgentProfileCompileRequestDto,
     AgentProfileCompileResultDto,
@@ -14,9 +18,23 @@ import type {
 export async function runProfileCompile(input: AgentProfileCompileRequestDto): Promise<AgentProfileCompileResultDto> {
     const startedAt = performance.now();
     try {
-        const result = await withProfileSourceOverride(input, async (profiles, temporaryUserRoot) => {
+        const userProfileRoot = resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles");
+        if (input.dryRun) {
+            const result = await runDryRunProfilePreview(input, userProfileRoot);
+            return {
+                ...result,
+                elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
+            };
+        }
+        await compileProfileArtifacts({
+            profileRoot: userProfileRoot,
+            fileName: input.fileName,
+            rootLabel: "workspace/.nbook/agent/profiles",
+        });
+        const profiles = new AgentProfileCatalog(undefined, userProfileRoot);
+        const result = await (async () => {
             const detail = await readProfileSource(profiles, {fileName: input.fileName}, {
-                userProfileRoot: temporaryUserRoot,
+                userProfileRoot,
             });
             const issues = detail.issues;
             if (issues.some((issue) => issue.severity === "error") || !detail.manifest?.key) {
@@ -56,7 +74,7 @@ export async function runProfileCompile(input: AgentProfileCompileRequestDto): P
                 preview,
                 issues: [...issues, ...preview.issues],
             } satisfies AgentProfileCompileResultDto;
-        });
+        })();
         return {
             ...result,
             elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
@@ -70,6 +88,73 @@ export async function runProfileCompile(input: AgentProfileCompileRequestDto): P
             issues: [issueFromError(error, input.fileName)],
             elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
         };
+    }
+}
+
+/**
+ * 在后台 worker 内用临时 profile root 预览当前源码，不污染真实用户 `.compiled`。
+ */
+async function runDryRunProfilePreview(input: AgentProfileCompileRequestDto, userProfileRoot: string): Promise<AgentProfileCompileResultDto> {
+    const temporaryRoot = resolve(process.cwd(), ".agent", "workspace", "profile-source-check", randomUUID());
+    try {
+        await cp(userProfileRoot, temporaryRoot, {recursive: true, force: true}).catch(() => undefined);
+        if (input.source !== undefined) {
+            await saveProfileSourceDraft({
+                fileName: input.fileName,
+                source: input.source,
+            }, {
+                userProfileRoot: temporaryRoot,
+            });
+        }
+        await compileProfileArtifacts({
+            profileRoot: temporaryRoot,
+            fileName: input.fileName,
+            rootLabel: "temporary-profile-source-check",
+        });
+        const profiles = new AgentProfileCatalog(undefined, temporaryRoot);
+        const detail = await readProfileSource(profiles, {fileName: input.fileName}, {
+            userProfileRoot: temporaryRoot,
+        });
+        const issues = detail.issues;
+        if (issues.some((issue) => issue.severity === "error") || !detail.manifest?.key) {
+            return {
+                ok: false,
+                stale: false,
+                detail,
+                preview: null,
+                issues,
+            };
+        }
+        if (!input.preview) {
+            return {
+                ok: true,
+                stale: false,
+                detail,
+                preview: null,
+                issues,
+            };
+        }
+        const [{NeuroAgentHarness}, {previewAgentProfilePrepare}] = await Promise.all([
+            import("nbook/server/agent/harness/neuro-agent-harness"),
+            import("nbook/server/agent/profiles/profile-http-service"),
+        ]);
+        const preview = await previewAgentProfilePrepare(new NeuroAgentHarness({
+            profiles,
+        }), {
+            profileKey: detail.manifest.key,
+            sessionId: input.sessionId,
+            input: input.input,
+            inputOverrides: input.inputOverrides,
+        });
+        return {
+            ok: preview.ok && issues.every((issue) => issue.severity !== "error"),
+            stale: false,
+            detail,
+            preview,
+            issues: [...issues, ...preview.issues],
+        };
+    } finally {
+        await rm(temporaryRoot, {recursive: true, force: true});
     }
 }
 

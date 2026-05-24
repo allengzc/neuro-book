@@ -1,8 +1,9 @@
 import {randomUUID} from "node:crypto";
-import {mkdir, readFile, rm} from "node:fs/promises";
+import {mkdir, readFile, rm, stat} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {buildSystemPromptRoot} from "nbook/server/agent/profiles/profile-http-service";
 import {
     createProfileSource,
@@ -32,13 +33,13 @@ describe("profile workbench service", () => {
         })).rejects.toThrow("相对路径");
     });
 
-    it("从模板创建的 profile 可被 catalog 加载", async () => {
+    it("从模板创建的 profile 编译后可被 catalog 加载", async () => {
         const root = resolve(".agent", "workspace", "profile-workbench-test", randomUUID());
         const userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
         await mkdir(userRoot, {recursive: true});
         const catalog = new AgentProfileCatalog(join(root, "assets", ".nbook", "agent", "profiles"), userRoot);
         try {
-            const created = await createProfileSource(catalog, {
+            const created = await createProfileSourceDraft({
                 profileKey: "agent.created",
                 templateName: "report-agent",
                 name: "Created",
@@ -48,7 +49,12 @@ describe("profile workbench service", () => {
                 userProfileRoot: userRoot,
             });
 
-            expect(created.manifest?.key).toBe("agent.created");
+            expect(created.name).toBe("agent.created");
+            await compileProfileArtifacts({
+                profileRoot: userRoot,
+                fileName: "agent.created.profile.tsx",
+            });
+            catalog.invalidate();
             await expect(catalog.get("agent.created")).resolves.toEqual(expect.objectContaining({
                 manifest: expect.objectContaining({key: "agent.created"}),
                 allowedToolKeys: expect.arrayContaining(["report_result"]),
@@ -78,7 +84,7 @@ describe("profile workbench service", () => {
             expect(listed).toEqual([expect.objectContaining({
                 fileName: "agent.draft.profile.tsx",
                 profileKey: "agent.draft",
-                loadStatus: "loaded",
+                loadStatus: "not_compiled",
             })]);
 
             const detail = await readProfileSourceDraft({
@@ -157,13 +163,12 @@ export default defineAgentProfile({
         expect(root?.children[2]?.children.map((node) => node.type)).toEqual(["Message"]);
     });
 
-    it("验证源码覆盖不写入真实用户 profile 文件", async () => {
+    it("source-draft 是未保存源码预览入口，不写入真实用户 profile 文件", async () => {
         const root = resolve(".agent", "workspace", "profile-workbench-test", randomUUID());
         const userRoot = join(root, "workspace", ".nbook", "agent", "profiles");
         await mkdir(userRoot, {recursive: true});
-        const catalog = new AgentProfileCatalog(join(root, "assets", ".nbook", "agent", "profiles"), userRoot);
         try {
-            await createProfileSource(catalog, {
+            await createProfileSourceDraft({
                 profileKey: "agent.override",
                 templateName: "basic-agent",
                 name: "Override",
@@ -175,7 +180,7 @@ export default defineAgentProfile({
             const fileName = "agent.override.profile.tsx";
             const filePath = join(userRoot, fileName);
             const originalSource = await readFile(filePath, "utf8");
-            const checked = await readProfileSource(catalog, {
+            const checked = await readProfileSourceDraft({
                 fileName,
                 source: originalSource.replace("原始提示词", "未保存提示词"),
             }, {
@@ -185,8 +190,21 @@ export default defineAgentProfile({
             expect(checked.source).toContain("未保存提示词");
             expect(checked.root?.children.map((node: ProfileTemplateNodeDto) => node.type)).toContain("System");
             await expect(readFile(filePath, "utf8")).resolves.toBe(originalSource);
+            await expect(pathExists(join(userRoot, ".compiled", "manifest.json"))).resolves.toBe(false);
         } finally {
             await rm(root, {recursive: true, force: true});
         }
     });
 });
+
+async function pathExists(filePath: string): Promise<boolean> {
+    try {
+        await stat(filePath);
+        return true;
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return false;
+        }
+        throw error;
+    }
+}

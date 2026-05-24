@@ -5,6 +5,7 @@ import {fileURLToPath} from "node:url";
 import {createHash} from "node:crypto";
 import type {Novel, Prisma, PrismaClient} from "nbook/server/generated/prisma/client";
 import {parseEntityId} from "nbook/server/utils/novel-chapter";
+import {readProfileArtifactManifest, rehomeProfileArtifactItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
 
 type PrismaExecutor = PrismaClient | Prisma.TransactionClient;
 
@@ -247,6 +248,9 @@ async function copyMissingAssetEntries(sourceRoot: string, targetRoot: string, r
     for (const entry of entries) {
         const sourcePath = path.join(sourceRoot, entry.name);
         const targetPath = path.join(targetRoot, entry.name);
+        if (sourceRoot === SYSTEM_PROFILE_ROOT && (entry.name === ".compiled" || entry.name === ".system-profile-metadata.json")) {
+            continue;
+        }
         if (entry.isDirectory()) {
             await copyMissingAssetEntries(sourcePath, targetPath, result);
             continue;
@@ -282,12 +286,14 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, nboo
         if (!stateItem && await pathExists(userPath) && await sameFile(systemPath, userPath)) {
             const hash = await sha256File(userPath);
             upsertUserProfileSyncState(syncState, item, hash.sha256);
+            await syncCompiledProfileArtifact(item.fileName);
             stateChanged = true;
             continue;
         }
         if (!await pathExists(userPath)) {
             await fs.mkdir(path.dirname(userPath), {recursive: true});
             await fs.copyFile(systemPath, userPath);
+            await syncCompiledProfileArtifact(item.fileName);
             const hash = await sha256File(userPath);
             upsertUserProfileSyncState(syncState, item, hash.sha256);
             result.updatedProfiles = (result.updatedProfiles ?? 0) + 1;
@@ -297,6 +303,7 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, nboo
         const currentUserHash = (await sha256File(userPath)).sha256;
         if (currentUserHash === item.sha256) {
             upsertUserProfileSyncState(syncState, item, currentUserHash);
+            await syncCompiledProfileArtifact(item.fileName);
             stateChanged = true;
             continue;
         }
@@ -322,6 +329,7 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, nboo
             continue;
         }
         await fs.copyFile(systemPath, userPath);
+        await syncCompiledProfileArtifact(item.fileName);
         const hash = await sha256File(userPath);
         upsertUserProfileSyncState(syncState, item, hash.sha256);
         result.updatedProfiles = (result.updatedProfiles ?? 0) + 1;
@@ -331,6 +339,39 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, nboo
         await writeUserProfileSyncState(syncState);
     }
     await removeCopiedSystemMetadata(nbookTargetRoot);
+}
+
+async function syncCompiledProfileArtifact(fileName: string): Promise<void> {
+    const systemManifest = await readProfileArtifactManifest(SYSTEM_PROFILE_ROOT);
+    const item = systemManifest.profiles.find((profile) => profile.fileName === fileName);
+    if (!item) {
+        return;
+    }
+    const userCompiledRoot = path.join(USER_PROFILE_ROOT, ".compiled");
+    await fs.mkdir(userCompiledRoot, {recursive: true});
+    await fs.copyFile(
+        path.join(SYSTEM_PROFILE_ROOT, ".compiled", item.artifactFileName),
+        path.join(userCompiledRoot, item.artifactFileName),
+    );
+    const userManifest = await readProfileArtifactManifest(USER_PROFILE_ROOT);
+    const userItem = rehomeProfileArtifactItem(item, {
+        fromRootLabel: "assets/workspace/.nbook/agent/profiles",
+        toRootLabel: "workspace/.nbook/agent/profiles",
+    });
+    const nextManifest = {
+        ...userManifest,
+        generatedAt: new Date().toISOString(),
+        profilesRoot: "workspace/.nbook/agent/profiles",
+        profiles: [
+            ...userManifest.profiles.filter((profile) => profile.fileName !== item.fileName),
+            userItem,
+        ].sort((left, right) => left.fileName.localeCompare(right.fileName)),
+    };
+    await fs.writeFile(
+        path.join(userCompiledRoot, "manifest.json"),
+        `${JSON.stringify(nextManifest, null, 2)}\n`,
+        "utf-8",
+    );
 }
 
 async function readUserProfileSyncState(): Promise<UserProfileSyncState> {

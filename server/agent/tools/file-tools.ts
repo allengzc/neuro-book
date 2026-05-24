@@ -2,13 +2,14 @@ import {spawn} from "node:child_process";
 import {existsSync} from "node:fs";
 import {mkdir, readFile, writeFile} from "node:fs/promises";
 import {dirname, join, resolve, win32} from "node:path";
-import {applyPatch, createPatch} from "diff";
+import {createPatch} from "diff";
 import {Type} from "typebox";
 import type {Static} from "typebox";
 import {detectImageMimeType, assertReadable, assertWritable, firstChangedLine, resolveWorkspacePath} from "nbook/server/agent/tools/file-tool-utils";
 import {formatSize, DEFAULT_MAX_BYTES, truncateHead, type TruncationResult} from "nbook/server/agent/tools/truncate";
 import {OutputAccumulator} from "nbook/server/agent/tools/output-accumulator";
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
+import {applyCodexPatch} from "nbook/server/agent/tools/apply-patch";
 
 const ReadSchema = Type.Object({
     path: Type.String({description: "Path to the file to read (relative or absolute)."}),
@@ -30,9 +31,7 @@ const EditSchema = Type.Object({
 }, {additionalProperties: false});
 
 const ApplyPatchSchema = Type.Object({
-    path: Type.String({description: "Path to the file to patch (relative or absolute)."}),
-    patch: Type.String({description: "Unified diff patch text."}),
-    fuzzFactor: Type.Optional(Type.Number({description: "Context matching tolerance in lines. Default 0."})),
+    patch: Type.String({description: "Codex apply_patch patch text. It must start with *** Begin Patch and end with *** End Patch."}),
 }, {additionalProperties: false});
 
 const BashSchema = Type.Object({
@@ -43,7 +42,6 @@ const BashSchema = Type.Object({
 type ReadInput = Static<typeof ReadSchema>;
 type WriteInput = Static<typeof WriteSchema>;
 type EditInput = Static<typeof EditSchema>;
-type ApplyPatchInput = Static<typeof ApplyPatchSchema>;
 type BashInput = Static<typeof BashSchema>;
 
 type ReadDetails = {
@@ -209,24 +207,20 @@ function createApplyPatchTool(): NeuroAgentTool {
         key: "apply_patch",
         name: "apply_patch",
         label: "apply_patch",
-        description: "Apply a unified diff patch to a single local text file. Use this when the change is naturally cohesive in one verified patch. For multiple separate locations in one file, prefer one edit call with multiple entries in edits[].",
+        description: "Use the `apply_patch` tool to edit files by passing a Codex apply_patch patch in the `patch` string field. Use it when a change is naturally cohesive in one verified patch. For multiple separate locations in one file, prefer one edit call with multiple entries in edits[].",
         parameters: ApplyPatchSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown) {
-            const input = params as ApplyPatchInput;
-            const absolutePath = resolveWorkspacePath(input.path, context.workspaceRoot);
-            await assertWritable(absolutePath);
-            const original = await readFile(absolutePath, "utf-8");
-            const patched = applyPatch(original, input.patch, {fuzzFactor: input.fuzzFactor ?? 0});
-            if (patched === false) {
-                throw new Error("Patch application failed; verify the patch matches the current file content.");
-            }
-            await writeFile(absolutePath, patched, "utf-8");
-            const diff = createPatch(input.path, original, patched, undefined, undefined, {context: 4});
+            const input = params as {patch: string};
+            const result = await applyCodexPatch({
+                workspaceRoot: context.workspaceRoot,
+                patchText: input.patch,
+            });
             return {
-                content: [{type: "text", text: `Patch applied to ${input.path}.`}],
+                content: [{type: "text", text: `Patch applied to ${result.files.map((file) => file.path).join(", ")}.`}],
                 details: {
-                    diff,
-                    firstChangedLine: firstChangedLine(diff),
+                    files: result.files,
+                    diff: result.diff,
+                    firstChangedLine: result.firstChangedLine,
                 },
             };
         },

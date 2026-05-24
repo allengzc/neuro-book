@@ -1,6 +1,6 @@
 import type {AgentEvent} from "@earendil-works/pi-agent-core";
 import type {AgentUserMessageInput, JsonValue, Usage} from "nbook/server/agent/messages/types";
-import type {SessionMetadata} from "nbook/server/agent/session/types";
+import type {InvocationErrorPhase, SessionMetadata} from "nbook/server/agent/session/types";
 import type {AgentResolution} from "nbook/server/agent/tools/types";
 import type {
     AgentAbortRequestDto,
@@ -50,6 +50,7 @@ export type InvokeAgentResult = {
         data?: unknown;
     };
     error?: string;
+    errorPhase?: InvocationErrorPhase;
     usage?: Usage;
     events: AgentEvent[];
 };

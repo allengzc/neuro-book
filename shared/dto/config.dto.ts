@@ -103,7 +103,7 @@ export const ConfigDefaultProfileSettingsDtoSchema = z.object({
         profileKey: ProfileKeySchema,
         name: z.string().trim().min(1),
         description: z.string().trim().nullable(),
-        loadStatus: z.enum(["loaded", "error"]),
+        loadStatus: z.enum(["loaded", "not_compiled", "compile_stale", "compiled_load_failed", "source_error"]),
     })).default([]),
 });
 

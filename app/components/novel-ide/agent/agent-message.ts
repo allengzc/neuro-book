@@ -13,7 +13,7 @@ export type MessageType = "user" | "ai" | "system";
 /**
  * 系统消息在前端的展示类型。
  */
-export type SystemMessageDisplayKind = "prompt" | "reminder" | "system";
+export type SystemMessageDisplayKind = "prompt" | "reminder" | "system" | "error";
 
 /**
  * 消息状态。
@@ -66,6 +66,8 @@ export type AgentMessage = {
     thinking?: string;
     /** assistant 生成失败时的 provider/runtime 错误文本。 */
     error?: string;
+    /** 运行期错误所属 invocation，用于 HTTP 结果兜底去重。 */
+    invocationId?: string;
 };
 
 export const AgentUserInputQuestionOptionSchema = z.object({
@@ -320,6 +322,8 @@ export const deriveMessagesFromSessionSnapshot = (snapshot: AgentSessionSnapshot
     const assistantByToolCallId = new Map<string, AgentMessage>();
     const hasActiveInvocation = Boolean(snapshot.activeInvocation);
     const pendingToolCallId = snapshot.pendingApproval?.toolCallId ?? null;
+    const assistantErrorInvocations = findAssistantErrorInvocations(snapshot.entries);
+    let currentInvocationId: string | null = null;
 
     if (snapshot.systemPrompt?.trim()) {
         messages.push({
@@ -361,6 +365,16 @@ export const deriveMessagesFromSessionSnapshot = (snapshot: AgentSessionSnapshot
             });
             continue;
         }
+        if (entry.type === "invocation_lifecycle") {
+            currentInvocationId = entry.invocationId;
+            if (entry.status === "error" && !assistantErrorInvocations.has(entry.invocationId)) {
+                const errorMessage = toInvocationErrorMessage(entry);
+                if (errorMessage && !hasVisibleInvocationError(messages, entry.invocationId)) {
+                    messages.push(errorMessage);
+                }
+            }
+            continue;
+        }
         if (entry.type !== "message") {
             continue;
         }
@@ -373,7 +387,10 @@ export const deriveMessagesFromSessionSnapshot = (snapshot: AgentSessionSnapshot
             upsertToolResult(assistant, message);
             continue;
         }
-        const localMessage = toLocalMessage(entry.id, message);
+        const localMessage = {
+            ...toLocalMessage(entry.id, message),
+            invocationId: currentInvocationId ?? undefined,
+        };
         messages.push(localMessage);
         if (message.role === "assistant") {
             for (const toolCall of message.content.filter((block): block is PiAgentToolCall => block.type === "toolCall")) {
@@ -397,6 +414,24 @@ export const applySessionEntryToMessages = (
     previousMessages: AgentMessage[],
     entry: SessionEntry,
 ): AgentMessage[] => {
+    if (entry.type === "invocation_lifecycle" && entry.status === "error" && hasAssistantErrorForInvocation(previousMessages, entry.invocationId)) {
+        return previousMessages;
+    }
+    if (entry.type === "message" && entry.message.role === "toolResult") {
+        const toolResult = entry.message;
+        const assistant = previousMessages.findLast((message) => {
+            return message.type === "ai" && message.toolCalls?.some((toolCall) => toolCall.id === toolResult.toolCallId);
+        });
+        if (!assistant) {
+            return previousMessages;
+        }
+        const nextMessages = previousMessages.map((message) => message.id === assistant.id ? {...message} : message);
+        const nextAssistant = nextMessages.find((message) => message.id === assistant.id);
+        if (nextAssistant) {
+            upsertToolResult(nextAssistant, toolResult);
+        }
+        return reconcileMessages(previousMessages, nextMessages);
+    }
     const nextMessage = deriveMessageFromSessionEntry(entry);
     if (!nextMessage) {
         return previousMessages;
@@ -450,7 +485,62 @@ const deriveMessageFromSessionEntry = (entry: SessionEntry): AgentMessage | null
     if (entry.type === "message" && entry.origin === "prompt" && entry.message.role === "user") {
         return toLocalMessage(entry.id, entry.message);
     }
+    if (entry.type === "invocation_lifecycle" && entry.status === "error") {
+        return toInvocationErrorMessage(entry);
+    }
     return null;
+};
+
+const findAssistantErrorInvocations = (entries: SessionEntry[]): Set<string> => {
+    const result = new Set<string>();
+    let currentInvocationId: string | null = null;
+    for (const entry of entries) {
+        if (entry.type === "invocation_lifecycle") {
+            currentInvocationId = entry.invocationId;
+            continue;
+        }
+        if (entry.type !== "message" || entry.message.role !== "assistant" || !currentInvocationId) {
+            continue;
+        }
+        const localMessage = toLocalMessage(entry.id, entry.message);
+        if (localMessage.error) {
+            result.add(currentInvocationId);
+        }
+    }
+    return result;
+};
+
+export const hasVisibleInvocationError = (messages: AgentMessage[], invocationId: string): boolean => {
+    return messages.some((message) => {
+        return message.invocationId === invocationId
+            && (message.systemDisplayKind === "error" || (message.type === "ai" && Boolean(message.error)));
+    });
+};
+
+const hasAssistantErrorForInvocation = (messages: AgentMessage[], invocationId: string): boolean => {
+    return messages.some((message) => {
+        return message.type === "ai"
+            && message.invocationId === invocationId
+            && Boolean(message.error);
+    });
+};
+
+const toInvocationErrorMessage = (entry: Extract<SessionEntry, {type: "invocation_lifecycle"}>): AgentMessage | null => {
+    const content = entry.errorInfo?.message?.trim() || entry.error?.trim();
+    if (!content) {
+        return null;
+    }
+    return {
+        id: entry.id,
+        type: "system",
+        systemDisplayKind: "error",
+        systemLabel: "Run Error",
+        content,
+        status: "stopped",
+        timestamp: formatTimestamp(entry.timestamp),
+        error: content,
+        invocationId: entry.invocationId,
+    };
 };
 
 const toCustomSessionMessage = (entry: AgentSessionSnapshotDto["entries"][number] & {type: "custom_message"}): AgentMessage => {
@@ -643,7 +733,7 @@ export const deriveRequestUserInputAnswerViews = (
 /**
  * 从 Pi event 更新 live message。
  */
-export const applyPiEventToMessages = (previousMessages: AgentMessage[], event: AgentEvent): AgentMessage[] => {
+export const applyPiEventToMessages = (previousMessages: AgentMessage[], event: AgentEvent, invocationId?: string): AgentMessage[] => {
     if (event.type === "message_start" || event.type === "message_update" || event.type === "message_end") {
         if (event.message.role === "toolResult") {
             const toolResult = event.message;
@@ -662,7 +752,10 @@ export const applyPiEventToMessages = (previousMessages: AgentMessage[], event: 
             return previousMessages;
         }
         const messageId = resolveLiveMessageId(event.message);
-        const localMessage = toLocalMessage(messageId, event.message, event.type !== "message_end");
+        const localMessage = {
+            ...toLocalMessage(messageId, event.message, event.type !== "message_end"),
+            invocationId,
+        };
         const nextMessages = previousMessages.some((message) => message.id === localMessage.id)
             ? previousMessages.map((message) => message.id === localMessage.id ? localMessage : message)
             : [...previousMessages, localMessage];
@@ -670,10 +763,11 @@ export const applyPiEventToMessages = (previousMessages: AgentMessage[], event: 
     }
 
     if (event.type === "tool_execution_start") {
+        const argsText = formatToolArgs(event.args);
         return updateToolCall(previousMessages, event.toolCallId, {
             name: event.toolName,
-            argsText: JSON.stringify(event.args ?? {}, null, 2),
-            argsJson: toStableArgsJson(JSON.stringify(event.args ?? {})),
+            argsText,
+            argsJson: toStableArgsJson(argsText),
             status: "running",
         });
     }
@@ -737,7 +831,7 @@ const resolveLiveMessageId = (message: PiAgentMessage): string => {
 };
 
 const toLocalToolCall = (toolCall: PiAgentToolCall, index: number, assistantMessageId: string): AgentToolCall => {
-    const argsText = JSON.stringify(toolCall.arguments ?? {}, null, 2);
+    const argsText = formatToolArgs(toolCall.arguments);
     const linkedSessionId = extractLinkedSessionId(toolCall.arguments);
     return {
         id: toolCall.id,
@@ -749,6 +843,13 @@ const toLocalToolCall = (toolCall: PiAgentToolCall, index: number, assistantMess
         status: "streaming",
         linkedSessionId,
     };
+};
+
+const formatToolArgs = (args: unknown): string => {
+    if (typeof args === "string") {
+        return args;
+    }
+    return JSON.stringify(args ?? {}, null, 2);
 };
 
 const markInterruptedToolCalls = (

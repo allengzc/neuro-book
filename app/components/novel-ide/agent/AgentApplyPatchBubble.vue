@@ -1,12 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import type { AgentToolCall } from "nbook/app/components/novel-ide/agent/agent-message";
-import {
-    extractStreamingNumberField,
-    extractStreamingStringField,
-    extractStreamingTextField,
-    parseToolArgsObject,
-} from "nbook/app/components/novel-ide/agent/tool-args-stream";
+import {parseToolArgsObject} from "nbook/app/components/novel-ide/agent/tool-args-stream";
 
 const props = defineProps<{
     toolCall: AgentToolCall;
@@ -15,7 +10,6 @@ const props = defineProps<{
 interface ApplyPatchArgs {
     path?: string;
     patch?: string;
-    fuzzFactor?: number;
 }
 
 /** apply_patch 的 patch 文本通常较长，需要优先展示已解析出的 patch 内容。 */
@@ -24,14 +18,24 @@ const parsedArgs = computed<ApplyPatchArgs>(() => {
     return parsed ?? {};
 });
 
-const filePathText = computed(() => parsedArgs.value.path ?? extractStreamingStringField(props.toolCall.argsText, "path"));
-const patchText = computed(() => parsedArgs.value.patch ?? extractStreamingTextField(props.toolCall.argsText, "patch"));
-const fuzzFactorText = computed(() => {
-    if (typeof parsedArgs.value.fuzzFactor === "number") {
-        return String(parsedArgs.value.fuzzFactor);
+const patchText = computed(() => parsedArgs.value.patch ?? props.toolCall.argsText ?? "");
+const touchedFiles = computed(() => {
+    const files: string[] = [];
+    for (const line of patchText.value.split(/\r?\n/)) {
+        if (line.startsWith("*** Add File: ")) {
+            files.push(line.slice("*** Add File: ".length).trim());
+        }
+        if (line.startsWith("*** Update File: ")) {
+            files.push(line.slice("*** Update File: ".length).trim());
+        }
+        if (line.startsWith("*** Delete File: ")) {
+            files.push(line.slice("*** Delete File: ".length).trim());
+        }
     }
-    const extracted = extractStreamingNumberField(props.toolCall.argsText, "fuzzFactor");
-    return extracted === null ? "" : String(extracted);
+    if (files.length === 0 && parsedArgs.value.path) {
+        files.push(parsedArgs.value.path);
+    }
+    return files;
 });
 </script>
 
@@ -39,13 +43,11 @@ const fuzzFactorText = computed(() => {
     <div class="mt-2 space-y-3">
         <!-- Tool 目标路径 -->
         <div class="flex flex-wrap items-center gap-2">
-            <span class="rounded border border-[var(--accent-main)]/30 bg-[var(--bg-main)] px-2 py-1 font-mono text-[11px] text-[var(--accent-main)]">
+            <span v-for="filePath in touchedFiles" :key="filePath" class="rounded border border-[var(--accent-main)]/30 bg-[var(--bg-main)] px-2 py-1 font-mono text-[11px] text-[var(--accent-main)]">
                 <span class="mr-1 inline-block h-3 w-3 align-text-bottom i-lucide-file-diff"></span>
-                {{ filePathText || "解析路径中..." }}
+                {{ filePath }}
             </span>
-            <span v-if="fuzzFactorText" class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1 font-mono text-[10px] text-[var(--text-muted)]">
-                fuzz: {{ fuzzFactorText }}
-            </span>
+            <span v-if="touchedFiles.length === 0" class="rounded border border-[var(--accent-main)]/30 bg-[var(--bg-main)] px-2 py-1 font-mono text-[11px] text-[var(--accent-main)]">解析路径中...</span>
         </div>
 
         <!-- Patch Preview -->
