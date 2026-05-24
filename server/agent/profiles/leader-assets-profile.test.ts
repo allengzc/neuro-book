@@ -92,6 +92,8 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).toContain("内容节点引用分流");
         expect(prompt).toContain("retrieval.trigger");
         expect(prompt).toContain("workspace node parse --stdin --ndjson");
+        expect(prompt).toContain("rg --files | rg '(^|[\\\\/])index\\.md$'");
+        expect(prompt).toContain("workspace 相对路径优先使用 / 分隔");
         expect(prompt).toContain("\"novelId\"");
         expect(prompt).toContain("\"createdAt\"");
         expect(prompt).toContain("角色动机是否连续");
@@ -102,6 +104,8 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).not.toContain("edit_file");
         expect(prompt).not.toContain("execute_shell");
         expect(prompt).not.toContain("PowerShell");
+        expect(prompt).not.toContain("--path-separator=/");
+        expect(prompt).not.toContain("rg --files | rg '(^|/)index");
         const historyText = (prepared.historyInitMessages ?? []).map(messageText).join("\n");
         expect(historyText).toContain("Available Agents");
         expect(historyText).toContain("writer");
@@ -167,6 +171,44 @@ describe("assets builtin v3 profiles", () => {
         expect((exitPrepared.appendingMessages ?? []).map(messageText).join("\n")).toContain("## Exited Plan Mode");
         const snapshot = await catalog.snapshot();
         expect(snapshot.profiles.map((item) => item.key)).toContain("leader.default");
+    });
+
+    it("retrieval profile 使用 Git Bash 安全的路径枚举提示", async () => {
+        const catalog = new AgentProfileCatalog(
+            resolve("assets", "workspace", ".nbook", "agent", "profiles"),
+            resolve(".agent", "missing-user-profiles"),
+        );
+        catalog.register(defaultAgentProfile);
+        const profile = await catalog.get("retrieval");
+        const prepared = await profile.prepare!({
+            session: {
+                systemPrompt: "",
+                messages: [],
+                model: null,
+                thinkingLevel: "off",
+                profileKey: "retrieval",
+                workspaceRoot: resolve("workspace"),
+                customState: {},
+                linkedAgents: [],
+                archived: false,
+                planModeActive: false,
+            },
+            input: {
+                prompt: "找主角相关设定",
+                maxEntries: 3,
+            },
+            catalog: await catalog.snapshot(),
+            skills: [],
+        });
+        const prompt = prepared.systemPrompt ?? "";
+
+        expect(prompt).toContain("rg --files | rg '(^|[\\\\/])index\\.md$'");
+        expect(prompt).toContain("head -n 30");
+        expect(prompt).toContain("workspace 相对路径优先使用 / 分隔");
+        expect(prompt).not.toContain("PowerShell");
+        expect(prompt).not.toContain("Select-Object");
+        expect(prompt).not.toContain("--path-separator=/");
+        expect(prompt).not.toContain("rg --files | rg '(^|/)index");
     });
 
     it("leader.assets 从 assets/workspace/.nbook 加载并使用用户资产提示词", async () => {

@@ -319,14 +319,15 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - workspace node new TARGET --type TYPE --title TITLE --state：创建节点时同时写入模板 state.md；当前主要用于 character、item、location。
         - workspace node state TARGET：给已有内容节点补建 state.md，已有 state 文件时拒绝覆盖。
 
-        枚举路径时优先使用 rg --files 和精确路径过滤。不要为了了解结构而递归扫描整个小说 workspace。
+        枚举路径时优先使用 rg --files 和同时兼容 /、\ 的精确路径过滤。不要为了了解结构而递归扫描整个小说 workspace。
+        bash 命令里的 workspace 相对路径优先使用 / 分隔；不要写未加引号的 Windows 反斜杠路径，例如 lorebook\character\hero 会被 bash 解析成 lorebookcharacterhero。
 
         bash 示例：
-        - {"command":"rg --files | rg '(^|/)index\\.md$' | workspace node parse --stdin --ndjson"}
-        - {"command":"rg --files | rg '(^|/)index\\.md$' | workspace node validate --stdin"}
+        - {"command":"rg --files | rg '(^|[\\\\/])index\\.md$' | workspace node parse --stdin --ndjson"}
+        - {"command":"rg --files | rg '(^|[\\\\/])index\\.md$' | workspace node validate --stdin"}
 
         使用原则：
-        - workspace node parse 是内容节点解析器；它不负责查找路径，查找优先交给 rg --files 和精确过滤。不要用无筛选的整库枚举来探索。
+        - workspace node parse 是内容节点解析器；它不负责查找路径，查找优先交给 rg --files 和同时兼容 /、\ 的精确过滤。不要用无筛选的整库枚举来探索。
         - workspace node validate 是安全网；出现 P1/P2 时，先修复能明确处理的问题，再继续写作或迁移。
         - 脚本失败时，读取错误信息并说明阻塞原因；不要假装脚本已经成功。
         - 执行 rg --files 前先确认 Agent cwd。默认 cwd 是 workspace 容器根，因此当前小说路径要写成 novel-slug/manuscript/、novel-slug/lorebook/。

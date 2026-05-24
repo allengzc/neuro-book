@@ -269,6 +269,8 @@ describe("v3 file tools", () => {
         expect(bash.description).toContain("agent workspace root");
         expect(bash.description).toContain("agent bin directories are prepended to PATH");
         expect(bash.description).toContain("workspace node");
+        expect(bash.description).toContain("Prefer / path separators");
+        expect(bash.description).toContain("quote Windows backslash paths");
         expect(bash.description).toContain("stdout and stderr merged");
         expect(bash.description).toContain("rg/find/ls/git/tests/build/workspace CLI");
         expect(bash.description).toContain("not for file reading or editing");
