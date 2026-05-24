@@ -19,6 +19,21 @@
 - Tool registry：`server/agent/tools/**`
 - Workbench profile API：`server/api/agent/profiles/**`
 
+## Profile Compile Boundary
+
+当前实现中，Workbench 自动编辑路径已经拆成“轻量源码解析 + 手动后台 worker 编译”，不会在用户每次输入时触发 runtime profile loader。但普通 runtime catalog 仍可能在读取 `.profile.tsx` 时进行 esbuild/runtime import；这会让 config snapshot、catalog、创建 session 或 invoke 在 profile 源码变更后出现编译卡顿。
+
+下一阶段目标是把 profile 运行边界硬切为 `.compiled`：
+
+- `.profile.tsx` / `.profile.ts` 是编辑真相源。
+- `.compiled/manifest.json` 与 `.compiled/*.mjs` 是运行真相源。
+- 普通 runtime API 只读 `.compiled`，不自动编译 TSX。
+- 系统 profile 在 `bun run dev`、`bun run build`、`bun run nuxt:build` 和 Docker build 链路中预编译一次，并作为 system assets 发布。
+- 用户 profile 由 Workbench “编译”按钮或 Agent runtime CLI `profile compile` 手动生成用户侧 `.compiled` 产物。
+- `profile preview` 可以 dry-run 已保存源码的 `prepare()`，但不写 `.compiled`，也不改变运行可用状态。
+
+计划落点详见 [TSX Profile Workbench](../tasks/04-tsx-profile-workbench/README.md)。在该方案实现前，本文档中关于 catalog 加载的描述仍代表当前实现事实；实现后需要把 catalog 章节改为 compiled-only。
+
 ## Harness 职责
 
 `NeuroAgentHarness` 是 Agent 运行时编排器。它负责：

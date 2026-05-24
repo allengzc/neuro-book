@@ -24,6 +24,7 @@
   - 自动阶段只调用 `POST /api/agent/profiles/source-draft` 做轻量 TSX DSL tree 解析，不触发 `AgentProfileCatalog` / runtime profile loader。
   - 手动阶段由用户点击顶部“编译”按钮触发 `POST /api/agent/profiles/compile`，真实 TSX profile 加载、detail 和可选 prepare preview 在后台 worker 中执行。
   - “创建 Session”只有在最近一次编译通过且源码未再次修改时启用；保存文件本身不等于编译。
+- 当前两阶段实现解决了“自动编辑时卡住 Nitro 主线程”的问题，但普通 runtime catalog 仍会在加载 `.profile.tsx` 时走 esbuild/runtime import。下一阶段要继续硬切为 `.compiled` 运行真相源，确保 config snapshot、catalog、创建 session 和 invoke 都不会触发 TSX 编译。
 - `user-assets` 是前端入口，挂载目标是 Workspace Root `.nbook`，即 `workspace/.nbook/`；它不是新的配置 scope，也不是嵌套资产根。
 - `leader.default` 和 `leader.assets` 只是系统内置 agent key/name，不再表达 leader/subagent 架构分层。
 - `InputSchema` / `OutputSchema` 使用 TypeBox / JSON Schema；旧文档中基于 Zod 的 Schema Builder 设计不是当前实现真相。v3 `InputSchema` 表示创建 agent/session 时传入的实例初始化参数，不承载每轮任务 prompt；每轮任务输入通过 `invoke_agent` 或 `/api/agent/sessions/:sessionId/invocations` 传递。profile contract 仍要求 `inputSchema` 字段存在；产品语义中的“InputSchema 为空”指 `InputSchema = Type.Object({})` 这类空对象 schema，表示这是普通 agent，没有特殊实例配置，创建后直接通过 invoke 对话即可。
@@ -111,6 +112,54 @@
 - Workbench 编辑器不允许编辑系统 profile。user-assets 同步会自动把需要的系统 profile 复制到用户资产，因此正常情况下 `leader.assets` 这类 profile 会以用户资产文件形式出现；不再提供显式“创建用户覆盖”动作。
 - Profile Workbench 不承担默认 profile 配置；默认 profile 仍归 Config/设置页。
 - 保存文件和 profile 可运行性分离：允许保存编译失败或契约失败的 TSX 文件；自动解析只展示轻量 DSL/source issue，手动“编译”展示 runtime detail / prepare issue，运行同 key profile 前必须有一次最新源码对应的编译通过结果。
+- 下一阶段把“运行前必须编译”从 Workbench UI 状态推进到 runtime catalog 硬合同：`.profile.tsx` 源码是编辑真相源，`.compiled` 产物是运行真相源。所有普通 runtime API 只读取已编译产物，不再在 `profiles.snapshot()`、`profiles.get()`、设置页、创建 session 或 invoke 时自动把 TSX 源码编译成 JS。
+- `.compiled` 目录放在各 profile root 内，而不是 `.agent` 临时目录：
+  - 系统 profile：`assets/workspace/.nbook/agent/profiles/.compiled/`
+  - 用户 profile：`workspace/.nbook/agent/profiles/.compiled/`
+  - `.agent/workspace/profile-module-cache` 只能作为开发期或编译过程的临时缓存，不再作为 runtime 可运行性的合同。
+- `.compiled/manifest.json` 是 runtime 可信索引，记录 `fileName`、`profileKey`、源码 hash、编译产物路径、依赖 hash、compiler/cache version 和生成时间。catalog 只能在 manifest 中的源码 hash 与当前 `.profile.tsx` 匹配时 import 对应 `.mjs`。
+- profile 源码变更后不自动编译；catalog 应把该 profile 标记为 `compile_stale` 或 `not_compiled`，并阻止创建 session / invoke 使用它，直到用户或构建脚本显式编译。
+- 系统 profile 在构建/开发启动阶段预编译：`bun run build`、`bun run nuxt:build` 和 `bun run dev` 应先生成系统 profile 的 `.compiled` 产物。Docker runner 已复制 `assets`，因此系统 `.compiled` 应作为 system assets 的一部分随镜像发布。
+- 用户 profile 不能依赖镜像构建时预编译，因为生产 `workspace/` 通常是运行时挂载。用户 profile 的 `.compiled` 产物由 Workbench 手动“编译”或管理员 CLI 显式生成；保存源码不等于应用到 runtime。
+- Workbench 操作语义下一阶段收敛为：
+  - `保存`：只保存 `.profile.tsx`，保存后若源码 hash 与 `.compiled` manifest 不一致，则状态为“源码已修改，需编译”。
+  - `编译`：保存当前源码并在后台 worker 中生成 `.compiled` 产物和 manifest；成功后 profile 才可运行。
+  - `预览`：可以 dry-run 当前编辑器源码，但不写 `.compiled`，不改变 runtime 可运行状态。
+  - `创建 Session`：只在 `.compiled` manifest 与当前源码 hash 匹配且 artifact 可 import 时启用。
+- runtime catalog 状态需要区分：
+  - `loaded`：compiled artifact 存在、manifest hash 匹配、import 成功。
+  - `not_compiled`：有源码但没有 compiled artifact。
+  - `compile_stale`：compiled artifact 存在但源码或依赖 hash 已变化。
+  - `compiled_load_failed`：manifest/artifact 存在但 import 失败。
+  - `source_error`：源码文件不可读或轻量文件级诊断失败。
+- `.compiled` artifact 采用 esbuild bundle：
+  - repo-local profile runtime/helper 代码可以 bundle 进产物，降低运行时解析成本。
+  - `node_modules` 依赖和 Node builtins 保持 external，避免把大型依赖复制进每个 profile artifact。
+  - artifact 必须记录 compiler version / cache version / source hash / dependency hash；hash 不匹配时 runtime 不 import。
+  - 用户 profile 仍是受信任的本地代码，本轮不引入 sandbox。
+- 系统 `.compiled` 产物属于 system assets：
+  - `bun run dev`、`bun run build`、`bun run nuxt:build` 在启动或构建前预编译系统 profile 一次，形成热态缓存。
+  - Docker / 生产镜像复制 `assets` 时也携带 `assets/workspace/.nbook/agent/profiles/.compiled/`。
+  - dev/build 只预编译系统 profile，不监听源码变化自动重编译；系统 profile 修改后需要重新运行显式编译或重启构建链路。
+- 用户 `.compiled` 产物属于 user-assets：
+  - 用户产物写入 `workspace/.nbook/agent/profiles/.compiled/`，不进入 Git。
+  - 生产环境通常挂载运行时 `workspace/`，因此用户 profile 不可能依赖镜像构建时预编译。
+  - 已存在的手改用户 profile 或缺少 sync state 的用户覆盖不自动编译、不自动覆盖；catalog/detail 只提示 `not_compiled` / `compile_stale` / shadow warning，用户通过 Workbench 或 CLI 手动编译。
+- 系统 profile 同步到 user-assets 时也同步匹配的 `.compiled` artifact：
+  - 用户文件缺失时复制系统源码与对应 compiled artifact，并写入 sync state。
+  - 用户文件未手改且系统 hash 更新时，自动覆盖源码和 compiled artifact。
+  - 用户文件已手改或缺 sync state 时，保留用户源码和用户 compiled artifact，不静默替换。
+- 新 Agent runtime CLI 统一为 `profile` 命令，不继续把仓库根 `scripts/` 当成用户/Agent 面向入口：
+  - `profile status`：查看源码、compiled manifest、stale/not compiled/load failed/sync warning。
+  - `profile check`：检查磁盘上的 profile 源码和 contract，不写 `.compiled`。
+  - `profile compile`：只编译已保存到磁盘的源码，写入 `.compiled` artifact 与 manifest。
+  - `profile preview`：dry-run 当前已保存源码的 `prepare()`，展示 `systemPrompt`、HistorySet、AppendingSet、ModelContext、stateWrites、最终 ReAct messages 和 `report_result` schema，不写 `.compiled`。
+  - 旧 `scripts/compile-profile.ts`、`scripts/check-profile.ts`、`scripts/profile-compile-cli.ts` 后续直接删除或替换为新 CLI，不保留旧别名；`scripts/prepare-profile-types.ts` 如只服务动态 typegen 可以保留。
+- `leader.assets` 与 `profile-system-guide` 后续要跟随新心智更新：
+  - 主提示词只放普通用户能理解的 profile 心智，不塞 `.compiled/manifest.json` 的深层细节。
+  - 明确“保存 profile 源码不等于可运行”；需要 Workbench 编译或 `profile compile`。
+  - 提醒 CLI 可完成 `profile status/check/compile/preview`。
+  - 移除旧的 `POST /api/agent/profiles/compile`、`bun scripts/compile-profile.ts`、`bun scripts/check-profile.ts` 作为用户操作建议。
 - Runtime profile catalog 面向可被 profile/runtime 使用的 agent 列表，不承担“坏文件浏览器”职责。坏 `.profile.tsx` 文件不进入运行时 catalog；外层入口如需修复坏文件，应通过文件清单/diagnostics 按 `fileName` 调用 Workbench 编辑器打开源码。
 - 自定义 profile / agent 是第一版成功标准，不再只做 builtin profile 浏览或系统 profile 覆盖。
 - 保留 `tsx-profile-editor.preview` 独立 debug page，并基于当前已调好的 `ProfileTemplateVisualEditor` 页面继续调整。
@@ -271,6 +320,19 @@
 
 ## TODO / Follow-ups
 
+- 实现 `.compiled` 运行真相源方案：
+  - 新增 Agent runtime CLI `profile`，支持 `status`、`check`、`compile`、`preview` 四个子命令；`compile` 写 `.compiled`，`preview` 只 dry-run 不写 artifact。
+  - `profile compile` 只编译已保存到磁盘的 `.profile.tsx/.profile.ts`，不把未保存编辑器源码写成 runtime artifact；Workbench 编译按钮需要先保存当前源码，再后台生成 `.compiled`。
+  - 产物使用 esbuild bundle：repo-local 代码 bundle，`node_modules` 与 Node builtins external；写入 profile root 内 `.compiled/*.mjs` 和 `.compiled/manifest.json`。
+  - 系统编译脚本接入 `dev`、`build`、`nuxt:build` 和 Docker build 链路；系统 assets 发布时携带 `assets/workspace/.nbook/agent/profiles/.compiled/`。
+  - 用户编译由 Workbench 后台 worker 或显式 CLI 触发，成功后写入 `workspace/.nbook/agent/profiles/.compiled/`；未保存源码 dry-run preview 不写 artifact。
+  - 系统 profile sync 同步源码时同步对应 `.compiled` artifact；用户文件已手改或缺 sync state 时不覆盖源码，也不覆盖用户 `.compiled`。
+  - 改造 `AgentProfileCatalog`：删除普通 runtime 路径里的 TSX/esbuild 自动编译；catalog 只读 `.compiled/manifest.json`，按源码 hash / 依赖 hash 判断 `loaded`、`not_compiled`、`compile_stale`、`compiled_load_failed`。
+  - 创建 session、invoke、profile detail 和 config editor snapshot 都不得触发 TSX 编译；需要运行 stale/uncompiled profile 时返回明确错误或 warning。
+  - `.agent/workspace/profile-module-cache` 降级为临时编译缓存或删除；不能再作为 runtime 是否可运行的判断依据。
+  - 删除或替换旧仓库根脚本 `scripts/compile-profile.ts`、`scripts/check-profile.ts`、`scripts/profile-compile-cli.ts`；不保留旧别名。`scripts/prepare-profile-types.ts` 如只服务动态 typegen 可以保留。
+  - 更新 `leader.assets` 提示词、`profile-system-guide` skill/reference 和相关测试，改为推荐 Workbench 编译或 `profile status/check/compile/preview`，不再把 HTTP endpoint 或旧脚本作为用户操作入口。
+  - 文档同步更新 `docs/modules/agent/harness.md`、`docs/tasks/02-pi-agent-harness-migration/README.md` 和 `PROJECT-STATUS.md`，说明 runtime catalog 不再自动编译 profile。
 - 后续补 TypeBox Schema Builder，只在能稳定定位 `InputSchema` / `OutputSchema` 源码 range 时做局部替换。
 - 后续补完整 `allowedToolKeys` checklist 局部替换；当前 UI 只读展示工具权限，源码仍是真相源。
 - 后续补更完整的 `ProfilePrompt` AST round-trip，包括复杂 `Watch.render`、helper 变量绑定和跨函数片段；当前已支持稳定 `context()` 返回的 TSX DSL tree 与整段 `ProfilePrompt` 局部替换。

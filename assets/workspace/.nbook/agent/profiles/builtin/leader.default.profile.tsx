@@ -323,8 +323,8 @@ const LEADER_SYSTEM_PROMPT = profileText`
         bash 命令里的 workspace 相对路径优先使用 / 分隔；不要写未加引号的 Windows 反斜杠路径，例如 lorebook\character\hero 会被 bash 解析成 lorebookcharacterhero。
 
         bash 示例：
-        - {"command":"rg --files | rg '(^|[\\\\/])index\\.md$' | workspace node parse --stdin --ndjson"}
-        - {"command":"rg --files | rg '(^|[\\\\/])index\\.md$' | workspace node validate --stdin"}
+        - {"command":"rg --files | rg '(^|[\\/])index\.md$' | workspace node parse --stdin --ndjson"}
+        - {"command":"rg --files | rg '(^|[\\/])index\.md$' | workspace node validate --stdin"}
 
         使用原则：
         - workspace node parse 是内容节点解析器；它不负责查找路径，查找优先交给 rg --files 和同时兼容 /、\ 的精确过滤。不要用无筛选的整库枚举来探索。

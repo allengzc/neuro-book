@@ -19,7 +19,7 @@ For harness/profile architecture explanations, read `references/harness-profile-
 - Harness is the runner. It creates sessions, calls the profile, writes visible messages into the session, streams model/tool events, and saves results.
 - Skill is a reusable workflow note. It teaches an agent how to do a kind of task, but it is not a profile and it does not run by itself.
 - User assets are the user's editable overlay. Prefer editing files under `workspace/.nbook/...`. System files under `assets/workspace/.nbook/...` are the built-in baseline.
-- Compile means "load this `.profile.tsx` through the real runtime path and check whether the agent recipe is usable." It does not start a chat session.
+- Saving a profile source file does not make it runnable. Compile means "turn the saved `.profile.tsx` recipe into the runtime artifact the catalog can load." It does not start a chat session.
 
 ## Important Paths
 
@@ -29,8 +29,8 @@ For harness/profile architecture explanations, read `references/harness-profile-
 - System skills: `assets/workspace/.nbook/agent/skills/`
 - Profile templates: `assets/workspace/.nbook/agent/profile-templates/`
 - Harness docs: `docs/modules/agent/harness.md`
-- TSX Profile Workbench task notes: `docs/tasks/tsx-profile-workbench/README.md`
-- Agent migration/runtime notes: `docs/tasks/pi-agent-harness-migration/README.md`
+- TSX Profile Workbench task notes: `docs/tasks/04-tsx-profile-workbench/README.md`
+- Agent migration/runtime notes: `docs/tasks/02-pi-agent-harness-migration/README.md`
 - Workspace terms: `spec/workspace/TERMS.md`
 - Detailed reference for this skill: `assets/workspace/.nbook/agent/skills/profile-system-guide/references/harness-profile-system.md`
 
@@ -42,7 +42,7 @@ Prefer guidance before automation:
 2. Show the exact file that should change.
 3. Read the current file before editing.
 4. Make the smallest TSX change that matches the user's request.
-5. Ask the user to use Workbench compile/preview, or use a developer-only check when you are explicitly working in the repository source tree.
+5. Ask the user to use Workbench compile/preview, or use the `profile` CLI when it is available on the Agent runtime PATH.
 
 Use Agent runtime CLI only when it lives under `.nbook/agent/bin` and is on the bash PATH. Do not present repository-root `scripts/` as an Agent runtime contract.
 
@@ -52,11 +52,18 @@ Use Agent runtime CLI only when it lives under `.nbook/agent/bin` and is on the 
 
 Explain compile in two layers:
 
-- In the Profile Workbench UI, the "编译" button runs the real runtime compile path. It calls `POST /api/agent/profiles/compile`, loads the TSX profile in the background worker, checks the profile contract, and can produce a prepare preview.
-- In agent-guided user-assets editing, prefer Workbench compile/preview or a real prepare preview instead of repository-root scripts. The project root `scripts/` directory is for development and deployment, not for the Agent runtime.
+- In the Profile Workbench UI, the "编译" button saves the source and runs background compile. A successful compile writes the runtime `.compiled` artifact for that profile.
+- In agent-guided user-assets editing, prefer Workbench compile/preview or the Agent runtime `profile` CLI instead of repository-root scripts. The project root `scripts/` directory is for development and deployment, not for the Agent runtime.
 - Do not use repository-root profile scripts as the normal Agent-facing workflow.
 
-Do not ask ordinary users to call the HTTP compile endpoint by hand. Mention it only when explaining how Workbench works or debugging the implementation.
+Useful CLI commands:
+
+- `profile status <fileName-or-key>`: show source, compiled artifact, stale/not compiled/load failed, and sync warning.
+- `profile check <fileName-or-key>`: check saved source and profile contract without writing `.compiled`.
+- `profile compile <fileName-or-key>`: compile saved disk source and write `.compiled` artifact.
+- `profile preview <fileName-or-key>`: dry-run saved source through prepare and show context sections without writing `.compiled`.
+
+Do not ask ordinary users to call the HTTP compile endpoint by hand. Mention it only when debugging the Workbench implementation.
 
 ### Restore a user profile to the system version
 
@@ -78,7 +85,7 @@ Prefer the existing templates:
 
 Create the result under `workspace/.nbook/agent/profiles/`. A good default key is `agent.<slug>`, but it is only a recommendation.
 
-After creating the file, ask the user to compile it in the Workbench or create a real prepare preview.
+After creating the file, ask the user to compile it in the Workbench or run `profile compile`. Use `profile preview` when they want to inspect the prepared context without changing runtime artifacts.
 
 ### Explain a compile error
 
@@ -119,6 +126,7 @@ A TSX profile usually contains:
 - `<Reminder>` and `<Watch>` are dynamic nodes controlled by profile runtime state.
 - `<SkillCatalog />`, `<AgentCatalog />`, `<SqlSchemaSummary />`, and `<ActivatedSkills />` are string fragments. Put them inside `<Message>`, `<System>`, or another node that accepts string children.
 - `DynamicSet` is an old name. Use `<ModelContext>`.
+- `.compiled` is the runtime artifact area, not the editing surface. Do not manually edit files under `.compiled`.
 
 ## Answering Users
 
@@ -132,7 +140,7 @@ A TSX profile usually contains:
 ## Safety Rules
 
 - Do not edit system files when a user override is the right place.
-- Do not promise that a saved profile is runnable until `compile-profile` or Workbench runtime compile passes.
+- Do not promise that a saved profile is runnable until Workbench compile or `profile compile` passes.
 - Do not hide dangerous changes behind jargon. Say plainly if a change can affect all future agents.
 - Do not assume the user knows TypeScript. Explain errors in normal language first.
 - Do not run unfamiliar third-party `.profile.tsx` as if it were safe. User profiles are trusted local code.
