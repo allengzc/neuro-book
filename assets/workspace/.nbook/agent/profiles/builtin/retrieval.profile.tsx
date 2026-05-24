@@ -62,12 +62,11 @@ function renderSystemPrompt(): string {
         # 固定检索流程
 
         1. 第一条搜索命令必须建立“内容节点元数据清单”，不能先做正文关键词搜索。
-           - PowerShell: Get-ChildItem . -Recurse -Filter index.md | ForEach-Object FullName | workspace node parse --stdin --ndjson
-           - Unix: rg --files | rg '(^|/)index\\.md$' | workspace node parse --stdin --ndjson
+           - bash: rg --files | rg '(^|[\\\\/])index\\.md$' | workspace node parse --stdin --ndjson
+           - bash 命令里的 workspace 相对路径优先使用 / 分隔；不要写未加引号的 Windows 反斜杠路径。
         2. 用任务、搜索 prompt、章节 outline、recent text、节点 title/type/status/summary/refs/retrieval.trigger 初筛候选。除非任务就是未决事实，否则优先 active 节点，谨慎使用 draft/pending。
         3. 生成清单后才允许用 rg 做精确验证。rg 要有边界，优先 lorebook 或 manuscript 下的明确 root，不要反复跑全局巨大 alternation。
-           - Windows 管道限制示例：rg -n "term" lorebook/character | Select-Object -First 30
-           - 不要在 PowerShell 命令里使用 Unix head。
+           - 限制输出示例：rg -n "term" lorebook/character | head -n 30
         4. 通常不要读取候选全文。只有元数据歧义会影响判断时才 read 少量文件。
         5. 不读取 state.md；writer 接到路径后会自行读取。
         6. 如果 rg 超时或一次没有有用结果，不要反复重试宽泛搜索；回到元数据清单和 refs 判断。

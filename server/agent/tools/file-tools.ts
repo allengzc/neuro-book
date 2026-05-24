@@ -241,7 +241,7 @@ function createBashTool(): NeuroAgentTool {
         key: "bash",
         name: "bash",
         label: "bash",
-        description: "Execute a bash command in the agent workspace root. The agent bin directories are prepended to PATH, with user assets before system assets, so use workspace node ... for content-node CLI tasks. Returns stdout and stderr merged. Output is truncated to the last 2000 lines or 50KB (whichever is hit first). If truncated, the full output is saved to a temp file and the result includes its path. Use bash for rg/find/ls/git/tests/build/workspace CLI, not for file reading or editing when a dedicated tool exists.",
+        description: "Execute a bash command in the agent workspace root. The agent bin directories are prepended to PATH, with user assets before system assets, so use workspace node ... for content-node CLI tasks. Prefer / path separators in bash commands; quote Windows backslash paths if you must use them. Returns stdout and stderr merged. Output is truncated to the last 2000 lines or 50KB (whichever is hit first). If truncated, the full output is saved to a temp file and the result includes its path. Use bash for rg/find/ls/git/tests/build/workspace CLI, not for file reading or editing when a dedicated tool exists.",
         parameters: BashSchema,
         async executeWithContext(
             context: ToolExecutionContext,

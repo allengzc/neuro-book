@@ -182,7 +182,7 @@ active DSL 节点：
 - 用户覆盖：`workspace/.nbook/agent/bin`
 - 系统内置：`assets/workspace/.nbook/agent/bin`
 
-用户覆盖目录优先于系统目录。内容节点 CLI 的 Agent 稳定入口是 `workspace node ...`，对应脚本位于 `.nbook/agent/scripts/workspace.ts`。项目根 `scripts/` 只用于开发、部署和源码级检查，不作为 Agent runtime 合同写入 profile/skill prompt。
+用户覆盖目录优先于系统目录。内容节点 CLI 的 Agent 稳定入口是 `workspace node ...`，对应脚本位于 `.nbook/agent/scripts/workspace.ts`。项目根 `scripts/` 只用于开发、部署和源码级检查，不作为 Agent runtime 合同写入 profile/skill prompt。Windows 上也执行 Git Bash，因此 prompt / skill 里的 shell 示例必须使用 bash 语法；workspace 相对路径优先写 `/` 分隔，批量枚举路径使用 `rg --files | rg '(^|[\\/])index\.md$'` 这类同时兼容 `/` 与 `\` 的过滤，避免 `--path-separator=/` 被 MSYS path conversion 改写，也不要提示模型写未加引号的 Windows 反斜杠路径。
 
 流程：
 
