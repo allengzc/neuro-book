@@ -295,6 +295,11 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, nboo
             continue;
         }
         const currentUserHash = (await sha256File(userPath)).sha256;
+        if (currentUserHash === item.sha256) {
+            upsertUserProfileSyncState(syncState, item, currentUserHash);
+            stateChanged = true;
+            continue;
+        }
         if (!stateItem) {
             result.profileWarnings?.push({
                 fileName: item.fileName,

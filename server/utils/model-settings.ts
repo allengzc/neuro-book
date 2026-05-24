@@ -91,7 +91,6 @@ export function convertModelSettingsRequestToConfig(request: UpdateModelSettings
         providers: Object.fromEntries(
             request.providers.map((provider) => [provider.id, {
                 name: provider.name,
-                adapter: provider.adapter,
                 options: {
                     apiKey: provider.options.apiKey.trim(),
                     baseURL: provider.options.baseURL.trim(),
@@ -105,6 +104,14 @@ export function convertModelSettingsRequestToConfig(request: UpdateModelSettings
                         id: model.id.trim(),
                         group: model.group?.trim() ? model.group.trim() : null,
                         enabled: model.enabled,
+                        provider: model.provider,
+                        api: model.api,
+                        baseUrl: model.baseUrl,
+                        reasoning: model.reasoning,
+                        input: model.input,
+                        maxTokens: model.maxTokens,
+                        cost: model.cost,
+                        compat: model.compat,
                         contextWindowTokens: model.contextWindowTokens,
                     }]),
                 ),
@@ -134,7 +141,6 @@ export function buildModelSettingsDto(appConfig: {models: ModelSettingsConfig}):
     const providers = Object.entries(config.providers).map(([providerId, provider]) => ({
         id: providerId,
         name: provider.name,
-        adapter: provider.adapter,
         options: {
             apiKey: provider.options.apiKey,
             baseURL: provider.options.baseURL,
@@ -147,6 +153,14 @@ export function buildModelSettingsDto(appConfig: {models: ModelSettingsConfig}):
             id: model.id,
             group: model.group,
             enabled: model.enabled,
+            provider: model.provider,
+            api: model.api,
+            baseUrl: model.baseUrl,
+            reasoning: model.reasoning,
+            input: model.input,
+            maxTokens: model.maxTokens,
+            cost: model.cost,
+            compat: model.compat,
             contextWindowTokens: model.contextWindowTokens,
         })).sort((left, right) => left.id.localeCompare(right.id)),
     })).sort((left, right) => left.id.localeCompare(right.id));

@@ -75,6 +75,10 @@ export type CompactionSessionEntry = {
         instructions?: string;
         reserveTokens?: number;
         keepRecentTokens?: number;
+        triggerPercent?: number;
+        triggerTokens?: number;
+        promptSource?: "default" | "profile";
+        summaryPrefixSource?: "default" | "profile";
     };
 };
 
@@ -173,6 +177,10 @@ export type SessionFileRecord =
     | {
         kind: "entry";
         entry: SessionEntry;
+    }
+    | {
+        kind: "batch";
+        entries: SessionEntry[];
     };
 
 export type SessionSnapshot = {
@@ -188,6 +196,7 @@ export type NeuroSessionContext = {
     thinkingLevel: ThinkingLevel;
     profileKey: string;
     workspaceRoot: string;
+    novelId?: string;
     customState: Record<string, JsonValue>;
     linkedAgents: LinkedAgentSummary[];
     title?: string;

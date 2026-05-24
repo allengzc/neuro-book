@@ -55,7 +55,6 @@ describe("config service", () => {
                 providers: [{
                     id: "deepseek",
                     name: "DeepSeek",
-                    adapter: {type: "deepseek-official", reasoningContentReplay: true},
                     options: {
                         apiKey: {configured: false, maskedValue: null, value: "sk-test-123456"},
                         baseURL: "",
@@ -80,7 +79,6 @@ describe("config service", () => {
                 providers: [{
                     id: "deepseek",
                     name: "DeepSeek",
-                    adapter: {type: "deepseek-official", reasoningContentReplay: true},
                     options: {
                         apiKey: {configured: true, maskedValue: "sk-t...3456"},
                         baseURL: "",
@@ -117,7 +115,6 @@ describe("config service", () => {
                 providers: [{
                     id: "deepseek",
                     name: "DeepSeek",
-                    adapter: {type: "deepseek-official", reasoningContentReplay: true},
                     options: {
                         apiKey: {configured: false, maskedValue: null, value: "sk-keep-me"},
                         baseURL: "https://api.deepseek.com/v1",
@@ -151,6 +148,68 @@ describe("config service", () => {
         expect(raw.models?.providers?.[0]?.options.apiKey).toBe("sk-keep-me");
     });
 
+    it("Global 模型写回会保留 Pi Model 字段", async () => {
+        const snapshot = await saveGlobalConfig({
+            models: {
+                default: "custom/mimo-vl",
+                providers: [{
+                    id: "custom",
+                    name: "Custom",
+                    options: {
+                        apiKey: {configured: false, maskedValue: null, value: "sk-custom"},
+                        baseURL: "",
+                        proxy: "",
+                        timeoutMs: null,
+                        requestOptions: {},
+                    },
+                    models: [{
+                        id: "mimo-vl",
+                        name: "Mimo Vision",
+                        group: null,
+                        enabled: true,
+                        provider: "xiaomi-token-plan-cn",
+                        api: "openai-completions",
+                        baseUrl: "https://model.example/v1",
+                        reasoning: true,
+                        input: ["text", "image"],
+                        maxTokens: 1234,
+                        cost: {
+                            input: 1,
+                            output: 2,
+                            cacheRead: 3,
+                            cacheWrite: 4,
+                        },
+                        compat: {
+                            thinkingFormat: "deepseek",
+                            supportsStrictMode: false,
+                        },
+                        contextWindowTokens: 98765,
+                    }],
+                }],
+            },
+        }, {workspaceKind: "user-assets"});
+
+        expect(snapshot.modelSettings.providers[0]?.models[0]).toMatchObject({
+            provider: "xiaomi-token-plan-cn",
+            api: "openai-completions",
+            baseUrl: "https://model.example/v1",
+            reasoning: true,
+            input: ["text", "image"],
+            maxTokens: 1234,
+            cost: {
+                input: 1,
+                output: 2,
+                cacheRead: 3,
+                cacheWrite: 4,
+            },
+            compat: {
+                thinkingFormat: "deepseek",
+                supportsStrictMode: false,
+            },
+            contextWindowTokens: 98765,
+        });
+    });
+
     it("Project Config 可以覆盖默认模型和默认 profile，但拒绝 models.providers", async () => {
         await fs.mkdir(path.join("workspace", "config-test-project"), {recursive: true});
         await saveGlobalConfig({
@@ -159,7 +218,6 @@ describe("config service", () => {
                 providers: [{
                     id: "deepseek",
                     name: "DeepSeek",
-                    adapter: {type: "deepseek-official", reasoningContentReplay: true},
                     options: {apiKey: {configured: false, maskedValue: null}, baseURL: "", proxy: "", timeoutMs: null, requestOptions: {}},
                     models: [
                         {id: "a", name: "A", group: null, enabled: true, contextWindowTokens: null},
@@ -197,7 +255,6 @@ describe("config service", () => {
                 providers: [{
                     id: "deepseek",
                     name: "DeepSeek",
-                    adapter: {type: "deepseek-official", reasoningContentReplay: true},
                     options: {apiKey: {configured: false, maskedValue: null}, baseURL: "", proxy: "", timeoutMs: null, requestOptions: {}},
                     models: [
                         {id: "a", name: "A", group: null, enabled: true, contextWindowTokens: null},

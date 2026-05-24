@@ -130,6 +130,82 @@ describe("v3 file tools", () => {
         expect(text).toContain("err");
     });
 
+    it("bash 自动注入 Agent bin 并允许 workspace CLI 从 workspace cwd 运行", async () => {
+        const tool = mustTool("bash", harness);
+
+        const result = await tool.executeWithContext?.(context, "bash-workspace-cli", {
+            command: "pwd && command -v workspace && workspace --help",
+            timeout: 10,
+        });
+
+        const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
+        expect(text).toContain(".agent/agent-file-tools-test");
+        expect(text).toContain("/workspace");
+        expect(text).toContain("agent/bin/workspace");
+        expect(text).toContain("Usage: workspace [options] [command]");
+    });
+
+    it("bash 能通过 workspace CLI 解析和校验内容节点", async () => {
+        await writeFile(join(workspaceRoot, "workspace.yaml"), "schemaVersion: 1\nslug: test\ndisplayName: Test\nnovelId: \"1\"\ncreatedAt: \"2026-05-24T00:00:00.000Z\"\nupdatedAt: \"2026-05-24T00:00:00.000Z\"\n", "utf-8");
+        await mkdir(join(workspaceRoot, "lorebook", "character", "hero"), {recursive: true});
+        await writeFile(join(workspaceRoot, "lorebook", "character", "hero", "index.md"), "---\ntitle: Hero\ntype: character\nstatus: active\nsummary: 主角。\nrefs: []\n---\n\n正文。", "utf-8");
+        const tool = mustTool("bash", harness);
+
+        const result = await tool.executeWithContext?.(context, "bash-workspace-node", {
+            command: "workspace node parse lorebook/character/hero --json && workspace node validate lorebook/character/hero --fix-missing",
+            timeout: 10,
+        });
+
+        const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
+        expect(text).toContain("\"path\": \"lorebook/character/hero/\"");
+        expect(text).toContain("\"type\": \"character\"");
+        expect(text).toContain("OK");
+    });
+
+    it("bash 优先从 user-assets bin 解析 workspace CLI", async () => {
+        const tool = mustTool("bash", harness);
+
+        const result = await tool.executeWithContext?.(context, "bash-user-workspace-cli", {
+            command: "command -v workspace",
+            timeout: 10,
+        });
+
+        const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
+        expect(text.replaceAll("\\", "/")).toContain("workspace/.nbook/agent/bin/workspace");
+    });
+
+    it("bash 会实际执行 user-assets bin 中的覆盖命令", async () => {
+        const userBinPath = resolve("workspace", ".nbook", "agent", "bin", "workspace");
+        const original = await readFile(userBinPath, "utf-8");
+        await writeFile(userBinPath, "#!/usr/bin/env sh\necho user-bin-test\n", "utf-8");
+        const tool = mustTool("bash", harness);
+
+        try {
+            const result = await tool.executeWithContext?.(context, "bash-user-workspace-exec", {
+                command: "workspace",
+                timeout: 10,
+            });
+
+            const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
+            expect(text).toContain("user-bin-test");
+        } finally {
+            await writeFile(userBinPath, original, "utf-8");
+        }
+    });
+
+    it("bash 在 Git Bash 内也会把 Agent bin 放到 PATH 最前面", async () => {
+        const tool = mustTool("bash", harness);
+
+        const result = await tool.executeWithContext?.(context, "bash-path-order", {
+            command: "printf '%s\\n' \"$PATH\"",
+            timeout: 10,
+        });
+
+        const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
+        const firstPath = text.split(":")[0]?.replaceAll("\\", "/") ?? "";
+        expect(firstPath).toContain("workspace/.nbook/agent/bin");
+    });
+
     it("Windows bash 解析优先使用真实存在的 Git Bash 路径，再查 PATH 命令", () => {
         const gitBash = "C:\\Program Files\\Git\\bin\\bash.exe";
         const pathBash = "C:\\Tools\\bin\\bash.exe";
@@ -191,8 +267,10 @@ describe("v3 file tools", () => {
         expect(applyPatch.description).toContain("verified patch");
         expect(applyPatch.description).toContain("prefer one edit call");
         expect(bash.description).toContain("agent workspace root");
+        expect(bash.description).toContain("agent bin directories are prepended to PATH");
+        expect(bash.description).toContain("workspace node");
         expect(bash.description).toContain("stdout and stderr merged");
-        expect(bash.description).toContain("rg/find/ls/git/tests/build/scripts/workspace CLI");
+        expect(bash.description).toContain("rg/find/ls/git/tests/build/workspace CLI");
         expect(bash.description).toContain("not for file reading or editing");
     });
 });

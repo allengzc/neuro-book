@@ -463,6 +463,62 @@ describe("workspace-files", () => {
         }
     });
 
+    it("同步系统 assets 会补齐 Agent runtime bin 和 scripts", async () => {
+        const paths = [
+            path.join("workspace", ".nbook", "agent", "bin", "workspace"),
+            path.join("workspace", ".nbook", "agent", "bin", "workspace.cmd"),
+            path.join("workspace", ".nbook", "agent", "scripts", "workspace.ts"),
+        ];
+        const backups = await Promise.all(paths.map((filePath) => backupOptionalFile(filePath)));
+        await Promise.all(paths.map((filePath) => fs.rm(filePath, {force: true})));
+
+        try {
+            const result = await syncSystemAssetsToUserAssets();
+
+            expect(result.copied).toBeGreaterThanOrEqual(paths.length);
+            await expect(fs.readFile(paths[0]!, "utf-8")).resolves.toContain("../scripts/workspace.ts");
+            await expect(fs.readFile(paths[1]!, "utf-8")).resolves.toContain("..\\scripts\\workspace.ts");
+            const scriptContent = await fs.readFile(paths[2]!, "utf-8");
+            expect(scriptContent).toContain(".name(\"workspace\")");
+            expect(scriptContent).toContain(".command(\"node\")");
+        } finally {
+            for (const [index, filePath] of paths.entries()) {
+                await restoreOptionalFile(filePath, backups[index] ?? null);
+            }
+        }
+    });
+
+    it("同步系统 assets 不会覆盖已有 Agent runtime bin 和 scripts", async () => {
+        const paths = [
+            path.join("workspace", ".nbook", "agent", "bin", "workspace"),
+            path.join("workspace", ".nbook", "agent", "bin", "workspace.cmd"),
+            path.join("workspace", ".nbook", "agent", "scripts", "workspace.ts"),
+        ];
+        const sentinels = [
+            "#!/usr/bin/env sh\necho user-bin-preserved\n",
+            "@echo off\necho user-cmd-preserved\n",
+            "console.log('user-script-preserved');\n",
+        ];
+        const backups = await Promise.all(paths.map((filePath) => backupOptionalFile(filePath)));
+
+        try {
+            for (const [index, filePath] of paths.entries()) {
+                await fs.mkdir(path.dirname(filePath), {recursive: true});
+                await fs.writeFile(filePath, sentinels[index] ?? "", "utf-8");
+            }
+
+            await syncSystemAssetsToUserAssets();
+
+            for (const [index, filePath] of paths.entries()) {
+                await expect(fs.readFile(filePath, "utf-8")).resolves.toBe(sentinels[index]);
+            }
+        } finally {
+            for (const [index, filePath] of paths.entries()) {
+                await restoreOptionalFile(filePath, backups[index] ?? null);
+            }
+        }
+    });
+
     it("小说目录模板会创建最小 lorebook 骨架且通过内容节点校验", async () => {
         await withSystemTemplate("templates/novel-directory-templates/lorebook/rule/writing-style/index.md", async () => {
             await copyNovelDirectoryTemplate(root);
@@ -479,8 +535,10 @@ describe("workspace-files", () => {
         await expect(readWorkspaceTextFile(root, "PROJECT-STATUS.md")).resolves.toContain("不维护 `tasks/` walkthrough");
         await expect(readWorkspaceTextFile(root, "PROJECT-STATUS.md")).resolves.toContain("填写 `lorebook/note/project-positioning/`");
         await expect(readWorkspaceTextFile(root, "PROJECT-STATUS.md")).resolves.toContain("填写 `lorebook/note/story-concept/`");
+        await expect(readWorkspaceTextFile(root, "PROJECT-STATUS.md")).resolves.toContain("`.agent/plan/` 保存 Agent 计划");
         await expect(readWorkspaceTextFile(root, ".nbook/icons.json")).resolves.toContain("\"lorebook\"");
         await expect(fs.access(path.join(root, ".agent/.gitkeep")).then(() => true)).resolves.toBe(true);
+        await expect(fs.access(path.join(root, ".agent/plan/.gitkeep")).then(() => true)).resolves.toBe(true);
         await expect(readWorkspaceTextFile(root, "workspace.yaml")).resolves.toContain("slug: novel-template");
         await expect(readWorkspaceTextFile(root, "lorebook/note/project-positioning/index.md")).resolves.toContain("## 类型与基调");
         await expect(readWorkspaceTextFile(root, "lorebook/note/project-positioning/index.md")).resolves.toContain("- 小说初始化");
@@ -489,8 +547,8 @@ describe("workspace-files", () => {
         await expect(readWorkspaceTextFile(root, "lorebook/rule/writing-style/index.md")).resolves.toContain("inject:");
         await expect(readWorkspaceTextFile(root, "lorebook/rule/writing-style/index.md")).resolves.toContain("文风约束通常给默认 profile");
         await expect(readWorkspaceTextFile(root, "lorebook/note/initial-plot-seed/index.md")).resolves.toContain("剧情种子通常不直接注入");
-        await expect(readWorkspaceTextFile(root, "manuscript/001-opening/index.md")).resolves.toContain("## 正文草稿");
-        await expect(readWorkspaceTextFile(root, "manuscript/001-opening/index.md")).resolves.toContain("- 开局示例");
+        await expect(readWorkspaceTextFile(root, "manuscript/001-volume/001-chapter/index.md")).resolves.toContain("## 正文草稿");
+        await expect(readWorkspaceTextFile(root, "manuscript/001-volume/001-chapter/index.md")).resolves.toContain("- 开局示例");
 
         const lorebookResult = await validateWorkspaceContentNodes({
             root,
@@ -553,9 +611,10 @@ describe("workspace-files", () => {
             await expect(readWorkspaceTextFile(createdRoot, "workspace.yaml")).resolves.toContain("novelId: \"999\"");
             await expect(readWorkspaceTextFile(createdRoot, "workspace.yaml")).resolves.not.toContain("novel-template");
             await expect(readWorkspaceTextFile(createdRoot, "AGENTS.md")).resolves.toContain("唯一的小说状态");
+            await expect(readWorkspaceTextFile(createdRoot, "AGENTS.md")).resolves.toContain(".agent/plan/");
             await expect(readWorkspaceTextFile(createdRoot, "PROJECT-STATUS.md")).resolves.toContain("## Pending Questions");
             await expect(readWorkspaceTextFile(createdRoot, "PROJECT-STATUS.md")).resolves.not.toContain("## Recent Updates");
-            await expect(readWorkspaceTextFile(createdRoot, "manuscript/001-opening/index.md")).resolves.toContain("示范章节");
+            await expect(readWorkspaceTextFile(createdRoot, "manuscript/001-volume/001-chapter/index.md")).resolves.toContain("示范章节");
         } finally {
             await fs.rm(createdRoot, {recursive: true, force: true});
         }

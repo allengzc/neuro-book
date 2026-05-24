@@ -147,7 +147,7 @@
 - [ ] 有内容的时候不允许 /compact 出现
 - [ ] compact 后读文件
 - [ ] plan mode + PROJECT_STATUS
-- [ ]
+- [ ] editor-snapashot 还是卡
 - [ ]
 - [ ]
 - [ ]

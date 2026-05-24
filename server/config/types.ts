@@ -1,4 +1,3 @@
-import type {ModelProviderAdapter} from "nbook/shared/dto/app-settings.dto";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {MarkdownEditorPreferences, MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
@@ -36,6 +35,19 @@ export type ConfiguredModelConfig = {
     id: string;
     group: string | null;
     enabled: boolean;
+    provider: string | null;
+    api: string | null;
+    baseUrl: string | null;
+    reasoning: boolean | null;
+    input: ("text" | "image")[] | null;
+    maxTokens: number | null;
+    cost: {
+        input: number;
+        output: number;
+        cacheRead: number;
+        cacheWrite: number;
+    } | null;
+    compat: Record<string, JsonValue> | null;
     contextWindowTokens: number | null;
 };
 
@@ -49,7 +61,6 @@ export type ModelProviderOptionsConfig = {
 
 export type ConfiguredProviderConfig = {
     name: string;
-    adapter: ModelProviderAdapter;
     options: ModelProviderOptionsConfig;
     models: Record<string, ConfiguredModelConfig>;
 };

@@ -1,6 +1,6 @@
 import type {AgentEvent} from "@earendil-works/pi-agent-core";
 import type {AgentUserMessageInput, JsonValue, Usage} from "nbook/server/agent/messages/types";
-import type {SessionMetadata, SessionTreeNode} from "nbook/server/agent/session/types";
+import type {SessionMetadata} from "nbook/server/agent/session/types";
 import type {AgentResolution} from "nbook/server/agent/tools/types";
 import type {
     AgentAbortRequestDto,
@@ -69,15 +69,21 @@ export type SessionRecentMessage = {
     timestamp?: number;
 };
 
+export type SessionQueryInput = {
+    sessionId?: number;
+    includeRecentMessages?: boolean;
+    recentMessageLimit?: number;
+    tokenBudget?: number;
+};
+
 export type SessionQueryResult = {
     metadata: SessionMetadata;
     activeLeafId: string | null;
-    tree: SessionTreeNode[];
     title?: string;
     summary?: string;
     usage?: Usage;
     linkedAgents: AgentSummary[];
-    recentMessages: SessionRecentMessage[];
+    recentMessages?: SessionRecentMessage[];
 };
 
 export type AgentRuntimeState = {

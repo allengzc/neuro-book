@@ -22,7 +22,6 @@ import type {
     GlobalConfigDto,
     ProjectConfigDto,
 } from "nbook/shared/dto/config.dto";
-import type {ModelProviderAdapter} from "nbook/shared/dto/app-settings.dto";
 import {CONFIG_REGISTRY, CONFIG_VERSION} from "nbook/server/config/registry";
 import {
     normalizeAgentProfileModelConfig,
@@ -277,7 +276,6 @@ function buildConfigModelSettingsDto(effective: EffectiveConfig): ConfigModelSet
     const providers = Object.entries(effective.models.providers).map(([providerId, provider]) => ({
         id: providerId,
         name: provider.name,
-        adapter: provider.adapter,
         options: {
             apiKey: maskSecret(provider.options.apiKey),
             baseURL: provider.options.baseURL,
@@ -394,6 +392,14 @@ function normalizeGlobalModelsForWrite(
                 id: model.id,
                 group: model.group,
                 enabled: model.enabled,
+                provider: model.provider,
+                api: model.api,
+                baseUrl: model.baseUrl,
+                reasoning: model.reasoning,
+                input: model.input,
+                maxTokens: model.maxTokens,
+                cost: model.cost,
+                compat: model.compat,
                 contextWindowTokens: model.contextWindowTokens,
             })),
         })),

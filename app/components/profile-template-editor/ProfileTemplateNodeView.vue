@@ -102,6 +102,9 @@ const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
     HistorySet: "i-lucide-archive",
     ModelContext: "i-lucide-panel-top",
     AppendingSet: "i-lucide-panel-bottom",
+    Compaction: "i-lucide-archive-restore",
+    CompactionPrompt: "i-lucide-file-text",
+    CompactionSummaryPrefix: "i-lucide-text-quote",
     Text: "i-lucide-type",
     Message: "i-lucide-message-square",
     AIMessage: "i-lucide-sparkles",
@@ -110,6 +113,20 @@ const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
     Reminder: "i-lucide-bell-ring",
     Watch: "i-lucide-eye",
     If: "i-lucide-git-branch",
+    SystemReminder: "i-lucide-badge-alert",
+    RuntimeContext: "i-lucide-braces",
+    LinkedAgentsSummary: "i-lucide-git-merge",
+    WorkspaceReminder: "i-lucide-folder-cog",
+    LinkedAgentsReminder: "i-lucide-network",
+    TaskReminder: "i-lucide-list-checks",
+    PlanModeReminder: "i-lucide-clipboard-check",
+    PlanModeFull: "i-lucide-file-text",
+    PlanModeSparse: "i-lucide-file-minus",
+    PlanModeExit: "i-lucide-log-out",
+    PlanModeReentry: "i-lucide-rotate-ccw",
+    ActivePlanModeReminder: "i-lucide-clipboard-list",
+    MentionedSkillsReminder: "i-lucide-at-sign",
+    PlotFocusReminder: "i-lucide-map-pinned",
     AgentCatalog: "i-lucide-bot",
     SkillCatalog: "i-lucide-library",
     ActivatedSkills: "i-lucide-sparkles",
@@ -151,7 +168,7 @@ function nodeMeta(node: ProfileTemplateNodeDto): string {
     if (node.type === "ToolResult") {
         return `tool: ${String(node.props.toolName ?? "tool")}`;
     }
-    if (node.type === "Reminder") {
+    if (node.type === "Reminder" || node.type === "WorkspaceReminder" || node.type === "TaskReminder" || node.type === "PlanModeReminder" || node.type === "ActivePlanModeReminder") {
         return ["id", "watchPath", "watchValue", "repeatEveryTurns"]
             .filter((key) => node.props[key] !== undefined && node.props[key] !== "")
             .map((key) => `${key}: ${formatPropValue(node.props[key])}`)
@@ -159,6 +176,12 @@ function nodeMeta(node: ProfileTemplateNodeDto): string {
     }
     if (node.type === "Watch") {
         return `path: ${String(node.props.path ?? "")}`;
+    }
+    if (node.type === "Compaction") {
+        return ["triggerPercent", "triggerTokens", "keepRecentPercent", "keepRecentTokens", "reserveTokens"]
+            .filter((key) => node.props[key] !== undefined && node.props[key] !== "")
+            .map((key) => `${key}: ${formatPropValue(node.props[key])}`)
+            .join(" · ");
     }
     if (node.type === "If") {
         const condition = node.props.condition;
@@ -196,6 +219,15 @@ function nodeSummary(node: ProfileTemplateNodeDto): string {
     if (node.type === "AppendingSet") {
         return "输出追加集合，写入历史尾部。";
     }
+    if (node.type === "Compaction") {
+        return "Profile 级上下文压缩策略。";
+    }
+    if (node.type === "CompactionPrompt") {
+        return "压缩摘要调用的 systemPrompt。";
+    }
+    if (node.type === "CompactionSummaryPrefix") {
+        return "摘要注入后续上下文的前缀。";
+    }
     if (node.type === "ActivatedSkills") {
         return String(node.props.text ?? "${activatedSkillsText}");
     }
@@ -204,6 +236,33 @@ function nodeSummary(node: ProfileTemplateNodeDto): string {
     }
     if (node.type === "SkillCatalog") {
         return String(node.props.text ?? "${skillCatalogText}");
+    }
+    if (node.type === "SqlSchemaSummary") {
+        return String(node.props.text ?? "${sqlSchemaSummaryText}");
+    }
+    if (node.type === "RuntimeContext") {
+        return "Runtime workspace/profile/plan-mode context.";
+    }
+    if (node.type === "WorkspaceReminder") {
+        return "Current workspace boundary reminder.";
+    }
+    if (node.type === "LinkedAgentsReminder" || node.type === "LinkedAgentsSummary") {
+        return "Linked agents summary.";
+    }
+    if (node.type === "TaskReminder") {
+        return "Task list reminder from agent.tasks.";
+    }
+    if (node.type === "PlanModeReminder" || node.type === "ActivePlanModeReminder") {
+        return "Plan Mode lifecycle reminder.";
+    }
+    if (node.type === "PlanModeFull" || node.type === "PlanModeSparse" || node.type === "PlanModeExit" || node.type === "PlanModeReentry") {
+        return "Custom Plan Mode reminder slot.";
+    }
+    if (node.type === "MentionedSkillsReminder") {
+        return "Reminder for explicit $skill mentions.";
+    }
+    if (node.type === "PlotFocusReminder") {
+        return "Current plot.selection focus reminder.";
     }
     return "";
 }
@@ -291,7 +350,7 @@ function prepareDrag(): void {
                     :depth="props.depth + 1"
                     :index="childIndex"
                     :parent-id="props.node.id"
-                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'ActivatedSkills', 'SqlSchemaSummary'].includes(child.type)"
+                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'ActivatedSkills', 'SqlSchemaSummary', 'RuntimeContext', 'LinkedAgentsSummary', 'WorkspaceReminder', 'LinkedAgentsReminder', 'TaskReminder', 'ActivePlanModeReminder', 'MentionedSkillsReminder', 'PlotFocusReminder'].includes(child.type)"
                     :disabled-drop-node-ids="props.disabledDropNodeIds"
                     @select="emit('select', $event)"
                     @prepare-drag="emit('prepareDrag', $event)"
@@ -462,6 +521,9 @@ function prepareDrag(): void {
 .node-HistorySet::before,
 .node-ModelContext::before,
 .node-AppendingSet::before,
+.node-Compaction::before,
+.node-CompactionPrompt::before,
+.node-CompactionSummaryPrefix::before,
 .node-Message::before,
 .node-AIMessage::before,
 .node-ToolCall::before,
@@ -469,6 +531,20 @@ function prepareDrag(): void {
 .node-Reminder::before,
 .node-Watch::before,
 .node-If::before,
+.node-SystemReminder::before,
+.node-RuntimeContext::before,
+.node-LinkedAgentsSummary::before,
+.node-WorkspaceReminder::before,
+.node-LinkedAgentsReminder::before,
+.node-TaskReminder::before,
+.node-PlanModeReminder::before,
+.node-PlanModeFull::before,
+.node-PlanModeSparse::before,
+.node-PlanModeExit::before,
+.node-PlanModeReentry::before,
+.node-ActivePlanModeReminder::before,
+.node-MentionedSkillsReminder::before,
+.node-PlotFocusReminder::before,
 .node-AgentCatalog::before,
 .node-ActivatedSkills::before,
 .node-SkillCatalog::before {
@@ -493,6 +569,12 @@ function prepareDrag(): void {
 
 .node-AppendingSet {
     --profile-node-accent: #6f6aa8;
+}
+
+.node-Compaction,
+.node-CompactionPrompt,
+.node-CompactionSummaryPrefix {
+    --profile-node-accent: #7a7f4e;
 }
 
 .node-Message {
@@ -523,6 +605,32 @@ function prepareDrag(): void {
     --profile-node-accent: #64895f;
 }
 
+.node-SystemReminder,
+.node-WorkspaceReminder,
+.node-LinkedAgentsReminder {
+    --profile-node-accent: #b65f5b;
+}
+
+.node-RuntimeContext,
+.node-LinkedAgentsSummary {
+    --profile-node-accent: #4f8c8f;
+}
+
+.node-TaskReminder,
+.node-PlanModeReminder,
+.node-PlanModeFull,
+.node-PlanModeSparse,
+.node-PlanModeExit,
+.node-PlanModeReentry,
+.node-ActivePlanModeReminder {
+    --profile-node-accent: #8a639e;
+}
+
+.node-MentionedSkillsReminder,
+.node-PlotFocusReminder {
+    --profile-node-accent: #b1843e;
+}
+
 .node-ActivatedSkills {
     --profile-node-accent: #8a639e;
 }
@@ -537,7 +645,8 @@ function prepareDrag(): void {
 
 .node-HistorySet,
 .node-ModelContext,
-.node-AppendingSet {
+.node-AppendingSet,
+.node-Compaction {
     padding: 10px;
 }
 

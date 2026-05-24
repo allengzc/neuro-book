@@ -1,3 +1,4 @@
+import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 import {Type} from "typebox";
 import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
@@ -5,19 +6,33 @@ import {
     AIMessage,
     AgentCatalog,
     AppendingSet,
+    Compaction,
+    CompactionPrompt,
+    CompactionSummaryPrefix,
     HistorySet,
     If,
+    LinkedAgentsReminder,
     Message,
+    MentionedSkillsReminder,
     ModelContext,
+    PlanModeExit,
+    PlanModeFull,
+    PlanModeReminder,
+    PlanModeReentry,
+    PlanModeSparse,
+    PlotFocusReminder,
     ProfilePrompt,
     Reminder,
+    RuntimeContext,
     SqlSchemaSummary,
     System,
     SkillCatalog,
+    TaskReminder,
     ToolCall,
     ToolResult,
     validateProfileTurnPlan,
     Watch,
+    WorkspaceReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
@@ -49,6 +64,89 @@ describe("profile TSX DSL", () => {
         expect((plan.historyInitMessages ?? []).map(messageText)).toEqual(["history"]);
         expect((plan.modelContextMessages ?? []).map((message) => message.role === "user" ? messageText(message) : message.role)).toEqual(["model"]);
         expect((plan.appendingMessages ?? []).map(messageText)).toEqual(["append"]);
+    });
+
+    it("编译 Compaction 顶层策略并校验非法落点", async () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.compaction",
+                name: "Compaction",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: [
+                        Compaction({
+                            triggerPercent: 0.75,
+                            keepRecentTokens: 12_000,
+                            children: [
+                                CompactionPrompt({children: "compact prompt"}),
+                                CompactionSummaryPrefix({children: "summary prefix"}),
+                            ],
+                        }),
+                    ],
+                });
+            },
+        });
+
+        const plan = await profile.prepare!(context());
+
+        expect(plan.compaction).toEqual({
+            enabled: undefined,
+            triggerPercent: 0.75,
+            triggerTokens: undefined,
+            reserveTokens: undefined,
+            keepRecentTokens: 12_000,
+            keepRecentPercent: undefined,
+            prompt: "compact prompt",
+            summaryPrefix: "summary prefix",
+        });
+
+        const badPlacement = defineAgentProfile({
+            manifest: {
+                key: "test.bad-compaction-prompt",
+                name: "Bad Compaction Prompt",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: [
+                        AppendingSet({children: CompactionPrompt({children: "bad"})}),
+                    ],
+                });
+            },
+        });
+        await expect(badPlacement.prepare!(context())).rejects.toThrow("CompactionPrompt");
+    });
+
+    it("校验 Compaction 参数合同", async () => {
+        expect(() => validateProfileTurnPlan("test.dsl", {
+            compaction: {
+                triggerPercent: 0.8,
+                triggerTokens: 1000,
+            },
+        })).toThrow("triggerPercent");
+
+        expect(() => validateProfileTurnPlan("test.dsl", {
+            compaction: {
+                keepRecentPercent: 0.5,
+                keepRecentTokens: 1000,
+            },
+        })).toThrow("keepRecentPercent");
+
+        expect(() => validateProfileTurnPlan("test.dsl", {
+            compaction: {
+                triggerPercent: 1.2,
+            },
+        })).toThrow("(0, 1]");
+
+        expect(() => validateProfileTurnPlan("test.dsl", {
+            compaction: {
+                keepRecentTokens: 0,
+            },
+        })).toThrow("正整数");
     });
 
     it("拒绝旧 PreparedTurn 字段和 Message system role", async () => {
@@ -371,13 +469,14 @@ describe("profile TSX DSL", () => {
         expect(text).toContain("## Available Skills");
         expect(text).toContain("key: draft");
         expect(text).toContain("Draft Skill");
-        expect(text).toContain("skillKey");
+        expect(text).toContain(`location: ${resolve("assets", "workspace", ".nbook", "agent", "skills", "draft", "SKILL.md")}`);
+        expect(text).toContain("read the SKILL.md file at the catalog location");
         expect(text).toContain("when_to_use");
         expect(text).not.toContain("## Available Agents");
         expect(text).not.toContain("writer");
     });
 
-    it("AgentCatalog 渲染 agent profiles 和 schema description 摘要", async () => {
+    it("AgentCatalog 只渲染 agent profile 索引", async () => {
         const profile = defineAgentProfile({
             manifest: {
                 key: "test.agent-catalog",
@@ -425,10 +524,249 @@ describe("profile TSX DSL", () => {
 
         expect(text).toContain("## Available Agents");
         expect(text).toContain("writer");
-        expect(text).toContain("allowedTools: read, write");
-        expect(text).toContain("写作任务说明");
-        expect(text).toContain("optional");
+        expect(text).toContain("get_agent_profile");
+        expect(text).not.toContain("allowedTools: read, write");
+        expect(text).not.toContain("写作任务说明");
+        expect(text).not.toContain("inputSchema");
         expect(text).not.toContain("\"type\"");
+    });
+
+    it("通用 runtime reminder 节点能渲染英文 system-reminder", async () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.runtime-reminders",
+                name: "Runtime Reminders",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: [
+                        ModelContext({
+                            children: Message({
+                                children: RuntimeContext({}),
+                            }),
+                        }),
+                        AppendingSet({
+                            children: [
+                                WorkspaceReminder({repeatEveryTurns: 20}),
+                                LinkedAgentsReminder(),
+                                TaskReminder({repeatEveryTurns: 8}),
+                                PlanModeReminder(),
+                                PlotFocusReminder(),
+                                Message({children: MentionedSkillsReminder()}),
+                            ],
+                        }),
+                    ],
+                });
+            },
+        });
+
+        const plan = await profile.prepare!({
+            ...context(),
+            input: {
+                studio: {
+                    workspace: "workspace/novel-7",
+                },
+            },
+            session: {
+                ...context().session,
+                novelId: "7",
+                messages: [createUserMessage({text: "use $draft please"})],
+                customState: {
+                    "agent.tasks": {
+                        title: "Test plan",
+                        steps: [{id: "one", text: "Do one", status: "pending"}],
+                    },
+                    "agent.planMode": {
+                        active: true,
+                        reminderKind: "full",
+                        workDirectory: "workspace/.agent/123",
+                    },
+                    "plot.selection": {
+                        novelId: "1",
+                        threadId: "2",
+                        sceneId: "3",
+                    },
+                },
+                linkedAgents: [{sessionId: 7, profileKey: "writer", detached: false}],
+                planModeActive: true,
+            },
+        });
+        const modelText = (plan.modelContextMessages ?? []).map((message) => message.role === "user" ? messageText(message) : "").join("\n");
+        const appendingText = (plan.appendingMessages ?? []).map(messageText).join("\n");
+
+        expect(modelText).toContain("<dynamic-context>");
+        expect(modelText).toContain("Agent cwd: workspace");
+        expect(modelText).toContain("Current Project Workspace: workspace/novel-7");
+        expect(modelText).toContain("Current novelId: 7");
+        expect(modelText).toContain("Linked agents:");
+        expect(modelText).toContain("Agent cwd:");
+        expect(appendingText).toContain("Current Project Workspace: workspace/novel-7");
+        expect(appendingText).toContain("Agent cwd:");
+        expect(appendingText).toContain("Current linked agents:");
+        expect(appendingText).toContain("Current task list: Test plan");
+        expect(appendingText).toContain("## Thread Work Directory");
+        expect(appendingText).toContain("## Restrictions");
+        expect(appendingText).toContain("## Workflow");
+        expect(appendingText.match(/## Thread Work Directory/g)).toHaveLength(1);
+        expect(appendingText).toContain("Current plot focus:");
+        expect(appendingText).toContain("The user explicitly mentioned skill(s): $draft");
+        expect(appendingText).toContain("read the matching SKILL.md location");
+        expect(appendingText).not.toContain("{sessionId}");
+    });
+
+    it("PlanModeReminder 支持 exit 和 reentry lifecycle 文案", async () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.plan-mode-reminder",
+                name: "Plan Mode Reminder",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: [
+                        AppendingSet({children: PlanModeReminder()}),
+                    ],
+                });
+            },
+        });
+
+        const exitPlan = await profile.prepare!({
+            ...context(),
+            session: {
+                ...context().session,
+                planModeActive: false,
+                customState: {
+                    "agent.planMode": {
+                        active: false,
+                        reminderKind: "exit",
+                        workDirectory: "workspace/.agent/123",
+                    },
+                },
+            },
+        });
+        const reentryPlan = await profile.prepare!({
+            ...context(),
+            session: {
+                ...context().session,
+                planModeActive: true,
+                customState: {
+                    "agent.planMode": {
+                        active: true,
+                        reminderKind: "reentry_full",
+                        workDirectory: "workspace/.agent/123",
+                    },
+                },
+            },
+        });
+
+        expect((exitPlan.appendingMessages ?? []).map(messageText).join("\n")).toContain("## Exited Plan Mode");
+        expect((reentryPlan.appendingMessages ?? []).map(messageText).join("\n")).toContain("## Re-entering Plan Mode");
+    });
+
+    it("PlanModeReminder 在 UI soft toggle active 时也会注入 full reminder", async () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.plan-mode-soft-toggle",
+                name: "Plan Mode Soft Toggle",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: [
+                        AppendingSet({children: PlanModeReminder()}),
+                    ],
+                });
+            },
+        });
+
+        const idle = await profile.prepare!(context());
+
+        expect(idle.appendingMessages ?? []).toEqual([]);
+        expect(idle.stateWrites).toBeUndefined();
+
+        const toggled = await profile.prepare!({
+            ...context(),
+            session: {
+                ...context().session,
+                planModeActive: true,
+                customState: {
+                    "profileState.test.plan-mode-soft-toggle": {
+                        reminders: {
+                            "plan-mode": {
+                                fingerprint: "__undefined__",
+                                injectedAtTurn: 1,
+                            },
+                        },
+                    },
+                },
+            },
+        });
+        const text = (toggled.appendingMessages ?? []).map(messageText).join("\n");
+
+        expect(text).toContain("## Thread Work Directory");
+        expect(text).toContain("## Restrictions");
+    });
+
+    it("PlanModeReminder 支持四种子节点插槽覆盖默认文案", async () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.plan-mode-slots",
+                name: "Plan Mode Slots",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: [
+                        AppendingSet({
+                            children: PlanModeReminder({
+                                children: [
+                                    PlanModeFull({children: "CUSTOM_FULL"}),
+                                    PlanModeSparse({children: "CUSTOM_SPARSE"}),
+                                    PlanModeExit({children: "CUSTOM_EXIT"}),
+                                    PlanModeReentry({children: "CUSTOM_REENTRY"}),
+                                ],
+                            }),
+                        }),
+                    ],
+                });
+            },
+        });
+
+        const full = await profile.prepare!(planModeContext("full", true));
+        const sparse = await profile.prepare!(planModeContext("sparse", true));
+        const exit = await profile.prepare!(planModeContext("exit", false));
+        const reentry = await profile.prepare!(planModeContext("reentry_full", true));
+
+        expect((full.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_FULL");
+        expect((full.appendingMessages ?? []).map(messageText).join("\n")).not.toContain("## Thread Work Directory");
+        expect((sparse.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_SPARSE");
+        expect((exit.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_EXIT");
+        expect((reentry.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_REENTRY");
+    });
+
+    it("PlanMode slot 不能脱离 PlanModeReminder 使用", async () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.bad-plan-mode-slot",
+                name: "Bad Plan Mode Slot",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: [
+                        AppendingSet({children: PlanModeFull({children: "bad"})}),
+                    ],
+                });
+            },
+        });
+
+        await expect(profile.prepare!(context())).rejects.toThrow("PlanModeFull");
     });
 
     it("拒绝 prepare 写入非 object 的 profile runtime state", () => {
@@ -475,6 +813,23 @@ function context(): ProfilePrepareContext<object> {
         runtime: {
             now: "2026-05-23T00:00:00.000Z",
             promptUserTurnCount: 1,
+        },
+    };
+}
+
+function planModeContext(kind: string, active: boolean): ProfilePrepareContext<object> {
+    return {
+        ...context(),
+        session: {
+            ...context().session,
+            planModeActive: active,
+            customState: {
+                "agent.planMode": {
+                    active,
+                    reminderKind: kind,
+                    workDirectory: "workspace/.agent/custom",
+                },
+            },
         },
     };
 }

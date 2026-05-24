@@ -7,6 +7,9 @@ import {createFileTools} from "nbook/server/agent/tools/file-tools";
 import {createPlotTools} from "nbook/server/agent/tools/plot-tools";
 import {createSqlTool} from "nbook/server/agent/tools/sql-tool";
 import {createTaskTools} from "nbook/server/agent/tools/task-tools";
+import {renderSchemaSummary} from "nbook/server/agent/profiles/profile-dsl";
+import {reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
+import type {JsonValue} from "nbook/server/agent/messages/types";
 
 const ReportResultSchema = Type.Object({
     walkthrough: Type.String(),
@@ -33,12 +36,8 @@ const RequestUserInputSchema = Type.Object({
 });
 
 const PlanModeSchema = Type.Object({
-    reason: Type.Optional(Type.String()),
-});
-
-const SkillSchema = Type.Object({
-    skillKey: Type.String(),
-    reason: Type.Optional(Type.String()),
+    reason: Type.Optional(Type.String({description: "Short reason shown to the user for this Plan Mode transition."})),
+    planFilePath: Type.Optional(Type.String({description: "For exit_plan_mode only. Optional Project Workspace relative Markdown file under .agent/plan/, for example .agent/plan/profile-migration.md."})),
 });
 
 const CreateAgentSchema = Type.Object({
@@ -60,6 +59,13 @@ const GetAgentSchema = Type.Object({
 
 const GetSessionSchema = Type.Object({
     sessionId: Type.Optional(Type.Number()),
+    includeRecentMessages: Type.Optional(Type.Boolean({description: "Default false. Set true to include recent messages from the current active path only."})),
+    recentMessageLimit: Type.Optional(Type.Integer({minimum: 1, maximum: 10, description: "Number of recent active-path messages to return when includeRecentMessages is true. Default 3, max 10."})),
+    tokenBudget: Type.Optional(Type.Integer({minimum: 100, maximum: 3000, description: "Maximum estimated tokens for recentMessages. Default 1200, max 3000."})),
+});
+
+const GetAgentProfileSchema = Type.Object({
+    profileKey: Type.String({description: "Agent profile key from AgentCatalog, e.g. writer or retrieval."}),
 });
 
 const DetachAgentSchema = Type.Object({
@@ -129,7 +135,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             key: "exit_plan_mode",
             name: "exit_plan_mode",
             label: "Exit Plan Mode",
-            description: "Request exiting plan mode.",
+            description: "Request exiting plan mode. Optionally pass planFilePath for a Project Workspace relative Markdown file under .agent/plan/ so the approval UI can preview it.",
             parameters: PlanModeSchema,
             approvalRequired: true,
             async execute(_toolCallId, params: unknown) {
@@ -144,35 +150,16 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             },
         },
         {
-            key: "skill",
-            name: "skill",
-            label: "Skill",
-            description: "Request activating a skill.",
-            parameters: SkillSchema,
-            approvalRequired: true,
-            async execute(_toolCallId, params: unknown) {
-                const skill = params as Static<typeof SkillSchema>;
-                return {
-                    content: [{type: "text", text: `请求激活 skill：${skill.skillKey}`}],
-                    details: {
-                        pending: true,
-                        skillKey: skill.skillKey,
-                    },
-                    terminate: true,
-                };
-            },
-        },
-        {
             key: "create_agent",
             name: "create_agent",
             label: "Create Agent",
-            description: "Create a new agent session and link it to current agent.",
+            description: "Create a new agent session and link it to current agent. Pass input as a JSON object matching the target profile InputSchema. If unsure, call get_agent_profile first. JSON-stringified object input is accepted as a fallback; arrays, plain strings, numbers, booleans, and key=value text are rejected.",
             parameters: CreateAgentSchema,
             async execute(_toolCallId, params: unknown) {
                 const agentInput = params as Static<typeof CreateAgentSchema>;
                 const result = await harness.createAgent({
                     profileKey: agentInput.profileKey,
-                    input: (agentInput.input ?? {}) as never,
+                    input: normalizeCreateAgentInput(agentInput.profileKey, agentInput.input) as never,
                     workspaceRoot: agentInput.workspaceRoot,
                     novelId: agentInput.novelId,
                 });
@@ -185,10 +172,10 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
                 const agentInput = params as Static<typeof CreateAgentSchema>;
                 const result = await harness.createAgent({
                     profileKey: agentInput.profileKey,
-                    input: (agentInput.input ?? {}) as never,
+                    input: normalizeCreateAgentInput(agentInput.profileKey, agentInput.input) as never,
                     workspaceRoot: agentInput.workspaceRoot ?? context.workspaceRoot,
                     workspaceKey: context.workspaceKey,
-                    novelId: agentInput.novelId,
+                    novelId: agentInput.novelId ?? context.novelId,
                     parentSessionId: context.sessionId,
                 });
                 return {
@@ -213,7 +200,21 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
                 return {
                     content: [{type: "text", text: result.reportResult?.result ?? result.finalMessage ?? result.status}],
                     details: result,
-                    terminate: result.status === "completed",
+                };
+            },
+            async executeWithContext(context, _toolCallId, params: unknown) {
+                const invocation = params as Static<typeof InvokeAgentSchema>;
+                if (invocation.sessionId === context.sessionId) {
+                    throw new Error("invoke_agent 不能调用当前 session 自己；请直接继续当前对话，或 create_agent 后调用新 agent session。");
+                }
+                const result = await harness.invokeAgent({
+                    sessionId: invocation.sessionId,
+                    mode: invocation.mode ?? (invocation.message ? "prompt" : "continue"),
+                    message: invocation.message ? {text: invocation.message} : undefined,
+                });
+                return {
+                    content: [{type: "text", text: result.reportResult?.result ?? result.finalMessage ?? result.status}],
+                    details: result,
                 };
             },
         },
@@ -241,14 +242,35 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             },
         },
         {
+            key: "get_agent_profile",
+            name: "get_agent_profile",
+            label: "Get Agent Profile",
+            description: "Get one agent profile's schema summary and allowed tools. Use this before create_agent when you do not know the target profile input shape. This queries profile catalog, not created agent sessions.",
+            parameters: GetAgentProfileSchema,
+            async execute(_toolCallId, params: unknown) {
+                const query = params as Static<typeof GetAgentProfileSchema>;
+                const result = await getAgentProfileDetail(harness, query.profileKey);
+                return {
+                    content: [{type: "text", text: JSON.stringify(result, null, 2)}],
+                    details: result as unknown as JsonValue,
+                };
+            },
+        },
+        {
             key: "get_session",
             name: "get_session",
             label: "Get Session",
-            description: "Get lightweight session metadata, tree, linked agents, usage, and recent message summary.",
+            description: [
+                "Get lightweight session metadata, title, summary, usage, and linked agents.",
+                "Default does not return history messages and never returns tree.",
+                "Set includeRecentMessages=true for a small active-path-only recent message query.",
+                "Use recentMessageLimit 1-10 and tokenBudget 100-3000; oversized output errors.",
+                "For complex history, branch, or tree queries, inspect the session file directory yourself with bash/jq/rg instead of this tool.",
+            ].join("\n"),
             parameters: GetSessionSchema,
             async execute(_toolCallId, params: unknown) {
                 const query = params as Static<typeof GetSessionSchema>;
-                const result = await harness.getSession(query.sessionId);
+                const result = await harness.getSession(query);
                 return {
                     content: [{type: "text", text: JSON.stringify(result)}],
                     details: result,
@@ -256,7 +278,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             },
             async executeWithContext(context, _toolCallId, params: unknown) {
                 const query = params as Static<typeof GetSessionSchema>;
-                const result = await harness.getSession(query.sessionId ?? context.sessionId, context.sessionId);
+                const result = await harness.getSession({...query, sessionId: query.sessionId ?? context.sessionId}, context.sessionId);
                 return {
                     content: [{type: "text", text: JSON.stringify(result)}],
                     details: result,
@@ -318,5 +340,44 @@ export function createReportResultTool(parameters: TSchema, outputSchema?: TSche
                 terminate: true,
             };
         },
+    };
+}
+
+function normalizeCreateAgentInput(profileKey: string, value: unknown): JsonValue {
+    if (value === null || value === undefined) {
+        return {};
+    }
+    let resolved = value;
+    if (typeof resolved === "string") {
+        try {
+            resolved = JSON.parse(resolved);
+        } catch {
+            throw new Error(`create_agent.input 必须是 JSON object。profile ${profileKey} 收到的是字符串且不是合法 JSON object；请先调用 get_agent_profile 查看 InputSchema。`);
+        }
+    }
+    if (!resolved || typeof resolved !== "object" || Array.isArray(resolved)) {
+        throw new Error(`create_agent.input 必须是 JSON object。profile ${profileKey} 不接受 array/string/number/boolean 或 key=value 文本；请先调用 get_agent_profile 查看 InputSchema。`);
+    }
+    return Value.Parse(Type.Record(Type.String(), Type.Unknown()), resolved) as JsonValue;
+}
+
+async function getAgentProfileDetail(harness: NeuroAgentHarness, profileKey: string): Promise<Record<string, JsonValue>> {
+    const snapshot = await harness.profiles.snapshot();
+    const item = snapshot.profiles.find((profile) => profile.key === profileKey);
+    if (!item || item.loadStatus !== "loaded") {
+        throw new Error(`未找到可用 agent profile: ${profileKey}`);
+    }
+    const profile = await harness.profiles.get(profileKey);
+    return {
+        profileKey,
+        name: item.name,
+        description: item.description ?? "",
+        source: item.source,
+        allowedToolKeys: [...profile.allowedToolKeys],
+        inputSchema: item.inputSchema ? renderSchemaSummary(item.inputSchema) : "none",
+        outputSchema: item.outputSchema ? renderSchemaSummary(item.outputSchema) : "none",
+        reportResultSchema: profile.allowedToolKeys.includes("report_result")
+            ? renderSchemaSummary(reportResultSchemaForProfile(profile))
+            : "none",
     };
 }

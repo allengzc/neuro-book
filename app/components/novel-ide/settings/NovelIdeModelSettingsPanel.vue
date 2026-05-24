@@ -13,9 +13,11 @@ import type {
     DiscoverProviderModelsResponseDto,
     DiscoveredProviderModelDto,
     EnabledModelOptionDto,
-    ModelProviderAdapter,
-    ModelProviderAdapterType,
+    ModelInputKind,
     ModelProviderDraftDto,
+    PiBuiltinCatalogDto,
+    PiBuiltinModelDto,
+    PiBuiltinProviderDto,
     UpdateModelSettingsRequestDto,
 } from "nbook/shared/dto/app-settings.dto";
 import type {ConfigEditorSnapshotDto, ConfigModelSettingsDto, ConfigWorkspaceQueryDto, GlobalConfigDto, ProjectConfigDto, SecretConfigValueDto} from "nbook/shared/dto/config.dto";
@@ -38,13 +40,20 @@ type ModelDraft = {
     id: string;
     group: string;
     enabled: boolean;
+    provider: string;
+    api: string;
+    baseUrl: string;
+    reasoning: "inherit" | "true" | "false";
+    input: string;
+    maxTokens: string;
+    cost: string;
+    compat: string;
     contextWindowTokens: string;
 };
 
 type ProviderDraft = {
     id: string;
     name: string;
-    adapter: ModelProviderAdapter;
     options: {
         apiKey: string;
         apiKeyConfigured: boolean;
@@ -68,7 +77,6 @@ type ProviderPreset = {
     label: string;
     providerId: string;
     providerName: string;
-    adapter: ModelProviderAdapterType;
     baseURL: string;
     description: string;
 };
@@ -78,95 +86,56 @@ type StatusState = {
     message: string;
 };
 
-const providerPresetOptions: ProviderPreset[] = [
+const fallbackProviderPresetOptions: ProviderPreset[] = [
     {
-        value: "gemini",
-        label: "Gemini",
-        providerId: "gemini",
-        providerName: "Gemini",
-        adapter: "gemini-compatible",
-        baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
-        description: "Google Gemini OpenAI-compatible 网关",
-    },
-    {
-        value: "qwen",
-        label: "Qwen",
-        providerId: "qwen",
-        providerName: "Qwen",
-        adapter: "openai-compatible",
-        baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-        description: "阿里云百炼兼容接口",
-    },
-    {
-        value: "doubao",
-        label: "Doubao",
-        providerId: "doubao",
-        providerName: "Doubao",
-        adapter: "openai-compatible",
-        baseURL: "https://ark.cn-beijing.volces.com/api/v3",
-        description: "火山引擎方舟兼容接口",
+        value: "xiaomi-token-plan-cn",
+        label: "Xiaomi Token Plan CN",
+        providerId: "xiaomi-token-plan-cn",
+        providerName: "Xiaomi Token Plan CN",
+        baseURL: "",
+        description: "Pi 内置小米 Token Plan 中国区 Provider",
     },
     {
         value: "deepseek",
         label: "DeepSeek",
         providerId: "deepseek",
         providerName: "DeepSeek",
-        adapter: "deepseek-official",
         baseURL: "",
-        description: "DeepSeek 官方 Provider",
-    },
-    {
-        value: "siliconflow",
-        label: "SiliconFlow",
-        providerId: "siliconflow",
-        providerName: "SiliconFlow",
-        adapter: "openai-compatible",
-        baseURL: "https://api.siliconflow.cn/v1",
-        description: "SiliconFlow OpenAI-compatible 网关",
+        description: "Pi 内置 DeepSeek Provider",
     },
     {
         value: "openai",
         label: "OpenAI",
         providerId: "openai",
         providerName: "OpenAI",
-        adapter: "openai-official",
         baseURL: "",
-        description: "官方 OpenAI 接口",
+        description: "Pi 内置 OpenAI Provider",
+    },
+    {
+        value: "openrouter",
+        label: "OpenRouter",
+        providerId: "openrouter",
+        providerName: "OpenRouter",
+        baseURL: "",
+        description: "Pi 内置 OpenRouter Provider",
+    },
+    {
+        value: "google",
+        label: "Google",
+        providerId: "google",
+        providerName: "Google",
+        baseURL: "",
+        description: "Pi 内置 Google Provider",
     },
     {
         value: "custom",
         label: "自定义",
         providerId: "custom-provider",
         providerName: "Custom Provider",
-        adapter: "openai-compatible",
         baseURL: "",
-        description: "自定义 OpenAI-compatible Provider",
+        description: "自定义 Pi Model Provider",
     },
 ];
-
-const adapterOptions: SelectOption[] = [
-    {value: "openai-official", label: "OpenAI Official"},
-    {value: "openai-compatible", label: "OpenAI Compatible"},
-    {value: "gemini-compatible", label: "Gemini Compatible"},
-    {value: "deepseek-official", label: "DeepSeek Official"},
-];
-
-/**
- * 判断 adapter 默认是否回放 provider reasoning_content。
- */
-function defaultReasoningContentReplay(adapterType: ModelProviderAdapterType): boolean {
-    return adapterType === "openai-compatible" || adapterType === "deepseek-official";
-}
-
-/**
- * 创建 Provider adapter 配置。
- */
-function createAdapterConfig(adapterType: ModelProviderAdapterType): ModelProviderAdapter {
-    return {
-        type: adapterType,
-        reasoningContentReplay: defaultReasoningContentReplay(adapterType),
-    };
-}
 
 const novelIdeStore = useNovelIdeStore();
 const configApi = useConfigApi();
@@ -176,13 +145,14 @@ const saving = ref(false);
 const errorText = ref("");
 const successText = ref("");
 const activeProviderId = ref("");
-const selectedPreset = ref<string>(providerPresetOptions[0]?.value ?? "gemini");
+const selectedPreset = ref<string>(fallbackProviderPresetOptions[0]?.value ?? "custom");
 const draft = ref<ModelSettingsDraft>({
     defaultModelKey: null,
     providers: [],
 });
 const snapshotText = ref("");
 const discoveredModels = ref<Record<string, DiscoveredProviderModelDto[]>>({});
+const piCatalog = ref<PiBuiltinCatalogDto | null>(null);
 const providerStatusMap = ref<Record<string, StatusState>>({});
 const modelStatusMap = ref<Record<string, StatusState>>({});
 const resolvedContextWindowMap = ref<Record<string, number | null>>({});
@@ -197,6 +167,22 @@ const expandedGroups = ref<Record<string, boolean>>({});
 const editingModel = ref<ModelDraft | null>(null);
 const modelEditDialogOpen = ref(false);
 const isProjectScope = computed(() => props.scope === "project");
+
+const providerPresetOptions = computed<ProviderPreset[]>(() => {
+    const builtinPresets = (piCatalog.value?.providers ?? []).map((provider) => ({
+        value: provider.id,
+        label: provider.name === provider.id ? provider.id : `${provider.name} (${provider.id})`,
+        providerId: provider.id,
+        providerName: provider.name,
+        baseURL: provider.baseUrl,
+        description: `Pi 内置 Provider，包含 ${provider.models.length} 个模型`,
+    }));
+    const customPreset = fallbackProviderPresetOptions.find((preset) => preset.value === "custom");
+    return [
+        ...(builtinPresets.length > 0 ? builtinPresets : fallbackProviderPresetOptions.filter((preset) => preset.value !== "custom")),
+        ...(customPreset ? [customPreset] : []),
+    ];
+});
 
 function toggleGroup(group: string): void {
     expandedGroups.value[group] = !expandedGroups.value[group];
@@ -216,6 +202,14 @@ function cloneModel(model: ConfiguredModelDto): ModelDraft {
         id: model.id,
         group: model.group ?? "",
         enabled: model.enabled,
+        provider: model.provider ?? "",
+        api: model.api ?? "",
+        baseUrl: model.baseUrl ?? "",
+        reasoning: model.reasoning === null ? "inherit" : model.reasoning ? "true" : "false",
+        input: model.input?.join(",") ?? "",
+        maxTokens: typeof model.maxTokens === "number" ? String(model.maxTokens) : "",
+        cost: model.cost ? JSON.stringify(model.cost, null, 2) : "",
+        compat: model.compat ? JSON.stringify(model.compat, null, 2) : "",
         contextWindowTokens: typeof model.contextWindowTokens === "number" ? String(model.contextWindowTokens) : "",
     };
 }
@@ -235,6 +229,91 @@ function parseContextWindowTokens(value: string): number | null {
     }
 
     return Math.trunc(parsedValue);
+}
+
+/**
+ * 将 Pi Model maxTokens 输入框解析为可空整数。
+ */
+function parseMaxTokens(value: string): number | null {
+    return parseContextWindowTokens(value);
+}
+
+/**
+ * 解析模型输入能力；空值表示继承 Pi registry。
+ */
+function parseModelInput(value: string): ModelInputKind[] | null {
+    const normalized = value.trim();
+    if (!normalized) {
+        return null;
+    }
+    const inputs = [...new Set(normalized.split(",")
+        .map((item) => item.trim())
+        .filter((item): item is ModelInputKind => item === "text" || item === "image"))];
+    return inputs.length > 0 ? inputs : null;
+}
+
+/**
+ * 解析模型推理能力；继承表示由 Pi registry 决定。
+ */
+function parseModelReasoning(value: ModelDraft["reasoning"]): boolean | null {
+    if (value === "true") {
+        return true;
+    }
+    if (value === "false") {
+        return false;
+    }
+    return null;
+}
+
+/**
+ * 解析 Pi compat JSON；空值表示继承 Pi registry 或使用 provider 自动探测。
+ */
+function parseModelCompat(value: string): Record<string, unknown> | null {
+    const normalizedValue = value.trim();
+    if (!normalizedValue) {
+        return null;
+    }
+    try {
+        const parsedValue = JSON.parse(normalizedValue);
+        return parsedValue && typeof parsedValue === "object" && !Array.isArray(parsedValue)
+            ? parsedValue as Record<string, unknown>
+            : null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * 解析 Pi cost JSON；空值表示继承 Pi registry。
+ */
+function parseModelCost(value: string): ConfiguredModelDto["cost"] {
+    const normalizedValue = value.trim();
+    if (!normalizedValue) {
+        return null;
+    }
+    try {
+        const parsedValue = JSON.parse(normalizedValue);
+        if (!parsedValue || typeof parsedValue !== "object" || Array.isArray(parsedValue)) {
+            return null;
+        }
+        const record = parsedValue as Record<string, unknown>;
+        const cost = {
+            input: readFiniteNumber(record.input),
+            output: readFiniteNumber(record.output),
+            cacheRead: readFiniteNumber(record.cacheRead),
+            cacheWrite: readFiniteNumber(record.cacheWrite),
+        };
+        return cost;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * 读取 Pi cost 中的数字字段。
+ */
+function readFiniteNumber(value: unknown): number {
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 /**
@@ -280,7 +359,6 @@ function cloneProvider(provider: ConfigModelSettingsDto["providers"][number]): P
     return {
         id: provider.id,
         name: provider.name,
-        adapter: provider.adapter,
         options: {
             apiKey: "",
             apiKeyConfigured: provider.options.apiKey.configured,
@@ -295,16 +373,6 @@ function cloneProvider(provider: ConfigModelSettingsDto["providers"][number]): P
         },
         models: provider.models.map(cloneModel),
     };
-}
-
-/**
- * 更新当前 Provider adapter 类型。
- */
-function updateActiveProviderAdapter(value: string): void {
-    if (!activeProvider.value) {
-        return;
-    }
-    activeProvider.value.adapter = createAdapterConfig(value as ModelProviderAdapterType);
 }
 
 /**
@@ -404,7 +472,6 @@ function buildSavePayload(): UpdateModelSettingsRequestDto {
         providers: draft.value.providers.map((provider) => ({
             id: provider.id.trim(),
             name: provider.name.trim(),
-            adapter: provider.adapter,
             options: {
                 apiKey: provider.options.apiKey.trim(),
                 baseURL: provider.options.baseURL.trim(),
@@ -417,6 +484,14 @@ function buildSavePayload(): UpdateModelSettingsRequestDto {
                 id: model.id.trim(),
                 group: model.group.trim() || null,
                 enabled: model.enabled,
+                provider: model.provider.trim() || null,
+                api: model.api.trim() || null,
+                baseUrl: model.baseUrl.trim() || null,
+                reasoning: parseModelReasoning(model.reasoning),
+                input: parseModelInput(model.input),
+                maxTokens: parseMaxTokens(model.maxTokens),
+                cost: parseModelCost(model.cost),
+                compat: parseModelCompat(model.compat),
                 contextWindowTokens: parseContextWindowTokens(model.contextWindowTokens),
             })),
         })),
@@ -435,7 +510,6 @@ function buildGlobalConfigPayload(): GlobalConfigDto {
             providers: draft.value.providers.map((provider) => ({
                 id: provider.id.trim(),
                 name: provider.name.trim(),
-                adapter: provider.adapter,
                 options: {
                     apiKey: buildSecretPayload(provider),
                     baseURL: provider.options.baseURL.trim(),
@@ -448,6 +522,14 @@ function buildGlobalConfigPayload(): GlobalConfigDto {
                     id: model.id.trim(),
                     group: model.group.trim() || null,
                     enabled: model.enabled,
+                    provider: model.provider.trim() || null,
+                    api: model.api.trim() || null,
+                    baseUrl: model.baseUrl.trim() || null,
+                    reasoning: parseModelReasoning(model.reasoning),
+                    input: parseModelInput(model.input),
+                    maxTokens: parseMaxTokens(model.maxTokens),
+                    cost: parseModelCost(model.cost),
+                    compat: parseModelCompat(model.compat),
                     contextWindowTokens: parseContextWindowTokens(model.contextWindowTokens),
                 })),
             })),
@@ -478,6 +560,9 @@ async function loadSettings(): Promise<void> {
     successText.value = "";
 
     try {
+        if (!isProjectScope.value) {
+            void loadPiCatalog();
+        }
         const snapshot = await configApi.editorSnapshot(props.targetQuery);
         editorSnapshot.value = snapshot;
         if (isProjectScope.value) {
@@ -638,22 +723,71 @@ function getManualModelDraft(providerId: string): {name: string; id: string; gro
 }
 
 /**
+ * 懒加载 Pi 内置模型目录。
+ */
+async function loadPiCatalog(): Promise<PiBuiltinCatalogDto> {
+    if (!piCatalog.value) {
+        piCatalog.value = await configApi.piModelCatalog();
+        if (!providerPresetOptions.value.some((preset) => preset.value === selectedPreset.value)) {
+            selectedPreset.value = providerPresetOptions.value[0]?.value ?? "custom";
+        }
+    }
+    return piCatalog.value;
+}
+
+/**
+ * 查找 Pi 内置 Provider。
+ */
+function findPiProvider(providerId: string): PiBuiltinProviderDto | null {
+    return piCatalog.value?.providers.find((provider) => provider.id === providerId) ?? null;
+}
+
+/**
+ * 把 Pi 内置模型转成可写入配置的模型草稿。
+ */
+function clonePiModel(model: PiBuiltinModelDto): ModelDraft {
+    return {
+        name: model.name,
+        id: model.id,
+        group: deriveGroup(model.id),
+        enabled: true,
+        provider: model.provider,
+        api: model.api,
+        baseUrl: model.baseUrl,
+        reasoning: model.reasoning ? "true" : "false",
+        input: model.input.join(","),
+        maxTokens: String(model.maxTokens),
+        cost: JSON.stringify(model.cost, null, 2),
+        compat: model.compat ? JSON.stringify(model.compat, null, 2) : "",
+        contextWindowTokens: String(model.contextWindowTokens),
+    };
+}
+
+/**
  * 新增 Provider 预设。
  */
-function addProvider(): void {
-    const preset = providerPresetOptions.find((item) => item.value === selectedPreset.value) ?? providerPresetOptions[0];
+async function addProvider(): Promise<void> {
+    try {
+        await loadPiCatalog();
+    } catch (error) {
+        errorText.value = error instanceof Error ? error.message : "读取 Pi 内置模型目录失败";
+        successText.value = "";
+        return;
+    }
+    const preset = providerPresetOptions.value.find((item) => item.value === selectedPreset.value) ?? providerPresetOptions.value[0];
     if (!preset) {
         return;
     }
 
+    const builtinProvider = findPiProvider(preset.providerId);
     const providerId = buildUniqueProviderId(preset.providerId);
+    const baseURL = preset.baseURL || builtinProvider?.baseUrl || "";
     draft.value.providers.push({
         id: providerId,
         name: preset.providerName,
-        adapter: createAdapterConfig(preset.adapter),
         options: {
             apiKey: "",
-            baseURL: preset.baseURL,
+            baseURL,
             proxy: "",
             timeoutMs: "",
             requestOptions: "",
@@ -661,11 +795,12 @@ function addProvider(): void {
             apiKeyMaskedValue: null,
             apiKeyCleared: false,
         },
-        models: [],
+        models: builtinProvider?.models.map(clonePiModel) ?? [],
     });
     activeProviderId.value = providerId;
     successText.value = `已新增 Provider：${preset.label}`;
     errorText.value = "";
+    ensureDefaultModelKey();
 }
 
 /**
@@ -780,7 +915,6 @@ function buildProviderRequest(provider: ProviderDraft): {provider: ModelProvider
         provider: {
             id: provider.id.trim(),
             name: provider.name.trim(),
-            adapter: provider.adapter,
             options: {
                 apiKey: provider.options.apiKey.trim(),
                 baseURL: provider.options.baseURL.trim(),
@@ -830,10 +964,21 @@ async function discoverModels(): Promise<void> {
     setProviderStatus(provider.id, true, "");
 
     try {
-        const result = await $fetch<DiscoverProviderModelsResponseDto>("/api/config/models/provider-discover", {
-            method: "POST",
-            body: buildProviderRequest(provider),
-        });
+        const catalog = await loadPiCatalog();
+        const builtinProvider = catalog.providers.find((item) => item.id === provider.id);
+        const result: DiscoverProviderModelsResponseDto = builtinProvider
+            ? {
+                models: builtinProvider.models.map((model) => ({
+                    id: model.id,
+                    name: model.name,
+                    group: deriveGroup(model.id),
+                })),
+                message: `已从 Pi 内置目录读取 ${builtinProvider.models.length} 个模型。`,
+            }
+            : await $fetch<DiscoverProviderModelsResponseDto>("/api/config/models/provider-discover", {
+                method: "POST",
+                body: buildProviderRequest(provider),
+            });
         discoveredModels.value = {
             ...discoveredModels.value,
             [provider.id]: result.models,
@@ -849,7 +994,20 @@ async function discoverModels(): Promise<void> {
 /**
  * 启用或新增模型。
  */
-function enableModel(model: {name: string; id: string; group: string | null | undefined; contextWindowTokens?: string | number | null | undefined}): void {
+function enableModel(model: {
+    name: string;
+    id: string;
+    group: string | null | undefined;
+    api?: string | null | undefined;
+    provider?: string | null | undefined;
+    baseUrl?: string | null | undefined;
+    reasoning?: boolean | null | undefined;
+    input?: ModelInputKind[] | null | undefined;
+    maxTokens?: string | number | null | undefined;
+    cost?: ConfiguredModelDto["cost"] | undefined;
+    compat?: Record<string, unknown> | null | undefined;
+    contextWindowTokens?: string | number | null | undefined;
+}): void {
     const provider = activeProvider.value;
     if (!provider) {
         return;
@@ -865,6 +1023,14 @@ function enableModel(model: {name: string; id: string; group: string | null | un
         existingModel.name = model.name.trim() || modelId;
         existingModel.group = model.group?.trim() ?? "";
         existingModel.enabled = true;
+        existingModel.provider = model.provider?.trim() ?? existingModel.provider;
+        existingModel.api = model.api?.trim() ?? existingModel.api;
+        existingModel.baseUrl = model.baseUrl?.trim() ?? existingModel.baseUrl;
+        existingModel.reasoning = typeof model.reasoning === "boolean" ? (model.reasoning ? "true" : "false") : existingModel.reasoning;
+        existingModel.input = model.input?.join(",") ?? existingModel.input;
+        existingModel.maxTokens = typeof model.maxTokens === "number" ? String(model.maxTokens) : model.maxTokens?.trim() ?? existingModel.maxTokens;
+        existingModel.cost = model.cost ? JSON.stringify(model.cost, null, 2) : existingModel.cost;
+        existingModel.compat = model.compat ? JSON.stringify(model.compat, null, 2) : existingModel.compat;
         existingModel.contextWindowTokens = typeof model.contextWindowTokens === "number"
             ? String(model.contextWindowTokens)
             : model.contextWindowTokens?.trim() ?? "";
@@ -874,6 +1040,14 @@ function enableModel(model: {name: string; id: string; group: string | null | un
             id: modelId,
             group: model.group?.trim() ?? "",
             enabled: true,
+            provider: model.provider?.trim() ?? "",
+            api: model.api?.trim() ?? "",
+            baseUrl: model.baseUrl?.trim() ?? "",
+            reasoning: typeof model.reasoning === "boolean" ? (model.reasoning ? "true" : "false") : "inherit",
+            input: model.input?.join(",") ?? "",
+            maxTokens: typeof model.maxTokens === "number" ? String(model.maxTokens) : model.maxTokens?.trim() ?? "",
+            cost: model.cost ? JSON.stringify(model.cost, null, 2) : "",
+            compat: model.compat ? JSON.stringify(model.compat, null, 2) : "",
             contextWindowTokens: typeof model.contextWindowTokens === "number"
                 ? String(model.contextWindowTokens)
                 : model.contextWindowTokens?.trim() ?? "",
@@ -972,6 +1146,17 @@ const currentDiscoveredModels = computed(() => {
 });
 
 /**
+ * 查找当前 Provider 对应的 Pi 内置模型。
+ */
+function findCurrentPiModel(modelId: string): PiBuiltinModelDto | null {
+    const provider = activeProvider.value;
+    if (!provider) {
+        return null;
+    }
+    return findPiProvider(provider.id)?.models.find((model) => model.id === modelId) ?? null;
+}
+
+/**
  * 获取远程抓取模型的当前状态。
  */
 function resolveDiscoveredModelState(modelId: string): "enabled" | "disabled" | "missing" {
@@ -1005,12 +1190,18 @@ const unifiedLibraryGroups = computed(() => {
     const provider = activeProvider.value;
     if (!provider) return [];
     
-    // Aggregate remote models and disabled models into a Map by group
-    const allModelsMap = new Map<string, { name: string; id: string; group: string; state: 'enabled' | 'disabled' | 'remote' }>();
+    const allModelsMap = new Map<string, { name: string; id: string; group: string; state: 'enabled' | 'disabled' | 'remote'; builtinModel?: PiBuiltinModelDto | null }>();
     
     for (const rm of currentDiscoveredModels.value) {
+        const builtinModel = findCurrentPiModel(rm.id);
         const group = rm.group || deriveGroup(rm.id);
-        allModelsMap.set(rm.id, { name: rm.name, id: rm.id, group, state: resolveDiscoveredModelState(rm.id) === 'enabled' ? 'enabled' : 'remote' });
+        allModelsMap.set(rm.id, {
+            name: rm.name,
+            id: rm.id,
+            group,
+            state: resolveDiscoveredModelState(rm.id) === 'enabled' ? 'enabled' : 'remote',
+            builtinModel,
+        });
     }
     
     for (const m of disabledModels.value) {
@@ -1025,7 +1216,7 @@ const unifiedLibraryGroups = computed(() => {
 
     const query = librarySearchQuery.value.toLowerCase().trim();
     
-    const groupMap = new Map<string, Array<{ name: string; id: string; group: string; state: string }>>();
+    const groupMap = new Map<string, Array<{ name: string; id: string; group: string; state: string; builtinModel?: PiBuiltinModelDto | null }>>();
     for (const model of allModelsMap.values()) {
         if (query && !model.name.toLowerCase().includes(query) && !model.id.toLowerCase().includes(query)) {
             continue;
@@ -1048,12 +1239,27 @@ function toggleLibraryGroup(group: string) {
     libraryExpandedGroups.value[group] = !libraryExpandedGroups.value[group];
 }
 
-function toggleLibraryModel(model: { name: string; id: string; group: string; state: string }) {
+function toggleLibraryModel(model: { name: string; id: string; group: string; state: string; builtinModel?: PiBuiltinModelDto | null }) {
     if (model.state === 'enabled') {
         const existing = activeProvider.value?.models.find(m => m.id === model.id);
         if (existing) disableModel(existing);
     } else {
-        enableModel(model);
+        enableModel(model.builtinModel
+            ? {
+                name: model.builtinModel.name,
+                id: model.builtinModel.id,
+                group: model.group,
+                provider: model.builtinModel.provider,
+                api: model.builtinModel.api,
+                baseUrl: model.builtinModel.baseUrl,
+                reasoning: model.builtinModel.reasoning,
+                input: model.builtinModel.input,
+                maxTokens: model.builtinModel.maxTokens,
+                cost: model.builtinModel.cost,
+                compat: model.builtinModel.compat,
+                contextWindowTokens: model.builtinModel.contextWindowTokens,
+            }
+            : model);
     }
 }
 
@@ -1126,12 +1332,12 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.n
                     </div>
                     <div class="text-sm font-semibold text-[var(--text-main)]">新增 Provider</div>
                 </div>
-                <div class="mb-3 text-xs leading-5 text-[var(--text-secondary)]">按预设快速创建服务提供商，后续可改为自定义配置。</div>
+                <div class="mb-3 text-xs leading-5 text-[var(--text-secondary)]">从 Pi 内置 Provider 目录添加连接；重复添加会自动改成本地新 ID。</div>
                 <div class="flex items-center gap-2">
                     <div class="min-w-0 flex-1">
                         <FormSelect :model-value="selectedPreset" :options="providerPresetOptions.map((item) => ({ value: item.value, label: item.label }))" @update:model-value="selectedPreset = $event" />
                     </div>
-                    <button class="inline-flex h-7 shrink-0 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-xs font-medium text-[var(--text-main)] shadow-sm transition-colors hover:bg-[var(--bg-hover)] active:scale-95" @click="addProvider">
+                    <button class="inline-flex h-7 shrink-0 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-xs font-medium text-[var(--text-main)] shadow-sm transition-colors hover:bg-[var(--bg-hover)] active:scale-95" @click="void addProvider()">
                         <span class="i-lucide-plus mr-1 h-3 w-3"></span>
                         添加
                     </button>
@@ -1214,7 +1420,7 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.n
                             <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-color)] pb-4">
                                 <div>
                                     <h3 class="text-base font-semibold text-[var(--text-main)]">Provider 配置</h3>
-                                    <p class="mt-1 text-xs text-[var(--text-secondary)]">配置此服务商的 API 访问凭据及适配器类型。</p>
+                                    <p class="mt-1 text-xs text-[var(--text-secondary)]">配置此服务商的 API 访问凭据；模型能力由 Pi Model 元数据决定。</p>
                                 </div>
 
                                 <div class="flex flex-wrap items-center gap-2">
@@ -1256,12 +1462,8 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.n
                                     <FormInput v-model="activeProvider.name" placeholder="Provider 名称" />
                                 </div>
                                 <div class="group space-y-1.5">
-                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">Adapter</label>
-                                    <FormSelect :model-value="activeProvider.adapter.type" :options="adapterOptions" @update:model-value="updateActiveProviderAdapter" />
-                                </div>
-                                <div class="group space-y-1.5">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">API Base</label>
-                                    <FormInput v-model="activeProvider.options.baseURL" placeholder="可留空，使用 adapter 默认地址" />
+                                    <FormInput v-model="activeProvider.options.baseURL" placeholder="可留空，使用 Pi Model 默认 baseUrl" />
                                 </div>
                                 <div class="group space-y-1.5 md:col-span-2">
                                     <div class="flex items-center justify-between gap-3">
@@ -1474,6 +1676,42 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.n
             <div class="space-y-1.5">
                 <label class="text-xs font-medium text-[var(--text-secondary)]">上下文窗口</label>
                 <FormInput v-model="editingModel.contextWindowTokens" :placeholder="activeProvider ? `留空不配置${resolveDisplayedContextWindow(activeProvider.id, editingModel) ? `，当前 ${resolveDisplayedContextWindow(activeProvider.id, editingModel)}` : ''}` : '留空不配置'" class="bg-[var(--bg-input)] shadow-sm" />
+            </div>
+            <div class="grid gap-3 md:grid-cols-2">
+                <div class="space-y-1.5">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">Pi Provider</label>
+                    <FormInput v-model="editingModel.provider" placeholder="留空使用本地 Provider ID" class="bg-[var(--bg-input)] shadow-sm" />
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">Pi API</label>
+                    <FormInput v-model="editingModel.api" placeholder="留空继承 Pi registry" class="bg-[var(--bg-input)] shadow-sm" />
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">Max Tokens</label>
+                    <FormInput v-model="editingModel.maxTokens" placeholder="留空继承" class="bg-[var(--bg-input)] shadow-sm" />
+                </div>
+            </div>
+            <div class="space-y-1.5">
+                <label class="text-xs font-medium text-[var(--text-secondary)]">模型 Base URL</label>
+                <FormInput v-model="editingModel.baseUrl" placeholder="留空继承 Pi registry 或 Provider API Base" class="bg-[var(--bg-input)] shadow-sm" />
+            </div>
+            <div class="grid gap-3 md:grid-cols-2">
+                <div class="space-y-1.5">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">输入能力</label>
+                    <FormInput v-model="editingModel.input" placeholder="text 或 text,image；留空继承" class="bg-[var(--bg-input)] shadow-sm" />
+                </div>
+                <div class="space-y-1.5">
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">Reasoning</label>
+                    <FormSelect v-model="editingModel.reasoning" :options="[{value: 'inherit', label: '继承'}, {value: 'true', label: '支持'}, {value: 'false', label: '不支持'}]" />
+                </div>
+            </div>
+            <div class="space-y-1.5">
+                <label class="text-xs font-medium text-[var(--text-secondary)]">Compat JSON</label>
+                <textarea v-model="editingModel.compat" rows="4" placeholder="{&quot;thinkingFormat&quot;:&quot;deepseek&quot;}" class="w-full resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-2 font-mono text-[12px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] placeholder:opacity-80 focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20"></textarea>
+            </div>
+            <div class="space-y-1.5">
+                <label class="text-xs font-medium text-[var(--text-secondary)]">Cost JSON</label>
+                <textarea v-model="editingModel.cost" rows="4" placeholder="{&quot;input&quot;:0,&quot;output&quot;:0,&quot;cacheRead&quot;:0,&quot;cacheWrite&quot;:0}" class="w-full resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-2 font-mono text-[12px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] placeholder:opacity-80 focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20"></textarea>
             </div>
         </div>
     </Dialog>

@@ -1,9 +1,9 @@
 import {randomUUID} from "node:crypto";
-import {rm} from "node:fs/promises";
+import {readFile, rm} from "node:fs/promises";
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
-import {createAssistantTextMessage} from "nbook/server/agent/messages/message-utils";
+import {createAssistantTextMessage, createTextToolResult} from "nbook/server/agent/messages/message-utils";
 
 describe("JsonlSessionRepository", () => {
     let root: string;
@@ -123,5 +123,41 @@ describe("JsonlSessionRepository", () => {
             terminal: false,
             active: true,
         });
+    });
+
+    it("appendEntries 以单条 batch record 写入多条 entry 并只移动一次 leaf", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+        });
+        await repo.appendUserMessage(session.metadata.sessionId, "run", session.metadata.workspaceKey);
+
+        const entries = await repo.appendEntries(session.metadata.sessionId, [
+            {
+                type: "message",
+                message: createAssistantTextMessage({text: "I will call a tool"}),
+                origin: "harness",
+            },
+            {
+                type: "message",
+                message: createTextToolResult({
+                    toolCallId: "call-1",
+                    toolName: "read",
+                    text: "ok",
+                }),
+                origin: "harness",
+            },
+        ], session.metadata.workspaceKey);
+
+        expect(entries.map((entry) => entry.type)).toEqual(["message", "message"]);
+        const snapshot = await repo.readSession(session.metadata.sessionId, session.metadata.workspaceKey);
+        expect(repo.reduce(snapshot).messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult"]);
+
+        const sessionPath = join(root, ".nbook", "agent", "sessions", "global", `${String(session.metadata.sessionId)}.jsonl`);
+        const records = (await readFile(sessionPath, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line) as {kind: string; entries?: unknown[]});
+        const batch = records.find((record) => record.kind === "batch");
+        expect(batch?.entries?.map((entry) => (entry as {type: string}).type)).toEqual(["message", "message", "leaf"]);
     });
 });

@@ -30,15 +30,23 @@ Agent 回答问题或执行任务时，应按问题类型读取这些文档：
 - [../PROJECT-STATUS.md](../PROJECT-STATUS.md)：仓库当前状态、近期风险、部署策略的最新摘要。
 - [../AGENTS.md](../AGENTS.md)：代码协作规则、文档维护规则、编码约束。
 - [README.md](README.md)：文档体系入口，说明 `docs/`、`spec/`、`PROJECT-STATUS.md` 的分工。
-- [tasks/docker-compose-deployment/README.md](tasks/docker-compose-deployment/README.md)：Docker Compose 部署任务 walkthrough，记录部署模式演进、关键决策和验证记录。
+- [tasks/README.md](tasks/README.md)：active 编号任务与 archived 任务的维护规则。
+- [tasks/archived/docker-compose-deployment/README.md](tasks/archived/docker-compose-deployment/README.md)：Docker Compose 部署任务 walkthrough，记录部署模式演进、关键决策和验证记录。
+- [tasks/02-pi-agent-harness-migration/README.md](tasks/02-pi-agent-harness-migration/README.md)：当前 Pi-based Agent session / event / tool / profile 主路径迁移记录。
+- [tasks/04-tsx-profile-workbench/README.md](tasks/04-tsx-profile-workbench/README.md)：TSX Profile Workbench 当前实现边界。
+- [tasks/06-leader-default-prompt-parity/README.md](tasks/06-leader-default-prompt-parity/README.md)：leader.default prompt parity、task/plot/SQL 工具、writer/retrieval profile 和 skill 迁移记录。
 - [../spec/README.md](../spec/README.md)：稳定规范索引。
 - [../spec/agent/system.md](../spec/agent/system.md)：Agent 系统稳定规格。
 - [../spec/agent/profile-guide.md](../spec/agent/profile-guide.md)：Agent profile 实现和阅读指南。
 - [../spec/agent/context.md](../spec/agent/context.md)：TSX prompt 上下文拼接规则。
 
-如果用户问的是部署问题，优先读本文、README 的 Docker Compose 部分、`docs/tasks/docker-compose-deployment/README.md` 和 `PROJECT-STATUS.md`。
+如果用户问的是部署问题，优先读本文、README 的 Docker Compose 部分、`docs/tasks/archived/docker-compose-deployment/README.md` 和 `PROJECT-STATUS.md`。Archived walkthrough 记录了部署方案的演进过程，当前执行真相以本文、README 和 `PROJECT-STATUS.md` 为准。
 
-如果用户问的是 Agent 能力、提示词、工具或 workspace 文件语义，再继续读 `spec/agent/*` 和相关任务文档。
+如果用户问的是 Agent 能力、提示词、工具或 workspace 文件语义，再继续读 `docs/tasks/02-pi-agent-harness-migration/README.md`、`docs/tasks/04-tsx-profile-workbench/README.md`、`docs/tasks/06-leader-default-prompt-parity/README.md`、`docs/modules/agent/harness.md` 和 `spec/agent/*`。
+
+当前 Agent 文档阅读时应使用 session / linked agent 心智：正式 HTTP 是 `/api/agent/sessions/**`，前端历史真相来自 session snapshot + JSONL entry tree，SSE 只是增量事件通道。旧 `thread` / `subagent` / `/api/agent/threads/**` / `/api/agent-v3/**` 只在归档文档或迁移说明中出现。
+
+SkillCatalog 只展示可发现 skill。独立 `skill` 工具已经禁用；当用户要求 Agent 使用某个 skill 时，应先从 catalog 找到 `location`，再用 `read` 打开对应 `SKILL.md`，并按入口文档继续读取 reference/scripts/templates/examples。
 
 ## 部署模型
 
@@ -55,7 +63,7 @@ NeuroBook 使用 Docker Compose 单机部署。基础模板由仓库提供，运
 
 - `.env`：容器运行环境变量，例如端口、session password、Postgres 密码、`DATABASE_URL`。
 - `config.yaml`：Boot Config，只保存启动/部署期配置，例如 server host/port 和 database url。
-- `workspace/.nbook/config.json`：Global Config，保存 Provider key、模型、baseURL、代理、profile 模型覆盖、`auth.enabled` 和长期 UI/editor 偏好。
+- `workspace/.nbook/config.json`：Global Config，保存 Provider key、模型白名单、baseURL、代理、profile 模型覆盖、`auth.enabled` 和长期 UI/editor 偏好。
 - `.deploy/docker-compose.generated.yml`：根据 `ghcr` 或 `source` 模式生成的 compose override。
 - `.deploy/README.md`：当前部署目录的本地操作说明。
 
@@ -67,7 +75,7 @@ NeuroBook 使用 Docker Compose 单机部署。基础模板由仓库提供，运
 
 ### ghcr 模式
 
-这个模式建议在项目稳定后再使用，因为每次更新都要重新拉取镜像
+这是普通用户和低内存服务器的默认推荐模式。
 
 特点：
 
@@ -83,8 +91,6 @@ NeuroBook 使用 Docker Compose 单机部署。基础模板由仓库提供，运
 - release 发布后的稳定部署。
 
 ### source 模式
-
-这是默认推荐模式
 
 source 模式适合开发服务器或需要频繁 `git pull` 同步最新代码的服务器。
 
@@ -153,7 +159,7 @@ node scripts/publish-ghcr-image.mjs
 ```bash
 sed -n '1,260p' docs/operator-bridge.md
 sed -n '63,190p' README.md
-sed -n '1,130p' docs/tasks/docker-compose-deployment/README.md
+sed -n '1,130p' docs/tasks/archived/docker-compose-deployment/README.md
 ```
 
 确认当前仓库状态：
@@ -359,9 +365,14 @@ GitHub Actions 只在 GitHub Release `published` 时发布镜像，不在普通 
 - Provider API key
 - Provider baseURL
 - 默认模型
+- Pi Model 字段覆盖，例如模型级 `api`、`input`、`reasoning`、`maxTokens`、`compat`
 - profile 模型覆盖
 - 代理配置
 - `auth.enabled`
+
+模型连接不再使用项目自有 provider adapter。运行时会把 `provider/model` 解析为 Pi `Model`：Pi 内置目录已有的模型继承 Pi registry 元数据；自定义模型需要在模型项上显式声明 Pi Model 字段。图片输入能力也来自 Pi `Model.input`，不要仅凭模型名称判断。
+
+同一个 Pi Provider 可以添加多份本地连接。Global Config 的 provider `id` 是本地连接实例 ID，用于模型 key 和 API key；模型项的 `provider` 字段是 Pi Provider ID，用于继承 Pi registry 与 provider 兼容性。`requestOptions` 不是旧 adapter 参数，它只作为 Pi stream options 的 JSON 补充入口，目前只透传 `headers`、`maxRetries`、`maxRetryDelayMs`、`metadata`、`transport`、`cacheRetention`。
 
 不要把 `.env`、`config.yaml`、`workspace/` 或 `.deploy/` 加入 Git。`assets/workspace/*.example.json` 可以包含公开 provider baseURL，但不能包含真实 key。
 

@@ -8,21 +8,28 @@
             {
                 "id": "deepseek",
                 "name": "DeepSeek",
-                "adapter": "deepseek-official",
                 "options": {
                     "apiKey": "",
-                    "baseURL": "https://api.deepseek.com/v1",
+                    "baseURL": "",
                     "proxy": "",
                     "timeoutMs": 180000,
                     "requestOptions": {}
                 },
                 "models": [
                     {
-                        "name": "DeepSeek-V4-Flash",
+                        "name": "DeepSeek V4 Flash",
                         "id": "deepseek-v4-flash",
                         "group": "deepseek",
                         "enabled": true,
-                        "contextWindowTokens": 262144
+                        "api": null,
+                        "baseUrl": null,
+                        "reasoning": null,
+                        "input": null,
+                        "maxTokens": null,
+                        "cost": null,
+                        "compat": null,
+                        "contextWindowTokens": 1000000,
+                        "provider": null
                     }
                 ]
             }

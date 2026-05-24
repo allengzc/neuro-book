@@ -1,5 +1,5 @@
 import {randomUUID} from "node:crypto";
-import {rm} from "node:fs/promises";
+import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {fauxAssistantMessage, fauxText, fauxToolCall, registerFauxProvider} from "@earendil-works/pi-ai";
@@ -10,6 +10,15 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {createAssistantTextMessage, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {Message, ModelContext, ProfilePrompt, Reminder, System} from "nbook/server/agent/profiles/profile-dsl";
+import type {AgentMessage, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
+import {AGENT_PLAN_MODE_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
+
+function visibleMessageText(messages: AgentMessage[]): string {
+    return messages
+        .filter((message): message is RuntimeMessage => message.role !== "custom")
+        .map(messageText)
+        .join("\n");
+}
 
 describe("NeuroAgentHarness", () => {
     let root: string;
@@ -120,6 +129,50 @@ describe("NeuroAgentHarness", () => {
         })).toBe(false);
     });
 
+    it("新建小说 session 的 agent cwd 使用 workspace 容器根并保留 novelId", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.workspace-container",
+                name: "Workspace Container",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+
+        const created = await harness.createAgent({
+            profileKey: "test.workspace-container",
+            input: {},
+            workspaceRoot: "workspace/novel-7",
+            workspaceKey: "novel-7",
+            novelId: "7",
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(context.workspaceRoot).toBe("workspace");
+        expect(context.novelId).toBe("7");
+    });
+
+    it("/new 创建的新 session 保留 workspace 容器根和 novelId", async () => {
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: "workspace/novel-7",
+            workspaceKey: "novel-7",
+            novelId: "7",
+        });
+
+        const result = await harness.runCommand(created.sessionId, {
+            command: "new",
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(result.sessionId));
+
+        expect(context.workspaceRoot).toBe("workspace");
+        expect(context.novelId).toBe("7");
+    });
+
     it("approval 工具调用会停在 assistant tool call，resolution 后继续", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
@@ -173,6 +226,173 @@ describe("NeuroAgentHarness", () => {
 
         expect(continued.status).toBe("completed");
         expect(continued.reportResult?.result).toBe("done");
+    });
+
+    it("approval 后面的普通 tool call 会被显式跳过并保留 pending approval", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.approval-batch-barrier",
+                name: "Approval Batch Barrier",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input", "report_result"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("request_user_input", {
+                    questions: [{question: "继续？"}],
+                }, {id: "ask-barrier"}),
+                fauxToolCall("report_result", {
+                    walkthrough: "should wait",
+                }, {id: "report-after-approval"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    walkthrough: "done after approval",
+                }, {id: "report-after-resolution"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.approval-batch-barrier",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const waiting = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "need input"},
+        });
+
+        expect(waiting.status).toBe("waiting");
+        const waitingContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        expect(waitingContext.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult"]);
+        expect(messageText(waitingContext.messages[2] as never)).toContain("waiting for user approval");
+        expect(await harness.getSessionSnapshot(created.sessionId)).toEqual(expect.objectContaining({
+            pendingApproval: expect.objectContaining({
+                toolCallId: "ask-barrier",
+                toolName: "request_user_input",
+            }),
+        }));
+
+        const continued = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "continue",
+            resolution: {
+                kind: "user_input",
+                toolCallId: "ask-barrier",
+                answers: [{questionIndex: 0, text: "继续"}],
+            },
+        });
+
+        expect(continued.status).toBe("completed");
+        expect(continued.reportResult?.result).toBe("done after approval");
+    });
+
+    it("拒绝把旧的未闭合普通 tool call 发送给 provider", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.interrupted-tool",
+                name: "Interrupted Tool",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([fauxAssistantMessage(fauxText("should not run"))]);
+        const created = await harness.createAgent({
+            profileKey: "test.interrupted-tool",
+            input: {},
+            workspaceRoot: root,
+        });
+        await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "old prompt"}));
+        await harness.repo.appendMessage(created.sessionId, fauxAssistantMessage([
+            fauxToolCall("read", {
+                path: "novel-7/AGENTS.md",
+            }, {id: "stale-read"}),
+        ], {stopReason: "toolUse"}));
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "continue"},
+        });
+
+        expect(result.status).toBe("error");
+        expect(result.error).toContain("未闭合普通 tool call");
+        const persisted = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        expect(persisted.messages.some((message) => message.role === "toolResult" && message.toolCallId === "stale-read")).toBe(false);
+    });
+
+    it("普通 tool turn 到 turn_end 才成组写入 session", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.turn-commit",
+                name: "Turn Commit",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["get_session"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        const snapshotsByEvent: Array<{event: string; roles: string[]}> = [];
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("get_session", {}, {id: "get-session-1"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage(fauxText("done")),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.turn-commit",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+            onEvent: async (event) => {
+                if (event.type !== "message_end" && event.type !== "turn_end") {
+                    return;
+                }
+                const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+                const eventLabel = event.type === "message_end"
+                    ? `${event.type}:${event.message.role}:${event.message.role === "assistant" && event.message.content.some((block) => block.type === "toolCall") ? "toolCall" : "plain"}`
+                    : event.type;
+                snapshotsByEvent.push({
+                    event: eventLabel,
+                    roles: context.messages.map((message) => message.role),
+                });
+            },
+        });
+
+        expect(result.status).toBe("completed");
+        expect(snapshotsByEvent).toEqual([
+            {event: "message_end:assistant:toolCall", roles: ["user"]},
+            {event: "message_end:toolResult:plain", roles: ["user"]},
+            {event: "turn_end", roles: ["user", "assistant", "toolResult"]},
+            {event: "message_end:assistant:plain", roles: ["user", "assistant", "toolResult"]},
+            {event: "turn_end", roles: ["user", "assistant", "toolResult", "assistant"]},
+        ]);
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult", "assistant"]);
+
+        const sessionPath = join(root, ".nbook", "agent", "sessions", "global", `${String(created.sessionId)}.jsonl`);
+        const records = (await readFile(sessionPath, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line) as {kind: string; entries?: Array<{type: string; message?: {role?: string}}>});
+        const turnBatches = records
+            .filter((record) => record.kind === "batch")
+            .map((record) => record.entries?.filter((entry) => entry.type === "message").map((entry) => entry.message?.role));
+        expect(turnBatches).toEqual([
+            ["assistant", "toolResult"],
+            ["assistant"],
+        ]);
     });
 
     it("approval resolution 会先写 toolResult，再写 continue prepare 的 appending messages", async () => {
@@ -231,6 +451,97 @@ describe("NeuroAgentHarness", () => {
         expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult", "user", "assistant", "toolResult"]);
         expect(messageText(context.messages[2] as never)).toContain("继续");
         expect(messageText(context.messages[3] as never)).toBe("APPENDING_AFTER_RESOLUTION");
+    });
+
+    it("Plan Mode 使用 Project Workspace .agent/plan 并支持 exit preview", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.plan-mode-preview",
+                name: "Plan Mode Preview",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["exit_plan_mode"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        const created = await harness.createAgent({
+            profileKey: "test.plan-mode-preview",
+            input: {},
+            workspaceRoot: root,
+        });
+        await harness.runCommand(created.sessionId, {
+            command: "plan",
+            active: true,
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const planModeState = context.customState[AGENT_PLAN_MODE_STATE_KEY] as Record<string, unknown>;
+
+        expect(planModeState.workDirectory).toBe(`${root.replace(/\\/g, "/")}/.agent/plan`);
+
+        await mkdir(join(root, ".agent", "plan"), {recursive: true});
+        await writeFile(join(root, ".agent", "plan", "preview.md"), "# Preview Plan\n\n- one\n", "utf-8");
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("exit_plan_mode", {
+                    reason: "ready",
+                    planFilePath: ".agent/plan/preview.md",
+                }, {id: "exit-preview"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "approve plan"},
+        });
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+
+        expect(snapshot.pendingApproval).toEqual(expect.objectContaining({
+            toolCallId: "exit-preview",
+            toolName: "exit_plan_mode",
+            planFilePath: ".agent/plan/preview.md",
+            planContent: "# Preview Plan\n\n- one\n",
+        }));
+    });
+
+    it("exit_plan_mode preview 拒绝 .agent/plan 外的计划路径", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.plan-mode-bad-preview",
+                name: "Plan Mode Bad Preview",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["exit_plan_mode"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("exit_plan_mode", {
+                    planFilePath: "README.md",
+                }, {id: "exit-bad-preview"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage(fauxText("plan path rejected")),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.plan-mode-bad-preview",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "bad plan"},
+        });
+
+        expect(result.status).toBe("completed");
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const toolResult = context.messages.find((message) => message.role === "toolResult");
+        expect(toolResult ? messageText(toolResult) : "").toContain(".agent/plan");
+        expect(result.finalMessage).toBe("plan path rejected");
     });
 
     it("缺少 report_result 时会自动提醒一次并收集第二轮 report", async () => {
@@ -507,6 +818,233 @@ describe("NeuroAgentHarness", () => {
         expect(await harness.getAgent(undefined, parent.sessionId)).toEqual([]);
     });
 
+    it("invoke_agent 完成后父 agent 继续进入下一轮 ReAct", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.invoke-parent",
+                name: "Invoke Parent",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["invoke_agent"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.invoke-child",
+                name: "Invoke Child",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("invoke_agent", {
+                    sessionId: 2,
+                    mode: "prompt",
+                    message: "child work",
+                }, {id: "invoke-child"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage(fauxText("child done")),
+            fauxAssistantMessage(fauxText("parent after child")),
+        ]);
+        const parent = await harness.createAgent({
+            profileKey: "test.invoke-parent",
+            input: {},
+            workspaceRoot: root,
+        });
+        const child = await harness.createAgent({
+            profileKey: "test.invoke-child",
+            input: {},
+            workspaceRoot: root,
+            parentSessionId: parent.sessionId,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: parent.sessionId,
+            mode: "prompt",
+            message: {text: "delegate"},
+        });
+
+        expect(child.sessionId).toBe(2);
+        expect(result.finalMessage).toBe("parent after child");
+        const context = harness.repo.reduce(await harness.repo.readSession(parent.sessionId));
+        expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult", "assistant"]);
+    });
+
+    it("invoke_agent 拒绝调用当前 session 自己，避免自递归 active invocation", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.invoke-self",
+                name: "Invoke Self",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["invoke_agent"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("invoke_agent", {
+                    sessionId: 1,
+                    mode: "prompt",
+                    message: "call myself",
+                }, {id: "invoke-self"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage(fauxText("handled self error")),
+        ]);
+        const session = await harness.createAgent({
+            profileKey: "test.invoke-self",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: session.sessionId,
+            mode: "prompt",
+            message: {text: "delegate"},
+        });
+
+        expect(result.finalMessage).toBe("handled self error");
+        const context = harness.repo.reduce(await harness.repo.readSession(session.sessionId));
+        const toolResult = context.messages.find((message) => message.role === "toolResult");
+        expect(toolResult ? messageText(toolResult) : "").toContain("不能调用当前 session 自己");
+    });
+
+    it("create_agent 工具接受 JSON string object input，并拒绝非 object input", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.create-agent-parent",
+                name: "Create Agent Parent",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["create_agent"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.create-agent-child",
+                name: "Create Agent Child",
+            },
+            inputSchema: Type.Object({
+                role: Type.String(),
+            }),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("create_agent", {
+                    profileKey: "test.create-agent-child",
+                    input: "{\"role\":\"draft\"}",
+                }, {id: "create-json"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("created"),
+        ]);
+        const parent = await harness.createAgent({
+            profileKey: "test.create-agent-parent",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: parent.sessionId,
+            mode: "prompt",
+            message: {text: "create"},
+        });
+
+        expect(result.status).toBe("completed");
+        expect(await harness.getAgent(undefined, parent.sessionId)).toEqual([
+            expect.objectContaining({
+                profileKey: "test.create-agent-child",
+            }),
+        ]);
+
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("create_agent", {
+                    profileKey: "test.create-agent-child",
+                    input: "role=draft",
+                }, {id: "create-kv"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("after error"),
+        ]);
+
+        await harness.invokeAgent({
+            sessionId: parent.sessionId,
+            mode: "prompt",
+            message: {text: "bad create"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(parent.sessionId));
+        expect(visibleMessageText(context.messages)).toContain("create_agent.input 必须是 JSON object");
+    });
+
+    it("get_agent_profile 返回 profile schema 摘要和 allowed tools", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.profile-parent",
+                name: "Profile Parent",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["get_agent_profile"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.profile-detail",
+                name: "Profile Detail",
+                description: "Detail target.",
+            },
+            inputSchema: Type.Object({
+                prompt: Type.String({description: "Task prompt."}),
+            }),
+            outputSchema: Type.Object({
+                summary: Type.String({description: "Result summary."}),
+            }),
+            allowedToolKeys: ["read", "report_result"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("get_agent_profile", {
+                    profileKey: "test.profile-detail",
+                }, {id: "profile-detail"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("profile read"),
+        ]);
+        const parent = await harness.createAgent({
+            profileKey: "test.profile-parent",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        await harness.invokeAgent({
+            sessionId: parent.sessionId,
+            mode: "prompt",
+            message: {text: "read profile"},
+        });
+
+        const context = harness.repo.reduce(await harness.repo.readSession(parent.sessionId));
+        const text = visibleMessageText(context.messages);
+        expect(text).toContain("test.profile-detail");
+        expect(text).toContain("allowedToolKeys");
+        expect(text).toContain("Task prompt.");
+        expect(text).toContain("reportResultSchema");
+    });
+
     it("session snapshot 暴露 linked agents、pending approval、plan/model/followUp 状态", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
@@ -737,7 +1275,7 @@ describe("NeuroAgentHarness", () => {
         ]);
     });
 
-    it("get_session 返回轻量 session 查询结果", async () => {
+    it("get_session 默认不返回 tree 和历史消息，显式请求时只返回 active path 最近消息", async () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             input: {},
@@ -749,8 +1287,17 @@ describe("NeuroAgentHarness", () => {
 
         expect(session.metadata.sessionId).toBe(created.sessionId);
         expect(session.activeLeafId).toEqual(expect.any(String));
-        expect(session.tree.length).toBeGreaterThan(0);
-        expect(session.recentMessages).toEqual([
+        expect("tree" in session).toBe(false);
+        expect(session.summary).toBe("hello session");
+        expect(session.recentMessages).toBeUndefined();
+
+        const withMessages = await harness.getSession({
+            sessionId: created.sessionId,
+            includeRecentMessages: true,
+            recentMessageLimit: 1,
+            tokenBudget: 1200,
+        });
+        expect(withMessages.recentMessages).toEqual([
             expect.objectContaining({
                 role: "user",
                 text: "hello session",
@@ -793,12 +1340,15 @@ describe("NeuroAgentHarness", () => {
             mode: "prompt",
             message: {text: "run"},
         });
-        const session = await harness.getSession(created.sessionId);
+        const session = await harness.getSession({
+            sessionId: created.sessionId,
+            includeRecentMessages: true,
+        });
 
         expect(result.status).toBe("completed");
         expect(session.title).toBe("Ingested Title");
         expect(session.summary).toBe("Ingested Summary");
-        expect(session.recentMessages.map((message) => message.text)).toContain("ingested");
+        expect(session.recentMessages?.map((message) => message.text)).toContain("ingested");
     });
 
     it("profile ingest 返回越权字段时 run 报错且不写部分结果", async () => {
@@ -833,37 +1383,14 @@ describe("NeuroAgentHarness", () => {
             mode: "prompt",
             message: {text: "run"},
         });
-        const session = await harness.getSession(created.sessionId);
+        const session = await harness.getSession({
+            sessionId: created.sessionId,
+            includeRecentMessages: true,
+        });
 
         expect(result.status).toBe("error");
         expect(result.error).toContain("profileKey");
-        expect(session.recentMessages.every((message) => message.text !== "should not write")).toBe(true);
-    });
-
-    it("不可见 skill 返回工具错误，不进入 waiting", async () => {
-        faux.setResponses([
-            fauxAssistantMessage([
-                fauxToolCall("skill", {
-                    skillKey: "missing-skill",
-                }, {id: "skill-1"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage(fauxText("after error")),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "leader.default",
-            input: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "activate"},
-        });
-
-        expect(result.status).toBe("completed");
-        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-        expect(context.messages.some((message) => message.role === "toolResult" && message.isError)).toBe(true);
+        expect(session.recentMessages?.every((message) => message.text !== "should not write")).toBe(true);
     });
 
     it("provider error 会作为 invoke error 返回且不触发 report_result reminder", async () => {

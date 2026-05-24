@@ -1,10 +1,20 @@
-import type {Model} from "@earendil-works/pi-ai";
+import {getModel} from "@earendil-works/pi-ai";
+import type {KnownProvider, Model} from "@earendil-works/pi-ai";
 import type {AgentProfileModelConfig} from "nbook/server/config/types";
 import {loadGlobalEffectiveConfigSync} from "nbook/server/config/config-service";
 import type {EffectiveConfig} from "nbook/server/config/types";
 
 type ModelOverrideInput = Partial<AgentProfileModelConfig> & {
     model?: string | null;
+};
+
+type PiModelInput = Model<any>["input"][number];
+type ResolvedPiModel = Model<any> & {
+    /**
+     * 本地 Global Config provider 实例 ID。允许同一个 Pi provider 添加多份连接时，
+     * model.provider 仍保持 Pi provider ID，API key 必须从这个本地实例读取。
+     */
+    providerConfigId: string;
 };
 
 const DEFAULT_CONTEXT_WINDOW = 128_000;
@@ -17,7 +27,7 @@ export function resolvePiModelFromConfig(
     config: Pick<EffectiveConfig, "agent" | "models">,
     profileKey: string,
     override?: ModelOverrideInput | null,
-): Model<any> {
+): ResolvedPiModel {
     const profileModelKey = config.agent.profiles[profileKey]?.model.modelKey ?? null;
     const modelKey = override?.modelKey ?? override?.model ?? profileModelKey ?? config.models.defaultModelKey;
     if (!modelKey) {
@@ -35,36 +45,53 @@ export function resolvePiModelFromConfig(
         throw new Error(`模型未启用或不存在：${modelKey}`);
     }
 
+    const piProviderId = model.provider ?? providerId;
+    const piModel = resolvePiRegistryModel(piProviderId, model.id);
+    const customCost = model.cost ?? {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+    };
     return {
+        ...(piModel ?? {
+            id: model.id,
+            name: model.name,
+            api: model.api ?? "openai-completions",
+            provider: piProviderId,
+            baseUrl: provider.options.baseURL || model.baseUrl || "",
+            reasoning: model.reasoning ?? false,
+            input: [...(model.input ?? ["text"])],
+            cost: customCost,
+            contextWindow: model.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW,
+            maxTokens: model.maxTokens ?? DEFAULT_MAX_TOKENS,
+            compat: model.compat as Model<any>["compat"],
+        }),
+        api: model.api ?? piModel?.api ?? "openai-completions",
         id: model.id,
-        name: model.name,
-        api: resolvePiApi(provider.adapter.type),
-        provider: providerId,
-        baseUrl: provider.options.baseURL,
-        reasoning: true,
-        input: ["text", "image"],
+        name: model.name || piModel?.name || model.id,
+        provider: piProviderId,
+        providerConfigId: providerId,
+        baseUrl: provider.options.baseURL || model.baseUrl || piModel?.baseUrl || "",
+        reasoning: model.reasoning ?? piModel?.reasoning ?? false,
+        input: [...(model.input ?? piModel?.input ?? ["text"])],
         cost: {
-            input: 0,
-            output: 0,
-            cacheRead: 0,
-            cacheWrite: 0,
+            input: model.cost?.input ?? piModel?.cost.input ?? 0,
+            output: model.cost?.output ?? piModel?.cost.output ?? 0,
+            cacheRead: model.cost?.cacheRead ?? piModel?.cost.cacheRead ?? 0,
+            cacheWrite: model.cost?.cacheWrite ?? piModel?.cost.cacheWrite ?? 0,
         },
-        contextWindow: model.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW,
-        maxTokens: DEFAULT_MAX_TOKENS,
-        headers: {},
-        compat: provider.adapter.type === "openai-compatible" || provider.adapter.type === "deepseek-official"
-            ? {
-                requiresReasoningContentOnAssistantMessages: provider.adapter.reasoningContentReplay,
-                thinkingFormat: provider.adapter.type === "deepseek-official" ? "deepseek" : "openai",
-            }
-            : undefined,
+        contextWindow: model.contextWindowTokens ?? piModel?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+        maxTokens: model.maxTokens ?? piModel?.maxTokens ?? DEFAULT_MAX_TOKENS,
+        headers: piModel?.headers ?? {},
+        compat: (model.compat as Model<any>["compat"]) ?? piModel?.compat,
     };
 }
 
 /**
  * 将 Global Config 的模型引用解析成 Pi Model。主要给测试和旧同步入口使用。
  */
-export function resolvePiModel(profileKey: string, override?: ModelOverrideInput | null): Model<any> {
+export function resolvePiModel(profileKey: string, override?: ModelOverrideInput | null): ResolvedPiModel {
     return resolvePiModelFromConfig(loadGlobalEffectiveConfigSync(), profileKey, override);
 }
 
@@ -79,18 +106,37 @@ export function resolvePiApiKeyFromConfig(
 }
 
 /**
+ * 按模型上的本地 provider 实例读取 API key。重复添加同一个 Pi provider 时，
+ * model.provider 是 Pi provider ID，providerConfigId 才是本地配置 ID。
+ */
+export function resolvePiApiKeyForModelFromConfig(
+    config: Pick<EffectiveConfig, "models">,
+    model: Model<any>,
+): string | undefined {
+    const providerConfigId = typeof (model as {providerConfigId?: unknown}).providerConfigId === "string"
+        ? (model as unknown as {providerConfigId: string}).providerConfigId
+        : model.provider;
+    return resolvePiApiKeyFromConfig(config, providerConfigId) ?? resolvePiApiKeyFromConfig(config, model.provider);
+}
+
+/**
  * 返回 Global Config 中当前模型 provider 的 API key。
  */
 export function resolvePiApiKey(providerId: string): string | undefined {
     return resolvePiApiKeyFromConfig(loadGlobalEffectiveConfigSync(), providerId);
 }
 
-function resolvePiApi(adapterType: string): Model<any>["api"] {
-    if (adapterType === "deepseek-official" || adapterType === "openai-compatible" || adapterType === "openai-official") {
-        return "openai-completions";
+/**
+ * 解析模型输入能力。优先使用 Pi 内置 registry；自定义 provider/model 默认只声明 text。
+ */
+export function resolvePiModelInputs(providerId: string, modelId: string): PiModelInput[] {
+    return [...(resolvePiRegistryModel(providerId, modelId)?.input ?? ["text"])];
+}
+
+function resolvePiRegistryModel(providerId: string, modelId: string): Model<any> | undefined {
+    try {
+        return getModel(providerId as KnownProvider, modelId as never) as Model<any> | undefined;
+    } catch {
+        return undefined;
     }
-    if (adapterType === "gemini-compatible") {
-        return "openai-completions";
-    }
-    return "openai-completions";
 }

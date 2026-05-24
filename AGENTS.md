@@ -72,7 +72,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 安装新依赖时，使用 bun 安装最新版本的依赖
 - 当前是沙盒环境，执行 bun 命令时，提权在沙盒外执行
 - 执行命令时注意 PowerShell 路径转义
-- Windows 下通过 PowerShell 管道传中文路径给 `bun scripts/workspace.ts node ... --stdin` 时，必须保证三层 UTF-8 初始化：`chcp 65001`、`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8`、`$OutputEncoding = [System.Text.Encoding]::UTF8`。Agent 的 `bash` 工具第一版不负责 PowerShell 管道编码；如果手工在 PowerShell 运行，使用同样前缀。
+- Agent runtime 中内容节点 CLI 的稳定入口是 `workspace node ...`，由 `.nbook/agent/bin` 注入 `bash` PATH；不要提示 Agent 直接调用项目根 `scripts/workspace.ts`。手工在 PowerShell 管道传中文路径给 `workspace node ... --stdin` 时，必须保证三层 UTF-8 初始化：`chcp 65001`、`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8`、`$OutputEncoding = [System.Text.Encoding]::UTF8`。Agent 的 `bash` 工具第一版不负责 PowerShell 管道编码；如果手工在 PowerShell 运行，使用同样前缀。
 - Agent 文件工具读取当前小说 workspace 时，优先传 `lorebook/...`、`manuscript/...` 或 `workspace/...`；这些路径应映射到活跃小说 workspace，不应按项目根解析。
 - 如果遇到性能与复杂度权衡问题，报告、解释、给出你的建议、交给用户做最终决定
 - **Important: 永远不要用 shell 工具代替文件编辑工具。当你想这样做的时候，停止你的行为，请求用户同意**
@@ -86,15 +86,15 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - `docs/README.md`：文档体系入口，说明 `docs/` 目录分工。
 - `spec/README.md`：稳定规范索引，按模块链接到 `spec/<module>/`。
 - `spec/workspace/TERMS.md`：Workspace Root、Workspace Root `.nbook`、Project Workspace、Project Workspace `.nbook`、user-assets、Bundled Workspace Template 的标准术语。涉及 workspace / project / user-assets / assets 覆盖时必须优先引用这里，不要把 Project Workspace 缩写成 workspace。
-- `docs/modules/README.md`：模块文档索引，链接模块说明、需求整理和开发参考。
+- `docs/modules`：模块文档索引，链接模块说明、需求整理和开发参考。在你直接查询 node_modules 前先看看这个文件，可能有 research 或者库的本地 git 仓库位置
 - `docs/tasks/README.md`：重大任务 walkthrough 规则和维护要求。
 - `docs/tasks/TEMPLATE.md`：新任务 walkthrough 模板。
 
 ## 文档规范
 
 - `PROJECT-STATUS.md` 是仓库级现状报告。重大任务结束后，如果代码行为、架构决策、模块状态或长期 TODO 发生变化，必须同步更新该文件。
-- `docs/tasks/<task-slug>/README.md` 是重大任务的持续 walkthrough。每个重大任务都应有一个任务目录，记录用户需求、目标、执行过程、关键决策、变更文件、验证结果和后续 TODO。
-- 同一功能后续调节时，继续更新原任务 walkthrough。例如新增“拆书功能”后，后续所有拆书功能调节都更新同一个 `docs/tasks/book-splitting/README.md`，不要每轮新建碎片文档。
+- `docs/tasks/<order>-<task-slug>/README.md` 是 active 重大任务的持续 walkthrough；归档任务在 `docs/tasks/archived/<task-slug>/README.md`。每个重大任务都应有一个任务目录，记录用户需求、目标、执行过程、关键决策、变更文件、验证结果和后续 TODO。
+- 同一功能后续调节时，继续更新原任务 walkthrough。例如新增“拆书功能”后，后续所有拆书功能调节都更新同一个 active 编号任务目录，不要每轮新建碎片文档。
 - `spec/` 只放稳定规范和实现契约，按模块分组，例如 `spec/agent/`、`spec/editor/`、`spec/plot/`、`spec/reference/`。
 - `docs/` 放文档入口、模块说明、调研、草案、归档和任务 walkthrough。调研资料放 `docs/research/`，未定稿草案放 `docs/drafts/`，过期但仍有参考价值的内容放 `docs/archived/`。
 - 移动文档或改名时，必须同步更新交叉链接，避免留下绝对路径链接和旧路径引用。

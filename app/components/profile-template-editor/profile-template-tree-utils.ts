@@ -23,6 +23,15 @@ export function createNode(type: ProfileTemplateNodeType): ProfileTemplateNodeDt
         base.props = {role: "user"};
         base.children = [createNode("Text")];
     }
+    if (type === "Compaction") {
+        base.props = {triggerPercent: 0.8, keepRecentTokens: 24000};
+    }
+    if (type === "CompactionPrompt") {
+        base.children = [createNode("Text")];
+    }
+    if (type === "CompactionSummaryPrefix") {
+        base.children = [createNode("Text")];
+    }
     if (type === "Text") {
         base.text = "文本片段";
         base.textKind = "text";
@@ -62,6 +71,21 @@ export function createNode(type: ProfileTemplateNodeType): ProfileTemplateNodeDt
     if (type === "SqlSchemaSummary") {
         base.props = {text: "${sqlSchemaSummaryText}"};
     }
+    if (type === "SystemReminder") {
+        base.children = [createNode("Text")];
+    }
+    if (type === "WorkspaceReminder") {
+        base.props = {repeatEveryTurns: 20};
+    }
+    if (type === "TaskReminder") {
+        base.props = {stateKey: "agent.tasks", repeatEveryTurns: 8};
+    }
+    if (type === "PlanModeReminder" || type === "ActivePlanModeReminder") {
+        base.props = {stateKey: "agent.planMode"};
+    }
+    if (isPlanModeSlotNodeType(type)) {
+        base.children = [createNode("Text")];
+    }
     return base;
 }
 
@@ -85,7 +109,23 @@ export function createNodeWithId(type: ProfileTemplateNodeType, id: string): Pro
  * 节点是否可包含子节点。
  */
 export function canHaveChildren(type: ProfileTemplateNodeType): boolean {
-    return !["Text", "ToolCall", "ToolResult", "AgentCatalog", "SkillCatalog", "ActivatedSkills", "SqlSchemaSummary"].includes(type);
+    return ![
+        "Text",
+        "ToolCall",
+        "ToolResult",
+        "AgentCatalog",
+        "SkillCatalog",
+        "ActivatedSkills",
+        "SqlSchemaSummary",
+        "RuntimeContext",
+        "LinkedAgentsSummary",
+        "WorkspaceReminder",
+        "LinkedAgentsReminder",
+        "TaskReminder",
+        "ActivePlanModeReminder",
+        "MentionedSkillsReminder",
+        "PlotFocusReminder",
+    ].includes(type);
 }
 
 /**
@@ -100,6 +140,27 @@ export function canInsertNodeIntoParent(parent: ProfileTemplateNodeDto, node: Pr
     }
     if (parent.type === "Message") {
         return isInlineStringNodeType(node.type) || node.type === "If";
+    }
+    if (parent.type === "Compaction") {
+        return ["CompactionPrompt", "CompactionSummaryPrefix", "If"].includes(node.type);
+    }
+    if (parent.type === "CompactionPrompt" || parent.type === "CompactionSummaryPrefix") {
+        return isInlineStringNodeType(node.type) || node.type === "If";
+    }
+    if (node.type === "CompactionPrompt" || node.type === "CompactionSummaryPrefix") {
+        return false;
+    }
+    if (parent.type === "SystemReminder") {
+        return node.type === "Text" || node.type === "If";
+    }
+    if (parent.type === "PlanModeReminder") {
+        return isPlanModeSlotNodeType(node.type);
+    }
+    if (isPlanModeSlotNodeType(parent.type)) {
+        return node.type === "Text" || node.type === "If" || isInlineStringNodeType(node.type);
+    }
+    if (isPlanModeSlotNodeType(node.type)) {
+        return false;
     }
     if (node.type === "ToolCall") {
         return parent.type === "AIMessage";
@@ -116,8 +177,11 @@ export function canInsertNodeIntoParent(parent: ProfileTemplateNodeDto, node: Pr
     if (isInlineStringNodeType(node.type)) {
         return parent.type === "System";
     }
+    if (isReminderNodeType(node.type)) {
+        return parent.type === "AppendingSet" || parent.type === "ModelContext";
+    }
     if (parent.type === "ProfilePrompt") {
-        return ["System", "HistorySet", "ModelContext", "AppendingSet", "If"].includes(node.type);
+        return ["System", "HistorySet", "ModelContext", "AppendingSet", "Compaction", "If"].includes(node.type);
     }
     if (parent.type === "System") {
         return isInlineStringNodeType(node.type) || node.type === "If";
@@ -152,7 +216,37 @@ export function canInsertNodeIntoParentInTree(root: ProfileTemplateNodeDto, pare
  * 返回该节点是否在运行时直接产出字符串，只能作为 Message 的内联子节点。
  */
 export function isInlineStringNodeType(type: ProfileTemplateNodeType): boolean {
-    return type === "Text" || type === "AgentCatalog" || type === "SkillCatalog" || type === "ActivatedSkills" || type === "SqlSchemaSummary";
+    return type === "Text"
+        || type === "AgentCatalog"
+        || type === "SkillCatalog"
+        || type === "ActivatedSkills"
+        || type === "SqlSchemaSummary"
+        || type === "SystemReminder"
+        || type === "RuntimeContext"
+        || type === "LinkedAgentsSummary"
+        || type === "MentionedSkillsReminder";
+}
+
+/**
+ * 返回该节点是否是 PlanModeReminder 的文案插槽。
+ */
+export function isPlanModeSlotNodeType(type: ProfileTemplateNodeType): boolean {
+    return type === "PlanModeFull"
+        || type === "PlanModeSparse"
+        || type === "PlanModeExit"
+        || type === "PlanModeReentry";
+}
+
+/**
+ * 返回该节点是否直接产出 Reminder/Watch 语义。
+ */
+export function isReminderNodeType(type: ProfileTemplateNodeType): boolean {
+    return type === "WorkspaceReminder"
+        || type === "LinkedAgentsReminder"
+        || type === "TaskReminder"
+        || type === "PlanModeReminder"
+        || type === "ActivePlanModeReminder"
+        || type === "PlotFocusReminder";
 }
 
 /**

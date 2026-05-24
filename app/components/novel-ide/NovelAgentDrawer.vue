@@ -127,7 +127,7 @@ const workspaceKey = computed(() => {
     return ideStore.currentNovelId ? `novel-${ideStore.currentNovelId}` : "global";
 });
 
-const workspaceRoot = computed(() => ideStore.currentWorkspaceRoot || undefined);
+const agentWorkspaceRoot = computed(() => ideStore.workspaceKind === "user-assets" ? "workspace/.nbook" : "workspace");
 
 /**
  * 当前挂起提问 session 变化时，重置本地答案草稿。
@@ -281,7 +281,7 @@ const ensureSessionReady = async (forceNew = false): Promise<void> => {
     const created = await agentApi.createSession({
         profileKey: leaderProfileKey.value,
         input: buildClientVariables(),
-        workspaceRoot: workspaceRoot.value,
+        workspaceRoot: agentWorkspaceRoot.value,
         workspaceKey: workspaceKey.value,
         novelId: ideStore.workspaceKind === "user-assets" ? undefined : ideStore.currentNovelId,
     });
@@ -736,9 +736,12 @@ async function resetSessionModelSettings(): Promise<void> {
 function syncSessionModelState(_summary: AgentSessionSummaryDto | null): void {
     const model = session.snapshot.value?.model ?? null;
     sessionModelMode.value = model ? "override" : "default";
+    const providerConfigId = model && typeof (model as {providerConfigId?: unknown}).providerConfigId === "string"
+        ? (model as {providerConfigId: string}).providerConfigId
+        : model?.provider;
     sessionModelDraft.value = {
         ...sessionModelDraft.value,
-        modelKey: model ? `${model.provider}/${model.id}` : null,
+        modelKey: model ? `${providerConfigId}/${model.id}` : null,
     };
 }
 

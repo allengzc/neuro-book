@@ -73,6 +73,18 @@ export type ProfileTurnPlan = {
     modelContextAppendingMessages?: Message[];
     modelContextMessages?: AgentMessage[];
     stateWrites?: SessionEntryDraft[];
+    compaction?: ProfileCompactionPlan;
+};
+
+export type ProfileCompactionPlan = {
+    enabled?: boolean;
+    triggerPercent?: number;
+    triggerTokens?: number;
+    reserveTokens?: number;
+    keepRecentTokens?: number;
+    keepRecentPercent?: number;
+    prompt?: string;
+    summaryPrefix?: string;
 };
 
 export type ProfileIngestResult = {

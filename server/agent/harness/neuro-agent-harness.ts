@@ -1,4 +1,5 @@
 import {randomUUID} from "node:crypto";
+import {readFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import type {AgentEvent, AgentToolResult} from "@earendil-works/pi-agent-core";
 import {streamSimple, validateToolArguments} from "@earendil-works/pi-ai";
@@ -6,7 +7,7 @@ import type {AgentMessage, AgentToolCall, AgentUserMessageInput, AssistantMessag
 import {createTextToolResult, createToolResultFromResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
-import type {AgentProfile, ProfileIngestResult, ProfileTurnPlan} from "nbook/server/agent/profiles/types";
+import type {AgentProfile, ProfileCompactionPlan, ProfileIngestResult, ProfileTurnPlan} from "nbook/server/agent/profiles/types";
 import {compileProfileSystemPrompt, profileStateKey, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {AGENT_PLAN_MODE_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
@@ -17,8 +18,10 @@ import {createBuiltinTools, createReportResultTool} from "nbook/server/agent/too
 import {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import type {AgentResolution, NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {appendCompaction, compactIfNeeded} from "nbook/server/agent/harness/compaction";
-import {resolvePiApiKeyFromConfig, resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
+import {resolvePiApiKeyForModelFromConfig, resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
+import {planModeDirectory, resolvePlanModeFile} from "nbook/server/agent/plan-mode-path";
 import type {EffectiveConfig} from "nbook/server/config/types";
+import {WORKSPACE_CONTAINER_ROOT, USER_ASSETS_WORKSPACE_ROOT} from "nbook/server/workspace-files/novel-workspace";
 import type {
     AgentAbortResult,
     AgentCommandResult,
@@ -29,6 +32,7 @@ import type {
     InvokeAgentInput,
     InvokeAgentResult,
     SessionQueryResult,
+    SessionQueryInput,
 } from "nbook/server/agent/harness/types";
 import type {
     AgentAbortRequestDto,
@@ -36,6 +40,7 @@ import type {
     AgentCommandRequestDto,
     AgentFollowUpQueueItemDto,
     AgentLinkedSessionDto,
+    AgentPendingApprovalDto,
     AgentSessionEventDto,
     AgentSessionSnapshotDto,
     AgentSessionSummaryDto,
@@ -100,7 +105,7 @@ export class NeuroAgentHarness {
         const snapshot = await this.repo.createSession({
             profileKey: input.profileKey,
             input: parsedInput,
-            workspaceRoot: input.workspaceRoot ?? resolve(process.cwd(), "workspace"),
+            workspaceRoot: normalizeAgentWorkspaceRoot(input.workspaceRoot),
             workspaceKey: input.workspaceKey ?? "global",
             novelId: input.novelId,
             parentSessionId: input.parentSessionId,
@@ -215,18 +220,28 @@ export class NeuroAgentHarness {
                 snapshot = await this.repo.readSession(input.sessionId);
             }
             let context = this.repo.reduce(snapshot);
-            const config = await loadEffectiveConfig(context.workspaceRoot);
+            const config = await loadEffectiveConfig(context);
             const model = context.model ?? this.modelResolver(config, context.profileKey);
-            const apiKey = resolvePiApiKeyFromConfig(config, model.provider);
+            const providerOptions = this.providerOptions(config, model);
+            const apiKey = resolvePiApiKeyForModelFromConfig(config, model);
             const runProfile = await this.profiles.get(context.profileKey);
             const toolKeys = [...runProfile.allowedToolKeys];
+            const preparedModelContextMessages = prepared.modelContextMessages ?? [];
+            const modelMessages = [
+                ...context.messages,
+                ...preparedModelContextMessages,
+            ];
+            this.assertNoUnclosedToolCallsForModel(modelMessages);
             await compactIfNeeded({
                 repo: this.repo,
                 snapshot,
-                messages: [...context.messages, ...(prepared.modelContextMessages ?? [])],
+                messages: modelMessages,
                 model,
                 apiKey,
                 thinkingLevel: context.thinkingLevel,
+                timeoutMs: providerOptions.timeoutMs,
+                requestOptions: providerOptions.requestOptions,
+                compaction: prepared.compaction,
             });
             snapshot = await this.repo.readSession(input.sessionId);
             context = this.repo.reduce(snapshot);
@@ -235,13 +250,16 @@ export class NeuroAgentHarness {
                 sessionId: input.sessionId,
                 workspaceKey: snapshot.metadata.workspaceKey,
                 workspaceRoot: context.workspaceRoot,
+                novelId: context.novelId,
                 systemPrompt: prepared.systemPrompt ?? context.systemPrompt,
                 messages: [
                     ...context.messages,
-                    ...(prepared.modelContextMessages ?? []),
+                    ...preparedModelContextMessages,
                 ],
                 model,
                 apiKey,
+                timeoutMs: providerOptions.timeoutMs,
+                requestOptions: providerOptions.requestOptions,
                 toolKeys,
                 profileKey: context.profileKey,
                 thinkingLevel: context.thinkingLevel,
@@ -332,12 +350,16 @@ export class NeuroAgentHarness {
         }
 
         if (!result.reportResult && toolKeys.includes("report_result")) {
+            const config = await loadEffectiveConfig(context);
+            const providerOptions = this.providerOptions(config, model);
             return this.remindReportResult(invokeInput, invocationId, result.events, result.finalAssistant, {
                 workspaceKey: snapshot.metadata.workspaceKey,
                 workspaceRoot: context.workspaceRoot,
                 systemPrompt: prepared.systemPrompt ?? context.systemPrompt,
                 model,
                 apiKey,
+                timeoutMs: providerOptions.timeoutMs,
+                requestOptions: providerOptions.requestOptions,
                 toolKeys,
                 profileKey: context.profileKey,
                 thinkingLevel: context.thinkingLevel,
@@ -446,13 +468,7 @@ export class NeuroAgentHarness {
             tree: this.repo.tree(snapshot),
             entries: this.repo.activePath(snapshot),
             linkedAgents,
-            pendingApproval: pendingApproval
-                ? {
-                    toolCallId: pendingApproval.toolCallId,
-                    toolName: pendingApproval.toolName,
-                    args: pendingApproval.args as never,
-                }
-                : null,
+            pendingApproval: pendingApproval ? await this.pendingApprovalDto(snapshot, pendingApproval) : null,
             followUpQueue: this.followUpQueues.get(sessionId) ?? [],
             activeInvocation: this.activeInvocations.get(sessionId) ?? null,
             model: context.model,
@@ -484,6 +500,55 @@ export class NeuroAgentHarness {
         return undefined;
     }
 
+    private async pendingApprovalDto(
+        snapshot: SessionSnapshot,
+        pending: {toolCallId: string; toolName: string; args: Record<string, unknown>},
+    ): Promise<AgentPendingApprovalDto> {
+        const base: AgentPendingApprovalDto = {
+            toolCallId: pending.toolCallId,
+            toolName: pending.toolName,
+            args: pending.args as JsonValue,
+        };
+        if (pending.toolName !== "exit_plan_mode") {
+            return base;
+        }
+        const planFilePath = typeof pending.args.planFilePath === "string" ? pending.args.planFilePath : "";
+        if (!planFilePath.trim()) {
+            return base;
+        }
+        const target = resolvePlanModeFile(snapshot.metadata.workspaceRoot, planFilePath);
+        return {
+            ...base,
+            planFilePath: target.displayPath,
+            planContent: await readFile(target.absolutePath, "utf-8"),
+        };
+    }
+
+    private planModeState(
+        snapshot: SessionSnapshot,
+        context: NeuroSessionContext,
+        active: boolean,
+        reminderKind: string,
+        lastTransition: string,
+        extra: {approved?: boolean; hasExited?: boolean; reason?: string} = {},
+    ): JsonValue {
+        const previous = context.customState[AGENT_PLAN_MODE_STATE_KEY];
+        const previousRecord = previous && typeof previous === "object" && !Array.isArray(previous)
+            ? previous as Record<string, JsonValue>
+            : {};
+        const hasExited = extra.hasExited ?? Boolean(previousRecord.hasExited);
+        return {
+            active,
+            reminderKind,
+            workDirectory: planModeDirectory(snapshot.metadata.workspaceRoot).replace(/\\/g, "/"),
+            lastTransition,
+            hasExited,
+            updatedAt: new Date().toISOString(),
+            ...(extra.approved !== undefined ? {approved: extra.approved} : {}),
+            ...(extra.reason ? {reason: extra.reason} : {}),
+        };
+    }
+
     /**
      * 执行 session 控制命令。命令不作为普通用户消息进入模型。
      */
@@ -498,6 +563,7 @@ export class NeuroAgentHarness {
                 input: snapshot.metadata.input,
                 workspaceRoot: snapshot.metadata.workspaceRoot,
                 workspaceKey: snapshot.metadata.workspaceKey,
+                novelId: snapshot.metadata.novelId,
             });
             return {
                 status: "completed",
@@ -536,12 +602,20 @@ export class NeuroAgentHarness {
             };
         }
         if (body.command === "plan") {
+            const active = body.active;
+            const context = this.repo.reduce(snapshot);
             const entry = await this.repo.appendEntry(sessionId, {
                 type: "custom",
                 key: "ui.planMode.active",
-                value: body.active,
+                value: active,
             }, snapshot.metadata.workspaceKey);
             this.publishSessionEntry(sessionId, undefined, entry);
+            const stateEntry = await this.repo.appendEntry(sessionId, {
+                type: "custom",
+                key: AGENT_PLAN_MODE_STATE_KEY,
+                value: this.planModeState(snapshot, context, active, active ? "full" : "sparse", "ui_plan_toggle"),
+            }, snapshot.metadata.workspaceKey);
+            this.publishSessionEntry(sessionId, undefined, stateEntry);
             await this.publishSessionState(sessionId);
             return {
                 status: "completed",
@@ -550,7 +624,7 @@ export class NeuroAgentHarness {
             };
         }
         if (body.command === "model") {
-            const config = await loadEffectiveConfig(snapshot.metadata.workspaceRoot);
+            const config = await loadEffectiveConfig(snapshot.metadata);
             const entry: Omit<ModelChangeEntry, "id" | "parentId" | "timestamp"> = {
                 type: "model_change",
                 model: body.modelKey ? this.modelResolver(config, snapshot.metadata.profileKey, {modelKey: body.modelKey}) : null,
@@ -671,10 +745,19 @@ export class NeuroAgentHarness {
     /**
      * 查询轻量 session 信息，不返回完整历史原文。
      */
-    async getSession(sessionId?: number, requesterSessionId?: number): Promise<SessionQueryResult> {
-        const targetSessionId = sessionId ?? requesterSessionId;
+    async getSession(input: number | SessionQueryInput | undefined, requesterSessionId?: number): Promise<SessionQueryResult> {
+        const query = typeof input === "number" ? {sessionId: input} : input ?? {};
+        const targetSessionId = query.sessionId ?? requesterSessionId;
         if (typeof targetSessionId !== "number") {
             throw new Error("get_session 需要 sessionId，或在 agent session 内调用。");
+        }
+        const recentMessageLimit = query.recentMessageLimit ?? 3;
+        const tokenBudget = query.tokenBudget ?? 1200;
+        if (!Number.isInteger(recentMessageLimit) || recentMessageLimit < 1 || recentMessageLimit > 10) {
+            throw new Error("get_session.recentMessageLimit 必须是 1 到 10 的整数。");
+        }
+        if (!Number.isInteger(tokenBudget) || tokenBudget < 100 || tokenBudget > 3000) {
+            throw new Error("get_session.tokenBudget 必须是 100 到 3000 的整数。");
         }
         const snapshot = await this.repo.readSession(targetSessionId);
         const context = this.repo.reduce(snapshot);
@@ -682,23 +765,40 @@ export class NeuroAgentHarness {
         for (const linked of context.linkedAgents) {
             linkedAgents.push(this.sessionSummary(await this.repo.readSession(linked.sessionId), linked.detached));
         }
-        const messageEntries = this.repo.activePath(snapshot)
-            .filter((entry) => entry.type === "message")
-            .slice(-8);
-        return {
+        const result: SessionQueryResult = {
             metadata: snapshot.metadata,
             activeLeafId: snapshot.leafId,
-            tree: this.repo.tree(snapshot),
             title: context.title,
-            summary: context.summary,
+            summary: context.summary ?? this.sessionFallbackSummary(context.messages),
             usage: [...context.messages].reverse().find((message) => message.role === "assistant")?.usage,
             linkedAgents,
-            recentMessages: messageEntries.map((entry) => ({
+        };
+        if (!query.includeRecentMessages) {
+            return result;
+        }
+        const recentMessages = this.repo.activePath(snapshot)
+            .filter((entry) => entry.type === "message")
+            .slice(-recentMessageLimit)
+            .map((entry) => ({
                 role: entry.message.role,
                 text: messageText(entry.message).slice(0, 500),
                 timestamp: entry.timestamp,
-            })),
+            }));
+        const estimatedTokens = estimateTextTokens(JSON.stringify(recentMessages));
+        if (estimatedTokens > tokenBudget) {
+            throw new Error(`get_session recentMessages 超出 tokenBudget：估算 ${estimatedTokens} > ${tokenBudget}。复杂历史查询请到 session 文件目录使用 bash、jq、rg 自助查询。`);
+        }
+        return {
+            ...result,
+            recentMessages,
         };
+    }
+
+    private sessionFallbackSummary(messages: AgentMessage[]): string | undefined {
+        const latest = [...messages].reverse()
+            .map((message) => message.role === "custom" ? "" : messageText(message as Message))
+            .find((text) => text.trim().length > 0);
+        return latest?.replace(/\s+/g, " ").trim().slice(0, 360) || undefined;
     }
 
     private async prepare(snapshot: SessionSnapshot, invocationId?: string, pendingUserMessage?: Message): Promise<ProfileTurnPlan> {
@@ -750,6 +850,25 @@ export class NeuroAgentHarness {
         }
 
         return prepared;
+    }
+
+    private async prepareCompactionPolicy(profile: AgentProfile, snapshot: SessionSnapshot, context: ReturnType<JsonlSessionRepository["reduce"]>): Promise<ProfileCompactionPlan | undefined> {
+        if (!profile.prepare) {
+            return undefined;
+        }
+        const parsedInput = this.profiles.parseInput(profile, snapshot.metadata.input);
+        const prepared = await profile.prepare({
+            session: context,
+            input: parsedInput as never,
+            catalog: await this.profiles.snapshot(),
+            skills: await this.skills.list(),
+            runtime: {
+                now: new Date().toISOString(),
+                promptUserTurnCount: this.countPromptUserTurns(snapshot),
+            },
+        });
+        validateProfileTurnPlan(profile.manifest.key, prepared);
+        return prepared.compaction;
     }
 
     private assertValidProfileStateWrite(profileKey: string, write: SessionEntryDraft): void {
@@ -853,26 +972,27 @@ export class NeuroAgentHarness {
             : pending.toolName === "exit_plan_mode" && approved ? "exit" : "sparse";
         const reason = typeof pending.args.reason === "string" ? pending.args.reason : undefined;
         await this.appendCustomState(snapshot.metadata.sessionId, "ui.planMode.active", active, snapshot.metadata.workspaceKey);
-        await this.appendCustomState(snapshot.metadata.sessionId, AGENT_PLAN_MODE_STATE_KEY, {
+        await this.appendCustomState(snapshot.metadata.sessionId, AGENT_PLAN_MODE_STATE_KEY, this.planModeState(
+            snapshot,
+            context,
             active,
             reminderKind,
-            workDirectory: join(context.workspaceRoot, ".agent", String(snapshot.metadata.sessionId)),
-            lastTransition: pending.toolName,
-            approved,
-            hasExited,
-            updatedAt: new Date().toISOString(),
-            ...(reason ? {reason} : {}),
-        }, snapshot.metadata.workspaceKey);
+            pending.toolName,
+            {approved, hasExited, reason},
+        ), snapshot.metadata.workspaceKey);
     }
 
     private async runLoop(input: {
         sessionId: number;
         workspaceKey: string;
         workspaceRoot: string;
+        novelId?: string;
         systemPrompt: string;
         messages: AgentMessage[];
         model: Model<any>;
         apiKey?: string;
+        timeoutMs?: number | null;
+        requestOptions?: Record<string, JsonValue>;
         toolKeys: string[];
         profileKey: string;
         thinkingLevel: string;
@@ -890,10 +1010,10 @@ export class NeuroAgentHarness {
             events.push(event);
             await input.onEvent?.(event);
             this.publishPiEvent(input.sessionId, input.invocationId, event);
-            await this.persistEvent(input.sessionId, input.workspaceKey, event);
         };
         const toolOverrides = await this.toolOverrides(input.toolKeys, input.profileKey);
         const visibleTools = this.tools.allowedWithOverrides(input.toolKeys, toolOverrides);
+        this.assertNoUnclosedToolCallsForModel(input.messages);
         const messages = input.messages.slice();
         let reportResult: InvokeAgentResult["reportResult"] | undefined;
         let finalAssistant: AssistantMessage | undefined;
@@ -907,6 +1027,8 @@ export class NeuroAgentHarness {
                 messages,
                 model: input.model,
                 apiKey: input.apiKey,
+                timeoutMs: input.timeoutMs,
+                requestOptions: input.requestOptions,
                 tools: visibleTools,
                 sessionId: input.sessionId,
                 thinkingLevel: input.thinkingLevel,
@@ -916,6 +1038,13 @@ export class NeuroAgentHarness {
             messages.push(assistant);
             finalAssistant = assistant;
             if (assistant.stopReason === "error" || assistant.stopReason === "aborted") {
+                await this.commitTurn({
+                    sessionId: input.sessionId,
+                    workspaceKey: input.workspaceKey,
+                    invocationId: input.invocationId,
+                    assistant,
+                    toolResults: [],
+                });
                 await emit({type: "turn_end", message: assistant, toolResults: []});
                 break;
             }
@@ -925,6 +1054,7 @@ export class NeuroAgentHarness {
                 sessionId: input.sessionId,
                 workspaceKey: input.workspaceKey,
                 workspaceRoot: input.workspaceRoot,
+                novelId: input.novelId,
                 assistant,
                 toolCalls,
                 allowedToolKeys: input.toolKeys,
@@ -936,6 +1066,14 @@ export class NeuroAgentHarness {
                 messages.push(toolResult);
             }
             reportResult = toolBatch.reportResult ?? reportResult;
+            await this.commitTurn({
+                sessionId: input.sessionId,
+                workspaceKey: input.workspaceKey,
+                invocationId: input.invocationId,
+                assistant,
+                toolResults: toolBatch.toolResults,
+                waiting: toolBatch.waiting,
+            });
             await emit({type: "turn_end", message: assistant, toolResults: toolBatch.toolResults});
             if (toolBatch.waiting) {
                 await emit({type: "agent_end", messages});
@@ -961,6 +1099,8 @@ export class NeuroAgentHarness {
         messages: AgentMessage[];
         model: Model<any>;
         apiKey?: string;
+        timeoutMs?: number | null;
+        requestOptions?: Record<string, JsonValue>;
         tools: ReturnType<AgentToolRegistry["allowed"]>;
         sessionId: number;
         thinkingLevel: string;
@@ -978,6 +1118,8 @@ export class NeuroAgentHarness {
             sessionId: String(input.sessionId),
             reasoning: input.thinkingLevel === "off" ? undefined : input.thinkingLevel as never,
             apiKey: input.apiKey,
+            timeoutMs: input.timeoutMs ?? undefined,
+            ...this.piStreamOptions(input.requestOptions),
             signal: input.abortSignal,
         });
 
@@ -1018,6 +1160,7 @@ export class NeuroAgentHarness {
         sessionId: number;
         workspaceKey: string;
         workspaceRoot: string;
+        novelId?: string;
         assistant: AssistantMessage;
         toolCalls: AgentToolCall[];
         allowedToolKeys: string[];
@@ -1037,7 +1180,7 @@ export class NeuroAgentHarness {
         let allTerminate = true;
         for (const toolCall of input.toolCalls) {
             if (this.tools.approvalToolKeys().includes(toolCall.name)) {
-                const approvalError = await this.validateApprovalTool(input.allowedToolKeys, toolCall);
+                const approvalError = await this.validateApprovalTool(input.allowedToolKeys, input.workspaceRoot, toolCall);
                 if (approvalError) {
                     const toolResult = createTextToolResult({
                         toolCallId: toolCall.id,
@@ -1052,7 +1195,10 @@ export class NeuroAgentHarness {
                     continue;
                 }
                 return {
-                    toolResults,
+                    toolResults: [
+                        ...toolResults,
+                        ...this.skippedToolResultsAfterApproval(input.toolCalls, toolCall),
+                    ],
                     reportResult,
                     waiting: {
                         toolCallId: toolCall.id,
@@ -1072,6 +1218,7 @@ export class NeuroAgentHarness {
                 sessionId: input.sessionId,
                 workspaceKey: input.workspaceKey,
                 workspaceRoot: input.workspaceRoot,
+                novelId: input.novelId,
                 allowedToolKeys: input.allowedToolKeys,
                 toolOverrides: input.toolOverrides,
                 abortSignal: input.abortSignal,
@@ -1105,7 +1252,20 @@ export class NeuroAgentHarness {
         };
     }
 
-    private async validateApprovalTool(allowedToolKeys: string[], toolCall: AgentToolCall): Promise<string | null> {
+    private skippedToolResultsAfterApproval(toolCalls: AgentToolCall[], waitingToolCall: AgentToolCall): ToolResultMessage[] {
+        const waitingIndex = toolCalls.findIndex((toolCall) => toolCall.id === waitingToolCall.id);
+        if (waitingIndex < 0) {
+            return [];
+        }
+        return toolCalls.slice(waitingIndex + 1).map((toolCall) => createTextToolResult({
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            text: `Skipped because ${waitingToolCall.name} is waiting for user approval. This tool was not executed in this turn.`,
+            isError: true,
+        }));
+    }
+
+    private async validateApprovalTool(allowedToolKeys: string[], workspaceRoot: string, toolCall: AgentToolCall): Promise<string | null> {
         const tool = this.tools.get(toolCall.name);
         if (!tool) {
             return `Tool ${toolCall.name} not found`;
@@ -1113,14 +1273,11 @@ export class NeuroAgentHarness {
         if (!allowedToolKeys.includes(tool.key)) {
             return `Tool ${toolCall.name} is not allowed by this profile`;
         }
-        if (tool.key === "skill") {
-            const skillKey = typeof toolCall.arguments.skillKey === "string" ? toolCall.arguments.skillKey : "";
-            if (!skillKey) {
-                return "skill 工具需要 skillKey。";
-            }
-            const skill = await this.skills.get(skillKey);
-            if (!skill) {
-                return `Skill ${skillKey} is not visible in the skill catalog`;
+        if (toolCall.name === "exit_plan_mode" && typeof toolCall.arguments.planFilePath === "string" && toolCall.arguments.planFilePath.trim()) {
+            try {
+                await readFile(resolvePlanModeFile(workspaceRoot, toolCall.arguments.planFilePath).absolutePath, "utf-8");
+            } catch (error) {
+                return error instanceof Error ? error.message : String(error);
             }
         }
         return null;
@@ -1130,6 +1287,7 @@ export class NeuroAgentHarness {
         sessionId: number;
         workspaceKey: string;
         workspaceRoot: string;
+        novelId?: string;
         allowedToolKeys: string[];
         toolOverrides: Record<string, NeuroAgentTool>;
         abortSignal?: AbortSignal;
@@ -1165,6 +1323,7 @@ export class NeuroAgentHarness {
                 sessionId: input.sessionId,
                 workspaceRoot: input.workspaceRoot,
                 workspaceKey: input.workspaceKey,
+                novelId: input.novelId,
             };
             const result = tool.executeWithContext
                 ? await tool.executeWithContext(context, input.toolCall.id, args, input.abortSignal)
@@ -1178,16 +1337,6 @@ export class NeuroAgentHarness {
                 result: this.errorToolResult(error instanceof Error ? error.message : String(error)),
                 isError: true,
             };
-        }
-    }
-
-    private async persistEvent(sessionId: number, workspaceKey: string, event: AgentEvent): Promise<void> {
-        if (event.type === "message_end") {
-            const message = event.message;
-            if (message.role === "user" || message.role === "assistant" || message.role === "toolResult") {
-                const entry = await this.repo.appendMessage(sessionId, message, workspaceKey, "harness");
-                this.publishSessionEntry(sessionId, undefined, entry);
-            }
         }
     }
 
@@ -1244,6 +1393,27 @@ export class NeuroAgentHarness {
         this.activeInvocations.delete(sessionId);
         this.abortControllers.delete(sessionId);
         await this.publishSessionState(sessionId, invocationId);
+    }
+
+    private providerOptions(config: Pick<EffectiveConfig, "models">, model: Model<any>): {timeoutMs: number | null; requestOptions: Record<string, JsonValue>} {
+        const providerConfigId = typeof (model as {providerConfigId?: unknown}).providerConfigId === "string"
+            ? (model as unknown as {providerConfigId: string}).providerConfigId
+            : model.provider;
+        const options = config.models.providers[providerConfigId]?.options ?? config.models.providers[model.provider]?.options;
+        return {
+            timeoutMs: options?.timeoutMs ?? null,
+            requestOptions: options?.requestOptions ?? {},
+        };
+    }
+
+    private piStreamOptions(requestOptions: Record<string, JsonValue> | undefined): Record<string, unknown> {
+        if (!requestOptions) {
+            return {};
+        }
+        const allowedKeys = new Set(["headers", "maxRetries", "maxRetryDelayMs", "metadata", "transport", "cacheRetention"]);
+        return Object.fromEntries(
+            Object.entries(requestOptions).filter(([key]) => allowedKeys.has(key)),
+        );
     }
 
     private publishPiEvent(sessionId: number, invocationId: string | undefined, event: AgentEvent): void {
@@ -1328,16 +1498,22 @@ export class NeuroAgentHarness {
         try {
             const snapshot = await this.repo.readSession(sessionId);
             const context = this.repo.reduce(snapshot);
-            const config = await loadEffectiveConfig(context.workspaceRoot);
+            const config = await loadEffectiveConfig(context);
             const model = context.model ?? this.modelResolver(config, context.profileKey);
+            const providerOptions = this.providerOptions(config, model);
+            const profile = await this.profiles.get(context.profileKey);
+            const compaction = await this.prepareCompactionPolicy(profile, snapshot, context);
             await appendCompaction({
                 repo: this.repo,
                 snapshot,
                 messages: context.messages,
                 model,
-                apiKey: resolvePiApiKeyFromConfig(config, model.provider),
+                apiKey: resolvePiApiKeyForModelFromConfig(config, model),
+                timeoutMs: providerOptions.timeoutMs,
+                requestOptions: providerOptions.requestOptions,
                 thinkingLevel: context.thinkingLevel,
                 instructions,
+                compaction,
             });
             const entry = await this.repo.appendEntry(sessionId, {
                 type: "invocation_lifecycle",
@@ -1370,6 +1546,8 @@ export class NeuroAgentHarness {
             systemPrompt: string;
             model: Model<any>;
             apiKey?: string;
+            timeoutMs?: number | null;
+            requestOptions?: Record<string, JsonValue>;
             toolKeys: string[];
             profileKey: string;
             thinkingLevel: string;
@@ -1391,6 +1569,8 @@ export class NeuroAgentHarness {
                 messages: context.messages,
                 model: runInput.model,
                 apiKey: runInput.apiKey,
+                timeoutMs: runInput.timeoutMs,
+                requestOptions: runInput.requestOptions,
                 toolKeys: runInput.toolKeys,
                 profileKey: runInput.profileKey,
                 thinkingLevel: runInput.thinkingLevel,
@@ -1462,6 +1642,76 @@ export class NeuroAgentHarness {
         };
     }
 
+    /**
+     * 普通 ReAct turn 的持久化边界在 turn_end：assistant 和 toolResult 成组落盘。
+     * approval 工具是合法 suspend point，允许只落 assistant toolCall 等待用户 resolution。
+     */
+    private async commitTurn(input: {
+        sessionId: number;
+        workspaceKey: string;
+        invocationId?: string;
+        assistant: AssistantMessage;
+        toolResults: ToolResultMessage[];
+        waiting?: RunToolBatchResult["waiting"];
+    }): Promise<void> {
+        const orderedToolResults = this.orderToolResults(input.assistant, input.toolResults);
+        this.assertTurnClosed(input.assistant, orderedToolResults, input.waiting);
+        const entries = await this.repo.appendEntries(input.sessionId, [
+            {
+                type: "message",
+                message: input.assistant,
+                origin: "harness",
+            },
+            ...orderedToolResults.map((toolResult) => ({
+                type: "message" as const,
+                message: toolResult,
+                origin: "harness" as const,
+            })),
+        ], input.workspaceKey);
+        for (const entry of entries) {
+            this.publishSessionEntry(input.sessionId, input.invocationId, entry);
+        }
+    }
+
+    private orderToolResults(assistant: AssistantMessage, toolResults: ToolResultMessage[]): ToolResultMessage[] {
+        const order = new Map(assistant.content
+            .filter((block): block is AgentToolCall => block.type === "toolCall")
+            .map((toolCall, index) => [toolCall.id, index]));
+        return [...toolResults].sort((left, right) => (order.get(left.toolCallId) ?? Number.MAX_SAFE_INTEGER) - (order.get(right.toolCallId) ?? Number.MAX_SAFE_INTEGER));
+    }
+
+    private assertTurnClosed(assistant: AssistantMessage, toolResults: ToolResultMessage[], waiting?: RunToolBatchResult["waiting"]): void {
+        const completedToolCallIds = new Set(toolResults.map((toolResult) => toolResult.toolCallId));
+        const toolCalls = assistant.content.filter((block): block is AgentToolCall => block.type === "toolCall");
+        const missing = toolCalls.filter((toolCall) => !completedToolCallIds.has(toolCall.id));
+        if (missing.length === 0) {
+            return;
+        }
+        if (waiting && missing.length === 1 && missing[0]?.id === waiting.toolCallId && missing[0].name === waiting.toolName && this.tools.approvalToolKeys().includes(missing[0].name)) {
+            return;
+        }
+        throw new Error(`turn 存在未闭合 tool call，拒绝写入 session：${missing.map((toolCall) => toolCall.name).join(", ")}`);
+    }
+
+    private assertNoUnclosedToolCallsForModel(messages: AgentMessage[]): void {
+        const completedToolCallIds = new Set(messages
+            .filter((message) => message.role === "toolResult")
+            .map((message) => message.toolCallId));
+        const pendingToolCalls = messages
+            .filter((message) => message.role === "assistant")
+            .flatMap((message) => message.content.filter((block): block is AgentToolCall => block.type === "toolCall"))
+            .filter((toolCall) => !completedToolCallIds.has(toolCall.id));
+        if (pendingToolCalls.length === 0) {
+            return;
+        }
+        const approvalToolKeys = new Set(this.tools.approvalToolKeys());
+        const ordinaryToolCalls = pendingToolCalls.filter((toolCall) => !approvalToolKeys.has(toolCall.name));
+        if (ordinaryToolCalls.length > 0) {
+            throw new Error(`当前 session 存在未闭合普通 tool call，不能继续发送给模型：${ordinaryToolCalls.map((toolCall) => toolCall.name).join(", ")}。请切换到干净分支或运行显式 session repair。`);
+        }
+        throw new Error("当前 session 正在等待用户审批或回答，请先完成 pending approval resolution。");
+    }
+
     private readReportResult(details: unknown): InvokeAgentResult["reportResult"] | undefined {
         if (!details || typeof details !== "object" || !("walkthrough" in details) || typeof (details as {walkthrough?: unknown}).walkthrough !== "string") {
             return undefined;
@@ -1491,7 +1741,31 @@ export class NeuroAgentHarness {
 
 }
 
-async function loadEffectiveConfig(workspaceRoot: string): Promise<EffectiveConfig> {
-    const {loadEffectiveConfigForWorkspaceRoot} = await import("nbook/server/config/config-service");
-    return loadEffectiveConfigForWorkspaceRoot(workspaceRoot);
+function estimateTextTokens(text: string): number {
+    return Math.ceil(text.length / 4);
+}
+
+async function loadEffectiveConfig(input: {workspaceRoot?: string; novelId?: string}): Promise<EffectiveConfig> {
+    const {
+        loadEffectiveConfig: loadEffectiveConfigByQuery,
+        loadEffectiveConfigForWorkspaceRoot,
+    } = await import("nbook/server/config/config-service");
+    if (input.novelId) {
+        return loadEffectiveConfigByQuery({workspaceKind: "novel", novelId: input.novelId});
+    }
+    return loadEffectiveConfigForWorkspaceRoot(input.workspaceRoot);
+}
+
+function normalizeAgentWorkspaceRoot(workspaceRoot: string | undefined): string {
+    const normalized = workspaceRoot?.trim().replaceAll("\\", "/").replace(/\/+$/g, "");
+    if (!normalized) {
+        return WORKSPACE_CONTAINER_ROOT;
+    }
+    if (normalized === USER_ASSETS_WORKSPACE_ROOT) {
+        return USER_ASSETS_WORKSPACE_ROOT;
+    }
+    if (normalized === WORKSPACE_CONTAINER_ROOT || normalized.startsWith(`${WORKSPACE_CONTAINER_ROOT}/`)) {
+        return WORKSPACE_CONTAINER_ROOT;
+    }
+    return normalized;
 }

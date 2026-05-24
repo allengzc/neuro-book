@@ -1,9 +1,10 @@
-import {join} from "node:path";
-import {readFile} from "node:fs/promises";
+import {resolve, join} from "node:path";
 import type {AgentToolCall} from "@earendil-works/pi-agent-core";
 import type {AgentMessage, AssistantMessage, JsonValue, Message, ToolResultMessage} from "nbook/server/agent/messages/types";
 import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText, now} from "nbook/server/agent/messages/message-utils";
-import type {AgentCatalogItem, AgentProfile, ProfilePrepareContext, ProfileTurnPlan} from "nbook/server/agent/profiles/types";
+import type {AgentCatalogItem, AgentProfile, ProfileCompactionPlan, ProfilePrepareContext, ProfileTurnPlan} from "nbook/server/agent/profiles/types";
+import {planModeDirectory} from "nbook/server/agent/plan-mode-path";
+import {AGENT_PLAN_MODE_STATE_KEY, AGENT_TASKS_STATE_KEY, PLOT_SELECTION_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import type {NeuroSessionContext, SessionEntryDraft} from "nbook/server/agent/session/types";
 
 export type ProfileDslChild = ProfileDslNode | string | number | boolean | null | undefined | ProfileDslChild[];
@@ -11,12 +12,15 @@ export type ProfileDslChild = ProfileDslNode | string | number | boolean | null 
 export type ProfileDslNode =
     | ProfilePromptNode
     | ProfileSetNode
+    | ProfileCompactionNode
+    | ProfileCompactionTextNode
     | ProfileMessageNode
     | ProfileToolCallNode
     | ProfileReminderNode
     | ProfileWatchNode
     | ProfileIfNode
     | ProfileStringFragmentNode
+    | ProfilePlanModeSlotNode
     | ProfileFragmentNode;
 
 export type ProfilePromptNode = {
@@ -26,6 +30,22 @@ export type ProfilePromptNode = {
 
 export type ProfileSetNode = {
     kind: "System" | "HistorySet" | "ModelContext" | "AppendingSet";
+    children: ProfileDslChild[];
+};
+
+export type ProfileCompactionNode = {
+    kind: "Compaction";
+    enabled?: boolean;
+    triggerPercent?: number;
+    triggerTokens?: number;
+    reserveTokens?: number;
+    keepRecentTokens?: number;
+    keepRecentPercent?: number;
+    children: ProfileDslChild[];
+};
+
+export type ProfileCompactionTextNode = {
+    kind: "CompactionPrompt" | "CompactionSummaryPrefix";
     children: ProfileDslChild[];
 };
 
@@ -51,6 +71,7 @@ export type ProfileReminderNode = {
     when: boolean;
     watchPath?: string;
     watchValue?: JsonValue;
+    watch?: (ctx: ProfilePrepareContext<any>) => JsonValue | undefined | Promise<JsonValue | undefined>;
     repeatEveryTurns?: number;
     children: ProfileDslChild[];
 };
@@ -84,12 +105,20 @@ export type ProfileStringFragmentNode = {
     text: string | ((ctx: ProfilePrepareContext<any>) => string | Promise<string>);
 };
 
+export type PlanModeSlotKind = "full" | "sparse" | "exit" | "reentry_full";
+
+export type ProfilePlanModeSlotNode = {
+    kind: "PlanModeSlot";
+    slot: PlanModeSlotKind;
+    children: ProfileDslChild[];
+};
+
 export type ProfileFragmentNode = {
     kind: "Fragment";
     children: ProfileDslChild[];
 };
 
-type RenderZone = "root" | "system" | "history" | "model" | "appending" | "message" | "assistant" | "reminder" | "watch";
+type RenderZone = "root" | "system" | "history" | "model" | "appending" | "message" | "assistant" | "reminder" | "watch" | "compaction";
 
 export type ReminderState = {
     fingerprint?: string;
@@ -183,7 +212,7 @@ export function validateProfileTurnPlan(profileKey: string, plan: ProfileTurnPla
     if (!plan || typeof plan !== "object") {
         throw new Error(`profile ${profileKey} prepare/context 必须返回 ProfileTurnPlan。`);
     }
-    const allowedKeys = new Set(["systemPrompt", "historyInitMessages", "appendingMessages", "modelContextAppendingMessages", "modelContextMessages", "stateWrites"]);
+    const allowedKeys = new Set(["systemPrompt", "historyInitMessages", "appendingMessages", "modelContextAppendingMessages", "modelContextMessages", "stateWrites", "compaction"]);
     const illegalKey = Object.keys(plan).find((key) => !allowedKeys.has(key));
     if (illegalKey) {
         throw new Error(`profile ${profileKey} ProfileTurnPlan 不允许返回 ${illegalKey}。`);
@@ -197,6 +226,7 @@ export function validateProfileTurnPlan(profileKey: string, plan: ProfileTurnPla
         }
         validateProfileRuntimeStateWrite(profileKey, write.value);
     }
+    validateCompactionPlan(profileKey, plan.compaction);
 }
 
 /**
@@ -252,6 +282,42 @@ export function ModelContext(props: {children?: ProfileDslChild | ProfileDslChil
 export function AppendingSet(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfileSetNode {
     return {
         kind: "AppendingSet",
+        children: normalizeChildren(props.children),
+    };
+}
+
+/**
+ * 当前 profile 的 compaction 策略。只能放在 ProfilePrompt 顶层。
+ */
+export function Compaction(props: ProfileCompactionPlan & {children?: ProfileDslChild | ProfileDslChild[]}): ProfileCompactionNode {
+    return {
+        kind: "Compaction",
+        enabled: props.enabled,
+        triggerPercent: props.triggerPercent,
+        triggerTokens: props.triggerTokens,
+        reserveTokens: props.reserveTokens,
+        keepRecentTokens: props.keepRecentTokens,
+        keepRecentPercent: props.keepRecentPercent,
+        children: normalizeChildren(props.children),
+    };
+}
+
+/**
+ * compaction summary 调用使用的 provider system prompt。
+ */
+export function CompactionPrompt(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfileCompactionTextNode {
+    return {
+        kind: "CompactionPrompt",
+        children: normalizeChildren(props.children),
+    };
+}
+
+/**
+ * compaction summary 写入 session 后注入后续上下文的前缀。
+ */
+export function CompactionSummaryPrefix(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfileCompactionTextNode {
+    return {
+        kind: "CompactionSummaryPrefix",
         children: normalizeChildren(props.children),
     };
 }
@@ -320,6 +386,7 @@ export function Reminder(props: {
     when?: boolean;
     watchPath?: string;
     watchValue?: JsonValue;
+    watch?: (ctx: ProfilePrepareContext<any>) => JsonValue | undefined | Promise<JsonValue | undefined>;
     repeatEveryTurns?: number;
     children?: ProfileDslChild | ProfileDslChild[];
 }): ProfileReminderNode {
@@ -329,6 +396,7 @@ export function Reminder(props: {
         when: props.when ?? true,
         watchPath: props.watchPath,
         watchValue: props.watchValue,
+        watch: props.watch,
         repeatEveryTurns: props.repeatEveryTurns,
         children: normalizeChildren(props.children),
     };
@@ -405,11 +473,228 @@ export function SqlSchemaSummary(props: {text?: string | ((ctx: ProfilePrepareCo
     };
 }
 
+/**
+ * 通用 system-reminder string fragment。推荐用于动态 runtime 提醒。
+ */
+export function SystemReminder(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfileStringFragmentNode {
+    return {
+        kind: "StringFragment",
+        text: async (ctx) => {
+            const body = await renderStandaloneString(ctx, normalizeChildren(props.children));
+            return body.trim() ? systemReminder(body) : "";
+        },
+    };
+}
+
+/**
+ * 当前 session/runtime 摘要。只进入模型上下文，不应写入长期系统提示词。
+ */
+export function RuntimeContext(props: {children?: ProfileDslChild | ProfileDslChild[]} = {}): ProfileStringFragmentNode {
+    return {
+        kind: "StringFragment",
+        text: async (ctx) => {
+            const planModeState = readRecord(ctx.session.customState[AGENT_PLAN_MODE_STATE_KEY]);
+            const lines = [
+                "<dynamic-context>",
+                `Agent cwd: ${ctx.session.workspaceRoot}`,
+                readCurrentProjectWorkspace(ctx) ? `Current Project Workspace: ${readCurrentProjectWorkspace(ctx)}` : "",
+                ctx.session.novelId ? `Current novelId: ${ctx.session.novelId}` : "",
+                `Profile key: ${ctx.session.profileKey}`,
+                readInputRole(ctx) ? `Input role: ${readInputRole(ctx)}` : "",
+                ctx.session.planModeActive ? "Plan mode: active" : "Plan mode: inactive",
+                typeof planModeState.workDirectory === "string" ? `Plan mode work directory: ${planModeState.workDirectory}` : "",
+                linkedAgentsSummaryText(ctx.session),
+                await renderStandaloneString(ctx, normalizeChildren(props.children)),
+                "</dynamic-context>",
+            ].filter(Boolean);
+            return lines.join("\n");
+        },
+    };
+}
+
+/**
+ * 已关联 agent 摘要。可嵌入普通 Message 或 SystemReminder。
+ */
+export function LinkedAgentsSummary(_props: Record<string, never> = {}): ProfileStringFragmentNode {
+    return {
+        kind: "StringFragment",
+        text: (ctx) => linkedAgentsSummaryText(ctx.session),
+    };
+}
+
+/**
+ * 当前 workspace 边界提醒。
+ */
+export function WorkspaceReminder(props: {id?: string; repeatEveryTurns?: number} = {}): ProfileReminderNode {
+    return Reminder({
+        id: props.id ?? "workspace",
+        watchPath: "ctx.workspace.root",
+        repeatEveryTurns: props.repeatEveryTurns ?? 20,
+        children: Message({children: WorkspaceReminderText()}),
+    });
+}
+
+/**
+ * 已关联 agent 变化提醒。
+ */
+export function LinkedAgentsReminder(props: {id?: string; repeatEveryTurns?: number} = {}): ProfileReminderNode {
+    return Reminder({
+        id: props.id ?? "linked-agents",
+        watchPath: "ctx.session.linkedAgents",
+        repeatEveryTurns: props.repeatEveryTurns,
+        children: Message({children: LinkedAgentsReminderText()}),
+    });
+}
+
+/**
+ * 当前任务清单提醒。默认读取 agent.tasks custom state。
+ */
+export function TaskReminder(props: {id?: string; stateKey?: string; repeatEveryTurns?: number} = {}): ProfileReminderNode {
+    const stateKey = props.stateKey ?? AGENT_TASKS_STATE_KEY;
+    return Reminder({
+        id: props.id ?? "tasks",
+        watchPath: stateKeyPath(stateKey),
+        repeatEveryTurns: props.repeatEveryTurns ?? 8,
+        children: Message({children: TaskReminderText({stateKey})}),
+    });
+}
+
+/**
+ * Plan Mode 生命周期提醒。默认读取 agent.planMode custom state。
+ */
+export function PlanModeReminder(props: {
+    id?: string;
+    stateKey?: string;
+    repeatEveryTurns?: number;
+    children?: ProfileDslChild | ProfileDslChild[];
+} = {}): ProfileReminderNode {
+    const stateKey = props.stateKey ?? AGENT_PLAN_MODE_STATE_KEY;
+    return Reminder({
+        id: props.id ?? "plan-mode",
+        watch: (ctx) => ({
+            active: ctx.session.planModeActive,
+            state: ctx.session.customState[stateKey] ?? null,
+        }),
+        repeatEveryTurns: props.repeatEveryTurns,
+        children: Message({children: PlanModeReminderText({stateKey, slots: readPlanModeSlots(normalizeChildren(props.children))})}),
+    });
+}
+
+/**
+ * Plan Mode 活跃期间每轮提醒。适合放在 AppendingSet。
+ */
+export function ActivePlanModeReminder(props: {id?: string; stateKey?: string} = {}): ProfileReminderNode {
+    const stateKey = props.stateKey ?? AGENT_PLAN_MODE_STATE_KEY;
+    return Reminder({
+        id: props.id ?? "plan-mode-active",
+        watchPath: `${stateKeyPath(stateKey)}.active`,
+        children: Message({children: PlanModeReminderText({stateKey})}),
+    });
+}
+
+/**
+ * 用户输入中显式 $skill 时的提醒。
+ */
+export function MentionedSkillsReminder(_props: Record<string, never> = {}): ProfileStringFragmentNode {
+    return {
+        kind: "StringFragment",
+        text: mentionedSkillsReminderText,
+    };
+}
+
+/**
+ * 当前 Plot selection 焦点提醒。
+ */
+export function PlotFocusReminder(props: {id?: string; repeatEveryTurns?: number} = {}): ProfileReminderNode {
+    return Reminder({
+        id: props.id ?? "plot-focus",
+        watchPath: stateKeyPath(PLOT_SELECTION_STATE_KEY),
+        repeatEveryTurns: props.repeatEveryTurns,
+        children: Message({children: PlotFocusReminderText()}),
+    });
+}
+
+/**
+ * Plan Mode full reminder 自定义插槽。只能作为 PlanModeReminder 子节点。
+ */
+export function PlanModeFull(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfilePlanModeSlotNode {
+    return PlanModeSlot("full", props.children);
+}
+
+/**
+ * Plan Mode sparse reminder 自定义插槽。只能作为 PlanModeReminder 子节点。
+ */
+export function PlanModeSparse(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfilePlanModeSlotNode {
+    return PlanModeSlot("sparse", props.children);
+}
+
+/**
+ * Plan Mode exit reminder 自定义插槽。只能作为 PlanModeReminder 子节点。
+ */
+export function PlanModeExit(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfilePlanModeSlotNode {
+    return PlanModeSlot("exit", props.children);
+}
+
+/**
+ * Plan Mode reentry reminder 自定义插槽。只能作为 PlanModeReminder 子节点。
+ */
+export function PlanModeReentry(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfilePlanModeSlotNode {
+    return PlanModeSlot("reentry_full", props.children);
+}
+
 export function Fragment(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfileFragmentNode {
     return {
         kind: "Fragment",
         children: normalizeChildren(props.children),
     };
+}
+
+function PlanModeSlot(slot: PlanModeSlotKind, children: ProfileDslChild | ProfileDslChild[] | undefined): ProfilePlanModeSlotNode {
+    return {
+        kind: "PlanModeSlot",
+        slot,
+        children: normalizeChildren(children),
+    };
+}
+
+function readPlanModeSlots(children: ProfileDslChild[]): Partial<Record<PlanModeSlotKind, ProfileDslChild[]>> {
+    const slots: Partial<Record<PlanModeSlotKind, ProfileDslChild[]>> = {};
+    const flat = children.flatMap(flattenChildren);
+    for (const child of flat) {
+        if (child === null || child === undefined || child === false || child === true) {
+            continue;
+        }
+        if (typeof child === "string" || typeof child === "number") {
+            if (String(child).trim() !== "") {
+                throw new Error("PlanModeReminder 只能直接包含 PlanModeFull/PlanModeSparse/PlanModeExit/PlanModeReentry。");
+            }
+            continue;
+        }
+        if (Array.isArray(child)) {
+            continue;
+        }
+        if (child.kind !== "PlanModeSlot") {
+            throw new Error(`PlanModeReminder 只能直接包含 PlanModeFull/PlanModeSparse/PlanModeExit/PlanModeReentry，不能包含 ${child.kind}。`);
+        }
+        if (slots[child.slot]) {
+            throw new Error(`${slotNodeName(child.slot)} 只能出现一次。`);
+        }
+        slots[child.slot] = child.children;
+    }
+    return slots;
+}
+
+function slotNodeName(slot: PlanModeSlotKind): string {
+    if (slot === "full") {
+        return "PlanModeFull";
+    }
+    if (slot === "sparse") {
+        return "PlanModeSparse";
+    }
+    if (slot === "exit") {
+        return "PlanModeExit";
+    }
+    return "PlanModeReentry";
 }
 
 async function renderRoot(state: CompileState, tree: ProfileDslNode): Promise<void> {
@@ -524,6 +809,15 @@ async function renderChild(state: CompileState, zone: RenderZone, child: Profile
         state.plan.appendingMessages = [...state.plan.appendingMessages ?? [], ...onlyMessages(messages, "AppendingSet")];
         return [];
     }
+    if (child.kind === "Compaction") {
+        assertZone(zone, "root", "Compaction 只能放在 ProfilePrompt 顶层。");
+        state.plan.compaction = await renderCompactionNode(state, child);
+        return [];
+    }
+    if (child.kind === "CompactionPrompt" || child.kind === "CompactionSummaryPrefix") {
+        assertZone(zone, "compaction", `${child.kind} 只能放在 Compaction 内。`);
+        return [];
+    }
     if (child.kind === "Reminder") {
         if (zone !== "appending" && zone !== "model") {
             throw new Error("Reminder 只允许放在 AppendingSet 或 ModelContext 内。");
@@ -554,12 +848,72 @@ async function renderChild(state: CompileState, zone: RenderZone, child: Profile
         throw new Error("ToolCall 只能作为 AIMessage 的子节点。");
     }
     if (child.kind === "StringFragment") {
-        if (zone !== "message" && zone !== "system" && zone !== "assistant" && zone !== "reminder" && zone !== "watch") {
+        if (zone !== "message" && zone !== "system" && zone !== "assistant" && zone !== "reminder" && zone !== "watch" && zone !== "compaction") {
             throw new Error("string fragment 只能放在支持 string 的节点内部。");
         }
         return [];
     }
+    if (child.kind === "PlanModeSlot") {
+        throw new Error(`${slotNodeName(child.slot)} 只能作为 PlanModeReminder 的直接子节点。`);
+    }
     throw new Error(`未知 Profile DSL 节点：${JSON.stringify(child)}`);
+}
+
+async function renderCompactionNode(state: CompileState, node: ProfileCompactionNode): Promise<ProfileCompactionPlan> {
+    const plan: ProfileCompactionPlan = {
+        enabled: node.enabled,
+        triggerPercent: node.triggerPercent,
+        triggerTokens: node.triggerTokens,
+        reserveTokens: node.reserveTokens,
+        keepRecentTokens: node.keepRecentTokens,
+        keepRecentPercent: node.keepRecentPercent,
+    };
+    for (const child of node.children.flatMap(flattenChildren)) {
+        if (child === null || child === undefined || child === false || child === true) {
+            continue;
+        }
+        if (Array.isArray(child)) {
+            continue;
+        }
+        if (typeof child === "string" || typeof child === "number") {
+            if (String(child).trim() !== "") {
+                throw new Error("Compaction 中的文本必须放在 CompactionPrompt 或 CompactionSummaryPrefix 内。");
+            }
+            continue;
+        }
+        if (child.kind === "Fragment") {
+            const nested = await renderCompactionNode(state, {
+                kind: "Compaction",
+                children: child.children,
+            });
+            plan.prompt = nested.prompt ?? plan.prompt;
+            plan.summaryPrefix = nested.summaryPrefix ?? plan.summaryPrefix;
+            continue;
+        }
+        if (child.kind === "If") {
+            if (!child.condition) {
+                continue;
+            }
+            const nested = await renderCompactionNode(state, {
+                kind: "Compaction",
+                children: child.children,
+            });
+            plan.prompt = nested.prompt ?? plan.prompt;
+            plan.summaryPrefix = nested.summaryPrefix ?? plan.summaryPrefix;
+            continue;
+        }
+        if (child.kind === "CompactionPrompt") {
+            plan.prompt = await renderStringChildren(state, "compaction", child.children);
+            continue;
+        }
+        if (child.kind === "CompactionSummaryPrefix") {
+            plan.summaryPrefix = await renderStringChildren(state, "compaction", child.children);
+            continue;
+        }
+        throw new Error(`Compaction 只能包含 CompactionPrompt / CompactionSummaryPrefix，不能包含 ${child.kind}。`);
+    }
+    validateCompactionPlan(state.profileKey, plan);
+    return plan;
 }
 
 function validateSystemChildren(children: ProfileDslChild[]): void {
@@ -656,6 +1010,12 @@ function collectToolCalls(children: ProfileDslChild[]): ProfileToolCallNode[] {
             }
             return;
         }
+        if (child.kind === "PlanModeSlot") {
+            for (const item of child.children) {
+                visit(item);
+            }
+            return;
+        }
         if (child.kind === "If" && child.condition) {
             for (const item of child.children) {
                 visit(item);
@@ -698,6 +1058,10 @@ function validateAssistantChildSequence(children: ProfileDslChild[], seenToolCal
             localSeenToolCall = validateAssistantChildSequence(child.children, localSeenToolCall);
             continue;
         }
+        if (child.kind === "PlanModeSlot") {
+            localSeenToolCall = validateAssistantChildSequence(child.children, localSeenToolCall);
+            continue;
+        }
         if (child.kind === "If") {
             if (child.condition) {
                 localSeenToolCall = validateAssistantChildSequence(child.children, localSeenToolCall);
@@ -715,15 +1079,18 @@ async function renderReminder(state: CompileState, node: ProfileReminderNode): P
     if (!node.when) {
         return [];
     }
-    if (node.watchPath !== undefined && node.watchValue !== undefined) {
-        throw new Error("Reminder.watchPath 与 Reminder.watchValue 不能同时提供。");
+    const watchSourceCount = [node.watchPath, node.watchValue, node.watch].filter((source) => source !== undefined).length;
+    if (watchSourceCount > 1) {
+        throw new Error("Reminder.watchPath、Reminder.watchValue 与 Reminder.watch 只能提供一个。");
     }
     if (node.repeatEveryTurns !== undefined && (!Number.isInteger(node.repeatEveryTurns) || node.repeatEveryTurns <= 0)) {
         throw new Error("Reminder.repeatEveryTurns 必须是正整数。");
     }
     assertAllowedWatchPath(node.watchPath, "Reminder.watchPath");
-    const currentValue = node.watchPath ? readPath(state.context, node.watchPath) : node.watchValue;
-    const hasWatchValue = node.watchPath !== undefined || node.watchValue !== undefined;
+    const currentValue = node.watch
+        ? await node.watch(state.context)
+        : node.watchPath ? readPath(state.context, node.watchPath) : node.watchValue;
+    const hasWatchValue = node.watchPath !== undefined || node.watchValue !== undefined || node.watch !== undefined;
     const fingerprint = hasWatchValue ? stableStringifyJsonValue(currentValue) : undefined;
     const previous = state.currentRuntimeState.reminders?.[node.id];
     const didFingerprintChange = hasWatchValue && previous?.fingerprint !== fingerprint;
@@ -733,6 +1100,10 @@ async function renderReminder(state: CompileState, node: ProfileReminderNode): P
         ? didFingerprintChange || shouldRepeat
         : true;
     if (!shouldInject) {
+        return [];
+    }
+    const messages = await renderChildren(state, "reminder", node.children);
+    if (messages.length === 0) {
         return [];
     }
     if (hasWatchValue || node.repeatEveryTurns) {
@@ -745,7 +1116,7 @@ async function renderReminder(state: CompileState, node: ProfileReminderNode): P
         };
         state.stateTouched = true;
     }
-    return renderChildren(state, "reminder", node.children);
+    return messages;
 }
 
 async function renderWatch(state: CompileState, zone: RenderZone, node: ProfileWatchNode): Promise<AgentMessage[]> {
@@ -828,6 +1199,9 @@ async function renderStringChildren(state: CompileState, zone: RenderZone, child
             parts.push(typeof child.text === "function" ? await child.text(state.context) : child.text);
             return;
         }
+        if (child.kind === "PlanModeSlot") {
+            throw new Error(`${slotNodeName(child.slot)} 只能作为 PlanModeReminder 的直接子节点。`);
+        }
         if (child.kind === "ToolCall" && zone === "assistant") {
             return;
         }
@@ -837,6 +1211,20 @@ async function renderStringChildren(state: CompileState, zone: RenderZone, child
         await visit(child);
     }
     return parts.join("").trim();
+}
+
+async function renderStandaloneString(context: ProfilePrepareContext<any>, children: ProfileDslChild[]): Promise<string> {
+    const state: CompileState = {
+        context,
+        profileKey: context.session.profileKey,
+        currentRuntimeState: {},
+        nextRuntimeState: {},
+        stateTouched: false,
+        currentTurn: context.runtime?.promptUserTurnCount ?? countUserTurns(context.session.messages),
+        pendingToolCallIds: [],
+        plan: {},
+    };
+    return renderStringChildren(state, "message", children);
 }
 
 function normalizeChildren(children: ProfileDslChild | ProfileDslChild[] | undefined): ProfileDslChild[] {
@@ -901,6 +1289,18 @@ function assertAllowedWatchPath(path: string | undefined, label: string): void {
 }
 
 function readPath(context: ProfilePrepareContext<any>, path: string): JsonValue | undefined {
+    const customStatePrefix = "ctx.session.customState.";
+    if (path.startsWith(customStatePrefix)) {
+        const customPath = path.slice(customStatePrefix.length);
+        const matchedKey = Object.keys(context.session.customState)
+            .filter((key) => customPath === key || customPath.startsWith(`${key}.`))
+            .sort((left, right) => right.length - left.length)[0];
+        if (matchedKey) {
+            const value = context.session.customState[matchedKey];
+            const rest = customPath === matchedKey ? [] : customPath.slice(matchedKey.length + 1).split(".");
+            return readObjectPath(value, rest);
+        }
+    }
     const roots: Record<string, unknown> = {
         "ctx.session": context.session,
         "ctx.input": context.input,
@@ -911,6 +1311,8 @@ function readPath(context: ProfilePrepareContext<any>, path: string): JsonValue 
         },
         "ctx.workspace": {
             root: context.session.workspaceRoot,
+            currentProject: readCurrentProjectWorkspace(context),
+            novelId: context.session.novelId,
         },
     };
     const rootKey = Object.keys(roots).find((key) => path === key || path.startsWith(`${key}.`));
@@ -918,7 +1320,11 @@ function readPath(context: ProfilePrepareContext<any>, path: string): JsonValue 
         return undefined;
     }
     const rest = path === rootKey ? [] : path.slice(rootKey.length + 1).split(".");
-    let current = roots[rootKey];
+    return readObjectPath(roots[rootKey], rest);
+}
+
+function readObjectPath(value: unknown, rest: string[]): JsonValue | undefined {
+    let current = value;
     for (const segment of rest) {
         if (!current || typeof current !== "object" || Array.isArray(current) || !(segment in current)) {
             return undefined;
@@ -985,6 +1391,60 @@ function validateProfileRuntimeStateWrite(profileKey: string, value: JsonValue):
     readWatchStateMap(state.watches);
 }
 
+function validateCompactionPlan(profileKey: string, plan: ProfileCompactionPlan | undefined): void {
+    if (!plan) {
+        return;
+    }
+    const allowedKeys = new Set(["enabled", "triggerPercent", "triggerTokens", "reserveTokens", "keepRecentTokens", "keepRecentPercent", "prompt", "summaryPrefix"]);
+    const illegalKey = Object.keys(plan).find((key) => !allowedKeys.has(key));
+    if (illegalKey) {
+        throw new Error(`profile ${profileKey} compaction 不允许返回 ${illegalKey}。`);
+    }
+    if (typeof plan.enabled !== "undefined" && typeof plan.enabled !== "boolean") {
+        throw new Error(`profile ${profileKey} compaction.enabled 必须是 boolean。`);
+    }
+    if (plan.triggerPercent !== undefined && plan.triggerTokens !== undefined) {
+        throw new Error(`profile ${profileKey} compaction.triggerPercent 与 triggerTokens 不能同时提供。`);
+    }
+    if (plan.keepRecentPercent !== undefined && plan.keepRecentTokens !== undefined) {
+        throw new Error(`profile ${profileKey} compaction.keepRecentPercent 与 keepRecentTokens 不能同时提供。`);
+    }
+    assertOptionalPercent(profileKey, plan.triggerPercent, "triggerPercent");
+    assertOptionalPercent(profileKey, plan.keepRecentPercent, "keepRecentPercent");
+    assertOptionalPositiveInteger(profileKey, plan.triggerTokens, "triggerTokens");
+    assertOptionalPositiveInteger(profileKey, plan.reserveTokens, "reserveTokens");
+    assertOptionalPositiveInteger(profileKey, plan.keepRecentTokens, "keepRecentTokens");
+    assertOptionalString(profileKey, plan.prompt, "prompt");
+    assertOptionalString(profileKey, plan.summaryPrefix, "summaryPrefix");
+}
+
+function assertOptionalPercent(profileKey: string, value: unknown, name: string): void {
+    if (value === undefined) {
+        return;
+    }
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 1) {
+        throw new Error(`profile ${profileKey} compaction.${name} 必须在 (0, 1] 范围内。`);
+    }
+}
+
+function assertOptionalPositiveInteger(profileKey: string, value: unknown, name: string): void {
+    if (value === undefined) {
+        return;
+    }
+    if (!Number.isInteger(value) || Number(value) <= 0) {
+        throw new Error(`profile ${profileKey} compaction.${name} 必须是正整数。`);
+    }
+}
+
+function assertOptionalString(profileKey: string, value: unknown, name: string): void {
+    if (value === undefined) {
+        return;
+    }
+    if (typeof value !== "string" || value.trim().length === 0) {
+        throw new Error(`profile ${profileKey} compaction.${name} 必须是非空字符串。`);
+    }
+}
+
 function assertOptionalStateMap(profileKey: string, value: JsonValue | undefined, key: "reminders" | "watches"): void {
     if (value === undefined) {
         return;
@@ -1029,20 +1489,17 @@ function readWatchStateMap(value: JsonValue | undefined): Record<string, WatchSt
     return watches;
 }
 
-function renderAgentCatalogItem(profile: AgentCatalogItem): string {
+function renderAgentCatalogIndexItem(profile: AgentCatalogItem): string {
     const lines = [
         `- key: ${profile.key}`,
         `  name: ${profile.name}`,
         profile.description ? `  description: ${profile.description}` : "",
         profile.source ? `  source: ${profile.source}` : "",
-        profile.allowedToolKeys?.length ? `  allowedTools: ${profile.allowedToolKeys.join(", ")}` : "",
-        profile.inputSchema ? `  inputSchema:\n${indentLines(renderSchemaSummary(profile.inputSchema), 4)}` : "  inputSchema: none",
-        profile.outputSchema ? `  outputSchema:\n${indentLines(renderSchemaSummary(profile.outputSchema), 4)}` : "  outputSchema: none",
     ].filter(Boolean);
     return lines.join("\n");
 }
 
-function renderSchemaSummary(schema: unknown): string {
+export function renderSchemaSummary(schema: unknown): string {
     if (!schema || typeof schema !== "object" || Array.isArray(schema)) {
         return "- type: unknown";
     }
@@ -1110,21 +1567,276 @@ function schemaTypeText(schema: Record<string, unknown>): string {
     return String(schema.type);
 }
 
+function systemReminder(body: string): string {
+    return [
+        "<system-reminder>",
+        body.trim(),
+        "</system-reminder>",
+    ].join("\n");
+}
+
+function stateKeyPath(key: string): string {
+    return `ctx.session.customState.${key}`;
+}
+
+function readRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === "object" && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : {};
+}
+
+function readInputRole(ctx: ProfilePrepareContext<any>): string {
+    const input = readRecord(ctx.input);
+    return typeof input.role === "string" ? input.role : "";
+}
+
+function readCurrentProjectWorkspace(ctx: ProfilePrepareContext<any>): string {
+    const input = readRecord(ctx.input);
+    const studio = readRecord(input.studio);
+    return typeof studio.workspace === "string" ? studio.workspace : "";
+}
+
+function linkedAgentsSummaryText(session: NeuroSessionContext): string {
+    if (session.linkedAgents.length === 0) {
+        return "Linked agents: none";
+    }
+    return [
+        "Linked agents:",
+        ...session.linkedAgents.map((agent) => `- session ${agent.sessionId}: ${agent.profileKey}${agent.detached ? " (detached)" : ""}`),
+    ].join("\n");
+}
+
+function readTaskList(ctx: ProfilePrepareContext<any>, stateKey = AGENT_TASKS_STATE_KEY): {
+    title?: string;
+    steps: Array<{id: string; text: string; status: string; note?: string}>;
+} | null {
+    const value = ctx.session.customState[stateKey];
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return null;
+    }
+    const record = value as Record<string, unknown>;
+    if (!Array.isArray(record.steps)) {
+        return null;
+    }
+    return {
+        title: typeof record.title === "string" ? record.title : undefined,
+        steps: record.steps.flatMap((item) => {
+            if (!item || typeof item !== "object" || Array.isArray(item)) {
+                return [];
+            }
+            const step = item as Record<string, unknown>;
+            if (typeof step.id !== "string" || typeof step.text !== "string" || typeof step.status !== "string") {
+                return [];
+            }
+            return [{
+                id: step.id,
+                text: step.text,
+                status: step.status,
+                note: typeof step.note === "string" ? step.note : undefined,
+            }];
+        }),
+    };
+}
+
+function WorkspaceReminderText(): ProfileStringFragmentNode {
+    return {
+        kind: "StringFragment",
+        text: (ctx) => systemReminder([
+            `Agent cwd: ${ctx.session.workspaceRoot}`,
+            readCurrentProjectWorkspace(ctx) ? `Current Project Workspace: ${readCurrentProjectWorkspace(ctx)}` : "",
+            ctx.session.novelId ? `Current novelId: ${ctx.session.novelId}` : "",
+            "- Bash/read/write/edit/apply_patch relative paths resolve from Agent cwd.",
+            "- Use Project Workspace paths such as novel-7/lorebook/... or novel-7/manuscript/... for the current novel when Agent cwd is workspace.",
+            "- Cross-project work is allowed when the user asks; keep paths explicit so the target Project Workspace is clear.",
+        ].filter(Boolean).join("\n")),
+    };
+}
+
+function LinkedAgentsReminderText(): ProfileStringFragmentNode {
+    return {
+        kind: "StringFragment",
+        text: (ctx) => systemReminder([
+            "Current linked agents:",
+            linkedAgentsSummaryText(ctx.session),
+        ].join("\n")),
+    };
+}
+
+function TaskReminderText(props: {stateKey: string}): ProfileStringFragmentNode {
+    return {
+        kind: "StringFragment",
+        text: (ctx) => {
+            const taskList = readTaskList(ctx, props.stateKey);
+            if (!taskList) {
+                return "";
+            }
+            const openSteps = taskList.steps.filter((step) => step.status !== "completed");
+            if (openSteps.length === 0) {
+                return "";
+            }
+            return systemReminder([
+                taskList.title ? `Current task list: ${taskList.title}` : "Current task list:",
+                ...openSteps.map((step) => `- [${step.status}] ${step.id}: ${step.text}${step.note ? ` (${step.note})` : ""}`),
+                "Use task_set_status when you start or complete a step.",
+            ].join("\n"));
+        },
+    };
+}
+
+function PlanModeReminderText(props: {stateKey: string; slots?: Partial<Record<PlanModeSlotKind, ProfileDslChild[]>>}): ProfileStringFragmentNode {
+    return {
+        kind: "StringFragment",
+        text: async (ctx) => {
+            const planModeState = readRecord(ctx.session.customState[props.stateKey]);
+            const active = typeof planModeState.active === "boolean" ? planModeState.active : ctx.session.planModeActive;
+            const kind = typeof planModeState.reminderKind === "string" ? planModeState.reminderKind : active ? "full" : "";
+            const workDirectory = typeof planModeState.workDirectory === "string"
+                ? planModeState.workDirectory
+                : planModeDirectory(ctx.session.workspaceRoot).replace(/\\/g, "/");
+            return renderPlanModeReminderText(ctx, kind, workDirectory, props.slots ?? {});
+        },
+    };
+}
+
+async function renderPlanModeReminderText(
+    ctx: ProfilePrepareContext<any>,
+    kind: string,
+    workDirectory: string,
+    slots: Partial<Record<PlanModeSlotKind, ProfileDslChild[]>>,
+): Promise<string> {
+    if (!kind) {
+        return "";
+    }
+    if (kind === "full" || kind === "sparse" || kind === "exit" || kind === "reentry_full") {
+        const custom = slots[kind];
+        if (custom) {
+            return renderPlanModeSlotText(ctx, custom, workDirectory);
+        }
+    }
+    if (kind === "exit") {
+        return systemReminder([
+            "## Exited Plan Mode",
+            "",
+            "You have exited plan mode. You can now make edits, run tools, and take actions.",
+            `Use the approved plan from the exit approval. If a Markdown file was shown from ${workDirectory}, treat that Project Workspace plan file as the implementation reference and read or cite only that file for details.`,
+        ].join("\n"));
+    }
+    if (kind === "sparse") {
+        return systemReminder([
+            "Plan mode still active (see full instructions earlier in conversation).",
+            "This project uses soft Plan Mode: follow the restriction yourself even though tools are still visible.",
+            `Read-only except optional Markdown work files under ${workDirectory}. Do not modify other files, configs, plot data, database data, or commits.`,
+            "Do not create or invoke Explore agents.",
+            "Keep the user informed in chat: summarize important findings, unresolved decisions, and the current plan.",
+            `For implementation planning, keep the plan in chat and, when the work is non-trivial, capture the reviewable plan, walkthrough, or research notes in a Markdown file under ${workDirectory}. It is the Project Workspace shared plan directory, not a session-specific directory.`,
+            "Do not put scratch/cache/command-output drafts under Project Workspace .agent; use the system temp directory for temporary files.",
+            "If an unresolved decision materially changes the plan, use request_user_input before exiting.",
+            "Before exit_plan_mode, tell the user what was planned and cite the .agent/plan Markdown file path when one exists. Never ask for plan approval via plain text or request_user_input; exit_plan_mode is the approval request.",
+        ].join("\n"));
+    }
+    const reentry = kind === "reentry_full"
+        ? [
+            "## Re-entering Plan Mode",
+            "",
+            `You are returning to plan mode after previously exiting it. Only Markdown files under ${workDirectory} are writable while Plan Mode is active.`,
+            "Before proceeding, inspect the latest chat context and any relevant Markdown plan file in that directory when available. Revise the visible plan in chat and update the plan file when the task still requires an implementation plan.",
+            "",
+        ].join("\n")
+        : "";
+    return systemReminder([
+        reentry,
+        "Plan mode is active. The user indicated that they do not want you to execute yet.",
+        "This project implements soft Plan Mode: tools are still visible, but you MUST treat this run as planning-only.",
+        "",
+        "## Thread Work Directory",
+        "",
+        `The Project Workspace Plan Mode directory is ${workDirectory}. It can contain plan files, walkthrough files, or research notes for this project.`,
+        "No file is bound when entering Plan Mode. Choose a short readable Markdown file name in this directory when the task needs persisted planning or walkthrough notes.",
+        "If a relevant Markdown file already exists in this exact plan directory, you can read it and make incremental edits using read and edit.",
+        "This directory is the only place you may create or edit files while Plan Mode is active. Do not create files just for formality for small non-editing tasks.",
+        "Do not create scratch/cache/command-output drafts in Project Workspace .agent; use the system temp directory for temporary files.",
+        "Build the plan visibly in chat as you learn and keep any Markdown work file aligned when one is used. Do not hide important decisions only in a file.",
+        "The final planning response before exit_plan_mode should summarize the implementation plan for the user and cite the .agent/plan Markdown file path when one was prepared.",
+        "",
+        "## Restrictions",
+        "",
+        `- Do not edit, create, delete, move, format, migrate, commit, or otherwise mutate files or product data, except Markdown work files under ${workDirectory}.`,
+        "- Read-only code and document exploration is allowed.",
+        "- Tests or commands are allowed only when they are read-only enough to refine the plan and do not update tracked files.",
+        "- Do not create or invoke Explore agents. Work locally with read/search tools.",
+        "- Do not write outside the .agent/plan directory while Plan Mode is active. Temporary scratch/cache belongs in the system temp directory.",
+        "- If the user asks you to implement while Plan Mode is active, keep planning instead. For anything beyond a small non-editing task, explain that implementation requires leaving Plan Mode through exit_plan_mode after the plan is ready.",
+        "- Do not work silently for long stretches. After meaningful exploration, report concise findings and the current direction in chat.",
+        "",
+        "## Workflow",
+        "",
+        "1. Ground in the real repository with read-only exploration: inspect relevant files, schemas, tools, tests, and existing patterns.",
+        "2. Report what you learned in chat when it changes the plan, including unresolved decisions and the next intended step.",
+        "3. Ask the user via request_user_input only when an unresolved decision cannot be discovered from the repo and materially changes the implementation.",
+        `4. Present a concise execution-ready plan in chat. For non-trivial implementation work, also write or update a readable Markdown plan, walkthrough, or research note under ${workDirectory}; the file name is your choice and the system will not generate a random slug.`,
+        "5. Before exit_plan_mode, briefly report the plan status in chat and cite the Markdown file path when you wrote one. If you skip a file because the task is only a small non-editing task, say that briefly before requesting approval.",
+        "6. Call exit_plan_mode when the plan is complete and ready for approval. The tool can request approval from the visible chat plan, and planFilePath should point to a Markdown file under .agent/plan/ when one should be previewed.",
+        "7. After approval, implement from the approved chat plan or the approved Markdown file shown during exit approval.",
+        "",
+        "The user explicitly requested no Explore agent for this project Plan Mode.",
+    ].join("\n"));
+}
+
+async function renderPlanModeSlotText(ctx: ProfilePrepareContext<any>, children: ProfileDslChild[], workDirectory: string): Promise<string> {
+    const body = await renderStandaloneString(ctx, [
+        `Thread work directory: ${workDirectory}\n`,
+        ...children,
+    ]);
+    return body.trim() ? systemReminder(body) : "";
+}
+
+function mentionedSkillsReminderText(ctx: ProfilePrepareContext<any>): string {
+    const latestUser = ctx.runtime?.pendingUserMessage
+        ?? [...ctx.session.messages].reverse().find((message) => message.role === "user");
+    if (!latestUser || latestUser.role !== "user") {
+        return "";
+    }
+    const text = messageText(latestUser);
+    const names = [...text.matchAll(/\$([^\s$]+)/gu)].map((match) => match[1]).filter(Boolean);
+    if (names.length === 0) {
+        return "";
+    }
+    return systemReminder([
+        `The user explicitly mentioned skill(s): ${names.map((name) => `$${name}`).join(", ")}.`,
+        "If these skills are visible in the catalog, read the matching SKILL.md location from SkillCatalog before continuing.",
+        "Use the original skill key exactly. Do not translate it into English, pinyin, or a new slug.",
+    ].join("\n"));
+}
+
+function PlotFocusReminderText(): ProfileStringFragmentNode {
+    return {
+        kind: "StringFragment",
+        text: (ctx) => {
+            const selection = readRecord(ctx.session.customState[PLOT_SELECTION_STATE_KEY]);
+            const novelId = typeof selection.novelId === "string" ? selection.novelId : "";
+            const threadId = typeof selection.threadId === "string" ? selection.threadId : "";
+            const sceneId = typeof selection.sceneId === "string" ? selection.sceneId : "";
+            if (!novelId && !threadId && !sceneId) {
+                return "";
+            }
+            return systemReminder([
+                "Current plot focus:",
+                novelId ? `- novelId: ${novelId}` : "",
+                threadId ? `- Thread: ${threadId}` : "",
+                sceneId ? `- Scene: ${sceneId}` : "",
+                "Plot tools may reuse threadId/sceneId from plot.selection, but novelId must still be passed explicitly.",
+            ].filter(Boolean).join("\n"));
+        },
+    };
+}
+
 function indentLines(text: string, spaces: number): string {
     const prefix = " ".repeat(spaces);
     return text.split("\n").map((line) => `${prefix}${line}`).join("\n");
 }
 
-function displaySkillLocation(skillPath: string, source: string): string {
-    const normalized = skillPath.split(/[\\/]+/).join("/");
-    const marker = source === "user"
-        ? "/workspace/.nbook/agent/skills/"
-        : "/assets/workspace/.nbook/agent/skills/";
-    const index = normalized.lastIndexOf(marker);
-    if (index >= 0) {
-        return normalized.slice(index + 1);
-    }
-    return normalized;
+function displaySkillLocation(skillPath: string): string {
+    return resolve(skillPath);
 }
 
 async function defaultSkillCatalogText(ctx: ProfilePrepareContext<any>): Promise<string> {
@@ -1137,25 +1849,25 @@ async function defaultSkillCatalogText(ctx: ProfilePrepareContext<any>): Promise
             `  name: ${skillItem.name}`,
             `  description: ${skillItem.description ?? skillItem.key}`,
             skillItem.whenToUse ? `  when_to_use: ${skillItem.whenToUse}` : "",
-            `  location: ${displaySkillLocation(skillItem.skillPath, skillItem.source)}`,
+            `  location: ${displaySkillLocation(skillItem.skillPath)}`,
         ].filter(Boolean).join("\n"))
         .join("\n\n");
     return [
         "<system-reminder>",
         "## Skill",
         "",
-        "Skills 是可复用工作法，不是长期记忆，也不是每轮都必须执行的流程。",
+        "Skills are reusable work methods. They are not long-term memory and they are not mandatory for every turn.",
         "",
-        "- skills 根目录：workspace/.nbook/agent/skills/ > assets/workspace/.nbook/agent/skills/",
-        "- 用户 assets 优先于系统 assets；同名 skill 目录按整个目录覆盖，不按单个文件混合。",
-        "- 当前只存在一个 skill 相关工具：skill。",
-        "- 需要启用 skill 时，调用 skill({ skillKey: \"catalog 中的 key\" }) 读取完整 SKILL.md，不要用文件工具直接读取 SKILL.md。",
-        "- skill key 允许中文。必须使用下方 catalog 中的原始 key，不要翻译成英文、拼音或另造 slug。",
-        "- 用户显式输入 $skill-key，或任务明显匹配 catalog 描述时，先启用对应 skill，再继续执行。",
-        "- 用户没有显式提到 skill 且任务不明显匹配 catalog 时，不要为了形式调用 skill。",
-        "- skill 只指导本轮怎么做；稳定设定写入 Lorebook，剧情推进写入 Plot System，临时计划留在当前对话。",
-        "- skill 与用户目标冲突时，优先保证用户目标；如果冲突会实质改变结果，提出一个最小澄清问题。",
-        "- 使用 skill 后，最终回复只说明关键产出和必要验证，不复述完整 skill 内容。",
+        "- Skill roots: workspace/.nbook/agent/skills/ overrides assets/workspace/.nbook/agent/skills/.",
+        "- User assets override system assets by whole skill directory, not by merging individual files.",
+        "- There is no separate skill tool. To use a skill, read the SKILL.md file at the catalog location.",
+        "- Read SKILL.md first as the entry card; if it references relative files such as references, scripts, templates, or examples, read only the needed files under the same skill directory.",
+        "- Skill keys may be Chinese. Use the original key from the catalog exactly; do not translate, romanize, or invent a slug.",
+        "- If the user explicitly types $skill-key, or the task clearly matches a catalog description, read the matching SKILL.md before continuing.",
+        "- If the user did not mention a skill and the task does not clearly match one, do not read a skill just for formality.",
+        "- A skill guides this turn only. Stable world facts belong in Lorebook, plot progress belongs in Plot System, and temporary plans stay in the conversation.",
+        "- If a skill conflicts with the user's goal, prioritize the user's goal; ask one minimal clarification only when the conflict materially changes the result.",
+        "- After using a skill, the final response should report key output and necessary verification, not repeat the full skill content.",
         "",
         "## Available Skills",
         "",
@@ -1167,7 +1879,7 @@ async function defaultSkillCatalogText(ctx: ProfilePrepareContext<any>): Promise
 async function defaultAgentCatalogText(ctx: ProfilePrepareContext<any>): Promise<string> {
     const profiles = ctx.catalog.profiles
         .filter((profile) => profile.loadStatus === "loaded")
-        .map(renderAgentCatalogItem);
+        .map(renderAgentCatalogIndexItem);
     if (profiles.length === 0) {
         return "";
     }
@@ -1175,7 +1887,8 @@ async function defaultAgentCatalogText(ctx: ProfilePrepareContext<any>): Promise
         "<system-reminder>",
         "## Available Agents",
         "",
-        "这些是当前可通过 create_agent / invoke_agent 使用的 agent profiles。调用 create_agent 时，input 必须符合对应 InputSchema 摘要。",
+        "These agent profiles are currently available through create_agent / invoke_agent.",
+        "This catalog is only an index. Before calling an unfamiliar profile, call get_agent_profile({ profileKey }) to inspect InputSchema, OutputSchema, report_result schema, and allowed tools.",
         "",
         ...profiles,
         "</system-reminder>",
@@ -1190,25 +1903,22 @@ async function defaultActivatedSkillsText(ctx: ProfilePrepareContext<any>): Prom
     if (skillNames.length === 0) {
         return "";
     }
-    const blocks: string[] = [];
-    for (const skillName of skillNames) {
-        if (!skillName) {
-            continue;
-        }
-        const skillPath = join(ctx.session.workspaceRoot, ".nbook", "agent", "skills", skillName, "SKILL.md");
-        try {
-            blocks.push(`【显式激活 Skill】\n${skillName}\n\n${await readFile(skillPath, "utf8")}`);
-        } catch {
-            blocks.push(`用户显式提到了技能 $${skillName}，但当前 workspace 未找到同名 skill。`);
-        }
-    }
-    return blocks.join("\n\n---\n\n");
+    return systemReminder([
+        `The user explicitly mentioned skill(s): ${skillNames.map((name) => `$${name}`).join(", ")}.`,
+        "If each mentioned skill is visible in SkillCatalog, read the matching SKILL.md location before continuing.",
+        "If a mentioned skill is not visible in the catalog, say that directly and continue with the best fallback.",
+    ].join("\n"));
 }
 
 async function defaultSqlSchemaSummaryText(): Promise<string> {
     try {
         const {getAgentSqlSchemaSummary} = await import("nbook/server/agent/tools/sql-tool");
-        return ["<sql-schema-summary>", await getAgentSqlSchemaSummary(), "</sql-schema-summary>"].join("\n");
+        return [
+            "<sql-schema-summary>",
+            "PostgreSQL folds unquoted identifiers to lowercase. Double-quote business tables with uppercase letters and camelCase columns, e.g. \"novelId\", \"createdAt\", \"sortOrder\". Otherwise SQL may fail with column does not exist.",
+            await getAgentSqlSchemaSummary(),
+            "</sql-schema-summary>",
+        ].join("\n");
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return ["<sql-schema-summary>", `SQL schema summary 暂不可用：${message}`, "</sql-schema-summary>"].join("\n");

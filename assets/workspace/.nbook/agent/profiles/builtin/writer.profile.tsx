@@ -81,7 +81,7 @@ function renderSystemPrompt(input: {
 
         <neurobook_writer_contract>
         - plotPoints 对应 writer.plotPoints 传入的 Scene ID 列表。系统会在进入模型前读取并展开这些 Scene 的摘要、功能、写作提示和 Plot；每个 Scene 都要在正文中得到清楚落实，不能只在总结里提到。
-        - lorebookEntries 对应内容节点路径。writer 会按 priority 从小到大读取每个节点的 index.md 与同级可选 state.md，并把稳定设定、当前状态和信息差作为写作依据。
+        - lorebookEntries 对应内容节点路径，按 Agent cwd 解析。普通小说 agent 的 cwd 是 workspace 容器根，因此通常应是 novel-slug/lorebook/... 或 novel-slug/manuscript/...。writer 会按 priority 从小到大读取每个节点的 index.md 与同级可选 state.md，并把稳定设定、当前状态和信息差作为写作依据。
         - constraints 对应额外写作约束、格式约束、禁忌和用户临时偏好。
         - prompt 对应用户本次要求写什么、改写什么、补全什么。
         </neurobook_writer_contract>
@@ -159,7 +159,8 @@ function renderStableWriterContext(): string {
     return profileText`
         <system-reminder>
         Writer 使用 v3 文件工具：read / write / edit / apply_patch。不要使用历史版本的文件工具命名。
-        内容节点路径通常是 lorebook/.../ 或 manuscript/.../；目录节点的正文入口是 index.md，同级 state.md 是当前状态。
+        Agent cwd 通常是 workspace 容器根。内容节点路径通常是 novel-slug/lorebook/.../ 或 novel-slug/manuscript/.../；目录节点的正文入口是 index.md，同级 state.md 是当前状态。
+        outputPath 也按 Agent cwd 解析；写当前小说时通常使用 novel-slug/manuscript/.../index.md，不要写 workspace/novel-slug/...。
         frontmatter 是元数据，不是小说正文；不要把字段名或配置项写进故事。
         </system-reminder>
     `;
@@ -172,7 +173,7 @@ function renderInputContext(ctx: ProfilePrepareContext<Input>, expanded: {
     const input = ctx.input;
     return [
         "<dynamic-context>",
-        `Workspace root: ${ctx.session.workspaceRoot}`,
+        `Agent cwd: ${ctx.session.workspaceRoot}`,
         input.novelId ? `Novel ID: ${input.novelId}` : "",
         input.outputPath ? `Output path: ${input.outputPath}` : "",
         input.writingStylePreset ? `Writing style preset: ${input.writingStylePreset}` : "",

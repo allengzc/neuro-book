@@ -165,7 +165,7 @@ export function createSqlTool(): NeuroAgentTool {
             "Allowed: SELECT / WITH / INSERT / UPDATE / DELETE.",
             "Prohibited: DDL, transaction control, session control, COPY, VACUUM, and multi-statement queries.",
             `Query rows are capped at ${String(AGENT_SQL_ROW_LIMIT)} and statement timeout is ${String(AGENT_SQL_TIMEOUT_MS)}ms.`,
-            "Business tables with uppercase letters and camelCase columns must be double-quoted, e.g. SELECT id, title FROM \"Chapter\" WHERE \"novelId\" = 1.",
+            "PostgreSQL folds unquoted identifiers to lowercase. Business tables with uppercase letters and camelCase columns must be double-quoted, e.g. SELECT id, title FROM \"Chapter\" WHERE \"novelId\" = 1 ORDER BY \"createdAt\" DESC. Fields like \"novelId\", \"createdAt\", and \"sortOrder\" will fail as column does not exist if not quoted.",
             "Use read/write/edit/apply_patch for manuscript or document files; execute_sql is only for structured DB data.",
         ].join("\n"),
         parameters: ExecuteSqlSchema,

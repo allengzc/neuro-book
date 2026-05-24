@@ -108,6 +108,17 @@ type WorkspaceSaveOptions = {
     force?: boolean;
 };
 
+export type WorkspaceUploadResult = {
+    written: number;
+    skipped: number;
+    totalBytes: number;
+    files: Array<{
+        path: string;
+        size: number;
+        action: "written" | "skipped";
+    }>;
+};
+
 export type WorkspaceKind = "novel" | "user-assets";
 type WorkspaceQueryInput = {novelId: string} | {workspaceKind: "user-assets"};
 
@@ -869,16 +880,16 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     };
 
     /**
-     * 保存未落盘内容后下载当前小说 workspace 压缩包。
+     * 保存未落盘内容后下载当前 Project Workspace 或 Workspace Root .nbook 压缩包。
      */
     const downloadCurrentWorkspace = async (): Promise<string> => {
         if (workspaceKind.value !== "user-assets" && !currentNovelId.value) {
-            throw new Error("当前没有可下载的小说 workspace");
+            throw new Error("当前没有可下载的 Project Workspace");
         }
 
         await saveDirtyWorkspaceFiles();
         if (hasUnsavedWorkspaceChanges.value) {
-            throw new Error("还有未保存的 workspace 文件，请处理后再下载");
+            throw new Error("还有未保存的 Project Workspace 文件，请处理后再下载");
         }
 
         const response = await $fetch.raw<Blob>("/api/workspace-files/download", {
@@ -893,6 +904,73 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
 
         triggerBrowserDownload(blob, filename);
         return filename;
+    };
+
+    /**
+     * 上传单个文件到当前挂载根的 upload/ 目录。
+     */
+    const uploadFileToUploadFolder = async (file: File): Promise<WorkspaceUploadResult> => {
+        const formData = createWorkspaceUploadFormData();
+        formData.append("file", file, file.name);
+        const result = await $fetch<WorkspaceUploadResult>("/api/workspace-files/upload-file", {
+            method: "POST",
+            body: formData,
+        });
+        await loadWorkspaceTree();
+        const uploadedPath = result.files.find((item) => item.path.startsWith("upload/"))?.path;
+        if (uploadedPath) {
+            await selectWorkspacePath(uploadedPath, "permanent").catch(() => null);
+        }
+        return result;
+    };
+
+    /**
+     * 上传 Project 文件集合，目录结构由浏览器 relative path 保留。
+     */
+    const uploadProjectFiles = async (files: File[]): Promise<WorkspaceUploadResult> => {
+        const formData = createWorkspaceUploadFormData();
+        formData.append("mode", "files");
+        for (const file of files) {
+            formData.append("files", file, file.name);
+            formData.append("relativePath", readBrowserRelativePath(file));
+        }
+        const result = await $fetch<WorkspaceUploadResult>("/api/workspace-files/upload-project", {
+            method: "POST",
+            body: formData,
+        });
+        await loadWorkspaceTree();
+        return result;
+    };
+
+    /**
+     * 上传 Project zip 压缩包，服务端解包并跳过已有文件。
+     */
+    const uploadProjectZip = async (file: File): Promise<WorkspaceUploadResult> => {
+        const formData = createWorkspaceUploadFormData();
+        formData.append("mode", "zip");
+        formData.append("zip", file, file.name);
+        const result = await $fetch<WorkspaceUploadResult>("/api/workspace-files/upload-project", {
+            method: "POST",
+            body: formData,
+        });
+        await loadWorkspaceTree();
+        return result;
+    };
+
+    const createWorkspaceUploadFormData = (): FormData => {
+        const formData = new FormData();
+        const query = workspaceQuery();
+        if ("workspaceKind" in query) {
+            formData.append("workspaceKind", query.workspaceKind);
+        } else {
+            formData.append("novelId", query.novelId);
+        }
+        return formData;
+    };
+
+    const readBrowserRelativePath = (file: File): string => {
+        const relativePath = (file as File & {webkitRelativePath?: string}).webkitRelativePath;
+        return relativePath?.trim() || file.name;
     };
 
     /**
@@ -2096,6 +2174,9 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         switchToNovelWorkspace,
         switchToUserAssetsWorkspace,
         syncUserAssetsFromSystem,
+        uploadFileToUploadFolder,
+        uploadProjectFiles,
+        uploadProjectZip,
         syncChapterSummary,
         syncNovelTree,
         syncVolumeSummary,

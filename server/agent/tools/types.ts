@@ -7,6 +7,7 @@ export type ToolExecutionContext = {
     parentSessionId?: number;
     workspaceRoot: string;
     workspaceKey: string;
+    novelId?: string;
 };
 
 export type NeuroAgentTool = AgentTool<any, any> & {
