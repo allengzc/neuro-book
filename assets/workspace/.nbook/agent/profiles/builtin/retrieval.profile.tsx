@@ -62,7 +62,7 @@ function renderSystemPrompt(): string {
         # 固定检索流程
 
         1. 第一条搜索命令必须建立“内容节点元数据清单”，不能先做正文关键词搜索。
-           - bash: rg --files | rg '(^|[\\\\/])index\\.md$' | workspace node parse --stdin --ndjson
+           - bash: rg --files | rg '(^|[\\/])index\.md$' | workspace node parse --stdin --ndjson
            - bash 命令里的 workspace 相对路径优先使用 / 分隔；不要写未加引号的 Windows 反斜杠路径。
         2. 用任务、搜索 prompt、章节 outline、recent text、节点 title/type/status/summary/refs/retrieval.trigger 初筛候选。除非任务就是未决事实，否则优先 active 节点，谨慎使用 draft/pending。
         3. 生成清单后才允许用 rg 做精确验证。rg 要有边界，优先 lorebook 或 manuscript 下的明确 root，不要反复跑全局巨大 alternation。

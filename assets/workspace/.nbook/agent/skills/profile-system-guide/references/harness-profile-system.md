@@ -23,7 +23,7 @@ Read this reference when a user asks how Neuro Book's agent harness, TSX profile
 - Profile: the agent recipe. It defines the agent name/key, creation input, optional output shape, visible tools, and how to prepare context before each run.
 - Harness: the runner. It owns sessions, calls the profile, writes pre-loop messages, starts the model/tool loop, streams events, and saves final messages.
 - Session: the append-only record. It stores chat messages, visible profile messages, state changes, custom state, compaction, and the current active branch.
-- Skill: a workflow note that the agent may load through the `skill` tool. A skill is not a profile and does not start an agent by itself.
+- Skill: a workflow note that the agent may read from the skill catalog. A skill is not a profile and does not start an agent by itself.
 - user-assets: the editable user overlay under `workspace/.nbook/...`. System baselines live under `assets/workspace/.nbook/...`.
 
 Useful ordinary-user explanation:
@@ -225,7 +225,7 @@ Skills are discovered by directory key:
 
 Model-visible skill catalog is produced by `<SkillCatalog />`. The current runtime does not expose a separate `skill` tool. The agent should use the catalog `location` and the normal `read` tool to open the relevant `SKILL.md`. If that entry points to references, scripts, templates, or examples, read only the specific relative files needed for the task.
 
-Profiles are discovered from `.profile.tsx` files. A loaded profile becomes runnable through its `manifest.key`. Bad profile files should be fixed through source editing and compile diagnostics; they are not normal runnable catalog items.
+Current runtime discovers profile sources from `.profile.tsx` files, but the next hard boundary is `.compiled`: source files are the editing truth, while compiled artifacts are the runtime truth. A loaded profile becomes runnable through its `manifest.key`. Bad or stale profile files should be fixed through source editing and compile diagnostics; they are not normal runnable catalog items.
 
 ## User-Assets Overlay
 
@@ -259,20 +259,36 @@ When explaining restore:
 
 Workbench compile:
 
-- UI calls `POST /api/agent/profiles/compile`.
-- It uses the runtime compile path and can produce prepare preview.
+- UI saves the source and runs background compile.
+- Successful compile writes the profile root `.compiled` artifact and manifest.
+- It can also produce prepare preview for the current profile.
 - Ordinary users should not be asked to call the HTTP endpoint manually.
+
+Agent runtime CLI:
+
+- `profile status`: shows source/compiled status, stale/not compiled/load failed, and sync warnings.
+- `profile check`: validates saved source and contract without writing `.compiled`.
+- `profile compile`: compiles saved source from disk and writes `.compiled`.
+- `profile preview`: dry-runs saved source through `prepare()` and shows `systemPrompt`, HistorySet, AppendingSet, ModelContext, `stateWrites`, final ReAct messages, and `report_result` schema. It does not write `.compiled`.
 
 Developer source-tree checks:
 
 - Repository-root `scripts/` are for development and deployment, not the Agent runtime contract.
-- Do not present repository-root profile scripts as the normal user-assets Agent workflow.
+- Old repository-root profile scripts such as `scripts/compile-profile.ts`, `scripts/check-profile.ts`, and `scripts/profile-compile-cli.ts` are transition implementation details. Do not present them as the normal user-assets Agent workflow.
 
 Run/create session:
 
-- A profile is runnable only when the runtime catalog can load it.
+- A profile is runnable only when the runtime catalog can load a fresh compiled artifact for it.
 - Creating a session uses `/api/agent/sessions` and a `profileKey`.
 - "New profile can run immediately" means: after compile passes and the profile contract is correct, the UI or API can create a session with that `profileKey`. It does not mean the Workbench automatically opens a session.
+
+Planned `.compiled` artifact layout:
+
+- system artifacts: `assets/workspace/.nbook/agent/profiles/.compiled/`
+- user artifacts: `workspace/.nbook/agent/profiles/.compiled/`
+- system artifacts ship with system assets and Docker images
+- user artifacts are generated at runtime by Workbench or `profile compile`
+- `.agent/workspace/profile-module-cache` is only a temporary cache and is not the runtime contract
 
 ## Common Troubleshooting
 
@@ -280,7 +296,8 @@ Saved file but agent still fails:
 
 - Saving only writes the source file.
 - Compile/runtime catalog decides whether it can run.
-- Use Workbench compile/preview, or run a developer source-tree check only when you are explicitly debugging the implementation.
+- Use Workbench compile, `profile compile`, or `profile status`.
+- Use `profile preview` when the user wants to inspect prepared context without changing runtime artifacts.
 
 Content does not show in frontend history:
 
@@ -323,13 +340,13 @@ Primary implementation files:
 - `server/agent/session/session-repo.ts`
 - `server/agent/session/types.ts`
 - `server/agent/skills/skill-catalog.ts`
-- `scripts/profile-compile-cli.ts`
 
 Primary docs:
 
 - `docs/modules/agent/harness.md`
 - `docs/research/pi-agent-harness.md`
-- `docs/tasks/pi-agent-harness-migration/README.md`
-- `docs/tasks/tsx-profile-workbench/README.md`
-- `docs/tasks/user-assets-workspace/README.md`
+- `docs/tasks/02-pi-agent-harness-migration/README.md`
+- `docs/tasks/04-tsx-profile-workbench/README.md`
+- `docs/tasks/05-leader-profile-v2-adaptation/README.md`
+- `docs/tasks/archived/user-assets-workspace/README.md`
 - `spec/workspace/TERMS.md`

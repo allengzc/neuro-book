@@ -805,3 +805,4 @@ export default defineAgentProfile({
 - 记录后续方向：可以研究把 steer / follow-up 也交给 profile 管理，而不是继续全部由 harness 管理。
 - 继续增强 TSX 可视化编辑器：复杂 `Watch.render`、跨函数 JSX 片段、TypeBox Schema Builder、allowedToolKeys checklist 和更完整的 AST round-trip。
 - 旧 Plot / task / SQL 等工具以后单独迁移；本任务不恢复旧工具名，但 DSL 和 leader prompt 不应阻塞未来工具补回。
+- 跟进 `.compiled` profile 运行真相源：`leader.default`、`leader.assets`、`writer`、`retrieval` 等系统 profile 的 compiled artifact 需要随 system assets 预编译并发布；用户覆盖只在 sync state 证明未手改时同步源码和 artifact。`leader.assets` 提示词和 `profile-system-guide` 需要改为推荐 Workbench 编译或 `profile status/check/compile/preview`，不再推荐旧 `scripts/compile-profile.ts` / `scripts/check-profile.ts`。
