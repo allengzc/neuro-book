@@ -130,12 +130,6 @@ export default defineNuxtConfig({
         alias: {
             nbook: rootDir,
         },
-        externals: {
-            traceInclude: [
-                "@prisma/adapter-libsql",
-                "@libsql/isomorphic-ws",
-            ],
-        },
         experimental: {
             openAPI: true,
         },

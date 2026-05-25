@@ -1,4 +1,5 @@
 import {PrismaLibSql} from "@prisma/adapter-libsql";
+import "@libsql/isomorphic-ws";
 import {PrismaClient} from "nbook/server/generated/prisma/client";
 import {resolveDatabaseConfig} from "nbook/server/database/config";
 
