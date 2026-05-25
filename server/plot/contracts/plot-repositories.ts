@@ -9,6 +9,7 @@ import type {
 import type {
     ChapterPlotSceneWithThread,
     ResolvedStoryRefInput,
+    StoryThreadEntity,
     StorySceneWithDetails,
     StoryThreadWithScenes,
     StoryWorkbenchPhase,
@@ -35,11 +36,11 @@ export interface StoryRepository {
  * Thread 仓储接口。
  */
 export interface ThreadRepository {
-    findThreadById(threadId: number): Promise<StoryThread | null>;
+    findThreadById(threadId: number): Promise<StoryThreadEntity | null>;
     findThreadWithScenesById(threadId: number): Promise<StoryThreadWithScenes | null>;
     findThreadIdsByStory(storyId: number): Promise<number[]>;
-    findThreadsByStoryPhase(storyId: number, storyPhaseId: number | null): Promise<StoryThread[]>;
-    findThreadByName(storyId: number, name: string, excludeThreadId?: number): Promise<StoryThread | null>;
+    findThreadsByStoryPhase(storyId: number, storyPhaseId: number | null): Promise<StoryThreadEntity[]>;
+    findThreadByName(storyId: number, name: string, excludeThreadId?: number): Promise<StoryThreadEntity | null>;
     createThread(input: {
         storyId: number;
         storyPhaseId: number | null;
@@ -52,15 +53,15 @@ export interface ThreadRepository {
         tags: string[];
         writingTip: string | null;
         note: string | null;
-    }): Promise<StoryThread>;
+    }): Promise<StoryThreadEntity>;
     updateThread(threadId: number, data: Partial<Pick<
         StoryThread,
-        "storyPhaseId" | "sortOrder" | "name" | "title" | "isMainThread" | "status" | "summary" | "tags" | "writingTip" | "note"
-    >>): Promise<StoryThread>;
+        "storyPhaseId" | "sortOrder" | "name" | "title" | "isMainThread" | "status" | "summary" | "writingTip" | "note"
+    >> & {tags?: string[]}): Promise<StoryThreadEntity>;
     deleteThread(threadId: number): Promise<void>;
     findThreadTargetByName(storyId: number, name: string): Promise<Pick<StoryThread, "id" | "name"> | null>;
-    findUngroupedThreads(storyId: number): Promise<Array<StoryThread & {scenes: StoryScene[]}>>;
-    findPhaseThreadsWithScenes(storyId: number): Promise<Array<StoryPhase & {threads: Array<StoryThread & {scenes: StoryScene[]}>}>>;
+    findUngroupedThreads(storyId: number): Promise<Array<StoryThreadEntity & {scenes: StoryScene[]}>>;
+    findPhaseThreadsWithScenes(storyId: number): Promise<Array<StoryPhase & {threads: Array<StoryThreadEntity & {scenes: StoryScene[]}>}>>;
     findUngroupedWorkbenchThreads(storyId: number): Promise<StoryWorkbenchThread[]>;
     findWorkbenchPhaseThreads(storyId: number): Promise<StoryWorkbenchPhase[]>;
 }

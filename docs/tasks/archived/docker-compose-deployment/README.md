@@ -8,6 +8,7 @@
 - Nuxt build 会在低内存服务器上 OOM，需要提供本地发布 GHCR 镜像和 release-only GitHub Actions 自动发布两条路径。
 - source 模式已在 `arch` 开发服务器跑通，需要把旧 `scripts/deploy.mjs` 收敛为远端同步脚本，便于频繁快速同步最新开发成果。
 - agent 在容器内需要 `node`、`python3`、`rg`、`git`、`bash` 等常用工具；GHCR app 镜像和 source runtime 都应携带同一套工具链。
+- 新增免 Docker native 部署：用户可只用 npm 启动部署脚本，再由脚本检测并交互安装 Git、Bun、ripgrep 等宿主机工具，源码 build 后用 Node 运行生产服务。
 
 ## Goal
 
@@ -52,6 +53,9 @@
 - `scripts/publish-ghcr-image.mjs` 和 release-only GitHub Actions 改为发布两类 GHCR 镜像：`neuro-book-runtime` 基础 runtime 镜像，以及基于同一工具链的 `neuro-book` app 镜像。
 - 新增 `docs/operator-bridge.md`，作为连接开发者、用户和用户 Agent 的交付与运维桥梁，集中说明部署模型、执行步骤、敏感信息边界、常见问题和关键项目文档索引。
 - 修复 source 模式下整目录挂载与 `config.yaml` 单文件挂载冲突的问题：基础 `docker-compose.yml` 不再挂载根目录 `config.yaml`；GHCR 由 generated override 挂载 `config.yaml` 到 `/app/config.yaml`，source 通过整目录挂载直接读取根目录 `config.yaml`。
+- `scripts/neuro-book-deploy.mjs` 增加 `native` 部署模式：保留 `ghcr` / `source` Docker 语义，native 只允许 SQLite 或外部 PostgreSQL，检查 `node`、`npm`、`git`、`bun`、`rg`、Unix `bash/find`，建议补齐 `python3`，并按平台通过 `winget`、`brew` 或 Linux 主流包管理器交互安装缺失工具。
+- native 模式生成并保留 `.env`、`config.yaml`、`workspace/.nbook/config.json`、`.deploy/README.md`、`.deploy/start-native.*` 和 `.deploy/create-admin-native.*`，不生成新的 compose override；执行 `bun install --frozen-lockfile`、`bun run nuxt:prepare`、`bun run generate`、`bun run nuxt:build`、`bun run migrate:deploy` 后退出，只打印启动/管理员脚本和 `node .output/server/index.mjs` 命令，不接入 systemd/pm2。
+- 部署开局不再询问模型 Provider 或 API Key；`--provider` / `--api-key` 仍可作为高级参数传入，默认生成 DeepSeek 空 key 初始配置，后续由前端设置页或 `workspace/.nbook/config.json` 配置。
 
 ## Decisions
 
@@ -96,9 +100,11 @@
 - `node scripts/publish-ghcr-image.mjs --dry-run`
 - `bun scripts/deploy.mjs --dry-run`
 - `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes --deploy-mode source --dir .agent/deploy-source-runtime-test`
+- `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes --deploy-mode native --dir .agent/deploy-native-test`
 - `npm pack --dry-run --json`：tarball 只包含 README、package.json 和 Node 部署脚本。
 - 使用 `NEURO_BOOK_DEPLOY_DRY_RUN=1 node scripts/neuro-book-deploy.mjs --yes` 跑通脚本生成 `.env` / `config.yaml` / `.deploy/docker-compose.generated.yml`，并用 `yaml` 解析生成配置。
 - 当前环境仍没有 Docker CLI，`docker --version` 与 `docker compose --env-file .env config` 均无法执行。
+- 本轮 native 增量验证了 `node --check scripts/neuro-book-deploy.mjs`，并用 dry-run 覆盖 `ghcr`、`source`、`native` 三种模式；未实际安装系统工具，也未启动 native 服务。
 
 ## TODO / Follow-ups
 

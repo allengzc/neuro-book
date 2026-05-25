@@ -113,7 +113,10 @@ function buildBootConfig(oldBootText: string | null): Record<string, unknown> {
     const oldConfig = oldBootText ? yaml.parse(oldBootText) as Record<string, unknown> : {};
     return {
         server: normalizeRecord(oldConfig.server),
-        database: normalizeRecord(oldConfig.database),
+        database: {
+            kind: "${DATABASE_KIND:-sqlite}",
+            url: "${DATABASE_URL:-file:./workspace/.nbook/neuro-book.sqlite}",
+        },
     };
 }
 

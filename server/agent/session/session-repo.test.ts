@@ -54,6 +54,39 @@ describe("JsonlSessionRepository", () => {
         expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
     });
 
+    it("workspace session 列表兼容旧 novel 分目录", async () => {
+        const workspaceSession = await repo.createSession({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "workspace",
+            title: "workspace session",
+        });
+        const legacyNovelSession = await repo.createSession({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "novel-7",
+            novelId: "7",
+            title: "legacy novel session",
+        });
+        const userAssetsSession = await repo.createSession({
+            profileKey: "leader.assets",
+            input: {},
+            workspaceRoot: "workspace/.nbook",
+            workspaceKey: "user-assets",
+            title: "assets session",
+        });
+
+        const sessions = await repo.listSessions({workspaceKey: "workspace"});
+
+        expect(sessions.map((session) => session.sessionId).sort((left, right) => left - right)).toEqual([
+            workspaceSession.metadata.sessionId,
+            legacyNovelSession.metadata.sessionId,
+        ]);
+        expect(sessions.some((session) => session.sessionId === userAssetsSession.metadata.sessionId)).toBe(false);
+    });
+
     it("支持 leaf 移动和 fork，历史不删除", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",

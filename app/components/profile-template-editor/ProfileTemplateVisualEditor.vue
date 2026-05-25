@@ -194,6 +194,7 @@ const autosaving = ref(false);
 const validating = ref(false);
 const restoring = ref(false);
 const creating = ref(false);
+const compilingAll = ref(false);
 const createDialogOpen = ref(false);
 const newProfileForm = ref<NewProfileForm>(createDefaultProfileForm());
 const previewing = ref(false);
@@ -593,6 +594,16 @@ async function previewTemplate(): Promise<void> {
  * 用户 profile 模式下用后台 worker dry-run 当前源码，不写 runtime `.compiled`。
  */
 async function previewPreparedProfile(): Promise<ProfileTemplatePreviewDto> {
+    return (await previewPreparedProfileResult()).previewResult;
+}
+
+/**
+ * 用户 profile 模式下执行 dry-run，并返回本次 dry-run 对应的 runtime detail。
+ */
+async function previewPreparedProfileResult(): Promise<{
+    previewResult: ProfileTemplatePreviewDto;
+    detailResult: AgentProfileDetailDto | null;
+}> {
     const submittedFileName = selectedTemplate.value;
     const submittedSource = sourceText.value;
     try {
@@ -610,11 +621,14 @@ async function previewPreparedProfile(): Promise<ProfileTemplatePreviewDto> {
         });
         if (selectedTemplate.value !== submittedFileName || sourceText.value !== submittedSource) {
             return {
-                source: sourceText.value,
-                root: root.value,
-                issues: [],
-                messages: [],
-                variables: [],
+                previewResult: {
+                    source: sourceText.value,
+                    root: root.value,
+                    issues: [],
+                    messages: [],
+                    variables: [],
+                },
+                detailResult: null,
             };
         }
         if (result.detail) {
@@ -622,22 +636,28 @@ async function previewPreparedProfile(): Promise<ProfileTemplatePreviewDto> {
             profileDetail.value = result.detail;
         }
         return {
-            source: submittedSource,
-            root: result.detail?.root ?? root.value,
-            issues: profileIssuesToTemplate(result.issues),
-            messages: result.preview?.messages ?? [],
-            variables: profileVariablesToTemplate(result.preview?.variables ?? result.detail?.variables ?? []),
+            previewResult: {
+                source: submittedSource,
+                root: result.detail?.root ?? root.value,
+                issues: profileIssuesToTemplate(result.issues),
+                messages: result.preview?.messages ?? [],
+                variables: profileVariablesToTemplate(result.preview?.variables ?? result.detail?.variables ?? []),
+            },
+            detailResult: result.detail,
         };
     } catch (error) {
         return {
-            source: sourceText.value,
-            root: root.value,
-            issues: [{
-                severity: "error",
-                message: describeFetchError(error),
-            }],
-            messages: [],
-            variables: [],
+            previewResult: {
+                source: sourceText.value,
+                root: root.value,
+                issues: [{
+                    severity: "error",
+                    message: describeFetchError(error),
+                }],
+                messages: [],
+                variables: [],
+            },
+            detailResult: null,
         };
     }
 }
@@ -725,33 +745,129 @@ async function validateTemplate(): Promise<void> {
 }
 
 /**
+ * 顶部“编译”按钮的真实入口，只编译当前选中的用户 profile。
+ */
+async function compileSelectedProfile(): Promise<void> {
+    if (props.mode !== "user-profile" || !sourceText.value || compileState.value === "running") {
+        return;
+    }
+    const result = await compileUserProfile({notify: true});
+    const resultIssues = profileIssuesToTemplate(result.issues);
+    issues.value = resultIssues;
+    if (result.detail) {
+        detail.value = templateDetailFromProfile(result.detail);
+        profileDetail.value = result.detail;
+        if (result.detail.root && !resultIssues.some((issue) => issue.severity === "error")) {
+            root.value = reconcileNodeIds(root.value, result.detail.root);
+            if (root.value && !findNode(root.value, selectedNodeId.value)) {
+                selectedNodeId.value = findFirstEditableNodeId(root.value);
+            }
+        }
+        previewVariableGroups.value = mapPreviewVariableGroups(detail.value.variables);
+    }
+    if (result.preview) {
+        previewMessages.value = result.preview.messages;
+        previewVariableGroups.value = mapPreviewVariableGroups(profileVariablesToTemplate(result.preview.variables));
+    }
+    if (result.ok) {
+        notification.success("当前 profile 编译通过");
+    }
+}
+
+/**
+ * 顶部“编译全部”入口，编译 user-assets 下全部用户 profile。
+ */
+async function compileAllProfiles(): Promise<void> {
+    if (props.mode !== "user-profile" || compilingAll.value || compileState.value === "running") {
+        return;
+    }
+    const submittedFileName = selectedTemplate.value;
+    const submittedSource = sourceText.value;
+    await persistTemplate(false);
+    if (lastSaveError.value) {
+        const message = `保存失败，无法编译全部：${lastSaveError.value}`;
+        statusText.value = message;
+        notification.error(message, {title: "编译全部失败"});
+        return;
+    }
+    if (selectedTemplate.value !== submittedFileName || sourceText.value !== submittedSource || dirty.value) {
+        const message = "源码仍在解析或保存后又发生变化，请等待源码同步后重新编译全部。";
+        statusText.value = message;
+        notification.error(message, {title: "编译全部未开始"});
+        return;
+    }
+    compilingAll.value = true;
+    statusText.value = "编译全部中...";
+    try {
+        const result = await $fetch<AgentProfileCompileResultDto>("/api/agent/profiles/compile-all", {
+            method: "POST",
+            headers: buildAgentPreviewHeaders(),
+            body: {},
+        });
+        await loadTemplates();
+        const currentItem = profileFiles.value.find((item) => item.fileName === selectedTemplate.value);
+        if (currentItem?.loadStatus === "loaded") {
+            const nextDetail = await fetchTemplateDetail();
+            applyTemplateDetail(nextDetail, "编译全部完成");
+            compileState.value = "passed";
+            compiledSourceText.value = sourceText.value;
+        }
+        issues.value = profileIssuesToTemplate(result.issues);
+        statusText.value = result.ok
+            ? `编译全部完成：${String(result.compiledCount ?? 0)} 个 profile`
+            : "编译全部完成，但存在错误";
+        if (result.ok) {
+            notification.success(`已编译 ${String(result.compiledCount ?? 0)} 个 profile`);
+        } else {
+            notification.error(result.issues[0]?.message ?? "部分 profile 编译失败", {title: "编译全部失败"});
+        }
+    } catch (error) {
+        const message = describeFetchError(error);
+        issues.value = [{
+            severity: "error",
+            message,
+        }];
+        statusText.value = `编译全部失败：${message}`;
+        notification.error(message, {title: "编译全部失败"});
+    } finally {
+        compilingAll.value = false;
+    }
+}
+
+/**
  * user-profile 显式验证：当前源码契约、真实 prepare 和 report_result schema 一起跑。
  */
 async function validateUserProfile(): Promise<ProfileValidationResult> {
-    const compileResult = await compileUserProfile();
-    if (!compileResult.detail) {
+    const {previewResult, detailResult} = await previewPreparedProfileResult();
+    if (!detailResult) {
         previewMessages.value = [];
         return {
-            detail: emptyProfileDetail(compileResult.issues),
+            detail: emptyProfileDetail(templateIssuesToProfile(previewResult.issues)),
             preview: null,
         };
     }
-    const detailResult = compileResult.detail;
     detail.value = templateDetailFromProfile(detailResult);
     previewVariableGroups.value = mapPreviewVariableGroups(detail.value.variables);
-    if (!compileResult.preview) {
+    if (previewResult.messages.length === 0) {
         previewMessages.value = [];
         return {
             detail: detailResult,
             preview: null,
         };
     }
-    const previewResult = compileResult.preview;
     previewMessages.value = previewResult.messages;
-    previewVariableGroups.value = mapPreviewVariableGroups(profileVariablesToTemplate(previewResult.variables));
+    previewVariableGroups.value = mapPreviewVariableGroups(previewResult.variables);
     return {
         detail: detailResult,
-        preview: previewResult,
+        preview: {
+            ok: !previewResult.issues.some((issue) => issue.severity === "error"),
+            profileKey: detailResult.manifest?.key ?? detailResult.catalogItem.profileKey,
+            messages: previewResult.messages,
+            variables: templateVariablesToProfile(previewResult.variables),
+            issues: templateIssuesToProfile(previewResult.issues),
+            persistedMessageCount: 0,
+            reportResultSchema: detailResult.reportResultSchema,
+        },
     };
 }
 
@@ -771,15 +887,39 @@ function validationSuccessText(result: ProfileTemplateDetailDto | ProfileValidat
 }
 
 /**
- * 手动编译当前用户 profile。真实 TSX loader 在后端 worker 中执行。
+ * 手动编译当前用户 profile。真实 TSX loader 在后端 worker 中执行并写 `.compiled`。
  */
-async function compileUserProfile(): Promise<AgentProfileCompileResultDto> {
+async function compileUserProfile(options: {notify?: boolean} = {}): Promise<AgentProfileCompileResultDto> {
     const submittedFileName = selectedTemplate.value;
     const submittedSource = sourceText.value;
     await persistTemplate(false);
+    if (lastSaveError.value) {
+        compileState.value = "failed";
+        const message = `保存失败，无法编译：${lastSaveError.value}`;
+        statusText.value = message;
+        if (options.notify) {
+            notification.error(message, {title: "编译失败"});
+        }
+        return {
+            ok: false,
+            stale: false,
+            detail: null,
+            preview: null,
+            issues: [{
+                severity: "error",
+                message,
+                code: "compile_failed",
+                fileName: submittedFileName,
+            }],
+        };
+    }
     if (selectedTemplate.value !== submittedFileName || sourceText.value !== submittedSource || dirty.value) {
         compileState.value = "stale";
-        statusText.value = "源码已修改，需重新编译";
+        const message = "源码仍在解析或保存后又发生变化，请等待源码同步后重新编译。";
+        statusText.value = message;
+        if (options.notify) {
+            notification.error(message, {title: "编译未开始"});
+        }
         return staleCompileResult();
     }
     compileState.value = "running";
@@ -804,6 +944,7 @@ async function compileUserProfile(): Promise<AgentProfileCompileResultDto> {
         compiledSourceText.value = submittedSource;
         compileState.value = result.ok ? "passed" : "failed";
         statusText.value = result.ok ? "编译通过" : "编译失败";
+        await loadTemplates();
         return result;
     } catch (error) {
         if (selectedTemplate.value !== submittedFileName || sourceText.value !== submittedSource) {
@@ -814,6 +955,9 @@ async function compileUserProfile(): Promise<AgentProfileCompileResultDto> {
         compileState.value = "failed";
         const message = describeFetchError(error);
         statusText.value = `编译失败：${message}`;
+        if (options.notify) {
+            notification.error(message, {title: "编译失败"});
+        }
         return {
             ok: false,
             stale: false,
@@ -1140,6 +1284,25 @@ function profileVariablesToTemplate(groups: AgentProfileDetailDto["variables"]):
             editable: item.editable,
             valueType: item.valueType ?? "unknown",
             source: item.source ?? "profile",
+            schema: item.schema ?? null,
+        })),
+    }));
+}
+
+/**
+ * 将旧三栏 UI 的变量 DTO 转回 runtime preview DTO。
+ */
+function templateVariablesToProfile(groups: ProfileTemplateDetailDto["variables"]): AgentProfileDetailDto["variables"] {
+    return groups.map((group) => ({
+        group: group.group,
+        items: group.items.map((item) => ({
+            label: item.label,
+            value: item.value,
+            path: item.path,
+            token: item.token,
+            editable: item.editable,
+            valueType: item.valueType ?? null,
+            source: item.source ?? null,
             schema: item.schema ?? null,
         })),
     }));
@@ -1776,6 +1939,18 @@ function profileIssuesToTemplate(profileIssues: AgentProfileIssueDto[]): Profile
 }
 
 /**
+ * 将旧三栏 UI 的问题 DTO 转回 runtime preview issue。
+ */
+function templateIssuesToProfile(templateIssues: ProfileTemplateIssueDto[]): AgentProfileIssueDto[] {
+    return templateIssues.map((issue) => ({
+        severity: issue.severity,
+        message: issue.message,
+        code: issue.path,
+        fileName: selectedTemplate.value || undefined,
+    }));
+}
+
+/**
  * 清理源码编辑批次状态。
  */
 function clearSourceEditHistory(): void {
@@ -2118,12 +2293,16 @@ onBeforeUnmount(() => {
             :validating="validating"
             :saving="saving"
             :restoring="restoring"
+            :compiling="compileState === 'running'"
+            :compiling-all="compilingAll"
             :parsing-source="parsingSource"
             :source-text="sourceText"
             :issue-count="issueCount"
             :restore-enabled="canRestoreSelectedTemplate"
             :create-enabled="props.mode === 'user-profile'"
             :run-enabled="props.mode === 'user-profile'"
+            :compile-enabled="props.mode === 'user-profile'"
+            :compile-all-enabled="props.mode === 'user-profile'"
             :run-disabled="!profileCompileReady"
             :allow-save-with-issues="props.mode === 'user-profile'"
             :validate-label="props.mode === 'user-profile' ? '编译' : '验证'"
@@ -2132,6 +2311,8 @@ onBeforeUnmount(() => {
             @redo="redoEdit"
             @preview="void openPreviewDialog()"
             @validate="void validateTemplate()"
+            @compile="void compileSelectedProfile()"
+            @compile-all="void compileAllProfiles()"
             @restore="void restoreTemplate()"
             @create="openCreateProfileDialog"
             @run="void createSessionForProfile()"
@@ -2453,7 +2634,7 @@ onBeforeUnmount(() => {
 }
 
 .library-node-SystemReminder,
-.library-node-WorkspaceReminder,
+.library-node-ProjectReminder,
 .library-node-LinkedAgentsReminder {
     --component-accent: #b65f5b;
 }

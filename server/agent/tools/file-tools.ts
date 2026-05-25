@@ -347,11 +347,16 @@ function resolveBashPath(): string {
 function createBashEnvironment(): NodeJS.ProcessEnv {
     const userAgentBin = resolve(process.cwd(), "workspace", ".nbook", "agent", "bin");
     const systemAgentBin = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "bin");
+    const userRipgrepConfig = resolve(process.cwd(), "workspace", ".nbook", "agent", "config", "ripgreprc");
+    const systemRipgrepConfig = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "config", "ripgreprc");
+    const ripgrepConfig = existsSync(userRipgrepConfig) ? userRipgrepConfig : systemRipgrepConfig;
     const currentPath = process.env.PATH ?? process.env.Path ?? "";
     return {
         ...process.env,
         NEURO_BOOK_AGENT_BIN: userAgentBin,
         NEURO_BOOK_SYSTEM_AGENT_BIN: systemAgentBin,
+        NEURO_BOOK_RIPGREP_CONFIG: ripgrepConfig,
+        RIPGREP_CONFIG_PATH: ripgrepConfig,
         PATH: currentPath,
         Path: currentPath,
     };
@@ -473,11 +478,14 @@ function withAgentPathPrefix(command: string): string {
     return [
         "NEURO_BOOK_AGENT_BIN_POSIX=\"$NEURO_BOOK_AGENT_BIN\"",
         "NEURO_BOOK_SYSTEM_AGENT_BIN_POSIX=\"$NEURO_BOOK_SYSTEM_AGENT_BIN\"",
+        "NEURO_BOOK_RIPGREP_CONFIG_POSIX=\"$NEURO_BOOK_RIPGREP_CONFIG\"",
         "if command -v cygpath >/dev/null 2>&1; then",
         "  NEURO_BOOK_AGENT_BIN_POSIX=$(cygpath -u \"$NEURO_BOOK_AGENT_BIN\" 2>/dev/null || printf '%s' \"$NEURO_BOOK_AGENT_BIN\")",
         "  NEURO_BOOK_SYSTEM_AGENT_BIN_POSIX=$(cygpath -u \"$NEURO_BOOK_SYSTEM_AGENT_BIN\" 2>/dev/null || printf '%s' \"$NEURO_BOOK_SYSTEM_AGENT_BIN\")",
+        "  NEURO_BOOK_RIPGREP_CONFIG_POSIX=$(cygpath -u \"$NEURO_BOOK_RIPGREP_CONFIG\" 2>/dev/null || printf '%s' \"$NEURO_BOOK_RIPGREP_CONFIG\")",
         "fi",
         "export PATH=\"$NEURO_BOOK_AGENT_BIN_POSIX:$NEURO_BOOK_SYSTEM_AGENT_BIN_POSIX:$PATH\"",
+        "export RIPGREP_CONFIG_PATH=\"$NEURO_BOOK_RIPGREP_CONFIG_POSIX\"",
         command,
     ].join("\n");
 }

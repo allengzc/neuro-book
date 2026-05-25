@@ -6,31 +6,11 @@ services:
         environment:
             HOST: 0.0.0.0
             PORT: ${NUXT_PORT:-3000}
-            DATABASE_URL: ${DATABASE_URL:-postgresql://neuro_book:change-me@postgres:5432/neuro_book}
+            DATABASE_KIND: ${DATABASE_KIND:-sqlite}
+            DATABASE_URL: ${DATABASE_URL:-file:./workspace/.nbook/neuro-book.sqlite}
             NUXT_SESSION_PASSWORD: ${NUXT_SESSION_PASSWORD:?NUXT_SESSION_PASSWORD must be set}
         ports:
             - "${NUXT_PORT:-3000}:3000"
         volumes:
             - ./workspace:/app/workspace
-        depends_on:
-            postgres:
-                condition: service_healthy
         restart: unless-stopped
-
-    postgres:
-        image: postgres:16-alpine
-        environment:
-            POSTGRES_USER: ${POSTGRES_USER:-neuro_book}
-            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
-            POSTGRES_DB: ${POSTGRES_DB:-neuro_book}
-        healthcheck:
-            test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
-            interval: 10s
-            timeout: 5s
-            retries: 10
-        volumes:
-            - postgres_data:/var/lib/postgresql/data
-        restart: unless-stopped
-
-volumes:
-    postgres_data:

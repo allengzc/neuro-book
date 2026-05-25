@@ -1,5 +1,8 @@
+import {createClient} from "@libsql/client";
+import type {Client as LibsqlClient} from "@libsql/client";
 import {Type} from "typebox";
 import type {Static} from "typebox";
+import {resolveDatabaseConfig, type DatabaseKind} from "nbook/server/database/config";
 import {useAgentSqlPool} from "nbook/server/utils/agent-sql-pool";
 import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
@@ -11,7 +14,7 @@ const ExecuteSqlSchema = Type.Object({
 const AGENT_SQL_ROW_LIMIT = 200;
 const AGENT_SQL_TIMEOUT_MS = 1_500;
 const AGENT_SQL_SCHEMA_CACHE_TTL_MS = 30_000;
-const AGENT_SQL_SCHEMA_QUERY = `
+const POSTGRES_SCHEMA_QUERY = `
     SELECT
         columns.table_name AS "tableName",
         columns.column_name AS "columnName",
@@ -29,7 +32,7 @@ const AGENT_SQL_SCHEMA_QUERY = `
         AND columns.table_name ~ '[A-Z]'
     ORDER BY columns.table_name ASC, columns.ordinal_position ASC
 `;
-const AGENT_SQL_FOREIGN_KEY_QUERY = `
+const POSTGRES_FOREIGN_KEY_QUERY = `
     SELECT
         key_usage.table_name AS "tableName",
         key_usage.column_name AS "columnName",
@@ -47,7 +50,15 @@ const AGENT_SQL_FOREIGN_KEY_QUERY = `
         AND key_usage.table_name ~ '[A-Z]'
     ORDER BY key_usage.table_name ASC, key_usage.ordinal_position ASC
 `;
-const AGENT_SQL_DETAIL_TABLES = new Set(["Chapter", "Volume", "Novel"]);
+const SQLITE_TABLE_QUERY = `
+    SELECT name AS "tableName"
+    FROM sqlite_schema
+    WHERE type = 'table'
+        AND name NOT LIKE 'sqlite_%'
+        AND name <> '_prisma_migrations'
+    ORDER BY name ASC
+`;
+const AGENT_SQL_DETAIL_TABLES = new Set(["Novel", "Story", "StoryThread", "StoryScene", "StoryPlot", "StorySceneRef", "User"]);
 
 type AgentSqlSchemaRow = {
     tableName: string;
@@ -83,15 +94,20 @@ type ExecuteSqlResult = {
 };
 
 let agentSqlSchemaSummaryCache = "";
+let agentSqlSchemaSummaryCacheKind: DatabaseKind | null = null;
 let agentSqlSchemaSummaryCacheAt = 0;
 let agentSqlSchemaSummaryPromise: Promise<string> | undefined;
+let sqliteClient: LibsqlClient | null = null;
+let sqliteClientUrl = "";
 
 /**
- * 根据 information_schema 结果生成 schema 摘要。
+ * 根据 schema 查询结果生成 Agent SQL 摘要。
  */
-export function buildAgentSqlSchemaSummary(rows: AgentSqlSchemaRow[], foreignKeys: AgentSqlForeignKeyRow[]): string {
+export function buildAgentSqlSchemaSummary(rows: AgentSqlSchemaRow[], foreignKeys: AgentSqlForeignKeyRow[], kind: DatabaseKind = "postgres"): string {
     if (rows.length === 0) {
-        return "当前未发现 public schema 下的业务表，请先查询 information_schema.tables。";
+        return kind === "sqlite"
+            ? "当前 SQLite 数据库尚未发现业务表，请先确认迁移是否完成。"
+            : "当前未发现 public schema 下的业务表，请先查询 information_schema.tables。";
     }
 
     const tableColumns = new Map<string, string[]>();
@@ -106,7 +122,11 @@ export function buildAgentSqlSchemaSummary(rows: AgentSqlSchemaRow[], foreignKey
         detailedTableColumns.set(row.tableName, [...detailedTableColumns.get(row.tableName) ?? [], row]);
     }
 
-    const lines = ["可查询业务表（名称和 camelCase 字段必须按下列写法使用双引号）："];
+    const lines = [
+        kind === "sqlite"
+            ? "当前 SQLite 业务表（表名和 camelCase 字段按原样双引号引用最稳）："
+            : "当前 Postgres 业务表（名称和 camelCase 字段必须按下列写法使用双引号）：",
+    ];
     for (const tableName of Array.from(AGENT_SQL_DETAIL_TABLES.values()).filter((name) => tableColumns.has(name))) {
         lines.push(`${quoteIdentifier(tableName)}:`);
         for (const row of detailedTableColumns.get(tableName) ?? []) {
@@ -117,6 +137,9 @@ export function buildAgentSqlSchemaSummary(rows: AgentSqlSchemaRow[], foreignKey
             const foreignKey = foreignKeyMap.get(`${row.tableName}.${row.columnName}`);
             if (foreignKey) {
                 flags.push(`FK -> ${quoteIdentifier(foreignKey.foreignTableName)}.${formatSummaryColumnName(foreignKey.foreignColumnName)}`);
+            }
+            if (row.columnName === "tags") {
+                flags.push("JSON array persisted as string[] DTO");
             }
             lines.push(`- ${formatSummaryColumnName(row.columnName)}: ${formatSummaryDataType(row)}; ${flags.join("; ")}`);
         }
@@ -136,19 +159,22 @@ export function buildAgentSqlSchemaSummary(rows: AgentSqlSchemaRow[], foreignKey
  * 读取并缓存 Agent SQL schema 摘要。
  */
 export async function getAgentSqlSchemaSummary(): Promise<string> {
-    if (agentSqlSchemaSummaryCache && Date.now() - agentSqlSchemaSummaryCacheAt < AGENT_SQL_SCHEMA_CACHE_TTL_MS) {
+    const kind = resolveDatabaseConfig().kind;
+    if (
+        agentSqlSchemaSummaryCache
+        && agentSqlSchemaSummaryCacheKind === kind
+        && Date.now() - agentSqlSchemaSummaryCacheAt < AGENT_SQL_SCHEMA_CACHE_TTL_MS
+    ) {
         return agentSqlSchemaSummaryCache;
     }
     if (!agentSqlSchemaSummaryPromise) {
-        agentSqlSchemaSummaryPromise = (async () => {
-            const pool = useAgentSqlPool();
-            const columnsResult = await pool.query<AgentSqlSchemaRow>(AGENT_SQL_SCHEMA_QUERY);
-            const foreignKeysResult = await pool.query<AgentSqlForeignKeyRow>(AGENT_SQL_FOREIGN_KEY_QUERY);
-            agentSqlSchemaSummaryCache = buildAgentSqlSchemaSummary(columnsResult.rows, foreignKeysResult.rows);
+        agentSqlSchemaSummaryPromise = readSchemaSummary(kind).then((summary) => {
+            agentSqlSchemaSummaryCache = summary;
+            agentSqlSchemaSummaryCacheKind = kind;
             agentSqlSchemaSummaryCacheAt = Date.now();
             agentSqlSchemaSummaryPromise = undefined;
             return agentSqlSchemaSummaryCache;
-        })().catch((error) => {
+        }).catch((error) => {
             agentSqlSchemaSummaryPromise = undefined;
             throw error;
         });
@@ -161,26 +187,21 @@ export async function getAgentSqlSchemaSummary(): Promise<string> {
  */
 export function clearAgentSqlSchemaSummaryCache(): void {
     agentSqlSchemaSummaryCache = "";
+    agentSqlSchemaSummaryCacheKind = null;
     agentSqlSchemaSummaryCacheAt = 0;
     agentSqlSchemaSummaryPromise = undefined;
 }
 
 /**
- * 创建 v3 execute_sql 工具。
+ * 创建 execute_sql 工具。
  */
 export function createSqlTool(): NeuroAgentTool {
+    const databaseKind = resolveDatabaseConfig().kind;
     return {
         key: "execute_sql",
         name: "execute_sql",
         label: "Execute SQL",
-        description: [
-            "Execute a single database SQL statement.",
-            "Allowed: SELECT / WITH / INSERT / UPDATE / DELETE.",
-            "Prohibited: DDL, transaction control, session control, COPY, VACUUM, and multi-statement queries.",
-            `Query rows are capped at ${String(AGENT_SQL_ROW_LIMIT)} and statement timeout is ${String(AGENT_SQL_TIMEOUT_MS)}ms.`,
-            "PostgreSQL folds unquoted identifiers to lowercase. Business tables with uppercase letters and camelCase columns must be double-quoted, e.g. SELECT id, title FROM \"Chapter\" WHERE \"novelId\" = 1 ORDER BY \"createdAt\" DESC. Fields like \"novelId\", \"createdAt\", and \"sortOrder\" will fail as column does not exist if not quoted.",
-            "Use read/write/edit/apply_patch for manuscript or document files; execute_sql is only for structured DB data.",
-        ].join("\n"),
+        description: buildSqlToolDescription(databaseKind),
         parameters: ExecuteSqlSchema,
         async execute(_toolCallId, params: unknown) {
             const input = params as Static<typeof ExecuteSqlSchema>;
@@ -191,6 +212,70 @@ export function createSqlTool(): NeuroAgentTool {
             };
         },
     };
+}
+
+function buildSqlToolDescription(kind: DatabaseKind): string {
+    const shared = [
+        "Execute a single database SQL statement against the current application database.",
+        `Current Database Kind: ${kind}.`,
+        "Allowed: SELECT / WITH / INSERT / UPDATE / DELETE.",
+        "Prohibited: DDL, transaction control, session control, COPY, VACUUM, and multi-statement queries.",
+        `Query rows are capped at ${String(AGENT_SQL_ROW_LIMIT)} and statement timeout target is ${String(AGENT_SQL_TIMEOUT_MS)}ms.`,
+        "Use read/write/edit/apply_patch for manuscript or document files; execute_sql is only for structured DB data.",
+    ];
+
+    if (kind === "sqlite") {
+        return [
+            ...shared,
+            "SQLite dialect: quote business table and camelCase column names with double quotes when unsure, e.g. SELECT id, title FROM \"StoryThread\" ORDER BY \"createdAt\" DESC.",
+            "Schema discovery uses sqlite_schema and PRAGMA table_info / foreign_key_list.",
+            "Raw SQL does not apply Prisma @updatedAt client semantics; update \"updatedAt\" explicitly when needed.",
+        ].join("\n");
+    }
+
+    return [
+        ...shared,
+        "PostgreSQL folds unquoted identifiers to lowercase. Business tables with uppercase letters and camelCase columns must be double-quoted, e.g. SELECT id, title FROM \"StoryThread\" WHERE \"storyId\" = 1 ORDER BY \"createdAt\" DESC.",
+        "Schema discovery uses information_schema for public business tables.",
+        "Raw SQL does not apply Prisma @updatedAt client semantics; update \"updatedAt\" explicitly when needed.",
+    ].join("\n");
+}
+
+async function readSchemaSummary(kind: DatabaseKind): Promise<string> {
+    if (kind === "sqlite") {
+        const client = useSqliteClient();
+        const tablesResult = await client.execute(SQLITE_TABLE_QUERY);
+        const tableNames = tablesResult.rows.map((row) => String(row.tableName));
+        const rows: AgentSqlSchemaRow[] = [];
+        const foreignKeys: AgentSqlForeignKeyRow[] = [];
+
+        for (const tableName of tableNames) {
+            const columns = await client.execute(`PRAGMA table_info(${quoteIdentifier(tableName)})`);
+            rows.push(...columns.rows.map((row) => ({
+                tableName,
+                columnName: String(row.name),
+                ordinalPosition: Number(row.cid) + 1,
+                isNullable: Number(row.notnull) === 1 || Number(row.pk) === 1 ? "NO" as const : "YES" as const,
+                columnDefault: row.dflt_value === null || row.dflt_value === undefined ? null : String(row.dflt_value),
+                dataType: String(row.type || "TEXT"),
+                udtName: String(row.type || "TEXT"),
+            })));
+
+            const fkRows = await client.execute(`PRAGMA foreign_key_list(${quoteIdentifier(tableName)})`);
+            foreignKeys.push(...fkRows.rows.map((row) => ({
+                tableName,
+                columnName: String(row.from),
+                foreignTableName: String(row.table),
+                foreignColumnName: String(row.to),
+            })));
+        }
+        return buildAgentSqlSchemaSummary(rows, foreignKeys, kind);
+    }
+
+    const pool = useAgentSqlPool();
+    const columnsResult = await pool.query<AgentSqlSchemaRow>(POSTGRES_SCHEMA_QUERY);
+    const foreignKeysResult = await pool.query<AgentSqlForeignKeyRow>(POSTGRES_FOREIGN_KEY_QUERY);
+    return buildAgentSqlSchemaSummary(columnsResult.rows, foreignKeysResult.rows, kind);
 }
 
 function normalizeSql(sql: string): string {
@@ -209,7 +294,13 @@ function formatSummaryDataType(row: AgentSqlSchemaRow): string {
     if (row.dataType === "ARRAY") {
         return `${row.udtName.replace(/^_/, "")}[]`;
     }
-    return row.dataType === "USER-DEFINED" ? row.udtName : row.dataType;
+    if (row.dataType === "USER-DEFINED") {
+        return row.udtName;
+    }
+    if (row.dataType.toUpperCase() === "JSONB") {
+        return "JSON";
+    }
+    return row.dataType;
 }
 
 function formatColumnDefault(value: string | null): string {
@@ -219,7 +310,7 @@ function formatColumnDefault(value: string | null): string {
     if (value.includes("CURRENT_TIMESTAMP") || value.includes("now()")) {
         return "DEFAULT CURRENT_TIMESTAMP";
     }
-    if (value.includes("nextval(")) {
+    if (value.includes("nextval(") || value.toUpperCase().includes("AUTOINCREMENT")) {
         return "DEFAULT 自增";
     }
     return `DEFAULT ${value}`;
@@ -254,6 +345,8 @@ function detectSqlCommand(sql: string): AgentSqlCommand {
 export function validateExecuteSql(sql: string): void {
     const normalized = normalizeSql(sql);
     const leadingKeyword = getSqlLeadingKeyword(normalized);
+    const blockedPattern = /\b(alter|create|drop|truncate|grant|revoke|begin|commit|rollback|copy|vacuum|analyze|reset|show|call|pragma|attach|detach)\b/i;
+
     if (!normalized) {
         throw new Error("sql 不能为空");
     }
@@ -263,14 +356,16 @@ export function validateExecuteSql(sql: string): void {
     if (!["select", "with", "insert", "update", "delete"].includes(leadingKeyword)) {
         throw new Error("sql 只允许 SELECT / WITH / INSERT / UPDATE / DELETE");
     }
+    if (blockedPattern.test(stripSqlLiterals(normalized))) {
+        throw new Error("sql 包含被禁止的关键字");
+    }
 }
 
 /**
- * 检测真正的 SQL 语句分隔符。字符串、quoted identifier、dollar quote 和注释内的分号不算多语句。
+ * 检测真正的 SQL 语句分隔符。字符串、quoted identifier 和注释内的分号不算多语句。
  */
 export function hasSqlStatementSeparator(sql: string): boolean {
     let index = 0;
-    let dollarQuoteTag: string | null = null;
     let inSingleQuote = false;
     let inDoubleQuote = false;
     let inLineComment = false;
@@ -292,16 +387,6 @@ export function hasSqlStatementSeparator(sql: string): boolean {
             if (char === "*" && nextChar === "/") {
                 inBlockComment = false;
                 index += 2;
-                continue;
-            }
-            index++;
-            continue;
-        }
-
-        if (dollarQuoteTag) {
-            if (sql.startsWith(dollarQuoteTag, index)) {
-                index += dollarQuoteTag.length;
-                dollarQuoteTag = null;
                 continue;
             }
             index++;
@@ -352,14 +437,6 @@ export function hasSqlStatementSeparator(sql: string): boolean {
             index++;
             continue;
         }
-        if (char === "$") {
-            const match = /^\$[a-zA-Z_][a-zA-Z0-9_]*\$|^\$\$/.exec(sql.slice(index));
-            if (match) {
-                dollarQuoteTag = match[0];
-                index += dollarQuoteTag.length;
-                continue;
-            }
-        }
         if (char === ";") {
             return true;
         }
@@ -368,20 +445,133 @@ export function hasSqlStatementSeparator(sql: string): boolean {
     return false;
 }
 
-function shouldRefreshChapterTree(sql: string): boolean {
-    const normalized = normalizeSql(sql);
-    return /\b(?:insert\s+into|update|delete\s+from)\s+"(?:Chapter|Volume|Novel)"/.test(normalized);
+function stripSqlLiterals(sql: string): string {
+    let result = "";
+    let index = 0;
+    let dollarQuoteTag: string | null = null;
+    let inSingleQuote = false;
+    let inDoubleQuote = false;
+    let inLineComment = false;
+    let inBlockComment = false;
+
+    while (index < sql.length) {
+        const char = sql[index] ?? "";
+        const nextChar = sql[index + 1] ?? "";
+
+        if (inLineComment) {
+            if (char === "\n" || char === "\r") {
+                inLineComment = false;
+                result += char;
+            } else {
+                result += " ";
+            }
+            index++;
+            continue;
+        }
+        if (inBlockComment) {
+            if (char === "*" && nextChar === "/") {
+                result += "  ";
+                inBlockComment = false;
+                index += 2;
+                continue;
+            }
+            result += " ";
+            index++;
+            continue;
+        }
+        if (dollarQuoteTag) {
+            if (sql.startsWith(dollarQuoteTag, index)) {
+                result += " ".repeat(dollarQuoteTag.length);
+                index += dollarQuoteTag.length;
+                dollarQuoteTag = null;
+                continue;
+            }
+            result += " ";
+            index++;
+            continue;
+        }
+        if (inSingleQuote) {
+            if (char === "'" && nextChar === "'") {
+                result += "  ";
+                index += 2;
+                continue;
+            }
+            if (char === "'") {
+                inSingleQuote = false;
+            }
+            result += " ";
+            index++;
+            continue;
+        }
+        if (inDoubleQuote) {
+            if (char === "\"" && nextChar === "\"") {
+                result += "  ";
+                index += 2;
+                continue;
+            }
+            if (char === "\"") {
+                inDoubleQuote = false;
+            }
+            result += " ";
+            index++;
+            continue;
+        }
+        if (char === "-" && nextChar === "-") {
+            result += "  ";
+            inLineComment = true;
+            index += 2;
+            continue;
+        }
+        if (char === "/" && nextChar === "*") {
+            result += "  ";
+            inBlockComment = true;
+            index += 2;
+            continue;
+        }
+        if (char === "$") {
+            const match = /^\$[a-zA-Z_][a-zA-Z0-9_]*\$|^\$\$/.exec(sql.slice(index));
+            if (match) {
+                dollarQuoteTag = match[0];
+                result += " ".repeat(dollarQuoteTag.length);
+                index += dollarQuoteTag.length;
+                continue;
+            }
+        }
+        if (char === "'") {
+            inSingleQuote = true;
+            result += " ";
+            index++;
+            continue;
+        }
+        if (char === "\"") {
+            inDoubleQuote = true;
+            result += " ";
+            index++;
+            continue;
+        }
+        result += char;
+        index++;
+    }
+    return result;
 }
 
-export function buildAgentSqlErrorMessage(sql: string, error: unknown): string {
+function shouldRefreshChapterTree(sql: string): boolean {
+    const normalized = normalizeSql(sql);
+    return /\b(?:insert\s+into|update|delete\s+from)\s+"?(?:Novel)"?/i.test(normalized);
+}
+
+export function buildAgentSqlErrorMessage(sql: string, error: unknown, kind: DatabaseKind = resolveDatabaseConfig().kind): string {
     const message = error instanceof Error ? error.message : String(error);
     const pgError = error as PgErrorLike;
     const hintLines = [`SQL 执行失败：${message}`];
-    if (pgError.code === "42P01" || message.includes("relation") && message.includes("does not exist")) {
-        hintLines.push("提示：业务表名区分大小写，例如 Novel、Chapter、Volume 必须写成 \"Novel\"、\"Chapter\"、\"Volume\"。");
+    if (kind === "postgres" && (pgError.code === "42P01" || message.includes("relation") && message.includes("does not exist"))) {
+        hintLines.push("提示：Postgres 业务表名区分大小写，例如 Novel、StoryThread 必须写成 \"Novel\"、\"StoryThread\"。");
     }
-    if (pgError.code === "42703" || message.includes("column") && message.includes("does not exist")) {
-        hintLines.push("提示：camelCase 字段区分大小写，例如 novelId、sortOrder、createdAt 必须写成 \"novelId\"、\"sortOrder\"、\"createdAt\"。");
+    if (kind === "postgres" && (pgError.code === "42703" || message.includes("column") && message.includes("does not exist"))) {
+        hintLines.push("提示：Postgres camelCase 字段区分大小写，例如 storyId、sortOrder、createdAt 必须写成 \"storyId\"、\"sortOrder\"、\"createdAt\"。");
+    }
+    if (kind === "sqlite" && /no such (?:table|column)/i.test(message)) {
+        hintLines.push("提示：当前是 SQLite，先用 sqlite_schema 或 schema summary 确认表/列名；业务表和 camelCase 字段建议使用双引号。");
     }
     return hintLines.join("\n");
 }
@@ -389,6 +579,13 @@ export function buildAgentSqlErrorMessage(sql: string, error: unknown): string {
 async function executeSql(sql: string): Promise<ExecuteSqlResult> {
     const normalized = normalizeSql(sql);
     validateExecuteSql(normalized);
+    const kind = resolveDatabaseConfig().kind;
+    return kind === "sqlite"
+        ? executeSqliteSql(normalized)
+        : executePostgresSql(normalized);
+}
+
+async function executePostgresSql(normalized: string): Promise<ExecuteSqlResult> {
     const pool = useAgentSqlPool();
     const client = await pool.connect();
     try {
@@ -399,19 +596,49 @@ async function executeSql(sql: string): Promise<ExecuteSqlResult> {
             ? await client.query(`SELECT * FROM (${normalized}) AS agent_query LIMIT ${String(AGENT_SQL_ROW_LIMIT)}`)
             : await client.query(normalized);
         await client.query("COMMIT");
-        return {
-            mode: isReadSql(normalized) ? "read" : "write",
-            command: detectSqlCommand(normalized),
-            rowCount: result.rowCount ?? result.rows.length,
-            rows: result.rows as Record<string, unknown>[],
-            effects: {
-                refreshChapterTree: !isReadSql(normalized) && shouldRefreshChapterTree(normalized),
-            },
-        };
+        return toExecuteSqlResult(normalized, result.rows as Record<string, unknown>[], result.rowCount ?? result.rows.length);
     } catch (error) {
         await client.query("ROLLBACK");
-        throw new Error(buildAgentSqlErrorMessage(normalized, error));
+        throw new Error(buildAgentSqlErrorMessage(normalized, error, "postgres"));
     } finally {
         client.release();
     }
+}
+
+async function executeSqliteSql(normalized: string): Promise<ExecuteSqlResult> {
+    const client = useSqliteClient();
+    const statement = isReadSql(normalized)
+        ? `SELECT * FROM (${normalized}) AS agent_query LIMIT ${String(AGENT_SQL_ROW_LIMIT)}`
+        : normalized;
+    try {
+        const result = await client.execute(statement);
+        const rows = result.rows.map((row) => ({...row}) as Record<string, unknown>);
+        return toExecuteSqlResult(normalized, rows, result.rowsAffected || rows.length);
+    } catch (error) {
+        throw new Error(buildAgentSqlErrorMessage(normalized, error, "sqlite"));
+    }
+}
+
+function toExecuteSqlResult(normalized: string, rows: Record<string, unknown>[], rowCount: number): ExecuteSqlResult {
+    return {
+        mode: isReadSql(normalized) ? "read" : "write",
+        command: detectSqlCommand(normalized),
+        rowCount,
+        rows,
+        effects: {
+            refreshChapterTree: !isReadSql(normalized) && shouldRefreshChapterTree(normalized),
+        },
+    };
+}
+
+function useSqliteClient(): LibsqlClient {
+    const config = resolveDatabaseConfig();
+    if (config.kind !== "sqlite") {
+        throw new Error("当前 Database Kind 不是 sqlite，不能初始化 SQLite SQL client。");
+    }
+    if (!sqliteClient || sqliteClientUrl !== config.url) {
+        sqliteClient = createClient({url: config.url});
+        sqliteClientUrl = config.url;
+    }
+    return sqliteClient;
 }

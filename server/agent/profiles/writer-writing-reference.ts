@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import {fileURLToPath} from "node:url";
 import {z} from "zod";
 import {assetResolver} from "nbook/server/assets/asset-resolver";
 import {parseFrontmatterDocument} from "nbook/server/utils/frontmatter-document";
@@ -8,10 +7,8 @@ import {parseFrontmatterDocument} from "nbook/server/utils/frontmatter-document"
 export const DEFAULT_WRITING_REFERENCE_PRESET = "reborn-villain-loli-magic-girl.first-three-chapters";
 
 const WRITING_REFERENCE_DIR_CANDIDATES = [
-    path.join(process.cwd(), "server", "agent-v2", "profiles", "builtin", "writing-references"),
-    path.join(path.dirname(fileURLToPath(import.meta.url)), "builtin", "writing-references"),
-    path.join(assetResolver.systemRoot, "agent", "profiles", "builtin", "writing-references"),
-    path.join(assetResolver.userRoot, "agent", "profiles", "builtin", "writing-references"),
+    path.join(assetResolver.systemRoot, "agent", "writing-presets", "references"),
+    path.join(assetResolver.userRoot, "agent", "writing-presets", "references"),
 ] as const;
 
 const WritingReferenceFrontmatterSchema = z.object({
@@ -35,7 +32,7 @@ type WritingReferenceFile = {
 };
 
 /**
- * 从 writing-references 目录自动发现 Markdown 文风参考正文。
+ * 从 agent/writing-presets/references 目录自动发现 Markdown 文风参考正文。
  */
 export async function loadWritingReferencePresets(candidates: readonly string[] = WRITING_REFERENCE_DIR_CANDIDATES): Promise<WritingReferenceDefinition[]> {
     const referenceFiles = await listMergedWritingReferenceFiles(candidates);

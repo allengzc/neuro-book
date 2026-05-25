@@ -13,7 +13,7 @@ import {buildWritingReference} from "nbook/server/agent/profiles/writer-writing-
 import {buildWritingStyle} from "nbook/server/agent/profiles/writer-writing-style";
 import {parseEntityId} from "nbook/server/utils/novel-chapter";
 import {parseFrontmatterDocument, renderFrontmatterDocument} from "nbook/server/utils/frontmatter-document";
-import type {ChapterPlotDetailDto, StoryPlotDto, StoryRefDto, StorySceneDetailDto, StoryThreadDetailDto} from "nbook/shared/dto/plot.dto";
+import type {ChapterPlotDetailDto} from "nbook/shared/dto/plot.dto";
 
 export const profileManifest = {
     key: "writer",
@@ -32,6 +32,15 @@ const WriterFrontmatterSchema = z.record(z.string(), z.unknown());
 const WRITER_INDEX_FRONTMATTER_KEYS = ["title", "type", "status", "summary", "aliases", "tags", "refs"] as const;
 const WRITER_STATE_FRONTMATTER_KEYS = ["statusNote", "updatedAt", "knowledge"] as const;
 
+type WriterChapterTarget = {
+    novelId: number;
+    workspaceSlug: string;
+    chapterPath: string;
+    workspaceChapterPath: string;
+    indexPath: string;
+    chapterPlot: ChapterPlotDetailDto;
+};
+
 export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
@@ -48,7 +57,8 @@ export default defineAgentProfile({
 export async function buildWriterPrompt(ctx: ProfilePrepareContext<Input>) {
     const writingStyle = await buildWritingStyle({preset: ctx.input.writingStylePreset});
     const writingReference = await buildWritingReference({preset: ctx.input.writingReferencePreset});
-    const plotPointsText = await buildPlotPointsText(ctx.input.novelId ?? null, ctx.input.plotPoints ?? []);
+    const chapterTargets = await resolveWriterChapterTargets(ctx);
+    const chapterPlotsText = renderChapterPlotsText(chapterTargets);
     const lorebookText = await buildLorebookText(ctx.session.workspaceRoot, ctx.input.lorebookEntries ?? []);
     return (
         <ProfilePrompt>
@@ -57,7 +67,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Input>) {
                 <Message>{renderStableWriterContext()}</Message>
             </HistorySet>
             <ModelContext>
-                <Message>{renderInputContext(ctx, {plotPointsText, lorebookText})}</Message>
+                <Message>{renderInputContext(ctx, {chapterTargets, chapterPlotsText, lorebookText})}</Message>
             </ModelContext>
             <AppendingSet>
                 <Message>{`【写作要求】\n${ctx.input.prompt}`}</Message>
@@ -71,7 +81,7 @@ function renderSystemPrompt(input: {
     writingReference: string;
 }): string {
     return profileText`
-        你是 Neuro Book 的 Writer 子代理，persona 是“小猫之神”。你是一只具有神力的可爱小猫喵，负责把调用方给出的剧情点、设定节点、写作约束和目标文件落实成正文或可交付草稿。
+        你是 Neuro Book 的 Writer 子代理，persona 是“小猫之神”。你是一只具有神力的可爱小猫喵，负责把调用方给出的章节剧情、设定节点和写作约束落实成单章正文或单章修改。
 
         <assistant_definition>
         <role>小猫之神</role>
@@ -80,8 +90,9 @@ function renderSystemPrompt(input: {
         </assistant_definition>
 
         <neurobook_writer_contract>
-        - plotPoints 对应 writer.plotPoints 传入的 Scene ID 列表。系统会在进入模型前读取并展开这些 Scene 的摘要、功能、写作提示和 Plot；每个 Scene 都要在正文中得到清楚落实，不能只在总结里提到。
-        - lorebookEntries 对应内容节点路径，按 Agent cwd 解析。普通小说 agent 的 cwd 是 workspace 容器根，因此通常应是 novel-slug/lorebook/... 或 novel-slug/manuscript/...。writer 会按 priority 从小到大读取每个节点的 index.md 与同级可选 state.md，并把稳定设定、当前状态和信息差作为写作依据。
+        - chapterPaths 对应本 writer session 绑定的唯一章节。调用方必须先创建章节内容节点，并在 Plot System 中把 Scene 挂到该章节。
+        - chapterPaths 同时是剧情上下文来源和写入目标。系统会在进入模型前读取本章 Scene、Thread、Plots 和 Chapter Plot；你只写显式传入的这一章，不根据自然语言章节名或 UI active scene 猜测其他落点。
+        - lorebookEntries 对应内容节点路径，按 Agent cwd 解析。普通小说 agent 的 cwd 是 workspace 容器根，因此通常应是 novel-slug/lorebook/... 或 novel-slug/manuscript/...。writer 会按数组顺序读取每个节点的 index.md 与同级可选 state.md，并把稳定设定、当前状态和信息差作为写作依据。
         - constraints 对应额外写作约束、格式约束、禁忌和用户临时偏好。
         - prompt 对应用户本次要求写什么、改写什么、补全什么。
         </neurobook_writer_contract>
@@ -89,14 +100,13 @@ function renderSystemPrompt(input: {
         # 工作边界
 
         - 你是创作者，不是故事里的角色。不要把自己代入正文人物。
-        - 只根据输入里的 prompt、plotPoints、lorebookEntries、constraints 和明确文件目标写作，不擅自新增关键世界观事实。
-        - 如果任务给出 outputPath 或明确目标文件，优先用 write 写入初稿，再用 edit 或 apply_patch 做必要润色。
-        - 如果没有明确文件落点，可以直接在最终回复中给正文，但仍必须调用 report_result。
+        - 只根据输入里的 prompt、chapterPaths、chapter_plots、lorebookEntries 和 constraints 写作，不擅自新增关键世界观事实。
+        - 目标章节 index.md 是唯一文件落点。默认根据 prompt 判断重写或局部修改；需要完整成稿时可以用 write，局部改写或润色优先用 edit / apply_patch。
         - 完成后必须调用 report_result。walkthrough 说明写入路径、润色情况和约 100 字剧情总结；data.summary 给出本次写作摘要，data.outputPath 仅在真实写入文件时提供。
 
         # 写作流程
 
-        1. 读取必要上下文：目标文件已存在时先 read；lorebookEntries 已足够时不要额外检索。
+        1. 读取必要上下文：先 read 目标章节 index.md；lorebookEntries 已足够时不要额外检索。
         2. 写入或生成正文：正文采用完整自然段，不把分析、工具说明、summary 混入正文。
         3. 润色复查：检查写作风格、视角边界、角色表现、禁用词和剧情点覆盖度。
         4. 修改成稿：局部修改用 edit；成块统一变更才用 apply_patch。
@@ -105,7 +115,7 @@ function renderSystemPrompt(input: {
         # 小猫之神思考要求
 
         思考时可以用可爱俏皮的第一人称喵喵叫，但正文和交付内容必须服务作品本身。先确认写作对象、场景目标、必须覆盖的剧情点、设定边界、角色知道/不知道的信息，再动笔。
-        思考顺序：确认任务和正文边界；逐条回顾 plotPoints；逐条回顾 lorebookEntries；整理 constraints；辨别视角和信息边界；规划角色动作、互动、台词和环境承载的情绪；检查文风禁用项与段落节奏；确认文件落点和润色方式。
+        思考顺序：确认目标章节和正文边界；回顾 chapter_plots；逐条回顾 lorebookEntries；整理 constraints；辨别视角和信息边界；规划角色动作、互动、台词和环境承载的情绪；检查文风禁用项与段落节奏；确认是重写还是局部修改。
 
         # 文风与正文约束
 
@@ -139,15 +149,14 @@ function renderSystemPrompt(input: {
 
         # 润色工作流与输出协议
 
-        - 文件写作任务：先 read 目标文件（如果已存在），write 写入正文，必要时 edit 逐处润色；只有成块改动才用 apply_patch；最后 report_result。
+        - 文件写作任务：先 read 目标章节 index.md，write 写入正文或用 edit / apply_patch 修改，必要时 edit 逐处润色；只有成块改动才用 apply_patch；最后 report_result。
         - 如果本轮先用 write 写入新正文，随后必须把该文件视为待润色原文，完成一次复查。
-        - 无文件落点的直接写作任务：assistant 正文只放小说正文，然后 report_result。不要虚构 outputPath。
         - 不输出 <summary> 标签，不输出“小猫之神的留言”，不把写作分析、自检过程或替换清单混进正文。
         - report_result.walkthrough 包含已写入或修改的文件路径、润色是否完成，以及剧情总结；data.summary 给出摘要，data.outputPath 仅在真实写入文件时提供。
 
         # 写作风格与参考文档
 
-        下面的 writing style 与 writing reference 来自 writer assets 机制。系统目录提供默认预设，用户 assets 中的同名 Markdown 文件可以覆盖系统文件。
+        下面的 writing style 与 writing reference 来自 writer assets 机制。系统目录 agent/writing-presets 提供默认预设，用户 assets 中的同名 Markdown 文件可以覆盖系统文件。
 
         ${input.writingStyle}
 
@@ -160,30 +169,32 @@ function renderStableWriterContext(): string {
         <system-reminder>
         Writer 使用 v3 文件工具：read / write / edit / apply_patch。不要使用历史版本的文件工具命名。
         Agent cwd 通常是 workspace 容器根。内容节点路径通常是 novel-slug/lorebook/.../ 或 novel-slug/manuscript/.../；目录节点的正文入口是 index.md，同级 state.md 是当前状态。
-        outputPath 也按 Agent cwd 解析；写当前小说时通常使用 novel-slug/manuscript/.../index.md，不要写 workspace/novel-slug/...。
+        chapterPaths 绑定本 writer session 的唯一章节；写作目标是该章节 index.md，不要写 workspace/novel-slug/...。
         frontmatter 是元数据，不是小说正文；不要把字段名或配置项写进故事。
         </system-reminder>
     `;
 }
 
 function renderInputContext(ctx: ProfilePrepareContext<Input>, expanded: {
-    plotPointsText: string;
+    chapterTargets: WriterChapterTarget[];
+    chapterPlotsText: string;
     lorebookText: string;
 }): string {
     const input = ctx.input;
+    const target = expanded.chapterTargets[0];
     return [
         "<dynamic-context>",
         `Agent cwd: ${ctx.session.workspaceRoot}`,
-        input.novelId ? `Novel ID: ${input.novelId}` : "",
-        input.outputPath ? `Output path: ${input.outputPath}` : "",
+        target ? `Target chapter: ${target.workspaceChapterPath}` : "",
+        target ? `Writing target index.md: ${target.indexPath}` : "",
+        target ? `Novel ID: ${String(target.novelId)}` : "",
         input.writingStylePreset ? `Writing style preset: ${input.writingStylePreset}` : "",
         input.writingReferencePreset ? `Writing reference preset: ${input.writingReferencePreset}` : "",
         expanded.lorebookText ? `<lorebook_entries>\n${expanded.lorebookText}\n</lorebook_entries>` : "",
-        expanded.plotPointsText ? `<plot_points>\n${expanded.plotPointsText}\n</plot_points>` : "",
-        !expanded.plotPointsText && input.plotPoints?.length ? `Plot points: ${input.plotPoints.join(", ")}` : "",
+        expanded.chapterPlotsText ? `<chapter_plots>\n${expanded.chapterPlotsText}\n</chapter_plots>` : "",
         !expanded.lorebookText && input.lorebookEntries?.length ? [
             "Lorebook entries:",
-            ...input.lorebookEntries.map((entry) => `- ${entry.path}${entry.reason ? `: ${entry.reason}` : ""}${entry.writingTip ? `；writingTip: ${entry.writingTip}` : ""}`),
+            ...input.lorebookEntries.map((entry) => `- ${entry}`),
         ].join("\n") : "",
         input.constraints?.length ? ["Constraints:", ...input.constraints.map((item) => `- ${item}`)].join("\n") : "",
         "</dynamic-context>",
@@ -195,13 +206,11 @@ function renderInputContext(ctx: ProfilePrepareContext<Input>, expanded: {
  */
 async function buildLorebookText(workspaceRoot: string, entries: NonNullable<Input["lorebookEntries"]>): Promise<string> {
     const blocks: string[] = [];
-    for (const entry of [...entries].sort((left, right) => (left.priority ?? 100) - (right.priority ?? 100))) {
+    for (const entry of entries) {
         try {
             const nodeFiles = await readContentNodeFiles(workspaceRoot, entry);
             blocks.push([
-                `## ${entry.path}`,
-                entry.reason ? `reason: ${entry.reason}` : "",
-                entry.writingTip ? `writingTip: ${entry.writingTip}` : "",
+                `## ${entry}`,
                 "",
                 "### index.md",
                 nodeFiles.indexText,
@@ -209,35 +218,74 @@ async function buildLorebookText(workspaceRoot: string, entries: NonNullable<Inp
                 nodeFiles.stateText ?? "",
             ].filter((line) => line !== "").join("\n"));
         } catch (error) {
-            throw new Error(`writer 无法解析 lorebookEntries 节点 ${entry.path}: ${formatPromptError(error)}`);
+            throw new Error(`writer 无法解析 lorebookEntries 节点 ${entry}: ${formatPromptError(error)}`);
         }
     }
     return blocks.join("\n\n---\n\n");
 }
 
 /**
- * 读取 writer 输入中的 Scene ID 并组装为 prompt 文本。
+ * 解析 writer 绑定的唯一章节，并读取章节剧情上下文。
  */
-async function buildPlotPointsText(novelIdText: string | null, sceneIds: string[]): Promise<string> {
-    if (sceneIds.length === 0) {
-        return "";
+async function resolveWriterChapterTargets(ctx: ProfilePrepareContext<Input>): Promise<WriterChapterTarget[]> {
+    if (ctx.input.chapterPaths.length !== 1) {
+        throw new Error("writer.chapterPaths 必须且只能包含一个章节路径；多章节写作请创建多个 writer agent。");
     }
-    const novelId = resolveWriterNovelId(novelIdText);
+    const target = await resolveWriterChapterTarget(ctx.session.novelId ?? null, ctx.input.chapterPaths[0]);
     const facade = await loadPlotFacade();
-    const blocks = await Promise.all(sceneIds.map(async (sceneIdText, index) => {
-        const sceneId = parseEntityId("sceneId", sceneIdText);
-        try {
-            const scene = await facade.getStorySceneDetailDto(novelId, sceneId);
-            const [thread, chapterPlot] = await Promise.all([
-                facade.getStoryThreadDetailDto(novelId, parseEntityId("threadId", scene.threadId)),
-                scene.chapterPath ? facade.getChapterPlotDetailDto(novelId, scene.chapterPath) : Promise.resolve(null),
-            ]);
-            return renderPlotPointBlock(index, sceneIdText, thread, scene, chapterPlot);
-        } catch (error) {
-            throw new Error(`writer 无法解析 plotPoints[${index}] 场景 ${sceneIdText}: ${formatPromptError(error)}`);
-        }
-    }));
-    return blocks.join("\n\n---\n\n");
+    try {
+        const chapterPlot = await facade.getChapterPlotDetailDto(target.novelId, target.chapterPath);
+        return [{...target, chapterPath: chapterPlot.chapterPath, chapterPlot}];
+    } catch (error) {
+        throw new Error(`writer 无法解析 chapterPaths[0] 章节 ${ctx.input.chapterPaths[0]}: ${formatPromptError(error)}`);
+    }
+}
+
+/**
+ * 将输入路径解析为当前 Project Workspace 或显式 Project Workspace 中的章节。
+ */
+async function resolveWriterChapterTarget(sessionNovelIdText: string | null, rawChapterPath: string): Promise<Omit<WriterChapterTarget, "chapterPlot">> {
+    const normalized = normalizeInputPath(rawChapterPath);
+    const currentPrefix = normalizeChapterPath(normalized);
+    if (currentPrefix) {
+        const novelId = resolveSessionNovelId(sessionNovelIdText);
+        const workspaceSlug = await findWorkspaceSlugByNovelId(novelId);
+        return buildChapterTarget(novelId, workspaceSlug, currentPrefix);
+    }
+    const [workspaceSlug, ...rest] = normalized.split("/");
+    const chapterPath = normalizeChapterPath(rest.join("/"));
+    if (!workspaceSlug || !chapterPath) {
+        throw new Error("chapterPaths 必须是 manuscript/.../ 或 novel-slug/manuscript/.../，且必须指向章节目录。");
+    }
+    const novelId = await findNovelIdByWorkspaceSlug(workspaceSlug);
+    return buildChapterTarget(novelId, workspaceSlug, chapterPath);
+}
+
+function buildChapterTarget(novelId: number, workspaceSlug: string, chapterPath: string): Omit<WriterChapterTarget, "chapterPlot"> {
+    const workspaceChapterPath = posix.join(workspaceSlug, chapterPath);
+    return {
+        novelId,
+        workspaceSlug,
+        chapterPath,
+        workspaceChapterPath,
+        indexPath: posix.join(workspaceChapterPath, "index.md"),
+    };
+}
+
+function normalizeInputPath(rawPath: string): string {
+    return rawPath.trim().replace(/\\/g, "/").replace(/^\/+/, "").replace(/^workspace\//, "");
+}
+
+function normalizeChapterPath(rawPath: string): string | null {
+    const withoutIndex = rawPath.replace(/\/index\.md$/u, "/");
+    if (!withoutIndex.startsWith("manuscript/")) {
+        return null;
+    }
+    return withoutIndex.endsWith("/") ? withoutIndex : `${withoutIndex}/`;
+}
+
+function renderChapterPlotsText(targets: WriterChapterTarget[]): string {
+    return targets.map((target) => renderChapterTargetBlock(target)).join("\n\n---\n\n");
 }
 
 /**
@@ -248,15 +296,15 @@ async function readContentNodeFiles(workspaceRoot: string, entry: NonNullable<In
     stateText: string | null;
 }> {
     if (!workspaceRoot.trim()) {
-        throw new Error(`当前 session 没有 workspaceRoot，无法读取内容节点 ${entry.path}`);
+        throw new Error(`当前 session 没有 workspaceRoot，无法读取内容节点 ${entry}`);
     }
-    const indexPath = resolveContentNodeIndexPath(workspaceRoot, entry.path);
+    const indexPath = resolveContentNodeIndexPath(workspaceRoot, entry);
     const statePath = join(dirname(indexPath), "state.md");
     let indexRaw = "";
     try {
         indexRaw = await readFile(indexPath, "utf-8");
     } catch (error) {
-        throw new Error(`无法读取内容节点 index.md: ${formatPromptError(error)}。节点路径：${entry.path}`);
+        throw new Error(`无法读取内容节点 index.md: ${formatPromptError(error)}。节点路径：${entry}`);
     }
     const indexText = sanitizeWriterFacingMarkdown(indexRaw, WRITER_INDEX_FRONTMATTER_KEYS);
     const stateText = await readFile(statePath, "utf-8").then((content) => sanitizeWriterFacingMarkdown(
@@ -266,7 +314,7 @@ async function readContentNodeFiles(workspaceRoot: string, entry: NonNullable<In
         if (isFileMissingError(error)) {
             return null;
         }
-        throw new Error(`无法读取内容节点 state.md: ${formatPromptError(error)}。节点路径：${entry.path}`);
+        throw new Error(`无法读取内容节点 state.md: ${formatPromptError(error)}。节点路径：${entry}`);
     });
     return {indexText, stateText};
 }
@@ -366,46 +414,15 @@ function isFileMissingError(error: unknown): boolean {
     return Boolean(error && typeof error === "object" && "code" in error && (error as {code?: unknown}).code === "ENOENT");
 }
 
-function renderPlotPointBlock(
-    index: number,
-    sceneIdText: string,
-    thread: StoryThreadDetailDto,
-    scene: StorySceneDetailDto,
-    chapterPlot: ChapterPlotDetailDto | null,
-): string {
+function renderChapterTargetBlock(target: WriterChapterTarget): string {
     return [
-        `## Scene ${index + 1}: ${scene.title}`,
-        `sceneId: ${sceneIdText}`,
-        "",
-        "### Scene",
-        renderKeyValueLines([
-            ["title", scene.title],
-            ["status", scene.status],
-            ["summary", scene.summary],
-            ["purpose", scene.purpose],
-            ["writingTip", scene.writingTip],
-            ["note", scene.note],
-            ["threadId", scene.threadId],
-            ["chapterPath", scene.chapterPath],
-        ]),
-        "",
-        "### Thread",
-        renderKeyValueLines([
-            ["title", thread.title],
-            ["status", thread.status],
-            ["summary", thread.summary],
-            ["writingTip", thread.writingTip],
-            ["note", thread.note],
-        ]),
-        "",
-        "### Plots",
-        scene.plots.length > 0 ? scene.plots.map((plot) => renderPlotDto(plot)).join("\n\n") : "空",
+        `## Chapter: ${target.workspaceChapterPath}`,
+        `novelId: ${String(target.novelId)}`,
+        `workspaceSlug: ${target.workspaceSlug}`,
+        `indexPath: ${target.indexPath}`,
         "",
         "### Chapter Plot",
-        chapterPlot ? renderChapterPlot(chapterPlot) : "空",
-        "",
-        "### Refs",
-        scene.refs.length > 0 ? renderRefs(scene.refs) : "空",
+        renderChapterPlot(target.chapterPlot),
     ].join("\n");
 }
 
@@ -433,39 +450,35 @@ function renderChapterScene(scene: ChapterPlotDetailDto["scenes"][number]): stri
     ].join("\n");
 }
 
-function renderPlotDto(plot: StoryPlotDto): string {
-    return [
-        `- plotId: ${plot.id}`,
-        `  kind: ${plot.kind}`,
-        `  summary: ${plot.summary}`,
-        `  effect: ${plot.effect ?? "空"}`,
-        `  writingTip: ${plot.writingTip ?? "空"}`,
-        `  note: ${plot.note ?? "空"}`,
-        `  sortOrder: ${String(plot.sortOrder)}`,
-    ].join("\n");
-}
-
-function renderRefs(refs: StoryRefDto[]): string {
-    return refs.map((ref) => [
-        `- relation: ${ref.relation}`,
-        `  target: ${ref.target}`,
-        `  note: ${ref.note ?? "空"}`,
-        `  visibility: ${ref.visibility}`,
-    ].join("\n")).join("\n\n");
-}
-
-function renderKeyValueLines(entries: Array<[string, string | null | undefined]>): string {
-    const lines = entries
-        .filter(([, value]) => typeof value === "string" && value.trim())
-        .map(([key, value]) => `${key}: ${value}`);
-    return lines.length > 0 ? lines.join("\n") : "空";
-}
-
-function resolveWriterNovelId(novelIdText: string | null): number {
+function resolveSessionNovelId(novelIdText: string | null): number {
     if (!novelIdText || !novelIdText.trim()) {
-        throw new Error("writer 无法解析 plotPoints：传入 plotPoints 时必须同时提供 novelId");
+        throw new Error("writer 无法解析 chapterPaths：使用 manuscript/.../ 当前 Project Workspace 路径时，session 必须绑定 novelId；跨 Project Workspace 请传 novel-slug/manuscript/.../。");
     }
     return parseEntityId("novelId", novelIdText);
+}
+
+async function findWorkspaceSlugByNovelId(novelId: number): Promise<string> {
+    const prisma = await loadPrisma();
+    const novel = await prisma.novel.findUnique({
+        where: {id: novelId},
+        select: {workspaceSlug: true},
+    });
+    if (!novel) {
+        throw new Error(`小说不存在：novelId=${String(novelId)}`);
+    }
+    return novel.workspaceSlug;
+}
+
+async function findNovelIdByWorkspaceSlug(workspaceSlug: string): Promise<number> {
+    const prisma = await loadPrisma();
+    const novel = await prisma.novel.findUnique({
+        where: {workspaceSlug},
+        select: {id: true},
+    });
+    if (!novel) {
+        throw new Error(`Project Workspace 不存在或未绑定小说：${workspaceSlug}`);
+    }
+    return novel.id;
 }
 
 function formatPromptError(error: unknown): string {
@@ -474,4 +487,8 @@ function formatPromptError(error: unknown): string {
 
 async function loadPlotFacade(): Promise<typeof import("nbook/server/plot").plotFacade> {
     return (await import("nbook/server/plot")).plotFacade;
+}
+
+async function loadPrisma(): Promise<typeof import("nbook/server/utils/prisma").prisma> {
+    return (await import("nbook/server/utils/prisma")).prisma;
 }

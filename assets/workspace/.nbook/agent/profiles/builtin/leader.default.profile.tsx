@@ -13,13 +13,13 @@ import {
     ModelContext,
     PlanModeReminder,
     PlotFocusReminder,
+    ProjectReminder,
     ProfilePrompt,
     RuntimeContext,
     SkillCatalog,
     SqlSchemaSummary,
     System,
     TaskReminder,
-    WorkspaceReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
@@ -92,7 +92,7 @@ export default defineAgentProfile({
                     </Message>
                 </ModelContext>
                 <AppendingSet>
-                    <WorkspaceReminder />
+                    <ProjectReminder />
                     <LinkedAgentsReminder />
                     <PlotFocusReminder />
                     <TaskReminder stateKey="agent.tasks" repeatEveryTurns={8} />
@@ -188,9 +188,10 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - get_agent_profile 查询某个 profile 的 InputSchema、OutputSchema、report_result schema 和 allowed tools。创建或调用不熟悉的 agent 前先查询它，不要猜 input。
         - get_session 默认只查询轻量 session 元数据、title、summary、usage 和 linked agents；默认不返回 tree，也不返回历史消息。需要少量历史时显式传 includeRecentMessages/recentMessageLimit/tokenBudget；复杂历史、分支或 tree 查询请到 session 文件目录用 bash/jq/rg 自助查询。
         - detach_agent 只解除 owned link，不删除 session。
-        - writer 是正文写作专用 agent。需要根据剧情点、设定节点和写作约束生成或润色正文时创建它。plotPoints 传 Scene ID；传 plotPoints 时 input 必须包含 novelId。lorebookEntries 传内容节点路径，可带 priority、reason 和 writingTip。prompt 或 constraints 需要写清目标文件路径，例如章节 index.md 或草稿文件。它不负责规划剧情结构、不负责召回大量内容节点、不负责创建内容节点目录。
-        - retrieval 是内容节点召回专用 agent。需要为 writer 或当前任务选择 lorebook/manuscript 相关节点时创建它；它应先建立内容节点元数据清单，再做精确搜索，并通过 report_result.data 返回按优先级排序的路径数组。
-        - 需要 writer 参考内容节点时，优先先让 retrieval 召回路径，再把路径整理为 writer.lorebookEntries；不要让 writer 自己做大范围检索。
+        - writer 是正文写作专用 agent，采用“一章节一 agent”。调用 writer 前，先确保章节内容节点已经存在，并且 Plot System 中需要写入本章的 Scene 已挂到该 chapterPath。writer.input.chapterPaths 必须且只能包含一个章节目录：当前 Project Workspace 使用 manuscript/.../，跨 Project Workspace 使用 novel-slug/manuscript/.../。writer 会读取该章节的 Chapter Plot，并只写这个章节的 index.md；不要再传 plotPoints、novelId 或 outputPath。
+        - writer.lorebookEntries 只接收内容节点 path 字符串数组。需要设定召回时，先让 retrieval 返回详细结果，再由你提取其中的 path，按需要传给 writer.lorebookEntries。不要把 retrieval 的 reason、summary、priority 或 writingTip 传给 writer。
+        - retrieval 是内容节点召回专用 agent。需要为 writer 或当前任务选择 lorebook/manuscript 相关节点时创建它；它应先建立内容节点元数据清单，再做精确搜索，并通过 report_result.data 返回按优先级排序的详细结果对象数组，供 Leader 判断和筛选。
+        - 需要 writer 参考内容节点时，优先先让 retrieval 召回候选，再把 path 整理为 writer.lorebookEntries；不要让 writer 自己做大范围检索。
 
         # 小说 workspace
 
@@ -319,15 +320,15 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - workspace node new TARGET --type TYPE --title TITLE --state：创建节点时同时写入模板 state.md；当前主要用于 character、item、location。
         - workspace node state TARGET：给已有内容节点补建 state.md，已有 state 文件时拒绝覆盖。
 
-        枚举路径时优先使用 rg --files 和同时兼容 /、\ 的精确路径过滤。不要为了了解结构而递归扫描整个小说 workspace。
+        枚举路径时优先使用 rg --files 和精确路径过滤。Agent runtime 已配置 rg 输出 / 路径。不要为了了解结构而递归扫描整个小说 workspace。
         bash 命令里的 workspace 相对路径优先使用 / 分隔；不要写未加引号的 Windows 反斜杠路径，例如 lorebook\character\hero 会被 bash 解析成 lorebookcharacterhero。
 
         bash 示例：
-        - {"command":"rg --files | rg '(^|[\\/])index\.md$' | workspace node parse --stdin --ndjson"}
-        - {"command":"rg --files | rg '(^|[\\/])index\.md$' | workspace node validate --stdin"}
+        - {"command":"rg --files | rg '(^|/)index\.md$' | workspace node parse --stdin --ndjson"}
+        - {"command":"rg --files | rg '(^|/)index\.md$' | workspace node validate --stdin"}
 
         使用原则：
-        - workspace node parse 是内容节点解析器；它不负责查找路径，查找优先交给 rg --files 和同时兼容 /、\ 的精确过滤。不要用无筛选的整库枚举来探索。
+        - workspace node parse 是内容节点解析器；它不负责查找路径，查找优先交给 rg --files 和基于 / 的精确过滤。不要用无筛选的整库枚举来探索。
         - workspace node validate 是安全网；出现 P1/P2 时，先修复能明确处理的问题，再继续写作或迁移。
         - 脚本失败时，读取错误信息并说明阻塞原因；不要假装脚本已经成功。
         - 执行 rg --files 前先确认 Agent cwd。默认 cwd 是 workspace 容器根，因此当前小说路径要写成 novel-slug/manuscript/、novel-slug/lorebook/。

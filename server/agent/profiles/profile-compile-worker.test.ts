@@ -1,33 +1,16 @@
-import {mkdir, readFile, rm, stat, writeFile} from "node:fs/promises";
+import {mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 import {ProfileCompileWorkerService, useProfileCompileWorker} from "nbook/server/agent/profiles/profile-compile-worker";
-import {runProfileCompile} from "nbook/server/agent/profiles/profile-compile-worker-runtime";
+import {runProfileCompile, runProfileCompileAll} from "nbook/server/agent/profiles/profile-compile-worker-runtime";
 
 describe("profile compile worker runtime", () => {
     it("在 worker runtime 中编译 .profile.tsx 源码", async () => {
-        const fileName = "builtin/leader.default.profile.tsx";
-        const source = await readFile("workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx", "utf8");
+        await withCompiledRootSnapshot(async () => {
+            const fileName = "builtin/leader.default.profile.tsx";
+            const source = await readFile("workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx", "utf8");
 
-        const result = await runProfileCompile({
-            fileName,
-            source,
-            dryRun: false,
-            preview: false,
-        });
-
-        expect(result.ok).toBe(true);
-        expect(result.detail?.manifest?.key).toBe("leader.default");
-        expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
-    }, 120000);
-
-    it("通过 worker service 后台编译 .profile.tsx 源码", async () => {
-        const fileName = "builtin/leader.default.profile.tsx";
-        const source = await readFile("workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx", "utf8");
-        const worker = useProfileCompileWorker();
-
-        try {
-            const result = await worker.compile({
+            const result = await runProfileCompile({
                 fileName,
                 source,
                 dryRun: false,
@@ -37,9 +20,98 @@ describe("profile compile worker runtime", () => {
             expect(result.ok).toBe(true);
             expect(result.detail?.manifest?.key).toBe("leader.default");
             expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
-        } finally {
-            worker.dispose();
-        }
+        });
+    }, 120000);
+
+    it("通过 worker service 后台编译 .profile.tsx 源码", async () => {
+        await withCompiledRootSnapshot(async () => {
+            const fileName = "builtin/leader.default.profile.tsx";
+            const source = await readFile("workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx", "utf8");
+            const worker = useProfileCompileWorker();
+
+            try {
+                const result = await worker.compile({
+                    fileName,
+                    source,
+                    dryRun: false,
+                    preview: false,
+                });
+
+                expect(result.ok).toBe(true);
+                expect(result.detail?.manifest?.key).toBe("leader.default");
+                expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
+            } finally {
+                worker.dispose();
+            }
+        });
+    }, 120000);
+
+    it("通过 worker runtime 全量编译用户 profile root", async () => {
+        await withCompiledRootSnapshot(async () => {
+            const result = await runProfileCompileAll({preview: false});
+
+            expect(result.ok).toBe(true);
+            expect(result.compiledCount).toBeGreaterThan(0);
+            expect(result.profiles?.some((profile) => profile.profileKey === "leader.default")).toBe(true);
+            expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
+        });
+    }, 120000);
+
+    it("全量编译遇到坏 profile 时继续编译其它 profile", async () => {
+        await withCompiledRootSnapshot(async () => {
+            const brokenFile = resolve("workspace", ".nbook", "agent", "profiles", "broken-aggregate.profile.tsx");
+            await writeFile(brokenFile, "export default ;\n", "utf8");
+            try {
+                const result = await runProfileCompileAll({preview: false});
+
+                expect(result.ok).toBe(false);
+                expect(result.profiles?.some((profile) => profile.profileKey === "leader.default")).toBe(true);
+                expect(result.issues).toEqual(expect.arrayContaining([
+                    expect.objectContaining({
+                        severity: "error",
+                        fileName: "broken-aggregate.profile.tsx",
+                    }),
+                ]));
+            } finally {
+                await rm(brokenFile, {force: true});
+            }
+        });
+    }, 120000);
+
+    it("通过 worker service 后台全量编译用户 profile root", async () => {
+        await withCompiledRootSnapshot(async () => {
+            const worker = useProfileCompileWorker();
+            try {
+                const result = await worker.compileAll({preview: false});
+
+                expect(result.ok).toBe(true);
+                expect(result.compiledCount).toBeGreaterThan(0);
+                expect(result.profiles?.some((profile) => profile.profileKey === "leader.default")).toBe(true);
+                expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
+            } finally {
+                worker.dispose();
+            }
+        });
+    }, 120000);
+
+    it("源码覆盖编译不写入全局 profile module cache", async () => {
+        await withCompiledRootSnapshot(async () => {
+            const globalCacheRoot = resolve(".agent", "workspace", "profile-module-cache");
+            await rm(globalCacheRoot, {recursive: true, force: true});
+            await mkdir(globalCacheRoot, {recursive: true});
+            const source = await readFile("workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx", "utf8");
+
+            const result = await runProfileCompile({
+                fileName: "builtin/leader.default.profile.tsx",
+                source,
+                dryRun: false,
+                preview: false,
+            });
+            const cacheEntries = await readDirNames(globalCacheRoot);
+
+            expect(result.ok).toBe(true);
+            expect(cacheEntries.filter((name) => name.endsWith(".mjs"))).toEqual([]);
+        });
     }, 120000);
 
     it("worker crash 返回结构化 issue，不向 endpoint 抛 rejected promise", async () => {
@@ -67,24 +139,6 @@ describe("profile compile worker runtime", () => {
             }),
         ]);
     });
-
-    it("源码覆盖编译不写入全局 profile module cache", async () => {
-        const globalCacheRoot = resolve(".agent", "workspace", "profile-module-cache");
-        await rm(globalCacheRoot, {recursive: true, force: true});
-        await mkdir(globalCacheRoot, {recursive: true});
-        const source = await readFile("workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx", "utf8");
-
-        const result = await runProfileCompile({
-            fileName: "builtin/leader.default.profile.tsx",
-            source,
-            dryRun: false,
-            preview: false,
-        });
-        const cacheEntries = await readDirNames(globalCacheRoot);
-
-        expect(result.ok).toBe(true);
-        expect(cacheEntries.filter((name) => name.endsWith(".mjs"))).toEqual([]);
-    }, 120000);
 
     it("dry-run preview 不写入真实用户源码或 compiled artifact", async () => {
         const fileName = "builtin/leader.default.profile.tsx";
@@ -133,4 +187,28 @@ async function pathExists(filePath: string): Promise<boolean> {
         }
         throw error;
     }
+}
+
+async function withCompiledRootSnapshot(run: () => Promise<void>): Promise<void> {
+    const compiledRoot = resolve("workspace", ".nbook", "agent", "profiles", ".compiled");
+    const originalManifest = await readFile(resolve(compiledRoot, "manifest.json"), "utf8").catch(() => null);
+    const originalEntries = new Set(await readDirNames(compiledRoot));
+    try {
+        await run();
+    } finally {
+        await restoreCompiledRoot(compiledRoot, originalEntries, originalManifest);
+    }
+}
+
+async function restoreCompiledRoot(compiledRoot: string, originalEntries: Set<string>, originalManifest: string | null): Promise<void> {
+    await mkdir(compiledRoot, {recursive: true});
+    const currentEntries = await readdir(compiledRoot).catch(() => []);
+    await Promise.all(currentEntries
+        .filter((entry) => !originalEntries.has(entry))
+        .map((entry) => rm(resolve(compiledRoot, entry), {force: true})));
+    if (originalManifest === null) {
+        await rm(resolve(compiledRoot, "manifest.json"), {force: true});
+        return;
+    }
+    await writeFile(resolve(compiledRoot, "manifest.json"), originalManifest, "utf8");
 }

@@ -1,22 +1,22 @@
 {
   "compilerVersion": 1,
-  "generatedAt": "2026-05-24T07:50:58.631Z",
+  "generatedAt": "2026-05-25T02:05:28.331Z",
   "profilesRoot": "assets/workspace/.nbook/agent/profiles",
   "profiles": [
     {
       "fileName": "builtin/leader.assets.profile.tsx",
       "profileKey": "leader.assets",
-      "sourceSha256": "9148804c3b0fb91db5120452fc3024440538cb88b26fa52310c5c7d08a99a6de",
-      "sourceBytes": 11451,
-      "dependencyHash": "8390b700849beb48ebb6d1e3",
-      "artifactFileName": "8390b700849beb48ebb6d1e3.mjs",
-      "artifactSha256": "195bfdf3d97195eff345ad60404ecb81c69a4afd264c4db1450098a64878673b",
-      "artifactBytes": 49960,
+      "sourceSha256": "4ae532ed15bd4ba53f5d9d75aa2fef486906a2725197fb59b2b07389d9af939a",
+      "sourceBytes": 15915,
+      "dependencyHash": "cd2103df2f6dc3c8f5dc46f3",
+      "artifactFileName": "cd2103df2f6dc3c8f5dc46f3.mjs",
+      "artifactSha256": "9e34b63f626b50258834ea47ab59af8fc4d1795bd0d2da31437a9503f2c1d274",
+      "artifactBytes": 107073,
       "dependencies": [
         {
           "path": "assets/workspace/.nbook/agent/profiles/builtin/leader.assets.profile.tsx",
-          "sha256": "9148804c3b0fb91db5120452fc3024440538cb88b26fa52310c5c7d08a99a6de",
-          "bytes": 11451
+          "sha256": "4ae532ed15bd4ba53f5d9d75aa2fef486906a2725197fb59b2b07389d9af939a",
+          "bytes": 15915
         },
         {
           "path": "server/agent/messages/message-utils.ts",
@@ -30,8 +30,8 @@
         },
         {
           "path": "server/agent/profiles/builtin-contracts.ts",
-          "sha256": "df97fa3eab2237d31c4fa861ebb528c80bf0ccd70dda0d405e8adfe1cb0aedf5",
-          "bytes": 4708
+          "sha256": "745c809d22b4c924b569aeec6fa0835acd35bf215539767ee7dbf8a916248366",
+          "bytes": 4690
         },
         {
           "path": "server/agent/profiles/define-agent-profile.ts",
@@ -40,8 +40,13 @@
         },
         {
           "path": "server/agent/profiles/profile-dsl.ts",
-          "sha256": "98180a122edf18edc9e449c5033df94aeb0ffd3e5ad754dadcd53e29805ea146",
-          "bytes": 77520
+          "sha256": "de85645476663fe90fee5e28c35cb5911822886a132650a0ba50b26e8da2879a",
+          "bytes": 77530
+        },
+        {
+          "path": "server/agent/profiles/profile-dsl/jsx-runtime.ts",
+          "sha256": "8a0b89ccace2e9a88a953c15f8bfaa10911945a8f1ceedc4cfa111cb37e782b8",
+          "bytes": 4484
         },
         {
           "path": "server/agent/profiles/profile-text.ts",
@@ -55,13 +60,18 @@
         },
         {
           "path": "server/agent/tools/sql-tool.ts",
-          "sha256": "f357a7ce5fc2f4f53d6da0c85d826ffce328ea24b7dd7774df2e3c394e368e2f",
-          "bytes": 15692
+          "sha256": "2b6ca80012873101718284e3243b2c1f84331026f435a925e4c27fb288923035",
+          "bytes": 24011
+        },
+        {
+          "path": "server/database/config.ts",
+          "sha256": "8b22a3945105d2300c62e099465f11ed0d1fbeaa8227ffef21d55d9d3d86e51e",
+          "bytes": 4617
         },
         {
           "path": "server/utils/agent-sql-pool.ts",
-          "sha256": "8ca34d530966e090cbd8aace5b774272bc7ab5b630323db1e6814449a592db8c",
-          "bytes": 688
+          "sha256": "c5d99a4b6c7cfa3096eae59cb8d8195f45d96bfbbfcc7b7e477c63f88a173472",
+          "bytes": 1077
         },
         {
           "path": "tsconfig.json",
@@ -73,17 +83,17 @@
     {
       "fileName": "builtin/leader.default.profile.tsx",
       "profileKey": "leader.default",
-      "sourceSha256": "ac684eed846c4a6b1a61b63cfc41020aa80549f53af1012cf73b14f5f10efe32",
-      "sourceBytes": 28750,
-      "dependencyHash": "5294a8e0eba6dcadb8fb8009",
-      "artifactFileName": "5294a8e0eba6dcadb8fb8009.mjs",
-      "artifactSha256": "83d3500efcfb364804c94ff0a6474452a8a640fea9297c2812df2da8abcce054",
-      "artifactBytes": 109139,
+      "sourceSha256": "254c858975a503d665b4bca431bd06c0f36fe5aec0ae77ea7441b965e579420a",
+      "sourceBytes": 29124,
+      "dependencyHash": "4aed53a6c3b53f1c2b88cbb5",
+      "artifactFileName": "4aed53a6c3b53f1c2b88cbb5.mjs",
+      "artifactSha256": "26d69f3a26cacb6ce7bc43efe93f40d4367fdcae90e9be890a8a7b793a35f501",
+      "artifactBytes": 120722,
       "dependencies": [
         {
           "path": "assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx",
-          "sha256": "ac684eed846c4a6b1a61b63cfc41020aa80549f53af1012cf73b14f5f10efe32",
-          "bytes": 28750
+          "sha256": "254c858975a503d665b4bca431bd06c0f36fe5aec0ae77ea7441b965e579420a",
+          "bytes": 29124
         },
         {
           "path": "server/agent/messages/message-utils.ts",
@@ -97,8 +107,8 @@
         },
         {
           "path": "server/agent/profiles/builtin-contracts.ts",
-          "sha256": "df97fa3eab2237d31c4fa861ebb528c80bf0ccd70dda0d405e8adfe1cb0aedf5",
-          "bytes": 4708
+          "sha256": "745c809d22b4c924b569aeec6fa0835acd35bf215539767ee7dbf8a916248366",
+          "bytes": 4690
         },
         {
           "path": "server/agent/profiles/define-agent-profile.ts",
@@ -107,13 +117,13 @@
         },
         {
           "path": "server/agent/profiles/profile-dsl.ts",
-          "sha256": "98180a122edf18edc9e449c5033df94aeb0ffd3e5ad754dadcd53e29805ea146",
-          "bytes": 77520
+          "sha256": "de85645476663fe90fee5e28c35cb5911822886a132650a0ba50b26e8da2879a",
+          "bytes": 77530
         },
         {
           "path": "server/agent/profiles/profile-dsl/jsx-runtime.ts",
-          "sha256": "3211aa1895147089ec012ba5b6d8d3af3c13e667ac85617d15b86763d16829ca",
-          "bytes": 4492
+          "sha256": "8a0b89ccace2e9a88a953c15f8bfaa10911945a8f1ceedc4cfa111cb37e782b8",
+          "bytes": 4484
         },
         {
           "path": "server/agent/profiles/profile-text.ts",
@@ -127,13 +137,18 @@
         },
         {
           "path": "server/agent/tools/sql-tool.ts",
-          "sha256": "f357a7ce5fc2f4f53d6da0c85d826ffce328ea24b7dd7774df2e3c394e368e2f",
-          "bytes": 15692
+          "sha256": "2b6ca80012873101718284e3243b2c1f84331026f435a925e4c27fb288923035",
+          "bytes": 24011
+        },
+        {
+          "path": "server/database/config.ts",
+          "sha256": "8b22a3945105d2300c62e099465f11ed0d1fbeaa8227ffef21d55d9d3d86e51e",
+          "bytes": 4617
         },
         {
           "path": "server/utils/agent-sql-pool.ts",
-          "sha256": "8ca34d530966e090cbd8aace5b774272bc7ab5b630323db1e6814449a592db8c",
-          "bytes": 688
+          "sha256": "c5d99a4b6c7cfa3096eae59cb8d8195f45d96bfbbfcc7b7e477c63f88a173472",
+          "bytes": 1077
         },
         {
           "path": "tsconfig.json",
@@ -145,17 +160,17 @@
     {
       "fileName": "builtin/retrieval.profile.tsx",
       "profileKey": "retrieval",
-      "sourceSha256": "660654f4ea44a7ed29b59678ca6a8fd8b3b57478e1c5bec7222c8c8c8f270dad",
-      "sourceBytes": 5664,
-      "dependencyHash": "504ac2602b77a6181ce02d46",
-      "artifactFileName": "504ac2602b77a6181ce02d46.mjs",
-      "artifactSha256": "753eec281e93c8ea80658d508c87098d5eee95db70031bddb1c00a1c734f2065",
-      "artifactBytes": 86256,
+      "sourceSha256": "9bc134ba6ed1d16cd53e317f16bd75b8cc289093d819d831d6bff2b71f1e6ada",
+      "sourceBytes": 5719,
+      "dependencyHash": "c1cfe27dc1bbee4423d64e7a",
+      "artifactFileName": "c1cfe27dc1bbee4423d64e7a.mjs",
+      "artifactSha256": "d91d59c9145ff9121b7fed1114b41929f2662da1dd0eea93e769cefded420500",
+      "artifactBytes": 97518,
       "dependencies": [
         {
           "path": "assets/workspace/.nbook/agent/profiles/builtin/retrieval.profile.tsx",
-          "sha256": "660654f4ea44a7ed29b59678ca6a8fd8b3b57478e1c5bec7222c8c8c8f270dad",
-          "bytes": 5664
+          "sha256": "9bc134ba6ed1d16cd53e317f16bd75b8cc289093d819d831d6bff2b71f1e6ada",
+          "bytes": 5719
         },
         {
           "path": "server/agent/messages/message-utils.ts",
@@ -169,8 +184,8 @@
         },
         {
           "path": "server/agent/profiles/builtin-contracts.ts",
-          "sha256": "df97fa3eab2237d31c4fa861ebb528c80bf0ccd70dda0d405e8adfe1cb0aedf5",
-          "bytes": 4708
+          "sha256": "745c809d22b4c924b569aeec6fa0835acd35bf215539767ee7dbf8a916248366",
+          "bytes": 4690
         },
         {
           "path": "server/agent/profiles/define-agent-profile.ts",
@@ -179,13 +194,13 @@
         },
         {
           "path": "server/agent/profiles/profile-dsl.ts",
-          "sha256": "98180a122edf18edc9e449c5033df94aeb0ffd3e5ad754dadcd53e29805ea146",
-          "bytes": 77520
+          "sha256": "de85645476663fe90fee5e28c35cb5911822886a132650a0ba50b26e8da2879a",
+          "bytes": 77530
         },
         {
           "path": "server/agent/profiles/profile-dsl/jsx-runtime.ts",
-          "sha256": "3211aa1895147089ec012ba5b6d8d3af3c13e667ac85617d15b86763d16829ca",
-          "bytes": 4492
+          "sha256": "8a0b89ccace2e9a88a953c15f8bfaa10911945a8f1ceedc4cfa111cb37e782b8",
+          "bytes": 4484
         },
         {
           "path": "server/agent/profiles/profile-text.ts",
@@ -199,13 +214,18 @@
         },
         {
           "path": "server/agent/tools/sql-tool.ts",
-          "sha256": "f357a7ce5fc2f4f53d6da0c85d826ffce328ea24b7dd7774df2e3c394e368e2f",
-          "bytes": 15692
+          "sha256": "2b6ca80012873101718284e3243b2c1f84331026f435a925e4c27fb288923035",
+          "bytes": 24011
+        },
+        {
+          "path": "server/database/config.ts",
+          "sha256": "8b22a3945105d2300c62e099465f11ed0d1fbeaa8227ffef21d55d9d3d86e51e",
+          "bytes": 4617
         },
         {
           "path": "server/utils/agent-sql-pool.ts",
-          "sha256": "8ca34d530966e090cbd8aace5b774272bc7ab5b630323db1e6814449a592db8c",
-          "bytes": 688
+          "sha256": "c5d99a4b6c7cfa3096eae59cb8d8195f45d96bfbbfcc7b7e477c63f88a173472",
+          "bytes": 1077
         },
         {
           "path": "tsconfig.json",
@@ -217,17 +237,17 @@
     {
       "fileName": "builtin/writer.profile.tsx",
       "profileKey": "writer",
-      "sourceSha256": "3b9ba214ee4687c105a974dddb376b991bdcae9a39e007dc05db029a330392db",
-      "sourceBytes": 23934,
-      "dependencyHash": "813508fbc9adc7f883a7790a",
-      "artifactFileName": "813508fbc9adc7f883a7790a.mjs",
-      "artifactSha256": "5e9c1f44b1aeb0864e9fd2e5a8e2ceb0c6fee0de25c269a9fc576335496b7f90",
-      "artifactBytes": 259065,
+      "sourceSha256": "2eb782c1171339208c33984a03bcfd4a978e4488fe0f9870544a9e84da260a10",
+      "sourceBytes": 24695,
+      "dependencyHash": "81ee62fc50647b80de2b80f6",
+      "artifactFileName": "81ee62fc50647b80de2b80f6.mjs",
+      "artifactSha256": "72ceaf1caf799c361d82ce55ea37a241fda78ad2ada255725a11aba2bd74f8a6",
+      "artifactBytes": 268105,
       "dependencies": [
         {
           "path": "assets/workspace/.nbook/agent/profiles/builtin/writer.profile.tsx",
-          "sha256": "3b9ba214ee4687c105a974dddb376b991bdcae9a39e007dc05db029a330392db",
-          "bytes": 23934
+          "sha256": "2eb782c1171339208c33984a03bcfd4a978e4488fe0f9870544a9e84da260a10",
+          "bytes": 24695
         },
         {
           "path": "server/agent/messages/message-utils.ts",
@@ -241,8 +261,8 @@
         },
         {
           "path": "server/agent/profiles/builtin-contracts.ts",
-          "sha256": "df97fa3eab2237d31c4fa861ebb528c80bf0ccd70dda0d405e8adfe1cb0aedf5",
-          "bytes": 4708
+          "sha256": "745c809d22b4c924b569aeec6fa0835acd35bf215539767ee7dbf8a916248366",
+          "bytes": 4690
         },
         {
           "path": "server/agent/profiles/define-agent-profile.ts",
@@ -251,18 +271,18 @@
         },
         {
           "path": "server/agent/profiles/profile-artifact-compiler.ts",
-          "sha256": "656b4fed5dae11b4ca808cf030441c627601c2597042f6e47c48506ad83fe455",
-          "bytes": 19248
+          "sha256": "bec4bef5dc94d47945e032d68533fe25a24e3418ac46c855adf6fb4a3ce9c184",
+          "bytes": 20417
         },
         {
           "path": "server/agent/profiles/profile-dsl.ts",
-          "sha256": "98180a122edf18edc9e449c5033df94aeb0ffd3e5ad754dadcd53e29805ea146",
-          "bytes": 77520
+          "sha256": "de85645476663fe90fee5e28c35cb5911822886a132650a0ba50b26e8da2879a",
+          "bytes": 77530
         },
         {
           "path": "server/agent/profiles/profile-dsl/jsx-runtime.ts",
-          "sha256": "3211aa1895147089ec012ba5b6d8d3af3c13e667ac85617d15b86763d16829ca",
-          "bytes": 4492
+          "sha256": "8a0b89ccace2e9a88a953c15f8bfaa10911945a8f1ceedc4cfa111cb37e782b8",
+          "bytes": 4484
         },
         {
           "path": "server/agent/profiles/profile-text.ts",
@@ -271,13 +291,13 @@
         },
         {
           "path": "server/agent/profiles/writer-writing-reference.ts",
-          "sha256": "4d411faa7d944232180ba6b3cca7af1aa3a4883b8dfd21f3b603a5871e9590bb",
-          "bytes": 4502
+          "sha256": "e1313650043bd8126b00788a027babe5deaf34fc3d250c9bba3cbff249ece048",
+          "bytes": 4261
         },
         {
           "path": "server/agent/profiles/writer-writing-style.ts",
-          "sha256": "7d534d5cc413cb48ed07100c5a4a987b0923420e10bdbf636f9b68b0604d07a1",
-          "bytes": 4703
+          "sha256": "0e6d42158c089429f459260f4ae9041020e80b2b983036a38fb7f8256be6ecf0",
+          "bytes": 4470
         },
         {
           "path": "server/agent/session/custom-state-keys.ts",
@@ -286,8 +306,8 @@
         },
         {
           "path": "server/agent/tools/sql-tool.ts",
-          "sha256": "f357a7ce5fc2f4f53d6da0c85d826ffce328ea24b7dd7774df2e3c394e368e2f",
-          "bytes": 15692
+          "sha256": "2b6ca80012873101718284e3243b2c1f84331026f435a925e4c27fb288923035",
+          "bytes": 24011
         },
         {
           "path": "server/assets/asset-resolver.ts",
@@ -305,9 +325,24 @@
           "bytes": 10254
         },
         {
+          "path": "server/database/config.ts",
+          "sha256": "8b22a3945105d2300c62e099465f11ed0d1fbeaa8227ffef21d55d9d3d86e51e",
+          "bytes": 4617
+        },
+        {
+          "path": "server/database/locks.ts",
+          "sha256": "3d4e56b88539feb49058dbbf05f2e369a8b8b1709ac4021e26551b735b95b67c",
+          "bytes": 954
+        },
+        {
+          "path": "server/database/prisma.ts",
+          "sha256": "3d05877c844b8e623b55d293605183212d813f9af5295afd8449bc70370c0fb4",
+          "bytes": 1365
+        },
+        {
           "path": "server/generated/prisma/client.ts",
-          "sha256": "0f5daba1927ac0f5ede01dfae5f2952506050ad5de531a45bcdb4ed2abf70a79",
-          "bytes": 2149
+          "sha256": "64c25b7a877a3802cfeed072a503fa30a22983b17a153102edb29dcb0fe39083",
+          "bytes": 2235
         },
         {
           "path": "server/generated/prisma/enums.ts",
@@ -316,18 +351,18 @@
         },
         {
           "path": "server/generated/prisma/internal/class.ts",
-          "sha256": "0f71f61dd1b6bfdd898f42e7f26d4e2e08cfc7341de728766577051ef1474124",
-          "bytes": 23517
+          "sha256": "f9a4d3252570af274535bd54c79eb514263c9a456897707920889a8fe8e5eaab",
+          "bytes": 24208
         },
         {
           "path": "server/generated/prisma/internal/prismaNamespace.ts",
-          "sha256": "d82c0319ccd7ef2dccebd769b4e141e245e9aff0fe083efde30e35a9c1f056ba",
-          "bytes": 47019
+          "sha256": "7f2e62b3318940e4725bc731f6ee53f5daeb57d6130ca76d0654ce5f08b1447d",
+          "bytes": 50321
         },
         {
           "path": "server/plot/assemblers/plot-dto.assembler.ts",
-          "sha256": "b7a6637c9ba93b5d338600ac53b2badb6564ef4a0dec3f4ff300811e07f0403d",
-          "bytes": 11339
+          "sha256": "76675715b5e9d7adf4180efeeb8050b26f4f8c2ffc48b0fb95483a9368a112d5",
+          "bytes": 11363
         },
         {
           "path": "server/plot/core/errors.ts",
@@ -361,13 +396,13 @@
         },
         {
           "path": "server/plot/repositories/prisma-plot-data.repository.ts",
-          "sha256": "5cfa6a66f00d800be450e32df384739f58986526c0335e7654b230b1cacc5225",
-          "bytes": 3891
+          "sha256": "0e0687253a5b89ac8653e060bfa9098c8efb3358166b661398dce01456964b65",
+          "bytes": 3851
         },
         {
           "path": "server/plot/repositories/prisma-scene.repository.ts",
-          "sha256": "c72ccbcb7e0d4d46e7aee1c70858398975704bb5d12de40bd30f07b76f2662b9",
-          "bytes": 6278
+          "sha256": "5f84ab64c6e85b0f2d7fc181e5346b042d62eb022691edc27bd7a58ba0ba989e",
+          "bytes": 6632
         },
         {
           "path": "server/plot/repositories/prisma-story.repository.ts",
@@ -376,8 +411,13 @@
         },
         {
           "path": "server/plot/repositories/prisma-thread.repository.ts",
-          "sha256": "340f893923dbee95f76fd819facff981871086b50c4df06e2680324f4e8985a0",
-          "bytes": 8501
+          "sha256": "0492cfdbb67f7158e942351313215726e57c218d64cfdb8d84455a3ee3a8aec0",
+          "bytes": 11198
+        },
+        {
+          "path": "server/plot/repositories/thread-tags.ts",
+          "sha256": "6be5fa079086cdc5572e276611b7855da227b44304379e36fb5c274a743961c7",
+          "bytes": 726
         },
         {
           "path": "server/plot/services/order.service.ts",
@@ -386,8 +426,8 @@
         },
         {
           "path": "server/plot/services/plot-scope.guard.ts",
-          "sha256": "82227e5050071b5e735091c84c1a741e35cd0c28f757de80082f20efd9702256",
-          "bytes": 4603
+          "sha256": "200c1dbf3302cad8e341d5b2bb35236f89adab26fd1a836d626f45db7412c959",
+          "bytes": 4661
         },
         {
           "path": "server/plot/services/plot.service.ts",
@@ -416,8 +456,8 @@
         },
         {
           "path": "server/utils/agent-sql-pool.ts",
-          "sha256": "8ca34d530966e090cbd8aace5b774272bc7ab5b630323db1e6814449a592db8c",
-          "bytes": 688
+          "sha256": "c5d99a4b6c7cfa3096eae59cb8d8195f45d96bfbbfcc7b7e477c63f88a173472",
+          "bytes": 1077
         },
         {
           "path": "server/utils/frontmatter-document.ts",
@@ -431,8 +471,8 @@
         },
         {
           "path": "server/utils/prisma.ts",
-          "sha256": "33cdc2213f88bad8d2bd4f42cd22ea79a7563b1bad8655119fb2dd3203b95fb6",
-          "bytes": 1427
+          "sha256": "150fceae79571f45be3d1e89b7396e72ead3c51e94eb0e5b4d2adb586eb8da4b",
+          "bytes": 81
         },
         {
           "path": "server/workspace-files/content-node-schema.ts",
@@ -441,8 +481,8 @@
         },
         {
           "path": "server/workspace-files/novel-workspace.ts",
-          "sha256": "e613efc13456a91fe667308464275243b9b3077019724e2bbb78470d959b4df7",
-          "bytes": 17689
+          "sha256": "0774ab59d68f6af2843b2d7cd986fd6012380398ef767a17bce5b4ba5a3fca2e",
+          "bytes": 23556
         },
         {
           "path": "server/workspace-files/workspace-files.ts",

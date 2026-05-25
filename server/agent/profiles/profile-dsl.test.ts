@@ -32,7 +32,7 @@ import {
     ToolResult,
     validateProfileTurnPlan,
     Watch,
-    WorkspaceReminder,
+    ProjectReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
@@ -549,7 +549,7 @@ describe("profile TSX DSL", () => {
                         }),
                         AppendingSet({
                             children: [
-                                WorkspaceReminder({repeatEveryTurns: 20}),
+                                ProjectReminder({repeatEveryTurns: 20}),
                                 LinkedAgentsReminder(),
                                 TaskReminder({repeatEveryTurns: 8}),
                                 PlanModeReminder(),

@@ -24,7 +24,7 @@ export const componentLibrary: ComponentLibraryItem[] = [
     {type: "SystemReminder", label: "SystemReminder", description: "通用系统提醒片段。自动包裹 <system-reminder>，适合放在 Message 内。", iconClass: "i-lucide-badge-alert", group: "privileged"},
     {type: "RuntimeContext", label: "RuntimeContext", description: "运行时上下文摘要。展示 workspace、profile、Plan Mode 和 linked agents。", iconClass: "i-lucide-braces", group: "privileged"},
     {type: "LinkedAgentsSummary", label: "LinkedAgentsSummary", description: "已关联 agent 摘要，可嵌入消息或提醒。", iconClass: "i-lucide-git-merge", group: "privileged"},
-    {type: "WorkspaceReminder", label: "WorkspaceReminder", description: "当前 workspace 边界提醒。适合放在 AppendingSet。", iconClass: "i-lucide-folder-cog", group: "privileged"},
+    {type: "ProjectReminder", label: "ProjectReminder", description: "当前 Project Workspace 边界提醒。适合放在 AppendingSet。", iconClass: "i-lucide-folder-cog", group: "privileged"},
     {type: "LinkedAgentsReminder", label: "LinkedAgentsReminder", description: "已关联 agent 变化提醒。适合放在 AppendingSet。", iconClass: "i-lucide-network", group: "privileged"},
     {type: "TaskReminder", label: "TaskReminder", description: "任务清单提醒。默认读取 agent.tasks 并提示更新 task_set_status。", iconClass: "i-lucide-list-checks", group: "privileged"},
     {type: "PlanModeReminder", label: "PlanModeReminder", description: "Plan Mode 生命周期提醒。可放入 Full/Sparse/Exit/Reentry 插槽覆盖默认文案。", iconClass: "i-lucide-clipboard-check", group: "privileged"},

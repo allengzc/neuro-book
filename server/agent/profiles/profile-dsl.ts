@@ -523,14 +523,14 @@ export function LinkedAgentsSummary(_props: Record<string, never> = {}): Profile
 }
 
 /**
- * 当前 workspace 边界提醒。
+ * 当前 Project Workspace 边界提醒。
  */
-export function WorkspaceReminder(props: {id?: string; repeatEveryTurns?: number} = {}): ProfileReminderNode {
+export function ProjectReminder(props: {id?: string; repeatEveryTurns?: number} = {}): ProfileReminderNode {
     return Reminder({
-        id: props.id ?? "workspace",
-        watchPath: "ctx.workspace.root",
+        id: props.id ?? "project",
+        watchPath: "ctx.workspace.currentProject",
         repeatEveryTurns: props.repeatEveryTurns ?? 20,
-        children: Message({children: WorkspaceReminderText()}),
+        children: Message({children: ProjectReminderText()}),
     });
 }
 
@@ -1638,7 +1638,7 @@ function readTaskList(ctx: ProfilePrepareContext<any>, stateKey = AGENT_TASKS_ST
     };
 }
 
-function WorkspaceReminderText(): ProfileStringFragmentNode {
+function ProjectReminderText(): ProfileStringFragmentNode {
     return {
         kind: "StringFragment",
         text: (ctx) => systemReminder([

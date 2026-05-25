@@ -108,11 +108,12 @@ export class JsonlSessionRepository {
      */
     async listSessions(input: {workspaceKey?: string; includeArchived?: boolean} = {}): Promise<AgentSessionSummaryDto[]> {
         const sessionsRoot = join(this.rootWorkspace, ".nbook", "agent", "sessions");
-        const workspaceNames = input.workspaceKey
-            ? [this.safeWorkspaceKey(input.workspaceKey)]
-            : (await readdir(sessionsRoot, {withFileTypes: true}).catch(() => []))
+        const existingWorkspaceNames = (await readdir(sessionsRoot, {withFileTypes: true}).catch(() => []))
                 .filter((entry) => entry.isDirectory())
                 .map((entry) => entry.name);
+        const workspaceNames = input.workspaceKey
+            ? this.listWorkspaceSessionDirs(input.workspaceKey, existingWorkspaceNames)
+            : existingWorkspaceNames;
         const summaries: AgentSessionSummaryDto[] = [];
 
         for (const workspaceName of workspaceNames) {
@@ -594,6 +595,17 @@ export class JsonlSessionRepository {
 
     private safeWorkspaceKey(workspaceKey: string): string {
         return workspaceKey.replace(/[\\/:*?"<>|]/g, "_") || "global";
+    }
+
+    private listWorkspaceSessionDirs(workspaceKey: string, existingWorkspaceNames: string[]): string[] {
+        const safeKey = this.safeWorkspaceKey(workspaceKey);
+        if (safeKey !== "workspace") {
+            return [safeKey];
+        }
+        return [...new Set([
+            safeKey,
+            ...existingWorkspaceNames.filter((name) => /^novel-\d+$/.test(name)),
+        ])];
     }
 
     private createEntryId(): SessionEntryId {

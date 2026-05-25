@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import {fileURLToPath} from "node:url";
 import {z} from "zod";
 import {assetResolver} from "nbook/server/assets/asset-resolver";
 import {parseFrontmatterDocument} from "nbook/server/utils/frontmatter-document";
@@ -8,10 +7,8 @@ import {parseFrontmatterDocument} from "nbook/server/utils/frontmatter-document"
 export const DEFAULT_WRITING_STYLE_PRESET = "reborn-villain-loli-magic-girl.first-three-chapters.style";
 
 const WRITING_STYLE_DIR_CANDIDATES = [
-    path.join(process.cwd(), "server", "agent-v2", "profiles", "builtin", "writing-styles"),
-    path.join(path.dirname(fileURLToPath(import.meta.url)), "builtin", "writing-styles"),
-    path.join(assetResolver.systemRoot, "agent", "profiles", "builtin", "writing-styles"),
-    path.join(assetResolver.userRoot, "agent", "profiles", "builtin", "writing-styles"),
+    path.join(assetResolver.systemRoot, "agent", "writing-presets", "styles"),
+    path.join(assetResolver.userRoot, "agent", "writing-presets", "styles"),
 ] as const;
 
 const WritingStyleFrontmatterSchema = z.object({
@@ -37,7 +34,7 @@ type WritingStyleFile = {
 };
 
 /**
- * 从 writing-styles 目录自动发现 Markdown 文风预设。
+ * 从 agent/writing-presets/styles 目录自动发现 Markdown 文风预设。
  */
 export async function loadWritingStylePresets(candidates: readonly string[] = WRITING_STYLE_DIR_CANDIDATES): Promise<WritingStyleDefinition[]> {
     const styleFiles = await listMergedWritingStyleFiles(candidates);

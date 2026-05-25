@@ -2,13 +2,15 @@ import {Worker} from "node:worker_threads";
 import {resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import type {
+    AgentProfileCompileAllRequestDto,
     AgentProfileCompileRequestDto,
     AgentProfileCompileResultDto,
 } from "nbook/shared/dto/agent-profile.dto";
 
 type CompileTask = {
     id: number;
-    input: AgentProfileCompileRequestDto;
+    input: AgentProfileCompileRequestDto | AgentProfileCompileAllRequestDto;
+    mode: "single" | "all";
     resolve: (result: AgentProfileCompileResultDto) => void;
     stale: boolean;
 };
@@ -44,19 +46,35 @@ export class ProfileCompileWorkerService {
     constructor(readonly version = WORKER_VERSION) {}
 
     /**
-     * 提交编译任务。同一 fileName 的等待任务会被标记 stale，并只保留最新源码。
+     * 提交单文件编译任务。同一 fileName 的等待任务会被标记 stale，并只保留最新源码。
      */
     compile(input: AgentProfileCompileRequestDto): Promise<AgentProfileCompileResultDto> {
+        return this.enqueue("single", input);
+    }
+
+    /**
+     * 提交全量编译任务。等待中的单文件任务都会标记 stale，避免旧 manifest 覆盖全量结果。
+     */
+    compileAll(input: AgentProfileCompileAllRequestDto = {preview: false}): Promise<AgentProfileCompileResultDto> {
+        return this.enqueue("all", input);
+    }
+
+    private enqueue(mode: CompileTask["mode"], input: CompileTask["input"]): Promise<AgentProfileCompileResultDto> {
         const task: CompileTask = {
             id: this.nextId++,
             input,
+            mode,
             resolve: () => {},
             stale: false,
         };
         const promise = new Promise<AgentProfileCompileResultDto>((resolvePromise) => {
             task.resolve = resolvePromise;
         });
-        this.markPendingStale(input.fileName);
+        if (mode === "all") {
+            this.markAllPendingStale();
+        } else {
+            this.markPendingStale((input as AgentProfileCompileRequestDto).fileName);
+        }
         this.queue.push(task);
         this.pump();
         return promise;
@@ -64,9 +82,15 @@ export class ProfileCompileWorkerService {
 
     private markPendingStale(fileName: string): void {
         for (const task of this.queue) {
-            if (task.input.fileName === fileName) {
+            if (task.mode === "single" && "fileName" in task.input && task.input.fileName === fileName) {
                 task.stale = true;
             }
+        }
+    }
+
+    private markAllPendingStale(): void {
+        for (const task of this.queue) {
+            task.stale = true;
         }
     }
 
@@ -93,6 +117,7 @@ export class ProfileCompileWorkerService {
         const worker = this.ensureWorker();
         worker.postMessage({
             id: task.id,
+            mode: task.mode,
             input: task.input,
         });
     }
@@ -153,7 +178,8 @@ export class ProfileCompileWorkerService {
     }
 }
 
-function workerFailedResult(input: AgentProfileCompileRequestDto, error: Error): AgentProfileCompileResultDto {
+function workerFailedResult(input: AgentProfileCompileRequestDto | AgentProfileCompileAllRequestDto, error: Error): AgentProfileCompileResultDto {
+    const fileName = "fileName" in input ? input.fileName : "*";
     return {
         ok: false,
         stale: false,
@@ -163,7 +189,7 @@ function workerFailedResult(input: AgentProfileCompileRequestDto, error: Error):
             severity: "error",
             message: error.message,
             code: "compile_worker_failed",
-            fileName: input.fileName,
+            fileName,
             stack: process.env.NODE_ENV === "production" ? undefined : error.stack,
         }],
     };
@@ -193,10 +219,12 @@ const NODE_WORKER_SOURCE = `
     const runtimeURL = pathToFileURL(resolve(process.cwd(), "server", "agent", "profiles", "profile-compile-worker-runtime.ts")).href;
     const tsconfig = resolve(process.cwd(), "tsconfig.json");
     const {tsImport} = await import("tsx/esm/api");
-    const {runProfileCompile} = await tsImport(runtimeURL, {parentURL, tsconfig});
+    const {runProfileCompile, runProfileCompileAll} = await tsImport(runtimeURL, {parentURL, tsconfig});
 
     parentPort.on("message", async (message) => {
-        const result = await runProfileCompile(message.input);
+        const result = message.mode === "all"
+            ? await runProfileCompileAll(message.input)
+            : await runProfileCompile(message.input);
         parentPort.postMessage({
             id: message.id,
             result,

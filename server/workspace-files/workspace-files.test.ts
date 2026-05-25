@@ -1,4 +1,4 @@
-import {randomUUID} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import {execFile} from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -446,7 +446,11 @@ describe("workspace-files", () => {
     it("同步系统 assets 会补齐默认 leader profile 覆盖文件", async () => {
         const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
         const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
+        const userCompiledManifestPath = path.join("workspace", ".nbook", "agent", "profiles", ".compiled", "manifest.json");
+        const userSyncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
         const backup = await backupOptionalFile(userProfilePath);
+        const manifestBackup = await backupOptionalFile(userCompiledManifestPath);
+        const syncStateBackup = await backupOptionalFile(userSyncStatePath);
         await fs.rm(userProfilePath, {force: true});
 
         try {
@@ -458,16 +462,23 @@ describe("workspace-files", () => {
             expect(content).toBe(systemContent);
             expect(content).toContain("profileManifest");
             expect(content).toContain("export default");
+            const manifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; sourceSha256: string; dependencies: Array<{path: string; sha256: string}>}>};
+            const item = manifest.profiles.find((profile) => profile.fileName === "builtin/leader.default.profile.tsx");
+            expect(item?.sourceSha256).toBe(await sha256ForTest(userProfilePath));
+            expect(item?.dependencies.find((dependency) => dependency.path === "workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx")?.sha256).toBe(item?.sourceSha256);
         } finally {
             await restoreOptionalFile(userProfilePath, backup);
+            await restoreOptionalFile(userCompiledManifestPath, manifestBackup);
+            await restoreOptionalFile(userSyncStatePath, syncStateBackup);
         }
     });
 
-    it("同步系统 assets 会补齐 Agent runtime bin 和 scripts", async () => {
+    it("同步系统 assets 会补齐 Agent runtime bin、scripts 和 config", async () => {
         const paths = [
             path.join("workspace", ".nbook", "agent", "bin", "workspace"),
             path.join("workspace", ".nbook", "agent", "bin", "workspace.cmd"),
             path.join("workspace", ".nbook", "agent", "scripts", "workspace.ts"),
+            path.join("workspace", ".nbook", "agent", "config", "ripgreprc"),
         ];
         const backups = await Promise.all(paths.map((filePath) => backupOptionalFile(filePath)));
         await Promise.all(paths.map((filePath) => fs.rm(filePath, {force: true})));
@@ -481,10 +492,34 @@ describe("workspace-files", () => {
             const scriptContent = await fs.readFile(paths[2]!, "utf-8");
             expect(scriptContent).toContain(".name(\"workspace\")");
             expect(scriptContent).toContain(".command(\"node\")");
+            await expect(fs.readFile(paths[3]!, "utf-8")).resolves.toContain("--path-separator=/");
         } finally {
             for (const [index, filePath] of paths.entries()) {
                 await restoreOptionalFile(filePath, backups[index] ?? null);
             }
+        }
+    });
+
+    it("同步系统 assets 会补齐 writing presets 并记录同步状态", async () => {
+        const userPresetPath = path.join("workspace", ".nbook", "agent", "writing-presets", "styles", "reborn-villain-loli-magic-girl.first-three-chapters.style.md");
+        const userSyncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const backup = await backupOptionalFile(userPresetPath);
+        const syncStateBackup = await backupOptionalFile(userSyncStatePath);
+        await fs.rm(userPresetPath, {force: true});
+
+        try {
+            const result = await syncSystemAssetsToUserAssets();
+            const content = await fs.readFile(userPresetPath, "utf-8");
+            const syncState = JSON.parse(await fs.readFile(userSyncStatePath, "utf-8")) as {assets?: Array<{assetPath: string}>};
+
+            expect(result.copied + (result.updatedAssets ?? 0)).toBeGreaterThanOrEqual(1);
+            expect(content).toContain("key: reborn-villain-loli-magic-girl.first-three-chapters.style");
+            expect(syncState.assets).toEqual(expect.arrayContaining([
+                expect.objectContaining({assetPath: "styles/reborn-villain-loli-magic-girl.first-three-chapters.style.md"}),
+            ]));
+        } finally {
+            await restoreOptionalFile(userPresetPath, backup);
+            await restoreOptionalFile(userSyncStatePath, syncStateBackup);
         }
     });
 
@@ -725,6 +760,13 @@ describe("workspace-files", () => {
         }
         await fs.mkdir(path.dirname(filePath), {recursive: true});
         await fs.writeFile(filePath, content, "utf-8");
+    }
+
+    /**
+     * 计算文件 sha256，用于验证同步 manifest 是否绑定当前用户侧源码。
+     */
+    async function sha256ForTest(filePath: string): Promise<string> {
+        return createHash("sha256").update(await fs.readFile(filePath)).digest("hex");
     }
 
     /**

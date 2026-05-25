@@ -9,4 +9,5 @@ server:
     port: 3000
 
 database:
-    url: "postgresql://postgres:postgres@localhost:5432/neuro_book"
+    kind: "${DATABASE_KIND:-sqlite}"
+    url: "${DATABASE_URL:-file:./workspace/.nbook/neuro-book.sqlite}"

@@ -146,7 +146,7 @@ describe("NeuroAgentHarness", () => {
             profileKey: "test.workspace-container",
             input: {},
             workspaceRoot: "workspace/novel-7",
-            workspaceKey: "novel-7",
+            workspaceKey: "workspace",
             novelId: "7",
         });
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
@@ -160,7 +160,7 @@ describe("NeuroAgentHarness", () => {
             profileKey: "leader.default",
             input: {},
             workspaceRoot: "workspace/novel-7",
-            workspaceKey: "novel-7",
+            workspaceKey: "workspace",
             novelId: "7",
         });
 
@@ -393,6 +393,61 @@ describe("NeuroAgentHarness", () => {
             ["assistant", "toolResult"],
             ["assistant"],
         ]);
+    });
+
+    it("profile reasoningEffort 会传给支持 reasoning 的模型", async () => {
+        await mkdir(join(root, ".nbook"), {recursive: true});
+        await writeFile(join(root, ".nbook", "config.json"), JSON.stringify({
+            agent: {
+                profiles: {
+                    "test.reasoning": {
+                        model: {
+                            reasoningEffort: "high",
+                        },
+                    },
+                },
+            },
+        }, null, 4), "utf8");
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.reasoning",
+                name: "Reasoning",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        let observedReasoning: unknown;
+        faux.setResponses([
+            (_context, options) => {
+                observedReasoning = options?.reasoning;
+                return fauxAssistantMessage(fauxText("done"));
+            },
+        ]);
+        harness = new NeuroAgentHarness({
+            repo: harness.repo,
+            profiles: harness.profiles,
+            modelResolver: () => ({
+                ...faux.getModel(),
+                reasoning: true,
+            }),
+        });
+        const created = await harness.createAgent({
+            profileKey: "test.reasoning",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+
+        expect(result.status).toBe("completed");
+        expect(observedReasoning).toBe("high");
     });
 
     it("approval resolution 会先写 toolResult，再写 continue prepare 的 appending messages", async () => {

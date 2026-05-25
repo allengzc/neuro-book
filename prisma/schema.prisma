@@ -1,4 +1,6 @@
 // schema.prisma
+// Compatibility alias for existing dev tooling. New scripts select
+// schema.postgres.prisma or schema.sqlite.prisma through prisma.config.ts.
 generator client {
   provider = "prisma-client"
   output   = "../server/generated/prisma"
@@ -78,13 +80,18 @@ model User {
   @@index([updatedAt])
 }
 
+model DatabaseLock {
+  key       Int      @id
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
 model Novel {
   id              Int             @id @default(autoincrement())
   title           String
   summary         String          @default("")
   workspaceSlug   String          @unique
   createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @default(now())
+  updatedAt       DateTime        @default(now()) @updatedAt
   story           Story?
 }
 
@@ -95,7 +102,7 @@ model Story {
   summary   String       @default("")
   note      String?
   createdAt DateTime     @default(now())
-  updatedAt DateTime     @default(now())
+  updatedAt DateTime     @default(now()) @updatedAt
   novel     Novel        @relation(fields: [novelId], references: [id], onDelete: Cascade)
   phases    StoryPhase[]
   threads   StoryThread[]
@@ -111,7 +118,7 @@ model StoryPhase {
   summary   String        @default("")
   note      String?
   createdAt DateTime      @default(now())
-  updatedAt DateTime      @default(now())
+  updatedAt DateTime      @default(now()) @updatedAt
   story     Story         @relation(fields: [storyId], references: [id], onDelete: Cascade)
   threads   StoryThread[]
 
@@ -129,11 +136,11 @@ model StoryThread {
   isMainThread      Boolean           @default(false)
   status            StoryThreadStatus @default(draft)
   summary           String            @default("")
-  tags              String[]          @default([])
+  tags              String            @default("[]")
   writingTip        String?
   note              String?
   createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @default(now())
+  updatedAt         DateTime          @default(now()) @updatedAt
   story             Story             @relation(fields: [storyId], references: [id], onDelete: Cascade)
   storyPhase        StoryPhase?       @relation(fields: [storyPhaseId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   scenes            StoryScene[]
@@ -158,7 +165,7 @@ model StoryScene {
   writingTip         String?
   note               String?
   createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @default(now())
+  updatedAt          DateTime          @default(now()) @updatedAt
   story              Story             @relation(fields: [storyId], references: [id], onDelete: Cascade)
   thread             StoryThread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
   plots              StoryPlot[]
@@ -181,7 +188,7 @@ model StoryPlot {
   writingTip         String?
   note               String?
   createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @default(now())
+  updatedAt          DateTime          @default(now()) @updatedAt
   scene              StoryScene        @relation(fields: [sceneId], references: [id], onDelete: Cascade)
   incomingSceneRefs  StorySceneRef[]   @relation("StorySceneRefTargetPlot")
 
@@ -202,7 +209,7 @@ model StorySceneRef {
   visibility           StoryRefVisibility @default(author)
   note                 String?
   createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @default(now())
+  updatedAt            DateTime           @default(now()) @updatedAt
   scene                StoryScene         @relation("StorySceneRefs", fields: [sceneId], references: [id], onDelete: Cascade)
   targetThread         StoryThread?       @relation("StorySceneRefTargetThread", fields: [targetThreadId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   targetScene          StoryScene?        @relation("StorySceneRefTargetScene", fields: [targetSceneId], references: [id], onDelete: SetNull, onUpdate: Cascade)

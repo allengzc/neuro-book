@@ -22,7 +22,9 @@
   - 用户 profile root：`workspace/.nbook/agent/profiles`
 - Workbench 的用户 profile 模式已切成两阶段：
   - 自动阶段只调用 `POST /api/agent/profiles/source-draft` 做轻量 TSX DSL tree 解析，不触发 `AgentProfileCatalog` / runtime profile loader。
-  - 手动阶段由用户点击顶部“编译”按钮触发 `POST /api/agent/profiles/compile`，真实 TSX profile 加载、detail 和可选 prepare preview 在后台 worker 中执行。
+  - 手动阶段由用户点击顶部“编译”按钮触发 `POST /api/agent/profiles/compile`，先保存当前源码，再只编译当前选中的用户 profile；真实 TSX profile 加载、detail 和可选 prepare preview 在后台 worker 中执行。
+  - 顶部“编译全部”触发 `POST /api/agent/profiles/compile-all`，只编译 `workspace/.nbook/agent/profiles` 下的用户 profile，不编译系统 profile。
+  - 顶部“预览”和旧“验证”语义使用 worker dry-run，只在临时 profile root 中编译当前编辑器源码，不写真实用户 `.compiled`。
   - “创建 Session”只有在最近一次编译通过且源码未再次修改时启用；保存文件本身不等于编译。
 - `.compiled` 运行真相源已落地：普通 runtime catalog 只读 `.compiled/manifest.json` 与匹配的 `.compiled/*.mjs`，config snapshot、catalog、创建 session 和 invoke 都不会触发 TSX 编译。源码变更后 profile 会变成 `compile_stale`，必须通过 Workbench 或 `profile compile` 手动编译后才能运行。
 - `user-assets` 是前端入口，挂载目标是 Workspace Root `.nbook`，即 `workspace/.nbook/`；它不是新的配置 scope，也不是嵌套资产根。
@@ -97,6 +99,13 @@
   - 前端手动编译捕获提交时的 `fileName/source` 快照；如果编译期间用户继续编辑或切换文件，旧结果返回后只标记 `stale`，不会把新源码误判为“编译通过”。
   - worker crash / dispose 不再让 compile endpoint 抛 rejected promise；当前任务和等待任务都会 resolve 为 `ok:false`、`code=compile_worker_failed` 的结构化 issue。
   - 旧源码覆盖编译不再写全局 `.agent/workspace/profile-module-cache`；当前运行合同已经收敛到 profile root 内 `.compiled`。
+- 已修复 Workbench 编译按钮语义：
+  - 顶部“编译”已从旧 `validate` 事件拆成真实 `compile` 事件，会调用 `/api/agent/profiles/compile`。
+  - 顶部新增“编译全部”，会调用 `/api/agent/profiles/compile-all`，后台 worker 在全量任务到来时会 stale 掉等待中的单文件任务，避免旧 manifest 覆盖全量结果。
+  - “编译全部”也会先保存当前正在编辑的源码；保存失败或保存后源码继续变化时不会静默跳过，而是给 notification。
+- 已修复 Agent Drawer 的 session snapshot 错误可见性：
+  - `GET /api/agent/sessions/:id` 失败会通过 `resolveApiErrorMessage()` 解析后端 message 并弹出 notification。
+  - `syncActiveSessionSnapshot()` 改为内部捕获错误并返回 boolean，避免 snapshot 失败在 invoke / session 切换后静默吞掉或打断原本的错误展示。
 - 已完成 `.compiled` 运行真相源实现：
   - 新增共享 artifact compiler，使用 esbuild bundle 生成 profile root 内 `.compiled/*.mjs` 与 `.compiled/manifest.json`；repo-local 代码打进 artifact，Node builtins 和 `node_modules` external。
   - `AgentProfileCatalog` 删除普通 runtime 路径里的自动 TSX 编译，只加载 fresh compiled artifact。
@@ -288,11 +297,16 @@
 - `app/components/profile-template-editor/ProfileTemplateInspectorPanel.vue`
 - `app/components/profile-template-editor/ProfileTemplateVisualEditor.vue`
 - `app/components/profile-template-editor/UserProfileWorkbenchDialog.vue`
+- `app/components/profile-template-editor/profile-template-form-utils.ts`
+- `app/components/novel-ide/NovelAgentDrawer.vue`
 - `app/components/novel-ide/NovelIdeHeader.vue`
 - `app/pages/index.vue`
 - `app/pages/tsx-profile-editor.preview.vue`
 - `server/api/agent/profiles/*`
 - `server/agent/profiles/profile-source-check.ts`
+- `server/agent/profiles/profile-compile-worker.ts`
+- `server/agent/profiles/profile-compile-worker-entry.ts`
+- `server/agent/profiles/profile-compile-worker-runtime.ts`
 - `server/agent/profiles/profile-dsl-source-parser.ts`
 - `server/agent/profiles/workbench-service.ts`
 - `server/agent/profiles/report-result-schema.ts`
@@ -327,6 +341,7 @@
 
 ## TODO / Follow-ups
 
+- Dev reload / HMR 自动编译暂不实现：后续如果需要 dev-only 自动重编译系统 profile 或可选用户 profile，必须走 worker 或 child process，不能回到 runtime API 自动编译。
 - 后续补 `.compiled` 的清理策略：单文件编译会保留旧 artifact 文件，当前不影响运行，但可以增加 prune 命令或在全量系统编译时继续清理。
 - 后续补 TypeBox Schema Builder，只在能稳定定位 `InputSchema` / `OutputSchema` 源码 range 时做局部替换。
 - 后续补完整 `allowedToolKeys` checklist 局部替换；当前 UI 只读展示工具权限，源码仍是真相源。

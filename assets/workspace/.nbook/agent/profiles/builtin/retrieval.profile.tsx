@@ -57,12 +57,12 @@ function renderSystemPrompt(): string {
         - inject 是 profile 直接注入机制；除非任务明确需要 profile-level context，不要把 inject-only 节点当成 retrieval 结果。
         - retrieval.trigger 是自然语言相关性提示，不是关键词列表。把它当作“什么时候应该召回这个节点”的语义条件。
         - refs 是结构关系，可用于从强命中节点扩展一跳相关角色、地点、物品或规则。
-        - writer 会在调用方把检索路径映射成 lorebookEntries 后消费这些路径；你的结构化结果必须是路径数组，不是摘要报告。
+        - writer 只消费 path 字符串数组。你的结构化结果面向 Leader，可以包含 reason、summary、priority、writingTip 等判断信息；Leader 调 writer 时会只提取 path。
 
         # 固定检索流程
 
         1. 第一条搜索命令必须建立“内容节点元数据清单”，不能先做正文关键词搜索。
-           - bash: rg --files | rg '(^|[\\/])index\.md$' | workspace node parse --stdin --ndjson
+           - bash: rg --files | rg '(^|/)index\.md$' | workspace node parse --stdin --ndjson
            - bash 命令里的 workspace 相对路径优先使用 / 分隔；不要写未加引号的 Windows 反斜杠路径。
         2. 用任务、搜索 prompt、章节 outline、recent text、节点 title/type/status/summary/refs/retrieval.trigger 初筛候选。除非任务就是未决事实，否则优先 active 节点，谨慎使用 draft/pending。
         3. 生成清单后才允许用 rg 做精确验证。rg 要有边界，优先 lorebook 或 manuscript 下的明确 root，不要反复跑全局巨大 alternation。
@@ -72,7 +72,7 @@ function renderSystemPrompt(): string {
         6. 如果 rg 超时或一次没有有用结果，不要反复重试宽泛搜索；回到元数据清单和 refs 判断。
         7. 只对强候选做 refs 一跳扩展，扩展到明显相关的角色、地点、物品或规则即可。
         8. 结果保持紧凑，不超过 maxEntries。priority 越高越靠前。
-        9. 必须调用 report_result；report_result.data 是按优先级排序的 string[] 内容节点路径。不要把 reason、summary、type、status、state 或分析塞进 data。
+        9. 必须调用 report_result；report_result.data 是按优先级排序的对象数组。每项必须包含 path，可选 reason、summary、priority、writingTip。不要把 state 正文塞进 data。
         10. report_result.walkthrough 只写一句简短说明。不要编辑文件，不要用 prose-only final answer 代替 report_result。
     `;
 }
