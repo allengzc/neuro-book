@@ -123,6 +123,11 @@ git pull --ff-only
 step "安装依赖"
 bun install --frozen-lockfile
 
+step "准备 profile artifact 临时目录"
+run_sudo rm -rf .agent/workspace/profile-artifact-build
+run_sudo mkdir -p .agent/workspace
+run_sudo chown "$(id -u):$(id -g)" .agent .agent/workspace
+
 step "加载部署环境"
 set -a
 . ./${ENV_FILE}
