@@ -1,4 +1,4 @@
-import type {Story, StoryPhase} from "nbook/server/generated/prisma/client";
+import type {Story, StoryPhase} from "nbook/server/generated/project-prisma/client";
 import type {StoryRepository} from "nbook/server/plot/contracts/plot-repositories";
 import type {PrismaExecutor} from "nbook/server/plot/core/types";
 
@@ -9,23 +9,20 @@ export class PrismaStoryRepository implements StoryRepository {
     constructor(private readonly prisma: PrismaExecutor) {}
 
     /**
-     * 按 novelId 查询 Story。
+     * 查询当前 Project SQLite 中的 Story。
      */
-    async findStoryByNovelId(novelId: number): Promise<Story | null> {
-        return this.prisma.story.findUnique({
-            where: {novelId},
+    async findStory(): Promise<Story | null> {
+        return this.prisma.story.findFirst({
+            orderBy: {id: "asc"},
         });
     }
 
     /**
-     * 为指定小说创建或读取 Story。
+     * 创建当前 Project SQLite 的 Story。
      */
-    async upsertStoryForNovel(input: {novelId: number; title: string; summary: string}): Promise<Story> {
-        return this.prisma.story.upsert({
-            where: {novelId: input.novelId},
-            update: {},
-            create: {
-                novelId: input.novelId,
+    async createStory(input: {title: string; summary: string}): Promise<Story> {
+        return this.prisma.story.create({
+            data: {
                 title: input.title,
                 summary: input.summary,
             },

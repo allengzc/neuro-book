@@ -6,6 +6,7 @@ import {
     type AgentAbortRequestDto,
     type AgentCommandRequestDto,
     type AgentCreateSessionRequestDto,
+    type ClientVariablePatchAckDto,
     type AgentInvokeRequestDto,
     type AgentSessionEventDto,
     type AgentSessionListQueryDto,
@@ -65,7 +66,7 @@ export async function createAgentSession(body: AgentCreateSessionRequestDto, har
         input: body.input,
         workspaceRoot: body.workspaceRoot,
         workspaceKey: body.workspaceKey,
-        novelId: body.novelId,
+        projectPath: body.projectPath,
         parentSessionId: body.parentSessionId,
     });
 }
@@ -115,6 +116,14 @@ export async function abortAgentSession(sessionId: number, body: AgentAbortReque
 }
 
 /**
+ * 前端确认 client.* variable patch 已应用。
+ */
+export async function acknowledgeClientVariablePatch(sessionId: number, body: ClientVariablePatchAckDto, harness = useAgentHarness()) {
+    await harness.acknowledgeClientVariablePatch(sessionId, body);
+    return {ok: true};
+}
+
+/**
  * 订阅 session 事件。
  */
 export function subscribeAgentSessionEvents(sessionId: number, after?: number, harness = useAgentHarness()) {
@@ -134,6 +143,7 @@ export function toInvokeInput(
         mode: body.mode,
         message: body.message,
         resolution: body.resolution,
+        clientState: body.clientState,
         block: body.block,
         onEvent,
     };

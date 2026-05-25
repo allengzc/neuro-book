@@ -1141,8 +1141,9 @@ async function createSessionForProfile(): Promise<void> {
         const created = await agentApi.createSession({
             profileKey: selectedProfileKey.value,
             input: {},
-            workspaceKey: novelIdeStore.workspaceKind === "user-assets" ? "user-assets" : `novel-${novelIdeStore.currentNovelId}`,
-            novelId: novelIdeStore.currentNovelId || undefined,
+            workspaceRoot: novelIdeStore.workspaceKind === "user-assets" ? "workspace/.nbook" : novelIdeStore.currentWorkspaceRoot || undefined,
+            workspaceKey: novelIdeStore.workspaceKind === "user-assets" ? "user-assets" : novelIdeStore.currentNovelId || "workspace",
+            projectPath: novelIdeStore.workspaceKind === "user-assets" ? undefined : novelIdeStore.currentNovelId || undefined,
         });
         notification.success(`已创建 session #${created.sessionId}`);
         await loadThreads();
@@ -2634,7 +2635,6 @@ onBeforeUnmount(() => {
 }
 
 .library-node-SystemReminder,
-.library-node-ProjectReminder,
 .library-node-LinkedAgentsReminder {
     --component-accent: #b65f5b;
 }
@@ -2654,8 +2654,7 @@ onBeforeUnmount(() => {
     --component-accent: #8a639e;
 }
 
-.library-node-MentionedSkillsReminder,
-.library-node-PlotFocusReminder {
+.library-node-MentionedSkillsReminder {
     --component-accent: #b1843e;
 }
 

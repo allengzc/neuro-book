@@ -3,11 +3,9 @@ import {createError} from "h3";
 import {readWorkspaceTextFile, statWorkspacePath, writeWorkspaceTextFile, type WorkspaceFileNode} from "nbook/server/workspace-files/workspace-files";
 import {buildWorkspaceWriteConflict} from "nbook/server/workspace-files/workspace-file-conflict";
 import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
-import {prisma} from "nbook/server/utils/prisma";
 
 const WriteWorkspaceFileBodySchema = z.object({
-    root: z.string().optional(),
-    novelId: z.string().optional(),
+    projectPath: z.string().optional(),
     workspaceKind: z.literal("user-assets").optional(),
     path: z.string().trim().min(1, "path 不能为空"),
     content: z.string(),
@@ -21,7 +19,7 @@ const WriteWorkspaceFileBodySchema = z.object({
  */
 export default defineEventHandler(async (event) => {
     const body = WriteWorkspaceFileBodySchema.parse(await readBody(event));
-    const root = await resolveWorkspaceRootInput(prisma, body);
+    const root = await resolveWorkspaceRootInput(body);
     if (!body.force && body.expectedMtimeMs !== undefined) {
         const remoteState = await readRemoteState(root, body.path);
         const actualMtimeMs = remoteState.node?.mtimeMs ?? null;

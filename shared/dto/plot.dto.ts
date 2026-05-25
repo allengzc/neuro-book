@@ -55,7 +55,6 @@ const StoryTagsInputSchema = z.array(StoryShortTextSchema).max(MAX_STORY_TAG_COU
 
 export const StoryDtoSchema = z.object({
     id: z.string(),
-    novelId: z.string(),
     title: z.string(),
     summary: z.string(),
     // `note` 为空表示没有额外备注。

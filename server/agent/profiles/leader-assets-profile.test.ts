@@ -9,6 +9,7 @@ import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {messageText} from "nbook/server/agent/messages/message-utils";
 import {loadWritingReferencePresets} from "nbook/server/agent/profiles/writer-writing-reference";
 import {loadWritingStylePresets} from "nbook/server/agent/profiles/writer-writing-style";
+import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
 
 vi.mock("nbook/server/utils/prisma", () => ({
     prisma: {
@@ -67,6 +68,7 @@ describe("assets builtin v3 profiles", () => {
                 planModeActive: false,
             },
             input: {},
+            vars: createTestVariableAccessor(),
             catalog: await catalog.snapshot(),
             skills: [{
                 key: "draft",
@@ -108,6 +110,9 @@ describe("assets builtin v3 profiles", () => {
             "create_story_plot",
             "update_story_plot",
             "execute_sql",
+            "variable_schema",
+            "variable_read",
+            "variable_patch",
         ]);
         expect(profile.allowedToolKeys).not.toContain("report_result");
         expect(prompt).toContain("read");
@@ -124,6 +129,9 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).toContain("Task tools are for execution tracking, not for storing novel facts");
         expect(prompt).toContain("task_create");
         expect(prompt).toContain("execute_sql");
+        expect(prompt).toContain("variable_schema");
+        expect(prompt).toContain("variable_read");
+        expect(prompt).toContain("variable_patch");
         expect(prompt).toContain("get_plot_tree");
         expect(prompt).toContain("writer");
         expect(prompt).toContain("retrieval");
@@ -136,8 +144,11 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).toContain("rg --files | rg '(^|/)index\\.md$'");
         expect(prompt).toContain("Agent runtime 已配置 rg 输出 / 路径");
         expect(prompt).toContain("workspace 相对路径优先使用 / 分隔");
-        expect(prompt).toContain("\"novelId\"");
-        expect(prompt).toContain("\"createdAt\"");
+        expect(prompt).toContain("projectPath");
+        expect(prompt).not.toContain("\"novelId\"");
+        expect(prompt).toContain("\"StoryScene\"");
+        expect(prompt).toContain("\"chapterPath\"");
+        expect(prompt).toContain("\"threadSortOrder\"");
         expect(prompt).toContain("角色动机是否连续");
         expect(prompt).toContain("Plan Mode 工作目录会在 runtime context");
         expect(prompt).not.toContain("{sessionId}");
@@ -161,6 +172,39 @@ describe("assets builtin v3 profiles", () => {
         expect(historyText).toContain("Draft Skill");
         expect(historyText).toContain("Skills are reusable work methods");
         expect(historyText).toContain("These agent profiles are currently available");
+        const runtimePrepared = await profile.prepare!({
+            session: {
+                systemPrompt: "",
+                messages: [],
+                model: null,
+                thinkingLevel: "off",
+                profileKey: "leader.default",
+                workspaceRoot: resolve("workspace"),
+                customState: {
+                    "plot.selection": {
+                        projectPath: "workspace/novel-7",
+                        threadId: "2",
+                        sceneId: "3",
+                    },
+                },
+                linkedAgents: [],
+                archived: false,
+                planModeActive: false,
+            },
+            input: {},
+            vars: createTestVariableAccessor({"client.currentProjectWorkspace": "workspace/novel-7"}),
+            catalog: await catalog.snapshot(),
+            skills: [],
+        });
+        const runtimeModelContextText = (runtimePrepared.modelContextMessages ?? []).map(messageText).join("\n");
+        const runtimeAppendingText = (runtimePrepared.appendingMessages ?? []).map(messageText).join("\n");
+        expect(runtimeModelContextText).toContain("\"path\": \"client.currentProjectWorkspace\"");
+        expect(runtimeModelContextText).not.toContain("\"ide\"");
+        expect(runtimeAppendingText).toContain("Current Project Workspace: workspace/novel-7");
+        expect(runtimeAppendingText).toContain("Use Project Workspace paths such as lorebook/... or manuscript/...");
+        expect(runtimeAppendingText).toContain("Current plot focus:");
+        expect(runtimeAppendingText).toContain("- Project Path: workspace/novel-7");
+        expect(runtimeAppendingText).toContain("projectPath must still be passed explicitly");
         const planModePrepared = await profile.prepare!({
             session: {
                 systemPrompt: "",
@@ -181,6 +225,7 @@ describe("assets builtin v3 profiles", () => {
                 planModeActive: true,
             },
             input: {},
+            vars: createTestVariableAccessor(),
             catalog: await catalog.snapshot(),
             skills: [],
         });
@@ -210,6 +255,7 @@ describe("assets builtin v3 profiles", () => {
                 planModeActive: false,
             },
             input: {},
+            vars: createTestVariableAccessor(),
             catalog: await catalog.snapshot(),
             skills: [],
         });
@@ -242,6 +288,7 @@ describe("assets builtin v3 profiles", () => {
                 prompt: "找主角相关设定",
                 maxEntries: 3,
             },
+            vars: createTestVariableAccessor(),
             catalog: await catalog.snapshot(),
             skills: [],
         });
@@ -280,6 +327,7 @@ describe("assets builtin v3 profiles", () => {
                 planModeActive: false,
             },
             input: {},
+            vars: createTestVariableAccessor(),
             catalog: await catalog.snapshot(),
             skills: [{
                 key: "profile-system-guide",
@@ -362,8 +410,9 @@ describe("assets builtin v3 profiles", () => {
         expect(properties).not.toHaveProperty("plotPoints");
         expect(properties).not.toHaveProperty("novelId");
         expect(properties).not.toHaveProperty("outputPath");
-        expect(properties.chapterPaths.minItems).toBe(1);
-        expect(properties.chapterPaths.maxItems).toBe(1);
+        const chapterPathsSchema = properties.chapterPaths as typeof properties.chapterPaths & {minItems?: number; maxItems?: number};
+        expect(chapterPathsSchema.minItems).toBe(1);
+        expect(chapterPathsSchema.maxItems).toBe(1);
     });
 
     it("writer writing presets 使用用户目录覆盖系统同名文件", async () => {
@@ -483,6 +532,7 @@ describe("assets builtin v3 profiles", () => {
                     chapterPaths: ["silver-dragon-hime/manuscript/001-chapter/"],
                     lorebookEntries: ["lorebook/character/hero/"],
                 },
+                vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
                 skills: [],
             });

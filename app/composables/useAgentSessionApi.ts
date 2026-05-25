@@ -12,6 +12,7 @@ import type {
     AgentSessionSnapshotDto,
     AgentSessionSummaryDto,
     AgentTreeRequestDto,
+    ClientVariablePatchAckDto,
 } from "nbook/shared/dto/agent-session.dto";
 
 /**
@@ -72,6 +73,13 @@ export function useAgentSessionApi() {
         });
     };
 
+    const acknowledgeClientVariablePatch = (sessionId: number, body: ClientVariablePatchAckDto) => {
+        return $fetch<{ok: boolean}>(`/api/agent/sessions/${sessionId}/client-variable-patch-acks`, {
+            method: "POST",
+            body,
+        });
+    };
+
     const subscribeSessionEvents = async (
         sessionId: number,
         after: number,
@@ -86,6 +94,7 @@ export function useAgentSessionApi() {
     };
 
     return {
+        acknowledgeClientVariablePatch,
         abortSession,
         createSession,
         getSession,

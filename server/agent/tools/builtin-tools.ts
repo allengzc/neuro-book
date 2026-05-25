@@ -10,6 +10,7 @@ import {createTaskTools} from "nbook/server/agent/tools/task-tools";
 import {renderSchemaSummary} from "nbook/server/agent/profiles/profile-dsl";
 import {reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import type {JsonValue} from "nbook/server/agent/messages/types";
+import {createVariableTools} from "nbook/server/agent/variables/tools";
 
 const ReportResultSchema = Type.Object({
     walkthrough: Type.String(),
@@ -44,7 +45,7 @@ const CreateAgentSchema = Type.Object({
     profileKey: Type.String(),
     input: Type.Optional(Type.Unknown()),
     workspaceRoot: Type.Optional(Type.String()),
-    novelId: Type.Optional(Type.String()),
+    projectPath: Type.Optional(Type.String()),
 });
 
 const InvokeAgentSchema = Type.Object({
@@ -80,6 +81,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
         ...createFileTools(),
         ...createTaskTools(),
         ...createPlotTools(),
+        ...createVariableTools(),
         createSqlTool(),
         {
             key: "report_result",
@@ -161,7 +163,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
                     profileKey: agentInput.profileKey,
                     input: normalizeCreateAgentInput(agentInput.profileKey, agentInput.input) as never,
                     workspaceRoot: agentInput.workspaceRoot,
-                    novelId: agentInput.novelId,
+                    projectPath: agentInput.projectPath,
                 });
                 return {
                     content: [{type: "text", text: `created agent session ${result.sessionId}`}],
@@ -175,7 +177,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
                     input: normalizeCreateAgentInput(agentInput.profileKey, agentInput.input) as never,
                     workspaceRoot: agentInput.workspaceRoot ?? context.workspaceRoot,
                     workspaceKey: context.workspaceKey,
-                    novelId: agentInput.novelId ?? context.novelId,
+                    projectPath: agentInput.projectPath ?? context.projectPath,
                     parentSessionId: context.sessionId,
                 });
                 return {

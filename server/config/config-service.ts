@@ -8,9 +8,9 @@ import {
     USER_ASSETS_WORKSPACE_KIND,
     USER_ASSETS_WORKSPACE_ROOT,
     WORKSPACE_CONTAINER_ROOT,
-    resolveWorkspaceRootInput,
     type WorkspaceRootKind,
 } from "nbook/server/workspace-files/novel-workspace";
+import {normalizeProjectPath, readProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {GlobalConfigDtoSchema} from "nbook/shared/dto/config.dto";
 import type {
     ConfigAgentProfileSettingsDto,
@@ -141,7 +141,7 @@ export async function loadEffectiveConfig(query: ConfigWorkspaceQueryDto = {work
 /**
  * 按 session metadata 中的 workspaceRoot 读取 effective config。
  *
- * Agent session 已经持久化 workspaceRoot，因此 invocation 不再依赖 HTTP 层继续传 novelId。
+ * Agent session 已经持久化 workspaceRoot，因此 invocation 不再依赖 HTTP 层继续传 projectPath。
  */
 export async function loadEffectiveConfigForWorkspaceRoot(workspaceRoot: string | undefined): Promise<EffectiveConfig> {
     const global = await readGlobalConfigFile();
@@ -216,20 +216,17 @@ export async function resolveConfigTarget(query: ConfigWorkspaceQueryDto): Promi
         };
     }
 
-    const {prisma} = await import("nbook/server/utils/prisma");
-    const workspaceRoot = await resolveWorkspaceRootInput(prisma, {
-        novelId: query.novelId,
-        workspaceKind,
-    });
-    if (!workspaceRoot) {
+    if (!query.projectPath) {
         throw createError({
             statusCode: 400,
-            message: "Project Workspace 配置必须提供有效 novelId",
+            message: "Project Workspace 配置必须提供有效 projectPath",
         });
     }
+    const projectPath = normalizeProjectPath(query.projectPath);
+    await readProjectManifest(projectPath);
     return {
         workspaceKind,
-        projectConfigPath: path.resolve(process.cwd(), workspaceRoot, ".nbook", "config.json"),
+        projectConfigPath: path.resolve(process.cwd(), projectPath, ".nbook", "config.json"),
     };
 }
 

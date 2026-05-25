@@ -1,15 +1,13 @@
 import {consola} from "consola";
 import type {H3Event} from "h3";
-import type {Novel, Prisma, PrismaClient} from "nbook/server/generated/prisma/client";
 import type {
     NovelListItemDto,
     UpdateNovelRequestDto,
 } from "nbook/shared/dto/novel-chapter.dto";
 import {z} from "zod";
+import {listProjectWorkspaces, readProjectManifest, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 
-type PrismaExecutor = PrismaClient | Prisma.TransactionClient;
 type EntityIdLabel =
-    | "novelId"
     | "storyId"
     | "phaseId"
     | "threadId"
@@ -17,7 +15,6 @@ type EntityIdLabel =
     | "plotId"
     | "entryId"
     | "parentId";
-type NovelResponseDto = ReturnType<typeof toNovelResponse>;
 
 /**
  * 将数据库整数 ID 转成对外字符串。
@@ -60,16 +57,6 @@ export function parseNullableEntityId(label: EntityIdLabel, value: string | null
 }
 
 /**
- * 抛出 404。
- */
-const throwNotFound = (message: string): never => {
-    throw createError({
-        statusCode: 404,
-        message,
-    });
-};
-
-/**
  * 抛出 400。
  */
 const throwBadRequest = (message: string): never => {
@@ -80,56 +67,66 @@ const throwBadRequest = (message: string): never => {
 };
 
 /**
- * 将小说实体映射为基础响应对象。
+ * 将 Project manifest 映射为兼容现有前端的小说列表项。
  */
-export function toNovelResponse(novel: Novel) {
+export function toNovelResponse(project: {projectPath: string; title: string; summary: string; updatedAt: string}): NovelListItemDto {
+    const workspaceSlug = project.projectPath.split("/").at(-1) ?? project.projectPath;
     return {
-        id: stringifyEntityId(novel.id),
-        title: novel.title,
-        summary: novel.summary,
-        workspaceSlug: novel.workspaceSlug,
-        createdAt: novel.createdAt.toISOString(),
-        updatedAt: novel.updatedAt.toISOString(),
+        id: project.projectPath,
+        title: project.title,
+        summary: project.summary,
+        workspaceSlug,
+        projectPath: project.projectPath,
+        createdAt: project.updatedAt,
+        updatedAt: project.updatedAt,
+        volumeCount: 0,
+        chapterCount: 0,
+        totalWords: 0,
     };
 }
 
 /**
- * 获取小说列表。
- * 章节内容已迁移到 manuscript 文件树，数据库列表只返回 Novel 基础信息。
+ * 获取 Project Workspace 列表。
  */
-export async function listNovels(prismaClient: PrismaExecutor): Promise<NovelListItemDto[]> {
-    const novels = await prismaClient.novel.findMany({
-        orderBy: {updatedAt: "desc"},
-    });
-
-    return novels.map((novel) => ({
-        ...toNovelResponse(novel),
-        volumeCount: 0,
-        chapterCount: 0,
-        totalWords: 0,
-    }));
+export async function listNovels(): Promise<NovelListItemDto[]> {
+    return (await listProjectWorkspaces()).map(toNovelResponse);
 }
 
 /**
- * 校验小说存在。
+ * 校验 Project Workspace 存在。
  */
-export async function assertNovel(prismaClient: PrismaExecutor, novelId: number): Promise<Novel> {
-    const novel = await prismaClient.novel.findUnique({
-        where: {id: novelId},
+export async function assertNovel(projectPath: string): Promise<NovelListItemDto> {
+    const manifest = await readProjectManifest(projectPath);
+    return toNovelResponse({
+        projectPath,
+        title: manifest.title,
+        summary: manifest.summary,
+        updatedAt: new Date().toISOString(),
     });
+}
 
-    if (!novel) {
-        throwNotFound("小说不存在");
+/**
+ * 读取 projectPath 路由参数。
+ */
+export function requireProjectPath(event: H3Event): string {
+    const value = event.context.params?.projectPath ?? event.context.params?.novelId ?? "";
+    if (!value.trim()) {
+        throwBadRequest("projectPath 不能为空");
     }
-
-    return novel as Novel;
+    return decodeURIComponent(value);
 }
 
 /**
- * 读取 novelId 路由参数。
+ * 读取 query 中的 projectPath。
  */
-export function requireNovelId(event: H3Event): number {
-    return parseEntityId("novelId", event.context.params?.novelId ?? "");
+export function requireProjectPathQuery(event: H3Event): string {
+    const query = getQuery(event);
+    const value = query.projectPath;
+    const text = typeof value === "string" ? value.trim() : "";
+    if (!text) {
+        throwBadRequest("projectPath query 不能为空");
+    }
+    return text;
 }
 
 /**
@@ -155,20 +152,23 @@ export async function validateBody<T>(event: H3Event, schema: z.ZodSchema<T>): P
 }
 
 /**
- * 通过 tool 更新小说基础信息。
+ * 更新 Project manifest 基础信息。
  */
 export async function updateNovelByTool(
-    prismaClient: PrismaExecutor,
-    novelId: number,
+    projectPath: string,
     input: UpdateNovelRequestDto,
-): Promise<NovelResponseDto> {
-    await assertNovel(prismaClient, novelId);
-    const novel = await prismaClient.novel.update({
-        where: {id: novelId},
-        data: {
-            title: input.title,
-            summary: input.summary,
-        },
+): Promise<NovelListItemDto> {
+    const current = await readProjectManifest(projectPath);
+    const next = {
+        ...current,
+        title: input.title ?? current.title,
+        summary: input.summary ?? current.summary,
+    };
+    await writeProjectManifest(projectPath, next);
+    return toNovelResponse({
+        projectPath,
+        title: next.title,
+        summary: next.summary,
+        updatedAt: new Date().toISOString(),
     });
-    return toNovelResponse(novel);
 }

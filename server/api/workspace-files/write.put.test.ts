@@ -43,11 +43,18 @@ describe("PUT /api/workspace-files/write", () => {
         await fs.mkdir(root, {recursive: true});
         await fs.writeFile(path.join(root, filePath), "共同基线\n", "utf-8");
         const baseNode = await statWorkspacePath(root, filePath);
+        vi.doMock("nbook/server/workspace-files/novel-workspace", async (importOriginal) => {
+            const actual = await importOriginal<typeof import("nbook/server/workspace-files/novel-workspace")>();
+            return {
+                ...actual,
+                resolveWorkspaceRootInput: vi.fn(async () => root),
+            };
+        });
 
         await fs.writeFile(path.join(root, filePath), "真实文件\n", "utf-8");
         await fs.utimes(path.join(root, filePath), new Date(), new Date(baseNode.mtimeMs + 5000));
         readBodyMock.mockResolvedValue({
-            root,
+            projectPath: "workspace/test-project",
             path: filePath,
             content: "网页编辑\n",
             baseContent: "共同基线\n",

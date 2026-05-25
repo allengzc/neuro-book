@@ -54,7 +54,7 @@ export function createNode(type: ProfileTemplateNodeType): ProfileTemplateNodeDt
         base.props = {id: `reminder_${Date.now()}`, repeatEveryTurns: 5};
     }
     if (type === "Watch") {
-        base.props = {path: "ctx.workspace.root"};
+        base.props = {path: "client.currentProjectWorkspace"};
     }
     if (type === "If") {
         base.props = {condition: {kind: "expression", code: "true"}};
@@ -73,9 +73,6 @@ export function createNode(type: ProfileTemplateNodeType): ProfileTemplateNodeDt
     }
     if (type === "SystemReminder") {
         base.children = [createNode("Text")];
-    }
-    if (type === "ProjectReminder") {
-        base.props = {repeatEveryTurns: 20};
     }
     if (type === "TaskReminder") {
         base.props = {stateKey: "agent.tasks", repeatEveryTurns: 8};
@@ -119,12 +116,10 @@ export function canHaveChildren(type: ProfileTemplateNodeType): boolean {
         "SqlSchemaSummary",
         "RuntimeContext",
         "LinkedAgentsSummary",
-        "ProjectReminder",
         "LinkedAgentsReminder",
         "TaskReminder",
         "ActivePlanModeReminder",
         "MentionedSkillsReminder",
-        "PlotFocusReminder",
     ].includes(type);
 }
 
@@ -241,12 +236,10 @@ export function isPlanModeSlotNodeType(type: ProfileTemplateNodeType): boolean {
  * 返回该节点是否直接产出 Reminder/Watch 语义。
  */
 export function isReminderNodeType(type: ProfileTemplateNodeType): boolean {
-    return type === "ProjectReminder"
-        || type === "LinkedAgentsReminder"
+    return type === "LinkedAgentsReminder"
         || type === "TaskReminder"
         || type === "PlanModeReminder"
-        || type === "ActivePlanModeReminder"
-        || type === "PlotFocusReminder";
+        || type === "ActivePlanModeReminder";
 }
 
 /**

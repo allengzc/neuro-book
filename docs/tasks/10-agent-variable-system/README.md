@@ -41,7 +41,7 @@
   - `novelId` 来自 `ctx.session.novelId`。
 - 前端 `buildClientVariables()` 当前只在创建 session 时作为 `createSession.input` 写入 `SessionMetadata.input`。
 - 后续 `invokeSession()` 请求不携带最新 client variables，所以长 session 切换 Project 后，profile 仍看到创建 session 时的旧 `ctx.input`。
-- `variable_change` session entry 已存在，但 reduce 后只进入 `ctx.session.customState["variable:<key>"]`，尚未成为统一变量系统。
+- 旧 `variable_change` session entry 已从 v3 active 类型和 reducer 删除；新变量系统只使用 `variable_patch`。
 - 工具执行上下文 `ToolExecutionContext` 当前只有 `sessionId`、`workspaceRoot`、`workspaceKey`、`novelId` 等，不包含统一变量读写入口。
 - 当前 `profileState.${profileKey}` 是 profile runtime state，只保存 TSX DSL 内部的 `ReminderState` / `WatchState`：
   - `reminders[id].fingerprint`
@@ -49,7 +49,7 @@
   - `watches[key].hasValue`
   - `watches[key].value`
   - `watches[key].fingerprint`
-- 当前 session 状态主要散在 `custom` entry 中，例如 `agent.tasks`、`plot.selection`、`agent.planMode`、`ui.planMode.active`、`profileState.${profileKey}`；`variable_change` 只是额外 reduce 到 `customState["variable:<key>"]` 的薄入口。
+- 当前 session 状态主要散在 `custom` entry 中，例如 `agent.tasks`、`plot.selection`、`agent.planMode`、`ui.planMode.active`、`profileState.${profileKey}`；变量系统的新入口是独立 `variable_patch` entry。
 
 ## Variable File Format
 
@@ -341,7 +341,7 @@ type VariableDefinitionCompiledManifest = {
 编译入口：
 
 - Workbench 或 user-assets 变量定义编辑器保存 definition 源码后，必须显式点击编译才更新 `.compiled`。
-- Agent runtime CLI 后续提供 `variable definition compile/status/check` 或合并到现有 `profile` CLI 的变量子命令；第一版文档只要求入口存在，不把源码自动编译作为 runtime 行为。
+- Agent runtime CLI 提供 `variable definition compile/status/check`。当前 `assets/workspace/.nbook/agent/bin/variable` 是 repo-backed runtime shim：在开发版 user-assets 中会向上定位 neuro-book 仓库根并调用项目根 `scripts/variable.ts`；生产打包时需要把同等逻辑随 runtime 一起发布，不能依赖源码自动编译。
 - `bun run dev` / `bun run build` 可以预编译系统 definition artifact，但 dev reload 不能回到 runtime API 自动编译。
 
 同步规则：
@@ -469,17 +469,17 @@ defineClientVariable(...)
 
 ```ts
 type ProfileVariableAccessor = {
-    anchor: {
-        sessionId: number;
-        leafId: string | null;
-        entryId?: string;
-    };
-    snapshot: VariableSnapshot;
-    get<T = JsonValue>(path: VariablePath<T>): T | undefined;
-    require<T = JsonValue>(path: VariablePath<T>): T;
-    put<T = JsonValue>(path: WritableVariablePath<T>, value: T): Promise<void>;
-    patch<T = JsonValue>(path: WritableVariablePath<T>, patch: Partial<T>): Promise<void>;
-    delete(path: WritableVariablePath): Promise<void>;
+    readonly dryRun: boolean;
+    catalog(query?: VariableSchemaQuery): VariableSchemaResult;
+    get(path: string): Promise<JsonValue | undefined>;
+    read(path: string, options?: VariableReadOptions): Promise<VariableReadResult>;
+    patch(
+        namespace: VariableNamespace,
+        path: string,
+        operations: VariableJsonPatchOperation[],
+        source?: "agent" | "profile" | "frontend" | "user",
+        toolCallId?: string,
+    ): Promise<VariableReadResult>;
 };
 ```
 
@@ -489,6 +489,7 @@ type ProfileVariableAccessor = {
   - 不再设计两套 session-bound / entry-bound API。
   - 默认用于 profile prepare、tools、ingest 的 accessor 绑定当前 active leaf。
   - 读 session 变量时 reduce 到 anchor entry；如果 anchor 是当前 leaf，就等价于当前 session active path。
+  - 第一版不暴露 `anchor` / `snapshot` / `put` / `delete` 公共 API，避免 profile 作者理解两套写入入口；写变量优先走 `variable_patch` 工具，高级 profile 可以直接调用 `ctx.vars.patch(...)`。
   - 写 session 变量时追加到 anchor 之后的新 leaf，因此自然参与分支和回退。
   - preview、retry、tree move 后 invoke 可以显式传入目标 entry anchor，避免再引入第二套读取语义。
 
@@ -1215,6 +1216,7 @@ watchPath: "client.currentProjectWorkspace"
 - `session.*` definition 第一版只允许 profile 注册，工具不能动态注册。
 - Project/global patch 不承诺跨文件和 JSONL 的真正原子事务；变量文件是真相源，session audit entry 是可观测记录，audit 失败时必须记录 lifecycle error 或返回 tool error。
 - `variable_patch` 成功结果不返回完整 updated value；Agent 需要用 `variable_read` 验证重要结果。
+- `variable_patch` 第一版强制同一 invocation 内 read-before-patch：Agent 必须先调用 `variable_read`，后端记录该 path 的 fingerprint；patch 时校验当前 fingerprint，读后被其它写入改变则返回 stale error。
 - Agent 修改变量通过 RFC 6902 JSON Patch 工具完成。
 - 新增 `variable_patch` entry；旧 `variable_change` 不作为新系统入口继续扩展。
 - `variable_patch` entry 只记录变更事实，不保存完整 before/after value；Project/global 变量 patch 会写当前 session 审计 entry，但不进入模型 messages。
@@ -1236,13 +1238,125 @@ watchPath: "client.currentProjectWorkspace"
 ## Files Changed
 
 - `docs/tasks/10-agent-variable-system/README.md`
+- `shared/dto/agent-session.dto.ts`
+- `app/components/novel-ide/NovelAgentDrawer.vue`
+- `app/components/novel-ide/agent/client-variables.ts`
+- `app/components/profile-template-editor/profile-template-tree-utils.ts`
+- `server/agent/harness/neuro-agent-harness.ts`
+- `server/agent/harness/types.ts`
+- `server/agent/http.ts`
+- `server/agent/profiles/types.ts`
+- `server/agent/profiles/profile-dsl.ts`
+- `server/agent/profiles/profile-dsl/jsx-runtime.ts`
+- `server/agent/profiles/profile-http-service.ts`
+- `server/agent/session/types.ts`
+- `server/agent/session/session-repo.ts`
+- `server/agent/tools/types.ts`
+- `server/agent/tools/builtin-tools.ts`
+- `server/agent/variables/*`
+- `assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`
+- `assets/workspace/.nbook/agent/profiles/builtin/leader.assets.profile.tsx`
+- `assets/workspace/.nbook/agent/profiles/builtin/writer.profile.tsx`
+- `assets/workspace/.nbook/agent/profiles/.compiled/*`
+- `workspace/.nbook/agent/profiles/.compiled/*`
+- `server/agent/profiles/profile-dsl.test.ts`
+- `server/agent/profiles/catalog.test.ts`
+- `server/agent/profiles/leader-assets-profile.test.ts`
+- `server/agent/harness/neuro-agent-harness.test.ts`
+- `server/agent/variables/variables.test.ts`
+- `server/agent/variables/test-utils.ts`
 
 ## Verification
 
-- 本次只创建设计任务文档，未改运行代码。
+- `bunx tsc --noEmit --pretty false`
+- `bunx vitest run server/agent/variables/variables.test.ts server/agent/profiles/profile-dsl.test.ts`
+- `bunx vitest run server/agent/profiles/leader-assets-profile.test.ts server/agent/profiles/catalog.test.ts`
+- `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts`
+- `bun scripts/prepare-system-profile-metadata.ts`
+- 代码搜索确认 active 代码中不再保留 `ctx.workspace` / `ctx.input.studio` 旧入口。
+
+## Implementation Walkthrough
+
+### 2026-05-25
+
+- 新增 `server/agent/variables` 核心模块：
+  - 固定 namespace：`client`、`global`、`project`、`session`。
+  - `VariableRegistry` / `VariableSchemaResolver` / `VariableFileStorage` / `ProfileVariableAccessor`。
+  - `VariableCatalog` 顶层直接暴露 `clientVariables`、`globalVariables`、`projectVariables`、`sessionVariables`，不再使用 `namespaces` 包装。
+  - TypeBox resolver 第一版支持 Object、Record / `patternProperties`、Array、保守 Union / Intersect。
+  - `VariableRegistry.query({paths})` 支持注册根下的子路径 schema 推导，例如 `project.affections.alice` 可解析为 number schema。
+  - JSON Patch 支持 `add` / `replace` / `remove` / `test`，operation path 相对 `namespace + path` target，空字符串 `""` 表示完整 target。
+- `AgentInvokeRequestDto` 与 harness `InvokeAgentInput` 增加 `clientState`。
+  - Novel Agent Drawer 的 prompt、continue、tool/user-input resolution、tree + invoke 路径都会传 `buildAgentClientState()`。
+  - create session 不再把浏览器状态写入 profile `input`，默认传 `{}`。
+  - `ctx.input` 回到 profile 静态输入；本轮浏览器状态进入 `ctx.invocation.clientState` 和 `ctx.vars.client.*`。
+- `ProfilePrepareContext` 增加 `vars` 和 `invocation`。
+  - `prepare`、`ingest`、snapshot system prompt、profile preview 都使用 dry-run 或 runtime accessor。
+  - snapshot/detail/preview 不做真实变量写入。
+  - profile 内 `variableDefinitions` 支持注册 `session.*` 变量定义，并随 profile `.compiled` artifact 进入 harness/tool runtime。
+- 新增 session entry：
+  - `variable_patch`
+  - `client_variable_patch_ack`
+  - session 级变量通过 active path replay `variable_patch`，能跟随分支回退。
+- `client.*` patch 在真实 invocation 中通过 SSE 投递 `client_variable_patch_requested`，前端 ack 后写入 `client_variable_patch_ack`，成功时更新本轮 client overlay，失败/超时返回 tool error。
+- 新增 Agent 工具：
+  - `variable_schema`
+  - `variable_read`
+  - `variable_patch`
+  - 工具进入 builtin registry；`leader.default` allowed tools 已加入这三个工具。
+  - `variable_read` / `variable_patch` 会按注册 schema 做 TypeBox `Value.Check`；`variable_read` 保持返回结构化 issue，`variable_patch` 遇到不可写、schema mismatch、unavailable、not registered 等问题会抛错，由 harness 生成 error tool result。
+  - `variable_schema` 按 `paths` 或 `namespace + prefix` 查询时默认返回对应 `schemas`；`detail` 只控制附加字段完整度，不再决定是否返回 schema。
+  - `project.*` 缺少本轮 `client.currentProjectWorkspace` 时返回 `unavailable`，不 fallback 到 session metadata / novelId。
+- DSL 变更：
+  - 字符串 `watchPath` 只接受变量路径：`client.*`、`global.*`、`project.*`、`session.*`。
+  - 非变量上下文改用函数 `watch={(ctx) => ...}`。
+  - 删除 active runtime 对 `ctx.workspace` / `ctx.input.studio` 的依赖。
+  - 新增 `<Variable>` 和 `<VariableSchema>`，第一版只允许作为 `<ModelContext>` 直接子节点。
+  - 硬删除 `ProjectReminder` / `PlotFocusReminder` 简单 helper；`leader.default` 改用普通 `Reminder` 内联 Project Workspace 和 Plot Focus 提醒。
+  - `LinkedAgentsReminder`、`TaskReminder`、`PlanModeReminder` 改为函数 watch，不再使用旧 `ctx.session.*` 字符串路径。
+- Profile 迁移：
+  - `leader.default` 只注入聚焦的 `client.currentProjectWorkspace` variable schema 和简短变量工具工作流。
+  - `leader.assets` 移除 `ctx.workspace.root` watchPath。
+  - 系统 profile `.compiled` 已重新生成。
+  - 当前用户 profile 覆盖 `.compiled` 也已手动重新编译，避免 compiled-only catalog 被 stale 用户覆盖遮蔽。
+- 本轮补完：
+  - 新增 `createVariableRegistryForProfile()` / `createVariableRegistryForSession()`，harness、Workbench preview、profile detail 统一使用内建变量 + profile `session.*` definitions；真实 invocation 有 `clientState` 时额外加载 Workspace Root / Project Workspace 编译后的 definition artifact。
+  - `storage_error` 与 `not_registered` 已分开：registry resolve 失败才是 `not_registered`；`variables.json` 读取、JSON parse、格式非法、IO 错误归为 `storage_error`。
+  - `ClientStateSnapshotDto` 支持 `ide`、`studio` 和额外 top-level JSON 字段，并保留 `studio.workspace -> client.currentProjectWorkspace` 派生。
+  - `client.*` 前端 ack 管线已落地：后端 pending command + SSE event + ack API + ack entry + 同轮 overlay 更新。当前真实 store 写回只开放低风险字段 `client.ide.activePanel` 和 `client.ide.theme`；其他字段可计算 appliedValue 并 ack，但不直接改复杂 UI store。
+  - 新增 Workspace Root / Project variable definition `.compiled` 第一版：`server/agent/variables/definition-artifact.ts` 编译/加载 `definitions.ts|tsx|js|mjs`，runtime 只加载 hash 匹配 artifact，缺失/过期/加载失败暴露 `not_compiled` / `compile_stale` / `compiled_load_failed` issue。
+  - 系统 assets 增加 `assets/workspace/.nbook/agent/variables/definitions.ts`，`scripts/prepare-system-profile-metadata.ts` 会预编译系统 variable definition artifact；user-assets sync 在未手改时同步源码和 `.compiled` artifact，手改或缺 sync state 时保留用户文件并提示 warning。
+  - Workbench 变量面板展示 `client/global/project/session` registry catalog，路径使用 `client.ide` / `session.foo` 这类真实变量路径。
+
+## Plan Deviations
+
+- `client.*` 前端 ack 管线已实现，但真实 UI store 写回只先开放 `client.ide.activePanel` 和 `client.ide.theme`。打开文件、切换 Project、编辑器字体等复杂状态后续需要逐字段接入现有 store action，避免绕开保存冲突和 workspace 切换流程。
+- 变量 definition `.compiled` 已有 compiler、manifest、runtime 加载、user-assets 同步第一版和 `variable definition` CLI；尚未提供 Workbench 可视化编辑。
+- 持久变量文件写入已实现 atomic replace、文件级 promise lock、注册 path read/patch 的 TypeBox value 校验；尚未对 `variables.json` 文件内未注册字段做全文件级清理或迁移。
+- `variable_change` 旧 entry 已从 v3 active 类型和 reducer 硬删除，不再做 legacy 兼容。旧 session 如仍含该 entry，需要按新任务单独做迁移或删除。
+- `variable_patch` 已加入同一 invocation 的 read-before-patch fingerprint 防护：未先 read 会返回 `stale_read_required`，读后目标被其它写入改变会返回 `stale_fingerprint`。
+- `client.*` ack 后的 overlay 已提升到 invocation 级共享 state；同一 invocation 后续新建 accessor 也能 read-after-write。
+- Project/global patch 如果 `variables.json` 已写入但 session audit entry 失败，工具会返回明确半提交错误，提示先 `variable_read` 确认当前值，避免重复 patch。
+- 新增 Agent runtime 变量 CLI：
+  - `assets/workspace/.nbook/agent/bin/variable`
+  - `assets/workspace/.nbook/agent/bin/variable.cmd`
+  - `assets/workspace/.nbook/agent/scripts/variable.ts`
+  - 项目根 convenience script：`scripts/variable.ts`
+  - 支持 `variable definition status/check/compile --global` 与 `variable definition status/check/compile --project <projectWorkspace>`。
+  - 当前是 repo-backed runtime shim；开发环境可用，生产发布需要把项目根脚本能力一并打包到 Agent runtime。
+- `variable_schema` 现在返回与查询相关的 definition issue；无关 namespace 的 stale definition 不会阻塞当前 namespace schema 查询。
 
 ## TODO / Follow-ups
 
+- 扩展 `client.*` 前端真实写回字段：编辑器字体、选中文件、Project 切换等需要逐字段绑定现有安全 store action。
+- 增加变量 definition 与 `variables.json` 的管理 UI，并决定是否需要全文件级校验与迁移命令。
 - 根据本文档继续 grill frontend writable state 权限。
 - 调研 JSON Patch 与 LLM 结构化编辑库，包含 JSON-Whisperer。
 - 后续评估是否把 `profileState.${profileKey}` 迁入 `session.profileState.*`。
+
+## Validation
+
+- `bun scripts/prepare-system-profile-metadata.ts`
+- `bunx tsc --noEmit --pretty false`
+- `bunx vitest run server/agent/variables/variables.test.ts`
+- `bun scripts/variable.ts definition status --global`

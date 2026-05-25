@@ -17,6 +17,7 @@ async function main(): Promise<void> {
     await fs.mkdir(path.dirname(GLOBAL_CONFIG_PATH), {recursive: true});
 
     const oldBootText = await readTextFile(BOOT_CONFIG_PATH);
+    assertNoPostgresDatabaseConfig(oldBootText);
     const existingGlobal = await readJsonFile<StoredGlobalConfig>(GLOBAL_CONFIG_PATH);
     const migratedGlobal = buildGlobalConfig(oldBootText, existingGlobal);
 
@@ -118,6 +119,22 @@ function buildBootConfig(oldBootText: string | null): Record<string, unknown> {
             url: "${DATABASE_URL:-file:./workspace/.nbook/neuro-book.sqlite}",
         },
     };
+}
+
+function assertNoPostgresDatabaseConfig(oldBootText: string | null): void {
+    if (!oldBootText) {
+        return;
+    }
+    const oldConfig = yaml.parse(oldBootText) as {database?: {kind?: unknown; url?: unknown}} | null;
+    const database = oldConfig?.database;
+    if (!database || typeof database !== "object") {
+        return;
+    }
+    const kind = typeof database.kind === "string" ? database.kind.toLowerCase() : "";
+    const url = typeof database.url === "string" ? database.url.toLowerCase() : "";
+    if (kind.includes("postgres") || url.includes("postgres://") || url.includes("postgresql://")) {
+        throw new Error("当前版本已移除 PostgreSQL 支持。请先将 App 数据库切换为 SQLite file: URL；本脚本不迁移旧 PostgreSQL 数据。");
+    }
 }
 
 function normalizeRecord(input: unknown): Record<string, unknown> {

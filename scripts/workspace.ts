@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {Command} from "commander";
+import {createClient} from "@libsql/client";
 import {
     workspaceContentJsonSchema,
     WORKSPACE_CONTENT_STATUSES,
@@ -20,6 +21,13 @@ import {
     type WorkspaceFileIssue,
     validateWorkspaceContentNodes,
 } from "nbook/server/workspace-files/workspace-files";
+import {
+    PROJECT_DATABASE_RELATIVE_PATH,
+    PROJECT_MANIFEST_FILE,
+    initProjectDatabase,
+    readProjectManifest,
+    toSqliteFileUrl,
+} from "nbook/server/workspace-files/project-workspace";
 
 type WorkspaceNodeNewOptions = {
     title?: string;
@@ -80,7 +88,7 @@ type ParsedContentNode = {
 
 const program = new Command();
 const INVOCATION_CWD = process.cwd();
-const WORKSPACE_METADATA_FILE = "workspace.yaml";
+const WORKSPACE_METADATA_FILE = PROJECT_MANIFEST_FILE;
 
 program
     .name("workspace")
@@ -116,6 +124,53 @@ nodeCommand
             });
 
             console.log(node.path);
+        } catch (error) {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exitCode = 1;
+        }
+    });
+
+const projectCommand = program
+    .command("project")
+    .description("校验与恢复 Project Workspace");
+
+projectCommand
+    .command("validate")
+    .description("校验 Project Workspace 的 project.yaml 与 Project SQLite")
+    .argument("[target]", "Project Workspace 目录或其内部路径", ".")
+    .action(async (target: string) => {
+        try {
+            const projectRoot = await findWorkspaceRoot(path.resolve(INVOCATION_CWD, target));
+            const manifest = await readProjectManifest(toWorkspaceDisplayPath(process.cwd(), projectRoot, true));
+            const databasePath = path.join(projectRoot, PROJECT_DATABASE_RELATIVE_PATH);
+            const databaseExists = await pathExists(databasePath);
+            const schemaVersion = databaseExists ? await readProjectSchemaVersion(databasePath) : null;
+            console.log(JSON.stringify({
+                ok: true,
+                projectRoot: toWorkspaceDisplayPath(process.cwd(), projectRoot, true),
+                manifest,
+                database: {
+                    path: toWorkspaceDisplayPath(projectRoot, databasePath, true),
+                    exists: databaseExists,
+                    schemaVersion,
+                },
+            }, null, 2));
+        } catch (error) {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exitCode = 1;
+        }
+    });
+
+projectCommand
+    .command("init-db")
+    .description("初始化当前 Project Workspace 的 .nbook/project.sqlite")
+    .argument("[target]", "Project Workspace 目录或其内部路径", ".")
+    .action(async (target: string) => {
+        try {
+            const projectRoot = await findWorkspaceRoot(path.resolve(INVOCATION_CWD, target));
+            const projectPath = toWorkspaceDisplayPath(process.cwd(), projectRoot, true);
+            const databasePath = await initProjectDatabase(projectPath);
+            console.log(toWorkspaceDisplayPath(process.cwd(), databasePath, true));
         } catch (error) {
             console.error(error instanceof Error ? error.message : String(error));
             process.exitCode = 1;
@@ -351,7 +406,7 @@ async function resolveSingleWorkspaceTarget(target: string): Promise<ResolvedWor
 }
 
 /**
- * 从路径向上寻找最近的 workspace.yaml。
+ * 从路径向上寻找最近的 project.yaml。
  */
 async function findWorkspaceRoot(startPath: string): Promise<string> {
     let currentPath = await readExistingDirectoryOrSelf(startPath);
@@ -362,9 +417,25 @@ async function findWorkspaceRoot(startPath: string): Promise<string> {
 
         const parentPath = path.dirname(currentPath);
         if (parentPath === currentPath) {
-            throw new Error(`找不到 ${WORKSPACE_METADATA_FILE}，请在具体 novel workspace 内执行，或传入该 workspace 内的绝对路径`);
+            throw new Error(`找不到 ${WORKSPACE_METADATA_FILE}，请在具体 Project Workspace 内执行，或传入该 Project Workspace 内的绝对路径`);
         }
         currentPath = parentPath;
+    }
+}
+
+async function readProjectSchemaVersion(databasePath: string): Promise<string | null> {
+    const client = createClient({url: toSqliteFileUrl(databasePath)});
+    try {
+        const result = await client.execute({
+            sql: `SELECT "value" FROM "ProjectMetadata" WHERE "key" = 'schemaVersion' LIMIT 1`,
+            args: [],
+        });
+        const value = result.rows[0]?.value;
+        return typeof value === "string" ? value : value === null || value === undefined ? null : String(value);
+    } catch {
+        return null;
+    } finally {
+        client.close();
     }
 }
 

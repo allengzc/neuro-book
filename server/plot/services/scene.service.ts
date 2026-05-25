@@ -33,8 +33,8 @@ export class SceneService {
     /**
      * 查询场景详情。
      */
-    async getStorySceneDetailDto(novelId: number, sceneId: number): Promise<StorySceneDetailDto> {
-        const story = await this.storyService.ensureStory(novelId);
+    async getStorySceneDetailDto(projectPath: string, sceneId: number): Promise<StorySceneDetailDto> {
+        const story = await this.storyService.ensureStory(projectPath);
         await this.scopeGuard.assertScene(story.id, sceneId);
         const scene = await this.sceneRepository.findSceneWithDetailsById(sceneId);
         if (!scene) {
@@ -47,8 +47,8 @@ export class SceneService {
     /**
      * 查询章节下的剧情 Scene 与 Plot。
      */
-    async getChapterPlotDetailDto(novelId: number, chapterPath: string): Promise<ChapterPlotDetailDto> {
-        const normalizedChapterPath = await this.scopeGuard.assertChapterPath(novelId, chapterPath);
+    async getChapterPlotDetailDto(projectPath: string, chapterPath: string): Promise<ChapterPlotDetailDto> {
+        const normalizedChapterPath = await this.scopeGuard.assertChapterPath(projectPath, chapterPath);
         const scenes = await this.sceneRepository.findChapterScenesWithPlots(normalizedChapterPath);
         return this.assembler.toChapterPlotDetailDto(normalizedChapterPath, scenes);
     }
@@ -56,13 +56,13 @@ export class SceneService {
     /**
      * 创建场景。
      */
-    async createStoryScene(novelId: number, input: ParsedCreateStorySceneInput): Promise<StorySceneDetailDto> {
-        const story = await this.storyService.ensureStory(novelId);
+    async createStoryScene(projectPath: string, input: ParsedCreateStorySceneInput): Promise<StorySceneDetailDto> {
+        const story = await this.storyService.ensureStory(projectPath);
 
         await this.scopeGuard.assertThread(story.id, input.threadId);
-        const chapterPath = input.chapterPath === null ? null : await this.scopeGuard.assertChapterPath(novelId, input.chapterPath);
+        const chapterPath = input.chapterPath === null ? null : await this.scopeGuard.assertChapterPath(projectPath, input.chapterPath);
 
-        const refs = input.resolvedRefs ?? await this.refResolverService.resolveRefs(novelId, story.id, input.refs);
+        const refs = input.resolvedRefs ?? await this.refResolverService.resolveRefs(story.id, input.refs);
         const scene = await this.sceneRepository.createScene({
             storyId: story.id,
             threadId: input.threadId,
@@ -78,25 +78,25 @@ export class SceneService {
         });
 
         await this.sceneRepository.replaceRefs(scene.id, refs);
-        return this.getStorySceneDetailDto(novelId, scene.id);
+        return this.getStorySceneDetailDto(projectPath, scene.id);
     }
 
     /**
      * 更新场景。
      */
     async updateStoryScene(
-        novelId: number,
+        projectPath: string,
         sceneId: number,
         patch: ParsedUpdateStorySceneInput,
     ): Promise<StorySceneDetailDto> {
-        const story = await this.storyService.ensureStory(novelId);
+        const story = await this.storyService.ensureStory(projectPath);
         const scene = await this.scopeGuard.assertScene(story.id, sceneId);
         const nextThreadId = patch.threadId === undefined ? scene.threadId : patch.threadId;
         const nextChapterPath = patch.chapterPath === undefined
             ? scene.chapterPath
             : patch.chapterPath === null
                 ? null
-                : await this.scopeGuard.assertChapterPath(novelId, patch.chapterPath);
+                : await this.scopeGuard.assertChapterPath(projectPath, patch.chapterPath);
         const threadChanged = nextThreadId !== scene.threadId;
         const chapterChanged = nextChapterPath !== scene.chapterPath;
 
@@ -106,7 +106,7 @@ export class SceneService {
 
         const refs = patch.refs === undefined
             ? null
-            : patch.resolvedRefs ?? await this.refResolverService.resolveRefs(novelId, story.id, patch.refs);
+            : patch.resolvedRefs ?? await this.refResolverService.resolveRefs(story.id, patch.refs);
         await this.sceneRepository.updateScene(scene.id, {
             threadId: nextThreadId,
             chapterPath: patch.chapterPath === undefined ? undefined : nextChapterPath,
@@ -136,14 +136,14 @@ export class SceneService {
             await this.orderService.normalizeSceneChapter(scene.chapterPath);
         }
 
-        return this.getStorySceneDetailDto(novelId, scene.id);
+        return this.getStorySceneDetailDto(projectPath, scene.id);
     }
 
     /**
      * 删除场景。
      */
-    async deleteStoryScene(novelId: number, sceneId: number): Promise<void> {
-        const story = await this.storyService.ensureStory(novelId);
+    async deleteStoryScene(projectPath: string, sceneId: number): Promise<void> {
+        const story = await this.storyService.ensureStory(projectPath);
         const scene = await this.scopeGuard.assertScene(story.id, sceneId);
         await this.sceneRepository.deleteScene(scene.id);
         await this.orderService.normalizeSceneThread(scene.threadId);
@@ -153,15 +153,15 @@ export class SceneService {
     /**
      * 批量重排场景。
      */
-    async reorderStoryScenes(novelId: number, items: ParsedReorderStorySceneItem[]): Promise<PlotTreeDto> {
-        const story = await this.storyService.ensureStory(novelId);
+    async reorderStoryScenes(projectPath: string, items: ParsedReorderStorySceneItem[]): Promise<PlotTreeDto> {
+        const story = await this.storyService.ensureStory(projectPath);
         const [existingSceneIds, existingThreadIds] = await Promise.all([
             this.sceneRepository.findSceneIdsByStory(story.id),
             this.scopeGuard.listThreadIds(story.id),
         ]);
         for (const item of items) {
             if (item.chapterPath !== null) {
-                item.chapterPath = await this.scopeGuard.assertChapterPath(novelId, item.chapterPath);
+                item.chapterPath = await this.scopeGuard.assertChapterPath(projectPath, item.chapterPath);
             }
         }
         const parsedItems = this.orderService.validateSceneReorderItems(
@@ -197,6 +197,6 @@ export class SceneService {
             });
         }
 
-        return this.storyService.getPlotTree(novelId);
+        return this.storyService.getPlotTree(projectPath);
     }
 }

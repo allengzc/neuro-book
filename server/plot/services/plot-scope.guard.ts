@@ -2,11 +2,10 @@ import type {
     StoryPhase,
     StoryPlot,
     StoryScene,
-} from "nbook/server/generated/prisma/client";
+} from "nbook/server/generated/project-prisma/client";
 import type {StoryThreadEntity} from "nbook/server/plot/core/types";
 import {statWorkspacePath} from "nbook/server/workspace-files/workspace-files";
 import type {
-    PlotLookupRepository,
     PlotRepository,
     SceneRepository,
     StoryRepository,
@@ -24,7 +23,6 @@ export class PlotScopeGuard {
         private readonly threadRepository: ThreadRepository,
         private readonly sceneRepository: SceneRepository,
         private readonly plotRepository: PlotRepository,
-        private readonly lookupRepository: PlotLookupRepository,
     ) {}
 
     /**
@@ -72,9 +70,9 @@ export class PlotScopeGuard {
     }
 
     /**
-     * 校验章节路径属于当前小说 workspace。
+     * 校验章节路径属于当前 Project Workspace。
      */
-    async assertChapterPath(novelId: number, chapterPath: string): Promise<string> {
+    async assertChapterPath(projectPath: string, chapterPath: string): Promise<string> {
         const normalized = chapterPath.trim().replace(/\\/g, "/").replace(/^workspace\//, "");
         if (!normalized) {
             throwPlotBadRequest("chapterPath 不能为空");
@@ -85,11 +83,7 @@ export class PlotScopeGuard {
         if (!normalized.endsWith("/")) {
             throwPlotBadRequest("chapterPath 必须指向目录路径并以 / 结尾");
         }
-        const novel = await this.lookupRepository.findNovelById(novelId);
-        if (!novel) {
-            throwPlotNotFound("小说不存在");
-        }
-        const node = await statWorkspacePath(`workspace/${novel.workspaceSlug}`, normalized).catch(() => null);
+        const node = await statWorkspacePath(projectPath, normalized).catch(() => null);
         if (!node || !node.isDirectory || !node.contentNode || node.entryType !== "chapter") {
             throwPlotNotFound("章节不存在");
         }

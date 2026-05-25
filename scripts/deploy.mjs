@@ -110,6 +110,11 @@ services:
             - ./workspace:/app/workspace
 YAML
 
+step "恢复可再生成的 profile metadata"
+git restore -- \
+    assets/workspace/.nbook/agent/profiles/.compiled/manifest.json \
+    assets/workspace/.nbook/agent/profiles/.system-profile-metadata.json
+
 dirty="$(git status --porcelain --untracked-files=no)"
 if [ -n "$dirty" ]; then
     echo "远端 tracked worktree 不干净，已停止部署：" >&2
@@ -135,17 +140,15 @@ set +a
 
 case "\${DATABASE_URL:-}" in
     file:*) DATABASE_KIND=sqlite ;;
-    postgres://*|postgresql://*) DATABASE_KIND=postgres ;;
+    "") DATABASE_KIND=sqlite ;;
+    *) echo "DATABASE_URL must be a SQLite file: URL." >&2; exit 1 ;;
 esac
 export DATABASE_KIND
 
 COMPOSE_FILES="-f docker-compose.yml"
-if [ "\${DATABASE_KIND:-sqlite}" = "postgres" ]; then
-    if printf '%s' "\${DATABASE_URL:-}" | grep -q '@postgres:'; then
-        COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.postgres.yml"
-    else
-        COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.external-db.yml"
-    fi
+if [ "\${DATABASE_KIND:-sqlite}" != "sqlite" ]; then
+    echo "DATABASE_KIND must be sqlite." >&2
+    exit 1
 fi
 COMPOSE_FILES="$COMPOSE_FILES -f .deploy/docker-compose.generated.yml"
 

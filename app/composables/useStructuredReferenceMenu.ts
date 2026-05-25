@@ -212,7 +212,7 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
 
         loadingPlotTreeEntries.value = true;
         try {
-            plotTree.value = await $fetch<PlotTreeDto>(`/api/novels/${options.novelId.value}/plot/tree`);
+            plotTree.value = await $fetch<PlotTreeDto>(`/api/projects/plot/tree`, projectPlotOptions());
             plotTreeLoadedNovelId.value = options.novelId.value;
             refreshVersion.value += 1;
         } finally {
@@ -227,12 +227,16 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
 
         loadingSelectedScenePlotDetail.value = true;
         try {
-            selectedScenePlotDetail.value = await $fetch<StorySceneDetailDto>(`/api/novels/${options.novelId.value}/plot/scenes/${options.selectedStorySceneId.value}`);
+            selectedScenePlotDetail.value = await $fetch<StorySceneDetailDto>(`/api/projects/plot/scenes/${options.selectedStorySceneId.value}`, projectPlotOptions());
             selectedScenePlotLoadedId.value = options.selectedStorySceneId.value;
             refreshVersion.value += 1;
         } finally {
             loadingSelectedScenePlotDetail.value = false;
         }
+    }
+
+    function projectPlotOptions(): {query: {projectPath: string}} {
+        return {query: {projectPath: options.novelId.value}};
     }
 
     function resolveMenu(context: AgentTriggerMenuContext): AgentTriggerMenuState {

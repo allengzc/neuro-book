@@ -15,7 +15,8 @@ const DEPLOY_DIRNAME = ".deploy";
 const ENV_FILENAME = ".env";
 const CONFIG_FILENAME = "config.yaml";
 const GLOBAL_CONFIG_FILENAME = "workspace/.nbook/config.json";
-const DEPLOY_MODES = ["ghcr", "source", "native"];
+const LOCAL_GIT_DEPLOY_MODE = "local-git";
+const DEPLOY_MODES = [LOCAL_GIT_DEPLOY_MODE, "ghcr", "source"];
 const DOCKER_DEPLOY_MODES = ["ghcr", "source"];
 const NATIVE_REQUIRED_COMMANDS = [
     {command: "node", label: "Node.js", required: true},
@@ -83,15 +84,14 @@ const program = new Command()
     .option("--port <port>", "HTTP port.", process.env.NEURO_BOOK_PORT ?? "3000")
     .option("--provider <provider>", "Model provider: deepseek, doubao, qwen, siliconflow, gemini.")
     .option("--api-key <key>", "Provider API key.")
-    .option("--database <mode>", "Database mode: sqlite, local-postgres, or external-postgres.")
-    .option("--database-url <url>", "External PostgreSQL DATABASE_URL.")
-    .option("--deploy-mode <mode>", "Deploy mode: ghcr, source, or native.", process.env.NEURO_BOOK_DEPLOY_MODE)
+    .option("--database <mode>", "Database mode. Only sqlite is supported.")
+    .option("--deploy-mode <mode>", "Deploy mode: local-git, ghcr, or source. native is accepted as an alias.", process.env.NEURO_BOOK_DEPLOY_MODE)
     .option("--image <image>", "GHCR app image.", process.env.NEURO_BOOK_IMAGE ?? DEFAULT_IMAGE)
-    .option("--windows-package-manager <manager>", "Windows native dependency installer: auto, winget, or scoop.", process.env.NEURO_BOOK_WINDOWS_PACKAGE_MANAGER)
+    .option("--windows-package-manager <manager>", "Windows local-git dependency installer: auto, winget, or scoop.", process.env.NEURO_BOOK_WINDOWS_PACKAGE_MANAGER)
     .option("--redeploy", "Regenerate .deploy compose files while preserving existing .env, config.yaml and workspace config.", false)
     .option("--yes", "Use defaults and skip interactive prompts.", false)
-    .option("--dry-run", "Preview files and commands. Native mode still probes local commands, but does not install, build, migrate, start services or write files.", process.env.NEURO_BOOK_DEPLOY_DRY_RUN === "1")
-    .option("--internal-print-install-plans", "Print native install command mapping examples and exit.", false);
+    .option("--dry-run", "Preview files and commands. local-git mode still probes local commands, but does not install, build, migrate, start services or write files.", process.env.NEURO_BOOK_DEPLOY_DRY_RUN === "1")
+    .option("--internal-print-install-plans", "Print local-git install command mapping examples and exit.", false);
 
 program.parse();
 
@@ -203,7 +203,7 @@ async function askConfirm({interactive, message, initialValue = true}) {
     })));
 }
 
-/** 返回当前平台 native 模式要检查的可执行文件。 */
+/** 返回当前平台 local-git 模式要检查的可执行文件。 */
 function nativeCommands() {
     return [
         ...NATIVE_REQUIRED_COMMANDS,
@@ -410,12 +410,12 @@ function formatMissingCommandHelp(missing, plan) {
         ? `可尝试安装命令：\n${plan.commandLine}`
         : "当前平台没有可自动执行的安装命令。请手动安装缺失工具后重试。";
 
-    return `缺少 native 部署所需工具：${missingText}\n${installText}`;
+    return `缺少 local-git 部署所需工具：${missingText}\n${installText}`;
 }
 
-/** 检查 native 宿主机依赖，并按用户确认执行安装命令。 */
+/** 检查 local-git 宿主机依赖，并按用户确认执行安装命令。 */
 async function ensureNativeCommands(config) {
-    if (config.deployMode !== "native") {
+    if (config.deployMode !== LOCAL_GIT_DEPLOY_MODE) {
         return;
     }
 
@@ -446,17 +446,19 @@ async function ensureNativeCommands(config) {
         }
     }
 
-    if (!plan && missingRequired.length > 0) {
-        throw new Error(formatMissingCommandHelp(missing, plan));
-    }
-    if (!plan) {
+    if (config.dryRun) {
         p.log.warn(formatMissingCommandHelp(missing, plan));
+        if (plan) {
+            p.log.info(`Dry run command: ${plan.commandLine}`);
+        }
         return;
     }
 
     p.log.warn(formatMissingCommandHelp(missing, plan));
-    if (config.dryRun) {
-        p.log.info(`Dry run command: ${plan.commandLine}`);
+    if (!plan && missingRequired.length > 0) {
+        throw new Error(formatMissingCommandHelp(missing, plan));
+    }
+    if (!plan) {
         return;
     }
 
@@ -468,9 +470,9 @@ async function ensureNativeCommands(config) {
 
     if (!shouldInstall) {
         if (missingRequired.length > 0) {
-            throw new Error("native 部署缺少必要工具，已按用户选择停止。");
+            throw new Error("local-git 部署缺少必要工具，已按用户选择停止。");
         }
-        p.log.warn("native 部署建议工具未安装，继续执行。");
+        p.log.warn("local-git 部署建议工具未安装，继续执行。");
         return;
     }
 
@@ -512,17 +514,17 @@ function nativeStartHelp(command) {
     return `set -a && . ./.env && set +a && ${command}`;
 }
 
-/** 返回 native 启动脚本文件名。 */
+/** 返回 local-git 启动脚本文件名。 */
 function nativeStartScriptName() {
-    return process.platform === "win32" ? "start-native.ps1" : "start-native.sh";
+    return process.platform === "win32" ? "start-local-git.ps1" : "start-local-git.sh";
 }
 
-/** 返回 native 管理员创建脚本文件名。 */
+/** 返回 local-git 管理员创建脚本文件名。 */
 function nativeAdminScriptName() {
-    return process.platform === "win32" ? "create-admin-native.ps1" : "create-admin-native.sh";
+    return process.platform === "win32" ? "create-admin-local-git.ps1" : "create-admin-local-git.sh";
 }
 
-/** 生成 native 启动脚本。 */
+/** 生成 local-git 启动脚本。 */
 function renderNativeScript(command) {
     if (process.platform === "win32") {
         return [
@@ -669,22 +671,26 @@ async function readConfig(options) {
     const inferredDeployMode = options.redeploy && !options.deployMode
         ? await inferDeployMode(deployDir)
         : null;
-    const deployMode = normalizeDeployMode(await askSelect({
+    const rawDeployMode = await askSelect({
         interactive,
         value: options.deployMode ?? inferredDeployMode,
         message: "部署模式",
-        initialValue: "ghcr",
+        initialValue: LOCAL_GIT_DEPLOY_MODE,
         options: [
-            {value: "ghcr", label: "使用 GHCR 预构建镜像", hint: "默认推荐"},
-            {value: "source", label: "挂载宿主机源码", hint: "宿主机自行 install/build"},
-            {value: "native", label: "免 Docker 原生运行", hint: "宿主机 build 后用 node 启动"},
+            {value: LOCAL_GIT_DEPLOY_MODE, label: "本机 + Git", hint: "默认推荐，clone/pull 后宿主机构建"},
+            {value: "ghcr", label: "使用 GHCR 预构建镜像", hint: "高级选项，需要 Docker"},
+            {value: "source", label: "挂载宿主机源码", hint: "高级选项，需要 Docker + 宿主机 Bun"},
         ],
-    }));
+    });
+    const deployMode = normalizeDeployMode(rawDeployMode);
+    if (rawDeployMode === "native") {
+        p.log.info("--deploy-mode native 已兼容映射为 local-git。");
+    }
 
     if (!DEPLOY_MODES.includes(deployMode)) {
-        throw new Error(`部署模式必须是 ghcr、source 或 native：${deployMode}`);
+        throw new Error(`部署模式必须是 local-git、ghcr 或 source：${deployMode}`);
     }
-    const windowsPackageManager = process.platform === "win32" && deployMode === "native"
+    const windowsPackageManager = process.platform === "win32" && deployMode === LOCAL_GIT_DEPLOY_MODE
         ? await askSelect({
             interactive,
             value: options.windowsPackageManager,
@@ -701,40 +707,7 @@ async function readConfig(options) {
         throw new Error(`Windows 包管理器必须是 auto、winget 或 scoop：${windowsPackageManager}`);
     }
 
-    const databaseOptions = deployMode === "native"
-        ? [
-            {value: "sqlite", label: "SQLite 文件库", hint: "默认推荐"},
-            {value: "external-postgres", label: "外部 Postgres"},
-        ]
-        : [
-            {value: "sqlite", label: "SQLite 文件库", hint: "默认推荐"},
-            {value: "local-postgres", label: "内置 Postgres"},
-            {value: "external-postgres", label: "外部 Postgres"},
-        ];
-    const databaseMode = await askSelect({
-        interactive,
-        value: options.database,
-        message: "数据库模式",
-        initialValue: "sqlite",
-        options: databaseOptions,
-    });
-
-    if (!["sqlite", "local-postgres", "external-postgres", "local", "external"].includes(databaseMode)) {
-        throw new Error(`数据库模式必须是 sqlite、local-postgres 或 external-postgres：${databaseMode}`);
-    }
-    const normalizedDatabaseMode = normalizeDatabaseMode(databaseMode);
-    if (deployMode === "native" && normalizedDatabaseMode === "local-postgres") {
-        throw new Error("native 免 Docker 模式不支持 local-postgres。请使用默认 sqlite，或选择 external-postgres 并提供 DATABASE_URL。");
-    }
-
-    const databaseUrl = normalizedDatabaseMode === "external-postgres"
-        ? await askText({
-            interactive,
-            value: options.databaseUrl,
-            message: "外部 DATABASE_URL",
-            initialValue: "postgresql://user:password@host:5432/neuro_book",
-        })
-        : "";
+    const databaseMode = normalizeDatabaseMode(options.database ?? "sqlite");
 
     const image = deployMode === "ghcr"
         ? await askText({
@@ -747,8 +720,7 @@ async function readConfig(options) {
 
     return {
         apiKey,
-        databaseMode: normalizedDatabaseMode,
-        databaseUrl,
+        databaseMode,
         deployDir,
         deployMode,
         dryRun: Boolean(options.dryRun),
@@ -763,26 +735,13 @@ async function readConfig(options) {
 }
 
 /** 生成 Docker Compose 使用的环境变量文件。 */
-function renderEnv(config, postgresPassword, sessionPassword) {
-    const databaseKind = config.databaseMode === "sqlite" ? "sqlite" : "postgres";
-    const databaseUrl = config.databaseMode === "sqlite"
-        ? "file:./workspace/.nbook/neuro-book.sqlite"
-        : config.databaseMode === "local-postgres"
-        ? `postgresql://neuro_book:${postgresPassword}@postgres:5432/neuro_book`
-        : config.databaseUrl;
-
+function renderEnv(config, sessionPassword) {
     return [
         `NUXT_PORT=${config.port}`,
         `NUXT_SESSION_PASSWORD=${sessionPassword}`,
         "",
-        `DATABASE_KIND=${databaseKind}`,
-        `DATABASE_URL=${databaseUrl}`,
-        ...(config.databaseMode === "local-postgres" ? [
-            "",
-            "POSTGRES_USER=neuro_book",
-            `POSTGRES_PASSWORD=${postgresPassword}`,
-            "POSTGRES_DB=neuro_book",
-        ] : []),
+        "DATABASE_KIND=sqlite",
+        "DATABASE_URL=file:./workspace/.nbook/neuro-book.sqlite",
         "",
     ].join("\n");
 }
@@ -909,7 +868,7 @@ function parseLegacyGlobalConfig(text) {
 
 /** 生成部署 override，避免把本地私有部署文件写进仓库根配置。 */
 function renderGeneratedCompose(config) {
-    if (config.deployMode === "native") {
+    if (config.deployMode === LOCAL_GIT_DEPLOY_MODE) {
         return "";
     }
 
@@ -970,36 +929,22 @@ function displayPath(config, path) {
 
 /** 生成管理员创建命令提示。 */
 function adminCommand(config) {
-    if (config.deployMode === "native") {
+    if (config.deployMode === LOCAL_GIT_DEPLOY_MODE) {
         return nativeStartHelp("bun run auth:create-admin");
     }
 
-    const files = ["-f", "docker-compose.yml"];
-    if (config.databaseMode === "local-postgres") {
-        files.push("-f", "docker-compose.postgres.yml");
-    }
-    if (config.databaseMode === "external-postgres") {
-        files.push("-f", "docker-compose.external-db.yml");
-    }
-    files.push("-f", `${DEPLOY_DIRNAME}/docker-compose.generated.yml`);
+    const files = ["-f", "docker-compose.yml", "-f", `${DEPLOY_DIRNAME}/docker-compose.generated.yml`];
 
     return `docker compose --env-file ${ENV_FILENAME} ${files.join(" ")} exec app bun run auth:create-admin`;
 }
 
 /** 生成容器启动命令提示。 */
 function upCommand(config) {
-    if (config.deployMode === "native") {
+    if (config.deployMode === LOCAL_GIT_DEPLOY_MODE) {
         return nativeStartHelp("node .output/server/index.mjs");
     }
 
-    const files = ["-f", "docker-compose.yml"];
-    if (config.databaseMode === "local-postgres") {
-        files.push("-f", "docker-compose.postgres.yml");
-    }
-    if (config.databaseMode === "external-postgres") {
-        files.push("-f", "docker-compose.external-db.yml");
-    }
-    files.push("-f", `${DEPLOY_DIRNAME}/docker-compose.generated.yml`);
+    const files = ["-f", "docker-compose.yml", "-f", `${DEPLOY_DIRNAME}/docker-compose.generated.yml`];
 
     const upArgs = config.deployMode === "source" ? "up -d --build" : "up -d";
     return `docker compose --env-file ${ENV_FILENAME} ${files.join(" ")} ${upArgs}`;
@@ -1020,7 +965,7 @@ function sourceUpdateCommands(config) {
     ];
 }
 
-/** 生成 native 模式更新命令提示。 */
+/** 生成 local-git 模式更新命令提示。 */
 function nativeUpdateCommands() {
     return [
         "git pull --ff-only",
@@ -1046,11 +991,7 @@ function ghcrUpdateCommands(config) {
 
 /** 生成模式说明。 */
 function deployNotes(config) {
-    const databaseNote = config.databaseMode === "sqlite"
-        ? "数据库：SQLite 文件库，默认数据文件为 workspace/.nbook/neuro-book.sqlite。不会自动导入旧 Postgres 数据。"
-        : config.databaseMode === "local-postgres"
-            ? "数据库：内置 Postgres。Postgres 数据保存在 Docker volume 中。"
-            : "数据库：外部 Postgres。请确保 DATABASE_URL 指向可访问的数据库。";
+    const databaseNote = "数据库：SQLite-only。App SQLite 默认为 workspace/.nbook/neuro-book.sqlite；每个 Project Workspace 的结构化数据位于 workspace/<project>/.nbook/project.sqlite。";
 
     if (config.deployMode === "source") {
         return `${databaseNote}
@@ -1059,10 +1000,10 @@ source 模式使用宿主机源码挂载到容器 /app。宿主机需要安装 B
 ${sourceUpdateCommands(config).map((line) => `- ${line}`).join("\n")}`;
     }
 
-    if (config.deployMode === "native") {
+    if (config.deployMode === LOCAL_GIT_DEPLOY_MODE) {
         return `${databaseNote}
 
-native 模式不使用 Docker，也不生成 systemd/pm2 服务。宿主机需要安装 Node.js、npm、Git、Bun、ripgrep，并在启动前完成：
+local-git 模式不使用 Docker，也不生成 systemd/pm2 服务。宿主机需要安装 Node.js、npm、Git、Bun、ripgrep，并在启动前完成：
 ${nativeUpdateCommands().map((line) => `- ${line}`).join("\n")}
 
 Windows PowerShell 启动前请按 .env 内容设置当前进程环境变量，然后运行：
@@ -1077,12 +1018,12 @@ ${ghcrUpdateCommands(config).map((line) => `- ${line}`).join("\n")}`;
 
 /** 生成部署私有说明文件。 */
 function renderDeployReadme(config) {
-    const composeLine = config.deployMode === "native"
-        ? "- Compose override: not used in native mode"
+    const composeLine = config.deployMode === LOCAL_GIT_DEPLOY_MODE
+        ? "- Compose override: not used in local-git mode"
         : `- Compose override: ${DEPLOY_DIRNAME}/docker-compose.generated.yml`;
-    const commandLanguage = config.deployMode === "native" && process.platform === "win32" ? "powershell" : "bash";
-    const nativeScriptLine = config.deployMode === "native"
-        ? `- Native start script: ${DEPLOY_DIRNAME}/${nativeStartScriptName()}`
+    const commandLanguage = config.deployMode === LOCAL_GIT_DEPLOY_MODE && process.platform === "win32" ? "powershell" : "bash";
+    const nativeScriptLine = config.deployMode === LOCAL_GIT_DEPLOY_MODE
+        ? `- Local Git start script: ${DEPLOY_DIRNAME}/${nativeStartScriptName()}`
         : "";
 
     return `# neuro-book deployment
@@ -1123,26 +1064,27 @@ function normalizeDeployMode(value) {
         return value;
     }
 
-    if (value === "image") {
+    const mode = String(value).toLowerCase();
+    if (mode === "native") {
+        return LOCAL_GIT_DEPLOY_MODE;
+    }
+
+    if (mode === "image") {
         return "ghcr";
     }
 
-    if (value === "build") {
-        throw new Error("--deploy-mode build 已停用。请使用默认 ghcr，或使用 --deploy-mode source 挂载宿主机源码。");
+    if (mode === "build") {
+        throw new Error("--deploy-mode build 已停用。请使用默认 local-git，或使用 --deploy-mode ghcr / source。");
     }
 
-    return value;
+    return mode;
 }
 
-/** 兼容旧数据库模式命名。 */
 function normalizeDatabaseMode(value) {
-    if (value === "local") {
-        return "local-postgres";
+    if (!value || value === "sqlite") {
+        return "sqlite";
     }
-    if (value === "external") {
-        return "external-postgres";
-    }
-    return value;
+    throw new Error(`数据库模式只支持 sqlite；PostgreSQL 部署入口已移除：${value}`);
 }
 
 /** 生成旧根目录部署文件清理提示。 */
@@ -1221,14 +1163,7 @@ async function runCompose(config) {
         return;
     }
 
-    const composeFiles = ["-f", "docker-compose.yml"];
-    if (config.databaseMode === "local-postgres") {
-        composeFiles.push("-f", "docker-compose.postgres.yml");
-    }
-    if (config.databaseMode === "external-postgres") {
-        composeFiles.push("-f", "docker-compose.external-db.yml");
-    }
-    composeFiles.push("-f", `${DEPLOY_DIRNAME}/docker-compose.generated.yml`);
+    const composeFiles = ["-f", "docker-compose.yml", "-f", `${DEPLOY_DIRNAME}/docker-compose.generated.yml`];
 
     const args = ["compose", ...composeFiles, "--env-file", ENV_FILENAME, "up", "-d"];
     if (config.deployMode === "source") {
@@ -1254,25 +1189,45 @@ async function writeDeployFiles(config) {
     const readmePath = resolve(deployStateDir(config), "README.md");
     const nativeStartScriptPath = resolve(deployStateDir(config), nativeStartScriptName());
     const nativeAdminScriptPath = resolve(deployStateDir(config), nativeAdminScriptName());
+    const staleNativeScriptPaths = [
+        resolve(deployStateDir(config), "start-native.sh"),
+        resolve(deployStateDir(config), "start-native.ps1"),
+        resolve(deployStateDir(config), "create-admin-native.sh"),
+        resolve(deployStateDir(config), "create-admin-native.ps1"),
+    ];
+    const localGitScriptPaths = [
+        resolve(deployStateDir(config), "start-local-git.sh"),
+        resolve(deployStateDir(config), "start-local-git.ps1"),
+        resolve(deployStateDir(config), "create-admin-local-git.sh"),
+        resolve(deployStateDir(config), "create-admin-local-git.ps1"),
+    ];
 
     if (config.dryRun) {
         const envText = existsSync(envPath)
             ? await readFile(envPath, "utf-8")
-            : renderEnv(config, "<generated-postgres-password>", "<generated-session-password>");
+            : renderEnv(config, "<generated-session-password>");
         const legacyConfigText = existsSync(legacyConfigPath) ? await readFile(legacyConfigPath, "utf-8") : null;
         p.log.info(`Dry run file: ${envPath}`);
         p.log.info(`Dry run file: ${configPath}`);
         p.log.info(`Dry run file: ${globalConfigPath}`);
-        if (config.deployMode === "native") {
+        if (config.deployMode === LOCAL_GIT_DEPLOY_MODE) {
             if (existsSync(generatedComposePath)) {
                 p.log.info(`Dry run cleanup: remove stale ${generatedComposePath}`);
             }
             p.log.info(`Dry run file: ${nativeStartScriptPath}`);
             p.log.info(`Dry run file: ${nativeAdminScriptPath}`);
+            for (const scriptPath of staleNativeScriptPaths) {
+                if (existsSync(scriptPath)) {
+                    p.log.info(`Dry run cleanup: remove stale ${scriptPath}`);
+                }
+            }
         } else {
             p.log.info(`Dry run file: ${generatedComposePath}`);
-            p.log.info(`Dry run cleanup: remove stale ${nativeStartScriptPath}`);
-            p.log.info(`Dry run cleanup: remove stale ${nativeAdminScriptPath}`);
+            for (const scriptPath of [...localGitScriptPaths, ...staleNativeScriptPaths]) {
+                if (existsSync(scriptPath)) {
+                    p.log.info(`Dry run cleanup: remove stale ${scriptPath}`);
+                }
+            }
         }
         p.log.info(`Dry run file: ${readmePath}`);
         if (legacyConfigText) {
@@ -1288,7 +1243,7 @@ async function writeDeployFiles(config) {
         envText = await readFile(envPath, "utf-8");
         p.log.info(`Preserved ${envPath}`);
     } else {
-        envText = renderEnv(config, randomSecret(), randomSecret());
+        envText = renderEnv(config, randomSecret());
         await writePrivateFile(envPath, envText);
         p.log.success(`Wrote ${envPath}`);
     }
@@ -1313,10 +1268,13 @@ async function writeDeployFiles(config) {
         p.log.warn(`检测到旧 Provider 配置 ${legacyConfigPath}，已用于初始化 ${GLOBAL_CONFIG_FILENAME}。确认无误后可手动删除旧文件。`);
     }
 
-    if (config.deployMode === "native") {
+    if (config.deployMode === LOCAL_GIT_DEPLOY_MODE) {
         if (existsSync(generatedComposePath)) {
             await rm(generatedComposePath, {force: true});
-            p.log.info(`Removed stale ${generatedComposePath}; native mode does not use Docker Compose.`);
+            p.log.info(`Removed stale ${generatedComposePath}; local-git mode does not use Docker Compose.`);
+        }
+        for (const scriptPath of staleNativeScriptPaths) {
+            await rm(scriptPath, {force: true});
         }
         await writeFile(nativeStartScriptPath, renderNativeScript("node .output/server/index.mjs"), "utf-8");
         await writeFile(nativeAdminScriptPath, renderNativeScript("bun run auth:create-admin"), "utf-8");
@@ -1329,8 +1287,9 @@ async function writeDeployFiles(config) {
     } else {
         await writeFile(generatedComposePath, renderGeneratedCompose(config), "utf-8");
         p.log.success(`Wrote ${generatedComposePath}`);
-        await rm(nativeStartScriptPath, {force: true});
-        await rm(nativeAdminScriptPath, {force: true});
+        for (const scriptPath of [...localGitScriptPaths, ...staleNativeScriptPaths]) {
+            await rm(scriptPath, {force: true});
+        }
     }
     await writeFile(readmePath, renderDeployReadme(config), "utf-8");
 
@@ -1356,9 +1315,9 @@ async function buildSource(config, env) {
     }
 }
 
-/** native 模式在宿主机完成依赖安装、构建和部署迁移。 */
+/** local-git 模式在宿主机完成依赖安装、构建和部署迁移。 */
 async function buildNative(config, env) {
-    if (config.deployMode !== "native") {
+    if (config.deployMode !== LOCAL_GIT_DEPLOY_MODE) {
         return;
     }
 
@@ -1369,7 +1328,7 @@ async function buildNative(config, env) {
         return;
     }
 
-    p.log.info("Preparing native deployment on host.");
+    p.log.info("Preparing local-git deployment on host.");
     for (const command of nativeBuildCommands()) {
         await run(command.command, command.args, {cwd: config.deployDir, env});
     }
@@ -1385,7 +1344,7 @@ function sourceBuildCommands() {
     ];
 }
 
-/** native 模式需要在宿主机执行的 build / migrate 命令。 */
+/** local-git 模式需要在宿主机执行的 build / migrate 命令。 */
 function nativeBuildCommands() {
     return [
         ...sourceBuildCommands(),
@@ -1393,9 +1352,9 @@ function nativeBuildCommands() {
     ];
 }
 
-/** native 模式不接管进程管理，只输出下一步启动命令。 */
+/** local-git 模式不接管进程管理，只输出下一步启动命令。 */
 function printNativeNextSteps(config) {
-    if (config.deployMode !== "native") {
+    if (config.deployMode !== LOCAL_GIT_DEPLOY_MODE) {
         return;
     }
 
@@ -1406,7 +1365,7 @@ ${DEPLOY_DIRNAME}/${nativeStartScriptName()}
 ${DEPLOY_DIRNAME}/${nativeAdminScriptName()}
 
 手动启动命令：
-${nativeStartHelp("node .output/server/index.mjs")}`, "native 启动命令");
+${nativeStartHelp("node .output/server/index.mjs")}`, "local-git 启动命令");
 }
 
 /** CLI 主流程。 */

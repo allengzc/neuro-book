@@ -24,7 +24,6 @@ const components = {
     SystemReminder: dsl.SystemReminder,
     RuntimeContext: dsl.RuntimeContext,
     LinkedAgentsSummary: dsl.LinkedAgentsSummary,
-    ProjectReminder: dsl.ProjectReminder,
     LinkedAgentsReminder: dsl.LinkedAgentsReminder,
     TaskReminder: dsl.TaskReminder,
     PlanModeReminder: dsl.PlanModeReminder,
@@ -34,11 +33,12 @@ const components = {
     PlanModeReentry: dsl.PlanModeReentry,
     ActivePlanModeReminder: dsl.ActivePlanModeReminder,
     MentionedSkillsReminder: dsl.MentionedSkillsReminder,
-    PlotFocusReminder: dsl.PlotFocusReminder,
     AgentCatalog: dsl.AgentCatalog,
     SkillCatalog: dsl.SkillCatalog,
     ActivatedSkills: dsl.ActivatedSkills,
     SqlSchemaSummary: dsl.SqlSchemaSummary,
+    Variable: dsl.Variable,
+    VariableSchema: dsl.VariableSchema,
 };
 
 export const Fragment = dsl.Fragment;
@@ -84,7 +84,6 @@ export namespace JSX {
         SystemReminder: Parameters<typeof dsl.SystemReminder>[0];
         RuntimeContext: Parameters<typeof dsl.RuntimeContext>[0];
         LinkedAgentsSummary: Parameters<typeof dsl.LinkedAgentsSummary>[0];
-        ProjectReminder: Parameters<typeof dsl.ProjectReminder>[0];
         LinkedAgentsReminder: Parameters<typeof dsl.LinkedAgentsReminder>[0];
         TaskReminder: Parameters<typeof dsl.TaskReminder>[0];
         PlanModeReminder: Parameters<typeof dsl.PlanModeReminder>[0];
@@ -94,10 +93,11 @@ export namespace JSX {
         PlanModeReentry: Parameters<typeof dsl.PlanModeReentry>[0];
         ActivePlanModeReminder: Parameters<typeof dsl.ActivePlanModeReminder>[0];
         MentionedSkillsReminder: Record<string, never>;
-        PlotFocusReminder: Parameters<typeof dsl.PlotFocusReminder>[0];
         AgentCatalog: Parameters<typeof dsl.AgentCatalog>[0];
         SkillCatalog: Parameters<typeof dsl.SkillCatalog>[0];
         ActivatedSkills: Parameters<typeof dsl.ActivatedSkills>[0];
         SqlSchemaSummary: Parameters<typeof dsl.SqlSchemaSummary>[0];
+        Variable: Parameters<typeof dsl.Variable>[0];
+        VariableSchema: Parameters<typeof dsl.VariableSchema>[0];
     }
 }

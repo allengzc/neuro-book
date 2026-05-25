@@ -1,4 +1,4 @@
-import type {StoryPhase, StoryScene, StoryThread} from "nbook/server/generated/prisma/client";
+import type {StoryPhase, StoryScene, StoryThread} from "nbook/server/generated/project-prisma/client";
 import type {ThreadRepository} from "nbook/server/plot/contracts/plot-repositories";
 import type {
     PrismaExecutor,

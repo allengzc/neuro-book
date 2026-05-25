@@ -1,4 +1,10 @@
-import type {ClientVariablesDto} from "nbook/shared/dto/agent-session.dto";
+import type {ClientStateSnapshotDto} from "nbook/shared/dto/agent-session.dto";
+import type {JsonValue} from "nbook/server/agent/messages/types";
+import type {VariablePatchRequest} from "nbook/server/agent/variables/types";
+import type {NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
+import {isNovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
+import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
+import {themeTokens} from "nbook/app/utils/theme/theme-tokens";
 
 /**
  * Novel IDE 发给 Agent 的客户端变量输入。
@@ -20,7 +26,7 @@ export type NovelIdeClientVariablesInput = {
 /**
  * 组装 Novel IDE 的客户端变量快照。
  */
-export function buildNovelIdeClientVariables(input: NovelIdeClientVariablesInput): ClientVariablesDto {
+export function buildAgentClientState(input: NovelIdeClientVariablesInput): ClientStateSnapshotDto {
     return {
         ide: {
             panel: null,
@@ -44,4 +50,183 @@ export function buildNovelIdeClientVariables(input: NovelIdeClientVariablesInput
             extra: "{}",
         },
     };
+}
+
+/**
+ * 兼容旧调用点的命名。新代码应使用 buildAgentClientState。
+ */
+export const buildNovelIdeClientVariables = buildAgentClientState;
+
+/**
+ * 应用 Agent 请求的 client.* patch。返回应用后的变量值；调用方可传入安全 setter
+ * 把允许写的 browser state 同步到实际 UI store。
+ */
+export function applyClientVariablePatch(request: VariablePatchRequest, currentState: ClientStateSnapshotDto, options: {
+    setActivePanel?: (value: NovelIdeTab | null) => void;
+    setTheme?: (value: IdeTheme) => void;
+} = {}): JsonValue {
+    const nextState = JSON.parse(JSON.stringify(currentState)) as Record<string, JsonValue>;
+    const currentValue = readDotPath(nextState, request.path);
+    const nextValue = applyJsonPatch(currentValue, request.operations);
+    writeDotPath(nextState, request.path, nextValue);
+    applyKnownClientState(request.path, nextValue, options);
+    return readDotPath(nextState, request.path) ?? null;
+}
+
+function applyKnownClientState(path: string, value: JsonValue, options: {
+    setActivePanel?: (value: NovelIdeTab | null) => void;
+    setTheme?: (value: IdeTheme) => void;
+}): void {
+    if (path === "ide.activePanel") {
+        if (value !== null && (typeof value !== "string" || !isNovelIdeTab(value))) {
+            throw new Error(`client.ide.activePanel 只能写入 ${["files", "characters", "outline"].join("/")} 或 null。`);
+        }
+        options.setActivePanel?.(value);
+        return;
+    }
+    if (path === "ide.theme") {
+        if (typeof value !== "string" || !(value in themeTokens)) {
+            throw new Error("client.ide.theme 只能写入 sepia/light/dark。");
+        }
+        options.setTheme?.(value as IdeTheme);
+    }
+}
+
+function applyJsonPatch(value: JsonValue | undefined, operations: VariablePatchRequest["operations"]): JsonValue {
+    let current = value === undefined ? null : JSON.parse(JSON.stringify(value)) as JsonValue;
+    for (const operation of operations) {
+        if (operation.path === "") {
+            if (operation.op === "remove") {
+                current = null;
+                continue;
+            }
+            if (operation.op === "test") {
+                assertEqual(current, operation.value, operation.path);
+                continue;
+            }
+            current = JSON.parse(JSON.stringify(operation.value)) as JsonValue;
+            continue;
+        }
+        const segments = parsePointer(operation.path);
+        const parent = resolveParent(current, segments);
+        const key = segments.at(-1);
+        if (key === undefined) {
+            throw new Error("JSON Patch path 不能为空。");
+        }
+        if (operation.op === "remove") {
+            removeValue(parent, key);
+            continue;
+        }
+        if (operation.op === "test") {
+            assertEqual(readValue(parent, key), operation.value, operation.path);
+            continue;
+        }
+        writeValue(parent, key, JSON.parse(JSON.stringify(operation.value)) as JsonValue, operation.op);
+    }
+    return current;
+}
+
+function readDotPath(value: Record<string, JsonValue>, path: string): JsonValue | undefined {
+    const segments = path.split(".").filter(Boolean);
+    let current: JsonValue | Record<string, JsonValue> | undefined = value;
+    for (const segment of segments) {
+        if (!current || typeof current !== "object" || Array.isArray(current) || !(segment in current)) {
+            return undefined;
+        }
+        current = current[segment];
+    }
+    return current as JsonValue;
+}
+
+function writeDotPath(value: Record<string, JsonValue>, path: string, nextValue: JsonValue): void {
+    const segments = path.split(".").filter(Boolean);
+    let current = value;
+    for (const segment of segments.slice(0, -1)) {
+        const child = current[segment];
+        if (!child || typeof child !== "object" || Array.isArray(child)) {
+            current[segment] = {};
+        }
+        current = current[segment] as Record<string, JsonValue>;
+    }
+    const leaf = segments.at(-1);
+    if (!leaf) {
+        throw new Error("client variable path 不能为空。");
+    }
+    current[leaf] = nextValue;
+}
+
+function parsePointer(path: string): string[] {
+    if (!path.startsWith("/")) {
+        throw new Error(`JSON Patch path 必须是 JSON Pointer 或空字符串：${path}`);
+    }
+    return path.slice(1).split("/").map((segment) => segment.replace(/~1/g, "/").replace(/~0/g, "~"));
+}
+
+function resolveParent(value: JsonValue, segments: string[]): JsonValue {
+    let current = value;
+    for (const segment of segments.slice(0, -1)) {
+        if (Array.isArray(current)) {
+            current = current[readArrayIndex(segment, current.length)] ?? null;
+            continue;
+        }
+        if (!current || typeof current !== "object") {
+            throw new Error(`JSON Patch 无法下钻到 ${segment}。`);
+        }
+        current = current[segment] ?? null;
+    }
+    return current;
+}
+
+function readValue(parent: JsonValue, key: string): JsonValue {
+    if (Array.isArray(parent)) {
+        return parent[readArrayIndex(key, parent.length)] ?? null;
+    }
+    if (!parent || typeof parent !== "object") {
+        throw new Error(`JSON Patch target 不是 object/array：${key}`);
+    }
+    return parent[key] ?? null;
+}
+
+function writeValue(parent: JsonValue, key: string, value: JsonValue, op: "add" | "replace"): void {
+    if (Array.isArray(parent)) {
+        const index = key === "-" ? parent.length : readArrayIndex(key, op === "add" ? parent.length + 1 : parent.length);
+        if (op === "add") {
+            parent.splice(index, 0, value);
+        } else {
+            parent[index] = value;
+        }
+        return;
+    }
+    if (!parent || typeof parent !== "object") {
+        throw new Error(`JSON Patch target 不是 object/array：${key}`);
+    }
+    parent[key] = value;
+}
+
+function removeValue(parent: JsonValue, key: string): void {
+    if (Array.isArray(parent)) {
+        parent.splice(readArrayIndex(key, parent.length), 1);
+        return;
+    }
+    if (!parent || typeof parent !== "object") {
+        throw new Error(`JSON Patch target 不是 object/array：${key}`);
+    }
+    delete parent[key];
+}
+
+function readArrayIndex(segment: string, length: number): number {
+    if (!/^\d+$/.test(segment)) {
+        throw new Error(`JSON Patch 数组下标非法：${segment}`);
+    }
+    const index = Number(segment);
+    if (index < 0 || index >= length) {
+        throw new Error(`JSON Patch 数组下标越界：${segment}`);
+    }
+    return index;
+}
+
+function assertEqual(left: JsonValue, right: JsonValue, path: string): void {
+    if (JSON.stringify(left) !== JSON.stringify(right)) {
+        throw new Error(`JSON Patch test 失败：${path}`);
+    }
 }

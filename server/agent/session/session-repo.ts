@@ -24,7 +24,7 @@ type CreateSessionInput = {
     input: JsonValue;
     workspaceRoot: string;
     workspaceKey?: string;
-    novelId?: string;
+    projectPath?: string;
     parentSessionId?: SessionId;
     title?: string;
 };
@@ -58,7 +58,7 @@ export class JsonlSessionRepository {
             input: input.input,
             workspaceRoot: input.workspaceRoot,
             workspaceKey: input.workspaceKey ?? "global",
-            novelId: input.novelId,
+            projectPath: input.projectPath,
             parentSessionId: input.parentSessionId,
             createdAt: now,
             title: input.title,
@@ -322,8 +322,13 @@ export class JsonlSessionRepository {
                 profileKey = entry.profileKey;
                 continue;
             }
-            if (entry.type === "variable_change") {
-                customState[`variable:${entry.key}`] = entry.value;
+            if (entry.type === "variable_patch") {
+                customState[`variablePatch:${entry.namespace}.${entry.path}`] = {
+                    operations: entry.operations,
+                    source: entry.source,
+                    invocationId: entry.invocationId ?? null,
+                    toolCallId: entry.toolCallId ?? null,
+                };
                 continue;
             }
             if (entry.type === "session_archived") {
@@ -344,7 +349,7 @@ export class JsonlSessionRepository {
             thinkingLevel,
             profileKey,
             workspaceRoot: snapshot.metadata.workspaceRoot,
-            novelId: snapshot.metadata.novelId,
+            projectPath: snapshot.metadata.projectPath,
             customState,
             linkedAgents: [...linkedAgents.values()].sort((left, right) => left.sessionId - right.sessionId),
             title,
@@ -460,7 +465,7 @@ export class JsonlSessionRepository {
             input: snapshot.metadata.input,
             workspaceRoot: snapshot.metadata.workspaceRoot,
             workspaceKey: snapshot.metadata.workspaceKey,
-            novelId: snapshot.metadata.novelId,
+            projectPath: snapshot.metadata.projectPath,
             parentSessionId: sessionId,
             title: snapshot.metadata.title,
         });
@@ -599,13 +604,7 @@ export class JsonlSessionRepository {
 
     private listWorkspaceSessionDirs(workspaceKey: string, existingWorkspaceNames: string[]): string[] {
         const safeKey = this.safeWorkspaceKey(workspaceKey);
-        if (safeKey !== "workspace") {
-            return [safeKey];
-        }
-        return [...new Set([
-            safeKey,
-            ...existingWorkspaceNames.filter((name) => /^novel-\d+$/.test(name)),
-        ])];
+        return existingWorkspaceNames.includes(safeKey) || workspaceKey ? [safeKey] : [];
     }
 
     private createEntryId(): SessionEntryId {

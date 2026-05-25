@@ -154,7 +154,7 @@ async function saveSettings(): Promise<void> {
     }
 }
 
-watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.novelId, novelIdeStore.workspaceKind, novelIdeStore.currentNovelId] as const, () => {
+watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.projectPath, novelIdeStore.workspaceKind, novelIdeStore.currentNovelId] as const, () => {
     void loadSettings();
 });
 

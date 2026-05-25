@@ -136,7 +136,6 @@ const {isDragging} = useDraggable({
 }
 
 .library-node-SystemReminder,
-.library-node-ProjectReminder,
 .library-node-LinkedAgentsReminder {
     --component-accent: #b65f5b;
 }
@@ -156,8 +155,7 @@ const {isDragging} = useDraggable({
     --component-accent: #8a639e;
 }
 
-.library-node-MentionedSkillsReminder,
-.library-node-PlotFocusReminder {
+.library-node-MentionedSkillsReminder {
     --component-accent: #b1843e;
 }
 

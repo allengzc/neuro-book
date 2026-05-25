@@ -14,17 +14,6 @@ describe("database locks", () => {
         restoreEnv("DATABASE_URL", originalDatabaseUrl);
     });
 
-    it("Postgres 使用 advisory lock", async () => {
-        process.env.DATABASE_KIND = "postgres";
-        process.env.DATABASE_URL = "postgresql://user:pass@localhost:5432/neuro_book";
-        const executor = {$executeRawUnsafe: vi.fn(async () => 1)};
-        const {lockDatabaseKey} = await import("nbook/server/database/locks");
-
-        await lockDatabaseKey(executor, 123.8);
-
-        expect(executor.$executeRawUnsafe).toHaveBeenCalledWith("SELECT pg_advisory_xact_lock(123)");
-    });
-
     it("SQLite 通过 DatabaseLock 写入拿到事务写锁", async () => {
         process.env.DATABASE_KIND = "sqlite";
         process.env.DATABASE_URL = "file:./workspace/.nbook/test-lock.sqlite";

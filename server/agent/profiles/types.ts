@@ -3,6 +3,7 @@ import type {AgentMessage, JsonValue, Message} from "nbook/server/agent/messages
 import type {NeuroSessionContext, SessionEntryDraft} from "nbook/server/agent/session/types";
 import type {ProfileDslNode} from "nbook/server/agent/profiles/profile-dsl";
 import type {SkillCatalogItem} from "nbook/server/agent/skills/skill-catalog";
+import type {ClientStateSnapshot, ProfileVariableAccessor, VariableDefinition} from "nbook/server/agent/variables/types";
 
 export type AgentProfileManifest<TKey extends string = string> = {
     key: TKey;
@@ -29,6 +30,7 @@ export type AgentProfileIssueCode =
     | "file_missing"
     | "not_compiled"
     | "compile_stale"
+    | "dependency_stale"
     | "compiled_load_failed"
     | "source_error";
 
@@ -62,6 +64,13 @@ export type AgentCatalogSnapshot = {
 export type ProfilePrepareContext<TInput = JsonValue> = {
     session: NeuroSessionContext;
     input: TInput;
+    /** 本次 invocation 的一次性入参。clientState 会同时归一化进 ctx.vars.client.*。 */
+    invocation?: {
+        input?: JsonValue;
+        clientState?: ClientStateSnapshot;
+    };
+    /** 统一变量访问器。profile 普通写法优先用 TSX <Variable>/<VariableSchema> helper。 */
+    vars: ProfileVariableAccessor;
     /** Agent profile catalog snapshot，用于 AgentCatalog 和 create_agent/invoke_agent 提示。 */
     catalog: AgentCatalogSnapshot;
     /** 当前可见 skill 快照，用于 SkillCatalog。 */
@@ -112,6 +121,8 @@ export type AgentProfile<
     inputSchema: TInputSchema;
     outputSchema?: TOutputSchema;
     allowedToolKeys: readonly string[];
+    /** profile 自带的 session.* 变量定义，随 profile `.compiled` artifact 加载。 */
+    variableDefinitions?: readonly VariableDefinition[];
     context?(ctx: ProfilePrepareContext<Static<TInputSchema>>): ProfileDslNode | Promise<ProfileDslNode>;
     prepare?(ctx: ProfilePrepareContext<Static<TInputSchema>>): ProfileTurnPlan | Promise<ProfileTurnPlan>;
     ingest?(ctx: ProfilePrepareContext<Static<TInputSchema>>): ProfileIngestResult | Promise<ProfileIngestResult>;

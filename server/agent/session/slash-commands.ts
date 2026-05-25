@@ -51,7 +51,7 @@ export async function handleSlashCommand(input: {
             input: snapshot.metadata.input,
             workspaceRoot: snapshot.metadata.workspaceRoot,
             workspaceKey: snapshot.metadata.workspaceKey,
-            novelId: snapshot.metadata.novelId,
+            projectPath: snapshot.metadata.projectPath,
             title: snapshot.metadata.title,
         });
         return {kind: "new", session};

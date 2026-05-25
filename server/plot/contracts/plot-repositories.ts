@@ -1,11 +1,10 @@
 import type {
-    Novel,
     Story,
     StoryPhase,
     StoryPlot,
     StoryScene,
     StoryThread,
-} from "nbook/server/generated/prisma/client";
+} from "nbook/server/generated/project-prisma/client";
 import type {
     ChapterPlotSceneWithThread,
     ResolvedStoryRefInput,
@@ -20,8 +19,8 @@ import type {
  * Story 仓储接口。
  */
 export interface StoryRepository {
-    findStoryByNovelId(novelId: number): Promise<Story | null>;
-    upsertStoryForNovel(input: {novelId: number; title: string; summary: string}): Promise<Story>;
+    findStory(): Promise<Story | null>;
+    createStory(input: {title: string; summary: string}): Promise<Story>;
     updateStory(storyId: number, data: Partial<Pick<Story, "title" | "summary" | "note">>): Promise<Story>;
     findPhaseById(phaseId: number): Promise<StoryPhase | null>;
     findPhasesByStory(storyId: number): Promise<StoryPhase[]>;
@@ -121,11 +120,4 @@ export interface PlotRepository {
     findPlotsByScene(sceneId: number): Promise<Pick<StoryPlot, "id" | "sortOrder">[]>;
     lockPlotOrderBucket(sceneId: number): Promise<void>;
     countPlotsByStory(storyId: number): Promise<number>;
-}
-
-/**
- * 辅助查询仓储接口。
- */
-export interface PlotLookupRepository {
-    findNovelById(novelId: number): Promise<Pick<Novel, "id" | "title" | "summary" | "workspaceSlug"> | null>;
 }

@@ -3,12 +3,15 @@ import {basename, relative, resolve, sep} from "node:path";
 import {createError} from "h3";
 import type {TSchema} from "typebox";
 import type {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
-import type {AgentCatalogItem, AgentCatalogSnapshot, AgentProfileIssue, ProfileCompactionPlan, ProfilePrepareContext} from "nbook/server/agent/profiles/types";
+import type {AgentCatalogItem, AgentCatalogSnapshot, AgentProfile, AgentProfileIssue, ProfileCompactionPlan, ProfilePrepareContext} from "nbook/server/agent/profiles/types";
+import {createProfileVariableAccessor} from "nbook/server/agent/variables/accessor";
+import {createVariableRegistryForProfile, createVariableRegistryForSession} from "nbook/server/agent/variables/profile-registry";
 import {resolveCompactionOptions} from "nbook/server/agent/harness/compaction";
 import {createAssistantTextMessage, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import type {AgentMessage, JsonValue, Message, Model} from "nbook/server/agent/messages/types";
 import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
-import type {NeuroSessionContext} from "nbook/server/agent/session/types";
+import type {NeuroSessionContext, SessionSnapshot} from "nbook/server/agent/session/types";
+import type {VariableRegistry} from "nbook/server/agent/variables/registry";
 import type {
     AgentProfileCatalogItemDto,
     AgentProfileDetailDto,
@@ -95,7 +98,8 @@ export async function previewAgentProfilePrepare(
 ): Promise<AgentProfilePreparePreviewDto> {
     const profile = await harness.profiles.get(request.profileKey);
     const input = harness.profiles.parseInput(profile, buildPreviewInput(request));
-    const session = await buildPreviewSession(harness, request);
+    const previewSnapshot = request.sessionId ? await harness.repo.readSession(Number(request.sessionId)).catch(() => null) : null;
+    const session = previewSnapshot ? harness.repo.reduce(previewSnapshot) : await buildPreviewSession(harness, request);
     const catalog = await harness.profiles.snapshot();
     const skills = await harness.skills.list();
 
@@ -103,6 +107,12 @@ export async function previewAgentProfilePrepare(
         const prepared = await profile.prepare!({
             session,
             input,
+            vars: createProfileVariableAccessor({
+                repo: harness.repo,
+                snapshot: previewSnapshot ?? previewSessionSnapshot(request.profileKey, session),
+                registry: await createPreviewVariableRegistry(profile, session.workspaceRoot),
+                dryRun: true,
+            }),
             catalog,
             skills,
             runtime: {
@@ -146,7 +156,7 @@ export async function previewAgentProfilePrepare(
             issues: [],
             messages,
             persistedMessageCount: historyMessages.length + appendingMessages.length,
-            variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === request.profileKey)),
+            variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === request.profileKey), profile),
             reportResultSchema: profile.allowedToolKeys.includes("report_result")
                 ? cloneJsonObject(reportResultSchemaForProfile(profile))
                 : null,
@@ -163,7 +173,7 @@ export async function previewAgentProfilePrepare(
             }],
             messages: [],
             persistedMessageCount: 0,
-            variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === request.profileKey)),
+            variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === request.profileKey), profile),
             reportResultSchema: profile.allowedToolKeys.includes("report_result")
                 ? cloneJsonObject(reportResultSchemaForProfile(profile))
                 : null,
@@ -368,11 +378,11 @@ const PREVIEW_COMPACTION_MODEL = {
 /**
  * 工作台变量面板先展示 profile schema 摘要。
  */
-function buildProfileVariableGroups(profile: AgentCatalogItem | undefined): AgentProfileVariableGroupDto[] {
+function buildProfileVariableGroups(profile: AgentCatalogItem | undefined, runtimeProfile?: AgentProfile): AgentProfileVariableGroupDto[] {
     if (!profile) {
         return [];
     }
-    return [{
+    const groups: AgentProfileVariableGroupDto[] = [{
         group: "Profile Schema",
         items: [
             {
@@ -397,6 +407,58 @@ function buildProfileVariableGroups(profile: AgentCatalogItem | undefined): Agen
             },
         ],
     }];
+    if (runtimeProfile) {
+        const catalog = createVariableRegistryForProfile(runtimeProfile).catalog();
+        const variableGroups = [
+            {namespace: "client", variables: catalog.clientVariables},
+            {namespace: "global", variables: catalog.globalVariables},
+            {namespace: "project", variables: catalog.projectVariables},
+            {namespace: "session", variables: catalog.sessionVariables},
+        ] as const;
+        groups.push({
+            group: "Variable Registry",
+            items: variableGroups.flatMap(({namespace, variables}) => Object.entries(variables).map(([key, item]) => {
+                const fullPath = `${namespace}.${key}`;
+                return {
+                    label: fullPath,
+                    value: key,
+                    path: fullPath,
+                    token: `<VariableSchema paths={["${fullPath}"]} />`,
+                    editable: false,
+                    valueType: "jsonSchema",
+                    source: "runtime",
+                    schema: cloneJsonObject(item),
+                };
+            })),
+        });
+    }
+    return groups;
+}
+
+async function createPreviewVariableRegistry(profile: AgentProfile, workspaceRoot: string): Promise<VariableRegistry> {
+    return createVariableRegistryForSession({profile, workspaceRoot, currentProjectWorkspace: null});
+}
+
+function previewSessionSnapshot(profileKey: string, session: NeuroSessionContext): SessionSnapshot {
+    return {
+        metadata: {
+            sessionId: -1,
+            profileKey,
+            input: {},
+            workspaceRoot: session.workspaceRoot,
+            workspaceKey: "preview",
+            createdAt: Date.now(),
+        },
+        entries: [],
+        leafId: null,
+    };
+}
+
+function cloneJsonObject(value: unknown): Record<string, JsonValue> | null {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return null;
+    }
+    return JSON.parse(JSON.stringify(value)) as Record<string, JsonValue>;
 }
 
 /**
@@ -417,7 +479,7 @@ function resolveOverrideState(profile: AgentCatalogItem): AgentProfileCatalogIte
  */
 function toProfileIssueDto(issue: AgentProfileIssue, profileKey: string, fileName: string | null): AgentProfileIssueDto {
     return {
-        severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "not_compiled" || issue.code === "compile_stale" ? "warning" : "error",
+        severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "dependency_stale" || issue.code === "not_compiled" || issue.code === "compile_stale" ? "warning" : "error",
         message: issue.message,
         code: issue.code,
         profileKey: issue.profileKey ?? profileKey,
@@ -437,18 +499,18 @@ function relativeProfilePath(sourcePath: string, source: AgentCatalogItem["sourc
 }
 
 /**
- * TypeBox schema 本身就是 JSON Schema，复制后作为 DTO 返回。
- */
-function cloneJsonObject(value: unknown): Record<string, JsonValue> | null {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-        return null;
-    }
-    return JSON.parse(JSON.stringify(value)) as Record<string, JsonValue>;
-}
-
-/**
  * 为旧三栏 UI 提供一个源码优先的 ProfilePrompt 可视化树。
  */
+function parseProfilePromptTree(source: string, fileName: string | null): ProfileTemplateNodeDto | null {
+    if (!fileName || !/\.(tsx|ts|jsx|js)$/.test(fileName)) {
+        return null;
+    }
+    try {
+        return buildProfilePromptRoot(source);
+    } catch {
+        return null;
+    }
+}
 export function buildSystemPromptRoot(source: string): ProfileTemplateNodeDto | null {
     return buildProfilePromptRoot(source);
 }

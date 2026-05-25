@@ -3,7 +3,7 @@ import type {
     StoryPhase,
     StoryPlot,
     StoryScene,
-} from "nbook/server/generated/prisma/client";
+} from "nbook/server/generated/project-prisma/client";
 import type {
     ChapterPlotSceneWithThread,
     StorySceneRefWithTargets,
@@ -49,7 +49,6 @@ export class PlotDtoAssembler {
     toStoryDto(story: Story): StoryDto {
         return {
             id: stringifyEntityId(story.id),
-            novelId: stringifyEntityId(story.novelId),
             title: story.title,
             summary: story.summary,
             note: story.note,

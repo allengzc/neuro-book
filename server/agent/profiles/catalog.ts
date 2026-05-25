@@ -260,11 +260,16 @@ export class AgentProfileCatalog {
                 continue;
             }
             const freshness = await validateProfileArtifact(source === "system" ? this.systemRoot : this.userRoot, manifestItem);
+            let loadIssue: AgentProfileIssue | undefined;
             if (!freshness.fresh) {
-                const issue = this.staleIssue(source, file, manifestItem);
+                const issue = this.staleIssue(source, file, manifestItem, freshness.reason);
+                if (source !== "user" || freshness.reason !== "dependency_changed") {
+                    issues.push(issue);
+                    unloadedSources.push(this.unloadedFromManifest(file, manifestItem, source, builtin, "compile_stale", issue));
+                    continue;
+                }
+                loadIssue = issue;
                 issues.push(issue);
-                unloadedSources.push(this.unloadedFromManifest(file, manifestItem, source, builtin, "compile_stale", issue));
-                continue;
             }
             try {
                 const profile = await this.importCompiledProfile(source === "system" ? this.systemRoot : this.userRoot, manifestItem);
@@ -275,7 +280,7 @@ export class AgentProfileCatalog {
                     sourcePath: file.file,
                     builtin,
                     source,
-                    issue: locked.issue ?? filenameIssue,
+                    issue: locked.issue ?? filenameIssue ?? loadIssue,
                 });
                 if (locked.issue) {
                     issues.push(locked.issue);
@@ -479,7 +484,16 @@ export class AgentProfileCatalog {
         };
     }
 
-    private staleIssue(source: Exclude<AgentProfileSourceKind, "memory">, file: ProfileFileEntry, manifestItem: ProfileArtifactManifestItem): AgentProfileIssue {
+    private staleIssue(source: Exclude<AgentProfileSourceKind, "memory">, file: ProfileFileEntry, manifestItem: ProfileArtifactManifestItem, reason?: "source_changed" | "dependency_changed" | "artifact_missing" | "artifact_changed"): AgentProfileIssue {
+        if (source === "user" && reason === "dependency_changed") {
+            return {
+                code: "dependency_stale",
+                message: `profile ${manifestItem.profileKey} 的依赖已变化，当前继续使用上次编译产物；重新编译后可采用最新运行时能力。`,
+                profileKey: manifestItem.profileKey,
+                source,
+                sourcePath: file.file,
+            };
+        }
         return {
             code: "compile_stale",
             message: `profile ${manifestItem.profileKey} 的源码或依赖已变化，需要重新编译。`,
@@ -519,7 +533,7 @@ export class AgentProfileCatalog {
 }
 
 function statusFromIssue(issue: AgentProfileIssue): AgentCatalogItem["loadStatus"] {
-    if (issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed") {
+    if (issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "dependency_stale") {
         return "loaded";
     }
     if (issue.code === "not_compiled" || issue.code === "compile_stale" || issue.code === "compiled_load_failed" || issue.code === "source_error") {

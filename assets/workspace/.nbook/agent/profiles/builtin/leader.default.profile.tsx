@@ -3,6 +3,7 @@
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {LeaderDefaultInputSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {
     AgentCatalog,
     AppendingSet,
@@ -12,14 +13,14 @@ import {
     MentionedSkillsReminder,
     ModelContext,
     PlanModeReminder,
-    PlotFocusReminder,
-    ProjectReminder,
     ProfilePrompt,
+    Reminder,
     RuntimeContext,
     SkillCatalog,
     SqlSchemaSummary,
     System,
     TaskReminder,
+    VariableSchema,
 } from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
@@ -64,6 +65,9 @@ const allowedToolKeys = [
     "create_story_plot",
     "update_story_plot",
     "execute_sql",
+    "variable_schema",
+    "variable_read",
+    "variable_patch",
 ] as const;
 
 export default defineAgentProfile({
@@ -90,11 +94,58 @@ export default defineAgentProfile({
                     <Message>
                         <SqlSchemaSummary />
                     </Message>
+                    <VariableSchema paths={["client.currentProjectWorkspace"]} includeToolGuide />
                 </ModelContext>
                 <AppendingSet>
-                    <ProjectReminder />
+                    <Reminder id="project" watchPath="client.currentProjectWorkspace" repeatEveryTurns={20}>
+                        <Message>
+                            {{
+                                kind: "StringFragment",
+                                text: async (ctx: ProfilePrepareContext<Input>) => {
+                                    const currentProjectWorkspace = await ctx.vars.get("client.currentProjectWorkspace");
+                                    return [
+                                        "<system-reminder>",
+                                        `Agent cwd: ${ctx.session.workspaceRoot}`,
+                                        typeof currentProjectWorkspace === "string" && currentProjectWorkspace ? `Current Project Workspace: ${currentProjectWorkspace}` : "",
+                                        "",
+                                        "- Bash/read/write/edit/apply_patch relative paths resolve from Agent cwd.",
+                                        "- Use Project Workspace paths such as lorebook/... or manuscript/... when Agent cwd is the current Project Workspace.",
+                                        "- Cross-project work is allowed when the user asks; keep paths explicit so the target Project Workspace is clear.",
+                                        "</system-reminder>",
+                                    ].filter(Boolean).join("\n");
+                                },
+                            }}
+                        </Message>
+                    </Reminder>
                     <LinkedAgentsReminder />
-                    <PlotFocusReminder />
+                    <Reminder id="plot-focus" watch={(ctx) => ctx.session.customState["plot.selection"] ?? null}>
+                        <Message>
+                            {{
+                                kind: "StringFragment",
+                                text: (ctx: ProfilePrepareContext<Input>) => {
+                                    const selectionValue = ctx.session.customState["plot.selection"];
+                                    const selection = selectionValue && typeof selectionValue === "object" && !Array.isArray(selectionValue)
+                                        ? selectionValue as Record<string, unknown>
+                                        : {};
+                                    const projectPath = typeof selection.projectPath === "string" ? selection.projectPath : "";
+                                    const threadId = typeof selection.threadId === "string" ? selection.threadId : "";
+                                    const sceneId = typeof selection.sceneId === "string" ? selection.sceneId : "";
+                                    if (!projectPath && !threadId && !sceneId) {
+                                        return "";
+                                    }
+                                    return [
+                                        "<system-reminder>",
+                                        "Current plot focus:",
+                                        projectPath ? `- Project Path: ${projectPath}` : "",
+                                        threadId ? `- Thread: ${threadId}` : "",
+                                        sceneId ? `- Scene: ${sceneId}` : "",
+                                        "Plot tools may reuse threadId/sceneId from plot.selection, but projectPath must still be passed explicitly.",
+                                        "</system-reminder>",
+                                    ].filter(Boolean).join("\n");
+                                },
+                            }}
+                        </Message>
+                    </Reminder>
                     <TaskReminder stateKey="agent.tasks" repeatEveryTurns={8} />
                     <PlanModeReminder stateKey="agent.planMode" />
                     <Message>
@@ -159,6 +210,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - 可以并行调用互不依赖的工具。依赖前一个结果时必须顺序调用。
         - 常规任务优先以 runtime context 的 Current Project Workspace 为边界，但 agent cwd 是 workspace 容器根。访问当前小说时使用 novel-slug/lorebook/...、novel-slug/manuscript/... 这类显式路径。
         - 允许跨 project 写作和检查；跨 project 时必须显式写出目标 Project Workspace 路径，避免把内容写到错误小说。
+        - 需要读写变量时，先用 variable_schema 查询局部 schema，再用 variable_read 读取当前值，最后用 variable_patch 提交 JSON Patch；重要修改后再次 read 验证。
         - 不要用 bash 拼接高风险写入命令替代 edit、apply_patch 或 write。
         - 脚本失败时读取错误并说明阻塞原因，不要假装验证成功。
 
@@ -188,7 +240,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - get_agent_profile 查询某个 profile 的 InputSchema、OutputSchema、report_result schema 和 allowed tools。创建或调用不熟悉的 agent 前先查询它，不要猜 input。
         - get_session 默认只查询轻量 session 元数据、title、summary、usage 和 linked agents；默认不返回 tree，也不返回历史消息。需要少量历史时显式传 includeRecentMessages/recentMessageLimit/tokenBudget；复杂历史、分支或 tree 查询请到 session 文件目录用 bash/jq/rg 自助查询。
         - detach_agent 只解除 owned link，不删除 session。
-        - writer 是正文写作专用 agent，采用“一章节一 agent”。调用 writer 前，先确保章节内容节点已经存在，并且 Plot System 中需要写入本章的 Scene 已挂到该 chapterPath。writer.input.chapterPaths 必须且只能包含一个章节目录：当前 Project Workspace 使用 manuscript/.../，跨 Project Workspace 使用 novel-slug/manuscript/.../。writer 会读取该章节的 Chapter Plot，并只写这个章节的 index.md；不要再传 plotPoints、novelId 或 outputPath。
+        - writer 是正文写作专用 agent，采用“一章节一 agent”。调用 writer 前，先确保章节内容节点已经存在，并且 Plot System 中需要写入本章的 Scene 已挂到该 chapterPath。writer.input.chapterPaths 必须且只能包含一个章节目录：当前 Project Workspace 使用 manuscript/.../，跨 Project Workspace 使用 workspace/<project>/manuscript/.../ 或 <project>/manuscript/.../。writer 会读取该章节的 Chapter Plot，并只写这个章节的 index.md；不要再传 plotPoints、novelId 或 outputPath。
         - writer.lorebookEntries 只接收内容节点 path 字符串数组。需要设定召回时，先让 retrieval 返回详细结果，再由你提取其中的 path，按需要传给 writer.lorebookEntries。不要把 retrieval 的 reason、summary、priority 或 writingTip 传给 writer。
         - retrieval 是内容节点召回专用 agent。需要为 writer 或当前任务选择 lorebook/manuscript 相关节点时创建它；它应先建立内容节点元数据清单，再做精确搜索，并通过 report_result.data 返回按优先级排序的详细结果对象数组，供 Leader 判断和筛选。
         - 需要 writer 参考内容节点时，优先先让 retrieval 召回候选，再把 path 整理为 writer.lorebookEntries；不要让 writer 自己做大范围检索。
@@ -285,8 +337,8 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - 读取全局剧情树用 get_plot_tree。
         - 读取 Thread 详情用 get_story_thread；读取 Scene 工作上下文用 get_story_scene_context；读取章节剧情视图用 get_chapter_plot。
         - 创建或更新 Thread/Scene/Plot 时使用 create_story_thread/update_story_thread/create_story_scene/update_story_scene/create_story_plot/update_story_plot。
-        - 所有 plot 工具都必须显式传 novelId。不要假装工具会从 session 自动推断 novelId。
-        - Thread/Scene 选择会写入 plot.selection，后续可以省略 threadId/sceneId，但 novelId 仍然必须显式传入。
+        - 所有 plot 工具都必须显式传 projectPath，例如 workspace/silver-dragon-hime。不要假装工具会从 session 自动推断 projectPath。
+        - Thread/Scene 选择会写入 plot.selection，后续可以省略 threadId/sceneId，但 projectPath 仍然必须显式传入。
 
         # SQL
 
@@ -294,7 +346,8 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - 只允许单条 SELECT / WITH / INSERT / UPDATE / DELETE。
         - 禁止 DDL、事务控制、session control、COPY、VACUUM 和多语句。
         - 查询最多返回 200 行，超时 1500ms。
-        - PostgreSQL 会把未加双引号的标识符折成小写。业务表名和 camelCase 字段必须双引号，例如 SELECT id, title FROM "Chapter" WHERE "novelId" = 1 ORDER BY "sortOrder"。字段如 "novelId"、"createdAt"、"sortOrder" 不加双引号会报 column does not exist。
+        - execute_sql 只操作当前 Project Workspace 的 .nbook/project.sqlite，不能访问 App SQLite、用户表或其他项目数据库。
+        - SQLite 业务表名和 camelCase 字段建议使用双引号，例如 SELECT id, title FROM "StoryScene" WHERE "chapterPath" = 'manuscript/001-opening/' ORDER BY "threadSortOrder"。
         - 文件正文、manuscript、lorebook 和普通文档必须用 read/write/edit/apply_patch，不要用 SQL 读写长正文。
 
         # Plan Mode

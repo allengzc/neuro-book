@@ -13,7 +13,7 @@ describe("GET /api/workspace-files/events", () => {
         vi.clearAllMocks();
         vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
         vi.stubGlobal("getQuery", () => ({
-            novelId: "novel-1",
+            projectPath: "workspace/novel-1",
         }));
     });
 

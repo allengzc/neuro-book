@@ -1,5 +1,5 @@
-import {Prisma} from "nbook/server/generated/prisma/client";
-import {PrismaClient} from "nbook/server/generated/prisma/client";
+import {PrismaLibSql} from "@prisma/adapter-libsql";
+import {Prisma, PrismaClient} from "nbook/server/generated/project-prisma/client";
 import {PlotDtoAssembler} from "nbook/server/plot/assemblers/plot-dto.assembler";
 import {PrismaPlotDataRepository} from "nbook/server/plot/repositories/prisma-plot-data.repository";
 import {PrismaSceneRepository} from "nbook/server/plot/repositories/prisma-scene.repository";
@@ -14,6 +14,7 @@ import {RefResolverService} from "nbook/server/plot/services/ref-resolver.servic
 import {SceneService} from "nbook/server/plot/services/scene.service";
 import {StoryService} from "nbook/server/plot/services/story.service";
 import {ThreadService} from "nbook/server/plot/services/thread.service";
+import {initProjectDatabase, normalizeProjectPath, resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 import {
     mergeContentDiagnostics,
     processTextFieldsWithResults,
@@ -61,87 +62,89 @@ type PlotModule = {
  * 剧情模块门面。
  */
 export class PlotFacade {
-    constructor(private readonly prisma: PrismaClient) {}
+    private readonly clients = new Map<string, PrismaClient>();
+
+    constructor() {}
 
     /**
      * 查询 Story。
      */
-    async getStoryDto(novelId: number): Promise<StoryDto> {
-        return this.createModule(this.prisma).storyService.getStoryDto(novelId);
+    async getStoryDto(projectPath: string): Promise<StoryDto> {
+        return (await this.createModule(projectPath)).storyService.getStoryDto(normalizeProjectPath(projectPath));
     }
 
     /**
      * 更新 Story。
      */
-    async updateStory(novelId: number, patch: UpdateStoryRequestDto): Promise<StoryDto> {
-        return this.runInTransaction((module) => module.storyService.updateStory(novelId, patch));
+    async updateStory(projectPath: string, patch: UpdateStoryRequestDto): Promise<StoryDto> {
+        return this.runInTransaction(projectPath, (module) => module.storyService.updateStory(normalizeProjectPath(projectPath), patch));
     }
 
     /**
      * 查询剧情树。
      */
-    async getPlotTree(novelId: number): Promise<PlotTreeDto> {
-        return this.createModule(this.prisma).storyService.getPlotTree(novelId);
+    async getPlotTree(projectPath: string): Promise<PlotTreeDto> {
+        return (await this.createModule(projectPath)).storyService.getPlotTree(normalizeProjectPath(projectPath));
     }
 
     /**
      * 查询剧本工作台聚合数据。
      */
-    async getPlotWorkbench(novelId: number): Promise<PlotWorkbenchDto> {
-        return this.createModule(this.prisma).storyService.getPlotWorkbench(novelId);
+    async getPlotWorkbench(projectPath: string): Promise<PlotWorkbenchDto> {
+        return (await this.createModule(projectPath)).storyService.getPlotWorkbench(normalizeProjectPath(projectPath));
     }
 
     /**
      * 查询阶段详情。
      */
-    async getStoryPhaseDto(novelId: number, phaseId: number): Promise<StoryPhaseDto> {
-        return this.createModule(this.prisma).storyService.getStoryPhaseDto(novelId, phaseId);
+    async getStoryPhaseDto(projectPath: string, phaseId: number): Promise<StoryPhaseDto> {
+        return (await this.createModule(projectPath)).storyService.getStoryPhaseDto(normalizeProjectPath(projectPath), phaseId);
     }
 
     /**
      * 创建阶段。
      */
-    async createStoryPhase(novelId: number, input: CreateStoryPhaseRequestDto): Promise<StoryPhaseDto> {
-        return this.runInTransaction((module) => module.storyService.createStoryPhase(novelId, input));
+    async createStoryPhase(projectPath: string, input: CreateStoryPhaseRequestDto): Promise<StoryPhaseDto> {
+        return this.runInTransaction(projectPath, (module) => module.storyService.createStoryPhase(normalizeProjectPath(projectPath), input));
     }
 
     /**
      * 更新阶段。
      */
-    async updateStoryPhase(novelId: number, phaseId: number, patch: UpdateStoryPhaseRequestDto): Promise<StoryPhaseDto> {
-        return this.runInTransaction((module) => module.storyService.updateStoryPhase(novelId, phaseId, patch));
+    async updateStoryPhase(projectPath: string, phaseId: number, patch: UpdateStoryPhaseRequestDto): Promise<StoryPhaseDto> {
+        return this.runInTransaction(projectPath, (module) => module.storyService.updateStoryPhase(normalizeProjectPath(projectPath), phaseId, patch));
     }
 
     /**
      * 删除阶段。
      */
-    async deleteStoryPhase(novelId: number, phaseId: number): Promise<void> {
-        await this.runInTransaction((module) => module.storyService.deleteStoryPhase(novelId, phaseId));
+    async deleteStoryPhase(projectPath: string, phaseId: number): Promise<void> {
+        await this.runInTransaction(projectPath, (module) => module.storyService.deleteStoryPhase(normalizeProjectPath(projectPath), phaseId));
     }
 
     /**
      * 重排阶段。
      */
-    async reorderStoryPhases(novelId: number, input: ReorderStoryPhasesRequestDto): Promise<PlotTreeDto> {
-        return this.runInTransaction((module) => (
-            module.storyService.reorderStoryPhases(novelId, module.inputParser.parseReorderPhases(input))
+    async reorderStoryPhases(projectPath: string, input: ReorderStoryPhasesRequestDto): Promise<PlotTreeDto> {
+        return this.runInTransaction(projectPath, (module) => (
+            module.storyService.reorderStoryPhases(normalizeProjectPath(projectPath), module.inputParser.parseReorderPhases(input))
         ));
     }
 
     /**
      * 查询线程详情。
      */
-    async getStoryThreadDetailDto(novelId: number, threadId: number): Promise<StoryThreadDetailDto> {
-        return this.createModule(this.prisma).threadService.getStoryThreadDetailDto(novelId, threadId);
+    async getStoryThreadDetailDto(projectPath: string, threadId: number): Promise<StoryThreadDetailDto> {
+        return (await this.createModule(projectPath)).threadService.getStoryThreadDetailDto(normalizeProjectPath(projectPath), threadId);
     }
 
     /**
      * 创建线程。
      */
-    async createStoryThread(novelId: number, input: CreateStoryThreadRequestDto): Promise<StoryThreadWriteResponseDto> {
+    async createStoryThread(projectPath: string, input: CreateStoryThreadRequestDto): Promise<StoryThreadWriteResponseDto> {
         const processedInput = processTextFieldsWithResults(input, ["summary", "writingTip", "note"]);
-        return this.runInTransaction(async (module) => {
-            const detail = await module.threadService.createStoryThread(novelId, module.inputParser.parseCreateThread({
+        return this.runInTransaction(projectPath, async (module) => {
+            const detail = await module.threadService.createStoryThread(normalizeProjectPath(projectPath), module.inputParser.parseCreateThread({
                 ...processedInput.values,
             }));
             return {
@@ -155,14 +158,14 @@ export class PlotFacade {
      * 更新线程。
      */
     async updateStoryThread(
-        novelId: number,
+        projectPath: string,
         threadId: number,
         patch: UpdateStoryThreadRequestDto,
     ): Promise<StoryThreadWriteResponseDto> {
         const processedPatch = processTextFieldsWithResults(patch, ["summary", "writingTip", "note"]);
-        return this.runInTransaction(async (module) => {
+        return this.runInTransaction(projectPath, async (module) => {
             const detail = await module.threadService.updateStoryThread(
-                novelId,
+                normalizeProjectPath(projectPath),
                 threadId,
                 module.inputParser.parseUpdateThread({
                     ...processedPatch.values,
@@ -178,47 +181,47 @@ export class PlotFacade {
     /**
      * 删除线程。
      */
-    async deleteStoryThread(novelId: number, threadId: number): Promise<void> {
-        await this.runInTransaction((module) => module.threadService.deleteStoryThread(novelId, threadId));
+    async deleteStoryThread(projectPath: string, threadId: number): Promise<void> {
+        await this.runInTransaction(projectPath, (module) => module.threadService.deleteStoryThread(normalizeProjectPath(projectPath), threadId));
     }
 
     /**
      * 重排线程。
      */
-    async reorderStoryThreads(novelId: number, input: ReorderStoryThreadsRequestDto): Promise<PlotTreeDto> {
-        return this.runInTransaction((module) => (
-            module.threadService.reorderStoryThreads(novelId, module.inputParser.parseReorderThreads(input))
+    async reorderStoryThreads(projectPath: string, input: ReorderStoryThreadsRequestDto): Promise<PlotTreeDto> {
+        return this.runInTransaction(projectPath, (module) => (
+            module.threadService.reorderStoryThreads(normalizeProjectPath(projectPath), module.inputParser.parseReorderThreads(input))
         ));
     }
 
     /**
      * 查询 Scene 详情。
      */
-    async getStorySceneDetailDto(novelId: number, sceneId: number): Promise<StorySceneDetailDto> {
-        return this.createModule(this.prisma).sceneService.getStorySceneDetailDto(novelId, sceneId);
+    async getStorySceneDetailDto(projectPath: string, sceneId: number): Promise<StorySceneDetailDto> {
+        return (await this.createModule(projectPath)).sceneService.getStorySceneDetailDto(normalizeProjectPath(projectPath), sceneId);
     }
 
     /**
      * 查询章节下的剧情 Scene 与 Plot。
      */
-    async getChapterPlotDetailDto(novelId: number, chapterPath: string): Promise<ChapterPlotDetailDto> {
-        return this.createModule(this.prisma).sceneService.getChapterPlotDetailDto(novelId, chapterPath);
+    async getChapterPlotDetailDto(projectPath: string, chapterPath: string): Promise<ChapterPlotDetailDto> {
+        return (await this.createModule(projectPath)).sceneService.getChapterPlotDetailDto(normalizeProjectPath(projectPath), chapterPath);
     }
 
     /**
      * 创建 Scene。
      */
-    async createStoryScene(novelId: number, input: CreateStorySceneRequestDto): Promise<StorySceneWriteResponseDto> {
+    async createStoryScene(projectPath: string, input: CreateStorySceneRequestDto): Promise<StorySceneWriteResponseDto> {
         const processedInput = processTextFieldsWithResults(input, ["summary", "purpose", "writingTip", "note"]);
-        return this.runInTransaction(async (module) => {
-            const story = await module.storyService.ensureStory(novelId);
+        return this.runInTransaction(projectPath, async (module) => {
+            const story = await module.storyService.ensureStory(normalizeProjectPath(projectPath));
             const processedRefs = await processStructuredReferences({
                 refs: processedInput.values.refs ?? [],
                 allowedKinds: STORY_STRUCTURED_REFERENCE_KINDS,
                 label: "plot",
-                resolve: (nextRefs) => module.refResolverService.resolveRefs(novelId, story.id, nextRefs),
+                resolve: (nextRefs) => module.refResolverService.resolveRefs(story.id, nextRefs),
             });
-            const detail = await module.sceneService.createStoryScene(novelId, module.inputParser.parseCreateScene({
+            const detail = await module.sceneService.createStoryScene(normalizeProjectPath(projectPath), module.inputParser.parseCreateScene({
                 ...processedInput.values,
                 refs: processedRefs.normalized,
                 resolvedRefs: processedRefs.resolved,
@@ -237,23 +240,23 @@ export class PlotFacade {
      * 更新 Scene。
      */
     async updateStoryScene(
-        novelId: number,
+        projectPath: string,
         sceneId: number,
         patch: UpdateStorySceneRequestDto,
     ): Promise<StorySceneWriteResponseDto> {
         const processedPatch = processTextFieldsWithResults(patch, ["summary", "purpose", "writingTip", "note"]);
-        return this.runInTransaction(async (module) => {
-            const story = await module.storyService.ensureStory(novelId);
+        return this.runInTransaction(projectPath, async (module) => {
+            const story = await module.storyService.ensureStory(normalizeProjectPath(projectPath));
             const processedRefs = processedPatch.values.refs === undefined
                 ? null
                 : await processStructuredReferences({
                     refs: processedPatch.values.refs,
                     allowedKinds: STORY_STRUCTURED_REFERENCE_KINDS,
                     label: "plot",
-                    resolve: (nextRefs) => module.refResolverService.resolveRefs(novelId, story.id, nextRefs),
+                    resolve: (nextRefs) => module.refResolverService.resolveRefs(story.id, nextRefs),
                 });
             const detail = await module.sceneService.updateStoryScene(
-                novelId,
+                normalizeProjectPath(projectPath),
                 sceneId,
                 module.inputParser.parseUpdateScene({
                     ...processedPatch.values,
@@ -274,34 +277,34 @@ export class PlotFacade {
     /**
      * 删除 Scene。
      */
-    async deleteStoryScene(novelId: number, sceneId: number): Promise<void> {
-        await this.runInTransaction((module) => module.sceneService.deleteStoryScene(novelId, sceneId));
+    async deleteStoryScene(projectPath: string, sceneId: number): Promise<void> {
+        await this.runInTransaction(projectPath, (module) => module.sceneService.deleteStoryScene(normalizeProjectPath(projectPath), sceneId));
     }
 
     /**
      * 重排 Scene。
      */
-    async reorderStoryScenes(novelId: number, input: ReorderStoryScenesRequestDto): Promise<PlotTreeDto> {
-        return this.runInTransaction((module) => (
-            module.sceneService.reorderStoryScenes(novelId, module.inputParser.parseReorderScenes(input))
+    async reorderStoryScenes(projectPath: string, input: ReorderStoryScenesRequestDto): Promise<PlotTreeDto> {
+        return this.runInTransaction(projectPath, (module) => (
+            module.sceneService.reorderStoryScenes(normalizeProjectPath(projectPath), module.inputParser.parseReorderScenes(input))
         ));
     }
 
     /**
      * 查询 Plot 详情。
      */
-    async getStoryPlotDto(novelId: number, plotId: number): Promise<StoryPlotDto> {
-        return this.createModule(this.prisma).plotService.getStoryPlotDto(novelId, plotId);
+    async getStoryPlotDto(projectPath: string, plotId: number): Promise<StoryPlotDto> {
+        return (await this.createModule(projectPath)).plotService.getStoryPlotDto(normalizeProjectPath(projectPath), plotId);
     }
 
     /**
      * 创建 Plot。
      */
-    async createStoryPlot(novelId: number, input: CreateStoryPlotRequestDto): Promise<StoryPlotWriteResponseDto> {
+    async createStoryPlot(projectPath: string, input: CreateStoryPlotRequestDto): Promise<StoryPlotWriteResponseDto> {
         const processedInput = processTextFieldsWithResults(input, ["summary", "effect", "writingTip", "note"]);
-        return this.runInTransaction(async (module) => {
+        return this.runInTransaction(projectPath, async (module) => {
             const detail = await module.plotService.createStoryPlot(
-                novelId,
+                normalizeProjectPath(projectPath),
                 module.inputParser.parseCreatePlot(processedInput.values),
             );
             return {
@@ -314,11 +317,11 @@ export class PlotFacade {
     /**
      * 更新 Plot。
      */
-    async updateStoryPlot(novelId: number, plotId: number, patch: UpdateStoryPlotRequestDto): Promise<StoryPlotWriteResponseDto> {
+    async updateStoryPlot(projectPath: string, plotId: number, patch: UpdateStoryPlotRequestDto): Promise<StoryPlotWriteResponseDto> {
         const processedPatch = processTextFieldsWithResults(patch, ["summary", "effect", "writingTip", "note"]);
-        return this.runInTransaction(async (module) => {
+        return this.runInTransaction(projectPath, async (module) => {
             const detail = await module.plotService.updateStoryPlot(
-                novelId,
+                normalizeProjectPath(projectPath),
                 plotId,
                 module.inputParser.parseUpdatePlot(processedPatch.values),
             );
@@ -332,32 +335,60 @@ export class PlotFacade {
     /**
      * 删除 Plot。
      */
-    async deleteStoryPlot(novelId: number, plotId: number): Promise<void> {
-        await this.runInTransaction((module) => module.plotService.deleteStoryPlot(novelId, plotId));
+    async deleteStoryPlot(projectPath: string, plotId: number): Promise<void> {
+        await this.runInTransaction(projectPath, (module) => module.plotService.deleteStoryPlot(normalizeProjectPath(projectPath), plotId));
     }
 
     /**
      * 重排 Plot。
      */
-    async reorderStoryPlots(novelId: number, input: ReorderStoryPlotsRequestDto): Promise<PlotTreeDto> {
-        return this.runInTransaction((module) => (
-            module.plotService.reorderStoryPlots(novelId, module.inputParser.parseReorderPlots(input))
+    async reorderStoryPlots(projectPath: string, input: ReorderStoryPlotsRequestDto): Promise<PlotTreeDto> {
+        return this.runInTransaction(projectPath, (module) => (
+            module.plotService.reorderStoryPlots(normalizeProjectPath(projectPath), module.inputParser.parseReorderPlots(input))
         ));
     }
 
     /**
      * 在事务里执行写操作。
      */
-    private runInTransaction<TResult>(callback: (module: PlotModule) => Promise<TResult>): Promise<TResult> {
-        return this.prisma.$transaction(async (transactionClient: Prisma.TransactionClient) => {
-            return callback(this.createModule(transactionClient));
+    private async runInTransaction<TResult>(projectPath: string, callback: (module: PlotModule) => Promise<TResult>): Promise<TResult> {
+        const prisma = await this.client(projectPath);
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        return prisma.$transaction(async (transactionClient: Prisma.TransactionClient) => {
+            return callback(this.createModuleFromExecutor(transactionClient, normalizedProjectPath));
         });
     }
 
     /**
      * 按执行器构建剧情模块对象图。
      */
-    private createModule(executor: PrismaExecutor): PlotModule {
+    private async createModule(projectPath: string): Promise<PlotModule> {
+        return this.createModuleFromExecutor(await this.client(projectPath), normalizeProjectPath(projectPath));
+    }
+
+    /**
+     * 按 Project Path 返回 Project SQLite PrismaClient。
+     */
+    private async client(projectPath: string): Promise<PrismaClient> {
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        await initProjectDatabase(normalizedProjectPath);
+        const databasePath = resolveProjectDatabasePath(normalizedProjectPath);
+        const cacheKey = databasePath.replace(/\\/g, "/");
+        const existing = this.clients.get(cacheKey);
+        if (existing) {
+            return existing;
+        }
+        const client = new PrismaClient({
+            adapter: new PrismaLibSql({url: toSqliteFileUrl(databasePath)}),
+        });
+        this.clients.set(cacheKey, client);
+        return client;
+    }
+
+    /**
+     * 按执行器构建剧情模块对象图。
+     */
+    private createModuleFromExecutor(executor: PrismaExecutor, _projectPath: string): PlotModule {
         const inputParser = new PlotInputParser();
         const assembler = new PlotDtoAssembler();
         const storyRepository = new PrismaStoryRepository(executor);
@@ -370,18 +401,16 @@ export class PlotFacade {
             threadRepository,
             sceneRepository,
             plotRepository,
-            plotRepository,
         );
         const storyService = new StoryService(
             storyRepository,
             threadRepository,
             plotRepository,
-            plotRepository,
             orderService,
             assembler,
             scopeGuard,
         );
-        const refResolverService = new RefResolverService(plotRepository, threadRepository, scopeGuard);
+        const refResolverService = new RefResolverService(threadRepository, scopeGuard);
         const threadService = new ThreadService(
             threadRepository,
             storyService,

@@ -2,6 +2,7 @@ import {z} from "zod";
 import type {AgentEvent} from "@earendil-works/pi-agent-core";
 import type {AgentMessage, JsonValue, Model, Usage} from "nbook/server/agent/messages/types";
 import type {SessionEntry, SessionTreeNode} from "nbook/server/agent/session/types";
+import type {VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
 
 const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
     z.string(),
@@ -58,7 +59,7 @@ export const AgentCreateSessionRequestDtoSchema = z.object({
     input: JsonValueSchema.optional(),
     workspaceRoot: z.string().trim().min(1).optional(),
     workspaceKey: z.string().trim().min(1).optional(),
-    novelId: z.string().trim().min(1).optional(),
+    projectPath: z.string().trim().min(1).optional(),
     parentSessionId: AgentSessionIdSchema.optional(),
 });
 
@@ -66,6 +67,7 @@ export const AgentInvokeRequestDtoSchema = z.object({
     mode: z.enum(["prompt", "continue"]),
     message: AgentUserMessageInputDtoSchema.optional(),
     resolution: AgentResolutionDtoSchema.optional(),
+    clientState: z.lazy(() => ClientVariablesDtoSchema).optional(),
     block: z.boolean().optional(),
 }).superRefine((value, ctx) => {
     if (value.mode === "prompt" && !value.message) {
@@ -119,6 +121,7 @@ export const AgentTreeRequestDtoSchema = z.union([
             type: z.literal("invoke"),
             mode: z.enum(["prompt", "continue"]),
             message: AgentUserMessageInputDtoSchema.optional(),
+            clientState: z.lazy(() => ClientVariablesDtoSchema).optional(),
         }).optional(),
     }),
 ]);
@@ -126,6 +129,16 @@ export const AgentTreeRequestDtoSchema = z.union([
 export const AgentAbortRequestDtoSchema = z.object({
     reason: z.string().optional(),
     clearQueue: z.boolean().optional(),
+});
+
+export const ClientVariablePatchAckDtoSchema = z.object({
+    namespace: z.literal("client"),
+    path: z.string().trim().min(1),
+    operations: z.array(z.any()),
+    appliedValue: JsonValueSchema.optional(),
+    error: z.string().optional(),
+    invocationId: z.string().optional(),
+    toolCallId: z.string().optional(),
 });
 
 export type AgentCreateSessionRequestDto = z.infer<typeof AgentCreateSessionRequestDtoSchema>;
@@ -136,6 +149,7 @@ export type AgentSessionEventsQueryDto = z.infer<typeof AgentSessionEventsQueryD
 export type AgentCommandRequestDto = z.infer<typeof AgentCommandRequestDtoSchema>;
 export type AgentTreeRequestDto = z.infer<typeof AgentTreeRequestDtoSchema>;
 export type AgentAbortRequestDto = z.infer<typeof AgentAbortRequestDtoSchema>;
+export type ClientVariablePatchAckDto = z.infer<typeof ClientVariablePatchAckDtoSchema> & VariablePatchAck;
 
 export const AgentSkillCatalogItemDtoSchema = z.object({
     name: z.string().trim().min(1, "skill.name 不能为空"),
@@ -145,10 +159,11 @@ export const AgentSkillCatalogItemDtoSchema = z.object({
 export const ClientVariablesDtoSchema = z.object({
     ide: z.record(z.string(), JsonValueSchema).optional(),
     studio: z.record(z.string(), JsonValueSchema).optional(),
-});
+}).catchall(JsonValueSchema.optional());
 
 export type AgentSkillCatalogItemDto = z.infer<typeof AgentSkillCatalogItemDtoSchema>;
 export type ClientVariablesDto = z.infer<typeof ClientVariablesDtoSchema>;
+export type ClientStateSnapshotDto = ClientVariablesDto;
 
 export type AgentSessionStatus = "idle" | "running" | "waiting" | "archived" | "interrupted";
 
@@ -217,6 +232,10 @@ export type AgentSessionControlEvent =
     | {
         type: "invocation_aborted";
         reason?: string;
+    }
+    | {
+        type: "client_variable_patch_requested";
+        request: VariablePatchRequest;
     };
 
 export type AgentSessionEventDto =

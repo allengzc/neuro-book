@@ -8,7 +8,7 @@ describe("GET /api/workspace-files/download", () => {
         vi.stubGlobal("defineEventHandler", (handler: unknown) => handler);
     });
 
-    it("只按 novelId 解析 workspace，忽略 root 查询参数", async () => {
+    it("只按 projectPath 解析 Project Workspace，忽略 root 查询参数", async () => {
         const resolveNovelWorkspaceRoot = vi.fn(async () => "workspace/novel-1");
         const createWorkspaceZipStream = vi.fn(async () => ({
             root: "workspace/novel-1",
@@ -17,7 +17,7 @@ describe("GET /api/workspace-files/download", () => {
         }));
 
         vi.stubGlobal("getQuery", () => ({
-            novelId: "1",
+            projectPath: "workspace/novel-1",
             root: "server",
         }));
         vi.doMock("h3", () => ({
@@ -41,11 +41,11 @@ describe("GET /api/workspace-files/download", () => {
         const handler = (await import("nbook/server/api/workspace-files/download.get")).default;
         await handler({} as never);
 
-        expect(resolveNovelWorkspaceRoot).toHaveBeenCalledWith({}, "1");
+        expect(resolveNovelWorkspaceRoot).toHaveBeenCalledWith("workspace/novel-1");
         expect(createWorkspaceZipStream).toHaveBeenCalledWith("workspace/novel-1");
     });
 
-    it("缺少 novelId 时拒绝下载", async () => {
+    it("缺少 projectPath 时拒绝下载", async () => {
         vi.stubGlobal("getQuery", () => ({
             root: "workspace/novel-1",
         }));
@@ -70,7 +70,7 @@ describe("GET /api/workspace-files/download", () => {
         const handler = (await import("nbook/server/api/workspace-files/download.get")).default;
         await expect(handler({} as never)).rejects.toMatchObject({
             statusCode: 400,
-            message: "novelId 不能为空",
+            message: "projectPath 不能为空",
         });
     });
 });

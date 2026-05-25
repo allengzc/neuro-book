@@ -6,25 +6,24 @@ import {
     ensureUserAssetsWorkspaceRoot,
     resolveNovelWorkspaceRoot,
 } from "nbook/server/workspace-files/novel-workspace";
-import {prisma} from "nbook/server/utils/prisma";
 
 /**
  * 打包下载当前 Project Workspace；user-assets 入口打包 Workspace Root .nbook。
  */
 export default defineEventHandler(async (event) => {
     const query = getQuery(event);
-    const novelId = typeof query.novelId === "string" ? query.novelId : undefined;
+    const projectPath = typeof query.projectPath === "string" ? query.projectPath : undefined;
     const workspaceKind = query.workspaceKind === USER_ASSETS_WORKSPACE_KIND ? query.workspaceKind : undefined;
     if (workspaceKind === USER_ASSETS_WORKSPACE_KIND) {
         await ensureUserAssetsWorkspaceRoot();
         const archive = await createWorkspaceZipStream(USER_ASSETS_WORKSPACE_ROOT);
         return sendArchive(event, archive);
     }
-    if (!novelId?.trim()) {
-        throw createError({statusCode: 400, message: "novelId 不能为空"});
+    if (!projectPath?.trim()) {
+        throw createError({statusCode: 400, message: "projectPath 不能为空"});
     }
 
-    const workspaceRoot = await resolveNovelWorkspaceRoot(prisma, novelId);
+    const workspaceRoot = await resolveNovelWorkspaceRoot(projectPath);
     const archive = await createWorkspaceZipStream(workspaceRoot);
     return sendArchive(event, archive);
 });
