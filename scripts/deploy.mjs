@@ -133,6 +133,12 @@ set -a
 . ./${ENV_FILE}
 set +a
 
+case "\${DATABASE_URL:-}" in
+    file:*) DATABASE_KIND=sqlite ;;
+    postgres://*|postgresql://*) DATABASE_KIND=postgres ;;
+esac
+export DATABASE_KIND
+
 COMPOSE_FILES="-f docker-compose.yml"
 if [ "\${DATABASE_KIND:-sqlite}" = "postgres" ]; then
     if printf '%s' "\${DATABASE_URL:-}" | grep -q '@postgres:'; then
