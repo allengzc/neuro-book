@@ -1,0 +1,188 @@
+// Project Workspace SQLite schema. This database lives inside each Project
+// Workspace at .nbook/project.sqlite and is portable with the project.
+generator client {
+  provider = "prisma-client"
+  output   = "../server/generated/project-prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+enum StoryThreadStatus {
+  active
+  draft
+  paused
+  done
+  archived
+}
+
+enum StorySceneStatus {
+  draft
+  active
+  written
+  revised
+  archived
+}
+
+enum StoryPlotKind {
+  setup
+  action
+  conflict
+  despair
+  relief
+  reward
+  mystery
+  reveal
+  twist
+  payoff
+  result
+}
+
+enum StoryRefTargetKind {
+  content
+  thread
+  scene
+  plot
+}
+
+enum StoryRefVisibility {
+  author
+  reader
+}
+
+model ProjectMetadata {
+  key       String   @id
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+model DatabaseLock {
+  key       Int      @id
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+model Story {
+  id        Int           @id @default(autoincrement())
+  title     String
+  summary   String        @default("")
+  note      String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @default(now()) @updatedAt
+  phases    StoryPhase[]
+  threads   StoryThread[]
+  scenes    StoryScene[]
+}
+
+model StoryPhase {
+  id        Int           @id @default(autoincrement())
+  storyId   Int
+  sortOrder Int
+  name      String
+  title     String
+  summary   String        @default("")
+  note      String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @default(now()) @updatedAt
+  story     Story         @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  threads   StoryThread[]
+
+  @@unique([storyId, name])
+  @@index([storyId, sortOrder])
+}
+
+model StoryThread {
+  id                Int               @id @default(autoincrement())
+  storyId           Int
+  storyPhaseId      Int?
+  sortOrder         Int
+  name              String
+  title             String
+  isMainThread      Boolean           @default(false)
+  status            StoryThreadStatus @default(draft)
+  summary           String            @default("")
+  tags              String            @default("[]")
+  writingTip        String?
+  note              String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @default(now()) @updatedAt
+  story             Story             @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  storyPhase        StoryPhase?       @relation(fields: [storyPhaseId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  scenes            StoryScene[]
+  incomingSceneRefs StorySceneRef[]   @relation("StorySceneRefTargetThread")
+
+  @@unique([storyId, name])
+  @@index([storyId, storyPhaseId, sortOrder])
+  @@index([storyId, isMainThread, status])
+}
+
+model StoryScene {
+  id                 Int               @id @default(autoincrement())
+  storyId            Int
+  threadId           Int
+  chapterPath        String?
+  threadSortOrder    Int
+  chapterSortOrder   Int?
+  title              String
+  status             StorySceneStatus  @default(draft)
+  summary            String            @default("")
+  purpose            String?
+  writingTip         String?
+  note               String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @default(now()) @updatedAt
+  story              Story             @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  thread             StoryThread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  plots              StoryPlot[]
+  refs               StorySceneRef[]   @relation("StorySceneRefs")
+  incomingSceneRefs  StorySceneRef[]   @relation("StorySceneRefTargetScene")
+
+  @@unique([threadId, threadSortOrder])
+  @@index([threadId, threadSortOrder])
+  @@index([chapterPath, chapterSortOrder])
+  @@index([storyId, status])
+}
+
+model StoryPlot {
+  id                 Int               @id @default(autoincrement())
+  sceneId            Int
+  sortOrder          Int
+  kind               StoryPlotKind
+  summary            String            @default("")
+  effect             String?
+  writingTip         String?
+  note               String?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @default(now()) @updatedAt
+  scene              StoryScene        @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  incomingSceneRefs  StorySceneRef[]   @relation("StorySceneRefTargetPlot")
+
+  @@unique([sceneId, sortOrder])
+  @@index([sceneId, sortOrder])
+}
+
+model StorySceneRef {
+  id                   Int                @id @default(autoincrement())
+  sceneId              Int
+  sortOrder            Int
+  relation             String
+  rawTarget            String
+  targetKind           StoryRefTargetKind
+  targetThreadId       Int?
+  targetSceneId        Int?
+  targetPlotId         Int?
+  visibility           StoryRefVisibility @default(author)
+  note                 String?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @default(now()) @updatedAt
+  scene                StoryScene         @relation("StorySceneRefs", fields: [sceneId], references: [id], onDelete: Cascade)
+  targetThread         StoryThread?       @relation("StorySceneRefTargetThread", fields: [targetThreadId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  targetScene          StoryScene?        @relation("StorySceneRefTargetScene", fields: [targetSceneId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  targetPlot           StoryPlot?         @relation("StorySceneRefTargetPlot", fields: [targetPlotId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([sceneId, sortOrder])
+  @@index([targetThreadId])
+  @@index([targetSceneId])
+  @@index([targetPlotId])
+}
