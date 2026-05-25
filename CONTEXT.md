@@ -16,6 +16,22 @@ _Avoid_: assets folder, user workspace
 一个具体内容项目的工作区，当前主要是单本小说。
 _Avoid_: workspace
 
+**Project Identity**:
+用于在 API、前端状态、Agent 运行上下文和数据库记录中指向同一个 Project Workspace 的稳定标识；删除 `Novel` 表后不再使用 numeric `novelId` 表达项目身份。
+_Avoid_: novelId, database id, workspace
+
+**Project Slug**:
+Project Workspace 在 Workspace Root 下的目录名，例如 `silver-dragon-hime`。
+_Avoid_: workspaceSlug, novel slug
+
+**Project Path**:
+Project Workspace 相对 Workspace Root 的路径，例如 `silver-dragon-hime`；需要和具体文件路径组合时才扩展为 `silver-dragon-hime/manuscript/...`。
+_Avoid_: absolute path, repo path
+
+**Project Metadata**:
+Project Workspace 内描述项目身份和类型的元数据文件，目标文件名为 `project.yaml`，小说项目使用 `kind: novel`。
+_Avoid_: Novel row, workspace.yaml
+
 **Boot Config**:
 启动和部署期配置，修改后需要重启服务才能可靠生效。
 _Avoid_: settings, runtime preference
@@ -49,6 +65,11 @@ _Avoid_: Postgres SQL tool, generic SQL tool
 - **Database Kind** is selected by **Process Environment** and requires service restart to change.
 - **Database-aware SQL Tool** depends on **Database Kind** for its behavior and user-facing description.
 - **Project Workspace** is content data; it should not own global database runtime files.
+- **Project Identity** identifies exactly one **Project Workspace**.
+- **Project Slug** is the public DTO and frontend identity for local projects.
+- **Project Path** is the Agent, file-tool, and database root identity for local projects.
+- **Project Metadata** lives inside one **Project Workspace** and records its **Project Slug** and `kind`.
+- Database rows may reference **Project Identity**, but must not be the source of truth for Project existence.
 
 ## Example dialogue
 
@@ -58,3 +79,4 @@ _Avoid_: Postgres SQL tool, generic SQL tool
 ## Flagged ambiguities
 
 - "自由选择数据库" resolved: first version means choosing **Database Kind** between SQLite and Postgres, not arbitrary Prisma-supported databases.
+- "删除 Novel 表" resolved: project existence moves to **Project Workspace** + **Project Metadata**; numeric `novelId` and `/api/novels` legacy contracts must be removed from public runtime contracts.
