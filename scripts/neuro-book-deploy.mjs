@@ -2,9 +2,9 @@
 import {spawn} from "node:child_process";
 import {randomBytes} from "node:crypto";
 import {existsSync} from "node:fs";
-import {chmod, mkdir, readFile, readdir, rename, stat, writeFile} from "node:fs/promises";
+import {chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile} from "node:fs/promises";
 import {homedir} from "node:os";
-import {dirname, relative, resolve} from "node:path";
+import {delimiter, dirname, relative, resolve} from "node:path";
 import {Command} from "commander";
 import * as p from "@clack/prompts";
 import * as yaml from "yaml";
@@ -15,6 +15,23 @@ const DEPLOY_DIRNAME = ".deploy";
 const ENV_FILENAME = ".env";
 const CONFIG_FILENAME = "config.yaml";
 const GLOBAL_CONFIG_FILENAME = "workspace/.nbook/config.json";
+const DEPLOY_MODES = ["ghcr", "source", "native"];
+const DOCKER_DEPLOY_MODES = ["ghcr", "source"];
+const NATIVE_REQUIRED_COMMANDS = [
+    {command: "node", label: "Node.js", required: true},
+    {command: "npm", label: "npm", required: true},
+    {command: "git", label: "Git", required: true},
+    {command: "bun", label: "Bun", required: true},
+    {command: "rg", label: "ripgrep", required: true},
+];
+const NATIVE_UNIX_COMMANDS = [
+    {command: "bash", label: "bash", required: true},
+    {command: "env", label: "coreutils", required: true, args: []},
+    {command: "find", label: "findutils", required: true, args: [".", "-type", "d", "-prune"]},
+];
+const NATIVE_RECOMMENDED_COMMANDS = [
+    {command: "python3", label: "Python 3", required: false},
+];
 const PROVIDERS = {
     deepseek: {
         name: "DeepSeek",
@@ -60,19 +77,21 @@ const PROVIDERS = {
 
 const program = new Command()
     .name("neuro-book-deploy")
-    .description("Interactive Docker Compose deployment for neuro-book.")
+    .description("Interactive deployment for neuro-book.")
     .option("--repo <url>", "Git repository URL.", process.env.NEURO_BOOK_REPO_URL ?? REPO_URL)
     .option("--dir <path>", "Deployment directory.", process.env.NEURO_BOOK_DEPLOY_DIR ?? resolve(homedir(), "neuro-book"))
     .option("--port <port>", "HTTP port.", process.env.NEURO_BOOK_PORT ?? "3000")
     .option("--provider <provider>", "Model provider: deepseek, doubao, qwen, siliconflow, gemini.")
     .option("--api-key <key>", "Provider API key.")
-    .option("--database <mode>", "Database mode: local or external.")
+    .option("--database <mode>", "Database mode: sqlite, local-postgres, or external-postgres.")
     .option("--database-url <url>", "External PostgreSQL DATABASE_URL.")
-    .option("--deploy-mode <mode>", "Deploy mode: ghcr or source.", process.env.NEURO_BOOK_DEPLOY_MODE)
+    .option("--deploy-mode <mode>", "Deploy mode: ghcr, source, or native.", process.env.NEURO_BOOK_DEPLOY_MODE)
     .option("--image <image>", "GHCR app image.", process.env.NEURO_BOOK_IMAGE ?? DEFAULT_IMAGE)
+    .option("--windows-package-manager <manager>", "Windows native dependency installer: auto, winget, or scoop.", process.env.NEURO_BOOK_WINDOWS_PACKAGE_MANAGER)
     .option("--redeploy", "Regenerate .deploy compose files while preserving existing .env, config.yaml and workspace config.", false)
     .option("--yes", "Use defaults and skip interactive prompts.", false)
-    .option("--dry-run", "Generate files but skip git and docker commands.", process.env.NEURO_BOOK_DEPLOY_DRY_RUN === "1");
+    .option("--dry-run", "Preview files and commands. Native mode still probes local commands, but does not install, build, migrate, start services or write files.", process.env.NEURO_BOOK_DEPLOY_DRY_RUN === "1")
+    .option("--internal-print-install-plans", "Print native install command mapping examples and exit.", false);
 
 program.parse();
 
@@ -94,11 +113,6 @@ function validatePort(value) {
     }
 
     return undefined;
-}
-
-/** 返回适合直接写入单引号 YAML 字符串的文本。 */
-function yamlQuote(value) {
-    return `'${String(value).replaceAll("'", "''")}'`;
 }
 
 /** 生成部署密钥，避免 URL 密码中出现需要转义的字符。 */
@@ -138,6 +152,423 @@ function run(command, args, options = {}) {
 /** 检查命令是否可用。 */
 async function needCommand(command, args = ["--version"]) {
     await run(command, args, {stdio: "ignore"});
+}
+
+/** 检查命令是否能启动；用于部署前置依赖探测。 */
+async function commandAvailable(command, args = ["--version"]) {
+    try {
+        if (process.platform === "win32") {
+            const psArgs = args.map((item) => psQuote(item)).join(", ");
+            await run("powershell.exe", [
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                `$command = Get-Command ${psQuote(command)} -ErrorAction Stop; & $command.Source ${psArgs} | Out-Null`,
+            ], {stdio: "ignore"});
+            return true;
+        }
+
+        await needCommand(command, args);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/** PowerShell 单引号字符串转义。 */
+function psQuote(value) {
+    return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+/** 运行平台 shell 命令，主要用于系统包管理器安装命令。 */
+async function runShell(commandLine, options = {}) {
+    if (process.platform === "win32") {
+        await run("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", commandLine], options);
+        return;
+    }
+
+    await run("sh", ["-lc", commandLine], options);
+}
+
+/** 在交互模式下确认；非交互模式直接返回 false。 */
+async function askConfirm({interactive, message, initialValue = true}) {
+    if (!interactive) {
+        return false;
+    }
+
+    return Boolean(unwrapPrompt(await p.confirm({
+        message,
+        initialValue,
+    })));
+}
+
+/** 返回当前平台 native 模式要检查的可执行文件。 */
+function nativeCommands() {
+    return [
+        ...NATIVE_REQUIRED_COMMANDS,
+        ...(process.platform === "win32" ? [] : NATIVE_UNIX_COMMANDS),
+        ...NATIVE_RECOMMENDED_COMMANDS,
+    ];
+}
+
+/** 把脚本安装器常见落点加入当前进程 PATH，避免安装后需要重开终端。 */
+function refreshInstallPath() {
+    const candidates = process.platform === "win32"
+        ? [
+            resolve(process.env.LOCALAPPDATA ?? "", "Programs", "Bun", "bin"),
+            resolve(process.env.ProgramFiles ?? "C:\\Program Files", "Git", "cmd"),
+        ]
+        : [
+            resolve(homedir(), ".bun", "bin"),
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+        ];
+    const current = process.env.PATH ?? "";
+    const parts = current.split(delimiter).filter(Boolean);
+    for (const candidate of candidates) {
+        if (candidate && existsSync(candidate) && !parts.includes(candidate)) {
+            parts.unshift(candidate);
+        }
+    }
+    process.env.PATH = parts.join(delimiter);
+}
+
+/** 生成指定平台的安装命令建议；纯函数，便于 dry-run 和内部映射检查复用。 */
+function installPlanCandidates({platform, missingCommands, windowsPackageManager = "auto"}) {
+    if (missingCommands.length === 0) {
+        return [];
+    }
+
+    const missing = new Set(missingCommands);
+    if (platform === "win32") {
+        const wingetPackages = [
+            missing.has("node") || missing.has("npm") ? "OpenJS.NodeJS" : null,
+            missing.has("git") ? "Git.Git" : null,
+            missing.has("rg") ? "BurntSushi.ripgrep.MSVC" : null,
+            missing.has("bun") ? "Oven-sh.Bun" : null,
+            missing.has("python3") ? "Python.Python.3.13" : null,
+        ].filter(Boolean);
+        const scoopPackages = [
+            missing.has("node") || missing.has("npm") ? "nodejs-lts" : null,
+            missing.has("git") ? "git" : null,
+            missing.has("rg") ? "ripgrep" : null,
+            missing.has("bun") ? "bun" : null,
+            missing.has("python3") ? "python" : null,
+        ].filter(Boolean);
+        if (wingetPackages.length === 0 && scoopPackages.length === 0) {
+            return [];
+        }
+
+        const plans = [];
+        if (windowsPackageManager === "auto" || windowsPackageManager === "winget") {
+            plans.push({
+                manager: "winget",
+                probeCommand: "winget",
+                commandLine: wingetPackages.map((name) => `winget install --id ${name} --exact --source winget`).join("; "),
+            });
+        }
+        if (windowsPackageManager === "auto" || windowsPackageManager === "scoop") {
+            plans.push({
+                manager: "scoop",
+                probeCommand: "scoop",
+                commandLine: `scoop install ${scoopPackages.join(" ")}`,
+            });
+        }
+        return plans.filter((plan) => plan.commandLine.trim().length > 0);
+    }
+
+    if (platform === "darwin") {
+        const packages = [
+            missing.has("node") || missing.has("npm") ? "node" : null,
+            missing.has("git") ? "git" : null,
+            missing.has("rg") ? "ripgrep" : null,
+            missing.has("bun") ? "oven-sh/bun/bun" : null,
+            missing.has("python3") ? "python" : null,
+            missing.has("bash") ? "bash" : null,
+            missing.has("env") ? "coreutils" : null,
+            missing.has("find") ? "findutils" : null,
+        ].filter(Boolean);
+        if (packages.length === 0) {
+            return [];
+        }
+
+        return [{
+            manager: "brew",
+            probeCommand: "brew",
+            commandLine: `brew install ${packages.join(" ")}`,
+        }];
+    }
+
+    const bunInstall = "curl -fsSL https://bun.sh/install | bash";
+    const linuxPackages = (packageNames) => Array.from(new Set([
+        missing.has("node") || missing.has("npm") ? packageNames.node : null,
+        missing.has("npm") ? packageNames.npm : null,
+        missing.has("git") ? packageNames.git : null,
+        missing.has("rg") ? packageNames.rg : null,
+        missing.has("bash") ? packageNames.bash : null,
+        missing.has("env") ? packageNames.coreutils : null,
+        missing.has("find") ? packageNames.coreutils : null,
+        missing.has("find") ? packageNames.findutils : null,
+        missing.has("python3") ? packageNames.python3 : null,
+        missing.has("bun") ? packageNames.curl : null,
+        missing.has("bun") ? packageNames.unzip : null,
+        missing.has("bun") ? packageNames.caCertificates : null,
+    ].filter(Boolean)));
+    const linuxInstall = ({prefix = "", installCommand, packageNames}) => {
+        const packages = linuxPackages(packageNames);
+        const packageCommand = packages.length > 0 ? `${prefix}${installCommand} ${packages.join(" ")}` : "";
+        if (!missing.has("bun")) {
+            return packageCommand;
+        }
+        return packageCommand ? `${packageCommand} && ${bunInstall}` : bunInstall;
+    };
+
+    return [
+        {
+            manager: "apt-get",
+            probeCommand: "apt-get",
+            commandLine: linuxInstall({
+                prefix: "sudo apt-get update && ",
+                installCommand: "sudo apt-get install -y",
+                packageNames: {node: "nodejs", npm: "npm", git: "git", rg: "ripgrep", bash: "bash", coreutils: "coreutils", findutils: "findutils", python3: "python3", curl: "curl", unzip: "unzip", caCertificates: "ca-certificates"},
+            }),
+        },
+        {
+            manager: "dnf",
+            probeCommand: "dnf",
+            commandLine: linuxInstall({
+                installCommand: "sudo dnf install -y",
+                packageNames: {node: "nodejs", npm: "npm", git: "git", rg: "ripgrep", bash: "bash", coreutils: "coreutils", findutils: "findutils", python3: "python3", curl: "curl", unzip: "unzip", caCertificates: "ca-certificates"},
+            }),
+        },
+        {
+            manager: "yum",
+            probeCommand: "yum",
+            commandLine: linuxInstall({
+                installCommand: "sudo yum install -y",
+                packageNames: {node: "nodejs", npm: "npm", git: "git", rg: "ripgrep", bash: "bash", coreutils: "coreutils", findutils: "findutils", python3: "python3", curl: "curl", unzip: "unzip", caCertificates: "ca-certificates"},
+            }),
+        },
+        {
+            manager: "pacman",
+            probeCommand: "pacman",
+            commandLine: linuxInstall({
+                installCommand: "sudo pacman -Sy --needed",
+                packageNames: {node: "nodejs", npm: "npm", git: "git", rg: "ripgrep", bash: "bash", coreutils: "coreutils", findutils: "findutils", python3: "python", curl: "curl", unzip: "unzip", caCertificates: "ca-certificates"},
+            }),
+        },
+        {
+            manager: "zypper",
+            probeCommand: "zypper",
+            commandLine: linuxInstall({
+                installCommand: "sudo zypper install -y",
+                packageNames: {node: "nodejs", npm: "npm", git: "git", rg: "ripgrep", bash: "bash", coreutils: "coreutils", findutils: "findutils", python3: "python3", curl: "curl", unzip: "unzip", caCertificates: "ca-certificates"},
+            }),
+        },
+        {
+            manager: "apk",
+            probeCommand: "apk",
+            commandLine: linuxInstall({
+                installCommand: "sudo apk add",
+                packageNames: {node: "nodejs", npm: "npm", git: "git", rg: "ripgrep", bash: "bash", coreutils: "coreutils", findutils: "findutils", python3: "python3", curl: "curl", unzip: "unzip", caCertificates: "ca-certificates"},
+            }),
+        },
+    ];
+}
+
+/** 打印固定平台/缺失工具样例，用于人工核对安装命令映射。 */
+function printInternalInstallPlans() {
+    const cases = [
+        {name: "windows auto git rg bun", platform: "win32", windowsPackageManager: "auto", missingCommands: ["git", "rg", "bun"]},
+        {name: "windows winget git rg bun", platform: "win32", windowsPackageManager: "winget", missingCommands: ["git", "rg", "bun"]},
+        {name: "windows scoop git rg bun", platform: "win32", windowsPackageManager: "scoop", missingCommands: ["git", "rg", "bun"]},
+        {name: "macos git rg bun", platform: "darwin", missingCommands: ["git", "rg", "bun"]},
+        {name: "linux rg only", platform: "linux", missingCommands: ["rg"]},
+        {name: "linux bun", platform: "linux", missingCommands: ["bun"]},
+        {name: "linux python3", platform: "linux", missingCommands: ["python3"]},
+        {name: "linux coreutils/findutils", platform: "linux", missingCommands: ["env", "find"]},
+    ];
+
+    for (const item of cases) {
+        p.log.info(`[${item.name}]`);
+        const plans = installPlanCandidates({
+            platform: item.platform,
+            missingCommands: item.missingCommands,
+            windowsPackageManager: item.windowsPackageManager ?? "auto",
+        });
+        for (const plan of plans) {
+            p.log.info(`${plan.manager}: ${plan.commandLine}`);
+        }
+    }
+}
+
+/** 给用户展示缺失工具和安装建议。 */
+function formatMissingCommandHelp(missing, plan) {
+    const missingText = missing.map((item) => `${item.label} (${item.command})`).join(", ");
+    const installText = plan
+        ? `可尝试安装命令：\n${plan.commandLine}`
+        : "当前平台没有可自动执行的安装命令。请手动安装缺失工具后重试。";
+
+    return `缺少 native 部署所需工具：${missingText}\n${installText}`;
+}
+
+/** 检查 native 宿主机依赖，并按用户确认执行安装命令。 */
+async function ensureNativeCommands(config) {
+    if (config.deployMode !== "native") {
+        return;
+    }
+
+    const missing = [];
+    for (const command of nativeCommands()) {
+        const available = await commandAvailable(command.command, command.args ?? ["--version"]);
+        if (!available) {
+            missing.push(command);
+        }
+    }
+
+    if (missing.length === 0) {
+        return;
+    }
+
+    const missingRequired = missing.filter((item) => item.required);
+
+    const plans = installPlanCandidates({
+        platform: process.platform,
+        missingCommands: missing.map((item) => item.command),
+        windowsPackageManager: config.windowsPackageManager,
+    });
+    let plan = null;
+    for (const candidate of plans) {
+        if (await commandAvailable(candidate.probeCommand)) {
+            plan = candidate;
+            break;
+        }
+    }
+
+    if (!plan && missingRequired.length > 0) {
+        throw new Error(formatMissingCommandHelp(missing, plan));
+    }
+    if (!plan) {
+        p.log.warn(formatMissingCommandHelp(missing, plan));
+        return;
+    }
+
+    p.log.warn(formatMissingCommandHelp(missing, plan));
+    if (config.dryRun) {
+        p.log.info(`Dry run command: ${plan.commandLine}`);
+        return;
+    }
+
+    const shouldInstall = await askConfirm({
+        interactive: config.interactive,
+        message: `是否现在使用 ${plan.manager} 安装缺失工具？`,
+        initialValue: true,
+    });
+
+    if (!shouldInstall) {
+        if (missingRequired.length > 0) {
+            throw new Error("native 部署缺少必要工具，已按用户选择停止。");
+        }
+        p.log.warn("native 部署建议工具未安装，继续执行。");
+        return;
+    }
+
+    await runShell(plan.commandLine);
+    refreshInstallPath();
+
+    const stillMissing = [];
+    for (const command of nativeCommands()) {
+        const available = await commandAvailable(command.command);
+        if (!available) {
+            stillMissing.push(command);
+        }
+    }
+
+    const stillMissingRequired = stillMissing.filter((item) => item.required);
+    if (stillMissingRequired.length > 0) {
+        throw new Error(formatMissingCommandHelp(stillMissingRequired, plan));
+    }
+
+    if (stillMissing.length > 0) {
+        p.log.warn(formatMissingCommandHelp(stillMissing, plan));
+    }
+}
+
+/** 按平台返回 .env 加载方式说明。 */
+function nativeStartHelp(command) {
+    if (process.platform === "win32") {
+        return [
+            "Get-Content .env | ForEach-Object {",
+            "    if ($_ -match '^[^#][^=]+=') {",
+            "        $name, $value = $_ -split '=', 2",
+            "        Set-Item -Path \"Env:$name\" -Value $value",
+            "    }",
+            "}",
+            command,
+        ].join("\n");
+    }
+
+    return `set -a && . ./.env && set +a && ${command}`;
+}
+
+/** 返回 native 启动脚本文件名。 */
+function nativeStartScriptName() {
+    return process.platform === "win32" ? "start-native.ps1" : "start-native.sh";
+}
+
+/** 返回 native 管理员创建脚本文件名。 */
+function nativeAdminScriptName() {
+    return process.platform === "win32" ? "create-admin-native.ps1" : "create-admin-native.sh";
+}
+
+/** 生成 native 启动脚本。 */
+function renderNativeScript(command) {
+    if (process.platform === "win32") {
+        return [
+            "$ErrorActionPreference = \"Stop\"",
+            "Set-Location (Split-Path -Parent $PSScriptRoot)",
+            "Get-Content .env | ForEach-Object {",
+            "    if ($_ -match '^[^#][^=]+=') {",
+            "        $name, $value = $_ -split '=', 2",
+            "        Set-Item -Path \"Env:$name\" -Value $value",
+            "    }",
+            "}",
+            command,
+            "",
+        ].join("\n");
+    }
+
+    return [
+        "#!/usr/bin/env sh",
+        "set -eu",
+        "cd \"$(dirname \"$0\")/..\"",
+        "set -a",
+        ". ./.env",
+        "set +a",
+        command,
+        "",
+    ].join("\n");
+}
+
+/** 格式化即将执行的命令，供 dry-run 展示。 */
+function commandText(command, args = [], options = {}) {
+    const prefix = options.cwd ? `(cd ${options.cwd}) ` : "";
+    return `${prefix}${[command, ...args].map(shellArg).join(" ")}`;
+}
+
+/** 简单 shell 参数展示转义，仅用于说明文本。 */
+function shellArg(value) {
+    const text = String(value);
+    if (/^[a-zA-Z0-9_./:=@+-]+$/.test(text)) {
+        return text;
+    }
+    return `"${text.replaceAll("\"", "\\\"")}"`;
+}
+
+/** dry-run 展示命令。 */
+function dryRunCommand(command, args = [], options = {}) {
+    p.log.info(`Dry run command: ${commandText(command, args, options)}`);
 }
 
 /** 查询路径是否存在，并返回 stat 信息。 */
@@ -188,21 +619,6 @@ async function askSelect({interactive, value, message, options, initialValue}) {
     })));
 }
 
-/** 在交互模式下询问密钥；非交互模式允许留空后续配置。 */
-async function askPassword({interactive, value, message}) {
-    if (value !== undefined && value !== null) {
-        return String(value);
-    }
-
-    if (!interactive) {
-        return "";
-    }
-
-    return String(unwrapPrompt(await p.password({
-        message,
-    })));
-}
-
 /** 从已有 generated compose 推断部署模式，支持旧 source override。 */
 async function inferDeployMode(deployDir) {
     const generatedComposePath = resolve(deployDir, DEPLOY_DIRNAME, "docker-compose.generated.yml");
@@ -238,52 +654,18 @@ async function readConfig(options) {
         initialValue: "3000",
         validate: validatePort,
     });
-    const provider = await askSelect({
-        interactive,
-        value: options.provider,
-        message: "模型 Provider",
-        initialValue: "deepseek",
-        options: [
-            {value: "deepseek", label: "DeepSeek"},
-            {value: "doubao", label: "Doubao"},
-            {value: "qwen", label: "Qwen"},
-            {value: "siliconflow", label: "SiliconFlow"},
-            {value: "gemini", label: "Gemini"},
-        ],
-    });
+    const provider = options.provider !== undefined && options.provider !== null
+        ? String(options.provider).toLowerCase()
+        : null;
 
-    if (!PROVIDERS[provider]) {
+    if (provider && !PROVIDERS[provider]) {
         throw new Error(`不支持的 Provider：${provider}`);
     }
 
-    const apiKey = await askPassword({
-        interactive,
-        value: options.apiKey,
-        message: "Provider API Key（可留空，稍后在设置页或 workspace/.nbook/config.json 配置）",
-    });
-    const databaseMode = await askSelect({
-        interactive,
-        value: options.database,
-        message: "数据库模式",
-        initialValue: "local",
-        options: [
-            {value: "local", label: "内置 Postgres"},
-            {value: "external", label: "外部 Postgres"},
-        ],
-    });
-
-    if (databaseMode !== "local" && databaseMode !== "external") {
-        throw new Error(`数据库模式必须是 local 或 external：${databaseMode}`);
+    const apiKey = options.apiKey !== undefined && options.apiKey !== null ? String(options.apiKey) : "";
+    if (apiKey && !provider) {
+        throw new Error("使用 --api-key 时必须同时传入 --provider。部署交互不会主动询问 Provider，可部署后在前端设置页配置。");
     }
-
-    const databaseUrl = databaseMode === "external"
-        ? await askText({
-            interactive,
-            value: options.databaseUrl,
-            message: "外部 DATABASE_URL",
-            initialValue: "postgresql://user:password@host:5432/neuro_book",
-        })
-        : "";
     const inferredDeployMode = options.redeploy && !options.deployMode
         ? await inferDeployMode(deployDir)
         : null;
@@ -295,12 +677,64 @@ async function readConfig(options) {
         options: [
             {value: "ghcr", label: "使用 GHCR 预构建镜像", hint: "默认推荐"},
             {value: "source", label: "挂载宿主机源码", hint: "宿主机自行 install/build"},
+            {value: "native", label: "免 Docker 原生运行", hint: "宿主机 build 后用 node 启动"},
         ],
     }));
 
-    if (deployMode !== "ghcr" && deployMode !== "source") {
-        throw new Error(`部署模式必须是 ghcr 或 source：${deployMode}`);
+    if (!DEPLOY_MODES.includes(deployMode)) {
+        throw new Error(`部署模式必须是 ghcr、source 或 native：${deployMode}`);
     }
+    const windowsPackageManager = process.platform === "win32" && deployMode === "native"
+        ? await askSelect({
+            interactive,
+            value: options.windowsPackageManager,
+            message: "Windows 包管理器",
+            initialValue: "auto",
+            options: [
+                {value: "auto", label: "自动选择", hint: "优先 winget，其次 scoop"},
+                {value: "winget", label: "winget", hint: "Windows 官方入口"},
+                {value: "scoop", label: "Scoop", hint: "开发者工具链常用"},
+            ],
+        })
+        : "auto";
+    if (!["auto", "winget", "scoop"].includes(windowsPackageManager)) {
+        throw new Error(`Windows 包管理器必须是 auto、winget 或 scoop：${windowsPackageManager}`);
+    }
+
+    const databaseOptions = deployMode === "native"
+        ? [
+            {value: "sqlite", label: "SQLite 文件库", hint: "默认推荐"},
+            {value: "external-postgres", label: "外部 Postgres"},
+        ]
+        : [
+            {value: "sqlite", label: "SQLite 文件库", hint: "默认推荐"},
+            {value: "local-postgres", label: "内置 Postgres"},
+            {value: "external-postgres", label: "外部 Postgres"},
+        ];
+    const databaseMode = await askSelect({
+        interactive,
+        value: options.database,
+        message: "数据库模式",
+        initialValue: "sqlite",
+        options: databaseOptions,
+    });
+
+    if (!["sqlite", "local-postgres", "external-postgres", "local", "external"].includes(databaseMode)) {
+        throw new Error(`数据库模式必须是 sqlite、local-postgres 或 external-postgres：${databaseMode}`);
+    }
+    const normalizedDatabaseMode = normalizeDatabaseMode(databaseMode);
+    if (deployMode === "native" && normalizedDatabaseMode === "local-postgres") {
+        throw new Error("native 免 Docker 模式不支持 local-postgres。请使用默认 sqlite，或选择 external-postgres 并提供 DATABASE_URL。");
+    }
+
+    const databaseUrl = normalizedDatabaseMode === "external-postgres"
+        ? await askText({
+            interactive,
+            value: options.databaseUrl,
+            message: "外部 DATABASE_URL",
+            initialValue: "postgresql://user:password@host:5432/neuro_book",
+        })
+        : "";
 
     const image = deployMode === "ghcr"
         ? await askText({
@@ -313,22 +747,27 @@ async function readConfig(options) {
 
     return {
         apiKey,
-        databaseMode,
+        databaseMode: normalizedDatabaseMode,
         databaseUrl,
         deployDir,
         deployMode,
         dryRun: Boolean(options.dryRun),
         image,
+        interactive,
         port,
         provider,
         redeploy: Boolean(options.redeploy),
         repo: options.repo,
+        windowsPackageManager,
     };
 }
 
 /** 生成 Docker Compose 使用的环境变量文件。 */
 function renderEnv(config, postgresPassword, sessionPassword) {
-    const databaseUrl = config.databaseMode === "local"
+    const databaseKind = config.databaseMode === "sqlite" ? "sqlite" : "postgres";
+    const databaseUrl = config.databaseMode === "sqlite"
+        ? "file:./workspace/.nbook/neuro-book.sqlite"
+        : config.databaseMode === "local-postgres"
         ? `postgresql://neuro_book:${postgresPassword}@postgres:5432/neuro_book`
         : config.databaseUrl;
 
@@ -336,10 +775,14 @@ function renderEnv(config, postgresPassword, sessionPassword) {
         `NUXT_PORT=${config.port}`,
         `NUXT_SESSION_PASSWORD=${sessionPassword}`,
         "",
-        "POSTGRES_USER=neuro_book",
-        `POSTGRES_PASSWORD=${postgresPassword}`,
-        "POSTGRES_DB=neuro_book",
+        `DATABASE_KIND=${databaseKind}`,
         `DATABASE_URL=${databaseUrl}`,
+        ...(config.databaseMode === "local-postgres" ? [
+            "",
+            "POSTGRES_USER=neuro_book",
+            `POSTGRES_PASSWORD=${postgresPassword}`,
+            "POSTGRES_DB=neuro_book",
+        ] : []),
         "",
     ].join("\n");
 }
@@ -353,18 +796,25 @@ server:
   host: '0.0.0.0'
   port: ${config.port}
 database:
-  url: ${yamlQuote(env.DATABASE_URL ?? "")}
+  kind: \${DATABASE_KIND:-sqlite}
+  url: \${DATABASE_URL:-file:./workspace/.nbook/neuro-book.sqlite}
 `;
 }
 
 /** 生成 Workspace Root `.nbook/config.json` 业务配置。 */
 function renderGlobalConfig(config, legacyText = null) {
-    const provider = PROVIDERS[config.provider];
-    const modelKey = `${config.provider}/${provider.modelId}`;
     const legacy = legacyText ? parseLegacyGlobalConfig(legacyText) : null;
-    const providers = legacy?.models?.providers?.length
+    const selectedProvider = config.provider ? createSelectedProvider(config) : null;
+    const modelKey = selectedProvider
+        ? `${selectedProvider.id}/${selectedProvider.models[0]?.id ?? ""}`
+        : null;
+    const providers = legacy?.models?.providers?.length && config.provider
         ? ensureSelectedProvider(legacy.models.providers, config)
-        : [createSelectedProvider(config)];
+        : legacy?.models?.providers?.length
+        ? legacy.models.providers
+        : selectedProvider
+        ? [selectedProvider]
+        : [];
 
     return `${JSON.stringify({
         auth: {
@@ -459,6 +909,10 @@ function parseLegacyGlobalConfig(text) {
 
 /** 生成部署 override，避免把本地私有部署文件写进仓库根配置。 */
 function renderGeneratedCompose(config) {
+    if (config.deployMode === "native") {
+        return "";
+    }
+
     if (config.deployMode === "ghcr") {
         return `services:
     app:
@@ -516,8 +970,15 @@ function displayPath(config, path) {
 
 /** 生成管理员创建命令提示。 */
 function adminCommand(config) {
+    if (config.deployMode === "native") {
+        return nativeStartHelp("bun run auth:create-admin");
+    }
+
     const files = ["-f", "docker-compose.yml"];
-    if (config.databaseMode === "external") {
+    if (config.databaseMode === "local-postgres") {
+        files.push("-f", "docker-compose.postgres.yml");
+    }
+    if (config.databaseMode === "external-postgres") {
         files.push("-f", "docker-compose.external-db.yml");
     }
     files.push("-f", `${DEPLOY_DIRNAME}/docker-compose.generated.yml`);
@@ -527,8 +988,15 @@ function adminCommand(config) {
 
 /** 生成容器启动命令提示。 */
 function upCommand(config) {
+    if (config.deployMode === "native") {
+        return nativeStartHelp("node .output/server/index.mjs");
+    }
+
     const files = ["-f", "docker-compose.yml"];
-    if (config.databaseMode === "external") {
+    if (config.databaseMode === "local-postgres") {
+        files.push("-f", "docker-compose.postgres.yml");
+    }
+    if (config.databaseMode === "external-postgres") {
         files.push("-f", "docker-compose.external-db.yml");
     }
     files.push("-f", `${DEPLOY_DIRNAME}/docker-compose.generated.yml`);
@@ -552,6 +1020,22 @@ function sourceUpdateCommands(config) {
     ];
 }
 
+/** 生成 native 模式更新命令提示。 */
+function nativeUpdateCommands() {
+    return [
+        "git pull --ff-only",
+        "bun install --frozen-lockfile",
+        "set -a",
+        ". ./.env",
+        "set +a",
+        "bun run nuxt:prepare",
+        "bun run generate",
+        "bun run nuxt:build",
+        "bun run migrate:deploy",
+        "node .output/server/index.mjs",
+    ];
+}
+
 /** 生成镜像模式更新命令提示。 */
 function ghcrUpdateCommands(config) {
     return [
@@ -562,41 +1046,72 @@ function ghcrUpdateCommands(config) {
 
 /** 生成模式说明。 */
 function deployNotes(config) {
+    const databaseNote = config.databaseMode === "sqlite"
+        ? "数据库：SQLite 文件库，默认数据文件为 workspace/.nbook/neuro-book.sqlite。不会自动导入旧 Postgres 数据。"
+        : config.databaseMode === "local-postgres"
+            ? "数据库：内置 Postgres。Postgres 数据保存在 Docker volume 中。"
+            : "数据库：外部 Postgres。请确保 DATABASE_URL 指向可访问的数据库。";
+
     if (config.deployMode === "source") {
-        return `source 模式使用宿主机源码挂载到容器 /app。宿主机需要安装 Bun，并在启动前完成：
+        return `${databaseNote}
+
+source 模式使用宿主机源码挂载到容器 /app。宿主机需要安装 Bun，并在启动前完成：
 ${sourceUpdateCommands(config).map((line) => `- ${line}`).join("\n")}`;
     }
 
-    return `ghcr 模式使用预构建镜像 ${config.image}，容器内包含完整项目源码。更新镜像后运行：
+    if (config.deployMode === "native") {
+        return `${databaseNote}
+
+native 模式不使用 Docker，也不生成 systemd/pm2 服务。宿主机需要安装 Node.js、npm、Git、Bun、ripgrep，并在启动前完成：
+${nativeUpdateCommands().map((line) => `- ${line}`).join("\n")}
+
+Windows PowerShell 启动前请按 .env 内容设置当前进程环境变量，然后运行：
+- node .output/server/index.mjs`;
+    }
+
+    return `${databaseNote}
+
+ghcr 模式使用预构建镜像 ${config.image}，容器内包含完整项目源码。更新镜像后运行：
 ${ghcrUpdateCommands(config).map((line) => `- ${line}`).join("\n")}`;
 }
 
 /** 生成部署私有说明文件。 */
 function renderDeployReadme(config) {
+    const composeLine = config.deployMode === "native"
+        ? "- Compose override: not used in native mode"
+        : `- Compose override: ${DEPLOY_DIRNAME}/docker-compose.generated.yml`;
+    const commandLanguage = config.deployMode === "native" && process.platform === "win32" ? "powershell" : "bash";
+    const nativeScriptLine = config.deployMode === "native"
+        ? `- Native start script: ${DEPLOY_DIRNAME}/${nativeStartScriptName()}`
+        : "";
+
     return `# neuro-book deployment
 
 This directory is generated by neuro-book-deploy and should stay local.
 
 - Deploy mode: ${config.deployMode}
+- Database mode: ${config.databaseMode}
 - App URL: http://localhost:${config.port}
 - Env file: ${ENV_FILENAME}
 - Boot config: ${CONFIG_FILENAME}
 - Global config: ${GLOBAL_CONFIG_FILENAME}
-- Compose override: ${DEPLOY_DIRNAME}/docker-compose.generated.yml
+${composeLine}
+${nativeScriptLine}
 
 Start or update:
 
-\`\`\`bash
+\`\`\`${commandLanguage}
 ${upCommand(config)}
 \`\`\`
 
 Create or reset admin:
 
-\`\`\`bash
+\`\`\`${commandLanguage}
 ${adminCommand(config)}
 \`\`\`
 
 Do not pass admin passwords as command arguments. Use the interactive prompt, or set AUTH_ADMIN_PASSWORD only in a short-lived shell/secret environment.
+Provider API keys are not requested during deployment. Configure them later in the frontend settings page or ${GLOBAL_CONFIG_FILENAME}.
 
 ${deployNotes(config)}
 `;
@@ -616,6 +1131,17 @@ function normalizeDeployMode(value) {
         throw new Error("--deploy-mode build 已停用。请使用默认 ghcr，或使用 --deploy-mode source 挂载宿主机源码。");
     }
 
+    return value;
+}
+
+/** 兼容旧数据库模式命名。 */
+function normalizeDatabaseMode(value) {
+    if (value === "local") {
+        return "local-postgres";
+    }
+    if (value === "external") {
+        return "external-postgres";
+    }
     return value;
 }
 
@@ -663,7 +1189,11 @@ async function migrateLegacyPrivateFile({from, to, label}) {
 /** 拉取或更新应用仓库。 */
 async function ensureRepository(config) {
     if (config.dryRun) {
-        await mkdir(config.deployDir, {recursive: true});
+        if (!existsSync(resolve(config.deployDir, ".git"))) {
+            dryRunCommand("git", ["clone", config.repo, config.deployDir]);
+        } else {
+            dryRunCommand("git", ["-C", config.deployDir, "pull", "--ff-only"]);
+        }
         return;
     }
 
@@ -687,13 +1217,15 @@ async function ensureRepository(config) {
 
 /** 根据数据库模式启动 Docker Compose。 */
 async function runCompose(config) {
-    if (config.dryRun) {
-        p.log.info("Dry run enabled; skipped docker compose.");
+    if (!DOCKER_DEPLOY_MODES.includes(config.deployMode)) {
         return;
     }
 
     const composeFiles = ["-f", "docker-compose.yml"];
-    if (config.databaseMode === "external") {
+    if (config.databaseMode === "local-postgres") {
+        composeFiles.push("-f", "docker-compose.postgres.yml");
+    }
+    if (config.databaseMode === "external-postgres") {
         composeFiles.push("-f", "docker-compose.external-db.yml");
     }
     composeFiles.push("-f", `${DEPLOY_DIRNAME}/docker-compose.generated.yml`);
@@ -701,6 +1233,11 @@ async function runCompose(config) {
     const args = ["compose", ...composeFiles, "--env-file", ENV_FILENAME, "up", "-d"];
     if (config.deployMode === "source") {
         args.push("--build");
+    }
+
+    if (config.dryRun) {
+        dryRunCommand("docker", args, {cwd: config.deployDir});
+        return;
     }
 
     await run("docker", args, {cwd: config.deployDir});
@@ -715,6 +1252,34 @@ async function writeDeployFiles(config) {
     const legacyConfigPath = resolve(deployStateDir(config), "config.yaml");
     const generatedComposePath = resolve(deployStateDir(config), "docker-compose.generated.yml");
     const readmePath = resolve(deployStateDir(config), "README.md");
+    const nativeStartScriptPath = resolve(deployStateDir(config), nativeStartScriptName());
+    const nativeAdminScriptPath = resolve(deployStateDir(config), nativeAdminScriptName());
+
+    if (config.dryRun) {
+        const envText = existsSync(envPath)
+            ? await readFile(envPath, "utf-8")
+            : renderEnv(config, "<generated-postgres-password>", "<generated-session-password>");
+        const legacyConfigText = existsSync(legacyConfigPath) ? await readFile(legacyConfigPath, "utf-8") : null;
+        p.log.info(`Dry run file: ${envPath}`);
+        p.log.info(`Dry run file: ${configPath}`);
+        p.log.info(`Dry run file: ${globalConfigPath}`);
+        if (config.deployMode === "native") {
+            if (existsSync(generatedComposePath)) {
+                p.log.info(`Dry run cleanup: remove stale ${generatedComposePath}`);
+            }
+            p.log.info(`Dry run file: ${nativeStartScriptPath}`);
+            p.log.info(`Dry run file: ${nativeAdminScriptPath}`);
+        } else {
+            p.log.info(`Dry run file: ${generatedComposePath}`);
+            p.log.info(`Dry run cleanup: remove stale ${nativeStartScriptPath}`);
+            p.log.info(`Dry run cleanup: remove stale ${nativeAdminScriptPath}`);
+        }
+        p.log.info(`Dry run file: ${readmePath}`);
+        if (legacyConfigText) {
+            p.log.info(`Dry run migration source: ${legacyConfigPath}`);
+        }
+        return parseEnv(envText);
+    }
 
     await migrateLegacyPrivateFile({from: legacyEnvPath, to: envPath, label: ENV_FILENAME});
 
@@ -748,9 +1313,26 @@ async function writeDeployFiles(config) {
         p.log.warn(`检测到旧 Provider 配置 ${legacyConfigPath}，已用于初始化 ${GLOBAL_CONFIG_FILENAME}。确认无误后可手动删除旧文件。`);
     }
 
-    await writeFile(generatedComposePath, renderGeneratedCompose(config), "utf-8");
+    if (config.deployMode === "native") {
+        if (existsSync(generatedComposePath)) {
+            await rm(generatedComposePath, {force: true});
+            p.log.info(`Removed stale ${generatedComposePath}; native mode does not use Docker Compose.`);
+        }
+        await writeFile(nativeStartScriptPath, renderNativeScript("node .output/server/index.mjs"), "utf-8");
+        await writeFile(nativeAdminScriptPath, renderNativeScript("bun run auth:create-admin"), "utf-8");
+        if (process.platform !== "win32") {
+            await chmod(nativeStartScriptPath, 0o700);
+            await chmod(nativeAdminScriptPath, 0o700);
+        }
+        p.log.success(`Wrote ${nativeStartScriptPath}`);
+        p.log.success(`Wrote ${nativeAdminScriptPath}`);
+    } else {
+        await writeFile(generatedComposePath, renderGeneratedCompose(config), "utf-8");
+        p.log.success(`Wrote ${generatedComposePath}`);
+        await rm(nativeStartScriptPath, {force: true});
+        await rm(nativeAdminScriptPath, {force: true});
+    }
     await writeFile(readmePath, renderDeployReadme(config), "utf-8");
-    p.log.success(`Wrote ${generatedComposePath}`);
 
     return parseEnv(envText);
 }
@@ -762,41 +1344,107 @@ async function buildSource(config, env) {
     }
 
     if (config.dryRun) {
-        p.log.info("Dry run enabled; skipped source build steps.");
+        for (const command of sourceBuildCommands()) {
+            dryRunCommand(command.command, command.args, {cwd: config.deployDir});
+        }
         return;
     }
 
     p.log.info("Preparing source deployment on host.");
-    await run("bun", ["install", "--frozen-lockfile"], {cwd: config.deployDir, env});
-    await run("bun", ["run", "nuxt:prepare"], {cwd: config.deployDir, env});
-    await run("bun", ["run", "generate"], {cwd: config.deployDir, env});
-    await run("bun", ["run", "nuxt:build"], {cwd: config.deployDir, env});
+    for (const command of sourceBuildCommands()) {
+        await run(command.command, command.args, {cwd: config.deployDir, env});
+    }
+}
+
+/** native 模式在宿主机完成依赖安装、构建和部署迁移。 */
+async function buildNative(config, env) {
+    if (config.deployMode !== "native") {
+        return;
+    }
+
+    if (config.dryRun) {
+        for (const command of nativeBuildCommands()) {
+            dryRunCommand(command.command, command.args, {cwd: config.deployDir});
+        }
+        return;
+    }
+
+    p.log.info("Preparing native deployment on host.");
+    for (const command of nativeBuildCommands()) {
+        await run(command.command, command.args, {cwd: config.deployDir, env});
+    }
+}
+
+/** source 模式需要在宿主机执行的 build 命令。 */
+function sourceBuildCommands() {
+    return [
+        {command: "bun", args: ["install", "--frozen-lockfile"]},
+        {command: "bun", args: ["run", "nuxt:prepare"]},
+        {command: "bun", args: ["run", "generate"]},
+        {command: "bun", args: ["run", "nuxt:build"]},
+    ];
+}
+
+/** native 模式需要在宿主机执行的 build / migrate 命令。 */
+function nativeBuildCommands() {
+    return [
+        ...sourceBuildCommands(),
+        {command: "bun", args: ["run", "migrate:deploy"]},
+    ];
+}
+
+/** native 模式不接管进程管理，只输出下一步启动命令。 */
+function printNativeNextSteps(config) {
+    if (config.deployMode !== "native") {
+        return;
+    }
+
+    p.note(`启动服务：
+${DEPLOY_DIRNAME}/${nativeStartScriptName()}
+
+创建或重置管理员：
+${DEPLOY_DIRNAME}/${nativeAdminScriptName()}
+
+手动启动命令：
+${nativeStartHelp("node .output/server/index.mjs")}`, "native 启动命令");
 }
 
 /** CLI 主流程。 */
 async function main() {
     const options = program.opts();
-    p.intro("neuro-book Docker Compose deployment");
+    if (options.internalPrintInstallPlans) {
+        printInternalInstallPlans();
+        return;
+    }
+
+    p.intro("neuro-book deployment");
     const config = await readConfig(options);
 
     if (!config.dryRun) {
-        await needCommand("git");
-        await needCommand("docker");
-        await needCommand("docker", ["compose", "version"]);
-        if (config.deployMode === "source") {
-            await needCommand("bun");
+        if (DOCKER_DEPLOY_MODES.includes(config.deployMode)) {
+            await needCommand("git");
+            await needCommand("docker");
+            await needCommand("docker", ["compose", "version"]);
+            if (config.deployMode === "source") {
+                await needCommand("bun");
+            }
         }
     }
+    await ensureNativeCommands(config);
 
     await ensureRepository(config);
-    await mkdir(resolve(config.deployDir, "workspace"), {recursive: true});
-    await mkdir(deployStateDir(config), {recursive: true});
+    if (!config.dryRun) {
+        await mkdir(resolve(config.deployDir, "workspace"), {recursive: true});
+        await mkdir(deployStateDir(config), {recursive: true});
+    }
 
     const hostBuildEnv = await writeDeployFiles(config);
     await warnLegacyDeployFiles(config);
 
     await buildSource(config, hostBuildEnv);
+    await buildNative(config, hostBuildEnv);
     await runCompose(config);
+    printNativeNextSteps(config);
     p.outro(`Done. Open http://localhost:${config.port}`);
 }
 

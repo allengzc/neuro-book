@@ -22,6 +22,7 @@ RUN bun install --frozen-lockfile
 FROM runtime-base AS build
 WORKDIR /app
 
+ENV DATABASE_KIND=postgres
 ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/neuro_book
 
 COPY --from=deps /app/node_modules ./node_modules

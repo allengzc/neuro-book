@@ -3,7 +3,7 @@ import {readFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import type {AgentEvent, AgentToolResult} from "@earendil-works/pi-agent-core";
 import {streamSimple, validateToolArguments} from "@earendil-works/pi-ai";
-import type {AgentMessage, AgentToolCall, AgentUserMessageInput, AssistantMessage, JsonValue, Message, Model, ToolResultMessage} from "nbook/server/agent/messages/types";
+import type {AgentMessage, AgentToolCall, AgentUserMessageInput, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
 import {createTextToolResult, createToolResultFromResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
@@ -227,6 +227,7 @@ export class NeuroAgentHarness {
             const apiKey = resolvePiApiKeyForModelFromConfig(config, model);
             const runProfile = await this.profiles.get(context.profileKey);
             const toolKeys = [...runProfile.allowedToolKeys];
+            const thinkingLevel = this.resolveThinkingLevel(context, config, model);
             const preparedModelContextMessages = prepared.modelContextMessages ?? [];
             const modelMessages = [
                 ...context.messages,
@@ -240,7 +241,7 @@ export class NeuroAgentHarness {
                 messages: modelMessages,
                 model,
                 apiKey,
-                thinkingLevel: context.thinkingLevel,
+                thinkingLevel,
                 timeoutMs: providerOptions.timeoutMs,
                 requestOptions: providerOptions.requestOptions,
                 compaction: prepared.compaction,
@@ -265,7 +266,7 @@ export class NeuroAgentHarness {
                 requestOptions: providerOptions.requestOptions,
                 toolKeys,
                 profileKey: context.profileKey,
-                thinkingLevel: context.thinkingLevel,
+                thinkingLevel,
                 abortSignal: abortController.signal,
                 invocationId,
                 onEvent: input.onEvent,
@@ -280,6 +281,7 @@ export class NeuroAgentHarness {
                 toolKeys,
                 model,
                 apiKey,
+                thinkingLevel,
                 result,
             });
             const lifecycleEntry = await this.repo.appendEntry(input.sessionId, {
@@ -326,9 +328,10 @@ export class NeuroAgentHarness {
         toolKeys: string[];
         model: Model<any>;
         apiKey?: string;
+        thinkingLevel: ThinkingLevel;
         result: Awaited<ReturnType<NeuroAgentHarness["runLoop"]>>;
     }): Promise<InvokeAgentResult> {
-        const {input: invokeInput, invocationId, snapshot, context, prepared, toolKeys, model, apiKey, result} = input;
+        const {input: invokeInput, invocationId, snapshot, context, prepared, toolKeys, model, apiKey, thinkingLevel, result} = input;
         if (result.finalAssistant?.stopReason === "error" || result.finalAssistant?.stopReason === "aborted") {
             return {
                 sessionId: invokeInput.sessionId,
@@ -371,7 +374,7 @@ export class NeuroAgentHarness {
                 requestOptions: providerOptions.requestOptions,
                 toolKeys,
                 profileKey: context.profileKey,
-                thinkingLevel: context.thinkingLevel,
+                thinkingLevel,
             });
         }
 
@@ -1420,6 +1423,23 @@ export class NeuroAgentHarness {
         };
     }
 
+    /**
+     * 合并 session 显式 thinking 设置与 profile 默认 reasoningEffort。
+     */
+    private resolveThinkingLevel(
+        context: ReturnType<JsonlSessionRepository["reduce"]>,
+        config: Pick<EffectiveConfig, "agent">,
+        model: Model<any>,
+    ): ThinkingLevel {
+        if (!model.reasoning) {
+            return "off";
+        }
+        if (context.thinkingLevel !== "off") {
+            return context.thinkingLevel;
+        }
+        return config.agent.profiles[context.profileKey]?.model.reasoningEffort ?? "off";
+    }
+
     private piStreamOptions(requestOptions: Record<string, JsonValue> | undefined): Record<string, unknown> {
         if (!requestOptions) {
             return {};
@@ -1515,6 +1535,7 @@ export class NeuroAgentHarness {
             const config = await loadEffectiveConfig(context);
             const model = context.model ?? this.modelResolver(config, context.profileKey);
             const providerOptions = this.providerOptions(config, model);
+            const thinkingLevel = this.resolveThinkingLevel(context, config, model);
             const profile = await this.profiles.get(context.profileKey);
             const compaction = await this.prepareCompactionPolicy(profile, snapshot, context);
             await appendCompaction({
@@ -1525,7 +1546,7 @@ export class NeuroAgentHarness {
                 apiKey: resolvePiApiKeyForModelFromConfig(config, model),
                 timeoutMs: providerOptions.timeoutMs,
                 requestOptions: providerOptions.requestOptions,
-                thinkingLevel: context.thinkingLevel,
+                thinkingLevel,
                 instructions,
                 compaction,
             });

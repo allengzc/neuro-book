@@ -1,5 +1,5 @@
-import {Prisma} from "nbook/server/generated/prisma/client";
 import type {Novel} from "nbook/server/generated/prisma/client";
+import {lockDatabaseKey} from "nbook/server/database/locks";
 import type {PlotLookupRepository, PlotRepository} from "nbook/server/plot/contracts/plot-repositories";
 import type {PrismaExecutor} from "nbook/server/plot/core/types";
 import type {StoryPlotKindDto} from "nbook/shared/dto/plot.dto";
@@ -114,7 +114,7 @@ export class PrismaPlotDataRepository implements PlotRepository, PlotLookupRepos
      * 锁定同一 Scene 下的 Plot 排序桶，避免并发创建拿到相同 sortOrder。
      */
     async lockPlotOrderBucket(sceneId: number): Promise<void> {
-        await this.prisma.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(${sceneId})`);
+        await lockDatabaseKey(this.prisma, sceneId);
     }
 
     /**

@@ -5,6 +5,7 @@ import type {
     ProfileTemplateIssueDto,
     ProfileTemplatePropValue,
 } from "nbook/shared/dto/profile-template.dto";
+import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 
 /**
  * 表单里显示属性值时使用的字符串。
@@ -58,17 +59,5 @@ export function issueDetail(issue: ProfileTemplateIssueDto): string {
  * 提取 $fetch / 服务端异常中对用户有意义的错误文本。
  */
 export function describeFetchError(error: unknown): string {
-    const payload = error as {
-        data?: {
-            message?: string;
-            statusMessage?: string;
-        };
-        message?: string;
-        statusMessage?: string;
-    };
-    return payload.data?.message
-        ?? payload.data?.statusMessage
-        ?? payload.statusMessage
-        ?? payload.message
-        ?? "未知错误";
+    return resolveApiErrorMessage(error, "未知错误");
 }

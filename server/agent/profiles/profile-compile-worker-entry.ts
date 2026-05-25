@@ -1,10 +1,14 @@
 import {parentPort} from "node:worker_threads";
-import {runProfileCompile} from "./profile-compile-worker-runtime";
-import type {AgentProfileCompileRequestDto} from "nbook/shared/dto/agent-profile.dto";
+import {runProfileCompile, runProfileCompileAll} from "./profile-compile-worker-runtime";
+import type {
+    AgentProfileCompileAllRequestDto,
+    AgentProfileCompileRequestDto,
+} from "nbook/shared/dto/agent-profile.dto";
 
 type WorkerRequest = {
     id: number;
-    input: AgentProfileCompileRequestDto;
+    mode?: "single" | "all";
+    input: AgentProfileCompileRequestDto | AgentProfileCompileAllRequestDto;
 };
 
 if (!parentPort) {
@@ -12,7 +16,9 @@ if (!parentPort) {
 }
 
 parentPort.on("message", async (message: WorkerRequest) => {
-    const result = await runProfileCompile(message.input);
+    const result = message.mode === "all"
+        ? await runProfileCompileAll(message.input)
+        : await runProfileCompile(message.input as AgentProfileCompileRequestDto);
     parentPort!.postMessage({
         id: message.id,
         result,

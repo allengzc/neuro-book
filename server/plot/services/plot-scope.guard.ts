@@ -2,8 +2,8 @@ import type {
     StoryPhase,
     StoryPlot,
     StoryScene,
-    StoryThread,
 } from "nbook/server/generated/prisma/client";
+import type {StoryThreadEntity} from "nbook/server/plot/core/types";
 import {statWorkspacePath} from "nbook/server/workspace-files/workspace-files";
 import type {
     PlotLookupRepository,
@@ -41,7 +41,7 @@ export class PlotScopeGuard {
     /**
      * 校验线程属于当前 Story。
      */
-    async assertThread(storyId: number, threadId: number): Promise<StoryThread> {
+    async assertThread(storyId: number, threadId: number): Promise<StoryThreadEntity> {
         const thread = await this.threadRepository.findThreadById(threadId);
         if (!thread || thread.storyId !== storyId) {
             throwPlotNotFound("剧情线程不存在");

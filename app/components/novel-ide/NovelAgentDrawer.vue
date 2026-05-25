@@ -18,6 +18,7 @@ import AgentSessionTreeDialog from "nbook/app/components/novel-ide/agent/AgentSe
 import {deriveAgentTreeState, resolveBranchSwitchTarget} from "nbook/app/components/novel-ide/agent/session-tree";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
+import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
@@ -126,10 +127,19 @@ const workspaceKey = computed(() => {
     if (ideStore.workspaceKind === "user-assets") {
         return "user-assets";
     }
-    return ideStore.currentNovelId ? `novel-${ideStore.currentNovelId}` : "global";
+    return "workspace";
 });
 
 const agentWorkspaceRoot = computed(() => ideStore.workspaceKind === "user-assets" ? "workspace/.nbook" : "workspace");
+
+/**
+ * 把 Agent 面板内 API 异常统一转换为 notification 文案。
+ */
+const notifyAgentError = (error: unknown, fallback: string, title = fallback): string => {
+    const message = resolveApiErrorMessage(error, fallback);
+    notification.error(message, {title});
+    return message;
+};
 
 /**
  * 生成等待用户输入实例的稳定 key，用来避免旧 pending 的提交态影响下一组问题。
@@ -330,20 +340,27 @@ const loadSession = async (sessionId: number): Promise<void> => {
         scrollToBottom();
     } catch (error) {
         console.error(`加载 session ${String(sessionId)} 失败`, error);
-        notification.error(error instanceof Error ? error.message : "加载 Agent session 失败");
+        notifyAgentError(error, "加载 Agent session 失败");
     }
 };
 
 /**
  * 从服务端重新同步当前 session snapshot。
  */
-const syncActiveSessionSnapshot = async (): Promise<void> => {
+const syncActiveSessionSnapshot = async (): Promise<boolean> => {
     if (!activeSessionId.value) {
-        return;
+        return false;
     }
-    const snapshot = await agentApi.getSession(activeSessionId.value);
-    session.applySnapshot(snapshot);
-    syncSessionModelState(snapshot.summary);
+    try {
+        const snapshot = await agentApi.getSession(activeSessionId.value);
+        session.applySnapshot(snapshot);
+        syncSessionModelState(snapshot.summary);
+        return true;
+    } catch (error) {
+        console.error(`同步 session ${String(activeSessionId.value)} snapshot 失败`, error);
+        notifyAgentError(error, "同步 Agent session 失败");
+        return false;
+    }
 };
 
 /**
@@ -512,7 +529,7 @@ const submitUserInputAnswers = async (payload: {
         }
         console.error("提交问题答案失败", error);
         await syncActiveSessionSnapshot();
-        notification.error(error instanceof Error ? error.message : "提交问题答案失败");
+        notifyAgentError(error, "提交问题答案失败");
         throw error;
     } finally {
         if (submittingUserInputKey.value === pendingKey) {
@@ -589,7 +606,7 @@ const togglePlanMode = async (): Promise<void> => {
         await syncActiveSessionSnapshot();
     } catch (error) {
         console.error("切换 Plan Mode 失败", error);
-        notification.error(error instanceof Error ? error.message : "切换 Plan Mode 失败");
+        notifyAgentError(error, "切换 Plan Mode 失败");
     }
 };
 
@@ -686,7 +703,7 @@ const compactSession = async (instructions?: string): Promise<void> => {
         await syncActiveSessionSnapshot();
     } catch (error) {
         console.error("压缩 Session 失败", error);
-        notification.error(error instanceof Error ? error.message : "压缩 Session 失败");
+        notifyAgentError(error, "压缩 Session 失败");
     }
 };
 
@@ -755,7 +772,7 @@ const updateSessionModelSelection = async (modelKey: string | null): Promise<voi
         await syncActiveSessionSnapshot();
     } catch (error) {
         console.error("更新 session 模型失败", error);
-        notification.error(error instanceof Error ? error.message : "更新 session 模型失败");
+        notifyAgentError(error, "更新 session 模型失败");
     } finally {
         sessionModelSaving.value = false;
     }
@@ -804,7 +821,7 @@ const cycleMessageBranch = async (messageId: string, direction: -1 | 1): Promise
         await syncActiveSessionSnapshot();
     } catch (error) {
         console.error("切换消息分支失败", error);
-        notification.error(error instanceof Error ? error.message : "切换消息分支失败");
+        notifyAgentError(error, "切换消息分支失败");
     } finally {
         messageActionId.value = null;
     }
@@ -823,7 +840,7 @@ const selectTreeNode = async (entryId: string): Promise<void> => {
         await syncActiveSessionSnapshot();
     } catch (error) {
         console.error("切换 Session Tree 节点失败", error);
-        notification.error(error instanceof Error ? error.message : "切换 Session Tree 节点失败");
+        notifyAgentError(error, "切换 Session Tree 节点失败");
     } finally {
         messageActionId.value = null;
     }
@@ -853,7 +870,7 @@ const saveEditedMessage = async (payload: {message: AgentMessage; content: strin
         notification.success("消息已更新");
     } catch (error) {
         console.error("改写消息失败", error);
-        notification.error(error instanceof Error ? error.message : "改写消息失败");
+        notifyAgentError(error, "改写消息失败");
     } finally {
         messageActionId.value = null;
     }
@@ -881,7 +898,7 @@ const refreshMessage = async (message: AgentMessage): Promise<void> => {
         await syncActiveSessionSnapshot();
     } catch (error) {
         console.error("刷新消息失败", error);
-        notification.error(error instanceof Error ? error.message : "刷新消息失败");
+        notifyAgentError(error, "刷新消息失败");
     } finally {
         messageActionId.value = null;
     }
@@ -906,7 +923,7 @@ const rollbackMessage = async (message: AgentMessage): Promise<void> => {
         notification.success("消息已回退");
     } catch (error) {
         console.error("回退消息失败", error);
-        notification.error(error instanceof Error ? error.message : "回退消息失败");
+        notifyAgentError(error, "回退消息失败");
     } finally {
         messageActionId.value = null;
     }

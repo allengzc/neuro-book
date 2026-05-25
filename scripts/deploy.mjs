@@ -14,7 +14,6 @@ import * as p from "@clack/prompts";
 
 const DEFAULT_HOST = "arch";
 const DEFAULT_REMOTE_DIR = "/home/notnotype/composes/neuro-book";
-const COMPOSE_FILES = "-f docker-compose.yml -f .deploy/docker-compose.generated.yml";
 const ENV_FILE = ".env";
 
 const program = new Command()
@@ -129,6 +128,16 @@ set -a
 . ./${ENV_FILE}
 set +a
 
+COMPOSE_FILES="-f docker-compose.yml"
+if [ "\${DATABASE_KIND:-sqlite}" = "postgres" ]; then
+    if printf '%s' "\${DATABASE_URL:-}" | grep -q '@postgres:'; then
+        COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.postgres.yml"
+    else
+        COMPOSE_FILES="$COMPOSE_FILES -f docker-compose.external-db.yml"
+    fi
+fi
+COMPOSE_FILES="$COMPOSE_FILES -f .deploy/docker-compose.generated.yml"
+
 step "Nuxt prepare"
 bun run nuxt:prepare
 
@@ -139,13 +148,13 @@ step "Nuxt build"
 bun run nuxt:build
 
 step "重启 app 容器"
-run_sudo docker compose --env-file ${ENV_FILE} ${COMPOSE_FILES} up -d --build --force-recreate app
+run_sudo docker compose --env-file ${ENV_FILE} $COMPOSE_FILES up -d --build --force-recreate app
 
 step "Compose 状态"
-run_sudo docker compose --env-file ${ENV_FILE} ${COMPOSE_FILES} ps
+run_sudo docker compose --env-file ${ENV_FILE} $COMPOSE_FILES ps
 
 step "App 最近日志"
-run_sudo docker compose --env-file ${ENV_FILE} ${COMPOSE_FILES} logs --tail=80 app
+run_sudo docker compose --env-file ${ENV_FILE} $COMPOSE_FILES logs --tail=80 app
 `;
 }
 

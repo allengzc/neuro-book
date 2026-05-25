@@ -32,6 +32,7 @@ export type PrismaExecutor = Prisma.TransactionClient | {
     storySceneRef: Prisma.TransactionClient["storySceneRef"];
     novel: Prisma.TransactionClient["novel"];
     $executeRaw: Prisma.TransactionClient["$executeRaw"];
+    $executeRawUnsafe: Prisma.TransactionClient["$executeRawUnsafe"];
 };
 
 /**
@@ -44,9 +45,19 @@ export type StorySceneRefWithTargets = StorySceneRef & {
 };
 
 /**
+ * Plot 层对外使用的 Thread 实体。
+ *
+ * 数据库中 `tags` 使用 JSON array 文本以兼容 SQLite/Postgres；进入 Plot
+ * service 后统一归一化为 string[]，避免 DTO 和前端感知持久化差异。
+ */
+export type StoryThreadEntity = Omit<StoryThread, "tags"> & {
+    tags: string[];
+};
+
+/**
  * Thread 详情聚合结果，不包含 refs。
  */
-export type StoryThreadWithScenes = StoryThread & {
+export type StoryThreadWithScenes = StoryThreadEntity & {
     scenes: StoryScene[];
 };
 
@@ -56,7 +67,7 @@ export type StoryThreadWithScenes = StoryThread & {
 export type StorySceneWithDetails = StoryScene & {
     plots: StoryPlot[];
     refs: StorySceneRefWithTargets[];
-    thread: StoryThread;
+    thread: StoryThreadEntity;
 };
 
 /**
@@ -70,7 +81,7 @@ export type StoryWorkbenchScene = StoryScene & {
 /**
  * Workbench Thread 聚合结果。
  */
-export type StoryWorkbenchThread = StoryThread & {
+export type StoryWorkbenchThread = StoryThreadEntity & {
     scenes: StoryWorkbenchScene[];
 };
 

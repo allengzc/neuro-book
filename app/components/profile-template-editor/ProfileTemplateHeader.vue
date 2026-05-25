@@ -19,10 +19,14 @@ const props = defineProps<{
     restoreEnabled?: boolean;
     createEnabled?: boolean;
     runEnabled?: boolean;
+    compileEnabled?: boolean;
+    compileAllEnabled?: boolean;
     allowSaveWithIssues?: boolean;
     validateLabel?: string;
     runDisabled?: boolean;
     restoring?: boolean;
+    compiling?: boolean;
+    compilingAll?: boolean;
     closable?: boolean;
 }>();
 
@@ -32,6 +36,8 @@ const emit = defineEmits<{
     (e: "redo"): void;
     (e: "preview"): void;
     (e: "validate"): void;
+    (e: "compile"): void;
+    (e: "compileAll"): void;
     (e: "restore"): void;
     (e: "create"): void;
     (e: "run"): void;
@@ -71,9 +77,17 @@ const emit = defineEmits<{
                 <span class="i-lucide-play h-3.5 w-3.5"></span>
                 <span>预览</span>
             </button>
-            <button class="toolbar-btn" :disabled="props.validating || !props.sourceText" @click="emit('validate')">
+            <button v-if="!props.compileEnabled" class="toolbar-btn" :disabled="props.validating || !props.sourceText" @click="emit('validate')">
                 <span class="i-lucide-badge-check h-3.5 w-3.5"></span>
                 <span>{{ props.validateLabel ?? "验证" }}</span>
+            </button>
+            <button v-if="props.compileEnabled" class="toolbar-btn" :disabled="props.compiling || props.compilingAll || props.saving || props.parsingSource || !props.sourceText" @click="emit('compile')">
+                <span class="i-lucide-hammer h-3.5 w-3.5"></span>
+                <span>编译</span>
+            </button>
+            <button v-if="props.compileAllEnabled" class="toolbar-btn" :disabled="props.compilingAll || props.compiling || props.saving" @click="emit('compileAll')">
+                <span class="i-lucide-package-check h-3.5 w-3.5"></span>
+                <span>编译全部</span>
             </button>
             <button v-if="props.restoreEnabled" class="toolbar-btn" :disabled="props.restoring || props.saving || !props.sourceText" @click="emit('restore')">
                 <span class="i-lucide-rotate-ccw h-3.5 w-3.5"></span>

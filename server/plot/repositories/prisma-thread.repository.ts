@@ -2,11 +2,23 @@ import type {StoryPhase, StoryScene, StoryThread} from "nbook/server/generated/p
 import type {ThreadRepository} from "nbook/server/plot/contracts/plot-repositories";
 import type {
     PrismaExecutor,
+    StoryThreadEntity,
     StoryThreadWithScenes,
     StoryWorkbenchPhase,
     StoryWorkbenchThread,
 } from "nbook/server/plot/core/types";
 import {STORY_SCENE_REF_INCLUDE} from "nbook/server/plot/repositories/includes";
+
+type StoryThreadWithJsonTags = Omit<StoryThread, "tags"> & {
+    tags: string;
+};
+
+type StoryThreadData = Partial<Pick<
+    StoryThread,
+    "storyPhaseId" | "sortOrder" | "name" | "title" | "isMainThread" | "status" | "summary" | "writingTip" | "note"
+>> & {
+    tags?: string[];
+};
 
 /**
  * Prisma 版 Thread 仓储。
@@ -17,17 +29,17 @@ export class PrismaThreadRepository implements ThreadRepository {
     /**
      * 查询线程。
      */
-    async findThreadById(threadId: number): Promise<StoryThread | null> {
-        return this.prisma.storyThread.findUnique({
+    async findThreadById(threadId: number): Promise<StoryThreadEntity | null> {
+        return normalizeThread(await this.prisma.storyThread.findUnique({
             where: {id: threadId},
-        });
+        }) as StoryThreadWithJsonTags | null);
     }
 
     /**
      * 查询带 Scene 摘要的线程详情。
      */
     async findThreadWithScenesById(threadId: number): Promise<StoryThreadWithScenes | null> {
-        return this.prisma.storyThread.findUnique({
+        const thread = await this.prisma.storyThread.findUnique({
             where: {id: threadId},
             include: {
                 scenes: {
@@ -37,7 +49,8 @@ export class PrismaThreadRepository implements ThreadRepository {
                     ],
                 },
             },
-        }) as Promise<StoryThreadWithScenes | null>;
+        }) as StoryThreadWithJsonTags & {scenes: StoryScene[]} | null;
+        return thread ? normalizeThreadWithScenes(thread) : null;
     }
 
     /**
@@ -54,8 +67,8 @@ export class PrismaThreadRepository implements ThreadRepository {
     /**
      * 按 bucket 列出线程。
      */
-    async findThreadsByStoryPhase(storyId: number, storyPhaseId: number | null): Promise<StoryThread[]> {
-        return this.prisma.storyThread.findMany({
+    async findThreadsByStoryPhase(storyId: number, storyPhaseId: number | null): Promise<StoryThreadEntity[]> {
+        const threads = await this.prisma.storyThread.findMany({
             where: {
                 storyId,
                 storyPhaseId,
@@ -64,14 +77,15 @@ export class PrismaThreadRepository implements ThreadRepository {
                 {sortOrder: "asc"},
                 {id: "asc"},
             ],
-        });
+        }) as StoryThreadWithJsonTags[];
+        return threads.map(normalizeThread);
     }
 
     /**
      * 按 name 查询线程。
      */
-    async findThreadByName(storyId: number, name: string, excludeThreadId?: number): Promise<StoryThread | null> {
-        return this.prisma.storyThread.findFirst({
+    async findThreadByName(storyId: number, name: string, excludeThreadId?: number): Promise<StoryThreadEntity | null> {
+        return normalizeThread(await this.prisma.storyThread.findFirst({
             where: {
                 storyId,
                 name,
@@ -79,7 +93,7 @@ export class PrismaThreadRepository implements ThreadRepository {
                     NOT: {id: excludeThreadId},
                 } : {}),
             },
-        });
+        }) as StoryThreadWithJsonTags | null);
     }
 
     /**
@@ -97,10 +111,10 @@ export class PrismaThreadRepository implements ThreadRepository {
         tags: string[];
         writingTip: string | null;
         note: string | null;
-    }): Promise<StoryThread> {
-        return this.prisma.storyThread.create({
-            data: input,
-        });
+    }): Promise<StoryThreadEntity> {
+        return normalizeThread(await this.prisma.storyThread.create({
+            data: toThreadData(input),
+        }) as StoryThreadWithJsonTags);
     }
 
     /**
@@ -108,15 +122,12 @@ export class PrismaThreadRepository implements ThreadRepository {
      */
     async updateThread(
         threadId: number,
-        data: Partial<Pick<
-            StoryThread,
-            "storyPhaseId" | "sortOrder" | "name" | "title" | "isMainThread" | "status" | "summary" | "tags" | "writingTip" | "note"
-        >>,
-    ): Promise<StoryThread> {
-        return this.prisma.storyThread.update({
+        data: StoryThreadData,
+    ): Promise<StoryThreadEntity> {
+        return normalizeThread(await this.prisma.storyThread.update({
             where: {id: threadId},
-            data,
-        });
+            data: toThreadData(data),
+        }) as StoryThreadWithJsonTags);
     }
 
     /**
@@ -147,8 +158,8 @@ export class PrismaThreadRepository implements ThreadRepository {
     /**
      * 查询未分组线程树。
      */
-    async findUngroupedThreads(storyId: number): Promise<Array<StoryThread & {scenes: StoryScene[]}>> {
-        return this.prisma.storyThread.findMany({
+    async findUngroupedThreads(storyId: number): Promise<Array<StoryThreadEntity & {scenes: StoryScene[]}>> {
+        const threads = await this.prisma.storyThread.findMany({
             where: {
                 storyId,
                 storyPhaseId: null,
@@ -165,14 +176,15 @@ export class PrismaThreadRepository implements ThreadRepository {
                     ],
                 },
             },
-        });
+        }) as Array<StoryThreadWithJsonTags & {scenes: StoryScene[]}>;
+        return threads.map(normalizeThreadWithScenes);
     }
 
     /**
      * 查询未分组线程工作台树。
      */
     async findUngroupedWorkbenchThreads(storyId: number): Promise<StoryWorkbenchThread[]> {
-        return this.prisma.storyThread.findMany({
+        const threads = await this.prisma.storyThread.findMany({
             where: {
                 storyId,
                 storyPhaseId: null,
@@ -204,14 +216,15 @@ export class PrismaThreadRepository implements ThreadRepository {
                     },
                 },
             },
-        }) as Promise<StoryWorkbenchThread[]>;
+        }) as Array<StoryThreadWithJsonTags & StoryWorkbenchThread>;
+        return threads.map(normalizeThreadWithScenes) as StoryWorkbenchThread[];
     }
 
     /**
      * 查询阶段树。
      */
-    async findPhaseThreadsWithScenes(storyId: number): Promise<Array<StoryPhase & {threads: Array<StoryThread & {scenes: StoryScene[]}>}>> {
-        return this.prisma.storyPhase.findMany({
+    async findPhaseThreadsWithScenes(storyId: number): Promise<Array<StoryPhase & {threads: Array<StoryThreadEntity & {scenes: StoryScene[]}>}>> {
+        const phases = await this.prisma.storyPhase.findMany({
             where: {storyId},
             orderBy: [
                 {sortOrder: "asc"},
@@ -235,13 +248,17 @@ export class PrismaThreadRepository implements ThreadRepository {
                 },
             },
         });
+        return phases.map((phase) => ({
+            ...phase,
+            threads: phase.threads.map((thread) => normalizeThreadWithScenes(thread as StoryThreadWithJsonTags & {scenes: StoryScene[]})),
+        }));
     }
 
     /**
      * 查询阶段线程工作台树。
      */
     async findWorkbenchPhaseThreads(storyId: number): Promise<StoryWorkbenchPhase[]> {
-        return this.prisma.storyPhase.findMany({
+        const phases = await this.prisma.storyPhase.findMany({
             where: {storyId},
             orderBy: [
                 {sortOrder: "asc"},
@@ -279,6 +296,56 @@ export class PrismaThreadRepository implements ThreadRepository {
                     },
                 },
             },
-        }) as Promise<StoryWorkbenchPhase[]>;
+        }) as Array<StoryPhase & {threads: Array<StoryThreadWithJsonTags & StoryWorkbenchThread>}>;
+        return phases.map((phase) => ({
+            ...phase,
+            threads: phase.threads.map((thread) => normalizeThreadWithScenes(thread) as StoryWorkbenchThread),
+        }));
     }
+}
+
+function normalizeThread<T extends StoryThreadWithJsonTags | null>(thread: T): T extends null ? null : StoryThreadEntity {
+    if (!thread) {
+        return null as T extends null ? null : StoryThreadEntity;
+    }
+    return ({
+        ...thread,
+        tags: normalizeTags(thread.tags),
+    } as unknown) as T extends null ? null : StoryThreadEntity;
+}
+
+function normalizeThreadWithScenes<T extends StoryThreadWithJsonTags & {scenes: StoryScene[]}>(thread: T): Omit<T, "tags"> & {tags: string[]} {
+    return {
+        ...thread,
+        tags: normalizeTags(thread.tags),
+    };
+}
+
+function normalizeTags(value: string): string[] {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(value);
+    } catch {
+        return [];
+    }
+    return Array.isArray(parsed)
+        ? parsed.filter((item): item is string => typeof item === "string")
+        : [];
+}
+
+function toThreadData<T extends StoryThreadData>(data: T): Omit<T, "tags"> & {tags?: string} {
+    if (!("tags" in data)) {
+        return data as Omit<T, "tags"> & {tags?: string};
+    }
+    return {
+        ...data,
+        tags: normalizeInputTags(data.tags),
+    };
+}
+
+function normalizeInputTags(value: string[] | undefined): string | undefined {
+    if (!value) {
+        return undefined;
+    }
+    return JSON.stringify(value.map((tag) => tag.trim()).filter(Boolean));
 }

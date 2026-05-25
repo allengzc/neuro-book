@@ -247,6 +247,13 @@ export const AgentProfileCompileRequestDtoSchema = z.object({
 });
 
 /**
+ * 手动编译全部用户 profile 源码。只写用户 profile root 的 `.compiled`。
+ */
+export const AgentProfileCompileAllRequestDtoSchema = z.object({
+    preview: z.boolean().default(false),
+});
+
+/**
  * 手动编译结果。detail 是 runtime profile 详情，preview 只有请求 preview=true 时返回。
  */
 export const AgentProfileCompileResultDtoSchema = z.object({
@@ -256,6 +263,12 @@ export const AgentProfileCompileResultDtoSchema = z.object({
     preview: AgentProfilePreparePreviewDtoSchema.nullable().optional(),
     issues: z.array(AgentProfileIssueDtoSchema),
     elapsedMs: z.number().nonnegative().optional(),
+    compiledCount: z.number().int().nonnegative().optional(),
+    profiles: z.array(z.object({
+        profileKey: z.string().trim().min(1),
+        fileName: z.string().trim().min(1),
+        loadStatus: AgentProfileLoadStatusSchema,
+    })).optional(),
 });
 
 /**
@@ -299,6 +312,7 @@ export type AgentProfileSourceRequestDto = z.infer<typeof AgentProfileSourceRequ
 export type AgentProfileSourceDraftRequestDto = z.infer<typeof AgentProfileSourceDraftRequestDtoSchema>;
 export type AgentProfileSaveRequestDto = z.infer<typeof AgentProfileSaveRequestDtoSchema>;
 export type AgentProfileCompileRequestDto = z.infer<typeof AgentProfileCompileRequestDtoSchema>;
+export type AgentProfileCompileAllRequestDto = z.infer<typeof AgentProfileCompileAllRequestDtoSchema>;
 export type AgentProfileCompileResultDto = Omit<z.infer<typeof AgentProfileCompileResultDtoSchema>, "detail" | "preview" | "issues"> & {
     detail: AgentProfileDetailDto | null;
     preview?: AgentProfilePreparePreviewDto | null;

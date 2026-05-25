@@ -29,7 +29,7 @@ const PROFILE_DSL_COMPONENTS = new Set<ProfileTemplateNodeType>([
     "SystemReminder",
     "RuntimeContext",
     "LinkedAgentsSummary",
-    "WorkspaceReminder",
+    "ProjectReminder",
     "LinkedAgentsReminder",
     "TaskReminder",
     "PlanModeReminder",

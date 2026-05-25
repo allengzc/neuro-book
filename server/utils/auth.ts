@@ -4,6 +4,7 @@ import type {H3Event} from "h3";
 import {getRequestProtocol} from "h3";
 import type {Prisma, PrismaClient, User, UserRole} from "nbook/server/generated/prisma/client";
 import {loadGlobalEffectiveConfigSync} from "nbook/server/config/config-service";
+import {lockDatabaseKey} from "nbook/server/database/locks";
 import {prisma} from "nbook/server/utils/prisma";
 import type {AdminUserListItemDto, AuthUserDto} from "nbook/shared/dto/auth.dto";
 
@@ -209,7 +210,7 @@ export async function requireAdmin(event: H3Event): Promise<User> {
  * 在事务内串行化管理员状态变更，避免并发撤掉最后一个管理员。
  */
 export async function lockAdminStateChanges(prismaClient: PrismaExecutor): Promise<void> {
-    await prismaClient.$executeRaw`SELECT pg_advisory_xact_lock(${adminStateLockId})`;
+    await lockDatabaseKey(prismaClient, adminStateLockId);
 }
 
 /**

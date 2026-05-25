@@ -3,12 +3,12 @@ import type {
     StoryPhase,
     StoryPlot,
     StoryScene,
-    StoryThread,
 } from "nbook/server/generated/prisma/client";
 import type {
     ChapterPlotSceneWithThread,
     StorySceneRefWithTargets,
     StorySceneWithDetails,
+    StoryThreadEntity,
     StoryThreadWithScenes,
     StoryWorkbenchPhase,
     StoryWorkbenchScene,
@@ -78,7 +78,7 @@ export class PlotDtoAssembler {
     /**
      * 映射 Thread 摘要 DTO。
      */
-    toStoryThreadSummaryDto(thread: StoryThread): StoryThreadSummaryDto {
+    toStoryThreadSummaryDto(thread: StoryThreadEntity): StoryThreadSummaryDto {
         return {
             id: stringifyEntityId(thread.id),
             storyId: stringifyEntityId(thread.storyId),
@@ -279,8 +279,8 @@ export class PlotDtoAssembler {
      */
     toPlotTreeDto(input: {
         story: Story;
-        phases: Array<StoryPhase & {threads: Array<StoryThread & {scenes: StoryScene[]}>}>;
-        ungroupedThreads: Array<StoryThread & {scenes: StoryScene[]}>;
+        phases: Array<StoryPhase & {threads: Array<StoryThreadEntity & {scenes: StoryScene[]}>}>;
+        ungroupedThreads: Array<StoryThreadEntity & {scenes: StoryScene[]}>;
         totalPlots: number;
     }): PlotTreeDto {
         const phases = input.phases.map((phase) => ({

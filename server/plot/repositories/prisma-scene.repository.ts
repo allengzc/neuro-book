@@ -5,8 +5,10 @@ import type {
     PrismaExecutor,
     ResolvedStoryRefInput,
     StorySceneWithDetails,
+    StoryThreadEntity,
 } from "nbook/server/plot/core/types";
 import {STORY_SCENE_REF_INCLUDE} from "nbook/server/plot/repositories/includes";
+import {normalizeThreadJsonTags} from "nbook/server/plot/repositories/thread-tags";
 
 /**
  * Prisma 版 Scene 仓储。
@@ -27,7 +29,7 @@ export class PrismaSceneRepository implements SceneRepository {
      * 查询场景详情。
      */
     async findSceneWithDetailsById(sceneId: number): Promise<StorySceneWithDetails | null> {
-        return this.prisma.storyScene.findUnique({
+        const scene = await this.prisma.storyScene.findUnique({
             where: {id: sceneId},
             include: {
                 plots: {
@@ -62,7 +64,14 @@ export class PrismaSceneRepository implements SceneRepository {
                     },
                 },
             },
-        }) as Promise<StorySceneWithDetails | null>;
+        }) as Omit<StorySceneWithDetails, "thread"> & {thread: Omit<StoryThreadEntity, "tags"> & {tags: string}} | null;
+        if (!scene) {
+            return null;
+        }
+        return {
+            ...scene,
+            thread: normalizeThreadJsonTags(scene.thread),
+        };
     }
 
     /**

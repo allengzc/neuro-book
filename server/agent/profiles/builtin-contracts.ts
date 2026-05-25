@@ -18,26 +18,23 @@ export const LeaderDefaultOutputSchema = Type.Object({
  * writer 子代理输入：由 leader/create_agent 传入，不承载每轮对话文本。
  */
 export const WriterInputSchema = Type.Object({
-    prompt: Type.String({description: "本次写作任务。写清要写什么、目标文件路径或无文件落点、场景边界和交付要求。"}),
-    plotPoints: Type.Optional(Type.Array(Type.String({description: "Plot System Scene ID。传入时必须同时提供 novelId，writer 会自动展开 Scene/Thread/Plots/Chapter Plot。"}), {description: "需要落实到正文中的 Scene ID 列表。"})),
-    lorebookEntries: Type.Optional(Type.Array(Type.Object({
-        path: Type.String({description: "内容节点路径，按 writer agent cwd 解析。普通小说 agent cwd 是 workspace 容器根，因此通常传 novel-slug/lorebook/character/foo/ 或 novel-slug/manuscript/...。目录会读取 index.md，并读取同级可选 state.md。"}),
-        reason: Type.Optional(Type.String({description: "为什么这个节点与本次写作相关，帮助 writer 判断使用重点。"})),
-        priority: Type.Optional(Type.Number({description: "优先级，数字越小越重要；writer 会按 priority 从小到大读取和渲染。"})),
-        writingTip: Type.Optional(Type.String({description: "调用方临时给 writer 的使用提示，不会写回内容节点。"})),
-    }), {description: "本次写作需要读取的 Lorebook/Manuscript 内容节点。"})),
+    prompt: Type.String({description: "本次写作任务。写清要写什么、是重写还是局部修改、章节边界和交付要求。"}),
+    chapterPaths: Type.Array(Type.String({description: "章节内容节点目录路径。当前 Project Workspace 使用 manuscript/.../；跨 Project Workspace 使用 novel-slug/manuscript/.../。"}), {
+        minItems: 1,
+        maxItems: 1,
+        description: "本 writer session 绑定的唯一章节。调用方必须先创建章节内容节点，并在 Plot System 中把 Scene 挂到该章节。",
+    }),
+    lorebookEntries: Type.Optional(Type.Array(Type.String({description: "内容节点路径，按 writer agent cwd 解析。writer 会按数组顺序读取 index.md 与同级可选 state.md。"}), {description: "本次写作需要读取的 Lorebook/Manuscript 内容节点路径数组。"})),
     constraints: Type.Optional(Type.Array(Type.String({description: "额外写作约束、格式约束、禁忌、字数或用户临时偏好。"}), {description: "本轮写作约束列表。"})),
-    outputPath: Type.Optional(Type.String({description: "可选输出文件路径，按 writer agent cwd 解析。普通小说 agent cwd 是 workspace 容器根，因此通常传 novel-slug/manuscript/.../index.md。给出时 writer 应把正文写入该文件并润色。"})),
-    novelId: Type.Optional(Type.String({description: "当前 novel ID。传入 plotPoints 时必填，因为 plot 工具不会从 session 自动推断 novelId。"})),
-    writingStylePreset: Type.Optional(Type.String({description: "可选 writing style 预设名；为空使用默认文风。"})),
-    writingReferencePreset: Type.Optional(Type.String({description: "可选 writing reference 预设名；为空使用默认参考文档。"})),
+    writingStylePreset: Type.Optional(Type.String({description: "可选 writing style 预设 key，不是文件路径。系统预设目录：assets/workspace/.nbook/agent/writing-presets/styles；用户覆盖目录：workspace/.nbook/agent/writing-presets/styles。为空使用默认文风。"})),
+    writingReferencePreset: Type.Optional(Type.String({description: "可选 writing reference 预设 key，不是文件路径。系统预设目录：assets/workspace/.nbook/agent/writing-presets/references；用户覆盖目录：workspace/.nbook/agent/writing-presets/references。为空使用默认参考文档。"})),
 });
 
 /**
  * writer 子代理结构化输出。
  */
 export const WriterOutputSchema = Type.Object({
-    summary: Type.String({description: "约 100 字写作摘要，说明时间、地点、参与角色、关键动作、关系变化和伏笔/状态变化。"}),
+    summary: Type.String({description: "写作摘要，说明时间、地点、参与角色、关键动作、关系变化和伏笔/状态变化。"}),
     outputPath: Type.Optional(Type.String({description: "实际写入或修改的文件路径。没有文件落点时不要填。"})),
 });
 
@@ -55,6 +52,12 @@ export const RetrievalInputSchema = Type.Object({
 });
 
 /**
- * retrieval 子代理输出：按优先级排序的内容节点路径。
+ * retrieval 子代理输出：面向 Leader 的详细召回结果。
  */
-export const RetrievalOutputSchema = Type.Array(Type.String({description: "按优先级排序的内容节点路径。"}), {description: "按优先级排序的内容节点路径数组，只包含路径字符串。"});
+export const RetrievalOutputSchema = Type.Array(Type.Object({
+    path: Type.String({description: "内容节点路径。Leader 调 writer 时只把这个 path 提取到 writer.lorebookEntries。"}),
+    reason: Type.Optional(Type.String({description: "为什么召回该节点，供 Leader 判断是否传给 writer。"})),
+    summary: Type.Optional(Type.String({description: "节点和任务的相关摘要，供 Leader 快速判断。"})),
+    priority: Type.Optional(Type.Number({description: "优先级，数字越小越重要。"})),
+    writingTip: Type.Optional(Type.String({description: "可选写作使用建议，供 Leader 阅读；不要传给 writer。"})),
+}), {description: "按优先级排序的内容节点召回详情数组。"});

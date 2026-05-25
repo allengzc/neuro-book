@@ -74,7 +74,7 @@ export function createNode(type: ProfileTemplateNodeType): ProfileTemplateNodeDt
     if (type === "SystemReminder") {
         base.children = [createNode("Text")];
     }
-    if (type === "WorkspaceReminder") {
+    if (type === "ProjectReminder") {
         base.props = {repeatEveryTurns: 20};
     }
     if (type === "TaskReminder") {
@@ -119,7 +119,7 @@ export function canHaveChildren(type: ProfileTemplateNodeType): boolean {
         "SqlSchemaSummary",
         "RuntimeContext",
         "LinkedAgentsSummary",
-        "WorkspaceReminder",
+        "ProjectReminder",
         "LinkedAgentsReminder",
         "TaskReminder",
         "ActivePlanModeReminder",
@@ -241,7 +241,7 @@ export function isPlanModeSlotNodeType(type: ProfileTemplateNodeType): boolean {
  * 返回该节点是否直接产出 Reminder/Watch 语义。
  */
 export function isReminderNodeType(type: ProfileTemplateNodeType): boolean {
-    return type === "WorkspaceReminder"
+    return type === "ProjectReminder"
         || type === "LinkedAgentsReminder"
         || type === "TaskReminder"
         || type === "PlanModeReminder"

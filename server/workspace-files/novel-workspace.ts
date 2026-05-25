@@ -20,6 +20,8 @@ const SYSTEM_WORKSPACE_ROOT = path.resolve(path.dirname(fileURLToPath(import.met
 const SYSTEM_NBOOK_ROOT = path.join(SYSTEM_WORKSPACE_ROOT, ".nbook");
 const SYSTEM_PROFILE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "profiles");
 const USER_PROFILE_ROOT = path.resolve(process.cwd(), USER_NBOOK_ROOT, "agent", "profiles");
+const SYSTEM_WRITING_PRESETS_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "writing-presets");
+const USER_WRITING_PRESETS_ROOT = path.resolve(process.cwd(), USER_NBOOK_ROOT, "agent", "writing-presets");
 const SYSTEM_PROFILE_METADATA_PATH = path.join(SYSTEM_PROFILE_ROOT, ".system-profile-metadata.json");
 const USER_PROFILE_SYNC_STATE_PATH = path.join(USER_PROFILE_ROOT, ".profile-sync-state.json");
 const NOVEL_DIRECTORY_TEMPLATE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "templates", "novel-directory-templates");
@@ -40,11 +42,18 @@ export type UserAssetsSyncResult = {
     skipped: number;
     updatedProfiles?: number;
     profileWarnings?: UserAssetsProfileSyncWarning[];
+    updatedAssets?: number;
+    assetWarnings?: UserAssetsAssetSyncWarning[];
 };
 
 export type UserAssetsProfileSyncWarning = {
     fileName: string;
     profileKey: string;
+    message: string;
+};
+
+export type UserAssetsAssetSyncWarning = {
+    assetPath: string;
     message: string;
 };
 
@@ -63,11 +72,19 @@ export type SystemProfileMetadataItem = {
 
 type UserProfileSyncState = {
     profiles: UserProfileSyncStateItem[];
+    assets?: UserAssetSyncStateItem[];
 };
 
 type UserProfileSyncStateItem = {
     fileName: string;
     profileKey: string;
+    upstreamHash: string;
+    lastSyncedUserHash: string;
+    syncedAt: string;
+};
+
+type UserAssetSyncStateItem = {
+    assetPath: string;
     upstreamHash: string;
     lastSyncedUserHash: string;
     syncedAt: string;
@@ -144,11 +161,12 @@ export async function ensureUserAssetsWorkspaceRoot(): Promise<string> {
 export async function syncSystemAssetsToUserAssets(): Promise<UserAssetsSyncResult> {
     await ensureUserAssetsWorkspaceRoot();
     const nbookTargetRoot = path.resolve(process.cwd(), USER_NBOOK_ROOT);
-    const result: UserAssetsSyncResult = {copied: 0, skipped: 0, updatedProfiles: 0, profileWarnings: []};
+    const result: UserAssetsSyncResult = {copied: 0, skipped: 0, updatedProfiles: 0, profileWarnings: [], updatedAssets: 0, assetWarnings: []};
     if (await isDirectory(SYSTEM_NBOOK_ROOT)) {
         await copyMissingAssetEntries(SYSTEM_NBOOK_ROOT, nbookTargetRoot, result);
     }
     await syncSystemProfilesToUserAssets(result, nbookTargetRoot);
+    await syncSystemWritingPresetsToUserAssets(result);
     return result;
 }
 
@@ -341,6 +359,93 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, nboo
     await removeCopiedSystemMetadata(nbookTargetRoot);
 }
 
+async function syncSystemWritingPresetsToUserAssets(result: UserAssetsSyncResult): Promise<void> {
+    if (!await isDirectory(SYSTEM_WRITING_PRESETS_ROOT)) {
+        return;
+    }
+    const syncState = await readUserProfileSyncState();
+    const assets = await listSystemWritingPresetAssets();
+    let stateChanged = false;
+    for (const item of assets) {
+        const systemPath = path.join(SYSTEM_WRITING_PRESETS_ROOT, item.assetPath);
+        const userPath = path.join(USER_WRITING_PRESETS_ROOT, item.assetPath);
+        const stateItem = syncState.assets?.find((asset) => asset.assetPath === item.assetPath);
+        if (!stateItem && await pathExists(userPath) && await sameFile(systemPath, userPath)) {
+            const hash = await sha256File(userPath);
+            upsertUserAssetSyncState(syncState, item, hash.sha256);
+            stateChanged = true;
+            continue;
+        }
+        if (!await pathExists(userPath)) {
+            await fs.mkdir(path.dirname(userPath), {recursive: true});
+            await fs.copyFile(systemPath, userPath);
+            const hash = await sha256File(userPath);
+            upsertUserAssetSyncState(syncState, item, hash.sha256);
+            result.updatedAssets = (result.updatedAssets ?? 0) + 1;
+            stateChanged = true;
+            continue;
+        }
+        const currentUserHash = (await sha256File(userPath)).sha256;
+        if (currentUserHash === item.sha256) {
+            upsertUserAssetSyncState(syncState, item, currentUserHash);
+            stateChanged = true;
+            continue;
+        }
+        if (!stateItem) {
+            result.assetWarnings?.push({
+                assetPath: item.assetPath,
+                message: `系统 writing preset 有 metadata，但用户覆盖缺少 sync state，已保留用户文件。`,
+            });
+            continue;
+        }
+        if (currentUserHash !== stateItem.lastSyncedUserHash) {
+            if (item.sha256 !== stateItem.upstreamHash) {
+                result.assetWarnings?.push({
+                    assetPath: item.assetPath,
+                    message: `系统 writing preset 已更新，但用户覆盖已手改，未自动覆盖。`,
+                });
+            }
+            continue;
+        }
+        if (item.sha256 === stateItem.upstreamHash) {
+            continue;
+        }
+        await fs.copyFile(systemPath, userPath);
+        const hash = await sha256File(userPath);
+        upsertUserAssetSyncState(syncState, item, hash.sha256);
+        result.updatedAssets = (result.updatedAssets ?? 0) + 1;
+        stateChanged = true;
+    }
+    if (stateChanged) {
+        await writeUserProfileSyncState(syncState);
+    }
+}
+
+async function listSystemWritingPresetAssets(): Promise<Array<{assetPath: string; sha256: string; bytes: number}>> {
+    const result: Array<{assetPath: string; sha256: string; bytes: number}> = [];
+    await collectSystemWritingPresetAssets(SYSTEM_WRITING_PRESETS_ROOT, "", result);
+    return result.sort((left, right) => left.assetPath.localeCompare(right.assetPath));
+}
+
+async function collectSystemWritingPresetAssets(root: string, relativeRoot: string, result: Array<{assetPath: string; sha256: string; bytes: number}>): Promise<void> {
+    const entries = await fs.readdir(path.join(root, relativeRoot), {withFileTypes: true});
+    for (const entry of entries) {
+        const relativePath = path.posix.join(relativeRoot.split(path.sep).join("/"), entry.name);
+        if (entry.isDirectory()) {
+            await collectSystemWritingPresetAssets(root, relativePath, result);
+            continue;
+        }
+        if (!entry.isFile() || !entry.name.endsWith(".md")) {
+            continue;
+        }
+        const absolutePath = path.join(root, relativePath);
+        result.push({
+            assetPath: relativePath,
+            ...await sha256File(absolutePath),
+        });
+    }
+}
+
 async function syncCompiledProfileArtifact(fileName: string): Promise<void> {
     const systemManifest = await readProfileArtifactManifest(SYSTEM_PROFILE_ROOT);
     const item = systemManifest.profiles.find((profile) => profile.fileName === fileName);
@@ -354,6 +459,7 @@ async function syncCompiledProfileArtifact(fileName: string): Promise<void> {
         path.join(userCompiledRoot, item.artifactFileName),
     );
     const userManifest = await readProfileArtifactManifest(USER_PROFILE_ROOT);
+    const userSourceHash = await sha256File(path.join(USER_PROFILE_ROOT, item.fileName));
     const userItem = rehomeProfileArtifactItem(item, {
         fromRootLabel: "assets/workspace/.nbook/agent/profiles",
         toRootLabel: "workspace/.nbook/agent/profiles",
@@ -364,7 +470,14 @@ async function syncCompiledProfileArtifact(fileName: string): Promise<void> {
         profilesRoot: "workspace/.nbook/agent/profiles",
         profiles: [
             ...userManifest.profiles.filter((profile) => profile.fileName !== item.fileName),
-            userItem,
+            {
+                ...userItem,
+                sourceSha256: userSourceHash.sha256,
+                sourceBytes: userSourceHash.bytes,
+                dependencies: userItem.dependencies.map((dependency) => dependency.path.replace(/[\\/]+/g, "/") === `workspace/.nbook/agent/profiles/${item.fileName}`
+                    ? {...dependency, sha256: userSourceHash.sha256, bytes: userSourceHash.bytes}
+                    : dependency),
+            },
         ].sort((left, right) => left.fileName.localeCompare(right.fileName)),
     };
     await fs.writeFile(
@@ -376,10 +489,14 @@ async function syncCompiledProfileArtifact(fileName: string): Promise<void> {
 
 async function readUserProfileSyncState(): Promise<UserProfileSyncState> {
     try {
-        return JSON.parse(await fs.readFile(USER_PROFILE_SYNC_STATE_PATH, "utf-8")) as UserProfileSyncState;
+        const parsed = JSON.parse(await fs.readFile(USER_PROFILE_SYNC_STATE_PATH, "utf-8")) as UserProfileSyncState;
+        return {
+            profiles: parsed.profiles ?? [],
+            assets: parsed.assets ?? [],
+        };
     } catch (error) {
         if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-            return {profiles: []};
+            return {profiles: [], assets: []};
         }
         throw error;
     }
@@ -405,6 +522,23 @@ function upsertUserProfileSyncState(syncState: UserProfileSyncState, metadata: S
         syncState.profiles.push(next);
     }
     syncState.profiles.sort((left, right) => left.fileName.localeCompare(right.fileName));
+}
+
+function upsertUserAssetSyncState(syncState: UserProfileSyncState, metadata: {assetPath: string; sha256: string}, userHash: string): void {
+    const next: UserAssetSyncStateItem = {
+        assetPath: metadata.assetPath,
+        upstreamHash: metadata.sha256,
+        lastSyncedUserHash: userHash,
+        syncedAt: new Date().toISOString(),
+    };
+    syncState.assets ??= [];
+    const index = syncState.assets.findIndex((item) => item.assetPath === metadata.assetPath);
+    if (index >= 0) {
+        syncState.assets[index] = next;
+    } else {
+        syncState.assets.push(next);
+    }
+    syncState.assets.sort((left, right) => left.assetPath.localeCompare(right.assetPath));
 }
 
 async function pathExists(filePath: string): Promise<boolean> {

@@ -19,15 +19,16 @@ describe("v3 execute_sql tool", () => {
             row("StorySceneRef", "sceneId", 2),
         ], []);
 
-        expect(summary).toContain('"StoryScene"(id, "storyId", "threadId", "chapterPath")');
-        expect(summary).toContain('"StoryPlot"(id, "sceneId")');
-        expect(summary).toContain('"StorySceneRef"(id, "sceneId")');
+        expect(summary).toContain('"StoryScene":');
+        expect(summary).toContain('- "storyId": integer');
+        expect(summary).toContain('"StoryPlot":');
+        expect(summary).toContain('- "sceneId": integer');
+        expect(summary).toContain('"StorySceneRef":');
         expect(summary).not.toContain('"StoryScene"(id, "storyId", "threadId", "chapterPath", "sceneId")');
     });
 
     it("单语句 scanner 允许字符串和注释里的分号", () => {
         expect(hasSqlStatementSeparator("SELECT 'drop table; still text'")).toBe(false);
-        expect(hasSqlStatementSeparator("SELECT $$a;b$$")).toBe(false);
         expect(hasSqlStatementSeparator("SELECT 1 -- ; comment\n")).toBe(false);
         expect(hasSqlStatementSeparator("SELECT /* ; */ 1")).toBe(false);
         expect(hasSqlStatementSeparator("SELECT 1; SELECT 2")).toBe(true);

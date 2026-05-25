@@ -309,7 +309,7 @@
 
 ### Implementation Result
 
-- 新增一组通用 Profile DSL 节点：`SystemReminder`、`RuntimeContext`、`LinkedAgentsSummary`、`WorkspaceReminder`、`LinkedAgentsReminder`、`TaskReminder`、`PlanModeReminder`、`ActivePlanModeReminder`、`MentionedSkillsReminder`、`PlotFocusReminder`。
+- 新增一组通用 Profile DSL 节点：`SystemReminder`、`RuntimeContext`、`LinkedAgentsSummary`、`ProjectReminder`、`LinkedAgentsReminder`、`TaskReminder`、`PlanModeReminder`、`ActivePlanModeReminder`、`MentionedSkillsReminder`、`PlotFocusReminder`。
 - `leader.default.profile.tsx` 已移除本文件内 runtime helper 函数，系统提示词改为 `LEADER_SYSTEM_PROMPT` 常量；runtime context、workspace、linked agents、task、Plan Mode、plot focus、显式 `$skill` 提醒都由通用节点表达。
 - `SkillCatalog` / `AgentCatalog` 的默认 `<system-reminder>` 文案改为英语；动态 reminder 文案也改为英语。
 - `PlanModeReminder` 恢复 v2 的英文结构：`## Exited Plan Mode`、`## Re-entering Plan Mode`、`## Thread Work Directory`、`## Restrictions`、`## Workflow`，并补回 soft Plan Mode、当前 thread Markdown 工作目录、禁止 Explore agent、探索后报告、`request_user_input` 与 `exit_plan_mode` 边界。
@@ -444,3 +444,12 @@
 - `bun scripts/check-profile.ts workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`：通过。
 - active `docs/tasks` 目录命名检查：通过，均符合 `^\d{2}-[a-z0-9-]+$`。
 - 旧 `docs/tasks/<slug>/` 具体路径残留扫描：通过，无旧 active/archived slug 直链残留。
+
+## 2026-05-24 Writer Contract Follow-up
+
+### Current State Update
+
+- writer 已从旧 `plotPoints + novelId + outputPath + lorebookEntries object[]` 硬切为 `chapterPaths + lorebookEntries string[]`。
+- `leader.default` 的 writer 段落已改为“一章节一 agent”：调用方先创建章节内容节点，并在 Plot System 中把 Scene 挂到该 `chapterPath`；writer 只写显式传入章节的 `index.md`。
+- retrieval 继续向 Leader 返回详细召回对象；Leader 调 writer 时只提取每项的 `path` 作为 `writer.lorebookEntries`。
+- writing style/reference presets 已从 `agent/profiles/builtin/writing-*` 迁到 `agent/writing-presets/{styles,references}`，不再作为 profile 源码目录的一部分。

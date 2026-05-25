@@ -1,10 +1,48 @@
 import {join, resolve} from "node:path";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
-import {describe, expect, it} from "vitest";
+import {describe, expect, it, vi} from "vitest";
+import writerProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/writer.profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import {WriterInputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {messageText} from "nbook/server/agent/messages/message-utils";
+import {loadWritingReferencePresets} from "nbook/server/agent/profiles/writer-writing-reference";
+import {loadWritingStylePresets} from "nbook/server/agent/profiles/writer-writing-style";
+
+vi.mock("nbook/server/utils/prisma", () => ({
+    prisma: {
+        novel: {
+            findUnique: vi.fn(async ({where}: {where: {id?: number; workspaceSlug?: string}}) => {
+                if (where.workspaceSlug === "silver-dragon-hime" || where.id === 1) {
+                    return {id: 1, workspaceSlug: "silver-dragon-hime"};
+                }
+                return null;
+            }),
+        },
+    },
+}));
+
+vi.mock("nbook/server/plot", () => ({
+    plotFacade: {
+        getChapterPlotDetailDto: vi.fn(async (_novelId: number, chapterPath: string) => ({
+            chapterPath,
+            totalScenes: 1,
+            totalPlots: 1,
+            scenes: [{
+                id: "1",
+                title: "测试场景",
+                threadTitle: "主线",
+                status: "active",
+                summary: "测试剧情摘要。",
+                purpose: "验证 writer 章节剧情注入。",
+                chapterSortOrder: 0,
+                threadSortOrder: 0,
+                plots: [{kind: "setup", summary: "测试情节点。"}],
+            }],
+        })),
+    },
+}));
 
 describe("assets builtin v3 profiles", () => {
     it("leader.default 从 assets/workspace/.nbook 加载并使用 v3 工具名", async () => {
@@ -89,10 +127,14 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).toContain("get_plot_tree");
         expect(prompt).toContain("writer");
         expect(prompt).toContain("retrieval");
+        expect(prompt).toContain("一章节一 agent");
+        expect(prompt).toContain("chapterPaths");
+        expect(prompt).toContain("writer.lorebookEntries 只接收内容节点 path 字符串数组");
         expect(prompt).toContain("内容节点引用分流");
         expect(prompt).toContain("retrieval.trigger");
         expect(prompt).toContain("workspace node parse --stdin --ndjson");
-        expect(prompt).toContain("rg --files | rg '(^|[\\\\/])index\\.md$'");
+        expect(prompt).toContain("rg --files | rg '(^|/)index\\.md$'");
+        expect(prompt).toContain("Agent runtime 已配置 rg 输出 / 路径");
         expect(prompt).toContain("workspace 相对路径优先使用 / 分隔");
         expect(prompt).toContain("\"novelId\"");
         expect(prompt).toContain("\"createdAt\"");
@@ -103,9 +145,12 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).not.toContain("write_file");
         expect(prompt).not.toContain("edit_file");
         expect(prompt).not.toContain("execute_shell");
+        expect(prompt).not.toContain("plotPoints 传 Scene ID");
         expect(prompt).not.toContain("PowerShell");
         expect(prompt).not.toContain("--path-separator=/");
-        expect(prompt).not.toContain("rg --files | rg '(^|/)index");
+        expect(prompt).not.toContain("MSYS_NO_PATHCONV=1");
+        expect(prompt).not.toContain("tr '\\\\' '/'");
+        expect(prompt).not.toContain("(^|[\\\\/])index");
         const historyText = (prepared.historyInitMessages ?? []).map(messageText).join("\n");
         expect(historyText).toContain("Available Agents");
         expect(historyText).toContain("writer");
@@ -202,13 +247,15 @@ describe("assets builtin v3 profiles", () => {
         });
         const prompt = prepared.systemPrompt ?? "";
 
-        expect(prompt).toContain("rg --files | rg '(^|[\\\\/])index\\.md$'");
+        expect(prompt).toContain("rg --files | rg '(^|/)index\\.md$'");
         expect(prompt).toContain("head -n 30");
         expect(prompt).toContain("workspace 相对路径优先使用 / 分隔");
         expect(prompt).not.toContain("PowerShell");
         expect(prompt).not.toContain("Select-Object");
         expect(prompt).not.toContain("--path-separator=/");
-        expect(prompt).not.toContain("rg --files | rg '(^|/)index");
+        expect(prompt).not.toContain("MSYS_NO_PATHCONV=1");
+        expect(prompt).not.toContain("tr '\\\\' '/'");
+        expect(prompt).not.toContain("(^|[\\\\/])index");
     });
 
     it("leader.assets 从 assets/workspace/.nbook 加载并使用用户资产提示词", async () => {
@@ -245,10 +292,12 @@ describe("assets builtin v3 profiles", () => {
             }],
         });
         const prompt = prepared.systemPrompt ?? "";
-        const dynamicText = prepared.modelContextMessages
+        const modelContextText = prepared.modelContextMessages
             ?.filter((message) => message.role === "user")
             .map(messageText)
             .join("\n") ?? "";
+        const historyText = (prepared.historyInitMessages ?? []).map(messageText).join("\n");
+        const appendingText = (prepared.appendingMessages ?? []).map(messageText).join("\n");
 
         expect(profile.manifest.name).toBe("用户资产助手");
         expect(profile.allowedToolKeys).toEqual([
@@ -268,8 +317,11 @@ describe("assets builtin v3 profiles", () => {
             "exit_plan_mode",
         ]);
         expect(prompt).toContain("workspace/.nbook/agent/profiles");
+        expect(prompt).toContain("workspace/.nbook/agent/writing-presets/{styles,references}");
         expect(prompt).toContain("assets/workspace/.nbook/agent/skills");
         expect(prompt).toContain("defineAgentProfile");
+        expect(prompt).toContain("ProfilePrompt");
+        expect(prompt).toContain("ProfileTurnPlan");
         expect(prompt).toContain("agent 的配方");
         expect(prompt).toContain("harness");
         expect(prompt).toContain("profile-system-guide");
@@ -286,41 +338,100 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).not.toContain("write_file");
         expect(prompt).not.toContain("edit_file");
         expect(prompt).not.toContain("execute_shell");
-        expect(dynamicText).toContain("agent profiles/skills should use agent/ under current user-assets cwd");
-        expect(dynamicText).toContain("Available skills");
-        expect(dynamicText).toContain("profile-system-guide");
-        expect(dynamicText).toContain(resolve("assets", "workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"));
-        expect(prepared.historyInitMessages ?? []).toEqual([]);
+        expect(historyText).toContain("Available Agents");
+        expect(historyText).toContain("leader.assets");
+        expect(historyText).toContain("Available Skills");
+        expect(historyText).toContain("profile-system-guide");
+        expect(historyText).toContain(resolve("assets", "workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"));
+        expect(modelContextText).toContain("Agent cwd:");
+        expect(modelContextText).toContain("Profile key: leader.assets");
+        expect(modelContextText).toContain("agent profiles/skills should use agent/ under current user-assets cwd");
+        expect(appendingText).toContain("User assets workspace");
+        expect(appendingText).toContain("Do not write novel lorebook");
     });
 
-    it("writer 缺少 novelId 时拒绝展开 plotPoints", async () => {
-        const catalog = new AgentProfileCatalog(
-            resolve("assets", "workspace", ".nbook", "agent", "profiles"),
-            resolve(".agent", "missing-user-profiles"),
-        );
-        catalog.register(defaultAgentProfile);
-        const profile = await catalog.get("writer");
+    it("writer 输入合同硬切为单章节 chapterPaths", () => {
+        const properties = WriterInputSchema.properties;
 
-        await expect(profile.prepare!({
-            session: {
-                systemPrompt: "",
-                messages: [],
-                model: null,
-                thinkingLevel: "off",
-                profileKey: "writer",
-                workspaceRoot: resolve("workspace"),
-                customState: {},
-                linkedAgents: [],
-                archived: false,
-                planModeActive: false,
-            },
-            input: {
-                prompt: "写一段正文",
-                plotPoints: ["1"],
-            },
-            catalog: await catalog.snapshot(),
-            skills: [],
-        })).rejects.toThrow("必须同时提供 novelId");
+        expect(properties).toHaveProperty("prompt");
+        expect(properties).toHaveProperty("chapterPaths");
+        expect(properties).toHaveProperty("lorebookEntries");
+        expect(properties).toHaveProperty("constraints");
+        expect(properties).toHaveProperty("writingStylePreset");
+        expect(properties).toHaveProperty("writingReferencePreset");
+        expect(properties).not.toHaveProperty("plotPoints");
+        expect(properties).not.toHaveProperty("novelId");
+        expect(properties).not.toHaveProperty("outputPath");
+        expect(properties.chapterPaths.minItems).toBe(1);
+        expect(properties.chapterPaths.maxItems).toBe(1);
+    });
+
+    it("writer writing presets 使用用户目录覆盖系统同名文件", async () => {
+        const root = resolve(".agent", "workspace", "writer-preset-test", randomUUID());
+        const systemStyleRoot = join(root, "system", "styles");
+        const userStyleRoot = join(root, "user", "styles");
+        const systemReferenceRoot = join(root, "system", "references");
+        const userReferenceRoot = join(root, "user", "references");
+        await mkdir(systemStyleRoot, {recursive: true});
+        await mkdir(userStyleRoot, {recursive: true});
+        await mkdir(systemReferenceRoot, {recursive: true});
+        await mkdir(userReferenceRoot, {recursive: true});
+        await writeFile(join(systemStyleRoot, "same.md"), [
+            "---",
+            "key: same",
+            "label: 系统文风",
+            "sourcePreset: source",
+            "identifier: system",
+            "name: system",
+            "enabled: true",
+            "role: null",
+            "---",
+            "系统文风正文",
+        ].join("\n"), "utf-8");
+        await writeFile(join(userStyleRoot, "same.md"), [
+            "---",
+            "key: same",
+            "label: 用户文风",
+            "sourcePreset: source",
+            "identifier: user",
+            "name: user",
+            "enabled: true",
+            "role: null",
+            "---",
+            "用户文风正文",
+        ].join("\n"), "utf-8");
+        await writeFile(join(systemReferenceRoot, "same.md"), [
+            "---",
+            "key: same",
+            "label: 系统参考",
+            "sourceTitle: title",
+            "sourceChapters: \"1\"",
+            "generatedFrom: test",
+            "---",
+            "系统参考正文",
+        ].join("\n"), "utf-8");
+        await writeFile(join(userReferenceRoot, "same.md"), [
+            "---",
+            "key: same",
+            "label: 用户参考",
+            "sourceTitle: title",
+            "sourceChapters: \"1\"",
+            "generatedFrom: test",
+            "---",
+            "用户参考正文",
+        ].join("\n"), "utf-8");
+
+        try {
+            const styles = await loadWritingStylePresets([systemStyleRoot, userStyleRoot]);
+            const references = await loadWritingReferencePresets([systemReferenceRoot, userReferenceRoot]);
+
+            expect(styles.find((item) => item.key === "same")?.label).toBe("用户文风");
+            expect(styles.find((item) => item.key === "same")?.content).toContain("用户文风正文");
+            expect(references.find((item) => item.key === "same")?.label).toBe("用户参考");
+            expect(references.find((item) => item.key === "same")?.content).toContain("用户参考正文");
+        } finally {
+            await rm(root, {recursive: true, force: true});
+        }
     });
 
     it("writer 展开 lorebookEntries 的 index/state 并清洗内部 frontmatter", async () => {
@@ -354,13 +465,7 @@ describe("assets builtin v3 profiles", () => {
             "当前状态正文。",
         ].join("\n"), "utf8");
         try {
-            const catalog = new AgentProfileCatalog(
-                resolve("assets", "workspace", ".nbook", "agent", "profiles"),
-                resolve(".agent", "missing-user-profiles"),
-            );
-            catalog.register(defaultAgentProfile);
-            const profile = await catalog.get("writer");
-            const prepared = await profile.prepare!({
+            const prepared = await writerProfile.prepare!({
                 session: {
                     systemPrompt: "",
                     messages: [],
@@ -375,13 +480,10 @@ describe("assets builtin v3 profiles", () => {
                 },
                 input: {
                     prompt: "写一段正文",
-                    lorebookEntries: [{
-                        path: "lorebook/character/hero/",
-                        priority: 1,
-                        reason: "主角出场",
-                    }],
+                    chapterPaths: ["silver-dragon-hime/manuscript/001-chapter/"],
+                    lorebookEntries: ["lorebook/character/hero/"],
                 },
-                catalog: await catalog.snapshot(),
+                catalog: {profiles: [], issues: []},
                 skills: [],
             });
             const modelContext = prepared.modelContextMessages

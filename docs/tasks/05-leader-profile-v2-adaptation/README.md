@@ -710,11 +710,19 @@ export default defineAgentProfile({
 - 新增 session snapshot `systemPrompt` 字段；前端在对话顶部展示当前 profile system prompt，使用 Markdown 渲染并默认收起。该卡片只是只读展示，不写入普通 session history。
 - `leader.default` 的 workspace / linked agents / tasks 三条基础 `Reminder` 放在 `ModelContext` 中；runtime 编译为 `modelContextAppendingMessages`，保证它们仍在用户输入和 AI streaming 前可见。
 
+### 2026-05-24 Leader Assets TSX DSL Follow-up
+
+- `leader.assets` 已从高级 `prepare()` 手写 `modelContextMessages` 迁为 `context() => <ProfilePrompt>`，与 `leader.default` 使用同一套 active TSX DSL contract。
+- `leader.assets` 复用现有系统级 DSL 节点：`ProfilePrompt`、`System`、`HistorySet`、`ModelContext`、`AppendingSet`、`Message`、`AgentCatalog`、`SkillCatalog`、`RuntimeContext`、`LinkedAgentsReminder`、`PlanModeReminder`、`MentionedSkillsReminder`。
+- user-assets 专属的 workspace runtime context、workspace reminder 和 skill catalog wording 保留在 `leader.assets.profile.tsx` 本地 helper 中；它们暂时没有跨 profile 复用价值，不提升为系统级 TSX Node helper。
+- `leader.assets` 的 `HistorySet` 现在注入 agent catalog 与 user-assets 版本 skill catalog；`ModelContext` 注入 runtime context；`AppendingSet` 注入 user-assets cwd/边界提醒、linked agents、plan mode 和 `$skill` 提醒。
+- 系统 `.compiled` artifact 与 `.system-profile-metadata.json` 已重新生成，`leader.assets` 当前系统 artifact 为 `565a51165bf46b43d5405a53.mjs`。
+
 ## Plan Deviations
 
 - Workbench parser 第一版没有覆盖任意 TypeScript 控制流；只解析稳定的 `context()` 返回 JSX tree、局部 JSX binding、常见 conditional expression 和可保留源码的表达式节点。复杂 helper / `Watch.render` 仍走源码编辑。
 - `prepare-system-profile-metadata.ts` 已实现，并接入 `package.json` 的 `build` / `nuxt:build`，另提供 `profile:metadata` 手动脚本。
-- `leader.assets` 仍保留高级 `prepare()` 手写 `modelContextMessages`，没有强制迁成 TSX DSL；本任务 tracer bullet 是 `leader.default`。
+- 初始 tracer bullet 只要求 `leader.default` 硬切 TSX DSL；后续 follow-up 已把 `leader.assets` 也迁到 TSX DSL。user-assets 专属逻辑没有新增为系统级 helper，避免把单 profile 文案过度抽象到 runtime。
 - 未自动做浏览器验证，符合项目规则；需要用户明确要求后再打开浏览器检查 Workbench UI。
 
 ## Risks
@@ -757,6 +765,7 @@ export default defineAgentProfile({
 - `scripts/prepare-system-profile-metadata.ts`
 - `package.json`
 - `assets/workspace/.nbook/agent/profiles/.system-profile-metadata.json`
+- `assets/workspace/.nbook/agent/profiles/.compiled/manifest.json`
 - `assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`
 - `workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`
 - `assets/workspace/.nbook/agent/profiles/builtin/leader.assets.profile.tsx`
@@ -798,6 +807,12 @@ export default defineAgentProfile({
   - `app/components/novel-ide/NovelAgentDrawer.vue` 的 `modelKey`。
   - `NovelIdeAgentProfileDefaultSettingsPanel.vue` / `NovelIdeAgentProfileModelSettingsPanel.vue` 的 `defaultProfileKey` 可选性。
   - `app/pages/index.vue` 的 `workspaceKind` / `currentNovelId`。
+- `bunx vitest run server/agent/profiles/leader-assets-profile.test.ts`：通过，5 tests passed。
+- `bun scripts/prepare-system-profile-metadata.ts`：通过，生成 4 个系统 profile metadata，并刷新系统 `.compiled` artifact。
+- `bun scripts/profile.ts check builtin/leader.assets.profile.tsx --system`：通过。
+- `bun scripts/profile.ts status builtin/leader.assets.profile.tsx --system`：通过，`leader.assets` 为 `loaded`，artifact 为 `565a51165bf46b43d5405a53.mjs`。
+- `bun scripts/profile.ts status --all --system`：通过，`leader.assets`、`leader.default`、`retrieval`、`writer` 均为 `loaded`。
+- `bunx tsc --noEmit --pretty false --skipLibCheck`：失败在既有无关类型问题 `server/agent/harness/neuro-agent-harness.test.ts(425,46): Property 'reasoning' does not exist on type 'StreamOptions'`，未发现本次 `leader.assets` TSX DSL 迁移引入的类型错误。
 
 ## TODO / Follow-ups
 

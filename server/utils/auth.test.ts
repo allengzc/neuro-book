@@ -6,7 +6,7 @@ const prismaMock = {
         count: vi.fn(),
         updateMany: vi.fn(),
     },
-    $executeRaw: vi.fn(),
+    $executeRawUnsafe: vi.fn(),
 };
 
 vi.mock("nbook/server/utils/prisma", () => ({
@@ -66,7 +66,7 @@ describe("auth utils", () => {
 
         await lockAdminStateChanges(prismaMock as never);
 
-        expect(prismaMock.$executeRaw).toHaveBeenCalledTimes(1);
+        expect(prismaMock.$executeRawUnsafe).toHaveBeenCalledTimes(1);
     });
 
     it("HTTP 登录会写入非 Secure session cookie", async () => {

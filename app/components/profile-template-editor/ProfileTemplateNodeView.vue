@@ -116,7 +116,7 @@ const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
     SystemReminder: "i-lucide-badge-alert",
     RuntimeContext: "i-lucide-braces",
     LinkedAgentsSummary: "i-lucide-git-merge",
-    WorkspaceReminder: "i-lucide-folder-cog",
+    ProjectReminder: "i-lucide-folder-cog",
     LinkedAgentsReminder: "i-lucide-network",
     TaskReminder: "i-lucide-list-checks",
     PlanModeReminder: "i-lucide-clipboard-check",
@@ -168,7 +168,7 @@ function nodeMeta(node: ProfileTemplateNodeDto): string {
     if (node.type === "ToolResult") {
         return `tool: ${String(node.props.toolName ?? "tool")}`;
     }
-    if (node.type === "Reminder" || node.type === "WorkspaceReminder" || node.type === "TaskReminder" || node.type === "PlanModeReminder" || node.type === "ActivePlanModeReminder") {
+    if (node.type === "Reminder" || node.type === "ProjectReminder" || node.type === "TaskReminder" || node.type === "PlanModeReminder" || node.type === "ActivePlanModeReminder") {
         return ["id", "watchPath", "watchValue", "repeatEveryTurns"]
             .filter((key) => node.props[key] !== undefined && node.props[key] !== "")
             .map((key) => `${key}: ${formatPropValue(node.props[key])}`)
@@ -243,8 +243,8 @@ function nodeSummary(node: ProfileTemplateNodeDto): string {
     if (node.type === "RuntimeContext") {
         return "Runtime workspace/profile/plan-mode context.";
     }
-    if (node.type === "WorkspaceReminder") {
-        return "Current workspace boundary reminder.";
+    if (node.type === "ProjectReminder") {
+        return "Current Project Workspace boundary reminder.";
     }
     if (node.type === "LinkedAgentsReminder" || node.type === "LinkedAgentsSummary") {
         return "Linked agents summary.";
@@ -350,7 +350,7 @@ function prepareDrag(): void {
                     :depth="props.depth + 1"
                     :index="childIndex"
                     :parent-id="props.node.id"
-                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'ActivatedSkills', 'SqlSchemaSummary', 'RuntimeContext', 'LinkedAgentsSummary', 'WorkspaceReminder', 'LinkedAgentsReminder', 'TaskReminder', 'ActivePlanModeReminder', 'MentionedSkillsReminder', 'PlotFocusReminder'].includes(child.type)"
+                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'ActivatedSkills', 'SqlSchemaSummary', 'RuntimeContext', 'LinkedAgentsSummary', 'ProjectReminder', 'LinkedAgentsReminder', 'TaskReminder', 'ActivePlanModeReminder', 'MentionedSkillsReminder', 'PlotFocusReminder'].includes(child.type)"
                     :disabled-drop-node-ids="props.disabledDropNodeIds"
                     @select="emit('select', $event)"
                     @prepare-drag="emit('prepareDrag', $event)"
@@ -534,7 +534,7 @@ function prepareDrag(): void {
 .node-SystemReminder::before,
 .node-RuntimeContext::before,
 .node-LinkedAgentsSummary::before,
-.node-WorkspaceReminder::before,
+.node-ProjectReminder::before,
 .node-LinkedAgentsReminder::before,
 .node-TaskReminder::before,
 .node-PlanModeReminder::before,
@@ -606,7 +606,7 @@ function prepareDrag(): void {
 }
 
 .node-SystemReminder,
-.node-WorkspaceReminder,
+.node-ProjectReminder,
 .node-LinkedAgentsReminder {
     --profile-node-accent: #b65f5b;
 }

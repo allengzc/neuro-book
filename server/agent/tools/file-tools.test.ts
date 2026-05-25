@@ -1,6 +1,6 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
-import {join, resolve} from "node:path";
+import {dirname, join, resolve} from "node:path";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
@@ -426,6 +426,53 @@ describe("v3 file tools", () => {
         const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
         const firstPath = text.split(":")[0]?.replaceAll("\\", "/") ?? "";
         expect(firstPath).toContain("workspace/.nbook/agent/bin");
+    });
+
+    it("bash 为 rg 注入 Agent 专用配置并统一输出 / 路径", async () => {
+        await writeFile(join(workspaceRoot, "workspace.yaml"), "schemaVersion: 1\nslug: test\ndisplayName: Test\nnovelId: \"1\"\ncreatedAt: \"2026-05-24T00:00:00.000Z\"\nupdatedAt: \"2026-05-24T00:00:00.000Z\"\n", "utf-8");
+        await mkdir(join(workspaceRoot, "lorebook", "character", "hero"), {recursive: true});
+        await writeFile(join(workspaceRoot, "lorebook", "character", "hero", "index.md"), "---\ntitle: Hero\ntype: character\nstatus: active\nrefs: []\n---\n\n正文。", "utf-8");
+        const tool = mustTool("bash", harness);
+
+        const result = await tool.executeWithContext?.(context, "bash-rg-config", {
+            command: "printf 'config=%s\\n' \"$RIPGREP_CONFIG_PATH\" && rg --files | rg 'index.md$'",
+            timeout: 10,
+        });
+
+        const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
+        expect(text.replaceAll("\\", "/")).toContain("config=");
+        expect(text.replaceAll("\\", "/")).toContain(".nbook/agent/config/ripgreprc");
+        expect(text).toContain("lorebook/character/hero/index.md");
+        expect(text).not.toContain("lorebook\\character\\hero\\index.md");
+    });
+
+    it("bash 优先使用 user-assets rg 配置", async () => {
+        const userConfigPath = resolve("workspace", ".nbook", "agent", "config", "ripgreprc");
+        let original: string | null = null;
+        try {
+            original = await readFile(userConfigPath, "utf-8");
+        } catch {
+            original = null;
+        }
+        await mkdir(dirname(userConfigPath), {recursive: true});
+        await writeFile(userConfigPath, "--path-separator=/\n", "utf-8");
+        const tool = mustTool("bash", harness);
+
+        try {
+            const result = await tool.executeWithContext?.(context, "bash-user-rg-config", {
+                command: "printf '%s\\n' \"$RIPGREP_CONFIG_PATH\"",
+                timeout: 10,
+            });
+
+            const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
+            expect(text.replaceAll("\\", "/")).toContain("workspace/.nbook/agent/config/ripgreprc");
+        } finally {
+            if (original === null) {
+                await rm(userConfigPath, {force: true});
+            } else {
+                await writeFile(userConfigPath, original, "utf-8");
+            }
+        }
     });
 
     it("Windows bash 解析优先使用真实存在的 Git Bash 路径，再查 PATH 命令", () => {
