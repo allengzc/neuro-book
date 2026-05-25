@@ -1,5 +1,13 @@
 # neuro-book
 
+[![Release Container](https://github.com/notnotype/neuro-book/actions/workflows/release-container.yml/badge.svg)](https://github.com/notnotype/neuro-book/actions/workflows/release-container.yml)
+[![GitHub Release](https://img.shields.io/github/v/release/notnotype/neuro-book?include_prereleases&label=release)](https://github.com/notnotype/neuro-book/releases)
+[![GHCR App](https://img.shields.io/badge/GHCR-neuro--book-8957e5?logo=github&label=app)](https://github.com/notnotype/neuro-book/pkgs/container/neuro-book)
+[![GHCR Runtime](https://img.shields.io/badge/GHCR-neuro--book--runtime-8957e5?logo=github&label=runtime)](https://github.com/notnotype/neuro-book/pkgs/container/neuro-book-runtime)
+[![Node 24 Actions](https://img.shields.io/badge/actions%20runtime-Node%2024-43853d?logo=nodedotjs)](.github/workflows/release-container.yml)
+[![Bun](https://img.shields.io/badge/runtime-Bun-000000?logo=bun)](https://bun.sh/)
+[![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE)
+
 neuro-book 是一个面向长篇小说创作的本地工作台。
 
 如果你是作者，它把设定、章节、剧情结构、正文编辑和 Agent 协作放在同一个工作区里，让你能一边写，一边整理世界观和剧情骨架。
@@ -222,6 +230,17 @@ bun run docker:publish -- --tag v1.0.0
 
 同一次 Release 也会推送 `ghcr.io/<owner>/neuro-book-runtime:<release tag>` 和 `ghcr.io/<owner>/neuro-book-runtime:latest`。
 
+发布 Canary 版本时，先确认本地提交已经推到 `origin/master`，再创建 prerelease。示例：
+
+```bash
+git push origin master
+git tag -a v1.0.0-canary.YYYYMMDD.<short-sha> -m "Canary release v1.0.0-canary.YYYYMMDD.<short-sha>"
+git push origin v1.0.0-canary.YYYYMMDD.<short-sha>
+gh release create v1.0.0-canary.YYYYMMDD.<short-sha> --prerelease --title "Canary v1.0.0-canary.YYYYMMDD.<short-sha>"
+```
+
+GitHub Release 发布后会触发 `.github/workflows/release-container.yml`。该 workflow 会推送 release tag 和 `latest` 两组镜像；workflow 已显式启用 Node 24 action runtime，避免 GitHub Actions Node 20 runtime 退役 warning。
+
 服务器使用预构建镜像时，部署脚本会在 `.deploy/docker-compose.generated.yml` 中覆盖 `app.image` 并移除 `build`。更新镜像后运行：
 
 ```bash
@@ -253,6 +272,14 @@ docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.g
 - `Cannot resolve environment variable: DATABASE_URL`：Postgres 模式下宿主机执行 `bun run generate` 前没有加载 `.env`。先执行 `set -a && source .env && set +a`。SQLite 模式缺省会使用 `file:./workspace/.nbook/neuro-book.sqlite`。
 - `P1000: Authentication failed`：旧 Postgres 数据卷已经初始化过，但 `.env` 重新生成了新密码。保留数据时，在 Postgres 容器内把 `neuro_book` 用户密码改成当前 `POSTGRES_PASSWORD`；不保留数据时可 `docker compose down -v` 后重建。
 - `Cannot find module '@clack/prompts'`：source 模式下容器看到的是宿主机 `node_modules`。在宿主机执行 `bun install --frozen-lockfile`，并确认 `node_modules` 不再是 root-only 权限。
+
+## License
+
+This project is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use, study, modify, and share the software for noncommercial purposes.
+
+Commercial use requires prior written permission from the copyright holder. This includes offering neuro-book as a paid or commercial service, integrating it into commercial products, using it to provide paid services to customers, or deploying it as part of a commercial organization's production workflow.
+
+Personal authors may use neuro-book to create, edit, and publish their own original works, including commercially published writing. The commercial restriction applies to commercial use of the software itself, not to the user's original creative output.
 
 ## AGENT 系统
 
