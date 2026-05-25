@@ -2,6 +2,7 @@
   "name": "neuro-book",
   "version": "1.0.0",
   "description": "",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "main": "dist/index.js",
   "bin": {

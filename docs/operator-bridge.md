@@ -436,6 +436,18 @@ node scripts/publish-ghcr-image.mjs --tag v1.0.0
 
 GitHub Actions 只在 GitHub Release `published` 时发布镜像，不在普通 push 或 pull request 时发布。
 
+Canary 发布使用 GitHub prerelease，tag 建议使用 `v<package-version>-canary.<YYYYMMDD>.<short-sha>`。执行顺序：
+
+```bash
+git push origin master
+git tag -a v1.0.0-canary.YYYYMMDD.<short-sha> -m "Canary release v1.0.0-canary.YYYYMMDD.<short-sha>"
+git push origin v1.0.0-canary.YYYYMMDD.<short-sha>
+gh release create v1.0.0-canary.YYYYMMDD.<short-sha> --prerelease --title "Canary v1.0.0-canary.YYYYMMDD.<short-sha>"
+gh run watch <release-container-run-id> --exit-status
+```
+
+Release Container workflow 会推送 runtime/app 两类镜像的 release tag 和 `latest`。该 workflow 显式设置 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true`，让 GitHub Actions JavaScript action 使用 Node 24 runtime，避免 Node 20 runtime 退役 warning。
+
 ## 配置与敏感信息边界
 
 `.env` 只保存容器运行环境：
