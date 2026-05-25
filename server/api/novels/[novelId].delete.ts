@@ -1,16 +1,14 @@
-import {assertNovel, requireNovelId} from "nbook/server/utils/novel-chapter";
-import {prisma} from "nbook/server/utils/prisma";
+import fs from "node:fs/promises";
+import {assertNovel, requireProjectPath} from "nbook/server/utils/novel-chapter";
+import {resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
 
 /**
- * 删除整本小说。
+ * 删除 Project Workspace 目录。
  */
 export default defineEventHandler(async (event) => {
-    const novelId = requireNovelId(event);
-    await assertNovel(prisma, novelId);
-
-    await prisma.novel.delete({
-        where: {id: novelId},
-    });
+    const projectPath = requireProjectPath(event);
+    await assertNovel(projectPath);
+    await fs.rm(resolveProjectAbsolutePath(projectPath), {recursive: true, force: true});
 
     return {
         success: true,

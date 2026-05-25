@@ -54,7 +54,7 @@ describe("JsonlSessionRepository", () => {
         expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
     });
 
-    it("workspace session 列表兼容旧 novel 分目录", async () => {
+    it("workspace session 列表只读取指定 workspaceKey", async () => {
         const workspaceSession = await repo.createSession({
             profileKey: "leader.default",
             input: {},
@@ -62,13 +62,13 @@ describe("JsonlSessionRepository", () => {
             workspaceKey: "workspace",
             title: "workspace session",
         });
-        const legacyNovelSession = await repo.createSession({
+        const projectSession = await repo.createSession({
             profileKey: "leader.default",
             input: {},
-            workspaceRoot: "workspace",
-            workspaceKey: "novel-7",
-            novelId: "7",
-            title: "legacy novel session",
+            workspaceRoot: "workspace/novel-7",
+            workspaceKey: "workspace/novel-7",
+            projectPath: "workspace/novel-7",
+            title: "project session",
         });
         const userAssetsSession = await repo.createSession({
             profileKey: "leader.assets",
@@ -82,9 +82,9 @@ describe("JsonlSessionRepository", () => {
 
         expect(sessions.map((session) => session.sessionId).sort((left, right) => left - right)).toEqual([
             workspaceSession.metadata.sessionId,
-            legacyNovelSession.metadata.sessionId,
         ]);
         expect(sessions.some((session) => session.sessionId === userAssetsSession.metadata.sessionId)).toBe(false);
+        expect(sessions.some((session) => session.sessionId === projectSession.metadata.sessionId)).toBe(false);
     });
 
     it("支持 leaf 移动和 fork，历史不删除", async () => {

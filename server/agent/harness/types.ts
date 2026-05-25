@@ -2,6 +2,7 @@ import type {AgentEvent} from "@earendil-works/pi-agent-core";
 import type {AgentUserMessageInput, JsonValue, Usage} from "nbook/server/agent/messages/types";
 import type {InvocationErrorPhase, SessionMetadata} from "nbook/server/agent/session/types";
 import type {AgentResolution} from "nbook/server/agent/tools/types";
+import type {ClientStateSnapshot} from "nbook/server/agent/variables/types";
 import type {
     AgentAbortRequestDto,
     AgentActiveInvocationDto,
@@ -17,7 +18,7 @@ export type CreateAgentInput = {
     input?: JsonValue;
     workspaceRoot?: string;
     workspaceKey?: string;
-    novelId?: string;
+    projectPath?: string;
     parentSessionId?: number;
 };
 
@@ -32,6 +33,7 @@ export type InvokeAgentInput = {
     mode: "prompt" | "continue";
     message?: AgentUserMessageInput;
     resolution?: AgentResolution;
+    clientState?: ClientStateSnapshot;
     block?: boolean;
     onEvent?: (event: AgentEvent) => void | Promise<void>;
     internalQueued?: boolean;

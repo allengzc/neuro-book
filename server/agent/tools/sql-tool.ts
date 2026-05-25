@@ -2,54 +2,16 @@ import {createClient} from "@libsql/client";
 import type {Client as LibsqlClient} from "@libsql/client";
 import {Type} from "typebox";
 import type {Static} from "typebox";
-import {resolveDatabaseConfig, type DatabaseKind} from "nbook/server/database/config";
-import {useAgentSqlPool} from "nbook/server/utils/agent-sql-pool";
-import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
+import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
+import {initProjectDatabase, readProjectManifest, resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 
 const ExecuteSqlSchema = Type.Object({
-    sql: Type.String({description: "A single SQL statement: SELECT / WITH / INSERT / UPDATE / DELETE. DDL, transaction control, session control, and multi-statement queries are prohibited."}),
+    sql: Type.String({description: "A single Project SQLite statement: SELECT / WITH / INSERT / UPDATE / DELETE. DDL, transaction control, PRAGMA, ATTACH/DETACH, and multi-statement queries are prohibited."}),
 });
 
 const AGENT_SQL_ROW_LIMIT = 200;
-const AGENT_SQL_TIMEOUT_MS = 1_500;
 const AGENT_SQL_SCHEMA_CACHE_TTL_MS = 30_000;
-const POSTGRES_SCHEMA_QUERY = `
-    SELECT
-        columns.table_name AS "tableName",
-        columns.column_name AS "columnName",
-        columns.ordinal_position AS "ordinalPosition",
-        columns.is_nullable AS "isNullable",
-        columns.column_default AS "columnDefault",
-        columns.data_type AS "dataType",
-        columns.udt_name AS "udtName"
-    FROM information_schema.columns AS columns
-    INNER JOIN information_schema.tables AS tables
-        ON tables.table_schema = columns.table_schema
-        AND tables.table_name = columns.table_name
-    WHERE columns.table_schema = 'public'
-        AND tables.table_type = 'BASE TABLE'
-        AND columns.table_name ~ '[A-Z]'
-    ORDER BY columns.table_name ASC, columns.ordinal_position ASC
-`;
-const POSTGRES_FOREIGN_KEY_QUERY = `
-    SELECT
-        key_usage.table_name AS "tableName",
-        key_usage.column_name AS "columnName",
-        constraint_usage.table_name AS "foreignTableName",
-        constraint_usage.column_name AS "foreignColumnName"
-    FROM information_schema.table_constraints AS constraints
-    INNER JOIN information_schema.key_column_usage AS key_usage
-        ON key_usage.constraint_name = constraints.constraint_name
-        AND key_usage.table_schema = constraints.table_schema
-    INNER JOIN information_schema.constraint_column_usage AS constraint_usage
-        ON constraint_usage.constraint_name = constraints.constraint_name
-        AND constraint_usage.table_schema = constraints.table_schema
-    WHERE constraints.table_schema = 'public'
-        AND constraints.constraint_type = 'FOREIGN KEY'
-        AND key_usage.table_name ~ '[A-Z]'
-    ORDER BY key_usage.table_name ASC, key_usage.ordinal_position ASC
-`;
 const SQLITE_TABLE_QUERY = `
     SELECT name AS "tableName"
     FROM sqlite_schema
@@ -58,7 +20,7 @@ const SQLITE_TABLE_QUERY = `
         AND name <> '_prisma_migrations'
     ORDER BY name ASC
 `;
-const AGENT_SQL_DETAIL_TABLES = new Set(["Novel", "Story", "StoryThread", "StoryScene", "StoryPlot", "StorySceneRef", "User"]);
+const AGENT_SQL_DETAIL_TABLES = new Set(["Story", "StoryPhase", "StoryThread", "StoryScene", "StoryPlot", "StorySceneRef", "ProjectMetadata"]);
 
 type AgentSqlSchemaRow = {
     tableName: string;
@@ -77,10 +39,6 @@ type AgentSqlForeignKeyRow = {
     foreignColumnName: string;
 };
 
-type PgErrorLike = Error & {
-    code?: string;
-};
-
 type AgentSqlCommand = "SELECT" | "INSERT" | "UPDATE" | "DELETE";
 
 type ExecuteSqlResult = {
@@ -94,7 +52,7 @@ type ExecuteSqlResult = {
 };
 
 let agentSqlSchemaSummaryCache = "";
-let agentSqlSchemaSummaryCacheKind: DatabaseKind | null = null;
+let agentSqlSchemaSummaryCacheProjectPath = "";
 let agentSqlSchemaSummaryCacheAt = 0;
 let agentSqlSchemaSummaryPromise: Promise<string> | undefined;
 let sqliteClient: LibsqlClient | null = null;
@@ -103,11 +61,9 @@ let sqliteClientUrl = "";
 /**
  * 根据 schema 查询结果生成 Agent SQL 摘要。
  */
-export function buildAgentSqlSchemaSummary(rows: AgentSqlSchemaRow[], foreignKeys: AgentSqlForeignKeyRow[], kind: DatabaseKind = "postgres"): string {
+export function buildAgentSqlSchemaSummary(rows: AgentSqlSchemaRow[], foreignKeys: AgentSqlForeignKeyRow[]): string {
     if (rows.length === 0) {
-        return kind === "sqlite"
-            ? "当前 SQLite 数据库尚未发现业务表，请先确认迁移是否完成。"
-            : "当前未发现 public schema 下的业务表，请先查询 information_schema.tables。";
+        return "当前 Project SQLite 尚未发现业务表，请先确认项目数据库是否完成初始化。";
     }
 
     const tableColumns = new Map<string, string[]>();
@@ -122,11 +78,7 @@ export function buildAgentSqlSchemaSummary(rows: AgentSqlSchemaRow[], foreignKey
         detailedTableColumns.set(row.tableName, [...detailedTableColumns.get(row.tableName) ?? [], row]);
     }
 
-    const lines = [
-        kind === "sqlite"
-            ? "当前 SQLite 业务表（表名和 camelCase 字段按原样双引号引用最稳）："
-            : "当前 Postgres 业务表（名称和 camelCase 字段必须按下列写法使用双引号）：",
-    ];
+    const lines = ["当前 Project SQLite 业务表（表名和 camelCase 字段按原样双引号引用最稳）："];
     for (const tableName of Array.from(AGENT_SQL_DETAIL_TABLES.values()).filter((name) => tableColumns.has(name))) {
         lines.push(`${quoteIdentifier(tableName)}:`);
         for (const row of detailedTableColumns.get(tableName) ?? []) {
@@ -156,21 +108,21 @@ export function buildAgentSqlSchemaSummary(rows: AgentSqlSchemaRow[], foreignKey
 }
 
 /**
- * 读取并缓存 Agent SQL schema 摘要。
+ * 读取并缓存当前 Project SQLite schema 摘要。
  */
-export async function getAgentSqlSchemaSummary(): Promise<string> {
-    const kind = resolveDatabaseConfig().kind;
+export async function getAgentSqlSchemaSummary(projectPath?: string): Promise<string> {
+    const resolvedProjectPath = requireProjectPath(projectPath);
     if (
         agentSqlSchemaSummaryCache
-        && agentSqlSchemaSummaryCacheKind === kind
+        && agentSqlSchemaSummaryCacheProjectPath === resolvedProjectPath
         && Date.now() - agentSqlSchemaSummaryCacheAt < AGENT_SQL_SCHEMA_CACHE_TTL_MS
     ) {
         return agentSqlSchemaSummaryCache;
     }
     if (!agentSqlSchemaSummaryPromise) {
-        agentSqlSchemaSummaryPromise = readSchemaSummary(kind).then((summary) => {
+        agentSqlSchemaSummaryPromise = readSchemaSummary(resolvedProjectPath).then((summary) => {
             agentSqlSchemaSummaryCache = summary;
-            agentSqlSchemaSummaryCacheKind = kind;
+            agentSqlSchemaSummaryCacheProjectPath = resolvedProjectPath;
             agentSqlSchemaSummaryCacheAt = Date.now();
             agentSqlSchemaSummaryPromise = undefined;
             return agentSqlSchemaSummaryCache;
@@ -187,7 +139,7 @@ export async function getAgentSqlSchemaSummary(): Promise<string> {
  */
 export function clearAgentSqlSchemaSummaryCache(): void {
     agentSqlSchemaSummaryCache = "";
-    agentSqlSchemaSummaryCacheKind = null;
+    agentSqlSchemaSummaryCacheProjectPath = "";
     agentSqlSchemaSummaryCacheAt = 0;
     agentSqlSchemaSummaryPromise = undefined;
 }
@@ -196,16 +148,18 @@ export function clearAgentSqlSchemaSummaryCache(): void {
  * 创建 execute_sql 工具。
  */
 export function createSqlTool(): NeuroAgentTool {
-    const databaseKind = resolveDatabaseConfig().kind;
     return {
         key: "execute_sql",
         name: "execute_sql",
         label: "Execute SQL",
-        description: buildSqlToolDescription(databaseKind),
+        description: buildSqlToolDescription(),
         parameters: ExecuteSqlSchema,
-        async execute(_toolCallId, params: unknown) {
+        async execute() {
+            throw new Error("execute_sql 需要 v3 session context，并且只能访问当前 Project Workspace 的 .nbook/project.sqlite。");
+        },
+        async executeWithContext(context, _toolCallId, params: unknown) {
             const input = params as Static<typeof ExecuteSqlSchema>;
-            const result = await executeSql(input.sql);
+            const result = await executeSql(context, input.sql);
             return {
                 content: [{type: "text", text: JSON.stringify(result, null, 2)}],
                 details: result as unknown as JsonValue,
@@ -214,68 +168,49 @@ export function createSqlTool(): NeuroAgentTool {
     };
 }
 
-function buildSqlToolDescription(kind: DatabaseKind): string {
-    const shared = [
-        "Execute a single database SQL statement against the current application database.",
-        `Current Database Kind: ${kind}.`,
-        "Allowed: SELECT / WITH / INSERT / UPDATE / DELETE.",
-        "Prohibited: DDL, transaction control, session control, COPY, VACUUM, and multi-statement queries.",
-        `Query rows are capped at ${String(AGENT_SQL_ROW_LIMIT)} and statement timeout target is ${String(AGENT_SQL_TIMEOUT_MS)}ms.`,
-        "Use read/write/edit/apply_patch for manuscript or document files; execute_sql is only for structured DB data.",
-    ];
-
-    if (kind === "sqlite") {
-        return [
-            ...shared,
-            "SQLite dialect: quote business table and camelCase column names with double quotes when unsure, e.g. SELECT id, title FROM \"StoryThread\" ORDER BY \"createdAt\" DESC.",
-            "Schema discovery uses sqlite_schema and PRAGMA table_info / foreign_key_list.",
-            "Raw SQL does not apply Prisma @updatedAt client semantics; update \"updatedAt\" explicitly when needed.",
-        ].join("\n");
-    }
-
+function buildSqlToolDescription(): string {
     return [
-        ...shared,
-        "PostgreSQL folds unquoted identifiers to lowercase. Business tables with uppercase letters and camelCase columns must be double-quoted, e.g. SELECT id, title FROM \"StoryThread\" WHERE \"storyId\" = 1 ORDER BY \"createdAt\" DESC.",
-        "Schema discovery uses information_schema for public business tables.",
+        "Execute a single SQL statement against the current Project Workspace SQLite database.",
+        "Target database is fixed to the current Project Workspace .nbook/project.sqlite.",
+        "The tool has no sqlitePath/databasePath parameter and cannot access App SQLite.",
+        "Allowed: SELECT / WITH / INSERT / UPDATE / DELETE.",
+        "Prohibited: DDL, transaction control, session control, PRAGMA, ATTACH/DETACH, VACUUM, and multi-statement queries.",
+        `Query rows are capped at ${String(AGENT_SQL_ROW_LIMIT)}.`,
+        "Use read/write/edit/apply_patch for manuscript or document files; execute_sql is only for structured Project SQLite data.",
+        "SQLite dialect: quote business table and camelCase column names with double quotes when unsure, e.g. SELECT id, title FROM \"StoryThread\" ORDER BY \"createdAt\" DESC.",
+        "Schema discovery uses sqlite_schema and PRAGMA table_info / foreign_key_list internally; agents may not execute PRAGMA directly.",
         "Raw SQL does not apply Prisma @updatedAt client semantics; update \"updatedAt\" explicitly when needed.",
     ].join("\n");
 }
 
-async function readSchemaSummary(kind: DatabaseKind): Promise<string> {
-    if (kind === "sqlite") {
-        const client = useSqliteClient();
-        const tablesResult = await client.execute(SQLITE_TABLE_QUERY);
-        const tableNames = tablesResult.rows.map((row) => String(row.tableName));
-        const rows: AgentSqlSchemaRow[] = [];
-        const foreignKeys: AgentSqlForeignKeyRow[] = [];
+async function readSchemaSummary(projectPath: string): Promise<string> {
+    const client = await useSqliteClient(projectPath);
+    const tablesResult = await client.execute(SQLITE_TABLE_QUERY);
+    const tableNames = tablesResult.rows.map((row) => String(row.tableName));
+    const rows: AgentSqlSchemaRow[] = [];
+    const foreignKeys: AgentSqlForeignKeyRow[] = [];
 
-        for (const tableName of tableNames) {
-            const columns = await client.execute(`PRAGMA table_info(${quoteIdentifier(tableName)})`);
-            rows.push(...columns.rows.map((row) => ({
-                tableName,
-                columnName: String(row.name),
-                ordinalPosition: Number(row.cid) + 1,
-                isNullable: Number(row.notnull) === 1 || Number(row.pk) === 1 ? "NO" as const : "YES" as const,
-                columnDefault: row.dflt_value === null || row.dflt_value === undefined ? null : String(row.dflt_value),
-                dataType: String(row.type || "TEXT"),
-                udtName: String(row.type || "TEXT"),
-            })));
+    for (const tableName of tableNames) {
+        const columns = await client.execute(`PRAGMA table_info(${quoteIdentifier(tableName)})`);
+        rows.push(...columns.rows.map((row) => ({
+            tableName,
+            columnName: String(row.name),
+            ordinalPosition: Number(row.cid) + 1,
+            isNullable: Number(row.notnull) === 1 || Number(row.pk) === 1 ? "NO" as const : "YES" as const,
+            columnDefault: row.dflt_value === null || row.dflt_value === undefined ? null : String(row.dflt_value),
+            dataType: String(row.type || "TEXT"),
+            udtName: String(row.type || "TEXT"),
+        })));
 
-            const fkRows = await client.execute(`PRAGMA foreign_key_list(${quoteIdentifier(tableName)})`);
-            foreignKeys.push(...fkRows.rows.map((row) => ({
-                tableName,
-                columnName: String(row.from),
-                foreignTableName: String(row.table),
-                foreignColumnName: String(row.to),
-            })));
-        }
-        return buildAgentSqlSchemaSummary(rows, foreignKeys, kind);
+        const fkRows = await client.execute(`PRAGMA foreign_key_list(${quoteIdentifier(tableName)})`);
+        foreignKeys.push(...fkRows.rows.map((row) => ({
+            tableName,
+            columnName: String(row.from),
+            foreignTableName: String(row.table),
+            foreignColumnName: String(row.to),
+        })));
     }
-
-    const pool = useAgentSqlPool();
-    const columnsResult = await pool.query<AgentSqlSchemaRow>(POSTGRES_SCHEMA_QUERY);
-    const foreignKeysResult = await pool.query<AgentSqlForeignKeyRow>(POSTGRES_FOREIGN_KEY_QUERY);
-    return buildAgentSqlSchemaSummary(columnsResult.rows, foreignKeysResult.rows, kind);
+    return buildAgentSqlSchemaSummary(rows, foreignKeys);
 }
 
 function normalizeSql(sql: string): string {
@@ -291,26 +226,17 @@ function formatSummaryColumnName(columnName: string): string {
 }
 
 function formatSummaryDataType(row: AgentSqlSchemaRow): string {
-    if (row.dataType === "ARRAY") {
-        return `${row.udtName.replace(/^_/, "")}[]`;
-    }
-    if (row.dataType === "USER-DEFINED") {
-        return row.udtName;
-    }
-    if (row.dataType.toUpperCase() === "JSONB") {
-        return "JSON";
-    }
-    return row.dataType;
+    return row.dataType.toUpperCase() === "JSONB" ? "JSON" : row.dataType;
 }
 
 function formatColumnDefault(value: string | null): string {
     if (!value) {
         return "无默认值";
     }
-    if (value.includes("CURRENT_TIMESTAMP") || value.includes("now()")) {
+    if (value.includes("CURRENT_TIMESTAMP")) {
         return "DEFAULT CURRENT_TIMESTAMP";
     }
-    if (value.includes("nextval(") || value.toUpperCase().includes("AUTOINCREMENT")) {
+    if (value.toUpperCase().includes("AUTOINCREMENT")) {
         return "DEFAULT 自增";
     }
     return `DEFAULT ${value}`;
@@ -382,7 +308,6 @@ export function hasSqlStatementSeparator(sql: string): boolean {
             index++;
             continue;
         }
-
         if (inBlockComment) {
             if (char === "*" && nextChar === "/") {
                 inBlockComment = false;
@@ -392,7 +317,6 @@ export function hasSqlStatementSeparator(sql: string): boolean {
             index++;
             continue;
         }
-
         if (inSingleQuote) {
             if (char === "'" && nextChar === "'") {
                 index += 2;
@@ -404,7 +328,6 @@ export function hasSqlStatementSeparator(sql: string): boolean {
             index++;
             continue;
         }
-
         if (inDoubleQuote) {
             if (char === "\"" && nextChar === "\"") {
                 index += 2;
@@ -416,7 +339,6 @@ export function hasSqlStatementSeparator(sql: string): boolean {
             index++;
             continue;
         }
-
         if (char === "-" && nextChar === "-") {
             inLineComment = true;
             index += 2;
@@ -448,7 +370,6 @@ export function hasSqlStatementSeparator(sql: string): boolean {
 function stripSqlLiterals(sql: string): string {
     let result = "";
     let index = 0;
-    let dollarQuoteTag: string | null = null;
     let inSingleQuote = false;
     let inDoubleQuote = false;
     let inLineComment = false;
@@ -473,17 +394,6 @@ function stripSqlLiterals(sql: string): string {
                 result += "  ";
                 inBlockComment = false;
                 index += 2;
-                continue;
-            }
-            result += " ";
-            index++;
-            continue;
-        }
-        if (dollarQuoteTag) {
-            if (sql.startsWith(dollarQuoteTag, index)) {
-                result += " ".repeat(dollarQuoteTag.length);
-                index += dollarQuoteTag.length;
-                dollarQuoteTag = null;
                 continue;
             }
             result += " ";
@@ -528,15 +438,6 @@ function stripSqlLiterals(sql: string): string {
             index += 2;
             continue;
         }
-        if (char === "$") {
-            const match = /^\$[a-zA-Z_][a-zA-Z0-9_]*\$|^\$\$/.exec(sql.slice(index));
-            if (match) {
-                dollarQuoteTag = match[0];
-                result += " ".repeat(dollarQuoteTag.length);
-                index += dollarQuoteTag.length;
-                continue;
-            }
-        }
         if (char === "'") {
             inSingleQuote = true;
             result += " ";
@@ -555,58 +456,23 @@ function stripSqlLiterals(sql: string): string {
     return result;
 }
 
-function shouldRefreshChapterTree(sql: string): boolean {
-    const normalized = normalizeSql(sql);
-    return /\b(?:insert\s+into|update|delete\s+from)\s+"?(?:Novel)"?/i.test(normalized);
-}
-
-export function buildAgentSqlErrorMessage(sql: string, error: unknown, kind: DatabaseKind = resolveDatabaseConfig().kind): string {
+export function buildAgentSqlErrorMessage(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error);
-    const pgError = error as PgErrorLike;
     const hintLines = [`SQL 执行失败：${message}`];
-    if (kind === "postgres" && (pgError.code === "42P01" || message.includes("relation") && message.includes("does not exist"))) {
-        hintLines.push("提示：Postgres 业务表名区分大小写，例如 Novel、StoryThread 必须写成 \"Novel\"、\"StoryThread\"。");
-    }
-    if (kind === "postgres" && (pgError.code === "42703" || message.includes("column") && message.includes("does not exist"))) {
-        hintLines.push("提示：Postgres camelCase 字段区分大小写，例如 storyId、sortOrder、createdAt 必须写成 \"storyId\"、\"sortOrder\"、\"createdAt\"。");
-    }
-    if (kind === "sqlite" && /no such (?:table|column)/i.test(message)) {
-        hintLines.push("提示：当前是 SQLite，先用 sqlite_schema 或 schema summary 确认表/列名；业务表和 camelCase 字段建议使用双引号。");
+    if (/no such (?:table|column)/i.test(message)) {
+        hintLines.push("提示：当前目标是 Project SQLite；先确认当前 Project Workspace 和表/列名。业务表和 camelCase 字段建议使用双引号。");
     }
     return hintLines.join("\n");
 }
 
-async function executeSql(sql: string): Promise<ExecuteSqlResult> {
+async function executeSql(context: ToolExecutionContext, sql: string): Promise<ExecuteSqlResult> {
     const normalized = normalizeSql(sql);
     validateExecuteSql(normalized);
-    const kind = resolveDatabaseConfig().kind;
-    return kind === "sqlite"
-        ? executeSqliteSql(normalized)
-        : executePostgresSql(normalized);
+    return executeSqliteSql(requireProjectPath(context.projectPath), normalized);
 }
 
-async function executePostgresSql(normalized: string): Promise<ExecuteSqlResult> {
-    const pool = useAgentSqlPool();
-    const client = await pool.connect();
-    try {
-        await client.query(isReadSql(normalized) ? "BEGIN READ ONLY" : "BEGIN");
-        await client.query(`SET LOCAL statement_timeout = '${String(AGENT_SQL_TIMEOUT_MS)}ms'`);
-        await client.query(`SET LOCAL idle_in_transaction_session_timeout = '${String(AGENT_SQL_TIMEOUT_MS)}ms'`);
-        const result = isReadSql(normalized)
-            ? await client.query(`SELECT * FROM (${normalized}) AS agent_query LIMIT ${String(AGENT_SQL_ROW_LIMIT)}`)
-            : await client.query(normalized);
-        await client.query("COMMIT");
-        return toExecuteSqlResult(normalized, result.rows as Record<string, unknown>[], result.rowCount ?? result.rows.length);
-    } catch (error) {
-        await client.query("ROLLBACK");
-        throw new Error(buildAgentSqlErrorMessage(normalized, error, "postgres"));
-    } finally {
-        client.release();
-    }
-}
-
-async function executeSqliteSql(normalized: string): Promise<ExecuteSqlResult> {
-    const client = useSqliteClient();
+async function executeSqliteSql(projectPath: string, normalized: string): Promise<ExecuteSqlResult> {
+    const client = await useSqliteClient(projectPath);
     const statement = isReadSql(normalized)
         ? `SELECT * FROM (${normalized}) AS agent_query LIMIT ${String(AGENT_SQL_ROW_LIMIT)}`
         : normalized;
@@ -615,7 +481,7 @@ async function executeSqliteSql(normalized: string): Promise<ExecuteSqlResult> {
         const rows = result.rows.map((row) => ({...row}) as Record<string, unknown>);
         return toExecuteSqlResult(normalized, rows, result.rowsAffected || rows.length);
     } catch (error) {
-        throw new Error(buildAgentSqlErrorMessage(normalized, error, "sqlite"));
+        throw new Error(buildAgentSqlErrorMessage(error));
     }
 }
 
@@ -626,19 +492,26 @@ function toExecuteSqlResult(normalized: string, rows: Record<string, unknown>[],
         rowCount,
         rows,
         effects: {
-            refreshChapterTree: !isReadSql(normalized) && shouldRefreshChapterTree(normalized),
+            refreshChapterTree: false,
         },
     };
 }
 
-function useSqliteClient(): LibsqlClient {
-    const config = resolveDatabaseConfig();
-    if (config.kind !== "sqlite") {
-        throw new Error("当前 Database Kind 不是 sqlite，不能初始化 SQLite SQL client。");
-    }
-    if (!sqliteClient || sqliteClientUrl !== config.url) {
-        sqliteClient = createClient({url: config.url});
-        sqliteClientUrl = config.url;
+async function useSqliteClient(projectPath: string): Promise<LibsqlClient> {
+    await readProjectManifest(projectPath);
+    await initProjectDatabase(projectPath);
+    const url = toSqliteFileUrl(resolveProjectDatabasePath(projectPath));
+    if (!sqliteClient || sqliteClientUrl !== url) {
+        sqliteClient?.close();
+        sqliteClient = createClient({url});
+        sqliteClientUrl = url;
     }
     return sqliteClient;
+}
+
+function requireProjectPath(projectPath: string | undefined): string {
+    if (!projectPath || projectPath === "workspace" || projectPath === "workspace/.nbook") {
+        throw new Error("execute_sql 需要当前 session 位于具体 Project Workspace；目标固定为该项目的 .nbook/project.sqlite。");
+    }
+    return projectPath;
 }

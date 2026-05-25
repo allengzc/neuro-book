@@ -1,10 +1,8 @@
-import {assertNovel, requireNovelId, toNovelResponse} from "nbook/server/utils/novel-chapter";
-import {prisma} from "nbook/server/utils/prisma";
+import {assertNovel, requireProjectPath} from "nbook/server/utils/novel-chapter";
 
 /**
- * 查询单本小说。
+ * 查询单个 Project Workspace。
  */
 export default defineEventHandler(async (event) => {
-    const novelId = requireNovelId(event);
-    return toNovelResponse(await assertNovel(prisma, novelId));
+    return assertNovel(requireProjectPath(event));
 });

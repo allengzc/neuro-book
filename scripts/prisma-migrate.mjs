@@ -4,7 +4,7 @@ import {preparePrismaEnv} from "./prisma-env.mjs";
 
 const env = preparePrismaEnv();
 const mode = process.argv.includes("--deploy") ? "deploy" : "dev";
-if (env.kind === "sqlite" && mode === "deploy") {
+if (mode === "deploy") {
     const child = spawn("node", ["scripts/sqlite-migrate.mjs"], {
         env: {...process.env, DATABASE_KIND: env.kind, DATABASE_URL: env.databaseUrl},
         stdio: "inherit",
@@ -15,6 +15,10 @@ if (env.kind === "sqlite" && mode === "deploy") {
             return;
         }
         process.exit(code ?? 1);
+    });
+    child.on("error", (error) => {
+        console.error(error);
+        process.exit(1);
     });
 } else {
     const args = ["prisma", "migrate", mode, "--config", "./prisma.config.ts"];
@@ -30,5 +34,9 @@ if (env.kind === "sqlite" && mode === "deploy") {
             return;
         }
         process.exit(code ?? 1);
+    });
+    child.on("error", (error) => {
+        console.error(error);
+        process.exit(1);
     });
 }

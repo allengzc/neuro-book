@@ -33,7 +33,7 @@ describe("POST /api/workspace-files/upload-file", () => {
         const handler = (await import("nbook/server/api/workspace-files/upload-file.post")).default;
         await handler({} as never);
 
-        expect(resolveWorkspaceRootInput).toHaveBeenCalledWith({}, {novelId: undefined, workspaceKind: "user-assets"});
+        expect(resolveWorkspaceRootInput).toHaveBeenCalledWith({projectPath: undefined, workspaceKind: "user-assets"});
         expect(uploadWorkspaceFile).toHaveBeenCalledWith("workspace/.nbook", {
             fileName: "cover.jpg",
             data: Buffer.from([1, 2, 3]),

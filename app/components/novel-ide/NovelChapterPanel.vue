@@ -531,7 +531,12 @@ async function loadChapterPlotDetail(chapterId: string): Promise<void> {
     chapterPlotError.value = "";
 
     try {
-        const detail = await $fetch<ChapterPlotDetailDto>(`/api/novels/${novelIdeStore.currentNovelId}/chapters/${chapterId}/plot`);
+        const detail = await $fetch<ChapterPlotDetailDto>("/api/projects/plot/chapter", {
+            query: {
+                projectPath: novelIdeStore.currentNovelId,
+                chapterPath: chapterId,
+            },
+        });
         if (chapterPlotRequestId.value !== requestId) {
             return;
         }

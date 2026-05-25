@@ -1,4 +1,5 @@
 import type {AgentMessage, JsonValue, Message, Model, ThinkingLevel} from "nbook/server/agent/messages/types";
+import type {VariableJsonPatchOperation, VariableNamespace} from "nbook/server/agent/variables/types";
 
 export type SessionId = number;
 export type SessionEntryId = string;
@@ -9,7 +10,7 @@ export type SessionMetadata = {
     input: JsonValue;
     workspaceRoot: string;
     workspaceKey: string;
-    novelId?: string;
+    projectPath?: string;
     parentSessionId?: SessionId;
     createdAt: number;
     title?: string;
@@ -126,13 +127,31 @@ export type ProfileChangeEntry = {
     input?: JsonValue;
 };
 
-export type VariableChangeEntry = {
+export type VariablePatchSessionEntry = {
     id: SessionEntryId;
     parentId: SessionEntryId | null;
     timestamp: number;
-    type: "variable_change";
-    key: string;
-    value: JsonValue;
+    type: "variable_patch";
+    namespace: VariableNamespace;
+    path: string;
+    operations: VariableJsonPatchOperation[];
+    source: "agent" | "profile" | "frontend" | "user";
+    invocationId?: string;
+    toolCallId?: string;
+};
+
+export type ClientVariablePatchAckEntry = {
+    id: SessionEntryId;
+    parentId: SessionEntryId | null;
+    timestamp: number;
+    type: "client_variable_patch_ack";
+    namespace: "client";
+    path: string;
+    operations: VariableJsonPatchOperation[];
+    appliedValue?: JsonValue;
+    error?: string;
+    invocationId?: string;
+    toolCallId?: string;
 };
 
 export type SessionArchivedEntry = {
@@ -175,7 +194,8 @@ export type SessionEntry =
     | ModelChangeEntry
     | ThinkingLevelChangeEntry
     | ProfileChangeEntry
-    | VariableChangeEntry
+    | VariablePatchSessionEntry
+    | ClientVariablePatchAckEntry
     | SessionArchivedEntry
     | InvocationLifecycleEntry;
 
@@ -206,7 +226,7 @@ export type NeuroSessionContext = {
     thinkingLevel: ThinkingLevel;
     profileKey: string;
     workspaceRoot: string;
-    novelId?: string;
+    projectPath?: string;
     customState: Record<string, JsonValue>;
     linkedAgents: LinkedAgentSummary[];
     title?: string;

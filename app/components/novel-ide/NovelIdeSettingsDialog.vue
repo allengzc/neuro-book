@@ -166,9 +166,9 @@ const projectOptions = computed<SelectOption[]>(() => novelIdeStore.novels.map((
 
 const targetNovel = computed(() => novelIdeStore.novels.find((novel) => novel.id === targetNovelId.value) ?? null);
 const targetQuery = computed(() => activeScope.value === "project" && targetNovelId.value
-    ? {workspaceKind: "novel" as const, novelId: targetNovelId.value}
+    ? {workspaceKind: "novel" as const, projectPath: targetNovelId.value}
     : {workspaceKind: "user-assets" as const});
-const settingsPanelKey = computed(() => `${activeScope.value}:${targetQuery.value.workspaceKind}:${targetQuery.value.novelId ?? "global"}`);
+const settingsPanelKey = computed(() => `${activeScope.value}:${targetQuery.value.workspaceKind}:${targetQuery.value.projectPath ?? "global"}`);
 const targetLabel = computed(() => activeScope.value === "project"
     ? targetNovel.value?.title || targetNovel.value?.workspaceSlug || targetNovelId.value || "Project Workspace"
     : "Workspace Root");

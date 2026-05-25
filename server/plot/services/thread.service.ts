@@ -29,8 +29,8 @@ export class ThreadService {
     /**
      * 查询线程详情。
      */
-    async getStoryThreadDetailDto(novelId: number, threadId: number): Promise<StoryThreadDetailDto> {
-        const story = await this.storyService.ensureStory(novelId);
+    async getStoryThreadDetailDto(projectPath: string, threadId: number): Promise<StoryThreadDetailDto> {
+        const story = await this.storyService.ensureStory(projectPath);
         await this.scopeGuard.assertThread(story.id, threadId);
         const thread = await this.threadRepository.findThreadWithScenesById(threadId);
         if (!thread) {
@@ -42,8 +42,8 @@ export class ThreadService {
     /**
      * 创建线程。
      */
-    async createStoryThread(novelId: number, input: ParsedCreateStoryThreadInput): Promise<StoryThreadDetailDto> {
-        const story = await this.storyService.ensureStory(novelId);
+    async createStoryThread(projectPath: string, input: ParsedCreateStoryThreadInput): Promise<StoryThreadDetailDto> {
+        const story = await this.storyService.ensureStory(projectPath);
 
         if (input.storyPhaseId !== null) {
             await this.scopeGuard.assertPhase(story.id, input.storyPhaseId);
@@ -63,18 +63,18 @@ export class ThreadService {
             writingTip: input.writingTip ?? null,
             note: input.note ?? null,
         });
-        return this.getStoryThreadDetailDto(novelId, thread.id);
+        return this.getStoryThreadDetailDto(projectPath, thread.id);
     }
 
     /**
      * 更新线程。
      */
     async updateStoryThread(
-        novelId: number,
+        projectPath: string,
         threadId: number,
         patch: ParsedUpdateStoryThreadInput,
     ): Promise<StoryThreadDetailDto> {
-        const story = await this.storyService.ensureStory(novelId);
+        const story = await this.storyService.ensureStory(projectPath);
         const thread = await this.scopeGuard.assertThread(story.id, threadId);
         const nextStoryPhaseId = patch.storyPhaseId === undefined
             ? thread.storyPhaseId
@@ -107,14 +107,14 @@ export class ThreadService {
             await this.orderService.normalizeThreads(story.id, thread.storyPhaseId);
         }
 
-        return this.getStoryThreadDetailDto(novelId, thread.id);
+        return this.getStoryThreadDetailDto(projectPath, thread.id);
     }
 
     /**
      * 删除线程。
      */
-    async deleteStoryThread(novelId: number, threadId: number): Promise<void> {
-        const story = await this.storyService.ensureStory(novelId);
+    async deleteStoryThread(projectPath: string, threadId: number): Promise<void> {
+        const story = await this.storyService.ensureStory(projectPath);
         const thread = await this.scopeGuard.assertThread(story.id, threadId);
         await this.threadRepository.deleteThread(thread.id);
         await this.orderService.normalizeThreads(story.id, thread.storyPhaseId);
@@ -123,8 +123,8 @@ export class ThreadService {
     /**
      * 批量重排线程。
      */
-    async reorderStoryThreads(novelId: number, items: ParsedReorderStoryThreadItem[]): Promise<PlotTreeDto> {
-        const story = await this.storyService.ensureStory(novelId);
+    async reorderStoryThreads(projectPath: string, items: ParsedReorderStoryThreadItem[]): Promise<PlotTreeDto> {
+        const story = await this.storyService.ensureStory(projectPath);
         const [existingThreadIds, existingPhaseIds] = await Promise.all([
             this.threadRepository.findThreadIdsByStory(story.id),
             this.scopeGuard.listPhaseIds(story.id),
@@ -138,6 +138,6 @@ export class ThreadService {
             });
         }
 
-        return this.storyService.getPlotTree(novelId);
+        return this.storyService.getPlotTree(projectPath);
     }
 }

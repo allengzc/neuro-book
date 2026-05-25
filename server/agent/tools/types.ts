@@ -1,5 +1,6 @@
 import type {AgentTool, JsonValue} from "nbook/server/agent/messages/types";
 import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
+import type {ProfileVariableAccessor} from "nbook/server/agent/variables/types";
 
 export type ToolExecutionContext = {
     harness: NeuroAgentHarness;
@@ -7,7 +8,9 @@ export type ToolExecutionContext = {
     parentSessionId?: number;
     workspaceRoot: string;
     workspaceKey: string;
-    novelId?: string;
+    projectPath?: string;
+    invocationId?: string;
+    vars?: ProfileVariableAccessor;
 };
 
 export type NeuroAgentTool = AgentTool<any, any> & {

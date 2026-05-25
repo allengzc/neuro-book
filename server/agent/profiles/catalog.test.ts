@@ -13,6 +13,7 @@ import {
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {messageText} from "nbook/server/agent/messages/message-utils";
+import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
 
 describe("AgentProfileCatalog", () => {
     let root: string;
@@ -146,6 +147,79 @@ describe("AgentProfileCatalog", () => {
         const secondProfile = await firstCatalog.get("custom.helper");
 
         expect((await secondProfile.prepare!(context())).systemPrompt).toBe("v2");
+    });
+
+    it("用户 profile 依赖变化时继续使用上次编译产物并给出 warning", async () => {
+        await writeProfile(userRoot, "prompt-helper.ts", `export const helperText = "v1";`);
+        await writeProfile(userRoot, "custom.user-helper.profile.tsx", `
+            import {Type} from "typebox";
+            import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+            import {helperText} from "./prompt-helper";
+
+            export const profileManifest = { key: "custom.user-helper", name: "User Helper" } as const;
+            export default defineAgentProfile({
+                manifest: profileManifest,
+                inputSchema: Type.Object({}),
+                outputSchema: Type.Object({}),
+                allowedToolKeys: [],
+                prepare() { return { systemPrompt: helperText }; },
+            });
+        `);
+        await compileRoot(userRoot);
+        await writeProfile(userRoot, "prompt-helper.ts", `export const helperText = "v2";`);
+        const catalog = new AgentProfileCatalog(systemRoot, userRoot);
+
+        const profile = await catalog.get("custom.user-helper");
+        const snapshot = await catalog.snapshot();
+
+        expect((await profile.prepare!(context())).systemPrompt).toBe("v1");
+        expect(snapshot.profiles.find((item) => item.key === "custom.user-helper")).toEqual(expect.objectContaining({
+            loadStatus: "loaded",
+            source: "user",
+            issue: expect.objectContaining({
+                code: "dependency_stale",
+            }),
+        }));
+        expect(snapshot.issues).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                code: "dependency_stale",
+                profileKey: "custom.user-helper",
+            }),
+        ]));
+    });
+
+    it("用户 profile 依赖变化且 artifact 损坏时不可运行", async () => {
+        await writeProfile(userRoot, "prompt-helper.ts", `export const helperText = "v1";`);
+        await writeProfile(userRoot, "custom.broken-artifact.profile.tsx", `
+            import {Type} from "typebox";
+            import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+            import {helperText} from "./prompt-helper";
+
+            export const profileManifest = { key: "custom.broken-artifact", name: "Broken Artifact" } as const;
+            export default defineAgentProfile({
+                manifest: profileManifest,
+                inputSchema: Type.Object({}),
+                outputSchema: Type.Object({}),
+                allowedToolKeys: [],
+                prepare() { return { systemPrompt: helperText }; },
+            });
+        `);
+        await compileRoot(userRoot);
+        const manifest = await readProfileArtifactManifest(userRoot);
+        const manifestItem = manifest.profiles.find((item) => item.profileKey === "custom.broken-artifact")!;
+        await writeProfile(userRoot, "prompt-helper.ts", `export const helperText = "v2";`);
+        await writeFile(join(userRoot, ".compiled", manifestItem.artifactFileName), "export default null;", "utf8");
+        const catalog = new AgentProfileCatalog(systemRoot, userRoot);
+
+        const snapshot = await catalog.snapshot();
+
+        expect(snapshot.profiles.find((item) => item.key === "custom.broken-artifact")).toEqual(expect.objectContaining({
+            loadStatus: "compile_stale",
+            issue: expect.objectContaining({
+                code: "compile_stale",
+            }),
+        }));
+        await expect(catalog.get("custom.broken-artifact")).rejects.toThrow("不可运行");
     });
 
     it("builtin 覆盖只替换运行时实现，不替换锁定 schema", async () => {
@@ -347,6 +421,7 @@ function context() {
             planModeActive: false,
         },
         input: {},
+        vars: createTestVariableAccessor(),
         catalog: {
             profiles: [],
             issues: [],

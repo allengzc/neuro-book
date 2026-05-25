@@ -6,7 +6,6 @@ import {
     WorkspaceUploadError,
     type WorkspaceUploadFile,
 } from "nbook/server/workspace-files/workspace-upload";
-import {prisma} from "nbook/server/utils/prisma";
 
 /**
  * 上传 Project 文件夹或 zip 到当前挂载根。已有文件跳过。
@@ -14,8 +13,8 @@ import {prisma} from "nbook/server/utils/prisma";
 export default defineEventHandler(async (event) => {
     assertContentLengthLimit(event, 500 * 1024 * 1024, 8 * 1024 * 1024);
     const parts = await readRequiredMultipart(event);
-    const root = await resolveWorkspaceRootInput(prisma, {
-        novelId: readTextPart(parts, "novelId"),
+    const root = await resolveWorkspaceRootInput({
+        projectPath: readTextPart(parts, "projectPath"),
         workspaceKind: readTextPart(parts, "workspaceKind") === "user-assets" ? "user-assets" : undefined,
     });
     const mode = readTextPart(parts, "mode");

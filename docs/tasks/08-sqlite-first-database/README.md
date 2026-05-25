@@ -2,6 +2,12 @@
 
 > Active task directory format: `NN-kebab-case-name/`. Archived tasks move to `docs/tasks/archived/<task-slug>/`.
 
+## Current Truth / Superseded Notes
+
+本任务早期记录了“SQLite + Postgres 双库支持”的设计讨论；这部分已经过期。当前真实状态是 SQLite-only：PostgreSQL schema、adapter、pool、部署选项和 compose override 已移除，旧 PostgreSQL 数据不提供内置迁移。
+
+部署默认入口也已从 Docker 优先调整为“本机 + Git” `local-git`：脚本执行 git clone/pull、宿主机依赖安装、Nuxt build、SQLite migrate，生成 `.deploy/start-local-git.*` 和 `.deploy/create-admin-local-git.*`，然后打印启动命令退出。旧 `native` 参数仅作为兼容别名保留，`ghcr` / `source` 是高级 Docker 模式。
+
 ## User Request
 
 - 考虑把本项目当前 PostgreSQL 数据库迁移到更便于分发、打包的数据库。

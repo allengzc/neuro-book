@@ -20,7 +20,6 @@ import {
     PlanModeReminder,
     PlanModeReentry,
     PlanModeSparse,
-    PlotFocusReminder,
     ProfilePrompt,
     Reminder,
     RuntimeContext,
@@ -32,10 +31,11 @@ import {
     ToolResult,
     validateProfileTurnPlan,
     Watch,
-    ProjectReminder,
+    VariableSchema,
 } from "nbook/server/agent/profiles/profile-dsl";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
+import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
 
 describe("profile TSX DSL", () => {
     it("编译 ProfilePrompt 分区为 ProfileTurnPlan", async () => {
@@ -221,7 +221,7 @@ describe("profile TSX DSL", () => {
             context() {
                 return ProfilePrompt({
                     children: [
-                        HistorySet({children: Watch({path: "ctx.session.profileKey", children: Message({children: "bad"})})}),
+                        HistorySet({children: Watch({path: "session.profileKey", children: Message({children: "bad"})})}),
                     ],
                 });
             },
@@ -243,7 +243,7 @@ describe("profile TSX DSL", () => {
                         AppendingSet({
                             children: Reminder({
                                 id: "bad",
-                                watchPath: "ctx.input.foo",
+                                watchPath: "client.foo",
                                 watchValue: "foo",
                                 children: Message({children: "bad"}),
                             }),
@@ -252,7 +252,7 @@ describe("profile TSX DSL", () => {
                 });
             },
         });
-        await expect(bothWatchInputs.prepare!(context())).rejects.toThrow("watchPath");
+        await expect(bothWatchInputs.prepare!(context())).rejects.toThrow("只能提供一个");
 
         const badRepeat = defineAgentProfile({
             manifest: {
@@ -549,11 +549,9 @@ describe("profile TSX DSL", () => {
                         }),
                         AppendingSet({
                             children: [
-                                ProjectReminder({repeatEveryTurns: 20}),
                                 LinkedAgentsReminder(),
                                 TaskReminder({repeatEveryTurns: 8}),
                                 PlanModeReminder(),
-                                PlotFocusReminder(),
                                 Message({children: MentionedSkillsReminder()}),
                             ],
                         }),
@@ -564,14 +562,10 @@ describe("profile TSX DSL", () => {
 
         const plan = await profile.prepare!({
             ...context(),
-            input: {
-                studio: {
-                    workspace: "workspace/novel-7",
-                },
-            },
+            vars: createTestVariableAccessor({"client.currentProjectWorkspace": "workspace/novel-7"}),
             session: {
                 ...context().session,
-                novelId: "7",
+                projectPath: "workspace/novel-7",
                 messages: [createUserMessage({text: "use $draft please"})],
                 customState: {
                     "agent.tasks": {
@@ -582,11 +576,6 @@ describe("profile TSX DSL", () => {
                         active: true,
                         reminderKind: "full",
                         workDirectory: "workspace/.agent/123",
-                    },
-                    "plot.selection": {
-                        novelId: "1",
-                        threadId: "2",
-                        sceneId: "3",
                     },
                 },
                 linkedAgents: [{sessionId: 7, profileKey: "writer", detached: false}],
@@ -599,18 +588,14 @@ describe("profile TSX DSL", () => {
         expect(modelText).toContain("<dynamic-context>");
         expect(modelText).toContain("Agent cwd: workspace");
         expect(modelText).toContain("Current Project Workspace: workspace/novel-7");
-        expect(modelText).toContain("Current novelId: 7");
+        expect(modelText).not.toContain("Current novelId");
         expect(modelText).toContain("Linked agents:");
-        expect(modelText).toContain("Agent cwd:");
-        expect(appendingText).toContain("Current Project Workspace: workspace/novel-7");
-        expect(appendingText).toContain("Agent cwd:");
         expect(appendingText).toContain("Current linked agents:");
         expect(appendingText).toContain("Current task list: Test plan");
         expect(appendingText).toContain("## Thread Work Directory");
         expect(appendingText).toContain("## Restrictions");
         expect(appendingText).toContain("## Workflow");
         expect(appendingText.match(/## Thread Work Directory/g)).toHaveLength(1);
-        expect(appendingText).toContain("Current plot focus:");
         expect(appendingText).toContain("The user explicitly mentioned skill(s): $draft");
         expect(appendingText).toContain("read the matching SKILL.md location");
         expect(appendingText).not.toContain("{sessionId}");
@@ -769,6 +754,31 @@ describe("profile TSX DSL", () => {
         await expect(profile.prepare!(context())).rejects.toThrow("PlanModeFull");
     });
 
+    it("VariableSchema 默认输出局部 schema", async () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.variable-schema",
+                name: "Variable Schema",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: ModelContext({
+                        children: VariableSchema({paths: ["client.currentProjectWorkspace"], includeToolGuide: false}),
+                    }),
+                });
+            },
+        });
+
+        const plan = await profile.prepare!(context());
+        const text = (plan.modelContextMessages ?? []).map((message) => message.role === "user" ? messageText(message) : "").join("\n");
+
+        expect(text).toContain("\"schemas\"");
+        expect(text).toContain("\"path\": \"client.currentProjectWorkspace\"");
+        expect(text).toContain("\"schema\"");
+    });
+
     it("拒绝 prepare 写入非 object 的 profile runtime state", () => {
         expect(() => validateProfileTurnPlan("test.dsl", {
             stateWrites: [{
@@ -805,6 +815,7 @@ function context(): ProfilePrepareContext<object> {
             planModeActive: false,
         },
         input: {},
+        vars: createTestVariableAccessor(),
         catalog: {
             profiles: [],
             issues: [],

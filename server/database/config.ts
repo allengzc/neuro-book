@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import * as yaml from "yaml";
 
-export type DatabaseKind = "sqlite" | "postgres";
+export type DatabaseKind = "sqlite";
 
 export type DatabaseRuntimeConfig = {
     kind: DatabaseKind;
@@ -17,7 +17,7 @@ const BOOT_CONFIG_PATH = path.resolve(process.cwd(), "config.yaml");
  * 解析当前进程实际使用的数据库配置。
  *
  * `.env` / 进程环境是执行真值源；`config.yaml` 只作为部署镜像和诊断输入，
- * 不覆盖进程环境。缺省时使用 SQLite 文件库，方便本地分发。
+ * 不覆盖进程环境。缺省时使用 App SQLite 文件库。
  */
 export function resolveDatabaseConfig(): DatabaseRuntimeConfig {
     const bootDatabase = readBootDatabaseConfig();
@@ -26,13 +26,11 @@ export function resolveDatabaseConfig(): DatabaseRuntimeConfig {
     const bootKind = normalizeKind(bootDatabase.kind);
     const bootUrl = normalizeText(bootDatabase.url);
     const kind = envKind ?? inferKindFromUrl(envUrl) ?? bootKind ?? inferKindFromUrl(bootUrl) ?? "sqlite";
-    const url = envUrl || bootUrl || (kind === "sqlite" ? DEFAULT_SQLITE_URL : "");
+    const url = envUrl || bootUrl || DEFAULT_SQLITE_URL;
 
     assertDatabaseConfig(kind, url);
-    const sqliteFilePath = kind === "sqlite" ? resolveSqliteFilePath(url) : null;
-    if (sqliteFilePath) {
-        fs.mkdirSync(path.dirname(sqliteFilePath), {recursive: true});
-    }
+    const sqliteFilePath = resolveSqliteFilePath(url);
+    fs.mkdirSync(path.dirname(sqliteFilePath), {recursive: true});
 
     return {
         kind,
@@ -97,13 +95,10 @@ function normalizeKind(input: unknown): DatabaseKind | null {
     if (!value) {
         return null;
     }
-    if (value === "sqlite" || value === "postgres") {
-        return value;
+    if (value === "sqlite") {
+        return "sqlite";
     }
-    if (value === "postgresql") {
-        return "postgres";
-    }
-    throw new Error(`DATABASE_KIND 只支持 sqlite 或 postgres，当前为：${String(input)}`);
+    throw new Error(`DATABASE_KIND 只支持 sqlite，当前为：${String(input)}`);
 }
 
 function normalizeText(input: unknown): string {
@@ -117,24 +112,11 @@ function inferKindFromUrl(url: string): DatabaseKind | null {
     if (url.startsWith("file:")) {
         return "sqlite";
     }
-    if (url.startsWith("postgresql://") || url.startsWith("postgres://")) {
-        return "postgres";
-    }
-    return null;
+    throw new Error(`DATABASE_URL 只支持 SQLite file: URL，当前为：${url}`);
 }
 
 function assertDatabaseConfig(kind: DatabaseKind, url: string): void {
-    if (kind === "sqlite") {
-        if (!url.startsWith("file:")) {
-            throw new Error(`DATABASE_KIND=sqlite 时 DATABASE_URL 必须以 file: 开头，当前为：${url || "<empty>"}`);
-        }
-        return;
-    }
-
-    if (!url) {
-        throw new Error("DATABASE_KIND=postgres 时必须配置 DATABASE_URL。");
-    }
-    if (!url.startsWith("postgresql://") && !url.startsWith("postgres://")) {
-        throw new Error(`DATABASE_KIND=postgres 时 DATABASE_URL 必须是 PostgreSQL URL，当前为：${url}`);
+    if (kind !== "sqlite" || !url.startsWith("file:")) {
+        throw new Error(`App SQLite DATABASE_URL 必须以 file: 开头，当前为：${url || "<empty>"}`);
     }
 }

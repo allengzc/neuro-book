@@ -1,11 +1,11 @@
-import type {Prisma} from "nbook/server/generated/prisma/client";
+import type {Prisma} from "nbook/server/generated/project-prisma/client";
 import type {
     StoryPhase,
     StoryPlot,
     StoryScene,
     StorySceneRef,
     StoryThread,
-} from "nbook/server/generated/prisma/client";
+} from "nbook/server/generated/project-prisma/client";
 import type {
     CreateStoryPlotRequestDto,
     CreateStorySceneRequestDto,
@@ -30,7 +30,6 @@ export type PrismaExecutor = Prisma.TransactionClient | {
     storyScene: Prisma.TransactionClient["storyScene"];
     storyPlot: Prisma.TransactionClient["storyPlot"];
     storySceneRef: Prisma.TransactionClient["storySceneRef"];
-    novel: Prisma.TransactionClient["novel"];
     $executeRaw: Prisma.TransactionClient["$executeRaw"];
     $executeRawUnsafe: Prisma.TransactionClient["$executeRawUnsafe"];
 };

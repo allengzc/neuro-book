@@ -24,10 +24,10 @@ export function useConfigApi() {
     /**
      * 指定 Project Workspace 查询参数。
      */
-    function novelProjectQuery(novelId: string): ConfigWorkspaceQueryDto {
+    function novelProjectQuery(projectPath: string): ConfigWorkspaceQueryDto {
         return {
             workspaceKind: "novel",
-            novelId,
+            projectPath,
         };
     }
 
@@ -35,7 +35,7 @@ export function useConfigApi() {
      * 当前设置页对应的 Workspace Root / Project Workspace 查询参数。
      *
      * 小说工作区还没完成初始化时，只能读取 Workspace Root 配置；否则会生成
-     * `workspaceKind=novel` 但缺少 `novelId` 的无效请求。
+     * `workspaceKind=novel` 但缺少 `projectPath` 的无效请求。
      */
     function currentQuery(): ConfigWorkspaceQueryDto {
         if (novelIdeStore.workspaceKind === "user-assets" || !novelIdeStore.currentNovelId) {
@@ -43,7 +43,7 @@ export function useConfigApi() {
         }
         return {
             workspaceKind: "novel",
-            novelId: novelIdeStore.currentNovelId,
+            projectPath: novelIdeStore.currentNovelId,
         };
     }
 

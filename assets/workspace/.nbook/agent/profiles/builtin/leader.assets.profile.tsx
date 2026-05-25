@@ -81,7 +81,7 @@ export default defineAgentProfile({
                     </Message>
                 </ModelContext>
                 <AppendingSet>
-                    <Reminder id="user-assets-workspace" watchPath="ctx.workspace.root" repeatEveryTurns={20}>
+                    <Reminder id="user-assets-workspace" watch={() => "user-assets"} repeatEveryTurns={20}>
                         <Message>
                             {[
                                 "<system-reminder>",

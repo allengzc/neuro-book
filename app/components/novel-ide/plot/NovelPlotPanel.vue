@@ -88,6 +88,16 @@ const pinnedWorkbenchThreadIds = ref<string[]>([]);
 const loadingWorkbench = ref(false);
 const workbenchError = ref("");
 
+function projectPlotOptions(options: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+        ...options,
+        query: {
+            ...(typeof options.query === "object" && options.query !== null ? options.query : {}),
+            projectPath: currentNovelId.value,
+        },
+    };
+}
+
 let treeRequestVersion = 0;
 let workbenchRequestVersion = 0;
 
@@ -648,7 +658,7 @@ async function loadPlotTree(options: {
     treeError.value = "";
 
     try {
-        const response = await $fetch<PlotTreeDto>(`/api/novels/${currentNovelId.value}/plot/tree`);
+        const response = await $fetch<PlotTreeDto>(`/api/projects/plot/tree`, projectPlotOptions());
         if (requestVersion !== treeRequestVersion) {
             return;
         }
@@ -695,7 +705,7 @@ async function loadPlotWorkbench(force = false): Promise<void> {
     workbenchError.value = "";
 
     try {
-        const response = await $fetch<PlotWorkbenchDto>(`/api/novels/${currentNovelId.value}/plot/workbench`);
+        const response = await $fetch<PlotWorkbenchDto>(`/api/projects/plot/workbench`, projectPlotOptions());
         if (requestVersion !== workbenchRequestVersion) {
             return;
         }
@@ -722,7 +732,7 @@ async function ensureThreadDetail(threadId: string, force = false): Promise<void
     }
 
     try {
-        const detail = await $fetch<StoryThreadDetailDto>(`/api/novels/${currentNovelId.value}/plot/threads/${threadId}`);
+        const detail = await $fetch<StoryThreadDetailDto>(`/api/projects/plot/threads/${threadId}`, projectPlotOptions());
         applyThreadDetail(detail);
     } catch (error) {
         detailError.value = resolveErrorMessage(error, "加载 Thread 详情失败");
@@ -741,7 +751,7 @@ async function ensureSceneDetail(sceneId: string, force = false): Promise<void> 
     detailError.value = "";
 
     try {
-        const detail = await $fetch<StorySceneDetailDto>(`/api/novels/${currentNovelId.value}/plot/scenes/${sceneId}`);
+        const detail = await $fetch<StorySceneDetailDto>(`/api/projects/plot/scenes/${sceneId}`, projectPlotOptions());
         applySceneDetail(detail);
     } catch (error) {
         detailError.value = resolveErrorMessage(error, "加载 Scene 详情失败");
@@ -769,7 +779,7 @@ async function preloadThreadScenes(threadId: string): Promise<void> {
 
     try {
         const details = await Promise.all(missingSceneIds.map((sceneId) => (
-            $fetch<StorySceneDetailDto>(`/api/novels/${currentNovelId.value}/plot/scenes/${sceneId}`)
+            $fetch<StorySceneDetailDto>(`/api/projects/plot/scenes/${sceneId}`, projectPlotOptions())
         )));
 
         for (const detail of details) {
@@ -1083,7 +1093,7 @@ async function updateWorkbenchThread(threadId: string, patch: Partial<PlotThread
     workbenchError.value = "";
 
     try {
-        const updated = await $fetch<StoryThreadWriteResponseDto>(`/api/novels/${currentNovelId.value}/plot/threads/${threadId}`, {
+        const updated = await $fetch<StoryThreadWriteResponseDto>(`/api/projects/plot/threads/${threadId}`, projectPlotOptions({
             method: "PATCH",
             body: {
                 title: patch.title,
@@ -1093,7 +1103,7 @@ async function updateWorkbenchThread(threadId: string, patch: Partial<PlotThread
                 tags: patch.tags,
                 writingTip: patch.writingTip,
             } satisfies UpdateStoryThreadRequestDto,
-        });
+        }));
         detailDiagnostics.value = formatDiagnosticsText(updated);
         applyThreadDetail(updated);
         await loadPlotTree({
@@ -1117,7 +1127,7 @@ async function updateWorkbenchScene(sceneId: string, patch: Partial<PlotThreadPa
     workbenchError.value = "";
 
     try {
-        const updated = await $fetch<StorySceneWriteResponseDto>(`/api/novels/${currentNovelId.value}/plot/scenes/${sceneId}`, {
+        const updated = await $fetch<StorySceneWriteResponseDto>(`/api/projects/plot/scenes/${sceneId}`, projectPlotOptions({
             method: "PATCH",
             body: {
                 threadId: patch.threadId,
@@ -1129,7 +1139,7 @@ async function updateWorkbenchScene(sceneId: string, patch: Partial<PlotThreadPa
                 writingTip: patch.writingTip,
                 refs: patch.refs ? toStoryRefs(patch.refs) : undefined,
             } satisfies UpdateStorySceneRequestDto,
-        });
+        }));
         detailDiagnostics.value = formatDiagnosticsText(updated);
         applySceneDetail(updated);
         await loadPlotWorkbench(true);
@@ -1149,7 +1159,7 @@ async function updateWorkbenchPlot(plotId: string, patch: Partial<PlotThreadPane
     workbenchError.value = "";
 
     try {
-        const updated = await $fetch<StoryPlotWriteResponseDto>(`/api/novels/${currentNovelId.value}/plot/plots/${plotId}`, {
+        const updated = await $fetch<StoryPlotWriteResponseDto>(`/api/projects/plot/plots/${plotId}`, projectPlotOptions({
             method: "PATCH",
             body: {
                 sceneId: patch.sceneId,
@@ -1159,7 +1169,7 @@ async function updateWorkbenchPlot(plotId: string, patch: Partial<PlotThreadPane
                 writingTip: patch.writingTip,
                 note: patch.note,
             } satisfies UpdateStoryPlotRequestDto,
-        });
+        }));
         detailDiagnostics.value = formatDiagnosticsText(updated);
         const sceneId = updated.sceneId;
         if (sceneId) {
@@ -1183,7 +1193,7 @@ async function quickUpdateScene(payload: PlotThreadQuickSceneUpdate): Promise<vo
     detailError.value = "";
 
     try {
-        const detail = await $fetch<StorySceneDetailDto>(`/api/novels/${currentNovelId.value}/plot/scenes/${payload.sceneId}`, {
+        const detail = await $fetch<StorySceneDetailDto>(`/api/projects/plot/scenes/${payload.sceneId}`, projectPlotOptions({
             method: "PATCH",
             body: {
                 title: payload.title,
@@ -1193,7 +1203,7 @@ async function quickUpdateScene(payload: PlotThreadQuickSceneUpdate): Promise<vo
                 status: payload.status,
                 chapterPath: payload.chapterPath,
             } satisfies UpdateStorySceneRequestDto,
-        });
+        }));
 
         applySceneDetail(detail);
     } catch (error) {
@@ -1217,7 +1227,7 @@ async function saveThread(payload: PlotThreadEditorSave): Promise<void> {
 
     try {
         if (editorMode.value === "create") {
-            const created = await $fetch<StoryThreadWriteResponseDto>(`/api/novels/${currentNovelId.value}/plot/threads`, {
+            const created = await $fetch<StoryThreadWriteResponseDto>(`/api/projects/plot/threads`, projectPlotOptions({
                 method: "POST",
                 body: {
                     storyPhaseId: selectedThread.value?.phaseId ?? null,
@@ -1229,7 +1239,7 @@ async function saveThread(payload: PlotThreadEditorSave): Promise<void> {
                     tags: payload.tags,
                     writingTip: payload.writingTip,
                 } satisfies CreateStoryThreadRequestDto,
-            });
+            }));
             detailDiagnostics.value = formatDiagnosticsText(created);
 
             applyThreadDetail(created);
@@ -1244,7 +1254,7 @@ async function saveThread(payload: PlotThreadEditorSave): Promise<void> {
             return;
         }
 
-        const updated = await $fetch<StoryThreadWriteResponseDto>(`/api/novels/${currentNovelId.value}/plot/threads/${editingThreadId.value}`, {
+        const updated = await $fetch<StoryThreadWriteResponseDto>(`/api/projects/plot/threads/${editingThreadId.value}`, projectPlotOptions({
             method: "PATCH",
             body: {
                 title: payload.title,
@@ -1254,7 +1264,7 @@ async function saveThread(payload: PlotThreadEditorSave): Promise<void> {
                 tags: payload.tags,
                 writingTip: payload.writingTip,
             } satisfies UpdateStoryThreadRequestDto,
-        });
+        }));
         detailDiagnostics.value = formatDiagnosticsText(updated);
 
         applyThreadDetail(updated);
@@ -1287,7 +1297,7 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
         let sceneId = editingSceneId.value;
 
         if (editorMode.value === "create") {
-            const createdScene = await $fetch<StorySceneWriteResponseDto>(`/api/novels/${currentNovelId.value}/plot/scenes`, {
+            const createdScene = await $fetch<StorySceneWriteResponseDto>(`/api/projects/plot/scenes`, projectPlotOptions({
                 method: "POST",
                 body: {
                     threadId: selectedThreadId.value,
@@ -1299,7 +1309,7 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
                     writingTip: payload.writingTip,
                     refs: toStoryRefs(payload.refs),
                 } satisfies CreateStorySceneRequestDto,
-            });
+            }));
             detailDiagnostics.value = formatDiagnosticsText(createdScene);
 
             sceneId = createdScene.id;
@@ -1307,7 +1317,7 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
 
             const createdPlots: StoryPlotDto[] = [];
             for (const plot of payload.plots) {
-                const createdPlot = await $fetch<StoryPlotWriteResponseDto>(`/api/novels/${currentNovelId.value}/plot/plots`, {
+                const createdPlot = await $fetch<StoryPlotWriteResponseDto>(`/api/projects/plot/plots`, projectPlotOptions({
                     method: "POST",
                     body: {
                         sceneId: createdScene.id,
@@ -1316,13 +1326,13 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
                         effect: plot.effect,
                         writingTip: plot.writingTip,
                     } satisfies CreateStoryPlotRequestDto,
-                });
+                }));
                 detailDiagnostics.value = [detailDiagnostics.value, formatDiagnosticsText(createdPlot)].filter(Boolean).join("；");
                 createdPlots.push(createdPlot);
             }
 
             if (createdPlots.length) {
-                await $fetch(`/api/novels/${currentNovelId.value}/plot/plots/reorder`, {
+                await $fetch(`/api/projects/plot/plots/reorder`, projectPlotOptions({
                     method: "POST",
                     body: {
                         items: createdPlots.map((plot, index) => ({
@@ -1331,10 +1341,10 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
                             sortOrder: index,
                         })),
                     } satisfies ReorderStoryPlotsRequestDto,
-                });
+                }));
             }
         } else if (sceneId) {
-            const updatedScene = await $fetch<StorySceneWriteResponseDto>(`/api/novels/${currentNovelId.value}/plot/scenes/${sceneId}`, {
+            const updatedScene = await $fetch<StorySceneWriteResponseDto>(`/api/projects/plot/scenes/${sceneId}`, projectPlotOptions({
                 method: "PATCH",
                 body: {
                     threadId: selectedThreadId.value,
@@ -1346,7 +1356,7 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
                     writingTip: payload.writingTip,
                     refs: toStoryRefs(payload.refs),
                 } satisfies UpdateStorySceneRequestDto,
-            });
+            }));
             detailDiagnostics.value = formatDiagnosticsText(updatedScene);
             applySceneDetail(updatedScene);
 
@@ -1355,16 +1365,16 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
 
             for (const plot of existingPlots.values()) {
                 if (!nextPlotIds.has(plot.id)) {
-                    await $fetch(`/api/novels/${currentNovelId.value}/plot/plots/${plot.id}`, {
+                    await $fetch(`/api/projects/plot/plots/${plot.id}`, projectPlotOptions({
                         method: "DELETE",
-                    });
+                    }));
                 }
             }
 
             const orderedIds: string[] = [];
             for (const plot of payload.plots) {
                 if (existingPlots.has(plot.id)) {
-                    const updatedPlot = await $fetch<StoryPlotWriteResponseDto>(`/api/novels/${currentNovelId.value}/plot/plots/${plot.id}`, {
+                    const updatedPlot = await $fetch<StoryPlotWriteResponseDto>(`/api/projects/plot/plots/${plot.id}`, projectPlotOptions({
                         method: "PATCH",
                         body: {
                             kind: plot.kind,
@@ -1372,13 +1382,13 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
                             effect: plot.effect,
                             writingTip: plot.writingTip,
                         } satisfies UpdateStoryPlotRequestDto,
-                    });
+                    }));
                     detailDiagnostics.value = [detailDiagnostics.value, formatDiagnosticsText(updatedPlot)].filter(Boolean).join("；");
                     orderedIds.push(updatedPlot.id);
                     continue;
                 }
 
-                const createdPlot = await $fetch<StoryPlotWriteResponseDto>(`/api/novels/${currentNovelId.value}/plot/plots`, {
+                const createdPlot = await $fetch<StoryPlotWriteResponseDto>(`/api/projects/plot/plots`, projectPlotOptions({
                     method: "POST",
                     body: {
                         sceneId: sceneId!,
@@ -1387,13 +1397,13 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
                         effect: plot.effect,
                         writingTip: plot.writingTip,
                     } satisfies CreateStoryPlotRequestDto,
-                });
+                }));
                 detailDiagnostics.value = [detailDiagnostics.value, formatDiagnosticsText(createdPlot)].filter(Boolean).join("；");
                 orderedIds.push(createdPlot.id);
             }
 
             if (orderedIds.length) {
-                await $fetch(`/api/novels/${currentNovelId.value}/plot/plots/reorder`, {
+                await $fetch(`/api/projects/plot/plots/reorder`, projectPlotOptions({
                     method: "POST",
                     body: {
                         items: orderedIds.map((plotId, index) => ({
@@ -1402,7 +1412,7 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
                             sortOrder: index,
                         })),
                     } satisfies ReorderStoryPlotsRequestDto,
-                });
+                }));
             }
         }
 
@@ -1445,9 +1455,9 @@ async function deleteThread(threadId: string): Promise<void> {
         return;
     }
 
-    await $fetch(`/api/novels/${currentNovelId.value}/plot/threads/${threadId}`, {
+    await $fetch(`/api/projects/plot/threads/${threadId}`, projectPlotOptions({
         method: "DELETE",
-    });
+    }));
 
     delete threadDetailMap.value[threadId];
     await loadPlotTree();
@@ -1463,9 +1473,9 @@ async function deleteScene(sceneId: string): Promise<void> {
     }
 
     const fallbackThreadId = scenes.value.find((scene) => scene.id === sceneId)?.threadId ?? selectedThreadId.value;
-    await $fetch(`/api/novels/${currentNovelId.value}/plot/scenes/${sceneId}`, {
+    await $fetch(`/api/projects/plot/scenes/${sceneId}`, projectPlotOptions({
         method: "DELETE",
-    });
+    }));
 
     delete sceneDetailMap.value[sceneId];
     await loadPlotTree({
@@ -1485,9 +1495,9 @@ async function deletePlot(plotId: string): Promise<void> {
     const fallbackSceneId = workbenchPlots.value.find((plot) => plot.id === plotId)?.sceneId
         ?? visiblePlots.value.find((plot) => plot.id === plotId)?.sceneId
         ?? selectedSceneId.value;
-    await $fetch(`/api/novels/${currentNovelId.value}/plot/plots/${plotId}`, {
+    await $fetch(`/api/projects/plot/plots/${plotId}`, projectPlotOptions({
         method: "DELETE",
-    });
+    }));
 
     if (selectedPlotId.value === plotId) {
         selectedPlotId.value = null;
@@ -1509,7 +1519,7 @@ async function createWorkbenchPlot(sceneId: string): Promise<void> {
     workbenchError.value = "";
 
     try {
-        const created = await $fetch<StoryPlotWriteResponseDto>(`/api/novels/${currentNovelId.value}/plot/plots`, {
+        const created = await $fetch<StoryPlotWriteResponseDto>(`/api/projects/plot/plots`, projectPlotOptions({
             method: "POST",
             body: {
                 sceneId,
@@ -1518,7 +1528,7 @@ async function createWorkbenchPlot(sceneId: string): Promise<void> {
                 effect: null,
                 writingTip: null,
             } satisfies CreateStoryPlotRequestDto,
-        });
+        }));
         detailDiagnostics.value = formatDiagnosticsText(created);
         selectedPlotId.value = created.id;
         selectScene(sceneId);
@@ -1541,7 +1551,7 @@ async function createWorkbenchScene(threadId: string): Promise<void> {
     workbenchError.value = "";
 
     try {
-        const created = await $fetch<StorySceneWriteResponseDto>(`/api/novels/${currentNovelId.value}/plot/scenes`, {
+        const created = await $fetch<StorySceneWriteResponseDto>(`/api/projects/plot/scenes`, projectPlotOptions({
             method: "POST",
             body: {
                 threadId,
@@ -1553,7 +1563,7 @@ async function createWorkbenchScene(threadId: string): Promise<void> {
                 writingTip: null,
                 refs: [],
             } satisfies CreateStorySceneRequestDto,
-        });
+        }));
         detailDiagnostics.value = formatDiagnosticsText(created);
         applySceneDetail(created);
         await loadPlotTree({
@@ -1618,7 +1628,7 @@ async function reorderPlots(payload: {sceneId: string; plotIds: string[]}): Prom
     workbenchError.value = "";
 
     try {
-        await $fetch(`/api/novels/${currentNovelId.value}/plot/plots/reorder`, {
+        await $fetch(`/api/projects/plot/plots/reorder`, projectPlotOptions({
             method: "POST",
             body: {
                 items: payload.plotIds.map((plotId, index) => ({
@@ -1627,7 +1637,7 @@ async function reorderPlots(payload: {sceneId: string; plotIds: string[]}): Prom
                     sortOrder: index,
                 })),
             } satisfies ReorderStoryPlotsRequestDto,
-        });
+        }));
 
         await ensureSceneDetail(payload.sceneId, true);
         await loadPlotWorkbench(true);
@@ -1670,12 +1680,12 @@ async function reorderScenes(sceneIds: string[]): Promise<void> {
             };
         });
 
-        await $fetch(`/api/novels/${currentNovelId.value}/plot/scenes/reorder`, {
+        await $fetch(`/api/projects/plot/scenes/reorder`, projectPlotOptions({
             method: "POST",
             body: {
                 items,
             } satisfies ReorderStoryScenesRequestDto,
-        });
+        }));
 
         await loadPlotTree({
             preferredThreadId: selectedThreadId.value,

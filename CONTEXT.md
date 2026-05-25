@@ -1,6 +1,6 @@
 # NeuroBook Context
 
-NeuroBook 是一个本地优先的小说创作工作台。该语境记录用户运行数据、配置和数据库运行时相关的稳定术语。
+NeuroBook 是一个本地优先的小说创作工作台。该语境记录用户运行数据、配置、Project Workspace 可携带性和数据库边界相关的稳定术语。
 
 ## Language
 
@@ -16,21 +16,13 @@ _Avoid_: assets folder, user workspace
 一个具体内容项目的工作区，当前主要是单本小说。
 _Avoid_: workspace
 
-**Project Identity**:
-用于在 API、前端状态、Agent 运行上下文和数据库记录中指向同一个 Project Workspace 的稳定标识；删除 `Novel` 表后不再使用 numeric `novelId` 表达项目身份。
-_Avoid_: novelId, database id, workspace
-
-**Project Slug**:
-Project Workspace 在 Workspace Root 下的目录名，例如 `silver-dragon-hime`。
-_Avoid_: workspaceSlug, novel slug
-
 **Project Path**:
-Project Workspace 相对 Workspace Root 的路径，例如 `silver-dragon-hime`；需要和具体文件路径组合时才扩展为 `silver-dragon-hime/manuscript/...`。
-_Avoid_: absolute path, repo path
+Project Workspace 相对 Workspace Root 的单段目录名，也是公开 API 和运行时定位项目的标识。
+_Avoid_: projectId, novelId, database id
 
-**Project Metadata**:
-Project Workspace 内描述项目身份和类型的元数据文件，目标文件名为 `project.yaml`，小说项目使用 `kind: novel`。
-_Avoid_: Novel row, workspace.yaml
+**Project Manifest**:
+Project Workspace 根目录中描述项目类型、标题、摘要等展示元数据的 `project.yaml` 文件。
+_Avoid_: Novel row, workspace.yaml, project metadata
 
 **Boot Config**:
 启动和部署期配置，修改后需要重启服务才能可靠生效。
@@ -44,39 +36,40 @@ _Avoid_: config mirror, settings
 单用户全局运行配置，位于 Workspace Root `.nbook/config.json`。
 _Avoid_: boot config, project config
 
-**Database Kind**:
-当前进程使用的数据库实现类型，第一版只允许 `sqlite` 或 `postgres`。
-_Avoid_: database mode, provider
+**App SQLite**:
+应用级 SQLite 数据库，位于 Workspace Root `.nbook`，保存用户、鉴权和 Global Config，不记录 Project Workspace。
+_Avoid_: project database, SQLite Data File
 
-**SQLite Data File**:
-SQLite 默认数据库文件，属于 Workspace Root `.nbook` 下的本机运行状态。
-_Avoid_: project data file, deployment file
+**Project SQLite**:
+Project Workspace-local SQLite 数据库，位于 Project Workspace `.nbook`，保存 Story、StoryPhase、Plot、Scene 和其他项目级结构化数据。
+_Avoid_: app database, global database, Novel database
 
-**Database-aware SQL Tool**:
-根据当前 Database Kind 选择 SQL 方言、schema 摘要、连接实现和错误提示的 Agent 数据库工具。
-_Avoid_: Postgres SQL tool, generic SQL tool
+**Controlled SQLite Tool**:
+Agent 使用的受控 SQLite 查询工具，只操作当前 Project Workspace 的 Project SQLite，并集中限制危险 SQL。
+_Avoid_: Postgres SQL tool, generic SQL tool, bash-only database access
 
 ## Relationships
 
 - **Workspace Root `.nbook`** belongs to exactly one **Workspace Root**.
 - **Global Config** lives in **Workspace Root `.nbook`**.
-- **SQLite Data File** lives in **Workspace Root `.nbook`**.
+- **App SQLite** lives in **Workspace Root `.nbook`**.
+- **Project SQLite** lives in exactly one **Project Workspace `.nbook`**.
+- **Project Path** locates exactly one **Project Workspace** under a **Workspace Root**.
+- **Project Manifest** lives at the root of exactly one **Project Workspace** and stores display metadata.
+- **Project SQLite** stores project data but does not define project identity or display metadata.
+- **App SQLite** must not record Project Workspace identity, path, status, or recent project index.
 - **Boot Config** may mirror **Process Environment** with `${NAME}` templates but does not override it.
-- **Database Kind** is selected by **Process Environment** and requires service restart to change.
-- **Database-aware SQL Tool** depends on **Database Kind** for its behavior and user-facing description.
-- **Project Workspace** is content data; it should not own global database runtime files.
-- **Project Identity** identifies exactly one **Project Workspace**.
-- **Project Slug** is the public DTO and frontend identity for local projects.
-- **Project Path** is the Agent, file-tool, and database root identity for local projects.
-- **Project Metadata** lives inside one **Project Workspace** and records its **Project Slug** and `kind`.
-- Database rows may reference **Project Identity**, but must not be the source of truth for Project existence.
+- **Controlled SQLite Tool** targets the current **Project SQLite** only and must not access **App SQLite**.
+- **Project Workspace** is portable project data; it may own **Project SQLite** but should not own users or authentication state.
 
 ## Example dialogue
 
-> **Dev:** "Can users switch the Database Kind in the settings dialog?"
-> **Domain expert:** "No. Database Kind is Boot Config. Changing it requires restart and migration, while Global Config remains hot or next-run application behavior."
+> **Dev:** "If I zip a Project Workspace and move it to a new NeuroBook install, do I need the old App SQLite too?"
+> **Domain expert:** "No. The Project Manifest, manuscript/lorebook files, Project Config, and Project SQLite travel together. The new App SQLite only keeps its own users and global settings, and the project is located by its Project Path."
 
 ## Flagged ambiguities
 
-- "自由选择数据库" resolved: first version means choosing **Database Kind** between SQLite and Postgres, not arbitrary Prisma-supported databases.
-- "删除 Novel 表" resolved: project existence moves to **Project Workspace** + **Project Metadata**; numeric `novelId` and `/api/novels` legacy contracts must be removed from public runtime contracts.
+- "项目级数据库存 User 表" was used ambiguously. Resolved: **User** belongs to **App SQLite**; **Project SQLite** must not carry users, sessions, or administrator state.
+- "NovelId" was used as both project identity and Plot anchor. Resolved: Project runtime identity is **Project Path**; Project SQLite is single-project and does not need a global `Novel` row or numeric `novelId`.
+- "Project Index" was proposed as rebuildable App SQLite state. Resolved: **App SQLite** must not record Project Workspace identity or status; Project Workspace discovery scans `project.yaml`.
+- "projectId" was proposed as immutable packaged identity. Resolved: no projectId is required in the current design; **Project Path** is the runtime locator and `project.yaml` carries display metadata.

@@ -16,17 +16,10 @@ const createdRoots: string[] = [];
 const catalog = createCatalog(["leader.default", "leader.assets", "custom.agent"]);
 let globalConfigBackupPath: string | null = null;
 
-vi.mock("nbook/server/utils/prisma", () => ({
-    prisma: {
-        novel: {
-            findUnique: vi.fn(async () => ({workspaceSlug: "config-test-project"})),
-        },
-    },
-}));
-
 describe("config service", () => {
     beforeEach(async () => {
         globalConfigBackupPath = await moveGlobalConfigAside();
+        await createProjectFixture();
     });
 
     afterEach(async () => {
@@ -41,7 +34,7 @@ describe("config service", () => {
     });
 
     it("无配置文件时返回默认 Global + Project 快照且不创建文件", async () => {
-        const snapshot = await readConfigEditorSnapshot({workspaceKind: "novel", novelId: "6"}, catalog);
+        const snapshot = await readConfigEditorSnapshot({workspaceKind: "novel", projectPath: "workspace/config-test-project"}, catalog);
 
         expect(snapshot.defaultProfileSettings.effectiveProfileKey).toBe("leader.default");
         await expect(fs.access(path.join("workspace", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
@@ -211,7 +204,6 @@ describe("config service", () => {
     });
 
     it("Project Config 可以覆盖默认模型和默认 profile，但拒绝 models.providers", async () => {
-        await fs.mkdir(path.join("workspace", "config-test-project"), {recursive: true});
         await saveGlobalConfig({
             models: {
                 default: "deepseek/a",
@@ -229,12 +221,12 @@ describe("config service", () => {
                 defaultProfileKey: {novel: "leader.default", userAssets: "leader.assets"},
                 profiles: {},
             },
-        }, {workspaceKind: "novel", novelId: "6"});
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
 
         const snapshot = await saveProjectConfig({
             models: {default: "deepseek/b"},
             agent: {defaultProfileKey: "custom.agent"},
-        }, {workspaceKind: "novel", novelId: "6"});
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
 
         expect(snapshot.effective.models.defaultModelKey).toBe("deepseek/b");
         expect(snapshot.effective.agent.defaultProfileKey.novel).toBe("custom.agent");
@@ -244,11 +236,10 @@ describe("config service", () => {
                 default: "deepseek/b",
                 providers: [],
             } as never,
-        }, {workspaceKind: "novel", novelId: "6"})).rejects.toMatchObject({statusCode: 400});
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"})).rejects.toMatchObject({statusCode: 400});
     });
 
     it("Project Config 的 null 覆盖会回落到 Global Config", async () => {
-        await fs.mkdir(path.join("workspace", "config-test-project"), {recursive: true});
         await saveGlobalConfig({
             models: {
                 default: "deepseek/a",
@@ -265,12 +256,12 @@ describe("config service", () => {
                 defaultProfileKey: {novel: "leader.default", userAssets: "leader.assets"},
                 profiles: {},
             },
-        }, {workspaceKind: "novel", novelId: "6"});
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
 
         const snapshot = await saveProjectConfig({
             models: {default: null},
             agent: {defaultProfileKey: null},
-        }, {workspaceKind: "novel", novelId: "6"});
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
 
         expect(snapshot.effective.models.defaultModelKey).toBe("deepseek/a");
         expect(snapshot.effective.agent.defaultProfileKey.novel).toBe("leader.default");
@@ -293,6 +284,16 @@ async function moveGlobalConfigAside(): Promise<string | null> {
     const backupPath = path.join(tempDir, "config.json");
     await fs.rename(configPath, backupPath);
     return backupPath;
+}
+
+async function createProjectFixture(): Promise<void> {
+    await fs.mkdir(path.join("workspace", "config-test-project"), {recursive: true});
+    await fs.writeFile(path.join("workspace", "config-test-project", "project.yaml"), [
+        "kind: novel",
+        "title: Config Test Project",
+        "summary: ''",
+        "",
+    ].join("\n"), "utf-8");
 }
 
 function createCatalog(profileKeys: string[]): AgentProfileCatalog {

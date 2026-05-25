@@ -50,13 +50,13 @@ export const ConfigItemMetaDtoSchema = z.object({
 
 export const ConfigWorkspaceQueryDtoSchema = z.object({
     workspaceKind: z.enum(["novel", "user-assets"]).default("novel"),
-    novelId: z.string().trim().min(1).optional(),
+    projectPath: z.string().trim().min(1).optional(),
 }).superRefine((value, ctx) => {
-    if (value.workspaceKind === "novel" && !value.novelId) {
+    if (value.workspaceKind === "novel" && !value.projectPath) {
         ctx.addIssue({
             code: "custom",
-            path: ["novelId"],
-            message: "Project Workspace 配置必须提供 novelId",
+            path: ["projectPath"],
+            message: "Project Workspace 配置必须提供 projectPath",
         });
     }
 });

@@ -1,6 +1,5 @@
-import type {Novel} from "nbook/server/generated/prisma/client";
 import {lockDatabaseKey} from "nbook/server/database/locks";
-import type {PlotLookupRepository, PlotRepository} from "nbook/server/plot/contracts/plot-repositories";
+import type {PlotRepository} from "nbook/server/plot/contracts/plot-repositories";
 import type {PrismaExecutor} from "nbook/server/plot/core/types";
 import type {StoryPlotKindDto} from "nbook/shared/dto/plot.dto";
 
@@ -8,7 +7,7 @@ import type {StoryPlotKindDto} from "nbook/shared/dto/plot.dto";
  * Prisma 版剧情数据仓储。
  * 同时承载 Plot 与剧情模块所需的辅助查询能力。
  */
-export class PrismaPlotDataRepository implements PlotRepository, PlotLookupRepository {
+export class PrismaPlotDataRepository implements PlotRepository {
     constructor(private readonly prisma: PrismaExecutor) {}
 
     /**
@@ -128,18 +127,4 @@ export class PrismaPlotDataRepository implements PlotRepository, PlotLookupRepos
         });
     }
 
-    /**
-     * 查询小说基础信息。
-     */
-    async findNovelById(novelId: number): Promise<Pick<Novel, "id" | "title" | "summary" | "workspaceSlug"> | null> {
-        return this.prisma.novel.findUnique({
-            where: {id: novelId},
-            select: {
-                id: true,
-                title: true,
-                summary: true,
-                workspaceSlug: true,
-            },
-        });
-    }
 }

@@ -1,11 +1,12 @@
 import {resolve, join} from "node:path";
 import type {AgentToolCall} from "@earendil-works/pi-agent-core";
 import type {AgentMessage, AssistantMessage, JsonValue, Message, ToolResultMessage} from "nbook/server/agent/messages/types";
-import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText, now} from "nbook/server/agent/messages/message-utils";
+import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import type {AgentCatalogItem, AgentProfile, ProfileCompactionPlan, ProfilePrepareContext, ProfileTurnPlan} from "nbook/server/agent/profiles/types";
 import {planModeDirectory} from "nbook/server/agent/plan-mode-path";
-import {AGENT_PLAN_MODE_STATE_KEY, AGENT_TASKS_STATE_KEY, PLOT_SELECTION_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
+import {AGENT_PLAN_MODE_STATE_KEY, AGENT_TASKS_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import type {NeuroSessionContext, SessionEntryDraft} from "nbook/server/agent/session/types";
+import type {VariableNamespace} from "nbook/server/agent/variables/types";
 
 export type ProfileDslChild = ProfileDslNode | string | number | boolean | null | undefined | ProfileDslChild[];
 
@@ -20,6 +21,8 @@ export type ProfileDslNode =
     | ProfileWatchNode
     | ProfileIfNode
     | ProfileStringFragmentNode
+    | ProfileVariableNode
+    | ProfileVariableSchemaNode
     | ProfilePlanModeSlotNode
     | ProfileFragmentNode;
 
@@ -103,6 +106,23 @@ export type ProfileIfNode = {
 export type ProfileStringFragmentNode = {
     kind: "StringFragment";
     text: string | ((ctx: ProfilePrepareContext<any>) => string | Promise<string>);
+};
+
+export type ProfileVariableNode = {
+    kind: "Variable";
+    path: string;
+    label?: string;
+    maxBytes?: number;
+};
+
+export type ProfileVariableSchemaNode = {
+    kind: "VariableSchema";
+    namespace?: VariableNamespace;
+    prefix?: string;
+    paths?: string[];
+    writableOnly?: boolean;
+    detail?: boolean;
+    includeToolGuide?: boolean;
 };
 
 export type PlanModeSlotKind = "full" | "sparse" | "exit" | "reentry_full";
@@ -474,6 +494,40 @@ export function SqlSchemaSummary(props: {text?: string | ((ctx: ProfilePrepareCo
 }
 
 /**
+ * 注入变量当前值。第一版只允许放在 ModelContext 的 Message/SystemReminder 等 string 节点内。
+ */
+export function Variable(props: {path: string; label?: string; maxBytes?: number}): ProfileVariableNode {
+    return {
+        kind: "Variable",
+        path: props.path,
+        label: props.label,
+        maxBytes: props.maxBytes,
+    };
+}
+
+/**
+ * 注入变量 catalog/schema 和工具提示。第一版只允许放在 ModelContext 的 string 节点内。
+ */
+export function VariableSchema(props: {
+    namespace?: VariableNamespace;
+    prefix?: string;
+    paths?: string[];
+    writableOnly?: boolean;
+    detail?: boolean;
+    includeToolGuide?: boolean;
+}): ProfileVariableSchemaNode {
+    return {
+        kind: "VariableSchema",
+        namespace: props.namespace,
+        prefix: props.prefix,
+        paths: props.paths,
+        writableOnly: props.writableOnly,
+        detail: props.detail,
+        includeToolGuide: props.includeToolGuide,
+    };
+}
+
+/**
  * 通用 system-reminder string fragment。推荐用于动态 runtime 提醒。
  */
 export function SystemReminder(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfileStringFragmentNode {
@@ -494,11 +548,11 @@ export function RuntimeContext(props: {children?: ProfileDslChild | ProfileDslCh
         kind: "StringFragment",
         text: async (ctx) => {
             const planModeState = readRecord(ctx.session.customState[AGENT_PLAN_MODE_STATE_KEY]);
+            const currentProjectWorkspace = await readCurrentProjectWorkspace(ctx);
             const lines = [
                 "<dynamic-context>",
                 `Agent cwd: ${ctx.session.workspaceRoot}`,
-                readCurrentProjectWorkspace(ctx) ? `Current Project Workspace: ${readCurrentProjectWorkspace(ctx)}` : "",
-                ctx.session.novelId ? `Current novelId: ${ctx.session.novelId}` : "",
+                currentProjectWorkspace ? `Current Project Workspace: ${currentProjectWorkspace}` : "",
                 `Profile key: ${ctx.session.profileKey}`,
                 readInputRole(ctx) ? `Input role: ${readInputRole(ctx)}` : "",
                 ctx.session.planModeActive ? "Plan mode: active" : "Plan mode: inactive",
@@ -523,24 +577,12 @@ export function LinkedAgentsSummary(_props: Record<string, never> = {}): Profile
 }
 
 /**
- * 当前 Project Workspace 边界提醒。
- */
-export function ProjectReminder(props: {id?: string; repeatEveryTurns?: number} = {}): ProfileReminderNode {
-    return Reminder({
-        id: props.id ?? "project",
-        watchPath: "ctx.workspace.currentProject",
-        repeatEveryTurns: props.repeatEveryTurns ?? 20,
-        children: Message({children: ProjectReminderText()}),
-    });
-}
-
-/**
  * 已关联 agent 变化提醒。
  */
 export function LinkedAgentsReminder(props: {id?: string; repeatEveryTurns?: number} = {}): ProfileReminderNode {
     return Reminder({
         id: props.id ?? "linked-agents",
-        watchPath: "ctx.session.linkedAgents",
+        watch: (ctx) => ctx.session.linkedAgents as JsonValue,
         repeatEveryTurns: props.repeatEveryTurns,
         children: Message({children: LinkedAgentsReminderText()}),
     });
@@ -553,7 +595,7 @@ export function TaskReminder(props: {id?: string; stateKey?: string; repeatEvery
     const stateKey = props.stateKey ?? AGENT_TASKS_STATE_KEY;
     return Reminder({
         id: props.id ?? "tasks",
-        watchPath: stateKeyPath(stateKey),
+        watch: (ctx) => ctx.session.customState[stateKey] ?? null,
         repeatEveryTurns: props.repeatEveryTurns ?? 8,
         children: Message({children: TaskReminderText({stateKey})}),
     });
@@ -587,7 +629,7 @@ export function ActivePlanModeReminder(props: {id?: string; stateKey?: string} =
     const stateKey = props.stateKey ?? AGENT_PLAN_MODE_STATE_KEY;
     return Reminder({
         id: props.id ?? "plan-mode-active",
-        watchPath: `${stateKeyPath(stateKey)}.active`,
+        watch: (ctx) => readRecord(ctx.session.customState[stateKey]).active as JsonValue | undefined,
         children: Message({children: PlanModeReminderText({stateKey})}),
     });
 }
@@ -600,18 +642,6 @@ export function MentionedSkillsReminder(_props: Record<string, never> = {}): Pro
         kind: "StringFragment",
         text: mentionedSkillsReminderText,
     };
-}
-
-/**
- * 当前 Plot selection 焦点提醒。
- */
-export function PlotFocusReminder(props: {id?: string; repeatEveryTurns?: number} = {}): ProfileReminderNode {
-    return Reminder({
-        id: props.id ?? "plot-focus",
-        watchPath: stateKeyPath(PLOT_SELECTION_STATE_KEY),
-        repeatEveryTurns: props.repeatEveryTurns,
-        children: Message({children: PlotFocusReminderText()}),
-    });
 }
 
 /**
@@ -838,6 +868,16 @@ async function renderChild(state: CompileState, zone: RenderZone, child: Profile
         }
         return renderWatch(state, zone, child);
     }
+    if (child.kind === "Variable") {
+        assertZone(zone, "model", "Variable 第一版只允许放在 ModelContext 内。");
+        const text = await renderVariableNode(state, child);
+        return text.trim() ? [createUserMessage({text})] : [];
+    }
+    if (child.kind === "VariableSchema") {
+        assertZone(zone, "model", "VariableSchema 第一版只允许放在 ModelContext 内。");
+        const text = renderVariableSchemaNode(state, child);
+        return text.trim() ? [createUserMessage({text})] : [];
+    }
     if (child.kind === "Message" || child.kind === "AIMessage" || child.kind === "ToolResult") {
         if (!["history", "model", "appending", "reminder", "watch"].includes(zone)) {
             throw new Error(`${child.kind} 不能直接放在 ${zone} 内。`);
@@ -930,6 +970,9 @@ function validateSystemChildren(children: ProfileDslChild[]): void {
                 validateSystemChildren(child.children);
             }
             continue;
+        }
+        if (child.kind === "Variable" || child.kind === "VariableSchema") {
+            throw new Error(`${child.kind} 第一版只允许放在 ModelContext。`);
         }
         throw new Error(`System 只能包含 string-like children，不能包含 ${child.kind}。`);
     }
@@ -1089,7 +1132,7 @@ async function renderReminder(state: CompileState, node: ProfileReminderNode): P
     assertAllowedWatchPath(node.watchPath, "Reminder.watchPath");
     const currentValue = node.watch
         ? await node.watch(state.context)
-        : node.watchPath ? readPath(state.context, node.watchPath) : node.watchValue;
+        : node.watchPath ? await readPath(state.context, node.watchPath) : node.watchValue;
     const hasWatchValue = node.watchPath !== undefined || node.watchValue !== undefined || node.watch !== undefined;
     const fingerprint = hasWatchValue ? stableStringifyJsonValue(currentValue) : undefined;
     const previous = state.currentRuntimeState.reminders?.[node.id];
@@ -1131,7 +1174,7 @@ async function renderWatch(state: CompileState, zone: RenderZone, node: ProfileW
     if (!key) {
         throw new Error("Watch 必须提供 path 或 id。");
     }
-    const currentValue = node.path ? readPath(state.context, node.path) : node.value;
+    const currentValue = node.path ? await readPath(state.context, node.path) : node.value;
     const currentBaseline: WatchState = {
         hasValue: currentValue !== undefined,
         value: currentValue === undefined ? null : currentValue,
@@ -1162,6 +1205,51 @@ async function renderWatch(state: CompileState, zone: RenderZone, node: ProfileW
         return [];
     }
     return renderChildren(state, zone === "model" ? "watch" : "watch", normalizeChildren(rendered));
+}
+
+async function renderVariableNode(state: CompileState, node: ProfileVariableNode): Promise<string> {
+    const result = await state.context.vars.read(node.path, {
+        maxBytes: node.maxBytes,
+    });
+    if (result.issue) {
+        return [
+            "<variable>",
+            `path: ${node.path}`,
+            `issue: ${result.issue.message}`,
+            "</variable>",
+        ].join("\n");
+    }
+    return [
+        "<variable>",
+        `path: ${node.path}`,
+        node.label ? `label: ${node.label}` : "",
+        result.truncated ? "truncated: true" : "",
+        "value:",
+        JSON.stringify(result.value ?? null, null, 2),
+        "</variable>",
+    ].filter(Boolean).join("\n");
+}
+
+function renderVariableSchemaNode(state: CompileState, node: ProfileVariableSchemaNode): string {
+    const result = state.context.vars.catalog({
+        namespace: node.namespace,
+        prefix: node.prefix,
+        paths: node.paths,
+        writableOnly: node.writableOnly,
+        detail: node.detail,
+    });
+    const payload = {catalog: result.catalog, schemas: result.schemas, issues: result.issues};
+    return [
+        "<variable-schema>",
+        JSON.stringify(payload, null, 2),
+        node.includeToolGuide === false ? "" : [
+            "Tool workflow:",
+            "- variable_schema: inspect focused variable schemas. Use namespace/prefix/paths; do not request everything.",
+            "- variable_read: read a registered variable value before editing.",
+            "- variable_patch: update one writable registered variable path with RFC 6902 JSON Patch, then read again to verify important changes.",
+        ].join("\n"),
+        "</variable-schema>",
+    ].filter(Boolean).join("\n");
 }
 
 async function renderStringChildren(state: CompileState, zone: RenderZone, children: ProfileDslChild[]): Promise<string> {
@@ -1198,6 +1286,9 @@ async function renderStringChildren(state: CompileState, zone: RenderZone, child
         if (child.kind === "StringFragment") {
             parts.push(typeof child.text === "function" ? await child.text(state.context) : child.text);
             return;
+        }
+        if (child.kind === "Variable" || child.kind === "VariableSchema") {
+            throw new Error(`${child.kind} 第一版只能作为 ModelContext 的直接子节点。`);
         }
         if (child.kind === "PlanModeSlot") {
             throw new Error(`${slotNodeName(child.slot)} 只能作为 PlanModeReminder 的直接子节点。`);
@@ -1283,55 +1374,13 @@ function assertAllowedWatchPath(path: string | undefined, label: string): void {
     if (!path) {
         return;
     }
-    if (!["ctx.session", "ctx.input", "ctx.runtime", "ctx.workspace"].some((prefix) => path === prefix || path.startsWith(`${prefix}.`))) {
-        throw new Error(`${label} 只能从 ctx.session、ctx.input、ctx.runtime、ctx.workspace 开始：${path}`);
+    if (!["client", "global", "project", "session"].some((prefix) => path === prefix || path.startsWith(`${prefix}.`))) {
+        throw new Error(`${label} 字符串形式只能从 client、global、project、session 变量路径开始；非变量上下文请使用函数 watch：${path}`);
     }
 }
 
-function readPath(context: ProfilePrepareContext<any>, path: string): JsonValue | undefined {
-    const customStatePrefix = "ctx.session.customState.";
-    if (path.startsWith(customStatePrefix)) {
-        const customPath = path.slice(customStatePrefix.length);
-        const matchedKey = Object.keys(context.session.customState)
-            .filter((key) => customPath === key || customPath.startsWith(`${key}.`))
-            .sort((left, right) => right.length - left.length)[0];
-        if (matchedKey) {
-            const value = context.session.customState[matchedKey];
-            const rest = customPath === matchedKey ? [] : customPath.slice(matchedKey.length + 1).split(".");
-            return readObjectPath(value, rest);
-        }
-    }
-    const roots: Record<string, unknown> = {
-        "ctx.session": context.session,
-        "ctx.input": context.input,
-        "ctx.runtime": {
-            now: context.runtime?.now ?? new Date(now()).toISOString(),
-            promptUserTurnCount: context.runtime?.promptUserTurnCount ?? countUserTurns(context.session.messages),
-            pendingUserMessage: context.runtime?.pendingUserMessage,
-        },
-        "ctx.workspace": {
-            root: context.session.workspaceRoot,
-            currentProject: readCurrentProjectWorkspace(context),
-            novelId: context.session.novelId,
-        },
-    };
-    const rootKey = Object.keys(roots).find((key) => path === key || path.startsWith(`${key}.`));
-    if (!rootKey) {
-        return undefined;
-    }
-    const rest = path === rootKey ? [] : path.slice(rootKey.length + 1).split(".");
-    return readObjectPath(roots[rootKey], rest);
-}
-
-function readObjectPath(value: unknown, rest: string[]): JsonValue | undefined {
-    let current = value;
-    for (const segment of rest) {
-        if (!current || typeof current !== "object" || Array.isArray(current) || !(segment in current)) {
-            return undefined;
-        }
-        current = (current as Record<string, unknown>)[segment];
-    }
-    return toJsonValue(current);
+async function readPath(context: ProfilePrepareContext<any>, path: string): Promise<JsonValue | undefined> {
+    return context.vars.get(path);
 }
 
 function toJsonValue(value: unknown): JsonValue | undefined {
@@ -1575,10 +1624,6 @@ function systemReminder(body: string): string {
     ].join("\n");
 }
 
-function stateKeyPath(key: string): string {
-    return `ctx.session.customState.${key}`;
-}
-
 function readRecord(value: unknown): Record<string, unknown> {
     return value && typeof value === "object" && !Array.isArray(value)
         ? value as Record<string, unknown>
@@ -1590,10 +1635,9 @@ function readInputRole(ctx: ProfilePrepareContext<any>): string {
     return typeof input.role === "string" ? input.role : "";
 }
 
-function readCurrentProjectWorkspace(ctx: ProfilePrepareContext<any>): string {
-    const input = readRecord(ctx.input);
-    const studio = readRecord(input.studio);
-    return typeof studio.workspace === "string" ? studio.workspace : "";
+async function readCurrentProjectWorkspace(ctx: ProfilePrepareContext<any>): Promise<string> {
+    const value = await ctx.vars.get("client.currentProjectWorkspace");
+    return typeof value === "string" ? value : "";
 }
 
 function linkedAgentsSummaryText(session: NeuroSessionContext): string {
@@ -1635,20 +1679,6 @@ function readTaskList(ctx: ProfilePrepareContext<any>, stateKey = AGENT_TASKS_ST
                 note: typeof step.note === "string" ? step.note : undefined,
             }];
         }),
-    };
-}
-
-function ProjectReminderText(): ProfileStringFragmentNode {
-    return {
-        kind: "StringFragment",
-        text: (ctx) => systemReminder([
-            `Agent cwd: ${ctx.session.workspaceRoot}`,
-            readCurrentProjectWorkspace(ctx) ? `Current Project Workspace: ${readCurrentProjectWorkspace(ctx)}` : "",
-            ctx.session.novelId ? `Current novelId: ${ctx.session.novelId}` : "",
-            "- Bash/read/write/edit/apply_patch relative paths resolve from Agent cwd.",
-            "- Use Project Workspace paths such as novel-7/lorebook/... or novel-7/manuscript/... for the current novel when Agent cwd is workspace.",
-            "- Cross-project work is allowed when the user asks; keep paths explicit so the target Project Workspace is clear.",
-        ].filter(Boolean).join("\n")),
     };
 }
 
@@ -1808,28 +1838,6 @@ function mentionedSkillsReminderText(ctx: ProfilePrepareContext<any>): string {
     ].join("\n"));
 }
 
-function PlotFocusReminderText(): ProfileStringFragmentNode {
-    return {
-        kind: "StringFragment",
-        text: (ctx) => {
-            const selection = readRecord(ctx.session.customState[PLOT_SELECTION_STATE_KEY]);
-            const novelId = typeof selection.novelId === "string" ? selection.novelId : "";
-            const threadId = typeof selection.threadId === "string" ? selection.threadId : "";
-            const sceneId = typeof selection.sceneId === "string" ? selection.sceneId : "";
-            if (!novelId && !threadId && !sceneId) {
-                return "";
-            }
-            return systemReminder([
-                "Current plot focus:",
-                novelId ? `- novelId: ${novelId}` : "",
-                threadId ? `- Thread: ${threadId}` : "",
-                sceneId ? `- Scene: ${sceneId}` : "",
-                "Plot tools may reuse threadId/sceneId from plot.selection, but novelId must still be passed explicitly.",
-            ].filter(Boolean).join("\n"));
-        },
-    };
-}
-
 function indentLines(text: string, spaces: number): string {
     const prefix = " ".repeat(spaces);
     return text.split("\n").map((line) => `${prefix}${line}`).join("\n");
@@ -1910,13 +1918,14 @@ async function defaultActivatedSkillsText(ctx: ProfilePrepareContext<any>): Prom
     ].join("\n"));
 }
 
-async function defaultSqlSchemaSummaryText(): Promise<string> {
+async function defaultSqlSchemaSummaryText(ctx: ProfilePrepareContext<any>): Promise<string> {
     try {
         const {getAgentSqlSchemaSummary} = await import("nbook/server/agent/tools/sql-tool");
         return [
             "<sql-schema-summary>",
-            "PostgreSQL folds unquoted identifiers to lowercase. Double-quote business tables with uppercase letters and camelCase columns, e.g. \"novelId\", \"createdAt\", \"sortOrder\". Otherwise SQL may fail with column does not exist.",
-            await getAgentSqlSchemaSummary(),
+            "Target database is current Project Workspace .nbook/project.sqlite. App SQLite is not accessible from execute_sql.",
+            "Double-quote business tables with uppercase letters and camelCase columns, e.g. \"createdAt\", \"sortOrder\".",
+            await getAgentSqlSchemaSummary(ctx.session.projectPath),
             "</sql-schema-summary>",
         ].join("\n");
     } catch (error) {

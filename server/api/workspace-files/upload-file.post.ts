@@ -1,7 +1,6 @@
 import {createError, getRequestHeader, readMultipartFormData, type MultiPartData} from "h3";
 import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
 import {uploadWorkspaceFile, WorkspaceUploadError} from "nbook/server/workspace-files/workspace-upload";
-import {prisma} from "nbook/server/utils/prisma";
 
 /**
  * 上传单个文件到当前挂载根的 upload/ 目录。已有文件跳过。
@@ -10,8 +9,8 @@ export default defineEventHandler(async (event) => {
     assertContentLengthLimit(event, 50 * 1024 * 1024, 1024 * 1024);
     const parts = await readRequiredMultipart(event);
     const file = firstFilePart(parts);
-    const root = await resolveWorkspaceRootInput(prisma, {
-        novelId: readTextPart(parts, "novelId"),
+    const root = await resolveWorkspaceRootInput({
+        projectPath: readTextPart(parts, "projectPath"),
         workspaceKind: readTextPart(parts, "workspaceKind") === "user-assets" ? "user-assets" : undefined,
     });
 

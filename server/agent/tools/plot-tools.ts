@@ -15,8 +15,8 @@ const StoryRefSchema = Type.Object({
     note: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 });
 
-const NovelScopedSchema = Type.Object({
-    novelId: NonEmptyString("Required novel ID. The agent must pass it explicitly; this tool never infers novelId from session."),
+const ProjectScopedSchema = Type.Object({
+    projectPath: NonEmptyString("Required Project Path, e.g. workspace/silver-dragon-hime. The agent must pass it explicitly."),
 });
 
 const ThreadPatchSchema = {
@@ -78,19 +78,19 @@ const PlotPatchSchema = {
     note: Type.Optional(NullableString("Optional note. Null clears it.")),
 };
 
-const GetPlotTreeSchema = NovelScopedSchema;
-const GetStoryThreadSchema = Type.Object({...NovelScopedSchema.properties, threadId: Type.Optional(NonEmptyString("Thread ID. Defaults to plot.selection selected thread."))});
-const GetStorySceneContextSchema = Type.Object({...NovelScopedSchema.properties, sceneId: Type.Optional(NonEmptyString("Scene ID. Defaults to plot.selection selected scene."))});
-const GetChapterPlotSchema = Type.Object({...NovelScopedSchema.properties, chapterPath: NonEmptyString("Manuscript chapter path, e.g. manuscript/001-opening/.")});
-const CreateStoryThreadSchema = Type.Object({...NovelScopedSchema.properties, ...ThreadPatchSchema, name: NonEmptyString("Machine-friendly thread name."), title: NonEmptyString("Human-readable thread title.")});
-const UpdateStoryThreadSchema = Type.Object({...NovelScopedSchema.properties, threadId: Type.Optional(NonEmptyString("Thread ID. Defaults to plot.selection selected thread.")), ...ThreadPatchSchema});
-const CreateStorySceneSchema = Type.Object({...NovelScopedSchema.properties, ...ScenePatchSchema, title: NonEmptyString("Human-readable scene title.")});
-const UpdateStorySceneSchema = Type.Object({...NovelScopedSchema.properties, sceneId: Type.Optional(NonEmptyString("Scene ID. Defaults to plot.selection selected scene.")), ...ScenePatchSchema});
-const CreateStoryPlotSchema = Type.Object({...NovelScopedSchema.properties, ...PlotPatchSchema, kind: PlotKindSchema, summary: Type.Optional(Type.String())});
-const UpdateStoryPlotSchema = Type.Object({...NovelScopedSchema.properties, plotId: NonEmptyString("Plot ID to update."), ...PlotPatchSchema});
+const GetPlotTreeSchema = ProjectScopedSchema;
+const GetStoryThreadSchema = Type.Object({...ProjectScopedSchema.properties, threadId: Type.Optional(NonEmptyString("Thread ID. Defaults to plot.selection selected thread."))});
+const GetStorySceneContextSchema = Type.Object({...ProjectScopedSchema.properties, sceneId: Type.Optional(NonEmptyString("Scene ID. Defaults to plot.selection selected scene."))});
+const GetChapterPlotSchema = Type.Object({...ProjectScopedSchema.properties, chapterPath: NonEmptyString("Manuscript chapter path, e.g. manuscript/001-opening/.")});
+const CreateStoryThreadSchema = Type.Object({...ProjectScopedSchema.properties, ...ThreadPatchSchema, name: NonEmptyString("Machine-friendly thread name."), title: NonEmptyString("Human-readable thread title.")});
+const UpdateStoryThreadSchema = Type.Object({...ProjectScopedSchema.properties, threadId: Type.Optional(NonEmptyString("Thread ID. Defaults to plot.selection selected thread.")), ...ThreadPatchSchema});
+const CreateStorySceneSchema = Type.Object({...ProjectScopedSchema.properties, ...ScenePatchSchema, title: NonEmptyString("Human-readable scene title.")});
+const UpdateStorySceneSchema = Type.Object({...ProjectScopedSchema.properties, sceneId: Type.Optional(NonEmptyString("Scene ID. Defaults to plot.selection selected scene.")), ...ScenePatchSchema});
+const CreateStoryPlotSchema = Type.Object({...ProjectScopedSchema.properties, ...PlotPatchSchema, kind: PlotKindSchema, summary: Type.Optional(Type.String())});
+const UpdateStoryPlotSchema = Type.Object({...ProjectScopedSchema.properties, plotId: NonEmptyString("Plot ID to update."), ...PlotPatchSchema});
 
 type PlotSelection = {
-    novelId?: string;
+    projectPath?: string;
     threadId?: string;
     sceneId?: string;
 };
@@ -107,79 +107,78 @@ type SceneRefPayloadWithNote = Omit<SceneRefPayload, "note"> & {
 };
 
 /**
- * 创建 v3 plot 工具。novelId 必填；Thread/Scene 焦点写入 session custom state。
+ * 创建 v3 plot 工具。projectPath 必填；Thread/Scene 焦点写入 session custom state。
  */
 export function createPlotTools(): NeuroAgentTool[] {
     return [
-        tool("get_plot_tree", "Return the plot tree for the given novel.", GetPlotTreeSchema, async (context, input) => {
+        tool("get_plot_tree", "Return the plot tree for the given Project Workspace.", GetPlotTreeSchema, async (_context, input) => {
             const facade = await loadPlotFacade();
-            return plotResult(await facade.getPlotTree(parseNovelId(input.novelId)));
+            return plotResult(await facade.getPlotTree(input.projectPath));
         }),
         tool("get_story_thread", "Read the full detail of a story thread. threadId defaults to plot.selection.", GetStoryThreadSchema, async (context, input) => {
-            const threadId = await resolveThreadId(context, input.novelId, input.threadId);
+            const threadId = await resolveThreadId(context, input.projectPath, input.threadId);
             const facade = await loadPlotFacade();
-            const result = await facade.getStoryThreadDetailDto(parseNovelId(input.novelId), threadId);
-            await writeSelection(context, {novelId: input.novelId, threadId: String(threadId), sceneId: undefined});
+            const result = await facade.getStoryThreadDetailDto(input.projectPath, threadId);
+            await writeSelection(context, {projectPath: input.projectPath, threadId: String(threadId), sceneId: undefined});
             return plotResult(result);
         }),
         tool("get_story_scene_context", "Read a story scene with its parent thread and chapter plot view. sceneId defaults to plot.selection.", GetStorySceneContextSchema, async (context, input) => {
-            const novelId = parseNovelId(input.novelId);
-            const sceneId = await resolveSceneId(context, input.novelId, input.sceneId);
+            const sceneId = await resolveSceneId(context, input.projectPath, input.sceneId);
             const facade = await loadPlotFacade();
-            const scene = await facade.getStorySceneDetailDto(novelId, sceneId);
-            const thread = await facade.getStoryThreadDetailDto(novelId, parseEntityId("threadId", scene.threadId));
-            const chapterPlot = scene.chapterPath ? await facade.getChapterPlotDetailDto(novelId, scene.chapterPath) : null;
-            await writeSelection(context, {novelId: input.novelId, threadId: scene.threadId, sceneId: String(sceneId)});
+            const scene = await facade.getStorySceneDetailDto(input.projectPath, sceneId);
+            const thread = await facade.getStoryThreadDetailDto(input.projectPath, parseEntityId("threadId", scene.threadId));
+            const chapterPlot = scene.chapterPath ? await facade.getChapterPlotDetailDto(input.projectPath, scene.chapterPath) : null;
+            await writeSelection(context, {projectPath: input.projectPath, threadId: scene.threadId, sceneId: String(sceneId)});
             return plotResult({thread, scene, chapterPlot});
         }),
         tool("get_chapter_plot", "Read scenes and plots attached to a manuscript chapter content-node.", GetChapterPlotSchema, async (_context, input) => {
             const facade = await loadPlotFacade();
-            return plotResult(await facade.getChapterPlotDetailDto(parseNovelId(input.novelId), input.chapterPath));
+            return plotResult(await facade.getChapterPlotDetailDto(input.projectPath, input.chapterPath));
         }),
         tool("create_story_thread", "Create a new story thread and return its detail.", CreateStoryThreadSchema, async (context, input) => {
             const facade = await loadPlotFacade();
-            const {novelId, ...payload} = input;
-            const result = await facade.createStoryThread(parseNovelId(novelId), payload);
-            await writeSelection(context, {novelId, threadId: result.id, sceneId: undefined});
+            const {projectPath, ...payload} = input;
+            const result = await facade.createStoryThread(projectPath, payload);
+            await writeSelection(context, {projectPath, threadId: result.id, sceneId: undefined});
             return plotResult(result);
         }),
         tool("update_story_thread", "Update a story thread. threadId defaults to plot.selection.", UpdateStoryThreadSchema, async (context, input) => {
-            const threadId = await resolveThreadId(context, input.novelId, input.threadId);
+            const threadId = await resolveThreadId(context, input.projectPath, input.threadId);
             const facade = await loadPlotFacade();
-            const {novelId, threadId: _threadId, ...payload} = input;
-            const result = await facade.updateStoryThread(parseNovelId(novelId), threadId, payload);
-            await writeSelection(context, {novelId, threadId: result.id, sceneId: undefined});
+            const {projectPath, threadId: _threadId, ...payload} = input;
+            const result = await facade.updateStoryThread(projectPath, threadId, payload);
+            await writeSelection(context, {projectPath, threadId: result.id, sceneId: undefined});
             return plotResult(result);
         }),
         tool("create_story_scene", "Create a new story scene. threadId defaults to plot.selection.", CreateStorySceneSchema, async (context, input) => {
-            const threadId = await resolveThreadId(context, input.novelId, input.threadId);
+            const threadId = await resolveThreadId(context, input.projectPath, input.threadId);
             const facade = await loadPlotFacade();
-            const {novelId, ...payload} = input;
-            const result = await facade.createStoryScene(parseNovelId(novelId), normalizeScenePayload({...payload, threadId: String(threadId)}));
-            await writeSelection(context, {novelId, threadId: result.threadId, sceneId: result.id});
+            const {projectPath, ...payload} = input;
+            const result = await facade.createStoryScene(projectPath, normalizeScenePayload({...payload, threadId: String(threadId)}));
+            await writeSelection(context, {projectPath, threadId: result.threadId, sceneId: result.id});
             return plotResult(result);
         }),
         tool("update_story_scene", "Update a story scene. sceneId defaults to plot.selection.", UpdateStorySceneSchema, async (context, input) => {
-            const sceneId = await resolveSceneId(context, input.novelId, input.sceneId);
+            const sceneId = await resolveSceneId(context, input.projectPath, input.sceneId);
             const facade = await loadPlotFacade();
-            const {novelId, sceneId: _sceneId, ...payload} = input;
-            const result = await facade.updateStoryScene(parseNovelId(novelId), sceneId, normalizeScenePayload(payload));
-            await writeSelection(context, {novelId, threadId: result.threadId, sceneId: result.id});
+            const {projectPath, sceneId: _sceneId, ...payload} = input;
+            const result = await facade.updateStoryScene(projectPath, sceneId, normalizeScenePayload(payload));
+            await writeSelection(context, {projectPath, threadId: result.threadId, sceneId: result.id});
             return plotResult(result);
         }),
         tool("create_story_plot", "Create a plot under a story scene. sceneId defaults to plot.selection.", CreateStoryPlotSchema, async (context, input) => {
-            const sceneId = await resolveSceneId(context, input.novelId, input.sceneId);
+            const sceneId = await resolveSceneId(context, input.projectPath, input.sceneId);
             const facade = await loadPlotFacade();
-            const {novelId, ...payload} = input;
-            const result = await facade.createStoryPlot(parseNovelId(novelId), {...payload, sceneId: String(sceneId)} as never);
-            await writeSelection(context, {novelId, sceneId: result.sceneId});
+            const {projectPath, ...payload} = input;
+            const result = await facade.createStoryPlot(projectPath, {...payload, sceneId: String(sceneId)} as never);
+            await writeSelection(context, {projectPath, sceneId: result.sceneId});
             return plotResult(result);
         }),
         tool("update_story_plot", "Update a plot. plotId is required; sceneId can move the plot.", UpdateStoryPlotSchema, async (context, input) => {
             const facade = await loadPlotFacade();
-            const {novelId, plotId, ...payload} = input;
-            const result = await facade.updateStoryPlot(parseNovelId(novelId), parseEntityId("plotId", plotId), payload);
-            await writeSelection(context, {novelId, sceneId: result.sceneId});
+            const {projectPath, plotId, ...payload} = input;
+            const result = await facade.updateStoryPlot(projectPath, parseEntityId("plotId", plotId), payload);
+            await writeSelection(context, {projectPath, sceneId: result.sceneId});
             return plotResult(result);
         }),
     ];
@@ -206,10 +205,6 @@ function tool<TSchemaValue extends TSchema>(
     };
 }
 
-function parseNovelId(novelId: string): number {
-    return parseEntityId("novelId", novelId);
-}
-
 async function readSelection(context: ToolExecutionContext): Promise<PlotSelection> {
     const session = await context.harness.readSessionContext(context.sessionId, context.workspaceKey);
     const value = session.customState[PLOT_SELECTION_STATE_KEY];
@@ -218,36 +213,36 @@ async function readSelection(context: ToolExecutionContext): Promise<PlotSelecti
     }
     const record = value as Record<string, JsonValue>;
     return {
-        novelId: typeof record.novelId === "string" ? record.novelId : undefined,
+        projectPath: typeof record.projectPath === "string" ? record.projectPath : undefined,
         threadId: typeof record.threadId === "string" ? record.threadId : undefined,
         sceneId: typeof record.sceneId === "string" ? record.sceneId : undefined,
     };
 }
 
-async function resolveThreadId(context: ToolExecutionContext, novelId: string, threadId?: string): Promise<number> {
+async function resolveThreadId(context: ToolExecutionContext, projectPath: string, threadId?: string): Promise<number> {
     const selection = await readSelection(context);
-    const value = threadId ?? readSelectedId(selection, novelId, "threadId");
+    const value = threadId ?? readSelectedId(selection, projectPath, "threadId");
     if (!value) {
         throw new Error("缺少 threadId；请显式提供 threadId，或先读取/创建一个 Thread 建立 plot.selection。");
     }
     return parseEntityId("threadId", value);
 }
 
-async function resolveSceneId(context: ToolExecutionContext, novelId: string, sceneId?: string): Promise<number> {
+async function resolveSceneId(context: ToolExecutionContext, projectPath: string, sceneId?: string): Promise<number> {
     const selection = await readSelection(context);
-    const value = sceneId ?? readSelectedId(selection, novelId, "sceneId");
+    const value = sceneId ?? readSelectedId(selection, projectPath, "sceneId");
     if (!value) {
         throw new Error("缺少 sceneId；请显式提供 sceneId，或先读取/创建一个 Scene 建立 plot.selection。");
     }
     return parseEntityId("sceneId", value);
 }
 
-function readSelectedId(selection: PlotSelection, novelId: string, key: "threadId" | "sceneId"): string | undefined {
+function readSelectedId(selection: PlotSelection, projectPath: string, key: "threadId" | "sceneId"): string | undefined {
     if (!selection[key]) {
         return undefined;
     }
-    if (selection.novelId && selection.novelId !== novelId) {
-        throw new Error(`plot.selection 属于 novelId=${selection.novelId}，本次工具调用传入 novelId=${novelId}；跨 project/novel 访问时请显式提供 ${key}。`);
+    if (selection.projectPath && selection.projectPath !== projectPath) {
+        throw new Error(`plot.selection 属于 projectPath=${selection.projectPath}，本次工具调用传入 projectPath=${projectPath}；跨 Project 访问时请显式提供 ${key}。`);
     }
     return selection[key];
 }

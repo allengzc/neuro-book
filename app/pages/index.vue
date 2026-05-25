@@ -777,7 +777,7 @@ const subscribeWorkspaceEvents = (): void => {
     workspaceEventAbortController.value = abortController;
     const target = workspaceKind.value === "user-assets"
         ? {workspaceKind: "user-assets"} as const
-        : currentNovelId.value ? {novelId: currentNovelId.value} as const : null;
+        : currentNovelId.value ? {projectPath: currentNovelId.value} as const : null;
     if (!target) {
         return;
     }

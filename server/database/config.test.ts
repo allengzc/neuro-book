@@ -61,8 +61,8 @@ describe("database config", () => {
         process.env.DATABASE_URL = "file:./workspace/.nbook/env.sqlite";
         await writeFile("config.yaml", [
             "database:",
-            "  kind: postgres",
-            "  url: postgresql://user:pass@localhost:5432/neuro_book",
+            "  kind: sqlite",
+            "  url: file:./workspace/.nbook/config.sqlite",
             "",
         ].join("\n"), "utf-8");
 
@@ -75,7 +75,8 @@ describe("database config", () => {
 });
 
 async function importFreshConfig() {
-    return await import(`./config.ts?test=${Date.now()}-${Math.random()}`);
+    vi.resetModules();
+    return await import("nbook/server/database/config");
 }
 
 function restoreEnv(name: "DATABASE_KIND" | "DATABASE_URL", value: string | undefined): void {

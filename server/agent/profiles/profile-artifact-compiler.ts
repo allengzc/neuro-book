@@ -65,7 +65,7 @@ export async function compileProfileArtifacts(options: CompileProfileArtifactsOp
         ? resolve(process.cwd(), ".agent", "workspace", "profile-artifact-build", randomUUID())
         : compiledDir;
     await mkdir(buildCompiledDir, {recursive: true});
-    const existingManifest = options.fileName ? await readProfileArtifactManifest(profileRoot) : emptyArtifactManifest(profileRoot);
+    const existingManifest = await readProfileArtifactManifest(profileRoot);
     const targetFiles = options.fileName
         ? [resolveProfileFile(profileRoot, options.fileName)]
         : await findProfileFiles(profileRoot);
@@ -77,13 +77,15 @@ export async function compileProfileArtifacts(options: CompileProfileArtifactsOp
             compiled.push(item);
         }
 
-        const nextProfiles = [
-            ...existingManifest.profiles.filter((item) => !compiled.some((next) => next.fileName === item.fileName)),
-            ...compiled,
-        ].sort((left, right) => left.fileName.localeCompare(right.fileName));
+        const nextProfiles = (fullCompile
+            ? compiled
+            : [
+                ...existingManifest.profiles.filter((item) => !compiled.some((next) => next.fileName === item.fileName)),
+                ...compiled,
+            ]).sort((left, right) => left.fileName.localeCompare(right.fileName));
         const manifest: ProfileArtifactManifest = {
             compilerVersion: PROFILE_ARTIFACT_COMPILER_VERSION,
-            generatedAt: new Date().toISOString(),
+            generatedAt: profilesEqual(existingManifest.profiles, nextProfiles) ? existingManifest.generatedAt : new Date().toISOString(),
             profilesRoot: options.rootLabel ?? normalizeArtifactPath(profileRoot),
             profiles: nextProfiles,
         };
@@ -200,12 +202,6 @@ export async function validateProfileArtifact(profileRoot: string, item: Profile
     if (!sourceHash || sourceHash.sha256 !== item.sourceSha256 || sourceHash.bytes !== item.sourceBytes) {
         return {fresh: false, reason: "source_changed"};
     }
-    for (const dependency of item.dependencies) {
-        const current = await hashFile(resolveArtifactPath(dependency.path)).catch(() => null);
-        if (!current || current.sha256 !== dependency.sha256 || current.bytes !== dependency.bytes) {
-            return {fresh: false, reason: "dependency_changed"};
-        }
-    }
     const artifactPath = join(root, PROFILE_COMPILED_DIR_NAME, item.artifactFileName);
     if (!existsSync(artifactPath)) {
         return {fresh: false, reason: "artifact_missing"};
@@ -213,6 +209,12 @@ export async function validateProfileArtifact(profileRoot: string, item: Profile
     const artifactHash = await hashFile(artifactPath);
     if (artifactHash.sha256 !== item.artifactSha256 || artifactHash.bytes !== item.artifactBytes) {
         return {fresh: false, reason: "artifact_changed"};
+    }
+    for (const dependency of item.dependencies) {
+        const current = await hashFile(resolveArtifactPath(dependency.path)).catch(() => null);
+        if (!current || current.sha256 !== dependency.sha256 || current.bytes !== dependency.bytes) {
+            return {fresh: false, reason: "dependency_changed"};
+        }
     }
     return {fresh: true};
 }
@@ -501,6 +503,10 @@ function emptyArtifactManifest(profileRoot: string): ProfileArtifactManifest {
         profilesRoot: normalizeArtifactPath(profileRoot),
         profiles: [],
     };
+}
+
+function profilesEqual(left: ProfileArtifactManifestItem[], right: ProfileArtifactManifestItem[]): boolean {
+    return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function normalizeArtifactPath(filePath: string): string {

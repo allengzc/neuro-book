@@ -48,6 +48,10 @@ import type {
 } from "nbook/shared/dto/agent-session.dto";
 import {AgentSessionEventHub} from "nbook/server/agent/events/session-event-hub";
 import {isEmptyObjectSchema, reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
+import {createProfileVariableAccessor} from "nbook/server/agent/variables/accessor";
+import {normalizeClientState} from "nbook/server/agent/variables/accessor";
+import {createVariableRegistryForProfile, createVariableRegistryForSession} from "nbook/server/agent/variables/profile-registry";
+import type {ClientStateSnapshot, ProfileVariableAccessor, VariableInvocationState, VariableJsonPatchOperation, VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
 
 type HarnessOptions = {
     repo?: JsonlSessionRepository;
@@ -82,6 +86,14 @@ export class NeuroAgentHarness {
     private readonly activeInvocations = new Map<number, AgentActiveInvocationDto>();
     private readonly followUpQueues = new Map<number, AgentFollowUpQueueItemDto[]>();
     private readonly abortControllers = new Map<number, AbortController>();
+    private readonly invocationClientStates = new Map<string, ClientStateSnapshot | undefined>();
+    private readonly invocationVariableStates = new Map<string, VariableInvocationState>();
+    private readonly pendingClientPatches = new Map<string, {
+        request: VariablePatchRequest;
+        resolve: (ack: VariablePatchAck) => void;
+        reject: (error: Error) => void;
+        timeout: ReturnType<typeof setTimeout>;
+    }>();
 
     constructor(options: HarnessOptions = {}) {
         this.repo = options.repo ?? new JsonlSessionRepository();
@@ -107,7 +119,7 @@ export class NeuroAgentHarness {
             input: parsedInput,
             workspaceRoot: normalizeAgentWorkspaceRoot(input.workspaceRoot),
             workspaceKey: input.workspaceKey ?? "global",
-            novelId: input.novelId,
+            projectPath: input.projectPath,
             parentSessionId: input.parentSessionId,
             title: profile.manifest.name,
         });
@@ -184,6 +196,11 @@ export class NeuroAgentHarness {
         const abortController = new AbortController();
         this.activeInvocations.set(input.sessionId, activeInvocation);
         this.abortControllers.set(input.sessionId, abortController);
+        this.invocationClientStates.set(invocationId, input.clientState);
+        this.invocationVariableStates.set(invocationId, {
+            readFingerprints: new Map(),
+            clientOverlay: normalizeClientState(input.clientState),
+        });
         const lifecycleEntry = await this.repo.appendEntry(input.sessionId, {
             type: "invocation_lifecycle",
             invocationId,
@@ -213,7 +230,7 @@ export class NeuroAgentHarness {
                 snapshot = await this.repo.readSession(input.sessionId);
             }
             await this.publishSessionState(input.sessionId, invocationId);
-            const prepared = await this.prepare(snapshot, invocationId, pendingUserMessage ?? undefined);
+            const prepared = await this.prepare(snapshot, invocationId, pendingUserMessage ?? undefined, input.clientState);
             snapshot = await this.repo.readSession(input.sessionId);
             if (pendingUserMessage) {
                 const entry = await this.repo.appendMessage(input.sessionId, pendingUserMessage, snapshot.metadata.workspaceKey, "prompt");
@@ -254,7 +271,7 @@ export class NeuroAgentHarness {
                 sessionId: input.sessionId,
                 workspaceKey: snapshot.metadata.workspaceKey,
                 workspaceRoot: context.workspaceRoot,
-                novelId: context.novelId,
+                projectPath: context.projectPath,
                 systemPrompt: prepared.systemPrompt ?? context.systemPrompt,
                 messages: [
                     ...context.messages,
@@ -500,6 +517,7 @@ export class NeuroAgentHarness {
         const prepareContext = {
             session: context,
             input: input as never,
+            vars: await this.createProfileVariableAccessor(snapshot, profile, {dryRun: true}),
             catalog: await this.profiles.snapshot(),
             skills: await this.skills.list(),
             runtime: {
@@ -576,7 +594,7 @@ export class NeuroAgentHarness {
                 input: snapshot.metadata.input,
                 workspaceRoot: snapshot.metadata.workspaceRoot,
                 workspaceKey: snapshot.metadata.workspaceKey,
-                novelId: snapshot.metadata.novelId,
+                projectPath: snapshot.metadata.projectPath,
             });
             return {
                 status: "completed",
@@ -702,6 +720,7 @@ export class NeuroAgentHarness {
                 sessionId,
                 mode: body.next.mode,
                 message: body.next.message,
+                clientState: body.next.clientState,
                 internalQueued: true,
             });
             return {
@@ -753,6 +772,35 @@ export class NeuroAgentHarness {
      */
     subscribeSessionEvents(sessionId: number, after?: number): AsyncIterable<AgentSessionEventDto> {
         return this.eventHub.subscribe(sessionId, after);
+    }
+
+    /**
+     * 前端确认 client.* variable patch 已应用。
+     */
+    async acknowledgeClientVariablePatch(sessionId: number, ack: VariablePatchAck): Promise<void> {
+        const key = clientPatchKey(ack.invocationId, ack.toolCallId, ack.path);
+        const pending = this.pendingClientPatches.get(key);
+        if (!pending) {
+            throw new Error(`未找到等待中的 client variable patch：${ack.path}`);
+        }
+        if (pending.request.namespace !== ack.namespace || pending.request.path !== ack.path) {
+            throw new Error(`client variable patch ack 不匹配：${ack.path}`);
+        }
+        clearTimeout(pending.timeout);
+        this.pendingClientPatches.delete(key);
+        const snapshot = await this.repo.readSession(sessionId);
+        const entry = await this.repo.appendEntry(sessionId, {
+            type: "client_variable_patch_ack",
+            namespace: "client",
+            path: ack.path,
+            operations: ack.operations,
+            appliedValue: ack.appliedValue,
+            error: ack.error,
+            invocationId: ack.invocationId,
+            toolCallId: ack.toolCallId,
+        }, snapshot.metadata.workspaceKey);
+        this.publishSessionEntry(sessionId, ack.invocationId, entry);
+        pending.resolve(ack);
     }
 
     /**
@@ -814,13 +862,19 @@ export class NeuroAgentHarness {
         return latest?.replace(/\s+/g, " ").trim().slice(0, 360) || undefined;
     }
 
-    private async prepare(snapshot: SessionSnapshot, invocationId?: string, pendingUserMessage?: Message): Promise<ProfileTurnPlan> {
+    private async prepare(snapshot: SessionSnapshot, invocationId?: string, pendingUserMessage?: Message, clientState?: ClientStateSnapshot): Promise<ProfileTurnPlan> {
         const profile = await this.profiles.get(snapshot.metadata.profileKey);
         const context = this.repo.reduce(snapshot);
         const parsedInput = this.profiles.parseInput(profile, snapshot.metadata.input);
+        const vars = await this.createProfileVariableAccessor(snapshot, profile, {clientState, invocationId});
         const prepared = await profile.prepare!({
             session: context,
             input: parsedInput as never,
+            invocation: {
+                input: pendingUserMessage ? {message: messageText(pendingUserMessage)} : undefined,
+                clientState,
+            },
+            vars,
             catalog: await this.profiles.snapshot(),
             skills: await this.skills.list(),
             runtime: {
@@ -870,9 +924,11 @@ export class NeuroAgentHarness {
             return undefined;
         }
         const parsedInput = this.profiles.parseInput(profile, snapshot.metadata.input);
+        const vars = await this.createProfileVariableAccessor(snapshot, profile, {dryRun: true});
         const prepared = await profile.prepare({
             session: context,
             input: parsedInput as never,
+            vars,
             catalog: await this.profiles.snapshot(),
             skills: await this.skills.list(),
             runtime: {
@@ -905,9 +961,11 @@ export class NeuroAgentHarness {
             }
             const context = this.repo.reduce(snapshot);
             const parsedInput = this.profiles.parseInput(profile, snapshot.metadata.input);
+            const vars = await this.createProfileVariableAccessor(snapshot, profile, {dryRun: true});
             const ingest = await profile.ingest({
                 session: context,
                 input: parsedInput as never,
+                vars,
                 catalog: await this.profiles.snapshot(),
                 skills: await this.skills.list(),
             });
@@ -1001,7 +1059,7 @@ export class NeuroAgentHarness {
         sessionId: number;
         workspaceKey: string;
         workspaceRoot: string;
-        novelId?: string;
+        projectPath?: string;
         systemPrompt: string;
         messages: AgentMessage[];
         model: Model<any>;
@@ -1069,7 +1127,8 @@ export class NeuroAgentHarness {
                 sessionId: input.sessionId,
                 workspaceKey: input.workspaceKey,
                 workspaceRoot: input.workspaceRoot,
-                novelId: input.novelId,
+                projectPath: input.projectPath,
+                invocationId: input.invocationId,
                 assistant,
                 toolCalls,
                 allowedToolKeys: input.toolKeys,
@@ -1177,7 +1236,8 @@ export class NeuroAgentHarness {
         sessionId: number;
         workspaceKey: string;
         workspaceRoot: string;
-        novelId?: string;
+        projectPath?: string;
+        invocationId?: string;
         assistant: AssistantMessage;
         toolCalls: AgentToolCall[];
         allowedToolKeys: string[];
@@ -1235,7 +1295,8 @@ export class NeuroAgentHarness {
                 sessionId: input.sessionId,
                 workspaceKey: input.workspaceKey,
                 workspaceRoot: input.workspaceRoot,
-                novelId: input.novelId,
+                projectPath: input.projectPath,
+                invocationId: input.invocationId,
                 allowedToolKeys: input.allowedToolKeys,
                 toolOverrides: input.toolOverrides,
                 abortSignal: input.abortSignal,
@@ -1304,7 +1365,8 @@ export class NeuroAgentHarness {
         sessionId: number;
         workspaceKey: string;
         workspaceRoot: string;
-        novelId?: string;
+        projectPath?: string;
+        invocationId?: string;
         allowedToolKeys: string[];
         toolOverrides: Record<string, NeuroAgentTool>;
         abortSignal?: AbortSignal;
@@ -1340,7 +1402,9 @@ export class NeuroAgentHarness {
                 sessionId: input.sessionId,
                 workspaceRoot: input.workspaceRoot,
                 workspaceKey: input.workspaceKey,
-                novelId: input.novelId,
+                projectPath: input.projectPath,
+                invocationId: input.invocationId,
+                vars: await this.createVariableAccessor(input.sessionId, input.invocationId),
             };
             const result = tool.executeWithContext
                 ? await tool.executeWithContext(context, input.toolCall.id, args, input.abortSignal)
@@ -1409,7 +1473,94 @@ export class NeuroAgentHarness {
     private async finishInvocation(sessionId: number, invocationId?: string): Promise<void> {
         this.activeInvocations.delete(sessionId);
         this.abortControllers.delete(sessionId);
+        if (invocationId) {
+            this.invocationClientStates.delete(invocationId);
+            this.invocationVariableStates.delete(invocationId);
+            this.rejectPendingClientPatches(invocationId);
+        }
         await this.publishSessionState(sessionId, invocationId);
+    }
+
+    private async createVariableAccessor(sessionId: number, invocationId?: string): Promise<ProfileVariableAccessor> {
+        const snapshot = await this.repo.readSession(sessionId);
+        const profile = await this.profiles.get(this.repo.reduce(snapshot).profileKey);
+        return this.createProfileVariableAccessor(snapshot, profile, {
+            clientState: invocationId ? this.invocationClientStates.get(invocationId) : undefined,
+            invocationId,
+            onSessionEntry: (entry) => this.publishSessionEntry(sessionId, invocationId, entry),
+        });
+    }
+
+    private async createProfileVariableAccessor(snapshot: SessionSnapshot, profile: AgentProfile, options: {
+        clientState?: ClientStateSnapshot;
+        dryRun?: boolean;
+        invocationId?: string;
+        onSessionEntry?: (entry: SessionEntry) => void | Promise<void>;
+    } = {}): Promise<ProfileVariableAccessor> {
+        const clientSnapshot = options.clientState;
+        const registry = clientSnapshot
+            ? await createVariableRegistryForSession({
+                profile,
+                workspaceRoot: snapshot.metadata.workspaceRoot,
+                currentProjectWorkspace: typeof clientSnapshot.studio?.workspace === "string" ? clientSnapshot.studio.workspace : null,
+            })
+            : createVariableRegistryForProfile(profile);
+        return createProfileVariableAccessor({
+            repo: this.repo,
+            snapshot,
+            registry,
+            clientState: options.clientState,
+            dryRun: options.dryRun,
+            invocationId: options.invocationId,
+            variableState: options.invocationId ? this.invocationVariableStates.get(options.invocationId) : undefined,
+            onSessionEntry: options.onSessionEntry,
+            onClientPatch: options.invocationId
+                ? (request) => this.requestClientVariablePatch(snapshot.metadata.sessionId, request)
+                : undefined,
+        });
+    }
+
+    private requestClientVariablePatch(sessionId: number, request: VariablePatchRequest): Promise<VariablePatchAck> {
+        if (!request.invocationId || !request.toolCallId) {
+            return Promise.reject(new Error("client.* patch 需要 invocationId 和 toolCallId。"));
+        }
+        const key = clientPatchKey(request.invocationId, request.toolCallId, request.path);
+        if (this.pendingClientPatches.has(key)) {
+            return Promise.reject(new Error(`client.* patch 已在等待 ack：${request.path}`));
+        }
+        const promise = new Promise<VariablePatchAck>((resolvePatch, rejectPatch) => {
+            const timeout = setTimeout(() => {
+                this.pendingClientPatches.delete(key);
+                rejectPatch(new Error(`client.* patch 等待前端 ack 超时：${request.path}`));
+            }, 10_000);
+            this.pendingClientPatches.set(key, {
+                request,
+                resolve: resolvePatch,
+                reject: rejectPatch,
+                timeout,
+            });
+        });
+        this.eventHub.publish({
+            sessionId,
+            invocationId: request.invocationId,
+            kind: "session",
+            event: {
+                type: "client_variable_patch_requested",
+                request,
+            },
+        });
+        return promise;
+    }
+
+    private rejectPendingClientPatches(invocationId: string): void {
+        for (const [key, pending] of [...this.pendingClientPatches.entries()]) {
+            if (pending.request.invocationId !== invocationId) {
+                continue;
+            }
+            clearTimeout(pending.timeout);
+            this.pendingClientPatches.delete(key);
+            pending.reject(new Error("invocation 已结束，client.* patch 未完成。"));
+        }
     }
 
     private providerOptions(config: Pick<EffectiveConfig, "models">, model: Model<any>): {timeoutMs: number | null; requestOptions: Record<string, JsonValue>} {
@@ -1789,13 +1940,13 @@ function estimateTextTokens(text: string): number {
     return Math.ceil(text.length / 4);
 }
 
-async function loadEffectiveConfig(input: {workspaceRoot?: string; novelId?: string}): Promise<EffectiveConfig> {
+async function loadEffectiveConfig(input: {workspaceRoot?: string; projectPath?: string}): Promise<EffectiveConfig> {
     const {
         loadEffectiveConfig: loadEffectiveConfigByQuery,
         loadEffectiveConfigForWorkspaceRoot,
     } = await import("nbook/server/config/config-service");
-    if (input.novelId) {
-        return loadEffectiveConfigByQuery({workspaceKind: "novel", novelId: input.novelId});
+    if (input.projectPath) {
+        return loadEffectiveConfigByQuery({workspaceKind: "novel", projectPath: input.projectPath});
     }
     return loadEffectiveConfigForWorkspaceRoot(input.workspaceRoot);
 }
@@ -1808,8 +1959,12 @@ function normalizeAgentWorkspaceRoot(workspaceRoot: string | undefined): string 
     if (normalized === USER_ASSETS_WORKSPACE_ROOT) {
         return USER_ASSETS_WORKSPACE_ROOT;
     }
-    if (normalized === WORKSPACE_CONTAINER_ROOT || normalized.startsWith(`${WORKSPACE_CONTAINER_ROOT}/`)) {
+    if (normalized === WORKSPACE_CONTAINER_ROOT) {
         return WORKSPACE_CONTAINER_ROOT;
     }
     return normalized;
+}
+
+function clientPatchKey(invocationId: string | undefined, toolCallId: string | undefined, path: string): string {
+    return `${invocationId ?? ""}\n${toolCallId ?? ""}\n${path}`;
 }

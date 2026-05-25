@@ -4,7 +4,7 @@ import {useNovelIdeStore, type AgentWorkspaceSyncPayload} from "nbook/app/stores
 import {isNovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import type {AgentMessage, AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
 import {hasVisibleInvocationError} from "nbook/app/components/novel-ide/agent/agent-message";
-import {buildNovelIdeClientVariables} from "nbook/app/components/novel-ide/agent/client-variables";
+import {applyClientVariablePatch, buildAgentClientState} from "nbook/app/components/novel-ide/agent/client-variables";
 import {useStructuredReferenceMenu} from "nbook/app/composables/useStructuredReferenceMenu";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
@@ -127,10 +127,10 @@ const workspaceKey = computed(() => {
     if (ideStore.workspaceKind === "user-assets") {
         return "user-assets";
     }
-    return "workspace";
+    return ideStore.currentNovelId || "workspace";
 });
 
-const agentWorkspaceRoot = computed(() => ideStore.workspaceKind === "user-assets" ? "workspace/.nbook" : "workspace");
+const agentWorkspaceRoot = computed(() => ideStore.workspaceKind === "user-assets" ? "workspace/.nbook" : ideStore.currentWorkspaceRoot || "workspace");
 
 /**
  * 把 Agent 面板内 API 异常统一转换为 notification 文案。
@@ -219,9 +219,9 @@ function formatCompactTokenCount(value: number | null | undefined): string {
 /**
  * 组装 Novel IDE 客户端变量快照。目前新 profile 第一版不走 header，但保留本地上下文组装入口。
  */
-const buildClientVariables = () => {
+const buildClientState = () => {
     const isUserAssetsWorkspace = ideStore.workspaceKind === "user-assets";
-    return buildNovelIdeClientVariables({
+    return buildAgentClientState({
         activePanel: isNovelIdeTab(ideStore.activeLeftTab) ? ideStore.activeLeftTab : null,
         theme: ideStore.theme,
         novelId: isUserAssetsWorkspace ? "" : ideStore.currentNovelId,
@@ -309,10 +309,10 @@ const ensureSessionReady = async (forceNew = false): Promise<void> => {
     }
     const created = await agentApi.createSession({
         profileKey: leaderProfileKey.value,
-        input: buildClientVariables(),
+        input: {},
         workspaceRoot: agentWorkspaceRoot.value,
         workspaceKey: workspaceKey.value,
-        novelId: ideStore.workspaceKind === "user-assets" ? undefined : ideStore.currentNovelId,
+        projectPath: ideStore.workspaceKind === "user-assets" ? undefined : ideStore.currentNovelId,
     });
     await refreshSessions();
     await loadSession(created.sessionId);
@@ -411,6 +411,10 @@ const subscribeSessionEvents = async (sessionId: number): Promise<void> => {
             if (sessionId !== activeSessionId.value) {
                 return;
             }
+            if (event.kind === "session" && event.event.type === "client_variable_patch_requested") {
+                await acknowledgeClientPatch(sessionId, event.event.request);
+                return;
+            }
             session.applyEvent(event);
             if (session.needsSnapshot.value) {
                 await syncActiveSessionSnapshot();
@@ -433,6 +437,36 @@ const subscribeSessionEvents = async (sessionId: number): Promise<void> => {
             eventsSessionId.value = null;
             eventStreamReadyPromise = null;
         }
+    }
+};
+
+const acknowledgeClientPatch = async (sessionId: number, request: Parameters<typeof applyClientVariablePatch>[0]): Promise<void> => {
+    try {
+        const appliedValue = applyClientVariablePatch(request, buildClientState(), {
+            setActivePanel: (value) => {
+                ideStore.activeLeftTab = value;
+            },
+            setTheme: (value) => {
+                ideStore.theme = value;
+            },
+        });
+        await agentApi.acknowledgeClientVariablePatch(sessionId, {
+            namespace: "client",
+            path: request.path,
+            operations: request.operations,
+            appliedValue,
+            invocationId: request.invocationId,
+            toolCallId: request.toolCallId,
+        });
+    } catch (error) {
+        await agentApi.acknowledgeClientVariablePatch(sessionId, {
+            namespace: "client",
+            path: request.path,
+            operations: request.operations,
+            error: error instanceof Error ? error.message : String(error),
+            invocationId: request.invocationId,
+            toolCallId: request.toolCallId,
+        });
     }
 };
 
@@ -507,6 +541,7 @@ const submitUserInputAnswers = async (payload: {
         userInputNotes.value = {};
         const result = await agentApi.invokeSession(activeSessionId.value, {
             mode: "continue",
+            clientState: buildClientState(),
             resolution: firstQuestion.kind === "tool_approval"
                 ? {
                     kind: "tool_approval",
@@ -631,7 +666,10 @@ const send = async (): Promise<void> => {
     if (!message) {
         if (canContinueWithoutInput.value) {
             await ensureActiveSessionEvents();
-            const result = await agentApi.invokeSession(activeSessionId.value, {mode: "continue"});
+            const result = await agentApi.invokeSession(activeSessionId.value, {
+                mode: "continue",
+                clientState: buildClientState(),
+            });
             await handleInvokeResult(result);
         }
         return;
@@ -644,6 +682,7 @@ const send = async (): Promise<void> => {
     const result = await agentApi.invokeSession(activeSessionId.value, {
         mode: "prompt",
         message: {text: prompt},
+        clientState: buildClientState(),
     });
     await handleInvokeResult(result);
 };
@@ -860,6 +899,7 @@ const saveEditedMessage = async (payload: {message: AgentMessage; content: strin
                 type: "invoke",
                 mode: "prompt",
                 message: {text: payload.content},
+                clientState: buildClientState(),
             },
         });
         if (result.invocation) {
@@ -889,6 +929,7 @@ const refreshMessage = async (message: AgentMessage): Promise<void> => {
             next: {
                 type: "invoke",
                 mode: "continue",
+                clientState: buildClientState(),
             },
         });
         if (result.invocation) {

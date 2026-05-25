@@ -1,7 +1,7 @@
 import {
     throwPlotBadRequest,
 } from "nbook/server/plot/core/errors";
-import type {PlotLookupRepository, ThreadRepository} from "nbook/server/plot/contracts/plot-repositories";
+import type {ThreadRepository} from "nbook/server/plot/contracts/plot-repositories";
 import type {ResolvedStoryRefInput} from "nbook/server/plot/core/types";
 import type {StoryRefDto} from "nbook/shared/dto/plot.dto";
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
@@ -15,7 +15,6 @@ import {
  */
 export class RefResolverService {
     constructor(
-        private readonly lookupRepository: PlotLookupRepository,
         private readonly threadRepository: ThreadRepository,
         private readonly scopeGuard: PlotScopeGuard,
     ) {}
@@ -23,7 +22,7 @@ export class RefResolverService {
     /**
      * 解析 refs。
      */
-    async resolveRefs(novelId: number, storyId: number, refs: StoryRefDto[]): Promise<ResolvedStoryRefInput[]> {
+    async resolveRefs(storyId: number, refs: StoryRefDto[]): Promise<ResolvedStoryRefInput[]> {
         this.assertDistinctRefs(refs);
 
         const resolvedRefs: ResolvedStoryRefInput[] = [];

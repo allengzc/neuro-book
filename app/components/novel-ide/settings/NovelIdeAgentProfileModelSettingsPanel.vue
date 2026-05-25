@@ -277,7 +277,7 @@ onMounted(() => {
     void loadSettings();
 });
 
-watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.novelId] as const, () => {
+watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.projectPath] as const, () => {
     void loadSettings();
 });
 </script>

@@ -12,6 +12,7 @@ import {createAssistantTextMessage, createUserMessage, messageText} from "nbook/
 import {Message, ModelContext, ProfilePrompt, Reminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {AgentMessage, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
 import {AGENT_PLAN_MODE_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
+import {defineSessionVariable} from "nbook/server/agent/variables/registry";
 
 function visibleMessageText(messages: AgentMessage[]): string {
     return messages
@@ -129,7 +130,7 @@ describe("NeuroAgentHarness", () => {
         })).toBe(false);
     });
 
-    it("新建小说 session 的 agent cwd 使用 workspace 容器根并保留 novelId", async () => {
+    it("新建 Project session 的 agent cwd 使用 Project Workspace 并保留 projectPath", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.workspace-container",
@@ -146,22 +147,22 @@ describe("NeuroAgentHarness", () => {
             profileKey: "test.workspace-container",
             input: {},
             workspaceRoot: "workspace/novel-7",
-            workspaceKey: "workspace",
-            novelId: "7",
+            workspaceKey: "workspace/novel-7",
+            projectPath: "workspace/novel-7",
         });
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
 
-        expect(context.workspaceRoot).toBe("workspace");
-        expect(context.novelId).toBe("7");
+        expect(context.workspaceRoot).toBe("workspace/novel-7");
+        expect(context.projectPath).toBe("workspace/novel-7");
     });
 
-    it("/new 创建的新 session 保留 workspace 容器根和 novelId", async () => {
+    it("/new 创建的新 session 保留 Project Workspace 和 projectPath", async () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             input: {},
             workspaceRoot: "workspace/novel-7",
-            workspaceKey: "workspace",
-            novelId: "7",
+            workspaceKey: "workspace/novel-7",
+            projectPath: "workspace/novel-7",
         });
 
         const result = await harness.runCommand(created.sessionId, {
@@ -169,8 +170,8 @@ describe("NeuroAgentHarness", () => {
         });
         const context = harness.repo.reduce(await harness.repo.readSession(result.sessionId));
 
-        expect(context.workspaceRoot).toBe("workspace");
-        expect(context.novelId).toBe("7");
+        expect(context.workspaceRoot).toBe("workspace/novel-7");
+        expect(context.projectPath).toBe("workspace/novel-7");
     });
 
     it("approval 工具调用会停在 assistant tool call，resolution 后继续", async () => {
@@ -422,7 +423,7 @@ describe("NeuroAgentHarness", () => {
         let observedReasoning: unknown;
         faux.setResponses([
             (_context, options) => {
-                observedReasoning = options?.reasoning;
+                observedReasoning = (options as {reasoning?: unknown} | undefined)?.reasoning;
                 return fauxAssistantMessage(fauxText("done"));
             },
         ]);
@@ -1650,6 +1651,63 @@ describe("NeuroAgentHarness", () => {
         });
 
         expect(result.status).toBe("started");
+    });
+
+    it("profile 内 session variable definition 会进入工具 registry", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.session-vars",
+                name: "Session Vars",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["variable_patch"],
+            variableDefinitions: [
+                defineSessionVariable({
+                    key: "affections",
+                    schema: Type.Record(Type.String(), Type.Number()),
+                    writableBy: ["agent"],
+                }),
+            ],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("variable_patch", {
+                    namespace: "session",
+                    path: "affections",
+                    patch: [{
+                        op: "replace",
+                        path: "",
+                        value: {
+                            alice: 3,
+                        },
+                    }],
+                }, {id: "vars-1"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage(fauxText("done")),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.session-vars",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "update vars"},
+            block: true,
+        });
+        const snapshot = await harness.repo.readSession(created.sessionId);
+
+        expect(result.status).toBe("completed");
+        expect(snapshot.entries).toContainEqual(expect.objectContaining({
+            type: "variable_patch",
+            namespace: "session",
+            path: "affections",
+        }));
     });
 });
 

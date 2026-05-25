@@ -120,7 +120,7 @@ export type WorkspaceUploadResult = {
 };
 
 export type WorkspaceKind = "novel" | "user-assets";
-type WorkspaceQueryInput = {novelId: string} | {workspaceKind: "user-assets"};
+type WorkspaceQueryInput = {projectPath: string} | {workspaceKind: "user-assets"};
 
 type WorkspaceSessionState = {
     activeWorkspaceTabPath: string;
@@ -443,7 +443,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         if (!currentNovelId.value) {
             throw new Error("当前未选择小说，无法访问 workspace");
         }
-        return {novelId: currentNovelId.value};
+        return {projectPath: currentNovelId.value};
     };
 
     /**
@@ -963,7 +963,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         if ("workspaceKind" in query) {
             formData.append("workspaceKind", query.workspaceKind);
         } else {
-            formData.append("novelId", query.novelId);
+            formData.append("projectPath", query.projectPath);
         }
         return formData;
     };
@@ -1637,7 +1637,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 创建默认小说工作区。
      */
     const createDefaultWorkspace = async (): Promise<string> => {
-        const novel = await $fetch<{id: string}>("/api/novels", {
+        const novel = await $fetch<{id: string}>("/api/projects", {
             method: "POST",
             body: {
                 title: DEFAULT_NOVEL_TITLE,
@@ -1840,7 +1840,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 加载小说列表。
      */
     const loadNovels = async (): Promise<NovelListItemDto[]> => {
-        const list = await $fetch<NovelListItemDto[]>("/api/novels");
+        const list = await $fetch<NovelListItemDto[]>("/api/projects");
         novels.value = list;
         return list;
     };
@@ -1908,7 +1908,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 新建小说。
      */
     const createNovel = async (title: string, summary: string = ""): Promise<string> => {
-        const novel = await $fetch<{id: string}>("/api/novels", {
+        const novel = await $fetch<{id: string}>("/api/projects", {
             method: "POST",
             body: { title, summary },
         });
@@ -1921,8 +1921,9 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 删除小说。
      */
     const deleteNovel = async (novelId: string): Promise<void> => {
-        await $fetch(`/api/novels/${novelId}`, {
+        await $fetch("/api/projects/item", {
             method: "DELETE",
+            query: {projectPath: novelId},
         });
 
         await loadNovels();

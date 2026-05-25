@@ -30,8 +30,8 @@ export class PlotService {
     /**
      * 查询情节点详情。
      */
-    async getStoryPlotDto(novelId: number, plotId: number): Promise<StoryPlotDto> {
-        const story = await this.storyService.ensureStory(novelId);
+    async getStoryPlotDto(projectPath: string, plotId: number): Promise<StoryPlotDto> {
+        const story = await this.storyService.ensureStory(projectPath);
         const plot = await this.scopeGuard.assertPlot(story.id, plotId);
         return this.assembler.toStoryPlotDto(plot);
     }
@@ -39,8 +39,8 @@ export class PlotService {
     /**
      * 创建情节点。
      */
-    async createStoryPlot(novelId: number, input: ParsedCreateStoryPlotInput): Promise<StoryPlotDto> {
-        const story = await this.storyService.ensureStory(novelId);
+    async createStoryPlot(projectPath: string, input: ParsedCreateStoryPlotInput): Promise<StoryPlotDto> {
+        const story = await this.storyService.ensureStory(projectPath);
         await this.scopeGuard.assertScene(story.id, input.sceneId);
         await this.plotRepository.lockPlotOrderBucket(input.sceneId);
 
@@ -61,11 +61,11 @@ export class PlotService {
      * 更新情节点。
      */
     async updateStoryPlot(
-        novelId: number,
+        projectPath: string,
         plotId: number,
         patch: ParsedUpdateStoryPlotInput,
     ): Promise<StoryPlotDto> {
-        const story = await this.storyService.ensureStory(novelId);
+        const story = await this.storyService.ensureStory(projectPath);
         const plot = await this.scopeGuard.assertPlot(story.id, plotId);
         const nextSceneId = patch.sceneId === undefined ? plot.sceneId : patch.sceneId;
         const sceneChanged = nextSceneId !== plot.sceneId;
@@ -94,8 +94,8 @@ export class PlotService {
     /**
      * 删除情节点。
      */
-    async deleteStoryPlot(novelId: number, plotId: number): Promise<void> {
-        const story = await this.storyService.ensureStory(novelId);
+    async deleteStoryPlot(projectPath: string, plotId: number): Promise<void> {
+        const story = await this.storyService.ensureStory(projectPath);
         const plot = await this.scopeGuard.assertPlot(story.id, plotId);
         await this.plotRepository.deletePlot(plot.id);
         await this.orderService.normalizePlots(plot.sceneId);
@@ -104,8 +104,8 @@ export class PlotService {
     /**
      * 批量重排情节点。
      */
-    async reorderStoryPlots(novelId: number, items: ParsedReorderStoryPlotItem[]): Promise<PlotTreeDto> {
-        const story = await this.storyService.ensureStory(novelId);
+    async reorderStoryPlots(projectPath: string, items: ParsedReorderStoryPlotItem[]): Promise<PlotTreeDto> {
+        const story = await this.storyService.ensureStory(projectPath);
         const [existingPlotIds, existingSceneIds] = await Promise.all([
             this.plotRepository.findPlotIdsByStory(story.id),
             this.sceneRepository.findSceneIdsByStory(story.id),
@@ -141,6 +141,6 @@ export class PlotService {
             });
         }
 
-        return this.storyService.getPlotTree(novelId);
+        return this.storyService.getPlotTree(projectPath);
     }
 }

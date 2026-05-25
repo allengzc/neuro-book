@@ -19,11 +19,8 @@ export function resolveDatabaseKind() {
     if (databaseUrl.startsWith("file:")) {
         return "sqlite";
     }
-    if (databaseUrl.startsWith("postgres://") || databaseUrl.startsWith("postgresql://")) {
-        return "postgres";
-    }
     if (databaseUrl) {
-        throw new Error(`DATABASE_URL 必须是 sqlite file: URL 或 PostgreSQL URL，当前为：${databaseUrl}`);
+        throw new Error(`DATABASE_URL 只支持 SQLite file: URL，当前为：${databaseUrl}`);
     }
     if (bootKind) {
         return bootKind;
@@ -31,8 +28,8 @@ export function resolveDatabaseKind() {
     if (bootUrl.startsWith("file:")) {
         return "sqlite";
     }
-    if (bootUrl.startsWith("postgres://") || bootUrl.startsWith("postgresql://")) {
-        return "postgres";
+    if (bootUrl) {
+        throw new Error(`config.yaml database.url 只支持 SQLite file: URL，当前为：${bootUrl}`);
     }
     return "sqlite";
 }
@@ -43,21 +40,14 @@ export function preparePrismaEnv() {
     const bootUrl = normalizeText(bootDatabase.url);
     process.env.DATABASE_KIND = kind;
     if (!process.env.DATABASE_URL) {
-        process.env.DATABASE_URL = bootUrl || (kind === "sqlite" ? DEFAULT_SQLITE_URL : "");
+        process.env.DATABASE_URL = bootUrl || DEFAULT_SQLITE_URL;
     }
 
     const databaseUrl = process.env.DATABASE_URL?.trim() ?? "";
-    if (kind === "sqlite") {
-        if (!databaseUrl.startsWith("file:")) {
-            throw new Error(`DATABASE_KIND=sqlite 时 DATABASE_URL 必须以 file: 开头，当前为：${databaseUrl || "<empty>"}`);
-        }
-        mkdirSync(dirname(resolve(process.cwd(), databaseUrl.slice("file:".length))), {recursive: true});
-        return {kind, databaseUrl};
+    if (!databaseUrl.startsWith("file:")) {
+        throw new Error(`DATABASE_URL 只支持 SQLite file: URL，当前为：${databaseUrl || "<empty>"}`);
     }
-
-    if (!databaseUrl.startsWith("postgresql://") && !databaseUrl.startsWith("postgres://")) {
-        throw new Error(`DATABASE_KIND=postgres 时 DATABASE_URL 必须是 PostgreSQL URL，当前为：${databaseUrl || "<empty>"}`);
-    }
+    mkdirSync(dirname(resolve(process.cwd(), databaseUrl.slice("file:".length))), {recursive: true});
     return {kind, databaseUrl};
 }
 
@@ -84,13 +74,10 @@ function normalizeKind(input) {
     if (!value) {
         return null;
     }
-    if (value === "sqlite" || value === "postgres") {
+    if (value === "sqlite") {
         return value;
     }
-    if (value === "postgresql") {
-        return "postgres";
-    }
-    throw new Error(`DATABASE_KIND 只支持 sqlite 或 postgres，当前为：${String(input)}`);
+    throw new Error(`DATABASE_KIND 只支持 sqlite，当前为：${String(input)}`);
 }
 
 function normalizeText(input) {

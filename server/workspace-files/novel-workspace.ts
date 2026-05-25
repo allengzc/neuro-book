@@ -3,38 +3,28 @@ import os from "node:os";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {createHash} from "node:crypto";
-import type {Novel, Prisma, PrismaClient} from "nbook/server/generated/prisma/client";
-import {parseEntityId} from "nbook/server/utils/novel-chapter";
 import {readProfileArtifactManifest, rehomeProfileArtifactItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
-
-type PrismaExecutor = PrismaClient | Prisma.TransactionClient;
+import {readVariableDefinitionManifest} from "nbook/server/agent/variables/definition-artifact";
+import {normalizeProjectPath, readProjectManifest} from "nbook/server/workspace-files/project-workspace";
 
 export const WORKSPACE_CONTAINER_ROOT = "workspace";
 export const USER_ASSETS_WORKSPACE_KIND = "user-assets";
 export const USER_ASSETS_WORKSPACE_ROOT = path.posix.join(WORKSPACE_CONTAINER_ROOT, ".nbook");
 export const USER_NBOOK_ROOT = path.posix.join(WORKSPACE_CONTAINER_ROOT, ".nbook");
-export const DEFAULT_NOVEL_WORKSPACE_ID = "1";
 export const DEFAULT_NOVEL_WORKSPACE_SLUG = "silver-dragon-hime";
 
 const SYSTEM_WORKSPACE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../assets/workspace");
 const SYSTEM_NBOOK_ROOT = path.join(SYSTEM_WORKSPACE_ROOT, ".nbook");
 const SYSTEM_PROFILE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "profiles");
 const USER_PROFILE_ROOT = path.resolve(process.cwd(), USER_NBOOK_ROOT, "agent", "profiles");
+const SYSTEM_VARIABLE_DEFINITION_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "variables");
+const USER_VARIABLE_DEFINITION_ROOT = path.resolve(process.cwd(), USER_NBOOK_ROOT, "agent", "variables");
 const SYSTEM_WRITING_PRESETS_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "writing-presets");
 const USER_WRITING_PRESETS_ROOT = path.resolve(process.cwd(), USER_NBOOK_ROOT, "agent", "writing-presets");
 const SYSTEM_PROFILE_METADATA_PATH = path.join(SYSTEM_PROFILE_ROOT, ".system-profile-metadata.json");
 const USER_PROFILE_SYNC_STATE_PATH = path.join(USER_PROFILE_ROOT, ".profile-sync-state.json");
 const NOVEL_DIRECTORY_TEMPLATE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "templates", "novel-directory-templates");
 const USER_NOVEL_DIRECTORY_TEMPLATE_ROOT = path.resolve(process.cwd(), USER_ASSETS_WORKSPACE_ROOT, "templates", "novel-directory-templates");
-
-export type NovelWorkspaceMetadata = {
-    schemaVersion: 1;
-    slug: string;
-    displayName: string;
-    novelId: string;
-    createdAt: string;
-    updatedAt: string;
-};
 
 export type WorkspaceRootKind = "novel" | typeof USER_ASSETS_WORKSPACE_KIND;
 export type UserAssetsSyncResult = {
@@ -110,38 +100,26 @@ export function buildWorkspaceSlugBase(title: string): string {
 }
 
 /**
- * 返回指定 Novel 的 workspace 根目录，格式为 workspace/<workspaceSlug>。
+ * 返回指定 Project Path 的 Project Workspace 根目录。
  */
-export async function resolveNovelWorkspaceRoot(prismaClient: PrismaExecutor, novelIdInput: string): Promise<string> {
-    const novelId = parseEntityId("novelId", novelIdInput);
-    const novel = await prismaClient.novel.findUnique({
-        where: {id: novelId},
-        select: {workspaceSlug: true},
-    });
-
-    if (!novel) {
-        throw createError({statusCode: 404, message: "小说不存在"});
-    }
-
-    return path.posix.join(WORKSPACE_CONTAINER_ROOT, novel.workspaceSlug);
+export async function resolveNovelWorkspaceRoot(projectPathInput: string): Promise<string> {
+    const projectPath = normalizeProjectPath(projectPathInput);
+    await readProjectManifest(projectPath);
+    return projectPath;
 }
 
 /**
- * 优先使用显式 root；未指定 root 时按 novelId 解析小说 workspace。
+ * 按 projectPath 解析 Project Workspace；user-assets 只允许通过 workspaceKind 显式选择。
  */
 export async function resolveWorkspaceRootInput(
-    prismaClient: PrismaExecutor,
-    input: {root?: string; novelId?: string; workspaceKind?: WorkspaceRootKind},
+    input: {projectPath?: string; workspaceKind?: WorkspaceRootKind},
 ): Promise<string | undefined> {
     if (input.workspaceKind === USER_ASSETS_WORKSPACE_KIND) {
         await ensureUserAssetsWorkspaceRoot();
         return USER_ASSETS_WORKSPACE_ROOT;
     }
-    if (input.root?.trim()) {
-        return input.root.trim();
-    }
-    if (input.novelId?.trim()) {
-        return resolveNovelWorkspaceRoot(prismaClient, input.novelId);
+    if (input.projectPath?.trim()) {
+        return resolveNovelWorkspaceRoot(input.projectPath);
     }
     return undefined;
 }
@@ -166,6 +144,7 @@ export async function syncSystemAssetsToUserAssets(): Promise<UserAssetsSyncResu
         await copyMissingAssetEntries(SYSTEM_NBOOK_ROOT, nbookTargetRoot, result);
     }
     await syncSystemProfilesToUserAssets(result, nbookTargetRoot);
+    await syncSystemVariableDefinitionsToUserAssets(result);
     await syncSystemWritingPresetsToUserAssets(result);
     return result;
 }
@@ -200,38 +179,10 @@ export async function sha256File(filePath: string): Promise<{sha256: string; byt
 }
 
 /**
- * 给新小说分配唯一 workspace slug。当前快速开发阶段优先使用 novel-<id>。
- */
-export function buildNovelIdWorkspaceSlug(novelId: number): string {
-    if (novelId === 1) {
-        return DEFAULT_NOVEL_WORKSPACE_SLUG;
-    }
-    return `novel-${String(novelId)}`;
-}
-
-/**
- * 写入 workspace.yaml 元数据。该文件用于人工识别与后续扩展，运行时绑定仍以数据库为准。
- */
-export async function writeNovelWorkspaceMetadata(novel: Pick<Novel, "id" | "workspaceSlug" | "createdAt" | "updatedAt">): Promise<void> {
-    const workspaceRoot = path.resolve(process.cwd(), WORKSPACE_CONTAINER_ROOT, novel.workspaceSlug);
-    const metadata: NovelWorkspaceMetadata = {
-        schemaVersion: 1,
-        slug: novel.workspaceSlug,
-        displayName: novel.workspaceSlug,
-        novelId: String(novel.id),
-        createdAt: novel.createdAt.toISOString(),
-        updatedAt: novel.updatedAt.toISOString(),
-    };
-
-    await fs.mkdir(workspaceRoot, {recursive: true});
-    await copyNovelDirectoryTemplate(workspaceRoot);
-    await fs.writeFile(path.join(workspaceRoot, "workspace.yaml"), renderWorkspaceMetadata(metadata), "utf-8");
-}
-
-/**
  * 把小说目录脚手架复制到 workspace，只补缺失文件，不覆盖用户已编辑内容。
  */
 export async function copyNovelDirectoryTemplate(workspaceRoot: string): Promise<void> {
+    const absoluteWorkspaceRoot = path.resolve(process.cwd(), workspaceRoot);
     const mergedRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-novel-template-"));
     try {
         await fs.cp(NOVEL_DIRECTORY_TEMPLATE_ROOT, mergedRoot, {
@@ -246,7 +197,7 @@ export async function copyNovelDirectoryTemplate(workspaceRoot: string): Promise
                 errorOnExist: false,
             });
         }
-        await fs.cp(mergedRoot, workspaceRoot, {
+        await fs.cp(mergedRoot, absoluteWorkspaceRoot, {
             recursive: true,
             force: false,
             errorOnExist: false,
@@ -421,6 +372,64 @@ async function syncSystemWritingPresetsToUserAssets(result: UserAssetsSyncResult
     }
 }
 
+async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncResult): Promise<void> {
+    const systemPath = path.join(SYSTEM_VARIABLE_DEFINITION_ROOT, "definitions.ts");
+    if (!await pathExists(systemPath)) {
+        return;
+    }
+    const item = {
+        assetPath: "agent/variables/definitions.ts",
+        ...await sha256File(systemPath),
+    };
+    const userPath = path.join(USER_VARIABLE_DEFINITION_ROOT, "definitions.ts");
+    const syncState = await readUserProfileSyncState();
+    const stateItem = syncState.assets?.find((asset) => asset.assetPath === item.assetPath);
+    let stateChanged = false;
+    if (!stateItem && await pathExists(userPath) && await sameFile(systemPath, userPath)) {
+        const hash = await sha256File(userPath);
+        upsertUserAssetSyncState(syncState, item, hash.sha256);
+        await syncCompiledVariableDefinitionArtifact();
+        stateChanged = true;
+    } else if (!await pathExists(userPath)) {
+        await fs.mkdir(path.dirname(userPath), {recursive: true});
+        await fs.copyFile(systemPath, userPath);
+        await syncCompiledVariableDefinitionArtifact();
+        const hash = await sha256File(userPath);
+        upsertUserAssetSyncState(syncState, item, hash.sha256);
+        result.updatedAssets = (result.updatedAssets ?? 0) + 1;
+        stateChanged = true;
+    } else {
+        const currentUserHash = (await sha256File(userPath)).sha256;
+        if (currentUserHash === item.sha256) {
+            upsertUserAssetSyncState(syncState, item, currentUserHash);
+            await syncCompiledVariableDefinitionArtifact();
+            stateChanged = true;
+        } else if (!stateItem) {
+            result.assetWarnings?.push({
+                assetPath: item.assetPath,
+                message: "系统 variable definition 有 metadata，但用户覆盖缺少 sync state，已保留用户文件。",
+            });
+        } else if (currentUserHash !== stateItem.lastSyncedUserHash) {
+            if (item.sha256 !== stateItem.upstreamHash) {
+                result.assetWarnings?.push({
+                    assetPath: item.assetPath,
+                    message: "系统 variable definition 已更新，但用户覆盖已手改，未自动覆盖。",
+                });
+            }
+        } else if (item.sha256 !== stateItem.upstreamHash) {
+            await fs.copyFile(systemPath, userPath);
+            await syncCompiledVariableDefinitionArtifact();
+            const hash = await sha256File(userPath);
+            upsertUserAssetSyncState(syncState, item, hash.sha256);
+            result.updatedAssets = (result.updatedAssets ?? 0) + 1;
+            stateChanged = true;
+        }
+    }
+    if (stateChanged) {
+        await writeUserProfileSyncState(syncState);
+    }
+}
+
 async function listSystemWritingPresetAssets(): Promise<Array<{assetPath: string; sha256: string; bytes: number}>> {
     const result: Array<{assetPath: string; sha256: string; bytes: number}> = [];
     await collectSystemWritingPresetAssets(SYSTEM_WRITING_PRESETS_ROOT, "", result);
@@ -483,6 +492,52 @@ async function syncCompiledProfileArtifact(fileName: string): Promise<void> {
     await fs.writeFile(
         path.join(userCompiledRoot, "manifest.json"),
         `${JSON.stringify(nextManifest, null, 2)}\n`,
+        "utf-8",
+    );
+}
+
+async function syncCompiledVariableDefinitionArtifact(): Promise<void> {
+    const systemManifest = await readVariableDefinitionManifest(SYSTEM_VARIABLE_DEFINITION_ROOT);
+    const item = systemManifest.definitions.find((definition) => definition.fileName === "definitions.ts");
+    if (!item) {
+        return;
+    }
+    const userCompiledRoot = path.join(USER_VARIABLE_DEFINITION_ROOT, ".compiled");
+    await fs.mkdir(userCompiledRoot, {recursive: true});
+    await fs.copyFile(
+        path.join(SYSTEM_VARIABLE_DEFINITION_ROOT, ".compiled", item.artifactFileName),
+        path.join(userCompiledRoot, item.artifactFileName),
+    );
+    const userManifest = await readVariableDefinitionManifest(USER_VARIABLE_DEFINITION_ROOT);
+    const userSourceHash = await sha256File(path.join(USER_VARIABLE_DEFINITION_ROOT, item.fileName));
+    const nextItem = {
+        ...item,
+        sourceSha256: userSourceHash.sha256,
+        sourceBytes: userSourceHash.bytes,
+        dependencies: item.dependencies.map((dependency) => {
+            const dependencyPath = dependency.path.replace(/[\\/]+/g, "/");
+            if (dependencyPath === `assets/workspace/.nbook/agent/variables/${item.fileName}`) {
+                return {
+                    ...dependency,
+                    path: `workspace/.nbook/agent/variables/${item.fileName}`,
+                    sha256: userSourceHash.sha256,
+                    bytes: userSourceHash.bytes,
+                };
+            }
+            return dependency;
+        }),
+    };
+    await fs.writeFile(
+        path.join(userCompiledRoot, "manifest.json"),
+        `${JSON.stringify({
+            ...userManifest,
+            generatedAt: new Date().toISOString(),
+            definitionsRoot: "workspace/.nbook/agent/variables",
+            definitions: [
+                ...userManifest.definitions.filter((definition) => definition.fileName !== item.fileName),
+                nextItem,
+            ].sort((left, right) => left.fileName.localeCompare(right.fileName)),
+        }, null, 2)}\n`,
         "utf-8",
     );
 }
@@ -586,17 +641,3 @@ async function isDirectory(directoryPath: string): Promise<boolean> {
     }
 }
 
-/**
- * 渲染最小 workspace 元数据 YAML。
- */
-function renderWorkspaceMetadata(metadata: NovelWorkspaceMetadata): string {
-    return [
-        "schemaVersion: 1",
-        `slug: ${metadata.slug}`,
-        `displayName: ${metadata.displayName}`,
-        `novelId: "${metadata.novelId}"`,
-        `createdAt: "${metadata.createdAt}"`,
-        `updatedAt: "${metadata.updatedAt}"`,
-        "",
-    ].join("\n");
-}

@@ -1,6 +1,0 @@
-services:
-    app:
-        environment:
-            DATABASE_KIND: postgres
-            DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set for external Postgres}
-        depends_on: []

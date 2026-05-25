@@ -11,8 +11,8 @@ import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 import {buildWritingReference} from "nbook/server/agent/profiles/writer-writing-reference";
 import {buildWritingStyle} from "nbook/server/agent/profiles/writer-writing-style";
-import {parseEntityId} from "nbook/server/utils/novel-chapter";
 import {parseFrontmatterDocument, renderFrontmatterDocument} from "nbook/server/utils/frontmatter-document";
+import {normalizeProjectPath, readProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import type {ChapterPlotDetailDto} from "nbook/shared/dto/plot.dto";
 
 export const profileManifest = {
@@ -33,8 +33,7 @@ const WRITER_INDEX_FRONTMATTER_KEYS = ["title", "type", "status", "summary", "al
 const WRITER_STATE_FRONTMATTER_KEYS = ["statusNote", "updatedAt", "knowledge"] as const;
 
 type WriterChapterTarget = {
-    novelId: number;
-    workspaceSlug: string;
+    projectPath: string;
     chapterPath: string;
     workspaceChapterPath: string;
     indexPath: string;
@@ -92,7 +91,7 @@ function renderSystemPrompt(input: {
         <neurobook_writer_contract>
         - chapterPaths 对应本 writer session 绑定的唯一章节。调用方必须先创建章节内容节点，并在 Plot System 中把 Scene 挂到该章节。
         - chapterPaths 同时是剧情上下文来源和写入目标。系统会在进入模型前读取本章 Scene、Thread、Plots 和 Chapter Plot；你只写显式传入的这一章，不根据自然语言章节名或 UI active scene 猜测其他落点。
-        - lorebookEntries 对应内容节点路径，按 Agent cwd 解析。普通小说 agent 的 cwd 是 workspace 容器根，因此通常应是 novel-slug/lorebook/... 或 novel-slug/manuscript/...。writer 会按数组顺序读取每个节点的 index.md 与同级可选 state.md，并把稳定设定、当前状态和信息差作为写作依据。
+        - lorebookEntries 对应内容节点路径，按 Agent cwd 解析。普通小说 agent 的 cwd 是当前 Project Workspace，因此通常应是 lorebook/... 或 manuscript/...。writer 会按数组顺序读取每个节点的 index.md 与同级可选 state.md，并把稳定设定、当前状态和信息差作为写作依据。
         - constraints 对应额外写作约束、格式约束、禁忌和用户临时偏好。
         - prompt 对应用户本次要求写什么、改写什么、补全什么。
         </neurobook_writer_contract>
@@ -168,7 +167,7 @@ function renderStableWriterContext(): string {
     return profileText`
         <system-reminder>
         Writer 使用 v3 文件工具：read / write / edit / apply_patch。不要使用历史版本的文件工具命名。
-        Agent cwd 通常是 workspace 容器根。内容节点路径通常是 novel-slug/lorebook/.../ 或 novel-slug/manuscript/.../；目录节点的正文入口是 index.md，同级 state.md 是当前状态。
+        Agent cwd 通常是当前 Project Workspace。内容节点路径通常是 lorebook/.../ 或 manuscript/.../；目录节点的正文入口是 index.md，同级 state.md 是当前状态。
         chapterPaths 绑定本 writer session 的唯一章节；写作目标是该章节 index.md，不要写 workspace/novel-slug/...。
         frontmatter 是元数据，不是小说正文；不要把字段名或配置项写进故事。
         </system-reminder>
@@ -187,7 +186,7 @@ function renderInputContext(ctx: ProfilePrepareContext<Input>, expanded: {
         `Agent cwd: ${ctx.session.workspaceRoot}`,
         target ? `Target chapter: ${target.workspaceChapterPath}` : "",
         target ? `Writing target index.md: ${target.indexPath}` : "",
-        target ? `Novel ID: ${String(target.novelId)}` : "",
+        target ? `Project Path: ${target.projectPath}` : "",
         input.writingStylePreset ? `Writing style preset: ${input.writingStylePreset}` : "",
         input.writingReferencePreset ? `Writing reference preset: ${input.writingReferencePreset}` : "",
         expanded.lorebookText ? `<lorebook_entries>\n${expanded.lorebookText}\n</lorebook_entries>` : "",
@@ -231,49 +230,51 @@ async function resolveWriterChapterTargets(ctx: ProfilePrepareContext<Input>): P
     if (ctx.input.chapterPaths.length !== 1) {
         throw new Error("writer.chapterPaths 必须且只能包含一个章节路径；多章节写作请创建多个 writer agent。");
     }
-    const target = await resolveWriterChapterTarget(ctx.session.novelId ?? null, ctx.input.chapterPaths[0]);
+    const chapterPath = ctx.input.chapterPaths[0];
+    if (!chapterPath) {
+        throw new Error("writer.chapterPaths[0] 不能为空。");
+    }
+    const target = await resolveWriterChapterTarget(ctx.session.workspaceRoot, chapterPath);
     const facade = await loadPlotFacade();
     try {
-        const chapterPlot = await facade.getChapterPlotDetailDto(target.novelId, target.chapterPath);
+        const chapterPlot = await facade.getChapterPlotDetailDto(target.projectPath, target.chapterPath);
         return [{...target, chapterPath: chapterPlot.chapterPath, chapterPlot}];
     } catch (error) {
-        throw new Error(`writer 无法解析 chapterPaths[0] 章节 ${ctx.input.chapterPaths[0]}: ${formatPromptError(error)}`);
+        throw new Error(`writer 无法解析 chapterPaths[0] 章节 ${chapterPath}: ${formatPromptError(error)}`);
     }
 }
 
 /**
  * 将输入路径解析为当前 Project Workspace 或显式 Project Workspace 中的章节。
  */
-async function resolveWriterChapterTarget(sessionNovelIdText: string | null, rawChapterPath: string): Promise<Omit<WriterChapterTarget, "chapterPlot">> {
+async function resolveWriterChapterTarget(sessionWorkspaceRoot: string, rawChapterPath: string): Promise<Omit<WriterChapterTarget, "chapterPlot">> {
     const normalized = normalizeInputPath(rawChapterPath);
     const currentPrefix = normalizeChapterPath(normalized);
     if (currentPrefix) {
-        const novelId = resolveSessionNovelId(sessionNovelIdText);
-        const workspaceSlug = await findWorkspaceSlugByNovelId(novelId);
-        return buildChapterTarget(novelId, workspaceSlug, currentPrefix);
+        const projectPath = resolveCurrentProjectPath(sessionWorkspaceRoot);
+        await readProjectManifest(projectPath);
+        return buildChapterTarget(projectPath, currentPrefix, true);
     }
-    const [workspaceSlug, ...rest] = normalized.split("/");
-    const chapterPath = normalizeChapterPath(rest.join("/"));
-    if (!workspaceSlug || !chapterPath) {
-        throw new Error("chapterPaths 必须是 manuscript/.../ 或 novel-slug/manuscript/.../，且必须指向章节目录。");
+    const explicit = resolveExplicitProjectChapterPath(normalized);
+    if (!explicit) {
+        throw new Error("chapterPaths 必须是 manuscript/.../、workspace/<project>/manuscript/.../ 或 <project>/manuscript/.../，且必须指向章节目录。");
     }
-    const novelId = await findNovelIdByWorkspaceSlug(workspaceSlug);
-    return buildChapterTarget(novelId, workspaceSlug, chapterPath);
+    await readProjectManifest(explicit.projectPath);
+    return buildChapterTarget(explicit.projectPath, explicit.chapterPath, false);
 }
 
-function buildChapterTarget(novelId: number, workspaceSlug: string, chapterPath: string): Omit<WriterChapterTarget, "chapterPlot"> {
-    const workspaceChapterPath = posix.join(workspaceSlug, chapterPath);
+function buildChapterTarget(projectPath: string, chapterPath: string, currentProject: boolean): Omit<WriterChapterTarget, "chapterPlot"> {
+    const workspaceChapterPath = posix.join(projectPath, chapterPath);
     return {
-        novelId,
-        workspaceSlug,
+        projectPath,
         chapterPath,
         workspaceChapterPath,
-        indexPath: posix.join(workspaceChapterPath, "index.md"),
+        indexPath: currentProject ? posix.join(chapterPath, "index.md") : posix.join(workspaceChapterPath, "index.md"),
     };
 }
 
 function normalizeInputPath(rawPath: string): string {
-    return rawPath.trim().replace(/\\/g, "/").replace(/^\/+/, "").replace(/^workspace\//, "");
+    return rawPath.trim().replace(/\\/g, "/").replace(/^\/+/, "");
 }
 
 function normalizeChapterPath(rawPath: string): string | null {
@@ -417,8 +418,7 @@ function isFileMissingError(error: unknown): boolean {
 function renderChapterTargetBlock(target: WriterChapterTarget): string {
     return [
         `## Chapter: ${target.workspaceChapterPath}`,
-        `novelId: ${String(target.novelId)}`,
-        `workspaceSlug: ${target.workspaceSlug}`,
+        `projectPath: ${target.projectPath}`,
         `indexPath: ${target.indexPath}`,
         "",
         "### Chapter Plot",
@@ -450,35 +450,24 @@ function renderChapterScene(scene: ChapterPlotDetailDto["scenes"][number]): stri
     ].join("\n");
 }
 
-function resolveSessionNovelId(novelIdText: string | null): number {
-    if (!novelIdText || !novelIdText.trim()) {
-        throw new Error("writer 无法解析 chapterPaths：使用 manuscript/.../ 当前 Project Workspace 路径时，session 必须绑定 novelId；跨 Project Workspace 请传 novel-slug/manuscript/.../。");
+function resolveCurrentProjectPath(workspaceRoot: string): string {
+    const normalized = workspaceRoot.trim().replace(/\\/g, "/").replace(/\/+$/u, "");
+    if (!normalized) {
+        throw new Error("writer 无法解析 chapterPaths：使用 manuscript/.../ 当前 Project Workspace 路径时，session 必须绑定 workspaceRoot。");
     }
-    return parseEntityId("novelId", novelIdText);
+    return normalizeProjectPath(normalized);
 }
 
-async function findWorkspaceSlugByNovelId(novelId: number): Promise<string> {
-    const prisma = await loadPrisma();
-    const novel = await prisma.novel.findUnique({
-        where: {id: novelId},
-        select: {workspaceSlug: true},
-    });
-    if (!novel) {
-        throw new Error(`小说不存在：novelId=${String(novelId)}`);
+function resolveExplicitProjectChapterPath(normalizedPath: string): {projectPath: string; chapterPath: string} | null {
+    const parts = normalizedPath.split("/").filter(Boolean);
+    if (parts[0] === "workspace") {
+        const projectName = parts[1] ?? "";
+        const chapterPath = normalizeChapterPath(parts.slice(2).join("/"));
+        return projectName && chapterPath ? {projectPath: normalizeProjectPath(posix.join("workspace", projectName)), chapterPath} : null;
     }
-    return novel.workspaceSlug;
-}
-
-async function findNovelIdByWorkspaceSlug(workspaceSlug: string): Promise<number> {
-    const prisma = await loadPrisma();
-    const novel = await prisma.novel.findUnique({
-        where: {workspaceSlug},
-        select: {id: true},
-    });
-    if (!novel) {
-        throw new Error(`Project Workspace 不存在或未绑定小说：${workspaceSlug}`);
-    }
-    return novel.id;
+    const projectName = parts[0] ?? "";
+    const chapterPath = normalizeChapterPath(parts.slice(1).join("/"));
+    return projectName && chapterPath ? {projectPath: normalizeProjectPath(posix.join("workspace", projectName)), chapterPath} : null;
 }
 
 function formatPromptError(error: unknown): string {
@@ -487,8 +476,4 @@ function formatPromptError(error: unknown): string {
 
 async function loadPlotFacade(): Promise<typeof import("nbook/server/plot").plotFacade> {
     return (await import("nbook/server/plot")).plotFacade;
-}
-
-async function loadPrisma(): Promise<typeof import("nbook/server/utils/prisma").prisma> {
-    return (await import("nbook/server/utils/prisma")).prisma;
 }
