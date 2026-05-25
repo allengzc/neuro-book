@@ -3,7 +3,6 @@
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {LeaderDefaultInputSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {
     AgentCatalog,
     AppendingSet,
@@ -75,7 +74,14 @@ export default defineAgentProfile({
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
     allowedToolKeys,
-    context() {
+    async context(ctx) {
+        const currentProjectWorkspace = await ctx.vars.get("client.currentProjectWorkspace");
+        const selectedFilePath = await ctx.vars.get("client.studio.selectedFilePath");
+        const workspaceReminderText = [
+            "<system-reminder>",
+            `Current Project Workspace: ${typeof currentProjectWorkspace === "string" && currentProjectWorkspace ? currentProjectWorkspace : "unknown"}; current file: ${typeof selectedFilePath === "string" && selectedFilePath ? selectedFilePath : "none"}. Use paths relative to the Project Workspace for local novel files, and spell cross-project paths explicitly.`,
+            "</system-reminder>",
+        ].join("\n");
         return (
             <ProfilePrompt>
                 <System>{LEADER_SYSTEM_PROMPT}</System>
@@ -94,58 +100,13 @@ export default defineAgentProfile({
                     <Message>
                         <SqlSchemaSummary />
                     </Message>
-                    <VariableSchema paths={["client.currentProjectWorkspace"]} includeToolGuide />
+                    <VariableSchema paths={["client.currentProjectWorkspace", "client.studio.selectedFilePath"]} includeToolGuide />
                 </ModelContext>
                 <AppendingSet>
                     <Reminder id="project" watchPath="client.currentProjectWorkspace" repeatEveryTurns={20}>
-                        <Message>
-                            {{
-                                kind: "StringFragment",
-                                text: async (ctx: ProfilePrepareContext<Input>) => {
-                                    const currentProjectWorkspace = await ctx.vars.get("client.currentProjectWorkspace");
-                                    return [
-                                        "<system-reminder>",
-                                        `Agent cwd: ${ctx.session.workspaceRoot}`,
-                                        typeof currentProjectWorkspace === "string" && currentProjectWorkspace ? `Current Project Workspace: ${currentProjectWorkspace}` : "",
-                                        "",
-                                        "- Bash/read/write/edit/apply_patch relative paths resolve from Agent cwd.",
-                                        "- Use Project Workspace paths such as lorebook/... or manuscript/... when Agent cwd is the current Project Workspace.",
-                                        "- Cross-project work is allowed when the user asks; keep paths explicit so the target Project Workspace is clear.",
-                                        "</system-reminder>",
-                                    ].filter(Boolean).join("\n");
-                                },
-                            }}
-                        </Message>
+                        <Message>{workspaceReminderText}</Message>
                     </Reminder>
                     <LinkedAgentsReminder />
-                    <Reminder id="plot-focus" watch={(ctx) => ctx.session.customState["plot.selection"] ?? null}>
-                        <Message>
-                            {{
-                                kind: "StringFragment",
-                                text: (ctx: ProfilePrepareContext<Input>) => {
-                                    const selectionValue = ctx.session.customState["plot.selection"];
-                                    const selection = selectionValue && typeof selectionValue === "object" && !Array.isArray(selectionValue)
-                                        ? selectionValue as Record<string, unknown>
-                                        : {};
-                                    const projectPath = typeof selection.projectPath === "string" ? selection.projectPath : "";
-                                    const threadId = typeof selection.threadId === "string" ? selection.threadId : "";
-                                    const sceneId = typeof selection.sceneId === "string" ? selection.sceneId : "";
-                                    if (!projectPath && !threadId && !sceneId) {
-                                        return "";
-                                    }
-                                    return [
-                                        "<system-reminder>",
-                                        "Current plot focus:",
-                                        projectPath ? `- Project Path: ${projectPath}` : "",
-                                        threadId ? `- Thread: ${threadId}` : "",
-                                        sceneId ? `- Scene: ${sceneId}` : "",
-                                        "Plot tools may reuse threadId/sceneId from plot.selection, but projectPath must still be passed explicitly.",
-                                        "</system-reminder>",
-                                    ].filter(Boolean).join("\n");
-                                },
-                            }}
-                        </Message>
-                    </Reminder>
                     <TaskReminder stateKey="agent.tasks" repeatEveryTurns={8} />
                     <PlanModeReminder stateKey="agent.planMode" />
                     <Message>
