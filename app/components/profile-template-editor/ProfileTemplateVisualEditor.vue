@@ -1304,7 +1304,7 @@ function templateVariablesToProfile(groups: ProfileTemplateDetailDto["variables"
             editable: item.editable,
             valueType: item.valueType ?? null,
             source: item.source ?? null,
-            schema: item.schema ?? null,
+            schema: (item.schema ?? null) as AgentProfileDetailDto["variables"][number]["items"][number]["schema"],
         })),
     }));
 }

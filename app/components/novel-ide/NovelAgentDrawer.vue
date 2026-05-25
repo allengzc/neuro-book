@@ -834,8 +834,8 @@ async function resetSessionModelSettings(): Promise<void> {
 function syncSessionModelState(_summary: AgentSessionSummaryDto | null): void {
     const model = session.snapshot.value?.model ?? null;
     sessionModelMode.value = model ? "override" : "default";
-    const providerConfigId = model && typeof (model as {providerConfigId?: unknown}).providerConfigId === "string"
-        ? (model as {providerConfigId: string}).providerConfigId
+    const providerConfigId = model && "providerConfigId" in model && typeof model.providerConfigId === "string"
+        ? model.providerConfigId
         : model?.provider;
     sessionModelDraft.value = {
         ...sessionModelDraft.value,

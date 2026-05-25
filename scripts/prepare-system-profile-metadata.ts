@@ -5,6 +5,8 @@ import {
     readProfileArtifactManifest,
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
+import {PROFILE_VARIABLE_IDE_TYPES_FILE} from "nbook/server/agent/variables/generated-types";
+import {generateProfileVariableIdeTypes} from "nbook/server/agent/variables/ide-types";
 import type {SystemProfileMetadata} from "nbook/server/workspace-files/novel-workspace";
 
 const profileRoot = path.resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profiles");
@@ -40,7 +42,13 @@ const metadata: SystemProfileMetadata = {
 };
 
 await fs.writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf-8");
+const ideTypes = await generateProfileVariableIdeTypes({
+    outputPath: path.resolve(process.cwd(), PROFILE_VARIABLE_IDE_TYPES_FILE),
+    variableDefinitionRoots: [variableDefinitionRoot],
+    profileRoots: [profileRoot],
+});
 console.log(`prepared system profile metadata: ${metadata.profiles.length} profiles`);
+console.log(`prepared profile variable IDE types: ${path.relative(process.cwd(), ideTypes.outputPath)} (${ideTypes.includedFiles.length} artifact type file(s))`);
 
 async function readExistingMetadata(filePath: string): Promise<SystemProfileMetadata | null> {
     try {

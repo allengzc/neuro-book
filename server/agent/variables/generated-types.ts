@@ -15,6 +15,8 @@ export type GeneratedVariableTypes = {
 
 export const VARIABLE_TYPES_FILE_NAME = "types.d.ts";
 
+export const PROFILE_VARIABLE_IDE_TYPES_FILE = "server/agent/variables/generated-profile-variable-types.d.ts";
+
 /**
  * 生成给 TSX profile authoring 使用的变量类型 declaration。
  * 这是运行时 registry 的派生产物，不参与变量读写真相源。

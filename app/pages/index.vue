@@ -58,7 +58,7 @@ const saveQueued = ref(false);
 const workspaceEventAbortController = ref<AbortController | null>(null);
 let workspaceFileSyncRunning = false;
 let pendingWorkspaceFileEvents: WorkspaceFileChangeEventDto[] = [];
-const USER_ASSETS_WORKSPACE_TARGET = "workspace/.nbook";
+const USER_ASSETS_PROJECT_TARGET = "workspace/.nbook";
 
 const novelIdeStore = useNovelIdeStore();
 const route = useRoute();
@@ -131,23 +131,30 @@ const novelItems = computed(() => novels.value.map((novel) => ({
     active: novel.id === currentNovelId.value,
 })));
 
-type WorkspaceRouteTarget =
+type ProjectRouteTarget =
     | {kind: "user-assets"}
     | {kind: "project"; projectPath: string}
     | {kind: "default"};
 
 /**
- * 解析页面 URL 中的 workspace target。workspace/.nbook 是 user-assets 保留值。
+ * 解析页面 URL 中的 project target。workspace/.nbook 是 user-assets 保留值。
  */
-const parseWorkspaceRouteTarget = (): WorkspaceRouteTarget => {
-    const workspaceQuery = typeof route.query.workspace === "string" ? route.query.workspace.trim() : "";
-    if (workspaceQuery === USER_ASSETS_WORKSPACE_TARGET) {
+const parseProjectRouteTarget = (): ProjectRouteTarget => {
+    const projectQuery = typeof route.query.project === "string" ? route.query.project.trim() : "";
+    if (projectQuery === USER_ASSETS_PROJECT_TARGET) {
         return {kind: "user-assets"};
     }
-    if (/^workspace\/[^/]+$/u.test(workspaceQuery)) {
-        return {kind: "project", projectPath: workspaceQuery};
+    if (/^workspace\/[^/]+$/u.test(projectQuery)) {
+        return {kind: "project", projectPath: projectQuery};
     }
     return {kind: "default"};
+};
+
+/**
+ * 生成规范 project URL，确保 query value 中的斜杠编码为 %2F。
+ */
+const buildProjectRoute = (projectTarget: string): string => {
+    return `/?${new URLSearchParams({project: projectTarget}).toString()}`;
 };
 
 const workspaceBootstrapped = ref(false);
@@ -720,8 +727,8 @@ const resolveUnsavedWorkspaceChanges = async (): Promise<WorkspaceSwitchDecision
  */
 const handleSwitchNovel = async (novelId: string): Promise<void> => {
     if (novelId === currentNovelId.value) {
-        if (route.query.workspace !== novelId) {
-            await router.replace({path: "/", query: {workspace: novelId}});
+        if (route.query.project !== novelId) {
+            await router.replace(buildProjectRoute(novelId));
         }
         return;
     }
@@ -732,7 +739,7 @@ const handleSwitchNovel = async (novelId: string): Promise<void> => {
     }
 
     await switchNovel(novelId, {discardWorkspaceChanges: decision === "discard"});
-    await router.replace({path: "/", query: {workspace: novelId}});
+    await router.replace(buildProjectRoute(novelId));
 };
 
 /**
@@ -1011,7 +1018,7 @@ const openPlotWorkbench = (): void => {
  * 打开全局用户 assets 工作区。
  */
 const openUserAssets = (): void => {
-    const resolved = router.resolve({path: "/", query: {workspace: USER_ASSETS_WORKSPACE_TARGET}});
+    const resolved = router.resolve(buildProjectRoute(USER_ASSETS_PROJECT_TARGET));
     window.open(resolved.href, "_blank", "noopener,noreferrer");
 };
 
@@ -1019,7 +1026,7 @@ const openUserAssets = (): void => {
  * 根据页面 query 初始化当前工作区。
  */
 const initializeWorkspaceFromRoute = async (): Promise<void> => {
-    const target = parseWorkspaceRouteTarget();
+    const target = parseProjectRouteTarget();
     if (target.kind === "user-assets") {
         await switchToUserAssetsWorkspace();
         activeLeftTab.value = "files";
@@ -1033,14 +1040,14 @@ const initializeWorkspaceFromRoute = async (): Promise<void> => {
  * 判断当前 store 状态是否已经匹配页面 query。
  */
 const workspaceRouteSynced = (): boolean => {
-    const target = parseWorkspaceRouteTarget();
+    const target = parseProjectRouteTarget();
     if (target.kind === "user-assets") {
         return isUserAssetsWorkspace.value;
     }
     if (target.kind === "project" && novels.value.some((novel) => novel.id === target.projectPath)) {
         return workspaceKind.value === "novel" && currentNovelId.value === target.projectPath;
     }
-    return !route.query.workspace && workspaceKind.value === "novel";
+    return !route.query.project && workspaceKind.value === "novel";
 };
 
 /**
@@ -1050,10 +1057,10 @@ const normalizeNovelRouteQuery = async (): Promise<void> => {
     if (isUserAssetsWorkspace.value || !currentNovelId.value) {
         return;
     }
-    if (route.query.workspace === currentNovelId.value) {
+    if (route.query.project === currentNovelId.value) {
         return;
     }
-    await router.replace({path: "/", query: {workspace: currentNovelId.value}});
+    await router.replace(buildProjectRoute(currentNovelId.value));
 };
 
 /**
@@ -1074,6 +1081,7 @@ const syncWorkspaceRoute = async (): Promise<void> => {
     await initializeWorkspaceFromRoute();
     if (!isUserAssetsWorkspace.value) {
         await validateWorkspace();
+        await normalizeNovelRouteQuery();
     }
     subscribeWorkspaceEvents();
 };
@@ -1111,7 +1119,7 @@ onMounted(() => {
     })();
 });
 
-watch(() => route.query.workspace, () => {
+watch(() => route.query.project, () => {
     if (!initialized.value) {
         return;
     }
@@ -1213,7 +1221,7 @@ onBeforeUnmount(() => {
             />
         </div>
 
-        <NovelBookshelfDialog v-model="bookshelfOpen" @switched="void router.replace({path: '/', query: {workspace: $event}})" />
+        <NovelBookshelfDialog v-model="bookshelfOpen" @switched="void router.replace(buildProjectRoute($event))" />
         <NovelIdeSettingsDialog v-model="settingsDialogOpen" />
         <UserProfileWorkbenchDialog v-model="profileWorkbenchOpen" />
         <WorkspaceFileConflictDialog
