@@ -199,7 +199,13 @@ describe("assets builtin v3 profiles", () => {
             catalog: await catalog.snapshot(),
             skills: [],
         });
-        const runtimeModelContextText = (runtimePrepared.modelContextMessages ?? []).map(messageText).join("\n");
+        const runtimeModelContextText = (runtimePrepared.modelContextMessages ?? []).flatMap((message) => {
+            const content = "content" in message ? message.content : "";
+            if (typeof content === "string") {
+                return [content];
+            }
+            return Array.isArray(content) ? content.flatMap((block) => block.type === "text" ? [block.text] : []) : [];
+        }).join("\n");
         const runtimeAppendingText = (runtimePrepared.appendingMessages ?? []).map(messageText).join("\n");
         expect(runtimeModelContextText).toContain("\"path\": \"client.currentProjectWorkspace\"");
         expect(runtimeModelContextText).toContain("\"path\": \"client.studio.selectedFilePath\"");

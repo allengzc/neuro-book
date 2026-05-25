@@ -90,10 +90,25 @@ export type VariableReadResult = {
     issue?: VariableAccessorIssue;
 };
 
+/**
+ * 变量类型生成器会通过 module augmentation 扩展这个 map。
+ * 运行时不依赖该类型；它只服务 TSX profile authoring 补全与返回值推导。
+ */
+export interface ProfileVariableValueMap {
+}
+
+export type ProfileVariablePath = keyof ProfileVariableValueMap & string;
+
+export type ProfileVariablePathInput = ProfileVariablePath | (string & {});
+
+export type TypedVariableReadResult<TValue> = Omit<VariableReadResult, "value"> & {
+    value?: TValue;
+};
+
 export type VariableSchemaQuery = {
     namespace?: VariableNamespace;
     prefix?: string;
-    paths?: string[];
+    paths?: ProfileVariablePathInput[];
     writableOnly?: boolean;
     detail?: boolean;
 };
@@ -127,7 +142,9 @@ export type ClientVariablePatchHandler = (request: VariablePatchRequest) => Prom
 export type ProfileVariableAccessor = {
     readonly dryRun: boolean;
     catalog(query?: VariableSchemaQuery): VariableSchemaResult;
+    get<P extends ProfileVariablePath>(path: P): Promise<ProfileVariableValueMap[P] | undefined>;
     get(path: string): Promise<JsonValue | undefined>;
+    read<P extends ProfileVariablePath>(path: P, options?: VariableReadOptions): Promise<TypedVariableReadResult<ProfileVariableValueMap[P]>>;
     read(path: string, options?: VariableReadOptions): Promise<VariableReadResult>;
     patch(namespace: VariableNamespace, path: string, operations: VariableJsonPatchOperation[], source?: VariablePatchAudit["source"], toolCallId?: string): Promise<VariableReadResult>;
 };

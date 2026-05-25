@@ -7,6 +7,7 @@ import {builtinModules} from "node:module";
 import {build, type Metafile, type Plugin} from "esbuild";
 import type {VariableDefinition, VariableNamespace, VariableAccessorIssue} from "nbook/server/agent/variables/types";
 import {hashFile, resolveArtifactPath} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {generateVariableTypes, VARIABLE_TYPES_FILE_NAME, type VariableTypeGenerationDiagnostic} from "nbook/server/agent/variables/generated-types";
 
 export const VARIABLE_DEFINITION_COMPILER_VERSION = 1;
 export const VARIABLE_DEFINITION_COMPILED_DIR = ".compiled";
@@ -26,6 +27,10 @@ export type VariableDefinitionManifestItem = {
     artifactFileName: string;
     artifactSha256: string;
     artifactBytes: number;
+    typeFileName?: string;
+    typeSha256?: string;
+    typeBytes?: number;
+    typeDiagnostics?: VariableTypeGenerationDiagnostic[];
     registeredPaths: string[];
     dependencies: VariableDefinitionDependency[];
 };
@@ -51,7 +56,7 @@ export async function compileVariableDefinitions(options: {definitionRoot: strin
     const buildCompiledDir = resolve(process.cwd(), ".agent", "workspace", "variable-definition-build", randomUUID());
     await mkdir(buildCompiledDir, {recursive: true});
     const files = await findDefinitionFiles(definitionRoot);
-    const definitions: VariableDefinitionManifestItem[] = [];
+        const definitions: VariableDefinitionManifestItem[] = [];
     try {
         for (const file of files) {
             definitions.push(await compileDefinitionFile(definitionRoot, buildCompiledDir, file));
@@ -146,6 +151,15 @@ export async function validateVariableDefinitionArtifact(root: string, item: Var
     if (artifactHash.sha256 !== item.artifactSha256 || artifactHash.bytes !== item.artifactBytes) {
         return {fresh: false, reason: "artifact_changed"};
     }
+    if (item.typeFileName && item.typeSha256 && item.typeBytes !== undefined) {
+        const typeHash = await hashFile(join(root, VARIABLE_DEFINITION_COMPILED_DIR, item.typeFileName)).catch(() => null);
+        if (!typeHash) {
+            return {fresh: false, reason: "artifact_missing"};
+        }
+        if (typeHash.sha256 !== item.typeSha256 || typeHash.bytes !== item.typeBytes) {
+            return {fresh: false, reason: "artifact_changed"};
+        }
+    }
     return {fresh: true};
 }
 
@@ -179,6 +193,13 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
         await promoteArtifact(temporaryOutputPath, artifactPath);
         const artifactHash = await hashFile(artifactPath);
         const definitions = await importDefinitions(artifactPath, artifactHash.sha256);
+        const typeFileName = `${dependencyHash}.${VARIABLE_TYPES_FILE_NAME}`;
+        const typePath = join(compiledDir, typeFileName);
+        const generatedTypes = generateVariableTypes(definitions, {
+            header: `Variable definition types generated from ${file.fileName}.`,
+        });
+        await writeFile(typePath, generatedTypes.text, "utf8");
+        const typeHash = await hashFile(typePath);
         return {
             fileName: file.fileName,
             sourceSha256: sourceHash.sha256,
@@ -187,6 +208,10 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
             artifactFileName,
             artifactSha256: artifactHash.sha256,
             artifactBytes: artifactHash.bytes,
+            typeFileName,
+            typeSha256: typeHash.sha256,
+            typeBytes: typeHash.bytes,
+            typeDiagnostics: generatedTypes.diagnostics,
             registeredPaths: definitions.map((definition) => `${definition.namespace}.${definition.key}`).sort(),
             dependencies,
         };
@@ -273,6 +298,12 @@ async function commitArtifacts(buildDir: string, compiledDir: string, manifest: 
         const sourcePath = join(buildDir, item.artifactFileName);
         if (existsSync(sourcePath)) {
             await copyFile(sourcePath, join(compiledDir, item.artifactFileName));
+        }
+        if (item.typeFileName) {
+            const typeSourcePath = join(buildDir, item.typeFileName);
+            if (existsSync(typeSourcePath)) {
+                await copyFile(typeSourcePath, join(compiledDir, item.typeFileName));
+            }
         }
     }
     await writeFile(join(compiledDir, VARIABLE_DEFINITION_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");

@@ -14,7 +14,7 @@
   "scripts": {
     "dev": "bun scripts/prepare-system-profile-metadata.ts && nuxt dev",
     "dev:warmup": "node scripts/warmup-dev-server.mjs",
-    "nuxt:build": "bun scripts/prepare-system-profile-metadata.ts && nuxt build",
+    "nuxt:build": "bun scripts/prepare-system-profile-metadata.ts && nuxt build && node scripts/patch-nitro-runtime-deps.mjs",
     "nuxt:preview": "nuxt preview",
     "analysis": "nuxt analyze --dotenv .env",
     "nuxt:prepare": "nuxt prepare",

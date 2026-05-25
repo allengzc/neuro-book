@@ -1,7 +1,6 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import {fileURLToPath} from "node:url";
 import {createHash} from "node:crypto";
 import {readProfileArtifactManifest, rehomeProfileArtifactItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {readVariableDefinitionManifest} from "nbook/server/agent/variables/definition-artifact";
@@ -13,7 +12,7 @@ export const USER_ASSETS_WORKSPACE_ROOT = path.posix.join(WORKSPACE_CONTAINER_RO
 export const USER_NBOOK_ROOT = path.posix.join(WORKSPACE_CONTAINER_ROOT, ".nbook");
 export const DEFAULT_NOVEL_WORKSPACE_SLUG = "silver-dragon-hime";
 
-const SYSTEM_WORKSPACE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../assets/workspace");
+const SYSTEM_WORKSPACE_ROOT = path.resolve(process.cwd(), "assets", "workspace");
 const SYSTEM_NBOOK_ROOT = path.join(SYSTEM_WORKSPACE_ROOT, ".nbook");
 const SYSTEM_PROFILE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "profiles");
 const USER_PROFILE_ROOT = path.resolve(process.cwd(), USER_NBOOK_ROOT, "agent", "profiles");
