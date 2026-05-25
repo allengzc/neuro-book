@@ -104,6 +104,7 @@ services:
             context: .
             dockerfile: Dockerfile.source-runtime
         working_dir: /app
+        user: "\${HOST_UID}:\${HOST_GID}"
         command: ["sh", "./scripts/docker-entrypoint.sh"]
         volumes:
             - ./:/app
@@ -143,6 +144,9 @@ step "加载部署环境"
 set -a
 . ./${ENV_FILE}
 set +a
+HOST_UID="$(id -u)"
+HOST_GID="$(id -g)"
+export HOST_UID HOST_GID
 
 case "\${DATABASE_URL:-}" in
     file:*) DATABASE_KIND=sqlite ;;
