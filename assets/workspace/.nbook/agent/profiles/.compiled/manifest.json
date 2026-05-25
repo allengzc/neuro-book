@@ -1,6 +1,6 @@
 {
   "compilerVersion": 1,
-  "generatedAt": "2026-05-25T15:45:08.766Z",
+  "generatedAt": "2026-05-25T16:14:48.028Z",
   "profilesRoot": "assets/workspace/.nbook/agent/profiles",
   "profiles": [
     {
@@ -239,11 +239,11 @@
       "profileKey": "writer",
       "sourceSha256": "d6ca49f1e83a17576d30323838bb9d512bd981d3ba9a499c51476016e63093ee",
       "sourceBytes": 24519,
-      "dependencyHash": "e09856f21b832732138e9db8",
-      "artifactFileName": "e09856f21b832732138e9db8.mjs",
+      "dependencyHash": "95a32c39b0b25d390725e619",
+      "artifactFileName": "95a32c39b0b25d390725e619.mjs",
       "artifactSha256": "f3b9acc8510f7f78560f3bedad99a82f971e7b2c93dea3ef36220c706dd25628",
       "artifactBytes": 264823,
-      "typeFileName": "e09856f21b832732138e9db8.types.d.ts",
+      "typeFileName": "95a32c39b0b25d390725e619.types.d.ts",
       "typeSha256": "21d282dcafc806c05e7c935c41e70226d12bf03658de82957b64efe4fde55c54",
       "typeBytes": 374,
       "typeDiagnostics": [],
@@ -276,8 +276,8 @@
         },
         {
           "path": "server/agent/profiles/profile-artifact-compiler.ts",
-          "sha256": "82a2020238c84b5f18b98b898e92539ae5eeed8999d215fe8bd06cb6f3505d77",
-          "bytes": 23116
+          "sha256": "13da16b3fabda5c733c808284a6d602cdf0a3e739c929ab770635b55c55d81e2",
+          "bytes": 22654
         },
         {
           "path": "server/agent/profiles/profile-dsl.ts",
@@ -316,8 +316,8 @@
         },
         {
           "path": "server/agent/variables/definition-artifact.ts",
-          "sha256": "25dc4d955822b735b96321d8c9d12bfda706aa68eb24c3c07c8ca4c9b897a40c",
-          "bytes": 16758
+          "sha256": "4fbdeb994fa993cd80c61796b9899a4f7ff519a88d0e99dca18da375ab488ea3",
+          "bytes": 16289
         },
         {
           "path": "server/agent/variables/generated-types.ts",
@@ -486,8 +486,8 @@
         },
         {
           "path": "server/workspace-files/novel-workspace.ts",
-          "sha256": "edbcd346555b7f0710f044d5c19bda41c36847857c124ee470fd3b4baf46f2de",
-          "bytes": 26352
+          "sha256": "34c17ba105ea3d851c22b40e60a46de8dce93728f90016071a9eef70205318a4",
+          "bytes": 26782
         },
         {
           "path": "server/workspace-files/project-workspace.ts",

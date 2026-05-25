@@ -241,8 +241,11 @@ read(path: string): Promise<VariableReadResult>;
 - `bun scripts/variable.ts definition check --global --workspace-root assets/workspace`
 - `bun scripts/profile.ts check builtin/leader.default.profile.tsx --system`
 - `bun scripts/profile.ts check builtin/leader.default.profile.tsx --system --strict-variables`
+- `bun scripts/profile.ts check --all --system --strict-variables`
 - `bun scripts/profile.ts status builtin/leader.default.profile.tsx --system`
 - `bun scripts/profile.ts status writer --system`
+- `bunx vitest run server/agent/variables/variables.test.ts server/agent/profiles/catalog.test.ts`
+- `bunx vitest run server/workspace-files/workspace-files.test.ts -t "同步系统 assets 会补齐默认 leader profile 覆盖文件"`
 
 ## TODO / Follow-ups
 
@@ -276,9 +279,15 @@ read(path: string): Promise<VariableReadResult>;
 - Profile artifact compiler 扩展：
     - 编译 profile 后从 `profile.variableDefinitions` 生成 session variable type artifact。
     - manifest 记录 `registeredVariablePaths` 和 type artifact 元数据。
-    - 系统 artifact 同步场景需要同时复制 type artifact，`validateProfileArtifact()` 会校验它。
+    - 系统 artifact 同步场景需要同时复制 type artifact；runtime freshness 不依赖 type artifact，避免补全产物缺失导致 profile 不可运行。
 - Profile CLI 接入：
     - `profile check/compile` typecheck 时注入 builtin client types、Workspace Root/global type artifact、当前 profile/session type artifact。
     - 新增 `--project <projectPath>`，用于额外注入 Project Workspace 的 project variable types。
     - 新增 `--strict-variables`，把 literal path 未注册从 warning 升级为 error。
     - 对当前源码的 session variables 会先在临时目录编译提取类型，不写真实 `.compiled`。
+
+### 2026-05-25 Review Fixes
+
+- Runtime artifact freshness 重新收窄到源码、依赖和 `.mjs` artifact；`.types.d.ts` 只作为 authoring aid，不会阻断 profile 或 variable definition 加载。
+- user-assets 同步系统 profile / variable definition artifact 时会同步复制对应 `.types.d.ts`，保证用户覆盖层的 CLI 补全和 status 信息完整。
+- `profile check/compile --all --strict-variables` 不再静默跳过变量 path 诊断；改为一次性 typecheck 全部 profile 源码，避免逐文件创建 TypeScript Program 造成 CLI 过慢。

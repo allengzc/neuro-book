@@ -479,7 +479,7 @@ function resolveOverrideState(profile: AgentCatalogItem): AgentProfileCatalogIte
  */
 function toProfileIssueDto(issue: AgentProfileIssue, profileKey: string, fileName: string | null): AgentProfileIssueDto {
     return {
-        severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "dependency_stale" || issue.code === "not_compiled" || issue.code === "compile_stale" ? "warning" : "error",
+        severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "source_stale" || issue.code === "dependency_stale" || issue.code === "not_compiled" || issue.code === "compile_stale" ? "warning" : "error",
         message: issue.message,
         code: issue.code,
         profileKey: issue.profileKey ?? profileKey,

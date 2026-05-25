@@ -156,7 +156,7 @@ async function runStatus(options: CliOptions): Promise<void> {
 
 async function runCheck(options: CliOptions): Promise<void> {
     const target = await resolveTarget(options);
-    if (target.filePath && !await runTypecheck(target.filePath, target, options)) {
+    if (!await runTypechecks(target, options)) {
         process.exitCode = 1;
         return;
     }
@@ -176,7 +176,7 @@ async function runCheck(options: CliOptions): Promise<void> {
 
 async function runCompile(options: CliOptions): Promise<void> {
     const target = await resolveTarget(options);
-    if (target.filePath && !await runTypecheck(target.filePath, target, options)) {
+    if (!await runTypechecks(target, options)) {
         process.exitCode = 1;
         return;
     }
@@ -358,55 +358,63 @@ type VariablePathDiagnostic = {
     message: string;
 };
 
-async function runTypecheck(filePath: string, target: Awaited<ReturnType<typeof resolveTarget>>, options: CliOptions): Promise<boolean> {
-    if (!/\.(tsx|ts)$/.test(filePath)) {
+async function runTypechecks(target: Awaited<ReturnType<typeof resolveTarget>>, options: CliOptions): Promise<boolean> {
+    if (target.filePath) {
+        return runTypecheckFiles([target.filePath], target, options);
+    }
+    if (!options.all) {
+        return true;
+    }
+    const files = await findProfileFiles(target.root);
+    return runTypecheckFiles(files.map((fileName) => path.join(target.root, ...fileName.split("/"))), target, options);
+}
+
+async function runTypecheckFiles(filePaths: string[], target: Awaited<ReturnType<typeof resolveTarget>>, options: CliOptions): Promise<boolean> {
+    const checkedFilePaths = filePaths.filter((filePath) => /\.(tsx|ts)$/.test(filePath));
+    if (checkedFilePaths.length === 0) {
         return true;
     }
     const variableTypes = await prepareVariableTypeEnvironment(target, options);
-    const configPath = ts.findConfigFile(process.cwd(), ts.sys.fileExists, ".nuxt/tsconfig.server.json")
-        ?? ts.findConfigFile(process.cwd(), ts.sys.fileExists, "tsconfig.json");
-    if (!configPath) {
-        console.error("未找到 tsconfig.json");
+    try {
+        const configPath = ts.findConfigFile(process.cwd(), ts.sys.fileExists, ".nuxt/tsconfig.server.json")
+            ?? ts.findConfigFile(process.cwd(), ts.sys.fileExists, "tsconfig.json");
+        if (!configPath) {
+            console.error("未找到 tsconfig.json");
+            return false;
+        }
+        const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
+        if (configFile.error) {
+            printDiagnostics([configFile.error]);
+            return false;
+        }
+        const config = ts.parseJsonConfigFileContent(configFile.config, ts.sys, path.dirname(configPath), undefined, configPath);
+        const program = ts.createProgram({
+            rootNames: [...checkedFilePaths, ...config.fileNames.filter((item) => item.endsWith(".d.ts")), ...variableTypes.typeFiles],
+            options: {
+                ...config.options,
+                noEmit: true,
+                skipLibCheck: true,
+            },
+        });
+        const generatedTypeFiles = new Set(variableTypes.typeFiles.map((item) => path.resolve(item)));
+        const diagnostics = ts.getPreEmitDiagnostics(program).filter((diagnostic) => {
+            const fileName = diagnostic.file?.fileName;
+            return !fileName
+                || generatedTypeFiles.has(path.resolve(fileName))
+                || Boolean(relativeInside(SYSTEM_PROFILE_ROOT, fileName) || relativeInside(USER_PROFILE_ROOT, fileName));
+        });
+        const variableDiagnostics = checkedFilePaths.flatMap((filePath) => collectVariablePathDiagnostics(filePath, variableTypes.knownPaths, options.strictVariables));
+        if (diagnostics.length > 0) {
+            printDiagnostics(diagnostics);
+            return false;
+        }
+        for (const diagnostic of variableDiagnostics) {
+            console.log(`[${diagnostic.severity}] ${diagnostic.message}`);
+        }
+        return !variableDiagnostics.some((diagnostic) => diagnostic.severity === "error");
+    } finally {
         await variableTypes.cleanup();
-        return false;
     }
-    const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
-    if (configFile.error) {
-        printDiagnostics([configFile.error]);
-        await variableTypes.cleanup();
-        return false;
-    }
-    const config = ts.parseJsonConfigFileContent(configFile.config, ts.sys, path.dirname(configPath), undefined, configPath);
-    const program = ts.createProgram({
-        rootNames: [filePath, ...config.fileNames.filter((item) => item.endsWith(".d.ts")), ...variableTypes.typeFiles],
-        options: {
-            ...config.options,
-            noEmit: true,
-            skipLibCheck: true,
-        },
-    });
-    const generatedTypeFiles = new Set(variableTypes.typeFiles.map((item) => path.resolve(item)));
-    const diagnostics = ts.getPreEmitDiagnostics(program).filter((diagnostic) => {
-        const fileName = diagnostic.file?.fileName;
-        return !fileName
-            || generatedTypeFiles.has(path.resolve(fileName))
-            || Boolean(relativeInside(SYSTEM_PROFILE_ROOT, fileName) || relativeInside(USER_PROFILE_ROOT, fileName));
-    });
-    const variableDiagnostics = collectVariablePathDiagnostics(filePath, variableTypes.knownPaths, options.strictVariables);
-    if (diagnostics.length > 0) {
-        printDiagnostics(diagnostics);
-        await variableTypes.cleanup();
-        return false;
-    }
-    for (const diagnostic of variableDiagnostics) {
-        console.log(`[${diagnostic.severity}] ${diagnostic.message}`);
-    }
-    if (variableDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-        await variableTypes.cleanup();
-        return false;
-    }
-    await variableTypes.cleanup();
-    return true;
 }
 
 async function prepareVariableTypeEnvironment(target: Awaited<ReturnType<typeof resolveTarget>>, options: CliOptions): Promise<VariableTypeEnvironment> {
@@ -458,9 +466,9 @@ async function collectVariableDefinitionTypes(root: string, knownPaths: Set<stri
 }
 
 async function collectProfileSessionTypes(target: Awaited<ReturnType<typeof resolveTarget>>, knownPaths: Set<string>, typeFiles: string[], tempRoot: string): Promise<void> {
-    const temporaryProfileRoot = target.fileName ? path.join(tempRoot, "profiles") : null;
+    const temporaryProfileRoot = target.fileName || !target.profileKey ? path.join(tempRoot, "profiles") : null;
     const manifestRoot = temporaryProfileRoot ?? target.root;
-    if (temporaryProfileRoot && target.fileName) {
+    if (temporaryProfileRoot) {
         try {
             await fsp.cp(target.root, temporaryProfileRoot, {recursive: true, force: true});
             await compileProfileArtifacts({
@@ -473,23 +481,24 @@ async function collectProfileSessionTypes(target: Awaited<ReturnType<typeof reso
         }
     }
     const manifest = await readProfileArtifactManifest(manifestRoot);
-    const item = target.fileName
-        ? manifest.profiles.find((profile) => profile.fileName === target.fileName)
-        : manifest.profiles.find((profile) => profile.profileKey === target.profileKey);
-    if (!item) {
-        return;
-    }
-    for (const registeredPath of item.registeredVariablePaths ?? []) {
-        knownPaths.add(registeredPath);
-    }
-    if (item.typeFileName) {
-        const typePath = path.join(manifestRoot, ".compiled", item.typeFileName);
-        if (fs.existsSync(typePath)) {
-            typeFiles.push(typePath);
+    const items = target.fileName
+        ? manifest.profiles.filter((profile) => profile.fileName === target.fileName)
+        : target.profileKey
+            ? manifest.profiles.filter((profile) => profile.profileKey === target.profileKey)
+            : manifest.profiles;
+    for (const item of items) {
+        for (const registeredPath of item.registeredVariablePaths ?? []) {
+            knownPaths.add(registeredPath);
         }
-    }
-    for (const diagnostic of item.typeDiagnostics ?? []) {
-        console.log(`[${diagnostic.severity}] ${diagnostic.message}`);
+        if (item.typeFileName) {
+            const typePath = path.join(manifestRoot, ".compiled", item.typeFileName);
+            if (fs.existsSync(typePath)) {
+                typeFiles.push(typePath);
+            }
+        }
+        for (const diagnostic of item.typeDiagnostics ?? []) {
+            console.log(`[${diagnostic.severity}] ${diagnostic.message}`);
+        }
     }
 }
 

@@ -63,7 +63,7 @@ export async function listProfileFiles(roots: WorkbenchRoots = {}): Promise<Agen
             name: catalogItem?.name ?? manifest?.name ?? fileName,
             loadStatus: catalogItem?.loadStatus ?? (manifest ? "not_compiled" : "missing"),
             issues: catalogIssues.map((issue) => ({
-                severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "dependency_stale" || issue.code === "not_compiled" || issue.code === "compile_stale" ? "warning" as const : "error" as const,
+                severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "source_stale" || issue.code === "dependency_stale" || issue.code === "not_compiled" || issue.code === "compile_stale" ? "warning" as const : "error" as const,
                 message: issue.message,
                 code: issue.code,
                 profileKey: issue.profileKey,
@@ -113,7 +113,7 @@ export async function readProfileSource(profiles: AgentProfileCatalog, request: 
         const issueDtos: AgentProfileIssueDto[] = snapshot?.issues
             .filter((issue) => issue.sourcePath === filePath)
             .map((issue) => ({
-                severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "dependency_stale" || issue.code === "not_compiled" || issue.code === "compile_stale" ? "warning" as const : "error" as const,
+                severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "source_stale" || issue.code === "dependency_stale" || issue.code === "not_compiled" || issue.code === "compile_stale" ? "warning" as const : "error" as const,
                 message: issue.message,
                 code: issue.code,
                 profileKey: issue.profileKey,

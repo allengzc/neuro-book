@@ -223,6 +223,31 @@ describe("AgentProfileCatalog", () => {
         ]));
     });
 
+    it("用户 profile 源码变化但未编译时继续使用上次编译产物并给出 warning", async () => {
+        await writeProfile(userRoot, "custom.unsaved.profile.tsx", profileSource("custom.unsaved", "Compiled Version"));
+        await compileRoot(userRoot);
+        await writeProfile(userRoot, "custom.unsaved.profile.tsx", profileSource("custom.unsaved", "Edited Source"));
+        const catalog = new AgentProfileCatalog(systemRoot, userRoot);
+
+        const profile = await catalog.get("custom.unsaved");
+        const snapshot = await catalog.snapshot();
+
+        expect((await profile.prepare!(context())).systemPrompt).toBe("Compiled Version");
+        expect(snapshot.profiles.find((item) => item.key === "custom.unsaved")).toEqual(expect.objectContaining({
+            loadStatus: "loaded",
+            source: "user",
+            issue: expect.objectContaining({
+                code: "source_stale",
+            }),
+        }));
+        expect(snapshot.issues).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                code: "source_stale",
+                profileKey: "custom.unsaved",
+            }),
+        ]));
+    });
+
     it("用户 profile 依赖变化且 artifact 损坏时不可运行", async () => {
         await writeProfile(userRoot, "prompt-helper.ts", `export const helperText = "v1";`);
         await writeProfile(userRoot, "custom.broken-artifact.profile.tsx", `
@@ -409,12 +434,7 @@ describe("AgentProfileCatalog", () => {
             join(systemRoot, ".compiled", systemItem.artifactFileName),
             join(userRoot, ".compiled", systemItem.artifactFileName),
         );
-        if (systemItem.typeFileName) {
-            await copyFile(
-                join(systemRoot, ".compiled", systemItem.typeFileName),
-                join(userRoot, ".compiled", systemItem.typeFileName),
-            );
-        }
+        expect(systemItem.typeFileName).toMatch(/types\.d\.ts$/);
         const userItem = rehomeProfileArtifactItem(systemItem, {
             fromRootLabel: relative(process.cwd(), systemRoot).split(/[\\/]+/).join("/"),
             toRootLabel: relative(process.cwd(), userRoot).split(/[\\/]+/).join("/"),

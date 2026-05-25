@@ -30,6 +30,7 @@ export type AgentProfileIssueCode =
     | "file_missing"
     | "not_compiled"
     | "compile_stale"
+    | "source_stale"
     | "dependency_stale"
     | "compiled_load_failed"
     | "source_error";
