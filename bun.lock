@@ -12,6 +12,7 @@
         "@earendil-works/pi-ai": "^0.75.4",
         "@iconify-json/lucide": "^1.2.95",
         "@libsql/client": "^0.17.3",
+        "@libsql/isomorphic-ws": "^0.1.5",
         "@milkdown/plugin-clipboard": "^7.19.0",
         "@milkdown/plugin-history": "^7.19.0",
         "@milkdown/plugin-prism": "^7.19.0",
