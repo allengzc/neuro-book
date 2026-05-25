@@ -90,6 +90,14 @@ if [ ! -f .env ] || [ ! -f config.yaml ] || [ ! -f .deploy/docker-compose.genera
     exit 1
 fi
 
+step "清理旧 PostgreSQL 环境变量"
+tmp_env="$(mktemp)"
+grep -v -e '^POSTGRES_' -e '^DATABASE_KIND=' .env > "$tmp_env"
+printf 'DATABASE_KIND=sqlite\\n' >> "$tmp_env"
+cat "$tmp_env" > .env
+rm -f "$tmp_env"
+chmod 600 .env 2>/dev/null || true
+
 if [ -f .deploy/config.yaml ]; then
     echo "检测到旧 .deploy/config.yaml。请先在远端运行 bun run config:migrate 或 neuro-book-deploy --redeploy，让旧 Provider 配置进入 workspace/.nbook/config.json。" >&2
     exit 1
@@ -140,6 +148,10 @@ run_sudo rm -rf server/generated/prisma
 run_sudo mkdir -p server/generated
 run_sudo chown "$(id -u):$(id -g)" server/generated
 
+step "准备 Workspace 数据库权限"
+run_sudo mkdir -p workspace/.nbook
+run_sudo chown -R "$(id -u):$(id -g)" workspace/.nbook
+
 step "加载部署环境"
 set -a
 . ./${ENV_FILE}
@@ -172,7 +184,7 @@ step "Nuxt build"
 bun run nuxt:build
 
 step "重启 app 容器"
-run_sudo docker compose --env-file ${ENV_FILE} $COMPOSE_FILES up -d --build --force-recreate app
+run_sudo docker compose --env-file ${ENV_FILE} $COMPOSE_FILES up -d --build --force-recreate --remove-orphans app
 
 step "Compose 状态"
 run_sudo docker compose --env-file ${ENV_FILE} $COMPOSE_FILES ps
