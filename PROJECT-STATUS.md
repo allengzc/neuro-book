@@ -66,7 +66,7 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 - Agent session event hub 后续支持跨进程/多实例广播；第一版是单进程内存 replay，重启或多 worker 场景通过 snapshot 恢复，不保证实时 fan-out。
 - TSX Profile Workbench 后续补完整辅助编辑：当前第一版已能从系统模板新建、保存、轻量解析、手动后台编译、诊断、预览、创建自定义 profile session，并解析/局部写回稳定 `ProfilePrompt` DSL tree；TypeBox Schema Builder、工具权限 checklist 局部替换、复杂 `Watch.render`、跨 helper 的完整 AST round-trip，以及是否为多 profile catalog 编译引入 worker pool 仍待重做。
 - 后续补 `.compiled` artifact 清理策略：单文件用户编译会保留旧 artifact 文件，当前不影响运行；可增加 prune 命令或 UI 清理动作。
-- Agent 变量系统后续补齐变量类型自动生成与 profile 编辑期补全：从 builtin/client、Workspace Root/global、Project Workspace/project 和 profile/session definitions 派生 generated `.d.ts`，让 `ctx.vars.get()`、`<Variable>`、`<VariableSchema>` 和 `watchPath` 获得 path 补全和返回值类型提示；类型产物只作为 authoring aid，不改变 runtime registry/schema 校验真相源。
+- Agent 变量系统已接入 profile 编辑期类型补全底层：从 builtin/client、Workspace Root/global、Project Workspace/project 和 profile/session definitions 派生 generated `.d.ts`，让 `ctx.vars.get()`、`<Variable>`、`<VariableSchema>` 和 `watchPath` 获得 path 补全和返回值类型提示；类型产物只作为 authoring aid，不改变 runtime registry/schema 校验真相源。后续补 Workbench 变量选择器和更细的 schema-aware patch builder。
 - Pi Agent Harness 迁移后续补 `invoke_agent` 非阻塞调用；v3 agent 工具已收敛为 `create_agent`、`invoke_agent`、`get_agent(id?: number)`、`get_agent_profile`、`get_session`、`detach_agent`；`invoke_agent` 工具返回 sessionId、usage、finalMessage、report_result 摘要，不返回完整 history；`request_user_input`、`enter_plan_mode`、`exit_plan_mode` 的审批/回答恢复统一走 `continue + resolution`，由 harness 补齐 toolResult 后继续。独立 `skill` 工具已禁用，skill 正文通过 `read` 读取 SkillCatalog location。
 - Pi Agent Harness 迁移后续评估文件/变量回溯：变量可通过 session custom state entry reduce，文件回溯需要专门的 `file_snapshot` / `file_patch` entry 或接入 Git/worktree snapshot，第一版不承诺文件内容回滚。
 - 观察 `arch` source 模式快速同步脚本的稳定性，并决定是否要把远端部署目标做成可配置 preset。
@@ -91,7 +91,7 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 | Leader Default Prompt Parity | Updated | [docs/tasks/06-leader-default-prompt-parity/README.md](docs/tasks/06-leader-default-prompt-parity/README.md) |
 | Project Identity Migration | Planning | [docs/tasks/09-project-identity-migration/README.md](docs/tasks/09-project-identity-migration/README.md) |
 | Portable Project Workspace | In Progress | [docs/tasks/11-portable-project-workspace/README.md](docs/tasks/11-portable-project-workspace/README.md) |
-| Profile Variable Types | Planning | [docs/tasks/12-profile-variable-types/README.md](docs/tasks/12-profile-variable-types/README.md) |
+| Profile Variable Types | Implemented | [docs/tasks/12-profile-variable-types/README.md](docs/tasks/12-profile-variable-types/README.md) |
 | Full Site Auth | Done | [docs/tasks/archived/fullsite-auth/README.md](docs/tasks/archived/fullsite-auth/README.md) |
 | Docker Compose Deployment | Updated | [docs/tasks/archived/docker-compose-deployment/README.md](docs/tasks/archived/docker-compose-deployment/README.md) |
 | Provider Reasoning Replay | Done | [docs/tasks/archived/provider-reasoning-replay/README.md](docs/tasks/archived/provider-reasoning-replay/README.md) |

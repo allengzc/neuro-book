@@ -6,6 +6,7 @@ import {pathToFileURL} from "node:url";
 import {builtinModules} from "node:module";
 import {build, type Metafile, type Plugin} from "esbuild";
 import type {AgentProfile} from "nbook/server/agent/profiles/types";
+import {generateVariableTypes, VARIABLE_TYPES_FILE_NAME, type VariableTypeGenerationDiagnostic} from "nbook/server/agent/variables/generated-types";
 
 export const PROFILE_ARTIFACT_COMPILER_VERSION = 1;
 export const PROFILE_COMPILED_DIR_NAME = ".compiled";
@@ -26,6 +27,11 @@ export type ProfileArtifactManifestItem = {
     artifactFileName: string;
     artifactSha256: string;
     artifactBytes: number;
+    typeFileName?: string;
+    typeSha256?: string;
+    typeBytes?: number;
+    typeDiagnostics?: VariableTypeGenerationDiagnostic[];
+    registeredVariablePaths?: string[];
     dependencies: ProfileArtifactDependency[];
 };
 
@@ -162,6 +168,11 @@ export async function readProfileArtifactManifest(profileRoot: string): Promise<
                 artifactFileName: profile.artifactFileName,
                 artifactSha256: profile.artifactSha256,
                 artifactBytes: profile.artifactBytes,
+                typeFileName: typeof profile.typeFileName === "string" ? profile.typeFileName : undefined,
+                typeSha256: typeof profile.typeSha256 === "string" ? profile.typeSha256 : undefined,
+                typeBytes: typeof profile.typeBytes === "number" ? profile.typeBytes : undefined,
+                typeDiagnostics: Array.isArray(profile.typeDiagnostics) ? profile.typeDiagnostics as VariableTypeGenerationDiagnostic[] : undefined,
+                registeredVariablePaths: Array.isArray(profile.registeredVariablePaths) ? profile.registeredVariablePaths.filter((item): item is string => typeof item === "string") : undefined,
                 dependencies,
             }];
         });
@@ -209,6 +220,15 @@ export async function validateProfileArtifact(profileRoot: string, item: Profile
     const artifactHash = await hashFile(artifactPath);
     if (artifactHash.sha256 !== item.artifactSha256 || artifactHash.bytes !== item.artifactBytes) {
         return {fresh: false, reason: "artifact_changed"};
+    }
+    if (item.typeFileName && item.typeSha256 && item.typeBytes !== undefined) {
+        const typeHash = await hashFile(join(root, PROFILE_COMPILED_DIR_NAME, item.typeFileName)).catch(() => null);
+        if (!typeHash) {
+            return {fresh: false, reason: "artifact_missing"};
+        }
+        if (typeHash.sha256 !== item.typeSha256 || typeHash.bytes !== item.typeBytes) {
+            return {fresh: false, reason: "artifact_changed"};
+        }
     }
     for (const dependency of item.dependencies) {
         const current = await hashFile(resolveArtifactPath(dependency.path)).catch(() => null);
@@ -299,6 +319,13 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
         await promoteArtifact(temporaryOutputPath, artifactPath);
         const artifactHash = await hashFile(artifactPath);
         const profile = await importCompiledProfile(artifactPath, artifactHash.sha256);
+        const typeFileName = `${dependencyHash}.${VARIABLE_TYPES_FILE_NAME}`;
+        const typePath = join(compiledDir, typeFileName);
+        const generatedTypes = generateVariableTypes(profile.variableDefinitions ?? [], {
+            header: `Session variable authoring types generated from ${file.fileName}.`,
+        });
+        await writeFile(typePath, generatedTypes.text, "utf8");
+        const typeHash = await hashFile(typePath);
         return {
             fileName: file.fileName,
             profileKey: profile.manifest.key,
@@ -308,6 +335,11 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
             artifactFileName,
             artifactSha256: artifactHash.sha256,
             artifactBytes: artifactHash.bytes,
+            typeFileName,
+            typeSha256: typeHash.sha256,
+            typeBytes: typeHash.bytes,
+            typeDiagnostics: generatedTypes.diagnostics,
+            registeredVariablePaths: (profile.variableDefinitions ?? []).map((definition) => `${definition.namespace}.${definition.key}`).sort(),
             dependencies,
         };
     } finally {
@@ -437,10 +469,15 @@ async function commitCompiledArtifacts(buildCompiledDir: string, compiledDir: st
     await mkdir(compiledDir, {recursive: true});
     for (const item of manifest.profiles) {
         const sourcePath = join(buildCompiledDir, item.artifactFileName);
-        if (!existsSync(sourcePath)) {
-            continue;
+        if (existsSync(sourcePath)) {
+            await copyFile(sourcePath, join(compiledDir, item.artifactFileName));
         }
-        await copyFile(sourcePath, join(compiledDir, item.artifactFileName));
+        if (item.typeFileName) {
+            const typeSourcePath = join(buildCompiledDir, item.typeFileName);
+            if (existsSync(typeSourcePath)) {
+                await copyFile(typeSourcePath, join(compiledDir, item.typeFileName));
+            }
+        }
     }
     await writeFile(
         join(compiledDir, PROFILE_COMPILED_MANIFEST_FILE),

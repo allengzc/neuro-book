@@ -113,6 +113,14 @@ async function runStatus(options: CliOptions): Promise<void> {
         const validation = await validateVariableDefinitionArtifact(target.root, item);
         console.log(`${fileName}: ${validation.fresh ? "loaded" : "compile_stale"}`);
         console.log(`  artifact: ${item.artifactFileName}`);
+        if (item.typeFileName) {
+            console.log(`  types: ${item.typeFileName}`);
+        } else {
+            console.log("  types: missing");
+        }
+        for (const diagnostic of item.typeDiagnostics ?? []) {
+            console.log(`  [${diagnostic.severity}] ${diagnostic.message}`);
+        }
         if (!validation.fresh) {
             console.log(`  reason: ${validation.reason}`);
         }
@@ -151,6 +159,12 @@ async function runCompile(options: CliOptions): Promise<void> {
     console.log(`variable definition compile wrote ${manifest.definitions.length} artifact(s)`);
     for (const item of manifest.definitions) {
         console.log(`- ${item.fileName}: ${item.registeredPaths.join(", ") || "no registered variables"} -> .compiled/${item.artifactFileName}`);
+        if (item.typeFileName) {
+            console.log(`  types: .compiled/${item.typeFileName}`);
+        }
+        for (const diagnostic of item.typeDiagnostics ?? []) {
+            console.log(`  [${diagnostic.severity}] ${diagnostic.message}`);
+        }
     }
 }
 

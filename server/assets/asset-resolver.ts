@@ -1,7 +1,6 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import {fileURLToPath} from "node:url";
 import {USER_ASSETS_WORKSPACE_ROOT, ensureUserAssetsWorkspaceRoot} from "nbook/server/workspace-files/novel-workspace";
 
 /**
@@ -28,7 +27,7 @@ export type ResolvedAssetDirectory = {
     source: AssetSource;
 };
 
-const SYSTEM_ASSETS_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../assets/workspace/.nbook");
+const SYSTEM_ASSETS_ROOT = path.resolve(process.cwd(), "assets", "workspace", ".nbook");
 
 /**
  * 解析系统 assets 与用户 assets 的覆盖关系。

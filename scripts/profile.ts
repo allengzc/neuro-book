@@ -9,6 +9,9 @@ import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {previewAgentProfilePrepare, readAgentProfileDetail} from "nbook/server/agent/profiles/profile-http-service";
 import type {JsonValue} from "nbook/server/agent/messages/types";
+import {generateBuiltinVariableTypes} from "nbook/server/agent/variables/generated-types";
+import {builtinVariableDefinitions} from "nbook/server/agent/variables/registry";
+import {readVariableDefinitionManifest, VARIABLE_DEFINITION_COMPILED_DIR} from "nbook/server/agent/variables/definition-artifact";
 
 type ProfileCommand = "status" | "check" | "compile" | "preview";
 
@@ -19,10 +22,14 @@ type CliOptions = {
     system: boolean;
     input?: JsonValue;
     sessionId?: string;
+    projectPath?: string;
+    strictVariables: boolean;
 };
 
 const SYSTEM_PROFILE_ROOT = path.resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profiles");
 const USER_PROFILE_ROOT = path.resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles");
+const SYSTEM_VARIABLE_ROOT = path.resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "variables");
+const USER_VARIABLE_ROOT = path.resolve(process.cwd(), "workspace", ".nbook", "agent", "variables");
 
 await main();
 
@@ -63,6 +70,7 @@ function parseArgs(args: string[]): CliOptions | null {
         command,
         all: false,
         system: false,
+        strictVariables: false,
     };
     while (args.length > 0) {
         const arg = args.shift();
@@ -79,6 +87,18 @@ function parseArgs(args: string[]): CliOptions | null {
         }
         if (arg === "--system") {
             options.system = true;
+            continue;
+        }
+        if (arg === "--strict-variables") {
+            options.strictVariables = true;
+            continue;
+        }
+        if (arg === "--project") {
+            const value = args.shift();
+            if (!value) {
+                throw new Error("--project 需要 Project Workspace 路径。");
+            }
+            options.projectPath = value;
             continue;
         }
         if (arg === "--input-json") {
@@ -136,7 +156,7 @@ async function runStatus(options: CliOptions): Promise<void> {
 
 async function runCheck(options: CliOptions): Promise<void> {
     const target = await resolveTarget(options);
-    if (target.filePath && !runTypecheck(target.filePath)) {
+    if (target.filePath && !await runTypecheck(target.filePath, target, options)) {
         process.exitCode = 1;
         return;
     }
@@ -156,6 +176,10 @@ async function runCheck(options: CliOptions): Promise<void> {
 
 async function runCompile(options: CliOptions): Promise<void> {
     const target = await resolveTarget(options);
+    if (target.filePath && !await runTypecheck(target.filePath, target, options)) {
+        process.exitCode = 1;
+        return;
+    }
     const result = await compileProfileArtifacts({
         profileRoot: target.root,
         fileName: options.all ? undefined : target.fileName,
@@ -164,6 +188,12 @@ async function runCompile(options: CliOptions): Promise<void> {
     console.log(`profile compile wrote ${result.compiled.length} artifact(s)`);
     for (const item of result.compiled) {
         console.log(`- ${item.profileKey}: ${item.fileName} -> .compiled/${item.artifactFileName}`);
+        if (item.typeFileName) {
+            console.log(`  types: .compiled/${item.typeFileName}`);
+        }
+        for (const diagnostic of item.typeDiagnostics ?? []) {
+            console.log(`  [${diagnostic.severity}] ${diagnostic.message}`);
+        }
     }
 }
 
@@ -316,39 +346,268 @@ async function findProfileFiles(root: string, current: string = root): Promise<s
     return result.sort((left, right) => left.localeCompare(right));
 }
 
-function runTypecheck(filePath: string): boolean {
+type VariableTypeEnvironment = {
+    typeFiles: string[];
+    knownPaths: Set<string>;
+    cleanup: () => Promise<void>;
+};
+
+type VariablePathDiagnostic = {
+    severity: "warning" | "error";
+    path: string;
+    message: string;
+};
+
+async function runTypecheck(filePath: string, target: Awaited<ReturnType<typeof resolveTarget>>, options: CliOptions): Promise<boolean> {
     if (!/\.(tsx|ts)$/.test(filePath)) {
         return true;
     }
+    const variableTypes = await prepareVariableTypeEnvironment(target, options);
     const configPath = ts.findConfigFile(process.cwd(), ts.sys.fileExists, ".nuxt/tsconfig.server.json")
         ?? ts.findConfigFile(process.cwd(), ts.sys.fileExists, "tsconfig.json");
     if (!configPath) {
         console.error("未找到 tsconfig.json");
+        await variableTypes.cleanup();
         return false;
     }
     const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
     if (configFile.error) {
         printDiagnostics([configFile.error]);
+        await variableTypes.cleanup();
         return false;
     }
     const config = ts.parseJsonConfigFileContent(configFile.config, ts.sys, path.dirname(configPath), undefined, configPath);
     const program = ts.createProgram({
-        rootNames: [filePath, ...config.fileNames.filter((item) => item.endsWith(".d.ts"))],
+        rootNames: [filePath, ...config.fileNames.filter((item) => item.endsWith(".d.ts")), ...variableTypes.typeFiles],
         options: {
             ...config.options,
             noEmit: true,
             skipLibCheck: true,
         },
     });
+    const generatedTypeFiles = new Set(variableTypes.typeFiles.map((item) => path.resolve(item)));
     const diagnostics = ts.getPreEmitDiagnostics(program).filter((diagnostic) => {
         const fileName = diagnostic.file?.fileName;
-        return !fileName || Boolean(relativeInside(SYSTEM_PROFILE_ROOT, fileName) || relativeInside(USER_PROFILE_ROOT, fileName));
+        return !fileName
+            || generatedTypeFiles.has(path.resolve(fileName))
+            || Boolean(relativeInside(SYSTEM_PROFILE_ROOT, fileName) || relativeInside(USER_PROFILE_ROOT, fileName));
     });
+    const variableDiagnostics = collectVariablePathDiagnostics(filePath, variableTypes.knownPaths, options.strictVariables);
     if (diagnostics.length > 0) {
         printDiagnostics(diagnostics);
+        await variableTypes.cleanup();
         return false;
     }
+    for (const diagnostic of variableDiagnostics) {
+        console.log(`[${diagnostic.severity}] ${diagnostic.message}`);
+    }
+    if (variableDiagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+        await variableTypes.cleanup();
+        return false;
+    }
+    await variableTypes.cleanup();
     return true;
+}
+
+async function prepareVariableTypeEnvironment(target: Awaited<ReturnType<typeof resolveTarget>>, options: CliOptions): Promise<VariableTypeEnvironment> {
+    const tempRoot = path.resolve(".agent", "workspace", "profile-variable-types", randomUUID());
+    await fsp.mkdir(tempRoot, {recursive: true});
+    const typeFiles: string[] = [];
+    const knownPaths = new Set<string>();
+
+    const builtinTypes = generateBuiltinVariableTypes();
+    const builtinTypePath = path.join(tempRoot, "builtin.d.ts");
+    await fsp.writeFile(builtinTypePath, builtinTypes.text, "utf8");
+    typeFiles.push(builtinTypePath);
+    for (const definition of builtinVariableDefinitions()) {
+        knownPaths.add(`${definition.namespace}.${definition.key}`);
+    }
+    for (const diagnostic of builtinTypes.diagnostics) {
+        console.log(`[${diagnostic.severity}] ${diagnostic.message}`);
+    }
+
+    await collectVariableDefinitionTypes(options.system ? SYSTEM_VARIABLE_ROOT : USER_VARIABLE_ROOT, knownPaths, typeFiles);
+    if (options.projectPath) {
+        await collectVariableDefinitionTypes(path.resolve(process.cwd(), options.projectPath, ".nbook", "agent", "variables"), knownPaths, typeFiles);
+    }
+    await collectProfileSessionTypes(target, knownPaths, typeFiles, tempRoot);
+
+    return {
+        typeFiles,
+        knownPaths,
+        cleanup: () => fsp.rm(tempRoot, {recursive: true, force: true}),
+    };
+}
+
+async function collectVariableDefinitionTypes(root: string, knownPaths: Set<string>, typeFiles: string[]): Promise<void> {
+    const manifest = await readVariableDefinitionManifest(root);
+    for (const item of manifest.definitions) {
+        for (const registeredPath of item.registeredPaths) {
+            knownPaths.add(registeredPath);
+        }
+        if (item.typeFileName) {
+            const typePath = path.join(root, VARIABLE_DEFINITION_COMPILED_DIR, item.typeFileName);
+            if (fs.existsSync(typePath)) {
+                typeFiles.push(typePath);
+            }
+        }
+        for (const diagnostic of item.typeDiagnostics ?? []) {
+            console.log(`[${diagnostic.severity}] ${diagnostic.message}`);
+        }
+    }
+}
+
+async function collectProfileSessionTypes(target: Awaited<ReturnType<typeof resolveTarget>>, knownPaths: Set<string>, typeFiles: string[], tempRoot: string): Promise<void> {
+    const temporaryProfileRoot = target.fileName ? path.join(tempRoot, "profiles") : null;
+    const manifestRoot = temporaryProfileRoot ?? target.root;
+    if (temporaryProfileRoot && target.fileName) {
+        try {
+            await fsp.cp(target.root, temporaryProfileRoot, {recursive: true, force: true});
+            await compileProfileArtifacts({
+                profileRoot: temporaryProfileRoot,
+                fileName: target.fileName,
+                rootLabel: "temporary-profile-variable-types",
+            });
+        } catch {
+            // Type extraction is best-effort. The normal profile typecheck/catalog path reports real errors.
+        }
+    }
+    const manifest = await readProfileArtifactManifest(manifestRoot);
+    const item = target.fileName
+        ? manifest.profiles.find((profile) => profile.fileName === target.fileName)
+        : manifest.profiles.find((profile) => profile.profileKey === target.profileKey);
+    if (!item) {
+        return;
+    }
+    for (const registeredPath of item.registeredVariablePaths ?? []) {
+        knownPaths.add(registeredPath);
+    }
+    if (item.typeFileName) {
+        const typePath = path.join(manifestRoot, ".compiled", item.typeFileName);
+        if (fs.existsSync(typePath)) {
+            typeFiles.push(typePath);
+        }
+    }
+    for (const diagnostic of item.typeDiagnostics ?? []) {
+        console.log(`[${diagnostic.severity}] ${diagnostic.message}`);
+    }
+}
+
+function collectVariablePathDiagnostics(filePath: string, knownPaths: Set<string>, strict: boolean): VariablePathDiagnostic[] {
+    const sourceText = fs.readFileSync(filePath, "utf8");
+    const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const paths = new Set<string>();
+    const visit = (node: ts.Node) => {
+        collectVariablePathLiteral(node, sourceFile, paths);
+        ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    return [...paths]
+        .filter((pathValue) => !knownPaths.has(pathValue))
+        .sort((left, right) => left.localeCompare(right))
+        .map((pathValue) => ({
+            severity: strict ? "error" as const : "warning" as const,
+            path: pathValue,
+            message: `变量 path 未注册：${pathValue}${strict ? "" : "（默认只警告；使用 --strict-variables 可作为错误处理）"}`,
+        }));
+}
+
+function collectVariablePathLiteral(node: ts.Node, sourceFile: ts.SourceFile, paths: Set<string>): void {
+    if (ts.isCallExpression(node)) {
+        collectCtxVarsCallPath(node, sourceFile, paths);
+        collectDslObjectPath(node, paths);
+        return;
+    }
+    if (ts.isJsxAttribute(node)) {
+        const name = node.name.getText(sourceFile);
+        if (name === "path" || name === "watchPath") {
+            const literal = jsxAttributeString(node.initializer);
+            if (literal && isVariablePath(literal)) {
+                paths.add(literal);
+            }
+        }
+        if (name === "paths") {
+            for (const literal of jsxAttributeStringArray(node.initializer)) {
+                if (isVariablePath(literal)) {
+                    paths.add(literal);
+                }
+            }
+        }
+    }
+}
+
+function collectCtxVarsCallPath(node: ts.CallExpression, sourceFile: ts.SourceFile, paths: Set<string>): void {
+    if (!ts.isPropertyAccessExpression(node.expression)) {
+        return;
+    }
+    const method = node.expression.name.text;
+    if (method !== "get" && method !== "read") {
+        return;
+    }
+    if (!node.expression.expression.getText(sourceFile).endsWith(".vars")) {
+        return;
+    }
+    const firstArg = node.arguments[0];
+    if (firstArg && ts.isStringLiteral(firstArg) && isVariablePath(firstArg.text)) {
+        paths.add(firstArg.text);
+    }
+}
+
+function collectDslObjectPath(node: ts.CallExpression, paths: Set<string>): void {
+    if (!ts.isIdentifier(node.expression) || (node.expression.text !== "Variable" && node.expression.text !== "VariableSchema" && node.expression.text !== "Reminder")) {
+        return;
+    }
+    const firstArg = node.arguments[0];
+    if (!firstArg || !ts.isObjectLiteralExpression(firstArg)) {
+        return;
+    }
+    for (const property of firstArg.properties) {
+        if (!ts.isPropertyAssignment(property)) {
+            continue;
+        }
+        const name = propertyNameText(property.name);
+        if ((name === "path" || name === "watchPath") && ts.isStringLiteral(property.initializer) && isVariablePath(property.initializer.text)) {
+            paths.add(property.initializer.text);
+        }
+        if (name === "paths" && ts.isArrayLiteralExpression(property.initializer)) {
+            for (const item of property.initializer.elements) {
+                if (ts.isStringLiteral(item) && isVariablePath(item.text)) {
+                    paths.add(item.text);
+                }
+            }
+        }
+    }
+}
+
+function propertyNameText(name: ts.PropertyName): string | null {
+    if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) {
+        return name.text;
+    }
+    return null;
+}
+
+function jsxAttributeString(initializer: ts.JsxAttribute["initializer"]): string | null {
+    if (!initializer) {
+        return null;
+    }
+    if (ts.isStringLiteral(initializer)) {
+        return initializer.text;
+    }
+    if (ts.isJsxExpression(initializer) && initializer.expression && ts.isStringLiteral(initializer.expression)) {
+        return initializer.expression.text;
+    }
+    return null;
+}
+
+function jsxAttributeStringArray(initializer: ts.JsxAttribute["initializer"]): string[] {
+    if (!initializer || !ts.isJsxExpression(initializer) || !initializer.expression || !ts.isArrayLiteralExpression(initializer.expression)) {
+        return [];
+    }
+    return initializer.expression.elements.flatMap((item) => ts.isStringLiteral(item) ? [item.text] : []);
+}
+
+function isVariablePath(value: string): boolean {
+    return /^(client|global|project|session)\.[A-Za-z0-9_.-]+$/.test(value);
 }
 
 function printDiagnostics(diagnostics: readonly ts.Diagnostic[]): void {
@@ -372,6 +631,6 @@ function relativeInside(root: string, filePath: string): string | null {
 }
 
 function printUsage(): void {
-    console.error("用法：bun scripts/profile.ts <status|check|compile|preview> <fileName|profileKey> [--system] [--all]");
+    console.error("用法：bun scripts/profile.ts <status|check|compile|preview> <fileName|profileKey> [--system] [--all] [--project <projectPath>] [--strict-variables]");
     console.error("示例：bun scripts/profile.ts compile builtin/leader.default.profile.tsx --system");
 }
