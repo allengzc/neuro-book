@@ -2264,7 +2264,14 @@ var leader_default_profile_default = defineAgentProfile({
   inputSchema: InputSchema,
   outputSchema: OutputSchema,
   allowedToolKeys,
-  context() {
+  async context(ctx) {
+    const currentProjectWorkspace = await ctx.vars.get("client.currentProjectWorkspace");
+    const selectedFilePath = await ctx.vars.get("client.studio.selectedFilePath");
+    const workspaceReminderText = [
+      "<system-reminder>",
+      `Current Project Workspace: ${typeof currentProjectWorkspace === "string" && currentProjectWorkspace ? currentProjectWorkspace : "unknown"}; current file: ${typeof selectedFilePath === "string" && selectedFilePath ? selectedFilePath : "none"}. Use paths relative to the Project Workspace for local novel files, and spell cross-project paths explicitly.`,
+      "</system-reminder>"
+    ].join("\n");
     return /* @__PURE__ */ jsxs(ProfilePrompt, { children: [
       /* @__PURE__ */ jsx(System, { children: LEADER_SYSTEM_PROMPT }),
       /* @__PURE__ */ jsxs(HistorySet, { children: [
@@ -2274,48 +2281,11 @@ var leader_default_profile_default = defineAgentProfile({
       /* @__PURE__ */ jsxs(ModelContext, { children: [
         /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(RuntimeContext, {}) }),
         /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(SqlSchemaSummary, {}) }),
-        /* @__PURE__ */ jsx(VariableSchema, { paths: ["client.currentProjectWorkspace"], includeToolGuide: true })
+        /* @__PURE__ */ jsx(VariableSchema, { paths: ["client.currentProjectWorkspace", "client.studio.selectedFilePath"], includeToolGuide: true })
       ] }),
       /* @__PURE__ */ jsxs(AppendingSet, { children: [
-        /* @__PURE__ */ jsx(Reminder, { id: "project", watchPath: "client.currentProjectWorkspace", repeatEveryTurns: 20, children: /* @__PURE__ */ jsx(Message, { children: {
-          kind: "StringFragment",
-          text: async (ctx) => {
-            const currentProjectWorkspace = await ctx.vars.get("client.currentProjectWorkspace");
-            return [
-              "<system-reminder>",
-              `Agent cwd: ${ctx.session.workspaceRoot}`,
-              typeof currentProjectWorkspace === "string" && currentProjectWorkspace ? `Current Project Workspace: ${currentProjectWorkspace}` : "",
-              "",
-              "- Bash/read/write/edit/apply_patch relative paths resolve from Agent cwd.",
-              "- Use Project Workspace paths such as lorebook/... or manuscript/... when Agent cwd is the current Project Workspace.",
-              "- Cross-project work is allowed when the user asks; keep paths explicit so the target Project Workspace is clear.",
-              "</system-reminder>"
-            ].filter(Boolean).join("\n");
-          }
-        } }) }),
+        /* @__PURE__ */ jsx(Reminder, { id: "project", watchPath: "client.currentProjectWorkspace", repeatEveryTurns: 20, children: /* @__PURE__ */ jsx(Message, { children: workspaceReminderText }) }),
         /* @__PURE__ */ jsx(LinkedAgentsReminder, {}),
-        /* @__PURE__ */ jsx(Reminder, { id: "plot-focus", watch: (ctx) => ctx.session.customState["plot.selection"] ?? null, children: /* @__PURE__ */ jsx(Message, { children: {
-          kind: "StringFragment",
-          text: (ctx) => {
-            const selectionValue = ctx.session.customState["plot.selection"];
-            const selection = selectionValue && typeof selectionValue === "object" && !Array.isArray(selectionValue) ? selectionValue : {};
-            const projectPath = typeof selection.projectPath === "string" ? selection.projectPath : "";
-            const threadId = typeof selection.threadId === "string" ? selection.threadId : "";
-            const sceneId = typeof selection.sceneId === "string" ? selection.sceneId : "";
-            if (!projectPath && !threadId && !sceneId) {
-              return "";
-            }
-            return [
-              "<system-reminder>",
-              "Current plot focus:",
-              projectPath ? `- Project Path: ${projectPath}` : "",
-              threadId ? `- Thread: ${threadId}` : "",
-              sceneId ? `- Scene: ${sceneId}` : "",
-              "Plot tools may reuse threadId/sceneId from plot.selection, but projectPath must still be passed explicitly.",
-              "</system-reminder>"
-            ].filter(Boolean).join("\n");
-          }
-        } }) }),
         /* @__PURE__ */ jsx(TaskReminder, { stateKey: "agent.tasks", repeatEveryTurns: 8 }),
         /* @__PURE__ */ jsx(PlanModeReminder, { stateKey: "agent.planMode" }),
         /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(MentionedSkillsReminder, {}) })

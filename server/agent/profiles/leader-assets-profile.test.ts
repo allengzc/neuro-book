@@ -192,19 +192,22 @@ describe("assets builtin v3 profiles", () => {
                 planModeActive: false,
             },
             input: {},
-            vars: createTestVariableAccessor({"client.currentProjectWorkspace": "workspace/novel-7"}),
+            vars: createTestVariableAccessor({
+                "client.currentProjectWorkspace": "workspace/novel-7",
+                "client.studio.selectedFilePath": "manuscript/001-opening/index.md",
+            }),
             catalog: await catalog.snapshot(),
             skills: [],
         });
         const runtimeModelContextText = (runtimePrepared.modelContextMessages ?? []).map(messageText).join("\n");
         const runtimeAppendingText = (runtimePrepared.appendingMessages ?? []).map(messageText).join("\n");
         expect(runtimeModelContextText).toContain("\"path\": \"client.currentProjectWorkspace\"");
+        expect(runtimeModelContextText).toContain("\"path\": \"client.studio.selectedFilePath\"");
         expect(runtimeModelContextText).not.toContain("\"ide\"");
         expect(runtimeAppendingText).toContain("Current Project Workspace: workspace/novel-7");
-        expect(runtimeAppendingText).toContain("Use Project Workspace paths such as lorebook/... or manuscript/...");
-        expect(runtimeAppendingText).toContain("Current plot focus:");
-        expect(runtimeAppendingText).toContain("- Project Path: workspace/novel-7");
-        expect(runtimeAppendingText).toContain("projectPath must still be passed explicitly");
+        expect(runtimeAppendingText).toContain("current file: manuscript/001-opening/index.md");
+        expect(runtimeAppendingText).toContain("spell cross-project paths explicitly");
+        expect(runtimeAppendingText).not.toContain("Current plot focus:");
         const planModePrepared = await profile.prepare!({
             session: {
                 systemPrompt: "",

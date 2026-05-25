@@ -133,6 +133,11 @@ run_sudo rm -rf .agent/workspace/profile-artifact-build
 run_sudo mkdir -p .agent/workspace
 run_sudo chown "$(id -u):$(id -g)" .agent .agent/workspace
 
+step "准备 Prisma 生成目录"
+run_sudo rm -rf server/generated/prisma
+run_sudo mkdir -p server/generated
+run_sudo chown "$(id -u):$(id -g)" server/generated
+
 step "加载部署环境"
 set -a
 . ./${ENV_FILE}

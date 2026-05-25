@@ -1,6 +1,6 @@
 {
   "compilerVersion": 1,
-  "generatedAt": "2026-05-25T14:15:46.704Z",
+  "generatedAt": "2026-05-25T14:38:15.408Z",
   "profilesRoot": "assets/workspace/.nbook/agent/profiles",
   "profiles": [
     {
@@ -78,17 +78,17 @@
     {
       "fileName": "builtin/leader.default.profile.tsx",
       "profileKey": "leader.default",
-      "sourceSha256": "0727c343bc15678ba8e3fe78a35fca47217f204b0201664af40d0a9ba325749e",
-      "sourceBytes": 33202,
-      "dependencyHash": "f4a919b3ec6452b4780906c2",
-      "artifactFileName": "f4a919b3ec6452b4780906c2.mjs",
-      "artifactSha256": "4278af9bc932d373313c090f873900587b3a08ede9b80f9c30e14ff827397990",
-      "artifactBytes": 121822,
+      "sourceSha256": "4895fd21c53427c84e5a524d11e81244257d7a3717e3d4349aed2e7880945a0f",
+      "sourceBytes": 30458,
+      "dependencyHash": "87a11884f0ceaa0285db6122",
+      "artifactFileName": "87a11884f0ceaa0285db6122.mjs",
+      "artifactSha256": "34ca8adae4d9a850ce081abe1a924657541524b494fbd36fbc5277956954d256",
+      "artifactBytes": 120284,
       "dependencies": [
         {
           "path": "assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx",
-          "sha256": "0727c343bc15678ba8e3fe78a35fca47217f204b0201664af40d0a9ba325749e",
-          "bytes": 33202
+          "sha256": "4895fd21c53427c84e5a524d11e81244257d7a3717e3d4349aed2e7880945a0f",
+          "bytes": 30458
         },
         {
           "path": "server/agent/messages/message-utils.ts",
