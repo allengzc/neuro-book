@@ -44,11 +44,12 @@
     - 当前 Project Workspace `.nbook/agent/variables/.compiled` 中的 `project.*` definitions。
     - profile artifact 中的 `session.*` `variableDefinitions`。
 - 变量 definition 已有 `.compiled` 合同：runtime 只加载 hash 匹配的 artifact，不自动编译源码。
-- `ProfileVariableAccessor` 当前仍是字符串 API：
+- `ProfileVariableAccessor` 已保留字符串 fallback，并为已知变量 path 增加 typed overload：
+    - `get<P extends ProfileVariablePath>(path: P): Promise<ProfileVariableValueMap[P] | undefined>`
     - `get(path: string): Promise<JsonValue | undefined>`
+    - `read<P extends ProfileVariablePath>(path: P): Promise<TypedVariableReadResult<ProfileVariableValueMap[P]>>`
     - `read(path: string): Promise<VariableReadResult>`
-    - `catalog(query?: VariableSchemaQuery): VariableSchemaResult`
-- `client.studio` / `client.ide` 当前在 registry 中是 `Record<string, Unknown>`，但前端 `buildAgentClientState()` 实际有更具体字段，例如 `selectedFilePath: string | null`。
+- `client.studio` / `client.ide` 在 registry 中保留 `Record<string, Unknown>` 宽松 root，同时已按当前 `buildAgentClientState()` 快照拆出精确 leaf definitions，例如 `client.studio.selectedFilePath`。
 
 ## Design
 
@@ -95,10 +96,10 @@ read(path: string): Promise<VariableReadResult>;
     - 建议先把常用 leaf 显式注册为内建变量，避免 `client.studio` 的 `Record<string, Unknown>` 吞掉具体类型。
 - **Workspace Root/global types**
     - 从 `workspace/.nbook/agent/variables/.compiled/manifest.json` 与 artifact 导出的 definitions 生成。
-    - 产物位于 `workspace/.nbook/agent/variables/.compiled/types.d.ts` 或类似路径。
+    - 产物位于 `workspace/.nbook/agent/variables/.compiled/*.types.d.ts`，文件名随 artifact hash 变化。
 - **Project Workspace/project types**
     - 从 `workspace/{project}/.nbook/agent/variables/.compiled/manifest.json` 与 artifact 生成。
-    - 产物位于 `workspace/{project}/.nbook/agent/variables/.compiled/types.d.ts`。
+    - 产物位于 `workspace/{project}/.nbook/agent/variables/.compiled/*.types.d.ts`，文件名随 artifact hash 变化。
     - 只有在编辑某个 Project Workspace 绑定的 profile 或执行 project-aware check 时注入。
 - **Profile/session types**
     - 从 profile artifact 的 `variableDefinitions` 生成。
@@ -164,10 +165,7 @@ read(path: string): Promise<VariableReadResult>;
     - `VariableSchema`
     - `Reminder.watchPath`
     - `ProfileVariableAccessor`
-- 更新 Workbench：
-    - 变量面板使用同一 registry/type source。
-    - Inspector 中 path 字段可提供补全候选。
-    - diagnostics 展示 missing/stale type artifact，但不和 runtime artifact 混淆。
+- 首版不接入 Workbench UI；Workbench 变量选择器和 Inspector path 补全进入后续方向。
 
 ### Phase 5. Strict diagnostics
 
@@ -185,7 +183,7 @@ read(path: string): Promise<VariableReadResult>;
     - `Boolean` -> `boolean`
     - `Null` -> `null`
     - `Literal` -> literal type
-    - `Array<T>` -> `T[]`
+    - `Array<T>` -> `Array<T>`
     - `Object` -> object literal type
     - `Record<string, T>` -> `Record<string, T>`
     - `Union` -> `A | B`
@@ -207,16 +205,12 @@ read(path: string): Promise<VariableReadResult>;
 - `session.*` 类型来自 profile 自己的 `variableDefinitions`，最适合优先实现。
 - `client.*` 要补全到 leaf path，需要把内建 client definition 变细，或额外注册常用 leaf variable。
 
-## Open Questions
+## Resolved Decisions
 
-- 是否把常用 `client.studio.*` leaf 全部注册为内建变量，而不是只保留 `client.studio: Record<string, Unknown>`？
-    - 推荐：先注册高价值 leaf，例如 `client.studio.selectedFilePath`、`client.studio.selectionVersion`、`client.studio.selectedStoryThreadId`、`client.studio.selectedStorySceneId`。
-- Project-aware profile editing 的 current project 从哪里来？
-    - 推荐：Workbench / IDE 打开 profile 时如果有 `client.currentProjectWorkspace`，则注入该 project 的 type artifact；CLI 增加 `--project <projectPath>`。
-- `ctx.vars.read()` 是否要深度类型化整个 result？
-    - 推荐：第一版只类型化 `value`；`issue` / `fingerprint` 保持现状。
-- 严格模式默认开不开？
-    - 推荐：默认不开。先用 warning 和补全建立信任，再按 profile 或 CLI 参数启用。
+- `client.ide` / `client.studio` 保留宽松 root，同时按当前 frontend snapshot 全量注册 leaf definitions。
+- Project-aware profile check/compile 通过 CLI `--project <projectPath>` 注入 Project Workspace 的 project variable type artifact；未传 `--project` 时不绑定具体 Project Workspace。
+- `ctx.vars.read()` 第一版只类型化 `value`；`path`、`fingerprint`、`issue` 等结构保持现有 `VariableReadResult` 语义。
+- Strict diagnostics 默认不开；普通 check/compile 对未注册 literal path 只输出 warning，`--strict-variables` 才升级为 error。
 
 ## Future Direction
 
@@ -230,15 +224,61 @@ read(path: string): Promise<VariableReadResult>;
 ## Files Changed
 
 - `docs/tasks/12-profile-variable-types/README.md`
+- `server/agent/variables/generated-types.ts`
+- `server/agent/variables/types.ts`
+- `server/agent/variables/registry.ts`
+- `server/agent/variables/definition-artifact.ts`
+- `server/agent/profiles/profile-artifact-compiler.ts`
+- `server/agent/profiles/profile-dsl.ts`
+- `scripts/profile.ts`
+- `scripts/variable.ts`
+- 系统 profile / variable `.compiled` manifest 与 type artifacts
 
 ## Verification
 
-- 文档任务，无运行时验证。
+- `bunx tsc --noEmit --pretty false`
+- `bunx vitest run server/agent/variables/variables.test.ts server/agent/profiles/profile-dsl.test.ts server/agent/profiles/leader-assets-profile.test.ts server/agent/profiles/catalog.test.ts`
+- `bun scripts/variable.ts definition check --global --workspace-root assets/workspace`
+- `bun scripts/profile.ts check builtin/leader.default.profile.tsx --system`
+- `bun scripts/profile.ts check builtin/leader.default.profile.tsx --system --strict-variables`
+- `bun scripts/profile.ts status builtin/leader.default.profile.tsx --system`
+- `bun scripts/profile.ts status writer --system`
 
 ## TODO / Follow-ups
 
-- 实现 TypeBox -> TypeScript type 生成器。
-- 扩展 variable definition compile 输出 type artifact。
-- 为 `ProfileVariableAccessor`、`Variable`、`VariableSchema`、`Reminder.watchPath` 接入 typed path。
-- 为 profile check / compile 注入 generated variable type file。
-- 决定并实现高价值 `client.studio.*` leaf 内建变量定义。
+- Workbench 变量选择器尚未接入；当前只完成 CLI / TSX authoring 底层类型能力。
+- `client.*` leaf definitions 已按当前 frontend snapshot 拆细；后续新增 client state 字段时需要同步 registry 和测试。
+- 复杂 TypeBox schema 仍会降级为 `JsonValue`；后续可按真实需求逐步扩展映射器。
+
+## Implementation Walkthrough
+
+### 2026-05-25
+
+- 新增变量类型生成器：
+    - 从 `VariableDefinition[]` 生成 module augmentation 形式的 `ProfileVariableValueMap`。
+    - 支持 TypeBox 常用子集；不支持或空泛 schema 保守降级为 `JsonValue` 并输出 warning。
+- `ProfileVariableAccessor` 增加 typed overload：
+    - 已知 path 返回 `ProfileVariableValueMap[P] | undefined`。
+    - 未知或动态 string 继续返回 `JsonValue | undefined`。
+    - `read()` 第一版只类型化 `value` 字段。
+- DSL path props 接入同一类型：
+    - `<Variable path>`
+    - `<VariableSchema paths>`
+    - `<Reminder watchPath>`
+- 内建 `client.*` definitions 拆细：
+    - 保留 `client.ide` / `client.studio` 宽松 root。
+    - 额外注册当前 frontend snapshot 的 leaf path，例如 `client.ide.activePanel`、`client.ide.theme`、`client.studio.selectedFilePath`、`client.studio.selectionVersion`、`client.studio.workspaceKind` 等。
+- Variable definition compiler 扩展：
+    - 编译 `.compiled/*.mjs` 时同步生成 `.compiled/*.types.d.ts`。
+    - manifest 记录 `typeFileName`、hash、bytes、diagnostics。
+    - `scripts/variable.ts definition status/compile` 展示 type artifact。
+    - Runtime loader 仍不依赖 type artifact。
+- Profile artifact compiler 扩展：
+    - 编译 profile 后从 `profile.variableDefinitions` 生成 session variable type artifact。
+    - manifest 记录 `registeredVariablePaths` 和 type artifact 元数据。
+    - 系统 artifact 同步场景需要同时复制 type artifact，`validateProfileArtifact()` 会校验它。
+- Profile CLI 接入：
+    - `profile check/compile` typecheck 时注入 builtin client types、Workspace Root/global type artifact、当前 profile/session type artifact。
+    - 新增 `--project <projectPath>`，用于额外注入 Project Workspace 的 project variable types。
+    - 新增 `--strict-variables`，把 literal path 未注册从 warning 升级为 error。
+    - 对当前源码的 session variables 会先在临时目录编译提取类型，不写真实 `.compiled`。

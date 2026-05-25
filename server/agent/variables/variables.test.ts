@@ -7,6 +7,7 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {SessionEntryDraft} from "nbook/server/agent/session/types";
 import {createProfileVariableAccessor} from "nbook/server/agent/variables/accessor";
 import {compileVariableDefinitions, loadCompiledVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
+import {generateVariableTypes} from "nbook/server/agent/variables/generated-types";
 import {applyVariableJsonPatch} from "nbook/server/agent/variables/json-patch";
 import {defineClientVariable, defineProjectVariable, defineSessionVariable, VariableRegistry} from "nbook/server/agent/variables/registry";
 import {createVariableTools} from "nbook/server/agent/variables/tools";
@@ -68,6 +69,28 @@ describe("Agent variable system", () => {
         expect(result.schemas[0]?.schema).toEqual(expect.objectContaining({
             type: "number",
         }));
+    });
+
+    it("变量类型生成器把 TypeBox 常用子集映射为 TS 类型", () => {
+        const generated = generateVariableTypes([
+            defineProjectVariable({
+                key: "affections",
+                schema: Type.Record(Type.String(), Type.Number()),
+            }),
+            defineSessionVariable({
+                key: "draft",
+                schema: Type.Object({
+                    title: Type.String(),
+                    done: Type.Optional(Type.Boolean()),
+                    tags: Type.Array(Type.String()),
+                    mode: Type.Union([Type.Literal("fast"), Type.Literal("slow"), Type.Null()]),
+                }),
+            }),
+        ]);
+
+        expect(generated.text).toContain("\"project.affections\": Record<string, number>;");
+        expect(generated.text).toContain("\"session.draft\": {\"title\": string; \"done\"?: boolean; \"tags\": Array<string>; \"mode\": \"fast\" | \"slow\" | null};");
+        expect(generated.diagnostics).toEqual([]);
     });
 
     it("Workspace Root .nbook 路径不会被重复追加 .nbook", () => {
@@ -560,6 +583,11 @@ describe("Agent variable system", () => {
         ].join("\n"), "utf8");
         try {
             await compileVariableDefinitions({definitionRoot: root});
+            const manifestText = await readFile(resolve(root, ".compiled", "manifest.json"), "utf8");
+            const manifest = JSON.parse(manifestText) as {definitions: Array<{typeFileName?: string; typeDiagnostics?: unknown[]}>};
+            const typeFileName = manifest.definitions[0]?.typeFileName;
+            expect(typeFileName).toMatch(/types\.d\.ts$/);
+            expect(await readFile(resolve(root, ".compiled", typeFileName!), "utf8")).toContain("\"project.affections\": Record<string, number>;");
             const loaded = await loadCompiledVariableDefinitions({definitionRoot: root, namespace: "project"});
 
             expect(loaded.issues).toEqual([]);

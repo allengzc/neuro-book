@@ -6,7 +6,7 @@ import type {AgentCatalogItem, AgentProfile, ProfileCompactionPlan, ProfilePrepa
 import {planModeDirectory} from "nbook/server/agent/plan-mode-path";
 import {AGENT_PLAN_MODE_STATE_KEY, AGENT_TASKS_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import type {NeuroSessionContext, SessionEntryDraft} from "nbook/server/agent/session/types";
-import type {VariableNamespace} from "nbook/server/agent/variables/types";
+import type {ProfileVariablePathInput, VariableNamespace} from "nbook/server/agent/variables/types";
 
 export type ProfileDslChild = ProfileDslNode | string | number | boolean | null | undefined | ProfileDslChild[];
 
@@ -72,7 +72,7 @@ export type ProfileReminderNode = {
     kind: "Reminder";
     id: string;
     when: boolean;
-    watchPath?: string;
+    watchPath?: ProfileVariablePathInput;
     watchValue?: JsonValue;
     watch?: (ctx: ProfilePrepareContext<any>) => JsonValue | undefined | Promise<JsonValue | undefined>;
     repeatEveryTurns?: number;
@@ -110,7 +110,7 @@ export type ProfileStringFragmentNode = {
 
 export type ProfileVariableNode = {
     kind: "Variable";
-    path: string;
+    path: ProfileVariablePathInput;
     label?: string;
     maxBytes?: number;
 };
@@ -119,7 +119,7 @@ export type ProfileVariableSchemaNode = {
     kind: "VariableSchema";
     namespace?: VariableNamespace;
     prefix?: string;
-    paths?: string[];
+    paths?: ProfileVariablePathInput[];
     writableOnly?: boolean;
     detail?: boolean;
     includeToolGuide?: boolean;
@@ -496,7 +496,7 @@ export function SqlSchemaSummary(props: {text?: string | ((ctx: ProfilePrepareCo
 /**
  * 注入变量当前值。第一版只允许放在 ModelContext 的 Message/SystemReminder 等 string 节点内。
  */
-export function Variable(props: {path: string; label?: string; maxBytes?: number}): ProfileVariableNode {
+export function Variable(props: {path: ProfileVariablePathInput; label?: string; maxBytes?: number}): ProfileVariableNode {
     return {
         kind: "Variable",
         path: props.path,
@@ -511,7 +511,7 @@ export function Variable(props: {path: string; label?: string; maxBytes?: number
 export function VariableSchema(props: {
     namespace?: VariableNamespace;
     prefix?: string;
-    paths?: string[];
+    paths?: ProfileVariablePathInput[];
     writableOnly?: boolean;
     detail?: boolean;
     includeToolGuide?: boolean;

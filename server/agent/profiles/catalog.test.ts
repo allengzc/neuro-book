@@ -116,6 +116,41 @@ describe("AgentProfileCatalog", () => {
         expect((prepared.appendingMessages ?? []).map(messageText)).toEqual(["append"]);
     });
 
+    it("profile 编译产物包含 session variable authoring types", async () => {
+        await writeProfile(systemRoot, "custom.session-types.profile.tsx", `
+            import {Type} from "typebox";
+            import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+            import {defineSessionVariable} from "nbook/server/agent/variables/registry";
+
+            export const profileManifest = { key: "custom.sessionTypes", name: "Session Types" } as const;
+            export default defineAgentProfile({
+                manifest: profileManifest,
+                inputSchema: Type.Object({}),
+                outputSchema: Type.Object({}),
+                allowedToolKeys: [],
+                variableDefinitions: [
+                    defineSessionVariable({
+                        key: "draftGoal",
+                        schema: Type.String(),
+                    }),
+                ],
+                prepare() {
+                    return {};
+                },
+            });
+        `);
+        const result = await compileProfileArtifacts({
+            profileRoot: systemRoot,
+            fileName: "custom.session-types.profile.tsx",
+            rootLabel: "test-system-profiles",
+        });
+        const item = result.compiled[0];
+
+        expect(item?.registeredVariablePaths).toEqual(["session.draftGoal"]);
+        expect(item?.typeFileName).toMatch(/types\.d\.ts$/);
+        expect(await readFile(resolve(systemRoot, ".compiled", item!.typeFileName!), "utf8")).toContain("\"session.draftGoal\": string;");
+    });
+
     it("TSX profile 依赖 helper 文件变化时重新编译缓存", async () => {
         await writeProfile(systemRoot, "prompt-helper.ts", `export const helperText = "v1";`);
         await writeProfile(systemRoot, "custom.helper.profile.tsx", `
@@ -374,6 +409,12 @@ describe("AgentProfileCatalog", () => {
             join(systemRoot, ".compiled", systemItem.artifactFileName),
             join(userRoot, ".compiled", systemItem.artifactFileName),
         );
+        if (systemItem.typeFileName) {
+            await copyFile(
+                join(systemRoot, ".compiled", systemItem.typeFileName),
+                join(userRoot, ".compiled", systemItem.typeFileName),
+            );
+        }
         const userItem = rehomeProfileArtifactItem(systemItem, {
             fromRootLabel: relative(process.cwd(), systemRoot).split(/[\\/]+/).join("/"),
             toRootLabel: relative(process.cwd(), userRoot).split(/[\\/]+/).join("/"),
