@@ -462,10 +462,12 @@ describe("workspace-files", () => {
             expect(content).toBe(systemContent);
             expect(content).toContain("profileManifest");
             expect(content).toContain("export default");
-            const manifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; sourceSha256: string; dependencies: Array<{path: string; sha256: string}>}>};
+            const manifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; sourceSha256: string; typeFileName?: string; dependencies: Array<{path: string; sha256: string}>}>};
             const item = manifest.profiles.find((profile) => profile.fileName === "builtin/leader.default.profile.tsx");
             expect(item?.sourceSha256).toBe(await sha256ForTest(userProfilePath));
             expect(item?.dependencies.find((dependency) => dependency.path === "workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx")?.sha256).toBe(item?.sourceSha256);
+            expect(item?.typeFileName).toMatch(/types\.d\.ts$/);
+            await expect(fs.readFile(path.join("workspace", ".nbook", "agent", "profiles", ".compiled", item!.typeFileName!), "utf-8")).resolves.toContain("ProfileVariableValueMap");
         } finally {
             await restoreOptionalFile(userProfilePath, backup);
             await restoreOptionalFile(userCompiledManifestPath, manifestBackup);

@@ -263,7 +263,7 @@ export class AgentProfileCatalog {
             let loadIssue: AgentProfileIssue | undefined;
             if (!freshness.fresh) {
                 const issue = this.staleIssue(source, file, manifestItem, freshness.reason);
-                if (source !== "user" || freshness.reason !== "dependency_changed") {
+                if (source !== "user" || (freshness.reason !== "dependency_changed" && freshness.reason !== "source_changed")) {
                     issues.push(issue);
                     unloadedSources.push(this.unloadedFromManifest(file, manifestItem, source, builtin, "compile_stale", issue));
                     continue;
@@ -485,6 +485,15 @@ export class AgentProfileCatalog {
     }
 
     private staleIssue(source: Exclude<AgentProfileSourceKind, "memory">, file: ProfileFileEntry, manifestItem: ProfileArtifactManifestItem, reason?: "source_changed" | "dependency_changed" | "artifact_missing" | "artifact_changed"): AgentProfileIssue {
+        if (source === "user" && reason === "source_changed") {
+            return {
+                code: "source_stale",
+                message: `profile ${manifestItem.profileKey} 的源码已修改但尚未编译，当前继续使用上次编译产物；保存后的源码需要手动编译后才会生效。`,
+                profileKey: manifestItem.profileKey,
+                source,
+                sourcePath: file.file,
+            };
+        }
         if (source === "user" && reason === "dependency_changed") {
             return {
                 code: "dependency_stale",
@@ -533,7 +542,7 @@ export class AgentProfileCatalog {
 }
 
 function statusFromIssue(issue: AgentProfileIssue): AgentCatalogItem["loadStatus"] {
-    if (issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "dependency_stale") {
+    if (issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "source_stale" || issue.code === "dependency_stale") {
         return "loaded";
     }
     if (issue.code === "not_compiled" || issue.code === "compile_stale" || issue.code === "compiled_load_failed" || issue.code === "source_error") {

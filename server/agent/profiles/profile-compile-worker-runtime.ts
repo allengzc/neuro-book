@@ -142,7 +142,7 @@ export async function runProfileCompileAll(_input: AgentProfileCompileAllRequest
         const issues = snapshot.issues
             .filter((issue) => profileItems.some((item) => item.profileKey === issue.profileKey || issue.sourcePath?.replaceAll("\\", "/").endsWith(item.fileName)))
             .map((issue) => ({
-                severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "dependency_stale" || issue.code === "not_compiled" || issue.code === "compile_stale" ? "warning" as const : "error" as const,
+                severity: issue.code === "filename_mismatch" || issue.code === "builtin_schema_locked" || issue.code === "system_profile_shadowed" || issue.code === "source_stale" || issue.code === "dependency_stale" || issue.code === "not_compiled" || issue.code === "compile_stale" ? "warning" as const : "error" as const,
                 message: issue.message,
                 code: issue.code,
                 profileKey: issue.profileKey,

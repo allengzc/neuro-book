@@ -466,6 +466,12 @@ async function syncCompiledProfileArtifact(fileName: string): Promise<void> {
         path.join(SYSTEM_PROFILE_ROOT, ".compiled", item.artifactFileName),
         path.join(userCompiledRoot, item.artifactFileName),
     );
+    if (item.typeFileName) {
+        await fs.copyFile(
+            path.join(SYSTEM_PROFILE_ROOT, ".compiled", item.typeFileName),
+            path.join(userCompiledRoot, item.typeFileName),
+        );
+    }
     const userManifest = await readProfileArtifactManifest(USER_PROFILE_ROOT);
     const userSourceHash = await sha256File(path.join(USER_PROFILE_ROOT, item.fileName));
     const userItem = rehomeProfileArtifactItem(item, {
@@ -507,6 +513,12 @@ async function syncCompiledVariableDefinitionArtifact(): Promise<void> {
         path.join(SYSTEM_VARIABLE_DEFINITION_ROOT, ".compiled", item.artifactFileName),
         path.join(userCompiledRoot, item.artifactFileName),
     );
+    if (item.typeFileName) {
+        await fs.copyFile(
+            path.join(SYSTEM_VARIABLE_DEFINITION_ROOT, ".compiled", item.typeFileName),
+            path.join(userCompiledRoot, item.typeFileName),
+        );
+    }
     const userManifest = await readVariableDefinitionManifest(USER_VARIABLE_DEFINITION_ROOT);
     const userSourceHash = await sha256File(path.join(USER_VARIABLE_DEFINITION_ROOT, item.fileName));
     const nextItem = {

@@ -151,15 +151,6 @@ export async function validateVariableDefinitionArtifact(root: string, item: Var
     if (artifactHash.sha256 !== item.artifactSha256 || artifactHash.bytes !== item.artifactBytes) {
         return {fresh: false, reason: "artifact_changed"};
     }
-    if (item.typeFileName && item.typeSha256 && item.typeBytes !== undefined) {
-        const typeHash = await hashFile(join(root, VARIABLE_DEFINITION_COMPILED_DIR, item.typeFileName)).catch(() => null);
-        if (!typeHash) {
-            return {fresh: false, reason: "artifact_missing"};
-        }
-        if (typeHash.sha256 !== item.typeSha256 || typeHash.bytes !== item.typeBytes) {
-            return {fresh: false, reason: "artifact_changed"};
-        }
-    }
     return {fresh: true};
 }
 

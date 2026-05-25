@@ -1,4 +1,4 @@
-import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, readFile, rm, unlink, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {randomUUID} from "node:crypto";
 import {describe, expect, it} from "vitest";
@@ -6,7 +6,7 @@ import {Type} from "typebox";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {SessionEntryDraft} from "nbook/server/agent/session/types";
 import {createProfileVariableAccessor} from "nbook/server/agent/variables/accessor";
-import {compileVariableDefinitions, loadCompiledVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
+import {compileVariableDefinitions, loadCompiledVariableDefinitions, readVariableDefinitionManifest, validateVariableDefinitionArtifact} from "nbook/server/agent/variables/definition-artifact";
 import {generateVariableTypes} from "nbook/server/agent/variables/generated-types";
 import {applyVariableJsonPatch} from "nbook/server/agent/variables/json-patch";
 import {defineClientVariable, defineProjectVariable, defineSessionVariable, VariableRegistry} from "nbook/server/agent/variables/registry";
@@ -583,11 +583,13 @@ describe("Agent variable system", () => {
         ].join("\n"), "utf8");
         try {
             await compileVariableDefinitions({definitionRoot: root});
-            const manifestText = await readFile(resolve(root, ".compiled", "manifest.json"), "utf8");
-            const manifest = JSON.parse(manifestText) as {definitions: Array<{typeFileName?: string; typeDiagnostics?: unknown[]}>};
-            const typeFileName = manifest.definitions[0]?.typeFileName;
+            const manifest = await readVariableDefinitionManifest(root);
+            const item = manifest.definitions[0]!;
+            const typeFileName = item.typeFileName;
             expect(typeFileName).toMatch(/types\.d\.ts$/);
             expect(await readFile(resolve(root, ".compiled", typeFileName!), "utf8")).toContain("\"project.affections\": Record<string, number>;");
+            await unlink(resolve(root, ".compiled", typeFileName!));
+            await expect(validateVariableDefinitionArtifact(root, item)).resolves.toEqual({fresh: true});
             const loaded = await loadCompiledVariableDefinitions({definitionRoot: root, namespace: "project"});
 
             expect(loaded.issues).toEqual([]);

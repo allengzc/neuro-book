@@ -221,15 +221,6 @@ export async function validateProfileArtifact(profileRoot: string, item: Profile
     if (artifactHash.sha256 !== item.artifactSha256 || artifactHash.bytes !== item.artifactBytes) {
         return {fresh: false, reason: "artifact_changed"};
     }
-    if (item.typeFileName && item.typeSha256 && item.typeBytes !== undefined) {
-        const typeHash = await hashFile(join(root, PROFILE_COMPILED_DIR_NAME, item.typeFileName)).catch(() => null);
-        if (!typeHash) {
-            return {fresh: false, reason: "artifact_missing"};
-        }
-        if (typeHash.sha256 !== item.typeSha256 || typeHash.bytes !== item.typeBytes) {
-            return {fresh: false, reason: "artifact_changed"};
-        }
-    }
     for (const dependency of item.dependencies) {
         const current = await hashFile(resolveArtifactPath(dependency.path)).catch(() => null);
         if (!current || current.sha256 !== dependency.sha256 || current.bytes !== dependency.bytes) {
