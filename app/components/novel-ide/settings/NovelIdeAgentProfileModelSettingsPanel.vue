@@ -116,10 +116,18 @@ function buildSavePayload(): UpdateAgentProfileModelSettingsRequestDto {
  */
 function buildGlobalConfigPayload(): GlobalConfigDto {
     const base = editorSnapshot.value?.global ?? {};
+    const defaultProfileKey: NonNullable<NonNullable<GlobalConfigDto["agent"]>["defaultProfileKey"]> = {
+        novel: base.agent?.defaultProfileKey?.novel ?? null,
+        userAssets: base.agent?.defaultProfileKey?.userAssets ?? null,
+    };
     return {
         ...base,
         agent: {
             ...(base.agent ?? {}),
+            defaultProfileKey: {
+                novel: defaultProfileKey.novel ?? null,
+                userAssets: defaultProfileKey.userAssets ?? null,
+            },
             profiles: Object.fromEntries(buildSavePayload().agentProfiles.map((profile) => [profile.profileKey, {
                 model: profile.model,
             }])),

@@ -268,7 +268,7 @@ function parseModelReasoning(value: ModelDraft["reasoning"]): boolean | null {
 /**
  * 解析 Pi compat JSON；空值表示继承 Pi registry 或使用 provider 自动探测。
  */
-function parseModelCompat(value: string): Record<string, unknown> | null {
+function parseModelCompat(value: string): ConfiguredModelDto["compat"] {
     const normalizedValue = value.trim();
     if (!normalizedValue) {
         return null;
@@ -276,7 +276,7 @@ function parseModelCompat(value: string): Record<string, unknown> | null {
     try {
         const parsedValue = JSON.parse(normalizedValue);
         return parsedValue && typeof parsedValue === "object" && !Array.isArray(parsedValue)
-            ? parsedValue as Record<string, unknown>
+            ? parsedValue as ConfiguredModelDto["compat"]
             : null;
     } catch {
         return null;

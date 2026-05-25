@@ -228,6 +228,8 @@ read(path: string): Promise<VariableReadResult>;
 - `server/agent/variables/types.ts`
 - `server/agent/variables/registry.ts`
 - `server/agent/variables/definition-artifact.ts`
+- `server/agent/variables/ide-types.ts`
+- `server/agent/variables/generated-profile-variable-types.d.ts`
 - `server/agent/profiles/profile-artifact-compiler.ts`
 - `server/agent/profiles/profile-dsl.ts`
 - `scripts/profile.ts`
@@ -291,3 +293,9 @@ read(path: string): Promise<VariableReadResult>;
 - Runtime artifact freshness 重新收窄到源码、依赖和 `.mjs` artifact；`.types.d.ts` 只作为 authoring aid，不会阻断 profile 或 variable definition 加载。
 - user-assets 同步系统 profile / variable definition artifact 时会同步复制对应 `.types.d.ts`，保证用户覆盖层的 CLI 补全和 status 信息完整。
 - `profile check/compile --all --strict-variables` 不再静默跳过变量 path 诊断；改为一次性 typecheck 全部 profile 源码，避免逐文件创建 TypeScript Program 造成 CLI 过慢。
+
+### 2026-05-26 IDE Type Entry
+
+- 新增固定路径 `server/agent/variables/generated-profile-variable-types.d.ts`，由 `scripts/prepare-system-profile-metadata.ts` 生成。
+- 该文件汇总 builtin client types、system variable definition type artifacts 和 system profile/session type artifacts，让 WebStorm / 普通 `tsconfig.json` TS Program 能自动加载 `ProfileVariableValueMap` augmentation。
+- Hash 型 `.compiled/*.types.d.ts` 继续作为 artifact 层产物；IDE 固定入口只做 authoring 汇总，不参与 runtime 加载。

@@ -86,12 +86,18 @@ function applySettings(snapshot: ConfigEditorSnapshotDto): void {
  */
 function buildGlobalConfigPayload(): GlobalConfigDto {
     const base = editorSnapshot.value?.global ?? {};
+    const defaultProfileKey: NonNullable<NonNullable<GlobalConfigDto["agent"]>["defaultProfileKey"]> = {
+        novel: base.agent?.defaultProfileKey?.novel ?? null,
+        userAssets: base.agent?.defaultProfileKey?.userAssets ?? null,
+    };
     return {
         ...base,
         agent: {
             ...(base.agent ?? {}),
+            profiles: base.agent?.profiles ?? {},
             defaultProfileKey: {
-                ...base.agent?.defaultProfileKey,
+                novel: defaultProfileKey.novel ?? null,
+                userAssets: defaultProfileKey.userAssets ?? null,
                 [globalDefaultProfileSlot.value]: selectedProfileKey.value || null,
             },
         },
