@@ -1,6 +1,5 @@
 import { defineAsyncComponent, markRaw, type Component } from "vue";
 import type {AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
-import AgentCreateAgentNode from "nbook/app/components/novel-ide/agent/AgentCreateAgentNode.vue";
 import AgentEditFileBubble from "nbook/app/components/novel-ide/agent/AgentEditFileBubble.vue";
 import AgentRequestUserInputBubble from "nbook/app/components/novel-ide/agent/AgentRequestUserInputBubble.vue";
 import AgentExitPlanModeBubble from "nbook/app/components/novel-ide/agent/AgentExitPlanModeBubble.vue";
@@ -25,12 +24,6 @@ const DEFAULT_TOOL_RENDER_CONFIG: AgentToolRenderConfig = {
 };
 
 const TOOL_RENDER_REGISTRY: Record<string, AgentToolRenderConfig> = {
-    create_agent: {
-        mode: "block",
-        typeLabel: "Create",
-        collapsedPreview: "Create Agent",
-        component: markRaw(AgentCreateAgentNode),
-    },
     request_user_input: {
         mode: "block",
         typeLabel: "Question",

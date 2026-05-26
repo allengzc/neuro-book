@@ -609,4 +609,99 @@ describe("agent message projection", () => {
         expect(messages[0]?.toolCalls?.find((toolCall) => toolCall.id === "call-b")?.argsText).toBe("{\"path\":\"b.md\"}");
     });
 
+    it("tool_execution_start 没有已有 assistant toolCall 时创建 live 工具气泡", () => {
+        const messages = applyPiEventToMessages([], {
+            type: "tool_execution_start",
+            toolCallId: "invoke-1",
+            toolName: "invoke_agent",
+            args: {sessionId: 15, mode: "continue"},
+        }, "invocation-1");
+
+        expect(messages).toHaveLength(1);
+        expect(messages[0]).toEqual(expect.objectContaining({
+            id: "tool-execution:invoke-1",
+            type: "ai",
+            content: "",
+            status: "streaming",
+            invocationId: "invocation-1",
+        }));
+        expect(messages[0]?.toolCalls?.[0]).toEqual(expect.objectContaining({
+            id: "invoke-1",
+            assistantMessageId: "tool-execution:invoke-1",
+            name: "invoke_agent",
+            status: "running",
+            linkedSessionId: 15,
+        }));
+    });
+
+    it("tool_execution_end 能更新 live fallback 工具气泡", () => {
+        const runningMessages = applyPiEventToMessages([], {
+            type: "tool_execution_start",
+            toolCallId: "invoke-1",
+            toolName: "invoke_agent",
+            args: {sessionId: 15},
+        }, "invocation-1");
+
+        const doneMessages = applyPiEventToMessages(runningMessages, {
+            type: "tool_execution_end",
+            toolCallId: "invoke-1",
+            toolName: "invoke_agent",
+            result: {
+                content: [{type: "text", text: "子 Agent 完成"}],
+                details: {sessionId: 15, status: "completed"},
+            },
+            isError: false,
+        });
+
+        expect(doneMessages).toHaveLength(1);
+        expect(doneMessages[0]?.status).toBe("done");
+        expect(doneMessages[0]?.toolCalls?.[0]).toEqual(expect.objectContaining({
+            id: "invoke-1",
+            name: "invoke_agent",
+            status: "success",
+            result: "子 Agent 完成",
+            linkedSessionId: 15,
+        }));
+    });
+
+    it("真实 assistant toolCall 到达时移除同 id 的 live fallback 气泡", () => {
+        const runningMessages = applyPiEventToMessages([], {
+            type: "tool_execution_start",
+            toolCallId: "invoke-1",
+            toolName: "invoke_agent",
+            args: {sessionId: 15},
+        });
+
+        const messages = applyPiEventToMessages(runningMessages, {
+            type: "message_end",
+            message: {
+                role: "assistant",
+                content: [
+                    {type: "toolCall", id: "invoke-1", name: "invoke_agent", arguments: {sessionId: 15}},
+                ],
+                api: "test",
+                provider: "test",
+                model: "test",
+                usage: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    totalTokens: 0,
+                    cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
+                },
+                stopReason: "toolUse",
+                timestamp: 1,
+            } as never,
+        });
+
+        expect(messages.map((message) => message.id)).toEqual(["assistant:1"]);
+        expect(messages[0]?.toolCalls?.[0]).toEqual(expect.objectContaining({
+            id: "invoke-1",
+            name: "invoke_agent",
+            status: "running",
+            linkedSessionId: 15,
+        }));
+    });
+
 });
