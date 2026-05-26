@@ -1,7 +1,7 @@
 /**
  * SSE 事件处理器。
  */
-export type SseEventHandler<TEvent> = (event: TEvent) => void;
+export type SseEventHandler<TEvent> = (event: TEvent) => void | Promise<void>;
 
 export type SseReadOptions = {
     onOpen?: () => void;
@@ -69,7 +69,7 @@ export const readSseStream = async <TEvent>(
         for (const frame of frames) {
             const event = parseSseFrame<TEvent>(frame);
             if (event) {
-                onEvent(event);
+                await onEvent(event);
             }
         }
     }
@@ -77,7 +77,7 @@ export const readSseStream = async <TEvent>(
     if (buffer.trim()) {
         const event = parseSseFrame<TEvent>(buffer);
         if (event) {
-            onEvent(event);
+            await onEvent(event);
         }
     }
 };

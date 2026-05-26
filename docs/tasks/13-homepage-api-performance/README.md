@@ -34,10 +34,14 @@
 - 2026-05-26：追踪前端调用点，确认 `workspaceIssues` 是 validate 对前端的主要消费形态；前端并不天然需要每次全量 validate，只是当前 store 把问题状态建模成全局数组。
 - 2026-05-26：追踪后端实现，确认 `validateWorkspaceContentNodes()` 同时承担局部节点校验与全局一致性校验，API 合同粒度过粗。
 - 2026-05-26：实现 `WorkspaceTreeSnapshot` 合同、Project Workspace File Index / Issue Index、轻量 config bootstrap、auth session 复用和前端运行校验入口删除。
+- 2026-05-26：修复 `project.yaml` 格式错误会拖垮 `workspace-files/tree` 和保存链路的隐患：Project Path 定位不再读取 Project Manifest，manifest 解析错误作为 `project.yaml` issue 进入 Project Workspace Issue Index。
+- 2026-05-26：继续收口坏 `project.yaml` 的修复路径：Project Config 读写、Project 删除和 Project Manifest 元数据更新不再依赖 manifest 当前可解析；Plot / SQL 等真实语义模块仍保持严格依赖。
 
 ## Decisions
 
 - 删除独立 `workspace-files/validate` route；前端不再主动运行校验，问题状态由 `tree` snapshot 与 workspace-files SSE 自动同步。
+- `project.yaml` 是用户可编辑文件；格式错误不应阻塞文件树、读取、写入等修复路径。文件系统 API 只负责按 Project Path 定位 Project Workspace，Project Manifest 合法性由 Project Workspace Issue Index 和需要展示元数据的接口处理。
+- Project Config 与 Project 删除属于 Project Workspace 管理/修复链路，只需要 Project Path 指向现有目录；Project Manifest 元数据更新允许在坏 YAML 上覆盖写回合法 manifest。Plot/Story、Agent SQL 等依赖 Project 语义或 Project SQLite 的模块仍要求 manifest 合法。
 - 删除的是 HTTP route，不删除校验核心能力：`validateWorkspaceContentNodes()` 仍被 `workspace node validate` CLI 依赖，尤其是 `--fix-missing` 写回能力；实现时应把校验规则抽成索引和 CLI 都能复用的内部模块。
 - 首屏完成定义为：Project Workspace 文件树可见，已恢复的当前文件可读/可编辑；Agent drawer、完整 validate issues、完整设置快照不属于首屏完成条件。
 - 客户端路由鉴权 `/api/auth/me` 是唯一串行门禁；页面账户菜单不应再次用 `/api/auth/me` 阻塞 Project Workspace 初始化。
@@ -344,6 +348,8 @@
   - `bun test server/workspace-files/workspace-files.test.ts server/workspace-files/workspace-file-events.test.ts` 通过。
   - 旧 `writeNovelWorkspaceMetadata` / `workspace.yaml` 测试已迁移到当前 `project.yaml` / Project Workspace 创建合同。
   - 新增 Project Workspace File Index 失效后重新读取文件与 issues 的回归测试。
+  - 新增坏 `project.yaml` 回归测试：Project Workspace 根目录仍可解析、tree snapshot 返回 `invalid-project-manifest` issue、Project 列表遇到单个坏 manifest 不整批失败。
+  - 新增坏 `project.yaml` 收口测试：Project Config 仍可读写，Project Manifest 元数据更新可覆盖修复坏 YAML。
 
 ## TODO / Follow-ups
 
@@ -355,4 +361,6 @@
 - [x] Phase 4：删除 HTTP `workspace-files/validate` route，移除用户可见的运行校验入口，但保留 CLI 校验核心。
 - [x] Phase 5：新增轻量 config bootstrap；auth 用户 TTL cache 仍按 server timing 结果后续决定。
 - [x] 清理 `workspace-files.test.ts` 中旧 `writeNovelWorkspaceMetadata` / `workspace.yaml` legacy 测试，并迁移到 `project.yaml` 合同。
+- [x] 拆分 Project Path 定位与 Project Manifest 校验，避免坏 `project.yaml` 阻塞文件树和保存修复链路。
+- [x] 收口 Project Config、Project 删除和 Project Manifest 元数据更新，避免坏 `project.yaml` 阻塞管理/修复链路。
 - [ ] 重新导出本地和生产 HAR，确认首屏请求数量与 Server-Timing 改善。

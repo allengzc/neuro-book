@@ -42,6 +42,9 @@ const props = defineProps<{
     cumulativeOutputCompactLabel: string;
     cumulativeCacheCompactLabel: string;
     cumulativeCacheWriteCompactLabel: string;
+    connectionStatusLabel: string;
+    runPhaseLabel: string;
+    connectionNeedsAction: boolean;
     menuRefreshKey: string | number;
     resolveMenu: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     onSkillTriggerStart?: () => void;
@@ -72,6 +75,8 @@ const emit = defineEmits<{
     (e: "toggle-session-model-popover"): void;
     (e: "apply-session-model-settings"): void;
     (e: "reset-session-model-settings"): void;
+    (e: "reconnect-events"): void;
+    (e: "refresh-history"): void;
 }>();
 
 const inputRef = ref<InstanceType<typeof AgentReferenceInput> | null>(null);
@@ -339,9 +344,23 @@ defineExpose({focus});
                     <span>{{ props.cumulativeCacheWriteCompactLabel }}</span>
                 </template>
             </div>
+            <div v-if="props.connectionStatusLabel" class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">
+                <span class="i-lucide-wifi h-3 w-3"></span>
+                <span>{{ props.connectionStatusLabel }}</span>
+            </div>
+            <template v-if="props.connectionNeedsAction">
+                <button class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="重新连接 Agent 事件流" @click="emit('reconnect-events')">
+                    <span class="i-lucide-refresh-cw h-3 w-3"></span>
+                    <span>重连</span>
+                </button>
+                <button class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="重新拉取一次当前 Session 历史" @click="emit('refresh-history')">
+                    <span class="i-lucide-history h-3 w-3"></span>
+                    <span>刷新历史</span>
+                </button>
+            </template>
             <div v-if="props.running" class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">
                 <span class="i-lucide-loader-circle h-3 w-3 animate-spin"></span>
-                <span>运行中</span>
+                <span>{{ props.runPhaseLabel || "运行中" }}</span>
             </div>
             <div v-if="props.planModeActive" class="inline-flex items-center gap-1 rounded-full border border-[var(--accent-main)]/30 bg-[var(--accent-bg)] px-1.5 py-0.5 text-[var(--accent-text)]" title="Shift+Tab 切换">
                 <span class="i-lucide-clipboard-list h-3 w-3"></span>

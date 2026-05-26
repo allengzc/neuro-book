@@ -202,9 +202,10 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - get_session 默认只查询轻量 session 元数据、title、summary、usage 和 linked agents；默认不返回 tree，也不返回历史消息。需要少量历史时显式传 includeRecentMessages/recentMessageLimit/tokenBudget；复杂历史、分支或 tree 查询请到 session 文件目录用 bash/jq/rg 自助查询。
         - detach_agent 只解除 owned link，不删除 session。
         - writer 是正文写作专用 agent，采用“一章节一 agent”。调用 writer 前，先确保章节内容节点已经存在，并且 Plot System 中需要写入本章的 Scene 已挂到该 chapterPath。writer.input.chapterPaths 必须且只能包含一个章节目录：当前 Project Workspace 使用 manuscript/.../，跨 Project Workspace 使用 workspace/<project>/manuscript/.../ 或 <project>/manuscript/.../。writer 会读取该章节的 Chapter Plot，并只写这个章节的 index.md；不要再传 plotPoints、novelId 或 outputPath。
-        - writer.lorebookEntries 只接收内容节点 path 字符串数组。需要设定召回时，先让 retrieval 返回详细结果，再由你提取其中的 path，按需要传给 writer.lorebookEntries。不要把 retrieval 的 reason、summary、priority 或 writingTip 传给 writer。
-        - retrieval 是内容节点召回专用 agent。需要为 writer 或当前任务选择 lorebook/manuscript 相关节点时创建它；它应先建立内容节点元数据清单，再做精确搜索，并通过 report_result.data 返回按优先级排序的详细结果对象数组，供 Leader 判断和筛选。
-        - 需要 writer 参考内容节点时，优先先让 retrieval 召回候选，再把 path 整理为 writer.lorebookEntries；不要让 writer 自己做大范围检索。
+        - writer.lorebookEntries 只接收内容节点 path 字符串数组。需要设定召回时，先让 retrieval 返回候选判断结果，再由你提取 entries[].path，按需要传给 writer.lorebookEntries。不要把 retrieval 的 reason、use、risk 或 note 传给 writer。
+        - retrieval 是内容节点召回专用 agent。需要为 writer 或当前任务选择 lorebook/manuscript 相关节点时创建它；创建 retrieval 时只传自然语言 prompt，把任务目标、要找什么、给谁用、章节/正文上下文、排除项和数量偏好写清楚即可。
+        - retrieval 应先建立内容节点元数据清单，再做必要的精确搜索，并通过 report_result.data 返回 { entries, note? }。entries 按推荐优先级排序；Leader 可以不读正文，直接根据 path、reason、use、risk 判断哪些条目传给 writer。
+        - 需要 writer 参考内容节点时，优先先让 retrieval 召回候选，再把 entries[].path 整理为 writer.lorebookEntries；不要让 writer 自己做大范围检索。
 
         # 小说 workspace
 

@@ -16,6 +16,7 @@ export type ProjectManifest = {
 export type ProjectListItem = ProjectManifest & {
     projectPath: string;
     updatedAt: string;
+    manifestError?: string;
 };
 
 const PROJECT_MIGRATION_SQL = `
@@ -160,6 +161,19 @@ export function resolveProjectAbsolutePath(projectPath: string): string {
 }
 
 /**
+ * 判断 Project Path 是否指向现有 Project Workspace 目录。不读取 project.yaml，用于文件修复链路。
+ */
+export async function assertProjectWorkspaceDirectory(projectPath: string): Promise<string> {
+    const normalizedProjectPath = normalizeProjectPath(projectPath);
+    const projectRoot = resolveProjectAbsolutePath(normalizedProjectPath);
+    const stat = await fs.stat(projectRoot);
+    if (!stat.isDirectory()) {
+        throw createError({statusCode: 400, message: "projectPath 必须指向 Project Workspace 目录"});
+    }
+    return normalizedProjectPath;
+}
+
+/**
  * 返回 Project SQLite 的绝对路径。
  */
 export function resolveProjectDatabasePath(projectPath: string): string {
@@ -180,6 +194,32 @@ export async function readProjectManifest(projectPath: string): Promise<ProjectM
         title: parsed.title,
         summary: typeof parsed.summary === "string" ? parsed.summary : "",
     };
+}
+
+/**
+ * 安全读取 Project manifest。解析失败时返回错误文本，避免拖垮文件树和保存链路。
+ */
+export async function readProjectManifestIssue(projectPath: string): Promise<string | null> {
+    return readProjectManifestIssueFromRoot(resolveProjectAbsolutePath(projectPath));
+}
+
+/**
+ * 从 Project Workspace 根目录安全读取 manifest issue。root 已经由调用方完成定位。
+ */
+export async function readProjectManifestIssueFromRoot(projectRoot: string): Promise<string | null> {
+    try {
+        const manifestPath = path.join(projectRoot, PROJECT_MANIFEST_FILE);
+        const parsed = yaml.parse(await fs.readFile(manifestPath, "utf-8")) as Partial<ProjectManifest> | null;
+        if (!parsed || parsed.kind !== "novel" || typeof parsed.title !== "string") {
+            return `${PROJECT_MANIFEST_FILE} 不是有效 Project manifest`;
+        }
+        return null;
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return "Project Workspace 缺少 project.yaml";
+        }
+        return error instanceof Error ? error.message : "project.yaml 解析失败";
+    }
 }
 
 /**
@@ -220,7 +260,15 @@ export async function listProjectWorkspaces(): Promise<ProjectListItem[]> {
             if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
                 continue;
             }
-            throw error;
+            const stat = await fs.stat(path.join(workspaceRoot, entry.name));
+            projects.push({
+                kind: "novel",
+                title: entry.name,
+                summary: "",
+                projectPath,
+                updatedAt: stat.mtime.toISOString(),
+                manifestError: error instanceof Error ? error.message : "project.yaml 解析失败",
+            });
         }
     }
     return projects.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));

@@ -759,6 +759,14 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     };
 
     /**
+     * 从已加载的 tree snapshot 中读取节点元信息，避免文件树点击时重复请求 stat。
+     */
+    const findWorkspaceNode = (filePath: string): WorkspaceFileNode | undefined => {
+        const normalizedPath = normalizeWorkspaceFilePath(filePath);
+        return workspaceTree.value.find((node) => normalizeWorkspaceFilePath(node.path) === normalizedPath);
+    };
+
+    /**
      * 激活一个可编辑文件，并按需从缓存或磁盘读取正文。
      */
     const activateEditableWorkspaceFile = async (
@@ -792,10 +800,11 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      */
     const activateWorkspaceFile = async (filePath: string, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> => {
         persistActiveWorkspaceBuffer();
-        const detail = await statWorkspacePath(filePath);
+        const detail = findWorkspaceNode(filePath) ?? await statWorkspacePath(filePath);
         if (detail.isDirectory && detail.contentNode) {
             const normalizedDir = detail.path.replace(/\/$/, "");
-            return await activateEditableWorkspaceFile(`${normalizedDir}/index.md`, undefined, openMode, options);
+            const indexPath = `${normalizedDir}/index.md`;
+            return await activateEditableWorkspaceFile(indexPath, findWorkspaceNode(indexPath), openMode, options);
         }
 
         if (!detail.editable) {
@@ -832,6 +841,29 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      */
     const openWorkspacePath = async (filePath: string, openMode: WorkspaceOpenMode): Promise<WorkspaceFileNode | null> => {
         return await selectWorkspacePath(filePath, openMode);
+    };
+
+    /**
+     * 从文件树节点打开路径。调用方已经持有节点元信息时走这个入口，避免额外 stat 请求。
+     */
+    const openWorkspaceNode = async (node: WorkspaceFileNode, openMode: WorkspaceOpenMode = "permanent", options: WorkspaceLoadOptions = {}): Promise<WorkspaceFileNode | null> => {
+        persistActiveWorkspaceBuffer();
+        if (node.isDirectory && node.contentNode) {
+            const normalizedDir = node.path.replace(/\/$/, "");
+            const indexPath = `${normalizedDir}/index.md`;
+            return await activateEditableWorkspaceFile(indexPath, findWorkspaceNode(indexPath), openMode, options);
+        }
+        if (!node.editable) {
+            activeWorkspaceFile.value = {
+                node,
+                content: "",
+                lastSyncedContent: "",
+                lastSyncedMtimeMs: node.mtimeMs,
+            };
+            upsertWorkspaceTab(node, openMode);
+            return node;
+        }
+        return await activateEditableWorkspaceFile(node.path, node, openMode, options);
     };
 
     /**
@@ -2158,6 +2190,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         novels,
         novelTree,
         openWorkspacePath,
+        openWorkspaceNode,
         optimisticRenameWorkspacePath,
         pendingAgentChapterUpdate,
         plotWorkbenchOpen,
