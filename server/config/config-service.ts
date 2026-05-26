@@ -14,6 +14,7 @@ import {normalizeProjectPath, readProjectManifest} from "nbook/server/workspace-
 import {GlobalConfigDtoSchema} from "nbook/shared/dto/config.dto";
 import type {
     ConfigAgentProfileSettingsDto,
+    ConfigBootstrapDto,
     ConfigDefaultProfileSettingsDto,
     ConfigEditorSnapshotDto,
     ConfigModelSettingsDto,
@@ -45,7 +46,6 @@ import type {
 import {
     buildModelLabel,
     listEnabledModels,
-    resolveConfiguredModel,
 } from "nbook/server/utils/model-settings";
 
 const GLOBAL_CONFIG_PATH = path.resolve(process.cwd(), "workspace", ".nbook", "config.json");
@@ -94,6 +94,28 @@ export async function readConfigEditorSnapshot(
             project,
             catalog,
         }),
+    };
+}
+
+/**
+ * 读取首页启动所需的轻量配置。
+ */
+export async function readConfigBootstrap(
+    query: ConfigWorkspaceQueryDto,
+    profiles: AgentProfileCatalog = useAgentHarness().profiles,
+): Promise<ConfigBootstrapDto> {
+    const target = await resolveConfigTarget(query);
+    const {global, project} = await readConfigFiles(query, target);
+    const effective = resolveEffectiveConfig(global, project);
+
+    return {
+        modelSettings: {
+            defaultModelLabel: buildConfigModelSettingsDto(effective).defaultModelLabel,
+            enabledModels: listEnabledModels(effective.models),
+        },
+        defaultProfileSettings: {
+            effectiveProfileKey: resolveDefaultProfileKeyFromConfig(target.workspaceKind, global, project),
+        },
     };
 }
 

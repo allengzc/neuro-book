@@ -1,15 +1,15 @@
 import {getQuery} from "h3";
-import {readConfigEditorSnapshot} from "nbook/server/config/config-service";
+import {readConfigBootstrap} from "nbook/server/config/config-service";
 import {validateConfigWorkspaceQuery} from "nbook/server/config/query";
 import {createServerTiming} from "nbook/server/utils/server-timing";
 
 /**
- * 读取设置页使用的配置编辑快照。
+ * 读取首页启动所需的轻量配置。
  */
 export default defineEventHandler(async (event) => {
     const timing = createServerTiming(event);
     try {
-        return await timing.measure("config.editor", () => readConfigEditorSnapshot(validateConfigWorkspaceQuery(getQuery(event))));
+        return await timing.measure("config.bootstrap", () => readConfigBootstrap(validateConfigWorkspaceQuery(getQuery(event))));
     } finally {
         timing.commit();
     }

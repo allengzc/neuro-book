@@ -52,12 +52,14 @@ import {
     DiscoverProviderModelsResponseDtoSchema,
 } from "nbook/shared/dto/app-settings.dto";
 import {
+    ConfigBootstrapDtoSchema,
     ConfigEditorSnapshotDtoSchema,
     ConfigSnapshotDtoSchema,
     ConfigWorkspaceQueryDtoSchema,
     GlobalConfigDtoSchema,
     ProjectConfigDtoSchema,
 } from "nbook/shared/dto/config.dto";
+import {WorkspaceFileIssueDtoSchema} from "nbook/shared/dto/workspace-tree.dto";
 
 // ─── AI / Writing DTOs ──────────────────────────────────────────
 import {
@@ -108,20 +110,15 @@ const StatQuerySchema = z_.object({
 });
 
 const TreeQuerySchema = z_.object({
-    root: z_.string().optional().describe("Workspace root directory"),
-    novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
+    projectPath: z_.string().optional().describe("Project Workspace path, for example workspace/<project>"),
     workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
-    type: z_.string().optional().describe("Filter by content type"),
-    depth: z_.string().optional().describe("Maximum tree depth (parsed as integer)"),
-    target: z_.union([z_.string(), z_.array(z_.string())]).optional().describe("Target path(s) to scan"),
 });
 
-const ValidateQuerySchema = z_.object({
-    root: z_.string().optional().describe("Workspace root directory"),
-    novelId: z_.string().optional().describe("Novel id used to resolve isolated workspace"),
-    workspaceKind: z_.literal("user-assets").optional().describe("Use the global user assets workspace"),
-    target: z_.union([z_.string(), z_.array(z_.string())]).optional().describe("Target path(s) to validate"),
-    recursive: z_.union([z_.string(), z_.boolean()]).optional().describe("Recursive validation"),
+const WorkspaceTreeSnapshotSchema = z_.object({
+    nodes: z_.array(z_.unknown()).describe("Workspace file nodes"),
+    issues: z_.array(WorkspaceFileIssueDtoSchema).describe("Project Workspace issues; empty for user-assets"),
+    revision: z_.number().int().nonnegative().describe("Project Workspace File Index revision"),
+    validatedAt: z_.string().describe("ISO timestamp for the latest snapshot validation"),
 });
 
 // ─── Inline request schemas for workspace-files routes ──────────
@@ -435,6 +432,14 @@ export const routeMetaMap: RouteMetaEntry[] = [
         responseBody: ConfigEditorSnapshotDtoSchema,
     },
     {
+        file: "config/bootstrap.get.ts",
+        method: "get",
+        tags: ["Config"],
+        summary: "Get lightweight startup config",
+        queryParams: ConfigWorkspaceQueryDtoSchema,
+        responseBody: ConfigBootstrapDtoSchema,
+    },
+    {
         file: "config/global.put.ts",
         method: "put",
         tags: ["Config"],
@@ -482,8 +487,9 @@ export const routeMetaMap: RouteMetaEntry[] = [
         file: "workspace-files/tree.get.ts",
         method: "get",
         tags: ["Workspace Files"],
-        summary: "Scan the workspace directory tree",
+        summary: "Read workspace tree snapshot",
         queryParams: TreeQuerySchema,
+        responseBody: WorkspaceTreeSnapshotSchema,
     },
     {
         file: "workspace-files/read.get.ts",
@@ -498,13 +504,6 @@ export const routeMetaMap: RouteMetaEntry[] = [
         tags: ["Workspace Files"],
         summary: "Get file/directory metadata (stat)",
         queryParams: StatQuerySchema,
-    },
-    {
-        file: "workspace-files/validate.get.ts",
-        method: "get",
-        tags: ["Workspace Files"],
-        summary: "Validate workspace content nodes",
-        queryParams: ValidateQuerySchema,
     },
     {
         file: "workspace-files/write.put.ts",

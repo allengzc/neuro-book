@@ -64,7 +64,6 @@ const emit = defineEmits<{
     (e: "update:height", value: number): void;
     (e: "close"): void;
     (e: "refresh"): void;
-    (e: "validate"): void;
 }>();
 
 const store = useNovelIdeStore();
@@ -331,7 +330,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
         <template #actions>
             <button class="rounded-md px-2 py-1 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" type="button" @click="emit('refresh')">刷新</button>
-            <button class="rounded-md px-2 py-1 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" type="button" @click="emit('validate')">校验</button>
             <button class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" type="button" :disabled="savingFile" @click="void saveDraft()">保存</button>
         </template>
 

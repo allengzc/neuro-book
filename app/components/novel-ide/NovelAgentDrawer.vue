@@ -261,7 +261,7 @@ const loadResolvedLeaderProfileKey = async (): Promise<void> => {
         return;
     }
     try {
-        const settings = await configApi.editorSnapshot();
+        const settings = await configApi.bootstrap();
         if (requestId !== defaultProfileResolveRequest) {
             return;
         }
@@ -291,12 +291,12 @@ const refreshSessions = async (): Promise<AgentSessionSummaryDto[]> => {
 /**
  * 初始化或获取有效 session。
  */
-const ensureSessionReady = async (forceNew = false): Promise<void> => {
+const ensureSessionReady = async (forceNew = false): Promise<AgentSessionSummaryDto[]> => {
     if (!props.isOpen && !forceNew) {
-        return;
+        return sessions.value;
     }
     if (activeSessionId.value && !forceNew) {
-        return;
+        return sessions.value;
     }
     await loadResolvedLeaderProfileKey();
     const list = await refreshSessions();
@@ -305,7 +305,7 @@ const ensureSessionReady = async (forceNew = false): Promise<void> => {
     const target = forceNew ? undefined : rememberedSession ?? list[0];
     if (target) {
         await loadSession(target.sessionId);
-        return;
+        return list;
     }
     const created = await agentApi.createSession({
         profileKey: leaderProfileKey.value,
@@ -316,6 +316,7 @@ const ensureSessionReady = async (forceNew = false): Promise<void> => {
     });
     await refreshSessions();
     await loadSession(created.sessionId);
+    return sessions.value;
 };
 
 /**
@@ -972,7 +973,6 @@ const rollbackMessage = async (message: AgentMessage): Promise<void> => {
 
 const openSessionDialog = async (): Promise<void> => {
     await ensureSessionReady();
-    await refreshSessions();
     sessionDialogOpen.value = true;
 };
 
@@ -1000,7 +1000,6 @@ const createSessionFromDialog = async (): Promise<void> => {
     loadingSession.value = true;
     try {
         await ensureSessionReady(true);
-        await refreshSessions();
         sessionDialogOpen.value = false;
     } finally {
         loadingSession.value = false;
@@ -1056,7 +1055,6 @@ watch(() => props.isOpen, async (open) => {
     await loadSelectableModels();
     await loadResolvedLeaderProfileKey();
     await ensureSessionReady();
-    await refreshSessions();
     await nextTick();
     requestAnimationFrame(() => {
         inputRef.value?.focus();
@@ -1076,7 +1074,6 @@ watch(leaderProfileKey, async () => {
         return;
     }
     await ensureSessionReady();
-    await refreshSessions();
 });
 
 watch(() => [ideStore.workspaceKind, ideStore.currentNovelId] as const, async () => {

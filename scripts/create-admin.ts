@@ -1,8 +1,35 @@
 import {cancel, isCancel, password as promptPassword, text} from "@clack/prompts";
 import {hashUserPassword} from "nbook/server/utils/auth";
-import {prisma} from "nbook/server/utils/prisma";
+import {spawn} from "node:child_process";
 
 const [, , usernameArg, passwordArg] = process.argv;
+type PrismaClientInstance = typeof import("nbook/server/utils/prisma").prisma;
+let prisma: PrismaClientInstance | null = null;
+
+/**
+ * 确保 App SQLite schema 已迁移到当前版本。
+ */
+async function ensureDatabaseSchema(): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+        const child = spawn(process.execPath, ["scripts/sqlite-migrate.mjs"], {
+            stdio: "inherit",
+            env: process.env,
+        });
+
+        child.on("exit", (code, signal) => {
+            if (signal) {
+                reject(new Error(`数据库迁移被信号中断：${signal}`));
+                return;
+            }
+            if (code !== 0) {
+                reject(new Error(`数据库迁移失败，退出码：${code ?? 1}`));
+                return;
+            }
+            resolve();
+        });
+        child.on("error", reject);
+    });
+}
 
 /**
  * 读取管理员用户名。优先用参数或环境变量，缺失时交互输入。
@@ -59,6 +86,8 @@ async function main(): Promise<void> {
         throw new Error("管理员密码至少 8 个字符");
     }
 
+    await ensureDatabaseSchema();
+    ({prisma} = await import("nbook/server/utils/prisma"));
     const passwordHash = await hashUserPassword(password);
     const user = await prisma.user.upsert({
         where: {username},
@@ -86,5 +115,5 @@ main()
         process.exitCode = 1;
     })
     .finally(async () => {
-        await prisma.$disconnect();
+        await prisma?.$disconnect();
     });

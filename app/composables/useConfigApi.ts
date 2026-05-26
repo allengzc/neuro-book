@@ -1,5 +1,6 @@
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import type {
+    ConfigBootstrapDto,
     ConfigEditorSnapshotDto,
     ConfigWorkspaceQueryDto,
     GlobalConfigDto,
@@ -67,6 +68,15 @@ export function useConfigApi() {
     }
 
     /**
+     * 读取首页与 Agent 抽屉所需的轻量配置。
+     */
+    async function bootstrap(query: ConfigWorkspaceQueryDto = currentQuery()): Promise<ConfigBootstrapDto> {
+        return $fetch<ConfigBootstrapDto>("/api/config/bootstrap", {
+            query,
+        });
+    }
+
+    /**
      * 保存 Workspace Root `.nbook/config.json` 并返回后端重新合并后的快照。
      */
     async function saveGlobal(global: GlobalConfigDto, query: ConfigWorkspaceQueryDto = currentQuery()): Promise<ConfigEditorSnapshotDto> {
@@ -100,6 +110,7 @@ export function useConfigApi() {
         novelProjectQuery,
         currentQuery,
         projectQuery,
+        bootstrap,
         editorSnapshot,
         saveGlobal,
         saveProject,

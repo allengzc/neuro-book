@@ -101,6 +101,7 @@ export function parseCodexPatch(patchText: string): PatchOperation[] {
  */
 export async function applyCodexPatch(input: {
     workspaceRoot: string;
+    projectPath?: string;
     patchText: string;
 }): Promise<ApplyCodexPatchResult> {
     const operations = parseCodexPatch(input.patchText);
@@ -110,7 +111,7 @@ export async function applyCodexPatch(input: {
 
     for (const operation of operations) {
         if (operation.type === "add") {
-            const target = await readVirtualFile(fileState, workspaceRoot, operation.path);
+            const target = await readVirtualFile(fileState, workspaceRoot, input.projectPath, operation.path);
             if (target.exists && target.content !== null) {
                 throw new Error(`文件已存在，不能 Add File：${operation.path}`);
             }
@@ -132,7 +133,7 @@ export async function applyCodexPatch(input: {
         }
 
         if (operation.type === "delete") {
-            const target = await readVirtualFile(fileState, workspaceRoot, operation.path);
+            const target = await readVirtualFile(fileState, workspaceRoot, input.projectPath, operation.path);
             await assertPatchTargetIsFile(target.absolutePath, operation.path);
             fileState.set(target.absolutePath, {
                 ...target,
@@ -150,7 +151,7 @@ export async function applyCodexPatch(input: {
             continue;
         }
 
-        const source = await readVirtualFile(fileState, workspaceRoot, operation.path);
+        const source = await readVirtualFile(fileState, workspaceRoot, input.projectPath, operation.path);
         await assertPatchTargetIsFile(source.absolutePath, operation.path);
         if (source.content === null) {
             throw new Error(`无法更新已删除文件：${operation.path}`);
@@ -166,7 +167,7 @@ export async function applyCodexPatch(input: {
         };
         if (operation.moveTo) {
             const targetPath = operation.moveTo;
-            const target = await readVirtualFile(fileState, workspaceRoot, targetPath);
+            const target = await readVirtualFile(fileState, workspaceRoot, input.projectPath, targetPath);
             fileState.set(source.absolutePath, {
                 ...source,
                 content: null,
@@ -315,9 +316,10 @@ function isPatchBoundary(line: string): boolean {
 async function readVirtualFile(
     fileState: Map<string, {displayPath: string; absolutePath: string; content: string | null; original: string; exists: boolean}>,
     workspaceRoot: string,
+    projectPath: string | undefined,
     displayPath: string,
 ): Promise<{displayPath: string; absolutePath: string; content: string | null; original: string; exists: boolean}> {
-    const absolutePath = resolvePatchPath(displayPath, workspaceRoot);
+    const absolutePath = resolvePatchPath(displayPath, workspaceRoot, projectPath);
     const existing = fileState.get(absolutePath);
     if (existing) {
         return existing;
@@ -370,8 +372,8 @@ async function rollbackPlannedChanges(plannedChanges: PlannedFileChange[]): Prom
     }
 }
 
-function resolvePatchPath(filePath: string, workspaceRoot: string): string {
-    const absolutePath = resolveWorkspacePath(filePath, workspaceRoot);
+function resolvePatchPath(filePath: string, workspaceRoot: string, projectPath?: string): string {
+    const absolutePath = resolveWorkspacePath(filePath, workspaceRoot, projectPath);
     const relativePath = relative(workspaceRoot, absolutePath);
     if (relativePath === "" || relativePath.startsWith("..") || resolve(workspaceRoot, relativePath) !== absolutePath) {
         throw new Error(`apply_patch 路径越过 workspaceRoot：${filePath}`);

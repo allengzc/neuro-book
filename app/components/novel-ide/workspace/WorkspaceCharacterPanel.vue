@@ -68,13 +68,6 @@ async function refreshTree(): Promise<void> {
 }
 
 /**
- * 运行工作区校验。
- */
-async function validateWorkspace(): Promise<void> {
-    await store.validateWorkspace();
-}
-
-/**
  * 打开角色节点对应的 index.md。
  */
 async function selectCharacter(node: WorkspaceFileNode): Promise<void> {
@@ -176,7 +169,6 @@ function openRootMenu(event: MouseEvent): void {
         {label: "新建角色", iconClass: "i-lucide-user-plus", action: () => void createCharacter()},
         {separator: true},
         {label: "刷新", iconClass: "i-lucide-refresh-cw", action: () => void refreshTree()},
-        {label: "运行校验", iconClass: "i-lucide-shield-check", action: () => void validateWorkspace()},
     ]);
 }
 
@@ -322,7 +314,6 @@ onMounted(() => {
             @update:height="detailHeight = $event"
             @close="store.clearActiveFile()"
             @refresh="void refreshTree()"
-            @validate="void validateWorkspace()"
         />
 
         <ContextMenu

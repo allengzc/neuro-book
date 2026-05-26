@@ -24,6 +24,14 @@ _Avoid_: projectId, novelId, database id
 Project Workspace 根目录中描述项目类型、标题、摘要等展示元数据的 `project.yaml` 文件。
 _Avoid_: Novel row, workspace.yaml, project metadata
 
+**Project Workspace Issue Index**:
+从 Project Workspace 文件派生出的校验问题索引，用于前端展示当前已知的问题状态。
+_Avoid_: validation truth, workspace issues
+
+**Project Workspace File Index**:
+从 Project Workspace 文件系统构建的内存索引，保存文件节点、frontmatter、state、refs 和路径存在信息。
+_Avoid_: tree cache, validation table
+
 **Boot Config**:
 启动和部署期配置，修改后需要重启服务才能可靠生效。
 _Avoid_: settings, runtime preference
@@ -56,6 +64,9 @@ _Avoid_: Postgres SQL tool, generic SQL tool, bash-only database access
 - **Project SQLite** lives in exactly one **Project Workspace `.nbook`**.
 - **Project Path** locates exactly one **Project Workspace** under a **Workspace Root**.
 - **Project Manifest** lives at the root of exactly one **Project Workspace** and stores display metadata.
+- **Project Workspace File Index** belongs to one **Project Workspace** and is refreshed from file scans or file watcher events.
+- **Project Workspace Issue Index** belongs to one **Project Workspace** and can be rebuilt from its files.
+- **Project Workspace Issue Index** is derived from **Project Workspace File Index** plus validation rules.
 - **Project SQLite** stores project data but does not define project identity or display metadata.
 - **App SQLite** must not record Project Workspace identity, path, status, or recent project index.
 - **Boot Config** may mirror **Process Environment** with `${NAME}` templates but does not override it.
@@ -73,3 +84,5 @@ _Avoid_: Postgres SQL tool, generic SQL tool, bash-only database access
 - "NovelId" was used as both project identity and Plot anchor. Resolved: Project runtime identity is **Project Path**; Project SQLite is single-project and does not need a global `Novel` row or numeric `novelId`.
 - "Project Index" was proposed as rebuildable App SQLite state. Resolved: **App SQLite** must not record Project Workspace identity or status; Project Workspace discovery scans `project.yaml`.
 - "projectId" was proposed as immutable packaged identity. Resolved: no projectId is required in the current design; **Project Path** is the runtime locator and `project.yaml` carries display metadata.
+- "workspaceIssues" was used as both UI state and validation truth. Resolved: known issues are a **Project Workspace Issue Index**, a rebuildable materialized index derived from Project Workspace files.
+- "tree cache" and "validate table" were used to describe the same optimization. Resolved: file metadata belongs to **Project Workspace File Index**; validation results belong to **Project Workspace Issue Index**.

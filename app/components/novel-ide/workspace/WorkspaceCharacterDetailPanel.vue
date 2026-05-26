@@ -59,7 +59,6 @@ const emit = defineEmits<{
     (e: "update:height", value: number): void;
     (e: "close"): void;
     (e: "refresh"): void;
-    (e: "validate"): void;
 }>();
 
 const store = useNovelIdeStore();
@@ -427,7 +426,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
         <template #actions>
             <button class="rounded-md px-2 py-1 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" type="button" @click="emit('refresh')">刷新</button>
-            <button class="rounded-md px-2 py-1 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" type="button" @click="emit('validate')">校验</button>
             <button class="rounded-md px-2 py-1 text-[10px] text-[var(--accent-text)] hover:bg-[var(--bg-hover)]" type="button" @click="dialogOpen = true">档案</button>
         </template>
 
@@ -482,7 +480,6 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
                 </div>
                 <div class="flex shrink-0 items-center gap-1">
                     <button class="icon-action" type="button" title="刷新" @click="emit('refresh')"><span class="i-lucide-refresh-cw h-4 w-4"></span></button>
-                    <button class="icon-action" type="button" title="校验" @click="emit('validate')"><span class="i-lucide-shield-check h-4 w-4"></span></button>
                     <button class="icon-action" type="button" title="保存" :disabled="savingFile" @click="void saveDraft()"><span class="i-lucide-save h-4 w-4"></span></button>
                     <span class="mx-2 h-7 w-px bg-[var(--border-color)]"></span>
                     <button class="icon-action" type="button" title="关闭" @click="updateDialogVisible(false)"><span class="i-lucide-x h-5 w-5"></span></button>

@@ -1,5 +1,6 @@
 import {createError, getRequestHeader, readMultipartFormData, type MultiPartData} from "h3";
 import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
+import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
 import {
     uploadWorkspaceProjectFiles,
     uploadWorkspaceProjectZip,
@@ -13,9 +14,10 @@ import {
 export default defineEventHandler(async (event) => {
     assertContentLengthLimit(event, 500 * 1024 * 1024, 8 * 1024 * 1024);
     const parts = await readRequiredMultipart(event);
+    const workspaceKind = readTextPart(parts, "workspaceKind") === "user-assets" ? "user-assets" : undefined;
     const root = await resolveWorkspaceRootInput({
         projectPath: readTextPart(parts, "projectPath"),
-        workspaceKind: readTextPart(parts, "workspaceKind") === "user-assets" ? "user-assets" : undefined,
+        workspaceKind,
     });
     const mode = readTextPart(parts, "mode");
 
@@ -23,10 +25,12 @@ export default defineEventHandler(async (event) => {
         const zipFile = firstFilePart(parts, "zip");
         assertZipFile(zipFile.filename ?? "");
         try {
-            return await uploadWorkspaceProjectZip(root, {
+            const result = await uploadWorkspaceProjectZip(root, {
                 fileName: zipFile.filename ?? "project.zip",
                 data: zipFile.data,
             });
+            invalidateProjectWorkspaceIndexAfterMutation({root, workspaceKind});
+            return result;
         } catch (error) {
             throw toUploadError(error);
         }
@@ -47,7 +51,9 @@ export default defineEventHandler(async (event) => {
         throw createError({statusCode: 400, message: "缺少 Project 上传文件"});
     }
     try {
-        return await uploadWorkspaceProjectFiles(root, files);
+        const result = await uploadWorkspaceProjectFiles(root, files);
+        invalidateProjectWorkspaceIndexAfterMutation({root, workspaceKind});
+        return result;
     } catch (error) {
         throw toUploadError(error);
     }
