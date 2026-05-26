@@ -530,22 +530,23 @@ type ProfileIngestResult = {
   - `nextTurn` 不是低层 `Agent` 的基础 API；它存在于 Pi `AgentHarness` / `coding-agent` 这类产品层。Neuro Book 第一版不实现 `nextTurn`。
   - NeuroAgentHarness 第一版只暴露 `steer/followUp` 运行期队列；后续如果需要“下一次用户 prompt 前插入”的语义，再作为独立产品层能力评估。
 - `steer`：用户或系统在 agent 工作中追加的“纠偏/补充”消息。它不打断当前 assistant message 和当前 tool batch；等当前 assistant turn 及其 tool result 完成后，在下一次 LLM 调用前注入上下文。
-- `followUp`：等待 agent 本来要停止时再送入的后续消息。只有当当前 run 没有更多 tool calls、没有 steering messages 时才注入，然后继续下一轮。
-- 同一个 `sessionId` 第一版不允许同时运行多个 active invocation。所谓“多个正在运行的 invocation”是指用户在一个 session 还在 streaming/tool 执行/等待本轮结束时，又从另一个浏览器窗口或同一窗口提交了新的 prompt/continue。v3 不启动并行 run，也不让两个 provider loop 同时写同一个 session tree；新的用户 prompt 会进入当前 active invocation 的 `followUp` queue，等当前 run 到达 safe point 后继续执行。
+- `followUp`：等待 agent 本来要停止时再送入的后续消息。只有当当前 ReAct loop 没有更多 tool calls、也没有 pending steering messages 时才注入；Neuro Book 第一版按 FIFO 一次只消费一条 followUp，然后以 fresh loop 继续。
+- 同一个 `sessionId` 第一版不允许同时运行多个 active invocation。所谓“多个正在运行的 invocation”是指用户在一个 session 还在 streaming/tool 执行/等待本轮结束时，又从另一个浏览器窗口或同一窗口提交了新的 prompt/continue。v3 不启动并行 run，也不让两个 provider loop 同时写同一个 session tree；新的用户 prompt 会进入当前 active invocation 的 `followUp` queue，等当前 ReAct loop 没有更多 tool calls 且没有 pending steer 时按 FIFO 继续执行。
 - active invocation lock 指每个 session 同一时刻最多只有一个正在修改 session / 调 provider / 跑工具 / compact 的 active invocation。它不是数据库锁，也不是跨进程锁；第一版是 harness 内的 session 级运行态互斥。它防止两个 provider loop 同时追加同一棵 session tree，也防止 `/tree`、`/model`、`/compact` 等控制命令在运行中移动 leaf 或改 state。
 - 运行中收到 followUp 后，应通过 session event hub 广播 `follow_up_queued` / queued message 事件，让所有订阅该 session 的窗口都能看到“后续消息已排队”。queued followUp 本身不立刻改写 active leaf；只有真正 drain 并进入下一轮 provider context 时，才作为标准 user message 写入 session。
 - `continue + resolution` 是审批恢复控制流，不走 followUp queue。如果 session 正在等待 approval resolution，这时提交 resolution 会补齐对应 toolResult 并继续当前 invocation；如果同一时刻又提交普通 prompt，则普通 prompt 进入 followUp queue。
 - `steer` / `followUp` 的固定提示词不交给 profile 决定。它们属于 harness 交互协议，由 NeuroAgentHarness 写死或通过 harness-level policy 配置；profile 只负责常规 systemPrompt、history、dynamic/appending 上下文。
 - `steer` / `followUp` / `abort` / clear queue 第一版全部由 harness 写死，不开放给 profile 直接触发或改写。
 - `abort` / interrupt：取消当前低层 run，向 provider/tools 传递 abort signal，清空 steering/followUp 队列。已完成的 session writes 不回滚，pending writes 按 save point / failure cleanup 规则落盘或标记中断。
-- queue drain mode 第一版可跟 Pi 一样支持 `"one-at-a-time"` 与 `"all"`，默认 `"one-at-a-time"`：
-  - `"one-at-a-time"`：每个 safe point 只取最早一条 queued message。
-  - `"all"`：safe point 一次注入所有 queued messages。
+- queue drain mode 第一版固定为分队列策略：
+  - `steer` 使用 `"all"`：同一个可引导点一次性 drain 当前所有 pending steer，并作为多条 user messages 注入当前 ReAct loop 的下一次模型调用。
+  - `followUp` 使用 `"one-at-a-time"`：当前 ReAct loop 真正结束后一次只取最早一条 followUp，并以 fresh loop 继续。
 - save point 定义为一次 assistant turn 和对应 tool results 完成之后。save point 负责：
   - 按事件顺序持久化 agent-emitted messages。
   - flush pending session writes。
   - 重新从 session/profile/workspace resources 构造下一轮 context snapshot。
   - 应用 run 期间发生的 model/profile/tool/resource 设置变化到下一轮，而不修改正在进行中的 provider request。
+- 可引导点是 save point 的一个子场景：如果 save point 后存在 pending steer，则当前 ReAct loop 不结束，harness 会一次性 drain 所有 pending steer，并在下一次 provider request 前注入；只有没有 pending steer 且没有更多 tool calls 时，loop 才算真正结束并进入 followUp drain。
 - AppendingSet 和 queue 机制的关系：
   - AppendingSet 是 profile prepare 阶段根据当前 input/scope/history 生成的 turn-tail context。
   - steer/followUp 是运行期间或用户交互产生的 queued user messages。
@@ -637,7 +638,7 @@ Another language model started to solve this problem and produced a summary of i
 
 ```ts
 type AgentInvocationRequest = {
-    mode: "prompt" | "continue";
+    mode: "prompt" | "continue" | "steer" | "followup";
     message?: AgentUserMessageInput;
     resolution?: AgentResolution;
     block?: boolean;
@@ -654,11 +655,11 @@ type AgentUserMessageInput = {
 ```
 
 - 参数规则：
-  - `mode: "prompt"` 必须带 `message`。
+  - `mode: "prompt"` / `"steer"` / `"followup"` 必须带 `message`。
   - `mode: "continue"` 不允许带 `message`，但可以带 `resolution`。
   - `resolution` 使用现有 `AgentResolution` 结构，只用于恢复尾部未完成 approval tool call，例如 `request_user_input`、`enter_plan_mode`、`exit_plan_mode`。它不是模型最终回答，而是前端/用户对等待中 tool call 的恢复动作，后端会转换成标准 tool result message 后继续运行。
   - `block: false` 字段已预留，但当前 harness 会返回错误；前端第一版不要传 `block: false`。
-  - 当前没有 `queue.whenRunning` / `response.block` 包装字段。运行中收到 prompt 时自动进入 FIFO followUp queue；控制动作通过 `/commands` 或 `/tree`，并在 running session 时返回 `active_invocation_exists`。
+  - 当前没有 `queue.whenRunning` / `response.block` 包装字段。运行中收到普通 prompt 时仍可兼容进入 followUp queue；新前端应在 running 时显式发送 `steer` 或 `followup`。控制动作通过 `/commands` 或 `/tree`，并在 running session 时返回 `active_invocation_exists`。
 - 当前返回值为：
 
 ```ts
@@ -675,12 +676,13 @@ type AgentInvocationResponse = {
     error?: string;
     usage?: Usage;
     events: AgentEvent[];
+    queuedItem?: AgentQueuedMessage;
 };
 ```
 
-- followUp queued 当前也复用 `waiting` 返回，并在 `finalMessage` 中包含 `follow up queued: <queueItemId>`；同时通过 session event hub 广播 `follow_up_queued`。这是第一版实现细节，后续可以再独立成显式 `queued` status。
-- 第一版不支持取消 queued followUp。queued message 尚未 drain 时也不提供删除接口；如果用户误发，可以继续发送新的 followUp 纠正。若 queued message 已经 drain 并写入 session，则通过 `tree` 回退或分支切换处理。
-- followUp queue 第一版使用 FIFO 自动执行：当前 active invocation 完整结束后，harness 自动取下一条 queued prompt 继续运行。如果当前 session 停在 approval pending，followUp 只排队并进入 snapshot，不抢占 approval resolution；用户提交 `continue + resolution` 后先恢复当前 tool call。abort 默认清空尚未 drain 的 followUp queue。
+- queued steer / followUp 当前也复用 `waiting` 返回，并在 `finalMessage` 中包含 queued item id；同时通过 session event hub 广播 `steer_queued` / `follow_up_queued`，并在响应中返回可选 `queuedItem` 方便前端立即展示。这是第一版实现细节，后续可以再独立成显式 `queued` status。
+- 第一版不支持取消 queued steer / followUp。queued message 尚未 drain 时也不提供删除接口；如果用户误发，可以继续发送新的 steer / followUp 纠正。若 queued message 已经 drain 并写入 session，则通过 `tree` 回退或分支切换处理。
+- followUp queue 第一版使用 FIFO 自动执行：当前 ReAct loop 完整结束且没有 pending steer 后，harness 自动取下一条 queued followUp 继续运行。如果当前 session 停在 approval pending，followUp 只排队并进入 snapshot，不抢占 approval resolution；用户提交 `continue + resolution` 后先恢复当前 tool call。abort 默认清空尚未 drain 的 steer / followUp queue。
 - active invocation lock 是 session 级运行互斥：同一个 `sessionId` 在同一时刻只能有一个正在修改 session tree、调用 provider、执行工具或执行 compact / command 的 active invocation。它不是数据库锁，也不是跨进程锁；第一版是 harness 进程内的运行态保护，用来防止两个浏览器窗口或两个请求同时向同一棵 JSONL entry tree 追加互相交错的消息。
 - active invocation lock 拦截的是“会改变 session 真相”的并发动作：并行 provider loop、compact、tree/fork/retry、model/plan command、approval resume 等。普通 prompt 在运行中默认进入 followUp queue；控制命令在运行中返回 `active_invocation_exists`；approval resolution 恢复当前 active invocation，不创建第二个 run。
 - active invocation 当前带 `mode: "prompt" | "continue" | "compact"`，并共享同一个 session active invocation lock。
@@ -729,9 +731,9 @@ type AgentAbortRequest = {
   - snapshot 返回 metadata、activeLeafId、active path messages、tree summary、linked agents、pending approval、model/thinking/plan-mode state 等 UI 初始化所需状态。
   - 后续主要通过 `GET /api/agent/sessions/:sessionId/events?after=<seq>` 同步增量事件。
   - SSE 重连、切窗口、发现 event gap、用户手动刷新或服务端返回 `snapshot_required` 时，前端重新 `GET /api/agent/sessions/:sessionId` 对齐真相。
-- snapshot 指服务端从 session JSONL active path reducer 加上当前内存运行态合成的一次完整 UI 状态快照。它不是单纯的历史消息列表，还应包含 active invocation、pending approval、尚未 drain 的 followUp queue、linked agents、tree summary、model / thinking / Plan Mode 等当前状态。首次加载、重连缺 event、手动刷新和 `snapshot_required` 都应重新拉 snapshot。
+- snapshot 指服务端从 session JSONL active path reducer 加上当前内存运行态合成的一次完整 UI 状态快照。它不是单纯的历史消息列表，还应包含 active invocation、pending approval、尚未 drain 的 steer / followUp queue、linked agents、tree summary、model / thinking / Plan Mode 等当前状态。首次加载、重连缺 event、手动刷新和 `snapshot_required` 都应重新拉 snapshot。
 - snapshot 的 active path messages 使用原始 `AgentMessage[]`，不返回旧前端 conversation tree projection。前端基于 `AgentMessage[]` 与 Pi `AgentEvent` 做渲染转换；tree 只返回轻量 entry summary 与 active leaf 信息。
-- 前端 store 的 canonical 数据形态是新 session contract：`AgentSessionSnapshot`、原始 `AgentMessage[]`、`AgentSessionEvent[]`、`liveInvocation`、`followUpQueue` 等。ChatDrawer 需要的不是 legacy message DTO，而是新的卡片渲染模型：把 session message、Pi event、tool execution 和 live state 派生成一组卡片，用于展示普通 assistant/user 文本、通用 tool call、以及针对 `read` / `write` / `edit` / `apply_patch` / `bash` 等工具做过 UI 适配的卡片。
+- 前端 store 的 canonical 数据形态是新 session contract：`AgentSessionSnapshot`、原始 `AgentMessage[]`、`AgentSessionEvent[]`、`liveInvocation`、`steerQueue`、`followUpQueue` 等。ChatDrawer 需要的不是 legacy message DTO，而是新的卡片渲染模型：把 session message、Pi event、tool execution 和 live state 派生成一组卡片，用于展示普通 assistant/user 文本、通用 tool call、以及针对 `read` / `write` / `edit` / `apply_patch` / `bash` 等工具做过 UI 适配的卡片。
 - ChatDrawer 第一版应把“卡片列表”作为渲染目标：通用 tool call 有基础卡片，文件编辑类工具可以显示 diff / path / 状态，`bash` 可以显示命令、运行状态和流式输出尾部。流式工具输出不要求写进 `snapshot.messages`，但需要进入 live card state，让同一工具卡片能随 `tool_execution_update` 增量刷新；最终仍以后端 snapshot / session entry 作为历史真相。
 - ChatDrawer 卡片模型放在前端专用派生层，不进入后端 DTO，也不塞进 store 作为持久真相。当前落点是 `app/components/novel-ide/agent/agent-message.ts` 与 `useAgentSession.ts`：输入 snapshot `AgentMessage[]`、session event 和 live invocation，输出 `AgentChatFlow` 使用的 text/tool card 列表。
 - session JSONL / reducer 是真相；SSE 只是增量广播通道。前端不能把 event stream 当作唯一历史来源，也不能依赖单个 invoke 请求返回的 events 重建全量历史。
@@ -768,11 +770,11 @@ type AgentSessionEvent =
 ```
 
 - `seq` 用于 replay/gap detection；`invocationId` 用于 UI 把事件归到当前 run 或 compact run；`event` 内部尽量保持 Pi 原始形状，避免重建第二套运行期生命周期。
-- followUp queue 需要进入 snapshot，也需要通过 event hub 广播：
-  - 运行中收到新的 prompt 时，后端先创建内存 queue item，不立刻写 session history。
-  - event hub 广播 `follow_up_queued`，让同一 session 的其他浏览器窗口也看到“后续消息已排队”。
-  - 新打开窗口拉 snapshot 时，也应能看到尚未 drain 的 queued followUp。
-  - 到 safe point drain 时，queued followUp 才作为标准 user message 写入 session，并广播正常 message / entry 事件。
+- steer / followUp queue 需要进入 snapshot，也需要通过 event hub 广播：
+  - 运行中收到 steer / followUp 时，后端先创建内存 queue item，不立刻写 session history。
+  - event hub 广播 `steer_queued` / `follow_up_queued`，让同一 session 的其他浏览器窗口也看到“消息已引导/已排队”。
+  - 新打开窗口拉 snapshot 时，也应能看到尚未 drain 的 queued steer / followUp。
+  - 到 drain point 时，queued steer / followUp 才作为标准 user message 写入 session，并广播正常 message / entry 事件。
 - PI assistant streaming 持久化参考与第一版决策：
   - `message_update` 是 UI / event stream 层的增量事件，不直接写 session JSONL。
   - `AgentSession` 在收到 `message_end` 时持久化 user / assistant / toolResult message，以保持 transcript ordering。

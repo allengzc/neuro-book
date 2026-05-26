@@ -103,8 +103,8 @@ _Avoid_: session entry, consumed event, chat message
 - An **Agent Queue Event** announces an **Agent Queued Message** before it becomes a session message.
 - A consumed **Agent Queued Message** becomes a normal user message in session history.
 - Pending **Agent Steer** messages are all consumed together at the same steer point.
-- Pending **Agent FollowUp** messages are consumed one at a time after an **Agent ReAct Loop** stops.
-- An **Agent Steer** that is consumed after an **Agent ReAct Loop** has already stopped behaves like an **Agent FollowUp** and starts a freshly prepared loop.
+- Pending **Agent Steer** messages prevent the current **Agent ReAct Loop** from stopping and cause another model call in the same loop.
+- Pending **Agent FollowUp** messages are consumed one at a time only after an **Agent ReAct Loop** has no tool calls and no pending **Agent Steer** messages.
 
 ## Example dialogue
 
@@ -124,6 +124,6 @@ _Avoid_: session entry, consumed event, chat message
 - "tree cache" and "validate table" were used to describe the same optimization. Resolved: file metadata belongs to **Project Workspace File Index**; validation results belong to **Project Workspace Issue Index**.
 - "引导", "队列", and "continue" can sound like the same running-session action. Resolved: **Agent Steer** changes the next model call, **Agent FollowUp** waits until the run would stop, and **Agent Continue** adds no user message.
 - "queued event" was used like a durable chat entry. Resolved: an **Agent Queue Event** is only runtime state; a consumed **Agent Queued Message** becomes durable history when it is written as a normal user message.
-- "steer priority" was used too broadly. Resolved: **Agent Steer** only has earlier timing inside an **Agent ReAct Loop** that still has another model call; if the loop already stops after an assistant message with no tool calls, **Agent Steer** and **Agent FollowUp** both become later queued user messages, and the follow-up loop is prepared fresh.
+- "steer priority" was used too broadly. Resolved: **Agent Steer** is checked before loop stop; pending **Agent Steer** keeps the current **Agent ReAct Loop** alive, while **Agent FollowUp** only runs after the loop has no tool calls and no pending steer.
 - "steer text" was treated as raw user text. Resolved: **Agent Steer** must carry a model-visible prefix aligned with the Codex harness convention.
 - "one at a time" was used ambiguously for queues. Resolved: **Agent Steer** uses all-at-steer-point drain; **Agent FollowUp** uses one-at-a-time drain after the loop stops.

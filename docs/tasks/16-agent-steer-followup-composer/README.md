@@ -33,8 +33,8 @@
   - 继续复用 `/api/agent/sessions/:id/invocations`，不新增独立 queue endpoint。
 - 补齐 harness 队列状态：
   - 保留现有 `followUpQueue` FIFO，新增显式 `followup` 调用入口。
-  - 新增 `steerQueue`，在当前 assistant turn + tool results 落盘后进入 safe point；如果 ReAct loop 还有下一轮模型调用，则在这个可引导点一次性 drain 当前所有 pending steer，并在下一次模型调用前注入。
-  - 如果 assistant 没有 tool calls，当前 ReAct loop 在该 assistant message 后结束；此时 queued steer 和 queued followUp 的执行时机等价，都作为后续消息重新开启下一轮 loop，并重新执行 profile prepare / compaction / model resolve。
+  - 新增 `steerQueue`，在当前 assistant turn + tool results 落盘后进入 safe point；无论本轮 assistant 是否产生 tool calls，只要此时存在 pending steer，当前 ReAct loop 就不结束，而是在这个可引导点一次性 drain 当前所有 pending steer，并在下一次模型调用前注入。
+  - followUp 只在当前 ReAct loop 没有更多 tool calls、也没有 pending steer 时消费；一次消费一条并重新开启下一轮 loop，重新执行 profile prepare / compaction / model resolve。
   - Snapshot 新增 `steerQueue`；SSE 新增 `steer_queued`，并保留现有 `follow_up_queued`。
   - 消费后不新增 `*_consumed` event；通过正常 `session_entry` 展示被消费的 user message，通过后续 `session_state_changed.snapshot` 清理队列展示。
   - `mode: "steer" | "followup"` 沿用 `InvokeAgentResult`，HTTP 成功时返回 `status: "waiting"` 和 `finalMessage` 中的 queued item id；第一版不新增 `status: "queued"`。
@@ -70,11 +70,11 @@
 - running 且输入有内容时，默认点击提交 steer；Ctrl/Meta+点击提交 followUp。
 - Composer button click 明确 `preventDefault` 后按 `ctrlKey || metaKey` 分派；`AgentReferenceInput` 的 submit 事件需要携带键盘 modifier，供 Ctrl/Meta+Enter 分派 followUp。
 - `waiting_user` 状态下后端仍允许 steer / followUp 入队，但它们不抢占当前 approval / user input resolution；resolution 仍必须通过 `continue + resolution` 恢复当前 tool call。
-- 第一版固定 drain mode：steer 在同一个可引导点使用 all drain，一次性消费所有 pending steer；followUp 在 ReAct loop 结束后 one-at-a-time drain，一次只消费一条并开启下一轮 loop。
-- steer / followUp 没有全局优先级；只有当当前 ReAct loop 仍会继续时，steer 才比 followUp 更早影响下一次模型调用。若当前 assistant 无 tool calls、loop 已结束，二者都按后续消息启动下一轮 loop，其中退化成后续 loop 的 steer 必须重新 prepare。
+- 第一版固定 drain mode：steer 在同一个可引导点使用 all drain，一次性消费所有 pending steer；followUp 在 ReAct loop 真正结束后 one-at-a-time drain，一次只消费一条并开启下一轮 loop。
+- steer / followUp 没有同一个 drain 队列里的优先级比较；loop 结束判定顺序是先检查 pending steer，只有没有 steer 时才算当前 ReAct loop 真正结束并进入 followUp 消费。
 - consumed steer / followUp 优先写成标准 user message；如果现有 session entry 已有可用来源字段，则记录 `steer` / `followup` 来源，否则不为此扩展 session entry schema。
 - steer 的模型可见文本需要带前缀；不自行发明前缀，后续通过观察 Codex harness 的 steer 前缀后复用。
-- followUp 只在当前 ReAct loop 结束后自动重新开启一个新 loop；不会在仍有 tool calls 的当前 loop 中插队。
+- followUp 只在当前 ReAct loop 真正结束后自动重新开启一个新 loop；不会在仍有 tool calls 或 pending steer 的当前 loop 中插队。
 - 队列条目显示小标签和 icon：`引导` 用 `corner-down-left`，`队列` 用 `list-plus` 或 `clock`，文本单行截断。
 - UI 不提供第一版队列删除；如误发，继续发送新的 steer / followUp 纠正，或在已写入历史后使用现有 tree 操作处理。
 
@@ -93,7 +93,7 @@
 ## Verification
 
 - DTO 校验：`steer` / `followup` 必须有 message，`continue` 带 message 报错。
-- Harness 测试：运行中 enqueue steer 后，在 tool result 后、下一次模型调用前注入；followUp 在 run 结束 safe point 后继续；abort 清空两个队列。
+- Harness 测试：运行中 enqueue steer 后，在 tool result 后、下一次模型调用前 all drain 注入；assistant 无 tool calls 但 pending steer 时不结束当前 ReAct loop，而是继续下一次模型调用；followUp 只在没有 pending steer 的 loop 结束后 one-at-a-time 继续；abort 清空两个队列。
 - Frontend 单测：Composer 按 running / input / Ctrl 状态 emit `send` / `stop` / `steer` / `followup`；`useAgentSession` 正确处理 `steer_queued` 和 `follow_up_queued`。
 - 类型检查：`bunx tsc --noEmit --pretty false --skipLibCheck`。
 - 浏览器端真实交互验收需要用户确认后再执行，不自动启动浏览器验证。
