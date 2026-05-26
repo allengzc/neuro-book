@@ -8,12 +8,18 @@ let monacoLoader: Promise<MonacoEditorApi> | null = null;
 
 /**
  * 配置 Monaco 的 worker 工厂。
- * 当前工作区文本编辑统一走 editor worker。
+ * JSON 语言服务需要自己的 worker；其它工作区文本编辑走 editor worker。
  */
-const ensureMonacoEnvironment = (editorWorker: MonacoWorkerCtor): void => {
+export const ensureMonacoEnvironment = (workers: {
+    editor: MonacoWorkerCtor;
+    json: MonacoWorkerCtor;
+}): void => {
     globalThis.MonacoEnvironment = {
-        getWorker() {
-            return new editorWorker();
+        getWorker(_moduleId: string, label: string) {
+            if (label === "json") {
+                return new workers.json();
+            }
+            return new workers.editor();
         },
     };
 };
@@ -35,6 +41,7 @@ export const loadMonacoEditor = async (): Promise<MonacoEditorApi> => {
                 _xmlContribution,
                 _yamlContribution,
                 editorWorkerModule,
+                jsonWorkerModule,
             ] = await Promise.all([
                 import("monaco-editor/esm/vs/editor/editor.api.js"),
                 import("monaco-editor/esm/vs/basic-languages/markdown/markdown.contribution.js"),
@@ -46,9 +53,13 @@ export const loadMonacoEditor = async (): Promise<MonacoEditorApi> => {
                 import("monaco-editor/esm/vs/basic-languages/xml/xml.contribution.js"),
                 import("monaco-editor/esm/vs/basic-languages/yaml/yaml.contribution.js"),
                 import("monaco-editor/esm/vs/editor/editor.worker.js?worker"),
+                import("monaco-editor/esm/vs/language/json/json.worker.js?worker"),
             ]);
 
-            ensureMonacoEnvironment(editorWorkerModule.default);
+            ensureMonacoEnvironment({
+                editor: editorWorkerModule.default,
+                json: jsonWorkerModule.default,
+            });
             return monacoModule;
         })();
     }
