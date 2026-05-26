@@ -94,6 +94,7 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 | Profile Variable Types | Implemented | [docs/tasks/12-profile-variable-types/README.md](docs/tasks/12-profile-variable-types/README.md) |
 | Agent SSE Front-End Contract | Implemented | [docs/tasks/14-agent-sse-front-end-contract/README.md](docs/tasks/14-agent-sse-front-end-contract/README.md) |
 | Agent Session Management | Implemented | [docs/tasks/15-agent-session-management/README.md](docs/tasks/15-agent-session-management/README.md) |
+| Agent Steer / FollowUp Composer | Planning | [docs/tasks/16-agent-steer-followup-composer/README.md](docs/tasks/16-agent-steer-followup-composer/README.md) |
 | Full Site Auth | Done | [docs/tasks/archived/fullsite-auth/README.md](docs/tasks/archived/fullsite-auth/README.md) |
 | Docker Compose Deployment | Updated | [docs/tasks/archived/docker-compose-deployment/README.md](docs/tasks/archived/docker-compose-deployment/README.md) |
 | Provider Reasoning Replay | Done | [docs/tasks/archived/provider-reasoning-replay/README.md](docs/tasks/archived/provider-reasoning-replay/README.md) |

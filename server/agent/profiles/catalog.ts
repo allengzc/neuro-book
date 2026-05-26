@@ -503,9 +503,18 @@ export class AgentProfileCatalog {
                 sourcePath: file.file,
             };
         }
+        const message = reason === "artifact_missing"
+            ? `profile ${manifestItem.profileKey} 缺少 compiled artifact，需要重新编译。`
+            : reason === "artifact_changed"
+                ? `profile ${manifestItem.profileKey} 的 compiled artifact 与 manifest 不匹配，需要重新同步或重新编译。`
+                : reason === "source_changed"
+                    ? `profile ${manifestItem.profileKey} 的源码已修改，需要重新编译。`
+                    : reason === "dependency_changed"
+                        ? `profile ${manifestItem.profileKey} 的依赖已变化，建议重新编译。`
+                        : `profile ${manifestItem.profileKey} 不可运行，需要重新编译。`;
         return {
             code: "compile_stale",
-            message: `profile ${manifestItem.profileKey} 的源码或依赖已变化，需要重新编译。`,
+            message,
             profileKey: manifestItem.profileKey,
             source,
             sourcePath: file.file,
