@@ -64,17 +64,17 @@ export const AgentCreateSessionRequestDtoSchema = z.object({
 });
 
 export const AgentInvokeRequestDtoSchema = z.object({
-    mode: z.enum(["prompt", "continue"]),
+    mode: z.enum(["prompt", "continue", "steer", "followup"]),
     message: AgentUserMessageInputDtoSchema.optional(),
     resolution: AgentResolutionDtoSchema.optional(),
     clientState: z.lazy(() => ClientVariablesDtoSchema).optional(),
     block: z.boolean().optional(),
 }).superRefine((value, ctx) => {
-    if (value.mode === "prompt" && !value.message) {
+    if ((value.mode === "prompt" || value.mode === "steer" || value.mode === "followup") && !value.message) {
         ctx.addIssue({
             code: "custom",
             path: ["message"],
-            message: "prompt 模式必须提供 message",
+            message: `${value.mode} 模式必须提供 message`,
         });
     }
     if (value.mode === "continue" && value.message) {
@@ -203,11 +203,14 @@ export type AgentPendingApprovalDto = {
     planContent?: string;
 };
 
-export type AgentFollowUpQueueItemDto = {
+export type AgentQueuedMessageDto = {
     id: string;
+    kind: "steer" | "followup";
     message: AgentUserMessageInputDto;
     createdAt: number;
 };
+
+export type AgentFollowUpQueueItemDto = AgentQueuedMessageDto;
 
 export type AgentActiveInvocationDto = {
     invocationId: string;
@@ -226,8 +229,12 @@ export type AgentSessionControlEvent =
         reason: string;
     }
     | {
+        type: "steer_queued";
+        item: AgentQueuedMessageDto;
+    }
+    | {
         type: "follow_up_queued";
-        item: AgentFollowUpQueueItemDto;
+        item: AgentQueuedMessageDto;
     }
     | {
         type: "session_entry";
@@ -273,6 +280,7 @@ export type AgentSessionSnapshotDto = {
     linkedAgents: AgentLinkedSessionDto[];
     linkedByAgents: AgentLinkedSessionDto[];
     pendingApproval: AgentPendingApprovalDto | null;
+    steerQueue: AgentQueuedMessageDto[];
     followUpQueue: AgentFollowUpQueueItemDto[];
     activeInvocation: AgentActiveInvocationDto | null;
     model: Model<any> | null;

@@ -11,6 +11,7 @@ import {renderSchemaSummary} from "nbook/server/agent/profiles/profile-dsl";
 import {reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {createVariableTools} from "nbook/server/agent/variables/tools";
+import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
 
 const ReportResultSchema = Type.Object({
     walkthrough: Type.String(),
@@ -201,7 +202,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
                 });
                 return {
                     content: [{type: "text", text: result.reportResult?.result ?? result.finalMessage ?? result.status}],
-                    details: result,
+                    details: toInvokeAgentToolDetails(result),
                 };
             },
             async executeWithContext(context, _toolCallId, params: unknown) {
@@ -216,7 +217,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
                 });
                 return {
                     content: [{type: "text", text: result.reportResult?.result ?? result.finalMessage ?? result.status}],
-                    details: result,
+                    details: toInvokeAgentToolDetails(result),
                 };
             },
         },
@@ -361,6 +362,14 @@ function normalizeCreateAgentInput(profileKey: string, value: unknown): JsonValu
         throw new Error(`create_agent.input 必须是 JSON object。profile ${profileKey} 不接受 array/string/number/boolean 或 key=value 文本；请先调用 get_agent_profile 查看 InputSchema。`);
     }
     return Value.Parse(Type.Record(Type.String(), Type.Unknown()), resolved) as JsonValue;
+}
+
+/**
+ * invoke_agent 的 toolResult 会持久化到父 session，只保留可长期保存的调用摘要。
+ */
+function toInvokeAgentToolDetails(result: InvokeAgentResult): Omit<InvokeAgentResult, "events"> {
+    const {events: _events, ...details} = result;
+    return details;
 }
 
 async function getAgentProfileDetail(harness: NeuroAgentHarness, profileKey: string): Promise<Record<string, JsonValue>> {

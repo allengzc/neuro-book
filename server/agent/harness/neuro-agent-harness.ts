@@ -85,6 +85,8 @@ export class NeuroAgentHarness {
     readonly eventHub: AgentSessionEventHub;
     private readonly modelResolver: (config: Pick<EffectiveConfig, "agent" | "models">, profileKey: string, override?: {modelKey?: string | null} | null) => Model<any>;
     private readonly activeInvocations = new Map<number, AgentActiveInvocationDto>();
+    private readonly steerableSessions = new Set<number>();
+    private readonly steerQueues = new Map<number, AgentFollowUpQueueItemDto[]>();
     private readonly followUpQueues = new Map<number, AgentFollowUpQueueItemDto[]>();
     private readonly abortControllers = new Map<number, AbortController>();
     private readonly invocationClientStates = new Map<string, ClientStateSnapshot | undefined>();
@@ -173,18 +175,46 @@ export class NeuroAgentHarness {
             throw new Error("block:false 第一版尚未实现");
         }
         const invocationId = randomUUID();
-        if (this.activeInvocations.has(input.sessionId) && !input.resolution && !input.internalQueued) {
-            if (input.mode === "prompt" && input.message) {
+        if ((input.mode === "steer" || input.mode === "followup") && !input.message) {
+            throw new Error(`${input.mode} 模式必须提供 message`);
+        }
+        const currentInvocation = this.activeInvocations.get(input.sessionId);
+        if (currentInvocation && !input.resolution && !input.internalQueued) {
+            if (currentInvocation.status === "aborting") {
+                throw new Error("active_invocation_aborting");
+            }
+            if (input.mode === "steer" && input.message) {
+                if (!this.steerableSessions.has(input.sessionId)) {
+                    throw new Error("steer_not_available");
+                }
+                const item = this.enqueueSteer(input.sessionId, input.message);
+                return {
+                    sessionId: input.sessionId,
+                    invocationId,
+                    status: "waiting",
+                    finalMessage: `steer queued: ${item.id}`,
+                    queuedItem: item,
+                    events: [],
+                };
+            }
+            if ((input.mode === "prompt" || input.mode === "followup") && input.message) {
                 const item = this.enqueueFollowUp(input.sessionId, input.message);
                 return {
                     sessionId: input.sessionId,
                     invocationId,
                     status: "waiting",
                     finalMessage: `follow up queued: ${item.id}`,
+                    queuedItem: item,
                     events: [],
                 };
             }
             throw new Error("active_invocation_exists");
+        }
+        if (input.mode === "steer") {
+            throw new Error("active_invocation_required");
+        }
+        if (input.mode === "followup") {
+            throw new Error("active_invocation_required");
         }
 
         const activeInvocation: AgentActiveInvocationDto = {
@@ -196,6 +226,7 @@ export class NeuroAgentHarness {
         };
         const abortController = new AbortController();
         this.activeInvocations.set(input.sessionId, activeInvocation);
+        this.steerableSessions.add(input.sessionId);
         this.abortControllers.set(input.sessionId, abortController);
         this.invocationClientStates.set(invocationId, input.clientState);
         this.invocationVariableStates.set(invocationId, {
@@ -528,6 +559,7 @@ export class NeuroAgentHarness {
             linkedAgents,
             linkedByAgents,
             pendingApproval: pendingApproval ? await this.pendingApprovalDto(snapshot, pendingApproval) : null,
+            steerQueue: this.steerQueues.get(sessionId) ?? [],
             followUpQueue: this.followUpQueues.get(sessionId) ?? [],
             activeInvocation: this.activeInvocations.get(sessionId) ?? null,
             model: context.model,
@@ -801,8 +833,10 @@ export class NeuroAgentHarness {
             };
         }
         active.status = "aborting";
+        this.steerableSessions.delete(sessionId);
         this.abortControllers.get(sessionId)?.abort(body.reason);
         if (body.clearQueue ?? true) {
+            this.steerQueues.delete(sessionId);
             this.followUpQueues.delete(sessionId);
         }
         this.eventHub.publish({
@@ -1149,6 +1183,14 @@ export class NeuroAgentHarness {
         let shouldContinue = true;
         while (shouldContinue) {
             await emit({type: "turn_start"});
+            const preModelSteers = await this.drainSteers({
+                sessionId: input.sessionId,
+                workspaceKey: input.workspaceKey,
+                invocationId: input.invocationId,
+            });
+            for (const steeredMessage of preModelSteers) {
+                messages.push(steeredMessage);
+            }
             const assistant = await this.streamAssistant({
                 systemPrompt: input.systemPrompt,
                 messages,
@@ -1165,6 +1207,7 @@ export class NeuroAgentHarness {
             messages.push(assistant);
             finalAssistant = assistant;
             if (assistant.stopReason === "error" || assistant.stopReason === "aborted") {
+                this.steerableSessions.delete(input.sessionId);
                 await this.commitTurn({
                     sessionId: input.sessionId,
                     workspaceKey: input.workspaceKey,
@@ -1202,6 +1245,9 @@ export class NeuroAgentHarness {
                 toolResults: toolBatch.toolResults,
                 waiting: toolBatch.waiting,
             });
+            if (!toolBatch.waiting) {
+                this.steerableSessions.delete(input.sessionId);
+            }
             await emit({type: "turn_end", message: assistant, toolResults: toolBatch.toolResults});
             if (toolBatch.waiting) {
                 await emit({type: "agent_end", messages});
@@ -1212,8 +1258,20 @@ export class NeuroAgentHarness {
                     waiting: toolBatch.waiting,
                 };
             }
-            shouldContinue = toolBatch.shouldContinue;
+            const steeredMessages = await this.drainSteers({
+                sessionId: input.sessionId,
+                workspaceKey: input.workspaceKey,
+                invocationId: input.invocationId,
+            });
+            for (const steeredMessage of steeredMessages) {
+                messages.push(steeredMessage);
+            }
+            shouldContinue = toolBatch.shouldContinue || steeredMessages.length > 0;
+            if (shouldContinue) {
+                this.steerableSessions.add(input.sessionId);
+            }
         }
+        this.steerableSessions.delete(input.sessionId);
         await emit({type: "agent_end", messages});
         return {
             events,
@@ -1481,9 +1539,31 @@ export class NeuroAgentHarness {
         }
     }
 
+    private enqueueSteer(sessionId: number, message: AgentUserMessageInput): AgentFollowUpQueueItemDto {
+        const item: AgentFollowUpQueueItemDto = {
+            id: randomUUID(),
+            kind: "steer",
+            message,
+            createdAt: Date.now(),
+        };
+        const queue = this.steerQueues.get(sessionId) ?? [];
+        queue.push(item);
+        this.steerQueues.set(sessionId, queue);
+        this.eventHub.publish({
+            sessionId,
+            kind: "session",
+            event: {
+                type: "steer_queued",
+                item,
+            },
+        });
+        return item;
+    }
+
     private enqueueFollowUp(sessionId: number, message: AgentUserMessageInput): AgentFollowUpQueueItemDto {
         const item: AgentFollowUpQueueItemDto = {
             id: randomUUID(),
+            kind: "followup",
             message,
             createdAt: Date.now(),
         };
@@ -1499,6 +1579,36 @@ export class NeuroAgentHarness {
             },
         });
         return item;
+    }
+
+    private async drainSteers(input: {
+        sessionId: number;
+        workspaceKey: string;
+        invocationId?: string;
+    }): Promise<Message[]> {
+        const queue = this.steerQueues.get(input.sessionId) ?? [];
+        if (queue.length === 0) {
+            this.steerQueues.delete(input.sessionId);
+            return [];
+        }
+        this.steerQueues.delete(input.sessionId);
+        const messages: Message[] = [];
+        for (const item of queue) {
+            const message = createUserMessage({
+                ...item.message,
+                text: this.steerText(item.message.text),
+            });
+            const entry = await this.repo.appendMessage(input.sessionId, message, input.workspaceKey, "harness");
+            this.publishSessionEntry(input.sessionId, input.invocationId, entry);
+            messages.push(message);
+        }
+        await this.publishSessionState(input.sessionId, input.invocationId);
+        return messages;
+    }
+
+    private steerText(text: string): string {
+        // TODO: 用户提供“测试 steer”样本后，替换为 Codex harness 的真实模型可见前缀。
+        return `<user_steer>\n${text}\n</user_steer>`;
     }
 
     private async drainFollowUps(sessionId: number): Promise<void> {
@@ -1526,6 +1636,8 @@ export class NeuroAgentHarness {
 
     private async finishInvocation(sessionId: number, invocationId?: string): Promise<void> {
         this.activeInvocations.delete(sessionId);
+        this.steerableSessions.delete(sessionId);
+        this.steerQueues.delete(sessionId);
         this.abortControllers.delete(sessionId);
         if (invocationId) {
             this.invocationClientStates.delete(invocationId);

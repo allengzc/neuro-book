@@ -81,6 +81,20 @@ type UserAssetSyncStateItem = {
 
 type CompiledArtifactSyncResult = {
     ok: true;
+    warning?: string;
+} | {
+    ok: false;
+    message: string;
+};
+
+type StagedFileReplacement = {
+    sourcePath: string;
+    targetPath: string;
+};
+
+type StagedArtifactSyncResult = {
+    ok: true;
+    file: StagedFileReplacement;
 } | {
     ok: false;
     message: string;
@@ -263,18 +277,26 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, nboo
                 result.profileWarnings?.push({fileName: item.fileName, profileKey: item.profileKey, message: artifactSync.message});
                 continue;
             }
+            if (artifactSync.warning) {
+                result.profileWarnings?.push({fileName: item.fileName, profileKey: item.profileKey, message: artifactSync.warning});
+            }
             upsertUserProfileSyncState(syncState, item, hash.sha256);
             stateChanged = true;
             continue;
         }
         if (!await pathExists(userPath)) {
             await fs.mkdir(path.dirname(userPath), {recursive: true});
-            await fs.copyFile(systemPath, userPath);
+            const sourceCopy = await replaceFileWithRollback(systemPath, userPath);
             const artifactSync = await syncCompiledProfileArtifact(item.fileName);
             if (!artifactSync.ok) {
+                await sourceCopy.rollback();
                 result.profileWarnings?.push({fileName: item.fileName, profileKey: item.profileKey, message: artifactSync.message});
                 continue;
             }
+            if (artifactSync.warning) {
+                result.profileWarnings?.push({fileName: item.fileName, profileKey: item.profileKey, message: artifactSync.warning});
+            }
+            await sourceCopy.commit();
             const hash = await sha256File(userPath);
             upsertUserProfileSyncState(syncState, item, hash.sha256);
             result.updatedProfiles = (result.updatedProfiles ?? 0) + 1;
@@ -287,6 +309,9 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, nboo
             if (!artifactSync.ok) {
                 result.profileWarnings?.push({fileName: item.fileName, profileKey: item.profileKey, message: artifactSync.message});
                 continue;
+            }
+            if (artifactSync.warning) {
+                result.profileWarnings?.push({fileName: item.fileName, profileKey: item.profileKey, message: artifactSync.warning});
             }
             upsertUserProfileSyncState(syncState, item, currentUserHash);
             stateChanged = true;
@@ -313,12 +338,17 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, nboo
         if (item.sha256 === stateItem.upstreamHash) {
             continue;
         }
-        await fs.copyFile(systemPath, userPath);
+        const sourceCopy = await replaceFileWithRollback(systemPath, userPath);
         const artifactSync = await syncCompiledProfileArtifact(item.fileName);
         if (!artifactSync.ok) {
+            await sourceCopy.rollback();
             result.profileWarnings?.push({fileName: item.fileName, profileKey: item.profileKey, message: artifactSync.message});
             continue;
         }
+        if (artifactSync.warning) {
+            result.profileWarnings?.push({fileName: item.fileName, profileKey: item.profileKey, message: artifactSync.warning});
+        }
+        await sourceCopy.commit();
         const hash = await sha256File(userPath);
         upsertUserProfileSyncState(syncState, item, hash.sha256);
         result.updatedProfiles = (result.updatedProfiles ?? 0) + 1;
@@ -411,16 +441,24 @@ async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncR
         if (!artifactSync.ok) {
             result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.message});
         } else {
+            if (artifactSync.warning) {
+                result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.warning});
+            }
             upsertUserAssetSyncState(syncState, item, hash.sha256);
             stateChanged = true;
         }
     } else if (!await pathExists(userPath)) {
         await fs.mkdir(path.dirname(userPath), {recursive: true});
-        await fs.copyFile(systemPath, userPath);
+        const sourceCopy = await replaceFileWithRollback(systemPath, userPath);
         const artifactSync = await syncCompiledVariableDefinitionArtifact();
         if (!artifactSync.ok) {
+            await sourceCopy.rollback();
             result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.message});
         } else {
+            if (artifactSync.warning) {
+                result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.warning});
+            }
+            await sourceCopy.commit();
             const hash = await sha256File(userPath);
             upsertUserAssetSyncState(syncState, item, hash.sha256);
             result.updatedAssets = (result.updatedAssets ?? 0) + 1;
@@ -433,6 +471,9 @@ async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncR
             if (!artifactSync.ok) {
                 result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.message});
             } else {
+                if (artifactSync.warning) {
+                    result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.warning});
+                }
                 upsertUserAssetSyncState(syncState, item, currentUserHash);
                 stateChanged = true;
             }
@@ -449,11 +490,16 @@ async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncR
                 });
             }
         } else if (item.sha256 !== stateItem.upstreamHash) {
-            await fs.copyFile(systemPath, userPath);
+            const sourceCopy = await replaceFileWithRollback(systemPath, userPath);
             const artifactSync = await syncCompiledVariableDefinitionArtifact();
             if (!artifactSync.ok) {
+                await sourceCopy.rollback();
                 result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.message});
             } else {
+                if (artifactSync.warning) {
+                    result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.warning});
+                }
+                await sourceCopy.commit();
                 const hash = await sha256File(userPath);
                 upsertUserAssetSyncState(syncState, item, hash.sha256);
                 result.updatedAssets = (result.updatedAssets ?? 0) + 1;
@@ -527,7 +573,7 @@ async function syncCompiledProfileArtifact(fileName: string): Promise<CompiledAr
     if (!nextItem) {
         return {ok: false, message: `系统 profile ${item.profileKey} 同步 compiled manifest 失败：缺少目标 entry。`};
     }
-    const artifactSync = await copyVerifiedArtifact(
+    const artifactSync = await stageVerifiedArtifact(
         path.join(SYSTEM_PROFILE_ROOT, ".compiled", item.artifactFileName),
         path.join(userCompiledRoot, item.artifactFileName),
         item,
@@ -536,26 +582,29 @@ async function syncCompiledProfileArtifact(fileName: string): Promise<CompiledAr
     if (!artifactSync.ok) {
         return {ok: false, message: `系统 profile ${item.profileKey} compiled artifact 同步失败：${artifactSync.message}`};
     }
+    const stagedReplacements: StagedFileReplacement[] = [artifactSync.file];
     if (item.typeFileName && item.typeSha256 && item.typeBytes !== undefined) {
-        const typeSync = await copyVerifiedArtifact(
+        const typeSync = await stageVerifiedArtifact(
             path.join(SYSTEM_PROFILE_ROOT, ".compiled", item.typeFileName),
             path.join(userCompiledRoot, item.typeFileName),
             item,
             "type",
         );
         if (!typeSync.ok) {
+            await cleanupStagedReplacements(stagedReplacements);
             return {ok: false, message: `系统 profile ${item.profileKey} type artifact 同步失败：${typeSync.message}`};
         }
+        stagedReplacements.push(typeSync.file);
     }
-    await fs.writeFile(
-        path.join(userCompiledRoot, "manifest.json"),
-        `${JSON.stringify(nextManifest, null, 2)}\n`,
-        "utf-8",
-    );
+    const manifestPath = path.join(userCompiledRoot, "manifest.json");
+    const manifestStagePath = `${manifestPath}.${randomUUID()}.syncing`;
+    await fs.writeFile(manifestStagePath, `${JSON.stringify(nextManifest, null, 2)}\n`, "utf-8");
+    stagedReplacements.push({sourcePath: manifestStagePath, targetPath: manifestPath});
+    await replaceFilesWithRollback(stagedReplacements);
     await pruneCompiledDirectory(userCompiledRoot, nextManifest.profiles.flatMap((profile) => [profile.artifactFileName, profile.typeFileName]));
     const validation = await validateProfileArtifact(USER_PROFILE_ROOT, nextItem);
     if (!validation.fresh && validation.reason !== "dependency_changed") {
-        return {ok: false, message: `系统 profile ${item.profileKey} 同步后仍不可运行：${validation.reason ?? "unknown"}。`};
+        return {ok: true, warning: `系统 profile ${item.profileKey} 同步后仍不可运行：${validation.reason ?? "unknown"}。`};
     }
     return {ok: true};
 }
@@ -597,7 +646,7 @@ async function syncCompiledVariableDefinitionArtifact(): Promise<CompiledArtifac
         ].sort((left, right) => left.fileName.localeCompare(right.fileName)),
     };
     nextManifest.generatedAt = JSON.stringify(userManifest.definitions) === JSON.stringify(nextManifest.definitions) ? userManifest.generatedAt : new Date().toISOString();
-    const artifactSync = await copyVerifiedArtifact(
+    const artifactSync = await stageVerifiedArtifact(
         path.join(SYSTEM_VARIABLE_DEFINITION_ROOT, ".compiled", item.artifactFileName),
         path.join(userCompiledRoot, item.artifactFileName),
         item,
@@ -606,42 +655,46 @@ async function syncCompiledVariableDefinitionArtifact(): Promise<CompiledArtifac
     if (!artifactSync.ok) {
         return {ok: false, message: `系统 variable definition compiled artifact 同步失败：${artifactSync.message}`};
     }
+    const stagedReplacements: StagedFileReplacement[] = [artifactSync.file];
     if (item.typeFileName && item.typeSha256 && item.typeBytes !== undefined) {
-        const typeSync = await copyVerifiedArtifact(
+        const typeSync = await stageVerifiedArtifact(
             path.join(SYSTEM_VARIABLE_DEFINITION_ROOT, ".compiled", item.typeFileName),
             path.join(userCompiledRoot, item.typeFileName),
             item,
             "type",
         );
         if (!typeSync.ok) {
+            await cleanupStagedReplacements(stagedReplacements);
             return {ok: false, message: `系统 variable definition type artifact 同步失败：${typeSync.message}`};
         }
+        stagedReplacements.push(typeSync.file);
     }
-    await fs.writeFile(
-        path.join(userCompiledRoot, "manifest.json"),
-        `${JSON.stringify(nextManifest, null, 2)}\n`,
-        "utf-8",
-    );
+    const manifestPath = path.join(userCompiledRoot, "manifest.json");
+    const manifestStagePath = `${manifestPath}.${randomUUID()}.syncing`;
+    await fs.writeFile(manifestStagePath, `${JSON.stringify(nextManifest, null, 2)}\n`, "utf-8");
+    stagedReplacements.push({sourcePath: manifestStagePath, targetPath: manifestPath});
+    await replaceFilesWithRollback(stagedReplacements);
     await pruneCompiledDirectory(userCompiledRoot, nextManifest.definitions.flatMap((definition) => [definition.artifactFileName, definition.typeFileName]));
     const validation = await validateVariableDefinitionArtifact(USER_VARIABLE_DEFINITION_ROOT, nextItem);
     if (!validation.fresh && validation.reason !== "dependency_changed") {
-        return {ok: false, message: `系统 variable definition 同步后仍不可运行：${validation.reason ?? "unknown"}。`};
+        return {ok: true, warning: `系统 variable definition 同步后仍不可运行：${validation.reason ?? "unknown"}。`};
     }
     return {ok: true};
 }
 
-async function copyVerifiedArtifact(
+async function stageVerifiedArtifact(
     sourcePath: string,
     targetPath: string,
     item: ProfileArtifactManifestItem | VariableDefinitionManifestItem,
     kind: "artifact" | "type",
-): Promise<CompiledArtifactSyncResult> {
+): Promise<StagedArtifactSyncResult> {
     const temporaryPath = `${targetPath}.${randomUUID()}.syncing`;
     const expectedSha256 = kind === "artifact" ? item.artifactSha256 : item.typeSha256;
     const expectedBytes = kind === "artifact" ? item.artifactBytes : item.typeBytes;
     if (!expectedSha256 || expectedBytes === undefined) {
         return {ok: false, message: `${kind} 缺少 manifest hash。`};
     }
+    let staged = false;
     try {
         await fs.mkdir(path.dirname(targetPath), {recursive: true});
         await fs.copyFile(sourcePath, temporaryPath);
@@ -649,11 +702,83 @@ async function copyVerifiedArtifact(
         if (actual.sha256 !== expectedSha256 || actual.bytes !== expectedBytes) {
             return {ok: false, message: `${path.basename(targetPath)} hash 不匹配，expected ${expectedSha256}/${expectedBytes}, actual ${actual.sha256}/${actual.bytes}`};
         }
-        await fs.rename(temporaryPath, targetPath);
-        return {ok: true};
+        staged = true;
+        return {ok: true, file: {sourcePath: temporaryPath, targetPath}};
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {ok: false, message};
     } finally {
-        await fs.rm(temporaryPath, {force: true});
+        if (!staged) {
+            await fs.rm(temporaryPath, {force: true}).catch(() => undefined);
+        }
     }
+}
+
+async function cleanupStagedReplacements(files: StagedFileReplacement[]): Promise<void> {
+    await Promise.all(files.map((file) => fs.rm(file.sourcePath, {force: true})));
+}
+
+async function replaceFilesWithRollback(files: StagedFileReplacement[]): Promise<void> {
+    const replacements: Array<{commit: () => Promise<void>; rollback: () => Promise<void>}> = [];
+    try {
+        for (const file of files) {
+            replacements.push(await replaceFileWithRollback(file.sourcePath, file.targetPath));
+        }
+    } catch (error) {
+        for (const replacement of replacements.toReversed()) {
+            await replacement.rollback().catch(() => undefined);
+        }
+        await cleanupStagedReplacements(files);
+        throw error;
+    }
+    try {
+        for (const replacement of replacements) {
+            await replacement.commit();
+        }
+    } finally {
+        await cleanupStagedReplacements(files);
+    }
+}
+
+async function replaceFileWithRollback(sourcePath: string, targetPath: string): Promise<{commit: () => Promise<void>; rollback: () => Promise<void>}> {
+    const backupPath = `${targetPath}.${randomUUID()}.backup`;
+    const hadOriginal = await pathExists(targetPath);
+    let backupCreated = false;
+    try {
+        if (hadOriginal) {
+            await fs.copyFile(targetPath, backupPath);
+            backupCreated = true;
+        }
+        await fs.mkdir(path.dirname(targetPath), {recursive: true});
+        await fs.copyFile(sourcePath, targetPath);
+    } catch (error) {
+        if (backupCreated) {
+            try {
+                await fs.copyFile(backupPath, targetPath);
+                await fs.rm(backupPath, {force: true});
+            } catch (restoreError) {
+                const replaceMessage = error instanceof Error ? error.message : String(error);
+                const restoreMessage = restoreError instanceof Error ? restoreError.message : String(restoreError);
+                throw new Error(`替换文件失败，且恢复备份失败。备份已保留在 ${backupPath}。replace error: ${replaceMessage}; restore error: ${restoreMessage}`);
+            }
+        } else if (!hadOriginal) {
+            await fs.rm(targetPath, {force: true}).catch(() => undefined);
+        }
+        throw error;
+    }
+    return {
+        commit: async () => {
+            await fs.rm(backupPath, {force: true});
+        },
+        rollback: async () => {
+            if (hadOriginal) {
+                await fs.copyFile(backupPath, targetPath);
+                await fs.rm(backupPath, {force: true});
+                return;
+            }
+            await fs.rm(targetPath, {force: true});
+        },
+    };
 }
 
 async function pruneCompiledDirectory(compiledRoot: string, referencedFiles: Array<string | undefined>): Promise<void> {

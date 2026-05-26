@@ -86,7 +86,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
     (e: "update:modelValue", value: string): void;
     (e: "update:mode", value: StructuredTextMode): void;
-    (e: "submit"): void;
+    (e: "submit", payload?: {ctrlKey?: boolean; metaKey?: boolean}): void;
     (e: "shift-tab"): void;
     (e: "focus"): void;
     (e: "blur"): void;
@@ -374,7 +374,7 @@ defineExpose({
                 @change="emitChange"
                 @focus="emit('focus')"
                 @blur="emit('blur')"
-                @submit="emit('submit')"
+                @submit="emit('submit', $event)"
                 @shift-tab="emit('shift-tab')"
                 @save-request="emit('save-request')"
             />
@@ -394,7 +394,7 @@ defineExpose({
                 @change="emitChange"
                 @focus="emit('focus')"
                 @blur="emit('blur')"
-                @submit="emit('submit')"
+                @submit="emit('submit', $event)"
                 @shift-tab="emit('shift-tab')"
                 @save-request="emit('save-request')"
             />

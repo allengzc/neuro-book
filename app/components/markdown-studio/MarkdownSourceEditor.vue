@@ -40,7 +40,7 @@ const emit = defineEmits<{
     (e: "focus"): void;
     (e: "blur"): void;
     (e: "save-request"): void;
-    (e: "submit"): void;
+    (e: "submit", payload?: {ctrlKey?: boolean; metaKey?: boolean}): void;
     (e: "shift-tab"): void;
     (e: "update-temporary-font-size", value: number): void;
 }>();
@@ -453,7 +453,7 @@ onMounted(async () => {
         }
         if (props.submitOnEnter && event.browserEvent.key === "Enter" && !event.browserEvent.shiftKey) {
             event.preventDefault();
-            emit("submit");
+            emit("submit", {ctrlKey: event.browserEvent.ctrlKey, metaKey: event.browserEvent.metaKey});
         }
     });
 

@@ -21,6 +21,7 @@ const baseSnapshot = (lastSeq = 0): AgentSessionSnapshotDto => ({
     linkedAgents: [],
     linkedByAgents: [],
     pendingApproval: null,
+    steerQueue: [],
     followUpQueue: [],
     activeInvocation: null,
     model: null,
@@ -243,7 +244,7 @@ describe("useAgentSessionStream", () => {
                     seq: 3,
                     sessionId: 1,
                     kind: "session",
-                    event: {type: "follow_up_queued", item: {id: "follow-1", message: {text: "继续"}, createdAt: Date.now()}},
+                    event: {type: "follow_up_queued", item: {id: "follow-1", kind: "followup", message: {text: "继续"}, createdAt: Date.now()}},
                 });
                 appliedSeq.push(session.lastSeq.value);
                 await new Promise<void>(() => {});

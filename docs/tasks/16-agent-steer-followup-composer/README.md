@@ -18,12 +18,12 @@
 
 ## Current State
 
-- `docs/tasks/02-pi-agent-harness-migration/README.md` 已定义 turn queue / interrupt 语义：`steer` 在当前 assistant turn 和 tool batch 完成后、下一次 LLM 调用前注入；`followUp` 在 agent 本来要停止时注入。
-- Pi core 在 drain queued messages 时会发出 queued user message 的 `message_start` / `message_end`，但 Neuro Book 当前使用自有 JSONL session repo，queued message 是否成为 session entry 仍必须由 NeuroAgentHarness 在 drain 点显式写入。
-- 当前前端 `AgentComposer.vue` 在 `running` 时统一把发送按钮当作停止按钮；运行中输入内容无法走 steer / followUp。
-- 当前 `NovelAgentDrawer.vue` 的 `send()` 只有 prompt / continue 路径；运行中普通 prompt 在后端会隐式进入 followUp queue，但前端没有显式 steer / followUp 操作。
-- 当前 session snapshot / event 已有 `followUpQueue` 和 `follow_up_queued`，但还没有 steer queue 的前端展示合同。
-- 更精确地说：当前代码已有隐式 followUp 入队能力；显式 `mode: "steer" | "followup"` API、steerQueue、steer 前端入口和队列展示仍待实现。
+- 已实现显式 `mode: "steer" | "followup"` API、`steerQueue`、`steer_queued` 事件和前端队列展示。
+- `steer` 在模型调用前或当前 assistant turn + tool batch commit 后的 safe point all drain；drain 后作为标准 user message 写入 session，并进入当前 loop 下一次模型调用。这样 waiting_user 期间入队的 steer 会在 resolution 后的下一次模型调用前生效。
+- `followUp` 在当前 loop 真正结束后 one-at-a-time drain，并重新开启 fresh loop。
+- Review 后补强：idle session 会拒绝显式 `steer` / `followup`，已经越过最后可引导点、safe point drain 期间或正在 aborting 的 active run 会拒绝 queue 操作；error / abort / normal finish 会清理不可再消费的 `steerQueue`，避免生成僵尸 queue item。
+- 前端 `AgentComposer.vue` 已按 running/input/Ctrl 状态切换 send / stop / steer / followup；pending approval / request_user_input 时保留原 note 输入，并额外提供运行中消息输入用于 steer / followup 入队。
+- 当前 steer 模型可见前缀暂用 `<user_steer>...</user_steer>`，等待用户提供“测试 steer”样本后替换为 Codex harness 的真实前缀。
 
 ## Implementation Plan
 
@@ -33,7 +33,7 @@
   - 继续复用 `/api/agent/sessions/:id/invocations`，不新增独立 queue endpoint。
 - 补齐 harness 队列状态：
   - 保留现有 `followUpQueue` FIFO，新增显式 `followup` 调用入口。
-  - 新增 `steerQueue`，在当前 assistant turn + tool results 落盘后进入 safe point；无论本轮 assistant 是否产生 tool calls，只要此时存在 pending steer，当前 ReAct loop 就不结束，而是在这个可引导点一次性 drain 当前所有 pending steer，并在下一次模型调用前注入。
+  - 新增 `steerQueue`，在模型调用前和当前 assistant turn + tool results 落盘后进入 safe point；无论本轮 assistant 是否产生 tool calls，只要此时存在 pending steer，当前 ReAct loop 就不结束，而是在可引导点一次性 drain 当前所有 pending steer，并在下一次模型调用前注入。
   - followUp 只在当前 ReAct loop 没有更多 tool calls、也没有 pending steer 时消费；一次消费一条并重新开启下一轮 loop，重新执行 profile prepare / compaction / model resolve。
   - Snapshot 新增 `steerQueue`；SSE 新增 `steer_queued`，并保留现有 `follow_up_queued`。
   - 消费后不新增 `*_consumed` event；通过正常 `session_entry` 展示被消费的 user message，通过后续 `session_state_changed.snapshot` 清理队列展示。
@@ -42,7 +42,7 @@
 - 调整前端输入动作：
   - `AgentComposer.vue` 根据 `running`、输入内容、`canContinueWithoutInput` 和 Ctrl/Meta 修饰键 emit `send` / `stop` / `steer` / `followup`。
   - Enter 在运行中有输入时默认 `steer`；Ctrl/Meta+Enter 为 `followUp`。
-  - `request_user_input` / approval pending 时保持现有回答 UI 优先，底部输入仍作为 note，不触发 steer / followUp。
+  - `request_user_input` / approval pending 时保持现有回答 UI 优先，回答备注仍作为 note；另提供独立运行中消息输入，允许 steer / followUp 入队但不抢占当前 resolution。
 - 显示队列状态：
   - steer / followUp 提交成功后使用 `useNotification()` 立即反馈：“消息已引导” / “消息已排队”。
   - 在输入框上方显示紧凑条目，文案使用“引导”和“队列”。
@@ -64,7 +64,7 @@
 - steer / followUp 属于 harness control-plane，不交给 profile 或 prompt 决定。
 - slash command 只在非 running 的普通发送路径生效；running 输入按 steer / followUp 处理。
 - 非 running 时不提交 steer / followUp；普通输入仍走 prompt，空输入且最后一条非 AIMessage 才走 continue。
-- `request_user_input` / approval pending 优先级高于 steer / followUp，底部输入只作为当前问题的 note。
+- `request_user_input` / approval pending 优先级高于 steer / followUp；回答备注输入只作为当前问题的 note，独立运行中消息输入才触发 steer / followUp。
 - steer / followUp 在 queue drain 后都写成普通 user message，保证模型上下文和 session 历史一致。
 - running 时普通 Enter 等同默认按钮动作，提交 steer；Ctrl/Meta+Enter 提交 followUp。
 - running 且输入有内容时，默认点击提交 steer；Ctrl/Meta+点击提交 followUp。
@@ -80,26 +80,35 @@
 
 ## Files Changed
 
-- 规划阶段只新增本文档。
-- 后续实现预计涉及：
+- 已实现相关代码与测试：
   - `shared/dto/agent-session.dto.ts`
+  - `shared/dto/agent-session.dto.test.ts`
   - `server/agent/harness/neuro-agent-harness.ts`
   - `server/agent/harness/types.ts`
-  - `app/composables/useAgentSessionApi.ts`
+  - `server/agent/harness/neuro-agent-harness.test.ts`
+  - `app/components/common/form/StructuredTextEditor.vue`
+  - `app/components/markdown-studio/TipTapMarkdownEditor.vue`
+  - `app/components/markdown-studio/MarkdownSourceEditor.vue`
   - `app/components/novel-ide/agent/useAgentSession.ts`
+  - `app/components/novel-ide/agent/useAgentSession.test.ts`
   - `app/components/novel-ide/agent/AgentComposer.vue`
+  - `app/components/novel-ide/agent/AgentReferenceInput.vue`
   - `app/components/novel-ide/NovelAgentDrawer.vue`
+  - 相关 snapshot fixture 测试补充 `steerQueue`
 
 ## Verification
 
-- DTO 校验：`steer` / `followup` 必须有 message，`continue` 带 message 报错。
-- Harness 测试：运行中 enqueue steer 后，在 tool result 后、下一次模型调用前 all drain 注入；assistant 无 tool calls 但 pending steer 时不结束当前 ReAct loop，而是继续下一次模型调用；followUp 只在没有 pending steer 的 loop 结束后 one-at-a-time 继续；abort 清空两个队列。
-- Frontend 单测：Composer 按 running / input / Ctrl 状态 emit `send` / `stop` / `steer` / `followup`；`useAgentSession` 正确处理 `steer_queued` 和 `follow_up_queued`。
-- 类型检查：`bunx tsc --noEmit --pretty false --skipLibCheck`。
-- 浏览器端真实交互验收需要用户确认后再执行，不自动启动浏览器验证。
+- `bunx tsc --noEmit --pretty false --skipLibCheck`：通过。
+- `bun test shared/dto/agent-session.dto.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/utils/agent-message-projection.test.ts app/components/novel-ide/agent/agent-message.test.ts`：通过，30 个测试。
+- `bun test server/agent/harness/neuro-agent-harness.test.ts --test-name-pattern "steer|snapshot 暴露"`：通过，覆盖 steer/followUp 入队、snapshot 展示、steer all drain、followUp fresh loop。
+- Review 修复后追加：`bun test server/agent/harness/neuro-agent-harness.test.ts --test-name-pattern "steer|followUp|snapshot 暴露|idle session|最后可引导点|aborting|模型错误|safe point"`：通过，覆盖 idle 拒绝 queue、late steer 拒绝、aborting 拒绝、模型错误清理 pending steer 和 safe point drain 期间拒绝新 steer。
+- Waiting-user 入口修复后追加：`bunx tsc --noEmit --pretty false --skipLibCheck`、DTO/session/message projection 相关测试、harness steer/followUp 相关测试均通过；修复内容是 pending approval / request_user_input 时新增独立运行中消息输入，不再把回答 note 静默吞成无法发送的 steer/followUp。
+- Waiting-user 误触发修复后追加：回答备注输入和运行中消息输入使用不同 submit handler，避免 note 框 Enter 误发送已有运行中消息。
+- Waiting-user steer 恢复修复后追加：`bun test server/agent/harness/neuro-agent-harness.test.ts --test-name-pattern "steer|followUp|snapshot 暴露|idle session|最后可引导点|aborting|模型错误|safe point|waiting_user"`：通过，覆盖 waiting_user 期间入队的 steer 会在 resolution 后下一次模型调用前注入。
+- `bun test server/agent/harness/neuro-agent-harness.test.ts`：本次新增相关用例通过；整文件剩余 1 个既有失败为 `profile 内 session variable definition 会进入工具 registry`，失败原因是测试中的 `variable_patch` 未先 `variable_read`，与本任务无关。
+- 未自动做浏览器验证，遵循仓库指令。
 
 ## TODO / Follow-ups
 
-- 实现上述前后端适配。
-- 实现后同步更新本文档的实际变更、验证结果和计划偏差。
+- 收到用户“测试 steer”样本后，将后端 `steerText()` 的临时 `<user_steer>` 前缀替换为 Codex harness 的真实模型可见前缀。
 - 如队列误发成为高频问题，再设计 queued steer / followUp 删除入口。

@@ -65,7 +65,7 @@ const emit = defineEmits<{
     (e: "focus"): void;
     (e: "blur"): void;
     (e: "save-request"): void;
-    (e: "submit"): void;
+    (e: "submit", payload?: {ctrlKey?: boolean; metaKey?: boolean}): void;
     (e: "shift-tab"): void;
     (e: "open-frontmatter-profile", kind: FrontmatterProfileKind): void;
     (e: "inline-comments-change", comments: MarkdownInlineCommentItem[]): void;
@@ -198,7 +198,7 @@ const editor = useEditor({
                 }
                 if (props.submitOnEnter && event.key === "Enter" && !event.shiftKey && !menuVisible.value) {
                     event.preventDefault();
-                    emit("submit");
+                    emit("submit", {ctrlKey: event.ctrlKey, metaKey: event.metaKey});
                     return true;
                 }
                 if (!isSaveShortcut(event)) {

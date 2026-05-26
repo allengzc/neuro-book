@@ -198,7 +198,16 @@ export function useAgentSession() {
             const currentSnapshot = snapshot.value;
             snapshot.value = {
                 ...currentSnapshot,
-                followUpQueue: [...currentSnapshot.followUpQueue, payload.event.item],
+                followUpQueue: mergeQueuedMessages(currentSnapshot.followUpQueue, payload.event.item),
+            } as AgentSessionSnapshotDto;
+            return;
+        }
+
+        if (payload.event.type === "steer_queued" && snapshot.value) {
+            const currentSnapshot = snapshot.value;
+            snapshot.value = {
+                ...currentSnapshot,
+                steerQueue: mergeQueuedMessages(currentSnapshot.steerQueue, payload.event.item),
             } as AgentSessionSnapshotDto;
             return;
         }
@@ -228,4 +237,11 @@ export function useAgentSession() {
         snapshotReasons,
         snapshot,
     };
+}
+
+function mergeQueuedMessages<T extends {id: string}>(queue: T[], item: T): T[] {
+    if (queue.some((current) => current.id === item.id)) {
+        return queue;
+    }
+    return [...queue, item];
 }

@@ -21,6 +21,17 @@ function visibleMessageText(messages: AgentMessage[]): string {
         .join("\n");
 }
 
+async function waitForSessionText(harness: NeuroAgentHarness, sessionId: number, text: string): Promise<ReturnType<JsonlSessionRepository["reduce"]>> {
+    for (let attempt = 0; attempt < 50; attempt += 1) {
+        const context = harness.repo.reduce(await harness.repo.readSession(sessionId));
+        if (visibleMessageText(context.messages).includes(text)) {
+            return context;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    return harness.repo.reduce(await harness.repo.readSession(sessionId));
+}
+
 describe("NeuroAgentHarness", () => {
     let root: string;
     let faux: FauxProviderRegistration;
@@ -988,6 +999,19 @@ describe("NeuroAgentHarness", () => {
         expect(result.finalMessage).toBe("parent after child");
         const context = harness.repo.reduce(await harness.repo.readSession(parent.sessionId));
         expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult", "assistant"]);
+        const toolResult = context.messages.find((message): message is RuntimeMessage & {role: "toolResult"} => {
+            return message.role === "toolResult" && message.toolName === "invoke_agent";
+        });
+        expect(toolResult).toEqual(expect.objectContaining({
+            role: "toolResult",
+            details: expect.objectContaining({
+                sessionId: child.sessionId,
+                status: "completed",
+                finalMessage: "child done",
+            }),
+        }));
+        expect(toolResult?.details).not.toHaveProperty("events");
+        expect(context.messages.some((message) => message.role === "toolResult" && Boolean((message.details as {events?: unknown} | undefined)?.events))).toBe(false);
     });
 
     it("invoke_agent 拒绝调用当前 session 自己，避免自递归 active invocation", async () => {
@@ -1207,11 +1231,21 @@ describe("NeuroAgentHarness", () => {
                 }],
             },
         });
+        const steered = await harness.invokeAgent({
+            sessionId: parent.sessionId,
+            mode: "steer",
+            message: {text: "adjust"},
+        });
 
         const snapshot = await harness.getSessionSnapshot(parent.sessionId);
 
         expect(waiting.status).toBe("waiting");
         expect(queued.status).toBe("waiting");
+        expect(steered.status).toBe("waiting");
+        expect(steered.queuedItem).toEqual(expect.objectContaining({
+            kind: "steer",
+            message: {text: "adjust"},
+        }));
         expect(snapshot.pendingApproval).toEqual({
             toolCallId: "ask-snapshot",
             toolName: "request_user_input",
@@ -1221,6 +1255,7 @@ describe("NeuroAgentHarness", () => {
         });
         expect(snapshot.followUpQueue).toEqual([
             expect.objectContaining({
+                kind: "followup",
                 message: {
                     text: "queued",
                     images: [{
@@ -1229,6 +1264,12 @@ describe("NeuroAgentHarness", () => {
                         data: "data:image/png;base64,AA==",
                     }],
                 },
+            }),
+        ]);
+        expect(snapshot.steerQueue).toEqual([
+            expect.objectContaining({
+                kind: "steer",
+                message: {text: "adjust"},
             }),
         ]);
         expect(snapshot.linkedAgents).toEqual([
@@ -1242,6 +1283,347 @@ describe("NeuroAgentHarness", () => {
             command: "model",
             modelKey: null,
         })).rejects.toThrow("active_invocation_exists");
+    });
+
+    it("steer 在 safe point 一次性 drain，followUp 等 loop 结束后逐条开启新 loop", async () => {
+        harness.tools.register({
+            key: "continue_once",
+            name: "continue_once",
+            label: "Continue Once",
+            description: "让当前 loop 继续一次。",
+            parameters: Type.Object({}),
+            async execute() {
+                return {
+                    content: [{type: "text", text: "continued"}],
+                    details: {},
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.steer-loop",
+                name: "Steer Loop",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["continue_once"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("continue_once", {}, {id: "continue-1"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("after steer"),
+            fauxAssistantMessage("after followup"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.steer-loop",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start"},
+        });
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "steer",
+            message: {text: "first steer"},
+        });
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "steer",
+            message: {text: "second steer"},
+        });
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "followup",
+            message: {text: "queued followup"},
+        });
+
+        const result = await running;
+
+        expect(result.status).toBe("completed");
+        const context = await waitForSessionText(harness, created.sessionId, "queued followup");
+        const text = visibleMessageText(context.messages);
+        expect(text).toContain("first steer");
+        expect(text).toContain("second steer");
+        expect(text).toContain("queued followup");
+        expect(text.indexOf("first steer")).toBeLessThan(text.indexOf("after steer"));
+        expect(text.indexOf("queued followup")).toBeGreaterThan(text.indexOf("after steer"));
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        expect(snapshot.steerQueue).toEqual([]);
+        expect(snapshot.followUpQueue).toEqual([]);
+    });
+
+    it("waiting_user 期间入队的 steer 会在 resolution 后下一次模型调用前注入", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.waiting-steer",
+                name: "Waiting Steer",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("request_user_input", {
+                    questions: [{question: "Continue?"}],
+                }, {id: "ask-waiting-steer"}),
+            ], {stopReason: "toolUse"}),
+            (context) => {
+                return fauxAssistantMessage(fauxText(context.messages.map(messageText).join("|")));
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.waiting-steer",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const waiting = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start"},
+        });
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "steer",
+            message: {text: "adjust while waiting"},
+        });
+        const continued = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "continue",
+            resolution: {
+                kind: "user_input",
+                toolCallId: "ask-waiting-steer",
+                answers: [{questionIndex: 0, text: "go"}],
+            },
+        });
+
+        expect(waiting.status).toBe("waiting");
+        expect(continued.status).toBe("completed");
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const assistantText = [...context.messages].reverse().find((message) => message.role === "assistant");
+        expect(assistantText ? messageText(assistantText as never) : "").toContain("adjust while waiting");
+        expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult", "user", "assistant"]);
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        expect(snapshot.steerQueue).toEqual([]);
+    });
+
+    it("idle session 拒绝显式 steer 和 followUp，避免生成无法消费的队列", async () => {
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        await expect(harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "steer",
+            message: {text: "late"},
+        })).rejects.toThrow("active_invocation_required");
+        await expect(harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "followup",
+            message: {text: "later"},
+        })).rejects.toThrow("active_invocation_required");
+
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        expect(snapshot.steerQueue).toEqual([]);
+        expect(snapshot.followUpQueue).toEqual([]);
+    });
+
+    it("loop 已经越过最后可引导点时拒绝 steer", async () => {
+        faux.setResponses([
+            fauxAssistantMessage("done"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+        });
+        let steerError = "";
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start"},
+            async onEvent(event) {
+                if (event.type !== "agent_end") {
+                    return;
+                }
+                try {
+                    await harness.invokeAgent({
+                        sessionId: created.sessionId,
+                        mode: "steer",
+                        message: {text: "too late"},
+                    });
+                } catch (error) {
+                    steerError = error instanceof Error ? error.message : String(error);
+                }
+            },
+        });
+
+        expect(result.status).toBe("completed");
+        expect(steerError).toBe("steer_not_available");
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        expect(snapshot.steerQueue).toEqual([]);
+    });
+
+    it("aborting 状态拒绝新的 steer 和 followUp queue", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.abort-queue",
+                name: "Abort Queue",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("request_user_input", {
+                    questions: [{question: "Wait?"}],
+                }, {id: "abort-queue"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.abort-queue",
+            input: {},
+            workspaceRoot: root,
+        });
+        const waiting = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start"},
+        });
+
+        await harness.abortInvocation(created.sessionId, {reason: "stop"});
+
+        expect(waiting.status).toBe("waiting");
+        await expect(harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "steer",
+            message: {text: "no"},
+        })).rejects.toThrow("active_invocation_aborting");
+        await expect(harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "followup",
+            message: {text: "no later"},
+        })).rejects.toThrow("active_invocation_aborting");
+    });
+
+    it("模型错误结束时清理已入队但无法再消费的 steer", async () => {
+        faux.setResponses([
+            fauxAssistantMessage("failed", {stopReason: "error", errorMessage: "provider failed"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start"},
+        });
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "steer",
+            message: {text: "will be cleared"},
+        });
+        const result = await running;
+
+        expect(result.status).toBe("error");
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        expect(snapshot.steerQueue).toEqual([]);
+    });
+
+    it("safe point drain 期间拒绝新的 steer，避免成功入队后被清理", async () => {
+        harness.tools.register({
+            key: "finish_once",
+            name: "finish_once",
+            label: "Finish Once",
+            description: "执行后让当前 loop 结束。",
+            parameters: Type.Object({}),
+            async execute() {
+                return {
+                    content: [{type: "text", text: "finished"}],
+                    details: {},
+                    terminate: true,
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.drain-window",
+                name: "Drain Window",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["finish_once"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("finish_once", {}, {id: "finish-1"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("after steer"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.drain-window",
+            input: {},
+            workspaceRoot: root,
+        });
+        let lateSteerError = "";
+        let triedLateSteer = false;
+
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start"},
+            async onEvent(event) {
+                if (triedLateSteer || event.type !== "turn_end") {
+                    return;
+                }
+                triedLateSteer = true;
+                try {
+                    await harness.invokeAgent({
+                        sessionId: created.sessionId,
+                        mode: "steer",
+                        message: {text: "too late during drain"},
+                    });
+                } catch (error) {
+                    lateSteerError = error instanceof Error ? error.message : String(error);
+                }
+            },
+        });
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "steer",
+            message: {text: "first steer"},
+        });
+
+        const result = await running;
+
+        expect(result.status).toBe("completed");
+        expect(lateSteerError).toBe("steer_not_available");
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        expect(snapshot.steerQueue).toEqual([]);
+        const contextText = visibleMessageText(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).messages);
+        expect(contextText).toContain("first steer");
+        expect(contextText).not.toContain("too late during drain");
     });
 
     it("session command 和 tree API 支持 plan、archive、retry、tree+invoke", async () => {
