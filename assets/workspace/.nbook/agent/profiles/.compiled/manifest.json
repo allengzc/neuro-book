@@ -1,17 +1,17 @@
 {
   "compilerVersion": 1,
-  "generatedAt": "2026-05-26T16:30:07.448Z",
+  "generatedAt": "2026-05-26T16:33:37.195Z",
   "profilesRoot": "assets/workspace/.nbook/agent/profiles",
   "profiles": [
     {
       "fileName": "builtin/leader.assets.profile.tsx",
       "profileKey": "leader.assets",
-      "sourceSha256": "fc9ca3ff7514061fecf8824736339ef9b23485589e2c05ba03bfd1062ea2c6ac",
-      "sourceBytes": 19541,
-      "dependencyHash": "e747745e0a6d3bae1bd98b1a",
+      "sourceSha256": "0b02b1d00dce1a079e5703d112e1365c9350d5da74219e42057368bf38799c98",
+      "sourceBytes": 19607,
+      "dependencyHash": "ad9f51ecb3899adc75e9ea8f",
       "artifactFileName": "builtin__leader.assets.mjs",
-      "artifactSha256": "235546a6d3691feb3c1d965db32affd9f1f46429069321895375b8fdfeb785d3",
-      "artifactBytes": 108045,
+      "artifactSha256": "79ec10466a2c6eb5eb0dda629d402cc9609c556e508b45e51b9ba2a198a97013",
+      "artifactBytes": 108105,
       "typeFileName": "builtin__leader.assets.types.d.ts",
       "typeSha256": "07d951bbb872db29825338af7aa74d1b0425329d6e781a1426037768c1f8a031",
       "typeBytes": 381,
@@ -20,8 +20,8 @@
       "dependencies": [
         {
           "path": "assets/workspace/.nbook/agent/profiles/builtin/leader.assets.profile.tsx",
-          "sha256": "fc9ca3ff7514061fecf8824736339ef9b23485589e2c05ba03bfd1062ea2c6ac",
-          "bytes": 19541
+          "sha256": "0b02b1d00dce1a079e5703d112e1365c9350d5da74219e42057368bf38799c98",
+          "bytes": 19607
         },
         {
           "path": "server/agent/messages/message-utils.ts",
