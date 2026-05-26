@@ -120,10 +120,14 @@ services:
 YAML
 
 step "恢复可再生成的 profile metadata"
-git restore -- \
+tracked_generated="$(git ls-files -- \
     assets/workspace/.nbook/agent/profiles/.compiled/manifest.json \
     assets/workspace/.nbook/agent/profiles/.system-profile-metadata.json \
-    assets/workspace/.nbook/agent/variables/.compiled/manifest.json
+    assets/workspace/.nbook/agent/variables/.compiled/manifest.json \
+    server/agent/variables/generated-profile-variable-types.d.ts)"
+if [ -n "$tracked_generated" ]; then
+    git restore -- $tracked_generated
+fi
 
 dirty="$(git status --porcelain --untracked-files=no)"
 if [ -n "$dirty" ]; then

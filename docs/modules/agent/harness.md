@@ -30,6 +30,7 @@
 - 未编译或过期的 profile 会进入 `not_compiled` / `compile_stale` / `compiled_load_failed` / `source_error` 状态，`get(profileKey)` 不会回退到源码自动编译，也不会静默使用同 key memory fallback。
 - 系统 profile 在 `bun run dev`、`bun run build`、`bun run nuxt:build` 前由 `scripts/prepare-system-profile-metadata.ts` 预编译，并作为 system assets 发布。
 - 系统 profile / variable definition manifest 是 tracked 发布产物；prepare 脚本必须保持幂等，内容未变化时保留原 `generatedAt`，避免 dev/build/deploy 制造无意义 Git diff。
+- `bun run dev` 会在 prepare 后同步未手改 user-assets，让用户覆盖层的源码、manifest 和 artifact 与 freshly prepared system assets 对齐；已手改用户 profile 不会被覆盖，仍需用户手动编译。
 - 用户 profile 由 Workbench “编译”按钮或 Agent runtime CLI `profile compile` 手动生成用户侧 `.compiled` 产物。
 - Workbench 自动编辑路径只走 `source-draft` 轻量源码解析；保存源码不等于可运行。
 - `profile preview` dry-run 已保存源码的 `prepare()`，但不写 `.compiled`，也不改变运行可用状态。

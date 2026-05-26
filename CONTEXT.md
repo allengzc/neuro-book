@@ -56,6 +56,30 @@ _Avoid_: app database, global database, Novel database
 Agent 使用的受控 SQLite 查询工具，只操作当前 Project Workspace 的 Project SQLite，并集中限制危险 SQL。
 _Avoid_: Postgres SQL tool, generic SQL tool, bash-only database access
 
+**Agent Steer**:
+Agent 运行期间追加的带前缀纠偏消息，会在当前 assistant turn 和 tool results 完成后、下一次模型调用前进入上下文。
+_Avoid_: interrupt, next turn, follow-up
+
+**Agent FollowUp**:
+Agent 运行期间追加的后续消息，会在当前 run 本来要停止时进入下一轮上下文。
+_Avoid_: steer, continue, retry
+
+**Agent ReAct Loop**:
+一次 Agent 从当前上下文开始，交替生成 assistant message、执行 tool results，并在无后续 tool calls 时停止的运行循环。
+_Avoid_: invocation, session, queue
+
+**Agent Continue**:
+不新增用户消息、从当前 session 尾部继续运行的 Agent 调用。
+_Avoid_: follow-up, prompt, resume message
+
+**Agent Queued Message**:
+尚未被 harness drain 的 Agent Steer 或 Agent FollowUp 消息。
+_Avoid_: optimistic chat message, command
+
+**Agent Queue Event**:
+Agent Queued Message 入队时通过 session event hub 广播的运行态事件。
+_Avoid_: session entry, consumed event, chat message
+
 ## Relationships
 
 - **Workspace Root `.nbook`** belongs to exactly one **Workspace Root**.
@@ -72,11 +96,23 @@ _Avoid_: Postgres SQL tool, generic SQL tool, bash-only database access
 - **Boot Config** may mirror **Process Environment** with `${NAME}` templates but does not override it.
 - **Controlled SQLite Tool** targets the current **Project SQLite** only and must not access **App SQLite**.
 - **Project Workspace** is portable project data; it may own **Project SQLite** but should not own users or authentication state.
+- **Agent Queued Message** is either an **Agent Steer** or an **Agent FollowUp**.
+- **Agent Steer** affects the next model call inside an active **Agent ReAct Loop**.
+- **Agent FollowUp** starts or continues work after an **Agent ReAct Loop** would otherwise stop.
+- **Agent Continue** must not create an **Agent Queued Message**.
+- An **Agent Queue Event** announces an **Agent Queued Message** before it becomes a session message.
+- A consumed **Agent Queued Message** becomes a normal user message in session history.
+- Pending **Agent Steer** messages are all consumed together at the same steer point.
+- Pending **Agent FollowUp** messages are consumed one at a time after an **Agent ReAct Loop** stops.
+- An **Agent Steer** that is consumed after an **Agent ReAct Loop** has already stopped behaves like an **Agent FollowUp** and starts a freshly prepared loop.
 
 ## Example dialogue
 
 > **Dev:** "If I zip a Project Workspace and move it to a new NeuroBook install, do I need the old App SQLite too?"
 > **Domain expert:** "No. The Project Manifest, manuscript/lorebook files, Project Config, and Project SQLite travel together. The new App SQLite only keeps its own users and global settings, and the project is located by its Project Path."
+
+> **Dev:** "The Agent is running and I type another instruction. Is that Continue?"
+> **Domain expert:** "No. If it should affect the next model call, it is Agent Steer; if it should wait until the run would stop, it is Agent FollowUp. Agent Continue adds no new user message."
 
 ## Flagged ambiguities
 
@@ -86,3 +122,8 @@ _Avoid_: Postgres SQL tool, generic SQL tool, bash-only database access
 - "projectId" was proposed as immutable packaged identity. Resolved: no projectId is required in the current design; **Project Path** is the runtime locator and `project.yaml` carries display metadata.
 - "workspaceIssues" was used as both UI state and validation truth. Resolved: known issues are a **Project Workspace Issue Index**, a rebuildable materialized index derived from Project Workspace files.
 - "tree cache" and "validate table" were used to describe the same optimization. Resolved: file metadata belongs to **Project Workspace File Index**; validation results belong to **Project Workspace Issue Index**.
+- "引导", "队列", and "continue" can sound like the same running-session action. Resolved: **Agent Steer** changes the next model call, **Agent FollowUp** waits until the run would stop, and **Agent Continue** adds no user message.
+- "queued event" was used like a durable chat entry. Resolved: an **Agent Queue Event** is only runtime state; a consumed **Agent Queued Message** becomes durable history when it is written as a normal user message.
+- "steer priority" was used too broadly. Resolved: **Agent Steer** only has earlier timing inside an **Agent ReAct Loop** that still has another model call; if the loop already stops after an assistant message with no tool calls, **Agent Steer** and **Agent FollowUp** both become later queued user messages, and the follow-up loop is prepared fresh.
+- "steer text" was treated as raw user text. Resolved: **Agent Steer** must carry a model-visible prefix aligned with the Codex harness convention.
+- "one at a time" was used ambiguously for queues. Resolved: **Agent Steer** uses all-at-steer-point drain; **Agent FollowUp** uses one-at-a-time drain after the loop stops.

@@ -12,7 +12,7 @@
     "scripts/neuro-book-deploy.mjs"
   ],
   "scripts": {
-    "dev": "bun scripts/prepare-system-profile-metadata.ts && nuxt dev",
+    "dev": "bun scripts/prepare-system-profile-metadata.ts && bun scripts/sync-user-assets.ts && nuxt dev",
     "dev:warmup": "node scripts/warmup-dev-server.mjs",
     "nuxt:build": "bun scripts/prepare-system-profile-metadata.ts && nuxt build && node scripts/patch-nitro-runtime-deps.mjs",
     "nuxt:preview": "nuxt preview",
