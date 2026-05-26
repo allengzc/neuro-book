@@ -5,6 +5,7 @@ import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {fauxAssistantMessage, fauxText, fauxToolCall, registerFauxProvider} from "@earendil-works/pi-ai";
 import type {FauxProviderRegistration} from "@earendil-works/pi-ai";
 import {Type} from "typebox";
+import {Value} from "typebox/value";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
@@ -141,7 +142,7 @@ describe("NeuroAgentHarness", () => {
         })).toBe(false);
     });
 
-    it("新建 Project session 的 agent cwd 使用 Project Workspace 并保留 projectPath", async () => {
+    it("新建 Project session 的 agent cwd 使用 Workspace Root 并保留 projectPath", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.workspace-container",
@@ -163,11 +164,11 @@ describe("NeuroAgentHarness", () => {
         });
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
 
-        expect(context.workspaceRoot).toBe("workspace/novel-7");
+        expect(context.workspaceRoot).toBe("workspace");
         expect(context.projectPath).toBe("workspace/novel-7");
     });
 
-    it("/new 创建的新 session 保留 Project Workspace 和 projectPath", async () => {
+    it("/new 创建的新 session 保留 Workspace Root 和 projectPath", async () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             input: {},
@@ -181,7 +182,7 @@ describe("NeuroAgentHarness", () => {
         });
         const context = harness.repo.reduce(await harness.repo.readSession(result.sessionId));
 
-        expect(context.workspaceRoot).toBe("workspace/novel-7");
+        expect(context.workspaceRoot).toBe("workspace");
         expect(context.projectPath).toBe("workspace/novel-7");
     });
 
@@ -1054,7 +1055,29 @@ describe("NeuroAgentHarness", () => {
         expect(toolResult ? messageText(toolResult) : "").toContain("不能调用当前 session 自己");
     });
 
-    it("create_agent 工具接受 JSON string object input，并拒绝非 object input", async () => {
+    it("create_agent 工具 schema 要求 input 是 object，不再引导模型传 JSON string", () => {
+        const tool = harness.tools.get("create_agent");
+        expect(tool).toBeDefined();
+        expect(tool?.description).toContain("not a JSON string");
+        expect(tool?.description).not.toContain("JSON-stringified");
+        expect(Value.Check(tool!.parameters, {
+            profileKey: "writer",
+            input: {
+                prompt: "write",
+                chapterPaths: ["manuscript/001/"],
+            },
+        })).toBe(true);
+        expect(Value.Check(tool!.parameters, {
+            profileKey: "writer",
+            input: "{\"prompt\":\"write\"}",
+        })).toBe(false);
+        expect(Value.Check(tool!.parameters, {
+            profileKey: "writer",
+            input: null,
+        })).toBe(false);
+    });
+
+    it("create_agent 工具兼容 legacy input fallback，并拒绝非 object input", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.create-agent-parent",
@@ -1106,6 +1129,27 @@ describe("NeuroAgentHarness", () => {
                 profileKey: "test.create-agent-child",
             }),
         ]);
+
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("create_agent", {
+                    profileKey: "test.create-agent-child",
+                    input: null,
+                }, {id: "create-null"} as never),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("created from null"),
+        ]);
+
+        await harness.invokeAgent({
+            sessionId: parent.sessionId,
+            mode: "prompt",
+            message: {text: "create with null"},
+        });
+        expect(await harness.getAgent(undefined, parent.sessionId)).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                profileKey: "test.create-agent-child",
+            }),
+        ]));
 
         faux.setResponses([
             fauxAssistantMessage([

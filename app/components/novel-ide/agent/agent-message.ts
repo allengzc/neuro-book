@@ -767,24 +767,35 @@ export const applyPiEventToMessages = (previousMessages: AgentMessage[], event: 
         const patchedMessage = event.type === "message_update" && "assistantMessageEvent" in event
             ? applyAssistantMessageEvent(previousMessages.find((message) => message.id === localMessage.id), localMessage, event.assistantMessageEvent)
             : localMessage;
-        const nextMessages = previousMessages.some((message) => message.id === localMessage.id)
-            ? previousMessages.map((message) => message.id === patchedMessage.id ? patchedMessage : message)
-            : [...previousMessages, patchedMessage];
+        const fallbackToolCallIds = new Set((patchedMessage.toolCalls ?? []).map((toolCall) => `tool-execution:${toolCall.id}`));
+        const fallbackToolCalls = previousMessages
+            .filter((message) => fallbackToolCallIds.has(message.id))
+            .flatMap((message) => message.toolCalls ?? []);
+        const mergedMessage = fallbackToolCalls.length > 0
+            ? {...patchedMessage, toolCalls: mergeToolCalls(patchedMessage.toolCalls, fallbackToolCalls)}
+            : patchedMessage;
+        const messagesWithoutFallback = fallbackToolCallIds.size > 0
+            ? previousMessages.filter((message) => !fallbackToolCallIds.has(message.id))
+            : previousMessages;
+        const nextMessages = messagesWithoutFallback.some((message) => message.id === localMessage.id)
+            ? messagesWithoutFallback.map((message) => message.id === mergedMessage.id ? mergedMessage : message)
+            : [...messagesWithoutFallback, mergedMessage];
         return reconcileMessages(previousMessages, nextMessages);
     }
 
     if (event.type === "tool_execution_start") {
         const argsText = formatToolArgs(event.args);
-        return updateToolCall(previousMessages, event.toolCallId, {
+        return upsertLiveToolCall(previousMessages, event.toolCallId, invocationId, {
             name: event.toolName,
             argsText,
             argsJson: toStableArgsJson(argsText),
             status: "running",
+            linkedSessionId: extractLinkedSessionId(event.args),
         });
     }
 
     if (event.type === "tool_execution_update") {
-        return updateToolCall(previousMessages, event.toolCallId, {
+        return upsertLiveToolCall(previousMessages, event.toolCallId, invocationId, {
             result: resultText(event.partialResult),
             rawResult: event.partialResult,
             status: "running",
@@ -792,7 +803,8 @@ export const applyPiEventToMessages = (previousMessages: AgentMessage[], event: 
     }
 
     if (event.type === "tool_execution_end") {
-        return updateToolCall(previousMessages, event.toolCallId, {
+        return upsertLiveToolCall(previousMessages, event.toolCallId, invocationId, {
+            name: event.toolName,
             result: resultText(event.result),
             rawResult: event.result,
             status: event.isError ? "error" : "success",
@@ -1049,17 +1061,52 @@ const updateToolCall = (messages: AgentMessage[], toolCallId: string, patch: Par
         if (!message.toolCalls?.some((toolCall) => toolCall.id === toolCallId)) {
             return message;
         }
+        const nextToolCalls = message.toolCalls.map((toolCall) => toolCall.id === toolCallId
+            ? {
+                ...toolCall,
+                ...patch,
+                status: mergeToolCallStatus(patch.status ?? toolCall.status, toolCall.status),
+            }
+            : toolCall);
+        const allToolsSettled = nextToolCalls.every((toolCall) => toolCall.status === "success" || toolCall.status === "error" || toolCall.status === "invalid");
         return {
             ...message,
-            toolCalls: message.toolCalls.map((toolCall) => toolCall.id === toolCallId
-                ? {
-                    ...toolCall,
-                    ...patch,
-                    status: mergeToolCallStatus(patch.status ?? toolCall.status, toolCall.status),
-                }
-                : toolCall),
+            status: message.id.startsWith("tool-execution:") && allToolsSettled ? "done" : message.status,
+            toolCalls: nextToolCalls,
         };
     });
+};
+
+const upsertLiveToolCall = (messages: AgentMessage[], toolCallId: string, invocationId: string | undefined, patch: Partial<AgentToolCall>): AgentMessage[] => {
+    const nextMessages = updateToolCall(messages, toolCallId, patch);
+    if (messages.some((message) => message.toolCalls?.some((toolCall) => toolCall.id === toolCallId))) {
+        return nextMessages;
+    }
+    const assistantMessageId = `tool-execution:${toolCallId}`;
+    const toolCall: AgentToolCall = {
+        id: toolCallId,
+        assistantMessageId,
+        index: 0,
+        name: patch.name ?? "unknown_tool",
+        argsText: patch.argsText ?? "",
+        argsJson: patch.argsJson,
+        status: patch.status ?? "running",
+        error: patch.error,
+        result: patch.result,
+        rawResult: patch.rawResult,
+        linkedSessionId: patch.linkedSessionId,
+    };
+    return reconcileMessages(messages, [
+        ...nextMessages,
+        {
+            id: assistantMessageId,
+            type: "ai",
+            content: "",
+            status: toolCall.status === "success" || toolCall.status === "error" ? "done" : "streaming",
+            invocationId,
+            toolCalls: [toolCall],
+        },
+    ]);
 };
 
 const resultText = (result: unknown): string => {

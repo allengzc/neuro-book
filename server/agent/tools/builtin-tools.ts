@@ -43,10 +43,12 @@ const PlanModeSchema = Type.Object({
 });
 
 const CreateAgentSchema = Type.Object({
-    profileKey: Type.String(),
-    input: Type.Optional(Type.Unknown()),
-    workspaceRoot: Type.Optional(Type.String()),
-    projectPath: Type.Optional(Type.String()),
+    profileKey: Type.String({description: "Agent profile key from AgentCatalog, e.g. writer or retrieval."}),
+    input: Type.Optional(Type.Record(Type.String(), Type.Unknown(), {
+        description: "JSON object matching the target profile InputSchema. Pass a real object, not a JSON string.",
+    })),
+    workspaceRoot: Type.Optional(Type.String({description: "Advanced override. Omit to inherit the current agent workspace root."})),
+    projectPath: Type.Optional(Type.String({description: "Project Workspace path, for example workspace/<project>. Omit to inherit the current project."})),
 });
 
 const InvokeAgentSchema = Type.Object({
@@ -156,8 +158,11 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             key: "create_agent",
             name: "create_agent",
             label: "Create Agent",
-            description: "Create a new agent session and link it to current agent. Pass input as a JSON object matching the target profile InputSchema. If unsure, call get_agent_profile first. JSON-stringified object input is accepted as a fallback; arrays, plain strings, numbers, booleans, and key=value text are rejected.",
+            description: "Create a new agent session and link it to current agent. Pass input as a real JSON object matching the target profile InputSchema, not a JSON string. If unsure, call get_agent_profile first. Arrays, strings, numbers, booleans, and key=value text are rejected.",
             parameters: CreateAgentSchema,
+            prepareArguments(args: unknown) {
+                return prepareCreateAgentArguments(args) as Static<typeof CreateAgentSchema>;
+            },
             async execute(_toolCallId, params: unknown) {
                 const agentInput = params as Static<typeof CreateAgentSchema>;
                 const result = await harness.createAgent({
@@ -362,6 +367,31 @@ function normalizeCreateAgentInput(profileKey: string, value: unknown): JsonValu
         throw new Error(`create_agent.input 必须是 JSON object。profile ${profileKey} 不接受 array/string/number/boolean 或 key=value 文本；请先调用 get_agent_profile 查看 InputSchema。`);
     }
     return Value.Parse(Type.Record(Type.String(), Type.Unknown()), resolved) as JsonValue;
+}
+
+function prepareCreateAgentArguments(args: unknown): unknown {
+    if (!args || typeof args !== "object" || Array.isArray(args)) {
+        return args;
+    }
+    const record = args as Record<string, unknown>;
+    if (record.input === null) {
+        return {
+            ...record,
+            input: {},
+        };
+    }
+    if (typeof record.input !== "string") {
+        return args;
+    }
+    try {
+        const parsed = JSON.parse(record.input);
+        return {
+            ...record,
+            input: parsed,
+        };
+    } catch {
+        throw new Error(`create_agent.input 必须是 JSON object。收到的是字符串且不是合法 JSON object；请先调用 get_agent_profile 查看 InputSchema。`);
+    }
 }
 
 /**

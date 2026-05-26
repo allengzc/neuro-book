@@ -68,6 +68,7 @@ type AgentSessionEventDto =
 - `agent-message.ts` 已支持 `assistantMessageEvent` 按 `contentIndex` 合并 text / thinking / toolCall block，并保留 `assistantContent` 避免从扁平 UI 字段反推顺序。
 - `readSseStream()` 已等待 async `onEvent`，避免异步 client patch / reducer 处理期间后续 frame 抢先 apply。
 - 工具参数流式已在前端 reducer 和工具气泡层保留能力；工具执行输出流式合同保留，但本轮未接后端 tool `onUpdate`。
+- `agent-message.ts` 已为 `tool_execution_start/update/end` 增加 live fallback：当工具执行事件先于可见 assistant toolCall 到达时，先创建 `tool-execution:<toolCallId>` 临时工具气泡；后续真实 assistant toolCall 到达时按 `toolCallId` 合并运行状态并移除临时气泡。
 
 ## Event Contract
 
@@ -91,9 +92,9 @@ type AgentSessionEventDto =
 | `message_start` | user / assistant / toolResult message 开始 | user 通常来自 session entry 或 optimistic message；assistant 创建/更新 live assistant bubble；toolResult 用于补工具结果。空 assistant start 也应显示轻量生成状态。 |
 | `message_update` | assistant partial message | 根据 `event.message.content` 和 `assistantMessageEvent` 更新同一条 live assistant bubble。必须支持 text/thinking/toolCall 多 block 交错。不要依赖事件连续性。 |
 | `message_end` | message 完成 | assistant bubble 标记为本轮 message 完成；如果 assistant 只有 toolCall 且随后进入工具执行，文本气泡可收窄但不能丢失 thinking。toolResult end 更新对应工具结果。 |
-| `tool_execution_start` | 工具开始执行 | 对应 tool call 状态从 `streaming` 变为 `running`，展示工具名、参数、执行中状态。 |
-| `tool_execution_update` | 工具执行过程 partial output | 更新工具卡 result/progress/rawResult。通用工具气泡应可显示 streaming result；专用气泡可按工具 schema 渲染结构化进度。 |
-| `tool_execution_end` | 工具执行完成 | 工具状态变为 `success` / `error`，写入最终 result/error/rawResult。 |
+| `tool_execution_start` | 工具开始执行 | 对应 tool call 状态从 `streaming` 变为 `running`，展示工具名、参数、执行中状态。如果没有已有 assistant toolCall，必须创建 live fallback 工具气泡，避免长耗时/阻塞工具看起来像卡住。 |
+| `tool_execution_update` | 工具执行过程 partial output | 更新工具卡 result/progress/rawResult。若对应工具气泡尚不存在，也必须创建 live fallback 并保持 `running`。通用工具气泡应可显示 streaming result；专用气泡可按工具 schema 渲染结构化进度。 |
+| `tool_execution_end` | 工具执行完成 | 工具状态变为 `success` / `error`，写入最终 result/error/rawResult。若此前没有 start 或 assistant toolCall，仍创建完成态 live fallback，直到 snapshot/session entry 给出稳定历史。 |
 | `turn_end` | 一轮 LLM call + tool execution 结束 | 当前 turn 完成，但不一定代表 run 结束。若后续还有 `turn_start`，UI 应显示继续运行。可用作清理 turn-local pending 状态。 |
 | `agent_end` | run 最终结束 | 设置 run 为 idle；清理 live phase；保留最终消息和工具状态。若缺失该事件，最终状态必须能由 `session_state_changed.snapshot.activeInvocation = null` 恢复。 |
 
@@ -474,6 +475,8 @@ SSE 断线不是 run error，不应投影为聊天错误卡。短暂断线在 co
 - `AgentComposer.vue` 增加连接状态和 run phase 胶囊，工具完成后 active invocation 仍在时会显示“工具已完成，正在继续生成”一类状态，而不是只有“运行中”。
 - `AgentComposer.vue` 在事件连接连续失败后提供“重连”和“刷新历史”入口；重连只重建 SSE，刷新历史走 snapshot single-flight。
 - `agent-message.ts` 已把 `assistantMessageEvent` 收敛为按 `contentIndex` 合并 text / thinking / toolCall block；`event.message.content` / `partial.content` 作为完整 block 兜底校准，避免 toolCall block 前面有 thinking/text 时更新错工具。
+- `agent-message.ts` 已修复 `invoke_agent` 阻塞期间不显示工具气泡的问题：后端 `runToolBatch()` 会在 `await executeTool()` 前发出 `tool_execution_start`，但前端之前只更新已存在的 tool call；当 assistant toolCall 没有先投影出来时，`tool_execution_start` 会被无声丢弃。现在 `tool_execution_start/update/end` 都会按 `toolCallId` upsert live fallback 工具气泡，`invoke_agent` 会立即显示执行中状态和 `sessionId` 参数。
+- fallback 工具气泡是 live UI 临时层，不改变 append-only 历史语义。真实 assistant toolCall 后到时，前端会把 fallback 上的 `running/success/error/result/linkedSessionId` 合并回真实消息，并移除 `tool-execution:<toolCallId>` 临时节点；snapshot 仍是恢复真相。
 - 工具执行输出流式仍保留 `tool_execution_update` 前端能力，但本轮未接后端 tool `onUpdate`，符合当前“保留能力、暂不支持具体工具输出流式”的决策。
 
 ## Initial Implementation Verification
@@ -500,7 +503,7 @@ SSE 断线不是 run error，不应投影为聊天错误卡。短暂断线在 co
 ## Current Verification
 
 - `bunx vitest run app/utils/http/read-sse.test.ts app/components/novel-ide/agent/useAgentSessionStream.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/components/novel-ide/agent/agent-message.test.ts`
-  - 结果：通过，4 个测试文件，24 个测试。
+  - 结果：通过，4 个测试文件，28 个测试。
 - `bunx tsc --noEmit --pretty false --skipLibCheck`
   - 结果：通过。
 

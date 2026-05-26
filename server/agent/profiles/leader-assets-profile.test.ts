@@ -578,18 +578,22 @@ describe("assets builtin v3 profiles", () => {
                 catalog: {profiles: [], issues: []},
                 skills: [],
             });
-            const modelContext = prepared.modelContextMessages
+            const historyContext = prepared.historyInitMessages
                 ?.filter((message) => message.role === "user" || message.role === "assistant" || message.role === "toolResult")
                 .map(messageText)
                 .join("\n") ?? "";
 
-            expect(modelContext).toContain("<lorebook_entries>");
-            expect(modelContext).toContain("主角正文设定");
-            expect(modelContext).toContain("当前状态正文");
-            expect(modelContext).toContain("statusNote");
-            expect(modelContext).not.toContain("retrieval");
-            expect(modelContext).not.toContain("privateNote");
-            expect(modelContext).not.toContain("visibility");
+            expect(historyContext).toContain("<writer_input_context>");
+            expect(historyContext).toContain("<chapter_target>");
+            expect(historyContext).toContain("<chapter_plots>");
+            expect(historyContext).toContain("<lorebook_entries>");
+            expect(historyContext).toContain("主角正文设定");
+            expect(historyContext).toContain("当前状态正文");
+            expect(historyContext).toContain("statusNote");
+            expect(historyContext).not.toContain("retrieval");
+            expect(historyContext).not.toContain("privateNote");
+            expect(historyContext).not.toContain("visibility");
+            expect(prepared.modelContextMessages ?? []).toHaveLength(0);
         } finally {
             await rm(workspaceRoot, {recursive: true, force: true});
         }

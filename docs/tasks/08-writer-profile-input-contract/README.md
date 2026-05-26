@@ -34,6 +34,9 @@
   - `writingReferencePreset?: string`
 - writer 已删除旧输入字段：`plotPoints`、`novelId`、`outputPath` 和 object-shaped `lorebookEntries`。
 - `chapterPaths` 现在同时决定章节剧情上下文和写入目标。writer 会把输入解析为 `{novelId, workspaceSlug, chapterPath, indexPath}`，再调用 `plotFacade.getChapterPlotDetailDto(novelId, chapterPath)` 展开 `<chapter_plots>`。
+- v3 writer 已重新对照 v2 “小猫之神”提示词补齐写作流程、思考顺序、内容节点规则、视角边界、文风约束、Markdown 扩展、润色流程和输出协议；旧 `plot_points`、`read_file`、`write_file`、`edit_file` 心智已替换为 v3 `chapterPaths`、`chapter_plots`、`read`、`write`、`edit` 和唯一章节落点。
+- `writingReference` 文本很大，系统提示词中保持放在最前面的 `<writing_reference>`，让模型先接收参考文档再进入 persona/contract。
+- `chapter_target`、`chapter_plots`、`lorebook_entries`、`constraints` 属于 create_agent 输入 schema 初始化时确定的稳定上下文，已放入 `HistorySet` 的 `<writer_input_context>`；不再放入 `ModelContext` 这类每轮动态上下文。
 - `manuscript/.../` 使用 session `novelId` 解析当前 Project Workspace；`novel-slug/manuscript/.../` 通过 `Novel.workspaceSlug` 反查 `novelId`，允许显式跨 Project Workspace。
 - writing presets 已从 profile 源码目录移到：
   - `assets/workspace/.nbook/agent/writing-presets/references`
@@ -68,7 +71,7 @@
      - 每个 path 解析出 Project Workspace 内的 `chapterPath` 和需要传给 plot facade 的 `novelId`。
      - 调用 `plotFacade.getChapterPlotDetailDto(novelId, chapterPath)`。
      - 渲染该章 Scene、Thread title、Scene purpose/writingTip、Scene 下 Plots、Plot effect/writingTip/note。
-   - `ModelContext` 中使用 `<chapter_plots>` 替代旧 `<plot_points>`。
+   - `HistorySet` 的 `<writer_input_context>` 中使用 `<chapter_plots>` 替代旧 `<plot_points>`，因为这些上下文来自 create_agent 输入，属于静态初始化上下文。
    - 写入目标由 `chapterPaths` 唯一决定：
      - 普通章节写作写入对应章节内容节点的 `index.md`。
      - 不再从独立 `outputPath` 推导或覆盖写入位置。

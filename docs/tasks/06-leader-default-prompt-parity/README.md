@@ -342,7 +342,7 @@
 - `PlanModeReminder` 支持四个 slot 子节点：`PlanModeFull`、`PlanModeSparse`、`PlanModeExit`、`PlanModeReentry`。未提供 slot 时使用内置英文默认文案；提供 slot 时仍由 `PlanModeReminder` 读取 `agent.planMode`、选择 kind、包裹 `<system-reminder>` 并避免重复注入。
 - Workbench/低代码编辑器已同步识别四个 Plan Mode slot 节点：DTO、parser、组件库、树规则、节点视图和可视化编辑器均已更新。
 - `AgentCatalog` 现在只输出 `Available Agents` 索引，不再默认展开 schema 或 allowed tools；新增 `get_agent_profile(profileKey)` 工具返回单个 profile 的 description、allowedToolKeys、InputSchema、OutputSchema 和 report_result schema 摘要。
-- `create_agent.input` 已在工具层归一化：`null/undefined` 转 `{}`，JSON string object 会被解析为 object；array、number、boolean、普通字符串和 `key=value` 文本会返回清晰错误，并提示先调用 `get_agent_profile` 查看 InputSchema。
+- `create_agent.input` 的模型可见 schema 已收紧为 JSON object；执行层仍将 `null/undefined` 转 `{}`，并保留 JSON string object 的 legacy fallback。array、number、boolean、普通字符串和 `key=value` 文本会返回清晰错误，并提示先调用 `get_agent_profile` 查看 InputSchema。
 - `get_session` 默认只返回 metadata、activeLeafId、title、summary、usage 和 linkedAgents；不返回 tree，也不返回历史消息。显式传 `includeRecentMessages` 时，只返回当前 active path 的最近消息，并受 `recentMessageLimit` 与 `tokenBudget` 限制。
 - `leader.default` / `leader.assets` allowed tools 已加入 `get_agent_profile`；leader prompt 明确创建或调用不熟悉 agent 前先查询 profile schema。
 - `leader.default` / `retrieval` prompt 中的内容节点 CLI 示例统一使用 Agent runtime 命令 `workspace node ...` / `workspace schema ...`。

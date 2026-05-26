@@ -120,7 +120,7 @@ export class NeuroAgentHarness {
         const snapshot = await this.repo.createSession({
             profileKey: input.profileKey,
             input: parsedInput,
-            workspaceRoot: normalizeAgentWorkspaceRoot(input.workspaceRoot),
+            workspaceRoot: normalizeAgentWorkspaceRoot(input.workspaceRoot, input.projectPath),
             workspaceKey: input.workspaceKey ?? "global",
             projectPath: input.projectPath,
             parentSessionId: input.parentSessionId,
@@ -2117,8 +2117,12 @@ async function loadEffectiveConfig(input: {workspaceRoot?: string; projectPath?:
     return loadEffectiveConfigForWorkspaceRoot(input.workspaceRoot);
 }
 
-function normalizeAgentWorkspaceRoot(workspaceRoot: string | undefined): string {
+/**
+ * Agent 工具的工作目录始终是 Workspace Root；Project Workspace 只通过 projectPath 表达。
+ */
+function normalizeAgentWorkspaceRoot(workspaceRoot: string | undefined, projectPath?: string): string {
     const normalized = workspaceRoot?.trim().replaceAll("\\", "/").replace(/\/+$/g, "");
+    const normalizedProjectPath = projectPath?.trim().replaceAll("\\", "/").replace(/\/+$/g, "");
     if (!normalized) {
         return WORKSPACE_CONTAINER_ROOT;
     }
@@ -2126,6 +2130,9 @@ function normalizeAgentWorkspaceRoot(workspaceRoot: string | undefined): string 
         return USER_ASSETS_WORKSPACE_ROOT;
     }
     if (normalized === WORKSPACE_CONTAINER_ROOT) {
+        return WORKSPACE_CONTAINER_ROOT;
+    }
+    if (normalizedProjectPath && normalized === normalizedProjectPath) {
         return WORKSPACE_CONTAINER_ROOT;
     }
     return normalized;
