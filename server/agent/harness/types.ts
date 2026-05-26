@@ -8,6 +8,7 @@ import type {
     AgentActiveInvocationDto,
     AgentCommandRequestDto,
     AgentFollowUpQueueItemDto,
+    AgentQueuedMessageDto,
     AgentSessionListQueryDto,
     AgentSessionSnapshotDto,
     AgentSessionSummaryDto,
@@ -31,7 +32,7 @@ export type CreateAgentResult = {
 
 export type InvokeAgentInput = {
     sessionId: number;
-    mode: "prompt" | "continue";
+    mode: "prompt" | "continue" | "steer" | "followup";
     message?: AgentUserMessageInput;
     resolution?: AgentResolution;
     clientState?: ClientStateSnapshot;
@@ -56,6 +57,7 @@ export type InvokeAgentResult = {
     errorPhase?: InvocationErrorPhase;
     usage?: Usage;
     events: AgentEvent[];
+    queuedItem?: AgentQueuedMessageDto;
 };
 
 export type AgentSummary = {
@@ -92,6 +94,7 @@ export type SessionQueryResult = {
 
 export type AgentRuntimeState = {
     activeInvocation: AgentActiveInvocationDto | null;
+    steerQueue: AgentQueuedMessageDto[];
     followUpQueue: AgentFollowUpQueueItemDto[];
 };
 

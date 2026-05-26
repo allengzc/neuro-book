@@ -22,7 +22,7 @@ import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-i
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
-import type {AgentSessionListQueryDto, AgentSessionSnapshotDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentQueuedMessageDto, AgentSessionListQueryDto, AgentSessionSnapshotDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
 
 type SessionModelDraft = {
@@ -118,6 +118,10 @@ const activeSnapshot = computed(() => session.snapshot.value);
 const activeSummary = computed(() => activeSnapshot.value?.summary ?? null);
 const linkedAgents = computed(() => activeSnapshot.value?.linkedAgents ?? []);
 const linkedByAgents = computed(() => activeSnapshot.value?.linkedByAgents ?? []);
+const queuedMessages = computed<AgentQueuedMessageDto[]>(() => [
+    ...activeSnapshot.value?.steerQueue ?? [],
+    ...activeSnapshot.value?.followUpQueue ?? [],
+].sort((left, right) => left.createdAt - right.createdAt));
 const linkedAgentCount = computed(() => linkedAgents.value.length + linkedByAgents.value.length);
 const planModeActive = computed(() => activeSnapshot.value?.planModeActive ?? false);
 const renderNodes = computed(() => messages.value);
@@ -431,6 +435,20 @@ const applySnapshotOrSync = async (snapshot?: AgentSessionSnapshotDto | null): P
  * 这里负责补 snapshot，并在事件流缺失时给一个即时通知兜底。
  */
 const handleInvokeResult = async (result: InvokeAgentResult): Promise<void> => {
+    if (result.queuedItem && activeSnapshot.value) {
+        const snapshot = activeSnapshot.value;
+        if (result.queuedItem.kind === "steer") {
+            session.applySnapshot({
+                ...snapshot,
+                steerQueue: mergeQueuedMessages(snapshot.steerQueue, result.queuedItem),
+            });
+        } else {
+            session.applySnapshot({
+                ...snapshot,
+                followUpQueue: mergeQueuedMessages(snapshot.followUpQueue, result.queuedItem),
+            });
+        }
+    }
     if (result.status !== "error") {
         return;
     }
@@ -439,6 +457,13 @@ const handleInvokeResult = async (result: InvokeAgentResult): Promise<void> => {
         notification.error(result.error ?? "Agent 运行失败", {title: "Agent 运行失败"});
     }
 };
+
+function mergeQueuedMessages<T extends {id: string}>(queue: T[], item: T): T[] {
+    if (queue.some((current) => current.id === item.id)) {
+        return queue;
+    }
+    return [...queue, item];
+}
 
 /**
  * 委托 AgentChatFlow 滚动到底部。
@@ -687,6 +712,56 @@ const send = async (): Promise<void> => {
         clientState: buildClientState(),
     });
     await handleInvokeResult(result);
+};
+
+/**
+ * 运行中引导当前 Agent loop。
+ */
+const steer = async (): Promise<void> => {
+    const message = inputText.value.trim();
+    if (!activeSessionId.value || !running.value || !message) {
+        return;
+    }
+    try {
+        await ensureActiveSessionEvents();
+        const prompt = inputText.value;
+        const result = await agentApi.invokeSession(activeSessionId.value, {
+            mode: "steer",
+            message: {text: prompt},
+            clientState: buildClientState(),
+        });
+        await handleInvokeResult(result);
+        resetInput();
+        notification.success("消息已引导");
+    } catch (error) {
+        console.error("引导消息失败", error);
+        notifyAgentError(error, "引导消息失败");
+    }
+};
+
+/**
+ * 运行中把消息排到当前 loop 结束后继续执行。
+ */
+const followup = async (): Promise<void> => {
+    const message = inputText.value.trim();
+    if (!activeSessionId.value || !running.value || !message) {
+        return;
+    }
+    try {
+        await ensureActiveSessionEvents();
+        const prompt = inputText.value;
+        const result = await agentApi.invokeSession(activeSessionId.value, {
+            mode: "followup",
+            message: {text: prompt},
+            clientState: buildClientState(),
+        });
+        await handleInvokeResult(result);
+        resetInput();
+        notification.success("消息已排队");
+    } catch (error) {
+        console.error("排队消息失败", error);
+        notifyAgentError(error, "排队消息失败");
+    }
 };
 
 /**
@@ -1266,11 +1341,14 @@ function isApprovalApproved(answer?: {
                 :connection-status-label="connectionStatusLabel"
                 :run-phase-label="runPhaseLabel"
                 :connection-needs-action="connectionNeedsAction"
+                :queued-messages="queuedMessages"
                 :menu-refresh-key="agentMenuRefreshKey"
                 :resolve-menu="resolveInputMenu"
                 :on-skill-trigger-start="refreshSkillCatalog"
                 @submit-user-input="void submitUserInputAnswers($event)"
                 @send="void send()"
+                @steer="void steer()"
+                @followup="void followup()"
                 @stop="void stopRun()"
                 @toggle-plan-mode="void togglePlanMode()"
                 @toggle-session-model-popover="toggleSessionModelPopover"

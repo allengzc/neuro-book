@@ -19,6 +19,7 @@ const baseSnapshot = (entries: AgentSessionSnapshotDto["entries"]): AgentSession
     linkedAgents: [],
     linkedByAgents: [],
     pendingApproval: null,
+    steerQueue: [],
     followUpQueue: [],
     activeInvocation: null,
     model: null,

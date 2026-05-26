@@ -19,6 +19,7 @@ const baseSnapshot = (lastSeq = 0): AgentSessionSnapshotDto => ({
     linkedAgents: [],
     linkedByAgents: [],
     pendingApproval: null,
+    steerQueue: [],
     followUpQueue: [],
     activeInvocation: null,
     model: null,
@@ -51,12 +52,37 @@ describe("useAgentSession", () => {
             seq: 12,
             sessionId: 1,
             kind: "session",
-            event: {type: "follow_up_queued", item: {id: "follow-1", message: {text: "继续"}, createdAt: Date.now()}},
+            event: {type: "follow_up_queued", item: {id: "follow-1", kind: "followup", message: {text: "继续"}, createdAt: Date.now()}},
         });
 
         expect(session.lastSeq.value).toBe(10);
         expect(session.needsSnapshot.value).toBe(true);
         expect(session.snapshotReasons.value).toContain("seq_gap");
+    });
+
+    it("合并 steer 和 followUp queue 事件并按 id 去重", () => {
+        const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(0));
+
+        session.applyEvent({
+            seq: 1,
+            sessionId: 1,
+            kind: "session",
+            event: {type: "steer_queued", item: {id: "steer-1", kind: "steer", message: {text: "调整"}, createdAt: 1}},
+        });
+        session.applyEvent({
+            seq: 2,
+            sessionId: 1,
+            kind: "session",
+            event: {type: "follow_up_queued", item: {id: "follow-1", kind: "followup", message: {text: "继续"}, createdAt: 2}},
+        });
+
+        expect(session.snapshot.value?.steerQueue).toEqual([
+            expect.objectContaining({id: "steer-1", kind: "steer"}),
+        ]);
+        expect(session.snapshot.value?.followUpQueue).toEqual([
+            expect.objectContaining({id: "follow-1", kind: "followup"}),
+        ]);
     });
 
     it("session_state_changed.snapshot 直接恢复 running 状态", () => {

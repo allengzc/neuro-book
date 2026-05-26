@@ -113,6 +113,7 @@
 - Review 后继续发现 mixed approval batch 问题：同一条 assistant message 中如果 approval tool 后还有普通 tool call，早退等待会让后续普通 tool call 缺少 toolResult，从而触发 `assertTurnClosed()` error。已将 approval 处理为 batch barrier：approval 之前的普通工具照常完成；遇到第一个合法 approval 后，本轮暂停，后续未执行 tool call 写入明确的 error toolResult，只留下该 approval tool call 作为唯一 pending。
 - 诊断 `invoke_agent` 后发现：工具返回 `terminate: result.status === "completed"` 会让父 harness 把当前 turn 当作终止 turn，导致父 agent 看不到子 agent toolResult 后的第二轮模型调用。已删除该 `terminate`，并用回归测试锁定。
 - 继续审查 `invoke_agent` 后发现：工具原本没有 `executeWithContext()`，因此调用当前 session 自己时会被 `invokeAgent()` 当作 follow-up queue，而不是清晰错误。已改成上下文工具并禁止 self invoke；仍允许调用任意其他 sessionId，不收紧为 owned agent。
+- 继续排查 session JSONL 膨胀问题后发现：`invoke_agent` toolResult 的 `details` 直接持久化完整 `InvokeAgentResult`，其中 `events` 包含子 agent 的全量流式事件；`message_update` 又携带累积式 assistant 快照，导致父 session 按 O(n²) 膨胀。已将 `invoke_agent` 的持久化 details 收敛为调用摘要，保留直接 HTTP/API 返回里的 `events` 合同。
 - 当前没有自动修复旧 JSONL 坏历史。旧坏历史在前端会显示中断；如果继续 invoke，harness 会拒绝把未闭合普通 tool call 发送给 provider。
 - 未来如果需要恢复旧 session，应实现显式 repair / fork clean branch，而不是 snapshot 读取时静默改写历史。
 
@@ -144,6 +145,8 @@
   - 结果：通过，3 个测试文件，41 个测试。
 - `bunx tsc --noEmit --pretty false --skipLibCheck`
   - 结果：通过。
+- `bun run test server/agent/harness/neuro-agent-harness.test.ts -t "invoke_agent"`
+  - 结果：通过，1 个测试文件，2 个 invoke_agent 测试；确认父 session 的 `invoke_agent` toolResult details 包含 `sessionId/status/finalMessage` 摘要且不再包含 `events`。
 
 ## TODO / Follow-ups
 

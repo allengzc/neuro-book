@@ -19,7 +19,7 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{
     (e: "update:modelValue", value: string): void;
-    (e: "submit"): void;
+    (e: "submit", payload?: {ctrlKey?: boolean; metaKey?: boolean}): void;
     (e: "toggle-plan-mode"): void;
 }>();
 
@@ -68,7 +68,7 @@ defineExpose({
         :resolve-menu="props.resolveMenu"
         :on-skill-trigger-start="props.onSkillTriggerStart"
         @update:model-value="emit('update:modelValue', $event)"
-        @submit="emit('submit')"
+        @submit="emit('submit', $event)"
         @shift-tab="emit('toggle-plan-mode')"
     />
 </template>

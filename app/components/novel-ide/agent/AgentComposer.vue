@@ -9,6 +9,7 @@ import type {
 } from "nbook/app/components/novel-ide/agent/trigger-menu";
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
 import type {ModelSettingsDto} from "nbook/shared/dto/app-settings.dto";
+import type {AgentQueuedMessageDto} from "nbook/shared/dto/agent-session.dto";
 
 type AgentComposerSessionModelDraft = {
     modelKey: string | null;
@@ -45,6 +46,7 @@ const props = defineProps<{
     connectionStatusLabel: string;
     runPhaseLabel: string;
     connectionNeedsAction: boolean;
+    queuedMessages: AgentQueuedMessageDto[];
     menuRefreshKey: string | number;
     resolveMenu: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     onSkillTriggerStart?: () => void;
@@ -70,6 +72,8 @@ const emit = defineEmits<{
         }>;
     }): void;
     (e: "send"): void;
+    (e: "steer"): void;
+    (e: "followup"): void;
     (e: "stop"): void;
     (e: "toggle-plan-mode"): void;
     (e: "toggle-session-model-popover"): void;
@@ -94,9 +98,11 @@ const composerPlaceholder = computed(() => props.pendingSession
     ? "补充说明...（将随当前需求一起提交）"
     : "输入消息... (输入 @ 引用, $ 技能, / 命令)");
 
+const runInputText = computed(() => props.inputText);
+
 const sendDisabled = computed(() => {
     if (props.running) {
-        return false;
+        return !runInputText.value.trim() && !props.pendingSession;
     }
     if (props.pendingSession) {
         return true;
@@ -105,14 +111,36 @@ const sendDisabled = computed(() => {
 });
 
 const sendIconClass = computed(() => {
-    if (props.running) {
+    if (props.running && !runInputText.value.trim()) {
         return "i-lucide-square";
+    }
+    if (props.running) {
+        return "i-lucide-corner-down-left";
     }
     if (props.canContinueWithoutInput) {
         return "i-lucide-chevrons-right";
     }
     return "i-lucide-send";
 });
+
+const sendButtonTitle = computed(() => {
+    if (props.running && runInputText.value.trim()) {
+        return "引导；Ctrl+Enter 队列";
+    }
+    if (props.running) {
+        return "停止";
+    }
+    if (props.canContinueWithoutInput) {
+        return "继续";
+    }
+    return "发送";
+});
+
+const queuedMessageText = (item: AgentQueuedMessageDto): string => item.message.text.trim();
+
+const queuedMessageIcon = (item: AgentQueuedMessageDto): string => item.kind === "steer" ? "i-lucide-corner-down-left" : "i-lucide-list-plus";
+
+const queuedMessageLabel = (item: AgentQueuedMessageDto): string => item.kind === "steer" ? "引导" : "队列";
 
 const resolveComposerMenu = (context: AgentTriggerMenuContext): AgentTriggerMenuState => {
     const state = props.resolveMenu(context);
@@ -179,9 +207,41 @@ function updateSessionModelDraft(patch: Partial<AgentComposerSessionModelDraft>)
 }
 
 /**
- * 处理输入框提交。
+ * 处理运行中消息输入提交。
+ */
+function submitRunMessage(payload?: {ctrlKey?: boolean; metaKey?: boolean}): void {
+    if (props.running && runInputText.value.trim()) {
+        emit(payload?.ctrlKey || payload?.metaKey ? "followup" : "steer");
+        return;
+    }
+    if (props.pendingSession) {
+        return;
+    }
+    emit("send");
+}
+
+/**
+ * 处理回答备注输入提交。
  */
 function submitComposer(): void {
+    if (props.pendingSession) {
+        return;
+    }
+    emit("send");
+}
+
+/**
+ * 处理右下角按钮点击。
+ */
+function submitButton(event: MouseEvent): void {
+    if (props.running && !runInputText.value.trim()) {
+        emit("stop");
+        return;
+    }
+    if (props.running) {
+        emit(event.ctrlKey || event.metaKey ? "followup" : "steer");
+        return;
+    }
     if (props.pendingSession) {
         return;
     }
@@ -206,6 +266,34 @@ defineExpose({focus});
                 @active-question-change="setActiveQuestion"
                 @submit="emit('submit-user-input', $event)"
             />
+        </div>
+
+        <!-- waiting_user 期间的引导/队列输入 -->
+        <div v-if="props.pendingSession" class="px-1 pb-1.5">
+            <AgentReferenceInput
+                :model-value="props.inputText"
+                placeholder="运行中消息...（Enter 引导，Ctrl+Enter 队列）"
+                :menu-refresh-key="props.menuRefreshKey"
+                :resolve-menu="resolveComposerMenu"
+                :on-skill-trigger-start="props.onSkillTriggerStart"
+                @update:model-value="emit('update:inputText', $event)"
+                @submit="submitRunMessage"
+                @toggle-plan-mode="emit('toggle-plan-mode')"
+            />
+        </div>
+
+        <!-- pending 引导/队列 -->
+        <div v-if="props.queuedMessages.length > 0" class="flex min-w-0 flex-wrap gap-1 px-1 pb-1.5">
+            <div
+                v-for="item in props.queuedMessages"
+                :key="item.id"
+                class="inline-flex max-w-full items-center gap-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-secondary)]"
+                :title="`${queuedMessageLabel(item)}：${queuedMessageText(item)}`"
+            >
+                <span :class="queuedMessageIcon(item)" class="h-3 w-3 shrink-0 text-[var(--accent-text)]"></span>
+                <span class="shrink-0 font-medium">{{ queuedMessageLabel(item) }}</span>
+                <span class="max-w-[18rem] truncate text-[var(--text-muted)]">{{ queuedMessageText(item) }}</span>
+            </div>
         </div>
 
         <!-- 消息输入栏 -->
@@ -318,7 +406,8 @@ defineExpose({focus});
                 <button
                     class="flex items-center justify-center rounded bg-[var(--accent-bg)] p-1.5 text-[var(--accent-text)] transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
                     :disabled="sendDisabled"
-                    @click="props.running ? emit('stop') : emit('send')"
+                    :title="sendButtonTitle"
+                    @click.prevent="submitButton"
                 >
                     <span :class="sendIconClass" class="h-3.5 w-3.5"></span>
                 </button>

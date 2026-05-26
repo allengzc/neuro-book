@@ -51,6 +51,14 @@ type ModelDraft = {
     contextWindowTokens: string;
 };
 
+type ManualModelDraft = {
+    name: string;
+    id: string;
+    api: string;
+    group: string;
+    contextWindowTokens: string;
+};
+
 type ProviderDraft = {
     id: string;
     name: string;
@@ -159,14 +167,23 @@ const resolvedContextWindowMap = ref<Record<string, number | null>>({});
 const providerTestingId = ref("");
 const providerDiscoveringId = ref("");
 const modelTestingKey = ref("");
-const manualModelDrafts = ref<Record<string, {name: string; id: string; group: string; contextWindowTokens: string}>>({});
+const manualModelDrafts = ref<Record<string, ManualModelDraft>>({});
 const libraryDialogOpen = ref(false);
 const editorSnapshot = ref<ConfigEditorSnapshotDto | null>(null);
+const projectReferencesDirty = ref(false);
 
 const expandedGroups = ref<Record<string, boolean>>({});
 const editingModel = ref<ModelDraft | null>(null);
 const modelEditDialogOpen = ref(false);
+const deleteProviderDialogOpen = ref(false);
 const isProjectScope = computed(() => props.scope === "project");
+const modelApiOptions: SelectOption[] = [
+    {value: "openai-completions", label: "OpenAI Completions", description: "OpenAI-compatible Chat Completions"},
+    {value: "openai-responses", label: "OpenAI Responses", description: "OpenAI Responses API"},
+    {value: "anthropic-messages", label: "Anthropic Messages", description: "Anthropic Claude Messages"},
+    {value: "google-generative-ai", label: "Google Generative AI", description: "Gemini / Google GenAI"},
+    {value: "bedrock-converse-stream", label: "Bedrock Converse", description: "AWS Bedrock Converse Stream"},
+];
 
 const providerPresetOptions = computed<ProviderPreset[]>(() => {
     const builtinPresets = (piCatalog.value?.providers ?? []).map((provider) => ({
@@ -392,6 +409,7 @@ function applySettings(settings: ConfigModelSettingsDto): void {
         settings.enabledModels.map((model) => [model.key, model.contextWindowTokens]),
     );
     manualModelDrafts.value = {};
+    projectReferencesDirty.value = false;
     novelIdeStore.setSelectedModelLabel(settings.defaultModelLabel);
 }
 
@@ -422,6 +440,7 @@ function applyProjectSettings(snapshot: ConfigEditorSnapshotDto): void {
         snapshot.modelSettings.enabledModels.map((model) => [model.key, model.contextWindowTokens]),
     );
     manualModelDrafts.value = {};
+    projectReferencesDirty.value = false;
     novelIdeStore.setSelectedModelLabel(snapshot.modelSettings.defaultModelLabel);
 }
 
@@ -503,10 +522,12 @@ function buildSavePayload(): UpdateModelSettingsRequestDto {
  */
 function buildGlobalConfigPayload(): GlobalConfigDto {
     const base = editorSnapshot.value?.global ?? {};
+    const modelKeys = availableModelKeys();
     return {
         ...base,
+        agent: cleanConfigAgentProfiles(base.agent, modelKeys),
         models: {
-            default: draft.value.defaultModelKey,
+            default: cleanModelKey(draft.value.defaultModelKey, modelKeys),
             providers: draft.value.providers.map((provider) => ({
                 id: provider.id.trim(),
                 name: provider.name.trim(),
@@ -538,16 +559,139 @@ function buildGlobalConfigPayload(): GlobalConfigDto {
 }
 
 /**
- * 构造 Project Config 写回体，只更新 models.default 覆盖值。
+ * 构造 Project Config 写回体，清理已不存在 Provider 的模型引用。
  */
 function buildProjectConfigPayload(): ProjectConfigDto {
     const base = editorSnapshot.value?.project ?? {};
+    const modelKeys = availableModelKeys();
+    const cleanedAgent = cleanProjectAgentProfiles(base.agent, modelKeys);
+    const modelPatch = {
+        ...(base.models ?? {}),
+        ...(isProjectScope.value || (base.models && Object.hasOwn(base.models, "default"))
+            ? {default: cleanModelKey(isProjectScope.value ? draft.value.defaultModelKey : base.models?.default, modelKeys)}
+            : {}),
+    };
     return {
         ...base,
-        models: {
-            ...(base.models ?? {}),
-            default: draft.value.defaultModelKey,
+        ...(cleanedAgent ? {agent: cleanedAgent} : {}),
+        ...(Object.keys(modelPatch).length > 0 ? {models: modelPatch} : {}),
+    };
+}
+
+/**
+ * 当前草稿中仍启用的完整模型 key 集合。
+ */
+function availableModelKeys(): Set<string> {
+    return new Set(draft.value.providers.flatMap((provider) => provider.models
+        .filter((model) => model.enabled && provider.id.trim() && model.id.trim())
+        .map((model) => `${provider.id.trim()}/${model.id.trim()}`)));
+}
+
+/**
+ * 如果模型 key 指向已删除或未启用模型，则清空该引用。
+ */
+function cleanModelKey(modelKey: string | null | undefined, modelKeys: Set<string>): string | null {
+    const normalizedModelKey = modelKey?.trim() ?? "";
+    if (!normalizedModelKey) {
+        return null;
+    }
+    return modelKeys.has(normalizedModelKey) ? normalizedModelKey : null;
+}
+
+/**
+ * 复制并清理完整 Config agent profile 中失效的模型覆盖。
+ */
+function cleanConfigAgentProfiles<T extends {profiles?: Record<string, {model?: {modelKey?: string | null}}>}>(
+    agent: T | undefined,
+    modelKeys: Set<string>,
+): T | undefined {
+    if (!agent?.profiles) {
+        return agent;
+    }
+    return {
+        ...agent,
+        profiles: Object.fromEntries(
+            Object.entries(agent.profiles).map(([profileKey, profile]) => [profileKey, {
+                ...profile,
+                model: profile.model
+                    ? {
+                        ...profile.model,
+                        modelKey: cleanModelKey(profile.model.modelKey, modelKeys),
+                    }
+                    : profile.model,
+            }]),
+        ),
+    };
+}
+
+/**
+ * 复制并清理 Project partial agent profile。modelKey 缺失表示继承 Global，不能写成 null。
+ */
+function cleanProjectAgentProfiles<T extends {profiles?: Record<string, {model?: {modelKey?: string | null}}>}>(
+    agent: T | undefined,
+    modelKeys: Set<string>,
+): T | undefined {
+    if (!agent?.profiles) {
+        return agent;
+    }
+    return {
+        ...agent,
+        profiles: Object.fromEntries(
+            Object.entries(agent.profiles).map(([profileKey, profile]) => {
+                if (!profile.model || !Object.hasOwn(profile.model, "modelKey")) {
+                    return [profileKey, profile];
+                }
+                const cleanedModelKey = cleanModelKey(profile.model.modelKey, modelKeys);
+                const {modelKey: _modelKey, ...modelWithoutKey} = profile.model;
+                return [profileKey, {
+                    ...profile,
+                    model: cleanedModelKey
+                        ? {
+                            ...profile.model,
+                            modelKey: cleanedModelKey,
+                        }
+                        : modelWithoutKey,
+                }];
+            }),
+        ),
+    };
+}
+
+/**
+ * 迁移 Config agent profile 中指定 Provider 前缀的模型引用。
+ */
+function renameConfigAgentProfileModels<T extends {profiles?: Record<string, {model?: {modelKey?: string | null}}>}>(
+    agent: T | undefined,
+    previousProviderId: string,
+    nextProviderId: string,
+): {agent: T | undefined; changed: boolean} {
+    if (!agent?.profiles) {
+        return {agent, changed: false};
+    }
+    let changed = false;
+    return {
+        agent: {
+            ...agent,
+            profiles: Object.fromEntries(
+                Object.entries(agent.profiles).map(([profileKey, profile]) => {
+                    const modelKey = profile.model?.modelKey ?? "";
+                    const shouldRename = modelKey.startsWith(`${previousProviderId}/`);
+                    if (shouldRename) {
+                        changed = true;
+                    }
+                    return [profileKey, {
+                        ...profile,
+                        model: shouldRename
+                            ? {
+                                ...profile.model,
+                                modelKey: modelKey.replace(`${previousProviderId}/`, `${nextProviderId}/`),
+                            }
+                            : profile.model,
+                    }];
+                }),
+            ),
         },
+        changed,
     };
 }
 
@@ -627,7 +771,7 @@ const dirty = computed(() => {
     if (isProjectScope.value) {
         return JSON.stringify({defaultModelKey: draft.value.defaultModelKey}) !== snapshotText.value;
     }
-    return JSON.stringify(buildSavePayload()) !== snapshotText.value;
+    return projectReferencesDirty.value || JSON.stringify(buildSavePayload()) !== snapshotText.value;
 });
 
 /**
@@ -709,17 +853,44 @@ function deriveGroup(modelId: string): string {
 /**
  * 获取当前 Provider 的手动新增模型草稿。
  */
-function getManualModelDraft(providerId: string): {name: string; id: string; group: string; contextWindowTokens: string} {
+function getManualModelDraft(providerId: string): ManualModelDraft {
     if (!manualModelDrafts.value[providerId]) {
         manualModelDrafts.value[providerId] = {
             name: "",
             id: "",
+            api: defaultManualModelApi(providerId),
             group: "",
             contextWindowTokens: "",
         };
     }
 
     return manualModelDrafts.value[providerId];
+}
+
+/**
+ * 手动新增模型默认使用 Provider 内第一个内置模型的 API，否则回退 OpenAI-compatible。
+ */
+function defaultManualModelApi(providerId: string): string {
+    return findPiProvider(providerId)?.models[0]?.api ?? "openai-completions";
+}
+
+/**
+ * 显示模型实际配置的 Pi API；空值表示运行时会尝试继承 Pi registry。
+ */
+function displayModelApi(model: ModelDraft): string {
+    return model.api.trim() || "继承 Pi registry";
+}
+
+/**
+ * 更新手动模型 ID 时，尽量从 Pi 内置目录同步 API 元数据。
+ */
+function updateManualModelId(providerId: string, modelId: string): void {
+    const manualDraft = getManualModelDraft(providerId);
+    manualDraft.id = modelId;
+    const builtinModel = findPiProvider(providerId)?.models.find((model) => model.id === modelId.trim());
+    if (builtinModel) {
+        manualDraft.api = builtinModel.api;
+    }
 }
 
 /**
@@ -816,9 +987,12 @@ async function saveSettings(): Promise<void> {
     successText.value = "";
 
     try {
-        const snapshot = isProjectScope.value
+        let snapshot = isProjectScope.value
             ? await configApi.saveProject(buildProjectConfigPayload(), props.targetQuery)
             : await configApi.saveGlobal(buildGlobalConfigPayload(), props.targetQuery);
+        if (!isProjectScope.value && (projectReferencesDirty.value || shouldCleanProjectConfig())) {
+            snapshot = await configApi.saveProject(buildProjectConfigPayload(), props.targetQuery);
+        }
         editorSnapshot.value = snapshot;
         if (isProjectScope.value) {
             applyProjectSettings(snapshot);
@@ -881,6 +1055,7 @@ function renameActiveProviderId(nextProviderId: string): void {
     if (draft.value.defaultModelKey?.startsWith(`${previousProviderId}/`)) {
         draft.value.defaultModelKey = draft.value.defaultModelKey.replace(`${previousProviderId}/`, `${normalizedProviderId}/`);
     }
+    renameProviderModelReferences(previousProviderId, normalizedProviderId);
 
     if (discoveredModels.value[previousProviderId]) {
         discoveredModels.value = {
@@ -905,6 +1080,95 @@ function renameActiveProviderId(nextProviderId: string): void {
         };
         delete manualModelDrafts.value[previousProviderId];
     }
+}
+
+/**
+ * Provider ID 重命名时迁移 Global / Project Config 中的模型引用。
+ */
+function renameProviderModelReferences(previousProviderId: string, nextProviderId: string): void {
+    if (editorSnapshot.value?.global.agent) {
+        const renamedGlobalAgent = renameConfigAgentProfileModels(
+            editorSnapshot.value.global.agent,
+            previousProviderId,
+            nextProviderId,
+        );
+        editorSnapshot.value.global.agent = renamedGlobalAgent.agent ?? editorSnapshot.value.global.agent;
+    }
+    const project = editorSnapshot.value?.project;
+    if (!project) {
+        return;
+    }
+    if (project.models?.default?.startsWith(`${previousProviderId}/`)) {
+        project.models.default = project.models.default.replace(`${previousProviderId}/`, `${nextProviderId}/`);
+        projectReferencesDirty.value = true;
+    }
+    if (project.agent) {
+        const renamedAgent = renameConfigAgentProfileModels(project.agent, previousProviderId, nextProviderId);
+        if (renamedAgent.changed) {
+            project.agent = renamedAgent.agent ?? project.agent;
+            projectReferencesDirty.value = true;
+        }
+    }
+}
+
+/**
+ * Global 删除 Provider 后，如果当前 Project Config 还引用了失效模型，需要连同项目配置一起清理。
+ */
+function shouldCleanProjectConfig(): boolean {
+    const project = editorSnapshot.value?.project;
+    if (!project) {
+        return false;
+    }
+    const modelKeys = availableModelKeys();
+    if (project.models && Object.hasOwn(project.models, "default") && cleanModelKey(project.models.default, modelKeys) !== (project.models.default ?? null)) {
+        return true;
+    }
+    const profiles = project.agent?.profiles ?? {};
+    return Object.values(profiles).some((profile) => {
+        if (!profile.model || !Object.hasOwn(profile.model, "modelKey")) {
+            return false;
+        }
+        const modelKey = profile.model?.modelKey;
+        return cleanModelKey(modelKey, modelKeys) !== (modelKey ?? null);
+    });
+}
+
+/**
+ * 请求删除当前 Provider。
+ */
+function requestDeleteActiveProvider(): void {
+    if (!activeProvider.value) {
+        return;
+    }
+    deleteProviderDialogOpen.value = true;
+}
+
+/**
+ * 删除当前 Provider，并清理它关联的默认模型与临时状态。
+ */
+function confirmDeleteActiveProvider(): void {
+    const provider = activeProvider.value;
+    if (!provider) {
+        deleteProviderDialogOpen.value = false;
+        return;
+    }
+
+    const deletedProviderId = provider.id;
+    draft.value.providers = draft.value.providers.filter((item) => item !== provider);
+    if (draft.value.defaultModelKey?.startsWith(`${deletedProviderId}/`)) {
+        draft.value.defaultModelKey = null;
+    }
+    delete discoveredModels.value[deletedProviderId];
+    delete providerStatusMap.value[deletedProviderId];
+    delete manualModelDrafts.value[deletedProviderId];
+    modelStatusMap.value = Object.fromEntries(
+        Object.entries(modelStatusMap.value).filter(([modelKey]) => !modelKey.startsWith(`${deletedProviderId}/`)),
+    );
+    activeProviderId.value = draft.value.providers[0]?.id ?? "";
+    ensureDefaultModelKey();
+    deleteProviderDialogOpen.value = false;
+    successText.value = `已删除 Provider：${provider.name}`;
+    errorText.value = "";
 }
 
 /**
@@ -1084,6 +1348,7 @@ function addManualModel(): void {
     enableModel({
         name: manualDraft.name,
         id: manualDraft.id,
+        api: manualDraft.api,
         group: manualDraft.group,
         contextWindowTokens: manualDraft.contextWindowTokens,
     });
@@ -1093,6 +1358,7 @@ function addManualModel(): void {
         [provider.id]: {
             name: "",
             id: "",
+            api: defaultManualModelApi(provider.id),
             group: "",
             contextWindowTokens: "",
         },
@@ -1434,6 +1700,10 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                                         <span v-else class="i-lucide-cloud-lightning h-3.5 w-3.5 text-[var(--text-muted)]"></span>
                                         {{ providerDiscoveringId === activeProvider.id ? "抓取中..." : "查询可用模型" }}
                                     </button>
+                                    <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/8 px-3 text-xs font-medium text-rose-600 shadow-sm transition-all duration-200 hover:bg-rose-500/15 hover:shadow active:scale-95" @click="requestDeleteActiveProvider">
+                                        <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
+                                        删除
+                                    </button>
                                 </div>
                             </div>
 
@@ -1499,7 +1769,7 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                                 </div>
                             </div>
 
-                            <div class="p-3 bg-[var(--bg-input)]/20 min-h-[150px]">
+                            <div class="max-h-[360px] min-h-[150px] overflow-y-auto bg-[var(--bg-input)]/20 p-3 custom-scrollbar">
                                 <div v-if="enabledModelGroups.length === 0" class="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--border-color)] py-8 text-center bg-[var(--bg-panel)]">
                                     <span class="i-lucide-box h-5 w-5 text-[var(--text-muted)]"></span>
                                     <div class="text-sm text-[var(--text-secondary)]">当前 Provider 未启用任何模型</div>
@@ -1524,6 +1794,9 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                                                     <div class="min-w-0 flex flex-col">
                                                         <div class="flex items-center gap-2">
                                                             <div class="truncate text-[13px] font-medium text-[var(--text-main)]">{{ model.name }}</div>
+                                                            <span class="shrink-0 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">
+                                                                {{ displayModelApi(model) }}
+                                                            </span>
                                                             <span v-if="resolveDisplayedContextWindow(activeProvider.id, model)" class="shrink-0 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">
                                                                 {{ resolveDisplayedContextWindow(activeProvider.id, model) }} ctx
                                                             </span>
@@ -1643,13 +1916,31 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
             <div class="shrink-0 rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)]/30 p-3">
                 <div class="flex flex-wrap items-center gap-3">
                     <FormInput v-model="getManualModelDraft(activeProvider.id).name" placeholder="手动添加名称" class="flex-1 bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
-                    <FormInput v-model="getManualModelDraft(activeProvider.id).id" placeholder="手动添加 ID" class="flex-1 bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
+                    <FormInput :model-value="getManualModelDraft(activeProvider.id).id" placeholder="手动添加 ID" class="flex-1 bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" @update:model-value="updateManualModelId(activeProvider.id, $event)" />
+                    <div class="w-[190px]">
+                        <FormSelect v-model="getManualModelDraft(activeProvider.id).api" :options="modelApiOptions" placeholder="Pi API" />
+                    </div>
+                    <FormInput v-model="getManualModelDraft(activeProvider.id).api" placeholder="自定义 Pi API" class="w-[160px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
                     <FormInput v-model="getManualModelDraft(activeProvider.id).contextWindowTokens" placeholder="上下文窗口" class="w-[120px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
                     <button class="inline-flex h-8 shrink-0 items-center justify-center rounded-md bg-[var(--accent-main)] text-white px-3 text-xs font-medium shadow-sm transition-all hover:opacity-90 active:scale-95" @click="addManualModel">
                         添加
                     </button>
                 </div>
             </div>
+        </div>
+    </Dialog>
+
+    <Dialog
+        v-model="deleteProviderDialogOpen"
+        title="删除 Provider"
+        width="420px"
+        overlay-type="blur"
+        show-cancel
+        @confirm="confirmDeleteActiveProvider"
+    >
+        <div v-if="activeProvider" class="space-y-3">
+            <p class="text-sm text-[var(--text-secondary)]">将删除 Provider「{{ activeProvider.name }}」及其模型列表。保存后 API Key 与模型配置会从 Global Config 移除。</p>
+            <p class="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700">如果默认模型指向该 Provider，系统会自动切换到其它已启用模型；没有可用模型时会清空默认模型。</p>
         </div>
     </Dialog>
 
@@ -1684,7 +1975,8 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                 </div>
                 <div class="space-y-1.5">
                     <label class="text-xs font-medium text-[var(--text-secondary)]">Pi API</label>
-                    <FormInput v-model="editingModel.api" placeholder="留空继承 Pi registry" class="bg-[var(--bg-input)] shadow-sm" />
+                    <FormSelect v-model="editingModel.api" :options="[{value: '', label: '继承 Pi registry'}, ...modelApiOptions]" />
+                    <FormInput v-model="editingModel.api" placeholder="可手动输入自定义 Pi API" class="bg-[var(--bg-input)] shadow-sm" />
                 </div>
                 <div class="space-y-1.5">
                     <label class="text-xs font-medium text-[var(--text-secondary)]">Max Tokens</label>
