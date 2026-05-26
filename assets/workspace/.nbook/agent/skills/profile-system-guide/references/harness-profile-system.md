@@ -25,6 +25,8 @@ Read this reference when a user asks how Neuro Book's agent harness, TSX profile
 - Session: the append-only record. It stores chat messages, visible profile messages, state changes, custom state, compaction, and the current active branch.
 - Skill: a workflow note that the agent may read from the skill catalog. A skill is not a profile and does not start an agent by itself.
 - user-assets: the editable user overlay under `workspace/.nbook/...`. System baselines live under `assets/workspace/.nbook/...`.
+- Workspace Root `.nbook`: `workspace/.nbook/`. It stores Global Config, user agent assets, global variable values, and user overrides.
+- Project Workspace: `workspace/{project}/`. It stores manuscript, lorebook, Project Config, and Project SQLite for one project.
 
 Useful ordinary-user explanation:
 
@@ -57,6 +59,8 @@ Important entry kinds:
 - `custom`: reduced into `ctx.session.customState`, for example `agent.tasks`, `agent.planMode`, `plot.selection`, and `profileState.<profileKey>`.
 - `session_update`: title and summary changes.
 - `model_change`, `thinking_level_change`, `profile_change`: per-session runtime configuration.
+- `variable_patch`: variable changes. `global.*` and `project.*` also write their variable files; `session.*` lives in the session JSONL.
+- `client_variable_patch_ack`: frontend acknowledgement for a requested `client.*` patch.
 - `compaction`: summarized history and retained tail boundary.
 - `invocation_lifecycle`: start/end/error/aborted markers.
 - `leaf`: current active branch pointer.
@@ -92,7 +96,8 @@ Prompt invocation order:
 12. `message_end` persists assistant and toolResult messages.
 13. Current `ingest` hook runs after the loop.
 14. Harness writes lifecycle end/error/aborted.
-15. Follow-up queue drains at a safe point.
+15. Steer queue drains at safe points before the next model call when possible.
+16. Follow-up queue drains after the current loop truly ends, one item at a time.
 
 Frontend effect:
 
@@ -100,6 +105,7 @@ Frontend effect:
 - Then the user's message appears.
 - Then the live assistant stream appears.
 - `System` and plain `ModelContext` do not appear as chat messages.
+- `steer` and `followUp` are harness/Composer control-plane operations. Profiles should not pretend to implement those queues in prompt text.
 
 ## Profile Contract
 
@@ -130,6 +136,13 @@ Rules:
 - `OutputSchema` without `report_result` is just metadata until a profile allows that tool.
 
 `ctx.runtime.pendingUserMessage` may be available during prompt mode. It lets the profile inspect the current user input before it is written to session. The harness still writes the user message after profile pre-loop writes.
+
+Variable context:
+
+- `ctx.input` is profile creation input. It is not the every-turn user prompt and it no longer carries browser state.
+- `ctx.invocation` may carry one-turn invocation data such as current frontend client state.
+- `ctx.vars` is the variable accessor for `client.*`, `global.*`, `project.*`, and `session.*`.
+- `project.*` requires a current Project Workspace from `client.currentProjectWorkspace`; it does not fall back to old `novelId` state.
 
 ## ProfileTurnPlan Sections
 
@@ -177,6 +190,8 @@ Active core nodes:
 - `<ActivatedSkills>`: string fragment for explicitly mentioned skills.
 - `<AgentCatalog>`: string fragment with available agent profiles and schema summaries.
 - `<SqlSchemaSummary>`: string fragment with database schema summary for SQL guidance.
+- `<Variable>`: renders selected variable values into model context.
+- `<VariableSchema>`: renders selected variable schema and read/write capability notes into model context.
 
 Convenience string/reminder nodes also exist in the runtime, including `SystemReminder`, `RuntimeContext`, `LinkedAgentsSummary`, `WorkspaceReminder`, `LinkedAgentsReminder`, `TaskReminder`, `PlanModeReminder`, `ActivePlanModeReminder`, `MentionedSkillsReminder`, and `PlotFocusReminder`.
 
@@ -190,6 +205,7 @@ Placement guidance:
 - Put initial examples/background in `<HistorySet>`.
 - Put user-visible runtime reminders in `<AppendingSet>`.
 - Put one-run-only model context in `<ModelContext>`.
+- Put `<Variable>` and `<VariableSchema>` directly under `<ModelContext>` in the current version.
 - Put catalog fragments inside `<Message>`, `<System>`, or another node that accepts string children.
 - Do not use `<Message role="system">`.
 
@@ -205,15 +221,21 @@ Current practical rules:
 
 - `Reminder` can be used in `AppendingSet` or `ModelContext`.
 - `Watch` can be used in `AppendingSet` or `ModelContext`.
-- `Reminder` may use `watchPath`, `watchValue`, and `repeatEveryTurns`.
-- `Watch` may use `path`, `value`, children, or `render(change)`.
+- `Reminder` may use variable `watchPath`, function `watch`, `watchValue`, and `repeatEveryTurns`.
+- `Watch` may use a variable `path`, explicit `value`, children, or `render(change)`.
 - `repeatEveryTurns` counts real prompt user messages, not appending messages or harness reminders.
 - `If` false does not render children and does not update Reminder/Watch state.
 
 Explain to users:
 
 - Reminder is "show this reminder only when the runtime says it is useful."
-- Watch is "notice that a piece of session/input/runtime/workspace state changed, then show related context."
+- Watch is "notice that a variable path or explicit function value changed, then show related context."
+
+Path guidance:
+
+- `watchPath` and `Watch path` are variable paths such as `client.currentProjectWorkspace`, `global.userPreferences`, `project.affections`, or `session.draftGoal`.
+- Use function watches for non-variable facts such as `ctx.session.planModeActive` or a custom fingerprint.
+- Do not use old roots such as `ctx.workspace` or `ctx.input.studio`.
 
 ## Skills And Profiles
 
@@ -233,12 +255,16 @@ System baselines:
 
 - profiles: `assets/workspace/.nbook/agent/profiles`
 - skills: `assets/workspace/.nbook/agent/skills`
+- writing presets: `assets/workspace/.nbook/agent/writing-presets`
+- variable definitions: `assets/workspace/.nbook/agent/variables`
 - templates: `assets/workspace/.nbook/templates`
 
 User editable overlay:
 
 - profiles: `workspace/.nbook/agent/profiles`
 - skills: `workspace/.nbook/agent/skills`
+- writing presets: `workspace/.nbook/agent/writing-presets`
+- variable definitions: `workspace/.nbook/agent/variables`
 - templates: `workspace/.nbook/templates`
 
 Overlay rules:
@@ -249,6 +275,8 @@ Overlay rules:
 - Builtin profile keys have locked Input/Output schema contracts. User overrides may change implementation and tool list, but should not redefine the builtin schema shape.
 - User profiles are trusted local code, not sandboxed plugins.
 - System profile sync copies missing files and can update unmodified user copies using sync metadata. If a user file was hand edited or lacks sync state, do not overwrite silently.
+- user-assets is not a Project Workspace. Do not put manuscript, lorebook, project plot data, or Project SQLite changes under `workspace/.nbook`.
+- Project SQLite lives under `workspace/{project}/.nbook/project.sqlite` and belongs to the Project Workspace.
 
 When explaining restore:
 
@@ -290,6 +318,20 @@ Planned `.compiled` artifact layout:
 - user artifacts are generated at runtime by Workbench or `profile compile`
 - `.agent/workspace/profile-module-cache` is not the runtime contract
 
+Variable definition artifacts:
+
+- Workspace Root/global definition source: `workspace/.nbook/agent/variables/definitions.ts`
+- Workspace Root/global artifact: `workspace/.nbook/agent/variables/.compiled/`
+- Project definition source: `workspace/{project}/.nbook/agent/variables/definitions.ts`
+- Project artifact: `workspace/{project}/.nbook/agent/variables/.compiled/`
+- Runtime only loads fresh compiled artifacts. It does not compile definition source during catalog, profile prepare, variable read, or variable patch.
+
+Type artifacts:
+
+- Hash or fixed `.types.d.ts` outputs are authoring aids for profile TSX autocomplete.
+- Missing or stale type artifacts should not change runtime variable truth.
+- Runtime truth is the registry, TypeBox schema validation, `variables.json`, and session JSONL.
+
 ## Common Troubleshooting
 
 Saved file but agent still fails:
@@ -298,6 +340,13 @@ Saved file but agent still fails:
 - Compile/runtime catalog decides whether it can run.
 - Use Workbench compile, `profile compile`, or `profile status`.
 - Use `profile preview` when the user wants to inspect prepared context without changing runtime artifacts.
+
+Variable definition changed but variable schema is old:
+
+- Saving `definitions.ts` is not enough.
+- Run `variable definition status/check/compile`.
+- Make sure project-specific checks pass the right `--project <projectWorkspace>` or use the Project Workspace definition command.
+- Use `--strict-variables` in profile checks when literal path mistakes should fail fast.
 
 Content does not show in frontend history:
 
@@ -310,6 +359,18 @@ Agent cannot use a tool:
 - Check `allowedToolKeys`.
 - Check the actual tool registry.
 - Tools are not returned from `prepare`.
+
+Run error appears in the frontend:
+
+- Harness writes `invocation_lifecycle.errorInfo`.
+- Frontend projects it as a Run Error system card.
+- If HTTP invoke returns an error and the snapshot does not contain the same run error, frontend may also show a notification as a fallback.
+
+Steer or follow-up is confusing:
+
+- `steer` is queued while a run is active and drains at a safe point before another model call.
+- `followUp` is queued for after the current loop ends and starts a fresh loop.
+- Idle sessions reject explicit `steer` / `followup`; late or aborting runs also reject new queue items.
 
 History appears only on first turn:
 

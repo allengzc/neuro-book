@@ -82,6 +82,7 @@ const submittingUserInputKey = ref<string | null>(null);
 const userInputSelectedAnswers = ref<Record<string, number[]>>({});
 const userInputNotes = ref<Record<string, string>>({});
 let defaultProfileResolveRequest = 0;
+let ensureSessionRequest: Promise<AgentSessionSummaryDto[]> | null = null;
 
 const sanitizeHtml = ref<((html: string) => string) | null>(null);
 const session = useAgentSession();
@@ -344,14 +345,40 @@ const refreshSessionsWithQuery = async (query: AgentSessionListQueryDto = {}): P
         return sessions.value;
     } catch (error) {
         console.error("刷新 session 列表失败", error);
-        return [];
+        notifyAgentError(error, "刷新 session 列表失败");
+        throw error;
     }
 };
 
 /**
  * 初始化或获取有效 session。
  */
-const ensureSessionReady = async (forceNew = false): Promise<AgentSessionSummaryDto[]> => {
+const ensureSessionReady = async (forceNew = false, createIfMissing = true): Promise<AgentSessionSummaryDto[]> => {
+    if (!forceNew && ensureSessionRequest) {
+        if (createIfMissing) {
+            await ensureSessionRequest;
+            if (activeSessionId.value) {
+                return sessions.value;
+            }
+            return ensureSessionReadyInternal(false, true);
+        }
+        return ensureSessionRequest;
+    }
+    if (forceNew) {
+        return ensureSessionReadyInternal(true, createIfMissing);
+    }
+    ensureSessionRequest = ensureSessionReadyInternal(false, createIfMissing);
+    try {
+        return await ensureSessionRequest;
+    } finally {
+        ensureSessionRequest = null;
+    }
+};
+
+/**
+ * 执行 session 初始化。自动入口允许只恢复已有 session，不主动创建空 session。
+ */
+const ensureSessionReadyInternal = async (forceNew: boolean, createIfMissing: boolean): Promise<AgentSessionSummaryDto[]> => {
     if (!props.isOpen && !forceNew) {
         return sessions.value;
     }
@@ -359,12 +386,21 @@ const ensureSessionReady = async (forceNew = false): Promise<AgentSessionSummary
         return sessions.value;
     }
     await loadResolvedLeaderProfileKey();
+    if (activeSessionId.value && !forceNew) {
+        return sessions.value;
+    }
     const list = await refreshSessions();
+    if (activeSessionId.value && !forceNew) {
+        return list;
+    }
     const rememberedId = readLastSessionId();
     const rememberedSession = rememberedId ? list.find((item) => item.sessionId === rememberedId) : undefined;
     const target = forceNew ? undefined : rememberedSession ?? list[0];
     if (target) {
         await loadSession(target.sessionId);
+        return list;
+    }
+    if (!createIfMissing) {
         return list;
     }
     const created = await agentApi.createSession({
@@ -438,15 +474,17 @@ const handleInvokeResult = async (result: InvokeAgentResult): Promise<void> => {
     if (result.queuedItem && activeSnapshot.value) {
         const snapshot = activeSnapshot.value;
         if (result.queuedItem.kind === "steer") {
+            const steerQueue = mergeQueuedMessages(snapshot.steerQueue, result.queuedItem);
             session.applySnapshot({
                 ...snapshot,
-                steerQueue: mergeQueuedMessages(snapshot.steerQueue, result.queuedItem),
-            });
+                steerQueue,
+            } as AgentSessionSnapshotDto);
         } else {
+            const followUpQueue = mergeQueuedMessages(snapshot.followUpQueue, result.queuedItem);
             session.applySnapshot({
                 ...snapshot,
-                followUpQueue: mergeQueuedMessages(snapshot.followUpQueue, result.queuedItem),
-            });
+                followUpQueue,
+            } as AgentSessionSnapshotDto);
         }
     }
     if (result.status !== "error") {
@@ -458,7 +496,7 @@ const handleInvokeResult = async (result: InvokeAgentResult): Promise<void> => {
     }
 };
 
-function mergeQueuedMessages<T extends {id: string}>(queue: T[], item: T): T[] {
+function mergeQueuedMessages(queue: AgentQueuedMessageDto[], item: AgentQueuedMessageDto): AgentQueuedMessageDto[] {
     if (queue.some((current) => current.id === item.id)) {
         return queue;
     }
@@ -1065,7 +1103,7 @@ const rollbackMessage = async (message: AgentMessage): Promise<void> => {
 };
 
 const openSessionDialog = async (): Promise<void> => {
-    await ensureSessionReady();
+    await ensureSessionReady(false, false);
     sessionDialogOpen.value = true;
 };
 
@@ -1099,6 +1137,21 @@ const createSessionFromDialog = async (): Promise<void> => {
     }
 };
 
+/**
+ * 从抽屉头部显式创建 session，并避免重复点击连建多个空 session。
+ */
+const createSessionFromHeader = async (): Promise<void> => {
+    if (loadingSession.value || sessionActionId.value) {
+        return;
+    }
+    loadingSession.value = true;
+    try {
+        await ensureSessionReady(true);
+    } finally {
+        loadingSession.value = false;
+    }
+};
+
 const archiveSessionFromDialog = async (target: AgentSessionSummaryDto): Promise<void> => {
     if (target.status === "running" || target.status === "waiting" || loadingSession.value || sessionActionId.value) {
         return;
@@ -1117,7 +1170,10 @@ const archiveSessionFromDialog = async (target: AgentSessionSummaryDto): Promise
             await loadSession(nextSessions[0].sessionId);
             return;
         }
-        await ensureSessionReady(true);
+        sessionStream.stop();
+        activeSessionId.value = null;
+        session.reset();
+        syncSessionModelState(null);
     } finally {
         sessionActionId.value = null;
     }
@@ -1146,7 +1202,7 @@ watch(() => props.isOpen, async (open) => {
     }
     await loadSelectableModels();
     await loadResolvedLeaderProfileKey();
-    await ensureSessionReady();
+    await ensureSessionReady(false, false);
     await nextTick();
     requestAnimationFrame(() => {
         inputRef.value?.focus();
@@ -1164,7 +1220,7 @@ watch(leaderProfileKey, async () => {
     if (!props.isOpen) {
         return;
     }
-    await ensureSessionReady();
+    await ensureSessionReady(false, false);
 });
 
 watch(() => [ideStore.workspaceKind, ideStore.currentNovelId] as const, async () => {
@@ -1259,7 +1315,7 @@ function isApprovalApproved(answer?: {
                     </div>
                 </div>
                 <div class="flex items-center gap-1">
-                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="新建对话" :disabled="loadingSession" @click="void ensureSessionReady(true)">
+                    <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="新建对话" :disabled="loadingSession" @click="void createSessionFromHeader()">
                         <span class="i-lucide-plus h-4 w-4"></span>
                     </button>
                     <button class="flex items-center gap-1.5 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': linkedAgentPanelOpen}" title="关联 Agent" @click="linkedAgentPanelOpen = !linkedAgentPanelOpen">
