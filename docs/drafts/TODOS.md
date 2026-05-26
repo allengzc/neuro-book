@@ -149,7 +149,7 @@
 - [ ] plan mode + PROJECT_STATUS
 - [ ] editor-snapashot 还是卡
 - [ ] steer/followup 前端
-- [ ]
+- [ ] session 不要按照 project workspace 分组
 - [ ]
 - [ ]
 - [ ]
