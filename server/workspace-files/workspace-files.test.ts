@@ -622,11 +622,12 @@ describe("workspace-files", () => {
             expect(content).toBe(systemContent);
             expect(content).toContain("profileManifest");
             expect(content).toContain("export default");
-            const manifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; sourceSha256: string; typeFileName?: string; dependencies: Array<{path: string; sha256: string}>}>};
+            const manifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; sourceSha256: string; artifactFileName: string; artifactSha256: string; typeFileName?: string; dependencies: Array<{path: string; sha256: string}>}>};
             const item = manifest.profiles.find((profile) => profile.fileName === "builtin/leader.default.profile.tsx");
             expect(item?.sourceSha256).toBe(await sha256ForTest(userProfilePath));
             expect(item?.dependencies.find((dependency) => dependency.path === "workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx")?.sha256).toBe(item?.sourceSha256);
             expect(item?.typeFileName).toMatch(/types\.d\.ts$/);
+            expect(await sha256ForTest(path.join("workspace", ".nbook", "agent", "profiles", ".compiled", item!.artifactFileName))).toBe(item.artifactSha256);
             await expect(fs.readFile(path.join("workspace", ".nbook", "agent", "profiles", ".compiled", item!.typeFileName!), "utf-8")).resolves.toContain("ProfileVariableValueMap");
             await expect(fs.access(staleArtifactPath)).rejects.toMatchObject({code: "ENOENT"});
             await expect(fs.access(staleTypePath)).rejects.toMatchObject({code: "ENOENT"});
@@ -636,6 +637,67 @@ describe("workspace-files", () => {
             await restoreOptionalFile(userSyncStatePath, syncStateBackup);
             await restoreOptionalFile(staleArtifactPath, staleArtifactBackup);
             await restoreOptionalFile(staleTypePath, staleTypeBackup);
+        }
+    });
+
+    it("同步系统 assets 会修复用户 profile manifest 与 artifact 不一致", async () => {
+        const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
+        const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
+        const userCompiledRoot = path.join("workspace", ".nbook", "agent", "profiles", ".compiled");
+        const userCompiledManifestPath = path.join(userCompiledRoot, "manifest.json");
+        const userSyncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const backup = await backupOptionalFile(userProfilePath);
+        const manifestBackup = await backupOptionalFile(userCompiledManifestPath);
+        const syncStateBackup = await backupOptionalFile(userSyncStatePath);
+
+        try {
+            await fs.mkdir(path.dirname(userProfilePath), {recursive: true});
+            await fs.copyFile(systemProfilePath, userProfilePath);
+            await syncSystemAssetsToUserAssets();
+            const manifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; artifactFileName: string; artifactSha256: string}>};
+            const item = manifest.profiles.find((profile) => profile.fileName === "builtin/leader.default.profile.tsx")!;
+            await fs.writeFile(path.join(userCompiledRoot, item.artifactFileName), "export default {};\n", "utf-8");
+
+            const result = await syncSystemAssetsToUserAssets();
+            const nextManifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; artifactFileName: string; artifactSha256: string}>};
+            const nextItem = nextManifest.profiles.find((profile) => profile.fileName === "builtin/leader.default.profile.tsx")!;
+
+            expect(result.profileWarnings ?? []).toEqual([]);
+            expect(await sha256ForTest(path.join(userCompiledRoot, nextItem.artifactFileName))).toBe(nextItem.artifactSha256);
+        } finally {
+            await restoreOptionalFile(userProfilePath, backup);
+            await restoreOptionalFile(userCompiledManifestPath, manifestBackup);
+            await restoreOptionalFile(userSyncStatePath, syncStateBackup);
+        }
+    });
+
+    it("同步系统 assets 不覆盖已手改用户 profile artifact", async () => {
+        const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
+        const userCompiledRoot = path.join("workspace", ".nbook", "agent", "profiles", ".compiled");
+        const userCompiledManifestPath = path.join(userCompiledRoot, "manifest.json");
+        const userSyncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const backup = await backupOptionalFile(userProfilePath);
+        const manifestBackup = await backupOptionalFile(userCompiledManifestPath);
+        const syncStateBackup = await backupOptionalFile(userSyncStatePath);
+
+        try {
+            await syncSystemAssetsToUserAssets();
+            const manifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; artifactFileName: string}>};
+            const item = manifest.profiles.find((profile) => profile.fileName === "builtin/leader.default.profile.tsx")!;
+            const artifactPath = path.join(userCompiledRoot, item.artifactFileName);
+            await fs.appendFile(userProfilePath, "\n// user custom change\n", "utf-8");
+            await fs.writeFile(artifactPath, "export default { custom: true };\n", "utf-8");
+            const beforeArtifact = await fs.readFile(artifactPath, "utf-8");
+
+            const result = await syncSystemAssetsToUserAssets();
+
+            expect(result.profileWarnings?.some((warning) => warning.fileName === "builtin/leader.default.profile.tsx")).toBe(false);
+            await expect(fs.readFile(userProfilePath, "utf-8")).resolves.toContain("user custom change");
+            await expect(fs.readFile(artifactPath, "utf-8")).resolves.toBe(beforeArtifact);
+        } finally {
+            await restoreOptionalFile(userProfilePath, backup);
+            await restoreOptionalFile(userCompiledManifestPath, manifestBackup);
+            await restoreOptionalFile(userSyncStatePath, syncStateBackup);
         }
     });
 
