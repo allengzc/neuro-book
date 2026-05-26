@@ -470,11 +470,13 @@ SSE 断线不是 run error，不应投影为聊天错误卡。短暂断线在 co
 - 修复首帧 `message_update` 缺少 previous live message 时丢 delta 的问题；即使 replay 中没有 `message_start`，也会从当前 update 建立 baseline 并应用 `assistantMessageEvent`。
 - 修复 command/tree HTTP response snapshot 的会话隔离：`applySnapshotOrSync()` 只应用当前 active session 的 snapshot，避免旧请求返回覆盖当前 UI。
 - 修复 manual refresh / invoke error fallback 把 transport 状态伪造成 `connected` 的问题；普通 snapshot fetch 不再改变 SSE 连接状态。
+- 修复 tool call placeholder 残留问题：`toolcall_end` 带真实 id 到达后，会按同 content index 替换 `content-*` 占位工具，避免 ghost tool call 长期停留在 streaming。
+- 修复旧 snapshot 请求的 `finally` 清掉新 single-flight 的竞态；snapshot promise 现在按请求对象精确清理。
 
 ## Latest Review Fix Verification
 
 - `bunx vitest run app/utils/http/read-sse.test.ts app/components/novel-ide/agent/useAgentSessionStream.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/components/novel-ide/agent/agent-message.test.ts`
-  - 结果：通过，4 个测试文件，22 个测试。
+  - 结果：通过，4 个测试文件，24 个测试。
 - `bunx tsc --noEmit --pretty false --skipLibCheck`
   - 结果：通过。
 

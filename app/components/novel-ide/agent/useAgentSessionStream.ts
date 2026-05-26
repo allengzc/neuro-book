@@ -104,6 +104,7 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         if (reason !== "manual_refresh" && reason !== "invoke_error_fallback") {
             options.session.applyConnectionStatus("recovering");
         }
+        const request = {sessionId: targetSessionId, promise: Promise.resolve(false)};
         const promise = (async () => {
             try {
                 const snapshot = await options.api.getSession(targetSessionId);
@@ -118,12 +119,13 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
                 options.onError?.(error, "同步 Agent session 失败");
                 return false;
             } finally {
-                if (snapshotPromise?.promise === promise) {
+                if (snapshotPromise === request) {
                     snapshotPromise = null;
                 }
             }
         })();
-        snapshotPromise = {sessionId: targetSessionId, promise};
+        request.promise = promise;
+        snapshotPromise = request;
         return promise;
     };
 
