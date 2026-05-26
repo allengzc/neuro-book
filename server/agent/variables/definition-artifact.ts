@@ -55,17 +55,19 @@ export async function compileVariableDefinitions(options: {definitionRoot: strin
     const compiledDir = join(definitionRoot, VARIABLE_DEFINITION_COMPILED_DIR);
     const buildCompiledDir = resolve(process.cwd(), ".agent", "workspace", "variable-definition-build", randomUUID());
     await mkdir(buildCompiledDir, {recursive: true});
+    const existingManifest = await readVariableDefinitionManifest(definitionRoot);
     const files = await findDefinitionFiles(definitionRoot);
-        const definitions: VariableDefinitionManifestItem[] = [];
+    const definitions: VariableDefinitionManifestItem[] = [];
     try {
         for (const file of files) {
             definitions.push(await compileDefinitionFile(definitionRoot, buildCompiledDir, file));
         }
+        const nextDefinitions = definitions.sort((left, right) => left.fileName.localeCompare(right.fileName));
         const manifest: VariableDefinitionManifest = {
             compilerVersion: VARIABLE_DEFINITION_COMPILER_VERSION,
-            generatedAt: new Date().toISOString(),
+            generatedAt: definitionsEqual(existingManifest.definitions, nextDefinitions) ? existingManifest.generatedAt : new Date().toISOString(),
             definitionsRoot: options.rootLabel ?? normalizeArtifactPath(definitionRoot),
-            definitions: definitions.sort((left, right) => left.fileName.localeCompare(right.fileName)),
+            definitions: nextDefinitions,
         };
         await commitArtifacts(buildCompiledDir, compiledDir, manifest);
         return manifest;
@@ -351,6 +353,10 @@ function emptyManifest(root: string): VariableDefinitionManifest {
         definitionsRoot: normalizeArtifactPath(root),
         definitions: [],
     };
+}
+
+function definitionsEqual(left: VariableDefinitionManifestItem[], right: VariableDefinitionManifestItem[]): boolean {
+    return JSON.stringify(left) === JSON.stringify(right);
 }
 
 function isManifestItem(value: unknown): value is VariableDefinitionManifestItem {

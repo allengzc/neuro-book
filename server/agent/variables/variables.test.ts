@@ -637,4 +637,41 @@ describe("Agent variable system", () => {
             await rm(root, {recursive: true, force: true});
         }
     });
+
+    it("variable definition manifest 未变化时保留 generatedAt", async () => {
+        const root = resolve(".agent", "workspace", "variable-definition-generated-at-test", randomUUID());
+        const definitionPath = resolve(root, "definitions.ts");
+        const manifestPath = resolve(root, ".compiled", "manifest.json");
+        await mkdir(root, {recursive: true});
+        await writeFile(definitionPath, [
+            "import {Type} from \"typebox\";",
+            "import {defineWorkspaceRootVariable} from \"nbook/server/agent/variables/registry\";",
+            "export const definitions = [defineWorkspaceRootVariable({",
+            "    key: \"styleGuide\",",
+            "    schema: Type.String(),",
+            "})];",
+            "export default definitions;",
+            "",
+        ].join("\n"), "utf8");
+        try {
+            const first = await compileVariableDefinitions({definitionRoot: root});
+            const pinned = {
+                ...first,
+                generatedAt: "2000-01-01T00:00:00.000Z",
+            };
+            await writeFile(manifestPath, `${JSON.stringify(pinned, null, 2)}\n`, "utf8");
+
+            const unchanged = await compileVariableDefinitions({definitionRoot: root});
+            expect(unchanged.generatedAt).toBe(pinned.generatedAt);
+
+            const source = await readFile(definitionPath, "utf8");
+            await writeFile(definitionPath, source.replace("Type.String()", "Type.Number()"), "utf8");
+            const changed = await compileVariableDefinitions({definitionRoot: root});
+
+            expect(changed.generatedAt).not.toBe(pinned.generatedAt);
+            expect(changed.definitions[0]?.sourceSha256).not.toBe(first.definitions[0]?.sourceSha256);
+        } finally {
+            await rm(root, {recursive: true, force: true});
+        }
+    });
 });

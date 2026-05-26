@@ -154,6 +154,7 @@
   - `bun run dev`、`bun run build`、`bun run nuxt:build` 在启动或构建前预编译系统 profile 一次，形成热态缓存。
   - Docker / 生产镜像复制 `assets` 时也携带 `assets/workspace/.nbook/agent/profiles/.compiled/`。
   - dev/build 只预编译系统 profile，不监听源码变化自动重编译；系统 profile 修改后需要重新运行显式编译或重启构建链路。
+  - 系统 profile / variable definition manifest 是 tracked 发布产物；prepare 脚本在内容未变化时保留原 `generatedAt`，部署脚本也会在 `git pull` 前 targeted restore 这些可再生成文件，避免远端 checkout 因无意义 generated diff 阻塞。
 - 用户 `.compiled` 产物属于 user-assets：
   - 用户产物写入 `workspace/.nbook/agent/profiles/.compiled/`，不进入 Git。
   - 生产环境通常挂载运行时 `workspace/`，因此用户 profile 不可能依赖镜像构建时预编译。

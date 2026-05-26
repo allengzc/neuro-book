@@ -40,10 +40,18 @@ describe("agent session http helpers", () => {
 
     it("listAgentSessions 调用 harness.listSessions", async () => {
         const listSessions = vi.fn(async () => []);
+        const query = {
+            workspaceKey: "global",
+            includeArchived: true,
+            profileGroup: "leader",
+            status: "active",
+            relation: "top",
+            limit: 25,
+        } as const;
 
-        await listAgentSessions({workspaceKey: "global", includeArchived: true}, {listSessions} as never);
+        await listAgentSessions(query, {listSessions} as never);
 
-        expect(listSessions).toHaveBeenCalledWith("global", true);
+        expect(listSessions).toHaveBeenCalledWith(query);
     });
 
     it("getAgentSessionSnapshot 调用 harness.getSessionSnapshot", async () => {

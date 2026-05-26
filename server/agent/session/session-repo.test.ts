@@ -87,6 +87,69 @@ describe("JsonlSessionRepository", () => {
         expect(sessions.some((session) => session.sessionId === projectSession.metadata.sessionId)).toBe(false);
     });
 
+    it("session 列表支持 profile、状态、关系和数量筛选", async () => {
+        const leader = await repo.createSession({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "workspace",
+            title: "leader",
+        });
+        await repo.createSession({
+            profileKey: "writer",
+            input: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "workspace",
+            parentSessionId: leader.metadata.sessionId,
+            title: "writer",
+        });
+        const assetsLeader = await repo.createSession({
+            profileKey: "leader.assets",
+            input: {},
+            workspaceRoot: "workspace/.nbook",
+            workspaceKey: "workspace",
+            title: "assets leader",
+        });
+        await repo.appendEntry(assetsLeader.metadata.sessionId, {
+            type: "session_archived",
+            reason: "test",
+        }, assetsLeader.metadata.workspaceKey);
+
+        const leaders = await repo.listSessions({
+            workspaceKey: "workspace",
+            includeArchived: true,
+            profileGroup: "leader",
+        });
+        expect(leaders.map((session) => session.profileKey)).toEqual(["leader.assets", "leader.default"]);
+
+        const topActiveLeaders = await repo.listSessions({
+            workspaceKey: "workspace",
+            profileGroup: "leader",
+            status: "active",
+            relation: "top",
+            limit: 1,
+        });
+        expect(topActiveLeaders).toHaveLength(1);
+        expect(topActiveLeaders[0]).toMatchObject({
+            sessionId: leader.metadata.sessionId,
+            profileKey: "leader.default",
+        });
+
+        const childSessions = await repo.listSessions({
+            workspaceKey: "workspace",
+            includeArchived: true,
+            relation: "child",
+        });
+        expect(childSessions.map((session) => session.profileKey)).toEqual(["writer"]);
+
+        const runtimeOnlySessions = await repo.listSessions({
+            workspaceKey: "workspace",
+            includeArchived: true,
+            status: "running",
+        });
+        expect(runtimeOnlySessions).toEqual([]);
+    });
+
     it("支持 leaf 移动和 fork，历史不删除", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",

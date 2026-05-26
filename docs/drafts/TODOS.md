@@ -148,7 +148,7 @@
 - [ ] compact 后读文件
 - [ ] plan mode + PROJECT_STATUS
 - [ ] editor-snapashot 还是卡
-- [ ]
+- [ ] steer/followup 前端
 - [ ]
 - [ ]
 - [ ]

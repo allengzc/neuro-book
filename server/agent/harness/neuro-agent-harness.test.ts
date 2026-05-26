@@ -1284,8 +1284,8 @@ describe("NeuroAgentHarness", () => {
             reason: "done",
         });
         expect((await harness.getSessionSnapshot(created.sessionId)).summary.archived).toBe(true);
-        expect(await harness.listSessions("global")).toEqual([]);
-        expect(await harness.listSessions("global", true)).toHaveLength(1);
+        expect(await harness.listSessions({workspaceKey: "global"})).toEqual([]);
+        expect(await harness.listSessions({workspaceKey: "global", includeArchived: true})).toHaveLength(1);
     });
 
     it("从用户消息刷新时保留该用户消息，并从其后继续生成", async () => {
@@ -1385,6 +1385,64 @@ describe("NeuroAgentHarness", () => {
             expect.objectContaining({
                 sessionId: child.sessionId,
                 status: "detached",
+            }),
+        ]);
+    });
+
+    it("session snapshot 返回当前 session 被哪些 agent 绑定", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.linked-by",
+                name: "Linked By",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("request_user_input", {
+                    questions: [{question: "Continue?"}],
+                }, {id: "linked-by-wait"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const parent = await harness.createAgent({
+            profileKey: "test.linked-by",
+            input: {},
+            workspaceRoot: root,
+        });
+        const child = await harness.createAgent({
+            profileKey: "test.linked-by",
+            input: {},
+            workspaceRoot: root,
+            parentSessionId: parent.sessionId,
+        });
+        const waiting = await harness.invokeAgent({
+            sessionId: parent.sessionId,
+            mode: "prompt",
+            message: {text: "wait"},
+        });
+
+        const childSnapshot = await harness.getSessionSnapshot(child.sessionId);
+        expect(waiting.status).toBe("waiting");
+        expect(childSnapshot.linkedByAgents).toEqual([
+            expect.objectContaining({
+                sessionId: parent.sessionId,
+                profileKey: "test.linked-by",
+                status: "waiting",
+                detached: false,
+            }),
+        ]);
+
+        await harness.detachAgent(child.sessionId, parent.sessionId);
+        const detachedSnapshot = await harness.getSessionSnapshot(child.sessionId);
+        expect(detachedSnapshot.linkedByAgents).toEqual([
+            expect.objectContaining({
+                sessionId: parent.sessionId,
+                status: "waiting",
+                detached: true,
             }),
         ]);
     });
