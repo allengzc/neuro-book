@@ -18,15 +18,21 @@ For harness/profile architecture explanations, read `references/harness-profile-
 - Profile is an agent recipe. It says who the agent is, which tools it may use, and what context it prepares before each run.
 - Harness is the runner. It creates sessions, calls the profile, writes visible messages into the session, streams model/tool events, and saves results.
 - Skill is a reusable workflow note. It teaches an agent how to do a kind of task, but it is not a profile and it does not run by itself.
-- User assets are the user's editable overlay. Prefer editing files under `workspace/.nbook/...`. System files under `assets/workspace/.nbook/...` are the built-in baseline.
+- User assets are the user's editable Workspace Root `.nbook` overlay. Prefer editing files under `workspace/.nbook/...`. System files under `assets/workspace/.nbook/...` are the built-in baseline.
 - Saving a profile source file does not make it runnable. Compile means "turn the saved `.profile.tsx` recipe into the runtime artifact the catalog can load." It does not start a chat session.
+- Variable definitions also compile. Editing `agent/variables/definitions.ts` changes source only; runtime uses `agent/variables/.compiled/`.
 
 ## Important Paths
 
+- Workspace Root `.nbook`: `workspace/.nbook/`
 - User profiles: `workspace/.nbook/agent/profiles/`
 - System profiles: `assets/workspace/.nbook/agent/profiles/`
 - User skills: `workspace/.nbook/agent/skills/`
 - System skills: `assets/workspace/.nbook/agent/skills/`
+- User writing presets: `workspace/.nbook/agent/writing-presets/{styles,references}/`
+- System writing presets: `assets/workspace/.nbook/agent/writing-presets/{styles,references}/`
+- User global variable definitions: `workspace/.nbook/agent/variables/definitions.ts`
+- Variable definition artifacts: `workspace/.nbook/agent/variables/.compiled/`
 - Profile templates: `assets/workspace/.nbook/agent/profile-templates/`
 - Harness docs: `docs/modules/agent/harness.md`
 - TSX Profile Workbench task notes: `docs/tasks/04-tsx-profile-workbench/README.md`
@@ -43,6 +49,7 @@ Prefer guidance before automation:
 3. Read the current file before editing.
 4. Make the smallest TSX change that matches the user's request.
 5. Ask the user to use Workbench compile/preview, or use the `profile` CLI when it is available on the Agent runtime PATH.
+6. If variable definitions changed, run the `variable definition` CLI checks too.
 
 Use Agent runtime CLI only when it lives under `.nbook/agent/bin` and is on the bash PATH. Do not present repository-root `scripts/` as an Agent runtime contract.
 
@@ -62,8 +69,28 @@ Useful CLI commands:
 - `profile check <fileName-or-key>`: check saved source and profile contract without writing `.compiled`.
 - `profile compile <fileName-or-key>`: compile saved disk source and write `.compiled` artifact.
 - `profile preview <fileName-or-key>`: dry-run saved source through prepare and show context sections without writing `.compiled`.
+- Add `--project <projectPath>` when checking project variable types for a specific Project Workspace.
+- Add `--strict-variables` when literal variable paths should fail if they are not registered.
 
 Do not ask ordinary users to call the HTTP compile endpoint by hand. Mention it only when debugging the Workbench implementation.
+
+### Compile variable definitions
+
+Explain variable definitions in two layers:
+
+- `definitions.ts` declares which `global.*` or `project.*` variables exist and what schema they use.
+- `.compiled` is the runtime artifact. Runtime registry, profile prepare, and tools do not automatically compile definition source.
+
+Useful CLI commands:
+
+- `variable definition status --global`: show Workspace Root definition status.
+- `variable definition check --global`: check Workspace Root definitions without writing artifacts.
+- `variable definition compile --global`: compile Workspace Root definitions.
+- `variable definition status --project <projectWorkspace>`: show a Project Workspace definition status.
+- `variable definition check --project <projectWorkspace>`: check a Project Workspace definition.
+- `variable definition compile --project <projectWorkspace>`: compile a Project Workspace definition.
+
+Do not edit `.compiled` by hand. If a definition is `not_compiled`, `compile_stale`, or `compiled_load_failed`, fix the source first and compile again.
 
 ### Restore a user profile to the system version
 
@@ -96,7 +123,11 @@ Translate the error into user language:
 - Both `context` and `prepare`: "一个 profile 只能选一种准备上下文的方式。普通情况用 `context()`。"
 - Unknown DSL node: "这个 TSX 标签不是当前 ProfilePrompt 支持的节点。"
 - Tool key not found: "这个 agent 请求了一个系统里没有注册的工具。"
-- Builtin schema locked: "这是系统内置 profile。你可以改提示词和工具权限，但不能把它的创建参数/输出协议改成另一个形状。"
+- `not_compiled`: "这个 profile 还只有源码，没有可运行产物。保存后还需要编译。"
+- `compile_stale`: "源码已经改过，但运行产物还是旧的。需要重新编译。"
+- `compiled_load_failed`: "编译产物存在，但加载失败。先看编译诊断，再重新编译。"
+- `builtin_schema_locked`: "这是系统内置 profile。你可以改提示词和工具权限，但不能把它的创建参数/输出协议改成另一个形状。"
+- Variable path warning: "这个变量路径没有注册。普通检查可能只是 warning，`--strict-variables` 会把它当成错误。"
 
 ## Current Profile Contract
 
@@ -128,6 +159,17 @@ A TSX profile usually contains:
 - `DynamicSet` is an old name. Use `<ModelContext>`.
 - `.compiled` is the runtime artifact area, not the editing surface. Do not manually edit files under `.compiled`.
 
+## Variable Authoring Model
+
+- `ctx.input` is profile creation input. It is not the user's every-turn message and it no longer carries browser state.
+- `ctx.vars` is the profile's variable access capability.
+- Variable namespaces are fixed: `client.*`, `global.*`, `project.*`, and `session.*`.
+- Use `<Variable>` to render variable values into current model context.
+- Use `<VariableSchema>` to render variable schema and read/write capability notes.
+- First version rule: place `<Variable>` and `<VariableSchema>` directly under `<ModelContext>`, not under `<System>`, `<HistorySet>`, or `<AppendingSet>`.
+- Agent variable edits should use `variable_schema`, `variable_read`, then `variable_patch`, and read again when the result matters.
+- Type artifacts and generated `.d.ts` files help TSX authors with autocomplete. Runtime truth remains the variable registry, schema validation, variable files, and session JSONL.
+
 ## Answering Users
 
 - Start with the user's goal: "你想让这个 agent 在每轮开始前看到什么、能用什么工具、最后怎么交付结果？"
@@ -136,6 +178,7 @@ A TSX profile usually contains:
 - When a user asks "为什么前端看不到这段内容", check whether the content is in `System`, `ModelContext`, or `AppendingSet`.
 - When a user asks "为什么 agent 没有这个工具", check `allowedToolKeys` and the tool registry.
 - When a user asks "系统版本更新后为什么没有覆盖我的文件", explain the user-assets overlay and sync state before suggesting restore.
+- When a user asks "为什么变量读不到", check namespace, current Project Workspace, definition compile status, and whether the profile was checked with the right `--project`.
 
 ## Safety Rules
 
