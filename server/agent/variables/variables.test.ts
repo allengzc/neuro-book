@@ -586,7 +586,8 @@ describe("Agent variable system", () => {
             const manifest = await readVariableDefinitionManifest(root);
             const item = manifest.definitions[0]!;
             const typeFileName = item.typeFileName;
-            expect(typeFileName).toMatch(/types\.d\.ts$/);
+            expect(item.artifactFileName).toBe("definitions.mjs");
+            expect(typeFileName).toBe("definitions.types.d.ts");
             expect(await readFile(resolve(root, ".compiled", typeFileName!), "utf8")).toContain("\"project.affections\": Record<string, number>;");
             await unlink(resolve(root, ".compiled", typeFileName!));
             await expect(validateVariableDefinitionArtifact(root, item)).resolves.toEqual({fresh: true});
@@ -604,6 +605,34 @@ describe("Agent variable system", () => {
                 code: "compile_stale",
                 path: "project.definitions.ts",
             }));
+        } finally {
+            await rm(root, {recursive: true, force: true});
+        }
+    });
+
+    it("variable definition full compile 使用稳定文件名并清理旧 hash artifact", async () => {
+        const root = resolve(".agent", "workspace", "variable-definition-prune-test", randomUUID());
+        await mkdir(resolve(root, ".compiled"), {recursive: true});
+        await writeFile(resolve(root, "definitions.ts"), [
+            "import {Type} from \"typebox\";",
+            "import {defineWorkspaceRootVariable} from \"nbook/server/agent/variables/registry\";",
+            "export const definitions = [defineWorkspaceRootVariable({",
+            "    key: \"styleGuide\",",
+            "    schema: Type.String(),",
+            "})];",
+            "export default definitions;",
+            "",
+        ].join("\n"), "utf8");
+        await writeFile(resolve(root, ".compiled", "old-hash-artifact.mjs"), "export const definitions = [];", "utf8");
+        await writeFile(resolve(root, ".compiled", "old-hash-artifact.types.d.ts"), "export {};", "utf8");
+        try {
+            const manifest = await compileVariableDefinitions({definitionRoot: root});
+            const item = manifest.definitions[0]!;
+
+            expect(item.artifactFileName).toBe("definitions.mjs");
+            expect(item.typeFileName).toBe("definitions.types.d.ts");
+            await expect(readFile(resolve(root, ".compiled", "old-hash-artifact.mjs"), "utf8")).rejects.toThrow();
+            await expect(readFile(resolve(root, ".compiled", "old-hash-artifact.types.d.ts"), "utf8")).rejects.toThrow();
         } finally {
             await rm(root, {recursive: true, force: true});
         }

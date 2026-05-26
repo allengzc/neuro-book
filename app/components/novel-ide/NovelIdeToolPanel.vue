@@ -9,12 +9,17 @@ import WorkspaceCharacterPanel from "nbook/app/components/novel-ide/workspace/Wo
 import NovelPlotPanel from "nbook/app/components/novel-ide/plot/NovelPlotPanel.vue";
 import type { NovelIdeTab } from "nbook/app/components/novel-ide/mock-data";
 import {useNotification} from "nbook/app/composables/useNotification";
+import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+
+const MIN_PANEL_WIDTH = 280;
+const MAX_PANEL_WIDTH = 560;
 
 const props = defineProps<{
     activeTab: NovelIdeTab | null;
     userAssetsMode?: boolean;
+    width: number;
 }>();
 
 defineOptions({
@@ -22,6 +27,7 @@ defineOptions({
 });
 
 const emit = defineEmits<{
+    (e: "update:width", value: number): void;
     (e: "close"): void;
 }>();
 
@@ -45,8 +51,17 @@ const downloadConfirmOpen = ref(false);
 const singleFileInputRef = ref<HTMLInputElement | null>(null);
 const projectDirectoryInputRef = ref<HTMLInputElement | null>(null);
 const projectZipInputRef = ref<HTMLInputElement | null>(null);
+const resizeHandleRef = ref<HTMLElement | null>(null);
 const downloadTargetLabel = computed(() => props.userAssetsMode ? "Workspace Root .nbook" : "Project Workspace");
 const downloadButtonTitle = computed(() => props.userAssetsMode ? "打包下载 Workspace Root .nbook" : "打包下载当前 Project Workspace");
+const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
+    size: computed(() => props.width),
+    minSize: MIN_PANEL_WIDTH,
+    maxSize: MAX_PANEL_WIDTH,
+    edge: "right",
+    enabled: computed(() => Boolean(props.activeTab)),
+    onResize: (width) => emit("update:width", width),
+});
 const projectUploadItems: DropdownItem[] = [
     {label: "上传文件夹", value: "directory", iconClass: "i-lucide-folder-up"},
     {label: "上传 zip", value: "zip", iconClass: "i-lucide-file-archive"},
@@ -219,7 +234,12 @@ onMounted(() => {
 <template>
     <!-- 左侧工具窗 -->
     <div class="contents">
-        <aside v-if="activeTab" v-bind="attrs" class="z-10 flex w-[340px] shrink-0 flex-col border-r border-[var(--border-color)] bg-[var(--bg-panel)]">
+        <aside v-if="activeTab" v-bind="attrs" class="relative z-10 flex shrink-0 flex-col border-r border-[var(--border-color)] bg-[var(--bg-panel)]" :class="isResizing ? 'select-none transition-none' : ''" :style="panelStyle">
+            <!-- 宽度拖拽手柄 -->
+            <div ref="resizeHandleRef" class="group absolute -right-1 top-0 z-30 h-full w-2 cursor-col-resize">
+                <div class="ml-0.5 h-full w-[2px] bg-[var(--accent-main)] opacity-0 transition-all duration-150 group-hover:opacity-100" :class="isResizing ? 'opacity-100 shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent-main)_28%,transparent)]' : ''"></div>
+            </div>
+
             <div class="flex shrink-0 items-center justify-between border-b border-[var(--border-color)] px-3 py-2">
                 <span class="text-[11px] font-medium tracking-[0.24em] text-[var(--text-secondary)]">
                     {{ displayTitle }}

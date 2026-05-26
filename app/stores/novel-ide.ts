@@ -241,8 +241,10 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const mutatingChapterTree = ref(false);
 
     const activeLeftTab = ref<NovelIdeTab | null>("files");
+    const leftPanelWidth = ref(340);
     const plotWorkbenchOpen = ref(false);
     const rightPanelOpen = ref(false);
+    const rightPanelWidth = ref(400);
     const promptExpanded = ref(true);
     const requirement = ref("");
     const selectedModel = ref<string>(DEFAULT_MODEL_LABEL);
@@ -2175,6 +2177,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         initializeWorkspace,
         lastSyncedChapterContent,
         lastSyncedFileContent,
+        leftPanelWidth,
         loadChapterDetail,
         loadingWorkspace,
         loadNovels,
@@ -2206,6 +2209,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         reorderVolumes,
         requirement,
         rightPanelOpen,
+        rightPanelWidth,
         saveCurrentChapterContent,
         saveCurrentFile,
         saveDirtyWorkspaceFiles,
@@ -2271,9 +2275,11 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         pick: [
             "activeLeftTab",
             "currentNovelId",
+            "leftPanelWidth",
             "promptExpanded",
             "requirement",
             "rightPanelOpen",
+            "rightPanelWidth",
             "selectedChapterId",
             "selectedLorebookEntryId",
             "selectedCharacterId",

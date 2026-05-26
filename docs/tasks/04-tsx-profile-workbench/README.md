@@ -129,7 +129,7 @@
   - 系统 profile：`assets/workspace/.nbook/agent/profiles/.compiled/`
   - 用户 profile：`workspace/.nbook/agent/profiles/.compiled/`
   - `.agent/workspace/profile-module-cache` 已退出 runtime 合同；当前 catalog signature 和运行可用性只看 profile root 内 `.compiled`。
-- `.compiled/manifest.json` 是 runtime 可信索引，记录 `fileName`、`profileKey`、源码 hash、编译产物路径、依赖 hash、compiler/cache version 和生成时间。catalog 只能在 manifest 中的源码 hash 与当前 `.profile.tsx` 匹配时 import 对应 `.mjs`。
+- `.compiled/manifest.json` 是 runtime 可信索引，记录 `fileName`、`profileKey`、源码 hash、稳定编译产物路径、artifact hash、依赖 hash、compiler/cache version 和生成时间。catalog 只能在 manifest 中的源码 hash、artifact hash 与当前 `.profile.tsx` / `.mjs` 匹配时 import 对应 `.mjs`；import 仍使用 artifact hash query bust Node ESM cache。
 - profile 源码变更后不自动编译；catalog 应把该 profile 标记为 `compile_stale` 或 `not_compiled`，并阻止创建 session / invoke 使用它，直到用户或构建脚本显式编译。
 - 系统 profile 在构建/开发启动阶段预编译：`bun run build`、`bun run nuxt:build` 和 `bun run dev` 会先生成系统 profile 的 `.compiled` 产物。Docker runner 复制 `assets` 时会带上系统 `.compiled`。
 - 用户 profile 不能依赖镜像构建时预编译，因为生产 `workspace/` 通常是运行时挂载。用户 profile 的 `.compiled` 产物由 Workbench 手动“编译”或管理员 CLI 显式生成；保存源码不等于应用到 runtime。
@@ -147,7 +147,8 @@
 - `.compiled` artifact 采用 esbuild bundle：
   - repo-local profile runtime/helper 代码可以 bundle 进产物，降低运行时解析成本。
   - `node_modules` 依赖和 Node builtins 保持 external，避免把大型依赖复制进每个 profile artifact。
-  - artifact 必须记录 compiler version / cache version / source hash / dependency hash；hash 不匹配时 runtime 不 import。
+  - artifact 文件名使用稳定 stem，例如 `builtin/leader.default.profile.tsx` 生成 `builtin__leader.default.mjs` 和 `builtin__leader.default.types.d.ts`；hash 留在 manifest 和 import query 中，不再放进文件名。
+  - artifact 必须记录 compiler version / cache version / source hash / artifact hash / dependency hash；hash 不匹配时 runtime 不 import。
   - 用户 profile 仍是受信任的本地代码，本轮不引入 sandbox。
 - 系统 `.compiled` 产物属于 system assets：
   - `bun run dev`、`bun run build`、`bun run nuxt:build` 在启动或构建前预编译系统 profile 一次，形成热态缓存。
@@ -161,6 +162,7 @@
   - 用户文件缺失时复制系统源码与对应 compiled artifact，并写入 sync state。
   - 用户文件未手改且系统 hash 更新时，自动覆盖源码和 compiled artifact。
   - 用户文件已手改或缺 sync state 时，保留用户源码和用户 compiled artifact，不静默替换。
+  - 系统/用户 `.compiled` 现在使用稳定文件名；编译会清理 manifest 未引用的旧 hash artifact，避免 Git 与本地目录持续堆积历史产物。
 - 新 Agent runtime CLI 统一为 `profile` 命令，不继续把仓库根 `scripts/` 当成用户/Agent 面向入口：
   - `profile status`：查看源码、compiled manifest、stale/not compiled/load failed/sync warning。
   - `profile check`：检查磁盘上的 profile 源码和 contract，不写 `.compiled`。

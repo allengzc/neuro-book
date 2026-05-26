@@ -101,6 +101,7 @@ export async function compileProfileArtifacts(options: CompileProfileArtifactsOp
         } else {
             await mkdir(compiledDir, {recursive: true});
             await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+            await pruneCompiledArtifacts(compiledDir, manifest);
         }
         return {
             manifest,
@@ -278,8 +279,9 @@ export async function hashFile(filePath: string): Promise<{sha256: string; bytes
 
 async function compileProfileFile(profileRoot: string, compiledDir: string, file: ProfileFileEntry): Promise<ProfileArtifactManifestItem> {
     const sourceHash = await hashFile(file.absolutePath);
-    const artifactBase = `${file.fileName.replace(/[^A-Za-z0-9_.-]+/g, "_").replace(/\.profile\.(tsx|ts|mjs|js)$/, "")}.${sourceHash.sha256.slice(0, 16)}.${randomUUID()}`;
-    const temporaryOutputPath = join(compiledDir, `${artifactBase}.building.mjs`);
+    const artifactStem = stableArtifactStem(file.fileName, /\.profile\.(tsx|ts|mjs|js)$/);
+    const temporaryOutputPath = join(compiledDir, `${artifactStem}.${randomUUID()}.building.mjs`);
+    const temporaryTypePath = join(compiledDir, `${artifactStem}.${randomUUID()}.building.${VARIABLE_TYPES_FILE_NAME}`);
     const tsconfigPath = resolve(process.cwd(), "tsconfig.json");
     let dependencies: ProfileArtifactDependency[];
 
@@ -305,18 +307,19 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
         }
         dependencies = await readArtifactDependencies(result.metafile, tsconfigPath);
         const dependencyHash = hashArtifactDependencies(file.absolutePath, dependencies);
-        const artifactFileName = `${dependencyHash}.mjs`;
+        const artifactFileName = `${artifactStem}.mjs`;
         const artifactPath = join(compiledDir, artifactFileName);
-        await promoteArtifact(temporaryOutputPath, artifactPath);
-        const artifactHash = await hashFile(artifactPath);
-        const profile = await importCompiledProfile(artifactPath, artifactHash.sha256);
-        const typeFileName = `${dependencyHash}.${VARIABLE_TYPES_FILE_NAME}`;
+        const artifactHash = await hashFile(temporaryOutputPath);
+        const profile = await importCompiledProfile(temporaryOutputPath, artifactHash.sha256);
+        const typeFileName = `${artifactStem}.${VARIABLE_TYPES_FILE_NAME}`;
         const typePath = join(compiledDir, typeFileName);
         const generatedTypes = generateVariableTypes(profile.variableDefinitions ?? [], {
             header: `Session variable authoring types generated from ${file.fileName}.`,
         });
-        await writeFile(typePath, generatedTypes.text, "utf8");
-        const typeHash = await hashFile(typePath);
+        await writeFile(temporaryTypePath, generatedTypes.text, "utf8");
+        const typeHash = await hashFile(temporaryTypePath);
+        await promoteArtifact(temporaryOutputPath, artifactPath);
+        await promoteArtifact(temporaryTypePath, typePath);
         return {
             fileName: file.fileName,
             profileKey: profile.manifest.key,
@@ -335,6 +338,7 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
         };
     } finally {
         await rm(temporaryOutputPath, {force: true});
+        await rm(temporaryTypePath, {force: true});
     }
 }
 
@@ -441,17 +445,12 @@ function hashArtifactDependencies(sourcePath: string, dependencies: ProfileArtif
 }
 
 async function promoteArtifact(temporaryOutputPath: string, outputPath: string): Promise<boolean> {
-    if (existsSync(outputPath)) {
-        return false;
-    }
     await mkdir(dirname(outputPath), {recursive: true});
+    await rm(outputPath, {force: true});
     try {
         await rename(temporaryOutputPath, outputPath);
         return true;
     } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST") {
-            return false;
-        }
         throw error;
     }
 }
@@ -475,6 +474,18 @@ async function commitCompiledArtifacts(buildCompiledDir: string, compiledDir: st
         `${JSON.stringify(manifest, null, 2)}\n`,
         "utf8",
     );
+    await pruneCompiledArtifacts(compiledDir, manifest);
+}
+
+async function pruneCompiledArtifacts(compiledDir: string, manifest: ProfileArtifactManifest): Promise<void> {
+    const keep = new Set([
+        PROFILE_COMPILED_MANIFEST_FILE,
+        ...manifest.profiles.flatMap((item) => [item.artifactFileName, item.typeFileName].filter((name): name is string => Boolean(name))),
+    ]);
+    const entries = await readdir(compiledDir, {withFileTypes: true}).catch(() => []);
+    await Promise.all(entries
+        .filter((entry) => entry.isFile() && /\.(mjs|types\.d\.ts)$/.test(entry.name) && !keep.has(entry.name))
+        .map((entry) => rm(join(compiledDir, entry.name), {force: true})));
 }
 
 function repoAliasBundlePlugin(): Plugin {
@@ -535,6 +546,17 @@ function emptyArtifactManifest(profileRoot: string): ProfileArtifactManifest {
 
 function profilesEqual(left: ProfileArtifactManifestItem[], right: ProfileArtifactManifestItem[]): boolean {
     return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function stableArtifactStem(fileName: string, extensionPattern: RegExp): string {
+    const withoutExtension = fileName.replace(extensionPattern, "");
+    const stem = withoutExtension
+        .split(/[\\/]+/)
+        .filter(Boolean)
+        .join("__")
+        .replace(/[^A-Za-z0-9_.-]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+    return stem || "artifact";
 }
 
 function normalizeArtifactPath(filePath: string): string {

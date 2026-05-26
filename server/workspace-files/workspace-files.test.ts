@@ -601,10 +601,17 @@ describe("workspace-files", () => {
         const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
         const userCompiledManifestPath = path.join("workspace", ".nbook", "agent", "profiles", ".compiled", "manifest.json");
         const userSyncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const staleArtifactPath = path.join("workspace", ".nbook", "agent", "profiles", ".compiled", "old-hash-artifact.mjs");
+        const staleTypePath = path.join("workspace", ".nbook", "agent", "profiles", ".compiled", "old-hash-artifact.types.d.ts");
         const backup = await backupOptionalFile(userProfilePath);
         const manifestBackup = await backupOptionalFile(userCompiledManifestPath);
         const syncStateBackup = await backupOptionalFile(userSyncStatePath);
+        const staleArtifactBackup = await backupOptionalFile(staleArtifactPath);
+        const staleTypeBackup = await backupOptionalFile(staleTypePath);
         await fs.rm(userProfilePath, {force: true});
+        await fs.mkdir(path.dirname(staleArtifactPath), {recursive: true});
+        await fs.writeFile(staleArtifactPath, "export default {};\n", "utf-8");
+        await fs.writeFile(staleTypePath, "export {};\n", "utf-8");
 
         try {
             const result = await syncSystemAssetsToUserAssets();
@@ -621,10 +628,48 @@ describe("workspace-files", () => {
             expect(item?.dependencies.find((dependency) => dependency.path === "workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx")?.sha256).toBe(item?.sourceSha256);
             expect(item?.typeFileName).toMatch(/types\.d\.ts$/);
             await expect(fs.readFile(path.join("workspace", ".nbook", "agent", "profiles", ".compiled", item!.typeFileName!), "utf-8")).resolves.toContain("ProfileVariableValueMap");
+            await expect(fs.access(staleArtifactPath)).rejects.toMatchObject({code: "ENOENT"});
+            await expect(fs.access(staleTypePath)).rejects.toMatchObject({code: "ENOENT"});
         } finally {
             await restoreOptionalFile(userProfilePath, backup);
             await restoreOptionalFile(userCompiledManifestPath, manifestBackup);
             await restoreOptionalFile(userSyncStatePath, syncStateBackup);
+            await restoreOptionalFile(staleArtifactPath, staleArtifactBackup);
+            await restoreOptionalFile(staleTypePath, staleTypeBackup);
+        }
+    });
+
+    it("同步系统 assets 会清理用户变量定义旧 compiled artifact", async () => {
+        const userVariablePath = path.join("workspace", ".nbook", "agent", "variables", "definitions.ts");
+        const userCompiledManifestPath = path.join("workspace", ".nbook", "agent", "variables", ".compiled", "manifest.json");
+        const staleArtifactPath = path.join("workspace", ".nbook", "agent", "variables", ".compiled", "old-hash-definition.mjs");
+        const staleTypePath = path.join("workspace", ".nbook", "agent", "variables", ".compiled", "old-hash-definition.types.d.ts");
+        const variableBackup = await backupOptionalFile(userVariablePath);
+        const manifestBackup = await backupOptionalFile(userCompiledManifestPath);
+        const staleArtifactBackup = await backupOptionalFile(staleArtifactPath);
+        const staleTypeBackup = await backupOptionalFile(staleTypePath);
+        await fs.rm(userVariablePath, {force: true});
+        await fs.mkdir(path.dirname(staleArtifactPath), {recursive: true});
+        await fs.writeFile(staleArtifactPath, "export default [];\n", "utf-8");
+        await fs.writeFile(staleTypePath, "export {};\n", "utf-8");
+
+        try {
+            const result = await syncSystemAssetsToUserAssets();
+            const manifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {definitions: Array<{fileName: string; artifactFileName: string; typeFileName?: string}>};
+            const item = manifest.definitions.find((definition) => definition.fileName === "definitions.ts");
+
+            expect(result.copied).toBeGreaterThan(0);
+            expect(item?.artifactFileName).toBe("definitions.mjs");
+            expect(item?.typeFileName).toBe("definitions.types.d.ts");
+            await expect(fs.readFile(path.join("workspace", ".nbook", "agent", "variables", ".compiled", item!.artifactFileName), "utf-8")).resolves.toContain("definitions_default");
+            await expect(fs.readFile(path.join("workspace", ".nbook", "agent", "variables", ".compiled", item.typeFileName!), "utf-8")).resolves.toContain("ProfileVariableValueMap");
+            await expect(fs.access(staleArtifactPath)).rejects.toMatchObject({code: "ENOENT"});
+            await expect(fs.access(staleTypePath)).rejects.toMatchObject({code: "ENOENT"});
+        } finally {
+            await restoreOptionalFile(userVariablePath, variableBackup);
+            await restoreOptionalFile(userCompiledManifestPath, manifestBackup);
+            await restoreOptionalFile(staleArtifactPath, staleArtifactBackup);
+            await restoreOptionalFile(staleTypePath, staleTypeBackup);
         }
     });
 

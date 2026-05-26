@@ -138,12 +138,6 @@ export async function validateVariableDefinitionArtifact(root: string, item: Var
     if (!sourceHash || sourceHash.sha256 !== item.sourceSha256 || sourceHash.bytes !== item.sourceBytes) {
         return {fresh: false, reason: "source_changed"};
     }
-    for (const dependency of item.dependencies) {
-        const current = await hashFile(resolveArtifactPath(dependency.path)).catch(() => null);
-        if (!current || current.sha256 !== dependency.sha256 || current.bytes !== dependency.bytes) {
-            return {fresh: false, reason: "dependency_changed"};
-        }
-    }
     const artifactHash = await hashFile(join(root, VARIABLE_DEFINITION_COMPILED_DIR, item.artifactFileName)).catch(() => null);
     if (!artifactHash) {
         return {fresh: false, reason: "artifact_missing"};
@@ -151,13 +145,20 @@ export async function validateVariableDefinitionArtifact(root: string, item: Var
     if (artifactHash.sha256 !== item.artifactSha256 || artifactHash.bytes !== item.artifactBytes) {
         return {fresh: false, reason: "artifact_changed"};
     }
+    for (const dependency of item.dependencies) {
+        const current = await hashFile(resolveArtifactPath(dependency.path)).catch(() => null);
+        if (!current || current.sha256 !== dependency.sha256 || current.bytes !== dependency.bytes) {
+            return {fresh: false, reason: "dependency_changed"};
+        }
+    }
     return {fresh: true};
 }
 
 async function compileDefinitionFile(root: string, compiledDir: string, file: DefinitionFileEntry): Promise<VariableDefinitionManifestItem> {
     const sourceHash = await hashFile(file.absolutePath);
-    const artifactBase = `${file.fileName.replace(/[^A-Za-z0-9_.-]+/g, "_").replace(/\.(tsx|ts|mjs|js)$/, "")}.${sourceHash.sha256.slice(0, 16)}.${randomUUID()}`;
-    const temporaryOutputPath = join(compiledDir, `${artifactBase}.building.mjs`);
+    const artifactStem = stableArtifactStem(file.fileName, /\.(tsx|ts|mjs|js)$/);
+    const temporaryOutputPath = join(compiledDir, `${artifactStem}.${randomUUID()}.building.mjs`);
+    const temporaryTypePath = join(compiledDir, `${artifactStem}.${randomUUID()}.building.${VARIABLE_TYPES_FILE_NAME}`);
     const tsconfigPath = resolve(process.cwd(), "tsconfig.json");
     try {
         const result = await build({
@@ -179,18 +180,19 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
         }
         const dependencies = await readDependencies(result.metafile, tsconfigPath);
         const dependencyHash = hashDependencies(file.absolutePath, dependencies);
-        const artifactFileName = `${dependencyHash}.mjs`;
+        const artifactFileName = `${artifactStem}.mjs`;
         const artifactPath = join(compiledDir, artifactFileName);
-        await promoteArtifact(temporaryOutputPath, artifactPath);
-        const artifactHash = await hashFile(artifactPath);
-        const definitions = await importDefinitions(artifactPath, artifactHash.sha256);
-        const typeFileName = `${dependencyHash}.${VARIABLE_TYPES_FILE_NAME}`;
+        const artifactHash = await hashFile(temporaryOutputPath);
+        const definitions = await importDefinitions(temporaryOutputPath, artifactHash.sha256);
+        const typeFileName = `${artifactStem}.${VARIABLE_TYPES_FILE_NAME}`;
         const typePath = join(compiledDir, typeFileName);
         const generatedTypes = generateVariableTypes(definitions, {
             header: `Variable definition types generated from ${file.fileName}.`,
         });
-        await writeFile(typePath, generatedTypes.text, "utf8");
-        const typeHash = await hashFile(typePath);
+        await writeFile(temporaryTypePath, generatedTypes.text, "utf8");
+        const typeHash = await hashFile(temporaryTypePath);
+        await promoteArtifact(temporaryOutputPath, artifactPath);
+        await promoteArtifact(temporaryTypePath, typePath);
         return {
             fileName: file.fileName,
             sourceSha256: sourceHash.sha256,
@@ -208,6 +210,7 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
         };
     } finally {
         await rm(temporaryOutputPath, {force: true});
+        await rm(temporaryTypePath, {force: true});
     }
 }
 
@@ -269,16 +272,11 @@ function hashDependencies(sourcePath: string, dependencies: VariableDefinitionDe
 }
 
 async function promoteArtifact(temporaryOutputPath: string, outputPath: string): Promise<void> {
-    if (existsSync(outputPath)) {
-        return;
-    }
     await mkdir(dirname(outputPath), {recursive: true});
+    await rm(outputPath, {force: true});
     try {
         await rename(temporaryOutputPath, outputPath);
     } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST") {
-            return;
-        }
         throw error;
     }
 }
@@ -298,6 +296,18 @@ async function commitArtifacts(buildDir: string, compiledDir: string, manifest: 
         }
     }
     await writeFile(join(compiledDir, VARIABLE_DEFINITION_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    await pruneArtifacts(compiledDir, manifest);
+}
+
+async function pruneArtifacts(compiledDir: string, manifest: VariableDefinitionManifest): Promise<void> {
+    const keep = new Set([
+        VARIABLE_DEFINITION_MANIFEST_FILE,
+        ...manifest.definitions.flatMap((item) => [item.artifactFileName, item.typeFileName].filter((name): name is string => Boolean(name))),
+    ]);
+    const entries = await readdir(compiledDir, {withFileTypes: true}).catch(() => []);
+    await Promise.all(entries
+        .filter((entry) => entry.isFile() && /\.(mjs|types\.d\.ts)$/.test(entry.name) && !keep.has(entry.name))
+        .map((entry) => rm(join(compiledDir, entry.name), {force: true})));
 }
 
 function repoAliasBundlePlugin(): Plugin {
@@ -345,6 +355,17 @@ function emptyManifest(root: string): VariableDefinitionManifest {
 
 function isManifestItem(value: unknown): value is VariableDefinitionManifestItem {
     return Boolean(value && typeof value === "object" && !Array.isArray(value) && typeof (value as {fileName?: unknown}).fileName === "string" && typeof (value as {artifactFileName?: unknown}).artifactFileName === "string");
+}
+
+function stableArtifactStem(fileName: string, extensionPattern: RegExp): string {
+    const withoutExtension = fileName.replace(extensionPattern, "");
+    const stem = withoutExtension
+        .split(/[\\/]+/)
+        .filter(Boolean)
+        .join("__")
+        .replace(/[^A-Za-z0-9_.-]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+    return stem || "artifact";
 }
 
 function issue(code: VariableAccessorIssue["code"], namespace: VariableNamespace, path: string, message: string): VariableAccessorIssue {

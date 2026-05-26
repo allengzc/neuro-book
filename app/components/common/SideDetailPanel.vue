@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import {computed, onMounted, onUnmounted, watch} from "vue";
+import {computed, watch} from "vue";
+import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
 
 const HEADER_HEIGHT = 44;
 const MAX_HEIGHT_RATIO = 0.9;
@@ -25,6 +26,7 @@ const emit = defineEmits<{
 }>();
 
 const isResizing = ref(false);
+const resizeHandleRef = ref<HTMLElement | null>(null);
 const lastExpandedHeight = ref(RESTORE_HEIGHT);
 const isCollapsed = computed(() => props.height <= HEADER_HEIGHT);
 const visibleHeight = computed(() => `${Math.max(props.height, HEADER_HEIGHT)}px`);
@@ -34,33 +36,14 @@ const currentHeaderTitle = computed(() => isCollapsed.value ? "展开面板" : "
 /**
  * 开始拖拽 detail 面板高度。
  */
-function startResizing(event: MouseEvent): void {
-    if (!props.visible) {
-        return;
-    }
-
-    isResizing.value = true;
-    event.preventDefault();
-}
-
-/**
- * 根据鼠标位置更新面板高度。
- */
-function handleResizing(event: MouseEvent): void {
-    if (!isResizing.value) {
-        return;
-    }
-
-    const nextHeight = Math.max(HEADER_HEIGHT, Math.min(window.innerHeight - event.clientY, window.innerHeight * MAX_HEIGHT_RATIO));
-    emit("update:height", nextHeight);
-}
-
-/**
- * 结束拖拽。
- */
-function stopResizing(): void {
-    isResizing.value = false;
-}
+const {isResizing: resizing} = useResizablePanel(resizeHandleRef, {
+    size: computed(() => props.height),
+    minSize: HEADER_HEIGHT,
+    maxSize: computed(() => import.meta.client ? window.innerHeight * MAX_HEIGHT_RATIO : RESTORE_HEIGHT),
+    edge: "top",
+    enabled: computed(() => props.visible),
+    onResize: (height) => emit("update:height", height),
+});
 
 /**
  * 切换高度到 0 / 最近一次展开高度。
@@ -74,20 +57,14 @@ function toggleHeight(): void {
     emit("update:height", HEADER_HEIGHT);
 }
 
-onMounted(() => {
-    window.addEventListener("mousemove", handleResizing);
-    window.addEventListener("mouseup", stopResizing);
-});
-
-onUnmounted(() => {
-    window.removeEventListener("mousemove", handleResizing);
-    window.removeEventListener("mouseup", stopResizing);
-});
-
 watch(() => props.height, (nextHeight) => {
     if (nextHeight > HEADER_HEIGHT) {
         lastExpandedHeight.value = nextHeight;
     }
+}, {immediate: true});
+
+watch(resizing, (nextResizing) => {
+    isResizing.value = nextResizing;
 }, {immediate: true});
 </script>
 
@@ -100,7 +77,7 @@ watch(() => props.height, (nextHeight) => {
         :style="{ height: visibleHeight }"
     >
         <!-- 拖拽手柄 -->
-        <div class="group absolute -top-1 left-0 right-0 z-30 h-2 cursor-row-resize" @mousedown="startResizing">
+        <div ref="resizeHandleRef" class="group absolute -top-1 left-0 right-0 z-30 h-2 cursor-row-resize">
             <div
                 class="mt-0.5 h-[2px] w-full bg-[var(--accent-main)] opacity-0 transition-all duration-150 group-hover:opacity-100"
                 :class="isResizing ? 'opacity-100 shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent-main)_28%,transparent)]' : ''"
