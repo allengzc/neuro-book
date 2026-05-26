@@ -147,8 +147,27 @@ describe("AgentProfileCatalog", () => {
         const item = result.compiled[0];
 
         expect(item?.registeredVariablePaths).toEqual(["session.draftGoal"]);
-        expect(item?.typeFileName).toMatch(/types\.d\.ts$/);
+        expect(item?.artifactFileName).toBe("custom.session-types.mjs");
+        expect(item?.typeFileName).toBe("custom.session-types.types.d.ts");
         expect(await readFile(resolve(systemRoot, ".compiled", item!.typeFileName!), "utf8")).toContain("\"session.draftGoal\": string;");
+    });
+
+    it("full compile 使用稳定文件名并清理旧 hash artifact", async () => {
+        await writeProfile(systemRoot, "builtin/custom.stable.profile.tsx", profileSource("custom.stable", "Stable"));
+        await mkdir(join(systemRoot, ".compiled"), {recursive: true});
+        await writeFile(join(systemRoot, ".compiled", "old-hash-artifact.mjs"), "export default null;", "utf8");
+        await writeFile(join(systemRoot, ".compiled", "old-hash-artifact.types.d.ts"), "export {};", "utf8");
+
+        const result = await compileProfileArtifacts({
+            profileRoot: systemRoot,
+            rootLabel: "test-system-profiles",
+        });
+        const item = result.compiled.find((profile) => profile.profileKey === "custom.stable");
+
+        expect(item?.artifactFileName).toBe("builtin__custom.stable.mjs");
+        expect(item?.typeFileName).toBe("builtin__custom.stable.types.d.ts");
+        await expect(readFile(join(systemRoot, ".compiled", "old-hash-artifact.mjs"), "utf8")).rejects.toThrow();
+        await expect(readFile(join(systemRoot, ".compiled", "old-hash-artifact.types.d.ts"), "utf8")).rejects.toThrow();
     });
 
     it("TSX profile 依赖 helper 文件变化时重新编译缓存", async () => {

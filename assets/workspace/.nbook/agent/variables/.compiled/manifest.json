@@ -1,6 +1,6 @@
 {
   "compilerVersion": 1,
-  "generatedAt": "2026-05-26T06:46:15.952Z",
+  "generatedAt": "2026-05-26T10:47:02.077Z",
   "definitionsRoot": "assets/workspace/.nbook/agent/variables",
   "definitions": [
     {
@@ -8,10 +8,10 @@
       "sourceSha256": "94f77695bb570f3d10d18d6f9d61143c4997858b0263e2bbd884c9e2c4699f47",
       "sourceBytes": 394,
       "dependencyHash": "d2da13c8a177cff4d715017f",
-      "artifactFileName": "d2da13c8a177cff4d715017f.mjs",
+      "artifactFileName": "definitions.mjs",
       "artifactSha256": "76f9acf76d173da7f58aa362ee55fe4065b5ab1e06eaec164b726d6917e2e5db",
       "artifactBytes": 179,
-      "typeFileName": "d2da13c8a177cff4d715017f.types.d.ts",
+      "typeFileName": "definitions.types.d.ts",
       "typeSha256": "4bbe6a640c1b9db218b86676d0cc8356cd8309aef4fd27f4bf32cdc60a1d927a",
       "typeBytes": 355,
       "typeDiagnostics": [],

@@ -93,6 +93,8 @@ const {
     workspaceTree,
     workspaceKind,
     isUserAssetsWorkspace,
+    leftPanelWidth,
+    rightPanelWidth,
 } = storeToRefs(novelIdeStore);
 const {
     applyAgentWorkspaceSync,
@@ -1169,7 +1171,7 @@ onBeforeUnmount(() => {
         <div class="flex min-h-0 flex-1 overflow-hidden">
             <NovelIdeSidebar class="ide-sidebar" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="toggleLeftTab" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" />
 
-            <NovelIdeToolPanel class="ide-panel" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @close="activeLeftTab = null" />
+            <NovelIdeToolPanel v-model:width="leftPanelWidth" class="ide-panel" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @close="activeLeftTab = null" />
 
             <!-- 中央工作区 -->
             <main class="ide-editor-canvas relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--editor-canvas-bg)]">
@@ -1220,6 +1222,7 @@ onBeforeUnmount(() => {
             <NovelAgentDrawer
                 class="ide-agent-drawer"
                 :is-open="displayRightPanelOpen"
+                v-model:width="rightPanelWidth"
                 :novel-id="displayNovelIdForAgent"
                 :selected-file-path="selectedFilePath"
                 @close="rightPanelOpen = false"

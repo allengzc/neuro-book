@@ -497,6 +497,7 @@ async function syncCompiledProfileArtifact(fileName: string): Promise<void> {
         `${JSON.stringify(nextManifest, null, 2)}\n`,
         "utf-8",
     );
+    await pruneCompiledDirectory(userCompiledRoot, nextManifest.profiles.flatMap((profile) => [profile.artifactFileName, profile.typeFileName]));
 }
 
 async function syncCompiledVariableDefinitionArtifact(): Promise<void> {
@@ -536,19 +537,29 @@ async function syncCompiledVariableDefinitionArtifact(): Promise<void> {
             return dependency;
         }),
     };
+    const nextManifest = {
+        ...userManifest,
+        generatedAt: new Date().toISOString(),
+        definitionsRoot: "workspace/.nbook/agent/variables",
+        definitions: [
+            ...userManifest.definitions.filter((definition) => definition.fileName !== item.fileName),
+            nextItem,
+        ].sort((left, right) => left.fileName.localeCompare(right.fileName)),
+    };
     await fs.writeFile(
         path.join(userCompiledRoot, "manifest.json"),
-        `${JSON.stringify({
-            ...userManifest,
-            generatedAt: new Date().toISOString(),
-            definitionsRoot: "workspace/.nbook/agent/variables",
-            definitions: [
-                ...userManifest.definitions.filter((definition) => definition.fileName !== item.fileName),
-                nextItem,
-            ].sort((left, right) => left.fileName.localeCompare(right.fileName)),
-        }, null, 2)}\n`,
+        `${JSON.stringify(nextManifest, null, 2)}\n`,
         "utf-8",
     );
+    await pruneCompiledDirectory(userCompiledRoot, nextManifest.definitions.flatMap((definition) => [definition.artifactFileName, definition.typeFileName]));
+}
+
+async function pruneCompiledDirectory(compiledRoot: string, referencedFiles: Array<string | undefined>): Promise<void> {
+    const keep = new Set(["manifest.json", ...referencedFiles.filter((fileName): fileName is string => Boolean(fileName))]);
+    const entries = await fs.readdir(compiledRoot, {withFileTypes: true}).catch(() => []);
+    await Promise.all(entries
+        .filter((entry) => entry.isFile() && /\.(mjs|types\.d\.ts)$/.test(entry.name) && !keep.has(entry.name))
+        .map((entry) => fs.rm(path.join(compiledRoot, entry.name), {force: true})));
 }
 
 async function readUserProfileSyncState(): Promise<UserProfileSyncState> {

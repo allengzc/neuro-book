@@ -138,6 +138,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 前端 API 错误文案统一使用 `app/utils/api-error.ts` 的 `resolveApiErrorMessage(error, fallback)` 解析，不要在业务组件里重复解析 `$fetch` 错误结构。
 - 前端错误展示按入口归属：当前 Dialog/Panel 内可恢复的表单或加载错误写入该入口自己的局部 error state；跨入口、后台动作、复制/剪贴板/文件操作等即时反馈使用 `useNotification()`；不要把 A 入口触发的错误写进只有 B 入口能看到的 error state。
 - 如果同一业务函数会被多个入口复用，必须在函数内按调用入口显式选择错误出口，或拆成入口级 wrapper，避免隐藏宿主、Dialog、侧边栏之间错误不可见。
+- 可拖拽调整尺寸的面板统一使用 `app/composables/useResizablePanel.ts`；不要在组件里重复手写 `mousemove` / `mouseup` / pointer 监听。尺寸状态放在宿主或 store，组件只通过 `update:width` / `update:height` 回传。
 
 ## Coding Style
 

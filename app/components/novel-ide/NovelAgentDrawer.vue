@@ -6,6 +6,7 @@ import type {AgentMessage, AgentToolCall} from "nbook/app/components/novel-ide/a
 import {hasVisibleInvocationError} from "nbook/app/components/novel-ide/agent/agent-message";
 import {applyClientVariablePatch, buildAgentClientState} from "nbook/app/components/novel-ide/agent/client-variables";
 import {useStructuredReferenceMenu} from "nbook/app/composables/useStructuredReferenceMenu";
+import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
@@ -21,7 +22,7 @@ import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-i
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
-import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentSessionSnapshotDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
 
 type SessionModelDraft = {
@@ -32,13 +33,18 @@ type SessionModelDraft = {
     stream: boolean;
 };
 
+const MIN_DRAWER_WIDTH = 320;
+const MAX_DRAWER_WIDTH = 720;
+
 const props = defineProps<{
     isOpen: boolean;
+    width: number;
     novelId: string;
     selectedFilePath?: string;
 }>();
 
 const emit = defineEmits<{
+    (e: "update:width", value: number): void;
     (e: "close"): void;
     (e: "sync-workspace", payload: AgentWorkspaceSyncPayload): void;
 }>();
@@ -46,6 +52,7 @@ const emit = defineEmits<{
 const inputText = ref("");
 const chatFlowRef = ref<InstanceType<typeof AgentChatFlow> | null>(null);
 const inputRef = ref<InstanceType<typeof AgentComposer> | null>(null);
+const resizeHandleRef = ref<HTMLElement | null>(null);
 
 const sessions = ref<AgentSessionSummaryDto[]>([]);
 const activeSessionId = ref<number | null>(null);
@@ -154,6 +161,14 @@ const workspaceKey = computed(() => {
 });
 
 const agentWorkspaceRoot = computed(() => ideStore.workspaceKind === "user-assets" ? "workspace/.nbook" : ideStore.currentWorkspaceRoot || "workspace");
+const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
+    size: computed(() => props.width),
+    minSize: MIN_DRAWER_WIDTH,
+    maxSize: MAX_DRAWER_WIDTH,
+    edge: "left",
+    enabled: computed(() => props.isOpen),
+    onResize: (width) => emit("update:width", width),
+});
 
 /**
  * 把 Agent 面板内 API 异常统一转换为 notification 文案。
@@ -194,6 +209,7 @@ const sessionModelDefaultLabel = computed(() => "跟随 Profile 默认");
 const sessionModelSelectionValue = computed(() => sessionModelMode.value === "override" ? sessionModelDraft.value.modelKey : null);
 const activeDrawerTitle = computed(() => activeSummary.value?.profileKey === "leader.assets" ? "用户资产助手" : "AI 写作助手");
 const drawerIconClass = computed(() => "i-lucide-sparkles text-[var(--accent-text)]");
+const drawerStyle = computed(() => props.isOpen ? panelStyle.value : {width: "0px"});
 
 const sessionTreeState = computed(() => deriveAgentTreeState(activeSnapshot.value?.tree ?? []));
 const branchSwitcherStateByMessageId = computed(() => sessionTreeState.value.switcherByMessageId);
@@ -1129,10 +1145,16 @@ function isApprovalApproved(answer?: {
 <template>
     <!-- 右侧 Agent 抽屉 -->
     <aside
-        class="z-30 flex h-full shrink-0 flex-col bg-[var(--bg-panel)] shadow-2xl transition-all duration-300"
-        :class="props.isOpen ? 'w-[400px] border-l border-[var(--border-color)] opacity-100' : 'pointer-events-none w-0 border-l-0 opacity-0'"
+        class="relative z-30 flex h-full shrink-0 flex-col bg-[var(--bg-panel)] shadow-2xl transition-all duration-300"
+        :class="[props.isOpen ? 'border-l border-[var(--border-color)] opacity-100' : 'pointer-events-none border-l-0 opacity-0', isResizing ? 'select-none transition-none' : '']"
+        :style="drawerStyle"
     >
         <template v-if="props.isOpen">
+            <!-- 宽度拖拽手柄 -->
+            <div ref="resizeHandleRef" class="group absolute -left-1 top-0 z-30 h-full w-2 cursor-col-resize">
+                <div class="ml-1 h-full w-[2px] bg-[var(--accent-main)] opacity-0 transition-all duration-150 group-hover:opacity-100" :class="isResizing ? 'opacity-100 shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent-main)_28%,transparent)]' : ''"></div>
+            </div>
+
             <!-- 抽屉头部 -->
             <div class="flex shrink-0 items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3">
                 <div class="min-w-0 flex items-center gap-2">

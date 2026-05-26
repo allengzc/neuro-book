@@ -305,8 +305,8 @@ export const affectionsVariable = defineProjectVariable({
 
 建议 artifact 位置：
 
-- Workspace Root/global definition artifact: `workspace/.nbook/agent/variables/.compiled/manifest.json` 与 `workspace/.nbook/agent/variables/.compiled/*.mjs`。
-- Project definition artifact: `workspace/{project}/.nbook/agent/variables/.compiled/manifest.json` 与 `workspace/{project}/.nbook/agent/variables/.compiled/*.mjs`。
+- Workspace Root/global definition artifact: `workspace/.nbook/agent/variables/.compiled/manifest.json` 与稳定文件名的 `workspace/.nbook/agent/variables/.compiled/*.mjs` / `*.types.d.ts`。
+- Project definition artifact: `workspace/{project}/.nbook/agent/variables/.compiled/manifest.json` 与稳定文件名的 `workspace/{project}/.nbook/agent/variables/.compiled/*.mjs` / `*.types.d.ts`。
 - Bundled Workspace Template 的系统 definition artifact 随 `assets/workspace/.nbook/agent/variables/.compiled/` 发布，并由 user-assets 同步到 Workspace Root `.nbook`。
 - Profile 内部的 `defineSessionVariable(...)` 随 profile 自身 `.compiled` artifact 加载，不再单独生成变量 definition artifact。
 
@@ -333,6 +333,7 @@ type VariableDefinitionCompiledManifest = {
 运行时加载规则：
 
 - definition registry 只 import manifest 中 hash 匹配的 artifact。
+- artifact 文件名不携带 hash，例如 `definitions.ts` 生成 `definitions.mjs` 和 `definitions.types.d.ts`；运行可信度由 manifest 中的 source/artifact/dependency hash 决定。
 - 缺少 artifact 的 definition source 状态为 `not_compiled`。
 - source 或依赖 hash 变化时状态为 `compile_stale`，不能加载旧 artifact。
 - artifact import 失败时状态为 `compiled_load_failed`，并在 registry/catalog/API 中暴露结构化 issue。

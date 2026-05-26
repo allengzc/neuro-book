@@ -24,9 +24,9 @@
 当前 profile runtime 已硬切为 `.compiled` 运行真相源：
 
 - `.profile.tsx` / `.profile.ts` / `.profile.js` / `.profile.mjs` 是编辑真相源。
-- `.compiled/manifest.json` 与 `.compiled/*.mjs` 是运行真相源。
+- `.compiled/manifest.json` 与 `.compiled/*.mjs` 是运行真相源；`.mjs` / `.types.d.ts` 使用稳定文件名，hash 保存在 manifest 和 import query 中。
 - `AgentProfileCatalog` 仍扫描源码文件以判断存在性、source hash 和覆盖关系，但不会在 catalog、config snapshot、创建 session 或 invoke 中自动编译 TSX。
-- catalog 只在 manifest 中的源码 hash、依赖 hash 和 artifact hash 都匹配时 import `.compiled/*.mjs`。
+- catalog 只在 manifest 中的源码 hash、artifact hash 和依赖 hash 都匹配时 import `.compiled/*.mjs`，并用 artifact hash query bust Node ESM cache。
 - 未编译或过期的 profile 会进入 `not_compiled` / `compile_stale` / `compiled_load_failed` / `source_error` 状态，`get(profileKey)` 不会回退到源码自动编译，也不会静默使用同 key memory fallback。
 - 系统 profile 在 `bun run dev`、`bun run build`、`bun run nuxt:build` 前由 `scripts/prepare-system-profile-metadata.ts` 预编译，并作为 system assets 发布。
 - 用户 profile 由 Workbench “编译”按钮或 Agent runtime CLI `profile compile` 手动生成用户侧 `.compiled` 产物。
