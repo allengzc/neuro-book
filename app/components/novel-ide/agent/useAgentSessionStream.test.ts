@@ -155,6 +155,44 @@ describe("useAgentSessionStream", () => {
         expect(session.lastSeq.value).toBe(1);
     });
 
+    it("旧 snapshot finally 不清掉新的同 session single-flight", async () => {
+        const session = useAgentSession();
+        const activeSessionId = ref<number | null>(1);
+        session.applySnapshot(baseSnapshot(1));
+        let resolveOldSnapshot!: (snapshot: AgentSessionSnapshotDto) => void;
+        let resolveNewSnapshot!: (snapshot: AgentSessionSnapshotDto) => void;
+        let callCount = 0;
+        const api = {
+            getSession: vi.fn(() => {
+                callCount += 1;
+                if (callCount === 1) {
+                    return new Promise<AgentSessionSnapshotDto>((resolve) => {
+                        resolveOldSnapshot = resolve;
+                    });
+                }
+                return new Promise<AgentSessionSnapshotDto>((resolve) => {
+                    resolveNewSnapshot = resolve;
+                });
+            }),
+            subscribeSessionEvents: vi.fn(async () => new Promise<void>(() => {})),
+        };
+        const stream = useAgentSessionStream({session, api, activeSessionId});
+
+        const oldSync = stream.syncSnapshot("manual_refresh");
+        stream.stop();
+        const newSync = stream.syncSnapshot("manual_refresh");
+        resolveOldSnapshot(baseSnapshot(3));
+        await expect(oldSync).resolves.toBe(false);
+
+        const reusedNewSync = stream.syncSnapshot("manual_refresh");
+        expect(api.getSession).toHaveBeenCalledTimes(2);
+
+        resolveNewSnapshot(baseSnapshot(5));
+        await expect(newSync).resolves.toBe(true);
+        await expect(reusedNewSync).resolves.toBe(true);
+        expect(session.lastSeq.value).toBe(5);
+    });
+
     it("manual refresh snapshot 不伪造 SSE connected 状态", async () => {
         const session = useAgentSession();
         const activeSessionId = ref<number | null>(1);

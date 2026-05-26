@@ -388,6 +388,76 @@ describe("agent message projection", () => {
         expect(messages[0]?.toolCalls?.[0]?.argsText).toContain("hello");
     });
 
+    it("toolcall_end 用真实 id 替换 content placeholder", () => {
+        const previous: AgentMessage[] = [{
+            id: "assistant:1",
+            type: "ai",
+            content: "",
+            status: "streaming",
+            toolCalls: [{
+                id: "content-0",
+                index: 0,
+                name: "",
+                argsText: "{\"path\":\"a.md\"}",
+                status: "streaming",
+                assistantMessageId: "assistant:1",
+            }],
+            assistantContent: [
+                {type: "toolCall", id: "content-0", name: "", arguments: "{\"path\":\"a.md\"}"} as never,
+            ],
+        }];
+
+        const messages = applyPiEventToMessages(previous, {
+            type: "message_update",
+            message: {
+                role: "assistant",
+                content: [],
+                api: "test",
+                provider: "test",
+                model: "test",
+                usage: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    totalTokens: 0,
+                    cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
+                },
+                stopReason: "toolUse",
+                timestamp: 1,
+            } as never,
+            assistantMessageEvent: {
+                type: "toolcall_end",
+                contentIndex: 0,
+                toolCall: {
+                    type: "toolCall",
+                    id: "call-real",
+                    name: "write",
+                    arguments: "{\"path\":\"a.md\"}",
+                },
+                partial: {
+                    role: "assistant",
+                    content: [],
+                    api: "test",
+                    provider: "test",
+                    model: "test",
+                    usage: {
+                        input: 0,
+                        output: 0,
+                        cacheRead: 0,
+                        cacheWrite: 0,
+                        totalTokens: 0,
+                        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
+                    },
+                    stopReason: "toolUse",
+                    timestamp: 1,
+                },
+            } as never,
+        });
+
+        expect(messages[0]?.toolCalls?.map((toolCall) => toolCall.id)).toEqual(["call-real"]);
+    });
+
     it("按 contentIndex 合并交错的 thinking/text/toolCall block", () => {
         const previous = [{
             id: "assistant:1",
