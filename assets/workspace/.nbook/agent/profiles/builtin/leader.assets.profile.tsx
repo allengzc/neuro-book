@@ -50,6 +50,9 @@ const allowedToolKeys = [
     "request_user_input",
     "enter_plan_mode",
     "exit_plan_mode",
+    "variable_schema",
+    "variable_read",
+    "variable_patch",
 ] as const;
 
 export default defineAgentProfile({

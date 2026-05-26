@@ -2240,7 +2240,10 @@ var allowedToolKeys = [
   "detach_agent",
   "request_user_input",
   "enter_plan_mode",
-  "exit_plan_mode"
+  "exit_plan_mode",
+  "variable_schema",
+  "variable_read",
+  "variable_patch"
 ];
 var leader_assets_profile_default = defineAgentProfile({
   manifest: profileManifest,

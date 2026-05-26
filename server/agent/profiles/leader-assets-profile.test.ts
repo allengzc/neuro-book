@@ -381,6 +381,9 @@ describe("assets builtin v3 profiles", () => {
             "request_user_input",
             "enter_plan_mode",
             "exit_plan_mode",
+            "variable_schema",
+            "variable_read",
+            "variable_patch",
         ]);
         expect(prompt).toContain("workspace/.nbook/agent/profiles");
         expect(prompt).toContain("workspace/.nbook/agent/writing-presets/{styles,references}");
