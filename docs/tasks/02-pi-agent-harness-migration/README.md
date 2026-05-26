@@ -533,7 +533,7 @@ type ProfileIngestResult = {
 - `followUp`：等待 agent 本来要停止时再送入的后续消息。只有当当前 ReAct loop 没有更多 tool calls、也没有 pending steering messages 时才注入；Neuro Book 第一版按 FIFO 一次只消费一条 followUp，然后以 fresh loop 继续。
 - 同一个 `sessionId` 第一版不允许同时运行多个 active invocation。所谓“多个正在运行的 invocation”是指用户在一个 session 还在 streaming/tool 执行/等待本轮结束时，又从另一个浏览器窗口或同一窗口提交了新的 prompt/continue。v3 不启动并行 run，也不让两个 provider loop 同时写同一个 session tree；新的用户 prompt 会进入当前 active invocation 的 `followUp` queue，等当前 ReAct loop 没有更多 tool calls 且没有 pending steer 时按 FIFO 继续执行。
 - active invocation lock 指每个 session 同一时刻最多只有一个正在修改 session / 调 provider / 跑工具 / compact 的 active invocation。它不是数据库锁，也不是跨进程锁；第一版是 harness 内的 session 级运行态互斥。它防止两个 provider loop 同时追加同一棵 session tree，也防止 `/tree`、`/model`、`/compact` 等控制命令在运行中移动 leaf 或改 state。
-- 运行中收到 followUp 后，应通过 session event hub 广播 `follow_up_queued` / queued message 事件，让所有订阅该 session 的窗口都能看到“后续消息已排队”。queued followUp 本身不立刻改写 active leaf；只有真正 drain 并进入下一轮 provider context 时，才作为标准 user message 写入 session。
+- 运行中收到 steer / followUp 后，应通过 session event hub 广播 `steer_queued` / `follow_up_queued` 事件，让所有订阅该 session 的窗口都能看到“消息已引导/已排队”。queued message 本身不立刻改写 active leaf；只有真正 drain 并进入 provider context 时，才作为标准 user message 写入 session。
 - `continue + resolution` 是审批恢复控制流，不走 followUp queue。如果 session 正在等待 approval resolution，这时提交 resolution 会补齐对应 toolResult 并继续当前 invocation；如果同一时刻又提交普通 prompt，则普通 prompt 进入 followUp queue。
 - `steer` / `followUp` 的固定提示词不交给 profile 决定。它们属于 harness 交互协议，由 NeuroAgentHarness 写死或通过 harness-level policy 配置；profile 只负责常规 systemPrompt、history、dynamic/appending 上下文。
 - `steer` / `followUp` / `abort` / clear queue 第一版全部由 harness 写死，不开放给 profile 直接触发或改写。
@@ -723,7 +723,7 @@ type AgentAbortRequest = {
 - abort 语义：
   - 取消当前 active invocation 的 provider stream 和正在执行的工具。
   - 已经写入 session 的 user、assistant partial、tool result、session writes 不回滚。
-  - `clearQueue` 默认 `true`，清掉尚未 drain 的 followUp queue；第一版不提供“保留 queued followUp”UI。
+  - `clearQueue` 默认 `true`，清掉尚未 drain 的 steer / followUp queue；第一版不提供“保留 queued steer / followUp”UI。
   - abort 后通过 session event hub 广播 `invocation_aborted`，session 回到 idle。
   - 如果当前 session 没有 active invocation，返回 `{ status: "idle" }`，不报错。
 - 前端加载 session 采用 `snapshot + event patches`：
