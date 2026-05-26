@@ -17,7 +17,7 @@
 - 明确工具流式能力：模型生成 tool call arguments 的流式展示、工具执行过程中的 partial output 展示、通用工具气泡和专用工具气泡的职责边界。
 - 评估并收敛当前前端接口结构，避免 `NovelAgentDrawer.vue`、`useAgentSession.ts`、`agent-message.ts` 之间继续增长隐式状态和补丁逻辑。
 
-## Current State
+## Initial Diagnosis
 
 - 后端主路径已经是 Pi-based `server/agent`。旧 v2 只作为迁移参考，不进入 active runtime。
 - 正式 HTTP 入口是 `/api/agent/sessions/**`：
@@ -51,13 +51,23 @@ type AgentSessionEventDto =
   - 不包含 `agent_start` / `agent_end`，也不包含 `snapshot_required`。
   - `session_state_changed` 抽样里均为 `summary.status = "running"` 且 `activeInvocation` 非空。
   - assistant content block 只见到 `text` 与 `toolCall`，没有 `thinking` block。
-- 当前前端状态：
+- 初始前端状态：
   - `useAgentSession.ts` 只在 `agent_start` / `agent_end` 和 snapshot `activeInvocation` 上维护 `running`，对 `turn_start` / `turn_end` 没有 UI phase 语义。
   - `NovelAgentDrawer.vue` 在每条 SSE event 后检查 `session.needsSnapshot`，若为 true 立即 `GET /api/agent/sessions/:sessionId`；缺少 snapshot request single-flight、触发原因记录和重连状态。
   - `agent-message.ts` 能从 Pi `message_*` 和 `tool_execution_*` 投影聊天消息和工具卡，但 message/run/session 连接状态混在一起。
   - `AgentTextBubble.vue` 只有 `message.thinking` 非空时展示思维链；若后端不产出 `thinking` block，前端不会显示。
   - `AgentWriteFileBubble.vue` 已能从 streaming args 文本中提取 `path` / `content`，所以 write 工具参数实时预览方向是存在的。
   - 通用 `AgentToolNode.vue` 已能显示 args/result/error；`tool_execution_update` 会更新 `result/rawResult`，但当前 harness 普通工具执行只 emit start/end，尚未把工具内部 partial output 发出来。
+
+## Current Implementation
+
+- 前端已新增 `useAgentSessionStream()`，负责 SSE connect/reconnect/backoff、`lastSeq` 续订、`snapshot_required` / seq gap 恢复和 snapshot single-flight。
+- `useAgentSession()` 已增加 connection state、live run status、run phase 和 snapshot reasons；`connected` 不推进 durable `lastSeq`，`session_state_changed.snapshot` 直接 apply。
+- `NovelAgentDrawer.vue` 不再直接管理 SSE `AbortController` / ready promise；发送前通过 stream manager ensure，command/tree response 自带 snapshot 时直接 apply，并校验 sessionId。
+- `AgentComposer.vue` 已显示连接状态和 run phase；事件连接多次失败时提供“重连”和“刷新历史”入口。
+- `agent-message.ts` 已支持 `assistantMessageEvent` 按 `contentIndex` 合并 text / thinking / toolCall block，并保留 `assistantContent` 避免从扁平 UI 字段反推顺序。
+- `readSseStream()` 已等待 async `onEvent`，避免异步 client patch / reducer 处理期间后续 frame 抢先 apply。
+- 工具参数流式已在前端 reducer 和工具气泡层保留能力；工具执行输出流式合同保留，但本轮未接后端 tool `onUpdate`。
 
 ## Event Contract
 
@@ -233,7 +243,7 @@ Button shape should use `running` only for whether click means stop. User-facing
 
 ## Code Interface Assessment
 
-当前接口不是不可维护，但已经开始混乱，主要问题是状态边界不清：
+初始诊断时，当前接口不是不可维护，但已经开始混乱，主要问题是状态边界不清：
 
 - `NovelAgentDrawer.vue` 同时做 session 加载、SSE lifecycle、snapshot recovery、用户操作、notification、model state 同步和 UI glue。
 - `useAgentSession.ts` 名义上是 session store，但里面同时处理 snapshot、Pi event、session control event、running、pending user input 和 gap detection。
@@ -243,22 +253,22 @@ Button shape should use `running` only for whether click means stop. User-facing
 
 推荐重构方向：
 
-- 保留现有组件视觉结构，先提纯状态层，不大改 UI。
-- 新增或重组一个 `useAgentSessionStream()`：
+- 保留现有组件视觉结构，先提纯状态层，不大改 UI。已按此方向落地第一版。
+- 新增或重组一个 `useAgentSessionStream()`：已完成。
   - 负责 SSE connect/reconnect/backoff。
   - 负责 `lastSeq`、gap detection、`snapshot_required`、single-flight snapshot recovery。
   - 输出 connection state 和 reconnect actions。
-- 将 `useAgentSession()` 收窄为纯 reducer：
+- 将 `useAgentSession()` 收窄为纯 reducer：已部分完成，HTTP 和 stream lifecycle 已外移；消息投影仍在 `agent-message.ts`。
   - `applySnapshot(snapshot)`
   - `applyEvent(event)`
   - `applyConnectionState(state)`
   - 不直接发 HTTP。
-- 将 `agent-message.ts` 拆分为：
+- 将 `agent-message.ts` 拆分为：尚未执行，后续如继续增长再拆。
   - snapshot projection。
   - live Pi event projection。
   - tool call merge/status helpers。
   - pending approval projection。
-- 明确 `AgentRunPhase` 类型，避免 UI 从工具状态和 running boolean 反推用户文案。
+- 明确 `AgentRunPhase` 类型，避免 UI 从工具状态和 running boolean 反推用户文案。已完成第一版。
 
 ## Optimization Recommendations
 
@@ -422,15 +432,29 @@ SSE 断线不是 run error，不应投影为聊天错误卡。短暂断线在 co
 
 ## Files Changed
 
-- `docs/tasks/14-agent-sse-front-end-contract/README.md`
-- `docs/modules/agent/harness.md`
-- `spec/agent/sse.md`
-- `spec/README.md`
-- `PROJECT-STATUS.md`
+- Spec / docs:
+  - `docs/tasks/14-agent-sse-front-end-contract/README.md`
+  - `docs/modules/agent/harness.md`
+  - `spec/agent/sse.md`
+  - `spec/README.md`
+  - `PROJECT-STATUS.md`
+- Front-end runtime:
+  - `app/components/novel-ide/NovelAgentDrawer.vue`
+  - `app/components/novel-ide/agent/AgentComposer.vue`
+  - `app/components/novel-ide/agent/useAgentSession.ts`
+  - `app/components/novel-ide/agent/useAgentSessionStream.ts`
+  - `app/components/novel-ide/agent/agent-message.ts`
+  - `app/composables/useAgentSessionApi.ts`
+  - `app/utils/http/read-sse.ts`
+- Tests:
+  - `app/components/novel-ide/agent/useAgentSession.test.ts`
+  - `app/components/novel-ide/agent/useAgentSessionStream.test.ts`
+  - `app/components/novel-ide/agent/agent-message.test.ts`
+  - `app/utils/http/read-sse.test.ts`
 
-## Verification
+## Initial Documentation Verification
 
-- 本轮只新增规划/合同文档，未改运行代码。
+- 初始阶段只新增规划/合同文档，尚未改运行代码。
 - 已读取并对齐：
   - `docs/tasks/02-pi-agent-harness-migration/README.md`
   - `docs/tasks/07-agent-turn-commit-boundary/README.md`
@@ -452,7 +476,7 @@ SSE 断线不是 run error，不应投影为聊天错误卡。短暂断线在 co
 - `agent-message.ts` 已把 `assistantMessageEvent` 收敛为按 `contentIndex` 合并 text / thinking / toolCall block；`event.message.content` / `partial.content` 作为完整 block 兜底校准，避免 toolCall block 前面有 thinking/text 时更新错工具。
 - 工具执行输出流式仍保留 `tool_execution_update` 前端能力，但本轮未接后端 tool `onUpdate`，符合当前“保留能力、暂不支持具体工具输出流式”的决策。
 
-## Latest Verification
+## Initial Implementation Verification
 
 - `bunx vitest run app/components/novel-ide/agent/useAgentSessionStream.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/components/novel-ide/agent/agent-message.test.ts`
   - 结果：通过，3 个测试文件，15 个测试。
@@ -473,7 +497,7 @@ SSE 断线不是 run error，不应投影为聊天错误卡。短暂断线在 co
 - 修复 tool call placeholder 残留问题：`toolcall_end` 带真实 id 到达后，会按同 content index 替换 `content-*` 占位工具，避免 ghost tool call 长期停留在 streaming。
 - 修复旧 snapshot 请求的 `finally` 清掉新 single-flight 的竞态；snapshot promise 现在按请求对象精确清理。
 
-## Latest Review Fix Verification
+## Current Verification
 
 - `bunx vitest run app/utils/http/read-sse.test.ts app/components/novel-ide/agent/useAgentSessionStream.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/components/novel-ide/agent/agent-message.test.ts`
   - 结果：通过，4 个测试文件，24 个测试。
@@ -482,7 +506,6 @@ SSE 断线不是 run error，不应投影为聊天错误卡。短暂断线在 co
 
 ## TODO / Follow-ups
 
-- 真实浏览器验收前端 SSE 重连、手动重连、snapshot single-flight 和 dev reload 恢复。
+- 真实浏览器验收前端 SSE 重连、手动重连、snapshot single-flight、dev reload 恢复、多窗口、长工具参数流式和工具执行输出流式。当前未做自动浏览器验证。
 - 保留 tool execution streaming 合同；具体工具输出流式可以后置实现，优先保证工具参数流式、start/end 和最终结果可靠。
 - 后续如启用工具执行输出流式，将通用工具气泡的 streaming result 体验做成默认能力，专用工具气泡只做更高质量展示。
-- 真实浏览器验收：多窗口、工具参数流式、工具输出流式。
