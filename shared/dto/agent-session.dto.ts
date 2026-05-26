@@ -89,6 +89,10 @@ export const AgentInvokeRequestDtoSchema = z.object({
 export const AgentSessionListQueryDtoSchema = z.object({
     workspaceKey: z.string().trim().min(1).optional(),
     includeArchived: z.coerce.boolean().optional(),
+    profileGroup: z.enum(["all", "leader"]).optional(),
+    status: z.enum(["all", "active", "running", "waiting", "idle", "interrupted", "archived"]).optional(),
+    relation: z.enum(["all", "top", "child"]).optional(),
+    limit: z.coerce.number().int().min(1).max(200).optional(),
 });
 
 export const AgentSessionEventsQueryDtoSchema = z.object({
@@ -182,6 +186,10 @@ export type AgentSessionSummaryDto = {
     usage?: Usage;
 };
 
+export type AgentSessionProfileGroup = "all" | "leader";
+export type AgentSessionStatusFilter = "all" | "active" | "running" | "waiting" | "idle" | "interrupted" | "archived";
+export type AgentSessionRelationFilter = "all" | "top" | "child";
+
 export type AgentLinkedSessionDto = AgentSessionSummaryDto & {
     detached: boolean;
 };
@@ -263,6 +271,7 @@ export type AgentSessionSnapshotDto = {
     tree: SessionTreeNode[];
     entries: SessionEntry[];
     linkedAgents: AgentLinkedSessionDto[];
+    linkedByAgents: AgentLinkedSessionDto[];
     pendingApproval: AgentPendingApprovalDto | null;
     followUpQueue: AgentFollowUpQueueItemDto[];
     activeInvocation: AgentActiveInvocationDto | null;

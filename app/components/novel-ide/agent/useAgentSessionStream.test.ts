@@ -19,6 +19,7 @@ const baseSnapshot = (lastSeq = 0): AgentSessionSnapshotDto => ({
     tree: [],
     entries: [],
     linkedAgents: [],
+    linkedByAgents: [],
     pendingApproval: null,
     followUpQueue: [],
     activeInvocation: null,

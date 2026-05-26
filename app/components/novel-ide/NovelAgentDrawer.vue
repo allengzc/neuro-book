@@ -22,7 +22,7 @@ import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-i
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
-import type {AgentSessionSnapshotDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentSessionListQueryDto, AgentSessionSnapshotDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
 
 type SessionModelDraft = {
@@ -117,6 +117,8 @@ provide("sanitizeHtml", sanitizeHtml);
 const activeSnapshot = computed(() => session.snapshot.value);
 const activeSummary = computed(() => activeSnapshot.value?.summary ?? null);
 const linkedAgents = computed(() => activeSnapshot.value?.linkedAgents ?? []);
+const linkedByAgents = computed(() => activeSnapshot.value?.linkedByAgents ?? []);
+const linkedAgentCount = computed(() => linkedAgents.value.length + linkedByAgents.value.length);
 const planModeActive = computed(() => activeSnapshot.value?.planModeActive ?? false);
 const renderNodes = computed(() => messages.value);
 const messageActionsDisabled = computed(() => running.value || Boolean(messageActionId.value));
@@ -318,8 +320,23 @@ const loadResolvedLeaderProfileKey = async (): Promise<void> => {
  * 刷新 session 列表。
  */
 const refreshSessions = async (): Promise<AgentSessionSummaryDto[]> => {
+    return refreshSessionsWithQuery({
+        profileGroup: "leader",
+        status: "active",
+        relation: "all",
+        limit: 50,
+    });
+};
+
+/**
+ * 按弹窗筛选条件刷新 session 列表。
+ */
+const refreshSessionsWithQuery = async (query: AgentSessionListQueryDto = {}): Promise<AgentSessionSummaryDto[]> => {
     try {
-        sessions.value = await agentApi.listSessions({workspaceKey: workspaceKey.value});
+        sessions.value = await agentApi.listSessions({
+            ...query,
+            workspaceKey: workspaceKey.value,
+        });
         return sessions.value;
     } catch (error) {
         console.error("刷新 session 列表失败", error);
@@ -1172,7 +1189,7 @@ function isApprovalApproved(answer?: {
                     </button>
                     <button class="flex items-center gap-1.5 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': linkedAgentPanelOpen}" title="关联 Agent" @click="linkedAgentPanelOpen = !linkedAgentPanelOpen">
                         <span class="i-lucide-users h-4 w-4"></span>
-                        <span v-if="linkedAgents.length" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-white">{{ linkedAgents.length }}</span>
+                        <span v-if="linkedAgentCount" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-white">{{ linkedAgentCount }}</span>
                     </button>
                     <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" title="Session Tree" :disabled="!activeSessionId" @click="sessionTreeDialogOpen = true">
                         <span class="i-lucide-git-branch h-4 w-4"></span>
@@ -1190,7 +1207,8 @@ function isApprovalApproved(answer?: {
             <AgentLinkedAgentPanel
                 v-if="linkedAgentPanelOpen"
                 :session-id="activeSessionId"
-                :agents="linkedAgents"
+                :owned-agents="linkedAgents"
+                :linked-by-agents="linkedByAgents"
                 :loading="loadingSession"
                 @select="void loadSession($event); linkedAgentPanelOpen = false"
                 @refresh="void syncActiveSessionSnapshot()"
@@ -1274,6 +1292,7 @@ function isApprovalApproved(answer?: {
                 @select="void selectSession($event)"
                 @create="void createSessionFromDialog()"
                 @archive="void archiveSessionFromDialog($event)"
+                @refresh="void refreshSessionsWithQuery($event)"
             />
 
             <AgentSessionTreeDialog

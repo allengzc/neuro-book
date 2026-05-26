@@ -42,6 +42,7 @@ import type {
     AgentLinkedSessionDto,
     AgentPendingApprovalDto,
     AgentSessionEventDto,
+    AgentSessionListQueryDto,
     AgentSessionSnapshotDto,
     AgentSessionSummaryDto,
     AgentTreeRequestDto,
@@ -463,8 +464,32 @@ export class NeuroAgentHarness {
     /**
      * 列出前端可打开的顶层 session。
      */
-    async listSessions(workspaceKey?: string, includeArchived = false): Promise<AgentSessionSummaryDto[]> {
-        return this.repo.listSessions({workspaceKey, includeArchived});
+    async listSessions(query: AgentSessionListQueryDto = {}): Promise<AgentSessionSummaryDto[]> {
+        const repoQuery = {
+            ...query,
+            includeArchived: query.includeArchived || query.status === "archived",
+            status: undefined,
+            limit: undefined,
+        };
+        const summaries = (await this.repo.listSessions(repoQuery)).map((summary) => ({
+            ...summary,
+            status: this.resolveSessionStatus(summary.sessionId, summary.archived),
+        }));
+        const filtered = summaries.filter((summary) => this.matchesSessionStatusFilter(summary, query.status));
+        return query.limit ? filtered.slice(0, query.limit) : filtered;
+    }
+
+    /**
+     * 按前端 session 状态筛选运行期摘要。
+     */
+    private matchesSessionStatusFilter(summary: AgentSessionSummaryDto, status: AgentSessionListQueryDto["status"]): boolean {
+        if (!status || status === "all") {
+            return true;
+        }
+        if (status === "active") {
+            return !summary.archived;
+        }
+        return summary.status === status;
     }
 
     /**
@@ -480,11 +505,14 @@ export class NeuroAgentHarness {
         const linkedAgents: AgentLinkedSessionDto[] = [];
         for (const linked of context.linkedAgents) {
             const linkedSnapshot = await this.repo.readSession(linked.sessionId);
+            const linkedContext = this.repo.reduce(linkedSnapshot);
             linkedAgents.push({
                 ...this.repo.summary(linkedSnapshot),
+                status: this.resolveSessionStatus(linked.sessionId, linkedContext.archived),
                 detached: linked.detached,
             });
         }
+        const linkedByAgents = await this.linkedByAgents(snapshot.metadata.sessionId, snapshot.metadata.workspaceKey);
         const systemPrompt = await this.snapshotSystemPrompt(snapshot, context);
 
         return {
@@ -498,6 +526,7 @@ export class NeuroAgentHarness {
             tree: this.repo.tree(snapshot),
             entries: this.repo.activePath(snapshot),
             linkedAgents,
+            linkedByAgents,
             pendingApproval: pendingApproval ? await this.pendingApprovalDto(snapshot, pendingApproval) : null,
             followUpQueue: this.followUpQueues.get(sessionId) ?? [],
             activeInvocation: this.activeInvocations.get(sessionId) ?? null,
@@ -506,6 +535,31 @@ export class NeuroAgentHarness {
             lastSeq: this.eventHub.lastSeq,
             usage: [...context.messages].reverse().find((message) => message.role === "assistant")?.usage,
         };
+    }
+
+    /**
+     * 查找同 workspace 内哪些 session 仍记录了指向目标 session 的 agent link。
+     */
+    private async linkedByAgents(sessionId: number, workspaceKey: string): Promise<AgentLinkedSessionDto[]> {
+        const summaries = await this.repo.listSessions({workspaceKey, includeArchived: true});
+        const linkedByAgents: AgentLinkedSessionDto[] = [];
+        for (const summary of summaries) {
+            if (summary.sessionId === sessionId) {
+                continue;
+            }
+            const ownerSnapshot = await this.repo.readSession(summary.sessionId, summary.workspaceKey);
+            const ownerContext = this.repo.reduce(ownerSnapshot);
+            const linked = ownerContext.linkedAgents.find((item) => item.sessionId === sessionId);
+            if (!linked) {
+                continue;
+            }
+            linkedByAgents.push({
+                ...this.repo.summary(ownerSnapshot),
+                status: this.resolveSessionStatus(summary.sessionId, ownerContext.archived),
+                detached: linked.detached,
+            });
+        }
+        return linkedByAgents.sort((left, right) => right.updatedAt - left.updatedAt);
     }
 
     /**

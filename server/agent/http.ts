@@ -75,7 +75,7 @@ export async function createAgentSession(body: AgentCreateSessionRequestDto, har
  * 列出 Agent session 摘要。
  */
 export async function listAgentSessions(query: AgentSessionListQueryDto, harness = useAgentHarness()) {
-    return harness.listSessions(query.workspaceKey, query.includeArchived);
+    return harness.listSessions(query);
 }
 
 /**

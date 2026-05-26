@@ -149,6 +149,42 @@ function run(command, args, options = {}) {
     });
 }
 
+/** 运行外部命令并返回 stdout，错误时携带 stderr。 */
+function runCapture(command, args, options = {}) {
+    return new Promise((resolvePromise, rejectPromise) => {
+        const child = spawn(command, args, {
+            cwd: options.cwd,
+            env: options.env ? {...process.env, ...options.env} : process.env,
+            stdio: ["ignore", "pipe", "pipe"],
+        });
+        let stdout = "";
+        let stderr = "";
+
+        child.stdout.setEncoding("utf-8");
+        child.stderr.setEncoding("utf-8");
+        child.stdout.on("data", (chunk) => {
+            stdout += chunk;
+        });
+        child.stderr.on("data", (chunk) => {
+            stderr += chunk;
+        });
+        child.on("error", (error) => {
+            rejectPromise(new Error(`命令不可用或启动失败：${command}\n${error.message}`));
+        });
+        child.on("exit", (code, signal) => {
+            if (signal) {
+                rejectPromise(new Error(`命令被信号中断：${command} ${signal}`));
+                return;
+            }
+            if (code !== 0) {
+                rejectPromise(new Error(`命令执行失败：${command} ${args.join(" ")}，退出码 ${code}\n${stderr.trim()}`));
+                return;
+            }
+            resolvePromise(stdout);
+        });
+    });
+}
+
 /** 检查命令是否可用。 */
 async function needCommand(command, args = ["--version"]) {
     await run(command, args, {stdio: "ignore"});
@@ -1134,6 +1170,8 @@ async function ensureRepository(config) {
         if (!existsSync(resolve(config.deployDir, ".git"))) {
             dryRunCommand("git", ["clone", config.repo, config.deployDir]);
         } else {
+            dryRunCommand("git", ["-C", config.deployDir, "ls-files", "--", ...REGENERATED_SYSTEM_ARTIFACTS]);
+            dryRunCommand("git", ["-C", config.deployDir, "restore", "--", "<tracked generated artifacts>"]);
             dryRunCommand("git", ["-C", config.deployDir, "pull", "--ff-only"]);
         }
         return;
@@ -1154,7 +1192,30 @@ async function ensureRepository(config) {
         return;
     }
 
+    await restoreRegeneratedSystemArtifacts(config.deployDir);
     await run("git", ["-C", config.deployDir, "pull", "--ff-only"]);
+}
+
+const REGENERATED_SYSTEM_ARTIFACTS = [
+    "assets/workspace/.nbook/agent/profiles/.compiled/manifest.json",
+    "assets/workspace/.nbook/agent/profiles/.system-profile-metadata.json",
+    "assets/workspace/.nbook/agent/variables/.compiled/manifest.json",
+    "server/agent/variables/generated-profile-variable-types.d.ts",
+];
+
+/** 恢复 build/dev 会重写的 tracked 系统产物，避免部署 checkout 因 generated diff 阻塞 git pull。 */
+async function restoreRegeneratedSystemArtifacts(deployDir) {
+    const tracked = await gitTrackedGeneratedArtifacts(deployDir);
+    if (tracked.length === 0) {
+        return;
+    }
+    await run("git", ["-C", deployDir, "restore", "--", ...tracked]);
+}
+
+/** 返回当前 checkout 已跟踪的可再生成系统产物；旧版本部署目录可能还没有全部路径。 */
+async function gitTrackedGeneratedArtifacts(deployDir) {
+    const stdout = await runCapture("git", ["-C", deployDir, "ls-files", "--", ...REGENERATED_SYSTEM_ARTIFACTS]);
+    return stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
 }
 
 /** 根据数据库模式启动 Docker Compose。 */

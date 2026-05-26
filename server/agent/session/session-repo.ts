@@ -17,7 +17,7 @@ import type {
     SessionTreeNode,
     SessionEntryDraft,
 } from "nbook/server/agent/session/types";
-import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentSessionListQueryDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 
 type CreateSessionInput = {
     profileKey: string;
@@ -106,7 +106,7 @@ export class JsonlSessionRepository {
     /**
      * 列出指定 workspace 下的 session 摘要。默认隐藏 archived session。
      */
-    async listSessions(input: {workspaceKey?: string; includeArchived?: boolean} = {}): Promise<AgentSessionSummaryDto[]> {
+    async listSessions(input: AgentSessionListQueryDto = {}): Promise<AgentSessionSummaryDto[]> {
         const sessionsRoot = join(this.rootWorkspace, ".nbook", "agent", "sessions");
         const existingWorkspaceNames = (await readdir(sessionsRoot, {withFileTypes: true}).catch(() => []))
                 .filter((entry) => entry.isDirectory())
@@ -129,14 +129,50 @@ export class JsonlSessionRepository {
                 }
                 const snapshot = await this.readSession(sessionId, workspaceName);
                 const summary = this.summary(snapshot);
-                if (!input.includeArchived && summary.archived) {
+                if (!this.matchesSessionListFilter(summary, input)) {
                     continue;
                 }
                 summaries.push(summary);
             }
         }
 
-        return summaries.sort((left, right) => right.updatedAt - left.updatedAt);
+        const sorted = summaries.sort((left, right) => right.updatedAt - left.updatedAt);
+        return input.limit ? sorted.slice(0, input.limit) : sorted;
+    }
+
+    /**
+     * 判断 session 摘要是否符合列表查询筛选条件。
+     */
+    private matchesSessionListFilter(summary: AgentSessionSummaryDto, input: AgentSessionListQueryDto): boolean {
+        if (!input.includeArchived && summary.archived) {
+            return false;
+        }
+        if (input.profileGroup === "leader" && !this.isLeaderProfile(summary.profileKey)) {
+            return false;
+        }
+        if (input.relation === "top" && summary.parentSessionId) {
+            return false;
+        }
+        if (input.relation === "child" && !summary.parentSessionId) {
+            return false;
+        }
+        if (!input.status || input.status === "all") {
+            return true;
+        }
+        if (input.status === "running" || input.status === "waiting") {
+            return false;
+        }
+        if (input.status === "active") {
+            return !summary.archived;
+        }
+        return summary.status === input.status;
+    }
+
+    /**
+     * Leader profile 采用 profileKey 命名约定筛选。
+     */
+    private isLeaderProfile(profileKey: string): boolean {
+        return profileKey === "leader.default" || profileKey === "leader.assets" || profileKey.startsWith("leader.");
     }
 
     /**

@@ -8,6 +8,7 @@ import type {
     AgentActiveInvocationDto,
     AgentCommandRequestDto,
     AgentFollowUpQueueItemDto,
+    AgentSessionListQueryDto,
     AgentSessionSnapshotDto,
     AgentSessionSummaryDto,
     AgentTreeRequestDto,
@@ -113,7 +114,7 @@ export type AgentAbortResult = {
 };
 
 export type AgentSessionService = {
-    listSessions(workspaceKey?: string, includeArchived?: boolean): Promise<AgentSessionSummaryDto[]>;
+    listSessions(query?: AgentSessionListQueryDto): Promise<AgentSessionSummaryDto[]>;
     getSessionSnapshot(sessionId: number): Promise<AgentSessionSnapshotDto>;
     runCommand(sessionId: number, body: AgentCommandRequestDto): Promise<AgentCommandResult>;
     moveTree(sessionId: number, body: AgentTreeRequestDto): Promise<AgentTreeResult>;
