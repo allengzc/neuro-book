@@ -1,6 +1,7 @@
 import {z} from "zod";
 import {createWorkspaceDirectory} from "nbook/server/workspace-files/workspace-files";
 import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
+import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
 
 const CreateWorkspaceDirectoryBodySchema = z.object({
     projectPath: z.string().optional(),
@@ -14,9 +15,12 @@ const CreateWorkspaceDirectoryBodySchema = z.object({
  */
 export default defineEventHandler(async (event) => {
     const body = CreateWorkspaceDirectoryBodySchema.parse(await readBody(event));
-    return createWorkspaceDirectory({
-        root: await resolveWorkspaceRootInput(body),
+    const root = await resolveWorkspaceRootInput(body);
+    const node = await createWorkspaceDirectory({
+        root,
         dirPath: body.path,
         indexContent: body.indexContent,
     });
+    invalidateProjectWorkspaceIndexAfterMutation({root, workspaceKind: body.workspaceKind});
+    return node;
 });

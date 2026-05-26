@@ -6,11 +6,15 @@ import {promisify} from "node:util";
 const accessAsync = promisify(access);
 
 /**
- * 解析模型传入的路径。v3 第一版不做 workspaceRoot 沙箱，只把相对路径绑定到 workspaceRoot。
+ * 解析模型传入的路径。相对路径默认绑定到 session cwd；
+ * 当前 cwd 是 Project Workspace 时，允许模型继续传完整 Project Path。
  */
-export function resolveWorkspacePath(filePath: string, workspaceRoot: string): string {
+export function resolveWorkspacePath(filePath: string, workspaceRoot: string, projectPath?: string): string {
     const expanded = expandPath(filePath);
-    return isAbsolute(expanded) ? expanded : resolve(workspaceRoot, expanded);
+    if (isAbsolute(expanded)) {
+        return expanded;
+    }
+    return resolve(workspaceRoot, normalizeWorkspaceAlias(expanded, workspaceRoot, projectPath));
 }
 
 /**
@@ -65,4 +69,51 @@ function expandPath(filePath: string): string {
         return homedir() + normalized.slice(1);
     }
     return normalized;
+}
+
+function normalizeWorkspaceAlias(filePath: string, workspaceRoot: string, projectPath?: string): string {
+    const normalizedPath = filePath.replace(/\\/g, "/").replace(/^\/+/, "");
+    const normalizedProjectPath = projectPath?.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    if (normalizedProjectPath && isSameWorkspaceAlias(normalizedPath, normalizedProjectPath)) {
+        return stripWorkspaceRoot(normalizedPath, normalizedProjectPath);
+    }
+    const inferredProjectPath = inferProjectPath(workspaceRoot);
+    if (inferredProjectPath && isSameWorkspaceAlias(normalizedPath, inferredProjectPath)) {
+        return stripWorkspaceRoot(normalizedPath, inferredProjectPath);
+    }
+    if (isCurrentWorkspaceAlias(normalizedPath) && isProjectWorkspaceRoot(workspaceRoot)) {
+        return normalizedPath.slice("workspace/".length);
+    }
+    return filePath;
+}
+
+function isSameWorkspaceAlias(filePath: string, workspacePath: string): boolean {
+    return filePath === workspacePath || filePath.startsWith(`${workspacePath}/`);
+}
+
+function isCurrentWorkspaceAlias(filePath: string): boolean {
+    return filePath === "workspace/lorebook"
+        || filePath.startsWith("workspace/lorebook/")
+        || filePath === "workspace/manuscript"
+        || filePath.startsWith("workspace/manuscript/")
+        || filePath === "workspace/.agent"
+        || filePath.startsWith("workspace/.agent/");
+}
+
+function stripWorkspaceRoot(filePath: string, workspacePath: string): string {
+    return filePath === workspacePath ? "." : filePath.slice(workspacePath.length + 1);
+}
+
+function inferProjectPath(workspaceRoot: string): string | null {
+    const normalizedRoot = workspaceRoot.replace(/\\/g, "/").replace(/\/+$/g, "");
+    const segments = normalizedRoot.split("/").filter(Boolean);
+    const workspaceIndex = segments.lastIndexOf("workspace");
+    if (workspaceIndex < 0 || !segments[workspaceIndex + 1] || segments[workspaceIndex + 2]) {
+        return null;
+    }
+    return `workspace/${segments[workspaceIndex + 1]}`;
+}
+
+function isProjectWorkspaceRoot(workspaceRoot: string): boolean {
+    return Boolean(inferProjectPath(workspaceRoot));
 }

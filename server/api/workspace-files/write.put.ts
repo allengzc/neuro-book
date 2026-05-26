@@ -3,6 +3,7 @@ import {createError} from "h3";
 import {readWorkspaceTextFile, statWorkspacePath, writeWorkspaceTextFile, type WorkspaceFileNode} from "nbook/server/workspace-files/workspace-files";
 import {buildWorkspaceWriteConflict} from "nbook/server/workspace-files/workspace-file-conflict";
 import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
+import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
 
 const WriteWorkspaceFileBodySchema = z.object({
     projectPath: z.string().optional(),
@@ -44,6 +45,7 @@ export default defineEventHandler(async (event) => {
     }
 
     await writeWorkspaceTextFile(root, body.path, body.content);
+    invalidateProjectWorkspaceIndexAfterMutation({root, workspaceKind: body.workspaceKind});
     return statWorkspacePath(root, body.path);
 });
 

@@ -23,6 +23,10 @@ import {
     type WorkspaceEditorViewMode,
 } from "nbook/shared/editor-workbench";
 import type {WorkspaceFileChangeEventDto} from "nbook/shared/dto/workspace-file-events.dto";
+import type {
+    WorkspaceIssueSummaryDto,
+    WorkspaceTreeSnapshotDto,
+} from "nbook/shared/dto/workspace-tree.dto";
 import {
     WorkspaceWriteConflictDtoSchema,
     type WorkspaceWriteConflictDto,
@@ -58,6 +62,7 @@ export type WorkspaceFileNode = {
     size: number;
     mtimeMs: number;
     editable: boolean;
+    issueSummary?: WorkspaceIssueSummaryDto;
 };
 
 export type WorkspaceFileIssue = {
@@ -254,6 +259,11 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
 
     let volumeReorderRevision = 0;
     let chapterReorderRevision = 0;
+    let workspaceTreeRequest: {
+        key: string;
+        promise: Promise<WorkspaceFileNode[]>;
+    } | null = null;
+    const workspaceTreeRevision = ref(0);
 
     const reasoningOptions = [...REASONING_OPTIONS];
 
@@ -392,6 +402,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         workspaceTabs.value = [];
         workspaceBuffers.value = {};
         workspaceIssues.value = [];
+        workspaceTreeRevision.value = 0;
         workspaceWriteConflict.value = null;
         workspaceConflictDialogOpen.value = false;
         monacoFontSizeOverridesByPath.value = {};
@@ -429,6 +440,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         activeWorkspaceFile.value = null;
         workspaceTree.value = [];
         workspaceIssues.value = [];
+        workspaceTreeRevision.value = 0;
         workspaceWriteConflict.value = null;
         workspaceConflictDialogOpen.value = false;
     };
@@ -444,6 +456,14 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             throw new Error("当前未选择小说，无法访问 workspace");
         }
         return {projectPath: currentNovelId.value};
+    };
+
+    /**
+     * 当前 tree 请求的去重键。Project Workspace 与 user-assets 必须隔离。
+     */
+    const workspaceTreeRequestKey = (): string => {
+        const query = workspaceQuery();
+        return "workspaceKind" in query ? `kind:${query.workspaceKind}` : `project:${query.projectPath}`;
     };
 
     /**
@@ -676,14 +696,23 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
      * 加载工作区文件树。
      */
     const loadWorkspaceTree = async (): Promise<WorkspaceFileNode[]> => {
+        const requestKey = workspaceTreeRequestKey();
+        if (workspaceTreeRequest?.key === requestKey) {
+            return await workspaceTreeRequest.promise;
+        }
         loadingWorkspaceTree.value = true;
-        try {
-            const tree = await $fetch<WorkspaceFileNode[]>("/api/workspace-files/tree", {
+        const promise = (async () => {
+            const snapshot = await $fetch<WorkspaceTreeSnapshotDto<WorkspaceFileNode>>("/api/workspace-files/tree", {
                 query: workspaceQuery(),
             });
-            workspaceTree.value = tree;
+            if (workspaceTreeRequestKey() !== requestKey) {
+                return snapshot.nodes;
+            }
+            workspaceTree.value = snapshot.nodes;
+            workspaceIssues.value = snapshot.issues;
+            workspaceTreeRevision.value = snapshot.revision;
             if (activeWorkspaceFile.value) {
-                const nextActiveNode = tree.find((node) => node.path === activeWorkspaceFile.value?.node.path);
+                const nextActiveNode = snapshot.nodes.find((node) => node.path === activeWorkspaceFile.value?.node.path);
                 if (nextActiveNode) {
                     activeWorkspaceFile.value = {
                         ...activeWorkspaceFile.value,
@@ -692,7 +721,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
                 }
             }
             for (const tab of workspaceTabs.value) {
-                const nextNode = tree.find((node) => node.path === tab.path);
+                const nextNode = snapshot.nodes.find((node) => node.path === tab.path);
                 if (!nextNode) {
                     continue;
                 }
@@ -707,9 +736,16 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
                     };
                 }
             }
-            return tree;
+            return snapshot.nodes;
+        })();
+        workspaceTreeRequest = {key: requestKey, promise};
+        try {
+            return await promise;
         } finally {
-            loadingWorkspaceTree.value = false;
+            if (workspaceTreeRequest?.key === requestKey) {
+                workspaceTreeRequest = null;
+                loadingWorkspaceTree.value = false;
+            }
         }
     };
 
@@ -1198,17 +1234,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             ...monacoFontSizeOverridesByPath.value,
             [filePath]: Math.min(Math.max(Math.round(fontSize), 10), 32),
         };
-    };
-
-    /**
-     * 校验工作区文件树。
-     */
-    const validateWorkspace = async (): Promise<WorkspaceFileIssue[]> => {
-        const result = await $fetch<{issues: WorkspaceFileIssue[]}>("/api/workspace-files/validate", {
-            query: {...workspaceQuery(), target: ".", recursive: true},
-        });
-        workspaceIssues.value = result.issues;
-        return result.issues;
     };
 
     /**
@@ -2195,12 +2220,12 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         restoreWorkspaceTabFromPersistedState,
         restoringWorkspaceFile,
         savingFile,
-        validateWorkspace,
         workspaceKind,
         workspaceReady,
         workspaceConflictDialogOpen,
         workspaceWriteConflict,
         workspaceIssues,
+        workspaceTreeRevision,
         workspaceBuffers,
         workspaceSessions,
         workspaceTabs,

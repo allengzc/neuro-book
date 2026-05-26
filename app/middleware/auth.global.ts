@@ -1,9 +1,11 @@
 import type {AuthSessionDto} from "nbook/shared/dto/auth.dto";
+import {useAuthSessionState} from "nbook/app/composables/useAuthSessionState";
 
 /**
  * 前端路由鉴权，只负责页面跳转体验。
  */
 export default defineNuxtRouteMiddleware(async (to) => {
+    const authSession = useAuthSessionState();
     /**
      * SSR 中使用 useRequestFetch 透传原始请求 cookie，避免已登录首屏被误判。
      */
@@ -26,6 +28,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
 
     if (to.path === "/login") {
         const session = await fetchSession();
+        authSession.setSession(session);
         if (!session.authEnabled || session.user) {
             return navigateTo(normalizeRedirect(to.query.redirect));
         }
@@ -33,6 +36,7 @@ export default defineNuxtRouteMiddleware(async (to) => {
     }
 
     const session = await fetchSession();
+    authSession.setSession(session);
     if (!session.authEnabled) {
         return;
     }

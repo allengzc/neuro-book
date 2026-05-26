@@ -1,5 +1,6 @@
 import {createError, getRequestHeader, readMultipartFormData, type MultiPartData} from "h3";
 import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
+import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
 import {uploadWorkspaceFile, WorkspaceUploadError} from "nbook/server/workspace-files/workspace-upload";
 
 /**
@@ -9,16 +10,19 @@ export default defineEventHandler(async (event) => {
     assertContentLengthLimit(event, 50 * 1024 * 1024, 1024 * 1024);
     const parts = await readRequiredMultipart(event);
     const file = firstFilePart(parts);
+    const workspaceKind = readTextPart(parts, "workspaceKind") === "user-assets" ? "user-assets" : undefined;
     const root = await resolveWorkspaceRootInput({
         projectPath: readTextPart(parts, "projectPath"),
-        workspaceKind: readTextPart(parts, "workspaceKind") === "user-assets" ? "user-assets" : undefined,
+        workspaceKind,
     });
 
     try {
-        return await uploadWorkspaceFile(root, {
+        const result = await uploadWorkspaceFile(root, {
             fileName: file.filename ?? "upload.bin",
             data: file.data,
         });
+        invalidateProjectWorkspaceIndexAfterMutation({root, workspaceKind});
+        return result;
     } catch (error) {
         throw toUploadError(error);
     }

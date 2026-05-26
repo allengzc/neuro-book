@@ -18,6 +18,8 @@ export const WorkspaceFilesChangedEventDtoSchema = z.object({
     type: z.literal("workspace_files_changed"),
     root: z.string(),
     sequence: z.number().int().nonnegative(),
+    revision: z.number().int().nonnegative().optional(),
+    validatedAt: z.string().optional(),
     changedAt: z.string(),
     events: z.array(WorkspaceFileChangeEventDtoSchema),
 });

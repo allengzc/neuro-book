@@ -5,6 +5,7 @@ import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
+import {resolveWorkspacePath} from "nbook/server/agent/tools/file-tool-utils";
 import {resolveBashPathForPlatform} from "nbook/server/agent/tools/file-tools";
 
 describe("v3 file tools", () => {
@@ -66,6 +67,40 @@ describe("v3 file tools", () => {
         ]);
     });
 
+    it("read 在 Project Workspace cwd 中接受完整 workspace 路径", async () => {
+        const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
+        await mkdir(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬"), {recursive: true});
+        await writeFile(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"), "银龙姬状态", "utf-8");
+        const tool = mustTool("read", harness);
+
+        const result = await tool.executeWithContext?.({
+            ...context,
+            workspaceRoot: projectWorkspaceRoot,
+            projectPath: "workspace/silver-dragon-hime",
+        }, "read-project-workspace-path", {
+            path: "workspace/silver-dragon-hime/lorebook/character/银龙姬/state.md",
+        });
+
+        expect(result?.content).toEqual([
+            {type: "text", text: "银龙姬状态"},
+        ]);
+    });
+
+    it("resolveWorkspacePath 归一化当前 Project Workspace 别名", () => {
+        const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
+
+        expect(resolveWorkspacePath(
+            "workspace/silver-dragon-hime/lorebook/character/银龙姬/state.md",
+            projectWorkspaceRoot,
+            "workspace/silver-dragon-hime",
+        )).toBe(resolve(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"));
+        expect(resolveWorkspacePath(
+            "workspace/lorebook/character/银龙姬/state.md",
+            projectWorkspaceRoot,
+            "workspace/silver-dragon-hime",
+        )).toBe(resolve(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"));
+    });
+
     it("write 创建父目录并写入内容", async () => {
         const tool = mustTool("write", harness);
 
@@ -114,6 +149,28 @@ describe("v3 file tools", () => {
         ]));
 
         await expect(readFile(join(workspaceRoot, "patch.txt"), "utf-8")).resolves.toBe("new\nline\n");
+    });
+
+    it("apply_patch 在 Project Workspace cwd 中接受完整 workspace 路径", async () => {
+        const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
+        await mkdir(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬"), {recursive: true});
+        await writeFile(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"), "旧状态\n", "utf-8");
+        const tool = mustTool("apply_patch", harness);
+
+        await tool.executeWithContext?.({
+            ...context,
+            workspaceRoot: projectWorkspaceRoot,
+            projectPath: "workspace/silver-dragon-hime",
+        }, "patch-project-workspace-path", patchInput([
+            "*** Begin Patch",
+            "*** Update File: workspace/silver-dragon-hime/lorebook/character/银龙姬/state.md",
+            "@@",
+            "-旧状态",
+            "+新状态",
+            "*** End Patch",
+        ]));
+
+        await expect(readFile(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"), "utf-8")).resolves.toBe("新状态\n");
     });
 
     it("apply_patch 支持同一文件多 hunk", async () => {

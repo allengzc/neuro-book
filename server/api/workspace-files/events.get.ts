@@ -2,6 +2,7 @@ import {createEventStream} from "h3";
 import type {WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
 import {subscribeWorkspaceFileEvents} from "nbook/server/workspace-files/workspace-file-events";
 import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
+import {refreshProjectWorkspaceIndex} from "nbook/server/workspace-files/project-workspace-index";
 
 /**
  * 订阅当前小说 workspace 的文件系统变化。
@@ -31,8 +32,17 @@ export default defineEventHandler(async (event) => {
         eventStream.close();
     });
 
-    unsubscribe = await subscribeWorkspaceFileEvents(workspaceRoot, (payload) => {
-        void pushWorkspaceEvent(payload);
+    unsubscribe = await subscribeWorkspaceFileEvents(workspaceRoot, async (payload) => {
+        if (payload.type !== "workspace_files_changed" || workspaceKind === "user-assets") {
+            await pushWorkspaceEvent(payload);
+            return;
+        }
+        const snapshot = await refreshProjectWorkspaceIndex({root: workspaceRoot});
+        await pushWorkspaceEvent({
+            ...payload,
+            revision: snapshot.revision,
+            validatedAt: snapshot.validatedAt,
+        });
     });
     if (streamClosed) {
         unsubscribe();

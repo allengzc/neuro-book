@@ -1,6 +1,7 @@
 import {z} from "zod";
 import {deleteWorkspacePath} from "nbook/server/workspace-files/workspace-files";
 import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
+import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
 
 const DeleteWorkspacePathBodySchema = z.object({
     projectPath: z.string().optional(),
@@ -14,6 +15,8 @@ const DeleteWorkspacePathBodySchema = z.object({
  */
 export default defineEventHandler(async (event) => {
     const body = DeleteWorkspacePathBodySchema.parse(await readBody(event));
-    await deleteWorkspacePath(await resolveWorkspaceRootInput(body), body.path, body.recursive);
+    const root = await resolveWorkspaceRootInput(body);
+    await deleteWorkspacePath(root, body.path, body.recursive);
+    invalidateProjectWorkspaceIndexAfterMutation({root, workspaceKind: body.workspaceKind});
     return {success: true};
 });

@@ -8,6 +8,7 @@ import {
     WorkspaceContentStateFrontmatterSchema,
     WORKSPACE_CONTENT_STATUSES,
 } from "nbook/server/workspace-files/content-node-schema";
+import type {WorkspaceIssueSummaryDto} from "nbook/shared/dto/workspace-tree.dto";
 
 export {WORKSPACE_CONTENT_STATUSES, WORKSPACE_STATUS_DESCRIPTIONS} from "nbook/server/workspace-files/content-node-schema";
 
@@ -43,6 +44,7 @@ export type WorkspaceFileNode = {
     size: number;
     mtimeMs: number;
     editable: boolean;
+    issueSummary?: WorkspaceIssueSummaryDto;
 };
 
 export type WorkspaceFileIssue = {
@@ -70,6 +72,14 @@ export type WorkspaceContentValidateResult = {
 
 export type WorkspaceContentValidateOptions = WorkspaceScanOptions & {
     fixMissing?: boolean;
+};
+
+export type WorkspaceContentIssueOptions = {
+    root: string;
+    nodes: WorkspaceFileNode[];
+    lorebookRoot?: string;
+    chapterRoot?: string;
+    existingPathSet?: Set<string>;
 };
 
 export type WorkspaceNewFileInput = {
@@ -522,11 +532,28 @@ export async function validateWorkspaceTree(options: WorkspaceScanOptions = {}):
 export async function validateWorkspaceContentNodes(options: WorkspaceContentValidateOptions = {}): Promise<WorkspaceContentValidateResult> {
     const root = resolveWorkspaceRoot(options.root);
     const collected = await collectWorkspaceContentValidationNodes(root, options);
-    const issues: WorkspaceFileIssue[] = [];
     const fixedPaths: string[] = [];
-    issues.push(...collected.issues);
+    const scannedNodes = options.fixMissing
+        ? await applyMissingFrontmatterFixes(root, collected.scannedNodes, collected.contentNodes, fixedPaths)
+        : collected.scannedNodes;
+    const issues = createWorkspaceContentIssues({
+        root,
+        nodes: scannedNodes,
+        lorebookRoot: options.lorebookRoot,
+        chapterRoot: options.chapterRoot,
+    });
+    return {issues: [...collected.issues, ...issues], fixedPaths};
+}
 
-    for (const node of collected.contentNodes) {
+/**
+ * 从已扫描的工作区节点生成内容节点问题。用于 tree snapshot 和 CLI 复用校验规则。
+ */
+export function createWorkspaceContentIssues(options: WorkspaceContentIssueOptions): WorkspaceFileIssue[] {
+    const root = resolveWorkspaceRoot(options.root);
+    const issues: WorkspaceFileIssue[] = [];
+    const contentNodes = uniqueWorkspaceNodes(options.nodes.filter((node) => node.isDirectory && node.contentNode));
+
+    for (const node of contentNodes) {
         if (node.frontmatterError) {
             issues.push({
                 level: "P1",
@@ -537,40 +564,56 @@ export async function validateWorkspaceContentNodes(options: WorkspaceContentVal
             continue;
         }
 
-        const nodeForValidation = options.fixMissing
-            ? await fixMissingWorkspaceContentFrontmatter(root, node, fixedPaths)
-            : node;
-
-        issues.push(...validateWorkspaceContentFrontmatterSchema(nodeForValidation));
-        issues.push(...validateWorkspaceContentStateSchema(nodeForValidation));
-        const typeIssue = validateContentNodeType(nodeForValidation, {
+        issues.push(...validateWorkspaceContentFrontmatterSchema(node));
+        issues.push(...validateWorkspaceContentStateSchema(node));
+        const typeIssue = validateContentNodeType(node, {
             lorebookRoot: options.lorebookRoot ?? DEFAULT_LOREBOOK_ROOT,
             chapterRoot: options.chapterRoot ?? DEFAULT_CHAPTER_ROOT,
         });
         if (typeIssue) {
             issues.push(typeIssue);
         }
-        const externalScopeIssue = validateExternalContentNodeScope(nodeForValidation);
+        const externalScopeIssue = validateExternalContentNodeScope(node);
         if (externalScopeIssue) {
             issues.push(externalScopeIssue);
         }
 
-        if (hasLegacyCharacterExt(nodeForValidation.frontmatter)) {
+        if (hasLegacyCharacterExt(node.frontmatter)) {
             issues.push({
                 level: "P2",
                 code: "legacy-ext-character",
-                path: nodeForValidation.path,
+                path: node.path,
                 message: "角色字段不再写入 ext.character，请迁移到 Markdown 正文并保留 ext 作为自由扩展对象",
             });
         }
     }
 
-    issues.push(...validateContentSiblingNameConflicts(root, collected.scannedNodes));
-    issues.push(...validateSingleContentNodeSiblingConflicts(root, collected.contentNodes, issues));
-    issues.push(...validateDuplicateOrder(collected.scannedNodes));
-    issues.push(...validateReferences(root, collected.contentNodes));
-    issues.push(...validateStateReferences(root, collected.contentNodes));
-    return {issues, fixedPaths};
+    issues.push(...validateContentSiblingNameConflicts(root, options.nodes));
+    issues.push(...validateSingleContentNodeSiblingConflicts(root, contentNodes, issues, options.existingPathSet));
+    issues.push(...validateDuplicateOrder(options.nodes));
+    issues.push(...validateReferences(root, contentNodes, options.existingPathSet));
+    issues.push(...validateStateReferences(root, contentNodes, options.existingPathSet));
+    return issues;
+}
+
+/**
+ * CLI fix-missing 模式会写回缺失 frontmatter，并把扫描结果中的对应节点替换成修复后的版本。
+ */
+async function applyMissingFrontmatterFixes(
+    root: string,
+    scannedNodes: WorkspaceFileNode[],
+    contentNodes: WorkspaceFileNode[],
+    fixedPaths: string[],
+): Promise<WorkspaceFileNode[]> {
+    const fixedByPath = new Map<string, WorkspaceFileNode>();
+    for (const node of contentNodes) {
+        if (node.frontmatterError) {
+            continue;
+        }
+        const fixed = await fixMissingWorkspaceContentFrontmatter(root, node, fixedPaths);
+        fixedByPath.set(node.path, fixed);
+    }
+    return scannedNodes.map((node) => fixedByPath.get(node.path) ?? node);
 }
 
 /**
@@ -1320,6 +1363,7 @@ function validateSingleContentNodeSiblingConflicts(
     root: string,
     nodes: WorkspaceFileNode[],
     existingIssues: WorkspaceFileIssue[],
+    existingPathSet?: Set<string>,
 ): WorkspaceFileIssue[] {
     const existingKeys = new Set(existingIssues.map((issue) => `${issue.code}:${issue.path}`));
     const issues: WorkspaceFileIssue[] = [];
@@ -1328,7 +1372,7 @@ function validateSingleContentNodeSiblingConflicts(
             continue;
         }
         const siblingFilePath = `${node.absolutePath}.md`;
-        if (!existsSync(siblingFilePath)) {
+        if (!workspaceAbsolutePathExists(root, siblingFilePath, existingPathSet)) {
             continue;
         }
 
@@ -1498,11 +1542,11 @@ function validateDuplicateOrder(nodes: WorkspaceFileNode[]): WorkspaceFileIssue[
     return issues;
 }
 
-function validateReferences(root: string, nodes: WorkspaceFileNode[]): WorkspaceFileIssue[] {
+function validateReferences(root: string, nodes: WorkspaceFileNode[], existingPathSet?: Set<string>): WorkspaceFileIssue[] {
     const issues: WorkspaceFileIssue[] = [];
     for (const node of nodes) {
         for (const ref of node.refs) {
-            issues.push(...validateReferenceTarget(root, node, ref, node.path, "引用"));
+            issues.push(...validateReferenceTarget(root, node, ref, node.path, "引用", existingPathSet));
         }
     }
     return issues;
@@ -1511,14 +1555,14 @@ function validateReferences(root: string, nodes: WorkspaceFileNode[]): Workspace
 /**
  * 校验 state.md 中的当前状态引用。
  */
-function validateStateReferences(root: string, nodes: WorkspaceFileNode[]): WorkspaceFileIssue[] {
+function validateStateReferences(root: string, nodes: WorkspaceFileNode[], existingPathSet?: Set<string>): WorkspaceFileIssue[] {
     const issues: WorkspaceFileIssue[] = [];
     for (const node of nodes) {
         if (!node.state || node.state.frontmatterError) {
             continue;
         }
         for (const ref of readStateReferenceTargets(node.state.frontmatter)) {
-            issues.push(...validateReferenceTarget(root, node, ref, node.state.path, "状态引用"));
+            issues.push(...validateReferenceTarget(root, node, ref, node.state.path, "状态引用", existingPathSet));
         }
     }
     return issues;
@@ -1527,7 +1571,14 @@ function validateStateReferences(root: string, nodes: WorkspaceFileNode[]): Work
 /**
  * 校验单个工作区引用 target。
  */
-function validateReferenceTarget(root: string, node: WorkspaceFileNode, ref: string, issuePath: string, label: string): WorkspaceFileIssue[] {
+function validateReferenceTarget(
+    root: string,
+    node: WorkspaceFileNode,
+    ref: string,
+    issuePath: string,
+    label: string,
+    existingPathSet?: Set<string>,
+): WorkspaceFileIssue[] {
     if (!isWorkspaceReferenceTarget(ref)) {
         return [{
             level: "P2",
@@ -1554,7 +1605,7 @@ function validateReferenceTarget(root: string, node: WorkspaceFileNode, ref: str
             message: `${label}路径解析失败或超出工作区：${ref}`,
         }];
     }
-    if (!existsSync(targetPath.filePath) && !existsSync(targetPath.indexPath)) {
+    if (!workspaceAbsolutePathExists(root, targetPath.filePath, existingPathSet) && !workspaceAbsolutePathExists(root, targetPath.indexPath, existingPathSet)) {
         return [{
             level: "P1",
             code: "missing-ref",
@@ -1563,6 +1614,17 @@ function validateReferenceTarget(root: string, node: WorkspaceFileNode, ref: str
         }];
     }
     return [];
+}
+
+/**
+ * 优先使用 File Index 中的路径集合判断存在性，CLI 旧路径仍回退到磁盘。
+ */
+function workspaceAbsolutePathExists(root: string, absolutePath: string, existingPathSet?: Set<string>): boolean {
+    if (!existingPathSet) {
+        return existsSync(absolutePath);
+    }
+    return existingPathSet.has(toWorkspaceDisplayPath(root, absolutePath, false))
+        || existingPathSet.has(toWorkspaceDisplayPath(root, absolutePath, true));
 }
 
 /**

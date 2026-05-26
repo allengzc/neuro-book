@@ -7,7 +7,9 @@ import YAML from "yaml";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {createWorkspaceContentFrontmatterDefaults, workspaceContentJsonSchema} from "nbook/server/workspace-files/content-node-schema";
 import {renderWorkspaceContentTemplate, renderWorkspaceContentTemplateBundle, renderWorkspaceStateTemplate} from "nbook/server/workspace-files/content-node-templates";
-import {copyNovelDirectoryTemplate, syncSystemAssetsToUserAssets, USER_ASSETS_WORKSPACE_ROOT, writeNovelWorkspaceMetadata} from "nbook/server/workspace-files/novel-workspace";
+import {copyNovelDirectoryTemplate, syncSystemAssetsToUserAssets, USER_ASSETS_WORKSPACE_ROOT} from "nbook/server/workspace-files/novel-workspace";
+import {initProjectDatabase, readProjectManifest, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import {invalidateProjectWorkspaceIndexAfterMutation, readPlainWorkspaceTreeSnapshot, readProjectWorkspaceTreeSnapshot} from "nbook/server/workspace-files/project-workspace-index";
 import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 
 const WORKSPACE_SCRIPT_PATH = "scripts/workspace.ts";
@@ -113,6 +115,54 @@ describe("workspace-files", () => {
             }),
         ]));
         expect(issues.some((issue) => issue.path === "docs/foo.md" && issue.code === "content-sibling-name-conflict")).toBe(false);
+    });
+
+    it("Project Workspace tree snapshot 会返回 issues 和节点问题摘要", async () => {
+        await writeMarkdown("lorebook/note/project-positioning/index.md", {
+            type: "note",
+            status: "draft",
+        });
+
+        const snapshot = await readProjectWorkspaceTreeSnapshot({root});
+        const node = snapshot.nodes.find((item) => item.path === "lorebook/note/project-positioning/");
+
+        expect(snapshot.revision).toBeGreaterThan(0);
+        expect(snapshot.validatedAt).toBeTruthy();
+        expect(snapshot.issues).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                code: "missing-frontmatter-field",
+                path: "lorebook/note/project-positioning/",
+            }),
+        ]));
+        expect(node?.issueSummary?.selfCount).toBeGreaterThan(0);
+    });
+
+    it("plain workspace tree snapshot 不运行 Project Workspace Issue Index", async () => {
+        await writeMarkdown("lorebook/note/project-positioning/index.md", {
+            type: "note",
+            status: "draft",
+        });
+
+        const snapshot = await readPlainWorkspaceTreeSnapshot({root});
+
+        expect(snapshot.nodes.length).toBeGreaterThan(0);
+        expect(snapshot.issues).toEqual([]);
+    });
+
+    it("Project Workspace tree snapshot 失效后会重新读取文件与 issues", async () => {
+        const before = await readProjectWorkspaceTreeSnapshot({root});
+        await writeMarkdown("lorebook/note/cache-refresh/index.md", {
+            type: "note",
+            status: "draft",
+        });
+
+        invalidateProjectWorkspaceIndexAfterMutation({root});
+        const after = await readProjectWorkspaceTreeSnapshot({root});
+
+        expect(before.nodes.some((node) => node.path === "lorebook/note/cache-refresh/")).toBe(false);
+        expect(after.nodes.some((node) => node.path === "lorebook/note/cache-refresh/")).toBe(true);
+        expect(after.revision).toBeGreaterThan(before.revision);
+        expect(after.issues.some((issue) => issue.path === "lorebook/note/cache-refresh/")).toBe(true);
     });
 
     it("解析结构化 refs 和 inline 引用中的相对路径", async () => {
@@ -576,7 +626,6 @@ describe("workspace-files", () => {
         await expect(readWorkspaceTextFile(root, ".nbook/icons.json")).resolves.toContain("\"lorebook\"");
         await expect(fs.access(path.join(root, ".agent/.gitkeep")).then(() => true)).resolves.toBe(true);
         await expect(fs.access(path.join(root, ".agent/plan/.gitkeep")).then(() => true)).resolves.toBe(true);
-        await expect(readWorkspaceTextFile(root, "workspace.yaml")).resolves.toContain("slug: novel-template");
         await expect(readWorkspaceTextFile(root, "lorebook/note/project-positioning/index.md")).resolves.toContain("## 类型与基调");
         await expect(readWorkspaceTextFile(root, "lorebook/note/project-positioning/index.md")).resolves.toContain("- 小说初始化");
         await expect(readWorkspaceTextFile(root, "lorebook/note/story-concept/index.md")).resolves.toContain("## 故事概述");
@@ -631,29 +680,32 @@ describe("workspace-files", () => {
         }
     });
 
-    it("写入小说 workspace 元数据时会加载模板并覆盖占位 workspace.yaml", async () => {
-        const now = new Date("2026-05-09T00:00:00.000Z");
+    it("创建 Project Workspace 时会写入 manifest、初始化 Project SQLite 并加载模板", async () => {
         const workspaceSlug = `workspace-files-test-${randomUUID()}`;
-
-        await writeNovelWorkspaceMetadata({
-            id: 999,
-            workspaceSlug,
-            createdAt: now,
-            updatedAt: now,
-        });
-
+        const projectPath = `workspace/${workspaceSlug}`;
         const createdRoot = path.join("workspace", workspaceSlug);
 
+        await writeProjectManifest(projectPath, {
+            kind: "novel",
+            title: "测试小说",
+            summary: "测试简介",
+        });
+        await copyNovelDirectoryTemplate(projectPath);
+        await initProjectDatabase(projectPath);
+
         try {
-            await expect(readWorkspaceTextFile(createdRoot, "workspace.yaml")).resolves.toContain("novelId: \"999\"");
-            await expect(readWorkspaceTextFile(createdRoot, "workspace.yaml")).resolves.not.toContain("novel-template");
+            await expect(readProjectManifest(projectPath)).resolves.toEqual({
+                kind: "novel",
+                title: "测试小说",
+                summary: "测试简介",
+            });
             await expect(readWorkspaceTextFile(createdRoot, "AGENTS.md")).resolves.toContain("唯一的小说状态");
             await expect(readWorkspaceTextFile(createdRoot, "AGENTS.md")).resolves.toContain(".agent/plan/");
             await expect(readWorkspaceTextFile(createdRoot, "PROJECT-STATUS.md")).resolves.toContain("## Pending Questions");
             await expect(readWorkspaceTextFile(createdRoot, "PROJECT-STATUS.md")).resolves.not.toContain("## Recent Updates");
             await expect(readWorkspaceTextFile(createdRoot, "manuscript/001-volume/001-chapter/index.md")).resolves.toContain("示范章节");
         } finally {
-            await fs.rm(createdRoot, {recursive: true, force: true});
+            await removeDirectoryWithRetry(createdRoot);
         }
     });
 
@@ -762,6 +814,23 @@ describe("workspace-files", () => {
         }
         await fs.mkdir(path.dirname(filePath), {recursive: true});
         await fs.writeFile(filePath, content, "utf-8");
+    }
+
+    /**
+     * Windows 下 libsql 关闭 SQLite 后文件句柄可能短暂释放延迟，测试清理需要重试。
+     */
+    async function removeDirectoryWithRetry(dirPath: string): Promise<void> {
+        for (let attempt = 0; attempt < 5; attempt += 1) {
+            try {
+                await fs.rm(dirPath, {recursive: true, force: true});
+                return;
+            } catch (error) {
+                if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "EBUSY" || attempt === 4) {
+                    throw error;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+        }
     }
 
     /**

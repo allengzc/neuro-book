@@ -201,3 +201,15 @@ export type GlobalConfigDto = z.infer<typeof GlobalConfigDtoSchema>;
 export type ProjectConfigDto = z.infer<typeof ProjectConfigDtoSchema>;
 export type ConfigSnapshotDto = z.infer<typeof ConfigSnapshotDtoSchema>;
 export type ConfigEditorSnapshotDto = z.infer<typeof ConfigEditorSnapshotDtoSchema>;
+
+export const ConfigBootstrapDtoSchema = z.object({
+    modelSettings: z.object({
+        defaultModelLabel: z.string().trim().nullable().default(null),
+        enabledModels: z.array(EnabledModelOptionDtoSchema).default([]),
+    }),
+    defaultProfileSettings: z.object({
+        effectiveProfileKey: ProfileKeySchema.nullable(),
+    }),
+});
+
+export type ConfigBootstrapDto = z.infer<typeof ConfigBootstrapDtoSchema>;

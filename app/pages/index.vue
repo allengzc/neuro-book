@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {storeToRefs} from "pinia";
 import type {AuthSessionDto} from "nbook/shared/dto/auth.dto";
-import type {ConfigEditorSnapshotDto} from "nbook/shared/dto/config.dto";
+import type {ConfigBootstrapDto} from "nbook/shared/dto/config.dto";
 import type {NovelContinueRequestDto} from "nbook/shared/dto/novel.dto";
 import {isNovelIdeTab, type NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import MarkdownStudioWorkbench from "nbook/app/components/markdown-studio/MarkdownStudioWorkbench.vue";
@@ -19,6 +19,7 @@ import WorkspaceLocationProfileDialog from "nbook/app/components/novel-ide/works
 import WorkspaceRuleProfileDialog from "nbook/app/components/novel-ide/workspace/WorkspaceRuleProfileDialog.vue";
 import type {WorkspaceReferencePreviewMeta} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
+import {useAuthSessionState} from "nbook/app/composables/useAuthSessionState";
 import {useMarkdownStudioController} from "nbook/app/composables/useMarkdownStudioController";
 import {useWorkspaceFileEvents} from "nbook/app/composables/useWorkspaceFileEvents";
 import {useDialog} from "nbook/app/composables/useDialog";
@@ -112,10 +113,10 @@ const {
     switchNovel,
     switchToNovelWorkspace,
     switchToUserAssetsWorkspace,
-    validateWorkspace,
 } = novelIdeStore;
 const {mountThemeHost} = useIdeTheme(theme);
 const workspaceFileEvents = useWorkspaceFileEvents();
+const authSessionState = useAuthSessionState();
 
 const studio = useMarkdownStudioController({
     markdown: selectedFileContent,
@@ -960,7 +961,7 @@ const syncDefaultModelLabel = async (): Promise<void> => {
         const query = workspaceKind.value === "user-assets" || !currentNovelId.value
             ? {workspaceKind: "user-assets"} as const
             : {workspaceKind: "novel", projectPath: currentNovelId.value} as const;
-        const settings = await $fetch<ConfigEditorSnapshotDto>("/api/config/editor-snapshot", {
+        const settings = await $fetch<ConfigBootstrapDto>("/api/config/bootstrap", {
             query,
         });
         setSelectedModelLabel(settings.modelSettings.defaultModelLabel);
@@ -973,10 +974,16 @@ const syncDefaultModelLabel = async (): Promise<void> => {
  * 同步当前登录用户，用于右上角账户菜单。
  */
 const syncAuthSession = async (): Promise<void> => {
+    if (authSessionState.session.value) {
+        currentUser.value = authSessionState.session.value.user;
+        return;
+    }
     try {
         const session = await $fetch<AuthSessionDto>("/api/auth/me");
+        authSessionState.setSession(session);
         currentUser.value = session.user;
     } catch {
+        authSessionState.setSession(null);
         currentUser.value = null;
     }
 };
@@ -986,6 +993,7 @@ const syncAuthSession = async (): Promise<void> => {
  */
 const logout = async (): Promise<void> => {
     await $fetch("/api/auth/logout", {method: "POST"});
+    authSessionState.setSession(null);
     currentUser.value = null;
     await navigateTo("/login");
 };
@@ -1080,7 +1088,6 @@ const syncWorkspaceRoute = async (): Promise<void> => {
     }
     await initializeWorkspaceFromRoute();
     if (!isUserAssetsWorkspace.value) {
-        await validateWorkspace();
         await normalizeNovelRouteQuery();
     }
     subscribeWorkspaceEvents();
@@ -1104,11 +1111,10 @@ onMounted(() => {
             mountThemeHost(themeHostRef.value);
             window.addEventListener("pagehide", flushWorkspaceSession);
             window.addEventListener("beforeunload", flushWorkspaceSession);
-            await syncAuthSession();
+            void syncAuthSession();
             await initializeWorkspaceFromRoute();
             await syncDefaultModelLabel();
             if (!isUserAssetsWorkspace.value) {
-                await validateWorkspace();
                 await normalizeNovelRouteQuery();
             }
             subscribeWorkspaceEvents();
@@ -1237,21 +1243,18 @@ onBeforeUnmount(() => {
             :issues="workspaceIssues"
             :height="0"
             @refresh="void loadWorkspaceTree()"
-            @validate="void validateWorkspace()"
         />
         <WorkspaceLocationProfileDialog
             v-model="locationProfileVisible"
             :node="selectedFileNode"
             :issues="workspaceIssues"
             @refresh="void loadWorkspaceTree()"
-            @validate="void validateWorkspace()"
         />
         <WorkspaceRuleProfileDialog
             v-model="ruleProfileVisible"
             :node="selectedFileNode"
             :issues="workspaceIssues"
             @refresh="void loadWorkspaceTree()"
-            @validate="void validateWorkspace()"
         />
     </div>
 </template>

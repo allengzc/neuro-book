@@ -77,11 +77,11 @@ function createReadTool(): NeuroAgentTool {
         key: "read",
         name: "read",
         label: "read",
-        description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Use read to examine files instead of cat/head/tail/sed.`,
+        description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Project paths like workspace/silver-dragon-hime/lorebook/... and current-workspace paths like lorebook/... both resolve inside the current Project Workspace. Use read to examine files instead of cat/head/tail/sed.`,
         parameters: ReadSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown) {
             const input = params as ReadInput;
-            const absolutePath = resolveWorkspacePath(input.path, context.workspaceRoot);
+            const absolutePath = resolveWorkspacePath(input.path, context.workspaceRoot, context.projectPath);
             await assertReadable(absolutePath);
             const mimeType = detectImageMimeType(absolutePath);
             const buffer = await readFile(absolutePath);
@@ -138,7 +138,7 @@ function createWriteTool(): NeuroAgentTool {
         parameters: WriteSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown) {
             const input = params as WriteInput;
-            const absolutePath = resolveWorkspacePath(input.path, context.workspaceRoot);
+            const absolutePath = resolveWorkspacePath(input.path, context.workspaceRoot, context.projectPath);
             await mkdir(dirname(absolutePath), {recursive: true});
             await writeFile(absolutePath, input.content, "utf-8");
             return {
@@ -182,7 +182,7 @@ function createEditTool(): NeuroAgentTool {
             if (!Array.isArray(input.edits) || input.edits.length === 0) {
                 throw new Error("edits must contain at least one replacement.");
             }
-            const absolutePath = resolveWorkspacePath(input.path, context.workspaceRoot);
+            const absolutePath = resolveWorkspacePath(input.path, context.workspaceRoot, context.projectPath);
             await assertWritable(absolutePath);
             const original = await readFile(absolutePath, "utf-8");
             const updated = applyExactEdits(original, input.edits, input.path);
@@ -213,6 +213,7 @@ function createApplyPatchTool(): NeuroAgentTool {
             const input = params as {patch: string};
             const result = await applyCodexPatch({
                 workspaceRoot: context.workspaceRoot,
+                projectPath: context.projectPath,
                 patchText: input.patch,
             });
             return {

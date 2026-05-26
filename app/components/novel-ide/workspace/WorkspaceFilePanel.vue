@@ -97,13 +97,6 @@ async function refreshTree(): Promise<void> {
 }
 
 /**
- * 运行工作区校验。
- */
-async function validateWorkspace(): Promise<void> {
-    await store.validateWorkspace();
-}
-
-/**
  * 复制当前文件引用。
  */
 async function copyReference(node = selectedFileNode.value): Promise<void> {
@@ -357,7 +350,6 @@ function openRootMenu(event: MouseEvent): void {
         {label: "新建 Lorebook 条目", iconClass: "i-lucide-book-plus", action: () => void createLorebookEntry(null)},
         {separator: true},
         {label: "刷新", iconClass: "i-lucide-refresh-cw", action: () => void refreshTree()},
-        {label: "运行校验", iconClass: "i-lucide-shield-check", action: () => void validateWorkspace()},
     ]);
 }
 
@@ -667,7 +659,6 @@ watch(canAccessWorkspace, (canAccess) => {
             @update:height="detailHeight = $event"
             @close="store.clearActiveFile()"
             @refresh="void refreshTree()"
-            @validate="void validateWorkspace()"
         />
         <WorkspaceLorebookDetailPanel
             v-else-if="showLorebookDetail"
@@ -677,7 +668,6 @@ watch(canAccessWorkspace, (canAccess) => {
             @update:height="detailHeight = $event"
             @close="store.clearActiveFile()"
             @refresh="void refreshTree()"
-            @validate="void validateWorkspace()"
         />
         <WorkspaceFileDetailPanel
             v-else

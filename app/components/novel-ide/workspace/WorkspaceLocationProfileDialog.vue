@@ -59,7 +59,6 @@ const props = defineProps<{
 const emit = defineEmits<{
     (e: "update:modelValue", value: boolean): void;
     (e: "refresh"): void;
-    (e: "validate"): void;
 }>();
 
 const store = useNovelIdeStore();
@@ -227,7 +226,6 @@ watch(() => [props.modelValue, props.node?.path, selectedFileContent.value], () 
                 </div>
                 <div class="flex shrink-0 items-center gap-1">
                     <button class="icon-action" type="button" title="刷新" @click="emit('refresh')"><span class="i-lucide-refresh-cw h-4 w-4"></span></button>
-                    <button class="icon-action" type="button" title="校验" @click="emit('validate')"><span class="i-lucide-shield-check h-4 w-4"></span></button>
                     <button class="icon-action" type="button" title="保存" :disabled="savingFile || Boolean(diagnostics)" @click="void saveDraft()"><span class="i-lucide-save h-4 w-4"></span></button>
                     <span class="mx-2 h-7 w-px bg-[var(--border-color)]"></span>
                     <button class="icon-action" type="button" title="关闭" @click="emit('update:modelValue', false)"><span class="i-lucide-x h-5 w-5"></span></button>
