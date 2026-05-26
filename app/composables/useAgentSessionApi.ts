@@ -83,7 +83,7 @@ export function useAgentSessionApi() {
     const subscribeSessionEvents = async (
         sessionId: number,
         after: number,
-        onEvent: (event: AgentSessionEventDto) => void,
+        onEvent: (event: AgentSessionEventDto) => void | Promise<void>,
         signal?: AbortSignal,
         options: {onOpen?: () => void} = {},
     ): Promise<void> => {

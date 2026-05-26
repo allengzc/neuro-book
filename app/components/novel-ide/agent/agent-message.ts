@@ -1,9 +1,12 @@
 import {z} from "zod";
 import type {AgentEvent} from "@earendil-works/pi-agent-core";
-import type {AgentMessage as PiAgentMessage, AgentToolCall as PiAgentToolCall, Message as PiMessage, ToolResultMessage} from "nbook/server/agent/messages/types";
+import type {AssistantMessageEvent} from "@earendil-works/pi-ai";
+import type {AgentMessage as PiAgentMessage, AgentToolCall as PiAgentToolCall, AssistantMessage as PiAssistantMessage, Message as PiMessage, ToolResultMessage} from "nbook/server/agent/messages/types";
 import type {AgentSessionSnapshotDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
 import type {SessionEntry} from "nbook/server/agent/session/types";
 import {toStableArgsJson} from "nbook/app/components/novel-ide/agent/tool-args-stream";
+
+type PiAssistantContent = PiAssistantMessage["content"][number];
 
 /**
  * 消息类型。
@@ -68,6 +71,8 @@ export type AgentMessage = {
     error?: string;
     /** 运行期错误所属 invocation，用于 HTTP 结果兜底去重。 */
     invocationId?: string;
+    /** live assistant 的原始 Pi content blocks，用于按 contentIndex 合并流式事件。 */
+    assistantContent?: PiAssistantContent[];
 };
 
 export const AgentUserInputQuestionOptionSchema = z.object({
@@ -288,7 +293,9 @@ export const mergeToolCalls = (nextToolCalls?: AgentToolCall[], previousToolCall
     });
 
     for (const previous of previousToolCalls ?? []) {
-        if (!merged.some((toolCall) => toolCall.id === previous.id)) {
+        const replacedByResolvedToolCall = previous.id.startsWith("content-")
+            && merged.some((toolCall) => toolCall.index === previous.index);
+        if (!merged.some((toolCall) => toolCall.id === previous.id) && !replacedByResolvedToolCall) {
             merged.push(previous);
         }
     }
@@ -590,6 +597,7 @@ export const toLocalMessage = (id: string, message: PiMessage | PiAgentMessage, 
             thinking: thinking || undefined,
             error: errorText || undefined,
             toolCalls,
+            assistantContent: [...message.content],
         };
     }
 
@@ -756,9 +764,12 @@ export const applyPiEventToMessages = (previousMessages: AgentMessage[], event: 
             ...toLocalMessage(messageId, event.message, event.type !== "message_end"),
             invocationId,
         };
+        const patchedMessage = event.type === "message_update" && "assistantMessageEvent" in event
+            ? applyAssistantMessageEvent(previousMessages.find((message) => message.id === localMessage.id), localMessage, event.assistantMessageEvent)
+            : localMessage;
         const nextMessages = previousMessages.some((message) => message.id === localMessage.id)
-            ? previousMessages.map((message) => message.id === localMessage.id ? localMessage : message)
-            : [...previousMessages, localMessage];
+            ? previousMessages.map((message) => message.id === patchedMessage.id ? patchedMessage : message)
+            : [...previousMessages, patchedMessage];
         return reconcileMessages(previousMessages, nextMessages);
     }
 
@@ -791,6 +802,131 @@ export const applyPiEventToMessages = (previousMessages: AgentMessage[], event: 
     }
 
     return previousMessages;
+};
+
+const applyAssistantMessageEvent = (
+    previousMessage: AgentMessage | undefined,
+    nextMessage: AgentMessage,
+    event: AssistantMessageEvent,
+): AgentMessage => {
+    const previousContent = previousMessage ? contentFromMessage(previousMessage) : contentFromMessage(nextMessage);
+    const content = applyAssistantContentEvent(previousContent, contentFromPartial(event), event);
+    return {
+        ...nextMessage,
+        content: textFromContent(content) || nextMessage.content,
+        thinking: thinkingFromContent(content) || nextMessage.thinking,
+        toolCalls: mergeToolCalls(toolCallsFromContent(content, nextMessage.id), previousMessage?.toolCalls),
+        assistantContent: content,
+    };
+};
+
+const contentFromPartial = (event: AssistantMessageEvent): PiAssistantContent[] => {
+    if ("partial" in event) {
+        return event.partial.content as PiAssistantContent[];
+    }
+    if (event.type === "done") {
+        return event.message.content as PiAssistantContent[];
+    }
+    if (event.type === "error") {
+        return event.error.content as PiAssistantContent[];
+    }
+    return [];
+};
+
+const contentFromMessage = (message: AgentMessage): PiAssistantContent[] => {
+    if (message.assistantContent?.length) {
+        return [...message.assistantContent];
+    }
+    const content: PiAssistantContent[] = [];
+    if (message.thinking) {
+        content.push({type: "thinking", thinking: message.thinking});
+    }
+    if (message.content && !message.error) {
+        content.push({type: "text", text: message.content});
+    }
+    for (const toolCall of message.toolCalls ?? []) {
+        content.push({
+            type: "toolCall",
+            id: toolCall.id,
+            name: toolCall.name,
+            arguments: toolCall.argsText,
+        } as unknown as PiAssistantContent);
+    }
+    return content;
+};
+
+const applyAssistantContentEvent = (
+    previousContent: PiAssistantContent[],
+    partialContent: PiAssistantContent[],
+    event: AssistantMessageEvent,
+): PiAssistantContent[] => {
+    const content = partialContent.length ? [...partialContent] : [...previousContent];
+    if (!("contentIndex" in event)) {
+        return content;
+    }
+    const previousBlock = previousContent[event.contentIndex];
+    const partialBlock = partialContent[event.contentIndex];
+
+    if (event.type === "text_start") {
+        content[event.contentIndex] = partialBlock?.type === "text" ? partialBlock : {type: "text", text: ""};
+    }
+    if (event.type === "text_delta") {
+        const text = partialBlock?.type === "text"
+            ? partialBlock.text
+            : `${previousBlock?.type === "text" ? previousBlock.text : ""}${event.delta}`;
+        content[event.contentIndex] = {type: "text", text};
+    }
+    if (event.type === "text_end") {
+        content[event.contentIndex] = {type: "text", text: event.content};
+    }
+    if (event.type === "thinking_start") {
+        content[event.contentIndex] = partialBlock?.type === "thinking" ? partialBlock : {type: "thinking", thinking: ""};
+    }
+    if (event.type === "thinking_delta") {
+        const thinking = partialBlock?.type === "thinking"
+            ? partialBlock.thinking
+            : `${previousBlock?.type === "thinking" ? previousBlock.thinking : ""}${event.delta}`;
+        content[event.contentIndex] = {type: "thinking", thinking};
+    }
+    if (event.type === "thinking_end") {
+        content[event.contentIndex] = {type: "thinking", thinking: event.content};
+    }
+    if (event.type === "toolcall_start") {
+        content[event.contentIndex] = partialBlock?.type === "toolCall"
+            ? partialBlock
+            : ({type: "toolCall", id: `content-${String(event.contentIndex)}`, name: "", arguments: ""} as unknown as PiAssistantContent);
+    }
+    if (event.type === "toolcall_delta") {
+        const toolCall = partialBlock?.type === "toolCall"
+            ? partialBlock
+            : previousBlock?.type === "toolCall"
+                ? {
+                    ...previousBlock,
+                    arguments: `${formatToolArgs(previousBlock.arguments)}${event.delta}`,
+                } as unknown as PiAssistantContent
+                : ({type: "toolCall", id: `content-${String(event.contentIndex)}`, name: "", arguments: event.delta} as unknown as PiAssistantContent);
+        content[event.contentIndex] = toolCall;
+    }
+    if (event.type === "toolcall_end") {
+        content[event.contentIndex] = event.toolCall as unknown as PiAssistantContent;
+    }
+    return content;
+};
+
+const textFromContent = (content: PiAssistantContent[]): string => {
+    return content.filter((block) => block.type === "text").map((block) => block.text).join("");
+};
+
+const thinkingFromContent = (content: PiAssistantContent[]): string => {
+    return content.filter((block) => block.type === "thinking").map((block) => block.thinking).join("");
+};
+
+const toolCallsFromContent = (content: PiAssistantContent[], assistantMessageId: string): AgentToolCall[] | undefined => {
+    const toolCalls = content
+        .map((block, contentIndex) => ({block, contentIndex}))
+        .filter((item): item is {block: PiAgentToolCall; contentIndex: number} => item.block.type === "toolCall")
+        .map((item) => toLocalToolCall(item.block, item.contentIndex, assistantMessageId));
+    return toolCalls.length ? toolCalls : undefined;
 };
 
 const messageContentText = (message: PiMessage): string => {

@@ -41,6 +41,17 @@ describe("config service", () => {
         await expect(fs.access(path.join("workspace", "config-test-project", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
+    it("Project Config 在 project.yaml 损坏时仍可读写", async () => {
+        await fs.writeFile(path.join("workspace", "config-test-project", "project.yaml"), "kind: novel\ntitle: Config\nsummary: ''\na'a\n", "utf-8");
+
+        const snapshot = await saveProjectConfig({
+            agent: {defaultProfileKey: "custom.agent"},
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+
+        expect(snapshot.defaultProfileSettings.effectiveProfileKey).toBe("custom.agent");
+        await expect(fs.access(path.join("workspace", "config-test-project", ".nbook", "config.json"))).resolves.toBeNull();
+    });
+
     it("Global secret 写回缺失 value 时保留旧 API key", async () => {
         await saveGlobalConfig({
             models: {

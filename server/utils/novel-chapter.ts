@@ -4,8 +4,16 @@ import type {
     NovelListItemDto,
     UpdateNovelRequestDto,
 } from "nbook/shared/dto/novel-chapter.dto";
+import {isError} from "h3";
+import {YAMLParseError} from "yaml";
 import {z} from "zod";
-import {listProjectWorkspaces, readProjectManifest, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import {
+    assertProjectWorkspaceDirectory,
+    listProjectWorkspaces,
+    readProjectManifest,
+    writeProjectManifest,
+    type ProjectManifest,
+} from "nbook/server/workspace-files/project-workspace";
 
 type EntityIdLabel =
     | "storyId"
@@ -69,7 +77,7 @@ const throwBadRequest = (message: string): never => {
 /**
  * 将 Project manifest 映射为兼容现有前端的小说列表项。
  */
-export function toNovelResponse(project: {projectPath: string; title: string; summary: string; updatedAt: string}): NovelListItemDto {
+export function toNovelResponse(project: {projectPath: string; title: string; summary: string; updatedAt: string; manifestError?: string}): NovelListItemDto {
     const workspaceSlug = project.projectPath.split("/").at(-1) ?? project.projectPath;
     return {
         id: project.projectPath,
@@ -77,6 +85,7 @@ export function toNovelResponse(project: {projectPath: string; title: string; su
         summary: project.summary,
         workspaceSlug,
         projectPath: project.projectPath,
+        manifestError: project.manifestError,
         createdAt: project.updatedAt,
         updatedAt: project.updatedAt,
         volumeCount: 0,
@@ -158,17 +167,52 @@ export async function updateNovelByTool(
     projectPath: string,
     input: UpdateNovelRequestDto,
 ): Promise<NovelListItemDto> {
-    const current = await readProjectManifest(projectPath);
+    const normalizedProjectPath = await assertProjectWorkspaceDirectory(projectPath);
+    const current = await readProjectManifestOrFallback(normalizedProjectPath);
     const next = {
         ...current,
         title: input.title ?? current.title,
         summary: input.summary ?? current.summary,
     };
-    await writeProjectManifest(projectPath, next);
+    await writeProjectManifest(normalizedProjectPath, next);
     return toNovelResponse({
-        projectPath,
+        projectPath: normalizedProjectPath,
         title: next.title,
         summary: next.summary,
         updatedAt: new Date().toISOString(),
     });
+}
+
+/**
+ * 读取 Project Manifest；若文件已损坏，使用目录名兜底，让元数据更新可以覆盖写回合法 manifest。
+ */
+async function readProjectManifestOrFallback(projectPath: string): Promise<ProjectManifest> {
+    try {
+        return await readProjectManifest(projectPath);
+    } catch (error) {
+        if (!isRecoverableProjectManifestError(error)) {
+            throw error;
+        }
+        return {
+            kind: "novel",
+            title: projectPath.split("/").at(-1) ?? projectPath,
+            summary: "",
+        };
+    }
+}
+
+/**
+ * 判断 Project Manifest 读取错误是否可以由覆盖写回修复。
+ */
+function isRecoverableProjectManifestError(error: unknown): boolean {
+    if (error instanceof YAMLParseError) {
+        return true;
+    }
+    if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+        return true;
+    }
+    if (isError(error) && error.statusCode === 400) {
+        return true;
+    }
+    return false;
 }

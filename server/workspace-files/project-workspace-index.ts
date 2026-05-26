@@ -7,6 +7,7 @@ import {
     type WorkspaceFileNode,
     type WorkspaceScanOptions,
 } from "nbook/server/workspace-files/workspace-files";
+import {readProjectManifestIssueFromRoot} from "nbook/server/workspace-files/project-workspace";
 import type {
     WorkspaceIssueSummaryDto,
     WorkspaceTreeSnapshotDto,
@@ -138,6 +139,10 @@ async function rebuildProjectWorkspaceIndex(options: WorkspaceScanOptions): Prom
             chapterRoot: options.chapterRoot,
             existingPathSet,
         });
+        const manifestIssue = await createProjectManifestIssue(root);
+        if (manifestIssue) {
+            issues.unshift(manifestIssue);
+        }
         const summaryByPath = buildIssueSummaryByPath(issues, nodes);
         const nextIndex: ProjectWorkspaceIndex = {
             root,
@@ -162,6 +167,19 @@ async function rebuildProjectWorkspaceIndex(options: WorkspaceScanOptions): Prom
             indexEntries.delete(root);
         }
     }
+}
+
+async function createProjectManifestIssue(root: string): Promise<WorkspaceFileIssue | null> {
+    const message = await readProjectManifestIssueFromRoot(root);
+    if (!message) {
+        return null;
+    }
+    return {
+        level: "P1",
+        code: "invalid-project-manifest",
+        path: "project.yaml",
+        message,
+    };
 }
 
 function projectIndexToSnapshot(index: ProjectWorkspaceIndex): WorkspaceTreeSnapshotDto<WorkspaceFileNode> {

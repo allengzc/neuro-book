@@ -42,22 +42,18 @@ export const WriterOutputSchema = Type.Object({
  * retrieval 子代理输入。
  */
 export const RetrievalInputSchema = Type.Object({
-    targetProfile: Type.String({description: "召回结果要服务的目标 profile，例如 writer。"}),
-    task: Type.String({description: "调用方的上层任务目标，说明为什么需要检索这些内容节点。"}),
-    prompt: Type.String({description: "检索提示词。可以包含人物、地点、冲突、章节目标、关键词和排除项。"}),
-    chapterOutline: Type.Optional(Type.String({description: "可选章节大纲，用于帮助 retrieval 判断相关节点。"})),
-    recentText: Type.Optional(Type.String({description: "可选最近正文或草稿片段，用于召回与当前段落最相关的节点。"})),
-    constraints: Type.Optional(Type.Array(Type.String({description: "检索限制，例如只查 active 节点、排除某类节点、最多某类结果。"}), {description: "检索约束列表。"})),
-    maxEntries: Type.Optional(Type.Number({description: "最多返回多少个内容节点路径。"})),
+    prompt: Type.String({description: "检索请求。写清任务目标、要找什么、给谁用、章节/正文上下文、排除项和数量偏好。"}),
 });
 
 /**
- * retrieval 子代理输出：面向 Leader 的详细召回结果。
+ * retrieval 子代理输出：面向 Leader 的内容节点候选判断结果。
  */
-export const RetrievalOutputSchema = Type.Array(Type.Object({
-    path: Type.String({description: "内容节点路径。Leader 调 writer 时只把这个 path 提取到 writer.lorebookEntries。"}),
-    reason: Type.Optional(Type.String({description: "为什么召回该节点，供 Leader 判断是否传给 writer。"})),
-    summary: Type.Optional(Type.String({description: "节点和任务的相关摘要，供 Leader 快速判断。"})),
-    priority: Type.Optional(Type.Number({description: "优先级，数字越小越重要。"})),
-    writingTip: Type.Optional(Type.String({description: "可选写作使用建议，供 Leader 阅读；不要传给 writer。"})),
-}), {description: "按优先级排序的内容节点召回详情数组。"});
+export const RetrievalOutputSchema = Type.Object({
+    entries: Type.Array(Type.Object({
+        path: Type.String({description: "内容节点路径。Leader 调 writer 时只提取这个 path。"}),
+        reason: Type.String({description: "为什么这个节点应该传给 writer。按当前写作任务概括，不要完整复述节点 summary。"}),
+        use: Type.Optional(Type.String({description: "建议 writer 重点使用这个节点的哪一部分信息；给 Leader 判断用，不直接传给 writer。"})),
+        risk: Type.Optional(Type.String({description: "可选风险说明，例如只是弱相关、状态可能过时、需要用户确认、可能与任务冲突。"})),
+    }), {description: "按推荐优先级排序的候选内容节点。"}),
+    note: Type.Optional(Type.String({description: "整体检索说明，例如没有强相关条目、结果偏少、建议补充搜索条件。"})),
+});

@@ -4,7 +4,7 @@ import {randomUUID} from "node:crypto";
 import {describe, expect, it, vi} from "vitest";
 import writerProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/writer.profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
-import {WriterInputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {RetrievalInputSchema, RetrievalOutputSchema, WriterInputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {messageText} from "nbook/server/agent/messages/message-utils";
 import {loadWritingReferencePresets} from "nbook/server/agent/profiles/writer-writing-reference";
@@ -138,6 +138,8 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).toContain("一章节一 agent");
         expect(prompt).toContain("chapterPaths");
         expect(prompt).toContain("writer.lorebookEntries 只接收内容节点 path 字符串数组");
+        expect(prompt).toContain("创建 retrieval 时只传自然语言 prompt");
+        expect(prompt).toContain("{ entries, note? }");
         expect(prompt).toContain("内容节点引用分流");
         expect(prompt).toContain("retrieval.trigger");
         expect(prompt).toContain("workspace node parse --stdin --ndjson");
@@ -295,7 +297,6 @@ describe("assets builtin v3 profiles", () => {
             },
             input: {
                 prompt: "找主角相关设定",
-                maxEntries: 3,
             },
             vars: createTestVariableAccessor(),
             catalog: await catalog.snapshot(),
@@ -306,6 +307,14 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).toContain("rg --files | rg '(^|/)index\\.md$'");
         expect(prompt).toContain("head -n 30");
         expect(prompt).toContain("workspace 相对路径优先使用 / 分隔");
+        expect(prompt).toContain("entries[].path");
+        expect(prompt).toContain("Leader 会阅读 reason/use/risk/note");
+        expect(prompt).toContain("report_result.data 必须是 { entries, note? }");
+        expect(prompt).not.toContain("maxEntries");
+        expect(prompt).not.toContain("priority 越高越靠前");
+        expect(prompt).not.toContain("writingTip");
+        expect(prompt).not.toContain("Target profile:");
+        expect(prompt).not.toContain("Chapter outline:");
         expect(prompt).not.toContain("PowerShell");
         expect(prompt).not.toContain("Select-Object");
         expect(prompt).not.toContain("--path-separator=/");
@@ -422,6 +431,30 @@ describe("assets builtin v3 profiles", () => {
         const chapterPathsSchema = properties.chapterPaths as typeof properties.chapterPaths & {minItems?: number; maxItems?: number};
         expect(chapterPathsSchema.minItems).toBe(1);
         expect(chapterPathsSchema.maxItems).toBe(1);
+    });
+
+    it("retrieval 输入输出合同保持 prompt-only 和 Leader-facing entries", () => {
+        const inputProperties = RetrievalInputSchema.properties;
+        const outputProperties = RetrievalOutputSchema.properties;
+        const entriesSchema = outputProperties.entries as typeof outputProperties.entries & {items: {properties: Record<string, unknown>; required?: string[]}};
+        const entryProperties = entriesSchema.items.properties;
+
+        expect(inputProperties).toHaveProperty("prompt");
+        expect(inputProperties).not.toHaveProperty("targetProfile");
+        expect(inputProperties).not.toHaveProperty("task");
+        expect(inputProperties).not.toHaveProperty("chapterOutline");
+        expect(inputProperties).not.toHaveProperty("recentText");
+        expect(inputProperties).not.toHaveProperty("constraints");
+        expect(inputProperties).not.toHaveProperty("maxEntries");
+        expect(outputProperties).toHaveProperty("entries");
+        expect(outputProperties).toHaveProperty("note");
+        expect(entryProperties).toHaveProperty("path");
+        expect(entryProperties).toHaveProperty("reason");
+        expect(entryProperties).toHaveProperty("use");
+        expect(entryProperties).toHaveProperty("risk");
+        expect(entryProperties).not.toHaveProperty("priority");
+        expect(entryProperties).not.toHaveProperty("writingTip");
+        expect(entryProperties).not.toHaveProperty("summary");
     });
 
     it("writer writing presets 使用用户目录覆盖系统同名文件", async () => {

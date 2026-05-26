@@ -42,7 +42,7 @@
   - `workspace/.nbook/agent/writing-presets/references`
   - `workspace/.nbook/agent/writing-presets/styles`
 - `leader.default.profile.tsx` 已改为教 “一章节一 agent”、`chapterPaths`、章节已存在、Scene 已挂章、retrieval 详细结果只提取 path 给 writer。
-- `retrieval.profile.tsx` 已改为输出面向 Leader 的详细对象数组；writer 仍只消费 path 字符串数组。
+- `retrieval.profile.tsx` 已继续精简为 prompt-only 输入，并输出面向 Leader 的 `{ entries, note? }` 候选判断对象；writer 仍只消费 path 字符串数组。
 
 ## Implementation Plan
 
@@ -115,10 +115,12 @@
      - 增加 “一章节一 writer agent；chapterPaths 传 manuscript 章节内容节点路径，writer 会展开本章 Scene 与 Plots，并写入对应章节 index.md”。
      - 增加调用前置条件：章节文件或空模板已经存在，Plot System 已把该章需要写的 Scene 挂载到章节。
    - `assets/workspace/.nbook/agent/profiles/builtin/retrieval.profile.tsx`
-     - retrieval 仍输出给 Leader 使用的详细检索结果，而不是只输出 string[]。
-     - 结果项至少包含 `path`，并可包含 `reason`、`summary`、`priority`、`writingTip` 等供 Leader 判断的字段。
-     - Leader 调 writer 时只把 retrieval 结果中的 `path` 列表传给 `writer.lorebookEntries`。
-     - 删除“writer.lorebookEntries 接收对象数组”的旧暗示，改成“retrieval 输出详细结果；writer 只消费 path 数组”。
+     - retrieval 输入只保留自然语言 `prompt`。
+     - retrieval 仍输出给 Leader 使用的候选判断结果，而不是只输出 string[]。
+     - `report_result.data` 为 `{ entries, note? }`；`entries` 按推荐优先级排序。
+     - 结果项包含必填 `path`、`reason`，可选 `use`、`risk`；不再使用 `summary`、`priority`、`writingTip` 字段。
+     - Leader 调 writer 时只把 retrieval 结果中的 `entries[].path` 列表传给 `writer.lorebookEntries`。
+     - 删除“writer.lorebookEntries 接收对象数组”的旧暗示，改成“retrieval 输出候选判断结果；writer 只消费 path 数组”。
    - `assets/workspace/.nbook/agent/profiles/builtin/leader.assets.profile.tsx`
      - 只同步 profile 系统通用说明中的 writing preset 新路径。
      - 不增加 writer 调用教学，因为 `leader.assets` 面向 user-assets/profile 编辑，不负责小说写作调度。
@@ -146,7 +148,7 @@
      - writer schema 中的 `reason`
      - writer schema 中的 `priority`
      - writer schema 中的 `writingTip`
-   - 注意 `novelId` 在 Plot/SQL 工具说明中仍然合法存在；`reason`、`priority`、`writingTip` 在 retrieval 输出中仍然合法存在。测试不能全局禁用，只能针对 writer 段落或 writer schema summary。
+   - 注意 `novelId` 在 Plot/SQL 工具说明中仍然合法存在；`reason` 在 retrieval 输出中仍然合法存在；`priority`、`writingTip` 已从 retrieval 当前合同中删除。测试不能全局禁用普通剧情/内容节点里的同名文字，只能针对 writer 段落、writer schema summary 或 retrieval schema/prompt。
    - 任务完成后更新 `PROJECT-STATUS.md`，记录 builtin writer contract 和 Agent 资产结构变化。
 
 ## Decisions
@@ -167,7 +169,7 @@
 - `agent/writing-presets/**` 纳入 system assets 同步，并扩展 sync state 记录 profile 之外的 agent assets。
 - `leader.assets` 只同步 writing preset 路径说明，不加入 writer 小说写作调度教学。
 - `AgentCatalog` 不做专门改造；writer schema summary 和 manifest 改对后自然更新。
-- retrieval 仍输出详细检索结果给 Leader；Leader 调用 writer 时只提取结果项的 `path` 列表作为 `writer.lorebookEntries`。
+- retrieval 输入已精简为 prompt-only；输出 `{ entries, note? }` 给 Leader 判断；Leader 调用 writer 时只提取 `entries[].path` 列表作为 `writer.lorebookEntries`。
 - 任务完成后更新 `PROJECT-STATUS.md`。
 - 不允许 writer 根据当前 UI active novel、自然语言章节名或旧 active scene 猜测写入目标。
 
@@ -175,7 +177,8 @@
 
 - `server/agent/profiles/builtin-contracts.ts`
   - 硬切 `WriterInputSchema`。
-  - 将 `RetrievalOutputSchema` 改为面向 Leader 的详细对象数组。
+  - 将 `RetrievalInputSchema` 改为只接收 `prompt`。
+  - 将 `RetrievalOutputSchema` 改为面向 Leader 的 `{ entries, note? }` 候选判断对象。
 - `assets/workspace/.nbook/agent/profiles/builtin/writer.profile.tsx`
   - 用 `chapterPaths` 解析和 `<chapter_plots>` 替代旧 `plotPoints`。
   - `lorebookEntries` 改为 string[] 并按输入顺序读取。
@@ -183,7 +186,8 @@
 - `assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`
   - 更新 writer/retrieval 协作说明。
 - `assets/workspace/.nbook/agent/profiles/builtin/retrieval.profile.tsx`
-  - 更新 report_result 输出合同说明。
+  - 使用 `<RuntimeContext />` 替代旧多字段 run context。
+  - 更新 prompt-only 输入和 report_result 输出合同说明。
 - `assets/workspace/.nbook/agent/profiles/builtin/leader.assets.profile.tsx`
   - 增加 writing preset 新路径说明。
 - `server/agent/profiles/writer-writing-reference.ts`
@@ -220,8 +224,21 @@ rg -n "plotPoints|必须同时提供 novelId|outputPath|profiles/builtin/writing
 
 残留说明：
 - `outputPath` 仍存在于 `WriterOutputSchema`，表示 report_result 的实际写入路径，不是 writer input。
-- `reason`、`summary`、`priority`、`writingTip` 仍存在于 `RetrievalOutputSchema` 和 retrieval prompt，面向 Leader 使用。
+- `reason`、`use`、`risk`、`note` 仍存在于 `RetrievalOutputSchema` 和 retrieval prompt，面向 Leader 使用；`summary`、`priority`、`writingTip` 已从 retrieval 当前输出合同删除。
 - `plotPoints` 等旧字段只保留在本任务文档的历史背景和决策记录中。
+
+本轮 retrieval schema 精简后新增验证范围：
+
+```powershell
+bun scripts/prepare-system-profile-metadata.ts
+bunx vitest run server/agent/profiles/leader-assets-profile.test.ts
+bun scripts/profile.ts status --all --system
+```
+
+预期：
+- `RetrievalInputSchema` 只包含 `prompt`。
+- `RetrievalOutputSchema` 顶层为 `{ entries, note? }`。
+- `entries[].path` 是唯一传给 writer 的字段；`reason/use/risk/note` 只给 Leader 判断。
 
 ## TODO / Follow-ups
 

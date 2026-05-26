@@ -79,14 +79,14 @@ function openContextMenu(event: MouseEvent, items: ContextMenuItem[]): void {
  * 选择文件树节点。
  */
 async function selectNode(node: WorkspaceFileNode): Promise<void> {
-    await store.openWorkspacePath(node.path, "preview");
+    await store.openWorkspaceNode(node, "preview");
 }
 
 /**
  * 双击打开节点并保留标签。
  */
 async function openNode(node: WorkspaceFileNode): Promise<void> {
-    await store.openWorkspacePath(node.path, "permanent");
+    await store.openWorkspaceNode(node, "permanent");
 }
 
 /**
