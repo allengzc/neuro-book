@@ -224,16 +224,21 @@ return finalAssistant/reportResult
 Harness 通过 `AgentSessionEventHub` 广播：
 
 - `kind: "session"`：`session_entry`、`session_state_changed`、`follow_up_queued`、`snapshot_required`、`invocation_aborted`。
-- `kind: "pi"`：`agent_start`、`turn_start`、`message_start`、`message_update`、`message_end`、`tool_execution_start`、`tool_execution_end`、`turn_end`、`agent_end`。
+- `kind: "pi"`：`agent_start`、`turn_start`、`message_start`、`message_update`、`message_end`、`tool_execution_start`、`tool_execution_update`、`tool_execution_end`、`turn_end`、`agent_end`。
 
 前端展示规则：
 
 - 稳定历史来自 session snapshot。
 - 当前 AI 输出来自 live Pi event。
+- SSE replay 是 bounded memory buffer。客户端中途订阅或重连时不保证一定收到本次 invocation 的 `agent_start` / `agent_end`；运行状态必须结合 snapshot `activeInvocation`、live Pi event 和 `session_state_changed.snapshot.activeInvocation` 推导。
+- SSE route 的 `connected` 只表示 HTTP 事件流建立，不是 session hub 的 durable event，不应推进前端 `lastSeq` 或触发 snapshot。
+- `session_state_changed.snapshot` 已携带完整 snapshot，前端可以直接应用它同步 shell 状态，但不应因此额外 `GET /api/agent/sessions/:sessionId`。
 - snapshot 顶部展示当前 profile 的 `systemPrompt`，默认收起，使用 Markdown 渲染；它不作为普通历史消息写入 session。
 - `session_entry` 事件会即时投影 profile system reminder / prompt 用户消息，避免等 invocation 结束后才刷新。
 - `modelContextMessages` 不展示；`ModelContext` 内的 `Reminder` 已转成 pre-loop 可见消息，因此会展示。
 - 需要用户看见、需要分支保存、需要 replay 的内容必须通过 `AppendingSet` 写入 session。
+
+稳定 SSE 合同见 `spec/agent/sse.md`；当前重构 walkthrough 见 `docs/tasks/14-agent-sse-front-end-contract/README.md`。
 
 ### Run Error 可见化
 

@@ -9,6 +9,7 @@ import {useStructuredReferenceMenu} from "nbook/app/composables/useStructuredRef
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
+import {useAgentSessionStream, type AgentSessionStreamSnapshotReason} from "nbook/app/components/novel-ide/agent/useAgentSessionStream";
 import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
 import AgentChatFlow from "nbook/app/components/novel-ide/agent/AgentChatFlow.vue";
 import AgentComposer from "nbook/app/components/novel-ide/agent/AgentComposer.vue";
@@ -56,9 +57,6 @@ const selectionVersion = ref(0);
 const sessionDialogOpen = ref(false);
 const sessionTreeDialogOpen = ref(false);
 const sessionActionId = ref<number | null>(null);
-const eventsAbortController = ref<AbortController | null>(null);
-const eventsSessionId = ref<number | null>(null);
-let eventStreamReadyPromise: Promise<void> | null = null;
 const editingMessageId = ref<string | null>(null);
 const messageActionId = ref<string | null>(null);
 const selectableModels = ref<ConfigModelSettingsDto["enabledModels"]>([]);
@@ -84,6 +82,8 @@ const agentApi = useAgentSessionApi();
 const configApi = useConfigApi();
 const messages = session.messages;
 const running = session.running;
+const connectionStatus = session.connectionStatus;
+const runPhase = session.runPhase;
 const pendingUserInputSession = session.pendingUserInputSession;
 const {confirm} = useDialog();
 const notification = useNotification();
@@ -114,6 +114,29 @@ const planModeActive = computed(() => activeSnapshot.value?.planModeActive ?? fa
 const renderNodes = computed(() => messages.value);
 const messageActionsDisabled = computed(() => running.value || Boolean(messageActionId.value));
 const canContinueWithoutInput = computed(() => !running.value && !inputText.value.trim() && messages.value.length > 0 && messages.value.at(-1)?.type !== "ai");
+const connectionStatusLabel = computed(() => {
+    switch (connectionStatus.value) {
+        case "connecting": return "连接中";
+        case "reconnecting": return "事件连接断开，正在重连";
+        case "recovering": return "正在恢复历史";
+        case "disconnected": return "事件连接已断开";
+        default: return "";
+    }
+});
+const connectionNeedsAction = computed(() => connectionStatus.value === "disconnected" || sessionStream.reconnectAttempt.value > 3);
+const runPhaseLabel = computed(() => {
+    switch (runPhase.value) {
+        case "model_pending": return "等待模型响应";
+        case "thinking": return "思考中";
+        case "assistant_streaming": return "生成回复中";
+        case "tool_args_streaming": return "生成工具参数";
+        case "tool_running": return "执行工具中";
+        case "tool_streaming": return "读取工具输出";
+        case "waiting_user": return "等待用户确认";
+        case "finishing": return "工具已完成，正在继续生成";
+        default: return "运行中";
+    }
+});
 
 const systemLeaderProfileKey = computed(() => {
     return ideStore.workspaceKind === "user-assets" ? "leader.assets" : "leader.default";
@@ -323,7 +346,7 @@ const ensureSessionReady = async (forceNew = false): Promise<AgentSessionSummary
  * 切换到指定 session，并拉取 snapshot。
  */
 const loadSession = async (sessionId: number): Promise<void> => {
-    eventsAbortController.value?.abort();
+    sessionStream.stop();
     activeSessionId.value = sessionId;
     session.reset();
     editingMessageId.value = null;
@@ -335,7 +358,7 @@ const loadSession = async (sessionId: number): Promise<void> => {
         const snapshot = await agentApi.getSession(sessionId);
         session.applySnapshot(snapshot);
         syncSessionModelState(snapshot.summary);
-        void subscribeSessionEvents(sessionId);
+        void sessionStream.start(sessionId);
         fileChangedSinceLastSend.value = false;
         await nextTick();
         scrollToBottom();
@@ -348,20 +371,26 @@ const loadSession = async (sessionId: number): Promise<void> => {
 /**
  * 从服务端重新同步当前 session snapshot。
  */
-const syncActiveSessionSnapshot = async (): Promise<boolean> => {
+const syncActiveSessionSnapshot = async (reason: AgentSessionStreamSnapshotReason = "manual_refresh"): Promise<boolean> => {
     if (!activeSessionId.value) {
         return false;
     }
-    try {
-        const snapshot = await agentApi.getSession(activeSessionId.value);
+    return sessionStream.syncSnapshot(reason);
+};
+
+/**
+ * HTTP 操作如果已返回 snapshot，直接应用；否则才补一次恢复 snapshot。
+ */
+const applySnapshotOrSync = async (snapshot?: AgentSessionSnapshotDto | null): Promise<void> => {
+    if (snapshot) {
+        if (snapshot.summary.sessionId !== activeSessionId.value) {
+            return;
+        }
         session.applySnapshot(snapshot);
         syncSessionModelState(snapshot.summary);
-        return true;
-    } catch (error) {
-        console.error(`同步 session ${String(activeSessionId.value)} snapshot 失败`, error);
-        notifyAgentError(error, "同步 Agent session 失败");
-        return false;
+        return;
     }
+    await syncActiveSessionSnapshot();
 };
 
 /**
@@ -372,7 +401,7 @@ const handleInvokeResult = async (result: InvokeAgentResult): Promise<void> => {
     if (result.status !== "error") {
         return;
     }
-    await syncActiveSessionSnapshot();
+    await syncActiveSessionSnapshot("invoke_error_fallback");
     if (!hasVisibleInvocationError(messages.value, result.invocationId)) {
         notification.error(result.error ?? "Agent 运行失败", {title: "Agent 运行失败"});
     }
@@ -383,62 +412,6 @@ const handleInvokeResult = async (result: InvokeAgentResult): Promise<void> => {
  */
 const scrollToBottom = (): void => {
     chatFlowRef.value?.scrollToBottom();
-};
-
-/**
- * 订阅 session 长连接事件。
- */
-const subscribeSessionEvents = async (sessionId: number): Promise<void> => {
-    if (eventsAbortController.value && eventsSessionId.value === sessionId) {
-        await eventStreamReadyPromise;
-        return;
-    }
-
-    eventsAbortController.value?.abort();
-    const controller = new AbortController();
-    eventsAbortController.value = controller;
-    eventsSessionId.value = sessionId;
-    let resolveReady: () => void = () => {};
-    let rejectReady: (error: unknown) => void = () => {};
-    const readyPromise = new Promise<void>((resolve, reject) => {
-        resolveReady = resolve;
-        rejectReady = reject;
-    });
-    eventStreamReadyPromise = readyPromise;
-    void readyPromise.catch(() => {});
-
-    try {
-        await agentApi.subscribeSessionEvents(sessionId, session.lastSeq.value, async (event) => {
-            if (sessionId !== activeSessionId.value) {
-                return;
-            }
-            if (event.kind === "session" && event.event.type === "client_variable_patch_requested") {
-                await acknowledgeClientPatch(sessionId, event.event.request);
-                return;
-            }
-            session.applyEvent(event);
-            if (session.needsSnapshot.value) {
-                await syncActiveSessionSnapshot();
-            }
-            if (event.kind === "session" && event.event.type === "session_state_changed" && event.event.snapshot) {
-                syncSessionModelState(event.event.snapshot.summary);
-            }
-        }, controller.signal, {
-            onOpen: resolveReady,
-        });
-    } catch (error) {
-        rejectReady(error);
-        if (sessionId === activeSessionId.value && !(error instanceof DOMException && error.name === "AbortError")) {
-            running.value = false;
-            console.error("Agent event stream 断开", error);
-        }
-    } finally {
-        if (eventsAbortController.value === controller) {
-            eventsAbortController.value = null;
-            eventsSessionId.value = null;
-            eventStreamReadyPromise = null;
-        }
-    }
 };
 
 const acknowledgeClientPatch = async (sessionId: number, request: Parameters<typeof applyClientVariablePatch>[0]): Promise<void> => {
@@ -475,19 +448,19 @@ const acknowledgeClientPatch = async (sessionId: number, request: Parameters<typ
  * 发送或继续前确保当前 session SSE 处于连接状态。
  */
 const ensureActiveSessionEvents = async (): Promise<void> => {
-    if (!activeSessionId.value) {
-        return;
+    await sessionStream.ensure();
+};
+
+/**
+ * 用户显式要求立即重连事件流。
+ */
+const reconnectActiveSessionEvents = async (): Promise<void> => {
+    try {
+        await sessionStream.reconnectNow();
+    } catch (error) {
+        console.error("重新连接 Agent 事件流失败", error);
+        notifyAgentError(error, "重新连接 Agent 事件流失败");
     }
-    if (eventsAbortController.value) {
-        if (eventsSessionId.value === activeSessionId.value) {
-            await eventStreamReadyPromise;
-            return;
-        }
-        eventsAbortController.value.abort();
-        eventsSessionId.value = null;
-    }
-    void subscribeSessionEvents(activeSessionId.value);
-    await eventStreamReadyPromise;
 };
 
 /**
@@ -634,12 +607,7 @@ const togglePlanMode = async (): Promise<void> => {
             command: "plan",
             active: !planModeActive.value,
         });
-        if (result.snapshot) {
-            session.applySnapshot(result.snapshot);
-            syncSessionModelState(result.snapshot.summary);
-            return;
-        }
-        await syncActiveSessionSnapshot();
+        await applySnapshotOrSync(result.snapshot);
     } catch (error) {
         console.error("切换 Plan Mode 失败", error);
         notifyAgentError(error, "切换 Plan Mode 失败");
@@ -704,8 +672,7 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
         const result = await agentApi.moveTree(activeSessionId.value, {
             position: "empty",
         });
-        session.applySnapshot(result.snapshot);
-        syncSessionModelState(result.snapshot.summary);
+        await applySnapshotOrSync(result.snapshot);
         return true;
     }
     if (command === "/plan") {
@@ -717,11 +684,11 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
         return true;
     }
     if (command === "/model") {
-        await agentApi.runCommand(activeSessionId.value, {
+        const result = await agentApi.runCommand(activeSessionId.value, {
             command: "model",
             modelKey: rest[0] ?? null,
         });
-        await syncActiveSessionSnapshot();
+        await applySnapshotOrSync(result.snapshot);
         return true;
     }
     return false;
@@ -736,11 +703,11 @@ const compactSession = async (instructions?: string): Promise<void> => {
     }
     try {
         await ensureActiveSessionEvents();
-        await agentApi.runCommand(activeSessionId.value, {
+        const result = await agentApi.runCommand(activeSessionId.value, {
             command: "compact",
             instructions,
         });
-        await syncActiveSessionSnapshot();
+        await applySnapshotOrSync(result.snapshot);
     } catch (error) {
         console.error("压缩 Session 失败", error);
         notifyAgentError(error, "压缩 Session 失败");
@@ -805,11 +772,11 @@ const updateSessionModelSelection = async (modelKey: string | null): Promise<voi
     }
     sessionModelSaving.value = true;
     try {
-        await agentApi.runCommand(activeSessionId.value, {
+        const result = await agentApi.runCommand(activeSessionId.value, {
             command: "model",
             modelKey,
         });
-        await syncActiveSessionSnapshot();
+        await applySnapshotOrSync(result.snapshot);
     } catch (error) {
         console.error("更新 session 模型失败", error);
         notifyAgentError(error, "更新 session 模型失败");
@@ -844,6 +811,24 @@ function syncSessionModelState(_summary: AgentSessionSummaryDto | null): void {
     };
 }
 
+const sessionStream = useAgentSessionStream({
+    session,
+    api: agentApi,
+    activeSessionId,
+    applySnapshotSideEffects: (snapshot) => {
+        syncSessionModelState(snapshot.summary);
+    },
+    onEvent: async (event) => {
+        if (event.kind === "session" && event.event.type === "client_variable_patch_requested" && activeSessionId.value) {
+            await acknowledgeClientPatch(activeSessionId.value, event.event.request);
+        }
+    },
+    onError: (error, fallback) => {
+        console.error(fallback, error);
+        notifyAgentError(error, fallback);
+    },
+});
+
 const cycleMessageBranch = async (messageId: string, direction: -1 | 1): Promise<void> => {
     if (!activeSessionId.value || messageActionId.value || running.value) {
         return;
@@ -854,11 +839,11 @@ const cycleMessageBranch = async (messageId: string, direction: -1 | 1): Promise
     }
     messageActionId.value = messageId;
     try {
-        await agentApi.moveTree(activeSessionId.value, {
+        const result = await agentApi.moveTree(activeSessionId.value, {
             targetEntryId: target.id,
             position: "at",
         });
-        await syncActiveSessionSnapshot();
+        await applySnapshotOrSync(result.snapshot);
     } catch (error) {
         console.error("切换消息分支失败", error);
         notifyAgentError(error, "切换消息分支失败");
@@ -873,11 +858,11 @@ const selectTreeNode = async (entryId: string): Promise<void> => {
     }
     messageActionId.value = entryId;
     try {
-        await agentApi.moveTree(activeSessionId.value, {
+        const result = await agentApi.moveTree(activeSessionId.value, {
             targetEntryId: entryId,
             position: "at",
         });
-        await syncActiveSessionSnapshot();
+        await applySnapshotOrSync(result.snapshot);
     } catch (error) {
         console.error("切换 Session Tree 节点失败", error);
         notifyAgentError(error, "切换 Session Tree 节点失败");
@@ -956,11 +941,11 @@ const rollbackMessage = async (message: AgentMessage): Promise<void> => {
     }
     messageActionId.value = message.id;
     try {
-        await agentApi.moveTree(activeSessionId.value, {
+        const result = await agentApi.moveTree(activeSessionId.value, {
             targetEntryId: message.id,
             position: "at",
         });
-        await syncActiveSessionSnapshot();
+        await applySnapshotOrSync(result.snapshot);
         editingMessageId.value = null;
         notification.success("消息已回退");
     } catch (error) {
@@ -1048,8 +1033,7 @@ watch(() => props.isOpen, async (open) => {
         sessionModelPopoverOpen.value = false;
         editingMessageId.value = null;
         messageActionId.value = null;
-        eventsAbortController.value?.abort();
-        eventsSessionId.value = null;
+        sessionStream.stop();
         return;
     }
     await loadSelectableModels();
@@ -1063,8 +1047,7 @@ watch(() => props.isOpen, async (open) => {
 });
 
 watch(leaderProfileKey, async () => {
-    eventsAbortController.value?.abort();
-    eventsSessionId.value = null;
+    sessionStream.stop();
     activeSessionId.value = null;
     sessions.value = [];
     linkedAgentPanelOpen.value = false;
@@ -1081,8 +1064,7 @@ watch(() => [ideStore.workspaceKind, ideStore.currentNovelId] as const, async ()
 });
 
 onBeforeUnmount(() => {
-    eventsAbortController.value?.abort();
-    eventsSessionId.value = null;
+    sessionStream.stop();
 });
 
 onMounted(() => {
@@ -1241,6 +1223,9 @@ function isApprovalApproved(answer?: {
                 :cumulative-output-compact-label="cumulativeOutputCompactLabel"
                 :cumulative-cache-compact-label="cumulativeCacheCompactLabel"
                 :cumulative-cache-write-compact-label="cumulativeCacheWriteCompactLabel"
+                :connection-status-label="connectionStatusLabel"
+                :run-phase-label="runPhaseLabel"
+                :connection-needs-action="connectionNeedsAction"
                 :menu-refresh-key="agentMenuRefreshKey"
                 :resolve-menu="resolveInputMenu"
                 :on-skill-trigger-start="refreshSkillCatalog"
@@ -1252,6 +1237,8 @@ function isApprovalApproved(answer?: {
                 @update-session-model-selection="void updateSessionModelSelection($event)"
                 @apply-session-model-settings="void applySessionModelSettings()"
                 @reset-session-model-settings="void resetSessionModelSettings()"
+                @reconnect-events="void reconnectActiveSessionEvents()"
+                @refresh-history="void syncActiveSessionSnapshot()"
             />
 
             <!-- Session 管理弹窗 -->

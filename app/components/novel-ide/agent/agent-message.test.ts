@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {deriveMessagesFromSessionSnapshot} from "nbook/app/components/novel-ide/agent/agent-message";
+import {applyPiEventToMessages, deriveMessagesFromSessionSnapshot, type AgentMessage} from "nbook/app/components/novel-ide/agent/agent-message";
 import type {AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
 
 const baseSnapshot = (entries: AgentSessionSnapshotDto["entries"]): AgentSessionSnapshotDto => ({
@@ -221,6 +221,320 @@ describe("agent message projection", () => {
 
         expect(messages[0]?.toolCalls?.[0]?.status).toBe("streaming");
         expect(messages[0]?.toolCalls?.[0]?.error).toBeUndefined();
+    });
+
+    it("用 assistant thinking_delta 兜底追加思维链", () => {
+        const previous: AgentMessage[] = [{
+            id: "assistant:1",
+            type: "ai" as const,
+            content: "",
+            status: "streaming" as const,
+            thinking: "先分析",
+        }];
+
+        const messages = applyPiEventToMessages(previous, {
+            type: "message_update",
+            message: {
+                role: "assistant",
+                content: [],
+                api: "test",
+                provider: "test",
+                model: "test",
+                usage: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    totalTokens: 0,
+                    cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
+                },
+                stopReason: "stop",
+                timestamp: 1,
+            } as never,
+            assistantMessageEvent: {
+                type: "thinking_delta",
+                contentIndex: 0,
+                delta: "再判断",
+                partial: {
+                    role: "assistant",
+                    content: [],
+                    api: "test",
+                    provider: "test",
+                    model: "test",
+                    usage: {
+                        input: 0,
+                        output: 0,
+                        cacheRead: 0,
+                        cacheWrite: 0,
+                        totalTokens: 0,
+                        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
+                    },
+                    stopReason: "stop",
+                    timestamp: 1,
+                },
+            } as never,
+        });
+
+        expect(messages[0]?.thinking).toBe("先分析再判断");
+    });
+
+    it("首帧 message_update 没有 previous message 时仍应用 text_delta", () => {
+        const messages = applyPiEventToMessages([], {
+            type: "message_update",
+            message: {
+                role: "assistant",
+                content: [],
+                api: "test",
+                provider: "test",
+                model: "test",
+                usage: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    totalTokens: 0,
+                    cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
+                },
+                stopReason: "stop",
+                timestamp: 1,
+            } as never,
+            assistantMessageEvent: {
+                type: "text_delta",
+                contentIndex: 0,
+                delta: "你好",
+                partial: {
+                    role: "assistant",
+                    content: [],
+                    api: "test",
+                    provider: "test",
+                    model: "test",
+                    usage: {
+                        input: 0,
+                        output: 0,
+                        cacheRead: 0,
+                        cacheWrite: 0,
+                        totalTokens: 0,
+                        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
+                    },
+                    stopReason: "stop",
+                    timestamp: 1,
+                },
+            } as never,
+        });
+
+        expect(messages[0]?.content).toBe("你好");
+        expect(messages[0]?.assistantContent).toEqual([{type: "text", text: "你好"}]);
+    });
+
+    it("用 assistant toolcall_delta 兜底追加工具参数", () => {
+        const previous = [{
+            id: "assistant:1",
+            type: "ai" as const,
+            content: "",
+            status: "streaming" as const,
+            toolCalls: [{
+                id: "call-1",
+                index: 0,
+                name: "write",
+                argsText: "{\"path\":\"a.md\",\"content\":\"",
+                status: "streaming" as const,
+                assistantMessageId: "assistant:1",
+            }],
+        }];
+
+        const messages = applyPiEventToMessages(previous, {
+            type: "message_update",
+            message: {
+                role: "assistant",
+                content: [],
+                api: "test",
+                provider: "test",
+                model: "test",
+                usage: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    totalTokens: 0,
+                    cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
+                },
+                stopReason: "toolUse",
+                timestamp: 1,
+            } as never,
+            assistantMessageEvent: {
+                type: "toolcall_delta",
+                contentIndex: 0,
+                delta: "hello",
+                partial: {
+                    role: "assistant",
+                    content: [],
+                    api: "test",
+                    provider: "test",
+                    model: "test",
+                    usage: {
+                        input: 0,
+                        output: 0,
+                        cacheRead: 0,
+                        cacheWrite: 0,
+                        totalTokens: 0,
+                        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
+                    },
+                    stopReason: "toolUse",
+                    timestamp: 1,
+                },
+            } as never,
+        });
+
+        expect(messages[0]?.toolCalls?.[0]?.argsText).toContain("hello");
+    });
+
+    it("按 contentIndex 合并交错的 thinking/text/toolCall block", () => {
+        const previous = [{
+            id: "assistant:1",
+            type: "ai" as const,
+            content: "正文",
+            status: "streaming" as const,
+            thinking: "思考",
+            toolCalls: [
+                {
+                    id: "call-a",
+                    index: 0,
+                    name: "read",
+                    argsText: "{\"path\":\"a",
+                    status: "streaming" as const,
+                    assistantMessageId: "assistant:1",
+                },
+                {
+                    id: "call-b",
+                    index: 1,
+                    name: "write",
+                    argsText: "{\"path\":\"b",
+                    status: "streaming" as const,
+                    assistantMessageId: "assistant:1",
+                },
+            ],
+        }];
+
+        const messages = applyPiEventToMessages(previous, {
+            type: "message_update",
+            message: {
+                role: "assistant",
+                content: [],
+                api: "test",
+                provider: "test",
+                model: "test",
+                usage: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    totalTokens: 0,
+                    cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
+                },
+                stopReason: "toolUse",
+                timestamp: 1,
+            } as never,
+            assistantMessageEvent: {
+                type: "toolcall_delta",
+                contentIndex: 3,
+                delta: ".md\"}",
+                partial: {
+                    role: "assistant",
+                    content: [
+                        {type: "thinking", thinking: "思考"},
+                        {type: "text", text: "正文"},
+                        {type: "toolCall", id: "call-a", name: "read", arguments: "{\"path\":\"a"},
+                        {type: "toolCall", id: "call-b", name: "write", arguments: "{\"path\":\"b.md\"}"},
+                    ],
+                    api: "test",
+                    provider: "test",
+                    model: "test",
+                    usage: {
+                        input: 0,
+                        output: 0,
+                        cacheRead: 0,
+                        cacheWrite: 0,
+                        totalTokens: 0,
+                        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
+                    },
+                    stopReason: "toolUse",
+                    timestamp: 1,
+                },
+            } as never,
+        });
+
+        expect(messages[0]?.thinking).toBe("思考");
+        expect(messages[0]?.content).toBe("正文");
+        expect(messages[0]?.toolCalls?.find((toolCall) => toolCall.id === "call-a")?.argsText).toBe("{\"path\":\"a");
+        expect(messages[0]?.toolCalls?.find((toolCall) => toolCall.id === "call-b")?.argsText).toBe("{\"path\":\"b.md\"}");
+    });
+
+    it("partial 缺少完整 content 时仍按原始 contentIndex 更新工具参数", () => {
+        const previous: AgentMessage[] = [{
+            id: "assistant:1",
+            type: "ai" as const,
+            content: "正文",
+            status: "streaming" as const,
+            toolCalls: [{
+                id: "call-b",
+                index: 2,
+                name: "write",
+                argsText: "{\"path\":\"b",
+                status: "streaming" as const,
+                assistantMessageId: "assistant:1",
+            }],
+            assistantContent: [
+                {type: "text", text: "正文"},
+                {type: "thinking", thinking: "思考"},
+                {type: "toolCall", id: "call-b", name: "write", arguments: "{\"path\":\"b"} as never,
+            ],
+        }];
+
+        const messages = applyPiEventToMessages(previous, {
+            type: "message_update",
+            message: {
+                role: "assistant",
+                content: [],
+                api: "test",
+                provider: "test",
+                model: "test",
+                usage: {
+                    input: 0,
+                    output: 0,
+                    cacheRead: 0,
+                    cacheWrite: 0,
+                    totalTokens: 0,
+                    cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
+                },
+                stopReason: "toolUse",
+                timestamp: 1,
+            } as never,
+            assistantMessageEvent: {
+                type: "toolcall_delta",
+                contentIndex: 2,
+                delta: ".md\"}",
+                partial: {
+                    role: "assistant",
+                    content: [],
+                    api: "test",
+                    provider: "test",
+                    model: "test",
+                    usage: {
+                        input: 0,
+                        output: 0,
+                        cacheRead: 0,
+                        cacheWrite: 0,
+                        totalTokens: 0,
+                        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
+                    },
+                    stopReason: "toolUse",
+                    timestamp: 1,
+                },
+            } as never,
+        });
+
+        expect(messages[0]?.content).toBe("正文");
+        expect(messages[0]?.toolCalls?.find((toolCall) => toolCall.id === "call-b")?.argsText).toBe("{\"path\":\"b.md\"}");
     });
 
 });

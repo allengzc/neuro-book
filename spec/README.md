@@ -4,7 +4,7 @@
 
 ## Modules
 
-- [agent/](agent/)：多 Agent 系统、Profile、上下文和前端状态规范。
+- [agent/](agent/)：多 Agent 系统、Profile、上下文、SSE 同步和前端状态规范。
 - [content/](content/)：内容校验、规范化、内容节点状态和 retrieval/inject 规范。
 - [editor/](editor/)：Markdown Studio 富文本和源码模式规范。
 - [plot/](plot/)：剧情模块和前端 UI/UX 规范。

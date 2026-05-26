@@ -1,0 +1,268 @@
+import {beforeEach, describe, expect, it, vi} from "vitest";
+import {ref} from "vue";
+import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
+import {useAgentSessionStream} from "nbook/app/components/novel-ide/agent/useAgentSessionStream";
+import type {AgentSessionEventDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
+
+const baseSnapshot = (lastSeq = 0): AgentSessionSnapshotDto => ({
+    summary: {
+        sessionId: 1,
+        profileKey: "leader.default",
+        workspaceKey: "global",
+        workspaceRoot: ".",
+        status: "idle",
+        updatedAt: 1,
+        archived: false,
+    },
+    activeLeafId: null,
+    messages: [],
+    tree: [],
+    entries: [],
+    linkedAgents: [],
+    pendingApproval: null,
+    followUpQueue: [],
+    activeInvocation: null,
+    model: null,
+    planModeActive: false,
+    lastSeq,
+});
+
+const connectedEvent = (seq: number): AgentSessionEventDto => ({
+    seq,
+    sessionId: 1,
+    kind: "session",
+    event: {type: "connected"},
+});
+
+describe("useAgentSessionStream", () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    it("stream close 后按 lastSeq 自动重连", async () => {
+        const session = useAgentSession();
+        const activeSessionId = ref<number | null>(1);
+        session.applySnapshot(baseSnapshot(7));
+        const afterValues: number[] = [];
+        let calls = 0;
+        const api = {
+            getSession: vi.fn(async () => baseSnapshot(7)),
+            subscribeSessionEvents: vi.fn(async (_sessionId: number, after: number, onEvent: (event: AgentSessionEventDto) => void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
+                calls += 1;
+                afterValues.push(after);
+                options?.onOpen?.();
+                onEvent(connectedEvent(after));
+                if (calls === 1) {
+                    return;
+                }
+                await new Promise<void>(() => {});
+            }),
+        };
+        const stream = useAgentSessionStream({session, api, activeSessionId});
+
+        await stream.start(1);
+        expect(session.connectionStatus.value).toBe("reconnecting");
+        await vi.advanceTimersByTimeAsync(300);
+
+        expect(api.subscribeSessionEvents).toHaveBeenCalledTimes(2);
+        expect(afterValues).toEqual([7, 7]);
+    });
+
+    it("多个 snapshot_required 触发只拉一次 snapshot", async () => {
+        const session = useAgentSession();
+        const activeSessionId = ref<number | null>(1);
+        session.applySnapshot(baseSnapshot(1));
+        let resolveSnapshot!: (snapshot: AgentSessionSnapshotDto) => void;
+        const api = {
+            getSession: vi.fn(() => new Promise<AgentSessionSnapshotDto>((resolve) => {
+                resolveSnapshot = resolve;
+            })),
+            subscribeSessionEvents: vi.fn(async (_sessionId: number, _after: number, onEvent: (event: AgentSessionEventDto) => Promise<void> | void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
+                options?.onOpen?.();
+                void onEvent({
+                    seq: 2,
+                    sessionId: 1,
+                    kind: "session",
+                    event: {type: "snapshot_required", reason: "buffer expired"},
+                });
+                void onEvent({
+                    seq: 3,
+                    sessionId: 1,
+                    kind: "session",
+                    event: {type: "snapshot_required", reason: "buffer expired again"},
+                });
+                await new Promise<void>(() => {});
+            }),
+        };
+        const stream = useAgentSessionStream({session, api, activeSessionId});
+
+        await stream.start(1);
+        await Promise.resolve();
+
+        expect(api.getSession).toHaveBeenCalledTimes(1);
+        resolveSnapshot(baseSnapshot(3));
+        await Promise.resolve();
+        expect(session.lastSeq.value).toBe(3);
+        expect(session.needsSnapshot.value).toBe(false);
+    });
+
+    it("切换 session 后丢弃旧 session 的 in-flight snapshot", async () => {
+        const session = useAgentSession();
+        const activeSessionId = ref<number | null>(1);
+        session.applySnapshot(baseSnapshot(1));
+        let resolveOldSnapshot!: (snapshot: AgentSessionSnapshotDto) => void;
+        const api = {
+            getSession: vi.fn((sessionId: number) => {
+                if (sessionId === 1) {
+                    return new Promise<AgentSessionSnapshotDto>((resolve) => {
+                        resolveOldSnapshot = resolve;
+                    });
+                }
+                return Promise.resolve({...baseSnapshot(9), summary: {...baseSnapshot(9).summary, sessionId}});
+            }),
+            subscribeSessionEvents: vi.fn(async () => new Promise<void>(() => {})),
+        };
+        const stream = useAgentSessionStream({session, api, activeSessionId});
+
+        const oldSync = stream.syncSnapshot("manual_refresh");
+        activeSessionId.value = 2;
+        session.applySnapshot({...baseSnapshot(9), summary: {...baseSnapshot(9).summary, sessionId: 2}});
+        resolveOldSnapshot({...baseSnapshot(5), summary: {...baseSnapshot(5).summary, sessionId: 1}});
+
+        await expect(oldSync).resolves.toBe(false);
+        expect(session.snapshot.value?.summary.sessionId).toBe(2);
+        expect(session.lastSeq.value).toBe(9);
+    });
+
+    it("stop 后丢弃同 session 的 in-flight snapshot", async () => {
+        const session = useAgentSession();
+        const activeSessionId = ref<number | null>(1);
+        session.applySnapshot(baseSnapshot(1));
+        let resolveSnapshot!: (snapshot: AgentSessionSnapshotDto) => void;
+        const api = {
+            getSession: vi.fn(() => new Promise<AgentSessionSnapshotDto>((resolve) => {
+                resolveSnapshot = resolve;
+            })),
+            subscribeSessionEvents: vi.fn(async () => new Promise<void>(() => {})),
+        };
+        const stream = useAgentSessionStream({session, api, activeSessionId});
+
+        const sync = stream.syncSnapshot("manual_refresh");
+        stream.stop();
+        resolveSnapshot(baseSnapshot(5));
+
+        await expect(sync).resolves.toBe(false);
+        expect(session.lastSeq.value).toBe(1);
+    });
+
+    it("manual refresh snapshot 不伪造 SSE connected 状态", async () => {
+        const session = useAgentSession();
+        const activeSessionId = ref<number | null>(1);
+        session.applySnapshot(baseSnapshot(1));
+        session.applyConnectionStatus("disconnected");
+        const api = {
+            getSession: vi.fn(async () => baseSnapshot(5)),
+            subscribeSessionEvents: vi.fn(async () => new Promise<void>(() => {})),
+        };
+        const stream = useAgentSessionStream({session, api, activeSessionId});
+
+        await stream.syncSnapshot("manual_refresh");
+
+        expect(session.connectionStatus.value).toBe("disconnected");
+        expect(session.lastSeq.value).toBe(5);
+    });
+
+    it("等待异步事件处理完成后再处理下一帧", async () => {
+        const session = useAgentSession();
+        const activeSessionId = ref<number | null>(1);
+        session.applySnapshot(baseSnapshot(1));
+        let releaseFirstEvent!: () => void;
+        let resolveFirstEventStarted!: () => void;
+        const appliedSeq: number[] = [];
+        const firstEventStarted = new Promise<void>((resolve) => {
+            resolveFirstEventStarted = resolve;
+        });
+        const api = {
+            getSession: vi.fn(async () => baseSnapshot(1)),
+            subscribeSessionEvents: vi.fn(async (_sessionId: number, _after: number, onEvent: (event: AgentSessionEventDto) => Promise<void> | void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
+                options?.onOpen?.();
+                await onEvent({
+                    seq: 2,
+                    sessionId: 1,
+                    kind: "session",
+                    event: {
+                        type: "client_variable_patch_requested",
+                        request: {
+                            namespace: "client",
+                            path: "ide.selection",
+                            operations: [],
+                        },
+                    },
+                });
+                appliedSeq.push(session.lastSeq.value);
+                await onEvent({
+                    seq: 3,
+                    sessionId: 1,
+                    kind: "session",
+                    event: {type: "follow_up_queued", item: {id: "follow-1", message: {text: "继续"}, createdAt: Date.now()}},
+                });
+                appliedSeq.push(session.lastSeq.value);
+                await new Promise<void>(() => {});
+            }),
+        };
+        const stream = useAgentSessionStream({
+            session,
+            api,
+            activeSessionId,
+            onEvent: async (event) => {
+                if (event.kind === "session" && event.event.type === "client_variable_patch_requested") {
+                    resolveFirstEventStarted();
+                    await new Promise<void>((resolve) => {
+                        releaseFirstEvent = resolve;
+                    });
+                }
+            },
+        });
+
+        const startPromise = stream.start(1);
+        await firstEventStarted;
+        releaseFirstEvent();
+        await startPromise;
+
+        await vi.waitFor(() => {
+            expect(appliedSeq).toEqual([2, 3]);
+        });
+        expect(session.needsSnapshot.value).toBe(false);
+    });
+
+    it("连续重连失败后进入 disconnected 并允许手动重连", async () => {
+        const session = useAgentSession();
+        const activeSessionId = ref<number | null>(1);
+        session.applySnapshot(baseSnapshot(5));
+        let fail = true;
+        const api = {
+            getSession: vi.fn(async () => baseSnapshot(5)),
+            subscribeSessionEvents: vi.fn(async (_sessionId: number, _after: number, _onEvent: (event: AgentSessionEventDto) => void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
+                if (fail) {
+                    throw new Error("network down");
+                }
+                options?.onOpen?.();
+                await new Promise<void>(() => {});
+            }),
+        };
+        const stream = useAgentSessionStream({session, api, activeSessionId});
+
+        await expect(stream.start(1)).rejects.toThrow("network down");
+        await vi.advanceTimersByTimeAsync(300);
+        await vi.advanceTimersByTimeAsync(800);
+        await vi.advanceTimersByTimeAsync(1500);
+
+        expect(session.connectionStatus.value).toBe("disconnected");
+
+        fail = false;
+        await stream.reconnectNow();
+
+        expect(session.connectionStatus.value).toBe("connecting");
+        expect(api.subscribeSessionEvents).toHaveBeenCalledTimes(5);
+    });
+});

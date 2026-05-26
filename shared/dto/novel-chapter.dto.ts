@@ -18,6 +18,10 @@ export const NovelListItemDtoSchema = z.object({
     summary: z.string(),
     workspaceSlug: z.string(),
     projectPath: z.string(),
+    /**
+     * 非空表示 Project Manifest 当前无法解析，项目仍可进入文件树修复。
+     */
+    manifestError: z.string().optional(),
     createdAt: z.string(),
     updatedAt: z.string(),
     volumeCount: z.number().int().nonnegative(),

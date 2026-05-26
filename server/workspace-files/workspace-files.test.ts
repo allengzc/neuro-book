@@ -4,13 +4,14 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {promisify} from "node:util";
 import YAML from "yaml";
-import {afterEach, beforeEach, describe, expect, it} from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {createWorkspaceContentFrontmatterDefaults, workspaceContentJsonSchema} from "nbook/server/workspace-files/content-node-schema";
 import {renderWorkspaceContentTemplate, renderWorkspaceContentTemplateBundle, renderWorkspaceStateTemplate} from "nbook/server/workspace-files/content-node-templates";
-import {copyNovelDirectoryTemplate, syncSystemAssetsToUserAssets, USER_ASSETS_WORKSPACE_ROOT} from "nbook/server/workspace-files/novel-workspace";
-import {initProjectDatabase, readProjectManifest, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import {copyNovelDirectoryTemplate, resolveWorkspaceRootInput, syncSystemAssetsToUserAssets, USER_ASSETS_WORKSPACE_ROOT} from "nbook/server/workspace-files/novel-workspace";
+import {initProjectDatabase, listProjectWorkspaces, readProjectManifest, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {invalidateProjectWorkspaceIndexAfterMutation, readPlainWorkspaceTreeSnapshot, readProjectWorkspaceTreeSnapshot} from "nbook/server/workspace-files/project-workspace-index";
 import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
+import {updateNovelByTool} from "nbook/server/utils/novel-chapter";
 
 const WORKSPACE_SCRIPT_PATH = "scripts/workspace.ts";
 const execFileAsync = promisify(execFile);
@@ -163,6 +164,108 @@ describe("workspace-files", () => {
         expect(after.nodes.some((node) => node.path === "lorebook/note/cache-refresh/")).toBe(true);
         expect(after.revision).toBeGreaterThan(before.revision);
         expect(after.issues.some((issue) => issue.path === "lorebook/note/cache-refresh/")).toBe(true);
+    });
+
+    it("project.yaml 格式错误时仍允许解析 Project Workspace 根目录", async () => {
+        const projectPath = `workspace/workspace-files-test-${randomUUID()}`;
+        const projectRoot = path.join("workspace", projectPath.split("/").at(-1) ?? "");
+
+        try {
+            await fs.mkdir(projectRoot, {recursive: true});
+            await fs.writeFile(path.join(projectRoot, "project.yaml"), "kind: novel\ntitle: 测试\nsummary: \"\"\na'a\n", "utf-8");
+
+            await expect(resolveWorkspaceRootInput({projectPath})).resolves.toBe(projectPath);
+        } finally {
+            await removeDirectoryWithRetry(projectRoot);
+        }
+    });
+
+    it("Project Workspace tree snapshot 会把 project.yaml 格式错误报告为 issue", async () => {
+        await fs.writeFile(path.join(root, "project.yaml"), "kind: novel\ntitle: 测试\nsummary: \"\"\na'a\n", "utf-8");
+
+        const snapshot = await readProjectWorkspaceTreeSnapshot({root});
+
+        expect(snapshot.nodes.some((node) => node.path === "project.yaml")).toBe(true);
+        expect(snapshot.issues).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                code: "invalid-project-manifest",
+                path: "project.yaml",
+            }),
+        ]));
+    });
+
+    it("Project Workspace 列表遇到坏 project.yaml 时不会整批失败", async () => {
+        const projectPath = `workspace/workspace-files-test-${randomUUID()}`;
+        const projectRoot = path.join("workspace", projectPath.split("/").at(-1) ?? "");
+
+        try {
+            await fs.mkdir(projectRoot, {recursive: true});
+            await fs.writeFile(path.join(projectRoot, "project.yaml"), "kind: novel\ntitle: 测试\nsummary: \"\"\na'a\n", "utf-8");
+
+            const projects = await listProjectWorkspaces();
+            const project = projects.find((item) => item.projectPath === projectPath);
+
+            expect(project?.title).toBe(projectPath.split("/").at(-1));
+            expect(project?.manifestError).toContain("Implicit map keys");
+        } finally {
+            await removeDirectoryWithRetry(projectRoot);
+        }
+    });
+
+    it("Project manifest 更新在 project.yaml 损坏时可以覆盖写回合法 YAML", async () => {
+        const projectPath = `workspace/workspace-files-test-${randomUUID()}`;
+        const projectRoot = path.join("workspace", projectPath.split("/").at(-1) ?? "");
+
+        try {
+            await fs.mkdir(projectRoot, {recursive: true});
+            await fs.writeFile(path.join(projectRoot, "project.yaml"), "kind: novel\ntitle: 测试\nsummary: \"\"\na'a\n", "utf-8");
+
+            const result = await updateNovelByTool(projectPath, {
+                title: "修复后的标题",
+                summary: "修复后的简介",
+            });
+
+            await expect(readProjectManifest(projectPath)).resolves.toEqual({
+                kind: "novel",
+                title: "修复后的标题",
+                summary: "修复后的简介",
+            });
+            expect(result.title).toBe("修复后的标题");
+        } finally {
+            await removeDirectoryWithRetry(projectRoot);
+        }
+    });
+
+    it("Project manifest 更新遇到 IO 错误时不会按坏 YAML 兜底覆盖", async () => {
+        const projectPath = `workspace/workspace-files-test-${randomUUID()}`;
+        const projectRoot = path.join("workspace", projectPath.split("/").at(-1) ?? "");
+
+        try {
+            await fs.mkdir(projectRoot, {recursive: true});
+            await fs.writeFile(path.join(projectRoot, "project.yaml"), "kind: novel\ntitle: 原标题\nsummary: 原简介\n", "utf-8");
+            const originalReadFile = fs.readFile;
+            const readFile = vi.spyOn(fs, "readFile").mockImplementation(async (filePath, options) => {
+                if (String(filePath).endsWith("project.yaml")) {
+                    const error = new Error("permission denied") as NodeJS.ErrnoException;
+                    error.code = "EACCES";
+                    throw error;
+                }
+                return originalReadFile(filePath, options);
+            });
+
+            try {
+                await expect(updateNovelByTool(projectPath, {title: "不应写入"})).rejects.toMatchObject({code: "EACCES"});
+            } finally {
+                readFile.mockRestore();
+            }
+            await expect(readProjectManifest(projectPath)).resolves.toEqual({
+                kind: "novel",
+                title: "原标题",
+                summary: "原简介",
+            });
+        } finally {
+            await removeDirectoryWithRetry(projectRoot);
+        }
     });
 
     it("解析结构化 refs 和 inline 引用中的相对路径", async () => {

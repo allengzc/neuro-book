@@ -4,7 +4,7 @@ import path from "node:path";
 import {createHash} from "node:crypto";
 import {readProfileArtifactManifest, rehomeProfileArtifactItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {readVariableDefinitionManifest} from "nbook/server/agent/variables/definition-artifact";
-import {normalizeProjectPath, readProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import {assertProjectWorkspaceDirectory, normalizeProjectPath} from "nbook/server/workspace-files/project-workspace";
 
 export const WORKSPACE_CONTAINER_ROOT = "workspace";
 export const USER_ASSETS_WORKSPACE_KIND = "user-assets";
@@ -102,9 +102,7 @@ export function buildWorkspaceSlugBase(title: string): string {
  * 返回指定 Project Path 的 Project Workspace 根目录。
  */
 export async function resolveNovelWorkspaceRoot(projectPathInput: string): Promise<string> {
-    const projectPath = normalizeProjectPath(projectPathInput);
-    await readProjectManifest(projectPath);
-    return projectPath;
+    return assertProjectWorkspaceDirectory(normalizeProjectPath(projectPathInput));
 }
 
 /**

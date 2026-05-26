@@ -10,7 +10,7 @@ import {
     WORKSPACE_CONTAINER_ROOT,
     type WorkspaceRootKind,
 } from "nbook/server/workspace-files/novel-workspace";
-import {normalizeProjectPath, readProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import {assertProjectWorkspaceDirectory} from "nbook/server/workspace-files/project-workspace";
 import {GlobalConfigDtoSchema} from "nbook/shared/dto/config.dto";
 import type {
     ConfigAgentProfileSettingsDto,
@@ -46,6 +46,7 @@ import type {
 import {
     buildModelLabel,
     listEnabledModels,
+    resolveConfiguredModel,
 } from "nbook/server/utils/model-settings";
 
 const GLOBAL_CONFIG_PATH = path.resolve(process.cwd(), "workspace", ".nbook", "config.json");
@@ -244,8 +245,7 @@ export async function resolveConfigTarget(query: ConfigWorkspaceQueryDto): Promi
             message: "Project Workspace 配置必须提供有效 projectPath",
         });
     }
-    const projectPath = normalizeProjectPath(query.projectPath);
-    await readProjectManifest(projectPath);
+    const projectPath = await assertProjectWorkspaceDirectory(query.projectPath);
     return {
         workspaceKind,
         projectConfigPath: path.resolve(process.cwd(), projectPath, ".nbook", "config.json"),

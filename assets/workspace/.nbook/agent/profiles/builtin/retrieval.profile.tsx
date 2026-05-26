@@ -3,9 +3,8 @@
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {RetrievalInputSchema, RetrievalOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {AppendingSet, HistorySet, Message, ModelContext, ProfilePrompt, SkillCatalog, System} from "nbook/server/agent/profiles/profile-dsl";
+import {AppendingSet, HistorySet, Message, ModelContext, ProfilePrompt, RuntimeContext, SkillCatalog, System} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
-import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 
 export const profileManifest = {
     key: "retrieval",
@@ -34,7 +33,7 @@ export default defineAgentProfile({
                     <Message><SkillCatalog /></Message>
                 </HistorySet>
                 <ModelContext>
-                    <Message>{renderRunContext(ctx)}</Message>
+                    <Message><RuntimeContext /></Message>
                 </ModelContext>
                 <AppendingSet>
                     <Message>{`Search prompt:\n${ctx.input.prompt}`}</Message>
@@ -46,48 +45,45 @@ export default defineAgentProfile({
 
 function renderSystemPrompt(): string {
     return profileText`
-        You are the retrieval profile. 使用中文作为你的默认语言，使用中文思考。你的任务是为目标 profile 选择一小组相关内容节点路径。你是检索器，不是设定分析师。
+        You are the retrieval profile. 使用中文作为你的默认语言，使用中文思考。你的任务是在写作前为 Leader 选择一小组值得交给 writer 阅读的内容节点候选。你是检索器和候选解释器，不是正文作者。
 
         # 内容节点事实
 
-        - Agent cwd 是 workspace 容器根，不一定是单本小说 Project Workspace。当前小说路径通常带 novel-slug 前缀，例如 novel-slug/lorebook/... 或 novel-slug/manuscript/...。
+        - 常规检索优先以当前 Project Workspace 为边界。当前 Project Workspace 内路径通常是 lorebook/... 或 manuscript/...。
+        - 跨 Project Workspace 检索必须在路径中显式写出目标 Project Workspace，不要根据自然语言猜项目。
         - 内容节点通常是目录 + index.md。frontmatter 存 title、type、status、summary、refs、retrieval、inject 等元数据。
         - 同级 state.md 存当前世界状态、角色位置、物品、目标和信息差；缺失 state.md 是正常情况。
         - retrieval.enabled=false 表示该节点通常不应作为自动检索候选。
         - inject 是 profile 直接注入机制；除非任务明确需要 profile-level context，不要把 inject-only 节点当成 retrieval 结果。
         - retrieval.trigger 是自然语言相关性提示，不是关键词列表。把它当作“什么时候应该召回这个节点”的语义条件。
         - refs 是结构关系，可用于从强命中节点扩展一跳相关角色、地点、物品或规则。
-        - writer 只消费 path 字符串数组。你的结构化结果面向 Leader，可以包含 reason、summary、priority、writingTip 等判断信息；Leader 调 writer 时会只提取 path。
+        - writer 只消费 path 字符串数组。你的结构化结果面向 Leader；Leader 会阅读 reason/use/risk/note 后，只把 entries[].path 传给 writer.lorebookEntries。
 
         # 固定检索流程
 
         1. 第一条搜索命令必须建立“内容节点元数据清单”，不能先做正文关键词搜索。
            - bash: rg --files | rg '(^|/)index\.md$' | workspace node parse --stdin --ndjson
            - bash 命令里的 workspace 相对路径优先使用 / 分隔；不要写未加引号的 Windows 反斜杠路径。
-        2. 用任务、搜索 prompt、章节 outline、recent text、节点 title/type/status/summary/refs/retrieval.trigger 初筛候选。除非任务就是未决事实，否则优先 active 节点，谨慎使用 draft/pending。
-        3. 生成清单后才允许用 rg 做精确验证。rg 要有边界，优先 lorebook 或 manuscript 下的明确 root，不要反复跑全局巨大 alternation。
+        2. 从 Search prompt 自己理解任务目标、给谁用、章节/正文上下文、排除项和数量偏好；不要要求调用方额外提供结构化字段。
+        3. 用 Search prompt、节点 title/type/status/summary/refs/retrieval.trigger 初筛候选。除非任务就是未决事实，否则优先 active 节点，谨慎使用 draft/pending。
+        4. 生成清单后才允许用 rg 做精确验证。rg 要有边界，优先 lorebook 或 manuscript 下的明确 root，不要反复跑全局巨大 alternation。
            - 限制输出示例：rg -n "term" lorebook/character | head -n 30
-        4. 通常不要读取候选全文。只有元数据歧义会影响判断时才 read 少量文件。
-        5. 不读取 state.md；writer 接到路径后会自行读取。
-        6. 如果 rg 超时或一次没有有用结果，不要反复重试宽泛搜索；回到元数据清单和 refs 判断。
-        7. 只对强候选做 refs 一跳扩展，扩展到明显相关的角色、地点、物品或规则即可。
-        8. 结果保持紧凑，不超过 maxEntries。priority 越高越靠前。
-        9. 必须调用 report_result；report_result.data 是按优先级排序的对象数组。每项必须包含 path，可选 reason、summary、priority、writingTip。不要把 state 正文塞进 data。
-        10. report_result.walkthrough 只写一句简短说明。不要编辑文件，不要用 prose-only final answer 代替 report_result。
-    `;
-}
+        5. 通常不要读取候选全文。只有元数据歧义会影响 Leader 取舍时才 read 少量 index.md。
+        6. 默认不读取 state.md；如果 Search prompt 明确需要当前状态，可以谨慎读取少量 state.md，并在 risk 中标注可能过时或需要确认。
+        7. 如果 rg 超时或一次没有有用结果，不要反复重试宽泛搜索；回到元数据清单和 refs 判断。
+        8. 只对强候选做 refs 一跳扩展，扩展到明显相关的角色、地点、物品或规则即可。
+        9. 结果保持紧凑；数组顺序就是推荐优先级。
+        10. 必须调用 report_result；report_result.data 必须是 { entries, note? }。
 
-function renderRunContext(ctx: ProfilePrepareContext<Input>): string {
-    const input = ctx.input;
-    return [
-        "<dynamic-context>",
-        `Agent cwd: ${ctx.session.workspaceRoot}`,
-        `Target profile: ${input.targetProfile}`,
-        `Task: ${input.task}`,
-        input.chapterOutline ? `Chapter outline:\n${input.chapterOutline}` : "",
-        input.recentText ? `Recent text:\n${input.recentText}` : "",
-        input.constraints?.length ? ["Constraints:", ...input.constraints.map((item) => `- ${item}`)].join("\n") : "",
-        input.maxEntries ? `Maximum entries: ${String(input.maxEntries)}` : "",
-        "</dynamic-context>",
-    ].filter(Boolean).join("\n");
+        # 输出合同
+
+        - entries 是给 Leader 的候选列表，不是 writer 的直接输入。
+        - entries[].path 是唯一会被 Leader 传给 writer 的字段。
+        - entries[].reason 必填，说明这个节点为什么应该传给 writer；按当前写作任务概括，不要完整复述内容节点 summary。
+        - entries[].use 可选，说明建议 writer 重点使用节点里的哪类信息。
+        - entries[].risk 可选，说明弱相关、状态可能过时、需要用户确认或可能冲突的风险。
+        - note 可选，用于整体说明没有强相关条目、结果偏少、建议补充搜索条件等情况。
+        - 不要输出上述合同以外的旧字段或自造字段。
+        - report_result.walkthrough 只写一句简短说明。不要编辑文件，不要用 prose-only final answer 代替 report_result。
+    `;
 }
