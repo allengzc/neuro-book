@@ -322,10 +322,14 @@ function buildConfigAgentProfileSettingsDto(
 ): ConfigAgentProfileSettingsDto {
     return {
         enabledModels: listEnabledModels(effective.models),
+        profileModelDefaults: normalizeAgentProfileModelConfig(effective.agent.profileModelDefaults),
         agentProfiles: profileDefinitions.map((definition) => ({
             profileKey: definition.profileKey,
             name: definition.name,
-            model: normalizeAgentProfileModelConfig(effective.agent.profiles[definition.profileKey]?.model),
+            model: normalizeAgentProfileModelConfig({
+                ...effective.agent.profileModelDefaults,
+                ...(effective.agent.profiles[definition.profileKey]?.model ?? {}),
+            }),
         })),
     };
 }

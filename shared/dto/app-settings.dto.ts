@@ -195,6 +195,7 @@ export const UpdateModelSettingsRequestDtoSchema = z.object({
  */
 export const AgentProfileModelSettingsDtoSchema = z.object({
     enabledModels: z.array(EnabledModelOptionDtoSchema).default([]),
+    profileModelDefaults: AgentProfileModelConfigDtoSchema,
     agentProfiles: z.array(ConfiguredAgentProfileDtoSchema).default([]),
 });
 
@@ -202,6 +203,7 @@ export const AgentProfileModelSettingsDtoSchema = z.object({
  * 更新 Agent Profile 模型设定请求。
  */
 export const UpdateAgentProfileModelSettingsRequestDtoSchema = z.object({
+    profileModelDefaults: AgentProfileModelConfigDtoSchema,
     agentProfiles: z.array(ConfiguredAgentProfileDtoSchema).default([]),
 }).superRefine((value, ctx) => {
     const profileKeySet = new Set<string>();

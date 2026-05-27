@@ -90,6 +90,7 @@ export const ConfigModelSettingsDtoSchema = z.object({
 
 export const ConfigAgentProfileSettingsDtoSchema = z.object({
     enabledModels: z.array(EnabledModelOptionDtoSchema).default([]),
+    profileModelDefaults: AgentProfileModelConfigDtoSchema,
     agentProfiles: z.array(z.object({
         profileKey: ProfileKeySchema,
         name: z.string().trim().min(1),
@@ -158,8 +159,9 @@ export const GlobalConfigDtoSchema = z.object({
             novel: ProfileKeySchema.nullable().default(null),
             userAssets: ProfileKeySchema.nullable().default(null),
         }).default({novel: null, userAssets: null}),
+        profileModelDefaults: AgentProfileModelConfigDtoSchema.partial().default({}),
         profiles: ConfigAgentProfileMapDtoSchema,
-    }).default({defaultProfileKey: {novel: null, userAssets: null}, profiles: {}}),
+    }).default({defaultProfileKey: {novel: null, userAssets: null}, profileModelDefaults: {}, profiles: {}}),
     ui: UiConfigDtoSchema.default({theme: "sepia"}),
     editor: EditorConfigDtoSchema.default({
         markdown: DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
@@ -173,6 +175,7 @@ export const ProjectConfigDtoSchema = z.object({
     }).partial().optional(),
     agent: z.object({
         defaultProfileKey: ProfileKeySchema.nullable().optional(),
+        profileModelDefaults: AgentProfileModelConfigDtoSchema.partial().optional(),
         profiles: ConfigAgentProfileMapDtoSchema.optional(),
     }).partial().optional(),
     editor: EditorConfigDtoSchema.partial().optional(),

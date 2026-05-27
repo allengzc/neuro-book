@@ -94,6 +94,7 @@ function buildGlobalConfigPayload(): GlobalConfigDto {
         ...base,
         agent: {
             ...(base.agent ?? {}),
+            profileModelDefaults: base.agent?.profileModelDefaults ?? {},
             profiles: base.agent?.profiles ?? {},
             defaultProfileKey: {
                 novel: defaultProfileKey.novel ?? null,

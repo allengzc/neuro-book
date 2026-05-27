@@ -28,7 +28,7 @@ export function resolvePiModelFromConfig(
     profileKey: string,
     override?: ModelOverrideInput | null,
 ): ResolvedPiModel {
-    const profileModelKey = config.agent.profiles[profileKey]?.model.modelKey ?? null;
+    const profileModelKey = config.agent.profiles[profileKey]?.model.modelKey ?? config.agent.profileModelDefaults.modelKey ?? null;
     const modelKey = override?.modelKey ?? override?.model ?? profileModelKey ?? config.models.defaultModelKey;
     if (!modelKey) {
         throw new Error("配置未设置 models.default");

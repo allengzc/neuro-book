@@ -21,6 +21,13 @@ import type {JsonValue} from "nbook/server/agent/messages/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
 
 const DEFAULT_THEME: EffectiveConfig["ui"]["theme"] = "sepia";
+const DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS: AgentProfileModelConfig = {
+    modelKey: null,
+    temperature: null,
+    topK: null,
+    reasoningEffort: "off",
+    stream: true,
+};
 
 /**
  * 创建完整的默认 effective config。
@@ -39,6 +46,7 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
                 novel: null,
                 userAssets: null,
             },
+            profileModelDefaults: {...DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS},
             profiles: {},
         },
         ui: {
@@ -70,7 +78,8 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
                 novel: normalizeNullableModelKey(raw.agent?.defaultProfileKey?.novel),
                 userAssets: normalizeNullableModelKey(raw.agent?.defaultProfileKey?.userAssets),
             },
-            profiles: normalizeCompleteAgentProfiles(raw.agent?.profiles),
+            profileModelDefaults: normalizeAgentProfileModelPatch(raw.agent?.profileModelDefaults),
+            profiles: normalizeAgentProfiles(raw.agent?.profiles),
         },
         ui: {
             theme: normalizeTheme(raw.ui?.theme),
@@ -97,6 +106,7 @@ export function normalizeProjectConfig(input: Partial<StoredProjectConfig> | nul
         ...(raw.agent ? {
             agent: {
                 defaultProfileKey: normalizeNullableModelKey(raw.agent.defaultProfileKey),
+                profileModelDefaults: raw.agent.profileModelDefaults ? normalizeAgentProfileModelPatch(raw.agent.profileModelDefaults) : undefined,
                 profiles: raw.agent.profiles ? normalizeAgentProfiles(raw.agent.profiles) : undefined,
             },
         } : {}),
@@ -114,6 +124,7 @@ export function normalizeProjectConfig(input: Partial<StoredProjectConfig> | nul
  */
 export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, projectConfig: StoredProjectConfig | null): EffectiveConfig {
     const effective = createDefaultEffectiveConfig();
+    const globalProfilePatches = normalizeAgentProfiles(globalConfig.agent?.profiles);
 
     effective.auth.enabled = globalConfig.auth?.enabled ?? effective.auth.enabled;
     effective.models = normalizeModelSettings(globalConfig.models);
@@ -121,7 +132,8 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
         novel: normalizeNullableModelKey(globalConfig.agent?.defaultProfileKey?.novel),
         userAssets: normalizeNullableModelKey(globalConfig.agent?.defaultProfileKey?.userAssets),
     };
-    effective.agent.profiles = normalizeCompleteAgentProfiles(globalConfig.agent?.profiles);
+    effective.agent.profileModelDefaults = normalizeAgentProfileModelDefaults(globalConfig.agent?.profileModelDefaults);
+    effective.agent.profiles = normalizeCompleteAgentProfiles(globalProfilePatches, effective.agent.profileModelDefaults);
     effective.ui.theme = normalizeTheme(globalConfig.ui?.theme);
     effective.editor.markdown = normalizeMarkdownPreferences(globalConfig.editor?.markdown);
     effective.editor.monaco = normalizeMonacoPreferences(globalConfig.editor?.monaco);
@@ -136,15 +148,24 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     if (projectConfig.agent && Object.hasOwn(projectConfig.agent, "defaultProfileKey") && projectConfig.agent.defaultProfileKey !== null) {
         effective.agent.defaultProfileKey.novel = normalizeNullableModelKey(projectConfig.agent.defaultProfileKey);
     }
-    if (projectConfig.agent?.profiles) {
+    if (projectConfig.agent?.profileModelDefaults) {
+        effective.agent.profileModelDefaults = mergeAgentProfileModelConfig(
+            effective.agent.profileModelDefaults,
+            projectConfig.agent.profileModelDefaults,
+        );
+    }
+    if (projectConfig.agent?.profileModelDefaults || projectConfig.agent?.profiles) {
         const projectProfiles = normalizeAgentProfiles(projectConfig.agent.profiles);
         effective.agent.profiles = Object.fromEntries(
-            [...new Set([...Object.keys(effective.agent.profiles), ...Object.keys(projectProfiles)])]
+            [...new Set([...Object.keys(globalProfilePatches), ...Object.keys(projectProfiles)])]
                 .map((profileKey) => [profileKey, {
-                    model: normalizeAgentProfileModelConfig({
-                        ...(effective.agent.profiles[profileKey]?.model ?? {}),
-                        ...(projectProfiles[profileKey]?.model ?? {}),
-                    }),
+                    model: mergeAgentProfileModelConfig(
+                        mergeAgentProfileModelConfig(
+                            effective.agent.profileModelDefaults,
+                            globalProfilePatches[profileKey]?.model,
+                        ),
+                        projectProfiles[profileKey]?.model,
+                    ),
                 } satisfies AgentProfileConfig]),
         );
     }
@@ -205,13 +226,24 @@ export function serializeModelSettings(config: ModelSettingsConfig): StoredGloba
  * 规范化 profile 模型配置。
  */
 export function normalizeAgentProfileModelConfig(input: Partial<AgentProfileModelConfig> | undefined): AgentProfileModelConfig {
+    const patch = normalizeAgentProfileModelPatch(input);
     return {
-        modelKey: normalizeNullableModelKey(input?.modelKey),
-        temperature: normalizeNullableNumber(input?.temperature),
-        topK: normalizeNullableInteger(input?.topK),
-        reasoningEffort: normalizeThinkingLevel(input?.reasoningEffort),
-        stream: input?.stream ?? true,
+        modelKey: Object.hasOwn(patch, "modelKey") ? patch.modelKey ?? DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.modelKey : DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.modelKey,
+        temperature: Object.hasOwn(patch, "temperature") ? patch.temperature ?? DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.temperature : DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.temperature,
+        topK: Object.hasOwn(patch, "topK") ? patch.topK ?? DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.topK : DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.topK,
+        reasoningEffort: Object.hasOwn(patch, "reasoningEffort") ? patch.reasoningEffort ?? DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.reasoningEffort : DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.reasoningEffort,
+        stream: Object.hasOwn(patch, "stream") ? patch.stream ?? DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.stream : DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS.stream,
     };
+}
+
+/**
+ * 规范化所有 Agent Profile 共同继承的默认模型参数。
+ */
+export function normalizeAgentProfileModelDefaults(input: Partial<AgentProfileModelConfig> | undefined): AgentProfileModelConfig {
+    return normalizeAgentProfileModelConfig({
+        ...DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS,
+        ...(input ?? {}),
+    });
 }
 
 /**
@@ -237,12 +269,29 @@ export function normalizeAgentProfiles(input: Record<string, Partial<StoredAgent
     );
 }
 
-function normalizeCompleteAgentProfiles(input: Record<string, Partial<StoredAgentProfileConfig>> | undefined): Record<string, AgentProfileConfig> {
+function normalizeCompleteAgentProfiles(
+    input: Record<string, StoredAgentProfileConfig> | undefined,
+    defaults: AgentProfileModelConfig,
+): Record<string, AgentProfileConfig> {
     return Object.fromEntries(
-        Object.entries(normalizeAgentProfiles(input)).map(([profileKey, profile]) => [profileKey, {
-            model: normalizeAgentProfileModelConfig(profile.model),
+        Object.entries(input ?? {}).map(([profileKey, profile]) => [profileKey, {
+            model: mergeAgentProfileModelConfig(defaults, profile.model),
         } satisfies AgentProfileConfig]),
     );
+}
+
+function mergeAgentProfileModelConfig(
+    base: AgentProfileModelConfig,
+    patchInput: Partial<AgentProfileModelConfig> | undefined,
+): AgentProfileModelConfig {
+    const patch = normalizeAgentProfileModelPatch(patchInput);
+    return {
+        modelKey: Object.hasOwn(patch, "modelKey") ? patch.modelKey ?? base.modelKey : base.modelKey,
+        temperature: Object.hasOwn(patch, "temperature") ? patch.temperature ?? base.temperature : base.temperature,
+        topK: Object.hasOwn(patch, "topK") ? patch.topK ?? base.topK : base.topK,
+        reasoningEffort: Object.hasOwn(patch, "reasoningEffort") ? patch.reasoningEffort ?? base.reasoningEffort : base.reasoningEffort,
+        stream: Object.hasOwn(patch, "stream") && typeof patch.stream === "boolean" ? patch.stream : base.stream,
+    };
 }
 
 function normalizeAgentProfileModelPatch(input: Partial<AgentProfileModelConfig> | undefined): Partial<AgentProfileModelConfig> {
@@ -254,7 +303,7 @@ function normalizeAgentProfileModelPatch(input: Partial<AgentProfileModelConfig>
         ...(Object.hasOwn(input, "temperature") ? {temperature: normalizeNullableNumber(input.temperature)} : {}),
         ...(Object.hasOwn(input, "topK") ? {topK: normalizeNullableInteger(input.topK)} : {}),
         ...(Object.hasOwn(input, "reasoningEffort") ? {reasoningEffort: normalizeThinkingLevel(input.reasoningEffort)} : {}),
-        ...(Object.hasOwn(input, "stream") ? {stream: input.stream ?? true} : {}),
+        ...(Object.hasOwn(input, "stream") && typeof input.stream === "boolean" ? {stream: input.stream} : {}),
     };
 }
 
