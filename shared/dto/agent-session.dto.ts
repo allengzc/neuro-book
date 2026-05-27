@@ -90,6 +90,7 @@ export const AgentInvokeRequestDtoSchema = z.object({
 export const AgentSessionListQueryDtoSchema = z.object({
     workspaceKey: z.string().trim().min(1).optional(),
     includeArchived: z.coerce.boolean().optional(),
+    includeSystem: z.coerce.boolean().optional(),
     profileGroup: z.enum(["all", "leader"]).optional(),
     status: z.enum(["all", "active", "running", "waiting", "idle", "interrupted", "archived"]).optional(),
     relation: z.enum(["all", "top", "child"]).optional(),
@@ -107,6 +108,7 @@ export const AgentCommandRequestDtoSchema = z.discriminatedUnion("command", [
     z.object({command: z.literal("plan"), active: z.boolean()}),
     z.object({command: z.literal("model"), modelKey: z.string().trim().min(1).nullable()}),
     z.object({command: z.literal("thinking"), thinkingLevel: ThinkingLevelSchema.nullable()}),
+    z.object({command: z.literal("summarize")}),
     z.object({command: z.literal("retry"), entryId: z.string().trim().min(1).optional()}),
     z.object({command: z.literal("fork"), entryId: z.string().trim().min(1).optional()}),
     z.object({
@@ -179,6 +181,7 @@ export type AgentSessionSummaryDto = {
     workspaceKey: string;
     workspaceRoot: string;
     parentSessionId?: number;
+    systemRole?: "summarizer";
     title?: string;
     summary?: string;
     status: AgentSessionStatus;
@@ -288,6 +291,8 @@ export type AgentSessionSnapshotDto = {
     model: Model<any> | null;
     /** 当前 session 的显式 thinking 覆盖；null 表示跟随 Agent Profile。 */
     thinkingLevel: z.infer<typeof ThinkingLevelSchema> | null;
+    /** 当前新 run 实际会传给 PI 的 thinking level。 */
+    effectiveThinkingLevel: z.infer<typeof ThinkingLevelSchema>;
     planModeActive: boolean;
     lastSeq: number;
     usage?: Usage;

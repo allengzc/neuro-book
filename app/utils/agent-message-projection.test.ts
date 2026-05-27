@@ -222,6 +222,7 @@ describe("agent message projection helpers", () => {
             activeInvocation: null,
             model: null,
             thinkingLevel: null,
+            effectiveThinkingLevel: "off",
             planModeActive: false,
             lastSeq: 0,
         });
@@ -342,6 +343,7 @@ describe("agent message projection helpers", () => {
             activeInvocation: null,
             model: null,
             thinkingLevel: null,
+            effectiveThinkingLevel: "off",
             planModeActive: false,
             lastSeq: 0,
         });

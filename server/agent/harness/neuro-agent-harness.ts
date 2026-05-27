@@ -1,4 +1,4 @@
-import {randomUUID} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import {readFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import type {AgentEvent, AgentToolResult} from "@earendil-works/pi-agent-core";
@@ -7,11 +7,14 @@ import type {AgentMessage, AgentToolCall, AgentUserMessageInput, AssistantMessag
 import {createTextToolResult, createToolResultFromResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
+import {sessionSummarizerProfile} from "nbook/server/agent/profiles/session-summarizer-profile";
+import {SessionSummarizerOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import type {AgentProfile, ProfileCompactionPlan, ProfileIngestResult, ProfileTurnPlan} from "nbook/server/agent/profiles/types";
 import {compileProfileSystemPrompt, profileStateKey, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
-import {AGENT_PLAN_MODE_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
+import {AGENT_PLAN_MODE_STATE_KEY, SESSION_SUMMARIZER_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import type {InvocationErrorInfo, InvocationErrorPhase, ModelChangeEntry, NeuroSessionContext, SessionEntry, SessionEntryDraft, SessionEntryId, SessionSnapshot} from "nbook/server/agent/session/types";
+import {buildAgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
 import {SkillCatalog} from "nbook/server/agent/skills/skill-catalog";
 import {findPendingApprovalCall, resolutionToToolResult} from "nbook/server/agent/tools/approval";
 import {createBuiltinTools, createReportResultTool} from "nbook/server/agent/tools/builtin-tools";
@@ -53,6 +56,7 @@ import {createProfileVariableAccessor} from "nbook/server/agent/variables/access
 import {normalizeClientState} from "nbook/server/agent/variables/accessor";
 import {createVariableRegistryForProfile, createVariableRegistryForSession} from "nbook/server/agent/variables/profile-registry";
 import type {ClientStateSnapshot, ProfileVariableAccessor, VariableInvocationState, VariableJsonPatchOperation, VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
+import {Value} from "typebox/value";
 
 type HarnessOptions = {
     repo?: JsonlSessionRepository;
@@ -61,6 +65,7 @@ type HarnessOptions = {
     tools?: AgentToolRegistry;
     modelResolver?: (config: Pick<EffectiveConfig, "agent" | "models">, profileKey: string, override?: {modelKey?: string | null} | null) => Model<any>;
     eventHub?: AgentSessionEventHub;
+    enableSessionSummarizer?: boolean;
 };
 
 type RunToolBatchResult = {
@@ -74,6 +79,33 @@ type RunToolBatchResult = {
     shouldContinue: boolean;
 };
 
+type SessionSummarizerState = {
+    sessionId?: number;
+    profileKey?: string;
+    summarizerInputFingerprint?: string;
+    running?: boolean;
+    dirty?: boolean;
+    lastDialogueContentFingerprint?: string;
+    lastDialogueContentTokens?: number;
+    lastRunDialogueContentTokens?: number;
+    lastRunAt?: number;
+    lastError?: string;
+    turnCount?: number;
+    loopCount?: number;
+};
+
+const DEFAULT_SUMMARIZER_INPUT = {
+    trigger: "after_invocation",
+    interval: {
+        kind: "turn",
+        value: 1,
+    },
+    maxDialogueContentTokens: 80_000,
+} satisfies JsonValue;
+
+const SESSION_TITLE_MAX_LENGTH = 32;
+const SESSION_SUMMARY_MAX_LENGTH = 240;
+
 /**
  * Neuro Book 自有 Agent Harness。它拥有 session/profile/tool 语义，底层使用 Pi Agent loop。
  */
@@ -84,6 +116,7 @@ export class NeuroAgentHarness {
     readonly tools: AgentToolRegistry;
     readonly eventHub: AgentSessionEventHub;
     private readonly modelResolver: (config: Pick<EffectiveConfig, "agent" | "models">, profileKey: string, override?: {modelKey?: string | null} | null) => Model<any>;
+    private readonly enableSessionSummarizer: boolean;
     private readonly activeInvocations = new Map<number, AgentActiveInvocationDto>();
     private readonly steerableSessions = new Set<number>();
     private readonly steerQueues = new Map<number, AgentFollowUpQueueItemDto[]>();
@@ -97,6 +130,7 @@ export class NeuroAgentHarness {
         reject: (error: Error) => void;
         timeout: ReturnType<typeof setTimeout>;
     }>();
+    private readonly activeSummarizers = new Set<number>();
 
     constructor(options: HarnessOptions = {}) {
         this.repo = options.repo ?? new JsonlSessionRepository();
@@ -105,7 +139,9 @@ export class NeuroAgentHarness {
         this.tools = options.tools ?? new AgentToolRegistry();
         this.eventHub = options.eventHub ?? new AgentSessionEventHub();
         this.modelResolver = options.modelResolver ?? resolvePiModelFromConfig;
+        this.enableSessionSummarizer = options.enableSessionSummarizer ?? true;
         this.profiles.register(defaultAgentProfile);
+        this.profiles.register(sessionSummarizerProfile);
         for (const tool of createBuiltinTools(this)) {
             this.tools.register(tool);
         }
@@ -144,6 +180,32 @@ export class NeuroAgentHarness {
             profileKey: input.profileKey,
             title: profile.manifest.name,
         };
+    }
+
+    /**
+     * 由 harness 直接创建后台 system session，不写 linked-agent entry。
+     */
+    private async createSystemAgent(input: {
+        profileKey: string;
+        input: JsonValue;
+        workspaceRoot: string;
+        workspaceKey: string;
+        projectPath?: string;
+        systemRole: "summarizer";
+    }): Promise<SessionSnapshot> {
+        const profile = await this.profiles.get(input.profileKey);
+        const parsedInput = this.profiles.parseInput(profile, input.input);
+        const snapshot = await this.repo.createSession({
+            profileKey: input.profileKey,
+            input: parsedInput,
+            workspaceRoot: input.workspaceRoot,
+            workspaceKey: input.workspaceKey,
+            projectPath: input.projectPath,
+            systemRole: input.systemRole,
+            title: profile.manifest.name,
+        });
+        await this.publishSessionState(snapshot.metadata.sessionId);
+        return snapshot;
     }
 
     /**
@@ -345,6 +407,9 @@ export class NeuroAgentHarness {
                 await this.finishInvocation(input.sessionId, invocationId);
                 void this.drainFollowUps(input.sessionId);
             }
+            if (finalResult.status === "completed") {
+                void this.triggerSessionSummarizer(input.sessionId, snapshot.metadata.workspaceKey);
+            }
             return finalResult;
         } catch (error) {
             const errorInfo = this.toInvocationErrorInfo(error, abortController.signal.aborted ? "unknown" : errorPhase);
@@ -545,6 +610,7 @@ export class NeuroAgentHarness {
         }
         const linkedByAgents = await this.linkedByAgents(snapshot.metadata.sessionId, snapshot.metadata.workspaceKey);
         const systemPrompt = await this.snapshotSystemPrompt(snapshot, context);
+        const effectiveThinkingLevel = await this.snapshotThinkingLevel(snapshot, context);
 
         return {
             summary: {
@@ -564,6 +630,7 @@ export class NeuroAgentHarness {
             activeInvocation: this.activeInvocations.get(sessionId) ?? null,
             model: context.model,
             thinkingLevel: context.thinkingLevel,
+            effectiveThinkingLevel,
             planModeActive: context.planModeActive,
             lastSeq: this.eventHub.lastSeq,
             usage: [...context.messages].reverse().find((message) => message.role === "assistant")?.usage,
@@ -640,6 +707,19 @@ export class NeuroAgentHarness {
             planFilePath: target.displayPath,
             planContent: await readFile(target.absolutePath, "utf-8"),
         };
+    }
+
+    /**
+     * 解析 snapshot 显示用 thinking 状态，和下一次 run 使用同一套模型/profile 规则。
+     */
+    private async snapshotThinkingLevel(snapshot: SessionSnapshot, context: NeuroSessionContext): Promise<ThinkingLevel> {
+        try {
+            const config = await loadEffectiveConfig(snapshot.metadata);
+            const model = context.model ?? this.modelResolver(config, context.profileKey);
+            return this.resolveThinkingLevel(context, config, model);
+        } catch {
+            return "off";
+        }
     }
 
     private planModeState(
@@ -777,6 +857,14 @@ export class NeuroAgentHarness {
                 snapshot: await this.getSessionSnapshot(sessionId),
             };
         }
+        if (body.command === "summarize") {
+            void this.triggerSessionSummarizer(sessionId, snapshot.metadata.workspaceKey, {force: true});
+            return {
+                status: "started",
+                sessionId,
+                snapshot: await this.getSessionSnapshot(sessionId),
+            };
+        }
         if (body.command === "archive") {
             const entry = await this.repo.appendEntry(sessionId, {
                 type: "session_archived",
@@ -815,9 +903,11 @@ export class NeuroAgentHarness {
         if (body.position === "empty") {
             await this.repo.moveLeaf(sessionId, null, snapshot.metadata.workspaceKey);
             await this.publishSessionState(sessionId);
+            const updatedSnapshot = await this.getSessionSnapshot(sessionId);
+            void this.triggerSessionSummarizer(sessionId, snapshot.metadata.workspaceKey);
             return {
                 status: "completed",
-                snapshot: await this.getSessionSnapshot(sessionId),
+                snapshot: updatedSnapshot,
             };
         }
         // TODO: 当前 next.invoke 失败时不会回滚 leaf；后续需要改成真正的原子 tree + invoke。
@@ -837,9 +927,11 @@ export class NeuroAgentHarness {
                 invocation,
             };
         }
+        const updatedSnapshot = await this.getSessionSnapshot(sessionId);
+        void this.triggerSessionSummarizer(sessionId, snapshot.metadata.workspaceKey);
         return {
             status: "completed",
-            snapshot: await this.getSessionSnapshot(sessionId),
+            snapshot: updatedSnapshot,
         };
     }
 
@@ -1095,6 +1187,292 @@ export class NeuroAgentHarness {
         } catch (error) {
             return error instanceof Error ? error.message : String(error);
         }
+    }
+
+    /**
+     * 触发源 session 的后台展示标题/摘要维护。
+     */
+    private async triggerSessionSummarizer(sourceSessionId: number, workspaceKey?: string, options: {force?: boolean} = {}): Promise<void> {
+        try {
+            if (!this.enableSessionSummarizer) {
+                return;
+            }
+            const sourceSnapshot = await this.repo.readSession(sourceSessionId, workspaceKey);
+            if (sourceSnapshot.metadata.systemRole) {
+                return;
+            }
+            const sourceContext = this.repo.reduce(sourceSnapshot);
+            if (sourceContext.archived) {
+                return;
+            }
+            if (!this.isLeaderProfile(sourceContext.profileKey)) {
+                return;
+            }
+            const sourceProfile = await this.profiles.get(sourceContext.profileKey);
+            const config = sourceProfile.summarizer;
+            if (!config || config.enabled === false) {
+                return;
+            }
+            if (this.activeSummarizers.has(sourceSessionId)) {
+                await this.writeSummarizerState(sourceSnapshot, sourceContext, {
+                    ...this.readSummarizerState(sourceContext),
+                    dirty: true,
+                    running: true,
+                });
+                return;
+            }
+            this.activeSummarizers.add(sourceSessionId);
+            try {
+                let rerun = true;
+                let forceCurrent = options.force ?? false;
+                while (rerun) {
+                    rerun = false;
+                    await this.runSessionSummarizer(sourceSessionId, workspaceKey, {force: forceCurrent});
+                    forceCurrent = false;
+                    const latestSnapshot = await this.repo.readSession(sourceSessionId, workspaceKey);
+                    const latestContext = this.repo.reduce(latestSnapshot);
+                    const state = this.readSummarizerState(latestContext);
+                    if (state.dirty) {
+                        await this.writeSummarizerState(latestSnapshot, latestContext, {
+                            ...state,
+                            dirty: false,
+                            running: true,
+                        });
+                        rerun = true;
+                    }
+                }
+            } finally {
+                this.activeSummarizers.delete(sourceSessionId);
+                const latestSnapshot = await this.repo.readSession(sourceSessionId, workspaceKey);
+                const latestContext = this.repo.reduce(latestSnapshot);
+                const state = this.readSummarizerState(latestContext);
+                await this.writeSummarizerState(latestSnapshot, latestContext, {
+                    ...state,
+                    running: false,
+                });
+            }
+        } catch {
+            // 不能让后台摘要污染 leader invocation；可诊断错误在 runSessionSummarizer 内写入 state。
+        }
+    }
+
+    /**
+     * 执行一次后台摘要。失败只写诊断状态，不抛给源 invocation。
+     */
+    private async runSessionSummarizer(sourceSessionId: number, workspaceKey: string | undefined, options: {force: boolean}): Promise<void> {
+        const sourceSnapshot = await this.repo.readSession(sourceSessionId, workspaceKey);
+        const sourceContext = this.repo.reduce(sourceSnapshot);
+        const sourceProfile = await this.profiles.get(sourceContext.profileKey);
+        const config = sourceProfile.summarizer;
+        if (!config || config.enabled === false) {
+            return;
+        }
+        const summarizerProfileKey = config.profileKey;
+        const summarizerInput = {
+            ...DEFAULT_SUMMARIZER_INPUT,
+            ...(isRecord(config.input) ? config.input : {}),
+            sourceSessionId,
+        } satisfies JsonValue;
+        const summarizerInputFingerprint = hashJsonValue(summarizerInput);
+        const dialogueContent = buildAgentDialogueContent({
+            repo: this.repo,
+            snapshot: sourceSnapshot,
+            summarizerProfileKey,
+            summarizerInput,
+        });
+        const previousState = this.readSummarizerState(sourceContext);
+        const nextTurnCount = (previousState.turnCount ?? 0) + 1;
+        const nextLoopCount = (previousState.loopCount ?? 0) + 1;
+        const interval = isRecord(summarizerInput.interval) ? summarizerInput.interval : DEFAULT_SUMMARIZER_INPUT.interval;
+        const maxDialogueContentTokens = typeof summarizerInput.maxDialogueContentTokens === "number"
+            ? summarizerInput.maxDialogueContentTokens
+            : 80_000;
+        const baseState = {
+            ...previousState,
+            profileKey: summarizerProfileKey,
+            summarizerInputFingerprint,
+            running: true,
+            dirty: false,
+            lastDialogueContentTokens: dialogueContent.tokens,
+            turnCount: nextTurnCount,
+            loopCount: nextLoopCount,
+        } satisfies SessionSummarizerState;
+
+        if (!dialogueContent.text.trim()) {
+            await this.writeSummarizerState(sourceSnapshot, sourceContext, {
+                ...baseState,
+                lastError: "Agent Dialogue Content 为空，跳过摘要。",
+            });
+            return;
+        }
+        if (dialogueContent.tokens > maxDialogueContentTokens) {
+            await this.writeSummarizerState(sourceSnapshot, sourceContext, {
+                ...baseState,
+                lastError: `Agent Dialogue Content 超过上限：${dialogueContent.tokens}/${maxDialogueContentTokens}`,
+            });
+            return;
+        }
+        if (!options.force && previousState.lastDialogueContentFingerprint === dialogueContent.fingerprint) {
+            await this.writeSummarizerState(sourceSnapshot, sourceContext, {
+                ...baseState,
+                lastError: undefined,
+            });
+            return;
+        }
+        if (!options.force && !this.shouldRunSummarizerInterval(interval, previousState, dialogueContent.tokens, nextTurnCount, nextLoopCount)) {
+            await this.writeSummarizerState(sourceSnapshot, sourceContext, {
+                ...baseState,
+                lastError: undefined,
+            });
+            return;
+        }
+
+        try {
+            const summarizerSnapshot = await this.ensureSummarizerSession(sourceSnapshot, sourceContext, summarizerProfileKey, summarizerInput, summarizerInputFingerprint);
+            const result = await this.invokeAgent({
+                sessionId: summarizerSnapshot.metadata.sessionId,
+                mode: "prompt",
+                message: {
+                    text: [
+                        "请根据下面的 Agent Dialogue Content 生成源 session 的展示 title 和 summary。",
+                        "",
+                        "<agent-dialogue-content>",
+                        dialogueContent.text,
+                        "</agent-dialogue-content>",
+                        "",
+                        `title 不超过 ${SESSION_TITLE_MAX_LENGTH} 字，summary 不超过 ${SESSION_SUMMARY_MAX_LENGTH} 字。必须使用 report_result.data 返回 {title, summary}。`,
+                    ].join("\n"),
+                },
+                internalQueued: true,
+            });
+            if (result.status !== "completed") {
+                throw new Error(result.error ?? `summarizer status: ${result.status}`);
+            }
+            const output = this.parseSummarizerOutput(result.reportResult?.data);
+            await this.writeSummarizerResult(sourceSnapshot, output);
+            await this.writeSummarizerState(sourceSnapshot, sourceContext, {
+                ...baseState,
+                sessionId: summarizerSnapshot.metadata.sessionId,
+                lastDialogueContentFingerprint: dialogueContent.fingerprint,
+                lastRunDialogueContentTokens: dialogueContent.tokens,
+                lastRunAt: Date.now(),
+                lastError: undefined,
+            });
+        } catch (error) {
+            await this.writeSummarizerState(sourceSnapshot, sourceContext, {
+                ...baseState,
+                lastError: error instanceof Error ? error.message : String(error),
+            });
+        }
+    }
+
+    private shouldRunSummarizerInterval(interval: Record<string, JsonValue>, previousState: SessionSummarizerState, currentTokens: number, turnCount: number, loopCount: number): boolean {
+        const kind = typeof interval.kind === "string" ? interval.kind : "turn";
+        const value = typeof interval.value === "number" && interval.value > 0 ? interval.value : 1;
+        if (kind === "dialogueContentTokens") {
+            const previousTokens = previousState.lastRunDialogueContentTokens ?? 0;
+            return currentTokens - previousTokens >= value;
+        }
+        if (kind === "loop") {
+            return loopCount % value === 0;
+        }
+        return turnCount % value === 0;
+    }
+
+    private async ensureSummarizerSession(sourceSnapshot: SessionSnapshot, sourceContext: NeuroSessionContext, profileKey: string, input: JsonValue, inputFingerprint: string): Promise<SessionSnapshot> {
+        const state = this.readSummarizerState(sourceContext);
+        if (state.sessionId && state.summarizerInputFingerprint === inputFingerprint) {
+            try {
+                const existing = await this.repo.readSession(state.sessionId, sourceSnapshot.metadata.workspaceKey);
+                if (existing.metadata.systemRole === "summarizer" && existing.metadata.profileKey === profileKey && hashJsonValue(existing.metadata.input) === hashJsonValue(input)) {
+                    return existing;
+                }
+            } catch {
+                // 旧状态指向的 session 不存在时，重新创建后台 session。
+            }
+        }
+        const created = await this.createSystemAgent({
+            profileKey,
+            input,
+            workspaceRoot: sourceSnapshot.metadata.workspaceRoot,
+            workspaceKey: sourceSnapshot.metadata.workspaceKey,
+            projectPath: sourceSnapshot.metadata.projectPath,
+            systemRole: "summarizer",
+        });
+        await this.writeSummarizerState(sourceSnapshot, sourceContext, {
+            ...state,
+            sessionId: created.metadata.sessionId,
+            profileKey,
+            running: true,
+        });
+        return created;
+    }
+
+    private parseSummarizerOutput(data: unknown): {title: string; summary: string} {
+        const parsed = Value.Parse(SessionSummarizerOutputSchema, data) as {title: string; summary: string};
+        const title = parsed.title.trim();
+        const summary = parsed.summary.trim();
+        if (!title) {
+            throw new Error("summarizer title 为空");
+        }
+        if (!summary) {
+            throw new Error("summarizer summary 为空");
+        }
+        if (title.length > SESSION_TITLE_MAX_LENGTH) {
+            throw new Error(`summarizer title 超过 ${SESSION_TITLE_MAX_LENGTH} 字`);
+        }
+        if (summary.length > SESSION_SUMMARY_MAX_LENGTH) {
+            throw new Error(`summarizer summary 超过 ${SESSION_SUMMARY_MAX_LENGTH} 字`);
+        }
+        return {title, summary};
+    }
+
+    private async writeSummarizerResult(sourceSnapshot: SessionSnapshot, output: {title: string; summary: string}): Promise<void> {
+        const entry = await this.repo.appendProjectionEntry(sourceSnapshot.metadata.sessionId, {
+            type: "session_update",
+            updates: output,
+        }, sourceSnapshot.metadata.workspaceKey);
+        this.publishSessionEntry(sourceSnapshot.metadata.sessionId, undefined, entry);
+        await this.publishSessionState(sourceSnapshot.metadata.sessionId);
+    }
+
+    private readSummarizerState(context: NeuroSessionContext): SessionSummarizerState {
+        const value = context.customState[SESSION_SUMMARIZER_STATE_KEY];
+        if (!isRecord(value)) {
+            return {};
+        }
+        return {
+            sessionId: typeof value.sessionId === "number" ? value.sessionId : undefined,
+            profileKey: typeof value.profileKey === "string" ? value.profileKey : undefined,
+            summarizerInputFingerprint: typeof value.summarizerInputFingerprint === "string" ? value.summarizerInputFingerprint : undefined,
+            running: typeof value.running === "boolean" ? value.running : undefined,
+            dirty: typeof value.dirty === "boolean" ? value.dirty : undefined,
+            lastDialogueContentFingerprint: typeof value.lastDialogueContentFingerprint === "string" ? value.lastDialogueContentFingerprint : undefined,
+            lastDialogueContentTokens: typeof value.lastDialogueContentTokens === "number" ? value.lastDialogueContentTokens : undefined,
+            lastRunDialogueContentTokens: typeof value.lastRunDialogueContentTokens === "number" ? value.lastRunDialogueContentTokens : undefined,
+            lastRunAt: typeof value.lastRunAt === "number" ? value.lastRunAt : undefined,
+            lastError: typeof value.lastError === "string" ? value.lastError : undefined,
+            turnCount: typeof value.turnCount === "number" ? value.turnCount : undefined,
+            loopCount: typeof value.loopCount === "number" ? value.loopCount : undefined,
+        };
+    }
+
+    private async writeSummarizerState(sourceSnapshot: SessionSnapshot, sourceContext: NeuroSessionContext, state: SessionSummarizerState): Promise<void> {
+        const latestSnapshot = await this.repo.readSession(sourceSnapshot.metadata.sessionId, sourceSnapshot.metadata.workspaceKey);
+        const previous = this.readSummarizerState(this.repo.reduce(latestSnapshot));
+        const value: Record<string, JsonValue> = {};
+        for (const [key, entryValue] of Object.entries({...previous, ...state})) {
+            if (entryValue !== undefined) {
+                value[key] = entryValue;
+            }
+        }
+        const entry = await this.repo.appendProjectionEntry(sourceSnapshot.metadata.sessionId, {
+            type: "custom",
+            key: SESSION_SUMMARIZER_STATE_KEY,
+            value,
+        }, sourceSnapshot.metadata.workspaceKey);
+        this.publishSessionEntry(sourceSnapshot.metadata.sessionId, undefined, entry);
+        await this.publishSessionState(sourceSnapshot.metadata.sessionId);
     }
 
     private assertValidIngest(profile: AgentProfile, ingest: ProfileIngestResult | undefined): asserts ingest is ProfileIngestResult {
@@ -1836,6 +2214,10 @@ export class NeuroAgentHarness {
         return "idle";
     }
 
+    private isLeaderProfile(profileKey: string): boolean {
+        return profileKey === "leader.default" || profileKey === "leader.assets" || profileKey.startsWith("leader.");
+    }
+
     private async moveLeafForPosition(
         sessionId: number,
         targetEntryId: SessionEntryId,
@@ -2126,6 +2508,24 @@ export class NeuroAgentHarness {
 
 function estimateTextTokens(text: string): number {
     return Math.ceil(text.length / 4);
+}
+
+function isRecord(value: unknown): value is Record<string, JsonValue> {
+    return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function hashJsonValue(value: JsonValue): string {
+    return createHash("sha256").update(stableJsonStringify(value)).digest("hex");
+}
+
+function stableJsonStringify(value: JsonValue): string {
+    if (value === null || typeof value !== "object") {
+        return JSON.stringify(value);
+    }
+    if (Array.isArray(value)) {
+        return `[${value.map((item) => stableJsonStringify(item)).join(",")}]`;
+    }
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJsonStringify(value[key] ?? null)}`).join(",")}}`;
 }
 
 async function loadEffectiveConfig(input: {workspaceRoot?: string; projectPath?: string}): Promise<EffectiveConfig> {

@@ -15,6 +15,33 @@ export const LeaderDefaultOutputSchema = Type.Object({
 });
 
 /**
+ * session.summarizer 的实例初始化参数。sourceSessionId 由 harness 注入。
+ */
+export const SessionSummarizerInputSchema = Type.Object({
+    sourceSessionId: Type.Number({description: "由 harness 注入的源 leader session id。"}),
+    trigger: Type.Optional(Type.Union([
+        Type.Literal("after_invocation"),
+    ], {description: "首次触发时机。第一版仅支持 after_invocation。"})),
+    interval: Type.Optional(Type.Object({
+        kind: Type.Union([
+            Type.Literal("turn"),
+            Type.Literal("loop"),
+            Type.Literal("dialogueContentTokens"),
+        ]),
+        value: Type.Number({description: "触发间隔。turn/loop 表示次数，dialogueContentTokens 表示新增正文 token。"}),
+    }, {description: "后台摘要周期触发配置。"})),
+    maxDialogueContentTokens: Type.Optional(Type.Number({description: "Agent Dialogue Content 超过该 token 估算值时跳过本次摘要。"})),
+});
+
+/**
+ * session.summarizer 通过 report_result.data 返回的展示元数据。
+ */
+export const SessionSummarizerOutputSchema = Type.Object({
+    title: Type.String({description: "简短 session 标题，建议不超过 32 字。"}),
+    summary: Type.String({description: "当前 session 的可读摘要，建议不超过 240 字。"}),
+});
+
+/**
  * writer 子代理输入：由 leader/create_agent 传入，不承载每轮对话文本。
  */
 export const WriterInputSchema = Type.Object({

@@ -80,6 +80,22 @@ _Avoid_: optimistic chat message, command
 Agent Queued Message 入队时通过 session event hub 广播的运行态事件。
 _Avoid_: session entry, consumed event, chat message
 
+**Agent Dialogue Content**:
+Agent session active path 中用户和 assistant 的可见正文文本，用于派生 session 展示元数据。
+_Avoid_: tool result tokens, thinking tokens, raw context tokens
+
+**Agent Summarizer Profile**:
+用于维护另一个 Agent session 展示标题和摘要的后台 profile。
+_Avoid_: linked agent, visible subagent, user-facing agent
+
+**Agent Summarizer Session**:
+运行 Agent Summarizer Profile 的后台 session，绑定一个源 Agent session 但不作为 linked agent 展示。
+_Avoid_: linked session, child agent, visible agent
+
+**Agent Summarizer Trigger**:
+源 Agent session 完成后请求后台维护展示标题和摘要的运行信号。
+_Avoid_: leader invocation, user prompt, linked agent call
+
 ## Relationships
 
 - **Workspace Root `.nbook`** belongs to exactly one **Workspace Root**.
@@ -105,6 +121,19 @@ _Avoid_: session entry, consumed event, chat message
 - Pending **Agent Steer** messages are all consumed together at the same steer point.
 - Pending **Agent Steer** messages prevent the current **Agent ReAct Loop** from stopping and cause another model call in the same loop.
 - Pending **Agent FollowUp** messages are consumed one at a time only after an **Agent ReAct Loop** has no tool calls and no pending **Agent Steer** messages.
+- **Agent Dialogue Content** excludes tool calls, tool results, and thinking content.
+- **Agent Dialogue Content** excludes harness reminders, profile/model-context injected messages, and custom messages unless the content boundary is explicitly expanded later.
+- An **Agent Summarizer Session** belongs to exactly one source Agent session.
+- An **Agent Summarizer Session** must not create a linked-agent relationship with its source Agent session.
+- An **Agent Summarizer Profile** reports session display metadata; it must not change the source Agent session's conversation history.
+- An **Agent Summarizer Trigger** is transparent to the source Agent session's user-facing result.
+- Concurrent **Agent Summarizer Triggers** for the same source Agent session coalesce into latest-only background work.
+- An **Agent Summarizer Session** rebuilds **Agent Dialogue Content** from the source session's current active path for each run.
+- An **Agent Summarizer Session** may keep its own diagnostic history, but each summarization run uses freshly rebuilt **Agent Dialogue Content** as the source text instead of incrementally summarizing its own old history.
+- An **Agent Summarizer Session** is created by the harness as a background system session, not by the normal linked-agent `parentSessionId` creation path.
+- **Agent Dialogue Content** includes compaction messages when they are on the source session's active path.
+- **Agent Dialogue Content** should be rendered as a stable transcript with explicit source labels before it is summarized.
+- An **Agent Summarizer Session** keeps its own ordinary harness history for diagnostics, even though it is not shown as a linked agent.
 
 ## Example dialogue
 
@@ -113,6 +142,9 @@ _Avoid_: session entry, consumed event, chat message
 
 > **Dev:** "The Agent is running and I type another instruction. Is that Continue?"
 > **Domain expert:** "No. If it should affect the next model call, it is Agent Steer; if it should wait until the run would stop, it is Agent FollowUp. Agent Continue adds no new user message."
+
+> **Dev:** "Should the session summarizer show up as a linked agent?"
+> **Domain expert:** "No. It is an Agent Summarizer Session: a background system session that reads Agent Dialogue Content and reports display metadata."
 
 ## Flagged ambiguities
 
@@ -127,3 +159,7 @@ _Avoid_: session entry, consumed event, chat message
 - "steer priority" was used too broadly. Resolved: **Agent Steer** is checked before loop stop; pending **Agent Steer** keeps the current **Agent ReAct Loop** alive, while **Agent FollowUp** only runs after the loop has no tool calls and no pending steer.
 - "steer text" was treated as raw user text. Resolved: **Agent Steer** must carry a model-visible prefix aligned with the Codex harness convention.
 - "one at a time" was used ambiguously for queues. Resolved: **Agent Steer** uses all-at-steer-point drain; **Agent FollowUp** uses one-at-a-time drain after the loop stops.
+- "摘要 agent" was used like a normal visible agent. Resolved: session title/summary maintenance uses an **Agent Summarizer Profile** and **Agent Summarizer Session**, not a linked agent.
+- "会话正文 Token" mixed content boundary with token measurement. Resolved: **Agent Dialogue Content** names the content boundary; token counts are a measurement over that content.
+- "summary" can mean session display summary, compaction summary, or branch summary. Resolved: **Agent Summarizer Profile** only owns session display metadata.
+- "摘要上下文 append-only" was used too broadly. Resolved: source session history remains append-only, but **Agent Summarizer Session** rebuilds Agent Dialogue Content from the current active path each run.

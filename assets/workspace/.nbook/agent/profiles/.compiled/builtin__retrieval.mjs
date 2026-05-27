@@ -2069,6 +2069,7 @@ async function defaultSqlSchemaSummaryText(ctx) {
 // server/agent/profiles/define-agent-profile.ts
 function defineAgentProfile(profile) {
   assertProfileManifest(profile.manifest);
+  assertProfileSummarizer(profile.manifest.key, profile.summarizer);
   if (profile.context && profile.prepare) {
     throw new Error(`profile ${profile.manifest.key} \u4E0D\u80FD\u540C\u65F6\u5B9A\u4E49 context \u548C prepare\u3002`);
   }
@@ -2097,6 +2098,20 @@ function assertProfileManifest(manifest) {
     throw new Error(`profile ${manifest.key} manifest.name \u4E0D\u80FD\u4E3A\u7A7A`);
   }
 }
+function assertProfileSummarizer(profileKey, summarizer) {
+  if (!summarizer) {
+    return;
+  }
+  if (summarizer.enabled === false) {
+    return;
+  }
+  if (!summarizer.profileKey || !summarizer.profileKey.trim()) {
+    throw new Error(`profile ${profileKey} summarizer.profileKey \u4E0D\u80FD\u4E3A\u7A7A`);
+  }
+  if (summarizer.input !== void 0 && (typeof summarizer.input !== "object" || summarizer.input === null || Array.isArray(summarizer.input))) {
+    throw new Error(`profile ${profileKey} summarizer.input \u5FC5\u987B\u662F\u5BF9\u8C61`);
+  }
+}
 
 // server/agent/profiles/builtin-contracts.ts
 import { Type as Type2 } from "typebox";
@@ -2105,6 +2120,25 @@ var LeaderDefaultInputSchema = Type2.Object({
 });
 var LeaderDefaultOutputSchema = Type2.Object({
   result: Type2.Optional(Type2.String({ description: "\u53EF\u9009\u603B\u7ED3\u6587\u672C\u3002leader.default \u901A\u5E38\u4E0D\u8981\u6C42 report_result\u3002" }))
+});
+var SessionSummarizerInputSchema = Type2.Object({
+  sourceSessionId: Type2.Number({ description: "\u7531 harness \u6CE8\u5165\u7684\u6E90 leader session id\u3002" }),
+  trigger: Type2.Optional(Type2.Union([
+    Type2.Literal("after_invocation")
+  ], { description: "\u9996\u6B21\u89E6\u53D1\u65F6\u673A\u3002\u7B2C\u4E00\u7248\u4EC5\u652F\u6301 after_invocation\u3002" })),
+  interval: Type2.Optional(Type2.Object({
+    kind: Type2.Union([
+      Type2.Literal("turn"),
+      Type2.Literal("loop"),
+      Type2.Literal("dialogueContentTokens")
+    ]),
+    value: Type2.Number({ description: "\u89E6\u53D1\u95F4\u9694\u3002turn/loop \u8868\u793A\u6B21\u6570\uFF0CdialogueContentTokens \u8868\u793A\u65B0\u589E\u6B63\u6587 token\u3002" })
+  }, { description: "\u540E\u53F0\u6458\u8981\u5468\u671F\u89E6\u53D1\u914D\u7F6E\u3002" })),
+  maxDialogueContentTokens: Type2.Optional(Type2.Number({ description: "Agent Dialogue Content \u8D85\u8FC7\u8BE5 token \u4F30\u7B97\u503C\u65F6\u8DF3\u8FC7\u672C\u6B21\u6458\u8981\u3002" }))
+});
+var SessionSummarizerOutputSchema = Type2.Object({
+  title: Type2.String({ description: "\u7B80\u77ED session \u6807\u9898\uFF0C\u5EFA\u8BAE\u4E0D\u8D85\u8FC7 32 \u5B57\u3002" }),
+  summary: Type2.String({ description: "\u5F53\u524D session \u7684\u53EF\u8BFB\u6458\u8981\uFF0C\u5EFA\u8BAE\u4E0D\u8D85\u8FC7 240 \u5B57\u3002" })
 });
 var WriterInputSchema = Type2.Object({
   prompt: Type2.String({ description: "\u672C\u6B21\u5199\u4F5C\u4EFB\u52A1\u3002\u5199\u6E05\u8981\u5199\u4EC0\u4E48\u3001\u662F\u91CD\u5199\u8FD8\u662F\u5C40\u90E8\u4FEE\u6539\u3001\u7AE0\u8282\u8FB9\u754C\u548C\u4EA4\u4ED8\u8981\u6C42\u3002" }),

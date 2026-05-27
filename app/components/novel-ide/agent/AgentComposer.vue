@@ -13,10 +13,7 @@ import type {AgentQueuedMessageDto} from "nbook/shared/dto/agent-session.dto";
 
 type AgentComposerSessionModelDraft = {
     modelKey: string | null;
-    temperature: string;
-    topK: string;
     reasoningEffort: ThinkingLevelDto | null;
-    stream: boolean;
 };
 
 const thinkingLevelOptions: Array<{value: ThinkingLevelDto | null; label: string}> = [
@@ -375,16 +372,6 @@ defineExpose({focus});
                                         @update:model-value="updateSessionModelDraft({modelKey: $event})"
                                     />
                                 </div>
-                                <div class="grid grid-cols-2 gap-3">
-                                    <div class="space-y-1.5">
-                                        <label class="text-xs font-medium text-[var(--text-secondary)]">温度</label>
-                                        <input :value="props.sessionModelDraft.temperature" type="number" step="0.1" min="0" placeholder="留空" class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20" @input="updateSessionModelDraft({temperature: ($event.target as HTMLInputElement).value})">
-                                    </div>
-                                    <div class="space-y-1.5">
-                                        <label class="text-xs font-medium text-[var(--text-secondary)]">TopK</label>
-                                        <input :value="props.sessionModelDraft.topK" type="number" step="1" min="1" placeholder="留空" class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20" @input="updateSessionModelDraft({topK: ($event.target as HTMLInputElement).value})">
-                                    </div>
-                                </div>
                                 <div class="space-y-1.5">
                                     <div class="flex items-center justify-between gap-2">
                                         <label class="text-xs font-medium text-[var(--text-secondary)]">思考强度</label>
@@ -394,26 +381,13 @@ defineExpose({focus});
                                         <option v-for="option in thinkingLevelOptions" :key="option.label" :value="option.value ?? ''">{{ option.label }}</option>
                                     </select>
                                 </div>
-                                <div class="flex items-center justify-between rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2">
-                                    <div>
-                                        <div class="text-xs font-medium text-[var(--text-main)]">流式响应</div>
-                                        <div class="mt-0.5 text-[11px] text-[var(--text-muted)]">关闭后仅影响模型侧流式返回。</div>
-                                    </div>
-                                    <button
-                                        class="inline-flex h-7 min-w-[56px] items-center justify-center rounded-md border px-3 text-[12px] font-medium transition-colors"
-                                        :class="props.sessionModelDraft.stream ? 'border-emerald-600/20 bg-emerald-500/10 text-emerald-600' : 'border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-secondary)]'"
-                                        @click="updateSessionModelDraft({stream: !props.sessionModelDraft.stream})"
-                                    >
-                                        {{ props.sessionModelDraft.stream ? "开启" : "关闭" }}
-                                    </button>
-                                </div>
                             </div>
 
                             <div class="mt-4 flex items-center justify-between gap-2">
                                 <button class="inline-flex h-8 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :disabled="props.sessionModelSaving" @click="emit('reset-session-model-settings')">
                                     回到 profile 默认
                                 </button>
-                                <button class="inline-flex h-8 items-center justify-center rounded-md bg-[var(--accent-main)] px-3 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.sessionModelSaving || !props.sessionModelDraft.modelKey" @click="emit('apply-session-model-settings')">
+                                <button class="inline-flex h-8 items-center justify-center rounded-md bg-[var(--accent-main)] px-3 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.sessionModelSaving" @click="emit('apply-session-model-settings')">
                                     <span v-if="props.sessionModelSaving" class="i-lucide-loader-2 mr-1.5 h-3.5 w-3.5 animate-spin"></span>
                                     应用到当前 Session
                                 </button>

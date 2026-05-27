@@ -53,3 +53,8 @@ declare module "nbook/server/agent/variables/types" {
     interface ProfileVariableValueMap {
     }
 }
+import type {JsonValue} from "nbook/server/agent/messages/types";
+declare module "nbook/server/agent/variables/types" {
+    interface ProfileVariableValueMap {
+    }
+}

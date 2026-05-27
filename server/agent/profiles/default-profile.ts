@@ -28,6 +28,17 @@ export const defaultAgentProfile = defineAgentProfile({
         "get_session",
         "detach_agent",
     ],
+    summarizer: {
+        profileKey: "session.summarizer",
+        input: {
+            trigger: "after_invocation",
+            interval: {
+                kind: "turn",
+                value: 1,
+            },
+            maxDialogueContentTokens: 80_000,
+        },
+    },
     prepare(ctx) {
         return {
             systemPrompt: [
