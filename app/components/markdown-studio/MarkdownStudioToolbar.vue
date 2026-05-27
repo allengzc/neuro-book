@@ -193,15 +193,16 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
             @dragover="updateGroupDrop(true, $event)"
             @drop="commitTabDrop"
         >
-            <button
+            <div
                 v-for="tab in pinnedTabs"
                 :key="tab.path"
-                type="button"
-                class="group relative flex h-8 w-[188px] max-w-[188px] items-center gap-2 px-3 text-xs transition-colors"
+                class="group relative flex h-8 w-[188px] max-w-[188px] cursor-pointer select-none items-center gap-2 px-3 text-xs transition-colors"
                 :class="tab.path === props.activePath ? 'bg-[var(--editor-canvas-bg)] text-[var(--text-main)] after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-full after:bg-[var(--accent-main)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
                 :title="tab.path"
                 data-role="markdown-studio-tab"
                 draggable="true"
+                role="button"
+                tabindex="0"
                 @click="emit('select-tab', tab.path)"
                 @dblclick="emit('keep-tab', tab.path)"
                 @contextmenu.prevent.stop="openTabContextMenu(tab, $event)"
@@ -209,6 +210,8 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                 @dragover="updateTabDrop(tab, true, $event)"
                 @drop="commitTabDrop"
                 @dragend="clearTabDrag"
+                @keydown.enter.prevent="emit('select-tab', tab.path)"
+                @keydown.space.prevent="emit('select-tab', tab.path)"
             >
                 <div v-if="isDropTarget(tab, true, 'before')" class="absolute bottom-0 left-0 top-0 w-0.5 bg-[var(--accent-main)]"></div>
                 <div v-if="isDropTarget(tab, true, 'after')" class="absolute bottom-0 right-0 top-0 w-0.5 bg-[var(--accent-main)]"></div>
@@ -220,7 +223,7 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                 <button type="button" class="-mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-[var(--bg-hover)] group-hover:opacity-100" title="关闭" @click.stop="emit('close-tab', tab.path)">
                     <span class="i-lucide-x h-3 w-3"></span>
                 </button>
-            </button>
+            </div>
         </div>
 
         <!-- 活跃标签与轻量工具区 -->
@@ -231,15 +234,16 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                 @dragover="updateGroupDrop(false, $event)"
                 @drop="commitTabDrop"
             >
-                <button
+                <div
                     v-for="tab in regularTabs"
                     :key="tab.path"
-                    type="button"
-                    class="group relative flex h-[34px] w-[188px] max-w-[188px] items-center gap-2 px-3 text-xs transition-colors"
+                    class="group relative flex h-[34px] w-[188px] max-w-[188px] cursor-pointer select-none items-center gap-2 px-3 text-xs transition-colors"
                     :class="tab.path === props.activePath ? 'bg-[var(--editor-canvas-bg)] text-[var(--text-main)] after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-full after:bg-[var(--accent-main)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
                     :title="tab.path"
                     data-role="markdown-studio-tab"
                     draggable="true"
+                    role="button"
+                    tabindex="0"
                     @click="emit('select-tab', tab.path)"
                     @dblclick="emit('keep-tab', tab.path)"
                     @contextmenu.prevent.stop="openTabContextMenu(tab, $event)"
@@ -247,6 +251,8 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                     @dragover="updateTabDrop(tab, false, $event)"
                     @drop="commitTabDrop"
                     @dragend="clearTabDrag"
+                    @keydown.enter.prevent="emit('select-tab', tab.path)"
+                    @keydown.space.prevent="emit('select-tab', tab.path)"
                 >
                     <div v-if="isDropTarget(tab, false, 'before')" class="absolute bottom-0 left-0 top-0 w-0.5 bg-[var(--accent-main)]"></div>
                     <div v-if="isDropTarget(tab, false, 'after')" class="absolute bottom-0 right-0 top-0 w-0.5 bg-[var(--accent-main)]"></div>
@@ -258,7 +264,7 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                     <button type="button" class="-mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-[var(--bg-hover)] group-hover:opacity-100" title="关闭" @click.stop="emit('close-tab', tab.path)">
                         <span class="i-lucide-x h-3 w-3"></span>
                     </button>
-                </button>
+                </div>
             </div>
 
             <div class="flex h-[34px] shrink-0 items-center gap-1 text-[var(--text-muted)]">

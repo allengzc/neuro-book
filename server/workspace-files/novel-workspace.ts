@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import {execFile} from "node:child_process";
+import {promisify} from "node:util";
 import {createHash, randomUUID} from "node:crypto";
 import {readProfileArtifactManifest, rehomeProfileArtifactItem, validateProfileArtifact, type ProfileArtifactManifestItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {readVariableDefinitionManifest, validateVariableDefinitionArtifact, type VariableDefinitionManifestItem} from "nbook/server/agent/variables/definition-artifact";
@@ -24,6 +26,12 @@ const SYSTEM_PROFILE_METADATA_PATH = path.join(SYSTEM_PROFILE_ROOT, ".system-pro
 const USER_PROFILE_SYNC_STATE_PATH = path.join(USER_PROFILE_ROOT, ".profile-sync-state.json");
 const NOVEL_DIRECTORY_TEMPLATE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "templates", "novel-directory-templates");
 const USER_NOVEL_DIRECTORY_TEMPLATE_ROOT = path.resolve(process.cwd(), USER_ASSETS_WORKSPACE_ROOT, "templates", "novel-directory-templates");
+const SYSTEM_RUNTIME_ASSET_PATHS = [
+    "agent/bin/workspace",
+    "agent/bin/workspace.cmd",
+    "agent/scripts/workspace.ts",
+];
+const execFileAsync = promisify(execFile);
 
 export type WorkspaceRootKind = "novel" | typeof USER_ASSETS_WORKSPACE_KIND;
 export type UserAssetsSyncResult = {
@@ -161,6 +169,7 @@ export async function syncSystemAssetsToUserAssets(): Promise<UserAssetsSyncResu
     if (await isDirectory(SYSTEM_NBOOK_ROOT)) {
         await copyMissingAssetEntries(SYSTEM_NBOOK_ROOT, nbookTargetRoot, result);
     }
+    await syncSystemRuntimeAssetsToUserAssets(result);
     await syncSystemProfilesToUserAssets(result, nbookTargetRoot);
     await syncSystemVariableDefinitionsToUserAssets(result);
     await syncSystemWritingPresetsToUserAssets(result);
@@ -256,6 +265,84 @@ async function copyMissingAssetEntries(sourceRoot: string, targetRoot: string, r
             }
             throw error;
         }
+    }
+}
+
+/**
+ * 同步 Agent runtime 入口文件；只覆盖仍跟随系统上游的用户副本。
+ */
+async function syncSystemRuntimeAssetsToUserAssets(result: UserAssetsSyncResult): Promise<void> {
+    const syncState = await readUserProfileSyncState();
+    let stateChanged = false;
+    for (const assetPath of SYSTEM_RUNTIME_ASSET_PATHS) {
+        const systemPath = path.join(SYSTEM_NBOOK_ROOT, assetPath);
+        if (!await pathExists(systemPath)) {
+            continue;
+        }
+        const item = {
+            assetPath,
+            ...await sha256File(systemPath),
+        };
+        const userPath = path.join(process.cwd(), USER_NBOOK_ROOT, assetPath);
+        const stateItem = syncState.assets?.find((asset) => asset.assetPath === assetPath);
+        if (!stateItem && await pathExists(userPath) && await sameFile(systemPath, userPath)) {
+            const hash = await sha256File(userPath);
+            upsertUserAssetSyncState(syncState, item, hash.sha256);
+            stateChanged = true;
+            continue;
+        }
+        if (!await pathExists(userPath)) {
+            await fs.mkdir(path.dirname(userPath), {recursive: true});
+            await fs.copyFile(systemPath, userPath);
+            const hash = await sha256File(userPath);
+            upsertUserAssetSyncState(syncState, item, hash.sha256);
+            result.updatedAssets = (result.updatedAssets ?? 0) + 1;
+            stateChanged = true;
+            continue;
+        }
+
+        const currentUserHash = (await sha256File(userPath)).sha256;
+        if (currentUserHash === item.sha256) {
+            upsertUserAssetSyncState(syncState, item, currentUserHash);
+            stateChanged = true;
+            continue;
+        }
+        if (!stateItem) {
+            const previousHash = await readGitHeadAssetHash(path.posix.join("assets/workspace/.nbook", assetPath));
+            if (previousHash && currentUserHash === previousHash) {
+                await fs.copyFile(systemPath, userPath);
+                const hash = await sha256File(userPath);
+                upsertUserAssetSyncState(syncState, item, hash.sha256);
+                result.updatedAssets = (result.updatedAssets ?? 0) + 1;
+                stateChanged = true;
+                continue;
+            }
+            result.assetWarnings?.push({
+                assetPath,
+                message: "系统 Agent runtime asset 有 metadata，但用户覆盖缺少 sync state，已保留用户文件。",
+            });
+            continue;
+        }
+        if (currentUserHash !== stateItem.lastSyncedUserHash) {
+            if (item.sha256 !== stateItem.upstreamHash) {
+                result.assetWarnings?.push({
+                    assetPath,
+                    message: "系统 Agent runtime asset 已更新，但用户覆盖已手改，未自动覆盖。",
+                });
+            }
+            continue;
+        }
+        if (item.sha256 === stateItem.upstreamHash) {
+            continue;
+        }
+        await fs.copyFile(systemPath, userPath);
+        const hash = await sha256File(userPath);
+        upsertUserAssetSyncState(syncState, item, hash.sha256);
+        result.updatedAssets = (result.updatedAssets ?? 0) + 1;
+        stateChanged = true;
+    }
+    if (stateChanged) {
+        await writeUserProfileSyncState(syncState);
     }
 }
 
@@ -864,6 +951,23 @@ async function sameFile(leftPath: string, rightPath: string): Promise<boolean> {
         sha256File(rightPath),
     ]);
     return left.sha256 === right.sha256;
+}
+
+/**
+ * 读取当前 Git HEAD 中的系统 asset hash，用于迁移缺少 sync state 的未手改旧副本。
+ */
+async function readGitHeadAssetHash(assetPath: string): Promise<string | null> {
+    try {
+        const {stdout} = await execFileAsync("git", ["show", `HEAD:${assetPath}`], {
+            cwd: process.cwd(),
+            encoding: "buffer",
+            maxBuffer: 10 * 1024 * 1024,
+        });
+        const buffer = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout);
+        return createHash("sha256").update(buffer).digest("hex");
+    } catch {
+        return null;
+    }
 }
 
 async function removeCopiedSystemMetadata(nbookTargetRoot: string): Promise<void> {

@@ -87,7 +87,7 @@ describe("useAgentSession", () => {
         ]);
     });
 
-    it("session_state_changed.snapshot 直接恢复 running 状态", () => {
+    it("session_state_changed.snapshot 直接恢复 running 和 summarizer 状态", () => {
         const session = useAgentSession();
 
         session.applyEvent({
@@ -98,6 +98,11 @@ describe("useAgentSession", () => {
                 type: "session_state_changed",
                 snapshot: {
                     ...baseSnapshot(1),
+                    summarizer: {
+                        running: true,
+                        dirty: false,
+                        lastDialogueContentTokens: 42,
+                    },
                     activeInvocation: {
                         invocationId: "run-1",
                         sessionId: 1,
@@ -112,6 +117,10 @@ describe("useAgentSession", () => {
         expect(session.running.value).toBe(true);
         expect(session.liveRunStatus.value).toBe("running");
         expect(session.runPhase.value).toBe("model_pending");
+        expect(session.snapshot.value?.summarizer).toEqual(expect.objectContaining({
+            running: true,
+            lastDialogueContentTokens: 42,
+        }));
         expect(session.needsSnapshot.value).toBe(false);
     });
 

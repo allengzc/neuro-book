@@ -22,6 +22,7 @@ import type {
     ModelProviderOptionsConfig,
     ModelSettingsConfig,
 } from "nbook/server/config/types";
+import {ProxyAgent} from "undici";
 
 type ResolvedDefaultModel = {
     providerId: string;
@@ -34,10 +35,22 @@ type ResolvedContextWindow = {
     source: "manual" | "unknown";
 };
 
+type OpenAIModelsResponse = {
+    data?: Array<{
+        id?: unknown;
+    }>;
+};
+
+type ProviderFetchInit = RequestInit & {
+    dispatcher?: ProxyAgent;
+};
+
 export type AgentProfileSettingDefinition = {
     profileKey: string;
     name: string;
 };
+
+const DEFAULT_MODEL_DISCOVERY_TIMEOUT_MS = 30_000;
 
 /**
  * 生成 `providerId/modelId` 形式的模型 key。
@@ -281,12 +294,21 @@ export async function checkProviderConnection(providerDraft: ModelProviderDraftD
 }
 
 /**
- * 从远端抓取 Provider 模型列表。第一版只保留空结果，避免继续依赖 LangChain provider。
+ * 从 OpenAI-compatible `/models` 端点抓取 Provider 模型列表。
  */
 export async function discoverProviderModels(providerDraft: ModelProviderDraftDto): Promise<DiscoverProviderModelsResponseDto> {
+    const baseURL = providerDraft.options.baseURL.trim();
+    if (!baseURL) {
+        throw new Error(`${providerDraft.name} 缺少 API Base，无法查询 /models。`);
+    }
+
+    const startedAt = Date.now();
+    const response = await fetchProviderModels(providerDraft, baseURL);
+    const models = parseOpenAIModelsResponse(response);
+
     return {
-        models: [],
-        message: `${providerDraft.name} 的远程模型发现已等待迁移到 Pi provider。`,
+        models,
+        message: `已从 ${providerDraft.name} 远程发现 ${models.length} 个模型，用时 ${String(Date.now() - startedAt)}ms。`,
     };
 }
 
@@ -329,4 +351,81 @@ export function normalizeModelProviderOptions(options: ModelProviderOptionsConfi
         timeoutMs: options.timeoutMs,
         requestOptions: options.requestOptions,
     };
+}
+
+/**
+ * 请求 Provider 的 OpenAI-compatible `/models` 端点。
+ */
+async function fetchProviderModels(providerDraft: ModelProviderDraftDto, baseURL: string): Promise<OpenAIModelsResponse> {
+    const controller = new AbortController();
+    const timeoutMs = providerDraft.options.timeoutMs ?? DEFAULT_MODEL_DISCOVERY_TIMEOUT_MS;
+    const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs);
+    const headers: Record<string, string> = {
+        accept: "application/json",
+    };
+    const apiKey = providerDraft.options.apiKey.trim();
+    if (apiKey) {
+        headers.authorization = `Bearer ${apiKey}`;
+    }
+
+    try {
+        const requestInit: ProviderFetchInit = {
+            method: "GET",
+            headers,
+            signal: controller.signal,
+            ...(providerDraft.options.proxy.trim()
+                ? {dispatcher: new ProxyAgent(providerDraft.options.proxy.trim())}
+                : {}),
+        };
+        const response = await fetch(buildModelsEndpoint(baseURL), requestInit as RequestInit);
+
+        if (!response.ok) {
+            throw new Error(`${providerDraft.name} /models 请求失败：HTTP ${String(response.status)} ${response.statusText}`);
+        }
+
+        const payload = await response.json();
+        if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+            throw new Error(`${providerDraft.name} /models 返回的 JSON 不是对象。`);
+        }
+
+        return payload as OpenAIModelsResponse;
+    } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") {
+            throw new Error(`${providerDraft.name} /models 请求超时（${String(timeoutMs)}ms）。`);
+        }
+        throw error;
+    } finally {
+        globalThis.clearTimeout(timeout);
+    }
+}
+
+/**
+ * 将 API Base 规范化为 `/models` 端点。
+ */
+function buildModelsEndpoint(baseURL: string): string {
+    return `${baseURL.replace(/\/+$/, "")}/models`;
+}
+
+/**
+ * 解析 OpenAI-compatible 模型列表响应。
+ */
+function parseOpenAIModelsResponse(response: OpenAIModelsResponse): DiscoveredProviderModelDto[] {
+    if (!Array.isArray(response.data)) {
+        throw new Error("/models 返回缺少 data 数组。");
+    }
+
+    const modelsById = new Map<string, DiscoveredProviderModelDto>();
+    for (const item of response.data) {
+        const modelId = typeof item.id === "string" ? item.id.trim() : "";
+        if (!modelId || modelsById.has(modelId)) {
+            continue;
+        }
+        modelsById.set(modelId, {
+            id: modelId,
+            name: modelId,
+            group: deriveModelGroup(modelId),
+        });
+    }
+
+    return [...modelsById.values()].sort((left, right) => left.id.localeCompare(right.id));
 }

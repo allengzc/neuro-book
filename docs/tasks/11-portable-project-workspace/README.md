@@ -311,6 +311,10 @@
 
 ## Verification
 
+- 已执行 `bun .\assets\workspace\.nbook\agent\scripts\workspace.ts project create "workspace/codex-project-create-smoke" --title "测试项目" --summary "临时验证" --json`，确认会合并 bundled `assets/workspace/.nbook/templates/novel-directory-templates` 与用户覆盖层 `workspace/.nbook/templates/novel-directory-templates`、写入 `project.yaml`、初始化 `.nbook/project.sqlite`，且目标目录不再保留旧 `workspace.yaml`；验证后已删除临时 Project Workspace。
+- 已执行 `bun .\scripts\sync-user-assets.ts`，确认仍跟随旧系统上游的 `workspace/.nbook/agent/scripts/workspace.ts` 会同步到新 `workspace project create` 命令面。
+- 已执行目标已存在场景的 smoke，确认 `workspace project create` 失败时不会删除已有 Project Workspace 目录，也不会残留 `.creating-*` 临时目录。
+- 已执行 `bunx vitest run server/workspace-files/workspace-files.test.ts -t "Agent runtime|Project Workspace"`。
 - 已执行 `bun x prisma generate --schema prisma/schema.sqlite.prisma`。
 - 已执行 `bun x prisma generate --schema prisma/project.schema.prisma`。
 - 已执行 `bun install` 更新 `bun.lock`，移除 PostgreSQL adapter / driver 直接依赖。
@@ -322,8 +326,20 @@
 
 ## TODO / Follow-ups
 
-- 补 `workspace project` CLI：create / validate / init-db / migrate-db / pack / adopt / rename。
+- 继续补 `workspace project` CLI：validate / init-db / migrate-db / pack / adopt / rename。
 - 清理 API / 前端命名：`/api/novels/*`、`Novel*Dto`、`currentNovelId` 暂时承载 `projectPath`，后续应重命名为 Project 术语。
 - 更新或删除旧 Plot / workspace-files / agent profile 测试中的 `novelId`、`workspace.yaml`、旧 Postgres 心智。
 - 根据最终 CLI 形态，把 Project SQLite 初始化 SQL 从内嵌字符串迁到更正式的 migration runner。
 - 运行针对性测试：`server/agent/tools/sql-tool.test.ts`、`server/agent/tools/plot-tools.test.ts`、`server/plot`、`server/workspace-files`。
+
+## Updates
+
+### 2026-05-27 `workspace project create`
+
+- `assets/workspace/.nbook/agent/scripts/workspace.ts` 新增 `workspace project create <project>`，支持 `--title`、`--summary`、`--template`、`--json` 和 `--no-db`。
+- 创建逻辑先复制 bundled `assets/workspace/.nbook/templates/<template>`，再叠加 Workspace Root `.nbook/templates/<template>` 用户覆盖层；复制后移除旧模板 `workspace.yaml`，写入当前合同的 `project.yaml`，并把旧覆盖层状态文档中“已创建 workspace.yaml”的单点文案归一到 `project.yaml`。
+- 创建命令改为先在目标旁边 `.creating-*` 临时目录内完成模板、manifest 和 Project SQLite，再复制到最终目录；失败时只清理自己的临时目录，避免并发创建时误删已有 Project Workspace。
+- `syncSystemAssetsToUserAssets()` 会同步仍跟随系统上游的 Agent runtime bin/script；缺少 sync state 但内容等于 Git HEAD 中旧系统 asset 的副本，会视为未手改旧同步副本并更新，真实手改副本仍保留并给 warning。
+- 抽出 `initProjectDatabaseAtRoot()`，让 agent assets CLI 能在只有目标绝对目录时初始化 Project SQLite，同时保留原有 `initProjectDatabase(projectPath)` 入口。
+- `leader.default` prompt 的 Shell commands 已加入 `workspace project create`，并提醒创建新小说 Project Workspace 时不要手动复制模板或手拼 manifest。
+- 新小说模板状态文档已从 `workspace.yaml` 改成 `project.yaml`，避免新项目初始化后文档和实际 manifest 冲突。
