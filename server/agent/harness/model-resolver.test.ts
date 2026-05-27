@@ -25,6 +25,13 @@ describe("resolvePiModelFromConfig", () => {
                     novel: null,
                     userAssets: null,
                 },
+                profileModelDefaults: {
+                    modelKey: null,
+                    temperature: null,
+                    topK: null,
+                    reasoningEffort: "off",
+                    stream: true,
+                },
                 profiles: {
                     "leader.default": {
                         model: {
@@ -85,6 +92,13 @@ describe("resolvePiModelFromConfig", () => {
                     novel: null,
                     userAssets: null,
                 },
+                profileModelDefaults: {
+                    modelKey: null,
+                    temperature: null,
+                    topK: null,
+                    reasoningEffort: "off",
+                    stream: true,
+                },
                 profiles: {},
             },
             models: {
@@ -135,6 +149,13 @@ describe("resolvePiModelFromConfig", () => {
                 defaultProfileKey: {
                     novel: null,
                     userAssets: null,
+                },
+                profileModelDefaults: {
+                    modelKey: null,
+                    temperature: null,
+                    topK: null,
+                    reasoningEffort: "off",
+                    stream: true,
                 },
                 profiles: {},
             },
@@ -210,6 +231,13 @@ describe("resolvePiModelFromConfig", () => {
                     novel: null,
                     userAssets: null,
                 },
+                profileModelDefaults: {
+                    modelKey: null,
+                    temperature: null,
+                    topK: null,
+                    reasoningEffort: "off",
+                    stream: true,
+                },
                 profiles: {},
             },
             models: {
@@ -251,5 +279,76 @@ describe("resolvePiModelFromConfig", () => {
 
         expect(model.provider).toBe("siliconflow");
         expect(model.api).toBe("openai-completions");
+    });
+
+    it("profile 未指定模型时优先继承 Agent Profile 模型默认值", () => {
+        const config: Pick<EffectiveConfig, "agent" | "models"> = {
+            agent: {
+                defaultProfileKey: {
+                    novel: null,
+                    userAssets: null,
+                },
+                profileModelDefaults: {
+                    modelKey: "deepseek/profile-default",
+                    temperature: null,
+                    topK: null,
+                    reasoningEffort: "off",
+                    stream: true,
+                },
+                profiles: {},
+            },
+            models: {
+                defaultModelKey: "deepseek/global-default",
+                providers: {
+                    deepseek: {
+                        name: "DeepSeek",
+                        api: "openai-completions",
+                        options: {
+                            apiKey: "sk-ds",
+                            baseURL: "",
+                            proxy: "",
+                            timeoutMs: null,
+                            requestOptions: {},
+                        },
+                        models: {
+                            "global-default": {
+                                name: "Global Default",
+                                id: "global-default",
+                                group: null,
+                                enabled: true,
+                                provider: null,
+                                api: null,
+                                baseUrl: null,
+                                reasoning: null,
+                                input: null,
+                                maxTokens: null,
+                                cost: null,
+                                compat: null,
+                                contextWindowTokens: null,
+                            },
+                            "profile-default": {
+                                name: "Profile Default",
+                                id: "profile-default",
+                                group: null,
+                                enabled: true,
+                                provider: null,
+                                api: null,
+                                baseUrl: null,
+                                reasoning: null,
+                                input: null,
+                                maxTokens: null,
+                                cost: null,
+                                compat: null,
+                                contextWindowTokens: null,
+                            },
+                        },
+                    },
+                },
+            },
+        };
+
+        const model = resolvePiModelFromConfig(config, "leader.default");
+
+        expect(model.id).toBe("profile-default");
     });
 });

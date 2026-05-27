@@ -44,6 +44,14 @@ export const CONFIG_REGISTRY: ConfigItemMeta[] = [
         description: "新建 Agent session 默认使用的 profileKey。",
     },
     {
+        key: "agent.profileModelDefaults",
+        scope: "global-workspace",
+        effect: "next-run",
+        merge: "deep-merge",
+        secret: false,
+        description: "所有 Agent Profile 共同继承的模型参数默认值。",
+    },
+    {
         key: "agent.profiles",
         scope: "global-workspace",
         effect: "next-run",

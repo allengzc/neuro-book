@@ -2154,7 +2154,7 @@ export class NeuroAgentHarness {
         if (context.thinkingLevel !== null) {
             return context.thinkingLevel;
         }
-        return config.agent.profiles[context.profileKey]?.model.reasoningEffort ?? "off";
+        return config.agent.profiles[context.profileKey]?.model.reasoningEffort ?? config.agent.profileModelDefaults.reasoningEffort ?? "off";
     }
 
     private piStreamOptions(requestOptions: Record<string, JsonValue> | undefined): Record<string, unknown> {

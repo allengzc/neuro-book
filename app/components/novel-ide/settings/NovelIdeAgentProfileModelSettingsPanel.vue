@@ -2,11 +2,11 @@
 import type {
     AgentProfileModelConfigDto,
     AgentProfileModelSettingsDto,
-    ConfiguredAgentProfileDto,
     ThinkingLevelDto,
-    UpdateAgentProfileModelSettingsRequestDto,
 } from "nbook/shared/dto/app-settings.dto";
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
+import FormInput from "nbook/app/components/common/form/FormInput.vue";
+import FormSelect, {type SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import type {ConfigEditorSnapshotDto, ConfigWorkspaceQueryDto, GlobalConfigDto, ProjectConfigDto} from "nbook/shared/dto/config.dto";
 
@@ -25,17 +25,18 @@ const props = withDefaults(defineProps<{
 type AgentProfileDraft = {
     profileKey: string;
     name: string;
-    model: {
-        modelKey: string | null;
-        temperature: string;
-        topK: string;
-        reasoningEffort: ThinkingLevelDto | null;
-        stream: boolean;
-    };
+    model: AgentProfileModelDraft;
 };
 
-const reasoningEffortOptions: Array<{value: ThinkingLevelDto | null; label: string}> = [
-    {value: null, label: "默认"},
+type AgentProfileModelDraft = {
+    modelKey: string | null;
+    temperature: string;
+    topK: string;
+    reasoningEffort: ThinkingLevelDto | null;
+    stream: boolean | null;
+};
+
+const reasoningEffortBaseOptions: SelectOption[] = [
     {value: "off", label: "关闭"},
     {value: "minimal", label: "极低"},
     {value: "low", label: "低"},
@@ -49,6 +50,13 @@ const saving = ref(false);
 const errorText = ref("");
 const successText = ref("");
 const enabledModels = ref<AgentProfileModelSettingsDto["enabledModels"]>([]);
+const profileModelDefaults = ref<AgentProfileModelDraft>({
+    modelKey: null,
+    temperature: "",
+    topK: "",
+    reasoningEffort: "off",
+    stream: true,
+});
 const profiles = ref<AgentProfileDraft[]>([]);
 const snapshotText = ref("");
 const configApi = useConfigApi();
@@ -65,8 +73,8 @@ function stringifyNullableNumber(value: number | null): string {
 /**
  * 将表单文本解析为可空数字。
  */
-function parseNullableNumber(value: string, integerOnly = false): number | null {
-    const normalized = value.trim();
+function parseNullableNumber(value: string | number | null | undefined, integerOnly = false): number | null {
+    const normalized = typeof value === "number" ? String(value) : value?.trim() ?? "";
     if (!normalized) {
         return null;
     }
@@ -90,47 +98,70 @@ function thinkingLevelLabel(level: ThinkingLevelDto): string {
     }
 }
 
-function reasoningEffortDefaultLabel(profile: AgentProfileDraft): string {
-    if (!isProjectScope.value) {
-        return "默认（关闭）";
+function streamLabel(value: boolean): string {
+    return value ? "开启" : "关闭";
+}
+
+function streamSelectValue(value: boolean | null): string {
+    if (value === null) {
+        return "inherit";
     }
-    const inheritedLevel = editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.model?.reasoningEffort ?? "off";
-    return `默认（${thinkingLevelLabel(inheritedLevel)}）`;
+    return value ? "true" : "false";
+}
+
+function parseStreamSelectValue(value: string): boolean | null {
+    if (value === "inherit") {
+        return null;
+    }
+    return value === "true";
+}
+
+function reasoningEffortDefaultLabel(profile: AgentProfileDraft): string {
+    return `默认（${thinkingLevelLabel(resolveProfileInheritedModel(profile).reasoningEffort ?? "off")}）`;
+}
+
+function streamDefaultLabel(profile: AgentProfileDraft): string {
+    return `默认（${streamLabel(resolveProfileInheritedModel(profile).stream ?? true)}）`;
+}
+
+function reasoningEffortOptionsForProfile(profile: AgentProfileDraft): SelectOption[] {
+    return [{value: "inherit", label: reasoningEffortDefaultLabel(profile)}, ...reasoningEffortBaseOptions];
+}
+
+function streamOptionsForProfile(profile: AgentProfileDraft): SelectOption[] {
+    return [
+        {value: "inherit", label: streamDefaultLabel(profile)},
+        {value: "true", label: "开启"},
+        {value: "false", label: "关闭"},
+    ];
+}
+
+function setDefaultReasoningEffort(value: string): void {
+    profileModelDefaults.value.reasoningEffort = value === "inherit" ? null : value as ThinkingLevelDto;
+}
+
+function setProfileReasoningEffort(profile: AgentProfileDraft, value: string): void {
+    profile.model.reasoningEffort = value === "inherit" ? null : value as ThinkingLevelDto;
+}
+
+function setDefaultStream(value: string): void {
+    profileModelDefaults.value.stream = parseStreamSelectValue(value);
+}
+
+function setProfileStream(profile: AgentProfileDraft, value: string): void {
+    profile.model.stream = parseStreamSelectValue(value);
 }
 
 /**
- * 克隆 profile 草稿，避免直接修改接口对象。
+ * 克隆模型草稿。
  */
-function cloneProfile(profile: ConfiguredAgentProfileDto): AgentProfileDraft {
+function cloneModelDraft(model: Partial<AgentProfileModelConfigDto> | undefined): AgentProfileModelDraft {
     return {
-        profileKey: profile.profileKey,
-        name: profile.name,
-        model: {
-            modelKey: profile.model.modelKey,
-            temperature: stringifyNullableNumber(profile.model.temperature),
-            topK: stringifyNullableNumber(profile.model.topK),
-            reasoningEffort: profile.model.reasoningEffort,
-            stream: profile.model.stream,
-        },
-    };
-}
-
-/**
- * 构造保存请求体。
- */
-function buildSavePayload(): UpdateAgentProfileModelSettingsRequestDto {
-    return {
-        agentProfiles: profiles.value.map((profile) => ({
-            profileKey: profile.profileKey,
-            name: profile.name,
-            model: {
-                modelKey: profile.model.modelKey,
-                temperature: parseNullableNumber(profile.model.temperature),
-                topK: parseNullableNumber(profile.model.topK, true),
-                reasoningEffort: profile.model.reasoningEffort,
-                stream: profile.model.stream,
-            },
-        })),
+        modelKey: model?.modelKey ?? null,
+        temperature: stringifyNullableNumber(model?.temperature ?? null),
+        topK: stringifyNullableNumber(model?.topK ?? null),
+        reasoningEffort: model?.reasoningEffort ?? null,
+        stream: typeof model?.stream === "boolean" ? model.stream : null,
     };
 }
 
@@ -151,9 +182,13 @@ function buildGlobalConfigPayload(): GlobalConfigDto {
                 novel: defaultProfileKey.novel ?? null,
                 userAssets: defaultProfileKey.userAssets ?? null,
             },
-            profiles: Object.fromEntries(buildSavePayload().agentProfiles.map((profile) => [profile.profileKey, {
-                model: profile.model,
-            }])),
+            profileModelDefaults: buildCompleteModelConfig(profileModelDefaults.value),
+            profiles: Object.fromEntries(profiles.value.flatMap((profile) => {
+                const modelPatch = buildModelPatch(profile.model);
+                return Object.keys(modelPatch).length > 0
+                    ? [[profile.profileKey, {model: modelPatch}] as const]
+                    : [];
+            })),
         },
     };
 }
@@ -167,7 +202,8 @@ function buildProjectConfigPayload(): ProjectConfigDto {
         ...base,
         agent: {
             ...(base.agent ?? {}),
-            profiles: Object.fromEntries(buildSavePayload().agentProfiles.flatMap((profile) => {
+            profileModelDefaults: buildModelPatch(profileModelDefaults.value),
+            profiles: Object.fromEntries(profiles.value.flatMap((profile) => {
                 const modelPatch = buildProjectModelPatch(profile.model);
                 return Object.keys(modelPatch).length > 0
                     ? [[profile.profileKey, {model: modelPatch}] as const]
@@ -180,13 +216,29 @@ function buildProjectConfigPayload(): ProjectConfigDto {
 /**
  * Project 覆盖只写用户显式填写的字段，空字段回落 Global。
  */
-function buildProjectModelPatch(model: AgentProfileModelConfigDto): Partial<AgentProfileModelConfigDto> {
+function buildProjectModelPatch(model: AgentProfileModelDraft): Partial<AgentProfileModelConfigDto> {
+    return buildModelPatch(model);
+}
+
+function buildModelPatch(model: AgentProfileModelDraft): Partial<AgentProfileModelConfigDto> {
+    const temperature = parseNullableNumber(model.temperature);
+    const topK = parseNullableNumber(model.topK, true);
     return {
         ...(model.modelKey ? {modelKey: model.modelKey} : {}),
-        ...(model.temperature !== null ? {temperature: model.temperature} : {}),
-        ...(model.topK !== null ? {topK: model.topK} : {}),
+        ...(temperature !== null ? {temperature} : {}),
+        ...(topK !== null ? {topK} : {}),
         ...(model.reasoningEffort !== null ? {reasoningEffort: model.reasoningEffort} : {}),
-        ...(!model.stream ? {stream: model.stream} : {}),
+        ...(model.stream !== null ? {stream: model.stream} : {}),
+    };
+}
+
+function buildCompleteModelConfig(model: AgentProfileModelDraft): AgentProfileModelConfigDto {
+    return {
+        modelKey: model.modelKey,
+        temperature: parseNullableNumber(model.temperature),
+        topK: parseNullableNumber(model.topK, true),
+        reasoningEffort: model.reasoningEffort ?? "off",
+        stream: model.stream ?? true,
     };
 }
 
@@ -195,8 +247,19 @@ function buildProjectModelPatch(model: AgentProfileModelConfigDto): Partial<Agen
  */
 function applySettings(settings: AgentProfileModelSettingsDto): void {
     enabledModels.value = settings.enabledModels;
-    profiles.value = settings.agentProfiles.map(cloneProfile);
-    snapshotText.value = JSON.stringify(buildSavePayload());
+    profileModelDefaults.value = cloneModelDraft(settings.profileModelDefaults);
+    if (profileModelDefaults.value.reasoningEffort === null) {
+        profileModelDefaults.value.reasoningEffort = "off";
+    }
+    if (profileModelDefaults.value.stream === null) {
+        profileModelDefaults.value.stream = true;
+    }
+    profiles.value = settings.agentProfiles.map((profile) => ({
+        profileKey: profile.profileKey,
+        name: profile.name,
+        model: cloneModelDraft(editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.model),
+    }));
+    snapshotText.value = JSON.stringify(buildGlobalSavePayload());
 }
 
 /**
@@ -204,33 +267,47 @@ function applySettings(settings: AgentProfileModelSettingsDto): void {
  */
 function applyProjectSettings(snapshot: ConfigEditorSnapshotDto): void {
     enabledModels.value = snapshot.agentProfileSettings.enabledModels;
+    profileModelDefaults.value = cloneModelDraft(snapshot.project?.agent?.profileModelDefaults);
     profiles.value = snapshot.agentProfileSettings.agentProfiles.map((profile) => {
         const override = snapshot.project?.agent?.profiles?.[profile.profileKey]?.model;
         return {
             profileKey: profile.profileKey,
             name: profile.name,
-            model: {
-                modelKey: override?.modelKey ?? null,
-                temperature: stringifyNullableNumber(override?.temperature ?? null),
-                topK: stringifyNullableNumber(override?.topK ?? null),
-                reasoningEffort: override?.reasoningEffort ?? null,
-                stream: override?.stream ?? true,
-            },
+            model: cloneModelDraft(override),
         };
     });
-    snapshotText.value = JSON.stringify(buildProjectSavePayload());
+    snapshotText.value = JSON.stringify(buildProjectDirtyPayload());
 }
 
 /**
  * 读取 Project 覆盖保存形态，用于脏检查。
  */
 function buildProjectSavePayload(): Record<string, {model: Partial<AgentProfileModelConfigDto>}> {
-    return Object.fromEntries(buildSavePayload().agentProfiles.flatMap((profile) => {
+    return Object.fromEntries(profiles.value.flatMap((profile) => {
         const modelPatch = buildProjectModelPatch(profile.model);
         return Object.keys(modelPatch).length > 0
             ? [[profile.profileKey, {model: modelPatch}] as const]
             : [];
     }));
+}
+
+function buildGlobalSavePayload(): Record<string, unknown> {
+    return {
+        profileModelDefaults: buildCompleteModelConfig(profileModelDefaults.value),
+        profiles: Object.fromEntries(profiles.value.flatMap((profile) => {
+            const modelPatch = buildModelPatch(profile.model);
+            return Object.keys(modelPatch).length > 0
+                ? [[profile.profileKey, {model: modelPatch}] as const]
+                : [];
+        })),
+    };
+}
+
+function buildProjectDirtyPayload(): Record<string, unknown> {
+    return {
+        profileModelDefaults: buildModelPatch(profileModelDefaults.value),
+        profiles: buildProjectSavePayload(),
+    };
 }
 
 /**
@@ -296,11 +373,92 @@ function resetProfile(profile: AgentProfileDraft): void {
         temperature: "",
         topK: "",
         reasoningEffort: null,
-        stream: true,
+        stream: null,
     };
 }
 
-const dirty = computed(() => JSON.stringify(isProjectScope.value ? buildProjectSavePayload() : buildSavePayload()) !== snapshotText.value);
+function resetProfileModelDefaults(): void {
+    profileModelDefaults.value = isProjectScope.value
+        ? cloneModelDraft(undefined)
+        : {
+            modelKey: null,
+            temperature: "",
+            topK: "",
+            reasoningEffort: "off",
+            stream: true,
+        };
+}
+
+function globalProfileModelDefaults(): AgentProfileModelConfigDto {
+    const raw = editorSnapshot.value?.global.agent?.profileModelDefaults ?? {};
+    return {
+        modelKey: raw.modelKey ?? null,
+        temperature: raw.temperature ?? null,
+        topK: raw.topK ?? null,
+        reasoningEffort: raw.reasoningEffort ?? "off",
+        stream: raw.stream ?? true,
+    };
+}
+
+function mergeModelConfig(base: AgentProfileModelConfigDto, patch: AgentProfileModelDraft): AgentProfileModelConfigDto {
+    return {
+        modelKey: patch.modelKey ?? base.modelKey,
+        temperature: parseNullableNumber(patch.temperature) ?? base.temperature,
+        topK: parseNullableNumber(patch.topK, true) ?? base.topK,
+        reasoningEffort: patch.reasoningEffort ?? base.reasoningEffort ?? "off",
+        stream: patch.stream ?? base.stream ?? true,
+    };
+}
+
+function resolvedProfileModelDefaults(): AgentProfileModelConfigDto {
+    if (isProjectScope.value) {
+        return mergeModelConfig(globalProfileModelDefaults(), profileModelDefaults.value);
+    }
+    return buildCompleteModelConfig(profileModelDefaults.value);
+}
+
+function resolveProfileInheritedModel(profile: AgentProfileDraft): AgentProfileModelConfigDto {
+    if (isProjectScope.value) {
+        return mergeModelConfig(resolvedProfileModelDefaults(), cloneModelDraft(editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.model));
+    }
+    return resolvedProfileModelDefaults();
+}
+
+function modelDefaultLabel(profile: AgentProfileDraft): string {
+    const defaultKey = resolveProfileInheritedModel(profile).modelKey;
+    return defaultKey ? `默认（${defaultKey}）` : "默认（跟随全局默认模型）";
+}
+
+function defaultModelSelectLabel(): string {
+    if (!isProjectScope.value) {
+        return "跟随全局默认模型";
+    }
+    const inherited = globalProfileModelDefaults().modelKey;
+    return inherited ? `继承 Global（${inherited}）` : "继承 Global（跟随全局默认模型）";
+}
+
+function defaultReasoningOptions(): SelectOption[] {
+    if (!isProjectScope.value) {
+        return reasoningEffortBaseOptions;
+    }
+    return [{value: "inherit", label: `继承 Global（${thinkingLevelLabel(globalProfileModelDefaults().reasoningEffort ?? "off")}）`}, ...reasoningEffortBaseOptions];
+}
+
+function defaultStreamOptions(): SelectOption[] {
+    if (!isProjectScope.value) {
+        return [
+            {value: "true", label: "开启"},
+            {value: "false", label: "关闭"},
+        ];
+    }
+    return [
+        {value: "inherit", label: `继承 Global（${streamLabel(globalProfileModelDefaults().stream ?? true)}）`},
+        {value: "true", label: "开启"},
+        {value: "false", label: "关闭"},
+    ];
+}
+
+const dirty = computed(() => JSON.stringify(isProjectScope.value ? buildProjectDirtyPayload() : buildGlobalSavePayload()) !== snapshotText.value);
 
 const sortedProfiles = computed(() => [...profiles.value].sort((left, right) => left.profileKey.localeCompare(right.profileKey)));
 
@@ -319,7 +477,7 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
         <div class="flex flex-wrap items-center justify-between gap-4">
             <div class="max-w-xl">
                 <h3 class="text-base font-semibold text-[var(--text-main)]">{{ isProjectScope ? "Project Agent Profile 模型覆盖" : "Agent Profile 模型" }}</h3>
-                <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? `只覆盖 ${props.targetLabel || "当前 Project"} 的 Profile 模型参数；留空表示回落 Global。` : "按 Profile 配置默认模型、温度、TopK 与流式选项。session 级覆盖只影响当前 session 的后续新 run。" }}</p>
+                <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? `只覆盖 ${props.targetLabel || "当前 Project"} 的 Profile 模型参数；留空表示回落 Global。` : "先设置所有 Profile 共同继承的默认参数，再按 Profile 做局部覆盖。session 级覆盖只影响当前 session 的后续新 run。" }}</p>
             </div>
 
             <button
@@ -364,9 +522,52 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
 
         <div v-else class="space-y-5">
             <section class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-sm">
+                <div class="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-color)] pb-4">
+                    <div>
+                        <h4 class="text-sm font-semibold text-[var(--text-main)]">默认参数</h4>
+                        <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? "当前 Project 的 Profile 默认参数；留空继承 Global。" : "所有 Agent Profile 留空时都会继承这里的参数。" }}</p>
+                    </div>
+                    <button class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-[11px] font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="resetProfileModelDefaults">
+                        <span class="i-lucide-rotate-ccw h-3 w-3"></span>
+                        回到默认
+                    </button>
+                </div>
+
+                <div class="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,0.7fr)_minmax(0,0.7fr)_minmax(0,0.8fr)_minmax(0,0.5fr)]">
+                    <div class="space-y-1.5">
+                        <label class="text-xs font-medium text-[var(--text-secondary)]">默认模型</label>
+                        <NovelIdeModelSelect
+                            :model-value="profileModelDefaults.modelKey"
+                            :models="enabledModels"
+                            allow-default
+                            :default-label="defaultModelSelectLabel()"
+                            placeholder="选择默认模型"
+                            @update:model-value="profileModelDefaults.modelKey = $event"
+                        />
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-xs font-medium text-[var(--text-secondary)]">温度</label>
+                        <FormInput v-model="profileModelDefaults.temperature" type="number" step="0.1" min="0" :placeholder="isProjectScope ? '继承 Global' : '留空'" />
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-xs font-medium text-[var(--text-secondary)]">TopK</label>
+                        <FormInput v-model="profileModelDefaults.topK" type="number" step="1" min="1" :placeholder="isProjectScope ? '继承 Global' : '留空'" />
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-xs font-medium text-[var(--text-secondary)]">推理强度</label>
+                        <FormSelect :model-value="profileModelDefaults.reasoningEffort ?? 'inherit'" :options="defaultReasoningOptions()" @update:model-value="setDefaultReasoningEffort" />
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="text-xs font-medium text-[var(--text-secondary)]">流式</label>
+                        <FormSelect :model-value="streamSelectValue(profileModelDefaults.stream)" :options="defaultStreamOptions()" @update:model-value="setDefaultStream" />
+                    </div>
+                </div>
+            </section>
+
+            <section class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-sm">
                 <div class="mb-4 border-b border-[var(--border-color)] pb-4">
                     <h4 class="text-sm font-semibold text-[var(--text-main)]">Agent Profiles</h4>
-                    <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? "这些值写入所选 Project Workspace 的 .nbook/config.json。" : "所有 Agent Profile 使用同一套 Global 模型参数配置。" }}</p>
+                    <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? "这些值写入所选 Project Workspace 的 .nbook/config.json。" : "只配置与默认参数不同的 Profile 覆盖。" }}</p>
                 </div>
 
                 <div class="grid gap-3">
@@ -390,7 +591,7 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                                     :model-value="profile.model.modelKey"
                                     :models="enabledModels"
                                     allow-default
-                                    :default-label="isProjectScope ? '跟随 Global/Profile 默认模型' : '跟随全局默认模型'"
+                                    :default-label="modelDefaultLabel(profile)"
                                     placeholder="选择默认模型"
                                     @update:model-value="profile.model.modelKey = $event"
                                 />
@@ -399,33 +600,25 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                             <!-- 温度 -->
                             <div class="space-y-1.5">
                                 <label class="text-xs font-medium text-[var(--text-secondary)]">温度</label>
-                                <input v-model="profile.model.temperature" type="number" step="0.1" min="0" placeholder="留空" class="h-7 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20">
+                                <FormInput v-model="profile.model.temperature" type="number" step="0.1" min="0" placeholder="默认" />
                             </div>
 
                             <!-- TopK -->
                             <div class="space-y-1.5">
                                 <label class="text-xs font-medium text-[var(--text-secondary)]">TopK</label>
-                                <input v-model="profile.model.topK" type="number" step="1" min="1" placeholder="留空" class="h-7 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20">
+                                <FormInput v-model="profile.model.topK" type="number" step="1" min="1" placeholder="默认" />
                             </div>
 
                             <!-- 推理强度 -->
                             <div class="space-y-1.5">
                                 <label class="text-xs font-medium text-[var(--text-secondary)]">推理强度</label>
-                                <select v-model="profile.model.reasoningEffort" class="h-7 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20">
-                                    <option v-for="option in reasoningEffortOptions" :key="option.label" :value="option.value">{{ option.value === null ? reasoningEffortDefaultLabel(profile) : option.label }}</option>
-                                </select>
+                                <FormSelect :model-value="profile.model.reasoningEffort ?? 'inherit'" :options="reasoningEffortOptionsForProfile(profile)" @update:model-value="setProfileReasoningEffort(profile, $event)" />
                             </div>
 
                             <!-- 流式 -->
                             <div class="space-y-1.5">
                                 <label class="text-xs font-medium text-[var(--text-secondary)]">流式</label>
-                                <button
-                                    class="inline-flex h-7 w-full items-center justify-center rounded-md border px-3 text-[12px] font-medium transition-colors"
-                                    :class="profile.model.stream ? 'border-emerald-600/20 bg-emerald-500/10 text-emerald-600' : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)]'"
-                                    @click="profile.model.stream = !profile.model.stream"
-                                >
-                                    {{ profile.model.stream ? "开启" : "关闭" }}
-                                </button>
+                                <FormSelect :model-value="streamSelectValue(profile.model.stream)" :options="streamOptionsForProfile(profile)" @update:model-value="setProfileStream(profile, $event)" />
                             </div>
                         </div>
                     </div>

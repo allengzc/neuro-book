@@ -59,6 +59,7 @@
     - `models.providers`
     - `agent.defaultProfileKey.novel`
     - `agent.defaultProfileKey.userAssets`
+    - `agent.profileModelDefaults`
     - `agent.profiles`
     - `ui.theme`
     - `editor.markdown`
@@ -97,7 +98,7 @@
 - array / primitive 默认 replace。
 - `models.providers` 是 global-only。
 - `auth.enabled` 是 global-only。
-- `models.default`、`agent.defaultProfileKey`、`agent.profiles`、`editor.markdown`、`editor.monaco` 可被 Project Config 覆盖。
+- `models.default`、`agent.defaultProfileKey`、`agent.profileModelDefaults`、`agent.profiles`、`editor.markdown`、`editor.monaco` 可被 Project Config 覆盖。
 - `agent.tools.allow/deny` 已删除，工具权限继续由 profile/tool policy 控制。
 
 ## Secret Semantics
@@ -153,10 +154,20 @@ Agent 读取规则：
 模型选择优先级：
 
 1. explicit session override
-2. Project `agent.profiles.<key>.model`
-3. Global `agent.profiles.<key>.model`
-4. Project `models.default`
-5. Global `models.default`
+2. Project `agent.profiles.<key>.model.modelKey`
+3. Global `agent.profiles.<key>.model.modelKey`
+4. Project `agent.profileModelDefaults.modelKey`
+5. Global `agent.profileModelDefaults.modelKey`
+6. Project `models.default`
+7. Global `models.default`
+
+Agent Profile 模型参数的通用合并层级：
+
+1. hardcoded defaults：`modelKey: null`、`temperature: null`、`topK: null`、`reasoningEffort: "off"`、`stream: true`
+2. Global `agent.profileModelDefaults`
+3. Project `agent.profileModelDefaults`
+4. Global `agent.profiles.<key>.model`
+5. Project `agent.profiles.<key>.model`
 
 ## Settings UI
 
@@ -172,14 +183,16 @@ Global Config 面板：
 
 - 模型 Provider、API Key、模型白名单和 Global 默认模型保存到 Global Config。
 - Agent 默认 Profile 保存到 Global `agent.defaultProfileKey.novel` / `agent.defaultProfileKey.userAssets`。
-- Agent Profile 模型参数保存到 Global `agent.profiles`。
+- Agent Profile 共同默认模型参数保存到 Global `agent.profileModelDefaults`。
+- 单个 Agent Profile 模型参数覆盖保存到 Global `agent.profiles`。
 - Secret 字段显示已配置/未配置与脱敏值；不会把脱敏值当明文写回。
 
 Project Config 面板：
 
 - Project 默认模型保存到 Project `models.default`；选择“跟随 Global 默认模型”会清除覆盖值。
 - Project 默认 Profile 保存到 Project `agent.defaultProfileKey`。
-- Project Agent Profile 模型参数保存到 Project `agent.profiles`；留空字段按运行时合并规则回落 Global。
+- Project Agent Profile 共同默认模型参数保存到 Project `agent.profileModelDefaults`。
+- Project 单个 Agent Profile 模型参数覆盖保存到 Project `agent.profiles`；留空字段按运行时合并规则回落上层默认。
 - Provider/API key、Provider 列表仍是 Global-only，不在 Project Config 中编辑。
 
 模型健康检查、Provider 检查、模型发现入口已移动到 `/api/config/models/*`。旧 Agent 工具 allow/deny 设置分区已从设置 Dialog 删除。

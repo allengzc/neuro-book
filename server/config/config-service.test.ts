@@ -49,7 +49,7 @@ describe("config service", () => {
         }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
 
         expect(snapshot.defaultProfileSettings.effectiveProfileKey).toBe("custom.agent");
-        await expect(fs.access(path.join("workspace", "config-test-project", ".nbook", "config.json"))).resolves.toBeUndefined();
+        await fs.access(path.join("workspace", "config-test-project", ".nbook", "config.json"));
     });
 
     it("Global secret 写回缺失 value 时保留旧 API key", async () => {
@@ -284,6 +284,96 @@ describe("config service", () => {
         expect(snapshot.effective.models.defaultModelKey).toBe("deepseek/a");
         expect(snapshot.effective.agent.defaultProfileKey.novel).toBe("leader.default");
         expect(snapshot.defaultProfileSettings.effectiveProfileKey).toBe("leader.default");
+    });
+
+    it("Agent Profile 模型默认参数支持 Project 覆盖并被 profile 继承", async () => {
+        await saveGlobalConfig({
+            agent: {
+                defaultProfileKey: {novel: "leader.default", userAssets: "leader.assets"},
+                profileModelDefaults: {
+                    reasoningEffort: "high",
+                    stream: false,
+                },
+                profiles: {
+                    "leader.default": {
+                        model: {
+                            temperature: 0.4,
+                        },
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+
+        const snapshot = await saveProjectConfig({
+            agent: {
+                profileModelDefaults: {
+                    topK: 5,
+                    reasoningEffort: "low",
+                },
+                profiles: {
+                    "leader.default": {
+                        model: {
+                            reasoningEffort: "medium",
+                        },
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+
+        const leader = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "leader.default");
+        const assets = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "leader.assets");
+
+        expect(snapshot.agentProfileSettings.profileModelDefaults).toMatchObject({
+            reasoningEffort: "low",
+            stream: false,
+            topK: 5,
+        });
+        expect(leader?.model).toMatchObject({
+            temperature: 0.4,
+            topK: 5,
+            reasoningEffort: "medium",
+            stream: false,
+        });
+        expect(assets?.model).toMatchObject({
+            topK: 5,
+            reasoningEffort: "low",
+            stream: false,
+        });
+    });
+
+    it("Project 只覆盖 Agent Profile 默认参数时也会更新已有 Global profile 的 effective model", async () => {
+        await saveGlobalConfig({
+            agent: {
+                defaultProfileKey: {novel: "leader.default", userAssets: "leader.assets"},
+                profileModelDefaults: {
+                    reasoningEffort: "off",
+                    stream: true,
+                },
+                profiles: {
+                    "leader.default": {
+                        model: {
+                            temperature: 0.3,
+                        },
+                    },
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+
+        const snapshot = await saveProjectConfig({
+            agent: {
+                profileModelDefaults: {
+                    reasoningEffort: "xhigh",
+                },
+            },
+        }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
+
+        const leader = snapshot.agentProfileSettings.agentProfiles.find((profile) => profile.profileKey === "leader.default");
+
+        expect(leader?.model).toMatchObject({
+            temperature: 0.3,
+            reasoningEffort: "xhigh",
+            stream: true,
+        });
     });
 });
 

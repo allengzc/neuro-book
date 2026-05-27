@@ -4,6 +4,7 @@ import FormInput from "nbook/app/components/common/form/FormInput.vue";
 import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
+import NovelIdeModelEditDialog from "nbook/app/components/novel-ide/settings/NovelIdeModelEditDialog.vue";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import type {
@@ -630,19 +631,25 @@ function cleanModelKey(modelKey: string | null | undefined, modelKeys: Set<strin
 }
 
 /**
- * 复制并清理完整 Config agent profile 中失效的模型覆盖。
+ * 复制并清理完整 Config agent 中失效的模型引用。
  */
-function cleanConfigAgentProfiles<T extends {profiles?: Record<string, {model?: {modelKey?: string | null}}>}>(
+function cleanConfigAgentProfiles<T extends {profileModelDefaults?: {modelKey?: string | null}; profiles?: Record<string, {model?: {modelKey?: string | null}}>}>(
     agent: T | undefined,
     modelKeys: Set<string>,
 ): T | undefined {
-    if (!agent?.profiles) {
+    if (!agent) {
         return agent;
     }
     return {
         ...agent,
-        profiles: Object.fromEntries(
-            Object.entries(agent.profiles).map(([profileKey, profile]) => [profileKey, {
+        profileModelDefaults: agent.profileModelDefaults
+            ? {
+                ...agent.profileModelDefaults,
+                modelKey: cleanModelKey(agent.profileModelDefaults.modelKey, modelKeys),
+            }
+            : agent.profileModelDefaults,
+        profiles: agent.profiles
+            ? Object.fromEntries(Object.entries(agent.profiles).map(([profileKey, profile]) => [profileKey, {
                 ...profile,
                 model: profile.model
                     ? {
@@ -650,25 +657,38 @@ function cleanConfigAgentProfiles<T extends {profiles?: Record<string, {model?: 
                         modelKey: cleanModelKey(profile.model.modelKey, modelKeys),
                     }
                     : profile.model,
-            }]),
-        ),
+            }]))
+            : agent.profiles,
     };
 }
 
 /**
- * 复制并清理 Project partial agent profile。modelKey 缺失表示继承 Global，不能写成 null。
+ * 复制并清理 Project partial agent。modelKey 缺失表示继承 Global，不能写成 null。
  */
-function cleanProjectAgentProfiles<T extends {profiles?: Record<string, {model?: {modelKey?: string | null}}>}>(
+function cleanProjectAgentProfiles<T extends {profileModelDefaults?: {modelKey?: string | null}; profiles?: Record<string, {model?: {modelKey?: string | null}}>}>(
     agent: T | undefined,
     modelKeys: Set<string>,
 ): T | undefined {
-    if (!agent?.profiles) {
+    if (!agent) {
         return agent;
     }
+    const profileModelDefaults = agent.profileModelDefaults && Object.hasOwn(agent.profileModelDefaults, "modelKey")
+        ? (() => {
+            const cleanedModelKey = cleanModelKey(agent.profileModelDefaults?.modelKey, modelKeys);
+            const {modelKey: _modelKey, ...defaultsWithoutKey} = agent.profileModelDefaults ?? {};
+            return cleanedModelKey
+                ? {
+                    ...agent.profileModelDefaults,
+                    modelKey: cleanedModelKey,
+                }
+                : defaultsWithoutKey;
+        })()
+        : agent.profileModelDefaults;
     return {
         ...agent,
-        profiles: Object.fromEntries(
-            Object.entries(agent.profiles).map(([profileKey, profile]) => {
+        profileModelDefaults,
+        profiles: agent.profiles
+            ? Object.fromEntries(Object.entries(agent.profiles).map(([profileKey, profile]) => {
                 if (!profile.model || !Object.hasOwn(profile.model, "modelKey")) {
                     return [profileKey, profile];
                 }
@@ -683,28 +703,39 @@ function cleanProjectAgentProfiles<T extends {profiles?: Record<string, {model?:
                         }
                         : modelWithoutKey,
                 }];
-            }),
-        ),
+            }))
+            : agent.profiles,
     };
 }
 
 /**
- * 迁移 Config agent profile 中指定 Provider 前缀的模型引用。
+ * 迁移 Config agent 中指定 Provider 前缀的模型引用。
  */
-function renameConfigAgentProfileModels<T extends {profiles?: Record<string, {model?: {modelKey?: string | null}}>}>(
+function renameConfigAgentProfileModels<T extends {profileModelDefaults?: {modelKey?: string | null}; profiles?: Record<string, {model?: {modelKey?: string | null}}>}>(
     agent: T | undefined,
     previousProviderId: string,
     nextProviderId: string,
 ): {agent: T | undefined; changed: boolean} {
-    if (!agent?.profiles) {
+    if (!agent) {
         return {agent, changed: false};
     }
     let changed = false;
+    const defaultModelKey = agent.profileModelDefaults?.modelKey ?? "";
+    const renamedProfileModelDefaults = defaultModelKey.startsWith(`${previousProviderId}/`)
+        ? (() => {
+            changed = true;
+            return {
+                ...agent.profileModelDefaults,
+                modelKey: defaultModelKey.replace(`${previousProviderId}/`, `${nextProviderId}/`),
+            };
+        })()
+        : agent.profileModelDefaults;
     return {
         agent: {
             ...agent,
-            profiles: Object.fromEntries(
-                Object.entries(agent.profiles).map(([profileKey, profile]) => {
+            profileModelDefaults: renamedProfileModelDefaults,
+            profiles: agent.profiles
+                ? Object.fromEntries(Object.entries(agent.profiles).map(([profileKey, profile]) => {
                     const modelKey = profile.model?.modelKey ?? "";
                     const shouldRename = modelKey.startsWith(`${previousProviderId}/`);
                     if (shouldRename) {
@@ -719,8 +750,8 @@ function renameConfigAgentProfileModels<T extends {profiles?: Record<string, {mo
                             }
                             : profile.model,
                     }];
-                }),
-            ),
+                }))
+                : agent.profiles,
         },
         changed,
     };
@@ -914,7 +945,7 @@ function displayModelApiSource(model: ModelDraft, provider: ProviderDraft | null
         return "继承配置";
     }
     if (source === "registry") {
-        return "继承 registry";
+        return "继承";
     }
     return "默认";
 }
@@ -950,7 +981,7 @@ function resolveEffectiveModelMetadata(model: ModelDraft, provider: ProviderDraf
 
 function providerDefaultApiLabel(provider: ProviderDraft): string {
     const registryApi = findPiProvider(provider.id)?.models[0]?.api ?? "openai-completions";
-    return `继承 Pi registry（${registryApi}）`;
+    return `继承（${registryApi}）`;
 }
 
 function modelApiInheritLabel(model: ModelDraft): string {
@@ -958,7 +989,7 @@ function modelApiInheritLabel(model: ModelDraft): string {
     if (providerApi) {
         return `继承配置（${providerApi}）`;
     }
-    return `继承 Pi registry（${resolveEffectiveModelMetadata(model).api}）`;
+    return `继承（${resolveEffectiveModelMetadata(model).api}）`;
 }
 
 function modelInputDisplayLabel(model: ModelDraft): string {
@@ -1210,6 +1241,12 @@ function shouldCleanProjectConfig(): boolean {
     const modelKeys = availableModelKeys();
     if (project.models && Object.hasOwn(project.models, "default") && cleanModelKey(project.models.default, modelKeys) !== (project.models.default ?? null)) {
         return true;
+    }
+    if (project.agent?.profileModelDefaults && Object.hasOwn(project.agent.profileModelDefaults, "modelKey")) {
+        const modelKey = project.agent.profileModelDefaults.modelKey;
+        if (cleanModelKey(modelKey, modelKeys) !== (modelKey ?? null)) {
+            return true;
+        }
     }
     const profiles = project.agent?.profiles ?? {};
     return Object.values(profiles).some((profile) => {
@@ -2040,100 +2077,22 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
         </div>
     </Dialog>
 
-    <Dialog
+    <NovelIdeModelEditDialog
         v-model="modelEditDialogOpen"
-        title="模型设置"
-        width="min(560px, calc(100vw - 32px))"
-        max-height="calc(100vh - 32px)"
-        overlay-type="blur"
-        :show-footer="false"
-        body-class="min-h-0"
-    >
-        <div v-if="editingModel" class="flex max-h-[calc(100vh_-_112px)] min-h-0 flex-col gap-4 overflow-y-auto p-1 pr-2 custom-scrollbar">
-            <div class="space-y-1.5">
-                <label class="text-xs font-medium text-[var(--text-secondary)]">模型名称</label>
-                <FormInput v-model="editingModel.name" placeholder="模型名称" class="bg-[var(--bg-input)] shadow-sm" />
-            </div>
-            <div class="space-y-1.5">
-                <label class="text-xs font-medium text-[var(--text-secondary)]">模型 ID</label>
-                <FormInput v-model="editingModel.id" placeholder="模型 ID" class="bg-[var(--bg-input)] shadow-sm" @update:model-value="ensureDefaultModelKey()" />
-            </div>
-            <div class="space-y-1.5">
-                <label class="text-xs font-medium text-[var(--text-secondary)]">分组 (留空自动推导)</label>
-                <FormInput v-model="editingModel.group" :placeholder="`默认推导: ${deriveGroup(editingModel.id)}`" class="bg-[var(--bg-input)] shadow-sm" />
-            </div>
-            <div class="space-y-1.5">
-                <label class="text-xs font-medium text-[var(--text-secondary)]">上下文窗口</label>
-                <FormInput v-model="editingModel.contextWindowTokens" :placeholder="activeProvider ? `留空不配置${resolveDisplayedContextWindow(activeProvider.id, editingModel) ? `，当前 ${resolveDisplayedContextWindow(activeProvider.id, editingModel)}` : ''}` : '留空不配置'" class="bg-[var(--bg-input)] shadow-sm" />
-            </div>
-            <div class="grid gap-3 md:grid-cols-2">
-                <div class="space-y-1.5">
-                    <label class="text-xs font-medium text-[var(--text-secondary)]">Pi Registry Provider</label>
-                    <FormInput v-model="editingModel.provider" placeholder="留空使用配置 ID" class="bg-[var(--bg-input)] shadow-sm" />
-                </div>
-                <div class="space-y-1.5">
-                    <label class="text-xs font-medium text-[var(--text-secondary)]">接口格式</label>
-                    <FormSelect v-model="editingModel.api" :options="[{value: '', label: modelApiInheritLabel(editingModel)}, ...modelApiOptions]" />
-                    <FormInput v-model="editingModel.api" placeholder="可手动输入自定义接口格式" class="bg-[var(--bg-input)] shadow-sm" />
-                </div>
-                <div class="space-y-1.5">
-                    <label class="text-xs font-medium text-[var(--text-secondary)]">Max Tokens</label>
-                    <FormInput v-model="editingModel.maxTokens" placeholder="留空继承" class="bg-[var(--bg-input)] shadow-sm" />
-                </div>
-            </div>
-            <div class="space-y-1.5">
-                <label class="text-xs font-medium text-[var(--text-secondary)]">模型 Base URL</label>
-                <FormInput v-model="editingModel.baseUrl" placeholder="留空继承 Pi registry 或 Provider API Base" class="bg-[var(--bg-input)] shadow-sm" />
-            </div>
-            <div class="grid gap-3 md:grid-cols-2">
-                <div class="space-y-1.5">
-                    <div class="flex items-center justify-between gap-2">
-                        <label class="text-xs font-medium text-[var(--text-secondary)]">输入能力</label>
-                        <span class="truncate text-[10px] text-[var(--text-muted)]">当前 {{ modelInputDisplayLabel(editingModel) }}</span>
-                    </div>
-                    <div class="flex flex-wrap gap-2">
-                        <button
-                            v-for="option in modelInputOptions"
-                            :key="option.value"
-                            type="button"
-                            class="inline-flex h-9 items-center gap-2 rounded-md border px-3 text-xs font-medium transition-colors"
-                            :class="modelInputEnabled(editingModel, option.value) ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                            :title="`${option.label}输入`"
-                            @click="toggleModelInput(editingModel, option.value)"
-                        >
-                            <span class="h-3.5 w-3.5" :class="option.iconClass"></span>
-                            {{ option.label }}
-                        </button>
-                        <button
-                            type="button"
-                            class="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
-                            title="清空后继承 Pi registry 或 Provider 默认"
-                            @click="editingModel.input = ''"
-                        >
-                            <span class="i-lucide-rotate-ccw h-3.5 w-3.5"></span>
-                            继承
-                        </button>
-                    </div>
-                </div>
-                <div class="space-y-1.5">
-                    <div class="flex items-center justify-between gap-2">
-                        <label class="text-xs font-medium text-[var(--text-secondary)]">Reasoning 能力</label>
-                        <span class="truncate text-[10px] text-[var(--text-muted)]">当前 {{ modelReasoningDisplayLabel(editingModel) }}</span>
-                    </div>
-                    <p class="text-[10px] leading-4 text-[var(--text-muted)]">这里只描述模型是否支持思考；思考强度在 Agent Profile 或当前 Session 调节。</p>
-                    <FormSelect v-model="editingModel.reasoning" :options="[{value: 'inherit', label: '继承'}, {value: 'true', label: '支持'}, {value: 'false', label: '不支持'}]" />
-                </div>
-            </div>
-            <div class="space-y-1.5">
-                <label class="text-xs font-medium text-[var(--text-secondary)]">Compat JSON</label>
-                <textarea v-model="editingModel.compat" rows="4" placeholder="{&quot;thinkingFormat&quot;:&quot;deepseek&quot;}" class="w-full resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-2 font-mono text-[12px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] placeholder:opacity-80 focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20"></textarea>
-            </div>
-            <div class="space-y-1.5">
-                <label class="text-xs font-medium text-[var(--text-secondary)]">Cost JSON</label>
-                <textarea v-model="editingModel.cost" rows="4" placeholder="{&quot;input&quot;:0,&quot;output&quot;:0,&quot;cacheRead&quot;:0,&quot;cacheWrite&quot;:0}" class="w-full resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-2 font-mono text-[12px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] placeholder:opacity-80 focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20"></textarea>
-            </div>
-        </div>
-    </Dialog>
+        :editing-model="editingModel"
+        :active-provider="activeProvider"
+        :model-api-options="modelApiOptions"
+        :model-input-options="modelInputOptions"
+        :derive-group="deriveGroup"
+        :resolve-displayed-context-window="resolveDisplayedContextWindow"
+        :model-api-inherit-label="modelApiInheritLabel"
+        :model-input-display-label="modelInputDisplayLabel"
+        :model-input-enabled="modelInputEnabled"
+        :model-reasoning-display-label="modelReasoningDisplayLabel"
+        @model-id-change="ensureDefaultModelKey"
+        @toggle-model-input="toggleModelInput"
+        @reset-model-input="($event) => { $event.input = ''; }"
+    />
 </template>
 
 <style scoped>

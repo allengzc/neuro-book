@@ -127,12 +127,15 @@ export function convertModelSettingsRequestToConfig(request: UpdateModelSettings
  */
 export function convertAgentProfileModelSettingsRequestToConfig(
     request: UpdateAgentProfileModelSettingsRequestDto,
-): Record<string, AgentProfileConfig> {
-    return Object.fromEntries(
-        request.agentProfiles.map((profile) => [profile.profileKey, {
-            model: normalizeAgentProfileModelConfig(profile.model),
-        }]),
-    );
+): {profileModelDefaults: AgentProfileModelConfig; profiles: Record<string, AgentProfileConfig>} {
+    return {
+        profileModelDefaults: normalizeAgentProfileModelConfig(request.profileModelDefaults),
+        profiles: Object.fromEntries(
+            request.agentProfiles.map((profile) => [profile.profileKey, {
+                model: normalizeAgentProfileModelConfig(profile.model),
+            }]),
+        ),
+    };
 }
 
 /**
@@ -181,11 +184,12 @@ export function buildModelSettingsDto(appConfig: {models: ModelSettingsConfig}):
  * 把 Agent Profile 配置转成 API DTO。
  */
 export function buildAgentProfileModelSettingsDto(
-    appConfig: {agent: {profiles: Record<string, AgentProfileConfig>}; models: ModelSettingsConfig},
+    appConfig: {agent: {profileModelDefaults: AgentProfileModelConfig; profiles: Record<string, AgentProfileConfig>}; models: ModelSettingsConfig},
     profileDefinitions: AgentProfileSettingDefinition[],
 ): AgentProfileModelSettingsDto {
     return {
         enabledModels: listEnabledModels(appConfig.models),
+        profileModelDefaults: normalizeAgentProfileModelConfig(appConfig.agent.profileModelDefaults),
         agentProfiles: profileDefinitions.map((definition): ConfiguredAgentProfileDto => ({
             profileKey: definition.profileKey,
             name: definition.name,
@@ -258,8 +262,11 @@ export function resolveDefaultModel(config: ModelSettingsConfig): ResolvedDefaul
 /**
  * 解析单个 profile 的模型配置。
  */
-export function resolveAgentProfileModelConfig(appConfig: {agent: {profiles: Record<string, AgentProfileConfig>}}, profileKey: string): AgentProfileModelConfig {
-    return normalizeAgentProfileModelConfig(appConfig.agent.profiles[profileKey]?.model);
+export function resolveAgentProfileModelConfig(appConfig: {agent: {profileModelDefaults?: AgentProfileModelConfig; profiles: Record<string, AgentProfileConfig>}}, profileKey: string): AgentProfileModelConfig {
+    return normalizeAgentProfileModelConfig({
+        ...(appConfig.agent.profileModelDefaults ?? {}),
+        ...(appConfig.agent.profiles[profileKey]?.model ?? {}),
+    });
 }
 
 /**
