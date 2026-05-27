@@ -49,7 +49,7 @@ describe("config service", () => {
         }, {workspaceKind: "novel", projectPath: "workspace/config-test-project"});
 
         expect(snapshot.defaultProfileSettings.effectiveProfileKey).toBe("custom.agent");
-        await expect(fs.access(path.join("workspace", "config-test-project", ".nbook", "config.json"))).resolves.toBeNull();
+        await expect(fs.access(path.join("workspace", "config-test-project", ".nbook", "config.json"))).resolves.toBeUndefined();
     });
 
     it("Global secret 写回缺失 value 时保留旧 API key", async () => {
@@ -59,6 +59,7 @@ describe("config service", () => {
                 providers: [{
                     id: "deepseek",
                     name: "DeepSeek",
+                    api: null,
                     options: {
                         apiKey: {configured: false, maskedValue: null, value: "sk-test-123456"},
                         baseURL: "",
@@ -83,6 +84,7 @@ describe("config service", () => {
                 providers: [{
                     id: "deepseek",
                     name: "DeepSeek",
+                    api: null,
                     options: {
                         apiKey: {configured: true, maskedValue: "sk-t...3456"},
                         baseURL: "",
@@ -119,6 +121,7 @@ describe("config service", () => {
                 providers: [{
                     id: "deepseek",
                     name: "DeepSeek",
+                    api: null,
                     options: {
                         apiKey: {configured: false, maskedValue: null, value: "sk-keep-me"},
                         baseURL: "https://api.deepseek.com/v1",
@@ -159,6 +162,7 @@ describe("config service", () => {
                 providers: [{
                     id: "custom",
                     name: "Custom",
+                    api: "openai-completions",
                     options: {
                         apiKey: {configured: false, maskedValue: null, value: "sk-custom"},
                         baseURL: "",
@@ -212,6 +216,7 @@ describe("config service", () => {
             },
             contextWindowTokens: 98765,
         });
+        expect(snapshot.modelSettings.providers[0]?.api).toBe("openai-completions");
     });
 
     it("Project Config 可以覆盖默认模型和默认 profile，但拒绝 models.providers", async () => {
@@ -221,6 +226,7 @@ describe("config service", () => {
                 providers: [{
                     id: "deepseek",
                     name: "DeepSeek",
+                    api: null,
                     options: {apiKey: {configured: false, maskedValue: null}, baseURL: "", proxy: "", timeoutMs: null, requestOptions: {}},
                     models: [
                         {id: "a", name: "A", group: null, enabled: true, contextWindowTokens: null},
@@ -257,6 +263,7 @@ describe("config service", () => {
                 providers: [{
                     id: "deepseek",
                     name: "DeepSeek",
+                    api: null,
                     options: {apiKey: {configured: false, maskedValue: null}, baseURL: "", proxy: "", timeoutMs: null, requestOptions: {}},
                     models: [
                         {id: "a", name: "A", group: null, enabled: true, contextWindowTokens: null},

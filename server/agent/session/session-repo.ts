@@ -316,7 +316,7 @@ export class JsonlSessionRepository {
         const customState: Record<string, JsonValue> = {};
         let profileKey = snapshot.metadata.profileKey;
         let model: NeuroSessionContext["model"] = null;
-        let thinkingLevel: NeuroSessionContext["thinkingLevel"] = "off";
+        let thinkingLevel: NeuroSessionContext["thinkingLevel"] = null;
         let title = snapshot.metadata.title;
         let summary = snapshot.metadata.summary;
         let compaction: CompactionSessionEntry | null = null;

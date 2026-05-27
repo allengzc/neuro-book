@@ -14,7 +14,8 @@ const AgentProfileKeySchema = z.string().trim().min(1, "profileKey 不能为空"
 const TemperatureSchema = z.number().nonnegative("temperature 不能小于 0").nullable().default(null);
 const TopKSchema = z.number().int("topK 必须是整数").positive("topK 必须大于 0").nullable().default(null);
 const ContextWindowTokensSchema = z.number().int("contextWindowTokens 必须是整数").positive("contextWindowTokens 必须大于 0").nullable().default(null);
-const ReasoningEffortSchema = z.enum(["low", "medium", "high"]).nullable().default(null);
+export const ThinkingLevelSchema = z.enum(["off", "minimal", "low", "medium", "high", "xhigh"]);
+const ReasoningEffortSchema = ThinkingLevelSchema.nullable().default(null);
 const ModelInputKindSchema = z.enum(["text", "image"]);
 const PiModelApiSchema = z.string().trim().min(1, "api 不能为空").nullable().default(null);
 const PiModelBaseUrlSchema = NullableTextSchema;
@@ -69,6 +70,10 @@ export const ConfiguredModelDtoSchema = z.object({
 export const ConfiguredProviderDtoSchema = z.object({
     id: ProviderIdSchema,
     name: z.string().trim().min(1, "Provider 名称不能为空"),
+    /**
+     * Provider 下模型的默认 Pi API adapter。模型级 api 为空时继承此值。
+     */
+    api: PiModelApiSchema,
     options: ModelProviderOptionsDtoSchema,
     models: z.array(ConfiguredModelDtoSchema).default([]),
 });
@@ -220,6 +225,7 @@ export const UpdateAgentProfileModelSettingsRequestDtoSchema = z.object({
 export const ModelProviderDraftDtoSchema = z.object({
     id: ProviderIdSchema,
     name: z.string().trim().min(1, "Provider 名称不能为空"),
+    api: PiModelApiSchema,
     options: ModelProviderOptionsDtoSchema,
 });
 
@@ -292,6 +298,7 @@ export const PiBuiltinModelDtoSchema = z.object({
     provider: ProviderIdSchema,
     baseUrl: z.string().trim(),
     reasoning: z.boolean(),
+    thinkingLevelMap: z.record(z.string(), z.string().nullable()).nullable().default(null),
     input: z.array(ModelInputKindSchema).min(1),
     cost: PiModelCostObjectSchema,
     contextWindowTokens: z.number().int().positive(),
@@ -317,6 +324,7 @@ export const PiBuiltinCatalogDtoSchema = z.object({
 });
 
 export type ModelInputKind = z.infer<typeof ModelInputKindSchema>;
+export type ThinkingLevelDto = z.infer<typeof ThinkingLevelSchema>;
 export type ModelProviderOptionsDto = z.infer<typeof ModelProviderOptionsDtoSchema>;
 export type ConfiguredModelDto = z.infer<typeof ConfiguredModelDtoSchema>;
 export type ConfiguredProviderDto = z.infer<typeof ConfiguredProviderDtoSchema>;

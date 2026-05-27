@@ -1,5 +1,6 @@
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {MarkdownEditorPreferences, MonacoEditorPreferences} from "nbook/shared/editor-workbench";
+import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 
 export type ConfigScope = "boot" | "global" | "global-workspace";
 export type ConfigEffect = "hot" | "next-run" | "next-session" | "restart-required";
@@ -18,7 +19,7 @@ export type AgentProfileModelConfig = {
     modelKey: string | null;
     temperature: number | null;
     topK: number | null;
-    reasoningEffort: "low" | "medium" | "high" | null;
+    reasoningEffort: ThinkingLevelDto | null;
     stream: boolean;
 };
 
@@ -61,6 +62,7 @@ export type ModelProviderOptionsConfig = {
 
 export type ConfiguredProviderConfig = {
     name: string;
+    api: string | null;
     options: ModelProviderOptionsConfig;
     models: Record<string, ConfiguredModelConfig>;
 };

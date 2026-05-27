@@ -100,6 +100,7 @@ models:
   providers:
     custom:
       name: Custom
+      api: openai-completions
       models:
         mimo-vl:
           name: Mimo Vision
@@ -123,6 +124,7 @@ models:
 `);
 
         expect(config.models.defaultModelKey).toBe("custom/mimo-vl");
+        expect(config.models.providers.custom?.api).toBe("openai-completions");
         expect(config.models.providers.custom?.models["mimo-vl"]).toMatchObject({
             provider: "xiaomi-token-plan-cn",
             api: "openai-completions",
