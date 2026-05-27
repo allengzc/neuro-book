@@ -47,6 +47,7 @@ export function resolvePiModelFromConfig(
 
     const piProviderId = model.provider ?? providerId;
     const piModel = resolvePiRegistryModel(piProviderId, model.id);
+    const piApi = model.api ?? provider.api ?? piModel?.api ?? "openai-completions";
     const customCost = model.cost ?? {
         input: 0,
         output: 0,
@@ -57,7 +58,7 @@ export function resolvePiModelFromConfig(
         ...(piModel ?? {
             id: model.id,
             name: model.name,
-            api: model.api ?? "openai-completions",
+            api: piApi,
             provider: piProviderId,
             baseUrl: provider.options.baseURL || model.baseUrl || "",
             reasoning: model.reasoning ?? false,
@@ -67,7 +68,7 @@ export function resolvePiModelFromConfig(
             maxTokens: model.maxTokens ?? DEFAULT_MAX_TOKENS,
             compat: model.compat as Model<any>["compat"],
         }),
-        api: model.api ?? piModel?.api ?? "openai-completions",
+        api: piApi,
         id: model.id,
         name: model.name || piModel?.name || model.id,
         provider: piProviderId,

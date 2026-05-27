@@ -21,6 +21,10 @@ const JsonValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
 const ConfigPathTextSchema = z.string().trim().min(1);
 const NullableModelKeySchema = z.string().trim().min(1).nullable().default(null);
 const ProviderIdSchema = z.string().trim().min(1).regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u);
+const NullableTextSchema = z.string().trim().nullable().optional().transform((value) => {
+    const normalized = value?.trim() ?? "";
+    return normalized ? normalized : null;
+});
 const ProviderOptionTextSchema = z.string().trim().default("");
 const ProviderTimeoutMsSchema = z.number().int().positive().nullable().default(null);
 const ProviderRequestOptionsSchema = z.record(z.string(), JsonValueSchema).default({});
@@ -72,6 +76,7 @@ export const ConfigModelProviderOptionsDtoSchema = z.object({
 export const ConfiguredProviderConfigDtoSchema = z.object({
     id: ProviderIdSchema,
     name: z.string().trim().min(1),
+    api: NullableTextSchema,
     options: ConfigModelProviderOptionsDtoSchema,
     models: z.array(ConfiguredModelDtoSchema).default([]),
 });

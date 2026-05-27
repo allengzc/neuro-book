@@ -696,6 +696,7 @@ type AgentCommandRequest =
     | { command: "compact"; instructions?: string }
     | { command: "plan"; active: boolean }
     | { command: "model"; modelKey: string | null }
+    | { command: "thinking"; thinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | null }
     | { command: "retry"; entryId?: string }
     | { command: "fork"; entryId?: string }
     | { command: "tree"; targetEntryId: string; position?: "at" | "before" };
@@ -729,6 +730,7 @@ type AgentAbortRequest = {
 - 前端加载 session 采用 `snapshot + event patches`：
   - 首次打开某个 Agent 抽屉或独立窗口时，调用 `GET /api/agent/sessions/:sessionId` 拉取 snapshot。
   - snapshot 返回 metadata、activeLeafId、active path messages、tree summary、linked agents、pending approval、model/thinking/plan-mode state 等 UI 初始化所需状态。
+  - snapshot 的 `thinkingLevel` 是 session 级显式覆盖；`null` 表示跟随 Agent Profile，`off` 表示当前 session 显式关闭 thinking。
   - 后续主要通过 `GET /api/agent/sessions/:sessionId/events?after=<seq>` 同步增量事件。
   - SSE 重连、切窗口、发现 event gap、用户手动刷新或服务端返回 `snapshot_required` 时，前端重新 `GET /api/agent/sessions/:sessionId` 对齐真相。
 - snapshot 指服务端从 session JSONL active path reducer 加上当前内存运行态合成的一次完整 UI 状态快照。它不是单纯的历史消息列表，还应包含 active invocation、pending approval、尚未 drain 的 steer / followUp queue、linked agents、tree summary、model / thinking / Plan Mode 等当前状态。首次加载、重连缺 event、手动刷新和 `snapshot_required` 都应重新拉 snapshot。

@@ -23,13 +23,14 @@ import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
 import type {AgentQueuedMessageDto, AgentSessionListQueryDto, AgentSessionSnapshotDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
 
 type SessionModelDraft = {
     modelKey: string | null;
     temperature: string;
     topK: string;
-    reasoningEffort: "low" | "medium" | "high" | null;
+    reasoningEffort: ThinkingLevelDto | null;
     stream: boolean;
 };
 
@@ -214,6 +215,10 @@ watch(() => pendingUserInputSession.value?.assistantMessageId ?? null, () => {
 const activeSessionTitle = computed(() => activeSummary.value?.title || (activeSessionId.value ? `Session #${String(activeSessionId.value)}` : "未命名对话"));
 const sessionModelDefaultLabel = computed(() => "跟随 Profile 默认");
 const sessionModelSelectionValue = computed(() => sessionModelMode.value === "override" ? sessionModelDraft.value.modelKey : null);
+const sessionThinkingResolvedLabel = computed(() => {
+    const level = activeSnapshot.value?.thinkingLevel ?? null;
+    return level === null ? "跟随 Profile" : thinkingLevelLabel(level);
+});
 const activeDrawerTitle = computed(() => activeSummary.value?.profileKey === "leader.assets" ? "用户资产助手" : "AI 写作助手");
 const drawerIconClass = computed(() => "i-lucide-sparkles text-[var(--accent-text)]");
 const drawerStyle = computed(() => props.isOpen ? panelStyle.value : {width: "0px"});
@@ -260,6 +265,20 @@ function formatCompactTokenCount(value: number | null | undefined): string {
         return `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}K`;
     }
     return `${value}`;
+}
+
+/**
+ * 显示 PI thinking level 的中文标签。
+ */
+function thinkingLevelLabel(level: ThinkingLevelDto): string {
+    switch (level) {
+        case "off": return "关闭";
+        case "minimal": return "极低";
+        case "low": return "低";
+        case "medium": return "中";
+        case "high": return "高";
+        case "xhigh": return "极高";
+    }
 }
 
 /**
@@ -351,23 +370,13 @@ const refreshSessionsWithQuery = async (query: AgentSessionListQueryDto = {}): P
 };
 
 /**
- * 初始化或获取有效 session。
+ * 恢复当前 workspace 下已有的有效 session，不主动创建新 session。
  */
-const ensureSessionReady = async (forceNew = false, createIfMissing = true): Promise<AgentSessionSummaryDto[]> => {
-    if (!forceNew && ensureSessionRequest) {
-        if (createIfMissing) {
-            await ensureSessionRequest;
-            if (activeSessionId.value) {
-                return sessions.value;
-            }
-            return ensureSessionReadyInternal(false, true);
-        }
+const ensureSessionReady = async (): Promise<AgentSessionSummaryDto[]> => {
+    if (ensureSessionRequest) {
         return ensureSessionRequest;
     }
-    if (forceNew) {
-        return ensureSessionReadyInternal(true, createIfMissing);
-    }
-    ensureSessionRequest = ensureSessionReadyInternal(false, createIfMissing);
+    ensureSessionRequest = ensureSessionReadyInternal();
     try {
         return await ensureSessionRequest;
     } finally {
@@ -376,33 +385,38 @@ const ensureSessionReady = async (forceNew = false, createIfMissing = true): Pro
 };
 
 /**
- * 执行 session 初始化。自动入口允许只恢复已有 session，不主动创建空 session。
+ * 执行 session 恢复。
  */
-const ensureSessionReadyInternal = async (forceNew: boolean, createIfMissing: boolean): Promise<AgentSessionSummaryDto[]> => {
-    if (!props.isOpen && !forceNew) {
+const ensureSessionReadyInternal = async (): Promise<AgentSessionSummaryDto[]> => {
+    if (!props.isOpen) {
         return sessions.value;
     }
-    if (activeSessionId.value && !forceNew) {
+    if (activeSessionId.value) {
         return sessions.value;
     }
     await loadResolvedLeaderProfileKey();
-    if (activeSessionId.value && !forceNew) {
+    if (activeSessionId.value) {
         return sessions.value;
     }
     const list = await refreshSessions();
-    if (activeSessionId.value && !forceNew) {
+    if (activeSessionId.value) {
         return list;
     }
     const rememberedId = readLastSessionId();
     const rememberedSession = rememberedId ? list.find((item) => item.sessionId === rememberedId) : undefined;
-    const target = forceNew ? undefined : rememberedSession ?? list[0];
+    const target = rememberedSession ?? list[0];
     if (target) {
         await loadSession(target.sessionId);
         return list;
     }
-    if (!createIfMissing) {
-        return list;
-    }
+    return list;
+};
+
+/**
+ * 显式创建一个新的 session。只能由按钮、弹窗或 /new 这类用户命令调用。
+ */
+const createSession = async (): Promise<AgentSessionSummaryDto[]> => {
+    await loadResolvedLeaderProfileKey();
     const created = await agentApi.createSession({
         profileKey: leaderProfileKey.value,
         input: {},
@@ -718,8 +732,9 @@ const send = async (): Promise<void> => {
     if (pendingUserInputSession.value) {
         return;
     }
-    await ensureSessionReady();
     if (!activeSessionId.value) {
+        notification.info("请先新建或选择一个 Agent session", {title: "没有可用 session"});
+        sessionDialogOpen.value = true;
         return;
     }
 
@@ -811,7 +826,7 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
     }
     const [command, ...rest] = message.trim().split(/\s+/);
     if (command === "/new") {
-        await ensureSessionReady(true);
+        await createSession();
         return true;
     }
     if (command === "/clear") {
@@ -931,17 +946,53 @@ const updateSessionModelSelection = async (modelKey: string | null): Promise<voi
     }
 };
 
+/**
+ * 更新当前 session 的 thinking 覆盖。
+ */
+const updateSessionThinkingLevel = async (thinkingLevel: ThinkingLevelDto | null): Promise<void> => {
+    sessionModelDraft.value = {
+        ...sessionModelDraft.value,
+        reasoningEffort: thinkingLevel,
+    };
+
+    if (!activeSessionId.value || running.value || sessionModelSaving.value) {
+        return;
+    }
+    sessionModelSaving.value = true;
+    try {
+        const result = await agentApi.runCommand(activeSessionId.value, {
+            command: "thinking",
+            thinkingLevel,
+        });
+        await applySnapshotOrSync(result.snapshot);
+    } catch (error) {
+        console.error("更新 session 推理强度失败", error);
+        notifyAgentError(error, "更新 session 推理强度失败");
+    } finally {
+        sessionModelSaving.value = false;
+    }
+};
+
 function toggleSessionModelPopover(): void {
     sessionModelPopoverOpen.value = !sessionModelPopoverOpen.value;
 }
 
 async function applySessionModelSettings(): Promise<void> {
-    await updateSessionModelSelection(sessionModelDraft.value.modelKey);
+    const nextModelKey = sessionModelDraft.value.modelKey;
+    const nextThinkingLevel = sessionModelDraft.value.reasoningEffort;
+    await updateSessionModelSelection(nextModelKey);
+    await updateSessionThinkingLevel(nextThinkingLevel);
+    sessionModelDraft.value = {
+        ...sessionModelDraft.value,
+        modelKey: nextModelKey,
+        reasoningEffort: nextThinkingLevel,
+    };
     sessionModelPopoverOpen.value = false;
 }
 
 async function resetSessionModelSettings(): Promise<void> {
     await updateSessionModelSelection(null);
+    await updateSessionThinkingLevel(null);
     sessionModelPopoverOpen.value = false;
 }
 
@@ -954,6 +1005,7 @@ function syncSessionModelState(_summary: AgentSessionSummaryDto | null): void {
     sessionModelDraft.value = {
         ...sessionModelDraft.value,
         modelKey: model ? `${providerConfigId}/${model.id}` : null,
+        reasoningEffort: session.snapshot.value?.thinkingLevel ?? null,
     };
 }
 
@@ -1103,7 +1155,7 @@ const rollbackMessage = async (message: AgentMessage): Promise<void> => {
 };
 
 const openSessionDialog = async (): Promise<void> => {
-    await ensureSessionReady(false, false);
+    await ensureSessionReady();
     sessionDialogOpen.value = true;
 };
 
@@ -1130,7 +1182,7 @@ const createSessionFromDialog = async (): Promise<void> => {
     }
     loadingSession.value = true;
     try {
-        await ensureSessionReady(true);
+        await createSession();
         sessionDialogOpen.value = false;
     } finally {
         loadingSession.value = false;
@@ -1146,7 +1198,7 @@ const createSessionFromHeader = async (): Promise<void> => {
     }
     loadingSession.value = true;
     try {
-        await ensureSessionReady(true);
+        await createSession();
     } finally {
         loadingSession.value = false;
     }
@@ -1202,7 +1254,7 @@ watch(() => props.isOpen, async (open) => {
     }
     await loadSelectableModels();
     await loadResolvedLeaderProfileKey();
-    await ensureSessionReady(false, false);
+    await ensureSessionReady();
     await nextTick();
     requestAnimationFrame(() => {
         inputRef.value?.focus();
@@ -1220,7 +1272,7 @@ watch(leaderProfileKey, async () => {
     if (!props.isOpen) {
         return;
     }
-    await ensureSessionReady(false, false);
+    await ensureSessionReady();
 });
 
 watch(() => [ideStore.workspaceKind, ideStore.currentNovelId] as const, async () => {
@@ -1383,6 +1435,7 @@ function isApprovalApproved(answer?: {
                 :session-model-saving="sessionModelSaving"
                 :session-model-selection-value="sessionModelSelectionValue"
                 :session-model-default-label="sessionModelDefaultLabel"
+                :session-thinking-resolved-label="sessionThinkingResolvedLabel"
                 :selectable-models="selectableModels"
                 :plan-mode-active="planModeActive"
                 :can-continue-without-input="canContinueWithoutInput"

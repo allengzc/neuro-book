@@ -87,6 +87,7 @@ function normalizeLegacyProviders(input: unknown): StoredProviderConfig[] | unde
         return {
             id: providerId,
             name: typeof provider.name === "string" ? provider.name : providerId,
+            api: typeof provider.api === "string" ? provider.api : null,
             options: isRecord(provider.options) ? provider.options : {},
             models: normalizeLegacyModels(provider.models),
         } as StoredProviderConfig;

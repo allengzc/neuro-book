@@ -8,6 +8,7 @@
             {
                 "id": "deepseek",
                 "name": "DeepSeek",
+                "api": "openai-completions",
                 "options": {
                     "apiKey": "",
                     "baseURL": "",

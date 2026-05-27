@@ -3,6 +3,7 @@ import type {
     AgentProfileModelConfigDto,
     AgentProfileModelSettingsDto,
     ConfiguredAgentProfileDto,
+    ThinkingLevelDto,
     UpdateAgentProfileModelSettingsRequestDto,
 } from "nbook/shared/dto/app-settings.dto";
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
@@ -28,17 +29,20 @@ type AgentProfileDraft = {
         modelKey: string | null;
         temperature: string;
         topK: string;
-        reasoningEffort: "low" | "medium" | "high" | null;
+        reasoningEffort: ThinkingLevelDto | null;
         stream: boolean;
     };
 };
 
-const reasoningEffortOptions = [
+const reasoningEffortOptions: Array<{value: ThinkingLevelDto | null; label: string}> = [
     {value: null, label: "默认"},
+    {value: "off", label: "关闭"},
+    {value: "minimal", label: "极低"},
     {value: "low", label: "低"},
     {value: "medium", label: "中"},
     {value: "high", label: "高"},
-] as const;
+    {value: "xhigh", label: "极高"},
+];
 
 const loading = ref(false);
 const saving = ref(false);
@@ -73,6 +77,25 @@ function parseNullableNumber(value: string, integerOnly = false): number | null 
     }
 
     return integerOnly ? Math.trunc(parsed) : parsed;
+}
+
+function thinkingLevelLabel(level: ThinkingLevelDto): string {
+    switch (level) {
+        case "off": return "关闭";
+        case "minimal": return "极低";
+        case "low": return "低";
+        case "medium": return "中";
+        case "high": return "高";
+        case "xhigh": return "极高";
+    }
+}
+
+function reasoningEffortDefaultLabel(profile: AgentProfileDraft): string {
+    if (!isProjectScope.value) {
+        return "默认（关闭）";
+    }
+    const inheritedLevel = editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.model?.reasoningEffort ?? "off";
+    return `默认（${thinkingLevelLabel(inheritedLevel)}）`;
 }
 
 /**
@@ -389,7 +412,7 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                             <div class="space-y-1.5">
                                 <label class="text-xs font-medium text-[var(--text-secondary)]">推理强度</label>
                                 <select v-model="profile.model.reasoningEffort" class="h-7 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20">
-                                    <option v-for="option in reasoningEffortOptions" :key="option.label" :value="option.value">{{ option.label }}</option>
+                                    <option v-for="option in reasoningEffortOptions" :key="option.label" :value="option.value">{{ option.value === null ? reasoningEffortDefaultLabel(profile) : option.label }}</option>
                                 </select>
                             </div>
 

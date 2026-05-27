@@ -18,6 +18,7 @@ import type {
     StoredProviderConfig,
 } from "nbook/server/config/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
+import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
 
 const DEFAULT_THEME: EffectiveConfig["ui"]["theme"] = "sepia";
 
@@ -172,6 +173,7 @@ export function normalizeModelSettings(input: StoredGlobalConfig["models"] | und
         providers: Object.fromEntries(
             normalizeStoredProviders(input?.providers).map((provider) => [provider.id, {
                 name: normalizeText(provider.name) || provider.id,
+                api: normalizeNullableText(provider.api),
                 options: normalizeProviderOptions(provider.options),
                 models: Object.fromEntries(provider.models.map((model) => [model.id, normalizeModel(model)])),
             } satisfies ConfiguredProviderConfig]),
@@ -189,6 +191,7 @@ export function serializeModelSettings(config: ModelSettingsConfig): StoredGloba
             .map(([providerId, provider]) => ({
                 id: providerId,
                 name: provider.name,
+                api: provider.api,
                 options: provider.options,
                 models: Object.values(provider.models)
                     .map((model) => ({...model}))
@@ -206,7 +209,7 @@ export function normalizeAgentProfileModelConfig(input: Partial<AgentProfileMode
         modelKey: normalizeNullableModelKey(input?.modelKey),
         temperature: normalizeNullableNumber(input?.temperature),
         topK: normalizeNullableInteger(input?.topK),
-        reasoningEffort: input?.reasoningEffort === "low" || input?.reasoningEffort === "medium" || input?.reasoningEffort === "high" ? input.reasoningEffort : null,
+        reasoningEffort: normalizeThinkingLevel(input?.reasoningEffort),
         stream: input?.stream ?? true,
     };
 }
@@ -250,9 +253,14 @@ function normalizeAgentProfileModelPatch(input: Partial<AgentProfileModelConfig>
         ...(Object.hasOwn(input, "modelKey") ? {modelKey: normalizeNullableModelKey(input.modelKey)} : {}),
         ...(Object.hasOwn(input, "temperature") ? {temperature: normalizeNullableNumber(input.temperature)} : {}),
         ...(Object.hasOwn(input, "topK") ? {topK: normalizeNullableInteger(input.topK)} : {}),
-        ...(Object.hasOwn(input, "reasoningEffort") ? {reasoningEffort: input.reasoningEffort === "low" || input.reasoningEffort === "medium" || input.reasoningEffort === "high" ? input.reasoningEffort : null} : {}),
+        ...(Object.hasOwn(input, "reasoningEffort") ? {reasoningEffort: normalizeThinkingLevel(input.reasoningEffort)} : {}),
         ...(Object.hasOwn(input, "stream") ? {stream: input.stream ?? true} : {}),
     };
+}
+
+function normalizeThinkingLevel(value: unknown): AgentProfileModelConfig["reasoningEffort"] {
+    const parsed = ThinkingLevelSchema.nullable().safeParse(value ?? null);
+    return parsed.success ? parsed.data : null;
 }
 
 function normalizeStoredProviders(input: StoredProviderConfig[] | undefined): StoredProviderConfig[] {
@@ -263,6 +271,7 @@ function normalizeStoredProviders(input: StoredProviderConfig[] | undefined): St
         .map((provider) => ({
             id: normalizeText(provider.id),
             name: normalizeText(provider.name),
+            api: normalizeNullableText(provider.api),
             options: normalizeProviderOptions(provider.options),
             models: Array.isArray(provider.models) ? provider.models.map(normalizeModel) : [],
         }))

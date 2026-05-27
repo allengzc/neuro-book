@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {applyPiEventToMessages, deriveMessagesFromSessionSnapshot, type AgentMessage} from "nbook/app/components/novel-ide/agent/agent-message";
+import {applyPiEventToMessages, applySessionEntryToMessages, deriveMessagesFromSessionSnapshot, type AgentMessage} from "nbook/app/components/novel-ide/agent/agent-message";
 import type {AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
 
 const baseSnapshot = (entries: AgentSessionSnapshotDto["entries"]): AgentSessionSnapshotDto => ({
@@ -23,6 +23,7 @@ const baseSnapshot = (entries: AgentSessionSnapshotDto["entries"]): AgentSession
     followUpQueue: [],
     activeInvocation: null,
     model: null,
+    thinkingLevel: null,
     planModeActive: false,
     lastSeq: 0,
 });
@@ -114,6 +115,54 @@ describe("agent message projection", () => {
             {id: "custom-1", label: "Custom: note", content: "运行期提示"},
             {id: "compact-1", label: "Compaction", content: "压缩摘要"},
             {id: "branch-1", label: "Branch Summary", content: "分支摘要"},
+        ]);
+    });
+
+    it("把已消费的 steer 历史消息展示为引导并隐藏模型前缀", () => {
+        const messages = deriveMessagesFromSessionSnapshot(baseSnapshot([{
+            id: "steer-1",
+            parentId: null,
+            timestamp: Date.now(),
+            type: "message",
+            origin: "harness",
+            message: {
+                role: "user",
+                content: [{type: "text", text: "<user_steer>\n调整方向\n</user_steer>"}],
+                timestamp: Date.now(),
+            } as never,
+        }]));
+
+        expect(messages).toEqual([
+            expect.objectContaining({
+                id: "steer-1",
+                type: "user",
+                intent: "steer",
+                content: "调整方向",
+            }),
+        ]);
+    });
+
+    it("session_entry 增量到达时直接显示已消费 steer", () => {
+        const messages = applySessionEntryToMessages([], {
+            id: "steer-live-1",
+            parentId: null,
+            timestamp: Date.now(),
+            type: "message",
+            origin: "harness",
+            message: {
+                role: "user",
+                content: [{type: "text", text: "<user_steer>\n继续沿这个方向\n</user_steer>"}],
+                timestamp: Date.now(),
+            } as never,
+        });
+
+        expect(messages).toEqual([
+            expect.objectContaining({
+                id: "steer-live-1",
+                type: "user",
+                intent: "steer",
+                content: "继续沿这个方向",
+            }),
         ]);
     });
 

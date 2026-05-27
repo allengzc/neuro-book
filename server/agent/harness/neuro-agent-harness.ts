@@ -563,6 +563,7 @@ export class NeuroAgentHarness {
             followUpQueue: this.followUpQueues.get(sessionId) ?? [],
             activeInvocation: this.activeInvocations.get(sessionId) ?? null,
             model: context.model,
+            thinkingLevel: context.thinkingLevel,
             planModeActive: context.planModeActive,
             lastSeq: this.eventHub.lastSeq,
             usage: [...context.messages].reverse().find((message) => message.role === "assistant")?.usage,
@@ -747,6 +748,27 @@ export class NeuroAgentHarness {
                 model: body.modelKey ? this.modelResolver(config, snapshot.metadata.profileKey, {modelKey: body.modelKey}) : null,
             };
             const written = await this.repo.appendEntry(sessionId, entry, snapshot.metadata.workspaceKey);
+            this.publishSessionEntry(sessionId, undefined, written);
+            await this.publishSessionState(sessionId);
+            return {
+                status: "completed",
+                sessionId,
+                snapshot: await this.getSessionSnapshot(sessionId),
+            };
+        }
+        if (body.command === "thinking") {
+            const context = this.repo.reduce(snapshot);
+            if (context.thinkingLevel === body.thinkingLevel) {
+                return {
+                    status: "completed",
+                    sessionId,
+                    snapshot: await this.getSessionSnapshot(sessionId),
+                };
+            }
+            const written = await this.repo.appendEntry(sessionId, {
+                type: "thinking_level_change",
+                thinkingLevel: body.thinkingLevel,
+            }, snapshot.metadata.workspaceKey);
             this.publishSessionEntry(sessionId, undefined, written);
             await this.publishSessionState(sessionId);
             return {
@@ -1156,7 +1178,7 @@ export class NeuroAgentHarness {
         requestOptions?: Record<string, JsonValue>;
         toolKeys: string[];
         profileKey: string;
-        thinkingLevel: string;
+        thinkingLevel: ThinkingLevel;
         abortSignal?: AbortSignal;
         invocationId?: string;
         onEvent?: (event: AgentEvent) => void | Promise<void>;
@@ -1289,7 +1311,7 @@ export class NeuroAgentHarness {
         requestOptions?: Record<string, JsonValue>;
         tools: ReturnType<AgentToolRegistry["allowed"]>;
         sessionId: number;
-        thinkingLevel: string;
+        thinkingLevel: ThinkingLevel;
         abortSignal?: AbortSignal;
         emit: (event: AgentEvent) => Promise<void>;
     }): Promise<AssistantMessage> {
@@ -1303,7 +1325,7 @@ export class NeuroAgentHarness {
         };
         const options = {
             sessionId: String(input.sessionId),
-            reasoning: input.thinkingLevel === "off" ? undefined : input.thinkingLevel as never,
+            reasoning: input.thinkingLevel === "off" ? undefined : input.thinkingLevel,
             apiKey: input.apiKey,
             timeoutMs: input.timeoutMs ?? undefined,
             ...this.piStreamOptions(input.requestOptions),
@@ -1751,7 +1773,7 @@ export class NeuroAgentHarness {
         if (!model.reasoning) {
             return "off";
         }
-        if (context.thinkingLevel !== "off") {
+        if (context.thinkingLevel !== null) {
             return context.thinkingLevel;
         }
         return config.agent.profiles[context.profileKey]?.model.reasoningEffort ?? "off";
@@ -1911,7 +1933,7 @@ export class NeuroAgentHarness {
             requestOptions?: Record<string, JsonValue>;
             toolKeys: string[];
             profileKey: string;
-            thinkingLevel: string;
+            thinkingLevel: ThinkingLevel;
         },
     ): Promise<InvokeAgentResult> {
         const reminder = createUserMessage({

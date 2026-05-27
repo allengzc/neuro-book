@@ -282,6 +282,7 @@ function redactGlobalConfig(config: StoredGlobalConfig): GlobalConfigDto {
             default: config.models?.default ?? null,
             providers: (config.models?.providers ?? []).map((provider) => ({
                 ...provider,
+                api: provider.api ?? null,
                 options: {
                     ...provider.options,
                     apiKey: maskSecret(provider.options.apiKey),
@@ -295,6 +296,7 @@ function buildConfigModelSettingsDto(effective: EffectiveConfig): ConfigModelSet
     const providers = Object.entries(effective.models.providers).map(([providerId, provider]) => ({
         id: providerId,
         name: provider.name,
+        api: provider.api,
         options: {
             apiKey: maskSecret(provider.options.apiKey),
             baseURL: provider.options.baseURL,
@@ -397,6 +399,7 @@ function normalizeGlobalModelsForWrite(
         default: models.default ?? null,
         providers: models.providers.map((provider): StoredProviderConfig => ({
             ...provider,
+            api: provider.api,
             options: {
                 ...provider.options,
                 apiKey: resolveSecretWrite({

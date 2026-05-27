@@ -32,6 +32,7 @@ describe("resolvePiModelFromConfig", () => {
                 providers: {
                     "deepseek-2": {
                         name: "DeepSeek Alt",
+                        api: null,
                         options: {
                             apiKey: "sk-alt",
                             baseURL: "",
@@ -82,6 +83,7 @@ describe("resolvePiModelFromConfig", () => {
                 providers: {
                     custom: {
                         name: "Custom Mimo",
+                        api: null,
                         options: {
                             apiKey: "sk-custom",
                             baseURL: "https://provider-level.example/v1",
@@ -139,5 +141,55 @@ describe("resolvePiModelFromConfig", () => {
             thinkingFormat: "deepseek",
             supportsStrictMode: false,
         });
+    });
+
+    it("模型未配置 api 时继承本地 Provider 默认 Pi API", () => {
+        const config: Pick<EffectiveConfig, "agent" | "models"> = {
+            agent: {
+                defaultProfileKey: {
+                    novel: null,
+                    userAssets: null,
+                },
+                profiles: {},
+            },
+            models: {
+                defaultModelKey: "siliconflow/deepseek-ai/DeepSeek-V4-Flash",
+                providers: {
+                    siliconflow: {
+                        name: "SiliconFlow",
+                        api: "openai-completions",
+                        options: {
+                            apiKey: "sk-sf",
+                            baseURL: "https://api.siliconflow.cn/v1",
+                            proxy: "",
+                            timeoutMs: null,
+                            requestOptions: {},
+                        },
+                        models: {
+                            "deepseek-ai/DeepSeek-V4-Flash": {
+                                name: "DeepSeek V4 Flash",
+                                id: "deepseek-ai/DeepSeek-V4-Flash",
+                                group: null,
+                                enabled: true,
+                                provider: null,
+                                api: null,
+                                baseUrl: null,
+                                reasoning: null,
+                                input: null,
+                                maxTokens: null,
+                                cost: null,
+                                compat: null,
+                                contextWindowTokens: null,
+                            },
+                        },
+                    },
+                },
+            },
+        };
+
+        const model = resolvePiModelFromConfig(config, "leader.default");
+
+        expect(model.provider).toBe("siliconflow");
+        expect(model.api).toBe("openai-completions");
     });
 });

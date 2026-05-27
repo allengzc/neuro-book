@@ -8,16 +8,26 @@ import type {
     AgentTriggerMenuState,
 } from "nbook/app/components/novel-ide/agent/trigger-menu";
 import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelIdeModelSelect.vue";
-import type {ModelSettingsDto} from "nbook/shared/dto/app-settings.dto";
+import type {ModelSettingsDto, ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {AgentQueuedMessageDto} from "nbook/shared/dto/agent-session.dto";
 
 type AgentComposerSessionModelDraft = {
     modelKey: string | null;
     temperature: string;
     topK: string;
-    reasoningEffort: "low" | "medium" | "high" | null;
+    reasoningEffort: ThinkingLevelDto | null;
     stream: boolean;
 };
+
+const thinkingLevelOptions: Array<{value: ThinkingLevelDto | null; label: string}> = [
+    {value: null, label: "跟随 Profile"},
+    {value: "off", label: "关闭"},
+    {value: "minimal", label: "极低"},
+    {value: "low", label: "低"},
+    {value: "medium", label: "中"},
+    {value: "high", label: "高"},
+    {value: "xhigh", label: "极高"},
+];
 
 const props = defineProps<{
     inputText: string;
@@ -31,6 +41,7 @@ const props = defineProps<{
     sessionModelPopoverOpen: boolean;
     sessionModelSelectionValue: string | null;
     sessionModelDefaultLabel: string;
+    sessionThinkingResolvedLabel: string;
     sessionModelDraft: AgentComposerSessionModelDraft;
     selectableModels: ModelSettingsDto["enabledModels"];
     planModeActive: boolean;
@@ -102,7 +113,7 @@ const runInputText = computed(() => props.inputText);
 
 const sendDisabled = computed(() => {
     if (props.running) {
-        return !runInputText.value.trim() && !props.pendingSession;
+        return false;
     }
     if (props.pendingSession) {
         return true;
@@ -125,7 +136,7 @@ const sendIconClass = computed(() => {
 
 const sendButtonTitle = computed(() => {
     if (props.running && runInputText.value.trim()) {
-        return "引导；Ctrl+Enter 队列";
+        return "引导；Ctrl+Enter / Ctrl+点击 队列";
     }
     if (props.running) {
         return "停止";
@@ -211,7 +222,11 @@ function updateSessionModelDraft(patch: Partial<AgentComposerSessionModelDraft>)
  */
 function submitRunMessage(payload?: {ctrlKey?: boolean; metaKey?: boolean}): void {
     if (props.running && runInputText.value.trim()) {
-        emit(payload?.ctrlKey || payload?.metaKey ? "followup" : "steer");
+        if (payload?.ctrlKey || payload?.metaKey) {
+            emit("followup");
+        } else {
+            emit("steer");
+        }
         return;
     }
     if (props.pendingSession) {
@@ -239,7 +254,11 @@ function submitButton(event: MouseEvent): void {
         return;
     }
     if (props.running) {
-        emit(event.ctrlKey || event.metaKey ? "followup" : "steer");
+        if (event.ctrlKey || event.metaKey) {
+            emit("followup");
+        } else {
+            emit("steer");
+        }
         return;
     }
     if (props.pendingSession) {
@@ -365,6 +384,15 @@ defineExpose({focus});
                                         <label class="text-xs font-medium text-[var(--text-secondary)]">TopK</label>
                                         <input :value="props.sessionModelDraft.topK" type="number" step="1" min="1" placeholder="留空" class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none transition-colors placeholder:text-[var(--text-muted)] focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20" @input="updateSessionModelDraft({topK: ($event.target as HTMLInputElement).value})">
                                     </div>
+                                </div>
+                                <div class="space-y-1.5">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <label class="text-xs font-medium text-[var(--text-secondary)]">思考强度</label>
+                                        <span class="truncate text-[10px] text-[var(--text-muted)]">当前 {{ props.sessionThinkingResolvedLabel }}</span>
+                                    </div>
+                                    <select :value="props.sessionModelDraft.reasoningEffort ?? ''" class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none transition-colors focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20" @change="updateSessionModelDraft({reasoningEffort: (($event.target as HTMLSelectElement).value || null) as AgentComposerSessionModelDraft['reasoningEffort']})">
+                                        <option v-for="option in thinkingLevelOptions" :key="option.label" :value="option.value ?? ''">{{ option.label }}</option>
+                                    </select>
                                 </div>
                                 <div class="flex items-center justify-between rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2">
                                     <div>

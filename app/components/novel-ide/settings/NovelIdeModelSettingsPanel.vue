@@ -51,6 +51,15 @@ type ModelDraft = {
     contextWindowTokens: string;
 };
 
+type EffectiveModelMetadata = {
+    api: string;
+    apiSource: "model" | "provider" | "registry" | "fallback";
+    reasoning: boolean;
+    input: ModelInputKind[];
+    maxTokens: number | null;
+    contextWindowTokens: number | null;
+};
+
 type ManualModelDraft = {
     name: string;
     id: string;
@@ -62,6 +71,7 @@ type ManualModelDraft = {
 type ProviderDraft = {
     id: string;
     name: string;
+    api: string;
     options: {
         apiKey: string;
         apiKeyConfigured: boolean;
@@ -184,6 +194,10 @@ const modelApiOptions: SelectOption[] = [
     {value: "google-generative-ai", label: "Google Generative AI", description: "Gemini / Google GenAI"},
     {value: "bedrock-converse-stream", label: "Bedrock Converse", description: "AWS Bedrock Converse Stream"},
 ];
+const modelInputOptions: Array<{value: ModelInputKind; label: string; iconClass: string}> = [
+    {value: "text", label: "文本", iconClass: "i-lucide-type"},
+    {value: "image", label: "图片", iconClass: "i-lucide-image"},
+];
 
 const providerPresetOptions = computed<ProviderPreset[]>(() => {
     const builtinPresets = (piCatalog.value?.providers ?? []).map((provider) => ({
@@ -267,6 +281,20 @@ function parseModelInput(value: string): ModelInputKind[] | null {
         .map((item) => item.trim())
         .filter((item): item is ModelInputKind => item === "text" || item === "image"))];
     return inputs.length > 0 ? inputs : null;
+}
+
+/**
+ * 切换模型输入能力；空数组表示继承上游 registry/provider。
+ */
+function toggleModelInput(model: ModelDraft, inputKind: ModelInputKind): void {
+    const values = parseModelInput(model.input) ?? [];
+    model.input = values.includes(inputKind)
+        ? values.filter((item) => item !== inputKind).join(",")
+        : [...values, inputKind].join(",");
+}
+
+function modelInputEnabled(model: ModelDraft, inputKind: ModelInputKind): boolean {
+    return (parseModelInput(model.input) ?? resolveEffectiveModelMetadata(model).input).includes(inputKind);
 }
 
 /**
@@ -376,6 +404,7 @@ function cloneProvider(provider: ConfigModelSettingsDto["providers"][number]): P
     return {
         id: provider.id,
         name: provider.name,
+        api: provider.api ?? "",
         options: {
             apiKey: "",
             apiKeyConfigured: provider.options.apiKey.configured,
@@ -491,6 +520,7 @@ function buildSavePayload(): UpdateModelSettingsRequestDto {
         providers: draft.value.providers.map((provider) => ({
             id: provider.id.trim(),
             name: provider.name.trim(),
+            api: provider.api.trim() || null,
             options: {
                 apiKey: provider.options.apiKey.trim(),
                 baseURL: provider.options.baseURL.trim(),
@@ -531,6 +561,7 @@ function buildGlobalConfigPayload(): GlobalConfigDto {
             providers: draft.value.providers.map((provider) => ({
                 id: provider.id.trim(),
                 name: provider.name.trim(),
+                api: provider.api.trim() || null,
                 options: {
                     apiKey: buildSecretPayload(provider),
                     baseURL: provider.options.baseURL.trim(),
@@ -858,7 +889,7 @@ function getManualModelDraft(providerId: string): ManualModelDraft {
         manualModelDrafts.value[providerId] = {
             name: "",
             id: "",
-            api: defaultManualModelApi(providerId),
+            api: "",
             group: "",
             contextWindowTokens: "",
         };
@@ -868,17 +899,76 @@ function getManualModelDraft(providerId: string): ManualModelDraft {
 }
 
 /**
- * 手动新增模型默认使用 Provider 内第一个内置模型的 API，否则回退 OpenAI-compatible。
+ * 显示模型实际配置的 Pi API 继承关系。
  */
-function defaultManualModelApi(providerId: string): string {
-    return findPiProvider(providerId)?.models[0]?.api ?? "openai-completions";
+function displayModelApi(model: ModelDraft, provider: ProviderDraft | null = activeProvider.value): string {
+    return resolveEffectiveModelMetadata(model, provider).api;
+}
+
+function displayModelApiSource(model: ModelDraft, provider: ProviderDraft | null = activeProvider.value): string {
+    const source = resolveEffectiveModelMetadata(model, provider).apiSource;
+    if (source === "model") {
+        return "模型覆盖";
+    }
+    if (source === "provider") {
+        return "继承配置";
+    }
+    if (source === "registry") {
+        return "继承 registry";
+    }
+    return "默认";
 }
 
 /**
- * 显示模型实际配置的 Pi API；空值表示运行时会尝试继承 Pi registry。
+ * 查找模型对应的 Pi registry 元数据，优先按模型级 provider，再回退配置 ID。
  */
-function displayModelApi(model: ModelDraft): string {
-    return model.api.trim() || "继承 Pi registry";
+function findPiModelForDraft(model: ModelDraft, provider: ProviderDraft | null = activeProvider.value): PiBuiltinModelDto | null {
+    const providerId = model.provider.trim() || provider?.id.trim() || "";
+    return piCatalog.value?.providers
+        .find((item) => item.id === providerId)
+        ?.models.find((item) => item.id === model.id)
+        ?? null;
+}
+
+/**
+ * 计算模型最终生效的 Pi 元数据，用于把“继承”显示成具体值。
+ */
+function resolveEffectiveModelMetadata(model: ModelDraft, provider: ProviderDraft | null = activeProvider.value): EffectiveModelMetadata {
+    const piModel = findPiModelForDraft(model, provider);
+    const parsedInput = parseModelInput(model.input);
+    const parsedMaxTokens = parseMaxTokens(model.maxTokens);
+    const parsedContextWindow = parseContextWindowTokens(model.contextWindowTokens);
+    return {
+        api: model.api.trim() || provider?.api.trim() || piModel?.api || "openai-completions",
+        apiSource: model.api.trim() ? "model" : provider?.api.trim() ? "provider" : piModel?.api ? "registry" : "fallback",
+        reasoning: parseModelReasoning(model.reasoning) ?? piModel?.reasoning ?? false,
+        input: parsedInput ?? piModel?.input ?? ["text"],
+        maxTokens: parsedMaxTokens ?? piModel?.maxTokens ?? null,
+        contextWindowTokens: parsedContextWindow ?? piModel?.contextWindowTokens ?? null,
+    };
+}
+
+function providerDefaultApiLabel(provider: ProviderDraft): string {
+    const registryApi = findPiProvider(provider.id)?.models[0]?.api ?? "openai-completions";
+    return `继承 Pi registry（${registryApi}）`;
+}
+
+function modelApiInheritLabel(model: ModelDraft): string {
+    const providerApi = activeProvider.value?.api.trim();
+    if (providerApi) {
+        return `继承配置（${providerApi}）`;
+    }
+    return `继承 Pi registry（${resolveEffectiveModelMetadata(model).api}）`;
+}
+
+function modelInputDisplayLabel(model: ModelDraft): string {
+    return resolveEffectiveModelMetadata(model).input
+        .map((item) => modelInputOptions.find((option) => option.value === item)?.label ?? item)
+        .join(" / ");
+}
+
+function modelReasoningDisplayLabel(model: ModelDraft): string {
+    return resolveEffectiveModelMetadata(model).reasoning ? "支持" : "不支持";
 }
 
 /**
@@ -887,10 +977,6 @@ function displayModelApi(model: ModelDraft): string {
 function updateManualModelId(providerId: string, modelId: string): void {
     const manualDraft = getManualModelDraft(providerId);
     manualDraft.id = modelId;
-    const builtinModel = findPiProvider(providerId)?.models.find((model) => model.id === modelId.trim());
-    if (builtinModel) {
-        manualDraft.api = builtinModel.api;
-    }
 }
 
 /**
@@ -917,14 +1003,16 @@ function findPiProvider(providerId: string): PiBuiltinProviderDto | null {
  * 把 Pi 内置模型转成可写入配置的模型草稿。
  */
 function clonePiModel(model: PiBuiltinModelDto): ModelDraft {
+    const providerId = activeProviderId.value.trim();
+    const usesSameRegistryProvider = !providerId || providerId === model.provider;
     return {
         name: model.name,
         id: model.id,
         group: deriveGroup(model.id),
         enabled: true,
-        provider: model.provider,
-        api: model.api,
-        baseUrl: model.baseUrl,
+        provider: usesSameRegistryProvider ? "" : model.provider,
+        api: "",
+        baseUrl: "",
         reasoning: model.reasoning ? "true" : "false",
         input: model.input.join(","),
         maxTokens: String(model.maxTokens),
@@ -953,9 +1041,11 @@ async function addProvider(): Promise<void> {
     const builtinProvider = findPiProvider(preset.providerId);
     const providerId = buildUniqueProviderId(preset.providerId);
     const baseURL = preset.baseURL || builtinProvider?.baseUrl || "";
+    activeProviderId.value = providerId;
     draft.value.providers.push({
         id: providerId,
         name: preset.providerName,
+        api: builtinProvider?.models[0]?.api ?? "",
         options: {
             apiKey: "",
             baseURL,
@@ -968,7 +1058,6 @@ async function addProvider(): Promise<void> {
         },
         models: builtinProvider?.models.map(clonePiModel) ?? [],
     });
-    activeProviderId.value = providerId;
     successText.value = `已新增 Provider：${preset.label}`;
     errorText.value = "";
     ensureDefaultModelKey();
@@ -1179,6 +1268,7 @@ function buildProviderRequest(provider: ProviderDraft): {provider: ModelProvider
         provider: {
             id: provider.id.trim(),
             name: provider.name.trim(),
+            api: provider.api.trim() || null,
             options: {
                 apiKey: provider.options.apiKey.trim(),
                 baseURL: provider.options.baseURL.trim(),
@@ -1348,7 +1438,7 @@ function addManualModel(): void {
     enableModel({
         name: manualDraft.name,
         id: manualDraft.id,
-        api: manualDraft.api,
+        api: manualDraft.api || null,
         group: manualDraft.group,
         contextWindowTokens: manualDraft.contextWindowTokens,
     });
@@ -1358,7 +1448,7 @@ function addManualModel(): void {
         [provider.id]: {
             name: "",
             id: "",
-            api: defaultManualModelApi(provider.id),
+            api: "",
             group: "",
             contextWindowTokens: "",
         },
@@ -1515,9 +1605,9 @@ function toggleLibraryModel(model: { name: string; id: string; group: string; st
                 name: model.builtinModel.name,
                 id: model.builtinModel.id,
                 group: model.group,
-                provider: model.builtinModel.provider,
-                api: model.builtinModel.api,
-                baseUrl: model.builtinModel.baseUrl,
+                provider: activeProvider.value?.id === model.builtinModel.provider ? null : model.builtinModel.provider,
+                api: null,
+                baseUrl: null,
                 reasoning: model.builtinModel.reasoning,
                 input: model.builtinModel.input,
                 maxTokens: model.builtinModel.maxTokens,
@@ -1724,12 +1814,16 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                             <!-- Provider 表单 -->
                             <div class="mt-5 grid gap-4 md:grid-cols-2">
                                 <div class="group space-y-1.5">
-                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">Provider ID</label>
-                                    <FormInput :model-value="activeProvider.id" placeholder="provider id" @update:model-value="renameActiveProviderId" />
+                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">配置 ID</label>
+                                    <FormInput :model-value="activeProvider.id" placeholder="例如 siliconflow 或 deepseek-cn" @update:model-value="renameActiveProviderId" />
                                 </div>
                                 <div class="group space-y-1.5">
-                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">Provider 名称</label>
-                                    <FormInput v-model="activeProvider.name" placeholder="Provider 名称" />
+                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">服务商名称</label>
+                                    <FormInput v-model="activeProvider.name" placeholder="例如 SiliconFlow" />
+                                </div>
+                                <div class="group space-y-1.5">
+                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">默认 Pi API</label>
+                                    <FormSelect v-model="activeProvider.api" :options="[{value: '', label: providerDefaultApiLabel(activeProvider)}, ...modelApiOptions]" />
                                 </div>
                                 <div class="group space-y-1.5">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">API Base</label>
@@ -1796,6 +1890,9 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                                                             <div class="truncate text-[13px] font-medium text-[var(--text-main)]">{{ model.name }}</div>
                                                             <span class="shrink-0 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">
                                                                 {{ displayModelApi(model) }}
+                                                            </span>
+                                                            <span class="shrink-0 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">
+                                                                {{ displayModelApiSource(model) }}
                                                             </span>
                                                             <span v-if="resolveDisplayedContextWindow(activeProvider.id, model)" class="shrink-0 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">
                                                                 {{ resolveDisplayedContextWindow(activeProvider.id, model) }} ctx
@@ -1918,9 +2015,9 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                     <FormInput v-model="getManualModelDraft(activeProvider.id).name" placeholder="手动添加名称" class="flex-1 bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
                     <FormInput :model-value="getManualModelDraft(activeProvider.id).id" placeholder="手动添加 ID" class="flex-1 bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" @update:model-value="updateManualModelId(activeProvider.id, $event)" />
                     <div class="w-[190px]">
-                        <FormSelect v-model="getManualModelDraft(activeProvider.id).api" :options="modelApiOptions" placeholder="Pi API" />
+                        <FormSelect v-model="getManualModelDraft(activeProvider.id).api" :options="[{value: '', label: activeProvider.api ? `继承配置（${activeProvider.api}）` : providerDefaultApiLabel(activeProvider)}, ...modelApiOptions]" placeholder="Pi API" />
                     </div>
-                    <FormInput v-model="getManualModelDraft(activeProvider.id).api" placeholder="自定义 Pi API" class="w-[160px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
+                    <FormInput v-model="getManualModelDraft(activeProvider.id).api" placeholder="自定义 Pi API；留空继承" class="w-[180px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
                     <FormInput v-model="getManualModelDraft(activeProvider.id).contextWindowTokens" placeholder="上下文窗口" class="w-[120px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
                     <button class="inline-flex h-8 shrink-0 items-center justify-center rounded-md bg-[var(--accent-main)] text-white px-3 text-xs font-medium shadow-sm transition-all hover:opacity-90 active:scale-95" @click="addManualModel">
                         添加
@@ -1947,11 +2044,13 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
     <Dialog
         v-model="modelEditDialogOpen"
         title="模型设置"
-        width="460px"
+        width="min(560px, calc(100vw - 32px))"
+        max-height="calc(100vh - 32px)"
         overlay-type="blur"
         :show-footer="false"
+        body-class="min-h-0"
     >
-        <div v-if="editingModel" class="flex flex-col gap-4 p-1">
+        <div v-if="editingModel" class="flex max-h-[calc(100vh_-_112px)] min-h-0 flex-col gap-4 overflow-y-auto p-1 pr-2 custom-scrollbar">
             <div class="space-y-1.5">
                 <label class="text-xs font-medium text-[var(--text-secondary)]">模型名称</label>
                 <FormInput v-model="editingModel.name" placeholder="模型名称" class="bg-[var(--bg-input)] shadow-sm" />
@@ -1970,12 +2069,12 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
             </div>
             <div class="grid gap-3 md:grid-cols-2">
                 <div class="space-y-1.5">
-                    <label class="text-xs font-medium text-[var(--text-secondary)]">Pi Provider</label>
-                    <FormInput v-model="editingModel.provider" placeholder="留空使用本地 Provider ID" class="bg-[var(--bg-input)] shadow-sm" />
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">Pi Registry Provider</label>
+                    <FormInput v-model="editingModel.provider" placeholder="留空使用配置 ID" class="bg-[var(--bg-input)] shadow-sm" />
                 </div>
                 <div class="space-y-1.5">
                     <label class="text-xs font-medium text-[var(--text-secondary)]">Pi API</label>
-                    <FormSelect v-model="editingModel.api" :options="[{value: '', label: '继承 Pi registry'}, ...modelApiOptions]" />
+                    <FormSelect v-model="editingModel.api" :options="[{value: '', label: modelApiInheritLabel(editingModel)}, ...modelApiOptions]" />
                     <FormInput v-model="editingModel.api" placeholder="可手动输入自定义 Pi API" class="bg-[var(--bg-input)] shadow-sm" />
                 </div>
                 <div class="space-y-1.5">
@@ -1989,11 +2088,40 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
             </div>
             <div class="grid gap-3 md:grid-cols-2">
                 <div class="space-y-1.5">
-                    <label class="text-xs font-medium text-[var(--text-secondary)]">输入能力</label>
-                    <FormInput v-model="editingModel.input" placeholder="text 或 text,image；留空继承" class="bg-[var(--bg-input)] shadow-sm" />
+                    <div class="flex items-center justify-between gap-2">
+                        <label class="text-xs font-medium text-[var(--text-secondary)]">输入能力</label>
+                        <span class="truncate text-[10px] text-[var(--text-muted)]">当前 {{ modelInputDisplayLabel(editingModel) }}</span>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <button
+                            v-for="option in modelInputOptions"
+                            :key="option.value"
+                            type="button"
+                            class="inline-flex h-9 items-center gap-2 rounded-md border px-3 text-xs font-medium transition-colors"
+                            :class="modelInputEnabled(editingModel, option.value) ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                            :title="`${option.label}输入`"
+                            @click="toggleModelInput(editingModel, option.value)"
+                        >
+                            <span class="h-3.5 w-3.5" :class="option.iconClass"></span>
+                            {{ option.label }}
+                        </button>
+                        <button
+                            type="button"
+                            class="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                            title="清空后继承 Pi registry 或 Provider 默认"
+                            @click="editingModel.input = ''"
+                        >
+                            <span class="i-lucide-rotate-ccw h-3.5 w-3.5"></span>
+                            继承
+                        </button>
+                    </div>
                 </div>
                 <div class="space-y-1.5">
-                    <label class="text-xs font-medium text-[var(--text-secondary)]">Reasoning</label>
+                    <div class="flex items-center justify-between gap-2">
+                        <label class="text-xs font-medium text-[var(--text-secondary)]">Reasoning 能力</label>
+                        <span class="truncate text-[10px] text-[var(--text-muted)]">当前 {{ modelReasoningDisplayLabel(editingModel) }}</span>
+                    </div>
+                    <p class="text-[10px] leading-4 text-[var(--text-muted)]">这里只描述模型是否支持思考；思考强度在 Agent Profile 或当前 Session 调节。</p>
                     <FormSelect v-model="editingModel.reasoning" :options="[{value: 'inherit', label: '继承'}, {value: 'true', label: '支持'}, {value: 'false', label: '不支持'}]" />
                 </div>
             </div>
