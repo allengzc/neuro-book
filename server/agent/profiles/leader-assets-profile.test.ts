@@ -136,6 +136,11 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).toContain("writer");
         expect(prompt).toContain("retrieval");
         expect(prompt).toContain("一章节一 agent");
+        expect(prompt).toContain("不是“一次写作任务一 agent”");
+        expect(prompt).toContain("description 是 profile 的能力/适用场景说明");
+        expect(prompt).toContain("优先复用已有同 profile 且同创建 input 语义的 agent");
+        expect(prompt).toContain("metadata.input");
+        expect(prompt).toContain("WriterInputSchema 创建值语义变化");
         expect(prompt).toContain("chapterPaths");
         expect(prompt).toContain("writer.lorebookEntries 只接收内容节点 path 字符串数组");
         expect(prompt).toContain("创建 retrieval 时只传自然语言 prompt");
@@ -167,6 +172,9 @@ describe("assets builtin v3 profiles", () => {
         const historyText = (prepared.historyInitMessages ?? []).map(messageText).join("\n");
         expect(historyText).toContain("Available Agents");
         expect(historyText).toContain("writer");
+        expect(historyText).toContain("单章节正文写作 agent");
+        expect(historyText).toContain("可被多次 invoke");
+        expect(historyText).toContain("内容节点召回和候选判断 agent");
         expect(historyText).toContain("get_agent_profile");
         expect(historyText).not.toContain("本次写作任务");
         expect(historyText).not.toContain("allowedTools:");

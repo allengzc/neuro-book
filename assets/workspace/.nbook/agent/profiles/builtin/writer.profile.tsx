@@ -20,7 +20,7 @@ const ENABLE_KITTEN_ADULT_STYLE = false;
 export const profileManifest = {
     key: "writer",
     name: "Writer",
-    description: "专用正文写作 agent，保留小猫之神 persona、写作风格约束和参考文档流程。",
+    description: "单章节正文写作 agent：创建 input 绑定唯一章节和稳定写作上下文，可被多次 invoke 继续润色、局部修改或改同一章。",
 } as const;
 
 export const InputSchema = WriterInputSchema;

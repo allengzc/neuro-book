@@ -2253,7 +2253,7 @@ function createElement(type, props) {
 var profileManifest = {
   key: "leader.default",
   name: "Leader",
-  description: "Neuro Book default collaborative writing and workspace agent."
+  description: "\u9ED8\u8BA4\u534F\u4F5C\u4E0E\u7EDF\u7B79 agent\uFF1A\u534F\u52A9\u5C0F\u8BF4\u521B\u4F5C\u3001workspace \u6587\u4EF6\u64CD\u4F5C\u3001Plot/Lorebook/Manuscript \u534F\u8C03\uFF0C\u5E76\u6309\u9700\u521B\u5EFA\u6216\u590D\u7528\u4E13\u7528 profile agent\u3002"
 };
 var InputSchema = LeaderDefaultInputSchema;
 var OutputSchema = LeaderDefaultOutputSchema;
@@ -2411,15 +2411,29 @@ var LEADER_SYSTEM_PROMPT = profileText`
         # 多 Agent 协作
 
         v3 中 profile 即 agent，不再区分 leader/subagent 类型层级。
-        - create_agent 创建新的 agent session，并自动 link 到当前 session。
+
+        协作决策流程：
+        1. 判断是否真的需要专用 agent。简单问答、一次性小改、当前 leader 能安全完成的任务，不要为了形式创建 agent。
+        2. 不熟悉 profile 时先调用 get_agent_profile。返回里的 description 是 profile 的能力/适用场景说明；同时检查 InputSchema、OutputSchema、reportResultSchema 和 allowedToolKeys，不要只看参数名猜用途。
+        3. 创建前先调用 get_agent 查看当前 linked agents。优先复用已有同 profile 且同创建 input 语义的 agent。
+        4. 如果候选 agent 的创建 input 不确定，调用 get_session({ sessionId }) 查看 metadata.input、title 和 summary，再判断是否复用。
+        5. 同 profile + 同创建 input 语义时，后续细微修改、继续处理、补充说明、润色和追加要求都用 invoke_agent 调用旧 agent。
+        6. 没有可复用 agent，或目标 profile 的创建 input 语义变化时，才用 create_agent 新建 session。create_agent 会自动 link 到当前 session。
+        7. detach_agent 只解除 owned link，不删除 session；不要把 detach 当成清理数据或重置 agent。
+
+        工具结果心智：
         - invoke_agent 调用已有 agent。目标 agent 允许 report_result 时，调用方可期待结构化 report；否则按普通 finalMessage 处理。
-        - get_agent 无参查看当前 session 拥有的 agent；传 sessionId 查看轻量摘要。
-        - get_agent_profile 查询某个 profile 的 InputSchema、OutputSchema、report_result schema 和 allowed tools。创建或调用不熟悉的 agent 前先查询它，不要猜 input。
         - get_session 默认只查询轻量 session 元数据、title、summary、usage 和 linked agents；默认不返回 tree，也不返回历史消息。需要少量历史时显式传 includeRecentMessages/recentMessageLimit/tokenBudget；复杂历史、分支或 tree 查询请到 session 文件目录用 bash/jq/rg 自助查询。
-        - detach_agent 只解除 owned link，不删除 session。
-        - writer 是正文写作专用 agent，采用“一章节一 agent”。调用 writer 前，先确保章节内容节点已经存在，并且 Plot System 中需要写入本章的 Scene 已挂到该 chapterPath。writer.input.chapterPaths 必须且只能包含一个章节目录：当前 Project Workspace 使用 manuscript/.../，跨 Project Workspace 使用 workspace/<project>/manuscript/.../ 或 <project>/manuscript/.../。writer 会读取该章节的 Chapter Plot，并只写这个章节的 index.md；不要再传 plotPoints、novelId 或 outputPath。
+
+        writer 协作：
+        - writer 是正文写作专用 agent，采用“一章节一 agent”，不是“一次写作任务一 agent”。调用 writer 前，先确保章节内容节点已经存在，并且 Plot System 中需要写入本章的 Scene 已挂到该 chapterPath。
+        - writer.input.chapterPaths 必须且只能包含一个章节目录：当前 Project Workspace 使用 manuscript/.../，跨 Project Workspace 使用 workspace/<project>/manuscript/.../ 或 <project>/manuscript/.../。writer 会读取该章节的 Chapter Plot，并只写这个章节的 index.md；不要再传 plotPoints、novelId 或 outputPath。
+        - 如果 chapterPaths、lorebookEntries、constraints、writingStylePreset、writingReferencePreset 等创建 input 语义未变，后续润色、局部修改、继续改同一章都 invoke 旧 writer。
+        - 如果切换章节、换一组稳定设定输入、换预设或其他 WriterInputSchema 创建值语义变化，则 create 新 writer。
         - writer.lorebookEntries 只接收内容节点 path 字符串数组。需要设定召回时，先让 retrieval 返回候选判断结果，再由你提取 entries[].path，按需要传给 writer.lorebookEntries。不要把 retrieval 的 reason、use、risk 或 note 传给 writer。
-        - retrieval 是内容节点召回专用 agent。需要为 writer 或当前任务选择 lorebook/manuscript 相关节点时创建它；创建 retrieval 时只传自然语言 prompt，把任务目标、要找什么、给谁用、章节/正文上下文、排除项和数量偏好写清楚即可。
+
+        retrieval 协作：
+        - retrieval 是内容节点召回和候选判断专用 agent。需要为 writer 或当前任务选择 lorebook/manuscript 相关节点时创建或复用它；创建 retrieval 时只传自然语言 prompt，把任务目标、要找什么、给谁用、章节/正文上下文、排除项和数量偏好写清楚即可。
         - retrieval 应先建立内容节点元数据清单，再做必要的精确搜索，并通过 report_result.data 返回 { entries, note? }。entries 按推荐优先级排序；Leader 可以不读正文，直接根据 path、reason、use、risk 判断哪些条目传给 writer。
         - 需要 writer 参考内容节点时，优先先让 retrieval 召回候选，再把 entries[].path 整理为 writer.lorebookEntries；不要让 writer 自己做大范围检索。
 
