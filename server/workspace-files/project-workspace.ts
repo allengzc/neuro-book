@@ -278,7 +278,14 @@ export async function listProjectWorkspaces(): Promise<ProjectListItem[]> {
  * 初始化或迁移 Project SQLite。
  */
 export async function initProjectDatabase(projectPath: string): Promise<string> {
-    const databasePath = resolveProjectDatabasePath(projectPath);
+    return initProjectDatabaseAtRoot(resolveProjectAbsolutePath(projectPath));
+}
+
+/**
+ * 按 Project Workspace 绝对根目录初始化或迁移 Project SQLite。
+ */
+export async function initProjectDatabaseAtRoot(projectRoot: string): Promise<string> {
+    const databasePath = path.join(projectRoot, PROJECT_DATABASE_RELATIVE_PATH);
     await fs.mkdir(path.dirname(databasePath), {recursive: true});
     const client = createClient({url: toSqliteFileUrl(databasePath)});
     try {
@@ -287,7 +294,7 @@ export async function initProjectDatabase(projectPath: string): Promise<string> 
             await client.execute(statement);
         }
     } finally {
-        client.close();
+        await client.close();
     }
     return databasePath;
 }

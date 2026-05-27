@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import {fileURLToPath} from "node:url";
 import {Command} from "commander";
+import * as yaml from "yaml";
 import {
     workspaceContentJsonSchema,
     WORKSPACE_CONTENT_STATUSES,
@@ -20,6 +22,7 @@ import {
     type WorkspaceFileIssue,
     validateWorkspaceContentNodes,
 } from "nbook/server/workspace-files/workspace-files";
+import {initProjectDatabaseAtRoot, PROJECT_DATABASE_RELATIVE_PATH} from "nbook/server/workspace-files/project-workspace";
 
 type WorkspaceNodeNewOptions = {
     title?: string;
@@ -49,9 +52,31 @@ type WorkspaceSchemaOptions = {
     json: boolean;
 };
 
+type WorkspaceProjectCreateOptions = {
+    title?: string;
+    summary?: string;
+    template?: string;
+    json: boolean;
+    db: boolean;
+};
+
 type ResolvedWorkspaceTarget = {
     root: string;
     relativePath: string;
+};
+
+type CreatedProjectWorkspace = {
+    projectPath: string;
+    absolutePath: string;
+    title: string;
+    summary: string;
+    templateRoot: string;
+    databasePath: string | null;
+};
+
+type ProjectTemplateSource = {
+    root: string;
+    overlay: boolean;
 };
 
 type ParsedContentNode = {
@@ -80,7 +105,12 @@ type ParsedContentNode = {
 
 const program = new Command();
 const INVOCATION_CWD = process.cwd();
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const WORKSPACE_METADATA_FILE = "workspace.yaml";
+const PROJECT_METADATA_FILE = "project.yaml";
+const DEFAULT_TEMPLATE_NAME = "novel-directory-templates";
+const WORKSPACE_ROOT_NAME = "workspace";
+const SYSTEM_TEMPLATE_ROOT = path.resolve(SCRIPT_DIR, "..", "..", "templates");
 
 program
     .name("workspace")
@@ -89,6 +119,39 @@ program
 const nodeCommand = program
     .command("node")
     .description("处理 lorebook/manuscript 标准内容节点");
+
+const projectCommand = program
+    .command("project")
+    .description("创建和维护 Project Workspace");
+
+projectCommand
+    .command("create")
+    .description("从模板创建新的小说 Project Workspace")
+    .argument("<project>", "Project Path，例如 workspace/my-novel；在 Workspace Root 内执行时也可写 my-novel")
+    .option("--title <title>", "project.yaml title，默认从目录名推断")
+    .option("--summary <summary>", "project.yaml summary", "")
+    .option("--template <template>", "模板目录名或绝对路径", DEFAULT_TEMPLATE_NAME)
+    .option("--json", "输出 JSON", false)
+    .option("--no-db", "只创建文件模板，不初始化 .nbook/project.sqlite")
+    .action(async (project: string, options: WorkspaceProjectCreateOptions) => {
+        try {
+            const created = await createProjectWorkspace(project, options);
+            if (options.json) {
+                console.log(JSON.stringify(created, null, 2));
+                return;
+            }
+
+            console.log(`Created ${created.projectPath}`);
+            console.log(`Title: ${created.title}`);
+            console.log(`Template: ${created.templateRoot}`);
+            if (created.databasePath) {
+                console.log(`Database: ${created.databasePath}`);
+            }
+        } catch (error) {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exitCode = 1;
+        }
+    });
 
 nodeCommand
     .command("new")
@@ -351,6 +414,157 @@ async function resolveSingleWorkspaceTarget(target: string): Promise<ResolvedWor
 }
 
 /**
+ * 从模板创建 Project Workspace，并写入当前 Project manifest。
+ */
+async function createProjectWorkspace(
+    project: string,
+    options: WorkspaceProjectCreateOptions,
+): Promise<CreatedProjectWorkspace> {
+    const target = resolveProjectTarget(project);
+    if (await pathExists(target.absolutePath)) {
+        throw new Error(`Project Workspace 已存在: ${target.projectPath}`);
+    }
+
+    const templateSources = await resolveProjectTemplateSources(options.template ?? DEFAULT_TEMPLATE_NAME);
+    const templateRoot = templateSources.map((source) => source.root).join(" + ");
+    await fs.mkdir(path.dirname(target.absolutePath), {recursive: true});
+    const stagingRoot = await fs.mkdtemp(path.join(path.dirname(target.absolutePath), `.${target.projectSlug}.creating-`));
+    try {
+        for (const source of templateSources) {
+            await fs.cp(source.root, stagingRoot, {
+                recursive: true,
+                force: source.overlay,
+                errorOnExist: !source.overlay,
+            });
+        }
+        await normalizeProjectTemplateArtifacts(stagingRoot);
+
+        const title = options.title?.trim() || inferProjectTitle(target.projectSlug);
+        const summary = options.summary?.trim() ?? "";
+        await fs.writeFile(path.join(stagingRoot, PROJECT_METADATA_FILE), yaml.stringify({
+            kind: "novel",
+            title,
+            summary,
+        }), "utf-8");
+
+        const databasePath = options.db === false ? null : path.join(target.absolutePath, PROJECT_DATABASE_RELATIVE_PATH);
+        if (options.db !== false) {
+            await initProjectDatabaseAtRoot(stagingRoot);
+        }
+        await fs.cp(stagingRoot, target.absolutePath, {
+            recursive: true,
+            force: false,
+            errorOnExist: true,
+        });
+        await removeDirectoryWithRetry(stagingRoot);
+        return {
+            projectPath: target.projectPath,
+            absolutePath: target.absolutePath,
+            title,
+            summary,
+            templateRoot,
+            databasePath,
+        };
+    } catch (error) {
+        await removeDirectoryWithRetry(stagingRoot).catch(() => undefined);
+        throw error;
+    }
+}
+
+/**
+ * 清理旧 novel workspace 模板产物，避免新 Project Workspace 继续暴露 workspace.yaml 心智。
+ */
+async function normalizeProjectTemplateArtifacts(projectRoot: string): Promise<void> {
+    await fs.rm(path.join(projectRoot, WORKSPACE_METADATA_FILE), {force: true});
+    const statusPath = path.join(projectRoot, "PROJECT-STATUS.md");
+    try {
+        const content = await fs.readFile(statusPath, "utf-8");
+        const normalizedContent = content.replace("已创建 `workspace.yaml`、", "已创建 `project.yaml`、");
+        if (normalizedContent !== content) {
+            await fs.writeFile(statusPath, normalizedContent, "utf-8");
+        }
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return;
+        }
+        throw error;
+    }
+}
+
+/**
+ * 解析 Project 创建目标；从仓库根执行时允许 workspace/<slug>，从 Workspace Root 执行时允许 <slug>。
+ */
+function resolveProjectTarget(project: string): {projectSlug: string; projectPath: string; absolutePath: string} {
+    const normalizedProject = project.trim().replaceAll("\\", "/").replace(/\/+$/g, "");
+    if (!normalizedProject || normalizedProject.includes("..") || path.posix.isAbsolute(normalizedProject)) {
+        throw new Error("project 必须是 workspace/<project> 或单段 project 目录名");
+    }
+
+    const parts = normalizedProject.split("/").filter(Boolean);
+    const projectSlug = parts.length === 2 && parts[0] === WORKSPACE_ROOT_NAME
+        ? parts[1]
+        : parts.length === 1
+            ? parts[0]
+            : "";
+    if (!projectSlug || !/^[a-z0-9][a-z0-9._-]*$/i.test(projectSlug)) {
+        throw new Error("project 只能是 workspace 下的单段目录名，支持字母、数字、点、下划线和连字符");
+    }
+
+    const workspaceRoot = resolveWorkspaceContainerRoot();
+    const absolutePath = path.join(workspaceRoot, projectSlug);
+    return {
+        projectSlug,
+        projectPath: path.posix.join(WORKSPACE_ROOT_NAME, projectSlug),
+        absolutePath,
+    };
+}
+
+/**
+ * 推断 Workspace Root 的绝对路径，兼容从仓库根、Workspace Root 或某个 Project Workspace 内执行。
+ */
+function resolveWorkspaceContainerRoot(): string {
+    const cwd = path.resolve(INVOCATION_CWD);
+    if (path.basename(cwd) === WORKSPACE_ROOT_NAME) {
+        return cwd;
+    }
+    if (path.basename(path.dirname(cwd)) === WORKSPACE_ROOT_NAME) {
+        return path.dirname(cwd);
+    }
+    return path.join(cwd, WORKSPACE_ROOT_NAME);
+}
+
+/**
+ * 查找 Project 模板目录；优先使用当前 Workspace Root 的用户覆盖层，再回退到 bundled 模板。
+ */
+async function resolveProjectTemplateSources(template: string): Promise<ProjectTemplateSource[]> {
+    const trimmedTemplate = template.trim();
+    if (!trimmedTemplate) {
+        throw new Error("template 不能为空");
+    }
+    if (path.isAbsolute(trimmedTemplate)) {
+        const templateRoot = path.resolve(trimmedTemplate);
+        if (await isDirectory(templateRoot)) {
+            return [{root: templateRoot, overlay: false}];
+        }
+        throw new Error(`找不到 Project 模板: ${trimmedTemplate}`);
+    }
+
+    const systemRoot = path.join(SYSTEM_TEMPLATE_ROOT, trimmedTemplate);
+    const userRoot = path.join(resolveWorkspaceContainerRoot(), ".nbook", "templates", trimmedTemplate);
+    const sources: ProjectTemplateSource[] = [];
+    if (await isDirectory(systemRoot)) {
+        sources.push({root: systemRoot, overlay: false});
+    }
+    if (userRoot !== systemRoot && await isDirectory(userRoot)) {
+        sources.push({root: userRoot, overlay: sources.length > 0});
+    }
+    if (sources.length > 0) {
+        return sources;
+    }
+    throw new Error(`找不到 Project 模板: ${trimmedTemplate}`);
+}
+
+/**
  * 从路径向上寻找最近的 workspace.yaml。
  */
 async function findWorkspaceRoot(startPath: string): Promise<string> {
@@ -505,6 +719,16 @@ function inferTitle(target: string): string {
 }
 
 /**
+ * 从 Project 目录名推断展示标题。
+ */
+function inferProjectTitle(projectSlug: string): string {
+    return projectSlug
+        .replace(/[-_]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim() || "未命名小说";
+}
+
+/**
  * 判断路径是否存在。
  */
 async function pathExists(filePath: string): Promise<boolean> {
@@ -514,6 +738,47 @@ async function pathExists(filePath: string): Promise<boolean> {
     } catch {
         return false;
     }
+}
+
+/**
+ * 判断路径是否为目录。
+ */
+async function isDirectory(filePath: string): Promise<boolean> {
+    try {
+        return (await fs.stat(filePath)).isDirectory();
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return false;
+        }
+        throw error;
+    }
+}
+
+/**
+ * Windows 下 SQLite 句柄释放偶尔滞后，目录清理需要短重试。
+ */
+async function removeDirectoryWithRetry(directoryPath: string): Promise<void> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+            await fs.rm(directoryPath, {recursive: true, force: true});
+            return;
+        } catch (error) {
+            if (attempt === 4 || !isBusyFileError(error)) {
+                throw error;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+        }
+    }
+}
+
+/**
+ * 判断是否是 Windows 文件句柄暂未释放导致的临时错误。
+ */
+function isBusyFileError(error: unknown): boolean {
+    return typeof error === "object"
+        && error !== null
+        && "code" in error
+        && (error.code === "EBUSY" || error.code === "EPERM");
 }
 
 /**

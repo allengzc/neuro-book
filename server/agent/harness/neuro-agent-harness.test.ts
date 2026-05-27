@@ -2272,9 +2272,15 @@ describe("NeuroAgentHarness", () => {
         expect(result.status).toBe("completed");
 
         await waitFor(async () => {
-            const session = await harness.getSession(created.sessionId);
-            expect(session.title).toBe("摘要标题");
-            expect(session.summary).toBe("本轮讨论已经完成摘要。");
+            const snapshot = await harness.getSessionSnapshot(created.sessionId);
+            expect(snapshot.summary.title).toBe("摘要标题");
+            expect(snapshot.summary.summary).toBe("本轮讨论已经完成摘要。");
+            expect(snapshot.summarizer).toEqual(expect.objectContaining({
+                running: false,
+                dirty: false,
+                lastRunAt: expect.any(Number),
+                lastDialogueContentTokens: expect.any(Number),
+            }));
         });
         const sourceSnapshot = await harness.getSessionSnapshot(created.sessionId);
         const sourceContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
@@ -2342,8 +2348,10 @@ describe("NeuroAgentHarness", () => {
 
         expect(result.status).toBe("completed");
         await waitFor(async () => {
-            const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-            expect(context.customState[SESSION_SUMMARIZER_STATE_KEY]).toEqual(expect.objectContaining({
+            const snapshot = await harness.getSessionSnapshot(created.sessionId);
+            expect(snapshot.summarizer).toEqual(expect.objectContaining({
+                running: false,
+                dirty: false,
                 lastError: expect.stringContaining("title"),
             }));
         });

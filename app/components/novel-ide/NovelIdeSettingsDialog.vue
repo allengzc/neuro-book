@@ -351,15 +351,15 @@ watch(activeScope, (scope) => {
         <!-- 固定高度，顶部配置目标栏 + 左右分栏 -->
         <div class="flex h-full flex-col gap-4">
             <!-- 配置目标栏 -->
-            <section class="shrink-0 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 shadow-sm">
+            <section class="shrink-0 rounded-2xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-20 px-4 py-3 shadow-sm transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
                 <div class="flex flex-wrap items-center justify-between gap-3">
                     <div class="flex min-w-0 flex-wrap items-center gap-2">
                         <button
                             v-for="scope in scopeOptions"
                             :key="scope.value"
                             type="button"
-                            class="inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-45"
-                            :class="activeScope === scope.value ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                            class="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--border-color)] border-opacity-60 px-3 text-xs font-medium transition-all duration-200 disabled:pointer-events-none disabled:opacity-45"
+                            :class="activeScope === scope.value ? 'border-[var(--accent-main)] border-opacity-30 bg-[var(--accent-bg)] text-[var(--accent-text)] shadow-sm' : 'bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
                             :disabled="scope.value === 'project' && novelIdeStore.workspaceKind === 'user-assets'"
                             :title="scope.description"
                             @click="selectScope(scope.value)"
@@ -376,11 +376,11 @@ watch(activeScope, (scope) => {
                 </div>
 
                 <div class="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-secondary)]">
-                    <span class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-1">
+                    <span class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] px-2.5 py-1">
                         <span class="i-lucide-file-json-2 h-3 w-3 text-[var(--text-muted)]"></span>
                         {{ targetConfigPath }}
                     </span>
-                    <span v-if="activeScope === 'project'" class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-1">
+                    <span v-if="activeScope === 'project'" class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] px-2.5 py-1">
                         <span class="i-lucide-pin h-3 w-3 text-[var(--text-muted)]"></span>
                         只修改所选 Project，不切换当前小说
                     </span>
@@ -399,11 +399,11 @@ watch(activeScope, (scope) => {
                         v-for="item in visibleSectionItems"
                         :key="item.value"
                         class="group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-all duration-200"
-                        :class="activeSection === item.value ? 'bg-[var(--bg-input)] text-[var(--text-main)] shadow-[0_2px_8px_rgba(0,0,0,0.04)] border border-[var(--border-color)]' : 'border border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]/40 hover:text-[var(--text-main)]'"
+                        :class="activeSection === item.value ? 'bg-[var(--bg-input)] text-[var(--text-main)] shadow-[0_2px_8px_rgba(0,0,0,0.04)] border border-[var(--border-color)]' : 'border border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:bg-opacity-40 hover:text-[var(--text-main)]'"
                         @click="activeSection = item.value"
                     >
                         <!-- 图标 -->
-                        <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors duration-300" :class="activeSection === item.value ? 'bg-[var(--accent-main)] text-white shadow-sm' : 'bg-transparent text-[var(--text-muted)] group-hover:text-[var(--text-main)]'">
+                        <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors duration-300" :class="activeSection === item.value ? 'bg-[var(--accent-bg)] text-[var(--accent-text)] shadow-sm font-semibold' : 'bg-transparent text-[var(--text-muted)] group-hover:text-[var(--text-main)]'">
                             <span :class="item.iconClass" class="h-4 w-4"></span>
                         </div>
                         
@@ -416,8 +416,8 @@ watch(activeScope, (scope) => {
 
                 <!-- 底部提示信息移至侧边栏 -->
                 <div class="mt-auto pt-4">
-                    <div class="rounded-xl border border-[var(--border-color)]/60 bg-[var(--bg-panel)]/50 px-3.5 py-3 shadow-sm">
-                        <span class="i-lucide-info mb-1.5 block h-3.5 w-3.5 text-[var(--text-muted)]"></span>
+                    <div class="rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-15 px-3.5 py-3 shadow-sm flex items-start gap-2">
+                        <span class="i-lucide-info h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] mt-0.5"></span>
                         <div class="text-[11px] leading-relaxed text-[var(--text-secondary)]">
                             {{ sidebarHint }}
                         </div>
@@ -512,7 +512,7 @@ watch(activeScope, (scope) => {
                                     <div class="w-72 shrink-0">
                                         <input
                                             list="markdown-editor-font-options"
-                                            class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20"
+                                            class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20"
                                             :value="markdownEditorPreferences.fontFamily"
                                             placeholder="输入 CSS font-family"
                                             @input="updateEditorPreferences({fontFamily: ($event.target as HTMLInputElement).value})"
@@ -527,19 +527,19 @@ watch(activeScope, (scope) => {
                                     <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
                                         <span class="text-sm font-medium text-[var(--text-main)]">字号</span>
                                         <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">单位 px，建议 15-18。</span>
-                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20" :value="markdownEditorPreferences.fontSize" min="12" max="28" step="1" @input="updateEditorNumber('fontSize', ($event.target as HTMLInputElement).value, 12, 28)">
+                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="markdownEditorPreferences.fontSize" min="12" max="28" step="1" @input="updateEditorNumber('fontSize', ($event.target as HTMLInputElement).value, 12, 28)">
                                     </label>
 
                                     <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
                                         <span class="text-sm font-medium text-[var(--text-main)]">行高</span>
                                         <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">无单位倍率，建议 1.6-2.0。</span>
-                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20" :value="markdownEditorPreferences.lineHeight" min="1.2" max="2.6" step="0.05" @input="updateEditorNumber('lineHeight', ($event.target as HTMLInputElement).value, 1.2, 2.6)">
+                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="markdownEditorPreferences.lineHeight" min="1.2" max="2.6" step="0.05" @input="updateEditorNumber('lineHeight', ($event.target as HTMLInputElement).value, 1.2, 2.6)">
                                     </label>
 
                                     <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
                                         <span class="text-sm font-medium text-[var(--text-main)]">正文宽度</span>
                                         <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">单位 px，控制居中正文栏宽度。</span>
-                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20" :value="markdownEditorPreferences.contentWidth" min="520" max="1280" step="20" @input="updateEditorNumber('contentWidth', ($event.target as HTMLInputElement).value, 520, 1280)">
+                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="markdownEditorPreferences.contentWidth" min="520" max="1280" step="20" @input="updateEditorNumber('contentWidth', ($event.target as HTMLInputElement).value, 520, 1280)">
                                     </label>
 
                                     <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
@@ -552,7 +552,7 @@ watch(activeScope, (scope) => {
                                                 <span class="absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow transition-transform" :class="markdownEditorPreferences.paragraphIndentEnabled ? 'translate-x-5' : 'translate-x-0.5'"></span>
                                             </button>
                                         </div>
-                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20 disabled:opacity-50" :value="markdownEditorPreferences.paragraphIndentEm" min="0" max="4" step="0.25" :disabled="!markdownEditorPreferences.paragraphIndentEnabled" @input="updateEditorNumber('paragraphIndentEm', ($event.target as HTMLInputElement).value, 0, 4)">
+                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20 disabled:opacity-50" :value="markdownEditorPreferences.paragraphIndentEm" min="0" max="4" step="0.25" :disabled="!markdownEditorPreferences.paragraphIndentEnabled" @input="updateEditorNumber('paragraphIndentEm', ($event.target as HTMLInputElement).value, 0, 4)">
                                     </div>
                                 </div>
                             </div>
@@ -580,7 +580,7 @@ watch(activeScope, (scope) => {
                                     <div class="w-72 shrink-0">
                                         <input
                                             list="monaco-editor-font-options"
-                                            class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20"
+                                            class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-xs text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20"
                                             :value="monacoEditorPreferences.fontFamily"
                                             placeholder="输入 CSS font-family"
                                             @input="updateMonacoPreferences({fontFamily: ($event.target as HTMLInputElement).value})"
@@ -595,19 +595,19 @@ watch(activeScope, (scope) => {
                                     <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
                                         <span class="text-sm font-medium text-[var(--text-main)]">源码字号</span>
                                         <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">默认字号，单位 px。</span>
-                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20" :value="monacoEditorPreferences.fontSize" min="10" max="32" step="1" @input="updateMonacoNumber('fontSize', ($event.target as HTMLInputElement).value, 10, 32)">
+                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="monacoEditorPreferences.fontSize" min="10" max="32" step="1" @input="updateMonacoNumber('fontSize', ($event.target as HTMLInputElement).value, 10, 32)">
                                     </label>
 
                                     <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
                                         <span class="text-sm font-medium text-[var(--text-main)]">源码行高</span>
                                         <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">单位 px。</span>
-                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20" :value="monacoEditorPreferences.lineHeight" min="16" max="56" step="1" @input="updateMonacoNumber('lineHeight', ($event.target as HTMLInputElement).value, 16, 56)">
+                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="monacoEditorPreferences.lineHeight" min="16" max="56" step="1" @input="updateMonacoNumber('lineHeight', ($event.target as HTMLInputElement).value, 16, 56)">
                                     </label>
 
                                     <label class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
                                         <span class="text-sm font-medium text-[var(--text-main)]">Tab Size</span>
                                         <span class="mt-0.5 block text-xs text-[var(--text-secondary)]">缩进空格数。</span>
-                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)]/20" :value="monacoEditorPreferences.tabSize" min="2" max="8" step="1" @input="updateMonacoNumber('tabSize', ($event.target as HTMLInputElement).value, 2, 8)">
+                                        <input type="number" class="mt-3 h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-sm text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] focus:ring-1 focus:ring-[var(--accent-main)] focus:ring-opacity-20" :value="monacoEditorPreferences.tabSize" min="2" max="8" step="1" @input="updateMonacoNumber('tabSize', ($event.target as HTMLInputElement).value, 2, 8)">
                                     </label>
                                 </div>
 

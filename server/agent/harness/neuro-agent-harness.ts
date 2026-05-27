@@ -46,6 +46,7 @@ import type {
     AgentPendingApprovalDto,
     AgentSessionEventDto,
     AgentSessionListQueryDto,
+    AgentSessionSummarizerStateDto,
     AgentSessionSnapshotDto,
     AgentSessionSummaryDto,
     AgentTreeRequestDto,
@@ -611,12 +612,14 @@ export class NeuroAgentHarness {
         const linkedByAgents = await this.linkedByAgents(snapshot.metadata.sessionId, snapshot.metadata.workspaceKey);
         const systemPrompt = await this.snapshotSystemPrompt(snapshot, context);
         const effectiveThinkingLevel = await this.snapshotThinkingLevel(snapshot, context);
+        const summarizer = this.sessionSummarizerStateDto(context);
 
         return {
             summary: {
                 ...this.repo.summary(snapshot),
                 status: this.resolveSessionStatus(sessionId, context.archived),
             },
+            ...(summarizer ? {summarizer} : {}),
             activeLeafId: snapshot.leafId,
             ...systemPrompt ? {systemPrompt} : {},
             messages: context.messages,
@@ -634,6 +637,23 @@ export class NeuroAgentHarness {
             planModeActive: context.planModeActive,
             lastSeq: this.eventHub.lastSeq,
             usage: [...context.messages].reverse().find((message) => message.role === "assistant")?.usage,
+        };
+    }
+
+    /**
+     * 把内部 summarizer custom state 投影成前端可用状态。
+     */
+    private sessionSummarizerStateDto(context: NeuroSessionContext): AgentSessionSummarizerStateDto | undefined {
+        const state = this.readSummarizerState(context);
+        if (!state.sessionId && !state.running && !state.dirty && !state.lastRunAt && !state.lastError) {
+            return undefined;
+        }
+        return {
+            running: state.running === true,
+            dirty: state.dirty === true,
+            lastDialogueContentTokens: state.lastDialogueContentTokens,
+            lastRunAt: state.lastRunAt,
+            lastError: state.lastError,
         };
     }
 

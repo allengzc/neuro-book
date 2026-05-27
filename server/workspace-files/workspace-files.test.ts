@@ -816,6 +816,34 @@ describe("workspace-files", () => {
         }
     });
 
+    it("同步系统 assets 会更新仍跟随上游的 Agent runtime script", async () => {
+        const userScriptPath = path.join("workspace", ".nbook", "agent", "scripts", "workspace.ts");
+        const syncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const scriptBackup = await backupOptionalFile(userScriptPath);
+        const syncStateBackup = await backupOptionalFile(syncStatePath);
+        const previousScript = await readGitHeadFile("assets/workspace/.nbook/agent/scripts/workspace.ts");
+
+        try {
+            await fs.mkdir(path.dirname(userScriptPath), {recursive: true});
+            await fs.writeFile(userScriptPath, previousScript, "utf-8");
+            await fs.writeFile(syncStatePath, JSON.stringify({profiles: [], assets: []}, null, 2), "utf-8");
+
+            const result = await syncSystemAssetsToUserAssets();
+
+            const content = await fs.readFile(userScriptPath, "utf-8");
+            const syncState = JSON.parse(await fs.readFile(syncStatePath, "utf-8")) as {assets?: Array<{assetPath: string}>};
+            expect(result.updatedAssets).toBeGreaterThanOrEqual(1);
+            expect(content).toContain(".command(\"project\")");
+            expect(content).toContain(".command(\"create\")");
+            expect(syncState.assets).toEqual(expect.arrayContaining([
+                expect.objectContaining({assetPath: "agent/scripts/workspace.ts"}),
+            ]));
+        } finally {
+            await restoreOptionalFile(userScriptPath, scriptBackup);
+            await restoreOptionalFile(syncStatePath, syncStateBackup);
+        }
+    });
+
     it("小说目录模板会创建最小 lorebook 骨架且通过内容节点校验", async () => {
         await withSystemTemplate("templates/novel-directory-templates/lorebook/rule/writing-style/index.md", async () => {
             await copyNovelDirectoryTemplate(root);
@@ -1027,18 +1055,30 @@ describe("workspace-files", () => {
     }
 
     /**
+     * 读取当前 Git HEAD 中的文件内容，用来模拟旧系统同步副本。
+     */
+    async function readGitHeadFile(filePath: string): Promise<string> {
+        const {stdout} = await execFileAsync("git", ["show", `HEAD:${filePath}`], {
+            cwd: process.cwd(),
+            encoding: "utf-8",
+            maxBuffer: 10 * 1024 * 1024,
+        });
+        return stdout;
+    }
+
+    /**
      * Windows 下 libsql 关闭 SQLite 后文件句柄可能短暂释放延迟，测试清理需要重试。
      */
     async function removeDirectoryWithRetry(dirPath: string): Promise<void> {
-        for (let attempt = 0; attempt < 5; attempt += 1) {
+        for (let attempt = 0; attempt < 10; attempt += 1) {
             try {
                 await fs.rm(dirPath, {recursive: true, force: true});
                 return;
             } catch (error) {
-                if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "EBUSY" || attempt === 4) {
+                if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "EBUSY" || attempt === 9) {
                     throw error;
                 }
-                await new Promise((resolve) => setTimeout(resolve, 100));
+                await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
             }
         }
     }

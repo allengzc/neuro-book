@@ -112,6 +112,7 @@ provide("sanitizeHtml", sanitizeHtml);
 
 const activeSnapshot = computed(() => session.snapshot.value);
 const activeSummary = computed(() => activeSnapshot.value?.summary ?? null);
+const activeSummarizer = computed(() => activeSnapshot.value?.summarizer ?? null);
 const linkedAgents = computed(() => activeSnapshot.value?.linkedAgents ?? []);
 const linkedByAgents = computed(() => activeSnapshot.value?.linkedByAgents ?? []);
 const queuedMessages = computed<AgentQueuedMessageDto[]>(() => [
@@ -207,6 +208,46 @@ watch(() => pendingUserInputSession.value?.assistantMessageId ?? null, () => {
 }, {immediate: true});
 
 const activeSessionTitle = computed(() => activeSummary.value?.title || (activeSessionId.value ? `Session #${String(activeSessionId.value)}` : "未命名对话"));
+const summarizerStatus = computed<null | {
+    label: string;
+    icon: string;
+    className: string;
+    title: string;
+    spinning: boolean;
+}>(() => {
+    const state = activeSummarizer.value;
+    if (!state) {
+        return null;
+    }
+    if (state.running && state.dirty) {
+        return {
+            label: "摘要排队",
+            icon: "i-lucide-refresh-cw",
+            className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+            title: "后台摘要正在运行；当前摘要完成后会按最新会话重新摘要。",
+            spinning: true,
+        };
+    }
+    if (state.running) {
+        return {
+            label: "摘要中",
+            icon: "i-lucide-loader-circle",
+            className: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+            title: "后台正在更新当前会话标题和摘要。",
+            spinning: true,
+        };
+    }
+    if (state.lastError) {
+        return {
+            label: "摘要失败",
+            icon: "i-lucide-triangle-alert",
+            className: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+            title: state.lastError,
+            spinning: false,
+        };
+    }
+    return null;
+});
 const sessionModelDefaultLabel = computed(() => "跟随 Profile 默认");
 const sessionModelSelectionValue = computed(() => sessionModelMode.value === "override" ? sessionModelDraft.value.modelKey : null);
 const sessionThinkingResolvedLabel = computed(() => {
@@ -1364,7 +1405,13 @@ function isApprovalApproved(answer?: {
                     </div>
                     <div class="min-w-0">
                         <div class="text-sm font-medium tracking-wide text-[var(--text-main)]">{{ activeDrawerTitle }}</div>
-                        <div class="truncate text-[10px] uppercase tracking-[0.24em] text-[var(--text-muted)]">{{ activeSessionTitle }}</div>
+                        <div class="flex min-w-0 items-center gap-1.5">
+                            <div class="truncate text-[10px] uppercase tracking-[0.24em] text-[var(--text-muted)]">{{ activeSessionTitle }}</div>
+                            <span v-if="summarizerStatus" class="inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-medium tracking-normal" :class="summarizerStatus.className" :title="summarizerStatus.title">
+                                <span class="h-3 w-3" :class="[summarizerStatus.icon, summarizerStatus.spinning ? 'animate-spin' : '']"></span>
+                                {{ summarizerStatus.label }}
+                            </span>
+                        </div>
                     </div>
                 </div>
                 <div class="flex items-center gap-1">

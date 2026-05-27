@@ -70,7 +70,7 @@ const filteredSessions = computed(() => {
     });
 });
 const sessionTitle = (session: AgentSessionSummaryDto) => session.title || `Session #${String(session.sessionId)}`;
-const sessionPreview = (session: AgentSessionSummaryDto) => session.lastMessagePreview || session.summary || "No recent messages";
+const sessionPreview = (session: AgentSessionSummaryDto) => session.summary || session.lastMessagePreview || "No recent messages";
 const canArchiveSession = (session: AgentSessionSummaryDto): boolean => session.status !== "running" && session.status !== "waiting";
 
 /**

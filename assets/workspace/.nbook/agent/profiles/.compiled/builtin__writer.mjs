@@ -43,7 +43,10 @@ async function readProjectManifest(projectPath) {
   };
 }
 async function initProjectDatabase(projectPath) {
-  const databasePath = resolveProjectDatabasePath(projectPath);
+  return initProjectDatabaseAtRoot(resolveProjectAbsolutePath(projectPath));
+}
+async function initProjectDatabaseAtRoot(projectRoot) {
+  const databasePath = path.join(projectRoot, PROJECT_DATABASE_RELATIVE_PATH);
   await fs.mkdir(path.dirname(databasePath), { recursive: true });
   const client = createClient({ url: toSqliteFileUrl(databasePath) });
   try {
@@ -52,7 +55,7 @@ async function initProjectDatabase(projectPath) {
       await client.execute(statement);
     }
   } finally {
-    client.close();
+    await client.close();
   }
   return databasePath;
 }
@@ -5854,6 +5857,8 @@ import path3 from "node:path";
 // server/workspace-files/novel-workspace.ts
 import fs2 from "node:fs/promises";
 import path2 from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 // server/agent/profiles/profile-artifact-compiler.ts
 import { build } from "esbuild";
@@ -5881,6 +5886,7 @@ var SYSTEM_PROFILE_METADATA_PATH = path2.join(SYSTEM_PROFILE_ROOT, ".system-prof
 var USER_PROFILE_SYNC_STATE_PATH = path2.join(USER_PROFILE_ROOT, ".profile-sync-state.json");
 var NOVEL_DIRECTORY_TEMPLATE_ROOT = path2.join(SYSTEM_NBOOK_ROOT, "templates", "novel-directory-templates");
 var USER_NOVEL_DIRECTORY_TEMPLATE_ROOT = path2.resolve(process.cwd(), USER_ASSETS_WORKSPACE_ROOT, "templates", "novel-directory-templates");
+var execFileAsync = promisify(execFile);
 async function ensureUserAssetsWorkspaceRoot() {
   const workspaceRoot = path2.resolve(process.cwd(), USER_ASSETS_WORKSPACE_ROOT);
   await fs2.mkdir(workspaceRoot, { recursive: true });

@@ -236,6 +236,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
 
         当前 workspace root 会在 runtime context 中提供。常见目录：
         - AGENTS.md：工作区协作说明。
+        - project.yaml：Project Workspace manifest，记录 kind、title 和 summary。
         - lorebook/：文件化设定库。内容节点通常是目录 + index.md。
         - manuscript/：正文、章节和草稿。
         - .nbook/：Neuro Book 配置、用户可编辑 agent profiles/skills、session 等。
@@ -351,6 +352,8 @@ const LEADER_SYSTEM_PROMPT = profileText`
 
         # Shell commands
 
+        - workspace project create workspace/my-novel --title "小说名" --summary "一句简介"：从 novel-directory-templates 创建新的小说 Project Workspace，写入 project.yaml，并初始化 .nbook/project.sqlite。
+        - workspace project create workspace/my-novel --no-db：只创建文件模板和 project.yaml，不初始化 Project SQLite；仅在明确不需要 Plot System 时使用。
         - workspace node parse [paths...]：解析指定内容节点，输出 path、type、status、words、refs、title。目标可以是内容节点目录或 index.md。
         - workspace node parse --stdin --ndjson：从管道读取路径并输出每行一个 JSON，适合批量读取节点元数据。
         - workspace node validate [paths...]：校验指定内容节点的 frontmatter、路径冲突、排序号和相对引用。迁移、批量编辑、引用调整后必须优先运行它。
@@ -368,6 +371,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - {"command":"rg --files | rg '(^|/)index\.md$' | workspace node validate --stdin"}
 
         使用原则：
+        - 创建新小说 Project Workspace 时优先使用 workspace project create；不要手动复制模板目录或自己拼 project.yaml。
         - workspace node parse 是内容节点解析器；它不负责查找路径，查找优先交给 rg --files 和基于 / 的精确过滤。不要用无筛选的整库枚举来探索。
         - workspace node validate 是安全网；出现 P1/P2 时，先修复能明确处理的问题，再继续写作或迁移。
         - 脚本失败时，读取错误信息并说明阻塞原因；不要假装脚本已经成功。

@@ -43,7 +43,10 @@ async function readProjectManifest(projectPath) {
   };
 }
 async function initProjectDatabase(projectPath) {
-  const databasePath = resolveProjectDatabasePath(projectPath);
+  return initProjectDatabaseAtRoot(resolveProjectAbsolutePath(projectPath));
+}
+async function initProjectDatabaseAtRoot(projectRoot) {
+  const databasePath = path.join(projectRoot, PROJECT_DATABASE_RELATIVE_PATH);
   await fs.mkdir(path.dirname(databasePath), { recursive: true });
   const client = createClient({ url: toSqliteFileUrl(databasePath) });
   try {
@@ -52,7 +55,7 @@ async function initProjectDatabase(projectPath) {
       await client.execute(statement);
     }
   } finally {
-    client.close();
+    await client.close();
   }
   return databasePath;
 }

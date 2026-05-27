@@ -32,6 +32,8 @@
 - 2026-05-27：实现第一版 Agent Summarizer Profile、Agent Dialogue Content 渲染、profile `summarizer` 声明、后台 system session 创建、leader completed 后 fire-and-forget 调度、手动 `summarize` command、结果校验写回和失败隔离。
 - 2026-05-27：修正后台 summarizer 状态写入为基于最新 session reduce 合并，避免创建 summarizer session 后的失败路径丢失 `sessionId` 并导致后续重复创建。
 - 2026-05-27：根据代码审查修正三处语义：`dialogueContentTokens` 改为按上次成功摘要 token 基线累计；summarizer 初始化 input 指纹变化时创建新的后台 system session；前端 `moveTree()` active path 切换后触发后台刷新。额外修正后台 summarizer 对源 session 的写入方式：`session_update` / state 使用 projection entry，不移动 active leaf，避免污染分支和 tree empty。
+- 2026-05-27：用户修订需求：summarizer 运行时应对用户可见，前端能收到状态并展示；会话列表需要展示 session summary，而不是只展示 title 或最近消息。
+- 2026-05-27：实现修订需求：`AgentSessionSnapshotDto` 增加 `summarizer` 状态投影，复用 `session_state_changed.snapshot` 让前端收到摘要中/排队/失败状态；Agent 抽屉头部显示低干扰 summarizer chip；会话列表描述改为优先展示 session summary。
 
 ## Decisions
 
@@ -51,7 +53,7 @@
 - Agent Summarizer Session 的 `workspaceKey` / `workspaceRoot` 跟随源 session。
 - 源 session archived 后不再自动触发摘要；已有 Agent Summarizer Session 保留，不自动归档。
 - 当前没有 delete session 主路径，暂不设计源 session 删除后的 summarizer 清理；后续如新增 delete，再同步处理或标记 orphaned。
-- 第一版不通过 SSE 暴露“摘要中”状态，只在摘要完成后沿既有 `session_update` / `session_state_changed` 刷新列表和 snapshot。
+- 第一版不通过 SSE 暴露“摘要中”状态，只在摘要完成后沿既有 `session_update` / `session_state_changed` 刷新列表和 snapshot。2026-05-27 修订：用户希望前端看到后台摘要状态；后续改为通过 snapshot 中的明确 summarizer 状态投影展示，不让 Agent 模型感知。
 - 后续手动 `summarize` command 应对源 session 调用，由 harness 查找或创建后台 Agent Summarizer Session。
 - Agent Dialogue Content fingerprint 是摘要调度的源正文变化指纹，不是 provider prompt cache key。它应基于 renderer version、纳入 Agent Dialogue Content 的 active path entry id、正文 hash、summarizer profile key/input hash 计算；`dialogueContentTokens` 单独记录用于间隔判断和诊断，不作为正文身份的核心部分。
 - 摘要 profile 的 `OutputSchema` 使用：
@@ -141,6 +143,32 @@ Type.Object({
    - 超过 `maxDialogueContentTokens` 时跳过本次摘要，记录 warning，不触发摘要者 compaction。
    - 验证：超过上限时不调用模型，不覆盖旧 title/summary，并保留可诊断状态。
 
+## Revision Plan: User-Visible Summarizer State
+
+1. 增加前端可用的 summarizer 状态投影。
+   - 后端继续以 `session.summarizer.state` 作为 append-only session state 真相源。
+   - `AgentSessionSnapshotDto` 增加明确的 `summarizer` 状态字段，避免前端读取 raw `customState`。
+   - 字段候选：`running`、`dirty`、`lastRunAt`、`lastError`、`lastDialogueContentTokens`。
+   - 事件通道优先复用现有 `session_state_changed.snapshot`；summarizer state 每次写入后已经会发布 session state。
+
+2. 在 Agent 抽屉头部展示后台摘要状态。
+   - 推荐位置：`app/components/novel-ide/NovelAgentDrawer.vue` 当前 session title 附近。
+   - `running=true` 显示低干扰 chip，例如“摘要中”。
+   - `dirty=true` 且 running 时显示“摘要排队”或通过 tooltip 说明“当前摘要完成后会按最新分支重跑”。
+   - `lastError` 非空且不 running 时显示“摘要失败” warning chip，并把错误文本放进 tooltip。
+   - summarizer 状态只面向用户，不并入 `running`，不禁用发送、停止、编辑、branch/tree 操作。
+
+3. 会话列表展示 session summary。
+   - `AgentSessionDialog.vue` 的列表描述优先使用 `session.summary`。
+   - 没有 `summary` 时 fallback 到 `lastMessagePreview`，再 fallback 到 `No recent messages`。
+   - 搜索继续覆盖 title、summary、lastMessagePreview、profileKey 和 sessionId。
+   - 第一版保持列表密度，不同时展示 summary 和 last message 两行，除非后续明确需要。
+
+4. 测试与验收。
+   - 后端测试：summarizer 运行中会通过 `session_state_changed.snapshot.summarizer.running` 对前端可见；完成后 running 归 false；失败时保留 `lastError` 且不污染 leader invocation。
+   - 前端测试：`AgentSessionDialog` 有 summary 时展示 summary，无 summary 时 fallback 到 last message；`useAgentSession` 保留 snapshot 中的 summarizer 字段。
+   - 手动验收：发送消息后 header 短暂显示“摘要中”；摘要完成后会话列表显示生成的 session summary。
+
 ## Files Changed
 
 - `assets/workspace/.nbook/agent/profiles/builtin/session.summarizer.profile.tsx`
@@ -163,6 +191,9 @@ Type.Object({
 - `server/agent/harness/neuro-agent-harness.test.ts`
 - `server/agent/variables/generated-profile-variable-types.d.ts`
 - `shared/dto/agent-session.dto.ts`
+- `app/components/novel-ide/NovelAgentDrawer.vue`
+- `app/components/novel-ide/agent/AgentSessionDialog.vue`
+- `app/components/novel-ide/agent/useAgentSession.test.ts`
 - `docs/tasks/17-session-title-summary-enhancement/README.md`
 - `CONTEXT.md`
 - `PROJECT-STATUS.md`
@@ -173,6 +204,7 @@ Type.Object({
 - 已通过 `bunx vitest run server/agent/session/dialogue-content.test.ts server/agent/session/session-repo.test.ts --reporter=dot`。
 - 已通过 `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts -t "summarizer|leader completed" --reporter=dot`。
 - 已通过 `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts -t "summarizer|leader completed|dialogueContentTokens|input 改动|tree 切换|tree empty|tree API|AppendingSet" --reporter=dot`，覆盖 review 修复点和 tree/faux 并发隔离。
+- 修订实现后新增验证目标：`bunx vitest run server/agent/harness/neuro-agent-harness.test.ts app/components/novel-ide/agent/useAgentSession.test.ts -t "summarizer|session_state_changed" --reporter=dot`。
 - 已尝试 `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts server/agent/session/session-repo.test.ts server/agent/session/dialogue-content.test.ts server/agent/profiles/catalog.test.ts server/agent/profiles/report-result-schema.test.ts --reporter=dot`，summarizer 相关测试通过，但宽套件卡在既有 `profile 内 session variable definition 会进入工具 registry` 用例：该测试直接 `variable_patch`，当前变量系统要求同一 invocation 先 `variable_read`。
 - 已尝试 `bunx tsc --noEmit --pretty false`，新增 summarizer 代码未暴露类型错误；当前失败来自既有 `server/agent/skills/silly-tavern-card-cli.test.ts` 中 `inspection.markers.* is possibly undefined`。
 

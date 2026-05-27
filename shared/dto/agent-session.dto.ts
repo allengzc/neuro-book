@@ -191,6 +191,17 @@ export type AgentSessionSummaryDto = {
     usage?: Usage;
 };
 
+export type AgentSessionSummarizerStateDto = {
+    running: boolean;
+    dirty: boolean;
+    /** 最近一次构建出的 Agent Dialogue Content token 估算。为空表示尚未运行过。 */
+    lastDialogueContentTokens?: number;
+    /** 最近一次成功摘要的完成时间。为空表示尚未成功写回过。 */
+    lastRunAt?: number;
+    /** 最近一次后台摘要错误。为空表示当前没有可展示错误。 */
+    lastError?: string;
+};
+
 export type AgentSessionProfileGroup = "all" | "leader";
 export type AgentSessionStatusFilter = "all" | "active" | "running" | "waiting" | "idle" | "interrupted" | "archived";
 export type AgentSessionRelationFilter = "all" | "top" | "child";
@@ -276,6 +287,8 @@ export type AgentSessionEventDto =
 
 export type AgentSessionSnapshotDto = {
     summary: AgentSessionSummaryDto;
+    /** 后台展示标题/摘要维护状态；仅面向 UI，不影响 Agent 运行态。 */
+    summarizer?: AgentSessionSummarizerStateDto;
     activeLeafId: string | null;
     /** 当前 profile 的 provider 级 system prompt，用于前端只读展示；不作为普通历史消息。 */
     systemPrompt?: string;

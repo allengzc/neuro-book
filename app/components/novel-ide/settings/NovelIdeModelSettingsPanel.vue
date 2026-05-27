@@ -7,6 +7,8 @@ import NovelIdeModelSelect from "nbook/app/components/novel-ide/settings/NovelId
 import NovelIdeModelEditDialog from "nbook/app/components/novel-ide/settings/NovelIdeModelEditDialog.vue";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
+import {useNotification} from "nbook/app/composables/useNotification";
+import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {
     CheckModelResponseDto,
     CheckProviderResponseDto,
@@ -100,11 +102,6 @@ type ProviderPreset = {
     description: string;
 };
 
-type StatusState = {
-    success: boolean;
-    message: string;
-};
-
 const fallbackProviderPresetOptions: ProviderPreset[] = [
     {
         value: "xiaomi-token-plan-cn",
@@ -158,11 +155,10 @@ const fallbackProviderPresetOptions: ProviderPreset[] = [
 
 const novelIdeStore = useNovelIdeStore();
 const configApi = useConfigApi();
+const notification = useNotification();
 
 const loading = ref(false);
 const saving = ref(false);
-const errorText = ref("");
-const successText = ref("");
 const activeProviderId = ref("");
 const selectedPreset = ref<string>(fallbackProviderPresetOptions[0]?.value ?? "custom");
 const draft = ref<ModelSettingsDraft>({
@@ -172,8 +168,6 @@ const draft = ref<ModelSettingsDraft>({
 const snapshotText = ref("");
 const discoveredModels = ref<Record<string, DiscoveredProviderModelDto[]>>({});
 const piCatalog = ref<PiBuiltinCatalogDto | null>(null);
-const providerStatusMap = ref<Record<string, StatusState>>({});
-const modelStatusMap = ref<Record<string, StatusState>>({});
 const resolvedContextWindowMap = ref<Record<string, number | null>>({});
 const providerTestingId = ref("");
 const providerDiscoveringId = ref("");
@@ -433,8 +427,6 @@ function applySettings(settings: ConfigModelSettingsDto): void {
     snapshotText.value = JSON.stringify(buildSavePayload());
     activeProviderId.value = draft.value.providers[0]?.id ?? "";
     discoveredModels.value = {};
-    providerStatusMap.value = {};
-    modelStatusMap.value = {};
     resolvedContextWindowMap.value = Object.fromEntries(
         settings.enabledModels.map((model) => [model.key, model.contextWindowTokens]),
     );
@@ -464,8 +456,6 @@ function applyProjectSettings(snapshot: ConfigEditorSnapshotDto): void {
     snapshotText.value = JSON.stringify({defaultModelKey: draft.value.defaultModelKey});
     activeProviderId.value = draft.value.providers[0]?.id ?? "";
     discoveredModels.value = {};
-    providerStatusMap.value = {};
-    modelStatusMap.value = {};
     resolvedContextWindowMap.value = Object.fromEntries(
         snapshot.modelSettings.enabledModels.map((model) => [model.key, model.contextWindowTokens]),
     );
@@ -762,8 +752,6 @@ function renameConfigAgentProfileModels<T extends {profileModelDefaults?: {model
  */
 async function loadSettings(): Promise<void> {
     loading.value = true;
-    errorText.value = "";
-    successText.value = "";
 
     try {
         if (!isProjectScope.value) {
@@ -777,7 +765,7 @@ async function loadSettings(): Promise<void> {
             applySettings(snapshot.modelSettings);
         }
     } catch (error) {
-        errorText.value = error instanceof Error ? error.message : "读取模型设定失败";
+        notification.error(resolveApiErrorMessage(error, "读取模型设定失败"));
     } finally {
         loading.value = false;
     }
@@ -1060,8 +1048,7 @@ async function addProvider(): Promise<void> {
     try {
         await loadPiCatalog();
     } catch (error) {
-        errorText.value = error instanceof Error ? error.message : "读取 Pi 内置模型目录失败";
-        successText.value = "";
+        notification.error(resolveApiErrorMessage(error, "读取 Pi 内置模型目录失败"));
         return;
     }
     const preset = providerPresetOptions.value.find((item) => item.value === selectedPreset.value) ?? providerPresetOptions.value[0];
@@ -1089,8 +1076,7 @@ async function addProvider(): Promise<void> {
         },
         models: builtinProvider?.models.map(clonePiModel) ?? [],
     });
-    successText.value = `已新增 Provider：${preset.label}`;
-    errorText.value = "";
+    notification.success(`已新增 Provider：${preset.label}`);
 }
 
 /**
@@ -1102,8 +1088,6 @@ async function saveSettings(): Promise<void> {
     }
 
     saving.value = true;
-    errorText.value = "";
-    successText.value = "";
 
     try {
         let snapshot = isProjectScope.value
@@ -1115,42 +1099,16 @@ async function saveSettings(): Promise<void> {
         editorSnapshot.value = snapshot;
         if (isProjectScope.value) {
             applyProjectSettings(snapshot);
-            successText.value = "Project 默认模型覆盖已保存，后续新发起的请求会使用新的合并配置。";
+            notification.success("Project 默认模型覆盖已保存，后续新发起的请求会使用新的合并配置。");
         } else {
             applySettings(snapshot.modelSettings);
-            successText.value = "模型设定已写入 Global Config，后续新发起的请求会使用新的默认模型。";
+            notification.success("模型设定已写入 Global Config，后续新发起的请求会使用新的默认模型。");
         }
     } catch (error) {
-        errorText.value = error instanceof Error ? error.message : "保存模型设定失败";
+        notification.error(resolveApiErrorMessage(error, "保存模型设定失败"));
     } finally {
         saving.value = false;
     }
-}
-
-/**
- * 统一设置 Provider 状态提示。
- */
-function setProviderStatus(providerId: string, success: boolean, message: string): void {
-    providerStatusMap.value = {
-        ...providerStatusMap.value,
-        [providerId]: {
-            success,
-            message,
-        },
-    };
-}
-
-/**
- * 统一设置模型状态提示。
- */
-function setModelStatus(modelKey: string, success: boolean, message: string): void {
-    modelStatusMap.value = {
-        ...modelStatusMap.value,
-        [modelKey]: {
-            success,
-            message,
-        },
-    };
 }
 
 /**
@@ -1182,14 +1140,6 @@ function renameActiveProviderId(nextProviderId: string): void {
             [normalizedProviderId]: discoveredModels.value[previousProviderId] ?? [],
         };
         delete discoveredModels.value[previousProviderId];
-    }
-
-    if (providerStatusMap.value[previousProviderId]) {
-        providerStatusMap.value = {
-            ...providerStatusMap.value,
-            [normalizedProviderId]: providerStatusMap.value[previousProviderId],
-        };
-        delete providerStatusMap.value[previousProviderId];
     }
 
     if (manualModelDrafts.value[previousProviderId]) {
@@ -1284,16 +1234,11 @@ function confirmDeleteActiveProvider(): void {
         draft.value.defaultModelKey = null;
     }
     delete discoveredModels.value[deletedProviderId];
-    delete providerStatusMap.value[deletedProviderId];
     delete manualModelDrafts.value[deletedProviderId];
-    modelStatusMap.value = Object.fromEntries(
-        Object.entries(modelStatusMap.value).filter(([modelKey]) => !modelKey.startsWith(`${deletedProviderId}/`)),
-    );
     activeProviderId.value = draft.value.providers[0]?.id ?? "";
     ensureDefaultModelKey();
     deleteProviderDialogOpen.value = false;
-    successText.value = `已删除 Provider：${provider.name}`;
-    errorText.value = "";
+    notification.success(`已删除 Provider：${provider.name}`);
 }
 
 /**
@@ -1326,16 +1271,16 @@ async function checkProvider(): Promise<void> {
     }
 
     providerTestingId.value = provider.id;
-    setProviderStatus(provider.id, true, "");
 
     try {
         const result = await $fetch<CheckProviderResponseDto>("/api/config/models/provider-check", {
             method: "POST",
             body: buildProviderRequest(provider),
         });
-        setProviderStatus(provider.id, result.success, result.message);
+        const notify = result.success ? notification.success : notification.error;
+        notify(result.message);
     } catch (error) {
-        setProviderStatus(provider.id, false, error instanceof Error ? error.message : "Provider 测试失败");
+        notification.error(resolveApiErrorMessage(error, "Provider 测试失败"));
     } finally {
         providerTestingId.value = "";
     }
@@ -1351,7 +1296,6 @@ async function discoverModels(): Promise<void> {
     }
 
     providerDiscoveringId.value = provider.id;
-    setProviderStatus(provider.id, true, "");
 
     try {
         const catalog = await loadPiCatalog();
@@ -1373,9 +1317,9 @@ async function discoverModels(): Promise<void> {
             ...discoveredModels.value,
             [provider.id]: result.models,
         };
-        setProviderStatus(provider.id, true, result.message);
+        notification.success(result.message);
     } catch (error) {
-        setProviderStatus(provider.id, false, error instanceof Error ? error.message : "模型发现失败");
+        notification.error(resolveApiErrorMessage(error, "模型发现失败"));
     } finally {
         providerDiscoveringId.value = "";
     }
@@ -1466,8 +1410,7 @@ function addManualModel(): void {
 
     const manualDraft = getManualModelDraft(provider.id);
     if (!manualDraft.name.trim() || !manualDraft.id.trim()) {
-        errorText.value = "手动添加模型时，模型名称和模型 ID 都不能为空";
-        successText.value = "";
+        notification.error("手动添加模型时，模型名称和模型 ID 都不能为空");
         return;
     }
 
@@ -1489,8 +1432,7 @@ function addManualModel(): void {
             contextWindowTokens: "",
         },
     };
-    errorText.value = "";
-    successText.value = "模型已加入当前 Provider 白名单";
+    notification.success("模型已加入当前 Provider 白名单");
 }
 
 /**
@@ -1508,7 +1450,6 @@ async function checkModel(model: ModelDraft): Promise<void> {
     }
 
     modelTestingKey.value = modelKey;
-    setModelStatus(modelKey, true, "");
 
     try {
         const result = await $fetch<CheckModelResponseDto>("/api/config/models/model-check", {
@@ -1522,9 +1463,10 @@ async function checkModel(model: ModelDraft): Promise<void> {
                 },
             },
         });
-        setModelStatus(modelKey, result.success, result.message);
+        const notify = result.success ? notification.success : notification.error;
+        notify(result.message);
     } catch (error) {
-        setModelStatus(modelKey, false, error instanceof Error ? error.message : "模型健康检查失败");
+        notification.error(resolveApiErrorMessage(error, "模型健康检查失败"));
     } finally {
         modelTestingKey.value = "";
     }
@@ -1564,17 +1506,6 @@ function resolveDiscoveredModelState(modelId: string): "enabled" | "disabled" | 
 
     return existingModel.enabled ? "enabled" : "disabled";
 }
-
-/**
- * 当前 Provider 卡片的状态提示。
- */
-const activeProviderStatus = computed(() => {
-    const provider = activeProvider.value;
-    if (!provider) {
-        return null;
-    }
-    return providerStatusMap.value[provider.id] ?? null;
-});
 
 const librarySearchQuery = ref("");
 
@@ -1737,27 +1668,6 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
             </div>
         </div>
 
-        <!-- 状态提示条 -->
-        <TransitionGroup
-            tag="div"
-            enter-active-class="transition-all duration-300 ease-out"
-            enter-from-class="opacity-0 -translate-y-2 scale-[0.98]"
-            enter-to-class="opacity-100 translate-y-0 scale-100"
-            leave-active-class="transition-all duration-200 ease-in absolute w-full"
-            leave-from-class="opacity-100"
-            leave-to-class="opacity-0 scale-[0.98]"
-            class="relative flex flex-col gap-2"
-        >
-            <div v-if="errorText" key="error" class="flex items-start gap-3 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 shadow-sm backdrop-blur-md">
-                <span class="i-lucide-alert-circle mt-0.5 h-4 w-4 shrink-0 text-rose-500"></span>
-                <div class="text-sm text-rose-700">{{ errorText }}</div>
-            </div>
-            <div v-if="successText" key="success" class="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 shadow-sm backdrop-blur-md">
-                <span class="i-lucide-check-circle-2 mt-0.5 h-4 w-4 shrink-0 text-emerald-500"></span>
-                <div class="text-sm text-emerald-700">{{ successText }}</div>
-            </div>
-        </TransitionGroup>
-
         <!-- Loading State -->
         <div v-if="loading" class="flex min-h-[400px] flex-col items-center justify-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm">
             <span class="i-lucide-loader-2 h-8 w-8 animate-spin text-[var(--text-muted)]"></span>
@@ -1832,20 +1742,6 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                                     </button>
                                 </div>
                             </div>
-
-                            <Transition
-                                enter-active-class="transition-all duration-300 ease-out"
-                                enter-from-class="opacity-0 -translate-y-2"
-                                enter-to-class="opacity-100 translate-y-0"
-                                leave-active-class="transition-all duration-200 ease-in"
-                                leave-from-class="opacity-100"
-                                leave-to-class="opacity-0"
-                            >
-                                <div v-if="activeProviderStatus?.message" class="mt-4 flex items-start gap-2 rounded-xl border px-3 py-2.5 text-xs shadow-sm backdrop-blur-sm" :class="activeProviderStatus.success ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700' : 'border-rose-500/20 bg-rose-500/10 text-rose-700'">
-                                    <span class="mt-0.5 shrink-0 h-3.5 w-3.5" :class="activeProviderStatus.success ? 'i-lucide-check-circle text-emerald-500' : 'i-lucide-x-circle text-rose-500'"></span>
-                                    <span>{{ activeProviderStatus.message }}</span>
-                                </div>
-                            </Transition>
 
                             <!-- Provider 表单 -->
                             <div class="mt-5 grid gap-4 md:grid-cols-2">
@@ -1934,12 +1830,7 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                                                                 {{ resolveDisplayedContextWindow(activeProvider.id, model) }} ctx
                                                             </span>
                                                         </div>
-                                                        <Transition name="fade" mode="out-in">
-                                                            <div v-if="modelStatusMap[`${activeProvider.id}/${model.id}`]?.message" class="truncate text-[11px] font-medium mt-0.5" :class="modelStatusMap[`${activeProvider.id}/${model.id}`]?.success ? 'text-emerald-600' : 'text-rose-600'">
-                                                                {{ modelStatusMap[`${activeProvider.id}/${model.id}`]?.message }}
-                                                            </div>
-                                                            <div v-else class="truncate text-[11px] text-[var(--text-muted)] mt-0.5">{{ model.id }}</div>
-                                                        </Transition>
+                                                        <div class="truncate text-[11px] text-[var(--text-muted)] mt-0.5">{{ model.id }}</div>
                                                     </div>
                                                 </div>
 
