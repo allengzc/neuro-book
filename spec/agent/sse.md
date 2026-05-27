@@ -208,6 +208,8 @@ provider reasoning/thinking
 
 如果 SSE payload 没有 thinking，前端不展示思维链是正确行为。
 
+运行时 thinking 开关不属于模型配置页的强度参数。模型配置只描述模型是否支持 reasoning/thinking；Agent Profile 的 `reasoningEffort` 提供默认强度，session command `{ command: "thinking", thinkingLevel }` 提供当前 session 覆盖。snapshot 中 `thinkingLevel: null` 表示跟随 Profile，`"off"` 表示显式关闭，其他可选值为 `"minimal" | "low" | "medium" | "high" | "xhigh"`。
+
 ### 6. Reconnect With Replay
 
 1. 前端记录当前 `lastSeq`。

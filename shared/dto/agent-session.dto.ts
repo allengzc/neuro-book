@@ -3,6 +3,7 @@ import type {AgentEvent} from "@earendil-works/pi-agent-core";
 import type {AgentMessage, JsonValue, Model, Usage} from "nbook/server/agent/messages/types";
 import type {SessionEntry, SessionTreeNode} from "nbook/server/agent/session/types";
 import type {VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
+import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
 
 const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
     z.string(),
@@ -105,6 +106,7 @@ export const AgentCommandRequestDtoSchema = z.discriminatedUnion("command", [
     z.object({command: z.literal("compact"), instructions: z.string().optional()}),
     z.object({command: z.literal("plan"), active: z.boolean()}),
     z.object({command: z.literal("model"), modelKey: z.string().trim().min(1).nullable()}),
+    z.object({command: z.literal("thinking"), thinkingLevel: ThinkingLevelSchema.nullable()}),
     z.object({command: z.literal("retry"), entryId: z.string().trim().min(1).optional()}),
     z.object({command: z.literal("fork"), entryId: z.string().trim().min(1).optional()}),
     z.object({
@@ -284,6 +286,8 @@ export type AgentSessionSnapshotDto = {
     followUpQueue: AgentFollowUpQueueItemDto[];
     activeInvocation: AgentActiveInvocationDto | null;
     model: Model<any> | null;
+    /** 当前 session 的显式 thinking 覆盖；null 表示跟随 Agent Profile。 */
+    thinkingLevel: z.infer<typeof ThinkingLevelSchema> | null;
     planModeActive: boolean;
     lastSeq: number;
     usage?: Usage;

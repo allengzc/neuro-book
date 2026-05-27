@@ -122,6 +122,28 @@ const canEdit = computed(() => props.node.message.type === "user" || props.node.
 /** 当前消息是否允许重试。 */
 const canRetry = computed(() => props.node.message.type === "user" || props.node.message.type === "ai");
 
+/** 是否为已进入历史的 steer 引导消息。 */
+const isSteerMessage = computed(() => props.node.message.type === "user" && props.node.message.intent === "steer");
+
+/** 普通消息头部图标。 */
+const messageIconClass = computed(() => {
+    if (props.node.message.type === "ai") {
+        return "i-lucide-sparkles text-[var(--accent-text)]";
+    }
+    if (isSteerMessage.value) {
+        return "i-lucide-corner-down-left text-[var(--accent-text)]";
+    }
+    return "i-lucide-user text-[var(--text-muted)]";
+});
+
+/** 普通消息头部标签。 */
+const messageAuthorLabel = computed(() => {
+    if (props.node.message.type === "ai") {
+        return "Assistant";
+    }
+    return isSteerMessage.value ? "引导" : "You";
+});
+
 /** 系统消息展示类型。 */
 const systemDisplayKind = computed(() => props.node.message.systemDisplayKind ?? "system");
 
@@ -292,10 +314,10 @@ const endSwipe = (event: PointerEvent): void => {
                 class="flex h-4 w-4 items-center justify-center rounded-full border"
                 :class="props.node.message.type === 'ai' ? 'border-[var(--accent-main)] bg-[var(--accent-bg)]' : 'border-[var(--border-color)] bg-[var(--bg-input)]'"
             >
-                <span :class="props.node.message.type === 'ai' ? 'i-lucide-sparkles text-[var(--accent-text)]' : 'i-lucide-user text-[var(--text-muted)]'" class="h-2.5 w-2.5"></span>
+                <span :class="messageIconClass" class="h-2.5 w-2.5"></span>
             </div>
             <span class="text-[10px] font-medium uppercase tracking-[0.24em] text-[var(--text-main)]">
-                {{ props.node.message.type === "ai" ? "Assistant" : "You" }}
+                {{ messageAuthorLabel }}
             </span>
             <span v-if="props.node.message.model" class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">
                 {{ props.node.message.model }}

@@ -79,6 +79,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - **不要自动进行浏览器验证，你可以建议用户让你进行浏览器验证**
 - **代码审查报告使用直白的话语再解释一次**
 - 任务完成后的 walkthrough 要报告实际结果与任务计划的出入
+- **Important: 目前项目已经很大了，所以在开始任务前，你可以读取相关文档和相关的 tasks**
 
 ## 文档索引
 

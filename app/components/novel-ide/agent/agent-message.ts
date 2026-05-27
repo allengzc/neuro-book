@@ -24,6 +24,11 @@ export type SystemMessageDisplayKind = "prompt" | "reminder" | "system" | "error
 export type MessageStatus = "streaming" | "done" | "stopped";
 
 /**
+ * 用户消息意图，用于区分普通输入和运行中 steer。
+ */
+export type UserMessageIntent = "normal" | "steer";
+
+/**
  * Tool Call 状态。
  */
 export type ToolCallStatus = "streaming" | "invalid" | "running" | "success" | "error";
@@ -55,6 +60,8 @@ export type AgentToolCall = {
 export type AgentMessage = {
     id: string;
     type: MessageType;
+    /** 用户消息意图；缺省为普通输入。 */
+    intent?: UserMessageIntent;
     /** 仅 system 消息使用：用于区分首轮系统提示和运行时提醒。 */
     systemDisplayKind?: SystemMessageDisplayKind;
     /** 系统消息可选标题，不存在时使用默认 System/System Reminder。 */
@@ -489,7 +496,7 @@ const deriveMessageFromSessionEntry = (entry: SessionEntry): AgentMessage | null
             timestamp: formatTimestamp(entry.timestamp),
         };
     }
-    if (entry.type === "message" && entry.origin === "prompt" && entry.message.role === "user") {
+    if (entry.type === "message" && entry.message.role === "user" && (entry.origin === "prompt" || isSteerText(messageContentText(entry.message as PiMessage)))) {
         return toLocalMessage(entry.id, entry.message);
     }
     if (entry.type === "invocation_lifecycle" && entry.status === "error") {
@@ -602,10 +609,13 @@ export const toLocalMessage = (id: string, message: PiMessage | PiAgentMessage, 
     }
 
     if (message.role === "user") {
+        const text = messageContentText(message);
+        const steerText = unwrapSteerText(text);
         return {
             id,
             type: "user",
-            content: messageContentText(message),
+            intent: steerText !== null ? "steer" : "normal",
+            content: steerText ?? text,
             status: "done",
             timestamp: formatTimestamp(message.timestamp),
         };
@@ -947,6 +957,17 @@ const messageContentText = (message: PiMessage): string => {
     }
     return message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
 };
+
+const STEER_TEXT_PATTERN = /^<user_steer>\n?([\s\S]*?)\n?<\/user_steer>$/;
+
+function isSteerText(text: string): boolean {
+    return STEER_TEXT_PATTERN.test(text.trim());
+}
+
+function unwrapSteerText(text: string): string | null {
+    const match = text.trim().match(STEER_TEXT_PATTERN);
+    return match?.[1] ?? null;
+}
 
 const customMessageText = (message: Record<string, unknown>): string => {
     const content = message.content;

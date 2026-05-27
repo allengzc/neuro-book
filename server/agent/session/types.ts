@@ -115,7 +115,8 @@ export type ThinkingLevelChangeEntry = {
     parentId: SessionEntryId | null;
     timestamp: number;
     type: "thinking_level_change";
-    thinkingLevel: ThinkingLevel;
+    /** null 表示清除 session 覆盖，重新跟随 Agent Profile。 */
+    thinkingLevel: ThinkingLevel | null;
 };
 
 export type ProfileChangeEntry = {
@@ -223,7 +224,8 @@ export type NeuroSessionContext = {
     systemPrompt: string;
     messages: AgentMessage[];
     model: Model<any> | null;
-    thinkingLevel: ThinkingLevel;
+    /** Session 级显式 thinking 覆盖；null 表示跟随 Agent Profile 默认。 */
+    thinkingLevel: ThinkingLevel | null;
     profileKey: string;
     workspaceRoot: string;
     projectPath?: string;

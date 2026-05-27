@@ -221,6 +221,7 @@ describe("agent message projection helpers", () => {
             followUpQueue: [],
             activeInvocation: null,
             model: null,
+            thinkingLevel: null,
             planModeActive: false,
             lastSeq: 0,
         });
@@ -340,6 +341,7 @@ describe("agent message projection helpers", () => {
             followUpQueue: [],
             activeInvocation: null,
             model: null,
+            thinkingLevel: null,
             planModeActive: false,
             lastSeq: 0,
         });

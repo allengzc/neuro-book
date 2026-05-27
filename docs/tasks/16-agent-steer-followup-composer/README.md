@@ -23,6 +23,7 @@
 - `followUp` 在当前 loop 真正结束后 one-at-a-time drain，并重新开启 fresh loop。
 - Review 后补强：idle session 会拒绝显式 `steer` / `followup`，已经越过最后可引导点、safe point drain 期间或正在 aborting 的 active run 会拒绝 queue 操作；error / abort / normal finish 会清理不可再消费的 `steerQueue`，避免生成僵尸 queue item。
 - 前端 `AgentComposer.vue` 已按 running/input/Ctrl 状态切换 send / stop / steer / followup；pending approval / request_user_input 时保留原 note 输入，并额外提供运行中消息输入用于 steer / followup 入队。
+- 已消费的 steer 历史消息会在前端标记为“引导”，并隐藏当前临时模型前缀 `<user_steer>...</user_steer>`，只展示用户原文；`session_entry` 增量到达时也能立即展示。
 - 当前 steer 模型可见前缀暂用 `<user_steer>...</user_steer>`，等待用户提供“测试 steer”样本后替换为 Codex harness 的真实前缀。
 
 ## Implementation Plan
@@ -50,7 +51,8 @@
   - 提交 steer / followUp 时，HTTP 入队成功后再清空输入框；失败则保留输入。
   - 消费前不追加普通乐观 user 气泡；真正 drain 时由 harness 写入 session entry，之后按普通 user message 进入历史。
   - `steer` 写入模型上下文时需要由后端 harness 增加与 Codex harness 对齐的文本前缀；前端队列预览和 notification 仍显示用户原文。
-  - 第一版 session history 可直接显示模型实际看到的 steer 前缀文本；除非现有 schema 很容易记录 raw/origin，否则不额外扩展 rawText / renderedText。
+  - session history 识别当前 steer 前缀后显示为“引导”，并清洗掉模型可见 wrapper；第一版不额外扩展 rawText / renderedText。
+  - 被消费 steer 的队列清理由后续 snapshot 负责；`session_entry` 目前没有 queued item id，不做文本猜测式即时清队列。
   - 运行中有输入时，发送按钮 hover tooltip 展示“引导 / 队列 Ctrl+Enter”提示；tooltip 只负责解释快捷操作，不提供额外点击功能。
 - 更新 session store：
   - `useAgentSession.ts` 支持 `steer_queued`。
@@ -73,6 +75,7 @@
 - 第一版固定 drain mode：steer 在同一个可引导点使用 all drain，一次性消费所有 pending steer；followUp 在 ReAct loop 真正结束后 one-at-a-time drain，一次只消费一条并开启下一轮 loop。
 - steer / followUp 没有同一个 drain 队列里的优先级比较；loop 结束判定顺序是先检查 pending steer，只有没有 steer 时才算当前 ReAct loop 真正结束并进入 followUp 消费。
 - consumed steer / followUp 优先写成标准 user message；如果现有 session entry 已有可用来源字段，则记录 `steer` / `followup` 来源，否则不为此扩展 session entry schema。
+- consumed steer 在持久化层仍是 `origin: "harness"` 的 user message；前端通过 steer wrapper 识别并投影为 `intent: "steer"`。
 - steer 的模型可见文本需要带前缀；不自行发明前缀，后续通过观察 Codex harness 的 steer 前缀后复用。
 - followUp 只在当前 ReAct loop 真正结束后自动重新开启一个新 loop；不会在仍有 tool calls 或 pending steer 的当前 loop 中插队。
 - 队列条目显示小标签和 icon：`引导` 用 `corner-down-left`，`队列` 用 `list-plus` 或 `clock`，文本单行截断。
@@ -91,8 +94,11 @@
   - `app/components/markdown-studio/MarkdownSourceEditor.vue`
   - `app/components/novel-ide/agent/useAgentSession.ts`
   - `app/components/novel-ide/agent/useAgentSession.test.ts`
+  - `app/components/novel-ide/agent/agent-message.ts`
+  - `app/components/novel-ide/agent/agent-message.test.ts`
   - `app/components/novel-ide/agent/AgentComposer.vue`
   - `app/components/novel-ide/agent/AgentReferenceInput.vue`
+  - `app/components/novel-ide/agent/AgentTextBubble.vue`
   - `app/components/novel-ide/NovelAgentDrawer.vue`
   - 相关 snapshot fixture 测试补充 `steerQueue`
 
@@ -105,6 +111,9 @@
 - Waiting-user 入口修复后追加：`bunx tsc --noEmit --pretty false --skipLibCheck`、DTO/session/message projection 相关测试、harness steer/followUp 相关测试均通过；修复内容是 pending approval / request_user_input 时新增独立运行中消息输入，不再把回答 note 静默吞成无法发送的 steer/followUp。
 - Waiting-user 误触发修复后追加：回答备注输入和运行中消息输入使用不同 submit handler，避免 note 框 Enter 误发送已有运行中消息。
 - Waiting-user steer 恢复修复后追加：`bun test server/agent/harness/neuro-agent-harness.test.ts --test-name-pattern "steer|followUp|snapshot 暴露|idle session|最后可引导点|aborting|模型错误|safe point|waiting_user"`：通过，覆盖 waiting_user 期间入队的 steer 会在 resolution 后下一次模型调用前注入。
+- Steer 展示修复后追加：`bun test app/components/novel-ide/agent/agent-message.test.ts app/utils/agent-message-projection.test.ts app/components/novel-ide/agent/useAgentSession.test.ts`：通过，33 个测试；覆盖已消费 steer 的 snapshot 展示和 `session_entry` 增量展示。
+- Steer 展示修复后追加：`bunx tsc --noEmit --pretty false --skipLibCheck`：通过。
+- Steer 展示修复后追加：`bun test server/agent/harness/neuro-agent-harness.test.ts --test-name-pattern "steer|followUp|snapshot 暴露|idle session|最后可引导点|aborting|模型错误|safe point|waiting_user"`：通过，8 个测试。
 - `bun test server/agent/harness/neuro-agent-harness.test.ts`：本次新增相关用例通过；整文件剩余 1 个既有失败为 `profile 内 session variable definition 会进入工具 registry`，失败原因是测试中的 `variable_patch` 未先 `variable_read`，与本任务无关。
 - 未自动做浏览器验证，遵循仓库指令。
 

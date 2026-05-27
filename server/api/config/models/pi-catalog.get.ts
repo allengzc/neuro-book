@@ -20,6 +20,7 @@ export default defineEventHandler((): PiBuiltinCatalogDto => {
                     provider: model.provider,
                     baseUrl: model.baseUrl,
                     reasoning: model.reasoning,
+                    thinkingLevelMap: model.thinkingLevelMap ?? null,
                     input: [...model.input],
                     cost: model.cost,
                     contextWindowTokens: model.contextWindow,

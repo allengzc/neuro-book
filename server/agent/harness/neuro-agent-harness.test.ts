@@ -463,6 +463,101 @@ describe("NeuroAgentHarness", () => {
         expect(observedReasoning).toBe("high");
     });
 
+    it("session thinking 覆盖能显式关闭并回到 profile 默认", async () => {
+        await mkdir(join(root, ".nbook"), {recursive: true});
+        await writeFile(join(root, ".nbook", "config.json"), JSON.stringify({
+            agent: {
+                profiles: {
+                    "test.session-thinking": {
+                        model: {
+                            reasoningEffort: "high",
+                        },
+                    },
+                },
+            },
+        }, null, 4), "utf8");
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.session-thinking",
+                name: "Session Thinking",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        const observedReasoning: unknown[] = [];
+        faux.setResponses([
+            (_context, options) => {
+                observedReasoning.push((options as {reasoning?: unknown} | undefined)?.reasoning);
+                return fauxAssistantMessage(fauxText("profile default"));
+            },
+            (_context, options) => {
+                observedReasoning.push((options as {reasoning?: unknown} | undefined)?.reasoning);
+                return fauxAssistantMessage(fauxText("off override"));
+            },
+            (_context, options) => {
+                observedReasoning.push((options as {reasoning?: unknown} | undefined)?.reasoning);
+                return fauxAssistantMessage(fauxText("minimal override"));
+            },
+            (_context, options) => {
+                observedReasoning.push((options as {reasoning?: unknown} | undefined)?.reasoning);
+                return fauxAssistantMessage(fauxText("back to profile"));
+            },
+        ]);
+        harness = new NeuroAgentHarness({
+            repo: harness.repo,
+            profiles: harness.profiles,
+            modelResolver: () => ({
+                ...faux.getModel(),
+                reasoning: true,
+            }),
+        });
+        const created = await harness.createAgent({
+            profileKey: "test.session-thinking",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "profile"},
+        });
+        await harness.runCommand(created.sessionId, {
+            command: "thinking",
+            thinkingLevel: "off",
+        });
+        expect((await harness.getSessionSnapshot(created.sessionId)).thinkingLevel).toBe("off");
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "off"},
+        });
+        await harness.runCommand(created.sessionId, {
+            command: "thinking",
+            thinkingLevel: "minimal",
+        });
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "minimal"},
+        });
+        await harness.runCommand(created.sessionId, {
+            command: "thinking",
+            thinkingLevel: null,
+        });
+        expect((await harness.getSessionSnapshot(created.sessionId)).thinkingLevel).toBeNull();
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "profile again"},
+        });
+
+        expect(observedReasoning).toEqual(["high", undefined, "minimal", "high"]);
+    });
+
     it("approval resolution 会先写 toolResult，再写 continue prepare 的 appending messages", async () => {
         let prepareCount = 0;
         harness.profiles.register(defineAgentProfile({

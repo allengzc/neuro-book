@@ -13,6 +13,7 @@ import type {
     UpdateAgentProfileModelSettingsRequestDto,
     UpdateModelSettingsRequestDto,
 } from "nbook/shared/dto/app-settings.dto";
+import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
 import type {
     AgentProfileConfig,
     AgentProfileModelConfig,
@@ -91,6 +92,7 @@ export function convertModelSettingsRequestToConfig(request: UpdateModelSettings
         providers: Object.fromEntries(
             request.providers.map((provider) => [provider.id, {
                 name: provider.name,
+                api: provider.api,
                 options: {
                     apiKey: provider.options.apiKey.trim(),
                     baseURL: provider.options.baseURL.trim(),
@@ -141,6 +143,7 @@ export function buildModelSettingsDto(appConfig: {models: ModelSettingsConfig}):
     const providers = Object.entries(config.providers).map(([providerId, provider]) => ({
         id: providerId,
         name: provider.name,
+        api: provider.api,
         options: {
             apiKey: provider.options.apiKey,
             baseURL: provider.options.baseURL,
@@ -298,11 +301,12 @@ export async function checkModelHealth(
  * 归一化 profile 模型配置。
  */
 function normalizeAgentProfileModelConfig(config: Partial<AgentProfileModelConfigDto> | AgentProfileModelConfig | undefined): AgentProfileModelConfig {
+    const reasoningEffort = ThinkingLevelSchema.nullable().safeParse(config?.reasoningEffort ?? null);
     return {
         modelKey: config?.modelKey?.trim() ? config.modelKey.trim() : null,
         temperature: typeof config?.temperature === "number" && Number.isFinite(config.temperature) ? config.temperature : null,
         topK: typeof config?.topK === "number" && Number.isFinite(config.topK) ? Math.trunc(config.topK) : null,
-        reasoningEffort: config?.reasoningEffort ?? null,
+        reasoningEffort: reasoningEffort.success ? reasoningEffort.data : null,
         stream: config?.stream ?? true,
     };
 }
