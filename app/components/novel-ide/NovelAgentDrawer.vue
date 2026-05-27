@@ -28,10 +28,7 @@ import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
 
 type SessionModelDraft = {
     modelKey: string | null;
-    temperature: string;
-    topK: string;
     reasoningEffort: ThinkingLevelDto | null;
-    stream: boolean;
 };
 
 const MIN_DRAWER_WIDTH = 320;
@@ -72,10 +69,7 @@ const resolvedDefaultProfileKey = ref("leader.default");
 const sessionModelMode = ref<"default" | "override">("default");
 const sessionModelDraft = ref<SessionModelDraft>({
     modelKey: null,
-    temperature: "",
-    topK: "",
     reasoningEffort: null,
-    stream: true,
 });
 const sessionModelPopoverOpen = ref(false);
 const sessionModelSaving = ref(false);
@@ -216,8 +210,15 @@ const activeSessionTitle = computed(() => activeSummary.value?.title || (activeS
 const sessionModelDefaultLabel = computed(() => "跟随 Profile 默认");
 const sessionModelSelectionValue = computed(() => sessionModelMode.value === "override" ? sessionModelDraft.value.modelKey : null);
 const sessionThinkingResolvedLabel = computed(() => {
-    const level = activeSnapshot.value?.thinkingLevel ?? null;
-    return level === null ? "跟随 Profile" : thinkingLevelLabel(level);
+    const requested = activeSnapshot.value?.thinkingLevel ?? null;
+    const effective = activeSnapshot.value?.effectiveThinkingLevel ?? "off";
+    if (requested === null) {
+        return `跟随 Profile（当前 ${thinkingLevelLabel(effective)}）`;
+    }
+    if (requested === effective) {
+        return thinkingLevelLabel(effective);
+    }
+    return `${thinkingLevelLabel(requested)}（实际 ${thinkingLevelLabel(effective)}）`;
 });
 const activeDrawerTitle = computed(() => activeSummary.value?.profileKey === "leader.assets" ? "用户资产助手" : "AI 写作助手");
 const drawerIconClass = computed(() => "i-lucide-sparkles text-[var(--accent-text)]");

@@ -26,6 +26,7 @@ type CreateSessionInput = {
     workspaceKey?: string;
     projectPath?: string;
     parentSessionId?: SessionId;
+    systemRole?: SessionMetadata["systemRole"];
     title?: string;
 };
 
@@ -60,6 +61,7 @@ export class JsonlSessionRepository {
             workspaceKey: input.workspaceKey ?? "global",
             projectPath: input.projectPath,
             parentSessionId: input.parentSessionId,
+            systemRole: input.systemRole,
             createdAt: now,
             title: input.title,
         };
@@ -144,6 +146,9 @@ export class JsonlSessionRepository {
      * 判断 session 摘要是否符合列表查询筛选条件。
      */
     private matchesSessionListFilter(summary: AgentSessionSummaryDto, input: AgentSessionListQueryDto): boolean {
+        if (!input.includeSystem && summary.systemRole) {
+            return false;
+        }
         if (!input.includeArchived && summary.archived) {
             return false;
         }
@@ -206,6 +211,28 @@ export class JsonlSessionRepository {
                 },
             });
         }
+        return entry;
+    }
+
+    /**
+     * 追加投影型 entry，但不移动 active leaf。用于后台元数据，不改变用户当前分支。
+     */
+    async appendProjectionEntry(sessionId: SessionId, input: AppendEntryInput, workspaceKey?: string): Promise<SessionEntry> {
+        const snapshot = existsSync(this.sessionPath(workspaceKey ?? "global", sessionId)) || workspaceKey
+            ? await this.readSession(sessionId, workspaceKey)
+            : await this.readSession(sessionId);
+        const currentLeafId = this.resolveLeaf(snapshot.entries);
+        const entry = {
+            ...input,
+            origin: input.type === "custom" || input.type === "session_update" ? "projection" : undefined,
+            id: input.id ?? this.createEntryId(),
+            parentId: input.parentId === undefined ? currentLeafId : input.parentId,
+            timestamp: input.timestamp ?? Date.now(),
+        } as SessionEntry;
+        const sessionPath = this.sessionPath(snapshot.metadata.workspaceKey, sessionId);
+
+        await mkdir(dirname(sessionPath), {recursive: true});
+        await this.appendLine(sessionPath, {kind: "entry", entry});
         return entry;
     }
 
@@ -312,6 +339,7 @@ export class JsonlSessionRepository {
      */
     reduce(snapshot: SessionSnapshot): NeuroSessionContext {
         const path = this.activePath(snapshot);
+        const pathIds = new Set(path.map((entry) => entry.id));
         const messages: AgentMessage[] = [];
         const customState: Record<string, JsonValue> = {};
         let profileKey = snapshot.metadata.profileKey;
@@ -324,7 +352,14 @@ export class JsonlSessionRepository {
         let archived = false;
         let planModeActive = false;
 
-        for (const entry of path) {
+        const reduceEntries = snapshot.entries.filter((entry) => {
+            if (pathIds.has(entry.id)) {
+                return true;
+            }
+            return (entry.type === "custom" || entry.type === "session_update") && entry.origin === "projection";
+        });
+
+        for (const entry of reduceEntries) {
             if (entry.type === "message") {
                 messages.push(entry.message);
                 continue;
@@ -335,8 +370,10 @@ export class JsonlSessionRepository {
             }
             if (entry.type === "custom") {
                 customState[entry.key] = entry.value;
-                this.reduceLinkedAgent(entry.key, entry.value, linkedAgents);
-                if (entry.key === "ui.planMode.active") {
+                if (entry.origin !== "projection") {
+                    this.reduceLinkedAgent(entry.key, entry.value, linkedAgents);
+                }
+                if (entry.origin !== "projection" && entry.key === "ui.planMode.active") {
                     planModeActive = entry.value === true;
                 }
                 continue;
@@ -412,6 +449,7 @@ export class JsonlSessionRepository {
             workspaceKey: snapshot.metadata.workspaceKey,
             workspaceRoot: context.workspaceRoot,
             parentSessionId: snapshot.metadata.parentSessionId,
+            systemRole: snapshot.metadata.systemRole,
             title: context.title,
             summary: context.summary,
             status: context.archived

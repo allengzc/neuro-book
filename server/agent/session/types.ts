@@ -15,6 +15,8 @@ export type SessionMetadata = {
     createdAt: number;
     title?: string;
     summary?: string;
+    /** system session 默认从普通列表隐藏；summarizer 表示 session 展示元数据维护者。 */
+    systemRole?: "summarizer";
 };
 
 export type MessageSessionEntry = {
@@ -32,6 +34,8 @@ export type SessionUpdateEntry = {
     parentId: SessionEntryId | null;
     timestamp: number;
     type: "session_update";
+    /** projection 表示后台元数据更新，不改变 active leaf，但参与 session reduce。 */
+    origin?: "projection";
     updates: {
         title?: string;
         summary?: string;
@@ -43,6 +47,8 @@ export type CustomSessionEntry = {
     parentId: SessionEntryId | null;
     timestamp: number;
     type: "custom";
+    /** projection 表示后台状态投影，不改变 active leaf，但参与 session reduce。 */
+    origin?: "projection";
     key: string;
     value: JsonValue;
 };

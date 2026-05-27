@@ -26,6 +26,7 @@ const baseSnapshot = (lastSeq = 0): AgentSessionSnapshotDto => ({
     activeInvocation: null,
     model: null,
     thinkingLevel: null,
+    effectiveThinkingLevel: "off",
     planModeActive: false,
     lastSeq,
 });

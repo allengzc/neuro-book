@@ -13,6 +13,7 @@ import {createAssistantTextMessage, createUserMessage, messageText} from "nbook/
 import {Message, ModelContext, ProfilePrompt, Reminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {AgentMessage, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
 import {AGENT_PLAN_MODE_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
+import {SESSION_SUMMARIZER_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import {defineSessionVariable} from "nbook/server/agent/variables/registry";
 
 function visibleMessageText(messages: AgentMessage[]): string {
@@ -50,6 +51,7 @@ describe("NeuroAgentHarness", () => {
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
         });
     });
 
@@ -529,7 +531,10 @@ describe("NeuroAgentHarness", () => {
             command: "thinking",
             thinkingLevel: "off",
         });
-        expect((await harness.getSessionSnapshot(created.sessionId)).thinkingLevel).toBe("off");
+        expect(await harness.getSessionSnapshot(created.sessionId)).toMatchObject({
+            thinkingLevel: "off",
+            effectiveThinkingLevel: "off",
+        });
         await harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "prompt",
@@ -548,7 +553,10 @@ describe("NeuroAgentHarness", () => {
             command: "thinking",
             thinkingLevel: null,
         });
-        expect((await harness.getSessionSnapshot(created.sessionId)).thinkingLevel).toBeNull();
+        expect(await harness.getSessionSnapshot(created.sessionId)).toMatchObject({
+            thinkingLevel: null,
+            effectiveThinkingLevel: "high",
+        });
         await harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "prompt",
@@ -556,6 +564,85 @@ describe("NeuroAgentHarness", () => {
         });
 
         expect(observedReasoning).toEqual(["high", undefined, "minimal", "high"]);
+    });
+
+    it("snapshot 会暴露模型能力裁剪后的 effective thinking", async () => {
+        await mkdir(join(root, ".nbook"), {recursive: true});
+        await writeFile(join(root, ".nbook", "config.json"), JSON.stringify({
+            agent: {
+                profiles: {
+                    "test.snapshot-thinking": {
+                        model: {
+                            reasoningEffort: "high",
+                        },
+                    },
+                },
+            },
+        }, null, 4), "utf8");
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.snapshot-thinking",
+                name: "Snapshot Thinking",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        harness = new NeuroAgentHarness({
+            repo: harness.repo,
+            profiles: harness.profiles,
+            modelResolver: () => ({
+                ...faux.getModel(),
+                reasoning: false,
+            }),
+        });
+        const created = await harness.createAgent({
+            profileKey: "test.snapshot-thinking",
+            input: {},
+            workspaceRoot: root,
+        });
+        await harness.runCommand(created.sessionId, {
+            command: "thinking",
+            thinkingLevel: "xhigh",
+        });
+
+        expect(await harness.getSessionSnapshot(created.sessionId)).toMatchObject({
+            thinkingLevel: "xhigh",
+            effectiveThinkingLevel: "off",
+        });
+    });
+
+    it("snapshot 没有可解析模型时 effective thinking 回落为 off", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.no-model",
+                name: "No Model",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        harness = new NeuroAgentHarness({
+            repo: harness.repo,
+            profiles: harness.profiles,
+            modelResolver: () => {
+                throw new Error("配置未设置 models.default");
+            },
+        });
+        const created = await harness.createAgent({
+            profileKey: "test.no-model",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        expect(await harness.getSessionSnapshot(created.sessionId)).toMatchObject({
+            thinkingLevel: null,
+            effectiveThinkingLevel: "off",
+        });
     });
 
     it("approval resolution 会先写 toolResult，再写 continue prepare 的 appending messages", async () => {
@@ -2084,6 +2171,396 @@ describe("NeuroAgentHarness", () => {
         expect(result.status).toBe("error");
         expect(result.error).toContain("profileKey");
         expect(session.recentMessages?.every((message) => message.text !== "should not write")).toBe(true);
+    });
+
+    it("leader completed 后后台 summarizer 写回 title/summary 且不创建 linked agent", async () => {
+        harness = new NeuroAgentHarness({
+            repo: harness.repo,
+            profiles: harness.profiles,
+            modelResolver: () => faux.getModel(),
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "leader.test-summarized",
+                name: "Summarized Leader",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            summarizer: {
+                profileKey: "session.summarizer",
+                input: {
+                    trigger: "after_invocation",
+                    interval: {
+                        kind: "turn",
+                        value: 1,
+                    },
+                    maxDialogueContentTokens: 80_000,
+                },
+            },
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage(fauxText("leader done")),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    walkthrough: "summarized",
+                    data: {
+                        title: "摘要标题",
+                        summary: "本轮讨论已经完成摘要。",
+                    },
+                }, {id: "summarizer-report"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.test-summarized",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "请帮我做计划"},
+        });
+        expect(result.status).toBe("completed");
+
+        await waitFor(async () => {
+            const session = await harness.getSession(created.sessionId);
+            expect(session.title).toBe("摘要标题");
+            expect(session.summary).toBe("本轮讨论已经完成摘要。");
+        });
+        const sourceSnapshot = await harness.getSessionSnapshot(created.sessionId);
+        const sourceContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const state = sourceContext.customState[SESSION_SUMMARIZER_STATE_KEY] as {sessionId?: number} | undefined;
+        expect(sourceSnapshot.linkedAgents).toEqual([]);
+        expect(state?.sessionId).toEqual(expect.any(Number));
+
+        const defaultList = await harness.listSessions({workspaceKey: "global"});
+        const withSystem = await harness.listSessions({workspaceKey: "global", includeSystem: true});
+        expect(defaultList.map((session) => session.profileKey)).toEqual(["leader.test-summarized"]);
+        expect(withSystem.map((session) => session.profileKey).sort()).toEqual(["leader.test-summarized", "session.summarizer"]);
+    });
+
+    it("summarizer 输出不合法时不污染 leader completed 结果", async () => {
+        harness = new NeuroAgentHarness({
+            repo: harness.repo,
+            profiles: harness.profiles,
+            modelResolver: () => faux.getModel(),
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "leader.test-bad-summarizer",
+                name: "Bad Summarizer Leader",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            summarizer: {
+                profileKey: "session.summarizer",
+                input: {
+                    trigger: "after_invocation",
+                    interval: {
+                        kind: "turn",
+                        value: 1,
+                    },
+                    maxDialogueContentTokens: 80_000,
+                },
+            },
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage(fauxText("leader done")),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    walkthrough: "bad summary",
+                    data: {
+                        title: "",
+                        summary: "bad",
+                    },
+                }, {id: "bad-summarizer-report"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.test-bad-summarizer",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+
+        expect(result.status).toBe("completed");
+        await waitFor(async () => {
+            const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+            expect(context.customState[SESSION_SUMMARIZER_STATE_KEY]).toEqual(expect.objectContaining({
+                lastError: expect.stringContaining("title"),
+            }));
+        });
+        const session = await harness.getSession(created.sessionId);
+        expect(session.title).toBe("Bad Summarizer Leader");
+        expect(session.summary).toBe("leader done");
+    });
+
+    it("dialogueContentTokens interval 按上次成功摘要基线累计", async () => {
+        harness = new NeuroAgentHarness({
+            repo: harness.repo,
+            profiles: harness.profiles,
+            modelResolver: () => faux.getModel(),
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "leader.test-token-interval",
+                name: "Token Interval Leader",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            summarizer: {
+                profileKey: "session.summarizer",
+                input: {
+                    trigger: "after_invocation",
+                    interval: {
+                        kind: "dialogueContentTokens",
+                        value: 45,
+                    },
+                    maxDialogueContentTokens: 80_000,
+                },
+            },
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage(fauxText("a")),
+            fauxAssistantMessage(fauxText("bb")),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    walkthrough: "summarized after accumulated tokens",
+                    data: {
+                        title: "累计摘要",
+                        summary: "达到累计 token 阈值后才摘要。",
+                    },
+                }, {id: "token-interval-report"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.test-token-interval",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const first = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "a"},
+        });
+        expect(first.status).toBe("completed");
+        await waitFor(async () => {
+            const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+            expect(context.customState[SESSION_SUMMARIZER_STATE_KEY]).toEqual(expect.objectContaining({
+                lastDialogueContentTokens: expect.any(Number),
+            }));
+        });
+        expect((await harness.getSession(created.sessionId)).title).toBe("Token Interval Leader");
+
+        const second = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "1234567890123456789012345678901234567890"},
+        });
+        expect(second.status).toBe("completed");
+        await waitFor(async () => {
+            const session = await harness.getSession(created.sessionId);
+            expect(session.title).toBe("累计摘要");
+            expect(session.summary).toBe("达到累计 token 阈值后才摘要。");
+        });
+    });
+
+    it("summarizer input 改动后会创建新的后台 system session", async () => {
+        harness = new NeuroAgentHarness({
+            repo: harness.repo,
+            profiles: harness.profiles,
+            modelResolver: () => faux.getModel(),
+        });
+        const leader = defineAgentProfile({
+            manifest: {
+                key: "leader.test-input-change",
+                name: "Input Change Leader",
+            },
+            inputSchema: Type.Object({
+                maxDialogueContentTokens: Type.Number(),
+            }),
+            allowedToolKeys: [],
+            summarizer: {
+                profileKey: "session.summarizer",
+                input: {
+                    trigger: "after_invocation",
+                    interval: {
+                        kind: "turn",
+                        value: 1,
+                    },
+                    maxDialogueContentTokens: 80_000,
+                },
+            },
+            prepare() {
+                return {};
+            },
+        });
+        harness.profiles.register(leader, false);
+        faux.setResponses([
+            fauxAssistantMessage(fauxText("first")),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    walkthrough: "summarized with old input",
+                    data: {
+                        title: "旧输入摘要",
+                        summary: "输入参数变更前的后台 session。",
+                    },
+                }, {id: "input-change-old-report"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.test-input-change",
+            input: {
+                maxDialogueContentTokens: 1,
+            },
+            workspaceRoot: root,
+        });
+
+        const first = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "first"},
+        });
+        expect(first.status).toBe("completed");
+        await waitFor(async () => {
+            const session = await harness.getSession(created.sessionId);
+            expect(session.title).toBe("旧输入摘要");
+        });
+
+        harness.profiles.register(defineAgentProfile({
+            ...leader,
+            summarizer: {
+                profileKey: "session.summarizer",
+                input: {
+                    trigger: "after_invocation",
+                    interval: {
+                        kind: "turn",
+                        value: 2,
+                    },
+                    maxDialogueContentTokens: 80_000,
+                },
+            },
+        }), true);
+        faux.setResponses([
+            fauxAssistantMessage(fauxText("second")),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    walkthrough: "summarized with new input",
+                    data: {
+                        title: "新输入摘要",
+                        summary: "输入参数变更后使用新的后台 session。",
+                    },
+                }, {id: "input-change-report"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const second = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "second"},
+        });
+        expect(second.status).toBe("completed");
+
+        await waitFor(async () => {
+            const session = await harness.getSession(created.sessionId);
+            expect(session.title).toBe("新输入摘要");
+        });
+        const withSystem = await harness.listSessions({workspaceKey: "global", includeSystem: true});
+        expect(withSystem.filter((session) => session.profileKey === "session.summarizer")).toHaveLength(2);
+    });
+
+    it("tree 切换 active path 后会刷新 session title/summary", async () => {
+        harness = new NeuroAgentHarness({
+            repo: harness.repo,
+            profiles: harness.profiles,
+            modelResolver: () => faux.getModel(),
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "leader.test-tree-summary",
+                name: "Tree Summary Leader",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            summarizer: {
+                profileKey: "session.summarizer",
+                input: {
+                    trigger: "after_invocation",
+                    interval: {
+                        kind: "turn",
+                        value: 1,
+                    },
+                    maxDialogueContentTokens: 80_000,
+                },
+            },
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage(fauxText("first branch")),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    walkthrough: "first branch summary",
+                    data: {
+                        title: "第一分支",
+                        summary: "当前在第一条分支。",
+                    },
+                }, {id: "tree-report-1"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    walkthrough: "root branch summary",
+                    data: {
+                        title: "根分支",
+                        summary: "当前 active path 已切回根。",
+                    },
+                }, {id: "tree-report-2"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.test-tree-summary",
+            input: {},
+            workspaceRoot: root,
+        });
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "branch"},
+        });
+        expect(result.status).toBe("completed");
+        await waitFor(async () => {
+            const session = await harness.getSession(created.sessionId);
+            expect(session.title).toBe("第一分支");
+        });
+
+        const userEntry = (await harness.repo.readSession(created.sessionId)).entries.find((entry) => entry.type === "message" && entry.message.role === "user");
+        expect(userEntry).toEqual(expect.objectContaining({type: "message"}));
+        await harness.moveTree(created.sessionId, {
+            position: "at",
+            targetEntryId: userEntry!.id,
+        });
+
+        await waitFor(async () => {
+            const session = await harness.getSession(created.sessionId);
+            expect(session.title).toBe("根分支");
+            expect(session.summary).toBe("当前 active path 已切回根。");
+        });
     });
 
     it("provider error 会作为 invoke error 返回且不触发 report_result reminder", async () => {

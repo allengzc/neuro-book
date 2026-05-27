@@ -74,6 +74,17 @@ export default defineAgentProfile({
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
     allowedToolKeys,
+    summarizer: {
+        profileKey: "session.summarizer",
+        input: {
+            trigger: "after_invocation",
+            interval: {
+                kind: "turn",
+                value: 1,
+            },
+            maxDialogueContentTokens: 80_000,
+        },
+    },
     async context(ctx) {
         const currentProjectWorkspace = await ctx.vars.get("client.currentProjectWorkspace");
         const selectedFilePath = await ctx.vars.get("client.studio.selectedFilePath");

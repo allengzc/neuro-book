@@ -1045,7 +1045,7 @@ async function addProvider(): Promise<void> {
     draft.value.providers.push({
         id: providerId,
         name: preset.providerName,
-        api: builtinProvider?.models[0]?.api ?? "",
+        api: "",
         options: {
             apiKey: "",
             baseURL,

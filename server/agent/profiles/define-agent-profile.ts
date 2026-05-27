@@ -8,8 +8,10 @@ import {compileProfileContext, validateProfileTurnPlan} from "nbook/server/agent
 export function defineAgentProfile<
     const TInputSchema extends TSchema,
     const TOutputSchema extends TSchema,
->(profile: AgentProfile<TInputSchema, TOutputSchema>): AgentProfile<TInputSchema, TOutputSchema> {
+    const TSummarizerKey extends string = string,
+>(profile: AgentProfile<TInputSchema, TOutputSchema, TSummarizerKey>): AgentProfile<TInputSchema, TOutputSchema, TSummarizerKey> {
     assertProfileManifest(profile.manifest);
+    assertProfileSummarizer(profile.manifest.key, profile.summarizer);
     if (profile.context && profile.prepare) {
         throw new Error(`profile ${profile.manifest.key} 不能同时定义 context 和 prepare。`);
     }
@@ -42,5 +44,23 @@ export function assertProfileManifest(manifest: AgentProfileManifest): void {
     }
     if (!manifest.name.trim()) {
         throw new Error(`profile ${manifest.key} manifest.name 不能为空`);
+    }
+}
+
+/**
+ * 校验 summarizer 静态声明的最小 shape。
+ */
+function assertProfileSummarizer(profileKey: string, summarizer: AgentProfile["summarizer"]): void {
+    if (!summarizer) {
+        return;
+    }
+    if (summarizer.enabled === false) {
+        return;
+    }
+    if (!summarizer.profileKey || !summarizer.profileKey.trim()) {
+        throw new Error(`profile ${profileKey} summarizer.profileKey 不能为空`);
+    }
+    if (summarizer.input !== undefined && (typeof summarizer.input !== "object" || summarizer.input === null || Array.isArray(summarizer.input))) {
+        throw new Error(`profile ${profileKey} summarizer.input 必须是对象`);
     }
 }

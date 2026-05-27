@@ -150,6 +150,34 @@ describe("JsonlSessionRepository", () => {
         expect(runtimeOnlySessions).toEqual([]);
     });
 
+    it("session 列表默认隐藏 system session，includeSystem 时显示", async () => {
+        const leader = await repo.createSession({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "workspace",
+            title: "leader",
+        });
+        const summarizer = await repo.createSession({
+            profileKey: "session.summarizer",
+            input: {sourceSessionId: leader.metadata.sessionId},
+            workspaceRoot: "workspace",
+            workspaceKey: "workspace",
+            systemRole: "summarizer",
+            title: "summarizer",
+        });
+
+        const defaultList = await repo.listSessions({workspaceKey: "workspace"});
+        const systemList = await repo.listSessions({workspaceKey: "workspace", includeSystem: true});
+
+        expect(defaultList.map((session) => session.sessionId)).toEqual([leader.metadata.sessionId]);
+        expect(systemList.map((session) => session.sessionId).sort((left, right) => left - right)).toEqual([
+            leader.metadata.sessionId,
+            summarizer.metadata.sessionId,
+        ]);
+        expect(systemList.find((session) => session.sessionId === summarizer.metadata.sessionId)?.systemRole).toBe("summarizer");
+    });
+
     it("支持 leaf 移动和 fork，历史不删除", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",

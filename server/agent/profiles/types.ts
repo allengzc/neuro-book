@@ -4,6 +4,7 @@ import type {NeuroSessionContext, SessionEntryDraft} from "nbook/server/agent/se
 import type {ProfileDslNode} from "nbook/server/agent/profiles/profile-dsl";
 import type {SkillCatalogItem} from "nbook/server/agent/skills/skill-catalog";
 import type {ClientStateSnapshot, ProfileVariableAccessor, VariableDefinition} from "nbook/server/agent/variables/types";
+import type {SessionSummarizerInputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 
 export type AgentProfileManifest<TKey extends string = string> = {
     key: TKey;
@@ -114,14 +115,27 @@ export type ProfileIngestResult = {
     };
 };
 
+export type KnownAgentProfileInputs = {
+    "session.summarizer": Omit<Static<typeof SessionSummarizerInputSchema>, "sourceSessionId">;
+};
+
+export type AgentProfileSummarizerConfig<TKey extends string = string> = {
+    /** false 表示显式关闭当前 profile 的展示标题/摘要维护。 */
+    enabled?: boolean;
+    profileKey: TKey;
+    input?: TKey extends keyof KnownAgentProfileInputs ? KnownAgentProfileInputs[TKey] : JsonValue;
+};
+
 export type AgentProfile<
     TInputSchema extends TSchema = TSchema,
     TOutputSchema extends TSchema = TSchema,
+    TSummarizerKey extends string = string,
 > = {
     manifest: AgentProfileManifest;
     inputSchema: TInputSchema;
     outputSchema?: TOutputSchema;
     allowedToolKeys: readonly string[];
+    summarizer?: AgentProfileSummarizerConfig<TSummarizerKey>;
     /** profile 自带的 session.* 变量定义，随 profile `.compiled` artifact 加载。 */
     variableDefinitions?: readonly VariableDefinition[];
     context?(ctx: ProfilePrepareContext<Static<TInputSchema>>): ProfileDslNode | Promise<ProfileDslNode>;
