@@ -18,6 +18,66 @@ describe("resolvePiModelInputs", () => {
 });
 
 describe("resolvePiModelFromConfig", () => {
+    it("profile 默认模型为空时回落到全局默认模型", () => {
+        const config: Pick<EffectiveConfig, "agent" | "models"> = {
+            agent: {
+                defaultProfileKey: {
+                    novel: null,
+                    userAssets: null,
+                },
+                profiles: {
+                    "leader.default": {
+                        model: {
+                            modelKey: null,
+                            temperature: null,
+                            topK: null,
+                            reasoningEffort: null,
+                            stream: true,
+                        },
+                    },
+                },
+            },
+            models: {
+                defaultModelKey: "deepseek/deepseek-v4-flash",
+                providers: {
+                    deepseek: {
+                        name: "DeepSeek",
+                        api: null,
+                        options: {
+                            apiKey: "sk-global",
+                            baseURL: "",
+                            proxy: "",
+                            timeoutMs: null,
+                            requestOptions: {},
+                        },
+                        models: {
+                            "deepseek-v4-flash": {
+                                name: "DeepSeek V4 Flash",
+                                id: "deepseek-v4-flash",
+                                group: null,
+                                enabled: true,
+                                provider: null,
+                                api: null,
+                                baseUrl: null,
+                                reasoning: null,
+                                input: null,
+                                maxTokens: null,
+                                cost: null,
+                                compat: null,
+                                contextWindowTokens: null,
+                            },
+                        },
+                    },
+                },
+            },
+        };
+
+        const model = resolvePiModelFromConfig(config, "leader.default");
+
+        expect(model.id).toBe("deepseek-v4-flash");
+        expect((model as {providerConfigId?: string}).providerConfigId).toBe("deepseek");
+    });
+
     it("允许同一个 Pi provider 使用多个本地 Provider 实例", () => {
         const config: Pick<EffectiveConfig, "agent" | "models"> = {
             agent: {
