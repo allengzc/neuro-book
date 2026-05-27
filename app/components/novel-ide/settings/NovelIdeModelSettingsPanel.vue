@@ -1009,7 +1009,7 @@ function clonePiModel(model: PiBuiltinModelDto): ModelDraft {
         name: model.name,
         id: model.id,
         group: deriveGroup(model.id),
-        enabled: true,
+        enabled: false,
         provider: usesSameRegistryProvider ? "" : model.provider,
         api: "",
         baseUrl: "",
@@ -1060,7 +1060,6 @@ async function addProvider(): Promise<void> {
     });
     successText.value = `已新增 Provider：${preset.label}`;
     errorText.value = "";
-    ensureDefaultModelKey();
 }
 
 /**
@@ -1822,7 +1821,7 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                                     <FormInput v-model="activeProvider.name" placeholder="例如 SiliconFlow" />
                                 </div>
                                 <div class="group space-y-1.5">
-                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">默认 Pi API</label>
+                                    <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">接口格式</label>
                                     <FormSelect v-model="activeProvider.api" :options="[{value: '', label: providerDefaultApiLabel(activeProvider)}, ...modelApiOptions]" />
                                 </div>
                                 <div class="group space-y-1.5">
@@ -2015,9 +2014,9 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                     <FormInput v-model="getManualModelDraft(activeProvider.id).name" placeholder="手动添加名称" class="flex-1 bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
                     <FormInput :model-value="getManualModelDraft(activeProvider.id).id" placeholder="手动添加 ID" class="flex-1 bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" @update:model-value="updateManualModelId(activeProvider.id, $event)" />
                     <div class="w-[190px]">
-                        <FormSelect v-model="getManualModelDraft(activeProvider.id).api" :options="[{value: '', label: activeProvider.api ? `继承配置（${activeProvider.api}）` : providerDefaultApiLabel(activeProvider)}, ...modelApiOptions]" placeholder="Pi API" />
+                        <FormSelect v-model="getManualModelDraft(activeProvider.id).api" :options="[{value: '', label: activeProvider.api ? `继承配置（${activeProvider.api}）` : providerDefaultApiLabel(activeProvider)}, ...modelApiOptions]" placeholder="API 格式" />
                     </div>
-                    <FormInput v-model="getManualModelDraft(activeProvider.id).api" placeholder="自定义 Pi API；留空继承" class="w-[180px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
+                    <FormInput v-model="getManualModelDraft(activeProvider.id).api" placeholder="自定义接口格式；留空继承" class="w-[180px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
                     <FormInput v-model="getManualModelDraft(activeProvider.id).contextWindowTokens" placeholder="上下文窗口" class="w-[120px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
                     <button class="inline-flex h-8 shrink-0 items-center justify-center rounded-md bg-[var(--accent-main)] text-white px-3 text-xs font-medium shadow-sm transition-all hover:opacity-90 active:scale-95" @click="addManualModel">
                         添加
@@ -2073,9 +2072,9 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                     <FormInput v-model="editingModel.provider" placeholder="留空使用配置 ID" class="bg-[var(--bg-input)] shadow-sm" />
                 </div>
                 <div class="space-y-1.5">
-                    <label class="text-xs font-medium text-[var(--text-secondary)]">Pi API</label>
+                    <label class="text-xs font-medium text-[var(--text-secondary)]">接口格式</label>
                     <FormSelect v-model="editingModel.api" :options="[{value: '', label: modelApiInheritLabel(editingModel)}, ...modelApiOptions]" />
-                    <FormInput v-model="editingModel.api" placeholder="可手动输入自定义 Pi API" class="bg-[var(--bg-input)] shadow-sm" />
+                    <FormInput v-model="editingModel.api" placeholder="可手动输入自定义接口格式" class="bg-[var(--bg-input)] shadow-sm" />
                 </div>
                 <div class="space-y-1.5">
                     <label class="text-xs font-medium text-[var(--text-secondary)]">Max Tokens</label>

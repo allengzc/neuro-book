@@ -1126,6 +1126,51 @@ describe("NeuroAgentHarness", () => {
         expect(await harness.getAgent(undefined, parent.sessionId)).toEqual([]);
     });
 
+    it("create_agent 子 session 首次运行使用父 session workspaceRoot 的 effective 默认模型", async () => {
+        const childWorkspaceRoot = join(root, "child-workspace").replaceAll("\\", "/");
+        await mkdir(join(childWorkspaceRoot, ".nbook"), {recursive: true});
+        await writeFile(join(childWorkspaceRoot, ".nbook", "config.json"), JSON.stringify({
+            models: {
+                default: "project-provider/project-model",
+            },
+        }, null, 4), "utf8");
+
+        const observedDefaultModelKeys: Array<string | null> = [];
+        harness = new NeuroAgentHarness({
+            repo: harness.repo,
+            profiles: harness.profiles,
+            modelResolver: (config, profileKey, override) => {
+                expect(profileKey).toBe("leader.default");
+                expect(override).toBeUndefined();
+                observedDefaultModelKeys.push(config.models.defaultModelKey);
+                return faux.getModel();
+            },
+            enableSessionSummarizer: false,
+        });
+        faux.setResponses([fauxAssistantMessage(fauxText("child done"))]);
+        const parent = await harness.createAgent({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: childWorkspaceRoot,
+            workspaceKey: "novel-one",
+        });
+        const child = await harness.createAgent({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: childWorkspaceRoot,
+            workspaceKey: "novel-one",
+            parentSessionId: parent.sessionId,
+        });
+
+        await harness.invokeAgent({
+            sessionId: child.sessionId,
+            mode: "prompt",
+            message: {text: "use default"},
+        });
+
+        expect(observedDefaultModelKeys).toContain("project-provider/project-model");
+    });
+
     it("invoke_agent 完成后父 agent 继续进入下一轮 ReAct", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
