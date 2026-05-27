@@ -25,7 +25,7 @@ import {profileText} from "nbook/server/agent/profiles/profile-text";
 export const profileManifest = {
     key: "leader.assets",
     name: "用户资产助手",
-    description: "协助编辑全局用户 assets、Agent profiles、skills 和可覆盖系统资源。",
+    description: "用户资产维护 agent：协助编辑 Workspace Root .nbook 下的 profiles、skills、writing presets 和系统覆盖资源，不负责小说正文调度。",
 } as const;
 
 export const InputSchema = LeaderDefaultInputSchema;

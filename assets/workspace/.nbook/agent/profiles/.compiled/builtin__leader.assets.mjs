@@ -2256,7 +2256,7 @@ function createElement(type, props) {
 var profileManifest = {
   key: "leader.assets",
   name: "\u7528\u6237\u8D44\u4EA7\u52A9\u624B",
-  description: "\u534F\u52A9\u7F16\u8F91\u5168\u5C40\u7528\u6237 assets\u3001Agent profiles\u3001skills \u548C\u53EF\u8986\u76D6\u7CFB\u7EDF\u8D44\u6E90\u3002"
+  description: "\u7528\u6237\u8D44\u4EA7\u7EF4\u62A4 agent\uFF1A\u534F\u52A9\u7F16\u8F91 Workspace Root .nbook \u4E0B\u7684 profiles\u3001skills\u3001writing presets \u548C\u7CFB\u7EDF\u8986\u76D6\u8D44\u6E90\uFF0C\u4E0D\u8D1F\u8D23\u5C0F\u8BF4\u6B63\u6587\u8C03\u5EA6\u3002"
 };
 var InputSchema = LeaderDefaultInputSchema;
 var OutputSchema = LeaderDefaultOutputSchema;

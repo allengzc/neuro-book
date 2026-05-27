@@ -9,7 +9,7 @@ import {profileText} from "nbook/server/agent/profiles/profile-text";
 export const profileManifest = {
     key: "retrieval",
     name: "Retrieval",
-    description: "专用内容节点检索 agent，优先生成内容节点元数据清单，再做精确搜索。",
+    description: "内容节点召回和候选判断 agent：为 Leader 查找 lorebook/manuscript 相关节点，输出 entries 给调用方判断，不直接替 writer 写正文。",
 } as const;
 
 export const InputSchema = RetrievalInputSchema;

@@ -2253,7 +2253,7 @@ function createElement(type, props) {
 var profileManifest = {
   key: "retrieval",
   name: "Retrieval",
-  description: "\u4E13\u7528\u5185\u5BB9\u8282\u70B9\u68C0\u7D22 agent\uFF0C\u4F18\u5148\u751F\u6210\u5185\u5BB9\u8282\u70B9\u5143\u6570\u636E\u6E05\u5355\uFF0C\u518D\u505A\u7CBE\u786E\u641C\u7D22\u3002"
+  description: "\u5185\u5BB9\u8282\u70B9\u53EC\u56DE\u548C\u5019\u9009\u5224\u65AD agent\uFF1A\u4E3A Leader \u67E5\u627E lorebook/manuscript \u76F8\u5173\u8282\u70B9\uFF0C\u8F93\u51FA entries \u7ED9\u8C03\u7528\u65B9\u5224\u65AD\uFF0C\u4E0D\u76F4\u63A5\u66FF writer \u5199\u6B63\u6587\u3002"
 };
 var InputSchema = RetrievalInputSchema;
 var OutputSchema = RetrievalOutputSchema;
