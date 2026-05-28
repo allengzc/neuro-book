@@ -20,10 +20,19 @@ export default defineEventHandler(async (event) => {
         if (streamClosed) {
             return;
         }
-        await eventStream.push({
-            event: payload.type,
-            data: JSON.stringify(payload),
-        });
+        try {
+            await eventStream.push({
+                event: payload.type,
+                data: JSON.stringify(payload),
+            });
+        } catch (error) {
+            if (isClosingEventStreamError(error)) {
+                streamClosed = true;
+                unsubscribe?.();
+                return;
+            }
+            throw error;
+        }
     };
 
     eventStream.onClosed(() => {
@@ -50,3 +59,10 @@ export default defineEventHandler(async (event) => {
 
     return eventStream.send();
 });
+
+/**
+ * h3 EventStream 在客户端断开附近可能仍抛 closed-stream 错误。
+ */
+function isClosingEventStreamError(error: unknown): boolean {
+    return error instanceof TypeError && error.message.includes("stream is closing or closed");
+}

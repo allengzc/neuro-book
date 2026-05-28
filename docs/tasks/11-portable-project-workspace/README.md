@@ -314,6 +314,7 @@
 - 已执行 `bun .\assets\workspace\.nbook\agent\scripts\workspace.ts project create "workspace/codex-project-create-smoke" --title "测试项目" --summary "临时验证" --json`，确认会合并 bundled `assets/workspace/.nbook/templates/novel-directory-templates` 与用户覆盖层 `workspace/.nbook/templates/novel-directory-templates`、写入 `project.yaml`、初始化 `.nbook/project.sqlite`，且目标目录不再保留旧 `workspace.yaml`；验证后已删除临时 Project Workspace。
 - 已执行 `bun .\scripts\sync-user-assets.ts`，确认仍跟随旧系统上游的 `workspace/.nbook/agent/scripts/workspace.ts` 会同步到新 `workspace project create` 命令面。
 - 已执行目标已存在场景的 smoke，确认 `workspace project create` 失败时不会删除已有 Project Workspace 目录，也不会残留 `.creating-*` 临时目录。
+- 已执行 `cwd=workspace` 下的 `workspace node validate workspace/silver-dragon-hime/manuscript/001-荒野觉醒/001-祭坛苏醒/` smoke，确认 `workspace node` 已按 `project.yaml` 定位 Project Workspace，并兼容 `workspace/<project>/...` Project Path 输入。
 - 已执行 `bunx vitest run server/workspace-files/workspace-files.test.ts -t "Agent runtime|Project Workspace"`。
 - 已执行 `bun x prisma generate --schema prisma/schema.sqlite.prisma`。
 - 已执行 `bun x prisma generate --schema prisma/project.schema.prisma`。
@@ -340,6 +341,7 @@
 - 创建逻辑先复制 bundled `assets/workspace/.nbook/templates/<template>`，再叠加 Workspace Root `.nbook/templates/<template>` 用户覆盖层；复制后移除旧模板 `workspace.yaml`，写入当前合同的 `project.yaml`，并把旧覆盖层状态文档中“已创建 workspace.yaml”的单点文案归一到 `project.yaml`。
 - 创建命令改为先在目标旁边 `.creating-*` 临时目录内完成模板、manifest 和 Project SQLite，再复制到最终目录；失败时只清理自己的临时目录，避免并发创建时误删已有 Project Workspace。
 - `syncSystemAssetsToUserAssets()` 会同步仍跟随系统上游的 Agent runtime bin/script；缺少 sync state 但内容等于 Git HEAD 中旧系统 asset 的副本，会视为未手改旧同步副本并更新，真实手改副本仍保留并给 warning。
+- `workspace node parse/validate/new/state` 的 root marker 已从旧 `workspace.yaml` 迁到 `project.yaml`；从 Workspace Root 执行时，`workspace/<project>/...` 会先归一为 `<project>/...`，避免 Agent 把 Project Path 双拼成 `workspace/workspace/<project>/...`。
 - 抽出 `initProjectDatabaseAtRoot()`，让 agent assets CLI 能在只有目标绝对目录时初始化 Project SQLite，同时保留原有 `initProjectDatabase(projectPath)` 入口。
 - `leader.default` prompt 的 Shell commands 已加入 `workspace project create`，并提醒创建新小说 Project Workspace 时不要手动复制模板或手拼 manifest。
 - 新小说模板状态文档已从 `workspace.yaml` 改成 `project.yaml`，避免新项目初始化后文档和实际 manifest 冲突。

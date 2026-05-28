@@ -60,4 +60,52 @@ describe("GET /api/workspace-files/events", () => {
         expect(unsubscribe).toHaveBeenCalledTimes(1);
         expect(eventStream.close).toHaveBeenCalledTimes(1);
     });
+
+    it("客户端断开导致 push closed-stream 错误时会清理订阅", async () => {
+        const unsubscribe = vi.fn();
+        let subscribedHandler: ((payload: unknown) => Promise<void>) | null = null;
+        const eventStream = {
+            push: vi.fn(async () => {
+                throw new TypeError("stream is closing or closed");
+            }),
+            send: vi.fn(async () => "sent"),
+            close: vi.fn(async () => {}),
+            onClosed: vi.fn(),
+        };
+
+        vi.doMock("h3", () => ({
+            createEventStream: vi.fn(() => eventStream),
+        }));
+        vi.doMock("nbook/server/workspace-files/novel-workspace", () => ({
+            resolveWorkspaceRootInput: vi.fn(async () => "workspace/novel-1"),
+        }));
+        vi.doMock("nbook/server/workspace-files/workspace-file-events", () => ({
+            subscribeWorkspaceFileEvents: vi.fn(async (_root: string, handler: (payload: unknown) => Promise<void>) => {
+                subscribedHandler = handler;
+                return unsubscribe;
+            }),
+        }));
+        vi.doMock("nbook/server/workspace-files/project-workspace-index", () => ({
+            refreshProjectWorkspaceIndex: vi.fn(async () => ({
+                revision: 2,
+                validatedAt: "2026-05-28T00:00:00.000Z",
+            })),
+        }));
+        vi.doMock("nbook/server/utils/prisma", () => ({
+            prisma: {},
+        }));
+
+        const handler = (await import("nbook/server/api/workspace-files/events.get")).default;
+        await expect(handler({} as never)).resolves.toBe("sent");
+
+        await expect(subscribedHandler?.({
+            type: "workspace_files_changed",
+            root: "workspace/novel-1",
+            sequence: 1,
+            changedAt: "2026-05-28T00:00:00.000Z",
+            events: [],
+        })).resolves.toBeUndefined();
+
+        expect(unsubscribe).toHaveBeenCalledTimes(1);
+    });
 });

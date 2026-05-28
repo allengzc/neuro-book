@@ -19,6 +19,10 @@ type ResolvedPiModel = Model<any> & {
 
 const DEFAULT_CONTEXT_WINDOW = 128_000;
 const DEFAULT_MAX_TOKENS = 16_384;
+const XIAOMI_TOKEN_PLAN_COMPAT: NonNullable<Model<"openai-completions">["compat"]> = {
+    supportsDeveloperRole: false,
+    maxTokensField: "max_tokens",
+};
 
 /**
  * 将当前 effective config 的模型引用解析成 Pi Model。
@@ -48,6 +52,7 @@ export function resolvePiModelFromConfig(
     const piProviderId = model.provider ?? providerId;
     const piModel = resolvePiRegistryModel(piProviderId, model.id);
     const piApi = model.api ?? provider.api ?? piModel?.api ?? "openai-completions";
+    const compat = mergeModelCompat(piProviderId, piModel, model.compat as Model<any>["compat"]);
     const customCost = model.cost ?? {
         input: 0,
         output: 0,
@@ -66,7 +71,7 @@ export function resolvePiModelFromConfig(
             cost: customCost,
             contextWindow: model.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW,
             maxTokens: model.maxTokens ?? DEFAULT_MAX_TOKENS,
-            compat: model.compat as Model<any>["compat"],
+            compat,
         }),
         api: piApi,
         id: model.id,
@@ -85,7 +90,7 @@ export function resolvePiModelFromConfig(
         contextWindow: model.contextWindowTokens ?? piModel?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
         maxTokens: model.maxTokens ?? piModel?.maxTokens ?? DEFAULT_MAX_TOKENS,
         headers: piModel?.headers ?? {},
-        compat: (model.compat as Model<any>["compat"]) ?? piModel?.compat,
+        compat,
     };
 }
 
@@ -140,4 +145,18 @@ function resolvePiRegistryModel(providerId: string, modelId: string): Model<any>
     } catch {
         return undefined;
     }
+}
+
+function mergeModelCompat(
+    providerId: string,
+    piModel: Model<any> | undefined,
+    modelCompat: Model<any>["compat"],
+): Model<any>["compat"] {
+    const providerCompat = providerId === "xiaomi-token-plan-cn" ? XIAOMI_TOKEN_PLAN_COMPAT : {};
+    const merged = {
+        ...providerCompat,
+        ...(piModel?.compat ?? {}),
+        ...(modelCompat ?? {}),
+    };
+    return Object.keys(merged).length ? merged as Model<any>["compat"] : undefined;
 }

@@ -46,7 +46,7 @@ export const SessionSummarizerOutputSchema = Type.Object({
  */
 export const WriterInputSchema = Type.Object({
     prompt: Type.String({description: "本次写作任务。写清要写什么、是重写还是局部修改、章节边界和交付要求。"}),
-    chapterPaths: Type.Array(Type.String({description: "章节内容节点目录路径。当前 Project Workspace 使用 manuscript/.../；跨 Project Workspace 使用 novel-slug/manuscript/.../。"}), {
+    chapterPaths: Type.Array(Type.String({description: "章节内容节点目录路径，必须相对于 Agent cwd。普通 Project agent 的 cwd 是 workspace 容器根，因此应传 project-slug/manuscript/.../，不要传 manuscript/.../ 或 workspace/project-slug/.../。"}), {
         minItems: 1,
         maxItems: 1,
         description: "本 writer session 绑定的唯一章节。调用方必须先创建章节内容节点，并在 Plot System 中把 Scene 挂到该章节。",

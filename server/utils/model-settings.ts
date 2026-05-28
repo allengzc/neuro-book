@@ -14,6 +14,10 @@ import type {
     UpdateModelSettingsRequestDto,
 } from "nbook/shared/dto/app-settings.dto";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
+import {getModel, getModels, streamSimple} from "@earendil-works/pi-ai";
+import type {KnownProvider, Model} from "@earendil-works/pi-ai";
+import type {JsonValue} from "nbook/server/agent/messages/types";
+import {createUserMessage} from "nbook/server/agent/messages/message-utils";
 import type {
     AgentProfileConfig,
     AgentProfileModelConfig,
@@ -51,6 +55,13 @@ export type AgentProfileSettingDefinition = {
 };
 
 const DEFAULT_MODEL_DISCOVERY_TIMEOUT_MS = 30_000;
+const DEFAULT_MODEL_SMOKE_TIMEOUT_MS = 30_000;
+const DEFAULT_CONTEXT_WINDOW = 128_000;
+const DEFAULT_MAX_TOKENS = 16_384;
+const XIAOMI_TOKEN_PLAN_COMPAT: NonNullable<Model<"openai-completions">["compat"]> = {
+    supportsDeveloperRole: false,
+    maxTokensField: "max_tokens",
+};
 
 /**
  * 生成 `providerId/modelId` 形式的模型 key。
@@ -283,14 +294,24 @@ export function resolveAgentProfileModelConfig(appConfig: {agent: {profileModelD
 }
 
 /**
- * 对 Provider 进行连通性测试。真实请求迁移到 Pi provider 后再恢复。
+ * 对 Provider 进行 Pi smoke 连通性测试。
  */
-export async function checkProviderConnection(providerDraft: ModelProviderDraftDto): Promise<CheckProviderResponseDto> {
-    return {
-        success: false,
-        latencyMs: null,
-        message: `${providerDraft.name} 的旧 LangChain 连通性测试已移除；请使用 Agent smoke 或后续 Pi provider 检查入口。`,
-    };
+export async function checkProviderConnection(
+    providerDraft: ModelProviderDraftDto,
+    modelDrafts?: Array<Omit<ConfiguredModelDto, "enabled">>,
+): Promise<CheckProviderResponseDto> {
+    const modelDraft = modelDrafts === undefined
+        ? firstPiRegistryModelAsDraft(providerDraft.id)
+        : modelDrafts[0] ?? null;
+    if (!modelDraft) {
+        return {
+            success: false,
+            latencyMs: null,
+            message: `${providerDraft.name} 没有可检查的模型；请先启用或添加一个模型。`,
+        };
+    }
+
+    return runPiModelSmokeCheck(providerDraft, modelDraft, "provider");
 }
 
 /**
@@ -313,17 +334,13 @@ export async function discoverProviderModels(providerDraft: ModelProviderDraftDt
 }
 
 /**
- * 对单个模型执行健康检查。真实请求迁移到 Pi provider 后再恢复。
+ * 对单个模型执行 Pi smoke 健康检查。
  */
 export async function checkModelHealth(
     providerDraft: ModelProviderDraftDto,
     modelDraft: Omit<ConfiguredModelDto, "enabled">,
 ): Promise<CheckModelResponseDto> {
-    return {
-        success: false,
-        latencyMs: null,
-        message: `${providerDraft.name}/${modelDraft.id} 的旧 LangChain 健康检查已移除；请使用 Agent smoke 或后续 Pi provider 检查入口。`,
-    };
+    return runPiModelSmokeCheck(providerDraft, modelDraft, "model");
 }
 
 /**
@@ -351,6 +368,210 @@ export function normalizeModelProviderOptions(options: ModelProviderOptionsConfi
         timeoutMs: options.timeoutMs,
         requestOptions: options.requestOptions,
     };
+}
+
+/**
+ * 设置页不会回传已保存的 secret；检查类接口在后端补齐旧 key。
+ */
+export function withSavedProviderApiKey(providerDraft: ModelProviderDraftDto, savedApiKey: string | undefined): ModelProviderDraftDto {
+    if (providerDraft.options.apiKey.trim() || !savedApiKey) {
+        return providerDraft;
+    }
+    return {
+        ...providerDraft,
+        options: {
+            ...providerDraft.options,
+            apiKey: savedApiKey,
+        },
+    };
+}
+
+async function runPiModelSmokeCheck(
+    providerDraft: ModelProviderDraftDto,
+    modelDraft: Omit<ConfiguredModelDto, "enabled">,
+    scope: "provider" | "model",
+): Promise<CheckModelResponseDto> {
+    if (providerDraft.options.proxy.trim()) {
+        return {
+            success: false,
+            latencyMs: null,
+            message: `${providerDraft.name} 已配置代理，但 Pi 检查暂不支持通过 Provider 代理发起请求；请先使用 Agent smoke 或移除代理后再检查。`,
+        };
+    }
+
+    const apiKey = providerDraft.options.apiKey.trim();
+    if (!apiKey) {
+        return {
+            success: false,
+            latencyMs: null,
+            message: `${providerDraft.name} 缺少 API Key，无法执行 Pi 检查。`,
+        };
+    }
+
+    const model = resolvePiModelForDraft(providerDraft, modelDraft);
+    const startedAt = Date.now();
+    try {
+        const stream = streamSimple(model, {
+            systemPrompt: "You are a concise connectivity smoke test assistant.",
+            messages: [createUserMessage({text: "Reply with ok."})],
+            tools: [],
+        }, {
+            apiKey,
+            timeoutMs: providerDraft.options.timeoutMs ?? DEFAULT_MODEL_SMOKE_TIMEOUT_MS,
+            maxTokens: Math.min(32, model.maxTokens),
+            reasoning: undefined,
+            ...piSmokeRequestOptions(providerDraft.options.requestOptions),
+            cacheRetention: "none",
+        });
+        const response = await stream.result();
+        const latencyMs = Date.now() - startedAt;
+        if (response.stopReason === "error" || response.stopReason === "aborted") {
+            return {
+                success: false,
+                latencyMs,
+                message: `${providerDraft.name}/${model.id} 检查失败：${sanitizeProviderError(response.errorMessage || "provider 未返回错误详情")}`,
+            };
+        }
+        return {
+            success: true,
+            latencyMs,
+            message: scope === "provider"
+                ? `${providerDraft.name} Pi 检查通过：${model.id}，用时 ${String(latencyMs)}ms。`
+                : `${providerDraft.name}/${model.id} Pi 检查通过，用时 ${String(latencyMs)}ms。`,
+        };
+    } catch (error) {
+        const latencyMs = Date.now() - startedAt;
+        return {
+            success: false,
+            latencyMs,
+            message: `${providerDraft.name}/${model.id} 检查失败：${sanitizeProviderError(error instanceof Error ? error.message : String(error))}`,
+        };
+    }
+}
+
+function resolvePiModelForDraft(providerDraft: ModelProviderDraftDto, modelDraft: Omit<ConfiguredModelDto, "enabled">): Model<any> {
+    const piProviderId = modelDraft.provider ?? providerDraft.id;
+    const piModel = resolvePiRegistryModel(piProviderId, modelDraft.id);
+    const api = modelDraft.api ?? providerDraft.api ?? piModel?.api ?? "openai-completions";
+    const compat = {
+        ...(piProviderId === "xiaomi-token-plan-cn" ? XIAOMI_TOKEN_PLAN_COMPAT : {}),
+        ...(piModel?.compat ?? {}),
+        ...(modelDraft.compat ?? {}),
+    } as Model<any>["compat"];
+    return {
+        ...(piModel ?? {
+            id: modelDraft.id,
+            name: modelDraft.name,
+            api,
+            provider: piProviderId,
+            baseUrl: providerDraft.options.baseURL || modelDraft.baseUrl || "",
+            reasoning: modelDraft.reasoning ?? false,
+            input: [...(modelDraft.input ?? ["text"])],
+            cost: modelDraft.cost ?? {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheWrite: 0,
+            },
+            contextWindow: modelDraft.contextWindowTokens ?? DEFAULT_CONTEXT_WINDOW,
+            maxTokens: modelDraft.maxTokens ?? DEFAULT_MAX_TOKENS,
+            compat,
+        }),
+        id: modelDraft.id,
+        name: modelDraft.name || piModel?.name || modelDraft.id,
+        api,
+        provider: piProviderId,
+        baseUrl: providerDraft.options.baseURL || modelDraft.baseUrl || piModel?.baseUrl || "",
+        reasoning: modelDraft.reasoning ?? piModel?.reasoning ?? false,
+        input: [...(modelDraft.input ?? piModel?.input ?? ["text"])],
+        cost: {
+            input: modelDraft.cost?.input ?? piModel?.cost.input ?? 0,
+            output: modelDraft.cost?.output ?? piModel?.cost.output ?? 0,
+            cacheRead: modelDraft.cost?.cacheRead ?? piModel?.cost.cacheRead ?? 0,
+            cacheWrite: modelDraft.cost?.cacheWrite ?? piModel?.cost.cacheWrite ?? 0,
+        },
+        contextWindow: modelDraft.contextWindowTokens ?? piModel?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+        maxTokens: modelDraft.maxTokens ?? piModel?.maxTokens ?? DEFAULT_MAX_TOKENS,
+        headers: piModel?.headers ?? {},
+        compat,
+    };
+}
+
+function firstPiRegistryModelAsDraft(providerId: string): Omit<ConfiguredModelDto, "enabled"> | null {
+    const model = resolvePiProviderModels(providerId)[0];
+    if (!model) {
+        return null;
+    }
+    return {
+        name: model.name,
+        id: model.id,
+        group: deriveModelGroup(model.id),
+        provider: model.provider,
+        api: model.api,
+        baseUrl: model.baseUrl,
+        reasoning: model.reasoning,
+        input: [...model.input],
+        maxTokens: model.maxTokens,
+        cost: model.cost,
+        compat: normalizePiModelCompat(model.compat),
+        contextWindowTokens: model.contextWindow,
+    };
+}
+
+function piSmokeRequestOptions(requestOptions: Record<string, JsonValue> | undefined): Record<string, unknown> {
+    if (!requestOptions) {
+        return {};
+    }
+    const allowedKeys = new Set(["headers", "maxRetries", "maxRetryDelayMs", "metadata", "transport", "cacheRetention"]);
+    return Object.fromEntries(
+        Object.entries(requestOptions).filter(([key]) => allowedKeys.has(key)),
+    );
+}
+
+function sanitizeProviderError(message: string): string {
+    const normalized = message
+        .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
+        .replace(/sk-[A-Za-z0-9._-]{8,}/gi, "sk-[redacted]")
+        .trim();
+    return normalized.length > 320 ? `${normalized.slice(0, 320)}...` : normalized;
+}
+
+function normalizePiModelCompat(compat: Model<any>["compat"]): Record<string, JsonValue> | null {
+    if (!compat || typeof compat !== "object" || Array.isArray(compat)) {
+        return null;
+    }
+    return Object.fromEntries(
+        Object.entries(compat).filter((entry): entry is [string, JsonValue] => isJsonValue(entry[1])),
+    );
+}
+
+function isJsonValue(value: unknown): value is JsonValue {
+    if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+        return true;
+    }
+    if (Array.isArray(value)) {
+        return value.every(isJsonValue);
+    }
+    if (typeof value === "object") {
+        return Object.values(value).every(isJsonValue);
+    }
+    return false;
+}
+
+function resolvePiProviderModels(providerId: string): Model<any>[] {
+    try {
+        return getModels(providerId as KnownProvider) as Model<any>[];
+    } catch {
+        return [];
+    }
+}
+
+function resolvePiRegistryModel(providerId: string, modelId: string): Model<any> | undefined {
+    try {
+        return getModel(providerId as KnownProvider, modelId as never) as Model<any> | undefined;
+    } catch {
+        return undefined;
+    }
 }
 
 /**

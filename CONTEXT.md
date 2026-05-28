@@ -92,6 +92,14 @@ _Avoid_: linked agent, visible subagent, user-facing agent
 运行 Agent Summarizer Profile 的后台 session，绑定一个源 Agent session 但不作为 linked agent 展示。
 _Avoid_: linked session, child agent, visible agent
 
+**History-Frozen Agent Session**:
+有 session 身份和初始化历史，但运行过程中不持久化 assistant/toolResult transcript 的 Agent session。这是观察到的会话行为，不是 runtime public API enum；实现上由 runtime hooks 组合表达。
+_Avoid_: sessionless agent, no-session profile, normal transcript session
+
+**Agent Summarizer ModelContext**:
+Agent Summarizer Profile 每次模型调用时使用的上下文，由 summarizer system prompt 和从源 session 当前 active path 提取的 Agent Dialogue Content 组成。
+_Avoid_: summarizer history, diagnostic transcript, incremental summary context
+
 **Agent Summarizer Trigger**:
 源 Agent session 完成后请求后台维护展示标题和摘要的运行信号。
 _Avoid_: leader invocation, user prompt, linked agent call
@@ -125,15 +133,17 @@ _Avoid_: leader invocation, user prompt, linked agent call
 - **Agent Dialogue Content** excludes harness reminders, profile/model-context injected messages, and custom messages unless the content boundary is explicitly expanded later.
 - An **Agent Summarizer Session** belongs to exactly one source Agent session.
 - An **Agent Summarizer Session** must not create a linked-agent relationship with its source Agent session.
+- An **Agent Summarizer Session** is a **History-Frozen Agent Session**, not a sessionless profile.
 - An **Agent Summarizer Profile** reports session display metadata; it must not change the source Agent session's conversation history.
 - An **Agent Summarizer Trigger** is transparent to the source Agent session's user-facing result.
 - Concurrent **Agent Summarizer Triggers** for the same source Agent session coalesce into latest-only background work.
 - An **Agent Summarizer Session** rebuilds **Agent Dialogue Content** from the source session's current active path for each run.
-- An **Agent Summarizer Session** may keep its own diagnostic history, but each summarization run uses freshly rebuilt **Agent Dialogue Content** as the source text instead of incrementally summarizing its own old history.
+- An **Agent Summarizer Session** does not persist its own assistant messages, tool calls, or tool results as conversation history.
+- An **Agent Summarizer ModelContext** uses an empty AppendingSet and receives freshly rebuilt **Agent Dialogue Content** from the source session.
 - An **Agent Summarizer Session** is created by the harness as a background system session, not by the normal linked-agent `parentSessionId` creation path.
 - **Agent Dialogue Content** includes compaction messages when they are on the source session's active path.
 - **Agent Dialogue Content** should be rendered as a stable transcript with explicit source labels before it is summarized.
-- An **Agent Summarizer Session** keeps its own ordinary harness history for diagnostics, even though it is not shown as a linked agent.
+- An **Agent Summarizer Session** reuses the source session's compaction result indirectly because compaction entries are part of **Agent Dialogue Content**.
 
 ## Example dialogue
 
@@ -163,3 +173,5 @@ _Avoid_: leader invocation, user prompt, linked agent call
 - "会话正文 Token" mixed content boundary with token measurement. Resolved: **Agent Dialogue Content** names the content boundary; token counts are a measurement over that content.
 - "summary" can mean session display summary, compaction summary, or branch summary. Resolved: **Agent Summarizer Profile** only owns session display metadata.
 - "摘要上下文 append-only" was used too broadly. Resolved: source session history remains append-only, but **Agent Summarizer Session** rebuilds Agent Dialogue Content from the current active path each run.
+- "摘要者诊断历史" conflicted with history-frozen summarizer semantics. Resolved: **Agent Summarizer Session** does not persist its own ReAct transcript; diagnostics come from state, lifecycle, source session, and runtime logs.
+- "sessionless summarizer" was too imprecise. Resolved: summarizer has a session identity and initialization history, but behaves as a **History-Frozen Agent Session** after initialization.

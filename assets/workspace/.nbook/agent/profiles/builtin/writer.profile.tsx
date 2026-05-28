@@ -82,6 +82,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Input>) {
                             - <lorebook_entries> 对应 writer.lorebookEntries 传入的内容节点路径数组。writer 会按数组顺序读取每个节点的 index.md 与同级可选 state.md，并把读取到的稳定设定、当前状态和信息差作为写作依据。
                             - <constraints> 对应额外写作约束、格式约束、禁忌和用户临时偏好。
                             - <writing_request> 对应用户本次要求写什么、改写什么、补全什么。
+                            - Agent 文件工具 cwd 是 workspace 容器根。chapterPaths 和 <chapter_target>.indexPath 都必须使用 project-slug/manuscript/... 这种 cwd-relative 路径；不要使用 manuscript/...，也不要使用 workspace/project-slug/...。
                         </context_mapping>
                         
                         <hard_rules>
@@ -115,7 +116,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Input>) {
 
                         文件写作任务的固定流程：
                         1. 读取必要上下文：如果目标章节 index.md 已存在，先用 read 阅读原文；如果章节剧情与内容节点已经足够，不要额外检索。
-                        2. 写入初稿：使用 write 把完整正文写入 <chapter_target> 的 indexPath。不要根据 UI active novel、自然语言章节名、旧 active scene 或 outputPath 猜测其他落点。
+                        2. 写入初稿：使用 write 把完整正文写入 <chapter_target> 的 indexPath，必须原样保留 project-slug 前缀。不要根据 UI active novel、自然语言章节名、旧 active scene 或 outputPath 猜测其他落点；不要把 indexPath 裁成 manuscript/...。
                         3. 润色复查：写完后进入润色环节，按 <writing_style>、<writing_reference>、<avoid_words>、视角边界、长自然段、剧情点覆盖度和内容节点设定逐项检查。
                         4. 修改成稿：如果发现需要调整，优先用 edit 逐处修改刚写入的文件；只有当多个改动天然适合一次统一补丁时，才用 apply_patch。不要重新把全文贴到 assistant 正文里。
                         5. 结束报告：最后必须调用 report_result。walkthrough 说明已写入的文件路径、润色完成情况和约 100 字剧情总结。
@@ -301,7 +302,7 @@ async function resolveWriterChapterTargets(ctx: ProfilePrepareContext<Input>): P
     if (!chapterPath) {
         throw new Error("writer.chapterPaths[0] 不能为空。");
     }
-    const target = await resolveWriterChapterTarget(ctx.session.workspaceRoot, chapterPath);
+    const target = await resolveWriterChapterTarget(chapterPath);
     const facade = await loadPlotFacade();
     try {
         const chapterPlot = await facade.getChapterPlotDetailDto(target.projectPath, target.chapterPath);
@@ -312,31 +313,25 @@ async function resolveWriterChapterTargets(ctx: ProfilePrepareContext<Input>): P
 }
 
 /**
- * 将输入路径解析为当前 Project Workspace 或显式 Project Workspace 中的章节。
+ * 将输入路径解析为 Agent cwd-relative Project 章节路径。
  */
-async function resolveWriterChapterTarget(sessionWorkspaceRoot: string, rawChapterPath: string): Promise<Omit<WriterChapterTarget, "chapterPlot">> {
+async function resolveWriterChapterTarget(rawChapterPath: string): Promise<Omit<WriterChapterTarget, "chapterPlot">> {
     const normalized = normalizeInputPath(rawChapterPath);
-    const currentPrefix = normalizeChapterPath(normalized);
-    if (currentPrefix) {
-        const projectPath = resolveCurrentProjectPath(sessionWorkspaceRoot);
-        await readProjectManifest(projectPath);
-        return buildChapterTarget(projectPath, currentPrefix, true);
-    }
     const explicit = resolveExplicitProjectChapterPath(normalized);
     if (!explicit) {
-        throw new Error("chapterPaths 必须是 manuscript/.../、workspace/<project>/manuscript/.../ 或 <project>/manuscript/.../，且必须指向章节目录。");
+        throw new Error("writer.chapterPaths 必须是相对于 Agent cwd 的 Project 章节目录，例如 silver-dragon-hime/manuscript/001-第一章/；不要传 manuscript/... 或 workspace/silver-dragon-hime/...");
     }
     await readProjectManifest(explicit.projectPath);
-    return buildChapterTarget(explicit.projectPath, explicit.chapterPath, false);
+    return buildChapterTarget(explicit.projectPath, explicit.projectSlug, explicit.chapterPath);
 }
 
-function buildChapterTarget(projectPath: string, chapterPath: string, currentProject: boolean): Omit<WriterChapterTarget, "chapterPlot"> {
-    const workspaceChapterPath = posix.join(projectPath, chapterPath);
+function buildChapterTarget(projectPath: string, projectSlug: string, chapterPath: string): Omit<WriterChapterTarget, "chapterPlot"> {
+    const workspaceChapterPath = posix.join(projectSlug, chapterPath);
     return {
         projectPath,
         chapterPath,
         workspaceChapterPath,
-        indexPath: currentProject ? posix.join(chapterPath, "index.md") : posix.join(workspaceChapterPath, "index.md"),
+        indexPath: posix.join(workspaceChapterPath, "index.md"),
     };
 }
 
@@ -345,11 +340,13 @@ function normalizeInputPath(rawPath: string): string {
 }
 
 function normalizeChapterPath(rawPath: string): string | null {
-    const withoutIndex = rawPath.replace(/\/index\.md$/u, "/");
-    if (!withoutIndex.startsWith("manuscript/")) {
+    if (rawPath.endsWith("/index.md") || rawPath.endsWith(".md")) {
         return null;
     }
-    return withoutIndex.endsWith("/") ? withoutIndex : `${withoutIndex}/`;
+    if (!rawPath.startsWith("manuscript/") || !rawPath.endsWith("/")) {
+        return null;
+    }
+    return rawPath;
 }
 
 function renderChapterPlotsText(targets: WriterChapterTarget[]): string {
@@ -517,24 +514,17 @@ function renderChapterScene(scene: ChapterPlotDetailDto["scenes"][number]): stri
     ].join("\n");
 }
 
-function resolveCurrentProjectPath(workspaceRoot: string): string {
-    const normalized = workspaceRoot.trim().replace(/\\/g, "/").replace(/\/+$/u, "");
-    if (!normalized) {
-        throw new Error("writer 无法解析 chapterPaths：使用 manuscript/.../ 当前 Project Workspace 路径时，session 必须绑定 workspaceRoot。");
-    }
-    return normalizeProjectPath(normalized);
-}
-
-function resolveExplicitProjectChapterPath(normalizedPath: string): {projectPath: string; chapterPath: string} | null {
+function resolveExplicitProjectChapterPath(normalizedPath: string): {projectPath: string; projectSlug: string; chapterPath: string} | null {
     const parts = normalizedPath.split("/").filter(Boolean);
-    if (parts[0] === "workspace") {
-        const projectName = parts[1] ?? "";
-        const chapterPath = normalizeChapterPath(parts.slice(2).join("/"));
-        return projectName && chapterPath ? {projectPath: normalizeProjectPath(posix.join("workspace", projectName)), chapterPath} : null;
+    if (parts[0] === "workspace" || parts[0] === "manuscript") {
+        return null;
     }
     const projectName = parts[0] ?? "";
-    const chapterPath = normalizeChapterPath(parts.slice(1).join("/"));
-    return projectName && chapterPath ? {projectPath: normalizeProjectPath(posix.join("workspace", projectName)), chapterPath} : null;
+    const chapterPathInput = projectName ? normalizedPath.slice(projectName.length + 1) : "";
+    const chapterPath = normalizeChapterPath(chapterPathInput);
+    return projectName && chapterPath
+        ? {projectPath: normalizeProjectPath(posix.join("workspace", projectName)), projectSlug: projectName, chapterPath}
+        : null;
 }
 
 function formatPromptError(error: unknown): string {

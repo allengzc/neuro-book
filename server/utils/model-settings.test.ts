@@ -1,6 +1,7 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
-import {discoverProviderModels} from "nbook/server/utils/model-settings";
-import type {ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
+import {fauxAssistantMessage, fauxText, registerFauxProvider} from "@earendil-works/pi-ai";
+import {checkModelHealth, checkProviderConnection, discoverProviderModels, withSavedProviderApiKey} from "nbook/server/utils/model-settings";
+import type {ConfiguredModelDto, ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
 
 function createProviderDraft(overrides: Partial<ModelProviderDraftDto> = {}): ModelProviderDraftDto {
     return {
@@ -17,6 +18,155 @@ function createProviderDraft(overrides: Partial<ModelProviderDraftDto> = {}): Mo
         ...overrides,
     };
 }
+
+function createModelDraft(overrides: Partial<Omit<ConfiguredModelDto, "enabled">> = {}): Omit<ConfiguredModelDto, "enabled"> {
+    return {
+        name: "Faux",
+        id: "faux-fast",
+        group: null,
+        provider: null,
+        api: null,
+        baseUrl: null,
+        reasoning: null,
+        input: null,
+        maxTokens: null,
+        cost: null,
+        compat: null,
+        contextWindowTokens: null,
+        ...overrides,
+    };
+}
+
+describe("provider/model Pi checks", () => {
+    it("model check 通过 Pi streamSimple smoke", async () => {
+        const faux = registerFauxProvider({
+            provider: "faux-check",
+            models: [{id: "faux-fast"}],
+        });
+        faux.setResponses([fauxAssistantMessage(fauxText("ok"))]);
+        try {
+            const result = await checkModelHealth(createProviderDraft({
+                id: "faux-check",
+                name: "Faux",
+                api: faux.api,
+            }), createModelDraft({
+                id: "faux-fast",
+            }));
+
+            expect(result.success).toBe(true);
+            expect(result.message).toContain("Pi 检查通过");
+        } finally {
+            faux.unregister();
+        }
+    });
+
+    it("provider check 可使用传入的代表模型", async () => {
+        const faux = registerFauxProvider({
+            provider: "faux-provider-check",
+            models: [{id: "faux-fast"}],
+        });
+        faux.setResponses([fauxAssistantMessage(fauxText("ok"))]);
+        try {
+            const result = await checkProviderConnection(createProviderDraft({
+                id: "faux-provider-check",
+                name: "Faux Provider",
+                api: faux.api,
+            }), [createModelDraft({id: "faux-fast"})]);
+
+            expect(result.success).toBe(true);
+            expect(result.message).toContain("Faux Provider Pi 检查通过");
+        } finally {
+            faux.unregister();
+        }
+    });
+
+    it("provider check 显式空模型列表时不回退 Pi registry", async () => {
+        const result = await checkProviderConnection(createProviderDraft({
+            id: "xiaomi-token-plan-cn",
+            name: "Xiaomi Token Plan CN",
+        }), []);
+
+        expect(result).toMatchObject({
+            success: false,
+            latencyMs: null,
+        });
+        expect(result.message).toContain("没有可检查的模型");
+    });
+
+    it("缺少 API Key 时不发起 provider 请求", async () => {
+        const result = await checkModelHealth(createProviderDraft({
+            options: {
+                apiKey: "",
+                baseURL: "",
+                proxy: "",
+                timeoutMs: null,
+                requestOptions: {},
+            },
+        }), createModelDraft());
+
+        expect(result).toMatchObject({
+            success: false,
+            latencyMs: null,
+        });
+        expect(result.message).toContain("缺少 API Key");
+    });
+
+    it("配置 Provider 代理时给出明确不支持提示", async () => {
+        const result = await checkModelHealth(createProviderDraft({
+            options: {
+                apiKey: "sk-test",
+                baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1/",
+                proxy: "http://127.0.0.1:7890",
+                timeoutMs: null,
+                requestOptions: {},
+            },
+        }), createModelDraft());
+
+        expect(result).toMatchObject({
+            success: false,
+            latencyMs: null,
+        });
+        expect(result.message).toContain("暂不支持通过 Provider 代理");
+    });
+
+    it("provider 错误消息会脱敏", async () => {
+        const faux = registerFauxProvider({
+            provider: "faux-error-check",
+            models: [{id: "faux-fast"}],
+        });
+        faux.setResponses([fauxAssistantMessage([], {
+            stopReason: "error",
+            errorMessage: "upstream rejected Bearer sk-secret123456789",
+        })]);
+        try {
+            const result = await checkModelHealth(createProviderDraft({
+                id: "faux-error-check",
+                name: "Faux",
+                api: faux.api,
+            }), createModelDraft({id: "faux-fast"}));
+
+            expect(result.success).toBe(false);
+            expect(result.message).toContain("Bearer [redacted]");
+            expect(result.message).not.toContain("sk-secret123456789");
+        } finally {
+            faux.unregister();
+        }
+    });
+
+    it("可补齐已保存的 Provider API Key", () => {
+        const provider = withSavedProviderApiKey(createProviderDraft({
+            options: {
+                apiKey: "",
+                baseURL: "",
+                proxy: "",
+                timeoutMs: null,
+                requestOptions: {},
+            },
+        }), "sk-saved");
+
+        expect(provider.options.apiKey).toBe("sk-saved");
+    });
+});
 
 describe("discoverProviderModels", () => {
     const originalFetch = globalThis.fetch;

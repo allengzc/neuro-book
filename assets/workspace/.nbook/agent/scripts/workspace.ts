@@ -106,8 +106,8 @@ type ParsedContentNode = {
 const program = new Command();
 const INVOCATION_CWD = process.cwd();
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const WORKSPACE_METADATA_FILE = "workspace.yaml";
 const PROJECT_METADATA_FILE = "project.yaml";
+const LEGACY_WORKSPACE_METADATA_FILE = "workspace.yaml";
 const DEFAULT_TEMPLATE_NAME = "novel-directory-templates";
 const WORKSPACE_ROOT_NAME = "workspace";
 const SYSTEM_TEMPLATE_ROOT = path.resolve(SCRIPT_DIR, "..", "..", "templates");
@@ -402,15 +402,30 @@ async function resolveWorkspaceTargets(targets: string[]): Promise<ResolvedWorks
  * 解析单个输入路径到 workspace root 与内容节点目录相对路径。
  */
 async function resolveSingleWorkspaceTarget(target: string): Promise<ResolvedWorkspaceTarget> {
-    const absoluteTarget = path.isAbsolute(target)
-        ? path.resolve(target)
-        : path.resolve(INVOCATION_CWD, target);
+    const absoluteTarget = resolveWorkspaceCliTarget(target);
     const root = await findWorkspaceRoot(absoluteTarget);
     const contentDirectoryPath = normalizeContentNodeDirectoryPath(root, absoluteTarget);
     return {
         root,
         relativePath: toWorkspaceDisplayPath(root, contentDirectoryPath, true).replace(/\/$/, "") || ".",
     };
+}
+
+/**
+ * 解析 CLI 输入路径，兼容 Agent 从 Workspace Root 传入 workspace/<project>/... 的 Project Path。
+ */
+function resolveWorkspaceCliTarget(target: string): string {
+    if (path.isAbsolute(target)) {
+        return path.resolve(target);
+    }
+
+    const normalizedTarget = target.trim().replaceAll("\\", "/").replace(/^\/+/g, "");
+    const targetParts = normalizedTarget.split("/").filter(Boolean);
+    const cwd = path.resolve(INVOCATION_CWD);
+    if (path.basename(cwd) === WORKSPACE_ROOT_NAME && targetParts[0] === WORKSPACE_ROOT_NAME && targetParts.length >= 2) {
+        return path.resolve(cwd, ...targetParts.slice(1));
+    }
+    return path.resolve(INVOCATION_CWD, target);
 }
 
 /**
@@ -475,7 +490,7 @@ async function createProjectWorkspace(
  * 清理旧 novel workspace 模板产物，避免新 Project Workspace 继续暴露 workspace.yaml 心智。
  */
 async function normalizeProjectTemplateArtifacts(projectRoot: string): Promise<void> {
-    await fs.rm(path.join(projectRoot, WORKSPACE_METADATA_FILE), {force: true});
+    await fs.rm(path.join(projectRoot, LEGACY_WORKSPACE_METADATA_FILE), {force: true});
     const statusPath = path.join(projectRoot, "PROJECT-STATUS.md");
     try {
         const content = await fs.readFile(statusPath, "utf-8");
@@ -565,18 +580,18 @@ async function resolveProjectTemplateSources(template: string): Promise<ProjectT
 }
 
 /**
- * 从路径向上寻找最近的 workspace.yaml。
+ * 从路径向上寻找最近的 project.yaml。
  */
 async function findWorkspaceRoot(startPath: string): Promise<string> {
     let currentPath = await readExistingDirectoryOrSelf(startPath);
     while (true) {
-        if (await pathExists(path.join(currentPath, WORKSPACE_METADATA_FILE))) {
+        if (await pathExists(path.join(currentPath, PROJECT_METADATA_FILE))) {
             return currentPath;
         }
 
         const parentPath = path.dirname(currentPath);
         if (parentPath === currentPath) {
-            throw new Error(`找不到 ${WORKSPACE_METADATA_FILE}，请在具体 novel workspace 内执行，或传入该 workspace 内的绝对路径`);
+            throw new Error(`找不到 ${PROJECT_METADATA_FILE}，请在具体 Project Workspace 内执行，或传入该 Project Workspace 内的绝对路径`);
         }
         currentPath = parentPath;
     }

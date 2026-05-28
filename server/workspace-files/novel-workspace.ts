@@ -307,16 +307,16 @@ async function syncSystemRuntimeAssetsToUserAssets(result: UserAssetsSyncResult)
             stateChanged = true;
             continue;
         }
+        const previousHash = await readGitHeadAssetHash(path.posix.join("assets/workspace/.nbook", assetPath));
+        if (previousHash && currentUserHash === previousHash) {
+            await fs.copyFile(systemPath, userPath);
+            const hash = await sha256File(userPath);
+            upsertUserAssetSyncState(syncState, item, hash.sha256);
+            result.updatedAssets = (result.updatedAssets ?? 0) + 1;
+            stateChanged = true;
+            continue;
+        }
         if (!stateItem) {
-            const previousHash = await readGitHeadAssetHash(path.posix.join("assets/workspace/.nbook", assetPath));
-            if (previousHash && currentUserHash === previousHash) {
-                await fs.copyFile(systemPath, userPath);
-                const hash = await sha256File(userPath);
-                upsertUserAssetSyncState(syncState, item, hash.sha256);
-                result.updatedAssets = (result.updatedAssets ?? 0) + 1;
-                stateChanged = true;
-                continue;
-            }
             result.assetWarnings?.push({
                 assetPath,
                 message: "系统 Agent runtime asset 有 metadata，但用户覆盖缺少 sync state，已保留用户文件。",

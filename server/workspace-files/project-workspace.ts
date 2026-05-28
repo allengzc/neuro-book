@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {createClient} from "@libsql/client";
+import {createError} from "h3";
 import * as yaml from "yaml";
 
 export const PROJECT_MANIFEST_FILE = "project.yaml";
