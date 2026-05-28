@@ -220,6 +220,8 @@ describe("resolvePiModelFromConfig", () => {
         });
         expect(model.compat).toMatchObject({
             thinkingFormat: "deepseek",
+            supportsDeveloperRole: false,
+            maxTokensField: "max_tokens",
             supportsStrictMode: false,
         });
     });

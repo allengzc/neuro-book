@@ -12,15 +12,16 @@ var __export = (target, all) => {
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createClient } from "@libsql/client";
+import { createError as createError2 } from "h3";
 import * as yaml from "yaml";
 function normalizeProjectPath(input) {
   const normalized = input.trim().replaceAll("\\", "/").replace(/\/+$/g, "");
   if (!normalized || normalized === "workspace" || normalized.includes("..") || path.posix.isAbsolute(normalized)) {
-    throw createError({ statusCode: 400, message: "projectPath \u5FC5\u987B\u662F workspace \u4E0B\u7684\u9879\u76EE\u76EE\u5F55" });
+    throw createError2({ statusCode: 400, message: "projectPath \u5FC5\u987B\u662F workspace \u4E0B\u7684\u9879\u76EE\u76EE\u5F55" });
   }
   const parts = normalized.split("/").filter(Boolean);
   if (parts.length !== 2 || parts[0] !== "workspace") {
-    throw createError({ statusCode: 400, message: "projectPath \u5FC5\u987B\u5F62\u5982 workspace/<project>" });
+    throw createError2({ statusCode: 400, message: "projectPath \u5FC5\u987B\u5F62\u5982 workspace/<project>" });
   }
   return normalized;
 }
@@ -34,7 +35,7 @@ async function readProjectManifest(projectPath) {
   const manifestPath = path.join(resolveProjectAbsolutePath(projectPath), PROJECT_MANIFEST_FILE);
   const parsed = yaml.parse(await fs.readFile(manifestPath, "utf-8"));
   if (!parsed || parsed.kind !== "novel" || typeof parsed.title !== "string") {
-    throw createError({ statusCode: 400, message: `${projectPath}/${PROJECT_MANIFEST_FILE} \u4E0D\u662F\u6709\u6548 Project manifest` });
+    throw createError2({ statusCode: 400, message: `${projectPath}/${PROJECT_MANIFEST_FILE} \u4E0D\u662F\u6709\u6548 Project manifest` });
   }
   return {
     kind: "novel",
@@ -5788,7 +5789,7 @@ var SessionSummarizerOutputSchema = Type2.Object({
 });
 var WriterInputSchema = Type2.Object({
   prompt: Type2.String({ description: "\u672C\u6B21\u5199\u4F5C\u4EFB\u52A1\u3002\u5199\u6E05\u8981\u5199\u4EC0\u4E48\u3001\u662F\u91CD\u5199\u8FD8\u662F\u5C40\u90E8\u4FEE\u6539\u3001\u7AE0\u8282\u8FB9\u754C\u548C\u4EA4\u4ED8\u8981\u6C42\u3002" }),
-  chapterPaths: Type2.Array(Type2.String({ description: "\u7AE0\u8282\u5185\u5BB9\u8282\u70B9\u76EE\u5F55\u8DEF\u5F84\u3002\u5F53\u524D Project Workspace \u4F7F\u7528 manuscript/.../\uFF1B\u8DE8 Project Workspace \u4F7F\u7528 novel-slug/manuscript/.../\u3002" }), {
+  chapterPaths: Type2.Array(Type2.String({ description: "\u7AE0\u8282\u5185\u5BB9\u8282\u70B9\u76EE\u5F55\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\u3002\u666E\u901A Project agent \u7684 cwd \u662F workspace \u5BB9\u5668\u6839\uFF0C\u56E0\u6B64\u5E94\u4F20 project-slug/manuscript/.../\uFF0C\u4E0D\u8981\u4F20 manuscript/.../ \u6216 workspace/project-slug/.../\u3002" }), {
     minItems: 1,
     maxItems: 1,
     description: "\u672C writer session \u7ED1\u5B9A\u7684\u552F\u4E00\u7AE0\u8282\u3002\u8C03\u7528\u65B9\u5FC5\u987B\u5148\u521B\u5EFA\u7AE0\u8282\u5185\u5BB9\u8282\u70B9\uFF0C\u5E76\u5728 Plot System \u4E2D\u628A Scene \u6302\u5230\u8BE5\u7AE0\u8282\u3002"
@@ -6357,6 +6358,7 @@ async function buildWriterPrompt(ctx) {
                             - <lorebook_entries> 对应 writer.lorebookEntries 传入的内容节点路径数组。writer 会按数组顺序读取每个节点的 index.md 与同级可选 state.md，并把读取到的稳定设定、当前状态和信息差作为写作依据。
                             - <constraints> 对应额外写作约束、格式约束、禁忌和用户临时偏好。
                             - <writing_request> 对应用户本次要求写什么、改写什么、补全什么。
+                            - Agent 文件工具 cwd 是 workspace 容器根。chapterPaths 和 <chapter_target>.indexPath 都必须使用 project-slug/manuscript/... 这种 cwd-relative 路径；不要使用 manuscript/...，也不要使用 workspace/project-slug/...。
                         </context_mapping>
                         
                         <hard_rules>
@@ -6390,7 +6392,7 @@ async function buildWriterPrompt(ctx) {
 
                         文件写作任务的固定流程：
                         1. 读取必要上下文：如果目标章节 index.md 已存在，先用 read 阅读原文；如果章节剧情与内容节点已经足够，不要额外检索。
-                        2. 写入初稿：使用 write 把完整正文写入 <chapter_target> 的 indexPath。不要根据 UI active novel、自然语言章节名、旧 active scene 或 outputPath 猜测其他落点。
+                        2. 写入初稿：使用 write 把完整正文写入 <chapter_target> 的 indexPath，必须原样保留 project-slug 前缀。不要根据 UI active novel、自然语言章节名、旧 active scene 或 outputPath 猜测其他落点；不要把 indexPath 裁成 manuscript/...。
                         3. 润色复查：写完后进入润色环节，按 <writing_style>、<writing_reference>、<avoid_words>、视角边界、长自然段、剧情点覆盖度和内容节点设定逐项检查。
                         4. 修改成稿：如果发现需要调整，优先用 edit 逐处修改刚写入的文件；只有当多个改动天然适合一次统一补丁时，才用 apply_patch。不要重新把全文贴到 assistant 正文里。
                         5. 结束报告：最后必须调用 report_result。walkthrough 说明已写入的文件路径、润色完成情况和约 100 字剧情总结。
@@ -6558,7 +6560,7 @@ async function resolveWriterChapterTargets(ctx) {
   if (!chapterPath) {
     throw new Error("writer.chapterPaths[0] \u4E0D\u80FD\u4E3A\u7A7A\u3002");
   }
-  const target = await resolveWriterChapterTarget(ctx.session.workspaceRoot, chapterPath);
+  const target = await resolveWriterChapterTarget(chapterPath);
   const facade = await loadPlotFacade();
   try {
     const chapterPlot = await facade.getChapterPlotDetailDto(target.projectPath, target.chapterPath);
@@ -6567,39 +6569,35 @@ async function resolveWriterChapterTargets(ctx) {
     throw new Error(`writer \u65E0\u6CD5\u89E3\u6790 chapterPaths[0] \u7AE0\u8282 ${chapterPath}: ${formatPromptError(error)}`);
   }
 }
-async function resolveWriterChapterTarget(sessionWorkspaceRoot, rawChapterPath) {
+async function resolveWriterChapterTarget(rawChapterPath) {
   const normalized = normalizeInputPath(rawChapterPath);
-  const currentPrefix = normalizeChapterPath(normalized);
-  if (currentPrefix) {
-    const projectPath = resolveCurrentProjectPath(sessionWorkspaceRoot);
-    await readProjectManifest(projectPath);
-    return buildChapterTarget(projectPath, currentPrefix, true);
-  }
   const explicit = resolveExplicitProjectChapterPath(normalized);
   if (!explicit) {
-    throw new Error("chapterPaths \u5FC5\u987B\u662F manuscript/.../\u3001workspace/<project>/manuscript/.../ \u6216 <project>/manuscript/.../\uFF0C\u4E14\u5FC5\u987B\u6307\u5411\u7AE0\u8282\u76EE\u5F55\u3002");
+    throw new Error("writer.chapterPaths \u5FC5\u987B\u662F\u76F8\u5BF9\u4E8E Agent cwd \u7684 Project \u7AE0\u8282\u76EE\u5F55\uFF0C\u4F8B\u5982 silver-dragon-hime/manuscript/001-\u7B2C\u4E00\u7AE0/\uFF1B\u4E0D\u8981\u4F20 manuscript/... \u6216 workspace/silver-dragon-hime/...");
   }
   await readProjectManifest(explicit.projectPath);
-  return buildChapterTarget(explicit.projectPath, explicit.chapterPath, false);
+  return buildChapterTarget(explicit.projectPath, explicit.projectSlug, explicit.chapterPath);
 }
-function buildChapterTarget(projectPath, chapterPath, currentProject) {
-  const workspaceChapterPath = posix.join(projectPath, chapterPath);
+function buildChapterTarget(projectPath, projectSlug, chapterPath) {
+  const workspaceChapterPath = posix.join(projectSlug, chapterPath);
   return {
     projectPath,
     chapterPath,
     workspaceChapterPath,
-    indexPath: currentProject ? posix.join(chapterPath, "index.md") : posix.join(workspaceChapterPath, "index.md")
+    indexPath: posix.join(workspaceChapterPath, "index.md")
   };
 }
 function normalizeInputPath(rawPath) {
   return rawPath.trim().replace(/\\/g, "/").replace(/^\/+/, "");
 }
 function normalizeChapterPath(rawPath) {
-  const withoutIndex = rawPath.replace(/\/index\.md$/u, "/");
-  if (!withoutIndex.startsWith("manuscript/")) {
+  if (rawPath.endsWith("/index.md") || rawPath.endsWith(".md")) {
     return null;
   }
-  return withoutIndex.endsWith("/") ? withoutIndex : `${withoutIndex}/`;
+  if (!rawPath.startsWith("manuscript/") || !rawPath.endsWith("/")) {
+    return null;
+  }
+  return rawPath;
 }
 function renderChapterPlotsText(targets) {
   return targets.map((target) => renderChapterTargetBlock(target)).join("\n\n---\n\n");
@@ -6737,23 +6735,15 @@ function renderChapterScene(scene) {
     scene.plots.length > 0 ? `  plots: ${scene.plots.map((plot) => `${plot.kind}:${plot.summary}`).join(" | ")}` : "  plots: \u7A7A"
   ].join("\n");
 }
-function resolveCurrentProjectPath(workspaceRoot) {
-  const normalized = workspaceRoot.trim().replace(/\\/g, "/").replace(/\/+$/u, "");
-  if (!normalized) {
-    throw new Error("writer \u65E0\u6CD5\u89E3\u6790 chapterPaths\uFF1A\u4F7F\u7528 manuscript/.../ \u5F53\u524D Project Workspace \u8DEF\u5F84\u65F6\uFF0Csession \u5FC5\u987B\u7ED1\u5B9A workspaceRoot\u3002");
-  }
-  return normalizeProjectPath(normalized);
-}
 function resolveExplicitProjectChapterPath(normalizedPath) {
   const parts = normalizedPath.split("/").filter(Boolean);
-  if (parts[0] === "workspace") {
-    const projectName2 = parts[1] ?? "";
-    const chapterPath2 = normalizeChapterPath(parts.slice(2).join("/"));
-    return projectName2 && chapterPath2 ? { projectPath: normalizeProjectPath(posix.join("workspace", projectName2)), chapterPath: chapterPath2 } : null;
+  if (parts[0] === "workspace" || parts[0] === "manuscript") {
+    return null;
   }
   const projectName = parts[0] ?? "";
-  const chapterPath = normalizeChapterPath(parts.slice(1).join("/"));
-  return projectName && chapterPath ? { projectPath: normalizeProjectPath(posix.join("workspace", projectName)), chapterPath } : null;
+  const chapterPathInput = projectName ? normalizedPath.slice(projectName.length + 1) : "";
+  const chapterPath = normalizeChapterPath(chapterPathInput);
+  return projectName && chapterPath ? { projectPath: normalizeProjectPath(posix.join("workspace", projectName)), projectSlug: projectName, chapterPath } : null;
 }
 function formatPromptError(error) {
   return error instanceof Error ? error.message : String(error);

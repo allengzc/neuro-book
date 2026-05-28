@@ -572,8 +572,12 @@ describe("assets builtin v3 profiles", () => {
 
     it("writer 展开 lorebookEntries 的 index/state 并清洗内部 frontmatter", async () => {
         const workspaceRoot = resolve(".agent", "workspace", "writer-lorebook-test", randomUUID());
+        const projectSlug = `writer-project-${randomUUID()}`;
+        const projectRoot = resolve("workspace", projectSlug);
         const nodeRoot = join(workspaceRoot, "lorebook", "character", "hero");
         await mkdir(nodeRoot, {recursive: true});
+        await mkdir(projectRoot, {recursive: true});
+        await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Writer Test\nsummary: \"\"\n", "utf8");
         await writeFile(join(nodeRoot, "index.md"), [
             "---",
             "title: Hero",
@@ -616,7 +620,7 @@ describe("assets builtin v3 profiles", () => {
                 },
                 input: {
                     prompt: "写一段正文",
-                    chapterPaths: ["silver-dragon-hime/manuscript/001-chapter/"],
+                    chapterPaths: [`${projectSlug}/manuscript/001-chapter/`],
                     lorebookEntries: ["lorebook/character/hero/"],
                 },
                 vars: createTestVariableAccessor(),
@@ -630,6 +634,8 @@ describe("assets builtin v3 profiles", () => {
 
             expect(historyContext).toContain("<writer_input_context>");
             expect(historyContext).toContain("<chapter_target>");
+            expect(historyContext).toContain(`indexPath: ${projectSlug}/manuscript/001-chapter/index.md`);
+            expect(historyContext).not.toContain(`indexPath: workspace/${projectSlug}`);
             expect(historyContext).toContain("<chapter_plots>");
             expect(historyContext).toContain("<lorebook_entries>");
             expect(historyContext).toContain("主角正文设定");
@@ -641,6 +647,57 @@ describe("assets builtin v3 profiles", () => {
             expect(prepared.modelContextMessages ?? []).toHaveLength(0);
         } finally {
             await rm(workspaceRoot, {recursive: true, force: true});
+            await rm(projectRoot, {recursive: true, force: true});
         }
+    });
+
+    it("writer 拒绝非 cwd-relative 的 chapterPaths", async () => {
+        const baseSession = {
+            systemPrompt: "",
+            messages: [],
+            model: null,
+            thinkingLevel: "off" as const,
+            profileKey: "writer",
+            workspaceRoot: resolve(".agent", "workspace", "writer-path-test", randomUUID()),
+            customState: {},
+            linkedAgents: [],
+            archived: false,
+            planModeActive: false,
+        };
+        const contextBase = {
+            session: baseSession,
+            vars: createTestVariableAccessor(),
+            catalog: {profiles: [], issues: []},
+            skills: [],
+        };
+
+        await expect(writerProfile.prepare!({
+            ...contextBase,
+            input: {
+                prompt: "写一段正文",
+                chapterPaths: ["manuscript/001-chapter/"],
+            },
+        })).rejects.toThrow("相对于 Agent cwd");
+        await expect(writerProfile.prepare!({
+            ...contextBase,
+            input: {
+                prompt: "写一段正文",
+                chapterPaths: ["workspace/silver-dragon-hime/manuscript/001-chapter/"],
+            },
+        })).rejects.toThrow("相对于 Agent cwd");
+        await expect(writerProfile.prepare!({
+            ...contextBase,
+            input: {
+                prompt: "写一段正文",
+                chapterPaths: ["silver-dragon-hime/manuscript/001-chapter/index.md"],
+            },
+        })).rejects.toThrow("相对于 Agent cwd");
+        await expect(writerProfile.prepare!({
+            ...contextBase,
+            input: {
+                prompt: "写一段正文",
+                chapterPaths: ["silver-dragon-hime/manuscript/001-chapter"],
+            },
+        })).rejects.toThrow("相对于 Agent cwd");
     });
 });

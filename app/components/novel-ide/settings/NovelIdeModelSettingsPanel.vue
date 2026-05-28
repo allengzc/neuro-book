@@ -1261,6 +1261,44 @@ function buildProviderRequest(provider: ProviderDraft): {provider: ModelProvider
     };
 }
 
+function shouldUseSavedProviderApiKey(provider: ProviderDraft): boolean {
+    return !provider.options.apiKeyCleared && !provider.options.apiKey.trim();
+}
+
+function buildProviderCheckRequest(provider: ProviderDraft): {
+    provider: ModelProviderDraftDto;
+    models: Array<Omit<ConfiguredModelDto, "enabled">>;
+    useSavedApiKey: boolean;
+    useSavedModels: boolean;
+} {
+    const models = provider.models
+        .filter((model) => model.enabled)
+        .map(buildModelCheckDraft);
+    return {
+        ...buildProviderRequest(provider),
+        models,
+        useSavedApiKey: shouldUseSavedProviderApiKey(provider),
+        useSavedModels: models.length === 0 && !dirty.value,
+    };
+}
+
+function buildModelCheckDraft(model: ModelDraft): Omit<ConfiguredModelDto, "enabled"> {
+    return {
+        name: model.name.trim(),
+        id: model.id.trim(),
+        group: model.group.trim() || null,
+        provider: model.provider.trim() || null,
+        api: model.api.trim() || null,
+        baseUrl: model.baseUrl.trim() || null,
+        reasoning: parseModelReasoning(model.reasoning),
+        input: parseModelInput(model.input),
+        maxTokens: parseMaxTokens(model.maxTokens),
+        cost: parseModelCost(model.cost),
+        compat: parseModelCompat(model.compat),
+        contextWindowTokens: parseContextWindowTokens(model.contextWindowTokens),
+    };
+}
+
 /**
  * 测试 Provider API 连通性。
  */
@@ -1275,7 +1313,7 @@ async function checkProvider(): Promise<void> {
     try {
         const result = await $fetch<CheckProviderResponseDto>("/api/config/models/provider-check", {
             method: "POST",
-            body: buildProviderRequest(provider),
+            body: buildProviderCheckRequest(provider),
         });
         const notify = result.success ? notification.success : notification.error;
         notify(result.message);
@@ -1456,11 +1494,8 @@ async function checkModel(model: ModelDraft): Promise<void> {
             method: "POST",
             body: {
                 provider: buildProviderRequest(provider).provider,
-                model: {
-                    name: model.name.trim(),
-                    id: model.id.trim(),
-                    group: model.group.trim() || null,
-                },
+                model: buildModelCheckDraft(model),
+                useSavedApiKey: shouldUseSavedProviderApiKey(provider),
             },
         });
         const notify = result.success ? notification.success : notification.error;
@@ -1729,7 +1764,7 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                                     <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-main)] shadow-sm transition-all duration-200 hover:bg-[var(--bg-hover)] hover:shadow active:scale-95 disabled:pointer-events-none disabled:opacity-60" :disabled="providerTestingId === activeProvider.id" @click="void checkProvider()">
                                         <span v-if="providerTestingId === activeProvider.id" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
                                         <span v-else class="i-lucide-activity h-3.5 w-3.5 text-[var(--text-muted)]"></span>
-                                        {{ providerTestingId === activeProvider.id ? "测试中..." : "连通性测试" }}
+                                        {{ providerTestingId === activeProvider.id ? "检查中..." : "检查 Provider" }}
                                     </button>
                                     <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-main)] shadow-sm transition-all duration-200 hover:bg-[var(--bg-hover)] hover:shadow active:scale-95 disabled:pointer-events-none disabled:opacity-60" :disabled="providerDiscoveringId === activeProvider.id" @click="void discoverModels()">
                                         <span v-if="providerDiscoveringId === activeProvider.id" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
@@ -1835,7 +1870,7 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                                                 </div>
 
                                                 <div class="flex items-center gap-1 opacity-0 transition-opacity duration-200 group-hover/model:opacity-100">
-                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-input)] hover:text-[var(--text-main)] transition-colors disabled:opacity-50" :disabled="modelTestingKey === `${activeProvider.id}/${model.id}`" title="测试模型" @click="void checkModel(model)">
+                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-input)] hover:text-[var(--text-main)] transition-colors disabled:opacity-50" :disabled="modelTestingKey === `${activeProvider.id}/${model.id}`" title="检查模型" @click="void checkModel(model)">
                                                         <span v-if="modelTestingKey === `${activeProvider.id}/${model.id}`" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
                                                         <span v-else class="i-lucide-play h-3.5 w-3.5"></span>
                                                     </button>

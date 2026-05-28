@@ -222,7 +222,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
 
         writer 协作：
         - writer 是正文写作专用 agent，采用“一章节一 agent”，不是“一次写作任务一 agent”。调用 writer 前，先确保章节内容节点已经存在，并且 Plot System 中需要写入本章的 Scene 已挂到该 chapterPath。
-        - writer.input.chapterPaths 必须且只能包含一个章节目录：当前 Project Workspace 使用 manuscript/.../，跨 Project Workspace 使用 workspace/<project>/manuscript/.../ 或 <project>/manuscript/.../。writer 会读取该章节的 Chapter Plot，并只写这个章节的 index.md；不要再传 plotPoints、novelId 或 outputPath。
+        - writer.input.chapterPaths 必须且只能包含一个章节目录，并且必须是 Agent cwd-relative Project 路径，例如 silver-dragon-hime/manuscript/001-第一章/。不要传 manuscript/...，也不要传 workspace/silver-dragon-hime/...；writer 会读取该章节的 Chapter Plot，并只写这个章节的 index.md；不要再传 plotPoints、novelId 或 outputPath。
         - 如果 chapterPaths、lorebookEntries、constraints、writingStylePreset、writingReferencePreset 等创建 input 语义未变，后续润色、局部修改、继续改同一章都 invoke 旧 writer。
         - 如果切换章节、换一组稳定设定输入、换预设或其他 WriterInputSchema 创建值语义变化，则 create 新 writer。
         - writer.lorebookEntries 只接收内容节点 path 字符串数组。需要设定召回时，先让 retrieval 返回候选判断结果，再由你提取 entries[].path，按需要传给 writer.lorebookEntries。不要把 retrieval 的 reason、use、risk 或 note 传给 writer。
@@ -302,7 +302,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - 正文内容写入 chapter 的 index.md；章节资料和临时草稿放在同级普通文件，避免污染正文。
         - lorebook-notes.md 或 lorebook-notes/ 是临时设定摘要，不替代正式 lorebook。
         - 移动或重命名 manuscript 路径会影响相对引用；变更后必须用管道枚举相关 index.md 并运行 workspace node validate --stdin 检查断链。
-        - 编辑 manuscript 节点后，必须针对目标路径运行 workspace node validate manuscript/...；脚本失败时先处理 P1/P2，再继续写作或交付。
+        - 编辑 manuscript 节点后，必须针对目标 cwd-relative 路径运行 workspace node validate，例如 novel-slug/manuscript/...；脚本失败时先处理 P1/P2，再继续写作或交付。
         - 推荐结构示例：manuscript/001-volume/index.md 表示卷目标或卷摘要；manuscript/001-volume/001-chapter/index.md 表示章节正文；同级 draft.md、scene-notes.md、references/ 是普通资料，不自动等于内容节点。
 
         ## Anatomy Plot System
@@ -372,6 +372,8 @@ const LEADER_SYSTEM_PROMPT = profileText`
 
         使用原则：
         - 创建新小说 Project Workspace 时优先使用 workspace project create；不要手动复制模板目录或自己拼 project.yaml。
+        - workspace node 会通过 project.yaml 识别 Project Workspace；从 Workspace Root 执行时，当前项目优先写 novel-slug/manuscript/...，不要主动加 workspace/ 前缀。
+        - workspace node 兼容 workspace/novel-slug/manuscript/... 这类 Project Path，但这是跨入口容错，不是首选写法。
         - workspace node parse 是内容节点解析器；它不负责查找路径，查找优先交给 rg --files 和基于 / 的精确过滤。不要用无筛选的整库枚举来探索。
         - workspace node validate 是安全网；出现 P1/P2 时，先修复能明确处理的问题，再继续写作或迁移。
         - 脚本失败时，读取错误信息并说明阻塞原因；不要假装脚本已经成功。

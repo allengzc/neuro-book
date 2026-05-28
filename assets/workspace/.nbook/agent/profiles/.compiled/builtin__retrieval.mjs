@@ -12,6 +12,7 @@ var __export = (target, all) => {
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createClient } from "@libsql/client";
+import { createError } from "h3";
 import * as yaml from "yaml";
 function normalizeProjectPath(input) {
   const normalized = input.trim().replaceAll("\\", "/").replace(/\/+$/g, "");
@@ -2145,7 +2146,7 @@ var SessionSummarizerOutputSchema = Type2.Object({
 });
 var WriterInputSchema = Type2.Object({
   prompt: Type2.String({ description: "\u672C\u6B21\u5199\u4F5C\u4EFB\u52A1\u3002\u5199\u6E05\u8981\u5199\u4EC0\u4E48\u3001\u662F\u91CD\u5199\u8FD8\u662F\u5C40\u90E8\u4FEE\u6539\u3001\u7AE0\u8282\u8FB9\u754C\u548C\u4EA4\u4ED8\u8981\u6C42\u3002" }),
-  chapterPaths: Type2.Array(Type2.String({ description: "\u7AE0\u8282\u5185\u5BB9\u8282\u70B9\u76EE\u5F55\u8DEF\u5F84\u3002\u5F53\u524D Project Workspace \u4F7F\u7528 manuscript/.../\uFF1B\u8DE8 Project Workspace \u4F7F\u7528 novel-slug/manuscript/.../\u3002" }), {
+  chapterPaths: Type2.Array(Type2.String({ description: "\u7AE0\u8282\u5185\u5BB9\u8282\u70B9\u76EE\u5F55\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\u3002\u666E\u901A Project agent \u7684 cwd \u662F workspace \u5BB9\u5668\u6839\uFF0C\u56E0\u6B64\u5E94\u4F20 project-slug/manuscript/.../\uFF0C\u4E0D\u8981\u4F20 manuscript/.../ \u6216 workspace/project-slug/.../\u3002" }), {
     minItems: 1,
     maxItems: 1,
     description: "\u672C writer session \u7ED1\u5B9A\u7684\u552F\u4E00\u7AE0\u8282\u3002\u8C03\u7528\u65B9\u5FC5\u987B\u5148\u521B\u5EFA\u7AE0\u8282\u5185\u5BB9\u8282\u70B9\uFF0C\u5E76\u5728 Plot System \u4E2D\u628A Scene \u6302\u5230\u8BE5\u7AE0\u8282\u3002"

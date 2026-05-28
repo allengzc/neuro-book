@@ -245,6 +245,11 @@ export const DiscoveredProviderModelDtoSchema = z.object({
  */
 export const CheckProviderRequestDtoSchema = z.object({
     provider: ModelProviderDraftDtoSchema,
+    models: z.array(ConfiguredModelDtoSchema.omit({
+        enabled: true,
+    })).default([]),
+    useSavedApiKey: z.boolean().default(true),
+    useSavedModels: z.boolean().default(true),
 });
 
 /**
@@ -279,6 +284,7 @@ export const CheckModelRequestDtoSchema = z.object({
     model: ConfiguredModelDtoSchema.omit({
         enabled: true,
     }),
+    useSavedApiKey: z.boolean().default(true),
 });
 
 /**

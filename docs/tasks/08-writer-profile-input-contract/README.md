@@ -33,11 +33,11 @@
   - `writingStylePreset?: string`
   - `writingReferencePreset?: string`
 - writer 已删除旧输入字段：`plotPoints`、`novelId`、`outputPath` 和 object-shaped `lorebookEntries`。
-- `chapterPaths` 现在同时决定章节剧情上下文和写入目标。writer 会把输入解析为 `{novelId, workspaceSlug, chapterPath, indexPath}`，再调用 `plotFacade.getChapterPlotDetailDto(novelId, chapterPath)` 展开 `<chapter_plots>`。
+- `chapterPaths` 现在同时决定章节剧情上下文和写入目标。writer 只接受 Agent cwd-relative Project 路径，例如 `silver-dragon-hime/manuscript/001-第一章/`，不接受裸 `manuscript/...` 或 `workspace/silver-dragon-hime/...`；writer 会解析出 `{projectPath, chapterPath, indexPath}`，再调用 `plotFacade.getChapterPlotDetailDto(projectPath, chapterPath)` 展开 `<chapter_plots>`。
 - v3 writer 已重新对照 v2 “小猫之神”提示词补齐写作流程、思考顺序、内容节点规则、视角边界、文风约束、Markdown 扩展、润色流程和输出协议；旧 `plot_points`、`read_file`、`write_file`、`edit_file` 心智已替换为 v3 `chapterPaths`、`chapter_plots`、`read`、`write`、`edit` 和唯一章节落点。
 - `writingReference` 文本很大，系统提示词中保持放在最前面的 `<writing_reference>`，让模型先接收参考文档再进入 persona/contract。
 - `chapter_target`、`chapter_plots`、`lorebook_entries`、`constraints` 属于 create_agent 输入 schema 初始化时确定的稳定上下文，已放入 `HistorySet` 的 `<writer_input_context>`；不再放入 `ModelContext` 这类每轮动态上下文。
-- `manuscript/.../` 使用 session `novelId` 解析当前 Project Workspace；`novel-slug/manuscript/.../` 通过 `Novel.workspaceSlug` 反查 `novelId`，允许显式跨 Project Workspace。
+- 普通 Project agent 的文件工具 cwd 是 Workspace Root。writer 输出给模型的 `indexPath` 必须是 `silver-dragon-hime/manuscript/.../index.md` 这种 cwd-relative 路径，不能是 `workspace/silver-dragon-hime/...`，否则 file tool alias 逻辑会剥掉 `workspace/silver-dragon-hime` 前缀并误写到 `workspace/manuscript/...`。
 - writing presets 已从 profile 源码目录移到：
   - `assets/workspace/.nbook/agent/writing-presets/references`
   - `assets/workspace/.nbook/agent/writing-presets/styles`
@@ -67,9 +67,11 @@
    - 新增章节剧情展开逻辑：
      - 输入为 `chapterPaths`。
      - 第一版只允许一个章节路径；`chapterPaths` schema 使用 `minItems: 1`、`maxItems: 1`。
-     - 章节必须已存在，并且必须是 manuscript 下的 chapter 内容节点目录。
-     - 每个 path 解析出 Project Workspace 内的 `chapterPath` 和需要传给 plot facade 的 `novelId`。
-     - 调用 `plotFacade.getChapterPlotDetailDto(novelId, chapterPath)`。
+     - 章节必须已存在，并且必须是 cwd-relative Project 章节内容节点目录，例如 `silver-dragon-hime/manuscript/001-第一章/`。
+     - 不适配裸 `manuscript/...` 或 `manuscript/.../index.md`，避免和 Agent cwd 混淆。
+     - 不接受 `workspace/<project>/manuscript/...` 作为 writer 输入，避免 file tool alias 逻辑误剥 project 前缀。
+     - 每个 path 解析出 Project Workspace 的 `projectPath` 和 Project 内 `chapterPath`。
+     - 调用 `plotFacade.getChapterPlotDetailDto(projectPath, chapterPath)`。
      - 渲染该章 Scene、Thread title、Scene purpose/writingTip、Scene 下 Plots、Plot effect/writingTip/note。
    - `HistorySet` 的 `<writer_input_context>` 中使用 `<chapter_plots>` 替代旧 `<plot_points>`，因为这些上下文来自 create_agent 输入，属于静态初始化上下文。
    - 写入目标由 `chapterPaths` 唯一决定：
@@ -78,9 +80,9 @@
      - writer 拥有文件编辑权限，可以按 prompt 和现有正文状态选择 `edit` / `apply_patch` / `write`。
      - 默认按 prompt 执行；普通“写这一章”可重写正文，“润色/修改”则局部修改。无需在 prompt 中额外强调协作模式，writer 最终通过 `report_result` 报告实际动作。
    - 跨 Project Workspace 隐患：
-     - `manuscript/.../` 只能表示当前 writer session 所属 Project Workspace，需要依赖 session `novelId`。
-     - `novel-slug/manuscript/.../` 可以表示 Workspace Root 容器路径，但实现必须从 `novel.workspaceSlug` 反查 `novelId` 后再调用 Plot facade。
-     - 允许跨 Project Workspace：当 `novel-slug/manuscript/.../` 对应的 novel 与 session `novelId` 不一致时，writer 仍可写该章节，但必须只写显式传入的章节路径。
+     - `manuscript/.../` 不再表示当前 Project Workspace；调用方必须显式传 `project-slug/manuscript/.../`。
+     - `workspace/<project>/manuscript/...` 不作为 writer 输入格式；它对人类看起来完整，但 file tool 会把它当作 Project alias 并剥掉前缀。
+     - 允许跨 Project Workspace：显式传另一个 `project-slug/manuscript/.../` 时，writer 仍可写该章节，但必须只写显式传入的章节路径。
      - 不允许根据当前 UI active novel 或自然语言“第三章”猜测 project。
 
 3. 移动 writing preset 资源
@@ -115,7 +117,7 @@
      - 多 Agent 协作中 writer 说明。
      - 创建或调用 writer 前查询 `get_agent_profile` 的建议保留，但示例字段改成新合同。
      - 删除 “plotPoints 传 Scene ID / 必须包含 novelId / outputPath / lorebookEntries 可带 priority、reason、writingTip”。
-     - 增加 “一章节一 writer agent；chapterPaths 传 manuscript 章节内容节点路径，writer 会展开本章 Scene 与 Plots，并写入对应章节 index.md”。
+     - 增加 “一章节一 writer agent；chapterPaths 传 Agent cwd-relative Project 章节路径，例如 project-slug/manuscript/.../，writer 会展开本章 Scene 与 Plots，并写入对应章节 index.md”。
      - 增加调用前置条件：章节文件或空模板已经存在，Plot System 已把该章需要写的 Scene 挂载到章节。
    - `assets/workspace/.nbook/agent/profiles/builtin/retrieval.profile.tsx`
      - retrieval 输入只保留自然语言 `prompt`。
@@ -162,7 +164,7 @@
 - `chapterPaths` 第一版只允许一个元素；多章节写作应创建多个 writer agent。
 - writer 要求章节内容节点已经存在，不负责创建章节文件或空模板。
 - writer 默认根据 prompt 决定重写或修改；普通写作可重写章节正文，润色/修改任务可局部编辑。
-- 跨 Project Workspace 写作允许，但只能以显式 `novel-slug/manuscript/.../` 路径触发，不允许猜测。
+- 跨 Project Workspace 写作允许，但只能以显式 `project-slug/manuscript/.../` cwd-relative 路径触发，不允许猜测；不接受 `workspace/<project>/...`。
 - `lorebookEntries` 直接使用 `string[]`，数组顺序即调用方给出的优先级。
 - 不保留旧 `plotPoints` / `novelId` / `outputPath` / object-shaped `lorebookEntries` 兼容。
 - writing presets 新目录使用 `agent/writing-presets/{styles,references}`。

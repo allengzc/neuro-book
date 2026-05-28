@@ -1,7 +1,7 @@
 import {createError} from "h3";
 import {DiscoverProviderModelsRequestDtoSchema, type DiscoverProviderModelsRequestDto, type ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
 import {loadGlobalEffectiveConfigSync} from "nbook/server/config/config-service";
-import {discoverProviderModels} from "nbook/server/utils/model-settings";
+import {discoverProviderModels, withSavedProviderApiKey} from "nbook/server/utils/model-settings";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 
 /**
@@ -23,22 +23,8 @@ export default defineEventHandler(async (event) => {
  * 补齐设置页不会回传的已保存 API Key。
  */
 function withSavedApiKey(providerDraft: ModelProviderDraftDto): ModelProviderDraftDto {
-    if (providerDraft.options.apiKey.trim()) {
-        return providerDraft;
-    }
-
     const savedApiKey = loadGlobalEffectiveConfigSync().models.providers[providerDraft.id]?.options.apiKey ?? "";
-    if (!savedApiKey) {
-        return providerDraft;
-    }
-
-    return {
-        ...providerDraft,
-        options: {
-            ...providerDraft.options,
-            apiKey: savedApiKey,
-        },
-    };
+    return withSavedProviderApiKey(providerDraft, savedApiKey);
 }
 
 /**

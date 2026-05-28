@@ -14,6 +14,7 @@ import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceText
 import {updateNovelByTool} from "nbook/server/utils/novel-chapter";
 
 const WORKSPACE_SCRIPT_PATH = "scripts/workspace.ts";
+const AGENT_WORKSPACE_SCRIPT_PATH = "../assets/workspace/.nbook/agent/scripts/workspace.ts";
 const execFileAsync = promisify(execFile);
 
 describe("workspace-files", () => {
@@ -499,6 +500,20 @@ describe("workspace-files", () => {
         expect(stdout).not.toContain("ext.character");
     });
 
+    it("workspace node validate 在 Workspace Root 下接受 workspace/<project>/... 路径", async () => {
+        const {stderr} = await execFileAsync("bun", [
+            AGENT_WORKSPACE_SCRIPT_PATH,
+            "node",
+            "validate",
+            "workspace/silver-dragon-hime/manuscript/001-荒野觉醒/001-祭坛苏醒/",
+        ], {
+            cwd: "workspace",
+            encoding: "utf-8",
+        });
+
+        expect(stderr).toBe("");
+    });
+
     it("角色内容节点模板包含 frontmatter 注释与正文结构", async () => {
         await withSystemTemplate("templates/content-node-templates/character/index.md", () => {
             const content = renderWorkspaceContentTemplate({
@@ -945,7 +960,7 @@ describe("workspace-files", () => {
         } finally {
             await removeDirectoryWithRetry(createdRoot);
         }
-    });
+    }, 20_000);
 
     it("创建内容节点时可以同时写入 state.md", async () => {
         const bundle = renderWorkspaceContentTemplateBundle({
@@ -1070,15 +1085,15 @@ describe("workspace-files", () => {
      * Windows 下 libsql 关闭 SQLite 后文件句柄可能短暂释放延迟，测试清理需要重试。
      */
     async function removeDirectoryWithRetry(dirPath: string): Promise<void> {
-        for (let attempt = 0; attempt < 10; attempt += 1) {
+        for (let attempt = 0; attempt < 20; attempt += 1) {
             try {
                 await fs.rm(dirPath, {recursive: true, force: true});
                 return;
             } catch (error) {
-                if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "EBUSY" || attempt === 9) {
+                if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "EBUSY" || attempt === 19) {
                     throw error;
                 }
-                await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+                await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
             }
         }
     }
