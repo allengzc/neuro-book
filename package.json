@@ -9,7 +9,8 @@
     "neuro-book-deploy": "./scripts/deploy/neuro-book-deploy.mjs"
   },
   "files": [
-    "scripts/deploy/neuro-book-deploy.mjs"
+    "scripts/deploy/*.mjs",
+    "scripts/utils/*.mjs"
   ],
   "scripts": {
     "dev": "bun scripts/build/prepare-system-profile-metadata.ts && bun scripts/cli/sync-user-assets.ts && nuxt dev",
