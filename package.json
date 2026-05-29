@@ -6,34 +6,34 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "neuro-book-deploy": "./scripts/neuro-book-deploy.mjs"
+    "neuro-book-deploy": "./scripts/deploy/neuro-book-deploy.mjs"
   },
   "files": [
-    "scripts/neuro-book-deploy.mjs"
+    "scripts/deploy/neuro-book-deploy.mjs"
   ],
   "scripts": {
-    "dev": "bun scripts/prepare-system-profile-metadata.ts && bun scripts/sync-user-assets.ts && nuxt dev",
-    "dev:warmup": "node scripts/warmup-dev-server.mjs",
-    "nuxt:build": "bun scripts/prepare-system-profile-metadata.ts && nuxt build && node scripts/patch-nitro-runtime-deps.mjs",
+    "dev": "bun scripts/build/prepare-system-profile-metadata.ts && bun scripts/cli/sync-user-assets.ts && nuxt dev",
+    "dev:warmup": "node scripts/cli/warmup-dev-server.mjs",
+    "nuxt:build": "bun scripts/build/prepare-system-profile-metadata.ts && nuxt build && node scripts/build/patch-nitro-runtime-deps.mjs",
     "nuxt:preview": "nuxt preview",
     "analysis": "nuxt analyze --dotenv .env",
     "nuxt:prepare": "nuxt prepare",
-    "build": "bun scripts/prepare-system-profile-metadata.ts && tsc",
-    "profile:metadata": "bun scripts/prepare-system-profile-metadata.ts",
+    "build": "bun scripts/build/prepare-system-profile-metadata.ts && tsc",
+    "profile:metadata": "bun scripts/build/prepare-system-profile-metadata.ts",
     "typecheck": "nuxt typecheck --dotenv .env.typecheck --logLevel silent",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:agent": "vitest run server/agent shared/dto",
-    "migrate": "node scripts/prisma-migrate.mjs",
-    "migrate:deploy": "node scripts/prisma-migrate.mjs --deploy",
-    "generate": "node scripts/prisma-generate.mjs",
-    "generate:openapi": "bun scripts/generate-openapi-meta.ts",
-    "config:migrate": "bun scripts/migrate-config-system.ts",
-    "docker:publish": "node scripts/publish-ghcr-image.mjs",
-    "auth:create-admin": "bun scripts/create-admin.ts",
+    "migrate": "node scripts/db/prisma-migrate.mjs",
+    "migrate:deploy": "node scripts/db/prisma-migrate.mjs --deploy",
+    "generate": "node scripts/db/prisma-generate.mjs",
+    "generate:openapi": "bun scripts/build/generate-openapi-meta.ts",
+    "config:migrate": "bun scripts/db/migrate-config-system.ts",
+    "docker:publish": "node scripts/deploy/publish-ghcr-image.mjs",
+    "auth:create-admin": "bun scripts/cli/create-admin.ts",
     "studio": "npx prisma studio --config ./prisma.config.ts",
-    "deploy": "bun scripts/deploy.mjs"
+    "deploy": "bun scripts/deploy/deploy.mjs"
   },
   "dependencies": {
     "@clack/prompts": "^1.0.0",

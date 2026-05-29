@@ -87,8 +87,8 @@ Remove-Item Env:AUTH_ADMIN_PASSWORD
 ### 常用部署入口
 
 - `neuro-book-deploy`：首次部署或重新生成 `.deploy/` 本地配置，默认使用“本机 + Git” `local-git`，也支持高级 Docker 模式 `ghcr` 和 `source`。
-- `bun scripts/deploy.mjs`：开发服务器快速同步入口，默认登录 `arch`，面向已经初始化好的 source 模式部署。
-- `node scripts/publish-ghcr-image.mjs`：本地构建并推送 GHCR runtime/app 两类镜像，适合低内存服务器使用预构建镜像。
+- `bun scripts/deploy/deploy.mjs`：开发服务器快速同步入口，默认登录 `arch`，面向已经初始化好的 source 模式部署。
+- `node scripts/deploy/publish-ghcr-image.mjs`：本地构建并推送 GHCR runtime/app 两类镜像，适合低内存服务器使用预构建镜像。
 
 推荐使用一键交互式部署脚本。它会按部署模式检查 Docker 或宿主机工具、拉取仓库，在项目根目录生成 `.env`、Boot Config `config.yaml`、Global Config `workspace/.nbook/config.json`，并在 `.deploy/` 下生成本地说明。默认使用 SQLite 文件库和“本机 + Git”模式：`git clone/pull` 源码、安装依赖、构建、迁移数据库，然后打印启动命令。
 
@@ -109,25 +109,25 @@ npx --yes --package github:notnotype/neuro-book neuro-book-deploy
 ```bash
 git clone https://github.com/notnotype/neuro-book.git
 cd neuro-book
-node scripts/neuro-book-deploy.mjs
+node scripts/deploy/neuro-book-deploy.mjs
 ```
 
 如需显式使用本机 + Git 模式：
 
 ```bash
-node scripts/neuro-book-deploy.mjs --deploy-mode local-git
+node scripts/deploy/neuro-book-deploy.mjs --deploy-mode local-git
 ```
 
 如需使用源码挂载模式：
 
 ```bash
-node scripts/neuro-book-deploy.mjs --deploy-mode source
+node scripts/deploy/neuro-book-deploy.mjs --deploy-mode source
 ```
 
 如需使用旧 native 别名：
 
 ```bash
-node scripts/neuro-book-deploy.mjs --deploy-mode native
+node scripts/deploy/neuro-book-deploy.mjs --deploy-mode native
 ```
 
 local-git 模式会检查宿主机可执行文件：`node`、`npm`、`git`、`bun`、`rg`，Unix/macOS/Linux 还会检查 `bash`、`coreutils` 和基础 `findutils`，并建议安装 `python3` 以保持 Agent helper 脚本能力。缺少工具时，脚本会按平台给出安装命令，并在交互确认后使用 Windows `winget` / Scoop、macOS `brew` 或 Linux 主流包管理器安装；非交互环境只报错并打印命令。
@@ -186,7 +186,7 @@ node .output/server/index.mjs
 如果是本项目的开发服务器，source 模式初始化成功后可直接从本地快速同步：
 
 ```bash
-bun scripts/deploy.mjs
+bun scripts/deploy/deploy.mjs
 ```
 
 该脚本默认登录 `arch`，进入 `/home/notnotype/composes/neuro-book`，执行 `git pull --ff-only`、宿主机依赖安装、Prisma generate、Nuxt build，并用 sudo 重启 `app` 容器。脚本会在本地隐藏输入 sudo 密码，密码只通过 SSH stdin 传给远端做一次 `sudo -v` 校验，不会写入命令行或文件。可用 `--host`、`--dir` 修改目标，也可用 `--dry-run` 查看将执行的远端脚本。

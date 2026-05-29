@@ -13,7 +13,7 @@ import {invalidateProjectWorkspaceIndexAfterMutation, readPlainWorkspaceTreeSnap
 import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {updateNovelByTool} from "nbook/server/utils/novel-chapter";
 
-const WORKSPACE_SCRIPT_PATH = "scripts/workspace.ts";
+const WORKSPACE_SCRIPT_PATH = "scripts/cli/workspace.ts";
 const AGENT_WORKSPACE_SCRIPT_PATH = "../assets/workspace/.nbook/agent/scripts/workspace.ts";
 const execFileAsync = promisify(execFile);
 

@@ -2,7 +2,7 @@
  * Code generator: converts Zod schemas to JSON Schema and injects
  * `defineRouteMeta({...})` calls into non-agent route files.
  *
- * Usage: bun scripts/generate-openapi-meta.ts
+ * Usage: bun scripts/build/generate-openapi-meta.ts
  *
  * How it works:
  * 1. Reads the route→schema mapping from `openapi-route-map.ts`

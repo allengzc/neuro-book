@@ -248,7 +248,7 @@ function printDiagnostics(diagnostics: readonly ts.Diagnostic[]): void {
 }
 
 function printUsage(): void {
-    console.error("用法：bun scripts/variable.ts definition <status|check|compile> [--global [--workspace-root <workspaceRoot>] | --project <projectWorkspace>]");
-    console.error("示例：bun scripts/variable.ts definition compile --global --workspace-root workspace");
-    console.error("示例：bun scripts/variable.ts definition status --project novels/demo");
+    console.error("用法：bun scripts/build/variable.ts definition <status|check|compile> [--global [--workspace-root <workspaceRoot>] | --project <projectWorkspace>]");
+    console.error("示例：bun scripts/build/variable.ts definition compile --global --workspace-root workspace");
+    console.error("示例：bun scripts/build/variable.ts definition status --project novels/demo");
 }
