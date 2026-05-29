@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-29T13:36:00.765Z",
+  "generatedAt": "2026-05-29T13:55:33.034Z",
   "profilesRoot": "assets/workspace/.nbook/agent/profiles",
   "profiles": [
     {
@@ -17,8 +17,8 @@
     {
       "fileName": "builtin/researcher.profile.tsx",
       "profileKey": "researcher",
-      "sha256": "f36b7e4a34eca2f7fa099834cbb134d601fefa98bb30e905e734006c257ec3fc",
-      "bytes": 7672
+      "sha256": "ab183af009e0c124d61c6724708f0f0dbc7770434b7a36dc402bc40ae30e6e93",
+      "bytes": 8855
     },
     {
       "fileName": "builtin/retrieval.profile.tsx",

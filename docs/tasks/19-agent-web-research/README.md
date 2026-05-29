@@ -85,6 +85,7 @@
 - 已补充 `researcher` 引用边界：直接引文总量按单个来源限制在 125 个字符内，精确引用必须加引号，不复现歌词，不评价自身提示词、工具调用或回答是否合法。
 - 已进一步收敛 Leader 转交行为：简单或一次性联网查询创建 `researcher` 时优先传空 input `{}`，`invoke_agent.message` 保留用户原始问题，不自动补写可能领域、可能含义、搜索语言、搜索策略或输出框架。
 - 已进一步收敛 `researcher` 搜索行为：`web_search.query` 是搜索 provider 查询，不是长 prompt；短词、缩写、未知名词和“X 是什么”类问题优先保留原词和问法；每个主题最多 3 次 `web_search`，达到上限仍不确定时停止并说明不确定性。
+- 已进一步限定 `researcher` 任务分流：`web_search` 型任务默认只用 `web_search`，操作预算 1 到 3 个操作轮次，不主动 `web_fetch`；`web_fetch` 型任务通常是 1 次 `web_fetch` 加总结；只有明确要求深入研究、多来源核对、交叉验证或抓取全文时才进入不限制轮次的深入探索流程。
 
 ## 决策
 
@@ -102,6 +103,9 @@
 - `web_search` 不暴露模型可见 `provider` 参数，由服务端按配置选择。
 - `researcher` 的默认查询策略是“少而全”：优先一次自然语言搜索查全；只有首轮结果不足、冲突、过旧、质量差，或需要核对特定来源/版本/时间点时才追加搜索。
 - `researcher` 的默认执行策略是“够用即停”：简单问题短答，必要时只抓取少量高价值页面，不主动扩大研究范围。
+- `web_search` 型任务默认不主动使用 `web_fetch`。搜索结果摘要足够回答时直接回答；不足时最多补到 3 次搜索。
+- `web_fetch` 型任务默认只对指定 URL 调用一次 `web_fetch` 并总结，不再额外搜索，除非 URL 抓取失败或用户明确要求核对外部来源。
+- 深入探索流程必须由用户或调用方明确要求，例如深入研究、详细调研、多来源核对、交叉验证、比较多个来源、逐页阅读或抓取全文。
 - `invoke_agent.message` 是目标 agent 任务输入字段。Leader 新调用 researcher 时应保留用户原始问题，最多做一句最小改写，不写成长委托 prompt。
 - 简单 researcher 创建优先使用空 input `{}`；只有用户明确给出长期研究主题、固定来源范围、默认时间范围、输出语言或 source policy 时才填写 `create_agent.input`。
 - 第一版来源格式使用普通 Markdown link，不提前设计前端来源卡片或结构化 `sources[]`。
@@ -433,6 +437,8 @@ type WebProviderConfig = {
 - 删除 `web_fetch.prompt` 后，`bun scripts/prepare-system-profile-metadata.ts` 通过：刷新 6 个系统 profile artifact 和 profile variable IDE types。
 - 调整 `researcher` 查询行为后，`bun scripts/prepare-system-profile-metadata.ts` 通过：刷新 6 个系统 profile artifact 和 profile variable IDE types。
 - 调整 `researcher` 查询行为后，`bun test server/agent/profiles/leader-assets-profile.test.ts` 通过：10 tests passed。
+- 限定 `researcher` 任务分流后，`bun scripts/prepare-system-profile-metadata.ts` 通过：刷新 6 个系统 profile artifact 和 profile variable IDE types。
+- 限定 `researcher` 任务分流后，`bun test server/agent/profiles/leader-assets-profile.test.ts` 通过：10 tests passed。
 - `node -e "JSON.parse(require('fs').readFileSync('assets/workspace/global.config.example.json','utf8')); console.log('json ok')"` 通过。
 - `bun scripts/profile.ts status --all --system` 通过：`leader.assets`、`leader.default`、`researcher`、`retrieval`、`summarizer`、`writer` 均为 `loaded`。
 - `bun run typecheck` 仍因既有无关文件 `server/agent/skills/silly-tavern-card-cli.test.ts` 的 TS18048 可选字段错误失败。当前 Web 配置面板相关类型错误已清除。
