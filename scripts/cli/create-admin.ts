@@ -11,7 +11,7 @@ let prisma: PrismaClientInstance | null = null;
  */
 async function ensureDatabaseSchema(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
-        const child = spawn(process.execPath, ["scripts/sqlite-migrate.mjs"], {
+        const child = spawn(process.execPath, ["scripts/db/sqlite-migrate.mjs"], {
             stdio: "inherit",
             env: process.env,
         });
