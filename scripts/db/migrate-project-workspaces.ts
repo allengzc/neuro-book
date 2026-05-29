@@ -197,7 +197,7 @@ function requireValue(args: string[], index: number, name: string): string {
 
 function printHelp(): void {
     console.log(`Usage:
-  bun scripts/migrate-project-workspaces.ts [--workspace-root <dir>] [--apply] [--overwrite-manifest]
+  bun scripts/db/migrate-project-workspaces.ts [--workspace-root <dir>] [--apply] [--overwrite-manifest]
 
 Options:
   --workspace-root <dir>   Workspace Root，默认 workspace

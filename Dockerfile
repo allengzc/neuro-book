@@ -55,4 +55,4 @@ COPY --from=build /app/prisma.config.ts ./prisma.config.ts
 
 EXPOSE 3000
 
-ENTRYPOINT ["sh", "./scripts/docker-entrypoint.sh"]
+ENTRYPOINT ["sh", "./scripts/deploy/docker-entrypoint.sh"]

@@ -640,6 +640,6 @@ function relativeInside(root: string, filePath: string): string | null {
 }
 
 function printUsage(): void {
-    console.error("用法：bun scripts/profile.ts <status|check|compile|preview> <fileName|profileKey> [--system] [--all] [--project <projectPath>] [--strict-variables]");
-    console.error("示例：bun scripts/profile.ts compile builtin/leader.default.profile.tsx --system");
+    console.error("用法：bun scripts/build/profile.ts <status|check|compile|preview> <fileName|profileKey> [--system] [--all] [--project <projectPath>] [--strict-variables]");
+    console.error("示例：bun scripts/build/profile.ts compile builtin/leader.default.profile.tsx --system");
 }

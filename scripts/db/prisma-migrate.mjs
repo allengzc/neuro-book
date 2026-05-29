@@ -5,7 +5,7 @@ import {preparePrismaEnv} from "./prisma-env.mjs";
 const env = preparePrismaEnv();
 const mode = process.argv.includes("--deploy") ? "deploy" : "dev";
 if (mode === "deploy") {
-    const child = spawn("node", ["scripts/sqlite-migrate.mjs"], {
+    const child = spawn("node", ["scripts/db/sqlite-migrate.mjs"], {
         env: {...process.env, DATABASE_KIND: env.kind, DATABASE_URL: env.databaseUrl},
         stdio: "inherit",
     });

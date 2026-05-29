@@ -113,7 +113,7 @@ services:
             dockerfile: Dockerfile.source-runtime
         working_dir: /app
         user: "\${HOST_UID}:\${HOST_GID}"
-        command: ["sh", "./scripts/docker-entrypoint.sh"]
+        command: ["sh", "./scripts/deploy/docker-entrypoint.sh"]
         volumes:
             - ./:/app
             - ./workspace:/app/workspace
