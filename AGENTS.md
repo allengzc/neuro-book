@@ -111,7 +111,6 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 后端代码（gateway、runtime 等需要高领域表达力的）推荐使用 class 模式，前端代码 web/ 下推荐使用 Functional Programming 模式
 - 代码多使用中文注释。设计接口和类时，要为接口和每一个函数写规范
 - 多使用注释，函数必须添加注释
-- 尽量不使用 any/unknown。如果使用 any/unknown 请在代码旁边写明原因。
 - 不要过度设计。先尝试在现有组件基础上修改，实在不行才建立新组件。
 - **不要过度创建函数，如果某处逻辑只有一处复用的地方，不要抽函数，优先 inline**
 - 实现需求时先考虑使用第三方库
@@ -123,6 +122,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - 不要一次性应用 800 行以上的超大补丁（防止出错）。可以考虑拆分多次进行应用（例如按照脚本逻辑 script、模板 template、样式 style）。或者提醒用户规划拆分为多个文件。但是要注意：强耦合，高相关的逻辑还是可以放在一个文件内的。（不要为了为拆而拆）
 - 简单逻辑不要主动写测试文件，复杂逻辑需要写测试
 - 只有在复杂、大型功能编写后才运行测试。简单的小功能不要主动测试
+- 类型覆盖非常重要，你设计的每一个组件都尽可能地标注类型。不要用 Record<string, unknown>，unknown，any 这些类型。如果使用 any/unknown 请在代码旁边写明原因。
 
 ## Others
 

@@ -152,8 +152,8 @@
 - [ ] session 不要按照 project workspace 分组
 - [ ] 对白高亮,“” "" 「」有一个单独的样式
 - [ ] 侧栏 agent 可以 float window
-- [ ]
-- [ ]
+- [ ] diff 界面
+- [ ] token statics 修复，同时记录小弟的 token 消耗
 - [ ]
 - [ ]
 - [ ]
