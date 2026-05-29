@@ -83,4 +83,28 @@ export const CONFIG_REGISTRY: ConfigItemMeta[] = [
         secret: false,
         description: "Monaco 源码编辑器显示偏好。",
     },
+    {
+        key: "web.search",
+        scope: "global",
+        effect: "next-run",
+        merge: "deep-merge",
+        secret: false,
+        description: "Agent web_search 搜索 provider 顺序、启用状态和非 secret 运行参数。",
+    },
+    {
+        key: "web.search.providers.*.apiKey",
+        scope: "global",
+        effect: "next-run",
+        merge: "replace",
+        secret: true,
+        description: "Agent Web 搜索 provider API Key，只在设置页展示脱敏状态。",
+    },
+    {
+        key: "web.fetch",
+        scope: "global",
+        effect: "next-run",
+        merge: "deep-merge",
+        secret: false,
+        description: "Agent web_fetch 的本地抓取限制和外部 provider fallback 策略。",
+    },
 ];

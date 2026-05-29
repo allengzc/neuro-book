@@ -13,6 +13,7 @@ import type {
     SessionFileRecord,
     SessionId,
     SessionMetadata,
+    SessionProjectionScope,
     SessionSnapshot,
     SessionTreeNode,
     SessionEntryDraft,
@@ -207,12 +208,13 @@ export class JsonlSessionRepository {
     /**
      * 追加投影型 entry，但不移动 active leaf。用于后台元数据，不改变用户当前分支。
      */
-    async appendProjectionEntry(sessionId: SessionId, input: AppendEntryInput, workspaceKey?: string): Promise<SessionEntry> {
+    async appendProjectionEntry(sessionId: SessionId, input: AppendEntryInput, projectionScope?: SessionProjectionScope, workspaceKey?: string): Promise<SessionEntry> {
         const snapshot = await this.readSession(sessionId);
         const currentLeafId = this.resolveLeaf(snapshot.entries);
         const entry = {
             ...input,
             origin: input.type === "custom" || input.type === "session_update" ? "projection" : undefined,
+            projectionScope: input.type === "custom" || input.type === "session_update" ? projectionScope : undefined,
             id: input.id ?? this.createEntryId(),
             parentId: input.parentId === undefined ? currentLeafId : input.parentId,
             timestamp: input.timestamp ?? Date.now(),
@@ -342,7 +344,9 @@ export class JsonlSessionRepository {
             if (pathIds.has(entry.id)) {
                 return true;
             }
-            return (entry.type === "custom" || entry.type === "session_update") && entry.origin === "projection";
+            return (entry.type === "custom" || entry.type === "session_update")
+                && entry.origin === "projection"
+                && this.projectionApplies(entry.projectionScope, snapshot.leafId);
         });
 
         for (const entry of reduceEntries) {
@@ -456,7 +460,7 @@ export class JsonlSessionRepository {
         const childCountByParentId = new Map<SessionEntryId | null, number>();
         const labelsByTargetId = new Map<SessionEntryId, string>();
         for (const entry of snapshot.entries) {
-            if (entry.type === "leaf") {
+            if (entry.type === "leaf" || entry.origin === "projection") {
                 continue;
             }
             childCountByParentId.set(entry.parentId, (childCountByParentId.get(entry.parentId) ?? 0) + 1);
@@ -465,7 +469,7 @@ export class JsonlSessionRepository {
             }
         }
         return snapshot.entries
-            .filter((entry) => entry.type !== "leaf")
+            .filter((entry) => entry.type !== "leaf" && entry.origin !== "projection")
             .map((entry) => ({
                 id: entry.id,
                 parentId: entry.parentId,
@@ -586,6 +590,13 @@ export class JsonlSessionRepository {
                 detached: true,
             });
         }
+    }
+
+    private projectionApplies(scope: SessionProjectionScope | undefined, activeLeafId: SessionEntryId | null): boolean {
+        if (!scope) {
+            return true;
+        }
+        return scope.scope === "activeLeaf" && scope.leafId === activeLeafId;
     }
 
     private isLinkedAgentValue(value: JsonValue): value is {sessionId: number; profileKey: string} {

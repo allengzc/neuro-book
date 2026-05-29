@@ -46,5 +46,41 @@
     "ui": {
         "theme": "sepia"
     },
-    "editor": {}
+    "editor": {},
+    "web": {
+        "search": {
+            "order": [
+                "tavily",
+                "brave"
+            ],
+            "providers": {
+                "tavily": {
+                    "enabled": false,
+                    "apiKey": "",
+                    "timeoutMs": 15000
+                },
+                "brave": {
+                    "enabled": false,
+                    "apiKey": "",
+                    "country": "US",
+                    "searchLang": "en",
+                    "timeoutMs": 15000
+                }
+            }
+        },
+        "fetch": {
+            "local": {
+                "enabled": true,
+                "timeoutMs": 15000,
+                "maxRedirects": 5,
+                "maxBytes": 2000000,
+                "maxCharacters": 20000,
+                "minCharactersForLocal": 300
+            },
+            "tavilyFallback": {
+                "enabled": false,
+                "timeoutMs": 20000
+            }
+        }
+    }
 }

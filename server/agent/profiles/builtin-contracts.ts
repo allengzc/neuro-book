@@ -15,26 +15,25 @@ export const LeaderDefaultOutputSchema = Type.Object({
 });
 
 /**
- * session.summarizer 的实例初始化参数。sourceSessionId 由 harness 注入。
+ * summarizer 的实例初始化参数。sourceSessionId 由 harness 注入。
  */
 export const SessionSummarizerInputSchema = Type.Object({
-    sourceSessionId: Type.Number({description: "由 harness 注入的源 leader session id。"}),
+    sourceSessionId: Type.Number({description: "由 harness 注入的 source session id。"}),
     trigger: Type.Optional(Type.Union([
-        Type.Literal("after_invocation"),
-    ], {description: "首次触发时机。第一版仅支持 after_invocation。"})),
+        Type.Literal("afterInvocation"),
+    ], {description: "触发时机。第一版仅支持 afterInvocation。"})),
     interval: Type.Optional(Type.Object({
         kind: Type.Union([
-            Type.Literal("turn"),
-            Type.Literal("loop"),
+            Type.Literal("sourceInvocation"),
             Type.Literal("dialogueContentTokens"),
         ]),
-        value: Type.Number({description: "触发间隔。turn/loop 表示次数，dialogueContentTokens 表示新增正文 token。"}),
+        value: Type.Number({description: "触发间隔。sourceInvocation 表示 source invocation 次数，dialogueContentTokens 表示新增正文 token。"}),
     }, {description: "后台摘要周期触发配置。"})),
     maxDialogueContentTokens: Type.Optional(Type.Number({description: "Agent Dialogue Content 超过该 token 估算值时跳过本次摘要。"})),
 });
 
 /**
- * session.summarizer 通过 report_result.data 返回的展示元数据。
+ * summarizer 通过 report_result.data 返回的展示元数据。
  */
 export const SessionSummarizerOutputSchema = Type.Object({
     title: Type.String({description: "简短 session 标题，建议不超过 32 字。"}),
@@ -83,4 +82,41 @@ export const RetrievalOutputSchema = Type.Object({
         risk: Type.Optional(Type.String({description: "可选风险说明，例如只是弱相关、状态可能过时、需要用户确认、可能与任务冲突。"})),
     }), {description: "按推荐优先级排序的候选内容节点。"}),
     note: Type.Optional(Type.String({description: "整体检索说明，例如没有强相关条目、结果偏少、建议补充搜索条件。"})),
+});
+
+/**
+ * researcher 子代理输入：创建 session 时传入长期研究边界；每轮具体问题通过 invoke_agent.message 继续对话。
+ */
+export const ResearcherInputSchema = Type.Object({
+    topic: Type.Optional(Type.String({
+        maxLength: 500,
+        description: "Long-lived research topic for this researcher session. Omit for a general researcher.",
+    })),
+    goal: Type.Optional(Type.String({
+        maxLength: 1200,
+        description: "Stable research goal or operating brief for this researcher session. Per-turn questions should be sent via invoke_agent.message, not stored here.",
+    })),
+    allowed_domains: Type.Optional(Type.Array(Type.String({
+        minLength: 1,
+        description: "Default allowed domain filter inherited by web_search unless the turn asks otherwise.",
+    }), {maxItems: 20})),
+    blocked_domains: Type.Optional(Type.Array(Type.String({
+        minLength: 1,
+        description: "Default blocked domain filter inherited by web_search unless the turn asks otherwise.",
+    }), {maxItems: 50})),
+    default_recency_days: Type.Optional(Type.Integer({
+        minimum: 1,
+        maximum: 3650,
+        description: "Default freshness preference for web_search. Omit for no default recency filter.",
+    })),
+    source_policy: Type.Optional(Type.Union([
+        Type.Literal("balanced"),
+        Type.Literal("primary_sources"),
+        Type.Literal("recent_first"),
+    ], {
+        description: "Default source preference. primary_sources means prefer official docs, papers, laws, specs, or original announcements when available.",
+    })),
+    output_language: Type.Optional(Type.String({
+        description: "Preferred response language, for example zh-CN or en. Default follows the caller/user language.",
+    })),
 });

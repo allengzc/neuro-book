@@ -167,31 +167,51 @@ export const agentRuntimeBuiltins = {
             kind: "builtin",
             name: "sessionRuntime",
             hooks: [
-                builtinHook("profilePrompt", "prepareRun", {
-                    builtinBehavior: {
-                        profilePrompt: true,
-                    },
-                }),
-                builtinHook("sessionContext", "prepareRun", {
-                    builtinBehavior: {
-                        sessionContext: true,
-                    },
-                }),
-                builtinHook("transcriptPersistence", "ingestTurn", {
-                    transcript: "persist",
-                }),
-                builtinHook("compact", "prepareNextTurn", {
-                    builtinBehavior: {
-                        automaticCompaction: true,
-                    },
-                }),
-                builtinHook("reportResult", "prepareRun", {
-                    builtinBehavior: {
-                        reportResultReminder: true,
-                    },
-                }),
+                this.profilePrompt<TInput>(),
+                this.sessionContext<TInput>(),
+                this.transcriptPersistence<TInput>(),
+                this.compact<TInput>(),
+                this.reportResult<TInput>(),
             ],
         };
+    },
+    profilePrompt<TInput = JsonValue>(): AgentRuntimeHook<TInput> {
+        return builtinHook("profilePrompt", "prepareRun", {
+            builtinBehavior: {
+                profilePrompt: true,
+            },
+        });
+    },
+    sessionContext<TInput = JsonValue>(): AgentRuntimeHook<TInput> {
+        return builtinHook("sessionContext", "prepareRun", {
+            builtinBehavior: {
+                sessionContext: true,
+            },
+        });
+    },
+    transcriptPersistence<TInput = JsonValue>(): AgentRuntimeHook<TInput> {
+        return builtinHook("transcriptPersistence", "ingestTurn", {
+            transcript: "persist",
+        });
+    },
+    runtimeOnlyTranscript<TInput = JsonValue>(): AgentRuntimeHook<TInput> {
+        return builtinHook("runtimeOnlyTranscript", "ingestTurn", {
+            transcript: "runtime_only",
+        });
+    },
+    compact<TInput = JsonValue>(): AgentRuntimeHook<TInput> {
+        return builtinHook("compact", "prepareNextTurn", {
+            builtinBehavior: {
+                automaticCompaction: true,
+            },
+        });
+    },
+    reportResult<TInput = JsonValue>(): AgentRuntimeHook<TInput> {
+        return builtinHook("reportResult", "prepareRun", {
+            builtinBehavior: {
+                reportResultReminder: true,
+            },
+        });
     },
 };
 

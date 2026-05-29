@@ -61,11 +61,11 @@ export default defineAgentProfile({
     outputSchema: OutputSchema,
     allowedToolKeys,
     summarizer: {
-        profileKey: "session.summarizer",
+        profileKey: "summarizer",
         input: {
-            trigger: "after_invocation",
+            trigger: "afterInvocation",
             interval: {
-                kind: "turn",
+                kind: "sourceInvocation",
                 value: 1,
             },
             maxDialogueContentTokens: 80_000,

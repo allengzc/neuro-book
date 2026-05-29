@@ -6,12 +6,13 @@ import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import NovelIdeAgentProfileDefaultSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeAgentProfileDefaultSettingsPanel.vue";
 import NovelIdeAgentProfileModelSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeAgentProfileModelSettingsPanel.vue";
 import NovelIdeModelSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeModelSettingsPanel.vue";
+import NovelIdeWebSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeWebSettingsPanel.vue";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStudioController";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
-type SettingsSection = "frontend" | "editor" | "models" | "agent-profile-defaults" | "agent-profile-models";
+type SettingsSection = "frontend" | "editor" | "models" | "web-tools" | "agent-profile-defaults" | "agent-profile-models";
 type SettingsScope = "global" | "project" | "browser";
 
 const props = defineProps<{
@@ -56,6 +57,12 @@ const frontendSectionItems: Array<{value: SettingsSection; label: string; descri
         iconClass: "i-lucide-cpu",
     },
     {
+        value: "web-tools",
+        label: "Web 工具",
+        description: "配置 Agent 联网搜索与抓取。",
+        iconClass: "i-lucide-search-code",
+    },
+    {
         value: "agent-profile-defaults",
         label: "默认 Profile",
         description: "配置当前 workspace 新线程默认使用的 Profile。",
@@ -90,7 +97,7 @@ const scopeOptions: Array<{value: SettingsScope; label: string; description: str
     },
 ];
 
-const configSections: SettingsSection[] = ["models", "agent-profile-defaults", "agent-profile-models"];
+const configSections: SettingsSection[] = ["models", "web-tools", "agent-profile-defaults", "agent-profile-models"];
 const browserSections: SettingsSection[] = ["frontend", "editor"];
 
 const themeOptions: SelectOption[] = [
@@ -195,6 +202,9 @@ const sidebarHint = computed(() => {
     }
     if (activeSection.value === "models") {
         return activeScope.value === "project" ? "Project Config 只覆盖默认模型。" : "Provider、API Key 与全局默认模型写入 Global Config。";
+    }
+    if (activeSection.value === "web-tools") {
+        return "Web 工具配置写入 Global Config，Project Config 不覆盖搜索 provider。";
     }
     if (activeSection.value === "agent-profile-defaults") {
         return activeScope.value === "project" ? "默认 Profile 写入所选 Project Config。" : "默认 Profile 写入 Global Config。";
@@ -636,6 +646,11 @@ watch(activeScope, (scope) => {
                         <div v-else-if="activeSection === 'models'" key="models">
                             <!-- 注意：ModelSettingsPanel 内部不使用 h-full，让外层自动撑开或根据内容滚动 -->
                             <NovelIdeModelSettingsPanel :key="`models:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
+                        </div>
+
+                        <!-- Web 工具设定 -->
+                        <div v-else-if="activeSection === 'web-tools'" key="web-tools">
+                            <NovelIdeWebSettingsPanel :key="`web-tools:${settingsPanelKey}`" :target-query="targetQuery" :target-label="targetLabel" />
                         </div>
 
                         <!-- 默认 Profile 设定 -->

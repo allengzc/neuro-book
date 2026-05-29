@@ -31,6 +31,11 @@ import {
     WorkspaceWriteConflictDtoSchema,
     type WorkspaceWriteConflictDto,
 } from "nbook/shared/dto/workspace-file-conflict.dto";
+import type {
+    UserAssetsSyncConflictDetailDto,
+    UserAssetsSyncConflictKindDto,
+    UserAssetsSyncResultDto,
+} from "nbook/shared/dto/user-assets-sync.dto";
 
 export type {WorkspaceEditorKind, WorkspaceEditorViewMode} from "nbook/shared/editor-workbench";
 
@@ -1046,15 +1051,28 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     /**
      * 将系统 assets 中缺失的文件同步到用户 assets。
      */
-    const syncUserAssetsFromSystem = async (): Promise<{copied: number; skipped: number}> => {
+    const syncUserAssetsFromSystem = async (): Promise<UserAssetsSyncResultDto> => {
         if (workspaceKind.value !== "user-assets") {
             throw new Error("只有用户资产工作区可以同步系统 assets");
         }
-        const result = await $fetch<{copied: number; skipped: number}>("/api/workspace-files/sync-user-assets", {
+        const result = await $fetch<UserAssetsSyncResultDto>("/api/workspace-files/sync-user-assets", {
             method: "POST",
         });
         await loadWorkspaceTree();
         return result;
+    };
+
+    /**
+     * 读取用户资产同步 warning 对应的系统/用户版本 diff 内容。
+     */
+    const fetchUserAssetsSyncConflictDetail = async (input: {
+        kind: UserAssetsSyncConflictKindDto;
+        fileName?: string;
+        assetPath?: string;
+    }): Promise<UserAssetsSyncConflictDetailDto> => {
+        return await $fetch<UserAssetsSyncConflictDetailDto>("/api/workspace-files/user-assets-sync-conflict", {
+            query: input,
+        });
     };
 
     /**
@@ -2237,6 +2255,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         switchToNovelWorkspace,
         switchToUserAssetsWorkspace,
         syncUserAssetsFromSystem,
+        fetchUserAssetsSyncConflictDetail,
         uploadFileToUploadFolder,
         uploadProjectFiles,
         uploadProjectZip,

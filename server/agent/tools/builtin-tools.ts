@@ -7,6 +7,7 @@ import {createFileTools} from "nbook/server/agent/tools/file-tools";
 import {createPlotTools} from "nbook/server/agent/tools/plot-tools";
 import {createSqlTool} from "nbook/server/agent/tools/sql-tool";
 import {createTaskTools} from "nbook/server/agent/tools/task-tools";
+import {createWebTools} from "nbook/server/agent/tools/web-tools";
 import {renderSchemaSummary} from "nbook/server/agent/profiles/profile-dsl";
 import {reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import type {JsonValue} from "nbook/server/agent/messages/types";
@@ -52,9 +53,13 @@ const CreateAgentSchema = Type.Object({
 });
 
 const InvokeAgentSchema = Type.Object({
-    sessionId: Type.Number(),
-    message: Type.Optional(Type.String()),
-    mode: Type.Optional(Type.Union([Type.Literal("prompt"), Type.Literal("continue")])),
+    sessionId: Type.Number({description: "Target agent session id."}),
+    message: Type.Optional(Type.String({
+        description: "User request to append to the target agent. Prefer the user's original wording or a minimal restatement; do not turn it into a long delegation prompt.",
+    })),
+    mode: Type.Optional(Type.Union([Type.Literal("prompt"), Type.Literal("continue")], {
+        description: "Default is prompt when message is present, otherwise continue.",
+    })),
 });
 
 const GetAgentSchema = Type.Object({
@@ -85,6 +90,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
         ...createTaskTools(),
         ...createPlotTools(),
         ...createVariableTools(),
+        ...createWebTools(),
         createSqlTool(),
         {
             key: "report_result",

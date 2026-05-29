@@ -7,6 +7,12 @@ import {createHash, randomUUID} from "node:crypto";
 import {readProfileArtifactManifest, rehomeProfileArtifactItem, validateProfileArtifact, type ProfileArtifactManifestItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {readVariableDefinitionManifest, validateVariableDefinitionArtifact, type VariableDefinitionManifestItem} from "nbook/server/agent/variables/definition-artifact";
 import {assertProjectWorkspaceDirectory, normalizeProjectPath} from "nbook/server/workspace-files/project-workspace";
+import type {
+    UserAssetsAssetSyncWarningDto,
+    UserAssetsProfileSyncWarningDto,
+    UserAssetsSyncConflictDetailDto,
+    UserAssetsSyncResultDto,
+} from "nbook/shared/dto/user-assets-sync.dto";
 
 export const WORKSPACE_CONTAINER_ROOT = "workspace";
 export const USER_ASSETS_WORKSPACE_KIND = "user-assets";
@@ -33,28 +39,13 @@ const SYSTEM_RUNTIME_ASSET_PATHS = [
     "agent/bin/workspace.cmd",
     "agent/scripts/workspace.ts",
 ];
+const USER_ASSETS_DIFF_MAX_BYTES = 512 * 1024;
 const execFileAsync = promisify(execFile);
 
 export type WorkspaceRootKind = "novel" | typeof USER_ASSETS_WORKSPACE_KIND;
-export type UserAssetsSyncResult = {
-    copied: number;
-    skipped: number;
-    updatedProfiles?: number;
-    profileWarnings?: UserAssetsProfileSyncWarning[];
-    updatedAssets?: number;
-    assetWarnings?: UserAssetsAssetSyncWarning[];
-};
-
-export type UserAssetsProfileSyncWarning = {
-    fileName: string;
-    profileKey: string;
-    message: string;
-};
-
-export type UserAssetsAssetSyncWarning = {
-    assetPath: string;
-    message: string;
-};
+export type UserAssetsSyncResult = UserAssetsSyncResultDto;
+export type UserAssetsProfileSyncWarning = UserAssetsProfileSyncWarningDto;
+export type UserAssetsAssetSyncWarning = UserAssetsAssetSyncWarningDto;
 
 export type SystemProfileMetadata = {
     generatedAt: string;
@@ -176,6 +167,76 @@ export async function syncSystemAssetsToUserAssets(): Promise<UserAssetsSyncResu
     await syncSystemVariableDefinitionsToUserAssets(result);
     await syncSystemWritingPresetsToUserAssets(result);
     return result;
+}
+
+export async function readUserAssetsSyncConflictDetail(input: {
+    kind: "profile" | "asset";
+    fileName?: string;
+    assetPath?: string;
+}): Promise<UserAssetsSyncConflictDetailDto> {
+    if (input.kind === "profile") {
+        const fileName = normalizeSafeRelativePath(input.fileName ?? "");
+        if (!fileName) {
+            throw new Error("fileName 不能为空");
+        }
+        const metadata = await readSystemProfileMetadata();
+        const item = metadata.profiles.find((profile) => profile.fileName === fileName);
+        if (!item) {
+            throw new Error(`未找到系统 profile metadata: ${fileName}`);
+        }
+        const syncState = await readUserProfileSyncState();
+        const stateItem = syncState.profiles.find((profile) => profile.fileName === fileName);
+        const systemPath = resolveInsideRoot(SYSTEM_PROFILE_ROOT, fileName);
+        const userPath = resolveInsideRoot(USER_PROFILE_ROOT, fileName);
+        const [systemFile, userFile] = await Promise.all([
+            readTextFileForDiff(systemPath),
+            readTextFileForDiff(userPath),
+        ]);
+        return {
+            kind: "profile",
+            fileName,
+            label: item.profileKey,
+            systemContent: systemFile.content,
+            userContent: userFile.content,
+            language: inferDiffLanguage(fileName),
+            systemSha256: systemFile.sha256,
+            userSha256: userFile.sha256,
+            systemBytes: systemFile.bytes,
+            userBytes: userFile.bytes,
+            lastSyncedUserHash: stateItem?.lastSyncedUserHash,
+            upstreamHash: stateItem?.upstreamHash,
+            diffable: systemFile.diffable && userFile.diffable,
+            reason: systemFile.reason ?? userFile.reason,
+        };
+    }
+
+    const assetPath = normalizeSafeRelativePath(input.assetPath ?? "");
+    if (!assetPath) {
+        throw new Error("assetPath 不能为空或包含非法片段");
+    }
+    const syncState = await readUserProfileSyncState();
+    const stateItem = syncState.assets?.find((asset) => asset.assetPath === assetPath);
+    const roots = resolveUserAssetConflictRoots(assetPath);
+    const [systemFile, userFile] = await Promise.all([
+        readTextFileForDiff(roots.systemPath),
+        readTextFileForDiff(roots.userPath),
+    ]);
+    return {
+        kind: "asset",
+        assetPath,
+        label: assetPath,
+        systemContent: systemFile.content,
+        userContent: userFile.content,
+        language: inferDiffLanguage(assetPath),
+        systemSha256: systemFile.sha256,
+        userSha256: userFile.sha256,
+        systemBytes: systemFile.bytes,
+        userBytes: userFile.bytes,
+        lastSyncedUserHash: stateItem?.lastSyncedUserHash,
+        upstreamHash: stateItem?.upstreamHash,
+        diffable: systemFile.diffable && userFile.diffable,
+        reason: systemFile.reason ?? userFile.reason,
+    };
 }
 
 /**
@@ -999,6 +1060,129 @@ async function removeCopiedSystemMetadata(nbookTargetRoot: string): Promise<void
         return;
     }
     await fs.rm(copiedMetadataPath, {force: true});
+}
+
+/**
+ * 规范化用户传入的相对路径，禁止绝对路径和上跳路径。
+ */
+function normalizeSafeRelativePath(value: string): string {
+    const normalized = value.replaceAll("\\", "/").replace(/^\/+/, "");
+    if (!normalized || normalized.includes("\0") || path.posix.isAbsolute(normalized)) {
+        return "";
+    }
+    const parts = normalized.split("/").filter(Boolean);
+    if (parts.some((part) => part === "." || part === "..")) {
+        return "";
+    }
+    return parts.join("/");
+}
+
+/**
+ * 将相对路径解析到指定 root 内，防止 detail API 读出 user-assets 边界。
+ */
+function resolveInsideRoot(root: string, relativePath: string): string {
+    const normalized = normalizeSafeRelativePath(relativePath);
+    if (!normalized) {
+        throw new Error("路径不能为空或包含非法片段");
+    }
+    const absoluteRoot = path.resolve(root);
+    const resolved = path.resolve(absoluteRoot, normalized);
+    const relative = path.relative(absoluteRoot, resolved);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+        throw new Error(`路径越界: ${relativePath}`);
+    }
+    return resolved;
+}
+
+/**
+ * asset warning 只允许读取 Workspace Root .nbook 与系统 bundled .nbook 的同名资源。
+ */
+function resolveUserAssetConflictRoots(assetPath: string): {systemPath: string; userPath: string} {
+    const normalized = normalizeSafeRelativePath(assetPath);
+    if (!normalized) {
+        throw new Error("assetPath 不能为空或包含非法片段");
+    }
+    return {
+        systemPath: resolveInsideRoot(SYSTEM_NBOOK_ROOT, normalized.startsWith("agent/") ? normalized : path.posix.join("agent", "writing-presets", normalized)),
+        userPath: resolveInsideRoot(path.resolve(process.cwd(), USER_NBOOK_ROOT), normalized.startsWith("agent/") ? normalized : path.posix.join("agent", "writing-presets", normalized)),
+    };
+}
+
+/**
+ * 读取可 diff 文本文件；大文件和二进制文件交给调用方显示不可 diff 提示。
+ */
+async function readTextFileForDiff(filePath: string): Promise<{
+    content: string;
+    sha256: string;
+    bytes: number;
+    diffable: boolean;
+    reason?: "missing" | "binary" | "too_large";
+}> {
+    if (!await pathExists(filePath)) {
+        return {
+            content: "",
+            sha256: "",
+            bytes: 0,
+            diffable: false,
+            reason: "missing",
+        };
+    }
+    const stat = await fs.stat(filePath);
+    if (stat.isDirectory()) {
+        throw new Error("目录不能用于文本 diff");
+    }
+    const buffer = await fs.readFile(filePath);
+    const sha256 = createHash("sha256").update(buffer).digest("hex");
+    if (stat.size > USER_ASSETS_DIFF_MAX_BYTES) {
+        return {
+            content: "",
+            sha256,
+            bytes: buffer.byteLength,
+            diffable: false,
+            reason: "too_large",
+        };
+    }
+    if (buffer.includes(0)) {
+        return {
+            content: "",
+            sha256,
+            bytes: buffer.byteLength,
+            diffable: false,
+            reason: "binary",
+        };
+    }
+    return {
+        content: buffer.toString("utf-8"),
+        sha256,
+        bytes: buffer.byteLength,
+        diffable: true,
+    };
+}
+
+/**
+ * 为 Monaco diff 推断语言，保持为通用组件提供稳定的 language。
+ */
+function inferDiffLanguage(filePath: string): string {
+    const extension = path.extname(filePath).toLowerCase();
+    if (extension === ".ts" || extension === ".tsx" || extension === ".mts" || extension === ".cts") {
+        return "typescript";
+    }
+    if (extension === ".js" || extension === ".jsx" || extension === ".mjs" || extension === ".cjs") {
+        return "javascript";
+    }
+    if (extension === ".json") {
+        return "json";
+    }
+    if (extension === ".yaml" || extension === ".yml") {
+        return "yaml";
+    }
+    if (extension === ".css") {
+        return "css";
+    }
+    if (extension === ".html" || extension === ".vue") {
+        return "html";
+    }
+    return "markdown";
 }
 
 /**

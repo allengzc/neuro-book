@@ -5742,31 +5742,51 @@ var agentRuntimeBuiltins = {
       kind: "builtin",
       name: "sessionRuntime",
       hooks: [
-        builtinHook("profilePrompt", "prepareRun", {
-          builtinBehavior: {
-            profilePrompt: true
-          }
-        }),
-        builtinHook("sessionContext", "prepareRun", {
-          builtinBehavior: {
-            sessionContext: true
-          }
-        }),
-        builtinHook("transcriptPersistence", "ingestTurn", {
-          transcript: "persist"
-        }),
-        builtinHook("compact", "prepareNextTurn", {
-          builtinBehavior: {
-            automaticCompaction: true
-          }
-        }),
-        builtinHook("reportResult", "prepareRun", {
-          builtinBehavior: {
-            reportResultReminder: true
-          }
-        })
+        this.profilePrompt(),
+        this.sessionContext(),
+        this.transcriptPersistence(),
+        this.compact(),
+        this.reportResult()
       ]
     };
+  },
+  profilePrompt() {
+    return builtinHook("profilePrompt", "prepareRun", {
+      builtinBehavior: {
+        profilePrompt: true
+      }
+    });
+  },
+  sessionContext() {
+    return builtinHook("sessionContext", "prepareRun", {
+      builtinBehavior: {
+        sessionContext: true
+      }
+    });
+  },
+  transcriptPersistence() {
+    return builtinHook("transcriptPersistence", "ingestTurn", {
+      transcript: "persist"
+    });
+  },
+  runtimeOnlyTranscript() {
+    return builtinHook("runtimeOnlyTranscript", "ingestTurn", {
+      transcript: "runtime_only"
+    });
+  },
+  compact() {
+    return builtinHook("compact", "prepareNextTurn", {
+      builtinBehavior: {
+        automaticCompaction: true
+      }
+    });
+  },
+  reportResult() {
+    return builtinHook("reportResult", "prepareRun", {
+      builtinBehavior: {
+        reportResultReminder: true
+      }
+    });
   }
 };
 function expandRuntimeHooks(items) {
@@ -5844,17 +5864,16 @@ var LeaderDefaultOutputSchema = Type2.Object({
   result: Type2.Optional(Type2.String({ description: "\u53EF\u9009\u603B\u7ED3\u6587\u672C\u3002leader.default \u901A\u5E38\u4E0D\u8981\u6C42 report_result\u3002" }))
 });
 var SessionSummarizerInputSchema = Type2.Object({
-  sourceSessionId: Type2.Number({ description: "\u7531 harness \u6CE8\u5165\u7684\u6E90 leader session id\u3002" }),
+  sourceSessionId: Type2.Number({ description: "\u7531 harness \u6CE8\u5165\u7684 source session id\u3002" }),
   trigger: Type2.Optional(Type2.Union([
-    Type2.Literal("after_invocation")
-  ], { description: "\u9996\u6B21\u89E6\u53D1\u65F6\u673A\u3002\u7B2C\u4E00\u7248\u4EC5\u652F\u6301 after_invocation\u3002" })),
+    Type2.Literal("afterInvocation")
+  ], { description: "\u89E6\u53D1\u65F6\u673A\u3002\u7B2C\u4E00\u7248\u4EC5\u652F\u6301 afterInvocation\u3002" })),
   interval: Type2.Optional(Type2.Object({
     kind: Type2.Union([
-      Type2.Literal("turn"),
-      Type2.Literal("loop"),
+      Type2.Literal("sourceInvocation"),
       Type2.Literal("dialogueContentTokens")
     ]),
-    value: Type2.Number({ description: "\u89E6\u53D1\u95F4\u9694\u3002turn/loop \u8868\u793A\u6B21\u6570\uFF0CdialogueContentTokens \u8868\u793A\u65B0\u589E\u6B63\u6587 token\u3002" })
+    value: Type2.Number({ description: "\u89E6\u53D1\u95F4\u9694\u3002sourceInvocation \u8868\u793A source invocation \u6B21\u6570\uFF0CdialogueContentTokens \u8868\u793A\u65B0\u589E\u6B63\u6587 token\u3002" })
   }, { description: "\u540E\u53F0\u6458\u8981\u5468\u671F\u89E6\u53D1\u914D\u7F6E\u3002" })),
   maxDialogueContentTokens: Type2.Optional(Type2.Number({ description: "Agent Dialogue Content \u8D85\u8FC7\u8BE5 token \u4F30\u7B97\u503C\u65F6\u8DF3\u8FC7\u672C\u6B21\u6458\u8981\u3002" }))
 });
@@ -5889,6 +5908,39 @@ var RetrievalOutputSchema = Type2.Object({
     risk: Type2.Optional(Type2.String({ description: "\u53EF\u9009\u98CE\u9669\u8BF4\u660E\uFF0C\u4F8B\u5982\u53EA\u662F\u5F31\u76F8\u5173\u3001\u72B6\u6001\u53EF\u80FD\u8FC7\u65F6\u3001\u9700\u8981\u7528\u6237\u786E\u8BA4\u3001\u53EF\u80FD\u4E0E\u4EFB\u52A1\u51B2\u7A81\u3002" }))
   }), { description: "\u6309\u63A8\u8350\u4F18\u5148\u7EA7\u6392\u5E8F\u7684\u5019\u9009\u5185\u5BB9\u8282\u70B9\u3002" }),
   note: Type2.Optional(Type2.String({ description: "\u6574\u4F53\u68C0\u7D22\u8BF4\u660E\uFF0C\u4F8B\u5982\u6CA1\u6709\u5F3A\u76F8\u5173\u6761\u76EE\u3001\u7ED3\u679C\u504F\u5C11\u3001\u5EFA\u8BAE\u8865\u5145\u641C\u7D22\u6761\u4EF6\u3002" }))
+});
+var ResearcherInputSchema = Type2.Object({
+  topic: Type2.Optional(Type2.String({
+    maxLength: 500,
+    description: "Long-lived research topic for this researcher session. Omit for a general researcher."
+  })),
+  goal: Type2.Optional(Type2.String({
+    maxLength: 1200,
+    description: "Stable research goal or operating brief for this researcher session. Per-turn questions should be sent via invoke_agent.message, not stored here."
+  })),
+  allowed_domains: Type2.Optional(Type2.Array(Type2.String({
+    minLength: 1,
+    description: "Default allowed domain filter inherited by web_search unless the turn asks otherwise."
+  }), { maxItems: 20 })),
+  blocked_domains: Type2.Optional(Type2.Array(Type2.String({
+    minLength: 1,
+    description: "Default blocked domain filter inherited by web_search unless the turn asks otherwise."
+  }), { maxItems: 50 })),
+  default_recency_days: Type2.Optional(Type2.Integer({
+    minimum: 1,
+    maximum: 3650,
+    description: "Default freshness preference for web_search. Omit for no default recency filter."
+  })),
+  source_policy: Type2.Optional(Type2.Union([
+    Type2.Literal("balanced"),
+    Type2.Literal("primary_sources"),
+    Type2.Literal("recent_first")
+  ], {
+    description: "Default source preference. primary_sources means prefer official docs, papers, laws, specs, or original announcements when available."
+  })),
+  output_language: Type2.Optional(Type2.String({
+    description: "Preferred response language, for example zh-CN or en. Default follows the caller/user language."
+  }))
 });
 
 // server/agent/profiles/profile-text.ts
@@ -5962,6 +6014,7 @@ var SYSTEM_PROFILE_METADATA_PATH = path2.join(SYSTEM_PROFILE_ROOT, ".system-prof
 var USER_PROFILE_SYNC_STATE_PATH = path2.join(USER_PROFILE_ROOT, ".profile-sync-state.json");
 var NOVEL_DIRECTORY_TEMPLATE_ROOT = path2.join(SYSTEM_NBOOK_ROOT, "templates", "novel-directory-templates");
 var USER_NOVEL_DIRECTORY_TEMPLATE_ROOT = path2.resolve(process.cwd(), USER_ASSETS_WORKSPACE_ROOT, "templates", "novel-directory-templates");
+var USER_ASSETS_DIFF_MAX_BYTES = 512 * 1024;
 var execFileAsync = promisify(execFile);
 async function ensureUserAssetsWorkspaceRoot() {
   const workspaceRoot = path2.resolve(process.cwd(), USER_ASSETS_WORKSPACE_ROOT);
@@ -6476,9 +6529,9 @@ async function buildWriterPrompt(ctx) {
                     </execution_workflow>
                     
                     <content_node_rules>
-                        内容节点是 NeuroBook 的 workspace 知识单元。lorebook 与 manuscript 都使用“目录 + index.md”的节点结构：例如 lorebook/character/foo/ 这个目录代表一个角色节点，lorebook/character/foo/index.md 是节点正文入口；同级 state.md 是可选当前状态。
+                        内容节点是 NeuroBook 的 workspace 知识单元。lorebook 与 manuscript 都使用“目录 + index.md”的节点结构。Agent cwd 是 workspace/，所以工具路径和 writer.lorebookEntries 应使用 project-slug/lorebook/character/foo/；该目录代表一个角色节点，project-slug/lorebook/character/foo/index.md 是节点正文入口；同级 state.md 是可选当前状态。
 
-                        - writer.lorebookEntries 传入的是 workspace 内容节点路径，例如 lorebook/character/foo/；目录路径会读取 index.md，显式 .md 路径会按文件读取。
+                        - writer.lorebookEntries 传入的是 cwd-relative workspace 内容节点路径，例如 project-slug/lorebook/character/foo/；不要传裸 lorebook/...，也不要传 workspace/project-slug/lorebook/...。目录路径会读取 index.md，显式 .md 路径会按文件读取。
                         - index.md 开头通常有 YAML frontmatter，两个 --- 之间是元数据，后面才是正文。frontmatter 不是小说正文，不要把字段名、配置项或注释写进故事。
                         - index.md 正文是稳定设定、关系、世界规则、角色资料和长期写作约束；state.md 正文与 frontmatter 是当前状态补充，用于人物、地点、物品、组织的当前变化。
                         - frontmatter.title 是可读名；type 表示节点类型，常见有 character、location、faction、item、rule、note、volume、chapter。
@@ -6532,7 +6585,7 @@ async function buildWriterPrompt(ctx) {
                     
                     <markdown_dialect>
                         NeuroBook Markdown 扩展写作格式：
-                        - 工作区引用：使用普通 Markdown link，例如 [角色设定](lorebook/character/foo/)；内容节点链接指向目录并保留结尾 /，普通文件链接指向具体文件名。相对路径会被识别为 workspace reference，http:、https:、mailto:、tel:、# 和其他 scheme 仍按普通链接或非工作区引用处理。
+                        - 工作区引用：正文内部 Markdown link 可以使用相对链接，例如 [角色设定](../../lorebook/character/foo/)；工具调用和 writer 输入仍必须使用 project-slug/... cwd-relative 路径。内容节点链接指向目录并保留结尾 /，普通文件链接指向具体文件名。
                         - Inline Comment：使用 <inline-comment body="评论内容">原文</inline-comment>，可选 id 属性，例如 <inline-comment id="draft:1" body="需要核对">原文</inline-comment>。
                         - Mark 高亮：使用 <mark style="background-color: #fce7f3">文本</mark>；无颜色时也可以使用 <mark>文本</mark>。
                         - 文本颜色：使用 <span style="color: #ef4444">文本</span>。

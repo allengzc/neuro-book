@@ -35,9 +35,62 @@ import {
 } from "nbook/server/agent/profiles/profile-dsl";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
+import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
 
 describe("profile TSX DSL", () => {
+    it("profileKey 为 summarizer 时会把 input 收窄为 profile 作者可填参数", () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.summarizer-typing",
+                name: "Summarizer Typing",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            summarizer: {
+                profileKey: "summarizer",
+                input: {
+                    trigger: "afterInvocation",
+                    interval: {
+                        kind: "sourceInvocation",
+                        value: 1,
+                    },
+                    maxDialogueContentTokens: 80_000,
+                },
+            },
+            context() {
+                return ProfilePrompt({children: Message({children: "ok"})});
+            },
+        });
+
+        defineAgentProfile({
+            manifest: {
+                key: "test.summarizer-typing-invalid",
+                name: "Summarizer Typing Invalid",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            summarizer: {
+                profileKey: "summarizer",
+                input: {
+                    // @ts-expect-error sourceSessionId 由 harness 注入，profile 作者不能填写。
+                    sourceSessionId: 1,
+                },
+            },
+            context() {
+                return ProfilePrompt({children: Message({children: "ok"})});
+            },
+        });
+
+        expect(profile.summarizer?.input).toMatchObject({
+            trigger: "afterInvocation",
+            interval: {
+                kind: "sourceInvocation",
+                value: 1,
+            },
+        });
+    });
+
     it("编译 ProfilePrompt 分区为 ProfileTurnPlan", async () => {
         const profile = defineAgentProfile({
             manifest: {
@@ -801,19 +854,45 @@ describe("profile TSX DSL", () => {
 });
 
 function context(): ProfilePrepareContext<object> {
-    return {
-        session: {
-            systemPrompt: "",
-            messages: [createUserMessage({text: "prompt"})],
-            model: null,
-            thinkingLevel: "off",
-            profileKey: "test.dsl",
-            workspaceRoot: "workspace",
-            customState: {},
-            linkedAgents: [],
-            archived: false,
-            planModeActive: false,
+    const session: ProfilePrepareContext<object>["session"] = {
+        systemPrompt: "",
+        messages: [createUserMessage({text: "prompt"})],
+        model: null,
+        thinkingLevel: "off",
+        profileKey: "test.dsl",
+        workspaceRoot: "workspace",
+        customState: {},
+        linkedAgents: [],
+        archived: false,
+        planModeActive: false,
+        async read() {
+            return {
+                snapshot: {
+                    metadata: {
+                        sessionId: -1,
+                        profileKey: "test.dsl",
+                        input: {},
+                        workspaceRoot: "workspace",
+                        workspaceKey: "test",
+                        createdAt: 0,
+                    },
+                    entries: [],
+                    leafId: null,
+                },
+                context: session,
+            };
         },
+        async agentDialogueContent(): Promise<AgentDialogueContent> {
+            return {
+                text: "",
+                tokens: 0,
+                fingerprint: "test",
+                entryIds: [],
+            };
+        },
+    };
+    return {
+        session,
         input: {},
         vars: createTestVariableAccessor(),
         catalog: {

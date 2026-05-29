@@ -159,7 +159,7 @@ describe("JsonlSessionRepository", () => {
             title: "leader",
         });
         const summarizer = await repo.createSession({
-            profileKey: "session.summarizer",
+            profileKey: "summarizer",
             input: {sourceSessionId: leader.metadata.sessionId},
             workspaceRoot: "workspace",
             workspaceKey: "workspace",
@@ -176,6 +176,65 @@ describe("JsonlSessionRepository", () => {
             summarizer.metadata.sessionId,
         ]);
         expect(systemList.find((session) => session.sessionId === summarizer.metadata.sessionId)?.systemRole).toBe("summarizer");
+    });
+
+    it("active leaf scoped projection 只影响绑定的分支", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+            title: "base",
+        });
+        const userEntry = await repo.appendUserMessage(session.metadata.sessionId, "root");
+        const firstBranch = await repo.appendMessage(session.metadata.sessionId, createAssistantTextMessage({text: "branch a"}));
+        await repo.moveLeaf(session.metadata.sessionId, userEntry.id);
+        const secondBranch = await repo.appendMessage(session.metadata.sessionId, createAssistantTextMessage({text: "branch b"}));
+
+        const firstProjection = await repo.appendProjectionEntry(session.metadata.sessionId, {
+            type: "session_update",
+            updates: {
+                title: "Branch A Title",
+                summary: "Branch A summary",
+            },
+        }, {
+            scope: "activeLeaf",
+            leafId: firstBranch.id,
+        });
+        const secondProjection = await repo.appendProjectionEntry(session.metadata.sessionId, {
+            type: "session_update",
+            updates: {
+                title: "Branch B Title",
+                summary: "Branch B summary",
+            },
+        }, {
+            scope: "activeLeaf",
+            leafId: secondBranch.id,
+        });
+
+        let snapshot = await repo.readSession(session.metadata.sessionId);
+        expect(snapshot.leafId).toBe(secondBranch.id);
+        expect(repo.reduce(snapshot)).toMatchObject({
+            title: "Branch B Title",
+            summary: "Branch B summary",
+        });
+
+        await repo.moveLeaf(session.metadata.sessionId, firstBranch.id);
+        snapshot = await repo.readSession(session.metadata.sessionId);
+        expect(repo.reduce(snapshot)).toMatchObject({
+            title: "Branch A Title",
+            summary: "Branch A summary",
+        });
+
+        await repo.moveLeaf(session.metadata.sessionId, userEntry.id);
+        snapshot = await repo.readSession(session.metadata.sessionId);
+        expect(repo.reduce(snapshot)).toMatchObject({
+            title: "base",
+            summary: undefined,
+        });
+        const treeNodeIds = repo.tree(snapshot).map((node) => node.id);
+        expect(treeNodeIds).not.toContain(firstProjection.id);
+        expect(treeNodeIds).not.toContain(secondProjection.id);
     });
 
     it("支持 leaf 移动和 fork，历史不删除", async () => {

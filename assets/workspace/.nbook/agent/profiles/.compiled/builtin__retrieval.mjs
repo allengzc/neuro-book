@@ -2099,31 +2099,51 @@ var agentRuntimeBuiltins = {
       kind: "builtin",
       name: "sessionRuntime",
       hooks: [
-        builtinHook("profilePrompt", "prepareRun", {
-          builtinBehavior: {
-            profilePrompt: true
-          }
-        }),
-        builtinHook("sessionContext", "prepareRun", {
-          builtinBehavior: {
-            sessionContext: true
-          }
-        }),
-        builtinHook("transcriptPersistence", "ingestTurn", {
-          transcript: "persist"
-        }),
-        builtinHook("compact", "prepareNextTurn", {
-          builtinBehavior: {
-            automaticCompaction: true
-          }
-        }),
-        builtinHook("reportResult", "prepareRun", {
-          builtinBehavior: {
-            reportResultReminder: true
-          }
-        })
+        this.profilePrompt(),
+        this.sessionContext(),
+        this.transcriptPersistence(),
+        this.compact(),
+        this.reportResult()
       ]
     };
+  },
+  profilePrompt() {
+    return builtinHook("profilePrompt", "prepareRun", {
+      builtinBehavior: {
+        profilePrompt: true
+      }
+    });
+  },
+  sessionContext() {
+    return builtinHook("sessionContext", "prepareRun", {
+      builtinBehavior: {
+        sessionContext: true
+      }
+    });
+  },
+  transcriptPersistence() {
+    return builtinHook("transcriptPersistence", "ingestTurn", {
+      transcript: "persist"
+    });
+  },
+  runtimeOnlyTranscript() {
+    return builtinHook("runtimeOnlyTranscript", "ingestTurn", {
+      transcript: "runtime_only"
+    });
+  },
+  compact() {
+    return builtinHook("compact", "prepareNextTurn", {
+      builtinBehavior: {
+        automaticCompaction: true
+      }
+    });
+  },
+  reportResult() {
+    return builtinHook("reportResult", "prepareRun", {
+      builtinBehavior: {
+        reportResultReminder: true
+      }
+    });
   }
 };
 function expandRuntimeHooks(items) {
@@ -2201,17 +2221,16 @@ var LeaderDefaultOutputSchema = Type2.Object({
   result: Type2.Optional(Type2.String({ description: "\u53EF\u9009\u603B\u7ED3\u6587\u672C\u3002leader.default \u901A\u5E38\u4E0D\u8981\u6C42 report_result\u3002" }))
 });
 var SessionSummarizerInputSchema = Type2.Object({
-  sourceSessionId: Type2.Number({ description: "\u7531 harness \u6CE8\u5165\u7684\u6E90 leader session id\u3002" }),
+  sourceSessionId: Type2.Number({ description: "\u7531 harness \u6CE8\u5165\u7684 source session id\u3002" }),
   trigger: Type2.Optional(Type2.Union([
-    Type2.Literal("after_invocation")
-  ], { description: "\u9996\u6B21\u89E6\u53D1\u65F6\u673A\u3002\u7B2C\u4E00\u7248\u4EC5\u652F\u6301 after_invocation\u3002" })),
+    Type2.Literal("afterInvocation")
+  ], { description: "\u89E6\u53D1\u65F6\u673A\u3002\u7B2C\u4E00\u7248\u4EC5\u652F\u6301 afterInvocation\u3002" })),
   interval: Type2.Optional(Type2.Object({
     kind: Type2.Union([
-      Type2.Literal("turn"),
-      Type2.Literal("loop"),
+      Type2.Literal("sourceInvocation"),
       Type2.Literal("dialogueContentTokens")
     ]),
-    value: Type2.Number({ description: "\u89E6\u53D1\u95F4\u9694\u3002turn/loop \u8868\u793A\u6B21\u6570\uFF0CdialogueContentTokens \u8868\u793A\u65B0\u589E\u6B63\u6587 token\u3002" })
+    value: Type2.Number({ description: "\u89E6\u53D1\u95F4\u9694\u3002sourceInvocation \u8868\u793A source invocation \u6B21\u6570\uFF0CdialogueContentTokens \u8868\u793A\u65B0\u589E\u6B63\u6587 token\u3002" })
   }, { description: "\u540E\u53F0\u6458\u8981\u5468\u671F\u89E6\u53D1\u914D\u7F6E\u3002" })),
   maxDialogueContentTokens: Type2.Optional(Type2.Number({ description: "Agent Dialogue Content \u8D85\u8FC7\u8BE5 token \u4F30\u7B97\u503C\u65F6\u8DF3\u8FC7\u672C\u6B21\u6458\u8981\u3002" }))
 });
@@ -2246,6 +2265,39 @@ var RetrievalOutputSchema = Type2.Object({
     risk: Type2.Optional(Type2.String({ description: "\u53EF\u9009\u98CE\u9669\u8BF4\u660E\uFF0C\u4F8B\u5982\u53EA\u662F\u5F31\u76F8\u5173\u3001\u72B6\u6001\u53EF\u80FD\u8FC7\u65F6\u3001\u9700\u8981\u7528\u6237\u786E\u8BA4\u3001\u53EF\u80FD\u4E0E\u4EFB\u52A1\u51B2\u7A81\u3002" }))
   }), { description: "\u6309\u63A8\u8350\u4F18\u5148\u7EA7\u6392\u5E8F\u7684\u5019\u9009\u5185\u5BB9\u8282\u70B9\u3002" }),
   note: Type2.Optional(Type2.String({ description: "\u6574\u4F53\u68C0\u7D22\u8BF4\u660E\uFF0C\u4F8B\u5982\u6CA1\u6709\u5F3A\u76F8\u5173\u6761\u76EE\u3001\u7ED3\u679C\u504F\u5C11\u3001\u5EFA\u8BAE\u8865\u5145\u641C\u7D22\u6761\u4EF6\u3002" }))
+});
+var ResearcherInputSchema = Type2.Object({
+  topic: Type2.Optional(Type2.String({
+    maxLength: 500,
+    description: "Long-lived research topic for this researcher session. Omit for a general researcher."
+  })),
+  goal: Type2.Optional(Type2.String({
+    maxLength: 1200,
+    description: "Stable research goal or operating brief for this researcher session. Per-turn questions should be sent via invoke_agent.message, not stored here."
+  })),
+  allowed_domains: Type2.Optional(Type2.Array(Type2.String({
+    minLength: 1,
+    description: "Default allowed domain filter inherited by web_search unless the turn asks otherwise."
+  }), { maxItems: 20 })),
+  blocked_domains: Type2.Optional(Type2.Array(Type2.String({
+    minLength: 1,
+    description: "Default blocked domain filter inherited by web_search unless the turn asks otherwise."
+  }), { maxItems: 50 })),
+  default_recency_days: Type2.Optional(Type2.Integer({
+    minimum: 1,
+    maximum: 3650,
+    description: "Default freshness preference for web_search. Omit for no default recency filter."
+  })),
+  source_policy: Type2.Optional(Type2.Union([
+    Type2.Literal("balanced"),
+    Type2.Literal("primary_sources"),
+    Type2.Literal("recent_first")
+  ], {
+    description: "Default source preference. primary_sources means prefer official docs, papers, laws, specs, or original announcements when available."
+  })),
+  output_language: Type2.Optional(Type2.String({
+    description: "Preferred response language, for example zh-CN or en. Default follows the caller/user language."
+  }))
 });
 
 // server/agent/profiles/profile-text.ts

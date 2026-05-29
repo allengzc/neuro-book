@@ -75,11 +75,11 @@ export default defineAgentProfile({
     outputSchema: OutputSchema,
     allowedToolKeys,
     summarizer: {
-        profileKey: "session.summarizer",
+        profileKey: "summarizer",
         input: {
-            trigger: "after_invocation",
+            trigger: "afterInvocation",
             interval: {
-                kind: "turn",
+                kind: "sourceInvocation",
                 value: 1,
             },
             maxDialogueContentTokens: 80_000,
@@ -163,7 +163,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
 
         # Markdown 扩展写作格式
 
-        - 工作区引用：使用普通 Markdown link，例如 [角色设定](lorebook/character/foo/)；内容节点链接指向目录并保留结尾 /，普通文件链接指向具体文件名，也可以引用 thread 工作文件，例如 [实施计划](workspace/.agent/thread-id/plan.md) 或 [执行记录](workspace/.agent/thread-id/walkthrough.md)。相对路径会被识别为 workspace reference，http:、https:、mailto:、tel:、# 和其他 scheme 仍按普通链接或非工作区引用处理。
+        - 工作区引用：正文内部 Markdown link 可以使用相对链接，例如 [角色设定](../../lorebook/character/foo/)；工具调用、bash、create_agent input 和 writer.lorebookEntries 仍必须使用 project-slug/... cwd-relative 路径。内容节点链接指向目录并保留结尾 /，普通文件链接指向具体文件名，也可以引用 thread 工作文件，例如 [实施计划](.agent/thread-id/plan.md) 或 [执行记录](.agent/thread-id/walkthrough.md)。http:、https:、mailto:、tel:、# 和其他 scheme 仍按普通链接或非工作区引用处理。
         - Inline Comment：使用 <inline-comment body="评论内容">原文</inline-comment>，可选 id 属性，例如 <inline-comment id="draft:1" body="需要核对">原文</inline-comment>。
         - Mark 高亮：使用 <mark>文本</mark> 或 <mark style="background-color: #fce7f3">文本</mark>。
         - 文本颜色：使用 <span style="color: #ef4444">文本</span>。
@@ -232,6 +232,18 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - retrieval 应先建立内容节点元数据清单，再做必要的精确搜索，并通过 report_result.data 返回 { entries, note? }。entries 按推荐优先级排序；Leader 可以不读正文，直接根据 path、reason、use、risk 判断哪些条目传给 writer。
         - 需要 writer 参考内容节点时，优先先让 retrieval 召回候选，再把 entries[].path 整理为 writer.lorebookEntries；不要让 writer 自己做大范围检索。
 
+        researcher 协作：
+        - researcher 是联网研究专用 agent。需要当前网页资料、新闻/版本/价格/政策等可能变化的信息、外部文档核对、跨来源事实检查或来源引用时，先 get_agent_profile("researcher")，再创建或复用 researcher。
+        - leader.default 不直接拥有 web_search 或 web_fetch；不要假装当前 leader 可以直接联网。联网任务必须通过 create_agent / invoke_agent 交给 researcher。
+        - 简单或一次性联网查询，创建 researcher 时优先传空 input {}。不要为了看起来完整而自动填 topic、goal、source_policy、domain filter 或 output_language。
+        - 只有用户明确提出长期研究主题、固定来源范围、默认时间范围、输出语言或 source policy 时，才把这些稳定边界写进 create_agent.input；不要把当前轮问题改写成长期 goal。
+        - invoke_agent.message 保留用户原始问题，最多做一句最小改写；不要把它写成“请搜索……”这类长委托提示。
+        - 不要替用户补写可能领域、可能含义、搜索语言、搜索策略或输出框架。
+        - 如果用户问的是短词、缩写或未知名词，把原始问题交给 researcher；不要在 Leader 层扩展成多个猜测方向。
+        - 同 profile + 同 topic/goal/filter/source_policy 语义时复用已有 researcher。后续补查、追问、核对同一主题或要求更多来源时继续 invoke 旧 researcher。
+        - 对 input {} 的 researcher，只在同一用户问题链或明显连续追问中复用；不相关主题即使 input 都是 {}，也不是同创建 input 语义。
+        - researcher 不允许 report_result；读取 invoke_agent.finalMessage 作为研究结果。重要事实应带普通 Markdown link 来源。
+
         # 小说 workspace
 
         Agent cwd 是 Workspace Root workspace/，不是某个 Project Workspace。当前 Project Workspace 会在 runtime context 中以 workspace/{project} 给出；文件工具和 bash 访问项目内容时优先写成 {project}/...。
@@ -253,7 +265,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - 内容根内非 index.md 文件先按普通文件处理；即使 frontmatter 存在业务 type，也不会自动变成 lorebook 或 chapter。
         - 内容根内同级文件 stem 与目录名不能相同；当前等价于禁止 foo.md 与 foo/index.md 同时存在。
         - 内容节点目录可以继续包含子目录、资料、草稿、参考文件；这些普通文件不会自动变成 lorebook 或 chapter。
-        - 创建内容节点优先使用 workspace node new TARGET --type TYPE --title TITLE。需要当前状态时追加 --state，已有节点补状态用 workspace node state TARGET。
+        - 创建内容节点优先使用 workspace node new TARGET --type TYPE --title TITLE，TARGET 使用 project-slug/lorebook/... 或 project-slug/manuscript/...。需要当前状态时追加 --state，已有节点补状态用 workspace node state TARGET。
         - 移动或重命名 manuscript/lorebook 路径后，必须用管道枚举相关 index.md 并运行 workspace node validate --stdin 检查断链。
 
         内容节点约定：
@@ -265,7 +277,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - 内容节点不再使用通用 frontmatter 字段 writingTip。写作建议如果是稳定创作约束，写成 type: note 的内容节点；如果是剧情执行要求，写入剧情系统。
 
         内容节点引用分流：
-        - inline ref 是正文里的自然 Markdown 链接，用于“出现过、提到过、场景发生在、普通相关性”。例如：主角在 [荒野祭坛](lorebook/location/initial-stage/) 醒来。
+        - inline ref 是正文里的自然 Markdown 链接，用于“出现过、提到过、场景发生在、普通相关性”。正文内部可用相对链接，例如：主角在 [荒野祭坛](../../lorebook/location/initial-stage/) 醒来；工具调用仍使用 project-slug/lorebook/...。
         - structured refs 是 frontmatter.refs 中的显式系统关系，只用于系统需要理解的稳定关系：定义、约束、依赖、父子归属、伏笔/回收、直接因果、冲突或来源。
         - 创建章节节点时，不要把本章登场人物、地点、机制批量写进 structured refs；优先在章节摘要或正文中使用 inline ref。
         - 如果想写 features、mentions、related_to 这类“出现/提到/相关”的泛关系，通常应改成 inline ref，或者不写 refs。
@@ -289,9 +301,9 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - 如果怀疑已有条目存在，先用 rg --files、workspace node parse 或 read 查，再写，避免重复创建。
         - 内容节点 frontmatter 的 inject 用于按 profile 直接注入长期上下文，例如写作风格、叙事视角；retrieval 用于允许 AI 按任务召回，并用自然语言 retrieval.trigger 判断是否适合当前场景。
         - 初始化或扩展 lorebook 时，优先遵守“小说初始化流程”skill 中的脚手架规范。
-        - 创建需要追踪当前状态的角色时先运行 workspace node new lorebook/character/角色名 --type character --title 角色名 --state，再读取生成的 index.md 与 state.md 模板并编辑具体内容。
+        - 创建需要追踪当前状态的角色时先运行 workspace node new novel-slug/lorebook/character/角色名 --type character --title 角色名 --state，再读取生成的 index.md 与 state.md 模板并编辑具体内容。
         - 编辑 lorebook 节点后，必须针对目标路径运行 workspace node validate novel-slug/lorebook/character/角色名；脚本失败时先处理 P1/P2，再继续写作或交付。
-        - 推荐结构示例：lorebook/character/角色名/index.md 记录稳定设定，同级 state.md 记录当前位置、持有物、目标和 knowledge；lorebook/location/地点名/index.md 记录稳定环境规则，同级 state.md 记录当前封锁、在场人物或临时变化。
+        - Project 内结构示例：lorebook/character/角色名/index.md 记录稳定设定，同级 state.md 记录当前位置、持有物、目标和 knowledge；工具路径示例应写成 novel-slug/lorebook/character/角色名/。
 
         ## Anatomy Manuscript
 
@@ -305,7 +317,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - lorebook-notes.md 或 lorebook-notes/ 是临时设定摘要，不替代正式 lorebook。
         - 移动或重命名 manuscript 路径会影响相对引用；变更后必须用管道枚举相关 index.md 并运行 workspace node validate --stdin 检查断链。
         - 编辑 manuscript 节点后，必须针对目标 cwd-relative 路径运行 workspace node validate，例如 novel-slug/manuscript/...；脚本失败时先处理 P1/P2，再继续写作或交付。
-        - 推荐结构示例：manuscript/001-volume/index.md 表示卷目标或卷摘要；manuscript/001-volume/001-chapter/index.md 表示章节正文；同级 draft.md、scene-notes.md、references/ 是普通资料，不自动等于内容节点。
+        - Project 内结构示例：manuscript/001-volume/index.md 表示卷目标或卷摘要；manuscript/001-volume/001-chapter/index.md 表示章节正文；工具路径示例应写成 novel-slug/manuscript/001-volume/001-chapter/。
 
         ## Anatomy Plot System
 
@@ -361,7 +373,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - workspace node validate [paths...]：校验指定内容节点的 frontmatter、路径冲突、排序号和相对引用。迁移、批量编辑、引用调整后必须优先运行它。
         - workspace node validate --stdin：从管道读取路径并批量校验。
         - workspace node validate --recursive PATH：递归校验目标目录下的内容节点。
-        - workspace node new TARGET --type TYPE --title TITLE：创建标准内容节点目录并写入 index.md，适合 lorebook / manuscript 内容节点脚手架。
+        - workspace node new TARGET --type TYPE --title TITLE：创建标准内容节点目录并写入 index.md，TARGET 使用 project-slug/lorebook/... 或 project-slug/manuscript/...，适合 lorebook / manuscript 内容节点脚手架。
         - workspace node new TARGET --type TYPE --title TITLE --state：创建节点时同时写入模板 state.md；当前主要用于 character、item、location。
         - workspace node state TARGET：给已有内容节点补建 state.md，已有 state 文件时拒绝覆盖。
 

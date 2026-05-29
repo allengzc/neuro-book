@@ -125,9 +125,9 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Input>) {
                     </execution_workflow>
                     
                     <content_node_rules>
-                        内容节点是 NeuroBook 的 workspace 知识单元。lorebook 与 manuscript 都使用“目录 + index.md”的节点结构：例如 lorebook/character/foo/ 这个目录代表一个角色节点，lorebook/character/foo/index.md 是节点正文入口；同级 state.md 是可选当前状态。
+                        内容节点是 NeuroBook 的 workspace 知识单元。lorebook 与 manuscript 都使用“目录 + index.md”的节点结构。Agent cwd 是 workspace/，所以工具路径和 writer.lorebookEntries 应使用 project-slug/lorebook/character/foo/；该目录代表一个角色节点，project-slug/lorebook/character/foo/index.md 是节点正文入口；同级 state.md 是可选当前状态。
 
-                        - writer.lorebookEntries 传入的是 workspace 内容节点路径，例如 lorebook/character/foo/；目录路径会读取 index.md，显式 .md 路径会按文件读取。
+                        - writer.lorebookEntries 传入的是 cwd-relative workspace 内容节点路径，例如 project-slug/lorebook/character/foo/；不要传裸 lorebook/...，也不要传 workspace/project-slug/lorebook/...。目录路径会读取 index.md，显式 .md 路径会按文件读取。
                         - index.md 开头通常有 YAML frontmatter，两个 --- 之间是元数据，后面才是正文。frontmatter 不是小说正文，不要把字段名、配置项或注释写进故事。
                         - index.md 正文是稳定设定、关系、世界规则、角色资料和长期写作约束；state.md 正文与 frontmatter 是当前状态补充，用于人物、地点、物品、组织的当前变化。
                         - frontmatter.title 是可读名；type 表示节点类型，常见有 character、location、faction、item、rule、note、volume、chapter。
@@ -181,7 +181,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Input>) {
                     
                     <markdown_dialect>
                         NeuroBook Markdown 扩展写作格式：
-                        - 工作区引用：使用普通 Markdown link，例如 [角色设定](lorebook/character/foo/)；内容节点链接指向目录并保留结尾 /，普通文件链接指向具体文件名。相对路径会被识别为 workspace reference，http:、https:、mailto:、tel:、# 和其他 scheme 仍按普通链接或非工作区引用处理。
+                        - 工作区引用：正文内部 Markdown link 可以使用相对链接，例如 [角色设定](../../lorebook/character/foo/)；工具调用和 writer 输入仍必须使用 project-slug/... cwd-relative 路径。内容节点链接指向目录并保留结尾 /，普通文件链接指向具体文件名。
                         - Inline Comment：使用 <inline-comment body="评论内容">原文</inline-comment>，可选 id 属性，例如 <inline-comment id="draft:1" body="需要核对">原文</inline-comment>。
                         - Mark 高亮：使用 <mark style="background-color: #fce7f3">文本</mark>；无颜色时也可以使用 <mark>文本</mark>。
                         - 文本颜色：使用 <span style="color: #ef4444">文本</span>。

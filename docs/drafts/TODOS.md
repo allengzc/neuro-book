@@ -154,7 +154,7 @@
 - [ ] 侧栏 agent 可以 float window
 - [ ] diff 界面
 - [ ] token statics 修复，同时记录小弟的 token 消耗
-- [ ]
+- [ ] neuro book deploy
 - [ ]
 - [ ]
 - [ ]

@@ -19,6 +19,11 @@ export type SessionMetadata = {
     systemRole?: "summarizer";
 };
 
+export type SessionProjectionScope = {
+    scope: "activeLeaf";
+    leafId: SessionEntryId | null;
+};
+
 export type MessageSessionEntry = {
     id: SessionEntryId;
     parentId: SessionEntryId | null;
@@ -38,6 +43,8 @@ export type SessionUpdateEntry = {
     type: "session_update";
     /** projection 表示后台元数据更新，不改变 active leaf，但参与 session reduce。 */
     origin?: "projection";
+    /** 限制 projection 只在特定 active leaf 下参与 reduce。 */
+    projectionScope?: SessionProjectionScope;
     updates: {
         title?: string;
         summary?: string;
@@ -51,6 +58,8 @@ export type CustomSessionEntry = {
     type: "custom";
     /** projection 表示后台状态投影，不改变 active leaf，但参与 session reduce。 */
     origin?: "projection";
+    /** 限制 projection 只在特定 active leaf 下参与 reduce。 */
+    projectionScope?: SessionProjectionScope;
     key: string;
     value: JsonValue;
 };

@@ -7,7 +7,7 @@ import YAML from "yaml";
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {createWorkspaceContentFrontmatterDefaults, workspaceContentJsonSchema} from "nbook/server/workspace-files/content-node-schema";
 import {renderWorkspaceContentTemplate, renderWorkspaceContentTemplateBundle, renderWorkspaceStateTemplate} from "nbook/server/workspace-files/content-node-templates";
-import {copyNovelDirectoryTemplate, resolveWorkspaceRootInput, syncSystemAssetsToUserAssets, USER_ASSETS_WORKSPACE_ROOT} from "nbook/server/workspace-files/novel-workspace";
+import {copyNovelDirectoryTemplate, readUserAssetsSyncConflictDetail, resolveWorkspaceRootInput, syncSystemAssetsToUserAssets, USER_ASSETS_WORKSPACE_ROOT} from "nbook/server/workspace-files/novel-workspace";
 import {initProjectDatabase, listProjectWorkspaces, readProjectManifest, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {invalidateProjectWorkspaceIndexAfterMutation, readPlainWorkspaceTreeSnapshot, readProjectWorkspaceTreeSnapshot} from "nbook/server/workspace-files/project-workspace-index";
 import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
@@ -716,6 +716,79 @@ describe("workspace-files", () => {
         }
     });
 
+    it("系统 profile 更新且用户覆盖已手改时会返回可查看 diff 的 warning", async () => {
+        const fileName = "builtin/leader.default.profile.tsx";
+        const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
+        const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
+        const userSyncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const backup = await backupOptionalFile(userProfilePath);
+        const syncStateBackup = await backupOptionalFile(userSyncStatePath);
+        const syncedContent = await fs.readFile(systemProfilePath, "utf-8");
+        const syncedHash = createHash("sha256").update(syncedContent).digest("hex");
+
+        try {
+            await fs.mkdir(path.dirname(userProfilePath), {recursive: true});
+            await fs.writeFile(userProfilePath, `${syncedContent}\n// user custom change\n`, "utf-8");
+            await fs.writeFile(userSyncStatePath, JSON.stringify({
+                profiles: [{
+                    fileName,
+                    profileKey: "leader.default",
+                    upstreamHash: "old-upstream-hash",
+                    lastSyncedUserHash: syncedHash,
+                    syncedAt: new Date(0).toISOString(),
+                }],
+                assets: [],
+            }, null, 2), "utf-8");
+
+            const result = await syncSystemAssetsToUserAssets();
+
+            expect(result.profileWarnings).toEqual(expect.arrayContaining([
+                expect.objectContaining({fileName, profileKey: "leader.default"}),
+            ]));
+            await expect(fs.readFile(userProfilePath, "utf-8")).resolves.toContain("user custom change");
+        } finally {
+            await restoreOptionalFile(userProfilePath, backup);
+            await restoreOptionalFile(userSyncStatePath, syncStateBackup);
+        }
+    });
+
+    it("可以读取用户 profile 覆盖的系统版本 diff 内容", async () => {
+        const fileName = "builtin/leader.default.profile.tsx";
+        const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
+        const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
+        const userSyncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const backup = await backupOptionalFile(userProfilePath);
+        const syncStateBackup = await backupOptionalFile(userSyncStatePath);
+
+        try {
+            await syncSystemAssetsToUserAssets();
+            await fs.appendFile(userProfilePath, "\n// user diff detail marker\n", "utf-8");
+
+            const detail = await readUserAssetsSyncConflictDetail({kind: "profile", fileName});
+
+            expect(detail.kind).toBe("profile");
+            expect(detail.fileName).toBe(fileName);
+            expect(detail.userContent).toContain("user diff detail marker");
+            expect(detail.systemContent).toBe(await fs.readFile(systemProfilePath, "utf-8"));
+            expect(detail.language).toBe("typescript");
+            expect(detail.userSha256).toBe(await sha256ForTest(userProfilePath));
+            expect(detail.systemSha256).toBe(await sha256ForTest(systemProfilePath));
+            expect(detail.userBytes).toBeGreaterThan(0);
+            expect(detail.systemBytes).toBeGreaterThan(0);
+            expect(detail.diffable).toBe(true);
+        } finally {
+            await restoreOptionalFile(userProfilePath, backup);
+            await restoreOptionalFile(userSyncStatePath, syncStateBackup);
+        }
+    });
+
+    it("拒绝读取越界的用户资产同步 diff 路径", async () => {
+        await expect(readUserAssetsSyncConflictDetail({
+            kind: "asset",
+            assetPath: "../config.json",
+        })).rejects.toThrow("assetPath 不能为空或包含非法片段");
+    });
+
     it("同步系统 assets 会清理用户变量定义旧 compiled artifact", async () => {
         const userVariablePath = path.join("workspace", ".nbook", "agent", "variables", "definitions.ts");
         const userCompiledManifestPath = path.join("workspace", ".nbook", "agent", "variables", ".compiled", "manifest.json");
@@ -836,12 +909,21 @@ describe("workspace-files", () => {
         const syncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
         const scriptBackup = await backupOptionalFile(userScriptPath);
         const syncStateBackup = await backupOptionalFile(syncStatePath);
-        const previousScript = await readGitHeadFile("assets/workspace/.nbook/agent/scripts/workspace.ts");
+        const previousScript = "console.log('old runtime script');\n";
+        const previousHash = createHash("sha256").update(previousScript).digest("hex");
 
         try {
             await fs.mkdir(path.dirname(userScriptPath), {recursive: true});
             await fs.writeFile(userScriptPath, previousScript, "utf-8");
-            await fs.writeFile(syncStatePath, JSON.stringify({profiles: [], assets: []}, null, 2), "utf-8");
+            await fs.writeFile(syncStatePath, JSON.stringify({
+                profiles: [],
+                assets: [{
+                    assetPath: "agent/scripts/workspace.ts",
+                    upstreamHash: previousHash,
+                    lastSyncedUserHash: previousHash,
+                    syncedAt: new Date(0).toISOString(),
+                }],
+            }, null, 2), "utf-8");
 
             const result = await syncSystemAssetsToUserAssets();
 

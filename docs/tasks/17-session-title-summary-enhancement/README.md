@@ -55,7 +55,7 @@
 - 第一版不做 server restart 后自动恢复正在运行的 summarizer job。
 - 第一版不把 summarizer 做成 sessionless 执行体。
 
-## Current State After 18
+## Baseline After 18
 
 - `SessionMetadata` 已有 `title?: string` / `summary?: string`。
 - `SessionUpdateEntry` 已支持 append-only 写入 `updates.title` / `updates.summary`。
@@ -71,8 +71,8 @@
   - `settleRun` 读取 `reportResult` 并返回 `SessionWritePlan`。
   - `SessionWritePlan` ordered ops 和 projection append。
 - 旧 hard-coded summarizer 自动运行路径已从 active harness 删除。
-- 代码里仍残留旧 `session.summarizer` profile、contract、compiled artifact、状态 key、测试和 DTO 命名；本任务实现时按开发版原则硬切清理。
-- 当前 `ProfilePrepareContext.session` 还是 reduce 后的当前 session context，没有 `read()` / `agentDialogueContent()` helper；本任务需要把 runtime hook 的只读 session facade 能力扩展到 profile prepare ctx，支持 TSX `ModelContext` 直接读取 source session。
+- 实现前代码里仍残留旧 `session.summarizer` profile、contract、compiled artifact、状态 key、测试和 DTO 命名；本任务按开发版原则硬切清理。
+- 实现前 `ProfilePrepareContext.session` 还是 reduce 后的当前 session context，没有 `read()` / `agentDialogueContent()` helper；本任务需要把 runtime hook 的只读 session facade 能力扩展到 profile prepare ctx，支持 TSX `ModelContext` 直接读取 source session。
 
 ## New Design
 
@@ -150,6 +150,16 @@ type SessionSummarizerOutput = {
 
 > `ModelContext` 是本轮模型可见、不写入 session history 的动态上下文；它不是 provider 请求的全部上下文容器。
 
+这里的重点是“动态”和“不持久化”。
+
+- `HistorySet` 更像 profile 初始化时写进 session 的稳定背景。
+- `AppendingSet` 更像 profile 在本轮追加到会话语境中的补充内容。
+- `ModelContext` 则是每一次 prepareRun 时临时计算出来、只给本轮模型看的上下文。
+
+因此 `ModelContext` 这个名字可以继续用。它虽然不是完整 provider context，但在 profile TSX 作者视角里足够直观：这里放“这轮模型应该额外看到的材料”。后续如果要避免误解，可以在文档和类型注释里称它为 dynamic model context，而不是改掉 JSX 标签名。
+
+这里有一个重要边界：profile 作者写的 `context(ctx)` / `prepare(ctx)` 属于 Run Kernel 的 `prepareRun` 阶段。也就是说，`ModelContext` 里的内容是在一次 invocation 启动时构造出来的本轮动态上下文，不是每个 ReAct turn 都会重新计算的订阅式上下文。
+
 summarizer 的 source Agent Dialogue Content 应该在 profile TSX 的 `context(ctx)` / `prepare(ctx)` 阶段构造，并放入 `ModelContext`：
 
 ```tsx
@@ -174,6 +184,17 @@ context(ctx) {
 ```
 
 因此，本任务需要把 `ctx.session.read()` / `ctx.session.agentDialogueContent()` 暴露到 `ProfilePrepareContext`，让 profile 作者不必写 runtime hook 才能读取 source session。
+
+这也意味着 source 内容只在 prepareRun 注入一次：
+
+- summarizer invocation 启动后，prepareRun 执行 profile TSX，读取 source session 当前 active path。
+- 这一次构造出的 Agent Dialogue Content 进入 `ModelContext`。
+- 同一次 summarizer run 内，如果因为缺失 `report_result` 触发 reminder retry，不重新读取 source，也不把全文再次塞进下一轮。
+- 如果 source 后续又变化，由 scheduler 在下一次 summarizer invocation 重新触发，而不是在当前 run 里动态漂移。
+
+这样 profile 作者能在 TSX 模板里直接写“我要读取哪个 source session，并把它转成 ModelContext”，而 Run Kernel 不需要知道 summarizer 的业务含义。
+
+如果未来 summarizer 需要多 turn、并且确实需要每个 turn 都重新读取 source session，应作为新的 runtime hook 行为设计；第一版不做。第一版的选择是更可预测的：一次 summarizer invocation 读取一次 source active path，后续 source 变化交给 scheduler 触发下一次 invocation。
 
 ### Runtime Hook Shape
 
@@ -201,6 +222,24 @@ summarizer runtime 组合：
 - `transcriptPersistence` 管“模型运行后”：assistant/toolResult transcript 是否写入 session history。
 - summarizer 需要前者，不需要后者。
 
+更具体地说：
+
+- `sessionContext` 是“把 profile 准备好的上下文喂给模型”的能力。没有它，`ProfilePrompt` 里构造出来的 `HistorySet` / `ModelContext` 不会按普通 session 语义参与本轮 provider input。
+- `transcriptPersistence` 是“把模型这一轮真的说了什么、调用了什么工具、工具返回了什么，写回 session history”的能力。普通聊天 profile 需要它，因为聊天记录要留档；summarizer 不需要它，因为摘要结果已经通过 `report_result` 和 `settleRun` 写回 source session。
+- `runtimeOnlyTranscript` 不是“不让模型运行”，而是“允许这一轮内部产生 assistant/tool/toolResult 消息，用来完成 ReAct loop，但这些消息只活在当前 RunFrame 里”。所以 report_result 缺失时 reminder 还能继续工作，但 summarizer session 历史不会被这些 retry 污染。
+
+用人话说：`sessionContext` 负责“开场前把材料摆上桌”，`transcriptPersistence` 负责“散场后把聊天记录归档”。summarizer 要摆材料，但不要归档它自己的中间聊天记录。
+
+对 summarizer 来说，这三个能力组合起来形成一个清晰的 session 模型：
+
+- summarizer 仍然有自己的 session，因此可以像普通 profile 一样拥有 `HistorySet` 初始化历史、model config 和 profile input。
+- summarizer 的 `HistorySet` 只在 session 初始化时写入一次，用来保存角色、格式、输出约束这类稳定说明。
+- 每次 summarizer invocation 的 source 内容都通过 `ModelContext` 临时进入模型输入，不写入 summarizer session。
+- summarizer invocation 中产生的 assistant/tool call/tool result 只存在于当前 RunFrame，用 `runtimeOnlyTranscript` 保持 ReAct 内部闭环，不通过 `transcriptPersistence` 落盘。
+- summarizer 不组合 `compact`，因为它自己的 transcript 不增长；真正可能变长的是 source session，而 source session 已经由自己的 compact 机制处理。summarizer 只读取 source active path 上已经压缩后的 Agent Dialogue Content。
+
+因此，summarizer 不是特殊的 sessionless 执行体；它是一个“有初始化 session、没有运行 transcript 持久化”的普通 profile。这个取舍能让 profile 作者继续使用熟悉的 `defineAgentProfile` / `ProfilePrompt` / runtime hooks，同时避免后台摘要把自己的内部过程写成一条越来越长的历史线。
+
 summarizer 运行行为：
 
 1. scheduler preflight
@@ -226,7 +265,8 @@ summarizer 运行行为：
    - 若 leaf 不匹配，只写 `summarizer.state.dirty = true`，不覆盖旧 title/summary。
    - 若匹配，写 source projection：
      - `session_update { title, summary }`
-     - `custom summarizer.state { running:false, dirty:false, lastRunAt, lastDialogueContentTokens, lastDialogueContentFingerprint }`
+     - `custom summarizer.state { running:false, dirty: previousDirty, lastRunAt, lastDialogueContentTokens, lastDialogueContentFingerprint }`
+   - `previousDirty` 用于 coalesced 调度：如果当前 summarizer run 期间 source session 又完成了新的 invocation，就保留 `dirty:true`，让 scheduler 在当前 run 结束后按最新 active path 再跑一次；否则为 `false`。
 
 ### Agent Dialogue Content
 
@@ -277,7 +317,7 @@ type SummarizerState = {
     running?: boolean;
     dirty?: boolean;
     profileKey?: string;
-    summarizerSessionId?: number;
+    sessionId?: number;
     sourceLeafId?: string | null;
     lastRunAt?: number;
     lastError?: string;
@@ -401,7 +441,7 @@ projection?: true | {
 - `server/agent/profiles/builtin-contracts.ts`
 - `server/agent/profiles/default-profile.ts`
 - `server/agent/profiles/define-agent-profile.ts`
-- `server/agent/profiles/session-summarizer-profile.ts`
+- `server/agent/profiles/summarizer-profile.ts`
 - `server/agent/profiles/types.ts`
 - `server/agent/session/dialogue-content.ts`
 - `server/agent/session/dialogue-content.test.ts`
@@ -431,6 +471,34 @@ projection?: true | {
 
 当前已知：`tsc` 可能仍因既有 `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误失败；本任务只在不扩大 scope 时报告它。
 
+## Implementation Result
+
+- 已硬切 builtin profile key 为 `summarizer`，旧 `session.summarizer` 源文件和 compiled artifact 已删除，不做 alias。
+- `leader.default` / `leader.assets` 已声明 `summarizer: { profileKey: "summarizer" }`；其他 profile 也可以用同一声明启用。
+- builtin `summarizer.profile.tsx` 只允许 `report_result`，在 `ModelContext` 中读取 source session 的 Agent Dialogue Content，并通过 `runtimeOnlyTranscript` 避免自身 assistant/toolResult transcript 落盘。
+- harness 在 source invocation completed 后后台调度 summarizer；测试环境可以显式关闭后台调度，生产默认开启。
+- summarizer 调度实现为 per-source-session coalesced job：运行中再次触发只标 dirty，当前任务结束后按最新 source active path 再判断是否重跑。
+- source `title` / `summary` 写回使用 active-leaf scoped projection；stale leaf guard 失败时只写 `summarizer.state.dirty`，不覆盖当前 active path 标题/摘要。
+- source snapshot 继续投影 `summarizer` 状态，前端抽屉显示低噪声状态 chip，session 列表预览优先使用 `summary`。
+- review 后修复三处边界：
+  - `sourceInvocation.value` 现在按 source prompt turn 计数生效，第一次成功摘要后才进入间隔判断。
+  - summarizer 运行失败不会把本次 fingerprint 记为成功 fingerprint，同一份 Agent Dialogue Content 可以被后续调度重试。
+  - projection entry 不再出现在 session tree 视图里，也不参与 tree `childCount` / `terminal` 计算。
+
+实际偏差：
+
+- 第一版没有实现手动 `summarize` command。旧 command 是 no-op，已删除，当前入口只保留 source invocation completed 后自动调度。
+- summarizer 后台任务默认 fire-and-forget，但 harness 暴露 `drainBackgroundTasks()` / `drainSessionSummarizer()` 供测试和关闭流程等待后台安静。
+
+验证结果：
+
+- `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`：74 passed。
+- `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/session/write-plan.test.ts server/agent/session/session-repo.test.ts server/agent/session/dialogue-content.test.ts server/agent/profiles/catalog.test.ts server/agent/profiles/profile-dsl.test.ts server/agent/profiles/leader-assets-profile.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/components/novel-ide/agent/agent-message.test.ts app/utils/agent-message-projection.test.ts --reporter=dot`：10 files / 103 tests passed。
+- review 修复后追加验证：`bunx vitest run server/agent/session/session-repo.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`：2 files / 84 tests passed。
+- `bun scripts/profile.ts compile --all --system`、`bun scripts/profile.ts compile --all`：均生成 `summarizer` artifact。
+- `bun scripts/profile.ts status summarizer`、`bun scripts/profile.ts status summarizer --system`：均为 loaded。
+- `bunx tsc --noEmit --pretty false --incremental false`：仍失败于既有 `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误，未命中本任务路径。
+
 ## Walkthrough
 
 - 2026-05-27：检查 session/profile/harness 现状，确认 `title` / `summary` 字段已存在，但默认仍主要由程序生成。
@@ -442,6 +510,9 @@ projection?: true | {
 - 2026-05-28：确认 summarizer 不作为 Run Kernel 特例；profile 作者可以通过 `runtime: { hooks }` 写出 summarizer 行为。
 - 2026-05-29：18 runtime pipeline hooks 第一版完成，提供 `runtime_only` transcript、runtimeMessages、settleRun writePlans、ctx.session facade 和 SessionWriteExecutor。
 - 2026-05-29：重写 17 任务文档。17 新计划以 18 的 runtime hooks 为基础，硬切 `summarizer` profile key，清理旧 `session.summarizer`，并把实现分为 contract cleanup、runtime profile、scheduler、active-path projection 和 UI state 五个阶段。
+- 2026-05-29：确认 source Agent Dialogue Content 只在 prepareRun 注入一次；`ModelContext` 固定为本轮动态、不持久化上下文；`sessionContext`、`transcriptPersistence`、`runtimeOnlyTranscript` 的职责边界写入任务文档。
+- 2026-05-29：实现 17 新版 summarizer：新增 `summarizer` builtin profile、runtime-only transcript、source Agent Dialogue Content 注入、后台 coalesced scheduler、active-leaf scoped title/summary projection、summarizer 状态投影和前端低噪声展示；补充 targeted tests 并重新编译 system/user profile artifacts。
+- 2026-05-29：根据代码审查修复 summarizer 调度和 projection tree 边界：`sourceInvocation.value` 按 source prompt turn 间隔生效，失败后同内容可重试，projection entry 从 session tree 视图过滤。
 
 ## Historical Artifacts
 

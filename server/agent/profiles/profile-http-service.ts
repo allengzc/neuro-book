@@ -11,6 +11,7 @@ import {createAssistantTextMessage, createUserMessage, messageText} from "nbook/
 import type {AgentMessage, JsonValue, Message, Model} from "nbook/server/agent/messages/types";
 import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import type {NeuroSessionContext, SessionSnapshot} from "nbook/server/agent/session/types";
+import {buildAgentDialogueContent, type AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
 import type {VariableRegistry} from "nbook/server/agent/variables/registry";
 import type {
     AgentProfileCatalogItemDto,
@@ -99,7 +100,8 @@ export async function previewAgentProfilePrepare(
     const profile = await harness.profiles.get(request.profileKey);
     const input = harness.profiles.parseInput(profile, buildPreviewInput(request));
     const previewSnapshot = request.sessionId ? await harness.repo.readSession(Number(request.sessionId)).catch(() => null) : null;
-    const session = previewSnapshot ? harness.repo.reduce(previewSnapshot) : await buildPreviewSession(harness, request);
+    const sessionContext = previewSnapshot ? harness.repo.reduce(previewSnapshot) : await buildPreviewSession(harness, request);
+    const session = createProfilePreviewSessionFacade(harness, request.profileKey, input, previewSnapshot, sessionContext);
     const catalog = await harness.profiles.snapshot();
     const skills = await harness.skills.list();
 
@@ -109,15 +111,15 @@ export async function previewAgentProfilePrepare(
             input,
             vars: createProfileVariableAccessor({
                 repo: harness.repo,
-                snapshot: previewSnapshot ?? previewSessionSnapshot(request.profileKey, session),
-                registry: await createPreviewVariableRegistry(profile, session.workspaceRoot),
+                snapshot: previewSnapshot ?? previewSessionSnapshot(request.profileKey, sessionContext),
+                registry: await createPreviewVariableRegistry(profile, sessionContext.workspaceRoot),
                 dryRun: true,
             }),
             catalog,
             skills,
             runtime: {
                 now: new Date().toISOString(),
-                promptUserTurnCount: session.messages.filter((message) => message.role === "user").length,
+                promptUserTurnCount: sessionContext.messages.filter((message) => message.role === "user").length,
             },
         } as ProfilePrepareContext);
         const historyMessages = prepared.historyInitMessages ?? [];
@@ -128,9 +130,9 @@ export async function previewAgentProfilePrepare(
             ...explicitAppendingMessages,
         ];
         const modelContextMessages = prepared.modelContextMessages ?? [];
-        const historyMessagesForReact = session.messages.length === 0 ? historyMessages : [];
+        const historyMessagesForReact = sessionContext.messages.length === 0 ? historyMessages : [];
         const finalMessages = [
-            ...session.messages,
+            ...sessionContext.messages,
             ...historyMessagesForReact,
             ...appendingMessages,
             ...modelContextMessages,
@@ -270,6 +272,44 @@ async function buildPreviewSession(harness: NeuroAgentHarness, request: AgentPro
         archived: false,
         planModeActive: false,
     };
+}
+
+function createProfilePreviewSessionFacade(
+    harness: NeuroAgentHarness,
+    profileKey: string,
+    input: JsonValue,
+    snapshot: SessionSnapshot | null,
+    context: NeuroSessionContext,
+): ProfilePrepareContext["session"] {
+    const facade: ProfilePrepareContext["session"] = {
+        ...context,
+        read: async (sessionId) => {
+            if (typeof sessionId === "number" && sessionId > 0) {
+                const realSnapshot = await harness.repo.readSession(sessionId);
+                return {
+                    snapshot: realSnapshot,
+                    context: harness.repo.reduce(realSnapshot),
+                };
+            }
+            return {
+                snapshot: snapshot ?? previewSessionSnapshot(profileKey, context),
+                context,
+            };
+        },
+        agentDialogueContent: async (contentInput = {}): Promise<AgentDialogueContent> => {
+            const sourceSnapshot = contentInput.snapshot
+                ?? (typeof contentInput.sessionId === "number" && contentInput.sessionId > 0
+                    ? await harness.repo.readSession(contentInput.sessionId)
+                    : snapshot ?? previewSessionSnapshot(profileKey, context));
+            return buildAgentDialogueContent({
+                repo: harness.repo,
+                snapshot: sourceSnapshot,
+                summarizerProfileKey: contentInput.profileKey ?? profileKey,
+                summarizerInput: contentInput.input ?? input,
+            });
+        },
+    };
+    return facade;
 }
 
 /**

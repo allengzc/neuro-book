@@ -5,7 +5,7 @@ import type {ProfileDslNode} from "nbook/server/agent/profiles/profile-dsl";
 import type {SkillCatalogItem} from "nbook/server/agent/skills/skill-catalog";
 import type {ClientStateSnapshot, ProfileVariableAccessor, VariableDefinition} from "nbook/server/agent/variables/types";
 import type {SessionSummarizerInputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import type {AgentRuntimeDefinition, NormalizedAgentRuntimeDefinition} from "nbook/server/agent/profiles/define-agent-runtime";
+import type {AgentRuntimeDefinition, NormalizedAgentRuntimeDefinition, RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
 
 export type AgentProfileManifest<TKey extends string = string> = {
     key: TKey;
@@ -65,7 +65,7 @@ export type AgentCatalogSnapshot = {
 };
 
 export type ProfilePrepareContext<TInput = JsonValue> = {
-    session: NeuroSessionContext;
+    session: RuntimeSessionFacade;
     input: TInput;
     /** 本次 invocation 的一次性入参。clientState 会同时归一化进 ctx.vars.client.*。 */
     invocation?: {
@@ -109,7 +109,7 @@ export type ProfileCompactionPlan = {
 };
 
 export type KnownAgentProfileInputs = {
-    "session.summarizer": Omit<Static<typeof SessionSummarizerInputSchema>, "sourceSessionId">;
+    summarizer: Omit<Static<typeof SessionSummarizerInputSchema>, "sourceSessionId">;
 };
 
 export type AgentProfileSummarizerConfig<TKey extends string = string> = {

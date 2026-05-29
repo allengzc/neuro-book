@@ -16,7 +16,7 @@ export const AGENT_PLAN_MODE_STATE_KEY = "agent.planMode";
 /**
  * Session 展示标题/摘要后台维护状态。
  */
-export const SESSION_SUMMARIZER_STATE_KEY = "session.summarizer.state";
+export const SESSION_SUMMARIZER_STATE_KEY = "summarizer.state";
 
 /**
  * Follow-up queue 的持久投影状态，用于刷新或重建 harness 后恢复 UI snapshot。

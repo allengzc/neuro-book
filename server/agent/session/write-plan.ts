@@ -1,6 +1,8 @@
 import type {AgentSessionEventHub} from "nbook/server/agent/events/session-event-hub";
-import type {SessionEntry, SessionEntryDraft, SessionId} from "nbook/server/agent/session/types";
+import type {SessionEntry, SessionEntryDraft, SessionId, SessionProjectionScope} from "nbook/server/agent/session/types";
 import type {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
+
+export type SessionWriteProjection = true | SessionProjectionScope;
 
 export type SessionWritePlan = {
     target: {
@@ -16,7 +18,7 @@ export type SessionWriteOp =
     | {
         kind: "append";
         entry: SessionEntryDraft;
-        projection?: boolean;
+        projection?: SessionWriteProjection;
     }
     | {
         kind: "appendMany";
@@ -132,7 +134,7 @@ export class SessionWriteExecutor {
             return [await this.repo.moveLeaf(sessionId, op.leafId)];
         }
         const entry = op.projection
-            ? await this.repo.appendProjectionEntry(sessionId, op.entry)
+            ? await this.repo.appendProjectionEntry(sessionId, op.entry, op.projection === true ? undefined : op.projection)
             : await this.repo.appendEntry(sessionId, op.entry);
         return [entry];
     }

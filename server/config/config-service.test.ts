@@ -113,6 +113,108 @@ describe("config service", () => {
         });
     });
 
+    it("Global web secret 写回缺失 value 时保留旧 API key 并脱敏展示", async () => {
+        await saveGlobalConfig({
+            web: {
+                search: {
+                    order: ["tavily", "brave"],
+                    providers: {
+                        tavily: {
+                            enabled: true,
+                            apiKey: {configured: false, maskedValue: null, value: "tvly-secret-123456"},
+                        },
+                        brave: {
+                            enabled: true,
+                            apiKey: {configured: false, maskedValue: null, value: "brave-secret-123456"},
+                            country: "US",
+                            searchLang: "en",
+                        },
+                    },
+                },
+            },
+        }, {workspaceKind: "user-assets"});
+
+        const snapshot = await saveGlobalConfig({
+            web: {
+                search: {
+                    order: ["brave", "tavily"],
+                    providers: {
+                        tavily: {
+                            enabled: true,
+                            apiKey: {configured: true, maskedValue: "tvly...3456"},
+                        },
+                        brave: {
+                            enabled: true,
+                            apiKey: {configured: true, maskedValue: "brav...3456"},
+                            country: "JP",
+                            searchLang: "ja",
+                        },
+                    },
+                },
+            },
+        }, {workspaceKind: "user-assets"});
+        const raw = JSON.parse(await fs.readFile(path.join("workspace", ".nbook", "config.json"), "utf-8")) as {
+            web?: {search?: {providers?: {tavily?: {apiKey?: string}; brave?: {apiKey?: string}}}}
+        };
+
+        expect(raw.web?.search?.providers?.tavily?.apiKey).toBe("tvly-secret-123456");
+        expect(raw.web?.search?.providers?.brave?.apiKey).toBe("brave-secret-123456");
+        expect(snapshot.global.web?.search?.providers?.tavily?.apiKey).toEqual({
+            configured: true,
+            maskedValue: "tvly...3456",
+        });
+        expect(snapshot.effective.web.search.order).toEqual(["brave", "tavily"]);
+        expect(snapshot.effective.web.search.providers.brave.country).toBe("JP");
+    });
+
+    it("Global web 部分写回会保留模型配置段", async () => {
+        await saveGlobalConfig({
+            models: {
+                default: "deepseek/deepseek-v4-flash",
+                providers: [{
+                    id: "deepseek",
+                    name: "DeepSeek",
+                    api: null,
+                    options: {
+                        apiKey: {configured: false, maskedValue: null, value: "sk-keep-model"},
+                        baseURL: "",
+                        proxy: "",
+                        timeoutMs: null,
+                        requestOptions: {},
+                    },
+                    models: [{
+                        id: "deepseek-v4-flash",
+                        name: "DeepSeek V4 Flash",
+                        group: null,
+                        enabled: true,
+                        contextWindowTokens: 128000,
+                    }],
+                }],
+            },
+        }, {workspaceKind: "user-assets"});
+
+        const snapshot = await saveGlobalConfig({
+            web: {
+                search: {
+                    order: ["brave", "tavily"],
+                    providers: {
+                        brave: {
+                            enabled: true,
+                            apiKey: {configured: false, maskedValue: null, value: "brave-web-key"},
+                            country: "US",
+                            searchLang: "en",
+                        },
+                    },
+                },
+            },
+        }, {workspaceKind: "user-assets"});
+
+        expect(snapshot.modelSettings.defaultModelKey).toBe("deepseek/deepseek-v4-flash");
+        expect(snapshot.modelSettings.providers[0]?.options.apiKey.configured).toBe(true);
+        expect(snapshot.effective.web.search.providers.brave.enabled).toBe(true);
+        expect(snapshot.effective.web.search.providers.brave.apiKey).toBe("brave-web-key");
+    });
+
     it("Global 部分写回会保留未提交的配置段", async () => {
         await saveGlobalConfig({
             auth: {enabled: true},

@@ -74,6 +74,59 @@ export type ModelSettingsConfig = {
     providers: Record<string, ConfiguredProviderConfig>;
 };
 
+export type WebSearchProviderKey = "tavily" | "brave";
+
+export type WebProviderSecretConfig = {
+    enabled: boolean;
+    apiKey: string;
+    timeoutMs: number | null;
+};
+
+export type BraveSearchProviderConfig = WebProviderSecretConfig & {
+    country: string;
+    searchLang: string;
+};
+
+export type TavilySearchProviderConfig = WebProviderSecretConfig;
+
+export type WebSettingsConfig = {
+    search: {
+        order: WebSearchProviderKey[];
+        providers: {
+            tavily: TavilySearchProviderConfig;
+            brave: BraveSearchProviderConfig;
+        };
+    };
+    fetch: {
+        local: {
+            enabled: boolean;
+            timeoutMs: number;
+            maxRedirects: number;
+            maxBytes: number;
+            maxCharacters: number;
+            minCharactersForLocal: number;
+        };
+        tavilyFallback: {
+            enabled: boolean;
+            timeoutMs: number | null;
+        };
+    };
+};
+
+export type StoredWebSettingsConfig = {
+    search?: {
+        order?: WebSearchProviderKey[];
+        providers?: {
+            tavily?: Partial<TavilySearchProviderConfig>;
+            brave?: Partial<BraveSearchProviderConfig>;
+        };
+    };
+    fetch?: {
+        local?: Partial<WebSettingsConfig["fetch"]["local"]>;
+        tavilyFallback?: Partial<WebSettingsConfig["fetch"]["tavilyFallback"]>;
+    };
+};
+
 export type EffectiveConfig = {
     auth: {
         enabled: boolean;
@@ -94,6 +147,7 @@ export type EffectiveConfig = {
         markdown: MarkdownEditorPreferences;
         monaco: MonacoEditorPreferences;
     };
+    web: WebSettingsConfig;
 };
 
 export type StoredProviderConfig = Omit<ConfiguredProviderConfig, "models"> & {
@@ -122,6 +176,7 @@ export type StoredGlobalConfig = {
         markdown?: Partial<MarkdownEditorPreferences>;
         monaco?: Partial<MonacoEditorPreferences>;
     };
+    web?: StoredWebSettingsConfig;
 };
 
 export type StoredProjectConfig = {

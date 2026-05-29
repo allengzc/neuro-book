@@ -13,6 +13,7 @@ import {
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {messageText} from "nbook/server/agent/messages/message-utils";
+import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
 
 describe("AgentProfileCatalog", () => {
@@ -487,19 +488,45 @@ function profileSource(key: string, name: string): string {
 }
 
 function context() {
-    return {
-        session: {
-            systemPrompt: "",
-            messages: [],
-            model: null,
-            thinkingLevel: "off" as const,
-            profileKey: "custom.jsx",
-            workspaceRoot: "workspace",
-            customState: {},
-            linkedAgents: [],
-            archived: false,
-            planModeActive: false,
+    const session = {
+        systemPrompt: "",
+        messages: [],
+        model: null,
+        thinkingLevel: "off" as const,
+        profileKey: "custom.jsx",
+        workspaceRoot: "workspace",
+        customState: {},
+        linkedAgents: [],
+        archived: false,
+        planModeActive: false,
+        async read() {
+            return {
+                snapshot: {
+                    metadata: {
+                        sessionId: -1,
+                        profileKey: "custom.jsx",
+                        input: {},
+                        workspaceRoot: "workspace",
+                        workspaceKey: "test",
+                        createdAt: 0,
+                    },
+                    entries: [],
+                    leafId: null,
+                },
+                context: session,
+            };
         },
+        async agentDialogueContent(): Promise<AgentDialogueContent> {
+            return {
+                text: "",
+                tokens: 0,
+                fingerprint: "test",
+                entryIds: [],
+            };
+        },
+    };
+    return {
+        session,
         input: {},
         vars: createTestVariableAccessor(),
         catalog: {

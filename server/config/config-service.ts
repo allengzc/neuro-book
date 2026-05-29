@@ -131,6 +131,7 @@ export async function saveGlobalConfig(input: GlobalConfigDto, query: ConfigWork
         ...(input.agent !== undefined ? {agent: input.agent} : {}),
         ...(input.ui !== undefined ? {ui: input.ui} : {}),
         ...(input.editor !== undefined ? {editor: input.editor} : {}),
+        ...(input.web !== undefined ? {web: normalizeGlobalWebForWrite(input.web, current)} : {}),
         ...(input.models !== undefined ? {models: normalizeGlobalModelsForWrite(input.models, current)} : {}),
     });
     await writeJsonFile(GLOBAL_CONFIG_PATH, next);
@@ -278,6 +279,22 @@ function redactGlobalConfig(config: StoredGlobalConfig): GlobalConfigDto {
         agent: config.agent,
         ui: config.ui,
         editor: config.editor,
+        web: {
+            search: {
+                order: config.web?.search?.order ?? [],
+                providers: {
+                    tavily: {
+                        ...config.web?.search?.providers?.tavily,
+                        apiKey: maskSecret(config.web?.search?.providers?.tavily?.apiKey),
+                    },
+                    brave: {
+                        ...config.web?.search?.providers?.brave,
+                        apiKey: maskSecret(config.web?.search?.providers?.brave?.apiKey),
+                    },
+                },
+            },
+            fetch: config.web?.fetch,
+        },
         models: {
             default: config.models?.default ?? null,
             providers: (config.models?.providers ?? []).map((provider) => ({
@@ -434,6 +451,37 @@ function normalizeGlobalModelsForWrite(
 
 function findProviderApiKey(config: StoredGlobalConfig, providerId: string): string {
     return config.models?.providers?.find((provider) => provider.id === providerId)?.options.apiKey ?? "";
+}
+
+function normalizeGlobalWebForWrite(web: NonNullable<GlobalConfigDto["web"]>, current: StoredGlobalConfig): NonNullable<StoredGlobalConfig["web"]> {
+    return {
+        search: {
+            order: web.search?.order,
+            providers: {
+                tavily: {
+                    enabled: web.search?.providers?.tavily?.enabled,
+                    apiKey: resolveSecretWrite({
+                        previousValue: current.web?.search?.providers?.tavily?.apiKey ?? "",
+                        configured: web.search?.providers?.tavily?.apiKey?.configured ?? false,
+                        value: web.search?.providers?.tavily?.apiKey?.value,
+                    }),
+                    timeoutMs: web.search?.providers?.tavily?.timeoutMs,
+                },
+                brave: {
+                    enabled: web.search?.providers?.brave?.enabled,
+                    apiKey: resolveSecretWrite({
+                        previousValue: current.web?.search?.providers?.brave?.apiKey ?? "",
+                        configured: web.search?.providers?.brave?.apiKey?.configured ?? false,
+                        value: web.search?.providers?.brave?.apiKey?.value,
+                    }),
+                    country: web.search?.providers?.brave?.country,
+                    searchLang: web.search?.providers?.brave?.searchLang,
+                    timeoutMs: web.search?.providers?.brave?.timeoutMs,
+                },
+            },
+        },
+        fetch: web.fetch,
+    };
 }
 
 function normalizeJsonRecord(input: Record<string, unknown> | undefined): ModelProviderOptionsConfig["requestOptions"] {

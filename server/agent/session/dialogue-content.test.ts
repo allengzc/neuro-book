@@ -53,7 +53,7 @@ describe("Agent Dialogue Content", () => {
         const content = buildAgentDialogueContent({
             repo,
             snapshot: await repo.readSession(session.metadata.sessionId, session.metadata.workspaceKey),
-            summarizerProfileKey: "session.summarizer",
+            summarizerProfileKey: "summarizer",
             summarizerInput: {sourceSessionId: session.metadata.sessionId},
         });
 

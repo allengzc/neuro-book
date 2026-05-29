@@ -16,6 +16,9 @@ import type {
     StoredAgentProfileConfig,
     StoredProjectConfig,
     StoredProviderConfig,
+    StoredWebSettingsConfig,
+    WebSearchProviderKey,
+    WebSettingsConfig,
 } from "nbook/server/config/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
@@ -27,6 +30,39 @@ const DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS: AgentProfileModelConfig = {
     topK: null,
     reasoningEffort: "off",
     stream: true,
+};
+const DEFAULT_WEB_SETTINGS: WebSettingsConfig = {
+    search: {
+        order: ["tavily", "brave"],
+        providers: {
+            tavily: {
+                enabled: false,
+                apiKey: "",
+                timeoutMs: 15_000,
+            },
+            brave: {
+                enabled: false,
+                apiKey: "",
+                country: "US",
+                searchLang: "en",
+                timeoutMs: 15_000,
+            },
+        },
+    },
+    fetch: {
+        local: {
+            enabled: true,
+            timeoutMs: 15_000,
+            maxRedirects: 5,
+            maxBytes: 2_000_000,
+            maxCharacters: 20_000,
+            minCharactersForLocal: 300,
+        },
+        tavilyFallback: {
+            enabled: false,
+            timeoutMs: 20_000,
+        },
+    },
 };
 
 /**
@@ -56,6 +92,7 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
             markdown: {...DEFAULT_MARKDOWN_EDITOR_PREFERENCES},
             monaco: {...DEFAULT_MONACO_EDITOR_PREFERENCES},
         },
+        web: normalizeWebSettings(undefined),
     };
 }
 
@@ -88,6 +125,7 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
             markdown: normalizeMarkdownPreferences(raw.editor?.markdown),
             monaco: normalizeMonacoPreferences(raw.editor?.monaco),
         },
+        web: normalizeStoredWebSettings(raw.web),
     };
 }
 
@@ -137,6 +175,7 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     effective.ui.theme = normalizeTheme(globalConfig.ui?.theme);
     effective.editor.markdown = normalizeMarkdownPreferences(globalConfig.editor?.markdown);
     effective.editor.monaco = normalizeMonacoPreferences(globalConfig.editor?.monaco);
+    effective.web = normalizeWebSettings(globalConfig.web);
 
     if (!projectConfig) {
         return effective;
@@ -419,6 +458,80 @@ function normalizeModelInput(input: unknown): ("text" | "image")[] | null {
     }
     const values = [...new Set(input.filter((item): item is "text" | "image" => item === "text" || item === "image"))];
     return values.length > 0 ? values : null;
+}
+
+/**
+ * 规范化 Global Web 配置，运行时只消费这个 complete shape。
+ */
+export function normalizeWebSettings(input: StoredWebSettingsConfig | undefined): WebSettingsConfig {
+    const raw = input ?? {};
+    const defaults = DEFAULT_WEB_SETTINGS;
+    return {
+        search: {
+            order: normalizeProviderOrder(raw.search?.order),
+            providers: {
+                tavily: {
+                    enabled: raw.search?.providers?.tavily?.enabled ?? defaults.search.providers.tavily.enabled,
+                    apiKey: normalizeText(raw.search?.providers?.tavily?.apiKey),
+                    timeoutMs: normalizeNullablePositiveInteger(raw.search?.providers?.tavily?.timeoutMs) ?? defaults.search.providers.tavily.timeoutMs,
+                },
+                brave: {
+                    enabled: raw.search?.providers?.brave?.enabled ?? defaults.search.providers.brave.enabled,
+                    apiKey: normalizeText(raw.search?.providers?.brave?.apiKey),
+                    country: normalizeCountry(raw.search?.providers?.brave?.country),
+                    searchLang: normalizeSearchLang(raw.search?.providers?.brave?.searchLang),
+                    timeoutMs: normalizeNullablePositiveInteger(raw.search?.providers?.brave?.timeoutMs) ?? defaults.search.providers.brave.timeoutMs,
+                },
+            },
+        },
+        fetch: {
+            local: {
+                enabled: raw.fetch?.local?.enabled ?? defaults.fetch.local.enabled,
+                timeoutMs: normalizePositiveInteger(raw.fetch?.local?.timeoutMs, defaults.fetch.local.timeoutMs),
+                maxRedirects: normalizeNonNegativeInteger(raw.fetch?.local?.maxRedirects, defaults.fetch.local.maxRedirects),
+                maxBytes: normalizePositiveInteger(raw.fetch?.local?.maxBytes, defaults.fetch.local.maxBytes),
+                maxCharacters: normalizePositiveInteger(raw.fetch?.local?.maxCharacters, defaults.fetch.local.maxCharacters),
+                minCharactersForLocal: normalizeNonNegativeInteger(raw.fetch?.local?.minCharactersForLocal, defaults.fetch.local.minCharactersForLocal),
+            },
+            tavilyFallback: {
+                enabled: raw.fetch?.tavilyFallback?.enabled ?? defaults.fetch.tavilyFallback.enabled,
+                timeoutMs: normalizeNullablePositiveInteger(raw.fetch?.tavilyFallback?.timeoutMs) ?? defaults.fetch.tavilyFallback.timeoutMs,
+            },
+        },
+    };
+}
+
+function normalizeStoredWebSettings(input: StoredWebSettingsConfig | undefined): StoredWebSettingsConfig {
+    return normalizeWebSettings(input);
+}
+
+function normalizeProviderOrder(input: unknown): WebSearchProviderKey[] {
+    const allowed: WebSearchProviderKey[] = ["tavily", "brave"];
+    if (!Array.isArray(input)) {
+        return [...DEFAULT_WEB_SETTINGS.search.order];
+    }
+    const order = input.filter((value): value is WebSearchProviderKey => allowed.includes(value as WebSearchProviderKey));
+    return [...new Set(order)].length > 0 ? [...new Set(order)] : [...DEFAULT_WEB_SETTINGS.search.order];
+}
+
+function normalizeCountry(input: unknown): string {
+    const country = normalizeText(input).toUpperCase();
+    return /^[A-Z]{2}$/u.test(country) ? country : DEFAULT_WEB_SETTINGS.search.providers.brave.country;
+}
+
+function normalizeSearchLang(input: unknown): string {
+    const lang = normalizeText(input).toLowerCase();
+    return /^[a-z]{2}(?:-[a-z]{2})?$/u.test(lang) ? lang : DEFAULT_WEB_SETTINGS.search.providers.brave.searchLang;
+}
+
+function normalizePositiveInteger(input: unknown, fallback: number): number {
+    const value = normalizeNullablePositiveInteger(input);
+    return value ?? fallback;
+}
+
+function normalizeNonNegativeInteger(input: unknown, fallback: number): number {
+    const value = normalizeNullableInteger(input);
+    return value !== null && value >= 0 ? value : fallback;
 }
 
 function normalizeModelCost(input: unknown): ConfiguredModelConfig["cost"] {

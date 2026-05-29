@@ -51,10 +51,12 @@ describe("NeuroAgentHarness", () => {
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
         });
     });
 
     afterEach(async () => {
+        await harness.drainBackgroundTasks();
         faux.unregister();
         await rm(root, {recursive: true, force: true});
     });
@@ -661,6 +663,7 @@ describe("NeuroAgentHarness", () => {
                 ...faux.getModel(),
                 reasoning: true,
             }),
+            enableSessionSummarizer: false,
         });
         const created = await harness.createAgent({
             profileKey: "test.reasoning",
@@ -728,6 +731,7 @@ describe("NeuroAgentHarness", () => {
                 ...faux.getModel(),
                 reasoning: true,
             }),
+            enableSessionSummarizer: false,
         });
         const created = await harness.createAgent({
             profileKey: "test.session-thinking",
@@ -810,6 +814,7 @@ describe("NeuroAgentHarness", () => {
                 ...faux.getModel(),
                 reasoning: false,
             }),
+            enableSessionSummarizer: false,
         });
         const created = await harness.createAgent({
             profileKey: "test.snapshot-thinking",
@@ -845,6 +850,7 @@ describe("NeuroAgentHarness", () => {
             modelResolver: () => {
                 throw new Error("配置未设置 models.default");
             },
+            enableSessionSummarizer: false,
         });
         const created = await harness.createAgent({
             profileKey: "test.no-model",
@@ -1754,6 +1760,404 @@ describe("NeuroAgentHarness", () => {
         expect(context.customState["test.runtime.reportReminder"]).toEqual({
             title: "Runtime Reminder",
         });
+    });
+
+    it("source profile completed 后会后台运行 summarizer 并写回 active leaf title/summary", async () => {
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: true,
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.summarized-source",
+                name: "Summarized Source",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            summarizer: {
+                profileKey: "summarizer",
+                input: {
+                    trigger: "afterInvocation",
+                    interval: {
+                        kind: "sourceInvocation",
+                        value: 1,
+                    },
+                    maxDialogueContentTokens: 80_000,
+                },
+            },
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage("source answer"),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    walkthrough: "summary ok",
+                    data: {
+                        title: "Source Title",
+                        summary: "Source summary.",
+                    },
+                }, {id: "summarizer-report-1"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.summarized-source",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "source question"},
+        });
+
+        expect(result.status).toBe("completed");
+        await waitFor(async () => {
+            const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+            expect(context.title).toBe("Source Title");
+            expect(context.summary).toBe("Source summary.");
+            expect(context.customState["summarizer.state"]).toMatchObject({
+                running: false,
+                dirty: false,
+                profileKey: "summarizer",
+                lastDialogueContentTokens: expect.any(Number),
+                lastDialogueContentFingerprint: expect.any(String),
+                lastRunAt: expect.any(Number),
+            });
+        });
+
+        const sourceContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const state = sourceContext.customState["summarizer.state"] as {sessionId?: number};
+        expect(state.sessionId).toEqual(expect.any(Number));
+        const summarizerSnapshot = await harness.repo.readSession(state.sessionId!);
+        const summarizerContext = harness.repo.reduce(summarizerSnapshot);
+        expect(summarizerSnapshot.metadata).toMatchObject({
+            profileKey: "summarizer",
+            systemRole: "summarizer",
+        });
+        expect(summarizerContext.messages).toHaveLength(0);
+        expect((await harness.listSessions({workspaceKey: "global"})).map((session) => session.sessionId)).toEqual([created.sessionId]);
+        expect((await harness.listSessions({workspaceKey: "global", includeSystem: true})).map((session) => session.sessionId).sort((left, right) => left - right)).toEqual([
+            created.sessionId,
+            state.sessionId,
+        ]);
+        await waitFor(async () => {
+            const settled = await harness.repo.readSession(state.sessionId!);
+            expect(settled.entries).toContainEqual(expect.objectContaining({
+                type: "invocation_lifecycle",
+                status: "end",
+            }));
+        });
+    });
+
+    it("summarizer 写回前 source leaf 变化时只标 dirty 不覆盖当前 title/summary", async () => {
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: true,
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.summarizer-stale",
+                name: "Summarizer Stale",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            summarizer: {
+                profileKey: "summarizer",
+                input: {
+                    trigger: "afterInvocation",
+                    interval: {
+                        kind: "sourceInvocation",
+                        value: 1,
+                    },
+                },
+            },
+            prepare() {
+                return {};
+            },
+        }), false);
+        const created = await harness.createAgent({
+            profileKey: "test.summarizer-stale",
+            input: {},
+            workspaceRoot: root,
+        });
+        faux.setResponses([
+            fauxAssistantMessage("source answer"),
+            async () => {
+                await harness.repo.moveLeaf(created.sessionId, null);
+                return fauxAssistantMessage([
+                    fauxToolCall("report_result", {
+                        walkthrough: "stale summary",
+                        data: {
+                            title: "Stale Title",
+                            summary: "Stale summary.",
+                        },
+                    }, {id: "summarizer-report-stale"}),
+                ], {stopReason: "toolUse"});
+            },
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    walkthrough: "fresh summary",
+                    data: {
+                        title: "Fresh Title",
+                        summary: "Fresh summary.",
+                    },
+                }, {id: "summarizer-report-fresh"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "source question"},
+        });
+
+        expect(result.status).toBe("completed");
+        await waitFor(async () => {
+            const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+            expect(context.customState["summarizer.state"]).toMatchObject({
+                running: false,
+                dirty: false,
+            });
+            expect(context.title).toBe("Fresh Title");
+            expect(context.summary).toBe("Fresh summary.");
+        });
+        const snapshot = await harness.repo.readSession(created.sessionId);
+        const updates = snapshot.entries.filter((entry) => entry.type === "session_update");
+        expect(updates.some((entry) => entry.updates.title === "Stale Title")).toBe(false);
+        const state = harness.repo.reduce(snapshot).customState["summarizer.state"] as {sessionId?: number};
+        await waitFor(async () => {
+            const settled = await harness.repo.readSession(state.sessionId!);
+            expect(settled.entries.filter((entry) => entry.type === "invocation_lifecycle" && entry.status === "end")).toHaveLength(2);
+        });
+    });
+
+    it("summarizer preflight 超过 Agent Dialogue Content token 上限时只写状态不启动 hidden run", async () => {
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: true,
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.summarizer-too-large",
+                name: "Summarizer Too Large",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            summarizer: {
+                profileKey: "summarizer",
+                input: {
+                    trigger: "afterInvocation",
+                    interval: {
+                        kind: "sourceInvocation",
+                        value: 1,
+                    },
+                    maxDialogueContentTokens: 1,
+                },
+            },
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage("source answer with enough text to exceed token limit"),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    walkthrough: "must not run",
+                    data: {
+                        title: "Unexpected",
+                        summary: "Unexpected.",
+                    },
+                }, {id: "summarizer-too-large-report"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.summarizer-too-large",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "source question that exceeds"},
+        });
+        await harness.drainSessionSummarizer(created.sessionId);
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(context.title).toBe("Summarizer Too Large");
+        expect(context.summary).toBeUndefined();
+        expect(context.customState["summarizer.state"]).toMatchObject({
+            running: false,
+            dirty: false,
+            profileKey: "summarizer",
+            lastDialogueContentTokens: expect.any(Number),
+            lastError: expect.stringContaining("超过 summarizer 上限"),
+        });
+        expect((await harness.listSessions({workspaceKey: "global", includeSystem: true})).map((session) => session.sessionId)).toEqual([created.sessionId]);
+    });
+
+    it("summarizer sourceInvocation interval 会按 source prompt turn 间隔触发", async () => {
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: true,
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.summarizer-interval",
+                name: "Summarizer Interval",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            summarizer: {
+                profileKey: "summarizer",
+                input: {
+                    trigger: "afterInvocation",
+                    interval: {
+                        kind: "sourceInvocation",
+                        value: 2,
+                    },
+                },
+            },
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage("source answer 1"),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    walkthrough: "summary one",
+                    data: {
+                        title: "Interval One",
+                        summary: "First summary.",
+                    },
+                }, {id: "summarizer-interval-1"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("source answer 2"),
+            fauxAssistantMessage("source answer 3"),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    walkthrough: "summary two",
+                    data: {
+                        title: "Interval Two",
+                        summary: "Second summary.",
+                    },
+                }, {id: "summarizer-interval-2"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.summarizer-interval",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "one"}});
+        await waitFor(async () => {
+            expect(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).title).toBe("Interval One");
+        });
+        const firstState = harness.repo.reduce(await harness.repo.readSession(created.sessionId)).customState["summarizer.state"] as {sessionId?: number};
+        const summarizerSessionId = firstState.sessionId!;
+        await waitFor(async () => {
+            const summarizerSnapshot = await harness.repo.readSession(summarizerSessionId);
+            expect(summarizerSnapshot.entries.filter((entry) => entry.type === "invocation_lifecycle" && entry.status === "end")).toHaveLength(1);
+        });
+
+        await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "two"}});
+        await harness.drainSessionSummarizer(created.sessionId);
+        let summarizerSnapshot = await harness.repo.readSession(summarizerSessionId);
+        expect(summarizerSnapshot.entries.filter((entry) => entry.type === "invocation_lifecycle" && entry.status === "end")).toHaveLength(1);
+
+        await harness.invokeAgent({sessionId: created.sessionId, mode: "prompt", message: {text: "three"}});
+        await waitFor(async () => {
+            expect(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).title).toBe("Interval Two");
+        });
+        await waitFor(async () => {
+            summarizerSnapshot = await harness.repo.readSession(summarizerSessionId);
+            expect(summarizerSnapshot.entries.filter((entry) => entry.type === "invocation_lifecycle" && entry.status === "end")).toHaveLength(2);
+        });
+    });
+
+    it("summarizer 运行失败后同一份 Agent Dialogue Content 可以重试", async () => {
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: true,
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.summarizer-retry",
+                name: "Summarizer Retry",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            summarizer: {
+                profileKey: "summarizer",
+                input: {
+                    trigger: "afterInvocation",
+                    interval: {
+                        kind: "sourceInvocation",
+                        value: 1,
+                    },
+                },
+            },
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage("source answer"),
+            async () => {
+                throw new Error("temporary provider error");
+            },
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    walkthrough: "summary retry",
+                    data: {
+                        title: "Retry Title",
+                        summary: "Retry summary.",
+                    },
+                }, {id: "summarizer-retry-report"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.summarizer-retry",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "source question"},
+        });
+        await harness.drainSessionSummarizer(created.sessionId);
+        let context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        expect(context.title).toBe("Summarizer Retry");
+        expect(context.customState["summarizer.state"]).toMatchObject({
+            running: false,
+            dirty: false,
+            lastError: expect.stringContaining("temporary provider error"),
+        });
+
+        await (harness as unknown as {scheduleSessionSummarizer(sessionId: number): Promise<void>}).scheduleSessionSummarizer(created.sessionId);
+        await harness.drainSessionSummarizer(created.sessionId);
+        context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        expect(context.title).toBe("Retry Title");
+        expect(context.summary).toBe("Retry summary.");
+        expect(context.customState["summarizer.state"]).toMatchObject({
+            running: false,
+            dirty: false,
+            lastDialogueContentFingerprint: expect.any(String),
+        });
+        expect((context.customState["summarizer.state"] as {lastError?: string}).lastError).toBeUndefined();
     });
 
     it("自定义 runtime 不组合 reportResult built-in 时不会自动注入 report_result reminder", async () => {
@@ -3193,6 +3597,7 @@ describe("NeuroAgentHarness", () => {
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
         });
         restored.profiles.register(defineAgentProfile({
             manifest: {
@@ -3353,6 +3758,7 @@ describe("NeuroAgentHarness", () => {
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
         });
 
         const snapshot = await restored.getSessionSnapshot(created.sessionId);
@@ -3616,6 +4022,7 @@ describe("NeuroAgentHarness", () => {
         const nextHarness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
         });
         const owned = await nextHarness.getAgent(undefined, parent.sessionId);
         const session = await nextHarness.getSession(parent.sessionId);

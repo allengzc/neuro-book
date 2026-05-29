@@ -3,6 +3,8 @@ import {onMounted, ref, useAttrs} from "vue";
 import {storeToRefs} from "pinia";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import Dropdown from "nbook/app/components/common/Dropdown.vue";
+import DiffWorkbenchDialog from "nbook/app/components/common/diff/DiffWorkbenchDialog.vue";
+import type {DiffWorkbenchActionPayload, DiffWorkbenchDocument} from "nbook/app/components/common/diff/diff-workbench.types";
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
 import WorkspaceCharacterPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterPanel.vue";
@@ -12,6 +14,12 @@ import {useNotification} from "nbook/app/composables/useNotification";
 import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import type {
+    UserAssetsAssetSyncWarningDto,
+    UserAssetsProfileSyncWarningDto,
+    UserAssetsSyncConflictDetailDto,
+    UserAssetsSyncResultDto,
+} from "nbook/shared/dto/user-assets-sync.dto";
 
 const MIN_PANEL_WIDTH = 280;
 const MAX_PANEL_WIDTH = 560;
@@ -48,6 +56,12 @@ const uploadingSingleFile = ref(false);
 const uploadingProject = ref(false);
 const syncingAssets = ref(false);
 const downloadConfirmOpen = ref(false);
+const syncWarningsOpen = ref(false);
+const syncConflictDiffOpen = ref(false);
+const syncConflictLoading = ref(false);
+const lastSyncWarnings = ref<UserAssetsSyncWarningItem[]>([]);
+const syncConflictDocument = ref<DiffWorkbenchDocument | null>(null);
+const syncConflictSubtitle = ref("");
 const singleFileInputRef = ref<HTMLInputElement | null>(null);
 const projectDirectoryInputRef = ref<HTMLInputElement | null>(null);
 const projectZipInputRef = ref<HTMLInputElement | null>(null);
@@ -66,6 +80,16 @@ const projectUploadItems: DropdownItem[] = [
     {label: "上传文件夹", value: "directory", iconClass: "i-lucide-folder-up"},
     {label: "上传 zip", value: "zip", iconClass: "i-lucide-file-archive"},
 ];
+
+type UserAssetsSyncWarningItem = {
+    id: string;
+    kind: "profile" | "asset";
+    title: string;
+    path: string;
+    message: string;
+    profile?: UserAssetsProfileSyncWarningDto;
+    asset?: UserAssetsAssetSyncWarningDto;
+};
 
 /**
  * 打开下载确认框。
@@ -208,6 +232,60 @@ function formatUploadResult(result: {written: number; skipped: number}, fallback
     return `已写入 ${result.written} 个文件，跳过 ${result.skipped} 个已有文件。`;
 }
 
+function buildSyncWarningItems(result: UserAssetsSyncResultDto): UserAssetsSyncWarningItem[] {
+    const profileItems = (result.profileWarnings ?? []).map((warning) => ({
+        id: `profile:${warning.fileName}`,
+        kind: "profile" as const,
+        title: `Profile: ${warning.profileKey}`,
+        path: warning.fileName,
+        message: warning.message,
+        profile: warning,
+    }));
+    const assetItems = (result.assetWarnings ?? []).map((warning) => ({
+        id: `asset:${warning.assetPath}`,
+        kind: "asset" as const,
+        title: "Agent Asset",
+        path: warning.assetPath,
+        message: warning.message,
+        asset: warning,
+    }));
+    return [...profileItems, ...assetItems];
+}
+
+function formatSyncResult(result: UserAssetsSyncResultDto): string {
+    const updatedProfiles = result.updatedProfiles ?? 0;
+    const updatedAssets = result.updatedAssets ?? 0;
+    const chunks = [`补齐 ${result.copied} 个缺失文件`, `保留 ${result.skipped} 个已有文件`];
+    if (updatedProfiles) {
+        chunks.push(`更新 ${updatedProfiles} 个 profile`);
+    }
+    if (updatedAssets) {
+        chunks.push(`更新 ${updatedAssets} 个 agent asset`);
+    }
+    return `${chunks.join("，")}。`;
+}
+
+function toSyncConflictDocument(detail: UserAssetsSyncConflictDetailDto): DiffWorkbenchDocument {
+    const path = detail.fileName ?? detail.assetPath ?? detail.label;
+    const unavailableText = detail.diffable
+        ? null
+        : `此文件暂不能直接 diff。\n原因：${detail.reason ?? "unknown"}\n系统大小：${detail.systemBytes} bytes\n用户大小：${detail.userBytes} bytes\n系统 sha256：${detail.systemSha256 || "(missing)"}\n用户 sha256：${detail.userSha256 || "(missing)"}\n`;
+    return {
+        id: `user-assets-sync:${detail.kind}:${path}:${detail.systemSha256}:${detail.userSha256}`,
+        title: detail.kind === "profile" ? `Profile 覆盖冲突: ${detail.label}` : `Asset 覆盖冲突: ${detail.label}`,
+        path,
+        language: detail.language,
+        baseContent: detail.baseContent,
+        currentContent: unavailableText ?? detail.userContent,
+        incomingContent: unavailableText ?? detail.systemContent,
+        resultContent: unavailableText ?? detail.userContent,
+        currentLabel: "用户覆盖",
+        incomingLabel: "系统版本",
+        baseLabel: "上次同步版本",
+        resultLabel: "结果",
+    };
+}
+
 /**
  * 从系统 assets 补齐用户 assets 缺失文件。
  */
@@ -218,11 +296,45 @@ async function syncSystemAssets(): Promise<void> {
     syncingAssets.value = true;
     try {
         const result = await novelIdeStore.syncUserAssetsFromSystem();
-        notification.success(`已同步 ${result.copied} 个缺失文件，保留 ${result.skipped} 个已有文件。`, {title: "用户资产已同步"});
+        lastSyncWarnings.value = buildSyncWarningItems(result);
+        if (lastSyncWarnings.value.length) {
+            syncWarningsOpen.value = true;
+            notification.warning(`有 ${lastSyncWarnings.value.length} 个用户覆盖已保留，点击同步详情可查看 diff。`, {
+                title: "用户资产同步完成但有冲突",
+                autoClose: false,
+            });
+            return;
+        }
+        notification.success(formatSyncResult(result), {title: "用户资产已同步"});
     } catch (error) {
         notification.error(resolveApiErrorMessage(error, "同步系统 assets 失败"));
     } finally {
         syncingAssets.value = false;
+    }
+}
+
+async function openSyncWarningDiff(item: UserAssetsSyncWarningItem): Promise<void> {
+    if (syncConflictLoading.value) {
+        return;
+    }
+    syncConflictLoading.value = true;
+    try {
+        const detail = await novelIdeStore.fetchUserAssetsSyncConflictDetail(item.kind === "profile"
+            ? {kind: "profile", fileName: item.profile?.fileName ?? item.path}
+            : {kind: "asset", assetPath: item.asset?.assetPath ?? item.path});
+        syncConflictDocument.value = toSyncConflictDocument(detail);
+        syncConflictSubtitle.value = item.message;
+        syncConflictDiffOpen.value = true;
+    } catch (error) {
+        notification.error(resolveApiErrorMessage(error, "读取同步冲突 diff 失败"));
+    } finally {
+        syncConflictLoading.value = false;
+    }
+}
+
+function handleSyncDiffAction(payload: DiffWorkbenchActionPayload): void {
+    if (payload.actionId === "cancel") {
+        syncConflictDiffOpen.value = false;
     }
 }
 
@@ -264,6 +376,9 @@ onMounted(() => {
                     <button v-if="props.userAssetsMode" class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" title="同步系统 assets" :disabled="syncingAssets" @click="void syncSystemAssets()">
                         <span :class="syncingAssets ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-folder-sync'" class="h-4 w-4"></span>
                     </button>
+                    <button v-if="props.userAssetsMode && lastSyncWarnings.length" class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="查看同步冲突" @click="syncWarningsOpen = true">
+                        <span class="i-lucide-triangle-alert h-4 w-4"></span>
+                    </button>
                     <button class="rounded-2 p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="emit('close')">
                         <span class="i-lucide-minus h-4 w-4"></span>
                     </button>
@@ -283,5 +398,38 @@ onMounted(() => {
         <Dialog v-model="downloadConfirmOpen" :title="`下载 ${downloadTargetLabel}`" width="420px" show-cancel :busy="downloadingWorkspace" @confirm="confirmDownloadWorkspace">
             <p>将先保存所有未保存的文件，然后打包下载当前 {{ downloadTargetLabel }}。</p>
         </Dialog>
+
+        <Dialog v-model="syncWarningsOpen" title="用户资产同步详情" width="620px" :show-footer="false">
+            <div class="space-y-3">
+                <p class="m-0 text-sm text-[var(--text-secondary)]">以下用户覆盖已保留，系统版本没有自动覆盖。可以打开 diff 查看差异。</p>
+                <div class="max-h-[52vh] space-y-2 overflow-auto pr-1">
+                    <button
+                        v-for="item in lastSyncWarnings"
+                        :key="item.id"
+                        type="button"
+                        class="w-full rounded-2 border border-[var(--border-color)] bg-[var(--bg-input)] p-3 text-left transition-colors hover:bg-[var(--bg-hover)]"
+                        :disabled="syncConflictLoading"
+                        @click="void openSyncWarningDiff(item)"
+                    >
+                        <div class="flex items-center justify-between gap-3">
+                            <span class="min-w-0 truncate text-sm font-medium text-[var(--text-main)]">{{ item.title }}</span>
+                            <span class="shrink-0 rounded-2 bg-[var(--bg-panel)] px-2 py-0.5 text-[11px] text-[var(--text-muted)]">{{ item.kind }}</span>
+                        </div>
+                        <div class="mt-1 truncate font-mono text-xs text-[var(--text-muted)]">{{ item.path }}</div>
+                        <div class="mt-2 text-xs text-[var(--text-secondary)]">{{ item.message }}</div>
+                    </button>
+                </div>
+            </div>
+        </Dialog>
+
+        <DiffWorkbenchDialog
+            v-model="syncConflictDiffOpen"
+            :document="syncConflictDocument"
+            title="用户覆盖 Diff"
+            :subtitle="syncConflictSubtitle"
+            :merge-readonly="true"
+            :actions="[{id: 'cancel', label: '关闭'}]"
+            @action="handleSyncDiffAction"
+        />
     </div>
 </template>

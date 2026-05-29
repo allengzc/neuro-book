@@ -29,6 +29,8 @@ const ProviderOptionTextSchema = z.string().trim().default("");
 const ProviderTimeoutMsSchema = z.number().int().positive().nullable().default(null);
 const ProviderRequestOptionsSchema = z.record(z.string(), JsonValueSchema).default({});
 const ProfileKeySchema = z.string().trim().min(1);
+const WebSearchProviderKeySchema = z.enum(["tavily", "brave"]);
+const WebTimeoutMsSchema = z.number().int().positive().nullable().default(null);
 
 /**
  * Secret 字段的编辑态。GET 不返回 value；PUT 中 value 缺失表示保留。
@@ -146,6 +148,40 @@ export const ConfigAgentProfileMapDtoSchema = z.record(z.string(), z.object({
     model: AgentProfileModelConfigDtoSchema.partial(),
 })).default({});
 
+export const WebConfigDtoSchema = z.object({
+    search: z.object({
+        order: z.array(WebSearchProviderKeySchema).default(["tavily", "brave"]),
+        providers: z.object({
+            tavily: z.object({
+                enabled: z.boolean().default(false),
+                apiKey: SecretConfigValueDtoSchema,
+                timeoutMs: WebTimeoutMsSchema,
+            }).partial().default({}),
+            brave: z.object({
+                enabled: z.boolean().default(false),
+                apiKey: SecretConfigValueDtoSchema,
+                country: z.string().trim().min(2).max(2).default("US"),
+                searchLang: z.string().trim().min(2).max(5).default("en"),
+                timeoutMs: WebTimeoutMsSchema,
+            }).partial().default({}),
+        }).partial().default({}),
+    }).partial().default({}),
+    fetch: z.object({
+        local: z.object({
+            enabled: z.boolean().default(true),
+            timeoutMs: z.number().int().positive().default(15000),
+            maxRedirects: z.number().int().nonnegative().default(5),
+            maxBytes: z.number().int().positive().default(2000000),
+            maxCharacters: z.number().int().positive().default(20000),
+            minCharactersForLocal: z.number().int().nonnegative().default(300),
+        }).partial().default({}),
+        tavilyFallback: z.object({
+            enabled: z.boolean().default(false),
+            timeoutMs: WebTimeoutMsSchema,
+        }).partial().default({}),
+    }).partial().default({}),
+}).partial().default({});
+
 export const GlobalConfigDtoSchema = z.object({
     auth: z.object({
         enabled: z.boolean().default(true),
@@ -167,6 +203,7 @@ export const GlobalConfigDtoSchema = z.object({
         markdown: DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
         monaco: DEFAULT_MONACO_EDITOR_PREFERENCES,
     }),
+    web: WebConfigDtoSchema,
 }).partial().passthrough();
 
 export const ProjectConfigDtoSchema = z.object({
@@ -205,6 +242,7 @@ export type ConfigWorkspaceQueryDto = z.infer<typeof ConfigWorkspaceQueryDtoSche
 export type ConfigModelSettingsDto = z.infer<typeof ConfigModelSettingsDtoSchema>;
 export type ConfigAgentProfileSettingsDto = z.infer<typeof ConfigAgentProfileSettingsDtoSchema>;
 export type ConfigDefaultProfileSettingsDto = z.infer<typeof ConfigDefaultProfileSettingsDtoSchema>;
+export type WebConfigDto = z.infer<typeof WebConfigDtoSchema>;
 export type GlobalConfigDto = z.infer<typeof GlobalConfigDtoSchema>;
 export type ProjectConfigDto = z.infer<typeof ProjectConfigDtoSchema>;
 export type ConfigSnapshotDto = z.infer<typeof ConfigSnapshotDtoSchema>;
