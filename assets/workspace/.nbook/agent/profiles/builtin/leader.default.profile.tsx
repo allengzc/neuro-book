@@ -11,15 +11,16 @@ import {
     Message,
     MentionedSkillsReminder,
     ModelContext,
+    PlanModeAvailabilityReminder,
     PlanModeReminder,
     ProfilePrompt,
-    Reminder,
-    RuntimeContext,
+    ProjectWorkspaceReminder,
     SkillCatalog,
     SqlSchemaSummary,
     System,
     TaskReminder,
     VariableSchema,
+    WorkdirReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
@@ -85,14 +86,7 @@ export default defineAgentProfile({
             maxDialogueContentTokens: 80_000,
         },
     },
-    async context(ctx) {
-        const currentProjectWorkspace = await ctx.vars.get("client.currentProjectWorkspace");
-        const selectedFilePath = await ctx.vars.get("client.studio.selectedFilePath");
-        const workspaceReminderText = [
-            "<system-reminder>",
-            `Current Project Workspace: ${typeof currentProjectWorkspace === "string" && currentProjectWorkspace ? currentProjectWorkspace : "unknown"}; current file: ${typeof selectedFilePath === "string" && selectedFilePath ? selectedFilePath : "none"}. Agent cwd is Workspace Root workspace/. For project files, use project-slug/lorebook/... or project-slug/manuscript/..., and spell cross-project paths explicitly; project.yaml lives at the Project Workspace root, not under .nbook/.`,
-            "</system-reminder>",
-        ].join("\n");
+    context() {
         return (
             <ProfilePrompt>
                 <System>{LEADER_SYSTEM_PROMPT}</System>
@@ -106,17 +100,14 @@ export default defineAgentProfile({
                 </HistorySet>
                 <ModelContext>
                     <Message>
-                        <RuntimeContext />
-                    </Message>
-                    <Message>
                         <SqlSchemaSummary />
                     </Message>
                     <VariableSchema paths={["client.currentProjectWorkspace", "client.studio.selectedFilePath"]} includeToolGuide />
                 </ModelContext>
                 <AppendingSet>
-                    <Reminder id="project" watchPath="client.currentProjectWorkspace" repeatEveryTurns={20}>
-                        <Message>{workspaceReminderText}</Message>
-                    </Reminder>
+                    <WorkdirReminder />
+                    <ProjectWorkspaceReminder />
+                    <PlanModeAvailabilityReminder />
                     <LinkedAgentsReminder />
                     <TaskReminder stateKey="agent.tasks" repeatEveryTurns={8} />
                     <PlanModeReminder stateKey="agent.planMode" />
@@ -180,7 +171,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - bash 只用于真实终端操作：rg、find、ls、git、测试、构建等。搜索文本优先用 rg。
         - bash 命令必须按 bash 语法编写；不要写其他 shell 语法。工具已经绑定 workspace 容器根，不要传 workdir。
         - 可以并行调用互不依赖的工具。依赖前一个结果时必须顺序调用。
-        - 常规任务优先以 runtime context 的 Current Project Workspace 为边界，但 Agent cwd / workspace root 始终是 Workspace Root workspace/。访问当前小说时使用 novel-slug/lorebook/...、novel-slug/manuscript/... 这类显式路径。
+        - 常规任务优先以 AppendingSet runtime reminder 的 Current Project Workspace 为边界，但 Agent cwd / workspace root 始终是 Workspace Root workspace/。访问当前小说时使用 novel-slug/lorebook/...、novel-slug/manuscript/... 这类显式路径。
         - 允许跨 project 写作和检查；跨 project 时必须显式写出目标 Project Workspace 路径，避免把内容写到错误小说。
         - 需要读写变量时，先用 variable_schema 查询局部 schema，再用 variable_read 读取当前值，最后用 variable_patch 提交 JSON Patch；重要修改后再次 read 验证。
         - 不要用 bash 拼接高风险写入命令替代 edit、apply_patch 或 write。
@@ -201,7 +192,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - When creating tasks, use stable step ids, clear user-facing text, and explicit status values. Do not rely on the tool to infer pending.
         - Before actively working on a step, mark it in_progress with task_set_status. Mark it completed immediately after its acceptance criteria are satisfied; do not batch multiple completions.
         - Only one step may be in_progress. Setting a step to completed does not automatically advance the next step.
-        - On continue runs, use the current task state from runtime context. Recreate the list only when the existing state is absent or clearly obsolete.
+        - On continue runs, use the current task state from runtime reminders and task reminders. Recreate the list only when the existing state is absent or clearly obsolete.
 
         # 多 Agent 协作
 
@@ -246,7 +237,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
 
         # 小说 workspace
 
-        Agent cwd 是 Workspace Root workspace/，不是某个 Project Workspace。当前 Project Workspace 会在 runtime context 中以 workspace/{project} 给出；文件工具和 bash 访问项目内容时优先写成 {project}/...。
+        Agent cwd 是 Workspace Root workspace/，不是某个 Project Workspace。当前 Project Workspace 会在 AppendingSet runtime reminder 中以 workspace/{project} 给出；文件工具和 bash 访问项目内容时优先写成 {project}/...。
 
         Project Workspace 常见目录：
         - {project}/AGENTS.md：项目协作说明。
@@ -359,7 +350,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - 计划模式里的计划应足够具体，可直接执行，但不要把当前对话里的临时口癖写进长期提示词。
         - Plan Mode 是 soft mode：进入后仍可做只读调查、列计划、阅读源码和运行不会改写仓库状态的验证；不要执行产品代码、配置、数据或工作区内容修改。
         - 需要实现时，先准备执行计划，再用 exit_plan_mode 请求用户批准。不要用普通文本或 request_user_input 代替 exit_plan_mode。
-        - Plan Mode 工作目录会在 runtime context 或 system-reminder 中给出，固定为当前 Project Workspace 的 .agent/plan/，适合保存计划草案、walkthrough 和调研 notes。进入 Plan Mode 时不会绑定固定文件名；需要持久化计划时自行选择短且可读的 Markdown 文件名。
+        - Plan Mode 工作目录会在 system-reminder 中给出，固定为当前 Project Workspace 的 .agent/plan/，适合保存计划草案、walkthrough 和调研 notes。进入 Plan Mode 时不会绑定固定文件名；需要持久化计划时自行选择短且可读的 Markdown 文件名。
         - Plan Mode 激活时，只能编辑 .agent/plan/ 内的 Markdown 计划/记录文件；不要把 scratch/cache/命令输出草稿放进 Project Workspace .agent，临时文件使用系统 tmp。
         - 不要创建或调用 Explore agent。需要探索时使用当前 agent 的只读 read/search/bash 验证能力。
         - 退出 Plan Mode 前，如果写了计划文件，先在聊天中简短报告计划状态并引用 .agent/plan/ 内的 Markdown 文件路径，再用 exit_plan_mode 请求批准；需要审批预览时传 planFilePath。
@@ -392,7 +383,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - workspace node validate 是安全网；出现 P1/P2 时，先修复能明确处理的问题，再继续写作或迁移。
         - 脚本失败时，读取错误信息并说明阻塞原因；不要假装脚本已经成功。
         - 执行 rg --files 前先确认 Agent cwd。默认 cwd 是 workspace 容器根，因此当前小说路径要写成 novel-slug/manuscript/、novel-slug/lorebook/。
-        - 文件工具的相对 path 默认从 Workspace Root 解析。当前小说目录由 runtime context 的 Current Project Workspace 提供；首选 novel-name/...。workspace/novel-name/... 只作为兼容别名，不作为默认写法。
+        - 文件工具的相对 path 默认从 Workspace Root 解析。当前小说目录由 AppendingSet runtime reminder 的 Current Project Workspace 提供；首选 novel-name/...。workspace/novel-name/... 只在工具明确要求 projectPath 时使用，不作为默认文件路径写法。
 
         # Skills
 

@@ -169,7 +169,7 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).toContain("\"chapterPath\"");
         expect(prompt).toContain("\"threadSortOrder\"");
         expect(prompt).toContain("角色动机是否连续");
-        expect(prompt).toContain("Plan Mode 工作目录会在 runtime context");
+        expect(prompt).toContain("Plan Mode 工作目录会在 system-reminder");
         expect(prompt).not.toContain("{sessionId}");
         expect(prompt).not.toContain("read_file");
         expect(prompt).not.toContain("write_file");
@@ -232,9 +232,12 @@ describe("assets builtin v3 profiles", () => {
         expect(runtimeModelContextText).toContain("\"path\": \"client.currentProjectWorkspace\"");
         expect(runtimeModelContextText).toContain("\"path\": \"client.studio.selectedFilePath\"");
         expect(runtimeModelContextText).not.toContain("\"ide\"");
+        expect(runtimeModelContextText).not.toContain("<dynamic-context>");
+        expect(runtimeAppendingText).toContain("Current Workdir: workspace/");
+        expect(runtimeAppendingText).toContain("This is the tool cwd itself");
         expect(runtimeAppendingText).toContain("Current Project Workspace: workspace/novel-7");
-        expect(runtimeAppendingText).toContain("current file: manuscript/001-opening/index.md");
-        expect(runtimeAppendingText).toContain("spell cross-project paths explicitly");
+        expect(runtimeAppendingText).toContain("Use novel-7/lorebook/... or novel-7/manuscript/...");
+        expect(runtimeAppendingText).toContain("Plan mode is inactive");
         expect(runtimeAppendingText).not.toContain("Current plot focus:");
         const planModePrepared = await profile.prepare!({
             session: testSession({
@@ -462,11 +465,9 @@ describe("assets builtin v3 profiles", () => {
         expect(historyText).toContain(resolve("assets", "workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"));
         expect(historyText).toContain("There is no separate skill tool");
         expect(historyText).toContain("read the SKILL.md file at the catalog location");
-        expect(modelContextText).toContain("Agent cwd:");
-        expect(modelContextText).toContain("Profile key: leader.assets");
-        expect(modelContextText).toContain("user-assets is Workspace Root .nbook");
-        expect(modelContextText).toContain("agent profiles/skills/writing-presets/variables should use agent/ under current user-assets cwd");
-        expect(modelContextText).toContain("Do not edit manuscript, lorebook, or Project SQLite from this profile.");
+        expect(modelContextText).toBe("");
+        expect(appendingText).toContain("Current Workdir: workspace/.nbook");
+        expect(appendingText).toContain("This is the tool cwd itself");
         expect(appendingText).toContain("User assets workspace");
         expect(appendingText).toContain("user-assets is Workspace Root .nbook");
         expect(appendingText).toContain("Do not write novel lorebook");

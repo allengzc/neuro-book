@@ -15,14 +15,15 @@ import {
     Message,
     MentionedSkillsReminder,
     ModelContext,
+    PlanModeAvailabilityReminder,
     PlanModeExit,
     PlanModeFull,
     PlanModeReminder,
     PlanModeReentry,
     PlanModeSparse,
     ProfilePrompt,
+    ProjectWorkspaceReminder,
     Reminder,
-    RuntimeContext,
     SqlSchemaSummary,
     System,
     SkillCatalog,
@@ -32,6 +33,7 @@ import {
     validateProfileTurnPlan,
     Watch,
     VariableSchema,
+    WorkdirReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
@@ -584,7 +586,7 @@ describe("profile TSX DSL", () => {
         expect(text).not.toContain("\"type\"");
     });
 
-    it("通用 runtime reminder 节点能渲染英文 system-reminder", async () => {
+    it("runtime reminder 节点能在 AppendingSet 注入可见 system-reminder", async () => {
         const profile = defineAgentProfile({
             manifest: {
                 key: "test.runtime-reminders",
@@ -597,11 +599,14 @@ describe("profile TSX DSL", () => {
                     children: [
                         ModelContext({
                             children: Message({
-                                children: RuntimeContext({}),
+                                children: SqlSchemaSummary({text: "SQL_SCHEMA"}),
                             }),
                         }),
                         AppendingSet({
                             children: [
+                                WorkdirReminder(),
+                                ProjectWorkspaceReminder(),
+                                PlanModeAvailabilityReminder(),
                                 LinkedAgentsReminder(),
                                 TaskReminder({repeatEveryTurns: 8}),
                                 PlanModeReminder(),
@@ -638,20 +643,98 @@ describe("profile TSX DSL", () => {
         const modelText = (plan.modelContextMessages ?? []).map((message) => message.role === "user" ? messageText(message) : "").join("\n");
         const appendingText = (plan.appendingMessages ?? []).map(messageText).join("\n");
 
-        expect(modelText).toContain("<dynamic-context>");
-        expect(modelText).toContain("Agent cwd: workspace");
-        expect(modelText).toContain("Current Project Workspace: workspace/novel-7");
-        expect(modelText).not.toContain("Current novelId");
-        expect(modelText).toContain("Linked agents:");
+        expect(modelText).toBe("SQL_SCHEMA");
+        expect(modelText).not.toContain("<dynamic-context>");
+        expect(appendingText).toContain("Current Workdir: workspace/");
+        expect(appendingText).toContain("This is the tool cwd itself");
+        expect(appendingText).toContain("Current Project Workspace: workspace/novel-7");
+        expect(appendingText).toContain("Use novel-7/lorebook/... or novel-7/manuscript/...");
+        expect(appendingText).not.toContain("Plan mode is inactive");
         expect(appendingText).toContain("Current linked agents:");
         expect(appendingText).toContain("Current task list: Test plan");
         expect(appendingText).toContain("## Thread Work Directory");
         expect(appendingText).toContain("## Restrictions");
         expect(appendingText).toContain("## Workflow");
-        expect(appendingText.match(/## Thread Work Directory/g)).toHaveLength(1);
         expect(appendingText).toContain("The user explicitly mentioned skill(s): $draft");
         expect(appendingText).toContain("read the matching SKILL.md location");
         expect(appendingText).not.toContain("{sessionId}");
+    });
+
+    it("PlanModeAvailabilityReminder 首轮 inactive 时注入可用性提醒", async () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.plan-mode-availability",
+                name: "Plan Mode Availability",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: AppendingSet({
+                        children: PlanModeAvailabilityReminder(),
+                    }),
+                });
+            },
+        });
+
+        const plan = await profile.prepare!(context());
+
+        expect((plan.appendingMessages ?? []).map(messageText).join("\n")).toContain("Plan mode is inactive");
+    });
+
+    it("ProjectWorkspaceReminder 仅在 Current Project Workspace 变化时注入切换提醒", async () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.project-workspace-reminder",
+                name: "Project Workspace Reminder",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: AppendingSet({
+                        children: ProjectWorkspaceReminder(),
+                    }),
+                });
+            },
+        });
+        const base = context();
+        const previousState = {
+            "profileState.test.project-workspace-reminder": {
+                reminders: {
+                    "project-workspace": {
+                        hasValue: true,
+                        value: "workspace/a",
+                        fingerprint: "\"workspace/a\"",
+                        injectedAtTurn: 1,
+                    },
+                },
+            },
+        };
+        const unchanged = await profile.prepare!({
+            ...base,
+            vars: createTestVariableAccessor({"client.currentProjectWorkspace": "workspace/a"}),
+            session: {
+                ...base.session,
+                profileKey: "test.project-workspace-reminder",
+                customState: previousState,
+            },
+        });
+        const changed = await profile.prepare!({
+            ...base,
+            vars: createTestVariableAccessor({"client.currentProjectWorkspace": "workspace/b"}),
+            session: {
+                ...base.session,
+                profileKey: "test.project-workspace-reminder",
+                customState: previousState,
+            },
+        });
+
+        expect(unchanged.appendingMessages ?? []).toEqual([]);
+        const text = (changed.appendingMessages ?? []).map(messageText).join("\n");
+        expect(text).toContain("User switched Current Project Workspace to workspace/b");
+        expect(text).toContain("Current Workdir is still workspace/");
+        expect(text).toContain("use b/... paths, not workspace/b/...");
     });
 
     it("PlanModeReminder 支持 exit 和 reentry lifecycle 文案", async () => {

@@ -191,7 +191,7 @@ active DSL 节点：
 }
 ```
 
-`workspaceRoot` 是 agent 工具执行 cwd，不等同于当前小说 Project Workspace。普通小说入口现在把 cwd 固定为 Workspace Root `workspace`，这样同一个 agent 可以显式访问多个 Project Workspace；当前小说通过 session `novelId` 和 RuntimeContext 的 `Current Project Workspace` 提示给模型。`user-assets` 入口仍使用 `workspace/.nbook` 作为 cwd。
+`workspaceRoot` 是 agent 工具执行 cwd，不等同于当前小说 Project Workspace。普通小说入口现在把 cwd 固定为 Workspace Root `workspace`，这样同一个 agent 可以显式访问多个 Project Workspace；当前项目通过 `AppendingSet` 中的 runtime reminders 提示给模型并写入可见 session 历史。首轮会提示 `Current Workdir: workspace/`，并明确这是工具 cwd 本身，文件路径不要再加 `workspace/` 前缀；Project Workspace 变化时只注入切换提醒。`user-assets` 入口仍使用 `workspace/.nbook` 作为 cwd。
 
 ### Agent Bash CLI
 

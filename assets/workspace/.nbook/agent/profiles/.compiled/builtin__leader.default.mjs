@@ -637,7 +637,7 @@ var init_sql_tool = __esm({
 });
 
 // server/agent/profiles/profile-dsl.ts
-import { resolve } from "node:path";
+import { resolve, relative as relative2 } from "node:path";
 
 // server/agent/messages/message-utils.ts
 var EMPTY_USAGE = {
@@ -867,6 +867,7 @@ function Reminder(props) {
     watchPath: props.watchPath,
     watchValue: props.watchValue,
     watch: props.watch,
+    render: props.render,
     repeatEveryTurns: props.repeatEveryTurns,
     children: normalizeChildren(props.children)
   };
@@ -940,28 +941,6 @@ function SystemReminder(props) {
     }
   };
 }
-function RuntimeContext(props = {}) {
-  return {
-    kind: "StringFragment",
-    text: async (ctx) => {
-      const planModeState = readRecord(ctx.session.customState[AGENT_PLAN_MODE_STATE_KEY]);
-      const currentProjectWorkspace = await readCurrentProjectWorkspace(ctx);
-      const lines = [
-        "<dynamic-context>",
-        `Agent cwd: ${ctx.session.workspaceRoot}`,
-        currentProjectWorkspace ? `Current Project Workspace: ${currentProjectWorkspace}` : "",
-        `Profile key: ${ctx.session.profileKey}`,
-        readInputRole(ctx) ? `Input role: ${readInputRole(ctx)}` : "",
-        ctx.session.planModeActive ? "Plan mode: active" : "Plan mode: inactive",
-        typeof planModeState.workDirectory === "string" ? `Plan mode work directory: ${planModeState.workDirectory}` : "",
-        linkedAgentsSummaryText(ctx.session),
-        await renderStandaloneString(ctx, normalizeChildren(props.children)),
-        "</dynamic-context>"
-      ].filter(Boolean);
-      return lines.join("\n");
-    }
-  };
-}
 function LinkedAgentsSummary(_props = {}) {
   return {
     kind: "StringFragment",
@@ -974,6 +953,44 @@ function LinkedAgentsReminder(props = {}) {
     watch: (ctx) => ctx.session.linkedAgents,
     repeatEveryTurns: props.repeatEveryTurns,
     children: Message({ children: LinkedAgentsReminderText() })
+  });
+}
+function WorkdirReminder(props = {}) {
+  return Reminder({
+    id: props.id ?? "workdir",
+    watch: (ctx) => normalizeDisplayPath(ctx.session.workspaceRoot),
+    repeatEveryTurns: props.repeatEveryTurns,
+    render: (change) => Message({ children: systemReminder([
+      `Current Workdir: ${ensureTrailingSlash(String(change.currentValue ?? ""))}`,
+      "This is the tool cwd itself; use . for the cwd and do not prefix file paths with workspace/."
+    ].join("\n")) })
+  });
+}
+function ProjectWorkspaceReminder(props = {}) {
+  return Reminder({
+    id: props.id ?? "project-workspace",
+    watch: readCurrentProjectWorkspace,
+    repeatEveryTurns: props.repeatEveryTurns,
+    render: (change) => {
+      const projectWorkspace = typeof change.currentValue === "string" && change.currentValue ? change.currentValue : "";
+      if (!projectWorkspace) {
+        return null;
+      }
+      const projectSlug = projectSlugFromWorkspace(projectWorkspace);
+      const body = change.hasPreviousValue && change.didChange ? `User switched Current Project Workspace to ${projectWorkspace}. Current Workdir is still workspace/; use ${projectSlug}/... paths, not workspace/${projectSlug}/... unless a tool explicitly asks for projectPath.` : [
+        `Current Project Workspace: ${projectWorkspace}`,
+        `Use ${projectSlug}/lorebook/... or ${projectSlug}/manuscript/... for project files.`
+      ].join("\n");
+      return Message({ children: systemReminder(body) });
+    }
+  });
+}
+function PlanModeAvailabilityReminder(props = {}) {
+  return Reminder({
+    id: props.id ?? "plan-mode-availability",
+    watch: (ctx) => ctx.session.planModeActive ? "active" : "inactive",
+    repeatEveryTurns: props.repeatEveryTurns,
+    render: (change) => change.currentValue === "inactive" ? Message({ children: systemReminder("Plan mode is inactive. For large, risky, or multi-step changes, use enter_plan_mode before editing.") }) : null
   });
 }
 function TaskReminder(props = {}) {
@@ -1424,7 +1441,19 @@ async function renderReminder(state, node) {
   if (!shouldInject) {
     return [];
   }
-  const messages = await renderChildren(state, "reminder", node.children);
+  const change = {
+    previousValue: previous?.hasValue ? previous.value ?? null : void 0,
+    currentValue,
+    hasPreviousValue: Boolean(previous?.hasValue),
+    hasCurrentValue: currentValue !== void 0,
+    didChange: didFingerprintChange,
+    session: state.context.session
+  };
+  const rendered = node.render ? await node.render(change) : node.children;
+  if (!rendered || rendered === true) {
+    return [];
+  }
+  const messages = await renderChildren(state, "reminder", normalizeChildren(rendered));
   if (messages.length === 0) {
     return [];
   }
@@ -1432,6 +1461,10 @@ async function renderReminder(state, node) {
     state.nextRuntimeState.reminders = {
       ...state.nextRuntimeState.reminders,
       [node.id]: {
+        ...hasWatchValue ? {
+          hasValue: currentValue !== void 0,
+          value: currentValue === void 0 ? null : currentValue
+        } : {},
         ...fingerprint !== void 0 ? { fingerprint } : {},
         injectedAtTurn: state.currentTurn
       }
@@ -1760,6 +1793,8 @@ function readReminderStateMap(value) {
       throw new Error(`profile runtime reminder state \u975E\u6CD5\uFF1A${key}`);
     }
     reminders[key] = {
+      hasValue: typeof item.hasValue === "boolean" ? item.hasValue : false,
+      value: item.value ?? null,
       fingerprint: typeof item.fingerprint === "string" ? item.fingerprint : void 0,
       injectedAtTurn: item.injectedAtTurn
     };
@@ -1802,13 +1837,26 @@ function systemReminder(body) {
 function readRecord(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
-function readInputRole(ctx) {
-  const input = readRecord(ctx.input);
-  return typeof input.role === "string" ? input.role : "";
-}
 async function readCurrentProjectWorkspace(ctx) {
   const value = await ctx.vars.get("client.currentProjectWorkspace");
-  return typeof value === "string" ? value : "";
+  const projectWorkspace = typeof value === "string" && value.trim() ? value : ctx.session.projectPath ?? "";
+  return projectWorkspace ? normalizeDisplayPath(projectWorkspace) : "";
+}
+function normalizeDisplayPath(value) {
+  const normalized = value.replace(/\\/g, "/").replace(/\/+$/g, "");
+  const relativeToRepo = relative2(process.cwd(), value).replace(/\\/g, "/");
+  if (relativeToRepo && !relativeToRepo.startsWith("..") && !relativeToRepo.startsWith("/")) {
+    return relativeToRepo.replace(/\/+$/g, "");
+  }
+  return normalized;
+}
+function ensureTrailingSlash(value) {
+  const normalized = value.replace(/\\/g, "/").replace(/\/+$/g, "");
+  return normalized ? `${normalized}/` : "";
+}
+function projectSlugFromWorkspace(projectWorkspace) {
+  const normalized = projectWorkspace.replace(/\\/g, "/").replace(/\/+$/g, "");
+  return normalized.startsWith("workspace/") ? normalized.slice("workspace/".length) : normalized;
 }
 function linkedAgentsSummaryText(session) {
   if (session.linkedAgents.length === 0) {
@@ -2347,9 +2395,11 @@ var components = {
   Watch,
   If,
   SystemReminder,
-  RuntimeContext,
   LinkedAgentsSummary,
   LinkedAgentsReminder,
+  WorkdirReminder,
+  ProjectWorkspaceReminder,
+  PlanModeAvailabilityReminder,
   TaskReminder,
   PlanModeReminder,
   PlanModeFull,
@@ -2436,14 +2486,7 @@ var leader_default_profile_default = defineAgentProfile({
       maxDialogueContentTokens: 8e4
     }
   },
-  async context(ctx) {
-    const currentProjectWorkspace = await ctx.vars.get("client.currentProjectWorkspace");
-    const selectedFilePath = await ctx.vars.get("client.studio.selectedFilePath");
-    const workspaceReminderText = [
-      "<system-reminder>",
-      `Current Project Workspace: ${typeof currentProjectWorkspace === "string" && currentProjectWorkspace ? currentProjectWorkspace : "unknown"}; current file: ${typeof selectedFilePath === "string" && selectedFilePath ? selectedFilePath : "none"}. Agent cwd is Workspace Root workspace/. For project files, use project-slug/lorebook/... or project-slug/manuscript/..., and spell cross-project paths explicitly; project.yaml lives at the Project Workspace root, not under .nbook/.`,
-      "</system-reminder>"
-    ].join("\n");
+  context() {
     return /* @__PURE__ */ jsxs(ProfilePrompt, { children: [
       /* @__PURE__ */ jsx(System, { children: LEADER_SYSTEM_PROMPT }),
       /* @__PURE__ */ jsxs(HistorySet, { children: [
@@ -2451,12 +2494,13 @@ var leader_default_profile_default = defineAgentProfile({
         /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(SkillCatalog, {}) })
       ] }),
       /* @__PURE__ */ jsxs(ModelContext, { children: [
-        /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(RuntimeContext, {}) }),
         /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(SqlSchemaSummary, {}) }),
         /* @__PURE__ */ jsx(VariableSchema, { paths: ["client.currentProjectWorkspace", "client.studio.selectedFilePath"], includeToolGuide: true })
       ] }),
       /* @__PURE__ */ jsxs(AppendingSet, { children: [
-        /* @__PURE__ */ jsx(Reminder, { id: "project", watchPath: "client.currentProjectWorkspace", repeatEveryTurns: 20, children: /* @__PURE__ */ jsx(Message, { children: workspaceReminderText }) }),
+        /* @__PURE__ */ jsx(WorkdirReminder, {}),
+        /* @__PURE__ */ jsx(ProjectWorkspaceReminder, {}),
+        /* @__PURE__ */ jsx(PlanModeAvailabilityReminder, {}),
         /* @__PURE__ */ jsx(LinkedAgentsReminder, {}),
         /* @__PURE__ */ jsx(TaskReminder, { stateKey: "agent.tasks", repeatEveryTurns: 8 }),
         /* @__PURE__ */ jsx(PlanModeReminder, { stateKey: "agent.planMode" }),
@@ -2516,7 +2560,7 @@ var LEADER_SYSTEM_PROMPT = profileText`
         - bash 只用于真实终端操作：rg、find、ls、git、测试、构建等。搜索文本优先用 rg。
         - bash 命令必须按 bash 语法编写；不要写其他 shell 语法。工具已经绑定 workspace 容器根，不要传 workdir。
         - 可以并行调用互不依赖的工具。依赖前一个结果时必须顺序调用。
-        - 常规任务优先以 runtime context 的 Current Project Workspace 为边界，但 Agent cwd / workspace root 始终是 Workspace Root workspace/。访问当前小说时使用 novel-slug/lorebook/...、novel-slug/manuscript/... 这类显式路径。
+        - 常规任务优先以 AppendingSet runtime reminder 的 Current Project Workspace 为边界，但 Agent cwd / workspace root 始终是 Workspace Root workspace/。访问当前小说时使用 novel-slug/lorebook/...、novel-slug/manuscript/... 这类显式路径。
         - 允许跨 project 写作和检查；跨 project 时必须显式写出目标 Project Workspace 路径，避免把内容写到错误小说。
         - 需要读写变量时，先用 variable_schema 查询局部 schema，再用 variable_read 读取当前值，最后用 variable_patch 提交 JSON Patch；重要修改后再次 read 验证。
         - 不要用 bash 拼接高风险写入命令替代 edit、apply_patch 或 write。
@@ -2537,7 +2581,7 @@ var LEADER_SYSTEM_PROMPT = profileText`
         - When creating tasks, use stable step ids, clear user-facing text, and explicit status values. Do not rely on the tool to infer pending.
         - Before actively working on a step, mark it in_progress with task_set_status. Mark it completed immediately after its acceptance criteria are satisfied; do not batch multiple completions.
         - Only one step may be in_progress. Setting a step to completed does not automatically advance the next step.
-        - On continue runs, use the current task state from runtime context. Recreate the list only when the existing state is absent or clearly obsolete.
+        - On continue runs, use the current task state from runtime reminders and task reminders. Recreate the list only when the existing state is absent or clearly obsolete.
 
         # 多 Agent 协作
 
@@ -2582,7 +2626,7 @@ var LEADER_SYSTEM_PROMPT = profileText`
 
         # 小说 workspace
 
-        Agent cwd 是 Workspace Root workspace/，不是某个 Project Workspace。当前 Project Workspace 会在 runtime context 中以 workspace/{project} 给出；文件工具和 bash 访问项目内容时优先写成 {project}/...。
+        Agent cwd 是 Workspace Root workspace/，不是某个 Project Workspace。当前 Project Workspace 会在 AppendingSet runtime reminder 中以 workspace/{project} 给出；文件工具和 bash 访问项目内容时优先写成 {project}/...。
 
         Project Workspace 常见目录：
         - {project}/AGENTS.md：项目协作说明。
@@ -2695,7 +2739,7 @@ var LEADER_SYSTEM_PROMPT = profileText`
         - 计划模式里的计划应足够具体，可直接执行，但不要把当前对话里的临时口癖写进长期提示词。
         - Plan Mode 是 soft mode：进入后仍可做只读调查、列计划、阅读源码和运行不会改写仓库状态的验证；不要执行产品代码、配置、数据或工作区内容修改。
         - 需要实现时，先准备执行计划，再用 exit_plan_mode 请求用户批准。不要用普通文本或 request_user_input 代替 exit_plan_mode。
-        - Plan Mode 工作目录会在 runtime context 或 system-reminder 中给出，固定为当前 Project Workspace 的 .agent/plan/，适合保存计划草案、walkthrough 和调研 notes。进入 Plan Mode 时不会绑定固定文件名；需要持久化计划时自行选择短且可读的 Markdown 文件名。
+        - Plan Mode 工作目录会在 system-reminder 中给出，固定为当前 Project Workspace 的 .agent/plan/，适合保存计划草案、walkthrough 和调研 notes。进入 Plan Mode 时不会绑定固定文件名；需要持久化计划时自行选择短且可读的 Markdown 文件名。
         - Plan Mode 激活时，只能编辑 .agent/plan/ 内的 Markdown 计划/记录文件；不要把 scratch/cache/命令输出草稿放进 Project Workspace .agent，临时文件使用系统 tmp。
         - 不要创建或调用 Explore agent。需要探索时使用当前 agent 的只读 read/search/bash 验证能力。
         - 退出 Plan Mode 前，如果写了计划文件，先在聊天中简短报告计划状态并引用 .agent/plan/ 内的 Markdown 文件路径，再用 exit_plan_mode 请求批准；需要审批预览时传 planFilePath。
@@ -2728,7 +2772,7 @@ var LEADER_SYSTEM_PROMPT = profileText`
         - workspace node validate 是安全网；出现 P1/P2 时，先修复能明确处理的问题，再继续写作或迁移。
         - 脚本失败时，读取错误信息并说明阻塞原因；不要假装脚本已经成功。
         - 执行 rg --files 前先确认 Agent cwd。默认 cwd 是 workspace 容器根，因此当前小说路径要写成 novel-slug/manuscript/、novel-slug/lorebook/。
-        - 文件工具的相对 path 默认从 Workspace Root 解析。当前小说目录由 runtime context 的 Current Project Workspace 提供；首选 novel-name/...。workspace/novel-name/... 只作为兼容别名，不作为默认写法。
+        - 文件工具的相对 path 默认从 Workspace Root 解析。当前小说目录由 AppendingSet runtime reminder 的 Current Project Workspace 提供；首选 novel-name/...。workspace/novel-name/... 只在工具明确要求 projectPath 时使用，不作为默认文件路径写法。
 
         # Skills
 

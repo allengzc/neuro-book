@@ -1,4 +1,4 @@
-import {resolve, join} from "node:path";
+import {resolve, join, relative} from "node:path";
 import type {AgentToolCall} from "@earendil-works/pi-agent-core";
 import type {AgentMessage, AssistantMessage, JsonValue, Message, ToolResultMessage} from "nbook/server/agent/messages/types";
 import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
@@ -75,8 +75,18 @@ export type ProfileReminderNode = {
     watchPath?: ProfileVariablePathInput;
     watchValue?: JsonValue;
     watch?: (ctx: ProfilePrepareContext<any>) => JsonValue | undefined | Promise<JsonValue | undefined>;
+    render?: (change: ReminderChange) => ProfileDslChild | Promise<ProfileDslChild>;
     repeatEveryTurns?: number;
     children: ProfileDslChild[];
+};
+
+export type ReminderChange = {
+    previousValue: JsonValue | undefined;
+    currentValue: JsonValue | undefined;
+    hasPreviousValue: boolean;
+    hasCurrentValue: boolean;
+    didChange: boolean;
+    session: NeuroSessionContext;
 };
 
 export type WatchChange = {
@@ -141,6 +151,8 @@ export type ProfileFragmentNode = {
 type RenderZone = "root" | "system" | "history" | "model" | "appending" | "message" | "assistant" | "reminder" | "watch" | "compaction";
 
 export type ReminderState = {
+    hasValue?: boolean;
+    value?: JsonValue | null;
     fingerprint?: string;
     injectedAtTurn: number;
 };
@@ -407,6 +419,7 @@ export function Reminder(props: {
     watchPath?: string;
     watchValue?: JsonValue;
     watch?: (ctx: ProfilePrepareContext<any>) => JsonValue | undefined | Promise<JsonValue | undefined>;
+    render?: (change: ReminderChange) => ProfileDslChild | Promise<ProfileDslChild>;
     repeatEveryTurns?: number;
     children?: ProfileDslChild | ProfileDslChild[];
 }): ProfileReminderNode {
@@ -417,6 +430,7 @@ export function Reminder(props: {
         watchPath: props.watchPath,
         watchValue: props.watchValue,
         watch: props.watch,
+        render: props.render,
         repeatEveryTurns: props.repeatEveryTurns,
         children: normalizeChildren(props.children),
     };
@@ -541,32 +555,6 @@ export function SystemReminder(props: {children?: ProfileDslChild | ProfileDslCh
 }
 
 /**
- * 当前 session/runtime 摘要。只进入模型上下文，不应写入长期系统提示词。
- */
-export function RuntimeContext(props: {children?: ProfileDslChild | ProfileDslChild[]} = {}): ProfileStringFragmentNode {
-    return {
-        kind: "StringFragment",
-        text: async (ctx) => {
-            const planModeState = readRecord(ctx.session.customState[AGENT_PLAN_MODE_STATE_KEY]);
-            const currentProjectWorkspace = await readCurrentProjectWorkspace(ctx);
-            const lines = [
-                "<dynamic-context>",
-                    `Agent cwd: ${ctx.session.workspaceRoot}`,
-                    currentProjectWorkspace ? `Current Project Workspace: ${currentProjectWorkspace}` : "",
-                    `Profile key: ${ctx.session.profileKey}`,
-                    readInputRole(ctx) ? `Input role: ${readInputRole(ctx)}` : "",
-                    ctx.session.planModeActive ? "Plan mode: active" : "Plan mode: inactive",
-                    typeof planModeState.workDirectory === "string" ? `Plan mode work directory: ${planModeState.workDirectory}` : "",
-                    linkedAgentsSummaryText(ctx.session),
-                    await renderStandaloneString(ctx, normalizeChildren(props.children)),
-                "</dynamic-context>",
-            ].filter(Boolean);
-            return lines.join("\n");
-        },
-    };
-}
-
-/**
  * 已关联 agent 摘要。可嵌入普通 Message 或 SystemReminder。
  */
 export function LinkedAgentsSummary(_props: Record<string, never> = {}): ProfileStringFragmentNode {
@@ -585,6 +573,60 @@ export function LinkedAgentsReminder(props: {id?: string; repeatEveryTurns?: num
         watch: (ctx) => ctx.session.linkedAgents as JsonValue,
         repeatEveryTurns: props.repeatEveryTurns,
         children: Message({children: LinkedAgentsReminderText()}),
+    });
+}
+
+/**
+ * 首轮注入当前工具 cwd。这里的 cwd 是 agent 文件工具和 bash 的工作目录，不是 Project Workspace。
+ */
+export function WorkdirReminder(props: {id?: string; repeatEveryTurns?: number} = {}): ProfileReminderNode {
+    return Reminder({
+        id: props.id ?? "workdir",
+        watch: (ctx) => normalizeDisplayPath(ctx.session.workspaceRoot),
+        repeatEveryTurns: props.repeatEveryTurns,
+        render: (change) => Message({children: systemReminder([
+            `Current Workdir: ${ensureTrailingSlash(String(change.currentValue ?? ""))}`,
+            "This is the tool cwd itself; use . for the cwd and do not prefix file paths with workspace/.",
+        ].join("\n"))}),
+    });
+}
+
+/**
+ * 首轮注入当前 Project Workspace；后续仅在项目切换时注入切换提醒。
+ */
+export function ProjectWorkspaceReminder(props: {id?: string; repeatEveryTurns?: number} = {}): ProfileReminderNode {
+    return Reminder({
+        id: props.id ?? "project-workspace",
+        watch: readCurrentProjectWorkspace,
+        repeatEveryTurns: props.repeatEveryTurns,
+        render: (change) => {
+            const projectWorkspace = typeof change.currentValue === "string" && change.currentValue ? change.currentValue : "";
+            if (!projectWorkspace) {
+                return null;
+            }
+            const projectSlug = projectSlugFromWorkspace(projectWorkspace);
+            const body = change.hasPreviousValue && change.didChange
+                ? `User switched Current Project Workspace to ${projectWorkspace}. Current Workdir is still workspace/; use ${projectSlug}/... paths, not workspace/${projectSlug}/... unless a tool explicitly asks for projectPath.`
+                : [
+                    `Current Project Workspace: ${projectWorkspace}`,
+                    `Use ${projectSlug}/lorebook/... or ${projectSlug}/manuscript/... for project files.`,
+                ].join("\n");
+            return Message({children: systemReminder(body)});
+        },
+    });
+}
+
+/**
+ * 首轮提示 Plan Mode 可用性。PlanModeReminder 仍负责 active/exit/reentry 生命周期。
+ */
+export function PlanModeAvailabilityReminder(props: {id?: string; repeatEveryTurns?: number} = {}): ProfileReminderNode {
+    return Reminder({
+        id: props.id ?? "plan-mode-availability",
+        watch: (ctx) => ctx.session.planModeActive ? "active" : "inactive",
+        repeatEveryTurns: props.repeatEveryTurns,
+        render: (change) => change.currentValue === "inactive"
+            ? Message({children: systemReminder("Plan mode is inactive. For large, risky, or multi-step changes, use enter_plan_mode before editing.")})
+            : null,
     });
 }
 
@@ -1145,7 +1187,19 @@ async function renderReminder(state: CompileState, node: ProfileReminderNode): P
     if (!shouldInject) {
         return [];
     }
-    const messages = await renderChildren(state, "reminder", node.children);
+    const change: ReminderChange = {
+        previousValue: previous?.hasValue ? previous.value ?? null : undefined,
+        currentValue,
+        hasPreviousValue: Boolean(previous?.hasValue),
+        hasCurrentValue: currentValue !== undefined,
+        didChange: didFingerprintChange,
+        session: state.context.session,
+    };
+    const rendered = node.render ? await node.render(change) : node.children;
+    if (!rendered || rendered === true) {
+        return [];
+    }
+    const messages = await renderChildren(state, "reminder", normalizeChildren(rendered));
     if (messages.length === 0) {
         return [];
     }
@@ -1153,6 +1207,10 @@ async function renderReminder(state: CompileState, node: ProfileReminderNode): P
         state.nextRuntimeState.reminders = {
             ...state.nextRuntimeState.reminders,
             [node.id]: {
+                ...(hasWatchValue ? {
+                    hasValue: currentValue !== undefined,
+                    value: currentValue === undefined ? null : currentValue,
+                } : {}),
                 ...(fingerprint !== undefined ? {fingerprint} : {}),
                 injectedAtTurn: state.currentTurn,
             },
@@ -1513,6 +1571,8 @@ function readReminderStateMap(value: JsonValue | undefined): Record<string, Remi
             throw new Error(`profile runtime reminder state 非法：${key}`);
         }
         reminders[key] = {
+            hasValue: typeof item.hasValue === "boolean" ? item.hasValue : false,
+            value: item.value ?? null,
             fingerprint: typeof item.fingerprint === "string" ? item.fingerprint : undefined,
             injectedAtTurn: item.injectedAtTurn,
         };
@@ -1637,7 +1697,27 @@ function readInputRole(ctx: ProfilePrepareContext<any>): string {
 
 async function readCurrentProjectWorkspace(ctx: ProfilePrepareContext<any>): Promise<string> {
     const value = await ctx.vars.get("client.currentProjectWorkspace");
-    return typeof value === "string" ? value : "";
+    const projectWorkspace = typeof value === "string" && value.trim() ? value : ctx.session.projectPath ?? "";
+    return projectWorkspace ? normalizeDisplayPath(projectWorkspace) : "";
+}
+
+function normalizeDisplayPath(value: string): string {
+    const normalized = value.replace(/\\/g, "/").replace(/\/+$/g, "");
+    const relativeToRepo = relative(process.cwd(), value).replace(/\\/g, "/");
+    if (relativeToRepo && !relativeToRepo.startsWith("..") && !relativeToRepo.startsWith("/")) {
+        return relativeToRepo.replace(/\/+$/g, "");
+    }
+    return normalized;
+}
+
+function ensureTrailingSlash(value: string): string {
+    const normalized = value.replace(/\\/g, "/").replace(/\/+$/g, "");
+    return normalized ? `${normalized}/` : "";
+}
+
+function projectSlugFromWorkspace(projectWorkspace: string): string {
+    const normalized = projectWorkspace.replace(/\\/g, "/").replace(/\/+$/g, "");
+    return normalized.startsWith("workspace/") ? normalized.slice("workspace/".length) : normalized;
 }
 
 function linkedAgentsSummaryText(session: NeuroSessionContext): string {

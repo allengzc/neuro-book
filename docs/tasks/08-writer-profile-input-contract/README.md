@@ -191,7 +191,7 @@
 - `assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`
   - 更新 writer/retrieval 协作说明。
 - `assets/workspace/.nbook/agent/profiles/builtin/retrieval.profile.tsx`
-  - 使用 `<RuntimeContext />` 替代旧多字段 run context。
+  - 使用 `WorkdirReminder` / `ProjectWorkspaceReminder` 替代旧多字段 run context。
   - 更新 prompt-only 输入和 report_result 输出合同说明。
 - `assets/workspace/.nbook/agent/profiles/builtin/leader.assets.profile.tsx`
   - 增加 writing preset 新路径说明。

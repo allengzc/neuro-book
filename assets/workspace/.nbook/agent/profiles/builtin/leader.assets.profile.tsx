@@ -12,11 +12,9 @@ import {
     LinkedAgentsReminder,
     Message,
     MentionedSkillsReminder,
-    ModelContext,
     PlanModeReminder,
     ProfilePrompt,
     Reminder,
-    RuntimeContext,
     SkillCatalog,
     System,
 } from "nbook/server/agent/profiles/profile-dsl";
@@ -83,24 +81,13 @@ export default defineAgentProfile({
                         <SkillCatalog text={renderUserAssetsSkillCatalogText} />
                     </Message>
                 </HistorySet>
-                <ModelContext>
-                    <Message>
-                        <RuntimeContext>
-                            {[
-                                "User assets workspace:",
-                                "- user-assets is Workspace Root .nbook, not a Project Workspace.",
-                                "- agent profiles/skills/writing-presets/variables should use agent/ under current user-assets cwd; repository path: workspace/.nbook/agent",
-                                "- Do not edit manuscript, lorebook, or Project SQLite from this profile.",
-                                typeof ctx.input.role === "string" && ctx.input.role.trim() ? `Role: ${ctx.input.role.trim()}` : "",
-                            ].filter(Boolean).join("\n")}
-                        </RuntimeContext>
-                    </Message>
-                </ModelContext>
                 <AppendingSet>
                     <Reminder id="user-assets-workspace" watch={() => "user-assets"} repeatEveryTurns={20}>
                         <Message>
                             {[
                                 "<system-reminder>",
+                                "Current Workdir: workspace/.nbook",
+                                "This is the tool cwd itself; use . for the cwd and do not prefix file paths with workspace/.nbook/.",
                                 "User assets workspace:",
                                 "- user-assets is Workspace Root .nbook, not a Project Workspace.",
                                 "- agent profiles/skills/writing-presets/variables should use agent/ under current user-assets cwd; repository path: workspace/.nbook/agent",

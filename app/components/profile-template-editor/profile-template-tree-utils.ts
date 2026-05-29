@@ -114,9 +114,11 @@ export function canHaveChildren(type: ProfileTemplateNodeType): boolean {
         "SkillCatalog",
         "ActivatedSkills",
         "SqlSchemaSummary",
-        "RuntimeContext",
         "LinkedAgentsSummary",
         "LinkedAgentsReminder",
+        "WorkdirReminder",
+        "ProjectWorkspaceReminder",
+        "PlanModeAvailabilityReminder",
         "TaskReminder",
         "ActivePlanModeReminder",
         "MentionedSkillsReminder",
@@ -217,7 +219,6 @@ export function isInlineStringNodeType(type: ProfileTemplateNodeType): boolean {
         || type === "ActivatedSkills"
         || type === "SqlSchemaSummary"
         || type === "SystemReminder"
-        || type === "RuntimeContext"
         || type === "LinkedAgentsSummary"
         || type === "MentionedSkillsReminder";
 }
@@ -237,6 +238,9 @@ export function isPlanModeSlotNodeType(type: ProfileTemplateNodeType): boolean {
  */
 export function isReminderNodeType(type: ProfileTemplateNodeType): boolean {
     return type === "LinkedAgentsReminder"
+        || type === "WorkdirReminder"
+        || type === "ProjectWorkspaceReminder"
+        || type === "PlanModeAvailabilityReminder"
         || type === "TaskReminder"
         || type === "PlanModeReminder"
         || type === "ActivePlanModeReminder";

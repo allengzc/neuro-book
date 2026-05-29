@@ -177,7 +177,7 @@
     - `update_story_plot`
 - 所有 Plot tools 的 `novelId` 参数改为 `projectPath`。
 - `projectPath` 是 Workspace Root 下的单段 Project Path，不允许绝对路径、`..`、斜杠嵌套或 URL path 片段。
-- 当前 Project Workspace 可由 `client.currentProjectWorkspace` / RuntimeContext 提醒模型，但 Plot tools 不从旧 `session.novelId` 推断项目。
+- 当前 Project Workspace 可由 `client.currentProjectWorkspace` / `AppendingSet` runtime reminders 提醒模型，但 Plot tools 不从旧 `session.novelId` 推断项目。
 - `plot.selection` 状态字段从 `{ novelId, threadId, sceneId }` 改为 `{ projectPath, threadId, sceneId }`。
 - 省略 `threadId` / `sceneId` 时，只能复用相同 `projectPath` 的 selection；跨 Project Workspace 调用必须显式传 ID。
 - `chapterPath` 继续使用 Project Workspace 内相对路径，例如 `manuscript/001-volume/001-chapter/`。

@@ -640,7 +640,7 @@ var init_sql_tool = __esm({
 import { resolve as resolve2 } from "node:path";
 
 // server/agent/profiles/profile-dsl.ts
-import { resolve } from "node:path";
+import { resolve, relative as relative2 } from "node:path";
 
 // server/agent/messages/message-utils.ts
 var EMPTY_USAGE = {
@@ -870,6 +870,7 @@ function Reminder(props) {
     watchPath: props.watchPath,
     watchValue: props.watchValue,
     watch: props.watch,
+    render: props.render,
     repeatEveryTurns: props.repeatEveryTurns,
     children: normalizeChildren(props.children)
   };
@@ -943,28 +944,6 @@ function SystemReminder(props) {
     }
   };
 }
-function RuntimeContext(props = {}) {
-  return {
-    kind: "StringFragment",
-    text: async (ctx) => {
-      const planModeState = readRecord(ctx.session.customState[AGENT_PLAN_MODE_STATE_KEY]);
-      const currentProjectWorkspace = await readCurrentProjectWorkspace(ctx);
-      const lines = [
-        "<dynamic-context>",
-        `Agent cwd: ${ctx.session.workspaceRoot}`,
-        currentProjectWorkspace ? `Current Project Workspace: ${currentProjectWorkspace}` : "",
-        `Profile key: ${ctx.session.profileKey}`,
-        readInputRole(ctx) ? `Input role: ${readInputRole(ctx)}` : "",
-        ctx.session.planModeActive ? "Plan mode: active" : "Plan mode: inactive",
-        typeof planModeState.workDirectory === "string" ? `Plan mode work directory: ${planModeState.workDirectory}` : "",
-        linkedAgentsSummaryText(ctx.session),
-        await renderStandaloneString(ctx, normalizeChildren(props.children)),
-        "</dynamic-context>"
-      ].filter(Boolean);
-      return lines.join("\n");
-    }
-  };
-}
 function LinkedAgentsSummary(_props = {}) {
   return {
     kind: "StringFragment",
@@ -977,6 +956,44 @@ function LinkedAgentsReminder(props = {}) {
     watch: (ctx) => ctx.session.linkedAgents,
     repeatEveryTurns: props.repeatEveryTurns,
     children: Message({ children: LinkedAgentsReminderText() })
+  });
+}
+function WorkdirReminder(props = {}) {
+  return Reminder({
+    id: props.id ?? "workdir",
+    watch: (ctx) => normalizeDisplayPath(ctx.session.workspaceRoot),
+    repeatEveryTurns: props.repeatEveryTurns,
+    render: (change) => Message({ children: systemReminder([
+      `Current Workdir: ${ensureTrailingSlash(String(change.currentValue ?? ""))}`,
+      "This is the tool cwd itself; use . for the cwd and do not prefix file paths with workspace/."
+    ].join("\n")) })
+  });
+}
+function ProjectWorkspaceReminder(props = {}) {
+  return Reminder({
+    id: props.id ?? "project-workspace",
+    watch: readCurrentProjectWorkspace,
+    repeatEveryTurns: props.repeatEveryTurns,
+    render: (change) => {
+      const projectWorkspace = typeof change.currentValue === "string" && change.currentValue ? change.currentValue : "";
+      if (!projectWorkspace) {
+        return null;
+      }
+      const projectSlug = projectSlugFromWorkspace(projectWorkspace);
+      const body = change.hasPreviousValue && change.didChange ? `User switched Current Project Workspace to ${projectWorkspace}. Current Workdir is still workspace/; use ${projectSlug}/... paths, not workspace/${projectSlug}/... unless a tool explicitly asks for projectPath.` : [
+        `Current Project Workspace: ${projectWorkspace}`,
+        `Use ${projectSlug}/lorebook/... or ${projectSlug}/manuscript/... for project files.`
+      ].join("\n");
+      return Message({ children: systemReminder(body) });
+    }
+  });
+}
+function PlanModeAvailabilityReminder(props = {}) {
+  return Reminder({
+    id: props.id ?? "plan-mode-availability",
+    watch: (ctx) => ctx.session.planModeActive ? "active" : "inactive",
+    repeatEveryTurns: props.repeatEveryTurns,
+    render: (change) => change.currentValue === "inactive" ? Message({ children: systemReminder("Plan mode is inactive. For large, risky, or multi-step changes, use enter_plan_mode before editing.") }) : null
   });
 }
 function TaskReminder(props = {}) {
@@ -1427,7 +1444,19 @@ async function renderReminder(state, node) {
   if (!shouldInject) {
     return [];
   }
-  const messages = await renderChildren(state, "reminder", node.children);
+  const change = {
+    previousValue: previous?.hasValue ? previous.value ?? null : void 0,
+    currentValue,
+    hasPreviousValue: Boolean(previous?.hasValue),
+    hasCurrentValue: currentValue !== void 0,
+    didChange: didFingerprintChange,
+    session: state.context.session
+  };
+  const rendered = node.render ? await node.render(change) : node.children;
+  if (!rendered || rendered === true) {
+    return [];
+  }
+  const messages = await renderChildren(state, "reminder", normalizeChildren(rendered));
   if (messages.length === 0) {
     return [];
   }
@@ -1435,6 +1464,10 @@ async function renderReminder(state, node) {
     state.nextRuntimeState.reminders = {
       ...state.nextRuntimeState.reminders,
       [node.id]: {
+        ...hasWatchValue ? {
+          hasValue: currentValue !== void 0,
+          value: currentValue === void 0 ? null : currentValue
+        } : {},
         ...fingerprint !== void 0 ? { fingerprint } : {},
         injectedAtTurn: state.currentTurn
       }
@@ -1763,6 +1796,8 @@ function readReminderStateMap(value) {
       throw new Error(`profile runtime reminder state \u975E\u6CD5\uFF1A${key}`);
     }
     reminders[key] = {
+      hasValue: typeof item.hasValue === "boolean" ? item.hasValue : false,
+      value: item.value ?? null,
       fingerprint: typeof item.fingerprint === "string" ? item.fingerprint : void 0,
       injectedAtTurn: item.injectedAtTurn
     };
@@ -1805,13 +1840,26 @@ function systemReminder(body) {
 function readRecord(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
-function readInputRole(ctx) {
-  const input = readRecord(ctx.input);
-  return typeof input.role === "string" ? input.role : "";
-}
 async function readCurrentProjectWorkspace(ctx) {
   const value = await ctx.vars.get("client.currentProjectWorkspace");
-  return typeof value === "string" ? value : "";
+  const projectWorkspace = typeof value === "string" && value.trim() ? value : ctx.session.projectPath ?? "";
+  return projectWorkspace ? normalizeDisplayPath(projectWorkspace) : "";
+}
+function normalizeDisplayPath(value) {
+  const normalized = value.replace(/\\/g, "/").replace(/\/+$/g, "");
+  const relativeToRepo = relative2(process.cwd(), value).replace(/\\/g, "/");
+  if (relativeToRepo && !relativeToRepo.startsWith("..") && !relativeToRepo.startsWith("/")) {
+    return relativeToRepo.replace(/\/+$/g, "");
+  }
+  return normalized;
+}
+function ensureTrailingSlash(value) {
+  const normalized = value.replace(/\\/g, "/").replace(/\/+$/g, "");
+  return normalized ? `${normalized}/` : "";
+}
+function projectSlugFromWorkspace(projectWorkspace) {
+  const normalized = projectWorkspace.replace(/\\/g, "/").replace(/\/+$/g, "");
+  return normalized.startsWith("workspace/") ? normalized.slice("workspace/".length) : normalized;
 }
 function linkedAgentsSummaryText(session) {
   if (session.linkedAgents.length === 0) {
@@ -2350,9 +2398,11 @@ var components = {
   Watch,
   If,
   SystemReminder,
-  RuntimeContext,
   LinkedAgentsSummary,
   LinkedAgentsReminder,
+  WorkdirReminder,
+  ProjectWorkspaceReminder,
+  PlanModeAvailabilityReminder,
   TaskReminder,
   PlanModeReminder,
   PlanModeFull,
@@ -2433,16 +2483,11 @@ var leader_assets_profile_default = defineAgentProfile({
         /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(AgentCatalog, {}) }),
         /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(SkillCatalog, { text: renderUserAssetsSkillCatalogText }) })
       ] }),
-      /* @__PURE__ */ jsx(ModelContext, { children: /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(RuntimeContext, { children: [
-        "User assets workspace:",
-        "- user-assets is Workspace Root .nbook, not a Project Workspace.",
-        "- agent profiles/skills/writing-presets/variables should use agent/ under current user-assets cwd; repository path: workspace/.nbook/agent",
-        "- Do not edit manuscript, lorebook, or Project SQLite from this profile.",
-        typeof ctx.input.role === "string" && ctx.input.role.trim() ? `Role: ${ctx.input.role.trim()}` : ""
-      ].filter(Boolean).join("\n") }) }) }),
       /* @__PURE__ */ jsxs(AppendingSet, { children: [
         /* @__PURE__ */ jsx(Reminder, { id: "user-assets-workspace", watch: () => "user-assets", repeatEveryTurns: 20, children: /* @__PURE__ */ jsx(Message, { children: [
           "<system-reminder>",
+          "Current Workdir: workspace/.nbook",
+          "This is the tool cwd itself; use . for the cwd and do not prefix file paths with workspace/.nbook/.",
           "User assets workspace:",
           "- user-assets is Workspace Root .nbook, not a Project Workspace.",
           "- agent profiles/skills/writing-presets/variables should use agent/ under current user-assets cwd; repository path: workspace/.nbook/agent",

@@ -585,8 +585,8 @@ export default defineAgentProfile({
      - Plan Mode 基础约束
    - 验证：测试断言这些 section 存在，旧工具名不存在。
 
-7. Rebuild runtime context and reminders
-   - 用 `ModelContext` / `AppendingSet` / `Reminder` / `Watch` 表达当前 runtime context，恢复 v2 重要行为。
+7. Rebuild runtime reminders
+   - 用 `AppendingSet` / `Reminder` / `Watch` 表达当前可见 runtime reminders；`ModelContext` 只保留真正 model-only 的动态上下文。
    - 包含：
      - workspace root
      - profile key
@@ -647,7 +647,7 @@ export default defineAgentProfile({
 ## Acceptance Criteria
 
 - `leader.default` 从 `assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx` 加载成功。
-- `leader.default` 使用新的 TSX Profile DSL 表达核心 prompt 分层和 runtime context。
+- `leader.default` 使用新的 TSX Profile DSL 表达核心 prompt 分层和可见 runtime reminders。
 - build / prepare 链路会生成系统 profile metadata；坏系统 profile 会让 metadata 脚本失败。
 - 用户覆盖 profile 只在 sync state 证明用户未手改时自动同步；手改或缺 state 时不覆盖。
 - TSX Profile DSL 不依赖 `SimpleProfile` class 继承。
@@ -713,9 +713,9 @@ export default defineAgentProfile({
 ### 2026-05-24 Leader Assets TSX DSL Follow-up
 
 - `leader.assets` 已从高级 `prepare()` 手写 `modelContextMessages` 迁为 `context() => <ProfilePrompt>`，与 `leader.default` 使用同一套 active TSX DSL contract。
-- `leader.assets` 复用现有系统级 DSL 节点：`ProfilePrompt`、`System`、`HistorySet`、`ModelContext`、`AppendingSet`、`Message`、`AgentCatalog`、`SkillCatalog`、`RuntimeContext`、`LinkedAgentsReminder`、`PlanModeReminder`、`MentionedSkillsReminder`。
-- user-assets 专属的 workspace runtime context、workspace reminder 和 skill catalog wording 保留在 `leader.assets.profile.tsx` 本地 helper 中；它们暂时没有跨 profile 复用价值，不提升为系统级 TSX Node helper。
-- `leader.assets` 的 `HistorySet` 现在注入 agent catalog 与 user-assets 版本 skill catalog；`ModelContext` 注入 runtime context；`AppendingSet` 注入 user-assets cwd/边界提醒、linked agents、plan mode 和 `$skill` 提醒。
+- `leader.assets` 复用现有系统级 DSL 节点：`ProfilePrompt`、`System`、`HistorySet`、`ModelContext`、`AppendingSet`、`Message`、`AgentCatalog`、`SkillCatalog`、`LinkedAgentsReminder`、`PlanModeReminder`、`MentionedSkillsReminder`。
+- user-assets 专属的 workspace reminder 和 skill catalog wording 保留在 `leader.assets.profile.tsx` 本地 helper 中；它们暂时没有跨 profile 复用价值，不提升为系统级 TSX Node helper。
+- `leader.assets` 的 `HistorySet` 现在注入 agent catalog 与 user-assets 版本 skill catalog；`AppendingSet` 注入 user-assets cwd/边界提醒、linked agents、plan mode 和 `$skill` 提醒。
 - 系统 `.compiled` artifact 与 `.system-profile-metadata.json` 已重新生成，`leader.assets` 当前系统 artifact 为 `565a51165bf46b43d5405a53.mjs`。
 
 ## Plan Deviations

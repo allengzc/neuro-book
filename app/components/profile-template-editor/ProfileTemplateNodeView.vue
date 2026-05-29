@@ -114,9 +114,11 @@ const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
     Watch: "i-lucide-eye",
     If: "i-lucide-git-branch",
     SystemReminder: "i-lucide-badge-alert",
-    RuntimeContext: "i-lucide-braces",
     LinkedAgentsSummary: "i-lucide-git-merge",
     LinkedAgentsReminder: "i-lucide-network",
+    WorkdirReminder: "i-lucide-folder",
+    ProjectWorkspaceReminder: "i-lucide-folder-kanban",
+    PlanModeAvailabilityReminder: "i-lucide-clipboard-plus",
     TaskReminder: "i-lucide-list-checks",
     PlanModeReminder: "i-lucide-clipboard-check",
     PlanModeFull: "i-lucide-file-text",
@@ -166,7 +168,7 @@ function nodeMeta(node: ProfileTemplateNodeDto): string {
     if (node.type === "ToolResult") {
         return `tool: ${String(node.props.toolName ?? "tool")}`;
     }
-    if (node.type === "Reminder" || node.type === "TaskReminder" || node.type === "PlanModeReminder" || node.type === "ActivePlanModeReminder") {
+    if (node.type === "Reminder" || node.type === "WorkdirReminder" || node.type === "ProjectWorkspaceReminder" || node.type === "PlanModeAvailabilityReminder" || node.type === "TaskReminder" || node.type === "PlanModeReminder" || node.type === "ActivePlanModeReminder") {
         return ["id", "watchPath", "watchValue", "repeatEveryTurns"]
             .filter((key) => node.props[key] !== undefined && node.props[key] !== "")
             .map((key) => `${key}: ${formatPropValue(node.props[key])}`)
@@ -238,11 +240,17 @@ function nodeSummary(node: ProfileTemplateNodeDto): string {
     if (node.type === "SqlSchemaSummary") {
         return String(node.props.text ?? "${sqlSchemaSummaryText}");
     }
-    if (node.type === "RuntimeContext") {
-        return "Runtime workspace/profile/plan-mode context.";
-    }
     if (node.type === "LinkedAgentsReminder" || node.type === "LinkedAgentsSummary") {
         return "Linked agents summary.";
+    }
+    if (node.type === "WorkdirReminder") {
+        return "Current tool cwd reminder.";
+    }
+    if (node.type === "ProjectWorkspaceReminder") {
+        return "Current Project Workspace reminder.";
+    }
+    if (node.type === "PlanModeAvailabilityReminder") {
+        return "Plan mode availability reminder.";
     }
     if (node.type === "TaskReminder") {
         return "Task list reminder from agent.tasks.";
@@ -342,7 +350,7 @@ function prepareDrag(): void {
                     :depth="props.depth + 1"
                     :index="childIndex"
                     :parent-id="props.node.id"
-                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'ActivatedSkills', 'SqlSchemaSummary', 'RuntimeContext', 'LinkedAgentsSummary', 'LinkedAgentsReminder', 'TaskReminder', 'ActivePlanModeReminder', 'MentionedSkillsReminder'].includes(child.type)"
+                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'ActivatedSkills', 'SqlSchemaSummary', 'LinkedAgentsSummary', 'LinkedAgentsReminder', 'WorkdirReminder', 'ProjectWorkspaceReminder', 'PlanModeAvailabilityReminder', 'TaskReminder', 'ActivePlanModeReminder', 'MentionedSkillsReminder'].includes(child.type)"
                     :disabled-drop-node-ids="props.disabledDropNodeIds"
                     @select="emit('select', $event)"
                     @prepare-drag="emit('prepareDrag', $event)"
@@ -524,9 +532,11 @@ function prepareDrag(): void {
 .node-Watch::before,
 .node-If::before,
 .node-SystemReminder::before,
-.node-RuntimeContext::before,
 .node-LinkedAgentsSummary::before,
 .node-LinkedAgentsReminder::before,
+.node-WorkdirReminder::before,
+.node-ProjectWorkspaceReminder::before,
+.node-PlanModeAvailabilityReminder::before,
 .node-TaskReminder::before,
 .node-PlanModeReminder::before,
 .node-PlanModeFull::before,
@@ -600,9 +610,14 @@ function prepareDrag(): void {
     --profile-node-accent: #b65f5b;
 }
 
-.node-RuntimeContext,
 .node-LinkedAgentsSummary {
     --profile-node-accent: #4f8c8f;
+}
+
+.node-WorkdirReminder,
+.node-ProjectWorkspaceReminder,
+.node-PlanModeAvailabilityReminder {
+    --profile-node-accent: #b65f5b;
 }
 
 .node-TaskReminder,

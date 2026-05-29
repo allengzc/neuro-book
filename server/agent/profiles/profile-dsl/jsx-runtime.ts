@@ -22,9 +22,11 @@ const components = {
     Watch: dsl.Watch,
     If: dsl.If,
     SystemReminder: dsl.SystemReminder,
-    RuntimeContext: dsl.RuntimeContext,
     LinkedAgentsSummary: dsl.LinkedAgentsSummary,
     LinkedAgentsReminder: dsl.LinkedAgentsReminder,
+    WorkdirReminder: dsl.WorkdirReminder,
+    ProjectWorkspaceReminder: dsl.ProjectWorkspaceReminder,
+    PlanModeAvailabilityReminder: dsl.PlanModeAvailabilityReminder,
     TaskReminder: dsl.TaskReminder,
     PlanModeReminder: dsl.PlanModeReminder,
     PlanModeFull: dsl.PlanModeFull,
@@ -82,9 +84,11 @@ export namespace JSX {
         Watch: Parameters<typeof dsl.Watch>[0];
         If: Parameters<typeof dsl.If>[0];
         SystemReminder: Parameters<typeof dsl.SystemReminder>[0];
-        RuntimeContext: Parameters<typeof dsl.RuntimeContext>[0];
         LinkedAgentsSummary: Parameters<typeof dsl.LinkedAgentsSummary>[0];
         LinkedAgentsReminder: Parameters<typeof dsl.LinkedAgentsReminder>[0];
+        WorkdirReminder: Parameters<typeof dsl.WorkdirReminder>[0];
+        ProjectWorkspaceReminder: Parameters<typeof dsl.ProjectWorkspaceReminder>[0];
+        PlanModeAvailabilityReminder: Parameters<typeof dsl.PlanModeAvailabilityReminder>[0];
         TaskReminder: Parameters<typeof dsl.TaskReminder>[0];
         PlanModeReminder: Parameters<typeof dsl.PlanModeReminder>[0];
         PlanModeFull: Parameters<typeof dsl.PlanModeFull>[0];

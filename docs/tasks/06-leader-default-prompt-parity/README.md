@@ -87,9 +87,9 @@
    - leader prompt 使用 `<If>` / `<Reminder>` 表达 Plan Mode 注入，不用 TS 条件表达式散落在 JSX 中。
    - 保持 Plan Mode 是 soft mode：工具仍可见，但 prompt 和 reminder 明确禁止未批准实现。
 
-8. 保持 runtime context 边界
-   - `ModelContext` 保留 workspace root、profile key、input role、plan mode、linked agents。
-   - `AppendingSet` 保留 workspace reminder、linked agents reminder、task reminder、plan mode reminder 和 ActivatedSkills。
+8. 保持 runtime reminder 边界
+   - `ModelContext` 只保留真正 model-only 的动态上下文。
+   - `AppendingSet` 保留 workdir / project workspace / plan mode availability reminder、linked agents reminder、task reminder、plan mode reminder 和 ActivatedSkills。
    - task reminder 从 `ctx.session.customState["agent.tasks"]` 读取任务列表，只在存在未完成步骤时注入；`watchValue` 使用 compact task fingerprint，并设置 repeatEveryTurns，避免每轮重复刷屏。
    - 不恢复 v2 `<Message source="input">`；当前真实用户输入继续由 harness 作为 pending user message 写入 session。
 
@@ -309,8 +309,8 @@
 
 ### Implementation Result
 
-- 新增一组通用 Profile DSL 节点：`SystemReminder`、`RuntimeContext`、`LinkedAgentsSummary`、`ProjectReminder`、`LinkedAgentsReminder`、`TaskReminder`、`PlanModeReminder`、`ActivePlanModeReminder`、`MentionedSkillsReminder`、`PlotFocusReminder`。
-- `leader.default.profile.tsx` 已移除本文件内 runtime helper 函数，系统提示词改为 `LEADER_SYSTEM_PROMPT` 常量；runtime context、workspace、linked agents、task、Plan Mode、plot focus、显式 `$skill` 提醒都由通用节点表达。
+- 新增一组通用 Profile DSL 节点：`SystemReminder`、`WorkdirReminder`、`ProjectWorkspaceReminder`、`PlanModeAvailabilityReminder`、`LinkedAgentsSummary`、`ProjectReminder`、`LinkedAgentsReminder`、`TaskReminder`、`PlanModeReminder`、`ActivePlanModeReminder`、`MentionedSkillsReminder`、`PlotFocusReminder`。
+- `leader.default.profile.tsx` 已移除本文件内 runtime helper 函数，系统提示词改为 `LEADER_SYSTEM_PROMPT` 常量；cwd / Project Workspace / plan mode availability、linked agents、task、Plan Mode、plot focus、显式 `$skill` 提醒都由通用节点表达。
 - `SkillCatalog` / `AgentCatalog` 的默认 `<system-reminder>` 文案改为英语；动态 reminder 文案也改为英语。
 - `PlanModeReminder` 恢复 v2 的英文结构：`## Exited Plan Mode`、`## Re-entering Plan Mode`、`## Thread Work Directory`、`## Restrictions`、`## Workflow`，并补回 soft Plan Mode、当前 thread Markdown 工作目录、禁止 Explore agent、探索后报告、`request_user_input` 与 `exit_plan_mode` 边界。
 - `leader.default` prompt 补回 v2 中缺失或被压缩的关键协议：`<system-reminder>` 标签语义、AGENTS.md 优先级、不要把建议下一步当批准执行、Inline Comment `id`、Task Management 不是小说事实、内容节点引用分流、`inject` / `retrieval.trigger`、manuscript `lorebook-notes` 边界、Plot 修改后连续性检查、workspace CLI 示例与 workdir 重复路径提醒。

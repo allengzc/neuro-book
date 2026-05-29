@@ -2639,9 +2639,14 @@ onBeforeUnmount(() => {
     --component-accent: #b65f5b;
 }
 
-.library-node-RuntimeContext,
 .library-node-LinkedAgentsSummary {
     --component-accent: #4f8c8f;
+}
+
+.library-node-WorkdirReminder,
+.library-node-ProjectWorkspaceReminder,
+.library-node-PlanModeAvailabilityReminder {
+    --component-accent: #b65f5b;
 }
 
 .library-node-TaskReminder,
