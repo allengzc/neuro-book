@@ -22,7 +22,7 @@
 - `summarizer` builtin profile 能被 profile catalog 加载，且只通过 `report_result` 输出 `{ title, summary }`。
 - `defineAgentProfile({ summarizer })` 能让任意 source profile 启用摘要；`profileKey: "summarizer"` 时，`input` 类型自动适配 summarizer InputSchema，并由 harness 注入 `sourceSessionId`。
 - source invocation `completed` 后，harness 会 fire-and-forget 触发 hidden system summarizer session；source 的 HTTP result、SSE terminal state 和后续操作不等待摘要完成。
-- summarizer 每次运行都从 source session 当前 active path 重建 Agent Dialogue Content，并以 runtime-only message 注入模型上下文；summarizer 自己的 assistant/toolResult transcript 不写入 session history。
+- summarizer 每次运行都从 source session 当前 active path 重建 Agent Dialogue Content，并在 profile TSX `ModelContext` 中作为动态上下文注入；summarizer 自己的 assistant/toolResult transcript 不写入 session history。
 - summarizer 成功后通过 `SessionWritePlan` 写回 source session 的 active-path-specific `title` / `summary` projection；写回前必须校验 source active leaf 未变化。
 - summarizer running / dirty / error / lastRunAt / token 状态能通过 source session snapshot 投影给前端，且不生成 source ErrorBubble。
 - 旧 `session.summarizer` profile key、旧 state key、旧 hard-coded 自动运行路径和旧 compiled artifact 被清理；开发版不做 alias 或 legacy 兼容。
@@ -41,8 +41,8 @@
 - builtin summarizer profile key 硬切为 `summarizer`；旧 `session.summarizer` 只作为历史实现清理对象，不做兼容 alias。
 - summarizer profile 只允许 `report_result` 工具，`report_result.data` 必须符合 `{ title, summary }`。
 - harness 在 source invocation 正常完成后触发后台摘要；第一版不在 waiting / error / aborted 后触发。
-- summarizer 运行使用普通 Run Kernel，但通过 runtime hooks 组合实现：
-  - `prepareRun` 或 `prepareNextTurn` 注入 runtime-only Agent Dialogue Content。
+- summarizer 运行使用普通 Run Kernel，但通过 profile TSX + runtime hooks 组合实现：
+  - `context(ctx)` / `prepare(ctx)` 在 prepareRun 阶段构造 Agent Dialogue Content，并放入 `ModelContext`。
   - `ingestTurn` 返回 `transcript: "runtime_only"`。
   - `settleRun` 读取 `reportResult`，校验 source active leaf 仍匹配，然后用 `SessionWritePlan` 写 source projection。
 - 同一个 source session 的摘要调度采用 latest-only / coalesced 语义：运行中又触发时只标 dirty，当前结束后按最新 active path 再跑一次。
@@ -72,6 +72,7 @@
   - `SessionWritePlan` ordered ops 和 projection append。
 - 旧 hard-coded summarizer 自动运行路径已从 active harness 删除。
 - 代码里仍残留旧 `session.summarizer` profile、contract、compiled artifact、状态 key、测试和 DTO 命名；本任务实现时按开发版原则硬切清理。
+- 当前 `ProfilePrepareContext.session` 还是 reduce 后的当前 session context，没有 `read()` / `agentDialogueContent()` helper；本任务需要把 runtime hook 的只读 session facade 能力扩展到 profile prepare ctx，支持 TSX `ModelContext` 直接读取 source session。
 
 ## New Design
 
@@ -122,7 +123,7 @@ builtin `summarizer` profile 是普通 profile：
 - `InputSchema` 只承载初始化参数和调度参数，不承载每轮 source 文本。
 - `OutputSchema` 用于 `report_result.data`，字段为 `{ title, summary }`。
 - `HistorySet` 可用于初始化角色/格式要求。
-- `AppendingSet` 为空；每轮 source 内容通过 runtime hook 的 `runtimeMessages` 注入。
+- `AppendingSet` 为空；每轮 source 内容在 profile prepare 阶段写进 `ModelContext`，不通过 `runtimeMessages` 追加。
 
 建议 schema：
 
@@ -131,7 +132,7 @@ type SessionSummarizerInput = {
     sourceSessionId: number;
     trigger?: "afterInvocation";
     interval?: {
-        kind: "sourceInvocation" | "sourceTurn" | "dialogueContentTokens";
+        kind: "sourceInvocation" | "dialogueContentTokens";
         value: number;
     };
     maxDialogueContentTokens?: number;
@@ -143,34 +144,85 @@ type SessionSummarizerOutput = {
 };
 ```
 
+### ModelContext And Runtime Shape
+
+`ModelContext` 这个名字继续保留，但文档中固定它的含义：
+
+> `ModelContext` 是本轮模型可见、不写入 session history 的动态上下文；它不是 provider 请求的全部上下文容器。
+
+summarizer 的 source Agent Dialogue Content 应该在 profile TSX 的 `context(ctx)` / `prepare(ctx)` 阶段构造，并放入 `ModelContext`：
+
+```tsx
+context(ctx) {
+    const dialogue = await ctx.session.agentDialogueContent({
+        sessionId: ctx.input.sourceSessionId,
+        input: ctx.input,
+    });
+
+    return (
+        <ProfilePrompt>
+            <System>你负责生成当前会话标题和摘要。</System>
+            <HistorySet>
+                <Message>只使用 report_result 返回结果，不要输出普通闲聊。</Message>
+            </HistorySet>
+            <ModelContext>
+                <Message>{dialogue.text}</Message>
+            </ModelContext>
+        </ProfilePrompt>
+    );
+}
+```
+
+因此，本任务需要把 `ctx.session.read()` / `ctx.session.agentDialogueContent()` 暴露到 `ProfilePrepareContext`，让 profile 作者不必写 runtime hook 才能读取 source session。
+
 ### Runtime Hook Shape
 
 第一版可以先给 profile 作者暴露足够的 public helper：
 
 - `agentRuntimeBuiltins.profilePrompt()`
+- `agentRuntimeBuiltins.sessionContext()`
 - `agentRuntimeBuiltins.reportResult()`
 - `agentRuntimeBuiltins.runtimeOnlyTranscript()`
 
 如果不新增这些 helper，也可以先在 builtin summarizer profile 内显式声明 hook；但文档和 profile 示例不能使用当前代码没有的 public API。
 
-summarizer runtime 行为：
+summarizer runtime 组合：
 
-1. `prepareRun` / `prepareNextTurn`
-   - `ctx.session.read(ctx.input.sourceSessionId)` 读取 source snapshot。
-   - `ctx.session.agentDialogueContent({ snapshot: source.snapshot, input: ctx.input })` 构造 Agent Dialogue Content。
-   - 若 token 超过上限，向 source session projection 写 `summarizer.state.lastError`，本次不调用模型。
-   - 否则把 dialogue text 作为 runtime-only user message 注入当前 RunFrame。
-   - 在 hook runtimeState 里记录 `sourceLeafId`、`dialogueContentTokens`、`dialogueContentFingerprint`。
+- 组合 `profilePrompt`，让 `<System>` 进入 provider system prompt。
+- 组合 `sessionContext`，让 `HistorySet` 初始化和 `ModelContext` 参与本轮模型上下文。
+- 组合 `reportResult`，让缺失 `report_result` 时进入同一 RunFrame 的 reminder retry。
+- 组合 `runtimeOnlyTranscript`，让 assistant/toolResult 不写入 summarizer session history。
+- 不组合 `transcriptPersistence`，避免 summarizer 的 assistant/toolResult transcript 落盘。
+- 不组合 `compact`，summarizer 不做自身 compact。
 
-2. `ingestTurn`
+这几个名字的职责要分清：
+
+- `sessionContext` 管“模型运行前”：profile 的 `HistorySet` / `ModelContext` / `AppendingSet` 是否进入默认 session/model context 机制。
+- `transcriptPersistence` 管“模型运行后”：assistant/toolResult transcript 是否写入 session history。
+- summarizer 需要前者，不需要后者。
+
+summarizer 运行行为：
+
+1. scheduler preflight
+   - 读取 source snapshot。
+   - 构造 Agent Dialogue Content，估算 token。
+   - 若超过 `maxDialogueContentTokens`，直接写 source `summarizer.state.lastError`，不启动 summarizer run。
+   - 否则把本次 `sourceLeafId`、`dialogueContentFingerprint`、`dialogueContentTokens` 写入 source `summarizer.state.running`，再启动 hidden summarizer run。
+
+2. profile prepare / `ModelContext`
+   - summarizer profile 在 `context(ctx)` / `prepare(ctx)` 中读取 source Agent Dialogue Content。
+   - 将 dialogue text 放入 `ModelContext`。
+   - source 内容只在 prepareRun 注入一次；`prepareNextTurn` 不重新注入 source，避免 report_result retry 时重复塞全文。
+
+3. `ingestTurn`
    - 返回 `{ transcript: "runtime_only" }`。
    - assistant/toolResult 只闭合当前 RunFrame，不写 summarizer session history。
    - `report_result` 缺失 reminder 也必须保持 runtime-only。
 
-3. `settleRun`
+4. `settleRun`
    - 读取 `ctx.runResult.reportResult.data`。
    - trim 并校验 title / summary 非空和长度。
-   - 重新读取 source session，确认 current active leaf 等于 runtimeState.sourceLeafId。
+   - 重新读取 source session 和 `summarizer.state.running.sourceLeafId`，确认 current active leaf 仍匹配。
    - 若 leaf 不匹配，只写 `summarizer.state.dirty = true`，不覆盖旧 title/summary。
    - 若匹配，写 source projection：
      - `session_update { title, summary }`
@@ -206,7 +258,7 @@ summarizer 调度属于 Harness / Coordinator 周边服务，不进入 Run Kerne
 
 - source invocation `completed` 后检查 summarizer。
 - 第一版不在 `waiting`、`error`、`aborted` 后触发。
-- 第一版不在每个 Turn Transaction 后触发；`sourceTurn` interval 可以先记录 schema，实际触发可等后续需要。
+- 第一版不在每个 Turn Transaction 后触发；`sourceTurn` 只作为 future note，不进入可运行 schema。
 
 运行规则：
 
@@ -252,13 +304,20 @@ title / summary 写回 source session 时必须是 active-path-specific projecti
 如果当前 `SessionWritePlan` 的 `append + projection: true` 还没有 scope 字段，本任务需要扩展最小 scope：
 
 ```ts
-projection?: {
+projection?: true | {
     scope: "activeLeaf";
     leafId: SessionEntryId | null;
 };
 ```
 
 也可以先把 scope 存进 entry metadata，但不建议再做临时 custom state 拼接；title/summary 应继续走 `session_update` reduce 路径。
+
+写回前仍必须做 stale leaf guard：
+
+- summarizer 启动时记录 source active leaf。
+- `settleRun` 写回前重新读取 source active leaf。
+- leaf 不一致时，第一版只写 `summarizer.state.dirty = true`，不写 title/summary projection。
+- 后续如果要保留旧 branch 的摘要，可以允许写旧 leaf scoped projection，同时 dirty 当前 leaf；第一版先不做。
 
 ## Implementation Plan
 
@@ -269,6 +328,7 @@ projection?: {
 - 将 `SESSION_SUMMARIZER_STATE_KEY` 的值改为 `summarizer.state`。
 - 清理或替换旧 compiled artifact：`builtin__session.summarizer.mjs`。
 - leader 默认 profile 的 `summarizer.profileKey` 改为 `"summarizer"`。
+- 将 runtime hook 的只读 session facade 能力扩展到 `ProfilePrepareContext`，至少提供 `ctx.session.read()` 和 `ctx.session.agentDialogueContent()`。
 
 验证：
 
@@ -280,7 +340,8 @@ projection?: {
 
 - 实现 builtin `summarizer.profile.tsx`。
 - 只允许 `report_result`。
-- 使用 runtime hooks 注入 source Agent Dialogue Content。
+- 在 TSX `ModelContext` 中注入 source Agent Dialogue Content。
+- runtime 组合 `profilePrompt` / `sessionContext` / `reportResult` / `runtimeOnlyTranscript`，不组合 `transcriptPersistence` / `compact`。
 - `ingestTurn` 使用 `runtime_only`。
 - `settleRun` 通过 `SessionWritePlan` 写 source projection。
 
@@ -303,12 +364,14 @@ projection?: {
 - running 时重复触发只标 dirty，不创建重复 session。
 - dirty run 完成后按最新 active path 再跑一次。
 - waiting/error/aborted 不触发摘要。
+- 超过 `maxDialogueContentTokens` 时 scheduler preflight 直接跳过 run，只写 summarizer 状态。
 
 ### Phase 4: Active-Path Projection
 
 - 为 projection write 增加 active leaf scope。
 - title/summary reduce 只应用当前 active leaf 对应 projection。
 - tree move / rollback / fork 后 title/summary 跟随 active path。
+- `projection` 类型使用 `true | { scope: "activeLeaf"; leafId }`，避免破坏现有普通 projection 调用。
 
 验证：
 

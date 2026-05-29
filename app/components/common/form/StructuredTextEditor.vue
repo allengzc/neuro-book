@@ -69,7 +69,6 @@ const props = withDefaults(defineProps<{
     menuRefreshKey: "",
     readonly: false,
     activePath: "",
-    referenceRefreshKey: "",
     editorPreferences: () => ({...DEFAULT_MARKDOWN_EDITOR_PREFERENCES}),
     monacoPreferences: () => ({...DEFAULT_MONACO_EDITOR_PREFERENCES}),
     monacoTemporaryFontSize: null,
