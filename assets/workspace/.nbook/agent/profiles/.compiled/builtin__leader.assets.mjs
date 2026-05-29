@@ -2073,6 +2073,79 @@ async function defaultSqlSchemaSummaryText(ctx) {
   }
 }
 
+// server/agent/profiles/define-agent-runtime.ts
+function defineAgentRuntime(runtime) {
+  const hooks = expandRuntimeHooks(runtime.hooks);
+  const seen = /* @__PURE__ */ new Set();
+  for (const hook of hooks) {
+    if (!hook.name.trim()) {
+      throw new Error("runtime hook name \u4E0D\u80FD\u4E3A\u7A7A");
+    }
+    const key = `${hook.stage}:${hook.name}`;
+    if (seen.has(key)) {
+      throw new Error(`runtime hook \u91CD\u590D\uFF1A${key}`);
+    }
+    seen.add(key);
+  }
+  return { hooks };
+}
+var agentRuntimeBuiltins = {
+  defaultSessionRuntime() {
+    return defineAgentRuntime({
+      hooks: [
+        this.sessionRuntime()
+      ]
+    });
+  },
+  sessionRuntime() {
+    return {
+      kind: "builtin",
+      name: "sessionRuntime",
+      hooks: [
+        builtinHook("profilePrompt", "prepareRun", {
+          builtinBehavior: {
+            profilePrompt: true
+          }
+        }),
+        builtinHook("sessionContext", "prepareRun", {
+          builtinBehavior: {
+            sessionContext: true
+          }
+        }),
+        builtinHook("transcriptPersistence", "ingestTurn", {
+          transcript: "persist"
+        }),
+        builtinHook("compact", "prepareNextTurn", {
+          builtinBehavior: {
+            automaticCompaction: true
+          }
+        }),
+        builtinHook("reportResult", "prepareRun", {
+          builtinBehavior: {
+            reportResultReminder: true
+          }
+        })
+      ]
+    };
+  }
+};
+function expandRuntimeHooks(items) {
+  return items.flatMap((item) => isRuntimeBuiltin(item) ? item.hooks : [item]);
+}
+function isRuntimeBuiltin(item) {
+  return "kind" in item && item.kind === "builtin";
+}
+function builtinHook(name, stage, result = {}) {
+  return {
+    name: `builtin.${name}`,
+    stage,
+    builtin: true,
+    run() {
+      return result;
+    }
+  };
+}
+
 // server/agent/profiles/define-agent-profile.ts
 function defineAgentProfile(profile) {
   assertProfileManifest(profile.manifest);
@@ -2092,8 +2165,10 @@ function defineAgentProfile(profile) {
     const tree = await profile.context(ctx);
     return compileProfileContext(profile, ctx, tree);
   };
+  const runtime = profile.runtime ? defineAgentRuntime(profile.runtime) : agentRuntimeBuiltins.defaultSessionRuntime();
   return {
     ...profile,
+    runtime,
     prepare
   };
 }

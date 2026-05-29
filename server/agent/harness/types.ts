@@ -1,13 +1,13 @@
 import type {AgentEvent} from "@earendil-works/pi-agent-core";
 import type {AgentUserMessageInput, JsonValue, Usage} from "nbook/server/agent/messages/types";
-import type {InvocationErrorPhase, SessionMetadata} from "nbook/server/agent/session/types";
+import type {InvocationErrorInfo, InvocationErrorPhase, SessionMetadata} from "nbook/server/agent/session/types";
 import type {AgentResolution} from "nbook/server/agent/tools/types";
 import type {ClientStateSnapshot} from "nbook/server/agent/variables/types";
 import type {
     AgentAbortRequestDto,
     AgentActiveInvocationDto,
     AgentCommandRequestDto,
-    AgentFollowUpQueueItemDto,
+    AgentFollowUpQueueStateDto,
     AgentQueuedMessageDto,
     AgentSessionListQueryDto,
     AgentSessionSnapshotDto,
@@ -55,6 +55,7 @@ export type InvokeAgentResult = {
     };
     error?: string;
     errorPhase?: InvocationErrorPhase;
+    errorInfo?: InvocationErrorInfo;
     usage?: Usage;
     events: AgentEvent[];
     queuedItem?: AgentQueuedMessageDto;
@@ -95,7 +96,7 @@ export type SessionQueryResult = {
 export type AgentRuntimeState = {
     activeInvocation: AgentActiveInvocationDto | null;
     steerQueue: AgentQueuedMessageDto[];
-    followUpQueue: AgentFollowUpQueueItemDto[];
+    followUpQueue: AgentFollowUpQueueStateDto;
 };
 
 export type AgentCommandResult = {

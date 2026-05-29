@@ -95,6 +95,7 @@ const ideStore = useNovelIdeStore();
 const {
     selectedStoryThreadId,
     selectedStorySceneId,
+    workspaceTree,
 } = storeToRefs(ideStore);
 
 const novelIdRef = toRef(props, "novelId");
@@ -106,6 +107,7 @@ const {
     novelId: novelIdRef,
     selectedStoryThreadId,
     selectedStorySceneId,
+    workspaceTree,
 });
 
 provide("sanitizeHtml", sanitizeHtml);
@@ -117,7 +119,7 @@ const linkedAgents = computed(() => activeSnapshot.value?.linkedAgents ?? []);
 const linkedByAgents = computed(() => activeSnapshot.value?.linkedByAgents ?? []);
 const queuedMessages = computed<AgentQueuedMessageDto[]>(() => [
     ...activeSnapshot.value?.steerQueue ?? [],
-    ...activeSnapshot.value?.followUpQueue ?? [],
+    ...activeSnapshot.value?.followUpQueue.items ?? [],
 ].sort((left, right) => left.createdAt - right.createdAt));
 const linkedAgentCount = computed(() => linkedAgents.value.length + linkedByAgents.value.length);
 const planModeActive = computed(() => activeSnapshot.value?.planModeActive ?? false);
@@ -536,7 +538,10 @@ const handleInvokeResult = async (result: InvokeAgentResult): Promise<void> => {
                 steerQueue,
             } as AgentSessionSnapshotDto);
         } else {
-            const followUpQueue = mergeQueuedMessages(snapshot.followUpQueue, result.queuedItem);
+            const followUpQueue = {
+                ...snapshot.followUpQueue,
+                items: mergeQueuedMessages(snapshot.followUpQueue.items, result.queuedItem),
+            };
             session.applySnapshot({
                 ...snapshot,
                 followUpQueue,

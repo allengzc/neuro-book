@@ -5,6 +5,7 @@ import type {ProfileDslNode} from "nbook/server/agent/profiles/profile-dsl";
 import type {SkillCatalogItem} from "nbook/server/agent/skills/skill-catalog";
 import type {ClientStateSnapshot, ProfileVariableAccessor, VariableDefinition} from "nbook/server/agent/variables/types";
 import type {SessionSummarizerInputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import type {AgentRuntimeDefinition, NormalizedAgentRuntimeDefinition} from "nbook/server/agent/profiles/define-agent-runtime";
 
 export type AgentProfileManifest<TKey extends string = string> = {
     key: TKey;
@@ -107,14 +108,6 @@ export type ProfileCompactionPlan = {
     summaryPrefix?: string;
 };
 
-export type ProfileIngestResult = {
-    messageWrites?: Message[];
-    sessionUpdates?: {
-        title?: string;
-        summary?: string;
-    };
-};
-
 export type KnownAgentProfileInputs = {
     "session.summarizer": Omit<Static<typeof SessionSummarizerInputSchema>, "sourceSessionId">;
 };
@@ -136,9 +129,9 @@ export type AgentProfile<
     outputSchema?: TOutputSchema;
     allowedToolKeys: readonly string[];
     summarizer?: AgentProfileSummarizerConfig<TSummarizerKey>;
+    runtime?: AgentRuntimeDefinition<Static<TInputSchema>> | NormalizedAgentRuntimeDefinition<Static<TInputSchema>>;
     /** profile 自带的 session.* 变量定义，随 profile `.compiled` artifact 加载。 */
     variableDefinitions?: readonly VariableDefinition[];
     context?(ctx: ProfilePrepareContext<Static<TInputSchema>>): ProfileDslNode | Promise<ProfileDslNode>;
     prepare?(ctx: ProfilePrepareContext<Static<TInputSchema>>): ProfileTurnPlan | Promise<ProfileTurnPlan>;
-    ingest?(ctx: ProfilePrepareContext<Static<TInputSchema>>): ProfileIngestResult | Promise<ProfileIngestResult>;
 };

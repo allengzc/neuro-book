@@ -1,8 +1,10 @@
 import {randomUUID} from "node:crypto";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
+import {Type} from "typebox";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
+import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {resolveWorkspacePath} from "nbook/server/agent/tools/file-tool-utils";
@@ -21,8 +23,19 @@ describe("v3 file tools", () => {
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
         });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.file-tools",
+                name: "File Tools Test",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
         const session = await harness.createAgent({
-            profileKey: "leader.default",
+            profileKey: "test.file-tools",
             input: {},
             workspaceRoot,
         });
@@ -67,7 +80,7 @@ describe("v3 file tools", () => {
         ]);
     });
 
-    it("read 在 Project Workspace cwd 中接受完整 workspace 路径", async () => {
+    it("read 在 Workspace Root cwd 中接受完整 Project Path", async () => {
         const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
         await mkdir(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬"), {recursive: true});
         await writeFile(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"), "银龙姬状态", "utf-8");
@@ -75,7 +88,7 @@ describe("v3 file tools", () => {
 
         const result = await tool.executeWithContext?.({
             ...context,
-            workspaceRoot: projectWorkspaceRoot,
+            workspaceRoot,
             projectPath: "workspace/silver-dragon-hime",
         }, "read-project-workspace-path", {
             path: "workspace/silver-dragon-hime/lorebook/character/银龙姬/state.md",
@@ -86,7 +99,27 @@ describe("v3 file tools", () => {
         ]);
     });
 
-    it("resolveWorkspacePath 归一化当前 Project Workspace 别名", () => {
+    it("resolveWorkspacePath 在 Workspace Root cwd 中归一化完整 Project Path", () => {
+        const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
+
+        expect(resolveWorkspacePath(
+            "workspace/silver-dragon-hime/lorebook/character/银龙姬/state.md",
+            workspaceRoot,
+            "workspace/silver-dragon-hime",
+        )).toBe(resolve(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"));
+        expect(resolveWorkspacePath(
+            "silver-dragon-hime/lorebook/character/银龙姬/state.md",
+            workspaceRoot,
+            "workspace/silver-dragon-hime",
+        )).toBe(resolve(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"));
+        expect(resolveWorkspacePath(
+            "workspace",
+            workspaceRoot,
+            "workspace/silver-dragon-hime",
+        )).toBe(resolve(workspaceRoot));
+    });
+
+    it("resolveWorkspacePath 兼容旧 Project Workspace cwd 别名", () => {
         const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
 
         expect(resolveWorkspacePath(
@@ -151,7 +184,7 @@ describe("v3 file tools", () => {
         await expect(readFile(join(workspaceRoot, "patch.txt"), "utf-8")).resolves.toBe("new\nline\n");
     });
 
-    it("apply_patch 在 Project Workspace cwd 中接受完整 workspace 路径", async () => {
+    it("apply_patch 在 Workspace Root cwd 中接受完整 Project Path", async () => {
         const projectWorkspaceRoot = join(root, "workspace", "silver-dragon-hime");
         await mkdir(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬"), {recursive: true});
         await writeFile(join(projectWorkspaceRoot, "lorebook", "character", "银龙姬", "state.md"), "旧状态\n", "utf-8");
@@ -159,7 +192,7 @@ describe("v3 file tools", () => {
 
         await tool.executeWithContext?.({
             ...context,
-            workspaceRoot: projectWorkspaceRoot,
+            workspaceRoot,
             projectPath: "workspace/silver-dragon-hime",
         }, "patch-project-workspace-path", patchInput([
             "*** Begin Patch",
@@ -425,13 +458,15 @@ describe("v3 file tools", () => {
     });
 
     it("bash 能通过 workspace CLI 解析和校验内容节点", async () => {
-        await writeFile(join(workspaceRoot, "workspace.yaml"), "schemaVersion: 1\nslug: test\ndisplayName: Test\nnovelId: \"1\"\ncreatedAt: \"2026-05-24T00:00:00.000Z\"\nupdatedAt: \"2026-05-24T00:00:00.000Z\"\n", "utf-8");
-        await mkdir(join(workspaceRoot, "lorebook", "character", "hero"), {recursive: true});
-        await writeFile(join(workspaceRoot, "lorebook", "character", "hero", "index.md"), "---\ntitle: Hero\ntype: character\nstatus: active\nsummary: 主角。\nrefs: []\n---\n\n正文。", "utf-8");
+        const projectRoot = join(workspaceRoot, "test-project");
+        await mkdir(projectRoot, {recursive: true});
+        await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Test Project\nsummary: \"\"\n", "utf-8");
+        await mkdir(join(projectRoot, "lorebook", "character", "hero"), {recursive: true});
+        await writeFile(join(projectRoot, "lorebook", "character", "hero", "index.md"), "---\ntitle: Hero\ntype: character\nstatus: active\nsummary: 主角。\nrefs: []\n---\n\n正文。", "utf-8");
         const tool = mustTool("bash", harness);
 
         const result = await tool.executeWithContext?.(context, "bash-workspace-node", {
-            command: "workspace node parse lorebook/character/hero --json && workspace node validate lorebook/character/hero --fix-missing",
+            command: "workspace node parse test-project/lorebook/character/hero --json && workspace node validate test-project/lorebook/character/hero --fix-missing",
             timeout: 10,
         });
 

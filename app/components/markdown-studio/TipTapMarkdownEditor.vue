@@ -261,7 +261,9 @@ watch(() => props.referenceRefreshKey, () => {
             query: suggestionMenuState.value.query,
         });
         const items = flattenAgentSuggestionItems(menuState.sections);
-        const nextActiveIndex = Math.min(suggestionMenuState.value.items.length - 1, Math.max(0, activeIndex.value));
+        const nextActiveIndex = items.length > 0
+            ? Math.min(items.length - 1, Math.max(0, activeIndex.value))
+            : 0;
         
         suggestionMenuState.value = {
             ...suggestionMenuState.value,
@@ -270,10 +272,7 @@ watch(() => props.referenceRefreshKey, () => {
             sections: menuState.sections,
             items,
         };
-        // 自动纠正索引避免越界
-        if (nextActiveIndex >= items.length) {
-            activeIndex.value = 0;
-        }
+        activeIndex.value = nextActiveIndex;
     }
 });
 

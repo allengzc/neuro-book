@@ -20,7 +20,10 @@ const baseSnapshot = (lastSeq = 0): AgentSessionSnapshotDto => ({
     linkedByAgents: [],
     pendingApproval: null,
     steerQueue: [],
-    followUpQueue: [],
+    followUpQueue: {
+        status: "ready",
+        items: [],
+    },
     activeInvocation: null,
     model: null,
     thinkingLevel: null,
@@ -82,7 +85,7 @@ describe("useAgentSession", () => {
         expect(session.snapshot.value?.steerQueue).toEqual([
             expect.objectContaining({id: "steer-1", kind: "steer"}),
         ]);
-        expect(session.snapshot.value?.followUpQueue).toEqual([
+        expect(session.snapshot.value?.followUpQueue.items).toEqual([
             expect.objectContaining({id: "follow-1", kind: "followup"}),
         ]);
     });

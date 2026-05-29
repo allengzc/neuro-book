@@ -471,7 +471,10 @@ async function createProjectWorkspace(
             force: false,
             errorOnExist: true,
         });
-        await removeDirectoryWithRetry(stagingRoot);
+        await removeDirectoryWithRetry(stagingRoot).catch((error: unknown) => {
+            console.warn(`Project Workspace 已创建，但临时目录暂时无法清理，可稍后手动删除: ${stagingRoot}`);
+            console.warn(error instanceof Error ? error.message : String(error));
+        });
         return {
             projectPath: target.projectPath,
             absolutePath: target.absolutePath,
@@ -494,7 +497,7 @@ async function normalizeProjectTemplateArtifacts(projectRoot: string): Promise<v
     const statusPath = path.join(projectRoot, "PROJECT-STATUS.md");
     try {
         const content = await fs.readFile(statusPath, "utf-8");
-        const normalizedContent = content.replace("已创建 `workspace.yaml`、", "已创建 `project.yaml`、");
+        const normalizedContent = content.replaceAll("`workspace.yaml`", `\`${PROJECT_METADATA_FILE}\``);
         if (normalizedContent !== content) {
             await fs.writeFile(statusPath, normalizedContent, "utf-8");
         }
@@ -773,15 +776,15 @@ async function isDirectory(filePath: string): Promise<boolean> {
  * Windows 下 SQLite 句柄释放偶尔滞后，目录清理需要短重试。
  */
 async function removeDirectoryWithRetry(directoryPath: string): Promise<void> {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
         try {
             await fs.rm(directoryPath, {recursive: true, force: true});
             return;
         } catch (error) {
-            if (attempt === 4 || !isBusyFileError(error)) {
+            if (attempt === 19 || !isBusyFileError(error)) {
                 throw error;
             }
-            await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+            await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
         }
     }
 }

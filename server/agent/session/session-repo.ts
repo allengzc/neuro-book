@@ -65,7 +65,7 @@ export class JsonlSessionRepository {
             createdAt: now,
             title: input.title,
         };
-        const sessionPath = this.sessionPath(metadata.workspaceKey, sessionId);
+        const sessionPath = this.sessionPath(sessionId);
         await mkdir(dirname(sessionPath), {recursive: true});
         await writeFile(sessionPath, `${JSON.stringify({kind: "header", metadata} satisfies SessionFileRecord)}\n`, "utf8");
         await this.appendEntry(sessionId, {
@@ -76,12 +76,10 @@ export class JsonlSessionRepository {
     }
 
     /**
-     * 读取 session。未给 workspaceKey 时会扫描 sessions 目录。
+     * 读取 session。workspaceKey 仅为旧调用点保留，不参与路径定位。
      */
     async readSession(sessionId: SessionId, workspaceKey?: string): Promise<SessionSnapshot> {
-        const sessionPath = workspaceKey
-            ? this.sessionPath(workspaceKey, sessionId)
-            : await this.findSessionPath(sessionId);
+        const sessionPath = this.sessionPath(sessionId);
         const text = await readFile(sessionPath, "utf8");
         const records = text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as SessionFileRecord);
         const header = records.find((record): record is Extract<SessionFileRecord, {kind: "header"}> => record.kind === "header");
@@ -110,32 +108,23 @@ export class JsonlSessionRepository {
      */
     async listSessions(input: AgentSessionListQueryDto = {}): Promise<AgentSessionSummaryDto[]> {
         const sessionsRoot = join(this.rootWorkspace, ".nbook", "agent", "sessions");
-        const existingWorkspaceNames = (await readdir(sessionsRoot, {withFileTypes: true}).catch(() => []))
-                .filter((entry) => entry.isDirectory())
-                .map((entry) => entry.name);
-        const workspaceNames = input.workspaceKey
-            ? this.listWorkspaceSessionDirs(input.workspaceKey, existingWorkspaceNames)
-            : existingWorkspaceNames;
+        const files = await readdir(sessionsRoot, {withFileTypes: true}).catch(() => []);
         const summaries: AgentSessionSummaryDto[] = [];
 
-        for (const workspaceName of workspaceNames) {
-            const workspaceRoot = join(sessionsRoot, workspaceName);
-            const files = await readdir(workspaceRoot, {withFileTypes: true}).catch(() => []);
-            for (const file of files) {
-                if (!file.isFile() || !file.name.endsWith(".jsonl")) {
-                    continue;
-                }
-                const sessionId = Number(file.name.slice(0, -".jsonl".length));
-                if (!Number.isInteger(sessionId) || sessionId <= 0) {
-                    continue;
-                }
-                const snapshot = await this.readSession(sessionId, workspaceName);
-                const summary = this.summary(snapshot);
-                if (!this.matchesSessionListFilter(summary, input)) {
-                    continue;
-                }
-                summaries.push(summary);
+        for (const file of files) {
+            if (!file.isFile() || !file.name.endsWith(".jsonl")) {
+                continue;
             }
+            const sessionId = Number(file.name.slice(0, -".jsonl".length));
+            if (!Number.isInteger(sessionId) || sessionId <= 0) {
+                continue;
+            }
+            const snapshot = await this.readSession(sessionId);
+            const summary = this.summary(snapshot);
+            if (!this.matchesSessionListFilter(summary, input)) {
+                continue;
+            }
+            summaries.push(summary);
         }
 
         const sorted = summaries.sort((left, right) => right.updatedAt - left.updatedAt);
@@ -153,6 +142,9 @@ export class JsonlSessionRepository {
             return false;
         }
         if (input.profileGroup === "leader" && !this.isLeaderProfile(summary.profileKey)) {
+            return false;
+        }
+        if (input.workspaceKey && summary.workspaceKey !== input.workspaceKey) {
             return false;
         }
         if (input.relation === "top" && summary.parentSessionId) {
@@ -184,9 +176,7 @@ export class JsonlSessionRepository {
      * 追加 entry，并在非 leaf entry 后自动移动 leaf。
      */
     async appendEntry(sessionId: SessionId, input: AppendEntryInput, workspaceKey?: string): Promise<SessionEntry> {
-        const snapshot = existsSync(this.sessionPath(workspaceKey ?? "global", sessionId)) || workspaceKey
-            ? await this.readSession(sessionId, workspaceKey)
-            : await this.readSession(sessionId);
+        const snapshot = await this.readSession(sessionId);
         const currentLeafId = this.resolveLeaf(snapshot.entries);
         const parentId = input.parentId === undefined ? currentLeafId : input.parentId;
         const entry = {
@@ -195,7 +185,7 @@ export class JsonlSessionRepository {
             parentId,
             timestamp: input.timestamp ?? Date.now(),
         } as SessionEntry;
-        const sessionPath = this.sessionPath(snapshot.metadata.workspaceKey, sessionId);
+        const sessionPath = this.sessionPath(sessionId);
 
         await mkdir(dirname(sessionPath), {recursive: true});
         await this.appendLine(sessionPath, {kind: "entry", entry});
@@ -218,9 +208,7 @@ export class JsonlSessionRepository {
      * 追加投影型 entry，但不移动 active leaf。用于后台元数据，不改变用户当前分支。
      */
     async appendProjectionEntry(sessionId: SessionId, input: AppendEntryInput, workspaceKey?: string): Promise<SessionEntry> {
-        const snapshot = existsSync(this.sessionPath(workspaceKey ?? "global", sessionId)) || workspaceKey
-            ? await this.readSession(sessionId, workspaceKey)
-            : await this.readSession(sessionId);
+        const snapshot = await this.readSession(sessionId);
         const currentLeafId = this.resolveLeaf(snapshot.entries);
         const entry = {
             ...input,
@@ -229,7 +217,7 @@ export class JsonlSessionRepository {
             parentId: input.parentId === undefined ? currentLeafId : input.parentId,
             timestamp: input.timestamp ?? Date.now(),
         } as SessionEntry;
-        const sessionPath = this.sessionPath(snapshot.metadata.workspaceKey, sessionId);
+        const sessionPath = this.sessionPath(sessionId);
 
         await mkdir(dirname(sessionPath), {recursive: true});
         await this.appendLine(sessionPath, {kind: "entry", entry});
@@ -244,9 +232,7 @@ export class JsonlSessionRepository {
         if (inputs.length === 0) {
             return [];
         }
-        const snapshot = existsSync(this.sessionPath(workspaceKey ?? "global", sessionId)) || workspaceKey
-            ? await this.readSession(sessionId, workspaceKey)
-            : await this.readSession(sessionId);
+        const snapshot = await this.readSession(sessionId);
         const entries: SessionEntry[] = [];
         let currentParentId = this.resolveLeaf(snapshot.entries);
 
@@ -275,7 +261,7 @@ export class JsonlSessionRepository {
             });
         }
 
-        const sessionPath = this.sessionPath(snapshot.metadata.workspaceKey, sessionId);
+        const sessionPath = this.sessionPath(sessionId);
         await mkdir(dirname(sessionPath), {recursive: true});
         await this.appendLine(sessionPath, {kind: "batch", entries});
         return entries.filter((entry) => entry.type !== "leaf");
@@ -647,38 +633,8 @@ export class JsonlSessionRepository {
         return leafId;
     }
 
-    private sessionPath(workspaceKey: string, sessionId: SessionId): string {
-        return join(this.rootWorkspace, ".nbook", "agent", "sessions", this.safeWorkspaceKey(workspaceKey), `${sessionId}.jsonl`);
-    }
-
-    private async findSessionPath(sessionId: SessionId): Promise<string> {
-        const globalPath = this.sessionPath("global", sessionId);
-        if (existsSync(globalPath)) {
-            return globalPath;
-        }
-
-        const sessionsRoot = join(this.rootWorkspace, ".nbook", "agent", "sessions");
-        const {readdir} = await import("node:fs/promises");
-        const workspaces = await readdir(sessionsRoot, {withFileTypes: true}).catch(() => []);
-        for (const workspace of workspaces) {
-            if (!workspace.isDirectory()) {
-                continue;
-            }
-            const candidate = join(sessionsRoot, workspace.name, `${sessionId}.jsonl`);
-            if (existsSync(candidate)) {
-                return candidate;
-            }
-        }
-        throw new Error(`未找到 session ${sessionId}`);
-    }
-
-    private safeWorkspaceKey(workspaceKey: string): string {
-        return workspaceKey.replace(/[\\/:*?"<>|]/g, "_") || "global";
-    }
-
-    private listWorkspaceSessionDirs(workspaceKey: string, existingWorkspaceNames: string[]): string[] {
-        const safeKey = this.safeWorkspaceKey(workspaceKey);
-        return existingWorkspaceNames.includes(safeKey) || workspaceKey ? [safeKey] : [];
+    private sessionPath(sessionId: SessionId): string {
+        return join(this.rootWorkspace, ".nbook", "agent", "sessions", `${sessionId}.jsonl`);
     }
 
     private createEntryId(): SessionEntryId {

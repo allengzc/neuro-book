@@ -26,7 +26,7 @@
 - `NeuroAgentHarness` 的入口调度、run 执行、turn 执行、session 写入各有清晰边界，不再由 `invokeAgent()` 串联所有副作用。
 - 所有 session 写入统一走 `SessionWritePlan` / `SessionWriteExecutor`；hook、profile、tool 都不能直接 append repo 或 publish event。
 - 普通 profile 的行为与当前一致：HistorySet 初始化、AppendingSet 写入、assistant/toolResult transcript 持久化、compact、steer、follow-up、approval、report_result 都能继续工作。
-- profile 作者可以在 `defineAgentProfile()` 里通过 `runtime: defineAgentRuntime({ hooks })` 声明运行方式，表达 custom context、custom ingest、custom settle 这类行为。
+- profile 作者可以在 `defineAgentProfile()` 里通过 `runtime: { hooks }` 声明运行方式，表达 custom context、custom ingest、custom settle 这类行为；可复用 runtime bundle 再用 `defineAgentRuntime()` 包装。
 - summarizer 不作为 Run Kernel 特例；它只是一个普通 profile，通过 runtime hooks 组合完成 source Agent Dialogue Content 摘要。
 - waiting/resume 有显式 lifecycle：`start -> waiting -> resumed -> end/error/aborted/interrupted`，同一 logical invocation 复用同一个 `invocationId`。
 - source session 的 active-path-specific projection 能稳定表达 title/summary 等展示元数据，后台写入不移动 source active leaf，不污染 tree。
@@ -48,21 +48,45 @@
 ## Current State
 
 - 当前生产入口是自研 `NeuroAgentHarness`，没有直接使用 PI 的 `AgentHarness` class。
+- 2026-05-29 第一批实现已落地一条垂直切片：
+  - `SessionWritePlan` / `SessionWriteExecutor` 已创建并接入 lifecycle、prompt、turn commit、resolution、steer drain、部分 command、report_result reminder 和 compact lifecycle。
+  - `ToolSessionWriteSink` 已创建并接入 harness active 路径的 linked-agent entry、tool custom state、profile prepare writes、variable patch audit、client variable ack、manual/auto compaction entry。
+  - session 文件布局已硬切为 `.nbook/agent/sessions/<session-id>.jsonl`，`workspaceKey` 不再参与路径定位。
+  - `defineAgentRuntime({ hooks })` 已存在并能在 `prepareRun`、`prepareTurn`、`ingestTurn`、`prepareNextTurn`、`settleRun` 执行自定义 hook；hook 可以返回 write plans、命名空间隔离的 runtimeState、以及有限的 requestOptions/toolKeys patch。
+  - `prepareRun` / `prepareNextTurn` hook 已能返回 `runtimeMessages` 注入当前 `RunFrame` 的模型上下文；这些消息不写 session history，适合 summarizer 这类 profile 临时塞入 source Agent Dialogue Content。
+  - runtime hook context 已暴露 typed `ctx.input`，并把 `ctx.session` 升级为只读 facade：保留当前 reduce 后的 session context，同时提供 `ctx.session.read(sessionId?)` 和 `ctx.session.agentDialogueContent()`。`runtime: { hooks }` 直接写在 `defineAgentProfile({ inputSchema, ... })` 内时，hook 的 `ctx.input` 可由外层 `inputSchema` 自动推导；单独调用 `defineAgentRuntime()` 定义可复用 bundle 时需要显式泛型。profile 作者不需要接触 raw repo，就能读取 source session active path 并构造 Agent Dialogue Content；写入仍必须返回 `SessionWritePlan`。
+  - `ingestTurn` hook 已能返回 `transcript: "runtime_only"` 跳过默认 assistant/toolResult session transcript；本轮消息仍保留在 `RunFrame`，所以同一个 run 的 `report_result` 捕获和 `settleRun` projection 仍可工作。waiting turn 禁止 `runtime_only`，因为 resume 需要持久化 pending tool call。缺失 `report_result` 的 reminder 在 runtime-only transcript 下也只进入 `RunFrame`，不写 session history。
+  - `ToolSessionWriteSink` 已支持 `savePointAppend` / `savePointCustomState`。tool-side savePoint writes 会排入当前 `RunFrame.pendingWritePlans`，在 `ingestTurn` 和 assistant/toolResult transcript 连续合并为同一个 session batch 后 flush；`immediate` 写入仍实时走 executor。
+  - `RunFrame`、`TurnSnapshot`、`TurnOutcome` 已在 harness 内部落地第一版。`runLoop()` 现在围绕 frame/snapshot/outcome 运转，并把单轮模型请求、工具批次、ingest、continuation / next-turn 准备收敛到 `runTurnTransaction()`。
+  - `runLoop()` 返回值已收紧为 `RunLoopResult = completed | waiting | failed` 判别联合；failed 分支携带结构化 `InvocationErrorInfo`，`finalizeInvokeResult()` 不再通过 `finalAssistant.stopReason` 反推运行结果。
+  - `prepareNextTurn` 的确定性 reducer 已从 harness 抽到 `server/agent/harness/prepare-next-turn.ts`：负责把 steered messages 和 report_result reminder 应用到 `RunFrame`，并返回需要执行的 reminder `SessionWritePlan`；compact、repo 写入和 custom runtime hook 仍由 harness 在安全点执行。
+  - failed `TurnOutcome` 的 partial ingest 草案、RunFrame 失败状态归并和 failed `RunLoopResult` 创建已继续收敛到 `server/agent/harness/turn-failure.ts` / `run-frame-state.ts`，provider partial error 的“只保留文本、剥离 tool calls”规则有独立测试点。
+  - Turn Transaction 的 outcome 应用逻辑已抽到 `server/agent/harness/turn-transaction.ts`：successful/waiting/failed outcome 在 ingest 后如何写回 `RunFrame`、如何生成 waiting/failed run result 已有独立 helper 和测试。
+  - Run Kernel stage error 的 phase 包装已抽到 `server/agent/harness/run-kernel-error.ts`。`ingestTurn`、下一轮前 compaction、prepare-turn/prepare-next-turn hook 等内部 stage 抛错时会保留 `ingest` / `compaction` / `model` 等结构化 phase，不再全部依赖外层粗粒度 `errorPhase` 推断。
+  - hook `runtimeState` 已按 hook name namespace 隔离；同名 hook 跨 stage 返回对象时会浅合并，非对象按后一次返回替换。
+  - `defineAgentRuntime()` 已支持展开内置 runtime bundle。普通 profile 未声明 runtime 时会得到 `agentRuntimeBuiltins.defaultSessionRuntime()` 展开的内置 hook：`builtin.profilePrompt`、`builtin.sessionContext`、`builtin.transcriptPersistence`、`builtin.compact`、`builtin.reportResult`。其中 `builtin.profilePrompt` 已成为 profile prepare system prompt 进入 provider request 和 UI snapshot system prompt 的显式开关：自定义 runtime 不组合该 built-in 时，不会因为 `prepare()` 返回 `systemPrompt` 就偷偷注入 provider；`builtin.sessionContext` 已成为 profile prepare 的模型上下文开关：控制 `modelContextMessages` 是否注入 provider context，也控制 `historyInitMessages`、`modelContextAppendingMessages`、`appendingMessages` 是否写入 session history；`stateWrites` 暂不受它控制，仍作为 profile 私有状态写入。`builtin.transcriptPersistence` 已执行并显式返回 `transcript: "persist"`；`commitTurn()` 已硬切为没有 transcript hook 就不隐式持久化 assistant/toolResult transcript。`builtin.reportResult` 已成为 report_result reminder retry 的显式开关：自定义 runtime 不组合该 built-in 时，即使 allowedToolKeys 包含 `report_result`，也不会自动注入缺失 report_result 的 harness reminder。`builtin.compact` 已成为自动 compaction 的显式开关：自定义 runtime 不组合该 built-in 时，即使 profile prepare 返回 compaction plan，也不会自动压缩。
+  - 自动 compaction 已从 invoke pre-loop 迁到 turn save point 后、`prepareNextTurn` 前执行。触发后会写 compaction entry 并用最新 session context 重建 `RunFrame.messages`，确保下一轮 provider context 读到 compact 后的历史；该自动行为现在由 `builtin.compact` 显式启用。
+  - `report_result` reminder retry 已迁入同一个 `RunFrame` 的下一轮 turn；缺少必需 report_result 时由 `resolveTurnContinuation()` 判断继续，再由 `prepareNextTurn()` 写入 harness reminder 并进入下一轮 `TurnSnapshot`，不再由 `finalizeInvokeResult()` 递归重跑旧 `runLoop()`。
+  - `profile.ingest()` 旧 API 已从 active profile 类型和 harness 调用路径删除。
+  - waiting/resume lifecycle、partial assistant metadata、follow-up queue 对象化已落地；follow-up queue 现在会写入 `agent.followUpQueue` projection custom state，刷新或重建 harness 后 snapshot 可恢复 paused/ready queue。
+  - 旧 hard-coded summarizer 自动运行路径已删除；17 summarizer 等 18 完整重构后重新计划。旧 DTO/状态读取和 dialogue-content helper 暂保留为后续 17 材料。
+- 当前还没有完成完整 Kernel 重构：`RunFrame` / `TurnSnapshot` / `TurnOutcome` 已开始拆成独立 kernel 模块，默认内置 runtime 行为已迁入第一批可执行 built-in hooks；完整 failure path、server restart 后自动 drain follow-up queue 和所有 repo append fallback 的全量移除仍是后续 TODO。
+- 当前 Run Kernel 类型边界已先抽到 `server/agent/harness/run-kernel-types.ts`：`RunFrame`、`TurnSnapshot`、`RuntimeTurn`、`TurnOutcome`、`RunLoopResult`、`RunTurnTransactionResult`、`TurnContinuationDecision`、hook execution input/result 和 runtime state 都有独立类型模块。turn continuation / shouldStop 的第一层纯判定已抽到 `server/agent/harness/turn-continuation.ts`；partial assistant sanitizer、failed ingest 草案、失败状态归并和 failed run result 创建已抽到 `server/agent/harness/turn-failure.ts`；Turn Transaction 的 outcome 应用已抽到 `server/agent/harness/turn-transaction.ts`；RunFrame 内存状态写回已抽到 `server/agent/harness/run-frame-state.ts`；prepare-next-turn 的 steered message / report_result reminder reducer 已抽到 `server/agent/harness/prepare-next-turn.ts`；stage error phase 包装已抽到 `server/agent/harness/run-kernel-error.ts`。`NeuroAgentHarness.runLoop()` 现在只负责 frame 生命周期和 loop 终态，单轮执行副作用收敛在 `runTurnTransaction()`；后续再继续迁移更完整的 Run Kernel 模块。
 - 当前复用 PI 的部分是：
   - message / event / tool 类型。
   - `streamSimple()` provider streaming。
   - `validateToolArguments()` tool 参数校验。
 - 当前自研的部分是：
   - session JSONL append-only repo。
-  - profile prepare / legacy ingest。
+  - profile prepare。
   - invocation lifecycle、queue、abort、event hub。
   - 旧 ReAct loop、tool batch、turn commit。
   - tool 执行上下文里的 session custom state 写入、client variable patch ack。
-  - compaction、summary、projection entry。
+  - compaction、projection entry。
 - 当前主要问题：
   - `invokeAgent()` 同时做入口、prepare、持久化、compaction、loop、ingest、summarizer 调度。
   - `prepare()` 既调用 profile，又直接写 session。
-  - `commitTurn()` 默认一定把 assistant/toolResult 写入 session，阻塞 summarizer runtime-only transcript 设计。
+  - `commitTurn()` 的 transcript 持久化已由 `ingestTurn` hook result 显式控制；自定义 runtime 不组合 `builtin.transcriptPersistence` 时不会隐式落 assistant/toolResult。
   - provider context、runtime messages、session history 三者边界不够明确。
   - 现有 `profile.ingest()` 是 invocation 结束后处理，不能控制每个 ReAct turn；新架构硬删该旧 API，改为 runtime 内置 `ingestTurn`。
 
@@ -617,7 +641,7 @@ invocation_lifecycle { invocationId, status: "end" }
 
 现状：
 
-- 如果 profile 允许 `report_result` 但 run 没有拿到 `reportResult`，`finalizeInvokeResult()` 会写一条 harness reminder user message，然后再跑一次 `runLoop()`。
+- 如果 profile 允许 `report_result` 但 run 没有拿到 `reportResult`，Run Kernel 会在 `shouldStop -> prepareNextTurn` 位置写一条 harness reminder user message，然后在同一个 `RunFrame` 内继续下一轮 turn。
 - summarizer 迁移后，这条 reminder 不能落进 summarizer session 历史。
 
 新架构落位：
@@ -639,8 +663,8 @@ invocation_lifecycle { invocationId, status: "end" }
 - `runCommand()` 支持 `new`、`fork`、`retry`、`tree`、`plan`、`model`、`thinking`、`summarize`、`archive`、`compact`。
 - 除 `compact` 外，大多数命令要求 session idle。
 - `moveTree()` 支持切换 active leaf 到 `empty` / `at` / `before`，并可在树移动后立即发起 `next.invoke`。
-- `summarize` 只触发后台 summarizer，不作为普通用户消息进入模型。
 - `compact` 以单独 active invocation 运行，但不是普通 ReAct run。
+- 旧后端 `session/slash-commands.ts` 已删除；slash command 只在前端识别，然后调用正式 HTTP command/tree 入口。
 
 新架构落位：
 
@@ -649,7 +673,7 @@ invocation_lifecycle { invocationId, status: "end" }
 - `retry` 是 tree leaf move，不启动模型。
 - `moveTree(... next.invoke)` 在 tree 写入完成后交给 Invocation Coordinator 启动一次正常 `prompt` / `continue` run。
 - `compact` 可以作为 `operation="compact"` 的特殊 coordinator operation，复用 Compact Hook / compaction service，但不需要伪装成普通 ReAct turn。
-- `summarize` 触发 Summarizer Coordinator，后者启动 internal run。
+- summarizer 后续由普通 profile runtime hooks 重新设计，不保留旧 `summarize` command 自动运行路径。
 
 关键约束：
 
@@ -670,7 +694,8 @@ invocation_lifecycle { invocationId, status: "end" }
 
 - snapshot / event recovery 仍属于 SessionLog + EventHub，不进入 Run Kernel stage。
 - `SessionWriteExecutor` 是唯一发布入口：写入 entry 后统一决定 publish `session_entry`、`session_state_changed.snapshot` 或静默。
-- projection write 是 `SessionWritePlan.projectionEntries`，由 executor 保证不进入 tree，不移动 active leaf。
+- projection write 是 `SessionWritePlan.ops[]` 里的 `op.kind = "append" + projection: true`，由 executor 保证不进入 tree，不移动 active leaf。
+- follow-up queue 状态写入 `agent.followUpQueue` projection custom state；snapshot 会优先读内存 queue，内存没有时从 projection 恢复，保证刷新页面或重建 harness 后仍能看到 paused queue。第一版不在重启后自动 drain ready queue。
 - Run Kernel 只通过 write plan 间接影响 snapshot；hook 不直接 publish event。
 
 关键约束：
@@ -759,7 +784,7 @@ invocation_lifecycle { invocationId, status: "end" }
 
 - session 可通过 `model_change` 覆盖模型，通过 `thinking_level_change` 覆盖 reasoning。
 - 运行时从 effective config、session context、profile 默认值一起解析 model / apiKey / provider options / thinking。
-- `TurnSnapshot` 尚未显式存在，当前这些值散落在 `invokeAgent()` 和 `runLoop()` 参数里。
+- `TurnSnapshot` 已显式存在，当前由 `createTurnSnapshot()` 在每轮 provider request 前冻结这些值。
 
 新架构落位：
 
@@ -797,7 +822,7 @@ invocation_lifecycle { invocationId, status: "end" }
 
 现状：
 
-- 自动 compaction 在普通 invocation 进入 ReAct loop 前运行。
+- 自动 compaction 已迁到普通 turn save point 后、下一轮 `prepareNextTurn` 前运行。
 - `/compact` command 单独启动 active invocation，读取当前 profile compaction 配置后写 compaction entry。
 - compact run 只写 lifecycle，不跑普通 assistant/toolResult turn。
 
@@ -997,6 +1022,33 @@ hydrate session
 - projection entry 只参与 projection/reduce，不污染 tree 展示和 active branch。
 - 业务层不再散落调用 `appendEntry()` / `appendProjectionEntry()`。
 
+### Session Storage Layout
+
+第一版重构同时收紧 session 文件布局。
+
+当前实现按 project/workspace 目录存储：
+
+```text
+.nbook/agent/session-seq.json
+.nbook/agent/sessions/<workspace-key>/<session-id>.jsonl
+```
+
+新架构不再按 workspace/project 分目录。`sessionId` 是当前 `.nbook/agent` session store 内的主键，session repo 通过 `sessionId` 直接定位文件。
+
+目标形态：
+
+```text
+.nbook/agent/session-seq.json
+.nbook/agent/sessions/<session-id>.jsonl
+```
+
+约束：
+
+- `SessionWritePlan.target` 只包含 `sessionId`，不暴露 `workspaceKey`。
+- workspace/project 信息如果仍需要展示或工具运行，应作为 session metadata / project context 读取，不参与 write target。
+- executor 必须在当前 session store 中拒绝无法解析的 `sessionId`，而不是要求 hook/profile 作者传 workspace 维度。
+- 迁移时可以硬切旧布局；当前是开发版，不需要 legacy 兼容层。
+
 ### RunFrame
 
 `RunFrame` 表示一次 invocation 的运行态。它只描述“这次运行是谁、用哪个 profile、当前有哪些运行材料”，不把 summarizer 这类业务关系硬编码成顶层字段。
@@ -1113,65 +1165,58 @@ type TurnOutcome = SuccessfulTurnOutcome | FailedTurnOutcome;
 
 `SessionWritePlan` 是唯一的持久化申请单。
 
+它的职责只保留三件事：
+
+- 写到哪个 session。
+- 为什么写。
+- 按什么顺序写哪些 session op。
+
+不要把 `SessionWritePlan` 设计成 `{messages, entries, projectionEntries, lifecycle, publish, atomicity}` 这种多字段大袋子。那种形态虽然能表达需求，但会让同一个 plan 内部的写入顺序、publish 语义和 batch 语义变隐式。
+
 ```ts
 type SessionWritePlan = {
-    target: {
-        sessionId: number;
-        workspaceKey?: string;
-    };
-    cause: {
-        source:
-            | "prompt"
-            | "profile.prepare"
-            | "turn.ingest"
-            | "tool"
-            | "command"
-            | "compact"
-            | "summarizer"
-            | "lifecycle"
-            | "variable";
-        invocationId?: string;
-        turnIndex?: number;
-        toolCallId?: string;
-    };
-    atomicity?: "batch" | "entry";
-    messages?: Array<{
-        message: Message;
-        origin?: "prompt" | "harness" | "manual" | "ingest";
-        state?: {
-            partial?: boolean;
-            interrupted?: boolean;
-            errorInfo?: InvocationErrorInfo;
-            invocationId?: string;
-            turnIndex?: number;
-        };
-    }>;
-    entries?: SessionEntryDraft[];
-    projectionEntries?: SessionEntryDraft[];
-    projectionScope?: {
-        kind: "global" | "active_path";
-        sourceLeafId?: string | null;
-    };
-    lifecycle?: Array<{
-        invocationId: string;
-        attemptId?: string;
-        status: "start" | "waiting" | "resumed" | "end" | "error" | "aborted" | "interrupted";
-        error?: string;
-        errorInfo?: InvocationErrorInfo;
-    }>;
-    publish?: "none" | "state" | "entry_and_state";
+    target: SessionWriteTarget;
+    /** 第一批实现先用 string cause；后续如诊断需要再升级为结构化 cause。 */
+    cause: string;
+    durability?: "immediate" | "savePoint";
+    ops: SessionWriteOp[];
 };
+
+type SessionWriteTarget = {
+    sessionId: number;
+};
+
+type SessionWriteOp =
+    | {
+        kind: "append";
+        entry: SessionEntryDraft;
+        /** projection append 不进入 tree、不移动 active leaf。 */
+        projection?: boolean;
+    }
+    | {
+        kind: "appendMany";
+        /** batch 写入，repo 只在最后移动 leaf。 */
+        entries: AppendManySessionEntryDraft[];
+    }
+    | {
+        kind: "moveLeaf";
+        /** 移动 active leaf；null 表示清空当前 active path。 */
+        leafId: SessionEntryId | null;
+    };
+
+type AppendManySessionEntryDraft = Exclude<SessionEntryDraft, {type: "leaf"}>;
 ```
 
 硬性约束：
 
-- `target` 必填。write plan 不默认写当前 session；summarizer 写 source session、child agent 写 parent link、tool 写当前 session 都必须显式 target。
-- `cause` 必填。所有 entry/event 都能追溯到 command、invocation、turn 或 tool call。
-- `atomicity: "batch"` 表示 message transcript 或必须同批提交的 writes；executor 必须使用 batch append。
-- `atomicity: "entry"` 表示 progress/custom state 等独立事实，可单条 append。
-- 第一版同一个 session 内的 batch 采用“先整批校验，再按顺序 append，再统一 publish”的语义；不做 commit marker，不承诺进程崩溃级别的半批恢复。
-- projection writes 只能通过 `projectionEntries` 表达，不能伪装成普通 entries。
-- active-path-specific 元数据必须设置 `projectionScope.kind = "active_path"`，并绑定 `sourceLeafId`；executor/reducer 不得把它当成全局 projection。
+- `target.sessionId` 必填。write plan 不默认写当前 session；summarizer 写 source session、child agent 写 parent link、tool 写当前 session 都必须显式 target。
+- `target` 不包含 `workspaceKey`。session repo 通过当前 session store 内的 `sessionId` 定位文件。
+- `cause` 必填。第一批实现用短字符串，如 `prompt`、`turn.ingest`、`lifecycle.start`、`command.plan`；如果后续诊断需要，再升级为结构化对象。
+- `ops` 是有序列表；executor 必须按 `ops[]` 顺序写入。
+- public plan 不暴露 `atomicity`。第一版没有 batch commit marker，不承诺进程崩溃级别的半批恢复；executor 只承诺先整批校验、按顺序 append、统一 publish。
+- public plan 不暴露 `publish`。publish 由 executor 根据 op kind 自动决定，避免 hook/profile 作者承担事件发布细节。
+- projection writes 第一批通过 `op.kind = "append" + projection: true` 表达；它会走 `appendProjectionEntry()`，不进入 tree、不移动 active leaf。后续 active-path-specific source leaf 绑定由 17 summarizer 重做时补充。
+- active leaf 移动通过 `op.kind = "moveLeaf"` 表达；retry/tree/empty 这类控制面操作也必须走 executor 发布 entry/state。
 - lifecycle status 硬切为 `start -> waiting/resumed* -> end/error/aborted/interrupted`。waiting 是持久状态，不再用重复 `start` 表示。
 - waiting / resume 使用同一个 logical `invocationId`；如需区分实际执行片段，用可选 `attemptId`，不要创建用户可见的新 invocation。
 - partial assistant 必须通过 message state 持久表达，不靠 lifecycle error 反推上一条 assistant。session entry schema 需要支持 message-level partial/interrupted/error metadata。
@@ -1179,6 +1224,69 @@ type SessionWritePlan = {
 - projection writes 能表达。
 - lifecycle writes 能表达。
 - turn ingest/session_update 能表达。
+
+示例：
+
+```ts
+const startRunPlan: SessionWritePlan = {
+    target: {sessionId},
+    cause: "lifecycle.start",
+    ops: [
+        {
+            kind: "append",
+            entry: {type: "invocation_lifecycle", invocationId, status: "start"},
+        },
+    ],
+};
+
+const promptPlan: SessionWritePlan = {
+    target: {sessionId},
+    cause: "prompt",
+    ops: [
+        {
+            kind: "append",
+            entry: {type: "message", origin: "prompt", message: userMessage},
+        },
+    ],
+};
+
+const turnCommitPlan: SessionWritePlan = {
+    target: {sessionId},
+    cause: "turn.ingest",
+    durability: "savePoint",
+    ops: [
+        {
+            kind: "appendMany",
+            entries: [
+                {type: "message", origin: "harness", message: assistantMessage},
+                {type: "message", origin: "harness", message: toolResultMessage},
+            ],
+        },
+    ],
+};
+
+const summaryProjectionPlan: SessionWritePlan = {
+    target: {sessionId: sourceSessionId},
+    cause: "summarizer.projection",
+    ops: [
+        {
+            kind: "append",
+            projection: true,
+            entry: titleSummaryEntry,
+        },
+    ],
+};
+
+const treeMovePlan: SessionWritePlan = {
+    target: {sessionId},
+    cause: "tree.before",
+    ops: [
+        {kind: "moveLeaf", leafId: targetParentId},
+    ],
+};
+```
+
+这版暂不提供 `ctx.session.writeXxx()` plan builder，避免 API 过早膨胀。自定义 hook 可以直接返回 `SessionWritePlan`，executor 会做完整校验。内置 harness/tool 代码如需更顺手的写入 API，使用 `ToolSessionWriteSink`。
 
 ## Hook Runtime
 
@@ -1294,7 +1402,7 @@ type RuntimeHookContext = {
 };
 ```
 
-`SessionFacade` 只允许：
+目标 `SessionFacade` 只允许：
 
 - read persisted snapshot/projection。
 - create `SessionWritePlan` draft。
@@ -1306,6 +1414,25 @@ type RuntimeHookContext = {
 - `enqueueWritePlan()`。
 
 Hook 只能返回 plan。只有 Run Kernel reducer 和 Session Control Plane 可以把 plan 交给 `SessionWriteExecutor`。
+
+当前第一批实现已经落地最小只读 facade：
+
+```ts
+type RuntimeSessionFacade = NeuroSessionContext & {
+    read(sessionId?: number): Promise<{
+        snapshot: SessionSnapshot;
+        context: NeuroSessionContext;
+    }>;
+    agentDialogueContent(input?: {
+        sessionId?: number;
+        snapshot?: SessionSnapshot;
+        profileKey?: string;
+        input?: JsonValue;
+    }): Promise<AgentDialogueContent>;
+};
+```
+
+这版暂不提供 `ctx.session.writeXxx()` plan builder，避免 API 过早膨胀。自定义 hook 直接返回显式 `SessionWritePlan`；等内置 hook bundle 成型后，再把常用 projection / lifecycle plan builder 做成小 helper。
 
 ## Built-in Hooks
 
@@ -1333,7 +1460,7 @@ Hook 只能返回 plan。只有 Run Kernel reducer 和 Session Control Plane 可
 
 ### Profile Runtime Hooks
 
-普通 profile 和用户自定义 profile 都可以通过 `defineAgentRuntime({ hooks })` 在固定事务边界改写 context / transcript / settle 行为。summarizer 是第一批使用者，但不是 Run Kernel 特例。
+普通 profile 和用户自定义 profile 都可以通过 `runtime: { hooks }` 在固定事务边界改写 context / transcript / settle 行为。summarizer 是第一批使用者，但不是 Run Kernel 特例。
 
 职责：
 
@@ -1484,7 +1611,10 @@ source invocation completed
 
 ### Phase 1: Write Plan Foundation
 
-- 引入 `SessionWritePlan` / `SessionWriteExecutor`。
+- 引入 ordered-op 形态的 `SessionWritePlan` / `SessionWriteExecutor`：`target + cause + durability + ops[]`。
+- 删除 public `workspaceKey` target；`SessionWritePlan.target` 只接受当前 session store 内的 `sessionId`。
+- 调整 session 文件布局，不再按 workspace/project 分目录：`.nbook/agent/sessions/<session-id>.jsonl`。
+- public write plan 不暴露 `atomicity` / `publish`；executor 内部负责先整批校验、按 `ops[]` 顺序 append、统一 publish。
 - 引入 `ToolSessionWriteSink`，让工具执行期间的 custom state / variable writes 也经过 executor。
 - 硬删 legacy `profile.ingest()` 调用路径，直接切到新的 runtime hook / turn ingest 语义；当前是开发版，不保留中间兼容层。
 - 迁移 `commitTurn()`、summary projection 写回和工具侧 session writes。
@@ -1498,6 +1628,9 @@ source invocation completed
   - 旧 `profile.ingest()` 不再被调用。
   - task/plot/variable 这类工具侧状态写入仍能实时刷新 UI。
   - write plan 必须显式 target/cause，缺失时 executor 拒绝执行。
+  - write plan `ops[]` 顺序就是 append 顺序。
+  - public write plan 不出现 `workspaceKey` / `atomicity` / `publish`。
+  - session repo 能用当前 session store 内的 `sessionId` 定位 `.nbook/agent/sessions/<session-id>.jsonl`。
   - partial assistant metadata 能从 session snapshot 和 `session_entry` 增量稳定投影到前端。
   - paused follow-up queue 能通过 snapshot 恢复。
 
@@ -1517,7 +1650,7 @@ source invocation completed
 ### Phase 3: Built-in Hook Runtime
 
 - 实现最小 hook runner 和 reducer。
-- 首发注册内置 hooks，并开放固定事务边界的 `defineAgentRuntime({ hooks })`。
+- 首发注册内置 hooks，并开放固定事务边界的 profile `runtime: { hooks }`。
 - custom hook 第一版可以 patch `tools` / `requestOptions`，但仍不开放直接 provider/tool runtime 调用；所有 patch 由 Run Kernel reducer 统一规范化。
 - 实现 Kernel 统一 failure path：stage error / failed `TurnOutcome` 统一规范化为 `InvocationErrorInfo`，先让 error-aware `ingestTurn` 处理 partial assistant，再写 lifecycle `error`，最后进入 cleanup。
 - 默认普通 profile 使用：
@@ -1533,20 +1666,25 @@ source invocation completed
   - `ingestTurn` 能处理 failed `TurnOutcome`，保存 partial assistant 但不保存未闭合 tool calls。
   - terminal error/aborted/interrupted 后清理 steer queue，并暂停 follow-up queue。
 
-### Phase 4: Summarizer Migration
+### Phase 4: Summarizer Readiness
 
-- 将 `session.summarizer` 改名为 `summarizer`。
-- summarizer 走 `mode="internal"` 的普通 `RunFrame`，额外依赖通过 profile input / ctx.session.read 表达。
-- 用 profile runtime hooks 替换当前普通 `invokeAgent()` 路径中的硬编码 summarizer 分支。
-- assistant/toolResult 不写入 summarizer session history。
-- `report_result` 仍正常闭合 tool call 并写回 source title/summary。
-- settle 前校验 source active leaf；不匹配则只标 dirty，不写旧 title/summary。
-- 验证：
-  - summarizer session 不出现自身 assistant/toolResult transcript。
-  - source session title/summary 正常更新。
-  - branch/tree 切换后按 active path 重新摘要。
-  - source active path 在 summarizer 运行期间变化时，旧摘要不会覆盖新 active path。
-  - report_result reminder 是 runtime-only。
+18 不直接落地 summarizer。用户已确认 `docs/tasks/17-session-title-summary-enhancement/README.md` 等 18 完整重构后重新计划；因此 18 的责任是提供足够表达 summarizer 的普通 profile runtime 能力，并删除旧 hard-coded summarizer 自动运行路径。
+
+18 完成时应具备：
+
+- custom profile 可以通过 `runtime: { hooks }` 注入 runtime-only source Agent Dialogue Content。
+- custom profile 可以通过 `ingestTurn` 返回 `runtime_only`，让 assistant/toolResult 不写入自身 session history。
+- custom profile 可以在 `settleRun` 读取 `reportResult`，并通过 `SessionWritePlan` 写 source session projection。
+- hook context 暴露 `ctx.session.read()` 和 `ctx.session.agentDialogueContent()`，profile 作者不直接拼 active path。
+- `RunFrame` 不出现 hard-coded source / binding 字段，summarizer 关系后续继续由 profile input 和 ctx 表达。
+- 旧 hard-coded `session.summarizer` 自动运行路径已删除。
+
+17 重新计划时再决定：
+
+- 是否把 profile key 从 `session.summarizer` 改成 `summarizer`。
+- summarizer session 的创建、trigger、coalescing、stale source leaf 校验。
+- source title/summary 的 active-path-specific projection scope。
+- summarizer prompt、InputSchema、OutputSchema 和 `report_result` 数据结构。
 
 ### Phase 5: Compact Save Point
 
@@ -1562,9 +1700,9 @@ source invocation completed
 
 ### `defineAgentProfile` Target API
 
-现有 `context()` / `prepare()` 继续保留，用于普通 profile 的 system prompt、HistorySet、AppendingSet、ModelContext 和 stateWrites。新增单一 `runtime` 字段；hook 只出现在 `defineAgentRuntime({ hooks })` 内，不在 `defineAgentProfile` 顶层再放一份 `hooks`。
+现有 `context()` / `prepare()` 继续保留，用于普通 profile 的 system prompt、HistorySet、AppendingSet、ModelContext 和 stateWrites。新增单一 `runtime` 字段；hook 只出现在 `runtime: { hooks }` 内，不在 `defineAgentProfile` 顶层再放一份 `hooks`。
 
-默认普通 profile 不写 `runtime` 时，等价于使用 `builtins.defaultSessionRuntime()`。自定义 profile 可以组合 built-in hooks 和自定义 hooks。`defineAgentRuntime()` 只是 runtime hook bundle 的规范化 helper，不是新的 agent，也不创建新的 session。
+默认普通 profile 不写 `runtime` 时，等价于使用 `builtins.defaultSessionRuntime()`。自定义 profile 可以组合 built-in hooks 和自定义 hooks。`defineAgentProfile()` 会统一规范化 `runtime`；`defineAgentRuntime()` 只是给可复用 runtime hook bundle 使用的 helper，不是新的 agent，也不创建新的 session。
 
 ```ts
 export default defineAgentProfile({
@@ -1587,23 +1725,43 @@ export default defineAgentProfile({
         );
     },
 
-    runtime: defineAgentRuntime({
+    runtime: {
         hooks: [
             builtins.profilePrompt(),
             builtins.reportResult({required: true}),
             hooks.prepareTurn("source-dialogue-context", async (ctx) => {
                 const source = await ctx.session.read(ctx.input.sourceSessionId);
-                const dialogue = ctx.session.agentDialogueContent(source, {
-                    maxTokens: ctx.input.maxDialogueContentTokens,
+                const dialogue = await ctx.session.agentDialogueContent({
+                    snapshot: source.snapshot,
+                    input: ctx.input,
                 });
 
+                if (dialogue.tokens > ctx.input.maxDialogueContentTokens) {
+                    return {
+                        writePlans: [{
+                            target: {sessionId: ctx.input.sourceSessionId},
+                            cause: "summarizer.tooLarge",
+                            ops: [{
+                                kind: "append",
+                                projection: true,
+                                entry: {
+                                    type: "custom",
+                                    key: "summarizer.state",
+                                    value: {lastError: "source dialogue content exceeds limit"},
+                                },
+                            }],
+                        }],
+                    };
+                }
+
                 return {
-                    modelContext: dialogue.messages,
+                    runtimeMessages: [
+                        createUserMessage({text: dialogue.text}),
+                    ],
                     runtimeState: {
-                        "source-dialogue-context": {
-                            sourceLeafId: source.leafId,
-                            dialogueContentTokens: dialogue.tokens,
-                        },
+                        sourceLeafId: source.snapshot.leafId,
+                        dialogueContentTokens: dialogue.tokens,
+                        dialogueContentFingerprint: dialogue.fingerprint,
                     },
                 };
             }),
@@ -1616,32 +1774,61 @@ export default defineAgentProfile({
                     return {};
                 }
                 const source = await ctx.session.read(ctx.input.sourceSessionId);
-                const sourceState = ctx.runtimeState.get("source-dialogue-context");
-                if (source.leafId !== sourceState.sourceLeafId) {
+                const sourceState = ctx.runtimeState;
+                if (
+                    typeof sourceState !== "object"
+                    || !sourceState
+                    || Array.isArray(sourceState)
+                    || source.snapshot.leafId !== sourceState.sourceLeafId
+                ) {
                     return {
-                        writePlans: [ctx.session.writeCustomState({
-                            target: ctx.input.sourceSessionId,
-                            key: "summarizer.state",
-                            value: {dirty: true},
-                            cause: "summarizer",
-                        })],
+                        writePlans: [{
+                            target: {sessionId: ctx.input.sourceSessionId},
+                            cause: "summarizer.staleSource",
+                            ops: [{
+                                kind: "append",
+                                projection: true,
+                                entry: {
+                                    type: "custom",
+                                    key: "summarizer.state",
+                                    value: {dirty: true},
+                                },
+                            }],
+                        }],
                     };
                 }
                 return {
-                    writePlans: [ctx.session.writeSessionUpdate({
-                        target: ctx.input.sourceSessionId,
-                        title: report.title,
-                        summary: report.summary,
-                        projectionScope: {
-                            kind: "active_path",
-                            sourceLeafId: source.leafId,
+                    writePlans: [{
+                        target: {sessionId: ctx.input.sourceSessionId},
+                        cause: "summarizer.result",
+                        ops: [{
+                            kind: "append",
+                            projection: true,
+                            entry: {
+                                type: "session_update",
+                                updates: {
+                                    title: report.title,
+                                    summary: report.summary,
+                                },
+                            },
                         },
-                        cause: "summarizer",
-                    })],
+                        {
+                            kind: "append",
+                            projection: true,
+                            entry: {
+                                type: "custom",
+                                key: "summarizer.state",
+                                value: {
+                                    dirty: false,
+                                    lastDialogueContentFingerprint: sourceState.dialogueContentFingerprint,
+                                },
+                            },
+                        }],
+                    }],
                 };
             }),
         ],
-    }),
+    },
 });
 ```
 
@@ -1653,7 +1840,7 @@ export default defineAgentProfile({
 - `defineAgentRuntime()` 只负责规范化 hooks、校验 hook name/stage、展开 built-in hook bundle。
 - 普通 profile 默认 runtime 是 `builtins.defaultSessionRuntime()`，包含 profile prompt、session context、transcript persistence、compact、queue、approval、report_result optional 等默认行为。
 - 自定义 runtime 写了 hooks 后，不会自动注入默认 session context 或默认 transcript persistence；需要哪些行为就显式组合哪些 built-in hook。
-- custom profile hook 第一版允许返回 `turnSnapshotPatch.tools` / `turnSnapshotPatch.requestOptions`。Run Kernel reducer 仍负责最终工具策略、report_result schema、approval barrier 和 provider request 规范化，hook 不能直接调用 provider 或 tool runtime。
+- custom profile hook 第一批实现允许返回 `turnSnapshotPatch.toolKeys` / `turnSnapshotPatch.requestOptions`。Run Kernel reducer 仍负责最终工具策略、report_result schema、approval barrier 和 provider request 规范化，hook 不能直接调用 provider 或 tool runtime。
 - summarizer 不暴露“history mode”或“context mode”这类 enum。它的“运行 transcript 不落盘”表现来自 hook 组合：不组合 session context，不组合 transcript persistence，`ingestTurn` 返回 runtime-only，`settleRun` 写 source projection。
 - hook context 暴露 `ctx.session.read()` 和 `ctx.session.agentDialogueContent()` helper；profile 作者不直接拼 active path。
 - hook 只能返回 slot result 和 `SessionWritePlan` draft，不能 append repo、publish event、启动 invocation。
@@ -1669,13 +1856,16 @@ export default defineAgentProfile({
 - hook 不直接做副作用，只返回 plan。
 - `ingest` 的新语义是 turn-level ingest，能控制每一个 ReAct turn。
 - 旧 `profile.ingest()` 硬删，不保留 after-run 兼容层。
-- `summarizer` 是第一个强需求消费者，但不是唯一目标；所有 profile 都可以通过声明式 `summarizer` 启用它。
+- `summarizer` 是第一个强需求消费者，但不是唯一目标；18 先提供 runtime hook 能力，具体 summarizer 落地回到 17 重新计划。
 - `RunFrame` 不设置 hard-coded `source` 或 `RuntimeBinding` 字段；跨 session 依赖先通过 profile input / ctx 表达，等出现第二类真实需求后再抽象。
 - Run Kernel 固定为 `enterRun -> prepareRun -> runTurns -> settleRun -> cleanup` 五个事务边界。
 - `SessionWriteExecutor` 是各安全点调用的服务，不作为独立 pipeline stage。
 - `ToolSessionWriteSink` 是工具执行期间的写入入口，不作为独立 pipeline stage，内部仍调用 `SessionWriteExecutor`。
-- 第一阶段开放足够表达 summarizer 的 `defineAgentRuntime({ hooks })`；summarizer 不能作为 Run Kernel 硬编码特例。
-- `SessionWritePlan.target` / `cause` 必填，跨 session 写入是第一等能力。
+- 第一阶段开放足够表达 summarizer 的 profile `runtime: { hooks }`；summarizer 不能作为 Run Kernel 硬编码特例。
+- `SessionWritePlan` 使用 ordered ops 形态：`target + cause + durability + ops[]`。
+- `SessionWritePlan.target` / `cause` 必填，跨 session 写入是第一等能力；target 只包含当前 session store 内的 `sessionId`，不包含 `workspaceKey`。第一批实现的 `cause` 是短字符串，后续如诊断需要再升级为结构化 cause。
+- session 文件布局硬切为 `.nbook/agent/sessions/<session-id>.jsonl`，不再按 workspace/project 分目录。
+- public write plan 不暴露 `atomicity` / `publish`；executor 根据 `ops[]` 统一校验、按顺序 append、统一发布事件。
 - report_result retry 属于 `shouldStop -> prepareNextTurn`，不是 `settleRun` 的职责。
 - lifecycle waiting 是显式持久状态，不再用重复 `start` 表示。
 - approval / user-input resume 复用同一个用户可见 logical `invocationId`；内部 trace 如需拆分执行片段，再加 `attemptId`。
@@ -1690,6 +1880,7 @@ export default defineAgentProfile({
 - hook `runtimeState` 必须按 hook namespace 隔离，不能共用裸 `JsonObject`。
 - custom profile hook 第一版允许 patch `tools` / `requestOptions`；最终工具策略和 provider request 规范化仍由 Run Kernel reducer 执行。
 - 第一版不做 deterministic entry id、durable pending queue、batch commit marker；同 session batch 只承诺先整批校验、顺序 append、统一 publish。
+- 第一批实现里 projection op 暂用 `append + projection: true`，不是独立 `op.kind = "projection"`。如果 active-path-specific projection 需要强类型 scope，留到 17 summarizer 重做时一起升级。
 
 ## Open Questions
 
@@ -1708,23 +1899,165 @@ export default defineAgentProfile({
 - 2026-05-28：按开发版硬切原则收紧合同：硬删 legacy `profile.ingest()`，write plan 必须显式 target/cause，hook 只能返回 plan，report_result retry 移到 `shouldStop -> prepareNextTurn`，tool-side writes 区分 `immediate` / `savePoint` durability，summarizer 写回前校验 source active leaf。
 - 2026-05-28：用户确认 summarizer ModelContext 由自身 system prompt 和 source Agent Dialogue Content 组成；AppendingSet 为空，工具和 ReAct 过程中生成的消息都不进入 summarizer 历史；source title/summary 绑定 source active leaf。
 - 2026-05-28：同步 17 的最新决策：summarizer 不限定 leader，所有 profile 可启用；source 关系通过 profile input / ctx 表达，不引入 `RuntimeBinding`；waiting/resume 使用同一个用户可见 logical `invocationId`，内部追踪可另加 `attemptId`。
-- 2026-05-28：用户确认删除 `AgentProfileRuntimePolicy` / `history: "persistent" | "history_frozen"` 这类双控制面。profile 只通过 `runtime: defineAgentRuntime({ hooks })` 组合 built-in hooks 和自定义 hooks；summarizer 的运行 transcript 不落盘由 hook 组合表达，不作为 public enum。
+- 2026-05-28：用户确认删除 `AgentProfileRuntimePolicy` / `history: "persistent" | "history_frozen"` 这类双控制面。profile 只通过 `runtime: { hooks }` 组合 built-in hooks 和自定义 hooks；summarizer 的运行 transcript 不落盘由 hook 组合表达，不作为 public enum。
 - 2026-05-28：用户确认第一版不做 batch commit marker。deterministic entry id、durable pending queue、commit marker 都推迟到后续 semi-durable recovery 任务；18 第一版只做先校验后顺序 append。
 - 2026-05-28：用户提出用黑盒 + 状态机方法重新约束 Harness 设计。新增 Harness black-box contract：以 `prompt` / `continue` / `steer` / `followup` 为输入，按 `Idle` / `Running` / `WaitingUser` / `Aborting` 列出 session writes、SSE events、HTTP response 和 frontend state 结果，再反推内部 pipeline。
 - 2026-05-29：根据黑盒操作矩阵和错误矩阵反推 pipeline，确认 18 架构不需要推翻；补充 Operation Matrix To Pipeline、Error Matrix To Pipeline、`TurnOutcome`、error-aware `ingestTurn`、统一 failure path 和 terminal queue policy。
 - 2026-05-29：整体审查 README 后同步类型/API 草案：`RuntimeTurn` 只表示合法 turn shape，`executeTurn` 输出 `TurnOutcome`，`ingestTurn` 消费 `TurnOutcome`，`settleRun` 不负责 error lifecycle。
-- 2026-05-29：用户确认工程设计决策：partial assistant 写 message metadata；hook runtimeState 命名空间隔离；custom hook 直接开放 tools/requestOptions patch；follow-up queue DTO 对象化；`TurnOutcome` 类型拆分；删除重复 hook 类型块；Phase 1 直接硬删 legacy ingest。
+- 2026-05-29：用户确认工程设计决策：partial assistant 写 message metadata；hook runtimeState 命名空间隔离；custom hook 直接开放 toolKeys/requestOptions patch；follow-up queue DTO 对象化；`TurnOutcome` 类型拆分；删除重复 hook 类型块；Phase 1 直接硬删 legacy ingest。
+- 2026-05-29：用户确认 `SessionWritePlan.target` 删除 `workspaceKey`；session 文件不再按 workspace/project 分目录；WritePlan 收敛为 ordered ops，public plan 不暴露 `atomicity` / `publish`。
+- 2026-05-29：实现第一批垂直切片。新增 `SessionWritePlan` / `SessionWriteExecutor`，session 文件布局扁平化，follow-up queue DTO 对象化，waiting/resume lifecycle 和 partial assistant metadata 落地，删除 active `profile.ingest()` 合同，移除旧 hard-coded summarizer 自动运行路径。
+- 2026-05-29：接入最小 `defineAgentRuntime({ hooks })` runner。当前执行 `prepareRun`、`prepareTurn`、`ingestTurn`，支持 hook 返回 `SessionWritePlan[]`、hook namespace runtimeState、以及 requestOptions/toolKeys patch。普通 profile 默认 runtime 仍为空 hook bundle，旧 loop 继续提供默认行为。
+- 2026-05-29：把 resolution、steer drain、plan/model/thinking/archive command、report_result reminder、compact lifecycle 等明显写入迁移到 `SessionWriteExecutor`。仍保留部分 repo append 直连，等待后续 ToolSessionWriteSink / RunFrame 重构收敛。
+- 2026-05-29：新增 `ToolSessionWriteSink` 第一版，并继续迁移 harness active 写入路径：parent agent link、tool custom state、profile prepare 的 custom message/stateWrites、variable patch audit、client variable ack、自动/手动 compaction entry 均通过 executor 发布 entry/state。变量 accessor 和 compaction 模块保留无 sink fallback 以支持底层单元测试和独立调用。
+- 2026-05-29：落地 Phase 2 第一版。新增内部 `RunFrame`、`TurnSnapshot`、`RuntimeTurn`、`TurnOutcome` 类型；`runLoop()` 改为创建 frame，逐轮通过 `createTurnSnapshot()` 冻结 provider 请求材料，通过 `executeTurn()` 返回 completed/waiting/failed outcome，再交给 `ingestTurn()` 持久化。provider error/aborted 现在走 failed outcome 分支，partial assistant 仍按原规则 sanitized 后保存。
+- 2026-05-29：迁移 report_result reminder retry。缺少必需 report_result 时不再由 `finalizeInvokeResult()` 递归调用 `runLoop()`；现在由 `resolveTurnContinuation()` / `prepareNextTurn()` 在同一个 `RunFrame` 内写入 reminder 并继续下一轮 turn。测试覆盖同一次 invocation 只有一个 `agent_start`、两个 `turn_start`。
+- 2026-05-29：接入 `prepareNextTurn` runtime hook。`runLoop()` 在每轮 save point 后先归并 tool/steer/report_result 三类 continuation reason，再进入 `prepareNextTurn()`；custom hook 能在下一轮请求前读取 save point 后的 session context、写 `SessionWritePlan`、更新命名空间 runtimeState，并影响下一轮 `prepareTurn`。
+- 2026-05-29：接入 `settleRun` runtime hook。正常 completed / waiting run 会在 terminal lifecycle 写入前执行 `settleRun`，hook 能读取 `runResult.status`、`finalAssistant`、`reportResult`、`waiting` 并返回 write plans；error / aborted 不进入该 stage，继续由 Kernel failure path 统一写 lifecycle。
+- 2026-05-29：接入 `ingestTurn` 的 `transcript: "runtime_only"` slot result。默认 transcript persistence 可被 hook 跳过，assistant/toolResult 仍保留在 `RunFrame` 供同 run continuation、`report_result` 和 `settleRun` 使用；waiting turn 直接拒绝 runtime-only transcript，避免 resolution 找不到 pending tool call。
+- 2026-05-29：让 `report_result` reminder 遵守 runtime-only ingest。上一轮 transcript 为 `runtime_only` 时，reminder 只 append 到 `RunFrame.messages` 供下一轮 provider 使用，不写入 session history；普通 profile 仍保持原有持久化 reminder 行为。
+- 2026-05-29：接入 `runtimeMessages` hook result。`prepareRun` 返回的 runtime-only messages 会进入首轮 provider context，`prepareNextTurn` 返回的 runtime-only messages 会进入下一轮 provider context；二者都不写 session history。
+- 2026-05-29：接入 tool-side savePoint pending writes。`ToolSessionWriteSink.savePointAppend()` / `savePointCustomState()` 会把 plan 放入当前 `RunFrame.pendingWritePlans`，`commitTurn()` 把 transcript plan 和 pending savePoint plans 交给 executor 连续合并；`SessionWriteExecutor` 会把同 session 连续 savePoint plans 写成同一个 JSONL batch。
+- 2026-05-29：迁移自动 compaction 时机。`compactIfNeeded()` 不再在 invoke pre-loop 执行，而是在成功 turn save point 后、确认还要继续下一轮时执行；compact 成功后 `RunFrame.messages` 从最新 session context 重建，下一轮 provider context 会使用 compact 后历史。
+- 2026-05-29：补齐 runtime hook context 的第一版只读 `SessionFacade`。hook 现在能通过 typed `ctx.input` 读取 profile input，通过 `ctx.session.read()` 读取当前或其他 session，并通过 `ctx.session.agentDialogueContent()` 从 source session active path 构造 Agent Dialogue Content；写入仍只能返回 `SessionWritePlan`，不暴露 repo append / publish API。
+- 2026-05-29：确认 `runtime: { hooks }` 直接放在 `defineAgentProfile({ inputSchema, ... })` 内时，hook 的 `ctx.input` 能从外层 TypeBox schema 自动推导；单独调用 `defineAgentRuntime()` 定义 reusable runtime bundle 时需要显式泛型。`defineAgentProfile()` 现在会统一调用 `defineAgentRuntime()` 规范化 runtime。
+- 2026-05-29：抽出第一版 Run Kernel 类型边界。新增 `server/agent/harness/run-kernel-types.ts`，集中声明 `RunFrame`、`TurnSnapshot`、`RuntimeTurn`、`TurnOutcome`、`TurnContinuationDecision`、hook execution input/result 和 `RunRuntimeState`；`NeuroAgentHarness` 暂时只改为引用这些类型，执行逻辑保持原样，为后续拆 reducer 做准备。
+- 2026-05-29：抽出 turn continuation / shouldStop 第一层 reducer。新增 `server/agent/harness/turn-continuation.ts`，把 tool continuation、steer continuation、缺失 `report_result` reminder continuation 的纯判定从 `NeuroAgentHarness` 移出；harness 仍负责 drain steer queue、写 reminder message、compact 和执行 `prepareNextTurn` hook。
+- 2026-05-29：抽出 failure path 的第一层纯 helper。新增 `server/agent/harness/turn-failure.ts`，集中处理 provider partial assistant sanitizer 和 runtime error assistant 构造；sanitizer 会剥离未闭合 tool calls，没有可展示文本时不写 partial assistant。
+- 2026-05-29：抽出 RunFrame 状态写回 helper。新增 `server/agent/harness/run-frame-state.ts`，集中处理 successful turn / failed outcome 对 `finalAssistant`、`messages`、`reportResult`、`lastTurnIngest` 的内存写回；`NeuroAgentHarness.runLoop()` 保留事件、ingest、queue、next-turn 编排。
+- 2026-05-29：抽出 prepare-next-turn reducer。新增 `server/agent/harness/prepare-next-turn.ts`，把 steered messages 和缺失 `report_result` reminder 对 `RunFrame` 的确定性写回从 `NeuroAgentHarness.prepareNextTurn()` 移出；普通 transcript 下返回 reminder `SessionWritePlan`，runtime-only transcript 下只写 RunFrame，不写 session history。
+- 2026-05-29：继续收敛 failed turn 处理。`turn-failure.ts` 现在负责把 failed `TurnOutcome` 转成可选 partial assistant ingest 草案，并把 final assistant / ingest 状态归并为 RunFrame 可消费形状；`runLoop()` 不再直接拼 partial ingest 输入。
+- 2026-05-29：修正 runtime hook state reducer。hook `runtimeState` 仍按 hook name namespace 隔离，同名 hook 跨 stage 返回对象时浅合并，非对象按后一次返回替换；新增覆盖 `prepareRun -> prepareNextTurn -> prepareTurn` 的测试。
+- 2026-05-29：本轮 targeted 回归通过：`bunx vitest run server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/run-frame-state.test.ts server/agent/harness/prepare-next-turn.test.ts --reporter=dot`，4 files / 74 tests passed。18 相关宽套件通过：15 files / 172 tests passed。
+- 2026-05-29：贯穿 failed outcome 的结构化错误信息。`RunLoopResult` 现在是 `completed | waiting | failed` 判别联合，failed 分支携带 `InvocationErrorInfo`；provider request error 和 stream partial error 的 `errorInfo` 会进入 `InvokeAgentResult` 并用于 lifecycle `errorInfo` 写入，不再由 `finalAssistant.stopReason` 二次推断。
+- 2026-05-29：本轮验证：`bunx vitest run server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/run-frame-state.test.ts --reporter=dot`，3 files / 70 tests passed；18 相关宽套件 `15 files / 172 tests passed`；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
+- 2026-05-29：继续收窄 failed run result 创建。`turn-failure.ts` 新增 `createFailedRunLoopResult()`，`runLoop()` 只保存 failed outcome 并在统一出口归并为 failed `RunLoopResult`；targeted 回归 `server/agent/harness/turn-failure.test.ts server/agent/harness/neuro-agent-harness.test.ts` 通过，2 files / 68 tests passed。
+- 2026-05-29：新增 Run Kernel stage error phase 包装。`server/agent/harness/run-kernel-error.ts` 提供 `withRunKernelPhase()` / `toRunKernelErrorInfo()`，当前 `ingestTurn`、下一轮前 compaction、prepare-turn/prepare-next-turn hook 等 stage 抛错时会保留更准确的 `ingest` / `compaction` / `model` phase；runtime-only waiting 失败测试现在断言 `errorPhase: "ingest"`。targeted 回归 2 files / 65 tests passed，18 相关宽套件 16 files / 177 tests passed；`tsc --noEmit` 仍只剩既有 SillyTavern marker optional 错误。
+- 2026-05-29：抽出 Turn Transaction outcome 应用。新增 `server/agent/harness/turn-transaction.ts`，把 successful / waiting / failed outcome 在 ingest 后如何写回 `RunFrame`、如何生成 waiting / failed run result 从 `NeuroAgentHarness.runLoop()` 移出；targeted 回归 2 files / 64 tests passed，18 相关宽套件 17 files / 180 tests passed；`tsc --noEmit` 仍只剩既有 SillyTavern marker optional 错误。
+- 2026-05-29：落地内置 runtime bundle 的展开层。`defineAgentRuntime()` 现在接受 `AgentRuntimeBuiltin` 并展开为普通 hooks；`agentRuntimeBuiltins.defaultSessionRuntime()` 返回默认内置 hook 标记，`NeuroAgentHarness.runRuntimeHooks()` 先跳过这些标记 hook，保持现有默认行为不变。targeted 回归 `define-agent-runtime.test.ts` + harness 通过，18 相关宽套件 17 files / 181 tests passed；`tsc --noEmit` 仍只剩既有 SillyTavern marker optional 错误。
+- 2026-05-29：迁入 `builtin.transcriptPersistence` 的第一段行为。该 built-in hook 现在会显式返回 `transcript: "persist"`，`runRuntimeHooks()` 会执行这个 built-in hook；runtime-only 自定义 hook 仍可覆盖默认 persist。targeted 回归 2 files / 65 tests passed，18 相关宽套件 17 files / 182 tests passed；`tsc --noEmit` 仍只剩既有 SillyTavern marker optional 错误。
+- 2026-05-29：硬切 transcript persistence 的最后兜底。`commitTurn()` 不再在缺少 `ingestTurn` transcript result 时默认落盘；普通 profile 依赖默认 `builtin.transcriptPersistence` hook 显式持久化，自定义 runtime 如果不组合 `agentRuntimeBuiltins.sessionRuntime()` 或自定义 persist hook，则 assistant/toolResult 只保留在当前 `RunFrame`。本轮同步重编译 system/user `.compiled` profile artifact，避免覆盖 profile 继续加载旧 runtime helper。targeted 回归 `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`，2 files / 66 tests passed。
+- 2026-05-29：把 report_result reminder retry 挂到 `builtin.reportResult`。`RunFrame` 新增 `reportResultReminderEnabled`，由 profile runtime 是否组合 `builtin.reportResult` 决定；自定义 runtime 不组合默认 session runtime 时，不再因为 `allowedToolKeys` 包含 `report_result` 而自动追加 reminder。targeted 回归 `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/harness/turn-continuation.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`，4 files / 75 tests passed；18 相关宽套件 17 files / 184 tests passed；`tsc --noEmit` 仍只剩既有 SillyTavern marker optional 错误。
+- 2026-05-29：把 automatic compaction 挂到 `builtin.compact`。`RunFrame` 新增 `automaticCompactionEnabled`，由 profile runtime 是否组合 `builtin.compact` 决定；自定义 runtime 不组合默认 session runtime 时，不再因为 `prepare()` 返回 compaction plan 而自动压缩。targeted 回归 `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/harness/compaction.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/run-frame-state.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/turn-transaction.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`，7 files / 90 tests passed；18 相关宽套件 17 files / 185 tests passed；`tsc --noEmit` 仍只剩既有 SillyTavern marker optional 错误。
+- 2026-05-29：把 profile system prompt 挂到 `builtin.profilePrompt`。该 built-in 在 `prepareRun` 显式返回 profile prompt 行为位；自定义 runtime 不组合默认 session runtime 时，`prepare()` 返回的 `systemPrompt` 不再进入 provider request，`getSessionSnapshot()` 也不展示未启用的 system prompt。同步修正 `runRuntimeHooks()` 没有 await `applyRuntimeHookResult()` 的顺序 bug，避免 hook write plans 变成失序后台副作用，并把 `builtinBehavior` 校验收紧为只能由 `hook.builtin === true` 的内置 hook 返回，不能靠 hook name 伪造。targeted 回归 `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/run-frame-state.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/turn-transaction.test.ts --reporter=dot`，6 files / 89 tests passed；18 相关宽套件 17 files / 189 tests passed；已重新执行 `bun scripts/profile.ts compile --all --system` 和 `bun scripts/profile.ts compile --all`；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
+- 2026-05-29：继续收紧 `builtin.sessionContext`。`prepare()` 现在接收 `sessionContextEnabled`，只有 profile runtime 组合 `builtin.sessionContext` 时才会把 `historyInitMessages`、`modelContextAppendingMessages`、`appendingMessages` 写入 session history；自定义 runtime 不组合该 built-in 时，这些 prepare context messages 不会再通过旧 prepare 路径隐式污染 session / provider context。`stateWrites` 仍保留为 profile 私有状态写入，不归入 session context 开关。targeted 回归 `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/run-frame-state.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/turn-transaction.test.ts --reporter=dot`，6 files / 90 tests passed；18 相关宽套件 17 files / 190 tests passed；已重新执行 `bun scripts/profile.ts compile --all --system` 和 `bun scripts/profile.ts compile --all`；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
+- 2026-05-29：继续削薄 `prepare()` 的职责边界。新增 `compilePrepareWritePlan()`，把 `ProfileTurnPlan` 中需要持久化的 `HistorySet` / `AppendingSet` / `stateWrites` 编译为 `SessionWritePlan`；`prepare()` 仍负责调用 profile 和执行 executor，但“产出 plan”和“执行写入”已经分开，后续 Default Persistence Hook 接管 `prepareRun` 写入会更直接。targeted 回归 6 files / 90 tests passed；18 相关宽套件 17 files / 190 tests passed；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
+- 2026-05-29：把 `builtin.sessionContext` 从静态扫描推进为真正执行的 `prepareRun` built-in hook。该 hook 现在在 `prepareRun` 返回 `builtinBehavior.sessionContext`，`prepare()` 写入 gating 和 `modelContextMessages` 注入都读取 `prepareRunHooks.sessionContext`，不再靠 `hasBuiltinHook(profile, "builtin.sessionContext")` 静态扫描。targeted 回归 6 files / 91 tests passed；18 相关宽套件 17 files / 191 tests passed；已重新执行 `bun scripts/profile.ts compile --all --system` 和 `bun scripts/profile.ts compile --all`；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
+- 2026-05-29：把 automatic compaction 从 `RunFrame` 初始化时的静态 `hasBuiltinHook()` 扫描迁到 `prepareNextTurn` hook result。`builtin.compact` 现在作为可执行 `prepareNextTurn` built-in 返回 `builtinBehavior.automaticCompaction`；`prepareNextTurn()` 先运行 hook，读取 `nextTurnHooks.automaticCompaction` 后再执行 compact，并在 compact 后重建 `frame.messages`，最后追加 hook runtimeMessages。targeted 回归 7 files / 97 tests passed；18 相关宽套件 17 files / 192 tests passed；已重新执行 `bun scripts/profile.ts compile --all --system` 和 `bun scripts/profile.ts compile --all`；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
+- 2026-05-29：把 report_result reminder enablement 从 `RunFrame` 初始化时的静态 `hasBuiltinHook()` 扫描迁到 `prepareRun` hook result。`builtin.reportResult` 现在作为可执行 `prepareRun` built-in 返回 `builtinBehavior.reportResultReminder`；`invokeAgent()` 把 `prepareRunHooks.reportResultReminder` 传入 `RunFrame`，所以第一轮 turn 后的 continuation 判定已经由 hook result 决定，不再提前扫描 profile runtime。targeted 回归 `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/harness/turn-continuation.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`，4 files / 84 tests passed。
+- 2026-05-29：继续收紧 profile prepare 的持久化边界。`prepare()` 现在只返回 `{ plan, writePlan }`，不再自己执行 session 写入；`invokeAgent()` 在 `prepareRun` 阶段统一执行 `prepared.writePlan`。这保持现有 message 顺序不变，但把 profile prepare 计算和 Default Persistence 写入执行分开。targeted 回归 `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts server/agent/profiles/define-agent-runtime.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/run-frame-state.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/turn-transaction.test.ts --reporter=dot`，6 files / 93 tests passed。
+- 2026-05-29：抽出 prepare-run reducer/helper。新增 `server/agent/harness/prepare-run.ts`，把 `compilePrepareRunWritePlan()` 和 profile state write 校验从 `NeuroAgentHarness` 移出；新增 `prepare-run.test.ts` 覆盖 sessionContext 开关、HistorySet/AppendingSet 编译、已有历史不重复初始化、非法 stateWrites 拒绝。targeted 回归 `bunx vitest run server/agent/harness/prepare-run.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`，2 files / 72 tests passed；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
+- 2026-05-29：把 `invokeAgent()` 内的 prepareRun 编排抽成私有 `prepareRun()` helper。该 helper 现在集中负责 resolution restore、prepareRun hooks、profile prepare、profile prepare write plan、pending prompt 写入、首轮模型上下文组装和首轮 RunFrame 输入返回；`invokeAgent()` 主流程进一步收敛为 Coordinator / prepareRun / runLoop / settleRun / cleanup。targeted 回归 `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/prepare-run.test.ts server/agent/profiles/define-agent-runtime.test.ts --reporter=dot`，3 files / 80 tests passed；18 相关宽套件 18 files / 197 tests passed；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
+- 2026-05-29：把 accepted invocation 的 terminal 处理抽成 `completeInvocation()` / `failInvocation()`。正常 terminal 现在集中处理 `settleRun`、terminal lifecycle、follow-up pause/drain 和 active cleanup；异常 terminal 统一规范化 `InvocationErrorInfo`、写 `error/aborted` lifecycle、暂停 follow-up 并释放运行态。targeted 回归 `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/run-kernel-error.test.ts --reporter=dot`，3 files / 79 tests passed；18 相关宽套件 18 files / 197 tests passed；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
+- 2026-05-29：把单轮 turn 的执行事务抽成 `runTurnTransaction()`。`runLoop()` 现在只负责 frame 初始化、循环终态和 `agent_start` / `agent_end`，每轮的 `turn_start`、pre-model steer drain、`TurnSnapshot` 创建、`executeTurn`、failed partial ingest、successful/waiting ingest、`turn_end`、continuation 和 `prepareNextTurn` 都收敛到一个内部事务 helper；`RunTurnTransactionResult` 类型进入 `run-kernel-types.ts`。targeted 回归 `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/turn-transaction.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/run-frame-state.test.ts --reporter=dot`，4 files / 81 tests passed。
+- 2026-05-29：把 active leaf 移动纳入 `SessionWritePlan`。新增 `SessionWriteOp.kind = "moveLeaf"`，retry/tree/empty 等用户可见控制面写入不再直连 `repo.moveLeaf()` 或手动 `publishSessionState()`，统一由 `SessionWriteExecutor` 写 leaf entry 并发布 `session_entry` / `session_state_changed`。targeted 回归 `bunx vitest run server/agent/session/write-plan.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`，2 files / 73 tests passed。
+- 2026-05-29：持久化 follow-up queue snapshot 状态。新增 `agent.followUpQueue` custom state key，enqueue/drain/pause 会通过 projection write 保存 `{status, pausedBy, items}`；`getSessionSnapshot()` 在内存 queue 不存在时可从 session projection 恢复 paused/ready queue。第一版只恢复 UI snapshot，不在 server restart 后自动 drain ready queue。targeted 回归 `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts server/agent/session/write-plan.test.ts --reporter=dot`，2 files / 74 tests passed；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
+- 2026-05-29：删除旧后端 slash command 模块。`server/agent/session/slash-commands.ts` 和 `server/agent/index.ts` 的对应导出已移除，避免保留一套绕过 `SessionWriteExecutor` 的 command/tree/retry 实现；正式 slash command 仍由前端识别后调用 HTTP command/tree 入口。
+- 2026-05-29：硬切 compaction repo append fallback。`appendCompaction()` / `compactIfNeeded()` 现在必须接收 `writeCompactionEntry`，compaction 模块只负责生成 compaction entry，不再自行 `repo.appendEntry()`；active harness 继续通过 `ToolSessionWriteSink` 写入。targeted 回归 `bunx vitest run server/agent/harness/compaction.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`，2 files / 75 tests passed；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
+- 2026-05-29：标注 variable accessor 的 standalone fallback 边界。`variables/accessor.ts` 仍允许低层变量单元测试和独立调用在没有 harness writer 时直接 append audit entry，但注释明确 active harness 必须注入 `writeSessionEntry`，实际运行路径通过 `ToolSessionWriteSink` / `SessionWriteExecutor` 发布。
+- 2026-05-29：固定 RunFrame 初始化合同。新增 `createRunFrame()`，把 `runLoop()` 中的初始运行态组装移入 `run-frame-state.ts` 并补测试，明确 messages 浅拷贝、events/pendingWritePlans 初始为空、turnIndex/reminder/compaction 默认值。targeted 回归 `bunx vitest run server/agent/harness/run-frame-state.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`，2 files / 74 tests passed；18 宽套件 18 files / 201 tests passed；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
+- 2026-05-29：修复 waiting/running abort terminal 语义。waiting 状态下 abort 会先写 harness error toolResult 闭合 pending approval tool call，再写 lifecycle `aborted` 并释放 active invocation；running 状态 provider 返回 aborted/interrupted failed outcome 时，RunLoop failed result 会携带 `terminalStatus`，terminal lifecycle 写 `aborted`，follow-up queue 以 `aborted` reason 暂停而不是误记为普通 error。targeted 回归 `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/turn-failure.test.ts --reporter=dot`，2 files / 78 tests passed；18 宽套件 18 files / 202 tests passed；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
 
 ## Files Changed
 
+- `server/agent/session/tool-session-write-sink.ts`
+- `server/agent/session/write-plan.ts`
+- `server/agent/session/write-plan.test.ts`
+- `server/agent/session/session-repo.ts`
+- `server/agent/session/session-repo.test.ts`
+- `server/agent/session/types.ts`
+- `server/agent/profiles/define-agent-runtime.ts`
+- `server/agent/profiles/define-agent-runtime.test.ts`
+- `server/agent/profiles/define-agent-profile.ts`
+- `server/agent/profiles/types.ts`
+- `server/agent/profiles/default-profile.ts`
+- `server/agent/harness/neuro-agent-harness.ts`
+- `server/agent/harness/neuro-agent-harness.test.ts`
+- `server/agent/harness/run-kernel-error.ts`
+- `server/agent/harness/run-kernel-error.test.ts`
+- `server/agent/harness/run-frame-state.ts`
+- `server/agent/harness/run-frame-state.test.ts`
+- `server/agent/harness/prepare-run.ts`
+- `server/agent/harness/prepare-run.test.ts`
+- `server/agent/harness/prepare-next-turn.ts`
+- `server/agent/harness/prepare-next-turn.test.ts`
+- `server/agent/harness/run-kernel-types.ts`
+- `server/agent/harness/turn-continuation.ts`
+- `server/agent/harness/turn-continuation.test.ts`
+- `server/agent/harness/turn-failure.ts`
+- `server/agent/harness/turn-failure.test.ts`
+- `server/agent/harness/turn-transaction.ts`
+- `server/agent/harness/turn-transaction.test.ts`
+- `server/agent/harness/types.ts`
+- `server/agent/harness/compaction.ts`
+- `server/agent/variables/accessor.ts`
+- `shared/dto/agent-session.dto.ts`
+- `app/components/novel-ide/agent/useAgentSession.ts`
+- `app/components/novel-ide/agent/useAgentSession.test.ts`
+- `app/components/novel-ide/agent/useAgentSessionStream.test.ts`
+- `app/components/novel-ide/agent/agent-message.test.ts`
+- `app/components/novel-ide/NovelAgentDrawer.vue`
+- `app/utils/agent-message-projection.test.ts`
 - `docs/tasks/18-agent-runtime-pipeline-hooks/HARNESS-BLACK-BOX-CONTRACT.md`
 - `docs/tasks/18-agent-runtime-pipeline-hooks/README.md`
-- `docs/tasks/17-session-title-summary-enhancement/README.md`
-- `CONTEXT.md`
+- `PROJECT-STATUS.md`
 
 ## Verification
 
-- 本轮仅更新架构计划文档，未改运行时代码。
+- `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/session/write-plan.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`
+  - 3 files, 60 tests passed.
+- `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`
+  - 1 file, 52 tests passed.
+- `bunx vitest run server/agent/session/session-repo.test.ts server/agent/session/write-plan.test.ts server/agent/profiles/define-agent-runtime.test.ts server/agent/profiles/catalog.test.ts server/agent/harness/neuro-agent-harness.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/components/novel-ide/agent/agent-message.test.ts app/components/novel-ide/agent/useAgentSessionStream.test.ts app/utils/agent-message-projection.test.ts --reporter=dot`
+  - 9 files, 121 tests passed.
+- `bunx vitest run server/agent/session/session-repo.test.ts server/agent/session/write-plan.test.ts server/agent/profiles/define-agent-runtime.test.ts server/agent/profiles/catalog.test.ts server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/compaction.test.ts server/agent/variables/variables.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/components/novel-ide/agent/agent-message.test.ts app/components/novel-ide/agent/useAgentSessionStream.test.ts app/utils/agent-message-projection.test.ts --reporter=dot`
+  - 11 files, 153 tests passed.
+- `bunx vitest run server/agent/session/write-plan.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`
+  - 2 files, 62 tests passed.
+- `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`
+  - 2 files, 62 tests passed.
+- `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`
+  - 2 files, 66 tests passed after hard-cutting transcript persistence fallback and recompiling system/user profile artifacts.
+- `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/harness/turn-continuation.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`
+  - 4 files, 75 tests passed after moving report_result reminder enablement behind `builtin.reportResult`.
+- `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/harness/compaction.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/run-frame-state.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/turn-transaction.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`
+  - 7 files, 90 tests passed after moving automatic compaction enablement behind `builtin.compact`.
+- `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/harness/turn-continuation.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`
+  - 4 files, 84 tests passed after moving report_result reminder enablement to executable `prepareRun` hook result.
+- `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts server/agent/profiles/define-agent-runtime.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/run-frame-state.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/turn-transaction.test.ts --reporter=dot`
+  - 6 files, 93 tests passed after separating profile prepare planning from prepareRun write execution.
+- `bunx vitest run server/agent/harness/prepare-run.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`
+  - 2 files, 72 tests passed after extracting prepare-run write plan reducer.
+- `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/prepare-run.test.ts server/agent/profiles/define-agent-runtime.test.ts --reporter=dot`
+  - 3 files, 80 tests passed after extracting invoke prepareRun orchestration helper.
+- `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/run-kernel-error.test.ts --reporter=dot`
+  - 3 files, 79 tests passed after extracting invocation terminal cleanup helpers.
+- `bunx vitest run server/agent/session/session-repo.test.ts server/agent/session/write-plan.test.ts server/agent/profiles/define-agent-runtime.test.ts server/agent/profiles/catalog.test.ts server/agent/harness/run-kernel-error.test.ts server/agent/harness/run-frame-state.test.ts server/agent/harness/prepare-run.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/turn-continuation.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/turn-transaction.test.ts server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/compaction.test.ts server/agent/variables/variables.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/components/novel-ide/agent/agent-message.test.ts app/components/novel-ide/agent/useAgentSessionStream.test.ts app/utils/agent-message-projection.test.ts --reporter=dot`
+  - 18 files, 197 tests passed after the latest prepare-run extraction and built-in hook migrations.
+- `bunx vitest run server/agent/session/session-repo.test.ts server/agent/session/write-plan.test.ts server/agent/profiles/define-agent-runtime.test.ts server/agent/profiles/catalog.test.ts server/agent/harness/run-kernel-error.test.ts server/agent/harness/run-frame-state.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/turn-continuation.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/turn-transaction.test.ts server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/compaction.test.ts server/agent/variables/variables.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/components/novel-ide/agent/agent-message.test.ts app/components/novel-ide/agent/useAgentSessionStream.test.ts app/utils/agent-message-projection.test.ts --reporter=dot`
+  - 17 files, 185 tests passed after the compact built-in hook migration slice.
+- `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`
+  - 2 files, 62 tests passed after extracting Run Kernel type boundaries.
+- `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`
+  - 1 file, 60 tests passed after extracting Run Kernel type boundaries and fixing runtime input inference.
+- `bunx vitest run server/agent/harness/turn-continuation.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`
+  - 2 files, 64 tests passed.
+- `bunx vitest run server/agent/harness/turn-failure.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`
+  - 2 files, 63 tests passed.
+- `bunx vitest run server/agent/harness/run-frame-state.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`
+  - 2 files, 63 tests passed.
+- `bunx vitest run server/agent/session/session-repo.test.ts server/agent/session/write-plan.test.ts server/agent/profiles/define-agent-runtime.test.ts server/agent/profiles/catalog.test.ts server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/compaction.test.ts server/agent/variables/variables.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/components/novel-ide/agent/agent-message.test.ts app/components/novel-ide/agent/useAgentSessionStream.test.ts app/utils/agent-message-projection.test.ts --reporter=dot`
+  - 11 files, 154 tests passed.
+- `bunx tsc --noEmit --pretty false`
+  - 仍失败，但剩余错误是既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` 中 `inspection.markers.* is possibly undefined`；runtime hook / Run Kernel 类型迁移相关错误已清掉。
+- `bunx vitest run server/agent/harness/run-frame-state.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`
+  - 2 files, 74 tests passed after extracting `createRunFrame()`.
+- `bunx vitest run server/agent/session/session-repo.test.ts server/agent/session/write-plan.test.ts server/agent/profiles/define-agent-runtime.test.ts server/agent/profiles/catalog.test.ts server/agent/harness/run-kernel-error.test.ts server/agent/harness/run-frame-state.test.ts server/agent/harness/prepare-run.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/turn-continuation.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/turn-transaction.test.ts server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/compaction.test.ts server/agent/variables/variables.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/components/novel-ide/agent/agent-message.test.ts app/components/novel-ide/agent/useAgentSessionStream.test.ts app/utils/agent-message-projection.test.ts --reporter=dot`
+  - 18 files, 201 tests passed after the latest RunFrame initialization helper slice.
+- `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/turn-failure.test.ts --reporter=dot`
+  - 2 files, 78 tests passed after fixing waiting/running abort terminal semantics.
+- `bunx vitest run server/agent/session/session-repo.test.ts server/agent/session/write-plan.test.ts server/agent/profiles/define-agent-runtime.test.ts server/agent/profiles/catalog.test.ts server/agent/harness/run-kernel-error.test.ts server/agent/harness/run-frame-state.test.ts server/agent/harness/prepare-run.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/turn-continuation.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/turn-transaction.test.ts server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/compaction.test.ts server/agent/variables/variables.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/components/novel-ide/agent/agent-message.test.ts app/components/novel-ide/agent/useAgentSessionStream.test.ts app/utils/agent-message-projection.test.ts --reporter=dot`
+  - 18 files, 202 tests passed after fixing abort terminal semantics.
 - 已核对 PI 文档与源码入口：
   - `.agent/workspace/pi/packages/agent/docs/agent-harness.md`
   - `.agent/workspace/pi/packages/agent/docs/durable-harness.md`
@@ -1739,23 +2072,24 @@ export default defineAgentProfile({
   - `runToolBatch()`
   - `commitTurn()`
   - `finalizeInvokeResult()`
-  - `applyIngest()`
-  - `triggerSessionSummarizer()`
+  - 第一批实现后 active 代码中已无 `applyIngest()` 调用路径，也无旧 hard-coded `triggerSessionSummarizer()` 自动运行路径。
 
 ## TODO / Follow-ups
 
 - 18 完整重构落地后，重新计划 `docs/tasks/17-session-title-summary-enhancement/README.md` 的 summarizer 实现细节。
+- 将当前 `RunFrame`、`TurnSnapshot`、`TurnOutcome`、`RunLoopResult`、`TurnContinuationDecision` 的执行逻辑继续拆成更清晰的 Run Kernel 模块；类型边界已先移入 `run-kernel-types.ts`，turn continuation / shouldStop 纯判定已先移入 `turn-continuation.ts`，partial failure helper 与 failed ingest draft 已先移入 `turn-failure.ts`，Turn Transaction outcome 应用已先移入 `turn-transaction.ts`，RunFrame 状态写回已先移入 `run-frame-state.ts`，prepare-next-turn 的确定性 reducer 已先移入 `prepare-next-turn.ts`，stage error phase 包装已先移入 `run-kernel-error.ts`。下一步是继续把完整 failure path 从 `NeuroAgentHarness` 里分离。
+- 继续实现内置 hook bundle 的行为迁移。当前 `defineAgentRuntime()` 已能展开 built-in bundle，默认 session runtime 也已有内置 hook；`builtin.profilePrompt` 已显式启用 profile prepare system prompt；`builtin.sessionContext` 已作为可执行 `prepareRun` hook 控制 `prepare().modelContextMessages` 注入 provider context，也控制 `HistorySet` / `AppendingSet` / `ModelContext` appending 写入 session history；`builtin.transcriptPersistence` 已显式返回 `transcript: "persist"`，且无 transcript hook 时不再隐式落盘；`builtin.compact` 已作为可执行 `prepareNextTurn` hook 显式启用 automatic compaction；`builtin.reportResult` 已作为可执行 `prepareRun` hook 显式启用缺失 report_result 的 reminder retry；profile prepare 现在只产出 plan/writePlan，prepare persistence 编译已抽到 `prepare-run.ts`。下一步继续把完整 `prepareRun` 编排从 `invokeAgent()` 主流程拆成更小的 Run Kernel helper。
+- `ToolSessionWriteSink` 已覆盖 active harness 路径的 variable accessor、client variable ack、tool custom state、profile prepare writes、compaction append 和控制面 active leaf 移动；`compaction.ts` 已硬切为调用方必须注入 compaction entry writer，不再 fallback 直连 repo append。
+- 剩余 repo append fallback 已明确为 standalone/test-only：`variables/accessor.ts` 在没有注入 `writeSessionEntry` 时仍可独立工作，但 active harness 必须注入 writer，让 audit entry 走 `SessionWriteExecutor`。
+- 如需服务重启后自动继续 ready follow-up queue，另开 coordinator recovery 任务；18 第一版只保证 snapshot 能恢复 queue 状态，不自动消费。
+- 17 summarizer 重做时清理旧 `session.summarizer` profile key / DTO / custom state 命名，改成普通 profile runtime hooks 表达，并补 active-path-specific projection source leaf 校验。
 - 后续实现前先补最小 targeted tests：
   - projection 不污染 tree。
-  - runtime-only transcript turn 不落盘。
-  - report_result reminder 遵守 runtime-only ingest。
+  - source session `AgentDialogueContent` helper 继续覆盖 compaction / toolResult omitted / branch active path。
   - ingestTurn 能替换默认 turn persistence。
-  - prepareNextTurn 重建 context。
   - write executor 保持 assistant/toolResult 顺序。
   - write executor 拒绝缺少 target/cause 的 plan。
   - waiting lifecycle 写入显式 `waiting`，resolution 后写入 `resumed`。
-  - tool-side custom state writes 通过 executor 发布 entry/state，且不插入 assistant/toolResult batch 内部。
-  - tool-side `savePoint` writes 与 transcript 同批提交，`immediate` writes 可实时发布。
   - `moveTree(... next.invoke)` 仍能先切 active leaf 再由 coordinator 启动 run。
   - `invoke_agent` tool 遵守目标 session active lock，且拒绝 self-invoke。
   - summarizer stale source leaf 不覆盖 source title/summary，只标 dirty 重跑。
@@ -1764,6 +2098,6 @@ export default defineAgentProfile({
   - terminal error/aborted/interrupted 后清理 steer queue，并暂停 follow-up queue。
   - accepted retry/new prompt start 后，前端不再投影旧 ErrorBubble。
   - message entry partial/interrupted/error metadata reducer 和前端投影。
-  - follow-up queue `{status, pausedBy, items}` snapshot/SSE/frontend store 迁移。
-  - hook runtimeState namespace merge 不互相覆盖。
+  - follow-up queue `{status, pausedBy, items}` snapshot/SSE/frontend store 迁移。（snapshot projection 恢复已覆盖；后续只剩 server restart 后是否自动 drain 的产品决策。）
+  - hook runtimeState namespace merge 不互相覆盖。（已覆盖同名 hook 对象浅合并；后续如支持多 namespace patch 再扩展测试。）
   - custom hook patch `tools` / `requestOptions` 后仍保留 report_result schema、approval barrier 和 provider request 规范化。

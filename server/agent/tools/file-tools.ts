@@ -77,7 +77,7 @@ function createReadTool(): NeuroAgentTool {
         key: "read",
         name: "read",
         label: "read",
-        description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Project paths like workspace/silver-dragon-hime/lorebook/... and current-workspace paths like lorebook/... both resolve inside the current Project Workspace. Use read to examine files instead of cat/head/tail/sed.`,
+        description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Agent cwd is the Workspace Root, so Project files should use project-slug/lorebook/... or project-slug/manuscript/.... Fully-qualified Project Paths like workspace/silver-dragon-hime/lorebook/... are accepted as compatibility aliases. Use read to examine files instead of cat/head/tail/sed.`,
         parameters: ReadSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown) {
             const input = params as ReadInput;

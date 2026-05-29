@@ -6,8 +6,8 @@ import {promisify} from "node:util";
 const accessAsync = promisify(access);
 
 /**
- * 解析模型传入的路径。相对路径默认绑定到 session cwd；
- * 当前 cwd 是 Project Workspace 时，允许模型继续传完整 Project Path。
+ * 解析模型传入的路径。普通 Project agent 的 cwd 是 Workspace Root；
+ * `workspace/<project>/...` 作为完整 Project Path 输入时会归一到 `<project>/...`。
  */
 export function resolveWorkspacePath(filePath: string, workspaceRoot: string, projectPath?: string): string {
     const expanded = expandPath(filePath);
@@ -73,9 +73,15 @@ function expandPath(filePath: string): string {
 
 function normalizeWorkspaceAlias(filePath: string, workspaceRoot: string, projectPath?: string): string {
     const normalizedPath = filePath.replace(/\\/g, "/").replace(/^\/+/, "");
+    const workspaceRootIsContainer = isWorkspaceContainerRoot(workspaceRoot);
+    if (workspaceRootIsContainer && (normalizedPath === "workspace" || normalizedPath.startsWith("workspace/"))) {
+        return stripWorkspaceContainer(normalizedPath);
+    }
     const normalizedProjectPath = projectPath?.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
     if (normalizedProjectPath && isSameWorkspaceAlias(normalizedPath, normalizedProjectPath)) {
-        return stripWorkspaceRoot(normalizedPath, normalizedProjectPath);
+        return workspaceRootIsContainer
+            ? stripWorkspaceContainer(normalizedPath)
+            : stripWorkspaceRoot(normalizedPath, normalizedProjectPath);
     }
     const inferredProjectPath = inferProjectPath(workspaceRoot);
     if (inferredProjectPath && isSameWorkspaceAlias(normalizedPath, inferredProjectPath)) {
@@ -102,6 +108,15 @@ function isCurrentWorkspaceAlias(filePath: string): boolean {
 
 function stripWorkspaceRoot(filePath: string, workspacePath: string): string {
     return filePath === workspacePath ? "." : filePath.slice(workspacePath.length + 1);
+}
+
+function stripWorkspaceContainer(filePath: string): string {
+    return filePath === "workspace" ? "." : filePath.slice("workspace/".length);
+}
+
+function isWorkspaceContainerRoot(workspaceRoot: string): boolean {
+    const normalizedRoot = workspaceRoot.replace(/\\/g, "/").replace(/\/+$/g, "");
+    return normalizedRoot.split("/").filter(Boolean).at(-1) === "workspace";
 }
 
 function inferProjectPath(workspaceRoot: string): string | null {

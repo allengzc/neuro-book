@@ -228,6 +228,15 @@ export type AgentQueuedMessageDto = {
 
 export type AgentFollowUpQueueItemDto = AgentQueuedMessageDto;
 
+export type AgentFollowUpQueueStateDto = {
+    status: "ready" | "paused";
+    pausedBy?: {
+        invocationId: string;
+        reason: "error" | "aborted" | "interrupted";
+    };
+    items: AgentFollowUpQueueItemDto[];
+};
+
 export type AgentActiveInvocationDto = {
     invocationId: string;
     sessionId: number;
@@ -299,7 +308,7 @@ export type AgentSessionSnapshotDto = {
     linkedByAgents: AgentLinkedSessionDto[];
     pendingApproval: AgentPendingApprovalDto | null;
     steerQueue: AgentQueuedMessageDto[];
-    followUpQueue: AgentFollowUpQueueItemDto[];
+    followUpQueue: AgentFollowUpQueueStateDto;
     activeInvocation: AgentActiveInvocationDto | null;
     model: Model<any> | null;
     /** 当前 session 的显式 thinking 覆盖；null 表示跟随 Agent Profile。 */

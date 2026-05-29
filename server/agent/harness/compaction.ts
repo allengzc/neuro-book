@@ -3,7 +3,7 @@ import {estimateContextTokens, estimateTokens} from "@earendil-works/pi-agent-co
 import type {AgentMessage, JsonValue, Message, Model, ThinkingLevel} from "nbook/server/agent/messages/types";
 import type {ProfileCompactionPlan} from "nbook/server/agent/profiles/types";
 import type {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
-import type {MessageSessionEntry, SessionEntry, SessionSnapshot} from "nbook/server/agent/session/types";
+import type {CompactionSessionEntry, MessageSessionEntry, SessionEntry, SessionSnapshot} from "nbook/server/agent/session/types";
 import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 
 export const COMPACTION_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.
@@ -59,6 +59,7 @@ export async function compactIfNeeded(input: {
     requestOptions?: Record<string, JsonValue>;
     thinkingLevel?: ThinkingLevel;
     compaction?: ProfileCompactionPlan;
+    writeCompactionEntry: (entry: Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">) => Promise<void>;
 }): Promise<boolean> {
     const options = resolveCompactionOptions(input.compaction, input.model);
     if (!options.enabled) {
@@ -81,6 +82,7 @@ export async function compactIfNeeded(input: {
         requestOptions: input.requestOptions,
         thinkingLevel: input.thinkingLevel,
         options,
+        writeCompactionEntry: input.writeCompactionEntry,
     });
     return true;
 }
@@ -101,6 +103,7 @@ export async function appendCompaction(input: {
     instructions?: string;
     compaction?: ProfileCompactionPlan;
     options?: CompactionOptions;
+    writeCompactionEntry: (entry: Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">) => Promise<void>;
 }): Promise<void> {
     const options = input.options ?? resolveCompactionOptions(input.compaction, input.model);
     const path = input.repo.activePath(input.snapshot);
@@ -121,7 +124,7 @@ export async function appendCompaction(input: {
     });
     const summary = `${options.summaryPrefix}\n\n${generatedSummary}`;
 
-    await input.repo.appendEntry(input.snapshot.metadata.sessionId, {
+    const entry = {
         type: "compaction",
         summary,
         firstKeptEntryId: plan.firstKeptEntry?.id ?? null,
@@ -135,7 +138,9 @@ export async function appendCompaction(input: {
             promptSource: options.promptSource,
             summaryPrefixSource: options.summaryPrefixSource,
         },
-    }, input.snapshot.metadata.workspaceKey);
+    } satisfies Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">;
+
+    await input.writeCompactionEntry(entry);
 }
 
 /**

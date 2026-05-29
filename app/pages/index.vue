@@ -29,9 +29,8 @@ import {useNovelIdeStore, type AgentWorkspaceSyncPayload, type WorkspaceEditorKi
 import type {WorkspaceFileChangeEventDto, WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
 import {
     collectWorkspaceReferencePathCandidates,
-    searchWorkspaceReferences,
-    type WorkspaceReferenceSearchInput,
 } from "nbook/app/utils/workspace-reference-search";
+import {buildWorkspaceReferenceSections} from "nbook/app/utils/workspace-reference-menu";
 import {resolveWorkspaceFileExtension, type FrontmatterProfileKind} from "nbook/shared/editor-workbench";
 
 type StreamTokenEvent = {
@@ -312,63 +311,12 @@ function resolveMarkdownMenu(context: AgentTriggerMenuContext): AgentTriggerMenu
         };
     }
 
-    const referenceSections = buildWorkspaceReferenceSections(context.query);
+    const referenceSections = buildWorkspaceReferenceSections(workspaceTree.value, context.query);
     return {
         title: "引用",
         prefix: "@",
         sections: referenceSections.length > 0 ? referenceSections : [createEmptyMenuSection(context.query)],
     };
-}
-
-/**
- * 从当前 workspace tree 生成按类型分组的引用候选。
- */
-function buildWorkspaceReferenceSections(query: string): Array<{id: string; title: string; items: AgentTriggerMenuItem[]}> {
-    const candidates = workspaceTree.value
-        .filter((node) => isReferenceCandidate(node))
-        .map((node, index): WorkspaceReferenceSearchInput<AgentTriggerMenuItem> => {
-            const label = node.title?.trim() || basename(node.path);
-            const target = referenceTarget(node);
-            const entryType = resolveReferenceEntryType(node);
-            const item = {
-                id: `workspace-reference:${target}`,
-                label,
-                description: node.summary || target,
-                iconClass: node.icon ? `i-lucide-${node.icon}` : node.isDirectory ? "i-lucide-folder" : "i-lucide-file-text",
-                hint: entryType,
-                workspaceReference: {
-                    label,
-                    target,
-                    entryType,
-                    icon: node.icon,
-                },
-            } satisfies AgentTriggerMenuItem;
-            return {
-                item,
-                label,
-                target,
-                description: node.summary || target,
-                entryType,
-                menuId: item.id,
-                frontmatter: node.frontmatter,
-                order: index,
-            };
-        });
-    const items = searchWorkspaceReferences(candidates, query, 40).map((result) => result.item);
-    const sectionOrder = ["chapter", "character", "location", "item", "rule", "note", "file", "folder"];
-    const extraTypes = [...new Set(items
-        .map((item) => item.workspaceReference?.entryType ?? "file")
-        .filter((entryType) => !sectionOrder.includes(entryType)))];
-    return [...sectionOrder, ...extraTypes]
-        .map((entryType) => {
-            const sectionItems = items.filter((item) => item.workspaceReference?.entryType === entryType);
-            return {
-                id: `workspace-reference-${entryType}`,
-                title: referenceSectionTitle(entryType),
-                items: sectionItems,
-            };
-        })
-        .filter((section) => section.items.length > 0);
 }
 
 /**
@@ -387,56 +335,6 @@ function createEmptyMenuSection(query: string): {id: string; title: string; item
             disabled: true,
         }],
     };
-}
-
-/**
- * 解析引用候选的展示类型。
- */
-function resolveReferenceEntryType(node: WorkspaceFileNode): string {
-    if (node.contentNode && node.entryType && !node.frontmatterError) {
-        return node.entryType;
-    }
-    return node.isDirectory ? "folder" : "file";
-}
-
-/**
- * 引用菜单分组标题。
- */
-function referenceSectionTitle(entryType: string): string {
-    const titles: Record<string, string> = {
-        chapter: "章节",
-        character: "角色",
-        location: "地点",
-        item: "物品",
-        rule: "规则",
-        note: "笔记",
-        file: "文件",
-        folder: "目录",
-    };
-    return titles[entryType] ?? entryType;
-}
-
-/**
- * 判断节点是否适合作为 @ 引用候选。
- */
-function isReferenceCandidate(node: WorkspaceFileNode): boolean {
-    if (node.isDirectory) {
-        return node.contentNode || node.hasIndex;
-    }
-    if (node.contentNode && node.path.toLowerCase().endsWith("/index.md")) {
-        return false;
-    }
-    return node.editable && node.path.toLowerCase().endsWith(".md");
-}
-
-/**
- * 将节点路径转成 Markdown 引用 target。
- */
-function referenceTarget(node: WorkspaceFileNode): string {
-    if (node.isDirectory) {
-        return `${normalizeWorkspacePath(node.path)}/`;
-    }
-    return normalizeWorkspacePath(node.path);
 }
 
 /**

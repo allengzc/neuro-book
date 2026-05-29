@@ -345,3 +345,10 @@
 - 抽出 `initProjectDatabaseAtRoot()`，让 agent assets CLI 能在只有目标绝对目录时初始化 Project SQLite，同时保留原有 `initProjectDatabase(projectPath)` 入口。
 - `leader.default` prompt 的 Shell commands 已加入 `workspace project create`，并提醒创建新小说 Project Workspace 时不要手动复制模板或手拼 manifest。
 - 新小说模板状态文档已从 `workspace.yaml` 改成 `project.yaml`，避免新项目初始化后文档和实际 manifest 冲突。
+
+### 2026-05-29 Agent cwd 与模板覆盖修复
+
+- 普通 Project agent 的工具 cwd 明确统一为 Workspace Root `workspace/`；Project Workspace 仍由 `projectPath` / `Current Project Workspace` 表达，项目文件首选 `project-slug/...`，`workspace/project-slug/...` 只作为兼容别名。
+- 修复 `resolveWorkspacePath()` 在 `workspaceRoot=workspace` 时把 `workspace/<project>/...` 错误裁成项目内相对路径的问题，避免读写落到 `workspace/lorebook/...` 或形成双前缀心智。
+- `/api/projects` / `/api/novels` 创建路径本身会在 Project Workspace 根目录写入 `project.yaml`；`project.yaml` 不在 `.nbook/`。本轮清理了 bundled 与 user 覆盖模板里的旧 `workspace.yaml`，并让模板复制流程在合并后移除旧 manifest、归一 `PROJECT-STATUS.md` 文案，避免前端新建项目继续携带旧模板文件。
+- `leader.default`、`retrieval`、SillyTavern / 番茄导入 skill 文案同步到 Workspace Root cwd 心智；SillyTavern CLI stdout 与 import report 改为输出 Agent 可直接读取的 `project-slug/...` 路径，不再把宿主机绝对路径作为后续操作入口。

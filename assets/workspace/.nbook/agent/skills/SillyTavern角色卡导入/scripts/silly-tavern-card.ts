@@ -117,7 +117,7 @@ async function runInspect(input: string, options: CliOptions): Promise<void> {
     const target = resolveOutputTarget(options.workspace, options.out, inspection.slug);
     await assertCanWriteTarget(target.cardRoot, options.force);
     await writeInspectFiles(target, loaded, inspection, {force: options.force});
-    printInspectSummary(inspection, target.cardRoot, options.json);
+    printInspectSummary(inspection, target, options.json);
 }
 
 async function runImport(input: string, options: CliOptions): Promise<void> {
@@ -445,9 +445,9 @@ async function writeRpExtension(workspaceRoot: string, inspection: CardInspectio
     return written;
 }
 
-async function writeImportReport(target: {cardRoot: string}, inspection: CardInspection, written: string[], force: boolean): Promise<string> {
+async function writeImportReport(target: {workspaceRoot: string; cardRoot: string}, inspection: CardInspection, written: string[], force: boolean): Promise<string> {
     const reportPath = path.join(target.cardRoot, "import-report.md");
-    await writeGeneratedFile(reportPath, renderImportReport(inspection, written), force);
+    await writeGeneratedFile(reportPath, renderImportReport(inspection, written.map((item) => toProjectRelativePath(target.workspaceRoot, item))), force);
     return reportPath;
 }
 
@@ -748,22 +748,27 @@ function markdownFence(content: string): string {
     return "`".repeat(longest + 1);
 }
 
-function printInspectSummary(inspection: CardInspection, cardRoot: string, json: boolean): void {
+function printInspectSummary(inspection: CardInspection, target: OutputTarget, json: boolean): void {
+    const relativeCardRoot = toProjectRelativePath(target.workspaceRoot, target.cardRoot);
     if (json) {
-        console.log(JSON.stringify({ok: true, inspection, cardRoot}, null, 2));
+        console.log(JSON.stringify({ok: true, inspection, cardRoot: relativeCardRoot, projectPath: toProjectPath(target.workspaceRoot)}, null, 2));
         return;
     }
-    console.log(`inspect wrote: ${cardRoot}`);
+    console.log(`inspect wrote: ${relativeCardRoot}`);
     console.log(`${inspection.kind}: ${inspection.name}`);
 }
 
 function printImportSummary(inspection: CardInspection, written: string[], json: boolean): void {
+    const workspaceRoot = readCommonWorkspaceRoot(written);
+    const relativeWritten = workspaceRoot
+        ? written.map((item) => toProjectRelativePath(workspaceRoot, item))
+        : written;
     if (json) {
-        console.log(JSON.stringify({ok: true, inspection, written}, null, 2));
+        console.log(JSON.stringify({ok: true, inspection, written: relativeWritten, projectPath: workspaceRoot ? toProjectPath(workspaceRoot) : null}, null, 2));
         return;
     }
     console.log(`import finished: ${inspection.name}`);
-    for (const item of written) {
+    for (const item of relativeWritten) {
         console.log(`- ${item}`);
     }
 }
@@ -787,6 +792,45 @@ function toSafeRelativePath(input: string): string {
 
 function inferNameFromPath(sourcePath: string): string {
     return path.basename(sourcePath, path.extname(sourcePath));
+}
+
+function toProjectPath(workspaceRoot: string): string {
+    return path.posix.join(path.basename(path.dirname(workspaceRoot)), path.basename(workspaceRoot));
+}
+
+function toProjectRelativePath(workspaceRoot: string, absolutePath: string): string {
+    const relativePath = path.relative(path.resolve(workspaceRoot), path.resolve(absolutePath)).split(path.sep).join("/");
+    if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+        return absolutePath;
+    }
+    if (relativePath.startsWith(`${path.basename(workspaceRoot)}/`)) {
+        return relativePath;
+    }
+    return path.posix.join(path.basename(workspaceRoot), relativePath);
+}
+
+function readCommonWorkspaceRoot(paths: string[]): string | null {
+    const first = paths[0];
+    if (!first) {
+        return null;
+    }
+    const marker = `${path.sep}reference${path.sep}`;
+    const normalized = path.resolve(first);
+    const markerIndex = normalized.indexOf(marker);
+    if (markerIndex >= 0) {
+        return normalized.slice(0, markerIndex);
+    }
+    const lorebookMarker = `${path.sep}lorebook${path.sep}`;
+    const lorebookIndex = normalized.indexOf(lorebookMarker);
+    if (lorebookIndex >= 0) {
+        return normalized.slice(0, lorebookIndex);
+    }
+    const roleplayMarker = `${path.sep}roleplay${path.sep}`;
+    const roleplayIndex = normalized.indexOf(roleplayMarker);
+    if (roleplayIndex >= 0) {
+        return normalized.slice(0, roleplayIndex);
+    }
+    return null;
 }
 
 function readObject(value: unknown): Record<string, unknown> {

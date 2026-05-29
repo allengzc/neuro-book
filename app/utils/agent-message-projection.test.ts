@@ -218,7 +218,10 @@ describe("agent message projection helpers", () => {
             linkedByAgents: [],
             pendingApproval: null,
             steerQueue: [],
-            followUpQueue: [],
+            followUpQueue: {
+                status: "ready",
+                items: [],
+            },
             activeInvocation: null,
             model: null,
             thinkingLevel: null,
@@ -339,7 +342,10 @@ describe("agent message projection helpers", () => {
             linkedByAgents: [],
             pendingApproval: null,
             steerQueue: [],
-            followUpQueue: [],
+            followUpQueue: {
+                status: "ready",
+                items: [],
+            },
             activeInvocation: null,
             model: null,
             thinkingLevel: null,

@@ -1,6 +1,7 @@
 import type {TSchema} from "typebox";
 import type {AgentProfile, AgentProfileManifest} from "nbook/server/agent/profiles/types";
 import {compileProfileContext, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
+import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
 
 /**
  * 定义一个 v3 Agent Profile。用户自定义 profile 必须通过这个函数导出。
@@ -29,8 +30,12 @@ export function defineAgentProfile<
             const tree = await profile.context!(ctx);
             return compileProfileContext(profile, ctx, tree);
         };
+    const runtime = profile.runtime
+        ? defineAgentRuntime(profile.runtime)
+        : agentRuntimeBuiltins.defaultSessionRuntime();
     return {
         ...profile,
+        runtime,
         prepare,
     };
 }

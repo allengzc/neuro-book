@@ -27,6 +27,8 @@ export type MessageSessionEntry = {
     message: Message;
     /** 为空表示旧 entry 或手工追加；prompt 表示真实用户 prompt。 */
     origin?: "prompt" | "harness" | "manual" | "ingest";
+    /** partial 表示 provider stream 中途失败后保存的半截 assistant。 */
+    status?: "partial" | "interrupted" | "error";
 };
 
 export type SessionUpdateEntry = {
@@ -169,7 +171,7 @@ export type SessionArchivedEntry = {
     reason?: string;
 };
 
-export type InvocationErrorPhase = "prepare" | "pre_loop" | "model" | "tool" | "ingest" | "compaction" | "unknown";
+export type InvocationErrorPhase = "prepare" | "pre_loop" | "model" | "tool" | "ingest" | "compaction" | "settleRun" | "unknown";
 
 export type InvocationErrorInfo = {
     message: string;
@@ -184,7 +186,7 @@ export type InvocationLifecycleEntry = {
     timestamp: number;
     type: "invocation_lifecycle";
     invocationId: string;
-    status: "start" | "end" | "error" | "aborted";
+    status: "start" | "waiting" | "resumed" | "end" | "error" | "aborted" | "interrupted";
     error?: string;
     errorInfo?: InvocationErrorInfo;
 };

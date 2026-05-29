@@ -78,10 +78,16 @@ describe("silly-tavern-card cli helpers", () => {
         const workspace = await createProjectWorkspace(tempRoots);
         const input = path.resolve(".agent/workspace/cards/公立育露学园/2.28_v1--reload.raw.json");
 
-        await runCli(["bun", "silly-tavern-card", "import", input, "--workspace", workspace, "--rp"]);
+        const logs = await captureConsoleLog(() => runCli(["bun", "silly-tavern-card", "import", input, "--workspace", workspace, "--rp"]));
         const lorebookPath = path.join(workspace, "lorebook", "note", "silly-tavern-2.28-尝鲜版v1-全裸登校-育露学园的第一天-reload", "index.md");
         const generated = await readFile(lorebookPath, "utf-8");
         expect(generated).toContain("reference/silly-tavern/2.28-尝鲜版v1-全裸登校-育露学园的第一天-reload/inspect.md");
+        expect(logs.join("\n")).toContain("st-card-workspace-");
+        expect(logs.join("\n")).toContain("reference/silly-tavern/2.28-尝鲜版v1-全裸登校-育露学园的第一天-reload/import-report.md");
+        expect(logs.join("\n")).not.toContain(workspace);
+        const report = await readFile(path.join(workspace, "reference", "silly-tavern", "2.28-尝鲜版v1-全裸登校-育露学园的第一天-reload", "import-report.md"), "utf-8");
+        expect(report).toContain("st-card-workspace-");
+        expect(report).not.toContain(workspace);
         expect(JSON.parse(await readFile(`${lorebookPath}.generated.json`, "utf-8"))).toMatchObject({
             marker: "neuro-book:silly-tavern-card generated-sha256",
             target: "index.md",
@@ -115,4 +121,18 @@ async function createProjectWorkspace(tempRoots: string[]): Promise<string> {
     tempRoots.push(workspace);
     await writeFile(path.join(workspace, "project.yaml"), "kind: novel\ntitle: Test\n", "utf-8");
     return workspace;
+}
+
+async function captureConsoleLog(callback: () => Promise<void>): Promise<string[]> {
+    const logs: string[] = [];
+    const original = console.log;
+    console.log = (...items: unknown[]) => {
+        logs.push(items.map(String).join(" "));
+    };
+    try {
+        await callback();
+        return logs;
+    } finally {
+        console.log = original;
+    }
 }

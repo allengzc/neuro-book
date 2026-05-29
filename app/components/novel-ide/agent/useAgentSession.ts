@@ -198,7 +198,10 @@ export function useAgentSession() {
             const currentSnapshot = snapshot.value;
             snapshot.value = {
                 ...currentSnapshot,
-                followUpQueue: mergeQueuedMessages(currentSnapshot.followUpQueue, payload.event.item),
+                followUpQueue: {
+                    ...currentSnapshot.followUpQueue,
+                    items: mergeQueuedMessages(currentSnapshot.followUpQueue.items, payload.event.item),
+                },
             } as AgentSessionSnapshotDto;
             return;
         }

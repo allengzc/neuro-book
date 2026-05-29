@@ -1,7 +1,7 @@
 import {createHash} from "node:crypto";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
-import type {SessionEntry, SessionSnapshot} from "nbook/server/agent/session/types";
+import type {SessionEntry, SessionEntryDraft, SessionSnapshot} from "nbook/server/agent/session/types";
 import type {TSchema} from "typebox";
 import {Value} from "typebox/value";
 import {cloneJsonValue, normalizeVariablePath, VariableRegistry} from "nbook/server/agent/variables/registry";
@@ -29,6 +29,7 @@ export type CreateVariableAccessorInput = {
     dryRun?: boolean;
     invocationId?: string;
     variableState?: VariableInvocationState;
+    writeSessionEntry?: (cause: string, entry: SessionEntryDraft) => Promise<SessionEntry>;
     onSessionEntry?: (entry: SessionEntry) => void | Promise<void>;
     onClientPatch?: ClientVariablePatchHandler;
 };
@@ -176,7 +177,7 @@ class RuntimeVariableAccessor implements ProfileVariableAccessor {
             }
         }
         try {
-            const entry = await this.input.repo.appendEntry(this.input.snapshot.metadata.sessionId, {
+            const entry = await this.writeSessionEntry("variable.patch", {
                 type: "variable_patch",
                 namespace,
                 path: normalizedPath,
@@ -184,7 +185,7 @@ class RuntimeVariableAccessor implements ProfileVariableAccessor {
                 source,
                 invocationId: this.input.invocationId,
                 toolCallId,
-            }, this.input.snapshot.metadata.workspaceKey);
+            });
             await this.input.onSessionEntry?.(entry);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
@@ -196,6 +197,14 @@ class RuntimeVariableAccessor implements ProfileVariableAccessor {
         const result = await this.readInNamespace(namespace, normalizedPath, {recordRead: false});
         this.rememberRead(result);
         return result;
+    }
+
+    private async writeSessionEntry(cause: string, entry: SessionEntryDraft): Promise<SessionEntry> {
+        if (this.input.writeSessionEntry) {
+            return this.input.writeSessionEntry(cause, entry);
+        }
+        // Standalone/test fallback: active harness 必须注入 writeSessionEntry，让 audit entry 走 SessionWriteExecutor。
+        return this.input.repo.appendEntry(this.input.snapshot.metadata.sessionId, entry, this.input.snapshot.metadata.workspaceKey);
     }
 
     private async readInNamespace(namespace: VariableNamespace, path: string, options: {recordRead: boolean}): Promise<VariableReadResult> {

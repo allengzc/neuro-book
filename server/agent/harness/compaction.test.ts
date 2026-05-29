@@ -43,6 +43,7 @@ describe("compaction", () => {
             input: {},
             workspaceRoot: root,
         });
+        const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
         for (let index = 1; index <= 6; index += 1) {
             await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: `user ${String(index)}`}), session.metadata.workspaceKey);
         }
@@ -54,6 +55,7 @@ describe("compaction", () => {
             messages: repo.reduce(snapshot).messages,
             model: faux.getModel(),
             instructions: "focus on files",
+            writeCompactionEntry,
             compaction: {
                 reserveTokens: 2_000,
                 keepRecentTokens: 1,
@@ -76,6 +78,7 @@ describe("compaction", () => {
             input: {},
             workspaceRoot: root,
         });
+        const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
         await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old"}), session.metadata.workspaceKey);
         const assistant = createAssistantTextMessage({text: ""});
         assistant.content = [
@@ -95,6 +98,7 @@ describe("compaction", () => {
             snapshot,
             messages: repo.reduce(snapshot).messages,
             model: faux.getModel(),
+            writeCompactionEntry,
             compaction: {
                 reserveTokens: 2_000,
                 keepRecentTokens: 1,
@@ -114,6 +118,7 @@ describe("compaction", () => {
             input: {},
             workspaceRoot: root,
         });
+        const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
         const assistant = createAssistantTextMessage({text: ""});
         assistant.content = [fauxToolCall("request_user_input", {questions: []}, {id: "approval-1"})];
         await repo.appendMessage(session.metadata.sessionId, assistant, session.metadata.workspaceKey);
@@ -124,6 +129,7 @@ describe("compaction", () => {
             snapshot,
             messages: repo.reduce(snapshot).messages,
             model: faux.getModel(),
+            writeCompactionEntry,
         })).rejects.toThrow("未完成 tool call");
     });
 
@@ -155,6 +161,7 @@ describe("compaction", () => {
             input: {},
             workspaceRoot: root,
         });
+        const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
         await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old context"}), session.metadata.workspaceKey);
         const snapshot = await repo.readSession(session.metadata.sessionId);
 
@@ -181,6 +188,7 @@ describe("compaction", () => {
                 prompt: "CUSTOM PROMPT",
                 summaryPrefix: "CUSTOM PREFIX",
             },
+            writeCompactionEntry,
         });
 
         const reduced = repo.reduce(await repo.readSession(session.metadata.sessionId));
@@ -195,6 +203,12 @@ describe("compaction", () => {
         expect(messageText(reduced.messages[0] as never)).toContain("CUSTOM PREFIX");
     });
 });
+
+function createCompactionEntryWriter(repo: JsonlSessionRepository, sessionId: number): Parameters<typeof appendCompaction>[0]["writeCompactionEntry"] {
+    return async (entry) => {
+        await repo.appendEntry(sessionId, entry);
+    };
+}
 
 function summaryPromptText(context: Context | null): string {
     if (!context) {

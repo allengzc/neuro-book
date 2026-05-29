@@ -1,25 +1,19 @@
 import type {Ref} from "vue";
+import {computed, ref, watch} from "vue";
 import type {
     AgentTriggerMenuContext,
     AgentTriggerMenuItem,
+    AgentTriggerMenuSection,
     AgentTriggerMenuState,
 } from "nbook/app/components/novel-ide/agent/trigger-menu";
+import type {WorkspaceFileNode} from "nbook/app/stores/novel-ide";
+import {buildWorkspaceReferenceSections} from "nbook/app/utils/workspace-reference-menu";
 import type {AgentSkillCatalogItemDto} from "nbook/shared/dto/agent-session.dto";
 import type {
     PlotTreeDto,
     StorySceneDetailDto,
     StoryPlotDto,
 } from "nbook/shared/dto/plot.dto";
-import type {ReferenceKind} from "nbook/shared/reference-link";
-
-type RootReferenceItem = {
-    id: string;
-    label: string;
-    description: string;
-    iconClass: string;
-    scheme: ReferenceKind | "content";
-    insertValue: string;
-};
 
 type QuickTextItem = {
     id: string;
@@ -57,13 +51,6 @@ type PlotReferenceCandidate = {
 
 const PLOT_RESULT_LIMIT = 20;
 
-const ROOT_REFERENCE_ITEMS: RootReferenceItem[] = [
-    {id: "reference-root:lorebook", label: "设定引用", description: "插入 workspace/lorebook 内容节点路径。", iconClass: "i-lucide-library-big", scheme: "content", insertValue: "lorebook/"},
-    {id: "reference-root:thread", label: "线程引用", description: "插入 plot 线程引用，按标题、名称与摘要搜索。", iconClass: "i-lucide-git-branch-plus", scheme: "thread", insertValue: "@thread://"},
-    {id: "reference-root:scene", label: "场景引用", description: "插入 plot 场景引用，按标题、所属线程与摘要搜索。", iconClass: "i-lucide-clapperboard", scheme: "scene", insertValue: "@scene://"},
-    {id: "reference-root:plot", label: "节点引用", description: "插入 plot 节点引用，优先使用当前选中场景的情节点。", iconClass: "i-lucide-spline-pointer", scheme: "plot", insertValue: "@plot://"},
-];
-
 const COMMAND_ITEMS: QuickTextItem[] = [
     {id: "command:plan", label: "plan", description: "切换 Plan Mode。", iconClass: "i-lucide-clipboard-list", value: "/plan"},
     {id: "command:compact", label: "compact", description: "压缩当前 Agent Session 上下文。", iconClass: "i-lucide-archive", value: "/compact"},
@@ -76,13 +63,14 @@ export interface UseStructuredReferenceMenuOptions {
     novelId: Ref<string>;
     selectedStoryThreadId: Ref<string | null>;
     selectedStorySceneId: Ref<string | null>;
+    workspaceTree?: Ref<WorkspaceFileNode[]>;
 }
 
 export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOptions) {
     const skillCatalog = ref<AgentSkillCatalogItemDto[]>([]);
     const loadingSkillCatalog = ref(false);
     const skillCatalogLoaded = ref(false);
-    const pendingSkillCatalogRefresh = ref(false);
+    let skillCatalogRequest: Promise<void> | null = null;
     const plotTree = ref<PlotTreeDto | null>(null);
     const plotTreeLoadedNovelId = ref("");
     const loadingPlotTreeEntries = ref(false);
@@ -115,23 +103,25 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
     }
 
     async function refreshSkillCatalog(): Promise<void> {
-        if (loadingSkillCatalog.value) {
-            pendingSkillCatalogRefresh.value = true;
+        if (skillCatalogLoaded.value) {
             return;
         }
-
-        loadingSkillCatalog.value = true;
-        try {
-            skillCatalog.value = await $fetch<AgentSkillCatalogItemDto[]>("/api/agent/skills");
-            skillCatalogLoaded.value = true;
-            refreshVersion.value += 1;
-        } finally {
-            loadingSkillCatalog.value = false;
-            if (pendingSkillCatalogRefresh.value) {
-                pendingSkillCatalogRefresh.value = false;
-                void refreshSkillCatalog();
-            }
+        if (skillCatalogRequest) {
+            return await skillCatalogRequest;
         }
+
+        skillCatalogRequest = (async () => {
+            loadingSkillCatalog.value = true;
+            try {
+                skillCatalog.value = await $fetch<AgentSkillCatalogItemDto[]>("/api/agent/skills");
+                skillCatalogLoaded.value = true;
+                refreshVersion.value += 1;
+            } finally {
+                loadingSkillCatalog.value = false;
+                skillCatalogRequest = null;
+            }
+        })();
+        return await skillCatalogRequest;
     }
 
     function getThreadCandidates(query: string): PlotThreadReferenceCandidate[] {
@@ -193,18 +183,6 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
             .slice(0, PLOT_RESULT_LIMIT);
     }
 
-    function toRootMenuItem(item: RootReferenceItem): AgentTriggerMenuItem {
-        return {
-            id: item.id,
-            label: item.label,
-            description: item.description,
-            iconClass: item.iconClass,
-            hint: item.scheme,
-            insertText: item.insertValue,
-            trailingSpace: false,
-        };
-    }
-
     async function ensurePlotTreeLoaded(): Promise<void> {
         if (!options.novelId.value || loadingPlotTreeEntries.value || plotTreeLoadedNovelId.value === options.novelId.value) {
             return;
@@ -241,10 +219,25 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
 
     function resolveMenu(context: AgentTriggerMenuContext): AgentTriggerMenuState {
         if (context.kind === "reference-root") {
+            const routedContext = routeReferenceRootQuery(context.query);
+            if (routedContext) {
+                return resolveMenu(routedContext);
+            }
+
+            void ensurePlotTreeLoaded();
+            if (options.selectedStorySceneId.value) {
+                void ensureSelectedScenePlotDetailLoaded();
+            }
+
+            const workspaceSections = options.workspaceTree
+                ? buildWorkspaceReferenceSections(options.workspaceTree.value, context.query)
+                : [];
+            const plotSections = buildPlotRootSections(context.query);
+            const sections = [...workspaceSections, ...plotSections];
             return {
-                title: "选择引用类型",
+                title: "引用",
                 prefix: "@",
-                sections: [{id: "reference-root", items: ROOT_REFERENCE_ITEMS.map(toRootMenuItem)}],
+                sections: sections.length > 0 ? sections : [createEmptyReferenceSection(context.query)],
             };
         }
 
@@ -273,14 +266,7 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
                 return {title: "线程引用", prefix: "@thread://", sections: [{id: "thread-loading", items: [{id: "thread:loading", label: "加载线程中", description: "正在拉取当前小说的剧情树。", iconClass: "i-lucide-loader-circle animate-spin"}]}]};
             }
 
-            const items = threadCandidates.map((candidate) => ({
-                id: `thread:${candidate.id}`,
-                label: candidate.title,
-                description: `${candidate.name}${candidate.summary ? ` · ${candidate.summary}` : ""}`,
-                iconClass: candidate.isMainThread ? "i-lucide-star" : "i-lucide-git-branch-plus",
-                hint: candidate.id,
-                reference: {kind: "thread" as const, title: candidate.title, targetId: candidate.id},
-            }));
+            const items = threadCandidates.map(toThreadMenuItem);
             return {title: "线程引用", prefix: "@thread://", sections: items.length > 0 ? [{id: "thread", items}] : []};
         }
 
@@ -291,14 +277,7 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
                 return {title: "场景引用", prefix: "@scene://", sections: [{id: "scene-loading", items: [{id: "scene:loading", label: "加载场景中", description: "正在拉取当前小说的剧情树。", iconClass: "i-lucide-loader-circle animate-spin"}]}]};
             }
 
-            const items = sceneCandidates.map((candidate) => ({
-                id: `scene:${candidate.id}`,
-                label: candidate.title,
-                description: `${candidate.threadTitle}${candidate.summary ? ` · ${candidate.summary}` : ""}`,
-                iconClass: "i-lucide-clapperboard",
-                hint: candidate.id,
-                reference: {kind: "scene" as const, title: candidate.title, targetId: candidate.id},
-            }));
+            const items = sceneCandidates.map(toSceneMenuItem);
             return {title: "场景引用", prefix: "@scene://", sections: items.length > 0 ? [{id: "scene", items}] : []};
         }
 
@@ -316,18 +295,7 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
                 return {title: "节点引用", prefix: "@plot://", sections: [{id: "plot-empty", items: [{id: "plot:empty", label: "缺少上下文", description: "请先选中剧情场景，再插入 plot 引用。", iconClass: "i-lucide-info"}]}]};
             }
 
-            const items = plotCandidates.map((candidate) => ({
-                id: `plot:${candidate.id}`,
-                label: candidate.summary || `${candidate.sceneTitle} · ${candidate.kind}`,
-                description: `${candidate.threadTitle} / ${candidate.sceneTitle} · ${candidate.kind}`,
-                iconClass: "i-lucide-spline-pointer",
-                hint: candidate.id,
-                reference: {
-                    kind: "plot" as const,
-                    title: candidate.summary || `${candidate.sceneTitle}-${candidate.kind}`,
-                    targetId: candidate.id,
-                },
-            }));
+            const items = plotCandidates.map(toPlotMenuItem);
             return {title: "节点引用", prefix: "@plot://", sections: items.length > 0 ? [{id: "plot", items}] : []};
         }
 
@@ -389,8 +357,123 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
         return {title: "执行命令", prefix: "/", sections: items.length > 0 ? [{id: "command", items}] : []};
     }
 
+    /**
+     * 显式输入 @thread:// / @scene:// / @plot:// 时切到对应剧情引用菜单。
+     */
+    function routeReferenceRootQuery(query: string): AgentTriggerMenuContext | null {
+        const matched = /^(thread|scene|plot):\/\/(.*)$/u.exec(query.trim());
+        if (!matched) {
+            return null;
+        }
+        return {
+            kind: matched[1] as Extract<AgentTriggerMenuContext["kind"], "thread" | "scene" | "plot">,
+            query: matched[2] ?? "",
+        };
+    }
+
+    /**
+     * 生成 @ 根菜单里的剧情引用候选。
+     */
+    function buildPlotRootSections(query: string): AgentTriggerMenuSection[] {
+        const sections: AgentTriggerMenuSection[] = [];
+        const threadItems = getThreadCandidates(query).map(toThreadMenuItem);
+        if (threadItems.length > 0) {
+            sections.push({id: "plot-thread", title: "剧情线程", items: threadItems});
+        }
+
+        const sceneItems = getSceneCandidates(query).map(toSceneMenuItem);
+        if (sceneItems.length > 0) {
+            sections.push({id: "plot-scene", title: "剧情场景", items: sceneItems});
+        }
+
+        const plotItems = getPlotCandidates(query).map(toPlotMenuItem);
+        if (plotItems.length > 0) {
+            sections.push({id: "plot-node", title: "情节点", items: plotItems});
+        }
+
+        if (loadingPlotTreeEntries.value && threadItems.length === 0 && sceneItems.length === 0) {
+            sections.push({
+                id: "plot-loading",
+                title: "剧情",
+                items: [{
+                    id: "plot-root-loading",
+                    label: "加载剧情中",
+                    description: "正在拉取当前小说的剧情树。",
+                    iconClass: "i-lucide-loader-circle animate-spin",
+                    disabled: true,
+                }],
+            });
+        }
+
+        return sections;
+    }
+
+    /**
+     * 搜索无结果时仍保留菜单，避免 Suggestion 直接关闭。
+     */
+    function createEmptyReferenceSection(query: string): AgentTriggerMenuSection {
+        return {
+            id: "empty-reference",
+            items: [{
+                id: "empty-reference-result",
+                label: query.trim() ? "没有匹配结果" : "暂无可引用内容",
+                description: query.trim() ? "换一个关键词试试。" : "当前工作区没有可引用内容或剧情对象。",
+                iconClass: "i-lucide-search-x",
+                disabled: true,
+            }],
+        };
+    }
+
+    /**
+     * 转换剧情线程候选。
+     */
+    function toThreadMenuItem(candidate: PlotThreadReferenceCandidate): AgentTriggerMenuItem {
+        return {
+            id: `thread:${candidate.id}`,
+            label: candidate.title,
+            description: `${candidate.name}${candidate.summary ? ` · ${candidate.summary}` : ""}`,
+            iconClass: candidate.isMainThread ? "i-lucide-star" : "i-lucide-git-branch-plus",
+            hint: "thread",
+            reference: {kind: "thread" as const, title: candidate.title, targetId: candidate.id},
+        };
+    }
+
+    /**
+     * 转换剧情场景候选。
+     */
+    function toSceneMenuItem(candidate: PlotSceneReferenceCandidate): AgentTriggerMenuItem {
+        return {
+            id: `scene:${candidate.id}`,
+            label: candidate.title,
+            description: `${candidate.threadTitle}${candidate.summary ? ` · ${candidate.summary}` : ""}`,
+            iconClass: "i-lucide-clapperboard",
+            hint: "scene",
+            reference: {kind: "scene" as const, title: candidate.title, targetId: candidate.id},
+        };
+    }
+
+    /**
+     * 转换情节点候选。
+     */
+    function toPlotMenuItem(candidate: PlotReferenceCandidate): AgentTriggerMenuItem {
+        const label = candidate.summary || `${candidate.sceneTitle} · ${candidate.kind}`;
+        return {
+            id: `plot:${candidate.id}`,
+            label,
+            description: `${candidate.threadTitle} / ${candidate.sceneTitle} · ${candidate.kind}`,
+            iconClass: "i-lucide-spline-pointer",
+            hint: "plot",
+            reference: {
+                kind: "plot" as const,
+                title: label,
+                targetId: candidate.id,
+            },
+        };
+    }
+
     const menuRefreshKey = computed(() => [
         refreshVersion.value,
+        options.workspaceTree?.value.map((node) => `${node.path}:${node.mtimeMs}`).join("|") ?? "",
         loadingSkillCatalog.value ? "lk1" : "lk0",
         skillCatalogLoaded.value ? "sk1" : "sk0",
         skillCatalog.value.length,

@@ -924,6 +924,7 @@ describe("workspace-files", () => {
         try {
             await copyNovelDirectoryTemplate(root);
             await expect(readWorkspaceTextFile(root, "PROJECT-STATUS.md")).resolves.toBe("# 用户覆盖状态模板\n");
+            await expect(fs.access(path.join(root, "workspace.yaml"))).rejects.toMatchObject({code: "ENOENT"});
 
             await writeWorkspaceTextFile(root, "PROJECT-STATUS.md", "# 小说自己的状态\n");
             await copyNovelDirectoryTemplate(root);
@@ -952,6 +953,7 @@ describe("workspace-files", () => {
                 title: "测试小说",
                 summary: "测试简介",
             });
+            await expect(fs.access(path.join(createdRoot, "workspace.yaml"))).rejects.toMatchObject({code: "ENOENT"});
             await expect(readWorkspaceTextFile(createdRoot, "AGENTS.md")).resolves.toContain("唯一的小说状态");
             await expect(readWorkspaceTextFile(createdRoot, "AGENTS.md")).resolves.toContain(".agent/plan/");
             await expect(readWorkspaceTextFile(createdRoot, "PROJECT-STATUS.md")).resolves.toContain("## Pending Questions");

@@ -1,5 +1,9 @@
 import Fuse from "fuse.js";
 import {pinyin} from "pinyin-pro";
+import {
+    DEFAULT_WORKSPACE_REFERENCE_SEARCH_CONFIG,
+    type WorkspaceReferenceSearchConfig,
+} from "nbook/app/utils/workspace-reference-search-config";
 
 export interface WorkspaceReferenceSearchInput<TItem> {
     item: TItem;
@@ -29,6 +33,7 @@ interface SearchRecord<TItem> {
     compact: string;
     pinyinText: string;
     pinyinInitials: string;
+    fileName: string;
     order: number;
 }
 
@@ -64,25 +69,26 @@ export function collectWorkspaceReferencePathCandidates(target: string, currentW
 export function searchWorkspaceReferences<TItem>(
     inputs: Array<WorkspaceReferenceSearchInput<TItem>>,
     query: string,
-    limit = 40,
+    limit = DEFAULT_WORKSPACE_REFERENCE_SEARCH_CONFIG.limits.maxResults,
+    config: WorkspaceReferenceSearchConfig = DEFAULT_WORKSPACE_REFERENCE_SEARCH_CONFIG,
 ): Array<WorkspaceReferenceSearchResult<TItem>> {
     const normalizedQuery = normalizeSearchText(query);
     const records = inputs.map(createSearchRecord);
     if (!normalizedQuery) {
         return records.slice(0, limit).map((record) => ({
             item: record.input.item,
-            score: 0,
+            score: applyBoosts(0, record, config),
             order: record.order,
         }));
     }
 
     const scored = new Map<TItem, WorkspaceReferenceSearchResult<TItem>>();
     for (const record of records) {
-        const score = deterministicScore(record, normalizedQuery);
+        const score = deterministicScore(record, normalizedQuery, config);
         if (score < Number.POSITIVE_INFINITY) {
             scored.set(record.input.item, {
                 item: record.input.item,
-                score,
+                score: applyBoosts(score, record, config),
                 order: record.order,
             });
         }
@@ -90,7 +96,7 @@ export function searchWorkspaceReferences<TItem>(
 
     const fuse = new Fuse(records, {
         includeScore: true,
-        threshold: 0.42,
+        threshold: config.limits.fuzzyThreshold,
         ignoreLocation: true,
         keys: [
             {name: "label", weight: 0.9},
@@ -106,7 +112,7 @@ export function searchWorkspaceReferences<TItem>(
 
     for (const result of fuse.search(normalizedQuery)) {
         const record = result.item;
-        const score = 80 + Math.round((result.score ?? 1) * 100);
+        const score = applyBoosts(config.scoring.fuzzyBase + Math.round((result.score ?? 1) * 100), record, config);
         const existing = scored.get(record.input.item);
         if (!existing || score < existing.score) {
             scored.set(record.input.item, {
@@ -175,6 +181,7 @@ function createSearchRecord<TItem>(input: WorkspaceReferenceSearchInput<TItem>):
         compact,
         pinyinText: compactSearchText(toPinyin(rawText, false)),
         pinyinInitials: compactSearchText(toPinyin(rawText, true)),
+        fileName: normalizeSearchText(basename(input.target)),
         order: input.order,
     };
 }
@@ -182,36 +189,59 @@ function createSearchRecord<TItem>(input: WorkspaceReferenceSearchInput<TItem>):
 /**
  * 计算确定性分数。数字越小越相关。
  */
-function deterministicScore<TItem>(record: SearchRecord<TItem>, query: string): number {
+function deterministicScore<TItem>(
+    record: SearchRecord<TItem>,
+    query: string,
+    config: WorkspaceReferenceSearchConfig,
+): number {
     const compactQuery = compactSearchText(query);
-    const candidates: Array<[string, number]> = [
-        [record.label, 0],
-        [record.target, 5],
-        [record.ids, 8],
-        [record.compact, 14],
-        [record.pinyinText, 28],
-        [record.pinyinInitials, 36],
-        [record.description, 52],
-        [record.entryType, 60],
-        [record.menuId, 64],
+    const candidates: Array<[string, number, number, number]> = [
+        [record.label, config.scoring.exactLabel, config.scoring.prefixLabel, config.scoring.includesLabel],
+        [record.target, config.scoring.exactTarget, config.scoring.prefixTarget, config.scoring.includesTarget],
+        [record.fileName, config.scoring.exactFileName, config.scoring.prefixFileName, config.scoring.includesFileName],
+        [record.ids, config.scoring.frontmatterIds, config.scoring.frontmatterIds, config.scoring.frontmatterIds],
+        [record.compact, config.scoring.compact, config.scoring.compact, config.scoring.compact],
+        [record.pinyinText, config.scoring.pinyinText, config.scoring.pinyinText, config.scoring.pinyinText],
+        [record.pinyinInitials, config.scoring.pinyinInitials, config.scoring.pinyinInitials, config.scoring.pinyinInitials],
+        [record.description, config.scoring.description, config.scoring.description, config.scoring.description],
+        [record.entryType, config.scoring.entryType, config.scoring.entryType, config.scoring.entryType],
+        [record.menuId, config.scoring.menuId, config.scoring.menuId, config.scoring.menuId],
     ];
 
     let bestScore = Number.POSITIVE_INFINITY;
-    for (const [value, baseScore] of candidates) {
+    for (const [value, exactScore, prefixScore, includesScore] of candidates) {
         if (!value) {
             continue;
         }
         if (value === query || value === compactQuery) {
-            bestScore = Math.min(bestScore, baseScore);
+            bestScore = Math.min(bestScore, exactScore);
         } else if (value.startsWith(query) || value.startsWith(compactQuery)) {
-            bestScore = Math.min(bestScore, baseScore + 2);
+            bestScore = Math.min(bestScore, prefixScore);
         } else if (value.includes(query) || value.includes(compactQuery)) {
-            bestScore = Math.min(bestScore, baseScore + 8);
+            bestScore = Math.min(bestScore, includesScore);
         } else if (isSubsequence(compactQuery, value)) {
-            bestScore = Math.min(bestScore, baseScore + 18);
+            bestScore = Math.min(bestScore, includesScore + config.scoring.subsequencePenalty);
         }
     }
     return bestScore;
+}
+
+/**
+ * 应用固定文件和配置文件加权。
+ */
+function applyBoosts<TItem>(
+    score: number,
+    record: SearchRecord<TItem>,
+    config: WorkspaceReferenceSearchConfig,
+): number {
+    let nextScore = score;
+    if (config.candidates.pinnedFiles.map((fileName) => fileName.toLocaleLowerCase("zh-CN")).includes(record.fileName)) {
+        nextScore += config.boosts.pinnedFile;
+    }
+    if (/\.(?:ya?ml|json)$/i.test(record.fileName)) {
+        nextScore += config.boosts.configFile;
+    }
+    return Math.max(0, nextScore);
 }
 
 /**
@@ -220,7 +250,6 @@ function deterministicScore<TItem>(record: SearchRecord<TItem>, query: string): 
 function readSearchableIds<TItem>(input: WorkspaceReferenceSearchInput<TItem>): string {
     const frontmatter = input.frontmatter ?? {};
     return [
-        input.menuId ?? "",
         stringifySearchValue(frontmatter.id),
         stringifySearchValue(frontmatter.uid),
     ].filter(Boolean).join(" ");
@@ -287,4 +316,12 @@ function stringifySearchValue(value: unknown): string {
         return String(value);
     }
     return "";
+}
+
+/**
+ * 返回路径 basename。
+ */
+function basename(filePath: string): string {
+    const normalizedPath = normalizeWorkspacePath(filePath);
+    return normalizedPath.includes("/") ? normalizedPath.slice(normalizedPath.lastIndexOf("/") + 1) : normalizedPath;
 }

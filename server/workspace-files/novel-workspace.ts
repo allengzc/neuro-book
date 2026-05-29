@@ -26,6 +26,8 @@ const SYSTEM_PROFILE_METADATA_PATH = path.join(SYSTEM_PROFILE_ROOT, ".system-pro
 const USER_PROFILE_SYNC_STATE_PATH = path.join(USER_PROFILE_ROOT, ".profile-sync-state.json");
 const NOVEL_DIRECTORY_TEMPLATE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "templates", "novel-directory-templates");
 const USER_NOVEL_DIRECTORY_TEMPLATE_ROOT = path.resolve(process.cwd(), USER_ASSETS_WORKSPACE_ROOT, "templates", "novel-directory-templates");
+const PROJECT_MANIFEST_FILE = "project.yaml";
+const LEGACY_WORKSPACE_MANIFEST_FILE = "workspace.yaml";
 const SYSTEM_RUNTIME_ASSET_PATHS = [
     "agent/bin/workspace",
     "agent/bin/workspace.cmd",
@@ -224,6 +226,7 @@ export async function copyNovelDirectoryTemplate(workspaceRoot: string): Promise
                 errorOnExist: false,
             });
         }
+        await normalizeNovelDirectoryTemplateArtifacts(mergedRoot);
         await fs.cp(mergedRoot, absoluteWorkspaceRoot, {
             recursive: true,
             force: false,
@@ -231,6 +234,26 @@ export async function copyNovelDirectoryTemplate(workspaceRoot: string): Promise
         });
     } finally {
         await fs.rm(mergedRoot, {recursive: true, force: true});
+    }
+}
+
+/**
+ * 清理旧模板产物，避免用户覆盖层把 Project Workspace 又带回 workspace.yaml 心智。
+ */
+async function normalizeNovelDirectoryTemplateArtifacts(templateRoot: string): Promise<void> {
+    await fs.rm(path.join(templateRoot, LEGACY_WORKSPACE_MANIFEST_FILE), {force: true});
+    const statusPath = path.join(templateRoot, "PROJECT-STATUS.md");
+    try {
+        const content = await fs.readFile(statusPath, "utf-8");
+        const normalizedContent = content.replaceAll("`workspace.yaml`", `\`${PROJECT_MANIFEST_FILE}\``);
+        if (normalizedContent !== content) {
+            await fs.writeFile(statusPath, normalizedContent, "utf-8");
+        }
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return;
+        }
+        throw error;
     }
 }
 

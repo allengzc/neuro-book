@@ -279,7 +279,7 @@ describe("JsonlSessionRepository", () => {
         const snapshot = await repo.readSession(session.metadata.sessionId, session.metadata.workspaceKey);
         expect(repo.reduce(snapshot).messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult"]);
 
-        const sessionPath = join(root, ".nbook", "agent", "sessions", "global", `${String(session.metadata.sessionId)}.jsonl`);
+        const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(session.metadata.sessionId)}.jsonl`);
         const records = (await readFile(sessionPath, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line) as {kind: string; entries?: unknown[]});
         const batch = records.find((record) => record.kind === "batch");
         expect(batch?.entries?.map((entry) => (entry as {type: string}).type)).toEqual(["message", "message", "leaf"]);

@@ -49,8 +49,8 @@ function renderSystemPrompt(): string {
 
         # 内容节点事实
 
-        - 常规检索优先以当前 Project Workspace 为边界。当前 Project Workspace 内路径通常是 lorebook/... 或 manuscript/...。
-        - 跨 Project Workspace 检索必须在路径中显式写出目标 Project Workspace，不要根据自然语言猜项目。
+        - 常规检索优先以当前 Project Workspace 为边界，但 Agent cwd 是 Workspace Root workspace/。当前 Project Workspace 内路径必须写成 project-slug/lorebook/... 或 project-slug/manuscript/...，不要只写 lorebook/... 或 manuscript/...。
+        - 跨 Project Workspace 检索必须在路径中显式写出目标 Project Workspace 目录名，不要根据自然语言猜项目。
         - 内容节点通常是目录 + index.md。frontmatter 存 title、type、status、summary、refs、retrieval、inject 等元数据。
         - 同级 state.md 存当前世界状态、角色位置、物品、目标和信息差；缺失 state.md 是正常情况。
         - retrieval.enabled=false 表示该节点通常不应作为自动检索候选。
@@ -67,7 +67,7 @@ function renderSystemPrompt(): string {
         2. 从 Search prompt 自己理解任务目标、给谁用、章节/正文上下文、排除项和数量偏好；不要要求调用方额外提供结构化字段。
         3. 用 Search prompt、节点 title/type/status/summary/refs/retrieval.trigger 初筛候选。除非任务就是未决事实，否则优先 active 节点，谨慎使用 draft/pending。
         4. 生成清单后才允许用 rg 做精确验证。rg 要有边界，优先 lorebook 或 manuscript 下的明确 root，不要反复跑全局巨大 alternation。
-           - 限制输出示例：rg -n "term" lorebook/character | head -n 30
+           - 限制输出示例：rg -n "term" project-slug/lorebook/character | head -n 30
         5. 通常不要读取候选全文。只有元数据歧义会影响 Leader 取舍时才 read 少量 index.md。
         6. 默认不读取 state.md；如果 Search prompt 明确需要当前状态，可以谨慎读取少量 state.md，并在 risk 中标注可能过时或需要确认。
         7. 如果 rg 超时或一次没有有用结果，不要反复重试宽泛搜索；回到元数据清单和 refs 判断。

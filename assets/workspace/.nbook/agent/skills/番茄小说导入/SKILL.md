@@ -1,15 +1,15 @@
 ---
 name: 番茄小说导入
-description: 用于处理番茄小说、Tomato Novel Downloader、免费小说 epub、下载器结果导入、epub 转 Markdown、以及把外部小说素材整理到当前小说 workspace 的 reference/tomato/ 供后续拆书分析。
+description: 用于处理番茄小说、Tomato Novel Downloader、免费小说 epub、下载器结果导入、epub 转 Markdown、以及把外部小说素材整理到当前小说 Project Workspace 的 reference/tomato/ 供后续拆书分析。
 ---
 
 # 番茄小说导入
 
-用于把番茄小说免费作品的本地素材整理成当前小说 workspace 下的外部参考资料。第一版只做“导入 + 转换”，不承诺自动搜索或首次下载新书。
+用于把番茄小说免费作品的本地素材整理成当前小说 Project Workspace 下的外部参考资料。第一版只做“导入 + 转换”，不承诺自动搜索或首次下载新书。
 
 ## 边界
 
-- 默认输出到当前小说 workspace 的 `reference/tomato/`。
+- 默认输出到当前小说 Project Workspace 的 `reference/tomato/`。
 - 不写入 `manuscript/`，避免把外部小说素材混进原创正文。
 - 只处理本地 epub 或 Tomato Novel Downloader 已下载出的结构化目录。
 - 当前下载器 exe 的非交互能力只适合更新已有本地记录；首次搜索和首次下载需要走 Web UI/TUI。
@@ -26,8 +26,8 @@ bun assets/workspace/.nbook/agent/skills/番茄小说导入/scripts/tomato-novel
 常用命令：
 
 ```powershell
-bun assets/workspace/.nbook/agent/skills/番茄小说导入/scripts/tomato-novel.ts import-epub "C:\path\book.epub" --workspace "workspace/current-novel"
-bun assets/workspace/.nbook/agent/skills/番茄小说导入/scripts/tomato-novel.ts import-download "C:\path\downloaded-book-dir" --workspace "workspace/current-novel"
+bun assets/workspace/.nbook/agent/skills/番茄小说导入/scripts/tomato-novel.ts import-epub "C:\path\book.epub" --workspace "current-novel"
+bun assets/workspace/.nbook/agent/skills/番茄小说导入/scripts/tomato-novel.ts import-download "C:\path\downloaded-book-dir" --workspace "current-novel"
 ```
 
 默认参数：
@@ -39,7 +39,7 @@ bun assets/workspace/.nbook/agent/skills/番茄小说导入/scripts/tomato-novel
 
 ## 工作流
 
-1. 确认当前小说 workspace。Agent 执行时优先使用当前 active workspace；手工执行时显式传 `--workspace`。
+1. 确认当前小说 Project Workspace。Agent cwd 是 Workspace Root `workspace/`，执行脚本时 `--workspace` 优先传当前项目目录名，例如 `current-novel`；手工从仓库根执行时可以传 `workspace/current-novel`。
 2. 如果用户给的是 `.epub`，运行 `import-epub`。
 3. 如果用户给的是下载器目录，且目录内有 `status.json` 或 `downloaded_chapters.jsonl`，运行 `import-download`。
 4. 导入后检查 `metadata.json`、`chapters/`、`full.md` 和 `images/` 是否生成。

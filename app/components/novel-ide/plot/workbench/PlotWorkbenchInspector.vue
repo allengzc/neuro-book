@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {computed} from "vue";
+import {computed, watch} from "vue";
 import Combobox from "nbook/app/components/common/form/Combobox.vue";
 import FormField from "nbook/app/components/common/form/FormField.vue";
 import FormInput from "nbook/app/components/common/form/FormInput.vue";
@@ -56,6 +56,24 @@ const emit = defineEmits<{
 
 const activeRefId = ref<string | null>(null);
 const refCardRefs = ref<Record<string, HTMLElement>>({});
+const manualRefsDraft = ref<WorkbenchManualRef[]>([]);
+const manualRefsDraftSceneId = ref<string | null>(null);
+
+watch(() => [props.scene?.id, props.manualRefs], () => {
+    const sceneId = props.scene?.id ?? null;
+    if (manualRefsDraftSceneId.value !== sceneId) {
+        manualRefsDraftSceneId.value = sceneId;
+        manualRefsDraft.value = props.manualRefs.map((refItem) => ({...refItem}));
+        activeRefId.value = null;
+        return;
+    }
+
+    const hasIncompleteDraft = manualRefsDraft.value.some((refItem) => !isManualRefComplete(refItem));
+    if (hasIncompleteDraft) {
+        return;
+    }
+    manualRefsDraft.value = props.manualRefs.map((refItem) => ({...refItem}));
+}, {immediate: true});
 
 function setRefCardRef(el: any, id: string) {
     if (el) {
@@ -185,15 +203,15 @@ function updatePlot(patch: Partial<PlotThreadPanelPlot>): void {
  */
 function addManualRef(): void {
     const newId = `ref-workbench-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    emit("updateRefs", [
-        ...props.manualRefs,
+    manualRefsDraft.value = [
+        ...manualRefsDraft.value,
         {
             id: newId,
             relation: "",
             target: "",
             note: null,
         },
-    ]);
+    ];
     activeRefId.value = newId;
 }
 
@@ -201,19 +219,44 @@ function addManualRef(): void {
  * 更新手动 refs 中的一项。
  */
 function updateManualRef(refId: string, patch: Partial<WorkbenchManualRef>): void {
-    emit("updateRefs", props.manualRefs.map((refItem) => refItem.id === refId
+    const nextRefs = manualRefsDraft.value.map((refItem) => refItem.id === refId
         ? {
             ...refItem,
             ...patch,
         }
-        : refItem));
+        : refItem);
+    manualRefsDraft.value = nextRefs;
+    emitCompleteManualRefs(nextRefs);
 }
 
 /**
  * 删除一条手动 refs。
  */
 function removeManualRef(refId: string): void {
-    emit("updateRefs", props.manualRefs.filter((refItem) => refItem.id !== refId));
+    const nextRefs = manualRefsDraft.value.filter((refItem) => refItem.id !== refId);
+    manualRefsDraft.value = nextRefs;
+    emitCompleteManualRefs(nextRefs);
+}
+
+/**
+ * 判断手动 ref 是否已经满足后端结构化引用合同。
+ */
+function isManualRefComplete(refItem: WorkbenchManualRef): boolean {
+    return refItem.relation.trim().length > 0 && refItem.target.trim().length > 0;
+}
+
+/**
+ * 只把完整 ref 同步给父组件，空白草稿留在检查器本地。
+ */
+function emitCompleteManualRefs(refs: WorkbenchManualRef[]): void {
+    emit("updateRefs", refs
+        .filter(isManualRefComplete)
+        .map((refItem) => ({
+            id: refItem.id,
+            relation: refItem.relation.trim(),
+            target: refItem.target.trim(),
+            note: refItem.note?.trim() || null,
+        })));
 }
 </script>
 
@@ -360,8 +403,8 @@ function removeManualRef(refId: string): void {
                             添加
                         </button>
                     </div>
-                    <div v-if="props.manualRefs.length" class="space-y-2">
-                        <div v-for="refItem in props.manualRefs" :key="refItem.id" class="relative" :class="activeRefId === refItem.id ? 'z-50' : 'z-10'">
+                    <div v-if="manualRefsDraft.length" class="space-y-2">
+                        <div v-for="refItem in manualRefsDraft" :key="refItem.id" class="relative" :class="activeRefId === refItem.id ? 'z-50' : 'z-10'">
                             <!-- DISPLAY CARD -->
                             <div 
                                 :ref="(el) => setRefCardRef(el, refItem.id)"

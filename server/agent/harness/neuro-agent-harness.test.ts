@@ -9,11 +9,11 @@ import {Value} from "typebox/value";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
 import {createAssistantTextMessage, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {Message, ModelContext, ProfilePrompt, Reminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {AgentMessage, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
 import {AGENT_PLAN_MODE_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
-import {SESSION_SUMMARIZER_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import {defineSessionVariable} from "nbook/server/agent/variables/registry";
 
 function visibleMessageText(messages: AgentMessage[]): string {
@@ -51,7 +51,6 @@ describe("NeuroAgentHarness", () => {
         harness = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
             modelResolver: () => faux.getModel(),
-            enableSessionSummarizer: false,
         });
     });
 
@@ -399,7 +398,7 @@ describe("NeuroAgentHarness", () => {
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
         expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult", "assistant"]);
 
-        const sessionPath = join(root, ".nbook", "agent", "sessions", "global", `${String(created.sessionId)}.jsonl`);
+        const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(created.sessionId)}.jsonl`);
         const records = (await readFile(sessionPath, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line) as {kind: string; entries?: Array<{type: string; message?: {role?: string}}>});
         const turnBatches = records
             .filter((record) => record.kind === "batch")
@@ -408,6 +407,220 @@ describe("NeuroAgentHarness", () => {
             ["assistant", "toolResult"],
             ["assistant"],
         ]);
+    });
+
+    it("tool savePoint writes 会在 transcript 后 flush，不插入 assistant/toolResult 中间", async () => {
+        harness.tools.register({
+            key: "save_point_state",
+            name: "save_point_state",
+            label: "Save Point State",
+            description: "Writes custom state at turn save point.",
+            parameters: Type.Object({}),
+            async execute() {
+                return {
+                    content: [{type: "text", text: "missing context"}],
+                    details: {},
+                    terminate: true,
+                };
+            },
+            async executeWithContext(context) {
+                context.sessionWrites?.savePointCustomState("test.savePointState", "test.tool.savePoint", "queued");
+                return {
+                    content: [{type: "text", text: "queued"}],
+                    details: {},
+                    terminate: true,
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.tool-save-point",
+                name: "Tool Save Point",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["save_point_state"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("save_point_state", {}, {id: "save-point-state-1"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.tool-save-point",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const snapshot = await harness.repo.readSession(created.sessionId);
+        const context = harness.repo.reduce(snapshot);
+
+        expect(result.status).toBe("completed");
+        expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult"]);
+        expect(context.customState["test.tool.savePoint"]).toBe("queued");
+
+        const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(created.sessionId)}.jsonl`);
+        const records = (await readFile(sessionPath, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line) as {kind: string; entries?: Array<{type: string; key?: string; message?: {role?: string}}>});
+        const batchEntries = records
+            .filter((record) => record.kind === "batch")
+            .flatMap((record) => record.entries ?? [])
+            .filter((entry) => entry.type !== "leaf");
+        expect(batchEntries.map((entry) => entry.type === "message" ? entry.message?.role : entry.key)).toEqual([
+            "assistant",
+            "toolResult",
+            "test.tool.savePoint",
+        ]);
+    });
+
+    it("自动 compaction 在下一轮 turn 前执行，并影响下一轮 provider context", async () => {
+        const providerPrompts: string[] = [];
+        harness.tools.register({
+            key: "force_continue",
+            name: "force_continue",
+            label: "Force Continue",
+            description: "Forces another turn.",
+            parameters: Type.Object({}),
+            async execute() {
+                return {
+                    content: [{type: "text", text: "continue"}],
+                    details: {},
+                    terminate: false,
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.compact-before-next-turn",
+                name: "Compact Before Next Turn",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["force_continue"],
+            prepare() {
+                return {
+                    compaction: {
+                        triggerTokens: 1,
+                        keepRecentTokens: 1,
+                    },
+                };
+            },
+        }), false);
+        faux.setResponses([
+            (context) => {
+                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
+                return fauxAssistantMessage([
+                    fauxToolCall("force_continue", {}, {id: "force-continue-1"}),
+                ], {stopReason: "toolUse"});
+            },
+            fauxAssistantMessage(fauxText("COMPACT SUMMARY")),
+            (context) => {
+                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
+                return fauxAssistantMessage("done");
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.compact-before-next-turn",
+            input: {},
+            workspaceRoot: root,
+        });
+        await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "OLD CONTEXT"}));
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(providerPrompts[0]).toContain("OLD CONTEXT");
+        expect(providerPrompts[1]).toContain("COMPACT SUMMARY");
+        expect(providerPrompts[1]).not.toContain("OLD CONTEXT");
+        expect(context.messages[0] && messageText(context.messages[0] as never)).toContain("COMPACT SUMMARY");
+    });
+
+    it("自定义 runtime 不组合 compact built-in 时不会自动 compaction", async () => {
+        const providerPrompts: string[] = [];
+        harness.tools.register({
+            key: "force_continue_no_compact",
+            name: "force_continue_no_compact",
+            label: "Force Continue No Compact",
+            description: "Forces another turn.",
+            parameters: Type.Object({}),
+            async execute() {
+                return {
+                    content: [{type: "text", text: "continue"}],
+                    details: {},
+                    terminate: false,
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.no-compact-runtime",
+                name: "No Compact Runtime",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["force_continue_no_compact"],
+            runtime: defineAgentRuntime({
+                hooks: [
+                    {
+                        name: "persist",
+                        stage: "ingestTurn",
+                        run() {
+                            return {
+                                transcript: "persist",
+                            };
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {
+                    compaction: {
+                        triggerTokens: 1,
+                        keepRecentTokens: 1,
+                    },
+                };
+            },
+        }), false);
+        faux.setResponses([
+            (context) => {
+                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
+                return fauxAssistantMessage([
+                    fauxToolCall("force_continue_no_compact", {}, {id: "force-continue-no-compact-1"}),
+                ], {stopReason: "toolUse"});
+            },
+            (context) => {
+                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
+                return fauxAssistantMessage("done without compact");
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.no-compact-runtime",
+            input: {},
+            workspaceRoot: root,
+        });
+        await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "OLD CONTEXT"}));
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const snapshot = await harness.repo.readSession(created.sessionId);
+
+        expect(result.status).toBe("completed");
+        expect(providerPrompts).toHaveLength(2);
+        expect(providerPrompts[1]).toContain("OLD CONTEXT");
+        expect(snapshot.entries.some((entry) => entry.type === "compaction")).toBe(false);
+        expect(faux.getPendingResponseCount()).toBe(0);
     });
 
     it("profile reasoningEffort 会传给支持 reasoning 的模型", async () => {
@@ -643,6 +856,956 @@ describe("NeuroAgentHarness", () => {
             thinkingLevel: null,
             effectiveThinkingLevel: "off",
         });
+    });
+
+    it("profile runtime hook 可以写 session、保存运行态并 patch 每轮 TurnSnapshot", async () => {
+        const observedRequestOptions: unknown[] = [];
+        const observedToolNames: string[][] = [];
+        harness.tools.register({
+            key: "runtime_extra",
+            name: "runtime_extra",
+            label: "Runtime Extra",
+            description: "Only available after runtime hook patches toolKeys.",
+            parameters: Type.Object({}),
+            async execute() {
+                return {
+                    content: [{type: "text", text: "extra"}],
+                    details: {},
+                    terminate: true,
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.runtime-hooks",
+                name: "Runtime Hooks",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            runtime: defineAgentRuntime({
+                hooks: [
+                    {
+                        name: "tracker",
+                        stage: "prepareRun",
+                        run(ctx) {
+                            return {
+                                runtimeState: {
+                                    started: ctx.session.messages.length,
+                                },
+                                writePlans: [{
+                                    target: {sessionId: ctx.sessionId},
+                                    cause: "test.prepareRun",
+                                    ops: [{
+                                        kind: "append",
+                                        entry: {
+                                            type: "custom",
+                                            key: "test.runtime.prepareRun",
+                                            value: "ok",
+                                        },
+                                    }],
+                                }],
+                            };
+                        },
+                    },
+                    {
+                        name: "tracker",
+                        stage: "prepareTurn",
+                        run(ctx) {
+                            const state = typeof ctx.runtimeState === "object" && ctx.runtimeState && !Array.isArray(ctx.runtimeState)
+                                ? ctx.runtimeState as {started?: number}
+                                : {};
+                            return {
+                                runtimeState: {
+                                    preparedTurn: ctx.turnIndex ?? 0,
+                                    started: state.started ?? 0,
+                                },
+                                turnSnapshotPatch: {
+                                    toolKeys: ["runtime_extra"],
+                                    requestOptions: {
+                                        metadata: {
+                                            runtimeHookMarker: `turn-${ctx.turnIndex ?? 0}`,
+                                        },
+                                    },
+                                },
+                            };
+                        },
+                    },
+                    {
+                        name: "tracker",
+                        stage: "ingestTurn",
+                        run(ctx) {
+                            return {
+                                writePlans: [{
+                                    target: {sessionId: ctx.sessionId},
+                                    cause: "test.ingestTurn",
+                                    ops: [{
+                                        kind: "append",
+                                        projection: true,
+                                        entry: {
+                                            type: "custom",
+                                            key: "test.runtime.ingestTurn",
+                                            value: ctx.runtimeState ?? null,
+                                        },
+                                    }],
+                                }],
+                            };
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            (context, options) => {
+                observedRequestOptions.push(options);
+                observedToolNames.push((context.tools ?? []).map((tool) => tool.name));
+                return fauxAssistantMessage([
+                    fauxToolCall("runtime_extra", {}, {id: "runtime-extra-1"}),
+                ], {stopReason: "toolUse"});
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.runtime-hooks",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(observedRequestOptions[0]).toEqual(expect.objectContaining({
+            metadata: {
+                runtimeHookMarker: "turn-1",
+            },
+        }));
+        expect(observedToolNames[0]).toEqual(["runtime_extra"]);
+        expect(context.customState["test.runtime.prepareRun"]).toBe("ok");
+        expect(context.customState["test.runtime.ingestTurn"]).toEqual({
+            preparedTurn: 1,
+            started: 0,
+        });
+    });
+
+    it("自定义 runtime 不组合 transcriptPersistence 时不会隐式持久化 assistant transcript", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.custom-runtime-no-default-transcript",
+                name: "Custom Runtime No Default Transcript",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            runtime: defineAgentRuntime({
+                hooks: [
+                    {
+                        name: "observe",
+                        stage: "prepareRun",
+                        run() {
+                            return {};
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage("not persisted"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.custom-runtime-no-default-transcript",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(result.finalMessage).toBe("not persisted");
+        expect(context.messages.map((message) => message.role)).toEqual(["user"]);
+    });
+
+    it("prepareNextTurn hook 会在同一个 run 的下一轮请求前执行", async () => {
+        const observedRequestOptions: unknown[] = [];
+        const providerPrompts: string[] = [];
+        let toolRuns = 0;
+        harness.tools.register({
+            key: "runtime_continue",
+            name: "runtime_continue",
+            label: "Runtime Continue",
+            description: "Forces one more turn.",
+            parameters: Type.Object({}),
+            async execute() {
+                toolRuns++;
+                return {
+                    content: [{type: "text", text: "continue"}],
+                    details: {},
+                    terminate: false,
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.prepare-next-turn",
+                name: "Prepare Next Turn",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["runtime_continue"],
+            runtime: defineAgentRuntime({
+                hooks: [
+                    agentRuntimeBuiltins.sessionRuntime(),
+                    {
+                        name: "next",
+                        stage: "prepareNextTurn",
+                        run(ctx) {
+                            return {
+                                runtimeMessages: [
+                                    createUserMessage({text: "NEXT_TURN_RUNTIME_CONTEXT"}),
+                                ],
+                                runtimeState: {
+                                    preparedAfterTurn: ctx.turnIndex ?? 0,
+                                },
+                                writePlans: [{
+                                    target: {sessionId: ctx.sessionId},
+                                    cause: "test.prepareNextTurn",
+                                    ops: [{
+                                        kind: "append",
+                                        projection: true,
+                                        entry: {
+                                            type: "custom",
+                                            key: "test.runtime.prepareNextTurn",
+                                            value: {
+                                                turnIndex: ctx.turnIndex ?? 0,
+                                                messageCount: ctx.session.messages.length,
+                                            },
+                                        },
+                                    }],
+                                }],
+                            };
+                        },
+                    },
+                    {
+                        name: "next",
+                        stage: "prepareTurn",
+                        run(ctx) {
+                            const state = typeof ctx.runtimeState === "object" && ctx.runtimeState && !Array.isArray(ctx.runtimeState)
+                                ? ctx.runtimeState as {preparedAfterTurn?: number}
+                                : {};
+                            return {
+                                turnSnapshotPatch: state.preparedAfterTurn
+                                    ? {
+                                        requestOptions: {
+                                            metadata: {
+                                                preparedAfterTurn: state.preparedAfterTurn,
+                                            },
+                                        },
+                                    }
+                                    : undefined,
+                            };
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            (context, options) => {
+                observedRequestOptions.push(options);
+                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
+                return fauxAssistantMessage([
+                    fauxToolCall("runtime_continue", {}, {id: "continue-1"}),
+                ], {stopReason: "toolUse"});
+            },
+            (context, options) => {
+                observedRequestOptions.push(options);
+                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
+                return fauxAssistantMessage("done");
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.prepare-next-turn",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(toolRuns).toBe(1);
+        expect(providerPrompts[0]).not.toContain("NEXT_TURN_RUNTIME_CONTEXT");
+        expect(providerPrompts[1]).toContain("NEXT_TURN_RUNTIME_CONTEXT");
+        expect(observedRequestOptions[0]).not.toEqual(expect.objectContaining({
+            metadata: {
+                preparedAfterTurn: 1,
+            },
+        }));
+        expect(observedRequestOptions[1]).toEqual(expect.objectContaining({
+            metadata: {
+                preparedAfterTurn: 1,
+            },
+        }));
+        expect(context.customState["test.runtime.prepareNextTurn"]).toEqual({
+            turnIndex: 1,
+            messageCount: 3,
+        });
+        expect(context.messages
+            .filter((message): message is RuntimeMessage => message.role === "user" || message.role === "assistant" || message.role === "toolResult")
+            .map((message) => messageText(message))).not.toContain("NEXT_TURN_RUNTIME_CONTEXT");
+    });
+
+    it("同名 runtime hook 的对象 runtimeState 会按 namespace 浅合并", async () => {
+        const observedRuntimeStates: unknown[] = [];
+        harness.tools.register({
+            key: "continue_once",
+            name: "continue_once",
+            label: "Continue Once",
+            description: "Forces one more turn.",
+            parameters: Type.Object({}),
+            async execute() {
+                return {
+                    content: [{type: "text", text: "continue"}],
+                    details: {},
+                    terminate: false,
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.runtime-state-merge",
+                name: "Runtime State Merge",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["continue_once"],
+            runtime: defineAgentRuntime({
+                hooks: [
+                    {
+                        name: "state",
+                        stage: "prepareRun",
+                        run() {
+                            return {
+                                runtimeState: {
+                                    first: true,
+                                },
+                            };
+                        },
+                    },
+                    {
+                        name: "state",
+                        stage: "prepareNextTurn",
+                        run(ctx) {
+                            observedRuntimeStates.push(ctx.runtimeState);
+                            return {
+                                runtimeState: {
+                                    second: true,
+                                },
+                            };
+                        },
+                    },
+                    {
+                        name: "state",
+                        stage: "prepareTurn",
+                        run(ctx) {
+                            observedRuntimeStates.push(ctx.runtimeState);
+                            return {};
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("continue_once", {}, {id: "continue-once"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("done"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.runtime-state-merge",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+
+        expect(result.status).toBe("completed");
+        expect(observedRuntimeStates).toEqual([
+            {first: true},
+            {first: true},
+            {first: true, second: true},
+        ]);
+    });
+
+    it("settleRun hook 可以读取 report_result 并写最终 projection", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.settle-run",
+                name: "Settle Run",
+            },
+            inputSchema: Type.Object({}),
+            outputSchema: Type.Object({
+                title: Type.String(),
+            }),
+            allowedToolKeys: ["report_result"],
+            runtime: defineAgentRuntime({
+                hooks: [
+                    {
+                        name: "settle",
+                        stage: "settleRun",
+                        run(ctx) {
+                            const data = ctx.runResult?.reportResult?.data as {title?: string} | undefined;
+                            return {
+                                writePlans: [{
+                                    target: {sessionId: ctx.sessionId},
+                                    cause: "test.settleRun",
+                                    ops: [{
+                                        kind: "append",
+                                        projection: true,
+                                        entry: {
+                                            type: "custom",
+                                            key: "test.runtime.settleRun",
+                                            value: {
+                                                status: ctx.runResult?.status ?? "completed",
+                                                title: data?.title ?? null,
+                                            },
+                                        },
+                                    }],
+                                }],
+                            };
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    walkthrough: "ok",
+                    data: {
+                        title: "Settled",
+                    },
+                }, {id: "report-1"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.settle-run",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(result.reportResult?.data).toEqual({
+            title: "Settled",
+        });
+        expect(context.customState["test.runtime.settleRun"]).toEqual({
+            status: "completed",
+            title: "Settled",
+        });
+    });
+
+    it("prepareRun hook 可以注入 runtime-only 首轮上下文且不落 session", async () => {
+        const providerPrompts: string[] = [];
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.prepare-run-runtime-message",
+                name: "Prepare Run Runtime Message",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            runtime: defineAgentRuntime({
+                hooks: [
+                    {
+                        name: "context",
+                        stage: "prepareRun",
+                        run() {
+                            return {
+                                runtimeMessages: [
+                                    createUserMessage({text: "RUNTIME_ONLY_CONTEXT"}),
+                                ],
+                            };
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            (context) => {
+                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
+                return fauxAssistantMessage("done");
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.prepare-run-runtime-message",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(providerPrompts[0]).toContain("RUNTIME_ONLY_CONTEXT");
+        expect(context.messages
+            .filter((message): message is RuntimeMessage => message.role === "user" || message.role === "assistant" || message.role === "toolResult")
+            .map((message) => messageText(message))).not.toContain("RUNTIME_ONLY_CONTEXT");
+    });
+
+    it("runtime hook 可以通过 session facade 读取 source session 并注入 Agent Dialogue Content", async () => {
+        const providerPrompts: string[] = [];
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.source",
+                name: "Source",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        const source = await harness.createAgent({
+            profileKey: "test.source",
+            input: {},
+            workspaceRoot: root,
+        });
+        faux.setResponses([
+            fauxAssistantMessage("source answer"),
+        ]);
+        await harness.invokeAgent({
+            sessionId: source.sessionId,
+            mode: "prompt",
+            message: {text: "source question"},
+        });
+
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.session-facade",
+                name: "Session Facade",
+            },
+            inputSchema: Type.Object({
+                sourceSessionId: Type.Number(),
+            }),
+            allowedToolKeys: [],
+            runtime: {
+                hooks: [
+                    {
+                        name: "sourceContext",
+                        stage: "prepareRun",
+                        async run(ctx) {
+                            const sourceSession = await ctx.session.read(ctx.input.sourceSessionId);
+                            const content = await ctx.session.agentDialogueContent({
+                                snapshot: sourceSession.snapshot,
+                                input: ctx.input,
+                            });
+                            return {
+                                runtimeMessages: [
+                                    createUserMessage({text: `SOURCE_CONTEXT\n${content.text}`}),
+                                ],
+                                writePlans: [{
+                                    target: {sessionId: ctx.sessionId},
+                                    cause: "test.sessionFacade",
+                                    ops: [{
+                                        kind: "append",
+                                        projection: true,
+                                        entry: {
+                                            type: "custom",
+                                            key: "test.runtime.source",
+                                            value: {
+                                                sourceSessionId: sourceSession.snapshot.metadata.sessionId,
+                                                sourceMessageCount: sourceSession.context.messages.length,
+                                                entryIds: content.entryIds,
+                                            },
+                                        },
+                                    }],
+                                }],
+                            };
+                        },
+                    },
+                ],
+            },
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            (context) => {
+                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
+                return fauxAssistantMessage("reader done");
+            },
+        ]);
+        const reader = await harness.createAgent({
+            profileKey: "test.session-facade",
+            input: {
+                sourceSessionId: source.sessionId,
+            },
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: reader.sessionId,
+            mode: "prompt",
+            message: {text: "read source"},
+        });
+        const readerContext = harness.repo.reduce(await harness.repo.readSession(reader.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(providerPrompts[0]).toContain("SOURCE_CONTEXT");
+        expect(providerPrompts[0]).toContain("source question");
+        expect(providerPrompts[0]).toContain("source answer");
+        expect(readerContext.customState["test.runtime.source"]).toEqual({
+            sourceSessionId: source.sessionId,
+            sourceMessageCount: 2,
+            entryIds: expect.any(Array),
+        });
+        expect(readerContext.messages
+            .filter((message): message is RuntimeMessage => message.role === "user" || message.role === "assistant" || message.role === "toolResult")
+            .map((message) => messageText(message))).not.toContain("SOURCE_CONTEXT");
+    });
+
+    it("ingestTurn hook 可以让本轮 transcript 只保留在 RunFrame，settleRun 仍能读取 report_result", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.runtime-only-transcript",
+                name: "Runtime Only Transcript",
+            },
+            inputSchema: Type.Object({}),
+            outputSchema: Type.Object({
+                title: Type.String(),
+            }),
+            allowedToolKeys: ["report_result"],
+            runtime: defineAgentRuntime({
+                hooks: [
+                    agentRuntimeBuiltins.sessionRuntime(),
+                    {
+                        name: "transient",
+                        stage: "ingestTurn",
+                        run(ctx) {
+                            return {
+                                transcript: "runtime_only",
+                                writePlans: [{
+                                    target: {sessionId: ctx.sessionId},
+                                    cause: "test.runtimeOnlyTranscript",
+                                    ops: [{
+                                        kind: "append",
+                                        projection: true,
+                                        entry: {
+                                            type: "custom",
+                                            key: "test.runtime.transcript",
+                                            value: {
+                                                assistantText: messageText(ctx.turn?.assistant ?? createAssistantTextMessage({text: ""})),
+                                            },
+                                        },
+                                    }],
+                                }],
+                            };
+                        },
+                    },
+                    {
+                        name: "write-report",
+                        stage: "settleRun",
+                        run(ctx) {
+                            const data = ctx.runResult?.reportResult?.data as {title?: string} | undefined;
+                            return {
+                                writePlans: [{
+                                    target: {sessionId: ctx.sessionId},
+                                    cause: "test.runtimeOnlySettle",
+                                    ops: [{
+                                        kind: "append",
+                                        projection: true,
+                                        entry: {
+                                            type: "custom",
+                                            key: "test.runtime.settleTransient",
+                                            value: {
+                                                title: data?.title ?? null,
+                                            },
+                                        },
+                                    }],
+                                }],
+                            };
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxText("hidden transcript"),
+                fauxToolCall("report_result", {
+                    walkthrough: "ok",
+                    data: {
+                        title: "Transient Summary",
+                    },
+                }, {id: "transient-report-1"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.runtime-only-transcript",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(result.finalMessage).toContain("hidden transcript");
+        expect(result.reportResult?.data).toEqual({
+            title: "Transient Summary",
+        });
+        expect(context.messages.map((message) => message.role)).toEqual(["user"]);
+        expect(context.customState["test.runtime.transcript"]).toMatchObject({
+            assistantText: expect.stringContaining("hidden transcript"),
+        });
+        expect(context.customState["test.runtime.settleTransient"]).toEqual({
+            title: "Transient Summary",
+        });
+    });
+
+    it("waiting turn 拒绝 runtime_only transcript，避免 resolution 无法恢复", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.runtime-only-waiting",
+                name: "Runtime Only Waiting",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input"],
+            runtime: defineAgentRuntime({
+                hooks: [
+                    {
+                        name: "transient",
+                        stage: "ingestTurn",
+                        run() {
+                            return {
+                                transcript: "runtime_only",
+                            };
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("request_user_input", {
+                    question: "Continue?",
+                }, {id: "wait-1"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.runtime-only-waiting",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("error");
+        expect(result.error).toContain("waiting turn 必须显式使用 persist transcript");
+        expect(result.errorPhase).toBe("ingest");
+        expect(result.errorInfo).toEqual(expect.objectContaining({
+            phase: "ingest",
+        }));
+        expect(context.messages.map((message) => message.role)).toEqual(["user"]);
+    });
+
+    it("runtime_only transcript 下 report_result reminder 只进入 RunFrame 不写 session", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.runtime-only-report-reminder",
+                name: "Runtime Only Report Reminder",
+            },
+            inputSchema: Type.Object({}),
+            outputSchema: Type.Object({
+                title: Type.String(),
+            }),
+            allowedToolKeys: ["report_result"],
+            runtime: defineAgentRuntime({
+                hooks: [
+                    agentRuntimeBuiltins.sessionRuntime(),
+                    {
+                        name: "transient",
+                        stage: "ingestTurn",
+                        run() {
+                            return {
+                                transcript: "runtime_only",
+                            };
+                        },
+                    },
+                    {
+                        name: "settle",
+                        stage: "settleRun",
+                        run(ctx) {
+                            const data = ctx.runResult?.reportResult?.data as {title?: string} | undefined;
+                            return {
+                                writePlans: [{
+                                    target: {sessionId: ctx.sessionId},
+                                    cause: "test.runtimeOnlyReportReminder",
+                                    ops: [{
+                                        kind: "append",
+                                        projection: true,
+                                        entry: {
+                                            type: "custom",
+                                            key: "test.runtime.reportReminder",
+                                            value: {
+                                                title: data?.title ?? null,
+                                            },
+                                        },
+                                    }],
+                                }],
+                            };
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {};
+            },
+        }), false);
+        const providerPrompts: string[] = [];
+        faux.setResponses([
+            (context) => {
+                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
+                return fauxAssistantMessage("missing report");
+            },
+            (context) => {
+                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
+                return fauxAssistantMessage([
+                    fauxToolCall("report_result", {
+                        walkthrough: "ok",
+                        data: {
+                            title: "Runtime Reminder",
+                        },
+                    }, {id: "runtime-reminder-report-1"}),
+                ], {stopReason: "toolUse"});
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.runtime-only-report-reminder",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(providerPrompts[1]).toContain("必须使用 report_result");
+        expect(context.messages.map((message) => message.role)).toEqual(["user"]);
+        expect(context.messages.some((message) => message.role === "user" && messageText(message).includes("必须使用 report_result"))).toBe(false);
+        expect(context.customState["test.runtime.reportReminder"]).toEqual({
+            title: "Runtime Reminder",
+        });
+    });
+
+    it("自定义 runtime 不组合 reportResult built-in 时不会自动注入 report_result reminder", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.custom-runtime-no-report-reminder",
+                name: "Custom Runtime No Report Reminder",
+            },
+            inputSchema: Type.Object({}),
+            outputSchema: Type.Object({
+                title: Type.String(),
+            }),
+            allowedToolKeys: ["report_result"],
+            runtime: defineAgentRuntime({
+                hooks: [
+                    {
+                        name: "transient",
+                        stage: "ingestTurn",
+                        run() {
+                            return {
+                                transcript: "runtime_only",
+                            };
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage("missing report"),
+            fauxAssistantMessage("must not run"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.custom-runtime-no-report-reminder",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(result.reportResult).toBeUndefined();
+        expect(result.events.filter((event) => event.type === "turn_start")).toHaveLength(1);
+        expect(faux.getPendingResponseCount()).toBe(1);
+        expect(context.messages.some((message) => message.role === "user" && messageText(message).includes("必须使用 report_result"))).toBe(false);
     });
 
     it("approval resolution 会先写 toolResult，再写 continue prepare 的 appending messages", async () => {
@@ -887,6 +2050,8 @@ describe("NeuroAgentHarness", () => {
 
         expect(result.status).toBe("completed");
         expect(result.reportResult?.result).toBe("fixed");
+        expect(result.events.filter((event) => event.type === "agent_start")).toHaveLength(1);
+        expect(result.events.filter((event) => event.type === "turn_start")).toHaveLength(2);
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
         expect(context.messages.some((message) => {
             if (message.role !== "user" || typeof message.content === "string") {
@@ -1098,6 +2263,199 @@ describe("NeuroAgentHarness", () => {
         expect(sessionStates.some((texts) => texts.includes("MODEL_REMINDER") && !texts.includes("PROMPT"))).toBe(true);
     });
 
+    it("自定义 runtime 不组合 sessionContext built-in 时不注入 prepare modelContextMessages", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.no-session-context-runtime",
+                name: "No Session Context Runtime",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            runtime: defineAgentRuntime({
+                hooks: [
+                    {
+                        name: "persist",
+                        stage: "ingestTurn",
+                        run() {
+                            return {
+                                transcript: "persist",
+                            };
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {
+                    modelContextMessages: [createUserMessage({text: "MODEL_ONLY"})],
+                };
+            },
+        }), false);
+        faux.setResponses([
+            (context) => fauxAssistantMessage(fauxText(context.messages.map(messageText).join("|"))),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.no-session-context-runtime",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "PROMPT"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(result.finalMessage).toBe("PROMPT");
+        expect(context.messages.map((message) => messageText(message as never))).toEqual(["PROMPT", "PROMPT"]);
+    });
+
+    it("自定义 runtime 不组合 sessionContext built-in 时不写入 prepare context messages", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.no-session-context-writes",
+                name: "No Session Context Writes",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            runtime: defineAgentRuntime({
+                hooks: [
+                    {
+                        name: "persist",
+                        stage: "ingestTurn",
+                        run() {
+                            return {
+                                transcript: "persist",
+                            };
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {
+                    historyInitMessages: [createUserMessage({text: "HISTORY_INIT"})],
+                    modelContextAppendingMessages: [createUserMessage({text: "MODEL_APPENDING"})],
+                    appendingMessages: [createUserMessage({text: "APPENDING"})],
+                };
+            },
+        }), false);
+        faux.setResponses([
+            (context) => fauxAssistantMessage(fauxText(context.messages.map(messageText).join("|"))),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.no-session-context-writes",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "PROMPT"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(result.finalMessage).toBe("PROMPT");
+        expect(context.messages.map((message) => messageText(message as never))).toEqual(["PROMPT", "PROMPT"]);
+    });
+
+    it("自定义 runtime 不组合 profilePrompt built-in 时不注入 prepare systemPrompt", async () => {
+        const observedSystemPrompts: string[] = [];
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.no-profile-prompt-runtime",
+                name: "No Profile Prompt Runtime",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            runtime: defineAgentRuntime({
+                hooks: [
+                    {
+                        name: "persist",
+                        stage: "ingestTurn",
+                        run() {
+                            return {
+                                transcript: "persist",
+                            };
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {
+                    systemPrompt: "PROFILE_SYSTEM_PROMPT",
+                };
+            },
+        }), false);
+        faux.setResponses([
+            (context) => {
+                observedSystemPrompts.push(context.systemPrompt ?? "");
+                return fauxAssistantMessage("done");
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.no-profile-prompt-runtime",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "PROMPT"},
+        });
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+
+        expect(result.status).toBe("completed");
+        expect(observedSystemPrompts).toEqual([""]);
+        expect(snapshot.systemPrompt).toBeUndefined();
+    });
+
+    it("非内置 hook 不能伪造 builtinBehavior", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.fake-builtin-behavior",
+                name: "Fake Builtin Behavior",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            runtime: defineAgentRuntime({
+                hooks: [
+                    {
+                        name: "builtin.fake",
+                        stage: "prepareRun",
+                        run() {
+                            return {
+                                builtinBehavior: {
+                                    profilePrompt: true,
+                                },
+                            };
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {};
+            },
+        }), false);
+        const created = await harness.createAgent({
+            profileKey: "test.fake-builtin-behavior",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+
+        expect(result.status).toBe("error");
+        expect(result.error ?? "").toContain("runtime hook builtin.fake 不能返回 builtinBehavior");
+    });
+
     it("create_agent 会自动 link 到父 session，get_agent 无参返回当前拥有的 agent", async () => {
         const parent = await harness.createAgent({
             profileKey: "leader.default",
@@ -1145,7 +2503,6 @@ describe("NeuroAgentHarness", () => {
                 observedDefaultModelKeys.push(config.models.defaultModelKey);
                 return faux.getModel();
             },
-            enableSessionSummarizer: false,
         });
         faux.setResponses([fauxAssistantMessage(fauxText("child done"))]);
         const parent = await harness.createAgent({
@@ -1524,7 +2881,7 @@ describe("NeuroAgentHarness", () => {
                 questions: [{question: "Name?"}],
             },
         });
-        expect(snapshot.followUpQueue).toEqual([
+        expect(snapshot.followUpQueue.items).toEqual([
             expect.objectContaining({
                 kind: "followup",
                 message: {
@@ -1627,7 +2984,7 @@ describe("NeuroAgentHarness", () => {
         expect(text.indexOf("queued followup")).toBeGreaterThan(text.indexOf("after steer"));
         const snapshot = await harness.getSessionSnapshot(created.sessionId);
         expect(snapshot.steerQueue).toEqual([]);
-        expect(snapshot.followUpQueue).toEqual([]);
+        expect(snapshot.followUpQueue.items).toEqual([]);
     });
 
     it("waiting_user 期间入队的 steer 会在 resolution 后下一次模型调用前注入", async () => {
@@ -1708,7 +3065,7 @@ describe("NeuroAgentHarness", () => {
 
         const snapshot = await harness.getSessionSnapshot(created.sessionId);
         expect(snapshot.steerQueue).toEqual([]);
-        expect(snapshot.followUpQueue).toEqual([]);
+        expect(snapshot.followUpQueue.items).toEqual([]);
     });
 
     it("loop 已经越过最后可引导点时拒绝 steer", async () => {
@@ -1748,7 +3105,7 @@ describe("NeuroAgentHarness", () => {
         expect(snapshot.steerQueue).toEqual([]);
     });
 
-    it("aborting 状态拒绝新的 steer 和 followUp queue", async () => {
+    it("waiting 状态 abort 会写 aborted lifecycle 并释放 active invocation", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.abort-queue",
@@ -1779,18 +3136,82 @@ describe("NeuroAgentHarness", () => {
         });
 
         await harness.abortInvocation(created.sessionId, {reason: "stop"});
+        faux.setResponses([fauxAssistantMessage("after abort")]);
+        const next = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "after abort prompt"},
+        });
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
 
         expect(waiting.status).toBe("waiting");
-        await expect(harness.invokeAgent({
+        expect(next.status).toBe("completed");
+        expect(snapshot.activeInvocation).toBeNull();
+        expect(snapshot.entries).toContainEqual(expect.objectContaining({
+            type: "invocation_lifecycle",
+            invocationId: waiting.invocationId,
+            status: "aborted",
+        }));
+    });
+
+    it("abort clearQueue 会清空已持久化的 followUp queue projection", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.abort-persisted-queue",
+                name: "Abort Persisted Queue",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("request_user_input", {
+                    questions: [{question: "Wait?"}],
+                }, {id: "abort-persisted-queue"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.abort-persisted-queue",
+            input: {},
+            workspaceRoot: root,
+        });
+        const waiting = await harness.invokeAgent({
             sessionId: created.sessionId,
-            mode: "steer",
-            message: {text: "no"},
-        })).rejects.toThrow("active_invocation_aborting");
-        await expect(harness.invokeAgent({
+            mode: "prompt",
+            message: {text: "start"},
+        });
+        await harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "followup",
-            message: {text: "no later"},
-        })).rejects.toThrow("active_invocation_aborting");
+            message: {text: "queued followup"},
+        });
+
+        await harness.abortInvocation(created.sessionId, {reason: "stop", clearQueue: true});
+        const restored = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+        });
+        restored.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.abort-persisted-queue",
+                name: "Abort Persisted Queue",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        const snapshot = await restored.getSessionSnapshot(created.sessionId);
+
+        expect(waiting.status).toBe("waiting");
+        expect(snapshot.followUpQueue).toEqual({
+            status: "ready",
+            items: [],
+        });
     });
 
     it("模型错误结束时清理已入队但无法再消费的 steer", async () => {
@@ -1818,6 +3239,172 @@ describe("NeuroAgentHarness", () => {
         expect(result.status).toBe("error");
         const snapshot = await harness.getSessionSnapshot(created.sessionId);
         expect(snapshot.steerQueue).toEqual([]);
+    });
+
+    it("模型错误后暂停 followUp queue，不自动消费", async () => {
+        faux.setResponses([
+            fauxAssistantMessage("failed", {stopReason: "error", errorMessage: "provider failed"}),
+            fauxAssistantMessage("must not run"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start"},
+        });
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "followup",
+            message: {text: "queued followup"},
+        });
+        const result = await running;
+
+        expect(result.status).toBe("error");
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        expect(snapshot.followUpQueue).toEqual({
+            status: "paused",
+            pausedBy: {
+                invocationId: result.invocationId,
+                reason: "error",
+            },
+            items: [expect.objectContaining({
+                kind: "followup",
+                message: {text: "queued followup"},
+            })],
+        });
+        expect(faux.getPendingResponseCount()).toBe(1);
+    });
+
+    it("running 状态 abort 会写 aborted lifecycle 并按 aborted 暂停 followUp queue", async () => {
+        faux.setResponses([
+            async () => {
+                await new Promise((resolve) => setTimeout(resolve, 30));
+                return fauxAssistantMessage("stopped", {stopReason: "aborted", errorMessage: "user stopped"});
+            },
+            fauxAssistantMessage("must not run"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start"},
+        });
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "followup",
+            message: {text: "queued followup"},
+        });
+        await harness.abortInvocation(created.sessionId, {reason: "stop", clearQueue: false});
+        const result = await running;
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+
+        expect(result.status).toBe("error");
+        expect(snapshot.activeInvocation).toBeNull();
+        expect(snapshot.entries).toContainEqual(expect.objectContaining({
+            type: "invocation_lifecycle",
+            invocationId: result.invocationId,
+            status: "aborted",
+        }));
+        expect(snapshot.followUpQueue).toEqual({
+            status: "paused",
+            pausedBy: {
+                invocationId: result.invocationId,
+                reason: "aborted",
+            },
+            items: [expect.objectContaining({
+                kind: "followup",
+                message: {text: "queued followup"},
+            })],
+        });
+        expect(faux.getPendingResponseCount()).toBe(1);
+    });
+
+    it("followUp queue 状态会作为 projection 持久化并能被新 harness snapshot 恢复", async () => {
+        faux.setResponses([
+            fauxAssistantMessage("failed", {stopReason: "error", errorMessage: "provider failed"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start"},
+        });
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "followup",
+            message: {text: "queued followup"},
+        });
+        const result = await running;
+        const restored = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+        });
+
+        const snapshot = await restored.getSessionSnapshot(created.sessionId);
+
+        expect(result.status).toBe("error");
+        expect(snapshot.followUpQueue).toEqual({
+            status: "paused",
+            pausedBy: {
+                invocationId: result.invocationId,
+                reason: "error",
+            },
+            items: [expect.objectContaining({
+                kind: "followup",
+                message: {text: "queued followup"},
+            })],
+        });
+    });
+
+    it("模型 partial error 只保存文本并剥离 tool call", async () => {
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxText("half answer"),
+                fauxToolCall("read", {path: "x"}, {id: "partial-tool"}),
+            ], {stopReason: "error", errorMessage: "stream dropped"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start"},
+        });
+        const snapshot = await harness.repo.readSession(created.sessionId);
+        const assistantEntry = snapshot.entries.find((entry) => entry.type === "message" && entry.message.role === "assistant");
+
+        expect(result.status).toBe("error");
+        expect(result.errorInfo).toEqual(expect.objectContaining({
+            message: "stream dropped",
+            phase: "model",
+        }));
+        expect(assistantEntry).toEqual(expect.objectContaining({
+            type: "message",
+            status: "partial",
+        }));
+        expect(assistantEntry && assistantEntry.type === "message" ? messageText(assistantEntry.message) : "").toBe("half answer");
+        expect(assistantEntry && assistantEntry.type === "message" && assistantEntry.message.role === "assistant"
+            ? assistantEntry.message.content.some((block) => block.type === "toolCall")
+            : true).toBe(false);
     });
 
     it("safe point drain 期间拒绝新的 steer，避免成功入队后被清理", async () => {
@@ -2130,492 +3717,6 @@ describe("NeuroAgentHarness", () => {
         ]);
     });
 
-    it("profile ingest 可以追加消息和 title/summary", async () => {
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.ingest",
-                name: "Ingest Test",
-            },
-            inputSchema: Type.Object({}),
-            allowedToolKeys: [],
-            prepare() {
-                return {};
-            },
-            ingest() {
-                return {
-                    messageWrites: [createAssistantTextMessage({text: "ingested"})],
-                    sessionUpdates: {
-                        title: "Ingested Title",
-                        summary: "Ingested Summary",
-                    },
-                };
-            },
-        }));
-        faux.setResponses([
-            fauxAssistantMessage(fauxText("done")),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.ingest",
-            input: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-        const session = await harness.getSession({
-            sessionId: created.sessionId,
-            includeRecentMessages: true,
-        });
-
-        expect(result.status).toBe("completed");
-        expect(session.title).toBe("Ingested Title");
-        expect(session.summary).toBe("Ingested Summary");
-        expect(session.recentMessages?.map((message) => message.text)).toContain("ingested");
-    });
-
-    it("profile ingest 返回越权字段时 run 报错且不写部分结果", async () => {
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "test.bad-ingest",
-                name: "Bad Ingest",
-            },
-            inputSchema: Type.Object({}),
-            allowedToolKeys: [],
-            prepare() {
-                return {};
-            },
-            ingest() {
-                return {
-                    messageWrites: [createAssistantTextMessage({text: "should not write"})],
-                    profileKey: "other",
-                } as never;
-            },
-        }));
-        faux.setResponses([
-            fauxAssistantMessage(fauxText("done")),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "test.bad-ingest",
-            input: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-        const session = await harness.getSession({
-            sessionId: created.sessionId,
-            includeRecentMessages: true,
-        });
-
-        expect(result.status).toBe("error");
-        expect(result.error).toContain("profileKey");
-        expect(session.recentMessages?.every((message) => message.text !== "should not write")).toBe(true);
-    });
-
-    it("leader completed 后后台 summarizer 写回 title/summary 且不创建 linked agent", async () => {
-        harness = new NeuroAgentHarness({
-            repo: harness.repo,
-            profiles: harness.profiles,
-            modelResolver: () => faux.getModel(),
-        });
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "leader.test-summarized",
-                name: "Summarized Leader",
-            },
-            inputSchema: Type.Object({}),
-            allowedToolKeys: [],
-            summarizer: {
-                profileKey: "session.summarizer",
-                input: {
-                    trigger: "after_invocation",
-                    interval: {
-                        kind: "turn",
-                        value: 1,
-                    },
-                    maxDialogueContentTokens: 80_000,
-                },
-            },
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            fauxAssistantMessage(fauxText("leader done")),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    walkthrough: "summarized",
-                    data: {
-                        title: "摘要标题",
-                        summary: "本轮讨论已经完成摘要。",
-                    },
-                }, {id: "summarizer-report"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "leader.test-summarized",
-            input: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "请帮我做计划"},
-        });
-        expect(result.status).toBe("completed");
-
-        await waitFor(async () => {
-            const snapshot = await harness.getSessionSnapshot(created.sessionId);
-            expect(snapshot.summary.title).toBe("摘要标题");
-            expect(snapshot.summary.summary).toBe("本轮讨论已经完成摘要。");
-            expect(snapshot.summarizer).toEqual(expect.objectContaining({
-                running: false,
-                dirty: false,
-                lastRunAt: expect.any(Number),
-                lastDialogueContentTokens: expect.any(Number),
-            }));
-        });
-        const sourceSnapshot = await harness.getSessionSnapshot(created.sessionId);
-        const sourceContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-        const state = sourceContext.customState[SESSION_SUMMARIZER_STATE_KEY] as {sessionId?: number} | undefined;
-        expect(sourceSnapshot.linkedAgents).toEqual([]);
-        expect(state?.sessionId).toEqual(expect.any(Number));
-
-        const defaultList = await harness.listSessions({workspaceKey: "global"});
-        const withSystem = await harness.listSessions({workspaceKey: "global", includeSystem: true});
-        expect(defaultList.map((session) => session.profileKey)).toEqual(["leader.test-summarized"]);
-        expect(withSystem.map((session) => session.profileKey).sort()).toEqual(["leader.test-summarized", "session.summarizer"]);
-    });
-
-    it("summarizer 输出不合法时不污染 leader completed 结果", async () => {
-        harness = new NeuroAgentHarness({
-            repo: harness.repo,
-            profiles: harness.profiles,
-            modelResolver: () => faux.getModel(),
-        });
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "leader.test-bad-summarizer",
-                name: "Bad Summarizer Leader",
-            },
-            inputSchema: Type.Object({}),
-            allowedToolKeys: [],
-            summarizer: {
-                profileKey: "session.summarizer",
-                input: {
-                    trigger: "after_invocation",
-                    interval: {
-                        kind: "turn",
-                        value: 1,
-                    },
-                    maxDialogueContentTokens: 80_000,
-                },
-            },
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            fauxAssistantMessage(fauxText("leader done")),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    walkthrough: "bad summary",
-                    data: {
-                        title: "",
-                        summary: "bad",
-                    },
-                }, {id: "bad-summarizer-report"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "leader.test-bad-summarizer",
-            input: {},
-            workspaceRoot: root,
-        });
-
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "run"},
-        });
-
-        expect(result.status).toBe("completed");
-        await waitFor(async () => {
-            const snapshot = await harness.getSessionSnapshot(created.sessionId);
-            expect(snapshot.summarizer).toEqual(expect.objectContaining({
-                running: false,
-                dirty: false,
-                lastError: expect.stringContaining("title"),
-            }));
-        });
-        const session = await harness.getSession(created.sessionId);
-        expect(session.title).toBe("Bad Summarizer Leader");
-        expect(session.summary).toBe("leader done");
-    });
-
-    it("dialogueContentTokens interval 按上次成功摘要基线累计", async () => {
-        harness = new NeuroAgentHarness({
-            repo: harness.repo,
-            profiles: harness.profiles,
-            modelResolver: () => faux.getModel(),
-        });
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "leader.test-token-interval",
-                name: "Token Interval Leader",
-            },
-            inputSchema: Type.Object({}),
-            allowedToolKeys: [],
-            summarizer: {
-                profileKey: "session.summarizer",
-                input: {
-                    trigger: "after_invocation",
-                    interval: {
-                        kind: "dialogueContentTokens",
-                        value: 45,
-                    },
-                    maxDialogueContentTokens: 80_000,
-                },
-            },
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            fauxAssistantMessage(fauxText("a")),
-            fauxAssistantMessage(fauxText("bb")),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    walkthrough: "summarized after accumulated tokens",
-                    data: {
-                        title: "累计摘要",
-                        summary: "达到累计 token 阈值后才摘要。",
-                    },
-                }, {id: "token-interval-report"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "leader.test-token-interval",
-            input: {},
-            workspaceRoot: root,
-        });
-
-        const first = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "a"},
-        });
-        expect(first.status).toBe("completed");
-        await waitFor(async () => {
-            const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-            expect(context.customState[SESSION_SUMMARIZER_STATE_KEY]).toEqual(expect.objectContaining({
-                lastDialogueContentTokens: expect.any(Number),
-            }));
-        });
-        expect((await harness.getSession(created.sessionId)).title).toBe("Token Interval Leader");
-
-        const second = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "1234567890123456789012345678901234567890"},
-        });
-        expect(second.status).toBe("completed");
-        await waitFor(async () => {
-            const session = await harness.getSession(created.sessionId);
-            expect(session.title).toBe("累计摘要");
-            expect(session.summary).toBe("达到累计 token 阈值后才摘要。");
-        });
-    });
-
-    it("summarizer input 改动后会创建新的后台 system session", async () => {
-        harness = new NeuroAgentHarness({
-            repo: harness.repo,
-            profiles: harness.profiles,
-            modelResolver: () => faux.getModel(),
-        });
-        const leader = defineAgentProfile({
-            manifest: {
-                key: "leader.test-input-change",
-                name: "Input Change Leader",
-            },
-            inputSchema: Type.Object({
-                maxDialogueContentTokens: Type.Number(),
-            }),
-            allowedToolKeys: [],
-            summarizer: {
-                profileKey: "session.summarizer",
-                input: {
-                    trigger: "after_invocation",
-                    interval: {
-                        kind: "turn",
-                        value: 1,
-                    },
-                    maxDialogueContentTokens: 80_000,
-                },
-            },
-            prepare() {
-                return {};
-            },
-        });
-        harness.profiles.register(leader, false);
-        faux.setResponses([
-            fauxAssistantMessage(fauxText("first")),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    walkthrough: "summarized with old input",
-                    data: {
-                        title: "旧输入摘要",
-                        summary: "输入参数变更前的后台 session。",
-                    },
-                }, {id: "input-change-old-report"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "leader.test-input-change",
-            input: {
-                maxDialogueContentTokens: 1,
-            },
-            workspaceRoot: root,
-        });
-
-        const first = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "first"},
-        });
-        expect(first.status).toBe("completed");
-        await waitFor(async () => {
-            const session = await harness.getSession(created.sessionId);
-            expect(session.title).toBe("旧输入摘要");
-        });
-
-        harness.profiles.register(defineAgentProfile({
-            ...leader,
-            summarizer: {
-                profileKey: "session.summarizer",
-                input: {
-                    trigger: "after_invocation",
-                    interval: {
-                        kind: "turn",
-                        value: 2,
-                    },
-                    maxDialogueContentTokens: 80_000,
-                },
-            },
-        }), true);
-        faux.setResponses([
-            fauxAssistantMessage(fauxText("second")),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    walkthrough: "summarized with new input",
-                    data: {
-                        title: "新输入摘要",
-                        summary: "输入参数变更后使用新的后台 session。",
-                    },
-                }, {id: "input-change-report"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const second = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "second"},
-        });
-        expect(second.status).toBe("completed");
-
-        await waitFor(async () => {
-            const session = await harness.getSession(created.sessionId);
-            expect(session.title).toBe("新输入摘要");
-        });
-        const withSystem = await harness.listSessions({workspaceKey: "global", includeSystem: true});
-        expect(withSystem.filter((session) => session.profileKey === "session.summarizer")).toHaveLength(2);
-    });
-
-    it("tree 切换 active path 后会刷新 session title/summary", async () => {
-        harness = new NeuroAgentHarness({
-            repo: harness.repo,
-            profiles: harness.profiles,
-            modelResolver: () => faux.getModel(),
-        });
-        harness.profiles.register(defineAgentProfile({
-            manifest: {
-                key: "leader.test-tree-summary",
-                name: "Tree Summary Leader",
-            },
-            inputSchema: Type.Object({}),
-            allowedToolKeys: [],
-            summarizer: {
-                profileKey: "session.summarizer",
-                input: {
-                    trigger: "after_invocation",
-                    interval: {
-                        kind: "turn",
-                        value: 1,
-                    },
-                    maxDialogueContentTokens: 80_000,
-                },
-            },
-            prepare() {
-                return {};
-            },
-        }), false);
-        faux.setResponses([
-            fauxAssistantMessage(fauxText("first branch")),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    walkthrough: "first branch summary",
-                    data: {
-                        title: "第一分支",
-                        summary: "当前在第一条分支。",
-                    },
-                }, {id: "tree-report-1"}),
-            ], {stopReason: "toolUse"}),
-            fauxAssistantMessage([
-                fauxToolCall("report_result", {
-                    walkthrough: "root branch summary",
-                    data: {
-                        title: "根分支",
-                        summary: "当前 active path 已切回根。",
-                    },
-                }, {id: "tree-report-2"}),
-            ], {stopReason: "toolUse"}),
-        ]);
-        const created = await harness.createAgent({
-            profileKey: "leader.test-tree-summary",
-            input: {},
-            workspaceRoot: root,
-        });
-        const result = await harness.invokeAgent({
-            sessionId: created.sessionId,
-            mode: "prompt",
-            message: {text: "branch"},
-        });
-        expect(result.status).toBe("completed");
-        await waitFor(async () => {
-            const session = await harness.getSession(created.sessionId);
-            expect(session.title).toBe("第一分支");
-        });
-
-        const userEntry = (await harness.repo.readSession(created.sessionId)).entries.find((entry) => entry.type === "message" && entry.message.role === "user");
-        expect(userEntry).toEqual(expect.objectContaining({type: "message"}));
-        await harness.moveTree(created.sessionId, {
-            position: "at",
-            targetEntryId: userEntry!.id,
-        });
-
-        await waitFor(async () => {
-            const session = await harness.getSession(created.sessionId);
-            expect(session.title).toBe("根分支");
-            expect(session.summary).toBe("当前 active path 已切回根。");
-        });
-    });
-
     it("provider error 会作为 invoke error 返回且不触发 report_result reminder", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
@@ -2649,11 +3750,16 @@ describe("NeuroAgentHarness", () => {
         expect(result).toEqual(expect.objectContaining({
             status: "error",
             error: "Provider rejected image payload",
+            errorPhase: "model",
+            errorInfo: expect.objectContaining({
+                message: "Provider rejected image payload",
+                phase: "model",
+            }),
         }));
         expect(faux.getPendingResponseCount()).toBe(0);
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
         const snapshot = await harness.repo.readSession(created.sessionId);
-        expect(context.messages.filter((message) => message.role === "assistant")).toHaveLength(1);
+        expect(context.messages.filter((message) => message.role === "assistant")).toHaveLength(0);
         expect(context.messages.some((message) => message.role === "user" && messageText(message).includes("report_result"))).toBe(false);
         expect(snapshot.entries).toContainEqual(expect.objectContaining({
             type: "invocation_lifecycle",
@@ -2724,8 +3830,10 @@ describe("NeuroAgentHarness", () => {
             instructions: "prefer concise",
         });
         await waitFor(async () => {
+            const snapshot = await harness.getSessionSnapshot(created.sessionId);
             const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
             expect(context.messages[0] && messageText(context.messages[0] as never)).toContain("COMPACTED");
+            expect(snapshot.activeInvocation).toBeNull();
         });
 
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
@@ -2749,6 +3857,7 @@ describe("NeuroAgentHarness", () => {
             instructions: "prefer concise",
         });
         await waitFor(async () => {
+            const dto = await harness.getSessionSnapshot(created.sessionId);
             const snapshot = await harness.repo.readSession(created.sessionId);
             expect(snapshot.entries).toContainEqual(expect.objectContaining({
                 type: "invocation_lifecycle",
@@ -2757,6 +3866,7 @@ describe("NeuroAgentHarness", () => {
                     phase: "compaction",
                 }),
             }));
+            expect(dto.activeInvocation).toBeNull();
         });
 
         expect(result.status).toBe("started");
@@ -2769,7 +3879,7 @@ describe("NeuroAgentHarness", () => {
                 name: "Session Vars",
             },
             inputSchema: Type.Object({}),
-            allowedToolKeys: ["variable_patch"],
+            allowedToolKeys: ["variable_read", "variable_patch"],
             variableDefinitions: [
                 defineSessionVariable({
                     key: "affections",
@@ -2782,6 +3892,12 @@ describe("NeuroAgentHarness", () => {
             },
         }), false);
         faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("variable_read", {
+                    namespace: "session",
+                    path: "affections",
+                }, {id: "vars-read-1"}),
+            ], {stopReason: "toolUse"}),
             fauxAssistantMessage([
                 fauxToolCall("variable_patch", {
                     namespace: "session",
@@ -2802,6 +3918,28 @@ describe("NeuroAgentHarness", () => {
             input: {},
             workspaceRoot: root,
         });
+        const events: string[] = [];
+        const subscription = harness.subscribeSessionEvents(created.sessionId);
+        const iterator = subscription[Symbol.asyncIterator]();
+        const reader = (async () => {
+            for (;;) {
+                const next = await iterator.next();
+                if (next.done) {
+                    return;
+                }
+                const event = next.value;
+                if (event.kind !== "session") {
+                    continue;
+                }
+                if (event.event.type === "session_entry" && event.event.entry.type === "variable_patch") {
+                    events.push("variable_patch_entry");
+                }
+                if (event.event.type === "session_state_changed" && event.event.snapshot?.entries.some((entry) => entry.type === "variable_patch")) {
+                    events.push("variable_patch_state");
+                    break;
+                }
+            }
+        })();
 
         const result = await harness.invokeAgent({
             sessionId: created.sessionId,
@@ -2809,9 +3947,12 @@ describe("NeuroAgentHarness", () => {
             message: {text: "update vars"},
             block: true,
         });
+        await reader;
+        await iterator.return?.();
         const snapshot = await harness.repo.readSession(created.sessionId);
 
         expect(result.status).toBe("completed");
+        expect(events).toEqual(expect.arrayContaining(["variable_patch_entry", "variable_patch_state"]));
         expect(snapshot.entries).toContainEqual(expect.objectContaining({
             type: "variable_patch",
             namespace: "session",

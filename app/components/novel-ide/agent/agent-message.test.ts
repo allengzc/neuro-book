@@ -20,7 +20,10 @@ const baseSnapshot = (entries: AgentSessionSnapshotDto["entries"]): AgentSession
     linkedByAgents: [],
     pendingApproval: null,
     steerQueue: [],
-    followUpQueue: [],
+    followUpQueue: {
+        status: "ready",
+        items: [],
+    },
     activeInvocation: null,
     model: null,
     thinkingLevel: null,

@@ -90,7 +90,7 @@ export default defineAgentProfile({
         const selectedFilePath = await ctx.vars.get("client.studio.selectedFilePath");
         const workspaceReminderText = [
             "<system-reminder>",
-            `Current Project Workspace: ${typeof currentProjectWorkspace === "string" && currentProjectWorkspace ? currentProjectWorkspace : "unknown"}; current file: ${typeof selectedFilePath === "string" && selectedFilePath ? selectedFilePath : "none"}. Use paths relative to the Project Workspace for local novel files, and spell cross-project paths explicitly.`,
+            `Current Project Workspace: ${typeof currentProjectWorkspace === "string" && currentProjectWorkspace ? currentProjectWorkspace : "unknown"}; current file: ${typeof selectedFilePath === "string" && selectedFilePath ? selectedFilePath : "none"}. Agent cwd is Workspace Root workspace/. For project files, use project-slug/lorebook/... or project-slug/manuscript/..., and spell cross-project paths explicitly; project.yaml lives at the Project Workspace root, not under .nbook/.`,
             "</system-reminder>",
         ].join("\n");
         return (
@@ -180,7 +180,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - bash 只用于真实终端操作：rg、find、ls、git、测试、构建等。搜索文本优先用 rg。
         - bash 命令必须按 bash 语法编写；不要写其他 shell 语法。工具已经绑定 workspace 容器根，不要传 workdir。
         - 可以并行调用互不依赖的工具。依赖前一个结果时必须顺序调用。
-        - 常规任务优先以 runtime context 的 Current Project Workspace 为边界，但 agent cwd 是 workspace 容器根。访问当前小说时使用 novel-slug/lorebook/...、novel-slug/manuscript/... 这类显式路径。
+        - 常规任务优先以 runtime context 的 Current Project Workspace 为边界，但 Agent cwd / workspace root 始终是 Workspace Root workspace/。访问当前小说时使用 novel-slug/lorebook/...、novel-slug/manuscript/... 这类显式路径。
         - 允许跨 project 写作和检查；跨 project 时必须显式写出目标 Project Workspace 路径，避免把内容写到错误小说。
         - 需要读写变量时，先用 variable_schema 查询局部 schema，再用 variable_read 读取当前值，最后用 variable_patch 提交 JSON Patch；重要修改后再次 read 验证。
         - 不要用 bash 拼接高风险写入命令替代 edit、apply_patch 或 write。
@@ -234,13 +234,15 @@ const LEADER_SYSTEM_PROMPT = profileText`
 
         # 小说 workspace
 
-        当前 workspace root 会在 runtime context 中提供。常见目录：
-        - AGENTS.md：工作区协作说明。
-        - project.yaml：Project Workspace manifest，记录 kind、title 和 summary。
-        - lorebook/：文件化设定库。内容节点通常是目录 + index.md。
-        - manuscript/：正文、章节和草稿。
-        - .nbook/：Neuro Book 配置、用户可编辑 agent profiles/skills、session 等。
-        - .agent/：临时计划、缓存和执行记录。
+        Agent cwd 是 Workspace Root workspace/，不是某个 Project Workspace。当前 Project Workspace 会在 runtime context 中以 workspace/{project} 给出；文件工具和 bash 访问项目内容时优先写成 {project}/...。
+
+        Project Workspace 常见目录：
+        - {project}/AGENTS.md：项目协作说明。
+        - {project}/project.yaml：Project Workspace manifest，记录 kind、title 和 summary；它位于 Project Workspace 根目录，不在 .nbook/ 内。
+        - {project}/lorebook/：文件化设定库。内容节点通常是目录 + index.md。
+        - {project}/manuscript/：正文、章节和草稿。
+        - {project}/.nbook/：Project Config、Project SQLite 和项目级控制文件。
+        - {project}/.agent/：临时计划、缓存和执行记录。
 
         ## 内容节点
 
@@ -288,7 +290,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - 内容节点 frontmatter 的 inject 用于按 profile 直接注入长期上下文，例如写作风格、叙事视角；retrieval 用于允许 AI 按任务召回，并用自然语言 retrieval.trigger 判断是否适合当前场景。
         - 初始化或扩展 lorebook 时，优先遵守“小说初始化流程”skill 中的脚手架规范。
         - 创建需要追踪当前状态的角色时先运行 workspace node new lorebook/character/角色名 --type character --title 角色名 --state，再读取生成的 index.md 与 state.md 模板并编辑具体内容。
-        - 编辑 lorebook 节点后，必须针对目标路径运行 workspace node validate lorebook/character/角色名；脚本失败时先处理 P1/P2，再继续写作或交付。
+        - 编辑 lorebook 节点后，必须针对目标路径运行 workspace node validate novel-slug/lorebook/character/角色名；脚本失败时先处理 P1/P2，再继续写作或交付。
         - 推荐结构示例：lorebook/character/角色名/index.md 记录稳定设定，同级 state.md 记录当前位置、持有物、目标和 knowledge；lorebook/location/地点名/index.md 记录稳定环境规则，同级 state.md 记录当前封锁、在场人物或临时变化。
 
         ## Anatomy Manuscript
@@ -378,7 +380,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - workspace node validate 是安全网；出现 P1/P2 时，先修复能明确处理的问题，再继续写作或迁移。
         - 脚本失败时，读取错误信息并说明阻塞原因；不要假装脚本已经成功。
         - 执行 rg --files 前先确认 Agent cwd。默认 cwd 是 workspace 容器根，因此当前小说路径要写成 novel-slug/manuscript/、novel-slug/lorebook/。
-        - 文件工具的相对 path 默认从 workspace 容器根解析。当前小说目录由 runtime context 的 Current Project Workspace 提供；不要写 workspace/novel-name/...，避免拼成 workspace/workspace/novel-name/...。
+        - 文件工具的相对 path 默认从 Workspace Root 解析。当前小说目录由 runtime context 的 Current Project Workspace 提供；首选 novel-name/...。workspace/novel-name/... 只作为兼容别名，不作为默认写法。
 
         # Skills
 
