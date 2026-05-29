@@ -551,14 +551,14 @@ export function RuntimeContext(props: {children?: ProfileDslChild | ProfileDslCh
             const currentProjectWorkspace = await readCurrentProjectWorkspace(ctx);
             const lines = [
                 "<dynamic-context>",
-                `Agent cwd: ${ctx.session.workspaceRoot}`,
-                currentProjectWorkspace ? `Current Project Workspace: ${currentProjectWorkspace}` : "",
-                `Profile key: ${ctx.session.profileKey}`,
-                readInputRole(ctx) ? `Input role: ${readInputRole(ctx)}` : "",
-                ctx.session.planModeActive ? "Plan mode: active" : "Plan mode: inactive",
-                typeof planModeState.workDirectory === "string" ? `Plan mode work directory: ${planModeState.workDirectory}` : "",
-                linkedAgentsSummaryText(ctx.session),
-                await renderStandaloneString(ctx, normalizeChildren(props.children)),
+                    `Agent cwd: ${ctx.session.workspaceRoot}`,
+                    currentProjectWorkspace ? `Current Project Workspace: ${currentProjectWorkspace}` : "",
+                    `Profile key: ${ctx.session.profileKey}`,
+                    readInputRole(ctx) ? `Input role: ${readInputRole(ctx)}` : "",
+                    ctx.session.planModeActive ? "Plan mode: active" : "Plan mode: inactive",
+                    typeof planModeState.workDirectory === "string" ? `Plan mode work directory: ${planModeState.workDirectory}` : "",
+                    linkedAgentsSummaryText(ctx.session),
+                    await renderStandaloneString(ctx, normalizeChildren(props.children)),
                 "</dynamic-context>",
             ].filter(Boolean);
             return lines.join("\n");

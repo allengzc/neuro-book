@@ -2421,7 +2421,7 @@ var leader_assets_profile_default = defineAgentProfile({
       trigger: "afterInvocation",
       interval: {
         kind: "sourceInvocation",
-        value: 1
+        value: 8
       },
       maxDialogueContentTokens: 8e4
     }
