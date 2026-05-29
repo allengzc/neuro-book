@@ -190,6 +190,7 @@ watch(() => props.document.id, () => {
 }
 
 .diff-workbench__body {
+    display: flex;
     min-height: 0;
     flex: 1;
     overflow: hidden;
