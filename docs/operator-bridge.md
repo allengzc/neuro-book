@@ -143,37 +143,37 @@ npx --yes --package github:notnotype/neuro-book neuro-book-deploy
 clone 后在仓库内运行：
 
 ```bash
-node scripts/neuro-book-deploy.mjs
+node scripts/deploy/neuro-book-deploy.mjs
 ```
 
 source 模式初始化：
 
 ```bash
-node scripts/neuro-book-deploy.mjs --deploy-mode source
+node scripts/deploy/neuro-book-deploy.mjs --deploy-mode source
 ```
 
 local-git 模式初始化：
 
 ```bash
-node scripts/neuro-book-deploy.mjs --deploy-mode local-git
+node scripts/deploy/neuro-book-deploy.mjs --deploy-mode local-git
 ```
 
 保留已有敏感配置，只刷新 `.deploy/docker-compose.generated.yml` 和 `.deploy/README.md`：
 
 ```bash
-node scripts/neuro-book-deploy.mjs --redeploy --deploy-mode source
+node scripts/deploy/neuro-book-deploy.mjs --redeploy --deploy-mode source
 ```
 
 本项目开发服务器快速同步：
 
 ```bash
-bun scripts/deploy.mjs
+bun scripts/deploy/deploy.mjs
 ```
 
 本地发布 GHCR runtime/app 镜像：
 
 ```bash
-node scripts/publish-ghcr-image.mjs
+node scripts/deploy/publish-ghcr-image.mjs
 ```
 
 ## Agent 执行步骤
@@ -261,25 +261,25 @@ npx --yes --package github:notnotype/neuro-book neuro-book-deploy --deploy-mode 
 如果已经 clone 后使用 local-git：
 
 ```bash
-node scripts/neuro-book-deploy.mjs --deploy-mode local-git
+node scripts/deploy/neuro-book-deploy.mjs --deploy-mode local-git
 ```
 
 如果已经 clone 后使用 source：
 
 ```bash
-node scripts/neuro-book-deploy.mjs --deploy-mode source
+node scripts/deploy/neuro-book-deploy.mjs --deploy-mode source
 ```
 
 旧 native 别名已经 clone：
 
 ```bash
-node scripts/neuro-book-deploy.mjs --deploy-mode native
+node scripts/deploy/neuro-book-deploy.mjs --deploy-mode native
 ```
 
 部署脚本会生成 `.deploy/`。如果用户已有 `.deploy/` 并且只想刷新 compose override，用：
 
 ```bash
-node scripts/neuro-book-deploy.mjs --redeploy --deploy-mode source
+node scripts/deploy/neuro-book-deploy.mjs --redeploy --deploy-mode source
 ```
 
 ### Step 4: source 模式手动更新
@@ -399,7 +399,7 @@ dir: /home/notnotype/composes/neuro-book
 快速同步命令：
 
 ```bash
-bun scripts/deploy.mjs
+bun scripts/deploy/deploy.mjs
 ```
 
 脚本会：
@@ -430,7 +430,7 @@ bun scripts/deploy.mjs
 
 ```bash
 echo "$GHCR_TOKEN" | docker login ghcr.io -u notnotype --password-stdin
-node scripts/publish-ghcr-image.mjs
+node scripts/deploy/publish-ghcr-image.mjs
 ```
 
 默认 tag：
@@ -441,7 +441,7 @@ node scripts/publish-ghcr-image.mjs
 指定 tag：
 
 ```bash
-node scripts/publish-ghcr-image.mjs --tag v1.0.0
+node scripts/deploy/publish-ghcr-image.mjs --tag v1.0.0
 ```
 
 GitHub Actions 只在 GitHub Release `published` 时发布镜像，不在普通 push 或 pull request 时发布。
@@ -509,13 +509,13 @@ bun run config:migrate
 解决：
 
 ```bash
-node scripts/neuro-book-deploy.mjs --redeploy --deploy-mode source
+node scripts/deploy/neuro-book-deploy.mjs --redeploy --deploy-mode source
 ```
 
 或者对 `arch` 开发服务器运行：
 
 ```bash
-bun scripts/deploy.mjs
+bun scripts/deploy/deploy.mjs
 ```
 
 ### `DATABASE_URL 只支持 SQLite file: URL`
@@ -598,7 +598,7 @@ build:
 如果不是，运行：
 
 ```bash
-node scripts/neuro-book-deploy.mjs --redeploy --deploy-mode source
+node scripts/deploy/neuro-book-deploy.mjs --redeploy --deploy-mode source
 ```
 
 ## Agent 提交结果格式
