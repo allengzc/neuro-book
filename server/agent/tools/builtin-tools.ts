@@ -164,7 +164,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             key: "create_agent",
             name: "create_agent",
             label: "Create Agent",
-            description: "Create a new agent session and link it to current agent. Pass input as a real JSON object matching the target profile InputSchema, not a JSON string. If unsure, call get_agent_profile first. Arrays, strings, numbers, booleans, and key=value text are rejected.",
+            description: "Create a new agent session and link it to current agent. Before every create_agent call, call get_agent_profile({ profileKey }) to inspect the target InputSchema, OutputSchema, report_result schema, and allowed tools. Pass input as a real JSON object matching that InputSchema, not a JSON string. Arrays, strings, numbers, booleans, and key=value text are rejected.",
             parameters: CreateAgentSchema,
             prepareArguments(args: unknown) {
                 return prepareCreateAgentArguments(args) as Static<typeof CreateAgentSchema>;
@@ -259,7 +259,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             key: "get_agent_profile",
             name: "get_agent_profile",
             label: "Get Agent Profile",
-            description: "Get one agent profile's schema summary and allowed tools. Use this before create_agent when you do not know the target profile input shape. This queries profile catalog, not created agent sessions.",
+            description: "Get one agent profile's schema summary, OutputSchema, report_result schema, and allowed tools. This is the required schema-discovery step before create_agent. This queries profile catalog, not created agent sessions.",
             parameters: GetAgentProfileSchema,
             async execute(_toolCallId, params: unknown) {
                 const query = params as Static<typeof GetAgentProfileSchema>;

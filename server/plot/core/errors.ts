@@ -1,3 +1,5 @@
+import {createError} from "h3";
+
 /**
  * 抛出剧情模块 404。
  */

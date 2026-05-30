@@ -39,6 +39,8 @@
 - 2026-05-30：前端 `loadWorkspaceTree()` 和两个 workspace 面板的手动刷新入口删除 `{ refresh: true }`，统一通过 index read 合同拿当前 snapshot。
 - 2026-05-30：删除旧 `workspace-file-events.ts` runtime 文件；原测试迁移为 index watcher subscription 测试。
 - 2026-05-30：完成实现审计时修复一个 rebuild race：若 watcher debounce flush 时已有 rebuild 在跑，flush 会等待旧 build，发现 entry 仍 dirty 时再执行一次 rebuild，避免把旧 snapshot 的 revision 当成文件事件后的 index 事件推给 SSE。
+- 2026-05-30：针对“直接在系统文件系统删除 `reference/silly-tavern` 后前端不实时更新”复查真实链路：后端 index watcher 能收到 `unlinkDir reference/silly-tavern` 并重建缓存，但 SSE route 会等待 watcher `ready` 后才返回响应；大型 Project Workspace 下初始 watch 扫描会拖住 SSE 建连，页面实际还没订阅上事件。修复为订阅先注册并立即返回 SSE 响应，`workspace_watch_ready` 改为 watcher ready 后异步推送。
+- 2026-05-30：文件事件触发的前端 `syncWorkspaceFromDisk()` 改为绕过已有同 workspace 的 pending tree 请求，确保“事件之后”一定发起新 tree 读取，避免复用事件之前发出的旧快照。
 
 ## Decisions
 
@@ -198,6 +200,8 @@ SSE payload 仍应包含原始 changed paths；index watcher 记录 debounce 窗
 - `bun test server/workspace-files/workspace-files.test.ts -t "Project Workspace tree|plain workspace tree|user-assets tree index"`：通过，覆盖 Project Workspace snapshot、外部写入 `reference/silly-tavern/...` 后 watcher 更新缓存、user-assets watcher 更新缓存且 issues 为空。
 - `bun test server/workspace-files/workspace-file-events.test.ts server/api/workspace-files/events.get.test.ts`：通过，覆盖 index subscription 事件推送和 SSE 断开清理。
 - `bun test server/workspace-files/workspace-files.test.ts`：通过，58 个底层 workspace-files 测试全部通过，覆盖扫描、读写、模板、Project manifest、user-assets 同步等底层路径。
+- `bun test server/workspace-files/workspace-file-events.test.ts server/api/workspace-files/events.get.test.ts`：通过，新增覆盖外部整目录删除 `reference/silly-tavern` 后会推送 `unlinkDir` 并移除缓存子树；新增覆盖 SSE handler 不会等 watcher ready 才发送响应。
+- live 探针 `http://localhost:3000/api/workspace-files/events?projectPath=workspace%2Fgong-li-yu-lu-xue-yuan`：SSE 约 67ms 返回；临时 `reference/__codex-watch-probe-*` 目录新增和删除均收到事件；随后 tree API 确认临时目录已从快照消失。
 - `rg "subscribeWorkspaceFileEvents|refreshProjectWorkspaceIndex|refresh=1|query\\.refresh|loadWorkspaceTree\\(\\{ refresh|LoadWorkspaceTreeOptions" -n server app shared`：0 命中，运行时代码中没有旧 SSE-owned watcher 或 `refresh=1` 残留。
 - `rg "invalidateProjectWorkspaceIndexAfterMutation\\(\\{root, workspaceKind" -n server/api/workspace-files`：确认 create-file/create-directory/write/rename/delete/convert/upload-file/upload-project 等 mutation 入口都会标记同一个 index dirty。
 - `bunx tsc --noEmit --pretty false --incremental false`：失败，但失败项均为本任务外既有类型问题：SillyTavern skill 脚本 `inspection` excess property、`server/agent/session/session-repo.ts` 的 `origin` narrowing、`server/agent/skills/silly-tavern-card-cli.test.ts` 的 optional/string undefined。新改文件没有继续出现类型错误。

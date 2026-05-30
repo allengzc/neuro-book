@@ -10,7 +10,7 @@ describe("plot tools", () => {
 
         expect(tool).toBeDefined();
         expect(Value.Check(tool!.parameters, {
-            novelId: "1",
+            projectPath: "workspace/novel-1",
             threadId: "2",
             title: "Scene",
             refs: [{
@@ -21,7 +21,7 @@ describe("plot tools", () => {
         })).toBe(true);
     });
 
-    it("省略 threadId/sceneId 时不会跨 novel 复用 plot.selection", async () => {
+    it("省略 threadId/sceneId 时不会跨 Project 复用 plot.selection", async () => {
         const harness = new NeuroAgentHarness();
         const created = await harness.createAgent({
             profileKey: "leader.default",
@@ -30,7 +30,7 @@ describe("plot tools", () => {
             workspaceKey: "plot-tools-test",
         });
         await harness.appendCustomState(created.sessionId, PLOT_SELECTION_STATE_KEY, {
-            novelId: "1",
+            projectPath: "workspace/novel-1",
             threadId: "10",
             sceneId: "20",
         }, "plot-tools-test");
@@ -43,8 +43,8 @@ describe("plot tools", () => {
         const tool = createPlotTools().find((item) => item.key === "update_story_thread");
 
         await expect(tool?.executeWithContext?.(context, "plot-1", {
-            novelId: "2",
+            projectPath: "workspace/novel-2",
             title: "Other novel thread",
-        })).rejects.toThrow("跨 project/novel");
+        })).rejects.toThrow("plot.selection 属于 projectPath=workspace/novel-1");
     });
 });

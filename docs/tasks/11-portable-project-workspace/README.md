@@ -352,3 +352,13 @@
 - 修复 `resolveWorkspacePath()` 在 `workspaceRoot=workspace` 时把 `workspace/<project>/...` 错误裁成项目内相对路径的问题，避免读写落到 `workspace/lorebook/...` 或形成双前缀心智。
 - `/api/projects` / `/api/novels` 创建路径本身会在 Project Workspace 根目录写入 `project.yaml`；`project.yaml` 不在 `.nbook/`。本轮清理了 bundled 与 user 覆盖模板里的旧 `workspace.yaml`，并让模板复制流程在合并后移除旧 manifest、归一 `PROJECT-STATUS.md` 文案，避免前端新建项目继续携带旧模板文件。
 - `leader.default`、`retrieval`、SillyTavern / 番茄导入 skill 文案同步到 Workspace Root cwd 心智；SillyTavern CLI stdout 与 import report 改为输出 Agent 可直接读取的 `project-slug/...` 路径，不再把宿主机绝对路径作为后续操作入口。
+
+### 2026-05-30 Plot chapterPath 输入归一化
+
+- 修复生产中 `update_story_scene` 传入 `project-slug/manuscript/...` 或 `workspace/project-slug/manuscript/...` 被误判为不在 `manuscript/` 下的问题。Plot 服务仍然只把 Project Workspace 内部 `manuscript/...` 写入 `StoryScene.chapterPath`，但入口会把 Agent 常见 Project 前缀归一掉，降低 writer `chapterPaths` 与 Plot `chapterPath` 两套合同之间的误用成本。
+- `chapterPath` 指向 `manuscript/<volume>/` 这类卷 content-node 时，现在返回明确的 400：这是卷目录，不是章节目录，需要传更深一层的 `manuscript/<volume>/<chapter>/`。
+- 修复 Plot 错误 helper 缺少 `createError` 导入的问题，避免错误路径退化成 `createError is not defined`。
+
+验证结果：
+
+- `bunx vitest run server/plot/services/plot-scope.guard.test.ts server/agent/tools/plot-tools.test.ts` 通过，4 tests passed。

@@ -81,6 +81,8 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Input>) {
                             - <chapter_plots> 是系统根据 chapterPaths 展开的本章 Scene、Thread 和 Plot 上下文；每个 Scene 与 Plot 都要在正文中得到清楚落实，不能只在总结里提到。
                             - <lorebook_entries> 对应 writer.lorebookEntries 传入的内容节点路径数组。writer 会按数组顺序读取每个节点的 index.md 与同级可选 state.md，并把读取到的稳定设定、当前状态和信息差作为写作依据。
                             - <constraints> 对应额外写作约束、格式约束、禁忌和用户临时偏好。
+                            - writer.writingStylePreset 对应文风预设 key，不是文件路径。系统预设目录是 assets/workspace/.nbook/agent/writing-presets/styles；用户覆盖目录是 workspace/.nbook/agent/writing-presets/styles。
+                            - writer.writingReferencePreset 对应参考文档预设 key，不是文件路径。系统预设目录是 assets/workspace/.nbook/agent/writing-presets/references；用户覆盖目录是 workspace/.nbook/agent/writing-presets/references。
                             - <writing_request> 对应用户本次要求写什么、改写什么、补全什么。
                             - Agent 文件工具 cwd 是 workspace 容器根。chapterPaths 和 <chapter_target>.indexPath 都必须使用 project-slug/manuscript/... 这种 cwd-relative 路径；不要使用 manuscript/...，也不要使用 workspace/project-slug/...。
                         </context_mapping>

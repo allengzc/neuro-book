@@ -1,6 +1,6 @@
 {
   "compilerVersion": 1,
-  "generatedAt": "2026-05-30T01:29:59.981Z",
+  "generatedAt": "2026-05-30T04:10:52.367Z",
   "profilesRoot": "assets/workspace/.nbook/agent/profiles",
   "profiles": [
     {
@@ -411,12 +411,12 @@
     {
       "fileName": "builtin/writer.profile.tsx",
       "profileKey": "writer",
-      "sourceSha256": "b99697e0e53234b95ae3eda918fe3e539e3303dde205ea6b072298d51f3e35e9",
-      "sourceBytes": 33988,
-      "dependencyHash": "ac4f845dc3fdc50f0821734a",
+      "sourceSha256": "9f9d56a0cfa6a2a688bb667e36a6144ba506bc89d558fd64b52a81fafd1b94ef",
+      "sourceBytes": 34506,
+      "dependencyHash": "7399f169f303b7134966fe1d",
       "artifactFileName": "builtin__writer.mjs",
-      "artifactSha256": "1a2879bfd586beeb8bf06376905403c7b01448ad82d364aecf3bfa251303c412",
-      "artifactBytes": 283097,
+      "artifactSha256": "4429fea57dc010437068f15de9d93e4b23c57a18dd0588079f22576692b0ad17",
+      "artifactBytes": 285064,
       "typeFileName": "builtin__writer.types.d.ts",
       "typeSha256": "21d282dcafc806c05e7c935c41e70226d12bf03658de82957b64efe4fde55c54",
       "typeBytes": 374,
@@ -425,8 +425,8 @@
       "dependencies": [
         {
           "path": "assets/workspace/.nbook/agent/profiles/builtin/writer.profile.tsx",
-          "sha256": "b99697e0e53234b95ae3eda918fe3e539e3303dde205ea6b072298d51f3e35e9",
-          "bytes": 33988
+          "sha256": "9f9d56a0cfa6a2a688bb667e36a6144ba506bc89d558fd64b52a81fafd1b94ef",
+          "bytes": 34506
         },
         {
           "path": "server/agent/messages/message-utils.ts",
@@ -560,8 +560,8 @@
         },
         {
           "path": "server/plot/core/errors.ts",
-          "sha256": "149e60701c068dc8224dde21c46afb5b53e3f9e74e09115acb31ceeba93bf34d",
-          "bytes": 349
+          "sha256": "169be0a46b7d2ecd74b42e1d992ce8c222b99771aed97cd85556ab272ae34354",
+          "bytes": 382
         },
         {
           "path": "server/plot/facade/plot.facade.ts",
@@ -620,8 +620,8 @@
         },
         {
           "path": "server/plot/services/plot-scope.guard.ts",
-          "sha256": "5ae4ba6f3f4d72066d09aa31792c620e03e9baed90f52b563313887fc968e3d6",
-          "bytes": 4405
+          "sha256": "146d163fdcd0087e7041a17ac5efdce5da229412ae1771e90e2e1dfed772ece7",
+          "bytes": 5775
         },
         {
           "path": "server/plot/services/plot.service.ts",

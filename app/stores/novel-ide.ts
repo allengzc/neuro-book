@@ -112,6 +112,10 @@ type WorkspaceLoadOptions = {
     forceDisk?: boolean;
 };
 
+type WorkspaceTreeLoadOptions = {
+    bypassPendingRequest?: boolean;
+};
+
 type WorkspaceSaveOptions = {
     content?: string;
     expectedMtimeMs?: number | null;
@@ -702,9 +706,9 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     /**
      * 加载工作区文件树。
      */
-    const loadWorkspaceTree = async (): Promise<WorkspaceFileNode[]> => {
+    const loadWorkspaceTree = async (options: WorkspaceTreeLoadOptions = {}): Promise<WorkspaceFileNode[]> => {
         const requestKey = workspaceTreeRequestKey();
-        if (workspaceTreeRequest?.key === requestKey) {
+        if (!options.bypassPendingRequest && workspaceTreeRequest?.key === requestKey) {
             return await workspaceTreeRequest.promise;
         }
         loadingWorkspaceTree.value = true;
@@ -1309,7 +1313,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         const dirtyPaths: string[] = [];
         const deletedPaths: string[] = [];
 
-        await loadWorkspaceTree();
+        await loadWorkspaceTree({bypassPendingRequest: true});
 
         const syncInactiveTabBuffer = async (tab: WorkspaceEditorTab): Promise<void> => {
             if (tab.path === previousActivePath || !workspacePathTouchedByEvents(tab.path, events)) {

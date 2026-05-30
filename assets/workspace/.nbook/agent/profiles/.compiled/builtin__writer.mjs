@@ -2035,14 +2035,15 @@ var init_plot_input_parser = __esm({
 });
 
 // server/plot/core/errors.ts
+import { createError as createError3 } from "h3";
 function throwPlotNotFound(message) {
-  throw createError({
+  throw createError3({
     statusCode: 404,
     message
   });
 }
 function throwPlotBadRequest(message) {
-  throw createError({
+  throw createError3({
     statusCode: 400,
     message
   });
@@ -2807,6 +2808,19 @@ var init_workspace_files = __esm({
 });
 
 // server/plot/services/plot-scope.guard.ts
+function normalizeChapterPathForProject(projectPath, chapterPath) {
+  const normalizedProjectPath = projectPath.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  const projectSlug = normalizedProjectPath.split("/").filter(Boolean)[1];
+  let normalized = chapterPath.trim().replace(/\\/g, "/").replace(/^\/+/, "");
+  if (projectSlug && normalized.startsWith(`workspace/${projectSlug}/`)) {
+    normalized = normalized.slice(`workspace/${projectSlug}/`.length);
+  } else if (projectSlug && normalized.startsWith(`${projectSlug}/`)) {
+    normalized = normalized.slice(`${projectSlug}/`.length);
+  } else {
+    normalized = normalized.replace(/^workspace\//, "");
+  }
+  return normalized;
+}
 var PlotScopeGuard;
 var init_plot_scope_guard = __esm({
   "server/plot/services/plot-scope.guard.ts"() {
@@ -2864,19 +2878,22 @@ var init_plot_scope_guard = __esm({
        * 校验章节路径属于当前 Project Workspace。
        */
       async assertChapterPath(projectPath, chapterPath) {
-        const normalized = chapterPath.trim().replace(/\\/g, "/").replace(/^workspace\//, "");
+        const normalized = normalizeChapterPathForProject(projectPath, chapterPath);
         if (!normalized) {
           throwPlotBadRequest("chapterPath \u4E0D\u80FD\u4E3A\u7A7A");
         }
         if (!normalized.startsWith("manuscript/")) {
-          throwPlotBadRequest("chapterPath \u5FC5\u987B\u4F4D\u4E8E manuscript/ \u4E0B");
+          throwPlotBadRequest("chapterPath \u5FC5\u987B\u4F4D\u4E8E\u5F53\u524D Project Workspace \u7684 manuscript/ \u4E0B\uFF1B\u53EF\u4F20 manuscript/...\uFF0C\u4E5F\u53EF\u4F20 project-slug/manuscript/... \u6216 workspace/project-slug/manuscript/...");
         }
         if (!normalized.endsWith("/")) {
           throwPlotBadRequest("chapterPath \u5FC5\u987B\u6307\u5411\u76EE\u5F55\u8DEF\u5F84\u5E76\u4EE5 / \u7ED3\u5C3E");
         }
         const node = await statWorkspacePath(projectPath, normalized).catch(() => null);
         if (!node || !node.isDirectory || !node.contentNode || node.entryType !== "chapter") {
-          throwPlotNotFound("\u7AE0\u8282\u4E0D\u5B58\u5728");
+          if (node?.isDirectory && node.contentNode && node.entryType === "volume") {
+            throwPlotBadRequest("chapterPath \u6307\u5411\u7684\u662F\u5377\u76EE\u5F55\uFF0C\u4E0D\u662F\u7AE0\u8282\u76EE\u5F55\uFF1B\u8BF7\u4F20\u66F4\u6DF1\u4E00\u5C42\u7684\u7AE0\u8282 content-node\uFF0C\u4F8B\u5982 manuscript/<volume>/<chapter>/");
+          }
+          throwPlotNotFound("\u7AE0\u8282\u4E0D\u5B58\u5728\uFF1BchapterPath \u5FC5\u987B\u6307\u5411\u5F53\u524D Project Workspace \u4E2D\u771F\u5B9E\u5B58\u5728\u3001\u5305\u542B index.md\u3001\u7C7B\u578B\u4E3A chapter \u7684 manuscript \u76EE\u5F55");
         }
         return normalized;
       }
@@ -6533,6 +6550,8 @@ async function buildWriterPrompt(ctx) {
                             - <chapter_plots> 是系统根据 chapterPaths 展开的本章 Scene、Thread 和 Plot 上下文；每个 Scene 与 Plot 都要在正文中得到清楚落实，不能只在总结里提到。
                             - <lorebook_entries> 对应 writer.lorebookEntries 传入的内容节点路径数组。writer 会按数组顺序读取每个节点的 index.md 与同级可选 state.md，并把读取到的稳定设定、当前状态和信息差作为写作依据。
                             - <constraints> 对应额外写作约束、格式约束、禁忌和用户临时偏好。
+                            - writer.writingStylePreset 对应文风预设 key，不是文件路径。系统预设目录是 assets/workspace/.nbook/agent/writing-presets/styles；用户覆盖目录是 workspace/.nbook/agent/writing-presets/styles。
+                            - writer.writingReferencePreset 对应参考文档预设 key，不是文件路径。系统预设目录是 assets/workspace/.nbook/agent/writing-presets/references；用户覆盖目录是 workspace/.nbook/agent/writing-presets/references。
                             - <writing_request> 对应用户本次要求写什么、改写什么、补全什么。
                             - Agent 文件工具 cwd 是 workspace 容器根。chapterPaths 和 <chapter_target>.indexPath 都必须使用 project-slug/manuscript/... 这种 cwd-relative 路径；不要使用 manuscript/...，也不要使用 workspace/project-slug/...。
                         </context_mapping>

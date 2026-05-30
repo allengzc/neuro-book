@@ -73,19 +73,22 @@ export class PlotScopeGuard {
      * 校验章节路径属于当前 Project Workspace。
      */
     async assertChapterPath(projectPath: string, chapterPath: string): Promise<string> {
-        const normalized = chapterPath.trim().replace(/\\/g, "/").replace(/^workspace\//, "");
+        const normalized = normalizeChapterPathForProject(projectPath, chapterPath);
         if (!normalized) {
             throwPlotBadRequest("chapterPath 不能为空");
         }
         if (!normalized.startsWith("manuscript/")) {
-            throwPlotBadRequest("chapterPath 必须位于 manuscript/ 下");
+            throwPlotBadRequest("chapterPath 必须位于当前 Project Workspace 的 manuscript/ 下；可传 manuscript/...，也可传 project-slug/manuscript/... 或 workspace/project-slug/manuscript/...");
         }
         if (!normalized.endsWith("/")) {
             throwPlotBadRequest("chapterPath 必须指向目录路径并以 / 结尾");
         }
         const node = await statWorkspacePath(projectPath, normalized).catch(() => null);
         if (!node || !node.isDirectory || !node.contentNode || node.entryType !== "chapter") {
-            throwPlotNotFound("章节不存在");
+            if (node?.isDirectory && node.contentNode && node.entryType === "volume") {
+                throwPlotBadRequest("chapterPath 指向的是卷目录，不是章节目录；请传更深一层的章节 content-node，例如 manuscript/<volume>/<chapter>/");
+            }
+            throwPlotNotFound("章节不存在；chapterPath 必须指向当前 Project Workspace 中真实存在、包含 index.md、类型为 chapter 的 manuscript 目录");
         }
         return normalized;
     }
@@ -124,4 +127,21 @@ export class PlotScopeGuard {
         return this.threadRepository.findThreadIdsByStory(storyId);
     }
 
+}
+
+/**
+ * 将 Agent 常见 Project 前缀归一为 Project Workspace 内部章节路径。
+ */
+function normalizeChapterPathForProject(projectPath: string, chapterPath: string): string {
+    const normalizedProjectPath = projectPath.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+    const projectSlug = normalizedProjectPath.split("/").filter(Boolean)[1];
+    let normalized = chapterPath.trim().replace(/\\/g, "/").replace(/^\/+/, "");
+    if (projectSlug && normalized.startsWith(`workspace/${projectSlug}/`)) {
+        normalized = normalized.slice(`workspace/${projectSlug}/`.length);
+    } else if (projectSlug && normalized.startsWith(`${projectSlug}/`)) {
+        normalized = normalized.slice(`${projectSlug}/`.length);
+    } else {
+        normalized = normalized.replace(/^workspace\//, "");
+    }
+    return normalized;
 }

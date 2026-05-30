@@ -155,8 +155,8 @@
 - [ ] diff 界面
 - [ ] token statics 修复，同时记录小弟的 token 消耗
 - [ ] neuro book deploy
-- [ ]
-- [ ]
+- [ ] API retry
+- [ ] 非阻塞 invoke
 - [ ]
 - [ ]
 - [ ]

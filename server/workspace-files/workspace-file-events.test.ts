@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {randomUUID} from "node:crypto";
 import {afterEach, describe, expect, it} from "vitest";
-import {subscribeWorkspaceFileEvents} from "nbook/server/workspace-files/workspace-file-events";
+import {closeWorkspaceTreeIndex, readProjectWorkspaceTreeSnapshot, subscribeWorkspaceTreeIndex} from "nbook/server/workspace-files/project-workspace-index";
 import type {WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
 
 const createdRoots: string[] = [];
@@ -23,16 +23,18 @@ async function waitForCondition(predicate: () => boolean): Promise<void> {
 
 describe("workspace file events", () => {
     afterEach(async () => {
+        await Promise.all(createdRoots.map((root) => closeWorkspaceTreeIndex(root)));
         await Promise.all(createdRoots.splice(0).map((root) => fs.rm(root, {recursive: true, force: true})));
     });
 
-    it("会推送外部文件新增和修改事件", async () => {
+    it("tree index 会推送外部文件新增和修改事件", async () => {
         const root = path.join(".agent", "workspace-file-events-test", randomUUID());
         createdRoots.push(root);
         await fs.mkdir(root, {recursive: true});
 
         const events: WorkspaceFileStreamEventDto[] = [];
-        const unsubscribe = await subscribeWorkspaceFileEvents(root, (event) => {
+        await readProjectWorkspaceTreeSnapshot({root});
+        const unsubscribe = await subscribeWorkspaceTreeIndex({root}, (event) => {
             events.push(event);
         });
 
@@ -47,5 +49,34 @@ describe("workspace file events", () => {
                 path: "note.md",
             }),
         ]));
+    });
+
+    it("tree index 会推送外部目录删除事件并移除缓存中的子树", async () => {
+        const root = path.join(".agent", "workspace-file-events-test", randomUUID());
+        createdRoots.push(root);
+        await fs.mkdir(path.join(root, "reference", "silly-tavern"), {recursive: true});
+        await fs.writeFile(path.join(root, "reference", "silly-tavern", "card.md"), "角色卡\n", "utf-8");
+
+        const before = await readProjectWorkspaceTreeSnapshot({root});
+        const events: WorkspaceFileStreamEventDto[] = [];
+        const unsubscribe = await subscribeWorkspaceTreeIndex({root}, (event) => {
+            events.push(event);
+        });
+
+        await fs.rm(path.join(root, "reference", "silly-tavern"), {recursive: true, force: true});
+        await waitForCondition(() => events.some((event) => event.type === "workspace_files_changed"));
+
+        unsubscribe();
+        const after = await readProjectWorkspaceTreeSnapshot({root});
+        const changedEvent = events.find((event) => event.type === "workspace_files_changed");
+        expect(before.nodes.some((node) => node.path === "reference/silly-tavern/")).toBe(true);
+        expect(changedEvent?.events).toEqual(expect.arrayContaining([
+            expect.objectContaining({
+                kind: "unlinkDir",
+                path: "reference/silly-tavern",
+            }),
+        ]));
+        expect(after.nodes.some((node) => node.path.startsWith("reference/silly-tavern"))).toBe(false);
+        expect(after.revision).toBeGreaterThan(before.revision);
     });
 });

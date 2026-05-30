@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-29T15:04:23.881Z",
+  "generatedAt": "2026-05-30T04:08:39.836Z",
   "profilesRoot": "assets/workspace/.nbook/agent/profiles",
   "profiles": [
     {
@@ -35,8 +35,8 @@
     {
       "fileName": "builtin/writer.profile.tsx",
       "profileKey": "writer",
-      "sha256": "b99697e0e53234b95ae3eda918fe3e539e3303dde205ea6b072298d51f3e35e9",
-      "bytes": 33988
+      "sha256": "9f9d56a0cfa6a2a688bb667e36a6144ba506bc89d558fd64b52a81fafd1b94ef",
+      "bytes": 34506
     }
   ]
 }

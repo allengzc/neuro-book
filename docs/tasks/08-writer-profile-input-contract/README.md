@@ -25,6 +25,7 @@
 ## Current State
 
 - 已实现。系统 writer profile 位于 `assets/workspace/.nbook/agent/profiles/builtin/writer.profile.tsx`。
+- 2026-05-30 更新：`create_agent` 工具 description 已从“如果不确定则查询 get_agent_profile”收紧为“每次 create_agent 前必须先调用 get_agent_profile({ profileKey }) 查看目标 schema”；`get_agent_profile` description 也同步说明它是 create_agent 前的必需 schema-discovery 步骤。
 - `WriterInputSchema` 已硬切为：
   - `prompt: string`
   - `chapterPaths: string[]`，`minItems: 1`、`maxItems: 1`
@@ -44,6 +45,7 @@
 - user-assets 覆盖目录为：
   - `workspace/.nbook/agent/writing-presets/references`
   - `workspace/.nbook/agent/writing-presets/styles`
+- 2026-05-30 更新：writer 系统提示词的 `<context_mapping>` 已显式说明 `writer.writingStylePreset` 和 `writer.writingReferencePreset` 都传 preset key、不是文件路径，并列出系统目录与用户覆盖目录，避免调用方只从 schema description 里隐式推断。
 - `leader.default.profile.tsx` 已改为教 “一章节一 agent”、`chapterPaths`、章节已存在、Scene 已挂章、retrieval 详细结果只提取 path 给 writer。
 - `retrieval.profile.tsx` 已继续精简为 prompt-only 输入，并输出面向 Leader 的 `{ entries, note? }` 候选判断对象；writer 仍只消费 path 字符串数组。
 
@@ -219,7 +221,15 @@ bun scripts/prepare-system-profile-metadata.ts
 bunx vitest run server/agent/profiles/leader-assets-profile.test.ts server/workspace-files/workspace-files.test.ts
 ```
 
-结果：`2 passed` test files，`38 passed` tests。
+2026-05-30 本轮补充验证：
+
+```powershell
+bun scripts/build/prepare-system-profile-metadata.ts
+bun scripts/build/profile.ts check builtin/writer.profile.tsx --system
+bunx vitest run server/agent/harness/neuro-agent-harness.test.ts server/agent/profiles/leader-assets-profile.test.ts
+```
+
+结果：系统 profile metadata 生成成功，`profile check passed`；`2 passed` test files，`86 passed` tests。
 
 已额外搜索旧合同：
 
