@@ -83,6 +83,24 @@ const samples: DiffWorkbenchDocument[] = [{
     resultLabel: "Result",
     currentContent: Array.from({length: 120}, (_, index) => `- line ${index + 1}: current text`).join("\n"),
     incomingContent: Array.from({length: 120}, (_, index) => `- line ${index + 1}: ${index % 9 === 0 ? "incoming changed text" : "current text"}`).join("\n"),
+}, {
+    id: "binary",
+    title: "不可 Diff 的二进制文件",
+    path: "workspace/.nbook/agent/avatar.png",
+    language: "plaintext",
+    diffable: false,
+    unavailableReason: "binary",
+    notice: "该文件是二进制内容，组件只展示摘要信息，不初始化 Monaco。",
+    metadata: {
+        currentBytes: 182044,
+        incomingBytes: 184012,
+        currentSha256: "0b4f28e83ef8a7d3f9a6a3a3f1ac7b1a",
+        incomingSha256: "a8400d2f1db377ba9f21cbb61c9a447d",
+    },
+    currentLabel: "用户覆盖",
+    incomingLabel: "系统版本",
+    currentContent: "",
+    incomingContent: "",
 }];
 
 const selectedDocument = computed<DiffWorkbenchDocument>(() => {
@@ -186,6 +204,8 @@ onMounted(() => {
                         :document="selectedDocument"
                         :theme="theme"
                         :mode="mode"
+                        :available-modes="selectedDocument.diffable === false ? ['diff'] : undefined"
+                        initial-mode="diff"
                         :merge-readonly="mergeReadonly"
                         :render-side-by-side="renderSideBySide"
                         :show-whitespace="showWhitespace"

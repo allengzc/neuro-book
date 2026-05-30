@@ -6,7 +6,7 @@ import {fileURLToPath} from "node:url";
 import {Command} from "commander";
 
 type CliOptions = {
-    workspace: string;
+    project?: string;
     out: string;
     force: boolean;
     json: boolean;
@@ -24,6 +24,20 @@ type RawCardInput = {
 };
 
 type MarkerCounts = Record<string, number>;
+
+type GeneratedManifest = {
+    marker: string;
+    version: 1;
+    files: Record<string, {hash: string; kind: "text" | "binary"}>;
+};
+
+type UnpackedCard = {
+    root: string;
+    workspaceRoot: string;
+    manifest: GeneratedManifest;
+    inspection: CardInspection;
+    loaded: RawCardInput;
+};
 
 export type EntryClassification = {
     uid: string;
@@ -72,31 +86,40 @@ const program = new Command();
 
 program
     .name("silly-tavern-card")
-    .description("SillyTavern 角色卡 inspect 与 Neuro Book project 导入工具");
+    .description("SillyTavern 角色卡 inspect、解包与 Neuro Book project 导入工具");
 
 program
     .command("inspect")
-    .description("读取本地角色卡或预设，生成 inspect.md / inspect.json")
+    .description("读取本地角色卡或预设，只在 stdout 输出临时 overview，不写文件")
     .argument("<input>", "本地 .json/.raw.json/.png 文件")
-    .requiredOption("--workspace <path>", "当前小说 workspace 根目录")
-    .option("--out <path>", "workspace 内输出目录", DEFAULT_OUT)
-    .option("--force", "允许覆盖已有输出目录", false)
-    .option("--json", "stdout 输出 inspect JSON 摘要", false)
+    .option("--json", "stdout 输出 inspect JSON", false)
     .action(async (input: string, options: CliOptions) => {
         await runInspect(input, options);
     });
 
 program
-    .command("import")
-    .description("执行 inspect，并把稳定设定导入 lorebook 聚合节点")
+    .command("unpack")
+    .alias("extract")
+    .description("读取本地角色卡或预设，生成 reference/silly-tavern/{slug}/ 解包目录")
     .argument("<input>", "本地 .json/.raw.json/.png 文件")
-    .requiredOption("--workspace <path>", "当前小说 workspace 根目录")
-    .option("--out <path>", "workspace 内输出目录", DEFAULT_OUT)
-    .option("--rp", "额外生成 RP 扩展归档", false)
-    .option("--force", "允许覆盖脚本生成文件", false)
-    .option("--json", "stdout 输出 import JSON 摘要", false)
+    .requiredOption("--project <path>", "当前小说 Project Workspace 根目录")
+    .option("--out <path>", "Project Workspace 内解包输出目录", DEFAULT_OUT)
+    .option("--force", "允许覆盖未被用户手改的脚本生成文件", false)
+    .option("--json", "stdout 输出解包摘要", false)
     .action(async (input: string, options: CliOptions) => {
-        await runImport(input, options);
+        await runUnpack(input, options);
+    });
+
+program
+    .command("import")
+    .description("从解包目录导入 worldbook 到 Project Workspace 的 lorebook 文件")
+    .argument("<unpackDir>", "解包目录，例如 reference/silly-tavern/{slug}")
+    .requiredOption("--project <path>", "当前小说 Project Workspace 根目录")
+    .option("--rp", "额外生成 RP 扩展归档", false)
+    .option("--force", "允许覆盖未被用户手改的脚本生成文件", false)
+    .option("--json", "stdout 输出 import JSON 摘要", false)
+    .action(async (unpackDir: string, options: CliOptions) => {
+        await runImport(unpackDir, options);
     });
 
 if (isCliEntry()) {
@@ -111,36 +134,44 @@ export async function runCli(argv: string[]): Promise<void> {
 }
 
 async function runInspect(input: string, options: CliOptions): Promise<void> {
-    await assertProjectWorkspace(options.workspace);
     const loaded = await loadCardInput(input);
     const inspection = inspectCard(loaded);
-    const target = resolveOutputTarget(options.workspace, options.out, inspection.slug);
-    await assertCanWriteTarget(target.cardRoot, options.force);
-    await writeInspectFiles(target, loaded, inspection, {force: options.force});
-    printInspectSummary(inspection, target, options.json);
+    if (options.json) {
+        console.log(JSON.stringify({ok: true, inspection}, null, 2));
+        return;
+    }
+    console.log(renderInspectMarkdown(inspection));
 }
 
-async function runImport(input: string, options: CliOptions): Promise<void> {
-    await assertProjectWorkspace(options.workspace);
+async function runUnpack(input: string, options: CliOptions): Promise<void> {
+    const workspaceRoot = await assertProjectWorkspace(requiredProject(options));
     const loaded = await loadCardInput(input);
     const inspection = inspectCard(loaded);
-    if (inspection.kind === "unknown") {
-        throw new Error("输入不是可识别的 SillyTavern 角色卡或 preset，已停止 import。请先运行 inspect 查看原始结构。");
-    }
-    const target = resolveOutputTarget(options.workspace, options.out, inspection.slug);
-    await assertCanWriteTarget(target.cardRoot, options.force);
-    await writeInspectFiles(target, loaded, inspection, {force: options.force});
+    const target = resolveUnpackTarget(workspaceRoot, options.out, inspection.slug);
+    const manifest = await loadGeneratedManifest(target.cardRoot);
+    const written = await writeUnpackDirectory(target, loaded, inspection, manifest, options.force);
+    await saveGeneratedManifest(target.cardRoot, manifest);
+    printUnpackSummary(inspection, target, written, options.json);
+}
 
+async function runImport(unpackDir: string, options: CliOptions): Promise<void> {
+    const workspaceRoot = await assertProjectWorkspace(requiredProject(options));
+    const unpacked = await loadUnpackedCard(workspaceRoot, unpackDir);
+    if (unpacked.inspection.kind === "unknown") {
+        throw new Error("解包目录不是可识别的 SillyTavern 角色卡或 preset，已停止 import。");
+    }
     const written: string[] = [];
-    if (inspection.kind === "character-card") {
-        written.push(await writeLorebookAggregate(target, inspection, loaded, options.force));
+    if (unpacked.inspection.kind === "character-card") {
+        written.push(...await importWorldbookEntries(unpacked, options.force));
         if (options.rp) {
-            written.push(...await writeRpExtension(target.workspaceRoot, inspection, loaded, options.force));
+            written.push(...await writeRpExtension(unpacked, options.force));
         }
     }
-    const reportPath = await writeImportReport(target, inspection, written, options.force);
+    const reportPath = path.join(unpacked.root, "import-report.md");
+    await writeGeneratedText(unpacked, reportPath, renderImportReport(unpacked.inspection, written.map((item) => toProjectRelativePath(workspaceRoot, item))), options.force);
     written.push(reportPath);
-    printImportSummary(inspection, written, options.json);
+    await saveGeneratedManifest(unpacked.root, unpacked.manifest);
+    printImportSummary(unpacked.inspection, workspaceRoot, written, options.json);
 }
 
 export async function loadCardInput(inputPath: string): Promise<RawCardInput> {
@@ -160,7 +191,8 @@ export async function loadCardInput(inputPath: string): Promise<RawCardInput> {
 export function inspectCard(input: RawCardInput): CardInspection {
     const data = readObject(input.card.data);
     const characterBook = readObject(data.character_book ?? input.card.character_book);
-    const entries = readArray(characterBook.entries).map((entry, index) => classifyEntry(entry, index));
+    const rawEntries = readArray(characterBook.entries);
+    const entries = rawEntries.map((entry, index) => classifyEntry(entry, index));
     const extensions = readObject(data.extensions ?? input.card.extensions);
     const tavernHelper = readObject(extensions.tavern_helper);
     const regexScripts = readArray(extensions.regex_scripts);
@@ -171,7 +203,7 @@ export function inspectCard(input: RawCardInput): CardInspection {
         readString(data.scenario),
         readString(data.first_mes),
         readString(data.mes_example),
-        ...readArray(characterBook.entries).map((entry, index) => {
+        ...rawEntries.map((entry, index) => {
             const rawEntry = readObject(entry);
             const classified = entries[index];
             return `${classified?.comment ?? ""}\n${classified?.uid ?? ""}\n${readString(rawEntry.content)}`;
@@ -187,7 +219,6 @@ export function inspectCard(input: RawCardInput): CardInspection {
     if (input.sourceType === "png") {
         warnings.push("PNG 内嵌 JSON 解析为 best-effort；如结果异常，优先使用已提取的 .raw.json。");
     }
-
     return {
         kind: input.kind,
         sourcePath: input.sourcePath,
@@ -212,9 +243,8 @@ export function inspectCard(input: RawCardInput): CardInspection {
 
 function normalizeRawInput(sourcePath: string, sourceType: "json" | "png", raw: unknown): RawCardInput {
     const card = readObject(raw);
-    const kind = detectCardKind(card);
     return {
-        kind,
+        kind: detectCardKind(card),
         sourcePath,
         sourceType,
         raw,
@@ -284,8 +314,7 @@ async function readSillyTavernPngJson(sourcePath: string): Promise<unknown> {
 }
 
 function readPngTextChunks(buffer: Buffer): Array<{keyword: string; text: string}> {
-    const signature = "89504e470d0a1a0a";
-    if (buffer.subarray(0, 8).toString("hex") !== signature) {
+    if (buffer.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") {
         throw new Error("输入不是有效 PNG 文件。");
     }
     const chunks: Array<{keyword: string; text: string}> = [];
@@ -317,7 +346,7 @@ function tryParseCardText(text: string): unknown {
     try {
         candidates.push(Buffer.from(text.trim(), "base64").toString("utf-8").trim());
     } catch {
-        // ignore
+        // ignore invalid base64 candidate
     }
     for (const candidate of candidates) {
         if (!candidate || (!candidate.startsWith("{") && !candidate.startsWith("["))) {
@@ -326,187 +355,150 @@ function tryParseCardText(text: string): unknown {
         try {
             return JSON.parse(candidate);
         } catch {
-            // ignore
+            // ignore non-json candidate
         }
     }
     return undefined;
 }
 
-type OutputTarget = {
-    workspaceRoot: string;
-    outRelative: string;
-    cardRoot: string;
-};
+async function writeUnpackDirectory(target: {workspaceRoot: string; cardRoot: string}, loaded: RawCardInput, inspection: CardInspection, manifest: GeneratedManifest, force: boolean): Promise<string[]> {
+    const data = readObject(loaded.card.data);
+    const extensions = readObject(data.extensions ?? loaded.card.extensions);
+    const tavernHelper = readObject(extensions.tavern_helper);
+    const characterBook = readObject(data.character_book ?? loaded.card.character_book);
+    const worldbookEntries = readArray(characterBook.entries);
+    const regexScripts = readArray(extensions.regex_scripts);
+    const helperScripts = readArray(tavernHelper.scripts);
+    const helperVariables = readObject(tavernHelper.variables);
+    const written: string[] = [];
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "raw", "card.json"), JSON.stringify(loaded.raw, null, 2) + "\n", force));
+    if (loaded.sourceType === "png") {
+        written.push(await writeGeneratedBinary({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "raw", "source.png"), await fs.readFile(loaded.sourcePath), force));
+    }
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "inspect.json"), JSON.stringify(inspection, null, 2) + "\n", force));
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "overview.md"), renderInspectMarkdown(inspection), force));
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "worldbook", "entries.json"), JSON.stringify(worldbookEntries, null, 2) + "\n", force));
+    for (const item of sortWorldbookEntries(worldbookEntries)) {
+        const classified = classifyEntry(item.entry, item.originalIndex);
+        const fileName = `${formatInsertionOrder(item.entry)}-${slugify(classified.comment) || "entry"}.md`;
+        written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "worldbook", "entries", fileName), renderWorldbookEntryArchive(item.entry, classified), force));
+    }
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "extensions", "extensions.json"), JSON.stringify(extensions, null, 2) + "\n", force));
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "extensions", "regex_scripts.json"), JSON.stringify(regexScripts, null, 2) + "\n", force));
+    for (const [index, script] of regexScripts.entries()) {
+        written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "extensions", "regex_scripts", `${String(index + 1).padStart(3, "0")}-${slugify(readExtensionName(script, `regex-${index + 1}`))}.json`), JSON.stringify(script, null, 2) + "\n", force));
+    }
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "extensions", "tavern_helper.json"), JSON.stringify(tavernHelper, null, 2) + "\n", force));
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "extensions", "tavern_helper.scripts.json"), JSON.stringify(helperScripts, null, 2) + "\n", force));
+    for (const [index, script] of helperScripts.entries()) {
+        written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "extensions", "tavern_helper", "scripts", `${String(index + 1).padStart(3, "0")}-${slugify(readExtensionName(script, `script-${index + 1}`))}.json`), JSON.stringify(script, null, 2) + "\n", force));
+    }
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "extensions", "tavern_helper.variables.json"), JSON.stringify(helperVariables, null, 2) + "\n", force));
+    for (const [key, value] of Object.entries(helperVariables)) {
+        written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "extensions", "tavern_helper", "variables", `${slugify(key)}.json`), JSON.stringify({key, value}, null, 2) + "\n", force));
+    }
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "unpack-report.md"), renderUnpackReport(inspection, written.map((item) => toProjectRelativePath(target.workspaceRoot, item))), force));
+    return written;
+}
 
-function resolveOutputTarget(workspaceInput: string, out: string, slug: string): OutputTarget {
-    const workspaceRoot = path.resolve(workspaceInput);
-    const outRelative = toSafeRelativePath(out);
+async function loadUnpackedCard(workspaceRoot: string, unpackDir: string): Promise<UnpackedCard> {
+    const root = resolveUnpackRoot(workspaceRoot, unpackDir);
+    const raw = JSON.parse(await fs.readFile(path.join(root, "raw", "card.json"), "utf-8")) as unknown;
+    const inspection = JSON.parse(await fs.readFile(path.join(root, "inspect.json"), "utf-8")) as CardInspection;
+    const loaded = normalizeRawInput(inspection.sourcePath, inspection.sourceType, raw);
     return {
+        root,
         workspaceRoot,
-        outRelative,
-        cardRoot: path.join(workspaceRoot, outRelative, slug),
+        manifest: await loadGeneratedManifest(root),
+        inspection,
+        loaded,
     };
 }
 
-async function assertProjectWorkspace(workspaceInput: string): Promise<void> {
-    const workspaceRoot = path.resolve(workspaceInput);
-    try {
-        const stats = await fs.stat(workspaceRoot);
-        if (!stats.isDirectory()) {
-            throw new Error("not-directory");
-        }
-        await fs.access(path.join(workspaceRoot, "project.yaml"));
-    } catch {
-        throw new Error(`--workspace 必须指向当前小说 Project Workspace，且目录下需要存在 project.yaml：${workspaceRoot}`);
-    }
-}
-
-async function assertCanWriteTarget(targetRoot: string, force: boolean): Promise<void> {
-    if (force) {
-        return;
-    }
-    try {
-        await fs.access(targetRoot);
-        throw new Error(`目标已存在，使用 --force 覆盖脚本生成文件：${targetRoot}`);
-    } catch (error) {
-        if (isNodeError(error, "ENOENT")) {
-            return;
-        }
-        throw error;
-    }
-}
-
-async function writeInspectFiles(
-    target: OutputTarget,
-    loaded: RawCardInput,
-    inspection: CardInspection,
-    options: {force: boolean},
-): Promise<void> {
-    await fs.mkdir(path.join(target.cardRoot, "raw"), {recursive: true});
-    await writeGeneratedFile(path.join(target.cardRoot, "raw", "card.json"), JSON.stringify(loaded.raw, null, 2) + "\n", options.force);
-    if (loaded.sourceType === "png") {
-        await writeGeneratedBinaryFile(path.join(target.cardRoot, "raw", "source.png"), await fs.readFile(loaded.sourcePath), options.force);
-    }
-    await writeGeneratedFile(path.join(target.cardRoot, "inspect.json"), JSON.stringify(inspection, null, 2) + "\n", options.force);
-    await writeGeneratedFile(path.join(target.cardRoot, "inspect.md"), renderInspectMarkdown(inspection), options.force);
-}
-
-async function writeLorebookAggregate(target: OutputTarget, inspection: CardInspection, loaded: RawCardInput, force: boolean): Promise<string> {
-    const nodeDir = path.join(target.workspaceRoot, "lorebook", "note", `silly-tavern-${inspection.slug}`);
-    const indexPath = path.join(nodeDir, "index.md");
-    await fs.mkdir(nodeDir, {recursive: true});
-    const body = renderLorebookAggregate(inspection, loaded);
-    await writeGeneratedFile(indexPath, renderMarkdown({
-        title: `${inspection.name} 导入设定`,
-        type: "note",
-        subtype: null,
-        status: "draft",
-        icon: null,
-        aliases: [inspection.name],
-        tags: ["SillyTavern", "角色卡导入"],
-        summary: `从 SillyTavern 角色卡 ${inspection.name} 导入的聚合设定草案。`,
-        refs: [],
-        retrieval: {
-            enabled: true,
-            trigger: "需要参考导入的 SillyTavern 角色卡设定、世界书或背景资料时。",
-        },
-        inject: {
-            profiles: [],
-            always: false,
-        },
-        governance: {
-            source: "silly-tavern-import",
-            review: "proposed",
-        },
-        ext: {
-            sourceCard: inspection.sourcePath,
-            inspect: path.posix.join(...target.outRelative.split("/"), inspection.slug, "inspect.md"),
-        },
-    }, body), force);
-    return indexPath;
-}
-
-async function writeRpExtension(workspaceRoot: string, inspection: CardInspection, loaded: RawCardInput, force: boolean): Promise<string[]> {
-    const rpRoot = path.join(workspaceRoot, "roleplay", "imports", "silly-tavern", inspection.slug);
-    await fs.mkdir(rpRoot, {recursive: true});
+async function importWorldbookEntries(unpacked: UnpackedCard, force: boolean): Promise<string[]> {
+    const data = readObject(unpacked.loaded.card.data);
+    const characterBook = readObject(data.character_book ?? unpacked.loaded.card.character_book);
+    const entries = readArray(characterBook.entries);
     const written: string[] = [];
-    const files: Array<[string, string]> = [
-        ["dynamic-prompt.md", renderDynamicPromptArchive(inspection, loaded)],
-        ["initvar.md", renderEntryArchive(inspection, loaded, ["initvar", "initial-variables"])],
-        ["update-rules.md", renderEntryArchive(inspection, loaded, ["mvu-update", "json-patch"])],
-        ["status-ui.md", renderEntryArchive(inspection, loaded, ["render-ui"])],
-        ["scripts.md", renderScriptsArchive(inspection, loaded)],
-    ];
-    for (const [fileName, content] of files) {
-        const filePath = path.join(rpRoot, fileName);
-        await writeGeneratedFile(filePath, content, force);
-        written.push(filePath);
+    for (const item of sortWorldbookEntries(entries)) {
+        const entry = item.entry;
+        const raw = readObject(entry);
+        const classified = classifyEntry(entry, item.originalIndex);
+        const fileSlug = slugify(`${formatInsertionOrder(entry)}-${unpacked.inspection.slug}-${classified.comment}`);
+        const target = path.join(unpacked.workspaceRoot, "lorebook", "note", fileSlug, "index.md");
+        written.push(await writeGeneratedText(unpacked, target, renderMarkdown({
+            title: classified.comment,
+            type: "note",
+            subtype: null,
+            status: classified.enabled ? "draft" : "archived",
+            icon: null,
+            aliases: [classified.comment],
+            tags: ["SillyTavern", "worldbook"],
+            summary: `从 SillyTavern 角色卡 ${unpacked.inspection.name} 导入的世界书条目。`,
+            refs: [],
+            retrieval: {
+                enabled: classified.enabled,
+                trigger: classified.constant ? "该世界书条目是 constant 条目，需要长期参考。" : `需要参考 ${classified.comment} 时。`,
+            },
+            inject: {
+                profiles: [],
+                always: false,
+            },
+            governance: {
+                source: "silly-tavern-import",
+                review: "proposed",
+            },
+            ext: {
+                sourceCard: unpacked.inspection.sourcePath,
+                unpack: toProjectRelativePath(unpacked.workspaceRoot, unpacked.root),
+                sillyTavernWorldbook: worldbookEntryMetadata(raw),
+            },
+        }, renderWorldbookEntryBody(entry, classified)), force));
     }
     return written;
 }
 
-async function writeImportReport(target: {workspaceRoot: string; cardRoot: string}, inspection: CardInspection, written: string[], force: boolean): Promise<string> {
-    const reportPath = path.join(target.cardRoot, "import-report.md");
-    await writeGeneratedFile(reportPath, renderImportReport(inspection, written.map((item) => toProjectRelativePath(target.workspaceRoot, item))), force);
-    return reportPath;
+async function writeRpExtension(unpacked: UnpackedCard, force: boolean): Promise<string[]> {
+    const rpRoot = path.join(unpacked.workspaceRoot, "roleplay", "imports", "silly-tavern", unpacked.inspection.slug);
+    const written: string[] = [];
+    const files: Array<[string, string]> = [
+        ["dynamic-prompt.md", renderDynamicPromptArchive(unpacked.inspection, unpacked.loaded)],
+        ["initvar.md", renderEntryArchive(unpacked.loaded, ["initvar", "initial-variables"])],
+        ["update-rules.md", renderEntryArchive(unpacked.loaded, ["mvu-update", "json-patch"])],
+        ["status-ui.md", renderEntryArchive(unpacked.loaded, ["render-ui"])],
+        ["scripts.md", renderScriptsArchive(unpacked.inspection, unpacked.loaded)],
+    ];
+    for (const [fileName, content] of files) {
+        written.push(await writeGeneratedText(unpacked, path.join(rpRoot, fileName), content, force));
+    }
+    return written;
 }
 
-async function writeGeneratedFile(filePath: string, content: string, force: boolean): Promise<void> {
-    if (!force) {
-        try {
-            await fs.access(filePath);
-            throw new Error(`文件已存在，使用 --force 覆盖：${filePath}`);
-        } catch (error) {
-            if (!isNodeError(error, "ENOENT")) {
-                throw error;
-            }
-        }
-    } else {
-        await assertGeneratedFileCanBeOverwritten(filePath);
-    }
+async function writeGeneratedText(unpacked: Pick<UnpackedCard, "root" | "workspaceRoot" | "manifest">, filePath: string, content: string, force: boolean): Promise<string> {
+    await assertCanWriteGenerated(unpacked, filePath, content, "text", force);
     await fs.mkdir(path.dirname(filePath), {recursive: true});
     await fs.writeFile(filePath, content, "utf-8");
-    await writeGeneratedMarker(filePath, content);
+    recordGenerated(unpacked, filePath, content, "text");
+    return filePath;
 }
 
-async function assertGeneratedFileCanBeOverwritten(filePath: string): Promise<void> {
-    try {
-        const current = await fs.readFile(filePath, "utf-8");
-        const marker = await readGeneratedMarker(filePath);
-        if (!marker || marker.hash !== sha256(current)) {
-            throw new Error(`拒绝覆盖可能被用户修改的文件：${filePath}`);
-        }
-    } catch (error) {
-        if (isNodeError(error, "ENOENT")) {
-            return;
-        }
-        throw error;
-    }
-}
-
-async function writeGeneratedBinaryFile(filePath: string, content: Buffer, force: boolean): Promise<void> {
-    if (!force) {
-        try {
-            await fs.access(filePath);
-            throw new Error(`文件已存在，使用 --force 覆盖：${filePath}`);
-        } catch (error) {
-            if (!isNodeError(error, "ENOENT")) {
-                throw error;
-            }
-        }
-    } else {
-        await assertGeneratedBinaryFileCanBeOverwritten(filePath);
-    }
+async function writeGeneratedBinary(unpacked: Pick<UnpackedCard, "root" | "workspaceRoot" | "manifest">, filePath: string, content: Buffer, force: boolean): Promise<string> {
+    await assertCanWriteGenerated(unpacked, filePath, content, "binary", force);
     await fs.mkdir(path.dirname(filePath), {recursive: true});
     await fs.writeFile(filePath, content);
-    await writeGeneratedMarker(filePath, content);
+    recordGenerated(unpacked, filePath, content, "binary");
+    return filePath;
 }
 
-async function assertGeneratedBinaryFileCanBeOverwritten(filePath: string): Promise<void> {
+async function assertCanWriteGenerated(unpacked: Pick<UnpackedCard, "workspaceRoot" | "manifest">, filePath: string, nextContent: string | Buffer, kind: "text" | "binary", force: boolean): Promise<void> {
+    const key = toProjectRelativePath(unpacked.workspaceRoot, filePath);
     try {
-        const current = await fs.readFile(filePath);
-        const marker = await readGeneratedMarker(filePath);
-        if (!marker || marker.hash !== sha256(current)) {
+        const current = kind === "text" ? await fs.readFile(filePath, "utf-8") : await fs.readFile(filePath);
+        if (!force) {
+            throw new Error(`文件已存在，使用 --force 覆盖：${filePath}`);
+        }
+        const previous = unpacked.manifest.files[key];
+        if (!previous || previous.hash !== sha256(current)) {
             throw new Error(`拒绝覆盖可能被用户修改的文件：${filePath}`);
         }
     } catch (error) {
@@ -515,47 +507,46 @@ async function assertGeneratedBinaryFileCanBeOverwritten(filePath: string): Prom
         }
         throw error;
     }
+    void nextContent;
 }
 
-async function readGeneratedMarker(filePath: string): Promise<{hash: string} | null> {
+function recordGenerated(unpacked: Pick<UnpackedCard, "workspaceRoot" | "manifest">, filePath: string, content: string | Buffer, kind: "text" | "binary"): void {
+    unpacked.manifest.files[toProjectRelativePath(unpacked.workspaceRoot, filePath)] = {
+        hash: sha256(content),
+        kind,
+    };
+}
+
+async function loadGeneratedManifest(root: string): Promise<GeneratedManifest> {
     try {
-        const parsed = JSON.parse(await fs.readFile(markerPath(filePath), "utf-8")) as unknown;
-        if (!isRecord(parsed) || parsed.marker !== GENERATED_MARKER || typeof parsed.hash !== "string") {
-            return null;
+        const parsed = JSON.parse(await fs.readFile(path.join(root, "generated.json"), "utf-8")) as unknown;
+        if (!isRecord(parsed) || parsed.marker !== GENERATED_MARKER || parsed.version !== 1 || !isRecord(parsed.files)) {
+            throw new Error(`generated.json 格式不正确：${path.join(root, "generated.json")}`);
         }
-        return {hash: parsed.hash};
+        return {
+            marker: GENERATED_MARKER,
+            version: 1,
+            files: parsed.files as Record<string, {hash: string; kind: "text" | "binary"}>,
+        };
     } catch (error) {
         if (isNodeError(error, "ENOENT")) {
-            return null;
+            return {marker: GENERATED_MARKER, version: 1, files: {}};
         }
         throw error;
     }
 }
 
-async function writeGeneratedMarker(filePath: string, content: string | Buffer): Promise<void> {
-    await fs.writeFile(markerPath(filePath), JSON.stringify({
-        marker: GENERATED_MARKER,
-        target: path.basename(filePath),
-        hash: sha256(content),
-    }, null, 2) + "\n", "utf-8");
-}
-
-function markerPath(filePath: string): string {
-    return `${filePath}.generated.json`;
-}
-
-function sha256(content: string | Buffer): string {
-    return createHash("sha256").update(content).digest("hex");
+async function saveGeneratedManifest(root: string, manifest: GeneratedManifest): Promise<void> {
+    await fs.mkdir(root, {recursive: true});
+    await fs.writeFile(path.join(root, "generated.json"), JSON.stringify(manifest, null, 2) + "\n", "utf-8");
 }
 
 function renderInspectMarkdown(inspection: CardInspection): string {
-    const markerLines = Object.entries(inspection.markers)
-        .map(([key, value]) => `- ${key}: ${value}`)
-        .join("\n");
+    const markerLines = Object.entries(inspection.markers).map(([key, value]) => `- ${key}: ${value}`).join("\n");
     const entryLines = inspection.entries.slice(0, 200)
         .map((entry) => `| ${escapeTable(entry.uid)} | ${escapeTable(entry.comment)} | ${entry.enabled ? "yes" : "no"} | ${entry.constant ? "yes" : "no"} | ${escapeTable(entry.categories.join(", "))} |`)
         .join("\n");
-    return `# ${markdownHeadingText(inspection.name)} Inspect
+    return `# ${markdownHeadingText(inspection.name)} Overview
 
 ## Summary
 
@@ -590,36 +581,78 @@ ${inspection.warnings.map((warning) => `- ${warning}`).join("\n") || "- none"}
 `;
 }
 
-function renderLorebookAggregate(inspection: CardInspection, loaded: RawCardInput): string {
-    const data = readObject(loaded.card.data);
-    const characterBook = readObject(data.character_book ?? loaded.card.character_book);
-    const entries = readArray(characterBook.entries);
-    const staticEntries = entries
-        .map((entry, index) => ({raw: readObject(entry), classified: classifyEntry(entry, index)}))
-        .filter((item) => item.classified.categories.includes("static-candidate"))
-        .slice(0, 80);
-    return `# ${markdownHeadingText(inspection.name)}
+function renderUnpackReport(inspection: CardInspection, written: string[]): string {
+    return `# ${markdownHeadingText(inspection.name)} Unpack Report
 
-> 这是从 SillyTavern 角色卡导入的写作设定聚合草案。动态脚本、变量更新、状态栏和提示词模板未执行；请根据 inspect 报告继续拆分到正式 lorebook 节点。
+## Result
 
-## 角色卡正文
+- kind: ${inspection.kind}
+- dynamic runtime executed: no
+- worldbook entries: ${inspection.counts.worldbookEntries}
 
-${sectionText("Description", readString(data.description))}
+## Written Files
 
-${sectionText("Scenario", readString(data.scenario))}
-
-${sectionText("First Message", readString(data.first_mes))}
-
-${sectionText("Message Example", readString(data.mes_example))}
-
-## 静态世界书候选
-
-${staticEntries.map((item) => {
-        const comment = item.classified.comment;
-        const content = readString(item.raw.content);
-        return `### ${markdownHeadingText(comment)}\n\n${content || "（空）"}`;
-    }).join("\n\n") || "暂无明显静态候选。"}
+${written.map((filePath) => `- ${filePath}`).join("\n") || "- none"}
 `;
+}
+
+function renderImportReport(inspection: CardInspection, written: string[]): string {
+    return `# ${markdownHeadingText(inspection.name)} Import Report
+
+## Result
+
+- kind: ${inspection.kind}
+- worldbook imported: ${inspection.kind === "character-card" ? "yes" : "no"}
+- dynamic runtime executed: no
+
+## Written Files
+
+${written.map((filePath) => `- ${filePath}`).join("\n") || "- none"}
+
+## Skipped Dynamic Content
+
+- MVU update markers: ${inspection.markers.updateVariable ?? 0}
+- JSON Patch markers: ${inspection.markers.jsonPatch ?? 0}
+- EJS markers: ${inspection.markers.ejs ?? 0}
+- prompt injection markers: ${inspection.markers.inject ?? 0}
+- render/UI markers: ${inspection.markers.render ?? 0}
+`;
+}
+
+function renderWorldbookEntryArchive(entry: unknown, classified: EntryClassification): string {
+    const raw = readObject(entry);
+    return renderMarkdown({
+        title: classified.comment,
+        uid: classified.uid,
+        enabled: classified.enabled,
+        constant: classified.constant,
+        categories: classified.categories,
+        source: "silly-tavern-worldbook",
+        st: worldbookEntryMetadata(raw),
+    }, `# ${markdownHeadingText(classified.comment)}
+
+${readString(raw.content) || "（空）"}`);
+}
+
+function renderWorldbookEntryBody(entry: unknown, classified: EntryClassification): string {
+    const raw = readObject(entry);
+    return `# ${markdownHeadingText(classified.comment)}
+
+> 来源：SillyTavern worldbook uid=${classified.uid}；enabled=${classified.enabled ? "yes" : "no"}；constant=${classified.constant ? "yes" : "no"}；categories=${classified.categories.join(", ")}
+
+${readString(raw.content) || "（空）"}
+`;
+}
+
+function worldbookEntryMetadata(entry: Record<string, unknown>): Record<string, unknown> {
+    const metadata: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(entry)) {
+        if (key === "content") {
+            continue;
+        }
+        metadata[key] = value;
+    }
+    return metadata;
 }
 
 function renderDynamicPromptArchive(inspection: CardInspection, loaded: RawCardInput): string {
@@ -627,11 +660,11 @@ function renderDynamicPromptArchive(inspection: CardInspection, loaded: RawCardI
 
 本文件归档 ST-Prompt-Template、prompt injection 和条件世界书相关条目。第一版不执行这些逻辑。
 
-${renderEntryArchive(inspection, loaded, ["ejs", "prompt-inject", "conditional", "generate-prompt"])}
+${renderEntryArchive(loaded, ["ejs", "prompt-inject", "conditional", "generate-prompt"])}
 `;
 }
 
-function renderEntryArchive(inspection: CardInspection, loaded: RawCardInput, categories: string[]): string {
+function renderEntryArchive(loaded: RawCardInput, categories: string[]): string {
     const data = readObject(loaded.card.data);
     const characterBook = readObject(data.character_book ?? loaded.card.character_book);
     const entries = readArray(characterBook.entries);
@@ -671,35 +704,6 @@ ${JSON.stringify({
 `;
 }
 
-function renderImportReport(inspection: CardInspection, written: string[]): string {
-    return `# ${markdownHeadingText(inspection.name)} Import Report
-
-## Result
-
-- kind: ${inspection.kind}
-- lorebook imported: ${inspection.kind === "character-card" ? "yes" : "no"}
-- dynamic runtime executed: no
-
-## Written Files
-
-${written.map((filePath) => `- ${filePath}`).join("\n") || "- none"}
-
-## Skipped Dynamic Content
-
-- MVU update markers: ${inspection.markers.updateVariable ?? 0}
-- JSON Patch markers: ${inspection.markers.jsonPatch ?? 0}
-- EJS markers: ${inspection.markers.ejs ?? 0}
-- prompt injection markers: ${inspection.markers.inject ?? 0}
-- render/UI markers: ${inspection.markers.render ?? 0}
-
-## Next Steps
-
-- Review \`inspect.md\`.
-- Split the aggregate lorebook note into character/location/faction/rule nodes as needed.
-- For RP mode, adapt archived dynamic rules manually before enabling any runtime behavior.
-`;
-}
-
 function renderMarkdown(frontmatter: Record<string, unknown>, body: string): string {
     return `---\n${toYaml(frontmatter)}---\n\n${body.trim()}\n`;
 }
@@ -735,42 +739,63 @@ function yamlValue(value: unknown, indent: number): string {
     return JSON.stringify(value);
 }
 
-function sectionText(title: string, content: string): string {
-    return `## ${title}\n\n${content || "（空）"}`;
-}
-
-function markdownHeadingText(value: string): string {
-    return value.replace(/\r?\n/g, " ").replace(/^#+\s*/u, "").trim() || "未命名条目";
-}
-
-function markdownFence(content: string): string {
-    const longest = [...content.matchAll(/`+/g)].reduce((max, match) => Math.max(max, match[0].length), 2);
-    return "`".repeat(longest + 1);
-}
-
-function printInspectSummary(inspection: CardInspection, target: OutputTarget, json: boolean): void {
-    const relativeCardRoot = toProjectRelativePath(target.workspaceRoot, target.cardRoot);
+function printUnpackSummary(inspection: CardInspection, target: {workspaceRoot: string; cardRoot: string}, written: string[], json: boolean): void {
+    const unpackDir = toProjectRelativePath(target.workspaceRoot, target.cardRoot);
     if (json) {
-        console.log(JSON.stringify({ok: true, inspection, cardRoot: relativeCardRoot, projectPath: toProjectPath(target.workspaceRoot)}, null, 2));
+        console.log(JSON.stringify({ok: true, inspection, unpackDir, written: written.map((item) => toProjectRelativePath(target.workspaceRoot, item))}, null, 2));
         return;
     }
-    console.log(`inspect wrote: ${relativeCardRoot}`);
+    console.log(`unpack wrote: ${unpackDir}`);
     console.log(`${inspection.kind}: ${inspection.name}`);
 }
 
-function printImportSummary(inspection: CardInspection, written: string[], json: boolean): void {
-    const workspaceRoot = readCommonWorkspaceRoot(written);
-    const relativeWritten = workspaceRoot
-        ? written.map((item) => toProjectRelativePath(workspaceRoot, item))
-        : written;
+function printImportSummary(inspection: CardInspection, workspaceRoot: string, written: string[], json: boolean): void {
+    const relativeWritten = written.map((item) => toProjectRelativePath(workspaceRoot, item));
     if (json) {
-        console.log(JSON.stringify({ok: true, inspection, written: relativeWritten, projectPath: workspaceRoot ? toProjectPath(workspaceRoot) : null}, null, 2));
+        console.log(JSON.stringify({ok: true, inspection, written: relativeWritten}, null, 2));
         return;
     }
     console.log(`import finished: ${inspection.name}`);
     for (const item of relativeWritten) {
         console.log(`- ${item}`);
     }
+}
+
+function resolveUnpackTarget(workspaceRoot: string, out: string, slug: string): {workspaceRoot: string; cardRoot: string} {
+    return {
+        workspaceRoot,
+        cardRoot: path.join(workspaceRoot, toSafeRelativePath(out), slug),
+    };
+}
+
+function resolveUnpackRoot(workspaceRoot: string, unpackDir: string): string {
+    const root = path.isAbsolute(unpackDir) ? path.resolve(unpackDir) : path.resolve(workspaceRoot, toSafeRelativePath(unpackDir));
+    const relative = path.relative(workspaceRoot, root);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+        throw new Error(`解包目录必须位于 Project Workspace 内：${unpackDir}`);
+    }
+    return root;
+}
+
+async function assertProjectWorkspace(workspaceInput: string): Promise<string> {
+    const workspaceRoot = path.resolve(workspaceInput);
+    try {
+        const stats = await fs.stat(workspaceRoot);
+        if (!stats.isDirectory()) {
+            throw new Error("not-directory");
+        }
+        await fs.access(path.join(workspaceRoot, "project.yaml"));
+        return workspaceRoot;
+    } catch {
+        throw new Error(`--project 必须指向当前小说 Project Workspace，且目录下需要存在 project.yaml：${workspaceRoot}`);
+    }
+}
+
+function requiredProject(options: CliOptions): string {
+    if (!options.project) {
+        throw new Error("缺少 --project");
+    }
+    return options.project;
 }
 
 export function slugify(input: string): string {
@@ -785,17 +810,9 @@ export function slugify(input: string): string {
 function toSafeRelativePath(input: string): string {
     const normalized = input.replaceAll("\\", "/").replace(/^\/+|\/+$/g, "");
     if (!normalized || normalized.split("/").some((segment) => segment === ".." || segment === "")) {
-        throw new Error(`输出目录必须是 workspace 内的相对路径，且不能包含 ..：${input}`);
+        throw new Error(`路径必须是 Project Workspace 内的相对路径，且不能包含 ..：${input}`);
     }
     return normalized;
-}
-
-function inferNameFromPath(sourcePath: string): string {
-    return path.basename(sourcePath, path.extname(sourcePath));
-}
-
-function toProjectPath(workspaceRoot: string): string {
-    return path.posix.join(path.basename(path.dirname(workspaceRoot)), path.basename(workspaceRoot));
 }
 
 function toProjectRelativePath(workspaceRoot: string, absolutePath: string): string {
@@ -803,34 +820,61 @@ function toProjectRelativePath(workspaceRoot: string, absolutePath: string): str
     if (!relativePath || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
         return absolutePath;
     }
-    if (relativePath.startsWith(`${path.basename(workspaceRoot)}/`)) {
-        return relativePath;
-    }
-    return path.posix.join(path.basename(workspaceRoot), relativePath);
+    return relativePath;
 }
 
-function readCommonWorkspaceRoot(paths: string[]): string | null {
-    const first = paths[0];
-    if (!first) {
-        return null;
+function inferNameFromPath(sourcePath: string): string {
+    return path.basename(sourcePath, path.extname(sourcePath));
+}
+
+function readExtensionName(value: unknown, fallback: string): string {
+    const item = readObject(value);
+    return readString(item.scriptName)
+        || readString(item.name)
+        || readString(item.id)
+        || readString(item.uid)
+        || fallback;
+}
+
+function sortWorldbookEntries(entries: unknown[]): Array<{entry: unknown; originalIndex: number; insertionOrder: number}> {
+    return entries
+        .map((entry, originalIndex) => ({
+            entry,
+            originalIndex,
+            insertionOrder: readInsertionOrder(entry, originalIndex),
+        }))
+        .sort((left, right) => left.insertionOrder - right.insertionOrder || left.originalIndex - right.originalIndex);
+}
+
+function formatInsertionOrder(entry: unknown): string {
+    const order = readInsertionOrder(entry, 0);
+    const normalized = Number.isFinite(order) ? order : 0;
+    return String(normalized).padStart(6, "0");
+}
+
+function readInsertionOrder(entry: unknown, fallback: number): number {
+    const raw = readObject(entry);
+    const value = raw.insertion_order;
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return value;
     }
-    const marker = `${path.sep}reference${path.sep}`;
-    const normalized = path.resolve(first);
-    const markerIndex = normalized.indexOf(marker);
-    if (markerIndex >= 0) {
-        return normalized.slice(0, markerIndex);
+    if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) {
+        return Number(value);
     }
-    const lorebookMarker = `${path.sep}lorebook${path.sep}`;
-    const lorebookIndex = normalized.indexOf(lorebookMarker);
-    if (lorebookIndex >= 0) {
-        return normalized.slice(0, lorebookIndex);
-    }
-    const roleplayMarker = `${path.sep}roleplay${path.sep}`;
-    const roleplayIndex = normalized.indexOf(roleplayMarker);
-    if (roleplayIndex >= 0) {
-        return normalized.slice(0, roleplayIndex);
-    }
-    return null;
+    return fallback;
+}
+
+function markdownHeadingText(value: string): string {
+    return value.replace(/\r?\n/g, " ").replace(/^#+\s*/u, "").trim() || "未命名条目";
+}
+
+function markdownFence(content: string): string {
+    const longest = [...content.matchAll(/`+/g)].reduce((max, match) => Math.max(max, match[0].length), 2);
+    return "`".repeat(longest + 1);
+}
+
+function sha256(content: string | Buffer): string {
+    return createHash("sha256").update(content).digest("hex");
 }
 
 function readObject(value: unknown): Record<string, unknown> {

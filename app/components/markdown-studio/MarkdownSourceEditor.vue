@@ -54,6 +54,8 @@ let focusListener: Monaco.IDisposable | null = null;
 let blurListener: Monaco.IDisposable | null = null;
 let keydownListener: Monaco.IDisposable | null = null;
 let wheelListener: ((event: WheelEvent) => void) | null = null;
+let wheelListenerRoot: HTMLDivElement | null = null;
+let editorDisposed = false;
 let suppressModelSync = false;
 let outsideSyncVersion = 0;
 
@@ -382,20 +384,27 @@ watch(() => props.visible, async (visible) => {
 });
 
 onMounted(async () => {
-    if (!editorRootRef.value) {
+    const editorRoot = editorRootRef.value;
+    if (!editorRoot) {
         return;
     }
 
     const monacoModule = await loadMonacoEditor();
+    if (editorDisposed || editorRootRef.value !== editorRoot) {
+        return;
+    }
+
     monacoApi = monacoModule;
     applyTheme();
 
     modelInstance = createEditorModel();
-    if (!modelInstance) {
+    if (!modelInstance || editorDisposed || editorRootRef.value !== editorRoot) {
+        modelInstance?.dispose();
+        modelInstance = null;
         return;
     }
 
-    editorInstance = monacoApi.editor.create(editorRootRef.value, {
+    editorInstance = monacoApi.editor.create(editorRoot, {
         model: modelInstance,
         language: props.language,
         readOnly: props.readonly,
@@ -431,7 +440,8 @@ onMounted(async () => {
     });
 
     wheelListener = handleWheelZoom;
-    editorRootRef.value.addEventListener("wheel", wheelListener, {passive: false});
+    wheelListenerRoot = editorRoot;
+    wheelListenerRoot.addEventListener("wheel", wheelListener, {passive: false});
 
     contentListener = modelInstance.onDidChangeContent(() => {
         emitModelValue();
@@ -466,8 +476,9 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
-    if (wheelListener && editorRootRef.value) {
-        editorRootRef.value.removeEventListener("wheel", wheelListener);
+    editorDisposed = true;
+    if (wheelListener && wheelListenerRoot) {
+        wheelListenerRoot.removeEventListener("wheel", wheelListener);
     }
     contentListener?.dispose();
     focusListener?.dispose();
@@ -480,6 +491,7 @@ onBeforeUnmount(() => {
     blurListener = null;
     keydownListener = null;
     wheelListener = null;
+    wheelListenerRoot = null;
     editorInstance = null;
     modelInstance = null;
     monacoApi = null;

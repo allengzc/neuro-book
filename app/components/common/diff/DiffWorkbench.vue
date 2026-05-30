@@ -8,6 +8,8 @@ const props = withDefaults(defineProps<{
     document: DiffWorkbenchDocument;
     theme?: IdeTheme;
     mode?: DiffWorkbenchMode;
+    availableModes?: DiffWorkbenchMode[];
+    initialMode?: DiffWorkbenchMode;
     mergeReadonly?: boolean;
     renderSideBySide?: boolean;
     showWhitespace?: boolean;
@@ -24,7 +26,7 @@ const emit = defineEmits<{
     (e: "save-request"): void;
 }>();
 
-const localMode = ref<DiffWorkbenchMode>(props.mode ?? "diff");
+const localMode = ref<DiffWorkbenchMode>(props.mode ?? props.initialMode ?? "diff");
 const activeMode = computed({
     get: () => props.mode ?? localMode.value,
     set: (value: DiffWorkbenchMode) => {
@@ -44,25 +46,57 @@ const incomingLabel = computed(() => props.document.incomingLabel ?? "Incoming")
 const baseLabel = computed(() => props.document.baseLabel ?? "Base");
 const resultLabel = computed(() => props.document.resultLabel ?? "Result");
 const hasBase = computed(() => typeof props.document.baseContent === "string");
+const isDiffable = computed(() => props.document.diffable !== false);
+const allowedModes = computed(() => new Set(props.availableModes ?? ["diff", "merge", "current-base", "incoming-base"]));
 
 const tabs = computed<Array<{id: DiffWorkbenchMode; label: string; enabled: boolean}>>(() => [
-    {id: "diff", label: "Diff", enabled: true},
-    {id: "merge", label: "Merge", enabled: true},
-    {id: "current-base", label: `${currentLabel.value} vs ${baseLabel.value}`, enabled: hasBase.value},
-    {id: "incoming-base", label: `${incomingLabel.value} vs ${baseLabel.value}`, enabled: hasBase.value},
+    {id: "diff", label: "Diff", enabled: isDiffable.value && allowedModes.value.has("diff")},
+    {id: "merge", label: "Merge", enabled: isDiffable.value && allowedModes.value.has("merge")},
+    {id: "current-base", label: `${currentLabel.value} vs ${baseLabel.value}`, enabled: isDiffable.value && allowedModes.value.has("current-base") && hasBase.value},
+    {id: "incoming-base", label: `${incomingLabel.value} vs ${baseLabel.value}`, enabled: isDiffable.value && allowedModes.value.has("incoming-base") && hasBase.value},
 ]);
 
 const visibleTabs = computed(() => tabs.value.filter((tab) => tab.enabled));
+const fallbackMode = computed<DiffWorkbenchMode>(() => visibleTabs.value[0]?.id ?? "diff");
+const effectiveMode = computed<DiffWorkbenchMode>(() => visibleTabs.value.some((tab) => tab.id === activeMode.value)
+    ? activeMode.value
+    : fallbackMode.value);
+const unavailableReasonLabel = computed(() => {
+    if (props.document.unavailableReason === "missing") {
+        return "文件缺失";
+    }
+    if (props.document.unavailableReason === "binary") {
+        return "二进制文件";
+    }
+    if (props.document.unavailableReason === "too_large") {
+        return "文件过大";
+    }
+    return "暂不支持 diff";
+});
+
+function normalizeMode(): void {
+    if (!visibleTabs.value.some((tab) => tab.id === activeMode.value)) {
+        activeMode.value = fallbackMode.value;
+    }
+}
 
 watch(() => props.mode, (mode) => {
     if (mode) {
         localMode.value = mode;
+        normalizeMode();
     }
 });
 
 watch(() => props.document.id, () => {
-    activeMode.value = "diff";
+    activeMode.value = props.initialMode ?? fallbackMode.value;
 });
+
+watch(() => [
+    props.initialMode,
+    props.availableModes?.join(","),
+    props.document.baseContent,
+    props.document.diffable,
+], () => normalizeMode(), {immediate: true});
 </script>
 
 <template>
@@ -72,13 +106,13 @@ watch(() => props.document.id, () => {
                 <div class="truncate text-sm font-semibold text-[var(--text-main)]">{{ document.title }}</div>
                 <div v-if="document.path" class="mt-1 truncate font-mono text-xs text-[var(--text-muted)]">{{ document.path }}</div>
             </div>
-            <div class="diff-workbench__tabs">
+            <div v-if="visibleTabs.length" class="diff-workbench__tabs">
                 <button
                     v-for="tab in visibleTabs"
                     :key="tab.id"
                     type="button"
                     class="diff-workbench__tab"
-                    :class="activeMode === tab.id ? 'is-active' : ''"
+                    :class="effectiveMode === tab.id ? 'is-active' : ''"
                     @click="activeMode = tab.id"
                 >
                     {{ tab.label }}
@@ -87,8 +121,35 @@ watch(() => props.document.id, () => {
         </header>
 
         <section class="diff-workbench__body">
+            <div v-if="!isDiffable" class="diff-workbench__unavailable">
+                <div class="diff-workbench__unavailable-icon">
+                    <span class="i-lucide-file-warning h-5 w-5"></span>
+                </div>
+                <div class="min-w-0">
+                    <div class="text-sm font-semibold text-[var(--text-main)]">{{ unavailableReasonLabel }}</div>
+                    <p v-if="document.notice" class="mt-2 max-w-[720px] text-xs leading-6 text-[var(--text-secondary)]">{{ document.notice }}</p>
+                    <dl class="diff-workbench__metadata">
+                        <template v-if="document.metadata?.currentBytes !== undefined">
+                            <dt>{{ currentLabel }} size</dt>
+                            <dd>{{ document.metadata.currentBytes }} bytes</dd>
+                        </template>
+                        <template v-if="document.metadata?.incomingBytes !== undefined">
+                            <dt>{{ incomingLabel }} size</dt>
+                            <dd>{{ document.metadata.incomingBytes }} bytes</dd>
+                        </template>
+                        <template v-if="document.metadata?.currentSha256">
+                            <dt>{{ currentLabel }} sha256</dt>
+                            <dd>{{ document.metadata.currentSha256 }}</dd>
+                        </template>
+                        <template v-if="document.metadata?.incomingSha256">
+                            <dt>{{ incomingLabel }} sha256</dt>
+                            <dd>{{ document.metadata.incomingSha256 }}</dd>
+                        </template>
+                    </dl>
+                </div>
+            </div>
             <SharedDiffEditor
-                v-if="activeMode === 'diff'"
+                v-else-if="effectiveMode === 'diff'"
                 :model-key="`${document.id}:diff`"
                 :original-content="document.currentContent"
                 :modified-content="document.incomingContent"
@@ -100,10 +161,9 @@ watch(() => props.document.id, () => {
                 :show-whitespace="showWhitespace"
             />
             <SharedMergeEditor
-                v-else-if="activeMode === 'merge'"
+                v-else-if="effectiveMode === 'merge'"
                 v-model="resultContent"
                 :model-key="`${document.id}:merge`"
-                :base-content="document.baseContent"
                 :current-content="document.currentContent"
                 :current-label="currentLabel"
                 :incoming-content="document.incomingContent"
@@ -116,7 +176,7 @@ watch(() => props.document.id, () => {
                 @save-request="emit('save-request')"
             />
             <SharedDiffEditor
-                v-else-if="activeMode === 'current-base' && document.baseContent !== undefined"
+                v-else-if="effectiveMode === 'current-base' && document.baseContent !== undefined"
                 :model-key="`${document.id}:current-base`"
                 :original-content="document.baseContent"
                 :modified-content="document.currentContent"
@@ -128,7 +188,7 @@ watch(() => props.document.id, () => {
                 :show-whitespace="showWhitespace"
             />
             <SharedDiffEditor
-                v-else-if="activeMode === 'incoming-base' && document.baseContent !== undefined"
+                v-else-if="effectiveMode === 'incoming-base' && document.baseContent !== undefined"
                 :model-key="`${document.id}:incoming-base`"
                 :original-content="document.baseContent"
                 :modified-content="document.incomingContent"
@@ -198,5 +258,45 @@ watch(() => props.document.id, () => {
     border-radius: 8px;
     background: var(--source-bg);
     padding: 8px;
+}
+
+.diff-workbench__unavailable {
+    display: flex;
+    width: 100%;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 18px;
+}
+
+.diff-workbench__unavailable-icon {
+    display: inline-flex;
+    height: 34px;
+    width: 34px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(245, 158, 11, 0.32);
+    border-radius: 8px;
+    background: rgba(245, 158, 11, 0.1);
+    color: rgb(180, 83, 9);
+}
+
+.diff-workbench__metadata {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 6px 10px;
+    margin-top: 12px;
+    color: var(--text-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 11px;
+}
+
+.diff-workbench__metadata dt {
+    color: var(--text-secondary);
+}
+
+.diff-workbench__metadata dd {
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 </style>

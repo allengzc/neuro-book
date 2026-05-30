@@ -26,19 +26,12 @@ const SYSTEM_PROFILE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "profiles");
 const USER_PROFILE_ROOT = path.resolve(process.cwd(), USER_NBOOK_ROOT, "agent", "profiles");
 const SYSTEM_VARIABLE_DEFINITION_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "variables");
 const USER_VARIABLE_DEFINITION_ROOT = path.resolve(process.cwd(), USER_NBOOK_ROOT, "agent", "variables");
-const SYSTEM_WRITING_PRESETS_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "writing-presets");
-const USER_WRITING_PRESETS_ROOT = path.resolve(process.cwd(), USER_NBOOK_ROOT, "agent", "writing-presets");
 const SYSTEM_PROFILE_METADATA_PATH = path.join(SYSTEM_PROFILE_ROOT, ".system-profile-metadata.json");
 const USER_PROFILE_SYNC_STATE_PATH = path.join(USER_PROFILE_ROOT, ".profile-sync-state.json");
 const NOVEL_DIRECTORY_TEMPLATE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "templates", "novel-directory-templates");
 const USER_NOVEL_DIRECTORY_TEMPLATE_ROOT = path.resolve(process.cwd(), USER_ASSETS_WORKSPACE_ROOT, "templates", "novel-directory-templates");
 const PROJECT_MANIFEST_FILE = "project.yaml";
 const LEGACY_WORKSPACE_MANIFEST_FILE = "workspace.yaml";
-const SYSTEM_RUNTIME_ASSET_PATHS = [
-    "agent/bin/workspace",
-    "agent/bin/workspace.cmd",
-    "agent/scripts/workspace.ts",
-];
 const USER_ASSETS_DIFF_MAX_BYTES = 512 * 1024;
 const execFileAsync = promisify(execFile);
 
@@ -78,6 +71,12 @@ type UserAssetSyncStateItem = {
     upstreamHash: string;
     lastSyncedUserHash: string;
     syncedAt: string;
+};
+
+type SystemManagedAssetItem = {
+    assetPath: string;
+    sha256: string;
+    bytes: number;
 };
 
 type CompiledArtifactSyncResult = {
@@ -160,12 +159,10 @@ export async function syncSystemAssetsToUserAssets(): Promise<UserAssetsSyncResu
     const nbookTargetRoot = path.resolve(process.cwd(), USER_NBOOK_ROOT);
     const result: UserAssetsSyncResult = {copied: 0, skipped: 0, updatedProfiles: 0, profileWarnings: [], updatedAssets: 0, assetWarnings: []};
     if (await isDirectory(SYSTEM_NBOOK_ROOT)) {
-        await copyMissingAssetEntries(SYSTEM_NBOOK_ROOT, nbookTargetRoot, result);
+        await syncManagedSystemAssetsToUserAssets(result);
     }
-    await syncSystemRuntimeAssetsToUserAssets(result);
     await syncSystemProfilesToUserAssets(result, nbookTargetRoot);
     await syncSystemVariableDefinitionsToUserAssets(result);
-    await syncSystemWritingPresetsToUserAssets(result);
     return result;
 }
 
@@ -214,8 +211,9 @@ export async function readUserAssetsSyncConflictDetail(input: {
     if (!assetPath) {
         throw new Error("assetPath 不能为空或包含非法片段");
     }
+    await assertReadableUserAssetsSyncAssetPath(assetPath);
     const syncState = await readUserProfileSyncState();
-    const stateItem = syncState.assets?.find((asset) => asset.assetPath === assetPath);
+    const stateItem = findUserAssetSyncState(syncState, assetPath);
     const roots = resolveUserAssetConflictRoots(assetPath);
     const [systemFile, userFile] = await Promise.all([
         readTextFileForDiff(roots.systemPath),
@@ -319,56 +317,16 @@ async function normalizeNovelDirectoryTemplateArtifacts(templateRoot: string): P
 }
 
 /**
- * 递归复制缺失资源；已存在的用户文件只统计为 skipped。
+ * 同步系统 .nbook 内默认受管理资源；黑名单只保留本地状态、运行记录和编译产物。
  */
-async function copyMissingAssetEntries(sourceRoot: string, targetRoot: string, result: UserAssetsSyncResult): Promise<void> {
-    const entries = await fs.readdir(sourceRoot, {withFileTypes: true});
-    await fs.mkdir(targetRoot, {recursive: true});
-
-    for (const entry of entries) {
-        const sourcePath = path.join(sourceRoot, entry.name);
-        const targetPath = path.join(targetRoot, entry.name);
-        if (sourceRoot === SYSTEM_PROFILE_ROOT && (entry.name === ".compiled" || entry.name === ".system-profile-metadata.json")) {
-            continue;
-        }
-        if (entry.isDirectory()) {
-            await copyMissingAssetEntries(sourcePath, targetPath, result);
-            continue;
-        }
-        if (!entry.isFile()) {
-            continue;
-        }
-
-        try {
-            await fs.copyFile(sourcePath, targetPath, fs.constants.COPYFILE_EXCL);
-            result.copied += 1;
-        } catch (error) {
-            if (typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST") {
-                result.skipped += 1;
-                continue;
-            }
-            throw error;
-        }
-    }
-}
-
-/**
- * 同步 Agent runtime 入口文件；只覆盖仍跟随系统上游的用户副本。
- */
-async function syncSystemRuntimeAssetsToUserAssets(result: UserAssetsSyncResult): Promise<void> {
+async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult): Promise<void> {
     const syncState = await readUserProfileSyncState();
+    const assets = await listManagedSystemAssets();
     let stateChanged = false;
-    for (const assetPath of SYSTEM_RUNTIME_ASSET_PATHS) {
-        const systemPath = path.join(SYSTEM_NBOOK_ROOT, assetPath);
-        if (!await pathExists(systemPath)) {
-            continue;
-        }
-        const item = {
-            assetPath,
-            ...await sha256File(systemPath),
-        };
-        const userPath = path.join(process.cwd(), USER_NBOOK_ROOT, assetPath);
-        const stateItem = syncState.assets?.find((asset) => asset.assetPath === assetPath);
+    for (const item of assets) {
+        const systemPath = resolveInsideRoot(SYSTEM_NBOOK_ROOT, item.assetPath);
+        const userPath = resolveInsideRoot(path.resolve(process.cwd(), USER_NBOOK_ROOT), item.assetPath);
+        const stateItem = findUserAssetSyncState(syncState, item.assetPath);
         if (!stateItem && await pathExists(userPath) && await sameFile(systemPath, userPath)) {
             const hash = await sha256File(userPath);
             upsertUserAssetSyncState(syncState, item, hash.sha256);
@@ -380,7 +338,7 @@ async function syncSystemRuntimeAssetsToUserAssets(result: UserAssetsSyncResult)
             await fs.copyFile(systemPath, userPath);
             const hash = await sha256File(userPath);
             upsertUserAssetSyncState(syncState, item, hash.sha256);
-            result.updatedAssets = (result.updatedAssets ?? 0) + 1;
+            result.copied += 1;
             stateChanged = true;
             continue;
         }
@@ -388,10 +346,11 @@ async function syncSystemRuntimeAssetsToUserAssets(result: UserAssetsSyncResult)
         const currentUserHash = (await sha256File(userPath)).sha256;
         if (currentUserHash === item.sha256) {
             upsertUserAssetSyncState(syncState, item, currentUserHash);
+            result.skipped += 1;
             stateChanged = true;
             continue;
         }
-        const previousHash = await readGitHeadAssetHash(path.posix.join("assets/workspace/.nbook", assetPath));
+        const previousHash = await readGitHeadAssetHash(path.posix.join("assets/workspace/.nbook", item.assetPath));
         if (previousHash && currentUserHash === previousHash) {
             await fs.copyFile(systemPath, userPath);
             const hash = await sha256File(userPath);
@@ -402,16 +361,16 @@ async function syncSystemRuntimeAssetsToUserAssets(result: UserAssetsSyncResult)
         }
         if (!stateItem) {
             result.assetWarnings?.push({
-                assetPath,
-                message: "系统 Agent runtime asset 有 metadata，但用户覆盖缺少 sync state，已保留用户文件。",
+                assetPath: item.assetPath,
+                message: "系统 .nbook asset 有 metadata，但用户覆盖缺少 sync state，已保留用户文件。",
             });
             continue;
         }
         if (currentUserHash !== stateItem.lastSyncedUserHash) {
             if (item.sha256 !== stateItem.upstreamHash) {
                 result.assetWarnings?.push({
-                    assetPath,
-                    message: "系统 Agent runtime asset 已更新，但用户覆盖已手改，未自动覆盖。",
+                    assetPath: item.assetPath,
+                    message: "系统 .nbook asset 已更新，但用户覆盖已手改，未自动覆盖。",
                 });
             }
             continue;
@@ -531,68 +490,6 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, nboo
     await removeCopiedSystemMetadata(nbookTargetRoot);
 }
 
-async function syncSystemWritingPresetsToUserAssets(result: UserAssetsSyncResult): Promise<void> {
-    if (!await isDirectory(SYSTEM_WRITING_PRESETS_ROOT)) {
-        return;
-    }
-    const syncState = await readUserProfileSyncState();
-    const assets = await listSystemWritingPresetAssets();
-    let stateChanged = false;
-    for (const item of assets) {
-        const systemPath = path.join(SYSTEM_WRITING_PRESETS_ROOT, item.assetPath);
-        const userPath = path.join(USER_WRITING_PRESETS_ROOT, item.assetPath);
-        const stateItem = syncState.assets?.find((asset) => asset.assetPath === item.assetPath);
-        if (!stateItem && await pathExists(userPath) && await sameFile(systemPath, userPath)) {
-            const hash = await sha256File(userPath);
-            upsertUserAssetSyncState(syncState, item, hash.sha256);
-            stateChanged = true;
-            continue;
-        }
-        if (!await pathExists(userPath)) {
-            await fs.mkdir(path.dirname(userPath), {recursive: true});
-            await fs.copyFile(systemPath, userPath);
-            const hash = await sha256File(userPath);
-            upsertUserAssetSyncState(syncState, item, hash.sha256);
-            result.updatedAssets = (result.updatedAssets ?? 0) + 1;
-            stateChanged = true;
-            continue;
-        }
-        const currentUserHash = (await sha256File(userPath)).sha256;
-        if (currentUserHash === item.sha256) {
-            upsertUserAssetSyncState(syncState, item, currentUserHash);
-            stateChanged = true;
-            continue;
-        }
-        if (!stateItem) {
-            result.assetWarnings?.push({
-                assetPath: item.assetPath,
-                message: `系统 writing preset 有 metadata，但用户覆盖缺少 sync state，已保留用户文件。`,
-            });
-            continue;
-        }
-        if (currentUserHash !== stateItem.lastSyncedUserHash) {
-            if (item.sha256 !== stateItem.upstreamHash) {
-                result.assetWarnings?.push({
-                    assetPath: item.assetPath,
-                    message: `系统 writing preset 已更新，但用户覆盖已手改，未自动覆盖。`,
-                });
-            }
-            continue;
-        }
-        if (item.sha256 === stateItem.upstreamHash) {
-            continue;
-        }
-        await fs.copyFile(systemPath, userPath);
-        const hash = await sha256File(userPath);
-        upsertUserAssetSyncState(syncState, item, hash.sha256);
-        result.updatedAssets = (result.updatedAssets ?? 0) + 1;
-        stateChanged = true;
-    }
-    if (stateChanged) {
-        await writeUserProfileSyncState(syncState);
-    }
-}
-
 async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncResult): Promise<void> {
     const systemPath = path.join(SYSTEM_VARIABLE_DEFINITION_ROOT, "definitions.ts");
     if (!await pathExists(systemPath)) {
@@ -604,7 +501,7 @@ async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncR
     };
     const userPath = path.join(USER_VARIABLE_DEFINITION_ROOT, "definitions.ts");
     const syncState = await readUserProfileSyncState();
-    const stateItem = syncState.assets?.find((asset) => asset.assetPath === item.assetPath);
+    const stateItem = findUserAssetSyncState(syncState, item.assetPath);
     let stateChanged = false;
     if (!stateItem && await pathExists(userPath) && await sameFile(systemPath, userPath)) {
         const hash = await sha256File(userPath);
@@ -683,21 +580,21 @@ async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncR
     }
 }
 
-async function listSystemWritingPresetAssets(): Promise<Array<{assetPath: string; sha256: string; bytes: number}>> {
-    const result: Array<{assetPath: string; sha256: string; bytes: number}> = [];
-    await collectSystemWritingPresetAssets(SYSTEM_WRITING_PRESETS_ROOT, "", result);
+async function listManagedSystemAssets(): Promise<SystemManagedAssetItem[]> {
+    const result: SystemManagedAssetItem[] = [];
+    await collectManagedSystemAssets(SYSTEM_NBOOK_ROOT, "", result);
     return result.sort((left, right) => left.assetPath.localeCompare(right.assetPath));
 }
 
-async function collectSystemWritingPresetAssets(root: string, relativeRoot: string, result: Array<{assetPath: string; sha256: string; bytes: number}>): Promise<void> {
+async function collectManagedSystemAssets(root: string, relativeRoot: string, result: SystemManagedAssetItem[]): Promise<void> {
     const entries = await fs.readdir(path.join(root, relativeRoot), {withFileTypes: true});
     for (const entry of entries) {
         const relativePath = path.posix.join(relativeRoot.split(path.sep).join("/"), entry.name);
         if (entry.isDirectory()) {
-            await collectSystemWritingPresetAssets(root, relativePath, result);
+            await collectManagedSystemAssets(root, relativePath, result);
             continue;
         }
-        if (!entry.isFile() || !entry.name.endsWith(".md")) {
+        if (!entry.isFile() || isManagedAssetBlacklisted(relativePath)) {
             continue;
         }
         const absolutePath = path.join(root, relativePath);
@@ -705,6 +602,30 @@ async function collectSystemWritingPresetAssets(root: string, relativeRoot: stri
             assetPath: relativePath,
             ...await sha256File(absolutePath),
         });
+    }
+}
+
+function isManagedAssetBlacklisted(assetPath: string): boolean {
+    const normalized = assetPath.replaceAll("\\", "/");
+    const parts = normalized.split("/");
+    return normalized === "config.json"
+        || normalized === "neuro-book.sqlite"
+        || normalized === "agent/session-seq.json"
+        || normalized === "agent/profiles/.profile-sync-state.json"
+        || normalized === "agent/profiles/.system-profile-metadata.json"
+        || normalized.startsWith("agent/sessions/")
+        || normalized.startsWith("agent/profiles/")
+        || normalized === "agent/variables/definitions.ts"
+        || parts.includes(".compiled");
+}
+
+async function assertReadableUserAssetsSyncAssetPath(assetPath: string): Promise<void> {
+    if (assetPath === "agent/variables/definitions.ts") {
+        return;
+    }
+    const assets = await listManagedSystemAssets();
+    if (!assets.some((asset) => asset.assetPath === assetPath)) {
+        throw new Error(`assetPath 不属于可读取的系统同步资源: ${assetPath}`);
     }
 }
 
@@ -1014,6 +935,19 @@ function upsertUserAssetSyncState(syncState: UserProfileSyncState, metadata: {as
     syncState.assets.sort((left, right) => left.assetPath.localeCompare(right.assetPath));
 }
 
+function findUserAssetSyncState(syncState: UserProfileSyncState, assetPath: string): UserAssetSyncStateItem | undefined {
+    const exact = syncState.assets?.find((item) => item.assetPath === assetPath);
+    if (exact) {
+        return exact;
+    }
+    const writingPresetPrefix = "agent/writing-presets/";
+    if (assetPath.startsWith(writingPresetPrefix)) {
+        const legacyPath = assetPath.slice(writingPresetPrefix.length);
+        return syncState.assets?.find((item) => item.assetPath === legacyPath);
+    }
+    return undefined;
+}
+
 async function pathExists(filePath: string): Promise<boolean> {
     try {
         await fs.access(filePath);
@@ -1103,8 +1037,8 @@ function resolveUserAssetConflictRoots(assetPath: string): {systemPath: string; 
         throw new Error("assetPath 不能为空或包含非法片段");
     }
     return {
-        systemPath: resolveInsideRoot(SYSTEM_NBOOK_ROOT, normalized.startsWith("agent/") ? normalized : path.posix.join("agent", "writing-presets", normalized)),
-        userPath: resolveInsideRoot(path.resolve(process.cwd(), USER_NBOOK_ROOT), normalized.startsWith("agent/") ? normalized : path.posix.join("agent", "writing-presets", normalized)),
+        systemPath: resolveInsideRoot(SYSTEM_NBOOK_ROOT, normalized),
+        userPath: resolveInsideRoot(path.resolve(process.cwd(), USER_NBOOK_ROOT), normalized),
     };
 }
 

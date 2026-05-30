@@ -267,18 +267,24 @@ function formatSyncResult(result: UserAssetsSyncResultDto): string {
 
 function toSyncConflictDocument(detail: UserAssetsSyncConflictDetailDto): DiffWorkbenchDocument {
     const path = detail.fileName ?? detail.assetPath ?? detail.label;
-    const unavailableText = detail.diffable
-        ? null
-        : `此文件暂不能直接 diff。\n原因：${detail.reason ?? "unknown"}\n系统大小：${detail.systemBytes} bytes\n用户大小：${detail.userBytes} bytes\n系统 sha256：${detail.systemSha256 || "(missing)"}\n用户 sha256：${detail.userSha256 || "(missing)"}\n`;
     return {
         id: `user-assets-sync:${detail.kind}:${path}:${detail.systemSha256}:${detail.userSha256}`,
         title: detail.kind === "profile" ? `Profile 覆盖冲突: ${detail.label}` : `Asset 覆盖冲突: ${detail.label}`,
         path,
         language: detail.language,
+        diffable: detail.diffable,
+        unavailableReason: detail.reason,
+        notice: detail.diffable ? undefined : "系统版本与用户覆盖都已保留，但该文件不能直接用文本 diff 展示。",
+        metadata: {
+            currentBytes: detail.userBytes,
+            incomingBytes: detail.systemBytes,
+            currentSha256: detail.userSha256 || undefined,
+            incomingSha256: detail.systemSha256 || undefined,
+        },
         baseContent: detail.baseContent,
-        currentContent: unavailableText ?? detail.userContent,
-        incomingContent: unavailableText ?? detail.systemContent,
-        resultContent: unavailableText ?? detail.userContent,
+        currentContent: detail.userContent,
+        incomingContent: detail.systemContent,
+        resultContent: detail.userContent,
         currentLabel: "用户覆盖",
         incomingLabel: "系统版本",
         baseLabel: "上次同步版本",
@@ -427,6 +433,8 @@ onMounted(() => {
             :document="syncConflictDocument"
             title="用户覆盖 Diff"
             :subtitle="syncConflictSubtitle"
+            :available-modes="['diff']"
+            initial-mode="diff"
             :merge-readonly="true"
             :actions="[{id: 'cancel', label: '关闭'}]"
             @action="handleSyncDiffAction"

@@ -87,6 +87,8 @@ function handleAction(payload: DiffWorkbenchActionPayload): void {
         :theme="theme"
         :title="dialogTitle"
         :subtitle="subtitle"
+        :available-modes="['diff', 'merge', 'current-base', 'incoming-base']"
+        initial-mode="diff"
         :actions="[
             {id: 'cancel', label: '取消'},
             {id: 'reload-remote', label: remoteActionLabel},

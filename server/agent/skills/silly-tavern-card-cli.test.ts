@@ -1,5 +1,5 @@
 import path from "node:path";
-import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdtemp, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {afterEach, describe, expect, it} from "vitest";
 import {
@@ -74,45 +74,81 @@ describe("silly-tavern-card cli helpers", () => {
         expect(skill?.whenToUse).toContain("酒馆角色卡");
     });
 
-    it("import 写入 Project Workspace 并保护用户手改文件", async () => {
+    it("inspect 只输出 overview，不生成解包文件", async () => {
         const workspace = await createProjectWorkspace(tempRoots);
         const input = path.resolve(".agent/workspace/cards/公立育露学园/2.28_v1--reload.raw.json");
 
-        const logs = await captureConsoleLog(() => runCli(["bun", "silly-tavern-card", "import", input, "--workspace", workspace, "--rp"]));
-        const lorebookPath = path.join(workspace, "lorebook", "note", "silly-tavern-2.28-尝鲜版v1-全裸登校-育露学园的第一天-reload", "index.md");
-        const generated = await readFile(lorebookPath, "utf-8");
-        expect(generated).toContain("reference/silly-tavern/2.28-尝鲜版v1-全裸登校-育露学园的第一天-reload/inspect.md");
-        expect(logs.join("\n")).toContain("st-card-workspace-");
-        expect(logs.join("\n")).toContain("reference/silly-tavern/2.28-尝鲜版v1-全裸登校-育露学园的第一天-reload/import-report.md");
-        expect(logs.join("\n")).not.toContain(workspace);
-        const report = await readFile(path.join(workspace, "reference", "silly-tavern", "2.28-尝鲜版v1-全裸登校-育露学园的第一天-reload", "import-report.md"), "utf-8");
-        expect(report).toContain("st-card-workspace-");
-        expect(report).not.toContain(workspace);
-        expect(JSON.parse(await readFile(`${lorebookPath}.generated.json`, "utf-8"))).toMatchObject({
-            marker: "neuro-book:silly-tavern-card generated-sha256",
-            target: "index.md",
-        });
+        const logs = await captureConsoleLog(() => runCli(["bun", "silly-tavern-card", "inspect", input]));
 
-        await expect(runCli(["bun", "silly-tavern-card", "import", input, "--workspace", workspace])).rejects.toThrow("目标已存在");
-        await runCli(["bun", "silly-tavern-card", "import", input, "--workspace", workspace, "--force"]);
-
-        await writeFile(lorebookPath, `${generated}\n用户手改\n`, "utf-8");
-        await expect(runCli(["bun", "silly-tavern-card", "import", input, "--workspace", workspace, "--force"])).rejects.toThrow("拒绝覆盖");
+        expect(logs.join("\n")).toContain("Overview");
+        await expect(stat(path.join(workspace, "reference"))).rejects.toThrow();
     });
 
-    it("拒绝非 Project Workspace 和 unknown import", async () => {
+    it("unpack 生成稳定解包目录和单个 generated.json", async () => {
+        const workspace = await createProjectWorkspace(tempRoots);
+        const input = path.resolve(".agent/workspace/cards/公立育露学园/2.28_v1--reload.raw.json");
+
+        await runCli(["bun", "silly-tavern-card", "unpack", input, "--project", workspace]);
+        const unpackDir = path.join(workspace, "reference", "silly-tavern", "2.28-尝鲜版v1-全裸登校-育露学园的第一天-reload");
+        const manifest = JSON.parse(await readFile(path.join(unpackDir, "generated.json"), "utf-8")) as {files: Record<string, unknown>};
+
+        expect(await readFile(path.join(unpackDir, "raw", "card.json"), "utf-8")).toContain("chara_card_v3");
+        expect(await readFile(path.join(unpackDir, "extensions", "tavern_helper.scripts.json"), "utf-8")).toContain("[");
+        expect(await readFile(path.join(unpackDir, "extensions", "tavern_helper.variables.json"), "utf-8")).toContain("{");
+        expect(await readFile(path.join(unpackDir, "extensions", "regex_scripts.json"), "utf-8")).toContain("[");
+        const worldbookEntryFiles = await readdir(path.join(unpackDir, "worldbook", "entries"));
+        expect(worldbookEntryFiles.length).toBeGreaterThan(0);
+        expect(worldbookEntryFiles[0]).toMatch(/^\d{6}-/);
+        const entryOrders = worldbookEntryFiles.map((file) => Number(file.slice(0, 6)));
+        expect(entryOrders).toEqual([...entryOrders].sort((left, right) => left - right));
+        const firstWorldbookEntry = await readFile(path.join(unpackDir, "worldbook", "entries", worldbookEntryFiles[0]), "utf-8");
+        expect(firstWorldbookEntry).toContain("---\ntitle:");
+        expect(firstWorldbookEntry).toContain("source: \"silly-tavern-worldbook\"");
+        expect(firstWorldbookEntry).toContain("insertion_order:");
+        expect(firstWorldbookEntry).toContain("extensions:");
+        expect((await readdir(path.join(unpackDir, "extensions", "regex_scripts"))).length).toBeGreaterThan(0);
+        expect((await readdir(path.join(unpackDir, "extensions", "tavern_helper", "scripts"))).length).toBeGreaterThan(0);
+        expect(Object.keys(manifest.files).length).toBeGreaterThan(5);
+        expect((await readdir(path.join(unpackDir, "raw"))).some((file) => file.endsWith(".generated.json"))).toBe(false);
+
+        await expect(runCli(["bun", "silly-tavern-card", "unpack", input, "--project", workspace])).rejects.toThrow("文件已存在");
+        await runCli(["bun", "silly-tavern-card", "unpack", input, "--project", workspace, "--force"]);
+
+        const overviewPath = path.join(unpackDir, "overview.md");
+        await writeFile(overviewPath, `${await readFile(overviewPath, "utf-8")}\n用户手改\n`, "utf-8");
+        await expect(runCli(["bun", "silly-tavern-card", "unpack", input, "--project", workspace, "--force"])).rejects.toThrow("拒绝覆盖");
+    });
+
+    it("import 从解包目录导入 worldbook，并拒绝 unknown 解包", async () => {
+        const workspace = await createProjectWorkspace(tempRoots);
+        const input = path.resolve(".agent/workspace/cards/公立育露学园/2.28_v1--reload.raw.json");
+        await runCli(["bun", "silly-tavern-card", "unpack", input, "--project", workspace]);
+
+        const unpackDir = "reference/silly-tavern/2.28-尝鲜版v1-全裸登校-育露学园的第一天-reload";
+        await runCli(["bun", "silly-tavern-card", "import", unpackDir, "--project", workspace, "--rp"]);
+        const lorebookDirs = await readdir(path.join(workspace, "lorebook", "note"));
+        expect(lorebookDirs.length).toBeGreaterThan(5);
+        expect(lorebookDirs[0]).toMatch(/^\d{6}-/);
+        const firstLorebook = await readFile(path.join(workspace, "lorebook", "note", lorebookDirs[0], "index.md"), "utf-8");
+        expect(firstLorebook).toContain("sillyTavernWorldbook:");
+        expect(firstLorebook).toContain("insertion_order:");
+        expect(firstLorebook).toContain("extensions:");
+        expect(await readFile(path.join(workspace, unpackDir, "import-report.md"), "utf-8")).toContain("lorebook/note/");
+
+        await expect(runCli(["bun", "silly-tavern-card", "import", unpackDir, "--project", workspace])).rejects.toThrow("文件已存在");
+
+        const unknownJson = path.join(workspace, "unknown.json");
+        await writeFile(unknownJson, "{\"hello\":\"world\"}\n", "utf-8");
+        await runCli(["bun", "silly-tavern-card", "unpack", unknownJson, "--project", workspace, "--out", "reference/unknown"]);
+        await expect(runCli(["bun", "silly-tavern-card", "import", "reference/unknown/unknown", "--project", workspace, "--force"])).rejects.toThrow("不是可识别");
+    });
+
+    it("拒绝非 Project Workspace", async () => {
         const notWorkspace = await mkdtemp(path.join(tmpdir(), "st-card-not-workspace-"));
         tempRoots.push(notWorkspace);
         const input = path.resolve(".agent/workspace/cards/公立育露学园/2.28_v1--reload.raw.json");
 
-        await expect(runCli(["bun", "silly-tavern-card", "inspect", input, "--workspace", notWorkspace])).rejects.toThrow("project.yaml");
-
-        const workspace = await createProjectWorkspace(tempRoots);
-        const unknownJson = path.join(workspace, "unknown.json");
-        await writeFile(unknownJson, "{\"hello\":\"world\"}\n", "utf-8");
-
-        await runCli(["bun", "silly-tavern-card", "inspect", unknownJson, "--workspace", workspace]);
-        await expect(runCli(["bun", "silly-tavern-card", "import", unknownJson, "--workspace", workspace, "--force"])).rejects.toThrow("不是可识别");
+        await expect(runCli(["bun", "silly-tavern-card", "unpack", input, "--project", notWorkspace])).rejects.toThrow("project.yaml");
     });
 });
 
@@ -136,3 +172,4 @@ async function captureConsoleLog(callback: () => Promise<void>): Promise<string[
         console.log = original;
     }
 }
+

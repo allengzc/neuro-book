@@ -14,6 +14,8 @@ const props = withDefaults(defineProps<{
     document: DiffWorkbenchDocument | null;
     theme?: IdeTheme;
     actions?: DiffWorkbenchAction[];
+    availableModes?: DiffWorkbenchMode[];
+    initialMode?: DiffWorkbenchMode;
     mergeReadonly?: boolean;
     renderSideBySide?: boolean;
     showWhitespace?: boolean;
@@ -42,7 +44,7 @@ const mode = ref<DiffWorkbenchMode>("diff");
 const resultContent = ref("");
 
 watch(() => props.document, (document) => {
-    mode.value = "diff";
+    mode.value = props.initialMode ?? "diff";
     resultContent.value = document?.resultContent ?? document?.currentContent ?? "";
 }, {immediate: true});
 
@@ -71,15 +73,20 @@ function handleAction(action: DiffWorkbenchAction): void {
     if (!props.document) {
         return;
     }
+    const nextResultContent = action.id === "use-current"
+        ? props.document.currentContent
+        : action.id === "use-incoming"
+            ? props.document.incomingContent
+            : resultContent.value;
     emit("action", {
         actionId: action.id,
-        resultContent: resultContent.value,
+        resultContent: nextResultContent,
         document: {
             ...props.document,
-            resultContent: resultContent.value,
+            resultContent: nextResultContent,
         },
     });
-    if (action.id === "cancel") {
+    if (action.closeOnAction ?? action.id === "cancel") {
         closeDialog();
     }
 }
@@ -104,6 +111,8 @@ function handleAction(action: DiffWorkbenchAction): void {
                 :document="{...document, resultContent}"
                 :theme="theme"
                 :mode="mode"
+                :available-modes="availableModes"
+                :initial-mode="initialMode"
                 :merge-readonly="mergeReadonly"
                 :render-side-by-side="renderSideBySide"
                 :show-whitespace="showWhitespace"
@@ -120,6 +129,7 @@ function handleAction(action: DiffWorkbenchAction): void {
                 type="button"
                 class="diff-workbench-dialog__button"
                 :class="action.tone === 'primary' ? 'primary' : action.tone === 'danger' ? 'danger' : ''"
+                :disabled="action.disabled"
                 @click="handleAction(action)"
             >
                 {{ actionLabel(action) }}
@@ -154,6 +164,11 @@ function handleAction(action: DiffWorkbenchAction): void {
 
 .diff-workbench-dialog__button:hover {
     background: var(--bg-hover);
+}
+
+.diff-workbench-dialog__button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
 }
 
 .diff-workbench-dialog__button.primary {

@@ -39,5 +39,6 @@ dist/
 /.agent/workspace-files-test/
 /.agent/file-tool-test/
 /.agent/*.test
+/.agent/*smoke
 /.agent/deploy*
 /.traces/

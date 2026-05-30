@@ -53,7 +53,7 @@
 - 角色卡导入分两层：
   - 基础写作层：默认执行，把可稳定复用的角色、地点、势力、规则、世界观、事件背景等导入 `lorebook/` 和 `reference/`。
   - RP 扩展层：可选执行，在基础写作层之上创建或更新 `roleplay/`，保存 GM 口径、角色映射、会话模板、变量草案、MVU 更新规则和状态栏/UI 迁移说明。
-- 不单独维护 `conversion-plan.md`。导入过程以 `inspect.md` / `inspect.json` 作为分析结果，以 import report 记录本次写入、跳过、归档和需人工确认的内容。
+- 不单独维护 `conversion-plan.md`。`inspect` 只输出临时 overview；稳定证据由 `unpack` 写入解包目录；导入过程以 unpack report 和 import report 记录本次写入、跳过、归档和需人工确认的内容。
 - RP 目录建议使用更可读的 `roleplay/`，而不是缩写 `rp/`。
 - `roleplay/` 是当前小说 workspace 的一部分，可以被用户资产、workspace 覆盖 agent/profile 机制自然配合。
 - 初始 `roleplay/` 建议结构：
@@ -78,9 +78,24 @@ reference/silly-tavern/{card-slug}/
 |-- raw/
 |   |-- card.json
 |   `-- source.png
-|-- inspect.md
+|-- overview.md
 |-- inspect.json
-`-- import-report.md
+|-- generated.json
+|-- unpack-report.md
+|-- import-report.md
+|-- worldbook/
+|   |-- entries.json
+|   `-- entries/
+`-- extensions/
+    |-- extensions.json
+    |-- regex_scripts.json
+    |-- regex_scripts/
+    |-- tavern_helper.json
+    |-- tavern_helper.scripts.json
+    |-- tavern_helper.variables.json
+    `-- tavern_helper/
+        |-- scripts/
+        `-- variables/
 ```
 
 - 导入到项目稳定结构时，按内容语义进入：
@@ -94,16 +109,15 @@ lorebook/note/...
 roleplay/imports/silly-tavern/...
 ```
 
-- 角色卡导入流程建议使用四个阶段，但对用户可表现为一个导入命令：
+- 角色卡导入流程建议使用三个阶段：
 
 ```text
-extract -> inspect -> import-writing -> import-rp-extension
+inspect -> unpack -> import
 ```
 
-  - `extract`：识别 PNG 角色卡、JSON 角色卡或预设 JSON，保存原始素材和解析结果。
-  - `inspect`：生成 `inspect.md` 和 `inspect.json`，分类 worldbook、regex、tavern_helper scripts、MVU、EJS、`@INJECT`、`@@if`、`[InitialVariables]` 等内容。
-  - `import-writing`：默认执行，把稳定设定导入写作项目资产，动态脚本和运行逻辑只归档说明，不直接执行。
-  - `import-rp-extension`：可选执行。第一版只生成 `roleplay/imports/silly-tavern/{card-slug}/` 动态机制归档；`roleplay/GM.md`、`roleplay/cast/mapping.md`、`roleplay/sessions/current.md` 和 `roleplay/variables/` 后续由 RP 目录初始化 skill 或变量系统设计承接。
+  - `inspect`：只读取输入并在 stdout 输出 overview 给 AI 临时查看，不写入 Project Workspace。
+  - `unpack`：识别 PNG 角色卡、JSON 角色卡或预设 JSON，保存原始素材、inspect JSON、overview、worldbook entries、regex scripts、tavern_helper scripts / variables 和 unpack report；worldbook 按 `insertion_order` 排序，文件名前缀使用 6 位补零的 `insertion_order`，逐条保存为 frontmatter + 正文 Markdown，并在 `st` 下保留除 `content` 外的原始字段，包括 `insertion_order`、`extensions` 和触发/排序字段；regex、tavern_helper scripts、tavern_helper variables 同时保留聚合 JSON 和逐条 JSON。
+  - `import`：从解包目录读取 `raw/card.json` 和 `inspect.json`，按 `insertion_order` 把 worldbook entry 写入 Project Workspace 的普通 `lorebook/note/.../index.md` 文件，目录名前缀使用 6 位补零的 `insertion_order`，并在 `ext.sillyTavernWorldbook` 下保留原始 worldbook 元数据；可选 `--rp` 额外生成 `roleplay/imports/silly-tavern/{card-slug}/` 动态机制归档。
 
 - 迁移脚本应按长期工具设计，模块边界暂定为：
 
@@ -115,7 +129,7 @@ mvu-detector   # InitVar / UpdateVariable / json_patch / _.set
 ejs-detector   # EJS / @INJECT / @@if / GENERATE / RENDER
 mapper         # ST 分类 -> Neuro Book 文件目标
 writer         # 幂等写入 project
-reporter       # inspect.md / inspect.json / import-report.md
+reporter       # overview.md / inspect.json / unpack-report.md / import-report.md
 ```
 
 - 迁移脚本的工程要求：
@@ -130,14 +144,15 @@ reporter       # inspect.md / inspect.json / import-report.md
 - 已新增系统 skill：`assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/SKILL.md`。
 - 已新增配套 CLI：`assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`。
 - CLI 当前支持：
-  - `inspect <input> --workspace <path>`：读取 `.json`、`.raw.json` 或 best-effort PNG 文本块，生成 `reference/silly-tavern/{slug}/raw/card.json`、`inspect.md`、`inspect.json`。
-  - `import <input> --workspace <path>`：先执行 inspect，再把角色卡稳定文本聚合写入 `lorebook/note/silly-tavern-{slug}/index.md`，并生成 `import-report.md`。
-  - `import ... --rp`：额外生成 `roleplay/imports/silly-tavern/{slug}/dynamic-prompt.md`、`initvar.md`、`update-rules.md`、`status-ui.md`、`scripts.md`。
+  - `inspect <input>`：读取 `.json`、`.raw.json` 或 best-effort PNG 文本块，只在 stdout 输出临时 overview，不生成文件。
+  - `unpack <input> --project <path>`：生成 `reference/silly-tavern/{slug}/` 解包目录，包含 raw、overview、inspect、worldbook、regex、tavern_helper 和 unpack report；worldbook 会逐条拆成 frontmatter + 正文 Markdown，regex/scripts/variables 会逐条拆成独立 JSON。
+  - `import <unpackDir> --project <path>`：从解包目录读取数据，把 worldbook entries 写入 `lorebook/note/.../index.md`，并在解包目录生成 `import-report.md`。
+  - `import <unpackDir> ... --rp`：额外生成 `roleplay/imports/silly-tavern/{slug}/dynamic-prompt.md`、`initvar.md`、`update-rules.md`、`status-ui.md`、`scripts.md`。
   - preset-like JSON 只归档和报告，不作为角色主体写入 lorebook。
-  - `--workspace` 必须指向包含 `project.yaml` 的 Project Workspace。
-  - `import` 会拒绝 unknown JSON；`inspect` 仍允许 unknown，用于查看原始结构。
-  - 脚本写入的文件会带邻近 `.generated.json` 指纹；`--force` 只覆盖未被用户手改的脚本生成文件。
-- 已新增测试：`server/agent/skills/silly-tavern-card-cli.test.ts`，覆盖三张样本 raw 卡、预设识别、动态 marker 统计、Windows 路径 slug、Project Workspace 校验、unknown import 拒绝、CLI 写入和用户手改保护。
+  - `--project` 必须指向包含 `project.yaml` 的 Project Workspace，避免和 Workspace Root / `.nbook` 混淆。
+  - `import` 会拒绝 unknown 解包目录；`inspect` / `unpack` 仍允许 unknown，用于查看和保存原始结构。
+  - 解包目录根部有集中 `generated.json` 指纹清单；`--force` 只覆盖未被用户手改的脚本生成文件。
+- 已新增测试：`server/agent/skills/silly-tavern-card-cli.test.ts`，覆盖三张样本 raw 卡、预设识别、动态 marker 统计、Windows 路径 slug、Project Workspace 校验、inspect 不写文件、unpack 目录结构、集中 `generated.json`、import 从解包目录读取和用户手改保护。
 
 - 变量系统暂不实现。第一阶段先把纯文本卡导入做好；复杂数值、好感度、背包、任务进度、状态栏等后续专门设计。
 - 泛用自然语言编辑工具先记录为 TODO。该工具不是 state 专用，参数方向暂定为：目标文件、自然语言操作说明、可选携带上下文消息数量，后续可接轻量模型。
@@ -164,7 +179,7 @@ reporter       # inspect.md / inspect.json / import-report.md
 - `PROJECT-STATUS.md`：新增泛用自然语言编辑工具 TODO。
 - `docs/tasks/01-agent-roleplay-mode/README.md`：新增并持续更新本任务 walkthrough。
 - `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/SKILL.md`：新增角色卡导入 skill 入口说明。
-- `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`：新增 inspect/import CLI。
+- `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`：新增 inspect/unpack/import CLI。
 - `server/agent/skills/silly-tavern-card-cli.test.ts`：新增 CLI helper 与 catalog 可发现性测试。
 - `.agent/workspace/cards/*/*.raw.json`：从三张 PNG 样本卡提取原始内嵌 JSON，供后续分析使用。
 
@@ -172,9 +187,7 @@ reporter       # inspect.md / inspect.json / import-report.md
 
 - 已用 `jq` 校验三张 `*.raw.json` 能正常解析。
 - 已确认 `命定之诗Kemini5-3.8.json` 是预设 JSON，不再重复 extract。
-- 已运行 `bun run test server/agent/skills/silly-tavern-card-cli.test.ts`，覆盖三张样本 raw 卡、preset-like JSON、动态 marker、slug 和 v3 SkillCatalog 可发现性。
-- 已用 `import --rp --force --json` 对 `公立育露学园/2.28_v1--reload.raw.json` 做烟测，确认能生成 `reference/silly-tavern/`、`lorebook/note/` 和 `roleplay/imports/silly-tavern/` 文件。
-- 已用 `inspect --force --json` 对 `公立育露学园/2.28_v1--reload.png` 做 PNG 烟测，确认样本 PNG 可直接解析。
+- 已运行 `bun run test server/agent/skills/silly-tavern-card-cli.test.ts`，覆盖三张样本 raw 卡、preset-like JSON、动态 marker、slug、v3 SkillCatalog 可发现性、inspect/unpack/import 三段式行为和用户手改保护。
 
 ## TODO / Follow-ups
 

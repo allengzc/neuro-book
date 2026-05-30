@@ -198,6 +198,7 @@ function handleKeydown(event: KeyboardEvent): void {
 
 .frontmatter-textarea {
     min-height: 112px;
+    height: 336px;
     resize: vertical;
     border: 1px solid var(--border-color);
     border-radius: 6px;

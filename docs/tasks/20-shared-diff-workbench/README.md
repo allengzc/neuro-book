@@ -6,7 +6,7 @@
 
 第一批落点：
 
-- user-assets 同步系统 assets 时，如果用户覆盖 profile / runtime asset / writing preset 已手改且系统也更新，前端要明确展示冲突/保留原因，并能查看系统版本与用户版本 diff。
+- user-assets 同步系统 assets 时，如果用户覆盖 profile 或受管理 `.nbook` asset 已手改且系统也更新，前端要明确展示冲突/保留原因，并能查看系统版本与用户版本 diff。
 - Markdown Studio 源码编辑器中，如果用户正在编辑文件，同时 Agent 或其他工具更新了磁盘文件，使用同一套 diff/merge UI 处理网页编辑、磁盘版本和共同基线。
 - 现有 `WorkspaceFileConflictDialog.vue` 不再独占 Monaco diff 逻辑，改为复用通用组件。
 
@@ -14,7 +14,7 @@
 
 - 后端 `syncSystemAssetsToUserAssets()` 已检测用户覆盖冲突：
   - `profileWarnings[]` 会返回“系统 profile 已更新，但用户覆盖已手改，未自动覆盖”。
-  - `assetWarnings[]` 会返回 runtime asset、writing preset、variable definition 等类似 warning。
+  - `assetWarnings[]` 会返回 managed `.nbook` asset 的类似 warning，覆盖 `agent/skills/**`、`templates/**`、`agent/profile-templates/**`、`agent/bin/**`、`agent/scripts/**`、`agent/config/**`、writing presets 等；本地状态、sessions、compiled artifact 和 profile metadata 被黑名单排除。
   - 当前 API 不会覆盖已手改用户文件，这是正确的。
 - 前端 `NovelIdeToolPanel.vue` 的同步按钮只显示 copied/skipped success，不展示 `profileWarnings` / `assetWarnings`，所以用户看不到冲突。
 - `server/workspace-files/workspace-file-conflict.ts` 已能生成三方冲突数据：
@@ -59,6 +59,7 @@
   - `resultContent`：最终要保存/提交的合并结果。
 - user-assets sync warning 不持久化；后端每次根据当前文件 hash、system metadata 和 sync state 重新计算。
 - user-assets conflict detail API 不依赖前端 user-assets mode 作为安全边界；后端必须做路径白名单，只允许读取 `workspace/.nbook` 与 `assets/workspace/.nbook` 下的可 diff 文本文件。
+- user-assets sync 采用黑名单式 managed asset：系统 `.nbook` 大多数文件默认进入 sync state，profile 源文件和 variable definitions 保留专用编译产物同步流程；系统删除传播第一版不自动删除用户旧文件。
 - diff 组件不支持二进制正文 diff；二进制或超过阈值的大文件只展示文件名、大小、hash 和不可 diff 说明。
 - 覆盖动作由业务决定：
   - workspace 保存冲突保留现有“覆盖真实文件”能力。
@@ -410,3 +411,66 @@ bunx nuxi typecheck --dotenv .env.typecheck --logLevel silent
 - 页面渲染出 `通用 Diff Workbench`、Markdown/TSX/JSON/删除文件/冲突 marker/长文本样例。
 - Monaco 相关 DOM 已渲染：`.monaco-editor` / `.monaco-diff-editor` 共 4 个，`canvas` 共 8 个。
 - Merge result 面板已渲染 `当前 Merge Result`。
+
+### 2026-05-30
+
+已完成第一轮组件合同优化：
+
+- `DiffWorkbenchDocument` 新增 `diffable`、`unavailableReason`、`notice` 和 `metadata`，用于直接表达二进制、大文件、缺失文件等不可 diff 状态。
+- `DiffWorkbench` 新增 `availableModes` 与 `initialMode`，调用方可以把工作台收口成只读二方 diff、完整 merge，或带 base tabs 的三方冲突视图。
+- `DiffWorkbench` 在 `diffable=false` 时不再初始化 Monaco，而是展示统一不可 diff 状态、文件大小和 hash 摘要。
+- `DiffWorkbenchDialog` 的 `use-current` / `use-incoming` / `save-result` 动作现在会返回正确的 `resultContent`；action 支持 `disabled` 与 `closeOnAction`。
+- `SharedMergeEditor` 删除未使用的 `baseContent` prop，明确三列只表示 `current / incoming / result`；共同基线仍由 Workbench 的 base tabs 展示。
+- `WorkspaceFileConflictDialog.vue` 显式启用完整 diff/merge/base tabs，保存冲突流程不变。
+- `NovelIdeToolPanel.vue` 的 user-assets sync diff 收口为只读 `Diff` tab，并用结构化字段展示不可 diff 文件，不再把说明文案伪装成左右两份文本。
+- `/diff-workbench.preview` 增加不可 diff 二进制样例。
+
+验证结果：
+
+```powershell
+bunx vitest run server/workspace-files/workspace-file-conflict.test.ts server/api/workspace-files/write.put.test.ts
+```
+
+结果：2 个测试文件通过，2 个测试通过。
+
+补充验证：
+
+```powershell
+bunx vue-tsc --noEmit --pretty false
+```
+
+结果：失败在本任务外的既有类型错误：
+
+- `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts` 的 `inspection` 字段类型不匹配。
+- `server/agent/session/session-repo.ts` 的 `origin` 字段收窄问题。
+- `server/agent/skills/silly-tavern-card-cli.test.ts` 的 possibly undefined 断言。
+
+### 2026-05-30 follow-up
+
+已把 user-assets sync 从少数白名单扩展为 `.nbook` 黑名单式 managed sync：
+
+- `syncSystemAssetsToUserAssets()` 现在遍历 `assets/workspace/.nbook`，除本地状态、session、compiled artifact、profile metadata 和专用 profile/variable 源外，默认纳入 `.profile-sync-state.json` 跟踪。
+- `agent/skills/**`、`templates/**`、`agent/profile-templates/**`、`agent/bin/**`、`agent/scripts/**`、`agent/config/**` 和 writing presets 都支持未手改自动更新，已手改且系统也更新时返回 `assetWarnings[]`。
+- profile 源文件仍走 `.system-profile-metadata.json` + compiled artifact 专用同步；`agent/variables/definitions.ts` 仍走 variable compiled artifact 专用同步。
+- conflict detail 的 asset 路径改为直接按 `.nbook` 相对路径读取系统与用户文件；保留旧 writing preset sync state 的查找兼容，但新写入状态统一使用 `agent/writing-presets/...`。
+
+计划偏差：
+
+- 第一版不做系统删除传播；系统侧删除的资源不会自动删除用户覆盖层旧文件，也不会额外 warning。
+- 未做浏览器验证；本次只改后端同步范围和 diff detail 路径。
+
+验证结果：
+
+```powershell
+bun test server/workspace-files/workspace-files.test.ts --runInBand
+```
+
+结果：1 个测试文件通过，53 个测试通过。
+
+补充验证：
+
+```powershell
+bunx tsc --noEmit --pretty false
+```
+
+结果：失败在本任务外既有类型错误，包括 SillyTavern skill 脚本的 `inspection` 字段、`server/agent/session/session-repo.ts` 的 `origin` 字段收窄，以及 `server/agent/skills/silly-tavern-card-cli.test.ts` 的 possibly undefined 断言。

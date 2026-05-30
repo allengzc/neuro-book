@@ -1,6 +1,6 @@
 {
   "compilerVersion": 1,
-  "generatedAt": "2026-05-29T15:04:23.869Z",
+  "generatedAt": "2026-05-30T01:29:59.981Z",
   "profilesRoot": "assets/workspace/.nbook/agent/profiles",
   "profiles": [
     {
@@ -413,10 +413,10 @@
       "profileKey": "writer",
       "sourceSha256": "b99697e0e53234b95ae3eda918fe3e539e3303dde205ea6b072298d51f3e35e9",
       "sourceBytes": 33988,
-      "dependencyHash": "3ca43e07bc425202fccc2cca",
+      "dependencyHash": "ac4f845dc3fdc50f0821734a",
       "artifactFileName": "builtin__writer.mjs",
-      "artifactSha256": "1d1ba83e03ab76ceb4b16ccef4e70a4e9620db05a9378b396e077b5eb1a32a9c",
-      "artifactBytes": 283297,
+      "artifactSha256": "1a2879bfd586beeb8bf06376905403c7b01448ad82d364aecf3bfa251303c412",
+      "artifactBytes": 283097,
       "typeFileName": "builtin__writer.types.d.ts",
       "typeSha256": "21d282dcafc806c05e7c935c41e70226d12bf03658de82957b64efe4fde55c54",
       "typeBytes": 374,
@@ -665,8 +665,8 @@
         },
         {
           "path": "server/workspace-files/novel-workspace.ts",
-          "sha256": "bc0b66ca4cf7fbdd34f72bd84b4a3e8c6110acf01dfbaf978e51cdb61ce11a2b",
-          "bytes": 51363
+          "sha256": "72603e8907bc9c1aa51b587defca47e257a99e2f8c2c9c41943c25d7f7d28d33",
+          "bytes": 48273
         },
         {
           "path": "server/workspace-files/project-workspace.ts",

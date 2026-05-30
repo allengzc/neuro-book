@@ -6,7 +6,6 @@ import type * as Monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 
 const props = withDefaults(defineProps<{
     modelValue: string;
-    baseContent?: string;
     currentContent?: string;
     incomingContent?: string;
     currentLabel?: string;
@@ -18,7 +17,6 @@ const props = withDefaults(defineProps<{
     showWhitespace?: boolean;
     resultLabel?: string;
 }>(), {
-    baseContent: "",
     currentContent: "",
     incomingContent: "",
     currentLabel: "Current",

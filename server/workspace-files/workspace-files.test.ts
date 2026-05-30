@@ -9,7 +9,7 @@ import {createWorkspaceContentFrontmatterDefaults, workspaceContentJsonSchema} f
 import {renderWorkspaceContentTemplate, renderWorkspaceContentTemplateBundle, renderWorkspaceStateTemplate} from "nbook/server/workspace-files/content-node-templates";
 import {copyNovelDirectoryTemplate, readUserAssetsSyncConflictDetail, resolveWorkspaceRootInput, syncSystemAssetsToUserAssets, USER_ASSETS_WORKSPACE_ROOT} from "nbook/server/workspace-files/novel-workspace";
 import {initProjectDatabase, listProjectWorkspaces, readProjectManifest, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
-import {invalidateProjectWorkspaceIndexAfterMutation, readPlainWorkspaceTreeSnapshot, readProjectWorkspaceTreeSnapshot} from "nbook/server/workspace-files/project-workspace-index";
+import {closeWorkspaceTreeIndex, invalidateProjectWorkspaceIndexAfterMutation, readPlainWorkspaceTreeSnapshot, readProjectWorkspaceTreeSnapshot, setProjectWorkspaceIndexCommitHookForTest} from "nbook/server/workspace-files/project-workspace-index";
 import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {updateNovelByTool} from "nbook/server/utils/novel-chapter";
 
@@ -26,6 +26,8 @@ describe("workspace-files", () => {
     });
 
     afterEach(async () => {
+        setProjectWorkspaceIndexCommitHookForTest(null);
+        await closeWorkspaceTreeIndex(root);
         await fs.rm(root, {recursive: true, force: true});
     });
 
@@ -165,6 +167,77 @@ describe("workspace-files", () => {
         expect(after.nodes.some((node) => node.path === "lorebook/note/cache-refresh/")).toBe(true);
         expect(after.revision).toBeGreaterThan(before.revision);
         expect(after.issues.some((issue) => issue.path === "lorebook/note/cache-refresh/")).toBe(true);
+    });
+
+    it("Project Workspace tree index 会 watch 外部新增文件并自动更新缓存", async () => {
+        const before = await readProjectWorkspaceTreeSnapshot({root});
+        await fs.mkdir(path.join(root, "reference", "silly-tavern"), {recursive: true});
+        await fs.writeFile(path.join(root, "reference", "silly-tavern", "cache-refresh.md"), "外部导入素材\n", "utf-8");
+
+        const refreshed = await waitForProjectWorkspaceTreePath("reference/silly-tavern/cache-refresh.md");
+
+        expect(before.nodes.some((node) => node.path === "reference/silly-tavern/cache-refresh.md")).toBe(false);
+        expect(refreshed.nodes.some((node) => node.path === "reference/silly-tavern/cache-refresh.md")).toBe(true);
+        expect(refreshed.revision).toBeGreaterThan(before.revision);
+    });
+
+    it("Project Workspace mutation 失效后会通过同一套 index 重建缓存", async () => {
+        const before = await readProjectWorkspaceTreeSnapshot({root});
+        await writeMarkdown("lorebook/note/mutation-rebuild/index.md", {
+            type: "note",
+            status: "draft",
+        });
+
+        invalidateProjectWorkspaceIndexAfterMutation({root});
+        const refreshed = await waitForProjectWorkspaceTreePath("lorebook/note/mutation-rebuild/");
+
+        expect(before.nodes.some((node) => node.path === "lorebook/note/mutation-rebuild/")).toBe(false);
+        expect(refreshed.nodes.some((node) => node.path === "lorebook/note/mutation-rebuild/")).toBe(true);
+        expect(refreshed.revision).toBeGreaterThan(before.revision);
+    });
+
+    it("Project Workspace rebuild 期间发生 mutation 不会被旧 build 清掉 dirty", async () => {
+        await readProjectWorkspaceTreeSnapshot({root});
+        await writeMarkdown("lorebook/note/first-mutation/index.md", {
+            type: "note",
+            status: "draft",
+        });
+
+        let hookCalled = false;
+        setProjectWorkspaceIndexCommitHookForTest(async () => {
+            if (hookCalled) {
+                return;
+            }
+            hookCalled = true;
+            await writeMarkdown("lorebook/note/second-mutation/index.md", {
+                type: "note",
+                status: "draft",
+            });
+            invalidateProjectWorkspaceIndexAfterMutation({root});
+        });
+
+        invalidateProjectWorkspaceIndexAfterMutation({root});
+        const first = await readProjectWorkspaceTreeSnapshot({root});
+        setProjectWorkspaceIndexCommitHookForTest(null);
+        const second = await readProjectWorkspaceTreeSnapshot({root});
+
+        expect(first.nodes.some((node) => node.path === "lorebook/note/first-mutation/")).toBe(true);
+        expect(first.nodes.some((node) => node.path === "lorebook/note/second-mutation/")).toBe(false);
+        expect(second.nodes.some((node) => node.path === "lorebook/note/second-mutation/")).toBe(true);
+        expect(second.revision).toBeGreaterThan(first.revision);
+    });
+
+    it("user-assets tree index 会 watch 外部新增文件且保持 issues 为空", async () => {
+        const before = await readPlainWorkspaceTreeSnapshot({root});
+        await fs.mkdir(path.join(root, "templates"), {recursive: true});
+        await fs.writeFile(path.join(root, "templates", "user-template.md"), "# 用户模板\n", "utf-8");
+
+        const refreshed = await waitForPlainWorkspaceTreePath("templates/user-template.md");
+
+        expect(before.nodes.some((node) => node.path === "templates/user-template.md")).toBe(false);
+        expect(refreshed.nodes.some((node) => node.path === "templates/user-template.md")).toBe(true);
+        expect(refreshed.issues).toEqual([]);
+        expect(refreshed.revision).toBeGreaterThan(before.revision);
     });
 
     it("project.yaml 格式错误时仍允许解析 Project Workspace 根目录", async () => {
@@ -633,7 +706,7 @@ describe("workspace-files", () => {
             const content = await fs.readFile(userProfilePath, "utf-8");
             const systemContent = await fs.readFile(systemProfilePath, "utf-8");
 
-            expect(result.copied).toBeGreaterThan(0);
+            expect(result.updatedProfiles).toBeGreaterThan(0);
             expect(content).toBe(systemContent);
             expect(content).toContain("profileManifest");
             expect(content).toContain("export default");
@@ -789,6 +862,21 @@ describe("workspace-files", () => {
         })).rejects.toThrow("assetPath 不能为空或包含非法片段");
     });
 
+    it("拒绝读取黑名单内的用户资产同步 diff 路径", async () => {
+        await expect(readUserAssetsSyncConflictDetail({
+            kind: "asset",
+            assetPath: "config.json",
+        })).rejects.toThrow("assetPath 不属于可读取的系统同步资源");
+        await expect(readUserAssetsSyncConflictDetail({
+            kind: "asset",
+            assetPath: "agent/sessions/1.jsonl",
+        })).rejects.toThrow("assetPath 不属于可读取的系统同步资源");
+        await expect(readUserAssetsSyncConflictDetail({
+            kind: "asset",
+            assetPath: "agent/profiles/.compiled/manifest.json",
+        })).rejects.toThrow("assetPath 不属于可读取的系统同步资源");
+    });
+
     it("同步系统 assets 会清理用户变量定义旧 compiled artifact", async () => {
         const userVariablePath = path.join("workspace", ".nbook", "agent", "variables", "definitions.ts");
         const userCompiledManifestPath = path.join("workspace", ".nbook", "agent", "variables", ".compiled", "manifest.json");
@@ -808,7 +896,7 @@ describe("workspace-files", () => {
             const manifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {definitions: Array<{fileName: string; artifactFileName: string; typeFileName?: string}>};
             const item = manifest.definitions.find((definition) => definition.fileName === "definitions.ts");
 
-            expect(result.copied).toBeGreaterThan(0);
+            expect(result.updatedAssets).toBeGreaterThan(0);
             expect(item?.artifactFileName).toBe("definitions.mjs");
             expect(item?.typeFileName).toBe("definitions.types.d.ts");
             await expect(fs.readFile(path.join("workspace", ".nbook", "agent", "variables", ".compiled", item!.artifactFileName), "utf-8")).resolves.toContain("definitions_default");
@@ -820,6 +908,32 @@ describe("workspace-files", () => {
             await restoreOptionalFile(userCompiledManifestPath, manifestBackup);
             await restoreOptionalFile(staleArtifactPath, staleArtifactBackup);
             await restoreOptionalFile(staleTypePath, staleTypeBackup);
+        }
+    });
+
+    it("可以读取用户变量定义覆盖的系统版本 diff 内容", async () => {
+        const assetPath = "agent/variables/definitions.ts";
+        const userVariablePath = path.join("workspace", ".nbook", ...assetPath.split("/"));
+        const systemVariablePath = path.join("assets", "workspace", ".nbook", ...assetPath.split("/"));
+        const syncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const variableBackup = await backupOptionalFile(userVariablePath);
+        const syncStateBackup = await backupOptionalFile(syncStatePath);
+
+        try {
+            await syncSystemAssetsToUserAssets();
+            await fs.appendFile(userVariablePath, "\n// user variable diff marker\n", "utf-8");
+
+            const detail = await readUserAssetsSyncConflictDetail({kind: "asset", assetPath});
+
+            expect(detail.kind).toBe("asset");
+            expect(detail.assetPath).toBe(assetPath);
+            expect(detail.userContent).toContain("user variable diff marker");
+            expect(detail.systemContent).toBe(await fs.readFile(systemVariablePath, "utf-8"));
+            expect(detail.language).toBe("typescript");
+            expect(detail.diffable).toBe(true);
+        } finally {
+            await restoreOptionalFile(userVariablePath, variableBackup);
+            await restoreOptionalFile(syncStatePath, syncStateBackup);
         }
     });
 
@@ -865,7 +979,7 @@ describe("workspace-files", () => {
             expect(result.copied + (result.updatedAssets ?? 0)).toBeGreaterThanOrEqual(1);
             expect(content).toContain("key: reborn-villain-loli-magic-girl.first-three-chapters.style");
             expect(syncState.assets).toEqual(expect.arrayContaining([
-                expect.objectContaining({assetPath: "styles/reborn-villain-loli-magic-girl.first-three-chapters.style.md"}),
+                expect.objectContaining({assetPath: "agent/writing-presets/styles/reborn-villain-loli-magic-girl.first-three-chapters.style.md"}),
             ]));
         } finally {
             await restoreOptionalFile(userPresetPath, backup);
@@ -873,7 +987,7 @@ describe("workspace-files", () => {
         }
     });
 
-    it("同步系统 assets 不会覆盖已有 Agent runtime bin 和 scripts", async () => {
+    it("同步系统 assets 会保留缺少 sync state 的手改 Agent runtime 文件", async () => {
         const paths = [
             path.join("workspace", ".nbook", "agent", "bin", "workspace"),
             path.join("workspace", ".nbook", "agent", "bin", "workspace.cmd"),
@@ -885,22 +999,32 @@ describe("workspace-files", () => {
             "console.log('user-script-preserved');\n",
         ];
         const backups = await Promise.all(paths.map((filePath) => backupOptionalFile(filePath)));
+        const syncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const syncStateBackup = await backupOptionalFile(syncStatePath);
 
         try {
+            await fs.mkdir(path.dirname(syncStatePath), {recursive: true});
+            await fs.writeFile(syncStatePath, JSON.stringify({profiles: [], assets: []}, null, 2), "utf-8");
             for (const [index, filePath] of paths.entries()) {
                 await fs.mkdir(path.dirname(filePath), {recursive: true});
                 await fs.writeFile(filePath, sentinels[index] ?? "", "utf-8");
             }
 
-            await syncSystemAssetsToUserAssets();
+            const result = await syncSystemAssetsToUserAssets();
 
             for (const [index, filePath] of paths.entries()) {
                 await expect(fs.readFile(filePath, "utf-8")).resolves.toBe(sentinels[index]);
             }
+            expect(result.assetWarnings).toEqual(expect.arrayContaining([
+                expect.objectContaining({assetPath: "agent/bin/workspace"}),
+                expect.objectContaining({assetPath: "agent/bin/workspace.cmd"}),
+                expect.objectContaining({assetPath: "agent/scripts/workspace.ts"}),
+            ]));
         } finally {
             for (const [index, filePath] of paths.entries()) {
                 await restoreOptionalFile(filePath, backups[index] ?? null);
             }
+            await restoreOptionalFile(syncStatePath, syncStateBackup);
         }
     });
 
@@ -937,6 +1061,142 @@ describe("workspace-files", () => {
             ]));
         } finally {
             await restoreOptionalFile(userScriptPath, scriptBackup);
+            await restoreOptionalFile(syncStatePath, syncStateBackup);
+        }
+    });
+
+    it("同步系统 assets 会管理 Agent skills、模板和 CLI 辅助文件", async () => {
+        const paths = [
+            path.join("workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"),
+            path.join("workspace", ".nbook", "templates", "content-node-templates", "chapter", "index.md"),
+            path.join("workspace", ".nbook", "agent", "bin", "profile"),
+            path.join("workspace", ".nbook", "agent", "config", "ripgreprc"),
+        ];
+        const syncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const backups = await Promise.all(paths.map((filePath) => backupOptionalFile(filePath)));
+        const syncStateBackup = await backupOptionalFile(syncStatePath);
+        await Promise.all(paths.map((filePath) => fs.rm(filePath, {force: true})));
+
+        try {
+            const result = await syncSystemAssetsToUserAssets();
+            const syncState = JSON.parse(await fs.readFile(syncStatePath, "utf-8")) as {assets?: Array<{assetPath: string}>};
+
+            expect(result.copied).toBeGreaterThanOrEqual(paths.length);
+            await expect(fs.readFile(paths[0]!, "utf-8")).resolves.toContain("profile");
+            await expect(fs.readFile(paths[1]!, "utf-8")).resolves.toContain("chapter");
+            await expect(fs.readFile(paths[2]!, "utf-8")).resolves.toContain("../scripts/profile.ts");
+            await expect(fs.readFile(paths[3]!, "utf-8")).resolves.toContain("--path-separator=/");
+            expect(syncState.assets).toEqual(expect.arrayContaining([
+                expect.objectContaining({assetPath: "agent/skills/profile-system-guide/SKILL.md"}),
+                expect.objectContaining({assetPath: "templates/content-node-templates/chapter/index.md"}),
+                expect.objectContaining({assetPath: "agent/bin/profile"}),
+                expect.objectContaining({assetPath: "agent/config/ripgreprc"}),
+            ]));
+        } finally {
+            for (const [index, filePath] of paths.entries()) {
+                await restoreOptionalFile(filePath, backups[index] ?? null);
+            }
+            await restoreOptionalFile(syncStatePath, syncStateBackup);
+        }
+    });
+
+    it("同步系统 assets 会更新仍跟随上游的 Agent skill", async () => {
+        const assetPath = "agent/skills/profile-system-guide/SKILL.md";
+        const userSkillPath = path.join("workspace", ".nbook", ...assetPath.split("/"));
+        const systemSkillPath = path.join("assets", "workspace", ".nbook", ...assetPath.split("/"));
+        const syncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const skillBackup = await backupOptionalFile(userSkillPath);
+        const syncStateBackup = await backupOptionalFile(syncStatePath);
+        const previousSkill = "# Old skill\n";
+        const previousHash = createHash("sha256").update(previousSkill).digest("hex");
+
+        try {
+            await fs.mkdir(path.dirname(userSkillPath), {recursive: true});
+            await fs.writeFile(userSkillPath, previousSkill, "utf-8");
+            await fs.writeFile(syncStatePath, JSON.stringify({
+                profiles: [],
+                assets: [{
+                    assetPath,
+                    upstreamHash: previousHash,
+                    lastSyncedUserHash: previousHash,
+                    syncedAt: new Date(0).toISOString(),
+                }],
+            }, null, 2), "utf-8");
+
+            const result = await syncSystemAssetsToUserAssets();
+
+            expect(result.updatedAssets).toBeGreaterThanOrEqual(1);
+            await expect(fs.readFile(userSkillPath, "utf-8")).resolves.toBe(await fs.readFile(systemSkillPath, "utf-8"));
+        } finally {
+            await restoreOptionalFile(userSkillPath, skillBackup);
+            await restoreOptionalFile(syncStatePath, syncStateBackup);
+        }
+    });
+
+    it("系统 skill 更新且用户覆盖已手改时会返回可查看 diff 的 warning", async () => {
+        const assetPath = "agent/skills/profile-system-guide/SKILL.md";
+        const userSkillPath = path.join("workspace", ".nbook", ...assetPath.split("/"));
+        const systemSkillPath = path.join("assets", "workspace", ".nbook", ...assetPath.split("/"));
+        const syncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const skillBackup = await backupOptionalFile(userSkillPath);
+        const syncStateBackup = await backupOptionalFile(syncStatePath);
+        const systemContent = await fs.readFile(systemSkillPath, "utf-8");
+        const syncedHash = createHash("sha256").update(systemContent).digest("hex");
+
+        try {
+            await fs.mkdir(path.dirname(userSkillPath), {recursive: true});
+            await fs.writeFile(userSkillPath, `${systemContent}\n<!-- user skill change -->\n`, "utf-8");
+            await fs.writeFile(syncStatePath, JSON.stringify({
+                profiles: [],
+                assets: [{
+                    assetPath,
+                    upstreamHash: "old-upstream-hash",
+                    lastSyncedUserHash: syncedHash,
+                    syncedAt: new Date(0).toISOString(),
+                }],
+            }, null, 2), "utf-8");
+
+            const result = await syncSystemAssetsToUserAssets();
+            const detail = await readUserAssetsSyncConflictDetail({kind: "asset", assetPath});
+
+            expect(result.assetWarnings).toEqual(expect.arrayContaining([
+                expect.objectContaining({assetPath}),
+            ]));
+            expect(detail.kind).toBe("asset");
+            expect(detail.assetPath).toBe(assetPath);
+            expect(detail.systemContent).toBe(systemContent);
+            expect(detail.userContent).toContain("user skill change");
+            expect(detail.language).toBe("markdown");
+            expect(detail.diffable).toBe(true);
+        } finally {
+            await restoreOptionalFile(userSkillPath, skillBackup);
+            await restoreOptionalFile(syncStatePath, syncStateBackup);
+        }
+    });
+
+    it("同步系统 assets 不会把本地状态和 compiled 产物纳入 managed sync", async () => {
+        const paths = [
+            path.join("workspace", ".nbook", "agent", "profiles", ".compiled", "manifest.json"),
+            path.join("workspace", ".nbook", "agent", "variables", ".compiled", "manifest.json"),
+            path.join("workspace", ".nbook", "agent", "profiles", ".system-profile-metadata.json"),
+        ];
+        const syncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const backups = await Promise.all(paths.map((filePath) => backupOptionalFile(filePath)));
+        const syncStateBackup = await backupOptionalFile(syncStatePath);
+        await Promise.all(paths.map((filePath) => fs.rm(filePath, {force: true})));
+
+        try {
+            await syncSystemAssetsToUserAssets();
+            const syncState = JSON.parse(await fs.readFile(syncStatePath, "utf-8")) as {assets?: Array<{assetPath: string}>};
+            const assetPaths = syncState.assets?.map((asset) => asset.assetPath) ?? [];
+
+            expect(assetPaths.some((assetPath) => assetPath.includes("/.compiled/"))).toBe(false);
+            expect(assetPaths).not.toContain("agent/profiles/.system-profile-metadata.json");
+            await expect(fs.access(paths[2]!)).rejects.toMatchObject({code: "ENOENT"});
+        } finally {
+            for (const [index, filePath] of paths.entries()) {
+                await restoreOptionalFile(filePath, backups[index] ?? null);
+            }
             await restoreOptionalFile(syncStatePath, syncStateBackup);
         }
     });
@@ -1125,6 +1385,36 @@ describe("workspace-files", () => {
         const yaml = YAML.stringify(frontmatter).trimEnd();
         await fs.mkdir(path.dirname(absolutePath), {recursive: true});
         await fs.writeFile(absolutePath, `---\n${yaml}\n---\n\n${body}`, "utf-8");
+    }
+
+    /**
+     * 等待 Project Workspace index watcher 完成 debounce 重建。
+     */
+    async function waitForProjectWorkspaceTreePath(filePath: string): Promise<Awaited<ReturnType<typeof readProjectWorkspaceTreeSnapshot>>> {
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < 4000) {
+            const snapshot = await readProjectWorkspaceTreeSnapshot({root});
+            if (snapshot.nodes.some((node) => node.path === filePath)) {
+                return snapshot;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        throw new Error(`等待 Project Workspace tree index 更新超时: ${filePath}`);
+    }
+
+    /**
+     * 等待 plain workspace index watcher 完成 debounce 重建。
+     */
+    async function waitForPlainWorkspaceTreePath(filePath: string): Promise<Awaited<ReturnType<typeof readPlainWorkspaceTreeSnapshot>>> {
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < 4000) {
+            const snapshot = await readPlainWorkspaceTreeSnapshot({root});
+            if (snapshot.nodes.some((node) => node.path === filePath)) {
+                return snapshot;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        throw new Error(`等待 user-assets tree index 更新超时: ${filePath}`);
     }
 
     /**
