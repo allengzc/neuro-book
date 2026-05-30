@@ -357,10 +357,13 @@ const LEADER_SYSTEM_PROMPT = profileText`
 
         # Shell commands
 
-        - workspace project create workspace/my-novel --title "小说名" --summary "一句简介"：从 novel-directory-templates 创建新的小说 Project Workspace，写入 project.yaml，并初始化 .nbook/project.sqlite。
-        - workspace project create workspace/my-novel --no-db：只创建文件模板和 project.yaml，不初始化 Project SQLite；仅在明确不需要 Plot System 时使用。
+        - workspace project create my-novel --title "小说名" --summary "一句简介"：从 novel-directory-templates 创建新的小说 Project Workspace，写入 project.yaml，并初始化 .nbook/project.sqlite。
+        - workspace project create my-novel --target /path/to/project：把 Project Workspace 创建到指定目录；相对 target 按当前 cwd 解析。
+        - workspace project create my-novel --no-db：只创建文件模板和 project.yaml，不初始化 Project SQLite；仅在明确不需要 Plot System 时使用。
         - workspace project create my-novel --template roleplay-directory-templates：给已有 Project Workspace 安装 RP 目录模板，补齐 roleplay/ 缺失文件；目标已存在时必须显式传 --template。
-        - workspace project create workspace/my-novel --template roleplay-directory-templates --json：同上，并输出 mode、createdFiles 和 skippedFiles，适合 skill 或 agent 检查实际写入结果。
+        - workspace project create my-novel --target /path/to/project --template roleplay-directory-templates --json：给指定目录安装 RP 模板，并输出 mode、createdFiles 和 skippedFiles，适合 skill 或 agent 检查实际写入结果。
+        - workspace project validate [target]：校验 Project Workspace 的 project.yaml 与 Project SQLite，target 可为项目根目录或其内部路径。
+        - workspace project init-db [target]：给已有 Project Workspace 初始化或迁移 .nbook/project.sqlite，target 可为项目根目录或其内部路径。
         - workspace node parse [paths...]：解析指定内容节点，输出 path、type、status、words、refs、title。目标可以是内容节点目录或 index.md。
         - workspace node parse --stdin --ndjson：从管道读取路径并输出每行一个 JSON，适合批量读取节点元数据。
         - workspace node validate [paths...]：校验指定内容节点的 frontmatter、路径冲突、排序号和相对引用。迁移、批量编辑、引用调整后必须优先运行它。
@@ -379,7 +382,9 @@ const LEADER_SYSTEM_PROMPT = profileText`
 
         使用原则：
         - 创建新小说 Project Workspace 和安装目录模板都使用 workspace project create；不要手动复制模板目录、自己拼 project.yaml，或另行发明第二套模板安装命令。
-        - 目标不存在时，workspace project create 默认使用 novel-directory-templates 创建完整 Project Workspace；目标已存在且传入 --template 时，只把该模板缺失文件补入现有 Project Workspace，不覆盖已有文件。
+        - 目标不存在时，workspace project create 默认使用 novel-directory-templates 创建完整 Project Workspace；传入 --target 时写入指定目录，但模板覆盖层仍来自当前 Workspace Root 的 .nbook/templates。
+        - 目标已存在且传入 --template 时，只把该模板缺失文件补入现有 Project Workspace，不覆盖已有文件；目标已存在但未传 --template 时直接报错。
+        - workspace project validate / init-db 处理整个 Project Workspace 的 manifest 和数据库；不要把它们和 workspace node validate 混用。
         - workspace node 会通过 project.yaml 识别 Project Workspace；从 Workspace Root 执行时，当前项目优先写 novel-slug/manuscript/...，不要主动加 workspace/ 前缀。
         - workspace node 兼容 workspace/novel-slug/manuscript/... 这类 Project Path，但这是跨入口容错，不是首选写法。
         - workspace node parse 是内容节点解析器；它不负责查找路径，查找优先交给 rg --files 和基于 / 的精确过滤。不要用无筛选的整库枚举来探索。

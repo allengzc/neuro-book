@@ -346,7 +346,7 @@ export class JsonlSessionRepository {
             }
             return (entry.type === "custom" || entry.type === "session_update")
                 && entry.origin === "projection"
-                && this.projectionApplies(entry.projectionScope, snapshot.leafId);
+                && this.projectionApplies(entry.projectionScope, pathIds);
         });
 
         for (const entry of reduceEntries) {
@@ -592,11 +592,11 @@ export class JsonlSessionRepository {
         }
     }
 
-    private projectionApplies(scope: SessionProjectionScope | undefined, activeLeafId: SessionEntryId | null): boolean {
+    private projectionApplies(scope: SessionProjectionScope | undefined, activePathIds: Set<SessionEntryId>): boolean {
         if (!scope) {
             return true;
         }
-        return scope.scope === "activeLeaf" && scope.leafId === activeLeafId;
+        return scope.scope === "activeLeaf" && (scope.leafId === null ? activePathIds.size === 0 : activePathIds.has(scope.leafId));
     }
 
     private isLinkedAgentValue(value: JsonValue): value is {sessionId: number; profileKey: string} {

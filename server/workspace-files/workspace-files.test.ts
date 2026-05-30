@@ -13,8 +13,8 @@ import {closeWorkspaceTreeIndex, invalidateProjectWorkspaceIndexAfterMutation, r
 import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {updateNovelByTool} from "nbook/server/utils/novel-chapter";
 
-const WORKSPACE_SCRIPT_PATH = "scripts/cli/workspace.ts";
-const AGENT_WORKSPACE_SCRIPT_PATH = "../assets/workspace/.nbook/agent/scripts/workspace.ts";
+const AGENT_WORKSPACE_SCRIPT_PATH = path.join("assets", "workspace", ".nbook", "agent", "scripts", "workspace.ts");
+const AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH = path.join("..", AGENT_WORKSPACE_SCRIPT_PATH);
 const execFileAsync = promisify(execFile);
 
 describe("workspace-files", () => {
@@ -562,7 +562,7 @@ describe("workspace-files", () => {
     });
 
     it("workspace schema markdown 不再输出 Character 专属字段说明", async () => {
-        const {stdout, stderr} = await execFileAsync("bun", [WORKSPACE_SCRIPT_PATH, "schema", "character"], {
+        const {stdout, stderr} = await execFileAsync("bun", [AGENT_WORKSPACE_SCRIPT_PATH, "schema", "character"], {
             encoding: "utf-8",
         });
 
@@ -575,7 +575,7 @@ describe("workspace-files", () => {
 
     it("workspace node validate 在 Workspace Root 下接受 workspace/<project>/... 路径", async () => {
         const {stderr} = await execFileAsync("bun", [
-            AGENT_WORKSPACE_SCRIPT_PATH,
+            AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,
             "node",
             "validate",
             "workspace/silver-dragon-hime/manuscript/001-荒野觉醒/001-祭坛苏醒/",
@@ -602,7 +602,7 @@ describe("workspace-files", () => {
             await fs.writeFile(path.join(projectRoot, "roleplay", "gm.md"), existingGm, "utf-8");
 
             const {stdout, stderr} = await execFileAsync("bun", [
-                AGENT_WORKSPACE_SCRIPT_PATH,
+                AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,
                 "project",
                 "create",
                 workspaceSlug,
@@ -635,7 +635,7 @@ describe("workspace-files", () => {
             await expect(fs.readFile(path.join(projectRoot, "roleplay", "cast.yaml"), "utf-8")).resolves.toContain("sample-npc");
 
             await expect(execFileAsync("bun", [
-                AGENT_WORKSPACE_SCRIPT_PATH,
+                AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,
                 "project",
                 "create",
                 workspaceSlug,
@@ -648,6 +648,199 @@ describe("workspace-files", () => {
             });
         } finally {
             await removeDirectoryWithRetry(projectRoot);
+        }
+    }, 30_000);
+
+    it("workspace project create 能通过 --target 写入指定目录", async () => {
+        const targetRoot = path.resolve(root, "external-project");
+
+        try {
+            const {stdout, stderr} = await execFileAsync("bun", [
+                AGENT_WORKSPACE_SCRIPT_PATH,
+                "project",
+                "create",
+                "external-novel",
+                "--target",
+                targetRoot,
+                "--json",
+            ], {
+                encoding: "utf-8",
+            });
+            const result = JSON.parse(stdout) as {
+                mode: string;
+                projectPath: string;
+                absolutePath: string;
+                title: string;
+                databasePath: string | null;
+            };
+
+            expect(stderr).toBe("");
+            expect(result.mode).toBe("created");
+            expect(result.absolutePath).toBe(targetRoot);
+            expect(result.projectPath).toBe(targetRoot.replaceAll(path.sep, "/"));
+            expect(result.title).toBe("external novel");
+            expect(result.databasePath).toBe(path.join(targetRoot, ".nbook", "project.sqlite"));
+            await expect(fs.readFile(path.join(targetRoot, "project.yaml"), "utf-8")).resolves.toContain("title: external novel");
+            await expect(fs.access(path.join(targetRoot, ".nbook", "project.sqlite"))).resolves.toBeUndefined();
+            await expect(fs.readFile(path.join(targetRoot, "AGENTS.md"), "utf-8")).resolves.toContain("唯一的小说状态");
+
+            await fs.mkdir(path.join(targetRoot, "roleplay"), {recursive: true});
+            await fs.writeFile(path.join(targetRoot, "roleplay", "gm.md"), "# 外部 GM\n", "utf-8");
+            const {stdout: updateStdout, stderr: updateStderr} = await execFileAsync("bun", [
+                AGENT_WORKSPACE_SCRIPT_PATH,
+                "project",
+                "create",
+                "external-novel",
+                "--target",
+                targetRoot,
+                "--template",
+                "roleplay-directory-templates",
+                "--json",
+            ], {
+                encoding: "utf-8",
+            });
+            const updateResult = JSON.parse(updateStdout) as {
+                mode: string;
+                createdFiles: string[];
+                skippedFiles: string[];
+            };
+
+            expect(updateStderr).toBe("");
+            expect(updateResult.mode).toBe("updated");
+            expect(updateResult.createdFiles).toContain("roleplay/AGENTS.md");
+            expect(updateResult.skippedFiles).toContain("roleplay/gm.md");
+            await expect(fs.readFile(path.join(targetRoot, "roleplay", "gm.md"), "utf-8")).resolves.toBe("# 外部 GM\n");
+        } finally {
+            await removeDirectoryWithRetry(targetRoot);
+        }
+    }, 30_000);
+
+    it("workspace project create 的外部 --target 仍使用当前 Workspace Root 用户模板覆盖层", async () => {
+        const targetRoot = path.resolve(root, "external-overlay-project");
+        const userTemplatePath = path.join(USER_ASSETS_WORKSPACE_ROOT, "templates", "novel-directory-templates", "AGENTS.md");
+        const backup = await backupOptionalFile(userTemplatePath);
+
+        try {
+            await fs.mkdir(path.dirname(userTemplatePath), {recursive: true});
+            await fs.writeFile(userTemplatePath, "# 用户覆盖 AGENTS\n", "utf-8");
+
+            const {stderr} = await execFileAsync("bun", [
+                AGENT_WORKSPACE_SCRIPT_PATH,
+                "project",
+                "create",
+                "external-overlay",
+                "--target",
+                targetRoot,
+            ], {
+                encoding: "utf-8",
+            });
+
+            expect(stderr).toBe("");
+            await expect(fs.readFile(path.join(targetRoot, "AGENTS.md"), "utf-8")).resolves.toBe("# 用户覆盖 AGENTS\n");
+        } finally {
+            await restoreOptionalFile(userTemplatePath, backup);
+            await removeDirectoryWithRetry(targetRoot);
+        }
+    }, 30_000);
+
+    it("workspace project create 给 --target 已有目录补模板时要求 project.yaml", async () => {
+        const targetRoot = path.resolve(root, "not-project");
+
+        try {
+            await fs.mkdir(targetRoot, {recursive: true});
+
+            await expect(execFileAsync("bun", [
+                AGENT_WORKSPACE_SCRIPT_PATH,
+                "project",
+                "create",
+                "not-project",
+                "--target",
+                targetRoot,
+                "--template",
+                "roleplay-directory-templates",
+                "--json",
+            ], {
+                encoding: "utf-8",
+            })).rejects.toMatchObject({
+                stderr: expect.stringContaining("不是 Project Workspace"),
+            });
+        } finally {
+            await removeDirectoryWithRetry(targetRoot);
+        }
+    }, 30_000);
+
+    it("workspace project validate 能校验外部 Project Workspace", async () => {
+        const targetRoot = path.resolve(root, "external-validate-project");
+
+        try {
+            await execFileAsync("bun", [
+                AGENT_WORKSPACE_SCRIPT_PATH,
+                "project",
+                "create",
+                "external-validate",
+                "--target",
+                targetRoot,
+            ], {
+                encoding: "utf-8",
+            });
+
+            const {stdout, stderr} = await execFileAsync("bun", [
+                AGENT_WORKSPACE_SCRIPT_PATH,
+                "project",
+                "validate",
+                path.join(targetRoot, "manuscript"),
+            ], {
+                encoding: "utf-8",
+            });
+            const result = JSON.parse(stdout) as {
+                ok: boolean;
+                projectRoot: string;
+                manifest: {title: string};
+                database: {exists: boolean; schemaVersion: string | null};
+            };
+
+            expect(stderr).toBe("");
+            expect(result.ok).toBe(true);
+            expect(result.projectRoot).toBe(targetRoot.replaceAll(path.sep, "/"));
+            expect(result.manifest.title).toBe("external validate");
+            expect(result.database.exists).toBe(true);
+            expect(result.database.schemaVersion).toBe("1");
+        } finally {
+            await removeDirectoryWithRetry(targetRoot);
+        }
+    }, 30_000);
+
+    it("workspace project init-db 能给缺少数据库的 Project Workspace 补库", async () => {
+        const targetRoot = path.resolve(root, "external-init-db-project");
+
+        try {
+            await execFileAsync("bun", [
+                AGENT_WORKSPACE_SCRIPT_PATH,
+                "project",
+                "create",
+                "external-init-db",
+                "--target",
+                targetRoot,
+                "--no-db",
+            ], {
+                encoding: "utf-8",
+            });
+            await expect(fs.access(path.join(targetRoot, ".nbook", "project.sqlite"))).rejects.toMatchObject({code: "ENOENT"});
+
+            const {stdout, stderr} = await execFileAsync("bun", [
+                AGENT_WORKSPACE_SCRIPT_PATH,
+                "project",
+                "init-db",
+                targetRoot,
+            ], {
+                encoding: "utf-8",
+            });
+
+            expect(stderr).toBe("");
+            expect(stdout.trim()).toBe(path.join(root, "external-init-db-project", ".nbook", "project.sqlite").replaceAll(path.sep, "/"));
+            await expect(fs.access(path.join(targetRoot, ".nbook", "project.sqlite"))).resolves.toBeUndefined();
+        } finally {
+            await removeDirectoryWithRetry(targetRoot);
         }
     }, 30_000);
 

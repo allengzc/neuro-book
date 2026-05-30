@@ -237,6 +237,44 @@ describe("JsonlSessionRepository", () => {
         expect(treeNodeIds).not.toContain(secondProjection.id);
     });
 
+    it("active leaf scoped projection 在绑定 leaf 之后的同一路径继续生效", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+            title: "base",
+        });
+        await repo.appendUserMessage(session.metadata.sessionId, "你好");
+        const summarizedLeaf = await repo.appendMessage(session.metadata.sessionId, createAssistantTextMessage({text: "你好！"}));
+
+        await repo.appendProjectionEntry(session.metadata.sessionId, {
+            type: "session_update",
+            updates: {
+                title: "Greeting",
+                summary: "用户向助手打招呼。",
+            },
+        }, {
+            scope: "activeLeaf",
+            leafId: summarizedLeaf.id,
+        });
+
+        let snapshot = await repo.readSession(session.metadata.sessionId);
+        expect(repo.reduce(snapshot)).toMatchObject({
+            title: "Greeting",
+            summary: "用户向助手打招呼。",
+        });
+
+        await repo.appendUserMessage(session.metadata.sessionId, "你好");
+        await repo.appendMessage(session.metadata.sessionId, createAssistantTextMessage({text: "你好！有什么想聊的？"}));
+
+        snapshot = await repo.readSession(session.metadata.sessionId);
+        expect(repo.reduce(snapshot)).toMatchObject({
+            title: "Greeting",
+            summary: "用户向助手打招呼。",
+        });
+    });
+
     it("支持 leaf 移动和 fork，历史不删除", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",

@@ -82,7 +82,7 @@ refs:
 
 ## 校验规则
 
-`bun scripts/workspace.ts node validate WORKSPACE_TARGET` 至少检查：
+`workspace node validate WORKSPACE_TARGET` 至少检查：
 
 - 相对路径是否能解析到工作区内。
 - target 是否存在。
@@ -97,9 +97,9 @@ refs:
 
 创建内容节点时：
 
-1. 在目标小说 workspace 内调用脚手架，例如 `bun scripts/workspace.ts node new lorebook/character/苏雪 --type character --title 苏雪`。
+1. 在目标小说 workspace 内调用脚手架，例如 `workspace node new lorebook/character/苏雪 --type character --title 苏雪`。
 2. 读取生成的 `index.md` 模板。
 3. 编辑 frontmatter 与正文。
-4. 运行 `bun scripts/workspace.ts node validate lorebook/character/苏雪`。
+4. 运行 `workspace node validate lorebook/character/苏雪`。
 
 AI 不应手写空模板，也不应跳过脚手架直接创建角色结构。

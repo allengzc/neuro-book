@@ -495,6 +495,8 @@ projection?: true | {
 - `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`：74 passed。
 - `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/session/write-plan.test.ts server/agent/session/session-repo.test.ts server/agent/session/dialogue-content.test.ts server/agent/profiles/catalog.test.ts server/agent/profiles/profile-dsl.test.ts server/agent/profiles/leader-assets-profile.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/components/novel-ide/agent/agent-message.test.ts app/utils/agent-message-projection.test.ts --reporter=dot`：10 files / 103 tests passed。
 - review 修复后追加验证：`bunx vitest run server/agent/session/session-repo.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`：2 files / 84 tests passed。
+- follow-up 修复后追加验证：`bunx vitest run server/agent/session/session-repo.test.ts server/agent/harness/neuro-agent-harness.test.ts -t "summarizer|active leaf scoped projection" --reporter=dot`：2 files / 7 tests passed。
+- follow-up 修复后追加验证：`bunx vitest run server/agent/session/session-repo.test.ts --reporter=dot`：1 file / 9 tests passed。
 - `bun scripts/profile.ts compile --all --system`、`bun scripts/profile.ts compile --all`：均生成 `summarizer` artifact。
 - `bun scripts/profile.ts status summarizer`、`bun scripts/profile.ts status summarizer --system`：均为 loaded。
 - `bunx tsc --noEmit --pretty false --incremental false`：仍失败于既有 `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误，未命中本任务路径。
@@ -513,6 +515,7 @@ projection?: true | {
 - 2026-05-29：确认 source Agent Dialogue Content 只在 prepareRun 注入一次；`ModelContext` 固定为本轮动态、不持久化上下文；`sessionContext`、`transcriptPersistence`、`runtimeOnlyTranscript` 的职责边界写入任务文档。
 - 2026-05-29：实现 17 新版 summarizer：新增 `summarizer` builtin profile、runtime-only transcript、source Agent Dialogue Content 注入、后台 coalesced scheduler、active-leaf scoped title/summary projection、summarizer 状态投影和前端低噪声展示；补充 targeted tests 并重新编译 system/user profile artifacts。
 - 2026-05-29：根据代码审查修复 summarizer 调度和 projection tree 边界：`sourceInvocation.value` 按 source prompt turn 间隔生效，失败后同内容可重试，projection entry 从 session tree 视图过滤。
+- 2026-05-30：修复后续普通请求会让已生成摘要消失的问题。根因是 active-leaf scoped projection 只在当前 leaf 等于绑定 leaf 时生效；继续对话后绑定 leaf 仍在 active path 上，但 active leaf 已变成新消息，导致 title/summary fallback 到默认值。现在 projection 在绑定 leaf 仍处于当前 active path 上时继续生效，rollback 到绑定点之前或切到其他分支时仍失效。
 
 ## Historical Artifacts
 

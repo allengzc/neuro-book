@@ -78,7 +78,7 @@
 ## Architecture Review Findings
 
 - HTTP validate route 与 CLI validate 核心必须分开处理。
-  - 现有 `scripts/workspace.ts node validate` 和 `assets/agent-v2/scripts/workspace.ts node validate` 都调用 `validateWorkspaceContentNodes()`。
+  - 现有 active Agent workspace CLI `workspace node validate` 调用 `validateWorkspaceContentNodes()`。
   - 计划中的“删除 validate”只表示删除 `/api/workspace-files/validate` 和前端“运行校验”入口，不应删除 CLI 合同、`--recursive`、`--fix-missing` 或校验测试。
   - 推荐把规则层命名为 `workspace-content-validation`，让 Project Workspace File Index 调用纯规则函数，CLI 继续通过同一规则函数输出 issues / fixedPaths。
 - `tree` 的过滤参数需要重新定 contract。

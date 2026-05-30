@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {fileURLToPath} from "node:url";
 import {Command} from "commander";
+import {createClient} from "@libsql/client";
 import * as yaml from "yaml";
 import {
     workspaceContentJsonSchema,
@@ -22,7 +23,7 @@ import {
     type WorkspaceFileIssue,
     validateWorkspaceContentNodes,
 } from "nbook/server/workspace-files/workspace-files";
-import {initProjectDatabaseAtRoot, PROJECT_DATABASE_RELATIVE_PATH} from "nbook/server/workspace-files/project-workspace";
+import {initProjectDatabaseAtRoot, PROJECT_DATABASE_RELATIVE_PATH, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 
 type WorkspaceNodeNewOptions = {
     title?: string;
@@ -56,6 +57,7 @@ type WorkspaceProjectCreateOptions = {
     title?: string;
     summary?: string;
     template?: string;
+    target?: string;
     json: boolean;
     db: boolean;
 };
@@ -139,10 +141,11 @@ const projectCommand = program
 projectCommand
     .command("create")
     .description("从模板创建 Project Workspace；目标已存在且显式传入 --template 时，将模板补入现有项目")
-    .argument("<project>", "Project Path，例如 workspace/my-novel；在 Workspace Root 内执行时也可写 my-novel")
+    .argument("<project>", "项目名，例如 my-novel；兼容旧写法 workspace/my-novel")
     .option("--title <title>", "project.yaml title，默认从目录名推断")
     .option("--summary <summary>", "project.yaml summary", "")
     .option("--template <template>", "模板目录名或绝对路径")
+    .option("--target <directory>", "实际写入的 Project Workspace 目录；相对路径按当前 cwd 解析")
     .option("--json", "输出 JSON", false)
     .option("--no-db", "只创建文件模板，不初始化 .nbook/project.sqlite")
     .action(async (project: string, options: WorkspaceProjectCreateOptions) => {
@@ -167,6 +170,47 @@ projectCommand
             console.log(`Template: ${created.templateRoot}`);
             console.log(`Created files: ${String(created.createdFiles.length)}`);
             console.log(`Skipped existing files: ${String(created.skippedFiles.length)}`);
+        } catch (error) {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exitCode = 1;
+        }
+    });
+
+projectCommand
+    .command("validate")
+    .description("校验 Project Workspace 的 project.yaml 与 Project SQLite")
+    .argument("[target]", "Project Workspace 目录或其内部路径", ".")
+    .action(async (target: string) => {
+        try {
+            const projectRoot = await findWorkspaceRoot(path.resolve(INVOCATION_CWD, target));
+            const databasePath = path.join(projectRoot, PROJECT_DATABASE_RELATIVE_PATH);
+            const databaseExists = await pathExists(databasePath);
+            const schemaVersion = databaseExists ? await readProjectSchemaVersion(databasePath) : null;
+            console.log(JSON.stringify({
+                ok: true,
+                projectRoot: formatProjectDisplayPath(projectRoot, resolveWorkspaceContainerRoot()),
+                manifest: await readProjectManifestAtRoot(projectRoot),
+                database: {
+                    path: formatInvocationDisplayPath(databasePath),
+                    exists: databaseExists,
+                    schemaVersion,
+                },
+            }, null, 2));
+        } catch (error) {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exitCode = 1;
+        }
+    });
+
+projectCommand
+    .command("init-db")
+    .description("初始化或迁移 Project Workspace 的 .nbook/project.sqlite")
+    .argument("[target]", "Project Workspace 目录或其内部路径", ".")
+    .action(async (target: string) => {
+        try {
+            const projectRoot = await findWorkspaceRoot(path.resolve(INVOCATION_CWD, target));
+            const databasePath = await initProjectDatabaseAtRoot(projectRoot);
+            console.log(formatInvocationDisplayPath(databasePath));
         } catch (error) {
             console.error(error instanceof Error ? error.message : String(error));
             process.exitCode = 1;
@@ -455,7 +499,7 @@ async function createProjectWorkspace(
     project: string,
     options: WorkspaceProjectCreateOptions,
 ): Promise<ProjectTemplateResult> {
-    const target = resolveProjectTarget(project);
+    const target = resolveProjectTarget(project, options.target);
     if (await pathExists(target.absolutePath)) {
         if (!options.template) {
             throw new Error(`Project Workspace 已存在: ${target.projectPath}；如需安装目录模板，请显式传入 --template`);
@@ -517,7 +561,7 @@ async function createProjectWorkspace(
  * 将目录模板补入已有 Project Workspace。默认只创建缺失文件，避免覆盖用户已编辑内容。
  */
 async function applyProjectTemplateToExistingWorkspace(
-    target: {projectSlug: string; projectPath: string; absolutePath: string},
+    target: ResolvedProjectTarget,
     template: string,
 ): Promise<UpdatedProjectWorkspace> {
     if (!await pathExists(path.join(target.absolutePath, PROJECT_METADATA_FILE))) {
@@ -622,12 +666,34 @@ async function normalizeProjectTemplateArtifacts(projectRoot: string): Promise<v
 }
 
 /**
- * 解析 Project 创建目标；从仓库根执行时允许 workspace/<slug>，从 Workspace Root 执行时允许 <slug>。
+ * 解析 Project 创建目标。project 只表达项目名；target 为空时默认落到当前 Workspace Root 下。
  */
-function resolveProjectTarget(project: string): {projectSlug: string; projectPath: string; absolutePath: string} {
+type ResolvedProjectTarget = {
+    projectSlug: string;
+    projectPath: string;
+    absolutePath: string;
+};
+
+function resolveProjectTarget(project: string, targetDirectory?: string): ResolvedProjectTarget {
+    const projectSlug = normalizeProjectName(project);
+    const workspaceRoot = resolveWorkspaceContainerRoot();
+    const absolutePath = targetDirectory
+        ? path.resolve(INVOCATION_CWD, targetDirectory)
+        : path.join(workspaceRoot, projectSlug);
+    return {
+        projectSlug,
+        projectPath: formatProjectDisplayPath(absolutePath, workspaceRoot),
+        absolutePath,
+    };
+}
+
+/**
+ * 归一项目名。为兼容旧命令，允许 workspace/<slug> 退化为 <slug>。
+ */
+function normalizeProjectName(project: string): string {
     const normalizedProject = project.trim().replaceAll("\\", "/").replace(/\/+$/g, "");
     if (!normalizedProject || normalizedProject.includes("..") || path.posix.isAbsolute(normalizedProject)) {
-        throw new Error("project 必须是 workspace/<project> 或单段 project 目录名");
+        throw new Error("project 必须是项目名，或兼容旧写法 workspace/<project>");
     }
 
     const parts = normalizedProject.split("/").filter(Boolean);
@@ -637,16 +703,23 @@ function resolveProjectTarget(project: string): {projectSlug: string; projectPat
             ? parts[0]
             : "";
     if (!projectSlug || !/^[a-z0-9][a-z0-9._-]*$/i.test(projectSlug)) {
-        throw new Error("project 只能是 workspace 下的单段目录名，支持字母、数字、点、下划线和连字符");
+        throw new Error("project 只能是单段项目名，支持字母、数字、点、下划线和连字符");
     }
+    return projectSlug;
+}
 
-    const workspaceRoot = resolveWorkspaceContainerRoot();
-    const absolutePath = path.join(workspaceRoot, projectSlug);
-    return {
-        projectSlug,
-        projectPath: path.posix.join(WORKSPACE_ROOT_NAME, projectSlug),
-        absolutePath,
-    };
+/**
+ * 输出给 CLI/JSON 的可读 Project Path；外部目标使用绝对路径，避免伪装成 Workspace Root 内路径。
+ */
+function formatProjectDisplayPath(absolutePath: string, workspaceRoot: string): string {
+    const relativePath = path.relative(workspaceRoot, absolutePath);
+    const isInsideWorkspaceRoot = relativePath
+        && !relativePath.startsWith("..")
+        && !path.isAbsolute(relativePath);
+    if (isInsideWorkspaceRoot) {
+        return path.posix.join(WORKSPACE_ROOT_NAME, relativePath.replaceAll(path.sep, "/"));
+    }
+    return absolutePath.replaceAll(path.sep, "/");
 }
 
 /**
@@ -710,6 +783,56 @@ async function findWorkspaceRoot(startPath: string): Promise<string> {
         }
         currentPath = parentPath;
     }
+}
+
+/**
+ * 从 Project Workspace 根目录读取 project.yaml。CLI 可能操作 Workspace Root 外部目录，不能走 workspace/<slug> 专用读取函数。
+ */
+async function readProjectManifestAtRoot(projectRoot: string): Promise<{kind: "novel"; title: string; summary: string}> {
+    const manifestPath = path.join(projectRoot, PROJECT_METADATA_FILE);
+    const parsed = yaml.parse(await fs.readFile(manifestPath, "utf-8")) as {
+        kind?: string;
+        title?: string;
+        summary?: string;
+    } | null;
+    if (!parsed || parsed.kind !== "novel" || typeof parsed.title !== "string") {
+        throw new Error(`${formatInvocationDisplayPath(manifestPath)} 不是有效 Project manifest`);
+    }
+    return {
+        kind: "novel",
+        title: parsed.title,
+        summary: typeof parsed.summary === "string" ? parsed.summary : "",
+    };
+}
+
+/**
+ * 读取 Project SQLite schemaVersion。数据库不存在或旧库缺少元信息时返回 null，由 validate 输出给调用方判断。
+ */
+async function readProjectSchemaVersion(databasePath: string): Promise<string | null> {
+    const client = createClient({url: toSqliteFileUrl(databasePath)});
+    try {
+        const result = await client.execute({
+            sql: `SELECT "value" FROM "ProjectMetadata" WHERE "key" = 'schemaVersion' LIMIT 1`,
+            args: [],
+        });
+        const value = result.rows[0]?.value;
+        return typeof value === "string" ? value : value === null || value === undefined ? null : String(value);
+    } catch {
+        return null;
+    } finally {
+        await client.close();
+    }
+}
+
+/**
+ * CLI 展示路径：当前 cwd 内用相对路径，cwd 外用绝对路径，统一输出 `/` 分隔。
+ */
+function formatInvocationDisplayPath(absolutePath: string): string {
+    const relativePath = path.relative(INVOCATION_CWD, absolutePath);
+    const isInsideInvocationCwd = relativePath
+        && !relativePath.startsWith("..")
+        && !path.isAbsolute(relativePath);
+    return (isInsideInvocationCwd ? relativePath : absolutePath).replaceAll(path.sep, "/");
 }
 
 /**

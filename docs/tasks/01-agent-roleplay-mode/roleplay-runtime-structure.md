@@ -127,6 +127,7 @@ assets/workspace/.nbook/templates/roleplay-directory-templates/
 
 ```text
 workspace project create my-novel --template roleplay-directory-templates
+workspace project create my-novel --target /path/to/project --template roleplay-directory-templates
 ```
 
 同一个命令的语义：
@@ -134,6 +135,7 @@ workspace project create my-novel --template roleplay-directory-templates
 - 目标不存在时：创建完整 Project Workspace，未显式传 `--template` 时默认使用 `novel-directory-templates`。
 - 目标已存在且显式传 `--template` 时：把模板文件补入现有 Project Workspace，只创建缺失文件，已有文件进入 `skippedFiles`，不覆盖用户内容。
 - 目标已存在但未显式传 `--template` 时：报错，避免把“创建项目”和“补模板”混淆成误操作。
+- 传入 `--target <dir>` 时：`<dir>` 是实际 Project Workspace 根目录；相对路径按当前 cwd 解析，模板覆盖层仍来自当前 Workspace Root 的 `.nbook/templates`。
 
 `--json` 输出会返回 `mode: "created"` 或 `mode: "updated"`。RP 初始化 skill 后续应读取 `createdFiles` / `skippedFiles` 向用户报告实际写入结果。
 
@@ -142,9 +144,9 @@ workspace project create my-novel --template roleplay-directory-templates
 ### Root Files
 
 - `AGENTS.md`：`leader.rp` / GM 的入口说明。它面向读取 `roleplay/` 的主控 agent，而不是面向所有 subagent。
-- `config.yaml`：RP 运行配置，例如默认 GM profile、actor profile、writer profile、默认玩家 actor、默认 cast。
+- `config.yaml`：RP 运行配置，例如默认 GM profile、actor profile、writer profile、默认玩家 actor、默认 cast、fallback scene、profile 输入边界和 Tick checklist。
 - `cast.yaml`：本局可调度 actor 注册表。为了减少零散目录，第一版不再使用 `cast/cast.yaml`。
-- `gm.md`：GM 专用运行协议，包含可读范围、信息披露规则、Tick 协议、actor packet 模板和 writer brief 模板。
+- `gm.md`：GM 专用运行协议，包含可读范围、信息披露规则、Tick 协议、profile 调用边界、actor packet 模板和 writer brief 模板。
 - `writer.md`：`rp.writer` 的自动注入提示词来源，描述文风、输出契约、禁止事项和 writer brief 消费规则。它不是 `AGENTS.md`，因为 writer 不应把整个 `roleplay/` 当作自己的工作目录。
 
 ### No `imports/`
@@ -293,6 +295,12 @@ actor 不应该：
 - 直接推进全局世界状态。
 - 写最终 prose。
 
+输入边界：
+
+- `rp.actor` 只接收该 actor 的 `actor.md`、`knowledge.md` 和 GM 当前 filtered observation packet。
+- 第一版可给 actor 开放文件编辑工具，但作用域应限制为自己的 `knowledge.md`。
+- `rp.actor` 不接收完整 `roleplay/`、`lorebook/`、`reference/`、其他 actor knowledge 或 GM scratch。
+
 ### `rp.writer`
 
 职责：
@@ -309,6 +317,7 @@ actor 不应该：
 - 微调输入参数，使其消费 `writerBrief`、`style`、`doNotReveal`、`allowedInternality`、`outputRequirements`。
 - 提示词上强调它只负责 Tick 结果渲染，不负责世界裁决和角色私密决策。
 - `rp.writer` 不读取 `roleplay/AGENTS.md`，只接收 GM brief 和自动注入的 `roleplay/writer.md`。
+- `rp.writer` 不接收完整 `roleplay/`、`lorebook/`、`reference/` 或 GM scratch；brief 缺少的设定视为不可写信息。
 
 ## Initialization Flow V0
 

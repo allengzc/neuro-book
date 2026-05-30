@@ -1,0 +1,74 @@
+leaderProfile: leader.rp
+defaultActorProfile: rp.actor
+defaultWriterProfile: rp.writer
+defaultPlayerActor: player
+
+tickMode: player_turn
+memoryPersistence: false
+writerRetrieval: gm_brief_only
+actorKnowledgeUpdate: direct_file_edit
+
+startup:
+  read:
+    - roleplay/AGENTS.md
+    - roleplay/cast.yaml
+    - roleplay/gm.md
+    - roleplay/writer.md
+  optionalRead:
+    - lorebook/note/story-concept/
+    - lorebook/note/synopsis/
+    - lorebook/rule/writing-style/
+    - lorebook/rule/creation-boundaries/
+
+fallbackScene:
+  location: 未命名的起始场景
+  premise: 玩家角色刚刚抵达现场，示例 NPC 正在附近等待回应。
+  visibleParticipants:
+    - player
+    - sample-npc
+  firstTickGoal: 根据用户第一条输入建立场景方向，并让示例 NPC 给出自然反应。
+
+defaults:
+  actorResponseFormat: structured_packet
+  writerOutput: prose_only
+  allowActorInitiative: false
+  allowWriterLorebookLookup: false
+  callAllActorsEachTick: false
+  updateKnowledgeAfterTick: true
+  askUserBeforeIrreversibleAction: true
+
+profileInputs:
+  actor:
+    autoInject:
+      - actor.instruction
+      - actor.knowledge
+      - gm.filtered_observation_packet
+    fileToolScope: own_knowledge_md
+    doNotInject:
+      - roleplay/AGENTS.md
+      - roleplay/gm.md
+      - roleplay/writer.md
+      - lorebook/
+      - reference/
+  writer:
+    autoInject:
+      - roleplay/writer.md
+      - gm.writer_brief
+    fileToolScope: none
+    doNotInject:
+      - roleplay/AGENTS.md
+      - roleplay/gm.md
+      - roleplay/cast.yaml
+      - lorebook/
+      - reference/
+
+tickChecklist:
+  - classify_user_input
+  - validate_player_intent
+  - select_active_actors
+  - send_filtered_actor_packets
+  - collect_actor_responses
+  - resolve_world_state
+  - update_actor_knowledge
+  - build_writer_brief
+  - render_writer_output

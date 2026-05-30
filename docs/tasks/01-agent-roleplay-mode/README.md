@@ -56,7 +56,7 @@
 - 不单独维护 `conversion-plan.md`。`inspect` 只输出临时 overview；稳定证据由 `unpack` 写入解包目录；导入过程以 unpack report 和 import report 记录本次写入、跳过、归档和需人工确认的内容。
 - RP 目录建议使用更可读的 `roleplay/`，而不是缩写 `rp/`。
 - `roleplay/` 是当前小说 workspace 的一部分，可以被用户资产、workspace 覆盖 agent/profile 机制自然配合。
-- RP 目录模板不放进默认小说模板。它作为 `roleplay-directory-templates` 放在 Bundled Workspace Template 下，由同一个 `workspace project create` 命令安装：新建普通项目时默认使用 `novel-directory-templates`；目标 Project Workspace 已存在且显式传入 `--template roleplay-directory-templates` 时，只补齐缺失的 `roleplay/` 文件，不覆盖用户已有内容。不要新增第二套模板安装命令心智。
+- RP 目录模板不放进默认小说模板。它作为 `roleplay-directory-templates` 放在 Bundled Workspace Template 下，由同一个 `workspace project create` 命令安装：新建普通项目时默认使用 `novel-directory-templates`；传入 `--target <dir>` 时写入指定 Project Workspace 目录；目标 Project Workspace 已存在且显式传入 `--template roleplay-directory-templates` 时，只补齐缺失的 `roleplay/` 文件，不覆盖用户已有内容。不要新增第二套模板安装命令心智。
 - 最新 `roleplay/` 目标结构收束为少量根文件 + actor 子目录：
 
 ```text
@@ -153,8 +153,9 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 - 已新增系统 skill：`assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/SKILL.md`。
 - 已新增配套 CLI：`assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`。
 - 已新增 RP 目录模板：`assets/workspace/.nbook/templates/roleplay-directory-templates/roleplay/`，包含 `AGENTS.md`、`config.yaml`、`cast.yaml`、`gm.md`、`writer.md`、`actors/player/*` 和 `actors/sample-npc/*`。
-- 已扩展 `workspace project create`：目标不存在时仍创建完整 Project Workspace；目标已存在且显式传入 `--template` 时，把模板缺失文件补入现有 Project Workspace，并在 `--json` 中返回 `mode: "updated"`、`createdFiles` 和 `skippedFiles`。
-- 已更新 `leader.default` profile 的 Shell commands 提示词：RP 初始化 skill 后续应调用 `workspace project create <project> --template roleplay-directory-templates`，继续复用项目模板命令。
+- RP 目录模板已升级为混合模板：保留待填写位置，同时提供 fallback scene、profile 输入边界、Tick 清单、actor packet / response 约束、GM scratch、writer brief 缺失处理和 actor knowledge 更新规则，方便安装后直接试跑一轮 RP。
+- 已扩展 `workspace project create`：目标不存在时仍创建完整 Project Workspace；支持 `--target <dir>` 指定实际写入目录；目标已存在且显式传入 `--template` 时，把模板缺失文件补入现有 Project Workspace，并在 `--json` 中返回 `mode: "updated"`、`createdFiles` 和 `skippedFiles`。
+- 已更新 `leader.default` profile 的 Shell commands 提示词：RP 初始化 skill 后续应调用 `workspace project create <project> [--target <dir>] --template roleplay-directory-templates`，继续复用项目模板命令。
 - CLI 当前支持：
   - `inspect <input>`：读取 `.json`、`.raw.json` 或 best-effort PNG 文本块，只在 stdout 输出临时 overview，不生成文件。
   - `unpack <input> --project <path>`：生成 `reference/silly-tavern/{slug}/` 解包目录，包含 raw、overview、inspect、worldbook、regex、tavern_helper 和 unpack report；worldbook 会逐条拆成 frontmatter + 正文 Markdown，regex/scripts/variables 会逐条拆成独立 JSON。
@@ -193,8 +194,8 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 - `docs/tasks/01-agent-roleplay-mode/README.md`：新增并持续更新本任务 walkthrough。
 - `docs/tasks/01-agent-roleplay-mode/roleplay-runtime-structure.md`：新增并持续更新 RP 运行目录和 Tick 协议设计。
 - `assets/workspace/.nbook/templates/roleplay-directory-templates/roleplay/*`：新增 RP 目录模板。
-- `assets/workspace/.nbook/agent/scripts/workspace.ts`：`project create` 支持给已有 Project Workspace 补入显式模板。
-- `scripts/cli/workspace.ts`：仓库侧 CLI 同步 `project create` 的模板创建/补入语义，便于本地测试和手工验证。
+- `.gitignore`：放行 RP 目录模板中的 `roleplay/config.yaml`，避免模板配置被全局 `config.yaml` 忽略规则漏掉。
+- `assets/workspace/.nbook/agent/scripts/workspace.ts`：`project create` 支持 `--target` 指定写入目录，并支持给已有 Project Workspace 补入显式模板。
 - `assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`：更新 `workspace project create` 与 RP 模板安装提示词。
 - `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/SKILL.md`：新增角色卡导入 skill 入口说明。
 - `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`：新增 inspect/unpack/import CLI。
@@ -206,6 +207,8 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 - 已用 `jq` 校验三张 `*.raw.json` 能正常解析。
 - 已确认 `命定之诗Kemini5-3.8.json` 是预设 JSON，不再重复 extract。
 - 已运行 `bun run test server/agent/skills/silly-tavern-card-cli.test.ts`，覆盖三张样本 raw 卡、preset-like JSON、动态 marker、slug、v3 SkillCatalog 可发现性、inspect/unpack/import 三段式行为和用户手改保护。
+- 已运行 `bunx vitest run server/workspace-files/workspace-files.test.ts -t "roleplay 模板"`，确认 RP 目录模板可安装到已有 Project Workspace。
+- 已用 YAML parser 校验 `roleplay/config.yaml` 和 `roleplay/cast.yaml` 可解析。
 
 ## TODO / Follow-ups
 

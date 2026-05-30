@@ -327,7 +327,7 @@
 
 ## TODO / Follow-ups
 
-- 继续补 `workspace project` CLI：validate / init-db / migrate-db / pack / adopt / rename。
+- 继续补 `workspace project` CLI：migrate-db / pack / adopt / rename。
 - 清理 API / 前端命名：`/api/novels/*`、`Novel*Dto`、`currentNovelId` 暂时承载 `projectPath`，后续应重命名为 Project 术语。
 - 更新或删除旧 Plot / workspace-files / agent profile 测试中的 `novelId`、`workspace.yaml`、旧 Postgres 心智。
 - 根据最终 CLI 形态，把 Project SQLite 初始化 SQL 从内嵌字符串迁到更正式的 migration runner。
@@ -337,7 +337,7 @@
 
 ### 2026-05-27 `workspace project create`
 
-- `assets/workspace/.nbook/agent/scripts/workspace.ts` 新增 `workspace project create <project>`，支持 `--title`、`--summary`、`--template`、`--json` 和 `--no-db`。
+- `assets/workspace/.nbook/agent/scripts/workspace.ts` 新增 `workspace project create <project>`，支持 `--title`、`--summary`、`--template`、`--target`、`--json` 和 `--no-db`。
 - 创建逻辑先复制 bundled `assets/workspace/.nbook/templates/<template>`，再叠加 Workspace Root `.nbook/templates/<template>` 用户覆盖层；复制后移除旧模板 `workspace.yaml`，写入当前合同的 `project.yaml`，并把旧覆盖层状态文档中“已创建 workspace.yaml”的单点文案归一到 `project.yaml`。
 - 创建命令改为先在目标旁边 `.creating-*` 临时目录内完成模板、manifest 和 Project SQLite，再复制到最终目录；失败时只清理自己的临时目录，避免并发创建时误删已有 Project Workspace。
 - `syncSystemAssetsToUserAssets()` 会同步仍跟随系统上游的 Agent runtime bin/script；缺少 sync state 但内容等于 Git HEAD 中旧系统 asset 的副本，会视为未手改旧同步副本并更新，真实手改副本仍保留并给 warning。
@@ -345,6 +345,13 @@
 - 抽出 `initProjectDatabaseAtRoot()`，让 agent assets CLI 能在只有目标绝对目录时初始化 Project SQLite，同时保留原有 `initProjectDatabase(projectPath)` 入口。
 - `leader.default` prompt 的 Shell commands 已加入 `workspace project create`，并提醒创建新小说 Project Workspace 时不要手动复制模板或手拼 manifest。
 - 新小说模板状态文档已从 `workspace.yaml` 改成 `project.yaml`，避免新项目初始化后文档和实际 manifest 冲突。
+
+### 2026-05-30 `workspace project create --target`
+
+- `workspace project create` 已扩展为唯一模板安装入口，`<project>` 只表示项目名/slug；传入 `--target <dir>` 时，`<dir>` 是实际 Project Workspace 根目录。
+- `--target` 不改变模板覆盖层来源，仍使用当前 Workspace Root `.nbook/templates/<template>` 叠加 bundled 模板。
+- `workspace project validate [target]` 和 `workspace project init-db [target]` 已迁入 active Agent workspace CLI；删除仓库侧重复 CLI 时保留 Project Workspace 校验和数据库恢复能力。
+- 删除仓库侧重复 CLI `scripts/cli/workspace.ts`；测试和手工入口统一使用 active Agent workspace CLI。
 
 ### 2026-05-29 Agent cwd 与模板覆盖修复
 

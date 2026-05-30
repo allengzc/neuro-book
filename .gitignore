@@ -11,6 +11,7 @@ yarn-error.log*
 .vscode/*
 .env
 config.yaml
+!assets/workspace/.nbook/templates/roleplay-directory-templates/roleplay/config.yaml
 dist/
 /server/generated/prisma
 .DS_Store
