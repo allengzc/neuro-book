@@ -1,0 +1,27 @@
+defaultPlayerActor: player
+defaultActorProfile: rp.actor
+defaultWriterProfile: rp.writer
+
+actors:
+  - id: player
+    name: 玩家角色
+    kind: player
+    profile: rp.actor
+    instruction: roleplay/actors/player/actor.md
+    knowledge: roleplay/actors/player/knowledge.md
+    controlledBy: user
+    defaultActive: true
+
+  - id: sample-npc
+    name: 示例 NPC
+    kind: npc
+    profile: rp.actor
+    instruction: roleplay/actors/sample-npc/actor.md
+    knowledge: roleplay/actors/sample-npc/knowledge.md
+    canonicalSource: null
+    defaultActive: true
+
+notes:
+  - 重要配角建议一个角色一个 actor。
+  - 不重要 NPC、路人、服务员、临时敌人等可以由同一个 actor 统筹扮演。
+  - 如果 sample-npc 变成群演 actor，请在它的 actor.md 中列出可扮演的 NPC 范围。

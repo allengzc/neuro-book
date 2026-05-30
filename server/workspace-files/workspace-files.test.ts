@@ -587,6 +587,70 @@ describe("workspace-files", () => {
         expect(stderr).toBe("");
     });
 
+    it("workspace project create 能给已有 Project Workspace 补入 roleplay 模板", async () => {
+        const workspaceSlug = `roleplay-template-test-${randomUUID()}`;
+        const projectRoot = path.join("workspace", workspaceSlug);
+        const existingGm = "# 用户自定义 GM\n";
+
+        try {
+            await fs.mkdir(path.join(projectRoot, "roleplay"), {recursive: true});
+            await fs.writeFile(path.join(projectRoot, "project.yaml"), YAML.stringify({
+                kind: "novel",
+                title: "RP 模板测试",
+                summary: "测试已存在 Project Workspace 安装 roleplay 模板",
+            }), "utf-8");
+            await fs.writeFile(path.join(projectRoot, "roleplay", "gm.md"), existingGm, "utf-8");
+
+            const {stdout, stderr} = await execFileAsync("bun", [
+                AGENT_WORKSPACE_SCRIPT_PATH,
+                "project",
+                "create",
+                workspaceSlug,
+                "--template",
+                "roleplay-directory-templates",
+                "--json",
+            ], {
+                cwd: "workspace",
+                encoding: "utf-8",
+            });
+            const result = JSON.parse(stdout) as {
+                mode: string;
+                projectPath: string;
+                createdFiles: string[];
+                skippedFiles: string[];
+            };
+
+            expect(stderr).toBe("");
+            expect(result.mode).toBe("updated");
+            expect(result.projectPath).toBe(`workspace/${workspaceSlug}`);
+            expect(result.createdFiles).toEqual(expect.arrayContaining([
+                "roleplay/AGENTS.md",
+                "roleplay/cast.yaml",
+                "roleplay/actors/player/knowledge.md",
+                "roleplay/actors/sample-npc/actor.md",
+            ]));
+            expect(result.skippedFiles).toContain("roleplay/gm.md");
+            await expect(fs.readFile(path.join(projectRoot, "roleplay", "gm.md"), "utf-8")).resolves.toBe(existingGm);
+            await expect(fs.readFile(path.join(projectRoot, "roleplay", "AGENTS.md"), "utf-8")).resolves.toContain("leader.rp");
+            await expect(fs.readFile(path.join(projectRoot, "roleplay", "cast.yaml"), "utf-8")).resolves.toContain("sample-npc");
+
+            await expect(execFileAsync("bun", [
+                AGENT_WORKSPACE_SCRIPT_PATH,
+                "project",
+                "create",
+                workspaceSlug,
+                "--json",
+            ], {
+                cwd: "workspace",
+                encoding: "utf-8",
+            })).rejects.toMatchObject({
+                stderr: expect.stringContaining("显式传入 --template"),
+            });
+        } finally {
+            await removeDirectoryWithRetry(projectRoot);
+        }
+    }, 30_000);
+
     it("角色内容节点模板包含 frontmatter 注释与正文结构", async () => {
         await withSystemTemplate("templates/content-node-templates/character/index.md", () => {
             const content = renderWorkspaceContentTemplate({
@@ -1069,6 +1133,7 @@ describe("workspace-files", () => {
         const paths = [
             path.join("workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"),
             path.join("workspace", ".nbook", "templates", "content-node-templates", "chapter", "index.md"),
+            path.join("workspace", ".nbook", "templates", "roleplay-directory-templates", "roleplay", "AGENTS.md"),
             path.join("workspace", ".nbook", "agent", "bin", "profile"),
             path.join("workspace", ".nbook", "agent", "config", "ripgreprc"),
         ];
@@ -1084,11 +1149,13 @@ describe("workspace-files", () => {
             expect(result.copied).toBeGreaterThanOrEqual(paths.length);
             await expect(fs.readFile(paths[0]!, "utf-8")).resolves.toContain("profile");
             await expect(fs.readFile(paths[1]!, "utf-8")).resolves.toContain("chapter");
-            await expect(fs.readFile(paths[2]!, "utf-8")).resolves.toContain("../scripts/profile.ts");
-            await expect(fs.readFile(paths[3]!, "utf-8")).resolves.toContain("--path-separator=/");
+            await expect(fs.readFile(paths[2]!, "utf-8")).resolves.toContain("leader.rp");
+            await expect(fs.readFile(paths[3]!, "utf-8")).resolves.toContain("../scripts/profile.ts");
+            await expect(fs.readFile(paths[4]!, "utf-8")).resolves.toContain("--path-separator=/");
             expect(syncState.assets).toEqual(expect.arrayContaining([
                 expect.objectContaining({assetPath: "agent/skills/profile-system-guide/SKILL.md"}),
                 expect.objectContaining({assetPath: "templates/content-node-templates/chapter/index.md"}),
+                expect.objectContaining({assetPath: "templates/roleplay-directory-templates/roleplay/AGENTS.md"}),
                 expect.objectContaining({assetPath: "agent/bin/profile"}),
                 expect.objectContaining({assetPath: "agent/config/ripgreprc"}),
             ]));

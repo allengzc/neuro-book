@@ -113,6 +113,32 @@ roleplay/
 
 `roleplay/` 第一版默认只由 `leader.rp` / GM 直接读取。actor 和 writer 不把整个目录当作工作区；它们只接收 GM 或 runtime 自动注入的特定文件与 packet。
 
+## Directory Template
+
+RP 目录模板位于：
+
+```text
+assets/workspace/.nbook/templates/roleplay-directory-templates/
+```
+
+它不是默认小说目录模板的一部分。普通小说项目仍由 `novel-directory-templates` 创建；RP 是按需安装到已有 Project Workspace 的扩展目录。
+
+安装入口复用 Project Workspace 模板命令：
+
+```text
+workspace project create my-novel --template roleplay-directory-templates
+```
+
+同一个命令的语义：
+
+- 目标不存在时：创建完整 Project Workspace，未显式传 `--template` 时默认使用 `novel-directory-templates`。
+- 目标已存在且显式传 `--template` 时：把模板文件补入现有 Project Workspace，只创建缺失文件，已有文件进入 `skippedFiles`，不覆盖用户内容。
+- 目标已存在但未显式传 `--template` 时：报错，避免把“创建项目”和“补模板”混淆成误操作。
+
+`--json` 输出会返回 `mode: "created"` 或 `mode: "updated"`。RP 初始化 skill 后续应读取 `createdFiles` / `skippedFiles` 向用户报告实际写入结果。
+
+不要设计或提示第二套模板安装命令。使用项目模板和使用 roleplay 模板都走 `workspace project create`。
+
 ### Root Files
 
 - `AGENTS.md`：`leader.rp` / GM 的入口说明。它面向读取 `roleplay/` 的主控 agent，而不是面向所有 subagent。

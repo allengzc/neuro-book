@@ -1,7 +1,9 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import {fileURLToPath} from "node:url";
 import {Command} from "commander";
 import {createClient} from "@libsql/client";
+import * as yaml from "yaml";
 import {
     workspaceContentJsonSchema,
     WORKSPACE_CONTENT_STATUSES,
@@ -22,6 +24,7 @@ import {
     validateWorkspaceContentNodes,
 } from "nbook/server/workspace-files/workspace-files";
 import {
+    initProjectDatabaseAtRoot,
     PROJECT_DATABASE_RELATIVE_PATH,
     PROJECT_MANIFEST_FILE,
     initProjectDatabase,
@@ -57,6 +60,14 @@ type WorkspaceSchemaOptions = {
     json: boolean;
 };
 
+type WorkspaceProjectCreateOptions = {
+    title?: string;
+    summary?: string;
+    template?: string;
+    json: boolean;
+    db: boolean;
+};
+
 type ResolvedWorkspaceTarget = {
     root: string;
     relativePath: string;
@@ -86,9 +97,40 @@ type ParsedContentNode = {
     absoluteStatePath?: string | null;
 };
 
+type CreatedProjectWorkspace = {
+    mode: "created";
+    projectPath: string;
+    absolutePath: string;
+    title: string;
+    summary: string;
+    templateRoot: string;
+    databasePath: string | null;
+};
+
+type UpdatedProjectWorkspace = {
+    mode: "updated";
+    projectPath: string;
+    absolutePath: string;
+    templateRoot: string;
+    createdFiles: string[];
+    skippedFiles: string[];
+};
+
+type ProjectTemplateResult = CreatedProjectWorkspace | UpdatedProjectWorkspace;
+
+type ProjectTemplateSource = {
+    root: string;
+    overlay: boolean;
+};
+
 const program = new Command();
 const INVOCATION_CWD = process.cwd();
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const WORKSPACE_METADATA_FILE = PROJECT_MANIFEST_FILE;
+const LEGACY_WORKSPACE_METADATA_FILE = "workspace.yaml";
+const DEFAULT_TEMPLATE_NAME = "novel-directory-templates";
+const WORKSPACE_ROOT_NAME = "workspace";
+const SYSTEM_TEMPLATE_ROOT = path.resolve(SCRIPT_DIR, "..", "..", "assets", "workspace", ".nbook", "templates");
 
 program
     .name("workspace")
@@ -132,7 +174,44 @@ nodeCommand
 
 const projectCommand = program
     .command("project")
-    .description("校验与恢复 Project Workspace");
+    .description("创建、校验与恢复 Project Workspace");
+
+projectCommand
+    .command("create")
+    .description("从模板创建 Project Workspace；目标已存在且显式传入 --template 时，将模板补入现有项目")
+    .argument("<project>", "Project Path，例如 workspace/my-novel；在 Workspace Root 内执行时也可写 my-novel")
+    .option("--title <title>", "project.yaml title，默认从目录名推断")
+    .option("--summary <summary>", "project.yaml summary", "")
+    .option("--template <template>", "模板目录名或绝对路径")
+    .option("--json", "输出 JSON", false)
+    .option("--no-db", "只创建文件模板，不初始化 .nbook/project.sqlite")
+    .action(async (project: string, options: WorkspaceProjectCreateOptions) => {
+        try {
+            const created = await createProjectWorkspace(project, options);
+            if (options.json) {
+                console.log(JSON.stringify(created, null, 2));
+                return;
+            }
+
+            if (created.mode === "created") {
+                console.log(`Created ${created.projectPath}`);
+                console.log(`Title: ${created.title}`);
+                console.log(`Template: ${created.templateRoot}`);
+                if (created.databasePath) {
+                    console.log(`Database: ${created.databasePath}`);
+                }
+                return;
+            }
+
+            console.log(`Updated ${created.projectPath}`);
+            console.log(`Template: ${created.templateRoot}`);
+            console.log(`Created files: ${String(created.createdFiles.length)}`);
+            console.log(`Skipped existing files: ${String(created.skippedFiles.length)}`);
+        } catch (error) {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exitCode = 1;
+        }
+    });
 
 projectCommand
     .command("validate")
@@ -394,15 +473,276 @@ async function resolveWorkspaceTargets(targets: string[]): Promise<ResolvedWorks
  * 解析单个输入路径到 workspace root 与内容节点目录相对路径。
  */
 async function resolveSingleWorkspaceTarget(target: string): Promise<ResolvedWorkspaceTarget> {
-    const absoluteTarget = path.isAbsolute(target)
-        ? path.resolve(target)
-        : path.resolve(INVOCATION_CWD, target);
+    const absoluteTarget = resolveWorkspaceCliTarget(target);
     const root = await findWorkspaceRoot(absoluteTarget);
     const contentDirectoryPath = normalizeContentNodeDirectoryPath(root, absoluteTarget);
     return {
         root,
         relativePath: toWorkspaceDisplayPath(root, contentDirectoryPath, true).replace(/\/$/, "") || ".",
     };
+}
+
+/**
+ * 解析 CLI 输入路径，兼容 Agent 从 Workspace Root 传入 workspace/<project>/... 的 Project Path。
+ */
+function resolveWorkspaceCliTarget(target: string): string {
+    if (path.isAbsolute(target)) {
+        return path.resolve(target);
+    }
+
+    const normalizedTarget = target.trim().replaceAll("\\", "/").replace(/^\/+/g, "");
+    const targetParts = normalizedTarget.split("/").filter(Boolean);
+    const cwd = path.resolve(INVOCATION_CWD);
+    if (path.basename(cwd) === WORKSPACE_ROOT_NAME && targetParts[0] === WORKSPACE_ROOT_NAME && targetParts.length >= 2) {
+        return path.resolve(cwd, ...targetParts.slice(1));
+    }
+    return path.resolve(INVOCATION_CWD, target);
+}
+
+/**
+ * 从模板创建 Project Workspace；目标已存在且显式传入模板时，改为给现有项目补齐模板文件。
+ */
+async function createProjectWorkspace(
+    project: string,
+    options: WorkspaceProjectCreateOptions,
+): Promise<ProjectTemplateResult> {
+    const target = resolveProjectTarget(project);
+    if (await pathExists(target.absolutePath)) {
+        if (!options.template) {
+            throw new Error(`Project Workspace 已存在: ${target.projectPath}；如需安装目录模板，请显式传入 --template`);
+        }
+        return await applyProjectTemplateToExistingWorkspace(target, options.template);
+    }
+
+    const templateSources = await resolveProjectTemplateSources(options.template ?? DEFAULT_TEMPLATE_NAME);
+    const templateRoot = templateSources.map((source) => source.root).join(" + ");
+    await fs.mkdir(path.dirname(target.absolutePath), {recursive: true});
+    const stagingRoot = await fs.mkdtemp(path.join(path.dirname(target.absolutePath), `.${target.projectSlug}.creating-`));
+    try {
+        for (const source of templateSources) {
+            await fs.cp(source.root, stagingRoot, {
+                recursive: true,
+                force: source.overlay,
+                errorOnExist: !source.overlay,
+            });
+        }
+        await normalizeProjectTemplateArtifacts(stagingRoot);
+
+        const title = options.title?.trim() || inferProjectTitle(target.projectSlug);
+        const summary = options.summary?.trim() ?? "";
+        await fs.writeFile(path.join(stagingRoot, WORKSPACE_METADATA_FILE), yaml.stringify({
+            kind: "novel",
+            title,
+            summary,
+        }), "utf-8");
+
+        const databasePath = options.db === false ? null : path.join(target.absolutePath, PROJECT_DATABASE_RELATIVE_PATH);
+        if (options.db !== false) {
+            await initProjectDatabaseAtRoot(stagingRoot);
+        }
+        await fs.cp(stagingRoot, target.absolutePath, {
+            recursive: true,
+            force: false,
+            errorOnExist: true,
+        });
+        await removeDirectoryWithRetry(stagingRoot).catch((error: unknown) => {
+            console.warn(`Project Workspace 已创建，但临时目录暂时无法清理，可稍后手动删除: ${stagingRoot}`);
+            console.warn(error instanceof Error ? error.message : String(error));
+        });
+        return {
+            mode: "created",
+            projectPath: target.projectPath,
+            absolutePath: target.absolutePath,
+            title,
+            summary,
+            templateRoot,
+            databasePath,
+        };
+    } catch (error) {
+        await removeDirectoryWithRetry(stagingRoot).catch(() => undefined);
+        throw error;
+    }
+}
+
+/**
+ * 将目录模板补入已有 Project Workspace。默认只创建缺失文件，避免覆盖用户已编辑内容。
+ */
+async function applyProjectTemplateToExistingWorkspace(
+    target: {projectSlug: string; projectPath: string; absolutePath: string},
+    template: string,
+): Promise<UpdatedProjectWorkspace> {
+    if (!await pathExists(path.join(target.absolutePath, WORKSPACE_METADATA_FILE))) {
+        throw new Error(`目标已存在但不是 Project Workspace: ${target.projectPath}`);
+    }
+
+    const templateSources = await resolveProjectTemplateSources(template);
+    const templateRoot = templateSources.map((source) => source.root).join(" + ");
+    const stagingRoot = await fs.mkdtemp(path.join(path.dirname(target.absolutePath), `.${target.projectSlug}.template-`));
+    try {
+        for (const source of templateSources) {
+            await fs.cp(source.root, stagingRoot, {
+                recursive: true,
+                force: source.overlay,
+                errorOnExist: !source.overlay,
+            });
+        }
+        await normalizeProjectTemplateArtifacts(stagingRoot);
+        const result = await copyMissingTemplateFiles(stagingRoot, target.absolutePath);
+        await removeDirectoryWithRetry(stagingRoot).catch((error: unknown) => {
+            console.warn(`模板已应用，但临时目录暂时无法清理，可稍后手动删除: ${stagingRoot}`);
+            console.warn(error instanceof Error ? error.message : String(error));
+        });
+        return {
+            mode: "updated",
+            projectPath: target.projectPath,
+            absolutePath: target.absolutePath,
+            templateRoot,
+            createdFiles: result.createdFiles,
+            skippedFiles: result.skippedFiles,
+        };
+    } catch (error) {
+        await removeDirectoryWithRetry(stagingRoot).catch(() => undefined);
+        throw error;
+    }
+}
+
+/**
+ * 清理旧 novel workspace 模板产物，避免新 Project Workspace 继续暴露 workspace.yaml 心智。
+ */
+async function normalizeProjectTemplateArtifacts(projectRoot: string): Promise<void> {
+    await fs.rm(path.join(projectRoot, LEGACY_WORKSPACE_METADATA_FILE), {force: true});
+    const statusPath = path.join(projectRoot, "PROJECT-STATUS.md");
+    try {
+        const content = await fs.readFile(statusPath, "utf-8");
+        const normalizedContent = content.replaceAll("`workspace.yaml`", `\`${WORKSPACE_METADATA_FILE}\``);
+        if (normalizedContent !== content) {
+            await fs.writeFile(statusPath, normalizedContent, "utf-8");
+        }
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return;
+        }
+        throw error;
+    }
+}
+
+/**
+ * 从 stagingRoot 复制缺失文件到目标目录，保留所有已存在的用户文件。
+ */
+async function copyMissingTemplateFiles(
+    stagingRoot: string,
+    targetRoot: string,
+): Promise<{createdFiles: string[]; skippedFiles: string[]}> {
+    const templateFiles = await listFilesRecursively(stagingRoot);
+    const createdFiles: string[] = [];
+    const skippedFiles: string[] = [];
+    for (const relativePath of templateFiles) {
+        const sourcePath = path.join(stagingRoot, relativePath);
+        const targetPath = path.join(targetRoot, relativePath);
+        if (await pathExists(targetPath)) {
+            skippedFiles.push(relativePath.replaceAll(path.sep, "/"));
+            continue;
+        }
+        await fs.mkdir(path.dirname(targetPath), {recursive: true});
+        await fs.copyFile(sourcePath, targetPath);
+        createdFiles.push(relativePath.replaceAll(path.sep, "/"));
+    }
+    return {createdFiles, skippedFiles};
+}
+
+/**
+ * 列出模板目录下所有普通文件，使用相对路径返回。
+ */
+async function listFilesRecursively(root: string): Promise<string[]> {
+    const result: string[] = [];
+    async function visit(directoryPath: string): Promise<void> {
+        const entries = await fs.readdir(directoryPath, {withFileTypes: true});
+        for (const entry of entries) {
+            const fullPath = path.join(directoryPath, entry.name);
+            if (entry.isDirectory()) {
+                await visit(fullPath);
+                continue;
+            }
+            if (entry.isFile()) {
+                result.push(path.relative(root, fullPath));
+            }
+        }
+    }
+    await visit(root);
+    return result.sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
+}
+
+/**
+ * 解析 Project 创建目标；从仓库根执行时允许 workspace/<slug>，从 Workspace Root 执行时允许 <slug>。
+ */
+function resolveProjectTarget(project: string): {projectSlug: string; projectPath: string; absolutePath: string} {
+    const normalizedProject = project.trim().replaceAll("\\", "/").replace(/\/+$/g, "");
+    if (!normalizedProject || normalizedProject.includes("..") || path.posix.isAbsolute(normalizedProject)) {
+        throw new Error("project 必须是 workspace/<project> 或单段 project 目录名");
+    }
+
+    const parts = normalizedProject.split("/").filter(Boolean);
+    const projectSlug = parts.length === 2 && parts[0] === WORKSPACE_ROOT_NAME
+        ? parts[1]
+        : parts.length === 1
+            ? parts[0]
+            : "";
+    if (!projectSlug || !/^[a-z0-9][a-z0-9._-]*$/i.test(projectSlug)) {
+        throw new Error("project 只能是 workspace 下的单段目录名，支持字母、数字、点、下划线和连字符");
+    }
+
+    const workspaceRoot = resolveWorkspaceContainerRoot();
+    const absolutePath = path.join(workspaceRoot, projectSlug);
+    return {
+        projectSlug,
+        projectPath: path.posix.join(WORKSPACE_ROOT_NAME, projectSlug),
+        absolutePath,
+    };
+}
+
+/**
+ * 推断 Workspace Root 的绝对路径，兼容从仓库根、Workspace Root 或某个 Project Workspace 内执行。
+ */
+function resolveWorkspaceContainerRoot(): string {
+    const cwd = path.resolve(INVOCATION_CWD);
+    if (path.basename(cwd) === WORKSPACE_ROOT_NAME) {
+        return cwd;
+    }
+    if (path.basename(path.dirname(cwd)) === WORKSPACE_ROOT_NAME) {
+        return path.dirname(cwd);
+    }
+    return path.join(cwd, WORKSPACE_ROOT_NAME);
+}
+
+/**
+ * 查找 Project 模板目录；优先使用当前 Workspace Root 的用户覆盖层，再回退到 bundled 模板。
+ */
+async function resolveProjectTemplateSources(template: string): Promise<ProjectTemplateSource[]> {
+    const trimmedTemplate = template.trim();
+    if (!trimmedTemplate) {
+        throw new Error("template 不能为空");
+    }
+    if (path.isAbsolute(trimmedTemplate)) {
+        const templateRoot = path.resolve(trimmedTemplate);
+        if (await isDirectory(templateRoot)) {
+            return [{root: templateRoot, overlay: false}];
+        }
+        throw new Error(`找不到 Project 模板: ${trimmedTemplate}`);
+    }
+
+    const systemRoot = path.join(SYSTEM_TEMPLATE_ROOT, trimmedTemplate);
+    const userRoot = path.join(resolveWorkspaceContainerRoot(), ".nbook", "templates", trimmedTemplate);
+    const sources: ProjectTemplateSource[] = [];
+    if (await isDirectory(systemRoot)) {
+        sources.push({root: systemRoot, overlay: false});
+    }
+    if (userRoot !== systemRoot && await isDirectory(userRoot)) {
+        sources.push({root: userRoot, overlay: sources.length > 0});
+    }
+    if (sources.length > 0) {
+        return sources;
+    }
+    throw new Error(`找不到 Project 模板: ${trimmedTemplate}`);
 }
 
 /**
@@ -576,6 +916,16 @@ function inferTitle(target: string): string {
 }
 
 /**
+ * 从 Project 目录名推断展示标题。
+ */
+function inferProjectTitle(projectSlug: string): string {
+    return projectSlug
+        .replace(/[-_]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim() || "未命名小说";
+}
+
+/**
  * 判断路径是否存在。
  */
 async function pathExists(filePath: string): Promise<boolean> {
@@ -585,6 +935,47 @@ async function pathExists(filePath: string): Promise<boolean> {
     } catch {
         return false;
     }
+}
+
+/**
+ * 判断路径是否为目录。
+ */
+async function isDirectory(filePath: string): Promise<boolean> {
+    try {
+        return (await fs.stat(filePath)).isDirectory();
+    } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
+            return false;
+        }
+        throw error;
+    }
+}
+
+/**
+ * Windows 下 SQLite 句柄释放偶尔滞后，目录清理需要短重试。
+ */
+async function removeDirectoryWithRetry(directoryPath: string): Promise<void> {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+        try {
+            await fs.rm(directoryPath, {recursive: true, force: true});
+            return;
+        } catch (error) {
+            if (attempt === 19 || !isBusyFileError(error)) {
+                throw error;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));
+        }
+    }
+}
+
+/**
+ * 判断是否是 Windows 文件句柄暂未释放导致的临时错误。
+ */
+function isBusyFileError(error: unknown): boolean {
+    return typeof error === "object"
+        && error !== null
+        && "code" in error
+        && (error.code === "EBUSY" || error.code === "EPERM");
 }
 
 /**
