@@ -90,8 +90,9 @@ describe("useAgentSession", () => {
         ]);
     });
 
-    it("session_state_changed.snapshot 直接恢复 running 和 summarizer 状态", () => {
+    it("session_state_changed.state 只更新 live shell", () => {
         const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(0));
 
         session.applyEvent({
             seq: 1,
@@ -99,8 +100,11 @@ describe("useAgentSession", () => {
             kind: "session",
             event: {
                 type: "session_state_changed",
-                snapshot: {
-                    ...baseSnapshot(1),
+                state: {
+                    summary: {
+                        ...baseSnapshot(1).summary,
+                        status: "running",
+                    },
                     summarizer: {
                         running: true,
                         dirty: false,
@@ -113,6 +117,17 @@ describe("useAgentSession", () => {
                         mode: "prompt",
                         startedAt: Date.now(),
                     },
+                    activeLeafId: null,
+                    pendingApproval: null,
+                    steerQueue: [],
+                    followUpQueue: {
+                        status: "ready",
+                        items: [],
+                    },
+                    model: null,
+                    thinkingLevel: null,
+                    effectiveThinkingLevel: "off",
+                    planModeActive: false,
                 },
             },
         });
@@ -144,7 +159,7 @@ describe("useAgentSession", () => {
             seq: 1,
             sessionId: 1,
             invocationId: "run-1",
-            kind: "pi",
+            kind: "runtime",
             event: {
                 type: "tool_execution_end",
                 toolCallId: "call-1",
@@ -156,5 +171,24 @@ describe("useAgentSession", () => {
 
         expect(session.running.value).toBe(true);
         expect(session.runPhase.value).toBe("finishing");
+    });
+
+    it("waiting agent_end 不会把 approval UI 冲回 idle", () => {
+        const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(0));
+
+        session.applyEvent({
+            seq: 1,
+            sessionId: 1,
+            invocationId: "run-1",
+            kind: "runtime",
+            event: {
+                type: "agent_end",
+                status: "waiting",
+            },
+        });
+
+        expect(session.liveRunStatus.value).toBe("waiting");
+        expect(session.runPhase.value).toBe("waiting_user");
     });
 });

@@ -119,7 +119,6 @@ describe("turn failure helpers", () => {
             thinkingLevel: "off",
             runtimeState: new Map(),
             messages: [finalAssistant],
-            events: [{type: "agent_start"}],
             finalAssistant,
             turnIndex: 1,
             reportResultReminderSent: false,
@@ -130,7 +129,6 @@ describe("turn failure helpers", () => {
 
         expect(createFailedRunLoopResult(frame, outcome)).toEqual({
             status: "failed",
-            events: frame.events,
             finalAssistant,
             errorInfo: outcome.errorInfo,
             terminalStatus: "error",

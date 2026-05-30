@@ -135,9 +135,6 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         }
         await options.onEvent?.(event);
         options.session.applyEvent(event);
-        if (event.kind === "session" && event.event.type === "session_state_changed" && event.event.snapshot) {
-            options.applySnapshotSideEffects?.(event.event.snapshot);
-        }
         if (options.session.needsSnapshot.value) {
             const reason = options.session.snapshotReasons.value.includes("snapshot_required") ? "snapshot_required" : "seq_gap";
             await syncSnapshot(reason);

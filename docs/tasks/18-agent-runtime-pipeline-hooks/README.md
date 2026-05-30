@@ -534,7 +534,7 @@ type TurnOutcome =
 
 - `AgentSessionEventHub` 维护 bounded replay 和全局 seq。
 - replay buffer 不够时只给落后的 subscriber 发送 `snapshot_required`。
-- 前端收到 `session_state_changed.snapshot` 或 `snapshot_required` 后以 `getSessionSnapshot()` 的结果作为真相。
+- 前端收到 `snapshot_required` 后以 `getSessionSnapshot()` 的结果作为真相；`session_state_changed` 只携带 lightweight live state，不携带完整 snapshot。
 
 新架构落位：
 
@@ -693,7 +693,7 @@ invocation_lifecycle { invocationId, status: "end" }
 新架构落位：
 
 - snapshot / event recovery 仍属于 SessionLog + EventHub，不进入 Run Kernel stage。
-- `SessionWriteExecutor` 是唯一发布入口：写入 entry 后统一决定 publish `session_entry`、`session_state_changed.snapshot` 或静默。
+- `SessionWriteExecutor` 是唯一发布入口：写入 entry 后统一决定 publish `session_entry`、`session_state_changed.state` 或静默。
 - projection write 是 `SessionWritePlan.ops[]` 里的 `op.kind = "append" + projection: true`，由 executor 保证不进入 tree，不移动 active leaf。
 - follow-up queue 状态写入 `agent.followUpQueue` projection custom state；snapshot 会优先读内存 queue，内存没有时从 projection 恢复，保证刷新页面或重建 harness 后仍能看到 paused queue。第一版不在重启后自动 drain ready queue。
 - Run Kernel 只通过 write plan 间接影响 snapshot；hook 不直接 publish event。
@@ -2058,6 +2058,12 @@ export default defineAgentProfile({
   - 2 files, 78 tests passed after fixing waiting/running abort terminal semantics.
 - `bunx vitest run server/agent/session/session-repo.test.ts server/agent/session/write-plan.test.ts server/agent/profiles/define-agent-runtime.test.ts server/agent/profiles/catalog.test.ts server/agent/harness/run-kernel-error.test.ts server/agent/harness/run-frame-state.test.ts server/agent/harness/prepare-run.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/turn-continuation.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/turn-transaction.test.ts server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/compaction.test.ts server/agent/variables/variables.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/components/novel-ide/agent/agent-message.test.ts app/components/novel-ide/agent/useAgentSessionStream.test.ts app/utils/agent-message-projection.test.ts --reporter=dot`
   - 18 files, 202 tests passed after fixing abort terminal semantics.
+- `bunx vitest run server/agent/events/public-event-projection.test.ts server/agent/harness/types.test.ts server/agent/session/write-plan.test.ts app/components/novel-ide/agent/useAgentSession.test.ts --reporter=dot`
+  - 4 files, 15 tests passed after public event projection hard cut.
+- `bunx vitest run server/agent/session/session-repo.test.ts server/agent/session/write-plan.test.ts server/agent/profiles/define-agent-runtime.test.ts server/agent/profiles/catalog.test.ts server/agent/harness/run-kernel-error.test.ts server/agent/harness/run-frame-state.test.ts server/agent/harness/prepare-run.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/turn-continuation.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/turn-transaction.test.ts server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/compaction.test.ts server/agent/harness/types.test.ts server/agent/events/public-event-projection.test.ts server/agent/variables/variables.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/components/novel-ide/agent/agent-message.test.ts app/components/novel-ide/agent/useAgentSessionStream.test.ts app/utils/agent-message-projection.test.ts --reporter=dot`
+  - 20 files, 213 tests passed after public event projection hard cut.
+- `bunx tsc --noEmit --pretty false`
+  - 18 相关类型错误已清掉；仍失败于既有 unrelated SillyTavern 类型错误。
 - 已核对 PI 文档与源码入口：
   - `.agent/workspace/pi/packages/agent/docs/agent-harness.md`
   - `.agent/workspace/pi/packages/agent/docs/durable-harness.md`

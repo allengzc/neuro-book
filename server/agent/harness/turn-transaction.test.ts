@@ -38,7 +38,6 @@ describe("turn transaction", () => {
 
     it("waiting outcome 会写回 RunFrame 并返回 waiting run result", () => {
         const frame = fakeFrame();
-        frame.events.push({type: "turn_start"});
         const assistant = createAssistantTextMessage({text: ""});
         const waiting = {
             toolCallId: "ask-1",
@@ -64,7 +63,6 @@ describe("turn transaction", () => {
             kind: "waiting",
             result: {
                 status: "waiting",
-                events: frame.events,
                 finalAssistant: assistant,
                 reportResult: undefined,
                 waiting,
@@ -75,7 +73,6 @@ describe("turn transaction", () => {
 
     it("failed outcome 会写回 RunFrame 并返回 failed run result", () => {
         const frame = fakeFrame();
-        frame.events.push({type: "turn_start"});
         const finalAssistant = createAssistantTextMessage({
             text: "",
             stopReason: "error",
@@ -96,7 +93,6 @@ describe("turn transaction", () => {
             kind: "failed",
             result: {
                 status: "failed",
-                events: frame.events,
                 finalAssistant,
                 errorInfo: outcome.errorInfo,
                 terminalStatus: "error",
@@ -120,7 +116,6 @@ function fakeFrame(): RunFrame {
         thinkingLevel: "off",
         runtimeState: new Map(),
         messages: [],
-        events: [],
         turnIndex: 1,
         reportResultReminderSent: false,
         reportResultReminderEnabled: false,

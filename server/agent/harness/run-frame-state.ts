@@ -47,7 +47,6 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         thinkingLevel: input.thinkingLevel,
         runtimeState: input.runtimeState,
         abortSignal: input.abortSignal,
-        events: [],
         turnIndex: 0,
         reportResultReminderSent: false,
         reportResultReminderEnabled: input.reportResultReminderEnabled,

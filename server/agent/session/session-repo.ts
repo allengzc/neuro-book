@@ -460,7 +460,7 @@ export class JsonlSessionRepository {
         const childCountByParentId = new Map<SessionEntryId | null, number>();
         const labelsByTargetId = new Map<SessionEntryId, string>();
         for (const entry of snapshot.entries) {
-            if (entry.type === "leaf" || entry.origin === "projection") {
+            if (entry.type === "leaf" || ("origin" in entry && entry.origin === "projection")) {
                 continue;
             }
             childCountByParentId.set(entry.parentId, (childCountByParentId.get(entry.parentId) ?? 0) + 1);
@@ -469,7 +469,7 @@ export class JsonlSessionRepository {
             }
         }
         return snapshot.entries
-            .filter((entry) => entry.type !== "leaf" && entry.origin !== "projection")
+            .filter((entry) => entry.type !== "leaf" && (!("origin" in entry) || entry.origin !== "projection"))
             .map((entry) => ({
                 id: entry.id,
                 parentId: entry.parentId,

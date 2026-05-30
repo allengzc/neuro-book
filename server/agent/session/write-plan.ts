@@ -1,4 +1,5 @@
 import type {AgentSessionEventHub} from "nbook/server/agent/events/session-event-hub";
+import type {AgentSessionLiveStateDto} from "nbook/shared/dto/agent-session.dto";
 import type {SessionEntry, SessionEntryDraft, SessionId, SessionProjectionScope} from "nbook/server/agent/session/types";
 import type {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 
@@ -38,7 +39,7 @@ export type SessionWriteResult = {
 export type SessionWriteExecutorInput = {
     repo: JsonlSessionRepository;
     eventHub: AgentSessionEventHub;
-    snapshotProvider: (sessionId: SessionId) => Promise<unknown>;
+    liveStateProvider: (sessionId: SessionId) => Promise<AgentSessionLiveStateDto>;
 };
 
 /**
@@ -50,12 +51,12 @@ export type SessionWriteExecutorInput = {
 export class SessionWriteExecutor {
     private readonly repo: JsonlSessionRepository;
     private readonly eventHub: AgentSessionEventHub;
-    private readonly snapshotProvider: (sessionId: SessionId) => Promise<unknown>;
+    private readonly liveStateProvider: (sessionId: SessionId) => Promise<AgentSessionLiveStateDto>;
 
     constructor(input: SessionWriteExecutorInput) {
         this.repo = input.repo;
         this.eventHub = input.eventHub;
-        this.snapshotProvider = input.snapshotProvider;
+        this.liveStateProvider = input.liveStateProvider;
     }
 
     /**
@@ -170,7 +171,7 @@ export class SessionWriteExecutor {
             kind: "session",
             event: {
                 type: "session_state_changed",
-                snapshot: await this.snapshotProvider(sessionId) as never,
+                state: await this.liveStateProvider(sessionId),
             },
         });
     }

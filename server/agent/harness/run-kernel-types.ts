@@ -1,4 +1,3 @@
-import type {AgentEvent} from "@earendil-works/pi-agent-core";
 import type {AgentMessage, AgentToolCall, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
 import type {AgentProfile, ProfileCompactionPlan} from "nbook/server/agent/profiles/types";
 import type {AgentRuntimeHookStage} from "nbook/server/agent/profiles/define-agent-runtime";
@@ -7,6 +6,7 @@ import type {SessionWritePlan} from "nbook/server/agent/session/write-plan";
 import type {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
 import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
+import type {AgentRuntimeStreamEventDto} from "nbook/shared/dto/agent-session.dto";
 
 export type RunRuntimeState = Map<string, JsonValue>;
 
@@ -64,14 +64,12 @@ export type TurnIngestResult = {
 
 export type CompletedRunLoopResult = {
     status: "completed";
-    events: AgentEvent[];
     finalAssistant?: AssistantMessage;
     reportResult?: InvokeAgentResult["reportResult"];
 };
 
 export type WaitingRunLoopResult = {
     status: "waiting";
-    events: AgentEvent[];
     finalAssistant?: AssistantMessage;
     reportResult?: InvokeAgentResult["reportResult"];
     waiting: NonNullable<RunToolBatchResult["waiting"]>;
@@ -79,7 +77,6 @@ export type WaitingRunLoopResult = {
 
 export type FailedRunLoopResult = {
     status: "failed";
-    events: AgentEvent[];
     finalAssistant?: AssistantMessage;
     errorInfo: InvocationErrorInfo;
     terminalStatus?: "error" | "aborted" | "interrupted";
@@ -122,7 +119,6 @@ export type RunFrame = {
     runtimeState: RunRuntimeState;
     abortSignal?: AbortSignal;
     messages: AgentMessage[];
-    events: AgentEvent[];
     reportResult?: InvokeAgentResult["reportResult"];
     finalAssistant?: AssistantMessage;
     turnIndex: number;
@@ -131,7 +127,7 @@ export type RunFrame = {
     automaticCompactionEnabled: boolean;
     lastTurnIngest?: TurnIngestResult;
     pendingWritePlans: SessionWritePlan[];
-    onEvent?: (event: AgentEvent) => void | Promise<void>;
+    onEvent?: (event: AgentRuntimeStreamEventDto) => void | Promise<void>;
 };
 
 export type TurnSnapshot = {

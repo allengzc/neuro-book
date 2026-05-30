@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {RequestUserInputToolArgsSchema, applyPiEventToMessages, applySessionEntryToMessages, deriveMessagesFromSessionSnapshot, deriveRequestUserInputAnswerViews, hasVisibleInvocationError, messageStatusLabel, toLocalMessage, toPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
+import {RequestUserInputToolArgsSchema, applyRuntimeEventToMessages, applySessionEntryToMessages, deriveMessagesFromSessionSnapshot, deriveRequestUserInputAnswerViews, hasVisibleInvocationError, messageStatusLabel, toLocalMessage, toPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
 
 describe("agent message projection helpers", () => {
     it("request_user_input schema 保留默认选项字段", () => {
@@ -396,7 +396,7 @@ describe("agent message projection helpers", () => {
     });
 
     it("tool_execution_start 展示 JSON 参数", () => {
-        const messages = applyPiEventToMessages([{
+        const messages = applyRuntimeEventToMessages([{
             id: "assistant-1",
             type: "ai",
             content: "",

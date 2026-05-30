@@ -23,6 +23,7 @@ import {findPendingApprovalCall, resolutionToToolResult} from "nbook/server/agen
 import {createBuiltinTools, createReportResultTool} from "nbook/server/agent/tools/builtin-tools";
 import {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import type {AgentResolution, NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
+import {projectRuntimeEvent} from "nbook/server/agent/events/public-event-projection";
 import {appendCompaction, compactIfNeeded} from "nbook/server/agent/harness/compaction";
 import type {
     RunFrame,
@@ -69,8 +70,10 @@ import type {
     AgentFollowUpQueueItemDto,
     AgentLinkedSessionDto,
     AgentPendingApprovalDto,
+    AgentRuntimeStreamEventDto,
     AgentSessionEventDto,
     AgentSessionListQueryDto,
+    AgentSessionLiveStateDto,
     AgentSessionSummarizerStateDto,
     AgentSessionSnapshotDto,
     AgentSessionSummaryDto,
@@ -175,7 +178,7 @@ export class NeuroAgentHarness {
         this.writeExecutor = new SessionWriteExecutor({
             repo: this.repo,
             eventHub: this.eventHub,
-            snapshotProvider: (sessionId) => this.getSessionSnapshot(sessionId),
+            liveStateProvider: (sessionId) => this.getSessionLiveState(sessionId),
         });
         this.modelResolver = options.modelResolver ?? resolvePiModelFromConfig;
         this.enableSessionSummarizer = options.enableSessionSummarizer ?? true;
@@ -304,7 +307,6 @@ export class NeuroAgentHarness {
                     status: "waiting",
                     finalMessage: `steer queued: ${item.id}`,
                     queuedItem: item,
-                    events: [],
                 };
             }
             if ((input.mode === "prompt" || input.mode === "followup") && input.message) {
@@ -315,7 +317,6 @@ export class NeuroAgentHarness {
                     status: "waiting",
                     finalMessage: `follow up queued: ${item.id}`,
                     queuedItem: item,
-                    events: [],
                 };
             }
             throw new Error("active_invocation_exists");
@@ -456,7 +457,6 @@ export class NeuroAgentHarness {
                 errorInfo: result.errorInfo,
                 finalMessage: result.finalAssistant ? messageText(result.finalAssistant) : undefined,
                 usage: result.finalAssistant?.usage,
-                events: result.events,
             };
         }
 
@@ -472,7 +472,6 @@ export class NeuroAgentHarness {
                 status: "waiting",
                 finalMessage: `waiting for ${result.waiting.toolName}`,
                 usage: result.finalAssistant?.usage,
-                events: result.events,
             };
         }
 
@@ -483,7 +482,6 @@ export class NeuroAgentHarness {
             finalMessage: result.finalAssistant ? messageText(result.finalAssistant) : undefined,
             reportResult: result.reportResult,
             usage: result.finalAssistant?.usage,
-            events: result.events,
         };
     }
 
@@ -553,7 +551,6 @@ export class NeuroAgentHarness {
             error: errorInfo.message,
             errorPhase: errorInfo.phase,
             errorInfo,
-            events: [],
         };
     }
 
@@ -769,6 +766,39 @@ export class NeuroAgentHarness {
             return !summary.archived;
         }
         return summary.status === status;
+    }
+
+    /**
+     * 返回 SSE 使用的轻量 session live state。
+     *
+     * 这里故意不包含 messages、entries、tree、systemPrompt、linked agents。
+     */
+    async getSessionLiveState(sessionId: number): Promise<AgentSessionLiveStateDto> {
+        const snapshot = await this.repo.readSession(sessionId);
+        const context = this.repo.reduce(snapshot);
+        const pendingMessages = context.messages.filter((message): message is Message => {
+            return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
+        });
+        const pendingApproval = findPendingApprovalCall(pendingMessages, this.tools.approvalToolKeys());
+        const effectiveThinkingLevel = await this.snapshotThinkingLevel(snapshot, context);
+        const summarizer = this.sessionSummarizerStateDto(context);
+        return {
+            summary: {
+                ...this.repo.summary(snapshot),
+                status: this.resolveSessionStatus(sessionId, context.archived),
+            },
+            ...(summarizer ? {summarizer} : {}),
+            activeLeafId: snapshot.leafId,
+            pendingApproval: pendingApproval ? await this.pendingApprovalDto(snapshot, pendingApproval) : null,
+            steerQueue: this.steerQueues.get(sessionId) ?? [],
+            followUpQueue: this.followUpQueueState(sessionId, context),
+            activeInvocation: this.activeInvocations.get(sessionId) ?? null,
+            model: context.model,
+            thinkingLevel: context.thinkingLevel,
+            effectiveThinkingLevel,
+            planModeActive: context.planModeActive,
+            usage: [...context.messages].reverse().find((message) => message.role === "assistant")?.usage,
+        };
     }
 
     /**
@@ -1767,12 +1797,12 @@ export class NeuroAgentHarness {
         reportResultReminderEnabled: boolean;
         abortSignal?: AbortSignal;
         invocationId?: string;
-        onEvent?: (event: AgentEvent) => void | Promise<void>;
+        onEvent?: (event: AgentRuntimeStreamEventDto) => void | Promise<void>;
     }): Promise<RunLoopResult> {
         const frame = createRunFrame(input);
 
         this.assertNoUnclosedToolCallsForModel(frame.messages);
-        await this.emitFrameEvent(frame, {type: "agent_start"});
+        await this.emitRuntimeEvent(frame, {type: "agent_start"});
         let shouldContinue = true;
         let failedResult: RunLoopResult | undefined;
         while (shouldContinue) {
@@ -1782,22 +1812,29 @@ export class NeuroAgentHarness {
                 break;
             }
             if (transaction.kind === "waiting") {
-                await this.emitFrameEvent(frame, {type: "agent_end", messages: frame.messages});
+                await this.emitRuntimeEvent(frame, {
+                    type: "agent_end",
+                    status: "waiting",
+                    usage: frame.finalAssistant?.usage,
+                });
                 return transaction.result;
             }
             shouldContinue = transaction.shouldContinue;
         }
         this.steerableSessions.delete(frame.sessionId);
-        await this.emitFrameEvent(frame, {type: "agent_end", messages: frame.messages});
+        const failedTerminalStatus = failedResult?.status === "failed" && (failedResult.terminalStatus === "aborted" || failedResult.terminalStatus === "interrupted")
+            ? failedResult.terminalStatus
+            : "failed";
+        await this.emitRuntimeEvent(frame, {
+            type: "agent_end",
+            status: failedResult ? failedTerminalStatus : "completed",
+            usage: frame.finalAssistant?.usage,
+        });
         if (failedResult) {
-            return {
-                ...failedResult,
-                events: frame.events,
-            };
+            return failedResult;
         }
         return {
             status: "completed",
-            events: frame.events,
             finalAssistant: frame.finalAssistant,
             reportResult: frame.reportResult,
         };
@@ -1811,7 +1848,7 @@ export class NeuroAgentHarness {
      */
     private async runTurnTransaction(frame: RunFrame): Promise<RunTurnTransactionResult> {
         frame.turnIndex += 1;
-        await this.emitFrameEvent(frame, {type: "turn_start"});
+        await this.emitRuntimeEvent(frame, {type: "turn_start", turnIndex: frame.turnIndex});
         const preModelSteers = await this.drainSteers({
             sessionId: frame.sessionId,
             workspaceKey: frame.workspaceKey,
@@ -1828,7 +1865,7 @@ export class NeuroAgentHarness {
             const failedIngestDraft = createFailedTurnIngestDraft(outcome);
             const ingest = failedIngestDraft ? await withRunKernelPhase("ingest", () => this.ingestTurn(frame, failedIngestDraft)) : undefined;
             const transaction = applyFailedTurnTransaction(frame, outcome, ingest);
-            await this.emitFrameEvent(frame, {type: "turn_end", message: outcome.finalAssistant, toolResults: []});
+            await this.emitRuntimeEvent(frame, {type: "turn_end", turnIndex: frame.turnIndex, status: "failed"});
             return {
                 kind: "failed",
                 result: transaction.result,
@@ -1845,7 +1882,7 @@ export class NeuroAgentHarness {
         if (!turn.waiting) {
             this.steerableSessions.delete(frame.sessionId);
         }
-        await this.emitFrameEvent(frame, {type: "turn_end", message: turn.assistant, toolResults: turn.toolResults});
+        await this.emitRuntimeEvent(frame, {type: "turn_end", turnIndex: frame.turnIndex, status: turn.waiting ? "waiting" : "completed"});
         if (transaction.kind === "waiting") {
             return {
                 kind: "waiting",
@@ -1865,12 +1902,22 @@ export class NeuroAgentHarness {
     }
 
     /**
-     * 发布 PI event，并记录到当前 RunFrame。
+     * 投影并发布 provider/tool raw event。
      */
     private async emitFrameEvent(frame: RunFrame, event: AgentEvent): Promise<void> {
-        frame.events.push(event);
+        const projected = projectRuntimeEvent(event);
+        if (!projected) {
+            return;
+        }
+        await this.emitRuntimeEvent(frame, projected);
+    }
+
+    /**
+     * 发布公开 runtime event。SSE 和 callback 都只接触这个轻量 DTO。
+     */
+    private async emitRuntimeEvent(frame: RunFrame, event: AgentRuntimeStreamEventDto): Promise<void> {
         await frame.onEvent?.(event);
-        this.publishPiEvent(frame.sessionId, frame.invocationId, event);
+        this.publishRuntimeEvent(frame.sessionId, frame.invocationId, event);
     }
 
     /**
@@ -2725,11 +2772,11 @@ export class NeuroAgentHarness {
         );
     }
 
-    private publishPiEvent(sessionId: number, invocationId: string | undefined, event: AgentEvent): void {
+    private publishRuntimeEvent(sessionId: number, invocationId: string | undefined, event: AgentRuntimeStreamEventDto): void {
         this.eventHub.publish({
             sessionId,
             invocationId,
-            kind: "pi",
+            kind: "runtime",
             event,
         });
     }
@@ -2753,7 +2800,7 @@ export class NeuroAgentHarness {
             kind: "session",
             event: {
                 type: "session_state_changed",
-                snapshot: await this.getSessionSnapshot(sessionId),
+                state: await this.getSessionLiveState(sessionId),
             },
         });
     }

@@ -1,8 +1,7 @@
 import {z} from "zod";
-import type {AgentEvent} from "@earendil-works/pi-agent-core";
 import type {AssistantMessageEvent} from "@earendil-works/pi-ai";
 import type {AgentMessage as PiAgentMessage, AgentToolCall as PiAgentToolCall, AssistantMessage as PiAssistantMessage, Message as PiMessage, ToolResultMessage} from "nbook/server/agent/messages/types";
-import type {AgentSessionSnapshotDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentRuntimeStreamEventDto, AgentSessionSnapshotDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
 import type {SessionEntry} from "nbook/server/agent/session/types";
 import {toStableArgsJson} from "nbook/app/components/novel-ide/agent/tool-args-stream";
 
@@ -749,9 +748,9 @@ export const deriveRequestUserInputAnswerViews = (
 };
 
 /**
- * 从 Pi event 更新 live message。
+ * 从 public runtime event 更新 live message。
  */
-export const applyPiEventToMessages = (previousMessages: AgentMessage[], event: AgentEvent, invocationId?: string): AgentMessage[] => {
+export const applyRuntimeEventToMessages = (previousMessages: AgentMessage[], event: AgentRuntimeStreamEventDto, invocationId?: string): AgentMessage[] => {
     if (event.type === "message_start" || event.type === "message_update" || event.type === "message_end") {
         if (event.message.role === "toolResult") {
             const toolResult = event.message;

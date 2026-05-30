@@ -78,7 +78,6 @@ function fakeFrame(): RunFrame {
         thinkingLevel: "off",
         runtimeState: new Map(),
         messages: [],
-        events: [],
         turnIndex: 1,
         reportResultReminderSent: false,
         reportResultReminderEnabled: true,

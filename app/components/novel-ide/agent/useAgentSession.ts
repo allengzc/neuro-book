@@ -1,7 +1,7 @@
-import type {AgentSessionEventDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
-import {computed, ref} from "vue";
+import type {AgentSessionEventDto, AgentSessionLiveStateDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
+import {computed, ref, shallowRef} from "vue";
 import {
-    applyPiEventToMessages,
+    applyRuntimeEventToMessages,
     applySessionEntryToMessages,
     deriveMessagesFromSessionSnapshot,
     reconcileMessages,
@@ -27,7 +27,7 @@ export type AgentRunPhase =
  * 统一管理 session snapshot + live event，并派生当前 UI message 列表。
  */
 export function useAgentSession() {
-    const snapshot = ref<AgentSessionSnapshotDto | null>(null);
+    const snapshot = shallowRef<AgentSessionSnapshotDto | null>(null);
     const messages = ref<AgentMessage[]>([]);
     const liveRunStatus = ref<"idle" | "running" | "waiting" | "aborting">("idle");
     const runPhase = ref<AgentRunPhase>("idle");
@@ -101,6 +101,40 @@ export function useAgentSession() {
         snapshotReasons.value = [];
     };
 
+    /**
+     * 应用轻量 live state。它只更新运行态 shell，不重建历史消息。
+     */
+    const applyLiveState = (state: AgentSessionLiveStateDto): void => {
+        if (!snapshot.value) {
+            requestSnapshot("missing_snapshot");
+            return;
+        }
+        const currentSnapshot = snapshot.value;
+        snapshot.value = {
+            ...currentSnapshot,
+            summary: state.summary,
+            summarizer: state.summarizer,
+            activeLeafId: state.activeLeafId,
+            pendingApproval: state.pendingApproval,
+            steerQueue: state.steerQueue,
+            followUpQueue: state.followUpQueue,
+            activeInvocation: state.activeInvocation,
+            model: state.model,
+            thinkingLevel: state.thinkingLevel,
+            effectiveThinkingLevel: state.effectiveThinkingLevel,
+            planModeActive: state.planModeActive,
+            usage: state.usage,
+        };
+        if (state.activeInvocation) {
+            liveRunStatus.value = state.activeInvocation.status === "waiting" ? "waiting" : state.activeInvocation.status;
+            runPhase.value = state.pendingApproval ? "waiting_user" : runPhase.value === "idle" ? "model_pending" : runPhase.value;
+        } else if (liveRunStatus.value !== "aborting") {
+            liveRunStatus.value = "idle";
+            runPhase.value = "idle";
+        }
+        pendingUserInputSession.value = toPendingUserInputSession(state.pendingApproval, messages.value);
+    };
+
     const requestSnapshot = (reason: string): void => {
         needsSnapshot.value = true;
         if (!snapshotReasons.value.includes(reason)) {
@@ -134,15 +168,20 @@ export function useAgentSession() {
         }
         lastSeq.value = payload.seq;
 
-        if (payload.kind === "pi") {
-            messages.value = applyPiEventToMessages(messages.value, payload.event, payload.invocationId);
+        if (payload.kind === "runtime") {
+            messages.value = applyRuntimeEventToMessages(messages.value, payload.event, payload.invocationId);
             if (payload.event.type === "agent_start") {
                 liveRunStatus.value = "running";
                 runPhase.value = "model_pending";
             }
             if (payload.event.type === "agent_end") {
-                liveRunStatus.value = "idle";
-                runPhase.value = "idle";
+                if (payload.event.status === "waiting") {
+                    liveRunStatus.value = "waiting";
+                    runPhase.value = "waiting_user";
+                } else {
+                    liveRunStatus.value = "idle";
+                    runPhase.value = "idle";
+                }
             }
             if (payload.event.type === "turn_start") {
                 liveRunStatus.value = "running";
@@ -189,8 +228,8 @@ export function useAgentSession() {
             return;
         }
 
-        if (payload.event.type === "session_state_changed" && payload.event.snapshot) {
-            applySnapshot(payload.event.snapshot);
+        if (payload.event.type === "session_state_changed") {
+            applyLiveState(payload.event.state);
             return;
         }
 

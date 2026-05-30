@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {applyPiEventToMessages, applySessionEntryToMessages, deriveMessagesFromSessionSnapshot, type AgentMessage} from "nbook/app/components/novel-ide/agent/agent-message";
+import {applyRuntimeEventToMessages, applySessionEntryToMessages, deriveMessagesFromSessionSnapshot, type AgentMessage} from "nbook/app/components/novel-ide/agent/agent-message";
 import type {AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
 
 const baseSnapshot = (entries: AgentSessionSnapshotDto["entries"]): AgentSessionSnapshotDto => ({
@@ -287,7 +287,7 @@ describe("agent message projection", () => {
             thinking: "先分析",
         }];
 
-        const messages = applyPiEventToMessages(previous, {
+        const messages = applyRuntimeEventToMessages(previous, {
             type: "message_update",
             message: {
                 role: "assistant",
@@ -334,7 +334,7 @@ describe("agent message projection", () => {
     });
 
     it("首帧 message_update 没有 previous message 时仍应用 text_delta", () => {
-        const messages = applyPiEventToMessages([], {
+        const messages = applyRuntimeEventToMessages([], {
             type: "message_update",
             message: {
                 role: "assistant",
@@ -397,7 +397,7 @@ describe("agent message projection", () => {
             }],
         }];
 
-        const messages = applyPiEventToMessages(previous, {
+        const messages = applyRuntimeEventToMessages(previous, {
             type: "message_update",
             message: {
                 role: "assistant",
@@ -462,7 +462,7 @@ describe("agent message projection", () => {
             ],
         }];
 
-        const messages = applyPiEventToMessages(previous, {
+        const messages = applyRuntimeEventToMessages(previous, {
             type: "message_update",
             message: {
                 role: "assistant",
@@ -540,7 +540,7 @@ describe("agent message projection", () => {
             ],
         }];
 
-        const messages = applyPiEventToMessages(previous, {
+        const messages = applyRuntimeEventToMessages(previous, {
             type: "message_update",
             message: {
                 role: "assistant",
@@ -615,7 +615,7 @@ describe("agent message projection", () => {
             ],
         }];
 
-        const messages = applyPiEventToMessages(previous, {
+        const messages = applyRuntimeEventToMessages(previous, {
             type: "message_update",
             message: {
                 role: "assistant",
@@ -663,7 +663,7 @@ describe("agent message projection", () => {
     });
 
     it("tool_execution_start 没有已有 assistant toolCall 时创建 live 工具气泡", () => {
-        const messages = applyPiEventToMessages([], {
+        const messages = applyRuntimeEventToMessages([], {
             type: "tool_execution_start",
             toolCallId: "invoke-1",
             toolName: "invoke_agent",
@@ -688,14 +688,14 @@ describe("agent message projection", () => {
     });
 
     it("tool_execution_end 能更新 live fallback 工具气泡", () => {
-        const runningMessages = applyPiEventToMessages([], {
+        const runningMessages = applyRuntimeEventToMessages([], {
             type: "tool_execution_start",
             toolCallId: "invoke-1",
             toolName: "invoke_agent",
             args: {sessionId: 15},
         }, "invocation-1");
 
-        const doneMessages = applyPiEventToMessages(runningMessages, {
+        const doneMessages = applyRuntimeEventToMessages(runningMessages, {
             type: "tool_execution_end",
             toolCallId: "invoke-1",
             toolName: "invoke_agent",
@@ -718,14 +718,14 @@ describe("agent message projection", () => {
     });
 
     it("真实 assistant toolCall 到达时移除同 id 的 live fallback 气泡", () => {
-        const runningMessages = applyPiEventToMessages([], {
+        const runningMessages = applyRuntimeEventToMessages([], {
             type: "tool_execution_start",
             toolCallId: "invoke-1",
             toolName: "invoke_agent",
             args: {sessionId: 15},
         });
 
-        const messages = applyPiEventToMessages(runningMessages, {
+        const messages = applyRuntimeEventToMessages(runningMessages, {
             type: "message_end",
             message: {
                 role: "assistant",

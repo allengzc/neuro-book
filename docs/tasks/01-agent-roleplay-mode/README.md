@@ -13,7 +13,7 @@
 
 - 增加一组 RP 相关 skill，让用户能理解本系统如何运行 RP、如何初始化当前小说 workspace 的 RP 目录、如何导入或分析 SillyTavern 角色卡。
 - 第一阶段优先支持纯文字或轻量文本卡，不复刻重前端卡的 UI、脚本、API 请求和复杂变量系统。
-- 保持当前项目的文件化 workspace 心智：稳定设定进入 `lorebook/`，外部原始素材进入 `reference/`，RP 会话和编排配置进入当前 workspace 下的 `roleplay/`。
+- 保持当前项目的文件化 workspace 心智：稳定设定进入 `lorebook/`，外部原始素材进入 `reference/`，RP 编排配置进入当前 workspace 下的 `roleplay/`；第一版不设计持久化 session 目录。
 - 角色卡迁移首先是写作项目导入器，其次才是 RP 扩展生成器；写作模式和 RP 模式共享同一批 `lorebook/` 设定资产。
 - 迁移脚本需要作为长期可迭代工具维护，后续会反复根据样本卡优化分类、拆分和写入策略。
 - 后续再讨论变量系统、泛用自然语言编辑工具和更强的多 Agent RP 编排。
@@ -47,28 +47,31 @@
 ## Decisions
 
 - RP 相关能力先拆成至少三个 skill：
-  - `RP模式`：介绍本系统如何运行 RP、如何进入轻量 RP、如何理解 GM/Leader/subagent 分工、如何引用 RP 文档和导入流程。
+  - `RP模式`：介绍本系统如何运行 RP、如何进入轻量 RP、如何理解 `leader.rp` / GM / actor / writer 分工、如何引用 RP 文档和导入流程。
   - `RP目录初始化`：在当前小说 workspace 下创建或维护 RP 目录结构，增强默认 workspace，而不是改全局项目结构。
-  - `SillyTavern角色卡导入`：提取或读取角色卡原始 JSON，生成检查报告，并把稳定文本设定导入当前 workspace 的写作资产；RP 相关内容作为可选扩展归档到 `roleplay/`。
+  - `SillyTavern角色卡导入`：提取或读取角色卡原始 JSON，生成检查报告，并把稳定文本设定导入当前 workspace 的写作资产；RP 动态机制优先归档到 `reference/`，后续再转写为 `roleplay/` 编排文件。
 - 角色卡导入分两层：
   - 基础写作层：默认执行，把可稳定复用的角色、地点、势力、规则、世界观、事件背景等导入 `lorebook/` 和 `reference/`。
-  - RP 扩展层：可选执行，在基础写作层之上创建或更新 `roleplay/`，保存 GM 口径、角色映射、会话模板、变量草案、MVU 更新规则和状态栏/UI 迁移说明。
+  - RP 扩展层：可选执行，在基础写作层之上创建或更新 `roleplay/`，保存 GM 口径、角色映射、actor 指令、writer 规则、变量草案、MVU 更新规则和状态栏/UI 迁移说明。
 - 不单独维护 `conversion-plan.md`。`inspect` 只输出临时 overview；稳定证据由 `unpack` 写入解包目录；导入过程以 unpack report 和 import report 记录本次写入、跳过、归档和需人工确认的内容。
 - RP 目录建议使用更可读的 `roleplay/`，而不是缩写 `rp/`。
 - `roleplay/` 是当前小说 workspace 的一部分，可以被用户资产、workspace 覆盖 agent/profile 机制自然配合。
-- 初始 `roleplay/` 建议结构：
+- 最新 `roleplay/` 目标结构收束为少量根文件 + actor 子目录：
 
 ```text
 roleplay/
 |-- AGENTS.md
-|-- GM.md
-|-- README.md
-|-- sessions/
-|   `-- current.md
-|-- cast/
-|   `-- mapping.md
-`-- imports/
-    `-- silly-tavern/
+|-- config.yaml
+|-- cast.yaml
+|-- gm.md
+|-- writer.md
+`-- actors/
+    |-- player/
+    |   |-- actor.md
+    |   `-- knowledge.md
+    `-- {actor-id}/
+        |-- actor.md
+        `-- knowledge.md
 ```
 
 - 外部原始素材建议结构：
@@ -106,7 +109,12 @@ lorebook/location/...
 lorebook/faction/...
 lorebook/rule/...
 lorebook/note/...
-roleplay/imports/silly-tavern/...
+roleplay/AGENTS.md
+roleplay/cast.yaml
+roleplay/gm.md
+roleplay/writer.md
+roleplay/actors/{actor-id}/actor.md
+roleplay/actors/{actor-id}/knowledge.md
 ```
 
 - 角色卡导入流程建议使用三个阶段：
@@ -117,7 +125,7 @@ inspect -> unpack -> import
 
   - `inspect`：只读取输入并在 stdout 输出 overview 给 AI 临时查看，不写入 Project Workspace。
   - `unpack`：识别 PNG 角色卡、JSON 角色卡或预设 JSON，保存原始素材、inspect JSON、overview、worldbook entries、regex scripts、tavern_helper scripts / variables 和 unpack report；worldbook 按 `insertion_order` 排序，文件名前缀使用 6 位补零的 `insertion_order`，逐条保存为 frontmatter + 正文 Markdown，并在 `st` 下保留除 `content` 外的原始字段，包括 `insertion_order`、`extensions` 和触发/排序字段；regex、tavern_helper scripts、tavern_helper variables 同时保留聚合 JSON 和逐条 JSON。
-  - `import`：从解包目录读取 `raw/card.json` 和 `inspect.json`，按 `insertion_order` 把 worldbook entry 写入 Project Workspace 的普通 `lorebook/note/.../index.md` 文件，目录名前缀使用 6 位补零的 `insertion_order`，并在 `ext.sillyTavernWorldbook` 下保留原始 worldbook 元数据；可选 `--rp` 额外生成 `roleplay/imports/silly-tavern/{card-slug}/` 动态机制归档。
+  - `import`：从解包目录读取 `raw/card.json` 和 `inspect.json`，按 `insertion_order` 把 worldbook entry 写入 Project Workspace 的普通 `lorebook/note/.../index.md` 文件，目录名前缀使用 6 位补零的 `insertion_order`，并在 `ext.sillyTavernWorldbook` 下保留原始 worldbook 元数据；可选 `--rp` 当前实现仍额外生成 legacy `roleplay/imports/silly-tavern/{card-slug}/` 动态机制归档，后续应迁向新的 `roleplay/` 扁平结构或保留在 `reference/`。
 
 - 迁移脚本应按长期工具设计，模块边界暂定为：
 
@@ -147,7 +155,7 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
   - `inspect <input>`：读取 `.json`、`.raw.json` 或 best-effort PNG 文本块，只在 stdout 输出临时 overview，不生成文件。
   - `unpack <input> --project <path>`：生成 `reference/silly-tavern/{slug}/` 解包目录，包含 raw、overview、inspect、worldbook、regex、tavern_helper 和 unpack report；worldbook 会逐条拆成 frontmatter + 正文 Markdown，regex/scripts/variables 会逐条拆成独立 JSON。
   - `import <unpackDir> --project <path>`：从解包目录读取数据，把 worldbook entries 写入 `lorebook/note/.../index.md`，并在解包目录生成 `import-report.md`。
-  - `import <unpackDir> ... --rp`：额外生成 `roleplay/imports/silly-tavern/{slug}/dynamic-prompt.md`、`initvar.md`、`update-rules.md`、`status-ui.md`、`scripts.md`。
+  - `import <unpackDir> ... --rp`：额外生成 legacy `roleplay/imports/silly-tavern/{slug}/dynamic-prompt.md`、`initvar.md`、`update-rules.md`、`status-ui.md`、`scripts.md`；这是当前已实现输出，不是下一版目标目录。
   - preset-like JSON 只归档和报告，不作为角色主体写入 lorebook。
   - `--project` 必须指向包含 `project.yaml` 的 Project Workspace，避免和 Workspace Root / `.nbook` 混淆。
   - `import` 会拒绝 unknown 解包目录；`inspect` / `unpack` 仍允许 unknown，用于查看和保存原始结构。
@@ -156,6 +164,7 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 
 - 变量系统暂不实现。第一阶段先把纯文本卡导入做好；复杂数值、好感度、背包、任务进度、状态栏等后续专门设计。
 - 泛用自然语言编辑工具先记录为 TODO。该工具不是 state 专用，参数方向暂定为：目标文件、自然语言操作说明、可选携带上下文消息数量，后续可接轻量模型。
+- `SidecarProfilePass` 已记录在 `docs/tasks/23-agent-sidecar-profile-pass/README.md`，但本次 roleplay spike 先不实现。当前策略是 writer 由 GM 注入可写 lorebook 摘要，actor 可直接维护自己的 `knowledge.md`。
 
 ## SillyTavern Sample Notes
 
@@ -178,6 +187,7 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 
 - `PROJECT-STATUS.md`：新增泛用自然语言编辑工具 TODO。
 - `docs/tasks/01-agent-roleplay-mode/README.md`：新增并持续更新本任务 walkthrough。
+- `docs/tasks/01-agent-roleplay-mode/roleplay-runtime-structure.md`：新增并持续更新 RP 运行目录和 Tick 协议设计。
 - `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/SKILL.md`：新增角色卡导入 skill 入口说明。
 - `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`：新增 inspect/unpack/import CLI。
 - `server/agent/skills/silly-tavern-card-cli.test.ts`：新增 CLI helper 与 catalog 可发现性测试。
@@ -193,7 +203,9 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 
 - 起草 `RP模式` skill。
 - 起草 `RP目录初始化` skill，并确定 `roleplay/` 是否需要通过 workspace CLI 创建模板。
+- 起草 `leader.rp`、`rp.actor`、`rp.writer` profile，并保持 profile 输入与 `roleplay/` 扁平目录一致。
 - 继续增强 SillyTavern worldbook 迁移脚本：把当前聚合 `lorebook/note` 进一步拆分为角色、地点、势力、规则、事件、格式约束等内容节点。
+- 后续把 legacy `roleplay/imports/silly-tavern/...` 输出迁移为 `reference/` 归档或 `roleplay/gm.md` / `roleplay/writer.md` / actor 文件补丁。
 - 扩展 PNG 提取能力：当前只 best-effort 读取 `tEXt` 文本块，后续按样本需要再支持 `iTXt` / `zTXt`。
 - 设计泛用自然语言编辑工具：输入目标文件、自然语言操作说明和可选上下文消息数量，由轻量模型辅助修改文件；后续可用于 Agent 记忆系统、RP 状态维护和常规文件编辑减负。
 - 单独讨论 RP 变量系统：如何表示数值、列表、背包、好感度、任务、世界时钟，以及它和 `state.md`、`roleplay/sessions/` 的关系。

@@ -6,6 +6,7 @@ import {AgentSessionEventHub} from "nbook/server/agent/events/session-event-hub"
 import {createAssistantTextMessage, createTextToolResult} from "nbook/server/agent/messages/message-utils";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {SessionWriteExecutor} from "nbook/server/agent/session/write-plan";
+import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
 
 describe("SessionWriteExecutor", () => {
     let root: string;
@@ -20,7 +21,29 @@ describe("SessionWriteExecutor", () => {
         executor = new SessionWriteExecutor({
             repo,
             eventHub,
-            snapshotProvider: async (sessionId) => ({sessionId}),
+            liveStateProvider: async (sessionId) => ({
+                summary: {
+                    sessionId,
+                    profileKey: "leader.default",
+                    workspaceKey: "global",
+                    workspaceRoot: root,
+                    status: "idle",
+                    updatedAt: 1,
+                    archived: false,
+                },
+                activeLeafId: null,
+                pendingApproval: null,
+                steerQueue: [],
+                followUpQueue: {
+                    status: "ready",
+                    items: [],
+                },
+                activeInvocation: null,
+                model: null,
+                thinkingLevel: null,
+                effectiveThinkingLevel: "off",
+                planModeActive: false,
+            }),
         });
     });
 
@@ -50,6 +73,7 @@ describe("SessionWriteExecutor", () => {
             workspaceKey: "global",
         });
         const events: string[] = [];
+        let stateChangedEvent: AgentSessionEventDto | undefined;
         const subscription = eventHub.subscribe(session.metadata.sessionId);
         const iterator = subscription[Symbol.asyncIterator]();
 
@@ -81,11 +105,23 @@ describe("SessionWriteExecutor", () => {
             const event = await iterator.next();
             if (!event.done) {
                 events.push(event.value.kind === "session" ? event.value.event.type : event.value.kind);
+                if (event.value.kind === "session" && event.value.event.type === "session_state_changed") {
+                    stateChangedEvent = event.value;
+                }
             }
         }
         await iterator.return?.();
         expect(result.entries.map((entry) => entry.type)).toEqual(["message", "message"]);
         expect(events).toEqual(["session_entry", "session_entry", "session_state_changed"]);
+        expect(stateChangedEvent?.kind).toBe("session");
+        if (stateChangedEvent?.kind === "session" && stateChangedEvent.event.type === "session_state_changed") {
+            expect(stateChangedEvent.event).not.toHaveProperty("snapshot");
+            expect(stateChangedEvent.event.state.summary.sessionId).toBe(session.metadata.sessionId);
+            expect(stateChangedEvent.event.state).not.toHaveProperty("messages");
+            expect(stateChangedEvent.event.state).not.toHaveProperty("entries");
+            expect(stateChangedEvent.event.state).not.toHaveProperty("tree");
+            expect(JSON.stringify(stateChangedEvent).length).toBeLessThan(50_000);
+        }
         expect(repo.reduce(await repo.readSession(session.metadata.sessionId)).messages.map((message) => message.role)).toEqual(["assistant", "toolResult"]);
     });
 

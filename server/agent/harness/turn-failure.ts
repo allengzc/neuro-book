@@ -73,7 +73,6 @@ export function applyFailedTurnOutcome(outcome: FailedTurnOutcome, ingest?: Turn
 export function createFailedRunLoopResult(frame: RunFrame, outcome: FailedTurnOutcome): FailedRunLoopResult {
     return {
         status: "failed",
-        events: frame.events,
         finalAssistant: frame.finalAssistant,
         errorInfo: outcome.errorInfo,
         terminalStatus: outcome.messageStatus === "interrupted" ? "aborted" : "error",

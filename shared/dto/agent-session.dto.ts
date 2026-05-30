@@ -1,5 +1,5 @@
 import {z} from "zod";
-import type {AgentEvent} from "@earendil-works/pi-agent-core";
+import type {AssistantMessageEvent} from "@earendil-works/pi-ai";
 import type {AgentMessage, JsonValue, Model, Usage} from "nbook/server/agent/messages/types";
 import type {SessionEntry, SessionTreeNode} from "nbook/server/agent/session/types";
 import type {VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
@@ -244,6 +244,76 @@ export type AgentActiveInvocationDto = {
     startedAt: number;
 };
 
+export type AgentSessionLiveStateDto = {
+    summary: AgentSessionSummaryDto;
+    /** 后台标题/摘要维护状态。为空表示当前 session 未启用或尚无摘要状态。 */
+    summarizer?: AgentSessionSummarizerStateDto;
+    activeLeafId: string | null;
+    pendingApproval: AgentPendingApprovalDto | null;
+    steerQueue: AgentQueuedMessageDto[];
+    followUpQueue: AgentFollowUpQueueStateDto;
+    activeInvocation: AgentActiveInvocationDto | null;
+    model: Model<any> | null;
+    /** 当前 session 的显式 thinking 覆盖；null 表示跟随 Agent Profile。 */
+    thinkingLevel: z.infer<typeof ThinkingLevelSchema> | null;
+    /** 当前新 run 实际会传给 PI 的 thinking level。 */
+    effectiveThinkingLevel: z.infer<typeof ThinkingLevelSchema>;
+    planModeActive: boolean;
+    usage?: Usage;
+};
+
+export type AgentRuntimeStreamEventDto =
+    | {
+        type: "agent_start";
+    }
+    | {
+        type: "agent_end";
+        status: "completed" | "waiting" | "failed" | "aborted" | "interrupted";
+        usage?: Usage;
+    }
+    | {
+        type: "turn_start";
+        turnIndex: number;
+    }
+    | {
+        type: "turn_end";
+        turnIndex: number;
+        status: "completed" | "waiting" | "failed";
+    }
+    | {
+        type: "message_start" | "message_end";
+        message: AgentMessage;
+    }
+    | {
+        type: "message_update";
+        message: AgentMessage;
+        assistantMessageEvent: AssistantMessageEvent;
+    }
+    | {
+        type: "tool_execution_start";
+        toolCallId: string;
+        toolName: string;
+        /** 工具参数来自异构 tool schema，第一版原样透传给工具卡展示。 */
+        args: unknown;
+    }
+    | {
+        type: "tool_execution_update";
+        toolCallId: string;
+        toolName: string;
+        /** 工具参数来自异构 tool schema，第一版原样透传给工具卡展示。 */
+        args: unknown;
+        /** 工具流式 partial result 来自异构工具，后续如变大再做 preview/ref。 */
+        partialResult: unknown;
+    }
+    | {
+        type: "tool_execution_end";
+        toolCallId: string;
+        toolName: string;
+        /** 工具结果来自异构工具，第一版保持原样，后续如变大再做 preview/ref。 */
+        result: unknown;
+        isError: boolean;
+    };
+
 export type AgentSessionControlEvent =
     | {
         type: "connected";
@@ -266,7 +336,7 @@ export type AgentSessionControlEvent =
     }
     | {
         type: "session_state_changed";
-        snapshot?: AgentSessionSnapshotDto;
+        state: AgentSessionLiveStateDto;
     }
     | {
         type: "invocation_aborted";
@@ -282,8 +352,8 @@ export type AgentSessionEventDto =
         seq: number;
         sessionId: number;
         invocationId?: string;
-        kind: "pi";
-        event: AgentEvent;
+        kind: "runtime";
+        event: AgentRuntimeStreamEventDto;
     }
     | {
         seq: number;

@@ -67,7 +67,6 @@ describe("agent session http helpers", () => {
             sessionId: 12,
             invocationId: "run-1",
             status: "completed",
-            events: [],
         }));
 
         await invokeAgentSession(12, {

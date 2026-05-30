@@ -403,9 +403,8 @@ function prepareCreateAgentArguments(args: unknown): unknown {
 /**
  * invoke_agent 的 toolResult 会持久化到父 session，只保留可长期保存的调用摘要。
  */
-function toInvokeAgentToolDetails(result: InvokeAgentResult): Omit<InvokeAgentResult, "events"> {
-    const {events: _events, ...details} = result;
-    return details;
+function toInvokeAgentToolDetails(result: InvokeAgentResult): InvokeAgentResult {
+    return result;
 }
 
 async function getAgentProfileDetail(harness: NeuroAgentHarness, profileKey: string): Promise<Record<string, JsonValue>> {

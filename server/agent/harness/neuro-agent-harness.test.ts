@@ -2207,7 +2207,6 @@ describe("NeuroAgentHarness", () => {
 
         expect(result.status).toBe("completed");
         expect(result.reportResult).toBeUndefined();
-        expect(result.events.filter((event) => event.type === "turn_start")).toHaveLength(1);
         expect(faux.getPendingResponseCount()).toBe(1);
         expect(context.messages.some((message) => message.role === "user" && messageText(message).includes("必须使用 report_result"))).toBe(false);
     });
@@ -2304,10 +2303,10 @@ describe("NeuroAgentHarness", () => {
         const pendingAfterContinue: Array<string | null> = [];
         const collect = (async () => {
             for await (const event of subscription) {
-                if (event.kind === "session" && event.event.type === "session_state_changed" && event.event.snapshot) {
-                    pendingAfterContinue.push(event.event.snapshot.pendingApproval?.toolCallId ?? null);
+                if (event.kind === "session" && event.event.type === "session_state_changed") {
+                    pendingAfterContinue.push(event.event.state.pendingApproval?.toolCallId ?? null);
                 }
-                if (event.kind === "pi" && event.event.type === "agent_end") {
+                if (event.kind === "runtime" && event.event.type === "agent_end") {
                     break;
                 }
             }
@@ -2454,8 +2453,6 @@ describe("NeuroAgentHarness", () => {
 
         expect(result.status).toBe("completed");
         expect(result.reportResult?.result).toBe("fixed");
-        expect(result.events.filter((event) => event.type === "agent_start")).toHaveLength(1);
-        expect(result.events.filter((event) => event.type === "turn_start")).toHaveLength(2);
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
         expect(context.messages.some((message) => {
             if (message.role !== "user" || typeof message.content === "string") {
@@ -2612,7 +2609,7 @@ describe("NeuroAgentHarness", () => {
         expect(messageText(context.messages[1] as never)).toBe("$skill run");
     });
 
-    it("ModelContext 内 Reminder 会按 AppendingSet 语义提前写入并推送 snapshot", async () => {
+    it("ModelContext 内 Reminder 会按 AppendingSet 语义提前写入并推送 session_entry", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.model-reminder-visible",
@@ -2628,7 +2625,7 @@ describe("NeuroAgentHarness", () => {
                 };
             },
         }));
-        const sessionStates: string[][] = [];
+        const entryTexts: string[] = [];
         harness.eventHub.subscribe(1);
         faux.setResponses([
             (context) => {
@@ -2643,14 +2640,13 @@ describe("NeuroAgentHarness", () => {
         const subscription = harness.subscribeSessionEvents(created.sessionId);
         const collect = (async () => {
             for await (const event of subscription) {
-                if (event.kind === "session" && event.event.type === "session_state_changed" && event.event.snapshot) {
-                    sessionStates.push(event.event.snapshot.entries
-                        .filter((entry) => entry.type === "custom_message" || entry.type === "message")
-                        .map((entry) => entry.type === "custom_message"
-                            ? messageText(entry.message as never)
-                            : messageText(entry.message as never)));
+                if (event.kind === "session" && event.event.type === "session_entry") {
+                    const entry = event.event.entry;
+                    if (entry.type === "custom_message" || entry.type === "message") {
+                        entryTexts.push(messageText(entry.message as never));
+                    }
                 }
-                if (event.kind === "pi" && event.event.type === "agent_end") {
+                if (event.kind === "runtime" && event.event.type === "agent_end") {
                     break;
                 }
             }
@@ -2664,7 +2660,7 @@ describe("NeuroAgentHarness", () => {
         await collect;
 
         expect(result.finalMessage).toBe("MODEL_REMINDER|PROMPT|MODEL_ONLY");
-        expect(sessionStates.some((texts) => texts.includes("MODEL_REMINDER") && !texts.includes("PROMPT"))).toBe(true);
+        expect(entryTexts).toContain("MODEL_REMINDER");
     });
 
     it("自定义 runtime 不组合 sessionContext built-in 时不注入 prepare modelContextMessages", async () => {
@@ -4335,15 +4331,19 @@ describe("NeuroAgentHarness", () => {
                     return;
                 }
                 const event = next.value;
-                if (event.kind !== "session") {
-                    continue;
+                if (event.kind === "runtime" && event.event.type === "agent_end") {
+                    return;
                 }
-                if (event.event.type === "session_entry" && event.event.entry.type === "variable_patch") {
-                    events.push("variable_patch_entry");
-                }
-                if (event.event.type === "session_state_changed" && event.event.snapshot?.entries.some((entry) => entry.type === "variable_patch")) {
-                    events.push("variable_patch_state");
-                    break;
+                if (event.kind === "session") {
+                    if (event.event.type === "session_entry" && event.event.entry.type === "variable_patch") {
+                        events.push("variable_patch_entry");
+                    }
+                    if (event.event.type === "session_state_changed" && event.event.state.summary.sessionId === created.sessionId) {
+                        events.push("variable_patch_state");
+                    }
+                    if (events.includes("variable_patch_entry") && events.includes("variable_patch_state")) {
+                        return;
+                    }
                 }
             }
         })();

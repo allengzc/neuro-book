@@ -157,6 +157,8 @@
 - [ ] neuro book deploy
 - [ ] API retry
 - [ ] 非阻塞 invoke
+- [ ] mind.md 任务当前思维
+- [ ]
 - [ ]
 - [ ]
 - [ ]

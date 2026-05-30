@@ -1,4 +1,3 @@
-import type {AgentEvent} from "@earendil-works/pi-agent-core";
 import type {AgentUserMessageInput, JsonValue, Usage} from "nbook/server/agent/messages/types";
 import type {InvocationErrorInfo, InvocationErrorPhase, SessionMetadata} from "nbook/server/agent/session/types";
 import type {AgentResolution} from "nbook/server/agent/tools/types";
@@ -9,6 +8,7 @@ import type {
     AgentCommandRequestDto,
     AgentFollowUpQueueStateDto,
     AgentQueuedMessageDto,
+    AgentRuntimeStreamEventDto,
     AgentSessionListQueryDto,
     AgentSessionSnapshotDto,
     AgentSessionSummaryDto,
@@ -37,7 +37,7 @@ export type InvokeAgentInput = {
     resolution?: AgentResolution;
     clientState?: ClientStateSnapshot;
     block?: boolean;
-    onEvent?: (event: AgentEvent) => void | Promise<void>;
+    onEvent?: (event: AgentRuntimeStreamEventDto) => void | Promise<void>;
     internalQueued?: boolean;
 };
 
@@ -57,7 +57,6 @@ export type InvokeAgentResult = {
     errorPhase?: InvocationErrorPhase;
     errorInfo?: InvocationErrorInfo;
     usage?: Usage;
-    events: AgentEvent[];
     queuedItem?: AgentQueuedMessageDto;
 };
 

@@ -36,7 +36,6 @@ export function applySuccessfulTurnTransaction(frame: RunFrame, outcome: Success
             kind: "waiting",
             result: {
                 status: "waiting",
-                events: frame.events,
                 finalAssistant: frame.finalAssistant,
                 reportResult: frame.reportResult,
                 waiting: outcome.waiting,
