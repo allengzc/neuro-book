@@ -381,7 +381,7 @@ describe("agent message projection", () => {
         expect(messages[0]?.assistantContent).toEqual([{type: "text", text: "你好"}]);
     });
 
-    it("用 assistant toolcall_delta 兜底追加工具参数", () => {
+    it("任意工具都能用 assistant toolcall_delta 流式追加工具参数", () => {
         const previous = [{
             id: "assistant:1",
             type: "ai" as const,
@@ -390,8 +390,8 @@ describe("agent message projection", () => {
             toolCalls: [{
                 id: "call-1",
                 index: 0,
-                name: "write",
-                argsText: "{\"path\":\"a.md\",\"content\":\"",
+                name: "get_session",
+                argsText: "{\"includeRecentMessages\":true,\"recentMessageRoles\":[\"",
                 status: "streaming" as const,
                 assistantMessageId: "assistant:1",
             }],
@@ -440,7 +440,10 @@ describe("agent message projection", () => {
             } as never,
         });
 
-        expect(messages[0]?.toolCalls?.[0]?.argsText).toContain("hello");
+        expect(messages[0]?.toolCalls?.[0]).toEqual(expect.objectContaining({
+            name: "get_session",
+            argsText: "{\"includeRecentMessages\":true,\"recentMessageRoles\":[\"hello",
+        }));
     });
 
     it("toolcall_end 用真实 id 替换 content placeholder", () => {

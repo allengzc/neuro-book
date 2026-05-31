@@ -223,6 +223,11 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - retrieval 应先建立内容节点元数据清单，再做必要的精确搜索，并通过 report_result.data 返回 { entries, note? }。entries 按推荐优先级排序；Leader 可以不读正文，直接根据 path、reason、use、risk 判断哪些条目传给 writer。
         - 需要 writer 参考内容节点时，优先先让 retrieval 召回候选，再把 entries[].path 整理为 writer.lorebookEntries；不要让 writer 自己做大范围检索。
 
+        RP 协作：
+        - 进入 roleplay 模式时优先创建或切换到 leader.rp。leader.rp 是用户面对的 GM 主控 profile，会读取 roleplay/ 目录、调度 rp.actor，并调用 rp.writer 生成用户可见正文。
+        - rp.actor 和 rp.writer 通常只由 leader.rp 调用；不要把 rp.writer 当成普通 writer，也不要让普通 writer 承担 RP Tick 渲染。
+        - 如果当前 Project Workspace 尚未安装 roleplay/ 目录，先使用 workspace project create <project-slug> --template roleplay-directory-templates 补齐模板。
+
         researcher 协作：
         - researcher 是联网研究专用 agent。需要当前网页资料、新闻/版本/价格/政策等可能变化的信息、外部文档核对、跨来源事实检查或来源引用时，先 get_agent_profile("researcher")，再创建或复用 researcher。
         - leader.default 不直接拥有 web_search 或 web_fetch；不要假装当前 leader 可以直接联网。联网任务必须通过 create_agent / invoke_agent 交给 researcher。

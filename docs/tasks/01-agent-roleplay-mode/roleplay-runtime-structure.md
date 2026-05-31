@@ -264,6 +264,13 @@ roleplay/actors/player/
 
 `leader.rp` 可以被理解为内置 GM 职责的 leader。第一版推荐直接使用它，不额外创建 `rp.gm`。
 
+第一版实现状态：
+
+- 已新增 builtin profile `leader.rp`。
+- 创建 input 只有可选 `roleplayRoot`；每轮用户行动仍通过普通 prompt 进入。
+- `leader.rp` 持有读取、bash、agent 编排和用户询问工具，不直接写文件。
+- 它通过 prompt 协议读取 `roleplay/AGENTS.md`、`config.yaml`、`cast.yaml`、`gm.md`、`writer.md`，再创建/复用 `rp.actor` 与 `rp.writer`。
+
 ### Optional `rp.gm`
 
 `rp.gm` 可以作为兼容或后续拆分方向保留：
@@ -301,6 +308,15 @@ actor 不应该：
 - 第一版可给 actor 开放文件编辑工具，但作用域应限制为自己的 `knowledge.md`。
 - `rp.actor` 不接收完整 `roleplay/`、`lorebook/`、`reference/`、其他 actor knowledge 或 GM scratch。
 
+第一版实现状态：
+
+- 已新增 builtin profile `rp.actor`。
+- 创建 input 绑定 `actorId`、`actorName?`、`kind?`、`instructionPath`、`knowledgePath`。
+- profile prepare 会自动读取并注入 `actor.md` 与 `knowledge.md`。
+- 每轮 GM packet 通过 `invoke_agent.message` 传入，不放进创建 input。
+- 输出必须通过 `report_result.data` 返回 `visible_action`、`spoken_dialogue`、`private_intent`、`emotional_state`、`assumptions`、`questions_to_gm`、`knowledge_update`。
+- 现有文件工具还不能 runtime-enforce path scope；第一版用 profile prompt 严格要求 actor 只能读写自己的 `knowledgePath`。
+
 ### `rp.writer`
 
 职责：
@@ -313,11 +329,19 @@ actor 不应该：
 实现策略：
 
 - 新增独立 `rp.writer` profile。
-- 初版直接复制现有 `writer` profile，再针对 RP 输入参数和提示词微调。
-- 微调输入参数，使其消费 `writerBrief`、`style`、`doNotReveal`、`allowedInternality`、`outputRequirements`。
+- 第一版不复用普通 `writer` 的章节文件写入流程，只复用 profile DSL 和写作约束思路。
+- 微调输入参数，使创建 input 绑定 `writerInstructionPath` 和稳定输出约束；每轮 writer brief 通过 `invoke_agent.message` 传入。
 - 提示词上强调它只负责 Tick 结果渲染，不负责世界裁决和角色私密决策。
 - `rp.writer` 不读取 `roleplay/AGENTS.md`，只接收 GM brief 和自动注入的 `roleplay/writer.md`。
 - `rp.writer` 不接收完整 `roleplay/`、`lorebook/`、`reference/` 或 GM scratch；brief 缺少的设定视为不可写信息。
+
+第一版实现状态：
+
+- 已新增 builtin profile `rp.writer`。
+- 创建 input 绑定 `writerInstructionPath`，可选 `style`、`outputRequirements`、`language`。
+- profile prepare 会自动读取并注入 `roleplay/writer.md`。
+- `rp.writer` 只开放 `report_result` 工具；它不读文件、不写章节、不检索 lorebook。
+- 输出必须通过 `report_result.data.prose` 返回最终用户可见正文，并通过 `summary` 给 GM 留短摘要。
 
 ## Initialization Flow V0
 
@@ -591,18 +615,15 @@ writer 输出最终用户可见文本。输出中不应包含：
 
 - actor knowledge 是由导入器自动生成初稿，还是由 GM skill 手动维护。
 - 是否需要 `roleplay/actors/{actor-id}/secrets.md` 表示“角色自己知道但其他 actor 不知道”的信息。
-- `rp.writer` 从现有 writer profile 复制后，具体要删改哪些普通章节写作参数。
 - 是否需要 debug 模式保存 Tick scratch；默认不创建 `sessions/`。
 - 后续抢话模式如何定义 actor 主动行动的触发条件。
 - `leader.rp` 是否需要完全取代 `rp.gm`，还是保留独立 `rp.gm` 给高级编排使用。
 - actor 初始化时创建全部 cast actors，还是只创建当前 active actors。
-- actor 第一版开放文件编辑工具后，是否需要限制只能写自己的 `knowledge.md`。
+- 是否要给 actor knowledge 写入增加 runtime path scope 或 sidecar settle-run，以替代当前 prompt-enforced 限制。
 
 ## Next Steps
 
-- 起草 `leader.rp` profile。
 - 视需要保留 `rp.gm` profile 草案，但不作为第一优先级。
-- 起草 `rp.actor` profile。
-- 起草 `rp.writer` profile。
 - 起草 `RP目录初始化` skill，使其能创建上述目录骨架。
 - 设计 actor knowledge 从 SillyTavern worldbook / canonical lorebook 生成初稿的规则。
+- 真实试跑 `leader.rp` 初始化和第一个 Tick，检查 cast.yaml、actor session 复用和 writer brief 是否需要更强结构化模板。

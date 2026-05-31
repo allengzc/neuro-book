@@ -61,6 +61,7 @@ import type {
     InvokeAgentResult,
     SessionQueryResult,
     SessionQueryInput,
+    SessionRecentMessageRole,
 } from "nbook/server/agent/harness/types";
 import type {
     AgentAbortRequestDto,
@@ -1337,6 +1338,7 @@ export class NeuroAgentHarness {
         if (!Number.isInteger(tokenBudget) || tokenBudget < 100 || tokenBudget > 3000) {
             throw new Error("get_session.tokenBudget 必须是 100 到 3000 的整数。");
         }
+        const recentMessageRoles = query.recentMessageRoles ? new Set<SessionRecentMessageRole>(query.recentMessageRoles) : null;
         const snapshot = await this.repo.readSession(targetSessionId);
         const context = this.repo.reduce(snapshot);
         const linkedAgents: AgentSummary[] = [];
@@ -1356,9 +1358,12 @@ export class NeuroAgentHarness {
         }
         const recentMessages = this.repo.activePath(snapshot)
             .filter((entry) => entry.type === "message")
+            .filter((entry) => {
+                return !recentMessageRoles || recentMessageRoles.has(entry.message.role as SessionRecentMessageRole);
+            })
             .slice(-recentMessageLimit)
             .map((entry) => ({
-                role: entry.message.role,
+                role: entry.message.role as SessionRecentMessageRole,
                 text: messageText(entry.message).slice(0, 500),
                 timestamp: entry.timestamp,
             }));
