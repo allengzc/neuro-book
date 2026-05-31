@@ -14,6 +14,13 @@ import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, 
 
 type SettingsSection = "frontend" | "editor" | "models" | "web-tools" | "agent-profile-defaults" | "agent-profile-models";
 type SettingsScope = "global" | "project" | "browser";
+type AppVersionKind = "tag" | "commit" | "package";
+
+interface AppVersionDto {
+    versionLabel: string;
+    versionKind: AppVersionKind;
+    githubUrl: string;
+}
 
 const props = defineProps<{
     modelValue: boolean;
@@ -36,6 +43,8 @@ const {
 const activeSection = ref<SettingsSection>("frontend");
 const activeScope = ref<SettingsScope>("global");
 const targetNovelId = ref("");
+const appVersion = ref<AppVersionDto | null>(null);
+const appVersionPending = ref(false);
 
 const frontendSectionItems: Array<{value: SettingsSection; label: string; description: string; iconClass: string}> = [
     {
@@ -196,20 +205,17 @@ const visibleSectionItems = computed(() => {
     return frontendSectionItems.filter((item) => allowed.includes(item.value));
 });
 
-const sidebarHint = computed(() => {
-    if (activeScope.value === "browser") {
-        return "本地状态即时生效，不写入配置文件。";
+const versionLabel = computed(() => {
+    if (appVersionPending.value && !appVersion.value) {
+        return "读取版本中";
     }
-    if (activeSection.value === "models") {
-        return activeScope.value === "project" ? "Project Config 只覆盖默认模型。" : "Provider、API Key 与全局默认模型写入 Global Config。";
+    if (!appVersion.value) {
+        return "版本信息不可用";
     }
-    if (activeSection.value === "web-tools") {
-        return "Web 工具配置写入 Global Config，Project Config 不覆盖搜索 provider。";
+    if (appVersion.value.versionKind === "commit") {
+        return `Commit ${appVersion.value.versionLabel}`;
     }
-    if (activeSection.value === "agent-profile-defaults") {
-        return activeScope.value === "project" ? "默认 Profile 写入所选 Project Config。" : "默认 Profile 写入 Global Config。";
-    }
-    return activeScope.value === "project" ? "Profile 模型参数写入所选 Project Config。" : "Profile 模型参数写入 Global Config。";
+    return `版本 ${appVersion.value.versionLabel}`;
 });
 
 /**
@@ -312,10 +318,28 @@ function updateViewMode(value: string): void {
     }
 }
 
+/**
+ * 读取设置页底部展示的应用版本信息。
+ */
+async function loadAppVersion(): Promise<void> {
+    if (appVersion.value || appVersionPending.value) {
+        return;
+    }
+    appVersionPending.value = true;
+    try {
+        appVersion.value = await $fetch<AppVersionDto>("/api/app/version");
+    } catch {
+        appVersion.value = null;
+    } finally {
+        appVersionPending.value = false;
+    }
+}
+
 watch(() => props.modelValue, (open) => {
     if (!open) {
         return;
     }
+    void loadAppVersion();
     if (novelIdeStore.novels.length === 0) {
         void novelIdeStore.loadNovels();
     }
@@ -424,13 +448,22 @@ watch(activeScope, (scope) => {
                     </button>
                 </div>
 
-                <!-- 底部提示信息移至侧边栏 -->
+                <!-- 底部版本信息 -->
                 <div class="mt-auto pt-4">
-                    <div class="rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-15 px-3.5 py-3 shadow-sm flex items-start gap-2">
-                        <span class="i-lucide-info h-3.5 w-3.5 shrink-0 text-[var(--text-muted)] mt-0.5"></span>
-                        <div class="text-[11px] leading-relaxed text-[var(--text-secondary)]">
-                            {{ sidebarHint }}
+                    <div class="flex items-center justify-between gap-3 rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-15 px-3.5 py-3 shadow-sm">
+                        <div class="min-w-0">
+                            <div class="truncate text-[11px] font-medium leading-relaxed text-[var(--text-secondary)]">{{ versionLabel }}</div>
+                            <div class="mt-0.5 text-[10px] leading-relaxed text-[var(--text-muted)]">Neuro Book</div>
                         </div>
+                        <a
+                            class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border-color)] border-opacity-60 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                            :href="appVersion?.githubUrl || 'https://github.com/notnotype/neuro-book'"
+                            target="_blank"
+                            rel="noreferrer"
+                            title="打开 GitHub"
+                        >
+                            <span class="i-lucide-github h-4 w-4"></span>
+                        </a>
                     </div>
                 </div>
             </aside>

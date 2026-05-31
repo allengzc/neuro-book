@@ -69,7 +69,16 @@ const GetAgentSchema = Type.Object({
 const GetSessionSchema = Type.Object({
     sessionId: Type.Optional(Type.Number()),
     includeRecentMessages: Type.Optional(Type.Boolean({description: "Default false. Set true to include recent messages from the current active path only."})),
-    recentMessageLimit: Type.Optional(Type.Integer({minimum: 1, maximum: 10, description: "Number of recent active-path messages to return when includeRecentMessages is true. Default 3, max 10."})),
+    recentMessageLimit: Type.Optional(Type.Integer({minimum: 1, maximum: 10, description: "Number of recent active-path message entries to return when includeRecentMessages is true. Default 3, max 10. By default this counts user, assistant, and toolResult messages; set recentMessageRoles to filter first."})),
+    recentMessageRoles: Type.Optional(Type.Array(Type.Union([
+        Type.Literal("user"),
+        Type.Literal("assistant"),
+        Type.Literal("toolResult"),
+    ]), {
+        minItems: 1,
+        uniqueItems: true,
+        description: "Optional role filter for recentMessages. Use [\"assistant\"] to inspect only AI messages and exclude tool results.",
+    })),
     tokenBudget: Type.Optional(Type.Integer({minimum: 100, maximum: 3000, description: "Maximum estimated tokens for recentMessages. Default 1200, max 3000."})),
 });
 
@@ -212,7 +221,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
                     message: invocation.message ? {text: invocation.message} : undefined,
                 });
                 return {
-                    content: [{type: "text", text: result.reportResult?.result ?? result.finalMessage ?? result.status}],
+                    content: [{type: "text", text: JSON.stringify(toInvokeAgentToolDetails(result), null, 2)}],
                     details: toInvokeAgentToolDetails(result),
                 };
             },
@@ -227,7 +236,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
                     message: invocation.message ? {text: invocation.message} : undefined,
                 });
                 return {
-                    content: [{type: "text", text: result.reportResult?.result ?? result.finalMessage ?? result.status}],
+                    content: [{type: "text", text: JSON.stringify(toInvokeAgentToolDetails(result), null, 2)}],
                     details: toInvokeAgentToolDetails(result),
                 };
             },
@@ -278,6 +287,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
                 "Get lightweight session metadata, title, summary, usage, and linked agents.",
                 "Default does not return history messages and never returns tree.",
                 "Set includeRecentMessages=true for a small active-path-only recent message query.",
+                "recentMessageLimit counts user, assistant, and toolResult messages by default; set recentMessageRoles to filter, for example [\"assistant\"].",
                 "Use recentMessageLimit 1-10 and tokenBudget 100-3000; oversized output errors.",
                 "For complex history, branch, or tree queries, inspect the session file directory yourself with bash/jq/rg instead of this tool.",
             ].join("\n"),

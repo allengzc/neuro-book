@@ -70,15 +70,18 @@ export type AgentSummary = {
 };
 
 export type SessionRecentMessage = {
-    role: string;
+    role: SessionRecentMessageRole;
     text: string;
     timestamp?: number;
 };
+
+export type SessionRecentMessageRole = "user" | "assistant" | "toolResult";
 
 export type SessionQueryInput = {
     sessionId?: number;
     includeRecentMessages?: boolean;
     recentMessageLimit?: number;
+    recentMessageRoles?: SessionRecentMessageRole[];
     tokenBudget?: number;
 };
 

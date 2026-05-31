@@ -2271,6 +2271,38 @@ var LeaderDefaultInputSchema = Type2.Object({
 var LeaderDefaultOutputSchema = Type2.Object({
   result: Type2.Optional(Type2.String({ description: "\u53EF\u9009\u603B\u7ED3\u6587\u672C\u3002leader.default \u901A\u5E38\u4E0D\u8981\u6C42 report_result\u3002" }))
 });
+var LeaderRpInputSchema = Type2.Object({
+  roleplayRoot: Type2.Optional(Type2.String({ description: "\u53EF\u9009 RP \u76EE\u5F55\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\u3002\u9ED8\u8BA4\u4F7F\u7528\u5F53\u524D Project Workspace \u4E0B\u7684 roleplay/\u3002" }))
+});
+var LeaderRpOutputSchema = Type2.Object({
+  result: Type2.Optional(Type2.String({ description: "\u53EF\u9009\u603B\u7ED3\u6587\u672C\u3002leader.rp \u901A\u5E38\u76F4\u63A5\u9762\u5411\u7528\u6237\u8F93\u51FA writer prose\uFF0C\u4E0D\u8981\u6C42 report_result\u3002" }))
+});
+var RpActorInputSchema = Type2.Object({
+  actorId: Type2.String({ description: "\u672C\u5C40 actor id\uFF0C\u5FC5\u987B\u4E0E roleplay/cast.yaml \u4E2D\u7684 id \u5BF9\u5E94\u3002" }),
+  actorName: Type2.Optional(Type2.String({ description: "\u89D2\u8272\u53EF\u8BFB\u540D\u3002\u4E3A\u7A7A\u65F6\u4F7F\u7528 actorId\u3002" })),
+  kind: Type2.Optional(Type2.String({ description: "actor \u7C7B\u578B\uFF0C\u4F8B\u5982 player\u3001npc\u3001faction\u3001system\u3002" })),
+  instructionPath: Type2.String({ description: "\u89D2\u8272\u626E\u6F14\u6307\u4EE4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/actor.md\u3002" }),
+  knowledgePath: Type2.String({ description: "\u89D2\u8272\u53EF\u77E5\u4E16\u754C\u4E66\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/knowledge.md\u3002" })
+});
+var RpActorOutputSchema = Type2.Object({
+  visible_action: Type2.String({ description: "\u89D2\u8272\u5728\u573A\u666F\u4E2D\u53EF\u88AB\u89C2\u5BDF\u5230\u7684\u52A8\u4F5C\u3001\u795E\u6001\u3001\u59FF\u6001\u6216\u6C89\u9ED8\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
+  spoken_dialogue: Type2.String({ description: "\u89D2\u8272\u660E\u786E\u8BF4\u51FA\u53E3\u7684\u53F0\u8BCD\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
+  private_intent: Type2.String({ description: "\u53EA\u7ED9 GM \u4F7F\u7528\u7684\u79C1\u4E0B\u610F\u56FE\u3001\u5224\u65AD\u6216\u77ED\u671F\u76EE\u6807\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
+  emotional_state: Type2.String({ description: "\u53EA\u7ED9 GM \u4F7F\u7528\u7684\u60C5\u7EEA\u72B6\u6001\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
+  assumptions: Type2.Array(Type2.String({ description: "\u89D2\u8272\u57FA\u4E8E\u81EA\u8EAB\u77E5\u8BC6\u548C\u672C Tick packet \u5F62\u6210\u7684\u5224\u65AD\u3001\u8BEF\u89E3\u6216\u5047\u8BBE\u3002" }), { description: "\u6CA1\u6709\u5219\u8FD4\u56DE\u7A7A\u6570\u7EC4\u3002" }),
+  questions_to_gm: Type2.Array(Type2.String({ description: "\u9700\u8981 GM \u88C1\u51B3\u3001\u8865\u5145\u6216\u786E\u8BA4\u7684\u95EE\u9898\u3002" }), { description: "\u6CA1\u6709\u5219\u8FD4\u56DE\u7A7A\u6570\u7EC4\u3002" }),
+  knowledge_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 knowledge.md \u7684\u65B0\u589E\u8BA4\u77E5\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" })
+});
+var RpWriterInputSchema = Type2.Object({
+  writerInstructionPath: Type2.String({ description: "RP writer \u63D0\u793A\u8BCD\u7D20\u6750\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/writer.md\u3002" }),
+  style: Type2.Optional(Type2.String({ description: "\u7A33\u5B9A\u6587\u98CE\u504F\u597D\u3002\u4E34\u65F6 Tick \u6587\u98CE\u8981\u6C42\u5E94\u653E\u5728 writer brief \u4E2D\u3002" })),
+  outputRequirements: Type2.Optional(Type2.Array(Type2.String({ description: "\u7A33\u5B9A\u8F93\u51FA\u7EA6\u675F\uFF0C\u4F8B\u5982\u4EBA\u79F0\u3001\u7BC7\u5E45\u3001Markdown \u89C4\u5219\u3002" }), { description: "\u53EF\u9009\u7A33\u5B9A\u8F93\u51FA\u7EA6\u675F\u3002" })),
+  language: Type2.Optional(Type2.String({ description: "\u8F93\u51FA\u8BED\u8A00\uFF0C\u4F8B\u5982 zh-CN\u3002\u9ED8\u8BA4\u8DDF\u968F GM writer brief\u3002" }))
+});
+var RpWriterOutputSchema = Type2.Object({
+  prose: Type2.String({ description: "\u6700\u7EC8\u5C55\u793A\u7ED9\u7528\u6237\u7684 RP \u6B63\u6587\uFF0C\u4E0D\u5305\u542B GM \u63A8\u7406\u3001actor packet \u6216\u540E\u53F0\u8BF4\u660E\u3002" }),
+  summary: Type2.String({ description: "\u7ED9 GM \u7684\u77ED\u6458\u8981\uFF0C\u8BF4\u660E\u672C Tick \u5DF2\u5199\u51FA\u7684\u4E8B\u4EF6\u3001\u53F0\u8BCD\u3001\u72B6\u6001\u53D8\u5316\u548C\u540E\u7EED\u6CE8\u610F\u70B9\u3002" })
+});
 var SessionSummarizerInputSchema = Type2.Object({
   sourceSessionId: Type2.Number({ description: "\u7531 harness \u6CE8\u5165\u7684 source session id\u3002" }),
   trigger: Type2.Optional(Type2.Union([

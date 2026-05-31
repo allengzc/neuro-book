@@ -33,4 +33,3 @@ export type AgentUserMessageInput = {
     text: string;
     images?: ImageContent[];
 };
-

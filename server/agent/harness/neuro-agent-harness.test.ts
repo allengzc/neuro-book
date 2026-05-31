@@ -10,7 +10,7 @@ import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness"
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
-import {createAssistantTextMessage, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
+import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {Message, ModelContext, ProfilePrompt, Reminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {AgentMessage, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
 import {AGENT_PLAN_MODE_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
@@ -2946,7 +2946,7 @@ describe("NeuroAgentHarness", () => {
                 name: "Invoke Child",
             },
             inputSchema: Type.Object({}),
-            allowedToolKeys: [],
+            allowedToolKeys: ["report_result"],
             prepare() {
                 return {};
             },
@@ -2959,7 +2959,14 @@ describe("NeuroAgentHarness", () => {
                     message: "child work",
                 }, {id: "invoke-child"}),
             ], {stopReason: "toolUse"}),
-            fauxAssistantMessage(fauxText("child done")),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    walkthrough: "child done",
+                    data: {
+                        answer: "structured child data",
+                    },
+                }, {id: "child-report"}),
+            ], {stopReason: "toolUse"}),
             fauxAssistantMessage(fauxText("parent after child")),
         ]);
         const parent = await harness.createAgent({
@@ -2992,7 +2999,21 @@ describe("NeuroAgentHarness", () => {
             details: expect.objectContaining({
                 sessionId: child.sessionId,
                 status: "completed",
-                finalMessage: "child done",
+                reportResult: expect.objectContaining({
+                    result: "child done",
+                    data: {
+                        answer: "structured child data",
+                    },
+                }),
+            }),
+        }));
+        expect(JSON.parse(messageText(toolResult!))).toEqual(expect.objectContaining({
+            sessionId: child.sessionId,
+            status: "completed",
+            reportResult: expect.objectContaining({
+                data: {
+                    answer: "structured child data",
+                },
             }),
         }));
         expect(toolResult?.details).not.toHaveProperty("events");
@@ -4106,16 +4127,45 @@ describe("NeuroAgentHarness", () => {
         expect(session.summary).toBe("hello session");
         expect(session.recentMessages).toBeUndefined();
 
+        await harness.repo.appendMessage(created.sessionId, createAssistantTextMessage({text: "assistant reply"}));
+        await harness.repo.appendMessage(created.sessionId, createTextToolResult({
+            toolCallId: "read-1",
+            toolName: "read",
+            text: "tool output",
+        }));
+
         const withMessages = await harness.getSession({
             sessionId: created.sessionId,
             includeRecentMessages: true,
-            recentMessageLimit: 1,
+            recentMessageLimit: 3,
             tokenBudget: 1200,
         });
         expect(withMessages.recentMessages).toEqual([
             expect.objectContaining({
                 role: "user",
                 text: "hello session",
+            }),
+            expect.objectContaining({
+                role: "assistant",
+                text: "assistant reply",
+            }),
+            expect.objectContaining({
+                role: "toolResult",
+                text: "tool output",
+            }),
+        ]);
+
+        const onlyAssistant = await harness.getSession({
+            sessionId: created.sessionId,
+            includeRecentMessages: true,
+            recentMessageRoles: ["assistant"],
+            recentMessageLimit: 1,
+            tokenBudget: 1200,
+        });
+        expect(onlyAssistant.recentMessages).toEqual([
+            expect.objectContaining({
+                role: "assistant",
+                text: "assistant reply",
             }),
         ]);
     });

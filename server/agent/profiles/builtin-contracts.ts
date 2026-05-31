@@ -15,6 +15,62 @@ export const LeaderDefaultOutputSchema = Type.Object({
 });
 
 /**
+ * leader.rp 的实例初始化参数。每轮用户行动仍通过普通 prompt/invoke message 传入。
+ */
+export const LeaderRpInputSchema = Type.Object({
+    roleplayRoot: Type.Optional(Type.String({description: "可选 RP 目录路径，必须相对于 Agent cwd。默认使用当前 Project Workspace 下的 roleplay/。"})),
+});
+
+/**
+ * leader.rp 的结构化输出合同。
+ */
+export const LeaderRpOutputSchema = Type.Object({
+    result: Type.Optional(Type.String({description: "可选总结文本。leader.rp 通常直接面向用户输出 writer prose，不要求 report_result。"})),
+});
+
+/**
+ * rp.actor 的实例初始化参数。每轮 GM packet 通过 invoke_agent.message 传入。
+ */
+export const RpActorInputSchema = Type.Object({
+    actorId: Type.String({description: "本局 actor id，必须与 roleplay/cast.yaml 中的 id 对应。"}),
+    actorName: Type.Optional(Type.String({description: "角色可读名。为空时使用 actorId。"})),
+    kind: Type.Optional(Type.String({description: "actor 类型，例如 player、npc、faction、system。"})),
+    instructionPath: Type.String({description: "角色扮演指令文件路径，必须相对于 Agent cwd，例如 project-slug/roleplay/actors/erina/actor.md。"}),
+    knowledgePath: Type.String({description: "角色可知世界书路径，必须相对于 Agent cwd，例如 project-slug/roleplay/actors/erina/knowledge.md。"}),
+});
+
+/**
+ * rp.actor 通过 report_result.data 返回的结构化角色反应。
+ */
+export const RpActorOutputSchema = Type.Object({
+    visible_action: Type.String({description: "角色在场景中可被观察到的动作、神态、姿态或沉默；没有则填空字符串。"}),
+    spoken_dialogue: Type.String({description: "角色明确说出口的台词；没有则填空字符串。"}),
+    private_intent: Type.String({description: "只给 GM 使用的私下意图、判断或短期目标；没有则填空字符串。"}),
+    emotional_state: Type.String({description: "只给 GM 使用的情绪状态摘要；没有则填空字符串。"}),
+    assumptions: Type.Array(Type.String({description: "角色基于自身知识和本 Tick packet 形成的判断、误解或假设。"}), {description: "没有则返回空数组。"}),
+    questions_to_gm: Type.Array(Type.String({description: "需要 GM 裁决、补充或确认的问题。"}), {description: "没有则返回空数组。"}),
+    knowledge_update: Type.String({description: "本 Tick 后应写入 knowledge.md 的新增认知摘要；没有则填空字符串。"}),
+});
+
+/**
+ * rp.writer 的实例初始化参数。每轮 writer brief 通过 invoke_agent.message 传入。
+ */
+export const RpWriterInputSchema = Type.Object({
+    writerInstructionPath: Type.String({description: "RP writer 提示词素材路径，必须相对于 Agent cwd，例如 project-slug/roleplay/writer.md。"}),
+    style: Type.Optional(Type.String({description: "稳定文风偏好。临时 Tick 文风要求应放在 writer brief 中。"})),
+    outputRequirements: Type.Optional(Type.Array(Type.String({description: "稳定输出约束，例如人称、篇幅、Markdown 规则。"}), {description: "可选稳定输出约束。"})),
+    language: Type.Optional(Type.String({description: "输出语言，例如 zh-CN。默认跟随 GM writer brief。"})),
+});
+
+/**
+ * rp.writer 通过 report_result.data 返回的用户可见正文。
+ */
+export const RpWriterOutputSchema = Type.Object({
+    prose: Type.String({description: "最终展示给用户的 RP 正文，不包含 GM 推理、actor packet 或后台说明。"}),
+    summary: Type.String({description: "给 GM 的短摘要，说明本 Tick 已写出的事件、台词、状态变化和后续注意点。"}),
+});
+
+/**
  * summarizer 的实例初始化参数。sourceSessionId 由 harness 注入。
  */
 export const SessionSummarizerInputSchema = Type.Object({
