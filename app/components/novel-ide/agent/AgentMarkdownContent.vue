@@ -1,17 +1,93 @@
 <script setup lang="ts">
-import { computed, inject, type Ref } from "vue";
+import { inject, onUnmounted, ref, watch, type Ref } from "vue";
 import { renderMarkdown } from "nbook/app/utils/markdown/render";
 import { MARKDOWN_THEME } from "nbook/app/config/markdown-theme";
+
+const STREAMING_MARKDOWN_RENDER_INTERVAL_MS = 120;
 
 const props = defineProps<{
     content: string;
     html?: string;
+    /** 流式输出期间降频渲染 Markdown，减少主线程连续解析压力。 */
+    streaming?: boolean;
 }>();
 
 const sanitizeHtml = inject<Ref<((html: string) => string) | null> | null>("sanitizeHtml", null);
+const renderedHtml = ref("");
+let markdownRenderFrame: number | null = null;
+let markdownRenderTimer: ReturnType<typeof setTimeout> | null = null;
+let lastStreamingRenderAt = 0;
 
-const renderedHtml = computed(() => {
+/** 渲染当前 Markdown 输入。 */
+const renderCurrentHtml = (): string => {
     return props.html || renderMarkdown(props.content, sanitizeHtml?.value ?? undefined);
+};
+
+/** 取消尚未执行的流式渲染任务。 */
+const cancelScheduledRender = (): void => {
+    if (markdownRenderFrame !== null && typeof cancelAnimationFrame === "function") {
+        cancelAnimationFrame(markdownRenderFrame);
+    }
+    markdownRenderFrame = null;
+    if (markdownRenderTimer !== null) {
+        clearTimeout(markdownRenderTimer);
+    }
+    markdownRenderTimer = null;
+};
+
+/** 立即渲染，用于非流式或终态内容。 */
+const renderImmediately = (): void => {
+    cancelScheduledRender();
+    renderedHtml.value = renderCurrentHtml();
+    lastStreamingRenderAt = Date.now();
+};
+
+/** 在下一帧执行一次 Markdown 渲染。 */
+const renderInFrame = (): void => {
+    if (typeof requestAnimationFrame === "function") {
+        markdownRenderFrame = requestAnimationFrame(() => {
+            markdownRenderFrame = null;
+            renderedHtml.value = renderCurrentHtml();
+            lastStreamingRenderAt = Date.now();
+        });
+        return;
+    }
+    renderedHtml.value = renderCurrentHtml();
+    lastStreamingRenderAt = Date.now();
+};
+
+/** 流式期间按固定间隔合并 Markdown 渲染。 */
+const scheduleStreamingRender = (): void => {
+    if (markdownRenderFrame !== null || markdownRenderTimer !== null) {
+        return;
+    }
+    const elapsedMs = Date.now() - lastStreamingRenderAt;
+    const waitMs = Math.max(0, STREAMING_MARKDOWN_RENDER_INTERVAL_MS - elapsedMs);
+    if (waitMs === 0) {
+        renderInFrame();
+        return;
+    }
+    markdownRenderTimer = setTimeout(() => {
+        markdownRenderTimer = null;
+        renderInFrame();
+    }, waitMs);
+};
+
+watch([
+    () => props.content,
+    () => props.html,
+    () => props.streaming,
+    () => sanitizeHtml?.value,
+], () => {
+    if (!props.streaming || props.html) {
+        renderImmediately();
+        return;
+    }
+    scheduleStreamingRender();
+}, {immediate: true});
+
+onUnmounted(() => {
+    cancelScheduledRender();
 });
 </script>
 

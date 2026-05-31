@@ -47,9 +47,27 @@ const emit = defineEmits<{
 const scrollRef = ref<HTMLDivElement | null>(null);
 const shouldStickToBottom = ref(true);
 const lastScrollTop = ref(0);
+let autoScrollFrame: number | null = null;
 
 const chatNodes = computed(() => {
     return toChatNodes(props.messages);
+});
+
+/** 轻量追踪最后一条消息的渲染尺寸变化，避免 deep watch 扫描整棵消息树。 */
+const messageScrollSignature = computed(() => {
+    const lastMessage = props.messages.at(-1);
+    const lastToolCall = lastMessage?.toolCalls?.at(-1);
+    return [
+        props.messages.length,
+        lastMessage?.id ?? "",
+        lastMessage?.status ?? "",
+        lastMessage?.content.length ?? 0,
+        lastMessage?.thinking?.length ?? 0,
+        lastToolCall?.id ?? "",
+        lastToolCall?.status ?? "",
+        lastToolCall?.argsText.length ?? 0,
+        lastToolCall?.result?.length ?? 0,
+    ].join(":");
 });
 
 const getNodeKey = (node: ReturnType<typeof toChatNodes>[0]) => {
@@ -111,6 +129,25 @@ const scrollToBottom = (): void => {
     lastScrollTop.value = scrollRef.value.scrollTop;
 };
 
+/** 把自动吸底合并到下一帧，减少流式输出时的布局读取/写入抖动。 */
+const scheduleScrollToBottom = (): void => {
+    if (autoScrollFrame !== null) {
+        return;
+    }
+    if (typeof requestAnimationFrame !== "function") {
+        if (shouldStickToBottom.value) {
+            scrollToBottom();
+        }
+        return;
+    }
+    autoScrollFrame = requestAnimationFrame(() => {
+        autoScrollFrame = null;
+        if (shouldStickToBottom.value) {
+            scrollToBottom();
+        }
+    });
+};
+
 /** 滚动事件处理。 */
 const onScroll = (): void => {
     if (!scrollRef.value) return;
@@ -131,18 +168,33 @@ const onScroll = (): void => {
 };
 
 /** 消息变化时自动吸底。 */
-watch(() => props.messages, async () => {
+watch(messageScrollSignature, async () => {
     await nextTick();
     if (shouldStickToBottom.value) {
-        scrollToBottom();
+        scheduleScrollToBottom();
     }
-}, { deep: true });
+});
 
 /** 外部可调用：强制滚动到底部。 */
 const forceScrollToBottom = (): void => {
     shouldStickToBottom.value = true;
+    if (autoScrollFrame !== null) {
+        if (typeof cancelAnimationFrame === "function") {
+            cancelAnimationFrame(autoScrollFrame);
+        }
+        autoScrollFrame = null;
+    }
     scrollToBottom();
 };
+
+onUnmounted(() => {
+    if (autoScrollFrame !== null) {
+        if (typeof cancelAnimationFrame === "function") {
+            cancelAnimationFrame(autoScrollFrame);
+        }
+        autoScrollFrame = null;
+    }
+});
 
 defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
 </script>

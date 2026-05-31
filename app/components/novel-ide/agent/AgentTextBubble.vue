@@ -375,7 +375,7 @@ const endSwipe = (event: PointerEvent): void => {
                 </button>
 
                 <div v-if="!isThinkingCollapsed" class="mt-1.5 border-l border-[var(--border-color)]/40 pl-3 text-[13px] leading-relaxed text-[var(--text-muted)]/85">
-                    <AgentMarkdownContent :content="props.node.message.thinking ?? ''" />
+                    <AgentMarkdownContent :content="props.node.message.thinking ?? ''" :streaming="props.node.message.status === 'streaming'" />
                 </div>
             </div>
         </div>
@@ -419,7 +419,7 @@ const endSwipe = (event: PointerEvent): void => {
                     </div>
                 </div>
                 <div v-else class="min-w-0 text-sm leading-relaxed text-[var(--text-main)]">
-                    <AgentMarkdownContent :content="props.node.message.content" :html="props.node.message.html" />
+                    <AgentMarkdownContent :content="props.node.message.content" :html="props.node.message.html" :streaming="props.node.message.status === 'streaming'" />
                 </div>
             </div>
         </div>

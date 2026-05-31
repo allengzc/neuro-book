@@ -1,6 +1,10 @@
-import {describe, expect, it} from "vitest";
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import type {AssistantMessageEvent} from "@earendil-works/pi-ai";
 import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
-import type {AgentSessionEventDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentRuntimeStreamEventDto, AgentSessionEventDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
+
+type RuntimeMessage = Extract<AgentRuntimeStreamEventDto, {message: unknown}>["message"];
+type AssistantRuntimeMessage = Extract<RuntimeMessage, {role: "assistant"}>;
 
 const baseSnapshot = (lastSeq = 0): AgentSessionSnapshotDto => ({
     summary: {
@@ -30,6 +34,77 @@ const baseSnapshot = (lastSeq = 0): AgentSessionSnapshotDto => ({
     effectiveThinkingLevel: "off",
     planModeActive: false,
     lastSeq,
+});
+
+let animationFrames: Array<{id: number; callback: FrameRequestCallback}> = [];
+let animationFrameId = 0;
+
+const flushAnimationFrames = (): void => {
+    const currentFrames = animationFrames;
+    animationFrames = [];
+    for (const frame of currentFrames) {
+        frame.callback(performance.now());
+    }
+};
+
+const assistantMessage = (timestamp = 1): AssistantRuntimeMessage => ({
+    role: "assistant",
+    content: [],
+    api: "test",
+    provider: "test",
+    model: "test",
+    usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: {input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0},
+    },
+    stopReason: "stop",
+    timestamp,
+} as AssistantRuntimeMessage);
+
+const assistantMessageWithText = (text: string, timestamp = 1): AssistantRuntimeMessage => ({
+    ...assistantMessage(timestamp),
+    content: [{type: "text", text}],
+});
+
+const textDeltaEvent = (delta: string): AssistantMessageEvent => ({
+    type: "text_delta",
+    contentIndex: 0,
+    delta,
+    partial: assistantMessage(1),
+});
+
+const toolCallEndEvent = (): AssistantMessageEvent => ({
+    type: "toolcall_end",
+    contentIndex: 0,
+    toolCall: {
+        type: "toolCall",
+        id: "call-1",
+        name: "read",
+        arguments: {path: "a.md"},
+    },
+    partial: assistantMessage(1),
+});
+
+beforeEach(() => {
+    animationFrames = [];
+    animationFrameId = 0;
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+        const id = animationFrameId + 1;
+        animationFrameId = id;
+        animationFrames.push({id, callback});
+        return id;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => {
+        animationFrames = animationFrames.filter((frame) => frame.id !== id);
+    });
+});
+
+afterEach(() => {
+    vi.unstubAllGlobals();
 });
 
 describe("useAgentSession", () => {
@@ -190,5 +265,139 @@ describe("useAgentSession", () => {
 
         expect(session.liveRunStatus.value).toBe("waiting");
         expect(session.runPhase.value).toBe("waiting_user");
+    });
+
+    it("连续 message_update 合并到下一帧后按顺序提交", () => {
+        const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(0));
+
+        session.applyEvent({
+            seq: 1,
+            sessionId: 1,
+            invocationId: "run-1",
+            kind: "runtime",
+            event: {
+                type: "message_start",
+                message: assistantMessage(1),
+            },
+        });
+        session.applyEvent({
+            seq: 2,
+            sessionId: 1,
+            invocationId: "run-1",
+            kind: "runtime",
+            event: {
+                type: "message_update",
+                message: assistantMessage(1),
+                assistantMessageEvent: textDeltaEvent("你"),
+            },
+        });
+        session.applyEvent({
+            seq: 3,
+            sessionId: 1,
+            invocationId: "run-1",
+            kind: "runtime",
+            event: {
+                type: "message_update",
+                message: assistantMessage(1),
+                assistantMessageEvent: textDeltaEvent("好"),
+            },
+        });
+
+        expect(session.messages.value[0]?.content).toBe("");
+        expect(session.runPhase.value).toBe("assistant_streaming");
+        expect(animationFrames).toHaveLength(1);
+
+        flushAnimationFrames();
+
+        expect(session.messages.value[0]?.content).toBe("你好");
+    });
+
+    it("message_end 到来前会先提交 pending message_update", () => {
+        const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(0));
+
+        session.applyEvent({
+            seq: 1,
+            sessionId: 1,
+            invocationId: "run-1",
+            kind: "runtime",
+            event: {
+                type: "message_start",
+                message: assistantMessage(1),
+            },
+        });
+        session.applyEvent({
+            seq: 2,
+            sessionId: 1,
+            invocationId: "run-1",
+            kind: "runtime",
+            event: {
+                type: "message_update",
+                message: assistantMessage(1),
+                assistantMessageEvent: textDeltaEvent("你"),
+            },
+        });
+        session.applyEvent({
+            seq: 3,
+            sessionId: 1,
+            invocationId: "run-1",
+            kind: "runtime",
+            event: {
+                type: "message_end",
+                message: assistantMessageWithText("你好"),
+            },
+        });
+
+        expect(animationFrames).toHaveLength(0);
+        expect(session.messages.value[0]?.content).toBe("你好");
+        expect(session.messages.value[0]?.status).toBe("done");
+    });
+
+    it("工具执行事件到来前会先提交 pending toolcall update", () => {
+        const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(0));
+
+        session.applyEvent({
+            seq: 1,
+            sessionId: 1,
+            invocationId: "run-1",
+            kind: "runtime",
+            event: {
+                type: "message_start",
+                message: assistantMessage(1),
+            },
+        });
+        session.applyEvent({
+            seq: 2,
+            sessionId: 1,
+            invocationId: "run-1",
+            kind: "runtime",
+            event: {
+                type: "message_update",
+                message: assistantMessage(1),
+                assistantMessageEvent: toolCallEndEvent(),
+            },
+        });
+        session.applyEvent({
+            seq: 3,
+            sessionId: 1,
+            invocationId: "run-1",
+            kind: "runtime",
+            event: {
+                type: "tool_execution_start",
+                toolCallId: "call-1",
+                toolName: "read",
+                args: {path: "a.md"},
+            },
+        });
+
+        expect(session.messages.value).toHaveLength(1);
+        expect(session.messages.value.some((message) => message.id === "tool-execution:call-1")).toBe(false);
+        expect(session.messages.value[0]?.toolCalls?.[0]).toEqual(expect.objectContaining({
+            id: "call-1",
+            name: "read",
+            status: "running",
+        }));
     });
 });

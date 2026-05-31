@@ -1,5 +1,5 @@
-import type {AgentSessionEventDto, AgentSessionLiveStateDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
-import {computed, ref, shallowRef} from "vue";
+import type {AgentRuntimeStreamEventDto, AgentSessionEventDto, AgentSessionLiveStateDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
+import {computed, getCurrentScope, onScopeDispose, ref, shallowRef} from "vue";
 import {
     applyRuntimeEventToMessages,
     applySessionEntryToMessages,
@@ -23,6 +23,11 @@ export type AgentRunPhase =
     | "waiting_user"
     | "finishing";
 
+type PendingMessageUpdate = {
+    event: Extract<AgentRuntimeStreamEventDto, {type: "message_update"}>;
+    invocationId?: string;
+};
+
 /**
  * 统一管理 session snapshot + live event，并派生当前 UI message 列表。
  */
@@ -37,11 +42,118 @@ export function useAgentSession() {
     const needsSnapshot = ref(false);
     const snapshotReasons = ref<string[]>([]);
     const running = computed(() => Boolean(snapshot.value?.activeInvocation) || liveRunStatus.value === "running" || liveRunStatus.value === "aborting");
+    const pendingMessageUpdates: PendingMessageUpdate[] = [];
+    let runtimeUpdateFrame: number | null = null;
+    let runtimeUpdateFallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+    /** 取消尚未执行的 message_update 批量提交。 */
+    const cancelPendingMessageUpdateFlush = (): void => {
+        if (runtimeUpdateFrame !== null && typeof cancelAnimationFrame === "function") {
+            cancelAnimationFrame(runtimeUpdateFrame);
+        }
+        runtimeUpdateFrame = null;
+        if (runtimeUpdateFallbackTimer !== null) {
+            clearTimeout(runtimeUpdateFallbackTimer);
+        }
+        runtimeUpdateFallbackTimer = null;
+    };
+
+    /** 清理尚未应用的流式 message_update。 */
+    const clearPendingMessageUpdates = (): void => {
+        cancelPendingMessageUpdateFlush();
+        pendingMessageUpdates.splice(0);
+    };
+
+    /** 一次性提交帧内累积的 message_update，减少 Vue 列表重建频率。 */
+    const flushPendingMessageUpdates = (): void => {
+        cancelPendingMessageUpdateFlush();
+        if (pendingMessageUpdates.length === 0) {
+            return;
+        }
+        const updates = pendingMessageUpdates.splice(0);
+        messages.value = updates.reduce((currentMessages, item) => {
+            return applyRuntimeEventToMessages(currentMessages, item.event, item.invocationId);
+        }, messages.value);
+    };
+
+    /** 把流式 token 更新合并到浏览器下一帧再提交。 */
+    const schedulePendingMessageUpdateFlush = (): void => {
+        if (runtimeUpdateFrame !== null || runtimeUpdateFallbackTimer !== null) {
+            return;
+        }
+        if (typeof requestAnimationFrame === "function") {
+            runtimeUpdateFrame = requestAnimationFrame(() => {
+                runtimeUpdateFrame = null;
+                flushPendingMessageUpdates();
+            });
+            return;
+        }
+        runtimeUpdateFallbackTimer = setTimeout(() => {
+            runtimeUpdateFallbackTimer = null;
+            flushPendingMessageUpdates();
+        }, 0);
+    };
+
+    /** 暂存一次流式 message_update。 */
+    const queuePendingMessageUpdate = (event: Extract<AgentRuntimeStreamEventDto, {type: "message_update"}>, invocationId?: string): void => {
+        pendingMessageUpdates.push({event, invocationId});
+        schedulePendingMessageUpdateFlush();
+    };
+
+    /** 根据 runtime event 更新运行阶段。 */
+    const applyRuntimePhase = (event: AgentRuntimeStreamEventDto): void => {
+        if (event.type === "agent_start") {
+            liveRunStatus.value = "running";
+            runPhase.value = "model_pending";
+        }
+        if (event.type === "agent_end") {
+            if (event.status === "waiting") {
+                liveRunStatus.value = "waiting";
+                runPhase.value = "waiting_user";
+            } else {
+                liveRunStatus.value = "idle";
+                runPhase.value = "idle";
+            }
+        }
+        if (event.type === "turn_start") {
+            liveRunStatus.value = "running";
+            runPhase.value = "model_pending";
+        }
+        if (event.type === "message_start" || event.type === "message_update") {
+            const assistantMessageEvent = "assistantMessageEvent" in event ? event.assistantMessageEvent : null;
+            if (assistantMessageEvent?.type === "thinking_start" || assistantMessageEvent?.type === "thinking_delta") {
+                runPhase.value = "thinking";
+            } else if (assistantMessageEvent?.type === "toolcall_start" || assistantMessageEvent?.type === "toolcall_delta") {
+                runPhase.value = "tool_args_streaming";
+            } else if (event.message.role === "assistant") {
+                runPhase.value = "assistant_streaming";
+            }
+        }
+        if (event.type === "tool_execution_start") {
+            runPhase.value = "tool_running";
+        }
+        if (event.type === "tool_execution_update") {
+            runPhase.value = "tool_streaming";
+        }
+        if (event.type === "tool_execution_end") {
+            runPhase.value = "finishing";
+        }
+        if (event.type === "turn_end" && liveRunStatus.value === "running") {
+            runPhase.value = "finishing";
+        }
+    };
+
+    if (getCurrentScope()) {
+        onScopeDispose(() => {
+            clearPendingMessageUpdates();
+        });
+    }
 
     /**
      * 重置当前会话状态。
      */
     const reset = (): void => {
+        clearPendingMessageUpdates();
         snapshot.value = null;
         messages.value = [];
         liveRunStatus.value = "idle";
@@ -77,6 +189,7 @@ export function useAgentSession() {
      * 应用恢复真相的 snapshot。
      */
     const applySnapshot = (payload: AgentSessionSnapshotDto): void => {
+        clearPendingMessageUpdates();
         const nextSeq = Math.max(lastSeq.value, payload.lastSeq);
         const snapshotMessages = deriveMessagesFromSessionSnapshot(payload);
         const pendingOptimisticMessages = messages.value.filter((message) => {
@@ -163,54 +276,25 @@ export function useAgentSession() {
             return;
         }
         if (payload.seq > lastSeq.value + 1 && lastSeq.value > 0) {
+            flushPendingMessageUpdates();
             requestSnapshot("seq_gap");
             return;
         }
         lastSeq.value = payload.seq;
 
         if (payload.kind === "runtime") {
+            if (payload.event.type === "message_update") {
+                queuePendingMessageUpdate(payload.event, payload.invocationId);
+                applyRuntimePhase(payload.event);
+                return;
+            }
+            flushPendingMessageUpdates();
             messages.value = applyRuntimeEventToMessages(messages.value, payload.event, payload.invocationId);
-            if (payload.event.type === "agent_start") {
-                liveRunStatus.value = "running";
-                runPhase.value = "model_pending";
-            }
-            if (payload.event.type === "agent_end") {
-                if (payload.event.status === "waiting") {
-                    liveRunStatus.value = "waiting";
-                    runPhase.value = "waiting_user";
-                } else {
-                    liveRunStatus.value = "idle";
-                    runPhase.value = "idle";
-                }
-            }
-            if (payload.event.type === "turn_start") {
-                liveRunStatus.value = "running";
-                runPhase.value = "model_pending";
-            }
-            if (payload.event.type === "message_start" || payload.event.type === "message_update") {
-                const assistantMessageEvent = "assistantMessageEvent" in payload.event ? payload.event.assistantMessageEvent : null;
-                if (assistantMessageEvent?.type === "thinking_start" || assistantMessageEvent?.type === "thinking_delta") {
-                    runPhase.value = "thinking";
-                } else if (assistantMessageEvent?.type === "toolcall_start" || assistantMessageEvent?.type === "toolcall_delta") {
-                    runPhase.value = "tool_args_streaming";
-                } else if (payload.event.message.role === "assistant") {
-                    runPhase.value = "assistant_streaming";
-                }
-            }
-            if (payload.event.type === "tool_execution_start") {
-                runPhase.value = "tool_running";
-            }
-            if (payload.event.type === "tool_execution_update") {
-                runPhase.value = "tool_streaming";
-            }
-            if (payload.event.type === "tool_execution_end") {
-                runPhase.value = "finishing";
-            }
-            if (payload.event.type === "turn_end" && liveRunStatus.value === "running") {
-                runPhase.value = "finishing";
-            }
+            applyRuntimePhase(payload.event);
             return;
         }
+
+        flushPendingMessageUpdates();
 
         if (payload.event.type === "snapshot_required") {
             requestSnapshot("snapshot_required");
