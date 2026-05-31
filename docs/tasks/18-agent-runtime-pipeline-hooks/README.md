@@ -30,6 +30,8 @@
 - summarizer 不作为 Run Kernel 特例；它只是一个普通 profile，通过 runtime hooks 组合完成 source Agent Dialogue Content 摘要。
 - waiting/resume 有显式 lifecycle：`start -> waiting -> resumed -> end/error/aborted/interrupted`，同一 logical invocation 复用同一个 `invocationId`。
 - source session 的 active-path-specific projection 能稳定表达 title/summary 等展示元数据，后台写入不移动 source active leaf，不污染 tree。
+- SSE 恢复合同升级为 `(eventEpoch, seq)` cursor；后端 reload / EventHub 重建后，前端能通过 connected handshake 明确识别 epoch mismatch，拉 snapshot 并允许 event cursor 回退到新 epoch。
+- waiting snapshot 能从 session active path hydrate：即使后端 reload 丢失内存 `activeInvocations`，pending approval / user input UI 也能恢复，并且 `continue(resolution)` 继续复用原 logical `invocationId`。
 
 非目标：
 
@@ -69,6 +71,9 @@
   - `report_result` reminder retry 已迁入同一个 `RunFrame` 的下一轮 turn；缺少必需 report_result 时由 `resolveTurnContinuation()` 判断继续，再由 `prepareNextTurn()` 写入 harness reminder 并进入下一轮 `TurnSnapshot`，不再由 `finalizeInvokeResult()` 递归重跑旧 `runLoop()`。
   - `profile.ingest()` 旧 API 已从 active profile 类型和 harness 调用路径删除。
   - waiting/resume lifecycle、partial assistant metadata、follow-up queue 对象化已落地；follow-up queue 现在会写入 `agent.followUpQueue` projection custom state，刷新或重建 harness 后 snapshot 可恢复 paused/ready queue。
+  - SSE reload recovery 合同已落地：`AgentSessionEventHub` 使用进程内 `eventEpoch` + per-session `seq`，前端通过 connected handshake 识别 epoch mismatch 并以 snapshot 作为恢复真相；后端 reload 后 waiting snapshot 可从 session active path hydrate `activeInvocation.status = "waiting"`。
+  - invocation admission 已补 session 级短事务边界：`continue(resolution)` 的 waiting hydrate / active claim 串行执行，active 已经 running/aborting 时拒绝恢复，不创建 unrelated invocation。
+  - `SessionWriteExecutor` 已补 per-session write queue：同 session 的 repo append 与 `session_entry` / `session_state_changed` publish 串行执行，`SessionWritePlan` public shape 不变。
   - 旧 hard-coded summarizer 自动运行路径已删除；17 summarizer 等 18 完整重构后重新计划。旧 DTO/状态读取和 dialogue-content helper 暂保留为后续 17 材料。
 - 当前还没有完成完整 Kernel 重构：`RunFrame` / `TurnSnapshot` / `TurnOutcome` 已开始拆成独立 kernel 模块，默认内置 runtime 行为已迁入第一批可执行 built-in hooks；完整 failure path、server restart 后自动 drain follow-up queue 和所有 repo append fallback 的全量移除仍是后续 TODO。
 - 当前 Run Kernel 类型边界已先抽到 `server/agent/harness/run-kernel-types.ts`：`RunFrame`、`TurnSnapshot`、`RuntimeTurn`、`TurnOutcome`、`RunLoopResult`、`RunTurnTransactionResult`、`TurnContinuationDecision`、hook execution input/result 和 runtime state 都有独立类型模块。turn continuation / shouldStop 的第一层纯判定已抽到 `server/agent/harness/turn-continuation.ts`；partial assistant sanitizer、failed ingest 草案、失败状态归并和 failed run result 创建已抽到 `server/agent/harness/turn-failure.ts`；Turn Transaction 的 outcome 应用已抽到 `server/agent/harness/turn-transaction.ts`；RunFrame 内存状态写回已抽到 `server/agent/harness/run-frame-state.ts`；prepare-next-turn 的 steered message / report_result reminder reducer 已抽到 `server/agent/harness/prepare-next-turn.ts`；stage error phase 包装已抽到 `server/agent/harness/run-kernel-error.ts`。`NeuroAgentHarness.runLoop()` 现在只负责 frame 生命周期和 loop 终态，单轮执行副作用收敛在 `runTurnTransaction()`；后续再继续迁移更完整的 Run Kernel 模块。
@@ -532,9 +537,11 @@ type TurnOutcome =
 
 第二种是 UI / SSE recovery：
 
-- `AgentSessionEventHub` 维护 bounded replay 和全局 seq。
+- `AgentSessionEventHub` 维护 bounded replay 和 per-session seq。
 - replay buffer 不够时只给落后的 subscriber 发送 `snapshot_required`。
 - 前端收到 `snapshot_required` 后以 `getSessionSnapshot()` 的结果作为真相；`session_state_changed` 只携带 lightweight live state，不携带完整 snapshot。
+- 新合同中，EventHub 还维护 `eventEpoch`。前端保存的 cursor 是 `(eventEpoch, lastSeq)`，其中 `lastSeq` 是当前 session stream cursor，不是全局 stream cursor。
+- `connected` 是 stream handshake，不是普通增量事件。它必须告诉前端当前 `eventEpoch` 和 `latestSeq`。
 
 新架构落位：
 
@@ -545,7 +552,110 @@ type TurnOutcome =
 关键约束：
 
 - event stream 是增量优化，snapshot 是恢复真相。
+- `seq` 只在同一个 `eventEpoch` + session 内有意义。后端 reload / EventHub 重建后，前端必须通过 epoch mismatch 触发 snapshot，而不是继续用旧 `lastSeq` 过滤新事件。
+- 同 epoch 下的 `after > latestSeq` 也必须触发 snapshot recovery；这是客户端 cursor 来自当前 EventHub 无法证明的未来。
+- snapshot apply 需要能在 epoch 改变时重置 event cursor，不能再用 `Math.max(oldLastSeq, snapshot.lastSeq)` 保守保留旧 seq。
 - pipeline hook 不能直接 publish event；只能返回 write plan，由 executor 统一 publish。
+
+### Event Epoch / Snapshot Recovery
+
+这次 dev reload bug 的根因是：事件流缺少身份。
+
+当前实现里：
+
+```text
+旧前端 lastSeq = 426
+后端 dev reload -> 新 EventHub seq = 0
+前端 reconnect /events?after=426
+server connected(seq=426)
+后续新事件 seq=1,2,3
+前端因为 seq <= 426 全部丢弃
+UI 继续停在旧 running / waiting
+```
+
+系统性修法是把 SSE cursor 从一个数字升级成对象：
+
+```ts
+type AgentEventCursor = {
+    eventEpoch: string;
+    seq: number;
+};
+```
+
+DTO 调整：
+
+- `AgentSessionEventDto` 增加 `eventEpoch: string`。
+- `AgentSessionSnapshotDto` 增加 `eventEpoch: string`，继续保留 `lastSeq`。
+- `AgentSessionEventsQueryDto` 增加 `eventEpoch?: string`，`after?: number` 继续表示该 epoch 下的 seq。
+- `connected` control event 增加 `eventEpoch` / `latestSeq`，或至少保证 envelope 上有当前 `eventEpoch`，并把 connected envelope 的 `seq` 设为当前 `latestSeq`。
+
+后端规则：
+
+- `AgentSessionEventHub` 构造时生成一个进程内 `eventEpoch`。
+- `publish()` 给每个事件写入当前 `eventEpoch` 和递增 `seq`。
+- `subscribe(sessionId, cursor)`：
+  - cursor epoch 缺失或不同：不 replay 旧事件；先发送 connected handshake，前端随后 snapshot。
+  - cursor epoch 相同且 `after` 太旧：发送 `snapshot_required(reason="event replay buffer expired")`。
+  - cursor epoch 相同且 `after > lastSeq`：发送 `snapshot_required(reason="event cursor is ahead of server")`。
+  - cursor epoch 相同且 replay 可覆盖：发送 `seq > after` 的 buffered events。
+- `/events` 路由不再手写一个 `seq = query.after ?? 0` 的 connected event；它应从 EventHub 读取当前 cursor 生成 handshake。
+
+前端规则：
+
+- `useAgentSession` 保存 `eventEpoch: Ref<string | null>` 和 `lastSeq`。
+- `connected` 必须在普通 `seq <= lastSeq` 过滤之前处理。
+- 如果 connected / event 的 `eventEpoch` 和本地不同：
+  - 标记 `needsSnapshot("event_epoch_changed")`。
+  - snapshot 成功后把本地 cursor 设置为 snapshot 的 `(eventEpoch, lastSeq)`。
+  - 允许 `lastSeq` 从旧 epoch 的大数字回退到新 epoch 的小数字。
+- 如果 event 同 epoch 且 `seq > lastSeq + 1`，继续走 `seq_gap` snapshot。
+- 如果 snapshot 与当前本地 epoch 相同，`lastSeq` 可以继续取 `Math.max(old, snapshot.lastSeq)`；如果 epoch 不同，必须以 snapshot 为准。
+
+这不是前端 hack，而是 SessionLog + EventHub + Snapshot projection 的恢复合同。Run Kernel 不需要知道 SSE epoch。
+
+### Waiting Hydration After Backend Reload
+
+后端 reload 后，内存运行态会消失：
+
+- `activeInvocations`
+- AbortController
+- EventHub replay buffer
+- 正在执行的 provider / tool promise
+- 未持久化的 steer queue
+
+但 session active path 仍然能说明某些 waiting 状态：
+
+- assistant message 中有未闭合的 approval / request_user_input tool call。
+- lifecycle 中有同一 invocation 的 `waiting` 状态。
+- 尚未出现对应 resolution toolResult / `resumed` / terminal lifecycle。
+
+因此 `getSessionSnapshot()` 应做一层 hydrate：
+
+```text
+pendingApproval = findPendingApprovalCall(activePathMessages)
+memoryActive = activeInvocations.get(sessionId)
+
+if memoryActive exists:
+  activeInvocation = memoryActive
+else if pendingApproval exists and waiting lifecycle can be found:
+  activeInvocation = {
+    invocationId: lifecycle.invocationId,
+    sessionId,
+    status: "waiting",
+    mode: original lifecycle mode ?? "continue",
+    startedAt: lifecycle.createdAt
+  }
+else:
+  activeInvocation = null
+```
+
+约束：
+
+- hydrate 只恢复用户可见的 waiting shell，不恢复已丢失的 running provider/tool 执行。
+- resume admission 也不能只看内存 `activeInvocations`。如果内存没有 waiting active，但 session active path 能 hydrate waiting，就应接受 `continue(resolution)`，写入同一 `invocationId` 的 `resumed` lifecycle。
+- 如果找不到 reliable `invocationId`，应该返回结构化 admission error，提示刷新/重试，而不是创建新 invocation 随便续跑。
+- abort after reload 第一版可以只关闭 pending approval：写 harness error toolResult + `aborted` lifecycle；不能假装能 abort 已不存在的 provider request。
+- ready follow-up queue reload 后是否自动 drain 仍保持不做。它和 waiting hydration 是不同问题：waiting 是用户正在回答一个已持久化 suspend point，follow-up 自动 drain 是后台调度策略。
 
 ### Invocation Identity For Waiting / Resume
 
@@ -1698,6 +1808,108 @@ source invocation completed
 
 第一版需要给 `defineAgentProfile` 暴露足够表达 summarizer 的 runtime hook 组合；后续再按真实需求增加更细 hook。
 
+### Phase 7: SSE Epoch / Snapshot Recovery
+
+目标：修复“前端 Agent 运行中后端 dev reload 后无法 continue”的系统性恢复问题。
+
+实施切片：
+
+- DTO：
+  - `AgentSessionEventDto` 增加 `eventEpoch: string`。
+  - `AgentSessionSnapshotDto` 增加 `eventEpoch: string`，继续保留 `lastSeq`。
+  - `AgentSessionEventsQueryDtoSchema` 增加 `eventEpoch?: string`。
+  - `connected` control event 明确作为 handshake，包含当前 `eventEpoch` 和 `latestSeq`。
+- EventHub：
+  - `AgentSessionEventHub` 构造时生成进程内 `eventEpoch`。
+  - `publish()` 给所有事件加当前 epoch。
+  - `subscribe()` 接收 `{eventEpoch?, after?}` cursor。
+  - 同 epoch 才 replay。
+  - `after < firstSeq - 1` 返回 `snapshot_required("event replay buffer expired")`。
+  - `after > lastSeq` 返回 `snapshot_required("event cursor is ahead of server")`。
+  - epoch mismatch 不 replay buffer，让 connected handshake 驱动前端 snapshot recovery。
+- HTTP SSE route：
+  - `/api/agent/sessions/:id/events` 不再自己伪造 `seq = query.after ?? 0` 的 connected。
+  - connected handshake 由 EventHub 当前 cursor 生成。
+  - query 透传 `eventEpoch` + `after`。
+- Snapshot：
+  - `getSessionSnapshot()` 返回当前 EventHub `eventEpoch` 和 `lastSeq`。
+  - snapshot 是 cursor 真相；事件只是增量优化。
+- Frontend session store：
+  - `useAgentSession` 保存 `eventEpoch`。
+  - `connected` 在普通 seq 过滤之前处理。
+  - epoch mismatch 时标记 `needsSnapshot("event_epoch_changed")`。
+  - `applySnapshot()` 在 epoch 不同时允许 `lastSeq` 回退到 snapshot `lastSeq`；同 epoch 时可以继续 `Math.max()`。
+  - snapshot 成功后清空旧 live runtime 状态，以 snapshot 的 `activeInvocation` / `pendingApproval` 重建 UI。
+- Frontend stream manager：
+  - `subscribeSessionEvents()` 传 `eventEpoch` 和 `lastSeq`。
+  - snapshot single-flight 继续保留。
+  - reconnect 后如果服务端 epoch 已变，先 snapshot 再继续使用新 cursor。
+
+验证：
+
+- EventHub 单测：
+  - publish event 带稳定 epoch。
+  - same epoch + after replay 正常。
+  - same epoch + after 太旧触发 snapshot_required。
+  - same epoch + after 大于 lastSeq 触发 snapshot_required。
+  - different epoch 不 replay 当前 buffer。
+- Frontend store 单测：
+  - 本地 `(epoch=A, lastSeq=426)` 收到 connected `(epoch=B, latestSeq=0)` 后请求 snapshot。
+  - 应用 snapshot `(epoch=B, lastSeq=0)` 后 lastSeq 允许从 426 回退到 0。
+  - 同 epoch snapshot 仍不让 lastSeq 被旧 snapshot 回退。
+  - connected 不再只是更新 connectionStatus。
+- Stream manager 单测：
+  - reconnect 时传 cursor。
+  - epoch mismatch 后只拉一次 snapshot。
+  - snapshot 完成后下一次 subscribe 使用新 epoch / new lastSeq。
+
+不做：
+
+- 不恢复 reload 前正在进行的 provider stream / tool promise。
+- 不把 EventHub replay 做成持久日志。
+- 不支持跨进程实时 fan-out；多实例第一版仍靠 snapshot 恢复。
+
+### Phase 8: Waiting Hydration / Resume After Reload
+
+目标：后端 reload 后，session 已经停在 approval / user input waiting 时，前端能恢复 waiting UI，并且 `continue(resolution)` 能继续同一个 logical invocation。
+
+实施切片：
+
+- Session reducer / snapshot helper：
+  - 从 active path messages 继续推导 `pendingApproval`。
+  - 新增 helper 从 active path lifecycle entries 中找到 pending approval 对应的最近 waiting lifecycle。
+  - `getSessionSnapshot()` 在 `activeInvocations` 内存 map 缺失时，用上述 helper hydrate `activeInvocation.status = "waiting"`。
+- Invocation Coordinator admission：
+  - `continue(resolution)` 不能只检查内存 `activeInvocations`。
+  - 内存缺失但 session 可 hydrate waiting 时，接受为 resume。
+  - resume 使用 hydrated `invocationId`，写 `resumed` lifecycle，不创建新用户可见 invocation。
+- prepareRun：
+  - resolution restore 仍然第一步写 resolution toolResult。
+  - 写完 resolution 后重新 reduce session snapshot，再执行 profile prepare / hooks。
+- abort：
+  - reload 后 waiting abort 只能关闭 pending approval：写 harness error toolResult + `aborted` lifecycle。
+  - 不假装能 abort 已丢失的 provider/tool 执行。
+- Frontend：
+  - snapshot 中只要有 hydrated waiting activeInvocation + pendingApproval，就进入 `waiting_user`。
+  - 新请求 accepted 后旧 ErrorBubble / stale live state 由 snapshot projection 重新计算。
+
+验证：
+
+- Harness 单测：
+  - 构造 waiting session，丢弃旧 harness，新建 harness 后 `getSessionSnapshot()` 仍返回 `pendingApproval` 和 waiting `activeInvocation`。
+  - 新 harness 对同一 session 执行 `continue(resolution)`，写入同一 `invocationId` 的 `resumed` lifecycle。
+  - resolution toolResult 仍先于 continue prepare appending messages。
+  - 找不到 reliable invocationId 时，`continue(resolution)` 返回结构化 admission error。
+- Frontend 单测：
+  - snapshot hydrated waiting 后 composer 展示 approval / user input UI。
+  - connected epoch mismatch + hydrated waiting snapshot 后，running 卡死状态被覆盖为 waiting_user。
+
+不做：
+
+- 不把普通 running invocation hydrate 成 running；reload 前正在 stream 的内容只能通过已 durable 写入的 partial assistant / lifecycle error 或用户手动继续处理。
+- 不在 server restart 后自动 drain ready follow-up queue。
+- 不恢复内存 steer queue，除非后续把它也设计成 durable projection。
+
 ### `defineAgentProfile` Target API
 
 现有 `context()` / `prepare()` 继续保留，用于普通 profile 的 system prompt、HistorySet、AppendingSet、ModelContext 和 stateWrites。新增单一 `runtime` 字段；hook 只出现在 `runtime: { hooks }` 内，不在 `defineAgentProfile` 顶层再放一份 `hooks`。
@@ -1957,6 +2169,7 @@ export default defineAgentProfile({
 - 2026-05-29：标注 variable accessor 的 standalone fallback 边界。`variables/accessor.ts` 仍允许低层变量单元测试和独立调用在没有 harness writer 时直接 append audit entry，但注释明确 active harness 必须注入 `writeSessionEntry`，实际运行路径通过 `ToolSessionWriteSink` / `SessionWriteExecutor` 发布。
 - 2026-05-29：固定 RunFrame 初始化合同。新增 `createRunFrame()`，把 `runLoop()` 中的初始运行态组装移入 `run-frame-state.ts` 并补测试，明确 messages 浅拷贝、events/pendingWritePlans 初始为空、turnIndex/reminder/compaction 默认值。targeted 回归 `bunx vitest run server/agent/harness/run-frame-state.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`，2 files / 74 tests passed；18 宽套件 18 files / 201 tests passed；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
 - 2026-05-29：修复 waiting/running abort terminal 语义。waiting 状态下 abort 会先写 harness error toolResult 闭合 pending approval tool call，再写 lifecycle `aborted` 并释放 active invocation；running 状态 provider 返回 aborted/interrupted failed outcome 时，RunLoop failed result 会携带 `terminalStatus`，terminal lifecycle 写 `aborted`，follow-up queue 以 `aborted` reason 暂停而不是误记为普通 error。targeted 回归 `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/turn-failure.test.ts --reporter=dot`，2 files / 78 tests passed；18 宽套件 18 files / 202 tests passed；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
+- 2026-05-31：针对“Agent 运行中后端 dev reload 后无法 continue”补充系统性恢复设计。新增 SSE `(eventEpoch, seq)` cursor / connected handshake / snapshot cursor reset 合同，明确 `after > lastSeq` 和 epoch mismatch 都触发 snapshot recovery；补充 waiting hydration 设计，要求 snapshot 可从 session active path 的 pending approval + waiting lifecycle 恢复 `activeInvocation.status = "waiting"`，`continue(resolution)` 在内存 active 丢失时仍复用原 logical `invocationId`。本次只更新设计和实现计划，代码实现待下一切片。
 
 ## Files Changed
 

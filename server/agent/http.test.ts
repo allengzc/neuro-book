@@ -120,6 +120,7 @@ describe("agent session http helpers", () => {
     it("pushAgentSessionEvent 使用 event.type 作为 SSE event name", async () => {
         const push = vi.fn(async () => {});
         const payload = {
+            eventEpoch: "epoch-1",
             seq: 1,
             sessionId: 4,
             kind: "session",

@@ -112,7 +112,12 @@ const browserSections: SettingsSection[] = ["frontend", "editor"];
 const themeOptions: SelectOption[] = [
     {value: "sepia", label: "Sepia Paper"},
     {value: "light", label: "Light Editorial"},
-    {value: "dark", label: "Dark Cinematic"},
+    {value: "dark", label: "Default Dark"},
+    {value: "catppuccin", label: "Catppuccin"},
+    {value: "dracula", label: "Dracula"},
+    {value: "monokai", label: "Monokai"},
+    {value: "one-dark-pro", label: "One Dark Pro"},
+    {value: "tokyo-night", label: "Tokyo Night"},
 ];
 
 const viewModeOptions: SelectOption[] = [
@@ -304,9 +309,7 @@ function closeDialog(): void {
  * 处理主题选择。
  */
 function updateTheme(value: string): void {
-    if (value === "sepia" || value === "light" || value === "dark") {
-        theme.value = value as IdeTheme;
-    }
+    theme.value = value as IdeTheme;
 }
 
 /**

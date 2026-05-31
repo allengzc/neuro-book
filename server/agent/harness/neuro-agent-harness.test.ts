@@ -244,6 +244,362 @@ describe("NeuroAgentHarness", () => {
         expect(continued.reportResult?.result).toBe("done");
     });
 
+    it("新 harness 能从 session active path 恢复 waiting 并复用 invocationId continue", async () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.approval-reload",
+                name: "Approval Reload",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input", "report_result"],
+            prepare() {
+                return {};
+            },
+        });
+        harness.profiles.register(profile, false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("request_user_input", {
+                    questions: [{question: "给一个名字"}],
+                }, {id: "ask-reload"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage([
+                fauxText("received"),
+                fauxToolCall("report_result", {
+                    walkthrough: "done after reload",
+                }, {id: "report-reload"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.approval-reload",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const waiting = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "need input"},
+        });
+        const restored = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
+        });
+        restored.profiles.register(profile, false);
+
+        const reloadedSnapshot = await restored.getSessionSnapshot(created.sessionId);
+        const reloadedSessions = await restored.listSessions({workspaceKey: "global"});
+        const waitingSessions = await restored.listSessions({workspaceKey: "global", status: "waiting"});
+        const idleSessions = await restored.listSessions({workspaceKey: "global", status: "idle"});
+        const continued = await restored.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "continue",
+            resolution: {
+                kind: "user_input",
+                toolCallId: "ask-reload",
+                answers: [{questionIndex: 0, text: "Alice"}],
+            },
+        });
+        await restored.drainBackgroundTasks();
+
+        expect(waiting.status).toBe("waiting");
+        expect(reloadedSnapshot.summary.status).toBe("waiting");
+        expect(reloadedSessions).toContainEqual(expect.objectContaining({
+            sessionId: created.sessionId,
+            status: "waiting",
+        }));
+        expect(waitingSessions.map((session) => session.sessionId)).toContain(created.sessionId);
+        expect(idleSessions.map((session) => session.sessionId)).not.toContain(created.sessionId);
+        expect(reloadedSnapshot.activeInvocation).toEqual(expect.objectContaining({
+            invocationId: waiting.invocationId,
+            status: "waiting",
+            mode: "continue",
+        }));
+        expect(continued.invocationId).toBe(waiting.invocationId);
+        expect(continued.status).toBe("completed");
+        expect(continued.reportResult?.result).toBe("done after reload");
+    });
+
+    it("后端恢复 waiting 后并发 resolution 只能有一个 claim 成功", async () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.approval-concurrent-reload",
+                name: "Approval Concurrent Reload",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input", "report_result"],
+            prepare() {
+                return {};
+            },
+        });
+        harness.profiles.register(profile, false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("request_user_input", {
+                    questions: [{question: "给一个名字"}],
+                }, {id: "ask-concurrent-reload"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage([
+                fauxText("received"),
+                fauxToolCall("report_result", {
+                    walkthrough: "done after concurrent reload",
+                }, {id: "report-concurrent-reload"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.approval-concurrent-reload",
+            input: {},
+            workspaceRoot: root,
+        });
+        const waiting = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "need input"},
+        });
+        const restored = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
+        });
+        restored.profiles.register(profile, false);
+
+        const resolution = {
+            kind: "user_input" as const,
+            toolCallId: "ask-concurrent-reload",
+            answers: [{questionIndex: 0, text: "Alice"}],
+        };
+        const results = await Promise.allSettled([
+            restored.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "continue",
+                resolution,
+            }),
+            restored.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "continue",
+                resolution,
+            }),
+        ]);
+        await restored.drainBackgroundTasks();
+
+        const fulfilled = results.filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<NeuroAgentHarness["invokeAgent"]>>> => result.status === "fulfilled");
+        const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+        const snapshot = await restored.repo.readSession(created.sessionId);
+        const context = restored.repo.reduce(snapshot);
+        const resolutionMessages = context.messages.filter((message) => message.role === "toolResult" && messageText(message as never).includes("Alice"));
+        const resumedLifecycles = snapshot.entries.filter((entry) => entry.type === "invocation_lifecycle" && entry.invocationId === waiting.invocationId && entry.status === "resumed");
+
+        expect(fulfilled).toHaveLength(1);
+        expect(rejected).toHaveLength(1);
+        expect(String(rejected[0]?.reason instanceof Error ? rejected[0].reason.message : rejected[0]?.reason)).toContain("waiting_invocation_not_recoverable");
+        expect(fulfilled[0]?.value.invocationId).toBe(waiting.invocationId);
+        expect(resolutionMessages).toHaveLength(1);
+        expect(resumedLifecycles).toHaveLength(1);
+    });
+
+    it("pending approval 没有可靠 waiting lifecycle 时拒绝 resolution", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.approval-unrecoverable",
+                name: "Approval Unrecoverable",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("request_user_input", {
+                    questions: [{question: "继续？"}],
+                }, {id: "ask-unrecoverable"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.approval-unrecoverable",
+            input: {},
+            workspaceRoot: root,
+        });
+        const waiting = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "need input"},
+        });
+        await harness.repo.appendEntry(created.sessionId, {
+            type: "invocation_lifecycle",
+            invocationId: waiting.invocationId,
+            status: "resumed",
+        });
+        const restored = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
+        });
+
+        await expect(restored.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "continue",
+            resolution: {
+                kind: "user_input",
+                toolCallId: "ask-unrecoverable",
+                answers: [{questionIndex: 0, text: "继续"}],
+            },
+        })).rejects.toThrow("waiting_invocation_not_recoverable");
+        await restored.drainBackgroundTasks();
+    });
+
+    it("新 harness 恢复出的 waiting 可以 abort", async () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.approval-reload-abort",
+                name: "Approval Reload Abort",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input"],
+            prepare() {
+                return {};
+            },
+        });
+        harness.profiles.register(profile, false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("request_user_input", {
+                    questions: [{question: "Wait?"}],
+                }, {id: "ask-reload-abort"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.approval-reload-abort",
+            input: {},
+            workspaceRoot: root,
+        });
+        const waiting = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "need input"},
+        });
+        const restored = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
+        });
+        restored.profiles.register(profile, false);
+
+        const aborted = await restored.abortInvocation(created.sessionId, {reason: "stop after reload"});
+        const snapshot = await restored.getSessionSnapshot(created.sessionId);
+        await restored.drainBackgroundTasks();
+
+        expect(waiting.status).toBe("waiting");
+        expect(aborted.status).toBe("aborted");
+        expect(snapshot.activeInvocation).toBeNull();
+        expect(snapshot.entries).toContainEqual(expect.objectContaining({
+            type: "invocation_lifecycle",
+            invocationId: waiting.invocationId,
+            status: "aborted",
+        }));
+    });
+
+    it("后端恢复 waiting 后 abort 和 resolution 并发只能有一个 claim 成功", async () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.approval-abort-resolution-race",
+                name: "Approval Abort Resolution Race",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["request_user_input", "report_result"],
+            prepare() {
+                return {};
+            },
+        });
+        harness.profiles.register(profile, false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("request_user_input", {
+                    questions: [{question: "给一个名字"}],
+                }, {id: "ask-abort-resolution-race"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage([
+                fauxText("received"),
+                fauxToolCall("report_result", {
+                    walkthrough: "done after abort resolution race",
+                }, {id: "report-abort-resolution-race"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.approval-abort-resolution-race",
+            input: {},
+            workspaceRoot: root,
+        });
+        const waiting = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "need input"},
+        });
+        const restored = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
+        });
+        restored.profiles.register(profile, false);
+
+        const results = await Promise.allSettled([
+            restored.abortInvocation(created.sessionId, {reason: "stop while answering"}),
+            restored.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "continue",
+                resolution: {
+                    kind: "user_input",
+                    toolCallId: "ask-abort-resolution-race",
+                    answers: [{questionIndex: 0, text: "Alice"}],
+                },
+            }),
+        ]);
+        await restored.drainBackgroundTasks();
+
+        const fulfilled = results.filter((result) => result.status === "fulfilled");
+        const rejected = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+        const snapshot = await restored.repo.readSession(created.sessionId);
+        const context = restored.repo.reduce(snapshot);
+        const resolutionMessages = context.messages.filter((message) => {
+            return message.role === "toolResult" && message.toolCallId === "ask-abort-resolution-race";
+        });
+        const terminalLifecycles = snapshot.entries.filter((entry) => {
+            return entry.type === "invocation_lifecycle"
+                && entry.invocationId === waiting.invocationId
+                && (entry.status === "resumed" || entry.status === "aborted");
+        });
+
+        expect(fulfilled).toHaveLength(1);
+        expect(rejected).toHaveLength(1);
+        expect(resolutionMessages).toHaveLength(1);
+        expect(terminalLifecycles).toHaveLength(1);
+    });
+
+    it("新 harness 对未完成普通 running snapshot 投影为 interrupted", async () => {
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+        });
+        await harness.repo.appendEntry(created.sessionId, {
+            type: "invocation_lifecycle",
+            invocationId: "lost-running",
+            status: "start",
+        });
+        const restored = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
+        });
+
+        const snapshot = await restored.getSessionSnapshot(created.sessionId);
+
+        expect(snapshot.summary.status).toBe("interrupted");
+        expect(snapshot.activeInvocation).toBeNull();
+    });
+
     it("approval 后面的普通 tool call 会被显式跳过并保留 pending approval", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
@@ -2299,7 +2655,10 @@ describe("NeuroAgentHarness", () => {
             mode: "prompt",
             message: {text: "wait"},
         });
-        const subscription = harness.subscribeSessionEvents(created.sessionId, harness.eventHub.lastSeq);
+        const subscription = harness.subscribeSessionEvents(created.sessionId, {
+            eventEpoch: harness.eventHub.eventEpoch,
+            after: harness.eventHub.lastSeq(created.sessionId),
+        });
         const pendingAfterContinue: Array<string | null> = [];
         const collect = (async () => {
             for await (const event of subscription) {
@@ -4054,7 +4413,7 @@ describe("NeuroAgentHarness", () => {
     });
 
     it("session snapshot 返回当前 session 被哪些 agent 绑定", async () => {
-        harness.profiles.register(defineAgentProfile({
+        const profile = defineAgentProfile({
             manifest: {
                 key: "test.linked-by",
                 name: "Linked By",
@@ -4064,7 +4423,8 @@ describe("NeuroAgentHarness", () => {
             prepare() {
                 return {};
             },
-        }), false);
+        });
+        harness.profiles.register(profile, false);
         faux.setResponses([
             fauxAssistantMessage([
                 fauxToolCall("request_user_input", {
@@ -4090,8 +4450,23 @@ describe("NeuroAgentHarness", () => {
         });
 
         const childSnapshot = await harness.getSessionSnapshot(child.sessionId);
+        const restored = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
+        });
+        restored.profiles.register(profile, false);
+        const restoredChildSnapshot = await restored.getSessionSnapshot(child.sessionId);
         expect(waiting.status).toBe("waiting");
         expect(childSnapshot.linkedByAgents).toEqual([
+            expect.objectContaining({
+                sessionId: parent.sessionId,
+                profileKey: "test.linked-by",
+                status: "waiting",
+                detached: false,
+            }),
+        ]);
+        expect(restoredChildSnapshot.linkedByAgents).toEqual([
             expect.objectContaining({
                 sessionId: parent.sessionId,
                 profileKey: "test.linked-by",

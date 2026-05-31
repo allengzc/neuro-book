@@ -37,6 +37,8 @@ export const RpActorInputSchema = Type.Object({
     kind: Type.Optional(Type.String({description: "actor 类型，例如 player、npc、faction、system。"})),
     instructionPath: Type.String({description: "角色扮演指令文件路径，必须相对于 Agent cwd，例如 project-slug/roleplay/actors/erina/actor.md。"}),
     knowledgePath: Type.String({description: "角色可知世界书路径，必须相对于 Agent cwd，例如 project-slug/roleplay/actors/erina/knowledge.md。"}),
+    mindPath: Type.String({description: "角色当前思维文件路径，必须相对于 Agent cwd，例如 project-slug/roleplay/actors/erina/mind.md。"}),
+    statePath: Type.String({description: "角色当前状态文件路径，必须相对于 Agent cwd，例如 project-slug/roleplay/actors/erina/state.md。"}),
 });
 
 /**
@@ -50,6 +52,8 @@ export const RpActorOutputSchema = Type.Object({
     assumptions: Type.Array(Type.String({description: "角色基于自身知识和本 Tick packet 形成的判断、误解或假设。"}), {description: "没有则返回空数组。"}),
     questions_to_gm: Type.Array(Type.String({description: "需要 GM 裁决、补充或确认的问题。"}), {description: "没有则返回空数组。"}),
     knowledge_update: Type.String({description: "本 Tick 后应写入 knowledge.md 的新增认知摘要；没有则填空字符串。"}),
+    mind_update: Type.String({description: "本 Tick 后应写入 mind.md 的当前想法、判断或动机摘要；没有则填空字符串。"}),
+    state_update: Type.String({description: "本 Tick 后应写入 state.md 的位置、持有物、伤势、关系压力或短期目标变化；没有则填空字符串。"}),
 });
 
 /**
@@ -63,11 +67,10 @@ export const RpWriterInputSchema = Type.Object({
 });
 
 /**
- * rp.writer 通过 report_result.data 返回的用户可见正文。
+ * rp.writer 的普通输出合同。rp.writer 默认直接回复正文，只有 GM 明确要求写入文件时才使用文件工具。
  */
 export const RpWriterOutputSchema = Type.Object({
-    prose: Type.String({description: "最终展示给用户的 RP 正文，不包含 GM 推理、actor packet 或后台说明。"}),
-    summary: Type.String({description: "给 GM 的短摘要，说明本 Tick 已写出的事件、台词、状态变化和后续注意点。"}),
+    result: Type.Optional(Type.String({description: "可选结果说明。rp.writer 通常直接用普通 assistant 回复输出正文，不要求 report_result。"})),
 });
 
 /**

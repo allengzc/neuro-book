@@ -1,4 +1,4 @@
-import type {AgentSessionEventDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentSessionEventDto, AgentSessionEventsQueryDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
 import type {Ref} from "vue";
 import {ref} from "vue";
 
@@ -6,10 +6,12 @@ export type AgentSessionStreamSnapshotReason =
     | "initial_load"
     | "seq_gap"
     | "snapshot_required"
+    | "event_epoch_changed"
     | "manual_refresh"
     | "invoke_error_fallback";
 
 type AgentSessionStreamStore = {
+    eventEpoch: Ref<string | null>;
     lastSeq: Ref<number>;
     needsSnapshot: Ref<boolean>;
     snapshotReasons: Ref<string[]>;
@@ -23,7 +25,7 @@ type AgentSessionStreamApi = {
     getSession(sessionId: number): Promise<AgentSessionSnapshotDto>;
     subscribeSessionEvents(
         sessionId: number,
-        after: number,
+        cursor: AgentSessionEventsQueryDto,
         onEvent: (event: AgentSessionEventDto) => void | Promise<void>,
         signal?: AbortSignal,
         options?: {onOpen?: () => void},
@@ -136,7 +138,9 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         await options.onEvent?.(event);
         options.session.applyEvent(event);
         if (options.session.needsSnapshot.value) {
-            const reason = options.session.snapshotReasons.value.includes("snapshot_required") ? "snapshot_required" : "seq_gap";
+            const reason = options.session.snapshotReasons.value.includes("event_epoch_changed")
+                ? "event_epoch_changed"
+                : options.session.snapshotReasons.value.includes("snapshot_required") ? "snapshot_required" : "seq_gap";
             await syncSnapshot(reason);
         }
     };
@@ -157,7 +161,10 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
 
         void (async () => {
             try {
-                await options.api.subscribeSessionEvents(targetSessionId, options.session.lastSeq.value, async (event) => {
+                await options.api.subscribeSessionEvents(targetSessionId, {
+                    eventEpoch: options.session.eventEpoch.value ?? undefined,
+                    after: options.session.lastSeq.value,
+                }, async (event) => {
                     await handleEvent(targetSessionId, event);
                 }, nextController.signal, {
                     onOpen: () => {

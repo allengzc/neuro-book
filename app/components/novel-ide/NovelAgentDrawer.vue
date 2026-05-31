@@ -209,7 +209,9 @@ watch(() => pendingUserInputSession.value?.assistantMessageId ?? null, () => {
     userInputNotes.value = {};
 }, {immediate: true});
 
+const activeDrawerTitle = computed(() => activeSummary.value?.profileKey === "leader.assets" ? "用户资产助手" : "AI 写作助手");
 const activeSessionTitle = computed(() => activeSummary.value?.title || (activeSessionId.value ? `Session #${String(activeSessionId.value)}` : "未命名对话"));
+const activeSessionSummaryText = computed(() => activeSummary.value?.summary?.trim() || activeDrawerTitle.value);
 const summarizerStatus = computed<null | {
     label: string;
     icon: string;
@@ -263,7 +265,6 @@ const sessionThinkingResolvedLabel = computed(() => {
     }
     return `${thinkingLevelLabel(requested)}（实际 ${thinkingLevelLabel(effective)}）`;
 });
-const activeDrawerTitle = computed(() => activeSummary.value?.profileKey === "leader.assets" ? "用户资产助手" : "AI 写作助手");
 const drawerIconClass = computed(() => "i-lucide-sparkles text-[var(--accent-text)]");
 const drawerStyle = computed(() => props.isOpen ? panelStyle.value : {width: "0px"});
 
@@ -1403,15 +1404,18 @@ function isApprovalApproved(answer?: {
             </div>
 
             <!-- 抽屉头部 -->
-            <div class="flex shrink-0 items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3">
+            <div class="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3">
                 <div class="min-w-0 flex items-center gap-2">
                     <div class="flex h-6 w-6 items-center justify-center rounded border border-[var(--accent-main)] bg-[var(--accent-bg)]">
                         <span class="h-3.5 w-3.5" :class="drawerIconClass"></span>
                     </div>
                     <div class="min-w-0">
-                        <div class="text-sm font-medium tracking-wide text-[var(--text-main)]">{{ activeDrawerTitle }}</div>
                         <div class="flex min-w-0 items-center gap-1.5">
-                            <div class="truncate text-[10px] uppercase tracking-[0.24em] text-[var(--text-muted)]">{{ activeSessionTitle }}</div>
+                            <div class="truncate text-sm font-medium tracking-wide text-[var(--text-main)]" :title="activeSessionTitle">{{ activeSessionTitle }}</div>
+                            <span class="inline-flex shrink-0 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[9px] font-medium tracking-normal text-[var(--text-muted)]" :title="activeDrawerTitle">{{ activeDrawerTitle }}</span>
+                        </div>
+                        <div class="flex min-w-0 items-center gap-1.5">
+                            <div class="truncate text-[10px] leading-4 text-[var(--text-muted)]" :title="activeSessionSummaryText">{{ activeSessionSummaryText }}</div>
                             <span v-if="summarizerStatus" class="inline-flex shrink-0 items-center gap-1 rounded border px-1.5 py-0.5 text-[9px] font-medium tracking-normal" :class="summarizerStatus.className" :title="summarizerStatus.title">
                                 <span class="h-3 w-3" :class="[summarizerStatus.icon, summarizerStatus.spinning ? 'animate-spin' : '']"></span>
                                 {{ summarizerStatus.label }}
@@ -1419,7 +1423,7 @@ function isApprovalApproved(answer?: {
                         </div>
                     </div>
                 </div>
-                <div class="flex items-center gap-1">
+                <div class="flex shrink-0 items-center gap-1">
                     <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="新建对话" :disabled="loadingSession" @click="void createSessionFromHeader()">
                         <span class="i-lucide-plus h-4 w-4"></span>
                     </button>

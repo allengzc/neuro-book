@@ -2283,7 +2283,9 @@ var RpActorInputSchema = Type2.Object({
   actorName: Type2.Optional(Type2.String({ description: "\u89D2\u8272\u53EF\u8BFB\u540D\u3002\u4E3A\u7A7A\u65F6\u4F7F\u7528 actorId\u3002" })),
   kind: Type2.Optional(Type2.String({ description: "actor \u7C7B\u578B\uFF0C\u4F8B\u5982 player\u3001npc\u3001faction\u3001system\u3002" })),
   instructionPath: Type2.String({ description: "\u89D2\u8272\u626E\u6F14\u6307\u4EE4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/actor.md\u3002" }),
-  knowledgePath: Type2.String({ description: "\u89D2\u8272\u53EF\u77E5\u4E16\u754C\u4E66\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/knowledge.md\u3002" })
+  knowledgePath: Type2.String({ description: "\u89D2\u8272\u53EF\u77E5\u4E16\u754C\u4E66\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/knowledge.md\u3002" }),
+  mindPath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u601D\u7EF4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/mind.md\u3002" }),
+  statePath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u72B6\u6001\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/state.md\u3002" })
 });
 var RpActorOutputSchema = Type2.Object({
   visible_action: Type2.String({ description: "\u89D2\u8272\u5728\u573A\u666F\u4E2D\u53EF\u88AB\u89C2\u5BDF\u5230\u7684\u52A8\u4F5C\u3001\u795E\u6001\u3001\u59FF\u6001\u6216\u6C89\u9ED8\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
@@ -2292,7 +2294,9 @@ var RpActorOutputSchema = Type2.Object({
   emotional_state: Type2.String({ description: "\u53EA\u7ED9 GM \u4F7F\u7528\u7684\u60C5\u7EEA\u72B6\u6001\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
   assumptions: Type2.Array(Type2.String({ description: "\u89D2\u8272\u57FA\u4E8E\u81EA\u8EAB\u77E5\u8BC6\u548C\u672C Tick packet \u5F62\u6210\u7684\u5224\u65AD\u3001\u8BEF\u89E3\u6216\u5047\u8BBE\u3002" }), { description: "\u6CA1\u6709\u5219\u8FD4\u56DE\u7A7A\u6570\u7EC4\u3002" }),
   questions_to_gm: Type2.Array(Type2.String({ description: "\u9700\u8981 GM \u88C1\u51B3\u3001\u8865\u5145\u6216\u786E\u8BA4\u7684\u95EE\u9898\u3002" }), { description: "\u6CA1\u6709\u5219\u8FD4\u56DE\u7A7A\u6570\u7EC4\u3002" }),
-  knowledge_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 knowledge.md \u7684\u65B0\u589E\u8BA4\u77E5\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" })
+  knowledge_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 knowledge.md \u7684\u65B0\u589E\u8BA4\u77E5\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
+  mind_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 mind.md \u7684\u5F53\u524D\u60F3\u6CD5\u3001\u5224\u65AD\u6216\u52A8\u673A\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
+  state_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 state.md \u7684\u4F4D\u7F6E\u3001\u6301\u6709\u7269\u3001\u4F24\u52BF\u3001\u5173\u7CFB\u538B\u529B\u6216\u77ED\u671F\u76EE\u6807\u53D8\u5316\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" })
 });
 var RpWriterInputSchema = Type2.Object({
   writerInstructionPath: Type2.String({ description: "RP writer \u63D0\u793A\u8BCD\u7D20\u6750\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/writer.md\u3002" }),
@@ -2301,8 +2305,7 @@ var RpWriterInputSchema = Type2.Object({
   language: Type2.Optional(Type2.String({ description: "\u8F93\u51FA\u8BED\u8A00\uFF0C\u4F8B\u5982 zh-CN\u3002\u9ED8\u8BA4\u8DDF\u968F GM writer brief\u3002" }))
 });
 var RpWriterOutputSchema = Type2.Object({
-  prose: Type2.String({ description: "\u6700\u7EC8\u5C55\u793A\u7ED9\u7528\u6237\u7684 RP \u6B63\u6587\uFF0C\u4E0D\u5305\u542B GM \u63A8\u7406\u3001actor packet \u6216\u540E\u53F0\u8BF4\u660E\u3002" }),
-  summary: Type2.String({ description: "\u7ED9 GM \u7684\u77ED\u6458\u8981\uFF0C\u8BF4\u660E\u672C Tick \u5DF2\u5199\u51FA\u7684\u4E8B\u4EF6\u3001\u53F0\u8BCD\u3001\u72B6\u6001\u53D8\u5316\u548C\u540E\u7EED\u6CE8\u610F\u70B9\u3002" })
+  result: Type2.Optional(Type2.String({ description: "\u53EF\u9009\u7ED3\u679C\u8BF4\u660E\u3002rp.writer \u901A\u5E38\u76F4\u63A5\u7528\u666E\u901A assistant \u56DE\u590D\u8F93\u51FA\u6B63\u6587\uFF0C\u4E0D\u8981\u6C42 report_result\u3002" }))
 });
 var SessionSummarizerInputSchema = Type2.Object({
   sourceSessionId: Type2.Number({ description: "\u7531 harness \u6CE8\u5165\u7684 source session id\u3002" }),
@@ -2470,11 +2473,11 @@ function createElement(type, props) {
 var profileManifest = {
   key: "rp.writer",
   name: "RP Writer",
-  description: "RP Tick \u6B63\u6587\u6E32\u67D3 agent\uFF1A\u53EA\u6D88\u8D39 GM writer brief \u4E0E roleplay/writer.md\uFF0C\u8FD4\u56DE\u7528\u6237\u53EF\u89C1 prose\uFF0C\u4E0D\u8BFB\u5199\u6587\u4EF6\u3002"
+  description: "RP Tick \u6B63\u6587\u6E32\u67D3 agent\uFF1A\u53EA\u6D88\u8D39 GM writer brief \u4E0E roleplay/writer.md\uFF0C\u76F4\u63A5\u8F93\u51FA\u7528\u6237\u53EF\u89C1\u6B63\u6587\uFF0C\u53EF\u6309 GM \u8981\u6C42\u8BFB\u5199\u6307\u5B9A\u6587\u4EF6\u3002"
 };
 var InputSchema = RpWriterInputSchema;
 var OutputSchema = RpWriterOutputSchema;
-var allowedToolKeys = ["report_result"];
+var allowedToolKeys = ["read", "write", "edit", "bash"];
 var rp_writer_profile_default = defineAgentProfile({
   manifest: profileManifest,
   inputSchema: InputSchema,
@@ -2487,7 +2490,8 @@ var rp_writer_profile_default = defineAgentProfile({
       /* @__PURE__ */ jsxs(ModelContext, { children: [
         /* @__PURE__ */ jsx(Message, { children: writerContext }),
         /* @__PURE__ */ jsx(Message, { children: renderInvocationReminder() })
-      ] })
+      ] }),
+      /* @__PURE__ */ jsx(AppendingSet, { children: /* @__PURE__ */ jsx(WorkdirReminder, {}) })
     ] });
   }
 });
@@ -2500,15 +2504,19 @@ function renderSystemPrompt(input) {
         - 根据 GM writer brief 写出沉浸、连贯、角色一致的正文。
         - 保持文风、节奏、视角和信息边界。
         - 不负责规则裁决、剧情真相判断、actor 私密决策或世界状态模拟。
-        - 不读取文件，不检索 lorebook，不写章节，不更新 knowledge。
+        - 默认直接回复正文；只有 GM 明确要求“写入某个文件”时，才使用文件工具落盘。
+        - 你是正文代笔，不是 GM。不要添加行动选项、确认问题、系统提示或下一步建议。
 
         # 信息边界
 
         - 你只能使用 <rp_writer_instruction>、稳定 input 约束和 GM 当前 writer brief。
+        - 你可以读取 GM 在 brief 中明确指定的正文草稿、临时输出文件或其他写作素材路径；不要自行遍历 roleplay/、lorebook/ 或 reference/。
+        - 你可以写入 GM 在 brief 中明确指定的输出路径；不要更新 actor knowledge、mind、state，也不要修改角色设定或 GM 配置。
+        - 如果 GM brief 和已注入 writer.md 冲突，以 GM brief 的本 Tick 信息边界为准；如果 brief 缺关键事实，写短一点，不补隐藏设定。
         - brief 缺少的信息视为不可写信息，不要自行补完整隐藏设定。
         - do_not_reveal 中的内容绝对不能写出，也不能用明显暗示绕开。
         - allowed_internality 控制可以写谁的心理、写到什么程度；没有授权时优先写可观察动作、台词和环境反应。
-        - 不输出 GM 推理、actor response packet、后台调度说明、工具说明或 JSON。
+        - 不输出 GM 推理、actor response packet、后台调度说明、工具说明、JSON 或选项。
 
         # 文体
 
@@ -2516,6 +2524,9 @@ function renderSystemPrompt(input) {
         - 默认第三人称；如果 writer brief 要求第一/第二人称、对话体或特殊格式，优先服从 brief。
         - 让角色反应用动作、台词、停顿、场景互动表达，不要把 packet 字段机械转写成报告。
         - 不要单句频繁成段；对话可以独立成段，但动作和观察保持自然段连贯。
+        - 不写“你可以选择……”之类的行动选项。行动选项、确认问题和 GM 控制面由 leader.rp 负责。
+        - 不替用户角色添加未输入的内心独白、明确情绪、主动台词或关键动作；最多写用户已输入行动带来的可观察结果。
+        - 结尾可以停在可继续互动的现场，但不要写成菜单。
 
         # 稳定输入约束
 
@@ -2526,12 +2537,9 @@ function renderSystemPrompt(input) {
 
         # 输出合同
 
-        必须调用 report_result。report_result.data 必须包含：
-
-        - prose: 最终展示给用户的 RP 正文。
-        - summary: 给 GM 的短摘要，说明本 Tick 已写出的事件、台词、状态变化和后续注意点。
-
-        report_result.walkthrough 只写一句简短说明。不要用普通 final answer 代替 report_result。
+        - 常规 Tick：直接用普通 assistant 回复输出最终正文，不调用 report_result。
+        - 文件写作任务：如果 GM 明确要求写入文件，使用文件工具写入指定路径，然后用一句话说明已写入哪个文件。
+        - 不输出标题、摘要、选项、brief、后台字段名或工具流水账。
     `;
 }
 async function renderWriterContext(ctx) {
@@ -2549,7 +2557,7 @@ async function renderWriterContext(ctx) {
 function renderInvocationReminder() {
   return profileText`
         本轮请等待或处理 GM 通过当前 user message 发来的 writer brief。
-        只根据 brief 写用户可见 prose，并通过 report_result.data.prose 返回。
+        只根据 brief 写用户可见正文。不要生成选项、标题、摘要或解释；需要用户选择或确认的内容交给 GM。
     `;
 }
 async function readWorkspaceFile(workspaceRoot, relativePath) {

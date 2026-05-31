@@ -2283,7 +2283,9 @@ var RpActorInputSchema = Type2.Object({
   actorName: Type2.Optional(Type2.String({ description: "\u89D2\u8272\u53EF\u8BFB\u540D\u3002\u4E3A\u7A7A\u65F6\u4F7F\u7528 actorId\u3002" })),
   kind: Type2.Optional(Type2.String({ description: "actor \u7C7B\u578B\uFF0C\u4F8B\u5982 player\u3001npc\u3001faction\u3001system\u3002" })),
   instructionPath: Type2.String({ description: "\u89D2\u8272\u626E\u6F14\u6307\u4EE4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/actor.md\u3002" }),
-  knowledgePath: Type2.String({ description: "\u89D2\u8272\u53EF\u77E5\u4E16\u754C\u4E66\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/knowledge.md\u3002" })
+  knowledgePath: Type2.String({ description: "\u89D2\u8272\u53EF\u77E5\u4E16\u754C\u4E66\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/knowledge.md\u3002" }),
+  mindPath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u601D\u7EF4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/mind.md\u3002" }),
+  statePath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u72B6\u6001\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/state.md\u3002" })
 });
 var RpActorOutputSchema = Type2.Object({
   visible_action: Type2.String({ description: "\u89D2\u8272\u5728\u573A\u666F\u4E2D\u53EF\u88AB\u89C2\u5BDF\u5230\u7684\u52A8\u4F5C\u3001\u795E\u6001\u3001\u59FF\u6001\u6216\u6C89\u9ED8\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
@@ -2292,7 +2294,9 @@ var RpActorOutputSchema = Type2.Object({
   emotional_state: Type2.String({ description: "\u53EA\u7ED9 GM \u4F7F\u7528\u7684\u60C5\u7EEA\u72B6\u6001\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
   assumptions: Type2.Array(Type2.String({ description: "\u89D2\u8272\u57FA\u4E8E\u81EA\u8EAB\u77E5\u8BC6\u548C\u672C Tick packet \u5F62\u6210\u7684\u5224\u65AD\u3001\u8BEF\u89E3\u6216\u5047\u8BBE\u3002" }), { description: "\u6CA1\u6709\u5219\u8FD4\u56DE\u7A7A\u6570\u7EC4\u3002" }),
   questions_to_gm: Type2.Array(Type2.String({ description: "\u9700\u8981 GM \u88C1\u51B3\u3001\u8865\u5145\u6216\u786E\u8BA4\u7684\u95EE\u9898\u3002" }), { description: "\u6CA1\u6709\u5219\u8FD4\u56DE\u7A7A\u6570\u7EC4\u3002" }),
-  knowledge_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 knowledge.md \u7684\u65B0\u589E\u8BA4\u77E5\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" })
+  knowledge_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 knowledge.md \u7684\u65B0\u589E\u8BA4\u77E5\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
+  mind_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 mind.md \u7684\u5F53\u524D\u60F3\u6CD5\u3001\u5224\u65AD\u6216\u52A8\u673A\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
+  state_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 state.md \u7684\u4F4D\u7F6E\u3001\u6301\u6709\u7269\u3001\u4F24\u52BF\u3001\u5173\u7CFB\u538B\u529B\u6216\u77ED\u671F\u76EE\u6807\u53D8\u5316\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" })
 });
 var RpWriterInputSchema = Type2.Object({
   writerInstructionPath: Type2.String({ description: "RP writer \u63D0\u793A\u8BCD\u7D20\u6750\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/writer.md\u3002" }),
@@ -2301,8 +2305,7 @@ var RpWriterInputSchema = Type2.Object({
   language: Type2.Optional(Type2.String({ description: "\u8F93\u51FA\u8BED\u8A00\uFF0C\u4F8B\u5982 zh-CN\u3002\u9ED8\u8BA4\u8DDF\u968F GM writer brief\u3002" }))
 });
 var RpWriterOutputSchema = Type2.Object({
-  prose: Type2.String({ description: "\u6700\u7EC8\u5C55\u793A\u7ED9\u7528\u6237\u7684 RP \u6B63\u6587\uFF0C\u4E0D\u5305\u542B GM \u63A8\u7406\u3001actor packet \u6216\u540E\u53F0\u8BF4\u660E\u3002" }),
-  summary: Type2.String({ description: "\u7ED9 GM \u7684\u77ED\u6458\u8981\uFF0C\u8BF4\u660E\u672C Tick \u5DF2\u5199\u51FA\u7684\u4E8B\u4EF6\u3001\u53F0\u8BCD\u3001\u72B6\u6001\u53D8\u5316\u548C\u540E\u7EED\u6CE8\u610F\u70B9\u3002" })
+  result: Type2.Optional(Type2.String({ description: "\u53EF\u9009\u7ED3\u679C\u8BF4\u660E\u3002rp.writer \u901A\u5E38\u76F4\u63A5\u7528\u666E\u901A assistant \u56DE\u590D\u8F93\u51FA\u6B63\u6587\uFF0C\u4E0D\u8981\u6C42 report_result\u3002" }))
 });
 var SessionSummarizerInputSchema = Type2.Object({
   sourceSessionId: Type2.Number({ description: "\u7531 harness \u6CE8\u5165\u7684 source session id\u3002" }),
@@ -2470,7 +2473,7 @@ function createElement(type, props) {
 var profileManifest = {
   key: "rp.actor",
   name: "RP Actor",
-  description: "\u901A\u7528\u89D2\u8272\u626E\u6F14 agent\uFF1A\u53EA\u57FA\u4E8E\u89D2\u8272\u6307\u4EE4\u3001\u89D2\u8272 knowledge \u548C GM packet \u56DE\u5E94\uFF0C\u901A\u8FC7 report_result \u8FD4\u56DE\u7ED3\u6784\u5316 actor packet\u3002"
+  description: "\u901A\u7528\u89D2\u8272\u626E\u6F14 agent\uFF1A\u57FA\u4E8E\u89D2\u8272\u6307\u4EE4\u3001knowledge/mind/state \u548C GM packet \u56DE\u5E94\uFF0C\u901A\u8FC7 report_result \u8FD4\u56DE\u7ED3\u6784\u5316 actor packet\u3002"
 };
 var InputSchema = RpActorInputSchema;
 var OutputSchema = RpActorOutputSchema;
@@ -2500,24 +2503,42 @@ function renderSystemPrompt(input) {
         # 核心职责
 
         - 全心全意扮演该角色，而不是 GM、作者、旁白或 writer。
-        - 只根据 <actor_instruction>、<actor_knowledge> 和 GM 本 Tick 发来的 filtered observation packet 回应。
+        - 只根据 <actor_instruction>、<actor_knowledge>、<actor_mind>、<actor_state> 和 GM 本 Tick 发来的 filtered observation packet 回应。
         - 输出结构化 actor response packet 给 GM，不写最终小说正文。
         - 不操控用户角色，不替用户决定核心行动，不推进全局世界状态。
+        - 如果你扮演的是玩家 actor，用户输入高于你的推测；不要替用户新增行动、台词、情绪或目标，只报告已知边界、状态和基于用户输入的可见反应。
 
         # 信息边界
 
-        - 你不能读取 roleplay/AGENTS.md、roleplay/gm.md、roleplay/writer.md、lorebook/、reference/、其他 actor 目录或 GM scratch。
-        - 你知道的世界等于 actor knowledge 加上 GM 当前 packet。即使你怀疑有隐藏真相，也只能以角色的有限认知表达。
-        - actor knowledge 可以是错误信念；不要自行用上帝视角纠正。
+        - 你不能读取完整 roleplay/、roleplay/gm.md、roleplay/writer.md、lorebook/、reference/、其他 actor 目录或 GM scratch。
+        - 你知道的世界等于 actor knowledge、mind、state 加上 GM 当前 packet。即使你怀疑有隐藏真相，也只能以角色的有限认知表达。
+        - knowledge.md 是给你看的角色视角资料；你把它当作当前已知信息使用，不判断它是否符合上帝视角真相。
         - GM packet 明确写成 not_known_to_you 的内容不能变成你的台词、判断或内心确定事实。
 
-        # knowledge.md 维护
+        # 角色文件维护
 
         - 你可以读取和编辑自己的 knowledgePath：${input.knowledgePath}。
+        - 你可以读取和编辑自己的 mindPath：${input.mindPath}。
+        - 你可以读取和编辑自己的 statePath：${input.statePath}。
         - 不要写入 actor.md，不要写入其他路径，不要整理 lorebook。
         - 只有 GM packet 或本 Tick 互动让角色真的获得了新认知，才更新 knowledge.md。
-        - 更新 knowledge.md 时保持简洁，记录“角色相信/知道/误解了什么”，不要写 GM 推理或真实隐藏设定。
+        - knowledge.md 记录角色已经知道、被告知、观察到或自然推断到的信息，不写 GM 推理或真实隐藏设定。
+        - knowledge.md 使用二级章节归类，用三级标题表示具体条目；新增内容写成三级标题加正文段落，不要用 Markdown 列表堆条目。
+        - 不要在 knowledge.md 新增“信念与误解”“最近更新”或“更新规则”章节。写入规则由本提示词负责。
+        - knowledge.md 可以保留 GM 明确允许该角色知道的 lorebook 引用；即使看到 lorebook 路径，也不要自行读取 lorebook，等待 GM 注入摘要或明确授权。
+        - mind.md 记录角色当前正在想什么、判断什么、犹豫什么、想要什么；它是短期心理状态，不是世界真相。
+        - state.md 记录位置、随身物品、伤势、姿态、关系压力和短期目标等可变状态。
         - 当前工具没有 runtime path scope，遵守这个边界是你的硬性职责。
+        - 如果本 Tick 没有真实变化，不要为了“完成更新”而改文件；在对应 update 字段填空字符串。
+        - 文件更新要短，优先追加或局部修改，不要重写整份文件，不要把 report_result packet 写进文件。
+
+        # 扮演方式
+
+        - visible_action 和 spoken_dialogue 要像角色自然反应，不要出现字段名、分析语气或“作为某某”。
+        - private_intent 可以包含角色短期打算，但不能变成全局剧情安排。
+        - emotional_state 写角色当下情绪，不写作者点评。
+        - assumptions 写角色基于有限信息形成的判断或假设；不确定就保持不确定。
+        - questions_to_gm 只放需要 GM 裁决的信息，不向用户提问。
 
         # 输出合同
 
@@ -2527,9 +2548,11 @@ function renderSystemPrompt(input) {
         - spoken_dialogue: 角色说出口的台词；没有填空字符串。
         - private_intent: 只给 GM 的私下意图或短期目标；没有填空字符串。
         - emotional_state: 只给 GM 的情绪状态；没有填空字符串。
-        - assumptions: 角色形成的判断、误解或假设数组；没有返回 []。
+        - assumptions: 角色形成的判断或假设数组；没有返回 []。
         - questions_to_gm: 需要 GM 裁决的问题数组；没有返回 []。
         - knowledge_update: 本 Tick 后应写入 knowledge.md 的新增认知摘要；没有填空字符串。
+        - mind_update: 本 Tick 后应写入 mind.md 的当前想法、判断或动机摘要；没有填空字符串。
+        - state_update: 本 Tick 后应写入 state.md 的位置、持有物、伤势、关系压力或短期目标变化；没有填空字符串。
 
         report_result.walkthrough 只写一句简短说明。不要把 packet 当作普通 final answer 输出。
     `;
@@ -2537,6 +2560,8 @@ function renderSystemPrompt(input) {
 async function renderActorContext(ctx) {
   const instruction = await readWorkspaceFile(ctx.session.workspaceRoot, ctx.input.instructionPath);
   const knowledge = await readWorkspaceFile(ctx.session.workspaceRoot, ctx.input.knowledgePath);
+  const mind = await readWorkspaceFile(ctx.session.workspaceRoot, ctx.input.mindPath);
+  const state = await readWorkspaceFile(ctx.session.workspaceRoot, ctx.input.statePath);
   return profileText`
         <rp_actor_context>
         actorId: ${ctx.input.actorId}
@@ -2544,6 +2569,8 @@ async function renderActorContext(ctx) {
         kind: ${ctx.input.kind?.trim() || "\u672A\u6307\u5B9A"}
         instructionPath: ${ctx.input.instructionPath}
         knowledgePath: ${ctx.input.knowledgePath}
+        mindPath: ${ctx.input.mindPath}
+        statePath: ${ctx.input.statePath}
 
         <actor_instruction>
         ${instruction}
@@ -2552,13 +2579,22 @@ async function renderActorContext(ctx) {
         <actor_knowledge>
         ${knowledge}
         </actor_knowledge>
+
+        <actor_mind>
+        ${mind}
+        </actor_mind>
+
+        <actor_state>
+        ${state}
+        </actor_state>
         </rp_actor_context>
     `;
 }
 function renderInvocationReminder(input) {
   return profileText`
         本轮请等待或处理 GM 通过当前 user message 发来的 filtered observation packet。
-        只回复 GM。必要时可更新 ${input.knowledgePath}，但不要读取或编辑其他路径。
+        只回复 GM，并必须调用 report_result。必要时可更新 ${input.knowledgePath}、${input.mindPath}、${input.statePath}，但不要读取或编辑其他路径。
+        如果 packet 信息不足，只基于角色会观察到的表层事实回应，可以在 questions_to_gm 中请求裁决，不要自行补隐藏设定。
     `;
 }
 async function readWorkspaceFile(workspaceRoot, relativePath) {

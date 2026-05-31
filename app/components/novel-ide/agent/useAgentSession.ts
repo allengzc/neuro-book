@@ -38,11 +38,13 @@ export function useAgentSession() {
     const runPhase = ref<AgentRunPhase>("idle");
     const connectionStatus = ref<AgentConnectionStatus>("idle");
     const pendingUserInputSession = ref<AgentPendingUserInputSession | null>(null);
+    const eventEpoch = ref<string | null>(null);
     const lastSeq = ref(0);
     const needsSnapshot = ref(false);
     const snapshotReasons = ref<string[]>([]);
     const running = computed(() => Boolean(snapshot.value?.activeInvocation) || liveRunStatus.value === "running" || liveRunStatus.value === "aborting");
     const pendingMessageUpdates: PendingMessageUpdate[] = [];
+    let resetCursorOnNextSnapshot = false;
     let runtimeUpdateFrame: number | null = null;
     let runtimeUpdateFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -160,9 +162,11 @@ export function useAgentSession() {
         runPhase.value = "idle";
         connectionStatus.value = "idle";
         pendingUserInputSession.value = null;
+        eventEpoch.value = null;
         lastSeq.value = 0;
         needsSnapshot.value = false;
         snapshotReasons.value = [];
+        resetCursorOnNextSnapshot = false;
     };
 
     const clearPendingUserInputSession = (): void => {
@@ -190,7 +194,8 @@ export function useAgentSession() {
      */
     const applySnapshot = (payload: AgentSessionSnapshotDto): void => {
         clearPendingMessageUpdates();
-        const nextSeq = Math.max(lastSeq.value, payload.lastSeq);
+        const epochChanged = eventEpoch.value !== null && eventEpoch.value !== payload.eventEpoch;
+        const nextSeq = resetCursorOnNextSnapshot || epochChanged ? payload.lastSeq : Math.max(lastSeq.value, payload.lastSeq);
         const snapshotMessages = deriveMessagesFromSessionSnapshot(payload);
         const pendingOptimisticMessages = messages.value.filter((message) => {
             return message.id.startsWith("optimistic-user-")
@@ -209,7 +214,9 @@ export function useAgentSession() {
             runPhase.value = "idle";
         }
         pendingUserInputSession.value = toPendingUserInputSession(payload.pendingApproval, messages.value);
+        eventEpoch.value = payload.eventEpoch;
         lastSeq.value = nextSeq;
+        resetCursorOnNextSnapshot = false;
         needsSnapshot.value = false;
         snapshotReasons.value = [];
     };
@@ -269,7 +276,29 @@ export function useAgentSession() {
      */
     const applyEvent = (payload: AgentSessionEventDto): void => {
         if (payload.kind === "session" && payload.event.type === "connected") {
+            const epochChanged = eventEpoch.value !== null && eventEpoch.value !== payload.event.eventEpoch;
+            const cursorAheadOfStream = payload.event.latestSeq < lastSeq.value;
+            if (epochChanged || cursorAheadOfStream) {
+                resetCursorOnNextSnapshot = true;
+                requestSnapshot("event_epoch_changed");
+            } else {
+                eventEpoch.value = payload.event.eventEpoch;
+            }
             connectionStatus.value = "connected";
+            return;
+        }
+        if (eventEpoch.value !== null && eventEpoch.value !== payload.eventEpoch) {
+            resetCursorOnNextSnapshot = true;
+            flushPendingMessageUpdates();
+            requestSnapshot("event_epoch_changed");
+            return;
+        }
+        if (eventEpoch.value === null) {
+            eventEpoch.value = payload.eventEpoch;
+        }
+        if (payload.kind === "session" && payload.event.type === "snapshot_required") {
+            flushPendingMessageUpdates();
+            requestSnapshot("snapshot_required");
             return;
         }
         if (payload.seq <= lastSeq.value) {
@@ -295,11 +324,6 @@ export function useAgentSession() {
         }
 
         flushPendingMessageUpdates();
-
-        if (payload.event.type === "snapshot_required") {
-            requestSnapshot("snapshot_required");
-            return;
-        }
 
         if (payload.event.type === "session_entry") {
             messages.value = applySessionEntryToMessages(messages.value, payload.event.entry);
@@ -352,6 +376,7 @@ export function useAgentSession() {
         clearSnapshotRequest,
         clearPendingUserInputSession,
         connectionStatus,
+        eventEpoch,
         lastSeq,
         liveRunStatus,
         messages,

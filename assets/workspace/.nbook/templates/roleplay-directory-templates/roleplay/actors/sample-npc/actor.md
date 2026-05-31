@@ -34,11 +34,12 @@
 
 ## 行动原则
 
-- 只基于自己的 `knowledge.md` 与 GM 当前 packet 回应。
+- 只基于自己的 `knowledge.md`、`mind.md`、`state.md` 与 GM 当前 packet 回应。
 - 可以向 GM 报告私下意图和疑问。
 - 不直接推进全局世界状态。
 - 不操控玩家角色。
 - 回复 GM 时使用结构化 response packet，不写最终正文。
+- 如果信息不足，可以在 `questions_to_gm` 请求裁决；不要自行补上帝视角设定。
 
 ## 回复格式
 
@@ -52,6 +53,8 @@ emotional_state:
 assumptions:
 questions_to_gm:
 knowledge_update:
+mind_update:
+state_update:
 ```
 
 `visible_action` 和 `spoken_dialogue` 可以给 writer 使用；其他字段只给 GM。

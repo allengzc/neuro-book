@@ -2292,28 +2292,35 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         workspaceTree,
     };
 }, {
-    persist: {
-        key: "novel.ide",
-        storage: piniaPluginPersistedstate.sessionStorage(),
-        pick: [
-            "activeLeftTab",
+    persist: [
+        {
+            key: "novel.ide.session",
+            storage: piniaPluginPersistedstate.sessionStorage(),
+            pick: [
             "currentNovelId",
-            "leftPanelWidth",
             "promptExpanded",
             "requirement",
-            "rightPanelOpen",
-            "rightPanelWidth",
             "selectedChapterId",
             "selectedLorebookEntryId",
             "selectedCharacterId",
             "workspaceSessions",
+            "detailUndoStacks",
+        ],
+    },
+    {
+            key: "novel.ide.local",
+            pick: [
+            "activeLeftTab",
+            "leftPanelWidth",
+            "rightPanelOpen",
+            "rightPanelWidth",
             "selectedModel",
             "selectedReasoning",
             "theme",
             "viewMode",
             "markdownEditorPreferences",
             "monacoEditorPreferences",
-            "detailUndoStacks",
         ],
-    },
+        },
+    ],
 });

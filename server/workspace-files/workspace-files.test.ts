@@ -624,14 +624,15 @@ describe("workspace-files", () => {
             expect(result.mode).toBe("updated");
             expect(result.projectPath).toBe(`workspace/${workspaceSlug}`);
             expect(result.createdFiles).toEqual(expect.arrayContaining([
-                "roleplay/AGENTS.md",
+                "roleplay/config.yaml",
                 "roleplay/cast.yaml",
+                "roleplay/actors/player/mind.md",
                 "roleplay/actors/player/knowledge.md",
                 "roleplay/actors/sample-npc/actor.md",
             ]));
             expect(result.skippedFiles).toContain("roleplay/gm.md");
             await expect(fs.readFile(path.join(projectRoot, "roleplay", "gm.md"), "utf-8")).resolves.toBe(existingGm);
-            await expect(fs.readFile(path.join(projectRoot, "roleplay", "AGENTS.md"), "utf-8")).resolves.toContain("leader.rp");
+            await expect(fs.readFile(path.join(projectRoot, "roleplay", "config.yaml"), "utf-8")).resolves.toContain("leaderProfile: leader.rp");
             await expect(fs.readFile(path.join(projectRoot, "roleplay", "cast.yaml"), "utf-8")).resolves.toContain("sample-npc");
 
             await expect(execFileAsync("bun", [
@@ -707,7 +708,7 @@ describe("workspace-files", () => {
 
             expect(updateStderr).toBe("");
             expect(updateResult.mode).toBe("updated");
-            expect(updateResult.createdFiles).toContain("roleplay/AGENTS.md");
+            expect(updateResult.createdFiles).toContain("roleplay/config.yaml");
             expect(updateResult.skippedFiles).toContain("roleplay/gm.md");
             await expect(fs.readFile(path.join(targetRoot, "roleplay", "gm.md"), "utf-8")).resolves.toBe("# 外部 GM\n");
         } finally {
@@ -1326,7 +1327,7 @@ describe("workspace-files", () => {
         const paths = [
             path.join("workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"),
             path.join("workspace", ".nbook", "templates", "content-node-templates", "chapter", "index.md"),
-            path.join("workspace", ".nbook", "templates", "roleplay-directory-templates", "roleplay", "AGENTS.md"),
+            path.join("workspace", ".nbook", "templates", "roleplay-directory-templates", "roleplay", "gm.md"),
             path.join("workspace", ".nbook", "agent", "bin", "profile"),
             path.join("workspace", ".nbook", "agent", "config", "ripgreprc"),
         ];
@@ -1342,13 +1343,13 @@ describe("workspace-files", () => {
             expect(result.copied).toBeGreaterThanOrEqual(paths.length);
             await expect(fs.readFile(paths[0]!, "utf-8")).resolves.toContain("profile");
             await expect(fs.readFile(paths[1]!, "utf-8")).resolves.toContain("chapter");
-            await expect(fs.readFile(paths[2]!, "utf-8")).resolves.toContain("leader.rp");
+            await expect(fs.readFile(paths[2]!, "utf-8")).resolves.toContain("GM 运行协议");
             await expect(fs.readFile(paths[3]!, "utf-8")).resolves.toContain("../scripts/profile.ts");
             await expect(fs.readFile(paths[4]!, "utf-8")).resolves.toContain("--path-separator=/");
             expect(syncState.assets).toEqual(expect.arrayContaining([
                 expect.objectContaining({assetPath: "agent/skills/profile-system-guide/SKILL.md"}),
                 expect.objectContaining({assetPath: "templates/content-node-templates/chapter/index.md"}),
-                expect.objectContaining({assetPath: "templates/roleplay-directory-templates/roleplay/AGENTS.md"}),
+                expect.objectContaining({assetPath: "templates/roleplay-directory-templates/roleplay/gm.md"}),
                 expect.objectContaining({assetPath: "agent/bin/profile"}),
                 expect.objectContaining({assetPath: "agent/config/ripgreprc"}),
             ]));

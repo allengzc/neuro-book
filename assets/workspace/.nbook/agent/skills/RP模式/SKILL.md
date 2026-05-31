@@ -13,15 +13,15 @@ when_to_use:
 ## 前置检查
 
 - 当前 Project Workspace 必须存在 `project.yaml`。
-- 当前 Project Workspace 应存在 `roleplay/AGENTS.md`、`roleplay/config.yaml`、`roleplay/cast.yaml`、`roleplay/gm.md`、`roleplay/writer.md` 和 `roleplay/actors/*`。
+- 当前 Project Workspace 应存在 `roleplay/config.yaml`、`roleplay/cast.yaml`、`roleplay/gm.md`、`roleplay/writer.md` 和 `roleplay/actors/*`。
 - 如果没有 `roleplay/`，先使用 `RP目录初始化`。
 - 如果用户要从 SillyTavern 卡进入 RP，先使用 `SillyTavern角色卡导入` 完成 `inspect -> unpack -> import --rp`。
 
 ## 启动方式
 
 1. 提醒用户创建或切换到 `leader.rp` 会话。`leader.default` 可以协助准备，但正式 RP Tick 应由 `leader.rp` 接管。
-2. `leader.rp` 启动后读取 `roleplay/AGENTS.md`、`config.yaml`、`cast.yaml`、`gm.md` 和 `writer.md`。
-3. `leader.rp` 根据 `cast.yaml` 创建或复用 `rp.actor` 会话；每个 actor 只注入自己的 `actor.md` 与 `knowledge.md`。
+2. `leader.rp` 启动后读取 `roleplay/config.yaml`、`roleplay/cast.yaml`、`roleplay/gm.md` 和 `roleplay/writer.md`。`gm.md` 是唯一 GM 入口说明。
+3. `leader.rp` 根据 `cast.yaml` 创建或复用 `rp.actor` 会话；每个 actor 只注入自己的 `actor.md`、`knowledge.md`、`mind.md` 与 `state.md`。
 4. `leader.rp` 创建或复用 `rp.writer`，只给它 `roleplay/writer.md` 与 GM writer brief。
 5. 用户发送第一条行动、台词或剧本式指令后，进入 Tick。
 
@@ -38,8 +38,8 @@ when_to_use:
 ## 边界
 
 - `leader.rp` 是 GM 主控，不直接写文件。
-- `rp.actor` 可以维护自己的 `knowledge.md`，但不能读取完整 `roleplay/`、`lorebook/` 或其他 actor 的 knowledge。
-- `rp.writer` 不检索 lorebook、不读写文件，只渲染 GM brief。
+- `rp.actor` 可以维护自己的 `knowledge.md`、`mind.md` 与 `state.md`，但不能读取完整 `roleplay/`、`lorebook/` 或其他 actor 的文件。
+- `rp.writer` 可按 GM 明确路径使用文件工具，但不自主检索完整 lorebook，只渲染 GM brief 并输出正文。
 - 第一版不做持久化 session 记忆，不实现完整变量系统，不实现 sidecar profile pass。
 - 用户输入可以是行动、台词或剧本式指令；完全沉浸式输入规则以后再收紧。
 

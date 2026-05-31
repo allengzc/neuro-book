@@ -9,6 +9,8 @@ actors:
     profile: rp.actor
     instruction: roleplay/actors/player/actor.md
     knowledge: roleplay/actors/player/knowledge.md
+    mind: roleplay/actors/player/mind.md
+    state: roleplay/actors/player/state.md
     controlledBy: user
     defaultActive: true
     canonicalSource: null
@@ -19,6 +21,8 @@ actors:
     profile: rp.actor
     instruction: roleplay/actors/sample-npc/actor.md
     knowledge: roleplay/actors/sample-npc/knowledge.md
+    mind: roleplay/actors/sample-npc/mind.md
+    state: roleplay/actors/sample-npc/state.md
     canonicalSource: null
     defaultActive: true
 

@@ -9,6 +9,7 @@ import {
     type ClientVariablePatchAckDto,
     type AgentInvokeRequestDto,
     type AgentSessionEventDto,
+    type AgentSessionEventsQueryDto,
     type AgentSessionListQueryDto,
     type AgentTreeRequestDto,
 } from "nbook/shared/dto/agent-session.dto";
@@ -126,8 +127,8 @@ export async function acknowledgeClientVariablePatch(sessionId: number, body: Cl
 /**
  * 订阅 session 事件。
  */
-export function subscribeAgentSessionEvents(sessionId: number, after?: number, harness = useAgentHarness()) {
-    return harness.subscribeSessionEvents(sessionId, after);
+export function subscribeAgentSessionEvents(sessionId: number, cursor: AgentSessionEventsQueryDto = {}, harness = useAgentHarness()) {
+    return harness.subscribeSessionEvents(sessionId, cursor);
 }
 
 /**

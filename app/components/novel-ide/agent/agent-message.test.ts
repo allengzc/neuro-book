@@ -3,6 +3,7 @@ import {applyRuntimeEventToMessages, applySessionEntryToMessages, deriveMessages
 import type {AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
 
 const baseSnapshot = (entries: AgentSessionSnapshotDto["entries"]): AgentSessionSnapshotDto => ({
+    eventEpoch: "epoch-1",
     summary: {
         sessionId: 1,
         profileKey: "leader.default",

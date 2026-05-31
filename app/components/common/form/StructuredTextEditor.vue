@@ -48,6 +48,7 @@ const props = withDefaults(defineProps<{
     monacoPreferences?: MonacoEditorPreferences;
     monacoTemporaryFontSize?: number | null;
     theme?: IdeTheme | null;
+    borderless?: boolean;
 }>(), {
     rows: 5,
     size: "sm",
@@ -73,6 +74,7 @@ const props = withDefaults(defineProps<{
     monacoPreferences: () => ({...DEFAULT_MONACO_EDITOR_PREFERENCES}),
     monacoTemporaryFontSize: null,
     theme: null,
+    borderless: false,
     resolveMenu: () => ({
         title: "",
         prefix: "",
@@ -154,7 +156,12 @@ const bodyStyle = computed(() => ({
     maxHeight: `${resolvedMaxHeight.value}px`,
 }));
 const sourceTheme = computed<IdeTheme>(() => props.theme ?? novelIdeStore.theme);
-const rootClass = computed(() => props.size === "md" ? "structured-text-editor--md" : "");
+const rootClass = computed(() => {
+    const classes = [];
+    if (props.size === "md") classes.push("structured-text-editor--md");
+    if (props.borderless) classes.push("structured-text-editor--borderless");
+    return classes.join(" ");
+});
 const toolbarClass = computed(() => props.size === "sm" ? "px-2 py-1" : "px-3 py-2");
 const modeGroupClass = computed(() => props.size === "sm" ? "gap-0.5 rounded p-[1px]" : "gap-1 rounded-lg p-0.5");
 const modeButtonClass = computed(() => props.size === "sm" ? "h-5 w-5 rounded-[4px]" : "h-6 w-6 rounded-md");
@@ -301,7 +308,16 @@ defineExpose({
 
 <template>
     <!-- Markdown 表单编辑器：工具栏包装层，底层唯一编辑器是 TipTapMarkdownEditor -->
-    <div ref="rootRef" class="structured-text-editor relative overflow-visible rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)]" :class="rootClass">
+    <div
+        ref="rootRef"
+        class="structured-text-editor relative overflow-visible"
+        :class="[
+            rootClass,
+            props.borderless
+                ? 'border-none shadow-none rounded-t-[10px] rounded-b-none bg-[var(--bg-panel)]'
+                : 'rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)]'
+        ]"
+    >
         <div
             v-if="props.showToolbar"
             class="structured-text-editor__toolbar flex min-w-0 items-center justify-between gap-2 border-b border-[var(--border-color)] bg-[var(--bg-input)]/40"
@@ -402,6 +418,33 @@ defineExpose({
 </template>
 
 <style scoped>
+.structured-text-editor--borderless {
+    border: none !important;
+    border-top-left-radius: 10px !important;
+    border-top-right-radius: 10px !important;
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+    background: var(--bg-panel) !important;
+    box-shadow: none !important;
+}
+.structured-text-editor--borderless .structured-text-editor__body {
+    background: var(--bg-panel) !important;
+    border-top-left-radius: 10px !important;
+    border-top-right-radius: 10px !important;
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+}
+.structured-text-editor--borderless :deep(.tiptap-markdown-wrapper) {
+    background: var(--bg-panel) !important;
+    border-top-left-radius: 10px !important;
+    border-top-right-radius: 10px !important;
+}
+.structured-text-editor--borderless :deep(.markdown-source-shell) {
+    background: var(--source-bg) !important;
+    border-top-left-radius: 10px !important;
+    border-top-right-radius: 10px !important;
+}
+
 .structured-text-editor {
     --structured-editor-padding: 6px 9px;
     --structured-editor-font-size: 0.8125rem;

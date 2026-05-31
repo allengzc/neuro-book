@@ -2279,7 +2279,9 @@ var RpActorInputSchema = Type2.Object({
   actorName: Type2.Optional(Type2.String({ description: "\u89D2\u8272\u53EF\u8BFB\u540D\u3002\u4E3A\u7A7A\u65F6\u4F7F\u7528 actorId\u3002" })),
   kind: Type2.Optional(Type2.String({ description: "actor \u7C7B\u578B\uFF0C\u4F8B\u5982 player\u3001npc\u3001faction\u3001system\u3002" })),
   instructionPath: Type2.String({ description: "\u89D2\u8272\u626E\u6F14\u6307\u4EE4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/actor.md\u3002" }),
-  knowledgePath: Type2.String({ description: "\u89D2\u8272\u53EF\u77E5\u4E16\u754C\u4E66\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/knowledge.md\u3002" })
+  knowledgePath: Type2.String({ description: "\u89D2\u8272\u53EF\u77E5\u4E16\u754C\u4E66\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/knowledge.md\u3002" }),
+  mindPath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u601D\u7EF4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/mind.md\u3002" }),
+  statePath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u72B6\u6001\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/state.md\u3002" })
 });
 var RpActorOutputSchema = Type2.Object({
   visible_action: Type2.String({ description: "\u89D2\u8272\u5728\u573A\u666F\u4E2D\u53EF\u88AB\u89C2\u5BDF\u5230\u7684\u52A8\u4F5C\u3001\u795E\u6001\u3001\u59FF\u6001\u6216\u6C89\u9ED8\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
@@ -2288,7 +2290,9 @@ var RpActorOutputSchema = Type2.Object({
   emotional_state: Type2.String({ description: "\u53EA\u7ED9 GM \u4F7F\u7528\u7684\u60C5\u7EEA\u72B6\u6001\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
   assumptions: Type2.Array(Type2.String({ description: "\u89D2\u8272\u57FA\u4E8E\u81EA\u8EAB\u77E5\u8BC6\u548C\u672C Tick packet \u5F62\u6210\u7684\u5224\u65AD\u3001\u8BEF\u89E3\u6216\u5047\u8BBE\u3002" }), { description: "\u6CA1\u6709\u5219\u8FD4\u56DE\u7A7A\u6570\u7EC4\u3002" }),
   questions_to_gm: Type2.Array(Type2.String({ description: "\u9700\u8981 GM \u88C1\u51B3\u3001\u8865\u5145\u6216\u786E\u8BA4\u7684\u95EE\u9898\u3002" }), { description: "\u6CA1\u6709\u5219\u8FD4\u56DE\u7A7A\u6570\u7EC4\u3002" }),
-  knowledge_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 knowledge.md \u7684\u65B0\u589E\u8BA4\u77E5\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" })
+  knowledge_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 knowledge.md \u7684\u65B0\u589E\u8BA4\u77E5\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
+  mind_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 mind.md \u7684\u5F53\u524D\u60F3\u6CD5\u3001\u5224\u65AD\u6216\u52A8\u673A\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
+  state_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 state.md \u7684\u4F4D\u7F6E\u3001\u6301\u6709\u7269\u3001\u4F24\u52BF\u3001\u5173\u7CFB\u538B\u529B\u6216\u77ED\u671F\u76EE\u6807\u53D8\u5316\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" })
 });
 var RpWriterInputSchema = Type2.Object({
   writerInstructionPath: Type2.String({ description: "RP writer \u63D0\u793A\u8BCD\u7D20\u6750\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/writer.md\u3002" }),
@@ -2297,8 +2301,7 @@ var RpWriterInputSchema = Type2.Object({
   language: Type2.Optional(Type2.String({ description: "\u8F93\u51FA\u8BED\u8A00\uFF0C\u4F8B\u5982 zh-CN\u3002\u9ED8\u8BA4\u8DDF\u968F GM writer brief\u3002" }))
 });
 var RpWriterOutputSchema = Type2.Object({
-  prose: Type2.String({ description: "\u6700\u7EC8\u5C55\u793A\u7ED9\u7528\u6237\u7684 RP \u6B63\u6587\uFF0C\u4E0D\u5305\u542B GM \u63A8\u7406\u3001actor packet \u6216\u540E\u53F0\u8BF4\u660E\u3002" }),
-  summary: Type2.String({ description: "\u7ED9 GM \u7684\u77ED\u6458\u8981\uFF0C\u8BF4\u660E\u672C Tick \u5DF2\u5199\u51FA\u7684\u4E8B\u4EF6\u3001\u53F0\u8BCD\u3001\u72B6\u6001\u53D8\u5316\u548C\u540E\u7EED\u6CE8\u610F\u70B9\u3002" })
+  result: Type2.Optional(Type2.String({ description: "\u53EF\u9009\u7ED3\u679C\u8BF4\u660E\u3002rp.writer \u901A\u5E38\u76F4\u63A5\u7528\u666E\u901A assistant \u56DE\u590D\u8F93\u51FA\u6B63\u6587\uFF0C\u4E0D\u8981\u6C42 report_result\u3002" }))
 });
 var SessionSummarizerInputSchema = Type2.Object({
   sourceSessionId: Type2.Number({ description: "\u7531 harness \u6CE8\u5165\u7684 source session id\u3002" }),
@@ -2466,7 +2469,7 @@ function createElement(type, props) {
 var profileManifest = {
   key: "leader.rp",
   name: "Roleplay Leader",
-  description: "RP \u6A21\u5F0F\u4E3B\u63A7 GM\uFF1A\u8BFB\u53D6 roleplay/ \u8FD0\u884C\u76EE\u5F55\uFF0C\u8C03\u5EA6 rp.actor\uFF0C\u6574\u7406 writer brief\uFF0C\u5E76\u8C03\u7528 rp.writer \u8F93\u51FA\u7528\u6237\u53EF\u89C1\u6B63\u6587\u3002"
+  description: "RP \u6A21\u5F0F\u4E3B\u63A7 GM\uFF1A\u76F4\u63A5\u9762\u5411\u7528\u6237\u53D9\u4E8B\uFF0C\u8BFB\u53D6 roleplay/ \u8FD0\u884C\u76EE\u5F55\uFF0C\u8C03\u5EA6 rp.actor\uFF0C\u5E76\u6309\u9700\u8C03\u7528 rp.writer \u8F93\u51FA\u7528\u6237\u53EF\u89C1\u6B63\u6587\u3002"
 };
 var InputSchema = LeaderRpInputSchema;
 var OutputSchema = LeaderRpOutputSchema;
@@ -2511,29 +2514,38 @@ var leader_rp_profile_default = defineAgentProfile({
 });
 function renderSystemPrompt() {
   return profileText`
-        你是 NeuroBook 的 leader.rp，也是当前 RP 模式的 GM 主控。使用中文作为默认语言。你的职责是理解用户输入、裁决世界、控制信息边界、调度角色 agent，并把最终用户可见结果交给 rp.writer 渲染。
+        你是 NeuroBook 的 leader.rp，也是当前 RP 模式的 GM 主控。使用中文作为默认语言。你的职责是直接面向用户主持 RP：理解用户输入、叙述当前处境、裁决世界、控制信息边界、调度角色 agent，并按需请 rp.writer 代笔用户可见正文。
+
+        # 核心原则
+
+        - 用户看到的是故事现场和必要的 GM 提示，不是你的工作流。不要输出“我将读取文件/调用 actor/生成 brief”这类后台说明。
+        - 用户是玩家 actor 的操作者。你可以裁决行动后果，但不能替用户补出台词、情绪、长期目标或关键选择。
+        - actor 负责角色反应，writer 负责正文润色，你负责裁决、信息过滤、最终呈现和下一步交互。
+        - 简单 Tick 可以不调用 writer，直接输出清晰正文；复杂 Tick 或需要更好文风时再调用 writer。
 
         # 运行目录
 
         - 默认 RP 目录是当前 Project Workspace 下的 roleplay/。文件工具 cwd 是 Workspace Root workspace/，所以读取时使用 project-slug/roleplay/...。
         - 如果创建 input 提供了 roleplayRoot，优先使用该路径；否则根据 Current Project Workspace 推导 roleplayRoot。
-        - 启动或初始化时读取：roleplay/AGENTS.md、roleplay/config.yaml、roleplay/cast.yaml、roleplay/gm.md、roleplay/writer.md。
-        - GM 可以按 roleplay/AGENTS.md 与 gm.md 的指引读取 lorebook/、reference/ 和其他 canonical/god-view 文件。
+        - cast.yaml 中的 roleplay/... 路径是 Project Workspace 相对路径；创建 actor/writer input 时必须转换为 Agent cwd 可用路径，例如 project-slug/roleplay/actors/erina/actor.md。
+        - 启动或初始化时读取：roleplay/config.yaml、roleplay/cast.yaml、roleplay/gm.md、roleplay/writer.md。roleplay/gm.md 是唯一 GM 入口说明。
+        - GM 可以按 roleplay/gm.md 的指引读取 lorebook/、reference/ 和其他 canonical/god-view 文件。
         - actor 和 writer 不应直接获得完整 roleplay/、lorebook/ 或 reference/。你必须过滤信息。
 
         # 初始化协议
 
         1. 先确认 Current Project Workspace 与 roleplayRoot。
-        2. 使用 read 读取 roleplay/AGENTS.md、config.yaml、cast.yaml、gm.md、writer.md；缺文件时直接说明需要先安装 RP 目录模板。
+        2. 使用 read 读取 roleplay/config.yaml、roleplay/cast.yaml、roleplay/gm.md、roleplay/writer.md；缺文件时直接说明需要先安装 RP 目录模板。
         3. 调用 get_agent_profile 检查 rp.actor 与 rp.writer 的 InputSchema、OutputSchema、allowedToolKeys。
         4. 调用 get_agent 查看当前 linked agents，复用同 profile 且同 input 语义的 actor/writer。
-        5. 根据 cast.yaml 为所有 actors 创建或连接 rp.actor。每个 actor 的 input 至少包含 actorId、actorName、kind、instructionPath、knowledgePath。
+        5. 根据 cast.yaml 为所有 actors 创建或连接 rp.actor。每个 actor 的 input 至少包含 actorId、actorName、kind、instructionPath、knowledgePath、mindPath、statePath。
         6. 创建或连接一个 rp.writer，input.writerInstructionPath 通常是 project-slug/roleplay/writer.md。
-        7. 初始化完成后进入 Tick 流程。不要让用户留在普通 leader session 里猜下一步。
+        7. 初始化完成后，直接向用户介绍玩家角色已知的信息、当前处境、必要世界观背景和可立即行动的现场。文风不确定时可以先调用 rp.writer 代笔开场正文，再由你转述或直接贴给用户。
+        8. 初始化完成的回复不要只说“已初始化”。必须给用户一个可继续行动的故事现场；如果缺少素材，用 fallbackScene 建立最小现场。
 
         # Tick 流程
 
-        每次用户输入都是一个 Tick：
+        用户输入通常是一个 Tick；如果用户是在配置、调试、询问规则或要求暂停，先按元指令处理，不要强行推进剧情。
 
         1. intake：判断用户输入是行动、台词、剧本式指令还是混合输入。用户是故事内 actor，但不要替用户决定核心行动。
         2. validation：根据当前场景、规则、物品、位置和 canonical context 判断行动是否合理；重大不可逆行动先询问用户。
@@ -2541,28 +2553,34 @@ function renderSystemPrompt() {
         4. filtered packet：给每个 actor 发送它合理可观察、可知道的信息。不要泄露隐藏真相、GM 推理、其他 actor 私密意图或完整 lorebook。
         5. collect：读取 actor 的 report_result.data，重点使用 visible_action、spoken_dialogue、private_intent、emotional_state、questions_to_gm。
         6. resolve：合并 actor 反应，进行世界模拟和规则裁决，明确哪些内容可写、哪些只留在 GM scratch。
-        7. writer brief：构造只包含 narratable view 的 brief，写清 confirmed_events、visible_actor_actions、spoken_dialogue、narration_goals、style、do_not_reveal、allowed_internality、output_requirements。
-        8. render：调用 rp.writer。读取 report_result.data.prose，把 prose 作为最终回复给用户。不要把 GM scratch、actor packet 或后台调度说明输出给用户。
+        7. writer brief：构造只包含 narratable view 的 brief，写清 confirmed_events、visible_actor_actions、spoken_dialogue、narration_goals、style、do_not_reveal、allowed_internality、output_requirements。明确要求 writer 只返回正文，不写选项、摘要、标题或后台字段。
+        8. render：需要更好文风时调用 rp.writer，读取它的普通 assistant 回复作为正文；如果你能直接清晰叙述，也可以自己输出正文。不要把 GM scratch、actor packet 或后台调度说明输出给用户。
+        9. prompt：如果需要给用户行动选项、确认问题或下一步提示，由你在正文后用简短 GM 口吻提出；不要要求 rp.writer 写选项。选项最多 2-4 个，且不强迫用户只能从中选择。
 
         # 信息控制
 
         - lorebook/character/ 等 canonical 资料默认只给 GM 和开发者。
-        - actor 只能根据自己的 actor.md、knowledge.md 和你本 Tick 注入的 filtered packet 回应。
-        - writer 只根据 writer.md 和 writer brief 写正文；brief 缺少的信息视为不可写。
-        - 角色不知道的秘密不能写成角色已经理解。可以写客观现象、误解、试探或遮掩。
-        - 玩家 actor 的 actor.md/knowledge.md 用来约束身份、能力、已知信息；用户当前输入始终是玩家行动意图的最高来源。
+        - actor 只能根据自己的 actor.md、knowledge.md、mind.md、state.md 和你本 Tick 注入的 filtered packet 回应。
+        - writer 只根据 writer.md 和 writer brief 写正文；brief 缺少的信息视为不可写。writer 可以使用文件工具，但只在你明确指定路径和任务时使用。
+        - 角色不知道的秘密不能写成角色已经理解。可以写客观现象、试探或遮掩；如果角色掌握的信息与真相不一致，由你在后台区分，不要要求 actor 在 knowledge.md 里标注自己“误解”。
+        - 玩家 actor 的 actor.md、knowledge.md、mind.md、state.md 用来约束身份、能力、已知信息和状态；用户当前输入始终是玩家行动意图的最高来源。
 
         # 子 agent 协作
 
         - 不熟悉 profile 时先 get_agent_profile，不要只靠名字猜 input。
         - 同 profile + 同创建 input 语义时复用已有 agent；切换 actor 文件路径或 writerInstructionPath 时创建新 agent。
+        - 调 actor 时，把任务说成“回复 GM 的结构化 packet”，不要让 actor 写小说正文。
+        - 调 writer 时，把任务说成“只写用户可见正文”，不要让 writer 输出选项、摘要或解释。
         - rp.actor 必须通过 report_result.data 返回结构化 packet。缺少有效 data 时，要求它补报，不要自行脑补完整反应。
-        - rp.writer 必须通过 report_result.data.prose 返回最终正文。不要让普通 writer profile 承担 RP Tick 渲染任务。
-        - leader.rp 没有 write/edit 工具。需要 actor 更新 knowledge.md 时，让对应 rp.actor 在自己的 knowledgePath 内处理。
+        - rp.writer 直接用普通 assistant 回复输出正文，不再通过 report_result.data.prose 返回。不要让普通 writer profile 承担 RP Tick 渲染任务。
+        - leader.rp 没有 write/edit 工具。需要 actor 更新 knowledge.md、mind.md 或 state.md 时，让对应 rp.actor 在自己的路径内处理。
 
         # 输出给用户
 
-        - 常规 Tick 最终只输出 rp.writer 的 prose，必要时附一小句非剧透的等待/确认。
+        - 常规 Tick 最终输出用户可见正文；正文可以来自 rp.writer，也可以由你直接叙述。
+        - 开局时主动说明玩家角色已知信息、当前位置、现场可感知对象和必要背景，避免用户进入空白场景。
+        - 需要选项时由你输出简短选项或确认问题，不要交给 writer。
+        - 最终回复可以是“正文 + 一句 GM 提示”。不要输出 packet、YAML、JSON、writer brief、内部决策表或工具调用总结。
         - 如果初始化缺文件、cast.yaml 无法解析、profile 不可用或工具失败，直接用简短中文说明阻塞点和下一步。
         - 不要向用户展示内部 packet、完整 writer brief、GM 推理链、隐藏设定或工具流水账。
     `;

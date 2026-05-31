@@ -8,6 +8,7 @@ import type {
     AgentCreateSessionRequestDto,
     AgentInvokeRequestDto,
     AgentSessionEventDto,
+    AgentSessionEventsQueryDto,
     AgentSessionListQueryDto,
     AgentSessionSnapshotDto,
     AgentSessionSummaryDto,
@@ -82,12 +83,20 @@ export function useAgentSessionApi() {
 
     const subscribeSessionEvents = async (
         sessionId: number,
-        after: number,
+        cursor: AgentSessionEventsQueryDto,
         onEvent: (event: AgentSessionEventDto) => void | Promise<void>,
         signal?: AbortSignal,
         options: {onOpen?: () => void} = {},
     ): Promise<void> => {
-        const response = await fetch(`/api/agent/sessions/${sessionId}/events?after=${String(after)}`, {
+        const query = new URLSearchParams();
+        if (typeof cursor.after === "number") {
+            query.set("after", String(cursor.after));
+        }
+        if (cursor.eventEpoch) {
+            query.set("eventEpoch", cursor.eventEpoch);
+        }
+        const suffix = query.size > 0 ? `?${query.toString()}` : "";
+        const response = await fetch(`/api/agent/sessions/${sessionId}/events${suffix}`, {
             signal,
         });
         await readSseStream<AgentSessionEventDto>(response, onEvent, options);

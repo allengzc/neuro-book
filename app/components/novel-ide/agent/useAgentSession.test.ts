@@ -5,8 +5,12 @@ import type {AgentRuntimeStreamEventDto, AgentSessionEventDto, AgentSessionSnaps
 
 type RuntimeMessage = Extract<AgentRuntimeStreamEventDto, {message: unknown}>["message"];
 type AssistantRuntimeMessage = Extract<RuntimeMessage, {role: "assistant"}>;
+type AgentSessionEventWithoutEpoch = AgentSessionEventDto extends infer Event
+    ? Event extends AgentSessionEventDto ? Omit<Event, "eventEpoch"> : never
+    : never;
 
 const baseSnapshot = (lastSeq = 0): AgentSessionSnapshotDto => ({
+    eventEpoch: "epoch-1",
     summary: {
         sessionId: 1,
         profileKey: "leader.default",
@@ -35,6 +39,23 @@ const baseSnapshot = (lastSeq = 0): AgentSessionSnapshotDto => ({
     planModeActive: false,
     lastSeq,
 });
+
+const withEnvelope = (event: AgentSessionEventWithoutEpoch, eventEpoch = "epoch-1"): AgentSessionEventDto => {
+    if (event.kind === "runtime") {
+        return {
+            eventEpoch,
+            ...event,
+        };
+    }
+    return {
+        eventEpoch,
+        ...event,
+    };
+};
+
+const applyEvent = (session: ReturnType<typeof useAgentSession>, event: AgentSessionEventWithoutEpoch, eventEpoch = "epoch-1"): void => {
+    session.applyEvent(withEnvelope(event, eventEpoch));
+};
 
 let animationFrames: Array<{id: number; callback: FrameRequestCallback}> = [];
 let animationFrameId = 0;
@@ -112,23 +133,64 @@ describe("useAgentSession", () => {
         const session = useAgentSession();
         session.applySnapshot(baseSnapshot(10));
 
-        session.applyEvent({
+        session.applyEvent(withEnvelope({
             seq: 10,
             sessionId: 1,
             kind: "session",
-            event: {type: "connected"},
-        });
+            event: {type: "connected", eventEpoch: "epoch-1", latestSeq: 10},
+        }));
 
         expect(session.connectionStatus.value).toBe("connected");
+        expect(session.eventEpoch.value).toBe("epoch-1");
         expect(session.lastSeq.value).toBe(10);
         expect(session.needsSnapshot.value).toBe(false);
+    });
+
+    it("connected 发现新 epoch 后请求 snapshot 并允许 lastSeq 回退", () => {
+        const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(426));
+
+        session.applyEvent(withEnvelope({
+            seq: 0,
+            sessionId: 1,
+            kind: "session",
+            event: {type: "connected", eventEpoch: "epoch-2", latestSeq: 0},
+        }, "epoch-2"));
+
+        expect(session.connectionStatus.value).toBe("connected");
+        expect(session.needsSnapshot.value).toBe(true);
+        expect(session.snapshotReasons.value).toContain("event_epoch_changed");
+        expect(session.lastSeq.value).toBe(426);
+
+        session.applySnapshot({...baseSnapshot(0), eventEpoch: "epoch-2"});
+
+        expect(session.eventEpoch.value).toBe("epoch-2");
+        expect(session.lastSeq.value).toBe(0);
+        expect(session.needsSnapshot.value).toBe(false);
+    });
+
+    it("connected 发现服务端 latestSeq 小于本地 lastSeq 时请求 snapshot", () => {
+        const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(426));
+
+        session.applyEvent(withEnvelope({
+            seq: 0,
+            sessionId: 1,
+            kind: "session",
+            event: {type: "connected", eventEpoch: "epoch-1", latestSeq: 0},
+        }));
+
+        expect(session.connectionStatus.value).toBe("connected");
+        expect(session.needsSnapshot.value).toBe(true);
+        expect(session.snapshotReasons.value).toContain("event_epoch_changed");
+        expect(session.lastSeq.value).toBe(426);
     });
 
     it("发现 seq gap 后只标记 snapshot 恢复请求", () => {
         const session = useAgentSession();
         session.applySnapshot(baseSnapshot(10));
 
-        session.applyEvent({
+        applyEvent(session, {
             seq: 12,
             sessionId: 1,
             kind: "session",
@@ -144,13 +206,13 @@ describe("useAgentSession", () => {
         const session = useAgentSession();
         session.applySnapshot(baseSnapshot(0));
 
-        session.applyEvent({
+        applyEvent(session, {
             seq: 1,
             sessionId: 1,
             kind: "session",
             event: {type: "steer_queued", item: {id: "steer-1", kind: "steer", message: {text: "调整"}, createdAt: 1}},
         });
-        session.applyEvent({
+        applyEvent(session, {
             seq: 2,
             sessionId: 1,
             kind: "session",
@@ -169,7 +231,7 @@ describe("useAgentSession", () => {
         const session = useAgentSession();
         session.applySnapshot(baseSnapshot(0));
 
-        session.applyEvent({
+        applyEvent(session, {
             seq: 1,
             sessionId: 1,
             kind: "session",
@@ -230,7 +292,7 @@ describe("useAgentSession", () => {
             },
         });
 
-        session.applyEvent({
+        applyEvent(session, {
             seq: 1,
             sessionId: 1,
             invocationId: "run-1",
@@ -252,7 +314,7 @@ describe("useAgentSession", () => {
         const session = useAgentSession();
         session.applySnapshot(baseSnapshot(0));
 
-        session.applyEvent({
+        applyEvent(session, {
             seq: 1,
             sessionId: 1,
             invocationId: "run-1",
@@ -271,7 +333,7 @@ describe("useAgentSession", () => {
         const session = useAgentSession();
         session.applySnapshot(baseSnapshot(0));
 
-        session.applyEvent({
+        applyEvent(session, {
             seq: 1,
             sessionId: 1,
             invocationId: "run-1",
@@ -281,7 +343,7 @@ describe("useAgentSession", () => {
                 message: assistantMessage(1),
             },
         });
-        session.applyEvent({
+        applyEvent(session, {
             seq: 2,
             sessionId: 1,
             invocationId: "run-1",
@@ -292,7 +354,7 @@ describe("useAgentSession", () => {
                 assistantMessageEvent: textDeltaEvent("你"),
             },
         });
-        session.applyEvent({
+        applyEvent(session, {
             seq: 3,
             sessionId: 1,
             invocationId: "run-1",
@@ -317,7 +379,7 @@ describe("useAgentSession", () => {
         const session = useAgentSession();
         session.applySnapshot(baseSnapshot(0));
 
-        session.applyEvent({
+        applyEvent(session, {
             seq: 1,
             sessionId: 1,
             invocationId: "run-1",
@@ -327,7 +389,7 @@ describe("useAgentSession", () => {
                 message: assistantMessage(1),
             },
         });
-        session.applyEvent({
+        applyEvent(session, {
             seq: 2,
             sessionId: 1,
             invocationId: "run-1",
@@ -338,7 +400,7 @@ describe("useAgentSession", () => {
                 assistantMessageEvent: textDeltaEvent("你"),
             },
         });
-        session.applyEvent({
+        applyEvent(session, {
             seq: 3,
             sessionId: 1,
             invocationId: "run-1",
@@ -358,7 +420,7 @@ describe("useAgentSession", () => {
         const session = useAgentSession();
         session.applySnapshot(baseSnapshot(0));
 
-        session.applyEvent({
+        applyEvent(session, {
             seq: 1,
             sessionId: 1,
             invocationId: "run-1",
@@ -368,7 +430,7 @@ describe("useAgentSession", () => {
                 message: assistantMessage(1),
             },
         });
-        session.applyEvent({
+        applyEvent(session, {
             seq: 2,
             sessionId: 1,
             invocationId: "run-1",
@@ -379,7 +441,7 @@ describe("useAgentSession", () => {
                 assistantMessageEvent: toolCallEndEvent(),
             },
         });
-        session.applyEvent({
+        applyEvent(session, {
             seq: 3,
             sessionId: 1,
             invocationId: "run-1",

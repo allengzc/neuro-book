@@ -1,6 +1,12 @@
+import {randomUUID} from "node:crypto";
 import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
 
 const DEFAULT_REPLAY_LIMIT = 500;
+
+export type AgentSessionEventCursor = {
+    eventEpoch?: string;
+    after?: number;
+};
 
 type Subscriber = {
     push(event: AgentSessionEventDto): void;
@@ -64,22 +70,26 @@ class SessionEventSubscription implements AsyncIterable<AgentSessionEventDto>, A
  * session 级事件中心。第一版只做单进程内存广播和 bounded replay。
  */
 export class AgentSessionEventHub {
+    readonly eventEpoch = randomUUID();
     private readonly replayLimit: number;
     private readonly replayBySession = new Map<number, AgentSessionEventDto[]>();
     private readonly subscribersBySession = new Map<number, Set<Subscriber>>();
-    private seq = 0;
+    private readonly seqBySession = new Map<number, number>();
 
     constructor(replayLimit = DEFAULT_REPLAY_LIMIT) {
         this.replayLimit = replayLimit;
     }
 
     /**
-     * 给事件分配全局递增序号并广播。
+     * 给事件分配 session 内递增序号并广播。
      */
-    publish(event: Omit<AgentSessionEventDto, "seq">): AgentSessionEventDto {
+    publish(event: Omit<AgentSessionEventDto, "seq" | "eventEpoch">): AgentSessionEventDto {
+        const seq = this.lastSeq(event.sessionId) + 1;
+        this.seqBySession.set(event.sessionId, seq);
         const nextEvent = {
             ...event,
-            seq: ++this.seq,
+            eventEpoch: this.eventEpoch,
+            seq,
         } as AgentSessionEventDto;
         const replay = this.replayBySession.get(nextEvent.sessionId) ?? [];
         replay.push(nextEvent);
@@ -95,26 +105,44 @@ export class AgentSessionEventHub {
     }
 
     /**
-     * 订阅 session 事件。after 太旧时先推送 snapshot_required。
+     * 生成 SSE 连接握手事件。它只说明当前事件流身份，不参与 replay。
      */
-    subscribe(sessionId: number, after?: number): AsyncIterable<AgentSessionEventDto> {
+    connectedEvent(sessionId: number): AgentSessionEventDto {
+        const latestSeq = this.lastSeq(sessionId);
+        return {
+            eventEpoch: this.eventEpoch,
+            seq: latestSeq,
+            sessionId,
+            kind: "session",
+            event: {
+                type: "connected",
+                eventEpoch: this.eventEpoch,
+                latestSeq,
+            },
+        };
+    }
+
+    /**
+     * 订阅 session 事件。同 epoch 的 cursor 可 replay；跨 epoch 由 connected handshake 触发 snapshot 恢复。
+     */
+    subscribe(sessionId: number, cursor: AgentSessionEventCursor = {}): AsyncIterable<AgentSessionEventDto> {
         const subscription = new SessionEventSubscription();
         const subscribers = this.subscribersBySession.get(sessionId) ?? new Set<Subscriber>();
         subscribers.add(subscription);
         this.subscribersBySession.set(sessionId, subscribers);
 
+        if (cursor.eventEpoch && cursor.eventEpoch !== this.eventEpoch) {
+            return this.subscriptionIterable(subscription, subscribers);
+        }
+
+        const after = cursor.after;
         const replay = this.replayBySession.get(sessionId) ?? [];
-        const firstSeq = replay[0]?.seq ?? this.seq + 1;
-        if (typeof after === "number" && after < firstSeq - 1) {
-            subscription.push({
-                seq: ++this.seq,
-                sessionId,
-                kind: "session",
-                event: {
-                    type: "snapshot_required",
-                    reason: "event replay buffer expired",
-                },
-            });
+        const latestSeq = this.lastSeq(sessionId);
+        const firstSeq = replay[0]?.seq ?? latestSeq + 1;
+        if (typeof after === "number" && after > latestSeq) {
+            subscription.push(this.snapshotRequiredEvent(sessionId, "event cursor is ahead of server"));
+        } else if (typeof after === "number" && after < firstSeq - 1) {
+            subscription.push(this.snapshotRequiredEvent(sessionId, "event replay buffer expired"));
         } else {
             for (const event of replay) {
                 if (typeof after !== "number" || event.seq > after) {
@@ -123,7 +151,24 @@ export class AgentSessionEventHub {
             }
         }
 
-        const iterable = {
+        return this.subscriptionIterable(subscription, subscribers);
+    }
+
+    private snapshotRequiredEvent(sessionId: number, reason: string): AgentSessionEventDto {
+        return {
+            eventEpoch: this.eventEpoch,
+            seq: this.lastSeq(sessionId),
+            sessionId,
+            kind: "session",
+            event: {
+                type: "snapshot_required",
+                reason,
+            },
+        };
+    }
+
+    private subscriptionIterable(subscription: SessionEventSubscription, subscribers: Set<Subscriber>): AsyncIterable<AgentSessionEventDto> & {return(): Promise<IteratorResult<AgentSessionEventDto>>} {
+        return {
             [Symbol.asyncIterator]: () => subscription,
             return: async () => {
                 subscribers.delete(subscription);
@@ -131,13 +176,12 @@ export class AgentSessionEventHub {
                 return {done: true, value: undefined};
             },
         };
-        return iterable;
     }
 
     /**
-     * 当前最新事件序号。
+     * 当前 session 最新事件序号。
      */
-    get lastSeq(): number {
-        return this.seq;
+    lastSeq(sessionId: number): number {
+        return this.seqBySession.get(sessionId) ?? 0;
     }
 }

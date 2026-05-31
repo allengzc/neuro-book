@@ -215,6 +215,58 @@ describe("SessionWriteExecutor", () => {
         expect(repo.reduce(snapshot).title).toBe("Title");
     });
 
+    it("同一个 session 的并发写入会串行执行", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+        });
+        const originalAppendEntry = repo.appendEntry.bind(repo);
+        let activeAppends = 0;
+        let maxActiveAppends = 0;
+        repo.appendEntry = async (...args: Parameters<JsonlSessionRepository["appendEntry"]>): ReturnType<JsonlSessionRepository["appendEntry"]> => {
+            activeAppends += 1;
+            maxActiveAppends = Math.max(maxActiveAppends, activeAppends);
+            await new Promise((resolve) => setTimeout(resolve, 10));
+            try {
+                return await originalAppendEntry(...args);
+            } finally {
+                activeAppends -= 1;
+            }
+        };
+
+        await Promise.all([
+            executor.execute([{
+                target: {sessionId: session.metadata.sessionId},
+                cause: "concurrent.first",
+                ops: [{
+                    kind: "append",
+                    entry: {
+                        type: "message",
+                        message: createAssistantTextMessage({text: "first"}),
+                        origin: "harness",
+                    },
+                }],
+            }]),
+            executor.execute([{
+                target: {sessionId: session.metadata.sessionId},
+                cause: "concurrent.second",
+                ops: [{
+                    kind: "append",
+                    entry: {
+                        type: "message",
+                        message: createAssistantTextMessage({text: "second"}),
+                        origin: "harness",
+                    },
+                }],
+            }]),
+        ]);
+
+        expect(maxActiveAppends).toBe(1);
+        expect(repo.reduce(await repo.readSession(session.metadata.sessionId)).messages.map((message) => message.role)).toEqual(["assistant", "assistant"]);
+    });
+
     it("moveLeaf op 会移动 active leaf 并发布 session events", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",

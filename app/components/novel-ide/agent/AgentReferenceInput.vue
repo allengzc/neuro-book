@@ -11,10 +11,12 @@ const props = withDefaults(defineProps<{
     menuRefreshKey?: string | number;
     resolveMenu: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     onSkillTriggerStart?: () => void;
+    borderless?: boolean;
 }>(), {
     placeholder: "输入消息... (输入 @ 引用, $ 技能, / 命令)",
     menuRefreshKey: "",
     onSkillTriggerStart: () => {},
+    borderless: false,
 });
 
 const emit = defineEmits<{
@@ -67,6 +69,7 @@ defineExpose({
         :menu-refresh-key="props.menuRefreshKey"
         :resolve-menu="props.resolveMenu"
         :on-skill-trigger-start="props.onSkillTriggerStart"
+        :borderless="props.borderless"
         @update:model-value="emit('update:modelValue', $event)"
         @submit="emit('submit', $event)"
         @shift-tab="emit('toggle-plan-mode')"

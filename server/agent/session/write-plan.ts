@@ -52,6 +52,7 @@ export class SessionWriteExecutor {
     private readonly repo: JsonlSessionRepository;
     private readonly eventHub: AgentSessionEventHub;
     private readonly liveStateProvider: (sessionId: SessionId) => Promise<AgentSessionLiveStateDto>;
+    private readonly writeQueues = new Map<SessionId, Promise<void>>();
 
     constructor(input: SessionWriteExecutorInput) {
         this.repo = input.repo;
@@ -66,7 +67,11 @@ export class SessionWriteExecutor {
         for (const plan of plans) {
             this.assertValidPlan(plan);
         }
+        const sessionIds = [...new Set(plans.map((plan) => plan.target.sessionId))].sort((left, right) => left - right);
+        return this.withSessionWriteLocks(sessionIds, () => this.executeUnlocked(plans, invocationId));
+    }
 
+    private async executeUnlocked(plans: SessionWritePlan[], invocationId?: string): Promise<SessionWriteResult> {
         const written: SessionEntry[] = [];
         const touchedSessionIds = new Set<SessionId>();
 
@@ -98,6 +103,34 @@ export class SessionWriteExecutor {
         }
 
         return {entries: written};
+    }
+
+    private async withSessionWriteLocks<TResult>(sessionIds: SessionId[], task: () => Promise<TResult>): Promise<TResult> {
+        const sessionId = sessionIds[0];
+        if (sessionId === undefined) {
+            return task();
+        }
+        return this.withSessionWriteLock(sessionId, () => this.withSessionWriteLocks(sessionIds.slice(1), task));
+    }
+
+    private async withSessionWriteLock<TResult>(sessionId: SessionId, task: () => Promise<TResult>): Promise<TResult> {
+        const previous = this.writeQueues.get(sessionId) ?? Promise.resolve();
+        let release!: () => void;
+        const current = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const queued = previous.catch(() => undefined).then(() => current);
+        this.writeQueues.set(sessionId, queued);
+
+        await previous.catch(() => undefined);
+        try {
+            return await task();
+        } finally {
+            release();
+            if (this.writeQueues.get(sessionId) === queued) {
+                this.writeQueues.delete(sessionId);
+            }
+        }
     }
 
     private canMergeSavePoint(plan: SessionWritePlan): boolean {

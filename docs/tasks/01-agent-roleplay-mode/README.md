@@ -61,12 +61,15 @@
   - `rp.writer` 可以开放 bash 与文件读写工具。它不再必须通过 `report_result.data.prose` 报告正文；可以直接写作或写入 GM 指定文件。后续实现要用 profile prompt 和输入参数约束写入范围。
   - `rp.writer` 只负责正文，不负责生成“选项”“下一步行动建议”或 GM 控制面内容。可选行动、提示、确认问题由 GM / `leader.rp` 生成和呈现。
   - GM / `leader.rp` 是直接面向用户的 RP 主控，需要承担一定旁白职责。开局时 GM 应能介绍玩家角色已知信息、当前处境和必要世界观背景；如果 GM 自己的文风不够好，可以先调用 `rp.writer` 代笔，再由 GM 转述给玩家，或引用文件让玩家自行打开阅读。
-  - actor 目录应拆出 `mind.md` 与 `state.md`：`mind.md` 记录角色当前思维、判断、误解和动机；`state.md` 记录角色当前状态，例如位置、持有物品、伤势、关系压力、短期目标等。
+  - actor 目录应拆出 `mind.md` 与 `state.md`：`mind.md` 记录角色当前思维、判断、猜测和动机；`state.md` 记录角色当前状态，例如位置、持有物品、伤势、关系压力、短期目标等。
+- RP 目录入口收束：删除 `roleplay/AGENTS.md`，避免它和 `gm.md` 形成双入口混淆；通用启动说明下放到 `RP模式` / `RP目录初始化` skill 和 `leader.rp` profile，作者主要修改 `roleplay/gm.md`。
+- `knowledge.md` 是给 actor 看的角色视角资料，不写上帝视角；模板改为二级章节归类、三级标题作为条目，并新增 `## 世界观`。不再维护“信念与误解”“最近更新”“更新规则”章节；是否误解由 GM / leader 在后台判断，更新规则写在 profile prompt 中。
+- lorebook 信息控制继续讨论：一个方向是在 lorebook frontmatter 中标注条目可见对象或可知条件，让 actor 的 `knowledge.md` 可以引用“这个角色可知道”的公开世界观/常识条目，避免每个 actor 重复维护通用世界观。但 canonical lorebook 仍默认是 GM / leader / 作者视角，actor 不能因为引用而自行读取完整 lorebook。
+  - 暂定推荐方向：visibility 只是“谁能知道/何时能知道”的元数据，不代表 actor 可直接读取原文；`knowledge.md` 优先保存角色视角摘要或引用索引。混合公开常识和隐藏真相的 lorebook 条目后续应拆条目，或提供 actor-safe 摘要字段，由 GM / leader 注入。
 - 最新 `roleplay/` 目标结构收束为少量根文件 + actor 子目录：
 
 ```text
 roleplay/
-|-- AGENTS.md
 |-- config.yaml
 |-- cast.yaml
 |-- gm.md
@@ -119,7 +122,6 @@ lorebook/location/...
 lorebook/faction/...
 lorebook/rule/...
 lorebook/note/...
-roleplay/AGENTS.md
 roleplay/cast.yaml
 roleplay/gm.md
 roleplay/writer.md
@@ -165,7 +167,7 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 - 已新增系统 skill：`assets/workspace/.nbook/agent/skills/RP模式/SKILL.md`，作为用户进入 `leader.rp` / GM Tick 流程的可发现入口。
 - 已新增系统 skill：`assets/workspace/.nbook/agent/skills/RP目录初始化/SKILL.md`，作为安装或补齐 `roleplay/` 运行目录模板的可发现入口。
 - 已新增配套 CLI：`assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`。
-- 已新增 RP 目录模板：`assets/workspace/.nbook/templates/roleplay-directory-templates/roleplay/`，包含 `AGENTS.md`、`config.yaml`、`cast.yaml`、`gm.md`、`writer.md`、`actors/player/*` 和 `actors/sample-npc/*`。
+- 已新增 RP 目录模板：`assets/workspace/.nbook/templates/roleplay-directory-templates/roleplay/`，包含 `config.yaml`、`cast.yaml`、`gm.md`、`writer.md`、`actors/player/*` 和 `actors/sample-npc/*`。
 - RP 目录模板已升级为混合模板：保留待填写位置，同时提供 fallback scene、profile 输入边界、Tick 清单、actor packet / response 约束、GM scratch、writer brief 缺失处理和 actor knowledge 更新规则，方便安装后直接试跑一轮 RP。
 - 已扩展 `workspace project create`：目标不存在时仍创建完整 Project Workspace；支持 `--target <dir>` 指定实际写入目录；目标已存在且显式传入 `--template` 时，把模板缺失文件补入现有 Project Workspace，并在 `--json` 中返回 `mode: "updated"`、`createdFiles` 和 `skippedFiles`。
 - 已更新 `leader.default` profile 的 Shell commands 提示词：RP 初始化 skill 后续应调用 `workspace project create <project> [--target <dir>] --template roleplay-directory-templates`，继续复用项目模板命令。
@@ -189,19 +191,25 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 - 泛用自然语言编辑工具先记录为 TODO。该工具不是 state 专用，参数方向暂定为：目标文件、自然语言操作说明、可选携带上下文消息数量，后续可接轻量模型。
 - `SidecarProfilePass` 已记录在 `docs/tasks/23-agent-sidecar-profile-pass/README.md`，但本次 roleplay spike 先不实现。当前策略是 writer 由 GM 注入可写 lorebook 摘要，actor 可直接维护自己的 `knowledge.md`。
 - 已新增第一版 RP builtin profiles：
-  - `leader.rp`：用户进入 RP 模式后的 GM 主控 profile，读取 `roleplay/` 运行目录，初始化/复用 `rp.actor` 和 `rp.writer`，按 Tick 协议进行信息过滤、actor 调度、世界裁决和 writer brief 构造。
-  - `rp.actor`：通用角色扮演 profile，创建 input 绑定 `actor.md` 与 `knowledge.md`，运行时自动注入这两个文件；每轮只根据 GM packet 返回结构化 actor response packet。
-  - `rp.writer`：RP Tick 正文渲染 profile，创建 input 绑定 `roleplay/writer.md`，每轮只根据 GM writer brief 返回 `report_result.data.prose`，不读写文件、不自主检索 lorebook。
+  - `leader.rp`：用户进入 RP 模式后的 GM 主控 profile，读取 `roleplay/` 运行目录，初始化/复用 `rp.actor` 和 `rp.writer`，按 Tick 协议进行信息过滤、actor 调度、世界裁决和 writer brief 构造；GM 直接面向用户叙述，开局负责说明玩家已知信息、当前处境和必要背景。
+  - `rp.actor`：通用角色扮演 profile，创建 input 绑定 `actor.md`、`knowledge.md`、`mind.md` 与 `state.md`，运行时自动注入这些文件；每轮只根据 GM packet 返回结构化 actor response packet。
+  - `rp.writer`：RP Tick 正文渲染 profile，创建 input 绑定 `roleplay/writer.md`，每轮根据 GM writer brief 直接输出正文；可使用 bash 与文件工具，但只操作 GM 明确指定路径，不自主检索完整 lorebook。
 - 当前 profile 工具边界：
   - `leader.rp` 只有只读文件、bash、agent 编排和用户询问工具，不直接写文件。
-  - `rp.actor` 暂时开放 `read` / `write` / `edit` / `report_result`，用于维护自己的 `knowledge.md`；现有工具系统尚不能 runtime-enforce path scope，因此第一版通过 profile prompt 严格约束只能操作 `knowledgePath`。
-  - `rp.writer` 只开放 `report_result`，保持上下文和行为纯净。
+  - `rp.actor` 暂时开放 `read` / `write` / `edit` / `report_result`，用于维护自己的 `knowledge.md`、`mind.md`、`state.md`；现有工具系统尚不能 runtime-enforce path scope，因此第一版通过 profile prompt 严格约束只能操作 `knowledgePath`、`mindPath`、`statePath`。
+  - `rp.writer` 开放 `read` / `write` / `edit` / `bash`，但提示词约束它只按 GM 明确路径读写；正文用普通 assistant 回复，不强制 `report_result`。
 - 已更新 `leader.default` 的多 Agent 协作说明：进入 roleplay 模式时优先创建或切换到 `leader.rp`；`rp.actor` 和 `rp.writer` 通常只由 `leader.rp` 调用。
-- 试用反馈确认当前 RP 已可用，但下一轮 profile/template 应调整：
-  - `rp.writer` 改为可使用 bash 与文件工具，并通过写文件或直接正文完成写作，不强制走 `report_result.data.prose`。
+- 试用反馈已落地到 profile/template：
+  - `rp.writer` 可使用 bash 与文件工具，并通过写文件或直接正文完成写作，不强制走 `report_result.data.prose`。
   - `rp.writer` prompt 删除“写选项/行动建议”职责，只写正文；选项由 GM 生成。
   - `leader.rp` prompt 加强直接面向用户的 GM 旁白职责，包括开局介绍玩家已知信息和背景。
   - actor 模板与 profile input 增加 `mind.md`、`state.md`，把角色认知、思维和可变状态从 `knowledge.md` 中拆开。
+- 二轮提示词收紧已落地：
+  - `leader.rp` 明确区分初始化、常规 Tick 和元指令；初始化后必须给用户可行动现场，不输出后台流程。
+  - `leader.rp` 明确 cast 路径需要从 Project Workspace 相对路径转换为 Agent cwd 路径。
+  - `rp.actor` 强化玩家 actor 不替用户新增行动、台词、情绪或目标；无真实变化时不要为了更新而改文件。
+  - `rp.writer` 强化“正文代笔，不是 GM”，不输出标题、摘要、选项或解释，不替玩家角色补未输入的内心和关键动作。
+  - roleplay 模板同步了 GM / writer / actor 的上述提示词边界。
 
 ## SillyTavern Sample Notes
 
@@ -259,7 +267,6 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 ## TODO / Follow-ups
 
 - 真实试跑 `leader.rp` 初始化流程，检查 cast.yaml 到 actor session 的创建/复用提示是否足够清晰。
-- 按试用反馈更新 RP profiles 与模板：开放 `rp.writer` 文件/bash 工具、移除 writer 选项输出职责、增强 GM 旁白开场、actor 目录增加 `mind.md` / `state.md`。
 - 继续增强 SillyTavern worldbook 迁移脚本：基于更多真实样本优化分类规则，尤其是事件、系统、格式约束、角色别名和大型世界书目录名。
 - 后续把 legacy `roleplay/imports/silly-tavern/...` 输出迁移为 `reference/` 归档或 `roleplay/gm.md` / `roleplay/writer.md` / actor 文件补丁。
 - 扩展 PNG 提取能力：当前只 best-effort 读取 `tEXt` 文本块，后续按样本需要再支持 `iTXt` / `zTXt`。

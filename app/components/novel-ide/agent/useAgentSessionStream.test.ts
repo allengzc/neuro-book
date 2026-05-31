@@ -2,9 +2,14 @@ import {beforeEach, describe, expect, it, vi} from "vitest";
 import {ref} from "vue";
 import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
 import {useAgentSessionStream} from "nbook/app/components/novel-ide/agent/useAgentSessionStream";
-import type {AgentSessionEventDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentSessionEventDto, AgentSessionEventsQueryDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
 
-const baseSnapshot = (lastSeq = 0): AgentSessionSnapshotDto => ({
+type AgentSessionEventWithoutEpoch = AgentSessionEventDto extends infer Event
+    ? Event extends AgentSessionEventDto ? Omit<Event, "eventEpoch"> : never
+    : never;
+
+const baseSnapshot = (lastSeq = 0, eventEpoch = "epoch-1"): AgentSessionSnapshotDto => ({
+    eventEpoch,
     summary: {
         sessionId: 1,
         profileKey: "leader.default",
@@ -34,11 +39,25 @@ const baseSnapshot = (lastSeq = 0): AgentSessionSnapshotDto => ({
     lastSeq,
 });
 
-const connectedEvent = (seq: number): AgentSessionEventDto => ({
+const sessionEvent = (event: AgentSessionEventWithoutEpoch, eventEpoch = "epoch-1"): AgentSessionEventDto => {
+    if (event.kind === "runtime") {
+        return {
+            eventEpoch,
+            ...event,
+        };
+    }
+    return {
+        eventEpoch,
+        ...event,
+    };
+};
+
+const connectedEvent = (seq: number, eventEpoch = "epoch-1"): AgentSessionEventDto => ({
+    eventEpoch,
     seq,
     sessionId: 1,
     kind: "session",
-    event: {type: "connected"},
+    event: {type: "connected", eventEpoch, latestSeq: seq},
 });
 
 describe("useAgentSessionStream", () => {
@@ -50,15 +69,15 @@ describe("useAgentSessionStream", () => {
         const session = useAgentSession();
         const activeSessionId = ref<number | null>(1);
         session.applySnapshot(baseSnapshot(7));
-        const afterValues: number[] = [];
+        const cursorValues: AgentSessionEventsQueryDto[] = [];
         let calls = 0;
         const api = {
             getSession: vi.fn(async () => baseSnapshot(7)),
-            subscribeSessionEvents: vi.fn(async (_sessionId: number, after: number, onEvent: (event: AgentSessionEventDto) => void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
+            subscribeSessionEvents: vi.fn(async (_sessionId: number, cursor: AgentSessionEventsQueryDto, onEvent: (event: AgentSessionEventDto) => void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
                 calls += 1;
-                afterValues.push(after);
+                cursorValues.push(cursor);
                 options?.onOpen?.();
-                onEvent(connectedEvent(after));
+                onEvent(connectedEvent(cursor.after ?? 0, cursor.eventEpoch ?? "epoch-1"));
                 if (calls === 1) {
                     return;
                 }
@@ -72,7 +91,10 @@ describe("useAgentSessionStream", () => {
         await vi.advanceTimersByTimeAsync(300);
 
         expect(api.subscribeSessionEvents).toHaveBeenCalledTimes(2);
-        expect(afterValues).toEqual([7, 7]);
+        expect(cursorValues).toEqual([
+            {eventEpoch: "epoch-1", after: 7},
+            {eventEpoch: "epoch-1", after: 7},
+        ]);
     });
 
     it("多个 snapshot_required 触发只拉一次 snapshot", async () => {
@@ -84,20 +106,20 @@ describe("useAgentSessionStream", () => {
             getSession: vi.fn(() => new Promise<AgentSessionSnapshotDto>((resolve) => {
                 resolveSnapshot = resolve;
             })),
-            subscribeSessionEvents: vi.fn(async (_sessionId: number, _after: number, onEvent: (event: AgentSessionEventDto) => Promise<void> | void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
+            subscribeSessionEvents: vi.fn(async (_sessionId: number, _cursor: AgentSessionEventsQueryDto, onEvent: (event: AgentSessionEventDto) => Promise<void> | void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
                 options?.onOpen?.();
-                void onEvent({
+                void onEvent(sessionEvent({
                     seq: 2,
                     sessionId: 1,
                     kind: "session",
                     event: {type: "snapshot_required", reason: "buffer expired"},
-                });
-                void onEvent({
+                }));
+                void onEvent(sessionEvent({
                     seq: 3,
                     sessionId: 1,
                     kind: "session",
                     event: {type: "snapshot_required", reason: "buffer expired again"},
-                });
+                }));
                 await new Promise<void>(() => {});
             }),
         };
@@ -110,6 +132,30 @@ describe("useAgentSessionStream", () => {
         resolveSnapshot(baseSnapshot(3));
         await Promise.resolve();
         expect(session.lastSeq.value).toBe(3);
+        expect(session.needsSnapshot.value).toBe(false);
+    });
+
+    it("后端 event epoch 换代后拉 snapshot 并允许 cursor 回退", async () => {
+        const session = useAgentSession();
+        const activeSessionId = ref<number | null>(1);
+        session.applySnapshot(baseSnapshot(426, "epoch-1"));
+        const api = {
+            getSession: vi.fn(async () => baseSnapshot(0, "epoch-2")),
+            subscribeSessionEvents: vi.fn(async (_sessionId: number, _cursor: AgentSessionEventsQueryDto, onEvent: (event: AgentSessionEventDto) => Promise<void> | void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
+                options?.onOpen?.();
+                await onEvent(connectedEvent(0, "epoch-2"));
+                await new Promise<void>(() => {});
+            }),
+        };
+        const stream = useAgentSessionStream({session, api, activeSessionId});
+
+        await stream.start(1);
+        await vi.waitFor(() => {
+            expect(api.getSession).toHaveBeenCalledTimes(1);
+        });
+
+        expect(session.eventEpoch.value).toBe("epoch-2");
+        expect(session.lastSeq.value).toBe(0);
         expect(session.needsSnapshot.value).toBe(false);
     });
 
@@ -229,9 +275,9 @@ describe("useAgentSessionStream", () => {
         });
         const api = {
             getSession: vi.fn(async () => baseSnapshot(1)),
-            subscribeSessionEvents: vi.fn(async (_sessionId: number, _after: number, onEvent: (event: AgentSessionEventDto) => Promise<void> | void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
+            subscribeSessionEvents: vi.fn(async (_sessionId: number, _cursor: AgentSessionEventsQueryDto, onEvent: (event: AgentSessionEventDto) => Promise<void> | void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
                 options?.onOpen?.();
-                await onEvent({
+                await onEvent(sessionEvent({
                     seq: 2,
                     sessionId: 1,
                     kind: "session",
@@ -243,14 +289,14 @@ describe("useAgentSessionStream", () => {
                             operations: [],
                         },
                     },
-                });
+                }));
                 appliedSeq.push(session.lastSeq.value);
-                await onEvent({
+                await onEvent(sessionEvent({
                     seq: 3,
                     sessionId: 1,
                     kind: "session",
                     event: {type: "follow_up_queued", item: {id: "follow-1", kind: "followup", message: {text: "继续"}, createdAt: Date.now()}},
-                });
+                }));
                 appliedSeq.push(session.lastSeq.value);
                 await new Promise<void>(() => {});
             }),
@@ -287,7 +333,7 @@ describe("useAgentSessionStream", () => {
         let fail = true;
         const api = {
             getSession: vi.fn(async () => baseSnapshot(5)),
-            subscribeSessionEvents: vi.fn(async (_sessionId: number, _after: number, _onEvent: (event: AgentSessionEventDto) => void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
+            subscribeSessionEvents: vi.fn(async (_sessionId: number, _cursor: AgentSessionEventsQueryDto, _onEvent: (event: AgentSessionEventDto) => void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
                 if (fail) {
                     throw new Error("network down");
                 }

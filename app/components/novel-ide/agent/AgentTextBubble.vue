@@ -389,7 +389,7 @@ const endSwipe = (event: PointerEvent): void => {
             @pointercancel="swipeStart = null"
         >
             <div
-                class="min-w-0 max-w-full rounded-2xl border border-[var(--border-color)] bg-[var(--bg-sidebar)] px-4 py-3 shadow-sm"
+                class="min-w-0 max-w-full rounded-2xl border border-[var(--border-color)] bg-[var(--agent-bg)] px-4 py-3 shadow-sm"
                 :class="props.node.message.error ? 'border-rose-500/40 bg-rose-500/5' : ''"
             >
                 <div v-if="isEditing" class="space-y-3">

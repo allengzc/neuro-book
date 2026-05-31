@@ -99,6 +99,7 @@ export const AgentSessionListQueryDtoSchema = z.object({
 
 export const AgentSessionEventsQueryDtoSchema = z.object({
     after: z.coerce.number().int().nonnegative().optional(),
+    eventEpoch: z.string().trim().min(1).optional(),
 });
 
 export const AgentCommandRequestDtoSchema = z.discriminatedUnion("command", [
@@ -317,6 +318,8 @@ export type AgentRuntimeStreamEventDto =
 export type AgentSessionControlEvent =
     | {
         type: "connected";
+        eventEpoch: string;
+        latestSeq: number;
     }
     | {
         type: "snapshot_required";
@@ -349,6 +352,7 @@ export type AgentSessionControlEvent =
 
 export type AgentSessionEventDto =
     | {
+        eventEpoch: string;
         seq: number;
         sessionId: number;
         invocationId?: string;
@@ -356,6 +360,7 @@ export type AgentSessionEventDto =
         event: AgentRuntimeStreamEventDto;
     }
     | {
+        eventEpoch: string;
         seq: number;
         sessionId: number;
         invocationId?: string;
@@ -364,6 +369,7 @@ export type AgentSessionEventDto =
     };
 
 export type AgentSessionSnapshotDto = {
+    eventEpoch: string;
     summary: AgentSessionSummaryDto;
     /** 后台展示标题/摘要维护状态；仅面向 UI，不影响 Agent 运行态。 */
     summarizer?: AgentSessionSummarizerStateDto;

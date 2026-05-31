@@ -9,7 +9,10 @@ export default defineEventHandler(async (event) => {
     const sessionId = requireAgentSessionId(event);
     const query = AgentSessionEventsQueryDtoSchema.parse(getQuery(event));
     const eventStream = createEventStream(event);
-    const subscription = subscribeAgentSessionEvents(sessionId, query.after);
+    const subscription = subscribeAgentSessionEvents(sessionId, {
+        eventEpoch: query.eventEpoch,
+        after: query.after,
+    });
     let closed = false;
 
     eventStream.onClosed(() => {
@@ -20,14 +23,7 @@ export default defineEventHandler(async (event) => {
 
     void (async () => {
         try {
-            await pushAgentSessionEvent(eventStream, {
-                seq: query.after ?? 0,
-                sessionId,
-                kind: "session",
-                event: {
-                    type: "connected",
-                },
-            });
+            await pushAgentSessionEvent(eventStream, subscription.connected);
             for await (const payload of subscription) {
                 if (closed) {
                     break;

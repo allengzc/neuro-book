@@ -73,6 +73,7 @@ import type {
     AgentPendingApprovalDto,
     AgentRuntimeStreamEventDto,
     AgentSessionEventDto,
+    AgentSessionEventsQueryDto,
     AgentSessionListQueryDto,
     AgentSessionLiveStateDto,
     AgentSessionSummarizerStateDto,
@@ -120,6 +121,8 @@ type SessionSummarizerJob = {
     rerunRequested: boolean;
 };
 
+type PendingApprovalLookup = ReturnType<typeof findPendingApprovalCall>;
+
 type PreparedRunProfile = {
     plan: ProfileTurnPlan;
     writePlan?: SessionWritePlan;
@@ -142,6 +145,28 @@ type PreparedRun = {
     reportResultReminderEnabled: boolean;
 };
 
+type InvocationAdmission = {
+    snapshot: SessionSnapshot | null;
+    pendingUserMessage: Message | null;
+    pendingResolution: AgentResolution | null;
+    currentInvocation: AgentActiveInvocationDto | null;
+    invocationId: string;
+    abortController: AbortController;
+    runtimeState: RunRuntimeState;
+    isResume: boolean;
+} | {
+    queued: InvokeAgentResult;
+};
+
+type SessionRuntimeProjection = {
+    snapshot: SessionSnapshot;
+    context: NeuroSessionContext;
+    baseSummary: AgentSessionSummaryDto;
+    summary: AgentSessionSummaryDto;
+    pendingApproval: PendingApprovalLookup;
+    activeInvocation: AgentActiveInvocationDto | null;
+};
+
 /**
  * Neuro Book 自有 Agent Harness。它拥有 session/profile/tool 语义，底层使用 Pi Agent loop。
  */
@@ -162,6 +187,7 @@ export class NeuroAgentHarness {
     private readonly invocationClientStates = new Map<string, ClientStateSnapshot | undefined>();
     private readonly invocationVariableStates = new Map<string, VariableInvocationState>();
     private readonly invocationRuntimeStates = new Map<string, RunRuntimeState>();
+    private readonly admissionQueues = new Map<number, Promise<void>>();
     private readonly summarizerRuns = new Map<number, SessionSummarizerJob>();
     private readonly pendingClientPatches = new Map<string, {
         request: VariablePatchRequest;
@@ -286,94 +312,19 @@ export class NeuroAgentHarness {
         if (input.block === false) {
             throw new Error("block:false 第一版尚未实现");
         }
-        const currentInvocation = this.activeInvocations.get(input.sessionId);
-        const invocationId = input.resolution && currentInvocation?.status === "waiting"
-            ? currentInvocation.invocationId
-            : randomUUID();
-        if ((input.mode === "steer" || input.mode === "followup") && !input.message) {
-            throw new Error(`${input.mode} 模式必须提供 message`);
+        const admission = await this.withSessionAdmission(input.sessionId, () => this.admitInvocation(input));
+        if ("queued" in admission) {
+            return admission.queued;
         }
-        if (currentInvocation && !input.resolution && !input.internalQueued) {
-            if (currentInvocation.status === "aborting") {
-                throw new Error("active_invocation_aborting");
-            }
-            if (input.mode === "steer" && input.message) {
-                if (!this.steerableSessions.has(input.sessionId)) {
-                    throw new Error("steer_not_available");
-                }
-                const item = this.enqueueSteer(input.sessionId, input.message);
-                return {
-                    sessionId: input.sessionId,
-                    invocationId,
-                    status: "waiting",
-                    finalMessage: `steer queued: ${item.id}`,
-                    queuedItem: item,
-                };
-            }
-            if ((input.mode === "prompt" || input.mode === "followup") && input.message) {
-                const item = await this.enqueueFollowUp(input.sessionId, input.message);
-                return {
-                    sessionId: input.sessionId,
-                    invocationId,
-                    status: "waiting",
-                    finalMessage: `follow up queued: ${item.id}`,
-                    queuedItem: item,
-                };
-            }
-            throw new Error("active_invocation_exists");
-        }
-        if (input.mode === "steer") {
-            throw new Error("active_invocation_required");
-        }
-        if (input.mode === "followup") {
-            throw new Error("active_invocation_required");
-        }
-
-        const activeInvocation: AgentActiveInvocationDto = currentInvocation?.status === "waiting" && input.resolution
-            ? {
-                ...currentInvocation,
-                status: "running",
-            }
-            : {
-                invocationId,
-                sessionId: input.sessionId,
-                status: "running",
-                mode: input.mode,
-                startedAt: Date.now(),
-            };
-        const abortController = this.abortControllers.get(input.sessionId) ?? new AbortController();
-        this.activeInvocations.set(input.sessionId, activeInvocation);
-        this.steerableSessions.add(input.sessionId);
-        this.abortControllers.set(input.sessionId, abortController);
-        this.invocationClientStates.set(invocationId, input.clientState);
-        this.invocationVariableStates.set(invocationId, {
-            readFingerprints: new Map(),
-            clientOverlay: normalizeClientState(input.clientState),
-        });
-        const runtimeState = this.invocationRuntimeStates.get(invocationId) ?? new Map<string, JsonValue>();
-        this.invocationRuntimeStates.set(invocationId, runtimeState);
-        const isResume = Boolean(input.resolution && currentInvocation?.status === "waiting");
-        if (!isResume) {
-            await this.writeLifecycle(input.sessionId, invocationId, "start");
-        }
-
-        let snapshot = await this.repo.readSession(input.sessionId);
-        let pendingUserMessage: Message | null = null;
-        let pendingResolution: AgentResolution | null = null;
+        let snapshot = admission.snapshot;
+        const pendingUserMessage = admission.pendingUserMessage;
+        const pendingResolution = admission.pendingResolution;
+        const invocationId = admission.invocationId;
+        const abortController = admission.abortController;
+        const runtimeState = admission.runtimeState;
         let errorPhase: InvocationErrorPhase = "pre_loop";
-
         try {
-            if (input.mode === "prompt") {
-                if (!input.message) {
-                    throw new Error("prompt 模式必须提供 message");
-                }
-                pendingUserMessage = createUserMessage(input.message);
-            }
-
-            if (input.mode === "continue" && input.resolution) {
-                pendingResolution = input.resolution;
-            }
-
+            snapshot = snapshot ?? await this.repo.readSession(input.sessionId);
             const preparedRun = await this.prepareRun({
                 sessionId: input.sessionId,
                 invocationId,
@@ -436,6 +387,132 @@ export class NeuroAgentHarness {
                 aborted: abortController.signal.aborted,
             });
         }
+    }
+
+    private async admitInvocation(input: InvokeAgentInput): Promise<InvocationAdmission> {
+        let snapshot: SessionSnapshot | null = null;
+        let pendingUserMessage: Message | null = null;
+        let pendingResolution: AgentResolution | null = null;
+        let currentInvocation = this.activeInvocations.get(input.sessionId) ?? null;
+        if (!currentInvocation && input.mode === "continue" && input.resolution) {
+            snapshot = await this.repo.readSession(input.sessionId);
+            const context = this.repo.reduce(snapshot);
+            const pendingMessages = context.messages.filter((message): message is Message => {
+                return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
+            });
+            const pendingApproval = findPendingApprovalCall(pendingMessages, this.tools.approvalToolKeys());
+            const baseSummary = this.repo.summary(snapshot);
+            currentInvocation = this.resolveActiveInvocation(input.sessionId, baseSummary.status, pendingApproval, snapshot);
+            if (!pendingApproval) {
+                throw new Error("当前 session 没有等待中的审批 tool call");
+            }
+            if (currentInvocation?.status !== "waiting") {
+                throw new Error("waiting_invocation_not_recoverable");
+            }
+        }
+        if (input.resolution && currentInvocation && currentInvocation.status !== "waiting") {
+            if (currentInvocation.status === "aborting") {
+                throw new Error("active_invocation_aborting");
+            }
+            throw new Error("waiting_invocation_not_recoverable");
+        }
+        const invocationId = input.resolution && currentInvocation?.status === "waiting"
+            ? currentInvocation.invocationId
+            : randomUUID();
+        if ((input.mode === "steer" || input.mode === "followup") && !input.message) {
+            throw new Error(`${input.mode} 模式必须提供 message`);
+        }
+        if (currentInvocation && !input.resolution && !input.internalQueued) {
+            if (currentInvocation.status === "aborting") {
+                throw new Error("active_invocation_aborting");
+            }
+            if (input.mode === "steer" && input.message) {
+                if (!this.steerableSessions.has(input.sessionId)) {
+                    throw new Error("steer_not_available");
+                }
+                const item = this.enqueueSteer(input.sessionId, input.message);
+                return {
+                    queued: {
+                        sessionId: input.sessionId,
+                        invocationId,
+                        status: "waiting",
+                        finalMessage: `steer queued: ${item.id}`,
+                        queuedItem: item,
+                    },
+                };
+            }
+            if ((input.mode === "prompt" || input.mode === "followup") && input.message) {
+                const item = await this.enqueueFollowUp(input.sessionId, input.message);
+                return {
+                    queued: {
+                        sessionId: input.sessionId,
+                        invocationId,
+                        status: "waiting",
+                        finalMessage: `follow up queued: ${item.id}`,
+                        queuedItem: item,
+                    },
+                };
+            }
+            throw new Error("active_invocation_exists");
+        }
+        if (input.mode === "steer") {
+            throw new Error("active_invocation_required");
+        }
+        if (input.mode === "followup") {
+            throw new Error("active_invocation_required");
+        }
+        if (input.mode === "prompt") {
+            if (!input.message) {
+                throw new Error("prompt 模式必须提供 message");
+            }
+            pendingUserMessage = createUserMessage(input.message);
+        }
+        if (input.mode === "continue" && input.resolution) {
+            pendingResolution = input.resolution;
+        }
+        const activeInvocation: AgentActiveInvocationDto = currentInvocation?.status === "waiting" && input.resolution
+            ? {
+                ...currentInvocation,
+                status: "running",
+            }
+            : {
+                invocationId,
+                sessionId: input.sessionId,
+                status: "running",
+                mode: input.mode,
+                startedAt: Date.now(),
+            };
+        const abortController = this.abortControllers.get(input.sessionId) ?? new AbortController();
+        this.activeInvocations.set(input.sessionId, activeInvocation);
+        this.steerableSessions.add(input.sessionId);
+        this.abortControllers.set(input.sessionId, abortController);
+        this.invocationClientStates.set(invocationId, input.clientState);
+        this.invocationVariableStates.set(invocationId, {
+            readFingerprints: new Map(),
+            clientOverlay: normalizeClientState(input.clientState),
+        });
+        const runtimeState = this.invocationRuntimeStates.get(invocationId) ?? new Map<string, JsonValue>();
+        this.invocationRuntimeStates.set(invocationId, runtimeState);
+        const isResume = Boolean(input.resolution && currentInvocation?.status === "waiting");
+        try {
+            if (!isResume) {
+                await this.writeLifecycle(input.sessionId, invocationId, "start");
+            }
+        } catch (error) {
+            this.finishInvocationState(input.sessionId, invocationId);
+            throw error;
+        }
+
+        return {
+            snapshot,
+            pendingUserMessage,
+            pendingResolution,
+            currentInvocation,
+            invocationId,
+            abortController,
+            runtimeState,
+            isResume,
+        };
     }
 
     private async finalizeInvokeResult(input: {
@@ -748,10 +825,10 @@ export class NeuroAgentHarness {
             status: undefined,
             limit: undefined,
         };
-        const summaries = (await this.repo.listSessions(repoQuery)).map((summary) => ({
-            ...summary,
-            status: this.resolveSessionStatus(summary.sessionId, summary.archived),
-        }));
+        const summaries: AgentSessionSummaryDto[] = [];
+        for (const summary of await this.repo.listSessions(repoQuery)) {
+            summaries.push((await this.resolveSessionRuntimeProjection(summary.sessionId)).summary);
+        }
         const filtered = summaries.filter((summary) => this.matchesSessionStatusFilter(summary, query.status));
         return query.limit ? filtered.slice(0, query.limit) : filtered;
     }
@@ -775,30 +852,22 @@ export class NeuroAgentHarness {
      * 这里故意不包含 messages、entries、tree、systemPrompt、linked agents。
      */
     async getSessionLiveState(sessionId: number): Promise<AgentSessionLiveStateDto> {
-        const snapshot = await this.repo.readSession(sessionId);
-        const context = this.repo.reduce(snapshot);
-        const pendingMessages = context.messages.filter((message): message is Message => {
-            return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
-        });
-        const pendingApproval = findPendingApprovalCall(pendingMessages, this.tools.approvalToolKeys());
-        const effectiveThinkingLevel = await this.snapshotThinkingLevel(snapshot, context);
-        const summarizer = this.sessionSummarizerStateDto(context);
+        const projection = await this.resolveSessionRuntimeProjection(sessionId);
+        const effectiveThinkingLevel = await this.snapshotThinkingLevel(projection.snapshot, projection.context);
+        const summarizer = this.sessionSummarizerStateDto(projection.context);
         return {
-            summary: {
-                ...this.repo.summary(snapshot),
-                status: this.resolveSessionStatus(sessionId, context.archived),
-            },
+            summary: projection.summary,
             ...(summarizer ? {summarizer} : {}),
-            activeLeafId: snapshot.leafId,
-            pendingApproval: pendingApproval ? await this.pendingApprovalDto(snapshot, pendingApproval) : null,
+            activeLeafId: projection.snapshot.leafId,
+            pendingApproval: projection.pendingApproval ? await this.pendingApprovalDto(projection.snapshot, projection.pendingApproval) : null,
             steerQueue: this.steerQueues.get(sessionId) ?? [],
-            followUpQueue: this.followUpQueueState(sessionId, context),
-            activeInvocation: this.activeInvocations.get(sessionId) ?? null,
-            model: context.model,
-            thinkingLevel: context.thinkingLevel,
+            followUpQueue: this.followUpQueueState(sessionId, projection.context),
+            activeInvocation: projection.activeInvocation,
+            model: projection.context.model,
+            thinkingLevel: projection.context.thinkingLevel,
             effectiveThinkingLevel,
-            planModeActive: context.planModeActive,
-            usage: [...context.messages].reverse().find((message) => message.role === "assistant")?.usage,
+            planModeActive: projection.context.planModeActive,
+            usage: [...projection.context.messages].reverse().find((message) => message.role === "assistant")?.usage,
         };
     }
 
@@ -806,19 +875,14 @@ export class NeuroAgentHarness {
      * 返回完整前端 snapshot，作为 UI 恢复真相。
      */
     async getSessionSnapshot(sessionId: number): Promise<AgentSessionSnapshotDto> {
-        const snapshot = await this.repo.readSession(sessionId);
-        const context = this.repo.reduce(snapshot);
-        const pendingMessages = context.messages.filter((message): message is Message => {
-            return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
-        });
-        const pendingApproval = findPendingApprovalCall(pendingMessages, this.tools.approvalToolKeys());
+        const projection = await this.resolveSessionRuntimeProjection(sessionId);
+        const {snapshot, context} = projection;
         const linkedAgents: AgentLinkedSessionDto[] = [];
         for (const linked of context.linkedAgents) {
             const linkedSnapshot = await this.repo.readSession(linked.sessionId);
-            const linkedContext = this.repo.reduce(linkedSnapshot);
+            const linkedProjection = await this.resolveSessionRuntimeProjection(linked.sessionId, linkedSnapshot);
             linkedAgents.push({
-                ...this.repo.summary(linkedSnapshot),
-                status: this.resolveSessionStatus(linked.sessionId, linkedContext.archived),
+                ...linkedProjection.summary,
                 detached: linked.detached,
             });
         }
@@ -829,10 +893,8 @@ export class NeuroAgentHarness {
         const followUpQueue = this.followUpQueueState(sessionId, context);
 
         return {
-            summary: {
-                ...this.repo.summary(snapshot),
-                status: this.resolveSessionStatus(sessionId, context.archived),
-            },
+            eventEpoch: this.eventHub.eventEpoch,
+            summary: projection.summary,
             ...(summarizer ? {summarizer} : {}),
             activeLeafId: snapshot.leafId,
             ...systemPrompt ? {systemPrompt} : {},
@@ -841,15 +903,15 @@ export class NeuroAgentHarness {
             entries: this.repo.activePath(snapshot),
             linkedAgents,
             linkedByAgents,
-            pendingApproval: pendingApproval ? await this.pendingApprovalDto(snapshot, pendingApproval) : null,
+            pendingApproval: projection.pendingApproval ? await this.pendingApprovalDto(snapshot, projection.pendingApproval) : null,
             steerQueue: this.steerQueues.get(sessionId) ?? [],
             followUpQueue,
-            activeInvocation: this.activeInvocations.get(sessionId) ?? null,
+            activeInvocation: projection.activeInvocation,
             model: context.model,
             thinkingLevel: context.thinkingLevel,
             effectiveThinkingLevel,
             planModeActive: context.planModeActive,
-            lastSeq: this.eventHub.lastSeq,
+            lastSeq: this.eventHub.lastSeq(sessionId),
             usage: [...context.messages].reverse().find((message) => message.role === "assistant")?.usage,
         };
     }
@@ -887,9 +949,9 @@ export class NeuroAgentHarness {
             if (!linked) {
                 continue;
             }
+            const ownerProjection = await this.resolveSessionRuntimeProjection(summary.sessionId, ownerSnapshot);
             linkedByAgents.push({
-                ...this.repo.summary(ownerSnapshot),
-                status: this.resolveSessionStatus(summary.sessionId, ownerContext.archived),
+                ...ownerProjection.summary,
                 detached: linked.detached,
             });
         }
@@ -1196,42 +1258,60 @@ export class NeuroAgentHarness {
      * 请求中断当前 invocation。底层 provider/tool 会通过 AbortSignal 尽量停止。
      */
     async abortInvocation(sessionId: number, body: AgentAbortRequestDto = {}): Promise<AgentAbortResult> {
-        const active = this.activeInvocations.get(sessionId);
-        if (!active) {
+        const admission = await this.withSessionAdmission(sessionId, async () => {
+            const active = await this.claimAbortInvocation(sessionId);
+            if (!active) {
+                return {
+                    kind: "idle" as const,
+                };
+            }
+            if (active.status === "waiting") {
+                active.status = "aborting";
+                this.steerQueues.delete(sessionId);
+                if (body.clearQueue ?? true) {
+                    await this.setFollowUpQueueState(sessionId, this.emptyFollowUpQueueState());
+                } else {
+                    await this.pauseFollowUps(sessionId, active.invocationId, "aborted");
+                }
+                await this.appendAbortResolution(sessionId, active.invocationId, body.reason);
+                await this.writeLifecycle(sessionId, active.invocationId, "aborted", body.reason ?? "invocation aborted", {
+                    message: body.reason ?? "invocation aborted",
+                    phase: "unknown",
+                });
+                this.eventHub.publish({
+                    sessionId,
+                    invocationId: active.invocationId,
+                    kind: "session",
+                    event: {
+                        type: "invocation_aborted",
+                        reason: body.reason,
+                    },
+                });
+                await this.finishInvocation(sessionId, active.invocationId);
+                return {
+                    kind: "completed" as const,
+                    result: {
+                        status: "aborted" as const,
+                        sessionId,
+                    },
+                };
+            }
+            active.status = "aborting";
+            this.steerableSessions.delete(sessionId);
+            return {
+                kind: "running" as const,
+                active,
+            };
+        });
+        if (admission.kind === "idle") {
             return {
                 status: "idle",
                 sessionId,
             };
         }
-        if (active.status === "waiting") {
-            this.steerQueues.delete(sessionId);
-            if (body.clearQueue ?? true) {
-                await this.setFollowUpQueueState(sessionId, this.emptyFollowUpQueueState());
-            } else {
-                await this.pauseFollowUps(sessionId, active.invocationId, "aborted");
-            }
-            await this.appendAbortResolution(sessionId, active.invocationId, body.reason);
-            await this.writeLifecycle(sessionId, active.invocationId, "aborted", body.reason ?? "invocation aborted", {
-                message: body.reason ?? "invocation aborted",
-                phase: "unknown",
-            });
-            this.eventHub.publish({
-                sessionId,
-                invocationId: active.invocationId,
-                kind: "session",
-                event: {
-                    type: "invocation_aborted",
-                    reason: body.reason,
-                },
-            });
-            await this.finishInvocation(sessionId, active.invocationId);
-            return {
-                status: "aborted",
-                sessionId,
-            };
+        if (admission.kind === "completed") {
+            return admission.result;
         }
-        active.status = "aborting";
-        this.steerableSessions.delete(sessionId);
         this.abortControllers.get(sessionId)?.abort(body.reason);
         if (body.clearQueue ?? true) {
             this.steerQueues.delete(sessionId);
@@ -1239,18 +1319,37 @@ export class NeuroAgentHarness {
         }
         this.eventHub.publish({
             sessionId,
-            invocationId: active.invocationId,
+            invocationId: admission.active.invocationId,
             kind: "session",
             event: {
                 type: "invocation_aborted",
                 reason: body.reason,
             },
         });
-        await this.publishSessionState(sessionId, active.invocationId);
+        await this.publishSessionState(sessionId, admission.active.invocationId);
         return {
             status: "aborted",
             sessionId,
         };
+    }
+
+    private async claimAbortInvocation(sessionId: number): Promise<AgentActiveInvocationDto | null> {
+        let active = this.activeInvocations.get(sessionId) ?? null;
+        if (active) {
+            return active;
+        }
+        const snapshot = await this.repo.readSession(sessionId);
+        const context = this.repo.reduce(snapshot);
+        const messages = context.messages.filter((message): message is Message => {
+            return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
+        });
+        const pendingApproval = findPendingApprovalCall(messages, this.tools.approvalToolKeys());
+        const baseSummary = this.repo.summary(snapshot);
+        active = this.resolveActiveInvocation(sessionId, baseSummary.status, pendingApproval, snapshot);
+        if (active?.status === "waiting") {
+            this.activeInvocations.set(sessionId, active);
+        }
+        return active;
     }
 
     private async appendAbortResolution(sessionId: number, invocationId: string, reason?: string): Promise<void> {
@@ -1286,8 +1385,10 @@ export class NeuroAgentHarness {
     /**
      * 订阅 session 级事件流。
      */
-    subscribeSessionEvents(sessionId: number, after?: number): AsyncIterable<AgentSessionEventDto> {
-        return this.eventHub.subscribe(sessionId, after);
+    subscribeSessionEvents(sessionId: number, cursor: AgentSessionEventsQueryDto = {}): AsyncIterable<AgentSessionEventDto> & {connected: AgentSessionEventDto} {
+        return Object.assign(this.eventHub.subscribe(sessionId, cursor), {
+            connected: this.eventHub.connectedEvent(sessionId),
+        });
     }
 
     /**
@@ -2543,6 +2644,11 @@ export class NeuroAgentHarness {
     }
 
     private async finishInvocation(sessionId: number, invocationId?: string): Promise<void> {
+        this.finishInvocationState(sessionId, invocationId);
+        await this.publishSessionState(sessionId, invocationId);
+    }
+
+    private finishInvocationState(sessionId: number, invocationId?: string): void {
         this.activeInvocations.delete(sessionId);
         this.steerableSessions.delete(sessionId);
         this.steerQueues.delete(sessionId);
@@ -2553,7 +2659,6 @@ export class NeuroAgentHarness {
             this.invocationRuntimeStates.delete(invocationId);
             this.rejectPendingClientPatches(invocationId);
         }
-        await this.publishSessionState(sessionId, invocationId);
     }
 
     private async writeLifecycle(
@@ -2577,6 +2682,26 @@ export class NeuroAgentHarness {
                 },
             }],
         }, invocationId);
+    }
+
+    private async withSessionAdmission<TResult>(sessionId: number, task: () => Promise<TResult>): Promise<TResult> {
+        const previous = this.admissionQueues.get(sessionId) ?? Promise.resolve();
+        let release!: () => void;
+        const current = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const queued = previous.catch(() => undefined).then(() => current);
+        this.admissionQueues.set(sessionId, queued);
+
+        await previous.catch(() => undefined);
+        try {
+            return await task();
+        } finally {
+            release();
+            if (this.admissionQueues.get(sessionId) === queued) {
+                this.admissionQueues.delete(sessionId);
+            }
+        }
     }
 
     private async executeWritePlan(plan: SessionWritePlan, invocationId?: string): Promise<SessionEntry[]> {
@@ -2810,18 +2935,85 @@ export class NeuroAgentHarness {
         });
     }
 
-    private resolveSessionStatus(sessionId: number, archived: boolean): AgentSessionSummaryDto["status"] {
+    private resolveSessionStatus(
+        sessionId: number,
+        baseStatus: AgentSessionSummaryDto["status"],
+        archived: boolean,
+        active: AgentActiveInvocationDto | null = this.activeInvocations.get(sessionId) ?? null,
+    ): AgentSessionSummaryDto["status"] {
         if (archived) {
             return "archived";
         }
-        const active = this.activeInvocations.get(sessionId);
         if (active?.status === "waiting") {
             return "waiting";
         }
         if (active) {
             return "running";
         }
-        return "idle";
+        return baseStatus;
+    }
+
+    private async resolveSessionRuntimeProjection(sessionId: number, snapshot?: SessionSnapshot): Promise<SessionRuntimeProjection> {
+        const currentSnapshot = snapshot ?? await this.repo.readSession(sessionId);
+        const context = this.repo.reduce(currentSnapshot);
+        const pendingMessages = context.messages.filter((message): message is Message => {
+            return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
+        });
+        const pendingApproval = findPendingApprovalCall(pendingMessages, this.tools.approvalToolKeys());
+        const baseSummary = this.repo.summary(currentSnapshot);
+        const activeInvocation = this.resolveActiveInvocation(sessionId, baseSummary.status, pendingApproval, currentSnapshot);
+        const summary = {
+            ...baseSummary,
+            status: this.resolveSessionStatus(sessionId, baseSummary.status, context.archived, activeInvocation),
+        };
+        return {
+            snapshot: currentSnapshot,
+            context,
+            baseSummary,
+            summary,
+            pendingApproval,
+            activeInvocation,
+        };
+    }
+
+    private resolveActiveInvocation(
+        sessionId: number,
+        baseStatus: AgentSessionSummaryDto["status"],
+        pendingApproval: PendingApprovalLookup,
+        snapshot: SessionSnapshot,
+    ): AgentActiveInvocationDto | null {
+        const active = this.activeInvocations.get(sessionId);
+        if (active) {
+            return active;
+        }
+        if (!pendingApproval) {
+            return null;
+        }
+        return this.hydrateWaitingInvocation(sessionId, baseStatus, snapshot);
+    }
+
+    private hydrateWaitingInvocation(sessionId: number, baseStatus: AgentSessionSummaryDto["status"], snapshot: SessionSnapshot): AgentActiveInvocationDto | null {
+        if (baseStatus === "archived") {
+            return null;
+        }
+        const path = this.repo.activePath(snapshot);
+        for (let index = path.length - 1; index >= 0; index -= 1) {
+            const entry = path[index];
+            if (entry?.type !== "invocation_lifecycle") {
+                continue;
+            }
+            if (entry.status !== "waiting") {
+                return null;
+            }
+            return {
+                invocationId: entry.invocationId,
+                sessionId,
+                status: "waiting",
+                mode: "continue",
+                startedAt: entry.timestamp,
+            };
+        }
+        return null;
     }
 
     private isLeaderProfile(profileKey: string): boolean {

@@ -432,6 +432,64 @@ Snapshot 必须同时包含 durable session projection 和 UI 恢复所需的 ru
 - pending approval/user input
 - latest projection/title/summary
 
+### SSE Epoch 是事件流身份
+
+SSE 的增量 cursor 不能只靠 `seq` 表达。`seq` 只在当前后端进程里的 `AgentSessionEventHub` 有意义；dev reload、进程重启或未来多实例切换后，新的 EventHub 可能从更小的 `seq` 重新开始。
+
+因此，事件恢复合同必须使用：
+
+```text
+event cursor = (eventEpoch, seq)
+```
+
+规则：
+
+- `eventEpoch` 是当前 EventHub 实例的事件流身份。第一版可以是进程内随机 UUID。
+- 每个 SSE envelope 都带 `eventEpoch` 和 `seq`。
+- session snapshot 带 `eventEpoch` 和 `lastSeq`。
+- `connected` 是 stream handshake，不是普通 session 增量事件。它必须告诉前端当前 `eventEpoch` 和 `latestSeq`。
+- 前端如果发现 `eventEpoch` 不同，必须丢弃旧 event cursor、拉 snapshot，并允许 `lastSeq` 回退到 snapshot 的 `lastSeq`。
+- 同 epoch 下，如果 `seq` 连续，前端应用增量事件。
+- 同 epoch 下，如果 `seq` gap，前端请求 snapshot。
+- 同 epoch 下，如果 `after > latestSeq`，说明客户端 cursor 来自服务端当前无法证明的“未来”。这等同于需要 snapshot recovery，不能继续等待更大的 seq。
+
+这样，后端 dev reload 后的恢复链路是确定的：
+
+```text
+old frontend cursor: (epoch=A, seq=426)
+backend reload -> new EventHub: (epoch=B, seq=0)
+frontend reconnect with old cursor
+server connected handshake: (epoch=B, latestSeq=0)
+frontend detects epoch mismatch
+frontend fetches snapshot
+frontend applies snapshot as new truth: cursor=(B, snapshot.lastSeq)
+```
+
+没有 epoch 时，前端会把新进程的 `seq=1`、`seq=2` 当成旧 cursor `426` 之前的过期事件丢掉，UI 就会卡在旧的 running / waiting 状态。
+
+### Snapshot 可以重建 Waiting UI
+
+后端进程重启后，内存里的 `activeInvocations`、AbortController、EventHub replay、steer queue 运行态都会消失。Snapshot 仍然必须能从 session active path 重建用户可见的 waiting UI。
+
+waiting hydrate 规则：
+
+- `pendingApproval` / pending user input 继续从 session active path 的未闭合 approval tool call 推导。
+- 如果存在 pending approval，但内存 `activeInvocation` 丢失，snapshot 应从最近的 lifecycle `waiting` entry hydrate 一个 `activeInvocation.status = "waiting"`。
+- hydrate 出来的 `activeInvocation.invocationId` 必须优先使用同一 pending tool call 关联的 waiting lifecycle `invocationId`。
+- 如果找不到可靠 lifecycle，snapshot 仍可展示 pending approval，但 `continue(resolution)` 必须在 admission 阶段给出结构化错误，不能悄悄创建新的 unrelated invocation。
+- 第一版只要求恢复 waiting UI 和允许 resolution resume；不要求重启后自动恢复 running provider call、tool batch、abort controller 或 ready follow-up 自动 drain。
+
+用户提交 resolution 后：
+
+```text
+snapshot hydrated waiting activeInvocation
+continue(resolution)
+  -> Coordinator 接受为 waiting resume
+  -> prepareRun 写 resolution toolResult
+  -> prepareRun 写 lifecycle resumed，复用原 invocationId
+  -> Run Kernel 继续执行
+```
+
 ## 对内部设计的推论
 
 这个黑盒合同会推出一些内部架构要求，但它本身不定义内部架构：

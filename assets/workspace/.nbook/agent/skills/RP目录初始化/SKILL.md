@@ -34,7 +34,6 @@ workspace project create "gong-li-yu-lu-xue-yuan" --target "workspace/gong-li-yu
 
 ```text
 roleplay/
-|-- AGENTS.md
 |-- config.yaml
 |-- cast.yaml
 |-- gm.md
@@ -42,10 +41,14 @@ roleplay/
 `-- actors/
     |-- player/
     |   |-- actor.md
-    |   `-- knowledge.md
+    |   |-- knowledge.md
+    |   |-- mind.md
+    |   `-- state.md
     `-- sample-npc/
         |-- actor.md
-        `-- knowledge.md
+        |-- knowledge.md
+        |-- mind.md
+        `-- state.md
 ```
 
 ## 初始化后检查

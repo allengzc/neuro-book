@@ -6,11 +6,10 @@ defaultPlayerActor: player
 tickMode: player_turn
 memoryPersistence: false
 writerRetrieval: gm_brief_only
-actorKnowledgeUpdate: direct_file_edit
+actorStateUpdate: direct_file_edit
 
 startup:
   read:
-    - roleplay/AGENTS.md
     - roleplay/cast.yaml
     - roleplay/gm.md
     - roleplay/writer.md
@@ -33,8 +32,11 @@ defaults:
   writerOutput: prose_only
   allowActorInitiative: false
   allowWriterLorebookLookup: false
+  allowWriterFileTools: true
   callAllActorsEachTick: false
   updateKnowledgeAfterTick: true
+  updateMindAfterTick: true
+  updateStateAfterTick: true
   askUserBeforeIrreversibleAction: true
 
 profileInputs:
@@ -42,10 +44,11 @@ profileInputs:
     autoInject:
       - actor.instruction
       - actor.knowledge
+      - actor.mind
+      - actor.state
       - gm.filtered_observation_packet
-    fileToolScope: own_knowledge_md
+    fileToolScope: own_knowledge_mind_state_md
     doNotInject:
-      - roleplay/AGENTS.md
       - roleplay/gm.md
       - roleplay/writer.md
       - lorebook/
@@ -54,9 +57,8 @@ profileInputs:
     autoInject:
       - roleplay/writer.md
       - gm.writer_brief
-    fileToolScope: none
+    fileToolScope: gm_explicit_paths_only
     doNotInject:
-      - roleplay/AGENTS.md
       - roleplay/gm.md
       - roleplay/cast.yaml
       - lorebook/
@@ -70,5 +72,8 @@ tickChecklist:
   - collect_actor_responses
   - resolve_world_state
   - update_actor_knowledge
+  - update_actor_mind
+  - update_actor_state
   - build_writer_brief
   - render_writer_output
+  - gm_followup_options_if_needed
