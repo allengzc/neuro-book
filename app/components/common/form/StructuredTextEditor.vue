@@ -314,7 +314,7 @@ defineExpose({
         :class="[
             rootClass,
             props.borderless
-                ? 'border-none shadow-none rounded-t-[10px] rounded-b-none bg-[var(--bg-panel)]'
+                ? 'border-none shadow-none bg-[var(--bg-panel)]'
                 : 'rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)]'
         ]"
     >
@@ -420,8 +420,8 @@ defineExpose({
 <style scoped>
 .structured-text-editor--borderless {
     border: none !important;
-    border-top-left-radius: 10px !important;
-    border-top-right-radius: 10px !important;
+    border-top-left-radius: calc(var(--composer-radius, 0.75rem) - 1px) !important;
+    border-top-right-radius: calc(var(--composer-radius, 0.75rem) - 1px) !important;
     border-bottom-left-radius: 0 !important;
     border-bottom-right-radius: 0 !important;
     background: var(--bg-panel) !important;
@@ -429,20 +429,20 @@ defineExpose({
 }
 .structured-text-editor--borderless .structured-text-editor__body {
     background: var(--bg-panel) !important;
-    border-top-left-radius: 10px !important;
-    border-top-right-radius: 10px !important;
+    border-top-left-radius: calc(var(--composer-radius, 0.75rem) - 1px) !important;
+    border-top-right-radius: calc(var(--composer-radius, 0.75rem) - 1px) !important;
     border-bottom-left-radius: 0 !important;
     border-bottom-right-radius: 0 !important;
 }
 .structured-text-editor--borderless :deep(.tiptap-markdown-wrapper) {
     background: var(--bg-panel) !important;
-    border-top-left-radius: 10px !important;
-    border-top-right-radius: 10px !important;
+    border-top-left-radius: calc(var(--composer-radius, 0.75rem) - 1px) !important;
+    border-top-right-radius: calc(var(--composer-radius, 0.75rem) - 1px) !important;
 }
 .structured-text-editor--borderless :deep(.markdown-source-shell) {
     background: var(--source-bg) !important;
-    border-top-left-radius: 10px !important;
-    border-top-right-radius: 10px !important;
+    border-top-left-radius: calc(var(--composer-radius, 0.75rem) - 1px) !important;
+    border-top-right-radius: calc(var(--composer-radius, 0.75rem) - 1px) !important;
 }
 
 .structured-text-editor {

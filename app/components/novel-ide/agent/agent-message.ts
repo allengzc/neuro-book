@@ -81,6 +81,28 @@ export type AgentMessage = {
     assistantContent?: PiAssistantContent[];
 };
 
+/**
+ * 判断一条消息是否可以作为“空输入继续”的断点。
+ */
+export const isContinuationPointMessage = (
+    message: AgentMessage | undefined,
+    options: {allowSettledAiToolCalls?: boolean} = {},
+): boolean => {
+    if (!message) {
+        return false;
+    }
+    if (message.type !== "ai") {
+        return true;
+    }
+    if (!options.allowSettledAiToolCalls) {
+        return false;
+    }
+    const toolCalls = message.toolCalls ?? [];
+    return toolCalls.length > 0 && toolCalls.every((toolCall) => {
+        return toolCall.status === "success" || toolCall.status === "error" || toolCall.status === "invalid";
+    });
+};
+
 export const AgentUserInputQuestionOptionSchema = z.object({
     label: z.string(),
     description: z.string().optional(),

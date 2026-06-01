@@ -57,6 +57,7 @@ export function createTaskTools(): NeuroAgentTool[] {
             key: "task_create",
             name: "task_create",
             label: "Task Create",
+            executionMode: "sequential",
             description: "Create or replace the current session task list. Use it to track multi-step or cross-turn work.",
             parameters: TaskCreateSchema,
             async execute() {
@@ -91,6 +92,7 @@ export function createTaskTools(): NeuroAgentTool[] {
             key: "task_set_status",
             name: "task_set_status",
             label: "Task Set Status",
+            executionMode: "sequential",
             description: "Update one task step status in the current session task list and return the full task list.",
             parameters: TaskSetStatusSchema,
             async execute() {

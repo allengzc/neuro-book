@@ -107,6 +107,15 @@ roleplay/
 |-- cast.yaml
 |-- gm.md
 |-- writer.md
+|-- run/                  # proposed, name TBD; current playthrough / tick artifacts
+|   |-- current.md
+|   `-- ticks/
+|       `-- 000001/
+|           |-- user-input.md
+|           |-- gm-scratch.md
+|           |-- actors/
+|           |-- writer-brief.md
+|           `-- prose.md
 |-- actors/
 |   `-- {actor-id}/
 |       |-- actor.md
@@ -151,6 +160,26 @@ workspace project create my-novel --target /path/to/project --template roleplay-
 - `cast.yaml`：本局可调度 actor 注册表。为了减少零散目录，第一版不再使用 `cast/cast.yaml`。
 - `gm.md`：GM 唯一入口说明和专用运行协议，包含可读范围、信息披露规则、Tick 协议、profile 调用边界、actor packet 模板和 writer brief 模板。
 - `writer.md`：`rp.writer` 的自动注入提示词来源，描述文风、输出契约、禁止事项和 writer brief 消费规则。writer 不应把整个 `roleplay/` 当作自己的工作目录。
+
+### `run/` / Playthrough Artifacts
+
+`session` 这个名字容易和 Agent Session 混淆，暂不推荐直接使用。当前更倾向把“本局游戏进程、Tick 产物、writer 正文文件”放进 `roleplay/run/`，但名字仍待定，也可以继续讨论 `playthrough/`、`runtime/`、`current-run/`。
+
+第一版设计目标不是长期记忆，而是保存当前游玩过程中的可检查产物：
+
+- `current.md`：当前场景、人称视角、世界时钟、最近 Tick 摘要和下一步待处理事项。
+- `ticks/{tick-id}/user-input.md`：用户本 Tick 的原始输入。
+- `ticks/{tick-id}/gm-scratch.md`：GM 内部裁决、隐藏信息、actor 选择和不应给用户看的判断。
+- `ticks/{tick-id}/actors/{actor-id}.result.json`：actor 本 Tick 的结构化结果。后续如果引入 sidecar，这里可以保存旁路整理后的结果，而不是 actor 主扮演上下文亲自写出的工具参数。
+- `ticks/{tick-id}/writer-brief.md`：GM 发给 writer 的可写正文 brief。
+- `ticks/{tick-id}/prose.md`：writer 生成或 GM 最终确认的用户可见正文。
+
+关键边界：
+
+- `run/` 是本局过程记录，不是 canonical lorebook，也不是 actor 长期记忆。
+- actor 默认不读取 `run/`，除非 GM 把其中内容过滤后注入。
+- writer 可以在 GM 明确要求时把正文写入 `run/ticks/{tick-id}/prose.md`，但不自行浏览完整 `run/`。
+- 后续如果实现回放、debug、存档或分支剧情，优先扩展 `run/`，不要把这些内容塞进 `knowledge.md`。
 
 ### No `imports/`
 
@@ -260,7 +289,7 @@ roleplay/actors/player/
 
 ### No Default `sessions/`
 
-快速 spike 阶段不做持久化记忆，因此默认不创建 `sessions/`。当前场景和参与者先由 GM 的运行输入、用户消息和临时上下文携带。后续需要持久化 session、回放或调试时，再单独引入 `roleplay/sessions/`。
+快速 spike 阶段仍不做持久化记忆，因此默认模板可以先不创建 `sessions/`。如果需要保存本局过程，优先设计 `roleplay/run/` 这类 playthrough artifacts 目录，而不是使用 `sessions/` 命名，避免和 Agent Session 概念冲突。
 
 ## Agent Profiles
 
@@ -503,45 +532,67 @@ GM 不应每 Tick 调用所有 actor。只选择 active actors：
 
 GM 给 actor 的信息必须是角色合理可获得的信息。
 
-模板：
+重要调整：GM 内部可以用结构化字段组织场景、事件和 hidden facts，但发给 `rp.actor` 的消息不应是 YAML / JSON / 表单任务单。actor 消息应该使用自然语言和第二人称，把模型推进角色扮演状态，而不是 agent 填任务状态。
+
+不要发给 actor：
+
+- `not_known_to_you` 字段。角色不知道的内容直接不出现。
+- `task` 字段。返回格式、工具调用要求和“不要写小说正文”等约束应放在 `rp.actor` profile system prompt 中。
+- GM hidden facts、完整 canonical lorebook、其他 actor 私密意图或 writer brief。
+- `actor:`、`scene:`、`known_to_you:` 这类让上下文像工单的字段名。
+
+推荐发送风格：
 
 ```text
-actor: {actor-id}
-scene:
-  location:
-  visible_participants:
-  immediate_observations:
+{角色名}，{当前场景已经发生了什么}。
 
-event:
-  user_action:
-  observable_effects:
+你看见……
+你听见……
+你刚刚做过或说过……
+你现在处在……压力下。
 
-known_to_you:
-  - ...
-
-not_known_to_you:
-  - ...
-
-task:
-  Respond as this character.
-  Do not use information outside this packet and your actor knowledge.
+你知道……
+你担心……
+你需要维持/追求/避免……
 ```
 
-示例：用户把“世界之心”交给女主。
+示例：用户把“世界之心”交给女主。GM 内部知道它叫世界之心，但女主还不知道，所以 actor 消息不出现这个名称：
 
 ```text
-actor: heroine
-event:
-  user_action: 主角把一块五彩缤纷的石头交到你手里。
-observable_effects:
-  - 石头隐约有异常力量感。
-  - 你无法确认它的真实名称和用途。
-not_known_to_you:
-  - 不知道它叫“世界之心”。
-  - 不知道它的完整机制。
-task:
-  基于你的性格、当前关系和有限认知回应。
+他把那块五彩缤纷的石头交到了你手里。
+
+石头比看起来更沉，表面像是有细小的光在缓慢流动。你说不出它是什么，也无法判断它是不是某种魔法道具，但它确实让你产生了一种很难忽视的力量感。
+
+他没有立刻解释，只是把它交给了你。此刻你们仍在众人视线之中，你能感觉到自己掌心里的东西正在吸引注意。
+
+你还不知道这块石头的名字，也不知道它真正能做什么。你只能根据眼前看到和感受到的东西反应。
 ```
+
+完整样例：布劳尔子爵在勇者召唤仪式后的 actor 消息。
+
+```text
+阿曼德·布劳尔子爵，召唤仪式刚刚结束。
+
+仪式大厅里的法阵余光还没有完全散去。两排铁甲卫兵守在大厅两侧，你身旁的持杖法师沉默地站着。被召唤而来的四个人就在你面前。
+
+你亲眼看见，前三个人身上分别显现出了清晰的力量迹象：一个运动打扮的男生身前浮现金色光幕盾牌，一个洛丽塔装束的女孩周围迸出元素火花，一个戴眼镜的女生身旁环绕着符文光辉。
+
+但第四个人不同。
+
+那是一个白发、矮小到近乎孩子体型的人，穿着你完全不熟悉的奇异便装和运动鞋。她看起来不像骑士，也不像法师，更不像古书记载中的勇者。仪式完成后，她身上没有显现任何能力，只是站在原地，没有动作，也没有解释。
+
+你刚刚压低声音问身边的法师：“这个是不是召唤的时候混进来的？”
+
+法师没有回答。他只是移开了目光。
+
+你很清楚自己为这场勇者召唤付出了多大的代价。布劳尔子爵领已经被危机逼到墙角，你急需真正能拯救领地的勇者。三个有能力的人让你看见了一点希望，可第四个人的存在让你尴尬、失望，也让你不安。
+
+现在，所有人的视线都还在仪式大厅里。卫兵在看着你，法师在回避你，被召唤者们也在等你开口。
+
+你必须维持贵族的体面，至少不能让场面立刻失控。
+```
+
+这个样例刻意不说“薇洛丝”、不说隐藏身份、不列 `not_known_to_you`，也不写返回格式。名字、隐藏能力和异世界知识留在 GM scratch / canonical layer，由 GM 决定何时、如何过滤给角色。
 
 ### 5. Actor -> GM Response Packet
 
@@ -565,6 +616,13 @@ state_update:
 - `private_intent` 和 `emotional_state` 只给 GM，用于后续推进。
 - `questions_to_gm` 表示 actor 需要 GM 裁决的信息。
 - `knowledge_update`、`mind_update`、`state_update` 表示 actor 对自己三类文件的更新建议或已写入摘要。
+
+工具参数命名建议：
+
+- 现有 `report_result.walkthrough` 名字会诱导 actor 写过程解释，不适合沉浸式 RP。
+- 建议把该字段改为 `result`，description 写成“本次工具调用的可读结果；需要时可以写简短 walkthrough”。
+- `report_result.data` 继续保留结构化 packet，字段设计保持上面这组。
+- 更理想的中期设计是 sidecar result pass：actor 主上下文只沉浸式回应，旁路上下文再把回应整理为 `report_result.data`、文件更新摘要和 `run/ticks/{tick-id}/actors/{actor-id}.result.json`。
 
 ### 6. GM Resolution
 
@@ -681,7 +739,7 @@ visibility:
 
 - actor knowledge 是由导入器自动生成初稿，还是由 GM skill 手动维护。
 - 是否需要 `roleplay/actors/{actor-id}/secrets.md` 表示“角色自己知道但其他 actor 不知道”的信息。
-- 是否需要 debug 模式保存 Tick scratch；默认不创建 `sessions/`。
+- 是否需要 debug 模式把 Tick scratch 保存到 `run/`；默认不创建 `sessions/`。
 - 后续抢话模式如何定义 actor 主动行动的触发条件。
 - `leader.rp` 是否需要完全取代 `rp.gm`，还是保留独立 `rp.gm` 给高级编排使用。
 - actor 初始化时创建全部 cast actors，还是只创建当前 active actors。

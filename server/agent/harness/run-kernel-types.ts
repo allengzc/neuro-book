@@ -10,6 +10,13 @@ import type {AgentRuntimeStreamEventDto} from "nbook/shared/dto/agent-session.dt
 
 export type RunRuntimeState = Map<string, JsonValue>;
 
+export type PendingSessionWritePlan = {
+    toolCallIndex: number;
+    toolCallId: string;
+    enqueueOrder: number;
+    plan: SessionWritePlan;
+};
+
 export type RunToolBatchResult = {
     toolResults: ToolResultMessage[];
     reportResult?: InvokeAgentResult["reportResult"];
@@ -126,7 +133,7 @@ export type RunFrame = {
     reportResultReminderEnabled: boolean;
     automaticCompactionEnabled: boolean;
     lastTurnIngest?: TurnIngestResult;
-    pendingWritePlans: SessionWritePlan[];
+    pendingWritePlans: PendingSessionWritePlan[];
     onEvent?: (event: AgentRuntimeStreamEventDto) => void | Promise<void>;
 };
 

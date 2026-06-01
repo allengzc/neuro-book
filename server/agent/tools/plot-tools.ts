@@ -194,6 +194,7 @@ function tool<TSchemaValue extends TSchema>(
         key,
         name: key,
         label: key,
+        executionMode: "sequential",
         description,
         parameters,
         async execute() {

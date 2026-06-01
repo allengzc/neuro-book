@@ -86,9 +86,43 @@ Remove-Item Env:AUTH_ADMIN_PASSWORD
 
 ### 常用部署入口
 
+- Windows Release Zip：面向 Windows x64 的点击启动 bootstrap 包，作为 GitHub Release asset 发布。解压后运行 `Start Neuro Book.cmd`，首次启动会联网安装 Git/Bun/ripgrep、clone `master` 到 `app/`、构建、迁移并启动本地网页。
 - `neuro-book-deploy`：首次部署或重新生成 `.deploy/` 本地配置，默认使用“本机 + Git” `local-git`，也支持高级 Docker 模式 `ghcr` 和 `source`。
 - `bun scripts/deploy/deploy.mjs`：开发服务器快速同步入口，默认登录 `arch`，面向已经初始化好的 source 模式部署。
 - `node scripts/deploy/publish-ghcr-image.mjs`：本地构建并推送 GHCR runtime/app 两类镜像，适合低内存服务器使用预构建镜像。
+
+### Windows Release Zip
+
+Windows Release Zip 是独立于 `neuro-book-deploy` 的 Windows x64 启动包。它不是离线包：zip 自带 Node.js 24 runtime 和 bootstrap 脚本，但不携带源码、`.git`、`.output` 或 `node_modules`。首次启动需要联网完成依赖安装和源码拉取。
+
+使用方式：
+
+```powershell
+.\Start Neuro Book.cmd
+```
+
+首次启动流程：
+
+- 检查 Git、Bun、ripgrep，缺失时用交互确认后通过 `winget` 安装。
+- clone `master` 到 `app/`，后续更新也跟随 `master`，可能进入未 release 状态。
+- 在 `app/` 中执行 `bun install --frozen-lockfile`、Nuxt prepare、Prisma generate、Nuxt build 和 SQLite migration。
+- 没有用户时内联引导创建管理员。
+- 前台启动 `node .output/server/index.mjs` 并打开浏览器。
+
+目录边界：
+
+- 解压目录是 Portable Root。
+- `app/` 是真正的 Git checkout 和服务 cwd。
+- `app/workspace/` 是 v1 的 Workspace Root，包含 App SQLite、Global Config 和 Project Workspace。
+- 不要用新版 zip 直接覆盖已有目录；升级优先运行 `Update Neuro Book.cmd`。
+
+其他入口：
+
+- `Update Neuro Book.cmd` / `Update Neuro Book.ps1`：检查 tracked worktree 干净后拉取 `master` 并重建；不会自动 stash 或 reset。
+- `Rebuild Neuro Book.cmd` / `Rebuild Neuro Book.ps1`：不拉取代码，只按当前源码重建。
+- `Create Admin.cmd` / `Create Admin.ps1`：后续创建或重置管理员。
+
+Release 会同时发布 `SHA256SUMS`。v1 不做代码签名，如遇 PowerShell 执行策略限制，可在用户确认来源后使用 `Set-ExecutionPolicy -Scope Process Bypass` 仅放宽当前 PowerShell 会话。
 
 推荐使用一键交互式部署脚本。它会按部署模式检查 Docker 或宿主机工具、拉取仓库，在项目根目录生成 `.env`、Boot Config `config.yaml`、Global Config `workspace/.nbook/config.json`，并在 `.deploy/` 下生成本地说明。默认使用 SQLite 文件库和“本机 + Git”模式：`git clone/pull` 源码、安装依赖、构建、迁移数据库，然后打印启动命令。
 

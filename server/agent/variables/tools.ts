@@ -51,6 +51,7 @@ export function createVariableTools(): NeuroAgentTool[] {
             key: "variable_schema",
             name: "variable_schema",
             label: "Variable Schema",
+            executionMode: "parallel",
             description: "Inspect focused registered variable schemas. Pass namespace/prefix or full paths; do not request an unfiltered full dump.",
             parameters: VariableSchemaQuerySchema,
             async execute() {
@@ -81,6 +82,7 @@ export function createVariableTools(): NeuroAgentTool[] {
             key: "variable_read",
             name: "variable_read",
             label: "Variable Read",
+            executionMode: "parallel",
             description: "Read a registered variable value by namespace and path. Large values may be truncated; narrow the path for detail.",
             parameters: VariableReadSchema,
             async execute() {
@@ -105,6 +107,7 @@ export function createVariableTools(): NeuroAgentTool[] {
             key: "variable_patch",
             name: "variable_patch",
             label: "Variable Patch",
+            executionMode: "sequential",
             description: "Patch one writable registered variable target with RFC 6902 JSON Patch. After important changes, call variable_read to verify.",
             parameters: VariablePatchSchema,
             async execute() {

@@ -108,6 +108,62 @@ describe("NeuroAgentHarness", () => {
         expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult"]);
     });
 
+    it("report_result 校验失败后会继续下一轮让模型修正", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.reporter-retry",
+                name: "Reporter Retry",
+            },
+            inputSchema: Type.Object({}),
+            outputSchema: Type.Object({
+                title: Type.String(),
+            }),
+            allowedToolKeys: ["report_result"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    walkthrough: "missing data",
+                }, {id: "bad-report"}),
+            ], {stopReason: "toolUse"}),
+            (context) => {
+                expect(visibleMessageText(context.messages)).toContain("Validation failed for tool \"report_result\"");
+                return fauxAssistantMessage([
+                    fauxToolCall("report_result", {
+                        walkthrough: "fixed",
+                        data: {
+                            title: "Fixed",
+                        },
+                    }, {id: "fixed-report"}),
+                ], {stopReason: "toolUse"});
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.reporter-retry",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+
+        expect(result.status).toBe("completed");
+        expect(result.reportResult).toEqual({
+            result: "fixed",
+            data: {
+                title: "Fixed",
+            },
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        expect(context.messages.filter((message) => message.role === "toolResult")).toHaveLength(2);
+    });
+
     it("新建 session snapshot 会展示 profile system prompt 且不触发动态提醒", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
@@ -632,17 +688,32 @@ describe("NeuroAgentHarness", () => {
             input: {},
             workspaceRoot: root,
         });
+        const subscription = harness.subscribeSessionEvents(created.sessionId);
+        const streamedToolResults: string[] = [];
+        const collect = (async () => {
+            for await (const event of subscription) {
+                if (event.kind === "runtime" && event.event.type === "message_start" && event.event.message.role === "toolResult") {
+                    streamedToolResults.push(messageText(event.event.message));
+                }
+                if (event.kind === "runtime" && event.event.type === "agent_end") {
+                    break;
+                }
+            }
+        })();
 
         const waiting = await harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "prompt",
             message: {text: "need input"},
         });
+        await collect;
 
         expect(waiting.status).toBe("waiting");
         const waitingContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
         expect(waitingContext.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult"]);
         expect(messageText(waitingContext.messages[2] as never)).toContain("waiting for user approval");
+        expect(streamedToolResults).toHaveLength(1);
+        expect(streamedToolResults[0]).toContain("waiting for user approval");
         expect(await harness.getSessionSnapshot(created.sessionId)).toEqual(expect.objectContaining({
             pendingApproval: expect.objectContaining({
                 toolCallId: "ask-barrier",
@@ -835,6 +906,239 @@ describe("NeuroAgentHarness", () => {
             "toolResult",
             "test.tool.savePoint",
         ]);
+    });
+
+    it("parallel 工具会并发执行，但 toolResult 和 savePoint writes 按 tool call 顺序落盘", async () => {
+        const releases = new Map<string, () => void>();
+        const started: string[] = [];
+        harness.tools.register({
+            key: "parallel_save_point",
+            name: "parallel_save_point",
+            label: "Parallel Save Point",
+            description: "Parallel test tool.",
+            executionMode: "parallel",
+            parameters: Type.Object({
+                name: Type.String(),
+            }),
+            async executeWithContext(context, _toolCallId, params: unknown) {
+                const input = params as {name: string};
+                started.push(input.name);
+                await new Promise<void>((resolve) => releases.set(input.name, resolve));
+                context.sessionWrites?.savePointCustomState(`test.parallel.${input.name}`, `test.parallel.${input.name}`, input.name);
+                return {
+                    content: [{type: "text", text: input.name}],
+                    details: {},
+                    terminate: true,
+                };
+            },
+            async execute() {
+                throw new Error("parallel_save_point 需要 context。");
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.parallel-tools",
+                name: "Parallel Tools",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["parallel_save_point"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("parallel_save_point", {name: "first"}, {id: "parallel-first"}),
+                fauxToolCall("parallel_save_point", {name: "second"}, {id: "parallel-second"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.parallel-tools",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        let result: Awaited<ReturnType<NeuroAgentHarness["invokeAgent"]>>;
+        try {
+            await waitFor(() => expect(started).toHaveLength(2));
+            releases.get("second")?.();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            releases.get("first")?.();
+            result = await running;
+        } catch (error) {
+            releases.get("first")?.();
+            releases.get("second")?.();
+            await running.catch(() => undefined);
+            throw error;
+        }
+
+        expect(result.status).toBe("completed");
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        expect(context.messages.filter((message) => message.role === "toolResult").map(messageText)).toEqual(["first", "second"]);
+
+        const sessionPath = join(root, ".nbook", "agent", "sessions", `${String(created.sessionId)}.jsonl`);
+        const records = (await readFile(sessionPath, "utf8")).trim().split(/\r?\n/).map((line) => JSON.parse(line) as {kind: string; entries?: Array<{type: string; key?: string; message?: {role?: string}}>});
+        const batchEntries = records
+            .filter((record) => record.kind === "batch")
+            .flatMap((record) => record.entries ?? [])
+            .filter((entry) => entry.type !== "leaf");
+        expect(batchEntries.map((entry) => entry.type === "message" ? entry.message?.role : entry.key)).toEqual([
+            "assistant",
+            "toolResult",
+            "toolResult",
+            "test.parallel.first",
+            "test.parallel.second",
+        ]);
+    });
+
+    it("同一 segment 混入 sequential 工具时整段串行", async () => {
+        const started: string[] = [];
+        harness.tools.register({
+            key: "parallel_marker",
+            name: "parallel_marker",
+            label: "Parallel Marker",
+            description: "Parallel marker.",
+            executionMode: "parallel",
+            parameters: Type.Object({
+                name: Type.String(),
+            }),
+            async execute(_toolCallId, params: unknown) {
+                started.push((params as {name: string}).name);
+                return {
+                    content: [{type: "text", text: (params as {name: string}).name}],
+                    details: {},
+                    terminate: true,
+                };
+            },
+        });
+        harness.tools.register({
+            key: "sequential_gate",
+            name: "sequential_gate",
+            label: "Sequential Gate",
+            description: "Sequential gate.",
+            executionMode: "sequential",
+            parameters: Type.Object({}),
+            async execute() {
+                started.push("gate");
+                await new Promise((resolve) => setTimeout(resolve, 10));
+                return {
+                    content: [{type: "text", text: "gate"}],
+                    details: {},
+                    terminate: true,
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.sequential-segment",
+                name: "Sequential Segment",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["parallel_marker", "sequential_gate"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("parallel_marker", {name: "first"}, {id: "marker-first"}),
+                fauxToolCall("sequential_gate", {}, {id: "gate"}),
+                fauxToolCall("parallel_marker", {name: "second"}, {id: "marker-second"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.sequential-segment",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+
+        expect(result.status).toBe("completed");
+        expect(started).toEqual(["first", "gate", "second"]);
+    });
+
+    it("harness toolExecution=sequential 会强制 parallel 工具串行执行", async () => {
+        harness = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
+            toolExecution: "sequential",
+        });
+        const releases = new Map<string, () => void>();
+        const started: string[] = [];
+        harness.tools.register({
+            key: "parallel_gate",
+            name: "parallel_gate",
+            label: "Parallel Gate",
+            description: "Parallel gate.",
+            executionMode: "parallel",
+            parameters: Type.Object({
+                name: Type.String(),
+            }),
+            async execute(_toolCallId, params: unknown) {
+                const name = (params as {name: string}).name;
+                started.push(name);
+                await new Promise<void>((resolve) => releases.set(name, resolve));
+                return {
+                    content: [{type: "text", text: name}],
+                    details: {},
+                    terminate: true,
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.global-sequential-tools",
+                name: "Global Sequential Tools",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["parallel_gate"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("parallel_gate", {name: "first"}, {id: "global-first"}),
+                fauxToolCall("parallel_gate", {name: "second"}, {id: "global-second"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.global-sequential-tools",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const running = harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        try {
+            await waitFor(() => expect(started).toEqual(["first"]));
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(started).toEqual(["first"]);
+            releases.get("first")?.();
+            await waitFor(() => expect(started).toEqual(["first", "second"]));
+            releases.get("second")?.();
+            const result = await running;
+            expect(result.status).toBe("completed");
+        } catch (error) {
+            releases.get("first")?.();
+            releases.get("second")?.();
+            await running.catch(() => undefined);
+            throw error;
+        }
     });
 
     it("自动 compaction 在下一轮 turn 前执行，并影响下一轮 provider context", async () => {

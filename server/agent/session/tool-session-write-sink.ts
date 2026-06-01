@@ -6,7 +6,14 @@ export type ToolSessionWriteSinkInput = {
     executor: SessionWriteExecutor;
     sessionId: SessionId;
     invocationId?: string;
-    enqueueSavePoint?: (plan: SessionWritePlan) => void;
+    toolCallIndex?: number;
+    toolCallId?: string;
+    enqueueSavePoint?: (plan: SessionWritePlan, source: ToolSessionWriteSource) => void;
+};
+
+export type ToolSessionWriteSource = {
+    toolCallIndex: number;
+    toolCallId: string;
 };
 
 /**
@@ -18,12 +25,16 @@ export class ToolSessionWriteSink {
     private readonly executor: SessionWriteExecutor;
     private readonly sessionId: SessionId;
     private readonly invocationId?: string;
-    private readonly enqueueSavePoint?: (plan: SessionWritePlan) => void;
+    private readonly toolCallIndex?: number;
+    private readonly toolCallId?: string;
+    private readonly enqueueSavePoint?: (plan: SessionWritePlan, source: ToolSessionWriteSource) => void;
 
     constructor(input: ToolSessionWriteSinkInput) {
         this.executor = input.executor;
         this.sessionId = input.sessionId;
         this.invocationId = input.invocationId;
+        this.toolCallIndex = input.toolCallIndex;
+        this.toolCallId = input.toolCallId;
         this.enqueueSavePoint = input.enqueueSavePoint;
     }
 
@@ -88,6 +99,12 @@ export class ToolSessionWriteSink {
         if (!this.enqueueSavePoint) {
             throw new Error("savePoint session write 只能在 active turn frame 内使用。");
         }
-        this.enqueueSavePoint(plan);
+        if (this.toolCallIndex === undefined || !this.toolCallId) {
+            throw new Error("savePoint session write 需要 tool call source。");
+        }
+        this.enqueueSavePoint(plan, {
+            toolCallIndex: this.toolCallIndex,
+            toolCallId: this.toolCallId,
+        });
     }
 }

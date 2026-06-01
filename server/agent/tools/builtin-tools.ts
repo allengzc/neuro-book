@@ -105,6 +105,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             key: "report_result",
             name: "report_result",
             label: "Report Result",
+            executionMode: "sequential",
             description: "Report final agent result to the caller.",
             parameters: ReportResultSchema,
             async execute(_toolCallId, params: unknown) {
@@ -120,6 +121,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             key: "request_user_input",
             name: "request_user_input",
             label: "Request User Input",
+            executionMode: "sequential",
             description: "Ask the user for input and wait for continue resolution.",
             parameters: RequestUserInputSchema,
             approvalRequired: true,
@@ -137,6 +139,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             key: "enter_plan_mode",
             name: "enter_plan_mode",
             label: "Enter Plan Mode",
+            executionMode: "sequential",
             description: "Request entering plan mode.",
             parameters: PlanModeSchema,
             approvalRequired: true,
@@ -155,6 +158,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             key: "exit_plan_mode",
             name: "exit_plan_mode",
             label: "Exit Plan Mode",
+            executionMode: "sequential",
             description: "Request exiting plan mode. Optionally pass planFilePath for a Project Workspace relative Markdown file under .agent/plan/ so the approval UI can preview it.",
             parameters: PlanModeSchema,
             approvalRequired: true,
@@ -173,6 +177,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             key: "create_agent",
             name: "create_agent",
             label: "Create Agent",
+            executionMode: "sequential",
             description: "Create a new agent session and link it to current agent. Before every create_agent call, call get_agent_profile({ profileKey }) to inspect the target InputSchema, OutputSchema, report_result schema, and allowed tools. Pass input as a real JSON object matching that InputSchema, not a JSON string. Arrays, strings, numbers, booleans, and key=value text are rejected.",
             parameters: CreateAgentSchema,
             prepareArguments(args: unknown) {
@@ -211,6 +216,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             key: "invoke_agent",
             name: "invoke_agent",
             label: "Invoke Agent",
+            executionMode: "parallel",
             description: "Invoke an agent session.",
             parameters: InvokeAgentSchema,
             async execute(_toolCallId, params: unknown) {
@@ -245,6 +251,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             key: "get_agent",
             name: "get_agent",
             label: "Get Agent",
+            executionMode: "parallel",
             description: "Get owned agent list or a single agent summary.",
             parameters: GetAgentSchema,
             async execute(_toolCallId, params: unknown) {
@@ -268,6 +275,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             key: "get_agent_profile",
             name: "get_agent_profile",
             label: "Get Agent Profile",
+            executionMode: "parallel",
             description: "Get one agent profile's schema summary, OutputSchema, report_result schema, and allowed tools. This is the required schema-discovery step before create_agent. This queries profile catalog, not created agent sessions.",
             parameters: GetAgentProfileSchema,
             async execute(_toolCallId, params: unknown) {
@@ -283,6 +291,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             key: "get_session",
             name: "get_session",
             label: "Get Session",
+            executionMode: "parallel",
             description: [
                 "Get lightweight session metadata, title, summary, usage, and linked agents.",
                 "Default does not return history messages and never returns tree.",
@@ -313,6 +322,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             key: "detach_agent",
             name: "detach_agent",
             label: "Detach Agent",
+            executionMode: "sequential",
             description: "Detach an owned agent without deleting its session.",
             parameters: DetachAgentSchema,
             async execute(_toolCallId, params: unknown) {
@@ -343,6 +353,7 @@ export function createReportResultTool(parameters: TSchema, outputSchema?: TSche
         key: "report_result",
         name: "report_result",
         label: "Report Result",
+        executionMode: "sequential",
         description: "Report final agent result to the caller.",
         parameters,
         async execute(_toolCallId, params: unknown) {

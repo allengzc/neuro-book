@@ -199,6 +199,7 @@ export class JsonlSessionRepository {
                     timestamp: Date.now(),
                     type: "leaf",
                     leafId: entry.id,
+                    origin: "auto",
                 },
             });
         }
@@ -260,6 +261,7 @@ export class JsonlSessionRepository {
                 timestamp: Date.now(),
                 type: "leaf",
                 leafId: lastNonLeaf.id,
+                origin: "auto",
             });
         }
 
@@ -294,7 +296,19 @@ export class JsonlSessionRepository {
         return this.appendEntry(sessionId, {
             type: "leaf",
             leafId,
+            origin: "move",
         }, workspaceKey);
+    }
+
+    /**
+     * 返回最近一次显式 active path 重定位的 entry id。
+     *
+     * 普通 append 会自动移动 leaf，但不会改变这个 revision；前端只在显式
+     * tree/edit/rollback 这类 active path 替换时用它触发 snapshot 重建。
+     */
+    activePathRevision(snapshot: SessionSnapshot): SessionEntryId | null {
+        const movedLeaf = [...snapshot.entries].reverse().find((entry) => entry.type === "leaf" && entry.origin === "move");
+        return movedLeaf?.id ?? null;
     }
 
     /**

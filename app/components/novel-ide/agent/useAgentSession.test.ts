@@ -21,6 +21,7 @@ const baseSnapshot = (lastSeq = 0): AgentSessionSnapshotDto => ({
         archived: false,
     },
     activeLeafId: null,
+    activePathRevision: null,
     messages: [],
     tree: [],
     entries: [],
@@ -255,6 +256,7 @@ describe("useAgentSession", () => {
                         startedAt: Date.now(),
                     },
                     activeLeafId: null,
+                    activePathRevision: null,
                     pendingApproval: null,
                     steerQueue: [],
                     followUpQueue: {
@@ -276,6 +278,90 @@ describe("useAgentSession", () => {
             running: true,
             lastDialogueContentTokens: 42,
         }));
+        expect(session.needsSnapshot.value).toBe(false);
+    });
+
+    it("session_state_changed 发现 active path revision 改变时请求 snapshot", () => {
+        const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(0));
+
+        applyEvent(session, {
+            seq: 1,
+            sessionId: 1,
+            kind: "session",
+            event: {
+                type: "session_state_changed",
+                state: {
+                    summary: baseSnapshot(1).summary,
+                    activeInvocation: null,
+                    activeLeafId: "entry-1",
+                    activePathRevision: "leaf-move-1",
+                    pendingApproval: null,
+                    steerQueue: [],
+                    followUpQueue: {
+                        status: "ready",
+                        items: [],
+                    },
+                    model: null,
+                    thinkingLevel: null,
+                    effectiveThinkingLevel: "off",
+                    planModeActive: false,
+                },
+            },
+        });
+
+        expect(session.snapshot.value?.activePathRevision).toBe("leaf-move-1");
+        expect(session.needsSnapshot.value).toBe(true);
+        expect(session.snapshotReasons.value).toContain("active_path_changed");
+    });
+
+    it("active path changed snapshot 会替换旧消息投影", () => {
+        const session = useAgentSession();
+        session.applySnapshot({
+            ...baseSnapshot(0),
+            entries: [{
+                id: "error-1",
+                parentId: null,
+                timestamp: Date.now(),
+                type: "invocation_lifecycle",
+                invocationId: "run-1",
+                status: "error",
+                error: "provider failed",
+            }],
+        });
+        expect(session.messages.value.some((message) => message.systemDisplayKind === "error")).toBe(true);
+
+        applyEvent(session, {
+            seq: 1,
+            sessionId: 1,
+            kind: "session",
+            event: {
+                type: "session_state_changed",
+                state: {
+                    summary: baseSnapshot(1).summary,
+                    activeInvocation: null,
+                    activeLeafId: null,
+                    activePathRevision: "leaf-move-1",
+                    pendingApproval: null,
+                    steerQueue: [],
+                    followUpQueue: {
+                        status: "ready",
+                        items: [],
+                    },
+                    model: null,
+                    thinkingLevel: null,
+                    effectiveThinkingLevel: "off",
+                    planModeActive: false,
+                },
+            },
+        });
+        session.applySnapshot({
+            ...baseSnapshot(1),
+            activePathRevision: "leaf-move-1",
+            entries: [],
+        });
+
+        expect(session.messages.value).toEqual([]);
         expect(session.needsSnapshot.value).toBe(false);
     });
 

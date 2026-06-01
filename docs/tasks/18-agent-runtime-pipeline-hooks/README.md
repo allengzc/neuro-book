@@ -888,6 +888,153 @@ invocation_lifecycle { invocationId, status: "end" }
 - abort/cleanup 必须 reject 未完成的 client patch ack，避免悬挂 Promise。
 - executor 必须在事件里保留 `cause.invocationId` / `cause.toolCallId`，让前端和诊断工具能把 side write 关联回对应工具。
 
+### Parallel Tool Batch
+
+目标：允许同一个 assistant turn 中的多个工具并行执行，尤其是多个 `invoke_agent` 可以同时启动不同目标 session，而不是父 agent 串行等待每个子 agent 完成。
+
+PI 的做法可以直接作为第一版心智模型：agent core 默认并行执行工具；单个工具可以声明 `executionMode: "sequential"`；如果同一个非 barrier segment 里出现任何 sequential tool，该 segment 回退串行。PI core 不做通用资源锁调度；文件这类危险副作用由具体工具内部 queue 保护，例如 coding-agent 的 `withFileMutationQueue(filePath, fn)` 会串行化同文件 mutation，但不同文件仍可并行。
+
+不要把这个实现成裸 `Promise.all(toolCalls.map(executeTool))`。工具调用并行有三个必须保持稳定的外部合同：
+
+- provider 下一轮看到的 `toolResult` 顺序必须仍然等于 assistant message 里的 tool call 顺序。
+- approval / user input 仍然是 batch barrier；barrier 后面的 tool call 不能偷偷并行执行。
+- 工具执行期间产生的 session writes、文件写入、变量 patch、SQLite mutation 等副作用必须按资源互斥，不能只靠 JS promise 调度碰运气。
+
+#### Recommended Shape
+
+采用 PI 风格的粗粒度执行模式，而不是第一版就做通用资源锁系统：
+
+```ts
+type ToolExecutionMode = "sequential" | "parallel";
+
+type NeuroAgentTool = AgentTool<any, any> & {
+    key: string;
+    approvalRequired?: boolean;
+    executionMode?: ToolExecutionMode;
+    executeWithContext?: (...args: never[]) => Promise<AgentToolResult<unknown>>;
+};
+```
+
+默认策略与 PI 对齐：未声明 `executionMode` 的工具按全局默认 `parallel` 处理。Neuro Book 可以在 harness 级别保留 `toolExecution: "parallel" | "sequential"` 配置；测试和调试时可强制全串行。
+
+批次规则：
+
+- 如果全局 `toolExecution === "sequential"`，整批串行。
+- 如果本段里任意工具 `executionMode === "sequential"`，整段串行。第一版不再把 segment 继续拆成 `parallel -> sequential -> parallel` 的子段；这样牺牲一点并行度，换取更简单的事件、错误和写入归并语义。
+- 否则本段并行。
+- approval tools 不靠 `executionMode` 表达，仍然是 harness 内置 barrier。
+- `report_result` 是 terminal barrier，也不靠 `executionMode` 表达。
+
+`runToolBatch()` 变成一个小调度器：
+
+1. 先按 assistant tool call 原始顺序扫描。
+2. 遇到 approval tool，执行 barrier 规则：approval 之前已经完成或可完成的结果保留；approval 自己进入 waiting；approval 后面的 tool call 生成 skipped tool result，不执行。
+3. 遇到 `report_result`，先执行它之前的 segment，再执行 `report_result`，然后让后续 tool call skipped 或至少不执行 mutation。
+4. 非 barrier 段交给 `executeToolSegment()`。
+5. segment 内顺序执行 prepare / 参数校验 / permission check / `beforeToolCall`，失败会生成对应 index 的 immediate error tool result。
+6. 如果 segment 需要串行，逐个执行、finalize、发 `tool_execution_end`，并立刻记录该 index 的 finalized result。
+7. 如果 segment 可并行，把 allowed prepared calls 并发执行；每个工具完成后立刻执行 `afterToolCall` 并按真实完成时间发 `tool_execution_end`。
+8. segment 全部结束后，按原始 tool call index 发 toolResult message，并组装 `toolResults`。
+9. `terminate` 和 `shouldContinue` 的归并按原始 tool call 顺序计算。
+
+这和 PI 的重要语义一致：`tool_execution_end` 可以按完成顺序出现；tool-result message artifact 必须按 assistant source order 出现。
+
+#### SavePoint Write Ordering
+
+并行后，`RunFrame.pendingWritePlans.push(plan)` 不能再依赖完成顺序。
+
+需要把 savePoint write 从裸数组改成带 source index 的结构：
+
+```ts
+type PendingToolWritePlan = {
+    toolCallIndex: number;
+    toolCallId: string;
+    plan: SessionWritePlan;
+};
+```
+
+`ToolSessionWriteSink.savePoint*()` enqueue 时必须带当前 tool call index。`ingestTurn` flush 时按：
+
+```text
+assistant/toolResult transcript
+toolCallIndex asc
+within same tool call enqueue order asc
+```
+
+这样多个并行工具即使完成顺序不同，session log 仍然稳定、可测试、可回放。
+
+`immediate` writes 可以按真实执行时间发布，因为它们本来就是实时 side writes；但事件必须包含 `cause.invocationId` 和 `cause.toolCallId`，后续如需要更强诊断再补 `toolCallIndex`。
+
+#### Tool Classification
+
+第一版推荐分组如下。
+
+**Parallel by default**
+
+- `invoke_agent`：允许并行；不能 self-invoke。同 target session 不在 tool scheduler 里特判，继续复用目标 session 的 Invocation Coordinator admission：`prompt + message` 遇到 active invocation 会进入 follow-up queue；`continue` 遇到 active invocation 会按现有规则返回 `active_invocation_exists` 等错误；不同 target session 可以真并行。
+- `read`：可并行。
+- `web_search` / `web_fetch`：external read；可并行，但后续可加 provider-level max concurrency / rate limit。
+- `get_agent` / `get_session` / `get_agent_profile`：轻量查询，可并行。
+- `variable_schema` / `variable_read`：可并行。`variable_read` 记录 read fingerprint 时要确认和 `variable_patch` 的同路径 queue 不冲突。
+
+**Sequential or tool-internal queued**
+
+- `create_agent`：会分配 session id、创建 session、写 parent link。第一版建议声明 `executionMode: "sequential"`；等 repo create/link 并发测试补齐后再放开。
+- `detach_agent`：写 parent link state，第一版声明 sequential。
+- `variable_patch`：同 `namespace.path` 必须排队；`client.*` 还要等待 frontend ack。同一路径并发 patch 必须拒绝或用 `withVariablePatchQueue()` 排队。
+- `task_create` / `task_set_status`：都写同一个 `agent.tasks` custom state；用 `withSessionStateQueue(sessionId, AGENT_TASKS_STATE_KEY)`，或第一版声明 sequential。
+- plot selection tools：即使是 `get_story_thread` / `get_story_scene_context`，当前也会写 `plot.selection`，所以不能当纯读；用 session state queue，或第一版声明 sequential。
+- plot mutation tools：用 `withProjectDbMutationQueue(projectPath)`，并保护 `plot.selection` 写入；第一版可声明 sequential。
+- `execute_sql`：速度通常不构成瓶颈，且 `SELECT/WITH` 与 `INSERT/UPDATE/DELETE` 的并发语义不值得第一版拆分；第一版把整个工具声明 sequential。
+- `write` / `edit` / `apply_patch`：参考 PI coding-agent，用 `withFileMutationQueue(filePath, fn)` 保护同文件 mutation；不同文件仍可并行。`apply_patch` 涉及多文件时需要按稳定路径排序拿多个 queue，避免死锁；第一版也可以先声明 sequential。
+- `bash`：默认声明 sequential。除非未来新增只读声明，否则无法可靠知道它会不会写文件、跑测试、启动服务或改数据库。
+
+**Barrier**
+
+- `request_user_input`、`enter_plan_mode`、`exit_plan_mode`：approval barrier。
+- `report_result`：建议作为 terminal barrier。它可以不触发 waiting，但不要和 mutation tools 并行；否则可能出现“最终结果已经报告，但同一 turn 的写文件/变量修改还没完成”。第一版可以规定：`report_result` 之后的 tool call 生成 skipped result，或者至少让 `report_result` 所在段等待前面的所有 tool 完成后再执行。
+
+#### Better Alternatives Considered
+
+1. 全量 `Promise.all`
+   - 优点：实现最少。
+   - 问题：toolResult 顺序、savePoint write 顺序、approval barrier、文件写冲突全部不稳定。
+   - 结论：不采用。
+
+2. 只给 `invoke_agent` 特判并行，其他工具继续串行
+   - 优点：最快解决当前痛点。
+   - 问题：会在 `runToolBatch()` 里引入第二套 tool execution path，后续 web/read 并行还要再重做 scheduler。
+   - 结论：可以作为临时 spike，但不建议作为正式架构。
+
+3. 全局工具队列 / worker pool
+   - 优点：可以统一限流和观察。
+   - 问题：把 turn 内顺序、approval barrier、session savePoint 顺序都推到外部队列，心智更重。
+   - 结论：后续如果 web/provider rate limit 明显，再在 scheduler 下方加 provider-level limiter；不要第一版就做全局 worker pool。
+
+4. 通用资源锁调度器
+   - 优点：保留 `executeTurn` 内部规则，能表达并行、barrier、文件/变量/DB 互斥，也能逐步放开工具。
+   - 问题：第一版需要每个工具声明 lock provider，profile/tool 作者心智负担更高，也容易和工具内部真实副作用漂移。
+   - 结论：暂不采用。先采用 PI 风格 `parallel/sequential`，危险资源由工具内部 queue 保护；等出现跨工具资源冲突再升级。
+
+5. PI 风格并行 + 工具内部 queue
+   - 优点：core 心智最小，和 PI 语义一致；工具知道自己的真实副作用，适合在工具内部做 file/session/variable/db queue。
+   - 问题：需要逐个工具补 queue，不能靠中心调度器自动发现冲突。
+   - 结论：推荐方案。
+
+#### Required Tests
+
+- 两个 `invoke_agent` 指向不同 child session 时并行启动；总耗时接近较慢者，而不是两者相加。
+- 两个 `invoke_agent` 指向同一 session 时不并行；第二个要么排队等待，要么由 Coordinator 返回 active lock 语义，不能绕过 active invocation。
+- approval tool 前面的普通工具可以完成；approval 后面的工具 skipped；approval 后不会启动并行任务。
+- `toolResults` 永远按 assistant tool call 顺序写入，即使实际完成顺序相反。
+- 并行工具的 savePoint writes 按 tool call index flush，不按完成时间 flush。
+- `report_result` 不会早于同 turn 里的 mutation tool 完成并结束 run。
+- 同一路径 `write/edit/apply_patch` 串行或冲突拒绝。
+- 同一 `variable_patch` path 串行；并发 patch 不破坏 read-before-patch fingerprint。
+- `bash` 与文件写工具默认不并行。
+- abort 时取消所有仍在运行的并行工具；已完成工具结果保留，未完成工具生成 interrupted/error result 或让 failure path 统一处理，不能留下永远 pending 的 tool call。
+- 如果本段包含任意 `executionMode: "sequential"` 工具，整段串行执行。
+
 ### Model / Thinking / Provider Config
 
 现状：
@@ -1910,6 +2057,71 @@ source invocation completed
 - 不在 server restart 后自动 drain ready follow-up queue。
 - 不恢复内存 steer queue，除非后续把它也设计成 durable projection。
 
+### Phase 9: Parallel Tool Batch Scheduler
+
+目标：让同一 turn 内安全的工具可以并行执行，先解决多个 `invoke_agent` 串行阻塞父 agent 的问题，同时保持 approval、toolResult 顺序、savePoint 写入顺序和副作用资源互斥。
+
+实施切片：
+
+- Tool type：
+  - `NeuroAgentTool` 增加可选 `executionMode?: "sequential" | "parallel"`，与 PI `AgentTool.executionMode` 对齐。
+  - harness 默认 `toolExecution = "parallel"`；调试或测试可强制 `"sequential"`。
+  - 未声明 `executionMode` 的工具使用 harness 默认值。
+- Scheduler：
+  - 新增 `executeToolSegment()` helper，保持在 `executeTurn` 内部，不变成 public hook stage。
+  - 输入是非 barrier 的连续 tool call segment。
+  - 输出包含按原始 index 排序的 `toolResults`、`reportResult`、`shouldContinue` 和结构化 execution records。
+  - segment 内先按原始顺序 prepare / validate / permission / beforeToolCall。
+  - 如果 harness 全局 sequential，或 segment 内任意工具 `executionMode === "sequential"`，整段串行执行。
+  - 否则 allowed prepared calls 并行执行。
+  - scheduler 负责 `tool_execution_start/end` 事件；`tool_execution_end` 可按真实完成顺序发布；最终 `message_start/end` for toolResult 仍按原始 tool call 顺序发布，避免前端 transcript block 顺序抖动。
+- Approval split：
+  - `runToolBatch()` 先扫描 approval barrier。
+  - approval 前 segment 交给 scheduler。
+  - approval 自己进入 waiting。
+  - approval 后 tool call 生成 skipped result，不执行。
+- Report result terminal：
+  - 第一版把 `report_result` 当 terminal barrier。
+  - `report_result` 前面的 segment 先完成。
+  - `report_result` 自己执行后，后续 tool call skipped，避免最终结果和后续 mutation 并发。
+- SavePoint writes：
+  - `RunFrame.pendingWritePlans` 从 `SessionWritePlan[]` 升级成带 `toolCallIndex` / `toolCallId` / enqueue order 的结构，或者新增单独 `pendingToolWritePlans`。
+  - `ToolSessionWriteSink` 构造时接收当前 tool call index。
+  - `ingestTurn` flush 前按 `toolCallIndex asc, enqueueOrder asc` 排序。
+- Tool-internal queues：
+  - 新增 `withFileMutationQueue(filePath, fn)`，参考 PI coding-agent，同文件 mutation 串行，不同文件可并行。
+  - 新增 `withVariablePatchQueue(namespace, path, fn)`，保护同变量 path 的 read-before-patch / patch 顺序。
+  - 新增 `withSessionStateQueue(sessionId, key, fn)`，保护 `agent.tasks`、`plot.selection` 这类 custom state read-modify-write。
+  - 新增 `withProjectDbMutationQueue(projectPath, fn)`，保护 Project SQLite mutation。
+  - 不为 `invoke_agent` 增加 `withTargetSessionInvocationQueue()`。同 target session 并发继续进入目标 session 的 Invocation Coordinator：`prompt + message` 会按现有规则排入 follow-up，`continue` 冲突会按现有规则报错。
+- First enabled tools：
+  - `invoke_agent`：默认 parallel，保留 self-invoke guard。
+  - `read`：默认 parallel。
+  - `web_search` / `web_fetch`：默认 parallel；后续可加 provider-level limiter。
+  - `get_agent` / `get_session` / `get_agent_profile`：默认 parallel。
+  - `write` / `edit` / `apply_patch`：如果补齐 file mutation queue，可保持 parallel；否则先声明 sequential。
+  - `create_agent`、`detach_agent`、`variable_patch`、task、plot、SQL、bash：第一版声明 sequential，后续只有在对应内部 queue 补齐并有实际性能收益时再放开。
+
+验证：
+
+- 父 agent 同一 turn 调两个不同 child `invoke_agent` 时并行执行，父 session toolResult 顺序仍按 tool call 顺序。
+- 同一 target session 的两个 `invoke_agent` 不会绕过目标 session admission；`prompt + message` 冲突按 follow-up queue 处理，`continue` 冲突按现有错误处理。
+- approval barrier 后的工具不启动；skipped result 顺序稳定。
+- `report_result` 后的工具不执行，或至少不和 mutation 并发。
+- savePoint writes 在并行完成顺序反转时仍按 tool call index flush。
+- immediate writes 可以按真实时间发布，但 snapshot 最终一致。
+- file write 同路径互斥；bash 默认 workspace exclusive。
+- variable_patch 同路径互斥，read-before-patch fingerprint 不被并发破坏。
+- abort 并行工具批次时，没有 tool call 永久悬空。
+
+不做：
+
+- 不开放 profile/runtime hook 改写工具并发策略。
+- 不做全局 durable worker pool。
+- 不做通用 resource lock provider；第一版危险资源由具体工具内部 queue 保护。
+- 不承诺跨进程工具并发锁；第一版 queue 只保护当前 Node 进程内的同一 server。
+- 不自动推断 bash 或任意 shell command 的读写资源。
+
 ### `defineAgentProfile` Target API
 
 现有 `context()` / `prepare()` 继续保留，用于普通 profile 的 system prompt、HistorySet、AppendingSet、ModelContext 和 stateWrites。新增单一 `runtime` 字段；hook 只出现在 `runtime: { hooks }` 内，不在 `defineAgentProfile` 顶层再放一份 `hooks`。
@@ -2093,6 +2305,11 @@ export default defineAgentProfile({
 - custom profile hook 第一版允许 patch `tools` / `requestOptions`；最终工具策略和 provider request 规范化仍由 Run Kernel reducer 执行。
 - 第一版不做 deterministic entry id、durable pending queue、batch commit marker；同 session batch 只承诺先整批校验、顺序 append、统一 publish。
 - 第一批实现里 projection op 暂用 `append + projection: true`，不是独立 `op.kind = "projection"`。如果 active-path-specific projection 需要强类型 scope，留到 17 summarizer 重做时一起升级。
+- 工具并行不作为新的 public hook stage；它是 `executeTurn` 内部的 tool batch scheduler。并行能力通过 PI 风格 `executionMode?: "sequential" | "parallel"` 表达，默认 parallel；危险副作用由具体工具内部 queue 保护。
+- 第一版工具并行只优先放开显著影响性能的慢工具和纯读工具：`invoke_agent`、`read`、`web_search`、`web_fetch`、`get_agent`、`get_session`、`get_agent_profile`。`sql`、mutation、task、plot、变量 patch、bash 等先 sequential。
+- 同一非 barrier segment 内只要混入 sequential tool，整个 segment 串行；第一版不做更细的 segment 内二次切分。
+- 同 target session 的并行 `invoke_agent` 不由 tool scheduler 特判，继续走目标 session admission：`prompt + message` 可入 follow-up queue，`continue` 冲突按现有错误返回。
+- 并行工具的 `toolResults` 和 savePoint writes 必须按 assistant tool call 原始顺序归并；实时 `tool_execution_*` 事件可以按真实完成时间发布。
 
 ## Open Questions
 
@@ -2168,6 +2385,9 @@ export default defineAgentProfile({
 - 2026-05-29：硬切 compaction repo append fallback。`appendCompaction()` / `compactIfNeeded()` 现在必须接收 `writeCompactionEntry`，compaction 模块只负责生成 compaction entry，不再自行 `repo.appendEntry()`；active harness 继续通过 `ToolSessionWriteSink` 写入。targeted 回归 `bunx vitest run server/agent/harness/compaction.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`，2 files / 75 tests passed；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
 - 2026-05-29：标注 variable accessor 的 standalone fallback 边界。`variables/accessor.ts` 仍允许低层变量单元测试和独立调用在没有 harness writer 时直接 append audit entry，但注释明确 active harness 必须注入 `writeSessionEntry`，实际运行路径通过 `ToolSessionWriteSink` / `SessionWriteExecutor` 发布。
 - 2026-05-29：固定 RunFrame 初始化合同。新增 `createRunFrame()`，把 `runLoop()` 中的初始运行态组装移入 `run-frame-state.ts` 并补测试，明确 messages 浅拷贝、events/pendingWritePlans 初始为空、turnIndex/reminder/compaction 默认值。targeted 回归 `bunx vitest run server/agent/harness/run-frame-state.test.ts server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`，2 files / 74 tests passed；18 宽套件 18 files / 201 tests passed；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
+- 2026-06-01：细化并行工具批次设计。确认不采用全量 `Promise.all`，而是在 `executeTurn` 内新增 PI 风格 tool segment scheduler：默认 parallel，任意 `executionMode: "sequential"` 工具会让所在 segment 回退串行；approval / report_result 仍是 harness barrier；`tool_execution_*` 事件可按真实完成时间发布，但最终 `toolResults` 与 savePoint writes 必须按原始 tool call index 稳定归并。危险副作用不做中心 resource lock provider，先由工具内部 queue 保护，例如 file mutation queue、variable patch queue、session state queue、project DB mutation queue。
+- 2026-06-01：实现第一版并行工具批次。`NeuroAgentTool` 新增 `executionMode`，`runToolBatch()` 改为内部 segment scheduler：approval / `report_result` 为 barrier，非 barrier segment 默认并行，混入 sequential 工具时整段串行；`tool_execution_end` 可按真实完成顺序发，`toolResult` message 按原始 tool call 顺序落盘。`RunFrame.pendingWritePlans` 改为带 `toolCallIndex/toolCallId/enqueueOrder` 的 pending plan，savePoint writes 在 transcript 后按 source order flush。首批并行工具为 `invoke_agent`、`read`、`web_search`、`web_fetch`、`get_agent`、`get_session`、`get_agent_profile`、变量 schema/read；mutation、SQL、plot/task、bash 先 sequential。`HarnessOptions.toolExecution` 已可在测试/调试时强制全串行。targeted 回归 `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`，1 file / 86 tests passed；`bunx vitest run server/agent/harness/neuro-agent-harness.black-box.test.ts server/agent/harness/run-frame-state.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/turn-transaction.test.ts server/agent/harness/turn-failure.test.ts --reporter=dot`，5 files / 34 tests passed；18 相关宽套件 18 files / 215 tests passed；`bunx tsc --noEmit --pretty false` 仍失败在既有 unrelated RP / SillyTavern 类型错误。
+- 2026-06-01：修复 barrier skipped toolResult 的实时事件一致性。approval / `report_result` barrier 后生成的 skipped toolResult 现在会和普通 toolResult 一样发布 `message_start` / `message_end`，避免 session 已落盘但 SSE 实时 transcript 缺少 skipped message；`report_result` 校验失败仍只闭合后续 tool calls 并继续下一轮，让模型看到错误后修正。targeted 回归 `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts --reporter=dot`，1 file / 86 tests passed。
 - 2026-05-29：修复 waiting/running abort terminal 语义。waiting 状态下 abort 会先写 harness error toolResult 闭合 pending approval tool call，再写 lifecycle `aborted` 并释放 active invocation；running 状态 provider 返回 aborted/interrupted failed outcome 时，RunLoop failed result 会携带 `terminalStatus`，terminal lifecycle 写 `aborted`，follow-up queue 以 `aborted` reason 暂停而不是误记为普通 error。targeted 回归 `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/turn-failure.test.ts --reporter=dot`，2 files / 78 tests passed；18 宽套件 18 files / 202 tests passed；`bunx tsc --noEmit --pretty false` 仍只剩既有 unrelated `server/agent/skills/silly-tavern-card-cli.test.ts` marker optional 错误。
 - 2026-05-31：针对“Agent 运行中后端 dev reload 后无法 continue”补充系统性恢复设计。新增 SSE `(eventEpoch, seq)` cursor / connected handshake / snapshot cursor reset 合同，明确 `after > lastSeq` 和 epoch mismatch 都触发 snapshot recovery；补充 waiting hydration 设计，要求 snapshot 可从 session active path 的 pending approval + waiting lifecycle 恢复 `activeInvocation.status = "waiting"`，`continue(resolution)` 在内存 active 丢失时仍复用原 logical `invocationId`。本次只更新设计和实现计划，代码实现待下一切片。
 
@@ -2275,6 +2495,8 @@ export default defineAgentProfile({
   - 4 files, 15 tests passed after public event projection hard cut.
 - `bunx vitest run server/agent/session/session-repo.test.ts server/agent/session/write-plan.test.ts server/agent/profiles/define-agent-runtime.test.ts server/agent/profiles/catalog.test.ts server/agent/harness/run-kernel-error.test.ts server/agent/harness/run-frame-state.test.ts server/agent/harness/prepare-run.test.ts server/agent/harness/prepare-next-turn.test.ts server/agent/harness/turn-continuation.test.ts server/agent/harness/turn-failure.test.ts server/agent/harness/turn-transaction.test.ts server/agent/harness/neuro-agent-harness.test.ts server/agent/harness/compaction.test.ts server/agent/harness/types.test.ts server/agent/events/public-event-projection.test.ts server/agent/variables/variables.test.ts app/components/novel-ide/agent/useAgentSession.test.ts app/components/novel-ide/agent/agent-message.test.ts app/components/novel-ide/agent/useAgentSessionStream.test.ts app/utils/agent-message-projection.test.ts --reporter=dot`
   - 20 files, 213 tests passed after public event projection hard cut.
+- `bunx vitest run server/agent/harness/neuro-agent-harness.black-box.test.ts --reporter=dot`
+  - 1 file, 16 tests passed after adding Harness black-box coverage for prompt/continue/steer/followup/waiting/error/SSE replay/slow tool observation/waiting abort/running abort.
 - `bunx tsc --noEmit --pretty false`
   - 18 相关类型错误已清掉；仍失败于既有 unrelated SillyTavern 类型错误。
 - 已核对 PI 文档与源码入口：

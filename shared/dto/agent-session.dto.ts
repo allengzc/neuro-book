@@ -250,6 +250,8 @@ export type AgentSessionLiveStateDto = {
     /** 后台标题/摘要维护状态。为空表示当前 session 未启用或尚无摘要状态。 */
     summarizer?: AgentSessionSummarizerStateDto;
     activeLeafId: string | null;
+    /** 显式 active path 重定位版本；变化时前端应拉 snapshot 重建消息投影。 */
+    activePathRevision: string | null;
     pendingApproval: AgentPendingApprovalDto | null;
     steerQueue: AgentQueuedMessageDto[];
     followUpQueue: AgentFollowUpQueueStateDto;
@@ -374,6 +376,8 @@ export type AgentSessionSnapshotDto = {
     /** 后台展示标题/摘要维护状态；仅面向 UI，不影响 Agent 运行态。 */
     summarizer?: AgentSessionSummarizerStateDto;
     activeLeafId: string | null;
+    /** 显式 active path 重定位版本；变化时前端应拉 snapshot 重建消息投影。 */
+    activePathRevision: string | null;
     /** 当前 profile 的 provider 级 system prompt，用于前端只读展示；不作为普通历史消息。 */
     systemPrompt?: string;
     messages: AgentMessage[];

@@ -20,6 +20,7 @@ const baseSnapshot = (lastSeq = 0, eventEpoch = "epoch-1"): AgentSessionSnapshot
         archived: false,
     },
     activeLeafId: null,
+    activePathRevision: null,
     messages: [],
     tree: [],
     entries: [],
@@ -261,6 +262,53 @@ describe("useAgentSessionStream", () => {
 
         expect(session.connectionStatus.value).toBe("disconnected");
         expect(session.lastSeq.value).toBe(5);
+    });
+
+    it("active path revision 改变时通过 snapshot 恢复消息投影", async () => {
+        const session = useAgentSession();
+        const activeSessionId = ref<number | null>(1);
+        session.applySnapshot(baseSnapshot(1));
+        const api = {
+            getSession: vi.fn(async () => ({
+                ...baseSnapshot(2),
+                activePathRevision: "leaf-move-1",
+            })),
+            subscribeSessionEvents: vi.fn(async (_sessionId: number, _cursor: AgentSessionEventsQueryDto, onEvent: (event: AgentSessionEventDto) => Promise<void> | void, _signal?: AbortSignal, options?: {onOpen?: () => void}) => {
+                options?.onOpen?.();
+                await onEvent(sessionEvent({
+                    seq: 2,
+                    sessionId: 1,
+                    kind: "session",
+                    event: {
+                        type: "session_state_changed",
+                        state: {
+                            summary: baseSnapshot(2).summary,
+                            activeInvocation: null,
+                            activeLeafId: "entry-1",
+                            activePathRevision: "leaf-move-1",
+                            pendingApproval: null,
+                            steerQueue: [],
+                            followUpQueue: {
+                                status: "ready",
+                                items: [],
+                            },
+                            model: null,
+                            thinkingLevel: null,
+                            effectiveThinkingLevel: "off",
+                            planModeActive: false,
+                        },
+                    },
+                }));
+                await new Promise<void>(() => {});
+            }),
+        };
+        const stream = useAgentSessionStream({session, api, activeSessionId});
+
+        await stream.start(1);
+
+        expect(api.getSession).toHaveBeenCalledTimes(1);
+        expect(session.needsSnapshot.value).toBe(false);
+        expect(session.snapshot.value?.activePathRevision).toBe("leaf-move-1");
     });
 
     it("等待异步事件处理完成后再处理下一帧", async () => {

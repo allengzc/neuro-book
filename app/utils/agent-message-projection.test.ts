@@ -196,6 +196,7 @@ describe("agent message projection helpers", () => {
                 archived: false,
             },
             activeLeafId: "error-1",
+            activePathRevision: null,
             messages: [],
             tree: [],
             entries: [{
@@ -308,6 +309,7 @@ describe("agent message projection helpers", () => {
                 archived: false,
             },
             activeLeafId: "error-1",
+            activePathRevision: null,
             messages: [],
             tree: [],
             entries: [{

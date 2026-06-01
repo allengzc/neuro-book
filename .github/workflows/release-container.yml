@@ -78,3 +78,29 @@ jobs:
             type=gha,scope=runtime
             type=gha,scope=app
           cache-to: type=gha,mode=max,scope=app
+
+  windows-portable:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build Windows portable zip
+        env:
+          GITHUB_REF_NAME: ${{ github.event.release.tag_name }}
+        run: bun run package:windows-portable
+
+      - name: Upload Windows portable release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/neuro-book-windows-portable.zip
+            dist/SHA256SUMS

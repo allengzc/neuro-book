@@ -1,5 +1,5 @@
 import {describe, expect, it} from "vitest";
-import {applyRuntimeEventToMessages, applySessionEntryToMessages, deriveMessagesFromSessionSnapshot, type AgentMessage} from "nbook/app/components/novel-ide/agent/agent-message";
+import {applyRuntimeEventToMessages, applySessionEntryToMessages, deriveMessagesFromSessionSnapshot, isContinuationPointMessage, type AgentMessage} from "nbook/app/components/novel-ide/agent/agent-message";
 import type {AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
 
 const baseSnapshot = (entries: AgentSessionSnapshotDto["entries"]): AgentSessionSnapshotDto => ({
@@ -14,6 +14,7 @@ const baseSnapshot = (entries: AgentSessionSnapshotDto["entries"]): AgentSession
         archived: false,
     },
     activeLeafId: null,
+    activePathRevision: null,
     messages: [],
     tree: [],
     entries,
@@ -34,6 +35,56 @@ const baseSnapshot = (entries: AgentSessionSnapshotDto["entries"]): AgentSession
 });
 
 describe("agent message projection", () => {
+    it("只在调用方允许时把工具已完成的 AI 卡片作为空输入继续断点", () => {
+        expect(isContinuationPointMessage(undefined)).toBe(false);
+        expect(isContinuationPointMessage({
+            id: "user-1",
+            type: "user",
+            content: "继续",
+        })).toBe(true);
+        expect(isContinuationPointMessage({
+            id: "ai-text",
+            type: "ai",
+            content: "普通回复",
+        })).toBe(false);
+        expect(isContinuationPointMessage({
+            id: "ai-tool",
+            type: "ai",
+            content: "",
+            toolCalls: [{
+                id: "tool-1",
+                index: 0,
+                name: "bash",
+                argsText: "{}",
+                status: "success",
+            }],
+        }, {allowSettledAiToolCalls: true})).toBe(true);
+        expect(isContinuationPointMessage({
+            id: "ai-tool-completed-session",
+            type: "ai",
+            content: "",
+            toolCalls: [{
+                id: "tool-1",
+                index: 0,
+                name: "bash",
+                argsText: "{}",
+                status: "success",
+            }],
+        })).toBe(false);
+        expect(isContinuationPointMessage({
+            id: "ai-running-tool",
+            type: "ai",
+            content: "",
+            toolCalls: [{
+                id: "tool-1",
+                index: 0,
+                name: "bash",
+                argsText: "{}",
+                status: "running",
+            }],
+        })).toBe(false);
+    });
+
     it("在对话顶部展示当前 profile system prompt", () => {
         const snapshot = baseSnapshot([]);
         snapshot.systemPrompt = "# Leader\n\n保持协作。";

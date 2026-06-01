@@ -195,6 +195,7 @@ export function useAgentSession() {
     const applySnapshot = (payload: AgentSessionSnapshotDto): void => {
         clearPendingMessageUpdates();
         const epochChanged = eventEpoch.value !== null && eventEpoch.value !== payload.eventEpoch;
+        const activePathChanged = snapshotReasons.value.includes("active_path_changed");
         const nextSeq = resetCursorOnNextSnapshot || epochChanged ? payload.lastSeq : Math.max(lastSeq.value, payload.lastSeq);
         const snapshotMessages = deriveMessagesFromSessionSnapshot(payload);
         const pendingOptimisticMessages = messages.value.filter((message) => {
@@ -202,10 +203,11 @@ export function useAgentSession() {
                 && !snapshotMessages.some((snapshotMessage) => snapshotMessage.type === "user" && snapshotMessage.content === message.content);
         });
         snapshot.value = payload;
-        messages.value = reconcileMessages(messages.value, [
+        const nextMessages = [
             ...snapshotMessages,
             ...pendingOptimisticMessages,
-        ]);
+        ];
+        messages.value = activePathChanged ? nextMessages : reconcileMessages(messages.value, nextMessages);
         if (payload.activeInvocation) {
             liveRunStatus.value = payload.activeInvocation.status === "waiting" ? "waiting" : payload.activeInvocation.status;
             runPhase.value = payload.pendingApproval ? "waiting_user" : runPhase.value === "idle" ? "model_pending" : runPhase.value;
@@ -230,11 +232,13 @@ export function useAgentSession() {
             return;
         }
         const currentSnapshot = snapshot.value;
+        const activePathChanged = state.activePathRevision !== currentSnapshot.activePathRevision;
         snapshot.value = {
             ...currentSnapshot,
             summary: state.summary,
             summarizer: state.summarizer,
             activeLeafId: state.activeLeafId,
+            activePathRevision: state.activePathRevision,
             pendingApproval: state.pendingApproval,
             steerQueue: state.steerQueue,
             followUpQueue: state.followUpQueue,
@@ -253,6 +257,9 @@ export function useAgentSession() {
             runPhase.value = "idle";
         }
         pendingUserInputSession.value = toPendingUserInputSession(state.pendingApproval, messages.value);
+        if (activePathChanged) {
+            requestSnapshot("active_path_changed");
+        }
     };
 
     const requestSnapshot = (reason: string): void => {

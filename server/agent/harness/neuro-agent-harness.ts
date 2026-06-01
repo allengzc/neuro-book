@@ -22,10 +22,11 @@ import {SkillCatalog} from "nbook/server/agent/skills/skill-catalog";
 import {findPendingApprovalCall, resolutionToToolResult} from "nbook/server/agent/tools/approval";
 import {createBuiltinTools, createReportResultTool} from "nbook/server/agent/tools/builtin-tools";
 import {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
-import type {AgentResolution, NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
+import type {AgentResolution, NeuroAgentTool, ToolExecutionContext, ToolExecutionMode} from "nbook/server/agent/tools/types";
 import {projectRuntimeEvent} from "nbook/server/agent/events/public-event-projection";
 import {appendCompaction, compactIfNeeded} from "nbook/server/agent/harness/compaction";
 import type {
+    PendingSessionWritePlan,
     RunFrame,
     RunLoopResult,
     RunRuntimeState,
@@ -95,6 +96,8 @@ type HarnessOptions = {
     tools?: AgentToolRegistry;
     modelResolver?: (config: Pick<EffectiveConfig, "agent" | "models">, profileKey: string, override?: {modelKey?: string | null} | null) => Model<any>;
     eventHub?: AgentSessionEventHub;
+    /** 调试和测试时可强制 turn 内工具全串行；默认按 tool.executionMode 调度。 */
+    toolExecution?: ToolExecutionMode;
     /** 测试可关闭后台 summarizer，避免 fire-and-forget 消耗 faux provider 响应；生产默认开启。 */
     enableSessionSummarizer?: boolean;
 };
@@ -178,6 +181,7 @@ export class NeuroAgentHarness {
     readonly eventHub: AgentSessionEventHub;
     private readonly writeExecutor: SessionWriteExecutor;
     private readonly modelResolver: (config: Pick<EffectiveConfig, "agent" | "models">, profileKey: string, override?: {modelKey?: string | null} | null) => Model<any>;
+    private readonly toolExecution: ToolExecutionMode;
     private readonly enableSessionSummarizer: boolean;
     private readonly activeInvocations = new Map<number, AgentActiveInvocationDto>();
     private readonly steerableSessions = new Set<number>();
@@ -208,6 +212,7 @@ export class NeuroAgentHarness {
             liveStateProvider: (sessionId) => this.getSessionLiveState(sessionId),
         });
         this.modelResolver = options.modelResolver ?? resolvePiModelFromConfig;
+        this.toolExecution = options.toolExecution ?? "parallel";
         this.enableSessionSummarizer = options.enableSessionSummarizer ?? true;
         this.profiles.register(defaultAgentProfile);
         this.profiles.register(summarizerProfile);
@@ -859,6 +864,7 @@ export class NeuroAgentHarness {
             summary: projection.summary,
             ...(summarizer ? {summarizer} : {}),
             activeLeafId: projection.snapshot.leafId,
+            activePathRevision: this.repo.activePathRevision(projection.snapshot),
             pendingApproval: projection.pendingApproval ? await this.pendingApprovalDto(projection.snapshot, projection.pendingApproval) : null,
             steerQueue: this.steerQueues.get(sessionId) ?? [],
             followUpQueue: this.followUpQueueState(sessionId, projection.context),
@@ -897,6 +903,7 @@ export class NeuroAgentHarness {
             summary: projection.summary,
             ...(summarizer ? {summarizer} : {}),
             activeLeafId: snapshot.leafId,
+            activePathRevision: this.repo.activePathRevision(snapshot),
             ...systemPrompt ? {systemPrompt} : {},
             messages: context.messages,
             tree: this.repo.tree(snapshot),
@@ -2103,8 +2110,12 @@ export class NeuroAgentHarness {
                 toolCalls,
                 allowedToolKeys: snapshot.toolKeys,
                 toolOverrides: snapshot.toolOverrides,
-                enqueueSavePointWrite: (plan) => {
-                    frame.pendingWritePlans.push(plan);
+                enqueueSavePointWrite: (plan, source) => {
+                    frame.pendingWritePlans.push({
+                        ...source,
+                        enqueueOrder: frame.pendingWritePlans.length,
+                        plan,
+                    });
                 },
                 abortSignal: frame.abortSignal,
                 emit: (event) => this.emitFrameEvent(frame, event),
@@ -2318,7 +2329,7 @@ export class NeuroAgentHarness {
         toolCalls: AgentToolCall[];
         allowedToolKeys: string[];
         toolOverrides: Record<string, NeuroAgentTool>;
-        enqueueSavePointWrite?: (plan: SessionWritePlan) => void;
+        enqueueSavePointWrite?: (plan: SessionWritePlan, source: {toolCallIndex: number; toolCallId: string}) => void;
         abortSignal?: AbortSignal;
         emit: (event: AgentEvent) => Promise<void>;
     }): Promise<RunToolBatchResult> {
@@ -2331,9 +2342,28 @@ export class NeuroAgentHarness {
 
         const toolResults: ToolResultMessage[] = [];
         let reportResult: InvokeAgentResult["reportResult"] | undefined;
-        let allTerminate = true;
-        for (const toolCall of input.toolCalls) {
+        let allExecutedTerminate = true;
+        let segment: Array<{toolCall: AgentToolCall; index: number}> = [];
+        const flushSegment = async (): Promise<void> => {
+            if (segment.length === 0) {
+                return;
+            }
+            const segmentResult = await this.executeToolSegment({
+                ...input,
+                toolCalls: segment,
+            });
+            toolResults.push(...segmentResult.toolResults);
+            allExecutedTerminate = allExecutedTerminate && segmentResult.allTerminate;
+            if (segmentResult.reportResult) {
+                reportResult = segmentResult.reportResult;
+            }
+            segment = [];
+        };
+
+        for (let index = 0; index < input.toolCalls.length; index += 1) {
+            const toolCall = input.toolCalls[index]!;
             if (this.tools.approvalToolKeys().includes(toolCall.name)) {
+                await flushSegment();
                 const approvalError = await this.validateApprovalTool(input.allowedToolKeys, input.workspaceRoot, toolCall);
                 if (approvalError) {
                     const toolResult = createTextToolResult({
@@ -2345,13 +2375,15 @@ export class NeuroAgentHarness {
                     toolResults.push(toolResult);
                     await input.emit({type: "message_start", message: toolResult});
                     await input.emit({type: "message_end", message: toolResult});
-                    allTerminate = false;
+                    allExecutedTerminate = false;
                     continue;
                 }
+                const skippedToolResults = this.skippedToolResultsAfterApproval(input.toolCalls, toolCall);
+                await this.emitToolResultMessages(skippedToolResults, input.emit);
                 return {
                     toolResults: [
                         ...toolResults,
-                        ...this.skippedToolResultsAfterApproval(input.toolCalls, toolCall),
+                        ...skippedToolResults,
                     ],
                     reportResult,
                     waiting: {
@@ -2362,34 +2394,78 @@ export class NeuroAgentHarness {
                 };
             }
 
-            await input.emit({
-                type: "tool_execution_start",
-                toolCallId: toolCall.id,
-                toolName: toolCall.name,
-                args: toolCall.arguments,
-            });
-            const executed = await this.executeTool({
-                sessionId: input.sessionId,
-                workspaceKey: input.workspaceKey,
-                workspaceRoot: input.workspaceRoot,
-                projectPath: input.projectPath,
-                invocationId: input.invocationId,
-                allowedToolKeys: input.allowedToolKeys,
-                toolOverrides: input.toolOverrides,
-                enqueueSavePointWrite: input.enqueueSavePointWrite,
-                abortSignal: input.abortSignal,
-                toolCall,
-            });
-            await input.emit({
-                type: "tool_execution_end",
-                toolCallId: toolCall.id,
-                toolName: toolCall.name,
-                result: executed.result,
-                isError: executed.isError,
-            });
+            if (toolCall.name === "report_result") {
+                await flushSegment();
+                const segmentResult = await this.executeToolSegment({
+                    ...input,
+                    toolCalls: [{toolCall, index}],
+                });
+                toolResults.push(...segmentResult.toolResults);
+                if (segmentResult.reportResult) {
+                    reportResult = segmentResult.reportResult;
+                    const skippedToolResults = this.skippedToolResultsAfterTerminal(input.toolCalls, toolCall);
+                    await this.emitToolResultMessages(skippedToolResults, input.emit);
+                    return {
+                        toolResults: [
+                            ...toolResults,
+                            ...skippedToolResults,
+                        ],
+                        reportResult,
+                        shouldContinue: false,
+                    };
+                }
+                const skippedToolResults = this.skippedToolResultsAfterTerminal(input.toolCalls, toolCall);
+                await this.emitToolResultMessages(skippedToolResults, input.emit);
+                return {
+                    toolResults: [
+                        ...toolResults,
+                        ...skippedToolResults,
+                    ],
+                    reportResult,
+                    shouldContinue: true,
+                };
+            }
+
+            segment.push({toolCall, index});
+        }
+        await flushSegment();
+        return {
+            toolResults,
+            reportResult,
+            shouldContinue: !allExecutedTerminate,
+        };
+    }
+
+    private async executeToolSegment(input: {
+        sessionId: number;
+        workspaceKey: string;
+        workspaceRoot: string;
+        projectPath?: string;
+        invocationId?: string;
+        allowedToolKeys: string[];
+        toolOverrides: Record<string, NeuroAgentTool>;
+        enqueueSavePointWrite?: (plan: SessionWritePlan, source: {toolCallIndex: number; toolCallId: string}) => void;
+        abortSignal?: AbortSignal;
+        emit: (event: AgentEvent) => Promise<void>;
+        toolCalls: Array<{toolCall: AgentToolCall; index: number}>;
+    }): Promise<{
+        toolResults: ToolResultMessage[];
+        reportResult?: InvokeAgentResult["reportResult"];
+        allTerminate: boolean;
+    }> {
+        const shouldRunSequentially = this.toolExecution === "sequential"
+            || input.toolCalls.some(({toolCall}) => this.resolveToolExecutionMode(toolCall, input.toolOverrides) === "sequential");
+        const executions = shouldRunSequentially
+            ? await this.executeToolSegmentSequentially(input)
+            : await Promise.all(input.toolCalls.map((toolCall) => this.executeToolWithEvents({...input, ...toolCall})));
+        const orderedExecutions = executions.sort((left, right) => left.index - right.index);
+        const toolResults: ToolResultMessage[] = [];
+        let reportResult: InvokeAgentResult["reportResult"] | undefined;
+        let allTerminate = true;
+        for (const executed of orderedExecutions) {
             const toolResult = createToolResultFromResult({
-                toolCallId: toolCall.id,
-                toolName: toolCall.name,
+                toolCallId: executed.toolCall.id,
+                toolName: executed.toolCall.name,
                 result: executed.result,
                 isError: executed.isError,
             });
@@ -2397,15 +2473,124 @@ export class NeuroAgentHarness {
             await input.emit({type: "message_start", message: toolResult});
             await input.emit({type: "message_end", message: toolResult});
             allTerminate = allTerminate && executed.result.terminate === true;
-            if (toolCall.name === "report_result" && !executed.isError) {
+            if (executed.toolCall.name === "report_result" && !executed.isError) {
                 reportResult = this.readReportResult(executed.result.details);
             }
         }
         return {
             toolResults,
             reportResult,
-            shouldContinue: !allTerminate,
+            allTerminate,
         };
+    }
+
+    private async emitToolResultMessages(toolResults: ToolResultMessage[], emit: (event: AgentEvent) => Promise<void>): Promise<void> {
+        for (const toolResult of toolResults) {
+            await emit({type: "message_start", message: toolResult});
+            await emit({type: "message_end", message: toolResult});
+        }
+    }
+
+    private async executeToolSegmentSequentially(input: {
+        sessionId: number;
+        workspaceKey: string;
+        workspaceRoot: string;
+        projectPath?: string;
+        invocationId?: string;
+        allowedToolKeys: string[];
+        toolOverrides: Record<string, NeuroAgentTool>;
+        enqueueSavePointWrite?: (plan: SessionWritePlan, source: {toolCallIndex: number; toolCallId: string}) => void;
+        abortSignal?: AbortSignal;
+        emit: (event: AgentEvent) => Promise<void>;
+        toolCalls: Array<{toolCall: AgentToolCall; index: number}>;
+    }): Promise<Array<{
+        toolCall: AgentToolCall;
+        index: number;
+        result: AgentToolResult<unknown>;
+        isError: boolean;
+    }>> {
+        const executions: Array<{
+            toolCall: AgentToolCall;
+            index: number;
+            result: AgentToolResult<unknown>;
+            isError: boolean;
+        }> = [];
+        for (const toolCall of input.toolCalls) {
+            executions.push(await this.executeToolWithEvents({...input, ...toolCall}));
+        }
+        return executions;
+    }
+
+    private async executeToolWithEvents(input: {
+        sessionId: number;
+        workspaceKey: string;
+        workspaceRoot: string;
+        projectPath?: string;
+        invocationId?: string;
+        allowedToolKeys: string[];
+        toolOverrides: Record<string, NeuroAgentTool>;
+        enqueueSavePointWrite?: (plan: SessionWritePlan, source: {toolCallIndex: number; toolCallId: string}) => void;
+        abortSignal?: AbortSignal;
+        emit: (event: AgentEvent) => Promise<void>;
+        toolCall: AgentToolCall;
+        index: number;
+    }): Promise<{
+        toolCall: AgentToolCall;
+        index: number;
+        result: AgentToolResult<unknown>;
+        isError: boolean;
+    }> {
+        const {toolCall} = input;
+        await input.emit({
+            type: "tool_execution_start",
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            args: toolCall.arguments,
+        });
+        const executed = await this.executeTool({
+            sessionId: input.sessionId,
+            workspaceKey: input.workspaceKey,
+            workspaceRoot: input.workspaceRoot,
+            projectPath: input.projectPath,
+            invocationId: input.invocationId,
+            allowedToolKeys: input.allowedToolKeys,
+            toolOverrides: input.toolOverrides,
+            enqueueSavePointWrite: input.enqueueSavePointWrite,
+            toolCallIndex: input.index,
+            abortSignal: input.abortSignal,
+            toolCall,
+        });
+        await input.emit({
+            type: "tool_execution_end",
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            result: executed.result,
+            isError: executed.isError,
+        });
+        return {
+            toolCall,
+            index: input.index,
+            result: executed.result,
+            isError: executed.isError,
+        };
+    }
+
+    private resolveToolExecutionMode(toolCall: AgentToolCall, toolOverrides: Record<string, NeuroAgentTool>): "sequential" | "parallel" {
+        const tool = toolOverrides[toolCall.name] ?? this.tools.get(toolCall.name);
+        return tool?.executionMode ?? "parallel";
+    }
+
+    private skippedToolResultsAfterTerminal(toolCalls: AgentToolCall[], terminalToolCall: AgentToolCall): ToolResultMessage[] {
+        const terminalIndex = toolCalls.findIndex((toolCall) => toolCall.id === terminalToolCall.id);
+        if (terminalIndex < 0) {
+            return [];
+        }
+        return toolCalls.slice(terminalIndex + 1).map((toolCall) => createTextToolResult({
+            toolCallId: toolCall.id,
+            toolName: toolCall.name,
+            text: `Skipped because ${terminalToolCall.name} already reported the final result. This tool was not executed in this turn.`,
+            isError: true,
+        }));
     }
 
     private skippedToolResultsAfterApproval(toolCalls: AgentToolCall[], waitingToolCall: AgentToolCall): ToolResultMessage[] {
@@ -2447,7 +2632,8 @@ export class NeuroAgentHarness {
         invocationId?: string;
         allowedToolKeys: string[];
         toolOverrides: Record<string, NeuroAgentTool>;
-        enqueueSavePointWrite?: (plan: SessionWritePlan) => void;
+        enqueueSavePointWrite?: (plan: SessionWritePlan, source: {toolCallIndex: number; toolCallId: string}) => void;
+        toolCallIndex: number;
         abortSignal?: AbortSignal;
         toolCall: AgentToolCall;
     }): Promise<{
@@ -2488,6 +2674,8 @@ export class NeuroAgentHarness {
                     executor: this.writeExecutor,
                     sessionId: input.sessionId,
                     invocationId: input.invocationId,
+                    toolCallIndex: input.toolCallIndex,
+                    toolCallId: input.toolCall.id,
                     enqueueSavePoint: input.enqueueSavePointWrite,
                 }),
             };
@@ -3129,7 +3317,7 @@ export class NeuroAgentHarness {
         profile: AgentProfile;
         runtimeState: RunRuntimeState;
         turnIndex: number;
-        pendingWritePlans: SessionWritePlan[];
+        pendingWritePlans: PendingSessionWritePlan[];
     }): Promise<TurnIngestResult> {
         const orderedToolResults = this.orderToolResults(input.assistant, input.toolResults);
         this.assertTurnClosed(input.assistant, orderedToolResults, input.waiting);
@@ -3180,17 +3368,23 @@ export class NeuroAgentHarness {
                 ],
             }],
         };
-        await this.writeExecutor.execute([transcriptPlan, ...input.pendingWritePlans], input.invocationId);
+        await this.writeExecutor.execute([transcriptPlan, ...this.orderedPendingWritePlans(input.pendingWritePlans)], input.invocationId);
         input.pendingWritePlans.splice(0, input.pendingWritePlans.length);
         return {transcript: "persist"};
     }
 
-    private async flushPendingWritePlans(plans: SessionWritePlan[], invocationId?: string): Promise<void> {
+    private async flushPendingWritePlans(plans: PendingSessionWritePlan[], invocationId?: string): Promise<void> {
         if (plans.length === 0) {
             return;
         }
-        await this.writeExecutor.execute(plans, invocationId);
+        await this.writeExecutor.execute(this.orderedPendingWritePlans(plans), invocationId);
         plans.splice(0, plans.length);
+    }
+
+    private orderedPendingWritePlans(plans: PendingSessionWritePlan[]): SessionWritePlan[] {
+        return [...plans]
+            .sort((left, right) => left.toolCallIndex - right.toolCallIndex || left.enqueueOrder - right.enqueueOrder)
+            .map((pending) => pending.plan);
     }
 
     /**

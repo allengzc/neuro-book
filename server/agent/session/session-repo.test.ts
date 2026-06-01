@@ -283,13 +283,18 @@ describe("JsonlSessionRepository", () => {
             workspaceKey: "global",
         });
         const userEntry = await repo.appendUserMessage(session.metadata.sessionId, "first", session.metadata.workspaceKey);
+        expect(repo.activePathRevision(await repo.readSession(session.metadata.sessionId))).toBeNull();
+
         await repo.appendMessage(session.metadata.sessionId, createAssistantTextMessage({text: "answer"}), session.metadata.workspaceKey);
+        expect(repo.activePathRevision(await repo.readSession(session.metadata.sessionId))).toBeNull();
 
         await repo.moveLeaf(session.metadata.sessionId, userEntry.id, session.metadata.workspaceKey);
         const moved = await repo.readSession(session.metadata.sessionId);
+        const moveLeafEntry = moved.entries.findLast((entry) => entry.type === "leaf" && entry.origin === "move");
 
         expect(repo.reduce(moved).messages.map((message) => message.role)).toEqual(["user"]);
         expect(repo.tree(moved).some((node) => node.type === "message" && !node.active)).toBe(true);
+        expect(repo.activePathRevision(moved)).toBe(moveLeafEntry?.id);
 
         const fork = await repo.forkSession(session.metadata.sessionId, userEntry.id);
         const forkContext = repo.reduce(fork);

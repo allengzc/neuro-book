@@ -7,6 +7,7 @@ export type AgentSessionStreamSnapshotReason =
     | "seq_gap"
     | "snapshot_required"
     | "event_epoch_changed"
+    | "active_path_changed"
     | "manual_refresh"
     | "invoke_error_fallback";
 
@@ -140,7 +141,9 @@ export function useAgentSessionStream(options: AgentSessionStreamOptions) {
         if (options.session.needsSnapshot.value) {
             const reason = options.session.snapshotReasons.value.includes("event_epoch_changed")
                 ? "event_epoch_changed"
-                : options.session.snapshotReasons.value.includes("snapshot_required") ? "snapshot_required" : "seq_gap";
+                : options.session.snapshotReasons.value.includes("snapshot_required")
+                    ? "snapshot_required"
+                    : options.session.snapshotReasons.value.includes("active_path_changed") ? "active_path_changed" : "seq_gap";
             await syncSnapshot(reason);
         }
     };

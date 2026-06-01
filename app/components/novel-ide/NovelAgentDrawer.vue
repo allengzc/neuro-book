@@ -3,7 +3,7 @@ import {storeToRefs} from "pinia";
 import {useNovelIdeStore, type AgentWorkspaceSyncPayload} from "nbook/app/stores/novel-ide";
 import {isNovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import type {AgentMessage, AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
-import {hasVisibleInvocationError} from "nbook/app/components/novel-ide/agent/agent-message";
+import {hasVisibleInvocationError, isContinuationPointMessage} from "nbook/app/components/novel-ide/agent/agent-message";
 import {applyClientVariablePatch, buildAgentClientState} from "nbook/app/components/novel-ide/agent/client-variables";
 import {useStructuredReferenceMenu} from "nbook/app/composables/useStructuredReferenceMenu";
 import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
@@ -125,7 +125,14 @@ const linkedAgentCount = computed(() => linkedAgents.value.length + linkedByAgen
 const planModeActive = computed(() => activeSnapshot.value?.planModeActive ?? false);
 const renderNodes = computed(() => messages.value);
 const messageActionsDisabled = computed(() => running.value || Boolean(messageActionId.value));
-const canContinueWithoutInput = computed(() => !running.value && !inputText.value.trim() && messages.value.length > 0 && messages.value.at(-1)?.type !== "ai");
+const canContinueWithoutInput = computed(() => {
+    if (running.value || inputText.value.trim() || messages.value.length === 0) {
+        return false;
+    }
+    return isContinuationPointMessage(messages.value.at(-1), {
+        allowSettledAiToolCalls: activeSummary.value?.status === "interrupted",
+    });
+});
 const connectionStatusLabel = computed(() => {
     switch (connectionStatus.value) {
         case "connecting": return "连接中";

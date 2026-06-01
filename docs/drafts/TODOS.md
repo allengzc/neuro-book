@@ -158,8 +158,8 @@
 - [ ] API retry
 - [ ] 非阻塞 invoke
 - [ ] mind.md 任务当前思维
-- [ ]
-- [ ]
+- [ ] compact 大小
+- [ ] rp session
 - [ ]
 - [ ]
 - [ ]

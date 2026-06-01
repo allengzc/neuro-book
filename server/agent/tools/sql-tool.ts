@@ -152,6 +152,7 @@ export function createSqlTool(): NeuroAgentTool {
         key: "execute_sql",
         name: "execute_sql",
         label: "Execute SQL",
+        executionMode: "sequential",
         description: buildSqlToolDescription(),
         parameters: ExecuteSqlSchema,
         async execute() {

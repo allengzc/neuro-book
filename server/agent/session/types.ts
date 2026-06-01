@@ -79,6 +79,8 @@ export type LeafSessionEntry = {
     timestamp: number;
     type: "leaf";
     leafId: SessionEntryId | null;
+    /** auto 表示普通 append 后自动移动；move 表示用户/控制面显式重定位 active path。 */
+    origin?: "auto" | "move";
 };
 
 export type CompactionSessionEntry = {

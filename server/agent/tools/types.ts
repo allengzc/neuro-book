@@ -3,6 +3,8 @@ import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-har
 import type {ToolSessionWriteSink} from "nbook/server/agent/session/tool-session-write-sink";
 import type {ProfileVariableAccessor} from "nbook/server/agent/variables/types";
 
+export type ToolExecutionMode = "sequential" | "parallel";
+
 export type ToolExecutionContext = {
     harness: NeuroAgentHarness;
     sessionId: number;
@@ -18,6 +20,10 @@ export type ToolExecutionContext = {
 export type NeuroAgentTool = AgentTool<any, any> & {
     key: string;
     approvalRequired?: boolean;
+    /**
+     * 同一 assistant turn 内的工具调度策略。未声明时由 harness 默认策略决定。
+     */
+    executionMode?: ToolExecutionMode;
     /**
      * v3 harness 自己执行工具时使用的上下文入口。Pi 的 AgentTool.execute 没有当前 session 信息，
      * 所以需要把 Neuro Book 的 session/link 语义保留在这一层。

@@ -77,6 +77,7 @@ function createReadTool(): NeuroAgentTool {
         key: "read",
         name: "read",
         label: "read",
+        executionMode: "parallel",
         description: `Read the contents of a file. Supports text files and images (jpg, png, gif, webp). Images are sent as attachments. For text files, output is truncated to 2000 lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete. Agent cwd is the Workspace Root, so Project files should use project-slug/lorebook/... or project-slug/manuscript/.... Fully-qualified Project Paths like workspace/silver-dragon-hime/lorebook/... are accepted as compatibility aliases. Use read to examine files instead of cat/head/tail/sed.`,
         parameters: ReadSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown) {
@@ -134,6 +135,7 @@ function createWriteTool(): NeuroAgentTool {
         key: "write",
         name: "write",
         label: "write",
+        executionMode: "sequential",
         description: "Create or overwrite a file. Automatically creates parent directories. Use write only for new files or complete rewrites, not targeted edits to existing files.",
         parameters: WriteSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown) {
@@ -157,6 +159,7 @@ function createEditTool(): NeuroAgentTool {
         key: "edit",
         name: "edit",
         label: "edit",
+        executionMode: "sequential",
         description: "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. When changing multiple separate locations in one file, use one edit call with multiple entries in edits[]. Each oldText is matched against the original file, not incrementally. Merge nearby changes into one edit and keep oldText as small as possible while still unique.",
         parameters: EditSchema,
         prepareArguments(args: unknown) {
@@ -207,6 +210,7 @@ function createApplyPatchTool(): NeuroAgentTool {
         key: "apply_patch",
         name: "apply_patch",
         label: "apply_patch",
+        executionMode: "sequential",
         description: "Use the `apply_patch` tool to edit files by passing a Codex apply_patch patch in the `patch` string field. Use it when a change is naturally cohesive in one verified patch. For multiple separate locations in one file, prefer one edit call with multiple entries in edits[].",
         parameters: ApplyPatchSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown) {
@@ -236,6 +240,7 @@ function createBashTool(): NeuroAgentTool {
         key: "bash",
         name: "bash",
         label: "bash",
+        executionMode: "sequential",
         description: "Execute a bash command in the agent workspace root. The agent bin directories are prepended to PATH, with user assets before system assets, so use workspace node ... for content-node CLI tasks. Prefer / path separators in bash commands; quote Windows backslash paths if you must use them. Returns stdout and stderr merged. Output is truncated to the last 2000 lines or 50KB (whichever is hit first). If truncated, the full output is saved to a temp file and the result includes its path. Use bash for rg/find/ls/git/tests/build/workspace CLI, not for file reading or editing when a dedicated tool exists.",
         parameters: BashSchema,
         async executeWithContext(

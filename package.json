@@ -32,6 +32,7 @@
     "generate:openapi": "bun scripts/build/generate-openapi-meta.ts",
     "config:migrate": "bun scripts/db/migrate-config-system.ts",
     "docker:publish": "node scripts/deploy/publish-ghcr-image.mjs",
+    "package:windows-portable": "node scripts/deploy/windows-portable.mjs",
     "auth:create-admin": "bun scripts/cli/create-admin.ts",
     "studio": "npx prisma studio --config ./prisma.config.ts",
     "deploy": "bun scripts/deploy/deploy.mjs"

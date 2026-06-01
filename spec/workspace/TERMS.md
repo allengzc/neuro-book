@@ -4,6 +4,7 @@
 
 ## Terms
 
+- **Portable Root**：Windows release zip 解压后的程序根目录，初始包含启动引导器和 Node.js runtime，并在首次启动时把源码和 `.git` 物化到 `app/`；它不是 Workspace Root。
 - **Workspace Root**：应用运行数据根目录，默认是 `workspace/`。它只是数据容器，不直接表示某本小说或某个项目。
 - **Workspace Root `.nbook`**：Workspace Root 的全局控制区，默认是 `workspace/.nbook/`。它保存 Global Config、用户 assets、全局 Agent 资源覆盖层和后续全局运行状态。
 - **Project Workspace**：一个具体内容项目的工作区，当前主要是单本小说，默认是 `workspace/{project}/`。它保存 manuscript、lorebook 等项目内容。
@@ -23,6 +24,7 @@
 
 - 不要把 Workspace Root 缩写成 workspace 来表达 Project Workspace。
 - 不要把 Project Workspace 缩写成 workspace。
+- 不要把 **Portable Root** 称为 Workspace Root；Portable Root 是程序目录，Workspace Root 是运行数据目录。
 - 当讨论单本小说/项目的文件根时，使用 **Project Workspace**。
 - 当讨论全局用户资产、全局配置、Agent profiles/skills 覆盖层时，使用 **Workspace Root `.nbook`**。
 - 当讨论前端入口时，`user-assets` 只表示 Studio 挂载目标，不表示新的配置 scope。
