@@ -57,7 +57,7 @@ const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
     maxSize: MAX_PANEL_WIDTH,
     edge: "right",
     enabled: computed(() => props.open),
-    onResize: (width) => emit("update:width", width),
+    onResizeEnd: (width) => emit("update:width", width),
 });
 const sessionPanelStyle = computed(() => props.open ? panelStyle.value : {width: "0px"});
 
@@ -182,7 +182,7 @@ watch(storageKey, loadPinnedSessions, {immediate: true});
             </div>
         </div>
 
-        <div class="min-h-0 flex-1 overflow-y-auto p-2 custom-scrollbar">
+        <div class="min-h-0 flex-1 overflow-y-auto p-2 custom-scrollbar" :class="isResizing ? 'pointer-events-none select-none' : ''">
             <button
                 v-for="session in filteredSessions"
                 :key="session.sessionId"

@@ -235,7 +235,7 @@ const {isResizing: resizingAgentStudioPanel, panelStyle: agentStudioPanelStyle} 
     maxSize: agentStudioMaxWidth,
     edge: "left",
     enabled: computed(() => isAgentMode.value && agentStudioPanelOpen.value),
-    onResize: (width) => {
+    onResizeEnd: (width) => {
         agentStudioPanelWidth.value = width;
     },
 });
@@ -245,7 +245,7 @@ const {isResizing: resizingAgentStudioFileTree, panelStyle: agentStudioFileTreeS
     maxSize: agentStudioFileTreeMaxWidth,
     edge: "left",
     enabled: computed(() => isAgentMode.value && agentStudioPanelOpen.value && agentStudioFileTreeOpen.value),
-    onResize: (width) => {
+    onResizeEnd: (width) => {
         agentStudioFileTreeWidth.value = width;
     },
 });
@@ -1528,7 +1528,7 @@ onBeforeUnmount(() => {
                 </div>
 
                 <div class="flex min-h-0 flex-1 overflow-hidden">
-                    <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                    <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" :class="resizingAgentStudioPanel || resizingAgentStudioFileTree ? 'pointer-events-none select-none' : ''">
                         <MarkdownStudioWorkbench
                             v-model:content="selectedFileContent"
                             :controller="studio"
@@ -1561,7 +1561,7 @@ onBeforeUnmount(() => {
                     <div
                         v-if="isAgentMode && agentStudioFileTreeOpen"
                         class="agent-mode-studio-file-tree relative h-full shrink-0 border-l border-[var(--border-color)] bg-[var(--bg-panel)]"
-                        :class="resizingAgentStudioFileTree ? 'select-none' : ''"
+                        :class="resizingAgentStudioPanel || resizingAgentStudioFileTree ? 'select-none' : ''"
                         :style="agentStudioFileTreeStyle"
                     >
                         <div ref="agentStudioFileTreeResizeHandleRef" class="group absolute -left-1 top-0 z-30 h-full w-2 cursor-col-resize">

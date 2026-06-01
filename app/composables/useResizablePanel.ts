@@ -1,4 +1,4 @@
-import {computed, ref, toValue, type MaybeRefOrGetter, type Ref} from "vue";
+import {computed, onScopeDispose, ref, toValue, type MaybeRefOrGetter, type Ref} from "vue";
 import {useDraggable} from "@vueuse/core";
 
 export type ResizablePanelEdge = "left" | "right" | "top" | "bottom";
@@ -14,8 +14,10 @@ type UseResizablePanelOptions = {
     edge: MaybeRefOrGetter<ResizablePanelEdge>;
     /** 是否允许拖拽；为空时默认允许。 */
     enabled?: MaybeRefOrGetter<boolean>;
-    /** 尺寸变化回调，通常映射到 v-model:update。 */
-    onResize: (value: number) => void;
+    /** 拖拽中的尺寸变化回调；为空时只更新本地预览尺寸。 */
+    onResize?: (value: number) => void;
+    /** 拖拽结束回调，适合提交到 store / 持久化状态。 */
+    onResizeEnd?: (value: number) => void;
 };
 
 /**
@@ -33,15 +35,73 @@ export function clampResizablePanelSize(value: number, minSize: number, maxSize:
 export function useResizablePanel(handleRef: Ref<HTMLElement | null>, options: UseResizablePanelOptions) {
     const startSize = ref(0);
     const startPointer = ref(0);
+    const previewSize = ref<number | null>(null);
+    const pendingSize = ref<number | null>(null);
+    const lastEmittedSize = ref<number | null>(null);
+    const resizeFrame = ref<number | null>(null);
     const axis = edgeAxis(toValue(options.edge));
 
     const currentSize = computed(() => {
         return clampResizablePanelSize(toValue(options.size), toValue(options.minSize), toValue(options.maxSize));
     });
+    const displaySize = computed(() => previewSize.value ?? currentSize.value);
 
     const panelStyle = computed(() => axis === "x"
-        ? {width: `${currentSize.value}px`}
-        : {height: `${currentSize.value}px`});
+        ? {width: `${displaySize.value}px`}
+        : {height: `${displaySize.value}px`});
+
+    /**
+     * 在动画帧内合并多次 pointermove，避免每个鼠标事件都触发响应式更新。
+     */
+    const flushPendingResize = (): void => {
+        resizeFrame.value = null;
+        const nextSize = pendingSize.value;
+        if (nextSize === null) {
+            return;
+        }
+
+        pendingSize.value = null;
+        if (previewSize.value !== null && Math.abs(nextSize - previewSize.value) < 1) {
+            return;
+        }
+
+        previewSize.value = nextSize;
+        if (lastEmittedSize.value === null || Math.abs(nextSize - lastEmittedSize.value) >= 1) {
+            options.onResize?.(nextSize);
+            lastEmittedSize.value = nextSize;
+        }
+    };
+
+    /**
+     * 安排下一帧应用尺寸，限制拖拽期间的更新频率。
+     */
+    const scheduleResize = (nextSize: number): void => {
+        pendingSize.value = nextSize;
+        if (resizeFrame.value !== null || !import.meta.client) {
+            if (!import.meta.client) {
+                flushPendingResize();
+            }
+            return;
+        }
+
+        resizeFrame.value = window.requestAnimationFrame(flushPendingResize);
+    };
+
+    /**
+     * 拖拽结束时提交最终尺寸，并清理临时预览状态。
+     */
+    const commitResizeEnd = (): void => {
+        if (resizeFrame.value !== null) {
+            window.cancelAnimationFrame(resizeFrame.value);
+            flushPendingResize();
+        }
+
+        const finalSize = previewSize.value ?? currentSize.value;
+        options.onResizeEnd?.(finalSize);
+        previewSize.value = null;
+        pendingSize.value = null;
+        lastEmittedSize.value = null;
+    };
 
     const {isDragging} = useDraggable(handleRef, {
         axis,
@@ -50,13 +110,25 @@ export function useResizablePanel(handleRef: Ref<HTMLElement | null>, options: U
         disabled: computed(() => options.enabled !== undefined && !toValue(options.enabled)),
         onStart: (_position, event) => {
             startSize.value = currentSize.value;
+            previewSize.value = currentSize.value;
+            pendingSize.value = null;
+            lastEmittedSize.value = currentSize.value;
             startPointer.value = pointerPosition(event, axis);
         },
         onMove: (_position, event) => {
             const nextPointer = pointerPosition(event, axis);
             const nextSize = startSize.value + (nextPointer - startPointer.value) * edgeDirection(toValue(options.edge));
-            options.onResize(clampResizablePanelSize(nextSize, toValue(options.minSize), toValue(options.maxSize)));
+            scheduleResize(clampResizablePanelSize(nextSize, toValue(options.minSize), toValue(options.maxSize)));
         },
+        onEnd: () => {
+            commitResizeEnd();
+        },
+    });
+
+    onScopeDispose(() => {
+        if (resizeFrame.value !== null && import.meta.client) {
+            window.cancelAnimationFrame(resizeFrame.value);
+        }
     });
 
     return {

@@ -53,6 +53,7 @@
 - 2026-06-01：继续优化 IDE / Agent 模式切换动画：保留浏览器 View Transition 支持时的同文档过渡；在当前浏览器不支持 `document.startViewTransition` 时，使用 FLIP fallback 平滑移动 header switch、IDE 工具栏、Agent session panel、Studio 和 Agent 主体槽位；IDE 工具栏也改为宽度 / 透明度动画，不再在切 Agent 时硬切消失。
 - 2026-06-01：根据用户希望的“纸张左右平移”手感继续调整：进入 Agent Mode 时强制使用自定义纸面 fallback，先克隆 IDE 工具栏和 Studio 作为纸面快照，让该快照整体向左滑出屏幕；真实 Agent 主体从右侧旧槽位 FLIP 到中间，真实 Agent Mode Studio 延后显露，避免和滑出的旧 Studio 重叠抢视觉。
 - 2026-06-01：Agent Mode 的 Studio 内部文件树也接入 `useResizablePanel`，支持从左边缘拖拽调整宽度，并把宽度写入本地偏好。
+- 2026-06-01：宽度拖拽性能优化：`useResizablePanel` 改为用 `requestAnimationFrame` 合并 pointermove 更新，并支持 `onResizeEnd`；Agent Mode session panel、Studio 和 Studio 内文件树拖拽中只使用本地预览尺寸，松手后再提交 Pinia / 持久化状态，减少拖拽过程中的响应式和 storage 写入。
 
 ## Decisions
 
@@ -83,6 +84,7 @@
 - Agent Mode 左侧 session panel 和右侧 Studio 与 IDE 模式一样支持宽度拖拽；收起时使用宽度动画，不销毁中间 Agent 主体。
 - Agent Mode 的侧栏宽度持久化到本地偏好；Studio 最大宽度根据视口和左侧已占空间动态夹住，优先避免横向溢出。
 - Agent Mode Studio 内展开的文件树也支持宽度拖拽；它属于 Studio 内部布局，不新增第二套文件树组件。
+- 宽度拖拽优先保持实时 resize 手感；拖拽中由 `useResizablePanel` 管理本地预览尺寸，持久化宽度只在拖拽结束时提交。
 - Header 左侧模式入口使用 `role="switch"` 表达 Agent Mode 开关；视觉上左侧是 Agent、右侧是 IDE，IDE 默认选中右侧。
 - Header 模式开关只展示当前模式文字；另一个模式保留图标提示。
 - 模式切换相关面板统一使用 300ms `cubic-bezier(0.4,0,0.2,1)` 过渡，和 header 滑块同步。
@@ -154,6 +156,7 @@
 - 已完成：浏览器验收确认当前环境不支持 `document.startViewTransition` 时会走 fallback 动画；切换到 IDE 时，IDE 工具栏从 0 宽渐进到 340px，Agent session panel 从 352px 渐进到 0，Agent 槽位和 Studio 同步移动 / 变宽；全程没有横向溢出。
 - 已完成：浏览器验收确认进入 Agent Mode 时会创建 `.mode-transition-paper` 快照，快照承载 IDE 工具栏和 Studio 并向左出屏；真实 Agent Mode Studio 在动画中保持隐藏，最终布局稳定为 `session panel + Agent flow + Studio`，全程没有横向页面溢出。
 - 已完成：浏览器验收确认 Agent Mode Studio 内文件树展开后有左边缘拖拽手柄，当前 1120px 视口下可从 200px 拖到 240px，页面横向溢出保持 0。
+- 已完成：相关文件 `vue-tsc` 过滤检查无输出；浏览器复验确认 Agent Mode Studio 文件树在优化后仍可从 200px 拖到 240px，横向溢出保持 0。
 - 已知：全量 `bunx vue-tsc --noEmit --pretty false` 仍失败，错误集中在既有 SillyTavern / RP 测试噪音：`assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`、`server/agent/profiles/rp-profiles.test.ts`、`server/agent/skills/silly-tavern-card-cli.test.ts`。
 
 ## TODO / Follow-ups
