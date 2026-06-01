@@ -66,9 +66,10 @@
 - `knowledge.md` 是给 actor 看的角色视角资料，不写上帝视角；模板改为二级章节归类、三级标题作为条目，并新增 `## 世界观`。不再维护“信念与误解”“最近更新”“更新规则”章节；是否误解由 GM / leader 在后台判断，更新规则写在 profile prompt 中。
 - lorebook 信息控制继续讨论：一个方向是在 lorebook frontmatter 中标注条目可见对象或可知条件，让 actor 的 `knowledge.md` 可以引用“这个角色可知道”的公开世界观/常识条目，避免每个 actor 重复维护通用世界观。但 canonical lorebook 仍默认是 GM / leader / 作者视角，actor 不能因为引用而自行读取完整 lorebook。
   - 暂定推荐方向：visibility 只是“谁能知道/何时能知道”的元数据，不代表 actor 可直接读取原文；`knowledge.md` 优先保存角色视角摘要或引用索引。混合公开常识和隐藏真相的 lorebook 条目后续应拆条目，或提供 actor-safe 摘要字段，由 GM / leader 注入。
-- Tick / 过程产物目录继续讨论：不要直接命名为 `sessions/`，避免和 Agent Session 混淆；暂定方向是 `roleplay/run/` 或类似 playthrough artifacts 目录，用于保存当前游戏进程、每个 Tick 的 user input、GM scratch、actor result、writer brief 和 writer 正文文件。
+- Tick / 过程产物目录命名为 `roleplay/playthrough/`，避免和 Agent Session 混淆；用于保存当前游戏进程、每个 Tick 的 user input、GM scratch、actor result、writer brief 和 writer 正文文件。
 - GM 发给 actor 的消息不应使用 YAML / JSON / 字段任务单。内部可以结构化组织信息，但发送给 actor 时应改成第二人称自然语言，只描述角色合理可知、可见、可感受到的内容；不要发送 `not_known_to_you`、`task`、返回格式或 hidden facts。
-- `report_result.walkthrough` 的命名不再适合 RP actor；建议后续工具字段改为 `result`，description 说明“这里可以写可读结果，必要时可写简短 walkthrough”。中期目标是用 sidecar result pass 整理 actor 主上下文的沉浸式回应。
+- `report_result.walkthrough` 已严格改名为 `result`；模型可见 schema、工具执行和 harness 读取都使用 `result`。中期目标仍是用 sidecar result pass 整理 actor 主上下文的沉浸式回应。
+- actor `knowledge.md` 引用 lorebook 的方式使用项目已支持的 Markdown 相对路径链接，例如 `[王都公共常识](../../lorebook/world/capital.md)`；链接是维护索引或可知来源，不代表 actor 可以自行读取完整 canonical 原文。
 - 最新 `roleplay/` 目标结构收束为少量根文件 + actor 子目录：
 
 ```text
@@ -77,7 +78,7 @@ roleplay/
 |-- cast.yaml
 |-- gm.md
 |-- writer.md
-|-- run/                  # proposed, name TBD; current playthrough / tick artifacts
+|-- playthrough/          # current playthrough / tick artifacts
 `-- actors/
     |-- player/
     |   |-- actor.md
@@ -172,7 +173,7 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 - 已新增系统 skill：`assets/workspace/.nbook/agent/skills/RP目录初始化/SKILL.md`，作为安装或补齐 `roleplay/` 运行目录模板的可发现入口。
 - 已新增配套 CLI：`assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`。
 - 已新增 RP 目录模板：`assets/workspace/.nbook/templates/roleplay-directory-templates/roleplay/`，包含 `config.yaml`、`cast.yaml`、`gm.md`、`writer.md`、`actors/player/*` 和 `actors/sample-npc/*`。
-- RP 目录模板已升级为混合模板：保留待填写位置，同时提供 fallback scene、profile 输入边界、Tick 清单、actor packet / response 约束、GM scratch、writer brief 缺失处理和 actor knowledge 更新规则，方便安装后直接试跑一轮 RP。
+- RP 目录模板已升级为混合模板：保留待填写位置，同时提供 fallback scene、profile 输入边界、Tick 清单、actor-facing message / response 约束、GM scratch、writer brief 缺失处理、playthrough 示例和 actor knowledge 更新规则，方便安装后直接试跑一轮 RP。
 - 已扩展 `workspace project create`：目标不存在时仍创建完整 Project Workspace；支持 `--target <dir>` 指定实际写入目录；目标已存在且显式传入 `--template` 时，把模板缺失文件补入现有 Project Workspace，并在 `--json` 中返回 `mode: "updated"`、`createdFiles` 和 `skippedFiles`。
 - 已更新 `leader.default` profile 的 Shell commands 提示词：RP 初始化 skill 后续应调用 `workspace project create <project> [--target <dir>] --template roleplay-directory-templates`，继续复用项目模板命令。
 - CLI 当前支持：
@@ -265,8 +266,14 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
   - `bun scripts/build/profile.ts check builtin/leader.rp.profile.tsx --system`
   - `bun scripts/build/profile.ts check builtin/rp.actor.profile.tsx --system`
   - `bun scripts/build/profile.ts check builtin/rp.writer.profile.tsx --system`
+  - `bun scripts/build/profile.ts check builtin/writer.profile.tsx --system`
+  - `bun scripts/build/profile.ts check builtin/retrieval.profile.tsx --system`
   - `bun run profile:metadata`
   - `bunx vitest run server/agent/profiles/rp-profiles.test.ts`
+- 已运行 `bunx vitest run server/agent/profiles/report-result-schema.test.ts`，确认 `report_result` schema 已严格使用 `result`。
+- 已运行 `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts -t "report_result"`，确认 harness 读取 `report_result.result`。
+- 已运行 `bunx vitest run server/agent/profiles/workbench-service.test.ts`，确认 profile workbench 的 report mode 文案仍可通过。
+- 已运行 `bunx vitest run server/agent/harness/prepare-next-turn.test.ts server/agent/harness/turn-continuation.test.ts server/agent/harness/run-frame-state.test.ts`，确认 report_result reminder / continuation 相关窄测试未回归。
 
 ## TODO / Follow-ups
 
@@ -275,7 +282,6 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 - 后续把 legacy `roleplay/imports/silly-tavern/...` 输出迁移为 `reference/` 归档或 `roleplay/gm.md` / `roleplay/writer.md` / actor 文件补丁。
 - 扩展 PNG 提取能力：当前只 best-effort 读取 `tEXt` 文本块，后续按样本需要再支持 `iTXt` / `zTXt`。
 - 设计泛用自然语言编辑工具：输入目标文件、自然语言操作说明和可选上下文消息数量，由轻量模型辅助修改文件；后续可用于 Agent 记忆系统、RP 状态维护和常规文件编辑减负。
-- 单独讨论 RP 变量系统：如何表示数值、列表、背包、好感度、任务、世界时钟，以及它和 `state.md`、`roleplay/run/` 的关系。
-- 继续设计 `roleplay/run/`：目录命名、是否默认创建、Tick id 规则、writer 正文写入路径、debug/回放/分支剧情如何保存。
-- 后续实现时调整 `leader.rp` -> `rp.actor` 的消息风格：从 YAML-like packet 改为第二人称自然语言注入，保留结构化输出字段。
-- 后续评估 `report_result.walkthrough` -> `result` 的工具接口迁移，并设计 sidecar result pass。
+- 单独讨论 RP 变量系统：如何表示数值、列表、背包、好感度、任务、世界时钟，以及它和 `state.md`、`roleplay/playthrough/` 的关系。
+- 继续细化 `roleplay/playthrough/`：分支剧情、debug 信息、正式游玩时是否保留示例 Tick，以及 writer 正文文件命名规则。
+- 后续设计 sidecar result pass，让 actor 主上下文沉浸回复，旁路上下文整理 `report_result.data` 与 playthrough result 文件。

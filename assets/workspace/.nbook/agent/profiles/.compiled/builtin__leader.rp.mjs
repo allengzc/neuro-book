@@ -277,6 +277,7 @@ function createSqlTool() {
     key: "execute_sql",
     name: "execute_sql",
     label: "Execute SQL",
+    executionMode: "sequential",
     description: buildSqlToolDescription(),
     parameters: ExecuteSqlSchema,
     async execute() {
@@ -2469,7 +2470,7 @@ function createElement(type, props) {
 var profileManifest = {
   key: "leader.rp",
   name: "Roleplay Leader",
-  description: "RP \u6A21\u5F0F\u4E3B\u63A7 GM\uFF1A\u76F4\u63A5\u9762\u5411\u7528\u6237\u53D9\u4E8B\uFF0C\u8BFB\u53D6 roleplay/ \u8FD0\u884C\u76EE\u5F55\uFF0C\u8C03\u5EA6 rp.actor\uFF0C\u5E76\u6309\u9700\u8C03\u7528 rp.writer \u8F93\u51FA\u7528\u6237\u53EF\u89C1\u6B63\u6587\u3002"
+  description: "RP \u6A21\u5F0F\u4E3B\u63A7 GM\uFF1A\u76F4\u63A5\u9762\u5411\u7528\u6237\u53D9\u4E8B\uFF0C\u8BFB\u53D6 roleplay/ \u8FD0\u884C\u76EE\u5F55\uFF0C\u5411 rp.actor \u6CE8\u5165\u620F\u5185\u6D88\u606F\uFF0C\u5E76\u6309\u9700\u8C03\u7528 rp.writer \u8F93\u51FA\u7528\u6237\u53EF\u89C1\u6B63\u6587\u3002"
 };
 var InputSchema = LeaderRpInputSchema;
 var OutputSchema = LeaderRpOutputSchema;
@@ -2529,6 +2530,7 @@ function renderSystemPrompt() {
         - 如果创建 input 提供了 roleplayRoot，优先使用该路径；否则根据 Current Project Workspace 推导 roleplayRoot。
         - cast.yaml 中的 roleplay/... 路径是 Project Workspace 相对路径；创建 actor/writer input 时必须转换为 Agent cwd 可用路径，例如 project-slug/roleplay/actors/erina/actor.md。
         - 启动或初始化时读取：roleplay/config.yaml、roleplay/cast.yaml、roleplay/gm.md、roleplay/writer.md。roleplay/gm.md 是唯一 GM 入口说明。
+        - roleplay/playthrough/ 用于保存当前游戏进程和 Tick 产物；只有在用户、gm.md 或 writer brief 明确要求时才写入。
         - GM 可以按 roleplay/gm.md 的指引读取 lorebook/、reference/ 和其他 canonical/god-view 文件。
         - actor 和 writer 不应直接获得完整 roleplay/、lorebook/ 或 reference/。你必须过滤信息。
 
@@ -2550,7 +2552,7 @@ function renderSystemPrompt() {
         1. intake：判断用户输入是行动、台词、剧本式指令还是混合输入。用户是故事内 actor，但不要替用户决定核心行动。
         2. validation：根据当前场景、规则、物品、位置和 canonical context 判断行动是否合理；重大不可逆行动先询问用户。
         3. actor selection：只选择当前在场、直接受影响或有强动机反应的 actor。默认非抢话模式，不主动让 actor 抢用户行动前的叙事权。
-        4. filtered packet：给每个 actor 发送它合理可观察、可知道的信息。不要泄露隐藏真相、GM 推理、其他 actor 私密意图或完整 lorebook。
+        4. actor-facing message：先在后台组织 GM internal scratch，再给每个 actor 发送第二人称自然语言消息，只包含它合理可观察、可知道、可感受到的信息。不要发送 YAML/JSON/字段任务单，不要泄露隐藏真相、GM 推理、其他 actor 私密意图或完整 lorebook。
         5. collect：读取 actor 的 report_result.data，重点使用 visible_action、spoken_dialogue、private_intent、emotional_state、questions_to_gm。
         6. resolve：合并 actor 反应，进行世界模拟和规则裁决，明确哪些内容可写、哪些只留在 GM scratch。
         7. writer brief：构造只包含 narratable view 的 brief，写清 confirmed_events、visible_actor_actions、spoken_dialogue、narration_goals、style、do_not_reveal、allowed_internality、output_requirements。明确要求 writer 只返回正文，不写选项、摘要、标题或后台字段。
@@ -2560,16 +2562,24 @@ function renderSystemPrompt() {
         # 信息控制
 
         - lorebook/character/ 等 canonical 资料默认只给 GM 和开发者。
-        - actor 只能根据自己的 actor.md、knowledge.md、mind.md、state.md 和你本 Tick 注入的 filtered packet 回应。
+        - actor 只能根据自己的 actor.md、knowledge.md、mind.md、state.md 和你本 Tick 注入的 actor-facing message 回应。
         - writer 只根据 writer.md 和 writer brief 写正文；brief 缺少的信息视为不可写。writer 可以使用文件工具，但只在你明确指定路径和任务时使用。
         - 角色不知道的秘密不能写成角色已经理解。可以写客观现象、试探或遮掩；如果角色掌握的信息与真相不一致，由你在后台区分，不要要求 actor 在 knowledge.md 里标注自己“误解”。
         - 玩家 actor 的 actor.md、knowledge.md、mind.md、state.md 用来约束身份、能力、已知信息和状态；用户当前输入始终是玩家行动意图的最高来源。
+        - actor knowledge 中引用 lorebook 时使用 Markdown 相对路径链接，例如 [王都公共常识](../../lorebook/world/capital.md)。链接只是来源索引，不授权 actor 自行读取完整 canonical 原文。
+
+        # Actor 消息协议
+
+        - GM internal scratch 可以结构化记录 scene、event、hidden facts、actor selection、actor known facts 和裁决依据；它只留在后台或 playthrough/gm-scratch.md。
+        - 发给 rp.actor 的 message 必须是 actor-facing message：自然语言、第二人称、戏内可感知描述。
+        - 不要把 not_known_to_you、task、返回格式、字段名、JSON、YAML、writer brief 或 hidden facts 发给 actor。
+        - 角色不知道的内容直接不出现；需要限制时写成角色视角的不确定感，例如“你说不出它是什么”，不要列“你不知道 X”清单。
 
         # 子 agent 协作
 
         - 不熟悉 profile 时先 get_agent_profile，不要只靠名字猜 input。
         - 同 profile + 同创建 input 语义时复用已有 agent；切换 actor 文件路径或 writerInstructionPath 时创建新 agent。
-        - 调 actor 时，把任务说成“回复 GM 的结构化 packet”，不要让 actor 写小说正文。
+        - 调 actor 时，发送 actor-facing message；不要把任务写成工单，也不要让 actor 写小说正文。
         - 调 writer 时，把任务说成“只写用户可见正文”，不要让 writer 输出选项、摘要或解释。
         - rp.actor 必须通过 report_result.data 返回结构化 packet。缺少有效 data 时，要求它补报，不要自行脑补完整反应。
         - rp.writer 直接用普通 assistant 回复输出正文，不再通过 report_result.data.prose 返回。不要让普通 writer profile 承担 RP Tick 渲染任务。

@@ -277,6 +277,7 @@ function createSqlTool() {
     key: "execute_sql",
     name: "execute_sql",
     label: "Execute SQL",
+    executionMode: "sequential",
     description: buildSqlToolDescription(),
     parameters: ExecuteSqlSchema,
     async execute() {
@@ -2473,7 +2474,7 @@ function createElement(type, props) {
 var profileManifest = {
   key: "rp.actor",
   name: "RP Actor",
-  description: "\u901A\u7528\u89D2\u8272\u626E\u6F14 agent\uFF1A\u57FA\u4E8E\u89D2\u8272\u6307\u4EE4\u3001knowledge/mind/state \u548C GM packet \u56DE\u5E94\uFF0C\u901A\u8FC7 report_result \u8FD4\u56DE\u7ED3\u6784\u5316 actor packet\u3002"
+  description: "\u901A\u7528\u89D2\u8272\u626E\u6F14 agent\uFF1A\u57FA\u4E8E\u89D2\u8272\u6307\u4EE4\u3001knowledge/mind/state \u548C GM \u7684\u620F\u5185\u6D88\u606F\u56DE\u5E94\uFF0C\u901A\u8FC7 report_result \u8FD4\u56DE\u7ED3\u6784\u5316 actor packet\u3002"
 };
 var InputSchema = RpActorInputSchema;
 var OutputSchema = RpActorOutputSchema;
@@ -2503,7 +2504,7 @@ function renderSystemPrompt(input) {
         # 核心职责
 
         - 全心全意扮演该角色，而不是 GM、作者、旁白或 writer。
-        - 只根据 <actor_instruction>、<actor_knowledge>、<actor_mind>、<actor_state> 和 GM 本 Tick 发来的 filtered observation packet 回应。
+        - 只根据 <actor_instruction>、<actor_knowledge>、<actor_mind>、<actor_state> 和 GM 本 Tick 发来的戏内消息回应。
         - 输出结构化 actor response packet 给 GM，不写最终小说正文。
         - 不操控用户角色，不替用户决定核心行动，不推进全局世界状态。
         - 如果你扮演的是玩家 actor，用户输入高于你的推测；不要替用户新增行动、台词、情绪或目标，只报告已知边界、状态和基于用户输入的可见反应。
@@ -2511,9 +2512,9 @@ function renderSystemPrompt(input) {
         # 信息边界
 
         - 你不能读取完整 roleplay/、roleplay/gm.md、roleplay/writer.md、lorebook/、reference/、其他 actor 目录或 GM scratch。
-        - 你知道的世界等于 actor knowledge、mind、state 加上 GM 当前 packet。即使你怀疑有隐藏真相，也只能以角色的有限认知表达。
+        - 你知道的世界等于 actor knowledge、mind、state 加上 GM 当前消息。即使你怀疑有隐藏真相，也只能以角色的有限认知表达。
         - knowledge.md 是给你看的角色视角资料；你把它当作当前已知信息使用，不判断它是否符合上帝视角真相。
-        - GM packet 明确写成 not_known_to_you 的内容不能变成你的台词、判断或内心确定事实。
+        - GM 没有写入当前消息或你的角色文件的信息，不能变成你的台词、判断或内心确定事实。
 
         # 角色文件维护
 
@@ -2521,11 +2522,11 @@ function renderSystemPrompt(input) {
         - 你可以读取和编辑自己的 mindPath：${input.mindPath}。
         - 你可以读取和编辑自己的 statePath：${input.statePath}。
         - 不要写入 actor.md，不要写入其他路径，不要整理 lorebook。
-        - 只有 GM packet 或本 Tick 互动让角色真的获得了新认知，才更新 knowledge.md。
+        - 只有 GM 当前消息或本 Tick 互动让角色真的获得了新认知，才更新 knowledge.md。
         - knowledge.md 记录角色已经知道、被告知、观察到或自然推断到的信息，不写 GM 推理或真实隐藏设定。
         - knowledge.md 使用二级章节归类，用三级标题表示具体条目；新增内容写成三级标题加正文段落，不要用 Markdown 列表堆条目。
         - 不要在 knowledge.md 新增“信念与误解”“最近更新”或“更新规则”章节。写入规则由本提示词负责。
-        - knowledge.md 可以保留 GM 明确允许该角色知道的 lorebook 引用；即使看到 lorebook 路径，也不要自行读取 lorebook，等待 GM 注入摘要或明确授权。
+        - knowledge.md 可以保留 GM 明确允许该角色知道的 lorebook 引用；引用使用 Markdown 相对路径链接，例如 [王都公共常识](../../lorebook/world/capital.md)。即使看到 lorebook 路径，也不要自行读取 lorebook，等待 GM 注入摘要或明确授权。
         - mind.md 记录角色当前正在想什么、判断什么、犹豫什么、想要什么；它是短期心理状态，不是世界真相。
         - state.md 记录位置、随身物品、伤势、姿态、关系压力和短期目标等可变状态。
         - 当前工具没有 runtime path scope，遵守这个边界是你的硬性职责。
@@ -2542,7 +2543,7 @@ function renderSystemPrompt(input) {
 
         # 输出合同
 
-        必须调用 report_result。report_result.data 必须包含：
+        必须调用 report_result。report_result.result 写一句简短可读结果；report_result.data 必须包含：
 
         - visible_action: 可被观察到的动作、神态、沉默或行为；没有填空字符串。
         - spoken_dialogue: 角色说出口的台词；没有填空字符串。
@@ -2554,7 +2555,7 @@ function renderSystemPrompt(input) {
         - mind_update: 本 Tick 后应写入 mind.md 的当前想法、判断或动机摘要；没有填空字符串。
         - state_update: 本 Tick 后应写入 state.md 的位置、持有物、伤势、关系压力或短期目标变化；没有填空字符串。
 
-        report_result.walkthrough 只写一句简短说明。不要把 packet 当作普通 final answer 输出。
+        不要把 packet 当作普通 final answer 输出。
     `;
 }
 async function renderActorContext(ctx) {
@@ -2592,9 +2593,9 @@ async function renderActorContext(ctx) {
 }
 function renderInvocationReminder(input) {
   return profileText`
-        本轮请等待或处理 GM 通过当前 user message 发来的 filtered observation packet。
+        本轮请等待或处理 GM 通过当前 user message 发来的 actor-facing message。
         只回复 GM，并必须调用 report_result。必要时可更新 ${input.knowledgePath}、${input.mindPath}、${input.statePath}，但不要读取或编辑其他路径。
-        如果 packet 信息不足，只基于角色会观察到的表层事实回应，可以在 questions_to_gm 中请求裁决，不要自行补隐藏设定。
+        如果消息信息不足，只基于角色会观察到的表层事实回应，可以在 questions_to_gm 中请求裁决，不要自行补隐藏设定。
     `;
 }
 async function readWorkspaceFile(workspaceRoot, relativePath) {

@@ -77,7 +77,7 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage([
                 fauxText("done"),
                 fauxToolCall("report_result", {
-                    walkthrough: "ok",
+                    result: "ok",
                     data: {
                         paths: ["lorebook/foo/index.md"],
                     },
@@ -126,14 +126,14 @@ describe("NeuroAgentHarness", () => {
         faux.setResponses([
             fauxAssistantMessage([
                 fauxToolCall("report_result", {
-                    walkthrough: "missing data",
+                    result: "missing data",
                 }, {id: "bad-report"}),
             ], {stopReason: "toolUse"}),
             (context) => {
                 expect(visibleMessageText(context.messages)).toContain("Validation failed for tool \"report_result\"");
                 return fauxAssistantMessage([
                     fauxToolCall("report_result", {
-                        walkthrough: "fixed",
+                        result: "fixed",
                         data: {
                             title: "Fixed",
                         },
@@ -266,7 +266,7 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage([
                 fauxText("received"),
                 fauxToolCall("report_result", {
-                    walkthrough: "done",
+                    result: "done",
                 }, {id: "report-2"}),
             ], {stopReason: "toolUse"}),
         ]);
@@ -322,7 +322,7 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage([
                 fauxText("received"),
                 fauxToolCall("report_result", {
-                    walkthrough: "done after reload",
+                    result: "done after reload",
                 }, {id: "report-reload"}),
             ], {stopReason: "toolUse"}),
         ]);
@@ -399,7 +399,7 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage([
                 fauxText("received"),
                 fauxToolCall("report_result", {
-                    walkthrough: "done after concurrent reload",
+                    result: "done after concurrent reload",
                 }, {id: "report-concurrent-reload"}),
             ], {stopReason: "toolUse"}),
         ]);
@@ -579,7 +579,7 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage([
                 fauxText("received"),
                 fauxToolCall("report_result", {
-                    walkthrough: "done after abort resolution race",
+                    result: "done after abort resolution race",
                 }, {id: "report-abort-resolution-race"}),
             ], {stopReason: "toolUse"}),
         ]);
@@ -674,12 +674,12 @@ describe("NeuroAgentHarness", () => {
                     questions: [{question: "继续？"}],
                 }, {id: "ask-barrier"}),
                 fauxToolCall("report_result", {
-                    walkthrough: "should wait",
+                    result: "should wait",
                 }, {id: "report-after-approval"}),
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage([
                 fauxToolCall("report_result", {
-                    walkthrough: "done after approval",
+                    result: "done after approval",
                 }, {id: "report-after-resolution"}),
             ], {stopReason: "toolUse"}),
         ]);
@@ -1973,7 +1973,7 @@ describe("NeuroAgentHarness", () => {
         faux.setResponses([
             fauxAssistantMessage([
                 fauxToolCall("report_result", {
-                    walkthrough: "ok",
+                    result: "ok",
                     data: {
                         title: "Settled",
                     },
@@ -2241,7 +2241,7 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage([
                 fauxText("hidden transcript"),
                 fauxToolCall("report_result", {
-                    walkthrough: "ok",
+                    result: "ok",
                     data: {
                         title: "Transient Summary",
                     },
@@ -2392,7 +2392,7 @@ describe("NeuroAgentHarness", () => {
                 providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
                 return fauxAssistantMessage([
                     fauxToolCall("report_result", {
-                        walkthrough: "ok",
+                        result: "ok",
                         data: {
                             title: "Runtime Reminder",
                         },
@@ -2454,7 +2454,7 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage("source answer"),
             fauxAssistantMessage([
                 fauxToolCall("report_result", {
-                    walkthrough: "summary ok",
+                    result: "summary ok",
                     data: {
                         title: "Source Title",
                         summary: "Source summary.",
@@ -2551,7 +2551,7 @@ describe("NeuroAgentHarness", () => {
                 await harness.repo.moveLeaf(created.sessionId, null);
                 return fauxAssistantMessage([
                     fauxToolCall("report_result", {
-                        walkthrough: "stale summary",
+                        result: "stale summary",
                         data: {
                             title: "Stale Title",
                             summary: "Stale summary.",
@@ -2561,7 +2561,7 @@ describe("NeuroAgentHarness", () => {
             },
             fauxAssistantMessage([
                 fauxToolCall("report_result", {
-                    walkthrough: "fresh summary",
+                    result: "fresh summary",
                     data: {
                         title: "Fresh Title",
                         summary: "Fresh summary.",
@@ -2628,7 +2628,7 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage("source answer with enough text to exceed token limit"),
             fauxAssistantMessage([
                 fauxToolCall("report_result", {
-                    walkthrough: "must not run",
+                    result: "must not run",
                     data: {
                         title: "Unexpected",
                         summary: "Unexpected.",
@@ -2694,7 +2694,7 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage("source answer 1"),
             fauxAssistantMessage([
                 fauxToolCall("report_result", {
-                    walkthrough: "summary one",
+                    result: "summary one",
                     data: {
                         title: "Interval One",
                         summary: "First summary.",
@@ -2705,7 +2705,7 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage("source answer 3"),
             fauxAssistantMessage([
                 fauxToolCall("report_result", {
-                    walkthrough: "summary two",
+                    result: "summary two",
                     data: {
                         title: "Interval Two",
                         summary: "Second summary.",
@@ -2779,7 +2779,7 @@ describe("NeuroAgentHarness", () => {
             },
             fauxAssistantMessage([
                 fauxToolCall("report_result", {
-                    walkthrough: "summary retry",
+                    result: "summary retry",
                     data: {
                         title: "Retry Title",
                         summary: "Retry summary.",
@@ -2897,7 +2897,7 @@ describe("NeuroAgentHarness", () => {
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage([
                 fauxToolCall("report_result", {
-                    walkthrough: "done",
+                    result: "done",
                 }, {id: "report-appending"}),
             ], {stopReason: "toolUse"}),
         ]);
@@ -3098,7 +3098,7 @@ describe("NeuroAgentHarness", () => {
             fauxAssistantMessage([
                 fauxText("retrying"),
                 fauxToolCall("report_result", {
-                    walkthrough: "fixed",
+                    result: "fixed",
                 }, {id: "report-after-reminder"}),
             ], {stopReason: "toolUse"}),
         ]);
@@ -3624,7 +3624,7 @@ describe("NeuroAgentHarness", () => {
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage([
                 fauxToolCall("report_result", {
-                    walkthrough: "child done",
+                    result: "child done",
                     data: {
                         answer: "structured child data",
                     },

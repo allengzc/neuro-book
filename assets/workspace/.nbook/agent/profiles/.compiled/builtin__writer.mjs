@@ -277,6 +277,7 @@ function createSqlTool() {
     key: "execute_sql",
     name: "execute_sql",
     label: "Execute SQL",
+    executionMode: "sequential",
     description: buildSqlToolDescription(),
     parameters: ExecuteSqlSchema,
     async execute() {
@@ -6593,7 +6594,7 @@ async function buildWriterPrompt(ctx) {
                         
                         <hard_rules>
                             - 只根据已有设定、剧情点和明确要求写作，不新增超出任务范围的关键设定。
-                            - 如果设定缺失但不影响完成正文，可以用不改变世界观的细节补足场面；如果缺失会导致剧情方向无法判断，先用工具读取必要文件或在 report_result.walkthrough 里说明限制。
+                            - 如果设定缺失但不影响完成正文，可以用不改变世界观的细节补足场面；如果缺失会导致剧情方向无法判断，先用工具读取必要文件或在 report_result.result 里说明限制。
                             - 完成任务后必须调用 report_result 提交最终结果；调用 report_result 成功后对话会自动结束
                             - report_result.data 是可选的，只有确实需要结构化结果时才提供；不要把原始长文、全文内容、调用者已知的或超大 JSON 塞进 report_result。
                         </hard_rules>
@@ -6625,9 +6626,9 @@ async function buildWriterPrompt(ctx) {
                         2. 写入初稿：使用 write 把完整正文写入 <chapter_target> 的 indexPath，必须原样保留 project-slug 前缀。不要根据 UI active novel、自然语言章节名、旧 active scene 或 outputPath 猜测其他落点；不要把 indexPath 裁成 manuscript/...。
                         3. 润色复查：写完后进入润色环节，按 <writing_style>、<writing_reference>、<avoid_words>、视角边界、长自然段、剧情点覆盖度和内容节点设定逐项检查。
                         4. 修改成稿：如果发现需要调整，优先用 edit 逐处修改刚写入的文件；只有当多个改动天然适合一次统一补丁时，才用 apply_patch。不要重新把全文贴到 assistant 正文里。
-                        5. 结束报告：最后必须调用 report_result。walkthrough 说明已写入的文件路径、润色完成情况和约 100 字剧情总结。
+                        5. 结束报告：最后必须调用 report_result。result 说明已写入的文件路径、润色完成情况和约 100 字剧情总结。
 
-                        如果 <chapter_target> 缺失或无法解析，不要自己发明落点；应通过 report_result.walkthrough 或错误说明阻止写入。
+                        如果 <chapter_target> 缺失或无法解析，不要自己发明落点；应通过 report_result.result 或错误说明阻止写入。
                     </execution_workflow>
                     
                     <content_node_rules>
@@ -6697,7 +6698,7 @@ async function buildWriterPrompt(ctx) {
                         comment 使用时机：
                         - 只有在对已有草稿做批注、指出需要用户确认、核对、后续处理的局部文本时，才使用 inline-comment。
                         - 正式小说正文不要主动塞 comment；除非写作要求明确要求保留写作批注、审稿意见或待确认标记。
-                        - comment 的 body 应短而具体，不承载长篇分析；长分析放在 report_result.walkthrough 或单独说明中。
+                        - comment 的 body 应短而具体，不承载长篇分析；长分析放在 report_result.result 或单独说明中。
                     </markdown_dialect>
                     
                     <polishing_workflow>
@@ -6713,7 +6714,7 @@ async function buildWriterPrompt(ctx) {
                         - 章节写作任务：write 写入 <chapter_target> 的 indexPath，必要时先用 edit 逐处润色，只有成块改动才用 apply_patch，然后 report_result；不要用 prose-only final answer 代替工具流程。
                         - writer 正常总是绑定唯一章节；如果没有可写章节，停止写入并报告原因。
                         - 不输出 <summary> 标签，不输出“小猫之神的留言”，不输出写作分析。
-                        - report_result.walkthrough：包含已写入或修改的文件路径、润色是否完成，以及剧情总结；总结要概括本次正文的时间、地点、参与角色、关键动作、关系变化、伏笔或状态变化。
+                        - report_result.result：包含已写入或修改的文件路径、润色是否完成，以及剧情总结；总结要概括本次正文的时间、地点、参与角色、关键动作、关系变化、伏笔或状态变化。
                         - report_result.data：默认不填；除非调用方明确需要结构化结果。
                     </output_protocol>
                     `,

@@ -78,7 +78,7 @@ Efficient retrieval method:
 8. Expand one hop through refs only when a strong candidate points to an obviously relevant character, location, item, or rule.
 9. Keep the result compact. Return no more than maxEntries when provided. Lower priority numbers are more important.
 10. report_result.data must be an ordered string[] of selected content-node paths. Do not include reason, notes, title, summary, type, status, state, or inferred analysis.
-11. report_result.walkthrough should be one concise sentence.
+11. report_result.result should be one concise sentence.
 12. Finish by calling report_result. Do not edit files. Do not write a prose-only final answer.`}
                     </Message>
                     {ctx.skillCatalogText ? (

@@ -4,7 +4,7 @@ import {reportResultSchemaForProfile} from "nbook/server/agent/profiles/report-r
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 
 describe("reportResultSchemaForProfile", () => {
-    it("空 OutputSchema 只要求 walkthrough", () => {
+    it("空 OutputSchema 只要求 result", () => {
         const profile = defineAgentProfile({
             manifest: {key: "agent.empty", name: "Empty"},
             inputSchema: Type.Object({}),
@@ -16,14 +16,14 @@ describe("reportResultSchemaForProfile", () => {
         });
 
         expect(reportResultSchemaForProfile(profile)).toEqual(expect.objectContaining({
-            required: ["walkthrough"],
+            required: ["result"],
             properties: expect.not.objectContaining({
                 data: expect.anything(),
             }),
         }));
     });
 
-    it("非空 OutputSchema 要求 walkthrough 和 data", () => {
+    it("非空 OutputSchema 要求 result 和 data", () => {
         const outputSchema = Type.Object({summary: Type.String()});
         const profile = defineAgentProfile({
             manifest: {key: "agent.data", name: "Data"},
@@ -36,7 +36,7 @@ describe("reportResultSchemaForProfile", () => {
         });
 
         expect(reportResultSchemaForProfile(profile)).toEqual(expect.objectContaining({
-            required: ["walkthrough", "data"],
+            required: ["result", "data"],
             properties: expect.objectContaining({
                 data: outputSchema,
             }),

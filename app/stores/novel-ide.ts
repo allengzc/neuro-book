@@ -252,6 +252,11 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
 
     const activeLeftTab = ref<NovelIdeTab | null>("files");
     const layoutMode = ref<NovelIdeLayoutMode>("ide");
+    const agentSessionPanelOpen = ref(true);
+    const agentSessionPanelWidth = ref(280);
+    const agentStudioPanelOpen = ref(true);
+    const agentStudioPanelWidth = ref(460);
+    const agentStudioFileTreeWidth = ref(200);
     const leftPanelWidth = ref(340);
     const plotWorkbenchOpen = ref(false);
     const rightPanelOpen = ref(false);
@@ -2202,6 +2207,11 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         lastSyncedChapterContent,
         lastSyncedFileContent,
         layoutMode,
+        agentSessionPanelOpen,
+        agentSessionPanelWidth,
+        agentStudioPanelOpen,
+        agentStudioPanelWidth,
+        agentStudioFileTreeWidth,
         leftPanelWidth,
         loadChapterDetail,
         loadingWorkspace,
@@ -2315,6 +2325,11 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             pick: [
             "activeLeftTab",
             "layoutMode",
+            "agentSessionPanelOpen",
+            "agentSessionPanelWidth",
+            "agentStudioPanelOpen",
+            "agentStudioPanelWidth",
+            "agentStudioFileTreeWidth",
             "leftPanelWidth",
             "rightPanelOpen",
             "rightPanelWidth",

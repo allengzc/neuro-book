@@ -9,10 +9,20 @@ import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {LeaderRpInputSchema, RpActorInputSchema, RpActorOutputSchema, RpWriterInputSchema, RpWriterOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {messageText} from "nbook/server/agent/messages/message-utils";
+import type {AgentMessage, Message} from "nbook/server/agent/messages/types";
 import type {RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
 import type {NeuroSessionContext} from "nbook/server/agent/session/types";
 import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
+
+function messagesText(messages: Array<Message | AgentMessage> | undefined): string {
+    return (messages ?? []).map((message) => {
+        if (message.role === "user" || message.role === "assistant" || message.role === "toolResult") {
+            return messageText(message as Message);
+        }
+        return "";
+    }).join("\n");
+}
 
 describe("RP builtin profiles", () => {
     it("catalog 加载 leader.rp、rp.actor、rp.writer", async () => {
@@ -94,9 +104,9 @@ describe("RP builtin profiles", () => {
             skills: [],
         });
         const systemPrompt = prepared.systemPrompt ?? "";
-        const historyText = (prepared.historyInitMessages ?? []).map(messageText).join("\n");
-        const modelContextText = (prepared.modelContextMessages ?? []).map(messageText).join("\n");
-        const appendingText = (prepared.appendingMessages ?? []).map(messageText).join("\n");
+        const historyText = messagesText(prepared.historyInitMessages);
+        const modelContextText = messagesText(prepared.modelContextMessages);
+        const appendingText = messagesText(prepared.appendingMessages);
 
         expect(leaderRpProfile.allowedToolKeys).toEqual([
             "read",
@@ -112,7 +122,9 @@ describe("RP builtin profiles", () => {
         expect(systemPrompt).toContain("roleplay/config.yaml");
         expect(systemPrompt).toContain("roleplay/cast.yaml");
         expect(systemPrompt).toContain("roleplay/gm.md 是唯一 GM 入口说明");
-        expect(systemPrompt).toContain("filtered packet");
+        expect(systemPrompt).toContain("actor-facing message");
+        expect(systemPrompt).toContain("GM internal scratch");
+        expect(systemPrompt).toContain("不要把 not_known_to_you");
         expect(systemPrompt).toContain("writer brief");
         expect(systemPrompt).toContain("rp.writer");
         expect(systemPrompt).toContain("不要把 GM scratch");
@@ -154,13 +166,14 @@ describe("RP builtin profiles", () => {
                 skills: [],
             });
             const systemPrompt = prepared.systemPrompt ?? "";
-            const modelContextText = (prepared.modelContextMessages ?? []).map(messageText).join("\n");
-            const appendingText = (prepared.appendingMessages ?? []).map(messageText).join("\n");
+            const modelContextText = messagesText(prepared.modelContextMessages);
+            const appendingText = messagesText(prepared.appendingMessages);
 
             expect(rpActorProfile.allowedToolKeys).toEqual(["read", "write", "edit", "report_result"]);
             expect(systemPrompt).toContain("只扮演一个角色：绘璃奈");
             expect(systemPrompt).toContain("不能读取完整 roleplay/");
             expect(systemPrompt).toContain("必须调用 report_result");
+            expect(systemPrompt).toContain("report_result.result");
             expect(systemPrompt).toContain("knowledgePath");
             expect(systemPrompt).toContain("mindPath");
             expect(systemPrompt).toContain("statePath");
@@ -169,6 +182,8 @@ describe("RP builtin profiles", () => {
             expect(systemPrompt).toContain("如果你扮演的是玩家 actor");
             expect(systemPrompt).toContain("不要为了“完成更新”而改文件");
             expect(systemPrompt).toContain("必须调用 report_result");
+            expect(systemPrompt).toContain("戏内消息");
+            expect(systemPrompt).not.toContain("not_known_to_you");
             expect(modelContextText).toContain("<actor_instruction>");
             expect(modelContextText).toContain("保持礼貌但警惕");
             expect(modelContextText).toContain("<actor_knowledge>");
@@ -209,8 +224,8 @@ describe("RP builtin profiles", () => {
                 skills: [],
             });
             const systemPrompt = prepared.systemPrompt ?? "";
-            const modelContextText = (prepared.modelContextMessages ?? []).map(messageText).join("\n");
-            const appendingText = (prepared.appendingMessages ?? []).map(messageText).join("\n");
+            const modelContextText = messagesText(prepared.modelContextMessages);
+            const appendingText = messagesText(prepared.appendingMessages);
 
             expect(rpWriterProfile.allowedToolKeys).toEqual(["read", "write", "edit", "bash"]);
             expect(systemPrompt).toContain("只负责把 GM 的 writer brief");

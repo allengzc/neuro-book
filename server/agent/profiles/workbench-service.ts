@@ -372,6 +372,6 @@ function templateLabel(fileName: string): string {
 
 function templateDescription(fileName: string): string {
     return fileName.startsWith("report-agent")
-        ? "通用报告模式：允许 report_result，只提交 walkthrough。"
+        ? "通用报告模式：允许 report_result，只提交 result。"
         : "普通自定义 Agent：默认只提供读取能力。";
 }

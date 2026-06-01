@@ -13,6 +13,8 @@ const AUTO_SCROLL_RELEASE_THRESHOLD_PX = 12;
 const props = defineProps<{
     /** 消息列表。 */
     messages: AgentMessage[];
+    /** 当前 session ID；变化时认为是整段历史切换，需要立即定位到底部。 */
+    sessionId?: number | null;
     /** 是否正在执行中。 */
     running: boolean;
     /** 模式区分。main 显示空状态引导，compact 显示简洁空状态。 */
@@ -47,6 +49,7 @@ const emit = defineEmits<{
 const scrollRef = ref<HTMLDivElement | null>(null);
 const shouldStickToBottom = ref(true);
 const lastScrollTop = ref(0);
+let pendingImmediateScroll = true;
 let autoScrollFrame: number | null = null;
 
 const chatNodes = computed(() => {
@@ -129,6 +132,16 @@ const scrollToBottom = (): void => {
     lastScrollTop.value = scrollRef.value.scrollTop;
 };
 
+/** 取消下一帧的自动吸底任务。 */
+const cancelScheduledScrollToBottom = (): void => {
+    if (autoScrollFrame !== null) {
+        if (typeof cancelAnimationFrame === "function") {
+            cancelAnimationFrame(autoScrollFrame);
+        }
+        autoScrollFrame = null;
+    }
+};
+
 /** 把自动吸底合并到下一帧，减少流式输出时的布局读取/写入抖动。 */
 const scheduleScrollToBottom = (): void => {
     if (autoScrollFrame !== null) {
@@ -171,29 +184,34 @@ const onScroll = (): void => {
 watch(messageScrollSignature, async () => {
     await nextTick();
     if (shouldStickToBottom.value) {
+        if (pendingImmediateScroll && props.messages.length > 0) {
+            pendingImmediateScroll = false;
+            cancelScheduledScrollToBottom();
+            scrollToBottom();
+            return;
+        }
         scheduleScrollToBottom();
     }
+});
+
+/** 切换 session 时，下一次消息渲染后直接定位到底部，避免长历史从顶部滚到底。 */
+watch(() => props.sessionId, () => {
+    pendingImmediateScroll = true;
+    shouldStickToBottom.value = true;
+    lastScrollTop.value = 0;
+    cancelScheduledScrollToBottom();
 });
 
 /** 外部可调用：强制滚动到底部。 */
 const forceScrollToBottom = (): void => {
     shouldStickToBottom.value = true;
-    if (autoScrollFrame !== null) {
-        if (typeof cancelAnimationFrame === "function") {
-            cancelAnimationFrame(autoScrollFrame);
-        }
-        autoScrollFrame = null;
-    }
+    pendingImmediateScroll = false;
+    cancelScheduledScrollToBottom();
     scrollToBottom();
 };
 
 onUnmounted(() => {
-    if (autoScrollFrame !== null) {
-        if (typeof cancelAnimationFrame === "function") {
-            cancelAnimationFrame(autoScrollFrame);
-        }
-        autoScrollFrame = null;
-    }
+    cancelScheduledScrollToBottom();
 });
 
 defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
@@ -201,7 +219,7 @@ defineExpose({ scrollToBottom: forceScrollToBottom, scrollRef });
 
 <template>
     <!-- 通用对话流容器 -->
-    <div ref="scrollRef" class="flex flex-1 flex-col overflow-y-auto p-4 pb-12 scroll-smooth bg-[var(--bg-panel)]" @scroll="onScroll">
+    <div ref="scrollRef" class="flex flex-1 flex-col overflow-y-auto p-4 pb-12 bg-[var(--bg-panel)]" @scroll="onScroll">
         <template v-if="props.messages.length > 0">
             <div
                 v-for="(node, index) in chatNodes"

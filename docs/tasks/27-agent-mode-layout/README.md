@@ -47,6 +47,12 @@
 - 2026-06-01：根据后续 UI 调整，右上角 `Agent` 不再作为 IDE / Agent 模式切换入口，只保留为 IDE 模式右侧 Agent 面板开关；模式切换入口移到 header 左侧，位于 Neuro Book 标识和项目选择之间，用 `IDE` / `Agent` 胶囊表达当前主工作区模式。
 - 2026-06-01：根据最新 UI 调整，Agent Mode 继续保留 IDE 窄 sidebar，但窄 sidebar 在 Agent Mode 下只显示 `Sessions` 一个入口；右上角按钮在 Agent Mode 下从 `Agent` 改为 `Studio`，用于收起 / 展开右侧 Studio；Studio 内文件树改为在 Studio 右侧展开。
 - 2026-06-01：验收发现加回 IDE 窄 sidebar 后，1120px 宽度下四列最小宽度超过视口，会把最左侧 sidebar 挤到屏幕外；已收紧 Agent Mode 专用列宽，保证 `sidebar + session list + Agent + Studio/file tree` 同屏不溢出。
+- 2026-06-01：同步 IDE 模式的侧栏体验：Agent Mode 左侧 session panel 和右侧 Studio 都改为宽度动画收起 / 展开，并接入 `useResizablePanel`；session panel 宽度、Studio 宽度和展开状态写入 `novel-ide` store local persistence。同步优化 session list 卡片层级，加入三行摘要截断，避免长 summary 把列表项拉得过高。
+- 2026-06-01：将 header 左侧 `IDE / Agent` 模式入口改为开关式滑块：默认 IDE 模式滑块在右侧，切到 Agent 模式滑到左侧；同步统一 Agent Mode session panel、Agent 主体槽位和 Studio 的 300ms cubic-bezier 过渡曲线，减少模式切换时的硬切感。
+- 2026-06-01：微调 header 模式开关：只在当前选中模式显示文字，未选中模式只保留图标，降低开关视觉噪音。
+- 2026-06-01：继续优化 IDE / Agent 模式切换动画：保留浏览器 View Transition 支持时的同文档过渡；在当前浏览器不支持 `document.startViewTransition` 时，使用 FLIP fallback 平滑移动 header switch、IDE 工具栏、Agent session panel、Studio 和 Agent 主体槽位；IDE 工具栏也改为宽度 / 透明度动画，不再在切 Agent 时硬切消失。
+- 2026-06-01：根据用户希望的“纸张左右平移”手感继续调整：进入 Agent Mode 时强制使用自定义纸面 fallback，先克隆 IDE 工具栏和 Studio 作为纸面快照，让该快照整体向左滑出屏幕；真实 Agent 主体从右侧旧槽位 FLIP 到中间，真实 Agent Mode Studio 延后显露，避免和滑出的旧 Studio 重叠抢视觉。
+- 2026-06-01：Agent Mode 的 Studio 内部文件树也接入 `useResizablePanel`，支持从左边缘拖拽调整宽度，并把宽度写入本地偏好。
 
 ## Decisions
 
@@ -74,6 +80,15 @@
 - 模式切换入口放在 header 左侧，右上角按钮在 IDE Mode 下是 `Agent` 面板开关，在 Agent Mode 下改为 `Studio` 面板开关。
 - Agent Mode 仍保留 IDE 窄 sidebar，但窄 sidebar 只显示 `Sessions` 一个入口；真实 session 列表显示在窄 sidebar 右侧。
 - Agent Mode 的 Studio 文件树在 Studio 内部右侧展开，不占用 Agent 主体左侧空间。
+- Agent Mode 左侧 session panel 和右侧 Studio 与 IDE 模式一样支持宽度拖拽；收起时使用宽度动画，不销毁中间 Agent 主体。
+- Agent Mode 的侧栏宽度持久化到本地偏好；Studio 最大宽度根据视口和左侧已占空间动态夹住，优先避免横向溢出。
+- Agent Mode Studio 内展开的文件树也支持宽度拖拽；它属于 Studio 内部布局，不新增第二套文件树组件。
+- Header 左侧模式入口使用 `role="switch"` 表达 Agent Mode 开关；视觉上左侧是 Agent、右侧是 IDE，IDE 默认选中右侧。
+- Header 模式开关只展示当前模式文字；另一个模式保留图标提示。
+- 模式切换相关面板统一使用 300ms `cubic-bezier(0.4,0,0.2,1)` 过渡，和 header 滑块同步。
+- 退出 Agent Mode 可继续使用同文档 View Transition；进入 Agent Mode 固定使用本地纸面 fallback，以保证 IDE 工具栏和 Studio 整体左滑出屏的视觉语义。
+- IDE 左侧工具栏在 Agent Mode 下保留外层动画容器，收起为 0 宽并淡出，而不是直接通过 `v-if` 从布局中消失。
+- 进入 Agent Mode 的 fallback 动画语义是“旧 IDE 纸面整体左滑出屏幕 + Agent flow 从右侧滑入中间”；旧纸面由快照承担，不让真实 Studio 在动画过程中同时变成右侧窄面板。
 
 ## Grill Questions
 
@@ -97,6 +112,9 @@
 - 已确认：Agent Mode 保留 IDE 窄 sidebar，且该 sidebar 只显示 `Sessions` 入口。
 - 已确认：Agent Mode 下右上角按钮作为 `Studio` 收起 / 展开入口。
 - 已确认：Agent Mode Studio 的文件树在右侧展开。
+- 已确认：Agent Mode 左侧 session panel 和右侧 Studio 都应与 IDE 模式一样有收起 / 展开动画和可拖拽宽度。
+- 已确认：Agent session 列表需要优化密度，避免长摘要把列表项撑得过高。
+- 已确认：Header 左侧模式切换入口应改成开关式滑块，IDE 默认在右，点击切到左侧 Agent。
 
 ## Files Changed
 
@@ -126,6 +144,16 @@
 - 已完成：浏览器验收确认 Agent Mode 左侧保留 IDE 窄 sidebar，窄 sidebar 只显示 `Sessions` 入口；右侧相邻区域显示 `Agent Sessions` 列表。
 - 已完成：浏览器验收确认 Agent Mode 点击右上角 `Studio` 可收起 / 展开右侧 Studio，收起时左侧窄 sidebar、session 列表和中间 Agent 主体保持可见。
 - 已完成：浏览器验收确认 Agent Mode 中点击 Studio 的“展开文件树”后，文件树位于 Studio 内部右侧。
+- 已完成：相关文件 `vue-tsc` 过滤检查无输出。
+- 已完成：浏览器验收确认 Agent Mode 点击左侧 `Sessions` 图标时，session panel 通过宽度动画收起到 0 / 再展开到持久化宽度，Agent 主体自动接管空间且无横向溢出。
+- 已完成：浏览器验收确认 Agent Mode 点击右上角 `Studio` 时，Studio 通过宽度动画收起到 0 / 再展开，按钮 title 在“展开 Studio”和“收起 Studio”之间切换。
+- 已完成：浏览器验收确认左侧 session panel 拖拽宽度可从 280px 调整到 352px；右侧 Studio 可在当前视口约束下拖拽缩窄到 320px，且全程无横向溢出。
+- 已完成：代码层确认 session list 摘要使用 scoped 三行截断，避免长 summary 挤占过多列表空间。
+- 已完成：浏览器验收确认 header 模式开关为单个 `role="switch"`；Agent Mode 下 `aria-checked="true"` 且滑块在左，IDE Mode 下 `aria-checked="false"` 且滑块在右。
+- 已完成：浏览器验收确认模式来回切换时 session panel、Agent 主体槽位和 Studio 使用同一 300ms cubic-bezier 过渡曲线，且页面没有横向溢出。
+- 已完成：浏览器验收确认当前环境不支持 `document.startViewTransition` 时会走 fallback 动画；切换到 IDE 时，IDE 工具栏从 0 宽渐进到 340px，Agent session panel 从 352px 渐进到 0，Agent 槽位和 Studio 同步移动 / 变宽；全程没有横向溢出。
+- 已完成：浏览器验收确认进入 Agent Mode 时会创建 `.mode-transition-paper` 快照，快照承载 IDE 工具栏和 Studio 并向左出屏；真实 Agent Mode Studio 在动画中保持隐藏，最终布局稳定为 `session panel + Agent flow + Studio`，全程没有横向页面溢出。
+- 已完成：浏览器验收确认 Agent Mode Studio 内文件树展开后有左边缘拖拽手柄，当前 1120px 视口下可从 200px 拖到 240px，页面横向溢出保持 0。
 - 已知：全量 `bunx vue-tsc --noEmit --pretty false` 仍失败，错误集中在既有 SillyTavern / RP 测试噪音：`assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`、`server/agent/profiles/rp-profiles.test.ts`、`server/agent/skills/silly-tavern-card-cli.test.ts`。
 
 ## TODO / Follow-ups

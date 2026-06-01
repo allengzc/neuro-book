@@ -21,16 +21,15 @@ export function isEmptyObjectSchema(schema: TSchema | undefined): boolean {
 export function reportResultSchemaForProfile(profile: AgentProfile): TSchema {
     if (isEmptyObjectSchema(profile.outputSchema)) {
         return Type.Object({
-            walkthrough: Type.String({
-                description: "说明你完成任务的过程、关键结论和交付内容。",
+            result: Type.String({
+                description: "本次工具调用的可读结果；需要时可以写简短 walkthrough。",
             }),
         });
     }
     return Type.Object({
-        walkthrough: Type.String({
-            description: "说明你完成任务的过程、关键结论和交付内容。",
+        result: Type.String({
+            description: "本次工具调用的可读结果；需要时可以写简短 walkthrough。",
         }),
         data: profile.outputSchema as TSchema,
     });
 }
-
