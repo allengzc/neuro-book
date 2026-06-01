@@ -26,6 +26,7 @@ const props = withDefaults(defineProps<{
     monacoTemporaryFontSize?: number | null;
     diagnosticsText?: string;
     activeTabRows?: number;
+    compact?: boolean;
     referenceRefreshKey?: string | number;
     resolveMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     openReference?: (target: string) => void;
@@ -68,7 +69,7 @@ watch(() => props.activePath, () => {
 
 <template>
     <!-- Markdown Studio 工作台 -->
-    <section class="flex min-h-0 min-w-[640px] flex-1 flex-col overflow-hidden bg-[var(--editor-canvas-bg)]">
+    <section class="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--editor-canvas-bg)]" :class="props.compact ? 'min-w-[320px]' : 'min-w-[640px]'">
         <MarkdownStudioToolbar
             :tabs="props.tabs"
             :active-path="props.activePath"

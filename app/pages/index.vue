@@ -5,12 +5,14 @@ import type {ConfigBootstrapDto} from "nbook/shared/dto/config.dto";
 import type {NovelContinueRequestDto} from "nbook/shared/dto/novel.dto";
 import {isNovelIdeTab, type NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import MarkdownStudioWorkbench from "nbook/app/components/markdown-studio/MarkdownStudioWorkbench.vue";
-import NovelAgentDrawer from "nbook/app/components/novel-ide/NovelAgentDrawer.vue";
+import AgentChatSurface from "nbook/app/components/novel-ide/agent/AgentChatSurface.vue";
+import AgentModeSessionSidebar from "nbook/app/components/novel-ide/agent/AgentModeSessionSidebar.vue";
 import NovelIdeHeader from "nbook/app/components/novel-ide/NovelIdeHeader.vue";
 import NovelIdeSidebar from "nbook/app/components/novel-ide/NovelIdeSidebar.vue";
 import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSettingsDialog.vue";
 import NovelIdeToolPanel from "nbook/app/components/novel-ide/NovelIdeToolPanel.vue";
 import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
+import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
 import NovelBookshelfDialog from "nbook/app/components/novel-ide/NovelBookshelfDialog.vue";
 import UserProfileWorkbenchDialog from "nbook/app/components/profile-template-editor/UserProfileWorkbenchDialog.vue";
 import WorkspaceCharacterDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterDetailPanel.vue";
@@ -22,11 +24,13 @@ import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
 import {useAuthSessionState} from "nbook/app/composables/useAuthSessionState";
 import {useMarkdownStudioController} from "nbook/app/composables/useMarkdownStudioController";
 import {useWorkspaceFileEvents} from "nbook/app/composables/useWorkspaceFileEvents";
+import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
 import type {AgentTriggerMenuContext, AgentTriggerMenuItem, AgentTriggerMenuState, MarkdownCommandKind} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import {useNovelIdeStore, type AgentWorkspaceSyncPayload, type WorkspaceEditorKind, type WorkspaceEditorViewMode, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import type {WorkspaceFileChangeEventDto, WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
+import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import {
     collectWorkspaceReferencePathCandidates,
 } from "nbook/app/utils/workspace-reference-search";
@@ -54,8 +58,10 @@ const settingsDialogOpen = ref(false);
 const profileWorkbenchOpen = ref(false);
 const frontmatterProfileKind = ref<FrontmatterProfileKind | null>(null);
 const fileDiagnosticsText = ref("");
+const agentStudioFileTreeOpen = ref(false);
 const saveQueued = ref(false);
 const workspaceEventAbortController = ref<AbortController | null>(null);
+const agentResizeHandleRef = ref<HTMLElement | null>(null);
 let workspaceFileSyncRunning = false;
 let pendingWorkspaceFileEvents: WorkspaceFileChangeEventDto[] = [];
 const USER_ASSETS_PROJECT_TARGET = "workspace/.nbook";
@@ -71,6 +77,7 @@ const {
     hasUnsavedWorkspaceChanges,
     lastSyncedFileContent,
     loadingWorkspace,
+    layoutMode,
     novels,
     promptExpanded,
     requirement,
@@ -118,6 +125,7 @@ const {
 const {mountThemeHost} = useIdeTheme(theme);
 const workspaceFileEvents = useWorkspaceFileEvents();
 const authSessionState = useAuthSessionState();
+const agentSurfaceRef = ref<InstanceType<typeof AgentChatSurface> | null>(null);
 
 const studio = useMarkdownStudioController({
     markdown: selectedFileContent,
@@ -161,6 +169,34 @@ const buildProjectRoute = (projectTarget: string): string => {
 
 const workspaceBootstrapped = ref(false);
 const displayRightPanelOpen = computed(() => workspaceBootstrapped.value && rightPanelOpen.value);
+const isAgentMode = computed(() => layoutMode.value === "agent");
+const agentSurfaceActive = computed(() => workspaceBootstrapped.value && (rightPanelOpen.value || isAgentMode.value));
+const agentModeSessions = computed(() => agentSurfaceRef.value?.sessions ?? []);
+const agentModeActiveSessionId = computed(() => agentSurfaceRef.value?.activeSessionId ?? null);
+const agentModeLoadingSession = computed(() => agentSurfaceRef.value?.loadingSession ?? false);
+const agentModeRunning = computed(() => agentSurfaceRef.value?.running ?? false);
+const agentModeSessionActionId = computed(() => agentSurfaceRef.value?.sessionActionId ?? null);
+const agentStudioMinWidth = computed(() => agentStudioFileTreeOpen.value ? "min(560px, calc(100vw - 420px))" : "min(420px, 42vw)");
+const {isResizing: resizingAgentPanel, panelStyle: agentPanelStyle} = useResizablePanel(agentResizeHandleRef, {
+    size: computed(() => rightPanelWidth.value),
+    minSize: 320,
+    maxSize: 720,
+    edge: "left",
+    enabled: computed(() => !isAgentMode.value && displayRightPanelOpen.value),
+    onResize: (width) => {
+        rightPanelWidth.value = width;
+    },
+});
+const agentSlotStyle = computed(() => {
+    if (isAgentMode.value) {
+        return {};
+    }
+    return displayRightPanelOpen.value ? agentPanelStyle.value : {width: "0px"};
+});
+const agentStudioStyle = computed(() => isAgentMode.value ? {
+    flexBasis: agentStudioFileTreeOpen.value ? "46vw" : "38vw",
+    minWidth: agentStudioMinWidth.value,
+} : {});
 const displayActiveLeftTab = computed<NovelIdeTab | null>(() => {
     if (!workspaceBootstrapped.value) {
         return "files";
@@ -176,6 +212,12 @@ const displayActiveLeftTab = computed<NovelIdeTab | null>(() => {
 const displayNovelTitle = computed(() => isUserAssetsWorkspace.value ? "用户资产" : currentNovel.value?.title ?? "");
 const displayNovelItems = computed(() => isUserAssetsWorkspace.value ? [] : novelItems.value);
 const displayNovelIdForAgent = computed(() => isUserAssetsWorkspace.value ? "" : currentNovelId.value);
+const agentWorkspaceKey = computed(() => {
+    if (isUserAssetsWorkspace.value) {
+        return "user-assets";
+    }
+    return currentNovelId.value || "workspace";
+});
 
 /**
  * 当前文件扩展名，统一用于编辑器类型判断。
@@ -644,6 +686,66 @@ const handleSwitchNovel = async (novelId: string): Promise<void> => {
 };
 
 /**
+ * 切换主界面的 IDE / Agent layout mode。
+ */
+const toggleAgentLayoutMode = async (): Promise<void> => {
+    if (layoutMode.value === "agent") {
+        layoutMode.value = "ide";
+        rightPanelOpen.value = true;
+        return;
+    }
+    layoutMode.value = "agent";
+    rightPanelOpen.value = true;
+    await nextTick();
+    await agentSurfaceRef.value?.ensureSessionReady();
+};
+
+/**
+ * Agent Mode 左侧栏请求刷新 leader sessions。
+ */
+const refreshAgentModeSessions = async (): Promise<void> => {
+    await agentSurfaceRef.value?.refreshSessionsWithQuery({
+        profileGroup: "leader",
+        status: "active",
+        relation: "all",
+        limit: 50,
+    });
+};
+
+/**
+ * Agent Mode 选择指定 session。
+ */
+const selectAgentModeSession = async (sessionId: number): Promise<void> => {
+    await agentSurfaceRef.value?.selectSession(sessionId);
+};
+
+/**
+ * Agent Mode 新建默认 leader session。
+ */
+const createAgentModeSession = async (): Promise<void> => {
+    await agentSurfaceRef.value?.createSession();
+};
+
+/**
+ * Agent Mode 归档指定 session。
+ */
+const archiveAgentModeSession = async (session: AgentSessionSummaryDto): Promise<void> => {
+    await agentSurfaceRef.value?.archiveSessionFromDialog(session);
+};
+
+/**
+ * 关闭当前 Agent 槽位。
+ */
+const closeAgentSurface = (): void => {
+    if (layoutMode.value === "agent") {
+        layoutMode.value = "ide";
+        rightPanelOpen.value = true;
+        return;
+    }
+    rightPanelOpen.value = false;
+};
+
+/**
  * Agent 写入后刷新通用文件树；旧 chapter 事件仍交给 store 兼容处理。
  */
 const handleAgentWorkspaceUpdated = async (payload: AgentWorkspaceSyncPayload): Promise<void> => {
@@ -1051,12 +1153,13 @@ onBeforeUnmount(() => {
     <div ref="themeHostRef" class="novel-ide-page ide-shell flex h-screen flex-col overflow-hidden bg-[var(--bg-main)] text-[var(--text-main)] transition-colors duration-300">
         <NovelIdeHeader
             class="ide-panel ide-header"
-            :right-panel-open="displayRightPanelOpen"
+            :right-panel-open="agentSurfaceActive"
+            :agent-mode-active="isAgentMode"
             :novel-title="displayNovelTitle"
             :novel-items="displayNovelItems"
             :current-user="currentUser"
             :workspace-mode="isUserAssetsWorkspace ? 'user-assets' : 'novel'"
-            @toggle-agent="rightPanelOpen = !rightPanelOpen"
+            @toggle-agent="void toggleAgentLayoutMode()"
             @open-bookshelf="bookshelfOpen = true"
             @open-plot-workbench="openPlotWorkbench"
             @open-user-assets="openUserAssets"
@@ -1067,41 +1170,77 @@ onBeforeUnmount(() => {
         />
 
         <div class="flex min-h-0 flex-1 overflow-hidden">
-            <NovelIdeSidebar class="ide-sidebar" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="toggleLeftTab" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" />
+            <AgentModeSessionSidebar
+                v-if="isAgentMode"
+                :sessions="agentModeSessions"
+                :active-session-id="agentModeActiveSessionId"
+                :loading="agentModeLoadingSession"
+                :running="agentModeRunning"
+                :action-id="agentModeSessionActionId"
+                :workspace-key="agentWorkspaceKey"
+                @select="void selectAgentModeSession($event)"
+                @create="void createAgentModeSession()"
+                @archive="void archiveAgentModeSession($event)"
+                @refresh="void refreshAgentModeSessions()"
+            />
 
-            <NovelIdeToolPanel v-model:width="leftPanelWidth" class="ide-panel" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @close="activeLeftTab = null" />
+            <NovelIdeSidebar v-if="!isAgentMode" class="ide-sidebar" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="toggleLeftTab" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" />
 
-            <!-- 中央工作区 -->
-            <main class="ide-editor-canvas relative flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--editor-canvas-bg)]">
-                <MarkdownStudioWorkbench
-                    v-model:content="selectedFileContent"
-                    :controller="studio"
-                    :tabs="displayWorkspaceTabs"
-                    :active-path="displayActiveWorkspaceTabPath"
-                    :node="displaySelectedFileNode"
-                    :editor-kind="displayCurrentEditorKind"
-                    :workspace-view-mode="displayCurrentWorkspaceViewMode"
-                    :theme="theme"
-                    :editor-preferences="markdownEditorPreferences"
-                    :monaco-preferences="monacoEditorPreferences"
-                    :monaco-temporary-font-size="displayMonacoTemporaryFontSize"
-                    :diagnostics-text="fileDiagnosticsText"
-                    :reference-refresh-key="workspaceReferenceRefreshKey"
-                    :resolve-menu="resolveMarkdownMenu"
-                    :open-reference="openWorkspaceReference"
-                    :resolve-reference="resolveWorkspaceReferencePreview"
-                    @select-tab="void selectWorkspaceTab($event)"
-                    @close-tab="void closeEditorTab($event)"
-                    @set-pin="setWorkspaceTabPinned"
-                    @keep-tab="keepWorkspaceTab"
-                    @move-tab="moveWorkspaceTab"
-                    @set-view-mode="setCurrentWorkspaceViewMode"
-                    @update-monaco-temporary-font-size="setMonacoFontSizeOverride(displayActiveWorkspaceTabPath, $event)"
-                    @save-request="void saveCurrentWorkspaceFile()"
-                    @open-frontmatter-profile="openFrontmatterProfile"
-                />
+            <NovelIdeToolPanel v-if="!isAgentMode" v-model:width="leftPanelWidth" class="ide-panel" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @close="activeLeftTab = null" />
+
+            <!-- Studio 工作区 -->
+            <main
+                class="ide-editor-canvas relative flex min-w-0 flex-col overflow-hidden bg-[var(--editor-canvas-bg)] transition-[width,flex-basis] duration-300"
+                :class="isAgentMode ? 'max-w-[calc(100vw_-_420px)] shrink border-l border-[var(--border-color)] order-3' : 'flex-1 order-2'"
+                :style="agentStudioStyle"
+            >
+                <div v-if="isAgentMode" class="flex h-10 shrink-0 items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-3">
+                    <div class="min-w-0">
+                        <div class="text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">Studio</div>
+                    </div>
+                    <button type="button" class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="agentStudioFileTreeOpen ? '收起文件树' : '展开文件树'" @click="agentStudioFileTreeOpen = !agentStudioFileTreeOpen">
+                        <span :class="agentStudioFileTreeOpen ? 'i-lucide-panel-right-close' : 'i-lucide-folder-tree'" class="h-4 w-4"></span>
+                    </button>
+                </div>
+
+                <div class="flex min-h-0 flex-1 overflow-hidden">
+                    <div v-if="isAgentMode && agentStudioFileTreeOpen" class="h-full w-[240px] shrink-0 border-r border-[var(--border-color)] bg-[var(--bg-panel)]">
+                        <WorkspaceFilePanel />
+                    </div>
+                    <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                        <MarkdownStudioWorkbench
+                            v-model:content="selectedFileContent"
+                            :controller="studio"
+                            :tabs="displayWorkspaceTabs"
+                            :active-path="displayActiveWorkspaceTabPath"
+                            :node="displaySelectedFileNode"
+                            :editor-kind="displayCurrentEditorKind"
+                            :workspace-view-mode="displayCurrentWorkspaceViewMode"
+                            :theme="theme"
+                            :compact="isAgentMode"
+                            :editor-preferences="markdownEditorPreferences"
+                            :monaco-preferences="monacoEditorPreferences"
+                            :monaco-temporary-font-size="displayMonacoTemporaryFontSize"
+                            :diagnostics-text="fileDiagnosticsText"
+                            :reference-refresh-key="workspaceReferenceRefreshKey"
+                            :resolve-menu="resolveMarkdownMenu"
+                            :open-reference="openWorkspaceReference"
+                            :resolve-reference="resolveWorkspaceReferencePreview"
+                            @select-tab="void selectWorkspaceTab($event)"
+                            @close-tab="void closeEditorTab($event)"
+                            @set-pin="setWorkspaceTabPinned"
+                            @keep-tab="keepWorkspaceTab"
+                            @move-tab="moveWorkspaceTab"
+                            @set-view-mode="setCurrentWorkspaceViewMode"
+                            @update-monaco-temporary-font-size="setMonacoFontSizeOverride(displayActiveWorkspaceTabPath, $event)"
+                            @save-request="void saveCurrentWorkspaceFile()"
+                            @open-frontmatter-profile="openFrontmatterProfile"
+                        />
+                    </div>
+                </div>
 
                 <NovelPromptBar
+                    v-if="!isAgentMode"
                     class="ide-prompt-bar"
                     :model-value="displayRequirement"
                     :loading="studio.loading.value || loadingWorkspace"
@@ -1117,15 +1256,33 @@ onBeforeUnmount(() => {
                 />
             </main>
 
-            <NovelAgentDrawer
-                class="ide-agent-drawer"
-                :is-open="displayRightPanelOpen"
-                v-model:width="rightPanelWidth"
-                :novel-id="displayNovelIdForAgent"
-                :selected-file-path="selectedFilePath"
-                @close="rightPanelOpen = false"
-                @sync-workspace="void handleAgentWorkspaceUpdated($event)"
-            />
+            <!-- Agent Chat Surface 槽位 -->
+            <section
+                class="relative z-30 flex h-full min-h-0 shrink-0 flex-col bg-[var(--bg-panel)] transition-all duration-300"
+                :class="[
+                    isAgentMode ? 'order-2 min-w-[420px] flex-[1.2] border-x border-[var(--border-color)] opacity-100' : 'order-3 shadow-2xl',
+                    !isAgentMode && displayRightPanelOpen ? 'border-l border-[var(--border-color)] opacity-100' : '',
+                    !isAgentMode && !displayRightPanelOpen ? 'pointer-events-none border-l-0 opacity-0' : '',
+                    resizingAgentPanel ? 'select-none transition-none' : '',
+                ]"
+                :style="agentSlotStyle"
+            >
+                <template v-if="!isAgentMode && displayRightPanelOpen">
+                    <div ref="agentResizeHandleRef" class="group absolute -left-1 top-0 z-30 h-full w-2 cursor-col-resize">
+                        <div class="ml-1 h-full w-[2px] bg-[var(--accent-main)] opacity-0 transition-all duration-150 group-hover:opacity-100" :class="resizingAgentPanel ? 'opacity-100 shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent-main)_28%,transparent)]' : ''"></div>
+                    </div>
+                </template>
+                <AgentChatSurface
+                    ref="agentSurfaceRef"
+                    class="min-h-0 flex-1"
+                    :active="agentSurfaceActive"
+                    :layout="isAgentMode ? 'workbench' : 'drawer'"
+                    :novel-id="displayNovelIdForAgent"
+                    :selected-file-path="selectedFilePath"
+                    @close="closeAgentSurface"
+                    @sync-workspace="void handleAgentWorkspaceUpdated($event)"
+                />
+            </section>
         </div>
 
         <NovelBookshelfDialog v-model="bookshelfOpen" @switched="void router.replace(buildProjectRoute($event))" />

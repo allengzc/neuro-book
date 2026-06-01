@@ -5,6 +5,7 @@ import type {AuthUserDto} from "nbook/shared/dto/auth.dto";
 
 const props = defineProps<{
     rightPanelOpen: boolean;
+    agentModeActive: boolean;
     novelTitle: string;
     novelItems: DropdownItem[];
     currentUser: AuthUserDto | null;
@@ -106,8 +107,8 @@ const handleUserMenuSelect = (value: string): void => {
             </button>
             <button
                 class="flex items-center gap-2 rounded-full border px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase transition-colors"
-                :class="rightPanelOpen ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                title="Agent"
+                :class="agentModeActive ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : rightPanelOpen ? 'border-[var(--border-color)] bg-[var(--bg-hover)] text-[var(--text-main)]' : 'border-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                :title="agentModeActive ? '返回 IDE 模式' : '进入 Agent 模式'"
                 @click="emit('toggle-agent')"
             >
                 <span class="i-lucide-bot h-4 w-4"></span>

@@ -89,6 +89,7 @@ export type WorkspaceEditorTab = {
 };
 
 export type WorkspaceOpenMode = "preview" | "permanent";
+export type NovelIdeLayoutMode = "ide" | "agent";
 
 type WorkspaceFileBuffer = {
     node: WorkspaceFileNode;
@@ -250,6 +251,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const mutatingChapterTree = ref(false);
 
     const activeLeftTab = ref<NovelIdeTab | null>("files");
+    const layoutMode = ref<NovelIdeLayoutMode>("ide");
     const leftPanelWidth = ref(340);
     const plotWorkbenchOpen = ref(false);
     const rightPanelOpen = ref(false);
@@ -2199,6 +2201,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         initializeWorkspace,
         lastSyncedChapterContent,
         lastSyncedFileContent,
+        layoutMode,
         leftPanelWidth,
         loadChapterDetail,
         loadingWorkspace,
@@ -2311,6 +2314,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             key: "novel.ide.local",
             pick: [
             "activeLeftTab",
+            "layoutMode",
             "leftPanelWidth",
             "rightPanelOpen",
             "rightPanelWidth",

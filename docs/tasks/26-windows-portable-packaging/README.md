@@ -44,6 +44,7 @@
     - `Update Neuro Book.cmd` / `Update Neuro Book.ps1`：拉取或更新 `master` 源码后重建。
     - `Rebuild Neuro Book.cmd` / `Rebuild Neuro Book.ps1`：不拉取代码，只重新安装依赖并构建当前源码；如果源码尚未物化，提示先运行更新脚本。
 - 启动目标仍是 `node .output/server/index.mjs`。
+- Nuxt/Nitro 生产产物中的 `file:///_entry.js` fallback 在 Windows 下不是合法绝对 file URL；Windows portable 不新增自定义 Nitro 启动器，而是在 `bun run nuxt:build` 后通过受控 build-output patch 把 fallback 指回 `.output/server/index.mjs`，并断言产物中不再残留该非法 fallback。
 - 启动脚本和内置 runtime 留在 Portable Root；真实项目源码始终在 `app/` 子目录，避免往非空 Portable Root 里 clone。
 - 桌面窗口作为第二阶段，等本地网页版 portable 包稳定后再评估。
 
@@ -212,8 +213,13 @@
 - 已执行：
     - `node --check scripts/deploy/windows-portable.mjs`
     - `node --check scripts/deploy/windows-portable/bootstrap/bootstrap.mjs`
+    - `node --check scripts/build/patch-nitro-runtime-deps.mjs`
+    - `node scripts/build/patch-nitro-runtime-deps.mjs`
+    - `rg -n "file:///_entry.js" .output/server/chunks` 无匹配，确认构建产物兼容检查已清理 Windows 非法 fallback。
+    - 使用临时 SQLite 和端口短启动 `node .output/server/index.mjs`，确认 Windows/Node 24 下不再因 `file:///_entry.js` 抛 `ERR_INVALID_FILE_URL_PATH`，并能输出 `Listening on http://[::]:3988`。
     - `bun run package:windows-portable -- --skip-git-check --node-runtime <local-node-dir> --output .agent/workspace/windows-portable-smoke/neuro-book-windows-portable.zip`
     - `bun run package:windows-portable -- --skip-git-check --output .agent/workspace/windows-portable-final/neuro-book-windows-portable.zip`
+    - `bun run package:windows-portable -- --skip-git-check --output .agent/workspace/windows-portable-nitro-fix/neuro-book-windows-portable.zip`
     - 读取 smoke zip，确认包含 `.cmd` / `.ps1` 启动入口、`bootstrap/bootstrap.mjs`、`runtime/node/node.exe`、`portable-release.json`。
     - 读取 smoke zip，确认未包含 root-level `app/`、`server/`、`shared/`、`scripts/`、`assets/`、`prisma/`、`.git/`、`.output/`、`node_modules/`。
     - 读取默认下载打包产物，确认 Node.js 24 Windows x64 runtime 下载、SHA 校验和 zip 结构可用。
@@ -229,3 +235,4 @@
 
 - 在干净 Windows 环境做一次完整解压启动验收。
 - 后续把 Workspace Root 改成可配置项，再支持 `%LOCALAPPDATA%` 或自定义数据目录。
+- 抽取最小 Nuxt/Nitro Windows 复现，上游跟进 `file:///_entry.js` fallback；升级到修复版本后移除本地 build-output patch。
