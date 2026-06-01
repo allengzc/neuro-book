@@ -118,16 +118,12 @@ const handleUserMenuSelect = (value: string): void => {
             </button>
             <button
                 class="flex items-center gap-2 rounded-full border px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase transition-colors"
-                :class="[
-                    rightPanelOpen ? 'border-[var(--border-color)] bg-[var(--bg-hover)] text-[var(--text-main)]' : 'border-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]',
-                    agentModeActive ? 'cursor-not-allowed opacity-45' : '',
-                ]"
-                :title="agentModeActive ? 'Agent 模式中已在中间显示' : rightPanelOpen ? '关闭 Agent 面板' : '打开 Agent 面板'"
-                :disabled="agentModeActive"
+                :class="rightPanelOpen ? 'border-[var(--border-color)] bg-[var(--bg-hover)] text-[var(--text-main)]' : 'border-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                :title="agentModeActive ? rightPanelOpen ? '收起 Studio' : '展开 Studio' : rightPanelOpen ? '关闭 Agent 面板' : '打开 Agent 面板'"
                 @click="emit('toggle-agent')"
             >
-                <span class="i-lucide-bot h-4 w-4"></span>
-                <span>Agent</span>
+                <span :class="agentModeActive ? 'i-lucide-panel-right' : 'i-lucide-bot'" class="h-4 w-4"></span>
+                <span>{{ agentModeActive ? 'Studio' : 'Agent' }}</span>
             </button>
 
             <div class="mx-2 h-4 w-px bg-[var(--border-color)]"></div>

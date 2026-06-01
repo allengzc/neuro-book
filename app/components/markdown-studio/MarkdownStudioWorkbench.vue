@@ -69,7 +69,7 @@ watch(() => props.activePath, () => {
 
 <template>
     <!-- Markdown Studio 工作台 -->
-    <section class="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--editor-canvas-bg)]" :class="props.compact ? 'min-w-[320px]' : 'min-w-[640px]'">
+    <section class="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--editor-canvas-bg)]" :class="props.compact ? 'min-w-[260px]' : 'min-w-[640px]'">
         <MarkdownStudioToolbar
             :tabs="props.tabs"
             :active-path="props.activePath"

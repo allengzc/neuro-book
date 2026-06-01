@@ -2,19 +2,20 @@
 import type { NovelIdeTab } from "nbook/app/components/novel-ide/mock-data";
 
 type SidebarItem = {
-    value: NovelIdeTab;
+    value: NovelIdeTab | "sessions";
     label: string;
     iconClass: string;
     bottom?: boolean;
 };
 
 const props = defineProps<{
-    activeTab: NovelIdeTab | null;
+    activeTab: NovelIdeTab | "sessions" | null;
+    agentMode?: boolean;
     userAssetsMode?: boolean;
 }>();
 
 const emit = defineEmits<{
-    (e: "toggle-tab", value: NovelIdeTab): void;
+    (e: "toggle-tab", value: NovelIdeTab | "sessions"): void;
     (e: "collapse"): void;
     (e: "open-settings"): void;
 }>();
@@ -24,7 +25,15 @@ const items: SidebarItem[] = [
     { value: "characters", label: "Characters", iconClass: "i-lucide-users-round" },
     { value: "outline", label: "Outline", iconClass: "i-lucide-puzzle" },
 ];
-const visibleItems = computed(() => props.userAssetsMode ? items.filter((item) => item.value === "files") : items);
+const sessionItems: SidebarItem[] = [
+    { value: "sessions", label: "Sessions", iconClass: "i-lucide-messages-square" },
+];
+const visibleItems = computed(() => {
+    if (props.agentMode) {
+        return sessionItems;
+    }
+    return props.userAssetsMode ? items.filter((item) => item.value === "files") : items;
+});
 </script>
 
 <template>

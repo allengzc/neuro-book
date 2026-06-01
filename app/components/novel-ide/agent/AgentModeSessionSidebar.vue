@@ -134,7 +134,7 @@ watch(storageKey, loadPinnedSessions, {immediate: true});
 
 <template>
     <!-- Agent Mode 左侧 session 导航 -->
-    <aside class="flex h-full w-[300px] shrink-0 flex-col border-r border-[var(--border-color)] bg-[var(--bg-sidebar)]">
+    <aside class="agent-mode-session-sidebar flex h-full w-[260px] shrink-0 flex-col border-r border-[var(--border-color)] bg-[var(--bg-sidebar)]">
         <div class="flex shrink-0 items-center justify-between border-b border-[var(--border-color)] px-3 py-3">
             <div class="min-w-0">
                 <div class="text-sm font-semibold text-[var(--text-main)]">Agent Sessions</div>

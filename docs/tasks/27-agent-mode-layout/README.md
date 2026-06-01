@@ -45,6 +45,8 @@
 - 2026-06-01：根据代码结构审查修正状态边界：隐藏 IDE Agent 槽位时不销毁 chat flow / composer 子树，避免丢滚动和输入草稿；Project Workspace identity 变化时硬重置 Agent session / SSE / session list，避免同 profile 的不同项目复用旧 session；Agent Mode 左侧新建 session 改走带 loading guard 的 UI action；`MarkdownStudioWorkbench` 增加 `compact` 布局入口，Agent Mode 右侧 Studio 展开文件树时不再把完整编辑器塞进 360px 窄栏。
 - 2026-06-01：浏览器验收发现 `AgentChatSurface` 内误用裸 `<template>` 包裹导致中间 Agent 主体 DOM 存在但不可见，已移除该包裹；同时把 Agent Mode Studio 文件树宽度收紧到 240px、compact Studio 最小宽度收紧到 320px，保证 1120px 视口下 session 列表、Agent 主体、Studio 文件树和 Studio 编辑区同时可见且不产生横向页面溢出。
 - 2026-06-01：根据后续 UI 调整，右上角 `Agent` 不再作为 IDE / Agent 模式切换入口，只保留为 IDE 模式右侧 Agent 面板开关；模式切换入口移到 header 左侧，位于 Neuro Book 标识和项目选择之间，用 `IDE` / `Agent` 胶囊表达当前主工作区模式。
+- 2026-06-01：根据最新 UI 调整，Agent Mode 继续保留 IDE 窄 sidebar，但窄 sidebar 在 Agent Mode 下只显示 `Sessions` 一个入口；右上角按钮在 Agent Mode 下从 `Agent` 改为 `Studio`，用于收起 / 展开右侧 Studio；Studio 内文件树改为在 Studio 右侧展开。
+- 2026-06-01：验收发现加回 IDE 窄 sidebar 后，1120px 宽度下四列最小宽度超过视口，会把最左侧 sidebar 挤到屏幕外；已收紧 Agent Mode 专用列宽，保证 `sidebar + session list + Agent + Studio/file tree` 同屏不溢出。
 
 ## Decisions
 
@@ -69,7 +71,9 @@
 - Studio 在 Agent Mode 中默认显示当前打开文件；文件树作为 Studio 内的可展开栏。
 - 切换进入 Agent Mode 时，即使 IDE Mode 下 Agent 右侧槽位隐藏，也要自动打开 Agent Chat Surface 并恢复最近可用 session。
 - Agent Mode 左侧“新对话”沿用当前 workspace 的默认 leader profile 解析逻辑，不新增 profile 选择器。
-- 模式切换入口放在 header 左侧，右上角 `Agent` 只控制 IDE 模式右侧 Agent 面板；Agent Mode 下右上角 `Agent` 置为禁用提示“Agent 模式中已在中间显示”。
+- 模式切换入口放在 header 左侧，右上角按钮在 IDE Mode 下是 `Agent` 面板开关，在 Agent Mode 下改为 `Studio` 面板开关。
+- Agent Mode 仍保留 IDE 窄 sidebar，但窄 sidebar 只显示 `Sessions` 一个入口；真实 session 列表显示在窄 sidebar 右侧。
+- Agent Mode 的 Studio 文件树在 Studio 内部右侧展开，不占用 Agent 主体左侧空间。
 
 ## Grill Questions
 
@@ -90,6 +94,9 @@
 - 已确认：Agent Mode 的 Studio 默认显示当前打开文件，文件树在 Studio 内可展开。
 - 已确认：进入 Agent Mode 时自动打开并恢复 Agent session。
 - 已确认：Agent Mode 新对话沿用当前 workspace 默认 leader profile。
+- 已确认：Agent Mode 保留 IDE 窄 sidebar，且该 sidebar 只显示 `Sessions` 入口。
+- 已确认：Agent Mode 下右上角按钮作为 `Studio` 收起 / 展开入口。
+- 已确认：Agent Mode Studio 的文件树在右侧展开。
 
 ## Files Changed
 
@@ -115,7 +122,10 @@
   - 点击顶部 `AGENT` 后进入 Agent Mode，左侧 `Agent Sessions`、中间 Agent 主体、右侧 `Studio` 均可见。
   - 在 Studio 内点击“展开文件树”后，右侧文件树和 Studio 编辑区同时可见，页面没有横向溢出。
   - 在 Agent composer 输入 `agent-mode-draft-check`，切回 IDE 模式再切回 Agent Mode 后草稿仍保留，证明 mode 切换未销毁 chat surface 状态。
-- 已完成：浏览器热更新验收确认 header 左侧出现 `IDE` / `Agent` 模式按钮；Agent Mode 下右上角 `Agent` 按钮 disabled，title 为“Agent 模式中已在中间显示”，不再承担模式切换。
+- 已完成：浏览器热更新验收确认 header 左侧出现 `IDE` / `Agent` 模式按钮；Agent Mode 下右上角按钮为 `Studio`，title 为“收起 Studio” / “展开 Studio”，不再承担模式切换。
+- 已完成：浏览器验收确认 Agent Mode 左侧保留 IDE 窄 sidebar，窄 sidebar 只显示 `Sessions` 入口；右侧相邻区域显示 `Agent Sessions` 列表。
+- 已完成：浏览器验收确认 Agent Mode 点击右上角 `Studio` 可收起 / 展开右侧 Studio，收起时左侧窄 sidebar、session 列表和中间 Agent 主体保持可见。
+- 已完成：浏览器验收确认 Agent Mode 中点击 Studio 的“展开文件树”后，文件树位于 Studio 内部右侧。
 - 已知：全量 `bunx vue-tsc --noEmit --pretty false` 仍失败，错误集中在既有 SillyTavern / RP 测试噪音：`assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`、`server/agent/profiles/rp-profiles.test.ts`、`server/agent/skills/silly-tavern-card-cli.test.ts`。
 
 ## TODO / Follow-ups

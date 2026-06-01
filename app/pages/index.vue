@@ -58,6 +58,7 @@ const settingsDialogOpen = ref(false);
 const profileWorkbenchOpen = ref(false);
 const frontmatterProfileKind = ref<FrontmatterProfileKind | null>(null);
 const fileDiagnosticsText = ref("");
+const agentModeStudioOpen = ref(true);
 const agentStudioFileTreeOpen = ref(false);
 const saveQueued = ref(false);
 const workspaceEventAbortController = ref<AbortController | null>(null);
@@ -176,7 +177,7 @@ const agentModeActiveSessionId = computed(() => agentSurfaceRef.value?.activeSes
 const agentModeLoadingSession = computed(() => agentSurfaceRef.value?.loadingSession ?? false);
 const agentModeRunning = computed(() => agentSurfaceRef.value?.running ?? false);
 const agentModeSessionActionId = computed(() => agentSurfaceRef.value?.sessionActionId ?? null);
-const agentStudioMinWidth = computed(() => agentStudioFileTreeOpen.value ? "min(560px, calc(100vw - 420px))" : "min(420px, 42vw)");
+const agentStudioMinWidth = computed(() => agentStudioFileTreeOpen.value ? "min(460px, calc(100vw - 340px))" : "min(360px, 42vw)");
 const {isResizing: resizingAgentPanel, panelStyle: agentPanelStyle} = useResizablePanel(agentResizeHandleRef, {
     size: computed(() => rightPanelWidth.value),
     minSize: 320,
@@ -209,6 +210,7 @@ const displayActiveLeftTab = computed<NovelIdeTab | null>(() => {
     }
     return isNovelIdeTab(activeLeftTab.value) ? activeLeftTab.value : "files";
 });
+const displaySidebarActiveTab = computed<NovelIdeTab | "sessions" | null>(() => isAgentMode.value ? "sessions" : displayActiveLeftTab.value);
 const displayNovelTitle = computed(() => isUserAssetsWorkspace.value ? "用户资产" : currentNovel.value?.title ?? "");
 const displayNovelItems = computed(() => isUserAssetsWorkspace.value ? [] : novelItems.value);
 const displayNovelIdForAgent = computed(() => isUserAssetsWorkspace.value ? "" : currentNovelId.value);
@@ -746,6 +748,23 @@ const closeAgentSurface = (): void => {
 };
 
 /**
+ * 切换 Agent Mode 的右侧 Studio 区域。
+ */
+const toggleAgentModeStudio = (): void => {
+    agentModeStudioOpen.value = !agentModeStudioOpen.value;
+};
+
+/**
+ * 左侧窄 sidebar 在 Agent Mode 下只作为 Sessions 入口，不切换 IDE 工具 tab。
+ */
+const handleSidebarToggle = (tab: NovelIdeTab | "sessions"): void => {
+    if (tab === "sessions" || isAgentMode.value) {
+        return;
+    }
+    toggleLeftTab(tab);
+};
+
+/**
  * Agent 写入后刷新通用文件树；旧 chapter 事件仍交给 store 兼容处理。
  */
 const handleAgentWorkspaceUpdated = async (payload: AgentWorkspaceSyncPayload): Promise<void> => {
@@ -1153,14 +1172,14 @@ onBeforeUnmount(() => {
     <div ref="themeHostRef" class="novel-ide-page ide-shell flex h-screen flex-col overflow-hidden bg-[var(--bg-main)] text-[var(--text-main)] transition-colors duration-300">
         <NovelIdeHeader
             class="ide-panel ide-header"
-            :right-panel-open="agentSurfaceActive"
+            :right-panel-open="isAgentMode ? agentModeStudioOpen : displayRightPanelOpen"
             :agent-mode-active="isAgentMode"
             :novel-title="displayNovelTitle"
             :novel-items="displayNovelItems"
             :current-user="currentUser"
             :workspace-mode="isUserAssetsWorkspace ? 'user-assets' : 'novel'"
             @toggle-layout-mode="void toggleAgentLayoutMode()"
-            @toggle-agent="rightPanelOpen = !rightPanelOpen"
+            @toggle-agent="isAgentMode ? toggleAgentModeStudio() : rightPanelOpen = !rightPanelOpen"
             @open-bookshelf="bookshelfOpen = true"
             @open-plot-workbench="openPlotWorkbench"
             @open-user-assets="openUserAssets"
@@ -1171,6 +1190,8 @@ onBeforeUnmount(() => {
         />
 
         <div class="flex min-h-0 flex-1 overflow-hidden">
+            <NovelIdeSidebar class="ide-sidebar" :active-tab="displaySidebarActiveTab" :agent-mode="isAgentMode" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="handleSidebarToggle" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" />
+
             <AgentModeSessionSidebar
                 v-if="isAgentMode"
                 :sessions="agentModeSessions"
@@ -1185,12 +1206,11 @@ onBeforeUnmount(() => {
                 @refresh="void refreshAgentModeSessions()"
             />
 
-            <NovelIdeSidebar v-if="!isAgentMode" class="ide-sidebar" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="toggleLeftTab" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" />
-
             <NovelIdeToolPanel v-if="!isAgentMode" v-model:width="leftPanelWidth" class="ide-panel" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @close="activeLeftTab = null" />
 
             <!-- Studio 工作区 -->
             <main
+                v-show="!isAgentMode || agentModeStudioOpen"
                 class="ide-editor-canvas relative flex min-w-0 flex-col overflow-hidden bg-[var(--editor-canvas-bg)] transition-[width,flex-basis] duration-300"
                 :class="isAgentMode ? 'max-w-[calc(100vw_-_420px)] shrink border-l border-[var(--border-color)] order-3' : 'flex-1 order-2'"
                 :style="agentStudioStyle"
@@ -1205,9 +1225,6 @@ onBeforeUnmount(() => {
                 </div>
 
                 <div class="flex min-h-0 flex-1 overflow-hidden">
-                    <div v-if="isAgentMode && agentStudioFileTreeOpen" class="h-full w-[240px] shrink-0 border-r border-[var(--border-color)] bg-[var(--bg-panel)]">
-                        <WorkspaceFilePanel />
-                    </div>
                     <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                         <MarkdownStudioWorkbench
                             v-model:content="selectedFileContent"
@@ -1238,6 +1255,9 @@ onBeforeUnmount(() => {
                             @open-frontmatter-profile="openFrontmatterProfile"
                         />
                     </div>
+                    <div v-if="isAgentMode && agentStudioFileTreeOpen" class="agent-mode-studio-file-tree h-full w-[200px] shrink-0 border-l border-[var(--border-color)] bg-[var(--bg-panel)]">
+                        <WorkspaceFilePanel />
+                    </div>
                 </div>
 
                 <NovelPromptBar
@@ -1261,7 +1281,7 @@ onBeforeUnmount(() => {
             <section
                 class="relative z-30 flex h-full min-h-0 shrink-0 flex-col bg-[var(--bg-panel)] transition-all duration-300"
                 :class="[
-                    isAgentMode ? 'order-2 min-w-[420px] flex-[1.2] border-x border-[var(--border-color)] opacity-100' : 'order-3 shadow-2xl',
+                    isAgentMode ? 'order-2 min-w-[340px] flex-[1.2] border-x border-[var(--border-color)] opacity-100' : 'order-3 shadow-2xl',
                     !isAgentMode && displayRightPanelOpen ? 'border-l border-[var(--border-color)] opacity-100' : '',
                     !isAgentMode && !displayRightPanelOpen ? 'pointer-events-none border-l-0 opacity-0' : '',
                     resizingAgentPanel ? 'select-none transition-none' : '',
