@@ -44,6 +44,7 @@
 - 2026-06-01：实现第一版 Agent Mode 主布局：`AGENT` 顶部入口切换 `layoutMode`；同一个 `AgentChatSurface` 在 IDE 右侧槽位和 Agent Mode 中间槽位之间复用；Agent Mode 左侧新增当前 Project Workspace 的 leader session 列表，支持搜索、刷新、新建、归档和本机置顶；右侧 Studio 复用 `MarkdownStudioWorkbench` 和 `WorkspaceFilePanel`，可在 Studio 内展开文件树。
 - 2026-06-01：根据代码结构审查修正状态边界：隐藏 IDE Agent 槽位时不销毁 chat flow / composer 子树，避免丢滚动和输入草稿；Project Workspace identity 变化时硬重置 Agent session / SSE / session list，避免同 profile 的不同项目复用旧 session；Agent Mode 左侧新建 session 改走带 loading guard 的 UI action；`MarkdownStudioWorkbench` 增加 `compact` 布局入口，Agent Mode 右侧 Studio 展开文件树时不再把完整编辑器塞进 360px 窄栏。
 - 2026-06-01：浏览器验收发现 `AgentChatSurface` 内误用裸 `<template>` 包裹导致中间 Agent 主体 DOM 存在但不可见，已移除该包裹；同时把 Agent Mode Studio 文件树宽度收紧到 240px、compact Studio 最小宽度收紧到 320px，保证 1120px 视口下 session 列表、Agent 主体、Studio 文件树和 Studio 编辑区同时可见且不产生横向页面溢出。
+- 2026-06-01：根据后续 UI 调整，右上角 `Agent` 不再作为 IDE / Agent 模式切换入口，只保留为 IDE 模式右侧 Agent 面板开关；模式切换入口移到 header 左侧，位于 Neuro Book 标识和项目选择之间，用 `IDE` / `Agent` 胶囊表达当前主工作区模式。
 
 ## Decisions
 
@@ -68,6 +69,7 @@
 - Studio 在 Agent Mode 中默认显示当前打开文件；文件树作为 Studio 内的可展开栏。
 - 切换进入 Agent Mode 时，即使 IDE Mode 下 Agent 右侧槽位隐藏，也要自动打开 Agent Chat Surface 并恢复最近可用 session。
 - Agent Mode 左侧“新对话”沿用当前 workspace 的默认 leader profile 解析逻辑，不新增 profile 选择器。
+- 模式切换入口放在 header 左侧，右上角 `Agent` 只控制 IDE 模式右侧 Agent 面板；Agent Mode 下右上角 `Agent` 置为禁用提示“Agent 模式中已在中间显示”。
 
 ## Grill Questions
 
@@ -113,6 +115,7 @@
   - 点击顶部 `AGENT` 后进入 Agent Mode，左侧 `Agent Sessions`、中间 Agent 主体、右侧 `Studio` 均可见。
   - 在 Studio 内点击“展开文件树”后，右侧文件树和 Studio 编辑区同时可见，页面没有横向溢出。
   - 在 Agent composer 输入 `agent-mode-draft-check`，切回 IDE 模式再切回 Agent Mode 后草稿仍保留，证明 mode 切换未销毁 chat surface 状态。
+- 已完成：浏览器热更新验收确认 header 左侧出现 `IDE` / `Agent` 模式按钮；Agent Mode 下右上角 `Agent` 按钮 disabled，title 为“Agent 模式中已在中间显示”，不再承担模式切换。
 - 已知：全量 `bunx vue-tsc --noEmit --pretty false` 仍失败，错误集中在既有 SillyTavern / RP 测试噪音：`assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`、`server/agent/profiles/rp-profiles.test.ts`、`server/agent/skills/silly-tavern-card-cli.test.ts`。
 
 ## TODO / Follow-ups

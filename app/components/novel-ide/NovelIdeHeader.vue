@@ -15,6 +15,7 @@ const currentUser = toRef(props, "currentUser");
 const isUserAssetsMode = computed(() => props.workspaceMode === "user-assets");
 
 const emit = defineEmits<{
+    (e: "toggle-layout-mode"): void;
     (e: "toggle-agent"): void;
     (e: "open-bookshelf"): void;
     (e: "open-plot-workbench"): void;
@@ -75,6 +76,16 @@ const handleUserMenuSelect = (value: string): void => {
                 <span class="text-[13px] font-bold tracking-[0.3em] uppercase">Neuro Book</span>
             </div>
             <div class="h-4 w-px bg-[var(--border-color)]"></div>
+            <button
+                class="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-medium tracking-[0.16em] uppercase transition-colors"
+                :class="agentModeActive ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                :title="agentModeActive ? '切换到 IDE 模式' : '切换到 Agent 模式'"
+                @click="emit('toggle-layout-mode')"
+            >
+                <span :class="agentModeActive ? 'i-lucide-bot' : 'i-lucide-panels-top-left'" class="h-3.5 w-3.5"></span>
+                <span>{{ agentModeActive ? 'Agent' : 'IDE' }}</span>
+            </button>
+            <div class="h-4 w-px bg-[var(--border-color)]"></div>
             <div v-if="!isUserAssetsMode" class="flex items-center gap-3 text-sm">
                 <Dropdown :items="novelItems" menu-class="left-0 top-full mt-2 w-56" @select="(v) => emit('switch-novel', v)">
                     <button class="group flex items-center gap-1 rounded-md px-2 py-1 transition-colors hover:bg-[var(--bg-hover)]">
@@ -107,8 +118,12 @@ const handleUserMenuSelect = (value: string): void => {
             </button>
             <button
                 class="flex items-center gap-2 rounded-full border px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase transition-colors"
-                :class="agentModeActive ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : rightPanelOpen ? 'border-[var(--border-color)] bg-[var(--bg-hover)] text-[var(--text-main)]' : 'border-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                :title="agentModeActive ? '返回 IDE 模式' : '进入 Agent 模式'"
+                :class="[
+                    rightPanelOpen ? 'border-[var(--border-color)] bg-[var(--bg-hover)] text-[var(--text-main)]' : 'border-transparent text-[var(--text-secondary)] hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]',
+                    agentModeActive ? 'cursor-not-allowed opacity-45' : '',
+                ]"
+                :title="agentModeActive ? 'Agent 模式中已在中间显示' : rightPanelOpen ? '关闭 Agent 面板' : '打开 Agent 面板'"
+                :disabled="agentModeActive"
                 @click="emit('toggle-agent')"
             >
                 <span class="i-lucide-bot h-4 w-4"></span>
