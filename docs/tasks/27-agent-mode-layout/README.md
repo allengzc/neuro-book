@@ -41,6 +41,8 @@
 - 2026-06-01：第一轮拷问确认：不做跨项目切换；左侧仍需要置顶等 session 操作；IDE 右侧 Agent 抽屉退场为同一 Agent chat surface 的布局槽位复用；Agent 模式中间始终只给 Agent；右侧正式命名为 Studio，并直接复用当前 Studio 和文件树组件。
 - 2026-06-01：第二轮拷问确认：模式状态可作为主界面 layout mode 保存；切换模式时不允许因重挂载导致流式输出、SSE、滚动位置或 session 状态丢失；IDE 模式仍可隐藏右侧 Agent；Agent Mode 的关闭行为回到 IDE Mode；session 置顶第一版是本机 UI 偏好；左侧列表默认只显示 leader sessions；窄屏优先保护中间 Agent，Studio 可收起；动画服从状态稳定性。
 - 2026-06-01：第三轮拷问确认：接受把 [NovelAgentDrawer.vue](../../../app/components/novel-ide/NovelAgentDrawer.vue) 改成薄壳并拆出可复用 Agent Chat Surface；Agent Mode 左侧常驻 session 列表是主要入口，现有 session 弹窗在 Agent Mode 中退为筛选 / 高级管理或暂不出现；Studio 默认显示当前打开文件，文件树作为 Studio 内可展开栏；进入 Agent Mode 时若 IDE Agent 隐藏，也应自动打开并恢复最近 session；新对话沿用当前 workspace 默认 leader profile 解析逻辑。
+- 2026-06-01：实现第一版 Agent Mode 主布局：`AGENT` 顶部入口切换 `layoutMode`；同一个 `AgentChatSurface` 在 IDE 右侧槽位和 Agent Mode 中间槽位之间复用；Agent Mode 左侧新增当前 Project Workspace 的 leader session 列表，支持搜索、刷新、新建、归档和本机置顶；右侧 Studio 复用 `MarkdownStudioWorkbench` 和 `WorkspaceFilePanel`，可在 Studio 内展开文件树。
+- 2026-06-01：根据代码结构审查修正状态边界：隐藏 IDE Agent 槽位时不销毁 chat flow / composer 子树，避免丢滚动和输入草稿；Project Workspace identity 变化时硬重置 Agent session / SSE / session list，避免同 profile 的不同项目复用旧 session；Agent Mode 左侧新建 session 改走带 loading guard 的 UI action；`MarkdownStudioWorkbench` 增加 `compact` 布局入口，Agent Mode 右侧 Studio 展开文件树时不再把完整编辑器塞进 360px 窄栏。
 
 ## Decisions
 
@@ -90,24 +92,26 @@
 
 - [docs/tasks/27-agent-mode-layout/README.md](README.md)
 - [../../../PROJECT-STATUS.md](../../../PROJECT-STATUS.md)
+- [../../../app/stores/novel-ide.ts](../../../app/stores/novel-ide.ts)
+- [../../../app/pages/index.vue](../../../app/pages/index.vue)
+- [../../../app/components/novel-ide/NovelIdeHeader.vue](../../../app/components/novel-ide/NovelIdeHeader.vue)
+- [../../../app/components/novel-ide/NovelAgentDrawer.vue](../../../app/components/novel-ide/NovelAgentDrawer.vue)
+- [../../../app/components/novel-ide/agent/AgentChatSurface.vue](../../../app/components/novel-ide/agent/AgentChatSurface.vue)
+- [../../../app/components/novel-ide/agent/AgentModeSessionSidebar.vue](../../../app/components/novel-ide/agent/AgentModeSessionSidebar.vue)
+- [../../../app/components/markdown-studio/MarkdownStudioWorkbench.vue](../../../app/components/markdown-studio/MarkdownStudioWorkbench.vue)
 
 ## Verification
 
 - 已完成：创建 active task walkthrough。
 - 已完成：把任务加入 `PROJECT-STATUS.md` Recent Tasks。
-- 未执行：前端实现与浏览器验收，本轮只做任务建档。
+- 已完成：实现 Agent Mode 结构；`AGENT` 顶部入口切换主 layout mode，不新增路由。
+- 已完成：结构检查确认首页使用单个 `AgentChatSurface` 实例承载 IDE 右侧槽位和 Agent Mode 中间槽位。
+- 已完成：`bunx vue-tsc --noEmit --pretty false 2>&1 | Select-String -Pattern "app/pages/index.vue|NovelAgentDrawer.vue|NovelIdeHeader.vue|AgentChatSurface.vue|AgentModeSessionSidebar.vue|MarkdownStudioWorkbench.vue|app/stores/novel-ide.ts"` 对当前改动文件无输出。
+- 已知：全量 `bunx vue-tsc --noEmit --pretty false` 仍失败，错误集中在既有 SillyTavern / RP 测试噪音：`assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`、`server/agent/profiles/rp-profiles.test.ts`、`server/agent/skills/silly-tavern-card-cli.test.ts`。
+- 未执行：浏览器交互验收。项目指令要求不要自动进行浏览器验证；如需最终页面验收，需要用户明确允许。
 
 ## TODO / Follow-ups
 
-- 核对当前顶部 `AGENT` 入口是路由、tab 还是局部状态，并决定 IDE / Agent 模式切换的状态归属。
-- 核对 [NovelAgentDrawer.vue](../../../app/components/novel-ide/NovelAgentDrawer.vue) 与 session 管理组件的拆分边界，判断如何把同一个 Agent chat surface 放入 IDE 右侧槽位和 Agent 中间槽位。
-- 设计 Agent 模式三栏布局：左侧 session 列表、中间 Agent 主体、右侧 Studio 面板。
-- 明确 Studio 内部第一版职责：文件树、编辑器辅助区、Studio 工具集合，还是可切换的组合面板。
-- 设计 session 置顶的本机持久化位置，避免污染 Agent session JSONL。
-- 设计 layout mode 切换的组件挂载策略，确保流式输出、SSE、滚动位置和输入草稿不因动画或槽位移动丢失。
-- 拆分 [NovelAgentDrawer.vue](../../../app/components/novel-ide/NovelAgentDrawer.vue)：抽出可复用 Agent Chat Surface，让 IDE 右侧槽位和 Agent Mode 中间槽位共享同一套聊天能力。
-- 设计 Agent Mode 左侧 session 列表，复用现有 session 查询 / 筛选能力，但让常驻列表成为主入口。
-- 设计 Studio 默认显示当前打开文件，并把文件树放入 Studio 内部可展开栏。
-- 进入 Agent Mode 时自动 ensure session ready；新建 session 沿用当前 workspace 默认 leader profile。
-- 保留右侧面板内展开文件树的交互，并避免和 IDE 模式左侧文件树产生状态冲突。
-- 实现后补前端验收：确认 IDE 模式不回退，Agent 模式下 session 切换、Agent 输入、文件树展开、编辑器打开路径都能工作。
+- 待用户允许后补浏览器验收：确认 IDE 模式不回退，Agent 模式下 session 切换、Agent 输入、文件树展开、编辑器打开路径都能工作。
+- 后续可继续优化 Agent Mode 水平切换动画；第一版优先保证状态稳定。
+- 后续可把 Agent Mode 左侧 session 列表的筛选能力扩展到现有 session 弹窗同等完整度；第一版只做 leader active sessions 常驻入口。
