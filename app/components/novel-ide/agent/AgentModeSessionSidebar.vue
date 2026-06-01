@@ -182,7 +182,7 @@ watch(storageKey, loadPinnedSessions, {immediate: true});
             </div>
         </div>
 
-        <div class="min-h-0 flex-1 overflow-y-auto p-2 custom-scrollbar" :class="isResizing ? 'pointer-events-none select-none' : ''">
+        <div class="contain-layout-paint min-h-0 flex-1 overflow-y-auto p-2 custom-scrollbar" :class="isResizing ? 'pointer-events-none select-none' : ''">
             <button
                 v-for="session in filteredSessions"
                 :key="session.sessionId"

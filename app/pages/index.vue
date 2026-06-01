@@ -225,6 +225,7 @@ const {isResizing: resizingAgentPanel, panelStyle: agentPanelStyle} = useResizab
     maxSize: 720,
     edge: "left",
     enabled: computed(() => !isAgentMode.value && displayRightPanelOpen.value),
+    syncDuringResize: true,
     onResize: (width) => {
         rightPanelWidth.value = width;
     },
@@ -1528,7 +1529,7 @@ onBeforeUnmount(() => {
                 </div>
 
                 <div class="flex min-h-0 flex-1 overflow-hidden">
-                    <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" :class="resizingAgentStudioPanel || resizingAgentStudioFileTree ? 'pointer-events-none select-none' : ''">
+                    <div class="contain-layout-paint flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" :class="resizingAgentStudioPanel || resizingAgentStudioFileTree ? 'pointer-events-none select-none' : ''">
                         <MarkdownStudioWorkbench
                             v-model:content="selectedFileContent"
                             :controller="studio"
@@ -1561,13 +1562,15 @@ onBeforeUnmount(() => {
                     <div
                         v-if="isAgentMode && agentStudioFileTreeOpen"
                         class="agent-mode-studio-file-tree relative h-full shrink-0 border-l border-[var(--border-color)] bg-[var(--bg-panel)]"
-                        :class="resizingAgentStudioPanel || resizingAgentStudioFileTree ? 'select-none' : ''"
+                        :class="resizingAgentStudioPanel || resizingAgentStudioFileTree ? 'select-none transition-none' : ''"
                         :style="agentStudioFileTreeStyle"
                     >
                         <div ref="agentStudioFileTreeResizeHandleRef" class="group absolute -left-1 top-0 z-30 h-full w-2 cursor-col-resize">
                             <div class="ml-1 h-full w-[2px] bg-[var(--accent-main)] opacity-0 transition-all duration-150 group-hover:opacity-100" :class="resizingAgentStudioFileTree ? 'opacity-100 shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent-main)_28%,transparent)]' : ''"></div>
                         </div>
-                        <WorkspaceFilePanel />
+                        <div class="contain-layout-paint h-full">
+                            <WorkspaceFilePanel />
+                        </div>
                     </div>
                 </div>
 
@@ -1607,7 +1610,7 @@ onBeforeUnmount(() => {
                 </template>
                 <AgentChatSurface
                     ref="agentSurfaceRef"
-                    class="min-h-0 flex-1"
+                    class="contain-layout-paint min-h-0 flex-1"
                     :active="agentSurfaceActive"
                     :layout="isAgentMode ? 'workbench' : 'drawer'"
                     :novel-id="displayNovelIdForAgent"
@@ -1659,6 +1662,10 @@ onBeforeUnmount(() => {
 
 .plain-text-editor {
     caret-color: var(--accent-main);
+}
+
+:global(.contain-layout-paint) {
+    contain: layout paint;
 }
 
 :global(.ide-agent-mode-switch) {

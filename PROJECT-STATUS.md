@@ -107,6 +107,7 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 | Agent Harness Black-Box Tests | Implemented | [docs/tasks/25-agent-harness-black-box-tests/README.md](docs/tasks/25-agent-harness-black-box-tests/README.md) |
 | Windows Portable Packaging | Implemented | [docs/tasks/26-windows-portable-packaging/README.md](docs/tasks/26-windows-portable-packaging/README.md) |
 | Agent Mode Layout | Implemented | [docs/tasks/27-agent-mode-layout/README.md](docs/tasks/27-agent-mode-layout/README.md) |
+| Lorebook Information Control Protocol | Planning | [docs/tasks/28-lorebook-information-control-protocol/README.md](docs/tasks/28-lorebook-information-control-protocol/README.md) |
 | Full Site Auth | Done | [docs/tasks/archived/fullsite-auth/README.md](docs/tasks/archived/fullsite-auth/README.md) |
 | Docker Compose Deployment | Updated | [docs/tasks/archived/docker-compose-deployment/README.md](docs/tasks/archived/docker-compose-deployment/README.md) |
 | Provider Reasoning Replay | Done | [docs/tasks/archived/provider-reasoning-replay/README.md](docs/tasks/archived/provider-reasoning-replay/README.md) |

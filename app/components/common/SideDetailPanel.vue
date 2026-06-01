@@ -36,13 +36,13 @@ const currentHeaderTitle = computed(() => isCollapsed.value ? "展开面板" : "
 /**
  * 开始拖拽 detail 面板高度。
  */
-const {isResizing: resizing} = useResizablePanel(resizeHandleRef, {
+const {isResizing: resizing, panelStyle} = useResizablePanel(resizeHandleRef, {
     size: computed(() => props.height),
     minSize: HEADER_HEIGHT,
     maxSize: computed(() => import.meta.client ? window.innerHeight * MAX_HEIGHT_RATIO : RESTORE_HEIGHT),
     edge: "top",
     enabled: computed(() => props.visible),
-    onResize: (height) => emit("update:height", height),
+    onResizeEnd: (height) => emit("update:height", height),
 });
 
 /**
@@ -74,7 +74,7 @@ watch(resizing, (nextResizing) => {
         v-if="visible"
         class="relative z-10 flex shrink-0 flex-col border-t border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_-4px_16px_rgba(0,0,0,0.06)] transition-[height] duration-150 ease-out"
         :class="[panelClass, isResizing ? 'select-none transition-none' : '']"
-        :style="{ height: visibleHeight }"
+        :style="isResizing ? panelStyle : { height: visibleHeight }"
     >
         <!-- 拖拽手柄 -->
         <div ref="resizeHandleRef" class="group absolute -top-1 left-0 right-0 z-30 h-2 cursor-row-resize">

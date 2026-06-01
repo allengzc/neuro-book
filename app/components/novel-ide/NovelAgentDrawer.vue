@@ -27,7 +27,7 @@ const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
     maxSize: MAX_DRAWER_WIDTH,
     edge: "left",
     enabled: computed(() => props.isOpen),
-    onResize: (width) => emit("update:width", width),
+    onResizeEnd: (width) => emit("update:width", width),
 });
 
 const drawerStyle = computed(() => props.isOpen ? panelStyle.value : {width: "0px"});
@@ -47,7 +47,7 @@ const drawerStyle = computed(() => props.isOpen ? panelStyle.value : {width: "0p
             </div>
 
             <AgentChatSurface
-                class="min-h-0 flex-1"
+                class="min-h-0 flex-1 contain-layout-paint"
                 active
                 layout="drawer"
                 :novel-id="props.novelId"

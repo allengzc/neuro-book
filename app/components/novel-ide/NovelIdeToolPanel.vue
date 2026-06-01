@@ -74,6 +74,7 @@ const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
     maxSize: MAX_PANEL_WIDTH,
     edge: "right",
     enabled: computed(() => Boolean(props.activeTab)),
+    syncDuringResize: true,
     onResize: (width) => emit("update:width", width),
 });
 const projectUploadItems: DropdownItem[] = [
@@ -391,11 +392,13 @@ onMounted(() => {
                 </div>
             </div>
 
-            <WorkspaceFilePanel v-if="activeTab === 'files'" />
+            <div class="contain-layout-paint min-h-0 flex-1 overflow-hidden" :class="isResizing ? 'pointer-events-none select-none' : ''">
+                <WorkspaceFilePanel v-if="activeTab === 'files'" />
 
-            <WorkspaceCharacterPanel v-else-if="activeTab === 'characters' && !props.userAssetsMode" />
+                <WorkspaceCharacterPanel v-else-if="activeTab === 'characters' && !props.userAssetsMode" />
 
-            <NovelPlotPanel v-else-if="activeTab === 'outline' && !props.userAssetsMode" />
+                <NovelPlotPanel v-else-if="activeTab === 'outline' && !props.userAssetsMode" />
+            </div>
         </aside>
 
         <!-- 剧本工作台 Dialog 宿主：允许顶部按钮直接打开，不强制切换左侧剧情大纲 tab。 -->

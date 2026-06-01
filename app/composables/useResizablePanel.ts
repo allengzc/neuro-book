@@ -14,6 +14,8 @@ type UseResizablePanelOptions = {
     edge: MaybeRefOrGetter<ResizablePanelEdge>;
     /** 是否允许拖拽；为空时默认允许。 */
     enabled?: MaybeRefOrGetter<boolean>;
+    /** 是否在拖拽过程中同步回外部状态；需要父布局实时跟随时才开启。 */
+    syncDuringResize?: MaybeRefOrGetter<boolean>;
     /** 拖拽中的尺寸变化回调；为空时只更新本地预览尺寸。 */
     onResize?: (value: number) => void;
     /** 拖拽结束回调，适合提交到 store / 持久化状态。 */
@@ -66,7 +68,7 @@ export function useResizablePanel(handleRef: Ref<HTMLElement | null>, options: U
         }
 
         previewSize.value = nextSize;
-        if (lastEmittedSize.value === null || Math.abs(nextSize - lastEmittedSize.value) >= 1) {
+        if (toValue(options.syncDuringResize) && (lastEmittedSize.value === null || Math.abs(nextSize - lastEmittedSize.value) >= 1)) {
             options.onResize?.(nextSize);
             lastEmittedSize.value = nextSize;
         }
@@ -97,6 +99,9 @@ export function useResizablePanel(handleRef: Ref<HTMLElement | null>, options: U
         }
 
         const finalSize = previewSize.value ?? currentSize.value;
+        if (!toValue(options.syncDuringResize)) {
+            options.onResize?.(finalSize);
+        }
         options.onResizeEnd?.(finalSize);
         previewSize.value = null;
         pendingSize.value = null;

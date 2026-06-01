@@ -75,6 +75,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Agent runtime 中内容节点 CLI 的稳定入口是 `workspace node ...`，由 `.nbook/agent/bin` 注入 `bash` PATH；不要提示 Agent 直接调用项目根 `scripts/workspace.ts`。手工在 PowerShell 管道传中文路径给 `workspace node ... --stdin` 时，必须保证三层 UTF-8 初始化：`chcp 65001`、`[Console]::OutputEncoding = [System.Text.Encoding]::UTF8`、`$OutputEncoding = [System.Text.Encoding]::UTF8`。Agent 的 `bash` 工具第一版不负责 PowerShell 管道编码；如果手工在 PowerShell 运行，使用同样前缀。
 - Agent 文件工具读取当前小说 workspace 时，优先传 `lorebook/...`、`manuscript/...` 或 `workspace/...`；这些路径应映射到活跃小说 workspace，不应按项目根解析。
 - 如果遇到性能与复杂度权衡问题，报告、解释、给出你的建议、交给用户做最终决定
+- 任务完成后不要主动运行 git 命令查看变更
 - **Important: 永远不要用 shell 工具代替文件编辑工具。当你想这样做的时候，停止你的行为，请求用户同意**
 - **不要自动进行浏览器验证，你可以建议用户让你进行浏览器验证**
 - **代码审查报告使用直白的话语再解释一次**
