@@ -43,6 +43,7 @@
 - 2026-06-01：第三轮拷问确认：接受把 [NovelAgentDrawer.vue](../../../app/components/novel-ide/NovelAgentDrawer.vue) 改成薄壳并拆出可复用 Agent Chat Surface；Agent Mode 左侧常驻 session 列表是主要入口，现有 session 弹窗在 Agent Mode 中退为筛选 / 高级管理或暂不出现；Studio 默认显示当前打开文件，文件树作为 Studio 内可展开栏；进入 Agent Mode 时若 IDE Agent 隐藏，也应自动打开并恢复最近 session；新对话沿用当前 workspace 默认 leader profile 解析逻辑。
 - 2026-06-01：实现第一版 Agent Mode 主布局：`AGENT` 顶部入口切换 `layoutMode`；同一个 `AgentChatSurface` 在 IDE 右侧槽位和 Agent Mode 中间槽位之间复用；Agent Mode 左侧新增当前 Project Workspace 的 leader session 列表，支持搜索、刷新、新建、归档和本机置顶；右侧 Studio 复用 `MarkdownStudioWorkbench` 和 `WorkspaceFilePanel`，可在 Studio 内展开文件树。
 - 2026-06-01：根据代码结构审查修正状态边界：隐藏 IDE Agent 槽位时不销毁 chat flow / composer 子树，避免丢滚动和输入草稿；Project Workspace identity 变化时硬重置 Agent session / SSE / session list，避免同 profile 的不同项目复用旧 session；Agent Mode 左侧新建 session 改走带 loading guard 的 UI action；`MarkdownStudioWorkbench` 增加 `compact` 布局入口，Agent Mode 右侧 Studio 展开文件树时不再把完整编辑器塞进 360px 窄栏。
+- 2026-06-01：浏览器验收发现 `AgentChatSurface` 内误用裸 `<template>` 包裹导致中间 Agent 主体 DOM 存在但不可见，已移除该包裹；同时把 Agent Mode Studio 文件树宽度收紧到 240px、compact Studio 最小宽度收紧到 320px，保证 1120px 视口下 session 列表、Agent 主体、Studio 文件树和 Studio 编辑区同时可见且不产生横向页面溢出。
 
 ## Decisions
 
@@ -107,11 +108,14 @@
 - 已完成：实现 Agent Mode 结构；`AGENT` 顶部入口切换主 layout mode，不新增路由。
 - 已完成：结构检查确认首页使用单个 `AgentChatSurface` 实例承载 IDE 右侧槽位和 Agent Mode 中间槽位。
 - 已完成：`bunx vue-tsc --noEmit --pretty false 2>&1 | Select-String -Pattern "app/pages/index.vue|NovelAgentDrawer.vue|NovelIdeHeader.vue|AgentChatSurface.vue|AgentModeSessionSidebar.vue|MarkdownStudioWorkbench.vue|app/stores/novel-ide.ts"` 对当前改动文件无输出。
+- 已完成：浏览器验收 `http://localhost:3000/?project=workspace/.codex-roleplay-template-smoke.creating-bCqddF`：
+  - IDE 模式初始可显示现有左侧文件树、中间 Studio 和隐藏的 Agent surface。
+  - 点击顶部 `AGENT` 后进入 Agent Mode，左侧 `Agent Sessions`、中间 Agent 主体、右侧 `Studio` 均可见。
+  - 在 Studio 内点击“展开文件树”后，右侧文件树和 Studio 编辑区同时可见，页面没有横向溢出。
+  - 在 Agent composer 输入 `agent-mode-draft-check`，切回 IDE 模式再切回 Agent Mode 后草稿仍保留，证明 mode 切换未销毁 chat surface 状态。
 - 已知：全量 `bunx vue-tsc --noEmit --pretty false` 仍失败，错误集中在既有 SillyTavern / RP 测试噪音：`assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`、`server/agent/profiles/rp-profiles.test.ts`、`server/agent/skills/silly-tavern-card-cli.test.ts`。
-- 未执行：浏览器交互验收。项目指令要求不要自动进行浏览器验证；如需最终页面验收，需要用户明确允许。
 
 ## TODO / Follow-ups
 
-- 待用户允许后补浏览器验收：确认 IDE 模式不回退，Agent 模式下 session 切换、Agent 输入、文件树展开、编辑器打开路径都能工作。
 - 后续可继续优化 Agent Mode 水平切换动画；第一版优先保证状态稳定。
 - 后续可把 Agent Mode 左侧 session 列表的筛选能力扩展到现有 session 弹窗同等完整度；第一版只做 leader active sessions 常驻入口。

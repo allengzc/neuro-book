@@ -4,7 +4,7 @@ import {createHash, randomBytes} from "node:crypto";
 import {createServer} from "node:net";
 import {existsSync} from "node:fs";
 import {cp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
-import {dirname, join, resolve} from "node:path";
+import {dirname, join, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
 const REPO_URL = "https://github.com/notnotype/neuro-book.git";
@@ -16,6 +16,8 @@ const APP_DIR = join(PORTABLE_ROOT, "app");
 const DEPLOY_DIR = join(PORTABLE_ROOT, ".deploy");
 const STATE_PATH = join(DEPLOY_DIR, "windows-portable.json");
 const NODE_EXE = process.execPath;
+const NITRO_ENTRY_FALLBACK = "file:///_entry.js";
+const NITRO_ENTRY_FALLBACK_SHAPE = '{url:"file:///_entry.js",env:process.env}';
 
 const COMMANDS = new Map([
     ["start", start],
@@ -70,6 +72,7 @@ async function start() {
         await installAndBuild();
     }
 
+    await ensureNitroOutputCompatible();
     await migrate();
     await ensureAdminUser();
     await runServer(await loadAppEnv());
@@ -98,6 +101,7 @@ async function rebuild() {
     await assertSourceReady();
     await ensurePortableConfig();
     await installAndBuild();
+    await ensureNitroOutputCompatible();
     await migrate();
 }
 
@@ -261,6 +265,89 @@ async function shouldBuildOnStart() {
         throw new Error("构建产物缺失。请运行 Rebuild Neuro Book.cmd 重新构建当前源码。");
     }
     return true;
+}
+
+/**
+ * 修复已有 Nitro 产物里的 Windows 非法 file URL。
+ * Start 可能复用上一次构建出的 `.output`，所以这里不能只依赖 `nuxt:build` 后置脚本。
+ */
+async function ensureNitroOutputCompatible() {
+    const chunksRoot = join(APP_DIR, ".output", "server", "chunks");
+    if (!existsSync(chunksRoot)) {
+        return;
+    }
+
+    const patchedCount = await patchNitroEntryFallbacks(chunksRoot);
+    const offenders = await findNitroEntryFallbacks(chunksRoot);
+    if (offenders.length > 0) {
+        throw new Error([
+            "Nitro 产物仍包含 Windows 下非法的 file:///_entry.js fallback。",
+            "请运行 Rebuild Neuro Book.cmd 重新构建当前源码，或运行 Update Neuro Book.cmd 更新到最新源码后重试。",
+            "残留文件：",
+            ...offenders.map((filePath) => `- ${filePath}`),
+        ].join("\n"));
+    }
+    if (patchedCount > 0) {
+        p.log.info(`已修复 Nitro Windows 启动兼容问题：${patchedCount} 个文件`);
+    }
+}
+
+/**
+ * 把 Nitro chunk 的 fallback 指回标准 server entry，保留 Nitro 计算 server root 的语义。
+ */
+async function patchNitroEntryFallbacks(root) {
+    let count = 0;
+    const serverEntry = join(APP_DIR, ".output", "server", "index.mjs");
+    for (const filePath of await listMjsFiles(root)) {
+        const text = await readFile(filePath, "utf8");
+        if (!text.includes(NITRO_ENTRY_FALLBACK)) {
+            continue;
+        }
+
+        const entrySpecifier = relative(dirname(filePath), serverEntry).replaceAll("\\", "/");
+        const normalizedSpecifier = entrySpecifier.startsWith(".") ? entrySpecifier : `./${entrySpecifier}`;
+        const next = text.replaceAll(
+            NITRO_ENTRY_FALLBACK_SHAPE,
+            `{url:new URL(${JSON.stringify(normalizedSpecifier)},import.meta.url).href,env:process.env}`,
+        );
+        if (next !== text) {
+            await writeFile(filePath, next, "utf8");
+            count += 1;
+        }
+    }
+    return count;
+}
+
+/**
+ * 找出仍含非法 Nitro fallback 的产物文件。
+ */
+async function findNitroEntryFallbacks(root) {
+    const offenders = [];
+    for (const filePath of await listMjsFiles(root)) {
+        const text = await readFile(filePath, "utf8");
+        if (text.includes(NITRO_ENTRY_FALLBACK)) {
+            offenders.push(relative(APP_DIR, filePath).replaceAll("\\", "/"));
+        }
+    }
+    return offenders;
+}
+
+/**
+ * 递归列出 mjs 文件。
+ */
+async function listMjsFiles(root) {
+    const result = [];
+    for (const entry of await readdir(root, {withFileTypes: true})) {
+        const filePath = join(root, entry.name);
+        if (entry.isDirectory()) {
+            result.push(...await listMjsFiles(filePath));
+            continue;
+        }
+        if (entry.isFile() && entry.name.endsWith(".mjs")) {
+            result.push(filePath);
+        }
+    }
+    return result;
 }
 
 /**
