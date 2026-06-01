@@ -1430,8 +1430,7 @@ function isApprovalApproved(answer?: {
         :class="[props.layout === 'workbench' ? 'border-x border-[var(--border-color)]' : '', props.active ? '' : 'pointer-events-none opacity-0']"
         :aria-hidden="!props.active"
     >
-        <template>
-            <!-- 抽屉头部 -->
+        <!-- 抽屉头部 -->
             <div class="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3">
                 <div class="min-w-0 flex items-center gap-2">
                     <div class="flex h-6 w-6 items-center justify-center rounded border border-[var(--accent-main)] bg-[var(--accent-bg)]">
@@ -1574,6 +1573,5 @@ function isApprovalApproved(answer?: {
                 :running="running"
                 @select="void selectTreeNode($event)"
             />
-        </template>
     </section>
 </template>

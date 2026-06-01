@@ -44,7 +44,7 @@
     - `Update Neuro Book.cmd` / `Update Neuro Book.ps1`：拉取或更新 `master` 源码后重建。
     - `Rebuild Neuro Book.cmd` / `Rebuild Neuro Book.ps1`：不拉取代码，只重新安装依赖并构建当前源码；如果源码尚未物化，提示先运行更新脚本。
 - 启动目标仍是 `node .output/server/index.mjs`。
-- Nuxt/Nitro 生产产物中的 `file:///_entry.js` fallback 在 Windows 下不是合法绝对 file URL；Windows portable 不新增自定义 Nitro 启动器，而是在 `bun run nuxt:build` 后通过受控 build-output patch 把 fallback 指回 `.output/server/index.mjs`，并断言产物中不再残留该非法 fallback。
+- Nuxt/Nitro 生产产物中的 `file:///_entry.js` fallback 在 Windows 下不是合法绝对 file URL；Windows portable 不新增自定义 Nitro 启动器，而是在 `bun run nuxt:build` 后通过受控 build-output patch 把 fallback 指回 `.output/server/index.mjs`，并断言产物中不再残留该非法 fallback。Start/Rebuild 还会在启动或迁移前检查已有 `.output`，修复旧源码已经构建出的坏产物。
 - 启动脚本和内置 runtime 留在 Portable Root；真实项目源码始终在 `app/` 子目录，避免往非空 Portable Root 里 clone。
 - 桌面窗口作为第二阶段，等本地网页版 portable 包稳定后再评估。
 
