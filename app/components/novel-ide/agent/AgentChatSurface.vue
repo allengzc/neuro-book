@@ -1486,6 +1486,7 @@ function isApprovalApproved(answer?: {
             <AgentChatFlow
                 ref="chatFlowRef"
                 :messages="renderNodes"
+                :session-id="activeSessionId"
                 :running="running"
                 mode="main"
                 :editing-message-id="editingMessageId"

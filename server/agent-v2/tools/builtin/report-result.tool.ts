@@ -3,10 +3,10 @@ import type {AgentTool} from "nbook/server/agent/tools/agent-tool";
 import type {JsonValue} from "nbook/server/agent/types";
 
 const ReportResultInputSchema = z.object({
-    walkthrough: z.string()
+    result: z.string()
         .trim()
-        .min(1, "walkthrough 不能为空")
-        .describe("Final human-readable summary of the agent execution. Keep it complete but concise."),
+        .min(1, "result 不能为空")
+        .describe("Final human-readable result of the agent execution. Keep it complete but concise."),
     data: z.json()
         .optional()
         .describe("Optional structured result. The expected shape depends on the current profile."),
@@ -22,10 +22,10 @@ export const reportResultTool: AgentTool<typeof ReportResultInputSchema> = {
     async execute(input, context) {
         const parsedData = validateProfileOutput(input.data, context.profile);
         const rawResult: {
-            walkthrough: string;
+            result: string;
             data?: JsonValue;
         } = {
-            walkthrough: input.walkthrough,
+            result: input.result,
         };
         if (parsedData !== undefined) {
             rawResult.data = parsedData;

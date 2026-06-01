@@ -49,6 +49,16 @@ type StreamErrorEvent = {
     message?: string;
 };
 
+type SameDocumentViewTransition = {
+    ready: Promise<void>;
+};
+
+type SameDocumentViewTransitionDocument = Document & {
+    startViewTransition?: (callback: () => void | Promise<void>) => SameDocumentViewTransition;
+};
+
+type LayoutModeTransitionDirection = "to-agent" | "to-ide";
+
 const abortController = ref<AbortController | null>(null);
 const initialized = ref(false);
 const themeHostRef = ref<HTMLElement | null>(null);
@@ -58,14 +68,27 @@ const settingsDialogOpen = ref(false);
 const profileWorkbenchOpen = ref(false);
 const frontmatterProfileKind = ref<FrontmatterProfileKind | null>(null);
 const fileDiagnosticsText = ref("");
-const agentModeStudioOpen = ref(true);
 const agentStudioFileTreeOpen = ref(false);
 const saveQueued = ref(false);
 const workspaceEventAbortController = ref<AbortController | null>(null);
 const agentResizeHandleRef = ref<HTMLElement | null>(null);
+const agentStudioResizeHandleRef = ref<HTMLElement | null>(null);
+const agentStudioFileTreeResizeHandleRef = ref<HTMLElement | null>(null);
+const layoutTransitionDirection = ref<LayoutModeTransitionDirection | null>(null);
 let workspaceFileSyncRunning = false;
 let pendingWorkspaceFileEvents: WorkspaceFileChangeEventDto[] = [];
 const USER_ASSETS_PROJECT_TARGET = "workspace/.nbook";
+const MODE_TRANSITION_SELECTORS = [
+    ".ide-agent-mode-switch",
+    ".agent-mode-session-sidebar",
+    ".mode-transition-ide-tools",
+    ".mode-transition-studio",
+    ".mode-transition-agent",
+] as const;
+const IDE_PAPER_TRANSITION_SELECTORS = [
+    ".mode-transition-ide-tools",
+    ".mode-transition-studio",
+] as const;
 
 const novelIdeStore = useNovelIdeStore();
 const route = useRoute();
@@ -79,6 +102,10 @@ const {
     lastSyncedFileContent,
     loadingWorkspace,
     layoutMode,
+    agentSessionPanelOpen,
+    agentSessionPanelWidth,
+    agentStudioFileTreeWidth,
+    agentStudioPanelWidth,
     novels,
     promptExpanded,
     requirement,
@@ -177,7 +204,21 @@ const agentModeActiveSessionId = computed(() => agentSurfaceRef.value?.activeSes
 const agentModeLoadingSession = computed(() => agentSurfaceRef.value?.loadingSession ?? false);
 const agentModeRunning = computed(() => agentSurfaceRef.value?.running ?? false);
 const agentModeSessionActionId = computed(() => agentSurfaceRef.value?.sessionActionId ?? null);
-const agentStudioMinWidth = computed(() => agentStudioFileTreeOpen.value ? "min(460px, calc(100vw - 340px))" : "min(360px, 42vw)");
+const agentModeReservedWidth = computed(() => 56 + (agentSessionPanelOpen.value ? agentSessionPanelWidth.value : 0) + 340);
+const agentStudioMaxWidth = computed(() => {
+    if (!import.meta.client) {
+        return 620;
+    }
+    return Math.max(320, window.innerWidth - agentModeReservedWidth.value);
+});
+const agentStudioFileTreeMaxWidth = computed(() => Math.min(360, Math.max(240, agentStudioPanelWidth.value - 80)));
+const agentStudioPanelVisible = computed({
+    get: () => novelIdeStore.agentStudioPanelOpen,
+    set: (value: boolean) => {
+        novelIdeStore.agentStudioPanelOpen = value;
+    },
+});
+const agentStudioPanelOpen = computed(() => workspaceBootstrapped.value && agentStudioPanelVisible.value);
 const {isResizing: resizingAgentPanel, panelStyle: agentPanelStyle} = useResizablePanel(agentResizeHandleRef, {
     size: computed(() => rightPanelWidth.value),
     minSize: 320,
@@ -188,16 +229,41 @@ const {isResizing: resizingAgentPanel, panelStyle: agentPanelStyle} = useResizab
         rightPanelWidth.value = width;
     },
 });
+const {isResizing: resizingAgentStudioPanel, panelStyle: agentStudioPanelStyle} = useResizablePanel(agentStudioResizeHandleRef, {
+    size: computed(() => agentStudioPanelWidth.value),
+    minSize: 320,
+    maxSize: agentStudioMaxWidth,
+    edge: "left",
+    enabled: computed(() => isAgentMode.value && agentStudioPanelOpen.value),
+    onResize: (width) => {
+        agentStudioPanelWidth.value = width;
+    },
+});
+const {isResizing: resizingAgentStudioFileTree, panelStyle: agentStudioFileTreeStyle} = useResizablePanel(agentStudioFileTreeResizeHandleRef, {
+    size: computed(() => agentStudioFileTreeWidth.value),
+    minSize: 160,
+    maxSize: agentStudioFileTreeMaxWidth,
+    edge: "left",
+    enabled: computed(() => isAgentMode.value && agentStudioPanelOpen.value && agentStudioFileTreeOpen.value),
+    onResize: (width) => {
+        agentStudioFileTreeWidth.value = width;
+    },
+});
 const agentSlotStyle = computed(() => {
     if (isAgentMode.value) {
         return {};
     }
     return displayRightPanelOpen.value ? agentPanelStyle.value : {width: "0px"};
 });
-const agentStudioStyle = computed(() => isAgentMode.value ? {
-    flexBasis: agentStudioFileTreeOpen.value ? "46vw" : "38vw",
-    minWidth: agentStudioMinWidth.value,
-} : {});
+const agentStudioStyle = computed(() => {
+    if (!isAgentMode.value) {
+        return {};
+    }
+    if (layoutTransitionDirection.value === "to-agent") {
+        return {width: "0px"};
+    }
+    return agentStudioPanelOpen.value ? agentStudioPanelStyle.value : {width: "0px"};
+});
 const displayActiveLeftTab = computed<NovelIdeTab | null>(() => {
     if (!workspaceBootstrapped.value) {
         return "files";
@@ -210,6 +276,8 @@ const displayActiveLeftTab = computed<NovelIdeTab | null>(() => {
     }
     return isNovelIdeTab(activeLeftTab.value) ? activeLeftTab.value : "files";
 });
+const ideToolPanelOpen = computed(() => !isAgentMode.value && displayActiveLeftTab.value !== null);
+const ideToolPanelStyle = computed(() => ideToolPanelOpen.value ? {width: `${leftPanelWidth.value}px`} : {width: "0px"});
 const displaySidebarActiveTab = computed<NovelIdeTab | "sessions" | null>(() => isAgentMode.value ? "sessions" : displayActiveLeftTab.value);
 const displayNovelTitle = computed(() => isUserAssetsWorkspace.value ? "用户资产" : currentNovel.value?.title ?? "");
 const displayNovelItems = computed(() => isUserAssetsWorkspace.value ? [] : novelItems.value);
@@ -688,17 +756,226 @@ const handleSwitchNovel = async (novelId: string): Promise<void> => {
 };
 
 /**
+ * 捕获模式切换前后需要平滑移动的元素位置。
+ */
+const captureModeTransitionRects = (): Map<string, DOMRect> => {
+    const rects = new Map<string, DOMRect>();
+    for (const selector of MODE_TRANSITION_SELECTORS) {
+        const element = document.querySelector(selector);
+        if (element instanceof HTMLElement) {
+            rects.set(selector, element.getBoundingClientRect());
+        }
+    }
+    return rects;
+};
+
+/**
+ * 克隆当前 IDE 工作区，作为向左滑出的纸面快照。
+ */
+const createIdePaperSlideOverlay = (): HTMLElement | null => {
+    const items = IDE_PAPER_TRANSITION_SELECTORS
+        .map((selector) => {
+            const element = document.querySelector(selector);
+            if (!(element instanceof HTMLElement)) {
+                return null;
+            }
+            const rect = element.getBoundingClientRect();
+            if (rect.width <= 0 || rect.height <= 0) {
+                return null;
+            }
+            return {element, rect};
+        })
+        .filter((item): item is {element: HTMLElement; rect: DOMRect} => item !== null);
+
+    if (items.length === 0) {
+        return null;
+    }
+
+    const left = Math.min(...items.map((item) => item.rect.left));
+    const top = Math.min(...items.map((item) => item.rect.top));
+    const right = Math.max(...items.map((item) => item.rect.right));
+    const bottom = Math.max(...items.map((item) => item.rect.bottom));
+    const overlay = document.createElement("div");
+    overlay.className = "mode-transition-paper";
+    overlay.style.position = "fixed";
+    overlay.style.left = `${left}px`;
+    overlay.style.top = `${top}px`;
+    overlay.style.width = `${right - left}px`;
+    overlay.style.height = `${bottom - top}px`;
+    overlay.style.zIndex = "80";
+    overlay.style.pointerEvents = "none";
+    overlay.style.overflow = "hidden";
+    overlay.style.transform = "translate3d(0, 0, 0)";
+    overlay.style.willChange = "transform";
+
+    for (const item of items) {
+        const clone = item.element.cloneNode(true) as HTMLElement;
+        clone.style.position = "absolute";
+        clone.style.left = `${item.rect.left - left}px`;
+        clone.style.top = `${item.rect.top - top}px`;
+        clone.style.width = `${item.rect.width}px`;
+        clone.style.height = `${item.rect.height}px`;
+        clone.style.margin = "0";
+        clone.style.pointerEvents = "none";
+        clone.style.transform = "none";
+        overlay.appendChild(clone);
+    }
+
+    themeHostRef.value?.appendChild(overlay);
+    return overlay;
+};
+
+/**
+ * 播放 IDE 纸面向左滑出动画。
+ */
+const animateIdePaperSlideOut = (overlay: HTMLElement | null): void => {
+    if (!overlay) {
+        return;
+    }
+
+    const rect = overlay.getBoundingClientRect();
+    const distance = Math.max(rect.right + 24, window.innerWidth * 0.72);
+    const animation = overlay.animate([
+        {transform: "translate3d(0, 0, 0)"},
+        {transform: `translate3d(-${distance}px, 0, 0)`},
+    ], {
+        duration: 360,
+        easing: "cubic-bezier(0.4, 0, 0.2, 1)",
+        fill: "forwards",
+    });
+    animation.onfinish = () => overlay.remove();
+    window.setTimeout(() => overlay.remove(), 420);
+};
+
+/**
+ * 在不支持 View Transition 的浏览器里，用纸面滑动 + FLIP 缓和布局 order 变化。
+ */
+const runFallbackLayoutModeTransition = async (mutation: () => void): Promise<void> => {
+    const direction = layoutMode.value === "ide" ? "to-agent" : "to-ide";
+    layoutTransitionDirection.value = direction;
+    await nextTick();
+    const beforeRects = captureModeTransitionRects();
+    const idePaperOverlay = direction === "to-agent" ? createIdePaperSlideOverlay() : null;
+    mutation();
+    await nextTick();
+
+    const animated: Array<{
+        element: HTMLElement;
+        transform: string;
+        transition: string;
+        willChange: string;
+    }> = [];
+
+    for (const selector of MODE_TRANSITION_SELECTORS) {
+        if (direction === "to-agent" && IDE_PAPER_TRANSITION_SELECTORS.includes(selector as typeof IDE_PAPER_TRANSITION_SELECTORS[number])) {
+            continue;
+        }
+
+        const element = document.querySelector(selector);
+        const beforeRect = beforeRects.get(selector);
+        if (!(element instanceof HTMLElement) || !beforeRect) {
+            continue;
+        }
+
+        const afterRect = element.getBoundingClientRect();
+        if (beforeRect.width === 0 || beforeRect.height === 0 || afterRect.width === 0 || afterRect.height === 0) {
+            continue;
+        }
+
+        const deltaX = beforeRect.left - afterRect.left;
+        const deltaY = beforeRect.top - afterRect.top;
+        if (Math.abs(deltaX) < 1 && Math.abs(deltaY) < 1) {
+            continue;
+        }
+
+        animated.push({
+            element,
+            transform: element.style.transform,
+            transition: element.style.transition,
+            willChange: element.style.willChange,
+        });
+        element.style.transition = "none";
+        element.style.transform = `translate3d(${deltaX}px, ${deltaY}px, 0)`;
+        element.style.willChange = "transform";
+    }
+
+    if (animated.length === 0) {
+        animateIdePaperSlideOut(idePaperOverlay);
+        window.setTimeout(() => {
+            if (layoutTransitionDirection.value === direction) {
+                layoutTransitionDirection.value = null;
+            }
+        }, 360);
+        return;
+    }
+
+    document.body.getBoundingClientRect();
+    requestAnimationFrame(() => {
+        animateIdePaperSlideOut(idePaperOverlay);
+        for (const item of animated) {
+            item.element.style.transition = "transform 300ms cubic-bezier(0.4, 0, 0.2, 1)";
+            item.element.style.transform = "translate3d(0, 0, 0)";
+        }
+        window.setTimeout(() => {
+            for (const item of animated) {
+                item.element.style.transform = item.transform;
+                item.element.style.transition = item.transition;
+                item.element.style.willChange = item.willChange;
+            }
+            if (layoutTransitionDirection.value === direction) {
+                layoutTransitionDirection.value = null;
+            }
+        }, 320);
+    });
+};
+
+/**
+ * 使用浏览器 View Transition 包裹主模式切换，减轻 DOM order 改变带来的硬切。
+ */
+const runLayoutModeTransition = async (mutation: () => void): Promise<void> => {
+    if (!import.meta.client) {
+        mutation();
+        await nextTick();
+        return;
+    }
+
+    if (layoutMode.value === "ide") {
+        await runFallbackLayoutModeTransition(mutation);
+        return;
+    }
+
+    const transitionDocument = document as SameDocumentViewTransitionDocument;
+    if (!transitionDocument.startViewTransition) {
+        await runFallbackLayoutModeTransition(mutation);
+        return;
+    }
+
+    const transition = transitionDocument.startViewTransition(async () => {
+        layoutTransitionDirection.value = layoutMode.value === "ide" ? "to-agent" : "to-ide";
+        mutation();
+        await nextTick();
+    });
+    await transition.ready.catch(() => {});
+    window.setTimeout(() => {
+        layoutTransitionDirection.value = null;
+    }, 320);
+};
+
+/**
  * 切换主界面的 IDE / Agent layout mode。
  */
 const toggleAgentLayoutMode = async (): Promise<void> => {
     if (layoutMode.value === "agent") {
-        layoutMode.value = "ide";
-        rightPanelOpen.value = true;
+        await runLayoutModeTransition(() => {
+            layoutMode.value = "ide";
+            rightPanelOpen.value = true;
+        });
         return;
     }
-    layoutMode.value = "agent";
-    rightPanelOpen.value = true;
-    await nextTick();
+    await runLayoutModeTransition(() => {
+        layoutMode.value = "agent";
+        rightPanelOpen.value = true;
+    });
     await agentSurfaceRef.value?.ensureSessionReady();
 };
 
@@ -751,14 +1028,18 @@ const closeAgentSurface = (): void => {
  * 切换 Agent Mode 的右侧 Studio 区域。
  */
 const toggleAgentModeStudio = (): void => {
-    agentModeStudioOpen.value = !agentModeStudioOpen.value;
+    agentStudioPanelVisible.value = !agentStudioPanelVisible.value;
 };
 
 /**
  * 左侧窄 sidebar 在 Agent Mode 下只作为 Sessions 入口，不切换 IDE 工具 tab。
  */
 const handleSidebarToggle = (tab: NovelIdeTab | "sessions"): void => {
-    if (tab === "sessions" || isAgentMode.value) {
+    if (tab === "sessions") {
+        agentSessionPanelOpen.value = !agentSessionPanelOpen.value;
+        return;
+    }
+    if (isAgentMode.value) {
         return;
     }
     toggleLeftTab(tab);
@@ -1172,7 +1453,7 @@ onBeforeUnmount(() => {
     <div ref="themeHostRef" class="novel-ide-page ide-shell flex h-screen flex-col overflow-hidden bg-[var(--bg-main)] text-[var(--text-main)] transition-colors duration-300">
         <NovelIdeHeader
             class="ide-panel ide-header"
-            :right-panel-open="isAgentMode ? agentModeStudioOpen : displayRightPanelOpen"
+            :right-panel-open="isAgentMode ? agentStudioPanelOpen : displayRightPanelOpen"
             :agent-mode-active="isAgentMode"
             :novel-title="displayNovelTitle"
             :novel-items="displayNovelItems"
@@ -1193,28 +1474,50 @@ onBeforeUnmount(() => {
             <NovelIdeSidebar class="ide-sidebar" :active-tab="displaySidebarActiveTab" :agent-mode="isAgentMode" :user-assets-mode="isUserAssetsWorkspace" @toggle-tab="handleSidebarToggle" @collapse="activeLeftTab = null" @open-settings="settingsDialogOpen = true" />
 
             <AgentModeSessionSidebar
-                v-if="isAgentMode"
                 :sessions="agentModeSessions"
                 :active-session-id="agentModeActiveSessionId"
                 :loading="agentModeLoadingSession"
                 :running="agentModeRunning"
                 :action-id="agentModeSessionActionId"
                 :workspace-key="agentWorkspaceKey"
+                :open="isAgentMode && agentSessionPanelOpen"
+                :width="agentSessionPanelWidth"
+                @update:width="agentSessionPanelWidth = $event"
                 @select="void selectAgentModeSession($event)"
                 @create="void createAgentModeSession()"
                 @archive="void archiveAgentModeSession($event)"
                 @refresh="void refreshAgentModeSessions()"
             />
 
-            <NovelIdeToolPanel v-if="!isAgentMode" v-model:width="leftPanelWidth" class="ide-panel" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @close="activeLeftTab = null" />
+            <div
+                class="mode-transition-ide-tools flex h-full shrink-0 overflow-hidden transition-[width,opacity,transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+                :class="[
+                    ideToolPanelOpen ? 'translate-x-0 opacity-100' : 'pointer-events-none -translate-x-2 opacity-0',
+                    layoutTransitionDirection ? 'transition-none' : '',
+                ]"
+                :style="ideToolPanelStyle"
+            >
+                <NovelIdeToolPanel v-model:width="leftPanelWidth" class="ide-panel h-full" :active-tab="displayActiveLeftTab" :user-assets-mode="isUserAssetsWorkspace" @close="activeLeftTab = null" />
+            </div>
 
             <!-- Studio 工作区 -->
             <main
-                v-show="!isAgentMode || agentModeStudioOpen"
-                class="ide-editor-canvas relative flex min-w-0 flex-col overflow-hidden bg-[var(--editor-canvas-bg)] transition-[width,flex-basis] duration-300"
-                :class="isAgentMode ? 'max-w-[calc(100vw_-_420px)] shrink border-l border-[var(--border-color)] order-3' : 'flex-1 order-2'"
+                class="mode-transition-studio ide-editor-canvas relative flex min-w-0 flex-col overflow-hidden bg-[var(--editor-canvas-bg)] transition-[width,flex-basis,opacity,border-color,transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+                :class="[
+                    isAgentMode ? 'shrink order-3' : 'flex-1 order-2',
+                    isAgentMode && agentStudioPanelOpen && layoutTransitionDirection !== 'to-agent' ? 'border-l border-[var(--border-color)] opacity-100' : '',
+                    isAgentMode && !agentStudioPanelOpen ? 'pointer-events-none border-l-0 opacity-0' : '',
+                    layoutTransitionDirection === 'to-agent' ? 'pointer-events-none border-l-0 opacity-0' : '',
+                    layoutTransitionDirection ? 'transition-none' : '',
+                    resizingAgentStudioPanel ? 'select-none transition-none' : '',
+                ]"
                 :style="agentStudioStyle"
             >
+                <template v-if="isAgentMode && agentStudioPanelOpen">
+                    <div ref="agentStudioResizeHandleRef" class="group absolute -left-1 top-0 z-30 h-full w-2 cursor-col-resize">
+                        <div class="ml-1 h-full w-[2px] bg-[var(--accent-main)] opacity-0 transition-all duration-150 group-hover:opacity-100" :class="resizingAgentStudioPanel ? 'opacity-100 shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent-main)_28%,transparent)]' : ''"></div>
+                    </div>
+                </template>
                 <div v-if="isAgentMode" class="flex h-10 shrink-0 items-center justify-between border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-3">
                     <div class="min-w-0">
                         <div class="text-[12px] font-semibold uppercase tracking-[0.18em] text-[var(--text-secondary)]">Studio</div>
@@ -1255,7 +1558,15 @@ onBeforeUnmount(() => {
                             @open-frontmatter-profile="openFrontmatterProfile"
                         />
                     </div>
-                    <div v-if="isAgentMode && agentStudioFileTreeOpen" class="agent-mode-studio-file-tree h-full w-[200px] shrink-0 border-l border-[var(--border-color)] bg-[var(--bg-panel)]">
+                    <div
+                        v-if="isAgentMode && agentStudioFileTreeOpen"
+                        class="agent-mode-studio-file-tree relative h-full shrink-0 border-l border-[var(--border-color)] bg-[var(--bg-panel)]"
+                        :class="resizingAgentStudioFileTree ? 'select-none' : ''"
+                        :style="agentStudioFileTreeStyle"
+                    >
+                        <div ref="agentStudioFileTreeResizeHandleRef" class="group absolute -left-1 top-0 z-30 h-full w-2 cursor-col-resize">
+                            <div class="ml-1 h-full w-[2px] bg-[var(--accent-main)] opacity-0 transition-all duration-150 group-hover:opacity-100" :class="resizingAgentStudioFileTree ? 'opacity-100 shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent-main)_28%,transparent)]' : ''"></div>
+                        </div>
                         <WorkspaceFilePanel />
                     </div>
                 </div>
@@ -1279,11 +1590,12 @@ onBeforeUnmount(() => {
 
             <!-- Agent Chat Surface 槽位 -->
             <section
-                class="relative z-30 flex h-full min-h-0 shrink-0 flex-col bg-[var(--bg-panel)] transition-all duration-300"
+                class="mode-transition-agent relative z-30 flex h-full min-h-0 shrink-0 flex-col bg-[var(--bg-panel)] transition-[width,flex,opacity,border-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
                 :class="[
                     isAgentMode ? 'order-2 min-w-[340px] flex-[1.2] border-x border-[var(--border-color)] opacity-100' : 'order-3 shadow-2xl',
                     !isAgentMode && displayRightPanelOpen ? 'border-l border-[var(--border-color)] opacity-100' : '',
                     !isAgentMode && !displayRightPanelOpen ? 'pointer-events-none border-l-0 opacity-0' : '',
+                    layoutTransitionDirection ? 'transition-none' : '',
                     resizingAgentPanel ? 'select-none transition-none' : '',
                 ]"
                 :style="agentSlotStyle"
@@ -1347,5 +1659,41 @@ onBeforeUnmount(() => {
 
 .plain-text-editor {
     caret-color: var(--accent-main);
+}
+
+:global(.ide-agent-mode-switch) {
+    view-transition-name: ide-agent-mode-switch;
+}
+
+:global(.mode-transition-agent) {
+    view-transition-name: ide-agent-surface;
+}
+
+:global(.mode-transition-studio) {
+    view-transition-name: ide-studio-surface;
+}
+
+:global(.mode-transition-ide-tools) {
+    view-transition-name: ide-tools-panel;
+}
+
+:global(.agent-mode-session-sidebar) {
+    view-transition-name: agent-session-panel;
+}
+
+:global(::view-transition-old(root)),
+:global(::view-transition-new(root)),
+:global(::view-transition-old(ide-agent-mode-switch)),
+:global(::view-transition-new(ide-agent-mode-switch)),
+:global(::view-transition-old(ide-agent-surface)),
+:global(::view-transition-new(ide-agent-surface)),
+:global(::view-transition-old(ide-studio-surface)),
+:global(::view-transition-new(ide-studio-surface)),
+:global(::view-transition-old(ide-tools-panel)),
+:global(::view-transition-new(ide-tools-panel)),
+:global(::view-transition-old(agent-session-panel)),
+:global(::view-transition-new(agent-session-panel)) {
+    animation-duration: 300ms;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
 }
 </style>

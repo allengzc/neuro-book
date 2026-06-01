@@ -15,7 +15,7 @@ import {createVariableTools} from "nbook/server/agent/variables/tools";
 import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
 
 const ReportResultSchema = Type.Object({
-    walkthrough: Type.String(),
+    result: Type.String(),
 });
 
 const RequestUserInputQuestionOptionSchema = Type.Object({
@@ -111,7 +111,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             async execute(_toolCallId, params: unknown) {
                 const report = params as Static<typeof ReportResultSchema>;
                 return {
-                    content: [{type: "text", text: report.walkthrough}],
+                    content: [{type: "text", text: report.result}],
                     details: report,
                     terminate: true,
                 };
@@ -357,7 +357,7 @@ export function createReportResultTool(parameters: TSchema, outputSchema?: TSche
         description: "Report final agent result to the caller.",
         parameters,
         async execute(_toolCallId, params: unknown) {
-            const report = params as {walkthrough: string; data?: unknown};
+            const report = params as {result: string; data?: unknown};
             if (outputSchema && !("data" in report)) {
                 throw new Error("report_result.data 是当前 profile OutputSchema 要求的必填字段。");
             }
@@ -370,7 +370,7 @@ export function createReportResultTool(parameters: TSchema, outputSchema?: TSche
                 }
             }
             return {
-                content: [{type: "text", text: report.walkthrough}],
+                content: [{type: "text", text: report.result}],
                 details: report,
                 terminate: true,
             };

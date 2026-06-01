@@ -77,13 +77,37 @@ const handleUserMenuSelect = (value: string): void => {
             </div>
             <div class="h-4 w-px bg-[var(--border-color)]"></div>
             <button
-                class="flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-medium tracking-[0.16em] uppercase transition-colors"
-                :class="agentModeActive ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                type="button"
+                role="switch"
+                aria-label="布局模式"
+                :aria-checked="agentModeActive"
+                class="ide-agent-mode-switch relative flex h-8 w-[150px] items-center rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] p-[3px] transition-colors hover:border-[var(--border-color-hover)]"
                 :title="agentModeActive ? '切换到 IDE 模式' : '切换到 Agent 模式'"
                 @click="emit('toggle-layout-mode')"
             >
-                <span :class="agentModeActive ? 'i-lucide-bot' : 'i-lucide-panels-top-left'" class="h-3.5 w-3.5"></span>
-                <span>{{ agentModeActive ? 'Agent' : 'IDE' }}</span>
+                <!-- 背景滑块 -->
+                <span
+                    class="absolute top-[3px] left-[3px] h-6 w-[71px] rounded-full border border-[var(--accent-main)] bg-[var(--accent-bg)] shadow-sm transition-[transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] z-10"
+                    :class="agentModeActive ? 'translate-x-0' : 'translate-x-[71px]'"
+                ></span>
+
+                <!-- 左侧 Agent 模式按钮 -->
+                <span 
+                    class="relative z-20 flex h-6 w-[71px] items-center justify-center gap-1.5 text-[11px] font-semibold transition-colors duration-300"
+                    :class="agentModeActive ? 'text-[var(--accent-text)]' : 'text-[var(--text-secondary)]'"
+                >
+                    <span class="i-lucide-bot h-3.5 w-3.5 shrink-0"></span>
+                    <span class="tracking-[0.04em]">Agent</span>
+                </span>
+
+                <!-- 右侧 IDE 模式按钮 -->
+                <span 
+                    class="relative z-20 flex h-6 w-[71px] items-center justify-center gap-1.5 text-[11px] font-semibold transition-colors duration-300"
+                    :class="!agentModeActive ? 'text-[var(--accent-text)]' : 'text-[var(--text-secondary)]'"
+                >
+                    <span class="i-lucide-panels-top-left h-3.5 w-3.5 shrink-0"></span>
+                    <span class="tracking-[0.04em]">IDE</span>
+                </span>
             </button>
             <div class="h-4 w-px bg-[var(--border-color)]"></div>
             <div v-if="!isUserAssetsMode" class="flex items-center gap-3 text-sm">

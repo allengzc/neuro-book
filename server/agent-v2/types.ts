@@ -556,13 +556,13 @@ export type AnySubAgentInput = ProfileInputMap[BuiltinSubAgentProfileKey] | Json
 
 /**
  * subagent 最终完成结果。
- * walkthrough 始终是最终总结，不回传中间消息。
+ * result 始终是最终总结，不回传中间消息。
  * data 为空表示本次 subagent 只提供文字说明，没有额外结构化产物。
  */
 export type SubAgentCompletionResult<TKey extends SubAgentProfileKey = SubAgentProfileKey> = {
     subagentThreadId: ThreadId;
     status: "completed";
-    walkthrough: string;
+    result: string;
     data?: ProfileOutput<TKey>;
 };
 

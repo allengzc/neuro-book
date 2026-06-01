@@ -83,6 +83,6 @@ function renderSystemPrompt(): string {
         - entries[].risk 可选，说明弱相关、状态可能过时、需要用户确认或可能冲突的风险。
         - note 可选，用于整体说明没有强相关条目、结果偏少、建议补充搜索条件等情况。
         - 不要输出上述合同以外的旧字段或自造字段。
-        - report_result.walkthrough 只写一句简短说明。不要编辑文件，不要用 prose-only final answer 代替 report_result。
+        - report_result.result 只写一句简短说明。不要编辑文件，不要用 prose-only final answer 代替 report_result。
     `;
 }

@@ -629,11 +629,15 @@ describe("workspace-files", () => {
                 "roleplay/actors/player/mind.md",
                 "roleplay/actors/player/knowledge.md",
                 "roleplay/actors/sample-npc/actor.md",
+                "roleplay/playthrough/current.md",
+                "roleplay/playthrough/ticks/000001/prose.md",
             ]));
             expect(result.skippedFiles).toContain("roleplay/gm.md");
             await expect(fs.readFile(path.join(projectRoot, "roleplay", "gm.md"), "utf-8")).resolves.toBe(existingGm);
             await expect(fs.readFile(path.join(projectRoot, "roleplay", "config.yaml"), "utf-8")).resolves.toContain("leaderProfile: leader.rp");
             await expect(fs.readFile(path.join(projectRoot, "roleplay", "cast.yaml"), "utf-8")).resolves.toContain("sample-npc");
+            await expect(fs.readFile(path.join(projectRoot, "roleplay", "playthrough", "current.md"), "utf-8")).resolves.toContain("Current Playthrough");
+            await expect(fs.readFile(path.join(projectRoot, "roleplay", "playthrough", "ticks", "000001", "actors", "sample-npc.result.json"), "utf-8")).resolves.toContain("\"result\"");
 
             await expect(execFileAsync("bun", [
                 AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,

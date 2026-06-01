@@ -3588,11 +3588,11 @@ export class NeuroAgentHarness {
     }
 
     private readReportResult(details: unknown): InvokeAgentResult["reportResult"] | undefined {
-        if (!details || typeof details !== "object" || !("walkthrough" in details) || typeof (details as {walkthrough?: unknown}).walkthrough !== "string") {
+        if (!details || typeof details !== "object" || !("result" in details) || typeof (details as {result?: unknown}).result !== "string") {
             return undefined;
         }
         return {
-            result: (details as {walkthrough: string}).walkthrough,
+            result: (details as {result: string}).result,
             data: (details as {data?: unknown}).data,
         };
     }

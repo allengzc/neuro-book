@@ -31,7 +31,7 @@ user input
 -> GM intake
 -> GM validate / adjudicate
 -> GM select active actors
--> GM send filtered observation packets
+-> GM send actor-facing messages
 -> actors return response packets
 -> GM resolve world simulation
 -> GM build writer brief
@@ -107,7 +107,7 @@ roleplay/
 |-- cast.yaml
 |-- gm.md
 |-- writer.md
-|-- run/                  # proposed, name TBD; current playthrough / tick artifacts
+|-- playthrough/          # current playthrough / tick artifacts
 |   |-- current.md
 |   `-- ticks/
 |       `-- 000001/
@@ -161,9 +161,9 @@ workspace project create my-novel --target /path/to/project --template roleplay-
 - `gm.md`：GM 唯一入口说明和专用运行协议，包含可读范围、信息披露规则、Tick 协议、profile 调用边界、actor packet 模板和 writer brief 模板。
 - `writer.md`：`rp.writer` 的自动注入提示词来源，描述文风、输出契约、禁止事项和 writer brief 消费规则。writer 不应把整个 `roleplay/` 当作自己的工作目录。
 
-### `run/` / Playthrough Artifacts
+### `playthrough/`
 
-`session` 这个名字容易和 Agent Session 混淆，暂不推荐直接使用。当前更倾向把“本局游戏进程、Tick 产物、writer 正文文件”放进 `roleplay/run/`，但名字仍待定，也可以继续讨论 `playthrough/`、`runtime/`、`current-run/`。
+`session` 这个名字容易和 Agent Session 混淆，不推荐直接使用。当前把“本局游戏进程、Tick 产物、writer 正文文件”放进 `roleplay/playthrough/`。
 
 第一版设计目标不是长期记忆，而是保存当前游玩过程中的可检查产物：
 
@@ -176,10 +176,10 @@ workspace project create my-novel --target /path/to/project --template roleplay-
 
 关键边界：
 
-- `run/` 是本局过程记录，不是 canonical lorebook，也不是 actor 长期记忆。
-- actor 默认不读取 `run/`，除非 GM 把其中内容过滤后注入。
-- writer 可以在 GM 明确要求时把正文写入 `run/ticks/{tick-id}/prose.md`，但不自行浏览完整 `run/`。
-- 后续如果实现回放、debug、存档或分支剧情，优先扩展 `run/`，不要把这些内容塞进 `knowledge.md`。
+- `playthrough/` 是本局过程记录，不是 canonical lorebook，也不是 actor 长期记忆。
+- actor 默认不读取 `playthrough/`，除非 GM 把其中内容过滤后注入。
+- writer 可以在 GM 明确要求时把正文写入 `playthrough/ticks/{tick-id}/prose.md`，但不自行浏览完整 `playthrough/`。
+- 后续如果实现回放、debug、存档或分支剧情，优先扩展 `playthrough/`，不要把这些内容塞进 `knowledge.md`。
 
 ### No `imports/`
 
@@ -289,7 +289,7 @@ roleplay/actors/player/
 
 ### No Default `sessions/`
 
-快速 spike 阶段仍不做持久化记忆，因此默认模板可以先不创建 `sessions/`。如果需要保存本局过程，优先设计 `roleplay/run/` 这类 playthrough artifacts 目录，而不是使用 `sessions/` 命名，避免和 Agent Session 概念冲突。
+快速 spike 阶段仍不做持久化记忆，因此默认模板可以先不创建 `sessions/`。如果需要保存本局过程，优先设计 `roleplay/playthrough/`，而不是使用 `sessions/` 命名，避免和 Agent Session 概念冲突。
 
 ## Agent Profiles
 
@@ -304,7 +304,7 @@ roleplay/actors/player/
 - 验证用户行动是否合理。
 - 读取 canonical / god view。
 - 选择本 Tick 需要调用哪些 actor。
-- 向 actor 注入 filtered observation packet。
+- 向 actor 注入 actor-facing message。
 - 汇总 actor response。
 - 推进剧情和世界模拟。
 - 生成 writer brief。
@@ -350,7 +350,7 @@ actor 不应该：
 
 输入边界：
 
-- `rp.actor` 只接收该 actor 的 `actor.md`、`knowledge.md`、`mind.md`、`state.md` 和 GM 当前 filtered observation packet。
+- `rp.actor` 只接收该 actor 的 `actor.md`、`knowledge.md`、`mind.md`、`state.md` 和 GM 当前 actor-facing message。
 - 第一版可给 actor 开放文件编辑工具，但作用域应限制为自己的 `knowledge.md`、`mind.md`、`state.md`。
 - `rp.actor` 不接收完整 `roleplay/`、`lorebook/`、`reference/`、其他 actor knowledge 或 GM scratch。
 
@@ -532,7 +532,12 @@ GM 不应每 Tick 调用所有 actor。只选择 active actors：
 
 GM 给 actor 的信息必须是角色合理可获得的信息。
 
-重要调整：GM 内部可以用结构化字段组织场景、事件和 hidden facts，但发给 `rp.actor` 的消息不应是 YAML / JSON / 表单任务单。actor 消息应该使用自然语言和第二人称，把模型推进角色扮演状态，而不是 agent 填任务状态。
+GM 应把内部结构和 actor 消息明确拆成两层：
+
+- GM internal scratch：可以使用结构化字段组织场景、事件、hidden facts、actor selection、actor known facts 和裁决依据。这一层方便调试和后续写入 `playthrough/ticks/{tick-id}/gm-scratch.md`。
+- actor-facing message：从 internal scratch 过滤后生成，只包含该角色合理可知、可见、可感受到的信息。这一层使用自然语言和第二人称，把模型推进角色扮演状态，而不是 agent 填任务状态。
+
+重要调整：发给 `rp.actor` 的消息不应是 YAML / JSON / 表单任务单。
 
 不要发给 actor：
 
@@ -541,20 +546,7 @@ GM 给 actor 的信息必须是角色合理可获得的信息。
 - GM hidden facts、完整 canonical lorebook、其他 actor 私密意图或 writer brief。
 - `actor:`、`scene:`、`known_to_you:` 这类让上下文像工单的字段名。
 
-推荐发送风格：
-
-```text
-{角色名}，{当前场景已经发生了什么}。
-
-你看见……
-你听见……
-你刚刚做过或说过……
-你现在处在……压力下。
-
-你知道……
-你担心……
-你需要维持/追求/避免……
-```
+推荐发送风格是自然语言、第二人称、戏内可感知描述。暂不设计固定模板，避免 GM 消息再次变成另一种字段单。
 
 示例：用户把“世界之心”交给女主。GM 内部知道它叫世界之心，但女主还不知道，所以 actor 消息不出现这个名称：
 
@@ -619,10 +611,9 @@ state_update:
 
 工具参数命名建议：
 
-- 现有 `report_result.walkthrough` 名字会诱导 actor 写过程解释，不适合沉浸式 RP。
-- 建议把该字段改为 `result`，description 写成“本次工具调用的可读结果；需要时可以写简短 walkthrough”。
+- `report_result.walkthrough` 已严格改名为 `result`，description 写成“本次工具调用的可读结果；需要时可以写简短 walkthrough”。
 - `report_result.data` 继续保留结构化 packet，字段设计保持上面这组。
-- 更理想的中期设计是 sidecar result pass：actor 主上下文只沉浸式回应，旁路上下文再把回应整理为 `report_result.data`、文件更新摘要和 `run/ticks/{tick-id}/actors/{actor-id}.result.json`。
+- 更理想的中期设计是 sidecar result pass：actor 主上下文只沉浸式回应，旁路上下文再把回应整理为 `report_result.data`、文件更新摘要和 `playthrough/ticks/{tick-id}/actors/{actor-id}.result.json`。
 
 ### 6. GM Resolution
 
@@ -716,7 +707,7 @@ visibility:
 暂定推荐方向：
 
 - visibility 只表示“这个条目在什么条件下可以被谁知道”，不表示 actor 可以直接读取原文。
-- `knowledge.md` 中的引用应是角色视角的索引或摘要，例如“王都公共常识来自 lorebook/world/capital”，而不是把完整 canonical 条目复制进去。
+- `knowledge.md` 中的引用应使用 Markdown 相对路径链接，例如 `[王都公共常识](../../lorebook/world/capital.md)`。这是角色视角的索引或可知来源，不是让 actor 自行读取完整 canonical 原文。
 - 如果条目同时包含公开常识和隐藏真相，作者应优先拆条目，或在条目中提供 actor-safe 摘要字段；不要依赖 actor 自己过滤。
 - 导入器后续可以根据 visibility 生成 actor `knowledge.md` 初稿：公共常识写成摘要，私密或条件知识只放引用占位，等待 GM 在剧情中解锁。
 
@@ -739,7 +730,7 @@ visibility:
 
 - actor knowledge 是由导入器自动生成初稿，还是由 GM skill 手动维护。
 - 是否需要 `roleplay/actors/{actor-id}/secrets.md` 表示“角色自己知道但其他 actor 不知道”的信息。
-- 是否需要 debug 模式把 Tick scratch 保存到 `run/`；默认不创建 `sessions/`。
+- 是否需要 debug 模式把 Tick scratch 保存到 `playthrough/`；默认不创建 `sessions/`。
 - 后续抢话模式如何定义 actor 主动行动的触发条件。
 - `leader.rp` 是否需要完全取代 `rp.gm`，还是保留独立 `rp.gm` 给高级编排使用。
 - actor 初始化时创建全部 cast actors，还是只创建当前 active actors。

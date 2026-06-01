@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import {formatTimestamp} from "nbook/app/components/novel-ide/agent/agent-message";
+import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+
+const MIN_PANEL_WIDTH = 220;
+const MAX_PANEL_WIDTH = 420;
 
 const props = defineProps<{
     sessions: AgentSessionSummaryDto[];
@@ -9,9 +13,12 @@ const props = defineProps<{
     running: boolean;
     actionId: number | null;
     workspaceKey: string;
+    open: boolean;
+    width: number;
 }>();
 
 const emit = defineEmits<{
+    (e: "update:width", value: number): void;
     (e: "select", sessionId: number): void;
     (e: "create"): void;
     (e: "archive", session: AgentSessionSummaryDto): void;
@@ -20,6 +27,7 @@ const emit = defineEmits<{
 
 const searchQuery = ref("");
 const pinnedSessionIds = ref<number[]>([]);
+const resizeHandleRef = ref<HTMLElement | null>(null);
 
 const storageKey = computed(() => `agent:pinned-sessions:${props.workspaceKey}`);
 const pinnedSet = computed(() => new Set(pinnedSessionIds.value));
@@ -43,6 +51,15 @@ const filteredSessions = computed(() => {
         return right.updatedAt - left.updatedAt;
     });
 });
+const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
+    size: computed(() => props.width),
+    minSize: MIN_PANEL_WIDTH,
+    maxSize: MAX_PANEL_WIDTH,
+    edge: "right",
+    enabled: computed(() => props.open),
+    onResize: (width) => emit("update:width", width),
+});
+const sessionPanelStyle = computed(() => props.open ? panelStyle.value : {width: "0px"});
 
 /**
  * 读取当前 Project Workspace 的本机会话置顶偏好。
@@ -134,7 +151,15 @@ watch(storageKey, loadPinnedSessions, {immediate: true});
 
 <template>
     <!-- Agent Mode 左侧 session 导航 -->
-    <aside class="agent-mode-session-sidebar flex h-full w-[260px] shrink-0 flex-col border-r border-[var(--border-color)] bg-[var(--bg-sidebar)]">
+    <aside
+        class="agent-mode-session-sidebar relative z-10 flex h-full shrink-0 flex-col overflow-hidden bg-[var(--bg-sidebar)] transition-[width,opacity,border-color] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+        :class="[props.open ? 'border-r border-[var(--border-color)] opacity-100' : 'pointer-events-none border-r-0 opacity-0', isResizing ? 'select-none transition-none' : '']"
+        :style="sessionPanelStyle"
+    >
+        <div v-if="props.open" ref="resizeHandleRef" class="group absolute -right-1 top-0 z-30 h-full w-2 cursor-col-resize">
+            <div class="ml-0.5 h-full w-[2px] bg-[var(--accent-main)] opacity-0 transition-all duration-150 group-hover:opacity-100" :class="isResizing ? 'opacity-100 shadow-[0_0_0_1px_color-mix(in_srgb,var(--accent-main)_28%,transparent)]' : ''"></div>
+        </div>
+
         <div class="flex shrink-0 items-center justify-between border-b border-[var(--border-color)] px-3 py-3">
             <div class="min-w-0">
                 <div class="text-sm font-semibold text-[var(--text-main)]">Agent Sessions</div>
@@ -162,17 +187,17 @@ watch(storageKey, loadPinnedSessions, {immediate: true});
                 v-for="session in filteredSessions"
                 :key="session.sessionId"
                 type="button"
-                class="group mb-1.5 flex w-full items-start gap-2 rounded-md border px-2.5 py-2 text-left transition-colors"
-                :class="session.sessionId === activeSessionId ? 'border-[var(--accent-main)] bg-[var(--accent-bg)]/50' : 'border-transparent bg-transparent hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)]'"
+                class="group mb-1.5 flex w-full items-start gap-2 rounded-md border px-2.5 py-2.5 text-left transition-colors"
+                :class="session.sessionId === activeSessionId ? 'border-[var(--accent-main)] bg-[var(--accent-bg)]/55 shadow-[inset_2px_0_0_var(--accent-main)]' : 'border-[var(--border-color)]/45 bg-[var(--bg-panel)]/35 hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)]'"
                 @click="emit('select', session.sessionId)"
             >
                 <span :class="pinnedSet.has(session.sessionId) ? 'i-lucide-pin text-[var(--accent-text)]' : 'i-lucide-message-square text-[var(--text-muted)]'" class="mt-0.5 h-3.5 w-3.5 shrink-0"></span>
                 <span class="min-w-0 flex-1">
                     <span class="flex min-w-0 items-center gap-1.5">
-                        <span class="truncate text-[12px] font-medium text-[var(--text-main)]">{{ sessionTitle(session) }}</span>
+                        <span class="truncate text-[12px] font-semibold text-[var(--text-main)]">{{ sessionTitle(session) }}</span>
                         <span class="shrink-0 rounded border px-1 py-0.5 text-[9px]" :class="statusClass(session.status)">{{ statusLabel(session.status) }}</span>
                     </span>
-                    <span class="mt-1 line-clamp-2 block text-[11px] leading-relaxed text-[var(--text-secondary)]">{{ sessionPreview(session) }}</span>
+                    <span class="agent-session-preview mt-1 block text-[11px] leading-relaxed text-[var(--text-secondary)]">{{ sessionPreview(session) }}</span>
                     <span class="mt-1.5 flex items-center gap-1.5 text-[9px] uppercase tracking-[0.12em] text-[var(--text-muted)]">
                         <span class="font-mono">#{{ session.sessionId }}</span>
                         <span>{{ formatTimestamp(session.updatedAt) }}</span>
@@ -195,3 +220,12 @@ watch(storageKey, loadPinnedSessions, {immediate: true});
         </div>
     </aside>
 </template>
+
+<style scoped>
+.agent-session-preview {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+}
+</style>

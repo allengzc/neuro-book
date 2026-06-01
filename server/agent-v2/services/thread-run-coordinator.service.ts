@@ -74,7 +74,7 @@ const SKILL_APPROVAL_ARGS_TEXT = JSON.stringify({
     }],
 });
 const SubAgentResultPayloadSchema = z.object({
-    walkthrough: z.string().trim().min(1),
+    result: z.string().trim().min(1),
     data: z.json().optional(),
 });
 const ToolBindingSchema = z.object({
@@ -423,7 +423,7 @@ export class ThreadRunCoordinator {
         let hasToolsThisIteration = false;
         let assistantIterationPersisted = false;
         const completedAssistantMessages: BaseMessage[] = [];
-        let reportedWalkthrough = "";
+        let reportedResult = "";
         let currentAssistantUsage: AgentTokenUsage | null = null;
         let currentAssistantModelName: string | null = null;
         const ingestReactMessages: ThreadMessageIngest = async ({phase, messages}) => runtime.profile.ingest({
@@ -940,7 +940,7 @@ export class ThreadRunCoordinator {
                         const rawResult = readToolRawResult(toolMessage.additional_kwargs);
                         const parsedPayload = SubAgentResultPayloadSchema.safeParse(rawResult);
                         if (parsedPayload.success) {
-                            reportedWalkthrough = parsedPayload.data.walkthrough.trim();
+                            reportedResult = parsedPayload.data.result.trim();
                         }
                         resetLocalIterationState();
                         hasToolsThisIteration = false;
@@ -999,7 +999,7 @@ export class ThreadRunCoordinator {
                 await this.deps.publishHistorySnapshot?.(String(thread.id));
             }
 
-            const finalSummary = reportedWalkthrough
+            const finalSummary = reportedResult
                 || this.deps.threadMessages.buildSummary(completedAssistantMessages)
                 || thread.lastMessagePreview
                 || "执行完成";
@@ -1197,7 +1197,7 @@ export class ThreadRunCoordinator {
             return {
                 subagentThreadId: threadId,
                 status: "completed",
-                walkthrough: parsedPayload.data.walkthrough,
+                result: parsedPayload.data.result,
                 data: parsedPayload.data.data,
             };
         }
@@ -1207,14 +1207,14 @@ export class ThreadRunCoordinator {
             if (!message || !AIMessage.isInstance(message)) {
                 continue;
             }
-            const walkthrough = message.text.trim();
-            if (!walkthrough) {
+            const result = message.text.trim();
+            if (!result) {
                 continue;
             }
             return {
                 subagentThreadId: threadId,
                 status: "completed",
-                walkthrough,
+                result,
             };
         }
 
