@@ -284,4 +284,4 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 - 设计泛用自然语言编辑工具：输入目标文件、自然语言操作说明和可选上下文消息数量，由轻量模型辅助修改文件；后续可用于 Agent 记忆系统、RP 状态维护和常规文件编辑减负。
 - 单独讨论 RP 变量系统：如何表示数值、列表、背包、好感度、任务、世界时钟，以及它和 `state.md`、`roleplay/playthrough/` 的关系。
 - 继续细化 `roleplay/playthrough/`：分支剧情、debug 信息、正式游玩时是否保留示例 Tick，以及 writer 正文文件命名规则。
-- 后续设计 sidecar result pass，让 actor 主上下文沉浸回复，旁路上下文整理 `report_result.data` 与 playthrough result 文件。
+- 后续设计 sidecar result pass，让 actor 主上下文沉浸回复，旁路上下文通过 `report_result.sidecar_data` 整理结构化结果与 playthrough result 文件。

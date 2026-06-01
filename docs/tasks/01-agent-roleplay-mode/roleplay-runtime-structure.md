@@ -613,7 +613,7 @@ state_update:
 
 - `report_result.walkthrough` 已严格改名为 `result`，description 写成“本次工具调用的可读结果；需要时可以写简短 walkthrough”。
 - `report_result.data` 继续保留结构化 packet，字段设计保持上面这组。
-- 更理想的中期设计是 sidecar result pass：actor 主上下文只沉浸式回应，旁路上下文再把回应整理为 `report_result.data`、文件更新摘要和 `playthrough/ticks/{tick-id}/actors/{actor-id}.result.json`。
+- 更理想的中期设计是 sidecar result pass：actor 主上下文只沉浸式回应，旁路上下文再通过 `report_result.sidecar_data` 整理回应、文件更新摘要和 `playthrough/ticks/{tick-id}/actors/{actor-id}.result.json`。
 
 ### 6. GM Resolution
 
@@ -713,18 +713,19 @@ visibility:
 
 ## Sidecar Boundary
 
-用户提出的“主流程保持纯净，旁路 run 负责检索或更新知识”的机制已经记录为 `SidecarProfilePass`。本次 roleplay spike 先不实现，但目录设计需要给它留位置。
+用户提出的“主流程保持纯净，旁路 run 负责检索或更新知识”的机制已经记录为 `SidecarProfilePass`。本次 roleplay spike 先不实现，但目录设计需要给它留位置。最新 V1 设计以 actor 为第一验收对象：sidecar 不切换 profile，不使用 `profileKey`，而是在当前 session tree 上 fork 一段 `runtime_only` 分支，完成后只把 `merge()` 结果注入回主 run。
 
 未来可接入的两个旁路：
 
-- `rp.writer` prepare-run sidecar：先退出写作模式，检索本次 writer brief 相关 lorebook，再把可写摘要注入主写作上下文。
-- `rp.actor` settle-run sidecar：主扮演回复完成后，退出扮演模式，生成 `knowledge.md` 更新建议或直接执行受控写入。
+- `actor.context-load` prepare-run sidecar：GM packet 进入 actor 后、主扮演 run 之前，先退出扮演模式，检索本 Tick 相关且角色可知的设定，再把 actor-safe 摘要注入主上下文。失败时 actor 主 run 直接失败。
+- `actor.memory-save` settle-run sidecar：主扮演回复完成后，退出扮演模式，更新 `knowledge.md` 与 `mind.md`。V1 允许自由 `write` / `edit`，但不更新 `state.md`。
+- `rp.writer` prepare-run sidecar：后续扩展用例。先退出写作模式，检索本次 writer brief 相关 lorebook，再把可写摘要注入主写作上下文。
 
 本次 spike 的临时策略：
 
 - writer：由 GM 主动整理 lorebook 摘要，writer 只按 GM 明确路径使用文件工具。
 - actor：允许 actor 读取和编辑自己的 `knowledge.md`、`mind.md`、`state.md`，优先验证多 actor RP Tick 是否成立。
-- 所有 sidecar 相关实现推迟到 `docs/tasks/23-agent-sidecar-profile-pass/README.md` 后续任务。
+- Harness 级 sidecar 实现推迟到 `docs/tasks/23-agent-sidecar-profile-pass/README.md` 后续任务。
 
 ## Open Questions
 

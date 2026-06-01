@@ -3,15 +3,19 @@
 ## User Request
 
 - 将“旁路上下文”机制提升为 `NeuroAgentHarness` 的核心能力，而不是只作为 NeuroBook roleplay 的局部技巧。
-- 先记录当前设计想法，后续再进行更详细讨论。
-- 不需要 `RuntimeContextPass`；确定性上下文注入可以继续由 profile TSX / profile input schema 承担。
-- 重点设计 `SidecarProfilePass`：profile 作者可以声明在主 run 前后或特定阶段旁路 invoke 一次，把旁路结果处理后注入主上下文。
+- 不需要 `RuntimeContextPass`；确定性上下文注入继续由 profile TSX / profile input schema 承担。
+- 重点设计 `SidecarProfilePass`：profile 作者可以声明在主 run 前后旁路 invoke 一次，把旁路结果处理后注入主上下文或执行必要写入。
+- 第一版 spike 至少要保证 `actor.context-load` 和 `actor.memory-save` 可用。
+- `SidecarProfilePass` 不创建新 profile，也不通过 `profileKey` 切换 profile；它必须沿用当前 profile、当前 session 和当前 session tree。
 
 ## Goal
 
-- 形成一个稳定的任务上下文，后续围绕 `SidecarProfilePass` 继续讨论、原型和实现。
+- 形成 Harness 层可实现的 `SidecarProfilePass` V1 接口。
 - 保持和 `docs/tasks/18-agent-runtime-pipeline-hooks/README.md` 的 Run Kernel / runtime hooks 设计一致。
-- 保留 roleplay 场景的第一需求：`rp.writer` 主写作上下文保持纯净，但写作前可以旁路检索 lorebook；`rp.actor` 主扮演上下文保持纯净，但回合后可以旁路生成知识更新建议。
+- 支持 profile 作者声明自动旁路，V1 先覆盖 `prepareRun` 和 `settleRun` 两个阶段。
+- 验证 roleplay actor 的两个首要用例：
+  - `actor.context-load`：GM packet 进入 actor 主 run 前，旁路检索并整理 actor-safe 设定。
+  - `actor.memory-save`：actor 主 run 结束后，旁路维护 `knowledge.md` 与 `mind.md`。
 
 ## Current State
 
@@ -20,92 +24,116 @@
   - `runtimeMessages` 可以注入 `RunFrame`，不写入 session history。
   - `ingestTurn` 可以返回 runtime-only transcript，避免污染持久对话。
 - 当前 profile 的 `allowedToolKeys` 同时承担“模型可见工具”和“执行上限”两层含义。
-- roleplay 需求要求主 actor / writer 上下文尽量纯净：
-  - `rp.actor` 主流程不应该自己读取文件或检索 lorebook。
-  - `rp.writer` 主写作阶段不应该自由使用 bash / read 等检索工具。
-  - 但旁路阶段需要临时允许工具，用来检索、整理、反思或生成注入材料。
+- roleplay 需求要求 actor 主上下文尽量纯净：
+  - `rp.actor` 主扮演阶段只做角色反应，不自行检索完整 lorebook。
+  - `rp.actor` 需要在 GM packet 后获得与本 Tick 相关、且角色可知的设定补充。
+  - `rp.actor` 需要在主 run 后更新自己的认知和心智文件，但不应该把这类维护任务混入扮演上下文。
 
-## Design Seed
+## V1 Scope
 
-### 核心概念
+第一版是 Harness 能力 spike，不追求完整策略系统。
 
-`SidecarProfilePass` 是一次围绕主 profile run 的旁路 profile invocation。它不直接取代主 run，也不默认写 session history，而是产出一段结构化结果，再由 merge 函数转成主 run 可消费的 runtime context。
+包含：
+
+- profile 可声明 `sidecars`。
+- sidecar 可在 `prepareRun` 或 `settleRun` 自动触发。
+- sidecar 使用当前 session、当前 profile、当前 input、当前 session tree 上下文继续跑。
+- sidecar 从父 run 当前节点 fork，完成后 merge 回父 run 原位置。
+- sidecar transcript 默认为 `runtime_only`，不污染 actor 主 run 对话历史。
+- sidecar 通过 `report_result.sidecar_data` 返回结构化结果；无 `report_result` 时可 fallback 到最后一条 assistant message。
+- `sidecarDataSchema` 如果存在，只用于 Harness 侧校验 `report_result.sidecar_data` 或 fallback JSON，不参与 provider tool schema 渲染。
+- sidecar 结果通过 `merge()` 转成主线可消费的 runtime 注入、runtime state 或显式写入计划。
+- sidecar 失败时直接让父 run 失败；V1 不做 skip/fallback。
+- 禁止嵌套 sidecar。
+
+不包含：
+
+- 不实现 `RuntimeContextPass`。
+- 不实现 agent 主动进入 sidecar。
+- 不实现结构化 patch/apply 系统；`actor.memory-save` 可以先自由使用 `write` / `edit`。
+- 不实现工具违规后的“删除该条消息 + system-reminder + continue run”清理。
+- 不让 `actor.memory-save` 更新 `state.md`；`state.md` 仍由 GM / 后续变量系统负责。
+- 不把 `rp.writer` 写作前检索列入 V1 必须验收项；它保留为后续同一机制的扩展用例。
+
+## Design
+
+### Core Concept
+
+`SidecarProfilePass` 是围绕当前 profile run 的旁路 invocation。它不是新的 profile，也不切换 profile 身份，而是在当前 session tree 的同一上下文点 fork 出一段 runtime-only 分支，完成检索、反思或维护任务后，把结果 merge 回主线。
 
 它适合表达这些动作：
 
-- 写作前检索相关 lorebook。
-- 角色扮演后生成 `knowledge.md` 更新建议。
+- actor 主 run 前检索并整理角色可知设定。
+- actor 主 run 后维护 `knowledge.md` 与 `mind.md`。
+- writer 写作前检索相关 lorebook。
 - GM 推进前让规则审计器检查状态约束。
-- 主 agent 主动进入旁路的能力以后再讨论，第一版先做 profile 声明式自动旁路。
 
-### 为什么不是 RuntimeContextPass
+### Why Not RuntimeContextPass
 
 暂时不引入 `RuntimeContextPass`。
 
 原因是它的定位容易和 profile TSX、profile input schema、prepare context 编译重叠。确定性的上下文注入继续留在 profile 自己的输入和模板层处理；`SidecarProfilePass` 只负责“需要一次 AI 旁路 run 才能生成”的上下文。
 
-### 缓存与工具策略
+### Session Tree Semantics
 
-为了避免破坏 provider prompt/tool cache，profile 的工具集合应该保持稳定：
+sidecar 的关键约束：
 
-- `allowedToolKeys` 仍描述 profile 的最大工具集合，也就是模型可见工具集合。
-- 运行时增加阶段性的 `ToolPolicyGate`，控制当前 phase 是否允许执行某个工具。
-- 主 phase 禁用的工具仍可见，但调用时返回 tool result，说明该工具当前阶段不可用。
-- 旁路 phase 可以打开 profile 工具集合的子集，并注入 reminder 说明当前允许使用哪些工具。
+- 从父 run 当前节点 fork。
+- 沿用当前 profile 的 system prompt、tools 上限、input 和 session context。
+- 额外注入 `enterPrompt`，让模型进入旁路任务。
+- sidecar 的 assistant / tool result transcript 标记为 `runtime_only`，默认不进入主 run history。
+- sidecar 完成后回到父 run 原位置继续，父 run 只看见 `merge()` 注入的结果。
+
+也就是说，sidecar 是“当前 profile 的旁路 phase”，不是“创建另一个 profile 代跑”。
+
+### Tool Policy
+
+为了避免破坏 provider prompt/tool cache，profile 的最大工具集合应保持稳定：
+
+- `allowedToolKeys` 仍描述 profile 的最大工具集合。
+- sidecar 的 `allowedToolKeys` 必须是当前 profile `allowedToolKeys` 的子集。
+- 主 phase 和 sidecar phase 可以通过 prompt/reminder 与运行时权限表达“当前阶段哪些工具可用”。
+- V1 暂时主要通过提示词限定主 phase 不使用被禁止工具。
+- V1 不做工具违规后的上下文清理；后续可以在 Harness hook 中补“删除违规消息 + 注入 system-reminder + continue run”。
+- provider-visible tool schema 不能因为进入 sidecar 而变化；旁路返回结构通过固定 `report_result.sidecar_data` 字段承载，具体结构只通过 sidecar system reminder 和 Harness runtime validator 约束。
 
 例子：
 
 ```ts
 defineAgentProfile({
-    key: "rp.writer",
-    allowedToolKeys: ["bash", "read", "report_result"],
+    key: "rp.actor",
+    allowedToolKeys: ["read", "write", "edit", "report_result"],
     sidecars: [
-        writerLorebookRetrievalPass,
+        actorContextLoadPass,
+        actorMemorySavePass,
     ],
 });
 ```
 
-主写作阶段：
-
-- `bash` / `read` 在 tool schema 中保持可见。
-- runtime reminder 告诉 writer 当前不可使用检索工具，只执行写作任务。
-- 如果模型调用 `bash` / `read`，ToolPolicyGate 返回“当前写作阶段不可用”。
-
-旁路检索阶段：
-
-- 注入进入旁路的提示词。
-- `bash` / `read` 被 ToolPolicyGate 放行。
-- 模型通过 `report_result` 返回结构化检索结果。
-
-### Profile 作者接口草案
+### Profile Author API Draft
 
 ```ts
-type SidecarProfilePass<TInput, TSidecarInput, TOutput> = {
+type SidecarProfilePass<TInput, TOutput> = {
     name: string;
-    stage: "prepareRun" | "prepareTurn" | "ingestTurn" | "prepareNextTurn" | "settleRun";
-
-    profileKey?: string | ((ctx: SidecarContext<TInput>) => string);
+    stage: "prepareRun" | "settleRun";
 
     enterPrompt: string | ((ctx: SidecarContext<TInput>) => string);
 
-    tools: {
-        enable: string[];
-    };
+    allowedToolKeys?: string[];
 
-    input?: (ctx: SidecarContext<TInput>) => TSidecarInput;
-    inputSchema?: TSchema;
-
-    outputSchema: TSchema;
+    sidecarDataSchema?: TSchema;
     outputFallback?: "final_message_as_result" | "parse_final_message_json";
 
     merge: (ctx: SidecarContext<TInput>, result: SidecarResult<TOutput>) => SidecarMergePlan;
-
-    errorPolicy?: "fail_parent" | "skip" | "fallback";
-    timeoutMs?: number;
 };
 ```
 
 ```ts
+type SidecarResult<TSidecarData> = {
+    result: string;
+    sidecarData: TSidecarData;
+};
+
 type SidecarMergePlan = {
     runtimeMessages?: AgentMessage[];
     runtimeState?: JsonValue;
@@ -113,81 +141,183 @@ type SidecarMergePlan = {
 };
 ```
 
-说明：
+字段说明：
 
-- `enterPrompt`：进入旁路时注入的指令，例如“退出写作模式，先检索本次写作任务相关 lorebook”。
-- `tools.enable`：旁路阶段允许执行的工具，必须是 profile 最大工具集合的子集。
-- `input` / `inputSchema`：用于从当前主 run 上下文构造旁路输入。AI 主动进入旁路时是否需要额外 InputSchema，后续再定。
-- `outputSchema`：旁路必须返回的结构化结果。
+- `name`：稳定标识，例如 `actor.context-load`、`actor.memory-save`。
+- `stage`：V1 只支持 `prepareRun` 与 `settleRun`。
+- `enterPrompt`：进入旁路时注入的指令，例如“退出扮演模式，先检索本次 GM packet 相关且角色可知的设定”。
+- `allowedToolKeys`：旁路阶段允许执行的工具，必须是当前 profile `allowedToolKeys` 的子集。
+- `sidecarDataSchema`：旁路期望返回的 `sidecar_data` 结构，只用于 Harness runtime 校验，不参与模型可见 tool schema。
+- `outputFallback`：没有 `report_result` 时如何把最后一条 assistant message 视作结果。
 - `merge`：把旁路结果转成主 run 的 runtime context、runtime state 或写入计划。
 
-### report_result 规则
+注意：接口里不再有 `profileKey`。sidecar 不负责选择另一个 profile。
 
-- 优先要求旁路 profile 使用 `report_result` 退出旁路。
-- `report_result` 的 schema 由 `outputSchema` 决定。
-- 如果没有提供 `report_result` 工具，行为应与当前 `invoke_agent` 逻辑保持一致：将最后一条 assistant message 当成结果。
-- 如果配置了 `parse_final_message_json` fallback，则尝试把最后一条消息解析为 JSON 并按 `outputSchema` 校验。
+## report_result Rules
 
-### 和 Run Kernel hooks 的关系
+- `report_result` 的 provider-visible tool schema 必须稳定，不能按 sidecar 动态替换。
+- `report_result` 固定新增可选字段 `sidecar_data?: JsonValue`，专门给 sidecar phase 返回结构化结果。
+- 进入 sidecar 时，Harness 注入 system reminder，明确告知模型：
+  - 当前处于 sidecar phase。
+  - 当前 sidecar 名称，例如 `actor.context-load`。
+  - 当前允许使用的工具。
+  - 必须通过 `report_result.sidecar_data` 返回什么结构。
+- 优先要求 sidecar 使用 `report_result.sidecar_data` 退出旁路。
+- `sidecarDataSchema` 只由 Harness 在收到结果后校验 `sidecar_data`，不能用于渲染模型可见 tool schema。
+- `report_result.data` 继续保留给主 profile 输出；sidecar 不应复用 `data` 承载旁路结果，避免和主路 output contract 混淆。
+- `report_result.data` 在 provider-visible tool schema 中也应保持可选。profile 的 `outputSchema` 只能表达“主路期望的结构化输出形状”，不能强制模型每次调用都必须传 `data`；因为任务失败、信息不足或 profile 自己选择只返回错误说明时，`data` 可能无法生成。
+- 主路如果要求 `data`，应由 profile prompt / system reminder / Harness runtime validator 表达，而不是通过 provider-visible required 字段表达。
+- 如果当前没有提供 `report_result` 工具，行为应与当前 `invoke_agent` 逻辑保持一致：将最后一条 assistant message 当成结果。
+- 如果配置了 `parse_final_message_json` fallback，则尝试把最后一条消息解析为 JSON 并按 `sidecarDataSchema` 校验。
+
+固定字段示意：
+
+```ts
+type ReportResultArgs = {
+    result: string;
+    data?: JsonValue;
+    sidecar_data?: JsonValue;
+};
+```
+
+注意：当前实现中的 `reportResultSchemaForProfile(profile)` 会从 `profile.outputSchema` 派生模型可见 `report_result.data` schema。sidecar V1 需要避免把旁路专属 schema 放进这里，否则主路和旁路 schema 不同会破坏缓存。
+同时，`profile.outputSchema` 不应再让 `report_result.data` 在 provider-visible schema 中变成 required；它应降级为可选字段的结构说明和 runtime 校验依据。
+
+## Relationship With Run Kernel Hooks
 
 `SidecarProfilePass` 不应该绕过 18 号任务建立的 Run Kernel 边界。
 
 推荐实现方式：
 
 - sidecar 由 runtime hook stage 触发，但 sidecar 本身是更高层的 profile 作者能力。
-- sidecar invocation 使用独立 `RunFrame` 或 forked run context，不污染主 run session history。
+- sidecar invocation 使用 forked `RunFrame`，沿用当前 session tree 上下文。
+- sidecar transcript 默认 `runtime_only`。
 - sidecar 结果只通过 `merge()` 回到主线。
 - `merge()` 返回的 `runtimeMessages` 进入主 `RunFrame`，不默认落盘。
-- 如需持久化，必须显式返回 `SessionWritePlan`，仍由 `SessionWriteExecutor` 执行。
+- 如需持久化，必须显式返回 `SessionWritePlan`，或由 sidecar 自己通过允许的文件工具完成。
 
-## Roleplay First Use Cases
+## Roleplay V1 Use Cases
 
-### rp.writer 写作前检索
+### actor.context-load
 
-流程：
+触发时机：GM packet 已进入 actor invoke 后，actor 主 run 之前。
 
-1. GM 调用 `rp.writer`，下发写作任务。
-2. `rp.writer` 进入 `prepareRun` sidecar。
-3. sidecar 提示模型退出写作模式，先查找本次写作任务相关 lorebook。
-4. sidecar 允许 `bash` / `read` 等检索工具。
-5. sidecar 通过 `report_result` 返回相关条目、来源、引用理由。
-6. `merge()` 将检索结果注入主写作上下文。
-7. 主 `rp.writer` 开始写作，此时检索工具再次被禁用。
+目的：
 
-### rp.actor 回合后知识更新建议
+- 检索本 Tick 相关设定。
+- 只整理 actor 合理可知的信息。
+- 把整理结果注入 actor 主 run，避免 actor 主 run 自己读取完整 lorebook。
 
-第一版不直接写 `knowledge.md`，只生成建议：
+建议配置：
 
-1. actor 完成一次角色回复。
-2. `ingestTurn` 或 `settleRun` sidecar 进入反思阶段。
-3. sidecar 提示模型退出扮演模式，生成本回合角色应新增、修正或遗忘的知识。
-4. sidecar 通过 `report_result` 返回 `knowledge_delta_suggestion`。
-5. 后续由 GM、开发者或专门的持久化机制决定是否落入 `knowledge.md`。
+```ts
+const actorContextLoadPass: SidecarProfilePass<ActorInput, ActorContextLoadResult> = {
+    name: "actor.context-load",
+    stage: "prepareRun",
+    allowedToolKeys: ["read", "report_result"],
+    enterPrompt: (ctx) => "...退出扮演模式，检索本次 GM packet 相关且角色可知的设定...",
+    sidecarDataSchema: actorContextLoadSchema,
+    merge: (ctx, result) => ({
+        runtimeMessages: [
+            actorSafeLorebookMessage(result.sidecarData),
+        ],
+    }),
+};
+```
+
+输出重点：
+
+- actor-safe 设定摘要。
+- 来源路径或条目标识，方便 debug。
+- 不注入隐藏真相、其他 actor 私密知识或 GM 裁决过程。
+
+失败策略：
+
+- V1 直接让 actor 主 run 失败。
+- 不静默跳过，避免 actor 在缺少关键上下文时继续生成。
+
+### actor.memory-save
+
+触发时机：actor 主 run 完成后。
+
+目的：
+
+- 退出扮演模式，回顾本轮输入、actor 回复和已知文件。
+- 更新 `knowledge.md`：角色新知道、修正或遗忘的信息。
+- 更新 `mind.md`：角色当前想法、猜测、情绪、动机。
+- 不更新 `state.md`。位置、持有物、伤势、关系压力等状态仍由 GM / 后续变量系统裁决。
+
+建议配置：
+
+```ts
+const actorMemorySavePass: SidecarProfilePass<ActorInput, ActorMemorySaveResult> = {
+    name: "actor.memory-save",
+    stage: "settleRun",
+    allowedToolKeys: ["read", "write", "edit", "report_result"],
+    enterPrompt: (ctx) => "...退出扮演模式，更新该 actor 的 knowledge.md 与 mind.md...",
+    sidecarDataSchema: actorMemorySaveSchema,
+    merge: (ctx, result) => ({
+        runtimeState: {
+            actorMemorySave: result.sidecarData.summary,
+        },
+    }),
+};
+```
+
+输出重点：
+
+- 已修改文件列表。
+- 更新摘要。
+- 无法判断或需要 GM 裁决的信息。
+
+V1 策略：
+
+- 允许自由 `write` / `edit`。
+- 不做 patch/apply，不做状态冲突检查。
+- 不更新 `state.md`。
 
 ## Decisions
 
 - 不新增 `RuntimeContextPass`。
+- `SidecarProfilePass.profileKey` 删除；sidecar 沿用当前 profile，不创建或切换 profile。
 - 第一版只做 profile 声明式自动旁路；agent 主动调用旁路先不做。
-- 主 profile 与 sidecar 共用稳定的最大工具集合；当前 phase 的工具可执行性由 ToolPolicyGate 控制。
-- 禁用工具的约束同时通过 reminder 和工具执行层表达，不能只靠提示词。
-- sidecar 结果优先使用 `report_result`；无 `report_result` 时 fallback 到最后一条 assistant message。
+- V1 stage 只做 `prepareRun` 与 `settleRun`。
+- sidecar transcript 默认为 `runtime_only`。
+- sidecar 结果优先使用 `report_result.sidecar_data`；无 `report_result` 时 fallback 到最后一条 assistant message。
+- `sidecarDataSchema` 如果存在，只用于 Harness runtime 校验 `report_result.sidecar_data` 或 fallback JSON，不参与 provider tool schema 渲染。
+- `report_result.data` 最终字段语义确认降级为 optional；`profile.outputSchema` 不再让 provider-visible `data` 必填，强约束交给 prompt/reminder 和 runtime validator。
+- `sidecar_data` 确认为旁路结构化返回字段名。
+- 进入 sidecar 时必须注入 system reminder，让模型知道自己处于旁路 phase，并说明当前 `sidecar_data` 的期望结构。
 - sidecar 结果必须经过 `merge()` 才能注入主上下文。
-- roleplay spike 阶段不做 actor knowledge 持久化，只生成 knowledge delta suggestion。
+- sidecar 失败时父 run 失败。
+- V1 禁止 nested sidecar。
+- `actor.context-load` 通过 prompt 限制信息过滤，不做严格 projection/apply 系统。
+- `actor.memory-save` 可以自由 `write` / `edit`，但只负责 `knowledge.md` 与 `mind.md`，不负责 `state.md`。
+- 工具禁用后的违规消息清理推迟到后续 Harness hook。
 
 ## Files Changed
 
 - `docs/tasks/23-agent-sidecar-profile-pass/README.md`
+- `docs/tasks/01-agent-roleplay-mode/README.md`
+- `docs/tasks/01-agent-roleplay-mode/roleplay-runtime-structure.md`
 
 ## Verification
 
-- 文档任务创建完成。
-- 未运行代码测试；本次只新增设计文档。
+- 文档已同步当前 V1 设计。
+- 未运行代码测试；本次只更新任务文档。
 
 ## TODO / Follow-ups
 
 - 细化 `SidecarProfilePass` 类型，并和当前 `defineAgentRuntime()` / `defineAgentProfile()` 类型对齐。
-- 调研当前 `allowedToolKeys` 的模型可见性和执行上限耦合点，设计 `ToolPolicyGate`。
-- 明确 sidecar invocation 是独立 session、forked run context，还是 sessionless RunFrame。
-- 定义 sidecar runtime-only transcript 的 session 展示和调试方式。
-- 设计 `rp.writer` lorebook retrieval pass 的最小可用原型。
-- 设计 `rp.actor` knowledge delta suggestion 的输出 schema。
+- 调整 `report_result` 参数 schema：新增固定可选字段 `sidecar_data?: JsonValue`，并确保 `data` / `sidecar_data` 都是 provider-visible optional。
+- 调整 `reportResultSchemaForProfile(profile)`：`profile.outputSchema` 只用于描述可选 `data` 的结构和 runtime 校验，不再把 `data` 放入 required。
+- 实现主路 `report_result.data` 的 runtime 校验策略：当 profile 明确要求结构化输出但模型未给 `data`，由 runtime 决定提醒、失败或允许纯文本错误结果。
+- 调研当前 `allowedToolKeys` 的模型可见性和执行上限耦合点，确定 V1 是否需要最小 ToolPolicyGate。
+- 实现 sidecar forked `RunFrame`，确保 transcript 为 `runtime_only`。
+- 实现 `prepareRun` sidecar merge 到父 run runtime context。
+- 实现 `settleRun` sidecar，并确保父 run 结果和 sidecar 结果的事件顺序可观测。
+- 增加 Harness 级测试：`actor.context-load` 能注入 runtime message。
+- 增加 Harness 级测试：`actor.memory-save` 能在 settle 阶段运行并返回结构化结果。
+- 增加失败测试：sidecar 抛错时父 run 失败。
+- 后续再设计 `rp.writer` lorebook retrieval pass。
+- 后续再设计工具违规消息清理与 nested sidecar 需求。
