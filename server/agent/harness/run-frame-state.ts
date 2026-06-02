@@ -15,6 +15,7 @@ export type CreateRunFrameInput = {
     requestOptions?: RunFrame["requestOptions"];
     compaction?: RunFrame["compaction"];
     toolKeys: RunFrame["toolKeys"];
+    executionToolKeys?: RunFrame["executionToolKeys"];
     profileKey: RunFrame["profileKey"];
     profile: RunFrame["profile"];
     thinkingLevel: RunFrame["thinkingLevel"];
@@ -22,6 +23,10 @@ export type CreateRunFrameInput = {
     reportResultReminderEnabled: RunFrame["reportResultReminderEnabled"];
     abortSignal?: RunFrame["abortSignal"];
     onEvent?: RunFrame["onEvent"];
+    forceRuntimeOnlyTranscript?: RunFrame["forceRuntimeOnlyTranscript"];
+    suppressEvents?: RunFrame["suppressEvents"];
+    disableSteer?: RunFrame["disableSteer"];
+    disableAutomaticCompaction?: RunFrame["disableAutomaticCompaction"];
 };
 
 /**
@@ -42,6 +47,7 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         requestOptions: input.requestOptions,
         compaction: input.compaction,
         toolKeys: input.toolKeys,
+        executionToolKeys: input.executionToolKeys,
         profileKey: input.profileKey,
         profile: input.profile,
         thinkingLevel: input.thinkingLevel,
@@ -51,6 +57,10 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         reportResultReminderSent: false,
         reportResultReminderEnabled: input.reportResultReminderEnabled,
         automaticCompactionEnabled: false,
+        forceRuntimeOnlyTranscript: input.forceRuntimeOnlyTranscript,
+        suppressEvents: input.suppressEvents,
+        disableSteer: input.disableSteer,
+        disableAutomaticCompaction: input.disableAutomaticCompaction,
         pendingWritePlans: [],
         onEvent: input.onEvent,
     };

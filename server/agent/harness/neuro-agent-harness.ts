@@ -3,12 +3,13 @@ import {readFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import type {AgentEvent, AgentToolResult} from "@earendil-works/pi-agent-core";
 import {streamSimple, validateToolArguments} from "@earendil-works/pi-ai";
+import {Value} from "typebox/value";
 import type {AgentMessage, AgentToolCall, AgentUserMessageInput, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
 import {createTextToolResult, createToolResultFromResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {summarizerProfile} from "nbook/server/agent/profiles/summarizer-profile";
-import type {AgentProfile, ProfileCompactionPlan, ProfileTurnPlan} from "nbook/server/agent/profiles/types";
+import type {AgentProfile, ProfileCompactionPlan, ProfileTurnPlan, SidecarContext, SidecarMergePlan, SidecarProfilePass, SidecarProfilePassStage, SidecarResult} from "nbook/server/agent/profiles/types";
 import {compileProfileSystemPrompt, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {buildAgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
@@ -146,6 +147,27 @@ type PreparedRun = {
     toolKeys: string[];
     thinkingLevel: ThinkingLevel;
     reportResultReminderEnabled: boolean;
+};
+
+type SidecarRunContext = {
+    sessionId: number;
+    invocationId: string;
+    snapshot: SessionSnapshot;
+    context: NeuroSessionContext;
+    profile: AgentProfile;
+    systemPrompt: string;
+    messages: AgentMessage[];
+    model: Model<any>;
+    apiKey?: string;
+    timeoutMs: number | null;
+    requestOptions: Record<string, JsonValue>;
+    compaction?: ProfileCompactionPlan;
+    toolKeys: string[];
+    thinkingLevel: ThinkingLevel;
+    runtimeState: RunRuntimeState;
+    abortSignal?: AbortSignal;
+    runResult?: RunLoopResult;
+    finalResult?: InvokeAgentResult;
 };
 
 type InvocationAdmission = {
@@ -338,6 +360,30 @@ export class NeuroAgentHarness {
                 pendingUserMessage,
                 clientState: input.clientState,
                 runtimeState,
+            });
+            await this.runSidecarPasses({
+                stage: "prepareRun",
+                sidecarRun: {
+                    sessionId: input.sessionId,
+                    invocationId,
+                    snapshot: preparedRun.snapshot,
+                    context: preparedRun.context,
+                    profile: preparedRun.profile,
+                    systemPrompt: preparedRun.systemPrompt,
+                    messages: preparedRun.messages,
+                    model: preparedRun.model,
+                    apiKey: preparedRun.apiKey,
+                    timeoutMs: preparedRun.timeoutMs,
+                    requestOptions: preparedRun.requestOptions,
+                    compaction: preparedRun.compaction,
+                    toolKeys: preparedRun.toolKeys,
+                    thinkingLevel: preparedRun.thinkingLevel,
+                    runtimeState,
+                    abortSignal: abortController.signal,
+                },
+                applyRuntimeMessages(messages) {
+                    preparedRun.messages.push(...messages);
+                },
             });
             errorPhase = "model";
 
@@ -580,6 +626,36 @@ export class NeuroAgentHarness {
         finalResult: InvokeAgentResult;
     }): Promise<void> {
         if (input.finalResult.status !== "error") {
+            if (input.finalResult.status === "completed") {
+                const snapshot = await this.repo.readSession(input.sessionId);
+                const context = this.repo.reduce(snapshot);
+                const config = await loadEffectiveConfig(context);
+                const model = context.model ?? this.modelResolver(config, context.profileKey);
+                const providerOptions = this.providerOptions(config, model);
+                const apiKey = resolvePiApiKeyForModelFromConfig(config, model);
+                const thinkingLevel = this.resolveThinkingLevel(context, config, model);
+                await this.runSidecarPasses({
+                    stage: "settleRun",
+                    sidecarRun: {
+                        sessionId: input.sessionId,
+                        invocationId: input.invocationId,
+                        snapshot,
+                        context,
+                        profile: input.profile,
+                        systemPrompt: context.systemPrompt,
+                        messages: context.messages,
+                        model,
+                        apiKey,
+                        timeoutMs: providerOptions.timeoutMs,
+                        requestOptions: providerOptions.requestOptions,
+                        toolKeys: [...input.profile.allowedToolKeys],
+                        thinkingLevel,
+                        runtimeState: input.runtimeState,
+                        runResult: input.runResult,
+                        finalResult: input.finalResult,
+                    },
+                });
+            }
             await this.settleRun({
                 sessionId: input.sessionId,
                 invocationId: input.invocationId,
@@ -1903,6 +1979,7 @@ export class NeuroAgentHarness {
         requestOptions?: Record<string, JsonValue>;
         compaction?: ProfileCompactionPlan;
         toolKeys: string[];
+        executionToolKeys?: string[];
         profileKey: string;
         profile: AgentProfile;
         thinkingLevel: ThinkingLevel;
@@ -1911,6 +1988,10 @@ export class NeuroAgentHarness {
         abortSignal?: AbortSignal;
         invocationId?: string;
         onEvent?: (event: AgentRuntimeStreamEventDto) => void | Promise<void>;
+        forceRuntimeOnlyTranscript?: boolean;
+        suppressEvents?: boolean;
+        disableSteer?: boolean;
+        disableAutomaticCompaction?: boolean;
     }): Promise<RunLoopResult> {
         const frame = createRunFrame(input);
 
@@ -1934,7 +2015,9 @@ export class NeuroAgentHarness {
             }
             shouldContinue = transaction.shouldContinue;
         }
-        this.steerableSessions.delete(frame.sessionId);
+        if (!frame.disableSteer) {
+            this.steerableSessions.delete(frame.sessionId);
+        }
         const failedTerminalStatus = failedResult?.status === "failed" && (failedResult.terminalStatus === "aborted" || failedResult.terminalStatus === "interrupted")
             ? failedResult.terminalStatus
             : "failed";
@@ -1962,7 +2045,7 @@ export class NeuroAgentHarness {
     private async runTurnTransaction(frame: RunFrame): Promise<RunTurnTransactionResult> {
         frame.turnIndex += 1;
         await this.emitRuntimeEvent(frame, {type: "turn_start", turnIndex: frame.turnIndex});
-        const preModelSteers = await this.drainSteers({
+        const preModelSteers = frame.disableSteer ? [] : await this.drainSteers({
             sessionId: frame.sessionId,
             workspaceKey: frame.workspaceKey,
             invocationId: frame.invocationId,
@@ -1974,7 +2057,9 @@ export class NeuroAgentHarness {
         const turnSnapshot = await withRunKernelPhase("model", () => this.createTurnSnapshot(frame));
         const outcome = await this.executeTurn(frame, turnSnapshot);
         if (outcome.kind === "failed") {
-            this.steerableSessions.delete(frame.sessionId);
+            if (!frame.disableSteer) {
+                this.steerableSessions.delete(frame.sessionId);
+            }
             const failedIngestDraft = createFailedTurnIngestDraft(outcome);
             const ingest = failedIngestDraft ? await withRunKernelPhase("ingest", () => this.ingestTurn(frame, failedIngestDraft)) : undefined;
             const transaction = applyFailedTurnTransaction(frame, outcome, ingest);
@@ -1992,7 +2077,7 @@ export class NeuroAgentHarness {
             waiting: turn.waiting,
         }));
         const transaction = applySuccessfulTurnTransaction(frame, outcome, ingest);
-        if (!turn.waiting) {
+        if (!frame.disableSteer && !turn.waiting) {
             this.steerableSessions.delete(frame.sessionId);
         }
         await this.emitRuntimeEvent(frame, {type: "turn_end", turnIndex: frame.turnIndex, status: turn.waiting ? "waiting" : "completed"});
@@ -2005,7 +2090,7 @@ export class NeuroAgentHarness {
 
         const continuation = await this.resolveTurnContinuation(frame, transaction.turn);
         await this.prepareNextTurn(frame, turn, continuation);
-        if (continuation.continue) {
+        if (!frame.disableSteer && continuation.continue) {
             this.steerableSessions.add(frame.sessionId);
         }
         return {
@@ -2029,6 +2114,9 @@ export class NeuroAgentHarness {
      * 发布公开 runtime event。SSE 和 callback 都只接触这个轻量 DTO。
      */
     private async emitRuntimeEvent(frame: RunFrame, event: AgentRuntimeStreamEventDto): Promise<void> {
+        if (frame.suppressEvents) {
+            return;
+        }
         await frame.onEvent?.(event);
         this.publishRuntimeEvent(frame.sessionId, frame.invocationId, event);
     }
@@ -2055,6 +2143,7 @@ export class NeuroAgentHarness {
             ...prepareTurn.requestOptionsPatch,
         };
         const toolKeys = prepareTurn.toolKeysPatch ?? frame.toolKeys;
+        const executionToolKeys = frame.executionToolKeys ?? toolKeys;
         const toolOverrides = await this.toolOverrides(toolKeys, frame.profileKey);
         const tools = this.tools.allowedWithOverrides(toolKeys, toolOverrides);
         const providerMessages = frame.messages.filter((message): message is Message => {
@@ -2072,6 +2161,7 @@ export class NeuroAgentHarness {
             timeoutMs: frame.timeoutMs,
             requestOptions,
             toolKeys,
+            executionToolKeys,
             toolOverrides,
             tools,
             thinkingLevel: frame.thinkingLevel,
@@ -2108,7 +2198,7 @@ export class NeuroAgentHarness {
                 invocationId: frame.invocationId,
                 assistant,
                 toolCalls,
-                allowedToolKeys: snapshot.toolKeys,
+                allowedToolKeys: snapshot.executionToolKeys,
                 toolOverrides: snapshot.toolOverrides,
                 enqueueSavePointWrite: (plan, source) => {
                     frame.pendingWritePlans.push({
@@ -2173,6 +2263,7 @@ export class NeuroAgentHarness {
             runtimeState: frame.runtimeState,
             turnIndex: frame.turnIndex,
             pendingWritePlans: frame.pendingWritePlans,
+            forceRuntimeOnlyTranscript: frame.forceRuntimeOnlyTranscript,
         });
     }
 
@@ -2182,7 +2273,7 @@ export class NeuroAgentHarness {
      * steer 在这里被 drain 成模型可见消息；真正为下一轮补充材料的动作放到 prepareNextTurn。
      */
     private async resolveTurnContinuation(frame: RunFrame, turn: RuntimeTurn): Promise<TurnContinuationDecision> {
-        const steeredMessages = await this.drainSteers({
+        const steeredMessages = frame.disableSteer ? [] : await this.drainSteers({
             sessionId: frame.sessionId,
             workspaceKey: frame.workspaceKey,
             invocationId: frame.invocationId,
@@ -2228,7 +2319,7 @@ export class NeuroAgentHarness {
         if (nextTurnHooks.reportResultReminder !== undefined) {
             frame.reportResultReminderEnabled = nextTurnHooks.reportResultReminder;
         }
-        if (nextTurnHooks.automaticCompaction !== undefined) {
+        if (!frame.disableAutomaticCompaction && nextTurnHooks.automaticCompaction !== undefined) {
             frame.automaticCompactionEnabled = nextTurnHooks.automaticCompaction;
         }
         const compacted = await withRunKernelPhase("compaction", () => this.compactBeforeNextTurn(frame));
@@ -3318,6 +3409,7 @@ export class NeuroAgentHarness {
         runtimeState: RunRuntimeState;
         turnIndex: number;
         pendingWritePlans: PendingSessionWritePlan[];
+        forceRuntimeOnlyTranscript?: boolean;
     }): Promise<TurnIngestResult> {
         const orderedToolResults = this.orderToolResults(input.assistant, input.toolResults);
         this.assertTurnClosed(input.assistant, orderedToolResults, input.waiting);
@@ -3339,7 +3431,7 @@ export class NeuroAgentHarness {
                 messageStatus: input.messageStatus,
             },
         });
-        const transcript = ingest.transcript ?? "runtime_only";
+        const transcript = input.forceRuntimeOnlyTranscript ? "runtime_only" : ingest.transcript ?? "runtime_only";
         if (transcript === "runtime_only") {
             if (input.waiting) {
                 throw new Error("waiting turn 必须显式使用 persist transcript；resume 需要持久化 pending tool call。");
@@ -3587,13 +3679,164 @@ export class NeuroAgentHarness {
         throw new Error("当前 session 正在等待用户审批或回答，请先完成 pending approval resolution。");
     }
 
+    private async runSidecarPasses(input: {
+        stage: SidecarProfilePassStage;
+        sidecarRun: SidecarRunContext;
+        applyRuntimeMessages?: (messages: AgentMessage[]) => void;
+    }): Promise<void> {
+        const passes = (input.sidecarRun.profile.sidecars ?? []).filter((pass) => pass.stage === input.stage);
+        for (const pass of passes) {
+            const mergePlan = await this.runSidecarPass(pass, input.sidecarRun);
+            if (mergePlan.runtimeMessages?.length) {
+                if (input.stage !== "prepareRun") {
+                    throw new Error(`sidecar ${pass.name} 的 runtimeMessages 只能在 prepareRun 阶段注入主 run。`);
+                }
+                input.applyRuntimeMessages?.(mergePlan.runtimeMessages);
+            }
+            if (mergePlan.runtimeState !== undefined) {
+                input.sidecarRun.runtimeState.set(`sidecar.${pass.name}`, mergeRuntimeState(input.sidecarRun.runtimeState.get(`sidecar.${pass.name}`), mergePlan.runtimeState));
+            }
+            if (mergePlan.writePlans?.length) {
+                await this.writeExecutor.execute(mergePlan.writePlans, input.sidecarRun.invocationId);
+            }
+        }
+    }
+
+    private async runSidecarPass(pass: SidecarProfilePass, sidecarRun: SidecarRunContext): Promise<SidecarMergePlan> {
+        const context = this.createSidecarContext(pass, sidecarRun);
+        const allowedToolKeys = [...pass.allowedToolKeys ?? sidecarRun.toolKeys];
+        const result = await this.runLoop({
+            sessionId: sidecarRun.sessionId,
+            workspaceKey: sidecarRun.snapshot.metadata.workspaceKey,
+            workspaceRoot: sidecarRun.context.workspaceRoot,
+            projectPath: sidecarRun.context.projectPath,
+            systemPrompt: sidecarRun.systemPrompt,
+            messages: [
+                ...sidecarRun.messages,
+                createUserMessage({
+                    text: this.sidecarReminder(pass, context, allowedToolKeys),
+                }),
+            ],
+            model: sidecarRun.model,
+            apiKey: sidecarRun.apiKey,
+            timeoutMs: sidecarRun.timeoutMs,
+            requestOptions: sidecarRun.requestOptions,
+            compaction: sidecarRun.compaction,
+            toolKeys: sidecarRun.toolKeys,
+            executionToolKeys: allowedToolKeys,
+            profileKey: sidecarRun.context.profileKey,
+            profile: sidecarRun.profile,
+            thinkingLevel: sidecarRun.thinkingLevel,
+            runtimeState: new Map(sidecarRun.runtimeState),
+            reportResultReminderEnabled: false,
+            abortSignal: sidecarRun.abortSignal,
+            invocationId: sidecarRun.invocationId,
+            forceRuntimeOnlyTranscript: true,
+            suppressEvents: true,
+            disableSteer: true,
+            disableAutomaticCompaction: true,
+        });
+        if (result.status === "failed") {
+            throw new Error(`sidecar ${pass.name} 执行失败：${result.errorInfo.message}`);
+        }
+        if (result.status === "waiting") {
+            throw new Error(`sidecar ${pass.name} 进入 waiting 状态；V1 sidecar 不支持用户审批或回答。`);
+        }
+        const sidecarResult = this.readSidecarResult(pass, result);
+        return await pass.merge(context, sidecarResult);
+    }
+
+    private createSidecarContext(pass: SidecarProfilePass, sidecarRun: SidecarRunContext): SidecarContext {
+        return {
+            name: pass.name,
+            stage: pass.stage,
+            sessionId: sidecarRun.sessionId,
+            session: this.createRuntimeSessionFacade({
+                sessionId: sidecarRun.sessionId,
+                profileKey: sidecarRun.context.profileKey,
+                input: sidecarRun.snapshot.metadata.input,
+                context: sidecarRun.context,
+            }),
+            input: sidecarRun.snapshot.metadata.input,
+            invocationId: sidecarRun.invocationId,
+            profileKey: sidecarRun.context.profileKey,
+            runResult: sidecarRun.runResult && sidecarRun.finalResult ? {
+                status: sidecarRun.finalResult.status === "waiting" ? "waiting" : "completed",
+                finalMessage: sidecarRun.finalResult.finalMessage,
+                reportResult: sidecarRun.runResult.status === "failed" ? undefined : sidecarRun.runResult.reportResult,
+            } : undefined,
+        };
+    }
+
+    private sidecarReminder(pass: SidecarProfilePass, context: SidecarContext, allowedToolKeys: readonly string[]): string {
+        const enterPrompt = typeof pass.enterPrompt === "function" ? pass.enterPrompt(context) : pass.enterPrompt;
+        const schemaText = pass.sidecarDataSchema
+            ? JSON.stringify(pass.sidecarDataSchema, null, 2)
+            : "未声明 sidecarDataSchema；仍请把旁路结构化结果放入 report_result.sidecar_data。";
+        return [
+            "<system-reminder>",
+            "当前处于 Sidecar Profile Pass 旁路阶段，不是主扮演、主写作或主任务阶段。",
+            `sidecar: ${pass.name}`,
+            `stage: ${pass.stage}`,
+            `allowed tools: ${allowedToolKeys.length ? allowedToolKeys.join(", ") : "(none)"}`,
+            "旁路 transcript 只用于本次运行，不会写入主 session history。",
+            "provider-visible tool schema 仍保持 profile 最大工具集合；但本旁路阶段只有 allowed tools 列出的工具允许实际执行。",
+            "完成旁路后优先调用 report_result，并把旁路结构化结果放在 sidecar_data 字段；不要把旁路结果放在主路 data 字段。",
+            "sidecar_data 期望结构：",
+            schemaText,
+            "</system-reminder>",
+            "",
+            enterPrompt,
+        ].join("\n");
+    }
+
+    private readSidecarResult(pass: SidecarProfilePass, result: RunLoopResult): SidecarResult {
+        if (result.status !== "completed") {
+            throw new Error(`sidecar ${pass.name} 未完成。`);
+        }
+        const report = result.reportResult;
+        if (report && "sidecar_data" in report) {
+            this.assertValidSidecarData(pass, report.sidecar_data);
+            return {
+                result: report.result,
+                sidecarData: report.sidecar_data as JsonValue,
+            };
+        }
+        if (!pass.outputFallback) {
+            throw new Error(`sidecar ${pass.name} 没有返回 report_result.sidecar_data。`);
+        }
+        const finalText = result.finalAssistant ? messageText(result.finalAssistant) : "";
+        const fallbackData = pass.outputFallback === "parse_final_message_json"
+            ? parseSidecarFinalJson(pass.name, finalText)
+            : finalText;
+        this.assertValidSidecarData(pass, fallbackData);
+        return {
+            result: finalText,
+            sidecarData: fallbackData as JsonValue,
+        };
+    }
+
+    private assertValidSidecarData(pass: SidecarProfilePass, value: unknown): void {
+        if (!pass.sidecarDataSchema) {
+            return;
+        }
+        try {
+            Value.Parse(pass.sidecarDataSchema, value);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`sidecar ${pass.name} sidecar_data 校验失败：${message}`);
+        }
+    }
+
     private readReportResult(details: unknown): InvokeAgentResult["reportResult"] | undefined {
         if (!details || typeof details !== "object" || !("result" in details) || typeof (details as {result?: unknown}).result !== "string") {
             return undefined;
         }
+        const report = details as {result: string; data?: unknown; sidecar_data?: unknown};
         return {
-            result: (details as {result: string}).result,
-            data: (details as {data?: unknown}).data,
+            result: report.result,
+            ...("data" in report ? {data: report.data} : {}),
+            ...("sidecar_data" in report ? {sidecar_data: report.sidecar_data} : {}),
         };
     }
 
@@ -3636,6 +3879,15 @@ function stableJsonStringify(value: JsonValue): string {
         return `[${value.map((item) => stableJsonStringify(item)).join(",")}]`;
     }
     return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJsonStringify(value[key] ?? null)}`).join(",")}}`;
+}
+
+function parseSidecarFinalJson(sidecarName: string, text: string): JsonValue {
+    try {
+        return JSON.parse(text) as JsonValue;
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`sidecar ${sidecarName} final message 不是合法 JSON：${message}`);
+    }
 }
 
 function isFollowUpQueueItem(value: unknown): value is AgentFollowUpQueueItemDto {

@@ -9,7 +9,7 @@
 - 不设计记忆持久化。
 - 不实现完整变量系统。
 - 不复刻 SillyTavern 前端 JS、MVU runtime 或 Prompt Template runtime。
-- 已把 `SidecarProfilePass` 作为后续设计记录到 `docs/tasks/23-agent-sidecar-profile-pass/README.md`，本次 spike 先不实现。
+- Harness 层 `SidecarProfilePass` V1 已在 `docs/tasks/23-agent-sidecar-profile-pass/README.md` 中落地；`rp.actor` 内置 profile 已接入 `actor.context-load` / `actor.memory-save` 两个旁路。
 - 重点设计一个最小可行 RP Tick：用户行动 -> GM -> actors -> GM -> writer -> 用户结果。
 
 ## Core Model
@@ -680,7 +680,7 @@ writer 输出最终用户可见文本。输出中不应包含：
 5. actor knowledge 只表达角色视角的已知信息；如果它和 canonical truth 不一致，GM 负责在后台区分。
 6. 用户是 actor，并且应在 `roleplay/actors/{player-id}/` 下拥有自己的 actor 目录；用户输入可以是行动、台词或剧本式指令，GM 负责把它转为故事内可执行意图。
 7. 非抢话模式下，actor 只在用户 Tick 后响应；抢话模式后续单独设计。
-8. 第一版允许 actor 通过文件工具维护自己的 `knowledge.md`、`mind.md`、`state.md`；后续如果实现 sidecar，应把这些更新移到独立旁路 run，减少主扮演上下文污染。
+8. `rp.actor` 主扮演 run 不主动维护文件；`actor.memory-save` 旁路负责更新 `knowledge.md` 与 `mind.md`，`state.md` 仍由 GM / 后续状态系统负责。
 9. 第一版不让 `rp.writer` 自主检索 lorebook；GM 必须把可写信息整理进 writer brief。后续 sidecar 可补“写作前检索相关 lorebook”。
 
 ### Lorebook Visibility Discussion
@@ -713,19 +713,18 @@ visibility:
 
 ## Sidecar Boundary
 
-用户提出的“主流程保持纯净，旁路 run 负责检索或更新知识”的机制已经记录为 `SidecarProfilePass`。本次 roleplay spike 先不实现，但目录设计需要给它留位置。最新 V1 设计以 actor 为第一验收对象：sidecar 不切换 profile，不使用 `profileKey`，而是在当前 session tree 上 fork 一段 `runtime_only` 分支，完成后只把 `merge()` 结果注入回主 run。
+用户提出的“主流程保持纯净，旁路 run 负责检索或更新知识”的机制已经作为 Harness `SidecarProfilePass` V1 实现，并已接入 `rp.actor`。V1 设计以 actor 为第一验收对象：sidecar 不切换 profile，不使用 `profileKey`，而是在当前 session tree 上 fork 一段 `runtime_only` 分支，完成后只把 `merge()` 结果注入回主 run。
 
-未来可接入的两个旁路：
+已接入的两个 actor 旁路：
 
 - `actor.context-load` prepare-run sidecar：GM packet 进入 actor 后、主扮演 run 之前，先退出扮演模式，检索本 Tick 相关且角色可知的设定，再把 actor-safe 摘要注入主上下文。失败时 actor 主 run 直接失败。
 - `actor.memory-save` settle-run sidecar：主扮演回复完成后，退出扮演模式，更新 `knowledge.md` 与 `mind.md`。V1 允许自由 `write` / `edit`，但不更新 `state.md`。
 - `rp.writer` prepare-run sidecar：后续扩展用例。先退出写作模式，检索本次 writer brief 相关 lorebook，再把可写摘要注入主写作上下文。
 
-本次 spike 的临时策略：
+当前 RP profile 策略：
 
 - writer：由 GM 主动整理 lorebook 摘要，writer 只按 GM 明确路径使用文件工具。
-- actor：允许 actor 读取和编辑自己的 `knowledge.md`、`mind.md`、`state.md`，优先验证多 actor RP Tick 是否成立。
-- Harness 级 sidecar 实现推迟到 `docs/tasks/23-agent-sidecar-profile-pass/README.md` 后续任务。
+- actor：主 run 只扮演角色并返回 `report_result.data`；context-load 旁路负责检索 actor-safe 设定，memory-save 旁路负责维护 `knowledge.md` 与 `mind.md`。
 
 ## Open Questions
 

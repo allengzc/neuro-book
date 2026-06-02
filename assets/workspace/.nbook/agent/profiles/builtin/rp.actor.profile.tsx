@@ -2,11 +2,12 @@
 /** @jsxRuntime automatic */
 import {readFile} from "node:fs/promises";
 import {isAbsolute, relative, resolve} from "node:path";
-import type {Static} from "typebox";
+import {Type, type Static} from "typebox";
+import {createUserMessage} from "nbook/server/agent/messages/message-utils";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {RpActorInputSchema, RpActorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AppendingSet, Message, ModelContext, ProfilePrompt, System, WorkdirReminder} from "nbook/server/agent/profiles/profile-dsl";
-import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
+import type {ProfilePrepareContext, SidecarProfilePass} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
 export const profileManifest = {
@@ -23,27 +24,23 @@ export type Output = Static<typeof OutputSchema>;
 
 const allowedToolKeys = ["read", "write", "edit", "report_result"] as const;
 
-export default defineAgentProfile({
-    manifest: profileManifest,
-    inputSchema: InputSchema,
-    outputSchema: OutputSchema,
-    allowedToolKeys,
-    async context(ctx) {
-        const actorContext = await renderActorContext(ctx);
-        return (
-            <ProfilePrompt>
-                <System>{renderSystemPrompt(ctx.input)}</System>
-                <ModelContext>
-                    <Message>{actorContext}</Message>
-                    <Message>{renderInvocationReminder(ctx.input)}</Message>
-                </ModelContext>
-                <AppendingSet>
-                    <WorkdirReminder />
-                </AppendingSet>
-            </ProfilePrompt>
-        );
-    },
+const ActorContextLoadSidecarSchema = Type.Object({
+    actor_safe_context: Type.String({description: "准备注入 actor 主 run 的角色可知设定摘要；没有额外信息时写空字符串。"}),
+    sources: Type.Array(Type.String({description: "本次摘要参考的 actor 文件或 actor-safe lorebook 路径。"})),
+    withheld: Type.Array(Type.String({description: "发现但不应注入给角色的隐藏信息类别或原因；没有返回空数组。"})),
+    confidence: Type.String({description: "对本次过滤结果的把握，例如 high、medium、low。"}),
 });
+
+const ActorMemorySaveSidecarSchema = Type.Object({
+    changed_files: Type.Array(Type.String({description: "本次实际修改的文件路径；没有修改返回空数组。"})),
+    knowledge_summary: Type.String({description: "knowledge.md 的更新摘要；没有修改写空字符串。"}),
+    mind_summary: Type.String({description: "mind.md 的更新摘要；没有修改写空字符串。"}),
+    skipped: Type.Array(Type.String({description: "本次没有写入的原因、被跳过的更新或交给其他系统处理的内容。"})),
+    needs_gm_review: Type.Array(Type.String({description: "需要 GM 后续裁决或确认的信息。"})),
+});
+
+type ActorContextLoadSidecarData = Static<typeof ActorContextLoadSidecarSchema>;
+type ActorMemorySaveSidecarData = Static<typeof ActorMemorySaveSidecarSchema>;
 
 function renderSystemPrompt(input: Input): string {
     const actorName = input.actorName?.trim() || input.actorId;
@@ -65,13 +62,13 @@ function renderSystemPrompt(input: Input): string {
         - knowledge.md 是给你看的角色视角资料；你把它当作当前已知信息使用，不判断它是否符合上帝视角真相。
         - GM 没有写入当前消息或你的角色文件的信息，不能变成你的台词、判断或内心确定事实。
 
-        # 角色文件维护
+        # 角色记忆边界
 
-        - 你可以读取和编辑自己的 knowledgePath：${input.knowledgePath}。
-        - 你可以读取和编辑自己的 mindPath：${input.mindPath}。
-        - 你可以读取和编辑自己的 statePath：${input.statePath}。
-        - 不要写入 actor.md，不要写入其他路径，不要整理 lorebook。
-        - 只有 GM 当前消息或本 Tick 互动让角色真的获得了新认知，才更新 knowledge.md。
+        - 主扮演阶段不要主动调用 read、write 或 edit，不要亲自维护文件。
+        - 角色文件维护由 actor.memory-save 旁路完成；你只在 report_result.data 里返回本 Tick 的更新摘要。
+        - knowledge_update 只写角色本 Tick 新知道、被告知、观察到或自然推断到的信息摘要；没有就填空字符串。
+        - mind_update 只写角色当前想法、判断、犹豫、情绪或动机变化摘要；没有就填空字符串。
+        - state_update 只报告你观察到的状态变化候选，最终是否更新 state.md 由 GM / 后续状态系统裁决。
         - knowledge.md 记录角色已经知道、被告知、观察到或自然推断到的信息，不写 GM 推理或真实隐藏设定。
         - knowledge.md 使用二级章节归类，用三级标题表示具体条目；新增内容写成三级标题加正文段落，不要用 Markdown 列表堆条目。
         - 不要在 knowledge.md 新增“信念与误解”“最近更新”或“更新规则”章节。写入规则由本提示词负责。
@@ -79,8 +76,7 @@ function renderSystemPrompt(input: Input): string {
         - mind.md 记录角色当前正在想什么、判断什么、犹豫什么、想要什么；它是短期心理状态，不是世界真相。
         - state.md 记录位置、随身物品、伤势、姿态、关系压力和短期目标等可变状态。
         - 当前工具没有 runtime path scope，遵守这个边界是你的硬性职责。
-        - 如果本 Tick 没有真实变化，不要为了“完成更新”而改文件；在对应 update 字段填空字符串。
-        - 文件更新要短，优先追加或局部修改，不要重写整份文件，不要把 report_result packet 写进文件。
+        - 如果本 Tick 没有真实变化，不要为了“完成更新”而编造 update；在对应 update 字段填空字符串。
 
         # 扮演方式
 
@@ -145,10 +141,142 @@ async function renderActorContext(ctx: ProfilePrepareContext<Input>): Promise<st
 function renderInvocationReminder(input: Input): string {
     return profileText`
         本轮请等待或处理 GM 通过当前 user message 发来的 actor-facing message。
-        只回复 GM，并必须调用 report_result。必要时可更新 ${input.knowledgePath}、${input.mindPath}、${input.statePath}，但不要读取或编辑其他路径。
+        只回复 GM，并必须调用 report_result。不要主动读写文件；只在 knowledge_update、mind_update、state_update 中报告本 Tick 产生的更新候选。
         如果消息信息不足，只基于角色会观察到的表层事实回应，可以在 questions_to_gm 中请求裁决，不要自行补隐藏设定。
     `;
 }
+
+const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarData> = {
+    name: "actor.context-load",
+    stage: "prepareRun",
+    allowedToolKeys: ["read", "report_result"],
+    sidecarDataSchema: ActorContextLoadSidecarSchema,
+    enterPrompt: (ctx) => profileText`
+        退出角色扮演模式。你现在是 rp.actor 的 context-load 旁路，不要扮演角色，不要输出角色台词。
+
+        目标：在 actor 主扮演 run 开始前，基于当前 GM actor-facing message 检索并整理该角色合理可知的补充设定。
+
+        当前 actor：
+        - actorId: ${ctx.input.actorId}
+        - actorName: ${ctx.input.actorName?.trim() || ctx.input.actorId}
+        - kind: ${ctx.input.kind?.trim() || "未指定"}
+        - instructionPath: ${ctx.input.instructionPath}
+        - knowledgePath: ${ctx.input.knowledgePath}
+        - mindPath: ${ctx.input.mindPath}
+        - statePath: ${ctx.input.statePath}
+
+        规则：
+        - 你可以读取当前 actor 自己的 actor.md、knowledge.md、mind.md、state.md。
+        - 你可以读取与 GM 当前消息直接相关、且可以过滤成 actor-safe 摘要的 lorebook 条目。
+        - 不要读取 roleplay/gm.md、roleplay/writer.md、roleplay/playthrough、GM scratch、其他 actor 目录或 reference 原始素材。
+        - 如果 lorebook 条目混有公开信息和隐藏真相，只提取角色此刻合理能知道、看见、听见、感受到或自然推断到的部分。
+        - 不要把隐藏真相、作者设定、GM 裁决过程、其他角色私密知识注入 actor_safe_context。
+        - 如果没有额外 actor-safe 设定，actor_safe_context 返回空字符串，并在 withheld 说明原因。
+
+        完成后调用 report_result，把结构化结果放在 sidecar_data 字段，不要使用主路 data 字段。
+    `,
+    merge(_ctx, result) {
+        const data = result.sidecarData;
+        const context = data.actor_safe_context.trim() || "本 Tick 没有额外 actor-safe 设定注入。";
+        return {
+            runtimeMessages: [
+                createUserMessage({
+                    text: profileText`
+                        <actor_sidecar_context source="actor.context-load">
+                        ${context}
+
+                        sources: ${data.sources.length ? data.sources.join(", ") : "无"}
+                        withheld: ${data.withheld.length ? `有 ${data.withheld.length} 条不应由角色得知的信息已保留。` : "无"}
+                        confidence: ${data.confidence}
+                        </actor_sidecar_context>
+                    `,
+                }),
+            ],
+        };
+    },
+};
+
+const actorMemorySavePass: SidecarProfilePass<Input, ActorMemorySaveSidecarData> = {
+    name: "actor.memory-save",
+    stage: "settleRun",
+    allowedToolKeys: ["read", "write", "edit", "report_result"],
+    sidecarDataSchema: ActorMemorySaveSidecarSchema,
+    enterPrompt: (ctx) => profileText`
+        退出角色扮演模式。你现在是 rp.actor 的 memory-save 旁路，不要继续扮演角色，不要新增角色台词或行动。
+
+        目标：根据刚刚完成的 actor 主 run 结果，维护该 actor 的 knowledge.md 与 mind.md。
+
+        当前 actor：
+        - actorId: ${ctx.input.actorId}
+        - actorName: ${ctx.input.actorName?.trim() || ctx.input.actorId}
+        - knowledgePath: ${ctx.input.knowledgePath}
+        - mindPath: ${ctx.input.mindPath}
+        - statePath: ${ctx.input.statePath}
+
+        主 run report_result.data：
+        ${formatJson(ctx.runResult?.reportResult?.data)}
+
+        写入规则：
+        - 只允许读取和修改 knowledgePath 与 mindPath。
+        - 不要修改 actor.md。
+        - 不要修改 statePath；即使主 run 返回 state_update，也只在 skipped 或 needs_gm_review 中说明交给 GM / 后续状态系统处理。
+        - knowledge.md 只写角色已经知道、被告知、观察到或自然推断到的信息，不写 GM 推理、真实隐藏设定或其他角色私密知识。
+        - mind.md 只写角色当前想法、判断、犹豫、情绪或动机，不写世界真相。
+        - 如果 knowledge_update 或 mind_update 为空，或者现有文件已经覆盖该信息，不要为了更新而改文件。
+        - 文件更新要短，优先局部 edit；只有确实需要完整重写时才使用 write。
+        - 不要把 report_result packet 写进文件。
+
+        完成后调用 report_result，把结构化结果放在 sidecar_data 字段，不要使用主路 data 字段。
+    `,
+    merge(_ctx, result) {
+        return {
+            runtimeState: {
+                changed_files: result.sidecarData.changed_files,
+                knowledge_summary: result.sidecarData.knowledge_summary,
+                mind_summary: result.sidecarData.mind_summary,
+                skipped: result.sidecarData.skipped,
+                needs_gm_review: result.sidecarData.needs_gm_review,
+            },
+        };
+    },
+};
+
+function formatJson(value: unknown): string {
+    if (value === undefined) {
+        return "未提供 report_result.data。";
+    }
+    try {
+        return JSON.stringify(value, null, 2);
+    } catch {
+        return String(value);
+    }
+}
+
+export default defineAgentProfile({
+    manifest: profileManifest,
+    inputSchema: InputSchema,
+    outputSchema: OutputSchema,
+    allowedToolKeys,
+    sidecars: [
+        actorContextLoadPass,
+        actorMemorySavePass,
+    ],
+    async context(ctx) {
+        const actorContext = await renderActorContext(ctx);
+        return (
+            <ProfilePrompt>
+                <System>{renderSystemPrompt(ctx.input)}</System>
+                <ModelContext>
+                    <Message>{actorContext}</Message>
+                    <Message>{renderInvocationReminder(ctx.input)}</Message>
+                </ModelContext>
+                <AppendingSet>
+                    <WorkdirReminder />
+                </AppendingSet>
+            </ProfilePrompt>
+        );
+    },
+});
 
 async function readWorkspaceFile(workspaceRoot: string, relativePath: string): Promise<string> {
     const root = resolve(workspaceRoot);

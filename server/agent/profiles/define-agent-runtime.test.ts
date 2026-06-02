@@ -27,6 +27,52 @@ describe("defineAgentRuntime", () => {
         expect(profile.runtime?.hooks.every((hook) => "builtin" in hook && hook.builtin)).toBe(true);
     });
 
+    it("拒绝 sidecar 使用 profile 未开放的工具", () => {
+        expect(() => defineAgentProfile({
+            manifest: {
+                key: "test.sidecar-tool-subset",
+                name: "Sidecar Tool Subset",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["report_result"],
+            sidecars: [{
+                name: "actor.context-load",
+                stage: "prepareRun",
+                allowedToolKeys: ["read", "report_result"],
+                enterPrompt: "load",
+                merge() {
+                    return {};
+                },
+            }],
+            prepare() {
+                return {};
+            },
+        })).toThrow("allowedToolKeys 必须是 profile allowedToolKeys 子集");
+    });
+
+    it("sidecar 未开放 report_result 时必须声明 outputFallback", () => {
+        expect(() => defineAgentProfile({
+            manifest: {
+                key: "test.sidecar-fallback",
+                name: "Sidecar Fallback",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["read"],
+            sidecars: [{
+                name: "actor.context-load",
+                stage: "prepareRun",
+                allowedToolKeys: ["read"],
+                enterPrompt: "load",
+                merge() {
+                    return {};
+                },
+            }],
+            prepare() {
+                return {};
+            },
+        })).toThrow("必须声明 outputFallback");
+    });
+
     it("defineAgentRuntime 会展开内置 runtime bundle", () => {
         const runtime = defineAgentRuntime({
             hooks: [

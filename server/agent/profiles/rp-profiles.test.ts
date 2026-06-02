@@ -140,7 +140,7 @@ describe("RP builtin profiles", () => {
         expect(appendingText).toContain("Current Project Workspace: workspace/rp-project");
     });
 
-    it("rp.actor 自动注入 actor.md、knowledge.md、mind.md 与 state.md，并只允许角色文件维护工具", async () => {
+    it("rp.actor 自动注入 actor.md、knowledge.md、mind.md 与 state.md，并把文件维护交给 sidecar", async () => {
         const fixture = await createRoleplayFixture();
         try {
             const prepared = await rpActorProfile.prepare!({
@@ -168,22 +168,40 @@ describe("RP builtin profiles", () => {
             const systemPrompt = prepared.systemPrompt ?? "";
             const modelContextText = messagesText(prepared.modelContextMessages);
             const appendingText = messagesText(prepared.appendingMessages);
+            const sidecars = rpActorProfile.sidecars ?? [];
+            const contextLoad = sidecars.find((sidecar) => sidecar.name === "actor.context-load");
+            const memorySave = sidecars.find((sidecar) => sidecar.name === "actor.memory-save");
 
             expect(rpActorProfile.allowedToolKeys).toEqual(["read", "write", "edit", "report_result"]);
+            expect(sidecars.map((sidecar) => sidecar.name)).toEqual(["actor.context-load", "actor.memory-save"]);
+            expect(contextLoad).toEqual(expect.objectContaining({
+                stage: "prepareRun",
+                allowedToolKeys: ["read", "report_result"],
+            }));
+            expect(memorySave).toEqual(expect.objectContaining({
+                stage: "settleRun",
+                allowedToolKeys: ["read", "write", "edit", "report_result"],
+            }));
+            expect(contextLoad?.sidecarDataSchema?.properties).toHaveProperty("actor_safe_context");
+            expect(contextLoad?.sidecarDataSchema?.properties).toHaveProperty("sources");
+            expect(contextLoad?.sidecarDataSchema?.properties).toHaveProperty("withheld");
+            expect(memorySave?.sidecarDataSchema?.properties).toHaveProperty("changed_files");
+            expect(memorySave?.sidecarDataSchema?.properties).toHaveProperty("knowledge_summary");
+            expect(memorySave?.sidecarDataSchema?.properties).toHaveProperty("mind_summary");
             expect(systemPrompt).toContain("只扮演一个角色：绘璃奈");
             expect(systemPrompt).toContain("不能读取完整 roleplay/");
             expect(systemPrompt).toContain("必须调用 report_result");
             expect(systemPrompt).toContain("report_result.result");
-            expect(systemPrompt).toContain("knowledgePath");
-            expect(systemPrompt).toContain("mindPath");
-            expect(systemPrompt).toContain("statePath");
             expect(systemPrompt).toContain("mind_update");
             expect(systemPrompt).toContain("state_update");
             expect(systemPrompt).toContain("如果你扮演的是玩家 actor");
-            expect(systemPrompt).toContain("不要为了“完成更新”而改文件");
+            expect(systemPrompt).toContain("主扮演阶段不要主动调用 read、write 或 edit");
+            expect(systemPrompt).toContain("角色文件维护由 actor.memory-save 旁路完成");
+            expect(systemPrompt).toContain("不要为了“完成更新”而编造 update");
             expect(systemPrompt).toContain("必须调用 report_result");
             expect(systemPrompt).toContain("戏内消息");
             expect(systemPrompt).not.toContain("not_known_to_you");
+            expect(systemPrompt).not.toContain("必要时可更新");
             expect(modelContextText).toContain("<actor_instruction>");
             expect(modelContextText).toContain("保持礼貌但警惕");
             expect(modelContextText).toContain("<actor_knowledge>");
@@ -192,8 +210,12 @@ describe("RP builtin profiles", () => {
             expect(modelContextText).toContain("她正在判断主角的用意");
             expect(modelContextText).toContain("<actor_state>");
             expect(modelContextText).toContain("她位于学院区广场边缘");
+            expect(modelContextText).toContain("knowledgePath");
+            expect(modelContextText).toContain("mindPath");
+            expect(modelContextText).toContain("statePath");
             expect(modelContextText).toContain("只回复 GM");
             expect(modelContextText).toContain("并必须调用 report_result");
+            expect(modelContextText).toContain("不要主动读写文件");
             expect(appendingText).toContain("Current Workdir");
             expect(appendingText).not.toContain("只回复 GM");
         } finally {

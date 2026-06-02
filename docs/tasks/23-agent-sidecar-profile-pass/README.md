@@ -300,24 +300,49 @@ V1 策略：
 - `docs/tasks/23-agent-sidecar-profile-pass/README.md`
 - `docs/tasks/01-agent-roleplay-mode/README.md`
 - `docs/tasks/01-agent-roleplay-mode/roleplay-runtime-structure.md`
+- `server/agent/harness/neuro-agent-harness.ts`
+- `server/agent/harness/neuro-agent-harness.test.ts`
+- `server/agent/harness/run-frame-state.ts`
+- `server/agent/harness/run-kernel-types.ts`
+- `server/agent/profiles/define-agent-profile.ts`
+- `server/agent/profiles/define-agent-runtime.test.ts`
+- `server/agent/profiles/define-agent-runtime.ts`
+- `server/agent/profiles/report-result-schema.ts`
+- `server/agent/profiles/report-result-schema.test.ts`
+- `server/agent/profiles/types.ts`
+- `server/agent/tools/builtin-tools.ts`
+- `server/agent/harness/types.ts`
 
 ## Verification
 
-- 文档已同步当前 V1 设计。
-- 未运行代码测试；本次只更新任务文档。
+- `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts`
+- `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts -t "sidecar|report_result 校验|create -> prompt -> report_result|runtime_only transcript 下 report_result"`
+- `bunx vitest run server/agent/harness/run-frame-state.test.ts server/agent/harness/turn-transaction.test.ts server/agent/harness/turn-continuation.test.ts server/agent/harness/turn-failure.test.ts server/agent/profiles/report-result-schema.test.ts`
+- `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/profiles/report-result-schema.test.ts`
+- `bunx tsc --noEmit --pretty false --project tsconfig.json` 仍会被 SillyTavern 导入脚本既有类型问题阻断；过滤本次相关路径无新增错误。
+
+## Implemented V1
+
+- `AgentProfile` 新增 `sidecars?: readonly SidecarProfilePass[]`。
+- `SidecarProfilePass` 支持 `prepareRun` 和 `settleRun` 两个自动触发点。
+- sidecar 沿用当前 profile、当前 session、当前 session tree 和当前 profile input，不再包含 `profileKey`。
+- sidecar 通过同一个 `runLoop()` 执行，但启用旁路 RunFrame 标志：
+  - `forceRuntimeOnlyTranscript`：assistant/toolResult transcript 不写入 session history。
+  - `suppressEvents`：旁路内部 turn 不发公开 runtime event。
+  - `disableSteer`：旁路不消费用户 steer。
+  - `disableAutomaticCompaction`：旁路不触发自动 compaction。
+- `prepareRun` sidecar 的 `merge().runtimeMessages` 会注入父 run 的模型上下文，不落 session。
+- `settleRun` sidecar 只在父 run completed 后执行，可通过 `merge().writePlans` 写入 session custom state，或让旁路工具自己写文件。
+- sidecar 失败、进入 waiting、缺少 `sidecar_data` 且无 fallback、或 `sidecarDataSchema` 校验失败时，父 run 失败。
+- provider-visible tool schema 保持 profile 最大 `allowedToolKeys`，sidecar 的 `allowedToolKeys` 作为执行权限子集。模型仍能看到稳定工具 schema，但越权工具会返回 tool error 并允许模型同 run 修正。
+- `report_result.data` 改为 optional；`sidecar_data` 固定 optional，专供 sidecar 返回结构化结果。
+- `sidecarDataSchema` 只在 Harness 侧校验 `report_result.sidecar_data` 或 fallback 结果，不参与 provider-visible tool schema。
 
 ## TODO / Follow-ups
 
-- 细化 `SidecarProfilePass` 类型，并和当前 `defineAgentRuntime()` / `defineAgentProfile()` 类型对齐。
-- 调整 `report_result` 参数 schema：新增固定可选字段 `sidecar_data?: JsonValue`，并确保 `data` / `sidecar_data` 都是 provider-visible optional。
-- 调整 `reportResultSchemaForProfile(profile)`：`profile.outputSchema` 只用于描述可选 `data` 的结构和 runtime 校验，不再把 `data` 放入 required。
 - 实现主路 `report_result.data` 的 runtime 校验策略：当 profile 明确要求结构化输出但模型未给 `data`，由 runtime 决定提醒、失败或允许纯文本错误结果。
-- 调研当前 `allowedToolKeys` 的模型可见性和执行上限耦合点，确定 V1 是否需要最小 ToolPolicyGate。
-- 实现 sidecar forked `RunFrame`，确保 transcript 为 `runtime_only`。
-- 实现 `prepareRun` sidecar merge 到父 run runtime context。
-- 实现 `settleRun` sidecar，并确保父 run 结果和 sidecar 结果的事件顺序可观测。
-- 增加 Harness 级测试：`actor.context-load` 能注入 runtime message。
-- 增加 Harness 级测试：`actor.memory-save` 能在 settle 阶段运行并返回结构化结果。
-- 增加失败测试：sidecar 抛错时父 run 失败。
+- 将 `rp.actor` 接入 `actor.context-load` / `actor.memory-save`，并为 actor 文件路径、读写范围和提示词补 profile 级测试。
+- 明确 sidecar 内部 transcript 是否需要单独 debug 可观测面；V1 只保证不污染主 history。
+- 后续设计工具违规消息清理：删除违规 assistant/toolResult + 注入 system reminder + continue run。
 - 后续再设计 `rp.writer` lorebook retrieval pass。
-- 后续再设计工具违规消息清理与 nested sidecar 需求。
+- 后续再评估 nested sidecar 是否需要开放；V1 禁止自动嵌套。

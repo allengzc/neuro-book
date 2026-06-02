@@ -640,9 +640,7 @@ var init_sql_tool = __esm({
 // assets/workspace/.nbook/agent/profiles/builtin/rp.actor.profile.tsx
 import { readFile } from "node:fs/promises";
 import { isAbsolute, relative as relative3, resolve as resolve2 } from "node:path";
-
-// server/agent/profiles/profile-dsl.ts
-import { resolve, relative as relative2 } from "node:path";
+import { Type as Type3 } from "typebox";
 
 // server/agent/messages/message-utils.ts
 var EMPTY_USAGE = {
@@ -716,6 +714,9 @@ function messageText(message) {
   }
   return message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
 }
+
+// server/agent/profiles/profile-dsl.ts
+import { resolve, relative as relative2 } from "node:path";
 
 // server/agent/plan-mode-path.ts
 import { join, normalize, relative } from "node:path";
@@ -2220,6 +2221,7 @@ function builtinHook(name, stage, result = {}) {
 function defineAgentProfile(profile) {
   assertProfileManifest(profile.manifest);
   assertProfileSummarizer(profile.manifest.key, profile.summarizer);
+  assertProfileSidecars(profile.manifest.key, profile.allowedToolKeys, profile.sidecars);
   if (profile.context && profile.prepare) {
     throw new Error(`profile ${profile.manifest.key} \u4E0D\u80FD\u540C\u65F6\u5B9A\u4E49 context \u548C prepare\u3002`);
   }
@@ -2262,6 +2264,34 @@ function assertProfileSummarizer(profileKey, summarizer) {
   }
   if (summarizer.input !== void 0 && (typeof summarizer.input !== "object" || summarizer.input === null || Array.isArray(summarizer.input))) {
     throw new Error(`profile ${profileKey} summarizer.input \u5FC5\u987B\u662F\u5BF9\u8C61`);
+  }
+}
+function assertProfileSidecars(profileKey, allowedToolKeys2, sidecars) {
+  if (!sidecars) {
+    return;
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const allowed = new Set(allowedToolKeys2);
+  for (const sidecar of sidecars) {
+    if (!sidecar.name.trim()) {
+      throw new Error(`profile ${profileKey} sidecar.name \u4E0D\u80FD\u4E3A\u7A7A`);
+    }
+    if (seen.has(sidecar.name)) {
+      throw new Error(`profile ${profileKey} sidecar \u91CD\u590D\uFF1A${sidecar.name}`);
+    }
+    seen.add(sidecar.name);
+    if (sidecar.stage !== "prepareRun" && sidecar.stage !== "settleRun") {
+      throw new Error(`profile ${profileKey} sidecar ${sidecar.name} stage \u53EA\u652F\u6301 prepareRun \u6216 settleRun`);
+    }
+    for (const toolKey of sidecar.allowedToolKeys ?? []) {
+      if (!allowed.has(toolKey)) {
+        throw new Error(`profile ${profileKey} sidecar ${sidecar.name} allowedToolKeys \u5FC5\u987B\u662F profile allowedToolKeys \u5B50\u96C6\uFF1A${toolKey}`);
+      }
+    }
+    const sidecarToolKeys = sidecar.allowedToolKeys ?? allowedToolKeys2;
+    if (!sidecarToolKeys.includes("report_result") && !sidecar.outputFallback) {
+      throw new Error(`profile ${profileKey} sidecar ${sidecar.name} \u672A\u5141\u8BB8 report_result \u65F6\u5FC5\u987B\u58F0\u660E outputFallback\u3002`);
+    }
   }
 }
 
@@ -2479,22 +2509,18 @@ var profileManifest = {
 var InputSchema = RpActorInputSchema;
 var OutputSchema = RpActorOutputSchema;
 var allowedToolKeys = ["read", "write", "edit", "report_result"];
-var rp_actor_profile_default = defineAgentProfile({
-  manifest: profileManifest,
-  inputSchema: InputSchema,
-  outputSchema: OutputSchema,
-  allowedToolKeys,
-  async context(ctx) {
-    const actorContext = await renderActorContext(ctx);
-    return /* @__PURE__ */ jsxs(ProfilePrompt, { children: [
-      /* @__PURE__ */ jsx(System, { children: renderSystemPrompt(ctx.input) }),
-      /* @__PURE__ */ jsxs(ModelContext, { children: [
-        /* @__PURE__ */ jsx(Message, { children: actorContext }),
-        /* @__PURE__ */ jsx(Message, { children: renderInvocationReminder(ctx.input) })
-      ] }),
-      /* @__PURE__ */ jsx(AppendingSet, { children: /* @__PURE__ */ jsx(WorkdirReminder, {}) })
-    ] });
-  }
+var ActorContextLoadSidecarSchema = Type3.Object({
+  actor_safe_context: Type3.String({ description: "\u51C6\u5907\u6CE8\u5165 actor \u4E3B run \u7684\u89D2\u8272\u53EF\u77E5\u8BBE\u5B9A\u6458\u8981\uFF1B\u6CA1\u6709\u989D\u5916\u4FE1\u606F\u65F6\u5199\u7A7A\u5B57\u7B26\u4E32\u3002" }),
+  sources: Type3.Array(Type3.String({ description: "\u672C\u6B21\u6458\u8981\u53C2\u8003\u7684 actor \u6587\u4EF6\u6216 actor-safe lorebook \u8DEF\u5F84\u3002" })),
+  withheld: Type3.Array(Type3.String({ description: "\u53D1\u73B0\u4F46\u4E0D\u5E94\u6CE8\u5165\u7ED9\u89D2\u8272\u7684\u9690\u85CF\u4FE1\u606F\u7C7B\u522B\u6216\u539F\u56E0\uFF1B\u6CA1\u6709\u8FD4\u56DE\u7A7A\u6570\u7EC4\u3002" })),
+  confidence: Type3.String({ description: "\u5BF9\u672C\u6B21\u8FC7\u6EE4\u7ED3\u679C\u7684\u628A\u63E1\uFF0C\u4F8B\u5982 high\u3001medium\u3001low\u3002" })
+});
+var ActorMemorySaveSidecarSchema = Type3.Object({
+  changed_files: Type3.Array(Type3.String({ description: "\u672C\u6B21\u5B9E\u9645\u4FEE\u6539\u7684\u6587\u4EF6\u8DEF\u5F84\uFF1B\u6CA1\u6709\u4FEE\u6539\u8FD4\u56DE\u7A7A\u6570\u7EC4\u3002" })),
+  knowledge_summary: Type3.String({ description: "knowledge.md \u7684\u66F4\u65B0\u6458\u8981\uFF1B\u6CA1\u6709\u4FEE\u6539\u5199\u7A7A\u5B57\u7B26\u4E32\u3002" }),
+  mind_summary: Type3.String({ description: "mind.md \u7684\u66F4\u65B0\u6458\u8981\uFF1B\u6CA1\u6709\u4FEE\u6539\u5199\u7A7A\u5B57\u7B26\u4E32\u3002" }),
+  skipped: Type3.Array(Type3.String({ description: "\u672C\u6B21\u6CA1\u6709\u5199\u5165\u7684\u539F\u56E0\u3001\u88AB\u8DF3\u8FC7\u7684\u66F4\u65B0\u6216\u4EA4\u7ED9\u5176\u4ED6\u7CFB\u7EDF\u5904\u7406\u7684\u5185\u5BB9\u3002" })),
+  needs_gm_review: Type3.Array(Type3.String({ description: "\u9700\u8981 GM \u540E\u7EED\u88C1\u51B3\u6216\u786E\u8BA4\u7684\u4FE1\u606F\u3002" }))
 });
 function renderSystemPrompt(input) {
   const actorName = input.actorName?.trim() || input.actorId;
@@ -2516,13 +2542,13 @@ function renderSystemPrompt(input) {
         - knowledge.md 是给你看的角色视角资料；你把它当作当前已知信息使用，不判断它是否符合上帝视角真相。
         - GM 没有写入当前消息或你的角色文件的信息，不能变成你的台词、判断或内心确定事实。
 
-        # 角色文件维护
+        # 角色记忆边界
 
-        - 你可以读取和编辑自己的 knowledgePath：${input.knowledgePath}。
-        - 你可以读取和编辑自己的 mindPath：${input.mindPath}。
-        - 你可以读取和编辑自己的 statePath：${input.statePath}。
-        - 不要写入 actor.md，不要写入其他路径，不要整理 lorebook。
-        - 只有 GM 当前消息或本 Tick 互动让角色真的获得了新认知，才更新 knowledge.md。
+        - 主扮演阶段不要主动调用 read、write 或 edit，不要亲自维护文件。
+        - 角色文件维护由 actor.memory-save 旁路完成；你只在 report_result.data 里返回本 Tick 的更新摘要。
+        - knowledge_update 只写角色本 Tick 新知道、被告知、观察到或自然推断到的信息摘要；没有就填空字符串。
+        - mind_update 只写角色当前想法、判断、犹豫、情绪或动机变化摘要；没有就填空字符串。
+        - state_update 只报告你观察到的状态变化候选，最终是否更新 state.md 由 GM / 后续状态系统裁决。
         - knowledge.md 记录角色已经知道、被告知、观察到或自然推断到的信息，不写 GM 推理或真实隐藏设定。
         - knowledge.md 使用二级章节归类，用三级标题表示具体条目；新增内容写成三级标题加正文段落，不要用 Markdown 列表堆条目。
         - 不要在 knowledge.md 新增“信念与误解”“最近更新”或“更新规则”章节。写入规则由本提示词负责。
@@ -2530,8 +2556,7 @@ function renderSystemPrompt(input) {
         - mind.md 记录角色当前正在想什么、判断什么、犹豫什么、想要什么；它是短期心理状态，不是世界真相。
         - state.md 记录位置、随身物品、伤势、姿态、关系压力和短期目标等可变状态。
         - 当前工具没有 runtime path scope，遵守这个边界是你的硬性职责。
-        - 如果本 Tick 没有真实变化，不要为了“完成更新”而改文件；在对应 update 字段填空字符串。
-        - 文件更新要短，优先追加或局部修改，不要重写整份文件，不要把 report_result packet 写进文件。
+        - 如果本 Tick 没有真实变化，不要为了“完成更新”而编造 update；在对应 update 字段填空字符串。
 
         # 扮演方式
 
@@ -2594,10 +2619,134 @@ async function renderActorContext(ctx) {
 function renderInvocationReminder(input) {
   return profileText`
         本轮请等待或处理 GM 通过当前 user message 发来的 actor-facing message。
-        只回复 GM，并必须调用 report_result。必要时可更新 ${input.knowledgePath}、${input.mindPath}、${input.statePath}，但不要读取或编辑其他路径。
+        只回复 GM，并必须调用 report_result。不要主动读写文件；只在 knowledge_update、mind_update、state_update 中报告本 Tick 产生的更新候选。
         如果消息信息不足，只基于角色会观察到的表层事实回应，可以在 questions_to_gm 中请求裁决，不要自行补隐藏设定。
     `;
 }
+var actorContextLoadPass = {
+  name: "actor.context-load",
+  stage: "prepareRun",
+  allowedToolKeys: ["read", "report_result"],
+  sidecarDataSchema: ActorContextLoadSidecarSchema,
+  enterPrompt: (ctx) => profileText`
+        退出角色扮演模式。你现在是 rp.actor 的 context-load 旁路，不要扮演角色，不要输出角色台词。
+
+        目标：在 actor 主扮演 run 开始前，基于当前 GM actor-facing message 检索并整理该角色合理可知的补充设定。
+
+        当前 actor：
+        - actorId: ${ctx.input.actorId}
+        - actorName: ${ctx.input.actorName?.trim() || ctx.input.actorId}
+        - kind: ${ctx.input.kind?.trim() || "\u672A\u6307\u5B9A"}
+        - instructionPath: ${ctx.input.instructionPath}
+        - knowledgePath: ${ctx.input.knowledgePath}
+        - mindPath: ${ctx.input.mindPath}
+        - statePath: ${ctx.input.statePath}
+
+        规则：
+        - 你可以读取当前 actor 自己的 actor.md、knowledge.md、mind.md、state.md。
+        - 你可以读取与 GM 当前消息直接相关、且可以过滤成 actor-safe 摘要的 lorebook 条目。
+        - 不要读取 roleplay/gm.md、roleplay/writer.md、roleplay/playthrough、GM scratch、其他 actor 目录或 reference 原始素材。
+        - 如果 lorebook 条目混有公开信息和隐藏真相，只提取角色此刻合理能知道、看见、听见、感受到或自然推断到的部分。
+        - 不要把隐藏真相、作者设定、GM 裁决过程、其他角色私密知识注入 actor_safe_context。
+        - 如果没有额外 actor-safe 设定，actor_safe_context 返回空字符串，并在 withheld 说明原因。
+
+        完成后调用 report_result，把结构化结果放在 sidecar_data 字段，不要使用主路 data 字段。
+    `,
+  merge(_ctx, result) {
+    const data = result.sidecarData;
+    const context = data.actor_safe_context.trim() || "\u672C Tick \u6CA1\u6709\u989D\u5916 actor-safe \u8BBE\u5B9A\u6CE8\u5165\u3002";
+    return {
+      runtimeMessages: [
+        createUserMessage({
+          text: profileText`
+                        <actor_sidecar_context source="actor.context-load">
+                        ${context}
+
+                        sources: ${data.sources.length ? data.sources.join(", ") : "\u65E0"}
+                        withheld: ${data.withheld.length ? `\u6709 ${data.withheld.length} \u6761\u4E0D\u5E94\u7531\u89D2\u8272\u5F97\u77E5\u7684\u4FE1\u606F\u5DF2\u4FDD\u7559\u3002` : "\u65E0"}
+                        confidence: ${data.confidence}
+                        </actor_sidecar_context>
+                    `
+        })
+      ]
+    };
+  }
+};
+var actorMemorySavePass = {
+  name: "actor.memory-save",
+  stage: "settleRun",
+  allowedToolKeys: ["read", "write", "edit", "report_result"],
+  sidecarDataSchema: ActorMemorySaveSidecarSchema,
+  enterPrompt: (ctx) => profileText`
+        退出角色扮演模式。你现在是 rp.actor 的 memory-save 旁路，不要继续扮演角色，不要新增角色台词或行动。
+
+        目标：根据刚刚完成的 actor 主 run 结果，维护该 actor 的 knowledge.md 与 mind.md。
+
+        当前 actor：
+        - actorId: ${ctx.input.actorId}
+        - actorName: ${ctx.input.actorName?.trim() || ctx.input.actorId}
+        - knowledgePath: ${ctx.input.knowledgePath}
+        - mindPath: ${ctx.input.mindPath}
+        - statePath: ${ctx.input.statePath}
+
+        主 run report_result.data：
+        ${formatJson(ctx.runResult?.reportResult?.data)}
+
+        写入规则：
+        - 只允许读取和修改 knowledgePath 与 mindPath。
+        - 不要修改 actor.md。
+        - 不要修改 statePath；即使主 run 返回 state_update，也只在 skipped 或 needs_gm_review 中说明交给 GM / 后续状态系统处理。
+        - knowledge.md 只写角色已经知道、被告知、观察到或自然推断到的信息，不写 GM 推理、真实隐藏设定或其他角色私密知识。
+        - mind.md 只写角色当前想法、判断、犹豫、情绪或动机，不写世界真相。
+        - 如果 knowledge_update 或 mind_update 为空，或者现有文件已经覆盖该信息，不要为了更新而改文件。
+        - 文件更新要短，优先局部 edit；只有确实需要完整重写时才使用 write。
+        - 不要把 report_result packet 写进文件。
+
+        完成后调用 report_result，把结构化结果放在 sidecar_data 字段，不要使用主路 data 字段。
+    `,
+  merge(_ctx, result) {
+    return {
+      runtimeState: {
+        changed_files: result.sidecarData.changed_files,
+        knowledge_summary: result.sidecarData.knowledge_summary,
+        mind_summary: result.sidecarData.mind_summary,
+        skipped: result.sidecarData.skipped,
+        needs_gm_review: result.sidecarData.needs_gm_review
+      }
+    };
+  }
+};
+function formatJson(value) {
+  if (value === void 0) {
+    return "\u672A\u63D0\u4F9B report_result.data\u3002";
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+var rp_actor_profile_default = defineAgentProfile({
+  manifest: profileManifest,
+  inputSchema: InputSchema,
+  outputSchema: OutputSchema,
+  allowedToolKeys,
+  sidecars: [
+    actorContextLoadPass,
+    actorMemorySavePass
+  ],
+  async context(ctx) {
+    const actorContext = await renderActorContext(ctx);
+    return /* @__PURE__ */ jsxs(ProfilePrompt, { children: [
+      /* @__PURE__ */ jsx(System, { children: renderSystemPrompt(ctx.input) }),
+      /* @__PURE__ */ jsxs(ModelContext, { children: [
+        /* @__PURE__ */ jsx(Message, { children: actorContext }),
+        /* @__PURE__ */ jsx(Message, { children: renderInvocationReminder(ctx.input) })
+      ] }),
+      /* @__PURE__ */ jsx(AppendingSet, { children: /* @__PURE__ */ jsx(WorkdirReminder, {}) })
+    ] });
+  }
+});
 async function readWorkspaceFile(workspaceRoot, relativePath) {
   const root = resolve2(workspaceRoot);
   const normalizedPath = relativePath.trim().replace(/\\/g, "/").replace(/^\/+/, "");

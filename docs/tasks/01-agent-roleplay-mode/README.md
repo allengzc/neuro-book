@@ -194,14 +194,14 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 
 - 变量系统暂不实现。第一阶段先把纯文本卡导入做好；复杂数值、好感度、背包、任务进度、状态栏等后续专门设计。
 - 泛用自然语言编辑工具先记录为 TODO。该工具不是 state 专用，参数方向暂定为：目标文件、自然语言操作说明、可选携带上下文消息数量，后续可接轻量模型。
-- `SidecarProfilePass` 已记录在 `docs/tasks/23-agent-sidecar-profile-pass/README.md`，但本次 roleplay spike 先不实现。当前策略是 writer 由 GM 注入可写 lorebook 摘要，actor 可直接维护自己的 `knowledge.md`。
+- `SidecarProfilePass` 已在 Harness 层实现 V1，详见 `docs/tasks/23-agent-sidecar-profile-pass/README.md`。`rp.actor` 已接入 `actor.context-load` / `actor.memory-save` 两个旁路：主 run 前检索并注入 actor-safe 设定，主 run 后维护 `knowledge.md` 与 `mind.md`；`state.md` 仍由 GM / 后续状态系统负责。`rp.writer` 暂未接入 sidecar，仍由 GM 注入可写 lorebook 摘要。
 - 已新增第一版 RP builtin profiles：
   - `leader.rp`：用户进入 RP 模式后的 GM 主控 profile，读取 `roleplay/` 运行目录，初始化/复用 `rp.actor` 和 `rp.writer`，按 Tick 协议进行信息过滤、actor 调度、世界裁决和 writer brief 构造；GM 直接面向用户叙述，开局负责说明玩家已知信息、当前处境和必要背景。
   - `rp.actor`：通用角色扮演 profile，创建 input 绑定 `actor.md`、`knowledge.md`、`mind.md` 与 `state.md`，运行时自动注入这些文件；每轮只根据 GM packet 返回结构化 actor response packet。
   - `rp.writer`：RP Tick 正文渲染 profile，创建 input 绑定 `roleplay/writer.md`，每轮根据 GM writer brief 直接输出正文；可使用 bash 与文件工具，但只操作 GM 明确指定路径，不自主检索完整 lorebook。
 - 当前 profile 工具边界：
   - `leader.rp` 只有只读文件、bash、agent 编排和用户询问工具，不直接写文件。
-  - `rp.actor` 暂时开放 `read` / `write` / `edit` / `report_result`，用于维护自己的 `knowledge.md`、`mind.md`、`state.md`；现有工具系统尚不能 runtime-enforce path scope，因此第一版通过 profile prompt 严格约束只能操作 `knowledgePath`、`mindPath`、`statePath`。
+  - `rp.actor` 保留 `read` / `write` / `edit` / `report_result` 作为 profile 最大工具集合；主扮演 run 不主动读写文件，只返回 actor packet 与更新摘要。`actor.context-load` 旁路允许 `read` / `report_result`，`actor.memory-save` 旁路允许 `read` / `write` / `edit` / `report_result`，并通过 prompt 限定只维护 `knowledgePath` 与 `mindPath`。
   - `rp.writer` 开放 `read` / `write` / `edit` / `bash`，但提示词约束它只按 GM 明确路径读写；正文用普通 assistant 回复，不强制 `report_result`。
 - 已更新 `leader.default` 的多 Agent 协作说明：进入 roleplay 模式时优先创建或切换到 `leader.rp`；`rp.actor` 和 `rp.writer` 通常只由 `leader.rp` 调用。
 - 试用反馈已落地到 profile/template：
@@ -284,4 +284,4 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 - 设计泛用自然语言编辑工具：输入目标文件、自然语言操作说明和可选上下文消息数量，由轻量模型辅助修改文件；后续可用于 Agent 记忆系统、RP 状态维护和常规文件编辑减负。
 - 单独讨论 RP 变量系统：如何表示数值、列表、背包、好感度、任务、世界时钟，以及它和 `state.md`、`roleplay/playthrough/` 的关系。
 - 继续细化 `roleplay/playthrough/`：分支剧情、debug 信息、正式游玩时是否保留示例 Tick，以及 writer 正文文件命名规则。
-- 后续设计 sidecar result pass，让 actor 主上下文沉浸回复，旁路上下文通过 `report_result.sidecar_data` 整理结构化结果与 playthrough result 文件。
+- 后续继续增强 `actor.context-load` 的 lorebook 信息过滤规则，例如结合 visibility frontmatter、actor-safe 摘要字段和 GraphRAG who-knows-what 边；`rp.writer` 写作前 lorebook retrieval sidecar 仍待设计。

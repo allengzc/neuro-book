@@ -16,6 +16,8 @@ import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
 
 const ReportResultSchema = Type.Object({
     result: Type.String(),
+    data: Type.Optional(Type.Unknown()),
+    sidecar_data: Type.Optional(Type.Unknown()),
 });
 
 const RequestUserInputQuestionOptionSchema = Type.Object({
@@ -357,11 +359,8 @@ export function createReportResultTool(parameters: TSchema, outputSchema?: TSche
         description: "Report final agent result to the caller.",
         parameters,
         async execute(_toolCallId, params: unknown) {
-            const report = params as {result: string; data?: unknown};
-            if (outputSchema && !("data" in report)) {
-                throw new Error("report_result.data 是当前 profile OutputSchema 要求的必填字段。");
-            }
-            if (outputSchema) {
+            const report = params as {result: string; data?: unknown; sidecar_data?: unknown};
+            if (outputSchema && "data" in report) {
                 try {
                     Value.Parse(outputSchema, report.data);
                 } catch (error) {

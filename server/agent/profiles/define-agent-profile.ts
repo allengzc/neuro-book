@@ -13,6 +13,7 @@ export function defineAgentProfile<
 >(profile: AgentProfile<TInputSchema, TOutputSchema, TSummarizerKey>): AgentProfile<TInputSchema, TOutputSchema, TSummarizerKey> {
     assertProfileManifest(profile.manifest);
     assertProfileSummarizer(profile.manifest.key, profile.summarizer);
+    assertProfileSidecars(profile.manifest.key, profile.allowedToolKeys, profile.sidecars);
     if (profile.context && profile.prepare) {
         throw new Error(`profile ${profile.manifest.key} 不能同时定义 context 和 prepare。`);
     }
@@ -67,5 +68,37 @@ function assertProfileSummarizer(profileKey: string, summarizer: AgentProfile["s
     }
     if (summarizer.input !== undefined && (typeof summarizer.input !== "object" || summarizer.input === null || Array.isArray(summarizer.input))) {
         throw new Error(`profile ${profileKey} summarizer.input 必须是对象`);
+    }
+}
+
+/**
+ * 校验 profile 声明的 sidecar pass。V1 只支持当前 profile 内 prepareRun/settleRun 自动旁路。
+ */
+function assertProfileSidecars(profileKey: string, allowedToolKeys: readonly string[], sidecars: readonly {name: string; stage: string; allowedToolKeys?: readonly string[]; outputFallback?: string}[] | undefined): void {
+    if (!sidecars) {
+        return;
+    }
+    const seen = new Set<string>();
+    const allowed = new Set(allowedToolKeys);
+    for (const sidecar of sidecars) {
+        if (!sidecar.name.trim()) {
+            throw new Error(`profile ${profileKey} sidecar.name 不能为空`);
+        }
+        if (seen.has(sidecar.name)) {
+            throw new Error(`profile ${profileKey} sidecar 重复：${sidecar.name}`);
+        }
+        seen.add(sidecar.name);
+        if (sidecar.stage !== "prepareRun" && sidecar.stage !== "settleRun") {
+            throw new Error(`profile ${profileKey} sidecar ${sidecar.name} stage 只支持 prepareRun 或 settleRun`);
+        }
+        for (const toolKey of sidecar.allowedToolKeys ?? []) {
+            if (!allowed.has(toolKey)) {
+                throw new Error(`profile ${profileKey} sidecar ${sidecar.name} allowedToolKeys 必须是 profile allowedToolKeys 子集：${toolKey}`);
+            }
+        }
+        const sidecarToolKeys = sidecar.allowedToolKeys ?? allowedToolKeys;
+        if (!sidecarToolKeys.includes("report_result") && !sidecar.outputFallback) {
+            throw new Error(`profile ${profileKey} sidecar ${sidecar.name} 未允许 report_result 时必须声明 outputFallback。`);
+        }
     }
 }

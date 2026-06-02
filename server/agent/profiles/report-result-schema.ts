@@ -19,17 +19,18 @@ export function isEmptyObjectSchema(schema: TSchema | undefined): boolean {
  * 从目标 profile 的 OutputSchema 派生 report_result 的模型可见参数 schema。
  */
 export function reportResultSchemaForProfile(profile: AgentProfile): TSchema {
-    if (isEmptyObjectSchema(profile.outputSchema)) {
-        return Type.Object({
-            result: Type.String({
-                description: "本次工具调用的可读结果；需要时可以写简短 walkthrough。",
-            }),
-        });
-    }
-    return Type.Object({
+    const properties = {
         result: Type.String({
             description: "本次工具调用的可读结果；需要时可以写简短 walkthrough。",
         }),
-        data: profile.outputSchema as TSchema,
-    });
+        ...isEmptyObjectSchema(profile.outputSchema)
+            ? {}
+            : {
+                data: Type.Optional(profile.outputSchema as TSchema),
+            },
+        sidecar_data: Type.Optional(Type.Unknown({
+            description: "旁路 phase 的结构化返回值。普通主路调用不要使用；具体结构由旁路 system reminder 说明，并由 Harness 校验。",
+        })),
+    };
+    return Type.Object(properties);
 }

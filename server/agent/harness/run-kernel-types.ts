@@ -120,6 +120,8 @@ export type RunFrame = {
     requestOptions?: Record<string, JsonValue>;
     compaction?: ProfileCompactionPlan;
     toolKeys: string[];
+    /** 当前 phase 实际可执行工具；为空时等于 toolKeys。 */
+    executionToolKeys?: string[];
     profileKey: string;
     profile: AgentProfile;
     thinkingLevel: ThinkingLevel;
@@ -132,6 +134,14 @@ export type RunFrame = {
     reportResultReminderSent: boolean;
     reportResultReminderEnabled: boolean;
     automaticCompactionEnabled: boolean;
+    /** sidecar run 强制不把 assistant/toolResult transcript 写入 session。 */
+    forceRuntimeOnlyTranscript?: boolean;
+    /** sidecar run 默认不向公开事件流发送内部 turn 事件。 */
+    suppressEvents?: boolean;
+    /** sidecar run 不消费用户 steer，避免旁路吃掉主 run 的引导。 */
+    disableSteer?: boolean;
+    /** sidecar run 不触发自动压缩，避免旁路写入 compaction entry。 */
+    disableAutomaticCompaction?: boolean;
     lastTurnIngest?: TurnIngestResult;
     pendingWritePlans: PendingSessionWritePlan[];
     onEvent?: (event: AgentRuntimeStreamEventDto) => void | Promise<void>;
@@ -149,6 +159,7 @@ export type TurnSnapshot = {
     timeoutMs?: number | null;
     requestOptions?: Record<string, JsonValue>;
     toolKeys: string[];
+    executionToolKeys: string[];
     toolOverrides: Record<string, NeuroAgentTool>;
     tools: ReturnType<AgentToolRegistry["allowed"]>;
     thinkingLevel: ThinkingLevel;

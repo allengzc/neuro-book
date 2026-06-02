@@ -2216,6 +2216,7 @@ function builtinHook(name, stage, result = {}) {
 function defineAgentProfile(profile) {
   assertProfileManifest(profile.manifest);
   assertProfileSummarizer(profile.manifest.key, profile.summarizer);
+  assertProfileSidecars(profile.manifest.key, profile.allowedToolKeys, profile.sidecars);
   if (profile.context && profile.prepare) {
     throw new Error(`profile ${profile.manifest.key} \u4E0D\u80FD\u540C\u65F6\u5B9A\u4E49 context \u548C prepare\u3002`);
   }
@@ -2258,6 +2259,34 @@ function assertProfileSummarizer(profileKey, summarizer) {
   }
   if (summarizer.input !== void 0 && (typeof summarizer.input !== "object" || summarizer.input === null || Array.isArray(summarizer.input))) {
     throw new Error(`profile ${profileKey} summarizer.input \u5FC5\u987B\u662F\u5BF9\u8C61`);
+  }
+}
+function assertProfileSidecars(profileKey, allowedToolKeys2, sidecars) {
+  if (!sidecars) {
+    return;
+  }
+  const seen = /* @__PURE__ */ new Set();
+  const allowed = new Set(allowedToolKeys2);
+  for (const sidecar of sidecars) {
+    if (!sidecar.name.trim()) {
+      throw new Error(`profile ${profileKey} sidecar.name \u4E0D\u80FD\u4E3A\u7A7A`);
+    }
+    if (seen.has(sidecar.name)) {
+      throw new Error(`profile ${profileKey} sidecar \u91CD\u590D\uFF1A${sidecar.name}`);
+    }
+    seen.add(sidecar.name);
+    if (sidecar.stage !== "prepareRun" && sidecar.stage !== "settleRun") {
+      throw new Error(`profile ${profileKey} sidecar ${sidecar.name} stage \u53EA\u652F\u6301 prepareRun \u6216 settleRun`);
+    }
+    for (const toolKey of sidecar.allowedToolKeys ?? []) {
+      if (!allowed.has(toolKey)) {
+        throw new Error(`profile ${profileKey} sidecar ${sidecar.name} allowedToolKeys \u5FC5\u987B\u662F profile allowedToolKeys \u5B50\u96C6\uFF1A${toolKey}`);
+      }
+    }
+    const sidecarToolKeys = sidecar.allowedToolKeys ?? allowedToolKeys2;
+    if (!sidecarToolKeys.includes("report_result") && !sidecar.outputFallback) {
+      throw new Error(`profile ${profileKey} sidecar ${sidecar.name} \u672A\u5141\u8BB8 report_result \u65F6\u5FC5\u987B\u58F0\u660E outputFallback\u3002`);
+    }
   }
 }
 

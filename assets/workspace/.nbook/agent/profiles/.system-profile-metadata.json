@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-01T04:53:13.070Z",
+  "generatedAt": "2026-06-02T01:04:29.737Z",
   "profilesRoot": "assets/workspace/.nbook/agent/profiles",
   "profiles": [
     {
@@ -35,8 +35,8 @@
     {
       "fileName": "builtin/rp.actor.profile.tsx",
       "profileKey": "rp.actor",
-      "sha256": "22d159090063b727800f0dafe198ab6334cb037c9226eb973988ea9c94da65d4",
-      "bytes": 9586
+      "sha256": "9aa346d63fc1dd063e42428614bf6d75d82f3d0803bfaa72ffcf41cd7697ef4c",
+      "bytes": 16513
     },
     {
       "fileName": "builtin/rp.writer.profile.tsx",

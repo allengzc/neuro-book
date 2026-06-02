@@ -51,7 +51,10 @@ export type InvokeAgentResult = {
     reportResult?: {
         result: string;
         success?: boolean;
+        /** 为空表示本次主路没有可用结构化结果，例如任务失败或只返回可读错误说明。 */
         data?: unknown;
+        /** 为空表示本次不是 sidecar 返回，或 sidecar 没有提供结构化旁路结果。 */
+        sidecar_data?: unknown;
     };
     error?: string;
     errorPhase?: InvocationErrorPhase;

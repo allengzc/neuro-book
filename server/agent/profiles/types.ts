@@ -1,6 +1,7 @@
 import type {Static, TSchema} from "typebox";
 import type {AgentMessage, JsonValue, Message} from "nbook/server/agent/messages/types";
 import type {NeuroSessionContext, SessionEntryDraft} from "nbook/server/agent/session/types";
+import type {SessionWritePlan} from "nbook/server/agent/session/write-plan";
 import type {ProfileDslNode} from "nbook/server/agent/profiles/profile-dsl";
 import type {SkillCatalogItem} from "nbook/server/agent/skills/skill-catalog";
 import type {ClientStateSnapshot, ProfileVariableAccessor, VariableDefinition} from "nbook/server/agent/variables/types";
@@ -119,6 +120,51 @@ export type AgentProfileSummarizerConfig<TKey extends string = string> = {
     input?: TKey extends keyof KnownAgentProfileInputs ? KnownAgentProfileInputs[TKey] : JsonValue;
 };
 
+export type SidecarProfilePassStage = "prepareRun" | "settleRun";
+
+export type SidecarContext<TInput = JsonValue> = {
+    name: string;
+    stage: SidecarProfilePassStage;
+    sessionId: number;
+    session: RuntimeSessionFacade;
+    input: TInput;
+    invocationId: string;
+    profileKey: string;
+    runResult?: {
+        status: "completed" | "waiting";
+        finalMessage?: string;
+        reportResult?: {
+            result: string;
+            success?: boolean;
+            /** 为空表示主路未返回结构化 data。 */
+            data?: unknown;
+            /** 为空表示本次不是 sidecar 返回，或 sidecar 没有提供结构化旁路结果。 */
+            sidecar_data?: unknown;
+        };
+    };
+};
+
+export type SidecarResult<TSidecarData = JsonValue> = {
+    result: string;
+    sidecarData: TSidecarData;
+};
+
+export type SidecarMergePlan = {
+    runtimeMessages?: AgentMessage[];
+    runtimeState?: JsonValue;
+    writePlans?: SessionWritePlan[];
+};
+
+export type SidecarProfilePass<TInput = JsonValue, TSidecarData = JsonValue> = {
+    name: string;
+    stage: SidecarProfilePassStage;
+    enterPrompt: string | ((ctx: SidecarContext<TInput>) => string);
+    allowedToolKeys?: readonly string[];
+    sidecarDataSchema?: TSchema;
+    outputFallback?: "final_message_as_result" | "parse_final_message_json";
+    merge(ctx: SidecarContext<TInput>, result: SidecarResult<TSidecarData>): SidecarMergePlan | Promise<SidecarMergePlan>;
+};
+
 export type AgentProfile<
     TInputSchema extends TSchema = TSchema,
     TOutputSchema extends TSchema = TSchema,
@@ -128,6 +174,7 @@ export type AgentProfile<
     inputSchema: TInputSchema;
     outputSchema?: TOutputSchema;
     allowedToolKeys: readonly string[];
+    sidecars?: readonly SidecarProfilePass<Static<TInputSchema>, JsonValue>[];
     summarizer?: AgentProfileSummarizerConfig<TSummarizerKey>;
     runtime?: AgentRuntimeDefinition<Static<TInputSchema>> | NormalizedAgentRuntimeDefinition<Static<TInputSchema>>;
     /** profile 自带的 session.* 变量定义，随 profile `.compiled` artifact 加载。 */
