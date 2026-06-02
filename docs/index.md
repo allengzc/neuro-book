@@ -35,14 +35,14 @@ features:
 
 如果你只是想先跑起来，先读 [快速开始](/quick-start)。如果你要部署到自己的机器或服务器，读 [部署方式](/deployment)。
 
-如果你想理解 NeuroBook 的产品心智模型，读 [介绍](/introduction)。如果你要理解 Agent 如何工作，读 [Agent](/agent/) 和 [Profile](/profile/)。
+如果你想理解 NeuroBook 的产品心智模型，读 [介绍](/introduction)。如果你要理解 Agent 如何工作，读 [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md)。
 
 ## 文档分区
 
 - [介绍](/introduction)：NeuroBook 是什么，适合谁，和普通 AI 聊天工具有什么区别。
 - [快速开始](/quick-start)：最短路径跑起应用并创建管理员。
 - [部署方式](/deployment)：Windows Release Zip、local-git、ghcr、source 的选择和边界。
-- [Agent](/agent/)：session、linked agent、tool、skill、sidecar 的使用心智。
-- [Profile](/profile/)：leader、writer、retrieval、RP 等 profile 的职责。
-- [Profile TSX](/profile-tsx/)：用 TSX 表达 prompt、上下文和运行期提醒。
-- [高级概念](/agent/advanced)：Agent Harness、runtime hooks、SSE 和 session tree 的后续阅读入口。
+- [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md)：session、linked agent、tool、skill、sidecar、profile 和 TSX DSL 的稳定参考。
+- [Leader 协作协议](https://github.com/notnotype/neuro-book/blob/master/reference/agent/leader-default.md)：leader、writer、retrieval、researcher、RP profiles 的职责和调用边界。
+- [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-guide.md)：用 TSX 表达 prompt、上下文和运行期提醒。
+- [Agent Harness](https://github.com/notnotype/neuro-book/blob/master/reference/agent/harness.md)：Agent Harness、runtime hooks、SSE 和 session tree 的后续阅读入口。

@@ -31,6 +31,7 @@ import type {AgentTriggerMenuContext, AgentTriggerMenuItem, AgentTriggerMenuStat
 import {useNovelIdeStore, type AgentWorkspaceSyncPayload, type WorkspaceEditorKind, type WorkspaceEditorViewMode, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import type {WorkspaceFileChangeEventDto, WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {
     collectWorkspaceReferencePathCandidates,
 } from "nbook/app/utils/workspace-reference-search";
@@ -67,7 +68,6 @@ const bookshelfOpen = ref(false);
 const settingsDialogOpen = ref(false);
 const profileWorkbenchOpen = ref(false);
 const frontmatterProfileKind = ref<FrontmatterProfileKind | null>(null);
-const fileDiagnosticsText = ref("");
 const agentStudioFileTreeOpen = ref(false);
 const saveQueued = ref(false);
 const workspaceEventAbortController = ref<AbortController | null>(null);
@@ -634,7 +634,7 @@ function normalizeWorkspacePath(filePath: string): string {
 }
 
 /**
- * 保存当前真实文件，并更新工具栏诊断文本。
+ * 保存当前真实文件；保存冲突由 store 打开 Diff dialog。
  */
 const saveCurrentWorkspaceFile = async (): Promise<void> => {
     if (!initialized.value || !selectedFileNode.value?.editable) {
@@ -646,12 +646,9 @@ const saveCurrentWorkspaceFile = async (): Promise<void> => {
     }
 
     try {
-        const node = await saveCurrentFile();
-        fileDiagnosticsText.value = node
-            ? ""
-            : novelIdeStore.workspaceWriteConflict ? "真实文件已被修改，请处理保存冲突" : "当前文件不可保存";
+        await saveCurrentFile();
     } catch (error) {
-        fileDiagnosticsText.value = error instanceof Error ? error.message : "自动保存失败";
+        notification.error(resolveApiErrorMessage(error, "自动保存失败"), {title: "保存失败"});
     } finally {
         if (saveQueued.value && !novelIdeStore.workspaceWriteConflict && selectedFileContent.value !== lastSyncedFileContent.value) {
             saveQueued.value = false;
@@ -1543,7 +1540,6 @@ onBeforeUnmount(() => {
                             :editor-preferences="markdownEditorPreferences"
                             :monaco-preferences="monacoEditorPreferences"
                             :monaco-temporary-font-size="displayMonacoTemporaryFontSize"
-                            :diagnostics-text="fileDiagnosticsText"
                             :reference-refresh-key="workspaceReferenceRefreshKey"
                             :resolve-menu="resolveMarkdownMenu"
                             :open-reference="openWorkspaceReference"

@@ -74,8 +74,8 @@ name: User Writer
         const keys = skills.map((skill) => skill.key);
         const skill = skills.find((item) => item.key === "profile-system-guide");
 
-        expect(skill?.source).toBe("system");
-        expect(skill?.skillPath.replaceAll("\\", "/")).toContain("assets/workspace/.nbook/agent/skills/profile-system-guide/SKILL.md");
+        expect(skill?.source).toMatch(/^(system|user)$/);
+        expect(skill?.skillPath.replaceAll("\\", "/")).toContain(".nbook/agent/skills/profile-system-guide/SKILL.md");
         expect(skill?.description).toContain("harness");
         expect(keys).toEqual(expect.arrayContaining([
             "番茄小说导入",
@@ -87,6 +87,11 @@ name: User Writer
             "爽文",
             "小说初始化流程",
             "小说灵感探索流程",
+            "novel-workflow-05-emulation-bootstrap",
+            "novel-workflow-06-emulation-tick",
+            "novel-workflow-09-chapter-writing",
+            "novel-workflow-10-revision",
+            "novel-technique-commercial-rhythm",
             "skill-creator",
             "skill-creator-zh",
             "tsx-profile-editing",

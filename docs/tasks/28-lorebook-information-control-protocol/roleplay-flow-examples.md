@@ -253,16 +253,12 @@ subjectVisibleProperties:
 Tick 产物可以保存：
 
 ```text
-simulation/runs/ticks/000001/
-|-- user-input.md
-|-- simulator-scratch.md
-|-- subject-results/
-|   `-- erina.md
-|-- entity-updates/
-|   `-- world-heart-fragment-a.md
-|-- writer-brief.md
+simulation/runs/ticks/000001-world-heart-handoff/
+|-- report.md
 `-- prose.md
 ```
+
+`report.md` 记录用户输入摘要、simulator scratch、subject result 摘要、entity update、writer-safe brief、commits 和后续钩子。`prose.md` 单独保存 writer 或 leader 最终给用户看的正文。`input.md`、actor packet、commit log 等机械文件后续可由 workflow/runtime 自动生成，不要求第一版手写。
 
 ## Flow 5: 普通物品和特殊物品
 

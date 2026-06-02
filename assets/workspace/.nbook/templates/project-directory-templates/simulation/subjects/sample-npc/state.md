@@ -2,6 +2,8 @@
 
 本文件记录示例 NPC 当前状态。它是可变运行状态，不是角色卡稳定设定。
 
+本文件由 GM 裁决后维护。actor 可以报告状态变化候选，但不自行决定真实世界状态；特殊实例状态应放入 `simulation/entities/`。
+
 ## 当前位置
 
 - 待填写。
@@ -11,6 +13,18 @@
 
 - 待填写。
 - 示例：暂无已确认关键物品。
+- 普通可堆叠物品可以直接记录数量；特殊、隐藏状态或唯一物品引用 `simulation/entities/{entity-id}/`。
+
+```yaml
+inventory:
+  - prototype: lorebook/item/consumable/blood-potion/
+    subjectVisibleName: 血药
+    quantity: 1
+  - entity: simulation/entities/example-item/
+    subjectVisibleName: 看起来普通的示例物品
+```
+
+`entity` 的真实状态只给 GM / simulator leader 使用，不代表该 NPC 已经知道它的完整真相。
 
 ## 身体与姿态
 

@@ -206,6 +206,9 @@ describe("assets builtin v3 profiles", () => {
         expect(historyText).toContain("```AGENTS.md");
         expect(historyText).toContain("```reference/agent/leader-default.md");
         expect(historyText).toContain("Leader Default Operational Protocol");
+        expect(historyText).toContain("Writing Emulation");
+        expect(historyText).toContain("novel-workflow-05-emulation-bootstrap");
+        expect(historyText).toContain("simulation/runs/ticks/{id}-{slug}/prose.md");
         expect(historyText).toContain("```reference/content/markdown-dialect.md");
         expect(historyText).toContain("NeuroBook Markdown Dialect");
         expect(historyText).toContain("```reference/agent/neurobook-project-guide.md");

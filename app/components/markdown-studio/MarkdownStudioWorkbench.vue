@@ -24,7 +24,6 @@ const props = withDefaults(defineProps<{
     editorPreferences: MarkdownEditorPreferences;
     monacoPreferences: MonacoEditorPreferences;
     monacoTemporaryFontSize?: number | null;
-    diagnosticsText?: string;
     activeTabRows?: number;
     compact?: boolean;
     referenceRefreshKey?: string | number;
@@ -32,7 +31,6 @@ const props = withDefaults(defineProps<{
     openReference?: (target: string) => void;
     resolveReference?: WorkspaceReferenceResolver;
 }>(), {
-    diagnosticsText: "",
     activeTabRows: 3,
     referenceRefreshKey: "",
     resolveMenu: () => ({
@@ -77,7 +75,6 @@ watch(() => props.activePath, () => {
             :workspace-view-mode="props.workspaceViewMode"
             :comment-view-open="props.controller.commentViewOpen.value"
             :comment-count="props.controller.inlineComments.value.length"
-            :diagnostics-text="props.diagnosticsText"
             :active-tab-rows="props.activeTabRows"
             @select-tab="emit('select-tab', $event)"
             @close-tab="emit('close-tab', $event)"

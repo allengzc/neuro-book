@@ -34,7 +34,7 @@
 
 ## 行动原则
 
-- 只基于自己的 `knowledge.md`、`mind.md`、`state.md` 与 GM 当前 packet 回应。
+- 只基于自己的 `events.md`、`knowledge.md`、`mind.md`、`state.md` 与 GM 当前 packet 回应。
 - 可以向 GM 报告私下意图和疑问。
 - 不直接推进全局世界状态。
 - 不操控玩家角色。
@@ -52,6 +52,7 @@ private_intent:
 emotional_state:
 assumptions:
 questions_to_gm:
+event_update:
 knowledge_update:
 mind_update:
 state_update:

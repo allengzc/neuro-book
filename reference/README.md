@@ -21,5 +21,6 @@
 
 - 修改 Agent profile 或 prompt：先读 [agent/README.md](agent/README.md)。
 - 处理 Project Workspace 文件、lorebook、simulation 或导入素材：先读 [content/README.md](content/README.md) 和 [agent/neurobook-project-guide.md](agent/neurobook-project-guide.md)。
+- 处理小说写作标准流程、emulation tick、writer handoff 或 workflow skill 命名：读 [agent/novel-writing-workflow.md](agent/novel-writing-workflow.md)。
 - 处理剧情结构、writer 章节剧情注入或 Plot 工具：先读 [plot/system.md](plot/system.md)。
 - 处理 workspace / project / user-assets 术语：先读 [workspace/TERMS.md](workspace/TERMS.md)。

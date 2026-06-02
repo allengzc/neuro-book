@@ -2454,6 +2454,7 @@ var RpActorInputSchema = Type2.Object({
   actorName: Type2.Optional(Type2.String({ description: "\u89D2\u8272\u53EF\u8BFB\u540D\u3002\u4E3A\u7A7A\u65F6\u4F7F\u7528 actorId\u3002" })),
   kind: Type2.Optional(Type2.String({ description: "actor \u7C7B\u578B\uFF0C\u4F8B\u5982 player\u3001npc\u3001faction\u3001system\u3002" })),
   instructionPath: Type2.String({ description: "subject simulator \u6307\u4EE4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/subject.md\u3002" }),
+  eventsPath: Type2.String({ description: "\u89D2\u8272\u4E8B\u4EF6\u6D41\u6C34\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/events.md\u3002" }),
   knowledgePath: Type2.String({ description: "\u89D2\u8272\u53EF\u77E5\u4E16\u754C\u4E66\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/knowledge.md\u3002" }),
   mindPath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u601D\u7EF4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/mind.md\u3002" }),
   statePath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u72B6\u6001\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/state.md\u3002" })
@@ -2465,6 +2466,7 @@ var RpActorOutputSchema = Type2.Object({
   emotional_state: Type2.String({ description: "\u53EA\u7ED9 GM \u4F7F\u7528\u7684\u60C5\u7EEA\u72B6\u6001\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
   assumptions: Type2.Array(Type2.String({ description: "\u89D2\u8272\u57FA\u4E8E\u81EA\u8EAB\u77E5\u8BC6\u548C\u672C Tick packet \u5F62\u6210\u7684\u5224\u65AD\u3001\u8BEF\u89E3\u6216\u5047\u8BBE\u3002" }), { description: "\u6CA1\u6709\u5219\u8FD4\u56DE\u7A7A\u6570\u7EC4\u3002" }),
   questions_to_gm: Type2.Array(Type2.String({ description: "\u9700\u8981 GM \u88C1\u51B3\u3001\u8865\u5145\u6216\u786E\u8BA4\u7684\u95EE\u9898\u3002" }), { description: "\u6CA1\u6709\u5219\u8FD4\u56DE\u7A7A\u6570\u7EC4\u3002" }),
+  event_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 events.md \u7684 subject \u89C6\u89D2\u4E8B\u4EF6\u6D41\u6C34\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
   knowledge_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 knowledge.md \u7684\u65B0\u589E\u8BA4\u77E5\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
   mind_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 mind.md \u7684\u5F53\u524D\u60F3\u6CD5\u3001\u5224\u65AD\u6216\u52A8\u673A\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
   state_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 state.md \u7684\u4F4D\u7F6E\u3001\u6301\u6709\u7269\u3001\u4F24\u52BF\u3001\u5173\u7CFB\u538B\u529B\u6216\u77ED\u671F\u76EE\u6807\u53D8\u5316\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" })
@@ -2658,6 +2660,7 @@ var ActorContextLoadSidecarSchema = Type3.Object({
 });
 var ActorMemorySaveSidecarSchema = Type3.Object({
   changed_files: Type3.Array(Type3.String({ description: "\u672C\u6B21\u5B9E\u9645\u4FEE\u6539\u7684\u6587\u4EF6\u8DEF\u5F84\uFF1B\u6CA1\u6709\u4FEE\u6539\u8FD4\u56DE\u7A7A\u6570\u7EC4\u3002" })),
+  events_summary: Type3.String({ description: "events.md \u7684\u66F4\u65B0\u6458\u8981\uFF1B\u6CA1\u6709\u4FEE\u6539\u5199\u7A7A\u5B57\u7B26\u4E32\u3002" }),
   knowledge_summary: Type3.String({ description: "knowledge.md \u7684\u66F4\u65B0\u6458\u8981\uFF1B\u6CA1\u6709\u4FEE\u6539\u5199\u7A7A\u5B57\u7B26\u4E32\u3002" }),
   mind_summary: Type3.String({ description: "mind.md \u7684\u66F4\u65B0\u6458\u8981\uFF1B\u6CA1\u6709\u4FEE\u6539\u5199\u7A7A\u5B57\u7B26\u4E32\u3002" }),
   skipped: Type3.Array(Type3.String({ description: "\u672C\u6B21\u6CA1\u6709\u5199\u5165\u7684\u539F\u56E0\u3001\u88AB\u8DF3\u8FC7\u7684\u66F4\u65B0\u6216\u4EA4\u7ED9\u5176\u4ED6\u7CFB\u7EDF\u5904\u7406\u7684\u5185\u5BB9\u3002" })),
@@ -2671,7 +2674,7 @@ function renderSystemPrompt(input) {
         # 核心职责
 
         - 全心全意扮演该角色，而不是 GM、作者、旁白或 writer。
-        - 只根据 <subject_instruction>、<subject_knowledge>、<subject_mind>、<subject_state> 和 simulator leader 本 Tick 发来的戏内消息回应。
+        - 只根据 <subject_instruction>、<subject_events>、<subject_knowledge>、<subject_mind>、<subject_state> 和 simulator leader 本 Tick 发来的戏内消息回应。
         - 输出结构化 actor response packet 给 GM，不写最终小说正文。
         - 不操控用户角色，不替用户决定核心行动，不推进全局世界状态。
         - 如果你扮演的是玩家 actor，用户输入高于你的推测；不要替用户新增行动、台词、情绪或目标，只报告已知边界、状态和基于用户输入的可见反应。
@@ -2687,6 +2690,7 @@ function renderSystemPrompt(input) {
 
         - 主扮演阶段不要主动调用 read、write 或 edit，不要亲自维护文件。
         - 角色文件维护由 actor.memory-save 旁路完成；你只在 report_result.data 里返回本 Tick 的更新摘要。
+        - event_update 只写角色本 Tick 经历、观察、听说、被告知或发生认知变化的事件流水；没有就填空字符串。
         - knowledge_update 只写角色本 Tick 新知道、被告知、观察到或自然推断到的信息摘要；没有就填空字符串。
         - mind_update 只写角色当前想法、判断、犹豫、情绪或动机变化摘要；没有就填空字符串。
         - state_update 只报告你观察到的状态变化候选，最终是否更新 state.md 由 GM / 后续状态系统裁决。
@@ -2695,6 +2699,7 @@ function renderSystemPrompt(input) {
         - 不要在 knowledge.md 新增“信念与误解”“最近更新”或“更新规则”章节。写入规则由本提示词负责。
         - knowledge.md 可以保留 GM 明确允许该角色知道的 lorebook 引用；引用使用 Markdown 相对路径链接，例如 [王都公共常识](../../lorebook/world/capital.md)。即使看到 lorebook 路径，也不要自行读取 lorebook，等待 GM 注入摘要或明确授权。
         - mind.md 记录角色当前正在想什么、判断什么、犹豫什么、想要什么；它是短期心理状态，不是世界真相。
+        - events.md 记录角色怎么知道、经历或变化的流水，用 subject 视角写事件，不写上帝视角裁决。
         - state.md 记录位置、随身物品、伤势、姿态、关系压力和短期目标等可变状态。
         - 当前工具没有 runtime path scope，遵守这个边界是你的硬性职责。
         - 如果本 Tick 没有真实变化，不要为了“完成更新”而编造 update；在对应 update 字段填空字符串。
@@ -2717,6 +2722,7 @@ function renderSystemPrompt(input) {
         - emotional_state: 只给 GM 的情绪状态；没有填空字符串。
         - assumptions: 角色形成的判断或假设数组；没有返回 []。
         - questions_to_gm: 需要 GM 裁决的问题数组；没有返回 []。
+        - event_update: 本 Tick 后应写入 events.md 的 subject 视角事件流水摘要；没有填空字符串。
         - knowledge_update: 本 Tick 后应写入 knowledge.md 的新增认知摘要；没有填空字符串。
         - mind_update: 本 Tick 后应写入 mind.md 的当前想法、判断或动机摘要；没有填空字符串。
         - state_update: 本 Tick 后应写入 state.md 的位置、持有物、伤势、关系压力或短期目标变化；没有填空字符串。
@@ -2726,6 +2732,7 @@ function renderSystemPrompt(input) {
 }
 async function renderActorContext(ctx) {
   const instruction = await readWorkspaceFile(ctx.session.workspaceRoot, ctx.input.instructionPath);
+  const events = await readWorkspaceFile(ctx.session.workspaceRoot, ctx.input.eventsPath);
   const knowledge = await readWorkspaceFile(ctx.session.workspaceRoot, ctx.input.knowledgePath);
   const mind = await readWorkspaceFile(ctx.session.workspaceRoot, ctx.input.mindPath);
   const state = await readWorkspaceFile(ctx.session.workspaceRoot, ctx.input.statePath);
@@ -2735,6 +2742,7 @@ async function renderActorContext(ctx) {
         actorName: ${ctx.input.actorName?.trim() || ctx.input.actorId}
         kind: ${ctx.input.kind?.trim() || "\u672A\u6307\u5B9A"}
         instructionPath: ${ctx.input.instructionPath}
+        eventsPath: ${ctx.input.eventsPath}
         knowledgePath: ${ctx.input.knowledgePath}
         mindPath: ${ctx.input.mindPath}
         statePath: ${ctx.input.statePath}
@@ -2742,6 +2750,10 @@ async function renderActorContext(ctx) {
         <subject_instruction>
         ${instruction}
         </subject_instruction>
+
+        <subject_events>
+        ${events}
+        </subject_events>
 
         <subject_knowledge>
         ${knowledge}
@@ -2760,7 +2772,7 @@ async function renderActorContext(ctx) {
 function renderInvocationReminder(input) {
   return profileText`
         本轮请等待或处理 GM 通过当前 user message 发来的 actor-facing message。
-        只回复 GM，并必须调用 report_result。不要主动读写文件；只在 knowledge_update、mind_update、state_update 中报告本 Tick 产生的更新候选。
+        只回复 GM，并必须调用 report_result。不要主动读写文件；只在 event_update、knowledge_update、mind_update、state_update 中报告本 Tick 产生的更新候选。
         如果消息信息不足，只基于角色会观察到的表层事实回应，可以在 questions_to_gm 中请求裁决，不要自行补隐藏设定。
     `;
 }
@@ -2779,12 +2791,13 @@ var actorContextLoadPass = {
         - actorName: ${ctx.input.actorName?.trim() || ctx.input.actorId}
         - kind: ${ctx.input.kind?.trim() || "\u672A\u6307\u5B9A"}
         - instructionPath: ${ctx.input.instructionPath}
+        - eventsPath: ${ctx.input.eventsPath}
         - knowledgePath: ${ctx.input.knowledgePath}
         - mindPath: ${ctx.input.mindPath}
         - statePath: ${ctx.input.statePath}
 
         规则：
-        - 你可以读取当前 subject 自己的 subject.md、knowledge.md、mind.md、state.md。
+        - 你可以读取当前 subject 自己的 subject.md、events.md、knowledge.md、mind.md、state.md。
         - 你可以读取与 GM 当前消息直接相关、且可以过滤成 actor-safe 摘要的 lorebook 条目。
         - 不要读取 simulation/simulator.md、simulation/writer.md、simulation/runs、GM scratch、其他 subject 目录或 reference 原始素材。
         - 如果 lorebook 条目混有公开信息和隐藏真相，只提取角色此刻合理能知道、看见、听见、感受到或自然推断到的部分。
@@ -2821,11 +2834,12 @@ var actorMemorySavePass = {
   enterPrompt: (ctx) => profileText`
         退出角色扮演模式。你现在是 rp.actor 的 memory-save 旁路，不要继续扮演角色，不要新增角色台词或行动。
 
-        目标：根据刚刚完成的 actor 主 run 结果，维护该 actor 的 knowledge.md 与 mind.md。
+        目标：根据刚刚完成的 actor 主 run 结果，维护该 actor 的 events.md、knowledge.md 与 mind.md。
 
         当前 actor：
         - actorId: ${ctx.input.actorId}
         - actorName: ${ctx.input.actorName?.trim() || ctx.input.actorId}
+        - eventsPath: ${ctx.input.eventsPath}
         - knowledgePath: ${ctx.input.knowledgePath}
         - mindPath: ${ctx.input.mindPath}
         - statePath: ${ctx.input.statePath}
@@ -2834,12 +2848,14 @@ var actorMemorySavePass = {
         ${formatJson(ctx.runResult?.reportResult?.data)}
 
         写入规则：
-        - 只允许读取和修改 knowledgePath 与 mindPath。
+        - 只允许读取和修改 eventsPath、knowledgePath 与 mindPath。
         - 不要修改 subject.md。
         - 不要修改 statePath；即使主 run 返回 state_update，也只在 skipped 或 needs_gm_review 中说明交给 GM / 后续状态系统处理。
+        - events.md 只写 subject 视角事件流水：这个角色本 Tick 经历了什么、听见什么、被告知什么、怎么获得某条信息。
+        - events.md 不写 GM 推理、真实隐藏设定、其他角色私密知识或完整 packet。
         - knowledge.md 只写角色已经知道、被告知、观察到或自然推断到的信息，不写 GM 推理、真实隐藏设定或其他角色私密知识。
         - mind.md 只写角色当前想法、判断、犹豫、情绪或动机，不写世界真相。
-        - 如果 knowledge_update 或 mind_update 为空，或者现有文件已经覆盖该信息，不要为了更新而改文件。
+        - 如果 event_update、knowledge_update 或 mind_update 为空，或者现有文件已经覆盖该信息，不要为了更新而改文件。
         - 文件更新要短，优先局部 edit；只有确实需要完整重写时才使用 write。
         - 不要把 report_result packet 写进文件。
 
@@ -2849,6 +2865,7 @@ var actorMemorySavePass = {
     return {
       runtimeState: {
         changed_files: result.sidecarData.changed_files,
+        events_summary: result.sidecarData.events_summary,
         knowledge_summary: result.sidecarData.knowledge_summary,
         mind_summary: result.sidecarData.mind_summary,
         skipped: result.sidecarData.skipped,

@@ -11,12 +11,10 @@ const props = withDefaults(defineProps<{
     workspaceViewMode: WorkspaceEditorViewMode;
     commentViewOpen?: boolean;
     commentCount?: number;
-    diagnosticsText?: string;
     activeTabRows?: number;
 }>(), {
     commentViewOpen: false,
     commentCount: 0,
-    diagnosticsText: "",
     activeTabRows: 3,
 });
 
@@ -299,10 +297,6 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                     <span class="i-lucide-ellipsis-vertical h-4 w-4"></span>
                 </button>
             </div>
-        </div>
-
-        <div v-if="props.diagnosticsText" class="border-t border-amber-500/20 bg-amber-500/8 px-4 py-1.5 text-[11px] text-amber-800">
-            {{ props.diagnosticsText }}
         </div>
 
         <ContextMenu :visible="contextMenuVisible" :x="contextMenuX" :y="contextMenuY" :items="contextMenuItems" @close="contextMenuVisible = false" />

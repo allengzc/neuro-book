@@ -6,7 +6,7 @@ defaultPlayerActor: player
 tickMode: player_turn
 memoryPersistence: false
 writerRetrieval: gm_brief_only
-actorStateUpdate: direct_file_edit
+actorStateUpdate: gm_adjudicated_file_edit
 
 startup:
   read:
@@ -35,6 +35,7 @@ defaults:
   allowWriterFileTools: true
   callAllActorsEachTick: false
   updateKnowledgeAfterTick: true
+  updateEventsAfterTick: true
   updateMindAfterTick: true
   updateStateAfterTick: true
   askUserBeforeIrreversibleAction: true
@@ -43,11 +44,12 @@ profileInputs:
   actor:
     autoInject:
       - actor.instruction
+      - actor.events
       - actor.knowledge
       - actor.mind
       - actor.state
       - gm.filtered_observation_packet
-    fileToolScope: own_knowledge_mind_state_md
+    fileToolScope: own_events_knowledge_mind_md
     doNotInject:
       - simulation/simulator.md
       - simulation/writer.md
@@ -71,9 +73,11 @@ tickChecklist:
   - send_filtered_actor_packets
   - collect_actor_responses
   - resolve_world_state
+  - update_actor_events
   - update_actor_knowledge
   - update_actor_mind
   - update_actor_state
+  - update_entity_state
   - build_writer_brief
   - render_writer_output
   - gm_followup_options_if_needed

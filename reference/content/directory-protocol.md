@@ -150,7 +150,7 @@ simulation/
 | `writer.md` | writer 的提示词素材、文风和输出契约。 |
 | `subjects/` | 信息控制主体目录。 |
 | `entities/` | 有状态实例目录。 |
-| `runs/` | Tick 记录、scratch、brief 和 run artifacts。 |
+| `runs/` | Tick 报告、用户可见正文和 run artifacts。 |
 
 `simulator leader` 负责全局裁决、世界推进、信息控制、subject / entity simulator 调度和 writer brief 构造。`actor` 是 simulator 的一种，不是顶层目录。
 
@@ -160,11 +160,13 @@ simulation/
 
 | Profile | Role | Reads | Writes |
 | --- | --- | --- | --- |
-| `leader.rp` | 用户面对的 simulator leader / GM。理解用户输入、读取 simulation 根文件、调度 actor、裁决世界、构造 writer brief 并最终面向用户叙述。 | `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md`、`simulation/writer.md`，以及 `simulator.md` 授权的 god-view lorebook / reference。 | 第一版不直接写文件；状态修改通过 actor sidecar、后续状态系统或作者操作完成。 |
-| `rp.actor` | 单个 subject 的角色扮演 simulator。只基于 subject-facing 文件和 GM packet 输出角色反应。 | 创建 input 绑定的 `subject.md`、`knowledge.md`、`mind.md`、`state.md`；`actor.context-load` sidecar 可读取相关设定并过滤为 actor-safe context。 | 主扮演 run 不主动写文件；`actor.memory-save` sidecar 可维护 `knowledge.md` 与 `mind.md`。 |
+| `leader.rp` | 用户面对的 simulator leader / GM。理解用户输入、读取 simulation 根文件、调度 actor、裁决世界、维护 state/entity、构造 writer brief 并最终面向用户叙述。 | `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md`、`simulation/writer.md`，以及 `simulator.md` 授权的 god-view lorebook / reference。 | GM 裁决后可写 subject `state.md`、`simulation/entities/`、必要 `simulation/runs/` 和用户明确要求的 simulation 配置调整。 |
+| `rp.actor` | 单个 subject 的角色扮演 simulator。只基于 subject-facing 文件和 GM packet 输出角色反应。 | 创建 input 绑定的 `subject.md`、`events.md`、`knowledge.md`、`mind.md`、`state.md`；`actor.context-load` sidecar 可读取相关设定并过滤为 actor-safe context。 | 主扮演 run 不主动写文件；`actor.memory-save` sidecar 可维护 `events.md`、`knowledge.md` 与 `mind.md`。 |
 | `rp.writer` | Tick 正文渲染器。把 GM writer brief 写成用户可见正文。 | 创建 input 绑定的 `simulation/writer.md` 和 GM brief；只读取 GM 明确指定的额外路径。 | 普通 assistant 回复正文；只有 GM 明确指定输出路径时才写文件。 |
 
 `leader.rp` 不应该把完整 `simulation/`、`lorebook/` 或 `reference/` 交给 actor / writer。它必须把上帝视角内容过滤成 actor-facing message 或 writer brief。
+
+`cast.yaml` 到 `rp.actor` input 的字段映射固定为：`instruction -> instructionPath`、`events -> eventsPath`、`knowledge -> knowledgePath`、`mind -> mindPath`、`state -> statePath`。`cast.yaml` 中的 `simulation/...` 路径是 Project Workspace 相对路径；调用 agent 前要转换为 Agent cwd 可用路径。
 
 `rp.actor` 创建 input 的稳定字段：
 
@@ -174,6 +176,7 @@ simulation/
 | `actorName` | 可选显示名。 |
 | `kind` | 可选类型，例如 `player`、`npc`、`faction`、`system`。 |
 | `instructionPath` | `simulation/subjects/{id}/subject.md` 的 Agent cwd 相对路径。 |
+| `eventsPath` | `simulation/subjects/{id}/events.md` 的 Agent cwd 相对路径。 |
 | `knowledgePath` | `simulation/subjects/{id}/knowledge.md` 的 Agent cwd 相对路径。 |
 | `mindPath` | `simulation/subjects/{id}/mind.md` 的 Agent cwd 相对路径。 |
 | `statePath` | `simulation/subjects/{id}/state.md` 的 Agent cwd 相对路径。 |
@@ -186,11 +189,12 @@ simulation/
 - `emotional_state`
 - `assumptions`
 - `questions_to_gm`
+- `event_update`
 - `knowledge_update`
 - `mind_update`
 - `state_update`
 
-`state_update` 只是报告给 GM 的建议，不代表 actor 可自行裁决世界状态。`state.md` 当前仍由 GM / 后续状态系统负责。
+`event_update`、`knowledge_update` 和 `mind_update` 可由 `actor.memory-save` 旁路写入 subject-facing 文件。`state_update` 只是报告给 GM 的建议，不代表 actor 可自行裁决世界状态；`state.md` 与 `simulation/entities/` 由 `leader.rp` 在 GM 裁决后维护。
 
 `rp.writer` 创建 input 的稳定字段：
 
@@ -261,27 +265,41 @@ Project Workspace 的 `reference/` 保存原始外部素材和迁移材料：
 
 `simulation/runs/` 保存本次世界模拟、RP、写作试跑或调试过程中的 Tick 产物。它是过程记录，不是 canonical lorebook，也不是 subject 长期记忆。
 
+第一版推荐在文件数量和 AI 编辑成本之间取中：每个 tick 目录由 `report.md` 和可选 `prose.md` 组成。输入、工具日志、actor packet 和 commit log 这类不需要创作判断的产物，后续可由 workflow/runtime 自动生成。
+
 推荐结构：
 
 ```text
 simulation/runs/
 |-- current.md
+|-- index.md
 `-- ticks/
-    `-- 000001/
-        |-- user-input.md
-        |-- simulator-scratch.md
-        |-- subject-results/
-        |-- entity-updates/
-        |-- writer-brief.md
+    |-- 000001-night-market-riot/
+    |   |-- report.md
+    |   `-- prose.md
+    `-- 000002-after-escape/
+        |-- report.md
         `-- prose.md
 ```
+
+文件职责：
+
+| File | Purpose |
+| --- | --- |
+| `current.md` | 当前世界时间、当前场景、活跃冲突、最近 tick 摘要和下一步待处理事项。 |
+| `index.md` | tick 索引表，记录编号、标题、模式、世界时间、状态和摘要。 |
+| `ticks/{id}-{slug}/report.md` | leader / simulator 维护的后台报告：触发原因、目标、范围、输入、因果链、裁决事件、信息边界、状态提交、writer brief、未决问题和下一步钩子。 |
+| `ticks/{id}-{slug}/prose.md` | 用户最终看到的正文。RP Tick 中应保存 `rp.writer` 或 leader 输出的完整正文；写作设计 Tick 可保存试写片段；正式章节正文仍以 `manuscript/.../index.md` 为准。 |
 
 规则：
 
 - `runs/` 不命名为 `sessions/`，避免和 Agent Session 混淆。
+- tick 目录名使用 `000001-short-slug`，方便人类和 Agent 索引。
 - subject 默认不读取完整 `runs/`。
 - 需要沉淀的结果应整理回 `simulation/subjects/`、`simulation/entities/`、Plot 或 `lorebook/`。
-- `writer-brief.md` 只能包含可写信息；不要把 GM scratch 或隐藏真相直接交给 writer。
+- `report.md` 中的 writer brief 只能包含可写信息；不要把 GM scratch 或隐藏真相直接交给 writer。
+- `prose.md` 只保存用户可见正文，不保存后台裁决说明。
+- 未来如需自动化，可扩展 `input.md`、`actor-packets.json`、`commits.json`、`tool-log.json` 等系统生成文件；第一版不要求 leader 手写维护这些文件。
 
 ## Classification Method
 

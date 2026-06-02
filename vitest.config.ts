@@ -21,6 +21,7 @@ export default defineConfig({
         ],
         include: [
             "app/components/novel-ide/agent/**/*.test.ts",
+            "app/components/markdown-studio/**/*.test.ts",
             "app/utils/**/*.test.ts",
             "server/**/*.test.ts",
             "shared/**/*.test.ts",

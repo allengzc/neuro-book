@@ -9,6 +9,7 @@
 - [profile-import.md](profile-import.md)：`<Import />` 节点 API、安全边界、渲染格式和 build contract。
 - [leader-default.md](leader-default.md)：`leader.default` 工具、任务、多 Agent、SQL、Plan Mode 和 Skills 操作协议。
 - [neurobook-project-guide.md](neurobook-project-guide.md)：Project Workspace、内容节点、lorebook、manuscript、simulation、Plot System 和 workspace node CLI 的 Agent 使用指南。
+- [novel-writing-workflow.md](novel-writing-workflow.md)：写作模式标准流程、emulation 使用边界、小说 workflow skill 分层和 runs 产物建议。
 
 ## Runtime
 
@@ -24,4 +25,5 @@
 - 实现或修改 profile：先读 [profile-guide.md](profile-guide.md)，再读 [context.md](context.md) 和 [profile-import.md](profile-import.md)。
 - 处理默认 Leader prompt、工具、writer / retrieval / researcher、Plan Mode 或 Skills：读 [leader-default.md](leader-default.md)。
 - 处理 Project Workspace 文件、内容节点、lorebook、manuscript、simulation 或 Plot：读 [neurobook-project-guide.md](neurobook-project-guide.md)。
+- 处理小说写作流程、剧情推进、emulation tick 或 workflow skill 命名：读 [novel-writing-workflow.md](novel-writing-workflow.md)。
 - 处理 harness 行为、sidecar、runtime hooks 或队列语义：先读 [harness-black-box-contract.md](harness-black-box-contract.md)，再读 [runtime-hooks.md](runtime-hooks.md) 和 [sidecar-profile-pass.md](sidecar-profile-pass.md)。

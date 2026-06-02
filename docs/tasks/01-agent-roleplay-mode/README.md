@@ -92,15 +92,18 @@ simulation/
 |-- cast.yaml
 |-- simulator.md
 |-- writer.md
+|-- entities/      # stateful instances
 |-- runs/          # current playthrough / tick artifacts
 `-- subjects/
     |-- player/
     |   |-- subject.md
+    |   |-- events.md
     |   |-- knowledge.md
     |   |-- mind.md
     |   `-- state.md
     `-- {subject-id}/
         |-- subject.md
+        |-- events.md
         |-- knowledge.md
         |-- mind.md
         `-- state.md
@@ -144,7 +147,10 @@ lorebook/note/...
 simulation/cast.yaml
 simulation/simulator.md
 simulation/writer.md
+simulation/entities/{entity-id}/entity.md
+simulation/entities/{entity-id}/state.md
 simulation/subjects/{actor-id}/subject.md
+simulation/subjects/{actor-id}/events.md
 simulation/subjects/{actor-id}/knowledge.md
 simulation/subjects/{actor-id}/mind.md
 simulation/subjects/{actor-id}/state.md
@@ -208,14 +214,14 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 
 - 变量系统暂不实现。第一阶段先把纯文本卡导入做好；复杂数值、好感度、背包、任务进度、状态栏等后续专门设计。
 - 泛用自然语言编辑工具先记录为 TODO。该工具不是 state 专用，参数方向暂定为：目标文件、自然语言操作说明、可选携带上下文消息数量，后续可接轻量模型。
-- `SidecarProfilePass` 已在 Harness 层实现 V1，详见 `docs/tasks/23-agent-sidecar-profile-pass/README.md`。`rp.actor` 已接入 `actor.context-load` / `actor.memory-save` 两个旁路：主 run 前检索并注入 actor-safe 设定，主 run 后维护 `knowledge.md` 与 `mind.md`；`state.md` 仍由 GM / 后续状态系统负责。`rp.writer` 暂未接入 sidecar，仍由 GM 注入可写 lorebook 摘要。
+- `SidecarProfilePass` 已在 Harness 层实现 V1，详见 `docs/tasks/23-agent-sidecar-profile-pass/README.md`。`rp.actor` 已接入 `actor.context-load` / `actor.memory-save` 两个旁路：主 run 前检索并注入 actor-safe 设定，主 run 后维护 `events.md`、`knowledge.md` 与 `mind.md`；`state.md` 与 `simulation/entities/` 由 GM 裁决后写入。`rp.writer` 暂未接入 sidecar，仍由 GM 注入可写 lorebook 摘要。
 - 已新增第一版 RP builtin profiles：
-  - `leader.rp`：用户进入 RP 模式后的 GM 主控 profile，读取 `simulation/` 运行目录，初始化/复用 `rp.actor` 和 `rp.writer`，按 Tick 协议进行信息过滤、actor 调度、世界裁决和 writer brief 构造；GM 直接面向用户叙述，开局负责说明玩家已知信息、当前处境和必要背景。
-  - `rp.actor`：通用角色扮演 profile，创建 input 绑定 `subject.md`、`knowledge.md`、`mind.md` 与 `state.md`，运行时自动注入这些文件；每轮只根据 GM packet 返回结构化 actor response packet。
+  - `leader.rp`：用户进入 RP 模式后的 GM 主控 profile，读取 `simulation/` 运行目录，初始化/复用 `rp.actor` 和 `rp.writer`，按 Tick 协议进行信息过滤、actor 调度、世界裁决、subject state / entity state 写入和 writer brief 构造；GM 直接面向用户叙述，开局负责说明玩家已知信息、当前处境和必要背景。
+  - `rp.actor`：通用角色扮演 profile，创建 input 绑定 `subject.md`、`events.md`、`knowledge.md`、`mind.md` 与 `state.md`，运行时自动注入这些文件；每轮只根据 GM packet 返回结构化 actor response packet。
   - `rp.writer`：RP Tick 正文渲染 profile，创建 input 绑定 `simulation/writer.md`，每轮根据 GM writer brief 直接输出正文；可使用 bash 与文件工具，但只操作 GM 明确指定路径，不自主检索完整 lorebook。
 - 当前 profile 工具边界：
-  - `leader.rp` 只有只读文件、bash、agent 编排和用户询问工具，不直接写文件。
-  - `rp.actor` 保留 `read` / `write` / `edit` / `report_result` 作为 profile 最大工具集合；主扮演 run 不主动读写文件，只返回 actor packet 与更新摘要。`actor.context-load` 旁路允许 `read` / `report_result`，`actor.memory-save` 旁路允许 `read` / `write` / `edit` / `report_result`，并通过 prompt 限定只维护 `knowledgePath` 与 `mindPath`。
+  - `leader.rp` 拥有 `read` / `write` / `edit` / `bash`、agent 编排和用户询问工具；写入范围由 prompt 限定为 GM 裁决后的 subject `state.md`、`simulation/entities/`、必要 `simulation/runs/` 和用户明确要求的 simulation 配置调整。
+  - `rp.actor` 保留 `read` / `write` / `edit` / `report_result` 作为 profile 最大工具集合；主扮演 run 不主动读写文件，只返回 actor packet 与更新摘要。`actor.context-load` 旁路允许 `read` / `report_result`，`actor.memory-save` 旁路允许 `read` / `write` / `edit` / `report_result`，并通过 prompt 限定只维护 `eventsPath`、`knowledgePath` 与 `mindPath`。
   - `rp.writer` 开放 `read` / `write` / `edit` / `bash`，但提示词约束它只按 GM 明确路径读写；正文用普通 assistant 回复，不强制 `report_result`。
 - 已更新 `leader.default` 的多 Agent 协作说明：进入 roleplay 模式时优先创建或切换到 `leader.rp`；`rp.actor` 和 `rp.writer` 通常只由 `leader.rp` 调用。
 - 试用反馈已落地到 profile/template：
@@ -229,6 +235,11 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
   - `rp.actor` 强化玩家 actor 不替用户新增行动、台词、情绪或目标；无真实变化时不要为了更新而改文件。
   - `rp.writer` 强化“正文代笔，不是 GM”，不输出标题、摘要、选项或解释，不替玩家角色补未输入的内心和关键动作。
   - roleplay 模板同步了 GM / writer / actor 的上述提示词边界。
+- Information Control Protocol 落地：
+  - `rp.actor` 合同新增 `eventsPath` 输入与 `event_update` 输出，actor 主 run 自动注入 `events.md`。
+  - `actor.memory-save` 旁路现在维护 `events.md`、`knowledge.md` 与 `mind.md`，仍不修改 `state.md`。
+  - `leader.rp` 负责 GM 裁决后的 subject `state.md` 与 `simulation/entities/` 写入；actor 的 `state_update` 只是候选。
+  - 默认 Project 模板新增 `simulation/entities/example-item/`，用于说明普通物品不实例化、特殊有状态实例才进入 entities。
 
 ## SillyTavern Sample Notes
 

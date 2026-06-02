@@ -67,7 +67,7 @@ export function parseMarkdownAlign(src: string): MarkdownAlignToken | null {
         raw: matched[0],
         align: normalizeAlign(matched[1]),
         text,
-        tokens: Lexer.lex(text) as MarkdownToken[],
+        tokens: [],
     };
 }
 

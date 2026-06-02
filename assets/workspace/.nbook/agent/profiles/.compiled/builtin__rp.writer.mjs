@@ -2453,6 +2453,7 @@ var RpActorInputSchema = Type2.Object({
   actorName: Type2.Optional(Type2.String({ description: "\u89D2\u8272\u53EF\u8BFB\u540D\u3002\u4E3A\u7A7A\u65F6\u4F7F\u7528 actorId\u3002" })),
   kind: Type2.Optional(Type2.String({ description: "actor \u7C7B\u578B\uFF0C\u4F8B\u5982 player\u3001npc\u3001faction\u3001system\u3002" })),
   instructionPath: Type2.String({ description: "subject simulator \u6307\u4EE4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/subject.md\u3002" }),
+  eventsPath: Type2.String({ description: "\u89D2\u8272\u4E8B\u4EF6\u6D41\u6C34\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/events.md\u3002" }),
   knowledgePath: Type2.String({ description: "\u89D2\u8272\u53EF\u77E5\u4E16\u754C\u4E66\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/knowledge.md\u3002" }),
   mindPath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u601D\u7EF4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/mind.md\u3002" }),
   statePath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u72B6\u6001\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/state.md\u3002" })
@@ -2464,6 +2465,7 @@ var RpActorOutputSchema = Type2.Object({
   emotional_state: Type2.String({ description: "\u53EA\u7ED9 GM \u4F7F\u7528\u7684\u60C5\u7EEA\u72B6\u6001\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
   assumptions: Type2.Array(Type2.String({ description: "\u89D2\u8272\u57FA\u4E8E\u81EA\u8EAB\u77E5\u8BC6\u548C\u672C Tick packet \u5F62\u6210\u7684\u5224\u65AD\u3001\u8BEF\u89E3\u6216\u5047\u8BBE\u3002" }), { description: "\u6CA1\u6709\u5219\u8FD4\u56DE\u7A7A\u6570\u7EC4\u3002" }),
   questions_to_gm: Type2.Array(Type2.String({ description: "\u9700\u8981 GM \u88C1\u51B3\u3001\u8865\u5145\u6216\u786E\u8BA4\u7684\u95EE\u9898\u3002" }), { description: "\u6CA1\u6709\u5219\u8FD4\u56DE\u7A7A\u6570\u7EC4\u3002" }),
+  event_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 events.md \u7684 subject \u89C6\u89D2\u4E8B\u4EF6\u6D41\u6C34\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
   knowledge_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 knowledge.md \u7684\u65B0\u589E\u8BA4\u77E5\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
   mind_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 mind.md \u7684\u5F53\u524D\u60F3\u6CD5\u3001\u5224\u65AD\u6216\u52A8\u673A\u6458\u8981\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
   state_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 state.md \u7684\u4F4D\u7F6E\u3001\u6301\u6709\u7269\u3001\u4F24\u52BF\u3001\u5173\u7CFB\u538B\u529B\u6216\u77ED\u671F\u76EE\u6807\u53D8\u5316\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" })
@@ -2675,7 +2677,7 @@ function renderSystemPrompt(input) {
         - 根据 GM writer brief 写出沉浸、连贯、角色一致的正文。
         - 保持文风、节奏、视角和信息边界。
         - 不负责规则裁决、剧情真相判断、actor 私密决策或世界状态模拟。
-        - 默认直接回复正文；只有 GM 明确要求“写入某个文件”时，才使用文件工具落盘。
+        - 默认直接回复正文；只有 GM 明确要求“写入某个文件”时，才使用文件工具落盘。若 GM 指定 Tick 产物路径，用户可见正文通常写入 simulation/runs/ticks/{id}-{slug}/prose.md。
         - 你是正文代笔，不是 GM。不要添加行动选项、确认问题、系统提示或下一步建议。
 
         # 信息边界
@@ -2709,7 +2711,7 @@ function renderSystemPrompt(input) {
         # 输出合同
 
         - 常规 Tick：直接用普通 assistant 回复输出最终正文，不调用 report_result。
-        - 文件写作任务：如果 GM 明确要求写入文件，使用文件工具写入指定路径，然后用一句话说明已写入哪个文件。
+        - 文件写作任务：如果 GM 明确要求写入文件，使用文件工具写入指定路径，然后用一句话说明已写入哪个文件；RP Tick 正文落盘时优先写入 runs tick 的 prose.md。
         - 不输出标题、摘要、选项、brief、后台字段名或工具流水账。
     `;
 }

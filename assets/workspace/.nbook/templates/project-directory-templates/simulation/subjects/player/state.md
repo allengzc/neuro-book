@@ -2,6 +2,8 @@
 
 本文件记录玩家角色当前状态。它是可变运行状态，不是角色卡稳定设定。
 
+本文件由 GM 裁决后维护。actor 可以报告状态变化候选，但不自行决定真实世界状态；特殊实例状态应放入 `simulation/entities/`。
+
 ## 当前位置
 
 - 待填写。
@@ -11,6 +13,25 @@
 
 - 待填写。
 - 示例：暂无已确认关键物品。
+- 普通可堆叠物品示例：
+
+```yaml
+inventory:
+  - prototype: lorebook/item/consumable/blood-potion/
+    subjectVisibleName: 血药
+    quantity: 3
+    subjectKnownEffect: 通常用于恢复伤势
+```
+
+- 特殊或隐藏状态实例示例：
+
+```yaml
+inventory:
+  - entity: simulation/entities/poisoned-blood-potion-001/
+    subjectVisibleName: 血药
+```
+
+`entity` 引用不代表玩家角色知道隐藏真相；玩家角色知道什么仍看 `events.md` 与 `knowledge.md`。
 
 ## 身体与姿态
 

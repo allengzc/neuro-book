@@ -64,7 +64,7 @@ export const MarkdownAlign = Node.create({
         start(src: string) {
             return src.indexOf("<align");
         },
-        tokenize(src: string) {
+        tokenize(src: string, _tokens: unknown, lexer: {blockTokens: (src: string) => MarkdownToken[]}) {
             const parsed = parseMarkdownAlign(src);
             if (!parsed) {
                 return undefined;
@@ -74,7 +74,7 @@ export const MarkdownAlign = Node.create({
                 raw: parsed.raw,
                 align: parsed.align,
                 text: parsed.text,
-                tokens: parsed.tokens,
+                tokens: lexer.blockTokens(parsed.text),
             };
         },
     },

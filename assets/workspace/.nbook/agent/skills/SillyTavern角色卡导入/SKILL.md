@@ -20,6 +20,7 @@ when_to_use:
 - 写作导入会用确定性规则把稳定 worldbook entry 映射到 `lorebook/character`、`lorebook/location`、`lorebook/faction`、`lorebook/rule`、`lorebook/item` 或 `lorebook/note`。
 - MVU、ST-Prompt-Template、EJS、prompt injection、状态栏/UI 等动态条目不会作为稳定 lorebook fact 导入，只保留在 `reference/silly-tavern/{slug}/` 解包文件、报告和可选 `simulation-migration/` 归档中。
 - `--rp` 只额外生成 `reference/silly-tavern/{slug}/simulation-migration/` 动态机制归档，不写入 `roleplay/` 或 `simulation/`，不初始化 runtime。
+- 导入器不直接创建 `simulation/entities/`。只有后续 RP/simulation 中出现需要状态追踪的特殊实例时，才由 GM 或专门迁移步骤创建 entity。
 
 ## CLI
 
@@ -51,7 +52,7 @@ bun assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/sill
 2. 先运行 `inspect`，只看 stdout overview，确认输入是角色卡、预设还是不支持的 JSON；这个阶段不写文件。
 3. 运行 `unpack`，生成 `reference/silly-tavern/{card}/`。目录内包含 `raw/card.json`、`overview.md`、`inspect.json`、`worldbook/entries.json`、逐条 frontmatter + 正文格式的 `worldbook/entries/*.md`、`extensions/regex_scripts.json`、逐条 `extensions/regex_scripts/*.json`、`extensions/tavern_helper*.json`、逐条 `extensions/tavern_helper/scripts/*.json`、逐项 `extensions/tavern_helper/variables/*.json` 和 `unpack-report.md`。worldbook 条目会按 `insertion_order` 排序，文件名前缀使用 6 位补零的 `insertion_order`。worldbook 的 frontmatter 会在 `st` 下保留除 `content` 外的原始字段，包括 `keys`、`secondary_keys`、`insertion_order`、`position`、`selective`、`use_regex`、`extensions` 等。`inspect.json` 和 `overview.md` 会记录分类、目标映射、动态跳过数量和需人工 review 的 unknown 条目。
 4. 对解包目录运行 `import`。导入命令从解包目录读取 `raw/card.json` 和 `inspect.json`，并重新按当前规则分类，避免旧解包目录的分类结果过期。稳定条目会进入对应 `lorebook/*/.../index.md`；动态条目跳过稳定导入；unknown 条目保守进入 `lorebook/note` 并在 `import-report.md` 的 `Needs Review` 中列出。导入后的 lorebook frontmatter 会在 `ext.sillyTavernWorldbook` 下保留同一份 worldbook 元数据和本次 classification。
-5. 如果用户明确要 RP 模式，再加 `--rp`，生成 `reference/silly-tavern/{card}/simulation-migration/` 的动态机制归档，后续再由 simulation 机制迁移处理。
+5. 如果用户明确要 RP 模式，再加 `--rp`，生成 `reference/silly-tavern/{card}/simulation-migration/` 的动态机制归档，后续再由 simulation 机制迁移处理。角色的 subject-facing `events.md`、`knowledge.md`、`mind.md`、`state.md` 和特殊 `entities` 不由导入器自动决定，避免把上帝视角 worldbook 直接泄露给 actor。
 6. 导入后优先运行 `workspace node validate` 检查本次 `import-report.md` 中列出的 affected lorebook roots，例如 `lorebook/character/...`、`lorebook/location/...`、`lorebook/rule/...` 或 `lorebook/note/...`。
 
 脚本会在解包目录根部维护一个集中 `generated.json` 指纹清单。重新解包或导入时，`--force` 只覆盖仍匹配指纹的文件；如果用户手改过导入稿，脚本会拒绝覆盖。

@@ -630,14 +630,18 @@ describe("workspace-files", () => {
                 "simulation/subjects/player/knowledge.md",
                 "simulation/subjects/sample-npc/subject.md",
                 "simulation/runs/current.md",
-                "simulation/runs/ticks/000001/prose.md",
+                "simulation/runs/index.md",
+                "simulation/runs/ticks/000000-initial-state/report.md",
+                "simulation/runs/ticks/000000-initial-state/prose.md",
             ]));
             expect(result.skippedFiles).toContain("simulation/simulator.md");
             await expect(fs.readFile(path.join(projectRoot, "simulation", "simulator.md"), "utf-8")).resolves.toBe(existingSimulator);
             await expect(fs.readFile(path.join(projectRoot, "simulation", "config.yaml"), "utf-8")).resolves.toContain("leaderProfile: leader.rp");
             await expect(fs.readFile(path.join(projectRoot, "simulation", "cast.yaml"), "utf-8")).resolves.toContain("sample-npc");
             await expect(fs.readFile(path.join(projectRoot, "simulation", "runs", "current.md"), "utf-8")).resolves.toContain("Current");
-            await expect(fs.readFile(path.join(projectRoot, "simulation", "runs", "ticks", "000001", "subjects", "sample-npc.result.json"), "utf-8")).resolves.toContain("\"result\"");
+            await expect(fs.readFile(path.join(projectRoot, "simulation", "runs", "index.md"), "utf-8")).resolves.toContain("000000");
+            await expect(fs.readFile(path.join(projectRoot, "simulation", "runs", "ticks", "000000-initial-state", "report.md"), "utf-8")).resolves.toContain("Writer-safe Brief");
+            await expect(fs.readFile(path.join(projectRoot, "simulation", "runs", "ticks", "000000-initial-state", "prose.md"), "utf-8")).resolves.toContain("用户可见正文");
 
             await expect(execFileAsync("bun", [
                 AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,
@@ -1024,6 +1028,7 @@ describe("workspace-files", () => {
 
     it("同步系统 assets 不覆盖已手改用户 profile artifact", async () => {
         const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
+        const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
         const userCompiledRoot = path.join("workspace", ".nbook", "agent", "profiles", ".compiled");
         const userCompiledManifestPath = path.join(userCompiledRoot, "manifest.json");
         const userSyncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
@@ -1032,6 +1037,8 @@ describe("workspace-files", () => {
         const syncStateBackup = await backupOptionalFile(userSyncStatePath);
 
         try {
+            await fs.mkdir(path.dirname(userProfilePath), {recursive: true});
+            await fs.copyFile(systemProfilePath, userProfilePath);
             await syncSystemAssetsToUserAssets();
             const manifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; artifactFileName: string}>};
             const item = manifest.profiles.find((profile) => profile.fileName === "builtin/leader.default.profile.tsx")!;

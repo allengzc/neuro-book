@@ -8,6 +8,7 @@ subjects:
     kind: player
     profile: rp.actor
     instruction: simulation/subjects/player/subject.md
+    events: simulation/subjects/player/events.md
     knowledge: simulation/subjects/player/knowledge.md
     mind: simulation/subjects/player/mind.md
     state: simulation/subjects/player/state.md
@@ -20,6 +21,7 @@ subjects:
     kind: npc
     profile: rp.actor
     instruction: simulation/subjects/sample-npc/subject.md
+    events: simulation/subjects/sample-npc/events.md
     knowledge: simulation/subjects/sample-npc/knowledge.md
     mind: simulation/subjects/sample-npc/mind.md
     state: simulation/subjects/sample-npc/state.md

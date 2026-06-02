@@ -28,6 +28,23 @@ Common Project Workspace paths:
 
 See also `reference/workspace/TERMS.md` for canonical workspace terminology.
 
+## Novel Writing Workflow
+
+`leader.default` should treat the writing workflow as a flexible standard, not a mandatory pipeline. The normal path is:
+
+1. Route the user intent.
+2. Prepare canon and project context.
+3. Run emulation only when plot movement, causal simulation, subject reaction, state change or information control is needed.
+4. Commit adjudicated state to `simulation/subjects/`, `simulation/entities/` and `simulation/runs/`.
+5. Convert selected results into Plot System updates.
+6. Use retrieval to select lorebook entries.
+7. Invoke the ordinary `writer` for chapter prose.
+8. Check whether the finished prose requires a post-write state commit.
+
+In writing-mode discussions, `emulation` means the world-running step that advances current state. The current Project Workspace directory is still `simulation/`; do not create a separate `emulation/` directory unless a future migration explicitly changes the contract.
+
+The ordinary `writer` profile does not maintain `simulation/`. It writes explicit manuscript chapters from `chapterPaths`, Chapter Plot and selected `lorebookEntries`. If world state matters, leader should summarize or commit it first, then pass only writer-safe context.
+
 ## Content Nodes
 
 `lorebook/` and `manuscript/` use content nodes. A content node is a directory whose `index.md` is the entry body.
@@ -149,6 +166,20 @@ Responsibilities:
 
 `actor` is a kind of simulator, not a top-level directory. Character-like simulators live under `simulation/subjects/`.
 
+For writing-mode emulation, prefer compact tick artifacts:
+
+```text
+simulation/runs/
+|-- current.md
+|-- index.md
+`-- ticks/
+    `-- 000001-short-slug/
+        |-- report.md
+        `-- prose.md
+```
+
+`report.md` records trigger, scope, causal chains, adjudicated events, information boundary, state/entity commits, writer-safe brief, open questions and next hooks. `prose.md` records user-visible prose when a tick produces RP prose, a writing sample or a rendered scene. Future workflow/runtime support may auto-generate files such as `input.md`, `actor-packets.json`, `commits.json` and `tool-log.json`; do not require agents to hand-write those in the first version.
+
 ## Subject And Entity Split
 
 Use the Prototype / Instance + Event Sourcing + Subject-facing View pattern:
@@ -215,6 +246,7 @@ Agent runtime config makes `rg --files` output use `/` paths. Shell examples sho
 
 - Workspace terms: `reference/workspace/TERMS.md`
 - Directory protocol: `reference/content/directory-protocol.md`
+- Novel writing workflow: `reference/agent/novel-writing-workflow.md`
 - Information control: `reference/content/information-control.md`
 - Content-node state compatibility: `reference/content/state.md`
 - Retrieval and inject: `reference/content/retrieval.md`

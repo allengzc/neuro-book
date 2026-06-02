@@ -27,7 +27,7 @@
 
 ## 角色可用资源
 
-记录玩家角色稳定拥有或稳定具备的能力、物品、身份凭证。可变状态优先写入 `state.md`，当前想法优先写入 `mind.md`。
+记录玩家角色稳定拥有或稳定具备的能力、物品、身份凭证。事件流水优先写入 `events.md`，可变状态优先写入 `state.md`，当前想法优先写入 `mind.md`。
 
 - 稳定身份：待填写。
 - 稳定能力：待填写。
@@ -46,6 +46,7 @@ emotional_state: 只写用户输入或上下文已经明确的信息
 assumptions:
 questions_to_gm:
 knowledge_update:
+event_update:
 mind_update:
 state_update:
 ```
