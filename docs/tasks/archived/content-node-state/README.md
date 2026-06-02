@@ -65,8 +65,8 @@
 - `app/stores/novel-ide.ts`
 - `app/components/novel-ide/workspace/*`
 - `server/agent/profiles/builtin/leader-default.profile.tsx`
-- `spec/reference/system.md`
-- `spec/content/state.md`
+- `reference/reference/system.md`
+- `reference/content/state.md`
 - `PROJECT-STATUS.md`
 - `prisma/schema.prisma`
 - `server/plot/*`

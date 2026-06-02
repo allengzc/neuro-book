@@ -72,7 +72,7 @@ export function createNode(type: ProfileTemplateNodeType): ProfileTemplateNodeDt
         base.props = {text: "${sqlSchemaSummaryText}"};
     }
     if (type === "Import") {
-        base.props = {path: "spec/agent/neurobook-project-guide.md"};
+        base.props = {path: "reference/agent/neurobook-project-guide.md"};
     }
     if (type === "SystemReminder") {
         base.children = [createNode("Text")];

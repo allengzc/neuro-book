@@ -442,7 +442,7 @@ simulation/entities/world-heart-fragment-c/
 本协议先收敛目录职责：
 
 - `lorebook/**/index.md` 保存稳定设定、目录说明和可复用 AI 使用说明。
-- 现有 `lorebook/**/state.md` 仍按 `spec/content/state.md` 解释，用于客观当前状态。
+- 现有 `lorebook/**/state.md` 仍按 `reference/content/state.md` 解释，用于客观当前状态。
 - 不要新增 subject 主观状态、个人记忆、当前目标、情绪和私有 knowledge 到 lorebook 同级 `state.md`。
 - subject 动态状态进入 `simulation/subjects/{subject-id}/state.md`。
 - entity 动态状态进入 `simulation/entities/{entity-id}/state.md`。
@@ -948,7 +948,7 @@ lorebook/item/
 - `rule`：世界规则迁到 `world/rule/` 且 `type: world`；机制规则迁到 `system`；作品级 AI 指令迁到 `instruction`。
 - `note`：低置信和未整理资料迁到 `reference/` 或待 review 区。
 - `dynamic-mvu` / `dynamic-prompt`：保留到 `reference/`，等待 simulation mechanics / prompt migration 任务。
-- `lorebook/**/state.md`：当前仍按 `spec/content/state.md` 兼容；不要新增 subject 主观状态或 entity 当前状态；后续逐步把 lorebook 下的动态状态迁到 `simulation/subjects/` 或 `simulation/entities/`。
+- `lorebook/**/state.md`：当前仍按 `reference/content/state.md` 兼容；不要新增 subject 主观状态或 entity 当前状态；后续逐步把 lorebook 下的动态状态迁到 `simulation/subjects/` 或 `simulation/entities/`。
 - `roleplay/gm.md`：旧文件应迁移到 `simulation/simulator.md`。
 - `roleplay/actors/{actor-id}/`：旧文件应迁移到 `simulation/subjects/{subject-id}/`，由 `simulation/cast.yaml` 引用。
 - `roleplay/playthrough/`：旧文件应迁移到 `simulation/runs/`。

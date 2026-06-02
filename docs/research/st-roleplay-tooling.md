@@ -712,7 +712,7 @@ roleplay/
 
 处理一张 ST 卡时，至少检查：
 
-- `spec` / `spec_version` / `data.name`
+- `reference` / `spec_version` / `data.name`
 - `data.description`、`scenario`、`first_mes`、`mes_example`
 - `data.character_book.entries`
 - 条目 `comment` 是否包含 `[InitVar]`、`[mvu_update]`、`[mvu_plot]`、`[GENERATE:*]`、`[RENDER:*]`、`@INJECT`、`@@`

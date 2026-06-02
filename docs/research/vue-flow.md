@@ -622,9 +622,9 @@ type PlotTreeGraphNodeData =
 - 在树图里直接改 `chapterSortOrder`
 - 用边表达所有业务关系
 
-### 9.4 对当前 spec 的适配
+### 9.4 对当前 reference 的适配
 
-当前正式 spec 里有两个硬约束：
+当前正式 reference 里有两个硬约束：
 
 - `Scene` 必须属于一个 `Thread`
 - `StoryPhase` 主要用于分组、检索、浏览，不是剧情主结构

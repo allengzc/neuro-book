@@ -3,7 +3,7 @@
 ## User Request
 
 - 整理和组织当前项目文档。
-- 明确 `docs` 和 `spec` 的功能划分。
+- 明确 `docs` 和 `reference` 的功能划分。
 - 在 `AGENTS.md` 中加入文档约定。
 - 文档按模块分类。
 - 新增根级 `PROJECT-STATUS.md` 用于报告仓库现状。
@@ -18,13 +18,13 @@
 ## Current State
 
 - 已新增根级 `PROJECT-STATUS.md`。
-- 已新增 `docs/README.md`、`spec/README.md`、`docs/modules/README.md`、`docs/tasks/README.md` 和任务模板。
-- 已将稳定规范迁移到 `spec/<module>/`。
+- 已新增 `docs/README.md`、`reference/README.md`、`docs/modules/README.md`、`docs/tasks/README.md` 和任务模板。
+- 已将稳定规范迁移到 `reference/<module>/`。
 - 已将调研资料迁移到 `docs/research/`，将旧草案迁移到 `docs/drafts/` 或 `docs/archived/`。
 
 ## Walkthrough
 
-- 盘点现有 `docs/`、`spec/`、`README.md`、`architecture.md` 和 `AGENTS.md`。
+- 盘点现有 `docs/`、`reference/`、`README.md`、`architecture.md` 和 `AGENTS.md`。
 - 确认用户偏好：模块重排、按影响更新、任务记录放在 `docs/tasks/`、同一功能持续续写同一个任务文档。
 - 建立新目录结构并移动文档。
 - 重写项目入口、文档入口、规范入口和仓库状态。
@@ -33,7 +33,7 @@
 
 ## Decisions
 
-- `spec/` 只保存稳定规范和实现契约。
+- `reference/` 只保存稳定规范和实现契约。
 - `docs/` 保存模块文档、调研、草案、归档和任务 walkthrough。
 - 仓库级状态文件固定为根目录 `PROJECT-STATUS.md`。
 - 任务 walkthrough 固定放在 `docs/tasks/<task-slug>/README.md`。
@@ -50,8 +50,8 @@
 - `docs/tasks/README.md`
 - `docs/tasks/TEMPLATE.md`
 - `docs/tasks/archived/documentation-reorg/README.md`
-- `spec/README.md`
-- `docs/` 与 `spec/` 下多份文档路径按模块重排。
+- `reference/README.md`
+- `docs/` 与 `reference/` 下多份文档路径按模块重排。
 - `AGENTS.md` 后续新增“文档索引”章节。
 
 ## Verification
@@ -62,5 +62,5 @@
 
 ## TODO / Follow-ups
 
-- 后续新增或调整模块时，继续补充 `docs/modules/README.md` 和 `spec/README.md`。
+- 后续新增或调整模块时，继续补充 `docs/modules/README.md` 和 `reference/README.md`。
 - 若新增拆书等长期功能，应创建对应 `docs/tasks/<task-slug>/README.md` 并在后续调节中持续更新。

@@ -1609,12 +1609,12 @@ function normalizeImportPath(input) {
     throw new Error(`Import.path \u4E0D\u5141\u8BB8\u4F7F\u7528 .. \u8D8A\u754C\uFF1A${input}`);
   }
   if (!isAllowedImportPath(normalized)) {
-    throw new Error(`Import.path \u7B2C\u4E00\u7248\u53EA\u5141\u8BB8 AGENTS.md\u3001spec/** \u6216 docs/**\uFF1A${input}`);
+    throw new Error(`Import.path \u7B2C\u4E00\u7248\u53EA\u5141\u8BB8 AGENTS.md\u3001reference/** \u6216 docs/**\uFF1A${input}`);
   }
   return normalized;
 }
 function isAllowedImportPath(path2) {
-  return path2 === "AGENTS.md" || path2.startsWith("spec/") || path2.startsWith("docs/");
+  return path2 === "AGENTS.md" || path2.startsWith("reference/") || path2.startsWith("docs/");
 }
 async function readImportFile(path2, required) {
   const target = resolve(process.cwd(), path2);
@@ -2699,9 +2699,9 @@ var leader_default_profile_default = defineAgentProfile({
         /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(AgentCatalog, {}) }),
         /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(SkillCatalog, {}) }),
         /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(Import, { path: "AGENTS.md" }) }),
-        /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(Import, { path: "spec/agent/leader-default.md" }) }),
-        /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(Import, { path: "spec/content/markdown-dialect.md" }) }),
-        /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(Import, { path: "spec/agent/neurobook-project-guide.md" }) })
+        /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(Import, { path: "reference/agent/leader-default.md" }) }),
+        /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(Import, { path: "reference/content/markdown-dialect.md" }) }),
+        /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(Import, { path: "reference/agent/neurobook-project-guide.md" }) })
       ] }),
       /* @__PURE__ */ jsxs(ModelContext, { children: [
         /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(SqlSchemaSummary, {}) }),
@@ -2760,7 +2760,7 @@ var LEADER_SYSTEM_PROMPT = profileText`
 
         # 共享规范
 
-        默认 Leader 的工具使用、Task Management、多 Agent 协作、SQL、Plan Mode、Skills、Markdown 扩展格式、Project Workspace、内容节点、Lorebook、Manuscript、Simulation、Plot System 和 workspace node CLI 稳定说明已通过 HistorySet 中的 spec 文档注入。处理这些主题时遵守共享规范，不要依赖旧 task walkthrough 或过时 prompt 片段。
+        默认 Leader 的工具使用、Task Management、多 Agent 协作、SQL、Plan Mode、Skills、Markdown 扩展格式、Project Workspace、内容节点、Lorebook、Manuscript、Simulation、Plot System 和 workspace node CLI 稳定说明已通过 HistorySet 中的 reference 文档注入。处理这些主题时遵守共享规范，不要依赖旧 task walkthrough 或过时 prompt 片段。
     `;
 export {
   InputSchema,

@@ -5269,12 +5269,12 @@ function normalizeImportPath(input) {
     throw new Error(`Import.path \u4E0D\u5141\u8BB8\u4F7F\u7528 .. \u8D8A\u754C\uFF1A${input}`);
   }
   if (!isAllowedImportPath(normalized)) {
-    throw new Error(`Import.path \u7B2C\u4E00\u7248\u53EA\u5141\u8BB8 AGENTS.md\u3001spec/** \u6216 docs/**\uFF1A${input}`);
+    throw new Error(`Import.path \u7B2C\u4E00\u7248\u53EA\u5141\u8BB8 AGENTS.md\u3001reference/** \u6216 docs/**\uFF1A${input}`);
   }
   return normalized;
 }
 function isAllowedImportPath(path8) {
-  return path8 === "AGENTS.md" || path8.startsWith("spec/") || path8.startsWith("docs/");
+  return path8 === "AGENTS.md" || path8.startsWith("reference/") || path8.startsWith("docs/");
 }
 async function readImportFile(path8, required) {
   const target = resolve(process.cwd(), path8);

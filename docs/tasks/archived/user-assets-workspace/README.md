@@ -4,7 +4,7 @@
 
 用户维护 skill 或其他可覆盖 assets 时，不应修改仓库源码。系统需要提供一个全局用户 assets 目录，并让前端复用现有 Novel IDE 文件树、tab、Markdown/Monaco 编辑器和保存冲突处理。
 
-> 迁移提示：本文记录的是较早的 `workspace/.nbook/assets` 方案和旧低代码 Profile 工作台设想。当前 user-assets 稳定形态已经改为直接挂载 `workspace/.nbook`，系统资源根是 `assets/workspace/.nbook`，Agent profile / skill 放到 `.nbook/agent/...`，workspace 模板放到 `.nbook/templates/...`。TSX Profile Workbench 的当前计划以 `docs/tasks/04-tsx-profile-workbench/README.md` 为准；旧正文中的 Zod Schema Builder、`profile-templates` / `user-profile-templates` API、`leader/subagent` 新建限制和 profile 可见性方案不再代表当前计划。Pi Agent runtime 和 assets root 以 `docs/tasks/02-pi-agent-harness-migration/README.md` 与 `spec/workspace/TERMS.md` 为准。
+> 迁移提示：本文记录的是较早的 `workspace/.nbook/assets` 方案和旧低代码 Profile 工作台设想。当前 user-assets 稳定形态已经改为直接挂载 `workspace/.nbook`，系统资源根是 `assets/workspace/.nbook`，Agent profile / skill 放到 `.nbook/agent/...`，workspace 模板放到 `.nbook/templates/...`。TSX Profile Workbench 的当前计划以 `docs/tasks/04-tsx-profile-workbench/README.md` 为准；旧正文中的 Zod Schema Builder、`profile-templates` / `user-profile-templates` API、`leader/subagent` 新建限制和 profile 可见性方案不再代表当前计划。Pi Agent runtime 和 assets root 以 `docs/tasks/02-pi-agent-harness-migration/README.md` 与 `reference/workspace/TERMS.md` 为准。
 
 ## 决策
 
@@ -347,7 +347,7 @@
   - 修改共享源码、schema contract、loader、prompt DSL 或 generated type index 后，再运行 `bun run typecheck` 和相关测试。
 - `tsx-profile-editing` 说明安全边界：用户 profile 是可信本地代码，不要直接运行陌生来源 profile；如需引入第三方 profile，应先审查源码。
 - `tsx-profile-editing` 说明 import 边界：profile 可以 import 项目 API，但应优先使用 `defineAgentProfile`、prompt nodes、schema contract 和公开 helper，避免依赖旧 builtin class 或测试/迁移细节。
-- `spec/agent/profile-guide.md` 继续作为开发者文档；skill 是面向 Agent 的可执行摘要，不直接把整份 spec 塞进 `leader.assets` 主 prompt。
+- `reference/agent/profile-guide.md` 继续作为开发者文档；skill 是面向 Agent 的可执行摘要，不直接把整份 reference 塞进 `leader.assets` 主 prompt。
 
 ### 2026-05-24 update
 
@@ -494,6 +494,6 @@
 - profile registry 性能优化：如 catalog/preview 频繁触发刷新造成明显卡顿，再引入文件 mtime/hash skip 或 per-file cache busting。
 - profile 版本快照 / 可复现运行：当前阶段不做；如未来需要严格复现旧 run，再显式设计 `profileVersion` 或 `profileSnapshot`，不能隐式重写 thread history。
 - 第三方 profile 审查 skill：后续如果支持用户加载外部 profile，可新增专门的审查 skill，帮助检查危险代码、工具权限、schema contract 和提示词行为；当前阶段不做 sandbox，用户自行负责。
-- 推荐 profile import surface：在 `spec/agent/profile-guide.md` 中列出推荐导入面，减少用户 profile 依赖深层私有实现。
-- profile 文档分层防漂移：`spec/agent/profile-guide.md` 是完整真相源；`tsx-profile-editing` skill 是 Agent 执行摘要；UI 只放短提示和链接/入口，不复制长规则。
+- 推荐 profile import surface：在 `reference/agent/profile-guide.md` 中列出推荐导入面，减少用户 profile 依赖深层私有实现。
+- profile 文档分层防漂移：`reference/agent/profile-guide.md` 是完整真相源；`tsx-profile-editing` skill 是 Agent 执行摘要；UI 只放短提示和链接/入口，不复制长规则。
 - Agent Graph 泛化暂不进入当前实现，只保留 TODO。当前阶段只跑通动态 `leader.*` / `subagent.*` profile。

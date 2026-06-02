@@ -507,7 +507,7 @@ export default defineAgentProfile({
 - 新 DSL 硬切删除 `DynamicSet`，公开只保留 `ModelContext`。
 - Workbench 第一阶段实现本任务提到的全部 DSL 节点，包括 `Watch.render` 的结构化展示与编辑；复杂 TypeScript helper 仍通过源码编辑。
 - v2 leader 中 Plot System / task / SQL 概念层可以保留，但旧工具名和调用旧工具的命令式说明不能进入 active prompt。
-- 本任务暂不新增稳定 `spec/agent/profile-dsl.md`；先把设计记录在任务 README 与 harness 文档中。
+- 本任务暂不新增稳定 `reference/agent/profile-dsl.md`；先把设计记录在任务 README 与 harness 文档中。
 
 ## Implementation Guardrails
 
@@ -641,7 +641,7 @@ export default defineAgentProfile({
    - 更新 `docs/tasks/04-tsx-profile-workbench/README.md`，把可视化编辑器目标从 systemPrompt range 改到新 TSX DSL tree。
    - 更新 `docs/modules/agent/harness.md`，记录实现后的 harness pre-loop 提交流程。
    - 更新本文档 Walkthrough / Files Changed / Verification。
-   - 本任务暂不新增稳定 `spec/agent/profile-dsl.md`；等 DSL 经实现验证后再考虑沉淀到 spec。
+   - 本任务暂不新增稳定 `reference/agent/profile-dsl.md`；等 DSL 经实现验证后再考虑沉淀到 spec。
    - 如实际 runtime 行为或长期 TODO 变化，再更新 `PROJECT-STATUS.md`。
 
 ## Acceptance Criteria

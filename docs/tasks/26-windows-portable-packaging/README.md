@@ -201,7 +201,7 @@
 - `docs/operator-bridge.md`
 - `docs/tasks/26-windows-portable-packaging/README.md`
 - `CONTEXT.md`
-- `spec/workspace/TERMS.md`
+- `reference/workspace/TERMS.md`
 - `PROJECT-STATUS.md`
 - `package.json`
 - `scripts/cli/has-users.ts`

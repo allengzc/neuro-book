@@ -138,7 +138,7 @@ ORDER BY "threadSortOrder";
 - 不要默认全量读取 references 目录。
 - skill 只指导本轮怎么做；稳定设定写入 Lorebook，剧情推进写入 Plot System，临时计划留在当前对话。
 
-## Related Specs
+## Related References
 
 - [Profile guide](profile-guide.md)
 - [Profile import](profile-import.md)

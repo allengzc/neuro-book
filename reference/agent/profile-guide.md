@@ -4,7 +4,7 @@
 
 相关文档：
 
-- [system.md](system.md)
+- [harness.md](harness.md)
 - [context.md](context.md)
 - [profile-import.md](profile-import.md)
 - [neurobook-project-guide.md](neurobook-project-guide.md)
@@ -19,7 +19,7 @@
 - `allowedToolKeys`
 - `context(ctx)`
 
-需要结构化结果时声明 `outputSchema`。存在 `outputSchema` 时，`report_result.data` 必须符合该 schema。
+需要结构化结果时声明 `outputSchema`。存在 `outputSchema` 时，`report_result.data` 是主路结构化输出的 runtime 校验依据；provider-visible schema 中该字段保持 optional，以便错误说明和 sidecar 复用同一个工具 schema。
 
 内置 profile 位于 `assets/workspace/.nbook/agent/profiles/builtin/`，例如：
 
@@ -64,7 +64,7 @@ context() {
                     <SkillCatalog />
                 </Message>
                 <Message>
-                    <Import path="spec/agent/neurobook-project-guide.md" />
+                    <Import path="reference/agent/neurobook-project-guide.md" />
                 </Message>
             </HistorySet>
             <ModelContext>
@@ -109,7 +109,7 @@ context() {
 - 本轮临时状态。
 - 当前 Project Workspace。
 - 变量值。
-- 大段可共享的项目协议。共享协议优先放到 `spec/`，再用 `Import` 显式导入。
+- 大段可共享的项目协议。共享协议优先放到 `reference/`，再用 `Import` 显式导入。
 
 ## HistorySet
 
@@ -119,7 +119,7 @@ context() {
 
 - 可用 agent catalog。
 - 可用 skill catalog。
-- 共享规范导入，例如 `<Import path="spec/agent/neurobook-project-guide.md" />`。
+- 共享规范导入，例如 `<Import path="reference/agent/neurobook-project-guide.md" />`。
 - 需要首轮持久化、后续不频繁变化的上下文。
 
 规则：
@@ -137,7 +137,7 @@ context() {
 ```tsx
 <HistorySet>
     <Message>
-        <Import path="spec/agent/neurobook-project-guide.md" />
+        <Import path="reference/agent/neurobook-project-guide.md" />
     </Message>
 </HistorySet>
 ```
@@ -151,7 +151,7 @@ context() {
 - `label`
 - `as`，V1 只支持 `text`
 
-V1 只允许 `AGENTS.md`、`spec/**` 和 `docs/**`。不要用 `Import` 读取 Project Workspace 文件；项目内容应通过 agent 文件工具、sidecar 或 runtime 注入读取。
+V1 只允许 `AGENTS.md`、`reference/**` 和 `docs/**`。不要用 `Import` 读取 Project Workspace 文件；项目内容应通过 agent 文件工具、sidecar 或 runtime 注入读取。
 
 详见 [profile-import.md](profile-import.md)。
 
@@ -262,7 +262,7 @@ export default defineAgentProfile({
                         <SkillCatalog />
                     </Message>
                     <Message>
-                        <Import path="spec/agent/neurobook-project-guide.md" />
+                        <Import path="reference/agent/neurobook-project-guide.md" />
                     </Message>
                 </HistorySet>
                 <ModelContext>

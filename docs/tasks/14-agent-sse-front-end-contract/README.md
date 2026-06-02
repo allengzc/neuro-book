@@ -431,15 +431,15 @@ SSE 断线不是 run error，不应投影为聊天错误卡。短暂断线在 co
 - session event 是 Neuro Book 产品层事件，描述恢复真相、session entry、follow-up queue、client variable patch、snapshot recovery。
 - `connected` 和 `snapshot_required` 更接近 transport/recovery 事件，不应该伪装成 Agent loop custom event。
 
-如果全部塞进 Pi custom，前端 reducer 会重新开始猜“这个 custom 到底是模型事件还是产品事件”，长期会让恢复和重连逻辑变浑。当前稳定 spec 继续保留 envelope 层 `kind` 区分。
+如果全部塞进 Pi custom，前端 reducer 会重新开始猜“这个 custom 到底是模型事件还是产品事件”，长期会让恢复和重连逻辑变浑。当前稳定 reference 继续保留 envelope 层 `kind` 区分。
 
 ## Files Changed
 
 - Spec / docs:
   - `docs/tasks/14-agent-sse-front-end-contract/README.md`
   - `docs/modules/agent/harness.md`
-  - `spec/agent/sse.md`
-  - `spec/README.md`
+  - `reference/agent/sse.md`
+  - `reference/README.md`
   - `PROJECT-STATUS.md`
 - Front-end runtime:
   - `app/components/novel-ide/NovelAgentDrawer.vue`

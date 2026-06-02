@@ -490,10 +490,10 @@ describe("profile TSX DSL", () => {
                         HistorySet({
                             children: Message({
                                 children: Import({
-                                    path: "spec/README.md",
+                                    path: "reference/README.md",
                                     heading: "Modules",
                                     maxBytes: 120,
-                                    label: "Spec Modules",
+                                    label: "Reference Modules",
                                 }),
                             }),
                         }),
@@ -505,11 +505,11 @@ describe("profile TSX DSL", () => {
         const plan = await profile.prepare!(context());
         const text = (plan.historyInitMessages ?? []).map(messageText).join("\n");
 
-        expect(text).toContain("[Import truncated: spec/README.md maxBytes=120]");
-        expect(text).toContain("```spec/README.md");
+        expect(text).toContain("[Import truncated: reference/README.md maxBytes=120]");
+        expect(text).toContain("```reference/README.md");
         expect(text).toContain("```");
         expect(text).toContain("## Modules");
-        expect(text).not.toContain("# Spec Index");
+        expect(text).not.toContain("# NeuroBook Reference Bookshelf");
     });
 
     it("Import 缺失文件默认渲染空消息，required=true 时抛错，并继续拒绝越界路径", async () => {

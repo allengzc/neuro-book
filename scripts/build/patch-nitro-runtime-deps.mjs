@@ -8,7 +8,7 @@ const runtimePackages = [
 ];
 const runtimeContextPaths = [
     "AGENTS.md",
-    "spec",
+    "reference",
     "docs",
 ];
 const serverRoot = resolve(".output", "server");

@@ -116,7 +116,7 @@ export default defineAgentProfile({
                 <System>{renderSystemPrompt()}</System>
                 <HistorySet>
                     <Message>
-                        <Import path="spec/agent/neurobook-project-guide.md" />
+                        <Import path="reference/agent/neurobook-project-guide.md" />
                     </Message>
                     <AIMessage>
                         <ToolCall id="call_read" name="read" args={{ path: "workspace/" }} />
@@ -161,7 +161,7 @@ export default defineAgentProfile({
         expect(importNode).toEqual(expect.objectContaining({
             type: "Import",
             props: expect.objectContaining({
-                path: "spec/agent/neurobook-project-guide.md",
+                path: "reference/agent/neurobook-project-guide.md",
             }),
         }));
         const toolCall = root?.children[1]?.children[1]?.children[0];

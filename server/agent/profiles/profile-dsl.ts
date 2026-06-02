@@ -122,7 +122,7 @@ export type ProfileStringFragmentNode = {
 export type ProfileImportAs = "text";
 
 export type ProfileImportProps = {
-    /** Repo / app root 相对路径。第一版只允许 AGENTS.md、spec/** 和 docs/**。 */
+    /** Repo / app root 相对路径。第一版只允许 AGENTS.md、reference/** 和 docs/**。 */
     path: string;
     /** 可选 Markdown 标题文本；设置后只导入该标题段落。 */
     heading?: string;
@@ -526,7 +526,7 @@ export function SqlSchemaSummary(props: {text?: string | ((ctx: ProfilePrepareCo
 }
 
 /**
- * 导入共享文本上下文。适合在 HistorySet 的 Message 中显式加载 spec/docs/AGENTS.md。
+ * 导入共享文本上下文。适合在 HistorySet 的 Message 中显式加载 reference/docs/AGENTS.md。
  */
 export function Import(props: ProfileImportProps): ProfileStringFragmentNode {
     return {
@@ -1380,13 +1380,13 @@ function normalizeImportPath(input: string): string {
         throw new Error(`Import.path 不允许使用 .. 越界：${input}`);
     }
     if (!isAllowedImportPath(normalized)) {
-        throw new Error(`Import.path 第一版只允许 AGENTS.md、spec/** 或 docs/**：${input}`);
+        throw new Error(`Import.path 第一版只允许 AGENTS.md、reference/** 或 docs/**：${input}`);
     }
     return normalized;
 }
 
 function isAllowedImportPath(path: string): boolean {
-    return path === "AGENTS.md" || path.startsWith("spec/") || path.startsWith("docs/");
+    return path === "AGENTS.md" || path.startsWith("reference/") || path.startsWith("docs/");
 }
 
 async function readImportFile(path: string, required: boolean): Promise<{exists: true; text: string} | {exists: false}> {

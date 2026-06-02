@@ -9,7 +9,7 @@
 ```tsx
 <HistorySet>
     <Message>
-        <Import path="spec/agent/neurobook-project-guide.md" />
+        <Import path="reference/agent/neurobook-project-guide.md" />
     </Message>
 </HistorySet>
 ```
@@ -28,7 +28,7 @@ Supported props:
 Rendered text is a Markdown fenced block whose info string is the imported path:
 
 ```text
-```spec/agent/neurobook-project-guide.md
+```reference/agent/neurobook-project-guide.md
 ...
 ```
 ```
@@ -36,8 +36,8 @@ Rendered text is a Markdown fenced block whose info string is the imported path:
 If `maxBytes` truncates the import, a short marker is placed before the block:
 
 ```text
-[Import truncated: spec/agent/neurobook-project-guide.md maxBytes=12000]
-```spec/agent/neurobook-project-guide.md
+[Import truncated: reference/agent/neurobook-project-guide.md maxBytes=12000]
+```reference/agent/neurobook-project-guide.md
 ...
 ```
 ```
@@ -46,7 +46,7 @@ If `maxBytes` truncates the import, a short marker is placed before the block:
 
 Recommended placement:
 
-- Stable shared specs: `HistorySet > Message > Import`.
+- Stable shared references: `HistorySet > Message > Import`.
 - Temporary or run-specific context: do not use `Import`; use profile input, variables, runtime reminders, sidecars, or file tools instead.
 - System identity and profile-specific behavior should remain in `<System>`.
 
@@ -57,7 +57,7 @@ Recommended placement:
 V1 only allows these roots:
 
 - `AGENTS.md`
-- `spec/**`
+- `reference/**`
 - `docs/**`
 
 The path must be relative. Absolute paths, URL-like paths, empty paths and `..` traversal are rejected.
@@ -66,4 +66,4 @@ The path must be relative. Absolute paths, URL-like paths, empty paths and `..` 
 
 ## Build Contract
 
-Build and release artifacts that run compiled profiles must include the files allowed above. The current build patch copies `AGENTS.md`, `spec/` and `docs/` into `.output/server/` so imports still work when the runtime cwd is the compiled server output.
+Build and release artifacts that run compiled profiles must include the files allowed above. The current build patch copies `AGENTS.md`, `reference/` and `docs/` into `.output/server/` so imports still work when the runtime cwd is the compiled server output.

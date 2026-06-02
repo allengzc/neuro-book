@@ -26,7 +26,7 @@ Common Project Workspace paths:
 | `{project}/.nbook/` | Project config, Project SQLite and project control files. |
 | `{project}/.agent/` | Temporary plans, caches and execution notes. |
 
-See also `spec/workspace/TERMS.md` for canonical workspace terminology.
+See also `reference/workspace/TERMS.md` for canonical workspace terminology.
 
 ## Content Nodes
 
@@ -213,8 +213,9 @@ Agent runtime config makes `rg --files` output use `/` paths. Shell examples sho
 
 ## Cross References
 
-- Workspace terms: `spec/workspace/TERMS.md`
-- Directory and information-control protocol: `spec/content/lorebook-information-control.md`
-- Content-node state compatibility: `spec/content/state.md`
-- Retrieval and inject: `spec/content/retrieval.md`
-- Plot module: `spec/plot/system.md`
+- Workspace terms: `reference/workspace/TERMS.md`
+- Directory protocol: `reference/content/directory-protocol.md`
+- Information control: `reference/content/information-control.md`
+- Content-node state compatibility: `reference/content/state.md`
+- Retrieval and inject: `reference/content/retrieval.md`
+- Plot module: `reference/plot/system.md`

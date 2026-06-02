@@ -86,8 +86,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 - `PROJECT-STATUS.md`：仓库级现状、当前重点、模块状态、风险和近期任务。TODO 也记录在这里，注意 TODO 完成后记得删除
 - `docs/README.md`：文档体系入口，说明 `docs/` 目录分工。
-- `spec/README.md`：稳定规范索引，按模块链接到 `spec/<module>/`。
-- `spec/workspace/TERMS.md`：Workspace Root、Workspace Root `.nbook`、Project Workspace、Project Workspace `.nbook`、user-assets、Bundled Workspace Template 的标准术语。涉及 workspace / project / user-assets / assets 覆盖时必须优先引用这里，不要把 Project Workspace 缩写成 workspace。
+- `reference/README.md`：NeuroBook Reference Bookshelf，按模块链接到 `reference/<module>/`。
+- `reference/workspace/TERMS.md`：Workspace Root、Workspace Root `.nbook`、Project Workspace、Project Workspace `.nbook`、user-assets、Bundled Workspace Template 的标准术语。涉及 workspace / project / user-assets / assets 覆盖时必须优先引用这里，不要把 Project Workspace 缩写成 workspace。
 - `docs/modules`：模块文档索引，链接模块说明、需求整理和开发参考。在你直接查询 node_modules 前先看看这个文件，可能有 research 或者库的本地 git 仓库位置
 - `docs/tasks/README.md`：重大任务 walkthrough 规则和维护要求。
 - `docs/tasks/TEMPLATE.md`：新任务 walkthrough 模板。
@@ -97,7 +97,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - `PROJECT-STATUS.md` 是仓库级现状报告。重大任务结束后，如果代码行为、架构决策、模块状态或长期 TODO 发生变化，必须同步更新该文件。
 - `docs/tasks/<order>-<task-slug>/README.md` 是 active 重大任务的持续 walkthrough；归档任务在 `docs/tasks/archived/<task-slug>/README.md`。每个重大任务都应有一个任务目录，记录用户需求、目标、执行过程、关键决策、变更文件、验证结果和后续 TODO。
 - 同一功能后续调节时，继续更新原任务 walkthrough。例如新增“拆书功能”后，后续所有拆书功能调节都更新同一个 active 编号任务目录，不要每轮新建碎片文档。
-- `spec/` 只放稳定规范和实现契约，按模块分组，例如 `spec/agent/`、`spec/editor/`、`spec/plot/`、`spec/reference/`。
+- `reference/` 只放稳定参考和实现契约，按模块分组，例如 `reference/agent/`、`reference/editor/`、`reference/plot/`、`reference/workspace-reference/`。
 - `docs/` 放文档入口、模块说明、调研、草案、归档和任务 walkthrough。调研资料放 `docs/research/`，未定稿草案放 `docs/drafts/`，过期但仍有参考价值的内容放 `docs/archived/`。
 - 移动文档或改名时，必须同步更新交叉链接，避免留下绝对路径链接和旧路径引用。
 - 纯问答、只读探索、无状态变化的失败尝试，不强制更新 `PROJECT-STATUS.md` 或任务 walkthrough。

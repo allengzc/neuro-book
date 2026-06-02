@@ -15,7 +15,8 @@
 
 协议正文已迁出 task walkthrough，进入稳定内容规范：
 
-- [../../../spec/content/lorebook-information-control.md](../../../spec/content/lorebook-information-control.md)
+- [../../../reference/content/directory-protocol.md](../../../reference/content/directory-protocol.md)
+- [../../../reference/content/information-control.md](../../../reference/content/information-control.md)
 
 流程压力测试和 RP 示例记录在：
 
@@ -41,7 +42,7 @@
 - 默认顶层目录为 `world / character / location / faction / item / event / system`，外加 `lorebook/index.md`。
 - 支持扩展类型 `species / creature / organization / instruction`，但不默认生成顶层目录。
 - 不再把 `relationship`、`rule`、`note`、`formatting`、`dynamic-mvu`、`dynamic-prompt` 作为稳定 lorebook 协议类型。
-- 当前兼容 `spec/content/state.md` 的 lorebook 同级 `state.md`；但 subject 主观状态和 entity 当前状态不再新增到 lorebook，后续逐步减少并迁出 lorebook 下的动态状态。
+- 当前兼容 `reference/content/state.md` 的 lorebook 同级 `state.md`；但 subject 主观状态和 entity 当前状态不再新增到 lorebook，后续逐步减少并迁出 lorebook 下的动态状态。
 - 现有 `roleplay/actors/{actor-id}/` 旧目录应迁移到 `simulation/subjects/{subject-id}/`，由 `simulation/cast.yaml` 引用。
 - `instruction` 作为作品级 AI 使用说明继续保留，并细分为 `style / narration / boundary / disclosure / retrieval / formatting / continuity` 等推荐 subtype。
 - 信息控制模型暂不展开 schema，只保留后续设计入口。
@@ -66,8 +67,9 @@
 ## Files Changed
 
 - `docs/tasks/28-lorebook-information-control-protocol/README.md`
-- `spec/content/lorebook-information-control.md`
-- `spec/README.md`
+- `reference/content/directory-protocol.md`
+- `reference/content/information-control.md`
+- `reference/README.md`
 - `PROJECT-STATUS.md`
 - `docs/tasks/28-lorebook-information-control-protocol/roleplay-flow-examples.md`
 

@@ -26,7 +26,7 @@
 
 ## Terms
 
-稳定术语见 [Workspace Terms](../../../spec/workspace/TERMS.md)。本任务遵守以下规则：
+稳定术语见 [Workspace Terms](../../../reference/workspace/TERMS.md)。本任务遵守以下规则：
 
 - Workspace Root：应用运行数据根目录，默认 `workspace/`。
 - Workspace Root `.nbook`：全局控制区，默认 `workspace/.nbook/`。

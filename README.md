@@ -341,15 +341,15 @@ Personal authors may use neuro-book to create, edit, and publish their own origi
 
 和 AGENT 相关的说明主要在这些地方：
 
-- [spec/agent/README.md](spec/agent/README.md)：Agent 稳定规范入口。
-- [spec/agent/system.md](spec/agent/system.md)：多 Agent 需求规格。
-- [spec/agent/profile-guide.md](spec/agent/profile-guide.md)：profile 实现指南。
-- [spec/agent/context.md](spec/agent/context.md)：TSX prompt 的上下文拼接规则。
-- [spec/agent/profile-import.md](spec/agent/profile-import.md)：`<Import />` 共享文本导入节点规范。
-- [spec/agent/leader-default.md](spec/agent/leader-default.md)：`leader.default` 工具、任务、多 Agent、SQL、Plan Mode 和 Skills 操作协议。
-- [spec/agent/neurobook-project-guide.md](spec/agent/neurobook-project-guide.md)：Project Workspace、内容节点、Plot、simulation 和 workspace node CLI 共享规范。
-- [spec/content/markdown-dialect.md](spec/content/markdown-dialect.md)：NeuroBook Markdown 扩展格式。
-- [docs/modules/agent/harness.md](docs/modules/agent/harness.md)：当前 Agent Harness 的 session、profile、ReAct loop、SSE 和消息持久化流程。
+- [reference/agent/README.md](reference/agent/README.md)：Agent 稳定参考入口。
+- [reference/agent/harness.md](reference/agent/harness.md)：当前 Agent Harness、session、profile 和持久化流程参考。
+- [reference/agent/profile-guide.md](reference/agent/profile-guide.md)：profile 实现指南。
+- [reference/agent/context.md](reference/agent/context.md)：TSX prompt 的上下文拼接规则。
+- [reference/agent/profile-import.md](reference/agent/profile-import.md)：`<Import />` 共享文本导入节点规范。
+- [reference/agent/leader-default.md](reference/agent/leader-default.md)：`leader.default` 工具、任务、多 Agent、SQL、Plan Mode 和 Skills 操作协议。
+- [reference/agent/neurobook-project-guide.md](reference/agent/neurobook-project-guide.md)：Project Workspace、内容节点、Plot、simulation 和 workspace node CLI 共享规范。
+- [reference/content/markdown-dialect.md](reference/content/markdown-dialect.md)：NeuroBook Markdown 扩展格式。
+- [reference/agent/harness.md](reference/agent/harness.md)：当前 Agent Harness 的 session、profile、ReAct loop、SSE 和消息持久化流程。
 - [docs/tasks/02-pi-agent-harness-migration/README.md](docs/tasks/02-pi-agent-harness-migration/README.md)：Pi-based Agent 主路径迁移记录。
 - [docs/tasks/04-tsx-profile-workbench/README.md](docs/tasks/04-tsx-profile-workbench/README.md)：TSX Profile Workbench 当前任务记录。
 - [docs/tasks/05-leader-profile-v2-adaptation/README.md](docs/tasks/05-leader-profile-v2-adaptation/README.md)：leader.default v2 适配与 TSX DSL/harness 调整记录。
@@ -377,12 +377,12 @@ neuro-book 的 Agent profile 不是纯字符串 prompt，而是用 TSX 组件树
 
 TSX profile 相关文档：
 
-- [spec/agent/README.md](spec/agent/README.md)
-- [spec/agent/profile-guide.md](spec/agent/profile-guide.md)
-- [spec/agent/context.md](spec/agent/context.md)
-- [spec/agent/profile-import.md](spec/agent/profile-import.md)
-- [spec/agent/leader-default.md](spec/agent/leader-default.md)
-- [spec/agent/neurobook-project-guide.md](spec/agent/neurobook-project-guide.md)
+- [reference/agent/README.md](reference/agent/README.md)
+- [reference/agent/profile-guide.md](reference/agent/profile-guide.md)
+- [reference/agent/context.md](reference/agent/context.md)
+- [reference/agent/profile-import.md](reference/agent/profile-import.md)
+- [reference/agent/leader-default.md](reference/agent/leader-default.md)
+- [reference/agent/neurobook-project-guide.md](reference/agent/neurobook-project-guide.md)
 - [docs/tasks/04-tsx-profile-workbench/README.md](docs/tasks/04-tsx-profile-workbench/README.md)
 - [docs/tasks/05-leader-profile-v2-adaptation/README.md](docs/tasks/05-leader-profile-v2-adaptation/README.md)
 - [docs/tasks/06-leader-default-prompt-parity/README.md](docs/tasks/06-leader-default-prompt-parity/README.md)
@@ -392,11 +392,11 @@ TSX profile 相关文档：
 
 - [PROJECT-STATUS.md](PROJECT-STATUS.md)：仓库当前状态、重点任务和风险。
 - [docs/README.md](docs/README.md)：文档索引、目录分工和任务记录规则。
-- [spec/README.md](spec/README.md)：稳定规范索引。
+- [reference/README.md](reference/README.md)：NeuroBook Reference Bookshelf。
 - [architecture.md](architecture.md)：项目架构文档入口。
 
 ## 当前开发约定
 
 - 重大任务需要同步更新 `PROJECT-STATUS.md` 和对应 active `docs/tasks/<order>-<task-slug>/README.md` 或 archived `docs/tasks/archived/<task-slug>/README.md`。
-- 稳定规范放在 `spec/<module>/`，调研与草案放在 `docs/` 下对应目录。
+- 稳定参考和实现契约放在 `reference/<module>/`，调研与草案放在 `docs/` 下对应目录。
 - 具体编码约束以 [AGENTS.md](AGENTS.md) 为准。

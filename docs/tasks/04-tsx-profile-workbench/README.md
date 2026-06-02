@@ -68,7 +68,7 @@
   - `ProfileTemplateVisualEditor` 的 user-profile 模式已经尝试接入新 `/api/agent/profiles/catalog/detail/preview-prepare`，但仍调用旧 `/api/agent/user-profile-templates/*` 保存、创建、恢复和 schema 更新接口。
   - 当前 `shared/dto/agent-profile.dto.ts` 已移除旧 `AgentProfileSchemaFieldDto`、`AgentProfileDetailDto.root` 和旧 template variable DTO 继承；旧编辑器若直接进入 active build 会出现类型/运行合同不匹配。
   - “旧画布编辑”改称 `ProfilePrompt` 可视化辅助编辑：它指 `ProfileTemplateVisualEditor` 左侧组件库 + 中间拖拽节点树 + 右侧 Inspector 对 `ProfilePrompt` JSX 的查看和编辑能力。它只适用于能稳定解析出 `ProfilePrompt`/节点树的源码区域；不适用于任意 TypeBox profile 的全部 TSX 逻辑。
-- 已按用户要求复查旧 `server/agent-v2/profiles/builtin/leader-default.profile.tsx`、`spec/agent/context.md` 与 `docs/tasks/02-pi-agent-harness-migration/README.md`：
+- 已按用户要求复查旧 `server/agent-v2/profiles/builtin/leader-default.profile.tsx`、`reference/agent/context.md` 与 `docs/tasks/02-pi-agent-harness-migration/README.md`：
   - v2 旧 leader 的 `buildLeaderDefaultPrompt(ctx)` 通过局部变量构造 `historySet`、`dynamicSet`、`appendingSet`，最后返回 `<ProfilePrompt>{historySet}{dynamicSet}{appendingSet}</ProfilePrompt>`。
   - v2 `ctx.input.prompt` / `<Message source="input">` 是旧直接 prompt 模式的输入写入策略；v3 已把 `InputSchema` 收窄为 agent 实例初始化参数，不能把它当作默认模板的每轮任务 prompt。
   - v3 prompt / continue 的用户消息由 session invocation 入口写入，profile 负责围绕 session history 生成 system / dynamic / appending 上下文，不默认伪造或搬运 `ctx.input.prompt`。

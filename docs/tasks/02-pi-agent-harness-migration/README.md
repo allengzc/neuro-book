@@ -276,7 +276,7 @@ workspace/.nbook/agent/sessions/
 
 ## Workspace / Assets Redesign Notes
 
-- 当前稳定术语见 `spec/workspace/TERMS.md`：
+- 当前稳定术语见 `reference/workspace/TERMS.md`：
   - Workspace Root：应用运行数据根目录，默认 `workspace/`。
   - Workspace Root `.nbook`：全局控制区，默认 `workspace/.nbook/`。
   - Project Workspace：单本小说或具体项目目录，默认 `workspace/{project}/`。
@@ -888,7 +888,7 @@ type AgentTreeRequest = {
 - TODO：重新设计 TSX profile 写入工作台。当前 Agent 抽屉已经迁移，user-assets 入口可以直接编辑 `workspace/.nbook/agent/profiles` 下的 TSX profile 源文件；旧 `ProfileTemplateVisualEditor` 与旧写入接口因尚未适配新 TSX profile 契约，已从 active surface 移除。后续按 TSX 源码编辑优先的方向重接，不恢复旧低代码兼容层。
 - TODO：补 `.compiled` artifact 清理策略。当前全量系统编译会清理系统 `.compiled`，单文件用户编译会保留旧 artifact 文件；后续可增加 prune 命令或 UI 清理动作。
 - 为动态 agent catalog 增加 lazy detail 查询能力；当前 prepare 已可读取 catalog snapshot 中的 InputSchema / OutputSchema，但还没有针对大 catalog 的分页/按 key 查询优化。
-- user-assets 当前稳定形态：用户覆盖根为 `workspace/.nbook`，系统资源根为 `assets/workspace/.nbook`，agent profile/skill 放入 `.nbook/agent`，workspace 模板放入 `.nbook/templates`。后续如继续改入口命名，应以 `spec/workspace/TERMS.md` 为术语真值。
+- user-assets 当前稳定形态：用户覆盖根为 `workspace/.nbook`，系统资源根为 `assets/workspace/.nbook`，agent profile/skill 放入 `.nbook/agent`，workspace 模板放入 `.nbook/templates`。后续如继续改入口命名，应以 `reference/workspace/TERMS.md` 为术语真值。
 - assets 路径硬切已完成；后续若新增系统资源，先放到 `assets/workspace/.nbook/<relative>`，再确认同步逻辑和用户覆盖层 `workspace/.nbook/<relative>` 一致，不恢复旧路径 fallback。
 - 后续评估文件/变量回溯能力：变量可通过 `variable_set` / custom state entry reduce；文件回溯需要专门的 `file_snapshot` / `file_patch` entry 或接入 Git/worktree snapshot，第一版 session 只记录文件操作事实，不承诺文件内容回滚。
 - 若开始实现，持续更新本文档和 `PROJECT-STATUS.md`。

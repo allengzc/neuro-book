@@ -45,9 +45,9 @@
 
 ## 阶段 1 验收状态
 
-阶段 1 的产物只有规范文档，不创建脚本、不改前端、不删除旧代码、不修改 `spec/` 目录。
+阶段 1 的产物只有规范文档，不创建脚本、不改前端、不删除旧代码、不修改 `reference/` 目录。
 
-后续阶段实现 chapter / lorebook 文件树能力时，以 `plan/01-file-tree-spec.md` 为唯一文件树规范来源。旧 lorebook / chapter / VFS 相关 spec 只能作为历史背景，不能作为新实现依据。
+后续阶段实现 chapter / lorebook 文件树能力时，以 `plan/01-file-tree-spec.md` 为唯一文件树规范来源。旧 lorebook / chapter / VFS 相关 reference 只能作为历史背景，不能作为新实现依据。
 
 阶段 1 完成后，后续实现者应能直接回答：
 

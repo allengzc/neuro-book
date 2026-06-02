@@ -29,25 +29,25 @@ Agent 回答问题或执行任务时，应按问题类型读取这些文档：
 - [../README.md](../README.md)：项目功能概览、常用命令、Docker Compose 部署入口、故障排查。
 - [../PROJECT-STATUS.md](../PROJECT-STATUS.md)：仓库当前状态、近期风险、部署策略的最新摘要。
 - [../AGENTS.md](../AGENTS.md)：代码协作规则、文档维护规则、编码约束。
-- [README.md](README.md)：文档体系入口，说明 `docs/`、`spec/`、`PROJECT-STATUS.md` 的分工。
+- [README.md](README.md)：文档体系入口，说明 `docs/`、`reference/`、`PROJECT-STATUS.md` 的分工。
 - [tasks/README.md](tasks/README.md)：active 编号任务与 archived 任务的维护规则。
 - [tasks/archived/docker-compose-deployment/README.md](tasks/archived/docker-compose-deployment/README.md)：Docker Compose 部署任务 walkthrough，记录部署模式演进、关键决策和验证记录。
-- [../spec/agent/README.md](../spec/agent/README.md)：Agent 稳定规范入口；profile、prompt、上下文分区、Import 和默认协作协议优先看这里。
-- [../spec/agent/leader-default.md](../spec/agent/leader-default.md)：当前 `leader.default` 的工具、任务、多 Agent、SQL、Plan Mode 和 Skills 操作协议。
-- [../spec/agent/neurobook-project-guide.md](../spec/agent/neurobook-project-guide.md)：Project Workspace、内容节点、lorebook、manuscript、simulation、Plot System 和 workspace node CLI 的 Agent 使用指南。
-- [../spec/agent/profile-import.md](../spec/agent/profile-import.md)：Profile `<Import />` 共享文本导入节点规范。
-- [../spec/content/README.md](../spec/content/README.md)：内容结构、lorebook / simulation、Markdown 扩展和 retrieval / inject 稳定规范入口。
+- [../reference/agent/README.md](../reference/agent/README.md)：Agent 稳定参考入口；profile、prompt、上下文分区、Import 和默认协作协议优先看这里。
+- [../reference/agent/leader-default.md](../reference/agent/leader-default.md)：当前 `leader.default` 的工具、任务、多 Agent、SQL、Plan Mode 和 Skills 操作协议。
+- [../reference/agent/neurobook-project-guide.md](../reference/agent/neurobook-project-guide.md)：Project Workspace、内容节点、lorebook、manuscript、simulation、Plot System 和 workspace node CLI 的 Agent 使用指南。
+- [../reference/agent/profile-import.md](../reference/agent/profile-import.md)：Profile `<Import />` 共享文本导入节点规范。
+- [../reference/content/README.md](../reference/content/README.md)：内容结构、lorebook / simulation、Markdown 扩展和 retrieval / inject 稳定参考入口。
 - [tasks/02-pi-agent-harness-migration/README.md](tasks/02-pi-agent-harness-migration/README.md)：当前 Pi-based Agent session / event / tool / profile 主路径迁移记录。
 - [tasks/04-tsx-profile-workbench/README.md](tasks/04-tsx-profile-workbench/README.md)：TSX Profile Workbench 当前实现边界。
 - [tasks/06-leader-default-prompt-parity/README.md](tasks/06-leader-default-prompt-parity/README.md)：leader.default prompt parity、task/plot/SQL 工具、writer/retrieval profile 和 skill 迁移记录。
-- [../spec/README.md](../spec/README.md)：稳定规范索引。
-- [../spec/agent/system.md](../spec/agent/system.md)：Agent 系统稳定规格。
-- [../spec/agent/profile-guide.md](../spec/agent/profile-guide.md)：Agent profile 实现和阅读指南。
-- [../spec/agent/context.md](../spec/agent/context.md)：TSX prompt 上下文拼接规则。
+- [../reference/README.md](../reference/README.md)：NeuroBook Reference Bookshelf。
+- [../reference/agent/harness.md](../reference/agent/harness.md)：当前 Agent Harness、session、profile 和持久化流程参考。
+- [../reference/agent/profile-guide.md](../reference/agent/profile-guide.md)：Agent profile 实现和阅读指南。
+- [../reference/agent/context.md](../reference/agent/context.md)：TSX prompt 上下文拼接规则。
 
 如果用户问的是部署问题，优先读本文、README 的 Docker Compose 部分、`docs/tasks/archived/docker-compose-deployment/README.md` 和 `PROJECT-STATUS.md`。Archived walkthrough 记录了部署方案的演进过程，当前执行真相以本文、README 和 `PROJECT-STATUS.md` 为准。
 
-如果用户问的是 Agent 能力、提示词、工具或 workspace 文件语义，先读 `spec/agent/README.md`、`spec/agent/leader-default.md`、`spec/agent/neurobook-project-guide.md`、`spec/agent/profile-import.md` 和 `spec/content/README.md`。需要了解迁移背景、实现演进或历史边界时，再继续读 `docs/tasks/02-pi-agent-harness-migration/README.md`、`docs/tasks/04-tsx-profile-workbench/README.md`、`docs/tasks/06-leader-default-prompt-parity/README.md` 和 `docs/modules/agent/harness.md`。
+如果用户问的是 Agent 能力、提示词、工具或 workspace 文件语义，先读 `reference/agent/README.md`、`reference/agent/leader-default.md`、`reference/agent/neurobook-project-guide.md`、`reference/agent/profile-import.md` 和 `reference/content/README.md`。需要了解迁移背景、实现演进或历史边界时，再继续读 `docs/tasks/02-pi-agent-harness-migration/README.md`、`docs/tasks/04-tsx-profile-workbench/README.md`、`docs/tasks/06-leader-default-prompt-parity/README.md` 和 `reference/agent/harness.md`。
 
 当前 Agent 文档阅读时应使用 session / linked agent 心智：正式 HTTP 是 `/api/agent/sessions/**`，前端历史真相来自 session snapshot + JSONL entry tree，SSE 只是增量事件通道。旧 `thread` / `subagent` / `/api/agent/threads/**` / `/api/agent-v3/**` 只在归档文档或迁移说明中出现。
 

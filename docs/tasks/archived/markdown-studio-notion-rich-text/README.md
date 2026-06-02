@@ -48,7 +48,7 @@
 - `app/components/common/form/StructuredTextEditor.vue`
 - `app/pages/structured-text-editor.preview.vue`
 - `docs/research/tiptap/*`
-- `spec/editor/rich-text-live-preview.md`
+- `reference/editor/rich-text-live-preview.md`
 
 ## Verification
 

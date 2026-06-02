@@ -242,7 +242,7 @@ Harness 通过 `AgentSessionEventHub` 广播：
 - `modelContextMessages` 不展示；`ModelContext` 内的 `Reminder` 已转成 pre-loop 可见消息，因此会展示。
 - 需要用户看见、需要分支保存、需要 replay 的内容必须通过 `AppendingSet` 写入 session。
 
-稳定 SSE 合同见 `spec/agent/sse.md`；当前重构 walkthrough 见 `docs/tasks/14-agent-sse-front-end-contract/README.md`。
+稳定 SSE 合同见 `reference/agent/sse.md`；当前重构 walkthrough 见 `docs/tasks/14-agent-sse-front-end-contract/README.md`。
 
 ### Run Error 可见化
 

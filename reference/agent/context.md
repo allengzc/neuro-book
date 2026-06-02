@@ -74,7 +74,7 @@ System + HistorySet/history -> ModelContext -> AppendingSet -> CurrentUserInput
 - 如果 session 已经有稳定历史前缀，runtime 不会每轮重复写入 `HistorySet`。
 - 如果 session 缺少稳定历史前缀，`HistorySet` 渲染结果会进入模型上下文并写入历史根部。
 - `SkillCatalog` 返回 string，必须包在 `<Message>` 内；需要首轮持久化时通常写成 `<Message><SkillCatalog /></Message>`。
-- `Import` 返回 string，必须包在 `<Message>` 或 `<System>` 内；共享 spec 通常写成 `<HistorySet><Message><Import path="spec/..." /></Message></HistorySet>`。
+- `Import` 返回 string，必须包在 `<Message>` 或 `<System>` 内；共享 reference 通常写成 `<HistorySet><Message><Import path="reference/..." /></Message></HistorySet>`。
 - 不要把 `Watch` / `Reminder` 放进 `HistorySet`。
 
 这意味着 `HistorySet` 是“首次注入稳定前缀”，不是每轮重新生成的 system prompt patch 机制。
@@ -214,4 +214,4 @@ HistoryWithoutCurrentUserInput
 - `server/agent/profiles/profile-dsl.ts`：active Profile DSL 节点、编译和 `Import` 渲染。
 - `server/agent/profiles/profile-dsl/jsx-runtime.ts`：TSX 自动运行时入口。
 - `server/agent/profiles/profile-dsl.test.ts`：基础上下文顺序、节点位置和 string fragment 测试。
-- `spec/agent/profile-import.md`：`Import` 节点规范。
+- `reference/agent/profile-import.md`：`Import` 节点规范。

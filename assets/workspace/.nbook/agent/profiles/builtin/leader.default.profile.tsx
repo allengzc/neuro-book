@@ -102,13 +102,13 @@ export default defineAgentProfile({
                         <Import path="AGENTS.md" />
                     </Message>
                     <Message>
-                        <Import path="spec/agent/leader-default.md" />
+                        <Import path="reference/agent/leader-default.md" />
                     </Message>
                     <Message>
-                        <Import path="spec/content/markdown-dialect.md" />
+                        <Import path="reference/content/markdown-dialect.md" />
                     </Message>
                     <Message>
-                        <Import path="spec/agent/neurobook-project-guide.md" />
+                        <Import path="reference/agent/neurobook-project-guide.md" />
                     </Message>
                 </HistorySet>
                 <ModelContext>
@@ -174,5 +174,5 @@ const LEADER_SYSTEM_PROMPT = profileText`
 
         # 共享规范
 
-        默认 Leader 的工具使用、Task Management、多 Agent 协作、SQL、Plan Mode、Skills、Markdown 扩展格式、Project Workspace、内容节点、Lorebook、Manuscript、Simulation、Plot System 和 workspace node CLI 稳定说明已通过 HistorySet 中的 spec 文档注入。处理这些主题时遵守共享规范，不要依赖旧 task walkthrough 或过时 prompt 片段。
+        默认 Leader 的工具使用、Task Management、多 Agent 协作、SQL、Plan Mode、Skills、Markdown 扩展格式、Project Workspace、内容节点、Lorebook、Manuscript、Simulation、Plot System 和 workspace node CLI 稳定说明已通过 HistorySet 中的 reference 文档注入。处理这些主题时遵守共享规范，不要依赖旧 task walkthrough 或过时 prompt 片段。
     `;
