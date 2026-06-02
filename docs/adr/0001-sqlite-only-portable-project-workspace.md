@@ -1,5 +1,0 @@
-# SQLite-only runtime and portable Project SQLite
-
-NeuroBook will hard-cut PostgreSQL support and use SQLite as the only supported database runtime. Application-wide state such as users, authentication, and Global Config stays in App SQLite under Workspace Root `.nbook`, while portable project data such as Plot, Story, and Scene moves into Project SQLite under each Project Workspace `.nbook`.
-
-This reverses the earlier SQLite + PostgreSQL dual-support decision because Project Workspace portability is now the higher-order goal: a Project Workspace must be copyable or packable without also exporting a global database. Projects are located by their Project Path, root-level `project.yaml` stores display metadata such as kind, title, and summary, and App SQLite must not keep a Project index, recent-project identity, or missing-project status. PostgreSQL migrations, adapters, deployment options, and runtime compatibility are removed from the active contract; old PostgreSQL data migration is not part of runtime compatibility and no built-in legacy importer is planned.
