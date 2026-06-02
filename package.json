@@ -35,7 +35,10 @@
     "package:windows-portable": "node scripts/deploy/windows-portable.mjs",
     "auth:create-admin": "bun scripts/cli/create-admin.ts",
     "studio": "npx prisma studio --config ./prisma.config.ts",
-    "deploy": "bun scripts/deploy/deploy.mjs"
+    "deploy": "bun scripts/deploy/deploy.mjs",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs"
   },
   "dependencies": {
     "@clack/prompts": "^1.0.0",
@@ -140,6 +143,7 @@
     "@vueuse/nuxt": "^14.2.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
+    "vitepress": "^2.0.0-alpha.17",
     "vitest": "^4.1.2"
   },
   "private": true

@@ -36,10 +36,6 @@ dist/
 .agent/workspace
 /workspace/
 /coverage/
-/.agent/manual-retrieval-e2e/
-/.agent/workspace-files-test/
-/.agent/file-tool-test/
-/.agent/*.test
-/.agent/*smoke
-/.agent/deploy*
-/.traces/
+/.agent/
+docs/.vitepress/dist
+docs/.vitepress/cache
