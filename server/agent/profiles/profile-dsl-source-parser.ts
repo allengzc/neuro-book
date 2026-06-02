@@ -44,6 +44,7 @@ const PROFILE_DSL_COMPONENTS = new Set<ProfileTemplateNodeType>([
     "SkillCatalog",
     "ActivatedSkills",
     "SqlSchemaSummary",
+    "Import",
 ]);
 
 type ParseContext = {

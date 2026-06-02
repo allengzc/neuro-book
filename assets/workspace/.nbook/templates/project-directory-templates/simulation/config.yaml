@@ -10,9 +10,9 @@ actorStateUpdate: direct_file_edit
 
 startup:
   read:
-    - roleplay/cast.yaml
-    - roleplay/gm.md
-    - roleplay/writer.md
+    - simulation/cast.yaml
+    - simulation/simulator.md
+    - simulation/writer.md
   optionalRead:
     - lorebook/note/story-concept/
     - lorebook/note/synopsis/
@@ -49,18 +49,18 @@ profileInputs:
       - gm.filtered_observation_packet
     fileToolScope: own_knowledge_mind_state_md
     doNotInject:
-      - roleplay/gm.md
-      - roleplay/writer.md
+      - simulation/simulator.md
+      - simulation/writer.md
       - lorebook/
       - reference/
   writer:
     autoInject:
-      - roleplay/writer.md
+      - simulation/writer.md
       - gm.writer_brief
     fileToolScope: gm_explicit_paths_only
     doNotInject:
-      - roleplay/gm.md
-      - roleplay/cast.yaml
+      - simulation/simulator.md
+      - simulation/cast.yaml
       - lorebook/
       - reference/
 

@@ -206,7 +206,7 @@
 - `leader.default` 的 Plot System 指南删除“所有 plot 工具必须显式传 novelId”，改为“所有 plot 工具必须显式传 projectPath”。
 - `writer` profile 删除 `novelId` 输入和基于 `Novel.workspaceSlug` 的查询，改为根据 Project Path + chapterPath 定位 Project SQLite。
 - Agent harness/session metadata 中的 `novelId` 要迁到 Project Path / current Project Workspace 语义；旧 session 可直接删除，不做 legacy 兼容。
-- `docs/modules/agent/tools-reference.md` 同步更新工具表、SQL 引用规则和 Plot tool 参数说明。
+- 旧 `docs/modules/agent/tools-reference.md` 已下线；当前 Agent 工具和协作合同以 `spec/agent/leader-default.md`、`spec/agent/neurobook-project-guide.md` 与本任务记录中的 v3 迁移结论为准。
 
 ### 8. 部署与文档收尾
 

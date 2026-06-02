@@ -638,7 +638,8 @@ var init_sql_tool = __esm({
 });
 
 // server/agent/profiles/profile-dsl.ts
-import { resolve, relative as relative2 } from "node:path";
+import { readFile } from "node:fs/promises";
+import { isAbsolute, resolve, relative as relative2 } from "node:path";
 
 // server/agent/messages/message-utils.ts
 var EMPTY_USAGE = {
@@ -912,6 +913,12 @@ function SqlSchemaSummary(props) {
   return {
     kind: "StringFragment",
     text: props.text ?? defaultSqlSchemaSummaryText
+  };
+}
+function Import(props) {
+  return {
+    kind: "StringFragment",
+    text: () => renderImportedContext(props)
   };
 }
 function Variable(props) {
@@ -1560,6 +1567,139 @@ function renderVariableSchemaNode(state, node) {
     ].join("\n"),
     "</variable-schema>"
   ].filter(Boolean).join("\n");
+}
+async function renderImportedContext(props) {
+  if (props.as && props.as !== "text") {
+    throw new Error(`Import.as \u7B2C\u4E00\u7248\u53EA\u652F\u6301 text\uFF1A${props.as}`);
+  }
+  const path2 = normalizeImportPath(props.path);
+  const readResult = await readImportFile(path2, props.required === true);
+  if (!readResult.exists) {
+    return "";
+  }
+  let body = readResult.text;
+  if (props.heading) {
+    const extracted = extractMarkdownHeading(body, props.heading);
+    if (extracted === null) {
+      if (props.required === false) {
+        return "";
+      }
+      throw new Error(`Import \u672A\u627E\u5230 Markdown heading\uFF1A${path2}#${props.heading}`);
+    }
+    body = extracted;
+  }
+  const truncated = props.maxBytes ? truncateUtf8(body, props.maxBytes) : { text: body, truncated: false };
+  return renderImportFence({
+    path: path2,
+    maxBytes: props.maxBytes,
+    truncated: truncated.truncated,
+    text: truncated.text
+  });
+}
+function normalizeImportPath(input) {
+  const path2 = input.trim().replaceAll("\\", "/");
+  if (!path2) {
+    throw new Error("Import.path \u4E0D\u80FD\u4E3A\u7A7A\u3002");
+  }
+  if (isAbsolute(path2) || path2.startsWith("/") || path2.includes("://")) {
+    throw new Error(`Import.path \u53EA\u5141\u8BB8 repo / app root \u76F8\u5BF9\u8DEF\u5F84\uFF1A${input}`);
+  }
+  const normalized = path2.split("/").filter((part) => part && part !== ".").join("/");
+  if (!normalized || normalized.split("/").includes("..")) {
+    throw new Error(`Import.path \u4E0D\u5141\u8BB8\u4F7F\u7528 .. \u8D8A\u754C\uFF1A${input}`);
+  }
+  if (!isAllowedImportPath(normalized)) {
+    throw new Error(`Import.path \u7B2C\u4E00\u7248\u53EA\u5141\u8BB8 AGENTS.md\u3001spec/** \u6216 docs/**\uFF1A${input}`);
+  }
+  return normalized;
+}
+function isAllowedImportPath(path2) {
+  return path2 === "AGENTS.md" || path2.startsWith("spec/") || path2.startsWith("docs/");
+}
+async function readImportFile(path2, required) {
+  const target = resolve(process.cwd(), path2);
+  const cwd = resolve(process.cwd());
+  if (relative2(cwd, target).split(/[\\/]/).includes("..")) {
+    throw new Error(`Import.path \u89E3\u6790\u540E\u8D8A\u754C\uFF1A${path2}`);
+  }
+  try {
+    return {
+      exists: true,
+      text: await readFile(target, "utf8")
+    };
+  } catch (error) {
+    if (!isMissingFileError(error) || required) {
+      throw error;
+    }
+    return { exists: false };
+  }
+}
+function isMissingFileError(error) {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+}
+function extractMarkdownHeading(text, heading) {
+  const expected = normalizeMarkdownHeadingText(heading);
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  let start = -1;
+  let level = 0;
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index]?.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (!match) {
+      continue;
+    }
+    const title = normalizeMarkdownHeadingText(match[2] ?? "");
+    if (title === expected) {
+      start = index;
+      level = match[1]?.length ?? 1;
+      break;
+    }
+  }
+  if (start < 0) {
+    return null;
+  }
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const match = lines[index]?.match(/^(#{1,6})\s+/);
+    if (match && (match[1]?.length ?? 1) <= level) {
+      end = index;
+      break;
+    }
+  }
+  return lines.slice(start, end).join("\n").trim();
+}
+function normalizeMarkdownHeadingText(text) {
+  return text.trim().replace(/\s+/g, " ");
+}
+function truncateUtf8(text, maxBytes) {
+  if (!Number.isInteger(maxBytes) || maxBytes <= 0) {
+    throw new Error("Import.maxBytes \u5FC5\u987B\u662F\u6B63\u6574\u6570\u3002");
+  }
+  if (Buffer.byteLength(text, "utf8") <= maxBytes) {
+    return { text, truncated: false };
+  }
+  const chars = Array.from(text);
+  let low = 0;
+  let high = chars.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (Buffer.byteLength(chars.slice(0, middle).join(""), "utf8") <= maxBytes) {
+      low = middle;
+      continue;
+    }
+    high = middle - 1;
+  }
+  return {
+    text: chars.slice(0, low).join(""),
+    truncated: true
+  };
+}
+function renderImportFence(props) {
+  return [
+    props.truncated ? `[Import truncated: ${props.path} maxBytes=${props.maxBytes}]` : "",
+    `\`\`\`${props.path}`,
+    props.text.trim(),
+    "```"
+  ].filter((line) => line !== "").join("\n");
 }
 async function renderStringChildren(state, zone, children) {
   const parts = [];
@@ -2299,19 +2439,19 @@ var LeaderDefaultOutputSchema = Type2.Object({
   result: Type2.Optional(Type2.String({ description: "\u53EF\u9009\u603B\u7ED3\u6587\u672C\u3002leader.default \u901A\u5E38\u4E0D\u8981\u6C42 report_result\u3002" }))
 });
 var LeaderRpInputSchema = Type2.Object({
-  roleplayRoot: Type2.Optional(Type2.String({ description: "\u53EF\u9009 RP \u76EE\u5F55\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\u3002\u9ED8\u8BA4\u4F7F\u7528\u5F53\u524D Project Workspace \u4E0B\u7684 roleplay/\u3002" }))
+  simulationRoot: Type2.Optional(Type2.String({ description: "\u53EF\u9009 simulation \u76EE\u5F55\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\u3002\u9ED8\u8BA4\u4F7F\u7528\u5F53\u524D Project Workspace \u4E0B\u7684 simulation/\u3002" }))
 });
 var LeaderRpOutputSchema = Type2.Object({
   result: Type2.Optional(Type2.String({ description: "\u53EF\u9009\u603B\u7ED3\u6587\u672C\u3002leader.rp \u901A\u5E38\u76F4\u63A5\u9762\u5411\u7528\u6237\u8F93\u51FA writer prose\uFF0C\u4E0D\u8981\u6C42 report_result\u3002" }))
 });
 var RpActorInputSchema = Type2.Object({
-  actorId: Type2.String({ description: "\u672C\u5C40 actor id\uFF0C\u5FC5\u987B\u4E0E roleplay/cast.yaml \u4E2D\u7684 id \u5BF9\u5E94\u3002" }),
+  actorId: Type2.String({ description: "\u672C\u5C40 subject simulator id\uFF0C\u5FC5\u987B\u4E0E simulation/cast.yaml \u4E2D\u7684 subject id \u5BF9\u5E94\u3002" }),
   actorName: Type2.Optional(Type2.String({ description: "\u89D2\u8272\u53EF\u8BFB\u540D\u3002\u4E3A\u7A7A\u65F6\u4F7F\u7528 actorId\u3002" })),
   kind: Type2.Optional(Type2.String({ description: "actor \u7C7B\u578B\uFF0C\u4F8B\u5982 player\u3001npc\u3001faction\u3001system\u3002" })),
-  instructionPath: Type2.String({ description: "\u89D2\u8272\u626E\u6F14\u6307\u4EE4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/actor.md\u3002" }),
-  knowledgePath: Type2.String({ description: "\u89D2\u8272\u53EF\u77E5\u4E16\u754C\u4E66\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/knowledge.md\u3002" }),
-  mindPath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u601D\u7EF4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/mind.md\u3002" }),
-  statePath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u72B6\u6001\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/state.md\u3002" })
+  instructionPath: Type2.String({ description: "subject simulator \u6307\u4EE4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/subject.md\u3002" }),
+  knowledgePath: Type2.String({ description: "\u89D2\u8272\u53EF\u77E5\u4E16\u754C\u4E66\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/knowledge.md\u3002" }),
+  mindPath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u601D\u7EF4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/mind.md\u3002" }),
+  statePath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u72B6\u6001\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/state.md\u3002" })
 });
 var RpActorOutputSchema = Type2.Object({
   visible_action: Type2.String({ description: "\u89D2\u8272\u5728\u573A\u666F\u4E2D\u53EF\u88AB\u89C2\u5BDF\u5230\u7684\u52A8\u4F5C\u3001\u795E\u6001\u3001\u59FF\u6001\u6216\u6C89\u9ED8\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
@@ -2325,7 +2465,7 @@ var RpActorOutputSchema = Type2.Object({
   state_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 state.md \u7684\u4F4D\u7F6E\u3001\u6301\u6709\u7269\u3001\u4F24\u52BF\u3001\u5173\u7CFB\u538B\u529B\u6216\u77ED\u671F\u76EE\u6807\u53D8\u5316\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" })
 });
 var RpWriterInputSchema = Type2.Object({
-  writerInstructionPath: Type2.String({ description: "RP writer \u63D0\u793A\u8BCD\u7D20\u6750\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/writer.md\u3002" }),
+  writerInstructionPath: Type2.String({ description: "RP writer \u63D0\u793A\u8BCD\u7D20\u6750\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/writer.md\u3002" }),
   style: Type2.Optional(Type2.String({ description: "\u7A33\u5B9A\u6587\u98CE\u504F\u597D\u3002\u4E34\u65F6 Tick \u6587\u98CE\u8981\u6C42\u5E94\u653E\u5728 writer brief \u4E2D\u3002" })),
   outputRequirements: Type2.Optional(Type2.Array(Type2.String({ description: "\u7A33\u5B9A\u8F93\u51FA\u7EA6\u675F\uFF0C\u4F8B\u5982\u4EBA\u79F0\u3001\u7BC7\u5E45\u3001Markdown \u89C4\u5219\u3002" }), { description: "\u53EF\u9009\u7A33\u5B9A\u8F93\u51FA\u7EA6\u675F\u3002" })),
   language: Type2.Optional(Type2.String({ description: "\u8F93\u51FA\u8BED\u8A00\uFF0C\u4F8B\u5982 zh-CN\u3002\u9ED8\u8BA4\u8DDF\u968F GM writer brief\u3002" }))
@@ -2448,6 +2588,7 @@ var components = {
   SkillCatalog,
   ActivatedSkills,
   SqlSchemaSummary,
+  Import,
   Variable,
   VariableSchema
 };

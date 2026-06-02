@@ -1,4 +1,5 @@
-import {resolve, join, relative} from "node:path";
+import {readFile} from "node:fs/promises";
+import {isAbsolute, resolve, join, relative} from "node:path";
 import type {AgentToolCall} from "@earendil-works/pi-agent-core";
 import type {AgentMessage, AssistantMessage, JsonValue, Message, ToolResultMessage} from "nbook/server/agent/messages/types";
 import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
@@ -116,6 +117,23 @@ export type ProfileIfNode = {
 export type ProfileStringFragmentNode = {
     kind: "StringFragment";
     text: string | ((ctx: ProfilePrepareContext<any>) => string | Promise<string>);
+};
+
+export type ProfileImportAs = "text";
+
+export type ProfileImportProps = {
+    /** Repo / app root 相对路径。第一版只允许 AGENTS.md、spec/** 和 docs/**。 */
+    path: string;
+    /** 可选 Markdown 标题文本；设置后只导入该标题段落。 */
+    heading?: string;
+    /** 最大 UTF-8 字节数；超出时截断并标记 truncated。 */
+    maxBytes?: number;
+    /** 缺失文件或标题是否抛错。缺失文件默认 false；标题缺失默认仍抛错，除非显式 false。 */
+    required?: boolean;
+    /** 展示给模型的可读标签；缺省使用 path。 */
+    label?: string;
+    /** 未来扩展图片 / artifact；第一版固定为 text。 */
+    as?: ProfileImportAs;
 };
 
 export type ProfileVariableNode = {
@@ -504,6 +522,16 @@ export function SqlSchemaSummary(props: {text?: string | ((ctx: ProfilePrepareCo
     return {
         kind: "StringFragment",
         text: props.text ?? defaultSqlSchemaSummaryText,
+    };
+}
+
+/**
+ * 导入共享文本上下文。适合在 HistorySet 的 Message 中显式加载 spec/docs/AGENTS.md。
+ */
+export function Import(props: ProfileImportProps): ProfileStringFragmentNode {
+    return {
+        kind: "StringFragment",
+        text: () => renderImportedContext(props),
     };
 }
 
@@ -1308,6 +1336,153 @@ function renderVariableSchemaNode(state: CompileState, node: ProfileVariableSche
         ].join("\n"),
         "</variable-schema>",
     ].filter(Boolean).join("\n");
+}
+
+async function renderImportedContext(props: ProfileImportProps): Promise<string> {
+    if (props.as && props.as !== "text") {
+        throw new Error(`Import.as 第一版只支持 text：${props.as}`);
+    }
+    const path = normalizeImportPath(props.path);
+    const readResult = await readImportFile(path, props.required === true);
+    if (!readResult.exists) {
+        return "";
+    }
+    let body = readResult.text;
+    if (props.heading) {
+        const extracted = extractMarkdownHeading(body, props.heading);
+        if (extracted === null) {
+            if (props.required === false) {
+                return "";
+            }
+            throw new Error(`Import 未找到 Markdown heading：${path}#${props.heading}`);
+        }
+        body = extracted;
+    }
+    const truncated = props.maxBytes ? truncateUtf8(body, props.maxBytes) : {text: body, truncated: false};
+    return renderImportFence({
+        path,
+        maxBytes: props.maxBytes,
+        truncated: truncated.truncated,
+        text: truncated.text,
+    });
+}
+
+function normalizeImportPath(input: string): string {
+    const path = input.trim().replaceAll("\\", "/");
+    if (!path) {
+        throw new Error("Import.path 不能为空。");
+    }
+    if (isAbsolute(path) || path.startsWith("/") || path.includes("://")) {
+        throw new Error(`Import.path 只允许 repo / app root 相对路径：${input}`);
+    }
+    const normalized = path.split("/").filter((part) => part && part !== ".").join("/");
+    if (!normalized || normalized.split("/").includes("..")) {
+        throw new Error(`Import.path 不允许使用 .. 越界：${input}`);
+    }
+    if (!isAllowedImportPath(normalized)) {
+        throw new Error(`Import.path 第一版只允许 AGENTS.md、spec/** 或 docs/**：${input}`);
+    }
+    return normalized;
+}
+
+function isAllowedImportPath(path: string): boolean {
+    return path === "AGENTS.md" || path.startsWith("spec/") || path.startsWith("docs/");
+}
+
+async function readImportFile(path: string, required: boolean): Promise<{exists: true; text: string} | {exists: false}> {
+    const target = resolve(process.cwd(), path);
+    const cwd = resolve(process.cwd());
+    if (relative(cwd, target).split(/[\\/]/).includes("..")) {
+        throw new Error(`Import.path 解析后越界：${path}`);
+    }
+    try {
+        return {
+            exists: true,
+            text: await readFile(target, "utf8"),
+        };
+    } catch (error) {
+        if (!isMissingFileError(error) || required) {
+            throw error;
+        }
+        return {exists: false};
+    }
+}
+
+function isMissingFileError(error: unknown): boolean {
+    return typeof error === "object" && error !== null && "code" in error && (error as {code?: string}).code === "ENOENT";
+}
+
+function extractMarkdownHeading(text: string, heading: string): string | null {
+    const expected = normalizeMarkdownHeadingText(heading);
+    const lines = text.replace(/\r\n/g, "\n").split("\n");
+    let start = -1;
+    let level = 0;
+    for (let index = 0; index < lines.length; index += 1) {
+        const match = lines[index]?.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
+        if (!match) {
+            continue;
+        }
+        const title = normalizeMarkdownHeadingText(match[2] ?? "");
+        if (title === expected) {
+            start = index;
+            level = match[1]?.length ?? 1;
+            break;
+        }
+    }
+    if (start < 0) {
+        return null;
+    }
+    let end = lines.length;
+    for (let index = start + 1; index < lines.length; index += 1) {
+        const match = lines[index]?.match(/^(#{1,6})\s+/);
+        if (match && (match[1]?.length ?? 1) <= level) {
+            end = index;
+            break;
+        }
+    }
+    return lines.slice(start, end).join("\n").trim();
+}
+
+function normalizeMarkdownHeadingText(text: string): string {
+    return text.trim().replace(/\s+/g, " ");
+}
+
+function truncateUtf8(text: string, maxBytes: number): {text: string; truncated: boolean} {
+    if (!Number.isInteger(maxBytes) || maxBytes <= 0) {
+        throw new Error("Import.maxBytes 必须是正整数。");
+    }
+    if (Buffer.byteLength(text, "utf8") <= maxBytes) {
+        return {text, truncated: false};
+    }
+    const chars = Array.from(text);
+    let low = 0;
+    let high = chars.length;
+    while (low < high) {
+        const middle = Math.ceil((low + high) / 2);
+        if (Buffer.byteLength(chars.slice(0, middle).join(""), "utf8") <= maxBytes) {
+            low = middle;
+            continue;
+        }
+        high = middle - 1;
+    }
+    return {
+        text: chars.slice(0, low).join(""),
+        truncated: true,
+    };
+}
+
+function renderImportFence(props: {
+    path: string;
+    maxBytes?: number;
+    truncated: boolean;
+    text: string;
+}): string {
+    return [
+        props.truncated ? `[Import truncated: ${props.path} maxBytes=${props.maxBytes}]` : "",
+        `\`\`\`${props.path}`,
+        props.text.trim(),
+        "```",
+    ].filter((line) => line !== "").join("\n");
 }
 
 async function renderStringChildren(state: CompileState, zone: RenderZone, children: ProfileDslChild[]): Promise<string> {

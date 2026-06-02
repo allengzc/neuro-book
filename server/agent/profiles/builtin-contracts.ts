@@ -18,7 +18,7 @@ export const LeaderDefaultOutputSchema = Type.Object({
  * leader.rp 的实例初始化参数。每轮用户行动仍通过普通 prompt/invoke message 传入。
  */
 export const LeaderRpInputSchema = Type.Object({
-    roleplayRoot: Type.Optional(Type.String({description: "可选 RP 目录路径，必须相对于 Agent cwd。默认使用当前 Project Workspace 下的 roleplay/。"})),
+    simulationRoot: Type.Optional(Type.String({description: "可选 simulation 目录路径，必须相对于 Agent cwd。默认使用当前 Project Workspace 下的 simulation/。"})),
 });
 
 /**
@@ -32,13 +32,13 @@ export const LeaderRpOutputSchema = Type.Object({
  * rp.actor 的实例初始化参数。每轮 GM packet 通过 invoke_agent.message 传入。
  */
 export const RpActorInputSchema = Type.Object({
-    actorId: Type.String({description: "本局 actor id，必须与 roleplay/cast.yaml 中的 id 对应。"}),
+    actorId: Type.String({description: "本局 subject simulator id，必须与 simulation/cast.yaml 中的 subject id 对应。"}),
     actorName: Type.Optional(Type.String({description: "角色可读名。为空时使用 actorId。"})),
     kind: Type.Optional(Type.String({description: "actor 类型，例如 player、npc、faction、system。"})),
-    instructionPath: Type.String({description: "角色扮演指令文件路径，必须相对于 Agent cwd，例如 project-slug/roleplay/actors/erina/actor.md。"}),
-    knowledgePath: Type.String({description: "角色可知世界书路径，必须相对于 Agent cwd，例如 project-slug/roleplay/actors/erina/knowledge.md。"}),
-    mindPath: Type.String({description: "角色当前思维文件路径，必须相对于 Agent cwd，例如 project-slug/roleplay/actors/erina/mind.md。"}),
-    statePath: Type.String({description: "角色当前状态文件路径，必须相对于 Agent cwd，例如 project-slug/roleplay/actors/erina/state.md。"}),
+    instructionPath: Type.String({description: "subject simulator 指令文件路径，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina/subject.md。"}),
+    knowledgePath: Type.String({description: "角色可知世界书路径，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina/knowledge.md。"}),
+    mindPath: Type.String({description: "角色当前思维文件路径，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina/mind.md。"}),
+    statePath: Type.String({description: "角色当前状态文件路径，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina/state.md。"}),
 });
 
 /**
@@ -60,7 +60,7 @@ export const RpActorOutputSchema = Type.Object({
  * rp.writer 的实例初始化参数。每轮 writer brief 通过 invoke_agent.message 传入。
  */
 export const RpWriterInputSchema = Type.Object({
-    writerInstructionPath: Type.String({description: "RP writer 提示词素材路径，必须相对于 Agent cwd，例如 project-slug/roleplay/writer.md。"}),
+    writerInstructionPath: Type.String({description: "RP writer 提示词素材路径，必须相对于 Agent cwd，例如 project-slug/simulation/writer.md。"}),
     style: Type.Optional(Type.String({description: "稳定文风偏好。临时 Tick 文风要求应放在 writer brief 中。"})),
     outputRequirements: Type.Optional(Type.Array(Type.String({description: "稳定输出约束，例如人称、篇幅、Markdown 规则。"}), {description: "可选稳定输出约束。"})),
     language: Type.Optional(Type.String({description: "输出语言，例如 zh-CN。默认跟随 GM writer brief。"})),

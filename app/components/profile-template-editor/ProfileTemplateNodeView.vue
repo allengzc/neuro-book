@@ -131,6 +131,7 @@ const nodeIconMap: Record<ProfileTemplateNodeType, string> = {
     SkillCatalog: "i-lucide-library",
     ActivatedSkills: "i-lucide-sparkles",
     SqlSchemaSummary: "i-lucide-database",
+    Import: "i-lucide-file-input",
 };
 
 /**
@@ -175,6 +176,9 @@ function nodeMeta(node: ProfileTemplateNodeDto): string {
             .join(" · ");
     }
     if (node.type === "Watch") {
+        return `path: ${String(node.props.path ?? "")}`;
+    }
+    if (node.type === "Import") {
         return `path: ${String(node.props.path ?? "")}`;
     }
     if (node.type === "Compaction") {
@@ -239,6 +243,10 @@ function nodeSummary(node: ProfileTemplateNodeDto): string {
     }
     if (node.type === "SqlSchemaSummary") {
         return String(node.props.text ?? "${sqlSchemaSummaryText}");
+    }
+    if (node.type === "Import") {
+        const heading = node.props.heading ? `#${String(node.props.heading)}` : "";
+        return `Import ${String(node.props.path ?? "")}${heading}`;
     }
     if (node.type === "LinkedAgentsReminder" || node.type === "LinkedAgentsSummary") {
         return "Linked agents summary.";
@@ -350,7 +358,7 @@ function prepareDrag(): void {
                     :depth="props.depth + 1"
                     :index="childIndex"
                     :parent-id="props.node.id"
-                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'ActivatedSkills', 'SqlSchemaSummary', 'LinkedAgentsSummary', 'LinkedAgentsReminder', 'WorkdirReminder', 'ProjectWorkspaceReminder', 'PlanModeAvailabilityReminder', 'TaskReminder', 'ActivePlanModeReminder', 'MentionedSkillsReminder'].includes(child.type)"
+                    :can-have-children="!['Text', 'ToolCall', 'ToolResult', 'AgentCatalog', 'SkillCatalog', 'ActivatedSkills', 'SqlSchemaSummary', 'Import', 'LinkedAgentsSummary', 'LinkedAgentsReminder', 'WorkdirReminder', 'ProjectWorkspaceReminder', 'PlanModeAvailabilityReminder', 'TaskReminder', 'ActivePlanModeReminder', 'MentionedSkillsReminder'].includes(child.type)"
                     :disabled-drop-node-ids="props.disabledDropNodeIds"
                     @select="emit('select', $event)"
                     @prepare-drag="emit('prepareDrag', $event)"
@@ -547,7 +555,8 @@ function prepareDrag(): void {
 .node-MentionedSkillsReminder::before,
 .node-AgentCatalog::before,
 .node-ActivatedSkills::before,
-.node-SkillCatalog::before {
+.node-SkillCatalog::before,
+.node-Import::before {
     background: var(--profile-node-accent);
 }
 
@@ -644,6 +653,10 @@ function prepareDrag(): void {
 
 .node-SkillCatalog {
     --profile-node-accent: #5f70a5;
+}
+
+.node-Import {
+    --profile-node-accent: #5c7f67;
 }
 
 .node-HistorySet,

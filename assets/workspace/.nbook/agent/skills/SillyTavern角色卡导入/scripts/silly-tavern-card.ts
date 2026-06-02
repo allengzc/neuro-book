@@ -181,7 +181,7 @@ program
     .description("从解包目录导入 worldbook 到 Project Workspace 的 lorebook 文件")
     .argument("<unpackDir>", "解包目录，例如 reference/silly-tavern/{slug}")
     .requiredOption("--project <path>", "当前小说 Project Workspace 根目录")
-    .option("--rp", "额外生成 RP 扩展归档", false)
+    .option("--rp", "额外生成 RP/simulation 迁移参考归档到 reference/silly-tavern", false)
     .option("--force", "允许覆盖未被用户手改的脚本生成文件", false)
     .option("--json", "stdout 输出 import JSON 摘要", false)
     .action(async (unpackDir: string, options: CliOptions) => {
@@ -616,7 +616,7 @@ async function importWorldbookEntries(unpacked: UnpackedCard, force: boolean): P
 }
 
 async function writeRpExtension(unpacked: UnpackedCard, force: boolean): Promise<string[]> {
-    const rpRoot = path.join(unpacked.workspaceRoot, "roleplay", "imports", "silly-tavern", unpacked.inspection.slug);
+    const rpRoot = path.join(unpacked.root, "simulation-migration");
     const written: string[] = [];
     const files: Array<[string, string]> = [
         ["dynamic-prompt.md", renderDynamicPromptArchive(unpacked.inspection, unpacked.loaded)],

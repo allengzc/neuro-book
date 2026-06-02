@@ -6,6 +6,11 @@ const runtimePackages = [
     "@libsql/isomorphic-ws",
     "ws",
 ];
+const runtimeContextPaths = [
+    "AGENTS.md",
+    "spec",
+    "docs",
+];
 const serverRoot = resolve(".output", "server");
 const illegalImportMetaFallback = "file:///_entry.js";
 const importMetaFallbackShape = '{url:"file:///_entry.js",env:process.env}';
@@ -18,10 +23,19 @@ for (const packageName of runtimePackages) {
     await cp(source, target, {recursive: true});
 }
 
+for (const runtimePath of runtimeContextPaths) {
+    const source = resolve(runtimePath);
+    const target = resolve(serverRoot, runtimePath);
+    await rm(target, {recursive: true, force: true});
+    await mkdir(dirname(target), {recursive: true});
+    await cp(source, target, {recursive: true});
+}
+
 const patchedImportMetaFiles = await patchImportMetaFallbacks(resolve(serverRoot, "chunks"));
 await assertNoIllegalImportMetaFallbacks(resolve(serverRoot, "chunks"));
 
 console.log(`patched Nitro runtime dependencies: ${runtimePackages.join(", ")}`);
+console.log(`copied profile import context: ${runtimeContextPaths.join(", ")}`);
 console.log(`patched Nitro import.meta fallbacks: ${patchedImportMetaFiles}`);
 
 /**

@@ -9,6 +9,7 @@ import {
     AgentCatalog,
     AppendingSet,
     HistorySet,
+    Import,
     LinkedAgentsReminder,
     Message,
     MentionedSkillsReminder,
@@ -79,6 +80,9 @@ export default defineAgentProfile({
                     </Message>
                     <Message>
                         <SkillCatalog text={renderUserAssetsSkillCatalogText} />
+                    </Message>
+                    <Message>
+                        <Import path="AGENTS.md" />
                     </Message>
                 </HistorySet>
                 <AppendingSet>

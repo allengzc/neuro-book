@@ -17,7 +17,7 @@ NeuroBook 的 Project Workspace 目录按职责分层：
 | `reference/` | 外部素材、导入归档、低置信迁移材料 | 导入器、research / migration agent、simulator leader 审查流程 |
 | `.nbook/` | 系统配置、Project SQLite、Agent runtime、模板覆盖和编译产物 | NeuroBook runtime、开发者、系统维护 agent |
 
-`roleplay/` 是旧 RP 目录名。它之前更接近“世界模拟功能”，不是单纯角色扮演资源目录。目标结构应使用 `simulation/` 表达这层能力，`roleplay/` 只作为兼容旧模板和旧文档的过渡名。
+`roleplay/` 是旧 RP 目录名。它之前更接近“世界模拟功能”，不是单纯角色扮演资源目录。当前目标结构硬切为 `simulation/`，不保留 `roleplay/` 模板兼容；旧 Project Workspace 需要手动迁移或等待后续迁移工具。
 
 `actor` 是 simulator 的一种，不是 Project Workspace 的顶层目录概念。角色、玩家、势力等信息控制主体放在 `simulation/subjects/`；物品、地点、机关、事件进程等有状态对象放在 `simulation/entities/`。
 
@@ -64,13 +64,7 @@ project/
 `-- reference/
 ```
 
-兼容现状：
-
-- 当前 RP 模板仍使用 `roleplay/actors/{actor-id}/`、`roleplay/gm.md` 和 `roleplay/playthrough/`。
-- 当前 `leader.rp` / `rp.actor` / `rp.writer` 的任务文档和模板仍以 `roleplay/` 为 RP 入口。
-- 本协议定义的是目标结构和迁移方向；实现迁移前，现有 `roleplay/` 和 `roleplay/actors/` 仍是有效结构。
-
-推荐迁移方向：
+旧目录迁移结论：
 
 ```text
 roleplay/                 -> simulation/
@@ -79,7 +73,7 @@ roleplay/actors/{id}/     -> simulation/subjects/{id}/
 roleplay/playthrough/     -> simulation/runs/
 ```
 
-迁移后，`simulation/cast.yaml` 只保存本次模拟可调度的 simulator / subject 注册信息，并通过路径引用 `simulation/subjects/{subject-id}/...` 或 `simulation/entities/{entity-id}/...`。
+当前默认 Project 模板直接生成 `simulation/`。`simulation/cast.yaml` 只保存本次模拟可调度的 simulator / subject 注册信息，并通过路径引用 `simulation/subjects/{subject-id}/...` 或 `simulation/entities/{entity-id}/...`。
 
 ## Information Layers
 
@@ -450,7 +444,7 @@ simulation/entities/world-heart-fragment-c/
 - `lorebook/**/index.md` 保存稳定设定、目录说明和可复用 AI 使用说明。
 - 现有 `lorebook/**/state.md` 仍按 `spec/content/state.md` 解释，用于客观当前状态。
 - 不要新增 subject 主观状态、个人记忆、当前目标、情绪和私有 knowledge 到 lorebook 同级 `state.md`。
-- subject 动态状态进入 `simulation/subjects/{subject-id}/state.md`；兼容期也允许现有 `roleplay/actors/{actor-id}/state.md`。
+- subject 动态状态进入 `simulation/subjects/{subject-id}/state.md`。
 - entity 动态状态进入 `simulation/entities/{entity-id}/state.md`。
 
 长期方向是逐步减少并迁出 lorebook 下的 `state.md`，让 lorebook 更接近无状态说明书。迁移完成前，旧 `state.md` 仍是兼容结构，不应被导入器或 writer 立即视为非法。
@@ -941,7 +935,7 @@ lorebook/item/
 | 世界规则、生命层级、魔法法则 | `world` | 放入 `world/rule/`，使用更具体 subtype。 |
 | 写作格式、创作边界、输出要求 | `instruction` | 可作为 AI 说明书，但必须和世界事实区分。 |
 | 生物、魔物、植物、生态对象 | `creature` 或 `world` | 默认模板可放 `world/ecology/`；生态高频项目可提升为 `creature/`。 |
-| 角色视角已知信息、当前心态、当前状态 | `simulation/subjects/` | 不写入 lorebook canon；兼容期可写入 `roleplay/actors/`。 |
+| 角色视角已知信息、当前心态、当前状态 | `simulation/subjects/` | 不写入 lorebook canon。 |
 | 物品、地点、机关、事件进程的当前状态 | `simulation/entities/` | 不写入 lorebook canon。 |
 | 简介、故事概念、项目定位、开局种子 | 非 lorebook 默认条目 | 短简介进 `project.yaml.summary`；长概念进 planning / `PROJECT-STATUS.md`；稳定事实拆入具体 lorebook。 |
 | DLC 开始/结束 marker、目录分隔条目 | 忽略或 reference | 通常不应成为稳定设定。 |
@@ -949,13 +943,13 @@ lorebook/item/
 
 ## Migration Notes
 
-当前旧模板和导入器仍可能使用 `rule`、`note`、`roleplay/actors/` 或把动态脚本混入 lorebook。迁移时应逐步收敛：
+旧内容和导入结果仍可能使用 `rule`、`note`、旧 `roleplay/` 目录或把动态脚本混入 lorebook。迁移时应逐步收敛：
 
 - `rule`：世界规则迁到 `world/rule/` 且 `type: world`；机制规则迁到 `system`；作品级 AI 指令迁到 `instruction`。
 - `note`：低置信和未整理资料迁到 `reference/` 或待 review 区。
 - `dynamic-mvu` / `dynamic-prompt`：保留到 `reference/`，等待 simulation mechanics / prompt migration 任务。
 - `lorebook/**/state.md`：当前仍按 `spec/content/state.md` 兼容；不要新增 subject 主观状态或 entity 当前状态；后续逐步把 lorebook 下的动态状态迁到 `simulation/subjects/` 或 `simulation/entities/`。
-- `roleplay/gm.md`：当前 RP 模板兼容；目标迁移到 `simulation/simulator.md`。
-- `roleplay/actors/{actor-id}/`：当前 RP 模板兼容；目标迁移到 `simulation/subjects/{subject-id}/`，由 `simulation/cast.yaml` 引用。
-- `roleplay/playthrough/`：当前 RP 模板兼容；目标迁移到 `simulation/runs/`。
-- `roleplay/`：后续只作为旧兼容名；目标能力目录是 `simulation/`。
+- `roleplay/gm.md`：旧文件应迁移到 `simulation/simulator.md`。
+- `roleplay/actors/{actor-id}/`：旧文件应迁移到 `simulation/subjects/{subject-id}/`，由 `simulation/cast.yaml` 引用。
+- `roleplay/playthrough/`：旧文件应迁移到 `simulation/runs/`。
+- `roleplay/`：不再作为新模板或新协议目录；目标能力目录是 `simulation/`。

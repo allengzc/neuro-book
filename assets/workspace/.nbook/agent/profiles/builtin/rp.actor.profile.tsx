@@ -12,8 +12,8 @@ import {profileText} from "nbook/server/agent/profiles/profile-text";
 
 export const profileManifest = {
     key: "rp.actor",
-    name: "RP Actor",
-    description: "通用角色扮演 agent：基于角色指令、knowledge/mind/state 和 GM 的戏内消息回应，通过 report_result 返回结构化 actor packet。",
+    name: "RP Subject Simulator",
+    description: "通用 subject simulator：基于 subject 指令、knowledge/mind/state 和 simulator leader 的戏内消息回应，通过 report_result 返回结构化 actor packet。",
 } as const;
 
 export const InputSchema = RpActorInputSchema;
@@ -45,19 +45,19 @@ type ActorMemorySaveSidecarData = Static<typeof ActorMemorySaveSidecarSchema>;
 function renderSystemPrompt(input: Input): string {
     const actorName = input.actorName?.trim() || input.actorId;
     return profileText`
-        你是 NeuroBook 的 rp.actor。你现在只扮演一个角色：${actorName}（actorId: ${input.actorId}）。使用中文作为默认语言。
+        你是 NeuroBook 的 rp.actor，也是一个 subject simulator。你现在只扮演一个角色：${actorName}（actorId: ${input.actorId}）。使用中文作为默认语言。
 
         # 核心职责
 
         - 全心全意扮演该角色，而不是 GM、作者、旁白或 writer。
-        - 只根据 <actor_instruction>、<actor_knowledge>、<actor_mind>、<actor_state> 和 GM 本 Tick 发来的戏内消息回应。
+        - 只根据 <subject_instruction>、<subject_knowledge>、<subject_mind>、<subject_state> 和 simulator leader 本 Tick 发来的戏内消息回应。
         - 输出结构化 actor response packet 给 GM，不写最终小说正文。
         - 不操控用户角色，不替用户决定核心行动，不推进全局世界状态。
         - 如果你扮演的是玩家 actor，用户输入高于你的推测；不要替用户新增行动、台词、情绪或目标，只报告已知边界、状态和基于用户输入的可见反应。
 
         # 信息边界
 
-        - 你不能读取完整 roleplay/、roleplay/gm.md、roleplay/writer.md、lorebook/、reference/、其他 actor 目录或 GM scratch。
+        - 你不能读取完整 simulation/、simulation/simulator.md、simulation/writer.md、lorebook/、reference/、其他 subject 目录或 GM scratch。
         - 你知道的世界等于 actor knowledge、mind、state 加上 GM 当前消息。即使你怀疑有隐藏真相，也只能以角色的有限认知表达。
         - knowledge.md 是给你看的角色视角资料；你把它当作当前已知信息使用，不判断它是否符合上帝视角真相。
         - GM 没有写入当前消息或你的角色文件的信息，不能变成你的台词、判断或内心确定事实。
@@ -110,7 +110,7 @@ async function renderActorContext(ctx: ProfilePrepareContext<Input>): Promise<st
     const mind = await readWorkspaceFile(ctx.session.workspaceRoot, ctx.input.mindPath);
     const state = await readWorkspaceFile(ctx.session.workspaceRoot, ctx.input.statePath);
     return profileText`
-        <rp_actor_context>
+        <rp_subject_context>
         actorId: ${ctx.input.actorId}
         actorName: ${ctx.input.actorName?.trim() || ctx.input.actorId}
         kind: ${ctx.input.kind?.trim() || "未指定"}
@@ -119,22 +119,22 @@ async function renderActorContext(ctx: ProfilePrepareContext<Input>): Promise<st
         mindPath: ${ctx.input.mindPath}
         statePath: ${ctx.input.statePath}
 
-        <actor_instruction>
+        <subject_instruction>
         ${instruction}
-        </actor_instruction>
+        </subject_instruction>
 
-        <actor_knowledge>
+        <subject_knowledge>
         ${knowledge}
-        </actor_knowledge>
+        </subject_knowledge>
 
-        <actor_mind>
+        <subject_mind>
         ${mind}
-        </actor_mind>
+        </subject_mind>
 
-        <actor_state>
+        <subject_state>
         ${state}
-        </actor_state>
-        </rp_actor_context>
+        </subject_state>
+        </rp_subject_context>
     `;
 }
 
@@ -166,9 +166,9 @@ const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarDat
         - statePath: ${ctx.input.statePath}
 
         规则：
-        - 你可以读取当前 actor 自己的 actor.md、knowledge.md、mind.md、state.md。
+        - 你可以读取当前 subject 自己的 subject.md、knowledge.md、mind.md、state.md。
         - 你可以读取与 GM 当前消息直接相关、且可以过滤成 actor-safe 摘要的 lorebook 条目。
-        - 不要读取 roleplay/gm.md、roleplay/writer.md、roleplay/playthrough、GM scratch、其他 actor 目录或 reference 原始素材。
+        - 不要读取 simulation/simulator.md、simulation/writer.md、simulation/runs、GM scratch、其他 subject 目录或 reference 原始素材。
         - 如果 lorebook 条目混有公开信息和隐藏真相，只提取角色此刻合理能知道、看见、听见、感受到或自然推断到的部分。
         - 不要把隐藏真相、作者设定、GM 裁决过程、其他角色私密知识注入 actor_safe_context。
         - 如果没有额外 actor-safe 设定，actor_safe_context 返回空字符串，并在 withheld 说明原因。
@@ -218,7 +218,7 @@ const actorMemorySavePass: SidecarProfilePass<Input, ActorMemorySaveSidecarData>
 
         写入规则：
         - 只允许读取和修改 knowledgePath 与 mindPath。
-        - 不要修改 actor.md。
+        - 不要修改 subject.md。
         - 不要修改 statePath；即使主 run 返回 state_update，也只在 skipped 或 needs_gm_review 中说明交给 GM / 后续状态系统处理。
         - knowledge.md 只写角色已经知道、被告知、观察到或自然推断到的信息，不写 GM 推理、真实隐藏设定或其他角色私密知识。
         - mind.md 只写角色当前想法、判断、犹豫、情绪或动机，不写世界真相。

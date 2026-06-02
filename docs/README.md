@@ -15,6 +15,8 @@
 - [../PROJECT-STATUS.md](../PROJECT-STATUS.md)：仓库现状和近期任务。
 - [operator-bridge.md](operator-bridge.md)：交付与运维桥梁，面向用户和用户 Agent，说明部署、更新、排障和关键文档索引。
 - [../spec/README.md](../spec/README.md)：稳定规范索引。
+- [../spec/agent/README.md](../spec/agent/README.md)：Agent 稳定规范入口，处理 profile、prompt、工具协作和 Project Workspace 文件语义时优先阅读。
+- [../spec/content/README.md](../spec/content/README.md)：内容结构、lorebook / simulation、Markdown 扩展和 retrieval / inject 稳定规范入口。
 - [modules/README.md](modules/README.md)：模块文档索引。
 - [tasks/README.md](tasks/README.md)：任务 walkthrough 规则。
 - [tasks/02-pi-agent-harness-migration/README.md](tasks/02-pi-agent-harness-migration/README.md)：当前 Agent 主路径迁移记录。

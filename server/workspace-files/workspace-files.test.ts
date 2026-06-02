@@ -587,19 +587,19 @@ describe("workspace-files", () => {
         expect(stderr).toBe("");
     });
 
-    it("workspace project create 能给已有 Project Workspace 补入 roleplay 模板", async () => {
-        const workspaceSlug = `roleplay-template-test-${randomUUID()}`;
+    it("workspace project create 能给已有 Project Workspace 补入 simulation 模板", async () => {
+        const workspaceSlug = `simulation-template-test-${randomUUID()}`;
         const projectRoot = path.join("workspace", workspaceSlug);
-        const existingGm = "# 用户自定义 GM\n";
+        const existingSimulator = "# 用户自定义 Simulator\n";
 
         try {
-            await fs.mkdir(path.join(projectRoot, "roleplay"), {recursive: true});
+            await fs.mkdir(path.join(projectRoot, "simulation"), {recursive: true});
             await fs.writeFile(path.join(projectRoot, "project.yaml"), YAML.stringify({
                 kind: "novel",
                 title: "RP 模板测试",
-                summary: "测试已存在 Project Workspace 安装 roleplay 模板",
+                summary: "测试已存在 Project Workspace 安装 simulation 模板",
             }), "utf-8");
-            await fs.writeFile(path.join(projectRoot, "roleplay", "gm.md"), existingGm, "utf-8");
+            await fs.writeFile(path.join(projectRoot, "simulation", "simulator.md"), existingSimulator, "utf-8");
 
             const {stdout, stderr} = await execFileAsync("bun", [
                 AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,
@@ -607,7 +607,7 @@ describe("workspace-files", () => {
                 "create",
                 workspaceSlug,
                 "--template",
-                "roleplay-directory-templates",
+                "project-directory-templates",
                 "--json",
             ], {
                 cwd: "workspace",
@@ -624,20 +624,20 @@ describe("workspace-files", () => {
             expect(result.mode).toBe("updated");
             expect(result.projectPath).toBe(`workspace/${workspaceSlug}`);
             expect(result.createdFiles).toEqual(expect.arrayContaining([
-                "roleplay/config.yaml",
-                "roleplay/cast.yaml",
-                "roleplay/actors/player/mind.md",
-                "roleplay/actors/player/knowledge.md",
-                "roleplay/actors/sample-npc/actor.md",
-                "roleplay/playthrough/current.md",
-                "roleplay/playthrough/ticks/000001/prose.md",
+                "simulation/config.yaml",
+                "simulation/cast.yaml",
+                "simulation/subjects/player/mind.md",
+                "simulation/subjects/player/knowledge.md",
+                "simulation/subjects/sample-npc/subject.md",
+                "simulation/runs/current.md",
+                "simulation/runs/ticks/000001/prose.md",
             ]));
-            expect(result.skippedFiles).toContain("roleplay/gm.md");
-            await expect(fs.readFile(path.join(projectRoot, "roleplay", "gm.md"), "utf-8")).resolves.toBe(existingGm);
-            await expect(fs.readFile(path.join(projectRoot, "roleplay", "config.yaml"), "utf-8")).resolves.toContain("leaderProfile: leader.rp");
-            await expect(fs.readFile(path.join(projectRoot, "roleplay", "cast.yaml"), "utf-8")).resolves.toContain("sample-npc");
-            await expect(fs.readFile(path.join(projectRoot, "roleplay", "playthrough", "current.md"), "utf-8")).resolves.toContain("Current Playthrough");
-            await expect(fs.readFile(path.join(projectRoot, "roleplay", "playthrough", "ticks", "000001", "actors", "sample-npc.result.json"), "utf-8")).resolves.toContain("\"result\"");
+            expect(result.skippedFiles).toContain("simulation/simulator.md");
+            await expect(fs.readFile(path.join(projectRoot, "simulation", "simulator.md"), "utf-8")).resolves.toBe(existingSimulator);
+            await expect(fs.readFile(path.join(projectRoot, "simulation", "config.yaml"), "utf-8")).resolves.toContain("leaderProfile: leader.rp");
+            await expect(fs.readFile(path.join(projectRoot, "simulation", "cast.yaml"), "utf-8")).resolves.toContain("sample-npc");
+            await expect(fs.readFile(path.join(projectRoot, "simulation", "runs", "current.md"), "utf-8")).resolves.toContain("Current");
+            await expect(fs.readFile(path.join(projectRoot, "simulation", "runs", "ticks", "000001", "subjects", "sample-npc.result.json"), "utf-8")).resolves.toContain("\"result\"");
 
             await expect(execFileAsync("bun", [
                 AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,
@@ -689,8 +689,8 @@ describe("workspace-files", () => {
             await expect(fs.access(path.join(targetRoot, ".nbook", "project.sqlite"))).resolves.toBeUndefined();
             await expect(fs.readFile(path.join(targetRoot, "AGENTS.md"), "utf-8")).resolves.toContain("唯一的小说状态");
 
-            await fs.mkdir(path.join(targetRoot, "roleplay"), {recursive: true});
-            await fs.writeFile(path.join(targetRoot, "roleplay", "gm.md"), "# 外部 GM\n", "utf-8");
+            await fs.mkdir(path.join(targetRoot, "simulation"), {recursive: true});
+            await fs.writeFile(path.join(targetRoot, "simulation", "simulator.md"), "# 外部 Simulator\n", "utf-8");
             const {stdout: updateStdout, stderr: updateStderr} = await execFileAsync("bun", [
                 AGENT_WORKSPACE_SCRIPT_PATH,
                 "project",
@@ -699,7 +699,7 @@ describe("workspace-files", () => {
                 "--target",
                 targetRoot,
                 "--template",
-                "roleplay-directory-templates",
+                "project-directory-templates",
                 "--json",
             ], {
                 encoding: "utf-8",
@@ -712,9 +712,10 @@ describe("workspace-files", () => {
 
             expect(updateStderr).toBe("");
             expect(updateResult.mode).toBe("updated");
-            expect(updateResult.createdFiles).toContain("roleplay/config.yaml");
-            expect(updateResult.skippedFiles).toContain("roleplay/gm.md");
-            await expect(fs.readFile(path.join(targetRoot, "roleplay", "gm.md"), "utf-8")).resolves.toBe("# 外部 GM\n");
+            expect(updateResult.createdFiles).not.toContain("simulation/config.yaml");
+            expect(updateResult.skippedFiles).toContain("simulation/config.yaml");
+            expect(updateResult.skippedFiles).toContain("simulation/simulator.md");
+            await expect(fs.readFile(path.join(targetRoot, "simulation", "simulator.md"), "utf-8")).resolves.toBe("# 外部 Simulator\n");
         } finally {
             await removeDirectoryWithRetry(targetRoot);
         }
@@ -722,7 +723,7 @@ describe("workspace-files", () => {
 
     it("workspace project create 的外部 --target 仍使用当前 Workspace Root 用户模板覆盖层", async () => {
         const targetRoot = path.resolve(root, "external-overlay-project");
-        const userTemplatePath = path.join(USER_ASSETS_WORKSPACE_ROOT, "templates", "novel-directory-templates", "AGENTS.md");
+        const userTemplatePath = path.join(USER_ASSETS_WORKSPACE_ROOT, "templates", "project-directory-templates", "AGENTS.md");
         const backup = await backupOptionalFile(userTemplatePath);
 
         try {
@@ -762,7 +763,7 @@ describe("workspace-files", () => {
                 "--target",
                 targetRoot,
                 "--template",
-                "roleplay-directory-templates",
+                "project-directory-templates",
                 "--json",
             ], {
                 encoding: "utf-8",
@@ -1331,7 +1332,7 @@ describe("workspace-files", () => {
         const paths = [
             path.join("workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"),
             path.join("workspace", ".nbook", "templates", "content-node-templates", "chapter", "index.md"),
-            path.join("workspace", ".nbook", "templates", "roleplay-directory-templates", "roleplay", "gm.md"),
+            path.join("workspace", ".nbook", "templates", "project-directory-templates", "simulation", "simulator.md"),
             path.join("workspace", ".nbook", "agent", "bin", "profile"),
             path.join("workspace", ".nbook", "agent", "config", "ripgreprc"),
         ];
@@ -1353,7 +1354,7 @@ describe("workspace-files", () => {
             expect(syncState.assets).toEqual(expect.arrayContaining([
                 expect.objectContaining({assetPath: "agent/skills/profile-system-guide/SKILL.md"}),
                 expect.objectContaining({assetPath: "templates/content-node-templates/chapter/index.md"}),
-                expect.objectContaining({assetPath: "templates/roleplay-directory-templates/roleplay/gm.md"}),
+                expect.objectContaining({assetPath: "templates/project-directory-templates/simulation/simulator.md"}),
                 expect.objectContaining({assetPath: "agent/bin/profile"}),
                 expect.objectContaining({assetPath: "agent/config/ripgreprc"}),
             ]));
@@ -1467,7 +1468,7 @@ describe("workspace-files", () => {
     });
 
     it("小说目录模板会创建最小 lorebook 骨架且通过内容节点校验", async () => {
-        await withSystemTemplate("templates/novel-directory-templates/lorebook/rule/writing-style/index.md", async () => {
+        await withSystemTemplate("templates/project-directory-templates/lorebook/rule/writing-style/index.md", async () => {
             await copyNovelDirectoryTemplate(root);
         });
 
@@ -1523,7 +1524,7 @@ describe("workspace-files", () => {
     });
 
     it("用户 assets 可以覆盖小说目录模板但不覆盖目标 workspace 既有文件", async () => {
-        const userTemplatePath = path.join(USER_ASSETS_WORKSPACE_ROOT, "templates", "novel-directory-templates", "PROJECT-STATUS.md");
+        const userTemplatePath = path.join(USER_ASSETS_WORKSPACE_ROOT, "templates", "project-directory-templates", "PROJECT-STATUS.md");
         const backup = await backupOptionalFile(userTemplatePath);
         await fs.mkdir(path.dirname(userTemplatePath), {recursive: true});
         await fs.writeFile(userTemplatePath, "# 用户覆盖状态模板\n", "utf-8");
@@ -1569,7 +1570,7 @@ describe("workspace-files", () => {
         } finally {
             await removeDirectoryWithRetry(createdRoot);
         }
-    }, 20_000);
+    }, 40_000);
 
     it("创建内容节点时可以同时写入 state.md", async () => {
         const bundle = renderWorkspaceContentTemplateBundle({

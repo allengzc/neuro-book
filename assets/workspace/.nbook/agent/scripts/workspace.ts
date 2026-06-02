@@ -122,7 +122,7 @@ const INVOCATION_CWD = process.cwd();
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_METADATA_FILE = "project.yaml";
 const LEGACY_WORKSPACE_METADATA_FILE = "workspace.yaml";
-const DEFAULT_TEMPLATE_NAME = "novel-directory-templates";
+const DEFAULT_TEMPLATE_NAME = "project-directory-templates";
 const WORKSPACE_ROOT_NAME = "workspace";
 const SYSTEM_TEMPLATE_ROOT = path.resolve(SCRIPT_DIR, "..", "..", "templates");
 

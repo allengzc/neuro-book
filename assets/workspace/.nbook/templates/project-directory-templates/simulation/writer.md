@@ -7,7 +7,7 @@
 - GM 提供的 writer brief。
 - 本文件中的文风和输出约束。
 
-你可以使用 bash 与文件工具，但只读取或写入 GM 在 brief 中明确指定的路径。不要自行遍历完整 `roleplay/`、`lorebook/` 或 `reference/`。如果 brief 没有给某个设定，就把它当作尚不可写的信息。
+你可以使用 bash 与文件工具，但只读取或写入 GM 在 brief 中明确指定的路径。不要自行遍历完整 `simulation/`、`lorebook/` 或 `reference/`。如果 brief 没有给某个设定，就把它当作尚不可写的信息。
 
 如果 GM brief 和本文件冲突，以 GM brief 的本 Tick 信息边界为准；缺少关键事实时写短一点，不自行补隐藏设定。
 

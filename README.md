@@ -341,9 +341,14 @@ Personal authors may use neuro-book to create, edit, and publish their own origi
 
 和 AGENT 相关的说明主要在这些地方：
 
+- [spec/agent/README.md](spec/agent/README.md)：Agent 稳定规范入口。
 - [spec/agent/system.md](spec/agent/system.md)：多 Agent 需求规格。
 - [spec/agent/profile-guide.md](spec/agent/profile-guide.md)：profile 实现指南。
 - [spec/agent/context.md](spec/agent/context.md)：TSX prompt 的上下文拼接规则。
+- [spec/agent/profile-import.md](spec/agent/profile-import.md)：`<Import />` 共享文本导入节点规范。
+- [spec/agent/leader-default.md](spec/agent/leader-default.md)：`leader.default` 工具、任务、多 Agent、SQL、Plan Mode 和 Skills 操作协议。
+- [spec/agent/neurobook-project-guide.md](spec/agent/neurobook-project-guide.md)：Project Workspace、内容节点、Plot、simulation 和 workspace node CLI 共享规范。
+- [spec/content/markdown-dialect.md](spec/content/markdown-dialect.md)：NeuroBook Markdown 扩展格式。
 - [docs/modules/agent/harness.md](docs/modules/agent/harness.md)：当前 Agent Harness 的 session、profile、ReAct loop、SSE 和消息持久化流程。
 - [docs/tasks/02-pi-agent-harness-migration/README.md](docs/tasks/02-pi-agent-harness-migration/README.md)：Pi-based Agent 主路径迁移记录。
 - [docs/tasks/04-tsx-profile-workbench/README.md](docs/tasks/04-tsx-profile-workbench/README.md)：TSX Profile Workbench 当前任务记录。
@@ -372,8 +377,12 @@ neuro-book 的 Agent profile 不是纯字符串 prompt，而是用 TSX 组件树
 
 TSX profile 相关文档：
 
+- [spec/agent/README.md](spec/agent/README.md)
 - [spec/agent/profile-guide.md](spec/agent/profile-guide.md)
 - [spec/agent/context.md](spec/agent/context.md)
+- [spec/agent/profile-import.md](spec/agent/profile-import.md)
+- [spec/agent/leader-default.md](spec/agent/leader-default.md)
+- [spec/agent/neurobook-project-guide.md](spec/agent/neurobook-project-guide.md)
 - [docs/tasks/04-tsx-profile-workbench/README.md](docs/tasks/04-tsx-profile-workbench/README.md)
 - [docs/tasks/05-leader-profile-v2-adaptation/README.md](docs/tasks/05-leader-profile-v2-adaptation/README.md)
 - [docs/tasks/06-leader-default-prompt-parity/README.md](docs/tasks/06-leader-default-prompt-parity/README.md)

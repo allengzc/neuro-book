@@ -71,6 +71,9 @@ export function createNode(type: ProfileTemplateNodeType): ProfileTemplateNodeDt
     if (type === "SqlSchemaSummary") {
         base.props = {text: "${sqlSchemaSummaryText}"};
     }
+    if (type === "Import") {
+        base.props = {path: "spec/agent/neurobook-project-guide.md"};
+    }
     if (type === "SystemReminder") {
         base.children = [createNode("Text")];
     }
@@ -114,6 +117,7 @@ export function canHaveChildren(type: ProfileTemplateNodeType): boolean {
         "SkillCatalog",
         "ActivatedSkills",
         "SqlSchemaSummary",
+        "Import",
         "LinkedAgentsSummary",
         "LinkedAgentsReminder",
         "WorkdirReminder",
@@ -218,6 +222,7 @@ export function isInlineStringNodeType(type: ProfileTemplateNodeType): boolean {
         || type === "SkillCatalog"
         || type === "ActivatedSkills"
         || type === "SqlSchemaSummary"
+        || type === "Import"
         || type === "SystemReminder"
         || type === "LinkedAgentsSummary"
         || type === "MentionedSkillsReminder";

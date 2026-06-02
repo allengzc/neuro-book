@@ -160,7 +160,7 @@
 - [ ] mind.md 任务当前思维
 - [ ] compact 大小
 - [ ] rp session
-- [ ]
+- [ ] compaction 要有提示
 - [ ]
 - [ ]
 - [ ]

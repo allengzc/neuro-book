@@ -11,6 +11,7 @@ import {
     CompactionSummaryPrefix,
     HistorySet,
     If,
+    Import,
     LinkedAgentsReminder,
     Message,
     MentionedSkillsReminder,
@@ -473,6 +474,122 @@ describe("profile TSX DSL", () => {
         const plan = await profile.prepare!(context());
 
         expect((plan.modelContextMessages ?? []).map((message) => message.role === "user" ? messageText(message) : "")).toEqual(["SQL_SCHEMA"]);
+    });
+
+    it("Import 可导入共享 Markdown，并支持 heading 与 maxBytes", async () => {
+        const profile = defineAgentProfile({
+            manifest: {
+                key: "test.import",
+                name: "Import",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: [
+                        HistorySet({
+                            children: Message({
+                                children: Import({
+                                    path: "spec/README.md",
+                                    heading: "Modules",
+                                    maxBytes: 120,
+                                    label: "Spec Modules",
+                                }),
+                            }),
+                        }),
+                    ],
+                });
+            },
+        });
+
+        const plan = await profile.prepare!(context());
+        const text = (plan.historyInitMessages ?? []).map(messageText).join("\n");
+
+        expect(text).toContain("[Import truncated: spec/README.md maxBytes=120]");
+        expect(text).toContain("```spec/README.md");
+        expect(text).toContain("```");
+        expect(text).toContain("## Modules");
+        expect(text).not.toContain("# Spec Index");
+    });
+
+    it("Import 缺失文件默认渲染空消息，required=true 时抛错，并继续拒绝越界路径", async () => {
+        const optionalProfile = defineAgentProfile({
+            manifest: {
+                key: "test.import-optional",
+                name: "Import Optional",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: HistorySet({
+                        children: Message({
+                            children: Import({path: "docs/no-such-import-file.md", required: false}),
+                        }),
+                    }),
+                });
+            },
+        });
+
+        const optionalPlan = await optionalProfile.prepare!(context());
+        expect(optionalPlan.historyInitMessages ?? []).toEqual([]);
+
+        const requiredProfile = defineAgentProfile({
+            manifest: {
+                key: "test.import-required",
+                name: "Import Required",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: HistorySet({
+                        children: Message({
+                            children: Import({path: "docs/no-such-import-file.md", required: true}),
+                        }),
+                    }),
+                });
+            },
+        });
+        await expect(requiredProfile.prepare!(context())).rejects.toThrow("no-such-import-file");
+
+        const traversalProfile = defineAgentProfile({
+            manifest: {
+                key: "test.import-traversal",
+                name: "Import Traversal",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: HistorySet({
+                        children: Message({
+                            children: Import({path: "../AGENTS.md"}),
+                        }),
+                    }),
+                });
+            },
+        });
+        await expect(traversalProfile.prepare!(context())).rejects.toThrow("..");
+
+        const disallowedProfile = defineAgentProfile({
+            manifest: {
+                key: "test.import-disallowed",
+                name: "Import Disallowed",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            context() {
+                return ProfilePrompt({
+                    children: HistorySet({
+                        children: Message({
+                            children: Import({path: "package.json"}),
+                        }),
+                    }),
+                });
+            },
+        });
+        await expect(disallowedProfile.prepare!(context())).rejects.toThrow("AGENTS.md");
     });
 
     it("SkillCatalog 只渲染 skills，不渲染 agent profiles", async () => {

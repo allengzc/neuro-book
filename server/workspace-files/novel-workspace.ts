@@ -28,8 +28,8 @@ const SYSTEM_VARIABLE_DEFINITION_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "v
 const USER_VARIABLE_DEFINITION_ROOT = path.resolve(process.cwd(), USER_NBOOK_ROOT, "agent", "variables");
 const SYSTEM_PROFILE_METADATA_PATH = path.join(SYSTEM_PROFILE_ROOT, ".system-profile-metadata.json");
 const USER_PROFILE_SYNC_STATE_PATH = path.join(USER_PROFILE_ROOT, ".profile-sync-state.json");
-const NOVEL_DIRECTORY_TEMPLATE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "templates", "novel-directory-templates");
-const USER_NOVEL_DIRECTORY_TEMPLATE_ROOT = path.resolve(process.cwd(), USER_ASSETS_WORKSPACE_ROOT, "templates", "novel-directory-templates");
+const PROJECT_DIRECTORY_TEMPLATE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "templates", "project-directory-templates");
+const USER_PROJECT_DIRECTORY_TEMPLATE_ROOT = path.resolve(process.cwd(), USER_ASSETS_WORKSPACE_ROOT, "templates", "project-directory-templates");
 const PROJECT_MANIFEST_FILE = "project.yaml";
 const LEGACY_WORKSPACE_MANIFEST_FILE = "workspace.yaml";
 const USER_ASSETS_DIFF_MAX_BYTES = 512 * 1024;
@@ -273,13 +273,13 @@ export async function copyNovelDirectoryTemplate(workspaceRoot: string): Promise
     const absoluteWorkspaceRoot = path.resolve(process.cwd(), workspaceRoot);
     const mergedRoot = await fs.mkdtemp(path.join(os.tmpdir(), "nbook-novel-template-"));
     try {
-        await fs.cp(NOVEL_DIRECTORY_TEMPLATE_ROOT, mergedRoot, {
+        await fs.cp(PROJECT_DIRECTORY_TEMPLATE_ROOT, mergedRoot, {
             recursive: true,
             force: true,
             errorOnExist: false,
         });
-        if (await isDirectory(USER_NOVEL_DIRECTORY_TEMPLATE_ROOT)) {
-            await fs.cp(USER_NOVEL_DIRECTORY_TEMPLATE_ROOT, mergedRoot, {
+        if (await isDirectory(USER_PROJECT_DIRECTORY_TEMPLATE_ROOT)) {
+            await fs.cp(USER_PROJECT_DIRECTORY_TEMPLATE_ROOT, mergedRoot, {
                 recursive: true,
                 force: true,
                 errorOnExist: false,

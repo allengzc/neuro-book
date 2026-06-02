@@ -179,4 +179,8 @@ const {isDragging} = useDraggable({
 .library-node-SqlSchemaSummary {
     --component-accent: #4f8a8b;
 }
+
+.library-node-Import {
+    --component-accent: #5c7f67;
+}
 </style>

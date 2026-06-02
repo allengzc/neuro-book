@@ -638,7 +638,8 @@ var init_sql_tool = __esm({
 });
 
 // server/agent/profiles/profile-dsl.ts
-import { resolve, relative as relative2 } from "node:path";
+import { readFile } from "node:fs/promises";
+import { isAbsolute, resolve, relative as relative2 } from "node:path";
 
 // server/agent/messages/message-utils.ts
 var EMPTY_USAGE = {
@@ -912,6 +913,12 @@ function SqlSchemaSummary(props) {
   return {
     kind: "StringFragment",
     text: props.text ?? defaultSqlSchemaSummaryText
+  };
+}
+function Import(props) {
+  return {
+    kind: "StringFragment",
+    text: () => renderImportedContext(props)
   };
 }
 function Variable(props) {
@@ -1560,6 +1567,139 @@ function renderVariableSchemaNode(state, node) {
     ].join("\n"),
     "</variable-schema>"
   ].filter(Boolean).join("\n");
+}
+async function renderImportedContext(props) {
+  if (props.as && props.as !== "text") {
+    throw new Error(`Import.as \u7B2C\u4E00\u7248\u53EA\u652F\u6301 text\uFF1A${props.as}`);
+  }
+  const path2 = normalizeImportPath(props.path);
+  const readResult = await readImportFile(path2, props.required === true);
+  if (!readResult.exists) {
+    return "";
+  }
+  let body = readResult.text;
+  if (props.heading) {
+    const extracted = extractMarkdownHeading(body, props.heading);
+    if (extracted === null) {
+      if (props.required === false) {
+        return "";
+      }
+      throw new Error(`Import \u672A\u627E\u5230 Markdown heading\uFF1A${path2}#${props.heading}`);
+    }
+    body = extracted;
+  }
+  const truncated = props.maxBytes ? truncateUtf8(body, props.maxBytes) : { text: body, truncated: false };
+  return renderImportFence({
+    path: path2,
+    maxBytes: props.maxBytes,
+    truncated: truncated.truncated,
+    text: truncated.text
+  });
+}
+function normalizeImportPath(input) {
+  const path2 = input.trim().replaceAll("\\", "/");
+  if (!path2) {
+    throw new Error("Import.path \u4E0D\u80FD\u4E3A\u7A7A\u3002");
+  }
+  if (isAbsolute(path2) || path2.startsWith("/") || path2.includes("://")) {
+    throw new Error(`Import.path \u53EA\u5141\u8BB8 repo / app root \u76F8\u5BF9\u8DEF\u5F84\uFF1A${input}`);
+  }
+  const normalized = path2.split("/").filter((part) => part && part !== ".").join("/");
+  if (!normalized || normalized.split("/").includes("..")) {
+    throw new Error(`Import.path \u4E0D\u5141\u8BB8\u4F7F\u7528 .. \u8D8A\u754C\uFF1A${input}`);
+  }
+  if (!isAllowedImportPath(normalized)) {
+    throw new Error(`Import.path \u7B2C\u4E00\u7248\u53EA\u5141\u8BB8 AGENTS.md\u3001spec/** \u6216 docs/**\uFF1A${input}`);
+  }
+  return normalized;
+}
+function isAllowedImportPath(path2) {
+  return path2 === "AGENTS.md" || path2.startsWith("spec/") || path2.startsWith("docs/");
+}
+async function readImportFile(path2, required) {
+  const target = resolve(process.cwd(), path2);
+  const cwd = resolve(process.cwd());
+  if (relative2(cwd, target).split(/[\\/]/).includes("..")) {
+    throw new Error(`Import.path \u89E3\u6790\u540E\u8D8A\u754C\uFF1A${path2}`);
+  }
+  try {
+    return {
+      exists: true,
+      text: await readFile(target, "utf8")
+    };
+  } catch (error) {
+    if (!isMissingFileError(error) || required) {
+      throw error;
+    }
+    return { exists: false };
+  }
+}
+function isMissingFileError(error) {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+}
+function extractMarkdownHeading(text, heading) {
+  const expected = normalizeMarkdownHeadingText(heading);
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  let start = -1;
+  let level = 0;
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index]?.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (!match) {
+      continue;
+    }
+    const title = normalizeMarkdownHeadingText(match[2] ?? "");
+    if (title === expected) {
+      start = index;
+      level = match[1]?.length ?? 1;
+      break;
+    }
+  }
+  if (start < 0) {
+    return null;
+  }
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const match = lines[index]?.match(/^(#{1,6})\s+/);
+    if (match && (match[1]?.length ?? 1) <= level) {
+      end = index;
+      break;
+    }
+  }
+  return lines.slice(start, end).join("\n").trim();
+}
+function normalizeMarkdownHeadingText(text) {
+  return text.trim().replace(/\s+/g, " ");
+}
+function truncateUtf8(text, maxBytes) {
+  if (!Number.isInteger(maxBytes) || maxBytes <= 0) {
+    throw new Error("Import.maxBytes \u5FC5\u987B\u662F\u6B63\u6574\u6570\u3002");
+  }
+  if (Buffer.byteLength(text, "utf8") <= maxBytes) {
+    return { text, truncated: false };
+  }
+  const chars = Array.from(text);
+  let low = 0;
+  let high = chars.length;
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+    if (Buffer.byteLength(chars.slice(0, middle).join(""), "utf8") <= maxBytes) {
+      low = middle;
+      continue;
+    }
+    high = middle - 1;
+  }
+  return {
+    text: chars.slice(0, low).join(""),
+    truncated: true
+  };
+}
+function renderImportFence(props) {
+  return [
+    props.truncated ? `[Import truncated: ${props.path} maxBytes=${props.maxBytes}]` : "",
+    `\`\`\`${props.path}`,
+    props.text.trim(),
+    "```"
+  ].filter((line) => line !== "").join("\n");
 }
 async function renderStringChildren(state, zone, children) {
   const parts = [];
@@ -2299,19 +2439,19 @@ var LeaderDefaultOutputSchema = Type2.Object({
   result: Type2.Optional(Type2.String({ description: "\u53EF\u9009\u603B\u7ED3\u6587\u672C\u3002leader.default \u901A\u5E38\u4E0D\u8981\u6C42 report_result\u3002" }))
 });
 var LeaderRpInputSchema = Type2.Object({
-  roleplayRoot: Type2.Optional(Type2.String({ description: "\u53EF\u9009 RP \u76EE\u5F55\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\u3002\u9ED8\u8BA4\u4F7F\u7528\u5F53\u524D Project Workspace \u4E0B\u7684 roleplay/\u3002" }))
+  simulationRoot: Type2.Optional(Type2.String({ description: "\u53EF\u9009 simulation \u76EE\u5F55\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\u3002\u9ED8\u8BA4\u4F7F\u7528\u5F53\u524D Project Workspace \u4E0B\u7684 simulation/\u3002" }))
 });
 var LeaderRpOutputSchema = Type2.Object({
   result: Type2.Optional(Type2.String({ description: "\u53EF\u9009\u603B\u7ED3\u6587\u672C\u3002leader.rp \u901A\u5E38\u76F4\u63A5\u9762\u5411\u7528\u6237\u8F93\u51FA writer prose\uFF0C\u4E0D\u8981\u6C42 report_result\u3002" }))
 });
 var RpActorInputSchema = Type2.Object({
-  actorId: Type2.String({ description: "\u672C\u5C40 actor id\uFF0C\u5FC5\u987B\u4E0E roleplay/cast.yaml \u4E2D\u7684 id \u5BF9\u5E94\u3002" }),
+  actorId: Type2.String({ description: "\u672C\u5C40 subject simulator id\uFF0C\u5FC5\u987B\u4E0E simulation/cast.yaml \u4E2D\u7684 subject id \u5BF9\u5E94\u3002" }),
   actorName: Type2.Optional(Type2.String({ description: "\u89D2\u8272\u53EF\u8BFB\u540D\u3002\u4E3A\u7A7A\u65F6\u4F7F\u7528 actorId\u3002" })),
   kind: Type2.Optional(Type2.String({ description: "actor \u7C7B\u578B\uFF0C\u4F8B\u5982 player\u3001npc\u3001faction\u3001system\u3002" })),
-  instructionPath: Type2.String({ description: "\u89D2\u8272\u626E\u6F14\u6307\u4EE4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/actor.md\u3002" }),
-  knowledgePath: Type2.String({ description: "\u89D2\u8272\u53EF\u77E5\u4E16\u754C\u4E66\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/knowledge.md\u3002" }),
-  mindPath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u601D\u7EF4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/mind.md\u3002" }),
-  statePath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u72B6\u6001\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/actors/erina/state.md\u3002" })
+  instructionPath: Type2.String({ description: "subject simulator \u6307\u4EE4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/subject.md\u3002" }),
+  knowledgePath: Type2.String({ description: "\u89D2\u8272\u53EF\u77E5\u4E16\u754C\u4E66\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/knowledge.md\u3002" }),
+  mindPath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u601D\u7EF4\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/mind.md\u3002" }),
+  statePath: Type2.String({ description: "\u89D2\u8272\u5F53\u524D\u72B6\u6001\u6587\u4EF6\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/subjects/erina/state.md\u3002" })
 });
 var RpActorOutputSchema = Type2.Object({
   visible_action: Type2.String({ description: "\u89D2\u8272\u5728\u573A\u666F\u4E2D\u53EF\u88AB\u89C2\u5BDF\u5230\u7684\u52A8\u4F5C\u3001\u795E\u6001\u3001\u59FF\u6001\u6216\u6C89\u9ED8\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" }),
@@ -2325,7 +2465,7 @@ var RpActorOutputSchema = Type2.Object({
   state_update: Type2.String({ description: "\u672C Tick \u540E\u5E94\u5199\u5165 state.md \u7684\u4F4D\u7F6E\u3001\u6301\u6709\u7269\u3001\u4F24\u52BF\u3001\u5173\u7CFB\u538B\u529B\u6216\u77ED\u671F\u76EE\u6807\u53D8\u5316\uFF1B\u6CA1\u6709\u5219\u586B\u7A7A\u5B57\u7B26\u4E32\u3002" })
 });
 var RpWriterInputSchema = Type2.Object({
-  writerInstructionPath: Type2.String({ description: "RP writer \u63D0\u793A\u8BCD\u7D20\u6750\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/roleplay/writer.md\u3002" }),
+  writerInstructionPath: Type2.String({ description: "RP writer \u63D0\u793A\u8BCD\u7D20\u6750\u8DEF\u5F84\uFF0C\u5FC5\u987B\u76F8\u5BF9\u4E8E Agent cwd\uFF0C\u4F8B\u5982 project-slug/simulation/writer.md\u3002" }),
   style: Type2.Optional(Type2.String({ description: "\u7A33\u5B9A\u6587\u98CE\u504F\u597D\u3002\u4E34\u65F6 Tick \u6587\u98CE\u8981\u6C42\u5E94\u653E\u5728 writer brief \u4E2D\u3002" })),
   outputRequirements: Type2.Optional(Type2.Array(Type2.String({ description: "\u7A33\u5B9A\u8F93\u51FA\u7EA6\u675F\uFF0C\u4F8B\u5982\u4EBA\u79F0\u3001\u7BC7\u5E45\u3001Markdown \u89C4\u5219\u3002" }), { description: "\u53EF\u9009\u7A33\u5B9A\u8F93\u51FA\u7EA6\u675F\u3002" })),
   language: Type2.Optional(Type2.String({ description: "\u8F93\u51FA\u8BED\u8A00\uFF0C\u4F8B\u5982 zh-CN\u3002\u9ED8\u8BA4\u8DDF\u968F GM writer brief\u3002" }))
@@ -2477,6 +2617,7 @@ var components = {
   SkillCatalog,
   ActivatedSkills,
   SqlSchemaSummary,
+  Import,
   Variable,
   VariableSchema
 };
@@ -2498,8 +2639,8 @@ function createElement(type, props) {
 // assets/workspace/.nbook/agent/profiles/builtin/leader.rp.profile.tsx
 var profileManifest = {
   key: "leader.rp",
-  name: "Roleplay Leader",
-  description: "RP \u6A21\u5F0F\u4E3B\u63A7 GM\uFF1A\u76F4\u63A5\u9762\u5411\u7528\u6237\u53D9\u4E8B\uFF0C\u8BFB\u53D6 roleplay/ \u8FD0\u884C\u76EE\u5F55\uFF0C\u5411 rp.actor \u6CE8\u5165\u620F\u5185\u6D88\u606F\uFF0C\u5E76\u6309\u9700\u8C03\u7528 rp.writer \u8F93\u51FA\u7528\u6237\u53EF\u89C1\u6B63\u6587\u3002"
+  name: "Simulation Leader",
+  description: "RP/simulation \u6A21\u5F0F\u4E3B\u63A7\uFF1A\u76F4\u63A5\u9762\u5411\u7528\u6237\u53D9\u4E8B\uFF0C\u8BFB\u53D6 simulation/ \u8FD0\u884C\u76EE\u5F55\uFF0C\u5411 rp.actor \u6CE8\u5165 subject-facing message\uFF0C\u5E76\u6309\u9700\u8C03\u7528 rp.writer \u8F93\u51FA\u7528\u6237\u53EF\u89C1\u6B63\u6587\u3002"
 };
 var InputSchema = LeaderRpInputSchema;
 var OutputSchema = LeaderRpOutputSchema;
@@ -2532,7 +2673,10 @@ var leader_rp_profile_default = defineAgentProfile({
   context(ctx) {
     return /* @__PURE__ */ jsxs(ProfilePrompt, { children: [
       /* @__PURE__ */ jsx(System, { children: renderSystemPrompt() }),
-      /* @__PURE__ */ jsx(HistorySet, { children: /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(AgentCatalog, {}) }) }),
+      /* @__PURE__ */ jsxs(HistorySet, { children: [
+        /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(AgentCatalog, {}) }),
+        /* @__PURE__ */ jsx(Message, { children: /* @__PURE__ */ jsx(Import, { path: "AGENTS.md" }) })
+      ] }),
       /* @__PURE__ */ jsx(ModelContext, { children: /* @__PURE__ */ jsx(Message, { children: renderRuntimeInput(ctx.input) }) }),
       /* @__PURE__ */ jsxs(AppendingSet, { children: [
         /* @__PURE__ */ jsx(WorkdirReminder, {}),
@@ -2544,7 +2688,7 @@ var leader_rp_profile_default = defineAgentProfile({
 });
 function renderSystemPrompt() {
   return profileText`
-        你是 NeuroBook 的 leader.rp，也是当前 RP 模式的 GM 主控。使用中文作为默认语言。你的职责是直接面向用户主持 RP：理解用户输入、叙述当前处境、裁决世界、控制信息边界、调度角色 agent，并按需请 rp.writer 代笔用户可见正文。
+        你是 NeuroBook 的 leader.rp，也是当前 RP/simulation 模式的 simulator leader。使用中文作为默认语言。你的职责是直接面向用户主持 RP：理解用户输入、叙述当前处境、裁决世界、控制信息边界、调度 subject simulator，并按需请 rp.writer 代笔用户可见正文。
 
         # 核心原则
 
@@ -2555,22 +2699,22 @@ function renderSystemPrompt() {
 
         # 运行目录
 
-        - 默认 RP 目录是当前 Project Workspace 下的 roleplay/。文件工具 cwd 是 Workspace Root workspace/，所以读取时使用 project-slug/roleplay/...。
-        - 如果创建 input 提供了 roleplayRoot，优先使用该路径；否则根据 Current Project Workspace 推导 roleplayRoot。
-        - cast.yaml 中的 roleplay/... 路径是 Project Workspace 相对路径；创建 actor/writer input 时必须转换为 Agent cwd 可用路径，例如 project-slug/roleplay/actors/erina/actor.md。
-        - 启动或初始化时读取：roleplay/config.yaml、roleplay/cast.yaml、roleplay/gm.md、roleplay/writer.md。roleplay/gm.md 是唯一 GM 入口说明。
-        - roleplay/playthrough/ 用于保存当前游戏进程和 Tick 产物；只有在用户、gm.md 或 writer brief 明确要求时才写入。
-        - GM 可以按 roleplay/gm.md 的指引读取 lorebook/、reference/ 和其他 canonical/god-view 文件。
-        - actor 和 writer 不应直接获得完整 roleplay/、lorebook/ 或 reference/。你必须过滤信息。
+        - 默认 simulation 目录是当前 Project Workspace 下的 simulation/。文件工具 cwd 是 Workspace Root workspace/，所以读取时使用 project-slug/simulation/...。
+        - 如果创建 input 提供了 simulationRoot，优先使用该路径；否则根据 Current Project Workspace 推导 simulationRoot。
+        - cast.yaml 中的 simulation/... 路径是 Project Workspace 相对路径；创建 actor/writer input 时必须转换为 Agent cwd 可用路径，例如 project-slug/simulation/subjects/erina/subject.md。
+        - 启动或初始化时读取：simulation/config.yaml、simulation/cast.yaml、simulation/simulator.md、simulation/writer.md。simulation/simulator.md 是唯一 simulator leader 入口说明。
+        - simulation/runs/ 用于保存当前游戏进程和 Tick 产物；只有在用户、simulator.md 或 writer brief 明确要求时才写入。
+        - GM 可以按 simulation/simulator.md 的指引读取 lorebook/、reference/ 和其他 canonical/god-view 文件。
+        - actor 和 writer 不应直接获得完整 simulation/、lorebook/ 或 reference/。你必须过滤信息。
 
         # 初始化协议
 
-        1. 先确认 Current Project Workspace 与 roleplayRoot。
-        2. 使用 read 读取 roleplay/config.yaml、roleplay/cast.yaml、roleplay/gm.md、roleplay/writer.md；缺文件时直接说明需要先安装 RP 目录模板。
+        1. 先确认 Current Project Workspace 与 simulationRoot。
+        2. 使用 read 读取 simulation/config.yaml、simulation/cast.yaml、simulation/simulator.md、simulation/writer.md；缺文件时直接说明当前 Project 模板缺少 simulation 目录。
         3. 调用 get_agent_profile 检查 rp.actor 与 rp.writer 的 InputSchema、OutputSchema、allowedToolKeys。
         4. 调用 get_agent 查看当前 linked agents，复用同 profile 且同 input 语义的 actor/writer。
-        5. 根据 cast.yaml 为所有 actors 创建或连接 rp.actor。每个 actor 的 input 至少包含 actorId、actorName、kind、instructionPath、knowledgePath、mindPath、statePath。
-        6. 创建或连接一个 rp.writer，input.writerInstructionPath 通常是 project-slug/roleplay/writer.md。
+        5. 根据 cast.yaml 为所有 subjects 创建或连接 rp.actor。每个 subject 的 input 至少包含 actorId、actorName、kind、instructionPath、knowledgePath、mindPath、statePath。
+        6. 创建或连接一个 rp.writer，input.writerInstructionPath 通常是 project-slug/simulation/writer.md。
         7. 初始化完成后，直接向用户介绍玩家角色已知的信息、当前处境、必要世界观背景和可立即行动的现场。文风不确定时可以先调用 rp.writer 代笔开场正文，再由你转述或直接贴给用户。
         8. 初始化完成的回复不要只说“已初始化”。必须给用户一个可继续行动的故事现场；如果缺少素材，用 fallbackScene 建立最小现场。
 
@@ -2591,15 +2735,15 @@ function renderSystemPrompt() {
         # 信息控制
 
         - lorebook/character/ 等 canonical 资料默认只给 GM 和开发者。
-        - actor 只能根据自己的 actor.md、knowledge.md、mind.md、state.md 和你本 Tick 注入的 actor-facing message 回应。
+        - actor 只能根据自己的 subject.md、knowledge.md、mind.md、state.md 和你本 Tick 注入的 actor-facing message 回应。
         - writer 只根据 writer.md 和 writer brief 写正文；brief 缺少的信息视为不可写。writer 可以使用文件工具，但只在你明确指定路径和任务时使用。
         - 角色不知道的秘密不能写成角色已经理解。可以写客观现象、试探或遮掩；如果角色掌握的信息与真相不一致，由你在后台区分，不要要求 actor 在 knowledge.md 里标注自己“误解”。
-        - 玩家 actor 的 actor.md、knowledge.md、mind.md、state.md 用来约束身份、能力、已知信息和状态；用户当前输入始终是玩家行动意图的最高来源。
+        - 玩家 actor 的 subject.md、knowledge.md、mind.md、state.md 用来约束身份、能力、已知信息和状态；用户当前输入始终是玩家行动意图的最高来源。
         - actor knowledge 中引用 lorebook 时使用 Markdown 相对路径链接，例如 [王都公共常识](../../lorebook/world/capital.md)。链接只是来源索引，不授权 actor 自行读取完整 canonical 原文。
 
         # Actor 消息协议
 
-        - GM internal scratch 可以结构化记录 scene、event、hidden facts、actor selection、actor known facts 和裁决依据；它只留在后台或 playthrough/gm-scratch.md。
+        - GM internal scratch 可以结构化记录 scene、event、hidden facts、actor selection、actor known facts 和裁决依据；它只留在后台或 simulation/runs/ticks/{tick-id}/gm-scratch.md。
         - 发给 rp.actor 的 message 必须是 actor-facing message：自然语言、第二人称、戏内可感知描述。
         - 不要把 not_known_to_you、task、返回格式、字段名、JSON、YAML、writer brief 或 hidden facts 发给 actor。
         - 角色不知道的内容直接不出现；需要限制时写成角色视角的不确定感，例如“你说不出它是什么”，不要列“你不知道 X”清单。
@@ -2627,7 +2771,7 @@ function renderSystemPrompt() {
 function renderRuntimeInput(input) {
   return profileText`
         RP profile input:
-        - roleplayRoot: ${input.roleplayRoot?.trim() || "\u672A\u663E\u5F0F\u63D0\u4F9B\uFF1B\u6839\u636E Current Project Workspace \u4F7F\u7528 project-slug/roleplay"}
+        - simulationRoot: ${input.simulationRoot?.trim() || "\u672A\u663E\u5F0F\u63D0\u4F9B\uFF1B\u6839\u636E Current Project Workspace \u4F7F\u7528 project-slug/simulation"}
     `;
 }
 export {

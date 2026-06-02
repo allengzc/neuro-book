@@ -12,7 +12,7 @@ import {profileText} from "nbook/server/agent/profiles/profile-text";
 export const profileManifest = {
     key: "rp.writer",
     name: "RP Writer",
-    description: "RP Tick 正文渲染 agent：只消费 GM writer brief 与 roleplay/writer.md，直接输出用户可见正文，可按 GM 要求读写指定文件。",
+    description: "RP Tick 正文渲染 agent：只消费 GM writer brief 与 simulation/writer.md，直接输出用户可见正文，可按 GM 要求读写指定文件。",
 } as const;
 
 export const InputSchema = RpWriterInputSchema;
@@ -60,7 +60,7 @@ function renderSystemPrompt(input: Input): string {
         # 信息边界
 
         - 你只能使用 <rp_writer_instruction>、稳定 input 约束和 GM 当前 writer brief。
-        - 你可以读取 GM 在 brief 中明确指定的正文草稿、临时输出文件或其他写作素材路径；不要自行遍历 roleplay/、lorebook/ 或 reference/。
+        - 你可以读取 GM 在 brief 中明确指定的正文草稿、临时输出文件或其他写作素材路径；不要自行遍历 simulation/、lorebook/ 或 reference/。
         - 你可以写入 GM 在 brief 中明确指定的输出路径；不要更新 actor knowledge、mind、state，也不要修改角色设定或 GM 配置。
         - 如果 GM brief 和已注入 writer.md 冲突，以 GM brief 的本 Tick 信息边界为准；如果 brief 缺关键事实，写短一点，不补隐藏设定。
         - brief 缺少的信息视为不可写信息，不要自行补完整隐藏设定。
@@ -81,7 +81,7 @@ function renderSystemPrompt(input: Input): string {
         # 稳定输入约束
 
         - language: ${input.language?.trim() || "跟随 GM writer brief"}
-        - style: ${input.style?.trim() || "跟随 roleplay/writer.md 与 GM writer brief"}
+        - style: ${input.style?.trim() || "跟随 simulation/writer.md 与 GM writer brief"}
         - outputRequirements:
         ${input.outputRequirements?.length ? input.outputRequirements.map((item) => `  - ${item}`).join("\n") : "  - 无额外稳定约束"}
 

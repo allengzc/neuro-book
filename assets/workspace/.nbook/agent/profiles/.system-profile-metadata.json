@@ -1,24 +1,24 @@
 {
-  "generatedAt": "2026-06-02T01:04:29.737Z",
+  "generatedAt": "2026-06-02T08:35:23.094Z",
   "profilesRoot": "assets/workspace/.nbook/agent/profiles",
   "profiles": [
     {
       "fileName": "builtin/leader.assets.profile.tsx",
       "profileKey": "leader.assets",
-      "sha256": "4934cbe01e3b1c5ce154152406a981c66e03f2245f3ba35dba4d432b1999de45",
-      "bytes": 19258
+      "sha256": "146b0fecb12befafcd2b8c783a5e8f93f55adc940dda05900cb5804750f08872",
+      "bytes": 19383
     },
     {
       "fileName": "builtin/leader.default.profile.tsx",
       "profileKey": "leader.default",
-      "sha256": "3a84c7479c10d7e4e447c6ab30877104c7d89ffe091ddb01cfc1792fd261a333",
-      "bytes": 37308
+      "sha256": "f6c1efcfb6f910c337ededf47f35fc96b2b252c2b4239098e799843d454fa3e6",
+      "bytes": 9369
     },
     {
       "fileName": "builtin/leader.rp.profile.tsx",
       "profileKey": "leader.rp",
-      "sha256": "afb187df8568bbefeee975d1a51822f292fe17c81a7e2231a561f0092bc8a91b",
-      "bytes": 11563
+      "sha256": "01f7973f9dc0e45b11a5fb612539b3900e87906498d9d9cce5f2fd1036b92a83",
+      "bytes": 11827
     },
     {
       "fileName": "builtin/researcher.profile.tsx",
@@ -35,14 +35,14 @@
     {
       "fileName": "builtin/rp.actor.profile.tsx",
       "profileKey": "rp.actor",
-      "sha256": "9aa346d63fc1dd063e42428614bf6d75d82f3d0803bfaa72ffcf41cd7697ef4c",
-      "bytes": 16513
+      "sha256": "6f2b57f90994eec474f133006471455d70d480d3e744f1af643ab3236abe875c",
+      "bytes": 16646
     },
     {
       "fileName": "builtin/rp.writer.profile.tsx",
       "profileKey": "rp.writer",
-      "sha256": "f3adeb1a650d4db0da2060c99401d208b5db45e6a07f892f81da3d39d2a1654f",
-      "bytes": 7028
+      "sha256": "bdb26ed5bf19b4a14b6104cfdcbfa1fdd167d03140ddbff70980c63cde0da4ae",
+      "bytes": 7034
     },
     {
       "fileName": "builtin/summarizer.profile.tsx",

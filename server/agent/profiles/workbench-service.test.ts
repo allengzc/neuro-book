@@ -115,6 +115,9 @@ export default defineAgentProfile({
             <ProfilePrompt>
                 <System>{renderSystemPrompt()}</System>
                 <HistorySet>
+                    <Message>
+                        <Import path="spec/agent/neurobook-project-guide.md" />
+                    </Message>
                     <AIMessage>
                         <ToolCall id="call_read" name="read" args={{ path: "workspace/" }} />
                     </AIMessage>
@@ -154,7 +157,14 @@ export default defineAgentProfile({
             textKind: "source",
             text: "renderSystemPrompt()",
         }));
-        const toolCall = root?.children[1]?.children[0]?.children[0];
+        const importNode = root?.children[1]?.children[0]?.children[0];
+        expect(importNode).toEqual(expect.objectContaining({
+            type: "Import",
+            props: expect.objectContaining({
+                path: "spec/agent/neurobook-project-guide.md",
+            }),
+        }));
+        const toolCall = root?.children[1]?.children[1]?.children[0];
         expect(toolCall).toEqual(expect.objectContaining({
             type: "ToolCall",
             textKind: "source",

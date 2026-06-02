@@ -7,7 +7,7 @@
 - 协议目标是支持“信息分离控制”的 lorebook 条目，而不是像普通 lorebook 一样只写上帝视角全文。
 - 协议正文应写给 AI 和作者使用，不长期留在 task walkthrough 里。
 - 后续扩展为 NeuroBook 目录规范：不仅规范 `lorebook/`，也规范 `.nbook`、`simulation/`、subject 信息控制和 entity 状态实例。
-- `roleplay/` 之前版本更接近“世界模拟”功能；目标目录名改为 `simulation/`，`roleplay/` 只作为兼容旧模板的过渡名。
+- `roleplay/` 之前版本更接近“世界模拟”功能；当前目标目录名硬切为 `simulation/`，不保留 `roleplay/` 模板兼容。
 - `gm.md` 目标改名为 `simulator.md`。
 - 角色不放进泛化 `entities/`，而是作为信息控制主体放入 `simulation/subjects/`；`entities/` 用于物品、地点、机关、事件进程等有状态实例。
 
@@ -32,7 +32,7 @@
 - `simulation/subjects/` 用于信息控制主体，例如角色、玩家、可拟人化势力。
 - `simulation/entities/` 用于有状态实例，例如物品、地点、机关、事件进程。
 - `simulation/runs/` 用于运行过程和 Tick 产物。
-- `roleplay/` 不再作为目标目录，只作为当前 RP 模板的兼容旧名。
+- `roleplay/` 不再作为目标目录；旧 Project Workspace 需要手动迁移或后续迁移工具。
 - 基础建模模式采用 `Prototype / Instance + Event Sourcing + Subject-facing View`：lorebook 记录原型和规则，entity 只在需要状态追踪时实例化，events 记录来源流水，knowledge / subject-facing state 控制主体可见信息。
 - 引用路径不是可见性授权；subject state 可以引用 lorebook prototype 或 entity，但 subject 能知道什么只由 `events.md`、`knowledge.md`、subject-facing `state.md` 和 simulator 过滤输入决定。
 - 普通、无差异、无隐藏状态的物品不实例化；出现独立状态、隐藏真相、唯一性、持有人差异、进度、损坏或剧情重要性时才建立 entity。
@@ -42,7 +42,7 @@
 - 支持扩展类型 `species / creature / organization / instruction`，但不默认生成顶层目录。
 - 不再把 `relationship`、`rule`、`note`、`formatting`、`dynamic-mvu`、`dynamic-prompt` 作为稳定 lorebook 协议类型。
 - 当前兼容 `spec/content/state.md` 的 lorebook 同级 `state.md`；但 subject 主观状态和 entity 当前状态不再新增到 lorebook，后续逐步减少并迁出 lorebook 下的动态状态。
-- 当前兼容现有 `roleplay/actors/{actor-id}/` 模板；目标迁移到 `simulation/subjects/{subject-id}/`，由 `simulation/cast.yaml` 引用。
+- 现有 `roleplay/actors/{actor-id}/` 旧目录应迁移到 `simulation/subjects/{subject-id}/`，由 `simulation/cast.yaml` 引用。
 - `instruction` 作为作品级 AI 使用说明继续保留，并细分为 `style / narration / boundary / disclosure / retrieval / formatting / continuity` 等推荐 subtype。
 - 信息控制模型暂不展开 schema，只保留后续设计入口。
 
@@ -52,11 +52,11 @@
 - 设计正文分区规范，例如 `Public Canon`、`Subject Safe Summary`、`Simulator Secrets`、`Writer Notes`。
 - 更新 workspace-files lorebook type 校验，支持默认类型和受支持扩展类型，移除 `rule` / `note` 作为正式协议类型的长期目标。
 - 更新 novel directory template，新增 `lorebook/index.md`，并把 `story-concept`、`synopsis`、`project-positioning`、`initial-plot-seed` 从默认 lorebook 节点迁出或降级为 planning 材料。
-- 设计并迁移 `simulation/` 模板，把现有 `roleplay/gm.md` 改为 `simulation/simulator.md`。
-- 把现有 `roleplay/actors/{actor-id}/` 迁移为 `simulation/subjects/{subject-id}/`。
+- 继续增强 `simulation/` 模板和 `simulation/simulator.md`，补齐 subject / entity 协议细节。
+- 评估是否需要旧 `roleplay/actors/{actor-id}/` 到 `simulation/subjects/{subject-id}/` 的迁移工具。
 - 新增 `simulation/entities/{entity-id}/` 模板，用于有状态物品、地点、机关和事件进程。
-- 更新 `roleplay-directory-templates`，让 `cast.yaml` 引用 `simulation/subjects/{subject-id}/...` 和 `simulation/entities/{entity-id}/...`。
-- 更新 `leader.rp`、`rp.actor`、`rp.writer` 和相关 skill 文档中的 simulation / subject / entity 路径合同。
+- 更新 `project-directory-templates`，继续让 `cast.yaml` 引用 `simulation/subjects/{subject-id}/...` 和 `simulation/entities/{entity-id}/...`。
+- 继续复核 `leader.rp`、`rp.actor`、`rp.writer` 和相关 skill 文档中的 simulation / subject / entity 路径合同。
 - 更新 SillyTavern 导入映射：`event -> lorebook/event`，`system -> lorebook/system`，世界规则进入 `world/rule`，种族/组织/生物按项目目录策略进入默认子目录或提升目录。
 - 后续逐步迁出 lorebook 同级 `state.md`，并复核 writer 读取同级 `state.md` 的合同。
 - 设计 prototype / subject / entity / event relation 的最小 schema。

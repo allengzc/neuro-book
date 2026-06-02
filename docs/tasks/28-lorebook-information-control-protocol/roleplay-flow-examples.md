@@ -2,7 +2,7 @@
 
 本文用于把 `leader.rp`、subject、entity、lorebook 和 Tick 流程放进具体例子里跑一遍，避免目录协议只停留在抽象分类。
 
-本文使用目标目录名 `simulation/`。当前实现仍可能使用兼容目录 `roleplay/`：
+本文使用当前目标目录名 `simulation/`。旧 `roleplay/` 目录不再作为新模板兼容目标；旧 Project Workspace 可按下列映射迁移：
 
 ```text
 roleplay/gm.md            -> simulation/simulator.md
@@ -50,15 +50,6 @@ simulation/simulator.md
 simulation/writer.md
 lorebook/index.md
 project.yaml
-```
-
-当前实现兼容读取：
-
-```text
-roleplay/config.yaml
-roleplay/cast.yaml
-roleplay/gm.md
-roleplay/writer.md
 ```
 
 第二，了解机制和开局约束。开局设定暂时没有进入稳定规范，作者可以临时写在 `simulation/simulator.md`、`simulation/config.yaml`、`lorebook/world/`、`lorebook/system/` 或导入报告里。`leader.rp` 应主动寻找这些线索，但不要假装协议已经有固定字段。

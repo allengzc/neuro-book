@@ -2679,6 +2679,10 @@ onBeforeUnmount(() => {
     --component-accent: #4f8a8b;
 }
 
+.library-node-Import {
+    --component-accent: #5c7f67;
+}
+
 .panel-rail:hover {
     border-color: var(--border-color-hover);
     background: var(--bg-hover);

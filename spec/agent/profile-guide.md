@@ -1,299 +1,296 @@
-# AgentProfile 实现指南
+# Agent Profile Guide
 
-## 文档目的
-
-本文档说明 `server/agent/profiles` 下 `AgentProfile` 家族的职责边界、生命周期、TSX prompt 写法，以及新增 Profile 时的推荐规则。
+本文档说明 active Agent Profile 的职责边界、TSX Profile DSL 写法和新增 profile 时的检查点。
 
 相关文档：
 
 - [system.md](system.md)
 - [context.md](context.md)
+- [profile-import.md](profile-import.md)
+- [neurobook-project-guide.md](neurobook-project-guide.md)
 
-## Profile 类族
+## Profile Definition
 
-### `AgentProfile`
+当前推荐使用 `defineAgentProfile()` 定义 profile。Profile 至少声明：
 
-文件：[agent-profile.ts](../../server/agent/profiles/agent-profile.ts)
-
-最低层抽象，适合完全自定义 `prepare()` / `ingest()` 的复杂 profile。它要求实现：
-
-- `key`
-- `kind`
-- `name`
+- `manifest.key`
+- `manifest.name`
 - `inputSchema`
-- `outputSchema`（可选；存在时 `report_result.data` 必须符合该结构）
 - `allowedToolKeys`
-- `prepare(runtime)`
+- `context(ctx)`
 
-它还提供默认 `ingest(input)` 透传实现。需要过滤或改写 ReAct loop 产物写回历史时，再覆盖 `ingest()`。
+需要结构化结果时声明 `outputSchema`。存在 `outputSchema` 时，`report_result.data` 必须符合该 schema。
 
-只有默认上下文编排明显不适合时，才直接继承它。
+内置 profile 位于 `assets/workspace/.nbook/agent/profiles/builtin/`，例如：
 
-### `SimpleProfile`
+- `leader.default.profile.tsx`
+- `writer.profile.tsx`
+- `retrieval.profile.tsx`
+- `leader.rp.profile.tsx`
+- `rp.actor.profile.tsx`
+- `rp.writer.profile.tsx`
 
-文件：[simple-profile.ts](../../server/agent/profiles/simple-profile.ts)
+## Prepare Lifecycle
 
-当前推荐基类。它提供：
+1. Harness 校验 profile input，并构造 `ProfilePrepareContext`。
+2. Profile `context(ctx)` 返回 `<ProfilePrompt>`。
+3. `server/agent/profiles/profile-dsl.ts` 编译 TSX tree，生成 `ProfileTurnPlan`。
+4. Harness 根据 plan 组合 provider prompt、历史写入和 profile runtime state。
+5. Assistant / tool result 进入 runtime transcript，并按当前 runtime hooks 写回。
 
-- `HistorySet -> DynamicSet -> AppendingSet` 的标准拼接顺序
-- system prompt 首轮持久化与去重
-- watched variables baseline / diff
-- skill catalog 与显式 activated skill 文本构造
-- `AppendingSet` 消息追加写回
-- `<Message source="input">` 写回
+常用 `ctx` 字段：
 
-当前内置 profile：
+- `ctx.input`：通过 `inputSchema` 校验后的 profile 创建输入。
+- `ctx.session`：当前 session facade，包含 workspaceRoot、messages、customState、linkedAgents 等。
+- `ctx.vars`：变量访问器。TSX 中优先用 `<Variable>` 和 `<VariableSchema>` 注入。
+- `ctx.catalog`：当前可见 agent profiles 和 profile issues。
+- `ctx.skills`：当前可见 skills。
+- `ctx.runtime`：本轮时间、用户 turn 计数等 runtime 信息。
 
-- [leader-default.profile.tsx](../../server/agent/profiles/builtin/leader-default.profile.tsx)
-- [writer.profile.tsx](../../server/agent/profiles/builtin/writer.profile.tsx)
-- [retrieval.profile.tsx](../../server/agent/profiles/builtin/retrieval.profile.tsx)
+## TSX Contract
 
-## 运行时生命周期
-
-1. `AgentSystem` 校验输入并构造 `ProfileContextRuntime`。
-2. `profile.prepare(runtime)` 生成 `modelMessages`、`persistedMessages`、`immediateMetadata` 和 `completedMetadata`。
-3. `ThreadRunCoordinator` 先写入 `persistedMessages.prepend/append`，提交 `immediateMetadata`，再把 `modelMessages` 交给模型。
-4. assistant / tool 结果经 `profile.ingest()` 处理后进入消息历史。
-5. run completed 后写回 `completedMetadata`。
-
-重点：
-
-- `modelMessages` 是本轮给模型看的完整消息。
-- `persistedMessages.prepend` 是 run 开始前写入历史根部的稳定前缀。
-- `persistedMessages.append` 是 run 开始前写入当前历史光标的运行期上下文。
-- `DynamicSet` 不进入 `persistedMessages`。
-- `AppendingSet` 位于最新上下文，适合贴近本轮输入的内容，并会写入 `persistedMessages.append`。
-- `SkillCatalog` 放在 `HistorySet` 时会随首轮 system prompt 写入历史。
-
-## runtime 里有什么
-
-`ProfileContextRuntime` 常用字段：
-
-- `thread`：当前线程记录和 metadata。
-- `profile`：当前 profile 实例。
-- `input`：通过 `inputSchema` 校验后的本轮输入。
-- `scope`：本轮变量快照，不是响应式对象。
-- `skillCatalog`：当前仓库可见 skill 元数据列表。
-- `options`：本轮运行选项，例如 plan mode reminder。
-- `messageStore`：消息历史存储。
-- `loadHistoryMessages()`：加载当前活动分支可发给模型的 history messages。
-
-`ProfilePromptContext` 会把常用值整理给 `buildPrompt(ctx)`：
-
-- `ctx.runtime`
-- `ctx.input`
-- `ctx.scope`
-- `ctx.history`
-- `ctx.skillCatalogText`
-- `ctx.activatedSkillsText`
-- `ctx.var("scope.xxx")`
-- `ctx.hasTool("tool_key")`
-
-## TSX Prompt 合同
-
-`SimpleProfile` 子类只实现一个函数：
+Profile `context()` 应返回 `<ProfilePrompt>` 根节点：
 
 ```tsx
-protected override buildPrompt(ctx: ProfilePromptContext<"profile.key">) {
+context() {
     return (
         <ProfilePrompt>
-            <HistorySet>...</HistorySet>
-            <DynamicSet>...</DynamicSet>
-            <AppendingSet>...</AppendingSet>
+            <System>{SYSTEM_PROMPT}</System>
+            <HistorySet>
+                <Message>
+                    <AgentCatalog />
+                </Message>
+                <Message>
+                    <SkillCatalog />
+                </Message>
+                <Message>
+                    <Import path="spec/agent/neurobook-project-guide.md" />
+                </Message>
+            </HistorySet>
+            <ModelContext>
+                <VariableSchema paths={["client.currentProjectWorkspace"]} includeToolGuide />
+            </ModelContext>
+            <AppendingSet>
+                <WorkdirReminder />
+                <ProjectWorkspaceReminder />
+                <PlanModeReminder />
+            </AppendingSet>
         </ProfilePrompt>
     );
 }
 ```
 
-`ProfilePrompt` 顶层推荐显式包含：
+顶层允许：
 
+- `System`
 - `HistorySet`
-- `DynamicSet`
+- `ModelContext`
 - `AppendingSet`
+- `Compaction`
+- `If`
+- `Fragment`
 
-裸 `<Message>` 等普通节点可以直接放在 `ProfilePrompt` 顶层，但会被视为 dynamic 上下文，不写入历史。复杂 profile 仍建议显式写出 set，降低阅读成本。
+非空文本必须放在支持 string 的节点内，例如 `System` 或 `Message`。不要在 `ProfilePrompt` 顶层放裸文本。
 
-### `HistorySet`
+## System
 
-只放长期稳定上下文。
+`System` 是 profile 的身份、职责、工具边界和长期行为规则。它只接受 string-like children。
 
-允许节点：
+适合放：
 
-- 普通 `Message`
-- `History`
-- `SkillCatalog` 返回的 string 片段，需包裹在 `Message` 内
+- profile 是谁。
+- profile 的任务边界。
+- 工具使用原则。
+- 与其他 agent 的协作原则。
+- 必须长期遵守的输出规则。
 
-推荐使用 `<Message role="system">` 表达主系统提示。生成的 system message 会在缺少持久化 system prompt 时写入历史根部。`SkillCatalog` 返回 string，通常写成 `<Message role="system"><SkillCatalog text={ctx.skillCatalogText} /></Message>`。
+不适合放：
 
-不要放：
+- 本轮临时状态。
+- 当前 Project Workspace。
+- 变量值。
+- 大段可共享的项目协议。共享协议优先放到 `spec/`，再用 `Import` 显式导入。
 
-- `Watch`
+## HistorySet
 
-### `DynamicSet`
+`HistorySet` 是稳定历史前缀。缺少历史前缀时，它会写入 session 历史根部；已经存在稳定前缀时，不会每轮重复写入。
 
-只放本轮动态状态，不持久化。
+适合放：
 
-允许节点：
-
-- 普通 `Message`
-- `History`
-
-典型内容：
-
-- 当前线程标题、摘要
-- 当前 IDE / workspace / chapter 状态
-- 当前可用工具
-- 当前任务状态
-- 当前 subagent 状态
-
-不要放 `SkillCatalog` 或 `Reminder`。`SkillCatalog` 需要首轮持久化时放在 `HistorySet`；`Reminder` 应贴近当前用户输入，放在 `AppendingSet`。
-
-### `AppendingSet`
-
-贴近当前输入的上下文区域。leader UI continue 主路径下，当前用户输入来自 history 尾部，`SimpleProfile` 会把它移动到 `AppendingSet` 之后，确保用户输入是模型最后一条消息。`AppendingSet` 渲染出的非空消息会写入当前历史光标。
-
-推荐顺序：
-
-```tsx
-<AppendingSet>
-    <Reminder id="leader-runtime"><Message role="human">当前剧情焦点、subagent、任务状态</Message></Reminder>
-    <Reminder id="workspace" watchPath="scope.studio.workspace" repeatEveryTurns={5}><Message role="system">当前 workspace</Message></Reminder>
-    <Reminder id="plan-mode"><Message role="system">本轮 Plan Mode reminder</Message></Reminder>
-    <Watch ... />
-    {ctx.activatedSkillsText ? <Message role="human"><ActivatedSkills text={ctx.activatedSkillsText} /></Message> : null}
-    {shouldAppendInput ? <Message role="human" source="input">{promptText}</Message> : null}
-</AppendingSet>
-```
-
-节点语义：
-
-- `Reminder`：控制提醒的追加时机；内部用普通 `<Message>` 决定 role 和内容，可通过 `watchPath` 变量变化触发，或通过 `repeatEveryTurns` 周期性补注入。生成的消息属于 `AppendingSet`，会写入历史。
-- `Watch`：变量变化时插入系统生成消息并写入历史；消息带 `systemMessageKind: "variable_change"`。
-- `ActivatedSkills`：显式 `$skill-name` 命中时读取 `SKILL.md`，返回激活内容 string，通常包在 `<Message role="human">` 内。
-- `<Message source="input">`：直接 prompt 模式的本轮真实用户输入会写入历史；continue 模式不会追加，当前用户输入来自 history 尾部。
-
-`AppendingSet` 不接受裸文本；文本必须放在 `Message` 内。
-
-## Watch 语义
-
-`Watch` 在 `prepare()` 阶段执行，不是响应式订阅。
-
-```tsx
-<Watch
-    path="scope.studio.workspace"
-    render={({previousValue, currentValue}) => {
-        if (!currentValue) {
-            return null;
-        }
-        return (
-            <Message role="system">
-                {`当前小说 workspace 已设置为：${currentValue}`}
-            </Message>
-        );
-    }}
-/>
-```
+- 可用 agent catalog。
+- 可用 skill catalog。
+- 共享规范导入，例如 `<Import path="spec/agent/neurobook-project-guide.md" />`。
+- 需要首轮持久化、后续不频繁变化的上下文。
 
 规则：
 
-- `path` 必须以 `scope.` 开头。
-- 当前值会写入 `thread.metadata.watchedVariables[path]`。
-- fingerprint 相同不触发 render。
-- 首次观察到非 `undefined` 的有效值会触发 render，`previousValue` 为 `undefined`。
-- 首次观察到 `undefined` 只记录 baseline，不插入消息。
-- `hasValue` 用于区分 `undefined` 与 `null`。
+- `SkillCatalog`、`AgentCatalog`、`Import` 都是 string fragment，必须包在 `Message` 或 `System` 这种 string 容器内。
+- 不要放 `Reminder` 或 `Watch`。
+- 不要放当前变量值、当前 selected file、当前任务状态等运行期内容。
 
-适合 watch 的变量：
+## Import
 
-- 当前章节标签
-- 当前选中资源
-- 需要作为 `systemMessageKind: "variable_change"` 长期写入历史的外部状态切换
+`Import` 显式导入共享文本文件，避免复制长 prompt。
 
-如果只是要靠近当前输入提醒模型，例如当前 workspace，优先使用 `Reminder watchPath="scope.studio.workspace"`。
-
-不适合 watch 的变量：
-
-- 高频噪音字段
-- 大对象
-- 只在当前 prompt 内部使用的临时字段
-
-## 最小实现骨架
+推荐用法：
 
 ```tsx
+<HistorySet>
+    <Message>
+        <Import path="spec/agent/neurobook-project-guide.md" />
+    </Message>
+</HistorySet>
+```
+
+支持：
+
+- `path`
+- `heading`
+- `maxBytes`
+- `required`
+- `label`
+- `as`，V1 只支持 `text`
+
+V1 只允许 `AGENTS.md`、`spec/**` 和 `docs/**`。不要用 `Import` 读取 Project Workspace 文件；项目内容应通过 agent 文件工具、sidecar 或 runtime 注入读取。
+
+详见 [profile-import.md](profile-import.md)。
+
+## ModelContext
+
+`ModelContext` 是本轮只给模型看的上下文，不写入产品历史。
+
+适合放：
+
+- `VariableSchema`
+- `Variable`
+- SQL schema summary
+- 当前运行期只读摘要
+- 不应持久化到历史里的 `Reminder` / `Watch`
+
+规则：
+
+- `Variable` / `VariableSchema` 第一版只能直接放在 `ModelContext`。
+- `Reminder` / `Watch` 在 `ModelContext` 中生成的消息进入本轮 provider prompt，不写入产品历史。
+- 不要把长期共享说明放在这里；稳定说明优先放 `HistorySet`。
+
+## AppendingSet
+
+`AppendingSet` 是贴近当前输入的上下文区域。它产出的非空消息会写入当前历史光标，并在模型上下文中位于当前用户消息之前。
+
+适合放：
+
+- `WorkdirReminder`
+- `ProjectWorkspaceReminder`
+- `PlanModeAvailabilityReminder`
+- `PlanModeReminder`
+- `LinkedAgentsReminder`
+- `TaskReminder`
+- `MentionedSkillsReminder`
+- 需要靠近当前输入的运行期提醒
+
+规则：
+
+- `Reminder` 根据 `when`、变量 watch、函数 watch 和 `repeatEveryTurns` 控制注入频率。
+- `Watch` 适合把重要外部状态变化写入历史。
+- `ActivatedSkills` / `MentionedSkillsReminder` 必须包在 `Message` 内。
+- 不接受非空裸文本。
+
+## Variables
+
+变量路径以 `client`、`global`、`project` 或 `session` 开始。
+
+常见写法：
+
+```tsx
+<ModelContext>
+    <VariableSchema paths={["client.currentProjectWorkspace", "client.studio.selectedFilePath"]} includeToolGuide />
+</ModelContext>
+```
+
+Agent 需要读写变量时，按工具流程：
+
+1. `variable_schema` 查询局部 schema。
+2. `variable_read` 读取当前值。
+3. `variable_patch` 提交 RFC 6902 JSON Patch。
+4. 重要修改后再次读取验证。
+
+## Minimal Skeleton
+
+```tsx
+/** @jsxImportSource nbook/server/agent/profiles/profile-dsl */
 /** @jsxRuntime automatic */
-/** @jsxImportSource nbook/server/agent/prompts */
-
-import {Message} from "nbook/server/agent/prompts";
+import {Type} from "typebox";
+import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {
-    ActivatedSkills,
     AppendingSet,
-    DynamicSet,
     HistorySet,
+    Import,
+    Message,
+    ModelContext,
     ProfilePrompt,
-    Reminder,
-    SimpleProfile,
+    ProjectWorkspaceReminder,
     SkillCatalog,
-    type ProfilePromptContext,
-} from "nbook/server/agent/profiles/simple-profile";
-import {SomeInputSchema, SomeOutputSchema} from "nbook/server/agent/profiles/builtin/some.contract";
+    System,
+    VariableSchema,
+    WorkdirReminder,
+} from "nbook/server/agent/profiles/profile-dsl";
 
-export class SomeProfile extends SimpleProfile<"some.profile"> {
-    readonly key = "some.profile";
-    readonly kind = "subagent" as const;
-    readonly name = "SomeProfile";
-    readonly inputSchema = SomeInputSchema;
-    override readonly outputSchema = SomeOutputSchema;
-    readonly allowedToolKeys = ["read_file"] as const;
+export const profileManifest = {
+    key: "some.profile",
+    name: "Some Profile",
+    description: "Example profile.",
+} as const;
 
-    protected override buildPrompt(ctx: ProfilePromptContext<"some.profile">) {
-        const workspace = ctx.scope.studio.workspace ?? "";
-        const prompt = "prompt" in ctx.input ? ctx.input.prompt : "";
+export const InputSchema = Type.Object({
+    prompt: Type.String(),
+});
 
+const allowedToolKeys = ["read", "write", "edit"] as const;
+
+export default defineAgentProfile({
+    manifest: profileManifest,
+    inputSchema: InputSchema,
+    allowedToolKeys,
+    context() {
         return (
             <ProfilePrompt>
+                <System>
+                    你是 Some Profile。只处理输入中明确要求的任务。
+                </System>
                 <HistorySet>
-                    <Message role="system">
-                        你是某个专职 subagent。
+                    <Message>
+                        <SkillCatalog />
                     </Message>
-                    {ctx.skillCatalogText ? (
-                        <Message role="system">
-                            <SkillCatalog text={ctx.skillCatalogText} />
-                        </Message>
-                    ) : null}
+                    <Message>
+                        <Import path="spec/agent/neurobook-project-guide.md" />
+                    </Message>
                 </HistorySet>
-                <DynamicSet />
+                <ModelContext>
+                    <VariableSchema paths={["client.currentProjectWorkspace"]} includeToolGuide />
+                </ModelContext>
                 <AppendingSet>
-                    <Reminder id="workspace" when={Boolean(workspace)} watchPath="scope.studio.workspace" repeatEveryTurns={5}>
-                        <Message role="system">
-                            {`当前工作区：${workspace}`}
-                        </Message>
-                    </Reminder>
-                    {ctx.activatedSkillsText ? (
-                        <Message role="human">
-                            <ActivatedSkills text={ctx.activatedSkillsText} />
-                        </Message>
-                    ) : null}
-                    <Message role="human" source="input">
-                        {prompt}
-                    </Message>
+                    <WorkdirReminder />
+                    <ProjectWorkspaceReminder />
                 </AppendingSet>
             </ProfilePrompt>
         );
-    }
-}
+    },
+});
 ```
 
-## 落地检查清单
+## Checklist
 
-新增或修改 profile 后，至少检查：
+新增或修改 profile 后检查：
 
-- `inputSchema` 是否已加入 `ProfileInputMap`。
-- 需要结构化结果的 profile 是否声明了 `outputSchema`，并已加入 `ProfileOutputMap`。
-- `key` / `kind` / `allowedToolKeys` 是否正确。
-- `HistorySet` 是否只放稳定约束，以及需要首轮持久化的 `SkillCatalog` string message。
-- `DynamicSet` 是否没有放 `Reminder` / `SkillCatalog` 等异地节点。
-- `AppendingSet` 是否贴近当前输入，`Reminder` / `Watch` / `ActivatedSkills` / input message 顺序是否合理。
-- continue 模式是否关闭 `<Message source="input">` 追加，并保证 history 尾部当前用户输入是模型最后一条。
-- `Watch` 是否只监听对模型有意义的变量。
-- 新 TSX 节点位置是否有定向测试覆盖。
-- profile 是否已在 registry 中注册。
+- `key`、`kind`、`name` 和 `description` 是否准确。
+- `inputSchema` 是否只包含创建输入，不混入每轮动态状态。
+- 需要结构化结果时是否声明 `outputSchema`。
+- `allowedToolKeys` 是否是最小可用工具集合。
+- `System` 是否只放 profile 身份、职责和长期行为边界。
+- `HistorySet` 是否只放稳定前缀。
+- 共享规范是否用 `Import` 引用，而不是复制长 prompt。
+- `ModelContext` 是否只放本轮模型可见、不需要持久化的上下文。
+- `AppendingSet` 是否贴近当前输入，Reminder 顺序是否合理。
+- 变量路径是否通过 `VariableSchema` / `Variable` 暴露。
+- 新 TSX 节点是否有定向测试覆盖。
+- profile 是否可通过 `bun scripts/build/profile.ts check <file> --system` 或对应用户 assets check。

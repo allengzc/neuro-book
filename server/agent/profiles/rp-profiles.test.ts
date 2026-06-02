@@ -40,7 +40,7 @@ describe("RP builtin profiles", () => {
     });
 
     it("rp contracts 使用 RP 专用输入输出，不复用普通 writer chapterPaths", () => {
-        expect(LeaderRpInputSchema.properties).toHaveProperty("roleplayRoot");
+        expect(LeaderRpInputSchema.properties).toHaveProperty("simulationRoot");
 
         expect(RpActorInputSchema.properties).toHaveProperty("actorId");
         expect(RpActorInputSchema.properties).toHaveProperty("instructionPath");
@@ -72,7 +72,7 @@ describe("RP builtin profiles", () => {
                 planModeActive: false,
             }),
             input: {
-                roleplayRoot: "rp-project/roleplay",
+                simulationRoot: "rp-project/simulation",
             },
             vars: createTestVariableAccessor({
                 "client.currentProjectWorkspace": "workspace/rp-project",
@@ -118,10 +118,10 @@ describe("RP builtin profiles", () => {
             "get_session",
             "request_user_input",
         ]);
-        expect(systemPrompt).toContain("GM 主控");
-        expect(systemPrompt).toContain("roleplay/config.yaml");
-        expect(systemPrompt).toContain("roleplay/cast.yaml");
-        expect(systemPrompt).toContain("roleplay/gm.md 是唯一 GM 入口说明");
+        expect(systemPrompt).toContain("simulator leader");
+        expect(systemPrompt).toContain("simulation/config.yaml");
+        expect(systemPrompt).toContain("simulation/cast.yaml");
+        expect(systemPrompt).toContain("simulation/simulator.md 是唯一 simulator leader 入口说明");
         expect(systemPrompt).toContain("actor-facing message");
         expect(systemPrompt).toContain("GM internal scratch");
         expect(systemPrompt).toContain("不要把 not_known_to_you");
@@ -136,11 +136,12 @@ describe("RP builtin profiles", () => {
         expect(systemPrompt).toContain("Project Workspace 相对路径");
         expect(historyText).toContain("rp.actor");
         expect(historyText).toContain("rp.writer");
-        expect(modelContextText).toContain("roleplayRoot: rp-project/roleplay");
+        expect(historyText).toContain("```AGENTS.md");
+        expect(modelContextText).toContain("simulationRoot: rp-project/simulation");
         expect(appendingText).toContain("Current Project Workspace: workspace/rp-project");
     });
 
-    it("rp.actor 自动注入 actor.md、knowledge.md、mind.md 与 state.md，并把文件维护交给 sidecar", async () => {
+    it("rp.actor 自动注入 subject.md、knowledge.md、mind.md 与 state.md，并把文件维护交给 sidecar", async () => {
         const fixture = await createRoleplayFixture();
         try {
             const prepared = await rpActorProfile.prepare!({
@@ -156,10 +157,10 @@ describe("RP builtin profiles", () => {
                     actorId: "heroine",
                     actorName: "绘璃奈",
                     kind: "npc",
-                    instructionPath: `${fixture.projectSlug}/roleplay/actors/heroine/actor.md`,
-                    knowledgePath: `${fixture.projectSlug}/roleplay/actors/heroine/knowledge.md`,
-                    mindPath: `${fixture.projectSlug}/roleplay/actors/heroine/mind.md`,
-                    statePath: `${fixture.projectSlug}/roleplay/actors/heroine/state.md`,
+                    instructionPath: `${fixture.projectSlug}/simulation/subjects/heroine/subject.md`,
+                    knowledgePath: `${fixture.projectSlug}/simulation/subjects/heroine/knowledge.md`,
+                    mindPath: `${fixture.projectSlug}/simulation/subjects/heroine/mind.md`,
+                    statePath: `${fixture.projectSlug}/simulation/subjects/heroine/state.md`,
                 },
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
@@ -189,7 +190,7 @@ describe("RP builtin profiles", () => {
             expect(memorySave?.sidecarDataSchema?.properties).toHaveProperty("knowledge_summary");
             expect(memorySave?.sidecarDataSchema?.properties).toHaveProperty("mind_summary");
             expect(systemPrompt).toContain("只扮演一个角色：绘璃奈");
-            expect(systemPrompt).toContain("不能读取完整 roleplay/");
+            expect(systemPrompt).toContain("不能读取完整 simulation/");
             expect(systemPrompt).toContain("必须调用 report_result");
             expect(systemPrompt).toContain("report_result.result");
             expect(systemPrompt).toContain("mind_update");
@@ -202,13 +203,13 @@ describe("RP builtin profiles", () => {
             expect(systemPrompt).toContain("戏内消息");
             expect(systemPrompt).not.toContain("not_known_to_you");
             expect(systemPrompt).not.toContain("必要时可更新");
-            expect(modelContextText).toContain("<actor_instruction>");
+            expect(modelContextText).toContain("<subject_instruction>");
             expect(modelContextText).toContain("保持礼貌但警惕");
-            expect(modelContextText).toContain("<actor_knowledge>");
+            expect(modelContextText).toContain("<subject_knowledge>");
             expect(modelContextText).toContain("她相信主角值得观察");
-            expect(modelContextText).toContain("<actor_mind>");
+            expect(modelContextText).toContain("<subject_mind>");
             expect(modelContextText).toContain("她正在判断主角的用意");
-            expect(modelContextText).toContain("<actor_state>");
+            expect(modelContextText).toContain("<subject_state>");
             expect(modelContextText).toContain("她位于学院区广场边缘");
             expect(modelContextText).toContain("knowledgePath");
             expect(modelContextText).toContain("mindPath");
@@ -236,7 +237,7 @@ describe("RP builtin profiles", () => {
                     planModeActive: false,
                 }),
                 input: {
-                    writerInstructionPath: `${fixture.projectSlug}/roleplay/writer.md`,
+                    writerInstructionPath: `${fixture.projectSlug}/simulation/writer.md`,
                     style: "细腻、轻快、不过度解释。",
                     outputRequirements: ["只输出正文。"],
                     language: "zh-CN",
@@ -274,13 +275,13 @@ describe("RP builtin profiles", () => {
 async function createRoleplayFixture(): Promise<{workspaceRoot: string; projectSlug: string}> {
     const workspaceRoot = resolve(".agent", "workspace", "rp-profile-test", randomUUID());
     const projectSlug = `rp-project-${randomUUID()}`;
-    const actorRoot = join(workspaceRoot, projectSlug, "roleplay", "actors", "heroine");
+    const actorRoot = join(workspaceRoot, projectSlug, "simulation", "subjects", "heroine");
     await mkdir(actorRoot, {recursive: true});
-    await writeFile(join(actorRoot, "actor.md"), "保持礼貌但警惕，遇到未知物品会先询问来源。", "utf-8");
+    await writeFile(join(actorRoot, "subject.md"), "保持礼貌但警惕，遇到未知物品会先询问来源。", "utf-8");
     await writeFile(join(actorRoot, "knowledge.md"), "她相信主角值得观察，但还不知道世界之心的真名。", "utf-8");
     await writeFile(join(actorRoot, "mind.md"), "她正在判断主角的用意，暂时不想显露紧张。", "utf-8");
     await writeFile(join(actorRoot, "state.md"), "她位于学院区广场边缘，双手空着，状态正常。", "utf-8");
-    await writeFile(join(workspaceRoot, projectSlug, "roleplay", "writer.md"), "正文要保留角色信息差，不泄露 GM 隐藏设定。", "utf-8");
+    await writeFile(join(workspaceRoot, projectSlug, "simulation", "writer.md"), "正文要保留角色信息差，不泄露 GM 隐藏设定。", "utf-8");
     return {workspaceRoot, projectSlug};
 }
 

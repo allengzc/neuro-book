@@ -39,6 +39,7 @@ const components = {
     SkillCatalog: dsl.SkillCatalog,
     ActivatedSkills: dsl.ActivatedSkills,
     SqlSchemaSummary: dsl.SqlSchemaSummary,
+    Import: dsl.Import,
     Variable: dsl.Variable,
     VariableSchema: dsl.VariableSchema,
 };
@@ -101,6 +102,7 @@ export namespace JSX {
         SkillCatalog: Parameters<typeof dsl.SkillCatalog>[0];
         ActivatedSkills: Parameters<typeof dsl.ActivatedSkills>[0];
         SqlSchemaSummary: Parameters<typeof dsl.SqlSchemaSummary>[0];
+        Import: Parameters<typeof dsl.Import>[0];
         Variable: Parameters<typeof dsl.Variable>[0];
         VariableSchema: Parameters<typeof dsl.VariableSchema>[0];
     }

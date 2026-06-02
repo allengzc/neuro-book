@@ -2173,10 +2173,10 @@ describe("NeuroAgentHarness", () => {
             enableSessionSummarizer: false,
         });
         const projectSlug = `rp-project-${randomUUID()}`;
-        const actorRoot = join(root, projectSlug, "roleplay", "actors", "heroine");
+        const actorRoot = join(root, projectSlug, "simulation", "subjects", "heroine");
         await mkdir(actorRoot, {recursive: true});
         await mkdir(join(root, projectSlug, "lorebook", "world"), {recursive: true});
-        await writeFile(join(actorRoot, "actor.md"), "保持礼貌但警惕，遇到未知物品会先询问来源。", "utf-8");
+        await writeFile(join(actorRoot, "subject.md"), "保持礼貌但警惕，遇到未知物品会先询问来源。", "utf-8");
         await writeFile(join(actorRoot, "knowledge.md"), "## 世界观\n\n### 已知物品\n\n她不知道世界之心的真名。\n", "utf-8");
         await writeFile(join(actorRoot, "mind.md"), "她正在判断主角的用意。\n", "utf-8");
         await writeFile(join(actorRoot, "state.md"), "她位于学院区广场边缘，状态正常。\n", "utf-8");
@@ -2242,14 +2242,14 @@ describe("NeuroAgentHarness", () => {
                 expect(promptText).toContain("不要修改 statePath");
                 return fauxAssistantMessage([
                     fauxToolCall("edit", {
-                        path: `${projectSlug}/roleplay/actors/heroine/knowledge.md`,
+                        path: `${projectSlug}/simulation/subjects/heroine/knowledge.md`,
                         edits: [{
                             oldText: "她不知道世界之心的真名。\n",
                             newText: "她不知道世界之心的真名。\n\n### 五彩石\n\n主角把一块疑似被称为世界之心的五彩石交给了她。\n",
                         }],
                     }, {id: "memory-edit-knowledge"}),
                     fauxToolCall("edit", {
-                        path: `${projectSlug}/roleplay/actors/heroine/mind.md`,
+                        path: `${projectSlug}/simulation/subjects/heroine/mind.md`,
                         edits: [{
                             oldText: "她正在判断主角的用意。\n",
                             newText: "她正在判断主角的用意。\n她开始怀疑主角知道更多内情，但暂时不追问过深。\n",
@@ -2262,8 +2262,8 @@ describe("NeuroAgentHarness", () => {
                     result: "memory saved",
                     sidecar_data: {
                         changed_files: [
-                            `${projectSlug}/roleplay/actors/heroine/knowledge.md`,
-                            `${projectSlug}/roleplay/actors/heroine/mind.md`,
+                            `${projectSlug}/simulation/subjects/heroine/knowledge.md`,
+                            `${projectSlug}/simulation/subjects/heroine/mind.md`,
                         ],
                         knowledge_summary: "记录主角交给她疑似世界之心的五彩石。",
                         mind_summary: "记录她对主角隐瞒信息的怀疑。",
@@ -2279,10 +2279,10 @@ describe("NeuroAgentHarness", () => {
                 actorId: "heroine",
                 actorName: "绘璃奈",
                 kind: "npc",
-                instructionPath: `${projectSlug}/roleplay/actors/heroine/actor.md`,
-                knowledgePath: `${projectSlug}/roleplay/actors/heroine/knowledge.md`,
-                mindPath: `${projectSlug}/roleplay/actors/heroine/mind.md`,
-                statePath: `${projectSlug}/roleplay/actors/heroine/state.md`,
+                instructionPath: `${projectSlug}/simulation/subjects/heroine/subject.md`,
+                knowledgePath: `${projectSlug}/simulation/subjects/heroine/knowledge.md`,
+                mindPath: `${projectSlug}/simulation/subjects/heroine/mind.md`,
+                statePath: `${projectSlug}/simulation/subjects/heroine/state.md`,
             },
             workspaceRoot: root,
         });

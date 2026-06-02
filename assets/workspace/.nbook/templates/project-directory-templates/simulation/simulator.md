@@ -1,10 +1,10 @@
 # GM 运行协议
 
-本文件是 `roleplay/` 的 GM 唯一入口说明。启动 RP 时，`leader.rp` / GM 读取 `config.yaml`、`cast.yaml`、`gm.md` 和 `writer.md`；通用启动说明由 RP skill 和 GM profile 承担。
+本文件是 `simulation/` 的 simulator leader 入口说明。启动 RP/simulation 时，`leader.rp` 读取 `config.yaml`、`cast.yaml`、`simulator.md` 和 `writer.md`；通用启动说明由 RP skill 和 simulator profile 承担。
 
-`roleplay/` 默认只给 GM 读取。actor 和 writer 不把整个目录当作工作区，只接收 GM 或 runtime 自动注入的特定文件与 packet。
+`simulation/` 默认只给 GM 读取。actor 和 writer 不把整个目录当作工作区，只接收 GM 或 runtime 自动注入的特定文件与 packet。
 
-`roleplay/playthrough/` 用于保存本局过程记录和 Tick 产物。它不是 canonical lorebook，也不是 actor 长期记忆；actor 默认不读取，writer 只有在 GM 明确指定路径时才写入。
+`simulation/runs/` 用于保存本局过程记录和 Tick 产物。它不是 canonical lorebook，也不是 actor 长期记忆；actor 默认不读取，writer 只有在 GM 明确指定路径时才写入。
 
 ## 职责
 
@@ -22,11 +22,11 @@
 
 启动 RP 时先判断本轮是初始化还是继续。当前模板只覆盖初始化：
 
-1. 读取 `roleplay/config.yaml` 与 `roleplay/cast.yaml`。
-2. 读取 `roleplay/writer.md`，并按本文件要求读取当前项目中必要的世界观、规则、文风和创作边界。
+1. 读取 `simulation/config.yaml` 与 `simulation/cast.yaml`。
+2. 读取 `simulation/writer.md`，并按本文件要求读取当前项目中必要的世界观、规则、文风和创作边界。
 3. 如果必要文件还没填写，使用 `config.yaml` 的 `fallbackScene` 建立最小场景，不要阻塞启动。
 4. 初始化 `cast.yaml` 中 `defaultActive: true` 的 actors。
-5. 告诉每个 actor 它自己的 `actor.md`、`knowledge.md`、`mind.md`、`state.md` 路径，以及当前场景中可观察的信息。
+5. 告诉每个 actor 它自己的 `subject.md`、`knowledge.md`、`mind.md`、`state.md` 路径，以及当前场景中可观察的信息。
 6. 向用户输出开场说明：玩家角色知道什么、当前处境是什么、附近有哪些可互动对象。
 7. 等待用户输入第一条行动、台词或指令。
 
@@ -85,7 +85,7 @@ validation:
   status:
   reasons:
   needs_user_confirmation:
-selected_actors:
+selected_subjects:
   - actor_id:
     reason:
 actor_packets:
@@ -107,7 +107,7 @@ writer_brief:
 调用 `rp.actor` 时只注入：
 
 - `cast.yaml` 中该 actor 的 id、name、kind。
-- 该 actor 的 `actor.md`。
+- 该 actor 的 `subject.md`。
 - 该 actor 的 `knowledge.md`。
 - 该 actor 的 `mind.md`。
 - 该 actor 的 `state.md`。
@@ -115,8 +115,8 @@ writer_brief:
 
 调用 `rp.actor` 时不要注入：
 
-- 完整 `roleplay/`。
-- `gm.md`、`writer.md`。
+- 完整 `simulation/`。
+- `simulator.md`、`writer.md`。
 - 上帝视角 `lorebook/`、`reference/`。
 - 其他 actor 的 `knowledge.md`、私密意图或 response packet。
 

@@ -38,6 +38,7 @@ export const ProfileTemplateNodeTypeSchema = z.enum([
     "SkillCatalog",
     "ActivatedSkills",
     "SqlSchemaSummary",
+    "Import",
 ]);
 
 /**
