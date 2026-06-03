@@ -27,6 +27,12 @@ Examples:
     ...
     \`\`\`
 
+  或者这类纯 fenced block：
+
+    \`\`\`markdown
+    fix(scope): real message
+    \`\`\`
+
   改成 fenced code block 内的内容。`);
 }
 
@@ -88,6 +94,12 @@ function git(args, options = {}) {
 /** 从 fenced block 中提取真正的提交信息。 */
 function normalizeMessage(message) {
     const trimmed = message.trim();
+    const onlyFenceMatch = trimmed.match(/^(`{3,}|~{3,})[^\r\n]*\r?\n([\s\S]*?)\r?\n\s*\1\s*$/);
+    if (onlyFenceMatch) {
+        const inner = onlyFenceMatch[2].trim();
+        return inner ? `${inner}\n` : null;
+    }
+
     const fenceMatch = trimmed.match(/^(.+?)\r?\n\s*(`{3,}|~{3,})[^\r\n]*\r?\n([\s\S]*?)\r?\n\s*\2\s*$/);
     if (!fenceMatch) {
         return null;
