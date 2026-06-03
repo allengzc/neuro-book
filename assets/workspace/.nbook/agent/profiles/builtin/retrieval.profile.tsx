@@ -3,7 +3,7 @@
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {RetrievalInputSchema, RetrievalOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {AppendingSet, HistorySet, Message, ProfilePrompt, ProjectWorkspaceReminder, SkillCatalog, System, WorkdirReminder} from "nbook/server/agent/profiles/profile-dsl";
+import {AppendingSet, HistorySet, Message, ProfilePrompt, RuntimeLocationReminder, SkillCatalog, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
 export const profileManifest = {
@@ -33,8 +33,8 @@ export default defineAgentProfile({
                     <Message><SkillCatalog /></Message>
                 </HistorySet>
                 <AppendingSet>
-                    <WorkdirReminder />
-                    <ProjectWorkspaceReminder />
+                    <RuntimeLocationReminder />
+                    <WorkspaceFocusReminder />
                     <Message>{`Search prompt:\n${ctx.input.prompt}`}</Message>
                 </AppendingSet>
             </ProfilePrompt>

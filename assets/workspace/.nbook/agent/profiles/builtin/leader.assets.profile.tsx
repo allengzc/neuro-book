@@ -16,6 +16,7 @@ import {
     PlanModeReminder,
     ProfilePrompt,
     Reminder,
+    RuntimeLocationReminder,
     SkillCatalog,
     System,
 } from "nbook/server/agent/profiles/profile-dsl";
@@ -86,17 +87,12 @@ export default defineAgentProfile({
                     </Message>
                 </HistorySet>
                 <AppendingSet>
-                    <Reminder id="user-assets-workspace" watch={() => "user-assets"} repeatEveryTurns={20}>
+                    <RuntimeLocationReminder mode="userAssets" repeatEveryTurns={20} />
+                    <Reminder id="user-assets-scope" watch={() => readInputRole(ctx)} repeatEveryTurns={20}>
                         <Message>
                             {[
                                 "<system-reminder>",
-                                "Current Workdir: workspace/.nbook",
-                                "This is the tool cwd itself; use . for the cwd and do not prefix file paths with workspace/.nbook/.",
-                                "User assets workspace:",
-                                "- user-assets is Workspace Root .nbook, not a Project Workspace.",
-                                "- agent profiles/skills/writing-presets/variables should use agent/ under current user-assets cwd; repository path: workspace/.nbook/agent",
                                 typeof ctx.input.role === "string" && ctx.input.role.trim() ? `Role: ${ctx.input.role.trim()}` : "",
-                                "- Do not write novel lorebook, manuscript, plot data, chapter prose, world facts, or Project SQLite into user-assets.",
                                 "- When the user wants story content changed, ask them to switch back to the target Project Workspace.",
                                 "</system-reminder>",
                             ].filter(Boolean).join("\n")}
@@ -257,4 +253,8 @@ function renderUserAssetsSkillCatalogText(ctx: ProfilePrepareContext<Input>): st
         skillLines,
         "</system-reminder>",
     ].join("\n");
+}
+
+function readInputRole(ctx: ProfilePrepareContext<Input>): string {
+    return typeof ctx.input.role === "string" && ctx.input.role.trim() ? ctx.input.role.trim() : "user-assets";
 }

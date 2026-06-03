@@ -963,33 +963,82 @@ function LinkedAgentsReminder(props = {}) {
     children: Message({ children: LinkedAgentsReminderText() })
   });
 }
-function WorkdirReminder(props = {}) {
+function RuntimeLocationReminder(props = {}) {
   return Reminder({
-    id: props.id ?? "workdir",
-    watch: (ctx) => normalizeDisplayPath(ctx.session.workspaceRoot),
-    repeatEveryTurns: props.repeatEveryTurns,
-    render: (change) => Message({ children: systemReminder([
-      `Current Workdir: ${ensureTrailingSlash(String(change.currentValue ?? ""))}`,
-      "This is the tool cwd itself; use . for the cwd and do not prefix file paths with workspace/."
-    ].join("\n")) })
-  });
-}
-function ProjectWorkspaceReminder(props = {}) {
-  return Reminder({
-    id: props.id ?? "project-workspace",
-    watch: readCurrentProjectWorkspace,
+    id: props.id ?? "runtime-location",
+    watch: (ctx) => ({
+      toolCwd: normalizeDisplayPath(ctx.session.workspaceRoot),
+      sourceRoot: normalizeAbsoluteDisplayPath(process.cwd()),
+      referenceRoot: normalizeAbsoluteDisplayPath(resolve(process.cwd(), "reference")),
+      mode: props.mode ?? "workspace"
+    }),
     repeatEveryTurns: props.repeatEveryTurns,
     render: (change) => {
-      const projectWorkspace = typeof change.currentValue === "string" && change.currentValue ? change.currentValue : "";
-      if (!projectWorkspace) {
-        return null;
+      const location = readRuntimeLocationState(change.currentValue);
+      if (location.mode === "userAssets") {
+        return Message({ children: systemReminder([
+          "Runtime Location:",
+          `- Tool cwd: ${ensureTrailingSlash(location.toolCwd)}`,
+          `- This is the cwd itself. Use . for the cwd; do not prefix file paths with ${ensureTrailingSlash(location.toolCwd)}`,
+          `- Source root: ${location.sourceRoot}`,
+          `- Reference root: ${location.referenceRoot}`,
+          "- user-assets is Workspace Root .nbook, not a Project Workspace.",
+          "- Agent profiles, skills, writing presets, and variables live under agent/ in the current user-assets cwd.",
+          "- Do not write novel lorebook, manuscript, plot data, chapter prose, world facts, or Project SQLite into user-assets."
+        ].join("\n")) });
       }
-      const projectSlug = projectSlugFromWorkspace(projectWorkspace);
-      const body = change.hasPreviousValue && change.didChange ? `User switched Current Project Workspace to ${projectWorkspace}. Current Workdir is still workspace/; use ${projectSlug}/... paths, not workspace/${projectSlug}/... unless a tool explicitly asks for projectPath.` : [
-        `Current Project Workspace: ${projectWorkspace}`,
-        `Use ${projectSlug}/lorebook/... or ${projectSlug}/manuscript/... for project files.`
-      ].join("\n");
-      return Message({ children: systemReminder(body) });
+      return Message({ children: systemReminder([
+        "Runtime Location:",
+        `- Tool cwd: ${ensureTrailingSlash(location.toolCwd)}`,
+        `- This is the cwd itself. Use . for the cwd; do not prefix file paths with ${ensureTrailingSlash(location.toolCwd)}`,
+        `- Source root: ${location.sourceRoot}`,
+        `- Reference root: ${location.referenceRoot}`,
+        "- If a tool asks for cwd-relative workspace files, use paths under the tool cwd, for example project-slug/manuscript/...",
+        "- If a tool asks for projectPath, use workspace/project-slug."
+      ].join("\n")) });
+    }
+  });
+}
+function WorkspaceFocusReminder(props = {}) {
+  return Reminder({
+    id: props.id ?? "workspace-focus",
+    watch: readWorkspaceFocus,
+    repeatEveryTurns: props.repeatEveryTurns,
+    render: (change) => {
+      const focus = readWorkspaceFocusState(change.currentValue);
+      if (!focus.currentProjectWorkspace) {
+        return Message({ children: systemReminder("Current Workspace Focus:\n- Current Project Workspace: none\n- Current selected file: none") });
+      }
+      const projectSlug = projectSlugFromWorkspace(focus.currentProjectWorkspace);
+      const selectedFile = renderSelectedWorkspaceFile(projectSlug, focus.selectedFilePath);
+      if (change.hasPreviousValue && change.didChange) {
+        const previous = readWorkspaceFocusState(change.previousValue);
+        const projectChanged = previous.currentProjectWorkspace !== focus.currentProjectWorkspace;
+        const selectedChanged = previous.selectedFilePath !== focus.selectedFilePath;
+        if (projectChanged) {
+          return Message({ children: systemReminder([
+            `User switched Current Project Workspace to ${focus.currentProjectWorkspace}.`,
+            "Tool cwd is unchanged.",
+            `Use ${projectSlug}/lorebook/..., ${projectSlug}/manuscript/..., and ${projectSlug}/reference/... for project files.`,
+            `Do not use workspace/${projectSlug}/... unless a tool explicitly asks for projectPath.`,
+            `Current selected file: ${selectedFile}`
+          ].join("\n")) });
+        }
+        if (selectedChanged) {
+          return Message({ children: systemReminder([
+            `Current selected file changed to ${selectedFile}.`,
+            "Use this cwd-relative path directly in file tools."
+          ].join("\n")) });
+        }
+      }
+      return Message({ children: systemReminder([
+        "Current Workspace Focus:",
+        `- Current Project Workspace: ${focus.currentProjectWorkspace}`,
+        `- For project files in file tools and shell, use ${projectSlug}/lorebook/... or ${projectSlug}/manuscript/...`,
+        `- Current selected file: ${selectedFile}`,
+        `- project.yaml is at ${projectSlug}/project.yaml.`,
+        `- Do not use workspace/${projectSlug}/... unless a tool explicitly asks for projectPath.`
+      ].join("\n")) });
     }
   });
 }
@@ -1983,6 +2032,29 @@ async function readCurrentProjectWorkspace(ctx) {
   const projectWorkspace = typeof value === "string" && value.trim() ? value : ctx.session.projectPath ?? "";
   return projectWorkspace ? normalizeDisplayPath(projectWorkspace) : "";
 }
+async function readWorkspaceFocus(ctx) {
+  const selectedFilePath = await ctx.vars.get("client.studio.selectedFilePath");
+  return {
+    currentProjectWorkspace: await readCurrentProjectWorkspace(ctx),
+    selectedFilePath: typeof selectedFilePath === "string" && selectedFilePath.trim() ? normalizeDisplayPath(selectedFilePath) : null
+  };
+}
+function readRuntimeLocationState(value) {
+  const record = readRecord(value);
+  return {
+    toolCwd: typeof record.toolCwd === "string" && record.toolCwd.trim() ? record.toolCwd : "workspace",
+    sourceRoot: typeof record.sourceRoot === "string" && record.sourceRoot.trim() ? record.sourceRoot : normalizeAbsoluteDisplayPath(process.cwd()),
+    referenceRoot: typeof record.referenceRoot === "string" && record.referenceRoot.trim() ? record.referenceRoot : normalizeAbsoluteDisplayPath(resolve(process.cwd(), "reference")),
+    mode: typeof record.mode === "string" && record.mode.trim() ? record.mode : "workspace"
+  };
+}
+function readWorkspaceFocusState(value) {
+  const record = readRecord(value);
+  return {
+    currentProjectWorkspace: typeof record.currentProjectWorkspace === "string" ? record.currentProjectWorkspace : "",
+    selectedFilePath: typeof record.selectedFilePath === "string" && record.selectedFilePath.trim() ? record.selectedFilePath : null
+  };
+}
 function normalizeDisplayPath(value) {
   const normalized = value.replace(/\\/g, "/").replace(/\/+$/g, "");
   const relativeToRepo = relative2(process.cwd(), value).replace(/\\/g, "/");
@@ -1991,6 +2063,9 @@ function normalizeDisplayPath(value) {
   }
   return normalized;
 }
+function normalizeAbsoluteDisplayPath(value) {
+  return resolve(value).replace(/\\/g, "/").replace(/\/+$/g, "");
+}
 function ensureTrailingSlash(value) {
   const normalized = value.replace(/\\/g, "/").replace(/\/+$/g, "");
   return normalized ? `${normalized}/` : "";
@@ -1998,6 +2073,26 @@ function ensureTrailingSlash(value) {
 function projectSlugFromWorkspace(projectWorkspace) {
   const normalized = projectWorkspace.replace(/\\/g, "/").replace(/\/+$/g, "");
   return normalized.startsWith("workspace/") ? normalized.slice("workspace/".length) : normalized;
+}
+function renderSelectedWorkspaceFile(projectSlug, selectedFilePath) {
+  if (!selectedFilePath) {
+    return "none";
+  }
+  const normalized = selectedFilePath.replace(/\\/g, "/").replace(/^\/+/g, "").replace(/\/+$/g, "");
+  if (!projectSlug) {
+    return normalized;
+  }
+  if (normalized === projectSlug || normalized.startsWith(`${projectSlug}/`)) {
+    return normalized;
+  }
+  if (normalized.startsWith("workspace/")) {
+    const withoutWorkspace = normalized.slice("workspace/".length);
+    return withoutWorkspace === projectSlug || withoutWorkspace.startsWith(`${projectSlug}/`) ? withoutWorkspace : normalized;
+  }
+  if (/^(manuscript|lorebook|reference|upload|simulation|\.nbook)(\/|$)/.test(normalized)) {
+    return `${projectSlug}/${normalized}`;
+  }
+  return normalized;
 }
 function linkedAgentsSummaryText(session) {
   if (session.linkedAgents.length === 0) {
@@ -2604,8 +2699,8 @@ var components = {
   SystemReminder,
   LinkedAgentsSummary,
   LinkedAgentsReminder,
-  WorkdirReminder,
-  ProjectWorkspaceReminder,
+  RuntimeLocationReminder,
+  WorkspaceFocusReminder,
   PlanModeAvailabilityReminder,
   TaskReminder,
   PlanModeReminder,
@@ -2683,8 +2778,8 @@ var leader_rp_profile_default = defineAgentProfile({
       ] }),
       /* @__PURE__ */ jsx(ModelContext, { children: /* @__PURE__ */ jsx(Message, { children: renderRuntimeInput(ctx.input) }) }),
       /* @__PURE__ */ jsxs(AppendingSet, { children: [
-        /* @__PURE__ */ jsx(WorkdirReminder, {}),
-        /* @__PURE__ */ jsx(ProjectWorkspaceReminder, {}),
+        /* @__PURE__ */ jsx(RuntimeLocationReminder, {}),
+        /* @__PURE__ */ jsx(WorkspaceFocusReminder, {}),
         /* @__PURE__ */ jsx(LinkedAgentsReminder, {})
       ] })
     ] });

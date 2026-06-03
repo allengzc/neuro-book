@@ -1,48 +1,48 @@
 {
-  "generatedAt": "2026-06-02T15:34:56.455Z",
+  "generatedAt": "2026-06-03T02:10:10.213Z",
   "profilesRoot": "assets/workspace/.nbook/agent/profiles",
   "profiles": [
     {
       "fileName": "builtin/leader.assets.profile.tsx",
       "profileKey": "leader.assets",
-      "sha256": "146b0fecb12befafcd2b8c783a5e8f93f55adc940dda05900cb5804750f08872",
-      "bytes": 19383
+      "sha256": "f0c7fd7de3953ffe6bdef80b86fbca8f473628b59d5862a4d56546c8bafbe4e0",
+      "bytes": 18995
     },
     {
       "fileName": "builtin/leader.default.profile.tsx",
       "profileKey": "leader.default",
-      "sha256": "4e56da26ca69f57f78be330ce983d29cbdfbe6cc36b98a3540c912aedb8149c4",
-      "bytes": 9567
+      "sha256": "bb5030ef789bfb4cd2b5c8a5275464468c280fc517f3f20ec282cbb4aab67611",
+      "bytes": 9563
     },
     {
       "fileName": "builtin/leader.rp.profile.tsx",
       "profileKey": "leader.rp",
-      "sha256": "e9b6df084d962a734002ce7bf338d325229eb91f2b694525c0757397886e6684",
-      "bytes": 13988
+      "sha256": "282c12eb89e54859e90796d9f4144ad18866b3677b40e3d9022576d57aa84902",
+      "bytes": 14000
     },
     {
       "fileName": "builtin/researcher.profile.tsx",
       "profileKey": "researcher",
-      "sha256": "2443fbb756648b83cda47fabc2af7580fa5963e0e07f8d48f760bb32c3204ae3",
-      "bytes": 8941
+      "sha256": "41f58aca5d5573bd9813531c38fe34ccb0f07700e930fd6eb856354553fa7e27",
+      "bytes": 8953
     },
     {
       "fileName": "builtin/retrieval.profile.tsx",
       "profileKey": "retrieval",
-      "sha256": "55b8df64ed8f4d87eb9aca2f0d8a14eb4f1a22ce4f3ee359bf942e45eaf68ae4",
-      "bytes": 6105
+      "sha256": "18158486d7c270f37ef84571483948bfa162d90daf1a3e02fa0ce80abc3252fd",
+      "bytes": 6117
     },
     {
       "fileName": "builtin/rp.actor.profile.tsx",
       "profileKey": "rp.actor",
-      "sha256": "b6f4950d47e75a888ce0020b320aa16e66adda2c207ba70774f39a86beab780f",
-      "bytes": 17867
+      "sha256": "5aaa8fea6e3a8679ce753943c62c02649eba379095c0f5aa334ed43788e68477",
+      "bytes": 17883
     },
     {
       "fileName": "builtin/rp.writer.profile.tsx",
       "profileKey": "rp.writer",
-      "sha256": "1fcc93edd12744dc206498e26d7330492705b3999622991855bd6fc846f37060",
-      "bytes": 7205
+      "sha256": "c892d8c5cbdfe7bbe2cb72433f8031ffe72b99e3e67d3e32b0bdcdc414049cb8",
+      "bytes": 7221
     },
     {
       "fileName": "builtin/summarizer.profile.tsx",

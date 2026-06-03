@@ -252,10 +252,13 @@ describe("assets builtin v3 profiles", () => {
         expect(runtimeModelContextText).toContain("\"path\": \"client.studio.selectedFilePath\"");
         expect(runtimeModelContextText).not.toContain("\"ide\"");
         expect(runtimeModelContextText).not.toContain("<dynamic-context>");
-        expect(runtimeAppendingText).toContain("Current Workdir: workspace/");
-        expect(runtimeAppendingText).toContain("This is the tool cwd itself");
+        expect(runtimeAppendingText).toContain("Runtime Location:");
+        expect(runtimeAppendingText).toContain("- Tool cwd: workspace/");
+        expect(runtimeAppendingText).toContain("This is the cwd itself");
+        expect(runtimeAppendingText).toContain("Current Workspace Focus:");
         expect(runtimeAppendingText).toContain("Current Project Workspace: workspace/novel-7");
-        expect(runtimeAppendingText).toContain("Use novel-7/lorebook/... or novel-7/manuscript/...");
+        expect(runtimeAppendingText).toContain("use novel-7/lorebook/... or novel-7/manuscript/...");
+        expect(runtimeAppendingText).toContain("Current selected file: novel-7/manuscript/001-opening/index.md");
         expect(runtimeAppendingText).toContain("Plan mode is inactive");
         expect(runtimeAppendingText).not.toContain("Current plot focus:");
         const planModePrepared = await profile.prepare!({
@@ -486,9 +489,9 @@ describe("assets builtin v3 profiles", () => {
         expect(historyText).toContain("There is no separate skill tool");
         expect(historyText).toContain("read the SKILL.md file at the catalog location");
         expect(modelContextText).toBe("");
-        expect(appendingText).toContain("Current Workdir: workspace/.nbook");
-        expect(appendingText).toContain("This is the tool cwd itself");
-        expect(appendingText).toContain("User assets workspace");
+        expect(appendingText).toContain("Runtime Location:");
+        expect(appendingText).toContain("- Tool cwd: workspace/.nbook/");
+        expect(appendingText).toContain("This is the cwd itself");
         expect(appendingText).toContain("user-assets is Workspace Root .nbook");
         expect(appendingText).toContain("Do not write novel lorebook");
         expect(appendingText).toContain("Project SQLite");

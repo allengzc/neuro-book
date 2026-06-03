@@ -15,11 +15,11 @@ import {
     Message,
     ModelContext,
     ProfilePrompt,
-    ProjectWorkspaceReminder,
+    RuntimeLocationReminder,
     SkillCatalog,
     System,
     VariableSchema,
-    WorkdirReminder,
+    WorkspaceFocusReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 
 export const profileManifest = {
@@ -53,8 +53,8 @@ export default defineAgentProfile({
                     <VariableSchema paths={["client.currentProjectWorkspace"]} includeToolGuide />
                 </ModelContext>
                 <AppendingSet>
-                    <WorkdirReminder />
-                    <ProjectWorkspaceReminder />
+                    <RuntimeLocationReminder />
+                    <WorkspaceFocusReminder />
                 </AppendingSet>
             </ProfilePrompt>
         );
@@ -97,8 +97,8 @@ export default defineAgentProfile({
 
 ```tsx
 <AppendingSet>
-    <WorkdirReminder />
-    <ProjectWorkspaceReminder />
+    <RuntimeLocationReminder />
+    <WorkspaceFocusReminder />
     <PlanModeReminder />
 </AppendingSet>
 ```
