@@ -59,6 +59,7 @@ workspace/.nbook/config.json
 
 ## 常见下一步
 
+- 应用已经跑起来，想开始第一本书：读 [从第一本书到第一次 RP](/tutorials/)。
 - 想了解 Windows、Docker、local-git 的差异：读 [部署方式](/deployment)。
 - 想理解项目文件放在哪里：读 [Agent 项目指南](https://github.com/notnotype/neuro-book/blob/master/reference/agent/neurobook-project-guide.md)。
 - 想让 Agent 协助部署或排障：把 [交付与运维桥梁](https://github.com/notnotype/neuro-book/blob/master/docs/operator-bridge.md) 发给它。

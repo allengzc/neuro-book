@@ -5,6 +5,7 @@
 ## 目录分工
 
 - `docs/modules/`：模块说明、需求整理和面向开发者的参考资料。
+- `docs/tutorials/`：面向普通作者用户的产品教程和上手路径。
 - `docs/research/`：第三方库、外部资料和方案调研。
 - `docs/drafts/`：未定稿草案。
 - `docs/tasks/`：重大任务的持续 walkthrough；active task 使用 `{order}-{slug}`，已归档任务放入 `docs/tasks/archived/`。
@@ -14,6 +15,10 @@
 
 - [../PROJECT-STATUS.md](../PROJECT-STATUS.md)：仓库现状和近期任务。
 - [operator-bridge.md](operator-bridge.md)：交付与运维桥梁，面向用户和用户 Agent，说明部署、更新、排障和关键文档索引。
+- [tutorials/](tutorials/)：基础教程，从第一本书到第一次 RP。
+- [agent/](agent/)：站点内 Agent 心智模型、工具、Sidecar 和 Harness 导读。
+- [profile/](profile/)：站点内 profile 说明，覆盖 leader、writer 和其他内置 profile。
+- [profile-tsx/](profile-tsx/)：站点内 Profile TSX DSL 导读、节点说明和示例。
 - [../reference/README.md](../reference/README.md)：NeuroBook Reference Bookshelf。
 - [../reference/agent/README.md](../reference/agent/README.md)：Agent 稳定参考入口，处理 profile、prompt、工具协作和 Project Workspace 文件语义时优先阅读。
 - [../reference/content/README.md](../reference/content/README.md)：内容结构、lorebook / simulation、Markdown 扩展和 retrieval / inject 稳定参考入口。

@@ -7,14 +7,14 @@ hero:
   tagline: 把设定、正文、剧情结构和 Agent 协作放进同一个可控工作区。
   actions:
     - theme: brand
+      text: 开始第一本书
+      link: /tutorials/
+    - theme: alt
       text: 快速开始
       link: /quick-start
     - theme: alt
       text: 了解 NeuroBook
       link: /introduction
-    - theme: alt
-      text: 部署方式
-      link: /deployment
 
 features:
   - title: 文件化 Project Workspace
@@ -33,7 +33,9 @@ features:
 
 ## 从哪里开始
 
-如果你只是想先跑起来，先读 [快速开始](/quick-start)。如果你要部署到自己的机器或服务器，读 [部署方式](/deployment)。
+如果你已经完成部署，直接进入 [从第一本书到第一次 RP](/tutorials/)：它会带你创建项目、调用 Skill、写前三章、导入角色卡，并进入世界模拟。
+
+如果你还没有把应用跑起来，先读 [快速开始](/quick-start)。如果你要部署到自己的机器或服务器，读 [部署方式](/deployment)。
 
 如果你想理解 NeuroBook 的产品心智模型，读 [介绍](/introduction)。如果你要理解 Agent 如何工作，读 [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md)。
 
@@ -41,7 +43,11 @@ features:
 
 - [介绍](/introduction)：NeuroBook 是什么，适合谁，和普通 AI 聊天工具有什么区别。
 - [快速开始](/quick-start)：最短路径跑起应用并创建管理员。
+- [基础教程](/tutorials/)：从第一个项目到前三章、角色卡导入和世界模拟。
 - [部署方式](/deployment)：Windows Release Zip、local-git、ghcr、source 的选择和边界。
+- [Agent](/agent/)：Agent、session、profile、Skill 和 linked agent 的产品心智模型。
+- [Profile](/profile/)：内置 profile 分工、writer 边界和 RP profiles。
+- [Profile TSX](/profile-tsx/)：profile 作者使用的 TSX DSL、节点和示例。
 - [Agent Reference](https://github.com/notnotype/neuro-book/blob/master/reference/agent/README.md)：session、linked agent、tool、skill、sidecar、profile 和 TSX DSL 的稳定参考。
 - [Leader 协作协议](https://github.com/notnotype/neuro-book/blob/master/reference/agent/leader-default.md)：leader、writer、retrieval、researcher、RP profiles 的职责和调用边界。
 - [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-guide.md)：用 TSX 表达 prompt、上下文和运行期提醒。
