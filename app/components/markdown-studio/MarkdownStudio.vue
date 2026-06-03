@@ -18,6 +18,7 @@ const props = withDefaults(defineProps<{
     resolveMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     openReference?: (target: string) => void;
     resolveReference?: WorkspaceReferenceResolver;
+    enableQuickTriggers?: boolean;
 }>(), {
     readonly: false,
     theme: "sepia",
@@ -32,6 +33,7 @@ const props = withDefaults(defineProps<{
         sections: [],
     }),
     openReference: () => {},
+    enableQuickTriggers: false,
 });
 
 const sourceEditorRef = ref<MarkdownStudioEditorHandle | null>(null);
@@ -84,6 +86,7 @@ function handleSourceBlur(): void {
                     :resolve-menu="props.resolveMenu"
                     :open-reference="props.openReference"
                     :resolve-reference="props.resolveReference"
+                    :enable-quick-triggers="props.enableQuickTriggers"
                     @change="onPreviewChange"
                     @focus="controller.onPreviewFocus"
                     @blur="handlePreviewBlur"

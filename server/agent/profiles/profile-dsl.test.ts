@@ -6,9 +6,6 @@ import {
     AIMessage,
     AgentCatalog,
     AppendingSet,
-    Compaction,
-    CompactionPrompt,
-    CompactionSummaryPrefix,
     HistorySet,
     If,
     Import,
@@ -31,6 +28,7 @@ import {
     TaskReminder,
     ToolCall,
     ToolResult,
+    validateCompactionPlan,
     validateProfileTurnPlan,
     Watch,
     VariableSchema,
@@ -122,7 +120,7 @@ describe("profile TSX DSL", () => {
         expect((plan.appendingMessages ?? []).map(messageText)).toEqual(["append"]);
     });
 
-    it("编译 Compaction 顶层策略并校验非法落点", async () => {
+    it("使用 profile 顶层 compaction 配置", () => {
         const profile = defineAgentProfile({
             manifest: {
                 key: "test.compaction",
@@ -130,78 +128,44 @@ describe("profile TSX DSL", () => {
             },
             inputSchema: Type.Object({}),
             allowedToolKeys: [],
+            compaction: {
+                triggerPercent: 0.75,
+                keepRecentTokens: 12_000,
+                prompt: "compact prompt",
+                summaryPrefix: "summary prefix",
+            },
             context() {
                 return ProfilePrompt({
-                    children: [
-                        Compaction({
-                            triggerPercent: 0.75,
-                            keepRecentTokens: 12_000,
-                            children: [
-                                CompactionPrompt({children: "compact prompt"}),
-                                CompactionSummaryPrefix({children: "summary prefix"}),
-                            ],
-                        }),
-                    ],
+                    children: [],
                 });
             },
         });
 
-        const plan = await profile.prepare!(context());
-
-        expect(plan.compaction).toEqual({
-            enabled: undefined,
+        expect(profile.compaction).toEqual({
             triggerPercent: 0.75,
-            triggerTokens: undefined,
-            reserveTokens: undefined,
             keepRecentTokens: 12_000,
-            keepRecentPercent: undefined,
             prompt: "compact prompt",
             summaryPrefix: "summary prefix",
         });
-
-        const badPlacement = defineAgentProfile({
-            manifest: {
-                key: "test.bad-compaction-prompt",
-                name: "Bad Compaction Prompt",
-            },
-            inputSchema: Type.Object({}),
-            allowedToolKeys: [],
-            context() {
-                return ProfilePrompt({
-                    children: [
-                        AppendingSet({children: CompactionPrompt({children: "bad"})}),
-                    ],
-                });
-            },
-        });
-        await expect(badPlacement.prepare!(context())).rejects.toThrow("CompactionPrompt");
     });
 
     it("校验 Compaction 参数合同", async () => {
-        expect(() => validateProfileTurnPlan("test.dsl", {
-            compaction: {
-                triggerPercent: 0.8,
-                triggerTokens: 1000,
-            },
+        expect(() => validateCompactionPlan("test.dsl", {
+            triggerPercent: 0.8,
+            triggerTokens: 1000,
         })).toThrow("triggerPercent");
 
-        expect(() => validateProfileTurnPlan("test.dsl", {
-            compaction: {
-                keepRecentPercent: 0.5,
-                keepRecentTokens: 1000,
-            },
+        expect(() => validateCompactionPlan("test.dsl", {
+            keepRecentPercent: 0.5,
+            keepRecentTokens: 1000,
         })).toThrow("keepRecentPercent");
 
-        expect(() => validateProfileTurnPlan("test.dsl", {
-            compaction: {
-                triggerPercent: 1.2,
-            },
+        expect(() => validateCompactionPlan("test.dsl", {
+            triggerPercent: 1.2,
         })).toThrow("(0, 1]");
 
-        expect(() => validateProfileTurnPlan("test.dsl", {
-            compaction: {
-                keepRecentTokens: 0,
-            },
+        expect(() => validateCompactionPlan("test.dsl", {
+            keepRecentTokens: 0,
         })).toThrow("正整数");
     });
 

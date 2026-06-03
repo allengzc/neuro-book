@@ -596,7 +596,7 @@ type ProfileIngestResult = {
   - cut point 尽量落在 turn 边界，避免把 tool result 和 tool call 拆开；超长单 turn 会走 split-turn summary。
 - NeuroAgentHarness 应借鉴 Pi compaction：使用 append-only `compaction` entry，保留完整 session tree，通过 context reducer 决定 provider 看到 summary + recent messages。compact 只影响后续 provider context，不删除旧 entries。
 - Pi 的“保留最近几条消息”不是按固定条数做，而是通过 `keepRecentTokens` 按 token 预算从最新消息向前保留 recent context；同时会找合法 cut point，避免截断 tool result。NeuroAgentHarness 当前已开放 profile compaction policy，但底层仍必须尊重 tool-call/result 完整性。
-- compaction summary 的默认提示词由 harness 固定提供；profile 可以通过顶层 `<Compaction>` 的 `<CompactionPrompt>` 覆盖。默认压缩提示词为：
+- compaction summary 的默认提示词由 harness 固定提供；profile 可以通过顶层 `compaction.prompt` 覆盖。默认压缩提示词为：
 
 ```text
 You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.
@@ -610,13 +610,13 @@ Include:
 Be concise, structured, and focused on helping the next LLM seamlessly continue the work.
 ```
 
-- compact 后注入后续 context 的摘要前缀默认固定；profile 可以通过 `<CompactionSummaryPrefix>` 覆盖。默认摘要前缀为：
+- compact 后注入后续 context 的摘要前缀默认固定；profile 可以通过顶层 `compaction.summaryPrefix` 覆盖。默认摘要前缀为：
 
 ```text
 Another language model started to solve this problem and produced a summary of its thinking process. You also have access to the state of the tools that were used by that language model. Use this to build on the work that has already been done and avoid duplicating work. Here is the summary produced by the other language model, use the information in this summary to assist with your own analysis:
 ```
 
-- harness 负责 cut point、token budget、entry 写入和 tool-call/result 完整性。profile 只提供 compaction policy：`enabled`、`triggerPercent` 或 `triggerTokens`、`reserveTokens`、`keepRecentTokens` 或 `keepRecentPercent`、`prompt`、`summaryPrefix`。自动 compact 和手动 `/compact` 共用同一套 profile policy；没有 profile 配置时沿用默认 prompt、默认 prefix、`contextWindow - reserveTokens` 触发和 `keepRecentTokens=24000`。
+- harness 负责 cut point、token budget、entry 写入和 tool-call/result 完整性。profile 通过 `defineAgentProfile({ compaction })` 顶层静态配置显式提供 compaction policy：`enabled`、`triggerPercent` 或 `triggerTokens`、`reserveTokens`、`keepRecentTokens` 或 `keepRecentPercent`、`prompt`、`summaryPrefix`。自动 compact 和手动 `/compact` 共用同一套 profile policy；没有 `compaction` 配置时不压缩，手动 `/compact` 报错，自动路径只在上下文超过模型窗口时返回明确错误。默认 prompt、默认 prefix、`reserveTokens=8000`、`keepRecentTokens=24000` 只作为显式 `compaction` 省略字段时的默认值。自动 compact 成功后，下一轮前会重新注入一次 `HistorySet` 初始化消息。
 
 ## Frontend Session API Contract
 

@@ -95,7 +95,6 @@ export type ProfileTurnPlan = {
     modelContextAppendingMessages?: Message[];
     modelContextMessages?: AgentMessage[];
     stateWrites?: SessionEntryDraft[];
-    compaction?: ProfileCompactionPlan;
 };
 
 export type ProfileCompactionPlan = {
@@ -176,6 +175,7 @@ export type AgentProfile<
     allowedToolKeys: readonly string[];
     sidecars?: readonly SidecarProfilePass<Static<TInputSchema>, JsonValue>[];
     summarizer?: AgentProfileSummarizerConfig<TSummarizerKey>;
+    compaction?: ProfileCompactionPlan;
     runtime?: AgentRuntimeDefinition<Static<TInputSchema>> | NormalizedAgentRuntimeDefinition<Static<TInputSchema>>;
     /** profile 自带的 session.* 变量定义，随 profile `.compiled` artifact 加载。 */
     variableDefinitions?: readonly VariableDefinition[];

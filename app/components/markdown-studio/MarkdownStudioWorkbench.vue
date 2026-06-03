@@ -30,6 +30,7 @@ const props = withDefaults(defineProps<{
     resolveMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     openReference?: (target: string) => void;
     resolveReference?: WorkspaceReferenceResolver;
+    enableQuickTriggers?: boolean;
 }>(), {
     activeTabRows: 3,
     referenceRefreshKey: "",
@@ -39,6 +40,7 @@ const props = withDefaults(defineProps<{
         sections: [],
     }),
     openReference: () => {},
+    enableQuickTriggers: false,
 });
 
 const emit = defineEmits<{
@@ -106,6 +108,7 @@ watch(() => props.activePath, () => {
                         :resolve-menu="props.resolveMenu"
                         :open-reference="props.openReference"
                         :resolve-reference="props.resolveReference"
+                        :enable-quick-triggers="props.enableQuickTriggers"
                         @save-request="emit('save-request')"
                         @open-frontmatter-profile="emit('open-frontmatter-profile', $event)"
                         @update-monaco-temporary-font-size="emit('update-monaco-temporary-font-size', $event)"

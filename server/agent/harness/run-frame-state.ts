@@ -14,6 +14,7 @@ export type CreateRunFrameInput = {
     timeoutMs?: RunFrame["timeoutMs"];
     requestOptions?: RunFrame["requestOptions"];
     compaction?: RunFrame["compaction"];
+    sessionContextEnabled: RunFrame["sessionContextEnabled"];
     toolKeys: RunFrame["toolKeys"];
     executionToolKeys?: RunFrame["executionToolKeys"];
     profileKey: RunFrame["profileKey"];
@@ -46,6 +47,7 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         timeoutMs: input.timeoutMs,
         requestOptions: input.requestOptions,
         compaction: input.compaction,
+        sessionContextEnabled: input.sessionContextEnabled,
         toolKeys: input.toolKeys,
         executionToolKeys: input.executionToolKeys,
         profileKey: input.profileKey,
@@ -56,7 +58,6 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         turnIndex: 0,
         reportResultReminderSent: false,
         reportResultReminderEnabled: input.reportResultReminderEnabled,
-        automaticCompactionEnabled: false,
         forceRuntimeOnlyTranscript: input.forceRuntimeOnlyTranscript,
         suppressEvents: input.suppressEvents,
         disableSteer: input.disableSteer,

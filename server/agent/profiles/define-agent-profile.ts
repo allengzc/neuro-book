@@ -1,6 +1,6 @@
 import type {TSchema} from "typebox";
 import type {AgentProfile, AgentProfileManifest} from "nbook/server/agent/profiles/types";
-import {compileProfileContext, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
+import {compileProfileContext, validateCompactionPlan, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
 
 /**
@@ -13,6 +13,7 @@ export function defineAgentProfile<
 >(profile: AgentProfile<TInputSchema, TOutputSchema, TSummarizerKey>): AgentProfile<TInputSchema, TOutputSchema, TSummarizerKey> {
     assertProfileManifest(profile.manifest);
     assertProfileSummarizer(profile.manifest.key, profile.summarizer);
+    validateCompactionPlan(profile.manifest.key, profile.compaction);
     assertProfileSidecars(profile.manifest.key, profile.allowedToolKeys, profile.sidecars);
     if (profile.context && profile.prepare) {
         throw new Error(`profile ${profile.manifest.key} 不能同时定义 context 和 prepare。`);

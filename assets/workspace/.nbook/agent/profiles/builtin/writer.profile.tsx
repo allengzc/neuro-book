@@ -30,6 +30,7 @@ export type Input = Static<typeof InputSchema>;
 export type Output = Static<typeof OutputSchema>;
 
 const allowedToolKeys = ["read", "write", "edit", "apply_patch", "report_result"] as const;
+const DEFAULT_COMPACTION_KEEP_RECENT_TOKENS = 24_000;
 const WriterFrontmatterSchema = z.record(z.string(), z.unknown());
 const WRITER_INDEX_FRONTMATTER_KEYS = ["title", "type", "status", "summary", "aliases", "tags", "refs"] as const;
 const WRITER_STATE_FRONTMATTER_KEYS = ["statusNote", "updatedAt", "knowledge"] as const;
@@ -47,6 +48,10 @@ export default defineAgentProfile({
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
     allowedToolKeys,
+    compaction: {
+        reserveTokens: 25_600,
+        keepRecentTokens: DEFAULT_COMPACTION_KEEP_RECENT_TOKENS,
+    },
     async context(ctx) {
         return buildWriterPrompt(ctx);
     },

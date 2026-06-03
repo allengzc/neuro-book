@@ -63,7 +63,7 @@
 - RP 相关能力先拆成至少三个 skill：
   - `RP模式`：介绍本系统如何运行 RP、如何进入轻量 RP、如何理解 `leader.rp` / GM / actor / writer 分工、如何引用 RP 文档和导入流程。
   - `RP目录初始化`：已废弃并删除；simulation 目录进入默认 Project 模板。
-  - `SillyTavern角色卡导入`：提取或读取角色卡原始 JSON，生成检查报告，并把稳定文本设定导入当前 workspace 的写作资产；RP 动态机制优先归档到 `reference/`，后续再转写为 `simulation/` 编排文件。
+  - `novel-import-silly-tavern-card`：提取或读取角色卡原始 JSON，生成检查报告，并把稳定文本设定导入当前 workspace 的写作资产；旧 `SillyTavern角色卡导入` 作为兼容入口保留；RP 动态机制优先归档到 `reference/`，后续再转写为 `simulation/` 编排文件。
 - 角色卡导入分两层：
   - 基础写作层：默认执行，把可稳定复用的角色、地点、势力、规则、世界观、事件背景等导入 `lorebook/` 和 `reference/`。
   - RP 扩展层：可选执行，在基础写作层之上创建或更新 `simulation/`，保存 GM 口径、角色映射、actor 指令、writer 规则、变量草案、MVU 更新规则和状态栏/UI 迁移说明。
@@ -142,7 +142,9 @@ reference/silly-tavern/{card-slug}/
 lorebook/character/...
 lorebook/location/...
 lorebook/faction/...
-lorebook/rule/...
+lorebook/world/rule/...
+lorebook/system/...
+lorebook/event/...
 lorebook/note/...
 simulation/cast.yaml
 simulation/simulator.md
@@ -164,7 +166,7 @@ inspect -> unpack -> import
 
   - `inspect`：只读取输入并在 stdout 输出 overview 给 AI 临时查看，不写入 Project Workspace。
   - `unpack`：识别 PNG 角色卡、JSON 角色卡或预设 JSON，保存原始素材、inspect JSON、overview、worldbook entries、regex scripts、tavern_helper scripts / variables 和 unpack report；worldbook 按 `insertion_order` 排序，文件名前缀使用 6 位补零的 `insertion_order`，逐条保存为 frontmatter + 正文 Markdown，并在 `st` 下保留除 `content` 外的原始字段，包括 `insertion_order`、`extensions` 和触发/排序字段；regex、tavern_helper scripts、tavern_helper variables 同时保留聚合 JSON 和逐条 JSON。
-  - `import`：从解包目录读取 `raw/card.json` 和 `inspect.json`，按 `insertion_order` 和确定性分类规则把稳定 worldbook entry 写入 Project Workspace 的普通 `lorebook/character`、`lorebook/location`、`lorebook/faction`、`lorebook/rule`、`lorebook/item` 或 `lorebook/note` 文件；目录名前缀使用 6 位补零的 `insertion_order`，并在 `ext.sillyTavernWorldbook` 下保留原始 worldbook 元数据和本次 classification；动态 MVU / prompt 条目只归档和报告，不进入稳定 lorebook；可选 `--rp` 额外在解包目录下生成 `reference/silly-tavern/{card-slug}/simulation-migration/` 动态机制迁移参考。
+  - `import`：从解包目录读取 `raw/card.json` 和 `inspect.json`，按 `insertion_order` 和确定性分类规则把稳定 worldbook entry 写入 Project Workspace 的普通 `lorebook/character`、`lorebook/location`、`lorebook/faction`、`lorebook/world/rule`、`lorebook/system`、`lorebook/item`、`lorebook/event` 或 `lorebook/note` 文件；目录名前缀使用 6 位补零的 `insertion_order`，并在 `ext.sillyTavernWorldbook` 下保留原始 worldbook 元数据和本次 classification；动态 MVU / prompt 条目只归档和报告，不进入稳定 lorebook；混合职责条目不自动拆分，低置信稳定设定进入 pending note；可选 `--rp` 额外在解包目录下生成 `reference/silly-tavern/{card-slug}/simulation-migration/` 动态机制迁移参考。
 
 - 迁移脚本应按长期工具设计，模块边界暂定为：
 
@@ -188,7 +190,7 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 
 ## Implemented V1
 
-- 已新增系统 skill：`assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/SKILL.md`。
+- 已新增系统 skill：`assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/SKILL.md`；旧 `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/SKILL.md` 作为兼容入口保留。
 - 已新增系统 skill：`assets/workspace/.nbook/agent/skills/RP模式/SKILL.md`，作为用户进入 `leader.rp` / GM Tick 流程的可发现入口。
 - `RP目录初始化` skill 已废弃并删除；`simulation/` 随默认 Project 模板创建。
 - 已新增配套 CLI：`assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`。
@@ -199,8 +201,8 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 - CLI 当前支持：
   - `inspect <input>`：读取 `.json`、`.raw.json` 或 best-effort PNG 文本块，只在 stdout 输出临时 overview，不生成文件。
   - `unpack <input> --project <path>`：生成 `reference/silly-tavern/{slug}/` 解包目录，包含 raw、overview、inspect、worldbook、regex、tavern_helper 和 unpack report；worldbook 会逐条拆成 frontmatter + 正文 Markdown，regex/scripts/variables 会逐条拆成独立 JSON。
-  - `import <unpackDir> --project <path>`：从解包目录读取数据，把稳定 worldbook entries 按 deterministic 分类写入 `lorebook/character`、`lorebook/location`、`lorebook/faction`、`lorebook/rule`、`lorebook/item` 或 `lorebook/note`，并在解包目录生成带 `Import Mapping`、`Skipped Dynamic Content` 和 `Needs Review` 的 `import-report.md`。
-  - `import <unpackDir> ... --rp`：额外生成 `reference/silly-tavern/{slug}/simulation-migration/dynamic-prompt.md`、`initvar.md`、`update-rules.md`、`status-ui.md`、`scripts.md`，作为后续转写到 `simulation/simulator.md`、`simulation/writer.md`、subject 文件或 simulation mechanics 的迁移参考。
+  - `import <unpackDir> --project <path>`：从解包目录读取数据，把稳定 worldbook entries 按 deterministic 分类写入 `lorebook/character`、`lorebook/location`、`lorebook/faction`、`lorebook/world/rule`、`lorebook/system`、`lorebook/item`、`lorebook/event` 或 `lorebook/note`，并在解包目录生成带 `Import Mapping`、`Skipped Dynamic Content`、`Classification Review Queue`、`Pending Lorebook Notes` 和 `Recommended Next Steps` 的 `import-report.md`。
+  - `import <unpackDir> ... --rp`：额外生成 `reference/silly-tavern/{slug}/simulation-migration/README.md`、`simulator-candidates.md`、`writer-candidates.md`、`subject-candidates.md`、`entity-candidates.md`、`unsupported-runtime.md`，作为后续转写到 `simulation/simulator.md`、`simulation/writer.md`、subject 文件或 simulation mechanics 的迁移参考；不会创建 `simulation/subjects`、`simulation/entities` 或 `simulation/runs`。
   - preset-like JSON 只归档和报告，不作为角色主体写入 lorebook。
   - `--project` 必须指向包含 `project.yaml` 的 Project Workspace，避免和 Workspace Root / `.nbook` 混淆。
   - `import` 会拒绝 unknown 解包目录；`inspect` / `unpack` 仍允许 unknown，用于查看和保存原始结构。
@@ -208,7 +210,7 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 - 已实现 SillyTavern worldbook V2 映射：
   - 分类类别：`character`、`location`、`faction`、`rule`、`item`、`event`、`system`、`formatting`、`dynamic-mvu`、`dynamic-prompt`、`unknown`。
   - 动态类别优先级最高；命中 InitVar、UpdateVariable、json patch、EJS、`@INJECT`、`@@if`、`GENERATE`、`RENDER` 等 marker 时跳过稳定 lorebook 导入。
-  - `event`、`formatting`、`unknown` 暂时保守进入 `lorebook/note`；`system` 暂时进入 `lorebook/rule`；unknown 会在 report 中列为 needs review。
+  - `rule` 进入 `lorebook/world/rule`；`system` 进入 `lorebook/system`；`event` 进入 `lorebook/event`；`unknown`、混合职责条目和格式风险条目进入 `lorebook/note` pending，并在 report 中列为 classification review。
   - `inspect --json` 和 `import --json` 都输出 `mappingSummary`，便于后续 Agent 或脚本继续优化分类规则。
 - 已新增测试：`server/agent/skills/silly-tavern-card-cli.test.ts`，覆盖三张样本 raw 卡、预设识别、动态 marker 统计、Windows 路径 slug、Project Workspace 校验、inspect 不写文件、unpack 目录结构、集中 `generated.json`、import 从解包目录读取和用户手改保护。
 
@@ -274,7 +276,8 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 - `server/agent/profiles/rp-profiles.test.ts`：新增 RP profile 合同、工具边界和自动注入测试。
 - `assets/workspace/.nbook/agent/skills/RP模式/SKILL.md`：新增 RP 模式入口 skill。
 - `assets/workspace/.nbook/agent/skills/RP目录初始化/SKILL.md`：已删除，simulation 进入默认 Project 模板。
-- `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/SKILL.md`：新增角色卡导入 skill 入口说明。
+- `assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/SKILL.md`：新增权威英文角色卡导入 skill 入口说明。
+- `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/SKILL.md`：保留为旧中文兼容入口。
 - `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`：新增 inspect/unpack/import CLI。
 - `server/agent/skills/silly-tavern-card-cli.test.ts`：新增 CLI helper 与 catalog 可发现性测试。
 - `.agent/workspace/cards/*/*.raw.json`：从三张 PNG 样本卡提取原始内嵌 JSON，供后续分析使用。

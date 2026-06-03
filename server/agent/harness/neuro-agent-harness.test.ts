@@ -13,7 +13,7 @@ import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profi
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import rpActorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/rp.actor.profile";
 import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
-import {Message, ModelContext, ProfilePrompt, Reminder, System} from "nbook/server/agent/profiles/profile-dsl";
+import {HistorySet, Message, ModelContext, ProfilePrompt, Reminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {AgentMessage, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
 import {AGENT_PLAN_MODE_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import {defineSessionVariable} from "nbook/server/agent/variables/registry";
@@ -1169,13 +1169,16 @@ describe("NeuroAgentHarness", () => {
             },
             inputSchema: Type.Object({}),
             allowedToolKeys: ["force_continue"],
-            prepare() {
-                return {
-                    compaction: {
-                        triggerTokens: 1,
-                        keepRecentTokens: 1,
-                    },
-                };
+            compaction: {
+                triggerTokens: 1,
+                keepRecentTokens: 1,
+            },
+            context() {
+                return ProfilePrompt({
+                    children: [
+                        HistorySet({children: Message({children: "HISTORY AFTER AUTO COMPACT"})}),
+                    ],
+                });
             },
         }), false);
         faux.setResponses([
@@ -1208,11 +1211,12 @@ describe("NeuroAgentHarness", () => {
         expect(result.status).toBe("completed");
         expect(providerPrompts[0]).toContain("OLD CONTEXT");
         expect(providerPrompts[1]).toContain("COMPACT SUMMARY");
+        expect(providerPrompts[1]).toContain("HISTORY AFTER AUTO COMPACT");
         expect(providerPrompts[1]).not.toContain("OLD CONTEXT");
         expect(context.messages[0] && messageText(context.messages[0] as never)).toContain("COMPACT SUMMARY");
     });
 
-    it("自定义 runtime 不组合 compact built-in 时不会自动 compaction", async () => {
+    it("自定义 runtime 有 profile compaction 配置时仍会自动 compaction", async () => {
         const providerPrompts: string[] = [];
         harness.tools.register({
             key: "force_continue_no_compact",
@@ -1235,6 +1239,10 @@ describe("NeuroAgentHarness", () => {
             },
             inputSchema: Type.Object({}),
             allowedToolKeys: ["force_continue_no_compact"],
+            compaction: {
+                triggerTokens: 1,
+                keepRecentTokens: 1,
+            },
             runtime: defineAgentRuntime({
                 hooks: [
                     {
@@ -1248,13 +1256,14 @@ describe("NeuroAgentHarness", () => {
                     },
                 ],
             }),
-            prepare() {
-                return {
-                    compaction: {
-                        triggerTokens: 1,
-                        keepRecentTokens: 1,
-                    },
-                };
+            context() {
+                return (
+                    ProfilePrompt({
+                        children: [
+                            HistorySet({children: Message({children: "HISTORY AFTER COMPACT"})}),
+                        ],
+                    })
+                );
             },
         }), false);
         faux.setResponses([
@@ -1264,9 +1273,10 @@ describe("NeuroAgentHarness", () => {
                     fauxToolCall("force_continue_no_compact", {}, {id: "force-continue-no-compact-1"}),
                 ], {stopReason: "toolUse"});
             },
+            fauxAssistantMessage(fauxText("CUSTOM RUNTIME SUMMARY")),
             (context) => {
                 providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
-                return fauxAssistantMessage("done without compact");
+                return fauxAssistantMessage("done with compact");
             },
         ]);
         const created = await harness.createAgent({
@@ -1285,9 +1295,50 @@ describe("NeuroAgentHarness", () => {
 
         expect(result.status).toBe("completed");
         expect(providerPrompts).toHaveLength(2);
-        expect(providerPrompts[1]).toContain("OLD CONTEXT");
-        expect(snapshot.entries.some((entry) => entry.type === "compaction")).toBe(false);
+        expect(providerPrompts[1]).toContain("CUSTOM RUNTIME SUMMARY");
+        expect(providerPrompts[1]).not.toContain("HISTORY AFTER COMPACT");
+        expect(providerPrompts[1]).not.toContain("OLD CONTEXT");
+        expect(snapshot.entries.some((entry) => entry.type === "compaction")).toBe(true);
+        expect(snapshot.entries.filter((entry) => entry.type === "custom_message" && messageText(entry.message as RuntimeMessage).includes("HISTORY AFTER COMPACT"))).toHaveLength(0);
         expect(faux.getPendingResponseCount()).toBe(0);
+    });
+
+    it("没有 compaction 配置且上下文超出模型窗口时 run 失败", async () => {
+        const smallWindowHarness = new NeuroAgentHarness({
+            repo: harness.repo,
+            modelResolver: () => ({
+                ...faux.getModel(),
+                contextWindow: 1,
+            }),
+            enableSessionSummarizer: false,
+        });
+        harness = smallWindowHarness;
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.no-compaction-overflow",
+                name: "No Compaction Overflow",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        const created = await harness.createAgent({
+            profileKey: "test.no-compaction-overflow",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "this will exceed the tiny window"},
+        });
+
+        expect(result.status).toBe("error");
+        expect(result.errorInfo?.message).toContain("未声明 compaction 配置");
+        expect(result.errorInfo?.message).toContain("超过模型");
     });
 
     it("profile reasoningEffort 会传给支持 reasoning 的模型", async () => {
@@ -2073,7 +2124,7 @@ describe("NeuroAgentHarness", () => {
         });
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
 
-        expect(result.status).toBe("completed");
+        expect(result).toEqual(expect.objectContaining({status: "completed"}));
         expect(result.reportResult).toEqual({result: "main"});
         expect(providerPrompts[0]).toContain("sidecar: actor.context-load");
         expect(providerPrompts[1]).toContain("ACTOR_SAFE_CONTEXT:SAFE_LORE");
@@ -2177,6 +2228,7 @@ describe("NeuroAgentHarness", () => {
         await mkdir(actorRoot, {recursive: true});
         await mkdir(join(root, projectSlug, "lorebook", "world"), {recursive: true});
         await writeFile(join(actorRoot, "subject.md"), "保持礼貌但警惕，遇到未知物品会先询问来源。", "utf-8");
+        await writeFile(join(actorRoot, "events.md"), "她刚抵达学院区广场。\n", "utf-8");
         await writeFile(join(actorRoot, "knowledge.md"), "## 世界观\n\n### 已知物品\n\n她不知道世界之心的真名。\n", "utf-8");
         await writeFile(join(actorRoot, "mind.md"), "她正在判断主角的用意。\n", "utf-8");
         await writeFile(join(actorRoot, "state.md"), "她位于学院区广场边缘，状态正常。\n", "utf-8");
@@ -2227,6 +2279,7 @@ describe("NeuroAgentHarness", () => {
                             emotional_state: "警惕且好奇。",
                             assumptions: ["这块石头不像普通矿物。"],
                             questions_to_gm: [],
+                            event_update: "主角把一块疑似被称为世界之心的五彩石交给了她。",
                             knowledge_update: "主角把一块疑似被称为世界之心的五彩石交给了她。",
                             mind_update: "她开始怀疑主角知道更多内情，但暂时不追问过深。",
                             state_update: "她暂时持有这块五彩石。",
@@ -2265,6 +2318,7 @@ describe("NeuroAgentHarness", () => {
                             `${projectSlug}/simulation/subjects/heroine/knowledge.md`,
                             `${projectSlug}/simulation/subjects/heroine/mind.md`,
                         ],
+                        events_summary: "记录主角交给她疑似世界之心的五彩石。",
                         knowledge_summary: "记录主角交给她疑似世界之心的五彩石。",
                         mind_summary: "记录她对主角隐瞒信息的怀疑。",
                         skipped: ["state_update 交给 GM / 后续状态系统处理。"],
@@ -2280,6 +2334,7 @@ describe("NeuroAgentHarness", () => {
                 actorName: "绘璃奈",
                 kind: "npc",
                 instructionPath: `${projectSlug}/simulation/subjects/heroine/subject.md`,
+                eventsPath: `${projectSlug}/simulation/subjects/heroine/events.md`,
                 knowledgePath: `${projectSlug}/simulation/subjects/heroine/knowledge.md`,
                 mindPath: `${projectSlug}/simulation/subjects/heroine/mind.md`,
                 statePath: `${projectSlug}/simulation/subjects/heroine/state.md`,
@@ -3956,6 +4011,84 @@ describe("NeuroAgentHarness", () => {
         expect(context.messages.map((message) => messageText(message as never))).toEqual(["PROMPT", "PROMPT"]);
     });
 
+    it("自定义 runtime 不组合 sessionContext built-in 时 compact 后不重新注入 HistorySet", async () => {
+        const providerPrompts: string[] = [];
+        harness.tools.register({
+            key: "force_continue_without_session_context",
+            name: "force_continue_without_session_context",
+            label: "Force Continue Without Session Context",
+            description: "Forces another turn.",
+            parameters: Type.Object({}),
+            async execute() {
+                return {
+                    content: [{type: "text", text: "continue"}],
+                    details: {},
+                    terminate: false,
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.no-session-context-compact",
+                name: "No Session Context Compact",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["force_continue_without_session_context"],
+            compaction: {
+                triggerTokens: 1,
+                keepRecentTokens: 1,
+            },
+            runtime: defineAgentRuntime({
+                hooks: [
+                    {
+                        name: "persist",
+                        stage: "ingestTurn",
+                        run() {
+                            return {
+                                transcript: "persist",
+                            };
+                        },
+                    },
+                ],
+            }),
+            prepare() {
+                return {
+                    historyInitMessages: [createUserMessage({text: "HISTORY_INIT"})],
+                };
+            },
+        }), false);
+        faux.setResponses([
+            (context) => {
+                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
+                return fauxAssistantMessage([
+                    fauxToolCall("force_continue_without_session_context", {}, {id: "force-continue-without-session-context-1"}),
+                ], {stopReason: "toolUse"});
+            },
+            fauxAssistantMessage(fauxText("COMPACT SUMMARY")),
+            (context) => {
+                providerPrompts.push(context.messages.map((message) => messageText(message as RuntimeMessage)).join("\n"));
+                return fauxAssistantMessage("done");
+            },
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.no-session-context-compact",
+            input: {},
+            workspaceRoot: root,
+        });
+        await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "OLD CONTEXT"}));
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+
+        expect(result.status).toBe("completed");
+        expect(providerPrompts).toHaveLength(2);
+        expect(providerPrompts[1]).toContain("COMPACT SUMMARY");
+        expect(providerPrompts[1]).not.toContain("HISTORY_INIT");
+    });
+
     it("自定义 runtime 不组合 profilePrompt built-in 时不注入 prepare systemPrompt", async () => {
         const observedSystemPrompts: string[] = [];
         harness.profiles.register(defineAgentProfile({
@@ -5496,15 +5629,17 @@ describe("NeuroAgentHarness", () => {
         await waitFor(async () => {
             const snapshot = await harness.getSessionSnapshot(created.sessionId);
             const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-            expect(context.messages[0] && messageText(context.messages[0] as never)).toContain("COMPACTED");
+            expect(snapshot.entries).toContainEqual(expect.objectContaining({
+                type: "compaction",
+                summary: expect.stringContaining("COMPACTED"),
+            }));
             expect(snapshot.activeInvocation).toBeNull();
         });
 
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
 
         expect(result.status).toBe("started");
-        expect(context.messages.map((message) => message.role)).toEqual(["user", "user"]);
-        expect(context.messages[0] && messageText(context.messages[0] as never)).toContain("COMPACTED");
+        expect(context.messages.some((message) => messageText(message as never).includes("COMPACTED"))).toBe(true);
         expect(context.messages.every((message) => !messageText(message as never).includes("/compact"))).toBe(true);
     });
 
@@ -5530,6 +5665,46 @@ describe("NeuroAgentHarness", () => {
                     phase: "compaction",
                 }),
             }));
+            expect(dto.activeInvocation).toBeNull();
+        });
+
+        expect(result.status).toBe("started");
+    });
+
+    it("没有 compaction 配置的 profile 执行 compact command 会写 lifecycle error", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.manual-compact-without-policy",
+                name: "Manual Compact Without Policy",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        const created = await harness.createAgent({
+            profileKey: "test.manual-compact-without-policy",
+            input: {},
+            workspaceRoot: root,
+        });
+        await harness.repo.appendMessage(created.sessionId, createUserMessage({text: "old context"}));
+
+        const result = await harness.runCommand(created.sessionId, {
+            command: "compact",
+        });
+        await waitFor(async () => {
+            const dto = await harness.getSessionSnapshot(created.sessionId);
+            const snapshot = await harness.repo.readSession(created.sessionId);
+            expect(snapshot.entries).toContainEqual(expect.objectContaining({
+                type: "invocation_lifecycle",
+                status: "error",
+                errorInfo: expect.objectContaining({
+                    phase: "compaction",
+                    message: expect.stringContaining("未声明 compaction 配置"),
+                }),
+            }));
+            expect(snapshot.entries.some((entry) => entry.type === "compaction")).toBe(false);
             expect(dto.activeInvocation).toBeNull();
         });
 

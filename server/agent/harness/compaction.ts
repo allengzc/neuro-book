@@ -30,9 +30,8 @@ export type CompactionOptions = {
     summaryPrefixSource: "default" | "profile";
 };
 
-export const DEFAULT_NEURO_COMPACTION_OPTIONS: CompactionOptions = {
-    enabled: true,
-    reserveTokens: 8_000,
+export const DEFAULT_NEURO_COMPACTION_OPTIONS: Omit<CompactionOptions, "enabled"> = {
+    reserveTokens: 25_600,
     keepRecentTokens: 24_000,
     prompt: COMPACTION_PROMPT,
     summaryPrefix: COMPACTION_SUMMARY_PREFIX,
@@ -61,6 +60,9 @@ export async function compactIfNeeded(input: {
     compaction?: ProfileCompactionPlan;
     writeCompactionEntry: (entry: Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">) => Promise<void>;
 }): Promise<boolean> {
+    if (!input.compaction) {
+        return false;
+    }
     const options = resolveCompactionOptions(input.compaction, input.model);
     if (!options.enabled) {
         return false;
@@ -105,7 +107,10 @@ export async function appendCompaction(input: {
     options?: CompactionOptions;
     writeCompactionEntry: (entry: Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">) => Promise<void>;
 }): Promise<void> {
-    const options = input.options ?? resolveCompactionOptions(input.compaction, input.model);
+    if (!input.options && !input.compaction) {
+        throw new Error("缺少 profile compaction 配置，无法执行压缩。");
+    }
+    const options = input.options ?? resolveCompactionOptions(input.compaction!, input.model);
     const path = input.repo.activePath(input.snapshot);
     const messageEntries = path.filter((entry): entry is MessageSessionEntry => entry.type === "message");
     assertNoPendingToolCall(messageEntries.map((entry) => entry.message));
@@ -146,20 +151,20 @@ export async function appendCompaction(input: {
 /**
  * 将 profile compaction plan 解析成当前模型下的执行策略。
  */
-export function resolveCompactionOptions(plan: ProfileCompactionPlan | undefined, model: Model<any>): CompactionOptions {
-    const keepRecentTokens = typeof plan?.keepRecentPercent === "number"
+export function resolveCompactionOptions(plan: ProfileCompactionPlan, model: Model<any>): CompactionOptions {
+    const keepRecentTokens = typeof plan.keepRecentPercent === "number"
         ? Math.max(1, Math.floor(model.contextWindow * plan.keepRecentPercent))
-        : plan?.keepRecentTokens ?? DEFAULT_NEURO_COMPACTION_OPTIONS.keepRecentTokens;
+        : plan.keepRecentTokens ?? DEFAULT_NEURO_COMPACTION_OPTIONS.keepRecentTokens;
     return {
-        enabled: plan?.enabled ?? DEFAULT_NEURO_COMPACTION_OPTIONS.enabled,
-        reserveTokens: plan?.reserveTokens ?? DEFAULT_NEURO_COMPACTION_OPTIONS.reserveTokens,
+        enabled: plan.enabled ?? true,
+        reserveTokens: plan.reserveTokens ?? DEFAULT_NEURO_COMPACTION_OPTIONS.reserveTokens,
         keepRecentTokens,
-        triggerPercent: plan?.triggerPercent,
-        triggerTokens: plan?.triggerTokens,
-        prompt: plan?.prompt ?? COMPACTION_PROMPT,
-        summaryPrefix: plan?.summaryPrefix ?? COMPACTION_SUMMARY_PREFIX,
-        promptSource: plan?.prompt ? "profile" : "default",
-        summaryPrefixSource: plan?.summaryPrefix ? "profile" : "default",
+        triggerPercent: plan.triggerPercent,
+        triggerTokens: plan.triggerTokens,
+        prompt: plan.prompt ?? COMPACTION_PROMPT,
+        summaryPrefix: plan.summaryPrefix ?? COMPACTION_SUMMARY_PREFIX,
+        promptSource: plan.prompt ? "profile" : "default",
+        summaryPrefixSource: plan.summaryPrefix ? "profile" : "default",
     };
 }
 

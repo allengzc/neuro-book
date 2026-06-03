@@ -2,6 +2,7 @@ import {createHash, randomUUID} from "node:crypto";
 import {readFile} from "node:fs/promises";
 import {join, resolve} from "node:path";
 import type {AgentEvent, AgentToolResult} from "@earendil-works/pi-agent-core";
+import {estimateContextTokens} from "@earendil-works/pi-agent-core";
 import {streamSimple, validateToolArguments} from "@earendil-works/pi-ai";
 import {Value} from "typebox/value";
 import type {AgentMessage, AgentToolCall, AgentUserMessageInput, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
@@ -144,6 +145,7 @@ type PreparedRun = {
     timeoutMs: number | null;
     requestOptions: Record<string, JsonValue>;
     compaction?: ProfileCompactionPlan;
+    sessionContextEnabled: boolean;
     toolKeys: string[];
     thinkingLevel: ThinkingLevel;
     reportResultReminderEnabled: boolean;
@@ -162,6 +164,7 @@ type SidecarRunContext = {
     timeoutMs: number | null;
     requestOptions: Record<string, JsonValue>;
     compaction?: ProfileCompactionPlan;
+    sessionContextEnabled: boolean;
     toolKeys: string[];
     thinkingLevel: ThinkingLevel;
     runtimeState: RunRuntimeState;
@@ -376,6 +379,7 @@ export class NeuroAgentHarness {
                     timeoutMs: preparedRun.timeoutMs,
                     requestOptions: preparedRun.requestOptions,
                     compaction: preparedRun.compaction,
+                    sessionContextEnabled: preparedRun.sessionContextEnabled,
                     toolKeys: preparedRun.toolKeys,
                     thinkingLevel: preparedRun.thinkingLevel,
                     runtimeState,
@@ -399,6 +403,7 @@ export class NeuroAgentHarness {
                 timeoutMs: preparedRun.timeoutMs,
                 requestOptions: preparedRun.requestOptions,
                 compaction: preparedRun.compaction,
+                sessionContextEnabled: preparedRun.sessionContextEnabled,
                 toolKeys: preparedRun.toolKeys,
                 profileKey: preparedRun.context.profileKey,
                 profile: preparedRun.profile,
@@ -424,6 +429,7 @@ export class NeuroAgentHarness {
                 sessionId: input.sessionId,
                 invocationId,
                 profile: preparedRun.profile,
+                sessionContextEnabled: preparedRun.sessionContextEnabled,
                 runtimeState,
                 runResult: result,
                 finalResult,
@@ -621,6 +627,7 @@ export class NeuroAgentHarness {
         sessionId: number;
         invocationId: string;
         profile: AgentProfile;
+        sessionContextEnabled: boolean;
         runtimeState: RunRuntimeState;
         runResult: Awaited<ReturnType<NeuroAgentHarness["runLoop"]>>;
         finalResult: InvokeAgentResult;
@@ -648,6 +655,7 @@ export class NeuroAgentHarness {
                         apiKey,
                         timeoutMs: providerOptions.timeoutMs,
                         requestOptions: providerOptions.requestOptions,
+                        sessionContextEnabled: input.sessionContextEnabled,
                         toolKeys: [...input.profile.allowedToolKeys],
                         thinkingLevel,
                         runtimeState: input.runtimeState,
@@ -806,7 +814,8 @@ export class NeuroAgentHarness {
             apiKey,
             timeoutMs: providerOptions.timeoutMs,
             requestOptions: providerOptions.requestOptions,
-            compaction: prepared.plan.compaction,
+            compaction: runProfile.compaction,
+            sessionContextEnabled: prepareRunHooks.sessionContext === true,
             toolKeys,
             thinkingLevel,
             reportResultReminderEnabled: prepareRunHooks.reportResultReminder === true,
@@ -1615,33 +1624,6 @@ export class NeuroAgentHarness {
         };
     }
 
-    private async prepareCompactionPolicy(profile: AgentProfile, snapshot: SessionSnapshot, context: ReturnType<JsonlSessionRepository["reduce"]>): Promise<ProfileCompactionPlan | undefined> {
-        if (!profile.prepare) {
-            return undefined;
-        }
-        const parsedInput = this.profiles.parseInput(profile, snapshot.metadata.input);
-        const session = this.createRuntimeSessionFacade({
-            sessionId: snapshot.metadata.sessionId,
-            profileKey: profile.manifest.key,
-            input: parsedInput,
-            context,
-        });
-        const vars = await this.createProfileVariableAccessor(snapshot, profile, {dryRun: true});
-        const prepared = await profile.prepare({
-            session,
-            input: parsedInput as never,
-            vars,
-            catalog: await this.profiles.snapshot(),
-            skills: await this.skills.list(),
-            runtime: {
-                now: new Date().toISOString(),
-                promptUserTurnCount: this.countPromptUserTurns(snapshot),
-            },
-        });
-        validateProfileTurnPlan(profile.manifest.key, prepared);
-        return prepared.compaction;
-    }
-
     /**
      * source invocation 完成后的后台摘要调度入口。
      *
@@ -1978,6 +1960,7 @@ export class NeuroAgentHarness {
         timeoutMs?: number | null;
         requestOptions?: Record<string, JsonValue>;
         compaction?: ProfileCompactionPlan;
+        sessionContextEnabled: boolean;
         toolKeys: string[];
         executionToolKeys?: string[];
         profileKey: string;
@@ -2149,6 +2132,13 @@ export class NeuroAgentHarness {
         const providerMessages = frame.messages.filter((message): message is Message => {
             return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
         });
+        if (!frame.disableAutomaticCompaction && !frame.compaction) {
+            this.assertContextWithinWindow({
+                messages: providerMessages,
+                model: frame.model,
+                profileKey: frame.profileKey,
+            });
+        }
         return {
             index: frame.turnIndex,
             sessionSnapshot: snapshot,
@@ -2319,11 +2309,9 @@ export class NeuroAgentHarness {
         if (nextTurnHooks.reportResultReminder !== undefined) {
             frame.reportResultReminderEnabled = nextTurnHooks.reportResultReminder;
         }
-        if (!frame.disableAutomaticCompaction && nextTurnHooks.automaticCompaction !== undefined) {
-            frame.automaticCompactionEnabled = nextTurnHooks.automaticCompaction;
-        }
         const compacted = await withRunKernelPhase("compaction", () => this.compactBeforeNextTurn(frame));
         if (compacted) {
+            await withRunKernelPhase("ingest", () => this.reinjectHistorySetAfterCompaction(frame));
             const compactedSnapshot = await this.repo.readSession(frame.sessionId, frame.workspaceKey);
             frame.messages = this.repo.reduce(compactedSnapshot).messages;
         }
@@ -2333,7 +2321,11 @@ export class NeuroAgentHarness {
     }
 
     private async compactBeforeNextTurn(frame: RunFrame): Promise<boolean> {
-        if (!frame.automaticCompactionEnabled) {
+        if (frame.disableAutomaticCompaction) {
+            return false;
+        }
+        if (!frame.compaction) {
+            this.assertContextWithinWindow(frame);
             return false;
         }
         return compactIfNeeded({
@@ -2354,6 +2346,61 @@ export class NeuroAgentHarness {
                 }).append("compact.auto", entry);
             },
         });
+    }
+
+    /**
+     * 自动 compact 会把早期 HistorySet 压进 summary；下一轮前补写一次初始化历史。
+     */
+    private async reinjectHistorySetAfterCompaction(frame: RunFrame): Promise<void> {
+        if (!frame.sessionContextEnabled || !frame.profile.prepare) {
+            return;
+        }
+        const snapshot = await this.repo.readSession(frame.sessionId, frame.workspaceKey);
+        const context = this.repo.reduce(snapshot);
+        const parsedInput = this.profiles.parseInput(frame.profile, snapshot.metadata.input);
+        const prepared = await frame.profile.prepare({
+            session: this.createRuntimeSessionFacade({
+                sessionId: frame.sessionId,
+                profileKey: frame.profile.manifest.key,
+                input: parsedInput,
+                context,
+            }),
+            input: parsedInput as never,
+            vars: await this.createProfileVariableAccessor(snapshot, frame.profile, {dryRun: true}),
+            catalog: await this.profiles.snapshot(),
+            skills: await this.skills.list(),
+            runtime: {
+                now: new Date().toISOString(),
+                promptUserTurnCount: this.countPromptUserTurns(snapshot),
+            },
+        });
+        validateProfileTurnPlan(frame.profile.manifest.key, prepared);
+        if (!prepared.historyInitMessages?.length) {
+            return;
+        }
+        await this.executeWritePlan({
+            target: {sessionId: frame.sessionId},
+            cause: "compact.history_set",
+            ops: [{
+                kind: "appendMany",
+                entries: prepared.historyInitMessages.map((message) => ({
+                    type: "custom_message" as const,
+                    message,
+                    visibleToModel: true,
+                })),
+            }],
+        }, frame.invocationId);
+    }
+
+    /**
+     * 没有 compaction 配置时主动阻止超窗口请求，避免静默依赖 provider overflow。
+     */
+    private assertContextWithinWindow(frame: Pick<RunFrame, "messages" | "model" | "profileKey">): void {
+        const usage = estimateContextTokens(frame.messages);
+        if (usage.tokens <= frame.model.contextWindow) {
+            return;
+        }
+        throw new Error(`当前 profile ${frame.profileKey} 未声明 compaction 配置，上下文 ${usage.tokens} tokens 已超过模型 ${frame.model.id} 的 ${frame.model.contextWindow} token 限制。`);
     }
 
     private async streamAssistant(input: {
@@ -3338,7 +3385,10 @@ export class NeuroAgentHarness {
             const providerOptions = this.providerOptions(config, model);
             const thinkingLevel = this.resolveThinkingLevel(context, config, model);
             const profile = await this.profiles.get(context.profileKey);
-            const compaction = await this.prepareCompactionPolicy(profile, snapshot, context);
+            const compaction = profile.compaction;
+            if (!compaction) {
+                throw new Error(`当前 profile ${context.profileKey} 未声明 compaction 配置，不能执行手动压缩。`);
+            }
             await appendCompaction({
                 repo: this.repo,
                 snapshot,
@@ -3538,7 +3588,6 @@ export class NeuroAgentHarness {
             || name === "builtin.sessionContext"
             || name === "builtin.transcriptPersistence"
             || name === "builtin.runtimeOnlyTranscript"
-            || name === "builtin.compact"
             || name === "builtin.reportResult";
     }
 
@@ -3622,12 +3671,6 @@ export class NeuroAgentHarness {
                 throw new Error(`runtime hook ${hookName} 不能返回 builtinBehavior。`);
             }
             result.profilePrompt = hookResult.builtinBehavior.profilePrompt;
-        }
-        if (hookResult.builtinBehavior?.automaticCompaction !== undefined) {
-            if (input.activeHookBuiltin !== true) {
-                throw new Error(`runtime hook ${hookName} 不能返回 builtinBehavior。`);
-            }
-            result.automaticCompaction = hookResult.builtinBehavior.automaticCompaction;
         }
         if (hookResult.builtinBehavior?.sessionContext !== undefined) {
             if (input.activeHookBuiltin !== true) {
@@ -3722,6 +3765,7 @@ export class NeuroAgentHarness {
             timeoutMs: sidecarRun.timeoutMs,
             requestOptions: sidecarRun.requestOptions,
             compaction: sidecarRun.compaction,
+            sessionContextEnabled: false,
             toolKeys: sidecarRun.toolKeys,
             executionToolKeys: allowedToolKeys,
             profileKey: sidecarRun.context.profileKey,

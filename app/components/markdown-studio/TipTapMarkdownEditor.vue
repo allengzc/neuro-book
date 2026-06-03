@@ -89,6 +89,7 @@ const contextMenuX = ref(0);
 const contextMenuY = ref(0);
 const contextMenuItems = ref<ContextMenuItem[]>([]);
 const skillTriggerStarted = ref(false);
+const popoverTeleportTarget = computed(() => wrapperRef.value?.closest(".novel-ide-theme") as HTMLElement | null);
 const menuVisible = computed(() => Boolean(suggestionMenuState.value && suggestionMenuState.value.items.length > 0));
 const skillTriggerActive = computed(() => suggestionMenuState.value?.contextKind === "skill");
 const editorPreferenceStyle = computed(() => {
@@ -1035,6 +1036,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
             :active-index="activeIndex"
             :anchor-element="wrapperRef"
             :anchor-rect="suggestionMenuState.anchorRect"
+            :teleport-target="popoverTeleportTarget"
             density="compact"
             :direction="props.popoverDirection"
             :match-anchor-width="props.matchPopoverWidth"

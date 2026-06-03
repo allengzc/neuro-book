@@ -1,48 +1,48 @@
 {
-  "generatedAt": "2026-06-03T02:10:10.213Z",
+  "generatedAt": "2026-06-03T04:18:05.736Z",
   "profilesRoot": "assets/workspace/.nbook/agent/profiles",
   "profiles": [
     {
       "fileName": "builtin/leader.assets.profile.tsx",
       "profileKey": "leader.assets",
-      "sha256": "f0c7fd7de3953ffe6bdef80b86fbca8f473628b59d5862a4d56546c8bafbe4e0",
-      "bytes": 18995
+      "sha256": "322c3cd67e267393472684175c1f2a62682f4908852b1144ab0bf33528772f6c",
+      "bytes": 19174
     },
     {
       "fileName": "builtin/leader.default.profile.tsx",
       "profileKey": "leader.default",
-      "sha256": "bb5030ef789bfb4cd2b5c8a5275464468c280fc517f3f20ec282cbb4aab67611",
-      "bytes": 9563
+      "sha256": "43721a85bb167eb9a297c666ebaae967e7aab256e09c13e5c7c3ec079167d242",
+      "bytes": 9734
     },
     {
       "fileName": "builtin/leader.rp.profile.tsx",
       "profileKey": "leader.rp",
-      "sha256": "282c12eb89e54859e90796d9f4144ad18866b3677b40e3d9022576d57aa84902",
-      "bytes": 14000
+      "sha256": "c2d86ba3e4b1a6f5dadb6371b1b316a40fb278c4867739b2dfef738ff9394ac4",
+      "bytes": 14175
     },
     {
       "fileName": "builtin/researcher.profile.tsx",
       "profileKey": "researcher",
-      "sha256": "41f58aca5d5573bd9813531c38fe34ccb0f07700e930fd6eb856354553fa7e27",
-      "bytes": 8953
+      "sha256": "3b0f017dbad7b0185547c7d38811babcf1ce566319bff8b1f9062c8aa2af47e4",
+      "bytes": 9126
     },
     {
       "fileName": "builtin/retrieval.profile.tsx",
       "profileKey": "retrieval",
-      "sha256": "18158486d7c270f37ef84571483948bfa162d90daf1a3e02fa0ce80abc3252fd",
-      "bytes": 6117
+      "sha256": "e63b81630c5bff46a57c250592a50338c46ca528dd1d4b854481c956a6a2fd49",
+      "bytes": 6293
     },
     {
       "fileName": "builtin/rp.actor.profile.tsx",
       "profileKey": "rp.actor",
-      "sha256": "5aaa8fea6e3a8679ce753943c62c02649eba379095c0f5aa334ed43788e68477",
-      "bytes": 17883
+      "sha256": "59b696fed7153f2ee4883d8ef077774fd6367ec6325ebc29b5fc41494e59bf8d",
+      "bytes": 18059
     },
     {
       "fileName": "builtin/rp.writer.profile.tsx",
       "profileKey": "rp.writer",
-      "sha256": "c892d8c5cbdfe7bbe2cb72433f8031ffe72b99e3e67d3e32b0bdcdc414049cb8",
-      "bytes": 7221
+      "sha256": "d40eeadafd0defbcbe9351fd2efe2899c6c3cd868950da8340edb18e25218730",
+      "bytes": 7397
     },
     {
       "fileName": "builtin/summarizer.profile.tsx",
@@ -53,8 +53,8 @@
     {
       "fileName": "builtin/writer.profile.tsx",
       "profileKey": "writer",
-      "sha256": "79a606f83bf5980b7cbd8ca90c39b800869d7bda5235bbd078c45ff9bc2dc185",
-      "bytes": 34481
+      "sha256": "33e845433821e58ea42fbfd0c900e459503be33b36ac40036d4491f63b3853bf",
+      "bytes": 34653
     }
   ]
 }

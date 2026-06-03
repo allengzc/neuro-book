@@ -130,7 +130,32 @@ describe("compaction", () => {
             messages: repo.reduce(snapshot).messages,
             model: faux.getModel(),
             writeCompactionEntry,
+            compaction: {
+                reserveTokens: 2_000,
+                keepRecentTokens: 1,
+            },
         })).rejects.toThrow("未完成 tool call");
+    });
+
+    it("没有 profile Compaction policy 时不会自动压缩", async () => {
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+        });
+        const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old context"}), session.metadata.workspaceKey);
+        const snapshot = await repo.readSession(session.metadata.sessionId);
+
+        const compacted = await compactIfNeeded({
+            repo,
+            snapshot,
+            messages: repo.reduce(snapshot).messages,
+            model: faux.getModel(),
+            writeCompactionEntry,
+        });
+
+        expect(compacted).toBe(false);
     });
 
     it("解析默认 prompt/prefix、百分比触发和 recent 百分比", () => {

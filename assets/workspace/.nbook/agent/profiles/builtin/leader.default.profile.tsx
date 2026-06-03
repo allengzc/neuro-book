@@ -71,6 +71,8 @@ const allowedToolKeys = [
     "variable_patch",
 ] as const;
 
+const LEADER_COMPACTION_KEEP_RECENT_TOKENS = 32_000;
+
 export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
@@ -86,6 +88,10 @@ export default defineAgentProfile({
             },
             maxDialogueContentTokens: 80_000,
         },
+    },
+    compaction: {
+        reserveTokens: 25_600,
+        keepRecentTokens: LEADER_COMPACTION_KEEP_RECENT_TOKENS,
     },
     context() {
         return (

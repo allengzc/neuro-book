@@ -30,7 +30,7 @@ import {useNotification} from "nbook/app/composables/useNotification";
 import type {AgentTriggerMenuContext, AgentTriggerMenuItem, AgentTriggerMenuState, MarkdownCommandKind} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import {useNovelIdeStore, type AgentWorkspaceSyncPayload, type WorkspaceEditorKind, type WorkspaceEditorViewMode, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import type {WorkspaceFileChangeEventDto, WorkspaceFileStreamEventDto} from "nbook/shared/dto/workspace-file-events.dto";
-import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentSessionSummaryDto, AgentSkillCatalogItemDto} from "nbook/shared/dto/agent-session.dto";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {
     collectWorkspaceReferencePathCandidates,
@@ -75,6 +75,10 @@ const agentResizeHandleRef = ref<HTMLElement | null>(null);
 const agentStudioResizeHandleRef = ref<HTMLElement | null>(null);
 const agentStudioFileTreeResizeHandleRef = ref<HTMLElement | null>(null);
 const layoutTransitionDirection = ref<LayoutModeTransitionDirection | null>(null);
+const markdownSkillCatalog = ref<AgentSkillCatalogItemDto[]>([]);
+const markdownSkillCatalogLoaded = ref(false);
+const markdownSkillCatalogLoading = ref(false);
+let markdownSkillCatalogRequest: Promise<void> | null = null;
 let workspaceFileSyncRunning = false;
 let pendingWorkspaceFileEvents: WorkspaceFileChangeEventDto[] = [];
 const USER_ASSETS_PROJECT_TARGET = "workspace/.nbook";
@@ -406,7 +410,94 @@ function createMarkdownCommandItem(
 }
 
 /**
- * 解析 Markdown Studio 的 / 命令和 @ 引用菜单。
+ * 按需加载 Markdown Studio 的 skill 触发菜单。
+ */
+async function refreshMarkdownSkillCatalog(): Promise<void> {
+    if (markdownSkillCatalogLoaded.value) {
+        return;
+    }
+    if (markdownSkillCatalogRequest) {
+        return await markdownSkillCatalogRequest;
+    }
+
+    markdownSkillCatalogRequest = (async () => {
+        markdownSkillCatalogLoading.value = true;
+        try {
+            markdownSkillCatalog.value = await $fetch<AgentSkillCatalogItemDto[]>("/api/agent/skills");
+            markdownSkillCatalogLoaded.value = true;
+        } finally {
+            markdownSkillCatalogLoading.value = false;
+            markdownSkillCatalogRequest = null;
+        }
+    })();
+    return await markdownSkillCatalogRequest;
+}
+
+/**
+ * 解析 Markdown Studio 的 $ skill 菜单。
+ */
+function resolveMarkdownSkillMenu(context: AgentTriggerMenuContext): AgentTriggerMenuState {
+    if (!markdownSkillCatalogLoaded.value && !markdownSkillCatalogLoading.value) {
+        void refreshMarkdownSkillCatalog();
+    }
+
+    const query = context.query.trim().toLocaleLowerCase("zh-CN");
+    const items = markdownSkillCatalog.value
+        .filter((item) => !query || `${item.name} ${item.description}`.toLocaleLowerCase("zh-CN").includes(query))
+        .map((item) => ({
+            id: `skill:${item.name}`,
+            label: item.name,
+            description: item.description,
+            iconClass: "i-lucide-sparkles",
+            hint: `$${item.name}`,
+            skill: {
+                name: item.name,
+            },
+        }));
+
+    if (markdownSkillCatalogLoading.value && items.length === 0) {
+        return {
+            title: "调用技能",
+            prefix: "$",
+            sections: [{
+                id: "skill-loading",
+                items: [{
+                    id: "skill:loading",
+                    label: "加载技能中",
+                    description: "正在读取当前仓库的 skills catalog。",
+                    iconClass: "i-lucide-loader-circle animate-spin",
+                    disabled: true,
+                }],
+            }],
+        };
+    }
+
+    if (markdownSkillCatalogLoaded.value && items.length === 0) {
+        return {
+            title: "调用技能",
+            prefix: "$",
+            sections: [{
+                id: "skill-empty",
+                items: [{
+                    id: "skill:empty",
+                    label: "没有匹配技能",
+                    description: markdownSkillCatalog.value.length > 0 ? "当前查询没有匹配的 skill。" : "当前仓库还没有可用的 skill。",
+                    iconClass: "i-lucide-info",
+                    disabled: true,
+                }],
+            }],
+        };
+    }
+
+    return {
+        title: "调用技能",
+        prefix: "$",
+        sections: items.length > 0 ? [{id: "skill", items}] : [],
+    };
+}
+
+/**
+ * 解析 Markdown Studio 的 / 命令、@ 引用菜单和 $ skill 菜单。
  */
 function resolveMarkdownMenu(context: AgentTriggerMenuContext): AgentTriggerMenuState {
     if (context.kind === "command") {
@@ -422,6 +513,9 @@ function resolveMarkdownMenu(context: AgentTriggerMenuContext): AgentTriggerMenu
             prefix: "/",
             sections: sections.length > 0 ? sections : [createEmptyMenuSection(context.query)],
         };
+    }
+    if (context.kind === "skill") {
+        return resolveMarkdownSkillMenu(context);
     }
 
     const referenceSections = buildWorkspaceReferenceSections(workspaceTree.value, context.query);
@@ -1544,6 +1638,7 @@ onBeforeUnmount(() => {
                             :resolve-menu="resolveMarkdownMenu"
                             :open-reference="openWorkspaceReference"
                             :resolve-reference="resolveWorkspaceReferencePreview"
+                            :enable-quick-triggers="true"
                             @select-tab="void selectWorkspaceTab($event)"
                             @close-tab="void closeEditorTab($event)"
                             @set-pin="setWorkspaceTabPinned"

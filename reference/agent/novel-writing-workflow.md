@@ -82,7 +82,7 @@
 
 | Proposed Key | Current Skill | Purpose |
 | --- | --- | --- |
-| `novel-import-silly-tavern-card` | `SillyTavern角色卡导入` | 导入 ST 角色卡、worldbook 和动态机制归档。 |
+| `novel-import-silly-tavern-card` | 已新增；旧 `SillyTavern角色卡导入` 暂保留 | 导入 ST 角色卡、worldbook 和动态机制归档；第一遍导入只处理稳定 lorebook，动态机制进入 `reference/silly-tavern/**`。 |
 | `novel-import-tomato-reference` | `番茄小说导入` | 导入番茄小说或外部小说参考资料。 |
 
 ## Emulation Bootstrap Skill

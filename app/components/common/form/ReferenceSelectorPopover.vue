@@ -13,12 +13,14 @@ const props = withDefaults(defineProps<{
     activeIndex: number;
     anchorElement?: HTMLElement | null;
     anchorRect?: FloatingAnchorRect | null;
+    teleportTarget?: HTMLElement | null;
     direction?: FloatingPanelDirection;
     density?: "normal" | "compact";
     matchAnchorWidth?: boolean;
 }>(), {
     anchorElement: null,
     anchorRect: null,
+    teleportTarget: null,
     direction: "auto",
     density: "normal",
     matchAnchorWidth: false,
@@ -114,9 +116,10 @@ if (import.meta.client) {
 </script>
 
 <template>
+    <Teleport :disabled="!props.anchorRect || !props.teleportTarget" :to="props.teleportTarget ?? 'body'">
     <div
         ref="panelRef"
-        class="z-50 flex flex-col overflow-hidden border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-2xl"
+        class="z-[8500] flex flex-col overflow-hidden border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-main)] shadow-2xl"
         :class="[props.density === 'compact' ? 'rounded-xl' : 'rounded-2xl', props.anchorRect ? 'fixed' : [props.anchorElement ? 'absolute left-0' : 'absolute left-0 right-0', effectiveDirection === 'up' ? 'bottom-full mb-2' : 'top-full mt-2']]"
         :style="effectivePanelStyle"
     >
@@ -157,4 +160,5 @@ if (import.meta.client) {
             </template>
         </div>
     </div>
+    </Teleport>
 </template>

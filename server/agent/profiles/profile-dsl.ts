@@ -14,8 +14,6 @@ export type ProfileDslChild = ProfileDslNode | string | number | boolean | null 
 export type ProfileDslNode =
     | ProfilePromptNode
     | ProfileSetNode
-    | ProfileCompactionNode
-    | ProfileCompactionTextNode
     | ProfileMessageNode
     | ProfileToolCallNode
     | ProfileReminderNode
@@ -34,22 +32,6 @@ export type ProfilePromptNode = {
 
 export type ProfileSetNode = {
     kind: "System" | "HistorySet" | "ModelContext" | "AppendingSet";
-    children: ProfileDslChild[];
-};
-
-export type ProfileCompactionNode = {
-    kind: "Compaction";
-    enabled?: boolean;
-    triggerPercent?: number;
-    triggerTokens?: number;
-    reserveTokens?: number;
-    keepRecentTokens?: number;
-    keepRecentPercent?: number;
-    children: ProfileDslChild[];
-};
-
-export type ProfileCompactionTextNode = {
-    kind: "CompactionPrompt" | "CompactionSummaryPrefix";
     children: ProfileDslChild[];
 };
 
@@ -166,7 +148,7 @@ export type ProfileFragmentNode = {
     children: ProfileDslChild[];
 };
 
-type RenderZone = "root" | "system" | "history" | "model" | "appending" | "message" | "assistant" | "reminder" | "watch" | "compaction";
+type RenderZone = "root" | "system" | "history" | "model" | "appending" | "message" | "assistant" | "reminder" | "watch";
 
 export type ReminderState = {
     hasValue?: boolean;
@@ -262,7 +244,7 @@ export function validateProfileTurnPlan(profileKey: string, plan: ProfileTurnPla
     if (!plan || typeof plan !== "object") {
         throw new Error(`profile ${profileKey} prepare/context 必须返回 ProfileTurnPlan。`);
     }
-    const allowedKeys = new Set(["systemPrompt", "historyInitMessages", "appendingMessages", "modelContextAppendingMessages", "modelContextMessages", "stateWrites", "compaction"]);
+    const allowedKeys = new Set(["systemPrompt", "historyInitMessages", "appendingMessages", "modelContextAppendingMessages", "modelContextMessages", "stateWrites"]);
     const illegalKey = Object.keys(plan).find((key) => !allowedKeys.has(key));
     if (illegalKey) {
         throw new Error(`profile ${profileKey} ProfileTurnPlan 不允许返回 ${illegalKey}。`);
@@ -276,7 +258,6 @@ export function validateProfileTurnPlan(profileKey: string, plan: ProfileTurnPla
         }
         validateProfileRuntimeStateWrite(profileKey, write.value);
     }
-    validateCompactionPlan(profileKey, plan.compaction);
 }
 
 /**
@@ -332,42 +313,6 @@ export function ModelContext(props: {children?: ProfileDslChild | ProfileDslChil
 export function AppendingSet(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfileSetNode {
     return {
         kind: "AppendingSet",
-        children: normalizeChildren(props.children),
-    };
-}
-
-/**
- * 当前 profile 的 compaction 策略。只能放在 ProfilePrompt 顶层。
- */
-export function Compaction(props: ProfileCompactionPlan & {children?: ProfileDslChild | ProfileDslChild[]}): ProfileCompactionNode {
-    return {
-        kind: "Compaction",
-        enabled: props.enabled,
-        triggerPercent: props.triggerPercent,
-        triggerTokens: props.triggerTokens,
-        reserveTokens: props.reserveTokens,
-        keepRecentTokens: props.keepRecentTokens,
-        keepRecentPercent: props.keepRecentPercent,
-        children: normalizeChildren(props.children),
-    };
-}
-
-/**
- * compaction summary 调用使用的 provider system prompt。
- */
-export function CompactionPrompt(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfileCompactionTextNode {
-    return {
-        kind: "CompactionPrompt",
-        children: normalizeChildren(props.children),
-    };
-}
-
-/**
- * compaction summary 写入 session 后注入后续上下文的前缀。
- */
-export function CompactionSummaryPrefix(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfileCompactionTextNode {
-    return {
-        kind: "CompactionSummaryPrefix",
         children: normalizeChildren(props.children),
     };
 }
@@ -956,15 +901,6 @@ async function renderChild(state: CompileState, zone: RenderZone, child: Profile
         state.plan.appendingMessages = [...state.plan.appendingMessages ?? [], ...onlyMessages(messages, "AppendingSet")];
         return [];
     }
-    if (child.kind === "Compaction") {
-        assertZone(zone, "root", "Compaction 只能放在 ProfilePrompt 顶层。");
-        state.plan.compaction = await renderCompactionNode(state, child);
-        return [];
-    }
-    if (child.kind === "CompactionPrompt" || child.kind === "CompactionSummaryPrefix") {
-        assertZone(zone, "compaction", `${child.kind} 只能放在 Compaction 内。`);
-        return [];
-    }
     if (child.kind === "Reminder") {
         if (zone !== "appending" && zone !== "model") {
             throw new Error("Reminder 只允许放在 AppendingSet 或 ModelContext 内。");
@@ -1005,7 +941,7 @@ async function renderChild(state: CompileState, zone: RenderZone, child: Profile
         throw new Error("ToolCall 只能作为 AIMessage 的子节点。");
     }
     if (child.kind === "StringFragment") {
-        if (zone !== "message" && zone !== "system" && zone !== "assistant" && zone !== "reminder" && zone !== "watch" && zone !== "compaction") {
+        if (zone !== "message" && zone !== "system" && zone !== "assistant" && zone !== "reminder" && zone !== "watch") {
             throw new Error("string fragment 只能放在支持 string 的节点内部。");
         }
         return [];
@@ -1014,63 +950,6 @@ async function renderChild(state: CompileState, zone: RenderZone, child: Profile
         throw new Error(`${slotNodeName(child.slot)} 只能作为 PlanModeReminder 的直接子节点。`);
     }
     throw new Error(`未知 Profile DSL 节点：${JSON.stringify(child)}`);
-}
-
-async function renderCompactionNode(state: CompileState, node: ProfileCompactionNode): Promise<ProfileCompactionPlan> {
-    const plan: ProfileCompactionPlan = {
-        enabled: node.enabled,
-        triggerPercent: node.triggerPercent,
-        triggerTokens: node.triggerTokens,
-        reserveTokens: node.reserveTokens,
-        keepRecentTokens: node.keepRecentTokens,
-        keepRecentPercent: node.keepRecentPercent,
-    };
-    for (const child of node.children.flatMap(flattenChildren)) {
-        if (child === null || child === undefined || child === false || child === true) {
-            continue;
-        }
-        if (Array.isArray(child)) {
-            continue;
-        }
-        if (typeof child === "string" || typeof child === "number") {
-            if (String(child).trim() !== "") {
-                throw new Error("Compaction 中的文本必须放在 CompactionPrompt 或 CompactionSummaryPrefix 内。");
-            }
-            continue;
-        }
-        if (child.kind === "Fragment") {
-            const nested = await renderCompactionNode(state, {
-                kind: "Compaction",
-                children: child.children,
-            });
-            plan.prompt = nested.prompt ?? plan.prompt;
-            plan.summaryPrefix = nested.summaryPrefix ?? plan.summaryPrefix;
-            continue;
-        }
-        if (child.kind === "If") {
-            if (!child.condition) {
-                continue;
-            }
-            const nested = await renderCompactionNode(state, {
-                kind: "Compaction",
-                children: child.children,
-            });
-            plan.prompt = nested.prompt ?? plan.prompt;
-            plan.summaryPrefix = nested.summaryPrefix ?? plan.summaryPrefix;
-            continue;
-        }
-        if (child.kind === "CompactionPrompt") {
-            plan.prompt = await renderStringChildren(state, "compaction", child.children);
-            continue;
-        }
-        if (child.kind === "CompactionSummaryPrefix") {
-            plan.summaryPrefix = await renderStringChildren(state, "compaction", child.children);
-            continue;
-        }
-        throw new Error(`Compaction 只能包含 CompactionPrompt / CompactionSummaryPrefix，不能包含 ${child.kind}。`);
-    }
-    validateCompactionPlan(state.profileKey, plan);
-    return plan;
 }
 
 function validateSystemChildren(children: ProfileDslChild[]): void {
@@ -1720,7 +1599,7 @@ function validateProfileRuntimeStateWrite(profileKey: string, value: JsonValue):
     readWatchStateMap(state.watches);
 }
 
-function validateCompactionPlan(profileKey: string, plan: ProfileCompactionPlan | undefined): void {
+export function validateCompactionPlan(profileKey: string, plan: ProfileCompactionPlan | undefined): void {
     if (!plan) {
         return;
     }

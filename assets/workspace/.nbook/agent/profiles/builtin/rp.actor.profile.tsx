@@ -23,6 +23,7 @@ export type Input = Static<typeof InputSchema>;
 export type Output = Static<typeof OutputSchema>;
 
 const allowedToolKeys = ["read", "write", "edit", "report_result"] as const;
+const DEFAULT_COMPACTION_KEEP_RECENT_TOKENS = 24_000;
 
 const ActorContextLoadSidecarSchema = Type.Object({
     actor_safe_context: Type.String({description: "准备注入 actor 主 run 的角色可知设定摘要；没有额外信息时写空字符串。"}),
@@ -272,6 +273,10 @@ export default defineAgentProfile({
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
     allowedToolKeys,
+    compaction: {
+        reserveTokens: 25_600,
+        keepRecentTokens: DEFAULT_COMPACTION_KEEP_RECENT_TOKENS,
+    },
     sidecars: [
         actorContextLoadPass,
         actorMemorySavePass,

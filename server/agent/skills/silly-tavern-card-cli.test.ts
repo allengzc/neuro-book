@@ -64,14 +64,19 @@ describe("silly-tavern-card cli helpers", () => {
     it("暴露为 v3 skill catalog 可发现的系统 skill", async () => {
         const emptyUserRoot = await mkdtemp(path.join(tmpdir(), "st-card-empty-user-skills-"));
         tempRoots.push(emptyUserRoot);
-        const skill = await new SkillCatalog(
+        const catalog = new SkillCatalog(
             path.resolve("assets/workspace/.nbook/agent/skills"),
             emptyUserRoot,
-        ).get("SillyTavern角色卡导入");
+        );
+        const legacySkill = await catalog.get("SillyTavern角色卡导入");
+        const canonicalSkill = await catalog.get("novel-import-silly-tavern-card");
 
-        expect(skill?.source).toBe("system");
-        expect(skill?.description).toContain("SillyTavern");
-        expect(skill?.whenToUse).toContain("酒馆角色卡");
+        expect(legacySkill?.source).toBe("system");
+        expect(legacySkill?.description).toContain("兼容旧中文入口");
+        expect(legacySkill?.whenToUse).toContain("酒馆角色卡");
+        expect(canonicalSkill?.source).toBe("system");
+        expect(canonicalSkill?.description).toContain("SillyTavern");
+        expect(canonicalSkill?.description).toContain("worldbooks");
     });
 
     it("inspect 只输出 overview，不生成解包文件", async () => {
@@ -137,6 +142,8 @@ describe("silly-tavern-card cli helpers", () => {
         const report = await readFile(path.join(workspace, unpackDir, "import-report.md"), "utf-8");
         expect(report).toContain("Import Mapping");
         expect(report).toContain("Skipped Dynamic Content");
+        expect(report).toContain("Classification Review Queue");
+        expect(report).toContain("Recommended Next Steps");
 
         await expect(runCli(["bun", "silly-tavern-card", "import", unpackDir, "--project", workspace])).rejects.toThrow("文件已存在");
 
@@ -158,33 +165,82 @@ describe("silly-tavern-card cli helpers", () => {
         expect(inspectJson.mappingSummary.lorebookTargets["lorebook/character"]).toBe(1);
         expect(inspectJson.mappingSummary.lorebookTargets["lorebook/location"]).toBe(1);
         expect(inspectJson.mappingSummary.lorebookTargets["lorebook/faction"]).toBe(1);
-        expect(inspectJson.mappingSummary.lorebookTargets["lorebook/rule"]).toBeGreaterThanOrEqual(1);
+        expect(inspectJson.mappingSummary.lorebookTargets["lorebook/rule"]).toBeUndefined();
+        expect(inspectJson.mappingSummary.lorebookTargets["lorebook/world/rule"]).toBeGreaterThanOrEqual(1);
         expect(inspectJson.mappingSummary.lorebookTargets["lorebook/item"]).toBe(1);
+        expect(inspectJson.mappingSummary.lorebookTargets["lorebook/event"]).toBe(1);
+        expect(inspectJson.mappingSummary.lorebookTargets["lorebook/system"]).toBe(1);
+        expect(inspectJson.mappingSummary.lorebookTargets["lorebook/note"]).toBeGreaterThanOrEqual(3);
         expect(inspectJson.mappingSummary.skippedDynamic).toBe(1);
-        expect(inspectJson.mappingSummary.needsReview).toBe(1);
+        expect(inspectJson.mappingSummary.needsReview).toBeGreaterThanOrEqual(3);
 
         const logs = await captureConsoleLog(() => runCli(["bun", "silly-tavern-card", "import", unpackDir, "--project", workspace, "--json"]));
         const importJson = JSON.parse(logs.join("\n")) as {
             mappingSummary: {skippedDynamic: number; needsReview: number; lorebookTargets: Record<string, number>};
         };
         expect(importJson.mappingSummary.skippedDynamic).toBe(1);
-        expect(importJson.mappingSummary.needsReview).toBe(1);
+        expect(importJson.mappingSummary.needsReview).toBeGreaterThanOrEqual(3);
+        expect(importJson.mappingSummary.lorebookTargets["lorebook/rule"]).toBeUndefined();
 
         await expect(stat(path.join(workspace, "lorebook", "character", slugify("000001-Synthetic-ST-Card-角色-艾丽丝"), "index.md"))).resolves.toBeDefined();
         await expect(stat(path.join(workspace, "lorebook", "location", slugify("000002-Synthetic-ST-Card-地点-白塔"), "index.md"))).resolves.toBeDefined();
         await expect(stat(path.join(workspace, "lorebook", "faction", slugify("000003-Synthetic-ST-Card-势力-银月公会"), "index.md"))).resolves.toBeDefined();
-        await expect(stat(path.join(workspace, "lorebook", "rule", slugify("000004-Synthetic-ST-Card-规则-魔法体系"), "index.md"))).resolves.toBeDefined();
+        await expect(stat(path.join(workspace, "lorebook", "rule"))).rejects.toThrow();
+        await expect(stat(path.join(workspace, "lorebook", "world", "rule", slugify("000004-Synthetic-ST-Card-规则-魔法体系"), "index.md"))).resolves.toBeDefined();
         await expect(stat(path.join(workspace, "lorebook", "item", slugify("000005-Synthetic-ST-Card-物品-世界之心"), "index.md"))).resolves.toBeDefined();
+        await expect(stat(path.join(workspace, "lorebook", "event", slugify("000006-Synthetic-ST-Card-事件-黄昏战争"), "index.md"))).resolves.toBeDefined();
+        await expect(stat(path.join(workspace, "lorebook", "system", slugify("000009-Synthetic-ST-Card-系统-炼金玩法"), "index.md"))).resolves.toBeDefined();
         await expect(stat(path.join(workspace, "lorebook", "note", slugify("000008-Synthetic-ST-Card-神秘条目"), "index.md"))).resolves.toBeDefined();
+        await expect(stat(path.join(workspace, "lorebook", "note", slugify("000010-Synthetic-ST-Card-角色-地点-混合条目"), "index.md"))).resolves.toBeDefined();
+        await expect(stat(path.join(workspace, "lorebook", "note", slugify("000011-Synthetic-ST-Card-状态栏格式"), "index.md"))).resolves.toBeDefined();
+        await expect(stat(path.join(workspace, "lorebook", "system", slugify("000011-Synthetic-ST-Card-状态栏格式"), "index.md"))).rejects.toThrow();
         await expect(stat(path.join(workspace, "lorebook", "note", slugify("000007-Synthetic-ST-Card-InitVar-状态变量"), "index.md"))).rejects.toThrow();
 
         const importedCharacter = await readFile(path.join(workspace, "lorebook", "character", slugify("000001-Synthetic-ST-Card-角色-艾丽丝"), "index.md"), "utf-8");
         expect(importedCharacter).toContain("primaryCategory: \"character\"");
         expect(importedCharacter).toContain("classification:");
+        const pendingNote = await readFile(path.join(workspace, "lorebook", "note", slugify("000008-Synthetic-ST-Card-神秘条目"), "index.md"), "utf-8");
+        expect(pendingNote).toContain("status: \"pending\"");
+        const mixedNote = await readFile(path.join(workspace, "lorebook", "note", slugify("000010-Synthetic-ST-Card-角色-地点-混合条目"), "index.md"), "utf-8");
+        expect(mixedNote).toContain("status: \"pending\"");
+        const statusUiNote = await readFile(path.join(workspace, "lorebook", "note", slugify("000011-Synthetic-ST-Card-状态栏格式"), "index.md"), "utf-8");
+        expect(statusUiNote).toContain("status: \"pending\"");
+        expect(statusUiNote).toContain("reviewFlags:");
+        expect(statusUiNote).toContain("status-ui");
         const report = await readFile(path.join(workspace, unpackDir, "import-report.md"), "utf-8");
         expect(report).toContain("lorebook/character: 1");
-        expect(report).toContain("Needs Review");
+        expect(report).toContain("lorebook/world/rule: 1");
+        expect(report).toContain("Classification Review Queue");
+        expect(report).toContain("Pending Lorebook Notes");
+        expect(report).toContain("Recommended Next Steps");
         expect(report).toContain("InitVar 状态变量");
+        expect(report).toContain("角色-地点-混合条目");
+        expect(report).toContain("状态栏格式");
+        expect(report).toContain("subject knowledge generated: no");
+    });
+
+    it("--rp 只生成 simulation-migration 候选，不创建 simulation 运行态", async () => {
+        const workspace = await createProjectWorkspace(tempRoots);
+        const input = await createSyntheticCard(tempRoots);
+        await runCli(["bun", "silly-tavern-card", "unpack", input, "--project", workspace]);
+
+        const unpackDir = `reference/silly-tavern/${slugify("Synthetic ST Card")}`;
+        await runCli(["bun", "silly-tavern-card", "import", unpackDir, "--project", workspace, "--rp"]);
+
+        const migrationDir = path.join(workspace, unpackDir, "simulation-migration");
+        await expect(stat(path.join(migrationDir, "README.md"))).resolves.toBeDefined();
+        await expect(stat(path.join(migrationDir, "simulator-candidates.md"))).resolves.toBeDefined();
+        await expect(stat(path.join(migrationDir, "writer-candidates.md"))).resolves.toBeDefined();
+        await expect(stat(path.join(migrationDir, "subject-candidates.md"))).resolves.toBeDefined();
+        await expect(stat(path.join(migrationDir, "entity-candidates.md"))).resolves.toBeDefined();
+        await expect(stat(path.join(migrationDir, "unsupported-runtime.md"))).resolves.toBeDefined();
+        await expect(stat(path.join(workspace, "simulation", "subjects"))).rejects.toThrow();
+        await expect(stat(path.join(workspace, "simulation", "entities"))).rejects.toThrow();
+        await expect(stat(path.join(workspace, "simulation", "runs"))).rejects.toThrow();
+
+        const unsupported = await readFile(path.join(migrationDir, "unsupported-runtime.md"), "utf-8");
+        expect(unsupported).toContain("Unsupported Runtime");
+        expect(unsupported).toContain("InitVar 状态变量");
     });
 
     it("拒绝非 Project Workspace", async () => {
@@ -204,7 +260,7 @@ async function createProjectWorkspace(tempRoots: string[]): Promise<string> {
 }
 
 async function listLorebookIndexFiles(workspace: string): Promise<string[]> {
-    const roots = ["character", "location", "faction", "rule", "item", "note"];
+    const roots = ["character", "location", "faction", "world/rule", "item", "event", "system", "note"];
     const files: string[] = [];
     for (const root of roots) {
         const rootPath = path.join(workspace, "lorebook", root);
@@ -240,6 +296,9 @@ async function createSyntheticCard(tempRoots: string[]): Promise<string> {
                     syntheticEntry(6, "事件-黄昏战争", "黄昏战争发生于旧历末年，是主线导火索。"),
                     syntheticEntry(7, "InitVar 状态变量", "[InitVar]\n<UpdateVariable name=\"favor\" />"),
                     syntheticEntry(8, "神秘条目", "一段没有明显结构的描述。"),
+                    syntheticEntry(9, "系统-炼金玩法", "炼金玩法包含背包、任务栏和日程。"),
+                    syntheticEntry(10, "角色-地点-混合条目", "背景故事: 艾丽丝来自白塔。\n白塔位于北境边缘。"),
+                    syntheticEntry(11, "状态栏格式", "状态栏必须输出好感度、背包栏和日程面板。"),
                 ],
             },
         },

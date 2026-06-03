@@ -143,7 +143,7 @@ export async function previewAgentProfilePrepare(
             ...modelContextAppendingMessages.map((message) => toPreviewMessage(message, "modelContextAppending")),
             ...explicitAppendingMessages.map((message) => toPreviewMessage(message, "appending")),
             ...modelContextMessages.map((message) => toPreviewMessage(message, "modelContext")),
-            ...prepared.compaction ? [compactionPreviewMessage(prepared.compaction, session.model)] : [],
+            ...profile.compaction ? [compactionPreviewMessage(profile.compaction, session.model)] : [],
             ...finalMessages.map((message) => toPreviewMessage(message, "reactMessages")),
             ...(prepared.stateWrites ?? []).map((write) => ({
                 role: "custom",

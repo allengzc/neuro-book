@@ -21,7 +21,6 @@ describe("defineAgentRuntime", () => {
             "builtin.profilePrompt",
             "builtin.sessionContext",
             "builtin.transcriptPersistence",
-            "builtin.compact",
             "builtin.reportResult",
         ]);
         expect(profile.runtime?.hooks.every((hook) => "builtin" in hook && hook.builtin)).toBe(true);
@@ -91,7 +90,6 @@ describe("defineAgentRuntime", () => {
             "builtin.profilePrompt",
             "builtin.sessionContext",
             "builtin.transcriptPersistence",
-            "builtin.compact",
             "builtin.reportResult",
             "custom",
         ]);
@@ -122,17 +120,6 @@ describe("defineAgentRuntime", () => {
         expect(hook?.run({} as never)).toEqual({
             builtinBehavior: {
                 sessionContext: true,
-            },
-        });
-    });
-
-    it("compact built-in hook 会显式声明 automatic compaction", () => {
-        const hook = agentRuntimeBuiltins.defaultSessionRuntime().hooks.find((item) => item.name === "builtin.compact");
-
-        expect(hook?.stage).toBe("prepareNextTurn");
-        expect(hook?.run({} as never)).toEqual({
-            builtinBehavior: {
-                automaticCompaction: true,
             },
         });
     });

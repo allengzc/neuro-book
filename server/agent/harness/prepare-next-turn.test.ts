@@ -72,6 +72,7 @@ function fakeFrame(): RunFrame {
         workspaceRoot: "workspace",
         systemPrompt: "",
         model: {} as RunFrame["model"],
+        sessionContextEnabled: true,
         toolKeys: ["report_result"],
         profileKey: "test",
         profile: {} as RunFrame["profile"],
@@ -81,7 +82,6 @@ function fakeFrame(): RunFrame {
         turnIndex: 1,
         reportResultReminderSent: false,
         reportResultReminderEnabled: true,
-        automaticCompactionEnabled: false,
         pendingWritePlans: [],
     };
 }

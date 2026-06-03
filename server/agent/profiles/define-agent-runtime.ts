@@ -66,7 +66,6 @@ export type AgentRuntimeHookResult = {
     builtinBehavior?: {
         profilePrompt?: boolean;
         reportResultReminder?: boolean;
-        automaticCompaction?: boolean;
         sessionContext?: boolean;
     };
     turnSnapshotPatch?: {
@@ -173,7 +172,6 @@ export const agentRuntimeBuiltins = {
                 this.profilePrompt<TInput>(),
                 this.sessionContext<TInput>(),
                 this.transcriptPersistence<TInput>(),
-                this.compact<TInput>(),
                 this.reportResult<TInput>(),
             ],
         };
@@ -200,13 +198,6 @@ export const agentRuntimeBuiltins = {
     runtimeOnlyTranscript<TInput = JsonValue>(): AgentRuntimeHook<TInput> {
         return builtinHook("runtimeOnlyTranscript", "ingestTurn", {
             transcript: "runtime_only",
-        });
-    },
-    compact<TInput = JsonValue>(): AgentRuntimeHook<TInput> {
-        return builtinHook("compact", "prepareNextTurn", {
-            builtinBehavior: {
-                automaticCompaction: true,
-            },
         });
     },
     reportResult<TInput = JsonValue>(): AgentRuntimeHook<TInput> {

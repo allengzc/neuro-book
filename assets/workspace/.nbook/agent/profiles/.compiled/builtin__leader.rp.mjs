@@ -753,7 +753,7 @@ function validateProfileTurnPlan(profileKey, plan) {
   if (!plan || typeof plan !== "object") {
     throw new Error(`profile ${profileKey} prepare/context \u5FC5\u987B\u8FD4\u56DE ProfileTurnPlan\u3002`);
   }
-  const allowedKeys = /* @__PURE__ */ new Set(["systemPrompt", "historyInitMessages", "appendingMessages", "modelContextAppendingMessages", "modelContextMessages", "stateWrites", "compaction"]);
+  const allowedKeys = /* @__PURE__ */ new Set(["systemPrompt", "historyInitMessages", "appendingMessages", "modelContextAppendingMessages", "modelContextMessages", "stateWrites"]);
   const illegalKey = Object.keys(plan).find((key) => !allowedKeys.has(key));
   if (illegalKey) {
     throw new Error(`profile ${profileKey} ProfileTurnPlan \u4E0D\u5141\u8BB8\u8FD4\u56DE ${illegalKey}\u3002`);
@@ -767,7 +767,6 @@ function validateProfileTurnPlan(profileKey, plan) {
     }
     validateProfileRuntimeStateWrite(profileKey, write.value);
   }
-  validateCompactionPlan(profileKey, plan.compaction);
 }
 function profileStateKey(profileKey) {
   return `${PROFILE_STATE_KEY_PREFIX}${profileKey}`;
@@ -799,30 +798,6 @@ function ModelContext(props) {
 function AppendingSet(props) {
   return {
     kind: "AppendingSet",
-    children: normalizeChildren(props.children)
-  };
-}
-function Compaction(props) {
-  return {
-    kind: "Compaction",
-    enabled: props.enabled,
-    triggerPercent: props.triggerPercent,
-    triggerTokens: props.triggerTokens,
-    reserveTokens: props.reserveTokens,
-    keepRecentTokens: props.keepRecentTokens,
-    keepRecentPercent: props.keepRecentPercent,
-    children: normalizeChildren(props.children)
-  };
-}
-function CompactionPrompt(props) {
-  return {
-    kind: "CompactionPrompt",
-    children: normalizeChildren(props.children)
-  };
-}
-function CompactionSummaryPrefix(props) {
-  return {
-    kind: "CompactionSummaryPrefix",
     children: normalizeChildren(props.children)
   };
 }
@@ -1204,15 +1179,6 @@ async function renderChild(state, zone, child) {
     state.plan.appendingMessages = [...state.plan.appendingMessages ?? [], ...onlyMessages(messages, "AppendingSet")];
     return [];
   }
-  if (child.kind === "Compaction") {
-    assertZone(zone, "root", "Compaction \u53EA\u80FD\u653E\u5728 ProfilePrompt \u9876\u5C42\u3002");
-    state.plan.compaction = await renderCompactionNode(state, child);
-    return [];
-  }
-  if (child.kind === "CompactionPrompt" || child.kind === "CompactionSummaryPrefix") {
-    assertZone(zone, "compaction", `${child.kind} \u53EA\u80FD\u653E\u5728 Compaction \u5185\u3002`);
-    return [];
-  }
   if (child.kind === "Reminder") {
     if (zone !== "appending" && zone !== "model") {
       throw new Error("Reminder \u53EA\u5141\u8BB8\u653E\u5728 AppendingSet \u6216 ModelContext \u5185\u3002");
@@ -1253,7 +1219,7 @@ async function renderChild(state, zone, child) {
     throw new Error("ToolCall \u53EA\u80FD\u4F5C\u4E3A AIMessage \u7684\u5B50\u8282\u70B9\u3002");
   }
   if (child.kind === "StringFragment") {
-    if (zone !== "message" && zone !== "system" && zone !== "assistant" && zone !== "reminder" && zone !== "watch" && zone !== "compaction") {
+    if (zone !== "message" && zone !== "system" && zone !== "assistant" && zone !== "reminder" && zone !== "watch") {
       throw new Error("string fragment \u53EA\u80FD\u653E\u5728\u652F\u6301 string \u7684\u8282\u70B9\u5185\u90E8\u3002");
     }
     return [];
@@ -1262,62 +1228,6 @@ async function renderChild(state, zone, child) {
     throw new Error(`${slotNodeName(child.slot)} \u53EA\u80FD\u4F5C\u4E3A PlanModeReminder \u7684\u76F4\u63A5\u5B50\u8282\u70B9\u3002`);
   }
   throw new Error(`\u672A\u77E5 Profile DSL \u8282\u70B9\uFF1A${JSON.stringify(child)}`);
-}
-async function renderCompactionNode(state, node) {
-  const plan = {
-    enabled: node.enabled,
-    triggerPercent: node.triggerPercent,
-    triggerTokens: node.triggerTokens,
-    reserveTokens: node.reserveTokens,
-    keepRecentTokens: node.keepRecentTokens,
-    keepRecentPercent: node.keepRecentPercent
-  };
-  for (const child of node.children.flatMap(flattenChildren)) {
-    if (child === null || child === void 0 || child === false || child === true) {
-      continue;
-    }
-    if (Array.isArray(child)) {
-      continue;
-    }
-    if (typeof child === "string" || typeof child === "number") {
-      if (String(child).trim() !== "") {
-        throw new Error("Compaction \u4E2D\u7684\u6587\u672C\u5FC5\u987B\u653E\u5728 CompactionPrompt \u6216 CompactionSummaryPrefix \u5185\u3002");
-      }
-      continue;
-    }
-    if (child.kind === "Fragment") {
-      const nested = await renderCompactionNode(state, {
-        kind: "Compaction",
-        children: child.children
-      });
-      plan.prompt = nested.prompt ?? plan.prompt;
-      plan.summaryPrefix = nested.summaryPrefix ?? plan.summaryPrefix;
-      continue;
-    }
-    if (child.kind === "If") {
-      if (!child.condition) {
-        continue;
-      }
-      const nested = await renderCompactionNode(state, {
-        kind: "Compaction",
-        children: child.children
-      });
-      plan.prompt = nested.prompt ?? plan.prompt;
-      plan.summaryPrefix = nested.summaryPrefix ?? plan.summaryPrefix;
-      continue;
-    }
-    if (child.kind === "CompactionPrompt") {
-      plan.prompt = await renderStringChildren(state, "compaction", child.children);
-      continue;
-    }
-    if (child.kind === "CompactionSummaryPrefix") {
-      plan.summaryPrefix = await renderStringChildren(state, "compaction", child.children);
-      continue;
-    }
-    throw new Error(`Compaction \u53EA\u80FD\u5305\u542B CompactionPrompt / CompactionSummaryPrefix\uFF0C\u4E0D\u80FD\u5305\u542B ${child.kind}\u3002`);
-  }
-  validateCompactionPlan(state.profileKey, plan);
-  return plan;
 }
 function validateSystemChildren(children) {
   for (const child of children.flatMap(flattenChildren)) {
@@ -2386,7 +2296,6 @@ var agentRuntimeBuiltins = {
         this.profilePrompt(),
         this.sessionContext(),
         this.transcriptPersistence(),
-        this.compact(),
         this.reportResult()
       ]
     };
@@ -2413,13 +2322,6 @@ var agentRuntimeBuiltins = {
   runtimeOnlyTranscript() {
     return builtinHook("runtimeOnlyTranscript", "ingestTurn", {
       transcript: "runtime_only"
-    });
-  },
-  compact() {
-    return builtinHook("compact", "prepareNextTurn", {
-      builtinBehavior: {
-        automaticCompaction: true
-      }
     });
   },
   reportResult() {
@@ -2451,6 +2353,7 @@ function builtinHook(name, stage, result = {}) {
 function defineAgentProfile(profile) {
   assertProfileManifest(profile.manifest);
   assertProfileSummarizer(profile.manifest.key, profile.summarizer);
+  validateCompactionPlan(profile.manifest.key, profile.compaction);
   assertProfileSidecars(profile.manifest.key, profile.allowedToolKeys, profile.sidecars);
   if (profile.context && profile.prepare) {
     throw new Error(`profile ${profile.manifest.key} \u4E0D\u80FD\u540C\u65F6\u5B9A\u4E49 context \u548C prepare\u3002`);
@@ -2686,9 +2589,6 @@ var components = {
   HistorySet,
   ModelContext,
   AppendingSet,
-  Compaction,
-  CompactionPrompt,
-  CompactionSummaryPrefix,
   Message,
   AIMessage,
   ToolCall,
@@ -2753,6 +2653,7 @@ var allowedToolKeys = [
   "get_session",
   "request_user_input"
 ];
+var LEADER_COMPACTION_KEEP_RECENT_TOKENS = 32e3;
 var leader_rp_profile_default = defineAgentProfile({
   manifest: profileManifest,
   inputSchema: InputSchema,
@@ -2768,6 +2669,10 @@ var leader_rp_profile_default = defineAgentProfile({
       },
       maxDialogueContentTokens: 8e4
     }
+  },
+  compaction: {
+    reserveTokens: 8e3,
+    keepRecentTokens: LEADER_COMPACTION_KEEP_RECENT_TOKENS
   },
   context(ctx) {
     return /* @__PURE__ */ jsxs(ProfilePrompt, { children: [

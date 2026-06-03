@@ -91,6 +91,8 @@ name: User Writer
             "novel-workflow-06-emulation-tick",
             "novel-workflow-09-chapter-writing",
             "novel-workflow-10-revision",
+            "novel-import-silly-tavern-card",
+            "SillyTavern角色卡导入",
             "novel-technique-commercial-rhythm",
             "skill-creator",
             "skill-creator-zh",

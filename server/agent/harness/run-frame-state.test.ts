@@ -22,6 +22,7 @@ describe("run frame state", () => {
             apiKey: "key",
             timeoutMs: 1000,
             requestOptions: {temperature: 0},
+            sessionContextEnabled: true,
             toolKeys: ["report_result"],
             profileKey: "test",
             profile: {} as RunFrame["profile"],
@@ -41,13 +42,13 @@ describe("run frame state", () => {
             apiKey: "key",
             timeoutMs: 1000,
             requestOptions: {temperature: 0},
+            sessionContextEnabled: true,
             toolKeys: ["report_result"],
             profileKey: "test",
             thinkingLevel: "off",
             turnIndex: 0,
             reportResultReminderSent: false,
             reportResultReminderEnabled: true,
-            automaticCompactionEnabled: false,
             pendingWritePlans: [],
         });
         expect(frame.messages).toEqual([message]);
@@ -130,6 +131,7 @@ function fakeFrame(): RunFrame {
         workspaceRoot: "workspace",
         systemPrompt: "",
         model: {} as RunFrame["model"],
+        sessionContextEnabled: true,
         toolKeys: [],
         profileKey: "test",
         profile: {} as RunFrame["profile"],
@@ -139,7 +141,6 @@ function fakeFrame(): RunFrame {
         turnIndex: 0,
         reportResultReminderSent: false,
         reportResultReminderEnabled: false,
-        automaticCompactionEnabled: false,
         pendingWritePlans: [],
     };
 }

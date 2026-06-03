@@ -60,7 +60,6 @@ export type RuntimeHookExecutionResult = {
     transcript?: "persist" | "runtime_only";
     profilePrompt?: boolean;
     sessionContext?: boolean;
-    automaticCompaction?: boolean;
     reportResultReminder?: boolean;
     runtimeMessages: AgentMessage[];
 };
@@ -119,6 +118,7 @@ export type RunFrame = {
     timeoutMs?: number | null;
     requestOptions?: Record<string, JsonValue>;
     compaction?: ProfileCompactionPlan;
+    sessionContextEnabled: boolean;
     toolKeys: string[];
     /** 当前 phase 实际可执行工具；为空时等于 toolKeys。 */
     executionToolKeys?: string[];
@@ -133,7 +133,6 @@ export type RunFrame = {
     turnIndex: number;
     reportResultReminderSent: boolean;
     reportResultReminderEnabled: boolean;
-    automaticCompactionEnabled: boolean;
     /** sidecar run 强制不把 assistant/toolResult transcript 写入 session。 */
     forceRuntimeOnlyTranscript?: boolean;
     /** sidecar run 默认不向公开事件流发送内部 turn 事件。 */

@@ -160,7 +160,17 @@
 - [ ] mind.md 任务当前思维
 - [ ] compact 大小
 - [ ] rp session
-- [ ] compaction 要有提示
+- [ ] compaction 要有提示，也要能配置
+- [ ] 整理一下模板
+- [ ] gm 要引导式
+- [ ] rp writer 文风
+- [ ] rp writer 需要写文件工具。需要 lorebook 文件（由 leader 转述比较好）
+- [ ] 新增 rp.director
+- [ ] workflow
+- [ ]
+- [ ]
+- [ ]
+- [ ]
 - [ ]
 - [ ]
 - [ ]

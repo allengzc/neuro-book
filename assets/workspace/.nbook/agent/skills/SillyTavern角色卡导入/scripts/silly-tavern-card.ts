@@ -40,6 +40,13 @@ type EntryCategory =
 
 type ClassificationConfidence = "high" | "medium" | "low";
 
+type LorebookImportTarget = {
+    root: string;
+    type: string;
+    subtype: string | null;
+    status: "draft" | "pending" | "archived";
+};
+
 type MappingSummary = {
     categories: Record<EntryCategory, number>;
     lorebookTargets: Record<string, number>;
@@ -71,6 +78,7 @@ export type EntryClassification = {
     confidence: ClassificationConfidence;
     reason: string;
     markerKeys: string[];
+    reviewFlags: string[];
 };
 
 export type CardInspection = {
@@ -104,27 +112,27 @@ const IMPORT_CATEGORY_TO_LOREBOOK_ROOT: Record<EntryCategory, string> = {
     character: "lorebook/character",
     location: "lorebook/location",
     faction: "lorebook/faction",
-    rule: "lorebook/rule",
+    rule: "lorebook/world/rule",
     item: "lorebook/item",
-    event: "lorebook/note",
-    system: "lorebook/rule",
+    event: "lorebook/event",
+    system: "lorebook/system",
     formatting: "lorebook/note",
     unknown: "lorebook/note",
     "dynamic-mvu": "reference/silly-tavern",
     "dynamic-prompt": "reference/silly-tavern",
 };
-const IMPORT_CATEGORY_TO_NODE_TYPE: Record<EntryCategory, string> = {
-    character: "character",
-    location: "location",
-    faction: "faction",
-    rule: "rule",
-    item: "item",
-    event: "note",
-    system: "rule",
-    formatting: "note",
-    unknown: "note",
-    "dynamic-mvu": "note",
-    "dynamic-prompt": "note",
+const IMPORT_CATEGORY_TO_NODE_TYPE: Record<EntryCategory, {type: string; subtype: string | null}> = {
+    character: {type: "character", subtype: null},
+    location: {type: "location", subtype: null},
+    faction: {type: "faction", subtype: null},
+    rule: {type: "world", subtype: "rule"},
+    item: {type: "item", subtype: null},
+    event: {type: "event", subtype: null},
+    system: {type: "system", subtype: null},
+    formatting: {type: "note", subtype: null},
+    unknown: {type: "note", subtype: null},
+    "dynamic-mvu": {type: "note", subtype: null},
+    "dynamic-prompt": {type: "note", subtype: null},
 };
 const DYNAMIC_MARKERS: Array<{key: string; pattern: RegExp; category: EntryCategory}> = [
     {key: "initVar", pattern: /\[initvar\]|<initvar\b/i, category: "dynamic-mvu"},
@@ -146,6 +154,10 @@ const SEMANTIC_RULES: Array<{category: EntryCategory; pattern: RegExp; reason: s
     {category: "event", pattern: /(^|[-_【\s])(?:事件|剧情|任务|主线|支线|历史|传说|事故|战争|仪式|开场|序章)(?:[-_】\s]|$)|发生于|导火索/u, reason: "命中事件/剧情背景特征。"},
     {category: "system", pattern: /(^|[-_【\s])(?:系统|玩法|面板|状态栏|好感度|变量|背包|任务栏|日程|时间)(?:[-_】\s]|$)/u, reason: "命中系统/玩法说明特征。"},
     {category: "formatting", pattern: /(^|[-_【\s])(?:格式|回复格式|输出格式|文风|写作规则|禁止|示例回复|状态栏格式)(?:[-_】\s]|$)|不要输出|必须输出/u, reason: "命中格式/写作约束特征。"},
+];
+const REVIEW_MARKERS: Array<{key: string; pattern: RegExp}> = [
+    {key: "status-ui", pattern: /状态栏|状态条|status\s*bar|UI|界面|面板格式|状态栏格式/i},
+    {key: "runtime-meter", pattern: /好感度|变量栏|任务栏格式|日程面板|背包栏|数值栏|属性栏/u},
 ];
 
 const program = new Command();
@@ -342,6 +354,7 @@ function classifyEntry(rawEntry: unknown, index: number): EntryClassification {
     const text = `${comment}\n${keys}\n${content}`;
     const matchedDynamicMarkers = DYNAMIC_MARKERS.filter((marker) => marker.pattern.test(text));
     const semanticMatches = SEMANTIC_RULES.filter((rule) => rule.pattern.test(text));
+    const reviewFlags = REVIEW_MARKERS.filter((marker) => marker.pattern.test(text)).map((marker) => marker.key);
     const categories = uniqueCategories([
         ...matchedDynamicMarkers.map((marker) => marker.category),
         ...semanticMatches.map((rule) => rule.category),
@@ -364,6 +377,7 @@ function classifyEntry(rawEntry: unknown, index: number): EntryClassification {
         confidence,
         reason,
         markerKeys: matchedDynamicMarkers.map((marker) => marker.key),
+        reviewFlags,
     };
 }
 
@@ -385,10 +399,10 @@ function buildMappingSummary(entries: EntryClassification[]): MappingSummary {
             summary.skippedDynamic += 1;
             continue;
         }
-        if (entry.primaryCategory === "unknown") {
+        if (needsClassificationReview(entry)) {
             summary.needsReview += 1;
         }
-        const target = IMPORT_CATEGORY_TO_LOREBOOK_ROOT[entry.primaryCategory];
+        const target = resolveLorebookImportTarget(entry).root;
         summary.lorebookTargets[target] = (summary.lorebookTargets[target] ?? 0) + 1;
     }
     return summary;
@@ -410,6 +424,45 @@ function classifyConfidence(primaryCategory: EntryCategory, dynamicMatches: numb
         return dynamicMatches > 0 ? "high" : "medium";
     }
     return semanticMatches > 0 ? "medium" : "low";
+}
+
+function resolveLorebookImportTarget(classified: EntryClassification): LorebookImportTarget {
+    if (classified.primaryCategory === "unknown" || shouldImportAsPendingNote(classified)) {
+        return {
+            root: "lorebook/note",
+            type: "note",
+            subtype: null,
+            status: classified.enabled ? "pending" : "archived",
+        };
+    }
+    const node = IMPORT_CATEGORY_TO_NODE_TYPE[classified.primaryCategory];
+    return {
+        root: IMPORT_CATEGORY_TO_LOREBOOK_ROOT[classified.primaryCategory],
+        type: node.type,
+        subtype: node.subtype,
+        status: classified.enabled ? "draft" : "archived",
+    };
+}
+
+function shouldImportAsPendingNote(classified: EntryClassification): boolean {
+    if (classified.confidence === "low") {
+        return true;
+    }
+    return needsClassificationReview(classified);
+}
+
+function needsClassificationReview(classified: EntryClassification): boolean {
+    if (classified.primaryCategory === "unknown") {
+        return true;
+    }
+    if (classified.categories.includes("formatting")) {
+        return true;
+    }
+    if (classified.reviewFlags.length > 0) {
+        return true;
+    }
+    const stableCategories = classified.categories.filter((category) => !DYNAMIC_CATEGORIES.has(category));
+    return stableCategories.length > 1;
 }
 
 function readStringArray(value: unknown): string[] {
@@ -508,33 +561,33 @@ async function writeUnpackDirectory(target: {workspaceRoot: string; cardRoot: st
     const helperScripts = readArray(tavernHelper.scripts);
     const helperVariables = readObject(tavernHelper.variables);
     const written: string[] = [];
-    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "raw", "card.json"), JSON.stringify(loaded.raw, null, 2) + "\n", force));
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest}, path.join(target.cardRoot, "raw", "card.json"), JSON.stringify(loaded.raw, null, 2) + "\n", force));
     if (loaded.sourceType === "png") {
-        written.push(await writeGeneratedBinary({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "raw", "source.png"), await fs.readFile(loaded.sourcePath), force));
+        written.push(await writeGeneratedBinary({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest}, path.join(target.cardRoot, "raw", "source.png"), await fs.readFile(loaded.sourcePath), force));
     }
-    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "inspect.json"), JSON.stringify(inspection, null, 2) + "\n", force));
-    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "overview.md"), renderInspectMarkdown(inspection), force));
-    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "worldbook", "entries.json"), JSON.stringify(worldbookEntries, null, 2) + "\n", force));
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest}, path.join(target.cardRoot, "inspect.json"), JSON.stringify(inspection, null, 2) + "\n", force));
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest}, path.join(target.cardRoot, "overview.md"), renderInspectMarkdown(inspection), force));
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest}, path.join(target.cardRoot, "worldbook", "entries.json"), JSON.stringify(worldbookEntries, null, 2) + "\n", force));
     for (const item of sortWorldbookEntries(worldbookEntries)) {
         const classified = classifyEntry(item.entry, item.originalIndex);
         const fileName = `${formatInsertionOrder(item.entry)}-${slugify(classified.comment) || "entry"}.md`;
-        written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "worldbook", "entries", fileName), renderWorldbookEntryArchive(item.entry, classified), force));
+        written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest}, path.join(target.cardRoot, "worldbook", "entries", fileName), renderWorldbookEntryArchive(item.entry, classified), force));
     }
-    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "extensions", "extensions.json"), JSON.stringify(extensions, null, 2) + "\n", force));
-    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "extensions", "regex_scripts.json"), JSON.stringify(regexScripts, null, 2) + "\n", force));
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest}, path.join(target.cardRoot, "extensions", "extensions.json"), JSON.stringify(extensions, null, 2) + "\n", force));
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest}, path.join(target.cardRoot, "extensions", "regex_scripts.json"), JSON.stringify(regexScripts, null, 2) + "\n", force));
     for (const [index, script] of regexScripts.entries()) {
-        written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "extensions", "regex_scripts", `${String(index + 1).padStart(3, "0")}-${slugify(readExtensionName(script, `regex-${index + 1}`))}.json`), JSON.stringify(script, null, 2) + "\n", force));
+        written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest}, path.join(target.cardRoot, "extensions", "regex_scripts", `${String(index + 1).padStart(3, "0")}-${slugify(readExtensionName(script, `regex-${index + 1}`))}.json`), JSON.stringify(script, null, 2) + "\n", force));
     }
-    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "extensions", "tavern_helper.json"), JSON.stringify(tavernHelper, null, 2) + "\n", force));
-    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "extensions", "tavern_helper.scripts.json"), JSON.stringify(helperScripts, null, 2) + "\n", force));
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest}, path.join(target.cardRoot, "extensions", "tavern_helper.json"), JSON.stringify(tavernHelper, null, 2) + "\n", force));
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest}, path.join(target.cardRoot, "extensions", "tavern_helper.scripts.json"), JSON.stringify(helperScripts, null, 2) + "\n", force));
     for (const [index, script] of helperScripts.entries()) {
-        written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "extensions", "tavern_helper", "scripts", `${String(index + 1).padStart(3, "0")}-${slugify(readExtensionName(script, `script-${index + 1}`))}.json`), JSON.stringify(script, null, 2) + "\n", force));
+        written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest}, path.join(target.cardRoot, "extensions", "tavern_helper", "scripts", `${String(index + 1).padStart(3, "0")}-${slugify(readExtensionName(script, `script-${index + 1}`))}.json`), JSON.stringify(script, null, 2) + "\n", force));
     }
-    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "extensions", "tavern_helper.variables.json"), JSON.stringify(helperVariables, null, 2) + "\n", force));
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest}, path.join(target.cardRoot, "extensions", "tavern_helper.variables.json"), JSON.stringify(helperVariables, null, 2) + "\n", force));
     for (const [key, value] of Object.entries(helperVariables)) {
-        written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "extensions", "tavern_helper", "variables", `${slugify(key)}.json`), JSON.stringify({key, value}, null, 2) + "\n", force));
+        written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest}, path.join(target.cardRoot, "extensions", "tavern_helper", "variables", `${slugify(key)}.json`), JSON.stringify({key, value}, null, 2) + "\n", force));
     }
-    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest, inspection, loaded}, path.join(target.cardRoot, "unpack-report.md"), renderUnpackReport(inspection, written.map((item) => toProjectRelativePath(target.workspaceRoot, item))), force));
+    written.push(await writeGeneratedText({root: target.cardRoot, workspaceRoot: target.workspaceRoot, manifest}, path.join(target.cardRoot, "unpack-report.md"), renderUnpackReport(inspection, written.map((item) => toProjectRelativePath(target.workspaceRoot, item))), force));
     return written;
 }
 
@@ -567,15 +620,14 @@ async function importWorldbookEntries(unpacked: UnpackedCard, force: boolean): P
         if (DYNAMIC_CATEGORIES.has(classified.primaryCategory)) {
             continue;
         }
-        const lorebookRoot = IMPORT_CATEGORY_TO_LOREBOOK_ROOT[classified.primaryCategory];
-        const nodeType = IMPORT_CATEGORY_TO_NODE_TYPE[classified.primaryCategory];
+        const importTarget = resolveLorebookImportTarget(classified);
         const fileSlug = slugify(`${formatInsertionOrder(entry)}-${unpacked.inspection.slug}-${classified.comment}`);
-        const target = path.join(unpacked.workspaceRoot, lorebookRoot, fileSlug, "index.md");
+        const target = path.join(unpacked.workspaceRoot, importTarget.root, fileSlug, "index.md");
         written.push(await writeGeneratedText(unpacked, target, renderMarkdown({
             title: classified.comment,
-            type: nodeType,
-            subtype: null,
-            status: classified.enabled ? "draft" : "archived",
+            type: importTarget.type,
+            subtype: importTarget.subtype,
+            status: importTarget.status,
             icon: null,
             aliases: [classified.comment],
             tags: ["SillyTavern", "worldbook", classified.primaryCategory],
@@ -604,6 +656,7 @@ async function importWorldbookEntries(unpacked: UnpackedCard, force: boolean): P
                         confidence: classified.confidence,
                         reason: classified.reason,
                         markerKeys: classified.markerKeys,
+                        reviewFlags: classified.reviewFlags,
                     },
                 },
             },
@@ -619,11 +672,12 @@ async function writeRpExtension(unpacked: UnpackedCard, force: boolean): Promise
     const rpRoot = path.join(unpacked.root, "simulation-migration");
     const written: string[] = [];
     const files: Array<[string, string]> = [
-        ["dynamic-prompt.md", renderDynamicPromptArchive(unpacked.inspection, unpacked.loaded)],
-        ["initvar.md", renderEntryArchive(unpacked.loaded, ["dynamic-mvu"])],
-        ["update-rules.md", renderEntryArchive(unpacked.loaded, ["dynamic-mvu"])],
-        ["status-ui.md", renderEntryArchive(unpacked.loaded, ["dynamic-prompt"])],
-        ["scripts.md", renderScriptsArchive(unpacked.inspection, unpacked.loaded)],
+        ["README.md", renderSimulationMigrationReadme(unpacked.inspection)],
+        ["simulator-candidates.md", renderSimulatorCandidates(unpacked.inspection, unpacked.loaded)],
+        ["writer-candidates.md", renderWriterCandidates(unpacked.inspection, unpacked.loaded)],
+        ["subject-candidates.md", renderSubjectCandidates(unpacked.inspection)],
+        ["entity-candidates.md", renderEntityCandidates(unpacked.inspection)],
+        ["unsupported-runtime.md", renderUnsupportedRuntimeArchive(unpacked.inspection, unpacked.loaded)],
     ];
     for (const [fileName, content] of files) {
         written.push(await writeGeneratedText(unpacked, path.join(rpRoot, fileName), content, force));
@@ -708,7 +762,7 @@ function renderInspectMarkdown(inspection: CardInspection): string {
         .map(([target, count]) => `- ${target}: ${count}`)
         .join("\n");
     const entryLines = inspection.entries.slice(0, 200)
-        .map((entry) => `| ${escapeTable(entry.uid)} | ${escapeTable(entry.comment)} | ${entry.enabled ? "yes" : "no"} | ${entry.constant ? "yes" : "no"} | ${escapeTable(entry.primaryCategory)} | ${entry.confidence} | ${escapeTable(entry.categories.join(", "))} | ${escapeTable(entry.reason)} |`)
+        .map((entry) => `| ${escapeTable(entry.uid)} | ${escapeTable(entry.comment)} | ${entry.enabled ? "yes" : "no"} | ${entry.constant ? "yes" : "no"} | ${escapeTable(entry.primaryCategory)} | ${entry.confidence} | ${escapeTable(entry.categories.join(", "))} | ${escapeTable(entry.reason)} | ${escapeTable(entry.reviewFlags.join(", ")) || "-"} |`)
         .join("\n");
     return `# ${markdownHeadingText(inspection.name)} Overview
 
@@ -748,9 +802,9 @@ ${targetLines || "- none"}
 
 ## Entries
 
-| uid | comment | enabled | constant | primary | confidence | categories | reason |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-${entryLines || "| - | - | - | - | - | - | - | - |"}
+| uid | comment | enabled | constant | primary | confidence | categories | reason | review flags |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+${entryLines || "| - | - | - | - | - | - | - | - | - |"}
 
 ## Warnings
 
@@ -777,15 +831,28 @@ function renderImportReport(inspection: CardInspection, written: string[], mappi
     const targetLines = Object.entries(mappingSummary.lorebookTargets)
         .map(([target, count]) => `- ${target}: ${count}`)
         .join("\n");
+    const categoryLines = ENTRY_CATEGORIES
+        .filter((category) => mappingSummary.categories[category] > 0)
+        .map((category) => `- ${category}: ${mappingSummary.categories[category]}`)
+        .join("\n");
+    const affectedRootLines = Object.keys(mappingSummary.lorebookTargets)
+        .sort()
+        .map((target) => `- ${target}`)
+        .join("\n");
     const dynamicEntries = inspection.entries
         .filter((entry) => DYNAMIC_CATEGORIES.has(entry.primaryCategory))
         .slice(0, 100)
         .map((entry) => `- ${entry.uid}: ${entry.comment} (${entry.primaryCategory}; ${entry.markerKeys.join(", ") || "no marker key"})`)
         .join("\n");
     const reviewEntries = inspection.entries
-        .filter((entry) => entry.primaryCategory === "unknown")
+        .filter((entry) => needsClassificationReview(entry))
         .slice(0, 100)
-        .map((entry) => `- ${entry.uid}: ${entry.comment}`)
+        .map((entry) => `- ${entry.uid}: ${entry.comment} (${entry.primaryCategory}; confidence=${entry.confidence}; categories=${entry.categories.join(", ")}; flags=${entry.reviewFlags.join(", ") || "none"}; reason=${entry.reason})`)
+        .join("\n");
+    const pendingEntries = inspection.entries
+        .filter((entry) => !DYNAMIC_CATEGORIES.has(entry.primaryCategory) && resolveLorebookImportTarget(entry).status === "pending")
+        .slice(0, 100)
+        .map((entry) => `- ${entry.uid}: ${entry.comment} -> lorebook/note (pending)`)
         .join("\n");
     return `# ${markdownHeadingText(inspection.name)} Import Report
 
@@ -794,6 +861,8 @@ function renderImportReport(inspection: CardInspection, written: string[], mappi
 - kind: ${inspection.kind}
 - worldbook imported: ${inspection.kind === "character-card" ? "yes" : "no"}
 - dynamic runtime executed: no
+- subject knowledge generated: no
+- simulation entities generated: no
 
 ## Import Mapping
 
@@ -802,23 +871,48 @@ ${targetLines || "- none"}
 - skipped dynamic entries: ${mappingSummary.skippedDynamic}
 - needs review: ${mappingSummary.needsReview}
 
+### Classification Stats
+
+${categoryLines || "- none"}
+
+### Affected Lorebook Roots
+
+${affectedRootLines || "- none"}
+
 ## Written Files
 
 ${written.map((filePath) => `- ${filePath}`).join("\n") || "- none"}
 
-## Skipped Dynamic Content
+## Dynamic Migration Summary
 
 - MVU update markers: ${inspection.markers.updateVariable ?? 0}
 - JSON Patch markers: ${inspection.markers.jsonPatch ?? 0}
 - EJS markers: ${inspection.markers.ejs ?? 0}
 - prompt injection markers: ${inspection.markers.inject ?? 0}
 - render/UI markers: ${inspection.markers.render ?? 0}
+- regex scripts: ${inspection.counts.regexScripts}
+- tavern helper scripts: ${inspection.counts.tavernHelperScripts}
+- tavern helper variables: ${inspection.counts.tavernHelperVariables}
+
+## Skipped Dynamic Content
 
 ${dynamicEntries || "- none"}
 
-## Needs Review
+## Classification Review Queue
 
 ${reviewEntries || "- none"}
+
+## Pending Lorebook Notes
+
+${pendingEntries || "- none"}
+
+## Recommended Next Steps
+
+- Run \`workspace node validate\` on the affected lorebook roots above.
+- Review the classification queue before treating pending notes as canon.
+- Do not copy god-view worldbook content directly into \`simulation/subjects/*/knowledge.md\`.
+- If the project needs RP or world simulation, use \`novel-workflow-05-emulation-bootstrap\` after reviewing this report.
+- If the user wants plot progression, use \`novel-workflow-06-emulation-tick\` after simulation is initialized.
 `;
 }
 
@@ -834,6 +928,7 @@ function renderWorldbookEntryArchive(entry: unknown, classified: EntryClassifica
         confidence: classified.confidence,
         reason: classified.reason,
         markerKeys: classified.markerKeys,
+        reviewFlags: classified.reviewFlags,
         source: "silly-tavern-worldbook",
         st: worldbookEntryMetadata(raw),
     }, `# ${markdownHeadingText(classified.comment)}
@@ -863,22 +958,139 @@ function worldbookEntryMetadata(entry: Record<string, unknown>): Record<string, 
     return metadata;
 }
 
-function renderDynamicPromptArchive(inspection: CardInspection, loaded: RawCardInput): string {
-    return `# ${markdownHeadingText(inspection.name)} Dynamic Prompt Archive
+function renderSimulationMigrationReadme(inspection: CardInspection): string {
+    return `# ${markdownHeadingText(inspection.name)} Simulation Migration
 
-本文件归档 ST-Prompt-Template、prompt injection 和条件世界书相关条目。第一版不执行这些逻辑。
+本目录是 SillyTavern 动态机制迁移参考，不是可直接运行的 NeuroBook simulation。
 
-${renderEntryArchive(loaded, ["dynamic-prompt"])}
+- 不创建 \`simulation/subjects/\`、\`simulation/entities/\` 或 \`simulation/runs/\`。
+- 不执行 JavaScript、regex、EJS、MVU、Tavern Helper 或外部请求。
+- 只把候选材料按迁移目标分组，后续由 Agent / 作者人工过滤。
+- subject-facing \`knowledge.md\` 必须从角色可知信息重写，不能直接复制上帝视角 worldbook。
+
+## Files
+
+- \`simulator-candidates.md\`: 可转写给 simulator leader 的规则、状态更新和玩法候选。
+- \`writer-candidates.md\`: 只影响用户可见正文的风格、格式或文风候选。
+- \`subject-candidates.md\`: 可能转成 subject events / knowledge / mind 的角色视角候选。
+- \`entity-candidates.md\`: 可能需要实例化为 \`simulation/entities/\` 的状态对象候选。
+- \`unsupported-runtime.md\`: 暂不迁移的 ST runtime、脚本、regex 和 UI 状态栏材料。
+
+## Source Summary
+
+- worldbook entries: ${inspection.counts.worldbookEntries}
+- skipped dynamic entries: ${inspection.mappingSummary.skippedDynamic}
+- regex scripts: ${inspection.counts.regexScripts}
+- tavern helper scripts: ${inspection.counts.tavernHelperScripts}
+- tavern helper variables: ${inspection.counts.tavernHelperVariables}
 `;
 }
 
-function renderEntryArchive(loaded: RawCardInput, categories: string[]): string {
+function renderSimulatorCandidates(inspection: CardInspection, loaded: RawCardInput): string {
+    return `# ${markdownHeadingText(inspection.name)} Simulator Candidates
+
+这些材料可能转写到 \`simulation/simulator.md\`、system lorebook 或后续 emulation bootstrap。不要直接复制动态指令。
+
+## System / Rule Entries
+
+${renderEntryArchive(loaded, (entry) => entry.categories.some((category) => category === "system" || category === "rule"))}
+
+## MVU / State Update Entries
+
+${renderEntryArchive(loaded, (entry) => entry.categories.includes("dynamic-mvu"))}
+`;
+}
+
+function renderWriterCandidates(inspection: CardInspection, loaded: RawCardInput): string {
+    return `# ${markdownHeadingText(inspection.name)} Writer Candidates
+
+这些材料只在确认为作品级、静态、可复用的写作说明后，才考虑转写到 \`lorebook/instruction/\` 或 \`simulation/writer.md\`。
+
+${renderEntryArchive(loaded, (entry) => entry.categories.some((category) => category === "formatting" || category === "dynamic-prompt"))}
+`;
+}
+
+function renderSubjectCandidates(inspection: CardInspection): string {
+    const lines = inspection.entries
+        .filter((entry) => entry.primaryCategory === "character" || entry.categories.includes("character"))
+        .slice(0, 100)
+        .map((entry) => `- ${entry.uid}: ${entry.comment} (${entry.primaryCategory}; confidence=${entry.confidence})`)
+        .join("\n");
+    return `# ${markdownHeadingText(inspection.name)} Subject Candidates
+
+这些条目可能帮助后续创建 \`simulation/subjects/\`，但必须按角色可知边界重写。
+
+## Candidate Entries
+
+${lines || "- none"}
+
+## Migration Notes
+
+- \`subject.md\`: 可写稳定人格、行动原则和语气。
+- \`events.md\`: 只记录 subject 亲历、看到或被告知的事件。
+- \`knowledge.md\`: 只写 subject 知道或误解的事实，不复制上帝视角秘密。
+- \`mind.md\`: 写当前心理、动机和疑虑。
+- \`state.md\`: 由 simulator leader 裁决后维护。
+`;
+}
+
+function renderEntityCandidates(inspection: CardInspection): string {
+    const lines = inspection.entries
+        .filter((entry) => entry.primaryCategory === "item" || entry.categories.includes("item") || entry.categories.includes("system"))
+        .slice(0, 100)
+        .map((entry) => `- ${entry.uid}: ${entry.comment} (${entry.primaryCategory}; confidence=${entry.confidence})`)
+        .join("\n");
+    return `# ${markdownHeadingText(inspection.name)} Entity Candidates
+
+这些材料可能涉及需要状态追踪的唯一物品、隐藏状态、变量化道具或系统对象。
+
+## Candidate Entries
+
+${lines || "- none"}
+
+## Instance Rule
+
+普通原型留在 \`lorebook/\`。只有存在独立状态、隐藏真相、唯一性、损坏、激活、位置或持有人差异时，才在 \`simulation/entities/\` 建立实例。
+`;
+}
+
+function renderUnsupportedRuntimeArchive(inspection: CardInspection, loaded: RawCardInput): string {
+    const data = readObject(loaded.card.data);
+    const extensions = readObject(data.extensions ?? loaded.card.extensions);
+    return `# ${markdownHeadingText(inspection.name)} Unsupported Runtime
+
+这些内容不会被第一版导入器执行，也不会自动进入稳定 lorebook。
+
+## Dynamic Prompt / Template Entries
+
+${renderEntryArchive(loaded, (entry) => entry.categories.includes("dynamic-prompt"))}
+
+## MVU / Variable Update Entries
+
+${renderEntryArchive(loaded, (entry) => entry.categories.includes("dynamic-mvu"))}
+
+## Scripts And Extensions
+
+- regex_scripts: ${inspection.counts.regexScripts}
+- tavern_helper.scripts: ${inspection.counts.tavernHelperScripts}
+- tavern_helper.variables: ${inspection.counts.tavernHelperVariables}
+
+\`\`\`json
+${JSON.stringify({
+        regex_scripts: extensions.regex_scripts ?? [],
+        tavern_helper: readObject(extensions.tavern_helper),
+    }, null, 2)}
+\`\`\`
+`;
+}
+
+function renderEntryArchive(loaded: RawCardInput, predicate: (entry: EntryClassification) => boolean): string {
     const data = readObject(loaded.card.data);
     const characterBook = readObject(data.character_book ?? loaded.card.character_book);
     const entries = readArray(characterBook.entries);
     const matched = entries
         .map((entry, index) => ({raw: readObject(entry), classified: classifyEntry(entry, index)}))
-        .filter((item) => item.classified.categories.some((category) => categories.includes(category)));
+        .filter((item) => predicate(item.classified));
     return matched.map((item) => {
         const content = readString(item.raw.content);
         const fence = markdownFence(content);
@@ -888,6 +1100,7 @@ function renderEntryArchive(loaded: RawCardInput, categories: string[]): string 
 - primary: ${item.classified.primaryCategory}
 - confidence: ${item.classified.confidence}
 - categories: ${item.classified.categories.join(", ")}
+- review flags: ${item.classified.reviewFlags.join(", ") || "none"}
 - reason: ${item.classified.reason}
 
 ${fence}text
@@ -895,24 +1108,6 @@ ${content}
 ${fence}
 `;
     }).join("\n") || "暂无匹配条目。\n";
-}
-
-function renderScriptsArchive(inspection: CardInspection, loaded: RawCardInput): string {
-    const data = readObject(loaded.card.data);
-    const extensions = readObject(data.extensions ?? loaded.card.extensions);
-    return `# ${markdownHeadingText(inspection.name)} Scripts Archive
-
-regex_scripts: ${inspection.counts.regexScripts}
-
-tavern_helper.scripts: ${inspection.counts.tavernHelperScripts}
-
-\`\`\`json
-${JSON.stringify({
-        regex_scripts: extensions.regex_scripts ?? [],
-        tavern_helper: readObject(extensions.tavern_helper).scripts ?? [],
-    }, null, 2)}
-\`\`\`
-`;
 }
 
 function renderMarkdown(frontmatter: Record<string, unknown>, body: string): string {

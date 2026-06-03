@@ -11,9 +11,6 @@ const components = {
     HistorySet: dsl.HistorySet,
     ModelContext: dsl.ModelContext,
     AppendingSet: dsl.AppendingSet,
-    Compaction: dsl.Compaction,
-    CompactionPrompt: dsl.CompactionPrompt,
-    CompactionSummaryPrefix: dsl.CompactionSummaryPrefix,
     Message: dsl.Message,
     AIMessage: dsl.AIMessage,
     ToolCall: dsl.ToolCall,
@@ -74,9 +71,6 @@ export namespace JSX {
         HistorySet: Parameters<typeof dsl.HistorySet>[0];
         ModelContext: Parameters<typeof dsl.ModelContext>[0];
         AppendingSet: Parameters<typeof dsl.AppendingSet>[0];
-        Compaction: Parameters<typeof dsl.Compaction>[0];
-        CompactionPrompt: Parameters<typeof dsl.CompactionPrompt>[0];
-        CompactionSummaryPrefix: Parameters<typeof dsl.CompactionSummaryPrefix>[0];
         Message: Parameters<typeof dsl.Message>[0];
         AIMessage: Parameters<typeof dsl.AIMessage>[0];
         ToolCall: Parameters<typeof dsl.ToolCall>[0];
