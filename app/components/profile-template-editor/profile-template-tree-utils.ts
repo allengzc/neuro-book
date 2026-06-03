@@ -120,8 +120,8 @@ export function canHaveChildren(type: ProfileTemplateNodeType): boolean {
         "Import",
         "LinkedAgentsSummary",
         "LinkedAgentsReminder",
-        "WorkdirReminder",
-        "ProjectWorkspaceReminder",
+        "RuntimeLocationReminder",
+        "WorkspaceFocusReminder",
         "PlanModeAvailabilityReminder",
         "TaskReminder",
         "ActivePlanModeReminder",
@@ -243,8 +243,8 @@ export function isPlanModeSlotNodeType(type: ProfileTemplateNodeType): boolean {
  */
 export function isReminderNodeType(type: ProfileTemplateNodeType): boolean {
     return type === "LinkedAgentsReminder"
-        || type === "WorkdirReminder"
-        || type === "ProjectWorkspaceReminder"
+        || type === "RuntimeLocationReminder"
+        || type === "WorkspaceFocusReminder"
         || type === "PlanModeAvailabilityReminder"
         || type === "TaskReminder"
         || type === "PlanModeReminder"

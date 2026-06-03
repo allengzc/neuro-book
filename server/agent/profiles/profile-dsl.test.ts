@@ -23,8 +23,8 @@ import {
     PlanModeReentry,
     PlanModeSparse,
     ProfilePrompt,
-    ProjectWorkspaceReminder,
     Reminder,
+    RuntimeLocationReminder,
     SqlSchemaSummary,
     System,
     SkillCatalog,
@@ -34,7 +34,7 @@ import {
     validateProfileTurnPlan,
     Watch,
     VariableSchema,
-    WorkdirReminder,
+    WorkspaceFocusReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
@@ -721,8 +721,8 @@ describe("profile TSX DSL", () => {
                         }),
                         AppendingSet({
                             children: [
-                                WorkdirReminder(),
-                                ProjectWorkspaceReminder(),
+                                RuntimeLocationReminder(),
+                                WorkspaceFocusReminder(),
                                 PlanModeAvailabilityReminder(),
                                 LinkedAgentsReminder(),
                                 TaskReminder({repeatEveryTurns: 8}),
@@ -737,7 +737,10 @@ describe("profile TSX DSL", () => {
 
         const plan = await profile.prepare!({
             ...context(),
-            vars: createTestVariableAccessor({"client.currentProjectWorkspace": "workspace/novel-7"}),
+            vars: createTestVariableAccessor({
+                "client.currentProjectWorkspace": "workspace/novel-7",
+                "client.studio.selectedFilePath": "manuscript/001-opening/index.md",
+            }),
             session: {
                 ...context().session,
                 projectPath: "workspace/novel-7",
@@ -762,10 +765,14 @@ describe("profile TSX DSL", () => {
 
         expect(modelText).toBe("SQL_SCHEMA");
         expect(modelText).not.toContain("<dynamic-context>");
-        expect(appendingText).toContain("Current Workdir: workspace/");
-        expect(appendingText).toContain("This is the tool cwd itself");
+        expect(appendingText).toContain("Runtime Location:");
+        expect(appendingText).toContain("- Tool cwd: workspace/");
+        expect(appendingText).toContain("- Source root:");
+        expect(appendingText).toContain("- Reference root:");
+        expect(appendingText).toContain("Current Workspace Focus:");
         expect(appendingText).toContain("Current Project Workspace: workspace/novel-7");
-        expect(appendingText).toContain("Use novel-7/lorebook/... or novel-7/manuscript/...");
+        expect(appendingText).toContain("use novel-7/lorebook/... or novel-7/manuscript/...");
+        expect(appendingText).toContain("Current selected file: novel-7/manuscript/001-opening/index.md");
         expect(appendingText).not.toContain("Plan mode is inactive");
         expect(appendingText).toContain("Current linked agents:");
         expect(appendingText).toContain("Current task list: Test plan");
@@ -799,30 +806,33 @@ describe("profile TSX DSL", () => {
         expect((plan.appendingMessages ?? []).map(messageText).join("\n")).toContain("Plan mode is inactive");
     });
 
-    it("ProjectWorkspaceReminder 仅在 Current Project Workspace 变化时注入切换提醒", async () => {
+    it("WorkspaceFocusReminder 在 Project Workspace 或选中文件变化时注入焦点提醒", async () => {
         const profile = defineAgentProfile({
             manifest: {
-                key: "test.project-workspace-reminder",
-                name: "Project Workspace Reminder",
+                key: "test.workspace-focus-reminder",
+                name: "Workspace Focus Reminder",
             },
             inputSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
                     children: AppendingSet({
-                        children: ProjectWorkspaceReminder(),
+                        children: WorkspaceFocusReminder(),
                     }),
                 });
             },
         });
         const base = context();
         const previousState = {
-            "profileState.test.project-workspace-reminder": {
+            "profileState.test.workspace-focus-reminder": {
                 reminders: {
-                    "project-workspace": {
+                    "workspace-focus": {
                         hasValue: true,
-                        value: "workspace/a",
-                        fingerprint: "\"workspace/a\"",
+                        value: {
+                            currentProjectWorkspace: "workspace/a",
+                            selectedFilePath: "manuscript/001/index.md",
+                        },
+                        fingerprint: "{\"currentProjectWorkspace\":\"workspace/a\",\"selectedFilePath\":\"manuscript/001/index.md\"}",
                         injectedAtTurn: 1,
                     },
                 },
@@ -830,28 +840,51 @@ describe("profile TSX DSL", () => {
         };
         const unchanged = await profile.prepare!({
             ...base,
-            vars: createTestVariableAccessor({"client.currentProjectWorkspace": "workspace/a"}),
+            vars: createTestVariableAccessor({
+                "client.currentProjectWorkspace": "workspace/a",
+                "client.studio.selectedFilePath": "manuscript/001/index.md",
+            }),
             session: {
                 ...base.session,
-                profileKey: "test.project-workspace-reminder",
+                profileKey: "test.workspace-focus-reminder",
                 customState: previousState,
             },
         });
-        const changed = await profile.prepare!({
+        const projectChanged = await profile.prepare!({
             ...base,
-            vars: createTestVariableAccessor({"client.currentProjectWorkspace": "workspace/b"}),
+            vars: createTestVariableAccessor({
+                "client.currentProjectWorkspace": "workspace/b",
+                "client.studio.selectedFilePath": null,
+            }),
             session: {
                 ...base.session,
-                profileKey: "test.project-workspace-reminder",
+                profileKey: "test.workspace-focus-reminder",
+                customState: previousState,
+            },
+        });
+        const fileChanged = await profile.prepare!({
+            ...base,
+            vars: createTestVariableAccessor({
+                "client.currentProjectWorkspace": "workspace/a",
+                "client.studio.selectedFilePath": "manuscript/002/index.md",
+            }),
+            session: {
+                ...base.session,
+                profileKey: "test.workspace-focus-reminder",
                 customState: previousState,
             },
         });
 
         expect(unchanged.appendingMessages ?? []).toEqual([]);
-        const text = (changed.appendingMessages ?? []).map(messageText).join("\n");
+        const text = (projectChanged.appendingMessages ?? []).map(messageText).join("\n");
         expect(text).toContain("User switched Current Project Workspace to workspace/b");
-        expect(text).toContain("Current Workdir is still workspace/");
-        expect(text).toContain("use b/... paths, not workspace/b/...");
+        expect(text).toContain("Tool cwd is unchanged");
+        expect(text).toContain("Use b/lorebook/..., b/manuscript/..., and b/reference/...");
+        expect(text).toContain("Do not use workspace/b/...");
+
+        const fileText = (fileChanged.appendingMessages ?? []).map(messageText).join("\n");
+        expect(fileText).toContain("Current selected file changed to a/manuscript/002/index.md");
+        expect(fileText).toContain("Use this cwd-relative path directly in file tools.");
     });
 
     it("PlanModeReminder 支持 exit 和 reentry lifecycle 文案", async () => {

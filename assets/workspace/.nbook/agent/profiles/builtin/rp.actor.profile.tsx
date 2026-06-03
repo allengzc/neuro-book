@@ -6,7 +6,7 @@ import {Type, type Static} from "typebox";
 import {createUserMessage} from "nbook/server/agent/messages/message-utils";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {RpActorInputSchema, RpActorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {AppendingSet, Message, ModelContext, ProfilePrompt, System, WorkdirReminder} from "nbook/server/agent/profiles/profile-dsl";
+import {AppendingSet, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {ProfilePrepareContext, SidecarProfilePass} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
@@ -286,7 +286,7 @@ export default defineAgentProfile({
                     <Message>{renderInvocationReminder(ctx.input)}</Message>
                 </ModelContext>
                 <AppendingSet>
-                    <WorkdirReminder />
+                    <RuntimeLocationReminder />
                 </AppendingSet>
             </ProfilePrompt>
         );

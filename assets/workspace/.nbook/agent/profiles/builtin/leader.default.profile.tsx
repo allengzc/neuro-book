@@ -15,13 +15,13 @@ import {
     PlanModeAvailabilityReminder,
     PlanModeReminder,
     ProfilePrompt,
-    ProjectWorkspaceReminder,
+    RuntimeLocationReminder,
     SkillCatalog,
     SqlSchemaSummary,
     System,
     TaskReminder,
     VariableSchema,
-    WorkdirReminder,
+    WorkspaceFocusReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
@@ -118,8 +118,8 @@ export default defineAgentProfile({
                     <VariableSchema paths={["client.currentProjectWorkspace", "client.studio.selectedFilePath"]} includeToolGuide />
                 </ModelContext>
                 <AppendingSet>
-                    <WorkdirReminder />
-                    <ProjectWorkspaceReminder />
+                    <RuntimeLocationReminder />
+                    <WorkspaceFocusReminder />
                     <PlanModeAvailabilityReminder />
                     <LinkedAgentsReminder />
                     <TaskReminder stateKey="agent.tasks" repeatEveryTurns={8} />
