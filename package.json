@@ -1,7 +1,7 @@
 {
   "name": "neuro-book",
   "version": "1.0.0",
-  "description": "",
+  "description": "面向长篇小说创作的本地 AI 工作台，集成文件化 workspace、Markdown Studio、剧情结构管理和多 Agent 写作流程。",
   "license": "PolyForm-Noncommercial-1.0.0",
   "type": "module",
   "main": "dist/index.js",
