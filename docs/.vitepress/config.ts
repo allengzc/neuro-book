@@ -4,7 +4,7 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   base: process.env.PAGES_BASE_PATH ?? '/',
   title: "NeuroBook",
-  description: "NeuroBook：面向长篇小说创作的本地 AI 工作台。",
+  description: "NeuroBook：面向长篇小说创作的本地 AI 工作台，以作者为主导，集成文件化 workspace、Markdown Studio、剧情结构管理和多 Agent 写作流程，并探索 AI RP 与 SillyTavern 角色卡迁移。",
   srcExclude: [
     'README.md',
     'archived/**',
