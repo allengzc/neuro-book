@@ -2691,7 +2691,7 @@ var leader_default_profile_default = defineAgentProfile({
     }
   },
   compaction: {
-    reserveTokens: 8e3,
+    reserveTokens: 25600,
     keepRecentTokens: LEADER_COMPACTION_KEEP_RECENT_TOKENS
   },
   context() {

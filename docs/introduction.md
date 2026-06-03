@@ -1,20 +1,23 @@
 # 介绍
 
-NeuroBook 是一款面向长篇小说创作的本地 AI 工作台。
+NeuroBook 是一款基于 Nuxt 构建的长篇小说创作与 AI 角色扮演 IDE。
 
-它解决的不是“生成一段文字”这种短问题，而是长篇创作中的持续管理问题：设定会变，剧情会推进，角色会记住过去，章节会互相影响，草稿会分叉，写作任务会积压。NeuroBook 把这些内容放进同一个可见、可编辑、可协作的工作区里，让作者能长期维护一部作品。
+它解决的不是“生成一段文字”这种短问题，而是长篇创作中的持续管理问题：设定会变，剧情会推进，角色会记住过去，章节会互相影响，草稿会分叉，写作任务会积压。NeuroBook 把这些内容放进同一个可见、可编辑、可协作的 Project Workspace 中，并用领域化 Agent 系统支撑写作、检索、世界模拟和 RP。
 
 ## 产品定位
 
 NeuroBook 更像小说作者使用的本地 IDE，而不是普通聊天框。
 
-它同时提供三层能力：
+它同时提供四层能力：
 
 - 内容管理：设定、正文、草稿、章节资料、引用和状态文件。
 - 剧情管理：长期剧情线、场景和情节点。
-- AI 协作：检索、写作、规划、审批和多 Agent 任务协作。
+- 世界模拟：用 `simulation/` 管理 subject、entity、run 和 RP Tick。
+- AI 协作：基于 NeuroAgentHarness 的检索、写作、规划、审批和多 Agent 任务协作。
 
-这三层会落到同一个 Project Workspace 中。作者可以直接看到自己的文件，也可以让 Agent 在明确边界内读取、整理和修改这些文件。
+这些能力会落到同一个 Project Workspace 中。作者可以直接看到自己的文件，也可以让 Agent 在明确边界内读取、整理和修改这些文件。
+
+底层运行时基于 Pi 框架扩展，复用了 multi-provider、tool calling、append-only session tree 等基础抽象，并进一步引入 Profile、TSX Profile 和 Sidecar Context。Profile 定义 Agent 的行为边界；TSX Profile 用类型安全的上下文模板描述动态上下文；Sidecar Context 在主 run 前后执行 runtime-only 旁路任务，让检索、反思、记忆维护和状态整理不污染主对话。
 
 ## 适合谁
 

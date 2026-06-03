@@ -2649,7 +2649,7 @@ var retrieval_profile_default = defineAgentProfile({
   outputSchema: OutputSchema,
   allowedToolKeys,
   compaction: {
-    reserveTokens: 8e3,
+    reserveTokens: 25600,
     keepRecentTokens: DEFAULT_COMPACTION_KEEP_RECENT_TOKENS
   },
   context(ctx) {

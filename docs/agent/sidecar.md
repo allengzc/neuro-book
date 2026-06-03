@@ -1,8 +1,8 @@
-# Sidecar
+# Sidecar Context
 
-Sidecar 是 profile 声明的旁路 run。它会在主 run 前或主 run 后 fork 一段 runtime-only 分支，完成检索、反思或维护任务，再把结果合并回主线。
+Sidecar Context（旁路上下文）是 profile 声明的旁路 run。它会在 Agent 主运行前或运行后 fork 一段 runtime-only 分支，完成检索、反思、记忆维护或状态整理，再把结果合并回主线。
 
-它的目标是让主上下文更干净。比如 RP actor 主 run 应该专心扮演角色，不应该一边扮演一边翻完整世界书；检索和记忆维护可以放到 sidecar。
+它的目标是让主 Agent 任务上下文保持纯净和精简。比如 RP actor 主 run 应该专心扮演角色，不应该一边扮演一边翻完整世界书；检索和记忆维护可以放到 sidecar。sidecar transcript 不进入主 history，只把整理后的结果合并回主线。
 
 ## 适合什么
 

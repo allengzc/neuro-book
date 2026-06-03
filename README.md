@@ -5,9 +5,9 @@
 [![Bun](https://img.shields.io/badge/runtime-Bun-000000?logo=bun)](https://bun.sh/)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE)
 
-NeuroBook 是一个面向长篇小说创作的本地 AI 工作台，以作者为主导，集成文件化 workspace、Markdown Studio、剧情结构管理和多 Agent 写作流程。
+NeuroBook 是一个基于 Nuxt 构建的长篇小说创作与 AI 角色扮演 IDE。它以作者为主导，集成文件化 Project Workspace、Markdown Studio、剧情结构管理和领域化 Agent 系统，面向长篇写作、世界模拟、AI RP 和 SillyTavern 角色卡迁移等场景。
 
-它适合长期维护世界观、剧情线、章节草稿和 AI 写作流程的作者；后续也会继续探索 AI RP、世界模拟和 SillyTavern 角色卡迁移。
+项目底层运行时基于 Pi 框架扩展，复用了 multi-provider、tool calling、append-only session tree 等基础抽象，并在此之上构建了 NeuroAgentHarness。NeuroBook 进一步引入 Profile、TSX Profile 和 Sidecar Context，让 Agent 能围绕小说创作和角色扮演建立可检索、可审查、可记忆、可长期维护的工作流。
 
 <div style="display: flex; justify-content: space-between;">
   <img src="./docs/images/主页.png" width="31%"/>
@@ -17,6 +17,16 @@ NeuroBook 是一个面向长篇小说创作的本地 AI 工作台，以作者为
 <br/>
 
 > 测试网站：http://8.148.4.22:3001/
+
+## 核心特点
+
+- **长篇小说 IDE**：用 Project Workspace 统一管理 `lorebook/`、`manuscript/`、`simulation/`、`reference/` 和项目配置，让设定、正文、状态和外部素材都能被人和 Agent 共同维护。
+- **领域化 Agent 设计**：围绕写作和 RP 拆分 leader、writer、retrieval、researcher、simulator leader、actor、rp.writer 等职责，避免把检索、裁决、写作和记忆维护都压进一次模型调用。
+- **NeuroAgentHarness**：在 Pi 风格 multi-provider、tool calling、append-only session tree 之上，支持 Multi-Agent 协作、HITL（Human-in-the-Loop）、运行时 Profile / Tool Catalog、上下文压缩、会话摘要、生命周期管理与 Runtime Hooks。
+- **Profile**：定义 Agent 的行为边界，包括工具白名单、输入 / 输出 Schema、系统提示词、动态上下文、压缩策略、摘要策略和 Runtime Hooks。
+- **TSX Profile**：使用 TSX 作为上下文模板语言，通过 System、History、Dynamic Context、Reminder、Import、SkillCatalog 等节点描述上下文结构，兼顾类型安全、可预览和低代码辅助编辑。
+- **Sidecar Context**：在 Agent 主运行前或运行后 fork runtime-only 分支，用于检索、反思、记忆维护或状态整理；sidecar transcript 不进入主 history，只把整理后的结果合并回主线，保持主任务上下文纯净。
+- **SillyTavern 角色卡迁移**：支持 `inspect -> unpack -> import` 三段式流程，保留原始卡片和 worldbook 归档，把稳定设定迁入 lorebook，并为后续 RP / simulation 迁移保留动态机制材料。
 
 ## 快速选择
 
@@ -129,9 +139,14 @@ bun run docs:build
 
 ## 文档
 
+- [官网文档首页](docs/index.md)
 - [快速开始](docs/quick-start.md)
 - [部署方式](docs/deployment.md)
 - [基础教程](docs/tutorials/index.md)
+- [Agent 心智模型](docs/agent/index.md)
+- [Profile 介绍](docs/profile/index.md)
+- [Profile TSX 介绍](docs/profile-tsx/index.md)
+- [Sidecar Context](docs/agent/sidecar.md)
 - [NeuroBook Reference Bookshelf](reference/README.md)
 - [PROJECT-STATUS.md](PROJECT-STATUS.md)
 
@@ -142,3 +157,13 @@ bun run docs:build
 This project is source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use, study, modify, and share the software for noncommercial purposes.
 
 Commercial use requires prior written permission from the copyright holder. Personal authors may use NeuroBook to create, edit, and publish their own original works, including commercially published writing. The commercial restriction applies to commercial use of the software itself, not to the user's original creative output.
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=notnotype%2Fneuro-book&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=notnotype/neuro-book&type=date&legend=top-left" />
+ </picture>
+</a>

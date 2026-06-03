@@ -167,9 +167,9 @@
 - [ ] rp writer 需要写文件工具。需要 lorebook 文件（由 leader 转述比较好）
 - [ ] 新增 rp.director
 - [ ] workflow
-- [ ]
-- [ ]
-- [ ]
+- [ ] invoke_agent 能传 title
+- [ ] workspace new 有问题
+- [ ] simulation 模板还得调
 - [ ]
 - [ ]
 - [ ]
