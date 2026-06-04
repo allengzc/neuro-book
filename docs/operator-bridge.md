@@ -471,7 +471,7 @@ node scripts/deploy/publish-ghcr-image.mjs
 指定 tag：
 
 ```bash
-node scripts/deploy/publish-ghcr-image.mjs --tag v1.0.0
+node scripts/deploy/publish-ghcr-image.mjs --tag v0.1.0
 ```
 
 GitHub Actions 只在 GitHub Release `published` 时发布镜像，不在普通 push 或 pull request 时发布。
@@ -480,9 +480,9 @@ Canary 发布使用 GitHub prerelease，tag 建议使用 `v<package-version>-can
 
 ```bash
 git push origin master
-git tag -a v1.0.0-canary.YYYYMMDD.<short-sha> -m "Canary release v1.0.0-canary.YYYYMMDD.<short-sha>"
-git push origin v1.0.0-canary.YYYYMMDD.<short-sha>
-gh release create v1.0.0-canary.YYYYMMDD.<short-sha> --prerelease --title "Canary v1.0.0-canary.YYYYMMDD.<short-sha>"
+git tag -a v0.1.0-canary.YYYYMMDD.<short-sha> -m "Canary release v0.1.0-canary.YYYYMMDD.<short-sha>"
+git push origin v0.1.0-canary.YYYYMMDD.<short-sha>
+gh release create v0.1.0-canary.YYYYMMDD.<short-sha> --prerelease --title "Canary v0.1.0-canary.YYYYMMDD.<short-sha>"
 gh run watch <release-container-run-id> --exit-status
 ```
 
