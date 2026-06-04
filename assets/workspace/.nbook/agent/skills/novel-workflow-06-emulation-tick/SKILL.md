@@ -1,13 +1,13 @@
 ---
-name: 小说流程 06：Emulation Tick
+name: novel-workflow-06-emulation-tick
 description: 用于在写作模式或 RP/simulation 中推进一个世界运行 tick，根据用户指令或 leader 判断推演当前局势，写入 simulation/runs/ticks/{id}-{slug}/report.md 和 prose.md，并提交已裁决的 subject/entity 状态。
 when_to_use:
   - 用户问接下来会发生什么、当前局势如何演化、某个行动会导致什么
-  - 开局剧情设计、剧情规划或章节写作前，需要先确定角色、势力、地点或实体的当前反应
+  - `novel-workflow-07-opening-plot-design`、`novel-workflow-08-plot-planning` 或 `novel-workflow-09-chapter-writing` 前，需要先确定角色、势力、地点或实体的当前反应
   - 写完一章或一个 RP Tick 后，需要把已发生事实提交到 simulation/subjects 或 simulation/entities
 ---
 
-# 小说流程 06：Emulation Tick
+# novel-workflow-06-emulation-tick：Emulation Tick
 
 本 skill 负责推进一个世界运行 tick。当前落地目录仍是 `simulation/`；不要新建 `emulation/` 目录，除非用户明确要求做目录迁移。
 

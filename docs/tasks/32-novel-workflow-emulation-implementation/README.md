@@ -78,6 +78,10 @@ Implemented decision:
 
 - 第一版不删除旧中文 skill 目录；新增英文 workflow / technique skill 目录，旧 `世界模拟` 作为兼容入口提示优先使用 `novel-workflow-06-emulation-tick`。
 
+Follow-up update:
+
+- 2026-06-04：写作 workflow / technique / import skill 已统一为 canonical key。旧中文 workflow 目录、`世界模拟`、`爽文`、`SillyTavern角色卡导入`、`番茄小说导入` 已从当前系统 skill catalog 移除；后续 Agent 应使用 `novel-workflow-*`、`novel-technique-*`、`novel-import-*`。
+
 ### Phase 2: Add Emulation Bootstrap Skill
 
 新增 `assets/workspace/.nbook/agent/skills/novel-workflow-05-emulation-bootstrap/SKILL.md`。
@@ -256,7 +260,7 @@ bun scripts/build/profile.ts compile --all
   - `novel-workflow-09-chapter-writing`
   - `novel-workflow-10-revision`
   - `novel-technique-commercial-rhythm`
-- 保留旧中文 skill 目录，并更新 `世界模拟` / `RP模式` 说明，使其指向 `report.md + prose.md` tick 结构。
+- 2026-06-04 更新：旧中文 workflow / technique / import skill 目录已移除，当前系统 catalog 只保留 canonical key；`RP模式` 仍作为 RP 专用 skill 保留。
 - 默认 Project 模板 `simulation/runs` 改为：
   - `current.md`
   - `index.md`
@@ -271,10 +275,17 @@ bun scripts/build/profile.ts compile --all
 
 - `assets/workspace/.nbook/agent/skills/novel-workflow-05-emulation-bootstrap/SKILL.md`
 - `assets/workspace/.nbook/agent/skills/novel-workflow-06-emulation-tick/SKILL.md`
+- `assets/workspace/.nbook/agent/skills/novel-workflow-01-idea-exploration/SKILL.md`
+- `assets/workspace/.nbook/agent/skills/novel-workflow-02-project-bootstrap/SKILL.md`
+- `assets/workspace/.nbook/agent/skills/novel-workflow-03-lorebook-bootstrap/SKILL.md`
+- `assets/workspace/.nbook/agent/skills/novel-workflow-04-character-design/SKILL.md`
+- `assets/workspace/.nbook/agent/skills/novel-workflow-07-opening-plot-design/SKILL.md`
+- `assets/workspace/.nbook/agent/skills/novel-workflow-08-plot-planning/SKILL.md`
 - `assets/workspace/.nbook/agent/skills/novel-workflow-09-chapter-writing/SKILL.md`
 - `assets/workspace/.nbook/agent/skills/novel-workflow-10-revision/SKILL.md`
 - `assets/workspace/.nbook/agent/skills/novel-technique-commercial-rhythm/SKILL.md`
-- `assets/workspace/.nbook/agent/skills/世界模拟/SKILL.md`
+- `assets/workspace/.nbook/agent/skills/novel-import-tomato-reference/SKILL.md`
+- `assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/SKILL.md`
 - `assets/workspace/.nbook/agent/skills/RP模式/SKILL.md`
 - `assets/workspace/.nbook/templates/project-directory-templates/simulation/runs/**`
 - `assets/workspace/.nbook/templates/project-directory-templates/simulation/simulator.md`

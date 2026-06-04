@@ -52,7 +52,7 @@ assets/workspace/.nbook/agent/skills/<folder>/
 
 合法示例：
 
-- `爽文`
+- `novel-technique-commercial-rhythm`
 - `世界观补全`
 - `skill-creator`
 - `plot_helper`

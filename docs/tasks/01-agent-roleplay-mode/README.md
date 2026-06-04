@@ -63,7 +63,7 @@
 - RP 相关能力先拆成至少三个 skill：
   - `RP模式`：介绍本系统如何运行 RP、如何进入轻量 RP、如何理解 `leader.rp` / GM / actor / writer 分工、如何引用 RP 文档和导入流程。
   - `RP目录初始化`：已废弃并删除；simulation 目录进入默认 Project 模板。
-  - `novel-import-silly-tavern-card`：提取或读取角色卡原始 JSON，生成检查报告，并把稳定文本设定导入当前 workspace 的写作资产；旧 `SillyTavern角色卡导入` 作为兼容入口保留；RP 动态机制优先归档到 `reference/`，后续再转写为 `simulation/` 编排文件。
+  - `novel-import-silly-tavern-card`：提取或读取角色卡原始 JSON，生成检查报告，并把稳定文本设定导入当前 workspace 的写作资产；当前使用 canonical skill `novel-import-silly-tavern-card`；RP 动态机制优先归档到 `reference/`，后续再转写为 `simulation/` 编排文件。
 - 角色卡导入分两层：
   - 基础写作层：默认执行，把可稳定复用的角色、地点、势力、规则、世界观、事件背景等导入 `lorebook/` 和 `reference/`。
   - RP 扩展层：可选执行，在基础写作层之上创建或更新 `simulation/`，保存 GM 口径、角色映射、actor 指令、writer 规则、变量草案、MVU 更新规则和状态栏/UI 迁移说明。
@@ -190,10 +190,10 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 
 ## Implemented V1
 
-- 已新增系统 skill：`assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/SKILL.md`；旧 `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/SKILL.md` 作为兼容入口保留。
+- 已新增系统 skill：`assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/SKILL.md`；旧 `assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/SKILL.md` 作为兼容入口保留。
 - 已新增系统 skill：`assets/workspace/.nbook/agent/skills/RP模式/SKILL.md`，作为用户进入 `leader.rp` / GM Tick 流程的可发现入口。
 - `RP目录初始化` skill 已废弃并删除；`simulation/` 随默认 Project 模板创建。
-- 已新增配套 CLI：`assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`。
+- 已新增配套 CLI：`assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/scripts/silly-tavern-card.ts`。
 - 已合并 RP/simulation 目录模板到：`assets/workspace/.nbook/templates/project-directory-templates/simulation/`，包含 `config.yaml`、`cast.yaml`、`simulator.md`、`writer.md`、`subjects/player/*` 和 `subjects/sample-npc/*`。
 - RP/simulation 目录模板已升级为混合模板：保留待填写位置，同时提供 fallback scene、profile 输入边界、Tick 清单、actor-facing message / response 约束、GM scratch、writer brief 缺失处理、runs 示例和 actor knowledge 更新规则，方便创建 Project 后直接试跑一轮 RP。
 - 已扩展 `workspace project create`：目标不存在时仍创建完整 Project Workspace；支持 `--target <dir>` 指定实际写入目录；目标已存在且显式传入 `--template` 时，把模板缺失文件补入现有 Project Workspace，并在 `--json` 中返回 `mode: "updated"`、`createdFiles` 和 `skippedFiles`。
@@ -277,8 +277,8 @@ reporter       # overview.md / inspect.json / unpack-report.md / import-report.m
 - `assets/workspace/.nbook/agent/skills/RP模式/SKILL.md`：新增 RP 模式入口 skill。
 - `assets/workspace/.nbook/agent/skills/RP目录初始化/SKILL.md`：已删除，simulation 进入默认 Project 模板。
 - `assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/SKILL.md`：新增权威英文角色卡导入 skill 入口说明。
-- `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/SKILL.md`：保留为旧中文兼容入口。
-- `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`：新增 inspect/unpack/import CLI。
+- `assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/SKILL.md`：保留为旧中文兼容入口。
+- `assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/scripts/silly-tavern-card.ts`：新增 inspect/unpack/import CLI。
 - `server/agent/skills/silly-tavern-card-cli.test.ts`：新增 CLI helper 与 catalog 可发现性测试。
 - `.agent/workspace/cards/*/*.raw.json`：从三张 PNG 样本卡提取原始内嵌 JSON，供后续分析使用。
 

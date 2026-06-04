@@ -53,37 +53,37 @@
 
 ## Workflow Skills
 
-小说协作 skill 建议分为三类：流程、技法、导入。后续如果重命名系统 skill，推荐使用可排序英文 key，frontmatter `name` 可继续保留中文。
+小说协作 skill 分为三类：流程、技法、导入。系统 skill 目录和 frontmatter `name` 都使用可排序英文 key；中文标题只保留在正文说明中。
 
 ### Workflow Skills
 
-| Proposed Key | Current Skill | Purpose |
+| Skill | Status | Purpose |
 | --- | --- | --- |
-| `novel-workflow-01-idea-exploration` | `小说灵感探索流程` | 从模糊灵感整理成故事雏形。 |
-| `novel-workflow-02-project-bootstrap` | `小说初始化流程` | 建立故事概念、简介和最小 lorebook 骨架。 |
-| `novel-workflow-03-lorebook-bootstrap` | `世界书初始化流程` | 建立开篇可用的稳定世界说明书。 |
-| `novel-workflow-04-character-design` | `角色设计流程` | 深化主角、配角、反派、势力代表。 |
-| `novel-workflow-05-emulation-bootstrap` | 已新增 | 初始化世界运行态目录、subjects、entities 和当前 tick。 |
-| `novel-workflow-06-emulation-tick` | 已新增；旧 `世界模拟` 暂保留 | 根据当前状态推演下一 tick，产出 run report 和状态提交。 |
-| `novel-workflow-07-opening-plot-design` | `开局剧情设计` | 把 lorebook + emulation 当前状态转成开篇可执行剧情。 |
-| `novel-workflow-08-plot-planning` | `剧情规划流程` | 中长期剧情讨论、结构拆分和 Plot System 落点。 |
-| `novel-workflow-09-chapter-writing` | 已新增 | 调用普通 writer 写章节正文。 |
-| `novel-workflow-10-revision` | 已新增 | 章节修改、节奏检查、局部重写和润色。 |
+| `novel-workflow-01-idea-exploration` | canonical | 从模糊灵感整理成故事雏形。 |
+| `novel-workflow-02-project-bootstrap` | canonical | 建立故事概念、简介和最小 lorebook 骨架。 |
+| `novel-workflow-03-lorebook-bootstrap` | canonical | 建立开篇可用的稳定世界说明书。 |
+| `novel-workflow-04-character-design` | canonical | 深化主角、配角、反派、势力代表。 |
+| `novel-workflow-05-emulation-bootstrap` | canonical | 初始化世界运行态目录、subjects、entities 和当前 tick。 |
+| `novel-workflow-06-emulation-tick` | canonical | 根据当前状态推演下一 tick，产出 run report 和状态提交。 |
+| `novel-workflow-07-opening-plot-design` | canonical | 把 lorebook + emulation 当前状态转成开篇可执行剧情。 |
+| `novel-workflow-08-plot-planning` | canonical | 中长期剧情讨论、结构拆分和 Plot System 落点。 |
+| `novel-workflow-09-chapter-writing` | canonical | 调用普通 writer 写章节正文。 |
+| `novel-workflow-10-revision` | canonical | 章节修改、节奏检查、局部重写和润色。 |
 
 ### Technique Skills
 
-| Proposed Key | Current Skill | Purpose |
+| Skill | Status | Purpose |
 | --- | --- | --- |
-| `novel-technique-commercial-rhythm` | 已新增；旧 `爽文` 暂保留 | 商业网文节奏、期待管理、爽点和章末钩子。 |
+| `novel-technique-commercial-rhythm` | canonical | 商业网文节奏、期待管理、爽点和章末钩子。 |
 | `novel-technique-scene-design` | 新增建议 | 场景目标、冲突、转折和落点设计。 |
 | `novel-technique-viewpoint-control` | 新增建议 | 视角、信息控制、角色可知边界。 |
 
 ### Import Skills
 
-| Proposed Key | Current Skill | Purpose |
+| Skill | Status | Purpose |
 | --- | --- | --- |
-| `novel-import-silly-tavern-card` | 已新增；旧 `SillyTavern角色卡导入` 暂保留 | 导入 ST 角色卡、worldbook 和动态机制归档；第一遍导入只处理稳定 lorebook，动态机制进入 `reference/silly-tavern/**`。 |
-| `novel-import-tomato-reference` | `番茄小说导入` | 导入番茄小说或外部小说参考资料。 |
+| `novel-import-silly-tavern-card` | canonical | 导入 ST 角色卡、worldbook 和动态机制归档；第一遍导入只处理稳定 lorebook，动态机制进入 `reference/silly-tavern/**`。 |
+| `novel-import-tomato-reference` | canonical | 导入番茄小说或外部小说参考资料。 |
 
 ## Emulation Bootstrap Skill
 
@@ -110,7 +110,7 @@
 输入来源：
 
 - 用户明确指令，例如“推演主角离开学院后的下一天”。
-- leader 自动判断，例如“进入开局剧情设计前需要先确定当前局势”。
+- leader 自动判断，例如“进入 `novel-workflow-07-opening-plot-design` 前需要先确定当前局势”。
 - 写后提交，例如“这一章已经发生战斗，需要更新伤势和持有物”。
 
 输出：
@@ -126,3 +126,14 @@
 - 普通 `writer` 不维护 `simulation/`，也不自行遍历 `simulation/`。
 - 如果需要正文级试写或 RP 输出，用户可见正文放到 tick `prose.md`；如果是正式章节正文，正文仍写到 `manuscript/.../index.md`，tick `prose.md` 可只放片段、摘要或链接。
 - 重大不可逆世界状态变化，应优先让用户确认，或在 report 的 Open Questions 中挂起。
+
+## Flow Review
+
+当前 01 到 10 的流程已经形成可执行闭环，但它仍是推荐路径，不是固定流水线。
+
+- 01 到 04 负责 canon 准备：只沉淀故事概念、lorebook 和角色稳定设定，不直接推进当前世界状态。
+- 05 到 06 负责运行态：只有存在角色反应、势力行动、地点变化、物品状态、伤势、倒计时或隐藏状态时才启动。
+- 07 到 08 负责剧情设计：07 是开局 / 前三章附近的专门流程，08 是更通用的剧情讨论和 Plot 规划。
+- 09 到 10 负责正文产出和修订：普通 `writer` 写章节，修订默认不改事件结果；一旦改了事件事实，再回到 06 做状态提交。
+- `novel-technique-commercial-rhythm` 是技法补充，不属于 workflow 编号，不能替代剧情规划、emulation 或 writer。
+- import skills 只导入外部素材和参考资料，不自动把外部内容变成 subject-facing knowledge 或 simulation state。

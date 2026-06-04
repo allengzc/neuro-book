@@ -1,9 +1,9 @@
 ---
-name: 番茄小说导入
+name: novel-import-tomato-reference
 description: 用于处理番茄小说、Tomato Novel Downloader、免费小说 epub、下载器结果导入、epub 转 Markdown、以及把外部小说素材整理到当前小说 Project Workspace 的 reference/tomato/ 供后续拆书分析。
 ---
 
-# 番茄小说导入
+# novel-import-tomato-reference：番茄小说导入
 
 用于把番茄小说免费作品的本地素材整理成当前小说 Project Workspace 下的外部参考资料。第一版只做“导入 + 转换”，不承诺自动搜索或首次下载新书。
 
@@ -20,14 +20,14 @@ description: 用于处理番茄小说、Tomato Novel Downloader、免费小说 e
 脚本位置：
 
 ```powershell
-bun assets/workspace/.nbook/agent/skills/番茄小说导入/scripts/tomato-novel.ts --help
+bun assets/workspace/.nbook/agent/skills/novel-import-tomato-reference/scripts/tomato-novel.ts --help
 ```
 
 常用命令：
 
 ```powershell
-bun assets/workspace/.nbook/agent/skills/番茄小说导入/scripts/tomato-novel.ts import-epub "C:\path\book.epub" --workspace "current-novel"
-bun assets/workspace/.nbook/agent/skills/番茄小说导入/scripts/tomato-novel.ts import-download "C:\path\downloaded-book-dir" --workspace "current-novel"
+bun assets/workspace/.nbook/agent/skills/novel-import-tomato-reference/scripts/tomato-novel.ts import-epub "C:\path\book.epub" --workspace "current-novel"
+bun assets/workspace/.nbook/agent/skills/novel-import-tomato-reference/scripts/tomato-novel.ts import-download "C:\path\downloaded-book-dir" --workspace "current-novel"
 ```
 
 默认参数：
@@ -50,13 +50,13 @@ bun assets/workspace/.nbook/agent/skills/番茄小说导入/scripts/tomato-novel
 `serve` 只启动下载器 Web UI，供用户手动搜索和首次下载：
 
 ```powershell
-bun assets/workspace/.nbook/agent/skills/番茄小说导入/scripts/tomato-novel.ts serve --data-dir "C:\path\tomato-data"
+bun assets/workspace/.nbook/agent/skills/novel-import-tomato-reference/scripts/tomato-novel.ts serve --data-dir "C:\path\tomato-data"
 ```
 
 `update <book-id>` 只更新下载器已经记录过的本地小说：
 
 ```powershell
-bun assets/workspace/.nbook/agent/skills/番茄小说导入/scripts/tomato-novel.ts update 7410970999107095577 --data-dir "C:\path\tomato-data"
+bun assets/workspace/.nbook/agent/skills/novel-import-tomato-reference/scripts/tomato-novel.ts update 7410970999107095577 --data-dir "C:\path\tomato-data"
 ```
 
 如果用户要全站搜索、评论、段评或正文抓取，先说明第一版 CLI 尚未实现，再建议后续基于下载器源码/API 或 Web UI 自动化扩展。

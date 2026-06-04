@@ -1,5 +1,5 @@
 ---
-name: 小说流程 09：章节写作
+name: novel-workflow-09-chapter-writing
 description: 用于把已经明确的 Plot、章节目标、设定上下文和写作约束交给普通 writer profile 写入唯一章节 manuscript index.md；不让 writer 直接维护 simulation/。
 when_to_use:
   - 用户要求正式写一章、续写目标章节、按 Plot 写正文
@@ -7,7 +7,7 @@ when_to_use:
   - emulation 或剧情规划结果已经整理成 writer-safe 约束，需要进入正文产出
 ---
 
-# 小说流程 09：章节写作
+# novel-workflow-09-chapter-writing：章节写作
 
 本 skill 指导 leader 调用普通 `writer` profile。`writer` 是章节正文 agent，不是 emulator，也不是 RP writer。
 

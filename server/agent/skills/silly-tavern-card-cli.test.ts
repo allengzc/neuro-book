@@ -7,7 +7,7 @@ import {
     loadCardInput,
     runCli,
     slugify,
-} from "nbook/assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card";
+} from "nbook/assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/scripts/silly-tavern-card";
 import {SkillCatalog} from "nbook/server/agent/skills/skill-catalog";
 
 describe("silly-tavern-card cli helpers", () => {
@@ -68,12 +68,8 @@ describe("silly-tavern-card cli helpers", () => {
             path.resolve("assets/workspace/.nbook/agent/skills"),
             emptyUserRoot,
         );
-        const legacySkill = await catalog.get("SillyTavern角色卡导入");
         const canonicalSkill = await catalog.get("novel-import-silly-tavern-card");
 
-        expect(legacySkill?.source).toBe("system");
-        expect(legacySkill?.description).toContain("兼容旧中文入口");
-        expect(legacySkill?.whenToUse).toContain("酒馆角色卡");
         expect(canonicalSkill?.source).toBe("system");
         expect(canonicalSkill?.description).toContain("SillyTavern");
         expect(canonicalSkill?.description).toContain("worldbooks");

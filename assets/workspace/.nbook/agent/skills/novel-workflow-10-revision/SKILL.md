@@ -1,5 +1,5 @@
 ---
-name: 小说流程 10：润色修订
+name: novel-workflow-10-revision
 description: 用于修改已有章节或片段，处理文风、节奏、视角、信息边界、局部重写和一致性检查；不改变核心事件结果时通常不启动 emulation。
 when_to_use:
   - 用户要求润色、重写、压缩、扩写、调整节奏或修改已有章节
@@ -7,7 +7,7 @@ when_to_use:
   - 已有正文需要局部编辑，但不一定需要重新设计剧情
 ---
 
-# 小说流程 10：润色修订
+# novel-workflow-10-revision：润色修订
 
 本 skill 处理已有正文修改。默认不改变核心剧情事实；如果修改会改变事件结果、物品状态、角色位置、伤势或信息披露，再转入 emulation commit。
 

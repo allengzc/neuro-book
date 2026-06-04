@@ -15,7 +15,7 @@ when_to_use:
 - 当前 Project Workspace 必须存在 `project.yaml`。
 - 当前 Project Workspace 应存在 `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md`、`simulation/writer.md`、`simulation/subjects/*`，并可按需使用 `simulation/entities/*`。
 - 如果没有 `simulation/`，重新用默认 Project 模板创建项目，或手工从 `assets/workspace/.nbook/templates/project-directory-templates/simulation/` 补齐。
-- 如果用户要从 SillyTavern 卡进入 RP，先使用 `novel-import-silly-tavern-card` 完成 `inspect -> unpack -> import`；旧 `SillyTavern角色卡导入` 仍是兼容入口。动态机制归档在 `reference/silly-tavern/...`，后续再迁移到 simulation 机制。
+- 如果用户要从 SillyTavern 卡进入 RP，先使用 `novel-import-silly-tavern-card` 完成 `inspect -> unpack -> import`。动态机制归档在 `reference/silly-tavern/...`，后续再迁移到 simulation 机制。
 
 ## 启动方式
 

@@ -1,20 +1,20 @@
 ---
-name: 小说流程 05：Emulation 初始化
+name: novel-workflow-05-emulation-bootstrap
 description: 用于在小说项目已有基础 lorebook 后，初始化当前世界运行态 simulation/，建立最小 subjects、entities、runs/current.md、runs/index.md 和 000000-initial-state tick；不推进剧情，不写章节正文。
 when_to_use:
   - 用户要求初始化世界运行态、emulation、simulation 当前状态或 RP/写作共享状态
-  - 开局剧情设计或剧情推进前，项目已有 lorebook 但 simulation/subjects 或 runs/current.md 还没有可用状态
+  - `novel-workflow-07-opening-plot-design` 或剧情推进前，项目已有 lorebook 但 simulation/subjects 或 runs/current.md 还没有可用状态
   - 从导入素材或已有设定进入写作/RP 前，需要建立主角、关键 NPC、重要实体的当前状态
 ---
 
-# 小说流程 05：Emulation 初始化
+# novel-workflow-05-emulation-bootstrap：Emulation 初始化
 
 本 skill 只负责初始化世界运行态。当前目录名仍是 `simulation/`；`emulation` 是写作流程里的概念，表示“当前世界已经运行到什么状态”。
 
 ## 目标
 
 - 建立最小可用 `simulation/` 状态。
-- 让后续 `novel-workflow-06-emulation-tick`、开局剧情设计、RP Tick 或普通写作都能读取同一份当前状态。
+- 让后续 `novel-workflow-06-emulation-tick`、`novel-workflow-07-opening-plot-design`、RP Tick 或普通写作都能读取同一份当前状态。
 - 明确哪些信息是 subject-facing，哪些仍是 GM / leader 全知视角。
 
 ## 不做什么
@@ -61,4 +61,4 @@ when_to_use:
 - `simulation/runs/current.md` 能说明当前世界状态。
 - `simulation/runs/index.md` 能索引 `000000-initial-state`。
 - `000000-initial-state/report.md` 说明初始化依据、状态边界和未决问题。
-- 后续可以直接进入 emulation tick、开局剧情设计或 RP 初始化。
+- 后续可以直接进入 emulation tick、`novel-workflow-07-opening-plot-design` 或 RP 初始化。

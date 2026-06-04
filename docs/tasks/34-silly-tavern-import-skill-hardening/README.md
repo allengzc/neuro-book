@@ -3,7 +3,7 @@
 ## User Request
 
 - 新建一个 task。
-- 根据现有讨论出的 NeuroBook 目录规范、信息控制、写作 workflow / emulation 规范，优化、加强 [`SillyTavern角色卡导入`](../../../assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/) skill。
+- 根据现有讨论出的 NeuroBook 目录规范、信息控制、写作 workflow / emulation 规范，优化、加强 [`SillyTavern角色卡导入`](../../../assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/) skill。
 
 ## Goal
 
@@ -38,8 +38,8 @@
 
 ## Relevant References
 
-- [../../../assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/SKILL.md](../../../assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/SKILL.md)
-- [../../../assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts](../../../assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts)
+- [../../../assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/SKILL.md](../../../assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/SKILL.md)
+- [../../../assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/scripts/silly-tavern-card.ts](../../../assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/scripts/silly-tavern-card.ts)
 - [../../../reference/content/directory-protocol.md](../../../reference/content/directory-protocol.md)
 - [../../../reference/content/information-control.md](../../../reference/content/information-control.md)
 - [../../../reference/agent/novel-writing-workflow.md](../../../reference/agent/novel-writing-workflow.md)
@@ -52,7 +52,7 @@
 
 ## Confirmed Decisions
 
-- 新增 `novel-import-silly-tavern-card` 作为权威英文 key skill；旧 `SillyTavern角色卡导入` 保留为兼容入口，提示优先使用新入口。
+- `novel-import-silly-tavern-card` 是当前 canonical skill；旧 `SillyTavern角色卡导入` 目录已在 2026-06-04 skill 命名统一中移除。
 - 新导入硬切：不再默认生成过时 `lorebook/rule` 路径。旧项目已有 `lorebook/rule` 不迁移、不删除。
 - ST 状态栏、MVU、Prompt Template、EJS、regex、JS slash runner、Tavern Helper runtime 默认进入 dynamic archive / migration notes；不因为它们包含格式文本就进入 `lorebook/instruction/`。
 - `--rp` 继续输出 `reference/silly-tavern/{slug}/simulation-migration/`，不改成 `emulation-migration/`；当前稳定目录仍是 `simulation/`。
@@ -65,7 +65,7 @@
 
 ### Phase 1: Skill Contract Rewrite And New Entry
 
-新增 `novel-import-silly-tavern-card/SKILL.md`，并更新 `SillyTavern角色卡导入/SKILL.md` 为兼容入口：
+新增 `novel-import-silly-tavern-card/SKILL.md`。2026-06-04 后，CLI 脚本也迁入 canonical 目录：
 
 - 明确它是导入 workflow，不是 RP runtime、不是 ST runtime 兼容层。
 - 明确本 skill 负责第一遍 lorebook 导入：尽可能按当前 NeuroBook 规范分类稳定 worldbook 条目；难以分类的内容写入 `Needs Review` / report，后续由 Agent 或作者继续处理。
@@ -187,8 +187,8 @@ bun run test server/agent/skills/skill-catalog.test.ts server/agent/skills/silly
 
 预计会触及：
 
-- `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/SKILL.md`
-- `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`
+- `assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/SKILL.md`
+- `assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/scripts/silly-tavern-card.ts`
 - `assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/SKILL.md`
 - `server/agent/skills/silly-tavern-card-cli.test.ts`
 - `server/agent/skills/skill-catalog.test.ts`
@@ -219,16 +219,16 @@ Implemented. The canonical English skill exists, the legacy Chinese skill remain
 - 2026-06-03：确认混合职责条目第一版不自动拆分；低置信但可复用的稳定设定进入 `lorebook/note/` 且 `status: pending`，纯动态、污染风险高或无法判断内容只进 report / dynamic archive。
 - 2026-06-03：实现 canonical `novel-import-silly-tavern-card` skill，旧中文 skill 改为兼容入口；CLI 分类目标切换为 `lorebook/world/rule`、`lorebook/system`、`lorebook/event` 等当前目录协议；混合职责和低置信条目落 `lorebook/note` pending；`import-report.md` 增加 affected roots、dynamic migration summary、classification review queue、pending notes 和 recommended next steps。
 - 2026-06-03：`--rp` 的 `simulation-migration/` 改为 `README.md`、`simulator-candidates.md`、`writer-candidates.md`、`subject-candidates.md`、`entity-candidates.md`、`unsupported-runtime.md`，只提供迁移候选，不创建 `simulation/subjects`、`simulation/entities` 或 `simulation/runs`。
-- 2026-06-03：补齐教程和 RP task 旧口径：用户教程改用 `novel-import-silly-tavern-card`，旧中文 skill 明确为兼容入口；task 01 中的导入目标同步为 `lorebook/world/rule`、`lorebook/system`、`lorebook/event` 和新 `simulation-migration/` 文件结构。
+- 2026-06-03：补齐教程和 RP task 旧口径：用户教程改用 `novel-import-silly-tavern-card`，canonical skill 作为唯一当前入口；task 01 中的导入目标同步为 `lorebook/world/rule`、`lorebook/system`、`lorebook/event` 和新 `simulation-migration/` 文件结构。
 - 2026-06-03：增强分类 review 标记：状态栏/UI/好感度面板等 ST runtime 风险词不会直接进入稳定 `lorebook/system`，而是进入 pending note 与 classification review queue；普通可模拟系统仍可进入 `lorebook/system`。
+- 2026-06-04：skill 命名统一后，删除旧 `SillyTavern角色卡导入` 兼容目录，`scripts/silly-tavern-card.ts` 迁入 `novel-import-silly-tavern-card/scripts/`，测试和文档入口同步使用 canonical path。
 
 ## Files Changed
 
 - `docs/tasks/34-silly-tavern-import-skill-hardening/README.md`
 - `CONTEXT.md`
 - `assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/SKILL.md`
-- `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/SKILL.md`
-- `assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts`
+- `assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/scripts/silly-tavern-card.ts`
 - `assets/workspace/.nbook/agent/skills/RP模式/SKILL.md`
 - `assets/workspace/.nbook/agent/skills/小说初始化流程/SKILL.md`
 - `assets/workspace/.nbook/agent/skills/世界书初始化流程/SKILL.md`
@@ -243,7 +243,7 @@ Implemented. The canonical English skill exists, the legacy Chinese skill remain
 ## Verification
 
 - `bun run test server/agent/skills/skill-catalog.test.ts server/agent/skills/silly-tavern-card-cli.test.ts` passed.
-- `bun assets/workspace/.nbook/agent/skills/SillyTavern角色卡导入/scripts/silly-tavern-card.ts --help` passed.
+- `bun assets/workspace/.nbook/agent/skills/novel-import-silly-tavern-card/scripts/silly-tavern-card.ts --help` passed.
 
 ## TODO / Follow-ups
 

@@ -6,15 +6,15 @@
 
 ## 先设计开局剧情
 
-在调用 writer 前，先使用 `开局剧情设计`。
+在调用 writer 前，先使用 `novel-workflow-07-opening-plot-design`。
 
 ```text
-使用“开局剧情设计”为当前项目设计前三章。请读取已有 lorebook，给出每章目标、冲突、结尾钩子和需要补充的设定。
+使用novel-workflow-07-opening-plot-design为当前项目设计前三章。请读取已有 lorebook，给出每章目标、冲突、结尾钩子和需要补充的设定。
 ```
 
 如果项目已经有 `simulation/` 当前状态，leader 可以先看当前世界运行态。如果还没有，也可以先用普通设定和剧情讨论推进。
 
-开局剧情设计最好产出这些内容：
+`novel-workflow-07-opening-plot-design` 最好产出这些内容：
 
 - 第一章：主角的日常裂缝和第一个异常。
 - 第二章：主角主动尝试，发现问题更深。
