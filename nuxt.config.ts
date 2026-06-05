@@ -94,6 +94,12 @@ export default defineNuxtConfig({
         },
     ],
     nitro: {
+        externals: {
+            external: [
+                "@earendil-works/pi-ai",
+                "@earendil-works/pi-agent-core",
+            ],
+        },
         alias: {
             nbook: rootDir,
         },

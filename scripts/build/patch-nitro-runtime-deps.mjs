@@ -7,7 +7,8 @@ import {dirname, relative, resolve} from "node:path";
 const runtimePackageSeeds = [
     "@clack/core",
     "@clack/prompts",
-    "@esbuild/win32-x64",
+    "@earendil-works/pi-agent-core",
+    "@earendil-works/pi-ai",
     "@libsql/client",
     "@libsql/isomorphic-ws",
     "@vue/runtime-core",
@@ -31,6 +32,13 @@ const runtimePackageSeeds = [
     "yaml",
     "yazl",
     "zod",
+];
+const windowsRuntimePackageSeeds = [
+    "@esbuild/win32-x64",
+];
+const effectiveRuntimePackageSeeds = [
+    ...runtimePackageSeeds,
+    ...(process.platform === "win32" ? windowsRuntimePackageSeeds : []),
 ];
 const runtimeContextPaths = [
     "AGENTS.md",
@@ -59,7 +67,7 @@ const githubUrl = "https://github.com/notnotype/neuro-book";
 const illegalImportMetaFallback = "file:///_entry.js";
 const importMetaFallbackShape = '{url:"file:///_entry.js",env:process.env}';
 
-await copyRuntimePackageClosure(runtimePackageSeeds);
+await copyRuntimePackageClosure(effectiveRuntimePackageSeeds);
 
 for (const runtimePath of runtimeContextPaths) {
     const source = resolve(runtimePath);
@@ -78,7 +86,7 @@ await copyNbookRuntimePackage();
 const patchedImportMetaFiles = await patchImportMetaFallbacks(resolve(serverRoot, "chunks"));
 await assertNoIllegalImportMetaFallbacks(resolve(serverRoot, "chunks"));
 
-console.log(`patched Nitro runtime dependencies: ${runtimePackageSeeds.join(", ")}`);
+console.log(`patched Nitro runtime dependencies: ${effectiveRuntimePackageSeeds.join(", ")}`);
 console.log(`copied profile import context: ${runtimeContextPaths.join(", ")}`);
 console.log(`patched Nitro import.meta fallbacks: ${patchedImportMetaFiles}`);
 
