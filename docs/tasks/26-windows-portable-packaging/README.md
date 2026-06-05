@@ -339,6 +339,7 @@
 - 管理员密码哈希拆到 `server/utils/password.ts`，`create-admin.ts` 不再为了哈希拉入 `server/utils/auth.ts` 的 H3/session 请求层依赖。
 - Profile artifact 在 Product Runtime 下使用 `.output/server/index.mjs` 创建 `require` shim；动态 artifact 里的 native/dynamic require 会从 `.output/server/node_modules` 解析，不再从 `.compiled` 临时目录或用户 workspace 向上找根 `node_modules`。
 - Nitro runtime vendor seed 补入 `undici`，保证 Product Payload 直接启动 `.output/server/index.mjs` 时不缺服务端 fetch 依赖。
+- Windows Nuxt build 优化采用 `nitro.externals.trace=false`，避免 Nitro/node-file-trace 在 Windows 上扫描重 provider SDK 依赖树；由于该模式会把 external import 写成构建机根 `node_modules` 的 file URL，`patch-nitro-runtime-deps.mjs` 会先把这些 URL 改为 `.output/server/node_modules` 相对 import，再从 Nitro 产物扫描 external package seed 并复制 runtime vendor。
 - Product 内的 workspace agent script 会从 `.output/server/scripts/agent` 回到 Product Root 的 `assets/workspace/.nbook/templates` 定位系统 Project 模板。
 - `Update Neuro Book.cmd` 不再 `git pull`；它会查询 GitHub latest release，下载 `neuro-book-windows-x64.zip` 和 `SHA256SUMS`，校验 SHA256 后备份旧 `app/`、`launcher/`、根启动脚本和 `portable-release.json`，再切换新版并保留 `data/`。
 - Windows Launcher 自动更新保留当前 `runtime/node/`，避免在 update 命令运行中替换正在使用的 `node.exe`；`portable-release.json` 会记录 packaged node version 和当前保留的 runtime version。
@@ -377,6 +378,8 @@
     - `bun run nuxt:build`
     - `node scripts/build/patch-nitro-runtime-deps.mjs`
     - `bun run product:stage`
+    - Windows build 优化验证：关闭 `nitro.externals.trace` 后，`bun run nuxt:build` 从约 416 秒降到约 113 秒；`.output/server` 总 size 从约 42.5 MB 降到约 1.78 MB。后处理会输出 `patched external node_modules file URLs` 和 `Nitro runtime package copy` 计时。
+    - 启动 smoke：设置临时 `PORT` / `NITRO_PORT` / `NUXT_SESSION_PASSWORD`，运行 `node .output/server/index.mjs`，请求 `/api/app/version` 返回 200；确认 `.output/server` 不再残留构建机根 `node_modules` file URL。
     - `bun run package:windows-portable -- --skip-git-check --output .agent/workspace/windows-product-launcher/neuro-book-windows-x64.zip`
     - 确认 `.github/workflows/release-container.yml` 的 `windows-portable` job 使用 `windows-latest`，避免 Linux runner 打出缺 Windows native optional packages 的包。
     - 读取 zip 条目，确认包含 `app/.output/server/index.mjs`、`app/.output/server/node_modules`、`runtime/node/node.exe`、`launcher/launcher.mjs`、root `Start/Create Admin/Update` `.cmd/.ps1` 和 `portable-release.json`。

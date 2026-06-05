@@ -3,6 +3,7 @@ import {existsSync} from "node:fs";
 import {cp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {spawn} from "node:child_process";
 import {dirname, relative, resolve} from "node:path";
+import {pathToFileURL} from "node:url";
 
 const runtimePackageSeeds = [
     "@clack/core",
@@ -16,6 +17,7 @@ const runtimePackageSeeds = [
     "@vue/server-renderer",
     "chokidar",
     "commander",
+    "consola",
     "diff",
     "dotenv",
     "esbuild",
@@ -66,6 +68,11 @@ const serverRoot = resolve(".output", "server");
 const githubUrl = "https://github.com/notnotype/neuro-book";
 const illegalImportMetaFallback = "file:///_entry.js";
 const importMetaFallbackShape = '{url:"file:///_entry.js",env:process.env}';
+const sourceNodeModulesFileUrl = pathToFileURL(resolve("node_modules")).href.replace(/\/?$/, "/");
+const sourceNodeModulesFileUrlVariants = [
+    sourceNodeModulesFileUrl,
+    sourceNodeModulesFileUrl.replace(/^file:\/\/\//, "file://"),
+];
 
 const timings = [];
 const packageCopyStats = {
@@ -73,8 +80,15 @@ const packageCopyStats = {
     skipped: 0,
 };
 
+const patchedExternalFileUrls = await measure("patch external file URLs", async () => {
+    return await patchExternalFileUrls(serverRoot);
+});
+
 await measure("copy runtime package closure", async () => {
-    await copyRuntimePackageClosure(effectiveRuntimePackageSeeds);
+    await copyRuntimePackageClosure([
+        ...effectiveRuntimePackageSeeds,
+        ...await collectNitroExternalPackageSeeds(serverRoot),
+    ]);
 });
 
 await measure("copy profile import context", async () => {
@@ -105,10 +119,14 @@ const patchedImportMetaFiles = await measure("patch import.meta fallbacks", asyn
 await measure("assert import.meta fallbacks", async () => {
     await assertNoIllegalImportMetaFallbacks(resolve(serverRoot, "chunks"));
 });
+await measure("assert external file URLs", async () => {
+    await assertNoRepoNodeModuleFileUrls(serverRoot);
+});
 
 console.log(`patched Nitro runtime dependencies: ${effectiveRuntimePackageSeeds.join(", ")}`);
 console.log(`copied profile import context: ${runtimeContextPaths.join(", ")}`);
 console.log(`patched Nitro import.meta fallbacks: ${patchedImportMetaFiles}`);
+console.log(`patched external node_modules file URLs: ${patchedExternalFileUrls}`);
 console.log(`Nitro runtime package copy: copied=${packageCopyStats.copied}, skipped=${packageCopyStats.skipped}`);
 console.log(`patch Nitro runtime deps timings: ${timings.map((item) => `${item.label}=${item.seconds.toFixed(2)}s`).join(", ")}`);
 
@@ -176,6 +194,53 @@ async function assertNoIllegalImportMetaFallbacks(root) {
 }
 
 /**
+ * `externals.trace=false` 会让 Nitro 把 external 包写成开发机根 node_modules
+ * 的绝对 file URL。产品包不能依赖构建机路径，这里统一改为指向
+ * `.output/server/node_modules` 的相对 import。
+ */
+async function patchExternalFileUrls(root) {
+    let count = 0;
+    for (const filePath of await listMjsFiles(root)) {
+        const text = await readFile(filePath, "utf8");
+        if (!sourceNodeModulesFileUrlVariants.some((prefix) => text.includes(prefix))) {
+            continue;
+        }
+        const replacementBase = relative(dirname(filePath), resolve(serverRoot, "node_modules")).replaceAll("\\", "/");
+        const normalizedBase = replacementBase.startsWith(".") ? replacementBase : `./${replacementBase}`;
+        let next = text;
+        for (const prefix of sourceNodeModulesFileUrlVariants) {
+            next = next.replaceAll(prefix, `${normalizedBase}/`);
+        }
+        if (next !== text) {
+            await writeFile(filePath, next, "utf8");
+            count += 1;
+        }
+    }
+    return count;
+}
+
+/**
+ * 防止 product 产物继续引用开发机源码根 node_modules。
+ */
+async function assertNoRepoNodeModuleFileUrls(root) {
+    const offenders = [];
+    for (const filePath of await listMjsFiles(root)) {
+        const text = await readFile(filePath, "utf8");
+        if (sourceNodeModulesFileUrlVariants.some((prefix) => text.includes(prefix))) {
+            offenders.push(relative(process.cwd(), filePath).replaceAll("\\", "/"));
+        }
+    }
+    if (offenders.length > 0) {
+        throw new Error([
+            "Nitro build output still references source-root node_modules file URLs.",
+            `Prefixes: ${sourceNodeModulesFileUrlVariants.join(", ")}`,
+            "Files:",
+            ...offenders.map((filePath) => `- ${filePath}`),
+        ].join("\n"));
+    }
+}
+
+/**
  * 写入构建期版本元数据，生产版本接口优先读取这个文件。
  */
 async function writeReleaseMeta() {
@@ -236,6 +301,7 @@ async function copyWorkspaceCliRuntimeScript() {
  */
 async function copyRuntimePackageClosure(seedPackages) {
     const queue = [...seedPackages];
+    const requiredPackages = new Set(seedPackages);
     const seen = new Set();
     while (queue.length > 0) {
         const packageName = queue.shift();
@@ -246,7 +312,10 @@ async function copyRuntimePackageClosure(seedPackages) {
         const source = resolve("node_modules", ...packageName.split("/"));
         const target = resolve(".output", "server", "node_modules", ...packageName.split("/"));
         if (!existsSync(source)) {
-            throw new Error(`缺少 Nitro runtime package: ${packageName}`);
+            if (requiredPackages.has(packageName)) {
+                throw new Error(`缺少 Nitro runtime package: ${packageName}`);
+            }
+            continue;
         }
         if (await isRuntimePackageCurrent(source, target)) {
             packageCopyStats.skipped += 1;
@@ -276,6 +345,41 @@ async function copyRuntimePackageClosure(seedPackages) {
             }
         }
     }
+}
+
+/**
+ * 从 Nitro 产物里收集已 external 成 `node_modules/<pkg>` 的包。
+ * `externals.trace=false` 不再自动写 `.output/server/package.json`，
+ * 因此 Product Runtime vendor 需要以产物 import 为准补齐。
+ */
+async function collectNitroExternalPackageSeeds(root) {
+    if (!existsSync(root)) {
+        return [];
+    }
+    const packages = new Set();
+    const importPattern = /["'](?:\.\.\/|\.\/)*node_modules\/([^"'\/]+)(?:\/([^"'\/]+))?/g;
+    for (const filePath of await listMjsFiles(root)) {
+        const text = await readFile(filePath, "utf8");
+        for (const match of text.matchAll(importPattern)) {
+            const packageName = match[1].startsWith("@") ? `${match[1]}/${match[2]}` : match[1];
+            if (isPackageSeed(packageName)) {
+                packages.add(packageName);
+            }
+        }
+    }
+    return [...packages].sort();
+}
+
+/**
+ * 过滤 source map / helper path 中类似 `.pnpm`、`.virtual`、`package.json` 的非包路径。
+ */
+function isPackageSeed(packageName) {
+    return Boolean(
+        packageName
+        && !packageName.endsWith("/undefined")
+        && !packageName.startsWith(".")
+        && packageName !== "package.json",
+    );
 }
 
 /**
