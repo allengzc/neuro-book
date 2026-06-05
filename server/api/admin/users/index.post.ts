@@ -1,5 +1,6 @@
 import {CreateUserRequestDtoSchema, type AdminUserListItemDto} from "nbook/shared/dto/auth.dto";
-import {hashUserPassword, isAuthEnabled, requireAdmin, toAdminUserListItem} from "nbook/server/utils/auth";
+import {isAuthEnabled, requireAdmin, toAdminUserListItem} from "nbook/server/utils/auth";
+import {hashUserPassword} from "nbook/server/utils/password";
 import {prisma} from "nbook/server/utils/prisma";
 import {validateBody} from "nbook/server/utils/novel-chapter";
 

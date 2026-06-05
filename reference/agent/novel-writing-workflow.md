@@ -7,19 +7,21 @@
 当前普通写作链路由 `leader.default` 编排，正文写作由普通 `writer` profile 执行。
 
 - `writer` 是章节正文 agent，不是世界模拟 agent。
+- `simulator.leader` 是世界模拟主管，负责状态裁决、subject 反应、simulation/runs 报告、writer-safe brief 和 director handoff。
+- `director` 是剧情导演，负责 Thread / Scene / Plot 设计、Plot 密度和 Plot System 落库。
 - `writer` 只自动读取创建 input 中的唯一 `chapterPaths`、该章节的 Chapter Plot、显式传入的 `lorebookEntries`，以及 lorebook 内容节点的 `index.md` / 可选同级 `state.md`。
 - `writer` 不自动读取 `simulation/`，也不维护 `simulation/subjects/`、`simulation/entities/` 或 `simulation/runs/`。
-- 需要世界推进、角色反应判断、势力态势或实体状态变化时，由 `leader.default` 决定是否启动 emulation 步骤，再把 writer-safe 的结果整理给 `writer`。
+- 需要世界推进、角色反应判断、势力态势或实体状态变化时，由 `leader.default` 调用 `simulator.leader` 或启动 simulation tick，再把 writer-safe 的结果整理给 `writer`。
 
 ## Standard Flow
 
 1. **Intent routing**：判断用户是在灵感探索、项目初始化、设定补全、剧情推进、章节写作、润色，还是导入素材。
 2. **Project check**：确认 Current Project Workspace、目标章节、当前 Plot 焦点和是否已有可用 emulation 当前状态。
 3. **Canon preparation**：如果稳定设定不足，补 `lorebook/`、角色节点或相关作品级 `instruction/`。稳定事实进入 `lorebook/`，不要写进临时 run。
-4. **Emulation decision**：如果用户要求推进剧情、判断下一段因果、模拟角色/势力/地点自然反应，或者章节会改变状态，进入 emulation；否则跳过。
-5. **Emulation tick**：emulator 根据用户指令或 leader 自动决策，读取必要 lorebook、Plot 和当前 state，推演下一个 tick。
-6. **State commit**：leader / emulator 把已裁决事实写入 `simulation/subjects/`、`simulation/entities/`，并在 `simulation/runs/` 记录过程。
-7. **Plot handoff**：把选中的剧情结果整理进 Plot System，形成或更新 Thread / Scene / Plot。
+4. **Simulation decision**：如果用户要求推进剧情、判断下一段因果、模拟角色/势力/地点自然反应，或者章节会改变状态，进入 simulation；否则跳过。
+5. **Simulation tick**：`simulator.leader` 根据用户指令或 leader/director 任务，读取必要 lorebook、Plot 和当前 state，推演下一个 tick。
+6. **State commit**：`simulator.leader` 把已裁决事实写入 `simulation/subjects/`、`simulation/entities/`，并在 `simulation/runs/` 记录过程。
+7. **Plot handoff**：`director` 把选中的剧情结果整理进 Plot System，形成或更新 Thread / Scene / Plot。
 8. **Retrieval handoff**：需要设定上下文时先调用 `retrieval`，leader 选择 `entries[].path` 传给 writer，不把 retrieval 的 reason / use / risk 直接交给 writer。
 9. **Chapter writing**：创建或复用普通 `writer`，传唯一 `chapterPaths`、选中的 `lorebookEntries`、约束和文风预设。
 10. **Post-write check**：leader 检查正文是否产生新事实或状态变化；如需要，补一次 emulation commit 或 Plot 更新。
@@ -49,7 +51,7 @@
 - `simulation/subjects/` 保存 subject 当前事件、知识、心理和状态。
 - `simulation/entities/` 保存需要状态追踪的实例。
 - `simulation/runs/` 保存 tick 过程产物。
-- `writer` 不直接维护 emulation；leader 把 emulation 结果过滤成 Plot、constraints、writer-safe brief 或选中的 lorebook state。
+- `writer` 不直接维护 simulation；leader 把 simulation 结果过滤成 Plot、constraints、writer-safe brief 或选中的 lorebook state。
 
 ## Workflow Skills
 
@@ -105,7 +107,7 @@
 
 ## Emulation Tick Skill
 
-`novel-workflow-06-emulation-tick` 负责推进一个世界模拟 tick。
+`novel-workflow-06-emulation-tick` 负责推进一个世界模拟 tick；新 profile 路径下优先委托 `simulator.leader`。
 
 输入来源：
 
@@ -118,11 +120,11 @@
 - `simulation/runs/ticks/{tick-id}-{slug}/report.md`
 - 可选 `simulation/runs/ticks/{tick-id}-{slug}/prose.md`
 - 已裁决的 subject / entity state 更新。
-- 可转入 Plot System 的剧情机会和后续钩子。
+- 可交给 `director` 转入 Plot System 的剧情机会和后续钩子。
 
 ## Writing Mode Boundaries
 
-- `leader.default` 可以更新 `simulation/`，但应把它视为世界运行态 commit，而不是随手笔记。
+- `leader.default` 可以更新 `simulation/`，但新写作链路优先让 `simulator.leader` 执行世界运行态 commit。
 - 普通 `writer` 不维护 `simulation/`，也不自行遍历 `simulation/`。
 - 如果需要正文级试写或 RP 输出，用户可见正文放到 tick `prose.md`；如果是正式章节正文，正文仍写到 `manuscript/.../index.md`，tick `prose.md` 可只放片段、摘要或链接。
 - 重大不可逆世界状态变化，应优先让用户确认，或在 report 的 Open Questions 中挂起。

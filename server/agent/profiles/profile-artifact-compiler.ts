@@ -3,12 +3,12 @@ import {existsSync} from "node:fs";
 import {copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile} from "node:fs/promises";
 import {basename, dirname, isAbsolute, join, relative, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
-import {builtinModules} from "node:module";
+import {builtinModules, createRequire} from "node:module";
 import {build, type Metafile, type Plugin} from "esbuild";
 import type {AgentProfile} from "nbook/server/agent/profiles/types";
 import {generateVariableTypes, VARIABLE_TYPES_FILE_NAME, type VariableTypeGenerationDiagnostic} from "nbook/server/agent/variables/generated-types";
 
-export const PROFILE_ARTIFACT_COMPILER_VERSION = 1;
+export const PROFILE_ARTIFACT_COMPILER_VERSION = 4;
 export const PROFILE_COMPILED_DIR_NAME = ".compiled";
 export const PROFILE_COMPILED_MANIFEST_FILE = "manifest.json";
 
@@ -288,6 +288,9 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
     try {
         const result = await build({
             absWorkingDir: process.cwd(),
+            banner: {
+                js: runtimeRequireBanner(),
+            },
             bundle: true,
             entryPoints: [file.absolutePath],
             format: "esm",
@@ -295,8 +298,8 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
             jsxImportSource: "nbook/server/agent/profiles/profile-dsl",
             logLevel: "silent",
             metafile: true,
+            nodePaths: runtimeNodePaths(),
             outfile: temporaryOutputPath,
-            packages: "external",
             platform: "node",
             plugins: [repoAliasBundlePlugin()],
             target: "esnext",
@@ -488,11 +491,34 @@ async function pruneCompiledArtifacts(compiledDir: string, manifest: ProfileArti
         .map((entry) => rm(join(compiledDir, entry.name), {force: true})));
 }
 
+/**
+ * Product Root 没有根 node_modules，profile 编译需要从 Nitro vendor 解析包。
+ */
+function runtimeNodePaths(): string[] {
+    if (!isProductRuntimeRoot()) {
+        return [];
+    }
+    const runtimeNodeModules = resolve(process.cwd(), ".output", "server", "node_modules");
+    return existsSync(runtimeNodeModules) ? [runtimeNodeModules] : [];
+}
+
+/**
+ * Product Runtime 的动态 artifact 不在 `.output/server` 下，不能用 artifact
+ * 自身位置解析 native/dynamic require；否则会越过 Nitro vendor。
+ */
+function runtimeRequireBanner(): string {
+    if (!isProductRuntimeRoot()) {
+        return 'import {createRequire as __nbookCreateRequire} from "node:module";const require=__nbookCreateRequire(import.meta.url);';
+    }
+    return `import {createRequire as __nbookCreateRequire} from "node:module";const require=__nbookCreateRequire(${JSON.stringify(pathToFileURL(resolvePackageRequireRoot()).href)});`;
+}
+
 function repoAliasBundlePlugin(): Plugin {
     const nodeModuleNames = new Set([
         ...builtinModules,
         ...builtinModules.map((name) => `node:${name}`),
     ]);
+    const requireFromRuntime = createRequire(pathToFileURL(resolvePackageRequireRoot()));
     return {
         name: "nbook-repo-alias-bundle",
         setup(buildApi) {
@@ -502,20 +528,32 @@ function repoAliasBundlePlugin(): Plugin {
                     path: resolveRepoAliasPath(relativePath),
                 };
             });
-            buildApi.onResolve({filter: /^[^./].*/}, (args) => {
-                if (resolve(args.path) === args.path || /^[A-Za-z]:[\\/]/.test(args.path)) {
-                    return undefined;
-                }
-                if (args.path.startsWith("nbook/") || args.path.startsWith("neuro_book/") || nodeModuleNames.has(args.path)) {
-                    return undefined;
-                }
-                return {
-                    path: args.path,
-                    external: true,
-                };
-            });
+            buildApi.onResolve({filter: /^[^./].*/}, (args) => nodeModuleNames.has(args.path)
+                ? {path: args.path, external: true}
+                : resolveBarePackage(args.path, requireFromRuntime));
         },
     };
+}
+
+function resolvePackageRequireRoot(): string {
+    const outputEntry = resolve(process.cwd(), ".output", "server", "index.mjs");
+    if (isProductRuntimeRoot() && existsSync(outputEntry)) {
+        return outputEntry;
+    }
+    return resolve(process.cwd(), "package.json");
+}
+
+function isProductRuntimeRoot(): boolean {
+    return existsSync(resolve(process.cwd(), "release-meta.json"))
+        && existsSync(resolve(process.cwd(), ".output", "server", "index.mjs"));
+}
+
+function resolveBarePackage(specifier: string, requireFromRuntime: NodeJS.Require): {path: string} | undefined {
+    try {
+        return {path: requireFromRuntime.resolve(specifier)};
+    } catch {
+        return undefined;
+    }
 }
 
 function resolveRepoAliasPath(relativePath: string): string {

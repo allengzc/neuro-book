@@ -1,6 +1,8 @@
 import {Worker} from "node:worker_threads";
+import {createRequire} from "node:module";
 import {resolve} from "node:path";
 import {pathToFileURL} from "node:url";
+import {existsSync} from "node:fs";
 import type {
     AgentProfileCompileAllRequestDto,
     AgentProfileCompileRequestDto,
@@ -18,6 +20,14 @@ type CompileTask = {
 type WorkerResponse = {
     id: number;
     result: AgentProfileCompileResultDto;
+};
+
+type CompileWorkerPaths = {
+    entry: string;
+    runtime: string;
+    tsconfig: string;
+    tsxApiUrl: string;
+    tsxLoaderUrl: string;
 };
 
 let service: ProfileCompileWorkerService | undefined;
@@ -196,29 +206,105 @@ function workerFailedResult(input: AgentProfileCompileRequestDto | AgentProfileC
 }
 
 function createCompileWorker(): Worker {
+    const workerPaths = resolveCompileWorkerPaths();
     if (process.versions.bun) {
-        return new Worker(pathToFileURL(resolve(process.cwd(), "server", "agent", "profiles", "profile-compile-worker-entry.ts")), {
-            execArgv: ["--import", "tsx"],
+        return new Worker(pathToFileURL(workerPaths.entry), {
+            execArgv: ["--import", workerPaths.tsxLoaderUrl],
         });
     }
-    return new Worker(NODE_WORKER_SOURCE, {
+    return new Worker(renderNodeWorkerSource(workerPaths), {
         eval: true,
     });
 }
 
-const NODE_WORKER_SOURCE = `
+/**
+ * 解析 profile 编译 worker 的源码入口。Product Root 也必须带这些运行源码，
+ * 但服务启动仍使用 `.output/server/index.mjs`，不是源码 dev server。
+ */
+function resolveCompileWorkerPaths(root = process.cwd()): CompileWorkerPaths {
+    return resolveProfileCompileWorkerPathsForRoot(root);
+}
+
+/**
+ * 按指定 Product/source root 解析 worker 入口和 TSX loader 依赖。
+ */
+export function resolveProfileCompileWorkerPathsForRoot(root: string): CompileWorkerPaths {
+    const outputRoot = resolve(root, ".output", "server");
+    const outputEntry = resolve(outputRoot, "server", "agent", "profiles", "profile-compile-worker-entry.ts");
+    const outputRuntime = resolve(outputRoot, "server", "agent", "profiles", "profile-compile-worker-runtime.ts");
+    if (existsSync(resolve(root, "release-meta.json")) && existsSync(outputEntry) && existsSync(outputRuntime)) {
+        const tsxUrls = resolveTsxPackageUrls(resolve(outputRoot, "index.mjs"), true);
+        return {
+            entry: outputEntry,
+            runtime: outputRuntime,
+            tsconfig: resolvePreferredTsconfig(outputRoot),
+            ...tsxUrls,
+        };
+    }
+
+    const entry = resolve(root, "server", "agent", "profiles", "profile-compile-worker-entry.ts");
+    const runtime = resolve(root, "server", "agent", "profiles", "profile-compile-worker-runtime.ts");
+    if (!existsSync(entry) || !existsSync(runtime)) {
+        throw new Error("Product runtime 缺少 profile compile worker 运行源码，请确认 server/ 已打入 product 根。");
+    }
+    return {
+        entry,
+        runtime,
+        tsconfig: resolvePreferredTsconfig(root),
+        ...resolveTsxPackageUrls(existsSync(resolve(root, "package.json")) ? resolve(root, "package.json") : entry, false),
+    };
+}
+
+/**
+ * 从指定上下文解析 TSX worker 依赖，避免 worker 使用 cwd 裸包名解析。
+ */
+function resolveTsxPackageUrls(requireRoot: string, productRuntime: boolean): {tsxApiUrl: string; tsxLoaderUrl: string} {
+    return {
+        tsxApiUrl: resolvePackageUrl(requireRoot, "tsx/esm/api", productRuntime),
+        tsxLoaderUrl: resolvePackageUrl(requireRoot, "tsx", productRuntime),
+    };
+}
+
+/**
+ * 将 package specifier 解析为可动态 import 的绝对 file URL。
+ */
+function resolvePackageUrl(requireRoot: string, specifier: string, productRuntime: boolean): string {
+    try {
+        const requireFromRoot = createRequire(pathToFileURL(requireRoot));
+        return pathToFileURL(requireFromRoot.resolve(specifier)).href;
+    } catch (error) {
+        if (productRuntime) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Product runtime 缺少 tsx vendor：无法从 .output/server/node_modules 解析 ${specifier}。请确认 product:stage 已复制 tsx。原始错误：${message}`);
+        }
+        throw error;
+    }
+}
+
+/**
+ * 优先使用 Nuxt server tsconfig，缺失时回退根 tsconfig。
+ */
+function resolvePreferredTsconfig(root: string): string {
+    const serverTsconfig = resolve(root, ".nuxt", "tsconfig.server.json");
+    if (existsSync(serverTsconfig)) {
+        return serverTsconfig;
+    }
+    return resolve(root, "tsconfig.json");
+}
+
+function renderNodeWorkerSource(paths: CompileWorkerPaths): string {
+    return `
     import {parentPort} from "node:worker_threads";
     import {pathToFileURL} from "node:url";
-    import {resolve} from "node:path";
 
     if (!parentPort) {
         throw new Error("profile compile worker parentPort missing");
     }
 
-    const parentURL = pathToFileURL(resolve(process.cwd(), "server", "agent", "profiles", "profile-compile-worker-entry.ts")).href;
-    const runtimeURL = pathToFileURL(resolve(process.cwd(), "server", "agent", "profiles", "profile-compile-worker-runtime.ts")).href;
-    const tsconfig = resolve(process.cwd(), "tsconfig.json");
-    const {tsImport} = await import("tsx/esm/api");
+    const parentURL = pathToFileURL(${JSON.stringify(paths.entry)}).href;
+    const runtimeURL = pathToFileURL(${JSON.stringify(paths.runtime)}).href;
+    const tsconfig = ${JSON.stringify(paths.tsconfig)};
+    const {tsImport} = await import(${JSON.stringify(paths.tsxApiUrl)});
     const {runProfileCompile, runProfileCompileAll} = await tsImport(runtimeURL, {parentURL, tsconfig});
 
     parentPort.on("message", async (message) => {
@@ -231,3 +317,4 @@ const NODE_WORKER_SOURCE = `
         });
     });
 `;
+}

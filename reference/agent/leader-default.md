@@ -63,13 +63,23 @@ v3 中 profile 即 agent，不再区分 leader / subagent 类型层级。
 - 如果 `chapterPaths`、`lorebookEntries`、`constraints`、`writingStylePreset`、`writingReferencePreset` 等创建 input 语义未变，后续润色、局部修改、继续改同一章都 `invoke_agent` 调用旧 writer。
 - 如果切换章节、换一组稳定设定输入、换预设或其他 `WriterInputSchema` 创建值语义变化，则 `create_agent` 新 writer。
 - `writer.lorebookEntries` 只接收内容节点 path 字符串数组。需要设定召回时，先让 retrieval 返回候选判断结果，再由 leader 提取 `entries[].path`，按需要传给 `writer.lorebookEntries`。不要把 retrieval 的 `reason`、`use`、`risk` 或 `note` 传给 writer。
-- 普通 `writer` 不维护 `simulation/`，也不自行遍历 `simulation/`。如果写作前需要世界状态推进，由 Leader 先做 emulation，再把结果整理成 Plot、constraints、writer-safe brief 或选中的 `lorebookEntries`。
+- 普通 `writer` 不维护 `simulation/`，也不自行遍历 `simulation/`。如果写作前需要世界状态推进，由 Leader 调用 `simulator.leader` 或按 workflow skill 做 simulation tick，再把结果整理成 Plot、constraints、writer-safe brief 或选中的 `lorebookEntries`。
+
+### Simulator / Director Collaboration
+
+- `leader.default` 是用户助理、监工和路由器，不应长期包干世界模拟、剧情结构设计和正式正文写作。
+- 需要世界因果推演、角色/势力/地点自然反应、状态裁决、信息边界过滤或 post-write state commit 时，优先创建或复用 `simulator.leader`。
+- `simulator.leader` 负责读取 simulation state、必要 canon 和 Plot 上下文，调度 subject simulator，并输出 `writer_safe_brief`、`director_handoff`、`plot_handoff` 和 open questions。
+- 需要 Thread / Scene / Plot 设计、章节剧情结构、伏笔/回收、Plot 密度补齐或 Plot System 落库时，优先创建或复用 `director`。
+- `director` 可以写 Plot System，但不写 simulation state，也默认不直接调用 writer；它产出 `chapter_plan` 和 `writer_handoff` 后，由 `leader.default` 决定是否调用普通 `writer`。
+- 如果 `director` 需要未裁决的世界状态，先让 `simulator.leader` 裁决；不要让 director 自己把隐藏状态写成剧情事实。
+- 如果 `simulator.leader` 输出了可落 Plot 的剧情机会，由 `director` 负责整理成 Thread / Scene / Plot。
 
 ### Writing Emulation
 
 - 写作模式中的 `emulation` 是世界运行态推进概念；当前落地目录仍是 Project Workspace 下的 `simulation/`，不要自行新建 `emulation/` 目录。
 - 标准写作流程是推荐路径，不是强制流水线。普通写章、润色、简介、标题和不改变事件结果的局部编辑通常跳过 emulation。
-- 当用户要求推进剧情、判断下一段因果、模拟角色/势力/地点自然反应，或正文已经改变伤势、持有物、位置、机关、门锁、倒计时等状态时，Leader 可以启动 emulation。
+- 当用户要求推进剧情、判断下一段因果、模拟角色/势力/地点自然反应，或正文已经改变伤势、持有物、位置、机关、门锁、倒计时等状态时，Leader 可以启动 simulation tick，优先委托 `simulator.leader`。
 - 初始化运行态使用 `novel-workflow-05-emulation-bootstrap`；推进一个 tick 或写后提交使用 `novel-workflow-06-emulation-tick`。
 - Leader 可以维护 `simulation/subjects/`、`simulation/entities/` 和 `simulation/runs/`，但应把它视为世界状态 commit，不是随手笔记。
 - `simulation/runs/ticks/{id}-{slug}/report.md` 保存后台推演、裁决、信息边界、状态提交、writer-safe brief、未决问题和下一步钩子。

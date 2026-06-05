@@ -14,7 +14,7 @@ when_to_use:
 ## 目标
 
 - 建立最小可用 `simulation/` 状态。
-- 让后续 `novel-workflow-06-emulation-tick`、`novel-workflow-07-opening-plot-design`、RP Tick 或普通写作都能读取同一份当前状态。
+- 让后续 `simulator.leader`、`novel-workflow-06-emulation-tick`、`novel-workflow-07-opening-plot-design`、RP Tick 或普通写作都能读取同一份当前状态。
 - 明确哪些信息是 subject-facing，哪些仍是 GM / leader 全知视角。
 
 ## 不做什么
@@ -28,17 +28,18 @@ when_to_use:
 
 1. 确认 Current Project Workspace，所有文件路径使用 `project-slug/simulation/...`。
 2. 检查 `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md`、`simulation/writer.md` 是否存在；缺失时优先从默认 Project 模板补齐。
-3. 读取基础 lorebook：故事概念、主角、关键 NPC、地点、势力、规则和重要物品。
-4. 确定初始 subjects：至少包含玩家/主角；按用户要求或开局需要加入关键 NPC、势力代表或系统主体。
-5. 为每个 subject 建立或更新：
+3. 如果当前任务已需要专门世界模拟主管，创建或复用 `simulator.leader`，后续推进由它读取本 skill 初始化出的 `simulation/`。
+4. 读取基础 lorebook：故事概念、主角、关键 NPC、地点、势力、规则和重要物品。
+5. 确定初始 subjects：至少包含玩家/主角；按用户要求或开局需要加入关键 NPC、势力代表或系统主体。
+6. 为每个 subject 建立或更新：
    - `subject.md`：稳定扮演原则、身份和行动边界。
    - `events.md`：初始化前已经亲历、听说或被告知的事件。
    - `knowledge.md`：subject 已知、相信或误解的信息。
    - `mind.md`：当前短期心理、疑虑、动机。
    - `state.md`：当前位置、身体状态、持有物摘要、短期目标。
-6. 只为需要状态追踪的对象创建 `simulation/entities/{entity-id}/`。普通三瓶血药这类无差异物品写入 subject `state.md` 的 inventory 摘要；被下毒、唯一、损坏、隐藏真相或有进度的对象才建 entity。
-7. 建立或更新 `simulation/runs/current.md` 和 `simulation/runs/index.md`。
-8. 创建 `simulation/runs/ticks/000000-initial-state/report.md`，必要时创建说明性 `prose.md`。
+7. 只为需要状态追踪的对象创建 `simulation/entities/{entity-id}/`。普通三瓶血药这类无差异物品写入 subject `state.md` 的 inventory 摘要；被下毒、唯一、损坏、隐藏真相或有进度的对象才建 entity。
+8. 建立或更新 `simulation/runs/current.md` 和 `simulation/runs/index.md`。
+9. 创建 `simulation/runs/ticks/000000-initial-state/report.md`，必要时创建说明性 `prose.md`。
 
 ## 000000 Report 要点
 
@@ -61,4 +62,4 @@ when_to_use:
 - `simulation/runs/current.md` 能说明当前世界状态。
 - `simulation/runs/index.md` 能索引 `000000-initial-state`。
 - `000000-initial-state/report.md` 说明初始化依据、状态边界和未决问题。
-- 后续可以直接进入 emulation tick、`novel-workflow-07-opening-plot-design` 或 RP 初始化。
+- 后续可以直接进入 `simulator.leader` / emulation tick、`novel-workflow-07-opening-plot-design` 或 RP 初始化。

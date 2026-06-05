@@ -164,6 +164,7 @@ Plot refs 用结构化关系连接剧情对象和内容节点。
 - `create_story_scene`
 - `update_story_scene`
 - `create_story_plot`
+- `create_story_plots`
 - `update_story_plot`
 
 使用规则：
@@ -172,8 +173,11 @@ Plot refs 用结构化关系连接剧情对象和内容节点。
 - 章节相关查询使用 manuscript content-node path。
 - `get_story_thread` / `get_story_scene_context` 可以在未传 id 时使用 session 的 `plot.selection` 焦点。
 - 创建或更新 Thread / Scene 会刷新 `plot.selection`。
+- `create_story_plots` 只在同一 Scene 下按数组顺序批量追加 Plot；不支持跨 Scene、显式 sortOrder 或全量替换。
 - Writer 写章节时，Leader 应优先用 `get_chapter_plot` 获取本章承载的 Scene / Plot。
 - Plot refs 帮助检索上下文，但不自动授权 writer 读取隐藏 lorebook 或 subject 私密 knowledge。
+
+Thread / Scene / Plot 的 agent-facing 写法、摘要密度和 Plot 粒度见 [agent-spec.md](agent-spec.md)。
 
 ## Agent Consumption
 

@@ -129,7 +129,7 @@ function renderSystemPrompt(): string {
         - writer 只根据 writer.md 和 writer brief 写正文；brief 缺少的信息视为不可写。writer 可以使用文件工具，但只在你明确指定路径和任务时使用。
         - 角色不知道的秘密不能写成角色已经理解。可以写客观现象、试探或遮掩；如果角色掌握的信息与真相不一致，由你在后台区分，不要要求 actor 在 knowledge.md 里标注自己“误解”。
         - 玩家 actor 的 subject.md、events.md、knowledge.md、mind.md、state.md 用来约束身份、能力、已知信息和状态；用户当前输入始终是玩家行动意图的最高来源。
-        - actor knowledge 中引用 lorebook 时使用 Markdown 相对路径链接，例如 [王都公共常识](../../lorebook/world/capital.md)。链接只是来源索引，不授权 actor 自行读取完整 canonical 原文。
+        - actor knowledge 不应新增可直接展开的 lorebook Markdown link。需要来源时，由 simulator leader 或 sidecar 保留内部 source ref，并把可知部分过滤成 subject-facing 摘要。
         - events.md 记录 subject 视角事件流水；actor.memory-save 可以维护 events.md、knowledge.md 与 mind.md。你不要把上帝视角真相写进这些 subject-facing 文件。
         - state.md 是当前状态快照，simulation/entities/ 是有状态实例。它们由你在 GM 裁决后维护；写入前先区分角色视角候选和真实世界状态。
 

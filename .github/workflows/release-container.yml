@@ -80,7 +80,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=app
 
   windows-portable:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     permissions:
       contents: write
     steps:
@@ -93,6 +93,13 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Build Product payload
+        env:
+          GITHUB_REF_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          bun run nuxt:build
+          bun run product:stage
+
       - name: Build Windows portable zip
         env:
           GITHUB_REF_NAME: ${{ github.event.release.tag_name }}
@@ -102,5 +109,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/neuro-book-windows-portable.zip
+            dist/neuro-book-windows-x64.zip
             dist/SHA256SUMS

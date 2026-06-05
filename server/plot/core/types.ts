@@ -8,6 +8,7 @@ import type {
 } from "nbook/server/generated/project-prisma/client";
 import type {
     CreateStoryPlotRequestDto,
+    CreateStoryPlotsRequestDto,
     CreateStorySceneRequestDto,
     CreateStoryThreadRequestDto,
     ReorderStoryPhasesRequestDto,
@@ -195,6 +196,13 @@ export type ParsedUpdateStorySceneInput = Omit<UpdateStorySceneRequestDto, "thre
  * 情节点创建输入。
  */
 export type ParsedCreateStoryPlotInput = Omit<CreateStoryPlotRequestDto, "sceneId"> & {
+    sceneId: number;
+};
+
+/**
+ * 情节点批量创建输入。
+ */
+export type ParsedCreateStoryPlotsInput = Omit<CreateStoryPlotsRequestDto, "sceneId"> & {
     sceneId: number;
 };
 

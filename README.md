@@ -32,14 +32,14 @@ NeuroBook 是一个基于 Nuxt 构建的长篇小说创作与 AI 角色扮演 ID
 
 | 方式 | 适合 | 特点 |
 | --- | --- | --- |
-| Windows Release Zip | Windows 本机普通用户 | 解压后点击启动，首次联网安装依赖并 clone 源码。 |
-| local-git | 本机或常规服务器 | 默认推荐，免 Docker，宿主机 clone/pull、build、运行。 |
+| Windows Product Portable | Windows 本机普通用户 | 解压后点击启动，内置 Node 和预构建 Product Payload。 |
+| Product Node | 已有 Node 的本机或服务器 | 解压 Product Payload 后用 Node 启动，不需要源码和根 `node_modules`。 |
 | ghcr | 低内存服务器 | Docker 拉取预构建镜像，服务器不执行 Nuxt build。 |
-| source | 开发服务器 | Docker 提供 runtime，宿主机源码挂载进容器。 |
+| Source Dev | 开发者 | 源码 checkout、本机依赖安装、开发和测试。 |
 
-不确定时：Windows 用户选 Release Zip；其他环境优先选 `local-git`。
+不确定时：Windows 用户选 Product Portable；服务器优先选 `ghcr` 或 Product Node。
 
-## Windows Release Zip
+## Windows Product Portable
 
 从 [GitHub Releases](https://github.com/notnotype/neuro-book/releases) 下载 Windows x64 zip，解压到新目录后运行：
 
@@ -47,7 +47,7 @@ NeuroBook 是一个基于 Nuxt 构建的长篇小说创作与 AI 角色扮演 ID
 .\Start Neuro Book.cmd
 ```
 
-首次启动会检查 Git、Bun、ripgrep，缺失时按提示安装，然后 clone 源码、安装依赖、构建应用、初始化 SQLite，并引导创建管理员。
+包内已经包含预构建 `app/` Product Payload 和 `runtime/node/`。首次启动会初始化 `data/`、迁移 SQLite，并在没有用户时引导创建管理员；不会 clone 源码、安装 Bun、安装依赖或执行 Nuxt build。
 
 更新时运行：
 
@@ -55,17 +55,40 @@ NeuroBook 是一个基于 Nuxt 构建的长篇小说创作与 AI 角色扮演 ID
 .\Update Neuro Book.cmd
 ```
 
-不要用新版 zip 直接覆盖旧目录。
+v1 更新入口会提示 Product Portable 的保留 `data/` 更新方式；自动下载和切换新版 `app/` 会在后续版本补齐。
+
+目录边界：
+
+- `app/`：可替换的 Product Payload。
+- `data/`：升级时保留的运行状态，包含 `workspace/`、`.env`、`config.yaml` 和 SQLite 数据库。
+- `launcher/`：Windows Launcher。
+- `runtime/node/`：内置 Node.js runtime。
+
+## Product Node
+
+Product Node 适合已有 Node.js 的本机或服务器。构建机生成 Product Payload：
+
+```bash
+bun run nuxt:build
+bun run product:stage
+```
+
+运行机从 Product Root 启动：
+
+```bash
+cd product
+node --env-file=.env .output/server/index.mjs
+```
 
 ## local-git
 
-推荐给熟悉命令行的本机或服务器用户：
+`local-git` 保留为源码部署过渡方案，适合熟悉命令行并希望跟随源码更新的用户：
 
 ```bash
 npx --yes --package github:notnotype/neuro-book neuro-book-deploy
 ```
 
-脚本会询问部署目录、端口和部署模式。默认 `local-git` 会在宿主机 clone/pull 源码、安装依赖、构建应用、执行 SQLite migration，并在 `.deploy/README.md` 中生成启动说明。
+脚本会询问部署目录、端口和部署模式。`local-git` 会在宿主机 clone/pull 源码、安装依赖、构建应用、执行 SQLite migration，并在 `.deploy/README.md` 中生成启动说明。
 
 也可以 clone 后运行：
 
@@ -91,7 +114,7 @@ ghcr.io/notnotype/neuro-book:latest
 
 数据、配置和 Project Workspace 仍保存在宿主机 `workspace/` 挂载目录中。
 
-## source
+## Source Dev
 
 推荐给开发服务器或需要源码挂载的 Docker 部署：
 
@@ -105,7 +128,7 @@ node scripts/deploy/neuro-book-deploy.mjs --deploy-mode source
 
 ## 管理员和模型配置
 
-全站鉴权默认开启。首次部署后如果没有自动引导创建管理员，可以在应用目录运行：
+全站鉴权默认开启。Windows Product Portable 首次启动会自动引导创建管理员；源码部署中如果需要手工创建，可以在应用目录运行：
 
 ```powershell
 bun run auth:create-admin admin

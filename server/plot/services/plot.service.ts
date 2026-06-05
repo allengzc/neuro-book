@@ -2,6 +2,7 @@ import type {PlotRepository, SceneRepository} from "nbook/server/plot/contracts/
 import {PlotDtoAssembler} from "nbook/server/plot/assemblers/plot-dto.assembler";
 import type {
     ParsedCreateStoryPlotInput,
+    ParsedCreateStoryPlotsInput,
     ParsedReorderStoryPlotItem,
     ParsedUpdateStoryPlotInput,
 } from "nbook/server/plot/core/types";
@@ -55,6 +56,32 @@ export class PlotService {
         });
 
         return this.assembler.toStoryPlotDto(plot);
+    }
+
+    /**
+     * 在同一 Scene 下批量追加情节点。
+     */
+    async createStoryPlots(projectPath: string, input: ParsedCreateStoryPlotsInput): Promise<StoryPlotDto[]> {
+        const story = await this.storyService.ensureStory(projectPath);
+        await this.scopeGuard.assertScene(story.id, input.sceneId);
+        await this.plotRepository.lockPlotOrderBucket(input.sceneId);
+        const startSortOrder = await this.orderService.getNextPlotSortOrder(input.sceneId);
+        const plots: StoryPlotDto[] = [];
+
+        for (const [index, item] of input.plots.entries()) {
+            const plot = await this.plotRepository.createPlot({
+                sceneId: input.sceneId,
+                sortOrder: startSortOrder + index,
+                kind: item.kind,
+                summary: item.summary,
+                effect: item.effect ?? null,
+                writingTip: item.writingTip ?? null,
+                note: item.note ?? null,
+            });
+            plots.push(this.assembler.toStoryPlotDto(plot));
+        }
+
+        return plots;
     }
 
     /**

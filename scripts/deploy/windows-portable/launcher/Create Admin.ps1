@@ -4,14 +4,14 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 
 $PortableRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Node = Join-Path $PortableRoot "runtime\node\node.exe"
-$Bootstrap = Join-Path $PortableRoot "bootstrap\bootstrap.mjs"
+$Launcher = Join-Path $PortableRoot "launcher\launcher.mjs"
 
 if (-not (Test-Path $Node)) {
     throw "缺少内置 Node.js runtime：$Node"
 }
-if (-not (Test-Path $Bootstrap)) {
-    throw "缺少 Windows bootstrap 入口：$Bootstrap"
+if (-not (Test-Path $Launcher)) {
+    throw "缺少 Windows Launcher 入口：$Launcher"
 }
 
-& $Node $Bootstrap admin
+& $Node $Launcher admin
 exit $LASTEXITCODE

@@ -124,7 +124,7 @@ const PROJECT_METADATA_FILE = "project.yaml";
 const LEGACY_WORKSPACE_METADATA_FILE = "workspace.yaml";
 const DEFAULT_TEMPLATE_NAME = "project-directory-templates";
 const WORKSPACE_ROOT_NAME = "workspace";
-const SYSTEM_TEMPLATE_ROOT = path.resolve(SCRIPT_DIR, "..", "..", "templates");
+const SYSTEM_TEMPLATE_ROOT = await resolveSystemTemplateRoot();
 
 program
     .name("workspace")
@@ -734,6 +734,24 @@ function resolveWorkspaceContainerRoot(): string {
         return path.dirname(cwd);
     }
     return path.join(cwd, WORKSPACE_ROOT_NAME);
+}
+
+/**
+ * 定位系统模板根。源码 assets 脚本使用脚本相对路径；产品运行时脚本被复制到
+ * `.output/server/scripts/agent` 后，改按 Product Root 下的 assets 模板解析。
+ */
+async function resolveSystemTemplateRoot(): Promise<string> {
+    const candidateRoots = [
+        path.resolve(SCRIPT_DIR, "..", "..", "templates"),
+        path.resolve(SCRIPT_DIR, "..", "..", "..", "..", "assets", "workspace", ".nbook", "templates"),
+        path.resolve(INVOCATION_CWD, "assets", "workspace", ".nbook", "templates"),
+    ];
+    for (const candidateRoot of candidateRoots) {
+        if (await isDirectory(candidateRoot)) {
+            return candidateRoot;
+        }
+    }
+    return candidateRoots[candidateRoots.length - 1]!;
 }
 
 /**

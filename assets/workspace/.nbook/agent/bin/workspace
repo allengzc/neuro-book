@@ -1,3 +1,19 @@
 #!/usr/bin/env sh
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PRODUCT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../../../../.." && pwd)
+PRODUCT_WORKSPACE_SCRIPT="$PRODUCT_ROOT/.output/server/scripts/agent/workspace.ts"
+PRODUCT_TSX="$PRODUCT_ROOT/.output/server/node_modules/tsx/dist/cli.mjs"
+PORTABLE_NODE="$PRODUCT_ROOT/../runtime/node/node.exe"
+
+if [ -f "$PRODUCT_WORKSPACE_SCRIPT" ]; then
+    if [ ! -f "$PRODUCT_TSX" ]; then
+        echo "NeuroBook product runtime is missing .output/server/node_modules/tsx." >&2
+        exit 1
+    fi
+    if [ -f "$PORTABLE_NODE" ]; then
+        exec "$PORTABLE_NODE" "$PRODUCT_TSX" "$PRODUCT_WORKSPACE_SCRIPT" "$@"
+    fi
+    exec "${NODE:-node}" "$PRODUCT_TSX" "$PRODUCT_WORKSPACE_SCRIPT" "$@"
+fi
+
 exec bun "$SCRIPT_DIR/../scripts/workspace.ts" "$@"

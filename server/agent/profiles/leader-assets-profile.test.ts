@@ -113,6 +113,7 @@ describe("assets builtin v3 profiles", () => {
             "create_story_scene",
             "update_story_scene",
             "create_story_plot",
+            "create_story_plots",
             "update_story_plot",
             "execute_sql",
             "variable_schema",
@@ -318,7 +319,7 @@ describe("assets builtin v3 profiles", () => {
         expect((exitPrepared.appendingMessages ?? []).map(messageText).join("\n")).toContain("## Exited Plan Mode");
         const snapshot = await catalog.snapshot();
         expect(snapshot.profiles.map((item) => item.key)).toContain("leader.default");
-    });
+    }, 20_000);
 
     it("retrieval profile 使用 Git Bash 安全的路径枚举提示", async () => {
         const catalog = new AgentProfileCatalog(

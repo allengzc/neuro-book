@@ -27,6 +27,8 @@ import type {
     PlotWorkbenchDto,
     CreateStoryPhaseRequestDto,
     CreateStoryPlotRequestDto,
+    CreateStoryPlotsRequestDto,
+    CreateStoryPlotsResponseDto,
     CreateStorySceneRequestDto,
     CreateStoryThreadRequestDto,
     PlotTreeDto,
@@ -310,6 +312,32 @@ export class PlotFacade {
             return {
                 ...detail,
                 diagnostics: toResponseContentDiagnostics(processedInput.diagnostics),
+            };
+        });
+    }
+
+    /**
+     * 在同一 Scene 下批量创建 Plot。
+     */
+    async createStoryPlots(projectPath: string, input: CreateStoryPlotsRequestDto): Promise<CreateStoryPlotsResponseDto> {
+        let diagnostics = {errors: [] as string[], warnings: [] as string[], notes: [] as string[]};
+        const processedPlots = input.plots.map((plot) => {
+            const processedPlot = processTextFieldsWithResults(plot, ["summary", "effect", "writingTip", "note"]);
+            diagnostics = mergeContentDiagnostics(diagnostics, processedPlot.diagnostics);
+            return processedPlot.values;
+        });
+        const processedInput = {...input, plots: processedPlots};
+
+        return this.runInTransaction(projectPath, async (module) => {
+            const normalizedProjectPath = normalizeProjectPath(projectPath);
+            const parsedInput = module.inputParser.parseCreatePlots(processedInput);
+            const createdPlots = await module.plotService.createStoryPlots(normalizedProjectPath, parsedInput);
+            const scene = await module.sceneService.getStorySceneDetailDto(normalizedProjectPath, parsedInput.sceneId);
+
+            return {
+                scene,
+                createdPlots,
+                diagnostics: toResponseContentDiagnostics(diagnostics),
             };
         });
     }

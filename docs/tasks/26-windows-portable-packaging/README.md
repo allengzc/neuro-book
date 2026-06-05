@@ -236,3 +236,162 @@
 - 在干净 Windows 环境做一次完整解压启动验收。
 - 后续把 Workspace Root 改成可配置项，再支持 `%LOCALAPPDATA%` 或自定义数据目录。
 - 抽取最小 Nuxt/Nitro Windows 复现，上游跟进 `file:///_entry.js` fallback；升级到修复版本后移除本地 build-output patch。
+
+## Product Runtime Release v1
+
+### User Request
+
+- 在现有 Windows portable/source-based release 之外，先实现一个本地 `product/` 成品验证根。
+- 目标是不再要求产品机拥有完整 Git checkout、根 `node_modules` 或本地 build 步骤。
+- Product release 仍允许携带 `.output/server/node_modules` 作为 Nitro 内置 vendor，并保留可运行脚本、`assets/workspace`、SQLite migrations、TSX Profile Workbench 编译能力和必要的 runtime source 子集。
+- 生产 `cwd` 合同必须明确：服务从 Product Root 启动，`process.cwd()` 指向 Product Root。
+
+### Goal
+
+- `bun run product:stage` 生成 `product/`，模拟 release zip 解压后的运行根。
+- `bun run product:start` 从 Product Root 启动标准 Nuxt/Nitro 入口 `node .output/server/index.mjs`。
+- `bun run product:create-admin` 在 Product Root 内运行管理员创建脚本。
+- `/api/app/version` 在 product 环境优先读取 `release-meta.json`，不依赖 `.git` 或根 `package.json`。
+- TSX Profile Workbench 在 product 环境继续可编译用户 profile 源码。
+
+### Decisions
+
+- Product Root 可以包含产品运行源码子集：`server/`、`shared/`、必要 `scripts/`、`assets/workspace/`、`reference/`、`docs/` 和 SQLite migrations；这些是脚本/Profile 编译运行资产，不代表服务从源码 dev server 启动。
+- Product Root 不包含根 `node_modules`；依赖由 `.output/server/node_modules` 承载。
+- Product Root 的 package scripts 和仓库根 `product:*` 包装命令都指向 `.output/server/scripts/**`，避免产品脚本从产品根 `scripts/**` 解析依赖后回落到开发机根 `node_modules`。
+- `product:stage` 会生成 Product Root `.env`，包含 `NUXT_SESSION_PASSWORD` 和 SQLite 默认环境；`product:start` 自动加载该 `.env`，直接走 Nitro 入口时使用 `node --env-file=.env .output/server/index.mjs`。
+- `.output/server/node_modules` 使用 runtime package closure 复制运行依赖，包含 `tsx`、`typescript`、`esbuild`、`@esbuild/win32-x64`、`commander`、`yaml`、`zod`、`h3`、`@libsql/client` 等脚本和服务运行依赖。
+- `.output/server/node_modules/nbook` 是产品内 runtime source 包，包含脚本和 worker 需要的 `server/`、`shared/`、`app/` 导入根；隔离 product smoke 已验证 `nbook/*` 不依赖仓库父级 `node_modules`。
+- Profile compile worker 在 Product Runtime 中只从带 `release-meta.json` 的 Product Root 进入 product 分支，优先从 `.output/server/server/...` 读取运行源码，并通过 `.output/server/index.mjs` 创建 runtime require，把 `tsx/esm/api` 和 `tsx` loader 解析到 `.output/server/node_modules`；开发环境再回退到源码根 `server/...` 和仓库根依赖。
+- Product Runtime 缺少 `tsx` vendor 时直接报清晰错误，指出缺少 `.output/server/node_modules/tsx`；worker 不再裸 `import("tsx/esm/api")`，Bun worker 也不再裸 `--import tsx`。
+- Profile artifact compiler v4 不再把普通第三方包 external 出去，而是从 runtime 上下文显式解析并 bundle 到 profile artifact；只保留 Node builtin external，并为 artifact ESM 注入 `require` shim 以兼容仍会动态 require builtin 的 CJS 依赖。
+- `product:stage` 会在 Product Root 内重新编译系统 profiles，避免系统 `.compiled` 继续携带源码根 dependency hash。
+- `assets/workspace/.nbook/agent/scripts/profile.ts`、`variable.ts`、`workspace.ts` 和 `agent/bin/workspace(.cmd)` 都支持 product/source 双入口；product copy 下的 `workspace.ts` 是 launcher，真实入口为 `.output/server/scripts/agent/workspace.ts`。
+- `release-meta.json` 的产品形态使用 `versionKind: "release"`；tag/commit/package 来源保存在 `sourceKind`；版本 API 只读 Product Root 的 `release-meta.json`，不再把 `.output/server/release-meta.json` 作为第二来源。
+- Windows Release Zip 仍保持旧 bootstrap 形态；后续再把 zip 从“clone + build”迁移到“解压 product + 启动”。
+
+### Files Changed
+
+- `.gitignore`
+- `package.json`
+- `server/api/app/version.get.ts`
+- `server/agent/profiles/profile-compile-worker.ts`
+- `scripts/build/patch-nitro-runtime-deps.mjs`
+- `scripts/build/profile.ts`
+- `assets/workspace/.nbook/agent/bin/workspace`
+- `assets/workspace/.nbook/agent/bin/workspace.cmd`
+- `assets/workspace/.nbook/agent/scripts/profile.ts`
+- `assets/workspace/.nbook/agent/scripts/variable.ts`
+- `assets/workspace/.nbook/agent/scripts/workspace.ts`
+- `scripts/cli/create-admin.ts`
+- `scripts/db/prisma-migrate.mjs`
+- `scripts/deploy/product-runtime.mjs`
+- `scripts/deploy/product-start.mjs`
+- `server/agent/profiles/profile-artifact-compiler.ts`
+- `PROJECT-STATUS.md`
+- `docs/deployment.md`
+- `app/components/novel-ide/NovelIdeSettingsDialog.vue`
+
+### Verification
+
+- 已执行：
+    - `node --check scripts/deploy/product-runtime.mjs`
+    - `node --check scripts/deploy/product-start.mjs`
+    - `node --check scripts/build/patch-nitro-runtime-deps.mjs`
+    - `node --check server/api/app/version.get.ts`
+    - `bun run nuxt:build`
+    - `bun run product:stage`
+    - `product:stage` 内自动完成 `profile compile --all --system`，写入 9 个系统 profile artifact。
+    - `product:stage` 内断言 Product Root 可从 `.output/server/node_modules` 解析并动态 import `tsx/esm/api`。
+    - `bunx vitest run server/agent/profiles/profile-compile-worker.test.ts`，9 个测试通过；覆盖 Product Root 无根 `node_modules` 时从 `.output/server/node_modules` 解析 `tsx/esm/api`。
+    - 隔离复制 `product/` 到 `%TEMP%/neuro-book-product-isolated/`，避开仓库父级源码和根 `node_modules`。
+    - 隔离 product 内执行 `bun .output/server/scripts/build/profile.ts status --system --all`，9 个 builtin profiles 全部 `loaded`。
+    - 隔离 product 内执行 `bun .output/server/scripts/build/profile.ts compile builtin/leader.default.profile.tsx --system`，确认 product 内可重新编译系统 profile。
+    - 隔离 product 内执行 `bun assets/workspace/.nbook/agent/scripts/workspace.ts --help` 和 `assets\workspace\.nbook\agent\bin\workspace.cmd --help`，确认 direct script 与 bin wrapper 都可用。
+    - 隔离 product 内执行 `workspace project create product-smoke ... --json`、`workspace project validate workspace/product-smoke`、`workspace node validate workspace/product-smoke/manuscript --recursive`，确认 `assets/workspace` 模板、agent scripts 和内容节点校验可用。
+    - 隔离 product 内执行 `bun assets/workspace/.nbook/agent/scripts/variable.ts definition status --global`。
+    - 隔离 product 内执行 `node .output/server/scripts/db/prisma-migrate.mjs --deploy`
+    - 隔离 product 内执行 `bun .output/server/scripts/cli/create-admin.ts`，使用 `AUTH_ADMIN_USERNAME` / `AUTH_ADMIN_PASSWORD` 非交互创建管理员
+    - 隔离 product 内启动 `node .output/server/scripts/deploy/product-start.mjs`，登录 `/api/auth/login` 返回 200。
+    - 隔离 product 内 POST `/api/agent/profiles/compile`，用 builtin `leader.default` 源码执行 `dryRun: true`，返回 `ok: true` 且 0 个 error issue。
+    - 隔离 product 内 POST `/api/agent/profiles/compile-all`，返回 `ok: true` 且 0 个 error issue，确认不再出现 `Cannot find package 'tsx'` 或 product 根 `node_modules` 依赖。
+    - 隔离 product 内启动 `node --env-file=.env .output/server/index.mjs`，`/api/auth/me` 返回 200，确认直接 Nitro 入口在加载 Product Root `.env` 后可用。
+    - 隔离 product 内访问 `/api/app/version`，返回 `versionKind: "release"`，确认不依赖 `.git` 或根 `package.json`。
+
+## Windows Product Launcher Migration
+
+### User Request
+
+- 将通用 release 抽象为 Product Payload + Platform Launcher。
+- 把现有 Windows bootstrap 正式改名为 Windows Launcher。
+- Windows release 包改为点击即用：不要求用户安装 Git、Bun、ripgrep，不 clone 源码，不在产品机执行 Nuxt build。
+
+### Decisions
+
+- Windows Product Portable zip 结构改为 `<root>/app` Product Payload、`<root>/data` 用户运行状态、`<root>/runtime/node` 内置 Node 和 `<root>/launcher` Windows Launcher。
+- `app/` 是服务 cwd 和可替换产品 payload；`data/` 保存 `.env`、`config.yaml`、`workspace/`、SQLite 和 launcher 状态，升级时保留。
+- 由于当前应用大量以 `process.cwd()/workspace` 作为 Workspace Root，Launcher v1 在启动时将 `app/workspace` 建成指向 `data/workspace` 的目录联接，先保持 Product Root cwd 合同，再把真实数据落到 `data/`。
+- Windows Launcher 使用 Product 内置 `.output/server/node_modules` 解析 `tsx/cli` 来运行 `create-admin.ts` 和 `has-users.ts`，不要求产品机有 Bun 或根 `node_modules`。
+- Windows portable release workflow 必须在 `windows-latest` 运行，确保 Windows native optional packages（例如 `@esbuild/win32-x64`、`@libsql/win32-x64-msvc`）真实进入 Windows Product Payload。
+- `agent/bin/workspace(.cmd)`、`profile(.cmd)`、`variable(.cmd)` 在 Product Payload 内优先使用内置/系统 Node + `.output/server/node_modules/tsx/dist/cli.mjs` 运行 `.output/server/scripts/**`；只有源码开发 fallback 才调用 Bun。
+- Product Root 的 `tsconfig.json` 在 staging 时改写 `nbook/*` / `neuro_book/*` 到 `.output/server/node_modules/nbook/*`，避免 Product 脚本从 `app/server` 源码子集向上寻找根 `node_modules`。
+- `.output/server/node_modules/nbook/server/agent/profiles/profile-dsl/` 会生成 `index.jsx` / `index.js` re-export，避免 Product package 子路径解析把同名 `profile-dsl/` 目录误判为缺失的 JSX index。
+- 管理员密码哈希拆到 `server/utils/password.ts`，`create-admin.ts` 不再为了哈希拉入 `server/utils/auth.ts` 的 H3/session 请求层依赖。
+- Profile artifact 在 Product Runtime 下使用 `.output/server/index.mjs` 创建 `require` shim；动态 artifact 里的 native/dynamic require 会从 `.output/server/node_modules` 解析，不再从 `.compiled` 临时目录或用户 workspace 向上找根 `node_modules`。
+- Nitro runtime vendor seed 补入 `undici`，保证 Product Payload 直接启动 `.output/server/index.mjs` 时不缺服务端 fetch 依赖。
+- Product 内的 workspace agent script 会从 `.output/server/scripts/agent` 回到 Product Root 的 `assets/workspace/.nbook/templates` 定位系统 Project 模板。
+- `Update Neuro Book.cmd` v1 不再 `git pull`，只提示 Product Portable 的保留 `data/` 更新边界；自动下载、解压和切换新版 `app/` 后续补齐。
+- `Rebuild Neuro Book.*` 不再打包，因为 Product Portable 不支持本机 build。
+- 正式部署模式重设为 Product Portable、Product Node、Product Docker/ghcr、Source Dev；`local-git` 和 `source Docker` 降级为源码/过渡路径。
+
+### Files Changed
+
+- `.github/workflows/release-container.yml`
+- `README.md`
+- `docs/deployment.md`
+- `docs/operator-bridge.md`
+- `docs/tasks/26-windows-portable-packaging/README.md`
+- `PROJECT-STATUS.md`
+- `scripts/cli/create-admin.ts`
+- `scripts/deploy/windows-portable.mjs`
+- `scripts/deploy/windows-portable/launcher/`
+- `assets/workspace/.nbook/agent/bin/workspace`
+- `assets/workspace/.nbook/agent/bin/workspace.cmd`
+- `assets/workspace/.nbook/agent/bin/profile`
+- `assets/workspace/.nbook/agent/bin/profile.cmd`
+- `assets/workspace/.nbook/agent/bin/variable`
+- `assets/workspace/.nbook/agent/bin/variable.cmd`
+- `scripts/build/profile.ts`
+- `scripts/build/variable.ts`
+- `scripts/deploy/product-runtime.mjs`
+
+### Verification
+
+- 已执行：
+    - `node --check scripts/deploy/windows-portable.mjs`
+    - `node --check scripts/deploy/windows-portable/launcher/launcher.mjs`
+    - `node --check scripts/deploy/product-runtime.mjs`
+    - `node --check scripts/build/patch-nitro-runtime-deps.mjs`
+    - `bunx vitest run server/agent/profiles/profile-compile-worker.test.ts server/utils/auth.test.ts server/api/auth/login.post.test.ts`，18 个测试通过。
+    - `bun run nuxt:build`
+    - `node scripts/build/patch-nitro-runtime-deps.mjs`
+    - `bun run product:stage`
+    - `bun run package:windows-portable -- --skip-git-check --output .agent/workspace/windows-product-launcher/neuro-book-windows-x64.zip`
+    - 确认 `.github/workflows/release-container.yml` 的 `windows-portable` job 使用 `windows-latest`，避免 Linux runner 打出缺 Windows native optional packages 的包。
+    - 读取 zip 条目，确认包含 `app/.output/server/index.mjs`、`app/.output/server/node_modules`、`runtime/node/node.exe`、`launcher/launcher.mjs`、root `Start/Create Admin/Update` `.cmd/.ps1` 和 `portable-release.json`。
+    - 读取 zip 条目，确认不包含 root `.git/`、root `node_modules/`、旧 `bootstrap/`、`Rebuild Neuro Book.*`、`app/.env` 或 `app/workspace/`。
+    - 隔离解压 zip 到 `%TEMP%/neuro-book-windows-product-launcher-smoke/neuro-book-windows-x64`，根目录无 `.git`、无 `node_modules`、无 Bun 依赖。
+    - 使用内置 Node 运行 `runtime/node/node.exe launcher/launcher.mjs admin`，确认创建 `data/.env`、`data/config.yaml`、`data/workspace/.nbook/config.json`、`data/workspace/.nbook/neuro-book.sqlite` 和 `app/workspace` 目录联接，并成功创建管理员。
+    - 使用 Windows Launcher 启动服务，设置 `NEURO_BOOK_NO_OPEN_BROWSER=1` 做自动化 smoke；通过内置 Node fetch 登录 `/api/auth/login`，`/api/app/version` 返回 `versionKind: "release"`。
+    - POST `/api/agent/profiles/compile`，使用 builtin `writer.profile.tsx` 源码执行 `dryRun: true`，返回 `ok: true` 且 0 个 issue。
+    - POST `/api/agent/profiles/compile-all`，返回 `ok: true`，空用户 profile root 下 `compiledCount: 0`，确认不再出现 `Cannot find package 'tsx'`、`@prisma/adapter-libsql` 或 `@libsql/win32-x64-msvc`。
+    - 在隔离 zip 的 `app/workspace` cwd 下用内置 Node + 产品 `tsx` 运行 `app/assets/workspace/.nbook/agent/scripts/workspace.ts project create launcher-smoke ... --json`，确认使用 Product Payload 的 `app/assets/workspace/.nbook/templates/project-directory-templates` 创建 Project Workspace 和 Project SQLite。
+    - 继续运行 `workspace.ts project validate launcher-smoke`，返回 `ok: true`，`schemaVersion: "1"`。
+    - 在 Product Root 内临时移除 Bun PATH，只保留 Node 和 Windows 系统目录，执行 `assets\workspace\.nbook\agent\bin\workspace.cmd project create/validate`、`profile.cmd --help`、`variable.cmd --help`，确认 agent bin wrapper 不依赖 Bun。
+    - 解压新 zip 到 `%TEMP%`，确认根目录无 `.git`、无根 `node_modules`；PATH 只保留 zip 内 `runtime/node` 和 Windows 系统目录后，执行 `app\assets\workspace\.nbook\agent\bin\workspace.cmd project create/validate`、`profile.cmd --help`、`variable.cmd --help`，确认 zip 内 wrapper 可用。
+
+### TODO / Follow-ups
+
+- 为 Windows Product Portable 增加自动下载新版 release、解压、原子切换 `app/` 和失败回滚。
+- 后续把 Workspace Root 可配置化后，移除 `app/workspace -> data/workspace` 目录联接策略。
+- 在干净 Windows 机器上完整跑双击启动验收。

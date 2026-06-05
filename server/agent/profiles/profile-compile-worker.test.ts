@@ -1,10 +1,29 @@
-import {mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
+import {cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
+import {tmpdir} from "node:os";
 import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
-import {ProfileCompileWorkerService, useProfileCompileWorker} from "nbook/server/agent/profiles/profile-compile-worker";
+import {ProfileCompileWorkerService, resolveProfileCompileWorkerPathsForRoot, useProfileCompileWorker} from "nbook/server/agent/profiles/profile-compile-worker";
 import {runProfileCompile, runProfileCompileAll} from "nbook/server/agent/profiles/profile-compile-worker-runtime";
 
 describe("profile compile worker runtime", () => {
+    it("Product Root 无根 node_modules 时从 .output/server vendor 解析 tsx API", async () => {
+        const productRoot = await createProductWorkerFixture();
+        try {
+            const paths = resolveProfileCompileWorkerPathsForRoot(productRoot);
+            const normalizedApiUrl = paths.tsxApiUrl.replaceAll("\\", "/");
+            const normalizedLoaderUrl = paths.tsxLoaderUrl.replaceAll("\\", "/");
+
+            expect(normalizedApiUrl).toContain("/.output/server/node_modules/tsx/");
+            expect(normalizedLoaderUrl).toContain("/.output/server/node_modules/tsx/");
+
+            const tsxApi = await import(paths.tsxApiUrl) as {tsImport?: unknown};
+            expect(typeof tsxApi.tsImport).toBe("function");
+            await expect(pathExists(resolve(productRoot, "node_modules"))).resolves.toBe(false);
+        } finally {
+            await rm(productRoot, {recursive: true, force: true});
+        }
+    }, 120000);
+
     it("在 worker runtime 中编译 .profile.tsx 源码", async () => {
         await withCompiledRootSnapshot(async () => {
             const fileName = "builtin/leader.default.profile.tsx";
@@ -84,6 +103,9 @@ describe("profile compile worker runtime", () => {
             try {
                 const result = await worker.compileAll({preview: false});
 
+                if (!result.ok) {
+                    throw new Error(`worker compile-all failed: ${JSON.stringify(result.issues, null, 2)}`);
+                }
                 expect(result.ok).toBe(true);
                 expect(result.compiledCount).toBeGreaterThan(0);
                 expect(result.profiles?.some((profile) => profile.profileKey === "leader.default")).toBe(true);
@@ -187,6 +209,31 @@ async function pathExists(filePath: string): Promise<boolean> {
         }
         throw error;
     }
+}
+
+async function createProductWorkerFixture(): Promise<string> {
+    const productRoot = await mkdtemp(resolve(tmpdir(), "nbook-profile-product-"));
+    const outputRoot = resolve(productRoot, ".output", "server");
+    await mkdir(resolve(outputRoot, "server", "agent", "profiles"), {recursive: true});
+    await mkdir(resolve(outputRoot, ".nuxt"), {recursive: true});
+    await writeFile(resolve(productRoot, "release-meta.json"), "{\"versionKind\":\"release\"}\n", "utf8");
+    await writeFile(resolve(outputRoot, "index.mjs"), "", "utf8");
+    await writeFile(resolve(outputRoot, ".nuxt", "tsconfig.server.json"), "{}", "utf8");
+    await writeFile(resolve(outputRoot, "server", "agent", "profiles", "profile-compile-worker-entry.ts"), "", "utf8");
+    await writeFile(resolve(outputRoot, "server", "agent", "profiles", "profile-compile-worker-runtime.ts"), "", "utf8");
+    await copyRuntimePackage("tsx", productRoot);
+    await copyRuntimePackage("get-tsconfig", productRoot);
+    await copyRuntimePackage("resolve-pkg-maps", productRoot);
+    await copyRuntimePackage("esbuild", productRoot);
+    await copyRuntimePackage("@esbuild/win32-x64", productRoot);
+    return productRoot;
+}
+
+async function copyRuntimePackage(packageName: string, productRoot: string): Promise<void> {
+    const source = resolve("node_modules", ...packageName.split("/"));
+    const target = resolve(productRoot, ".output", "server", "node_modules", ...packageName.split("/"));
+    await mkdir(resolve(target, ".."), {recursive: true});
+    await cp(source, target, {recursive: true});
 }
 
 async function withCompiledRootSnapshot(run: () => Promise<void>): Promise<void> {

@@ -3,6 +3,7 @@ import path from "node:path";
 import {createClient} from "@libsql/client";
 import {createError} from "h3";
 import * as yaml from "yaml";
+import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
 
 export const PROJECT_MANIFEST_FILE = "project.yaml";
 export const PROJECT_DATABASE_RELATIVE_PATH = ".nbook/project.sqlite";
@@ -158,7 +159,9 @@ export function normalizeProjectPath(input: string): string {
  * 将 Project Path 解析为绝对路径。
  */
 export function resolveProjectAbsolutePath(projectPath: string): string {
-    return path.resolve(process.cwd(), normalizeProjectPath(projectPath));
+    const normalizedProjectPath = normalizeProjectPath(projectPath);
+    const projectSlug = normalizedProjectPath.slice("workspace/".length);
+    return path.join(resolveWorkspaceContainerRoot(), projectSlug);
 }
 
 /**
@@ -236,7 +239,7 @@ export async function writeProjectManifest(projectPath: string, manifest: Projec
  * 扫描 workspace 下一级 Project manifest。
  */
 export async function listProjectWorkspaces(): Promise<ProjectListItem[]> {
-    const workspaceRoot = path.resolve(process.cwd(), "workspace");
+    const workspaceRoot = resolveWorkspaceContainerRoot();
     let entries: Array<import("node:fs").Dirent>;
     try {
         entries = await fs.readdir(workspaceRoot, {withFileTypes: true});

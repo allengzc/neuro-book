@@ -1,7 +1,8 @@
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import {USER_ASSETS_WORKSPACE_ROOT, ensureUserAssetsWorkspaceRoot} from "nbook/server/workspace-files/novel-workspace";
+import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
 
 /**
  * 可解析的 assets 来源。
@@ -27,8 +28,6 @@ export type ResolvedAssetDirectory = {
     source: AssetSource;
 };
 
-const SYSTEM_ASSETS_ROOT = path.resolve(process.cwd(), "assets", "workspace", ".nbook");
-
 /**
  * 解析系统 assets 与用户 assets 的覆盖关系。
  */
@@ -41,14 +40,14 @@ export class AssetResolver {
      * 系统 assets 根目录。
      */
     get systemRoot(): string {
-        return SYSTEM_ASSETS_ROOT;
+        return resolveSystemNbookRoot(this.workspaceRoot);
     }
 
     /**
      * 用户 assets 根目录。
      */
     get userRoot(): string {
-        return path.resolve(this.workspaceRoot, USER_ASSETS_WORKSPACE_ROOT);
+        return resolveUserNbookRoot(this.workspaceRoot);
     }
 
     /**
@@ -78,6 +77,32 @@ export class AssetResolver {
     }
 
     /**
+     * 同步解析单个 assets 文件，供 CLI 模板渲染等同步路径使用。
+     */
+    resolveFileSync(relativePath: string): ResolvedAssetFile | null {
+        const normalizedPath = normalizeAssetRelativePath(relativePath);
+        const userPath = path.join(this.userRoot, normalizedPath);
+        if (isFileSync(userPath)) {
+            return {
+                absolutePath: userPath,
+                relativePath: toPosixPath(normalizedPath),
+                source: "user",
+            };
+        }
+
+        const systemPath = path.join(this.systemRoot, normalizedPath);
+        if (isFileSync(systemPath)) {
+            return {
+                absolutePath: systemPath,
+                relativePath: toPosixPath(normalizedPath),
+                source: "system",
+            };
+        }
+
+        return null;
+    }
+
+    /**
      * 读取用户覆盖后的 assets 文件。
      */
     async readFile(relativePath: string): Promise<string> {
@@ -96,7 +121,7 @@ export class AssetResolver {
         const directoriesByName = new Map<string, ResolvedAssetDirectory>();
 
         await this.appendDirectories(directoriesByName, path.join(this.systemRoot, normalizedPath), normalizedPath, "system");
-        await ensureUserAssetsWorkspaceRoot();
+        await fs.mkdir(this.userRoot, {recursive: true});
         await this.appendDirectories(directoriesByName, path.join(this.userRoot, normalizedPath), normalizedPath, "user");
 
         return [...directoriesByName.values()].sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
@@ -229,4 +254,18 @@ function isMissingPathError(error: unknown): boolean {
         && error !== null
         && "code" in error
         && error.code === "ENOENT";
+}
+
+/**
+ * 同步判断路径是否为普通文件。
+ */
+function isFileSync(filePath: string): boolean {
+    try {
+        return fsSync.statSync(filePath).isFile();
+    } catch (error) {
+        if (isMissingPathError(error)) {
+            return false;
+        }
+        throw error;
+    }
 }

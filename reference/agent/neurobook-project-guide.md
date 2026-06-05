@@ -34,16 +34,16 @@ See also `reference/workspace/TERMS.md` for canonical workspace terminology.
 
 1. Route the user intent.
 2. Prepare canon and project context.
-3. Run emulation only when plot movement, causal simulation, subject reaction, state change or information control is needed.
+3. Invoke or perform simulation only when plot movement, causal simulation, subject reaction, state change or information control is needed; prefer `simulator.leader` for this work.
 4. Commit adjudicated state to `simulation/subjects/`, `simulation/entities/` and `simulation/runs/`.
-5. Convert selected results into Plot System updates.
+5. Convert selected results into Plot System updates; prefer `director` for Thread / Scene / Plot design and writeback.
 6. Use retrieval to select lorebook entries.
 7. Invoke the ordinary `writer` for chapter prose.
 8. Check whether the finished prose requires a post-write state commit.
 
 In writing-mode discussions, `emulation` means the world-running step that advances current state. The current Project Workspace directory is still `simulation/`; do not create a separate `emulation/` directory unless a future migration explicitly changes the contract.
 
-The ordinary `writer` profile does not maintain `simulation/`. It writes explicit manuscript chapters from `chapterPaths`, Chapter Plot and selected `lorebookEntries`. If world state matters, leader should summarize or commit it first, then pass only writer-safe context.
+The ordinary `writer` profile does not maintain `simulation/`. It writes explicit manuscript chapters from `chapterPaths`, Chapter Plot and selected `lorebookEntries`. If world state matters, leader should ask `simulator.leader` to summarize or commit it first, ask `director` to update Plot System when needed, then pass only writer-safe context.
 
 ## Content Nodes
 

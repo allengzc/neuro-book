@@ -9,7 +9,7 @@ when_to_use:
 
 # novel-workflow-06-emulation-tick：Emulation Tick
 
-本 skill 负责推进一个世界运行 tick。当前落地目录仍是 `simulation/`；不要新建 `emulation/` 目录，除非用户明确要求做目录迁移。
+本 skill 负责推进一个世界运行 tick。当前落地目录仍是 `simulation/`；不要新建 `emulation/` 目录，除非用户明确要求做目录迁移。新 profile 链路下，优先创建或复用 `simulator.leader` 执行世界推演和状态裁决。
 
 ## 适用边界
 
@@ -31,18 +31,19 @@ when_to_use:
 
 1. 确认 trigger：用户指令、leader 自动判断、RP Tick，还是写后提交。
 2. 确认 goal、world time before / after、地点、参与 subjects、参与 entities 和模拟范围。
-3. 读取必要 lorebook、Plot、manuscript 摘要和当前 `simulation/subjects/*` / `simulation/entities/*` state。
-4. 推演 2 到 3 条与本 tick 相关的因果链。因果链来自资源、环境、势力、人物选择、制度、异常规则或随机变量。
-5. 可加入少量随机扰动；重大随机结果影响主线前先让用户确认，或写入 Open Questions。
-6. 裁决本 tick 已经发生的事实，区分：
+3. 如果 `simulator.leader` profile 可用，把本 tick 目标、范围和允许写入的 simulation 路径交给它；由它返回 world_state_report、writer_safe_brief、director_handoff、plot_handoff 和 open_questions。
+4. 读取必要 lorebook、Plot、manuscript 摘要和当前 `simulation/subjects/*` / `simulation/entities/*` state。
+5. 推演 2 到 3 条与本 tick 相关的因果链。因果链来自资源、环境、势力、人物选择、制度、异常规则或随机变量。
+6. 可加入少量随机扰动；重大随机结果影响主线前先让用户确认，或写入 Open Questions。
+7. 裁决本 tick 已经发生的事实，区分：
    - subject 视角事件 / 知识 / 心理候选。
    - 真实 subject state。
    - 真实 entity state。
    - Plot handoff 候选。
-7. 创建 `simulation/runs/ticks/{id}-{slug}/report.md`。
-8. 如果本 tick 有用户可见正文、RP 正文或试写片段，创建 `simulation/runs/ticks/{id}-{slug}/prose.md`。
-9. 写入已裁决的 subject `state.md` 和必要 `simulation/entities/**`。subject `events.md`、`knowledge.md`、`mind.md` 可由对应 actor sidecar 维护；没有 sidecar 时，leader 可按 report 中的 subject-facing 信息谨慎写入。
-10. 更新 `simulation/runs/current.md` 和 `simulation/runs/index.md`。
+8. 创建 `simulation/runs/ticks/{id}-{slug}/report.md`。
+9. 如果本 tick 有用户可见正文、RP 正文或试写片段，创建 `simulation/runs/ticks/{id}-{slug}/prose.md`。
+10. 写入已裁决的 subject `state.md` 和必要 `simulation/entities/**`。subject `events.md`、`knowledge.md`、`mind.md` 可由对应 actor sidecar 维护；没有 sidecar 时，leader 可按 report 中的 subject-facing 信息谨慎写入。
+11. 更新 `simulation/runs/current.md` 和 `simulation/runs/index.md`。
 
 ## report.md 推荐结构
 
@@ -112,4 +113,4 @@ worldTimeAfter: ""
 - `report.md` 记录触发、输入、因果链、裁决、信息边界、状态提交和下一步钩子。
 - 需要用户可见正文时，`prose.md` 单独保存正文。
 - 已裁决状态写回 `simulation/subjects/` 或 `simulation/entities/`。
-- 可写入 Plot System 的结果已经列为 Plot handoff，而不是混在 prose 里。
+- 可写入 Plot System 的结果已经列为 Plot handoff，并交给 `director` 整理，不混在 prose 里。

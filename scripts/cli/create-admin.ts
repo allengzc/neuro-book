@@ -1,8 +1,11 @@
 import {cancel, isCancel, password as promptPassword, text} from "@clack/prompts";
-import {hashUserPassword} from "nbook/server/utils/auth";
+import {hashUserPassword} from "nbook/server/utils/password";
 import {spawn} from "node:child_process";
+import {resolve as resolvePath} from "node:path";
+import {fileURLToPath} from "node:url";
 
 const [, , usernameArg, passwordArg] = process.argv;
+const scriptRoot = resolvePath(fileURLToPath(import.meta.url), "..", "..");
 type PrismaClientInstance = typeof import("nbook/server/utils/prisma").prisma;
 let prisma: PrismaClientInstance | null = null;
 
@@ -11,7 +14,7 @@ let prisma: PrismaClientInstance | null = null;
  */
 async function ensureDatabaseSchema(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
-        const child = spawn(process.execPath, ["scripts/db/sqlite-migrate.mjs"], {
+        const child = spawn(process.execPath, [resolvePath(scriptRoot, "db", "prisma-migrate.mjs"), "--deploy"], {
             stdio: "inherit",
             env: process.env,
         });

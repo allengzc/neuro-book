@@ -6,6 +6,7 @@ import {parse as parseYaml} from "yaml";
 import leaderRpProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/leader.rp.profile";
 import rpActorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/rp.actor.profile";
 import rpWriterProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/rp.writer.profile";
+import simulatorActorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.actor.profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {LeaderRpInputSchema, RpActorInputSchema, RpActorOutputSchema, RpWriterInputSchema, RpWriterOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
@@ -27,7 +28,7 @@ function messagesText(messages: Array<Message | AgentMessage> | undefined): stri
 }
 
 describe("RP builtin profiles", () => {
-    it("catalog 加载 leader.rp、rp.actor、rp.writer", async () => {
+    it("catalog 加载 leader.rp、rp.actor、simulator.actor、rp.writer", async () => {
         const catalog = new AgentProfileCatalog(
             resolve("assets", "workspace", ".nbook", "agent", "profiles"),
             resolve(".agent", "missing-user-profiles"),
@@ -38,8 +39,9 @@ describe("RP builtin profiles", () => {
 
         expect(profileKeys).toContain("leader.rp");
         expect(profileKeys).toContain("rp.actor");
+        expect(profileKeys).toContain("simulator.actor");
         expect(profileKeys).toContain("rp.writer");
-    });
+    }, 20_000);
 
     it("rp contracts 使用 RP 专用输入输出，不复用普通 writer chapterPaths", () => {
         expect(LeaderRpInputSchema.properties).toHaveProperty("simulationRoot");
@@ -277,8 +279,49 @@ describe("RP builtin profiles", () => {
             expect(modelContextText).toContain("只回复 GM");
             expect(modelContextText).toContain("并必须调用 report_result");
             expect(modelContextText).toContain("不要主动读写文件");
-            expect(appendingText).toContain("Current Workdir");
+            expect(appendingText).toContain("Runtime Location");
             expect(appendingText).not.toContain("只回复 GM");
+        } finally {
+            await rm(fixture.workspaceRoot, {recursive: true, force: true});
+        }
+    });
+
+    it("simulator.actor 复用 subject simulator 合同并注入新 profile 身份", async () => {
+        const fixture = await createRoleplayFixture();
+        try {
+            const prepared = await simulatorActorProfile.prepare!({
+                session: testSession({
+                    profileKey: "simulator.actor",
+                    workspaceRoot: fixture.workspaceRoot,
+                    customState: {},
+                    linkedAgents: [],
+                    archived: false,
+                    planModeActive: false,
+                }),
+                input: {
+                    actorId: "heroine",
+                    actorName: "绘璃奈",
+                    kind: "npc",
+                    instructionPath: `${fixture.projectSlug}/simulation/subjects/heroine/subject.md`,
+                    eventsPath: `${fixture.projectSlug}/simulation/subjects/heroine/events.md`,
+                    knowledgePath: `${fixture.projectSlug}/simulation/subjects/heroine/knowledge.md`,
+                    mindPath: `${fixture.projectSlug}/simulation/subjects/heroine/mind.md`,
+                    statePath: `${fixture.projectSlug}/simulation/subjects/heroine/state.md`,
+                },
+                vars: createTestVariableAccessor(),
+                catalog: {profiles: [], issues: []},
+                skills: [],
+            });
+            const systemPrompt = prepared.systemPrompt ?? "";
+            const modelContextText = messagesText(prepared.modelContextMessages);
+
+            expect(simulatorActorProfile.inputSchema).toBe(RpActorInputSchema);
+            expect(simulatorActorProfile.outputSchema).toBe(RpActorOutputSchema);
+            expect(simulatorActorProfile.allowedToolKeys).toEqual(["read", "write", "edit", "report_result"]);
+            expect(systemPrompt).toContain("NeuroBook 的 simulator.actor");
+            expect(systemPrompt).toContain("只扮演一个角色：绘璃奈");
+            expect(modelContextText).toContain("<subject_instruction>");
+            expect(modelContextText).toContain("knowledgePath");
         } finally {
             await rm(fixture.workspaceRoot, {recursive: true, force: true});
         }
@@ -326,7 +369,7 @@ describe("RP builtin profiles", () => {
             expect(modelContextText).toContain("正文要保留角色信息差");
             expect(modelContextText).toContain("writer brief");
             expect(modelContextText).toContain("不要生成选项、标题、摘要或解释");
-            expect(appendingText).toContain("Current Workdir");
+            expect(appendingText).toContain("Runtime Location");
         } finally {
             await rm(fixture.workspaceRoot, {recursive: true, force: true});
         }

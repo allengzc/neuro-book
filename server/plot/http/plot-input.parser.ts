@@ -1,6 +1,7 @@
 import {parseEntityId, parseNullableEntityId} from "nbook/server/utils/novel-chapter";
 import type {
     ParsedCreateStoryPlotInput,
+    ParsedCreateStoryPlotsInput,
     ParsedCreateStorySceneInput,
     ParsedCreateStoryThreadInput,
     ParsedReorderStoryPhaseItem,
@@ -14,6 +15,7 @@ import type {
 } from "nbook/server/plot/core/types";
 import type {
     CreateStoryPlotRequestDto,
+    CreateStoryPlotsRequestDto,
     CreateStorySceneRequestDto,
     CreateStoryThreadRequestDto,
     ReorderStoryPhasesRequestDto,
@@ -119,6 +121,16 @@ export class PlotInputParser {
      * 解析情节点创建输入。
      */
     parseCreatePlot(input: CreateStoryPlotRequestDto): ParsedCreateStoryPlotInput {
+        return {
+            ...input,
+            sceneId: parseEntityId("sceneId", input.sceneId),
+        };
+    }
+
+    /**
+     * 解析情节点批量创建输入。
+     */
+    parseCreatePlots(input: CreateStoryPlotsRequestDto): ParsedCreateStoryPlotsInput {
         return {
             ...input,
             sceneId: parseEntityId("sceneId", input.sceneId),

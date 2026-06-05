@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import {createHash} from "node:crypto";
-import {createWriteStream, existsSync} from "node:fs";
+import {createWriteStream, existsSync, readFileSync} from "node:fs";
 import {cp, mkdir, readFile, readdir, realpath, rm, stat, writeFile} from "node:fs/promises";
 import {basename, dirname, join, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -11,19 +11,18 @@ import yazl from "yazl";
 import {runCapture} from "../utils/process.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const BOOTSTRAP_SOURCE = join(REPO_ROOT, "scripts", "deploy", "windows-portable", "bootstrap");
+const LAUNCHER_SOURCE = join(REPO_ROOT, "scripts", "deploy", "windows-portable", "launcher");
+const PRODUCT_ROOT = join(REPO_ROOT, "product");
 const DIST_DIR = join(REPO_ROOT, "dist");
-const PACKAGE_ROOT_NAME = "neuro-book-windows-portable";
+const PACKAGE_ROOT_NAME = "neuro-book-windows-x64";
 const DEFAULT_OUTPUT = join(DIST_DIR, `${PACKAGE_ROOT_NAME}.zip`);
 const DEFAULT_NODE_VERSION = process.env.NEURO_BOOK_WINDOWS_NODE_VERSION ?? "24.11.1";
-const ZIP_SCHEMA_VERSION = 1;
-const BOOTSTRAP_ROOT_FILES = [
+const ZIP_SCHEMA_VERSION = 2;
+const LAUNCHER_ROOT_FILES = [
     "Start Neuro Book.cmd",
     "Start Neuro Book.ps1",
     "Update Neuro Book.cmd",
     "Update Neuro Book.ps1",
-    "Rebuild Neuro Book.cmd",
-    "Rebuild Neuro Book.ps1",
     "Create Admin.cmd",
     "Create Admin.ps1",
     "README-Windows.md",
@@ -39,15 +38,17 @@ async function main() {
     if (!options.skipGitCheck) {
         await assertCleanTrackedWorktree();
     }
-    await assertBootstrapSources();
+    await assertProductPayload();
+    await assertLauncherSources();
 
     const stageRoot = join(REPO_ROOT, ".agent", "workspace", "windows-portable-package");
     const portableRoot = join(stageRoot, PACKAGE_ROOT_NAME);
     await rm(stageRoot, {recursive: true, force: true});
-    await mkdir(join(portableRoot, "bootstrap"), {recursive: true});
+    await mkdir(join(portableRoot, "launcher"), {recursive: true});
 
-    await copyBootstrapShell(portableRoot);
-    await bundleBootstrap(portableRoot);
+    await stageProductPayload(portableRoot);
+    await copyLauncherShell(portableRoot);
+    await bundleLauncher(portableRoot);
     await stageNodeRuntime(portableRoot);
     await writePortableRelease(portableRoot);
 
@@ -107,37 +108,63 @@ async function assertCleanTrackedWorktree() {
 }
 
 /**
- * 校验 bootstrap 必需文件存在。
+ * 校验 Product Payload 已经生成。
  */
-async function assertBootstrapSources() {
-    const files = [
-        ...BOOTSTRAP_ROOT_FILES,
-        "bootstrap.mjs",
+async function assertProductPayload() {
+    const requiredFiles = [
+        join(PRODUCT_ROOT, ".output", "server", "index.mjs"),
+        join(PRODUCT_ROOT, "release-meta.json"),
+        join(PRODUCT_ROOT, ".output", "server", "node_modules"),
     ];
-    for (const file of files) {
-        const path = join(BOOTSTRAP_SOURCE, file);
+    for (const path of requiredFiles) {
         if (!existsSync(path)) {
-            throw new Error(`缺少 Windows bootstrap 文件：${path}`);
+            throw new Error(`缺少 Product Payload 文件：${path}\n请先运行 bun run nuxt:build && bun run product:stage。`);
         }
     }
 }
 
 /**
- * 复制用户可点击的 PowerShell 入口。
+ * 校验 launcher 必需文件存在。
  */
-async function copyBootstrapShell(portableRoot) {
-    for (const file of BOOTSTRAP_ROOT_FILES) {
-        await cp(join(BOOTSTRAP_SOURCE, file), join(portableRoot, file));
+async function assertLauncherSources() {
+    const files = [
+        ...LAUNCHER_ROOT_FILES,
+        "launcher.mjs",
+    ];
+    for (const file of files) {
+        const path = join(LAUNCHER_SOURCE, file);
+        if (!existsSync(path)) {
+            throw new Error(`缺少 Windows Launcher 文件：${path}`);
+        }
     }
 }
 
 /**
- * 把 clack 等依赖 bundle 进 bootstrap.mjs，保证初始 zip 只依赖内置 Node。
+ * 复制 Product Payload 到 zip app/，并移除打包验证根中的本机 .env。
  */
-async function bundleBootstrap(portableRoot) {
+async function stageProductPayload(portableRoot) {
+    const appRoot = join(portableRoot, "app");
+    await cp(PRODUCT_ROOT, appRoot, {recursive: true});
+    await rm(join(appRoot, ".env"), {force: true});
+    await rm(join(appRoot, "workspace"), {recursive: true, force: true});
+}
+
+/**
+ * 复制用户可点击的 PowerShell 入口。
+ */
+async function copyLauncherShell(portableRoot) {
+    for (const file of LAUNCHER_ROOT_FILES) {
+        await cp(join(LAUNCHER_SOURCE, file), join(portableRoot, file));
+    }
+}
+
+/**
+ * 把 clack 等依赖 bundle 进 launcher.mjs，保证初始 zip 只依赖内置 Node。
+ */
+async function bundleLauncher(portableRoot) {
     await build({
-        entryPoints: [join(BOOTSTRAP_SOURCE, "bootstrap.mjs")],
-        outfile: join(portableRoot, "bootstrap", "bootstrap.mjs"),
+        entryPoints: [join(LAUNCHER_SOURCE, "launcher.mjs")],
+        outfile: join(portableRoot, "launcher", "launcher.mjs"),
         bundle: true,
         platform: "node",
         format: "esm",
@@ -210,9 +237,18 @@ async function writePortableRelease(portableRoot) {
         releaseTag,
         buildCommit,
         nodeVersion: DEFAULT_NODE_VERSION,
+        payload: readReleaseMeta(),
         createdAt: new Date().toISOString(),
         zipSchemaVersion: ZIP_SCHEMA_VERSION,
     }, null, 4)}\n`, "utf8");
+}
+
+function readReleaseMeta() {
+    return JSON.parse(readFileSyncUtf8(join(PRODUCT_ROOT, "release-meta.json")));
+}
+
+function readFileSyncUtf8(path) {
+    return new TextDecoder().decode(readFileSync(path));
 }
 
 /**

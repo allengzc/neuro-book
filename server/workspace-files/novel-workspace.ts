@@ -7,6 +7,12 @@ import {createHash, randomUUID} from "node:crypto";
 import {readProfileArtifactManifest, rehomeProfileArtifactItem, validateProfileArtifact, type ProfileArtifactManifestItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {readVariableDefinitionManifest, validateVariableDefinitionArtifact, type VariableDefinitionManifestItem} from "nbook/server/agent/variables/definition-artifact";
 import {assertProjectWorkspaceDirectory, normalizeProjectPath} from "nbook/server/workspace-files/project-workspace";
+import {
+    WORKSPACE_CONTAINER_ROOT as WORKSPACE_CONTAINER_ROOT_VALUE,
+    WORKSPACE_NBOOK_ROOT,
+    resolveSystemNbookRoot,
+    resolveUserNbookRoot,
+} from "nbook/server/workspace-files/workspace-assets-root";
 import type {
     UserAssetsAssetSyncWarningDto,
     UserAssetsProfileSyncWarningDto,
@@ -14,22 +20,22 @@ import type {
     UserAssetsSyncResultDto,
 } from "nbook/shared/dto/user-assets-sync.dto";
 
-export const WORKSPACE_CONTAINER_ROOT = "workspace";
 export const USER_ASSETS_WORKSPACE_KIND = "user-assets";
-export const USER_ASSETS_WORKSPACE_ROOT = path.posix.join(WORKSPACE_CONTAINER_ROOT, ".nbook");
-export const USER_NBOOK_ROOT = path.posix.join(WORKSPACE_CONTAINER_ROOT, ".nbook");
+export const WORKSPACE_CONTAINER_ROOT = WORKSPACE_CONTAINER_ROOT_VALUE;
+export const USER_ASSETS_WORKSPACE_ROOT = WORKSPACE_NBOOK_ROOT;
+export const USER_NBOOK_ROOT = WORKSPACE_NBOOK_ROOT;
 export const DEFAULT_NOVEL_WORKSPACE_SLUG = "silver-dragon-hime";
 
-const SYSTEM_WORKSPACE_ROOT = path.resolve(process.cwd(), "assets", "workspace");
-const SYSTEM_NBOOK_ROOT = path.join(SYSTEM_WORKSPACE_ROOT, ".nbook");
+const SYSTEM_NBOOK_ROOT = resolveSystemNbookRoot();
 const SYSTEM_PROFILE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "profiles");
-const USER_PROFILE_ROOT = path.resolve(process.cwd(), USER_NBOOK_ROOT, "agent", "profiles");
+const USER_NBOOK_ABSOLUTE_ROOT = resolveUserNbookRoot();
+const USER_PROFILE_ROOT = path.join(USER_NBOOK_ABSOLUTE_ROOT, "agent", "profiles");
 const SYSTEM_VARIABLE_DEFINITION_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "variables");
-const USER_VARIABLE_DEFINITION_ROOT = path.resolve(process.cwd(), USER_NBOOK_ROOT, "agent", "variables");
+const USER_VARIABLE_DEFINITION_ROOT = path.join(USER_NBOOK_ABSOLUTE_ROOT, "agent", "variables");
 const SYSTEM_PROFILE_METADATA_PATH = path.join(SYSTEM_PROFILE_ROOT, ".system-profile-metadata.json");
 const USER_PROFILE_SYNC_STATE_PATH = path.join(USER_PROFILE_ROOT, ".profile-sync-state.json");
 const PROJECT_DIRECTORY_TEMPLATE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "templates", "project-directory-templates");
-const USER_PROJECT_DIRECTORY_TEMPLATE_ROOT = path.resolve(process.cwd(), USER_ASSETS_WORKSPACE_ROOT, "templates", "project-directory-templates");
+const USER_PROJECT_DIRECTORY_TEMPLATE_ROOT = path.join(USER_NBOOK_ABSOLUTE_ROOT, "templates", "project-directory-templates");
 const PROJECT_MANIFEST_FILE = "project.yaml";
 const LEGACY_WORKSPACE_MANIFEST_FILE = "workspace.yaml";
 const USER_ASSETS_DIFF_MAX_BYTES = 512 * 1024;
@@ -146,8 +152,7 @@ export async function resolveWorkspaceRootInput(
  * 确保全局用户 assets 工作区存在。
  */
 export async function ensureUserAssetsWorkspaceRoot(): Promise<string> {
-    const workspaceRoot = path.resolve(process.cwd(), USER_ASSETS_WORKSPACE_ROOT);
-    await fs.mkdir(workspaceRoot, {recursive: true});
+    await fs.mkdir(USER_NBOOK_ABSOLUTE_ROOT, {recursive: true});
     return USER_ASSETS_WORKSPACE_ROOT;
 }
 
@@ -156,7 +161,7 @@ export async function ensureUserAssetsWorkspaceRoot(): Promise<string> {
  */
 export async function syncSystemAssetsToUserAssets(): Promise<UserAssetsSyncResult> {
     await ensureUserAssetsWorkspaceRoot();
-    const nbookTargetRoot = path.resolve(process.cwd(), USER_NBOOK_ROOT);
+    const nbookTargetRoot = USER_NBOOK_ABSOLUTE_ROOT;
     const result: UserAssetsSyncResult = {copied: 0, skipped: 0, updatedProfiles: 0, profileWarnings: [], updatedAssets: 0, assetWarnings: []};
     if (await isDirectory(SYSTEM_NBOOK_ROOT)) {
         await syncManagedSystemAssetsToUserAssets(result);
@@ -325,7 +330,7 @@ async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult)
     let stateChanged = false;
     for (const item of assets) {
         const systemPath = resolveInsideRoot(SYSTEM_NBOOK_ROOT, item.assetPath);
-        const userPath = resolveInsideRoot(path.resolve(process.cwd(), USER_NBOOK_ROOT), item.assetPath);
+        const userPath = resolveInsideRoot(USER_NBOOK_ABSOLUTE_ROOT, item.assetPath);
         const stateItem = findUserAssetSyncState(syncState, item.assetPath);
         if (!stateItem && await pathExists(userPath) && await sameFile(systemPath, userPath)) {
             const hash = await sha256File(userPath);
@@ -1038,7 +1043,7 @@ function resolveUserAssetConflictRoots(assetPath: string): {systemPath: string; 
     }
     return {
         systemPath: resolveInsideRoot(SYSTEM_NBOOK_ROOT, normalized),
-        userPath: resolveInsideRoot(path.resolve(process.cwd(), USER_NBOOK_ROOT), normalized),
+        userPath: resolveInsideRoot(USER_NBOOK_ABSOLUTE_ROOT, normalized),
     };
 }
 

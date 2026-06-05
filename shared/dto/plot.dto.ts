@@ -374,6 +374,27 @@ export const CreateStoryPlotRequestDtoSchema = z.object({
     note: StoryNoteSchema.nullable().optional().describe("Optional note. Null clears it."),
 });
 
+export const CreateStoryPlotItemDtoSchema = z.object({
+    kind: StoryPlotKindSchema.describe("Plot kind (setup, action, conflict, despair, relief, reward, mystery, reveal, twist, payoff, result)."),
+    summary: z.string().trim().min(1, "summary 不能为空").max(MAX_STORY_SUMMARY_LENGTH, "summary 过长").describe("Plot summary (max 5000 characters)."),
+    // `effect` 为空表示没有结果描述。
+    effect: StorySummarySchema.nullable().optional().describe("Plot effect/outcome description."),
+    // `writingTip` 为空表示没有写作提示。
+    writingTip: StoryTipSchema.nullable().optional().describe("Writing tip for this plot."),
+    // `note` 为空表示没有备注。
+    note: StoryNoteSchema.nullable().optional().describe("Optional note."),
+});
+
+export const CreateStoryPlotsRequestDtoSchema = z.object({
+    sceneId: z.string().trim().min(1, "sceneId 不能为空").describe("Scene ID to attach these plots to."),
+    plots: z.array(CreateStoryPlotItemDtoSchema).min(1, "plots 不能为空").max(50, "一次最多创建 50 个 Plot"),
+});
+
+export const CreateStoryPlotsResponseDtoSchema = withWriteDiagnosticsSchema(z.object({
+    scene: StorySceneDetailDtoSchema,
+    createdPlots: z.array(StoryPlotDtoSchema),
+}));
+
 export const UpdateStoryPlotRequestDtoSchema = z.object({
     sceneId: z.string().trim().min(1, "sceneId 不能为空").optional().describe("Scene ID to move this plot to."),
     kind: StoryPlotKindSchema.optional().describe("Plot kind (setup, action, conflict, despair, relief, reward, mystery, reveal, twist, payoff, result)."),
@@ -442,5 +463,8 @@ export type CreateStorySceneRequestDto = z.infer<typeof CreateStorySceneRequestD
 export type UpdateStorySceneRequestDto = z.infer<typeof UpdateStorySceneRequestDtoSchema>;
 export type ReorderStoryScenesRequestDto = z.infer<typeof ReorderStoryScenesRequestDtoSchema>;
 export type CreateStoryPlotRequestDto = z.infer<typeof CreateStoryPlotRequestDtoSchema>;
+export type CreateStoryPlotItemDto = z.infer<typeof CreateStoryPlotItemDtoSchema>;
+export type CreateStoryPlotsRequestDto = z.infer<typeof CreateStoryPlotsRequestDtoSchema>;
+export type CreateStoryPlotsResponseDto = z.infer<typeof CreateStoryPlotsResponseDtoSchema>;
 export type UpdateStoryPlotRequestDto = z.infer<typeof UpdateStoryPlotRequestDtoSchema>;
 export type ReorderStoryPlotsRequestDto = z.infer<typeof ReorderStoryPlotsRequestDtoSchema>;

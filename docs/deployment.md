@@ -1,42 +1,113 @@
 # 部署方式
 
-NeuroBook 默认面向本地或单机部署。当前推荐路径是 Windows Release Zip 或免 Docker 的 `local-git`，Docker 模式保留给服务器和低内存场景。
+NeuroBook 默认面向本地或单机部署。正式 release 主线采用 Product-first：构建机生成 Product Payload，运行机通过 Platform Launcher、Node 或 Docker 启动，不要求源码 checkout、根 `node_modules` 或本机 build。
+
+## 发布模型
+
+- Product Payload：预构建应用本体，包含 `.output/`、运行资产、SQLite migrations、产品脚本、`release-meta.json` 和 `.output/server/node_modules` Nitro vendor。
+- Platform Launcher：平台启动壳，负责初始化运行状态、迁移数据库、创建管理员、启动服务和后续更新。Windows Launcher 是第一版落地。
+- 运行状态：`workspace/`、`.env`、`config.yaml` 和 SQLite 数据库属于用户数据，升级时保留，不随 Product Payload 覆盖。
 
 ## 部署方式选择
 
 | 方式 | 适合 | 特点 |
 | --- | --- | --- |
-| Windows Release Zip | Windows 本机普通用户 | 点击启动，首次联网安装依赖并 clone 源码。 |
-| local-git | 本机或常规服务器 | 默认推荐，宿主机 clone/pull、build、运行。 |
-| ghcr | 低内存服务器 | 拉取预构建镜像，服务器不执行 Nuxt build。 |
-| source | 开发服务器 | 容器运行 runtime，源码和 build 产物来自宿主机。 |
+| Windows Product Portable | Windows 本机普通用户 | 点击启动，内置 Node 和 Product Payload，不需要 Git/Bun/build。 |
+| Product Node | 已有 Node 的本机或服务器 | 解压 Product Payload 后用 Node 启动，不要求源码和根 `node_modules`。 |
+| Product Docker / ghcr | 低内存服务器 | 拉取预构建镜像，服务器不执行 Nuxt build。 |
+| Source Dev | 开发者 | 源码 checkout、本机依赖安装、开发和测试。 |
+| local-git | 高级/过渡源码部署 | 宿主机 clone/pull、build、运行，不作为普通用户 release 主线。 |
+| source Docker | 开发服务器 | 容器运行 runtime，宿主机源码挂载进容器。 |
 
-如果不确定，Windows 用户选 Windows Release Zip；其他环境先选 `local-git`。
+如果不确定，Windows 用户选 Windows Product Portable；服务器优先选 `ghcr` 或 Product Node。
 
-## Windows Release Zip
+## Product Runtime
 
-Windows Release Zip 是 Windows x64 的 bootstrap 包。它自带 Node.js runtime 和启动脚本，但不携带完整源码、`.git`、`.output` 或 `node_modules`。
+Product Runtime 是本地成品验证根，用来模拟未来 release zip 解压后的运行目录。它遵循 Nuxt/Nitro 生产模型：构建机生成 `.output`，运行机从 Product Root 执行标准入口。
+
+生成：
+
+```bash
+bun run nuxt:build
+bun run product:stage
+```
+
+启动：
+
+```bash
+bun run product:start
+```
+
+如果直接使用 Nuxt/Nitro 入口，先让 Node 读取 Product Root `.env`：
+
+```bash
+node --env-file=.env .output/server/index.mjs
+```
+
+边界：
+
+- `product/` 是 Product Root，生产 `cwd` 必须指向这里。
+- `product/.output/server/index.mjs` 是服务入口。
+- `product/.output/server/node_modules` 是 Nitro 内置 vendor，不要求产品根有 `node_modules`。
+- `product/.env` 由 `product:stage` 生成，包含 `NUXT_SESSION_PASSWORD` 和 SQLite 默认环境；`product:start` 会自动加载它，裸 `node .output/server/index.mjs` 不会自动读取 `.env`。
+- `product/` 保留必要运行资产、脚本、SQLite migrations、`assets/workspace` 和 TSX Profile Workbench 编译所需 runtime source 子集。
+- 产品脚本入口使用 `product/.output/server/scripts/**`，从 Product Root 运行，依赖从 `.output/server/node_modules` 解析。
+- `product:stage` 会在 Product Root 内重新编译系统 profiles，使 `.compiled` artifact 绑定产品内 `.output/server/node_modules`，而不是开发机根 `node_modules`。
+- Profile Workbench 后端 worker 的 `tsx/esm/api` 和 `tsx` loader 必须通过 `.output/server/index.mjs` 创建的 runtime require 解析到 `.output/server/node_modules`；Product Runtime 不允许从 Product Root 裸 import 或回退到仓库根 `node_modules`。
+- TSX profile artifact 会 bundle 第三方包；用户 profile 在 product 内编译后运行时不需要产品根 `node_modules`。
+- `product/assets/workspace/.nbook/agent/scripts/workspace.ts` 是 launcher，真实执行入口是 `product/.output/server/scripts/agent/workspace.ts`；`agent/bin/workspace(.cmd)`、`profile(.cmd)`、`variable(.cmd)` 也遵循同一 product/source 双入口解析。Product 分支使用 Node + `.output/server/node_modules/tsx/dist/cli.mjs`，不要求 Bun。
+- `.output/server/node_modules/nbook` 是产品内 runtime source 包，负责解析脚本和 worker 中的 `nbook/*` 导入，不回退到开发机源码或根 `node_modules`。
+- `release-meta.json` 是产品版本接口唯一读取的构建期版本元数据，`versionKind` 固定为 `release`，构建来源记录在 `sourceKind`。
+
+当前本地验收已覆盖 `product/` 隔离运行和 Windows Product Portable zip 解压运行：避开仓库父级源码和根 `node_modules` 后，通过了 profile status/compile、Profile Workbench HTTP `/api/agent/profiles/compile` dry-run、HTTP `/api/agent/profiles/compile-all`、workspace project create/validate、workspace node validate、SQLite migration、管理员创建、Windows Launcher 启动、Product/zip 内 agent bin wrapper 无 Bun PATH smoke、`product:start` 启动、`node --env-file=.env .output/server/index.mjs` 启动、登录和 `/api/app/version` release metadata smoke。
+
+## Windows Product Portable
+
+Windows Product Portable 是 Windows x64 的 Product Payload + Windows Launcher 包。它自带 Node.js runtime、预构建 `app/` 和用户可点击入口。
 
 首次运行 `Start Neuro Book.cmd` 时会：
 
-- 检查 Git、Bun、ripgrep。
-- 缺失工具时通过交互确认后安装。
-- clone `master` 到 `app/`。
-- 在 `app/` 中安装依赖、构建、迁移 SQLite。
+- 初始化 `data/.env`、`data/config.yaml` 和 `data/workspace/.nbook/config.json`。
+- 将 `app/workspace` 映射到 `data/workspace`，让服务 cwd 保持 Product Root，同时把用户数据留在 `data/`。
+- 执行 SQLite migration。
 - 引导创建管理员。
 - 启动本地网页。
 
 目录边界：
 
 - 解压目录是 Portable Root。
-- `app/` 是真实 Git checkout 和服务 cwd。
-- `app/workspace/` 是 Workspace Root，保存应用数据库、Global Config 和 Project Workspace。
+- `app/` 是可替换 Product Payload 和服务 cwd。
+- `data/` 是升级保留的运行状态，保存 `workspace/`、`.env`、`config.yaml` 和 SQLite。
+- `runtime/node/` 是内置 Node.js runtime。
+- `launcher/` 是 Windows Launcher。
 
-更新时使用 `Update Neuro Book.cmd`。不要直接用新版 zip 覆盖旧目录。
+自动化 smoke 或服务器脚本可以设置 `NEURO_BOOK_NO_OPEN_BROWSER=1`，让 Windows Launcher 启动服务但不自动打开浏览器；普通用户双击启动仍会打开本地网页。
+
+`Update Neuro Book.cmd` v1 不再执行 `git pull`，只提示 Product Portable 的更新边界：下载新版 zip 后保留旧 `data/` 并替换 `app/`。自动下载、解压和切换新版 `app/` 后续补齐。
+
+## Product Node
+
+Product Node 适合已有 Node.js 的本机或服务器。它使用与 Windows Product Portable 相同的 Product Payload，但不内置平台 launcher 或 Node runtime。
+
+构建机：
+
+```bash
+bun run nuxt:build
+bun run product:stage
+```
+
+运行机：
+
+```bash
+cd product
+node --env-file=.env .output/server/index.mjs
+```
+
+Product Node 仍要求 Product Root 为服务 cwd；依赖由 `.output/server/node_modules` 承载。
 
 ## local-git
 
-`local-git` 是默认推荐部署模式。它不使用 Docker，直接在宿主机运行生产服务。
+`local-git` 是源码部署过渡模式。它不使用 Docker，直接在宿主机运行生产服务。
 
 初始化命令：
 
@@ -60,7 +131,7 @@ node scripts/deploy/neuro-book-deploy.mjs --deploy-mode local-git
 
 local-git 不接管 systemd、pm2 或后台进程管理。需要长期运行时，可以按部署目录中的 `.deploy/README.md` 接入自己的进程管理方式。
 
-## ghcr
+## Product Docker / ghcr
 
 `ghcr` 是低内存服务器推荐的 Docker 模式。
 
@@ -78,7 +149,7 @@ ghcr.io/notnotype/neuro-book:latest
 
 `ghcr` 模式仍会把 `workspace/` 挂载为持久目录。Provider key、管理员用户、Project Workspace 和 SQLite 数据都保存在本机运行状态中。
 
-## source
+## Source Docker
 
 `source` 是开发服务器模式。容器提供 runtime，宿主机项目目录挂载到容器内 `/app`。
 
@@ -129,7 +200,7 @@ bun run auth:create-admin admin
 
 ## 更新与排障
 
-Windows Release Zip 使用 `Update Neuro Book.cmd`。
+Windows Product Portable v1 使用 `Update Neuro Book.cmd` 查看更新说明，自动下载和切换新版 `app/` 后续补齐。
 
 local-git 部署通常在应用目录执行：
 

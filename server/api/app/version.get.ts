@@ -6,7 +6,7 @@ import {promisify} from "node:util";
 const execFileAsync = promisify(execFile);
 const GITHUB_URL = "https://github.com/notnotype/neuro-book";
 
-type AppVersionKind = "tag" | "commit" | "package";
+type AppVersionKind = "release" | "tag" | "commit" | "package";
 
 interface AppVersionDto {
     versionLabel: string;
@@ -16,6 +16,31 @@ interface AppVersionDto {
 
 interface PackageManifest {
     version?: string;
+}
+
+type ReleaseMeta = {
+    versionLabel?: string;
+    versionKind?: AppVersionKind;
+    githubUrl?: string;
+};
+
+/**
+ * 读取产品构建期写入的版本元数据。
+ */
+async function readReleaseMeta(): Promise<AppVersionDto | null> {
+    try {
+        const meta = JSON.parse(await readFile(join(process.cwd(), "release-meta.json"), "utf8")) as ReleaseMeta;
+        if (meta.versionLabel && meta.versionKind && meta.githubUrl) {
+            return {
+                versionLabel: meta.versionLabel,
+                versionKind: meta.versionKind,
+                githubUrl: meta.githubUrl,
+            };
+        }
+    } catch {
+        return null;
+    }
+    return null;
 }
 
 /**
@@ -51,6 +76,11 @@ async function readPackageVersion(): Promise<string> {
  * 返回设置页底部展示用的版本和仓库地址。
  */
 export default defineEventHandler(async (): Promise<AppVersionDto> => {
+    const releaseMeta = await readReleaseMeta();
+    if (releaseMeta) {
+        return releaseMeta;
+    }
+
     const tag = await readGitOutput(["describe", "--tags", "--exact-match", "HEAD"]);
     if (tag) {
         return {

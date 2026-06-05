@@ -388,13 +388,14 @@ async function runTypecheckFiles(filePaths: string[], target: Awaited<ReturnType
             return false;
         }
         const config = ts.parseJsonConfigFileContent(configFile.config, ts.sys, path.dirname(configPath), undefined, configPath);
+        const compilerOptions = withRuntimeTypecheckPaths({
+            ...config.options,
+            noEmit: true,
+            skipLibCheck: true,
+        }, configPath);
         const program = ts.createProgram({
             rootNames: [...checkedFilePaths, ...config.fileNames.filter((item) => item.endsWith(".d.ts")), ...variableTypes.typeFiles],
-            options: {
-                ...config.options,
-                noEmit: true,
-                skipLibCheck: true,
-            },
+            options: compilerOptions,
         });
         const generatedTypeFiles = new Set(variableTypes.typeFiles.map((item) => path.resolve(item)));
         const diagnostics = ts.getPreEmitDiagnostics(program).filter((diagnostic) => {
@@ -415,6 +416,33 @@ async function runTypecheckFiles(filePaths: string[], target: Awaited<ReturnType
     } finally {
         await variableTypes.cleanup();
     }
+}
+
+/**
+ * Product Root 不带根 node_modules；profile typecheck 需要从 Nitro vendor
+ * 解析第三方类型声明。
+ */
+function withRuntimeTypecheckPaths(options: ts.CompilerOptions, configPath: string): ts.CompilerOptions {
+    if (fs.existsSync(path.resolve(process.cwd(), "node_modules"))) {
+        return options;
+    }
+    const runtimeNodeModules = path.resolve(process.cwd(), ".output", "server", "node_modules");
+    if (!fs.existsSync(runtimeNodeModules)) {
+        return options;
+    }
+    const runtimePattern = `${path.relative(path.dirname(configPath), runtimeNodeModules).split(/[\\/]+/).join("/")}/*`;
+    const paths = options.paths ?? {};
+    const starPaths = paths["*"] ?? [];
+    if (starPaths.includes(runtimePattern)) {
+        return options;
+    }
+    return {
+        ...options,
+        paths: {
+            ...paths,
+            "*": [...starPaths, runtimePattern],
+        },
+    };
 }
 
 async function prepareVariableTypeEnvironment(target: Awaited<ReturnType<typeof resolveTarget>>, options: CliOptions): Promise<VariableTypeEnvironment> {
@@ -640,6 +668,6 @@ function relativeInside(root: string, filePath: string): string | null {
 }
 
 function printUsage(): void {
-    console.error("用法：bun scripts/build/profile.ts <status|check|compile|preview> <fileName|profileKey> [--system] [--all] [--project <projectPath>] [--strict-variables]");
-    console.error("示例：bun scripts/build/profile.ts compile builtin/leader.default.profile.tsx --system");
+    console.error("用法：profile <status|check|compile|preview> <fileName|profileKey> [--system] [--all] [--project <projectPath>] [--strict-variables]");
+    console.error("示例：profile compile builtin/leader.default.profile.tsx --system");
 }

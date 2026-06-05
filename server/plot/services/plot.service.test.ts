@@ -23,6 +23,92 @@ describe("PlotService", () => {
         testGlobal.createError = previousCreateError;
     });
 
+    it("批量创建 Plot 时会按数组顺序追加到同一 Scene", async () => {
+        const createdPlots: Array<{sceneId: number; sortOrder: number; kind: string; summary: string}> = [];
+        const plotRepository = {
+            lockPlotOrderBucket: vi.fn(async () => undefined),
+            findPlotsByScene: vi.fn(async () => [
+                {id: 101, sortOrder: 0},
+                {id: 102, sortOrder: 1},
+            ]),
+            createPlot: vi.fn(async (input: {
+                sceneId: number;
+                sortOrder: number;
+                kind: string;
+                summary: string;
+                effect: string | null;
+                writingTip: string | null;
+                note: string | null;
+            }) => {
+                createdPlots.push(input);
+                return {
+                    id: 200 + input.sortOrder,
+                    sceneId: input.sceneId,
+                    sortOrder: input.sortOrder,
+                    kind: input.kind,
+                    summary: input.summary,
+                    effect: input.effect,
+                    writingTip: input.writingTip,
+                    note: input.note,
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                };
+            }),
+        } as unknown as PlotRepository;
+        const sceneRepository = {} as SceneRepository;
+        const storyService = {
+            ensureStory: vi.fn(async () => ({id: 1, novelId: 1, title: "小说", summary: "", note: null, createdAt: new Date(), updatedAt: new Date()})),
+        } as unknown as StoryService;
+        const scopeGuard = {
+            assertScene: vi.fn(async () => ({
+                id: 11,
+                storyId: 1,
+                threadId: 7,
+                chapterPath: null,
+                threadSortOrder: 0,
+                chapterSortOrder: null,
+                title: "场景",
+                status: "draft",
+                summary: "",
+                purpose: null,
+                writingTip: null,
+                note: null,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            })),
+        } as unknown as PlotScopeGuard;
+        const orderService = new OrderService(
+            {} as StoryRepository,
+            {} as ThreadRepository,
+            sceneRepository,
+            plotRepository,
+        );
+        const service = new PlotService(
+            plotRepository,
+            sceneRepository,
+            storyService,
+            scopeGuard,
+            orderService,
+            new PlotDtoAssembler(),
+        );
+
+        const result = await service.createStoryPlots(1, {
+            sceneId: 11,
+            plots: [
+                {kind: "setup", summary: "女主接过五彩石。"},
+                {kind: "reveal", summary: "五彩石产生微弱共鸣。", effect: "女主意识到它并非普通宝石。"},
+            ],
+        });
+
+        expect(plotRepository.lockPlotOrderBucket).toHaveBeenCalledTimes(1);
+        expect(plotRepository.lockPlotOrderBucket).toHaveBeenCalledWith(11);
+        expect(createdPlots.map((plot) => ({sortOrder: plot.sortOrder, summary: plot.summary}))).toEqual([
+            {sortOrder: 2, summary: "女主接过五彩石。"},
+            {sortOrder: 3, summary: "五彩石产生微弱共鸣。"},
+        ]);
+        expect(result.map((plot) => plot.sortOrder)).toEqual([2, 3]);
+    });
+
     it("重排 Plot 时会先写入临时排序，避免 sceneId + sortOrder 唯一约束冲突", async () => {
         const updateCalls: Array<{plotId: number; data: {sceneId?: number; sortOrder?: number}}> = [];
         const plotRepository = {

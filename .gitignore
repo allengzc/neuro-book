@@ -13,6 +13,7 @@ yarn-error.log*
 config.yaml
 !assets/workspace/.nbook/templates/project-directory-templates/simulation/config.yaml
 dist/
+product/
 /server/generated/prisma
 .DS_Store
 .runtime

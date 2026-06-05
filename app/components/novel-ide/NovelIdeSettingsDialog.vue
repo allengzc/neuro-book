@@ -14,7 +14,7 @@ import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, 
 
 type SettingsSection = "frontend" | "editor" | "models" | "web-tools" | "agent-profile-defaults" | "agent-profile-models";
 type SettingsScope = "global" | "project" | "browser";
-type AppVersionKind = "tag" | "commit" | "package";
+type AppVersionKind = "release" | "tag" | "commit" | "package";
 
 interface AppVersionDto {
     versionLabel: string;
@@ -219,6 +219,9 @@ const versionLabel = computed(() => {
     }
     if (appVersion.value.versionKind === "commit") {
         return `Commit ${appVersion.value.versionLabel}`;
+    }
+    if (appVersion.value.versionKind === "release") {
+        return `Release ${appVersion.value.versionLabel}`;
     }
     return `版本 ${appVersion.value.versionLabel}`;
 });

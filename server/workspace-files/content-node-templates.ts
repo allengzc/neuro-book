@@ -74,15 +74,7 @@ function renderTemplateFilePath(templatePath: string, input: WorkspaceContentTem
  */
 function resolveTemplatePath(relativePath: string): string | null {
     const normalizedPath = relativePath.split(path.sep).join(path.sep);
-    const userPath = path.resolve(process.cwd(), "workspace", ".nbook", normalizedPath);
-    if (fs.existsSync(userPath) && fs.statSync(userPath).isFile()) {
-        return userPath;
-    }
-    const systemPath = path.join(assetResolver.systemRoot, normalizedPath);
-    if (fs.existsSync(systemPath) && fs.statSync(systemPath).isFile()) {
-        return systemPath;
-    }
-    return null;
+    return assetResolver.resolveFileSync(normalizedPath)?.absolutePath ?? null;
 }
 
 /**

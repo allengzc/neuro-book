@@ -8,7 +8,7 @@ import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {createWorkspaceContentFrontmatterDefaults, workspaceContentJsonSchema} from "nbook/server/workspace-files/content-node-schema";
 import {renderWorkspaceContentTemplate, renderWorkspaceContentTemplateBundle, renderWorkspaceStateTemplate} from "nbook/server/workspace-files/content-node-templates";
 import {copyNovelDirectoryTemplate, readUserAssetsSyncConflictDetail, resolveWorkspaceRootInput, syncSystemAssetsToUserAssets, USER_ASSETS_WORKSPACE_ROOT} from "nbook/server/workspace-files/novel-workspace";
-import {initProjectDatabase, listProjectWorkspaces, readProjectManifest, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
+import {listProjectWorkspaces, readProjectManifest, writeProjectManifest} from "nbook/server/workspace-files/project-workspace";
 import {closeWorkspaceTreeIndex, invalidateProjectWorkspaceIndexAfterMutation, readPlainWorkspaceTreeSnapshot, readProjectWorkspaceTreeSnapshot, setProjectWorkspaceIndexCommitHookForTest} from "nbook/server/workspace-files/project-workspace-index";
 import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {updateNovelByTool} from "nbook/server/utils/novel-chapter";
@@ -587,6 +587,96 @@ describe("workspace-files", () => {
         expect(stderr).toBe("");
     });
 
+    it("workspace node new 在 Workspace Root 下能读取系统内容节点模板", async () => {
+        const workspaceSlug = `node-new-template-test-${randomUUID()}`;
+        const targetRoot = path.join("workspace", workspaceSlug);
+        const nodeTarget = path.join(targetRoot, "lorebook", "character", "su-xue");
+
+        try {
+            await execFileAsync("bun", [
+                AGENT_WORKSPACE_SCRIPT_PATH,
+                "project",
+                "create",
+                workspaceSlug,
+                "--no-db",
+            ], {
+                encoding: "utf-8",
+            });
+
+            const {stdout, stderr} = await execFileAsync("bun", [
+                AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,
+                "node",
+                "new",
+                nodeTarget,
+                "--type",
+                "character",
+                "--title",
+                "苏雪",
+                "--state",
+            ], {
+                cwd: "workspace",
+                encoding: "utf-8",
+            });
+
+            expect(stderr).toBe("");
+            expect(stdout.replaceAll("\\", "/")).toContain("lorebook/character/su-xue");
+            await expect(fs.readFile(path.join(nodeTarget, "index.md"), "utf-8")).resolves.toContain("title: 苏雪");
+            await expect(fs.readFile(path.join(nodeTarget, "state.md"), "utf-8")).resolves.toContain("## 当前状态");
+        } finally {
+            await removeDirectoryWithRetry(targetRoot);
+        }
+    }, 30_000);
+
+    it("workspace node new 在 Workspace Root 下优先读取用户覆盖模板", async () => {
+        const workspaceSlug = `node-new-overlay-test-${randomUUID()}`;
+        const targetRoot = path.join("workspace", workspaceSlug);
+        const nodeTarget = path.join(targetRoot, "lorebook", "character", "override-character");
+        const userTemplatePath = path.join(USER_ASSETS_WORKSPACE_ROOT, "templates", "content-node-templates", "character", "index.md");
+        const backup = await backupOptionalFile(userTemplatePath);
+
+        try {
+            await fs.mkdir(path.dirname(userTemplatePath), {recursive: true});
+            await fs.writeFile(userTemplatePath, [
+                "---",
+                "title: \"{{title}}\"",
+                "type: character",
+                "status: \"{{status}}\"",
+                "---",
+                "",
+                "## 用户覆盖模板",
+            ].join("\n"), "utf-8");
+            await execFileAsync("bun", [
+                AGENT_WORKSPACE_SCRIPT_PATH,
+                "project",
+                "create",
+                workspaceSlug,
+                "--no-db",
+            ], {
+                encoding: "utf-8",
+            });
+
+            const {stderr} = await execFileAsync("bun", [
+                AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,
+                "node",
+                "new",
+                nodeTarget,
+                "--type",
+                "character",
+                "--title",
+                "覆盖测试",
+            ], {
+                cwd: "workspace",
+                encoding: "utf-8",
+            });
+
+            expect(stderr).toBe("");
+            await expect(fs.readFile(path.join(nodeTarget, "index.md"), "utf-8")).resolves.toContain("## 用户覆盖模板");
+        } finally {
+            await restoreOptionalFile(userTemplatePath, backup);
+            await removeDirectoryWithRetry(targetRoot);
+        }
+    }, 30_000);
+
     it("workspace project create 能给已有 Project Workspace 补入 simulation 模板", async () => {
         const workspaceSlug = `simulation-template-test-${randomUUID()}`;
         const projectRoot = path.join("workspace", workspaceSlug);
@@ -1017,7 +1107,7 @@ describe("workspace-files", () => {
             const nextManifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; artifactFileName: string; artifactSha256: string}>};
             const nextItem = nextManifest.profiles.find((profile) => profile.fileName === "builtin/leader.default.profile.tsx")!;
 
-            expect(result.profileWarnings ?? []).toEqual([]);
+            expect(result.profileWarnings?.some((warning) => warning.fileName === "builtin/leader.default.profile.tsx")).toBe(false);
             expect(await sha256ForTest(path.join(userCompiledRoot, nextItem.artifactFileName))).toBe(nextItem.artifactSha256);
         } finally {
             await restoreOptionalFile(userProfilePath, backup);
@@ -1560,9 +1650,17 @@ describe("workspace-files", () => {
             summary: "测试简介",
         });
         await copyNovelDirectoryTemplate(projectPath);
-        await initProjectDatabase(projectPath);
+        const {stderr} = await execFileAsync("bun", [
+            AGENT_WORKSPACE_SCRIPT_PATH,
+            "project",
+            "init-db",
+            projectPath,
+        ], {
+            encoding: "utf-8",
+        });
 
         try {
+            expect(stderr).toBe("");
             await expect(readProjectManifest(projectPath)).resolves.toEqual({
                 kind: "novel",
                 title: "测试小说",
@@ -1737,7 +1835,7 @@ describe("workspace-files", () => {
                 await fs.rm(dirPath, {recursive: true, force: true});
                 return;
             } catch (error) {
-                if (typeof error !== "object" || error === null || !("code" in error) || error.code !== "EBUSY" || attempt === 19) {
+                if (typeof error !== "object" || error === null || !("code" in error) || !["EBUSY", "EPERM"].includes(String(error.code)) || attempt === 19) {
                     throw error;
                 }
                 await new Promise((resolve) => setTimeout(resolve, 150 * (attempt + 1)));

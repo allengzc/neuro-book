@@ -1,6 +1,7 @@
 import {getRequestIP} from "h3";
 import {LoginRequestDtoSchema, type AuthSessionDto} from "nbook/shared/dto/auth.dto";
-import {clearAuthSession, isAuthEnabled, setAuthSession, toAuthUser, verifyUserPassword} from "nbook/server/utils/auth";
+import {clearAuthSession, isAuthEnabled, setAuthSession, toAuthUser} from "nbook/server/utils/auth";
+import {verifyUserPassword} from "nbook/server/utils/password";
 import {assertLoginAttemptAllowed, clearLoginFailures, loginDummyPasswordHash, loginFailureMessage, recordLoginFailure} from "nbook/server/utils/login-security";
 import {prisma} from "nbook/server/utils/prisma";
 import {validateBody} from "nbook/server/utils/novel-chapter";

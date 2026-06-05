@@ -7,7 +7,7 @@ import {createUserMessage} from "nbook/server/agent/messages/message-utils";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {RpActorInputSchema, RpActorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AppendingSet, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System} from "nbook/server/agent/profiles/profile-dsl";
-import type {ProfilePrepareContext, SidecarProfilePass} from "nbook/server/agent/profiles/types";
+import type {AgentProfileManifest, ProfilePrepareContext, SidecarProfilePass} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
 export const profileManifest = {
@@ -44,10 +44,10 @@ const ActorMemorySaveSidecarSchema = Type.Object({
 type ActorContextLoadSidecarData = Static<typeof ActorContextLoadSidecarSchema>;
 type ActorMemorySaveSidecarData = Static<typeof ActorMemorySaveSidecarSchema>;
 
-function renderSystemPrompt(input: Input): string {
+function renderSystemPrompt(input: Input, profileKey: string): string {
     const actorName = input.actorName?.trim() || input.actorId;
     return profileText`
-        你是 NeuroBook 的 rp.actor，也是一个 subject simulator。你现在只扮演一个角色：${actorName}（actorId: ${input.actorId}）。使用中文作为默认语言。
+        你是 NeuroBook 的 ${profileKey}，也是一个 subject simulator。你现在只扮演一个角色：${actorName}（actorId: ${input.actorId}）。使用中文作为默认语言。
 
         # 核心职责
 
@@ -75,7 +75,7 @@ function renderSystemPrompt(input: Input): string {
         - knowledge.md 记录角色已经知道、被告知、观察到或自然推断到的信息，不写 GM 推理或真实隐藏设定。
         - knowledge.md 使用二级章节归类，用三级标题表示具体条目；新增内容写成三级标题加正文段落，不要用 Markdown 列表堆条目。
         - 不要在 knowledge.md 新增“信念与误解”“最近更新”或“更新规则”章节。写入规则由本提示词负责。
-        - knowledge.md 可以保留 GM 明确允许该角色知道的 lorebook 引用；引用使用 Markdown 相对路径链接，例如 [王都公共常识](../../lorebook/world/capital.md)。即使看到 lorebook 路径，也不要自行读取 lorebook，等待 GM 注入摘要或明确授权。
+        - knowledge.md 不应新增可直接展开的 lorebook Markdown link。若需要保留来源，只写经过 GM / sidecar 过滤后的 subject-facing 摘要；source ref 应隐藏在内部记录或交给 simulator leader 管理。
         - mind.md 记录角色当前正在想什么、判断什么、犹豫什么、想要什么；它是短期心理状态，不是世界真相。
         - events.md 记录角色怎么知道、经历或变化的流水，用 subject 视角写事件，不写上帝视角裁决。
         - state.md 记录位置、随身物品、伤势、姿态、关系压力和短期目标等可变状态。
@@ -163,7 +163,7 @@ const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarDat
     allowedToolKeys: ["read", "report_result"],
     sidecarDataSchema: ActorContextLoadSidecarSchema,
     enterPrompt: (ctx) => profileText`
-        退出角色扮演模式。你现在是 rp.actor 的 context-load 旁路，不要扮演角色，不要输出角色台词。
+        退出角色扮演模式。你现在是 subject simulator 的 context-load 旁路，不要扮演角色，不要输出角色台词。
 
         目标：在 actor 主扮演 run 开始前，基于当前 GM actor-facing message 检索并整理该角色合理可知的补充设定。
 
@@ -214,7 +214,7 @@ const actorMemorySavePass: SidecarProfilePass<Input, ActorMemorySaveSidecarData>
     allowedToolKeys: ["read", "write", "edit", "report_result"],
     sidecarDataSchema: ActorMemorySaveSidecarSchema,
     enterPrompt: (ctx) => profileText`
-        退出角色扮演模式。你现在是 rp.actor 的 memory-save 旁路，不要继续扮演角色，不要新增角色台词或行动。
+        退出角色扮演模式。你现在是 subject simulator 的 memory-save 旁路，不要继续扮演角色，不要新增角色台词或行动。
 
         目标：根据刚刚完成的 actor 主 run 结果，维护该 actor 的 events.md、knowledge.md 与 mind.md。
 
@@ -268,35 +268,39 @@ function formatJson(value: unknown): string {
     }
 }
 
-export default defineAgentProfile({
-    manifest: profileManifest,
-    inputSchema: InputSchema,
-    outputSchema: OutputSchema,
-    allowedToolKeys,
-    compaction: {
-        reserveTokens: 25_600,
-        keepRecentTokens: DEFAULT_COMPACTION_KEEP_RECENT_TOKENS,
-    },
-    sidecars: [
-        actorContextLoadPass,
-        actorMemorySavePass,
-    ],
-    async context(ctx) {
-        const actorContext = await renderActorContext(ctx);
-        return (
-            <ProfilePrompt>
-                <System>{renderSystemPrompt(ctx.input)}</System>
-                <ModelContext>
-                    <Message>{actorContext}</Message>
-                    <Message>{renderInvocationReminder(ctx.input)}</Message>
-                </ModelContext>
-                <AppendingSet>
-                    <RuntimeLocationReminder />
-                </AppendingSet>
-            </ProfilePrompt>
-        );
-    },
-});
+export function createSubjectSimulatorProfile(manifest: AgentProfileManifest) {
+    return defineAgentProfile({
+        manifest,
+        inputSchema: InputSchema,
+        outputSchema: OutputSchema,
+        allowedToolKeys,
+        compaction: {
+            reserveTokens: 25_600,
+            keepRecentTokens: DEFAULT_COMPACTION_KEEP_RECENT_TOKENS,
+        },
+        sidecars: [
+            actorContextLoadPass,
+            actorMemorySavePass,
+        ],
+        async context(ctx) {
+            const actorContext = await renderActorContext(ctx);
+            return (
+                <ProfilePrompt>
+                    <System>{renderSystemPrompt(ctx.input, manifest.key)}</System>
+                    <ModelContext>
+                        <Message>{actorContext}</Message>
+                        <Message>{renderInvocationReminder(ctx.input)}</Message>
+                    </ModelContext>
+                    <AppendingSet>
+                        <RuntimeLocationReminder />
+                    </AppendingSet>
+                </ProfilePrompt>
+            );
+        },
+    });
+}
+
+export default createSubjectSimulatorProfile(profileManifest);
 
 async function readWorkspaceFile(workspaceRoot: string, relativePath: string): Promise<string> {
     const root = resolve(workspaceRoot);

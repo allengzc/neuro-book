@@ -29,6 +29,97 @@ export const LeaderRpOutputSchema = Type.Object({
 });
 
 /**
+ * simulator.leader 的实例初始化参数。每轮模拟任务通过 invoke_agent.message 传入。
+ */
+export const SimulatorLeaderInputSchema = Type.Object({
+    projectPath: Type.String({description: "Project Workspace path, e.g. workspace/silver-dragon-hime."}),
+    simulationRoot: Type.Optional(Type.String({description: "Agent cwd-relative simulation root, e.g. silver-dragon-hime/simulation/. Omit to derive from projectPath."})),
+    mode: Type.Optional(Type.Union([
+        Type.Literal("writing"),
+        Type.Literal("rp"),
+        Type.Literal("analysis"),
+    ], {description: "Stable operating mode for this simulator session."})),
+});
+
+/**
+ * simulator.leader 通过 report_result.data 返回的结构化模拟结果。
+ */
+export const SimulatorLeaderOutputSchema = Type.Object({
+    summary: Type.String({description: "本轮模拟的人类可读总结。"}),
+    status: Type.Union([
+        Type.Literal("completed"),
+        Type.Literal("needs_user"),
+        Type.Literal("blocked"),
+    ], {description: "本轮模拟状态。"}),
+    world_state_report: Type.String({description: "世界状态、因果推演和裁决说明。"}),
+    committed_files: Type.Array(Type.Object({
+        path: Type.String({description: "已实际修改的 simulation 文件路径。"}),
+        summary: Type.String({description: "该文件的修改摘要。"}),
+    }), {description: "本轮已提交的状态文件。没有则返回空数组。"}),
+    state_change_requests: Type.Array(Type.Object({
+        path: Type.String({description: "建议修改但尚未提交的文件路径。"}),
+        summary: Type.String({description: "建议修改内容摘要。"}),
+        reason: Type.String({description: "为什么没有直接提交，或需要谁确认。"}),
+    }), {description: "未提交的状态修改建议。没有则返回空数组。"}),
+    subject_results: Type.Array(Type.Object({
+        subjectId: Type.String({description: "subject id。"}),
+        visibleAction: Type.String({description: "该 subject 可见行动摘要。"}),
+        spokenDialogue: Type.String({description: "该 subject 台词摘要。"}),
+        privateIntent: Type.String({description: "只给 simulator/director 的私下意图摘要。"}),
+        emotionalState: Type.String({description: "情绪状态摘要。"}),
+    }), {description: "参与模拟的 subject 结果。没有则返回空数组。"}),
+    writer_safe_brief: Type.String({description: "可交给 writer / rp.writer 的信息过滤后正文 brief。"}),
+    director_handoff: Type.String({description: "可交给 director 的剧情结构 handoff。"}),
+    plot_handoff: Type.String({description: "可整理进 Plot System 的候选剧情点。"}),
+    open_questions: Type.Array(Type.String({description: "需要 leader 或用户确认的问题。"}), {description: "没有则返回空数组。"}),
+});
+
+/**
+ * director 的实例初始化参数。每轮剧情任务通过 invoke_agent.message 传入。
+ */
+export const DirectorInputSchema = Type.Object({
+    projectPath: Type.String({description: "Project Workspace path, e.g. workspace/silver-dragon-hime."}),
+    mode: Type.Optional(Type.Union([
+        Type.Literal("writing"),
+        Type.Literal("rp"),
+        Type.Literal("analysis"),
+    ], {description: "Stable operating mode for this director session."})),
+    defaultChapterPath: Type.Optional(Type.String({description: "Optional default manuscript chapter path for this director session."})),
+});
+
+/**
+ * director 通过 report_result.data 返回的结构化剧情设计结果。
+ */
+export const DirectorOutputSchema = Type.Object({
+    summary: Type.String({description: "本轮剧情设计的人类可读总结。"}),
+    status: Type.Union([
+        Type.Literal("completed"),
+        Type.Literal("needs_user"),
+        Type.Literal("blocked"),
+    ], {description: "本轮导演任务状态。"}),
+    plot_updates: Type.Array(Type.Object({
+        kind: Type.Union([
+            Type.Literal("thread"),
+            Type.Literal("scene"),
+            Type.Literal("plot"),
+        ], {description: "被处理的 Plot System 对象类型。"}),
+        action: Type.Union([
+            Type.Literal("created"),
+            Type.Literal("updated"),
+            Type.Literal("read"),
+            Type.Literal("skipped"),
+        ], {description: "本轮对该对象的操作。"}),
+        id: Type.Optional(Type.String({description: "对象 id；没有落库时为空。"})),
+        title: Type.Optional(Type.String({description: "对象标题；没有时为空。"})),
+        summary: Type.String({description: "该对象的操作摘要。"}),
+    }), {description: "本轮 Plot System 读写摘要。没有则返回空数组。"}),
+    chapter_plan: Type.String({description: "章节级剧情计划或空字符串。"}),
+    writer_handoff: Type.String({description: "可交给 writer 的剧情结构 handoff。"}),
+    simulator_requests: Type.Array(Type.String({description: "需要 simulator.leader 裁决的世界状态问题。"}), {description: "没有则返回空数组。"}),
+    open_questions: Type.Array(Type.String({description: "需要 leader 或用户确认的问题。"}), {description: "没有则返回空数组。"}),
+});
+
+/**
  * rp.actor 的实例初始化参数。每轮 GM packet 通过 invoke_agent.message 传入。
  */
 export const RpActorInputSchema = Type.Object({

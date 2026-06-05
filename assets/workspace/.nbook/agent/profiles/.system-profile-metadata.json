@@ -1,7 +1,13 @@
 {
-  "generatedAt": "2026-06-03T14:11:37.465Z",
+  "generatedAt": "2026-06-05T07:58:28.752Z",
   "profilesRoot": "assets/workspace/.nbook/agent/profiles",
   "profiles": [
+    {
+      "fileName": "builtin/director.profile.tsx",
+      "profileKey": "director",
+      "sha256": "6740ab5f139ffd00785868206c83ff483ea2d2f9fb1e100cabc399d698268f97",
+      "bytes": 7107
+    },
     {
       "fileName": "builtin/leader.assets.profile.tsx",
       "profileKey": "leader.assets",
@@ -11,14 +17,14 @@
     {
       "fileName": "builtin/leader.default.profile.tsx",
       "profileKey": "leader.default",
-      "sha256": "c0cd559d1cf32c75664cc59e9d5d92104c4fa495a342d7fd806530ef5f714d8c",
-      "bytes": 9759
+      "sha256": "481c4c7cd87d88ac9a0ad02e1a07a127e7f7293603fa0c377f7cc2c2d9e04a50",
+      "bytes": 9782
     },
     {
       "fileName": "builtin/leader.rp.profile.tsx",
       "profileKey": "leader.rp",
-      "sha256": "217402029eb1bafbae481617a65e8e1a29b4a1ec57485c79d434b51e70984bbd",
-      "bytes": 14174
+      "sha256": "533a0b29edd0dd0cfb2d804d2ac955a0c01737e8bc82f41de7abe96632fea0eb",
+      "bytes": 14156
     },
     {
       "fileName": "builtin/researcher.profile.tsx",
@@ -35,14 +41,26 @@
     {
       "fileName": "builtin/rp.actor.profile.tsx",
       "profileKey": "rp.actor",
-      "sha256": "664854ad3a7350fe371cdff7cbad6bae62679f17a725b030768a345bd370dc7f",
-      "bytes": 18058
+      "sha256": "0ead56fdba9527d0c68b6e7c69217ac18397ed0b81100fd9ff13416bc2972da8",
+      "bytes": 18313
     },
     {
       "fileName": "builtin/rp.writer.profile.tsx",
       "profileKey": "rp.writer",
       "sha256": "8c6f0aca404d3e2f46071ad3935d1a7ae6f70bdd36914a7dcd7d8816b0361ff9",
       "bytes": 7396
+    },
+    {
+      "fileName": "builtin/simulator.actor.profile.tsx",
+      "profileKey": "simulator.actor",
+      "sha256": "612ae46c38629f6ac9486eafb847e0a5bd403f30ce8e1d34acdf4c696c155cbb",
+      "bytes": 907
+    },
+    {
+      "fileName": "builtin/simulator.leader.profile.tsx",
+      "profileKey": "simulator.leader",
+      "sha256": "1961da7a8a06167ec65743577a9a7cbc748f7ef4c95b1260fd847fe939dc7687",
+      "bytes": 7704
     },
     {
       "fileName": "builtin/summarizer.profile.tsx",

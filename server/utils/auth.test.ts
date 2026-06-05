@@ -33,7 +33,7 @@ describe("auth utils", () => {
     });
 
     it("密码哈希可以正确校验", async () => {
-        const {hashUserPassword, verifyUserPassword} = await import("nbook/server/utils/auth");
+        const {hashUserPassword, verifyUserPassword} = await import("nbook/server/utils/password");
         const hash = await hashUserPassword("secret123");
         await expect(verifyUserPassword("secret123", hash)).resolves.toBe(true);
         await expect(verifyUserPassword("wrong", hash)).resolves.toBe(false);

@@ -1,5 +1,5 @@
 import {beforeEach, describe, expect, it, vi} from "vitest";
-import {hashUserPassword} from "nbook/server/utils/auth";
+import {hashUserPassword} from "nbook/server/utils/password";
 import {loginFailureMessage, resetLoginSecurityState} from "nbook/server/utils/login-security";
 
 const prismaMock = {

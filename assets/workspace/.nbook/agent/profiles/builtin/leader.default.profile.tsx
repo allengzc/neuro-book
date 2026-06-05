@@ -64,6 +64,7 @@ const allowedToolKeys = [
     "create_story_scene",
     "update_story_scene",
     "create_story_plot",
+    "create_story_plots",
     "update_story_plot",
     "execute_sql",
     "variable_schema",
