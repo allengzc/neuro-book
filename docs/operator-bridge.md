@@ -88,7 +88,7 @@ local-git 模式不使用 Docker。应用直接在宿主机项目目录中运行
 - 用户运行 `Start Neuro Book.cmd` 后，Launcher 初始化 `data/.env`、`data/config.yaml`、`data/workspace/.nbook/config.json`，执行 SQLite migration，没有用户时引导创建管理员，然后启动本地网页。
 - 服务 cwd 是 `app/` Product Root；`app/workspace` 映射到 `data/workspace`，升级时保留 `data/`。
 - `Create Admin.cmd` / `Create Admin.ps1` 使用 Product 内置 vendor 创建或重置管理员。
-- `Update Neuro Book.cmd` / `Update Neuro Book.ps1` v1 只提示 Product Portable 更新边界，不再 `git pull`；自动下载、解压和切换新版 `app/` 后续补齐。
+- `Update Neuro Book.cmd` / `Update Neuro Book.ps1` 会查询 GitHub Release，下载并校验 `neuro-book-windows-x64.zip`，备份旧 `app/` / `launcher/` / 根启动脚本后切换新版，并保留 `data/`；不再 `git pull`。内置 `runtime/node/` 自动更新时保留当前版本，避免替换正在运行的 node.exe。
 
 适合：
 
@@ -97,7 +97,7 @@ local-git 模式不使用 Docker。应用直接在宿主机项目目录中运行
 
 不适合：
 
-- 需要自动在线更新和回滚的生产环境；该能力后续补齐。
+- 需要跨进程热替换内置 Node runtime 的生产环境；当前自动更新只切换 Product Payload 和 Launcher。
 
 ## 部署模式
 

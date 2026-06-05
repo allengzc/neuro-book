@@ -55,7 +55,7 @@ NeuroBook 是一个基于 Nuxt 构建的长篇小说创作与 AI 角色扮演 ID
 .\Update Neuro Book.cmd
 ```
 
-v1 更新入口会提示 Product Portable 的保留 `data/` 更新方式；自动下载和切换新版 `app/` 会在后续版本补齐。
+更新入口会下载 GitHub Release 最新 Windows 包，校验 `SHA256SUMS`，保留 `data/` 后切换新版 `app/`、`launcher/` 和根启动脚本。内置 `runtime/node/` 会保留当前版本，避免替换正在运行的 `node.exe`。
 
 目录边界：
 

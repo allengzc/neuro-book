@@ -340,7 +340,8 @@
 - Profile artifact 在 Product Runtime 下使用 `.output/server/index.mjs` 创建 `require` shim；动态 artifact 里的 native/dynamic require 会从 `.output/server/node_modules` 解析，不再从 `.compiled` 临时目录或用户 workspace 向上找根 `node_modules`。
 - Nitro runtime vendor seed 补入 `undici`，保证 Product Payload 直接启动 `.output/server/index.mjs` 时不缺服务端 fetch 依赖。
 - Product 内的 workspace agent script 会从 `.output/server/scripts/agent` 回到 Product Root 的 `assets/workspace/.nbook/templates` 定位系统 Project 模板。
-- `Update Neuro Book.cmd` v1 不再 `git pull`，只提示 Product Portable 的保留 `data/` 更新边界；自动下载、解压和切换新版 `app/` 后续补齐。
+- `Update Neuro Book.cmd` 不再 `git pull`；它会查询 GitHub latest release，下载 `neuro-book-windows-x64.zip` 和 `SHA256SUMS`，校验 SHA256 后备份旧 `app/`、`launcher/`、根启动脚本和 `portable-release.json`，再切换新版并保留 `data/`。
+- Windows Launcher 自动更新保留当前 `runtime/node/`，避免在 update 命令运行中替换正在使用的 `node.exe`；`portable-release.json` 会记录 packaged node version 和当前保留的 runtime version。
 - `Rebuild Neuro Book.*` 不再打包，因为 Product Portable 不支持本机 build。
 - 正式部署模式重设为 Product Portable、Product Node、Product Docker/ghcr、Source Dev；`local-git` 和 `source Docker` 降级为源码/过渡路径。
 
@@ -389,9 +390,10 @@
     - 继续运行 `workspace.ts project validate launcher-smoke`，返回 `ok: true`，`schemaVersion: "1"`。
     - 在 Product Root 内临时移除 Bun PATH，只保留 Node 和 Windows 系统目录，执行 `assets\workspace\.nbook\agent\bin\workspace.cmd project create/validate`、`profile.cmd --help`、`variable.cmd --help`，确认 agent bin wrapper 不依赖 Bun。
     - 解压新 zip 到 `%TEMP%`，确认根目录无 `.git`、无根 `node_modules`；PATH 只保留 zip 内 `runtime/node` 和 Windows 系统目录后，执行 `app\assets\workspace\.nbook\agent\bin\workspace.cmd project create/validate`、`profile.cmd --help`、`variable.cmd --help`，确认 zip 内 wrapper 可用。
+    - 使用本地 `HttpListener` fake GitHub latest release，运行隔离 zip 内 `runtime\node\node.exe launcher\launcher.mjs update`；确认 launcher 下载 `neuro-book-windows-x64.zip` / `SHA256SUMS`、完成 SHA256 校验、备份旧 `app/` / `launcher/` / root scripts、切换新 payload，`data/.deploy/windows-launcher.json` 写入 `stage: "updated"`。
 
 ### TODO / Follow-ups
 
-- 为 Windows Product Portable 增加自动下载新版 release、解压、原子切换 `app/` 和失败回滚。
+- 后续如确实需要，增加跨进程替换 `runtime/node/` 的二阶段 updater。
 - 后续把 Workspace Root 可配置化后，移除 `app/workspace -> data/workspace` 目录联接策略。
 - 在干净 Windows 机器上完整跑双击启动验收。

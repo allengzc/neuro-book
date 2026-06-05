@@ -99,6 +99,7 @@ export default defineNuxtConfig({
                 "@earendil-works/pi-ai",
                 "@earendil-works/pi-agent-core",
             ],
+            trace: false,
         },
         alias: {
             nbook: rootDir,

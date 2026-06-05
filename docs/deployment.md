@@ -59,7 +59,7 @@ node --env-file=.env .output/server/index.mjs
 - `.output/server/node_modules/nbook` 是产品内 runtime source 包，负责解析脚本和 worker 中的 `nbook/*` 导入，不回退到开发机源码或根 `node_modules`。
 - `release-meta.json` 是产品版本接口唯一读取的构建期版本元数据，`versionKind` 固定为 `release`，构建来源记录在 `sourceKind`。
 
-当前本地验收已覆盖 `product/` 隔离运行和 Windows Product Portable zip 解压运行：避开仓库父级源码和根 `node_modules` 后，通过了 profile status/compile、Profile Workbench HTTP `/api/agent/profiles/compile` dry-run、HTTP `/api/agent/profiles/compile-all`、workspace project create/validate、workspace node validate、SQLite migration、管理员创建、Windows Launcher 启动、Product/zip 内 agent bin wrapper 无 Bun PATH smoke、`product:start` 启动、`node --env-file=.env .output/server/index.mjs` 启动、登录和 `/api/app/version` release metadata smoke。
+当前本地验收已覆盖 `product/` 隔离运行和 Windows Product Portable zip 解压运行：避开仓库父级源码和根 `node_modules` 后，通过了 profile status/compile、Profile Workbench HTTP `/api/agent/profiles/compile` dry-run、HTTP `/api/agent/profiles/compile-all`、workspace project create/validate、workspace node validate、SQLite migration、管理员创建、Windows Launcher 启动、Windows Launcher 自动更新 fake-release smoke、Product/zip 内 agent bin wrapper 无 Bun PATH smoke、`product:start` 启动、`node --env-file=.env .output/server/index.mjs` 启动、登录和 `/api/app/version` release metadata smoke。
 
 ## Windows Product Portable
 
@@ -83,7 +83,7 @@ Windows Product Portable 是 Windows x64 的 Product Payload + Windows Launcher 
 
 自动化 smoke 或服务器脚本可以设置 `NEURO_BOOK_NO_OPEN_BROWSER=1`，让 Windows Launcher 启动服务但不自动打开浏览器；普通用户双击启动仍会打开本地网页。
 
-`Update Neuro Book.cmd` v1 不再执行 `git pull`，只提示 Product Portable 的更新边界：下载新版 zip 后保留旧 `data/` 并替换 `app/`。自动下载、解压和切换新版 `app/` 后续补齐。
+`Update Neuro Book.cmd` 不再执行 `git pull`。它会查询 GitHub latest release，下载 `neuro-book-windows-x64.zip` 和 `SHA256SUMS`，校验 SHA256 后备份旧 `app/`、`launcher/`、根启动脚本和 `portable-release.json`，再切换新版并保留 `data/`。自动更新会保留当前 `runtime/node/`，避免在 launcher 运行中替换正在使用的 `node.exe`。
 
 ## Product Node
 
@@ -200,7 +200,7 @@ bun run auth:create-admin admin
 
 ## 更新与排障
 
-Windows Product Portable v1 使用 `Update Neuro Book.cmd` 查看更新说明，自动下载和切换新版 `app/` 后续补齐。
+Windows Product Portable 使用 `Update Neuro Book.cmd` 自动下载、校验并切换最新版 Product Payload。更新保留 `data/`，失败会尝试恢复备份。
 
 local-git 部署通常在应用目录执行：
 

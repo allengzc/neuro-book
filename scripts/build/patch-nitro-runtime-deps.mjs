@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import {existsSync} from "node:fs";
-import {cp, mkdir, readFile, readdir, rm, writeFile} from "node:fs/promises";
+import {cp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {spawn} from "node:child_process";
 import {dirname, relative, resolve} from "node:path";
 
@@ -67,28 +67,65 @@ const githubUrl = "https://github.com/notnotype/neuro-book";
 const illegalImportMetaFallback = "file:///_entry.js";
 const importMetaFallbackShape = '{url:"file:///_entry.js",env:process.env}';
 
-await copyRuntimePackageClosure(effectiveRuntimePackageSeeds);
+const timings = [];
+const packageCopyStats = {
+    copied: 0,
+    skipped: 0,
+};
 
-for (const runtimePath of runtimeContextPaths) {
-    const source = resolve(runtimePath);
-    const target = resolve(serverRoot, runtimePath);
-    if (!existsSync(source)) {
-        throw new Error(`缺少 Nitro runtime 文件：${runtimePath}`);
+await measure("copy runtime package closure", async () => {
+    await copyRuntimePackageClosure(effectiveRuntimePackageSeeds);
+});
+
+await measure("copy profile import context", async () => {
+    for (const runtimePath of runtimeContextPaths) {
+        const source = resolve(runtimePath);
+        const target = resolve(serverRoot, runtimePath);
+        if (!existsSync(source)) {
+            throw new Error(`缺少 Nitro runtime 文件：${runtimePath}`);
+        }
+        await rm(target, {recursive: true, force: true});
+        await mkdir(dirname(target), {recursive: true});
+        await copyDirectory(source, target);
     }
-    await rm(target, {recursive: true, force: true});
-    await mkdir(dirname(target), {recursive: true});
-    await cp(source, target, {recursive: true});
-}
+});
 
-await copyWorkspaceCliRuntimeScript();
-await writeReleaseMeta();
-await copyNbookRuntimePackage();
-const patchedImportMetaFiles = await patchImportMetaFallbacks(resolve(serverRoot, "chunks"));
-await assertNoIllegalImportMetaFallbacks(resolve(serverRoot, "chunks"));
+await measure("copy workspace cli runtime script", async () => {
+    await copyWorkspaceCliRuntimeScript();
+});
+await measure("write release metadata", async () => {
+    await writeReleaseMeta();
+});
+await measure("copy nbook runtime package", async () => {
+    await copyNbookRuntimePackage();
+});
+const patchedImportMetaFiles = await measure("patch import.meta fallbacks", async () => {
+    return await patchImportMetaFallbacks(resolve(serverRoot, "chunks"));
+});
+await measure("assert import.meta fallbacks", async () => {
+    await assertNoIllegalImportMetaFallbacks(resolve(serverRoot, "chunks"));
+});
 
 console.log(`patched Nitro runtime dependencies: ${effectiveRuntimePackageSeeds.join(", ")}`);
 console.log(`copied profile import context: ${runtimeContextPaths.join(", ")}`);
 console.log(`patched Nitro import.meta fallbacks: ${patchedImportMetaFiles}`);
+console.log(`Nitro runtime package copy: copied=${packageCopyStats.copied}, skipped=${packageCopyStats.skipped}`);
+console.log(`patch Nitro runtime deps timings: ${timings.map((item) => `${item.label}=${item.seconds.toFixed(2)}s`).join(", ")}`);
+
+/**
+ * 记录 Product Runtime 后处理阶段耗时，便于定位 Windows 大量小文件复制瓶颈。
+ */
+async function measure(label, action) {
+    const startedAt = performance.now();
+    try {
+        return await action();
+    } finally {
+        timings.push({
+            label,
+            seconds: (performance.now() - startedAt) / 1000,
+        });
+    }
+}
 
 /**
  * Nitro 的部分 server chunks 会生成 `file:///_entry.js` 作为 import.meta fallback。
@@ -174,9 +211,9 @@ async function copyNbookRuntimePackage() {
         private: true,
         type: "module",
     }, null, 4)}\n`, "utf8");
-    await cp(resolve("server"), resolve(packageRoot, "server"), {recursive: true});
-    await cp(resolve("shared"), resolve(packageRoot, "shared"), {recursive: true});
-    await cp(resolve("app"), resolve(packageRoot, "app"), {recursive: true});
+    await copyDirectory(resolve("server"), resolve(packageRoot, "server"));
+    await copyDirectory(resolve("shared"), resolve(packageRoot, "shared"));
+    await copyDirectory(resolve("app"), resolve(packageRoot, "app"));
 }
 
 /**
@@ -191,7 +228,7 @@ async function copyWorkspaceCliRuntimeScript() {
     }
     await rm(target, {recursive: true, force: true});
     await mkdir(dirname(target), {recursive: true});
-    await cp(source, target, {recursive: true});
+    await copyDirectory(source, target);
 }
 
 /**
@@ -211,9 +248,14 @@ async function copyRuntimePackageClosure(seedPackages) {
         if (!existsSync(source)) {
             throw new Error(`缺少 Nitro runtime package: ${packageName}`);
         }
-        await rm(target, {recursive: true, force: true});
-        await mkdir(dirname(target), {recursive: true});
-        await cp(source, target, {recursive: true});
+        if (await isRuntimePackageCurrent(source, target)) {
+            packageCopyStats.skipped += 1;
+        } else {
+            await rm(target, {recursive: true, force: true});
+            await mkdir(dirname(target), {recursive: true});
+            await copyDirectory(source, target);
+            packageCopyStats.copied += 1;
+        }
 
         const packageJsonPath = resolve(source, "package.json");
         if (!existsSync(packageJsonPath)) {
@@ -234,6 +276,72 @@ async function copyRuntimePackageClosure(seedPackages) {
             }
         }
     }
+}
+
+/**
+ * 已复制过且 package manifest 完全一致时跳过整包复制。
+ * Product vendor 主要来自已安装依赖；包升级或重装会改变 package.json，
+ * 从而触发重新复制。
+ */
+async function isRuntimePackageCurrent(source, target) {
+    const sourcePackageJsonPath = resolve(source, "package.json");
+    const targetPackageJsonPath = resolve(target, "package.json");
+    if (!existsSync(sourcePackageJsonPath) || !existsSync(targetPackageJsonPath)) {
+        return false;
+    }
+    const [sourcePackageJson, targetPackageJson] = await Promise.all([
+        readFile(sourcePackageJsonPath, "utf8"),
+        readFile(targetPackageJsonPath, "utf8"),
+    ]);
+    return sourcePackageJson === targetPackageJson;
+}
+
+/**
+ * Windows 下大量小文件目录复制用 robocopy 通常快于 Node `fs.cp`。
+ * 其他平台保持 Node 原生复制，避免引入额外系统依赖。
+ */
+async function copyDirectory(source, target) {
+    const sourceStat = await stat(source);
+    if (!sourceStat.isDirectory() || process.platform !== "win32") {
+        await cp(source, target, {recursive: true});
+        return;
+    }
+    await mkdir(target, {recursive: true});
+    await runRobocopy(source, target);
+}
+
+/**
+ * 运行 robocopy。robocopy 的 0-7 都表示成功或完成复制，8+ 才是失败。
+ */
+async function runRobocopy(source, target) {
+    await new Promise((resolvePromise, rejectPromise) => {
+        const child = spawn("robocopy", [
+            source,
+            target,
+            "/MIR",
+            "/NFL",
+            "/NDL",
+            "/NJH",
+            "/NJS",
+            "/NP",
+        ], {
+            stdio: ["ignore", "ignore", "pipe"],
+            shell: false,
+            windowsHide: true,
+        });
+        let stderr = "";
+        child.stderr.on("data", (chunk) => {
+            stderr += chunk.toString();
+        });
+        child.on("error", rejectPromise);
+        child.on("close", (code) => {
+            if (code !== null && code <= 7) {
+                resolvePromise();
+                return;
+            }
+            rejectPromise(new Error(`robocopy failed with exit code ${code}: ${stderr.trim()}`));
+        });
+    });
 }
 
 async function listMjsFiles(root) {

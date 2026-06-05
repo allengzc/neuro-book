@@ -1,12 +1,13 @@
 import * as p from "@clack/prompts";
 import {spawn} from "node:child_process";
 import {createRequire} from "node:module";
-import {randomBytes} from "node:crypto";
+import {createHash, randomBytes} from "node:crypto";
 import {createServer} from "node:net";
 import {existsSync} from "node:fs";
-import {lstat, mkdir, readFile, readdir, realpath, rm, symlink, writeFile} from "node:fs/promises";
-import {dirname, join, resolve} from "node:path";
+import {cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, symlink, writeFile} from "node:fs/promises";
+import {basename, dirname, join, resolve} from "node:path";
 import {fileURLToPath, pathToFileURL} from "node:url";
+import {unzipSync} from "fflate";
 
 const DEFAULT_PORT = "3000";
 const PORTABLE_ROOT = process.env.NEURO_BOOK_PORTABLE_ROOT
@@ -21,6 +22,21 @@ const STATE_PATH = join(DEPLOY_DIR, "windows-launcher.json");
 const NODE_EXE = process.execPath;
 const SERVER_ENTRY = join(APP_DIR, ".output", "server", "index.mjs");
 const RELEASE_META = join(APP_DIR, "release-meta.json");
+const PORTABLE_RELEASE = join(PORTABLE_ROOT, "portable-release.json");
+const PACKAGE_ROOT_NAME = "neuro-book-windows-x64";
+const WINDOWS_ZIP_NAME = `${PACKAGE_ROOT_NAME}.zip`;
+const SHA256SUMS_NAME = "SHA256SUMS";
+const UPDATE_RELEASE_API = process.env.NEURO_BOOK_UPDATE_RELEASE_API
+    ?? "https://api.github.com/repos/notnotype/neuro-book/releases/latest";
+const LAUNCHER_ROOT_FILES = [
+    "Start Neuro Book.cmd",
+    "Start Neuro Book.ps1",
+    "Update Neuro Book.cmd",
+    "Update Neuro Book.ps1",
+    "Create Admin.cmd",
+    "Create Admin.ps1",
+    "README-Windows.md",
+];
 
 const COMMANDS = new Map([
     ["start", start],
@@ -57,16 +73,247 @@ async function start() {
 }
 
 /**
- * v1 先停止旧 git pull 更新路径，明确提示 Product Portable 的更新边界。
+ * 下载最新 Windows Product Portable，保留 data/ 并切换 Product Payload。
  */
 async function update() {
     await assertProductPayload();
-    await ensurePortableConfig();
+    await mkdir(DEPLOY_DIR, {recursive: true});
+    const currentRelease = await readPortableRelease();
+    const latestRelease = await fetchLatestRelease();
+    const zipAsset = releaseAsset(latestRelease, WINDOWS_ZIP_NAME);
+    const sumsAsset = releaseAsset(latestRelease, SHA256SUMS_NAME);
+
+    if (currentRelease?.releaseTag === latestRelease.tag_name && process.env.NEURO_BOOK_UPDATE_FORCE !== "1") {
+        p.note(`当前已是最新版本：${latestRelease.tag_name}`, "无需更新");
+        return;
+    }
+
     p.note([
-        "Windows Product Portable 不再通过 git pull 更新。",
-        "v1 请下载新版 neuro-book-windows-x64.zip，解压到新目录，保留旧目录的 data/ 后替换 app/。",
-        "后续版本会把下载、解压、切换 app/ 做成自动更新流程。",
-    ].join("\n"), "Product 更新方式");
+        `当前版本：${currentRelease?.releaseTag ?? "unknown"}`,
+        `最新版本：${latestRelease.tag_name}`,
+        "更新会替换 app/、launcher/、根启动脚本和 portable-release.json，并保留 data/。",
+        "内置 Node runtime 会保留当前版本，避免更新进程替换正在运行的 node.exe。",
+    ].join("\n"), "准备更新");
+    if (process.env.NEURO_BOOK_UPDATE_ASSUME_YES !== "1") {
+        const confirmed = await p.confirm({
+            message: "现在下载并切换到最新版本？",
+            initialValue: true,
+        });
+        if (p.isCancel(confirmed) || !confirmed) {
+            p.cancel("已取消更新。");
+            return;
+        }
+    }
+
+    const stagedRoot = await downloadAndStageUpdate(latestRelease, zipAsset, sumsAsset);
+    await applyPortableUpdate(stagedRoot, latestRelease.tag_name);
+    p.note("更新完成。请重新运行 Start Neuro Book.cmd 启动新版。", "Product 更新完成");
+}
+
+/**
+ * 读取当前 portable release metadata。
+ */
+async function readPortableRelease() {
+    if (!existsSync(PORTABLE_RELEASE)) {
+        return null;
+    }
+    return JSON.parse(await readFile(PORTABLE_RELEASE, "utf8"));
+}
+
+/**
+ * 查询 GitHub 最新 release。
+ */
+async function fetchLatestRelease() {
+    const response = await fetch(UPDATE_RELEASE_API, {
+        headers: {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "NeuroBook-Windows-Launcher",
+        },
+    });
+    if (!response.ok) {
+        throw new Error(`查询最新 release 失败：${UPDATE_RELEASE_API} ${response.status}`);
+    }
+    const release = await response.json();
+    if (!release?.tag_name || !Array.isArray(release.assets)) {
+        throw new Error("GitHub release 响应缺少 tag_name 或 assets。");
+    }
+    return release;
+}
+
+/**
+ * 从 release assets 中找到指定文件。
+ */
+function releaseAsset(release, name) {
+    const asset = release.assets.find((item) => item.name === name);
+    if (!asset?.browser_download_url) {
+        throw new Error(`最新 release ${release.tag_name} 缺少 asset：${name}`);
+    }
+    return asset;
+}
+
+/**
+ * 下载、校验并解压新版 Windows portable zip。
+ */
+async function downloadAndStageUpdate(release, zipAsset, sumsAsset) {
+    const safeTag = release.tag_name.replace(/[^a-zA-Z0-9._-]/gu, "_");
+    const updateRoot = join(DEPLOY_DIR, "updates", `${safeTag}-${Date.now()}`);
+    const downloadRoot = join(updateRoot, "downloads");
+    const extractRoot = join(updateRoot, "extract");
+    await rm(updateRoot, {recursive: true, force: true});
+    await mkdir(downloadRoot, {recursive: true});
+    await mkdir(extractRoot, {recursive: true});
+
+    p.log.info(`下载 ${zipAsset.name}`);
+    const [zipBuffer, sumsText] = await Promise.all([
+        downloadBuffer(zipAsset.browser_download_url),
+        downloadText(sumsAsset.browser_download_url),
+    ]);
+    const expectedHash = checksumFromSums(sumsText, zipAsset.name);
+    const actualHash = sha256(zipBuffer);
+    if (expectedHash !== actualHash) {
+        throw new Error(`更新包 SHA256 校验失败：expected ${expectedHash} actual ${actualHash}`);
+    }
+    await writeFile(join(downloadRoot, zipAsset.name), zipBuffer);
+    await writeFile(join(downloadRoot, sumsAsset.name), sumsText, "utf8");
+
+    p.log.info("解压更新包");
+    const entries = unzipSync(new Uint8Array(zipBuffer));
+    for (const [name, data] of Object.entries(entries)) {
+        if (name.endsWith("/")) {
+            continue;
+        }
+        const parts = name.split("/").filter(Boolean);
+        if (parts.length === 0 || parts.some((part) => part === "..")) {
+            continue;
+        }
+        const filePath = join(extractRoot, ...parts);
+        await mkdir(dirname(filePath), {recursive: true});
+        await writeFile(filePath, data);
+    }
+
+    const stagedRoot = await findStagedPortableRoot(extractRoot);
+    await assertStagedPortableRoot(stagedRoot);
+    await writeState({
+        stage: "update-staged",
+        updateTag: release.tag_name,
+        updateRoot,
+    });
+    return stagedRoot;
+}
+
+/**
+ * 定位 zip 解压后的 portable root。
+ */
+async function findStagedPortableRoot(extractRoot) {
+    const direct = join(extractRoot, PACKAGE_ROOT_NAME);
+    if (existsSync(join(direct, "portable-release.json"))) {
+        return direct;
+    }
+    const entries = await readdir(extractRoot, {withFileTypes: true});
+    for (const entry of entries) {
+        if (!entry.isDirectory()) {
+            continue;
+        }
+        const candidate = join(extractRoot, entry.name);
+        if (existsSync(join(candidate, "portable-release.json"))) {
+            return candidate;
+        }
+    }
+    throw new Error("更新包中未找到 portable-release.json。");
+}
+
+/**
+ * 校验 staged portable zip 结构。
+ */
+async function assertStagedPortableRoot(stagedRoot) {
+    const requiredFiles = [
+        join(stagedRoot, "app", ".output", "server", "index.mjs"),
+        join(stagedRoot, "app", "release-meta.json"),
+        join(stagedRoot, "launcher", "launcher.mjs"),
+        join(stagedRoot, "portable-release.json"),
+        ...LAUNCHER_ROOT_FILES.map((file) => join(stagedRoot, file)),
+    ];
+    for (const file of requiredFiles) {
+        if (!existsSync(file)) {
+            throw new Error(`更新包缺少文件：${file}`);
+        }
+    }
+}
+
+/**
+ * 切换到 staged Product Payload，并保留 data/。
+ */
+async function applyPortableUpdate(stagedRoot, releaseTag) {
+    const backupRoot = join(DEPLOY_DIR, "backups", `before-${releaseTag.replace(/[^a-zA-Z0-9._-]/gu, "_")}-${Date.now()}`);
+    const backups = [];
+    await mkdir(backupRoot, {recursive: true});
+
+    try {
+        await backupExisting(APP_DIR, join(backupRoot, "app"), backups);
+        await backupExisting(join(PORTABLE_ROOT, "launcher"), join(backupRoot, "launcher"), backups);
+        await backupExisting(PORTABLE_RELEASE, join(backupRoot, "portable-release.json"), backups);
+        for (const file of LAUNCHER_ROOT_FILES) {
+            await backupExisting(join(PORTABLE_ROOT, file), join(backupRoot, file), backups);
+        }
+
+        await rename(join(stagedRoot, "app"), APP_DIR);
+        await rename(join(stagedRoot, "launcher"), join(PORTABLE_ROOT, "launcher"));
+        for (const file of LAUNCHER_ROOT_FILES) {
+            await cp(join(stagedRoot, file), join(PORTABLE_ROOT, file));
+        }
+        await writeUpdatedPortableRelease(stagedRoot);
+        await writeState({
+            stage: "updated",
+            updateTag: releaseTag,
+            backupRoot,
+            runtimeUpdate: "preserved-running-runtime",
+        });
+    } catch (error) {
+        await rollbackUpdate(backups);
+        throw error;
+    }
+}
+
+/**
+ * 备份现有文件或目录。
+ */
+async function backupExisting(source, target, backups) {
+    if (!existsSync(source)) {
+        return;
+    }
+    await mkdir(dirname(target), {recursive: true});
+    await rename(source, target);
+    backups.push({source, target});
+}
+
+/**
+ * 更新 portable metadata。Node runtime 在进程内更新时保留旧版本。
+ */
+async function writeUpdatedPortableRelease(stagedRoot) {
+    const release = JSON.parse(await readFile(join(stagedRoot, "portable-release.json"), "utf8"));
+    const packagedNodeVersion = release.nodeVersion ?? null;
+    await writeFile(PORTABLE_RELEASE, `${JSON.stringify({
+        ...release,
+        packagedNodeVersion,
+        nodeVersion: process.version.replace(/^v/u, ""),
+        runtimeUpdate: {
+            mode: "preserved-running-runtime",
+            note: "Windows Launcher update keeps the currently running runtime/node directory.",
+        },
+    }, null, 4)}\n`, "utf8");
+}
+
+/**
+ * 更新失败时恢复旧文件。
+ */
+async function rollbackUpdate(backups) {
+    for (const item of backups.toReversed()) {
+        await rm(item.source, {recursive: true, force: true});
+        if (existsSync(item.target)) {
+            await rename(item.target, item.source);
+        }
+    }
+    await writeState({stage: "update-rolled-back"});
 }
 
 /**
@@ -332,6 +579,45 @@ function run(command, args, options = {}) {
             resolvePromise(stdout);
         });
     });
+}
+
+/**
+ * 下载二进制内容。
+ */
+async function downloadBuffer(url) {
+    const response = await fetch(url, {
+        headers: {
+            "User-Agent": "NeuroBook-Windows-Launcher",
+        },
+    });
+    if (!response.ok) {
+        throw new Error(`下载失败：${url} ${response.status}`);
+    }
+    return Buffer.from(await response.arrayBuffer());
+}
+
+/**
+ * 下载文本内容。
+ */
+async function downloadText(url) {
+    return (await downloadBuffer(url)).toString("utf8");
+}
+
+/**
+ * 从 SHA256SUMS 中读取指定 asset 的 hash。
+ */
+function checksumFromSums(text, assetName) {
+    for (const line of text.split(/\r?\n/u)) {
+        const parts = line.trim().split(/\s+/u);
+        if (parts.length >= 2 && basename(parts.at(-1)) === assetName) {
+            return parts[0].toLowerCase();
+        }
+    }
+    throw new Error(`SHA256SUMS 中缺少 ${assetName}`);
+}
+
+function sha256(buffer) {
+    return createHash("sha256").update(buffer).digest("hex");
 }
 
 /**

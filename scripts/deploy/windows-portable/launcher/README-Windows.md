@@ -8,7 +8,7 @@
 
 - `Start Neuro Book.cmd` / `Start Neuro Book.ps1`：启动本地服务。
 - `Create Admin.cmd` / `Create Admin.ps1`：后续创建或重置管理员。
-- `Update Neuro Book.cmd` / `Update Neuro Book.ps1`：显示 Product Portable 更新说明；自动下载和切换新版 `app/` 会在后续版本补齐。
+- `Update Neuro Book.cmd` / `Update Neuro Book.ps1`：检查 GitHub Release 最新 Windows 包，下载并校验 `neuro-book-windows-x64.zip`，保留 `data/` 后切换新版 `app/`、`launcher/` 和根启动脚本。
 
 目录边界：
 
@@ -17,4 +17,4 @@
 - `runtime/node/`：内置 Node.js runtime。
 - `launcher/`：Windows Launcher。
 
-升级前请备份 `data/`。v1 不再使用 `git pull` 更新。
+升级前建议备份 `data/`。更新不再使用 `git pull`；因为更新命令本身运行在内置 Node 上，自动更新会保留当前 `runtime/node/`，不会热替换正在运行的 `node.exe`。

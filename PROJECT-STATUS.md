@@ -8,6 +8,8 @@ neuro-book 当前处于快速开发阶段。项目主线正在从数据库中心
 
 `execute_sql` 已收敛为 Project SQLite-only 工具：不接受 SQLite 文件路径参数，不访问 App SQLite，只能在当前 Project Workspace 上下文中操作 `.nbook/project.sqlite`，继续允许受限 `SELECT` / `WITH` / `INSERT` / `UPDATE` / `DELETE`，并禁止 DDL、多语句、事务控制和危险 PRAGMA。
 
+部署最新补充：Windows Launcher 更新入口现在会下载 GitHub latest release 的 `neuro-book-windows-x64.zip` 和 `SHA256SUMS`，校验 SHA256，备份旧 `app/` / `launcher/` / root scripts 后切换新版并保留 `data/`；内置 `runtime/node/` 在自动更新中保留当前版本，避免替换正在运行的 `node.exe`。该流程已通过本地 fake-release smoke，覆盖下载、校验、备份、切换和 `data/.deploy/windows-launcher.json` 写入 `stage: "updated"`。
+
 模型 Provider 侧已把 `openai-compatible` 收敛为增强版 OpenAI 兼容 adapter，默认接收、标准化并回放 `reasoning_content`，覆盖 MiMo、DeepSeek 网关等 Agent thinking 场景；严格 OpenAI 官方接口使用 `openai-official`，避免把 provider extension 字段发给官方 OpenAI。
 
 本文档记录仓库级现状。每次重大任务完成后，需要同步更新本文档和对应 active `docs/tasks/<order>-<task-slug>/README.md` 或 archived `docs/tasks/archived/<task-slug>/README.md`。
