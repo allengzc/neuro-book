@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 import {randomBytes} from "node:crypto";
 import {spawn} from "node:child_process";
+import {createRequire} from "node:module";
 import {existsSync} from "node:fs";
 import {readFileSync, writeFileSync} from "node:fs";
 import {dirname, resolve} from "node:path";
-import {fileURLToPath} from "node:url";
+import {fileURLToPath, pathToFileURL} from "node:url";
 
 const productRoot = resolveProductRoot();
 const entry = resolve(productRoot, ".output", "server", "index.mjs");
 const productEnv = ensureProductEnv(productRoot);
+
+await prepareSystemAssets(productRoot, productEnv);
 
 const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], {
     cwd: productRoot,
@@ -20,6 +23,19 @@ const child = spawn(process.execPath, [entry, ...process.argv.slice(2)], {
     stdio: "inherit",
     windowsHide: false,
 });
+
+async function prepareSystemAssets(root, env) {
+    const requireFromProduct = createRequire(pathToFileURL(entry));
+    const tsxCli = requireFromProduct.resolve("tsx/cli");
+    await run(process.execPath, [tsxCli, resolve(root, ".output", "server", "scripts", "build", "prepare-system-assets.ts"), "--sync-user-assets"], {
+        cwd: root,
+        env: {
+            ...env,
+            ...process.env,
+            NODE_ENV: process.env.NODE_ENV || "production",
+        },
+    });
+}
 
 child.on("error", (error) => {
     console.error(error);
@@ -93,4 +109,27 @@ function writeEnv(path, values) {
     const lines = Object.entries(values)
         .map(([key, value]) => `${key}=${value}`);
     writeFileSync(path, `${lines.join("\n")}\n`, "utf8");
+}
+
+function run(command, args, options = {}) {
+    return new Promise((resolvePromise, rejectPromise) => {
+        const child = spawn(command, args, {
+            cwd: options.cwd,
+            env: options.env ?? process.env,
+            stdio: "inherit",
+            windowsHide: true,
+        });
+        child.on("error", rejectPromise);
+        child.on("exit", (code, signal) => {
+            if (signal) {
+                rejectPromise(new Error(`${command} 被信号中断：${signal}`));
+                return;
+            }
+            if (code !== 0) {
+                rejectPromise(new Error(`${command} 退出码：${code ?? 1}`));
+                return;
+            }
+            resolvePromise();
+        });
+    });
 }

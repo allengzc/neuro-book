@@ -120,9 +120,9 @@ export const DirectorOutputSchema = Type.Object({
 });
 
 /**
- * rp.actor 的实例初始化参数。每轮 GM packet 通过 invoke_agent.message 传入。
+ * simulator.actor 的实例初始化参数。每轮 GM packet 通过 invoke_agent.message 传入。
  */
-export const RpActorInputSchema = Type.Object({
+export const SubjectSimulatorInputSchema = Type.Object({
     actorId: Type.String({description: "本局 subject simulator id，必须与 simulation/cast.yaml 中的 subject id 对应。"}),
     actorName: Type.Optional(Type.String({description: "角色可读名。为空时使用 actorId。"})),
     kind: Type.Optional(Type.String({description: "actor 类型，例如 player、npc、faction、system。"})),
@@ -134,9 +134,9 @@ export const RpActorInputSchema = Type.Object({
 });
 
 /**
- * rp.actor 通过 report_result.data 返回的结构化角色反应。
+ * simulator.actor 通过 report_result.data 返回的结构化角色反应。
  */
-export const RpActorOutputSchema = Type.Object({
+export const SubjectSimulatorOutputSchema = Type.Object({
     visible_action: Type.String({description: "角色在场景中可被观察到的动作、神态、姿态或沉默；没有则填空字符串。"}),
     spoken_dialogue: Type.String({description: "角色明确说出口的台词；没有则填空字符串。"}),
     private_intent: Type.String({description: "只给 GM 使用的私下意图、判断或短期目标；没有则填空字符串。"}),

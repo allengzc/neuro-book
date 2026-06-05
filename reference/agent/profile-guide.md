@@ -27,7 +27,7 @@
 - `writer.profile.tsx`
 - `retrieval.profile.tsx`
 - `leader.rp.profile.tsx`
-- `rp.actor.profile.tsx`
+- `simulator.actor.profile.tsx`
 - `rp.writer.profile.tsx`
 
 ## Prepare Lifecycle

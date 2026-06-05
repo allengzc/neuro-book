@@ -67,6 +67,7 @@ async function start() {
     await ensurePortableConfig();
     const env = await loadDataEnv();
     await ensurePortAvailable(env);
+    await prepareSystemAssets();
     await migrate();
     await ensureAdminUser();
     await runServer(await loadDataEnv());
@@ -398,6 +399,17 @@ async function migrate() {
 }
 
 /**
+ * 启动前准备系统 assets，并同步到 portable data/workspace。
+ */
+async function prepareSystemAssets() {
+    await runProductTsScript("build/prepare-system-assets.ts", {
+        args: ["--sync-user-assets"],
+        stdio: "inherit",
+    });
+    await writeState({stage: "system-assets-prepared"});
+}
+
+/**
  * 首次没有用户时，引导创建管理员。
  */
 async function ensureAdminUser() {
@@ -417,7 +429,7 @@ async function runProductTsScript(relativeScript, options) {
     const requireFromProduct = createRequire(pathToFileURL(SERVER_ENTRY));
     const tsxCli = requireFromProduct.resolve("tsx/cli");
     const scriptPath = join(APP_DIR, ".output", "server", "scripts", relativeScript);
-    return run(NODE_EXE, [tsxCli, scriptPath], {
+    return run(NODE_EXE, [tsxCli, scriptPath, ...(options.args ?? [])], {
         cwd: APP_DIR,
         env: await productEnv(),
         stdio: options.stdio,

@@ -44,7 +44,7 @@ workspace/.nbook/agent/profiles/
 | `summarizer` | 后台生成 session title / summary。 |
 | `leader.assets` | 协助用户理解和维护 user-assets、profile、skill。 |
 | `leader.rp` | 世界模拟 / RP 的 simulator leader。 |
-| `rp.actor` | 单个 subject 的角色扮演 agent。 |
+| `simulator.actor` | 单个 subject 的角色扮演 agent。 |
 | `rp.writer` | RP 可见正文渲染。 |
 
 ## 继续阅读

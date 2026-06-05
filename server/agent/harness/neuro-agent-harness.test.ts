@@ -11,7 +11,7 @@ import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
-import rpActorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/rp.actor.profile";
+import simulatorActorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.actor.profile";
 import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {HistorySet, Message, ModelContext, ProfilePrompt, Reminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {AgentMessage, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
@@ -2211,12 +2211,12 @@ describe("NeuroAgentHarness", () => {
         expect(visibleMessageText(context.messages)).not.toContain("saved");
     });
 
-    it("rp.actor 会通过 context-load 注入 actor-safe 设定，并通过 memory-save 更新 knowledge/mind", async () => {
+    it("simulator.actor 会通过 context-load 注入 actor-safe 设定，并通过 memory-save 更新 knowledge/mind", async () => {
         const profiles = new AgentProfileCatalog(
             join(root, "missing-system-profiles"),
             join(root, "missing-user-profiles"),
         );
-        profiles.register(rpActorProfile, false);
+        profiles.register(simulatorActorProfile, false);
         const rpHarness = new NeuroAgentHarness({
             repo: harness.repo,
             profiles,
@@ -2328,7 +2328,7 @@ describe("NeuroAgentHarness", () => {
             ], {stopReason: "toolUse"}),
         ]);
         const created = await rpHarness.createAgent({
-            profileKey: "rp.actor",
+            profileKey: "simulator.actor",
             input: {
                 actorId: "heroine",
                 actorName: "绘璃奈",

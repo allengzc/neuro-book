@@ -25,9 +25,9 @@
   - `ingestTurn` 可以返回 runtime-only transcript，避免污染持久对话。
 - 当前 profile 的 `allowedToolKeys` 同时承担“模型可见工具”和“执行上限”两层含义。
 - roleplay 需求要求 actor 主上下文尽量纯净：
-  - `rp.actor` 主扮演阶段只做角色反应，不自行检索完整 lorebook。
-  - `rp.actor` 需要在 GM packet 后获得与本 Tick 相关、且角色可知的设定补充。
-  - `rp.actor` 需要在主 run 后更新自己的认知和心智文件，但不应该把这类维护任务混入扮演上下文。
+  - `simulator.actor` 主扮演阶段只做角色反应，不自行检索完整 lorebook。
+  - `simulator.actor` 需要在 GM packet 后获得与本 Tick 相关、且角色可知的设定补充。
+  - `simulator.actor` 需要在主 run 后更新自己的认知和心智文件，但不应该把这类维护任务混入扮演上下文。
 
 ## V1 Scope
 
@@ -101,7 +101,7 @@ sidecar 的关键约束：
 
 ```ts
 defineAgentProfile({
-    key: "rp.actor",
+    key: "simulator.actor",
     allowedToolKeys: ["read", "write", "edit", "report_result"],
     sidecars: [
         actorContextLoadPass,
@@ -341,7 +341,7 @@ V1 策略：
 ## TODO / Follow-ups
 
 - 实现主路 `report_result.data` 的 runtime 校验策略：当 profile 明确要求结构化输出但模型未给 `data`，由 runtime 决定提醒、失败或允许纯文本错误结果。
-- 将 `rp.actor` 接入 `actor.context-load` / `actor.memory-save`，并为 actor 文件路径、读写范围和提示词补 profile 级测试。
+- 将 `simulator.actor` 接入 `actor.context-load` / `actor.memory-save`，并为 actor 文件路径、读写范围和提示词补 profile 级测试。
 - 明确 sidecar 内部 transcript 是否需要单独 debug 可观测面；V1 只保证不污染主 history。
 - 后续设计工具违规消息清理：删除违规 assistant/toolResult + 注入 system reminder + continue run。
 - 后续再设计 `rp.writer` lorebook retrieval pass。

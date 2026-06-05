@@ -46,6 +46,7 @@ export type CompileProfileArtifactsOptions = {
     profileRoot: string;
     fileName?: string;
     rootLabel?: string;
+    skipFresh?: boolean;
 };
 
 export type CompileProfileArtifactsResult = {
@@ -75,19 +76,26 @@ export async function compileProfileArtifacts(options: CompileProfileArtifactsOp
     const targetFiles = options.fileName
         ? [resolveProfileFile(profileRoot, options.fileName)]
         : await findProfileFiles(profileRoot);
+    const manifestItems: ProfileArtifactManifestItem[] = [];
     const compiled: ProfileArtifactManifestItem[] = [];
 
     try {
         for (const file of targetFiles) {
+            const existingItem = existingManifest.profiles.find((item) => item.fileName === file.fileName);
+            if (options.skipFresh && existingItem && (await validateProfileArtifact(profileRoot, existingItem)).fresh) {
+                manifestItems.push(existingItem);
+                continue;
+            }
             const item = await compileProfileFile(profileRoot, buildCompiledDir, file);
+            manifestItems.push(item);
             compiled.push(item);
         }
 
         const nextProfiles = (fullCompile
-            ? compiled
+            ? manifestItems
             : [
-                ...existingManifest.profiles.filter((item) => !compiled.some((next) => next.fileName === item.fileName)),
-                ...compiled,
+                ...existingManifest.profiles.filter((item) => !manifestItems.some((next) => next.fileName === item.fileName)),
+                ...manifestItems,
             ]).sort((left, right) => left.fileName.localeCompare(right.fileName));
         const manifest: ProfileArtifactManifest = {
             compilerVersion: PROFILE_ARTIFACT_COMPILER_VERSION,
@@ -100,7 +108,7 @@ export async function compileProfileArtifacts(options: CompileProfileArtifactsOp
             await commitCompiledArtifacts(buildCompiledDir, compiledDir, manifest);
         } else {
             await mkdir(compiledDir, {recursive: true});
-            await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+            await writeJsonIfChanged(manifestPath, manifest);
             await pruneCompiledArtifacts(compiledDir, manifest);
         }
         return {
@@ -472,12 +480,18 @@ async function commitCompiledArtifacts(buildCompiledDir: string, compiledDir: st
             }
         }
     }
-    await writeFile(
-        join(compiledDir, PROFILE_COMPILED_MANIFEST_FILE),
-        `${JSON.stringify(manifest, null, 2)}\n`,
-        "utf8",
-    );
+    await writeJsonIfChanged(join(compiledDir, PROFILE_COMPILED_MANIFEST_FILE), manifest);
     await pruneCompiledArtifacts(compiledDir, manifest);
+}
+
+async function writeJsonIfChanged(filePath: string, value: unknown): Promise<void> {
+    const next = `${JSON.stringify(value, null, 2)}\n`;
+    const current = await readFile(filePath, "utf8").catch(() => null);
+    if (current === next) {
+        return;
+    }
+    await mkdir(dirname(filePath), {recursive: true});
+    await writeFile(filePath, next, "utf8");
 }
 
 async function pruneCompiledArtifacts(compiledDir: string, manifest: ProfileArtifactManifest): Promise<void> {

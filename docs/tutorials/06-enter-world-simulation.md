@@ -64,7 +64,7 @@ simulation/
 第一版 RP 主要由三类 profile 协作：
 
 - `leader.rp`：simulator leader，直接面向用户，负责 GM / 旁白 / 世界裁决。
-- `rp.actor`：角色扮演 agent，只看到自己应该知道的信息。
+- `simulator.actor`：角色扮演 agent，只看到自己应该知道的信息。
 - `rp.writer`：RP 文本渲染 agent，只把 simulator brief 写成用户可读 prose。
 
 用户也是故事中的一个扮演者。不同点在于，simulator leader 不直接以内部裁决文本和用户交流，而是通过 writer 输出最终文本。
@@ -107,7 +107,7 @@ state.md
 
 1. `leader.rp` 理解用户行动或开始请求。
 2. simulator leader 检查相关 subject、entity、lorebook 和当前状态。
-3. simulator leader 向需要反应的 `rp.actor` 发送 actor-facing message。
+3. simulator leader 向需要反应的 `simulator.actor` 发送 actor-facing message。
 4. actor 只按自己知道的信息回应。
 5. simulator leader 裁决剧情推进和世界变化。
 6. `rp.writer` 把裁决结果写成用户可见文本。

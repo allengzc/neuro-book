@@ -35,6 +35,7 @@ async function stageProduct() {
 
     await copyPath(".output", ".output");
     await copyPath("assets/workspace", "assets/workspace");
+    await cleanupProductGeneratedSourceArtifacts();
     await copyPath("AGENTS.md", "AGENTS.md");
     await copyPath("reference", "reference");
     await copyPath("docs", "docs");
@@ -49,7 +50,7 @@ async function stageProduct() {
     await writeProductEnv();
     await writeReleaseMeta(PRODUCT_ROOT);
     await copyNbookRuntimePackage();
-    await compileProductSystemProfiles();
+    await prepareProductSystemAssets();
     await assertProductTsxVendor();
 
     console.log(`Product runtime staged: ${relative(REPO_ROOT, PRODUCT_ROOT).replaceAll("\\", "/")}`);
@@ -100,6 +101,7 @@ async function copyRuntimeScripts() {
         "scripts/cli/sync-user-assets.ts",
         "scripts/deploy/product-start.mjs",
         "scripts/db",
+        "scripts/build/prepare-system-assets.ts",
         "scripts/build/profile.ts",
         "scripts/build/variable.ts",
     ];
@@ -112,6 +114,7 @@ async function copyRuntimeScripts() {
     await copyPath("scripts/cli/sync-user-assets.ts", ".output/server/scripts/cli/sync-user-assets.ts");
     await copyPath("scripts/deploy/product-start.mjs", ".output/server/scripts/deploy/product-start.mjs");
     await copyPath("scripts/db", ".output/server/scripts/db");
+    await copyPath("scripts/build/prepare-system-assets.ts", ".output/server/scripts/build/prepare-system-assets.ts");
     await copyPath("scripts/build/profile.ts", ".output/server/scripts/build/profile.ts");
     await copyPath("scripts/build/variable.ts", ".output/server/scripts/build/variable.ts");
     await copyPath("scripts/utils", ".output/server/scripts/utils");
@@ -164,6 +167,11 @@ async function writeProductWorkspaceScriptWrapper() {
 async function copyRuntimeSources() {
     await copyPath("server", "server");
     await copyPath("shared", "shared");
+    await rm(resolve(PRODUCT_ROOT, "server", "agent", "variables", "generated-profile-variable-types.d.ts"), {force: true});
+}
+
+async function cleanupProductGeneratedSourceArtifacts() {
+    await rm(resolve(PRODUCT_ROOT, "assets", "workspace", ".nbook", "agent", "profiles", ".system-profile-metadata.json"), {force: true});
 }
 
 /**
@@ -213,6 +221,7 @@ async function writeProductPackageJson() {
             start: "node .output/server/scripts/deploy/product-start.mjs",
             "auth:create-admin": "node .output/server/node_modules/tsx/dist/cli.mjs .output/server/scripts/cli/create-admin.ts",
             "migrate:deploy": "node .output/server/scripts/db/prisma-migrate.mjs --deploy",
+            "system-assets:prepare": "node .output/server/node_modules/tsx/dist/cli.mjs .output/server/scripts/build/prepare-system-assets.ts",
             "profile:check": "node .output/server/node_modules/tsx/dist/cli.mjs .output/server/scripts/build/profile.ts check",
             "profile:compile": "node .output/server/node_modules/tsx/dist/cli.mjs .output/server/scripts/build/profile.ts compile",
         },
@@ -276,11 +285,10 @@ async function copyNbookRuntimePackage() {
 }
 
 /**
- * 在 Product Root 内重新编译系统 profiles，确保 artifact 依赖绑定
- * `.output/server/node_modules`，而不是构建机源码根 node_modules。
+ * 在 Product Root 内准备系统 assets，确保 artifact 依赖绑定 Product Runtime。
  */
-async function compileProductSystemProfiles() {
-    await run("bun", [".output/server/scripts/build/profile.ts", "compile", "--all", "--system"], {
+async function prepareProductSystemAssets() {
+    await run("bun", [".output/server/scripts/build/prepare-system-assets.ts", "--force"], {
         cwd: PRODUCT_ROOT,
     });
 }

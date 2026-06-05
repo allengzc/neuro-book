@@ -161,14 +161,14 @@ simulation/
 | Profile | Role | Reads | Writes |
 | --- | --- | --- | --- |
 | `leader.rp` | 用户面对的 simulator leader / GM。理解用户输入、读取 simulation 根文件、调度 actor、裁决世界、维护 state/entity、构造 writer brief 并最终面向用户叙述。 | `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md`、`simulation/writer.md`，以及 `simulator.md` 授权的 god-view lorebook / reference。 | GM 裁决后可写 subject `state.md`、`simulation/entities/`、必要 `simulation/runs/` 和用户明确要求的 simulation 配置调整。 |
-| `rp.actor` | 单个 subject 的角色扮演 simulator。只基于 subject-facing 文件和 GM packet 输出角色反应。 | 创建 input 绑定的 `subject.md`、`events.md`、`knowledge.md`、`mind.md`、`state.md`；`actor.context-load` sidecar 可读取相关设定并过滤为 actor-safe context。 | 主扮演 run 不主动写文件；`actor.memory-save` sidecar 可维护 `events.md`、`knowledge.md` 与 `mind.md`。 |
+| `simulator.actor` | 单个 subject 的角色扮演 simulator。只基于 subject-facing 文件和 GM packet 输出角色反应。 | 创建 input 绑定的 `subject.md`、`events.md`、`knowledge.md`、`mind.md`、`state.md`；`actor.context-load` sidecar 可读取相关设定并过滤为 actor-safe context。 | 主扮演 run 不主动写文件；`actor.memory-save` sidecar 可维护 `events.md`、`knowledge.md` 与 `mind.md`。 |
 | `rp.writer` | Tick 正文渲染器。把 GM writer brief 写成用户可见正文。 | 创建 input 绑定的 `simulation/writer.md` 和 GM brief；只读取 GM 明确指定的额外路径。 | 普通 assistant 回复正文；只有 GM 明确指定输出路径时才写文件。 |
 
 `leader.rp` 不应该把完整 `simulation/`、`lorebook/` 或 `reference/` 交给 actor / writer。它必须把上帝视角内容过滤成 actor-facing message 或 writer brief。
 
-`cast.yaml` 到 `rp.actor` input 的字段映射固定为：`instruction -> instructionPath`、`events -> eventsPath`、`knowledge -> knowledgePath`、`mind -> mindPath`、`state -> statePath`。`cast.yaml` 中的 `simulation/...` 路径是 Project Workspace 相对路径；调用 agent 前要转换为 Agent cwd 可用路径。
+`cast.yaml` 到 `simulator.actor` input 的字段映射固定为：`instruction -> instructionPath`、`events -> eventsPath`、`knowledge -> knowledgePath`、`mind -> mindPath`、`state -> statePath`。`cast.yaml` 中的 `simulation/...` 路径是 Project Workspace 相对路径；调用 agent 前要转换为 Agent cwd 可用路径。
 
-`rp.actor` 创建 input 的稳定字段：
+`simulator.actor` 创建 input 的稳定字段：
 
 | Field | Meaning |
 | --- | --- |
@@ -181,7 +181,7 @@ simulation/
 | `mindPath` | `simulation/subjects/{id}/mind.md` 的 Agent cwd 相对路径。 |
 | `statePath` | `simulation/subjects/{id}/state.md` 的 Agent cwd 相对路径。 |
 
-`rp.actor` 主路通过 `report_result.data` 返回角色 response packet，核心字段是：
+`simulator.actor` 主路通过 `report_result.data` 返回角色 response packet，核心字段是：
 
 - `visible_action`
 - `spoken_dialogue`

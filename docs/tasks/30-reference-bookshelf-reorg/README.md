@@ -40,7 +40,7 @@
 - Split the old lorebook information-control document into `reference/content/directory-protocol.md` and `reference/content/information-control.md`; archived the old long version.
 - Added a new current `reference/plot/system.md` and `reference/plot/README.md`.
 - Audited the objective against current files and strengthened stable references that were still too thin:
-  - `reference/content/directory-protocol.md` now includes the stable `leader.rp` / `rp.actor` / `rp.writer` runtime profile contract and `simulation/runs/` boundary.
+  - `reference/content/directory-protocol.md` now includes the stable `leader.rp` / `simulator.actor` / `rp.writer` runtime profile contract and `simulation/runs/` boundary.
   - `reference/plot/system.md` now includes DTO fields, status values, `chapterPath` validation, scene ordering, structured ref URI rules and Agent consumption order.
   - Confirmed `docs/modules/agent/harness.md` no longer exists; the current harness reference lives in `reference/agent/harness.md`.
 - Cleaned legacy shallow docs that duplicated or contradicted the Reference Bookshelf:

@@ -28,7 +28,7 @@
   - `assets/workspace/.nbook/templates/project-directory-templates/simulation/**`
 - Builtin profile prompt：
   - `leader.default`
-  - 必要时微调 `leader.rp`、`rp.writer`、`rp.actor` 对 runs 产物的描述。
+  - 必要时微调 `leader.rp`、`rp.writer`、`simulator.actor` 对 runs 产物的描述。
 - 稳定 reference / task 同步：
   - `reference/agent/novel-writing-workflow.md`
   - `reference/content/directory-protocol.md`

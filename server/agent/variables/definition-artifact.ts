@@ -50,7 +50,7 @@ type DefinitionFileEntry = {
 /**
  * 编译变量 definition root，生成运行时 `.compiled` artifact。
  */
-export async function compileVariableDefinitions(options: {definitionRoot: string; rootLabel?: string}): Promise<VariableDefinitionManifest> {
+export async function compileVariableDefinitions(options: {definitionRoot: string; rootLabel?: string; skipFresh?: boolean}): Promise<VariableDefinitionManifest> {
     const definitionRoot = resolve(options.definitionRoot);
     const compiledDir = join(definitionRoot, VARIABLE_DEFINITION_COMPILED_DIR);
     const buildCompiledDir = resolve(process.cwd(), ".agent", "workspace", "variable-definition-build", randomUUID());
@@ -60,6 +60,11 @@ export async function compileVariableDefinitions(options: {definitionRoot: strin
     const definitions: VariableDefinitionManifestItem[] = [];
     try {
         for (const file of files) {
+            const existingItem = existingManifest.definitions.find((item) => item.fileName === file.fileName);
+            if (options.skipFresh && existingItem && (await validateVariableDefinitionArtifact(definitionRoot, existingItem)).fresh) {
+                definitions.push(existingItem);
+                continue;
+            }
             definitions.push(await compileDefinitionFile(definitionRoot, buildCompiledDir, file));
         }
         const nextDefinitions = definitions.sort((left, right) => left.fileName.localeCompare(right.fileName));
@@ -297,8 +302,18 @@ async function commitArtifacts(buildDir: string, compiledDir: string, manifest: 
             }
         }
     }
-    await writeFile(join(compiledDir, VARIABLE_DEFINITION_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    await writeJsonIfChanged(join(compiledDir, VARIABLE_DEFINITION_MANIFEST_FILE), manifest);
     await pruneArtifacts(compiledDir, manifest);
+}
+
+async function writeJsonIfChanged(filePath: string, value: unknown): Promise<void> {
+    const next = `${JSON.stringify(value, null, 2)}\n`;
+    const current = await readFile(filePath, "utf8").catch(() => null);
+    if (current === next) {
+        return;
+    }
+    await mkdir(dirname(filePath), {recursive: true});
+    await writeFile(filePath, next, "utf8");
 }
 
 async function pruneArtifacts(compiledDir: string, manifest: VariableDefinitionManifest): Promise<void> {

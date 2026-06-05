@@ -31,7 +31,7 @@
 - Plot System 当前稳定参考是 [reference/plot/system.md](../../../reference/plot/system.md)。
 - 普通 `writer` profile 当前是一章节一 agent，只写 `chapterPaths[0]` 对应章节，读取 Chapter Plot 和显式 `lorebookEntries`，不维护 `simulation/`。
 - `leader.default` 当前通过 `reference/agent/leader-default.md` 与 `reference/agent/neurobook-project-guide.md` 获得 Plot / Simulation / Writer 协作规则。
-- RP 侧现有 profiles 是 `leader.rp`、`rp.actor`、`rp.writer`；它们已经使用 `simulation/subjects`、`simulation/entities`、`simulation/runs` 口径。
+- RP 侧现有 profiles 是 `leader.rp`、`simulator.actor`、`rp.writer`；它们已经使用 `simulation/subjects`、`simulation/entities`、`simulation/runs` 口径。
 - 已新增独立 `simulator.leader` profile；写作模式和 RP 模式都可以把世界运行态、状态裁决和 subject 调度交给它。
 - 已新增独立 `director` profile；剧情结构、Thread / Scene / Plot 设计和 Plot System 落库交给它。
 - 第一轮角色分工已冻结：`leader.default` 退回用户助理 / 监工 / 路由器，世界运行态交给 `simulator.leader`，剧情结构交给 `director`。
@@ -185,12 +185,12 @@ RP 模式第一版：
 
 ### `simulator.actor`
 
-`simulator.actor` 是 `rp.actor` 的新目标名。第一版可以从 `rp.actor` 迁移而来，保留 context-load / memory-save sidecar，但需要修正信息控制口径。
+`simulator.actor` 是唯一 subject simulator profile。它保留 context-load / memory-save sidecar，并使用最新信息控制口径。
 
 调整点：
 
-- profile key 从 `rp.actor` 迁移到 `simulator.actor`；旧 `rp.actor` 可以先作为 legacy alias 或后续迁移项。
-- input schema 可以沿用 `RpActorInputSchema`，但命名上改为 subject simulator，而不是 RP-only actor。
+- profile key 使用 `simulator.actor`；旧 actor legacy profile 已删除，不再保留 alias。
+- input schema 使用 `SubjectSimulatorInputSchema`，命名上是 subject simulator，而不是 RP-only actor。
 - 主 run 继续不主动读写文件；subject 文件通过 profile context 自动注入。
 - context-load sidecar 负责读取和过滤 actor-safe context。
 - memory-save sidecar 维护 `events.md`、`knowledge.md`、`mind.md`。
@@ -495,7 +495,7 @@ Plot 是行动级节拍，不是五段式大纲。
 - `assets/workspace/.nbook/agent/profiles/builtin/writer.profile.tsx`
 - `assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile.tsx`
 - `assets/workspace/.nbook/agent/profiles/builtin/leader.rp.profile.tsx`
-- `assets/workspace/.nbook/agent/profiles/builtin/rp.actor.profile.tsx`
+- `assets/workspace/.nbook/agent/profiles/builtin/simulator.actor.profile.tsx`
 - `assets/workspace/.nbook/agent/profiles/builtin/rp.writer.profile.tsx`
 - `assets/workspace/.nbook/agent/skills/novel-workflow-05-emulation-bootstrap/SKILL.md`
 - `assets/workspace/.nbook/agent/skills/novel-workflow-06-emulation-tick/SKILL.md`
@@ -508,7 +508,7 @@ Plot 是行动级节拍，不是五段式大纲。
 
 Resolved mismatch:
 
-- `rp.actor` prompt 已修正：`knowledge.md` 不应新增可直接展开的 lorebook Markdown link；需要来源时使用经过 GM / sidecar 过滤的 subject-facing 摘要，内部 source ref 交给 simulator leader / sidecar 管理。
+- `simulator.actor` prompt 已修正：`knowledge.md` 不应新增可直接展开的 lorebook Markdown link；需要来源时使用经过 GM / sidecar 过滤的 subject-facing 摘要，内部 source ref 交给 simulator leader / sidecar 管理。
 
 ## Implementation V1
 
@@ -519,7 +519,7 @@ Resolved mismatch:
 - `leader.default` 的工具白名单已包含 `create_story_plots`，并通过 reference 文档学习 simulator / director 协作边界。
 - 新增 `simulator.leader` builtin profile：负责 simulation 裁决、subject 调度、state commit 建议、writer-safe brief、director handoff 和 plot handoff；第一版不开放 Plot 写入工具。
 - 新增 `director` builtin profile：负责 Thread / Scene / Plot 设计和落库，允许 Plot 读写工具和 `create_story_plots`，不开放 `write` / `edit` / `apply_patch` / `bash`。
-- `rp.actor` 已抽出 `createSubjectSimulatorProfile()`，新增 `simulator.actor` 作为新目标 key，旧 `rp.actor` 继续保留 legacy。
+- subject simulator 共享实现已抽到 `subject-simulator-profile.tsx`，`simulator.actor` 是唯一运行 profile；旧 actor legacy profile 已删除。
 - 写作 workflow skills `05` / `06` / `08` / `09` 已更新到 `simulator.leader` / `director` / `simulation/` 口径。
 - `reference/agent/leader-default.md`、`reference/agent/neurobook-project-guide.md`、`reference/agent/novel-writing-workflow.md` 已同步新职责边界。
 - system builtin profiles 已全量重新编译，并重新生成 `.system-profile-metadata.json`。
@@ -528,8 +528,8 @@ Resolved mismatch:
 
 - `simulator.leader` 第一版需要 `write` / `edit` / `apply_patch` 维护 simulation state，但当前工具没有 profile 内路径 scope；只能先靠提示词边界限制写入 `simulation/subjects/*/state.md`、`simulation/entities/**`、`simulation/runs/**`。后续如果 Harness 支持工具路径 scope，应把它变成 runtime 级约束。
 - `director` 第一版不直接调用 `writer`，避免职责扩大；如果后续要做全自动章节生产链，需要重新讨论 director -> writer 的直接调用边界。
-- `simulator.actor` 已作为新目标 key 落地，但旧 `rp.actor` 仍保留 legacy；后续需要决定 `leader.rp` 何时切换到 `simulator.actor`。
-- `rp.actor` / `simulator.actor` 已禁止在 `knowledge.md` 新增可直接展开的 lorebook Markdown link；后续如果需要保留 source ref，需要设计内部 source ref 的稳定格式。
+- `simulator.actor` 已作为唯一 subject simulator profile 落地，`leader.rp` 与 `simulator.leader` 均调度该 profile。
+- `simulator.actor` 已禁止在 `knowledge.md` 新增可直接展开的 lorebook Markdown link；后续如果需要保留 source ref，需要设计内部 source ref 的稳定格式。
 - `create_story_plots` V1 只支持同一 Scene 追加；如果 director 后续需要整场重写、局部插入或批量精修，还需要讨论 `replace_scene_plots` / `update_story_plots`。
 - Plot System Agent Spec 已迁移到 `reference/plot/agent-spec.md`；后续风险是实际写作时摘要密度和 Plot 数量可能需要继续调参。
 - 写作 workflow skill 文件名仍保留 `novel-workflow-05-emulation-bootstrap` / `06-emulation-tick` 旧名；正文口径已统一到 `simulation` / `simulator`，是否改文件名留到后续迁移。
@@ -541,7 +541,7 @@ Resolved mismatch:
 - 普通 `writer` 继续不维护 `simulation/`。
 - `director` 负责剧情结构和 Plot System，`simulator` 负责世界状态与因果推演，两者需要分工。
 - `leader.default` 是用户助理、监工和路由器，避免继续承担长期 simulation、Plot 设计和正式正文写作。
-- 新 simulator profile 命名优先采用 `simulator.leader`，并把 `rp.actor` 的新目标名定为 `simulator.actor`。
+- 新 simulator profile 命名优先采用 `simulator.leader`，subject simulator 使用 `simulator.actor`。
 - `rp.writer` 第一阶段保留 legacy 名称和职责，暂不并入普通 `writer`。
 - `retrieval` 继续保持上下文检索员定位，后续评估增强 Plot 读取与文件读取能力。
 - Plot 粒度标准第一版按 Scene 类型给出推荐数量和 warning threshold，不做数据库硬校验；重点约束 Plot 必须是可写行动 / 信息交换 / 转折 / 后果。
@@ -571,7 +571,7 @@ Resolved mismatch:
 - `server/agent/profiles/builtin-contracts.ts`
 - `assets/workspace/.nbook/agent/profiles/builtin/simulator.leader.profile.tsx`
 - `assets/workspace/.nbook/agent/profiles/builtin/director.profile.tsx`
-- `assets/workspace/.nbook/agent/profiles/builtin/rp.actor.profile.tsx`
+- `assets/workspace/.nbook/agent/profiles/builtin/subject-simulator-profile.tsx`
 - `assets/workspace/.nbook/agent/profiles/builtin/simulator.actor.profile.tsx`
 - `assets/workspace/.nbook/agent/profiles/builtin/leader.rp.profile.tsx`
 - `assets/workspace/.nbook/agent/profiles/.compiled/*`
@@ -588,7 +588,7 @@ Resolved mismatch:
 - 已阅读 `reference/content/directory-protocol.md`。
 - 已阅读 `reference/agent/novel-writing-workflow.md`。
 - 已阅读 `reference/plot/system.md`。
-- 已检查 `leader.default`、`leader.rp`、`rp.actor`、`rp.writer`、`writer` profile 的当前提示词入口。
+- 已检查 `leader.default`、`leader.rp`、`simulator.actor`、`rp.writer`、`writer` profile 的当前提示词入口。
 - 实现前已检查 `server/agent/tools/plot-tools.ts`，确认 agent-facing Plot 工具缺少批量创建能力；本轮随后补齐 `create_story_plots`。
 - 已在 `PROJECT-STATUS.md` Recent Tasks 中登记本 task。
 - 已冻结第一版角色分工：`leader.default` / `simulator.leader` / `simulator.actor` / `director` / `writer` / `rp.writer` / `retrieval`。
@@ -617,7 +617,6 @@ Resolved mismatch:
 ## TODO / Follow-ups
 
 - 用真实写作任务 spike `leader.default -> simulator.leader -> director -> writer` 链路，观察 handoff 字段是否足够。
-- 决定 `leader.rp` 何时从 legacy `rp.actor` 切到 `simulator.actor`。
 - 继续讨论 `replace_scene_plots` / `update_story_plots` 是否需要进入第二版工具。
 - 后续 Harness 如果支持 profile 工具路径 scope，应把 `simulator.leader` 的 simulation 写入边界从提示词约束升级为 runtime 约束。
 - 评估 `retrieval` 是否需要读取 Plot / 文件工具，以支持更强的剧情上下文检索。

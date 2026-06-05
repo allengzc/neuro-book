@@ -3,7 +3,7 @@ name: RP模式
 description: 用于用户想进入 NeuroBook RP/simulation 模式、启动 leader.rp、理解 simulator leader / subject simulator / rp.writer Tick 流程，或让当前 session 临时按 RP 协议工作。
 when_to_use:
   - 用户说进入 RP、开始 roleplay、跑角色扮演、用 GM 带剧情、和角色互动
-  - 用户询问 leader.rp、rp.actor、rp.writer、simulation、subject knowledge 或 RP 模式怎么用
+  - 用户询问 leader.rp、simulator.actor、rp.writer、simulation、subject knowledge 或 RP 模式怎么用
 ---
 
 # RP模式
@@ -21,13 +21,13 @@ when_to_use:
 
 先询问用户选择入口：
 
-1. 新建或切换到 `leader.rp` 会话，由它作为 simulator leader 调度 `rp.actor` 和 `rp.writer`。
+1. 新建或切换到 `leader.rp` 会话，由它作为 simulator leader 调度 `simulator.actor` 和 `rp.writer`。
 2. 就地让当前 session 按 RP/simulation 协议工作。第一版只通过 prompt/skill 约束当前 session，不修改 session `profileKey`。
 
 ## leader.rp 流程
 
 1. 读取 `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md` 和 `simulation/writer.md`。
-2. 根据 `cast.yaml` 创建或复用 `rp.actor` 会话；每个 subject 只注入自己的 `subject.md`、`events.md`、`knowledge.md`、`mind.md` 与 `state.md`。
+2. 根据 `cast.yaml` 创建或复用 `simulator.actor` 会话；每个 subject 只注入自己的 `subject.md`、`events.md`、`knowledge.md`、`mind.md` 与 `state.md`。
 3. 创建或复用 `rp.writer`，只给它 `simulation/writer.md` 与 simulator leader brief。
 4. 用户发送第一条行动、台词或剧本式指令后，进入 Tick。
 
@@ -37,10 +37,10 @@ when_to_use:
 
 1. simulator leader 理解用户输入，把用户当作故事内 player subject 的操作者。
 2. simulator leader 验证行动合理性，必要时读取 lorebook、reference 和 simulation 配置。
-3. simulator leader 给相关 `rp.actor` 发送过滤后的 subject-facing message，不泄露上帝视角秘密。
+3. simulator leader 给相关 `simulator.actor` 发送过滤后的 subject-facing message，不泄露上帝视角秘密。
 4. subject simulator 返回结构化 response packet。
 5. simulator leader 做世界裁决、剧情推进和信息边界整理。
-6. `rp.actor` 的旁路维护自己的 `events.md`、`knowledge.md` 与 `mind.md`。
+6. `simulator.actor` 的旁路维护自己的 `events.md`、`knowledge.md` 与 `mind.md`。
 7. simulator leader 裁决并写入 subject `state.md` 与必要的 `simulation/entities/*`。
 8. simulator leader 构造 writer brief，调用 `rp.writer`。
 9. 最终只把用户可见正文和必要的简短 GM 提示返回给用户。
@@ -50,8 +50,8 @@ when_to_use:
 ## 边界
 
 - `leader.rp` 是 simulator leader，可在 GM 裁决后写入 subject `state.md`、`simulation/entities/*` 和必要的 `simulation/runs/*`。
-- `rp.actor` 是 subject simulator；主扮演阶段不读取完整 `simulation/`、`lorebook/`、`reference/` 或其他 subject 文件。
-- `rp.actor` 的旁路可以维护自己的 `events.md`、`knowledge.md` 与 `mind.md`；`state.md` 与 `entities` 由 simulator leader 裁决。
+- `simulator.actor` 是 subject simulator；主扮演阶段不读取完整 `simulation/`、`lorebook/`、`reference/` 或其他 subject 文件。
+- `simulator.actor` 的旁路可以维护自己的 `events.md`、`knowledge.md` 与 `mind.md`；`state.md` 与 `entities` 由 simulator leader 裁决。
 - `rp.writer` 只消费 `simulation/writer.md` 和 simulator leader brief，不自主遍历 `simulation/` 或 lorebook。
 - 第一版不做持久化 session 记忆，不实现完整变量系统。
 

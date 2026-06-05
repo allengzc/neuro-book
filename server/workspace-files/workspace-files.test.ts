@@ -4,7 +4,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import {promisify} from "node:util";
 import YAML from "yaml";
-import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {afterEach, beforeAll, beforeEach, describe, expect, it, vi} from "vitest";
+import {compileProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
+import {compileVariableDefinitions} from "nbook/server/agent/variables/definition-artifact";
 import {createWorkspaceContentFrontmatterDefaults, workspaceContentJsonSchema} from "nbook/server/workspace-files/content-node-schema";
 import {renderWorkspaceContentTemplate, renderWorkspaceContentTemplateBundle, renderWorkspaceStateTemplate} from "nbook/server/workspace-files/content-node-templates";
 import {copyNovelDirectoryTemplate, readUserAssetsSyncConflictDetail, resolveWorkspaceRootInput, syncSystemAssetsToUserAssets, USER_ASSETS_WORKSPACE_ROOT} from "nbook/server/workspace-files/novel-workspace";
@@ -19,6 +21,19 @@ const execFileAsync = promisify(execFile);
 
 describe("workspace-files", () => {
     let root: string;
+
+    beforeAll(async () => {
+        await compileVariableDefinitions({
+            definitionRoot: path.join("assets", "workspace", ".nbook", "agent", "variables"),
+            rootLabel: "assets/workspace/.nbook/agent/variables",
+            skipFresh: true,
+        });
+        await compileProfileArtifacts({
+            profileRoot: path.join("assets", "workspace", ".nbook", "agent", "profiles"),
+            rootLabel: "assets/workspace/.nbook/agent/profiles",
+            skipFresh: true,
+        });
+    });
 
     beforeEach(async () => {
         root = path.join(".agent", "workspace-files-test", randomUUID());
@@ -1045,7 +1060,7 @@ describe("workspace-files", () => {
         const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
         const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
         const userCompiledManifestPath = path.join("workspace", ".nbook", "agent", "profiles", ".compiled", "manifest.json");
-        const userSyncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const userSyncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
         const staleArtifactPath = path.join("workspace", ".nbook", "agent", "profiles", ".compiled", "old-hash-artifact.mjs");
         const staleTypePath = path.join("workspace", ".nbook", "agent", "profiles", ".compiled", "old-hash-artifact.types.d.ts");
         const backup = await backupOptionalFile(userProfilePath);
@@ -1090,7 +1105,7 @@ describe("workspace-files", () => {
         const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
         const userCompiledRoot = path.join("workspace", ".nbook", "agent", "profiles", ".compiled");
         const userCompiledManifestPath = path.join(userCompiledRoot, "manifest.json");
-        const userSyncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const userSyncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
         const backup = await backupOptionalFile(userProfilePath);
         const manifestBackup = await backupOptionalFile(userCompiledManifestPath);
         const syncStateBackup = await backupOptionalFile(userSyncStatePath);
@@ -1121,7 +1136,7 @@ describe("workspace-files", () => {
         const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", "builtin", "leader.default.profile.tsx");
         const userCompiledRoot = path.join("workspace", ".nbook", "agent", "profiles", ".compiled");
         const userCompiledManifestPath = path.join(userCompiledRoot, "manifest.json");
-        const userSyncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const userSyncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
         const backup = await backupOptionalFile(userProfilePath);
         const manifestBackup = await backupOptionalFile(userCompiledManifestPath);
         const syncStateBackup = await backupOptionalFile(userSyncStatePath);
@@ -1153,7 +1168,7 @@ describe("workspace-files", () => {
         const fileName = "builtin/leader.default.profile.tsx";
         const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
         const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
-        const userSyncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const userSyncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
         const backup = await backupOptionalFile(userProfilePath);
         const syncStateBackup = await backupOptionalFile(userSyncStatePath);
         const syncedContent = await fs.readFile(systemProfilePath, "utf-8");
@@ -1189,7 +1204,7 @@ describe("workspace-files", () => {
         const fileName = "builtin/leader.default.profile.tsx";
         const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
         const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
-        const userSyncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const userSyncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
         const backup = await backupOptionalFile(userProfilePath);
         const syncStateBackup = await backupOptionalFile(userSyncStatePath);
 
@@ -1275,7 +1290,7 @@ describe("workspace-files", () => {
         const assetPath = "agent/variables/definitions.ts";
         const userVariablePath = path.join("workspace", ".nbook", ...assetPath.split("/"));
         const systemVariablePath = path.join("assets", "workspace", ".nbook", ...assetPath.split("/"));
-        const syncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const syncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
         const variableBackup = await backupOptionalFile(userVariablePath);
         const syncStateBackup = await backupOptionalFile(syncStatePath);
 
@@ -1326,7 +1341,7 @@ describe("workspace-files", () => {
 
     it("同步系统 assets 会补齐 writing presets 并记录同步状态", async () => {
         const userPresetPath = path.join("workspace", ".nbook", "agent", "writing-presets", "styles", "reborn-villain-loli-magic-girl.first-three-chapters.style.md");
-        const userSyncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const userSyncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
         const backup = await backupOptionalFile(userPresetPath);
         const syncStateBackup = await backupOptionalFile(userSyncStatePath);
         await fs.rm(userPresetPath, {force: true});
@@ -1359,7 +1374,7 @@ describe("workspace-files", () => {
             "console.log('user-script-preserved');\n",
         ];
         const backups = await Promise.all(paths.map((filePath) => backupOptionalFile(filePath)));
-        const syncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const syncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
         const syncStateBackup = await backupOptionalFile(syncStatePath);
 
         try {
@@ -1390,7 +1405,7 @@ describe("workspace-files", () => {
 
     it("同步系统 assets 会更新仍跟随上游的 Agent runtime script", async () => {
         const userScriptPath = path.join("workspace", ".nbook", "agent", "scripts", "workspace.ts");
-        const syncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const syncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
         const scriptBackup = await backupOptionalFile(userScriptPath);
         const syncStateBackup = await backupOptionalFile(syncStatePath);
         const previousScript = "console.log('old runtime script');\n";
@@ -1433,7 +1448,7 @@ describe("workspace-files", () => {
             path.join("workspace", ".nbook", "agent", "bin", "profile"),
             path.join("workspace", ".nbook", "agent", "config", "ripgreprc"),
         ];
-        const syncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const syncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
         const backups = await Promise.all(paths.map((filePath) => backupOptionalFile(filePath)));
         const syncStateBackup = await backupOptionalFile(syncStatePath);
         await Promise.all(paths.map((filePath) => fs.rm(filePath, {force: true})));
@@ -1467,7 +1482,7 @@ describe("workspace-files", () => {
         const assetPath = "agent/skills/profile-system-guide/SKILL.md";
         const userSkillPath = path.join("workspace", ".nbook", ...assetPath.split("/"));
         const systemSkillPath = path.join("assets", "workspace", ".nbook", ...assetPath.split("/"));
-        const syncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const syncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
         const skillBackup = await backupOptionalFile(userSkillPath);
         const syncStateBackup = await backupOptionalFile(syncStatePath);
         const previousSkill = "# Old skill\n";
@@ -1500,7 +1515,7 @@ describe("workspace-files", () => {
         const assetPath = "agent/skills/profile-system-guide/SKILL.md";
         const userSkillPath = path.join("workspace", ".nbook", ...assetPath.split("/"));
         const systemSkillPath = path.join("assets", "workspace", ".nbook", ...assetPath.split("/"));
-        const syncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const syncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
         const skillBackup = await backupOptionalFile(userSkillPath);
         const syncStateBackup = await backupOptionalFile(syncStatePath);
         const systemContent = await fs.readFile(systemSkillPath, "utf-8");
@@ -1543,7 +1558,7 @@ describe("workspace-files", () => {
             path.join("workspace", ".nbook", "agent", "variables", ".compiled", "manifest.json"),
             path.join("workspace", ".nbook", "agent", "profiles", ".system-profile-metadata.json"),
         ];
-        const syncStatePath = path.join("workspace", ".nbook", "agent", "profiles", ".profile-sync-state.json");
+        const syncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
         const backups = await Promise.all(paths.map((filePath) => backupOptionalFile(filePath)));
         const syncStateBackup = await backupOptionalFile(syncStatePath);
         await Promise.all(paths.map((filePath) => fs.rm(filePath, {force: true})));
@@ -1812,18 +1827,6 @@ describe("workspace-files", () => {
         }
         await fs.mkdir(path.dirname(filePath), {recursive: true});
         await fs.writeFile(filePath, content, "utf-8");
-    }
-
-    /**
-     * 读取当前 Git HEAD 中的文件内容，用来模拟旧系统同步副本。
-     */
-    async function readGitHeadFile(filePath: string): Promise<string> {
-        const {stdout} = await execFileAsync("git", ["show", `HEAD:${filePath}`], {
-            cwd: process.cwd(),
-            encoding: "utf-8",
-            maxBuffer: 10 * 1024 * 1024,
-        });
-        return stdout;
     }
 
     /**

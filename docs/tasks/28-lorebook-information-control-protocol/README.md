@@ -57,7 +57,7 @@
 - 评估是否需要旧 `roleplay/actors/{actor-id}/` 到 `simulation/subjects/{subject-id}/` 的迁移工具。
 - 新增 `simulation/entities/{entity-id}/` 模板，用于有状态物品、地点、机关和事件进程。
 - 更新 `project-directory-templates`，继续让 `cast.yaml` 引用 `simulation/subjects/{subject-id}/...` 和 `simulation/entities/{entity-id}/...`。
-- 继续复核 `leader.rp`、`rp.actor`、`rp.writer` 和相关 skill 文档中的 simulation / subject / entity 路径合同。
+- 继续复核 `leader.rp`、`simulator.actor`、`rp.writer` 和相关 skill 文档中的 simulation / subject / entity 路径合同。
 - 更新 SillyTavern 导入映射：`event -> lorebook/event`，`system -> lorebook/system`，世界规则进入 `world/rule`，种族/组织/生物按项目目录策略进入默认子目录或提升目录。
 - 后续逐步迁出 lorebook 同级 `state.md`，并复核 writer 读取同级 `state.md` 的合同。
 - 设计 prototype / subject / entity / event relation 的最小 schema。

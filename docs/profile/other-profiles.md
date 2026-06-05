@@ -27,10 +27,10 @@ researcher 通常返回普通 Markdown 结果和来源链接，不使用 `report
 RP / 世界模拟主要使用：
 
 - `leader.rp`：simulator leader。
-- `rp.actor`：subject simulator，只处理 actor-facing message。
+- `simulator.actor`：subject simulator，只处理 actor-facing message。
 - `rp.writer`：RP prose renderer。
 
-`rp.actor` 已接入 sidecar，用于主 run 前加载 actor-safe context、主 run 后维护记忆文件。
+`simulator.actor` 已接入 sidecar，用于主 run 前加载 actor-safe context、主 run 后维护记忆文件。
 
 ## 继续阅读
 

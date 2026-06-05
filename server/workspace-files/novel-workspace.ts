@@ -1,8 +1,6 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import {execFile} from "node:child_process";
-import {promisify} from "node:util";
 import {createHash, randomUUID} from "node:crypto";
 import {readProfileArtifactManifest, rehomeProfileArtifactItem, validateProfileArtifact, type ProfileArtifactManifestItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {readVariableDefinitionManifest, validateVariableDefinitionArtifact, type VariableDefinitionManifestItem} from "nbook/server/agent/variables/definition-artifact";
@@ -32,14 +30,12 @@ const USER_NBOOK_ABSOLUTE_ROOT = resolveUserNbookRoot();
 const USER_PROFILE_ROOT = path.join(USER_NBOOK_ABSOLUTE_ROOT, "agent", "profiles");
 const SYSTEM_VARIABLE_DEFINITION_ROOT = path.join(SYSTEM_NBOOK_ROOT, "agent", "variables");
 const USER_VARIABLE_DEFINITION_ROOT = path.join(USER_NBOOK_ABSOLUTE_ROOT, "agent", "variables");
-const SYSTEM_PROFILE_METADATA_PATH = path.join(SYSTEM_PROFILE_ROOT, ".system-profile-metadata.json");
-const USER_PROFILE_SYNC_STATE_PATH = path.join(USER_PROFILE_ROOT, ".profile-sync-state.json");
+const USER_SYSTEM_ASSETS_SYNC_STATE_PATH = path.join(USER_NBOOK_ABSOLUTE_ROOT, ".system-assets-sync-state.json");
 const PROJECT_DIRECTORY_TEMPLATE_ROOT = path.join(SYSTEM_NBOOK_ROOT, "templates", "project-directory-templates");
 const USER_PROJECT_DIRECTORY_TEMPLATE_ROOT = path.join(USER_NBOOK_ABSOLUTE_ROOT, "templates", "project-directory-templates");
 const PROJECT_MANIFEST_FILE = "project.yaml";
 const LEGACY_WORKSPACE_MANIFEST_FILE = "workspace.yaml";
 const USER_ASSETS_DIFF_MAX_BYTES = 512 * 1024;
-const execFileAsync = promisify(execFile);
 
 export type WorkspaceRootKind = "novel" | typeof USER_ASSETS_WORKSPACE_KIND;
 export type UserAssetsSyncResult = UserAssetsSyncResultDto;
@@ -59,7 +55,7 @@ export type SystemProfileMetadataItem = {
     bytes: number;
 };
 
-type UserProfileSyncState = {
+type UserSystemAssetsSyncState = {
     profiles: UserProfileSyncStateItem[];
     assets?: UserAssetSyncStateItem[];
 };
@@ -161,12 +157,11 @@ export async function ensureUserAssetsWorkspaceRoot(): Promise<string> {
  */
 export async function syncSystemAssetsToUserAssets(): Promise<UserAssetsSyncResult> {
     await ensureUserAssetsWorkspaceRoot();
-    const nbookTargetRoot = USER_NBOOK_ABSOLUTE_ROOT;
     const result: UserAssetsSyncResult = {copied: 0, skipped: 0, updatedProfiles: 0, profileWarnings: [], updatedAssets: 0, assetWarnings: []};
     if (await isDirectory(SYSTEM_NBOOK_ROOT)) {
         await syncManagedSystemAssetsToUserAssets(result);
     }
-    await syncSystemProfilesToUserAssets(result, nbookTargetRoot);
+    await syncSystemProfilesToUserAssets(result);
     await syncSystemVariableDefinitionsToUserAssets(result);
     return result;
 }
@@ -186,7 +181,7 @@ export async function readUserAssetsSyncConflictDetail(input: {
         if (!item) {
             throw new Error(`未找到系统 profile metadata: ${fileName}`);
         }
-        const syncState = await readUserProfileSyncState();
+        const syncState = await readUserSystemAssetsSyncState();
         const stateItem = syncState.profiles.find((profile) => profile.fileName === fileName);
         const systemPath = resolveInsideRoot(SYSTEM_PROFILE_ROOT, fileName);
         const userPath = resolveInsideRoot(USER_PROFILE_ROOT, fileName);
@@ -217,7 +212,7 @@ export async function readUserAssetsSyncConflictDetail(input: {
         throw new Error("assetPath 不能为空或包含非法片段");
     }
     await assertReadableUserAssetsSyncAssetPath(assetPath);
-    const syncState = await readUserProfileSyncState();
+    const syncState = await readUserSystemAssetsSyncState();
     const stateItem = findUserAssetSyncState(syncState, assetPath);
     const roots = resolveUserAssetConflictRoots(assetPath);
     const [systemFile, userFile] = await Promise.all([
@@ -246,18 +241,17 @@ export async function readUserAssetsSyncConflictDetail(input: {
  * 读取系统 profile metadata。不存在时返回空 metadata，兼容开发期首次生成前的状态。
  */
 export async function readSystemProfileMetadata(): Promise<SystemProfileMetadata> {
-    try {
-        return JSON.parse(await fs.readFile(SYSTEM_PROFILE_METADATA_PATH, "utf-8")) as SystemProfileMetadata;
-    } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-            return {
-                generatedAt: new Date(0).toISOString(),
-                profilesRoot: "assets/workspace/.nbook/agent/profiles",
-                profiles: [],
-            };
-        }
-        throw error;
-    }
+    const manifest = await readProfileArtifactManifest(SYSTEM_PROFILE_ROOT);
+    return {
+        generatedAt: manifest.generatedAt,
+        profilesRoot: manifest.profilesRoot,
+        profiles: manifest.profiles.map((profile) => ({
+            fileName: profile.fileName,
+            profileKey: profile.profileKey,
+            sha256: profile.sourceSha256,
+            bytes: profile.sourceBytes,
+        })).sort((left, right) => left.fileName.localeCompare(right.fileName)),
+    };
 }
 
 /**
@@ -325,7 +319,7 @@ async function normalizeNovelDirectoryTemplateArtifacts(templateRoot: string): P
  * 同步系统 .nbook 内默认受管理资源；黑名单只保留本地状态、运行记录和编译产物。
  */
 async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult): Promise<void> {
-    const syncState = await readUserProfileSyncState();
+    const syncState = await readUserSystemAssetsSyncState();
     const assets = await listManagedSystemAssets();
     let stateChanged = false;
     for (const item of assets) {
@@ -355,15 +349,6 @@ async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult)
             stateChanged = true;
             continue;
         }
-        const previousHash = await readGitHeadAssetHash(path.posix.join("assets/workspace/.nbook", item.assetPath));
-        if (previousHash && currentUserHash === previousHash) {
-            await fs.copyFile(systemPath, userPath);
-            const hash = await sha256File(userPath);
-            upsertUserAssetSyncState(syncState, item, hash.sha256);
-            result.updatedAssets = (result.updatedAssets ?? 0) + 1;
-            stateChanged = true;
-            continue;
-        }
         if (!stateItem) {
             result.assetWarnings?.push({
                 assetPath: item.assetPath,
@@ -390,16 +375,16 @@ async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult)
         stateChanged = true;
     }
     if (stateChanged) {
-        await writeUserProfileSyncState(syncState);
+        await writeUserSystemAssetsSyncState(syncState);
     }
 }
 
-async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, nbookTargetRoot: string): Promise<void> {
+async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult): Promise<void> {
     const metadata = await readSystemProfileMetadata();
     if (metadata.profiles.length === 0) {
         return;
     }
-    const syncState = await readUserProfileSyncState();
+    const syncState = await readUserSystemAssetsSyncState();
     let stateChanged = false;
     for (const item of metadata.profiles) {
         const systemPath = path.join(SYSTEM_PROFILE_ROOT, item.fileName);
@@ -490,9 +475,9 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, nboo
         stateChanged = true;
     }
     if (stateChanged) {
-        await writeUserProfileSyncState(syncState);
+        await writeUserSystemAssetsSyncState(syncState);
     }
-    await removeCopiedSystemMetadata(nbookTargetRoot);
+    await removeCopiedSystemMetadata();
 }
 
 async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncResult): Promise<void> {
@@ -505,7 +490,7 @@ async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncR
         ...await sha256File(systemPath),
     };
     const userPath = path.join(USER_VARIABLE_DEFINITION_ROOT, "definitions.ts");
-    const syncState = await readUserProfileSyncState();
+    const syncState = await readUserSystemAssetsSyncState();
     const stateItem = findUserAssetSyncState(syncState, item.assetPath);
     let stateChanged = false;
     if (!stateItem && await pathExists(userPath) && await sameFile(systemPath, userPath)) {
@@ -581,7 +566,7 @@ async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncR
         }
     }
     if (stateChanged) {
-        await writeUserProfileSyncState(syncState);
+        await writeUserSystemAssetsSyncState(syncState);
     }
 }
 
@@ -615,6 +600,7 @@ function isManagedAssetBlacklisted(assetPath: string): boolean {
     const parts = normalized.split("/");
     return normalized === "config.json"
         || normalized === "neuro-book.sqlite"
+        || normalized === ".system-assets-sync-state.json"
         || normalized === "agent/session-seq.json"
         || normalized === "agent/profiles/.profile-sync-state.json"
         || normalized === "agent/profiles/.system-profile-metadata.json"
@@ -886,9 +872,9 @@ async function pruneCompiledDirectory(compiledRoot: string, referencedFiles: Arr
         .map((entry) => fs.rm(path.join(compiledRoot, entry.name), {force: true})));
 }
 
-async function readUserProfileSyncState(): Promise<UserProfileSyncState> {
+async function readUserSystemAssetsSyncState(): Promise<UserSystemAssetsSyncState> {
     try {
-        const parsed = JSON.parse(await fs.readFile(USER_PROFILE_SYNC_STATE_PATH, "utf-8")) as UserProfileSyncState;
+        const parsed = JSON.parse(await fs.readFile(USER_SYSTEM_ASSETS_SYNC_STATE_PATH, "utf-8")) as UserSystemAssetsSyncState;
         return {
             profiles: parsed.profiles ?? [],
             assets: parsed.assets ?? [],
@@ -901,12 +887,12 @@ async function readUserProfileSyncState(): Promise<UserProfileSyncState> {
     }
 }
 
-async function writeUserProfileSyncState(syncState: UserProfileSyncState): Promise<void> {
-    await fs.mkdir(path.dirname(USER_PROFILE_SYNC_STATE_PATH), {recursive: true});
-    await fs.writeFile(USER_PROFILE_SYNC_STATE_PATH, `${JSON.stringify(syncState, null, 2)}\n`, "utf-8");
+async function writeUserSystemAssetsSyncState(syncState: UserSystemAssetsSyncState): Promise<void> {
+    await fs.mkdir(path.dirname(USER_SYSTEM_ASSETS_SYNC_STATE_PATH), {recursive: true});
+    await fs.writeFile(USER_SYSTEM_ASSETS_SYNC_STATE_PATH, `${JSON.stringify(syncState, null, 2)}\n`, "utf-8");
 }
 
-function upsertUserProfileSyncState(syncState: UserProfileSyncState, metadata: SystemProfileMetadataItem, userHash: string): void {
+function upsertUserProfileSyncState(syncState: UserSystemAssetsSyncState, metadata: SystemProfileMetadataItem, userHash: string): void {
     const next: UserProfileSyncStateItem = {
         fileName: metadata.fileName,
         profileKey: metadata.profileKey,
@@ -923,7 +909,7 @@ function upsertUserProfileSyncState(syncState: UserProfileSyncState, metadata: S
     syncState.profiles.sort((left, right) => left.fileName.localeCompare(right.fileName));
 }
 
-function upsertUserAssetSyncState(syncState: UserProfileSyncState, metadata: {assetPath: string; sha256: string}, userHash: string): void {
+function upsertUserAssetSyncState(syncState: UserSystemAssetsSyncState, metadata: {assetPath: string; sha256: string}, userHash: string): void {
     const next: UserAssetSyncStateItem = {
         assetPath: metadata.assetPath,
         upstreamHash: metadata.sha256,
@@ -940,7 +926,7 @@ function upsertUserAssetSyncState(syncState: UserProfileSyncState, metadata: {as
     syncState.assets.sort((left, right) => left.assetPath.localeCompare(right.assetPath));
 }
 
-function findUserAssetSyncState(syncState: UserProfileSyncState, assetPath: string): UserAssetSyncStateItem | undefined {
+function findUserAssetSyncState(syncState: UserSystemAssetsSyncState, assetPath: string): UserAssetSyncStateItem | undefined {
     const exact = syncState.assets?.find((item) => item.assetPath === assetPath);
     if (exact) {
         return exact;
@@ -979,25 +965,8 @@ async function sameFile(leftPath: string, rightPath: string): Promise<boolean> {
 /**
  * 读取当前 Git HEAD 中的系统 asset hash，用于迁移缺少 sync state 的未手改旧副本。
  */
-async function readGitHeadAssetHash(assetPath: string): Promise<string | null> {
-    try {
-        const {stdout} = await execFileAsync("git", ["show", `HEAD:${assetPath}`], {
-            cwd: process.cwd(),
-            encoding: "buffer",
-            maxBuffer: 10 * 1024 * 1024,
-        });
-        const buffer = Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout);
-        return createHash("sha256").update(buffer).digest("hex");
-    } catch {
-        return null;
-    }
-}
-
-async function removeCopiedSystemMetadata(nbookTargetRoot: string): Promise<void> {
-    const copiedMetadataPath = path.join(nbookTargetRoot, "agent", "profiles", ".system-profile-metadata.json");
-    if (copiedMetadataPath === SYSTEM_PROFILE_METADATA_PATH) {
-        return;
-    }
+async function removeCopiedSystemMetadata(): Promise<void> {
+    const copiedMetadataPath = path.join(USER_PROFILE_ROOT, ".system-profile-metadata.json");
     await fs.rm(copiedMetadataPath, {force: true});
 }
 

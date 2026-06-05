@@ -9,7 +9,7 @@
 - 不设计记忆持久化。
 - 不实现完整变量系统。
 - 不复刻 SillyTavern 前端 JS、MVU runtime 或 Prompt Template runtime。
-- Harness 层 `SidecarProfilePass` V1 已在 `docs/tasks/23-agent-sidecar-profile-pass/README.md` 中落地；`rp.actor` 内置 profile 已接入 `actor.context-load` / `actor.memory-save` 两个旁路。
+- Harness 层 `SidecarProfilePass` V1 已在 `docs/tasks/23-agent-sidecar-profile-pass/README.md` 中落地；`simulator.actor` 内置 profile 已接入 `actor.context-load` / `actor.memory-save` 两个旁路。
 - 重点设计一个最小可行 RP Tick：用户行动 -> GM -> actors -> GM -> writer -> 用户结果。
 
 ## Core Model
@@ -17,7 +17,7 @@
 最基础 RP 模式由三类 agent 组成：
 
 - `leader.rp` / `GM`：用户进入 RP 模式后的主控 agent。`leader.rp` 是推荐 profile 名，`GM` 是它在 RP 流程里的职责名，负责剧情推进、世界演化、规则裁决、信息控制和 actor 调度。
-- `rp.actor`：通用角色扮演 agent，只基于角色可知信息、当前观察和角色动机回应。
+- `simulator.actor`：通用角色扮演 agent，只基于角色可知信息、当前观察和角色动机回应。
 - `rp.writer`：负责把 GM 的结果写成用户可读正文，不直接承担规则裁决。
 
 用户也是故事中的扮演者。区别是 GM 不直接把裁决和推理暴露给用户，而是通过 writer 生成结果。
@@ -212,14 +212,14 @@ lorebook/note/...
 
 ```yaml
 defaultPlayerActor: player
-defaultActorProfile: rp.actor
+defaultActorProfile: simulator.actor
 defaultWriterProfile: rp.writer
 
 actors:
   - id: player
     name: 主角
     kind: player
-    profile: rp.actor
+    profile: simulator.actor
     instruction: simulation/subjects/player/subject.md
     knowledge: simulation/subjects/player/knowledge.md
     mind: simulation/subjects/player/mind.md
@@ -230,7 +230,7 @@ actors:
   - id: erina
     name: 天原绘璃奈
     kind: npc
-    profile: rp.actor
+    profile: simulator.actor
     instruction: simulation/subjects/erina/subject.md
     knowledge: simulation/subjects/erina/knowledge.md
     mind: simulation/subjects/erina/mind.md
@@ -317,7 +317,7 @@ simulation/subjects/player/
 - 已新增 builtin profile `leader.rp`。
 - 创建 input 只有可选 `simulationRoot`；每轮用户行动仍通过普通 prompt 进入。
 - `leader.rp` 持有读取、写入、编辑、bash、agent 编排和用户询问工具；写入范围限定为 GM 裁决后的 subject `state.md`、`simulation/entities/`、必要 `simulation/runs/` 和用户明确要求的 simulation 配置调整。
-- 它通过 prompt 协议读取 `config.yaml`、`cast.yaml`、`simulator.md`、`writer.md`，再创建/复用 `rp.actor` 与 `rp.writer`。`simulator.md` 是唯一 GM 入口说明。
+- 它通过 prompt 协议读取 `config.yaml`、`cast.yaml`、`simulator.md`、`writer.md`，再创建/复用 `simulator.actor` 与 `rp.writer`。`simulator.md` 是唯一 GM 入口说明。
 
 ### Optional `rp.gm`
 
@@ -333,7 +333,7 @@ GM 职责不应该：
 - 在 writer brief 中泄露不该被用户知道的秘密。
 - 替用户决定核心行动。
 
-### `rp.actor`
+### `simulator.actor`
 
 职责：
 
@@ -351,13 +351,13 @@ actor 不应该：
 
 输入边界：
 
-- `rp.actor` 只接收该 actor 的 `subject.md`、`events.md`、`knowledge.md`、`mind.md`、`state.md` 和 GM 当前 actor-facing message。
+- `simulator.actor` 只接收该 actor 的 `subject.md`、`events.md`、`knowledge.md`、`mind.md`、`state.md` 和 GM 当前 actor-facing message。
 - 第一版可给 actor 开放文件编辑工具，但主扮演 run 不主动读写文件；`actor.memory-save` 旁路作用域限制为自己的 `events.md`、`knowledge.md`、`mind.md`。
-- `rp.actor` 不接收完整 `simulation/`、`lorebook/`、`reference/`、其他 actor knowledge 或 GM scratch。
+- `simulator.actor` 不接收完整 `simulation/`、`lorebook/`、`reference/`、其他 actor knowledge 或 GM scratch。
 
 第一版实现状态：
 
-- 已新增 builtin profile `rp.actor`。
+- 已新增 builtin profile `simulator.actor`。
 - 创建 input 绑定 `actorId`、`actorName?`、`kind?`、`instructionPath`、`eventsPath`、`knowledgePath`、`mindPath`、`statePath`。
 - profile prepare 会自动读取并注入 `subject.md`、`events.md`、`knowledge.md`、`mind.md` 与 `state.md`。
 - 每轮 GM packet 通过 `invoke_agent.message` 传入，不放进创建 input。
@@ -455,7 +455,7 @@ GM 根据 `cast.yaml` 初始化本局 actors。设计目标是创建全部 cast 
 
 ### 4. Actor Profile Consumes Author Instruction
 
-`rp.actor` 是通用 profile；具体角色差异来自 `subject.md`、`events.md`、`knowledge.md`、`mind.md` 和 `state.md`。
+`simulator.actor` 是通用 profile；具体角色差异来自 `subject.md`、`events.md`、`knowledge.md`、`mind.md` 和 `state.md`。
 
 `subject.md` 由作者维护，可以包含：
 
@@ -487,7 +487,7 @@ GM 根据 `cast.yaml` 初始化本局 actors。设计目标是创建全部 cast 
 ```text
 user action / dialogue / instruction
 -> leader.rp as GM
--> selected rp.actors
+-> selected simulator.actors
 -> leader.rp world resolution
 -> rp.writer
 -> user-facing output
@@ -538,12 +538,12 @@ GM 应把内部结构和 actor 消息明确拆成两层：
 - GM internal scratch：可以使用结构化字段组织场景、事件、hidden facts、actor selection、actor known facts 和裁决依据。这一层方便调试和后续整理进 `runs/ticks/{tick-id}-{slug}/report.md`。
 - actor-facing message：从 internal scratch 过滤后生成，只包含该角色合理可知、可见、可感受到的信息。这一层使用自然语言和第二人称，把模型推进角色扮演状态，而不是 agent 填任务状态。
 
-重要调整：发给 `rp.actor` 的消息不应是 YAML / JSON / 表单任务单。
+重要调整：发给 `simulator.actor` 的消息不应是 YAML / JSON / 表单任务单。
 
 不要发给 actor：
 
 - `not_known_to_you` 字段。角色不知道的内容直接不出现。
-- `task` 字段。返回格式、工具调用要求和“不要写小说正文”等约束应放在 `rp.actor` profile system prompt 中。
+- `task` 字段。返回格式、工具调用要求和“不要写小说正文”等约束应放在 `simulator.actor` profile system prompt 中。
 - GM hidden facts、完整 canonical lorebook、其他 actor 私密意图或 writer brief。
 - `actor:`、`scene:`、`known_to_you:` 这类让上下文像工单的字段名。
 
@@ -681,7 +681,7 @@ writer 输出最终用户可见文本。输出中不应包含：
 5. actor knowledge 只表达角色视角的已知信息；如果它和 canonical truth 不一致，GM 负责在后台区分。
 6. 用户是 actor，并且应在 `simulation/subjects/{player-id}/` 下拥有自己的 actor 目录；用户输入可以是行动、台词或剧本式指令，GM 负责把它转为故事内可执行意图。
 7. 非抢话模式下，actor 只在用户 Tick 后响应；抢话模式后续单独设计。
-8. `rp.actor` 主扮演 run 不主动维护文件；`actor.memory-save` 旁路负责更新 `events.md`、`knowledge.md` 与 `mind.md`，`state.md` 和 `simulation/entities/` 由 GM 裁决后维护。
+8. `simulator.actor` 主扮演 run 不主动维护文件；`actor.memory-save` 旁路负责更新 `events.md`、`knowledge.md` 与 `mind.md`，`state.md` 和 `simulation/entities/` 由 GM 裁决后维护。
 9. 第一版不让 `rp.writer` 自主检索 lorebook；GM 必须把可写信息整理进 writer brief。后续 sidecar 可补“写作前检索相关 lorebook”。
 
 ### Lorebook Visibility Discussion
@@ -714,7 +714,7 @@ visibility:
 
 ## Sidecar Boundary
 
-用户提出的“主流程保持纯净，旁路 run 负责检索或更新知识”的机制已经作为 Harness `SidecarProfilePass` V1 实现，并已接入 `rp.actor`。V1 设计以 actor 为第一验收对象：sidecar 不切换 profile，不使用 `profileKey`，而是在当前 session tree 上 fork 一段 `runtime_only` 分支，完成后只把 `merge()` 结果注入回主 run。
+用户提出的“主流程保持纯净，旁路 run 负责检索或更新知识”的机制已经作为 Harness `SidecarProfilePass` V1 实现，并已接入 `simulator.actor`。V1 设计以 actor 为第一验收对象：sidecar 不切换 profile，不使用 `profileKey`，而是在当前 session tree 上 fork 一段 `runtime_only` 分支，完成后只把 `merge()` 结果注入回主 run。
 
 已接入的两个 actor 旁路：
 

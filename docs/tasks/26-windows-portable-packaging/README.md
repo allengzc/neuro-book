@@ -1,6 +1,7 @@
 # Windows Portable Packaging
 
 > Active task directory format: `NN-kebab-case-name/`. Archived tasks move to `docs/tasks/archived/<task-slug>/`.
+> 当前状态：下方前半段保留旧 source bootstrap 设计作为历史记录。当前 release 主线已经迁移为 Windows Product Launcher：zip 包含预构建 `app/` Product Payload、`runtime/node/`、`launcher/` 和升级保留的 `data/`；用户机器不再 clone 源码、安装 Bun 或执行 Nuxt build。
 
 ## User Request
 

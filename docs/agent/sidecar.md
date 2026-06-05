@@ -17,7 +17,7 @@ Sidecar 不适合确定性上下文注入。确定性内容应优先用 profile 
 
 ## 当前 RP actor 模式
 
-`rp.actor` 已接入两个典型 sidecar：
+`simulator.actor` 已接入两个典型 sidecar：
 
 - `actor.context-load`：主 run 前读取 subject 文件并整理 actor-safe context。
 - `actor.memory-save`：主 run 后维护 subject-facing 记忆文件。

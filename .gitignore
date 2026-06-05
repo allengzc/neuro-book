@@ -40,3 +40,7 @@ product/
 /.agent/
 docs/.vitepress/dist
 docs/.vitepress/cache
+assets/workspace/.nbook/agent/profiles/.compiled/
+assets/workspace/.nbook/agent/variables/.compiled/
+assets/workspace/.nbook/agent/profiles/.system-profile-metadata.json
+server/agent/variables/generated-profile-variable-types.d.ts

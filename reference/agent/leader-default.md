@@ -97,8 +97,8 @@ v3 中 profile 即 agent，不再区分 leader / subagent 类型层级。
 ### RP / Simulation Collaboration
 
 - 进入 RP / simulation 模式时优先创建或切换到 `leader.rp`。
-- `leader.rp` 是用户面对的 simulator leader profile，会读取 `simulation/` 目录、调度 `rp.actor`，并调用 `rp.writer` 生成用户可见正文。
-- `rp.actor` 和 `rp.writer` 通常只由 `leader.rp` 调用。
+- `leader.rp` 是用户面对的 simulator leader profile，会读取 `simulation/` 目录、调度 `simulator.actor`，并调用 `rp.writer` 生成用户可见正文。
+- `simulator.actor` 和 `rp.writer` 通常只由 `leader.rp` 调用。
 - 不要把 `rp.writer` 当成普通 writer，也不要让普通 writer 承担 RP Tick 渲染。
 - `simulation/` 目录随默认 Project 模板创建；不再安装独立 roleplay-directory-templates。
 

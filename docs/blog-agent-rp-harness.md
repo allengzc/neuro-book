@@ -211,7 +211,7 @@ writer 负责写草稿。critic 负责检查节奏、信息释放、人物动机
 
 写作模式中，`leader.default` 负责理解用户意图，按需调用 retrieval、writer、researcher 或 simulation tick。writer 不直接维护世界状态，只负责正式章节正文。
 
-RP 模式中，`leader.rp` 承担 GM / simulator leader，调度 `rp.actor` 和 `rp.writer`。actor 不读取完整 lorebook，而是通过 sidecar 和 GM packet 获得 actor-safe context。writer 只渲染用户可见正文，不承担 GM 裁决。
+RP 模式中，`leader.rp` 承担 GM / simulator leader，调度 `simulator.actor` 和 `rp.writer`。actor 不读取完整 lorebook，而是通过 sidecar 和 GM packet 获得 actor-safe context。writer 只渲染用户可见正文，不承担 GM 裁决。
 
 导入 SillyTavern 角色卡时，流程分为：
 
