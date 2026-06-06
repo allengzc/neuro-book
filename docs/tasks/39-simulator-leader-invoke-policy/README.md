@@ -259,7 +259,7 @@ ctx.invocation?.caller.kind
 - 重大不可逆裁决、核心用户角色行动、长期世界状态大改、用户明确未授权的新核心设定，进入 `open_questions`。
 - subject 创建约定可以分层定义：
   - 本轮 invocation 明确指令优先。
-  - `simulation/simulator.md` 可由用户自定义并覆盖更具体的 Project 规则。
+  - `agent-context/simulator.leader.md` 可由用户自定义并覆盖更具体的 Project 规则。
   - `simulator.leader` 自身提示词给出默认规则。
   - `AGENTS.md` 仍作为项目级最高规则参与约束。
 - 不写正式章节正文。
@@ -332,7 +332,7 @@ ctx.invocation?.caller.kind
 - `retrieval`、`simulator.actor`、`summarizer` 等保留 `report_result` 的 profile 在非用户 caller 下继续强制。
 - `simulator.leader` OutputSchema 可以移除或弱化，不要让模型为填复杂表格而偏离 simulation runtime 维护。
 - `simulator.leader` 的核心定位是 `simulation/` runtime owner：创建 / 管理 subjects、entities、runs，并编排 actor simulator。
-- subject 创建规则优先级：本轮 invocation 明确指令 > `simulation/simulator.md` > `simulator.leader` 默认规则；`AGENTS.md` 仍作为项目级最高约束参与。
+- subject 创建规则优先级：本轮 invocation 明确指令 > `agent-context/simulator.leader.md` > `simulator.leader` 默认规则；`AGENTS.md` 仍作为项目级最高约束参与。
 - `invoke_agent` 返回合同保持现状，不为了 `simulator.leader` 新增额外解析层。
 - 本任务实现时硬切，不做 legacy 遗产兼容。
 
@@ -373,7 +373,7 @@ ctx.invocation?.caller.kind
 - `leader.default` 和 `simulator.leader` 都导入共享 tool-use reference；`leader-default.md` 保留 profile 专属协作、多 Agent、SQL、Plan Mode 等规则。
 - `simulator.leader` 新增 `bash`，移除 `report_result`，弱化 `SimulatorLeaderOutputSchema` 为 `Type.Object({})`，并在 prompt 中明确它直接返回普通 assistant 文本。
 - `simulator.leader` prompt 已改为 `simulation/` runtime owner：维护 `simulation/subjects/**`、`simulation/entities/**`、`simulation/runs/**`，按需创建最小 subject scaffold，调度 `simulator.actor`，并输出 writer / director 可用 handoff。
-- subject 创建规则已写入 prompt：本轮 invocation 明确指令 > `simulation/simulator.md` > `simulator.leader` 默认规则；`AGENTS.md` 仍作为项目级最高约束参与。
+- subject 创建规则已写入 prompt：本轮 invocation 明确指令 > `agent-context/simulator.leader.md` > `simulator.leader` 默认规则；`AGENTS.md` 仍作为项目级最高约束参与。
 - 新增内部 `AgentInvokeCaller`，kind 为 `user | agent | sidecar | system`，缺省归一化为 `user`。
 - HTTP 用户 invocation 固定为 `caller.kind = "user"`，前端 DTO 不暴露可伪造的内部 caller 字段。
 - `AgentInvokeRequestDtoSchema` 显式拒绝前端提交 `caller` 字段；HTTP helper `toInvokeInput()` 固定填入 `caller: {kind: "user"}`。

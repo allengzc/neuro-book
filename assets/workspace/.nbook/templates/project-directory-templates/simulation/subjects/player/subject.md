@@ -1,3 +1,12 @@
+---
+id: player
+name: 玩家角色
+kind: player
+profile: simulator.actor
+controlledBy: user
+canonicalSource: null
+---
+
 # Player Actor
 
 这个 subject 代表玩家操控的故事内角色。上级模拟器可以读取本文件来理解玩家角色的基础身份和能力边界，但不能替用户决定核心行动。

@@ -3,7 +3,7 @@
 内容节点进入 Agent 上下文不再使用内容节点级 `inject`。当前模型分成两层：
 
 - `retrieval`：内容节点声明自己是否可以进入任务相关召回候选。
-- [lorebook-context-memory.md](lorebook-context-memory.md)：profile 自己维护哪些条目需要优先读取、可能读取或避免读取。
+- [../agent/profile-context-memory.md](../agent/profile-context-memory.md)：profile 自己维护哪些 Project 上下文需要优先读取、可能读取或避免读取。
 
 ## Frontmatter
 
@@ -20,7 +20,7 @@ retrieval:
 - `retrieval.enabled`：是否允许该节点进入 AI 自动检索候选。
 - `retrieval.trigger`：自然语言触发条件。为空表示不需要额外触发判断。
 
-长期稳定的 profile-scoped 上下文选择不写在内容节点 frontmatter 中。它由 `lorebook/context/{profile}.md` 和 `lorebook/context/generated/{profile}.md` 管理。
+长期稳定的 profile-scoped 上下文选择不写在内容节点 frontmatter 中。它由 `agent-context/{profile}.md` 和 `agent-context/generated/{profile}.md` 管理。
 
 ## Retrieval Profile
 

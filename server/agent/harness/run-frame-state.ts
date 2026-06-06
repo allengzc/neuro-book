@@ -57,6 +57,7 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         runtimeState: input.runtimeState,
         caller: input.caller,
         abortSignal: input.abortSignal,
+        nextTurnRuntimeMessages: [],
         turnIndex: 0,
         reportResultReminderSent: false,
         reportResultReminderEnabled: input.reportResultReminderEnabled,
@@ -64,9 +65,19 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         suppressEvents: input.suppressEvents,
         disableSteer: input.disableSteer,
         disableAutomaticCompaction: input.disableAutomaticCompaction,
+        automaticCompactionDoneForTurn: false,
         pendingWritePlans: [],
         onEvent: input.onEvent,
     };
+}
+
+/**
+ * 构造本轮模型可见消息，并消费上一轮 prepareNextTurn 注入的临时上下文。
+ */
+export function consumeNextTurnModelMessages(frame: RunFrame): RunFrame["messages"] {
+    const messages = [...frame.messages, ...frame.nextTurnRuntimeMessages];
+    frame.nextTurnRuntimeMessages = [];
+    return messages;
 }
 
 /**
@@ -78,6 +89,7 @@ export function applySuccessfulTurn(frame: RunFrame, turn: RuntimeTurn, ingest: 
     frame.messages.push(...turn.toolResults);
     frame.reportResult = turn.reportResult ?? frame.reportResult;
     frame.lastTurnIngest = ingest;
+    frame.automaticCompactionDoneForTurn = false;
 }
 
 /**

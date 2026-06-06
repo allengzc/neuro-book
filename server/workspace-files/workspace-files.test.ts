@@ -728,16 +728,16 @@ describe("workspace-files", () => {
     it("workspace project create 能给已有 Project Workspace 补入 simulation 模板", async () => {
         const workspaceSlug = `simulation-template-test-${randomUUID()}`;
         const projectRoot = path.join("workspace", workspaceSlug);
-        const existingSimulator = "# 用户自定义 Simulator\n";
+        const existingSimulatorContext = "# 用户自定义 Simulator Context\n";
 
         try {
-            await fs.mkdir(path.join(projectRoot, "simulation"), {recursive: true});
+            await fs.mkdir(path.join(projectRoot, "agent-context"), {recursive: true});
             await fs.writeFile(path.join(projectRoot, "project.yaml"), YAML.stringify({
                 kind: "novel",
                 title: "RP 模板测试",
                 summary: "测试已存在 Project Workspace 安装 simulation 模板",
             }), "utf-8");
-            await fs.writeFile(path.join(projectRoot, "simulation", "simulator.md"), existingSimulator, "utf-8");
+            await fs.writeFile(path.join(projectRoot, "agent-context", "simulator.leader.md"), existingSimulatorContext, "utf-8");
 
             const {stdout, stderr} = await execFileAsync("bun", [
                 AGENT_WORKSPACE_SCRIPT_FROM_WORKSPACE_PATH,
@@ -762,8 +762,8 @@ describe("workspace-files", () => {
             expect(result.mode).toBe("updated");
             expect(result.projectPath).toBe(`workspace/${workspaceSlug}`);
             expect(result.createdFiles).toEqual(expect.arrayContaining([
-                "simulation/config.yaml",
-                "simulation/cast.yaml",
+                "agent-context/rp.writer.md",
+                "agent-context/generated/.gitkeep",
                 "simulation/subjects/player/mind.md",
                 "simulation/subjects/player/knowledge.md",
                 "simulation/subjects/sample-npc/subject.md",
@@ -772,10 +772,11 @@ describe("workspace-files", () => {
                 "simulation/runs/ticks/000000-initial-state/report.md",
                 "simulation/runs/ticks/000000-initial-state/prose.md",
             ]));
-            expect(result.skippedFiles).toContain("simulation/simulator.md");
-            await expect(fs.readFile(path.join(projectRoot, "simulation", "simulator.md"), "utf-8")).resolves.toBe(existingSimulator);
-            await expect(fs.readFile(path.join(projectRoot, "simulation", "config.yaml"), "utf-8")).resolves.toContain("leaderProfile: simulator.leader");
-            await expect(fs.readFile(path.join(projectRoot, "simulation", "cast.yaml"), "utf-8")).resolves.toContain("sample-npc");
+            expect(result.skippedFiles).toContain("agent-context/simulator.leader.md");
+            await expect(fs.readFile(path.join(projectRoot, "agent-context", "simulator.leader.md"), "utf-8")).resolves.toBe(existingSimulatorContext);
+            await expect(fs.access(path.join(projectRoot, "simulation", "config.yaml"))).rejects.toMatchObject({code: "ENOENT"});
+            await expect(fs.access(path.join(projectRoot, "simulation", "cast.yaml"))).rejects.toMatchObject({code: "ENOENT"});
+            await expect(fs.readFile(path.join(projectRoot, "simulation", "subjects", "sample-npc", "subject.md"), "utf-8")).resolves.toContain("id: sample-npc");
             await expect(fs.readFile(path.join(projectRoot, "simulation", "runs", "current.md"), "utf-8")).resolves.toContain("Current");
             await expect(fs.readFile(path.join(projectRoot, "simulation", "runs", "index.md"), "utf-8")).resolves.toContain("000000");
             await expect(fs.readFile(path.join(projectRoot, "simulation", "runs", "ticks", "000000-initial-state", "report.md"), "utf-8")).resolves.toContain("Writer-safe Brief");
@@ -831,8 +832,8 @@ describe("workspace-files", () => {
             await expect(fs.access(path.join(targetRoot, ".nbook", "project.sqlite"))).resolves.toBeUndefined();
             await expect(fs.readFile(path.join(targetRoot, "AGENTS.md"), "utf-8")).resolves.toContain("唯一的小说状态");
 
-            await fs.mkdir(path.join(targetRoot, "simulation"), {recursive: true});
-            await fs.writeFile(path.join(targetRoot, "simulation", "simulator.md"), "# 外部 Simulator\n", "utf-8");
+            await fs.mkdir(path.join(targetRoot, "agent-context"), {recursive: true});
+            await fs.writeFile(path.join(targetRoot, "agent-context", "simulator.leader.md"), "# 外部 Simulator\n", "utf-8");
             const {stdout: updateStdout, stderr: updateStderr} = await execFileAsync("bun", [
                 AGENT_WORKSPACE_SCRIPT_PATH,
                 "project",
@@ -855,9 +856,9 @@ describe("workspace-files", () => {
             expect(updateStderr).toBe("");
             expect(updateResult.mode).toBe("updated");
             expect(updateResult.createdFiles).not.toContain("simulation/config.yaml");
-            expect(updateResult.skippedFiles).toContain("simulation/config.yaml");
-            expect(updateResult.skippedFiles).toContain("simulation/simulator.md");
-            await expect(fs.readFile(path.join(targetRoot, "simulation", "simulator.md"), "utf-8")).resolves.toBe("# 外部 Simulator\n");
+            expect(updateResult.skippedFiles).not.toContain("simulation/config.yaml");
+            expect(updateResult.skippedFiles).toContain("agent-context/simulator.leader.md");
+            await expect(fs.readFile(path.join(targetRoot, "agent-context", "simulator.leader.md"), "utf-8")).resolves.toBe("# 外部 Simulator\n");
         } finally {
             await removeDirectoryWithRetry(targetRoot);
         }
@@ -1475,7 +1476,7 @@ describe("workspace-files", () => {
         const paths = [
             path.join("workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"),
             path.join("workspace", ".nbook", "templates", "content-node-templates", "chapter", "index.md"),
-            path.join("workspace", ".nbook", "templates", "project-directory-templates", "simulation", "simulator.md"),
+            path.join("workspace", ".nbook", "templates", "project-directory-templates", "agent-context", "simulator.leader.md"),
             path.join("workspace", ".nbook", "agent", "bin", "profile"),
             path.join("workspace", ".nbook", "agent", "config", "ripgreprc"),
         ];
@@ -1491,13 +1492,13 @@ describe("workspace-files", () => {
             expect(result.copied).toBeGreaterThanOrEqual(paths.length);
             await expect(fs.readFile(paths[0]!, "utf-8")).resolves.toContain("profile");
             await expect(fs.readFile(paths[1]!, "utf-8")).resolves.toContain("chapter");
-            await expect(fs.readFile(paths[2]!, "utf-8")).resolves.toContain("GM 运行协议");
+            await expect(fs.readFile(paths[2]!, "utf-8")).resolves.toContain("Simulator Leader 运行上下文");
             await expect(fs.readFile(paths[3]!, "utf-8")).resolves.toContain("../scripts/profile.ts");
             await expect(fs.readFile(paths[4]!, "utf-8")).resolves.toContain("--path-separator=/");
             expect(syncState.assets).toEqual(expect.arrayContaining([
                 expect.objectContaining({assetPath: "agent/skills/profile-system-guide/SKILL.md"}),
                 expect.objectContaining({assetPath: "templates/content-node-templates/chapter/index.md"}),
-                expect.objectContaining({assetPath: "templates/project-directory-templates/simulation/simulator.md"}),
+                expect.objectContaining({assetPath: "templates/project-directory-templates/agent-context/simulator.leader.md"}),
                 expect.objectContaining({assetPath: "agent/bin/profile"}),
                 expect.objectContaining({assetPath: "agent/config/ripgreprc"}),
             ]));
@@ -1641,8 +1642,9 @@ describe("workspace-files", () => {
         await expect(readWorkspaceTextFile(root, "lorebook/note/story-concept/index.md")).resolves.toContain("## 故事概述");
         await expect(readWorkspaceTextFile(root, "lorebook/note/story-concept/index.md")).resolves.toContain("长简介式作品介绍");
         await expect(readWorkspaceTextFile(root, "lorebook/rule/writing-style/index.md")).resolves.not.toContain("inject:");
-        await expect(readWorkspaceTextFile(root, "lorebook/context/writer.md")).resolves.toContain("Writer Context Notes");
-        await expect(fs.access(path.join(root, "lorebook/context/generated/.gitkeep")).then(() => true)).resolves.toBe(true);
+        await expect(readWorkspaceTextFile(root, "agent-context/writer.md")).resolves.toContain("Writer Context Notes");
+        await expect(readWorkspaceTextFile(root, "agent-context/rp.writer.md")).resolves.toContain("RP Writer Context");
+        await expect(fs.access(path.join(root, "agent-context/generated/.gitkeep")).then(() => true)).resolves.toBe(true);
         await expect(readWorkspaceTextFile(root, "manuscript/001-volume/001-chapter/index.md")).resolves.toContain("## 正文草稿");
         await expect(readWorkspaceTextFile(root, "manuscript/001-volume/001-chapter/index.md")).resolves.toContain("- 开局示例");
 

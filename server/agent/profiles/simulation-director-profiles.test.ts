@@ -65,7 +65,7 @@ describe("simulation and director builtin profiles", () => {
         expect(prompt).toContain("director_handoff");
         expect(prompt).toContain("不设计长期 Thread / Scene / Plot");
         expect(prompt).toContain("mode: 每轮任务 prompt 指定");
-        expect(prompt).toContain("AGENTS.md 与 simulation/simulator.md");
+        expect(prompt).toContain("AGENTS.md 和 agent-context/simulator.leader.md");
         expect(prompt).toContain("最小 subject scaffold");
         expect(prompt).toContain("直接用普通 assistant 文本返回最终结果");
         expect(prompt).toContain("projectPath: workspace/rp-project");

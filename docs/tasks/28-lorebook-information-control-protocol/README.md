@@ -1,5 +1,7 @@
 # NeuroBook Directory Protocol Task
 
+2026-06-06 update: 本任务中的早期 `simulation/simulator.md`、`simulation/cast.yaml` 说法已经被 profile context V2 取代。当前稳定合同见 `reference/content/simulation.md` 与 `reference/agent/profile-context-memory.md`：profile guidance 位于 Project root `agent-context/`，`simulation/` 只保存 `subjects/`、`entities/` 和 `runs/`。
+
 ## User Request
 
 - 新建 `Lorebook Information Control Protocol` 任务。

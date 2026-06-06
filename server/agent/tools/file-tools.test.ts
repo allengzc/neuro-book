@@ -1,6 +1,6 @@
-import {randomUUID} from "node:crypto";
-import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
+import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {dirname, join, resolve} from "node:path";
+import {tmpdir} from "node:os";
 import {Type} from "typebox";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
@@ -17,7 +17,7 @@ describe("v3 file tools", () => {
     let context: ToolExecutionContext;
 
     beforeEach(async () => {
-        root = resolve(".agent", "agent-file-tools-test", randomUUID());
+        root = await mkdtemp(join(tmpdir(), "nbook-agent-file-tools-test-"));
         workspaceRoot = join(root, "workspace");
         await mkdir(workspaceRoot, {recursive: true});
         harness = new NeuroAgentHarness({
@@ -46,7 +46,7 @@ describe("v3 file tools", () => {
             workspaceRoot,
             workspaceKey: "global",
         };
-    });
+    }, 30_000);
 
     afterEach(async () => {
         await rm(root, {recursive: true, force: true});
@@ -125,7 +125,7 @@ describe("v3 file tools", () => {
                 signals: {"index-read": 1},
             }),
         ]);
-        await expect(readFile(join(projectWorkspaceRoot, "lorebook", "context", "generated", "test.file-tools.md"), "utf-8")).resolves.toContain("lorebook/character/银龙姬/");
+        await expect(readFile(join(projectWorkspaceRoot, "agent-context", "generated", "test.file-tools.md"), "utf-8")).resolves.toContain("lorebook/character/银龙姬/");
     });
 
     it("resolveWorkspacePath 在 Workspace Root cwd 中归一化完整 Project Path", () => {
@@ -480,7 +480,7 @@ describe("v3 file tools", () => {
         });
 
         const text = result?.content[0]?.type === "text" ? result.content[0].text : "";
-        expect(text).toContain(".agent/agent-file-tools-test");
+        expect(text.replaceAll("\\", "/")).toContain("nbook-agent-file-tools-test-");
         expect(text).toContain("/workspace");
         expect(text).toContain("agent/bin/workspace");
         expect(text).toContain("Usage: workspace [options] [command]");

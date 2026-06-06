@@ -10,7 +10,8 @@
 ## Modules
 
 - [agent/](agent/)：Agent runtime、profile、TSX DSL、Import、Run Kernel、Sidecar、SSE 和默认协作协议。
-- [content/](content/)：Project Workspace 内容目录、lorebook、simulation、information control、Markdown 方言、retrieval、lorebook context memory 和内容节点状态。
+- [content/](content/)：Project Workspace 内容目录、lorebook、simulation、information control、Markdown 方言、retrieval 和内容节点状态。
+- [agent/profile-context-memory.md](agent/profile-context-memory.md)：profile context memory、generated recommendations 和 `.nbook/context-access` 边界。
 - [plot/](plot/)：Project SQLite 剧情系统、Story / Phase / Thread / Scene / Plot 合同和 Agent 消费方式。
 - [workspace/TERMS.md](workspace/TERMS.md)：Workspace Root、Project Workspace、user-assets 和 Bundled Workspace Template 标准术语。
 - [editor/](editor/)：Markdown Studio 富文本 / 源码模式稳定规则。

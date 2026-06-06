@@ -1,6 +1,19 @@
-# Lorebook Context Memory
+# Profile Context Memory
 
 > Active task directory format: `NN-kebab-case-name/`. Archived tasks move to `docs/tasks/archived/<task-slug>/`.
+
+## V2 Update: Agent Context Root
+
+本 task 已从第一版 `lorebook/context/` 升级为更通用的 `agent-context/`：
+
+- `agent-context/{profile}.md` 是 Agent 自主维护的 profile-scoped context memory，也可以承载 profile 专用 Project 运行说明。
+- `agent-context/generated/{profile}.md` 是程序生成的推荐文本。
+- `.nbook/context-access/{profile}.json` 仍是程序私有访问状态，不作为 Agent 默认上下文入口。
+- `simulation/` 只保存 runtime state：`subjects/`、`entities/`、`runs/`。
+- 默认模板不再生成 `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md` 或 `simulation/writer.md`。
+- `simulator.leader` 读取 `AGENTS.md` 与 `agent-context/simulator.leader.md`；`rp.writer` 读取 `agent-context/rp.writer.md`。
+
+旧的 `lorebook/context/` 小节保留为 V1 设计记录；当前实现以本 V2 更新和 `reference/agent/profile-context-memory.md` 为准。
 
 ## User Request
 
@@ -22,8 +35,8 @@
 - 明确 Project Workspace 内的 Agent 可读文件布局。
 - 明确 `.nbook` 下程序私有访问状态与 Project 内推荐文本的边界。
 - 明确 profile 隔离规则，尤其是 `writer` 不读取 `leader.default` / `simulator.leader` 私有 context。
-- 明确 `lorebook/context/{profile}.md` 的 frontmatter 与正文定位。
-- 明确 `lorebook/context/generated/{profile}.md` 的结构化文本格式。
+- 明确 `agent-context/{profile}.md` 的 frontmatter 与正文定位。
+- 明确 `agent-context/generated/{profile}.md` 的结构化文本格式。
 - 给出分阶段实现计划，第一阶段不实现复杂推荐算法。
 
 ## Current State
@@ -360,7 +373,7 @@ Agent 可以维护 `lorebook/context/{profile}.md`，但不应编辑 `lorebook/c
 
 ### Phase 1: Documentation And Templates
 
-- 新增或更新稳定 reference，说明 lorebook context memory 取代 `inject` 的目标模型。
+- 新增或更新稳定 reference，说明 profile context memory 取代 `inject` 的目标模型。
 - 更新 Project Workspace 模板，生成：
   - `lorebook/context/leader.default.md`
   - `lorebook/context/simulator.leader.md`
@@ -431,8 +444,16 @@ Agent 可以维护 `lorebook/context/{profile}.md`，但不应编辑 `lorebook/c
 
 ## Files Changed
 
+2026-06-06 V2 implementation update:
+
+- `lorebook/context/` 已提升为 Project root 下的 `agent-context/`。
+- generated recommendation 输出路径改为 `agent-context/generated/{profile}.md`。
+- `server/agent/context-access/lorebook-context-access.ts` 已更名为 `profile-context-access.ts`。
+- 默认 Project 模板删除 `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md` 和 `simulation/writer.md`，profile 专用运行说明改放 `agent-context/`。
+- `simulator.leader` 读取 `AGENTS.md` 与 `agent-context/simulator.leader.md`；`rp.writer` 读取 `agent-context/rp.writer.md`。
+
 - `docs/tasks/38-lorebook-context-memory/README.md`
-- `reference/content/lorebook-context-memory.md`
+- `reference/agent/profile-context-memory.md`
 - `reference/content/retrieval.md`
 - `reference/content/README.md`
 - `reference/content/project-structure.md`
@@ -442,8 +463,8 @@ Agent 可以维护 `lorebook/context/{profile}.md`，但不应编辑 `lorebook/c
 - `reference/README.md`
 - `server/workspace-files/content-node-schema.ts`
 - `server/workspace-files/workspace-files.test.ts`
-- `server/agent/context-access/lorebook-context-access.ts`
-- `server/agent/context-access/lorebook-context-access.test.ts`
+- `server/agent/context-access/profile-context-access.ts`
+- `server/agent/context-access/profile-context-access.test.ts`
 - `server/agent/tools/file-tools.ts`
 - `server/agent/tools/file-tools.test.ts`
 - `server/agent/tools/types.ts`
@@ -456,8 +477,11 @@ Agent 可以维护 `lorebook/context/{profile}.md`，但不应编辑 `lorebook/c
 - `server/agent/profiles/builtin/leader-default.profile.tsx`
 - `assets/workspace/.nbook/agent/profiles/builtin/retrieval.profile.tsx`
 - `assets/workspace/.nbook/agent/profiles/builtin/writer.profile.tsx`
+- `assets/workspace/.nbook/agent/profiles/builtin/simulator.leader.profile.tsx`
+- `assets/workspace/.nbook/agent/profiles/builtin/rp.writer.profile.tsx`
+- `assets/workspace/.nbook/agent/profiles/builtin/simulator.actor.profile.tsx`
 - `assets/workspace/.nbook/templates/content-node-templates/**/index.md`
-- `assets/workspace/.nbook/templates/project-directory-templates/lorebook/context/**`
+- `assets/workspace/.nbook/templates/project-directory-templates/agent-context/**`
 - `assets/workspace/.nbook/templates/project-directory-templates/lorebook/**/index.md`
 - `assets/workspace/.nbook/templates/project-directory-templates/manuscript/**/index.md`
 - `app/components/novel-ide/workspace/workspace-frontmatter-profile.ts`
@@ -470,14 +494,22 @@ Agent 可以维护 `lorebook/context/{profile}.md`，但不应编辑 `lorebook/c
 
 ## Verification
 
-- `bun x vitest run server/agent/context-access/lorebook-context-access.test.ts` 通过。
+- `bun scripts/build/profile.ts check builtin/simulator.leader.profile.tsx --system` 通过；提示 stale 后已重新编译。
+- `bun scripts/build/profile.ts check builtin/rp.writer.profile.tsx --system` 通过；提示 stale 后已重新编译。
+- `bun scripts/build/profile.ts check builtin/simulator.actor.profile.tsx --system` 通过；提示 stale 后已重新编译。
+- `bun scripts/build/profile.ts compile --all --system` 通过，刷新 10 个系统 profile artifact。
+- `bun run profile:metadata` 通过。
+- `bun x vitest run server/agent/context-access/profile-context-access.test.ts server/agent/tools/file-tools.test.ts` 通过。
+- `bun x vitest run server/workspace-files/workspace-files.test.ts` 通过。
+- `bun x vitest run server/agent/profiles/rp-profiles.test.ts server/agent/profiles/simulation-director-profiles.test.ts` 通过。
+- `bun x vitest run server/agent/context-access/profile-context-access.test.ts` 通过。
 - `bun x vitest run server/agent/tools/file-tools.test.ts -t "read 成功读取 lorebook|read 在 Workspace Root cwd" --testTimeout=60000 --hookTimeout=60000` 通过。
 - `bun x vitest run server/agent/tools/task-tools.test.ts server/agent/tools/plot-tools.test.ts server/agent/variables/variables.test.ts --testTimeout=60000 --hookTimeout=60000` 通过。
 - `bun x vitest run server/workspace-files/workspace-files.test.ts -t "内容节点 schema 由 Zod 生成并保留字段描述|角色内容节点模板包含 frontmatter 注释与正文结构|复制默认小说目录模板" --testTimeout=60000 --hookTimeout=60000` 通过。
 - `bun x vitest run server/workspace-files/workspace-files.test.ts -t "同步系统 assets 会管理 Agent skills、模板和 CLI 辅助文件" --testTimeout=60000 --hookTimeout=60000` 通过。
 - review 修复后，active `server/agent` 的 `read` 工具已经接入 context access；不再依赖已归档的 `server/agent-v2`。
-- review 修复后，workspace assets 同步测试中的 unrelated simulation 断言已恢复为当前模板实际标题 `GM 运行协议`。
-- `bun x tsc --noEmit --pretty false` 仍失败；新增 `lorebook-context-access.ts` 的 null 类型问题已修复，剩余错误来自既有 unrelated 类型问题：
+- review 修复后，workspace assets 同步测试中的 simulation 断言已改为当前 `agent-context/` 与 runtime-state 模板合同。
+- `bun x tsc --noEmit --pretty false` 仍失败；新增 `profile-context-access.ts` 的 null 类型问题已修复，剩余错误来自既有 unrelated 类型问题：
   - `server/agent/profiles/catalog.ts`
   - `server/agent/profiles/rp-profiles.test.ts`
   - `server/agent/skills/silly-tavern-card-cli.test.ts`

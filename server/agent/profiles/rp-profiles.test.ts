@@ -2,7 +2,6 @@ import {join, resolve} from "node:path";
 import {mkdir, readFile, rm, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import {describe, expect, it} from "vitest";
-import {parse as parseYaml} from "yaml";
 import rpWriterProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/rp.writer.profile";
 import simulatorActorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.actor.profile";
 import simulatorLeaderProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.leader.profile";
@@ -98,7 +97,7 @@ describe("RP builtin profiles", () => {
         expect(simulatorLeaderProfile.allowedToolKeys).toContain("bash");
         expect(simulatorLeaderProfile.allowedToolKeys).not.toContain("report_result");
         expect(systemPrompt).toContain("世界模拟主管");
-        expect(systemPrompt).toContain("AGENTS.md 与 simulation/simulator.md");
+        expect(systemPrompt).toContain("AGENTS.md 和 agent-context/simulator.leader.md");
         expect(systemPrompt).toContain("leader.default 和用户入口通常只与你交流");
         expect(systemPrompt).toContain("为需要模拟的 subject 创建或复用 simulator.actor");
         expect(systemPrompt).toContain("最小 subject scaffold");
@@ -288,7 +287,7 @@ describe("RP builtin profiles", () => {
         }
     });
 
-    it("rp.writer 自动注入 writer.md，直接输出正文并允许 GM 指定文件工具", async () => {
+    it("rp.writer 自动注入 agent-context/rp.writer.md，直接输出正文并允许 simulator leader 指定文件工具", async () => {
         const fixture = await createRoleplayFixture();
         try {
             const prepared = await rpWriterProfile.prepare!({
@@ -301,7 +300,7 @@ describe("RP builtin profiles", () => {
                     planModeActive: false,
                 }),
                 input: {
-                    writerInstructionPath: `${fixture.projectSlug}/simulation/writer.md`,
+                    writerInstructionPath: `${fixture.projectSlug}/agent-context/rp.writer.md`,
                     style: "细腻、轻快、不过度解释。",
                     outputRequirements: ["只输出正文。"],
                     language: "zh-CN",
@@ -315,12 +314,12 @@ describe("RP builtin profiles", () => {
             const appendingText = messagesText(prepared.appendingMessages);
 
             expect(rpWriterProfile.allowedToolKeys).toEqual(["read", "write", "edit", "bash"]);
-            expect(systemPrompt).toContain("只负责把 GM 的 writer brief");
-            expect(systemPrompt).toContain("只有 GM 明确要求");
+            expect(systemPrompt).toContain("只负责把 simulator leader 的 writer brief");
+            expect(systemPrompt).toContain("只有 simulator leader 明确要求");
             expect(systemPrompt).toContain("普通 assistant 回复");
             expect(systemPrompt).toContain("prose.md");
             expect(systemPrompt).toContain("不写“你可以选择");
-            expect(systemPrompt).toContain("正文代笔，不是 GM");
+            expect(systemPrompt).toContain("正文代笔，不是 simulator leader");
             expect(systemPrompt).toContain("不替用户角色添加未输入");
             expect(systemPrompt).toContain("不输出标题、摘要、选项");
             expect(systemPrompt).toContain("细腻、轻快");
@@ -336,24 +335,21 @@ describe("RP builtin profiles", () => {
         }
     });
 
-    it("simulation 模板包含 events 路径、runs 新结构和不产生断链的 entity 示例", async () => {
+    it("simulation 模板使用 subject frontmatter、runs 新结构和不产生断链的 entity 示例", async () => {
         const templateRoot = resolve("assets", "workspace", ".nbook", "templates", "project-directory-templates", "simulation");
-        const configText = await readFile(join(templateRoot, "config.yaml"), "utf-8");
-        const castText = await readFile(join(templateRoot, "cast.yaml"), "utf-8");
-        const cast = parseYaml(castText) as {defaultActorProfile?: string; subjects?: Array<{id?: string; events?: string; profile?: string}>};
-        const subjects = cast.subjects ?? [];
+        await expect(readFile(join(templateRoot, "config.yaml"), "utf-8")).rejects.toThrow();
+        await expect(readFile(join(templateRoot, "cast.yaml"), "utf-8")).rejects.toThrow();
+        await expect(readFile(join(templateRoot, "simulator.md"), "utf-8")).rejects.toThrow();
+        await expect(readFile(join(templateRoot, "writer.md"), "utf-8")).rejects.toThrow();
 
-        expect(configText).toContain("leaderProfile: simulator.leader");
-        expect(configText).toContain("defaultActorProfile: simulator.actor");
-        expect(cast.defaultActorProfile).toBe("simulator.actor");
-        expect(subjects.length).toBeGreaterThan(0);
-        for (const subject of subjects) {
-            expect(subject.profile).toBe("simulator.actor");
-            expect(subject.events).toBeTruthy();
-            const eventsPath = String(subject.events).replace(/^simulation[\\/]/, "");
-            const eventsText = await readFile(join(templateRoot, eventsPath), "utf-8");
-            expect(eventsText).toMatch(/事件流水|经历/);
-        }
+        const playerSubject = await readFile(join(templateRoot, "subjects", "player", "subject.md"), "utf-8");
+        const npcSubject = await readFile(join(templateRoot, "subjects", "sample-npc", "subject.md"), "utf-8");
+        expect(playerSubject).toContain("profile: simulator.actor");
+        expect(playerSubject).toContain("controlledBy: user");
+        expect(npcSubject).toContain("id: sample-npc");
+        expect(npcSubject).toContain("controlledBy: simulator");
+        await expect(readFile(join(templateRoot, "subjects", "player", "events.md"), "utf-8")).resolves.toMatch(/事件流水|经历/);
+        await expect(readFile(join(templateRoot, "subjects", "sample-npc", "events.md"), "utf-8")).resolves.toMatch(/事件流水|经历/);
 
         const entityText = await readFile(join(templateRoot, "entities", "example-item", "entity.md"), "utf-8");
         await expect(readFile(join(templateRoot, "entities", "example-item", "state.md"), "utf-8")).resolves.toContain("subjectVisibleName");
@@ -362,6 +358,9 @@ describe("RP builtin profiles", () => {
 
         const reportText = await readFile(join(templateRoot, "runs", "ticks", "000000-initial-state", "report.md"), "utf-8");
         const proseText = await readFile(join(templateRoot, "runs", "ticks", "000000-initial-state", "prose.md"), "utf-8");
+        const currentText = await readFile(join(templateRoot, "runs", "current.md"), "utf-8");
+        expect(currentText).toContain("Active Subjects");
+        expect(currentText).toContain("sample-npc");
         await expect(readFile(join(templateRoot, "runs", "index.md"), "utf-8")).resolves.toContain("000000");
         expect(reportText).toContain("Writer-safe Brief");
         expect(reportText).toContain("Commits");
@@ -382,7 +381,8 @@ async function createRoleplayFixture(): Promise<{workspaceRoot: string; projectS
     await writeFile(join(actorRoot, "knowledge.md"), "她相信主角值得观察，但还不知道世界之心的真名。", "utf-8");
     await writeFile(join(actorRoot, "mind.md"), "她正在判断主角的用意，暂时不想显露紧张。", "utf-8");
     await writeFile(join(actorRoot, "state.md"), "她位于学院区广场边缘，双手空着，状态正常。", "utf-8");
-    await writeFile(join(workspaceRoot, projectSlug, "simulation", "writer.md"), "正文要保留角色信息差，不泄露 GM 隐藏设定。", "utf-8");
+    await mkdir(join(workspaceRoot, projectSlug, "agent-context"), {recursive: true});
+    await writeFile(join(workspaceRoot, projectSlug, "agent-context", "rp.writer.md"), "正文要保留角色信息差，不泄露 simulator leader 隐藏设定。", "utf-8");
     return {workspaceRoot, projectSlug};
 }
 

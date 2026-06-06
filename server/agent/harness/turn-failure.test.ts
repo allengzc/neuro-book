@@ -120,11 +120,13 @@ describe("turn failure helpers", () => {
             thinkingLevel: "off",
             runtimeState: new Map(),
             messages: [finalAssistant],
+            nextTurnRuntimeMessages: [],
             finalAssistant,
             turnIndex: 1,
             reportResultReminderSent: false,
             reportResultReminderEnabled: false,
             caller: {kind: "user"},
+            automaticCompactionDoneForTurn: false,
             pendingWritePlans: [],
         };
 

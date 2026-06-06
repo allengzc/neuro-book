@@ -36,7 +36,7 @@ Agent 回答问题或执行任务时，应按问题类型读取这些文档：
 - [../reference/agent/leader-default.md](../reference/agent/leader-default.md)：当前 `leader.default` 的工具、任务、多 Agent、SQL、Plan Mode 和 Skills 操作协议。
 - [../reference/agent/project-workspace-guide.md](../reference/agent/project-workspace-guide.md)：Project Workspace 路径、基础内容节点、常用目录和 workspace node CLI 的 Agent 短指南。
 - [../reference/agent/profile-import.md](../reference/agent/profile-import.md)：Profile `<Import />` 共享文本导入节点规范。
-- [../reference/content/README.md](../reference/content/README.md)：内容结构、lorebook / simulation、Markdown 扩展、retrieval 和 lorebook context memory 稳定参考入口。
+- [../reference/content/README.md](../reference/content/README.md)：内容结构、lorebook / simulation、Markdown 扩展、retrieval 和 profile context memory 稳定参考入口。
 - [tasks/02-pi-agent-harness-migration/README.md](tasks/02-pi-agent-harness-migration/README.md)：当前 Pi-based Agent session / event / tool / profile 主路径迁移记录。
 - [tasks/04-tsx-profile-workbench/README.md](tasks/04-tsx-profile-workbench/README.md)：TSX Profile Workbench 当前实现边界。
 - [tasks/06-leader-default-prompt-parity/README.md](tasks/06-leader-default-prompt-parity/README.md)：leader.default prompt parity、task/plot/SQL 工具、writer/retrieval profile 和 skill 迁移记录。

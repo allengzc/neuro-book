@@ -1,3 +1,12 @@
+---
+id: sample-npc
+name: 示例 NPC
+kind: npc
+profile: simulator.actor
+controlledBy: simulator
+canonicalSource: null
+---
+
 # Sample NPC Actor
 
 这个 subject 是示例 NPC。它可以改成一个重要配角，也可以改成统筹多个不重要 NPC 的群演 subject。

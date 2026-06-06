@@ -6,7 +6,14 @@
 
 ### 起始场景
 
-位置暂用 `config.yaml` 的 `fallbackScene.location`。leader / simulator 初始化后，把用户可见的当前场景摘要写在这里。
+位置：未命名的起始场景。
+
+玩家角色刚刚抵达现场，示例 NPC 正在附近等待回应。leader / simulator 初始化后，把用户可见的当前场景摘要写在这里。
+
+## Active Subjects
+
+- `player`：用户操控的玩家角色，资料位于 `simulation/subjects/player/`。
+- `sample-npc`：默认示例 NPC，资料位于 `simulation/subjects/sample-npc/`。如果不想启用示例 NPC，删除本行或替换成真实 subject。
 
 ## 当前 Tick
 

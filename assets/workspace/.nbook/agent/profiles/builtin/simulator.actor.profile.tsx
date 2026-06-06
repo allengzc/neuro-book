@@ -67,7 +67,7 @@ const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarDat
         - 你可以读取当前 subject 自己的 subject.md、events.md、knowledge.md、mind.md、state.md。
         - 你可以读取当前消息中明确列出的 actor-safe lorebook 或 context 路径，并过滤成 actor-safe 摘要。
         - 不要自行搜索或遍历 lorebook；只读取当前消息明确提供的 actor-safe 路径。
-        - 不要读取 simulation/simulator.md、simulation/writer.md、simulation/runs、调度草稿、其他 subject 目录或 reference 原始素材。
+        - 不要读取 agent-context/simulator.leader.md、agent-context/rp.writer.md、simulation/runs、调度草稿、其他 subject 目录或 reference 原始素材。
         - 如果 lorebook 条目混有公开信息和隐藏真相，只提取角色此刻合理能知道、看见、听见、感受到或自然推断到的部分。
         - 不要把隐藏真相、作者设定、裁决过程、其他角色私密知识注入 actor_safe_context。
         - 如果没有额外 actor-safe 设定，actor_safe_context 返回空字符串，并在 withheld 说明原因。

@@ -5,12 +5,12 @@ import {afterEach, beforeEach, describe, expect, it} from "vitest";
 import {
     normalizeContentAccessPath,
     recordContextAccess,
-    recordExplicitLorebookEntries,
+    recordExplicitContextEntries,
     renderGeneratedRecommendations,
     type ContextAccessState,
-} from "nbook/server/agent/context-access/lorebook-context-access";
+} from "nbook/server/agent/context-access/profile-context-access";
 
-describe("lorebook context access", () => {
+describe("profile context access", () => {
     let projectRoot: string;
 
     beforeEach(async () => {
@@ -63,7 +63,7 @@ describe("lorebook context access", () => {
             },
         });
 
-        const generated = await readFile(path.join(projectRoot, "lorebook/context/generated/writer.md"), "utf-8");
+        const generated = await readFile(path.join(projectRoot, "agent-context/generated/writer.md"), "utf-8");
         expect(generated).toContain("# writer generated context");
         expect(generated).toContain("## possible");
         expect(generated).toContain("### lorebook/location/castle/");
@@ -71,7 +71,7 @@ describe("lorebook context access", () => {
     });
 
     it("显式 lorebookEntries 多次出现时进入 strong", async () => {
-        await recordExplicitLorebookEntries({
+        await recordExplicitContextEntries({
             projectRoot,
             projectSlug: "novel-1",
             profileKey: "subagent.writer",
@@ -79,7 +79,7 @@ describe("lorebook context access", () => {
             entries: [{path: "lorebook/character/hero/"}],
             now: new Date("2026-06-06T00:00:00.000Z"),
         });
-        await recordExplicitLorebookEntries({
+        await recordExplicitContextEntries({
             projectRoot,
             projectSlug: "novel-1",
             profileKey: "subagent.writer",
@@ -88,7 +88,7 @@ describe("lorebook context access", () => {
             now: new Date("2026-06-06T00:01:00.000Z"),
         });
 
-        const generated = await readFile(path.join(projectRoot, "lorebook/context/generated/writer.md"), "utf-8");
+        const generated = await readFile(path.join(projectRoot, "agent-context/generated/writer.md"), "utf-8");
         expect(generated).toContain("## strong");
         expect(generated).toContain("### lorebook/character/hero/");
         expect(generated).toContain("- signals: explicitInput:2");

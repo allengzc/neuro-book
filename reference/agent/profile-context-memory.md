@@ -1,22 +1,23 @@
-# Lorebook Context Memory
+# Profile Context Memory
 
-Lorebook context memory 用来替代内容节点 frontmatter 中的 `inject.profiles` / `inject.always`。它表达“某个 profile 当前应该优先读取哪些条目”，而不是让条目自己声明要进入哪些 profile。
+Profile context memory 用来替代内容节点 frontmatter 中的 `inject.profiles` / `inject.always`。它表达“某个 profile 当前应该优先读取哪些 Project 上下文”，而不是让条目自己声明要进入哪些 profile。
 
 ## File Layout
 
 ```text
 {project}/
 |-- lorebook/
-|   `-- context/
+|-- agent-context/
+|   |-- leader.default.md
+|   |-- simulator.leader.md
+|   |-- director.md
+|   |-- writer.md
+|   |-- rp.writer.md
+|   `-- generated/
 |       |-- leader.default.md
 |       |-- simulator.leader.md
 |       |-- director.md
-|       |-- writer.md
-|       `-- generated/
-|           |-- leader.default.md
-|           |-- simulator.leader.md
-|           |-- director.md
-|           `-- writer.md
+|       `-- writer.md
 `-- .nbook/
     `-- context-access/
         |-- leader.default.json
@@ -25,13 +26,13 @@ Lorebook context memory 用来替代内容节点 frontmatter 中的 `inject.prof
         `-- writer.json
 ```
 
-- `lorebook/context/{profile}.md`：Agent 自主维护的 profile-scoped context memory。
-- `lorebook/context/generated/{profile}.md`：程序根据访问状态渲染的结构化推荐文本，Agent 可读。
+- `agent-context/{profile}.md`：Agent 自主维护的 profile-scoped context memory，也可以承载 profile 专用的 Project 运行说明。
+- `agent-context/generated/{profile}.md`：程序根据访问状态渲染的结构化推荐文本，Agent 可读。
 - `.nbook/context-access/{profile}.json`：程序私有访问状态，Agent 默认不读。
 
 ## Agent-Maintained Context
 
-`lorebook/context/{profile}.md` 的 frontmatter 可以包含：
+`agent-context/{profile}.md` 的 frontmatter 可以包含：
 
 ```yaml
 profile: writer
@@ -43,7 +44,7 @@ candidates: []
 blocked: []
 ```
 
-条目使用 Project-relative path，例如 `lorebook/location/castle/`，不要写绝对路径。程序第一版只要求稳健读取 `path`，`note`、`priority`、`setBy`、`updatedAt` 等字段允许缺省。
+条目使用 Project-relative path，例如 `lorebook/location/castle/`、`manuscript/001-volume/001-chapter/`、`simulation/runs/current.md` 或 `reference/source.md`，不要写绝对路径。程序第一版只要求稳健读取 `path`，`note`、`priority`、`setBy`、`updatedAt` 等字段允许缺省。
 
 正文用于上下文分析、接手说明、候选判断和待确认问题。不要在正文里放稳定 profile policy；稳定规则仍属于 profile prompt、`reference/` 或 workflow 文档。
 
@@ -51,7 +52,7 @@ blocked: []
 
 ## Generated Recommendations
 
-`lorebook/context/generated/{profile}.md` 是程序覆盖的结构化文本，可以没有 frontmatter。推荐 section 固定为：
+`agent-context/generated/{profile}.md` 是程序覆盖的结构化文本，可以没有 frontmatter。推荐 section 固定为：
 
 - `strong`：程序认为当前 profile 很可能需要的条目。
 - `possible`：可能相关，需要 Agent 结合任务判断。
@@ -70,16 +71,16 @@ blocked: []
 - sessions: 1
 ```
 
-不要写长篇推荐原因。Agent 如果采纳推荐，应把判断整理到自己的 `lorebook/context/{profile}.md`。
+不要写长篇推荐原因。Agent 如果采纳推荐，应把判断整理到自己的 `agent-context/{profile}.md`。
 
 ## Profile Isolation
 
 当前 profile 只能自动读取自己的 context memory：
 
-- `lorebook/context/{profile}.md`
-- `lorebook/context/generated/{profile}.md`
+- `agent-context/{profile}.md`
+- `agent-context/generated/{profile}.md`
 
-不能自动读取其他 profile 的 context memory 或 `.nbook/context-access`。例如 `writer` 不能读取 `lorebook/context/leader.default.md`、`lorebook/context/simulator.leader.md` 或对应 generated 文件。
+不能自动读取其他 profile 的 context memory 或 `.nbook/context-access`。例如 `writer` 不能读取 `agent-context/leader.default.md`、`agent-context/simulator.leader.md` 或对应 generated 文件。
 
 跨 profile 信息只能通过显式 handoff、writer-safe brief、invocation input 或 retrieval 结果传递。跨 profile 推荐可以暴露事实信号，例如 `leader-read:3`，但不能泄漏 source profile 私有 context 正文。
 

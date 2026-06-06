@@ -21,7 +21,7 @@
 - [profile-tsx/](profile-tsx/)：站点内 Profile TSX DSL 导读、节点说明和示例。
 - [../reference/README.md](../reference/README.md)：NeuroBook Reference Bookshelf。
 - [../reference/agent/README.md](../reference/agent/README.md)：Agent 稳定参考入口，处理 profile、prompt、工具协作和 Project Workspace 文件语义时优先阅读。
-- [../reference/content/README.md](../reference/content/README.md)：内容结构、lorebook / simulation、Markdown 扩展、retrieval 和 lorebook context memory 稳定参考入口。
+- [../reference/content/README.md](../reference/content/README.md)：内容结构、lorebook / simulation、Markdown 扩展、retrieval 和 profile context memory 稳定参考入口。
 - [modules/README.md](modules/README.md)：模块文档索引。
 - [tasks/README.md](tasks/README.md)：任务 walkthrough 规则。
 - [tasks/02-pi-agent-harness-migration/README.md](tasks/02-pi-agent-harness-migration/README.md)：当前 Agent 主路径迁移记录。

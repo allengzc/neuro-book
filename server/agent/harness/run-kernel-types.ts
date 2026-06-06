@@ -129,6 +129,8 @@ export type RunFrame = {
     runtimeState: RunRuntimeState;
     abortSignal?: AbortSignal;
     messages: AgentMessage[];
+    /** prepareNextTurn 注入的下一轮临时上下文；进入一次 provider snapshot 后清空。 */
+    nextTurnRuntimeMessages: AgentMessage[];
     reportResult?: InvokeAgentResult["reportResult"];
     finalAssistant?: AssistantMessage;
     turnIndex: number;
@@ -143,6 +145,8 @@ export type RunFrame = {
     disableSteer?: boolean;
     /** sidecar run 不触发自动压缩，避免旁路写入 compaction entry。 */
     disableAutomaticCompaction?: boolean;
+    /** 当前 turn 内已经执行过自动压缩。 */
+    automaticCompactionDoneForTurn: boolean;
     lastTurnIngest?: TurnIngestResult;
     pendingWritePlans: PendingSessionWritePlan[];
     onEvent?: (event: AgentRuntimeStreamEventDto) => void | Promise<void>;

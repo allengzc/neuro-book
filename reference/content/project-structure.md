@@ -12,9 +12,12 @@ Default Project Workspace sketch:
 {project}/
 |-- AGENTS.md
 |-- project.yaml
+|-- agent-context/
+|   |-- generated/
+|   |-- simulator.leader.md
+|   `-- rp.writer.md
 |-- lorebook/
 |   |-- index.md
-|   |-- context/
 |   |-- world/
 |   |-- character/
 |   |-- location/
@@ -26,10 +29,6 @@ Default Project Workspace sketch:
 |-- manuscript/
 |   `-- 001-volume/
 |-- simulation/
-|   |-- config.yaml
-|   |-- simulator.md
-|   |-- cast.yaml
-|   |-- writer.md
 |   |-- subjects/
 |   |-- entities/
 |   `-- runs/
@@ -46,7 +45,8 @@ The top-level directories are extensible, but the default template should stay s
 | --- | --- | --- |
 | `lorebook/` | Mostly stateless project manual: canon, prototypes, rules and reusable AI instructions. | [lorebook.md](lorebook.md) |
 | `manuscript/` | Formal prose, volumes, chapters, drafts and chapter-local notes. | [manuscript.md](manuscript.md) |
-| `simulation/` | World runtime state, subjects, entities, simulator protocol and run artifacts. | [simulation.md](simulation.md) |
+| `agent-context/` | Profile-scoped context memory, generated recommendations and profile-specific project guidance. | [../agent/profile-context-memory.md](../agent/profile-context-memory.md) |
+| `simulation/` | World runtime state, subjects, entities and run artifacts. | [simulation.md](simulation.md) |
 | `reference/` | External raw materials, import archives and low-confidence migration inputs. | This file |
 | `.nbook/` | Project config, Project SQLite and control files. | `reference/workspace/TERMS.md` |
 | `.agent/` | Temporary execution notes, plans and caches. | Agent docs |
@@ -54,6 +54,7 @@ The top-level directories are extensible, but the default template should stay s
 Keep the boundary simple:
 
 - Stable project knowledge goes to `lorebook/`.
+- Profile-specific project guidance and context memory go to `agent-context/`.
 - Formal prose goes to `manuscript/`.
 - Current runtime state goes to `simulation/`.
 - Imported or raw source material goes to `reference/`.
@@ -76,6 +77,7 @@ Do not store story canon in `.nbook/` or `.agent/`.
 ## Detail Ownership
 
 - `lorebook/` rules and type taxonomy live in [lorebook.md](lorebook.md).
+- `agent-context/` profile context memory lives in [../agent/profile-context-memory.md](../agent/profile-context-memory.md).
 - `manuscript/` volume/chapter rules live in [manuscript.md](manuscript.md).
 - `simulation/` subjects/entities/runs and simulator profile contracts live in [simulation.md](simulation.md).
 - Content node links, refs and validation rules live in [content-references.md](content-references.md).
@@ -91,5 +93,5 @@ Do not store story canon in `.nbook/` or `.agent/`.
 - Information control: `reference/content/information-control.md`
 - Content-node state compatibility: `reference/content/state.md`
 - Retrieval: `reference/content/retrieval.md`
-- Lorebook context memory: `reference/content/lorebook-context-memory.md`
+- Profile context memory: `reference/agent/profile-context-memory.md`
 - Plot System: `reference/plot/system.md`

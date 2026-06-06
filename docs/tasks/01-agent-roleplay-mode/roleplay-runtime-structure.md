@@ -4,6 +4,8 @@
 
 本文记录 NeuroBook RP 模式的目录结构和运行协议设计。本轮设计 roleplay 优先，写作模式只作为共享设定资产来源，不展开详细写作流程。
 
+2026-06-06 update: 本文是早期设计记录。当前 Project 模板不再生成 `simulation/config.yaml`、`simulation/cast.yaml`、`simulation/simulator.md` 或 `simulation/writer.md`；profile 专用说明已经迁到 `agent-context/`，`simulation/` 只保留 runtime state。
+
 当前约束：
 
 - 不设计记忆持久化。

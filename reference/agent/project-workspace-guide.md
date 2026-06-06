@@ -37,9 +37,9 @@ Common Project Workspace paths:
 | Path | Purpose |
 | --- | --- |
 | `{project}/AGENTS.md` | Project-level collaboration instructions. |
+| `{project}/agent-context/` | Profile-scoped context memory, generated recommendations and profile-specific project guidance. |
 | `{project}/project.yaml` | Project Workspace manifest with kind, title and summary. |
 | `{project}/lorebook/` | Stable canon, prototypes, rules and reusable AI instructions. |
-| `{project}/lorebook/context/` | Profile-scoped context memory and generated recommendations. |
 | `{project}/manuscript/` | Manuscript, volumes, chapters, drafts and chapter-local notes. |
 | `{project}/simulation/` | World simulation, subjects, entities and run artifacts. |
 | `{project}/reference/` | External raw materials and import archives. |
@@ -51,6 +51,7 @@ Top-level sketch:
 ```text
 {project}/
 |-- AGENTS.md
+|-- agent-context/
 |-- project.yaml
 |-- lorebook/
 |-- manuscript/
@@ -101,7 +102,7 @@ Structured refs are `frontmatter.refs` relations that the system should understa
 
 Content-node frontmatter `retrieval.trigger` explains when a node is relevant for task-driven recall. Do not pass retrieval `reason`, `use`, `risk` or `note` directly to writer; caller should judge the candidates and pass only selected content-node paths.
 
-Profile-scoped lorebook context lives in `{project}/lorebook/context/{profile}.md` and `{project}/lorebook/context/generated/{profile}.md`. A profile only reads its own context files. Program-private access state stays in `{project}/.nbook/context-access/{profile}.json` and is not an Agent context entry.
+Profile-scoped context lives in `{project}/agent-context/{profile}.md` and `{project}/agent-context/generated/{profile}.md`. A profile only reads its own context files. Program-private access state stays in `{project}/.nbook/context-access/{profile}.json` and is not an Agent context entry.
 
 ## Common Directories
 
@@ -153,10 +154,6 @@ Minimal structure:
 
 ```text
 simulation/
-|-- config.yaml
-|-- simulator.md
-|-- cast.yaml
-|-- writer.md
 |-- subjects/
 |-- entities/
 `-- runs/
@@ -203,6 +200,6 @@ Agent runtime config makes `rg --files` output use `/` paths. Shell examples sho
 - Content information control: `reference/content/information-control.md`
 - Content-node state compatibility: `reference/content/state.md`
 - Retrieval: `reference/content/retrieval.md`
-- Lorebook context memory: `reference/content/lorebook-context-memory.md`
+- Profile context memory: `reference/agent/profile-context-memory.md`
 - Novel writing workflow: `reference/agent/novel-writing-workflow.md`
 - Plot System: `reference/plot/system.md`

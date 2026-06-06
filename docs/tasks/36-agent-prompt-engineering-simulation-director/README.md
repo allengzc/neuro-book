@@ -59,7 +59,7 @@
 | Profile | 定位 | 主要职责 | 不负责 |
 | --- | --- | --- | --- |
 | `leader.default` | 用户助理 / 总协调者 / 监工 | 理解用户目标；拆分任务；选择 specialist；监督产物质量；把 specialist 的结果解释给用户；必要时请求用户确认关键取舍 | 不长期包干 `simulation/` 推演；不长期设计 Thread / Scene / Plot；不直接写正式章节正文 |
-| `simulator.leader` | 世界模拟器主管 | 根据用户、director 或 leader 的指令模拟 `simulation/`；遵循 `simulation/config.yaml`、`simulation/simulator.md`、subject/entity state 和已确认 canon；裁决状态变化；调度 `simulator.actor` 等子 simulator；产出 state commit、writer-safe brief、director handoff | 不设计长期剧情结构；不写正式正文；不把隐藏信息直接暴露给 subject-facing 输出 |
+| `simulator.leader` | 世界模拟器主管 | 根据用户、director 或 leader 的指令模拟 `simulation/`；遵循 `AGENTS.md`、`agent-context/simulator.leader.md`、subject/entity state 和已确认 canon；裁决状态变化；调度 `simulator.actor` 等子 simulator；产出 state commit、writer-safe brief、director handoff | 不设计长期剧情结构；不写正式正文；不把隐藏信息直接暴露给 subject-facing 输出 |
 | `simulator.actor` | 单个 subject 的模拟器 | 基于 subject-facing packet 与自身 `subject.md`、`events.md`、`knowledge.md`、`mind.md`、`state.md` 模拟角色反应；返回给 `simulator.leader` | 不读取 god-view lorebook；不裁决全局世界状态；不替其它 subject 做决定 |
 | `director` | 剧情导演 | 管理和设计 Thread / Scene / Plot；控制剧情节奏、冲突、伏笔、回收和推进方向；把确认后的剧情设计写入 Plot System；向 writer 提供可写的剧情结构 | 不维护 `simulation/subjects` 或 `simulation/entities` 的运行态；不写正式正文；不绕过 simulator 做世界状态裁决 |
 | `writer` | 普通章节正文 writer | 根据目标章节、Chapter Plot、director/leader 提供的上下文和显式 `lorebookEntries` 写正式章节正文 | 不设计 Plot；不维护 simulation；不自行检索或吞并 director/simulator 职责 |
@@ -530,7 +530,7 @@ Resolved mismatch:
 
 - 删除 `leader.rp` builtin profile、compiled artifact 和 `LeaderRp*` contracts；RP / simulation 入口统一使用 `simulator.leader`。
 - `simulator.leader` input schema 删除 `mode`；写作、RP、全自动或半自动模式由每轮 prompt 指定。
-- `simulator.leader` prompt 强化读取顺序：先遵守 `AGENTS.md` 与 `simulation/simulator.md`，冲突时以 `AGENTS.md` 为准；再按需读取最近 tick、相关 lorebook、Plot 和 state。
+- `simulator.leader` prompt 强化读取顺序：先遵守 `AGENTS.md` 与 `agent-context/simulator.leader.md`，冲突时以 `AGENTS.md` 为准；再按需读取最近 tick、相关 lorebook、Plot 和 state。
 - `simulator.leader` 负责持有和调度 emulator；为需要模拟的 subject 创建或复用 `simulator.actor`，并逐个发送 actor-facing packet。
 - 新建 subject / entity 默认先通过 `open_questions` 或 `state_change_requests` 报告，获批后再创建；明确全自动下一 tick 时可以直接推进但必须报告提交内容。
 - `simulator.actor` 主 run 不再直接读取 `subject.md`、`events.md`、`knowledge.md`、`mind.md`、`state.md` 原文；这些文件只由 context-load / memory-save sidecar 使用。

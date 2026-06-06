@@ -43,7 +43,7 @@ export type RecordContextAccessInput = {
     now?: Date;
 };
 
-export type RecordExplicitLorebookEntriesInput = {
+export type RecordExplicitContextEntriesInput = {
     projectRoot: string;
     projectSlug: string;
     profileKey: string;
@@ -53,7 +53,7 @@ export type RecordExplicitLorebookEntriesInput = {
 };
 
 /**
- * 记录成功读取或显式输入的内容节点访问，并刷新 generated recommendations。
+ * 记录成功读取或显式输入的 Project 上下文访问，并刷新 generated recommendations。
  */
 export async function recordContextAccess(input: RecordContextAccessInput): Promise<void> {
     const normalized = normalizeContentAccessPath(input.filePath);
@@ -73,9 +73,9 @@ export async function recordContextAccess(input: RecordContextAccessInput): Prom
 }
 
 /**
- * 记录 writer 等 profile invocation 中显式传入的 lorebookEntries。
+ * 记录 writer 等 profile invocation 中显式传入的 context entries。
  */
-export async function recordExplicitLorebookEntries(input: RecordExplicitLorebookEntriesInput): Promise<void> {
+export async function recordExplicitContextEntries(input: RecordExplicitContextEntriesInput): Promise<void> {
     const profileKey = contextProfileKey(input.profileKey);
     for (const entry of input.entries) {
         await updateContextAccessState({
@@ -215,7 +215,7 @@ async function readContextAccessState(statePath: string, projectSlug: string, pr
 }
 
 async function writeGeneratedRecommendations(projectRoot: string, state: ContextAccessState): Promise<void> {
-    const generatedPath = path.join(projectRoot, "lorebook", "context", "generated", `${safeProfileFileName(state.profile)}.md`);
+    const generatedPath = path.join(projectRoot, "agent-context", "generated", `${safeProfileFileName(state.profile)}.md`);
     await fs.mkdir(path.dirname(generatedPath), {recursive: true});
     await fs.writeFile(generatedPath, renderGeneratedRecommendations(state), "utf-8");
 }

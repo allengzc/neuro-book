@@ -117,10 +117,12 @@ function fakeFrame(): RunFrame {
         thinkingLevel: "off",
         runtimeState: new Map(),
         messages: [],
+        nextTurnRuntimeMessages: [],
         turnIndex: 1,
         reportResultReminderSent: false,
         reportResultReminderEnabled: false,
         caller: {kind: "user"},
+        automaticCompactionDoneForTurn: false,
         pendingWritePlans: [],
     };
 }

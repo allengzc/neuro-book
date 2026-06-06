@@ -5,7 +5,7 @@ import {dirname, join, relative, resolve, win32} from "node:path";
 import {createPatch} from "diff";
 import {Type} from "typebox";
 import type {Static} from "typebox";
-import {recordContextAccess} from "nbook/server/agent/context-access/lorebook-context-access";
+import {recordContextAccess} from "nbook/server/agent/context-access/profile-context-access";
 import {detectImageMimeType, assertReadable, assertWritable, firstChangedLine, resolveWorkspacePath} from "nbook/server/agent/tools/file-tool-utils";
 import {formatSize, DEFAULT_MAX_BYTES, truncateHead, type TruncationResult} from "nbook/server/agent/tools/truncate";
 import {OutputAccumulator} from "nbook/server/agent/tools/output-accumulator";

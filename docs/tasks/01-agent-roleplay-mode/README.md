@@ -2,11 +2,13 @@
 
 ## Current Target: Simulation Hard Cut
 
+2026-06-06 update: 本任务里的早期 `simulation/simulator.md`、`simulation/writer.md`、`simulation/config.yaml`、`simulation/cast.yaml` 说法已经被 profile context V2 取代。当前合同是：所有 profile 先读 Project root `AGENTS.md`，再读自己的 `agent-context/{profile}.md` / `agent-context/generated/{profile}.md`；`simulator.leader` 读 `agent-context/simulator.leader.md`，`rp.writer` 读 `agent-context/rp.writer.md`；`simulation/` 只保留 `subjects/`、`entities/`、`runs/` runtime state。
+
 本任务当前实现目标已从独立 `roleplay/` 运行目录硬切为默认 Project 模板内的 `simulation/`：
 
 - 新 Project 默认使用 `assets/workspace/.nbook/templates/project-directory-templates`。
 - `simulation/` 随默认 Project 模板创建，不再安装独立 `roleplay-directory-templates`。
-- 旧 `roleplay/gm.md` 改为 `simulation/simulator.md`。
+- 旧 `roleplay/gm.md` 的当前对应入口是 `agent-context/simulator.leader.md`。
 - 旧 `roleplay/actors/{id}/actor.md` 改为 `simulation/subjects/{id}/subject.md`。
 - 旧 `roleplay/playthrough/` 改为 `simulation/runs/`。
 - `leader.rp`、`simulator.actor`、`rp.writer` 是当前 RP/simulation profile 组合，提示词和路径合同使用 simulation / subject / entity 口径。

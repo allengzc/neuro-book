@@ -48,7 +48,7 @@ import {applyFailedTurnTransaction, applySuccessfulTurnTransaction} from "nbook/
 import {applyNextTurnPreparation} from "nbook/server/agent/harness/prepare-next-turn";
 import {assertValidProfileStateWrite, compilePrepareRunWritePlan} from "nbook/server/agent/harness/prepare-run";
 import {toRunKernelErrorInfo, withRunKernelPhase} from "nbook/server/agent/harness/run-kernel-error";
-import {createRunFrame} from "nbook/server/agent/harness/run-frame-state";
+import {consumeNextTurnModelMessages, createRunFrame} from "nbook/server/agent/harness/run-frame-state";
 import {resolvePiApiKeyForModelFromConfig, resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
 import {planModeDirectory, resolvePlanModeFile} from "nbook/server/agent/plan-mode-path";
 import type {EffectiveConfig} from "nbook/server/config/types";
@@ -2134,6 +2134,7 @@ export class NeuroAgentHarness {
     private async createTurnSnapshot(frame: RunFrame): Promise<TurnSnapshot> {
         const snapshot = await this.repo.readSession(frame.sessionId, frame.workspaceKey);
         const context = this.repo.reduce(snapshot);
+        const modelMessages = consumeNextTurnModelMessages(frame);
         const prepareTurn = await this.runRuntimeHooks({
             sessionId: frame.sessionId,
             invocationId: frame.invocationId ?? "",
@@ -2144,7 +2145,7 @@ export class NeuroAgentHarness {
             context,
             caller: frame.caller,
             turnIndex: frame.turnIndex,
-            modelMessages: frame.messages,
+            modelMessages,
         });
         const requestOptions = {
             ...frame.requestOptions,
@@ -2154,7 +2155,7 @@ export class NeuroAgentHarness {
         const executionToolKeys = frame.executionToolKeys ?? toolKeys;
         const toolOverrides = await this.toolOverrides(toolKeys, frame.profileKey);
         const tools = this.tools.allowedWithOverrides(toolKeys, toolOverrides);
-        const providerMessages = frame.messages.filter((message): message is Message => {
+        const providerMessages = modelMessages.filter((message): message is Message => {
             return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
         });
         if (!frame.disableAutomaticCompaction && !frame.compaction) {
@@ -2169,7 +2170,7 @@ export class NeuroAgentHarness {
             sessionSnapshot: snapshot,
             sessionContext: context,
             systemPrompt: frame.systemPrompt,
-            modelMessages: frame.messages.slice(),
+            modelMessages,
             providerMessages,
             model: frame.model,
             apiKey: frame.apiKey,
@@ -2343,20 +2344,18 @@ export class NeuroAgentHarness {
             const compactedSnapshot = await this.repo.readSession(frame.sessionId, frame.workspaceKey);
             frame.messages = this.repo.reduce(compactedSnapshot).messages;
         }
-        for (const runtimeMessage of nextTurnHooks.runtimeMessages) {
-            frame.messages.push(runtimeMessage);
-        }
+        frame.nextTurnRuntimeMessages = nextTurnHooks.runtimeMessages;
     }
 
     private async compactBeforeNextTurn(frame: RunFrame): Promise<boolean> {
-        if (frame.disableAutomaticCompaction) {
+        if (frame.disableAutomaticCompaction || frame.automaticCompactionDoneForTurn) {
             return false;
         }
         if (!frame.compaction) {
             this.assertContextWithinWindow(frame);
             return false;
         }
-        return compactIfNeeded({
+        const compacted = await compactIfNeeded({
             repo: this.repo,
             snapshot: await this.repo.readSession(frame.sessionId, frame.workspaceKey),
             messages: frame.messages,
@@ -2374,6 +2373,8 @@ export class NeuroAgentHarness {
                 }).append("compact.auto", entry);
             },
         });
+        frame.automaticCompactionDoneForTurn = compacted;
+        return compacted;
     }
 
     /**

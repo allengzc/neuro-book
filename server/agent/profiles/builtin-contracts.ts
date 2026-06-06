@@ -76,7 +76,7 @@ export const DirectorOutputSchema = Type.Object({
  * simulator.actor 的实例初始化参数。每轮 GM packet 通过 invoke_agent.message 传入。
  */
 export const SubjectSimulatorInputSchema = Type.Object({
-    actorId: Type.String({description: "本局 subject simulator id，必须与 simulation/cast.yaml 中的 subject id 对应。"}),
+    actorId: Type.String({description: "本局 subject simulator id，通常与 simulation/subjects/{id}/ 目录名对应。"}),
     actorName: Type.Optional(Type.String({description: "角色可读名。为空时使用 actorId。"})),
     kind: Type.Optional(Type.String({description: "actor 类型，例如 player、npc、faction、system。"})),
     instructionPath: Type.String({description: "subject simulator 指令文件路径，必须相对于 Agent cwd，例如 project-slug/simulation/subjects/erina/subject.md。"}),
@@ -99,14 +99,14 @@ export const SubjectSimulatorOutputSchema = Type.Object({
  * rp.writer 的实例初始化参数。每轮 writer brief 通过 invoke_agent.message 传入。
  */
 export const RpWriterInputSchema = Type.Object({
-    writerInstructionPath: Type.String({description: "RP writer 提示词素材路径，必须相对于 Agent cwd，例如 project-slug/simulation/writer.md。"}),
+    writerInstructionPath: Type.String({description: "RP writer 提示词素材路径，必须相对于 Agent cwd，例如 project-slug/agent-context/rp.writer.md。"}),
     style: Type.Optional(Type.String({description: "稳定文风偏好。临时 Tick 文风要求应放在 writer brief 中。"})),
     outputRequirements: Type.Optional(Type.Array(Type.String({description: "稳定输出约束，例如人称、篇幅、Markdown 规则。"}), {description: "可选稳定输出约束。"})),
-    language: Type.Optional(Type.String({description: "输出语言，例如 zh-CN。默认跟随 GM writer brief。"})),
+    language: Type.Optional(Type.String({description: "输出语言，例如 zh-CN。默认跟随 writer brief。"})),
 });
 
 /**
- * rp.writer 的普通输出合同。rp.writer 默认直接回复正文，只有 GM 明确要求写入文件时才使用文件工具。
+ * rp.writer 的普通输出合同。rp.writer 默认直接回复正文，只有 writer brief 明确要求写入文件时才使用文件工具。
  */
 export const RpWriterOutputSchema = Type.Object({
     result: Type.Optional(Type.String({description: "可选结果说明。rp.writer 通常直接用普通 assistant 回复输出正文，不要求 report_result。"})),
