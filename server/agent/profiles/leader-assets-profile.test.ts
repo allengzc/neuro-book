@@ -205,6 +205,8 @@ describe("assets builtin v3 profiles", () => {
         expect(historyText).toContain("Skills are reusable work methods");
         expect(historyText).toContain("These agent profiles are currently available");
         expect(historyText).toContain("```AGENTS.md");
+        expect(historyText).toContain("```reference/agent/workspace-tool-use.md");
+        expect(historyText).toContain("Workspace Tool Use");
         expect(historyText).toContain("```reference/agent/leader-default.md");
         expect(historyText).toContain("Leader Default Operational Protocol");
         expect(historyText).toContain("Writing Emulation");

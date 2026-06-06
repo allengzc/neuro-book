@@ -79,6 +79,8 @@ describe("agent session http helpers", () => {
             mode: "prompt",
             message: {text: "hello"},
             resolution: undefined,
+            clientState: undefined,
+            caller: {kind: "user"},
             block: undefined,
             onEvent: undefined,
         });
@@ -157,6 +159,8 @@ describe("agent session http helpers", () => {
                 toolCallId: "tool-1",
                 approved: true,
             },
+            clientState: undefined,
+            caller: {kind: "user"},
             block: undefined,
             onEvent,
         });

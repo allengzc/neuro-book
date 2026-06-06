@@ -2,6 +2,7 @@ import type {AgentMessage, AssistantMessage, JsonValue, Message, ToolResultMessa
 import type {SessionWritePlan} from "nbook/server/agent/session/write-plan";
 import type {NeuroSessionContext, SessionId, SessionSnapshot} from "nbook/server/agent/session/types";
 import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
+import type {AgentInvokeCaller} from "nbook/server/agent/harness/types";
 
 export type AgentRuntimeHookStage =
     | "prepareRun"
@@ -99,6 +100,9 @@ export type AgentRuntimeHookContext<TInput = JsonValue> = {
     runtimeState: JsonValue | undefined;
     turnIndex?: number;
     pendingUserMessage?: Message;
+    invocation: {
+        caller: AgentInvokeCaller;
+    };
     turn?: {
         assistant: AssistantMessage;
         toolResults: ToolResultMessage[];
@@ -201,11 +205,18 @@ export const agentRuntimeBuiltins = {
         });
     },
     reportResult<TInput = JsonValue>(): AgentRuntimeHook<TInput> {
-        return builtinHook("reportResult", "prepareRun", {
-            builtinBehavior: {
-                reportResultReminder: true,
+        return {
+            name: "builtin.reportResult",
+            stage: "prepareRun",
+            builtin: true,
+            run(ctx) {
+                return {
+                    builtinBehavior: {
+                        reportResultReminder: ctx.invocation.caller.kind !== "user",
+                    },
+                };
             },
-        });
+        };
     },
 };
 

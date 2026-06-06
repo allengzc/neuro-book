@@ -145,6 +145,7 @@ export function toInvokeInput(
         message: body.message,
         resolution: body.resolution,
         clientState: body.clientState,
+        caller: {kind: "user"},
         block: body.block,
         onEvent,
     };

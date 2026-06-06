@@ -124,6 +124,7 @@ describe("turn failure helpers", () => {
             turnIndex: 1,
             reportResultReminderSent: false,
             reportResultReminderEnabled: false,
+            caller: {kind: "user"},
             pendingWritePlans: [],
         };
 

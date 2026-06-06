@@ -5,7 +5,7 @@ import type {NeuroSessionContext, InvocationErrorInfo, SessionSnapshot} from "nb
 import type {SessionWritePlan} from "nbook/server/agent/session/write-plan";
 import type {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
-import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
+import type {AgentInvokeCaller, InvokeAgentResult} from "nbook/server/agent/harness/types";
 import type {AgentRuntimeStreamEventDto} from "nbook/shared/dto/agent-session.dto";
 
 export type RunRuntimeState = Map<string, JsonValue>;
@@ -38,6 +38,7 @@ export type RuntimeHookExecutionInput = {
     context?: NeuroSessionContext;
     turnIndex?: number;
     pendingUserMessage?: Message;
+    caller: AgentInvokeCaller;
     turn?: {
         assistant: AssistantMessage;
         toolResults: ToolResultMessage[];
@@ -133,6 +134,7 @@ export type RunFrame = {
     turnIndex: number;
     reportResultReminderSent: boolean;
     reportResultReminderEnabled: boolean;
+    caller: AgentInvokeCaller;
     /** sidecar run 强制不把 assistant/toolResult transcript 写入 session。 */
     forceRuntimeOnlyTranscript?: boolean;
     /** sidecar run 默认不向公开事件流发送内部 turn 事件。 */

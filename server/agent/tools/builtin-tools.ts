@@ -227,13 +227,14 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
                     sessionId: invocation.sessionId,
                     mode: invocation.mode ?? (invocation.message ? "prompt" : "continue"),
                     message: invocation.message ? {text: invocation.message} : undefined,
+                    caller: {kind: "agent"},
                 });
                 return {
                     content: [{type: "text", text: JSON.stringify(toInvokeAgentToolDetails(result), null, 2)}],
                     details: toInvokeAgentToolDetails(result),
                 };
             },
-            async executeWithContext(context, _toolCallId, params: unknown) {
+            async executeWithContext(context, toolCallId, params: unknown) {
                 const invocation = params as Static<typeof InvokeAgentSchema>;
                 if (invocation.sessionId === context.sessionId) {
                     throw new Error("invoke_agent 不能调用当前 session 自己；请直接继续当前对话，或 create_agent 后调用新 agent session。");
@@ -242,6 +243,12 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
                     sessionId: invocation.sessionId,
                     mode: invocation.mode ?? (invocation.message ? "prompt" : "continue"),
                     message: invocation.message ? {text: invocation.message} : undefined,
+                    caller: {
+                        kind: "agent",
+                        sessionId: context.sessionId,
+                        profileKey: context.profileKey,
+                        toolCallId,
+                    },
                 });
                 return {
                     content: [{type: "text", text: JSON.stringify(toInvokeAgentToolDetails(result), null, 2)}],

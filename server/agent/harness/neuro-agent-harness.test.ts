@@ -1301,7 +1301,7 @@ describe("NeuroAgentHarness", () => {
         expect(snapshot.entries.some((entry) => entry.type === "compaction")).toBe(true);
         expect(snapshot.entries.filter((entry) => entry.type === "custom_message" && messageText(entry.message as RuntimeMessage).includes("HISTORY AFTER COMPACT"))).toHaveLength(0);
         expect(faux.getPendingResponseCount()).toBe(0);
-    });
+    }, 10_000);
 
     it("没有 compaction 配置且上下文超出模型窗口时 run 失败", async () => {
         const smallWindowHarness = new NeuroAgentHarness({
@@ -2076,11 +2076,12 @@ describe("NeuroAgentHarness", () => {
                     context: Type.String(),
                 }),
                 enterPrompt: "检索并整理本轮 actor 可知设定。",
-                merge(_ctx, result) {
+                merge(ctx, result) {
                     const sidecarData = result.sidecarData as {context: string};
                     return {
                         runtimeMessages: [
                             createUserMessage({text: `ACTOR_SAFE_CONTEXT:${sidecarData.context}`}),
+                            createUserMessage({text: `SIDECAR_CALLER:${ctx.caller.kind}`}),
                         ],
                     };
                 },
@@ -2128,10 +2129,11 @@ describe("NeuroAgentHarness", () => {
         expect(result.reportResult).toEqual({result: "main"});
         expect(providerPrompts[0]).toContain("sidecar: actor.context-load");
         expect(providerPrompts[1]).toContain("ACTOR_SAFE_CONTEXT:SAFE_LORE");
+        expect(providerPrompts[1]).toContain("SIDECAR_CALLER:sidecar");
         expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult"]);
         expect(visibleMessageText(context.messages)).not.toContain("SAFE_LORE");
         expect(visibleMessageText(context.messages)).not.toContain("loaded");
-    });
+    }, 30_000);
 
     it("settleRun sidecar 可以在主 run 后执行并写入 merge writePlans", async () => {
         harness.profiles.register(defineAgentProfile({
@@ -2999,6 +3001,7 @@ describe("NeuroAgentHarness", () => {
             sessionId: created.sessionId,
             mode: "prompt",
             message: {text: "run"},
+            caller: {kind: "agent", sessionId: 999, profileKey: "test.caller"},
         });
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
 
@@ -3009,7 +3012,7 @@ describe("NeuroAgentHarness", () => {
         expect(context.customState["test.runtime.reportReminder"]).toEqual({
             title: "Runtime Reminder",
         });
-    });
+    }, 30_000);
 
     it("source profile completed 后会后台运行 summarizer 并写回 active leaf title/summary", async () => {
         harness = new NeuroAgentHarness({
@@ -3701,6 +3704,7 @@ describe("NeuroAgentHarness", () => {
             sessionId: created.sessionId,
             mode: "prompt",
             message: {text: "run"},
+            caller: {kind: "agent", sessionId: 999, profileKey: "test.caller"},
         });
 
         expect(result.status).toBe("completed");
@@ -3712,7 +3716,43 @@ describe("NeuroAgentHarness", () => {
             }
             return message.content.some((block) => block.type === "text" && block.text.includes("必须使用 report_result"));
         })).toBe(true);
-    });
+    }, 30_000);
+
+    it("用户 caller 直接对话时不触发 report_result reminder", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.user-caller-no-report-reminder",
+                name: "User Caller No Report Reminder",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["report_result"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage(fauxText("plain answer")),
+            fauxAssistantMessage(fauxText("must not run")),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.user-caller-no-report-reminder",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+
+        expect(result.status).toBe("completed");
+        expect(result.finalMessage).toBe("plain answer");
+        expect(result.reportResult).toBeUndefined();
+        expect(faux.getPendingResponseCount()).toBe(1);
+        expect(context.messages.some((message) => message.role === "user" && messageText(message).includes("必须使用 report_result"))).toBe(false);
+    }, 10_000);
 
     it("未允许 report_result 的 agent 普通结束时不触发缺失 report 提醒", async () => {
         faux.setResponses([

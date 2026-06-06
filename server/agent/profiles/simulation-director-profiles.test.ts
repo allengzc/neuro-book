@@ -47,6 +47,7 @@ describe("simulation and director builtin profiles", () => {
             "write",
             "edit",
             "apply_patch",
+            "bash",
             "create_agent",
             "invoke_agent",
             "get_agent",
@@ -56,17 +57,19 @@ describe("simulation and director builtin profiles", () => {
             "get_story_thread",
             "get_story_scene_context",
             "get_chapter_plot",
-            "report_result",
         ]);
         expect(simulatorLeaderProfile.allowedToolKeys).not.toContain("create_story_plot");
+        expect(simulatorLeaderProfile.allowedToolKeys).not.toContain("report_result");
         expect(prompt).toContain("世界模拟主管");
         expect(prompt).toContain("writer_safe_brief");
         expect(prompt).toContain("director_handoff");
         expect(prompt).toContain("不设计长期 Thread / Scene / Plot");
         expect(prompt).toContain("mode: 每轮任务 prompt 指定");
         expect(prompt).toContain("AGENTS.md 与 simulation/simulator.md");
-        expect(prompt).toContain("新建 subject 或 entity");
+        expect(prompt).toContain("最小 subject scaffold");
+        expect(prompt).toContain("直接用普通 assistant 文本返回最终结果");
         expect(prompt).toContain("projectPath: workspace/rp-project");
+        expect(prompt).toContain("reference/agent/workspace-tool-use.md");
         expect(prompt).toContain("reference/content/simulation.md");
     });
 

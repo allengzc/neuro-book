@@ -36,9 +36,19 @@ export type InvokeAgentInput = {
     message?: AgentUserMessageInput;
     resolution?: AgentResolution;
     clientState?: ClientStateSnapshot;
+    caller?: AgentInvokeCaller;
     block?: boolean;
     onEvent?: (event: AgentRuntimeStreamEventDto) => void | Promise<void>;
     internalQueued?: boolean;
+};
+
+export type AgentInvokeCallerKind = "user" | "agent" | "sidecar" | "system";
+
+export type AgentInvokeCaller = {
+    kind: AgentInvokeCallerKind;
+    sessionId?: number;
+    profileKey?: string;
+    toolCallId?: string;
 };
 
 export type InvokeAgentStatus = "completed" | "waiting" | "error";

@@ -60,6 +60,7 @@ import type {
     AgentTreeResult,
     CreateAgentInput,
     CreateAgentResult,
+    AgentInvokeCaller,
     InvokeAgentInput,
     InvokeAgentResult,
     SessionQueryResult,
@@ -168,6 +169,7 @@ type SidecarRunContext = {
     toolKeys: string[];
     thinkingLevel: ThinkingLevel;
     runtimeState: RunRuntimeState;
+    caller: AgentInvokeCaller;
     abortSignal?: AbortSignal;
     runResult?: RunLoopResult;
     finalResult?: InvokeAgentResult;
@@ -342,6 +344,7 @@ export class NeuroAgentHarness {
         if (input.block === false) {
             throw new Error("block:false 第一版尚未实现");
         }
+        const caller = this.normalizeInvokeCaller(input.caller);
         const admission = await this.withSessionAdmission(input.sessionId, () => this.admitInvocation(input));
         if ("queued" in admission) {
             return admission.queued;
@@ -363,6 +366,7 @@ export class NeuroAgentHarness {
                 pendingUserMessage,
                 clientState: input.clientState,
                 runtimeState,
+                caller,
             });
             await this.runSidecarPasses({
                 stage: "prepareRun",
@@ -383,6 +387,7 @@ export class NeuroAgentHarness {
                     toolKeys: preparedRun.toolKeys,
                     thinkingLevel: preparedRun.thinkingLevel,
                     runtimeState,
+                    caller,
                     abortSignal: abortController.signal,
                 },
                 applyRuntimeMessages(messages) {
@@ -410,6 +415,7 @@ export class NeuroAgentHarness {
                 thinkingLevel: preparedRun.thinkingLevel,
                 runtimeState,
                 reportResultReminderEnabled: preparedRun.reportResultReminderEnabled,
+                caller,
                 abortSignal: abortController.signal,
                 invocationId,
                 onEvent: input.onEvent,
@@ -433,6 +439,7 @@ export class NeuroAgentHarness {
                 runtimeState,
                 runResult: result,
                 finalResult,
+                caller,
             });
             return finalResult;
         } catch (error) {
@@ -444,6 +451,10 @@ export class NeuroAgentHarness {
                 aborted: abortController.signal.aborted,
             });
         }
+    }
+
+    private normalizeInvokeCaller(caller: InvokeAgentInput["caller"]): AgentInvokeCaller {
+        return caller ?? {kind: "user"};
     }
 
     private async admitInvocation(input: InvokeAgentInput): Promise<InvocationAdmission> {
@@ -631,6 +642,7 @@ export class NeuroAgentHarness {
         runtimeState: RunRuntimeState;
         runResult: Awaited<ReturnType<NeuroAgentHarness["runLoop"]>>;
         finalResult: InvokeAgentResult;
+        caller: AgentInvokeCaller;
     }): Promise<void> {
         if (input.finalResult.status !== "error") {
             if (input.finalResult.status === "completed") {
@@ -661,6 +673,7 @@ export class NeuroAgentHarness {
                         runtimeState: input.runtimeState,
                         runResult: input.runResult,
                         finalResult: input.finalResult,
+                        caller: input.caller,
                     },
                 });
             }
@@ -671,6 +684,7 @@ export class NeuroAgentHarness {
                 runtimeState: input.runtimeState,
                 status: input.finalResult.status,
                 result: input.runResult,
+                caller: input.caller,
             });
         }
         const aborted = input.runResult.status === "failed" && input.runResult.terminalStatus === "aborted";
@@ -732,6 +746,7 @@ export class NeuroAgentHarness {
         pendingUserMessage: Message | null;
         clientState?: ClientStateSnapshot;
         runtimeState: RunRuntimeState;
+        caller: AgentInvokeCaller;
     }): Promise<PreparedRun> {
         let snapshot = input.snapshot;
         if (input.pendingResolution) {
@@ -750,6 +765,7 @@ export class NeuroAgentHarness {
             stage: "prepareRun",
             snapshot,
             pendingUserMessage: input.pendingUserMessage ?? undefined,
+            caller: input.caller,
         });
 
         snapshot = await this.repo.readSession(input.sessionId);
@@ -757,6 +773,7 @@ export class NeuroAgentHarness {
             invocationId: input.invocationId,
             pendingUserMessage: input.pendingUserMessage ?? undefined,
             clientState: input.clientState,
+            caller: input.caller,
             sessionContextEnabled: prepareRunHooks.sessionContext === true,
         });
         if (prepared.writePlan) {
@@ -834,6 +851,7 @@ export class NeuroAgentHarness {
         runtimeState: RunRuntimeState;
         status: "completed" | "waiting";
         result: Awaited<ReturnType<NeuroAgentHarness["runLoop"]>>;
+        caller: AgentInvokeCaller;
     }): Promise<void> {
         if (input.result.status === "failed") {
             return;
@@ -848,6 +866,7 @@ export class NeuroAgentHarness {
             stage: "settleRun",
             snapshot,
             context,
+            caller: input.caller,
             runResult: {
                 status: input.status,
                 finalAssistant: input.result.finalAssistant,
@@ -1578,6 +1597,7 @@ export class NeuroAgentHarness {
         invocationId?: string;
         pendingUserMessage?: Message;
         clientState?: ClientStateSnapshot;
+        caller: AgentInvokeCaller;
         sessionContextEnabled: boolean;
     }): Promise<PreparedRunProfile> {
         const profile = await this.profiles.get(snapshot.metadata.profileKey);
@@ -1596,6 +1616,7 @@ export class NeuroAgentHarness {
             invocation: {
                 input: options.pendingUserMessage ? {message: messageText(options.pendingUserMessage)} : undefined,
                 clientState: options.clientState,
+                caller: options.caller,
             },
             vars,
             catalog: await this.profiles.snapshot(),
@@ -1753,6 +1774,11 @@ export class NeuroAgentHarness {
         const result = await this.invokeAgent({
             sessionId: summarizerSession.metadata.sessionId,
             mode: "continue",
+            caller: {
+                kind: "system",
+                sessionId: sourceSnapshot.metadata.sessionId,
+                profileKey: sourceSnapshot.metadata.profileKey,
+            },
             internalQueued: true,
         });
         if (result.status === "error") {
@@ -1965,6 +1991,7 @@ export class NeuroAgentHarness {
         thinkingLevel: ThinkingLevel;
         runtimeState: RunRuntimeState;
         reportResultReminderEnabled: boolean;
+        caller: AgentInvokeCaller;
         abortSignal?: AbortSignal;
         invocationId?: string;
         onEvent?: (event: AgentRuntimeStreamEventDto) => void | Promise<void>;
@@ -2115,6 +2142,7 @@ export class NeuroAgentHarness {
             stage: "prepareTurn",
             snapshot,
             context,
+            caller: frame.caller,
             turnIndex: frame.turnIndex,
             modelMessages: frame.messages,
         });
@@ -2249,6 +2277,7 @@ export class NeuroAgentHarness {
             messageStatus: input.messageStatus,
             profile: frame.profile,
             runtimeState: frame.runtimeState,
+            caller: frame.caller,
             turnIndex: frame.turnIndex,
             pendingWritePlans: frame.pendingWritePlans,
             forceRuntimeOnlyTranscript: frame.forceRuntimeOnlyTranscript,
@@ -2296,6 +2325,7 @@ export class NeuroAgentHarness {
             stage: "prepareNextTurn",
             snapshot,
             context,
+            caller: frame.caller,
             turnIndex: frame.turnIndex,
             turn: {
                 assistant: turn.assistant,
@@ -2955,6 +2985,7 @@ export class NeuroAgentHarness {
             sessionId,
             mode: "prompt",
             message: next.message,
+            caller: {kind: "system", sessionId},
             internalQueued: true,
         });
     }
@@ -3462,6 +3493,7 @@ export class NeuroAgentHarness {
         messageStatus?: "partial" | "interrupted" | "error";
         profile: AgentProfile;
         runtimeState: RunRuntimeState;
+        caller: AgentInvokeCaller;
         turnIndex: number;
         pendingWritePlans: PendingSessionWritePlan[];
         forceRuntimeOnlyTranscript?: boolean;
@@ -3478,6 +3510,7 @@ export class NeuroAgentHarness {
             stage: "ingestTurn",
             snapshot,
             context,
+            caller: input.caller,
             turnIndex: input.turnIndex,
             turn: {
                 assistant: input.assistant,
@@ -3570,6 +3603,9 @@ export class NeuroAgentHarness {
                 runtimeState: input.runtimeState.get(hook.name),
                 turnIndex: input.turnIndex,
                 pendingUserMessage: input.pendingUserMessage,
+                invocation: {
+                    caller: input.caller,
+                },
                 turn: input.turn,
                 runResult: input.runResult,
                 modelMessages: input.modelMessages,
@@ -3778,6 +3814,11 @@ export class NeuroAgentHarness {
             thinkingLevel: sidecarRun.thinkingLevel,
             runtimeState: new Map(sidecarRun.runtimeState),
             reportResultReminderEnabled: false,
+            caller: {
+                kind: "sidecar",
+                sessionId: sidecarRun.sessionId,
+                profileKey: sidecarRun.context.profileKey,
+            },
             abortSignal: sidecarRun.abortSignal,
             invocationId: sidecarRun.invocationId,
             forceRuntimeOnlyTranscript: true,
@@ -3809,6 +3850,11 @@ export class NeuroAgentHarness {
             input: sidecarRun.snapshot.metadata.input,
             invocationId: sidecarRun.invocationId,
             profileKey: sidecarRun.context.profileKey,
+            caller: {
+                kind: "sidecar",
+                sessionId: sidecarRun.sessionId,
+                profileKey: sidecarRun.context.profileKey,
+            },
             runResult: sidecarRun.runResult && sidecarRun.finalResult ? {
                 status: sidecarRun.finalResult.status === "waiting" ? "waiting" : "completed",
                 finalMessage: sidecarRun.finalResult.finalMessage,

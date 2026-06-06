@@ -109,6 +109,9 @@ export default defineAgentProfile({
                         <Import path="AGENTS.md" />
                     </Message>
                     <Message>
+                        <Import path="reference/agent/workspace-tool-use.md" />
+                    </Message>
+                    <Message>
                         <Import path="reference/agent/leader-default.md" />
                     </Message>
                     <Message>

@@ -29,6 +29,7 @@ describe("run frame state", () => {
             thinkingLevel: "off",
             runtimeState,
             reportResultReminderEnabled: true,
+            caller: {kind: "user"},
             onEvent,
         });
 
@@ -49,6 +50,7 @@ describe("run frame state", () => {
             turnIndex: 0,
             reportResultReminderSent: false,
             reportResultReminderEnabled: true,
+            caller: {kind: "user"},
             pendingWritePlans: [],
         });
         expect(frame.messages).toEqual([message]);
@@ -141,6 +143,7 @@ function fakeFrame(): RunFrame {
         turnIndex: 0,
         reportResultReminderSent: false,
         reportResultReminderEnabled: false,
+        caller: {kind: "user"},
         pendingWritePlans: [],
     };
 }

@@ -21,4 +21,12 @@ describe("AgentInvokeRequestDtoSchema", () => {
             message: {text: "不应出现"},
         }).success).toBe(false);
     });
+
+    it("拒绝前端提交内部 caller identity", () => {
+        expect(AgentInvokeRequestDtoSchema.safeParse({
+            mode: "prompt",
+            message: {text: "hello"},
+            caller: {kind: "agent"},
+        }).success).toBe(false);
+    });
 });

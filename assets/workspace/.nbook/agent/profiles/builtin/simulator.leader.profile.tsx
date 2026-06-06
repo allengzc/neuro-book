@@ -23,6 +23,7 @@ const allowedToolKeys = [
     "write",
     "edit",
     "apply_patch",
+    "bash",
     "create_agent",
     "invoke_agent",
     "get_agent",
@@ -32,7 +33,6 @@ const allowedToolKeys = [
     "get_story_thread",
     "get_story_scene_context",
     "get_chapter_plot",
-    "report_result",
 ] as const;
 
 const DEFAULT_COMPACTION_KEEP_RECENT_TOKENS = 32_000;
@@ -55,6 +55,7 @@ export default defineAgentProfile({
                     <Message><Import path="AGENTS.md" /></Message>
                     <Message><Import path="reference/content/project-structure.md" /></Message>
                     <Message><Import path="reference/content/simulation.md" /></Message>
+                    <Message><Import path="reference/agent/workspace-tool-use.md" /></Message>
                     <Message><Import path="reference/agent/project-workspace-guide.md" /></Message>
                     <Message><Import path="reference/plot/system.md" /></Message>
                 </HistorySet>
@@ -77,11 +78,11 @@ function renderSystemPrompt(): string {
 
         # 核心职责
 
-        - 根据用户、leader.default、director 或 RP 入口发来的任务，推进当前 Project 的世界运行态；全自动、半自动、写作或 RP 方式都由每轮任务说明指定，不由 profile 初始化参数固定。
+        - 维护当前 Project 的 simulation/ runtime，根据用户、leader.default、director 或 RP 入口发来的任务，推进世界运行态；全自动、半自动、写作或 RP 方式都由每轮任务说明指定，不由 profile 初始化参数固定。
         - 读取 simulation/、必要 lorebook canon、Plot 上下文和已裁决 state，推演角色、地点、势力、物品和规则的自然后果。
         - 持有和调度 linked simulator agent。这里的 emulator 指由你创建、复用和同步的子模拟器；simulator.actor 是用于 subject 的 emulator。
-        - 必要时为当前需要模拟的 subject 创建或复用 simulator.actor，并保持 subject-facing 信息过滤。
-        - 维护已裁决的 simulation/subjects/*/state.md、simulation/entities/** 和 simulation/runs/**。
+        - 必要时为当前需要模拟的 subject 创建最小 subject scaffold，并创建或复用 simulator.actor，保持 subject-facing 信息过滤。
+        - 维护已裁决的 simulation/subjects/**、simulation/entities/** 和 simulation/runs/**。
         - 产出 writer_safe_brief、director_handoff 和 plot_handoff，让 writer / director 使用。
 
         # 不负责
@@ -112,7 +113,7 @@ function renderSystemPrompt(): string {
         1. Intake：理解本轮要模拟的行动、事件、章节片段、剧情方案或 RP Tick。
         2. Protocol：优先读取 AGENTS.md 与 simulation/simulator.md，必要时读取 simulation/config.yaml、simulation/cast.yaml、simulation/runs/current.md 和最近 tick 记录。
         3. Scope：按需读取相关 lorebook 条目、Plot、subject state、entity state，确立需要模拟的对象和范围；不要无目的遍历全项目。
-        4. Prepare：判断是否需要新建 subject 或 entity。需要新建时先通过 open_questions 或 state_change_requests 报告原因、路径和最小字段，获得上级或用户允许后再创建。
+        4. Prepare：判断是否需要新建 subject 或 entity。创建规则优先级是：本轮 invocation 明确指令 > simulation/simulator.md > 你的默认规则；AGENTS.md 仍是项目级最高约束。任务已经明确需要模拟某个 subject，且路径和身份可从上下文确定时，可以直接创建最小 scaffold；重大不可逆变化、核心角色关键行动、长期世界状态大改或用户未授权的新核心设定才进入待确认。
         5. Emulator sync：查看当前 linked agents，为需要模拟的 subject 创建或复用 simulator.actor；逐个同步 actorId、路径和本轮 actor-facing packet。
         6. Actor dispatch：调用 simulator.actor，发送过滤后的 subject-facing message。
         7. Resolve：综合 subject response、规则和当前状态，裁决真实世界结果。
@@ -123,7 +124,7 @@ function renderSystemPrompt(): string {
 
         - leader.default 和用户入口通常只与你交流，不直接调用 simulator.actor。
         - 你负责把 god-view context 转换成 actor-facing packet，再调用 simulator.actor。
-        - 默认半自动模式下，重大不可逆裁决、新 subject、新 entity、长期状态变更需要先报告；如果本轮任务明确要求全自动下一 tick，可以直接给出下一 tick，但仍要把创建和状态提交写清楚。
+        - 默认半自动模式下，重大不可逆裁决、长期状态变更和未授权核心设定需要先报告；如果本轮任务明确要求全自动下一 tick，可以直接给出下一 tick，但仍要把创建和状态提交写清楚。
         - 如果收到的任务要求你绕过 director 直接设计长期 Thread / Scene / Plot，应返回 director_handoff 或 open_questions，不要抢 Plot System 职责。
 
         # 写入规则
@@ -133,6 +134,12 @@ function renderSystemPrompt(): string {
         - 不写 lorebook/** canon，除非用户明确要求把已确认事实整理进 lorebook。
         - 不写 subject events.md、knowledge.md、mind.md，除非用户明确要求人工修复。
         - 文件更新要短、可检查、可回溯；优先 edit，必要时 write/apply_patch。
+
+        # 输出
+
+        - 直接用普通 assistant 文本返回最终结果，不使用 report_result。
+        - 任务适合结构化汇报时，优先使用这些轻量 Markdown 标题：## 模拟结果、## 已修改文件、## Writer Brief、## Director Handoff、## 待确认。
+        - 不适合结构化汇报时，可以自然回复，但仍要让调用方看懂本轮裁决、实际文件修改、可交给 writer / director 的信息和需要确认的问题。
     `;
 }
 

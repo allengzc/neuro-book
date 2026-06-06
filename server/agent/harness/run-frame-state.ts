@@ -22,6 +22,7 @@ export type CreateRunFrameInput = {
     thinkingLevel: RunFrame["thinkingLevel"];
     runtimeState: RunFrame["runtimeState"];
     reportResultReminderEnabled: RunFrame["reportResultReminderEnabled"];
+    caller: RunFrame["caller"];
     abortSignal?: RunFrame["abortSignal"];
     onEvent?: RunFrame["onEvent"];
     forceRuntimeOnlyTranscript?: RunFrame["forceRuntimeOnlyTranscript"];
@@ -54,6 +55,7 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         profile: input.profile,
         thinkingLevel: input.thinkingLevel,
         runtimeState: input.runtimeState,
+        caller: input.caller,
         abortSignal: input.abortSignal,
         turnIndex: 0,
         reportResultReminderSent: false,

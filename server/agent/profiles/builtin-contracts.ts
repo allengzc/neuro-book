@@ -23,37 +23,9 @@ export const SimulatorLeaderInputSchema = Type.Object({
 });
 
 /**
- * simulator.leader 通过 report_result.data 返回的结构化模拟结果。
+ * simulator.leader 返回普通 assistant 文本，不绑定 report_result.data 结构。
  */
-export const SimulatorLeaderOutputSchema = Type.Object({
-    summary: Type.String({description: "本轮模拟的人类可读总结。"}),
-    status: Type.Union([
-        Type.Literal("completed"),
-        Type.Literal("needs_user"),
-        Type.Literal("blocked"),
-    ], {description: "本轮模拟状态。"}),
-    world_state_report: Type.String({description: "世界状态、因果推演和裁决说明。"}),
-    committed_files: Type.Array(Type.Object({
-        path: Type.String({description: "已实际修改的 simulation 文件路径。"}),
-        summary: Type.String({description: "该文件的修改摘要。"}),
-    }), {description: "本轮已提交的状态文件。没有则返回空数组。"}),
-    state_change_requests: Type.Array(Type.Object({
-        path: Type.String({description: "建议修改但尚未提交的文件路径。"}),
-        summary: Type.String({description: "建议修改内容摘要。"}),
-        reason: Type.String({description: "为什么没有直接提交，或需要谁确认。"}),
-    }), {description: "未提交的状态修改建议。没有则返回空数组。"}),
-    subject_results: Type.Array(Type.Object({
-        subjectId: Type.String({description: "subject id。"}),
-        visibleAction: Type.String({description: "该 subject 可见行动摘要。"}),
-        spokenDialogue: Type.String({description: "该 subject 台词摘要。"}),
-        privateIntent: Type.String({description: "只给 simulator/director 的私下意图摘要。"}),
-        emotionalState: Type.String({description: "情绪状态摘要。"}),
-    }), {description: "参与模拟的 subject 结果。没有则返回空数组。"}),
-    writer_safe_brief: Type.String({description: "可交给 writer / rp.writer 的信息过滤后正文 brief。"}),
-    director_handoff: Type.String({description: "可交给 director 的剧情结构 handoff。"}),
-    plot_handoff: Type.String({description: "可整理进 Plot System 的候选剧情点。"}),
-    open_questions: Type.Array(Type.String({description: "需要 leader 或用户确认的问题。"}), {description: "没有则返回空数组。"}),
-});
+export const SimulatorLeaderOutputSchema = Type.Object({});
 
 /**
  * director 的实例初始化参数。每轮剧情任务通过 invoke_agent.message 传入。

@@ -124,11 +124,24 @@ describe("defineAgentRuntime", () => {
         });
     });
 
-    it("reportResult built-in hook 会在 prepareRun 显式声明 reminder retry", () => {
+    it("reportResult built-in hook 会按 caller identity 控制 reminder retry", () => {
         const hook = agentRuntimeBuiltins.defaultSessionRuntime().hooks.find((item) => item.name === "builtin.reportResult");
 
         expect(hook?.stage).toBe("prepareRun");
-        expect(hook?.run({} as never)).toEqual({
+        expect(hook?.run({
+            invocation: {
+                caller: {kind: "user"},
+            },
+        } as never)).toEqual({
+            builtinBehavior: {
+                reportResultReminder: false,
+            },
+        });
+        expect(hook?.run({
+            invocation: {
+                caller: {kind: "agent"},
+            },
+        } as never)).toEqual({
             builtinBehavior: {
                 reportResultReminder: true,
             },

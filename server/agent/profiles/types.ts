@@ -7,6 +7,7 @@ import type {SkillCatalogItem} from "nbook/server/agent/skills/skill-catalog";
 import type {ClientStateSnapshot, ProfileVariableAccessor, VariableDefinition} from "nbook/server/agent/variables/types";
 import type {SessionSummarizerInputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import type {AgentRuntimeDefinition, NormalizedAgentRuntimeDefinition, RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
+import type {AgentInvokeCaller} from "nbook/server/agent/harness/types";
 
 export type AgentProfileManifest<TKey extends string = string> = {
     key: TKey;
@@ -72,6 +73,7 @@ export type ProfilePrepareContext<TInput = JsonValue> = {
     invocation?: {
         input?: JsonValue;
         clientState?: ClientStateSnapshot;
+        caller: AgentInvokeCaller;
     };
     /** 统一变量访问器。profile 普通写法优先用 TSX <Variable>/<VariableSchema> helper。 */
     vars: ProfileVariableAccessor;
@@ -129,6 +131,7 @@ export type SidecarContext<TInput = JsonValue> = {
     input: TInput;
     invocationId: string;
     profileKey: string;
+    caller: AgentInvokeCaller;
     runResult?: {
         status: "completed" | "waiting";
         finalMessage?: string;

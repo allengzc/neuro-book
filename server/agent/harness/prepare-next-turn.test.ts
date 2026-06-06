@@ -82,6 +82,7 @@ function fakeFrame(): RunFrame {
         turnIndex: 1,
         reportResultReminderSent: false,
         reportResultReminderEnabled: true,
+        caller: {kind: "user"},
         pendingWritePlans: [],
     };
 }

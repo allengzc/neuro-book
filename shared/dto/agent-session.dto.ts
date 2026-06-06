@@ -69,6 +69,7 @@ export const AgentInvokeRequestDtoSchema = z.object({
     message: AgentUserMessageInputDtoSchema.optional(),
     resolution: AgentResolutionDtoSchema.optional(),
     clientState: z.lazy(() => ClientVariablesDtoSchema).optional(),
+    caller: z.never().optional(),
     block: z.boolean().optional(),
 }).superRefine((value, ctx) => {
     if ((value.mode === "prompt" || value.mode === "steer" || value.mode === "followup") && !value.message) {

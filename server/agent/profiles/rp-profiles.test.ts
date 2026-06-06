@@ -17,6 +17,10 @@ import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-con
 import type {SidecarContext} from "nbook/server/agent/profiles/types";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
 
+type SchemaWithProperties = {
+    properties: Record<string, unknown>;
+};
+
 function messagesText(messages: Array<Message | AgentMessage> | undefined): string {
     return (messages ?? []).map((message) => {
         if (message.role === "user" || message.role === "assistant" || message.role === "toolResult") {
@@ -91,13 +95,17 @@ describe("RP builtin profiles", () => {
 
         expect(simulatorLeaderProfile.allowedToolKeys).toContain("create_agent");
         expect(simulatorLeaderProfile.allowedToolKeys).toContain("invoke_agent");
+        expect(simulatorLeaderProfile.allowedToolKeys).toContain("bash");
+        expect(simulatorLeaderProfile.allowedToolKeys).not.toContain("report_result");
         expect(systemPrompt).toContain("世界模拟主管");
         expect(systemPrompt).toContain("AGENTS.md 与 simulation/simulator.md");
         expect(systemPrompt).toContain("leader.default 和用户入口通常只与你交流");
         expect(systemPrompt).toContain("为需要模拟的 subject 创建或复用 simulator.actor");
-        expect(systemPrompt).toContain("新建 subject 或 entity");
+        expect(systemPrompt).toContain("最小 subject scaffold");
         expect(systemPrompt).toContain("全自动下一 tick");
+        expect(systemPrompt).toContain("直接用普通 assistant 文本返回最终结果");
         expect(historyText).toContain("```AGENTS.md");
+        expect(historyText).toContain("```reference/agent/workspace-tool-use.md");
         expect(modelContextText).toContain("projectPath: workspace/rp-project");
         expect(modelContextText).toContain("mode: 每轮任务 prompt 指定");
     });
@@ -145,13 +153,13 @@ describe("RP builtin profiles", () => {
                 stage: "settleRun",
                 allowedToolKeys: ["read", "write", "edit", "report_result"],
             }));
-            expect(contextLoad?.sidecarDataSchema?.properties).toHaveProperty("actor_safe_context");
-            expect(contextLoad?.sidecarDataSchema?.properties).toHaveProperty("sources");
-            expect(contextLoad?.sidecarDataSchema?.properties).toHaveProperty("withheld");
-            expect(memorySave?.sidecarDataSchema?.properties).toHaveProperty("changed_files");
-            expect(memorySave?.sidecarDataSchema?.properties).toHaveProperty("events_summary");
-            expect(memorySave?.sidecarDataSchema?.properties).toHaveProperty("knowledge_summary");
-            expect(memorySave?.sidecarDataSchema?.properties).toHaveProperty("mind_summary");
+            expect((contextLoad?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toHaveProperty("actor_safe_context");
+            expect((contextLoad?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toHaveProperty("sources");
+            expect((contextLoad?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toHaveProperty("withheld");
+            expect((memorySave?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toHaveProperty("changed_files");
+            expect((memorySave?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toHaveProperty("events_summary");
+            expect((memorySave?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toHaveProperty("knowledge_summary");
+            expect((memorySave?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toHaveProperty("mind_summary");
             const memorySavePrompt = typeof memorySave?.enterPrompt === "function"
                 ? memorySave.enterPrompt({
                     name: "actor.memory-save",
@@ -184,6 +192,7 @@ describe("RP builtin profiles", () => {
                     },
                     invocationId: "test-invocation",
                     profileKey: "simulator.actor",
+                    caller: {kind: "sidecar"},
                 } satisfies SidecarContext<Parameters<typeof memorySave.merge>[0]["input"]>)
                 : memorySave?.enterPrompt ?? "";
             expect(memorySavePrompt).toContain("eventsPath");
