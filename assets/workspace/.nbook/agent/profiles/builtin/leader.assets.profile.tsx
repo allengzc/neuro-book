@@ -66,7 +66,7 @@ export default defineAgentProfile({
             trigger: "afterInvocation",
             interval: {
                 kind: "sourceInvocation",
-                value: 8,
+                value: 16,
             },
             maxDialogueContentTokens: 80_000,
         },
