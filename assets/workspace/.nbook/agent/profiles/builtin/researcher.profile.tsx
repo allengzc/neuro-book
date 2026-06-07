@@ -17,16 +17,12 @@ export const InputSchema = ResearcherInputSchema;
 export type Input = Static<typeof InputSchema>;
 
 const allowedToolKeys = ["web_search", "web_fetch"] as const;
-const DEFAULT_COMPACTION_KEEP_RECENT_TOKENS = 24_000;
 
 export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
     allowedToolKeys,
-    compaction: {
-        reserveTokens: 25_600,
-        keepRecentTokens: DEFAULT_COMPACTION_KEEP_RECENT_TOKENS,
-    },
+    compaction: {},
     context(ctx) {
         return (
             <ProfilePrompt>

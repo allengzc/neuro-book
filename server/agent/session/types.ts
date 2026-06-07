@@ -99,6 +99,13 @@ export type CompactionSessionEntry = {
         triggerTokens?: number;
         promptSource?: "default" | "profile";
         summaryPrefixSource?: "default" | "profile";
+        recentTokens?: number;
+        summarizedTokens?: number;
+        visibleTokensBefore?: number;
+        firstKeptEntryType?: "message" | "custom_message";
+        visibleEntryCountBefore?: number;
+        recentEntryCount?: number;
+        summarizedEntryCount?: number;
     };
 };
 

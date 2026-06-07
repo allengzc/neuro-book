@@ -3,7 +3,7 @@ import {estimateContextTokens, estimateTokens} from "@earendil-works/pi-agent-co
 import type {AgentMessage, JsonValue, Message, Model, ThinkingLevel} from "nbook/server/agent/messages/types";
 import type {ProfileCompactionPlan} from "nbook/server/agent/profiles/types";
 import type {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
-import type {CompactionSessionEntry, MessageSessionEntry, SessionEntry, SessionSnapshot} from "nbook/server/agent/session/types";
+import type {CompactionSessionEntry, CustomMessageSessionEntry, MessageSessionEntry, SessionEntry, SessionSnapshot} from "nbook/server/agent/session/types";
 import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 
 export const COMPACTION_PROMPT = `You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.
@@ -40,10 +40,20 @@ export const DEFAULT_NEURO_COMPACTION_OPTIONS: Omit<CompactionOptions, "enabled"
 };
 
 type CompactionPlan = {
-    firstKeptEntry: MessageSessionEntry | null;
+    firstKeptEntry: ModelVisibleSessionEntry | null;
     messagesToSummarize: Message[];
     previousSummary?: string;
+    metrics: {
+        recentTokens: number;
+        summarizedTokens: number;
+        firstKeptEntryType?: ModelVisibleSessionEntry["type"];
+        visibleEntryCountBefore: number;
+        recentEntryCount: number;
+        summarizedEntryCount: number;
+    };
 };
+
+type ModelVisibleSessionEntry = MessageSessionEntry | CustomMessageSessionEntry;
 
 /**
  * 自动压缩：超过上下文预算时追加 compaction entry。
@@ -72,7 +82,6 @@ export async function compactIfNeeded(input: {
     if (!shouldCompactWithOptions(usage.tokens, input.model.contextWindow, options)) {
         return false;
     }
-
     await appendCompaction({
         repo: input.repo,
         snapshot: input.snapshot,
@@ -112,8 +121,8 @@ export async function appendCompaction(input: {
     }
     const options = input.options ?? resolveCompactionOptions(input.compaction!, input.model);
     const path = input.repo.activePath(input.snapshot);
-    const messageEntries = path.filter((entry): entry is MessageSessionEntry => entry.type === "message");
-    assertNoPendingToolCall(messageEntries.map((entry) => entry.message));
+    const visibleEntries = path.filter(isModelVisibleEntry);
+    assertNoPendingToolCall(visibleEntries.map(entryMessage));
     const plan = selectCompactionPlan(path, options);
     const generatedSummary = await generateCompactionSummary({
         messages: plan.messagesToSummarize,
@@ -128,12 +137,13 @@ export async function appendCompaction(input: {
         prompt: options.prompt,
     });
     const summary = `${options.summaryPrefix}\n\n${generatedSummary}`;
+    const tokensBefore = input.tokensBefore ?? estimateContextTokens(input.messages).tokens;
 
     const entry = {
         type: "compaction",
         summary,
         firstKeptEntryId: plan.firstKeptEntry?.id ?? null,
-        tokensBefore: input.tokensBefore ?? estimateContextTokens(input.messages).tokens,
+        tokensBefore,
         details: {
             instructions: input.instructions,
             reserveTokens: options.reserveTokens,
@@ -142,6 +152,13 @@ export async function appendCompaction(input: {
             triggerTokens: options.triggerTokens,
             promptSource: options.promptSource,
             summaryPrefixSource: options.summaryPrefixSource,
+            recentTokens: plan.metrics.recentTokens,
+            summarizedTokens: plan.metrics.summarizedTokens,
+            visibleTokensBefore: tokensBefore,
+            firstKeptEntryType: plan.metrics.firstKeptEntryType,
+            visibleEntryCountBefore: plan.metrics.visibleEntryCountBefore,
+            recentEntryCount: plan.metrics.recentEntryCount,
+            summarizedEntryCount: plan.metrics.summarizedEntryCount,
         },
     } satisfies Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">;
 
@@ -241,11 +258,18 @@ async function generateCompactionSummary(input: {
  * 选择压缩边界，并保证保留下来的历史不会从 toolResult 半截开始。
  */
 function selectCompactionPlan(path: SessionEntry[], options: CompactionOptions): CompactionPlan {
-    const messageEntries = path.filter((entry): entry is MessageSessionEntry => entry.type === "message");
-    if (messageEntries.length === 0) {
+    const visibleEntries = path.filter(isModelVisibleEntry);
+    if (visibleEntries.length === 0) {
         return {
             firstKeptEntry: null,
             messagesToSummarize: [],
+            metrics: {
+                recentTokens: 0,
+                summarizedTokens: 0,
+                visibleEntryCountBefore: 0,
+                recentEntryCount: 0,
+                summarizedEntryCount: 0,
+            },
         };
     }
 
@@ -263,10 +287,10 @@ function selectCompactionPlan(path: SessionEntry[], options: CompactionOptions):
     let selectedPathIndex = -1;
     for (let index = path.length - 1; index >= boundaryStart; index -= 1) {
         const entry = path[index];
-        if (entry?.type !== "message") {
+        if (!entry || !isModelVisibleEntry(entry)) {
             continue;
         }
-        tokens += estimateTokens(entry.message);
+        tokens += estimateTokens(entryMessage(entry));
         selectedPathIndex = index;
         if (tokens >= options.keepRecentTokens) {
             break;
@@ -274,25 +298,45 @@ function selectCompactionPlan(path: SessionEntry[], options: CompactionOptions):
     }
 
     if (selectedPathIndex < 0) {
+        const summarizableMessages = path
+            .slice(boundaryStart)
+            .filter((entry): entry is MessageSessionEntry => entry.type === "message")
+            .map((entry) => entry.message);
         return {
             firstKeptEntry: null,
-            messagesToSummarize: messageEntries.map((entry) => entry.message),
+            messagesToSummarize: summarizableMessages,
             previousSummary: previousCompaction?.type === "compaction" ? previousCompaction.summary : undefined,
+            metrics: {
+                recentTokens: 0,
+                summarizedTokens: sumMessageTokens(summarizableMessages),
+                visibleEntryCountBefore: countVisibleEntries(path.slice(boundaryStart)),
+                recentEntryCount: 0,
+                summarizedEntryCount: summarizableMessages.length,
+            },
         };
     }
 
     selectedPathIndex = moveCutBeforeToolResult(path, selectedPathIndex, boundaryStart);
     const selectedEntry = path[selectedPathIndex];
-    const firstKeptEntry = selectedEntry?.type === "message" ? selectedEntry : null;
+    const firstKeptEntry = selectedEntry && isModelVisibleEntry(selectedEntry) ? selectedEntry : null;
     const messagesToSummarize = path
         .slice(boundaryStart, selectedPathIndex)
         .filter((entry): entry is MessageSessionEntry => entry.type === "message")
         .map((entry) => entry.message);
+    const recentEntries = path.slice(selectedPathIndex).filter(isModelVisibleEntry);
 
     return {
         firstKeptEntry,
         messagesToSummarize,
         previousSummary: previousCompaction?.type === "compaction" ? previousCompaction.summary : undefined,
+        metrics: {
+            recentTokens: sumVisibleEntryTokens(path.slice(selectedPathIndex)),
+            summarizedTokens: sumMessageTokens(messagesToSummarize),
+            firstKeptEntryType: firstKeptEntry?.type,
+            visibleEntryCountBefore: countVisibleEntries(path.slice(boundaryStart)),
+            recentEntryCount: recentEntries.length,
+            summarizedEntryCount: messagesToSummarize.length,
+        },
     };
 }
 
@@ -301,17 +345,18 @@ function selectCompactionPlan(path: SessionEntry[], options: CompactionOptions):
  */
 function moveCutBeforeToolResult(path: SessionEntry[], selectedPathIndex: number, boundaryStart: number): number {
     const selected = path[selectedPathIndex];
-    if (selected?.type !== "message" || selected.message.role !== "toolResult") {
+    if (!selected || !isModelVisibleEntry(selected) || entryMessage(selected).role !== "toolResult") {
         return selectedPathIndex;
     }
-    const toolResult = selected.message;
+    const toolResult = entryMessage(selected);
 
     for (let index = selectedPathIndex - 1; index >= boundaryStart; index -= 1) {
         const entry = path[index];
-        if (entry?.type !== "message" || entry.message.role !== "assistant") {
+        if (!entry || !isModelVisibleEntry(entry) || entryMessage(entry).role !== "assistant") {
             continue;
         }
-        const hasMatchingToolCall = entry.message.content.some((block) => {
+        const message = entryMessage(entry);
+        const hasMatchingToolCall = message.content.some((block) => {
             return block.type === "toolCall" && block.id === toolResult.toolCallId;
         });
         if (hasMatchingToolCall) {
@@ -324,7 +369,7 @@ function moveCutBeforeToolResult(path: SessionEntry[], selectedPathIndex: number
 /**
  * 未完成 tool call 会破坏 continue/approval 恢复语义，压缩前必须拒绝。
  */
-function assertNoPendingToolCall(messages: Message[]): void {
+function assertNoPendingToolCall(messages: AgentMessage[]): void {
     const completedToolCallIds = new Set(messages
         .filter((message) => message.role === "toolResult")
         .map((message) => message.toolCallId));
@@ -335,6 +380,28 @@ function assertNoPendingToolCall(messages: Message[]): void {
     if (pendingToolCall) {
         throw new Error(`当前 session 存在未完成 tool call，无法压缩：${pendingToolCall.name}`);
     }
+}
+
+function isModelVisibleEntry(entry: SessionEntry): entry is ModelVisibleSessionEntry {
+    return entry.type === "message" || (entry.type === "custom_message" && entry.visibleToModel);
+}
+
+function entryMessage(entry: ModelVisibleSessionEntry): AgentMessage {
+    return entry.message;
+}
+
+function countVisibleEntries(entries: SessionEntry[]): number {
+    return entries.filter(isModelVisibleEntry).length;
+}
+
+function sumVisibleEntryTokens(entries: SessionEntry[]): number {
+    return entries.reduce((total, entry) => {
+        return isModelVisibleEntry(entry) ? total + estimateTokens(entryMessage(entry)) : total;
+    }, 0);
+}
+
+function sumMessageTokens(messages: Message[]): number {
+    return messages.reduce((total, message) => total + estimateTokens(message), 0);
 }
 
 function piStreamOptions(requestOptions: Record<string, JsonValue> | undefined): Record<string, unknown> {

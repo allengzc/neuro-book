@@ -28,10 +28,7 @@ export const defaultAgentProfile = defineAgentProfile({
         "get_session",
         "detach_agent",
     ],
-    compaction: {
-        reserveTokens: 25_600,
-        keepRecentTokens: 32_000,
-    },
+    compaction: {},
     prepare(ctx) {
         return {
             systemPrompt: [

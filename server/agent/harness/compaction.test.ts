@@ -227,6 +227,76 @@ describe("compaction", () => {
         });
         expect(messageText(reduced.messages[0] as never)).toContain("CUSTOM PREFIX");
     });
+
+    it("visible custom_message 参与 recent cut 预算但不进入 summary 输入", async () => {
+        let secondSummaryPrompt: Context | null = null;
+        faux.setResponses([
+            () => {
+                return fauxAssistantMessage(fauxText("FIRST SUMMARY"));
+            },
+            (context) => {
+                secondSummaryPrompt = context;
+                return fauxAssistantMessage(fauxText("SECOND SUMMARY"));
+            },
+        ]);
+        const session = await repo.createSession({
+            profileKey: "leader.default",
+            input: {},
+            workspaceRoot: root,
+        });
+        const writeCompactionEntry = createCompactionEntryWriter(repo, session.metadata.sessionId);
+        await repo.appendEntry(session.metadata.sessionId, {
+            type: "custom_message",
+            message: createUserMessage({text: "OLD HISTORYSET SHOULD BE CUT " + "old ".repeat(200)}),
+            visibleToModel: true,
+        }, session.metadata.workspaceKey);
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "old user dialogue"}), session.metadata.workspaceKey);
+        const firstSnapshot = await repo.readSession(session.metadata.sessionId);
+
+        await compactIfNeeded({
+            repo,
+            snapshot: firstSnapshot,
+            messages: repo.reduce(firstSnapshot).messages,
+            model: faux.getModel(),
+            compaction: {
+                triggerTokens: 1,
+                keepRecentTokens: 1,
+            },
+            writeCompactionEntry,
+        });
+
+        await repo.appendEntry(session.metadata.sessionId, {
+            type: "custom_message",
+            message: createUserMessage({text: "NEW HISTORYSET SHOULD STAY " + "new ".repeat(200)}),
+            visibleToModel: true,
+        }, session.metadata.workspaceKey);
+        await repo.appendMessage(session.metadata.sessionId, createUserMessage({text: "new user dialogue"}), session.metadata.workspaceKey);
+        const secondSnapshot = await repo.readSession(session.metadata.sessionId);
+        await compactIfNeeded({
+            repo,
+            snapshot: secondSnapshot,
+            messages: repo.reduce(secondSnapshot).messages,
+            model: faux.getModel(),
+            compaction: {
+                triggerTokens: 1,
+                keepRecentTokens: 200,
+            },
+            writeCompactionEntry,
+        });
+
+        const snapshot = await repo.readSession(session.metadata.sessionId);
+        const reducedText = repo.reduce(snapshot).messages.map((message) => messageText(message as never)).join("\n");
+        const latestCompaction = snapshot.entries.filter((entry) => entry.type === "compaction").at(-1);
+        expect(reducedText).not.toContain("OLD HISTORYSET SHOULD BE CUT");
+        expect(reducedText).toContain("NEW HISTORYSET SHOULD STAY");
+        expect(summaryPromptText(secondSummaryPrompt)).not.toContain("OLD HISTORYSET SHOULD BE CUT");
+        expect(summaryPromptText(secondSummaryPrompt)).not.toContain("NEW HISTORYSET SHOULD STAY");
+        expect(summaryPromptText(secondSummaryPrompt)).toContain("old user dialogue");
+        expect(latestCompaction?.type === "compaction" ? latestCompaction.details?.firstKeptEntryType : undefined).toBe("custom_message");
+        expect(latestCompaction?.type === "compaction" ? latestCompaction.details?.recentTokens : undefined).toBeGreaterThan(0);
+        expect(latestCompaction?.type === "compaction" ? latestCompaction.details?.visibleTokensBefore : undefined)
+            .toBe(latestCompaction?.type === "compaction" ? latestCompaction.tokensBefore : undefined);
+    });
 });
 
 function createCompactionEntryWriter(repo: JsonlSessionRepository, sessionId: number): Parameters<typeof appendCompaction>[0]["writeCompactionEntry"] {

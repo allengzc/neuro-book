@@ -35,17 +35,12 @@ const allowedToolKeys = [
     "get_chapter_plot",
 ] as const;
 
-const DEFAULT_COMPACTION_KEEP_RECENT_TOKENS = 32_000;
-
 export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
     allowedToolKeys,
-    compaction: {
-        reserveTokens: 25_600,
-        keepRecentTokens: DEFAULT_COMPACTION_KEEP_RECENT_TOKENS,
-    },
+    compaction: {},
     context(ctx) {
         return (
             <ProfilePrompt>

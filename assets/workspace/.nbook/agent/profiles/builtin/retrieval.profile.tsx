@@ -19,17 +19,13 @@ export type Input = Static<typeof InputSchema>;
 export type Output = Static<typeof OutputSchema>;
 
 const allowedToolKeys = ["bash", "read", "report_result"] as const;
-const DEFAULT_COMPACTION_KEEP_RECENT_TOKENS = 24_000;
 
 export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
     allowedToolKeys,
-    compaction: {
-        reserveTokens: 25_600,
-        keepRecentTokens: DEFAULT_COMPACTION_KEEP_RECENT_TOKENS,
-    },
+    compaction: {},
     context(ctx) {
         return (
             <ProfilePrompt>
