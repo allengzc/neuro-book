@@ -776,6 +776,8 @@ describe("workspace-files", () => {
             await expect(fs.readFile(path.join(projectRoot, "agent-context", "simulator.leader.md"), "utf-8")).resolves.toBe(existingSimulatorContext);
             await expect(fs.access(path.join(projectRoot, "simulation", "config.yaml"))).rejects.toMatchObject({code: "ENOENT"});
             await expect(fs.access(path.join(projectRoot, "simulation", "cast.yaml"))).rejects.toMatchObject({code: "ENOENT"});
+            await expect(fs.access(path.join(projectRoot, "simulation", "simulator.md"))).rejects.toMatchObject({code: "ENOENT"});
+            await expect(fs.access(path.join(projectRoot, "simulation", "writer.md"))).rejects.toMatchObject({code: "ENOENT"});
             await expect(fs.readFile(path.join(projectRoot, "simulation", "subjects", "sample-npc", "subject.md"), "utf-8")).resolves.toContain("id: sample-npc");
             await expect(fs.readFile(path.join(projectRoot, "simulation", "runs", "current.md"), "utf-8")).resolves.toContain("Current");
             await expect(fs.readFile(path.join(projectRoot, "simulation", "runs", "index.md"), "utf-8")).resolves.toContain("000000");
@@ -830,7 +832,7 @@ describe("workspace-files", () => {
             expect(result.databasePath).toBe(path.join(targetRoot, ".nbook", "project.sqlite"));
             await expect(fs.readFile(path.join(targetRoot, "project.yaml"), "utf-8")).resolves.toContain("title: external novel");
             await expect(fs.access(path.join(targetRoot, ".nbook", "project.sqlite"))).resolves.toBeUndefined();
-            await expect(fs.readFile(path.join(targetRoot, "AGENTS.md"), "utf-8")).resolves.toContain("唯一的小说状态");
+            await expect(fs.readFile(path.join(targetRoot, "AGENTS.md"), "utf-8")).resolves.toContain("Project Agent Instructions");
 
             await fs.mkdir(path.join(targetRoot, "agent-context"), {recursive: true});
             await fs.writeFile(path.join(targetRoot, "agent-context", "simulator.leader.md"), "# 外部 Simulator\n", "utf-8");
@@ -1684,8 +1686,8 @@ describe("workspace-files", () => {
             await copyNovelDirectoryTemplate(root);
         });
 
-        await expect(readWorkspaceTextFile(root, "AGENTS.md")).resolves.toContain("Novel Workspace");
-        await expect(readWorkspaceTextFile(root, "AGENTS.md")).resolves.toContain("PROJECT-STATUS.md");
+        await expect(readWorkspaceTextFile(root, "AGENTS.md")).resolves.toContain("Project Agent Instructions");
+        await expect(readWorkspaceTextFile(root, "AGENTS.md")).resolves.toContain("Directory Boundaries");
         await expect(readWorkspaceTextFile(root, "AGENTS.md")).resolves.not.toContain("初始化待办");
         await expect(readWorkspaceTextFile(root, "PROJECT-STATUS.md")).resolves.toContain("## Current Focus");
         await expect(readWorkspaceTextFile(root, "PROJECT-STATUS.md")).resolves.toContain("## TODO");
@@ -1783,8 +1785,8 @@ describe("workspace-files", () => {
                 summary: "测试简介",
             });
             await expect(fs.access(path.join(createdRoot, "workspace.yaml"))).rejects.toMatchObject({code: "ENOENT"});
-            await expect(readWorkspaceTextFile(createdRoot, "AGENTS.md")).resolves.toContain("唯一的小说状态");
-            await expect(readWorkspaceTextFile(createdRoot, "AGENTS.md")).resolves.toContain(".agent/plan/");
+            await expect(readWorkspaceTextFile(createdRoot, "AGENTS.md")).resolves.toContain("Project Agent Instructions");
+            await expect(readWorkspaceTextFile(createdRoot, "AGENTS.md")).resolves.toContain("agent-context/{profile}.md");
             await expect(readWorkspaceTextFile(createdRoot, "PROJECT-STATUS.md")).resolves.toContain("## Pending Questions");
             await expect(readWorkspaceTextFile(createdRoot, "PROJECT-STATUS.md")).resolves.not.toContain("## Recent Updates");
             await expect(readWorkspaceTextFile(createdRoot, "manuscript/001-volume/001-chapter/index.md")).resolves.toContain("示范章节");

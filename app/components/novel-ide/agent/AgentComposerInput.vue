@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import StructuredTextEditor from "nbook/app/components/common/form/StructuredTextEditor.vue";
+import ReferencePlainTextEditor from "nbook/app/components/common/form/ReferencePlainTextEditor.vue";
 import type {
     AgentTriggerMenuContext,
     AgentTriggerMenuState,
@@ -25,7 +25,7 @@ const emit = defineEmits<{
     (e: "toggle-plan-mode"): void;
 }>();
 
-const editorRef = ref<InstanceType<typeof StructuredTextEditor> | null>(null);
+const editorRef = ref<InstanceType<typeof ReferencePlainTextEditor> | null>(null);
 
 /**
  * 聚焦编辑器。
@@ -42,27 +42,25 @@ const insertText = (text: string): void => {
 };
 
 /**
- * 获取当前 markdown。
+ * 获取当前纯文本。
  */
-const getMarkdown = (): string => editorRef.value?.getMarkdown() ?? props.modelValue;
+const getText = (): string => editorRef.value?.getText() ?? props.modelValue;
 
 defineExpose({
     focus,
     insertText,
-    getMarkdown,
+    getText,
 });
 </script>
 
 <template>
-    <StructuredTextEditor
+    <ReferencePlainTextEditor
+        :key="props.placeholder"
         ref="editorRef"
         :model-value="props.modelValue"
         :placeholder="props.placeholder"
         :min-height="44"
         :max-height="150"
-        mode="rich"
-        :show-toolbar="false"
-        popover-direction="auto"
         :submit-on-enter="true"
         :enable-quick-triggers="true"
         :match-popover-width="true"

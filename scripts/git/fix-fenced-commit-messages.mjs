@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
@@ -9,12 +9,12 @@ const defaultRange = 'HEAD';
 /** 打印脚本用法。 */
 function printUsage() {
     console.log(`Usage:
-  node scripts/git/fix-fenced-commit-messages.mjs [--range <rev-range>] [--apply]
-  node scripts/git/fix-fenced-commit-messages.mjs --filter-message
+  bun scripts/git/fix-fenced-commit-messages.mjs [--range <rev-range>] [--apply]
+  bun scripts/git/fix-fenced-commit-messages.mjs --filter-message
 
 Examples:
-  node scripts/git/fix-fenced-commit-messages.mjs --range main..HEAD
-  node scripts/git/fix-fenced-commit-messages.mjs --range HEAD~20..HEAD --apply
+  bun scripts/git/fix-fenced-commit-messages.mjs --range main..HEAD
+  bun scripts/git/fix-fenced-commit-messages.mjs --range HEAD~20..HEAD --apply
 
 说明：
   默认只 dry-run。真正改写历史必须传 --apply。
@@ -185,7 +185,7 @@ function applyRewrite(range) {
         'filter-branch',
         '--force',
         '--msg-filter',
-        `node "${scriptPath}" --filter-message`,
+        `bun "${scriptPath}" --filter-message`,
         '--',
         range,
     ], {

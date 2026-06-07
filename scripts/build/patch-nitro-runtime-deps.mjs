@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import {existsSync} from "node:fs";
 import {cp, mkdir, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {spawn} from "node:child_process";

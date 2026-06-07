@@ -34,6 +34,6 @@ export function updateCommands(config) {
 
 /** 模式说明文本。 */
 export function notes(config) {
-    return `ghcr 模式使用预构建镜像 ${config.image}，容器内包含完整项目源码。更新镜像后运行：
+    return `ghcr 模式使用预构建镜像 ${config.image}，容器内包含项目源码和预构建 Nitro vendor；部署机和容器启动时不执行依赖安装。更新镜像后运行：
 ${updateCommands(config).map((line) => `- ${line}`).join('\n')}`;
 }

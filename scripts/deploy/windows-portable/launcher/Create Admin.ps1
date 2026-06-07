@@ -3,15 +3,15 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $PortableRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Node = Join-Path $PortableRoot "runtime\node\node.exe"
+$Bun = Join-Path $PortableRoot "runtime\bun\bun.exe"
 $Launcher = Join-Path $PortableRoot "launcher\launcher.mjs"
 
-if (-not (Test-Path $Node)) {
-    throw "缺少内置 Node.js runtime：$Node"
+if (-not (Test-Path $Bun)) {
+    throw "缺少内置 Bun runtime：$Bun"
 }
 if (-not (Test-Path $Launcher)) {
     throw "缺少 Windows Launcher 入口：$Launcher"
 }
 
-& $Node $Launcher admin
+& $Bun $Launcher admin
 exit $LASTEXITCODE

@@ -110,6 +110,48 @@ describe("NeuroAgentHarness", () => {
         expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant", "toolResult"]);
     }, 10_000);
 
+    it("invokeAgent 接受 title 后写入 session_update projection", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.invoke-title",
+                name: "Invoke Title",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage("done"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.invoke-title",
+            input: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run"},
+            title: "  Direct Title  ",
+        });
+
+        expect(result.status).toBe("completed");
+        const snapshot = await harness.repo.readSession(created.sessionId);
+        const context = harness.repo.reduce(snapshot);
+        const updates = snapshot.entries.filter((entry) => entry.type === "session_update");
+        const titleUpdate = updates.find((entry) => entry.updates.title === "Direct Title");
+        expect(context.title).toBe("Direct Title");
+        expect(harness.repo.summary(snapshot).title).toBe("Direct Title");
+        expect(titleUpdate).toEqual(expect.objectContaining({
+            origin: "projection",
+            updates: {title: "Direct Title"},
+        }));
+        expect(snapshot.entries.some((entry) => entry.type === "leaf" && entry.parentId === titleUpdate?.id)).toBe(false);
+    });
+
     it("report_result 校验失败后会继续下一轮让模型修正", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
@@ -4327,6 +4369,7 @@ describe("NeuroAgentHarness", () => {
                     sessionId: 2,
                     mode: "prompt",
                     message: "child work",
+                    title: "Child Work Session",
                 }, {id: "invoke-child"}),
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage([
@@ -4388,6 +4431,7 @@ describe("NeuroAgentHarness", () => {
         }));
         expect(toolResult?.details).not.toHaveProperty("events");
         expect(context.messages.some((message) => message.role === "toolResult" && Boolean((message.details as {events?: unknown} | undefined)?.events))).toBe(false);
+        expect(harness.repo.reduce(await harness.repo.readSession(child.sessionId)).title).toBe("Child Work Session");
     });
 
     it("invoke_agent 拒绝调用当前 session 自己，避免自递归 active invocation", async () => {
@@ -4408,6 +4452,7 @@ describe("NeuroAgentHarness", () => {
                     sessionId: 1,
                     mode: "prompt",
                     message: "call myself",
+                    title: "Self Title Should Not Apply",
                 }, {id: "invoke-self"}),
             ], {stopReason: "toolUse"}),
             fauxAssistantMessage(fauxText("handled self error")),
@@ -4428,6 +4473,7 @@ describe("NeuroAgentHarness", () => {
         const context = harness.repo.reduce(await harness.repo.readSession(session.sessionId));
         const toolResult = context.messages.find((message) => message.role === "toolResult");
         expect(toolResult ? messageText(toolResult) : "").toContain("不能调用当前 session 自己");
+        expect(context.title).toBe("Invoke Self");
     });
 
     it("create_agent 工具 schema 要求 input 是 object，不再引导模型传 JSON string", () => {
@@ -4649,6 +4695,7 @@ describe("NeuroAgentHarness", () => {
                     data: "data:image/png;base64,AA==",
                 }],
             },
+            title: "Queued Follow-up Title",
         });
         const steered = await harness.invokeAgent({
             sessionId: parent.sessionId,
@@ -4661,6 +4708,7 @@ describe("NeuroAgentHarness", () => {
         expect(waiting.status).toBe("waiting");
         expect(queued.status).toBe("waiting");
         expect(steered.status).toBe("waiting");
+        expect(snapshot.summary.title).toBe("Queued Follow-up Title");
         expect(steered.queuedItem).toEqual(expect.objectContaining({
             kind: "steer",
             message: {text: "adjust"},

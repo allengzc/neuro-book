@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import {readdir, readFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import {createClient} from "@libsql/client";

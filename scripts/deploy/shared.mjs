@@ -258,13 +258,16 @@ function adminCommand(config, mode) {
         return nativeStartHelp('bun run auth:create-admin');
     }
     const files = ['-f', 'docker-compose.yml', '-f', `${DEPLOY_DIRNAME}/docker-compose.generated.yml`];
+    if (config.deployMode === 'ghcr') {
+        return `docker compose --env-file ${ENV_FILENAME} ${files.join(' ')} exec app bun .output/server/scripts/cli/create-admin.ts`;
+    }
     return `docker compose --env-file ${ENV_FILENAME} ${files.join(' ')} exec app bun run auth:create-admin`;
 }
 
 /** 生成容器启动命令提示。 */
 function upCommand(config, mode) {
     if (config.deployMode === LOCAL_GIT_DEPLOY_MODE) {
-        return nativeStartHelp('node .output/server/index.mjs');
+        return nativeStartHelp('bun .output/server/index.mjs');
     }
     const files = ['-f', 'docker-compose.yml', '-f', `${DEPLOY_DIRNAME}/docker-compose.generated.yml`];
     const upArgs = config.deployMode === 'source' ? 'up -d --build' : 'up -d';

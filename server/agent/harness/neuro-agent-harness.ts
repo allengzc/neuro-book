@@ -344,9 +344,13 @@ export class NeuroAgentHarness {
         if (input.block === false) {
             throw new Error("block:false 第一版尚未实现");
         }
+        const invokeTitle = this.normalizeInvokeTitle(input.title);
         const caller = this.normalizeInvokeCaller(input.caller);
         const admission = await this.withSessionAdmission(input.sessionId, () => this.admitInvocation(input));
         if ("queued" in admission) {
+            if (invokeTitle) {
+                await this.writeInvokeTitle(input.sessionId, invokeTitle, admission.queued.invocationId);
+            }
             return admission.queued;
         }
         let snapshot = admission.snapshot;
@@ -357,6 +361,9 @@ export class NeuroAgentHarness {
         const runtimeState = admission.runtimeState;
         let errorPhase: InvocationErrorPhase = "pre_loop";
         try {
+            if (invokeTitle) {
+                await this.writeInvokeTitle(input.sessionId, invokeTitle, invocationId);
+            }
             snapshot = snapshot ?? await this.repo.readSession(input.sessionId);
             const preparedRun = await this.prepareRun({
                 sessionId: input.sessionId,
@@ -455,6 +462,38 @@ export class NeuroAgentHarness {
 
     private normalizeInvokeCaller(caller: InvokeAgentInput["caller"]): AgentInvokeCaller {
         return caller ?? {kind: "user"};
+    }
+
+    /**
+     * 规范化调用方显式传入的 session 展示标题。
+     */
+    private normalizeInvokeTitle(title: InvokeAgentInput["title"]): string | undefined {
+        if (title === undefined) {
+            return undefined;
+        }
+        const trimmed = title.trim();
+        if (!trimmed) {
+            throw new Error("invoke_agent.title 不能为空。");
+        }
+        return trimmed;
+    }
+
+    /**
+     * 写入 invoke_agent 指定的 session 展示标题，不移动 active path。
+     */
+    private async writeInvokeTitle(sessionId: number, title: string, invocationId: string): Promise<void> {
+        await this.executeWritePlan({
+            target: {sessionId},
+            cause: "invoke_agent.title",
+            ops: [{
+                kind: "append",
+                projection: true,
+                entry: {
+                    type: "session_update",
+                    updates: {title},
+                },
+            }],
+        }, invocationId);
     }
 
     private async admitInvocation(input: InvokeAgentInput): Promise<InvocationAdmission> {

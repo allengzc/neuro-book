@@ -28,14 +28,12 @@ export function installPlanCandidates({platform, missingCommands, windowsPackage
     const missing = new Set(missingCommands);
     if (platform === 'win32') {
         const wingetPackages = [
-            missing.has('node') || missing.has('npm') ? 'OpenJS.NodeJS' : null,
             missing.has('git') ? 'Git.Git' : null,
             missing.has('rg') ? 'BurntSushi.ripgrep.MSVC' : null,
             missing.has('bun') ? 'Oven-sh.Bun' : null,
             missing.has('python3') ? 'Python.Python.3.13' : null,
         ].filter(Boolean);
         const scoopPackages = [
-            missing.has('node') || missing.has('npm') ? 'nodejs-lts' : null,
             missing.has('git') ? 'git' : null,
             missing.has('rg') ? 'ripgrep' : null,
             missing.has('bun') ? 'bun' : null,
@@ -65,7 +63,6 @@ export function installPlanCandidates({platform, missingCommands, windowsPackage
 
     if (platform === 'darwin') {
         const packages = [
-            missing.has('node') || missing.has('npm') ? 'node' : null,
             missing.has('git') ? 'git' : null,
             missing.has('rg') ? 'ripgrep' : null,
             missing.has('bun') ? 'oven-sh/bun/bun' : null,
@@ -87,8 +84,6 @@ export function installPlanCandidates({platform, missingCommands, windowsPackage
 
     const bunInstall = 'curl -fsSL https://bun.sh/install | bash';
     const linuxPackages = (packageNames) => Array.from(new Set([
-        missing.has('node') || missing.has('npm') ? packageNames.node : null,
-        missing.has('npm') ? packageNames.npm : null,
         missing.has('git') ? packageNames.git : null,
         missing.has('rg') ? packageNames.rg : null,
         missing.has('bash') ? packageNames.bash : null,
@@ -116,7 +111,7 @@ export function installPlanCandidates({platform, missingCommands, windowsPackage
             commandLine: linuxInstall({
                 prefix: 'sudo apt-get update && ',
                 installCommand: 'sudo apt-get install -y',
-                packageNames: {node: 'nodejs', npm: 'npm', git: 'git', rg: 'ripgrep', bash: 'bash', coreutils: 'coreutils', findutils: 'findutils', python3: 'python3', curl: 'curl', unzip: 'unzip', caCertificates: 'ca-certificates'},
+                packageNames: {git: 'git', rg: 'ripgrep', bash: 'bash', coreutils: 'coreutils', findutils: 'findutils', python3: 'python3', curl: 'curl', unzip: 'unzip', caCertificates: 'ca-certificates'},
             }),
         },
         {
@@ -124,7 +119,7 @@ export function installPlanCandidates({platform, missingCommands, windowsPackage
             probeCommand: 'dnf',
             commandLine: linuxInstall({
                 installCommand: 'sudo dnf install -y',
-                packageNames: {node: 'nodejs', npm: 'npm', git: 'git', rg: 'ripgrep', bash: 'bash', coreutils: 'coreutils', findutils: 'findutils', python3: 'python3', curl: 'curl', unzip: 'unzip', caCertificates: 'ca-certificates'},
+                packageNames: {git: 'git', rg: 'ripgrep', bash: 'bash', coreutils: 'coreutils', findutils: 'findutils', python3: 'python3', curl: 'curl', unzip: 'unzip', caCertificates: 'ca-certificates'},
             }),
         },
         {
@@ -132,7 +127,7 @@ export function installPlanCandidates({platform, missingCommands, windowsPackage
             probeCommand: 'yum',
             commandLine: linuxInstall({
                 installCommand: 'sudo yum install -y',
-                packageNames: {node: 'nodejs', npm: 'npm', git: 'git', rg: 'ripgrep', bash: 'bash', coreutils: 'coreutils', findutils: 'findutils', python3: 'python3', curl: 'curl', unzip: 'unzip', caCertificates: 'ca-certificates'},
+                packageNames: {git: 'git', rg: 'ripgrep', bash: 'bash', coreutils: 'coreutils', findutils: 'findutils', python3: 'python3', curl: 'curl', unzip: 'unzip', caCertificates: 'ca-certificates'},
             }),
         },
         {
@@ -140,7 +135,7 @@ export function installPlanCandidates({platform, missingCommands, windowsPackage
             probeCommand: 'pacman',
             commandLine: linuxInstall({
                 installCommand: 'sudo pacman -Sy --needed',
-                packageNames: {node: 'nodejs', npm: 'npm', git: 'git', rg: 'ripgrep', bash: 'bash', coreutils: 'coreutils', findutils: 'findutils', python3: 'python', curl: 'curl', unzip: 'unzip', caCertificates: 'ca-certificates'},
+                packageNames: {git: 'git', rg: 'ripgrep', bash: 'bash', coreutils: 'coreutils', findutils: 'findutils', python3: 'python', curl: 'curl', unzip: 'unzip', caCertificates: 'ca-certificates'},
             }),
         },
         {
@@ -148,7 +143,7 @@ export function installPlanCandidates({platform, missingCommands, windowsPackage
             probeCommand: 'zypper',
             commandLine: linuxInstall({
                 installCommand: 'sudo zypper install -y',
-                packageNames: {node: 'nodejs', npm: 'npm', git: 'git', rg: 'ripgrep', bash: 'bash', coreutils: 'coreutils', findutils: 'findutils', python3: 'python3', curl: 'curl', unzip: 'unzip', caCertificates: 'ca-certificates'},
+                packageNames: {git: 'git', rg: 'ripgrep', bash: 'bash', coreutils: 'coreutils', findutils: 'findutils', python3: 'python3', curl: 'curl', unzip: 'unzip', caCertificates: 'ca-certificates'},
             }),
         },
         {
@@ -156,7 +151,7 @@ export function installPlanCandidates({platform, missingCommands, windowsPackage
             probeCommand: 'apk',
             commandLine: linuxInstall({
                 installCommand: 'sudo apk add',
-                packageNames: {node: 'nodejs', npm: 'npm', git: 'git', rg: 'ripgrep', bash: 'bash', coreutils: 'coreutils', findutils: 'findutils', python3: 'python3', curl: 'curl', unzip: 'unzip', caCertificates: 'ca-certificates'},
+                packageNames: {git: 'git', rg: 'ripgrep', bash: 'bash', coreutils: 'coreutils', findutils: 'findutils', python3: 'python3', curl: 'curl', unzip: 'unzip', caCertificates: 'ca-certificates'},
             }),
         },
     ];

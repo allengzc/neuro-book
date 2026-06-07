@@ -34,6 +34,8 @@ export type InvokeAgentInput = {
     sessionId: number;
     mode: "prompt" | "continue" | "steer" | "followup";
     message?: AgentUserMessageInput;
+    /** 可选展示标题；提供时会在 invocation admission 成功后写入目标 session。 */
+    title?: string;
     resolution?: AgentResolution;
     clientState?: ClientStateSnapshot;
     caller?: AgentInvokeCaller;

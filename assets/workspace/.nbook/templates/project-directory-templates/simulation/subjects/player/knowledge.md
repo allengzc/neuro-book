@@ -28,7 +28,7 @@
 
 ### 当前地点
 
-当前位置暂时使用 `config.yaml` 的 `fallbackScene.location`。GM 建立更具体场景后，把玩家角色已经知道的位置资料写在这里。
+当前位置暂时参考 `simulation/runs/current.md` 的当前场景。GM 建立更具体场景后，把玩家角色已经知道的位置资料写在这里。
 
 ## 物品与线索
 

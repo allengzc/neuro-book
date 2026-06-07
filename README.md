@@ -2,7 +2,7 @@
 
 [![GitHub Release](https://img.shields.io/github/v/release/notnotype/neuro-book?include_prereleases&label=release)](https://github.com/notnotype/neuro-book/releases)
 [![GHCR App](https://img.shields.io/badge/GHCR-neuro--book-8957e5?logo=github&label=app)](https://github.com/notnotype/neuro-book/pkgs/container/neuro-book)
-[![Bun](https://img.shields.io/badge/runtime-Bun-000000?logo=bun)](https://bun.sh/)
+[![Bun](https://img.shields.io/badge/runtime%20%2B%20build-Bun-000000?logo=bun)](https://bun.sh/)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE)
 
 NeuroBook 是一个基于 Nuxt 构建的长篇小说创作与 AI 角色扮演 IDE。它以作者为主导，集成文件化 Project Workspace、Markdown Studio、剧情结构管理和领域化 Agent 系统，面向长篇写作、世界模拟、AI RP 和 SillyTavern 角色卡迁移等场景。
@@ -32,12 +32,12 @@ NeuroBook 是一个基于 Nuxt 构建的长篇小说创作与 AI 角色扮演 ID
 
 | 方式 | 适合 | 特点 |
 | --- | --- | --- |
-| Windows Product Portable | Windows 本机普通用户 | 解压后点击启动，内置 Node 和预构建 Product Payload。 |
-| Product Node | 已有 Node 的本机或服务器 | 解压 Product Payload 后用 Node 启动，不需要源码和根 `node_modules`。 |
+| Windows Product Portable | Windows 本机普通用户 | 解压后点击启动，内置 Bun 和预构建 Product Payload。 |
+| Product Bun | 已有 Bun 的本机或服务器 | 解压 Product Payload 后用 Bun 启动，不需要源码和根 `node_modules`。 |
 | ghcr | 低内存服务器 | Docker 拉取预构建镜像，服务器不执行 Nuxt build。 |
 | Source Dev | 开发者 | 源码 checkout、本机依赖安装、开发和测试。 |
 
-不确定时：Windows 用户选 Product Portable；服务器优先选 `ghcr` 或 Product Node。
+不确定时：Windows 用户选 Product Portable；服务器优先选 `ghcr` 或 Product Bun。
 
 ## Windows Product Portable
 
@@ -47,7 +47,7 @@ NeuroBook 是一个基于 Nuxt 构建的长篇小说创作与 AI 角色扮演 ID
 .\Start Neuro Book.cmd
 ```
 
-包内已经包含预构建 `app/` Product Payload 和 `runtime/node/`。首次启动会初始化 `data/`、迁移 SQLite，并在没有用户时引导创建管理员；不会 clone 源码、安装 Bun、安装依赖或执行 Nuxt build。
+包内已经包含预构建 `app/` Product Payload 和 `runtime/bun/`。首次启动会初始化 `data/`、迁移 SQLite，并在没有用户时引导创建管理员；不会 clone 源码、安装依赖或执行 Nuxt build。
 
 更新时运行：
 
@@ -55,18 +55,18 @@ NeuroBook 是一个基于 Nuxt 构建的长篇小说创作与 AI 角色扮演 ID
 .\Update Neuro Book.cmd
 ```
 
-更新入口会下载 GitHub Release 最新 Windows 包，校验 `SHA256SUMS`，保留 `data/` 后切换新版 `app/`、`launcher/` 和根启动脚本。内置 `runtime/node/` 会保留当前版本，避免替换正在运行的 `node.exe`。
+更新入口会下载 GitHub Release 最新 Windows 包，校验 `SHA256SUMS`，保留 `data/` 后切换新版 `app/`、`launcher/` 和根启动脚本。内置 `runtime/bun/` 会保留当前版本，避免替换正在运行的 `bun.exe`。
 
 目录边界：
 
 - `app/`：可替换的 Product Payload。
 - `data/`：升级时保留的运行状态，包含 `workspace/`、`.env`、`config.yaml` 和 SQLite 数据库。
 - `launcher/`：Windows Launcher。
-- `runtime/node/`：内置 Node.js runtime。
+- `runtime/bun/`：内置 Bun runtime。
 
-## Product Node
+## Product Bun
 
-Product Node 适合已有 Node.js 的本机或服务器。构建机生成 Product Payload：
+Product Bun 适合已有 Bun 的本机或服务器。构建机生成 Product Payload：
 
 ```bash
 bun run nuxt:build
@@ -77,7 +77,7 @@ bun run product:stage
 
 ```bash
 cd product
-node --env-file=.env .output/server/index.mjs
+bun .output/server/scripts/deploy/product-start.mjs
 ```
 
 ## local-git
@@ -85,7 +85,7 @@ node --env-file=.env .output/server/index.mjs
 `local-git` 保留为源码部署过渡方案，适合熟悉命令行并希望跟随源码更新的用户：
 
 ```bash
-npx --yes --package github:notnotype/neuro-book neuro-book-deploy
+bunx --bun --package github:notnotype/neuro-book neuro-book-deploy
 ```
 
 脚本会询问部署目录、端口和部署模式。`local-git` 会在宿主机 clone/pull 源码、安装依赖、构建应用、执行 SQLite migration，并在 `.deploy/README.md` 中生成启动说明。
@@ -95,7 +95,7 @@ npx --yes --package github:notnotype/neuro-book neuro-book-deploy
 ```bash
 git clone https://github.com/notnotype/neuro-book.git
 cd neuro-book
-node scripts/deploy/neuro-book-deploy.mjs --deploy-mode local-git
+bun scripts/deploy/neuro-book-deploy.mjs --deploy-mode local-git
 ```
 
 ## ghcr
@@ -103,7 +103,7 @@ node scripts/deploy/neuro-book-deploy.mjs --deploy-mode local-git
 推荐给不想在服务器上执行 Nuxt build 的 Docker 部署：
 
 ```bash
-npx --yes --package github:notnotype/neuro-book neuro-book-deploy
+bunx --bun --package github:notnotype/neuro-book neuro-book-deploy
 ```
 
 部署模式选择 `ghcr`。脚本会使用预构建镜像：
@@ -113,6 +113,7 @@ ghcr.io/notnotype/neuro-book:latest
 ```
 
 数据、配置和 Project Workspace 仍保存在宿主机 `workspace/` 挂载目录中。
+GHCR 镜像保留源码目录用于排障，但 app runner 使用 Bun runtime，服务启动、SQLite migration 和管理员脚本都使用镜像内预构建的 `.output/server/scripts/**`；服务器和容器启动时不执行依赖安装，也不要求根 `node_modules`。
 
 ## Source Dev
 
@@ -121,7 +122,7 @@ ghcr.io/notnotype/neuro-book:latest
 ```bash
 git clone https://github.com/notnotype/neuro-book.git
 cd neuro-book
-node scripts/deploy/neuro-book-deploy.mjs --deploy-mode source
+bun scripts/deploy/neuro-book-deploy.mjs --deploy-mode source
 ```
 
 `source` 模式会构建 runtime 容器，并把宿主机项目目录挂载到容器 `/app`。宿主机仍需要安装依赖并构建应用。低内存服务器优先使用 `ghcr`。

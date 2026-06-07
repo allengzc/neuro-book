@@ -46,7 +46,7 @@ ${DEPLOY_DIRNAME}/${nativeStartScriptName()}
 ${DEPLOY_DIRNAME}/${nativeAdminScriptName()}
 
 手动启动命令：
-${nativeStartHelp('node .output/server/index.mjs')}`,
+${nativeStartHelp('bun .output/server/index.mjs')}`,
         'local-git 启动命令',
     );
 }
@@ -60,7 +60,7 @@ export function renderCompose() {
 export function renderStartScript(config) {
     return {
         startPath: `${DEPLOY_DIRNAME}/${nativeStartScriptName()}`,
-        startContent: renderNativeScript('node .output/server/index.mjs'),
+        startContent: renderNativeScript('bun .output/server/index.mjs'),
         adminPath: `${DEPLOY_DIRNAME}/${nativeAdminScriptName()}`,
         adminContent: renderNativeScript('bun run auth:create-admin'),
     };
@@ -78,15 +78,15 @@ export function updateCommands() {
         'bun run generate',
         'bun run nuxt:build',
         'bun run migrate:deploy',
-        'node .output/server/index.mjs',
+        'bun .output/server/index.mjs',
     ];
 }
 
 /** 模式说明文本。 */
 export function notes() {
-    return `local-git 模式不使用 Docker，也不生成 systemd/pm2 服务。宿主机需要安装 Node.js、npm、Git、Bun、ripgrep，并在启动前完成：
+    return `local-git 模式不使用 Docker，也不生成 systemd/pm2 服务。宿主机需要安装 Git、Bun、ripgrep，并在启动前完成：
 ${updateCommands().map((line) => `- ${line}`).join('\n')}
 
 Windows PowerShell 启动前请按 .env 内容设置当前进程环境变量，然后运行：
-- node .output/server/index.mjs`;
+- bun .output/server/index.mjs`;
 }

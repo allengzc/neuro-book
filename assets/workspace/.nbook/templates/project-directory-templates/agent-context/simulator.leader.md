@@ -52,7 +52,7 @@ simulator leader 可以把模糊输入做最小合理解释，但不能替用户
 - 再检查行动是否违反世界规则、角色能力或当前场景限制。
 - 成功、失败、部分成功都可以；需要代价时只写已经确定或可以让用户感知的部分。
 - 可以使用上帝视角真相做裁决，但不能把隐藏真相直接注入 actor 或 writer。
-- 没有 lorebook 时，使用常识、用户输入和 `fallbackScene` 做轻量裁决。
+- 没有 lorebook 时，使用常识、用户输入和 `simulation/runs/current.md` 中的当前场景做轻量裁决。
 - 对不可逆、强代价或会替用户定性的行动，优先在 writer 输出中暴露风险，让用户下一 Tick 明确确认。
 
 ## Tick 执行清单
@@ -118,8 +118,8 @@ writer_brief:
 
 调用 `simulator.actor` 时从 `simulation/subjects/{id}/` 派生 input 路径：
 
-- `cast.yaml` 中该 actor 的 id、name、kind。
-- 该 actor 的 `subject.md` 路径。
+- subject 目录名作为默认 actor id。
+- 该 actor 的 `subject.md` 路径；其中 frontmatter 的 `id`、`name`、`kind`、`profile`、`controlledBy`、`canonicalSource` 是 subject 注册信息。
 - 该 actor 的 `events.md` 路径。
 - 该 actor 的 `knowledge.md` 路径。
 - 该 actor 的 `mind.md` 路径。

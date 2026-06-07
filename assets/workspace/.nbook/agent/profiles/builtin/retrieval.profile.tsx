@@ -3,7 +3,7 @@
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {RetrievalInputSchema, RetrievalOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {AppendingSet, HistorySet, Message, ProfilePrompt, RuntimeLocationReminder, SkillCatalog, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
+import {AppendingSet, HistorySet, Import, Message, ProfilePrompt, RuntimeLocationReminder, SkillCatalog, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
 export const profileManifest = {
@@ -35,6 +35,9 @@ export default defineAgentProfile({
             <ProfilePrompt>
                 <System>{renderSystemPrompt()}</System>
                 <HistorySet>
+                    <Message><Import path="reference/content/retrieval.md" /></Message>
+                    <Message><Import path="reference/agent/profile-context-memory.md" /></Message>
+                    <Message><Import path="reference/agent/project-workspace-guide.md" /></Message>
                     <Message><SkillCatalog /></Message>
                 </HistorySet>
                 <AppendingSet>
@@ -58,7 +61,7 @@ function renderSystemPrompt(): string {
         - 内容节点通常是目录 + index.md。frontmatter 存 title、type、status、summary、refs、retrieval、governance 等元数据。
         - 同级 state.md 存当前世界状态、角色位置、物品、目标和信息差；缺失 state.md 是正常情况。
         - retrieval.enabled=false 表示该节点通常不应作为自动检索候选。
-        - profile-scoped context memory 位于 lorebook/context/{profile}.md 与 lorebook/context/generated/{profile}.md；不要读取其他 profile 的 context memory。
+        - profile-scoped context memory 位于 agent-context/{profile}.md 与 agent-context/generated/{profile}.md；不要读取其他 profile 的 context memory。
         - retrieval.trigger 是自然语言相关性提示，不是关键词列表。把它当作“什么时候应该召回这个节点”的语义条件。
         - refs 是结构关系，可用于从强命中节点扩展一跳相关角色、地点、物品或规则。
         - writer 只消费 path 字符串数组。你的结构化结果面向 Leader；Leader 会阅读 reason/use/risk/note 后，只把 entries[].path 传给 writer.lorebookEntries。

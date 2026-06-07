@@ -1,12 +1,11 @@
 import * as p from "@clack/prompts";
 import {spawn} from "node:child_process";
-import {createRequire} from "node:module";
 import {createHash, randomBytes} from "node:crypto";
 import {createServer} from "node:net";
 import {existsSync} from "node:fs";
 import {cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, symlink, writeFile} from "node:fs/promises";
 import {basename, dirname, join, resolve} from "node:path";
-import {fileURLToPath, pathToFileURL} from "node:url";
+import {fileURLToPath} from "node:url";
 import {unzipSync} from "fflate";
 
 const DEFAULT_PORT = "3000";
@@ -19,7 +18,7 @@ const DATA_WORKSPACE_DIR = join(DATA_DIR, "workspace");
 const APP_WORKSPACE_PATH = join(APP_DIR, "workspace");
 const DEPLOY_DIR = join(DATA_DIR, ".deploy");
 const STATE_PATH = join(DEPLOY_DIR, "windows-launcher.json");
-const NODE_EXE = process.execPath;
+const BUN_EXE = process.execPath;
 const SERVER_ENTRY = join(APP_DIR, ".output", "server", "index.mjs");
 const RELEASE_META = join(APP_DIR, "release-meta.json");
 const PORTABLE_RELEASE = join(PORTABLE_ROOT, "portable-release.json");
@@ -93,7 +92,7 @@ async function update() {
         `当前版本：${currentRelease?.releaseTag ?? "unknown"}`,
         `最新版本：${latestRelease.tag_name}`,
         "更新会替换 app/、launcher/、根启动脚本和 portable-release.json，并保留 data/。",
-        "内置 Node runtime 会保留当前版本，避免更新进程替换正在运行的 node.exe。",
+        "内置 Bun runtime 会保留当前版本，避免更新进程替换正在运行的 bun.exe。",
     ].join("\n"), "准备更新");
     if (process.env.NEURO_BOOK_UPDATE_ASSUME_YES !== "1") {
         const confirmed = await p.confirm({
@@ -232,6 +231,7 @@ async function assertStagedPortableRoot(stagedRoot) {
         join(stagedRoot, "app", "release-meta.json"),
         join(stagedRoot, "launcher", "launcher.mjs"),
         join(stagedRoot, "portable-release.json"),
+        join(stagedRoot, "runtime", "bun", "bun.exe"),
         ...LAUNCHER_ROOT_FILES.map((file) => join(stagedRoot, file)),
     ];
     for (const file of requiredFiles) {
@@ -288,18 +288,20 @@ async function backupExisting(source, target, backups) {
 }
 
 /**
- * 更新 portable metadata。Node runtime 在进程内更新时保留旧版本。
+ * 更新 portable metadata。Bun runtime 在进程内更新时保留旧版本。
  */
 async function writeUpdatedPortableRelease(stagedRoot) {
     const release = JSON.parse(await readFile(join(stagedRoot, "portable-release.json"), "utf8"));
-    const packagedNodeVersion = release.nodeVersion ?? null;
+    const packagedBunVersion = release.bunVersion ?? null;
     await writeFile(PORTABLE_RELEASE, `${JSON.stringify({
         ...release,
-        packagedNodeVersion,
-        nodeVersion: process.version.replace(/^v/u, ""),
+        packagedBunVersion,
+        runtimeKind: "bun",
+        bunVersion: currentBunVersion(),
+        runtimePath: "runtime/bun/bun.exe",
         runtimeUpdate: {
             mode: "preserved-running-runtime",
-            note: "Windows Launcher update keeps the currently running runtime/node directory.",
+            note: "Windows Launcher update keeps the currently running runtime/bun directory.",
         },
     }, null, 4)}\n`, "utf8");
 }
@@ -391,7 +393,7 @@ async function ensureWorkspaceLink() {
  * 执行 SQLite migration。
  */
 async function migrate() {
-    await run(NODE_EXE, [join(APP_DIR, ".output", "server", "scripts", "db", "prisma-migrate.mjs"), "--deploy"], {
+    await run(BUN_EXE, [join(APP_DIR, ".output", "server", "scripts", "db", "prisma-migrate.mjs"), "--deploy"], {
         cwd: APP_DIR,
         env: await productEnv(),
     });
@@ -423,13 +425,11 @@ async function ensureAdminUser() {
 }
 
 /**
- * 使用 Product 内置 tsx vendor 运行产品 TS 脚本，不依赖根 node_modules 或 Bun。
+ * 使用内置 Bun 运行产品脚本，不依赖根 node_modules。
  */
 async function runProductTsScript(relativeScript, options) {
-    const requireFromProduct = createRequire(pathToFileURL(SERVER_ENTRY));
-    const tsxCli = requireFromProduct.resolve("tsx/cli");
     const scriptPath = join(APP_DIR, ".output", "server", "scripts", relativeScript);
-    return run(NODE_EXE, [tsxCli, scriptPath, ...(options.args ?? [])], {
+    return run(BUN_EXE, [scriptPath, ...(options.args ?? [])], {
         cwd: APP_DIR,
         env: await productEnv(),
         stdio: options.stdio,
@@ -442,7 +442,7 @@ async function runProductTsScript(relativeScript, options) {
 async function runServer(env) {
     const port = webPort(env);
     const url = `http://localhost:${port}`;
-    const child = spawn(NODE_EXE, [SERVER_ENTRY], {
+    const child = spawn(BUN_EXE, [SERVER_ENTRY], {
         cwd: APP_DIR,
         env,
         stdio: "inherit",
@@ -640,7 +640,11 @@ async function openBrowser(url) {
         await run("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", `Start-Process '${url.replaceAll("'", "''")}'`], {stdio: "ignore"});
         return;
     }
-    await run(NODE_EXE, ["-e", `import('node:child_process').then(({spawn})=>spawn(${JSON.stringify(process.platform === "darwin" ? "open" : "xdg-open")},[${JSON.stringify(url)}],{stdio:'ignore',detached:true}).unref())`], {stdio: "ignore"});
+    await run(BUN_EXE, ["-e", `import('node:child_process').then(({spawn})=>spawn(${JSON.stringify(process.platform === "darwin" ? "open" : "xdg-open")},[${JSON.stringify(url)}],{stdio:'ignore',detached:true}).unref())`], {stdio: "ignore"});
+}
+
+function currentBunVersion() {
+    return globalThis.Bun?.version ?? "unknown";
 }
 
 /**

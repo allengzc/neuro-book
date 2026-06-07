@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import {spawn} from "node:child_process";
 import {randomBytes} from "node:crypto";
 import {existsSync} from "node:fs";
@@ -218,20 +218,20 @@ async function writeProductPackageJson() {
         private: true,
         type: "module",
         scripts: {
-            start: "node .output/server/scripts/deploy/product-start.mjs",
-            "auth:create-admin": "node .output/server/node_modules/tsx/dist/cli.mjs .output/server/scripts/cli/create-admin.ts",
-            "migrate:deploy": "node .output/server/scripts/db/prisma-migrate.mjs --deploy",
-            "system-assets:prepare": "node .output/server/node_modules/tsx/dist/cli.mjs .output/server/scripts/build/prepare-system-assets.ts",
-            "profile:check": "node .output/server/node_modules/tsx/dist/cli.mjs .output/server/scripts/build/profile.ts check",
-            "profile:compile": "node .output/server/node_modules/tsx/dist/cli.mjs .output/server/scripts/build/profile.ts compile",
+            start: "bun .output/server/scripts/deploy/product-start.mjs",
+            "auth:create-admin": "bun .output/server/scripts/cli/create-admin.ts",
+            "migrate:deploy": "bun .output/server/scripts/db/prisma-migrate.mjs --deploy",
+            "system-assets:prepare": "bun .output/server/scripts/build/prepare-system-assets.ts",
+            "profile:check": "bun .output/server/scripts/build/profile.ts check",
+            "profile:compile": "bun .output/server/scripts/build/profile.ts compile",
         },
     };
     await writeJson(resolve(PRODUCT_ROOT, "package.json"), manifest);
 }
 
 /**
- * 写入产品本地 `.env`。裸 `node` 不会自动读取该文件；产品启动脚本会加载它，
- * 直接运行时可使用 `node --env-file=.env .output/server/index.mjs`。
+ * 写入产品本地 `.env`。裸 Nitro 入口不会自动读取该文件；产品启动脚本会加载它，
+ * 直接运行时优先使用 `bun .output/server/scripts/deploy/product-start.mjs`。
  */
 async function writeProductEnv() {
     await writeFile(resolve(PRODUCT_ROOT, ".env"), [

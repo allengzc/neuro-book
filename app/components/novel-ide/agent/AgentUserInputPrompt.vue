@@ -13,7 +13,7 @@ const props = defineProps<{
 const emit = defineEmits<{
     (e: "update:selectedAnswers", value: Record<string, number[]>): void;
     (e: "update:notes", value: Record<string, string>): void;
-    (e: "active-question-change", payload: {toolNodeId: string; questionIndex: number; key: string}): void;
+    (e: "active-question-change", payload: {toolNodeId: string; questionIndex: number; key: string; canContinue: boolean; canSubmitAll: boolean; submitButtonLabel: string}): void;
     (e: "submit", payload: {
         assistantMessageId: string;
         resume?: boolean;
@@ -49,6 +49,10 @@ const activeAnswer = computed(() => {
     }
     return props.selectedAnswers[questionKey(activeQuestion.value.toolNodeId, activeQuestion.value.questionIndex)] ?? [];
 });
+
+const activeQuestionCanContinue = computed(() => activeQuestion.value
+    ? hasAnswer(questionKey(activeQuestion.value.toolNodeId, activeQuestion.value.questionIndex))
+    : false);
 
 const isToolApproval = computed(() => activeQuestion.value?.kind === "tool_approval");
 const isExitPlanModeApproval = computed(() => activeQuestion.value?.approvalAction === "exit_plan_mode");
@@ -249,16 +253,31 @@ watch(() => props.session.questions.map((question) => `${question.toolNodeId}\n$
     activeQuestionIndexValue.value = question?.questionIndex ?? 0;
 });
 
-watch(activeQuestion, (question) => {
+const activeQuestionStatePayload = computed(() => {
+    const question = activeQuestion.value;
     if (!question) {
-        return;
+        return null;
     }
-    emit("active-question-change", {
+    return {
         toolNodeId: question.toolNodeId,
         questionIndex: question.questionIndex,
         key: questionKey(question.toolNodeId, question.questionIndex),
-    });
+        canContinue: activeQuestionCanContinue.value,
+        canSubmitAll: canSubmit.value,
+        submitButtonLabel: submitButtonLabel.value,
+    };
+});
+
+watch(activeQuestionStatePayload, (payload) => {
+    if (!payload) {
+        return;
+    }
+    emit("active-question-change", payload);
 }, {immediate: true});
+
+defineExpose({
+    continueQuestion,
+});
 </script>
 
 <template>

@@ -60,7 +60,7 @@ async function readUsername(): Promise<string> {
  */
 async function readPassword(): Promise<string> {
     if (passwordArg) {
-        throw new Error("不要把密码作为命令行参数传入，这会被 shell history 记录。请运行 bun run auth:create-admin 后按提示隐藏输入密码，或在非交互环境中设置 AUTH_ADMIN_PASSWORD。");
+        throw new Error("不要把密码作为命令行参数传入，这会被 shell history 记录。请运行管理员创建命令后按提示隐藏输入密码，或在非交互环境中设置 AUTH_ADMIN_PASSWORD。");
     }
 
     const envPassword = process.env.AUTH_ADMIN_PASSWORD;

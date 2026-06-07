@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {onClickOutside} from "@vueuse/core";
 import type {AgentPendingUserInputSession} from "nbook/app/components/novel-ide/agent/agent-message";
-import AgentReferenceInput from "nbook/app/components/novel-ide/agent/AgentReferenceInput.vue";
+import AgentComposerInput from "nbook/app/components/novel-ide/agent/AgentComposerInput.vue";
 import AgentUserInputPrompt from "nbook/app/components/novel-ide/agent/AgentUserInputPrompt.vue";
 import type {
     AgentTriggerMenuContext,
@@ -91,9 +91,14 @@ const emit = defineEmits<{
     (e: "refresh-history"): void;
 }>();
 
-const inputRef = ref<InstanceType<typeof AgentReferenceInput> | null>(null);
+const inputRef = ref<InstanceType<typeof AgentComposerInput> | null>(null);
+const userInputPromptRef = ref<InstanceType<typeof AgentUserInputPrompt> | null>(null);
 const sessionModelControlsRef = ref<HTMLElement | null>(null);
 const activeQuestionKey = ref("");
+const activeQuestionState = ref({
+    canContinue: false,
+    submitButtonLabel: "继续",
+});
 
 const activeComposerValue = computed(() => {
     if (!props.pendingSession || !activeQuestionKey.value) {
@@ -109,16 +114,22 @@ const composerPlaceholder = computed(() => props.pendingSession
 const runInputText = computed(() => props.inputText);
 
 const sendDisabled = computed(() => {
+    if (props.pendingSession) {
+        return props.submittingUserInput || !activeQuestionState.value.canContinue;
+    }
     if (props.running) {
         return false;
-    }
-    if (props.pendingSession) {
-        return true;
     }
     return !props.inputText.trim() && !props.canContinueWithoutInput;
 });
 
 const sendIconClass = computed(() => {
+    if (props.pendingSession && props.submittingUserInput) {
+        return "i-lucide-loader-2 animate-spin";
+    }
+    if (props.pendingSession) {
+        return "i-lucide-corner-down-left";
+    }
     if (props.running && !runInputText.value.trim()) {
         return "i-lucide-square";
     }
@@ -132,6 +143,9 @@ const sendIconClass = computed(() => {
 });
 
 const sendButtonTitle = computed(() => {
+    if (props.pendingSession) {
+        return activeQuestionState.value.submitButtonLabel || "继续";
+    }
     if (props.running && runInputText.value.trim()) {
         return "引导；Ctrl+Enter / Ctrl+点击 队列";
     }
@@ -200,8 +214,12 @@ function updateComposerValue(value: string): void {
 /**
  * 更新当前活跃问题，供底部输入框写入 note。
  */
-function setActiveQuestion(payload: {toolNodeId: string; questionIndex: number; key: string}): void {
+function setActiveQuestion(payload: {toolNodeId: string; questionIndex: number; key: string; canContinue: boolean; submitButtonLabel: string}): void {
     activeQuestionKey.value = payload.key;
+    activeQuestionState.value = {
+        canContinue: payload.canContinue,
+        submitButtonLabel: payload.submitButtonLabel,
+    };
 }
 
 /**
@@ -215,9 +233,13 @@ function updateSessionModelDraft(patch: Partial<AgentComposerSessionModelDraft>)
 }
 
 /**
- * 处理运行中消息输入提交。
+ * 处理回答备注输入提交。
  */
-function submitRunMessage(payload?: {ctrlKey?: boolean; metaKey?: boolean}): void {
+function submitComposer(payload?: {ctrlKey?: boolean; metaKey?: boolean}): void {
+    if (props.pendingSession) {
+        submitActiveQuestion();
+        return;
+    }
     if (props.running && runInputText.value.trim()) {
         if (payload?.ctrlKey || payload?.metaKey) {
             emit("followup");
@@ -226,26 +248,24 @@ function submitRunMessage(payload?: {ctrlKey?: boolean; metaKey?: boolean}): voi
         }
         return;
     }
-    if (props.pendingSession) {
-        return;
-    }
     emit("send");
 }
 
 /**
- * 处理回答备注输入提交。
+ * 继续或提交当前 request_user_input 问题。
  */
-function submitComposer(): void {
-    if (props.pendingSession) {
-        return;
-    }
-    emit("send");
+function submitActiveQuestion(): void {
+    userInputPromptRef.value?.continueQuestion();
 }
 
 /**
  * 处理右下角按钮点击。
  */
 function submitButton(event: MouseEvent): void {
+    if (props.pendingSession) {
+        submitActiveQuestion();
+        return;
+    }
     if (props.running && !runInputText.value.trim()) {
         emit("stop");
         return;
@@ -256,9 +276,6 @@ function submitButton(event: MouseEvent): void {
         } else {
             emit("steer");
         }
-        return;
-    }
-    if (props.pendingSession) {
         return;
     }
     emit("send");
@@ -273,6 +290,7 @@ defineExpose({focus});
         <!-- request_user_input 回答区 -->
         <div v-if="props.pendingSession" class="flex min-w-0 justify-center px-1 pb-2">
             <AgentUserInputPrompt
+                ref="userInputPromptRef"
                 :session="props.pendingSession"
                 :selected-answers="props.selectedAnswers"
                 :notes="props.notes"
@@ -284,22 +302,8 @@ defineExpose({focus});
             />
         </div>
 
-        <!-- waiting_user 期间的引导/队列输入 -->
-        <div v-if="props.pendingSession" class="px-1 pb-1.5">
-            <AgentReferenceInput
-                :model-value="props.inputText"
-                placeholder="运行中消息...（Enter 引导，Ctrl+Enter 队列）"
-                :menu-refresh-key="props.menuRefreshKey"
-                :resolve-menu="resolveComposerMenu"
-                :on-skill-trigger-start="props.onSkillTriggerStart"
-                @update:model-value="emit('update:inputText', $event)"
-                @submit="submitRunMessage"
-                @toggle-plan-mode="emit('toggle-plan-mode')"
-            />
-        </div>
-
         <!-- pending 引导/队列 -->
-        <div v-if="props.queuedMessages.length > 0" class="flex min-w-0 flex-wrap gap-1 px-1 pb-1.5">
+        <div v-if="!props.pendingSession && props.queuedMessages.length > 0" class="flex min-w-0 flex-wrap gap-1 px-1 pb-1.5">
             <div
                 v-for="item in props.queuedMessages"
                 :key="item.id"
@@ -314,7 +318,7 @@ defineExpose({focus});
 
         <!-- 消息输入栏 -->
         <div class="flex flex-col rounded-xl border border-[var(--border-color)] bg-[var(--bg-input)] shadow-sm transition-all focus-within:border-[var(--accent-main)] focus-within:ring-1 focus-within:ring-[var(--accent-main)]" style="--composer-radius: 0.75rem;">
-            <AgentReferenceInput
+            <AgentComposerInput
                 ref="inputRef"
                 borderless
                 :model-value="activeComposerValue"

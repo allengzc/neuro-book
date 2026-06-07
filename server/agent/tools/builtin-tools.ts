@@ -59,6 +59,9 @@ const InvokeAgentSchema = Type.Object({
     message: Type.Optional(Type.String({
         description: "User request to append to the target agent. Prefer the user's original wording or a minimal restatement; do not turn it into a long delegation prompt.",
     })),
+    title: Type.Optional(Type.String({
+        description: "Optional display title to set on the target agent session when this invocation is accepted.",
+    })),
     mode: Type.Optional(Type.Union([Type.Literal("prompt"), Type.Literal("continue")], {
         description: "Default is prompt when message is present, otherwise continue.",
     })),
@@ -227,6 +230,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
                     sessionId: invocation.sessionId,
                     mode: invocation.mode ?? (invocation.message ? "prompt" : "continue"),
                     message: invocation.message ? {text: invocation.message} : undefined,
+                    title: invocation.title,
                     caller: {kind: "agent"},
                 });
                 return {
@@ -243,6 +247,7 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
                     sessionId: invocation.sessionId,
                     mode: invocation.mode ?? (invocation.message ? "prompt" : "continue"),
                     message: invocation.message ? {text: invocation.message} : undefined,
+                    title: invocation.title,
                     caller: {
                         kind: "agent",
                         sessionId: context.sessionId,

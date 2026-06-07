@@ -5,7 +5,7 @@ import {isAbsolute, relative, resolve} from "node:path";
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {RpWriterInputSchema, RpWriterOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {AppendingSet, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System} from "nbook/server/agent/profiles/profile-dsl";
+import {AppendingSet, HistorySet, Import, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
 
@@ -38,6 +38,10 @@ export default defineAgentProfile({
         return (
             <ProfilePrompt>
                 <System>{renderSystemPrompt(ctx.input)}</System>
+                <HistorySet>
+                    <Message><Import path="reference/content/simulation.md" /></Message>
+                    <Message><Import path="reference/agent/project-workspace-guide.md" /></Message>
+                </HistorySet>
                 <ModelContext>
                     <Message>{writerContext}</Message>
                     <Message>{renderInvocationReminder()}</Message>

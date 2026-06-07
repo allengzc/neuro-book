@@ -1,11 +1,10 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import {createHash} from "node:crypto";
 import {createWriteStream, existsSync, readFileSync} from "node:fs";
 import {cp, mkdir, readFile, readdir, realpath, rm, stat, writeFile} from "node:fs/promises";
 import {basename, dirname, join, relative, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {build} from "esbuild";
-import {unzipSync} from "fflate";
 import yazl from "yazl";
 
 import {runCapture} from "../utils/process.mjs";
@@ -16,7 +15,6 @@ const PRODUCT_ROOT = join(REPO_ROOT, "product");
 const DIST_DIR = join(REPO_ROOT, "dist");
 const PACKAGE_ROOT_NAME = "neuro-book-windows-x64";
 const DEFAULT_OUTPUT = join(DIST_DIR, `${PACKAGE_ROOT_NAME}.zip`);
-const DEFAULT_NODE_VERSION = process.env.NEURO_BOOK_WINDOWS_NODE_VERSION ?? "24.11.1";
 const ZIP_SCHEMA_VERSION = 2;
 const LAUNCHER_ROOT_FILES = [
     "Start Neuro Book.cmd",
@@ -49,8 +47,8 @@ async function main() {
     await stageProductPayload(portableRoot);
     await copyLauncherShell(portableRoot);
     await bundleLauncher(portableRoot);
-    await stageNodeRuntime(portableRoot);
-    await writePortableRelease(portableRoot);
+    const bunRuntime = await stageBunRuntime(portableRoot);
+    await writePortableRelease(portableRoot, bunRuntime);
 
     const outputPath = resolve(options.output ?? DEFAULT_OUTPUT);
     await mkdir(dirname(outputPath), {recursive: true});
@@ -65,7 +63,7 @@ async function main() {
 function parseArgs(args) {
     const parsed = {
         output: null,
-        nodeRuntime: null,
+        bunRuntime: null,
         skipGitCheck: false,
     };
     for (let index = 0; index < args.length; index += 1) {
@@ -75,8 +73,8 @@ function parseArgs(args) {
             index += 1;
             continue;
         }
-        if (arg === "--node-runtime") {
-            parsed.nodeRuntime = requireValue(args, index, arg);
+        if (arg === "--bun-runtime") {
+            parsed.bunRuntime = requireValue(args, index, arg);
             index += 1;
             continue;
         }
@@ -159,7 +157,7 @@ async function copyLauncherShell(portableRoot) {
 }
 
 /**
- * 把 clack 等依赖 bundle 进 launcher.mjs，保证初始 zip 只依赖内置 Node。
+ * 把 clack 等依赖 bundle 进 launcher.mjs，保证初始 zip 只依赖内置 Bun。
  */
 async function bundleLauncher(portableRoot) {
     await build({
@@ -176,67 +174,120 @@ async function bundleLauncher(portableRoot) {
 }
 
 /**
- * 放入 Node.js Windows x64 runtime。
+ * 放入 Bun Windows x64 runtime。
  */
-async function stageNodeRuntime(portableRoot) {
-    const target = join(portableRoot, "runtime", "node");
-    if (options.nodeRuntime) {
-        await cp(await realpath(resolve(options.nodeRuntime)), target, {recursive: true});
-        return;
-    }
+async function stageBunRuntime(portableRoot) {
+    const source = options.bunRuntime
+        ? await resolveBunRuntimeOverride(options.bunRuntime)
+        : await resolveBunFromPath();
+    const target = join(portableRoot, "runtime", "bun", "bun.exe");
+    await mkdir(dirname(target), {recursive: true});
+    await cp(source, target);
+    const version = await runCapture(target, ["--version"]).then((value) => value.trim());
+    return {
+        version,
+        path: "runtime/bun/bun.exe",
+    };
+}
 
-    const zipName = `node-v${DEFAULT_NODE_VERSION}-win-x64.zip`;
-    const baseUrl = `https://nodejs.org/dist/v${DEFAULT_NODE_VERSION}`;
-    const [archive, shasums] = await Promise.all([
-        downloadBuffer(`${baseUrl}/${zipName}`),
-        downloadText(`${baseUrl}/SHASUMS256.txt`),
-    ]);
-    const expected = shasums.split(/\r?\n/u)
-        .map((line) => line.trim().split(/\s+/u))
-        .find((parts) => parts[1] === zipName)?.[0];
-    const actual = sha256(archive);
-    if (!expected || expected !== actual) {
-        throw new Error(`Node.js runtime checksum mismatch: expected ${expected ?? "<missing>"} actual ${actual}`);
+/**
+ * 解析 --bun-runtime，允许传入 bun.exe 文件或包含 bun.exe 的目录。
+ */
+async function resolveBunRuntimeOverride(value) {
+    const input = await realpath(resolve(value));
+    const info = await stat(input);
+    if (info.isFile()) {
+        return await resolveRealBunExecutable(input);
     }
+    if (!info.isDirectory()) {
+        throw new Error(`--bun-runtime 必须指向 bun.exe 文件或包含 bun.exe 的目录：${input}`);
+    }
+    const candidate = join(input, "bun.exe");
+    if (!existsSync(candidate)) {
+        throw new Error(`--bun-runtime 目录缺少 bun.exe：${candidate}`);
+    }
+    return await resolveRealBunExecutable(await realpath(candidate));
+}
 
-    const entries = unzipSync(new Uint8Array(archive));
-    const prefix = `node-v${DEFAULT_NODE_VERSION}-win-x64/`;
-    for (const [name, data] of Object.entries(entries)) {
-        if (!name.startsWith(prefix) || name.endsWith("/")) {
-            continue;
-        }
-        const relativePath = name.slice(prefix.length);
-        if (!relativePath) {
-            continue;
-        }
-        const filePath = join(target, ...relativePath.split("/"));
-        await mkdir(dirname(filePath), {recursive: true});
-        await writeFile(filePath, data);
+/**
+ * 从当前 PATH 定位 Bun runtime。
+ */
+async function resolveBunFromPath() {
+    const locator = process.platform === "win32" ? "where" : "which";
+    const output = await runCapture(locator, ["bun"]);
+    const first = output.split(/\r?\n/u).map((line) => line.trim()).find(Boolean);
+    if (!first) {
+        throw new Error("未在 PATH 中找到 Bun。请先安装 Bun，或使用 --bun-runtime <bun.exe-or-dir> 指定。");
+    }
+    const real = await resolveRealBunExecutable(await realpath(first));
+    if (process.platform === "win32" && basename(real).toLowerCase() !== "bun.exe") {
+        throw new Error(`PATH 中的 bun 不是 bun.exe：${real}`);
+    }
+    return real;
+}
+
+/**
+ * Scoop 的 bun.exe 是 shim，不能单独复制进 portable；这里解析到真实 runtime。
+ */
+async function resolveRealBunExecutable(path) {
+    const scoopCandidate = await resolveScoopBun(path);
+    if (scoopCandidate && await bunExecutableWorks(scoopCandidate)) {
+        return scoopCandidate;
+    }
+    if (await bunExecutableWorks(path)) {
+        return path;
+    }
+    throw new Error(`Bun runtime 无法独立执行：${path}\n请使用 --bun-runtime 指向真实 bun.exe 或包含 bun.exe 的目录。`);
+}
+
+async function bunExecutableWorks(path) {
+    try {
+        await runCapture(path, ["--version"]);
+        return true;
+    } catch {
+        return false;
     }
 }
 
-async function downloadBuffer(url) {
-    const response = await fetch(url);
-    if (!response.ok) {
-        throw new Error(`下载失败：${url} ${response.status}`);
+async function resolveScoopBun(path) {
+    if (process.platform !== "win32") {
+        return null;
     }
-    return Buffer.from(await response.arrayBuffer());
-}
-
-async function downloadText(url) {
-    return (await downloadBuffer(url)).toString("utf8");
+    const normalized = path.replaceAll("\\", "/").toLowerCase();
+    const marker = "/scoop/shims/bun.exe";
+    if (!normalized.endsWith(marker)) {
+        return null;
+    }
+    const scoopRoot = path.slice(0, path.length - marker.length + "/scoop".length);
+    const current = join(scoopRoot, "apps", "bun", "current", "bun.exe");
+    if (existsSync(current)) {
+        return await realpath(current);
+    }
+    const appsRoot = join(scoopRoot, "apps", "bun");
+    if (!existsSync(appsRoot)) {
+        return null;
+    }
+    const entries = await readdir(appsRoot, {withFileTypes: true});
+    const candidates = entries
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => join(appsRoot, entry.name, "bun.exe"))
+        .filter((candidate) => existsSync(candidate));
+    candidates.sort((left, right) => right.localeCompare(left, undefined, {numeric: true}));
+    return candidates.length > 0 ? await realpath(candidates[0]) : null;
 }
 
 /**
  * 写入 release 元数据。
  */
-async function writePortableRelease(portableRoot) {
+async function writePortableRelease(portableRoot, bunRuntime) {
     const releaseTag = process.env.GITHUB_REF_NAME ?? `v${JSON.parse(await readFile(join(REPO_ROOT, "package.json"), "utf8")).version}`;
     const buildCommit = await runCapture("git", ["rev-parse", "HEAD"], {cwd: REPO_ROOT}).then((value) => value.trim());
     await writeFile(join(portableRoot, "portable-release.json"), `${JSON.stringify({
         releaseTag,
         buildCommit,
-        nodeVersion: DEFAULT_NODE_VERSION,
+        runtimeKind: "bun",
+        bunVersion: bunRuntime.version,
+        runtimePath: bunRuntime.path,
         payload: readReleaseMeta(),
         createdAt: new Date().toISOString(),
         zipSchemaVersion: ZIP_SCHEMA_VERSION,

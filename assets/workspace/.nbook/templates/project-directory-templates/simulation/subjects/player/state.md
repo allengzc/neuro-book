@@ -7,7 +7,7 @@
 ## 当前位置
 
 - 待填写。
-- 示例：使用 `config.yaml` 的 `fallbackScene.location`，直到 GM 建立更具体场景。
+- 示例：先参考 `simulation/runs/current.md` 的当前场景，直到 GM 建立更具体位置。
 
 ## 持有物品
 

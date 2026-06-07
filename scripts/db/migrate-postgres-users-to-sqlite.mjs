@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 import "dotenv/config";
 import {existsSync, mkdirSync, readFileSync} from "node:fs";
 import {dirname, resolve} from "node:path";

@@ -64,7 +64,7 @@ jobs:
             type=raw,value=latest
           labels: |
             org.opencontainers.image.title=neuro-book
-            org.opencontainers.image.description=NeuroBook app image with full runtime source and agent shell tools
+            org.opencontainers.image.description=NeuroBook prebuilt app image with source and Nitro runtime vendor
 
       - name: Build and push app image
         uses: docker/build-push-action@v6

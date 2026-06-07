@@ -10,8 +10,6 @@ export const LOCAL_GIT_DEPLOY_MODE = "local-git";
 export const DEPLOY_MODES = [LOCAL_GIT_DEPLOY_MODE, "ghcr", "source"];
 export const DOCKER_DEPLOY_MODES = ["ghcr", "source"];
 export const NATIVE_REQUIRED_COMMANDS = [
-    {command: "node", label: "Node.js", required: true},
-    {command: "npm", label: "npm", required: true},
     {command: "git", label: "Git", required: true},
     {command: "bun", label: "Bun", required: true},
     {command: "rg", label: "ripgrep", required: true},
