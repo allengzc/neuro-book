@@ -21,6 +21,10 @@ type SchemaWithProperties = {
     properties: Record<string, unknown>;
 };
 
+type SchemaWithType = {
+    type?: string;
+};
+
 function messagesText(messages: Array<Message | AgentMessage> | undefined): string {
     return (messages ?? []).map((message) => {
         if (message.role === "user" || message.role === "assistant" || message.role === "toolResult") {
@@ -100,7 +104,7 @@ describe("RP builtin profiles", () => {
 
         expect(rpLeaderProfile.inputSchema).toBe(RpLeaderInputSchema);
         expect(rpLeaderProfile.outputSchema).toBe(RpLeaderOutputSchema);
-        expect(rpLeaderProfile.allowedToolKeys).toEqual([
+        expect(rpLeaderProfile.toolKeys).toEqual([
             "read",
             "write",
             "edit",
@@ -116,7 +120,7 @@ describe("RP builtin profiles", () => {
             "get_story_scene_context",
             "get_chapter_plot",
         ]);
-        expect(rpLeaderProfile.allowedToolKeys).not.toContain("report_result");
+        expect(rpLeaderProfile.toolKeys).not.toContain("report_result");
         expect(systemPrompt).toContain("你是彩绘");
         expect(systemPrompt).toContain("炉火边的共犯");
         expect(systemPrompt).toContain("小屋（元场景）");
@@ -165,10 +169,10 @@ describe("RP builtin profiles", () => {
         const historyText = messagesText(prepared.historyInitMessages);
         const modelContextText = messagesText(prepared.modelContextMessages);
 
-        expect(simulatorLeaderProfile.allowedToolKeys).toContain("create_agent");
-        expect(simulatorLeaderProfile.allowedToolKeys).toContain("invoke_agent");
-        expect(simulatorLeaderProfile.allowedToolKeys).toContain("bash");
-        expect(simulatorLeaderProfile.allowedToolKeys).not.toContain("report_result");
+        expect(simulatorLeaderProfile.toolKeys).toContain("create_agent");
+        expect(simulatorLeaderProfile.toolKeys).toContain("invoke_agent");
+        expect(simulatorLeaderProfile.toolKeys).toContain("bash");
+        expect(simulatorLeaderProfile.toolKeys).not.toContain("report_result");
         expect(systemPrompt).toContain("世界模拟主管");
         expect(systemPrompt).toContain("AGENTS.md 和 agent-context/simulator.leader/context.md");
         expect(systemPrompt).toContain("leader.default 和用户入口通常只与你交流");
@@ -209,18 +213,18 @@ describe("RP builtin profiles", () => {
             const contextLoad = sidecars.find((sidecar) => sidecar.name === "actor.context-load");
             const memorySave = sidecars.find((sidecar) => sidecar.name === "actor.memory-save");
 
-            expect(simulatorActorProfile.allowedToolKeys).toEqual(["subject_rag_search", "subject_event_append", "subject_memory_update", "read", "edit", "report_result"]);
+            expect(simulatorActorProfile.toolKeys).toEqual(["subject_rag_search", "subject_event_append", "subject_memory_update", "read", "edit", "report_result"]);
             expect(sidecars.map((sidecar) => sidecar.name)).toEqual(["actor.context-load", "actor.memory-save"]);
             expect(contextLoad).toEqual(expect.objectContaining({
                 stage: "prepareRun",
-                allowedToolKeys: ["subject_rag_search", "report_result"],
+                toolKeys: ["subject_rag_search", "report_result"],
             }));
             expect(memorySave).toEqual(expect.objectContaining({
                 stage: "settleRun",
-                allowedToolKeys: ["subject_event_append", "subject_memory_update", "read", "edit", "report_result"],
+                toolKeys: ["subject_event_append", "subject_memory_update", "read", "edit", "report_result"],
             }));
-            expect(simulatorActorProfile.mainRunAllowedToolKeys).toEqual(["report_result"]);
-            expect(contextLoad?.sidecarDataSchema.type).toBe("string");
+            expect(simulatorActorProfile.mainRunToolKeys).toEqual(["report_result"]);
+            expect((contextLoad?.sidecarDataSchema as SchemaWithType | undefined)?.type).toBe("string");
             expect((memorySave?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toHaveProperty("changed_files");
             expect((memorySave?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toHaveProperty("events_summary");
             expect((memorySave?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toHaveProperty("memory_summary");
@@ -341,10 +345,10 @@ describe("RP builtin profiles", () => {
         }
     });
 
-    it("simulator.actor context-load sidecar_data 使用纯文本协议", () => {
+    it("simulator.actor context-load sidecar_data 使用纯文本协议", async () => {
         const contextLoad = simulatorActorProfile.sidecars?.find((sidecar) => sidecar.name === "actor.context-load");
         const schema = contextLoad?.sidecarDataSchema;
-        if (!schema) {
+        if (!contextLoad || !schema) {
             throw new Error("actor.context-load sidecarDataSchema missing");
         }
         const legacyObjectSidecarData = {
@@ -353,7 +357,7 @@ describe("RP builtin profiles", () => {
             withheld: [],
         };
 
-        expect(schema.type).toBe("string");
+        expect((schema as SchemaWithType).type).toBe("string");
         expect(() => contextLoad.merge({
             name: "actor.context-load",
             stage: "prepareRun",
@@ -367,7 +371,7 @@ describe("RP builtin profiles", () => {
             result: "loaded",
             sidecarData: legacyObjectSidecarData as never,
         })).toThrow();
-        expect(contextLoad.merge({
+        const pureTextPlan = await contextLoad.merge({
             name: "actor.context-load",
             stage: "prepareRun",
             sessionId: -1,
@@ -379,8 +383,9 @@ describe("RP builtin profiles", () => {
         }, {
             result: "loaded",
             sidecarData: "她知道自己正在学院区广场。",
-        }).persistedMessages?.map(messageText).join("\n")).toContain("<actor-sidecar-context source=\"actor.context-load\">");
-        const normalizedContextText = contextLoad.merge({
+        });
+        expect(pureTextPlan.persistedMessages?.map(messageText).join("\n")).toContain("<actor-sidecar-context source=\"actor.context-load\">");
+        const normalizedPlan = await contextLoad.merge({
             name: "actor.context-load",
             stage: "prepareRun",
             sessionId: -1,
@@ -395,7 +400,8 @@ describe("RP builtin profiles", () => {
                 type: "actor-safe-context",
                 text: "她知道自己正在学院区广场。",
             }),
-        }).persistedMessages?.map(messageText).join("\n") ?? "";
+        });
+        const normalizedContextText = normalizedPlan.persistedMessages?.map(messageText).join("\n") ?? "";
         expect(normalizedContextText).toContain("她知道自己正在学院区广场。");
         expect(normalizedContextText).not.toContain("\"type\":\"actor-safe-context\"");
     });
@@ -425,8 +431,8 @@ describe("RP builtin profiles", () => {
 
             expect(simulatorActorProfile.inputSchema).toBe(SubjectSimulatorInputSchema);
             expect(simulatorActorProfile.outputSchema).toBe(SubjectSimulatorOutputSchema);
-            expect(simulatorActorProfile.allowedToolKeys).toEqual(["subject_rag_search", "subject_event_append", "subject_memory_update", "read", "edit", "report_result"]);
-            expect(simulatorActorProfile.mainRunAllowedToolKeys).toEqual(["report_result"]);
+            expect(simulatorActorProfile.toolKeys).toEqual(["subject_rag_search", "subject_event_append", "subject_memory_update", "read", "edit", "report_result"]);
+            expect(simulatorActorProfile.mainRunToolKeys).toEqual(["report_result"]);
             expect(systemPrompt).toContain("<profile>simulator.actor</profile>");
             expect(systemPrompt).toContain("<subject id=\"heroine\" kind=\"npc\" />");
             expect(modelContextText).toContain("<actor_binding>");
@@ -490,7 +496,7 @@ describe("RP builtin profiles", () => {
             const modelContextText = messagesText(prepared.modelContextMessages);
             const appendingText = messagesText(prepared.appendingMessages);
 
-            expect(rpWriterProfile.allowedToolKeys).toEqual(["read", "write", "edit", "bash"]);
+            expect(rpWriterProfile.toolKeys).toEqual(["read", "write", "edit", "bash"]);
             expect(systemPrompt).toContain("<writing_reference>");
             expect(systemPrompt).toContain("<role>小猫之神</role>");
             expect(systemPrompt).toContain("<thinking_mode>");

@@ -148,7 +148,7 @@ export async function readProfileSource(profiles: AgentProfileCatalog, request: 
             source,
             issues: fallbackIssues,
             variables: [],
-            allowedToolKeys: [],
+            toolKeys: [],
             inputSchema: {
                 jsonSchema: null,
                 editMode: "source",

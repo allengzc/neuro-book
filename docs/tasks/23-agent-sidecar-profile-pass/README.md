@@ -1,5 +1,18 @@
 # Agent Sidecar Profile Pass
 
+## 2026-06-12 Contract Update
+
+本任务最初讨论时使用 `allowedToolKeys` / `mainRunAllowedToolKeys`。47 号任务已经把 profile 工具合同硬切到 root `tools` binding：
+
+- profile 用 `tools` 声明最大工具集合和模型可见 schema。
+- 主 run 用 `mainRunToolKeys` 收窄执行权限。
+- sidecar 用 `toolKeys` 收窄执行权限，且只能引用 root `tools` 中已有 key。
+- sidecar 不能覆盖工具 schema、description 或执行函数。
+- `sidecarDataSchema` 会汇总进 profile-stable `report_result.sidecar_data` provider-visible schema。
+- `sidecar_data` 校验失败发生在 `report_result` tool execution 阶段，返回模型可见 error toolResult 并允许同一 run 修正。
+
+后续实现和 profile author 文档以 [Agent Profile Tool Bindings](../47-agent-profile-tool-bindings/README.md) 和 `reference/agent/sidecar-profile-pass.md` 为准；本文旧字段出现处视为历史设计记录。
+
 ## User Request
 
 - 将“旁路上下文”机制提升为 `NeuroAgentHarness` 的核心能力，而不是只作为 NeuroBook roleplay 的局部技巧。

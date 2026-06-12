@@ -7,7 +7,8 @@ import type {FauxProviderRegistration} from "@earendil-works/pi-ai";
 import {Type} from "typebox";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
 import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import type {AgentMessage, Message as RuntimeMessage} from "nbook/server/agent/messages/types";
 import type {AgentSessionEventDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
@@ -37,6 +38,30 @@ type EventObserver = {
     stop(): Promise<void>;
 };
 
+function defineAgentProfile(profile: any): ReturnType<typeof defineRuntimeAgentProfile> {
+    const {
+        allowedToolKeys,
+        mainRunAllowedToolKeys,
+        sidecars,
+        ...rest
+    } = profile;
+    return defineRuntimeAgentProfile({
+        ...rest,
+        tools: rest.tools ?? profileToolsFromKeys(allowedToolKeys ?? []),
+        mainRunToolKeys: rest.mainRunToolKeys ?? mainRunAllowedToolKeys,
+        sidecars: sidecars?.map((sidecar: any) => {
+            const {
+                allowedToolKeys: sidecarAllowedToolKeys,
+                ...sidecarRest
+            } = sidecar;
+            return {
+                ...sidecarRest,
+                toolKeys: sidecarRest.toolKeys ?? sidecarAllowedToolKeys,
+            };
+        }),
+    });
+}
+
 function registerPlainProfile(
     harness: NeuroAgentHarness,
     input: {
@@ -50,7 +75,7 @@ function registerPlainProfile(
             name: input.key,
         },
         inputSchema: Type.Object({}),
-        allowedToolKeys: input.allowedToolKeys ?? [],
+        tools: profileToolsFromKeys(input.allowedToolKeys ?? []),
         prepare() {
             return {};
         },

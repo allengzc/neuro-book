@@ -116,7 +116,8 @@ defineAgentProfile({
     manifest,
     inputSchema,
     outputSchema,
-    allowedToolKeys,
+    tools,
+    mainRunToolKeys, // optional execution subset
     context, // recommended
     prepare, // advanced
     ingest, // optional post-run hook
@@ -128,10 +129,11 @@ Rules:
 - `context(ctx) => JSX` is the normal authoring path.
 - `prepare(ctx) => ProfileTurnPlan` is the low-level override path.
 - `context` and `prepare` are mutually exclusive.
-- Tools visible to the model come from `allowedToolKeys`, not from `prepare`.
+- Tools visible to the model come from root `tools`, not from `prepare`.
+- `mainRunToolKeys` and sidecar `toolKeys` can only reference keys already present in root `tools`.
 - `InputSchema` validates agent/session creation input. It is not the per-turn user prompt.
 - `InputSchema = Type.Object({})` means the agent does not need special creation input.
-- `OutputSchema` describes `report_result.data`. The report protocol is enabled only when `allowedToolKeys` contains `report_result`.
+- `OutputSchema` describes `report_result.data`. The report protocol is enabled only when root `tools` contains `report_result`.
 - `OutputSchema = Type.Object({})` plus `report_result` means the final report has `walkthrough` but no extra structured data fields.
 - `OutputSchema` without `report_result` is just metadata until a profile allows that tool.
 
@@ -356,7 +358,8 @@ Content does not show in frontend history:
 
 Agent cannot use a tool:
 
-- Check `allowedToolKeys`.
+- Check root `tools`.
+- Check `mainRunToolKeys` and sidecar `toolKeys`.
 - Check the actual tool registry.
 - Tools are not returned from `prepare`.
 
@@ -385,7 +388,8 @@ User override did not receive system update:
 
 `report_result` behavior is confusing:
 
-- The tool must be in `allowedToolKeys` to enable report completion.
+- The tool must be in root `tools` to enable report completion.
+- Sidecar structured output must use `report_result.sidecar_data`; validation errors are returned as tool errors so the model can retry.
 - `OutputSchema = Type.Object({})` means walkthrough-only report data.
 - No `report_result` tool means normal assistant completion is allowed.
 

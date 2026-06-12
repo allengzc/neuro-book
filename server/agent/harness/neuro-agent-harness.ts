@@ -28,6 +28,7 @@ import type {AgentResolution, NeuroAgentTool, ToolExecutionContext, ToolExecutio
 import {projectRuntimeEvent} from "nbook/server/agent/events/public-event-projection";
 import {appendCompaction, compactIfNeeded} from "nbook/server/agent/harness/compaction";
 import type {
+    ActiveSidecarRun,
     PendingSessionWritePlan,
     RunFrame,
     RunLoopResult,
@@ -105,6 +106,8 @@ type HarnessOptions = {
     /** 测试可关闭后台 summarizer，避免 fire-and-forget 消耗 faux provider 响应；生产默认开启。 */
     enableSessionSummarizer?: boolean;
 };
+
+const REPORT_RESULT_ERROR_LIMIT = 3;
 
 type SessionSummarizerState = {
     sessionId?: number;
@@ -740,7 +743,7 @@ export class NeuroAgentHarness {
                         timeoutMs: providerOptions.timeoutMs,
                         requestOptions: providerOptions.requestOptions,
                         sessionContextEnabled: input.sessionContextEnabled,
-                        toolKeys: [...input.profile.allowedToolKeys],
+                        toolKeys: [...input.profile.toolKeys],
                         thinkingLevel,
                         runtimeState: input.runtimeState,
                         runResult: input.runResult,
@@ -875,8 +878,8 @@ export class NeuroAgentHarness {
         const providerOptions = this.providerOptions(config, model);
         const apiKey = resolvePiApiKeyForModelFromConfig(config, model);
         const runProfile = await this.profiles.get(context.profileKey);
-        const toolKeys = [...runProfile.allowedToolKeys];
-        const executionToolKeys = runProfile.mainRunAllowedToolKeys ? [...runProfile.mainRunAllowedToolKeys] : undefined;
+        const toolKeys = [...runProfile.toolKeys];
+        const executionToolKeys = runProfile.mainRunToolKeys ? [...runProfile.mainRunToolKeys] : undefined;
         const thinkingLevel = this.resolveThinkingLevel(context, config, model);
         const systemPrompt = prepareRunHooks.profilePrompt ? prepared.plan.systemPrompt ?? context.systemPrompt : context.systemPrompt;
         const preparedModelContextMessages = prepareRunHooks.sessionContext === true ? prepared.plan.modelContextMessages ?? [] : [];
@@ -2088,9 +2091,14 @@ export class NeuroAgentHarness {
         invocationId?: string;
         onEvent?: (event: AgentRuntimeStreamEventDto) => void | Promise<void>;
         forceRuntimeOnlyTranscript?: boolean;
+        forcePersistTranscript?: boolean;
+        transcriptParentLeafId?: SessionEntryId | null;
+        restoreLeafAfterTranscript?: boolean;
+        restoreLeafIdAfterTranscript?: SessionEntryId | null;
         suppressEvents?: boolean;
         disableSteer?: boolean;
         disableAutomaticCompaction?: boolean;
+        activeSidecar?: ActiveSidecarRun;
     }): Promise<RunLoopResult> {
         const frame = createRunFrame(input);
 
@@ -2179,6 +2187,21 @@ export class NeuroAgentHarness {
         if (!frame.disableSteer && !turn.waiting) {
             this.steerableSessions.delete(frame.sessionId);
         }
+        if (transaction.kind === "completed" && frame.reportResultErrorCount >= REPORT_RESULT_ERROR_LIMIT) {
+            await this.emitRuntimeEvent(frame, {type: "turn_end", turnIndex: frame.turnIndex, status: "failed"});
+            return {
+                kind: "failed",
+                result: {
+                    status: "failed",
+                    finalAssistant: frame.finalAssistant,
+                    errorInfo: {
+                        message: `report_result 连续失败 ${REPORT_RESULT_ERROR_LIMIT} 次，最后错误：${frame.lastReportResultError ?? "unknown"}`,
+                        phase: "tool",
+                    },
+                    terminalStatus: "error",
+                },
+            };
+        }
         await this.emitRuntimeEvent(frame, {type: "turn_end", turnIndex: frame.turnIndex, status: turn.waiting ? "waiting" : "completed"});
         if (transaction.kind === "waiting") {
             return {
@@ -2244,9 +2267,17 @@ export class NeuroAgentHarness {
             ...prepareTurn.requestOptionsPatch,
         };
         const toolKeys = prepareTurn.toolKeysPatch ?? frame.toolKeys;
+        if (prepareTurn.toolKeysPatch) {
+            // Runtime hook 只能裁剪 root tools，不能突破 profile 声明的最大工具集合。
+            const rootToolKeys = new Set(frame.toolKeys);
+            const invalidToolKey = toolKeys.find((toolKey) => !rootToolKeys.has(toolKey));
+            if (invalidToolKey) {
+                throw new Error(`runtime hook prepareTurn toolKeysPatch 必须是 profile root tools 子集：${invalidToolKey}`);
+            }
+        }
         const executionToolKeySet = frame.executionToolKeys ? new Set(frame.executionToolKeys) : undefined;
         const executionToolKeys = executionToolKeySet ? toolKeys.filter((toolKey) => executionToolKeySet.has(toolKey)) : toolKeys;
-        const toolOverrides = await this.toolOverrides(toolKeys, frame.profileKey);
+        const toolOverrides = await this.toolOverrides(toolKeys, frame.profileKey, frame.activeSidecar);
         const tools = this.tools.allowedWithOverrides(toolKeys, toolOverrides);
         const providerMessages = modelMessages.filter((message): message is Message => {
             return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
@@ -2327,6 +2358,7 @@ export class NeuroAgentHarness {
                 toolCalls,
                 toolResults: toolBatch.toolResults,
                 reportResult: toolBatch.reportResult,
+                reportResultError: toolBatch.reportResultError,
                 waiting: toolBatch.waiting,
                 shouldContinue: toolBatch.shouldContinue,
             };
@@ -2607,6 +2639,7 @@ export class NeuroAgentHarness {
 
         const toolResults: ToolResultMessage[] = [];
         let reportResult: InvokeAgentResult["reportResult"] | undefined;
+        let reportResultError: string | undefined;
         let allExecutedTerminate = true;
         let segment: Array<{toolCall: AgentToolCall; index: number}> = [];
         const flushSegment = async (): Promise<void> => {
@@ -2621,6 +2654,10 @@ export class NeuroAgentHarness {
             allExecutedTerminate = allExecutedTerminate && segmentResult.allTerminate;
             if (segmentResult.reportResult) {
                 reportResult = segmentResult.reportResult;
+                reportResultError = undefined;
+            }
+            if (segmentResult.reportResultError) {
+                reportResultError = segmentResult.reportResultError;
             }
             segment = [];
         };
@@ -2651,6 +2688,7 @@ export class NeuroAgentHarness {
                         ...skippedToolResults,
                     ],
                     reportResult,
+                    reportResultError,
                     waiting: {
                         toolCallId: toolCall.id,
                         toolName: toolCall.name,
@@ -2668,6 +2706,7 @@ export class NeuroAgentHarness {
                 toolResults.push(...segmentResult.toolResults);
                 if (segmentResult.reportResult) {
                     reportResult = segmentResult.reportResult;
+                    reportResultError = undefined;
                     const skippedToolResults = this.skippedToolResultsAfterTerminal(input.toolCalls, toolCall);
                     await this.emitToolResultMessages(skippedToolResults, input.emit);
                     return {
@@ -2676,8 +2715,12 @@ export class NeuroAgentHarness {
                             ...skippedToolResults,
                         ],
                         reportResult,
+                        reportResultError,
                         shouldContinue: false,
                     };
+                }
+                if (segmentResult.reportResultError) {
+                    reportResultError = segmentResult.reportResultError;
                 }
                 const skippedToolResults = this.skippedToolResultsAfterTerminal(input.toolCalls, toolCall);
                 await this.emitToolResultMessages(skippedToolResults, input.emit);
@@ -2687,6 +2730,7 @@ export class NeuroAgentHarness {
                         ...skippedToolResults,
                     ],
                     reportResult,
+                    reportResultError,
                     shouldContinue: true,
                 };
             }
@@ -2697,6 +2741,7 @@ export class NeuroAgentHarness {
         return {
             toolResults,
             reportResult,
+            reportResultError,
             shouldContinue: !allExecutedTerminate,
         };
     }
@@ -2717,6 +2762,7 @@ export class NeuroAgentHarness {
     }): Promise<{
         toolResults: ToolResultMessage[];
         reportResult?: InvokeAgentResult["reportResult"];
+        reportResultError?: string;
         allTerminate: boolean;
     }> {
         const shouldRunSequentially = this.toolExecution === "sequential"
@@ -2727,6 +2773,7 @@ export class NeuroAgentHarness {
         const orderedExecutions = executions.sort((left, right) => left.index - right.index);
         const toolResults: ToolResultMessage[] = [];
         let reportResult: InvokeAgentResult["reportResult"] | undefined;
+        let reportResultError: string | undefined;
         let allTerminate = true;
         for (const executed of orderedExecutions) {
             const toolResult = createToolResultFromResult({
@@ -2739,13 +2786,19 @@ export class NeuroAgentHarness {
             await input.emit({type: "message_start", message: toolResult});
             await input.emit({type: "message_end", message: toolResult});
             allTerminate = allTerminate && executed.result.terminate === true;
-            if (executed.toolCall.name === "report_result" && !executed.isError) {
-                reportResult = this.readReportResult(executed.result.details);
+            if (executed.toolCall.name === "report_result") {
+                if (executed.isError) {
+                    reportResultError = messageText(toolResult) || "report_result 工具调用失败。";
+                } else {
+                    reportResult = this.readReportResult(executed.result.details);
+                    reportResultError = undefined;
+                }
             }
         }
         return {
             toolResults,
             reportResult,
+            reportResultError,
             allTerminate,
         };
     }
@@ -2935,7 +2988,13 @@ export class NeuroAgentHarness {
                     arguments: tool.prepareArguments(input.toolCall.arguments) as Record<string, any>,
                 }
                 : input.toolCall;
-            const args = validateToolArguments(tool, preparedToolCall);
+            const validationTool = tool.validationSchema
+                ? {
+                    ...tool,
+                    parameters: tool.validationSchema,
+                }
+                : tool;
+            const args = validateToolArguments(validationTool, preparedToolCall);
             const context: ToolExecutionContext = {
                 harness: this,
                 sessionId: input.sessionId,
@@ -3964,7 +4023,7 @@ export class NeuroAgentHarness {
 
     private async runSidecarPass(pass: SidecarProfilePass, sidecarRun: SidecarRunContext): Promise<SidecarMergePlan> {
         const context = this.createSidecarContext(pass, sidecarRun);
-        const allowedToolKeys = [...pass.allowedToolKeys ?? sidecarRun.toolKeys];
+        const allowedToolKeys = [...pass.toolKeys ?? sidecarRun.toolKeys];
         const sidecarReminder = createUserMessage({
             text: this.sidecarReminder(pass, context, allowedToolKeys),
         });
@@ -3992,7 +4051,7 @@ export class NeuroAgentHarness {
             profile: sidecarRun.profile,
             thinkingLevel: sidecarRun.thinkingLevel,
             runtimeState: new Map(sidecarRun.runtimeState),
-            reportResultReminderEnabled: false,
+            reportResultReminderEnabled: allowedToolKeys.includes("report_result"),
             caller: {
                 kind: "sidecar",
                 sessionId: sidecarRun.sessionId,
@@ -4007,6 +4066,10 @@ export class NeuroAgentHarness {
             suppressEvents: true,
             disableSteer: true,
             disableAutomaticCompaction: true,
+            activeSidecar: {
+                name: pass.name,
+                sidecarDataSchema: pass.sidecarDataSchema,
+            },
         });
         if (result.status === "failed") {
             throw new Error(`sidecar ${pass.name} 执行失败：${result.errorInfo.message}`);
@@ -4134,10 +4197,9 @@ export class NeuroAgentHarness {
         }
         const report = result.reportResult;
         if (report && "sidecar_data" in report) {
-            const sidecarData = this.normalizeSidecarData(pass, report.sidecar_data);
             return {
                 result: report.result,
-                sidecarData,
+                sidecarData: report.sidecar_data as JsonValue,
             };
         }
         if (!pass.outputFallback) {
@@ -4158,33 +4220,11 @@ export class NeuroAgentHarness {
         if (!pass.sidecarDataSchema) {
             return value as JsonValue;
         }
-        const candidates = this.sidecarDataCandidates(pass, value);
-        let lastError: unknown;
-        for (const candidate of candidates) {
-            try {
-                return Value.Parse(pass.sidecarDataSchema, candidate) as JsonValue;
-            } catch (error) {
-                lastError = error;
-            }
-        }
-        const message = lastError instanceof Error ? lastError.message : String(lastError);
-        throw new Error(`sidecar ${pass.name} sidecar_data 校验失败：${message}`);
-    }
-
-    private sidecarDataCandidates(pass: SidecarProfilePass, value: unknown): unknown[] {
-        const schemaType = sidecarSchemaType(pass);
-        if (schemaType !== "object" || typeof value !== "string") {
-            return [value];
-        }
         try {
-            const parsed = JSON.parse(value) as unknown;
-            const candidates = [value, parsed];
-            if (isRecord(parsed) && isRecord(parsed.properties)) {
-                candidates.push(parsed.properties);
-            }
-            return candidates;
+            return Value.Parse(pass.sidecarDataSchema, value) as JsonValue;
         } catch (error) {
-            return [value];
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`sidecar ${pass.name} sidecar_data 校验失败：${message}`);
         }
     }
 
@@ -4203,18 +4243,34 @@ export class NeuroAgentHarness {
     /**
      * 根据当前 profile 派生模型可见工具 schema 与执行校验。
      */
-    private async toolOverrides(toolKeys: readonly string[], profileKey: string): Promise<Record<string, NeuroAgentTool>> {
-        if (!toolKeys.includes("report_result")) {
-            return {};
-        }
+    private async toolOverrides(toolKeys: readonly string[], profileKey: string, activeSidecar?: ActiveSidecarRun): Promise<Record<string, NeuroAgentTool>> {
         const profile = await this.profiles.get(profileKey);
-        const reportTool = createReportResultTool(
-            reportResultSchemaForProfile(profile),
-            isEmptyObjectSchema(profile.outputSchema) ? undefined : profile.outputSchema,
-        );
-        return {
-            report_result: reportTool,
-        };
+        const overrides: Record<string, NeuroAgentTool> = {};
+        for (const toolKey of toolKeys) {
+            const binding = profile.tools[toolKey];
+            if (!binding) {
+                continue;
+            }
+            if (toolKey === "report_result") {
+                const dataSchema = binding.dataSchema ?? profile.outputSchema;
+                overrides.report_result = createReportResultTool(reportResultSchemaForProfile(profile), {
+                    dataSchema: isEmptyObjectSchema(dataSchema) ? undefined : dataSchema,
+                    activeSidecar,
+                });
+                continue;
+            }
+            const baseTool = this.tools.get(toolKey);
+            if (!baseTool || (!binding.parameters && !binding.validationSchema && !binding.description)) {
+                continue;
+            }
+            overrides[toolKey] = {
+                ...baseTool,
+                parameters: binding.parameters ?? baseTool.parameters,
+                validationSchema: binding.validationSchema,
+                description: binding.description ?? baseTool.description,
+            };
+        }
+        return overrides;
     }
 
 }

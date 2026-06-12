@@ -1,6 +1,7 @@
 import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
 import {Type} from "typebox";
+import type {Static, TSchema} from "typebox";
 import {createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import {
     AIMessage,
@@ -34,10 +35,61 @@ import {
     VariableSchema,
     WorkspaceFocusReminder,
 } from "nbook/server/agent/profiles/profile-dsl";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
+import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
+import type {AgentProfileDefinition, ProfilePrepareContext, SidecarProfilePass} from "nbook/server/agent/profiles/types";
 import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
+import type {JsonValue} from "nbook/server/agent/messages/types";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
+
+type LegacyTestSidecar<TInput = JsonValue> = Omit<SidecarProfilePass<TInput, JsonValue>, "toolKeys"> & {
+    toolKeys?: readonly string[];
+    allowedToolKeys?: readonly string[];
+};
+
+type LegacyTestProfile<
+    TInputSchema extends TSchema = TSchema,
+    TOutputSchema extends TSchema = TSchema,
+    TSummarizerKey extends string = string,
+    TTools extends ProfileTools = ProfileTools,
+> = Omit<AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>, "tools" | "mainRunToolKeys" | "sidecars"> & {
+    tools?: ProfileTools;
+    allowedToolKeys?: readonly string[];
+    mainRunAllowedToolKeys?: readonly string[];
+    mainRunToolKeys?: readonly string[];
+    sidecars?: readonly LegacyTestSidecar<Static<TInputSchema>>[];
+};
+
+function defineAgentProfile<
+    TInputSchema extends TSchema,
+    TOutputSchema extends TSchema = TSchema,
+    TSummarizerKey extends string = string,
+    TTools extends ProfileTools = ProfileTools,
+>(profile: LegacyTestProfile<TInputSchema, TOutputSchema, TSummarizerKey, TTools>): ReturnType<typeof defineRuntimeAgentProfile> {
+    const {
+        allowedToolKeys,
+        mainRunAllowedToolKeys,
+        sidecars,
+        ...rest
+    } = profile;
+    return defineRuntimeAgentProfile({
+        ...rest,
+        tools: rest.tools ?? profileToolsFromKeys(allowedToolKeys ?? []),
+        mainRunToolKeys: rest.mainRunToolKeys ?? mainRunAllowedToolKeys,
+        // 测试 helper 只做旧字段到新字段的机械迁移，最终运行时校验仍由 defineRuntimeAgentProfile 负责。
+        sidecars: sidecars?.map((sidecar) => {
+            const {
+                allowedToolKeys: sidecarAllowedToolKeys,
+                ...sidecarRest
+            } = sidecar;
+            return {
+                ...sidecarRest,
+                toolKeys: sidecarRest.toolKeys ?? sidecarAllowedToolKeys,
+            };
+        }) as AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>["sidecars"],
+    });
+}
 
 describe("profile TSX DSL", () => {
     it("profileKey 为 summarizer 时会把 input 收窄为 profile 作者可填参数", () => {
@@ -677,7 +729,7 @@ describe("profile TSX DSL", () => {
                     outputSchema: Type.Object({
                         summary: Type.String({description: "写作摘要。"}),
                     }),
-                    allowedToolKeys: ["read", "write"],
+                    toolKeys: ["read", "write"],
                     source: "system",
                     builtin: true,
                     loadStatus: "loaded",

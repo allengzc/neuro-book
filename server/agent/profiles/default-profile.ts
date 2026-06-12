@@ -1,5 +1,6 @@
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {LeaderDefaultInputSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
 
 /**
  * 最小内置 profile。真实 builtin profile 从 assets/workspace/.nbook 迁移。
@@ -12,7 +13,7 @@ export const defaultAgentProfile = defineAgentProfile({
     },
     inputSchema: LeaderDefaultInputSchema,
     outputSchema: LeaderDefaultOutputSchema,
-    allowedToolKeys: [
+    tools: profileToolsFromKeys([
         "read",
         "write",
         "edit",
@@ -27,7 +28,7 @@ export const defaultAgentProfile = defineAgentProfile({
         "get_agent_profile",
         "get_session",
         "detach_agent",
-    ],
+    ]),
     compaction: {},
     prepare() {
         return {

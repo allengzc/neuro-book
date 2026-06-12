@@ -129,11 +129,11 @@ function statusLabel(status: AgentSessionSummaryDto["status"]): string {
  */
 function statusClass(status: AgentSessionSummaryDto["status"]): string {
     switch (status) {
-        case "running": return "border-blue-500/35 bg-blue-500/10 text-blue-600 dark:text-blue-300";
-        case "waiting": return "border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300";
-        case "interrupted": return "border-rose-500/35 bg-rose-500/10 text-rose-600 dark:text-rose-300";
-        case "archived": return "border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]";
-        default: return "border-emerald-500/25 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300";
+        case "running": return "bg-blue-500/10 text-blue-600 border border-blue-500/20 dark:bg-blue-500/20 dark:text-blue-400";
+        case "waiting": return "bg-amber-500/10 text-amber-600 border border-amber-500/20 dark:bg-amber-500/20 dark:text-amber-400";
+        case "interrupted": return "bg-red-500/10 text-red-600 border border-red-500/20 dark:bg-red-500/20 dark:text-red-400";
+        case "archived": return "bg-[var(--bg-input)] text-[var(--text-muted)] border border-[var(--border-color)]";
+        default: return "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 dark:bg-emerald-500/20 dark:text-emerald-400";
     }
 }
 
@@ -244,33 +244,33 @@ onClickOutside(filterPanelRef, () => {
             </div>
 
             <!-- 近期 Session 列表 -->
-            <div class="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 custom-scrollbar">
+            <div class="min-h-0 flex-1 space-y-2 overflow-y-auto px-1.5 py-1 custom-scrollbar">
                 <div
                     v-for="session in filteredSessions"
                     :key="session.sessionId"
-                    class="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-3 text-left transition-all duration-200"
-                    :class="session.sessionId === activeSessionId ? 'border-[var(--accent-main)] bg-[var(--accent-bg)]/40 ring-1 ring-[var(--accent-main)]/30 shadow-md' : 'border-[var(--border-color)] bg-[var(--bg-sidebar)] hover:bg-[var(--bg-hover)]'"
+                    class="group flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-3 text-left transition-all duration-200"
+                    :class="session.sessionId === activeSessionId ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] shadow-sm' : 'border-[var(--border-color)] bg-transparent hover:bg-[var(--bg-hover)]'"
                     @click="emit('select', session.sessionId)"
                 >
                     <div class="min-w-0 flex-1">
                         <div class="flex min-w-0 items-center gap-3">
-                            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors shadow-sm" :class="session.parentSessionId ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'">
+                            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-all duration-200" :class="session.parentSessionId ? 'border-blue-500/20 bg-blue-500/10 text-blue-600 dark:border-blue-500/30 dark:bg-blue-500/20 dark:text-blue-400' : 'border-orange-500/20 bg-orange-500/10 text-orange-600 dark:border-orange-500/30 dark:bg-orange-500/20 dark:text-orange-400'">
                                 <span :class="session.parentSessionId ? 'i-lucide-bot' : 'i-lucide-crown'" class="h-4.5 w-4.5"></span>
                             </div>
-                            <span class="truncate text-sm font-semibold text-[var(--text-main)]">{{ sessionTitle(session) }}</span>
-                            <span v-if="session.sessionId === activeSessionId" class="rounded bg-[var(--accent-main)] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.1em] font-medium text-[var(--accent-text)]">Active</span>
-                            <span class="rounded border px-1.5 py-0.5 text-[10px] font-medium" :class="statusClass(session.status)">{{ statusLabel(session.status) }}</span>
+                            <span class="truncate text-sm font-semibold text-[var(--text-main)] transition-colors group-hover:text-[var(--accent-main)]">{{ sessionTitle(session) }}</span>
+                            <span v-if="session.sessionId === activeSessionId" class="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-white bg-[var(--accent-main)] shadow-sm">Active</span>
+                            <span class="rounded px-1.5 py-0.5 text-[10px] font-medium" :class="statusClass(session.status)">{{ statusLabel(session.status) }}</span>
                         </div>
                         <div class="mt-2 line-clamp-2 text-xs leading-relaxed text-[var(--text-secondary)]">{{ sessionPreview(session) }}</div>
                         <div class="mt-2.5 flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.16em] text-[var(--text-muted)]">
-                            <span class="font-mono bg-[var(--bg-input)] px-1.5 py-0.5 rounded text-[var(--text-muted)] font-bold">#{{ session.sessionId }}</span>
+                            <span class="rounded bg-[var(--bg-input)] px-1.5 py-0.5 font-mono font-bold text-[var(--text-secondary)]">#{{ session.sessionId }}</span>
                             <span>{{ formatTimestamp(session.updatedAt) }}</span>
-                            <span class="rounded bg-teal-500/10 text-teal-600 dark:text-teal-400 px-1.5 py-0.5 font-medium border border-teal-500/15 tracking-normal text-[9.5px]">{{ profileDisplayName(session.profileKey) }}</span>
-                            <span class="font-mono text-[9px] text-[var(--text-muted)] bg-[var(--bg-input)] px-1 py-0.5 rounded border border-[var(--border-color)] uppercase tracking-normal">{{ session.profileKey }}</span>
-                            <span v-if="session.parentSessionId" class="rounded bg-purple-500/10 text-purple-600 dark:text-purple-400 px-1.5 py-0.5 font-medium border border-purple-500/15 tracking-normal text-[9.5px]">协作父会话 #{{ session.parentSessionId }}</span>
+                            <span class="rounded border border-[var(--border-color)] px-1.5 py-0.5 text-[10px] font-medium tracking-normal text-[var(--text-secondary)]">{{ profileDisplayName(session.profileKey) }}</span>
+                            <span class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-[var(--text-secondary)]">{{ session.profileKey }}</span>
+                            <span v-if="session.parentSessionId" class="rounded border border-[var(--border-color)] px-1.5 py-0.5 text-[10px] font-medium tracking-normal text-[var(--text-secondary)]">协作父会话 #{{ session.parentSessionId }}</span>
                         </div>
                     </div>
-                    <button class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] transition-colors hover:bg-red-500/10 hover:text-red-500 disabled:opacity-40" :disabled="actionId === session.sessionId || loading || !canArchiveSession(session)" title="Archive" @click.stop="emit('archive', session)">
+                    <button class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-50 transition-all hover:bg-red-500/10 hover:text-red-500 hover:opacity-100 group-hover:opacity-100 disabled:opacity-40" :disabled="actionId === session.sessionId || loading || !canArchiveSession(session)" title="Archive" @click.stop="emit('archive', session)">
                         <span v-if="actionId === session.sessionId" class="i-lucide-loader-circle h-4 w-4 animate-spin"></span>
                         <span v-else class="i-lucide-archive h-4 w-4"></span>
                     </button>

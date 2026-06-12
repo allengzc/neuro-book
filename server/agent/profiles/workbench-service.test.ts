@@ -57,7 +57,7 @@ describe("profile workbench service", () => {
             catalog.invalidate();
             await expect(catalog.get("agent.created")).resolves.toEqual(expect.objectContaining({
                 manifest: expect.objectContaining({key: "agent.created"}),
-                allowedToolKeys: expect.arrayContaining(["report_result"]),
+                toolKeys: expect.arrayContaining(["report_result"]),
             }));
         } finally {
             await rm(root, {recursive: true, force: true});
@@ -109,7 +109,7 @@ export default defineAgentProfile({
     manifest: {key: "agent.parser", name: "Parser"},
     inputSchema: {},
     outputSchema: {},
-    allowedToolKeys: [],
+    tools: {},
     context(ctx) {
         return (
             <ProfilePrompt>

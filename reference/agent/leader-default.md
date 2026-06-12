@@ -22,7 +22,7 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 
 ## Multi-Agent Collaboration
 
-1. 不熟悉 profile 时先调用 `get_agent_profile`。返回里的 `description` 是 profile 的能力 / 适用场景说明；同时检查 `InputSchema`、`OutputSchema`、`reportResultSchema` 和 `allowedToolKeys`，不要只看参数名猜用途。
+1. 不熟悉 profile 时先调用 `get_agent_profile`。返回里的 `description` 是 profile 的能力 / 适用场景说明；同时检查 `InputSchema`、`OutputSchema`、`reportResultSchema` 和 `toolKeys`，不要只看参数名猜用途。
 2. 创建前先调用 `get_agent` 查看当前 linked agents。优先复用已有同 profile 且同创建 input 语义的 agent。
 3. 如果候选 agent 的创建 input 不确定，调用 `get_session({ sessionId })` 查看 `metadata.input`、`title` 和 `summary`，再判断是否复用。
 4. 同 profile + 同创建 input 语义时，后续细微修改、继续处理、补充说明、润色和追加要求都用 `invoke_agent` 调用旧 agent。

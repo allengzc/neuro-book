@@ -449,7 +449,10 @@ export class JsonlSessionRepository {
     summary(snapshot: SessionSnapshot): AgentSessionSummaryDto {
         const context = this.reduce(snapshot);
         const path = this.activePath(snapshot);
-        const lastMessage = [...path].reverse().find((entry) => entry.type === "message");
+        const lastMessage = [...path].reverse().find((entry) => {
+            if (entry.type !== "message") return false;
+            return messageText(entry.message, { stripThinking: true }).trim().length > 0;
+        });
         const updatedAt = path.at(-1)?.timestamp ?? snapshot.metadata.createdAt;
         const interrupted = [...path].reverse().find((entry) => entry.type === "invocation_lifecycle");
 
@@ -468,7 +471,7 @@ export class JsonlSessionRepository {
                 : interrupted?.type === "invocation_lifecycle" && interrupted.status === "start" ? "interrupted" : "idle",
             updatedAt,
             archived: context.archived,
-            lastMessagePreview: lastMessage?.type === "message" ? messageText(lastMessage.message, { stripThinking: true }).slice(0, 160) : undefined,
+            lastMessagePreview: lastMessage?.type === "message" ? messageText(lastMessage.message, { stripThinking: true }).trim().slice(0, 160) : undefined,
             usage: this.usage(snapshot),
         };
     }

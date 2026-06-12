@@ -70,7 +70,7 @@ export async function readAgentProfileDetail(
         source,
         issues: catalogItem.issues,
         variables: buildProfileVariableGroups(profile),
-        allowedToolKeys: runtimeProfile ? [...runtimeProfile.allowedToolKeys] : [],
+        toolKeys: runtimeProfile ? [...runtimeProfile.toolKeys] : [],
         inputSchema: buildSchemaDetail({
             schema: profile?.inputSchema ?? null,
             locked: catalogItem.schemaLocked,
@@ -83,7 +83,7 @@ export async function readAgentProfileDetail(
             sourceAvailable: Boolean(source),
             label: "OutputSchema",
         }),
-        reportResultSchema: runtimeProfile && runtimeProfile.allowedToolKeys.includes("report_result")
+        reportResultSchema: runtimeProfile && runtimeProfile.toolKeys.includes("report_result")
             ? cloneJsonObject(reportResultSchemaForProfile(runtimeProfile))
             : null,
         root: buildSystemPromptRoot(source),
@@ -159,7 +159,7 @@ export async function previewAgentProfilePrepare(
             messages,
             persistedMessageCount: historyMessages.length + appendingMessages.length,
             variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === request.profileKey), profile),
-            reportResultSchema: profile.allowedToolKeys.includes("report_result")
+            reportResultSchema: profile.toolKeys.includes("report_result")
                 ? cloneJsonObject(reportResultSchemaForProfile(profile))
                 : null,
         };
@@ -176,7 +176,7 @@ export async function previewAgentProfilePrepare(
             messages: [],
             persistedMessageCount: 0,
             variables: buildProfileVariableGroups(catalog.profiles.find((item) => item.key === request.profileKey), profile),
-            reportResultSchema: profile.allowedToolKeys.includes("report_result")
+            reportResultSchema: profile.toolKeys.includes("report_result")
                 ? cloneJsonObject(reportResultSchemaForProfile(profile))
                 : null,
         };

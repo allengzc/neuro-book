@@ -20,11 +20,13 @@ Profile 文件应显式导出：
 推荐新文件使用 `defineAgentProfile`：
 
 ```tsx
+import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
+
 export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
-    allowedToolKeys: ["read"],
+    tools: profileToolsFromKeys(["read"]),
     context(ctx) {
         return <ProfilePrompt>...</ProfilePrompt>;
     },
@@ -33,7 +35,7 @@ export default defineAgentProfile({
 
 ## Builtin 限制
 
-覆盖 `leader.default`、`leader.assets`、`writer`、`retrieval` 时，不允许修改 `key`、`InputSchema`、`OutputSchema`。可以修改 prompt、helper function、`allowedToolKeys`。
+覆盖 `leader.default`、`leader.assets`、`writer`、`retrieval` 时，不允许修改 `key`、`InputSchema`、`OutputSchema`。可以修改 prompt、helper function、根 `tools` 绑定和 `mainRunToolKeys`。
 
 系统 builtin 和用户覆盖必须共用同一个 schema contract。遇到 `builtin_schema_locked` 时，解释为“可以改行为和提示词，但不能把创建参数或输出协议换成另一种形状”。
 

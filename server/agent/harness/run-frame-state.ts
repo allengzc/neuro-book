@@ -33,6 +33,7 @@ export type CreateRunFrameInput = {
     suppressEvents?: RunFrame["suppressEvents"];
     disableSteer?: RunFrame["disableSteer"];
     disableAutomaticCompaction?: RunFrame["disableAutomaticCompaction"];
+    activeSidecar?: RunFrame["activeSidecar"];
 };
 
 /**
@@ -62,6 +63,7 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         caller: input.caller,
         abortSignal: input.abortSignal,
         nextTurnRuntimeMessages: [],
+        reportResultErrorCount: 0,
         turnIndex: 0,
         reportResultReminderSent: false,
         reportResultReminderEnabled: input.reportResultReminderEnabled,
@@ -73,6 +75,7 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         suppressEvents: input.suppressEvents,
         disableSteer: input.disableSteer,
         disableAutomaticCompaction: input.disableAutomaticCompaction,
+        activeSidecar: input.activeSidecar,
         automaticCompactionDoneForTurn: false,
         pendingWritePlans: [],
         onEvent: input.onEvent,
@@ -96,6 +99,13 @@ export function applySuccessfulTurn(frame: RunFrame, turn: RuntimeTurn, ingest: 
     frame.messages.push(turn.assistant);
     frame.messages.push(...turn.toolResults);
     frame.reportResult = turn.reportResult ?? frame.reportResult;
+    if (turn.reportResult) {
+        frame.reportResultErrorCount = 0;
+        frame.lastReportResultError = undefined;
+    } else if (turn.reportResultError) {
+        frame.reportResultErrorCount += 1;
+        frame.lastReportResultError = turn.reportResultError;
+    }
     frame.lastTurnIngest = ingest;
     if (ingest.transcriptLeafId !== undefined) {
         frame.transcriptParentLeafId = ingest.transcriptLeafId;

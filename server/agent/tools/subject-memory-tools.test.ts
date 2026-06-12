@@ -8,6 +8,7 @@ import type {FauxProviderRegistration} from "@earendil-works/pi-ai";
 import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import memoryCuratorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/memory.curator.profile";
@@ -52,7 +53,7 @@ describe("subject memory tools", () => {
                 name: "Subject Memory Tools Test",
             },
             inputSchema: Type.Object({}),
-            allowedToolKeys: [],
+            tools: profileToolsFromKeys([]),
             prepare() {
                 return {};
             },

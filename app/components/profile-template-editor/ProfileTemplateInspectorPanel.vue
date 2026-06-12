@@ -377,8 +377,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
                 </div>
                 <div v-if="props.profileDetail" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/45 p-3 text-xs leading-5 text-[var(--text-secondary)]">
                     <div class="mb-2 font-semibold text-[var(--text-main)]">工具权限</div>
-                    <div v-if="props.profileDetail.allowedToolKeys.length" class="flex flex-wrap gap-1.5">
-                        <code v-for="toolKey in props.profileDetail.allowedToolKeys" :key="toolKey" class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-0.5">{{ toolKey }}</code>
+                    <div v-if="props.profileDetail.toolKeys.length" class="flex flex-wrap gap-1.5">
+                        <code v-for="toolKey in props.profileDetail.toolKeys" :key="toolKey" class="rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-0.5">{{ toolKey }}</code>
                     </div>
                     <div v-else>未声明工具。</div>
                 </div>

@@ -135,7 +135,7 @@ export const AgentProfileDetailDtoSchema = z.object({
     source: z.string(),
     issues: z.array(AgentProfileIssueDtoSchema),
     variables: z.array(AgentProfileVariableGroupDtoSchema),
-    allowedToolKeys: z.array(z.string()),
+    toolKeys: z.array(z.string()),
     inputSchema: AgentProfileSchemaDetailDtoSchema,
     outputSchema: AgentProfileSchemaDetailDtoSchema,
     reportResultSchema: z.record(z.string(), z.json()).nullable().optional(),

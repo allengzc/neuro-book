@@ -9,6 +9,7 @@
 /** @jsxRuntime automatic */
 import {Type} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
 import {
     AppendingSet,
     HistorySet,
@@ -32,12 +33,12 @@ export const InputSchema = Type.Object({
     prompt: Type.String(),
 });
 
-const allowedToolKeys = ["read", "write", "edit"] as const;
+const toolKeys = ["read", "write", "edit"] as const;
 
 export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
-    allowedToolKeys,
+    tools: profileToolsFromKeys(toolKeys),
     context() {
         return (
             <ProfilePrompt>

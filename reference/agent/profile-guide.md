@@ -16,10 +16,12 @@
 - `manifest.key`
 - `manifest.name`
 - `inputSchema`
-- `allowedToolKeys`
+- `tools`
 - `context(ctx)`
 
 需要结构化结果时声明 `outputSchema`。存在 `outputSchema` 时，`report_result.data` 是主路结构化输出的 runtime 校验依据；provider-visible schema 中该字段保持 optional，以便错误说明和 sidecar 复用同一个工具 schema。
+
+`tools` 是 profile 的根工具绑定对象，决定模型可见工具 schema 和 profile 最大执行权限。常见写法是 `tools: profileToolsFromKeys(["read", "report_result"])`；需要定制工具 schema 时使用 `defineProfileTools({ report_result: tools.reportResult({ dataSchema: OutputSchema }) })`。主 run 需要收窄执行权限时声明 `mainRunToolKeys`，sidecar 需要收窄执行权限时声明 `sidecar.toolKeys`，二者都只能引用根 `tools` 中已有的 key。
 
 内置 profile 位于 `assets/workspace/.nbook/agent/profiles/builtin/`，例如：
 
@@ -221,6 +223,7 @@ Agent 需要读写变量时，按工具流程：
 /** @jsxRuntime automatic */
 import {Type} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
 import {
     AppendingSet,
     HistorySet,
@@ -245,12 +248,12 @@ export const InputSchema = Type.Object({
     prompt: Type.String(),
 });
 
-const allowedToolKeys = ["read", "write", "edit"] as const;
+const toolKeys = ["read", "write", "edit"] as const;
 
 export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
-    allowedToolKeys,
+    tools: profileToolsFromKeys(toolKeys),
     context() {
         return (
             <ProfilePrompt>
@@ -285,7 +288,7 @@ export default defineAgentProfile({
 - `key`、`kind`、`name` 和 `description` 是否准确。
 - `inputSchema` 是否只包含创建输入，不混入每轮动态状态。
 - 需要结构化结果时是否声明 `outputSchema`。
-- `allowedToolKeys` 是否是最小可用工具集合。
+- `tools` 是否是 profile 最大工具集合；`mainRunToolKeys` / `sidecar.toolKeys` 是否只是它的子集。
 - `System` 是否只放 profile 身份、职责和长期行为边界。
 - `HistorySet` 是否只放稳定前缀。
 - 共享规范是否用 `Import` 引用，而不是复制长 prompt。

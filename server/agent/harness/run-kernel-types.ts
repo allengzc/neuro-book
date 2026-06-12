@@ -1,5 +1,6 @@
 import type {AgentMessage, AgentToolCall, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
 import type {AgentProfile, ProfileCompactionPlan} from "nbook/server/agent/profiles/types";
+import type {TSchema} from "typebox";
 import type {AgentRuntimeHookStage} from "nbook/server/agent/profiles/define-agent-runtime";
 import type {NeuroSessionContext, InvocationErrorInfo, SessionEntryId, SessionSnapshot} from "nbook/server/agent/session/types";
 import type {SessionWritePlan} from "nbook/server/agent/session/write-plan";
@@ -20,6 +21,7 @@ export type PendingSessionWritePlan = {
 export type RunToolBatchResult = {
     toolResults: ToolResultMessage[];
     reportResult?: InvokeAgentResult["reportResult"];
+    reportResultError?: string;
     toolOverrides?: Record<string, NeuroAgentTool>;
     waiting?: {
         toolCallId: string;
@@ -109,6 +111,11 @@ export type RunTurnTransactionResult =
 
 export type RunKernelPhase = "model" | "ingest" | "compaction" | "settleRun" | "unknown";
 
+export type ActiveSidecarRun = {
+    name: string;
+    sidecarDataSchema?: TSchema;
+};
+
 export type RunFrame = {
     invocationId?: string;
     sessionId: number;
@@ -134,6 +141,10 @@ export type RunFrame = {
     /** prepareNextTurn 注入的下一轮临时上下文；进入一次 provider snapshot 后清空。 */
     nextTurnRuntimeMessages: AgentMessage[];
     reportResult?: InvokeAgentResult["reportResult"];
+    /** 连续 report_result 工具错误次数；成功 report_result 后清零。 */
+    reportResultErrorCount: number;
+    /** 最近一次 report_result 工具错误文本；用于超过错误预算后的 Runtime Error。 */
+    lastReportResultError?: string;
     finalAssistant?: AssistantMessage;
     turnIndex: number;
     reportResultReminderSent: boolean;
@@ -155,6 +166,8 @@ export type RunFrame = {
     disableSteer?: boolean;
     /** sidecar run 不触发自动压缩，避免旁路写入 compaction entry。 */
     disableAutomaticCompaction?: boolean;
+    /** 非空表示当前 RunFrame 正在执行指定 sidecar pass。 */
+    activeSidecar?: ActiveSidecarRun;
     /** 当前 turn 内已经执行过自动压缩。 */
     automaticCompactionDoneForTurn: boolean;
     lastTurnIngest?: TurnIngestResult;
@@ -187,6 +200,7 @@ export type RuntimeTurn = {
     toolCalls: AgentToolCall[];
     toolResults: ToolResultMessage[];
     reportResult?: InvokeAgentResult["reportResult"];
+    reportResultError?: string;
     waiting?: RunToolBatchResult["waiting"];
     shouldContinue: boolean;
 };

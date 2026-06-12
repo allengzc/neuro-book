@@ -385,12 +385,13 @@ async function artifactHasProductRequireShim(artifactPath: string): Promise<bool
 function isProfile(value: unknown): value is AgentProfile {
     return Boolean(
         value
-        && typeof value === "object"
-        && "manifest" in value
-        && "inputSchema" in value
-        && "allowedToolKeys" in value
-        && "prepare" in value
-        && typeof (value as {prepare?: unknown}).prepare === "function",
+            && typeof value === "object"
+            && "manifest" in value
+            && "inputSchema" in value
+            && "tools" in value
+            && "toolKeys" in value
+            && "prepare" in value
+            && typeof (value as {prepare?: unknown}).prepare === "function",
     );
 }
 

@@ -1,6 +1,7 @@
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
 import {SessionSummarizerInputSchema, SessionSummarizerOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
 
 /**
  * 最小内置 summarizer profile。真实提示词从 assets/workspace/.nbook 加载。
@@ -13,7 +14,9 @@ export const summarizerProfile = defineAgentProfile({
     },
     inputSchema: SessionSummarizerInputSchema,
     outputSchema: SessionSummarizerOutputSchema,
-    allowedToolKeys: ["report_result"],
+    tools: defineProfileTools({
+        report_result: tools.reportResult({dataSchema: SessionSummarizerOutputSchema}),
+    }),
     runtime: defineAgentRuntime({
         hooks: [
             agentRuntimeBuiltins.profilePrompt(),

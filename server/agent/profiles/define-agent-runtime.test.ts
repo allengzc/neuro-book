@@ -2,6 +2,7 @@ import {describe, expect, it} from "vitest";
 import {Type} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
+import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
 
 describe("defineAgentRuntime", () => {
     it("profile 未声明 runtime 时使用默认 runtime", () => {
@@ -11,7 +12,7 @@ describe("defineAgentRuntime", () => {
                 name: "Runtime Default",
             },
             inputSchema: Type.Object({}),
-            allowedToolKeys: [],
+            tools: profileToolsFromKeys([]),
             prepare() {
                 return {};
             },
@@ -33,11 +34,11 @@ describe("defineAgentRuntime", () => {
                 name: "Sidecar Tool Subset",
             },
             inputSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
+            tools: profileToolsFromKeys(["report_result"]),
             sidecars: [{
                 name: "actor.context-load",
                 stage: "prepareRun",
-                allowedToolKeys: ["read", "report_result"],
+                toolKeys: ["read", "report_result"],
                 enterPrompt: "load",
                 merge() {
                     return {};
@@ -46,22 +47,23 @@ describe("defineAgentRuntime", () => {
             prepare() {
                 return {};
             },
-        })).toThrow("allowedToolKeys 必须是 profile allowedToolKeys 子集");
+        })).toThrow("toolKeys 必须是 profile tools 子集");
     });
 
-    it("拒绝 mainRunAllowedToolKeys 使用 profile 未开放的工具", () => {
+    it("拒绝 mainRunToolKeys 使用 profile 未开放的工具", () => {
         expect(() => defineAgentProfile({
             manifest: {
                 key: "test.main-run-tool-subset",
                 name: "Main Run Tool Subset",
             },
             inputSchema: Type.Object({}),
-            allowedToolKeys: ["report_result"],
-            mainRunAllowedToolKeys: ["read", "report_result"],
+            tools: profileToolsFromKeys(["report_result"]),
+            // 故意绕过 TS 静态子集校验，覆盖运行时 profile loader 的错误路径。
+            mainRunToolKeys: ["read", "report_result"] as any,
             prepare() {
                 return {};
             },
-        })).toThrow("mainRunAllowedToolKeys 必须是 allowedToolKeys 子集");
+        })).toThrow("mainRunToolKeys 必须是 tools 子集");
     });
 
     it("sidecar 未开放 report_result 时必须声明 outputFallback", () => {
@@ -71,11 +73,11 @@ describe("defineAgentRuntime", () => {
                 name: "Sidecar Fallback",
             },
             inputSchema: Type.Object({}),
-            allowedToolKeys: ["read"],
+            tools: profileToolsFromKeys(["read"]),
             sidecars: [{
                 name: "actor.context-load",
                 stage: "prepareRun",
-                allowedToolKeys: ["read"],
+                toolKeys: ["read"],
                 enterPrompt: "load",
                 merge() {
                     return {};

@@ -190,9 +190,6 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
             executionMode: "sequential",
             description: "Create a new agent session and link it to current agent. Before every create_agent call, call get_agent_profile({ profileKey }) to inspect the target InputSchema, OutputSchema, report_result schema, and allowed tools. Pass input as a real JSON object matching that InputSchema, not a JSON string. Arrays, strings, numbers, booleans, and key=value text are rejected.",
             parameters: CreateAgentSchema,
-            prepareArguments(args: unknown) {
-                return prepareCreateAgentArguments(args) as Static<typeof CreateAgentSchema>;
-            },
             async execute(_toolCallId, params: unknown) {
                 const agentInput = params as Static<typeof CreateAgentSchema>;
                 const result = await harness.createAgent({
@@ -369,7 +366,13 @@ export function createBuiltinTools(harness: NeuroAgentHarness): NeuroAgentTool[]
 /**
  * 创建带当前 profile OutputSchema 的 report_result 工具。
  */
-export function createReportResultTool(parameters: TSchema, outputSchema?: TSchema): NeuroAgentTool {
+export function createReportResultTool(parameters: TSchema, options: {
+    dataSchema?: TSchema;
+    activeSidecar?: {
+        name: string;
+        sidecarDataSchema?: TSchema;
+    };
+} = {}): NeuroAgentTool {
     return {
         key: "report_result",
         name: "report_result",
@@ -377,11 +380,30 @@ export function createReportResultTool(parameters: TSchema, outputSchema?: TSche
         executionMode: "sequential",
         description: "Report final agent result to the caller.",
         parameters,
+        validationSchema: ReportResultSchema,
         async execute(_toolCallId, params: unknown) {
             const report = params as {result: string; data?: unknown; sidecar_data?: unknown};
-            if (outputSchema && "data" in report) {
+            if (options.activeSidecar) {
+                if ("data" in report) {
+                    throw new Error(`sidecar ${options.activeSidecar.name} 不能通过 report_result.data 返回旁路结果，请改用 sidecar_data。`);
+                }
+                if (!("sidecar_data" in report)) {
+                    throw new Error(`sidecar ${options.activeSidecar.name} 必须通过 report_result.sidecar_data 返回旁路结果。`);
+                }
+                if (options.activeSidecar.sidecarDataSchema) {
+                    try {
+                        assertStrictSchemaValue(options.activeSidecar.sidecarDataSchema, report.sidecar_data);
+                    } catch (error) {
+                        const message = error instanceof Error ? error.message : String(error);
+                        throw new Error(`sidecar ${options.activeSidecar.name} sidecar_data 校验失败：${message}`);
+                    }
+                }
+            } else if ("sidecar_data" in report) {
+                throw new Error("主 run 不能通过 report_result.sidecar_data 返回结果，请改用 data 或 result。");
+            }
+            if (options.dataSchema && "data" in report) {
                 try {
-                    Value.Parse(outputSchema, report.data);
+                    assertStrictSchemaValue(options.dataSchema, report.data);
                 } catch (error) {
                     const message = error instanceof Error ? error.message : String(error);
                     throw new Error(`report_result.data 校验失败：${message}`);
@@ -396,47 +418,33 @@ export function createReportResultTool(parameters: TSchema, outputSchema?: TSche
     };
 }
 
-function normalizeCreateAgentInput(profileKey: string, value: unknown): JsonValue {
-    if (value === null || value === undefined) {
-        return {};
+/**
+ * 严格校验 schema，不执行 TypeBox Parse/Convert，避免把模型错误参数静默修正。
+ */
+function assertStrictSchemaValue(schema: TSchema, value: unknown): void {
+    if (Value.Check(schema, value)) {
+        return;
     }
-    let resolved = value;
-    if (typeof resolved === "string") {
-        try {
-            resolved = JSON.parse(resolved);
-        } catch {
-            throw new Error(`create_agent.input 必须是 JSON object。profile ${profileKey} 收到的是字符串且不是合法 JSON object；请先调用 get_agent_profile 查看 InputSchema。`);
-        }
-    }
-    if (!resolved || typeof resolved !== "object" || Array.isArray(resolved)) {
-        throw new Error(`create_agent.input 必须是 JSON object。profile ${profileKey} 不接受 array/string/number/boolean 或 key=value 文本；请先调用 get_agent_profile 查看 InputSchema。`);
-    }
-    return Value.Parse(Type.Record(Type.String(), Type.Unknown()), resolved) as JsonValue;
+    const errors = [...Value.Errors(schema, value)]
+        .map((error) => error.message)
+        .join("; ");
+    throw new Error(errors || "Parse");
 }
 
-function prepareCreateAgentArguments(args: unknown): unknown {
-    if (!args || typeof args !== "object" || Array.isArray(args)) {
-        return args;
+function normalizeCreateAgentInput(profileKey: string, value: unknown): JsonValue {
+    if (value === undefined) {
+        return {};
     }
-    const record = args as Record<string, unknown>;
-    if (record.input === null) {
-        return {
-            ...record,
-            input: {},
-        };
+    if (value === null) {
+        throw new Error(`create_agent.input 必须是 JSON object。profile ${profileKey} 收到 null；请省略 input 或传入真实对象。`);
     }
-    if (typeof record.input !== "string") {
-        return args;
+    if (typeof value === "string") {
+        throw new Error(`create_agent.input 必须是 JSON object。profile ${profileKey} 收到的是 JSON string；请先调用 get_agent_profile 查看 InputSchema，并把 input 作为真实对象传入。`);
     }
-    try {
-        const parsed = JSON.parse(record.input);
-        return {
-            ...record,
-            input: parsed,
-        };
-    } catch {
-        throw new Error(`create_agent.input 必须是 JSON object。收到的是字符串且不是合法 JSON object；请先调用 get_agent_profile 查看 InputSchema。`);
+    if (typeof value !== "object" || Array.isArray(value)) {
+        throw new Error(`create_agent.input 必须是 JSON object。profile ${profileKey} 不接受 array/string/number/boolean 或 key=value 文本；请先调用 get_agent_profile 查看 InputSchema。`);
     }
+    return Value.Parse(Type.Record(Type.String(), Type.Unknown()), value) as JsonValue;
 }
 
 /**
@@ -458,10 +466,10 @@ async function getAgentProfileDetail(harness: NeuroAgentHarness, profileKey: str
         name: item.name,
         description: item.description ?? "",
         source: item.source,
-        allowedToolKeys: [...profile.allowedToolKeys],
+        toolKeys: [...profile.toolKeys],
         inputSchema: item.inputSchema ? renderSchemaSummary(item.inputSchema) : "none",
         outputSchema: item.outputSchema ? renderSchemaSummary(item.outputSchema) : "none",
-        reportResultSchema: profile.allowedToolKeys.includes("report_result")
+        reportResultSchema: profile.toolKeys.includes("report_result")
             ? renderSchemaSummary(reportResultSchemaForProfile(profile))
             : "none",
     };

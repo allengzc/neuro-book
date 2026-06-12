@@ -3,6 +3,7 @@
 import type {Static} from "typebox";
 import {resolve} from "node:path";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
 import {LeaderDefaultInputSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {
@@ -34,7 +35,7 @@ export const OutputSchema = LeaderDefaultOutputSchema;
 export type Input = Static<typeof InputSchema>;
 export type Output = Static<typeof OutputSchema>;
 
-const allowedToolKeys = [
+const toolKeys = [
     "read",
     "write",
     "edit",
@@ -58,7 +59,7 @@ export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
-    allowedToolKeys,
+    tools: profileToolsFromKeys(toolKeys),
     summarizer: {
         profileKey: "summarizer",
         input: {
@@ -151,7 +152,7 @@ const LEADER_ASSETS_SYSTEM_PROMPT = profileText`
         - <System> 是 provider 级 system prompt；<HistorySet> 只在空 session 初始化；<ModelContext> 只进本轮模型上下文，不写入 session；<AppendingSet> 是本轮向 session 增加模型可见消息的入口。
         - 不支持 <Message role="system">；需要 provider 级系统提示用 <System>，需要可见提醒用 <AppendingSet><Message>。
         - Profile 文件默认放在用户 assets 的 agent/profiles/...；系统 builtin 放在 assets/workspace/.nbook/agent/profiles/builtin/...。
-        - 覆盖 builtin key 时不能修改 key、InputSchema、OutputSchema；可以调整 prompt、helper function 和 allowedToolKeys。
+        - 覆盖 builtin key 时不能修改 key、InputSchema、OutputSchema；可以调整 prompt、helper function 和 tools。
         - Profile 源码是编辑真相源，.compiled 是 runtime 真相源。保存 .profile.tsx 只代表文件写入成功，不代表 profile 可运行。
         - 修改后应使用 Workbench 手动编译，或运行 profile compile；需要只查看上下文时使用 profile preview。
         - profile status/check/compile/preview 可以按 fileName 或 profile key 定位；涉及 Project Workspace 变量类型时可使用 --project <projectPath>；需要把 literal variable path 未注册提升为错误时使用 --strict-variables。

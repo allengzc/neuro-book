@@ -136,7 +136,8 @@ A TSX profile usually contains:
 - `profileManifest`: key/name/description.
 - `InputSchema`: creating the agent/session uses this schema. Ordinary agents can use `Type.Object({})`.
 - `OutputSchema`: report result data shape. Empty object schema means no special data fields.
-- `allowedToolKeys`: tools visible to this agent.
+- `tools`: profile root tool bindings; this controls visible tool schema and maximum tool permission.
+- `mainRunToolKeys`: optional main-run execution subset of `tools`.
 - `context(ctx)`: recommended user-facing way to prepare prompt/context with TSX DSL.
 - `prepare(ctx)`: advanced low-level override that returns `ProfileTurnPlan` directly.
 - `ingest(ctx)`: optional post-run hook. Do not redesign it unless the user specifically asks for runtime behavior changes.
@@ -145,7 +146,7 @@ A TSX profile usually contains:
 
 `InputSchema` is for creating the agent/session instance. It is not the user's every-turn message. Ordinary agents can use `Type.Object({})`.
 
-`OutputSchema` describes `report_result` data. Whether an agent must call `report_result` depends on `allowedToolKeys`, not on the schema existing.
+`OutputSchema` describes `report_result.data`. Whether an agent can call `report_result` depends on `tools` containing a `report_result` binding, not on the schema existing.
 
 ## TSX DSL Mental Model
 
@@ -176,7 +177,7 @@ A TSX profile usually contains:
 - Use everyday language first. Then show the TSX node or command.
 - When a user says "帮我改 profile", inspect the target file and compile after editing.
 - When a user asks "为什么前端看不到这段内容", check whether the content is in `System`, `ModelContext`, or `AppendingSet`.
-- When a user asks "为什么 agent 没有这个工具", check `allowedToolKeys` and the tool registry.
+- When a user asks "为什么 agent 没有这个工具", check root `tools`, `mainRunToolKeys` / sidecar `toolKeys`, and the tool registry.
 - When a user asks "系统版本更新后为什么没有覆盖我的文件", explain the user-assets overlay and sync state before suggesting restore.
 - When a user asks "为什么变量读不到", check namespace, current Project Workspace, definition compile status, and whether the profile was checked with the right `--project`.
 

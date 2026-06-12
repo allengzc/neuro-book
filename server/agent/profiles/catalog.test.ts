@@ -10,11 +10,23 @@ import {
     rehomeProfileArtifactItem,
     validateProfileArtifact,
 } from "nbook/server/agent/profiles/profile-artifact-compiler";
-import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {messageText} from "nbook/server/agent/messages/message-utils";
 import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-content";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
+
+function defineAgentProfile(profile: any): ReturnType<typeof defineRuntimeAgentProfile> {
+    const {
+        allowedToolKeys,
+        ...rest
+    } = profile;
+    return defineRuntimeAgentProfile({
+        ...rest,
+        tools: rest.tools ?? profileToolsFromKeys(allowedToolKeys ?? []),
+    });
+}
 
 describe("AgentProfileCatalog", () => {
     let root: string;
@@ -37,6 +49,7 @@ describe("AgentProfileCatalog", () => {
         await writeProfile(systemRoot, "good.profile.tsx", `
             import {Type} from "typebox";
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
             export const profileManifest = { key: "custom.good", name: "Good" } as const;
             export type Input = { topic: string };
             export type Output = { result: string };
@@ -44,7 +57,7 @@ describe("AgentProfileCatalog", () => {
                 manifest: profileManifest,
                 inputSchema: Type.Object({ topic: Type.String() }),
                 outputSchema: Type.Object({ result: Type.String() }),
-                allowedToolKeys: [],
+                tools: profileToolsFromKeys([]),
                 prepare() { return { systemPrompt: "ok" }; },
             });
         `);
@@ -87,6 +100,7 @@ describe("AgentProfileCatalog", () => {
             /** @jsxRuntime automatic */
             import {Type} from "typebox";
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
             import {AppendingSet, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 
             export const profileManifest = { key: "custom.jsx", name: "JSX" } as const;
@@ -94,7 +108,7 @@ describe("AgentProfileCatalog", () => {
                 manifest: profileManifest,
                 inputSchema: Type.Object({}),
                 outputSchema: Type.Object({}),
-                allowedToolKeys: [],
+                tools: profileToolsFromKeys([]),
                 context() {
                     return (
                         <ProfilePrompt>
@@ -121,6 +135,7 @@ describe("AgentProfileCatalog", () => {
         await writeProfile(systemRoot, "custom.session-types.profile.tsx", `
             import {Type} from "typebox";
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
             import {defineSessionVariable} from "nbook/server/agent/variables/registry";
 
             export const profileManifest = { key: "custom.sessionTypes", name: "Session Types" } as const;
@@ -128,7 +143,7 @@ describe("AgentProfileCatalog", () => {
                 manifest: profileManifest,
                 inputSchema: Type.Object({}),
                 outputSchema: Type.Object({}),
-                allowedToolKeys: [],
+                tools: profileToolsFromKeys([]),
                 variableDefinitions: [
                     defineSessionVariable({
                         key: "draftGoal",
@@ -176,6 +191,7 @@ describe("AgentProfileCatalog", () => {
         await writeProfile(systemRoot, "custom.helper.profile.tsx", `
             import {Type} from "typebox";
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
             import {helperText} from "./prompt-helper";
 
             export const profileManifest = { key: "custom.helper", name: "Helper" } as const;
@@ -183,7 +199,7 @@ describe("AgentProfileCatalog", () => {
                 manifest: profileManifest,
                 inputSchema: Type.Object({}),
                 outputSchema: Type.Object({}),
-                allowedToolKeys: [],
+                tools: profileToolsFromKeys([]),
                 prepare() { return { systemPrompt: helperText }; },
             });
         `);
@@ -209,6 +225,7 @@ describe("AgentProfileCatalog", () => {
         await writeProfile(userRoot, "custom.user-helper.profile.tsx", `
             import {Type} from "typebox";
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
             import {helperText} from "./prompt-helper";
 
             export const profileManifest = { key: "custom.user-helper", name: "User Helper" } as const;
@@ -216,7 +233,7 @@ describe("AgentProfileCatalog", () => {
                 manifest: profileManifest,
                 inputSchema: Type.Object({}),
                 outputSchema: Type.Object({}),
-                allowedToolKeys: [],
+                tools: profileToolsFromKeys([]),
                 prepare() { return { systemPrompt: helperText }; },
             });
         `);
@@ -273,6 +290,7 @@ describe("AgentProfileCatalog", () => {
         await writeProfile(userRoot, "custom.broken-artifact.profile.tsx", `
             import {Type} from "typebox";
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
             import {helperText} from "./prompt-helper";
 
             export const profileManifest = { key: "custom.broken-artifact", name: "Broken Artifact" } as const;
@@ -280,7 +298,7 @@ describe("AgentProfileCatalog", () => {
                 manifest: profileManifest,
                 inputSchema: Type.Object({}),
                 outputSchema: Type.Object({}),
-                allowedToolKeys: [],
+                tools: profileToolsFromKeys([]),
                 prepare() { return { systemPrompt: helperText }; },
             });
         `);
@@ -306,6 +324,7 @@ describe("AgentProfileCatalog", () => {
         await writeProfile(userRoot, "leader.default.profile.tsx", `
             import {Type} from "typebox";
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
             export const profileManifest = { key: "leader.default", name: "User Leader" } as const;
             export type Input = { changed: string };
             export type Output = { changed: string };
@@ -313,7 +332,7 @@ describe("AgentProfileCatalog", () => {
                 manifest: profileManifest,
                 inputSchema: Type.Object({ changed: Type.String() }),
                 outputSchema: Type.Object({ changed: Type.String() }),
-                allowedToolKeys: [],
+                tools: profileToolsFromKeys([]),
                 prepare() { return { systemPrompt: "user" }; },
             });
         `);
@@ -337,6 +356,7 @@ describe("AgentProfileCatalog", () => {
     it("系统 leader.default schema 与 builtin contract 一致时不产生 schema lock issue", async () => {
         await writeProfile(systemRoot, "leader.default.profile.tsx", `
             import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
             import {LeaderDefaultInputSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
             export const profileManifest = { key: "leader.default", name: "System Leader" } as const;
             export type Input = typeof LeaderDefaultInputSchema.static;
@@ -345,7 +365,7 @@ describe("AgentProfileCatalog", () => {
                 manifest: profileManifest,
                 inputSchema: LeaderDefaultInputSchema,
                 outputSchema: LeaderDefaultOutputSchema,
-                allowedToolKeys: [],
+                tools: profileToolsFromKeys([]),
                 prepare() { return { systemPrompt: "system" }; },
             });
         `);
@@ -505,7 +525,8 @@ describe("AgentProfileCatalog", () => {
                 manifest: { key: "custom.product", name: "Product" },
                 inputSchema: { type: "object", properties: {} },
                 outputSchema: { type: "object", properties: {} },
-                allowedToolKeys: [],
+                tools: {},
+                toolKeys: [],
                 prepare() { return { systemPrompt: "ok" }; },
             };
         `);
@@ -541,7 +562,8 @@ describe("AgentProfileCatalog", () => {
                 manifest: { key: "custom.output", name: "Output" },
                 inputSchema: { type: "object", properties: {} },
                 outputSchema: { type: "object", properties: {} },
-                allowedToolKeys: [],
+                tools: {},
+                toolKeys: [],
                 prepare() {
                     const marker = require("@nbook/" + "output-marker");
                     return { systemPrompt: marker.marker };
@@ -582,7 +604,8 @@ describe("AgentProfileCatalog", () => {
                 manifest: { key: "custom.output", name: "Output" },
                 inputSchema: { type: "object", properties: {} },
                 outputSchema: { type: "object", properties: {} },
-                allowedToolKeys: [],
+                tools: {},
+                toolKeys: [],
                 prepare() { return { systemPrompt: "ok" }; },
             };
         `);
@@ -642,7 +665,8 @@ describe("AgentProfileCatalog", () => {
                 manifest: { key: "custom.portable", name: "Portable" },
                 inputSchema: { type: "object", properties: {} },
                 outputSchema: { type: "object", properties: {} },
-                allowedToolKeys: [],
+                tools: {},
+                toolKeys: [],
                 prepare() {
                     const marker = require("@nbook/" + "portable-marker");
                     return { systemPrompt: marker.marker };
@@ -675,8 +699,9 @@ async function writeProfile(root: string, name: string, source: string): Promise
 
 function profileSource(key: string, name: string): string {
     return `
-        import {Type} from "typebox";
-        import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+            import {Type} from "typebox";
+            import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+            import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
         export const profileManifest = { key: ${JSON.stringify(key)}, name: ${JSON.stringify(name)} } as const;
         export type Input = {};
         export type Output = {};
@@ -684,7 +709,7 @@ function profileSource(key: string, name: string): string {
             manifest: profileManifest,
             inputSchema: Type.Object({}),
             outputSchema: Type.Object({}),
-            allowedToolKeys: [],
+            tools: profileToolsFromKeys([]),
             prepare() { return { systemPrompt: ${JSON.stringify(name)} }; },
         });
     `;

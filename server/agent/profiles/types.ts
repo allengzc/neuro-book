@@ -8,6 +8,7 @@ import type {ClientStateSnapshot, ProfileVariableAccessor, VariableDefinition} f
 import type {SessionSummarizerInputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import type {AgentRuntimeDefinition, NormalizedAgentRuntimeDefinition, RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
 import type {AgentInvokeCaller} from "nbook/server/agent/harness/types";
+import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
 
 export type AgentProfileManifest<TKey extends string = string> = {
     key: TKey;
@@ -51,7 +52,7 @@ export type AgentCatalogItem = {
     key: string;
     name: string;
     description?: string;
-    allowedToolKeys?: readonly string[];
+    toolKeys?: readonly string[];
     inputSchema?: TSchema;
     outputSchema?: TSchema;
     source: AgentProfileSourceKind;
@@ -162,23 +163,24 @@ export type SidecarProfilePass<TInput = JsonValue, TSidecarData = JsonValue> = {
     name: string;
     stage: SidecarProfilePassStage;
     enterPrompt: string | ((ctx: SidecarContext<TInput>) => string);
-    allowedToolKeys?: readonly string[];
+    toolKeys?: readonly string[];
     sidecarDataSchema?: TSchema;
     outputFallback?: "final_message_as_result" | "parse_final_message_json";
     merge(ctx: SidecarContext<TInput>, result: SidecarResult<TSidecarData>): SidecarMergePlan | Promise<SidecarMergePlan>;
 };
 
-export type AgentProfile<
+export type AgentProfileDefinition<
     TInputSchema extends TSchema = TSchema,
     TOutputSchema extends TSchema = TSchema,
     TSummarizerKey extends string = string,
+    TTools extends ProfileTools = ProfileTools,
 > = {
     manifest: AgentProfileManifest;
     inputSchema: TInputSchema;
     outputSchema?: TOutputSchema;
-    allowedToolKeys: readonly string[];
-    /** 主 run 实际可执行工具；不声明时等于 allowedToolKeys。sidecar 仍可声明自己的执行子集。 */
-    mainRunAllowedToolKeys?: readonly string[];
+    tools: TTools;
+    /** 主 run 实际可执行工具；不声明时等于 tools 的全部 key。sidecar 仍可声明自己的执行子集。 */
+    mainRunToolKeys?: readonly (keyof TTools & string)[];
     sidecars?: readonly SidecarProfilePass<Static<TInputSchema>, JsonValue>[];
     summarizer?: AgentProfileSummarizerConfig<TSummarizerKey>;
     compaction?: ProfileCompactionPlan;
@@ -187,4 +189,16 @@ export type AgentProfile<
     variableDefinitions?: readonly VariableDefinition[];
     context?(ctx: ProfilePrepareContext<Static<TInputSchema>>): ProfileDslNode | Promise<ProfileDslNode>;
     prepare?(ctx: ProfilePrepareContext<Static<TInputSchema>>): ProfileTurnPlan | Promise<ProfileTurnPlan>;
+};
+
+export type AgentProfile<
+    TInputSchema extends TSchema = TSchema,
+    TOutputSchema extends TSchema = TSchema,
+    TSummarizerKey extends string = string,
+    TTools extends ProfileTools = ProfileTools,
+> = Omit<AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>, "sidecars"> & {
+    /** 运行时只需要 sidecar 合同本身；profile 定义阶段仍按 InputSchema 约束 ctx.input。 */
+    sidecars?: readonly SidecarProfilePass<any, JsonValue>[];
+    /** 由 tools 对象派生的稳定工具 key 列表。运行时以 tools 为真相源，此字段只供便捷读取。 */
+    toolKeys: readonly (keyof TTools & string)[];
 };

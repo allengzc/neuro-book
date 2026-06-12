@@ -3,6 +3,7 @@
 import {Type} from "typebox";
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
 import {ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 
 export const profileManifest = {
@@ -16,9 +17,9 @@ export const OutputSchema = Type.Object({});
 export type Input = Static<typeof InputSchema>;
 export type Output = Static<typeof OutputSchema>;
 
-export const allowedToolKeys = [
-    "read",
-] as const;
+export const profileTools = defineProfileTools({
+    read: tools.read(),
+});
 
 function renderSystemPrompt(): string {
     return `__SYSTEM_PROMPT__`.trim();
@@ -28,7 +29,7 @@ export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
-    allowedToolKeys,
+    tools: profileTools,
     context() {
         return (
             <ProfilePrompt>

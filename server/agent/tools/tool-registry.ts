@@ -2,7 +2,7 @@ import type {AgentTool} from "@earendil-works/pi-agent-core";
 import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
 
 /**
- * v3 工具注册表。toolKeys 是模型可见工具集合；执行硬权限由调用方传入的 allowedToolKeys / executionToolKeys 决定。
+ * v3 工具注册表。toolKeys 是模型可见工具集合；执行硬权限由调用方传入的 executionToolKeys 决定。
  */
 export class AgentToolRegistry {
     private readonly tools = new Map<string, NeuroAgentTool>();

@@ -3,6 +3,7 @@
 import {Type, type Static} from "typebox";
 import {createUserMessage} from "nbook/server/agent/messages/message-utils";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
+import {profileToolsFromKeys} from "nbook/server/agent/profiles/profile-tools";
 import {SubjectSimulatorInputSchema, SubjectSimulatorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AppendingSet, HistorySet, Import, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {SidecarProfilePass} from "nbook/server/agent/profiles/types";
@@ -20,7 +21,7 @@ export const OutputSchema = SubjectSimulatorOutputSchema;
 export type Input = Static<typeof InputSchema>;
 export type Output = Static<typeof OutputSchema>;
 
-const allowedToolKeys = ["subject_rag_search", "subject_event_append", "subject_memory_update", "read", "edit", "report_result"] as const;
+const toolKeys = ["subject_rag_search", "subject_event_append", "subject_memory_update", "read", "edit", "report_result"] as const;
 
 const ActorContextLoadSidecarSchema = Type.String({
     description: "准备注入 actor 主 run 的角色可知纯文本上下文；没有额外信息时返回空字符串。",
@@ -42,7 +43,7 @@ type ActorMemorySaveSidecarData = Static<typeof ActorMemorySaveSidecarSchema>;
 const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarData> = {
     name: "actor.context-load",
     stage: "prepareRun",
-    allowedToolKeys: ["subject_rag_search", "report_result"],
+    toolKeys: ["subject_rag_search", "report_result"],
     sidecarDataSchema: ActorContextLoadSidecarSchema,
     enterPrompt: (ctx) => profileText`
         退出角色扮演模式。你现在是 subject simulator 的 context-load 旁路，是一个纯 RAG 检索器，不要扮演角色，不要输出角色台词。
@@ -99,7 +100,7 @@ const actorContextLoadPass: SidecarProfilePass<Input, ActorContextLoadSidecarDat
 const actorMemorySavePass: SidecarProfilePass<Input, ActorMemorySaveSidecarData> = {
     name: "actor.memory-save",
     stage: "settleRun",
-    allowedToolKeys: ["subject_event_append", "subject_memory_update", "read", "edit", "report_result"],
+    toolKeys: ["subject_event_append", "subject_memory_update", "read", "edit", "report_result"],
     sidecarDataSchema: ActorMemorySaveSidecarSchema,
     enterPrompt: (ctx) => profileText`
         退出角色扮演模式。你现在是 subject simulator 的 memory-save 旁路，是一个纯 RAG 索引维护器，不要继续扮演角色，不要新增角色台词或行动。
@@ -168,8 +169,8 @@ export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
-    allowedToolKeys,
-    mainRunAllowedToolKeys: ["report_result"],
+    tools: profileToolsFromKeys(toolKeys),
+    mainRunToolKeys: ["report_result"],
     compaction: {},
     sidecars: [
         actorContextLoadPass,

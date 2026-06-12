@@ -155,7 +155,7 @@ export class AgentProfileCatalog {
             key: profile.manifest.key,
             name: profile.manifest.name,
             description: profile.manifest.description,
-            allowedToolKeys: profile.allowedToolKeys,
+            toolKeys: profile.toolKeys,
             inputSchema: profile.inputSchema,
             outputSchema: profile.outputSchema,
             source,
@@ -371,7 +371,8 @@ export class AgentProfileCatalog {
             && typeof value === "object"
             && "manifest" in value
             && "inputSchema" in value
-            && "allowedToolKeys" in value
+            && "tools" in value
+            && "toolKeys" in value
             && "prepare" in value
             && typeof (value as {prepare?: unknown}).prepare === "function",
         );
@@ -484,7 +485,7 @@ export class AgentProfileCatalog {
         };
     }
 
-    private staleIssue(source: Exclude<AgentProfileSourceKind, "memory">, file: ProfileFileEntry, manifestItem: ProfileArtifactManifestItem, reason?: "source_changed" | "dependency_changed" | "artifact_missing" | "artifact_changed"): AgentProfileIssue {
+    private staleIssue(source: Exclude<AgentProfileSourceKind, "memory">, file: ProfileFileEntry, manifestItem: ProfileArtifactManifestItem, reason?: "source_changed" | "dependency_changed" | "artifact_missing" | "artifact_changed" | "type_artifact_missing" | "type_artifact_changed"): AgentProfileIssue {
         if (source === "user" && reason === "source_changed") {
             return {
                 code: "source_stale",
@@ -507,6 +508,10 @@ export class AgentProfileCatalog {
             ? `profile ${manifestItem.profileKey} 缺少 compiled artifact，需要重新编译。`
             : reason === "artifact_changed"
                 ? `profile ${manifestItem.profileKey} 的 compiled artifact 与 manifest 不匹配，需要重新同步或重新编译。`
+                : reason === "type_artifact_missing"
+                    ? `profile ${manifestItem.profileKey} 缺少 type artifact，需要重新编译。`
+                    : reason === "type_artifact_changed"
+                        ? `profile ${manifestItem.profileKey} 的 type artifact 与 manifest 不匹配，需要重新同步或重新编译。`
                 : reason === "source_changed"
                     ? `profile ${manifestItem.profileKey} 的源码已修改，需要重新编译。`
                     : reason === "dependency_changed"

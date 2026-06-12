@@ -464,7 +464,7 @@ async function resolvePrereleaseTag(input: {
         return parsed;
     }
 
-    const baseVersion = resolvePrereleaseBaseVersion(input);
+    const baseVersion = await resolvePrereleaseBaseVersion(input);
     assertVersionNotLower(baseVersion, releaseVersionOf(input.currentVersion), "prerelease base version");
     const sequence = input.sequence ?? await defaultPrereleaseSequence(input.channel, baseVersion, input.shortHead);
     const prerelease = `${input.channel}.${sequence}`;
@@ -478,13 +478,13 @@ async function resolvePrereleaseTag(input: {
     };
 }
 
-/** 解析 prerelease 基础版本；默认等同 --next patch。 */
-function resolvePrereleaseBaseVersion(input: {
+/** 解析 prerelease 基础版本；默认基于当前发布线执行 --next patch。 */
+async function resolvePrereleaseBaseVersion(input: {
     currentPatch: boolean;
     currentVersion: string;
     next?: ReleaseIncrement;
     version?: string;
-}): string {
+}): Promise<string> {
     const selected = [input.version ? "--version" : "", input.next ? "--next" : "", input.currentPatch ? "--current-patch" : ""]
         .filter(Boolean);
     if (selected.length > 1) {
@@ -496,7 +496,27 @@ function resolvePrereleaseBaseVersion(input: {
     if (input.currentPatch) {
         return normalizeReleaseVersion(input.currentVersion);
     }
-    return incrementReleaseVersion(input.currentVersion, input.next ?? "patch");
+    return incrementReleaseVersion(await prereleaseNextBaseline(input.currentVersion), input.next ?? "patch");
+}
+
+/** prerelease 自动增长基准：package version 和当前 HEAD 最近 SemVer tag 中较新的版本线。 */
+async function prereleaseNextBaseline(currentVersion: string): Promise<string> {
+    const packageVersion = releaseVersionOf(currentVersion);
+    const tagVersion = await latestReachableTagVersion();
+    if (!tagVersion) {
+        return packageVersion;
+    }
+    return compareReleaseVersions(parseReleaseVersion(tagVersion, "latest tag version"), parseReleaseVersion(packageVersion, "package version")) > 0
+        ? tagVersion
+        : packageVersion;
+}
+
+/** 读取当前 HEAD 最近可达的 SemVer tag，避免旧历史上的高版本 tag 误导自动增长。 */
+async function latestReachableTagVersion(): Promise<string | null> {
+    const tag = await runCapture("git", ["describe", "--tags", "--abbrev=0", "HEAD"], {cwd: REPO_ROOT})
+        .then((value: string) => value.trim())
+        .catch(() => "");
+    return semverTagVersion(tag);
 }
 
 /** 默认先行版本序号。 */
@@ -589,6 +609,19 @@ function isPrereleaseIdentifierList(value: string): boolean {
 /** 从 package version 中取 release 版本本体。 */
 function releaseVersionOf(version: string): string {
     return version.trim().replace(/^v/u, "").split("-")[0].split("+")[0];
+}
+
+/** 从 SemVer tag 中提取 release 版本；非 SemVer tag 返回 null。 */
+function semverTagVersion(input: string): string | null {
+    const version = input.trim().replace(/^v/u, "");
+    if (isReleaseVersion(version)) {
+        return version;
+    }
+    const prerelease = /^((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*))-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u.exec(version);
+    if (!prerelease || !isPrereleaseIdentifierList(prerelease[2])) {
+        return null;
+    }
+    return prerelease[1];
 }
 
 /** 解析 release 版本。 */

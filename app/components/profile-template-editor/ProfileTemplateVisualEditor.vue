@@ -1022,7 +1022,7 @@ function emptyProfileDetail(compileIssues: AgentProfileIssueDto[]): AgentProfile
         source: sourceText.value,
         issues: compileIssues,
         variables: [],
-        allowedToolKeys: [],
+        toolKeys: [],
         inputSchema: {
             jsonSchema: null,
             editMode: "source",

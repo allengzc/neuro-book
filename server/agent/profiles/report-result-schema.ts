@@ -19,18 +19,37 @@ export function isEmptyObjectSchema(schema: TSchema | undefined): boolean {
  * 从目标 profile 的 OutputSchema 派生 report_result 的模型可见参数 schema。
  */
 export function reportResultSchemaForProfile(profile: AgentProfile): TSchema {
+    const reportBinding = profile.tools.report_result;
+    const dataSchema = reportBinding?.dataSchema ?? profile.outputSchema;
+    const sidecarDataSchemas = (profile.sidecars ?? [])
+        .map((pass) => pass.sidecarDataSchema)
+        .filter((schema): schema is TSchema => Boolean(schema));
     const properties = {
         result: Type.String({
             description: "本次工具调用的可读结果；需要时可以写简短 walkthrough。",
         }),
-        ...isEmptyObjectSchema(profile.outputSchema)
+        ...isEmptyObjectSchema(dataSchema)
             ? {}
             : {
-                data: Type.Optional(profile.outputSchema as TSchema),
+                data: Type.Optional(dataSchema as TSchema),
             },
-        sidecar_data: Type.Optional(Type.Unknown({
-            description: "旁路 phase 的结构化返回值。普通主路调用不要使用；具体结构由旁路 system reminder 说明，并由 Harness 校验。",
-        })),
+        ...sidecarDataSchemas.length
+            ? {
+                sidecar_data: Type.Optional(sidecarDataSchemaUnion(sidecarDataSchemas)),
+            }
+            : {},
     };
     return Type.Object(properties);
+}
+
+/**
+ * 合并当前 profile 所有 sidecar 的结果合同。provider-visible schema 对 profile 稳定，不随 phase 动态变化。
+ */
+function sidecarDataSchemaUnion(schemas: TSchema[]): TSchema {
+    if (schemas.length === 1) {
+        return schemas[0]!;
+    }
+    return Type.Union(schemas, {
+        description: "旁路 phase 的结构化返回值。普通主路调用不要使用；当前具体结构由 sidecar system reminder 指定。",
+    });
 }

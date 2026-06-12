@@ -1,7 +1,8 @@
 import type {TSchema} from "typebox";
-import type {AgentProfile, AgentProfileManifest} from "nbook/server/agent/profiles/types";
+import type {AgentProfile, AgentProfileDefinition, AgentProfileManifest} from "nbook/server/agent/profiles/types";
 import {compileProfileContext, validateCompactionPlan, validateProfileTurnPlan} from "nbook/server/agent/profiles/profile-dsl";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
+import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
 
 /**
  * 定义一个 v3 Agent Profile。用户自定义 profile 必须通过这个函数导出。
@@ -10,12 +11,15 @@ export function defineAgentProfile<
     const TInputSchema extends TSchema,
     const TOutputSchema extends TSchema,
     const TSummarizerKey extends string = string,
->(profile: AgentProfile<TInputSchema, TOutputSchema, TSummarizerKey>): AgentProfile<TInputSchema, TOutputSchema, TSummarizerKey> {
+    const TTools extends ProfileTools = ProfileTools,
+>(profile: AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>): AgentProfile<TInputSchema, TOutputSchema, TSummarizerKey, TTools> {
     assertProfileManifest(profile.manifest);
+    assertNoLegacyToolFields(profile.manifest.key, profile);
+    const toolKeys = assertProfileTools(profile.manifest.key, profile.tools);
     assertProfileSummarizer(profile.manifest.key, profile.summarizer);
     validateCompactionPlan(profile.manifest.key, profile.compaction);
-    assertMainRunAllowedToolKeys(profile.manifest.key, profile.allowedToolKeys, profile.mainRunAllowedToolKeys);
-    assertProfileSidecars(profile.manifest.key, profile.allowedToolKeys, profile.sidecars);
+    assertMainRunToolKeys(profile.manifest.key, toolKeys, profile.mainRunToolKeys);
+    assertProfileSidecars(profile.manifest.key, toolKeys, profile.sidecars);
     if (profile.context && profile.prepare) {
         throw new Error(`profile ${profile.manifest.key} 不能同时定义 context 和 prepare。`);
     }
@@ -38,6 +42,7 @@ export function defineAgentProfile<
         : agentRuntimeBuiltins.defaultSessionRuntime();
     return {
         ...profile,
+        toolKeys,
         runtime,
         prepare,
     };
@@ -74,16 +79,56 @@ function assertProfileSummarizer(profileKey: string, summarizer: AgentProfile["s
 }
 
 /**
+ * 拒绝旧 profile 工具声明字段，避免 tools binding 硬切后出现双真相源。
+ */
+function assertNoLegacyToolFields(profileKey: string, profile: object): void {
+    if ("allowedToolKeys" in profile) {
+        throw new Error(`profile ${profileKey} 已移除 allowedToolKeys，请改用 tools: defineProfileTools({...})。`);
+    }
+    if ("mainRunAllowedToolKeys" in profile) {
+        throw new Error(`profile ${profileKey} 已移除 mainRunAllowedToolKeys，请改用 mainRunToolKeys。`);
+    }
+}
+
+/**
+ * 校验 profile root tools 对象，并返回稳定工具 key 列表。
+ */
+function assertProfileTools<TTools extends ProfileTools>(profileKey: string, tools: TTools): readonly (keyof TTools & string)[] {
+    if (!tools || typeof tools !== "object" || Array.isArray(tools)) {
+        throw new Error(`profile ${profileKey} 必须定义 tools 对象。`);
+    }
+    const toolKeys = Object.keys(tools) as (keyof TTools & string)[];
+    const seen = new Set<string>();
+    for (const toolKey of toolKeys) {
+        if (!toolKey.trim()) {
+            throw new Error(`profile ${profileKey} tools 不能包含空 key。`);
+        }
+        if (seen.has(toolKey)) {
+            throw new Error(`profile ${profileKey} tools 重复：${toolKey}`);
+        }
+        seen.add(toolKey);
+        const binding = tools[toolKey];
+        if (!binding || typeof binding !== "object") {
+            throw new Error(`profile ${profileKey} tools.${toolKey} 必须是 ToolBinding。`);
+        }
+        if (binding.key !== toolKey) {
+            throw new Error(`profile ${profileKey} tools.${toolKey} 的 binding.key 必须等于对象 key，当前为 ${binding.key}`);
+        }
+    }
+    return toolKeys;
+}
+
+/**
  * 校验主 run 的执行工具子集，允许 profile 为 sidecar 保留更大的 provider 可见工具集合。
  */
-function assertMainRunAllowedToolKeys(profileKey: string, allowedToolKeys: readonly string[], mainRunAllowedToolKeys: readonly string[] | undefined): void {
-    if (!mainRunAllowedToolKeys) {
+function assertMainRunToolKeys(profileKey: string, toolKeys: readonly string[], mainRunToolKeys: readonly string[] | undefined): void {
+    if (!mainRunToolKeys) {
         return;
     }
-    const allowed = new Set(allowedToolKeys);
-    for (const toolKey of mainRunAllowedToolKeys) {
+    const allowed = new Set(toolKeys);
+    for (const toolKey of mainRunToolKeys) {
         if (!allowed.has(toolKey)) {
-            throw new Error(`profile ${profileKey} mainRunAllowedToolKeys 必须是 allowedToolKeys 子集：${toolKey}`);
+            throw new Error(`profile ${profileKey} mainRunToolKeys 必须是 tools 子集：${toolKey}`);
         }
     }
 }
@@ -91,12 +136,12 @@ function assertMainRunAllowedToolKeys(profileKey: string, allowedToolKeys: reado
 /**
  * 校验 profile 声明的 sidecar pass。V1 只支持当前 profile 内 prepareRun/settleRun 自动旁路。
  */
-function assertProfileSidecars(profileKey: string, allowedToolKeys: readonly string[], sidecars: readonly {name: string; stage: string; allowedToolKeys?: readonly string[]; outputFallback?: string}[] | undefined): void {
+function assertProfileSidecars(profileKey: string, toolKeys: readonly string[], sidecars: readonly {name: string; stage: string; toolKeys?: readonly string[]; allowedToolKeys?: readonly string[]; outputFallback?: string}[] | undefined): void {
     if (!sidecars) {
         return;
     }
     const seen = new Set<string>();
-    const allowed = new Set(allowedToolKeys);
+    const allowed = new Set(toolKeys);
     for (const sidecar of sidecars) {
         if (!sidecar.name.trim()) {
             throw new Error(`profile ${profileKey} sidecar.name 不能为空`);
@@ -108,12 +153,15 @@ function assertProfileSidecars(profileKey: string, allowedToolKeys: readonly str
         if (sidecar.stage !== "prepareRun" && sidecar.stage !== "settleRun") {
             throw new Error(`profile ${profileKey} sidecar ${sidecar.name} stage 只支持 prepareRun 或 settleRun`);
         }
-        for (const toolKey of sidecar.allowedToolKeys ?? []) {
+        if ("allowedToolKeys" in sidecar) {
+            throw new Error(`profile ${profileKey} sidecar ${sidecar.name} 已移除 allowedToolKeys，请改用 toolKeys。`);
+        }
+        for (const toolKey of sidecar.toolKeys ?? []) {
             if (!allowed.has(toolKey)) {
-                throw new Error(`profile ${profileKey} sidecar ${sidecar.name} allowedToolKeys 必须是 profile allowedToolKeys 子集：${toolKey}`);
+                throw new Error(`profile ${profileKey} sidecar ${sidecar.name} toolKeys 必须是 profile tools 子集：${toolKey}`);
             }
         }
-        const sidecarToolKeys = sidecar.allowedToolKeys ?? allowedToolKeys;
+        const sidecarToolKeys = sidecar.toolKeys ?? toolKeys;
         if (!sidecarToolKeys.includes("report_result") && !sidecar.outputFallback) {
             throw new Error(`profile ${profileKey} sidecar ${sidecar.name} 未允许 report_result 时必须声明 outputFallback。`);
         }
