@@ -22,6 +22,11 @@ function usage(input: number, output: number, cacheRead = 0, cacheWrite = 0): Us
 
 const baseSnapshot = (entries: AgentSessionSnapshotDto["entries"]): AgentSessionSnapshotDto => ({
     eventEpoch: "epoch-1",
+    eventCursor: {
+        eventEpoch: "epoch-1",
+        after: 0,
+    },
+    latestSeq: 0,
     summary: {
         sessionId: 1,
         profileKey: "leader.default",

@@ -1,5 +1,5 @@
 ---
-title: 说明书
+title: 手册
 type: note
 subtype: directory-index
 status: active

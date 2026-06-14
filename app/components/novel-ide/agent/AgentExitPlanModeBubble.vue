@@ -6,11 +6,20 @@ import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMark
 import {z} from "zod";
 
 const NONE_OF_ABOVE_OPTION_INDEX = -1;
+const REJECT_OPTION_INDEX = 1;
+const APPROVE_OPTION_INDEX = 0;
+
+const ExitPlanModePreviewDataSchema = z.object({
+    planFilePath: z.string().optional(),
+    planContent: z.string().optional(),
+});
+
 const ExitPlanModeRawResultSchema = z.object({
     answers: z.array(RequestUserInputToolAnswerSchema).optional(),
     approved: z.boolean().optional(),
     planFilePath: z.string().optional(),
     planContent: z.string().optional(),
+    data: z.unknown().optional(),
 });
 
 const props = defineProps<{
@@ -39,12 +48,17 @@ const parsedRawResult = computed(() => {
     return parsed.success ? parsed.data : null;
 });
 
+const parsedPreviewData = computed(() => {
+    const parsed = ExitPlanModePreviewDataSchema.safeParse(parsedRawResult.value?.data);
+    return parsed.success ? parsed.data : null;
+});
+
 const planFilePath = computed(() => {
-    return pendingQuestion.value?.planFilePath ?? parsedRawResult.value?.planFilePath ?? "";
+    return pendingQuestion.value?.planFilePath ?? parsedRawResult.value?.planFilePath ?? parsedPreviewData.value?.planFilePath ?? "";
 });
 
 const planContent = computed(() => {
-    return pendingQuestion.value?.planContent ?? parsedRawResult.value?.planContent ?? "";
+    return pendingQuestion.value?.planContent ?? parsedRawResult.value?.planContent ?? parsedPreviewData.value?.planContent ?? "";
 });
 
 const hasPlanFilePreview = computed(() => Boolean(planFilePath.value && planContent.value));
@@ -62,13 +76,36 @@ const parsedAnswer = computed(() => {
     }
 });
 
-const questionText = computed(() => {
-    return pendingQuestion.value?.question ?? "是否批准 Agent 退出 Plan Mode？";
-});
-
 const questionOptions = computed(() => {
     return pendingQuestion.value?.options ?? [];
 });
+
+const selectedIndexes = computed(() => {
+    if (!parsedAnswer.value) {
+        return [];
+    }
+    if (parsedAnswer.value.selectedOptionIndexes?.length) {
+        return parsedAnswer.value.selectedOptionIndexes;
+    }
+    return parsedAnswer.value.selectedOptionIndex === undefined ? [] : [parsedAnswer.value.selectedOptionIndex];
+});
+
+function selectedOptionLabel(optionIndex: number): string {
+    if (optionIndex === NONE_OF_ABOVE_OPTION_INDEX) {
+        return "追加建议";
+    }
+    const optionLabel = questionOptions.value[optionIndex]?.label;
+    if (optionLabel) {
+        return optionLabel;
+    }
+    if (optionIndex === APPROVE_OPTION_INDEX) {
+        return "批准";
+    }
+    if (optionIndex === REJECT_OPTION_INDEX) {
+        return "拒绝";
+    }
+    return String(optionIndex);
+}
 
 const selectedLabel = computed(() => {
     if (!parsedAnswer.value) {
@@ -77,18 +114,10 @@ const selectedLabel = computed(() => {
     if (parsedAnswer.value.ignored) {
         return "已忽略";
     }
-    if (parsedAnswer.value.selectedOptionIndex === NONE_OF_ABOVE_OPTION_INDEX) {
-        return "追加建议";
-    }
-    if (parsedAnswer.value.selectedOptionIndexes?.length) {
-        return parsedAnswer.value.selectedOptionIndexes.map((optionIndex) => optionIndex === NONE_OF_ABOVE_OPTION_INDEX
-            ? "追加建议"
-            : questionOptions.value[optionIndex]?.label ?? String(optionIndex)).join("、");
-    }
-    if (parsedAnswer.value.selectedOptionIndex === undefined) {
+    if (selectedIndexes.value.length === 0) {
         return "开放回答";
     }
-    return questionOptions.value[parsedAnswer.value.selectedOptionIndex]?.label ?? String(parsedAnswer.value.selectedOptionIndex);
+    return selectedIndexes.value.map(selectedOptionLabel).join("、");
 });
 
 const shouldShowPlanPreview = computed(() => {
@@ -96,7 +125,7 @@ const shouldShowPlanPreview = computed(() => {
 });
 
 const planSummary = computed(() => {
-    const source = planContent.value || questionText.value;
+    const source = planContent.value;
     return source
         .split(/\r?\n/)
         .map((line) => line
@@ -115,13 +144,25 @@ const statusLabel = computed(() => {
         return hasPlanFileArgument.value ? "计划文件审批中" : "聊天计划审批中";
     }
     if (!parsedAnswer.value) {
+        if (parsedRawResult.value?.approved === true) {
+            return "计划已批准";
+        }
+        if (parsedRawResult.value?.approved === false) {
+            return "计划已拒绝";
+        }
         return hasPlanFileArgument.value ? "计划文件审批" : "聊天计划审批";
     }
     if (parsedAnswer.value.ignored) {
         return "计划审批已暂停";
     }
-    if (parsedAnswer.value.selectedOptionIndex === 0 || parsedAnswer.value.selectedOptionIndexes?.includes(0)) {
+    if (selectedIndexes.value.includes(APPROVE_OPTION_INDEX)) {
         return "计划已批准";
+    }
+    if (selectedIndexes.value.includes(NONE_OF_ABOVE_OPTION_INDEX)) {
+        return "已追加建议";
+    }
+    if (selectedIndexes.value.includes(REJECT_OPTION_INDEX) || parsedRawResult.value?.approved === false) {
+        return "计划已拒绝";
     }
     return "已追加建议";
 });
@@ -144,10 +185,6 @@ const statusLabel = computed(() => {
                 >
                     <span :class="showApprovedPreview ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'" class="h-3.5 w-3.5"></span>
                 </button>
-            </div>
-
-            <div v-if="isPendingQuestion" class="mb-2 text-xs leading-5 text-[var(--text-main)]">
-                {{ questionText }}
             </div>
 
             <div v-if="shouldShowPlanPreview && hasPlanFilePreview" class="max-h-[320px] min-w-0 overflow-y-auto pr-2 text-xs leading-relaxed text-[var(--text-main)]">

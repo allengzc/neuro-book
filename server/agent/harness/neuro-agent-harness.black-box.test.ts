@@ -1097,6 +1097,96 @@ describe("NeuroAgentHarness black-box contract", () => {
             await observer.stop();
         }
     });
+
+    it("运行中 snapshot 使用 transcript replay anchor 恢复未落盘事件", async () => {
+        let releaseTool = () => {};
+        const toolBlocker = new Promise<void>((resolve) => {
+            releaseTool = resolve;
+        });
+        harness.tools.register({
+            key: "slow_replay_tool",
+            name: "slow_replay_tool",
+            label: "Slow Replay Tool",
+            description: "Waits until released.",
+            parameters: Type.Object({
+                text: Type.String(),
+            }),
+            async execute(_toolCallId, params: unknown) {
+                await toolBlocker;
+                const input = params as {text: string};
+                return {
+                    content: [{type: "text", text: `slow:${input.text}`}],
+                    details: input,
+                };
+            },
+        });
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.blackbox.slow-replay",
+                name: "BlackBox Slow Replay",
+            },
+            inputSchema: Type.Object({}),
+            allowedToolKeys: ["slow_replay_tool"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("slow_replay_tool", {text: "payload"}, {id: "slow-replay-1"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage("slow replay done"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.blackbox.slow-replay",
+            input: {},
+            workspaceRoot: root,
+        });
+        const observer = await observeSession(harness, created.sessionId);
+        try {
+            const running = harness.invokeAgent({
+                sessionId: created.sessionId,
+                mode: "prompt",
+                message: {text: "run slow replay"},
+            });
+            await waitUntil(() => eventTypes(observer.events).includes("tool_execution_start"), "slow replay tool execution start");
+
+            const runningSnapshot = await harness.getSessionSnapshot(created.sessionId);
+            expect(runningSnapshot.activeInvocation).not.toBeNull();
+            expect(runningSnapshot.eventCursor.after).toBeLessThan(runningSnapshot.latestSeq);
+            expect(runningSnapshot.lastSeq).toBe(runningSnapshot.eventCursor.after);
+            expect(runningSnapshot.entries.some((entry) => entry.type === "message" && entry.message.role === "assistant")).toBe(false);
+
+            const replay = harness.subscribeSessionEvents(created.sessionId, runningSnapshot.eventCursor)[Symbol.asyncIterator]();
+            const replayed: AgentSessionEventDto[] = [];
+            try {
+                await waitUntil(async () => {
+                    const next = await replay.next();
+                    if (next.done) {
+                        return false;
+                    }
+                    replayed.push(next.value);
+                    return eventTypes(replayed).includes("tool_execution_start");
+                }, "running refresh replay reaches tool start");
+            } finally {
+                await replay.return?.();
+            }
+            expect(eventTypes(replayed)).toContain("message_update");
+            expect(eventTypes(replayed)).toContain("tool_execution_start");
+
+            releaseTool();
+            const result = await running;
+            expect(result.status).toBe("completed");
+            const completedSnapshot = await harness.getSessionSnapshot(created.sessionId);
+            expect(completedSnapshot.eventCursor.after).toBe(completedSnapshot.latestSeq);
+            expect(completedSnapshot.lastSeq).toBe(completedSnapshot.eventCursor.after);
+            expect(completedSnapshot.entries.some((entry) => entry.type === "message" && entry.message.role === "assistant")).toBe(true);
+            expect(completedSnapshot.entries.some((entry) => entry.type === "message" && entry.message.role === "toolResult")).toBe(true);
+        } finally {
+            releaseTool();
+            await observer.stop();
+        }
+    });
 });
 
 async function waitForSessionText(harness: NeuroAgentHarness, sessionId: number, text: string): Promise<NeuroSessionContext> {

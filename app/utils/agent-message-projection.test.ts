@@ -43,6 +43,36 @@ describe("agent message projection helpers", () => {
         }));
     });
 
+    it("exit_plan_mode pending session 保留计划文件预览", () => {
+        const session = toPendingUserInputSession({
+            toolCallId: "exit-1",
+            toolName: "exit_plan_mode",
+            args: {
+                reason: "ready",
+                planFilePath: ".agent/plan/preview.md",
+            },
+            planFilePath: ".agent/plan/preview.md",
+            planContent: "# Preview\n\n- one\n",
+        }, []);
+        const enterSession = toPendingUserInputSession({
+            toolCallId: "enter-1",
+            toolName: "enter_plan_mode",
+            args: {
+                reason: "需要先制定计划",
+            },
+            planFilePath: ".agent/plan/preview.md",
+            planContent: "# Preview\n",
+        }, []);
+
+        expect(session?.questions[0]).toEqual(expect.objectContaining({
+            approvalAction: "exit_plan_mode",
+            planFilePath: ".agent/plan/preview.md",
+            planContent: "# Preview\n\n- one\n",
+        }));
+        expect(enterSession?.questions[0]?.planFilePath).toBeUndefined();
+        expect(enterSession?.questions[0]?.planContent).toBeUndefined();
+    });
+
     it("request_user_input 历史答案展示支持多题", () => {
         const args = RequestUserInputToolArgsSchema.parse({
             questions: [
@@ -216,6 +246,11 @@ describe("agent message projection helpers", () => {
                 error: "Provider rejected image payload",
             }],
             eventEpoch: "epoch-1",
+            eventCursor: {
+                eventEpoch: "epoch-1",
+                after: 0,
+            },
+            latestSeq: 0,
             linkedAgents: [],
             linkedByAgents: [],
             pendingApproval: null,
@@ -342,6 +377,11 @@ describe("agent message projection helpers", () => {
                 error: "Provider rejected image payload",
             }],
             eventEpoch: "epoch-1",
+            eventCursor: {
+                eventEpoch: "epoch-1",
+                after: 0,
+            },
+            latestSeq: 0,
             linkedAgents: [],
             linkedByAgents: [],
             pendingApproval: null,

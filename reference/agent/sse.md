@@ -17,7 +17,7 @@ Agent 聊天同步由三层组成：
 ## HTTP Entry Points
 
 - `GET /api/agent/sessions/:sessionId`：返回完整 session snapshot。
-- `GET /api/agent/sessions/:sessionId/events?after=<lastSeq>`：建立 SSE，按 `lastSeq` replay 之后的事件。
+- `GET /api/agent/sessions/:sessionId/events?eventEpoch=<epoch>&after=<seq>`：建立 SSE，按 cursor replay 之后的事件。
 - `POST /api/agent/sessions/:sessionId/invocations`：发起 blocking invocation；运行过程仍通过 SSE 实时同步。
 - `POST /api/agent/sessions/:sessionId/abort`：中止当前 active invocation。
 - `POST /api/agent/sessions/:sessionId/commands`：执行 session command，例如 model、plan、compact。
@@ -33,8 +33,8 @@ type AgentSessionEventDto =
         seq: number;
         sessionId: number;
         invocationId?: string;
-        kind: "pi";
-        event: AgentEvent;
+        kind: "runtime";
+        event: AgentRuntimeStreamEventDto;
     }
     | {
         seq: number;
@@ -47,17 +47,19 @@ type AgentSessionEventDto =
 
 `kind` 不推荐合并成单一 Pi custom event。
 
-- `kind: "pi"` 表示 Agent loop 内的 Pi event，前端按模型输出、工具调用和 turn lifecycle 处理。
+- `kind: "runtime"` 表示 Agent loop 内的公开 runtime event，前端按模型输出、工具调用和 turn lifecycle 处理。
 - `kind: "session"` 表示 Neuro Book 产品层事件，前端按恢复、状态、队列、UI patch 和 session entry 处理。
 - `connected`、`snapshot_required`、`session_entry`、`session_state_changed` 不是模型 loop 事件，不应伪装成 Pi custom。
-- 如果未来 Pi runtime 本身需要 custom event，应放在 `kind: "pi"` 的 `event` 内；session 恢复和产品状态仍保持 `kind: "session"`。
+- 如果未来 Pi runtime 本身需要 custom event，应投影到 `kind: "runtime"` 的 `event` 内；session 恢复和产品状态仍保持 `kind: "session"`。
 
 保持两类 `kind` 的目的，是让事件来源、replay 语义和前端 reducer 边界清楚。把所有事件包成 Pi custom 会污染 Pi lifecycle，也会让 `snapshot_required`、`connected` 这类 transport 事件被误解为 Agent run 事件。
 
 ## Transport Rules
 
 - `seq` 是 session event stream 的递增序号，用于去重、gap detection 和 replay。
-- `lastSeq` 是前端恢复点。重连时使用 `events?after=<lastSeq>`。
+- `snapshot.eventCursor` 是应用 snapshot 后的恢复点。首次打开、刷新和 snapshot recovery 后使用 `events?eventEpoch=<eventCursor.eventEpoch>&after=<eventCursor.after>`。
+- `lastSeq` 是前端已经实际应用到的 event seq。普通 SSE 断线重连时使用 `events?eventEpoch=<currentEpoch>&after=<lastSeq>`。
+- `snapshot.latestSeq` 和 `connected.latestSeq` 只表示服务端当前事件流尾部，不能作为前端恢复点。
 - `connected` 只表示 SSE HTTP 连接已建立，不是 durable session event，不推进 `lastSeq`，不改变消息和 running 状态。
 - 前端收到 `payload.seq <= lastSeq` 的 durable event 必须丢弃。
 - 前端收到 `payload.seq > lastSeq + 1` 必须进入 recovering，单飞拉取一次 snapshot。
@@ -155,7 +157,7 @@ running = Boolean(snapshot.activeInvocation)
 
 1. 前端 `GET /api/agent/sessions/:sessionId`。
 2. 应用 snapshot，生成稳定历史和 shell 状态。
-3. 使用 `snapshot.lastSeq` 订阅 `events?after=<lastSeq>`。
+3. 使用 `snapshot.eventCursor` 订阅 `events?eventEpoch=<eventCursor.eventEpoch>&after=<eventCursor.after>`。
 4. 收到 `connected`，只更新连接状态。
 5. 后续正常运行只应用 SSE event reducer。
 
@@ -214,7 +216,7 @@ provider reasoning/thinking
 
 1. 前端记录当前 `lastSeq`。
 2. SSE 断开，connectionStatus 设为 `reconnecting`。
-3. 前端用 `events?after=<lastSeq>` 重连。
+3. 前端用 `events?eventEpoch=<currentEpoch>&after=<lastSeq>` 重连。
 4. 如果 replay 成功，继续应用后续 event。
 5. 重连过程不把 run 设为 idle，不显示 Run Error。
 

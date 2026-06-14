@@ -44,7 +44,6 @@ export function useAgentSession() {
     const snapshotReasons = ref<string[]>([]);
     const running = computed(() => Boolean(snapshot.value?.activeInvocation) || liveRunStatus.value === "running" || liveRunStatus.value === "aborting");
     const pendingMessageUpdates: PendingMessageUpdate[] = [];
-    let resetCursorOnNextSnapshot = false;
     let runtimeUpdateFrame: number | null = null;
     let runtimeUpdateFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -166,7 +165,6 @@ export function useAgentSession() {
         lastSeq.value = 0;
         needsSnapshot.value = false;
         snapshotReasons.value = [];
-        resetCursorOnNextSnapshot = false;
     };
 
     const clearPendingUserInputSession = (): void => {
@@ -194,9 +192,8 @@ export function useAgentSession() {
      */
     const applySnapshot = (payload: AgentSessionSnapshotDto): void => {
         clearPendingMessageUpdates();
-        const epochChanged = eventEpoch.value !== null && eventEpoch.value !== payload.eventEpoch;
+        const cursor = payload.eventCursor ?? {eventEpoch: payload.eventEpoch, after: payload.lastSeq};
         const activePathChanged = snapshotReasons.value.includes("active_path_changed");
-        const nextSeq = resetCursorOnNextSnapshot || epochChanged ? payload.lastSeq : Math.max(lastSeq.value, payload.lastSeq);
         const snapshotMessages = deriveMessagesFromSessionSnapshot(payload);
         const pendingOptimisticMessages = messages.value.filter((message) => {
             return message.id.startsWith("optimistic-user-")
@@ -216,9 +213,8 @@ export function useAgentSession() {
             runPhase.value = "idle";
         }
         pendingUserInputSession.value = toPendingUserInputSession(payload.pendingApproval, messages.value);
-        eventEpoch.value = payload.eventEpoch;
-        lastSeq.value = nextSeq;
-        resetCursorOnNextSnapshot = false;
+        eventEpoch.value = cursor.eventEpoch;
+        lastSeq.value = cursor.after;
         needsSnapshot.value = false;
         snapshotReasons.value = [];
     };
@@ -301,7 +297,6 @@ export function useAgentSession() {
             const epochChanged = eventEpoch.value !== null && eventEpoch.value !== payload.event.eventEpoch;
             const cursorAheadOfStream = payload.event.latestSeq < lastSeq.value;
             if (epochChanged || cursorAheadOfStream) {
-                resetCursorOnNextSnapshot = true;
                 requestSnapshot("event_epoch_changed");
             } else {
                 eventEpoch.value = payload.event.eventEpoch;
@@ -310,7 +305,6 @@ export function useAgentSession() {
             return;
         }
         if (eventEpoch.value !== null && eventEpoch.value !== payload.eventEpoch) {
-            resetCursorOnNextSnapshot = true;
             flushPendingMessageUpdates();
             requestSnapshot("event_epoch_changed");
             return;

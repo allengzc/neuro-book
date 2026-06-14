@@ -5384,6 +5384,7 @@ describe("NeuroAgentHarness", () => {
                     planFilePath: ".agent/plan/preview.md",
                 }, {id: "exit-preview"}),
             ], {stopReason: "toolUse"}),
+            fauxAssistantMessage(fauxText("approved")),
         ]);
 
         await harness.invokeAgent({
@@ -5399,7 +5400,32 @@ describe("NeuroAgentHarness", () => {
             planFilePath: ".agent/plan/preview.md",
             planContent: "# Preview Plan\n\n- one\n",
         }));
-    }, 10_000);
+
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "continue",
+            resolution: {
+                kind: "tool_approval",
+                toolCallId: "exit-preview",
+                approved: true,
+                resultText: "批准",
+                answers: [{questionIndex: 0, text: "批准", selectedOptionIndex: 0}],
+            },
+        });
+        const resolvedContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const toolResult = resolvedContext.messages.find((message) => message.role === "toolResult" && message.toolCallId === "exit-preview");
+        if (!toolResult || toolResult.role !== "toolResult") {
+            throw new Error("expected exit_plan_mode tool result");
+        }
+
+        expect(toolResult.details).toEqual(expect.objectContaining({
+            kind: "tool_approval",
+            data: {
+                planFilePath: ".agent/plan/preview.md",
+                planContent: "# Preview Plan\n\n- one\n",
+            },
+        }));
+    }, 20_000);
 
     it("手动退出 Plan Mode 后注入 exit reminder 而不是 still active", async () => {
         harness.profiles.register(defineAgentProfile({

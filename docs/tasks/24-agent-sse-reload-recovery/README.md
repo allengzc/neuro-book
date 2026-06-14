@@ -44,12 +44,16 @@
 - 落后订阅者收到的 `snapshot_required` 是 per-subscriber recovery control event，不推进 session seq，避免给其他正常订阅者制造人工 seq gap。
 - 2026-05-31 继续补齐系统边界：
   - `seq` 已从全局递增改为 per-session stream cursor，其他 session / linked agent / summarizer 的事件不会让当前 session 误判 `seq_gap`。
-  - `getSessionSnapshot().lastSeq` 返回目标 session 的 latestSeq，不再返回 EventHub 全局序号。
+  - `getSessionSnapshot().latestSeq` 返回目标 session 的 EventHub 尾部；`eventCursor.after` 才是前端应用 snapshot 后继续订阅的恢复点，`lastSeq` 作为兼容别名等于 `eventCursor.after`。
   - `snapshot_required` control event 会在前端 stale seq 过滤之前处理，避免 recovery event 因 seq 等于 latestSeq 被丢弃。
   - `invokeAgent()` 入口新增 session admission queue，`continue(resolution)` 的 hydrate waiting / claim active / queue admission 作为同 session 短事务串行执行。
   - `continue(resolution)` 只有 active 或 hydrated 状态为 `waiting` 才能恢复；active 已是 `running` / `aborting` 时拒绝，不会创建 unrelated invocation。
   - `abortInvocation()` 的 waiting hydrate/claim 也走同一个 admission queue。
   - `SessionWriteExecutor` 内部新增 per-session write queue，同一个 session 的 repo append 与对应 `session_entry` / `session_state_changed` publish 串行执行；跨 session 写入仍可并行。
+- 2026-06-14 补齐运行中前端刷新恢复：
+  - Harness 会在公开 `turn_start` 后记录当前 turn 的 transcript replay anchor，并 pin 住 EventHub replay buffer。
+  - 当前 turn transcript `persist` 落盘后清理该 turn anchor；`runtime_only` 保留到 invocation terminal。
+  - snapshot 返回 `eventCursor` 与 `latestSeq`：前端刷新使用 `eventCursor` replay 未落盘 runtime events，`latestSeq` 仅作事件流尾部观测。
 
 ## Walkthrough
 
@@ -63,7 +67,7 @@
 6. snapshot 返回当前 session 真相：
    - 如果没有可恢复 waiting，则 UI 回到 idle / interrupted。
    - 如果 active path 上有可靠 pending approval，则 UI 恢复 waiting。
-7. 前端把 cursor 重置为 snapshot 的 `(epoch=B, lastSeq=0)`，后续同 epoch event 才继续增量 apply。
+7. 前端把 cursor 重置为 snapshot 的 `eventCursor`，后续同 epoch event 才继续增量 apply。
 
 ## Decisions
 
@@ -73,7 +77,7 @@
 - `seq` 只在同一个 `eventEpoch` 内有意义。
 - `seq` 是 session stream cursor，不是全局 stream cursor；前端的 gap 判断只对当前 session 有意义。
 - `connected` 是 handshake，不是普通业务增量事件。
-- snapshot apply 在 epoch 改变时必须允许 `lastSeq` 回退，不能继续 `Math.max(oldLastSeq, snapshot.lastSeq)`。
+- snapshot apply 必须使用 `snapshot.eventCursor` 作为恢复 cursor；这个 cursor 允许回退到未落盘 transcript 的 replay anchor，不能继续把 EventHub 尾部当成已覆盖事件点。
 - 普通 running 在后端 reload 后不恢复半截执行，第一版投影为 interrupted。
 - durable waiting 可以恢复，因为 pending approval / user input 是可从 session active path 证明的 suspend point。
 - 如果 active path 上有 pending approval，但找不到可靠 waiting lifecycle，`continue(resolution)` 必须拒绝，不能偷偷创建 unrelated invocation。
@@ -122,7 +126,8 @@
 - `AgentSessionEventHub` 维护 `seqBySession`，而不是单个全局 `seq`。
 - `connectedEvent(sessionId)` 的 `latestSeq` 是该 session latestSeq。
 - `snapshotRequiredEvent(sessionId)` 不推进 session seq。
-- `getSessionSnapshot(sessionId).lastSeq` 读取 `eventHub.lastSeq(sessionId)`。
+- `getSessionSnapshot(sessionId).latestSeq` 读取 `eventHub.lastSeq(sessionId)`，只表示 EventHub 尾部。
+- `getSessionSnapshot(sessionId).eventCursor.after` 才是应用 snapshot 后继续订阅的恢复点；`lastSeq` 只作为兼容别名，值等于 `eventCursor.after`。
 - 目标效果：
   - session A 收到 seq 1。
   - session B 产生多条事件。
@@ -141,6 +146,7 @@
 ```
 
 - `useAgentSessionStream()` 从 session store 读取 `eventEpoch` 和 `lastSeq` 组成 cursor。
+- 首次加载、前端刷新和 snapshot recovery 后，store 内 cursor 来自 `snapshot.eventCursor`；普通 SSE 断线重连仍使用本地最后实际应用的 `lastSeq`。
 
 ### 3. Frontend Recovery Semantics
 
@@ -155,8 +161,9 @@
   - event epoch 与本地 epoch 不一致：请求 snapshot。
   - 同 epoch 下才做 stale / seq gap 判断。
 - `applySnapshot()`：
-  - 如果 snapshot epoch 与本地 epoch 不同，直接设置 `eventEpoch = snapshot.eventEpoch`，`lastSeq = snapshot.lastSeq`。
-  - 如果 epoch 相同，保留当前 `Math.max(lastSeq, snapshot.lastSeq)` 行为。
+  - 优先读取 `snapshot.eventCursor`，兼容旧数据时才 fallback 到 `{ eventEpoch: snapshot.eventEpoch, after: snapshot.lastSeq }`。
+  - 直接设置 `eventEpoch = eventCursor.eventEpoch`，`lastSeq = eventCursor.after`，并以 snapshot 清理 live patch。
+  - 不使用 `snapshot.latestSeq` 作为恢复点；它只用于调试和对照服务端事件流尾部。
 - `useAgentSessionStream()` 处理 snapshot reason 时优先级：
   - `event_epoch_changed`
   - `snapshot_required`

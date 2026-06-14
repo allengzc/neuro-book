@@ -177,6 +177,12 @@ export type ClientStateSnapshotDto = ClientVariablesDto;
 
 export type AgentSessionStatus = "idle" | "running" | "waiting" | "archived" | "interrupted";
 
+export type AgentEventCursorDto = {
+    eventEpoch: string;
+    /** 前端已经处理到的事件序号；订阅 SSE 时使用 after=该值。 */
+    after: number;
+};
+
 export type AgentSessionContextUsageDto = {
     /** 当前 active context 的 token 估算值。 */
     usedTokens: number;
@@ -392,6 +398,10 @@ export type AgentSessionEventDto =
 
 export type AgentSessionSnapshotDto = {
     eventEpoch: string;
+    /** 前端应用 snapshot 后继续订阅 SSE 的恢复 cursor。 */
+    eventCursor: AgentEventCursorDto;
+    /** 当前服务端事件流尾部，仅用于调试/对照，不作为恢复 cursor。 */
+    latestSeq: number;
     summary: AgentSessionSummaryDto;
     /** 后台展示标题/摘要维护状态；仅面向 UI，不影响 Agent 运行态。 */
     summarizer?: AgentSessionSummarizerStateDto;
@@ -415,6 +425,7 @@ export type AgentSessionSnapshotDto = {
     /** 当前新 run 实际会传给 PI 的 thinking level。 */
     effectiveThinkingLevel: z.infer<typeof ThinkingLevelSchema>;
     planModeActive: boolean;
+    /** 兼容字段；值等于 eventCursor.after，不再表示 EventHub 尾部。 */
     lastSeq: number;
     usage?: Usage;
     contextUsage?: AgentSessionContextUsageDto;

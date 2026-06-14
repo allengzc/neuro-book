@@ -32,8 +32,8 @@ type AgentSessionEventDto =
         seq: number;
         sessionId: number;
         invocationId?: string;
-        kind: "pi";
-        event: AgentEvent;
+        kind: "runtime";
+        event: AgentRuntimeStreamEventDto;
     }
     | {
         seq: number;
@@ -69,13 +69,14 @@ type AgentSessionEventDto =
 - `readSseStream()` 已等待 async `onEvent`，避免异步 client patch / reducer 处理期间后续 frame 抢先 apply。
 - 工具参数流式已在前端 reducer 和工具气泡层保留能力；工具执行输出流式合同保留，但本轮未接后端 tool `onUpdate`。
 - `agent-message.ts` 已为 `tool_execution_start/update/end` 增加 live fallback：当工具执行事件先于可见 assistant toolCall 到达时，先创建 `tool-execution:<toolCallId>` 临时工具气泡；后续真实 assistant toolCall 到达时按 `toolCallId` 合并运行状态并移除临时气泡。
+- 运行中刷新恢复已补 `snapshot.eventCursor`：snapshot 返回稳定历史和真正恢复 cursor，`latestSeq` 只表示 EventHub 尾部；如果当前 turn 有已发 SSE 但尚未落盘的 transcript，前端会从 `eventCursor.after` replay 这些 runtime event。
 
 ## Event Contract
 
 ### Transport Rules
 
 - `seq` 是 session event stream 的单调递增序号，前端必须用它做去重和 gap detection。
-- `lastSeq` 是前端恢复点。重连时使用 `events?after=<lastSeq>`。
+- `snapshot.eventCursor` 是应用 snapshot 后的恢复点；`lastSeq` 是前端已经实际应用到的 event seq，普通断线重连时使用 `events?eventEpoch=<currentEpoch>&after=<lastSeq>`。
 - 前端收到 `payload.seq <= lastSeq` 必须丢弃。
 - 前端收到 `payload.seq > lastSeq + 1` 必须进入 `needsSnapshot`，暂停继续猜测 live state，拉取一次 snapshot 后再继续。
 - 正常 SSE 增量不应触发 snapshot 拉取。
@@ -178,7 +179,7 @@ Button shape should use `running` only for whether click means stop. User-facing
 - Initial load:
   - `GET /api/agent/sessions/:sessionId` once.
   - Apply snapshot.
-  - Subscribe SSE with `after = snapshot.lastSeq`.
+  - Subscribe SSE with `eventEpoch = snapshot.eventCursor.eventEpoch` and `after = snapshot.eventCursor.after`.
 
 - Normal SSE:
   - Do not fetch snapshot.
@@ -339,7 +340,7 @@ Button shape should use `running` only for whether click means stop. User-facing
 ## Decisions
 
 - 不恢复旧 LangChain `assistant_delta` / `thinking_delta` / `tool_started` 那套前端事件名。新合同以 Pi `AgentEvent` 为主，Neuro Book 只在 `kind: "session"` 下补 session control event。
-- 不把 `kind: "pi" | "session"` 合并成单一 Pi custom event。Pi event 表达 Agent loop，session control event 表达产品层恢复、状态和 UI patch；两者保持 envelope 层区分。
+- 不把 `kind: "runtime" | "session"` 合并成单一 runtime custom event。runtime event 表达 Agent loop，session control event 表达产品层恢复、状态和 UI patch；两者保持 envelope 层区分。
 - `turn_end` 不等于 run end。发送按钮是否为停止取决于 active invocation；用户文案取决于 live phase。
 - 工具参数流式和工具执行输出流式是两件事：
   - 参数流式来自 model assistant message 的 `toolcall_delta`。
@@ -421,11 +422,11 @@ type ToolPartialResult =
 
 SSE 断线不是 run error，不应投影为聊天错误卡。短暂断线在 composer/status strip 上显示“正在重连”；连续失败或需要用户操作时再弹 notification，并提供“重新连接 / 刷新历史”操作。
 
-### 9. 是否把 `kind: "pi" | "session"` 合并成 Pi custom event
+### 9. 是否把 `kind: "runtime" | "session"` 合并成单一 custom event
 
 推荐答案：不合并。
 
-`kind: "pi"` 与 `kind: "session"` 的边界不是编码风格问题，而是语义边界：
+`kind: "runtime"` 与 `kind: "session"` 的边界不是编码风格问题，而是语义边界：
 
 - Pi event 是 Agent loop 内事件，描述模型输出、工具调用和 turn lifecycle。
 - session event 是 Neuro Book 产品层事件，描述恢复真相、session entry、follow-up queue、client variable patch、snapshot recovery。

@@ -75,6 +75,7 @@ export class AgentSessionEventHub {
     private readonly replayBySession = new Map<number, AgentSessionEventDto[]>();
     private readonly subscribersBySession = new Map<number, Set<Subscriber>>();
     private readonly seqBySession = new Map<number, number>();
+    private readonly replayPinFirstSeqBySession = new Map<number, number>();
 
     constructor(replayLimit = DEFAULT_REPLAY_LIMIT) {
         this.replayLimit = replayLimit;
@@ -93,10 +94,8 @@ export class AgentSessionEventHub {
         } as AgentSessionEventDto;
         const replay = this.replayBySession.get(nextEvent.sessionId) ?? [];
         replay.push(nextEvent);
-        if (replay.length > this.replayLimit) {
-            replay.splice(0, replay.length - this.replayLimit);
-        }
         this.replayBySession.set(nextEvent.sessionId, replay);
+        this.trimReplay(nextEvent.sessionId);
 
         for (const subscriber of this.subscribersBySession.get(nextEvent.sessionId) ?? []) {
             subscriber.push(nextEvent);
@@ -183,5 +182,45 @@ export class AgentSessionEventHub {
      */
     lastSeq(sessionId: number): number {
         return this.seqBySession.get(sessionId) ?? 0;
+    }
+
+    /**
+     * 固定某个 session 的 replay 起点，确保运行中未落盘 transcript 可被刷新后的前端 replay。
+     */
+    pinReplayFrom(sessionId: number, firstSeq: number): void {
+        const normalizedFirstSeq = Math.max(1, Math.floor(firstSeq));
+        const current = this.replayPinFirstSeqBySession.get(sessionId);
+        if (current === undefined || normalizedFirstSeq < current) {
+            this.replayPinFirstSeqBySession.set(sessionId, normalizedFirstSeq);
+            this.trimReplay(sessionId);
+        }
+    }
+
+    /**
+     * 解除 replay pin，并恢复默认 replayLimit 裁剪。
+     */
+    unpinReplay(sessionId: number): void {
+        this.replayPinFirstSeqBySession.delete(sessionId);
+        this.trimReplay(sessionId);
+    }
+
+    private trimReplay(sessionId: number): void {
+        const replay = this.replayBySession.get(sessionId);
+        if (!replay?.length) {
+            return;
+        }
+        const pinnedFirstSeq = this.replayPinFirstSeqBySession.get(sessionId);
+        if (pinnedFirstSeq !== undefined) {
+            const dropCount = replay.findIndex((event) => event.seq >= pinnedFirstSeq);
+            if (dropCount > 0) {
+                replay.splice(0, dropCount);
+            } else if (dropCount === -1) {
+                replay.splice(0, replay.length);
+            }
+            return;
+        }
+        if (replay.length > this.replayLimit) {
+            replay.splice(0, replay.length - this.replayLimit);
+        }
     }
 }

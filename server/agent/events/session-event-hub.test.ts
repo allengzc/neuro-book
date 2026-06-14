@@ -76,6 +76,60 @@ describe("AgentSessionEventHub", () => {
         await subscription.return?.();
     });
 
+    it("replay pin 激活时保留 pin 起点后的事件，解除后恢复 replayLimit 裁剪", async () => {
+        const hub = new AgentSessionEventHub(1);
+        const first = hub.publish({
+            sessionId: 1,
+            kind: "session",
+            event: {
+                type: "invocation_aborted",
+                reason: "first",
+            },
+        });
+        hub.pinReplayFrom(1, first.seq);
+        const second = hub.publish({
+            sessionId: 1,
+            kind: "session",
+            event: {
+                type: "invocation_aborted",
+                reason: "second",
+            },
+        });
+        const third = hub.publish({
+            sessionId: 1,
+            kind: "session",
+            event: {
+                type: "invocation_aborted",
+                reason: "third",
+            },
+        });
+
+        const pinned = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: 0})[Symbol.asyncIterator]();
+        await expect(pinned.next()).resolves.toEqual({done: false, value: first});
+        await expect(pinned.next()).resolves.toEqual({done: false, value: second});
+        await expect(pinned.next()).resolves.toEqual({done: false, value: third});
+        await pinned.return?.();
+
+        hub.unpinReplay(1);
+        hub.publish({
+            sessionId: 1,
+            kind: "session",
+            event: {
+                type: "invocation_aborted",
+                reason: "fourth",
+            },
+        });
+        const unpinned = hub.subscribe(1, {eventEpoch: hub.eventEpoch, after: 0})[Symbol.asyncIterator]();
+        await expect(unpinned.next()).resolves.toEqual({
+            done: false,
+            value: expect.objectContaining({
+                kind: "session",
+                event: expect.objectContaining({type: "snapshot_required"}),
+            }),
+        });
+        await unpinned.return?.();
+    });
+
     it("snapshot_required 只发送给落后的订阅者，不广播给正常订阅者", async () => {
         const hub = new AgentSessionEventHub(1);
         hub.publish({

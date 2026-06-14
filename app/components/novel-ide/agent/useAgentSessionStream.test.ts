@@ -10,6 +10,11 @@ type AgentSessionEventWithoutEpoch = AgentSessionEventDto extends infer Event
 
 const baseSnapshot = (lastSeq = 0, eventEpoch = "epoch-1"): AgentSessionSnapshotDto => ({
     eventEpoch,
+    eventCursor: {
+        eventEpoch,
+        after: lastSeq,
+    },
+    latestSeq: lastSeq,
     summary: {
         sessionId: 1,
         profileKey: "leader.default",
@@ -64,6 +69,37 @@ const connectedEvent = (seq: number, eventEpoch = "epoch-1"): AgentSessionEventD
 describe("useAgentSessionStream", () => {
     beforeEach(() => {
         vi.useFakeTimers();
+    });
+
+    it("首次订阅使用 snapshot eventCursor 作为 after", async () => {
+        const session = useAgentSession();
+        const activeSessionId = ref<number | null>(1);
+        session.applySnapshot({
+            ...baseSnapshot(3),
+            eventCursor: {
+                eventEpoch: "epoch-1",
+                after: 3,
+            },
+            latestSeq: 7,
+        });
+        const cursors: AgentSessionEventsQueryDto[] = [];
+        const stream = useAgentSessionStream({
+            session,
+            activeSessionId,
+            api: {
+                getSession: vi.fn(async () => baseSnapshot(3)),
+                subscribeSessionEvents: vi.fn(async (_sessionId, cursor, onEvent, _signal, options) => {
+                    cursors.push(cursor);
+                    options?.onOpen?.();
+                    await onEvent(connectedEvent(7, cursor.eventEpoch ?? "epoch-1"));
+                }),
+            },
+        });
+
+        await stream.start(1);
+
+        expect(cursors[0]).toEqual({eventEpoch: "epoch-1", after: 3});
+        stream.stop();
     });
 
     it("stream close 后按 lastSeq 自动重连", async () => {

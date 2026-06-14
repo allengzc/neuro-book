@@ -1,5 +1,5 @@
 ---
-title: 上传素材
+title: 上传
 type: note
 subtype: directory-index
 status: active

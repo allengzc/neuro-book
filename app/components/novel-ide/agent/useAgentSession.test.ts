@@ -11,6 +11,11 @@ type AgentSessionEventWithoutEpoch = AgentSessionEventDto extends infer Event
 
 const baseSnapshot = (lastSeq = 0): AgentSessionSnapshotDto => ({
     eventEpoch: "epoch-1",
+    eventCursor: {
+        eventEpoch: "epoch-1",
+        after: lastSeq,
+    },
+    latestSeq: lastSeq,
     summary: {
         sessionId: 1,
         profileKey: "leader.default",
@@ -163,7 +168,14 @@ describe("useAgentSession", () => {
         expect(session.snapshotReasons.value).toContain("event_epoch_changed");
         expect(session.lastSeq.value).toBe(426);
 
-        session.applySnapshot({...baseSnapshot(0), eventEpoch: "epoch-2"});
+        session.applySnapshot({
+            ...baseSnapshot(0),
+            eventEpoch: "epoch-2",
+            eventCursor: {
+                eventEpoch: "epoch-2",
+                after: 0,
+            },
+        });
 
         expect(session.eventEpoch.value).toBe("epoch-2");
         expect(session.lastSeq.value).toBe(0);
@@ -225,6 +237,24 @@ describe("useAgentSession", () => {
         });
 
         expect(session.snapshot.value?.linkedAgents).toHaveLength(1);
+    });
+
+    it("applySnapshot 使用 eventCursor 而不是 latestSeq 作为恢复点", () => {
+        const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(10));
+
+        session.applySnapshot({
+            ...baseSnapshot(10),
+            eventCursor: {
+                eventEpoch: "epoch-1",
+                after: 3,
+            },
+            latestSeq: 10,
+            lastSeq: 3,
+        });
+
+        expect(session.eventEpoch.value).toBe("epoch-1");
+        expect(session.lastSeq.value).toBe(3);
     });
 
     it("发现 seq gap 后只标记 snapshot 恢复请求", () => {

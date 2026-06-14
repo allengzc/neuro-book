@@ -710,6 +710,8 @@ export const toPendingUserInputSession = (
                 ? pending.toolName
                 : undefined,
             approvalToolArgsText: JSON.stringify(args, null, 2),
+            planFilePath: pending.toolName === "exit_plan_mode" ? pending.planFilePath : undefined,
+            planContent: pending.toolName === "exit_plan_mode" ? pending.planContent : undefined,
             header: pending.toolName === "skill" ? "Skill" : "审批",
             question: approvalQuestion(pending.toolName, args),
             options: [

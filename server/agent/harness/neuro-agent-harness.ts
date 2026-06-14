@@ -209,6 +209,13 @@ type SessionRuntimeProjection = {
     activeInvocation: AgentActiveInvocationDto | null;
 };
 
+type TranscriptReplayAnchor = {
+    invocationId?: string;
+    turnIndex: number;
+    after: number;
+    firstSeq: number;
+};
+
 /**
  * Neuro Book 自有 Agent Harness。它拥有 session/profile/tool 语义，底层使用 Pi Agent loop。
  */
@@ -232,6 +239,7 @@ export class NeuroAgentHarness {
     private readonly invocationRuntimeStates = new Map<string, RunRuntimeState>();
     private readonly admissionQueues = new Map<number, Promise<void>>();
     private readonly summarizerRuns = new Map<number, SessionSummarizerJob>();
+    private readonly transcriptReplayAnchors = new Map<number, TranscriptReplayAnchor>();
     private readonly pendingClientPatches = new Map<string, {
         request: VariablePatchRequest;
         resolve: (ack: VariablePatchAck) => void;
@@ -1082,9 +1090,13 @@ export class NeuroAgentHarness {
         const effectiveThinkingLevel = await this.snapshotThinkingLevel(snapshot, context);
         const summarizer = this.sessionSummarizerStateDto(context);
         const followUpQueue = this.followUpQueueState(sessionId, context);
+        const latestSeq = this.eventHub.lastSeq(sessionId);
+        const eventCursor = this.snapshotEventCursor(sessionId, latestSeq);
 
         return {
             eventEpoch: this.eventHub.eventEpoch,
+            eventCursor,
+            latestSeq,
             summary: projection.summary,
             ...(summarizer ? {summarizer} : {}),
             activeLeafId: snapshot.leafId,
@@ -1103,9 +1115,17 @@ export class NeuroAgentHarness {
             thinkingLevel: context.thinkingLevel,
             effectiveThinkingLevel,
             planModeActive: context.planModeActive,
-            lastSeq: this.eventHub.lastSeq(sessionId),
+            lastSeq: eventCursor.after,
             usage: this.repo.usage(snapshot),
             contextUsage: await this.sessionContextUsage(snapshot, context),
+        };
+    }
+
+    private snapshotEventCursor(sessionId: number, latestSeq = this.eventHub.lastSeq(sessionId)): AgentSessionSnapshotDto["eventCursor"] {
+        const anchor = this.transcriptReplayAnchors.get(sessionId);
+        return {
+            eventEpoch: this.eventHub.eventEpoch,
+            after: anchor?.after ?? latestSeq,
         };
     }
 
@@ -2046,6 +2066,7 @@ export class NeuroAgentHarness {
         if (!pending) {
             throw new Error("当前 session 没有等待中的审批 tool call");
         }
+        const storedResolution = await this.withExitPlanModePreview(snapshot, pending, resolution);
         await this.executeWritePlan({
             target: {sessionId: snapshot.metadata.sessionId},
             cause: "resolution",
@@ -2054,7 +2075,7 @@ export class NeuroAgentHarness {
                 kind: "append",
                 entry: {
                     type: "message",
-                    message: resolutionToToolResult(resolution, pending),
+                    message: resolutionToToolResult(storedResolution, pending),
                     origin: "harness",
                 },
             }],
@@ -2062,6 +2083,41 @@ export class NeuroAgentHarness {
         if (resolution.kind === "tool_approval" && (pending.toolName === "enter_plan_mode" || pending.toolName === "exit_plan_mode")) {
             await this.appendPlanModeResolution(snapshot, context, pending, resolution.approved, invocationId);
         }
+    }
+
+    /**
+     * 为 exit_plan_mode 的历史审批结果补齐 UI-only 计划文件预览。
+     */
+    private async withExitPlanModePreview(
+        snapshot: SessionSnapshot,
+        pending: {toolName: string; args: Record<string, unknown>},
+        resolution: AgentResolution,
+    ): Promise<AgentResolution> {
+        if (resolution.kind !== "tool_approval" || pending.toolName !== "exit_plan_mode") {
+            return resolution;
+        }
+        const planFilePath = typeof pending.args.planFilePath === "string" ? pending.args.planFilePath.trim() : "";
+        if (!planFilePath) {
+            return resolution;
+        }
+        const preview: {[key: string]: JsonValue} = {
+            planFilePath,
+        };
+        try {
+            const target = resolvePlanModeFile({
+                workspaceRoot: snapshot.metadata.workspaceRoot,
+                projectPath: snapshot.metadata.projectPath,
+                planFilePath,
+            });
+            preview.planFilePath = target.displayPath;
+            preview.planContent = await readFile(target.absolutePath, "utf-8");
+        } catch {
+            // 计划文件可能在等待审批期间被移动或删除；审批结果仍应正常落库。
+        }
+        return {
+            ...resolution,
+            data: preview,
+        };
     }
 
     private async appendPlanModeResolution(
@@ -2198,6 +2254,9 @@ export class NeuroAgentHarness {
             const failedIngestDraft = createFailedTurnIngestDraft(outcome);
             const ingest = failedIngestDraft ? await withRunKernelPhase("ingest", () => this.ingestTurn(frame, failedIngestDraft)) : undefined;
             const transaction = applyFailedTurnTransaction(frame, outcome, ingest);
+            if (ingest) {
+                this.clearPersistedTranscriptReplayAnchor(frame, ingest);
+            }
             await this.emitRuntimeEvent(frame, {type: "turn_end", turnIndex: frame.turnIndex, status: "failed"});
             return {
                 kind: "failed",
@@ -2212,6 +2271,7 @@ export class NeuroAgentHarness {
             waiting: turn.waiting,
         }));
         const transaction = applySuccessfulTurnTransaction(frame, outcome, ingest);
+        this.clearPersistedTranscriptReplayAnchor(frame, ingest);
         if (!frame.disableSteer && !turn.waiting) {
             this.steerableSessions.delete(frame.sessionId);
         }
@@ -2263,12 +2323,16 @@ export class NeuroAgentHarness {
     /**
      * 发布公开 runtime event。SSE 和 callback 都只接触这个轻量 DTO。
      */
-    private async emitRuntimeEvent(frame: RunFrame, event: AgentRuntimeStreamEventDto): Promise<void> {
+    private async emitRuntimeEvent(frame: RunFrame, event: AgentRuntimeStreamEventDto): Promise<AgentSessionEventDto | null> {
         if (frame.suppressEvents) {
-            return;
+            return null;
         }
         await frame.onEvent?.(event);
-        this.publishRuntimeEvent(frame.sessionId, frame.invocationId, event);
+        const payload = this.publishRuntimeEvent(frame.sessionId, frame.invocationId, event);
+        if (event.type === "turn_start") {
+            this.createTranscriptReplayAnchor(frame, payload.seq);
+        }
+        return payload;
     }
 
     /**
@@ -3201,6 +3265,7 @@ export class NeuroAgentHarness {
     }
 
     private finishInvocationState(sessionId: number, invocationId?: string): void {
+        this.clearTranscriptReplayAnchor(sessionId);
         this.activeInvocations.delete(sessionId);
         this.steerableSessions.delete(sessionId);
         this.steerQueues.delete(sessionId);
@@ -3454,13 +3519,46 @@ export class NeuroAgentHarness {
         );
     }
 
-    private publishRuntimeEvent(sessionId: number, invocationId: string | undefined, event: AgentRuntimeStreamEventDto): void {
-        this.eventHub.publish({
+    private publishRuntimeEvent(sessionId: number, invocationId: string | undefined, event: AgentRuntimeStreamEventDto): AgentSessionEventDto {
+        return this.eventHub.publish({
             sessionId,
             invocationId,
             kind: "runtime",
             event,
         });
+    }
+
+    private createTranscriptReplayAnchor(frame: RunFrame, turnStartSeq: number): void {
+        if (this.transcriptReplayAnchors.has(frame.sessionId)) {
+            return;
+        }
+        const firstSeq = turnStartSeq;
+        this.transcriptReplayAnchors.set(frame.sessionId, {
+            invocationId: frame.invocationId,
+            turnIndex: frame.turnIndex,
+            after: firstSeq - 1,
+            firstSeq,
+        });
+        this.eventHub.pinReplayFrom(frame.sessionId, firstSeq);
+    }
+
+    private clearPersistedTranscriptReplayAnchor(frame: RunFrame, ingest: TurnIngestResult): void {
+        if (ingest.transcript !== "persist") {
+            return;
+        }
+        const anchor = this.transcriptReplayAnchors.get(frame.sessionId);
+        if (!anchor || anchor.turnIndex !== frame.turnIndex) {
+            return;
+        }
+        if (anchor.invocationId && frame.invocationId && anchor.invocationId !== frame.invocationId) {
+            return;
+        }
+        this.clearTranscriptReplayAnchor(frame.sessionId);
+    }
+
+    private clearTranscriptReplayAnchor(sessionId: number): void {
+        this.transcriptReplayAnchors.delete(sessionId);
+        this.eventHub.unpinReplay(sessionId);
     }
 
     private publishSessionEntry(sessionId: number, invocationId: string | undefined, entry: SessionEntry): void {
