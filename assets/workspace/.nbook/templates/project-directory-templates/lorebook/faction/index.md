@@ -21,3 +21,19 @@ ext: {}
 # 势力
 
 本目录保存国家、阵营、组织、政治实体和冲突集团。
+
+## 目录用途
+
+`lorebook/faction/` 存储所有集体行为主体的设定，包括国家、政治阵营、秘密组织、商业联盟、宗教团体等。记录势力的目标、结构、历史、关系和内部秘密。与 `simulation/subjects/` 不同，这里是势力的全知设定，不追踪"势力当前如何看待某事"。
+
+## 基本结构
+
+子目录按势力名组织，每个势力可包含多个设定文件（如结构、历史、关系、秘密等）。
+
+## 命名约定
+
+势力目录使用 kebab-case，如 `imperial-court`、`shadow-guild`。
+
+## 相关文档
+
+- Lorebook 分类规则：[reference/content/lorebook.md](../../../reference/content/lorebook.md)

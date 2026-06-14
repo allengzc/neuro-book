@@ -6,6 +6,7 @@ import {Type} from "typebox";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {
     compileProfileArtifacts,
+    hashFile,
     readProfileArtifactManifest,
     rehomeProfileArtifactItem,
     validateProfileArtifact,
@@ -166,6 +167,46 @@ describe("AgentProfileCatalog", () => {
         expect(item?.artifactFileName).toBe("custom.session-types.mjs");
         expect(item?.typeFileName).toBe("custom.session-types.types.d.ts");
         expect(await readFile(resolve(systemRoot, ".compiled", item!.typeFileName!), "utf8")).toContain("\"session.draftGoal\": string;");
+    });
+
+    it("profile 编译产物使用 artifact-local import.meta.url require banner", async () => {
+        await writeProfile(systemRoot, "custom.banner.profile.tsx", profileSource("custom.banner", "Banner"));
+
+        const result = await compileProfileArtifacts({
+            profileRoot: systemRoot,
+            fileName: "custom.banner.profile.tsx",
+            rootLabel: "test-system-profiles",
+        });
+        const item = result.compiled[0]!;
+        const artifact = await readFile(resolve(systemRoot, ".compiled", item.artifactFileName), "utf8");
+        const head = artifact.slice(0, 2048);
+
+        expect(head).toContain("__nbookCreateRequire(import.meta.url)");
+        expect(head).not.toContain("globalThis._importMeta_");
+        await expect(validateProfileArtifact(systemRoot, item)).resolves.toEqual({fresh: true});
+    });
+
+    it("profile 编译产物包含 Nitro importMeta shim 时强制过期", async () => {
+        await writeProfile(systemRoot, "custom.bad-shim.profile.tsx", profileSource("custom.badShim", "Bad Shim"));
+        const result = await compileProfileArtifacts({
+            profileRoot: systemRoot,
+            fileName: "custom.bad-shim.profile.tsx",
+            rootLabel: "test-system-profiles",
+        });
+        const item = result.compiled[0]!;
+        const artifactPath = resolve(systemRoot, ".compiled", item.artifactFileName);
+        const artifact = await readFile(artifactPath, "utf8");
+        await writeFile(artifactPath, artifact.replace("import.meta.url", "globalThis._importMeta_.url"), "utf8");
+        const badHash = await hashFile(artifactPath);
+
+        await expect(validateProfileArtifact(systemRoot, {
+            ...item,
+            artifactSha256: badHash.sha256,
+            artifactBytes: badHash.bytes,
+        })).resolves.toEqual({
+            fresh: false,
+            reason: "artifact_changed",
+        });
     });
 
     it("full compile 使用稳定文件名并清理旧 hash artifact", async () => {
@@ -544,6 +585,7 @@ describe("AgentProfileCatalog", () => {
 
         const artifact = await readFile(join(systemRoot, ".compiled", "custom.product.mjs"), "utf8");
         expect(artifact.slice(0, 2048)).toContain("__nbookResolveProductRequireRoot");
+        expect(artifact.slice(0, 2048)).not.toContain("globalThis._importMeta_");
         expect(artifact.slice(0, 2048)).not.toMatch(/file:\/\/\/[A-Za-z]:/u);
         expect(artifact).not.toContain("D:/a/neuro-book/");
     });
@@ -583,6 +625,7 @@ describe("AgentProfileCatalog", () => {
             const profile = await catalog.get("custom.output");
 
             expect(artifact.slice(0, 2048)).toContain("__nbookResolveProductRequireRoot");
+            expect(artifact.slice(0, 2048)).not.toContain("globalThis._importMeta_");
             expect(await profile.prepare!(context())).toEqual(expect.objectContaining({
                 systemPrompt: "output-vendor",
             }));
@@ -642,6 +685,7 @@ describe("AgentProfileCatalog", () => {
             });
             const artifact = await readFile(join(systemRoot, ".compiled", "custom.output.mjs"), "utf8");
             expect(artifact.slice(0, 2048)).toContain("__nbookResolveProductRequireRoot");
+            expect(artifact.slice(0, 2048)).not.toContain("globalThis._importMeta_");
         } finally {
             process.chdir(previousCwd);
         }

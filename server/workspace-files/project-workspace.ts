@@ -4,6 +4,7 @@ import {createClient} from "@libsql/client";
 import {createError} from "h3";
 import * as yaml from "yaml";
 import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 
 export const PROJECT_MANIFEST_FILE = "project.yaml";
 export const PROJECT_DATABASE_RELATIVE_PATH = ".nbook/project.sqlite";
@@ -299,6 +300,7 @@ export async function initProjectDatabaseAtRoot(projectRoot: string): Promise<st
         }
     } finally {
         await client.close();
+        collectReleasedSqliteHandles();
     }
     return databasePath;
 }

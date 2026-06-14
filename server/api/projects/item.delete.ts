@@ -1,15 +1,12 @@
-import fs from "node:fs/promises";
-import {invalidateNovelListCache, requireProjectPathQuery} from "nbook/server/utils/novel-chapter";
-import {assertProjectWorkspaceDirectory, resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
+import {requireProjectPathQuery} from "nbook/server/utils/novel-chapter";
+import {deleteProjectWorkspace} from "nbook/server/workspace-files/project-workspace-delete";
 
 /**
  * 删除 Project Workspace 目录。
  */
 export default defineEventHandler(async (event) => {
     const projectPath = requireProjectPathQuery(event);
-    const normalizedProjectPath = await assertProjectWorkspaceDirectory(projectPath);
-    await fs.rm(resolveProjectAbsolutePath(normalizedProjectPath), {recursive: true, force: true});
-    invalidateNovelListCache();
+    await deleteProjectWorkspace(projectPath);
 
     return {success: true};
 });

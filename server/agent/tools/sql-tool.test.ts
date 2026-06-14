@@ -1,10 +1,18 @@
+import {randomUUID} from "node:crypto";
+import {rm} from "node:fs/promises";
 import {describe, expect, it} from "vitest";
 import {
     buildAgentSqlSchemaSummary,
+    closeAgentSqliteClient,
     clearAgentSqlSchemaSummaryCache,
+    getAgentSqlSchemaSummary,
     hasSqlStatementSeparator,
     validateExecuteSql,
 } from "nbook/server/agent/tools/sql-tool";
+import {
+    resolveProjectAbsolutePath,
+    writeProjectManifest,
+} from "nbook/server/workspace-files/project-workspace";
 
 describe("v3 execute_sql tool", () => {
     it("schema summary 不会把 sceneId 错挂到 StoryScene", () => {
@@ -52,6 +60,26 @@ describe("v3 execute_sql tool", () => {
     it("schema summary cache 支持显式清空", () => {
         expect(() => clearAgentSqlSchemaSummaryCache()).not.toThrow();
     });
+
+    it("关闭指定 Project SQLite client 后可以为另一个 Project 重建连接", async () => {
+        const firstProjectPath = `workspace/sql-close-${randomUUID()}`;
+        const secondProjectPath = `workspace/sql-close-${randomUUID()}`;
+        try {
+            await createProject(firstProjectPath);
+            await createProject(secondProjectPath);
+
+            await expect(getAgentSqlSchemaSummary(firstProjectPath)).resolves.toContain('"ProjectMetadata"');
+            await closeAgentSqliteClient(firstProjectPath);
+
+            await expect(getAgentSqlSchemaSummary(secondProjectPath)).resolves.toContain('"ProjectMetadata"');
+        } finally {
+            await closeAgentSqliteClient();
+            await Promise.all([
+                rm(resolveProjectAbsolutePath(firstProjectPath), {recursive: true, force: true}),
+                rm(resolveProjectAbsolutePath(secondProjectPath), {recursive: true, force: true}),
+            ]);
+        }
+    });
 });
 
 function row(tableName: string, columnName: string, ordinalPosition: number) {
@@ -64,4 +92,12 @@ function row(tableName: string, columnName: string, ordinalPosition: number) {
         dataType: "integer",
         udtName: "int4",
     };
+}
+
+async function createProject(projectPath: string): Promise<void> {
+    await writeProjectManifest(projectPath, {
+        kind: "novel",
+        title: projectPath,
+        summary: "",
+    });
 }

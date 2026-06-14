@@ -22,6 +22,10 @@ ext: {}
 
 本文件索引当前 Project Workspace 的 simulation / emulation tick。`runs/` 是过程记录，不是 canonical lorebook，也不是 subject 长期记忆。
 
+## 目录用途
+
+`simulation/runs/` 记录每一轮 RP tick 或世界推演的完整过程，包括裁决报告、用户可见正文、输入材料和工具日志。这些记录是可追溯的审计日志，不应被后续 tick 修改或覆盖。
+
 | Run | Title | Mode | World Time | Status | Summary |
 | --- | --- | --- | --- | --- | --- |
 | 000000 | Initial State | bootstrap | 待填写 | draft | 初始运行态模板。 |

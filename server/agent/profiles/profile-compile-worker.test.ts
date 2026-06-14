@@ -1,6 +1,7 @@
 import {cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {resolve} from "node:path";
+import {pathToFileURL} from "node:url";
 import {describe, expect, it} from "vitest";
 import {ProfileCompileWorkerService, resolveProfileCompileWorkerPathsForRoot, useProfileCompileWorker} from "nbook/server/agent/profiles/profile-compile-worker";
 import {runProfileCompile, runProfileCompileAll} from "nbook/server/agent/profiles/profile-compile-worker-runtime";
@@ -111,6 +112,44 @@ describe("profile compile worker runtime", () => {
                 expect(result.compiledCount).toBeGreaterThan(0);
                 expect(result.profiles?.some((profile) => profile.profileKey === "leader.default")).toBe(true);
                 expect(result.issues.filter((issue) => issue.severity === "error")).toEqual([]);
+            } finally {
+                worker.dispose();
+            }
+        });
+    }, 120000);
+
+    it("worker service 全量编译出的 director artifact 不依赖 Nitro importMeta shim", async () => {
+        await withCompiledRootSnapshot(async () => {
+            const worker = useProfileCompileWorker();
+            try {
+                const result = await worker.compileAll({preview: false});
+                const artifactPath = resolve("workspace", ".nbook", "agent", "profiles", ".compiled", "builtin__director.mjs");
+                const artifact = await readFile(artifactPath, "utf8");
+                const head = artifact.slice(0, 2048);
+                const globalWithShim = globalThis as typeof globalThis & {_importMeta_?: unknown};
+                const previousImportMeta = globalWithShim._importMeta_;
+
+                try {
+                    delete globalWithShim._importMeta_;
+                    const mod = await import(`${pathToFileURL(artifactPath).href}?director=${Date.now()}`) as {
+                        default?: {
+                            manifest?: {
+                                key?: string;
+                            };
+                        };
+                    };
+
+                    expect(result.ok).toBe(true);
+                    expect(head).toContain("import.meta.url");
+                    expect(head).not.toContain("globalThis._importMeta_");
+                    expect(mod.default?.manifest?.key).toBe("director");
+                } finally {
+                    if (previousImportMeta === undefined) {
+                        delete globalWithShim._importMeta_;
+                    } else {
+                        globalWithShim._importMeta_ = previousImportMeta;
+                    }
+                }
             } finally {
                 worker.dispose();
             }

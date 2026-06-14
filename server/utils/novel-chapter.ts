@@ -25,6 +25,7 @@ import {
     writeProjectManifest,
     type ProjectManifest,
 } from "nbook/server/workspace-files/project-workspace";
+import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 
 type NovelStatisticCounts = Pick<
     NovelListItemDto,
@@ -316,6 +317,7 @@ async function readPlotCounts(projectPath: string): Promise<Pick<NovelStatisticC
         };
     } finally {
         await client.close();
+        collectReleasedSqliteHandles();
     }
 }
 

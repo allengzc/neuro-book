@@ -5,6 +5,7 @@ import type {Static} from "typebox";
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {initProjectDatabase, readProjectManifest, resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 
 const ExecuteSqlSchema = Type.Object({
     sql: Type.String({description: "A single Project SQLite statement: SELECT / WITH / INSERT / UPDATE / DELETE. DDL, transaction control, PRAGMA, ATTACH/DETACH, and multi-statement queries are prohibited."}),
@@ -142,6 +143,34 @@ export function clearAgentSqlSchemaSummaryCache(): void {
     agentSqlSchemaSummaryCacheProjectPath = "";
     agentSqlSchemaSummaryCacheAt = 0;
     agentSqlSchemaSummaryPromise = undefined;
+}
+
+/**
+ * 关闭 execute_sql 当前持有的 Project SQLite 连接。Project 删除前必须释放文件句柄。
+ */
+export async function closeAgentSqliteClient(projectPath?: string): Promise<void> {
+    const targetUrl = projectPath ? toSqliteFileUrl(resolveProjectDatabasePath(projectPath)) : "";
+    if (sqliteClient && (!targetUrl || sqliteClientUrl === targetUrl)) {
+        const client = sqliteClient;
+        sqliteClient = null;
+        sqliteClientUrl = "";
+        await client.close();
+        collectReleasedSqliteHandles();
+    }
+    if (!projectPath || agentSqlSchemaSummaryCacheProjectPath === projectPath || agentSqlSchemaSummaryCacheMatches(targetUrl)) {
+        clearAgentSqlSchemaSummaryCache();
+    }
+}
+
+function agentSqlSchemaSummaryCacheMatches(targetUrl: string): boolean {
+    if (!targetUrl || !agentSqlSchemaSummaryCacheProjectPath) {
+        return false;
+    }
+    try {
+        return toSqliteFileUrl(resolveProjectDatabasePath(agentSqlSchemaSummaryCacheProjectPath)) === targetUrl;
+    } catch {
+        return false;
+    }
 }
 
 /**
@@ -503,7 +532,10 @@ async function useSqliteClient(projectPath: string): Promise<LibsqlClient> {
     await initProjectDatabase(projectPath);
     const url = toSqliteFileUrl(resolveProjectDatabasePath(projectPath));
     if (!sqliteClient || sqliteClientUrl !== url) {
-        sqliteClient?.close();
+        if (sqliteClient) {
+            sqliteClient.close();
+            collectReleasedSqliteHandles();
+        }
         sqliteClient = createClient({url});
         sqliteClientUrl = url;
     }

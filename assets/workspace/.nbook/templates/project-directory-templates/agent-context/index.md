@@ -21,3 +21,16 @@ ext: {}
 # 智能体上下文
 
 本目录保存各 profile 的项目专用上下文、长期记忆和自动生成的推荐材料。
+
+## 目录用途
+
+`agent-context/` 为每个 profile 提供项目级的专用存储空间，保存 Agent 在特定项目中的上下文选择、跨 session 记忆和程序生成的推荐。与项目根的 `AGENTS.md`（对所有 profile 可见）不同，这里的内容按 profile 隔离。
+
+## 基本结构
+
+每个 profile 有一个子目录（如 `rp.leader/`、`rp.writer/`、`simulator.leader/`），包含三个标准文件：`context.md`（Agent 自主维护）、`memory.md`（跨 session 记忆）、`generated.md`（程序生成推荐）。
+
+## 相关文档
+
+- Profile Context Memory 机制：[reference/agent/profile-context-memory.md](../../reference/agent/profile-context-memory.md)
+- Agent Context vs AGENTS.md 边界：[reference/content/project-structure.md](../../reference/content/project-structure.md)

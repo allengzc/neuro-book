@@ -8,7 +8,7 @@ import {build, type Metafile, type Plugin} from "esbuild";
 import type {AgentProfile} from "nbook/server/agent/profiles/types";
 import {generateVariableTypes, VARIABLE_TYPES_FILE_NAME, type VariableTypeGenerationDiagnostic} from "nbook/server/agent/variables/generated-types";
 
-export const PROFILE_ARTIFACT_COMPILER_VERSION = 4;
+export const PROFILE_ARTIFACT_COMPILER_VERSION = 5;
 export const PROFILE_COMPILED_DIR_NAME = ".compiled";
 export const PROFILE_COMPILED_MANIFEST_FILE = "manifest.json";
 
@@ -222,6 +222,9 @@ export async function validateProfileArtifact(profileRoot: string, item: Profile
     if (artifactHash.sha256 !== item.artifactSha256 || artifactHash.bytes !== item.artifactBytes) {
         return {fresh: false, reason: "artifact_changed"};
     }
+    if (await artifactHasNitroImportMetaShim(artifactPath)) {
+        return {fresh: false, reason: "artifact_changed"};
+    }
     if (isProductRuntimeRoot() && !await artifactHasProductRequireShim(artifactPath)) {
         return {fresh: false, reason: "artifact_changed"};
     }
@@ -380,6 +383,11 @@ async function importCompiledProfile(artifactPath: string, artifactHash: string)
 async function artifactHasProductRequireShim(artifactPath: string): Promise<boolean> {
     const head = (await readFile(artifactPath, "utf8")).slice(0, 2048);
     return head.includes("__nbookResolveProductRequireRoot");
+}
+
+async function artifactHasNitroImportMetaShim(artifactPath: string): Promise<boolean> {
+    const head = (await readFile(artifactPath, "utf8")).slice(0, 2048);
+    return head.includes("globalThis._importMeta_");
 }
 
 function isProfile(value: unknown): value is AgentProfile {
@@ -542,17 +550,22 @@ function runtimeNodePaths(): string[] {
  * 自身位置解析 native/dynamic require；否则会越过 Nitro vendor。
  */
 function runtimeRequireBanner(): string {
+    const artifactUrl = runtimeImportMetaUrlExpression();
     if (!isProductRuntimeRoot()) {
-        return 'import {createRequire as __nbookCreateRequire} from "node:module";const require=__nbookCreateRequire(import.meta.url);';
+        return `import {createRequire as __nbookCreateRequire} from "node:module";const require=__nbookCreateRequire(${artifactUrl});`;
     }
     return [
         'import {createRequire as __nbookCreateRequire} from "node:module";',
         'import {existsSync as __nbookExistsSync} from "node:fs";',
         'import {dirname as __nbookDirname, resolve as __nbookResolve} from "node:path";',
         'import {fileURLToPath as __nbookFileURLToPath} from "node:url";',
-        'function __nbookResolveProductRequireRoot(){const cwdEntry=__nbookResolve(process.cwd(),".output","server","index.mjs");if(__nbookExistsSync(cwdEntry))return cwdEntry;let current=__nbookDirname(__nbookFileURLToPath(import.meta.url));while(true){const entry=__nbookResolve(current,".output","server","index.mjs");if(__nbookExistsSync(entry))return entry;const parent=__nbookDirname(current);if(parent===current)return import.meta.url;current=parent;}}',
+        `function __nbookResolveProductRequireRoot(){const cwdEntry=__nbookResolve(process.cwd(),".output","server","index.mjs");if(__nbookExistsSync(cwdEntry))return cwdEntry;let current=__nbookDirname(__nbookFileURLToPath(${artifactUrl}));while(true){const entry=__nbookResolve(current,".output","server","index.mjs");if(__nbookExistsSync(entry))return entry;const parent=__nbookDirname(current);if(parent===current)return ${artifactUrl};current=parent;}}`,
         "const require=__nbookCreateRequire(__nbookResolveProductRequireRoot());",
     ].join("");
+}
+
+function runtimeImportMetaUrlExpression(): string {
+    return ["import", ".", "meta", ".", "url"].join("");
 }
 
 function repoAliasBundlePlugin(): Plugin {

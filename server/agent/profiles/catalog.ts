@@ -1,5 +1,5 @@
 import {existsSync} from "node:fs";
-import {readFile, readdir, stat} from "node:fs/promises";
+import {copyFile, mkdir, readFile, readdir, stat} from "node:fs/promises";
 import {basename, join, relative, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {Value} from "typebox/value";
@@ -355,7 +355,8 @@ export class AgentProfileCatalog {
 
     private async importCompiledProfile(profileRoot: string, item: ProfileArtifactManifestItem): Promise<AgentProfile> {
         const artifactPath = join(profileRoot, PROFILE_COMPILED_DIR_NAME, item.artifactFileName);
-        const mod = await import(`${pathToFileURL(artifactPath).href}?compiled=${item.artifactSha256}`) as {
+        const importPath = await prepareCompiledProfileImportPath(artifactPath, item);
+        const mod = await import(pathToFileURL(importPath).href) as {
             default?: unknown;
         };
         const profile = mod.default;
@@ -592,4 +593,19 @@ class ProfileCatalogError extends Error {
     constructor(readonly code: AgentProfileIssueCode, message: string) {
         super(message);
     }
+}
+
+/**
+ * Bun 会忽略 file URL query 的模块缓存差异；复制到带 hash 的物理路径后再 import。
+ */
+async function prepareCompiledProfileImportPath(artifactPath: string, item: ProfileArtifactManifestItem): Promise<string> {
+    const cacheRoot = resolve(process.cwd(), ".agent", "workspace", "profile-import-cache");
+    const importPath = join(cacheRoot, item.artifactFileName.replace(/\.mjs$/u, `.${item.artifactSha256.slice(0, 16)}.mjs`));
+    const existing = await stat(importPath).catch(() => null);
+    if (existing?.size === item.artifactBytes) {
+        return importPath;
+    }
+    await mkdir(cacheRoot, {recursive: true});
+    await copyFile(artifactPath, importPath);
+    return importPath;
 }

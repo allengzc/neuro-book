@@ -7,6 +7,7 @@ import {PrismaStoryRepository} from "nbook/server/plot/repositories/prisma-story
 import {PrismaThreadRepository} from "nbook/server/plot/repositories/prisma-thread.repository";
 import type {PrismaExecutor} from "nbook/server/plot/core/types";
 import {PlotInputParser} from "nbook/server/plot/http/plot-input.parser";
+import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {OrderService} from "nbook/server/plot/services/order.service";
 import {PlotService} from "nbook/server/plot/services/plot.service";
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
@@ -67,6 +68,22 @@ export class PlotFacade {
     private readonly clients = new Map<string, PrismaClient>();
 
     constructor() {}
+
+    /**
+     * 关闭指定 Project SQLite 的 PrismaClient。Project 删除前必须先释放文件句柄。
+     */
+    async closeProject(projectPath: string): Promise<void> {
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const databasePath = resolveProjectDatabasePath(normalizedProjectPath);
+        const cacheKey = databasePath.replace(/\\/g, "/");
+        const client = this.clients.get(cacheKey);
+        if (!client) {
+            return;
+        }
+        this.clients.delete(cacheKey);
+        await client.$disconnect();
+        collectReleasedSqliteHandles();
+    }
 
     /**
      * 查询 Story。
