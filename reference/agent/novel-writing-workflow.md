@@ -9,7 +9,8 @@
 - `writer` 是章节正文 agent，不是世界模拟 agent。
 - `simulator.leader` 是世界模拟主管，负责状态裁决、subject 反应、simulation/runs 报告、writer-safe brief 和 director handoff。
 - `director` 是剧情导演，负责 Thread / Scene / Plot 设计、Plot 密度和 Plot System 落库。
-- `writer` 只自动读取创建 input 中的唯一 `chapterPaths`、该章节的 Chapter Plot、显式传入的 `lorebookEntries`，以及 lorebook 内容节点的 `index.md` / 可选同级 `state.md`。
+- `writer` 创建 initial 为空；每轮通过 `invoke_agent.message` 接收写作任务，通过 `invoke_agent.input` 接收唯一目标 `path` 和建议读取清单。
+- `writer` 不在 prepare 阶段自动读取 Plot、lorebook 或 readablePaths；它根据本轮 message 主动使用 Plot 只读工具和 read 工具读取必要上下文。
 - `writer` 不自动读取 `simulation/`，也不维护 `simulation/subjects/`、`simulation/entities/` 或 `simulation/runs/`。
 - 需要世界推进、角色反应判断、势力态势或实体状态变化时，由 `leader.default` 调用 `simulator.leader` 或启动 simulation tick，再把 writer-safe 的结果整理给 `writer`。
 
@@ -22,8 +23,8 @@
 5. **Simulation tick**：`simulator.leader` 根据用户指令或 leader/director 任务，读取必要 lorebook、Plot 和当前 state，推演下一个 tick。
 6. **State commit**：`simulator.leader` 把已裁决事实写入 `simulation/subjects/`、`simulation/entities/`，并在 `simulation/runs/` 记录过程。
 7. **Plot handoff**：`director` 把选中的剧情结果整理进 Plot System，形成或更新 Thread / Scene / Plot。
-8. **Retrieval handoff**：需要设定上下文时先调用 `retrieval`，leader 选择 `entries[].path` 传给 writer，不把 retrieval 的 reason / use / risk 直接交给 writer。
-9. **Chapter writing**：创建或复用普通 `writer`，传唯一 `chapterPaths`、选中的 `lorebookEntries`、约束和文风预设。
+8. **Retrieval handoff**：需要设定上下文时先调用 `retrieval`，leader 选择 `entries[].path` 放入 writer payload 的 `context.lorebookEntries`，不把 retrieval 的 reason / use / risk 直接交给 writer。
+9. **Chapter writing**：创建或复用普通 `writer`，使用 `invoke_agent.message + input.path + input.context` 发送本轮写作任务。
 10. **Post-write check**：leader 检查正文是否产生新事实或状态变化；如需要，补一次 emulation commit 或 Plot 更新。
 
 ## Emulation Usage
@@ -51,7 +52,7 @@
 - `simulation/subjects/` 保存 subject 当前事件、知识、心理和状态。
 - `simulation/entities/` 保存需要状态追踪的实例。
 - `simulation/runs/` 保存 tick 过程产物。
-- `writer` 不直接维护 simulation；leader 把 simulation 结果过滤成 Plot、constraints、writer-safe brief 或选中的 lorebook state。
+- `writer` 不直接维护 simulation；leader 把 simulation 结果过滤成 Plot、message 中的 writer-safe 信息，或选中的 payload context。
 
 ## Workflow Skills
 

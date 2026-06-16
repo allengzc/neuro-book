@@ -1,46 +1,73 @@
 # Writer
 
-`writer` 是正式章节正文 agent。它的任务是把已经明确的章节目标、Plot、设定上下文和写作约束写进唯一章节文件。
+`writer` 是正式正文写作 agent。它的任务是把已经明确的写作目标、Plot 上下文、设定引用和写作约束落实到本轮指定的 Markdown 文件。
 
-它不是 planner，不是 retrieval，不是 RP writer，也不维护 `simulation/`。
+它不是 planner，不是 retrieval，不是 RP writer，也不维护 `simulation/`、Plot System 或 subject memory。
 
-## 一章节一 agent
+## 长期 Writer Session
 
-当前 writer 合同是“一章节一 agent”。`writer.input.chapterPaths` 必须且只能包含一个章节目录，例如：
+普通 `writer` 是可复用写作工位。创建时使用空 initial：
 
-```text
-my-novel/manuscript/001-volume/001-chapter/
+```json
+{
+  "profileKey": "writer",
+  "initial": {}
+}
 ```
 
-writer 会写该章节目录下的 `index.md`。如果切换章节，应该创建新的 writer；如果继续润色同一章且创建 initial 语义不变，可以复用旧 writer。
+每轮调用通过 `invoke_agent.message` 写清自然语言任务，通过 `invoke_agent.input` 指定唯一目标文件和建议读取清单：
 
-## writer 能看到什么
+```json
+{
+  "message": "请续写这一章，从主角推开档案室门开始，到她发现账册缺页并决定隐瞒为止。写完后润色一次并 report_result 汇报实际修改路径和约 100 字剧情摘要。",
+  "input": {
+    "path": "my-novel/manuscript/001-volume/003-chapter/index.md",
+    "context": {
+      "threadIds": ["1"],
+      "sceneIds": ["2"],
+      "plotIds": ["3"],
+      "lorebookEntries": ["my-novel/lorebook/character/protagonist/"],
+      "readablePaths": ["my-novel/manuscript/001-volume/002-chapter/index.md"]
+    }
+  }
+}
+```
 
-writer 自动读取：
+`message` 必须可独立表达本轮任务：写什么、范围、约束、结束条件和交付要求。`input.context` 只是结构化引用清单，不能替代任务说明。
 
-- 唯一目标章节。
-- 该章节的 Chapter Plot。
-- leader 显式传入的 `lorebookEntries`。
-- 相关内容节点的 `index.md` 和可选同级 `state.md`。
+## Writer 能看到什么
 
-writer 不自动遍历完整 `lorebook/`、`simulation/` 或 `reference/`。需要设定召回时，leader 应先调用 `retrieval`，再把选中的 `entries[].path` 传给 writer。
+writer prepare 阶段只注入：
+
+- `input.path` 对应的唯一目标文件。
+- 可推导的 `projectPath`、`projectSlug` 和可选 `chapterPath`。
+- `threadIds`、`sceneIds`、`plotIds`、`lorebookEntries`、`readablePaths` 清单。
+
+writer 不自动读取 Plot、lorebook 或普通文件正文。它需要按本轮 `message` 判断是否主动调用工具：
+
+- `get_story_thread`：读取 Thread。
+- `get_story_scene_context`：读取 Scene、所属 Thread 和可选 Chapter Plot。
+- `get_story_plot_context`：读取 Plot、所属 Scene 和所属 Thread。
+- `get_chapter_plot`：读取整章 scenes / plots，仅在整章写作、续写整章或检查覆盖度时使用。
+- `read`：读取目标文件、lorebook 节点 `index.md` / `state.md` 或 `readablePaths`。
+
+第一版不在文件工具层做硬权限限制；writer prompt 会要求只写 `input.path`，并只按需读取 `message` 和 `context` 指向的材料。
 
 ## 写作前的准备
 
 调用 writer 前，leader 应尽量准备好：
 
-- 章节目标。
-- 本章冲突和结尾钩子。
-- Plot System 中挂到本章的 Scene / Plot。
-- 必要 lorebook entries。
-- 风格预设或写作参考。
+- `input.path`：唯一目标 Markdown 文件，必须是 `project-slug/.../*.md`。
+- `message`：本轮正文任务、范围、重点、禁忌和结束条件。
+- Plot 引用：需要落地的 Thread / Scene / Plot id。
+- 设定引用：建议读取的 lorebook entries 或 readablePaths。
 - 禁止改动的事实和边界。
 
 如果剧情状态尚未裁决，先使用世界运行态流程，而不是让 writer 自己判断世界怎么变。
 
-## RP writer 不同
+## RP Writer 不同
 
-`rp.writer` 只用于 RP Tick 的可见文本渲染。它的 profile initial 为空，只消费上级注入的 writer brief；如果项目维护 `agent-context/rp.writer/context.md`，需要由 `rp.leader` 或 `simulator.leader` 读取后写进 brief。它不写正式章节，也不维护选项或状态。
+`rp.writer` 只用于 RP Tick 的可见文本渲染。它的 profile initial 为空，只消费上级注入的 Writer Brief。普通 `writer` 用于正式正文文件，不承担 RP Tick 主持或世界状态维护。
 
 ## 继续阅读
 

@@ -160,20 +160,43 @@ export const SessionSummarizerOutputSchema = Type.Object({
 });
 
 /**
- * writer 子代理输入：由 leader/create_agent 传入，不承载每轮对话文本。
+ * writer 的长期实例初始化参数为空。每轮写作任务通过 invoke_agent.message + PayloadSchema 传入。
  */
-export const WriterInitialSchema = Type.Object({
-    prompt: Type.String({description: "本次写作任务。写清要写什么、是重写还是局部修改、章节边界和交付要求。"}),
-    chapterPaths: Type.Array(Type.String({description: "章节内容节点目录路径，必须相对于 Agent cwd。普通 Project agent 的 cwd 是 workspace 容器根，因此应传 project-slug/manuscript/.../，不要传 manuscript/.../ 或 workspace/project-slug/.../。"}), {
-        minItems: 1,
-        maxItems: 1,
-        description: "本 writer session 绑定的唯一章节。调用方必须先创建章节内容节点，并在 Plot System 中把 Scene 挂到该章节。",
-    }),
-    lorebookEntries: Type.Optional(Type.Array(Type.String({description: "内容节点路径，按 writer agent cwd 解析。writer 会按数组顺序读取 index.md 与同级可选 state.md。"}), {description: "本次写作需要读取的 Lorebook/Manuscript 内容节点路径数组。"})),
-    constraints: Type.Optional(Type.Array(Type.String({description: "额外写作约束、格式约束、禁忌、字数或用户临时偏好。"}), {description: "本轮写作约束列表。"})),
-    writingStylePreset: Type.Optional(Type.String({description: "可选 writing style 预设 key，不是文件路径。系统预设目录：assets/workspace/.nbook/agent/writing-presets/styles；用户覆盖目录：workspace/.nbook/agent/writing-presets/styles。为空使用默认文风。"})),
-    writingReferencePreset: Type.Optional(Type.String({description: "可选 writing reference 预设 key，不是文件路径。系统预设目录：assets/workspace/.nbook/agent/writing-presets/references；用户覆盖目录：workspace/.nbook/agent/writing-presets/references。为空使用默认参考文档。"})),
+export const WriterInitialSchema = Type.Object({}, {
+    additionalProperties: false,
 });
+
+/**
+ * writer 单次 invocation payload。message 承载自然语言任务，payload 只承载目标文件和建议读取清单。
+ */
+export const WriterPayloadSchema = Type.Object({
+    path: Type.String({
+        minLength: 1,
+        description: "本轮写入或修改的目标 Markdown 文件路径，必须是 Workspace Root cwd-relative Project 路径，例如 project-slug/manuscript/001-volume/001-chapter/index.md。writer 只能写这个路径。",
+    }),
+    context: Type.Optional(Type.Object({
+        threadIds: Type.Optional(Type.Array(Type.String({
+            minLength: 1,
+            description: "建议 writer 按需读取的 Thread id。使用 get_story_thread 读取。",
+        }))),
+        sceneIds: Type.Optional(Type.Array(Type.String({
+            minLength: 1,
+            description: "建议 writer 按需读取的 Scene id。使用 get_story_scene_context 读取。",
+        }))),
+        plotIds: Type.Optional(Type.Array(Type.String({
+            minLength: 1,
+            description: "建议 writer 按需读取的 Plot id。使用 get_story_plot_context 读取。",
+        }))),
+        lorebookEntries: Type.Optional(Type.Array(Type.String({
+            minLength: 1,
+            description: "建议 writer 按需读取的内容节点路径，可是 Project 内目录或 .md 文件。",
+        }))),
+        readablePaths: Type.Optional(Type.Array(Type.String({
+            minLength: 1,
+            description: "建议 writer 按需读取的普通 Markdown 文件路径，必须是 Project 内路径。",
+        }))),
+    }, {additionalProperties: false})),
+}, {additionalProperties: false});
 
 /**
  * writer 子代理结构化输出。

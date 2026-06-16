@@ -31,9 +31,10 @@
 
 ## Current State
 
-- `writer` 当前 `InitialSchema` 仍包含 `prompt`、`chapterPaths`、`lorebookEntries`、`constraints`、`writingStylePreset`、`writingReferencePreset`。
-- `writer.profile.tsx` 当前通过 `ctx.initial` 读取章节目标、章节 Plot、lorebookEntries 和约束。
-- `writer` 当前根据 `chapterPaths[0]` 推导唯一章节 `index.md`，并自动读取该章关联的 Chapter Plot。
+- `writer` 已切换为 `InitialSchema = {}`，并新增 `PayloadSchema` 承载每轮 `path + context`。
+- `writer.profile.tsx` 已通过 `ctx.invocation.message` 和 `ctx.invocation.payload` 构造 prompt，不再读取旧 `ctx.initial.prompt/chapterPaths/lorebookEntries`。
+- `writer` prepare 阶段只注入目标 path、Project 信息、可选 chapterPath 和建议读取清单，不再自动读取章节 Plot 或 lorebook 正文。
+- `writer` root tools 已包含 `get_story_thread`、`get_story_scene_context`、`get_story_plot_context`、`get_chapter_plot` 四个 Plot 只读工具。
 - `rp.writer` 已经是空 initial、每轮 message 驱动，但它只消费上级已整理好的 RP prose 指令，不读取完整 lorebook / Plot，也不写正式章节。
 - `PayloadSchema` 运行时能力已经接入 harness / HTTP / agent tool，但生产 profile 暂未使用。
 
@@ -200,14 +201,24 @@ leader 调用 `writer` 时：
   - `bun test server/agent/profiles/rp-profiles.test.ts server/agent/profiles/simulation-director-profiles.test.ts server/agent/profiles/leader-assets-profile.test.ts server/agent/harness/neuro-agent-harness-payload.test.ts server/agent/tools/agent-collaboration-tools.test.ts shared/dto/agent-session.dto.test.ts`
 - 如 profile artifact 变化，运行对应 profile compile / system assets 准备命令。
 
+已执行：
+
+- `bun scripts/build/prepare-system-assets.ts`：完成，编译 stale profile artifact。
+- `bun scripts/build/prepare-system-assets.ts --sync-user-assets`：完成，正式系统 profile 与 `workspace/.nbook` 用户侧副本已同步；后续模板修复后再次同步，updated assets 2；更新 `tsx-profile-editing` skill 旧合同口径后再次同步，updated assets 1。
+- `bun test ./server/agent/tools/plot-tools.test.ts ./server/agent/tools/agent-collaboration-tools.test.ts ./server/agent/profiles/leader-assets-profile.test.ts ./server/agent/harness/neuro-agent-harness-payload.test.ts`：31 pass。
+- `bun test ./server/agent/profiles/rp-profiles.test.ts ./server/agent/profiles/simulation-director-profiles.test.ts ./server/agent/profiles/profile-dsl.test.ts`：38 pass。
+- `bun scripts/db/migrate-writer-session-initial.ts --dry-run`：scanned=198, migrated=0, skipped=198, failed=0。
+- `bun test ./server/agent/profiles/catalog.test.ts ./server/agent/profiles/report-result-schema.test.ts ./server/agent/profiles/workbench-service.test.ts`：36 pass。顺手修复了 profile workbench 模板中的旧 `defineProfileTools/tools` 残留，并把测试断言同步为当前 `rootToolKeys` 字段。
+
 ## Implementation Walkthrough
 
 - 2026-06-16：创建 task。根据用户决策记录：普通 writer 不再使用 “writer brief” 概念；message 是写作指令，payload 是 `path + context refs`；最初计划由 profile 自动读取并注入上下文。
 - 2026-06-16：根据用户决策调整：`path` 允许 Project Workspace 内任意 Markdown 文件；`message` 必须承担写作任务本身；payload context 只提供读取清单和结构化引用；不在 prepare 阶段自动注入上下文正文，改为给 writer 提供工具让它主动读取。
 - 2026-06-16：进一步确认：第一版不做硬性 file read guard；`lorebookEntries` / `readablePaths` 是建议读，不是授权边界；保留 `get_story_thread`、`get_story_scene_context`、`get_chapter_plot`；新增 `get_story_plot_context` 支持 `plotIds`；任意 Markdown 的职责边界只写入提示词，不做硬性路径拦截。
+- 2026-06-16：实施 `WriterInitialSchema` 空 initial 与 `WriterPayloadSchema`；改造 writer profile 使用 `ctx.invocation.message/payload`；新增 `get_story_plot_context` 工具和 builtin binding；新增 writer session initial 专用迁移脚本；更新 writer / leader / workflow / content reference 文档。
+- 2026-06-16：补充同步 `workspace/.nbook` 用户侧 writer profile，确保实际运行副本也使用长期 writer + payload 合同；修复 `basic-agent` / `report-agent` profile template 的旧工具 DSL import 和 `inputSchema` 残留，并同步更新 `tsx-profile-editing` skill 的 `InitialSchema/PayloadSchema/toolset/ctx.initial` 口径。
 
 ## TODO / Follow-ups
 
-- 新增 `get_story_plot_context` 的 DTO / facade / tool / tests，使其返回当前 Plot、所属 Scene 和所属 Thread。
 - 第一版不做 profile-aware file read guard；未来若 writer 误读隐藏信息，再评估工具层约束。
 - 后续可考虑把 `writer` 与 `rp.writer` 的 stop-slop / 文风公共提示抽取复用，但本任务不做抽象重构。

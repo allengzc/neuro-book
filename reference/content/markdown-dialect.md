@@ -14,7 +14,7 @@
 不适用范围：
 
 - 工具调用路径。
-- `writer.chapterPaths`、`writer.lorebookEntries`、`create_agent.initial` 等结构化参数。
+- `writer` 的 `invoke_agent.input.path`、`invoke_agent.input.context`、`create_agent.initial` 等结构化参数。
 - Plot / SQL / variable tool 的 JSON 参数。
 
 工具调用和结构化参数必须继续使用对应工具要求的路径格式；不要把正文内部 Markdown 链接当成工具路径。
@@ -45,7 +45,7 @@
 | --- | --- |
 | 正文内部 Markdown link | 推荐 Project-relative，例如 `lorebook/character/foo/`；也支持相对当前 Markdown 文件或绝对路径 |
 | Agent 文件工具 / bash | Workspace Root cwd-relative，例如 `project-slug/lorebook/character/foo/` |
-| `writer.lorebookEntries` | Workspace Root cwd-relative 内容节点路径，例如 `project-slug/lorebook/character/foo/` |
+| `writer` payload `context.lorebookEntries` | Workspace Root cwd-relative 内容节点路径，例如 `project-slug/lorebook/character/foo/` |
 | Plot tool `projectPath` | Project Path，例如 `workspace/project-slug` |
 
 不要把正文内部链接不加判断地复制到工具调用参数中。正文里推荐的 Project-relative 链接通常可以转为 Agent 文件工具路径的 suffix，但工具调用仍需要遵守具体工具的 cwd / Project Path 要求。

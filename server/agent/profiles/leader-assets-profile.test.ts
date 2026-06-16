@@ -4,7 +4,7 @@ import {randomUUID} from "node:crypto";
 import {describe, expect, it, vi} from "vitest";
 import writerProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/writer.profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
-import {ResearcherInitialSchema, RetrievalInitialSchema, RetrievalOutputSchema, WriterInitialSchema} from "nbook/server/agent/profiles/builtin-contracts";
+import {ResearcherInitialSchema, RetrievalInitialSchema, RetrievalOutputSchema, WriterInitialSchema, WriterPayloadSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {messageText} from "nbook/server/agent/messages/message-utils";
 import type {RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
@@ -156,14 +156,14 @@ describe("assets builtin v3 profiles", () => {
         expect(visiblePrompt).toContain("`invoke_agent.message` 保留用户原始问题");
         expect(visiblePrompt).toContain("最多做一句最小改写");
         expect(visiblePrompt).toContain("不要在 Leader 层扩展成多个猜测方向");
-        expect(visiblePrompt).toContain("一章节一 agent");
-        expect(visiblePrompt).toContain("不是“一次写作任务一 agent”");
+        expect(visiblePrompt).toContain("长期可复用写作工位");
+        expect(visiblePrompt).toContain("create_agent({profileKey: \"writer\", initial: {}, title})");
         expect(visiblePrompt).toContain("`description` 是 profile 的能力 / 适用场景说明");
         expect(visiblePrompt).toContain("优先复用已有同 profile 且同创建 initial 语义的 agent");
         expect(visiblePrompt).toContain("`metadata.initial`");
-        expect(visiblePrompt).toContain("`WriterInitialSchema` 创建值语义变化");
-        expect(visiblePrompt).toContain("chapterPaths");
-        expect(visiblePrompt).toContain("`writer.lorebookEntries` 只接收内容节点 path 字符串数组");
+        expect(visiblePrompt).toContain("`invoke_agent.input.path` 是本轮唯一写入或修改目标");
+        expect(visiblePrompt).toContain("`invoke_agent.message` 必须写清");
+        expect(visiblePrompt).toContain("input.context.lorebookEntries");
         expect(visiblePrompt).toContain("创建 retrieval 时只传自然语言 `prompt`");
         expect(visiblePrompt).toContain("{ entries, note? }");
         expect(visiblePrompt).toContain("Content References");
@@ -197,8 +197,8 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).not.toContain("(^|[\\\\/])index");
         expect(historyText).toContain("Available Agents");
         expect(historyText).toContain("writer");
-        expect(historyText).toContain("单章节正文写作 agent");
-        expect(historyText).toContain("可被多次 invoke");
+        expect(historyText).toContain("长期可复用正文写作 agent");
+        expect(historyText).toContain("invoke.input 指定目标 Markdown path");
         expect(historyText).toContain("内容节点召回和候选判断 agent");
         expect(historyText).toContain("get_agent_profile");
         expect(historyText).not.toContain("本次写作任务");
@@ -513,21 +513,36 @@ describe("assets builtin v3 profiles", () => {
         expect(appendingText).toContain("Project SQLite");
     });
 
-    it("writer 输入合同硬切为单章节 chapterPaths", () => {
-        const properties = WriterInitialSchema.properties;
+    it("writer 输入合同硬切为空 initial 和 invocation payload", () => {
+        const initialProperties = WriterInitialSchema.properties;
+        const payloadProperties = WriterPayloadSchema.properties;
+        const contextSchema = payloadProperties.context as typeof payloadProperties.context & {properties: Record<string, unknown>};
 
-        expect(properties).toHaveProperty("prompt");
-        expect(properties).toHaveProperty("chapterPaths");
-        expect(properties).toHaveProperty("lorebookEntries");
-        expect(properties).toHaveProperty("constraints");
-        expect(properties).toHaveProperty("writingStylePreset");
-        expect(properties).toHaveProperty("writingReferencePreset");
-        expect(properties).not.toHaveProperty("plotPoints");
-        expect(properties).not.toHaveProperty("novelId");
-        expect(properties).not.toHaveProperty("outputPath");
-        const chapterPathsSchema = properties.chapterPaths as typeof properties.chapterPaths & {minItems?: number; maxItems?: number};
-        expect(chapterPathsSchema.minItems).toBe(1);
-        expect(chapterPathsSchema.maxItems).toBe(1);
+        expect(writerProfile.rootToolKeys).toEqual(expect.arrayContaining([
+            "read",
+            "write",
+            "edit",
+            "apply_patch",
+            "get_story_thread",
+            "get_story_scene_context",
+            "get_story_plot_context",
+            "get_chapter_plot",
+            "report_result",
+        ]));
+        expect(initialProperties).toEqual({});
+        expect(payloadProperties).toHaveProperty("path");
+        expect(payloadProperties).toHaveProperty("context");
+        expect(contextSchema.properties).toHaveProperty("threadIds");
+        expect(contextSchema.properties).toHaveProperty("sceneIds");
+        expect(contextSchema.properties).toHaveProperty("plotIds");
+        expect(contextSchema.properties).toHaveProperty("lorebookEntries");
+        expect(contextSchema.properties).toHaveProperty("readablePaths");
+        expect(initialProperties).not.toHaveProperty("prompt");
+        expect(initialProperties).not.toHaveProperty("chapterPaths");
+        expect(initialProperties).not.toHaveProperty("lorebookEntries");
+        expect(initialProperties).not.toHaveProperty("constraints");
+        expect(initialProperties).not.toHaveProperty("writingStylePreset");
+        expect(initialProperties).not.toHaveProperty("writingReferencePreset");
     });
 
     it("retrieval 输入输出合同保持 prompt-only 和 Leader-facing entries", () => {
@@ -691,40 +706,12 @@ describe("assets builtin v3 profiles", () => {
         }
     });
 
-    it("writer 展开 lorebookEntries 的 index/state 并清洗内部 frontmatter", async () => {
+    it("writer payload prepare 只注入目标 path 和建议读取清单", async () => {
         const workspaceRoot = resolve(".agent", "workspace", "writer-lorebook-test", randomUUID());
         const projectSlug = `writer-project-${randomUUID()}`;
         const projectRoot = resolve("workspace", projectSlug);
-        const nodeRoot = join(workspaceRoot, "lorebook", "character", "hero");
-        await mkdir(nodeRoot, {recursive: true});
         await mkdir(projectRoot, {recursive: true});
         await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Writer Test\nsummary: \"\"\n", "utf8");
-        await writeFile(join(nodeRoot, "index.md"), [
-            "---",
-            "title: Hero",
-            "type: character",
-            "status: active",
-            "summary: 主角。",
-            "retrieval:",
-            "  enabled: true",
-            "refs:",
-            "  - relation: ally",
-            "    target: lorebook/character/mage/",
-            "    visibility: author",
-            "    internal: hidden",
-            "---",
-            "主角正文设定。",
-        ].join("\n"), "utf8");
-        await writeFile(join(nodeRoot, "state.md"), [
-            "---",
-            "statusNote: 正在白塔。",
-            "updatedAt: 2026-05-23",
-            "knowledge:",
-            "  - 知道白塔入口。",
-            "privateNote: hidden",
-            "---",
-            "当前状态正文。",
-        ].join("\n"), "utf8");
         try {
             const prepared = await writerProfile.prepare!({
                 session: testSession({
@@ -739,10 +726,20 @@ describe("assets builtin v3 profiles", () => {
                     archived: false,
                     planModeActive: false,
                 }),
-                initial: {
-                    prompt: "写一段正文",
-                    chapterPaths: [`${projectSlug}/manuscript/001-chapter/`],
-                    lorebookEntries: ["lorebook/character/hero/"],
+                initial: {},
+                invocation: {
+                    message: "请续写这一章，写到账册缺页被发现为止。",
+                    payload: {
+                        path: `${projectSlug}/manuscript/001-chapter/index.md`,
+                        context: {
+                            threadIds: ["thread-main"],
+                            sceneIds: ["scene-ledger"],
+                            plotIds: ["plot-missing-page"],
+                            lorebookEntries: [`${projectSlug}/lorebook/character/hero/`],
+                            readablePaths: [`${projectSlug}/manuscript/000-prologue/index.md`],
+                        },
+                    },
+                    caller: {kind: "user"},
                 },
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
@@ -753,22 +750,29 @@ describe("assets builtin v3 profiles", () => {
                 .map(messageText)
                 .join("\n") ?? "";
             const writerInputContext = historyContext.slice(historyContext.indexOf("<writer_input_context>"));
+            const appendingContext = (prepared.appendingMessages ?? []).map(messageText).join("\n");
 
             expect(historyContext).toContain("<writer_input_context>");
             expect(historyContext).toContain("```assets/workspace/.nbook/agent/skills/stop-slop/SKILL.md");
             expect(historyContext).toContain("# Stop Slop");
             expect(historyContext).toContain("Eliminate predictable AI writing patterns from prose.");
-            expect(historyContext).toContain("<chapter_target>");
-            expect(historyContext).toContain(`indexPath: ${projectSlug}/manuscript/001-chapter/index.md`);
-            expect(historyContext).not.toContain(`indexPath: workspace/${projectSlug}`);
-            expect(historyContext).toContain("<chapter_plots>");
-            expect(historyContext).toContain("<lorebook_entries>");
-            expect(historyContext).toContain("主角正文设定");
-            expect(historyContext).toContain("当前状态正文");
-            expect(historyContext).toContain("statusNote");
-            expect(writerInputContext).not.toContain("retrieval");
-            expect(writerInputContext).not.toContain("privateNote");
-            expect(writerInputContext).not.toContain("visibility");
+            expect(historyContext).toContain("<target_file>");
+            expect(historyContext).toContain(`path: ${projectSlug}/manuscript/001-chapter/index.md`);
+            expect(historyContext).toContain(`projectSlug: ${projectSlug}`);
+            expect(historyContext).toContain(`projectPath: workspace/${projectSlug}`);
+            expect(historyContext).toContain("chapterPath: manuscript/001-chapter/");
+            expect(historyContext).toContain("<suggested_context>");
+            expect(historyContext).toContain("thread-main");
+            expect(historyContext).toContain("scene-ledger");
+            expect(historyContext).toContain("plot-missing-page");
+            expect(historyContext).toContain(`${projectSlug}/lorebook/character/hero/`);
+            expect(historyContext).toContain(`${projectSlug}/manuscript/000-prologue/index.md`);
+            expect(appendingContext).toContain("请续写这一章，写到账册缺页被发现为止。");
+            expect(writerInputContext).not.toContain("<chapter_plots>");
+            expect(writerInputContext).not.toContain("<lorebook_entries>");
+            expect(writerInputContext).not.toContain("主角正文设定");
+            expect(writerInputContext).not.toContain("当前状态正文");
+            expect(writerInputContext).not.toContain("statusNote");
             expect(prepared.modelContextMessages ?? []).toHaveLength(0);
         } finally {
             await rm(workspaceRoot, {recursive: true, force: true});
@@ -776,7 +780,11 @@ describe("assets builtin v3 profiles", () => {
         }
     });
 
-    it("writer 拒绝非 cwd-relative 的 chapterPaths", async () => {
+    it("writer 无 payload 时不崩溃，非法 payload path 会明确拒绝", async () => {
+        const projectSlug = `writer-project-${randomUUID()}`;
+        const projectRoot = resolve("workspace", projectSlug);
+        await mkdir(projectRoot, {recursive: true});
+        await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Writer Test\nsummary: \"\"\n", "utf8");
         const baseSession = {
             systemPrompt: "",
             messages: [],
@@ -796,34 +804,55 @@ describe("assets builtin v3 profiles", () => {
             skills: [],
         };
 
-        await expect(writerProfile.prepare!({
-            ...contextBase,
-            initial: {
-                prompt: "写一段正文",
-                chapterPaths: ["manuscript/001-chapter/"],
-            },
-        })).rejects.toThrow("相对于 Agent cwd");
-        await expect(writerProfile.prepare!({
-            ...contextBase,
-            initial: {
-                prompt: "写一段正文",
-                chapterPaths: ["workspace/silver-dragon-hime/manuscript/001-chapter/"],
-            },
-        })).rejects.toThrow("相对于 Agent cwd");
-        await expect(writerProfile.prepare!({
-            ...contextBase,
-            initial: {
-                prompt: "写一段正文",
-                chapterPaths: ["silver-dragon-hime/manuscript/001-chapter/index.md"],
-            },
-        })).rejects.toThrow("相对于 Agent cwd");
-        await expect(writerProfile.prepare!({
-            ...contextBase,
-            initial: {
-                prompt: "写一段正文",
-                chapterPaths: ["silver-dragon-hime/manuscript/001-chapter"],
-            },
-        })).rejects.toThrow("相对于 Agent cwd");
+        try {
+            const prepared = await writerProfile.prepare!({
+                ...contextBase,
+                initial: {},
+            });
+            expect((prepared.historyInitMessages ?? []).map(messageText).join("\n")).toContain("当前没有收到 invoke_agent.input");
+
+            await expect(writerProfile.prepare!({
+                ...contextBase,
+                initial: {},
+                invocation: {
+                    message: "写一段正文",
+                    payload: {path: "manuscript/001-chapter/index.md"},
+                    caller: {kind: "user"},
+                },
+            })).rejects.toThrow("project-slug");
+            await expect(writerProfile.prepare!({
+                ...contextBase,
+                initial: {},
+                invocation: {
+                    message: "写一段正文",
+                    payload: {path: `workspace/${projectSlug}/manuscript/001-chapter/index.md`},
+                    caller: {kind: "user"},
+                },
+            })).rejects.toThrow("workspace/project-slug");
+            await expect(writerProfile.prepare!({
+                ...contextBase,
+                initial: {},
+                invocation: {
+                    message: "写一段正文",
+                    payload: {path: `${projectSlug}/manuscript/001-chapter/`},
+                    caller: {kind: "user"},
+                },
+            })).rejects.toThrow("Markdown 文件");
+            await expect(writerProfile.prepare!({
+                ...contextBase,
+                initial: {},
+                invocation: {
+                    message: "写一段正文",
+                    payload: {
+                        path: `${projectSlug}/manuscript/001-chapter/index.md`,
+                        context: {readablePaths: [`other-project/notes.md`]},
+                    },
+                    caller: {kind: "user"},
+                },
+            })).rejects.toThrow("相同的 Project slug");
+        } finally {
+            await rm(projectRoot, {recursive: true, force: true});
+        }
     });
 });
 

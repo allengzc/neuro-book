@@ -37,13 +37,13 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 
 ### Writer Collaboration
 
-- `writer` 是正文写作专用 agent，采用“一章节一 agent”，不是“一次写作任务一 agent”。
-- 调用 writer 前，先确保章节内容节点已经存在，并且 Plot System 中需要写入本章的 Scene 已挂到该 `chapterPath`。
-- `writer.initial.chapterPaths` 必须且只能包含一个章节目录，并且必须是 Agent cwd-relative Project 路径，例如 `silver-dragon-hime/manuscript/001-第一章/`。
-- 如果 `chapterPaths`、`lorebookEntries`、`constraints`、`writingStylePreset`、`writingReferencePreset` 等创建 initial 语义未变，后续润色、局部修改、继续改同一章都 `invoke_agent` 调用旧 writer。
-- 如果切换章节、换一组稳定设定输入、换预设或其他 `WriterInitialSchema` 创建值语义变化，则 `create_agent` 新 writer。
-- `writer.lorebookEntries` 只接收内容节点 path 字符串数组。需要设定召回时，先让 retrieval 返回候选判断结果，再由 leader 提取 `entries[].path`，按需要传给 `writer.lorebookEntries`。不要把 retrieval 的 `reason`、`use`、`risk` 或 `note` 传给 writer。
-- 普通 `writer` 不维护 `simulation/`，也不自行遍历 `simulation/`。如果写作前需要世界状态推进，由 Leader 调用 `simulator.leader` 或按 workflow skill 做 simulation tick，再把结果整理成 Plot、constraints、writer-safe brief 或选中的 `lorebookEntries`。
+- `writer` 是正文写作专用 agent，是长期可复用写作工位。创建 writer 时使用 `create_agent({profileKey: "writer", initial: {}, title})`。
+- 每轮写作任务都通过 `invoke_agent` 发送：`message` 写自然语言任务，`input` 按 writer `PayloadSchema` 传 `{path, context?}`。
+- `invoke_agent.input.path` 是本轮唯一写入或修改目标，必须是 Agent cwd-relative Project Markdown 路径，例如 `silver-dragon-hime/manuscript/001-第一章/index.md`。
+- `invoke_agent.message` 必须写清写什么、范围、重点、禁忌、结束条件和交付要求；不要只传 id/path 让 writer 自己规划剧情。
+- `invoke_agent.input.context` 只放建议读取清单：`threadIds`、`sceneIds`、`plotIds`、`lorebookEntries`、`readablePaths`。它不是任务正文，也不是必须全部读取的材料。
+- 需要设定召回时，先让 retrieval 返回候选判断结果，再由 leader 选择 `entries[].path` 放入 `input.context.lorebookEntries`。不要把 retrieval 的 `reason`、`use`、`risk` 或 `note` 直接传给 writer。
+- 普通 `writer` 不维护 `simulation/`，也不自行遍历 `simulation/`。如果写作前需要世界状态推进，由 Leader 调用 `simulator.leader` 或按 workflow skill 做 simulation tick，再把结果整理成 Plot、message 中的 writer-safe 信息或 `input.context`。
 
 ### Simulator / Director Collaboration
 
@@ -72,7 +72,7 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 - 创建 retrieval 时只传自然语言 `prompt`，把任务目标、要找什么、给谁用、章节 / 正文上下文、排除项和数量偏好写清楚即可。
 - retrieval 应先建立内容节点元数据清单，再做必要的精确搜索，并通过 `report_result.data` 返回 `{ entries, note? }`。
 - `entries` 按推荐优先级排序；Leader 可以不读正文，直接根据 `path`、`reason`、`use`、`risk` 判断哪些条目传给 writer。
-- 需要 writer 参考内容节点时，优先先让 retrieval 召回候选，再把 `entries[].path` 整理为 `writer.lorebookEntries`；不要让 writer 自己做大范围检索。
+- 需要 writer 参考内容节点时，优先先让 retrieval 召回候选，再把 `entries[].path` 整理为 `invoke_agent.input.context.lorebookEntries`；不要让 writer 自己做大范围检索。
 
 ### RP / Simulation Collaboration
 

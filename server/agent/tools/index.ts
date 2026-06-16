@@ -32,6 +32,7 @@ function buildAgentTools() {
         getPlotTree: requireDefinition(plotTools, "get_plot_tree"),
         getStoryThread: requireDefinition(plotTools, "get_story_thread"),
         getStorySceneContext: requireDefinition(plotTools, "get_story_scene_context"),
+        getStoryPlotContext: requireDefinition(plotTools, "get_story_plot_context"),
         getChapterPlot: requireDefinition(plotTools, "get_chapter_plot"),
         createStoryThread: requireDefinition(plotTools, "create_story_thread"),
         updateStoryThread: requireDefinition(plotTools, "update_story_thread"),

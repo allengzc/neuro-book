@@ -96,6 +96,7 @@ const CreateStoryPlotItemSchema = Type.Object({
 const GetPlotTreeSchema = ProjectScopedSchema;
 const GetStoryThreadSchema = Type.Object({...ProjectScopedSchema.properties, threadId: Type.Optional(NonEmptyString("Thread ID. Defaults to plot.selection selected thread."))});
 const GetStorySceneContextSchema = Type.Object({...ProjectScopedSchema.properties, sceneId: Type.Optional(NonEmptyString("Scene ID. Defaults to plot.selection selected scene."))});
+const GetStoryPlotContextSchema = Type.Object({...ProjectScopedSchema.properties, plotId: NonEmptyString("Plot ID.")});
 const GetChapterPlotSchema = Type.Object({...ProjectScopedSchema.properties, chapterPath: NonEmptyString("Manuscript chapter path, e.g. manuscript/001-opening/.")});
 const CreateStoryThreadSchema = Type.Object({...ProjectScopedSchema.properties, ...ThreadPatchSchema, name: NonEmptyString("Machine-friendly thread name."), title: NonEmptyString("Human-readable thread title.")});
 const UpdateStoryThreadSchema = Type.Object({...ProjectScopedSchema.properties, threadId: Type.Optional(NonEmptyString("Thread ID. Defaults to plot.selection selected thread.")), ...ThreadPatchSchema});
@@ -150,6 +151,14 @@ export function createPlotTools(): NeuroAgentTool[] {
             const chapterPlot = scene.chapterPath ? await facade.getChapterPlotDetailDto(input.projectPath, scene.chapterPath) : null;
             await writeSelection(context, {projectPath: input.projectPath, threadId: scene.threadId, sceneId: String(sceneId)});
             return plotResult({thread, scene, chapterPlot});
+        }),
+        tool("get_story_plot_context", "Read a story plot with its parent scene and thread.", GetStoryPlotContextSchema, async (context, input) => {
+            const facade = await loadPlotFacade();
+            const plot = await facade.getStoryPlotDto(input.projectPath, parseEntityId("plotId", input.plotId));
+            const scene = await facade.getStorySceneDetailDto(input.projectPath, parseEntityId("sceneId", plot.sceneId));
+            const thread = await facade.getStoryThreadDetailDto(input.projectPath, parseEntityId("threadId", scene.threadId));
+            await writeSelection(context, {projectPath: input.projectPath, threadId: scene.threadId, sceneId: scene.id});
+            return plotResult({thread, scene, plot});
         }),
         tool("get_chapter_plot", "Read scenes and plots attached to a manuscript chapter content-node.", GetChapterPlotSchema, async (_context, input) => {
             const facade = await loadPlotFacade();

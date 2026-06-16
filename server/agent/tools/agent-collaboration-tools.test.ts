@@ -36,10 +36,7 @@ describe("agent collaboration tool definitions", () => {
 
         expect(Value.Check(createAgent.parameters, {
             profileKey: "writer",
-            initial: {
-                prompt: "write",
-                chapterPaths: ["manuscript/001/"],
-            },
+            initial: {},
         })).toBe(true);
         expect(Value.Check(createAgent.parameters, {
             profileKey: "writer",
@@ -130,8 +127,8 @@ describe("agent collaboration tool definitions", () => {
                             description: "Write prose",
                             loadStatus: "loaded",
                             source: "system",
-                            initialSchema: Type.Object({chapterPaths: Type.Array(Type.String())}),
-                            payloadSchema: Type.Object({plotId: Type.String()}),
+                            initialSchema: Type.Object({}),
+                            payloadSchema: Type.Object({path: Type.String()}),
                             outputSchema: Type.Object({path: Type.String()}),
                             reportResultSchema: Type.Object({hidden: Type.String()}),
                         }],
@@ -140,8 +137,8 @@ describe("agent collaboration tool definitions", () => {
                 async get() {
                     return {
                         rootToolKeys: ["read", "report_result"],
-                        initialSchema: Type.Object({chapterPaths: Type.Array(Type.String())}),
-                        payloadSchema: Type.Object({plotId: Type.String()}),
+                        initialSchema: Type.Object({}),
+                        payloadSchema: Type.Object({path: Type.String()}),
                         outputSchema: Type.Object({path: Type.String()}),
                     };
                 },
@@ -156,9 +153,9 @@ describe("agent collaboration tool definitions", () => {
             name: "Writer",
             description: "Write prose",
             toolKeys: ["read", "report_result"],
-            initialSchema: expect.stringContaining("chapterPaths"),
-            payloadSchema: expect.stringContaining("plotId"),
-            outputSchema: expect.stringContaining("path"),
+            initialSchema: "- no fields",
+            payloadSchema: "- path: required string",
+            outputSchema: "- path: required string",
         }));
         expect(JSON.stringify(result.details)).not.toContain("source");
         expect(JSON.stringify(result.details)).not.toContain("reportResultSchema");

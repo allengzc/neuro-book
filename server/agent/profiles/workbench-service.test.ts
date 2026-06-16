@@ -57,7 +57,7 @@ describe("profile workbench service", () => {
             catalog.invalidate();
             await expect(catalog.get("agent.created")).resolves.toEqual(expect.objectContaining({
                 manifest: expect.objectContaining({key: "agent.created"}),
-                toolKeys: expect.arrayContaining(["report_result"]),
+                rootToolKeys: expect.arrayContaining(["report_result"]),
             }));
         } finally {
             await rm(root, {recursive: true, force: true});

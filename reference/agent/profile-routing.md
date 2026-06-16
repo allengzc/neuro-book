@@ -29,7 +29,7 @@
 | Profile | 简介 | 适合 | 不适合 | 错位时建议 |
 | --- | --- | --- | --- | --- |
 | `director` | 剧情导演，管理 Thread / Scene / Plot。 | 剧情结构、章节规划、节奏、伏笔、Plot System 落库、writer handoff。 | 正文写作、simulation state 写回、联网研究、用户资产维护。 | 正文转 `writer`；世界状态未裁决先转 `simulator.leader`；项目统筹回 `leader.default`。 |
-| `writer` | 单章节正式正文写作 agent。 | 根据明确章节、Plot 和 lorebookEntries 写作、续写、润色同一章。 | 大范围检索、剧情结构设计、世界状态裁决、RP Tick 渲染。 | 需要上下文召回先转 `retrieval`；剧情结构转 `director`；世界因果转 `simulator.leader`；RP Tick 转 `rp.writer`。 |
+| `writer` | 长期可复用正式正文写作 agent。 | 根据本轮 message、目标 path 和 payload context 写作、续写、润色指定 Markdown 文件。 | 大范围检索、剧情结构设计、世界状态裁决、RP Tick 渲染、维护 Plot 或 simulation state。 | 需要上下文召回先转 `retrieval`；剧情结构转 `director`；世界因果转 `simulator.leader`；RP Tick 转 `rp.writer`。 |
 | `rp.writer` | RP Tick 用户可见正文渲染 agent。 | 消费上级 writer brief，把裁决结果写成 RP prose 并写入指定路径。 | 裁决世界、主持用户、读取完整 lorebook/simulation、正式章节正文。 | 裁决转 `simulator.leader`；主持和 brief 编剧转 `rp.leader`；正式章节转 `writer`。 |
 | `retrieval` | 内容节点召回和候选判断 agent。 | 为 Leader 查找 lorebook/manuscript 相关节点，输出 entries 给调用方判断。 | 写正文、改文件、裁决剧情、联网研究。 | 正文转 `writer`；联网事实转 `researcher`；项目统筹回 `leader.default`。 |
 | `researcher` | 联网研究 agent。 | 当前网页资料、新闻/版本/价格/政策、外部文档核对、多来源事实检查和引用。 | 本地 Project 文件编辑、正文写作、世界模拟、Plot 落库。 | 本地创作任务回 `leader.default`；正文转 `writer`；世界裁决转 `simulator.leader`。 |

@@ -55,6 +55,7 @@ export const builtin = {
         getTree: registeredTool("get_plot_tree"),
         getThread: registeredTool("get_story_thread"),
         getSceneContext: registeredTool("get_story_scene_context"),
+        getPlotContext: registeredTool("get_story_plot_context"),
         getChapter: registeredTool("get_chapter_plot"),
         createThread: registeredTool("create_story_thread"),
         updateThread: registeredTool("update_story_thread"),

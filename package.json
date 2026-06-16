@@ -31,6 +31,7 @@
     "migrate": "bun scripts/db/prisma-migrate.mjs",
     "migrate:deploy": "bun scripts/db/prisma-migrate.mjs --deploy",
     "migrate:agent-session-initial": "bun scripts/db/migrate-agent-session-initial.ts",
+    "migrate:writer-session-initial": "bun scripts/db/migrate-writer-session-initial.ts",
     "generate": "bun scripts/db/prisma-generate.mjs",
     "generate:openapi": "bun scripts/build/generate-openapi-meta.ts",
     "config:migrate": "bun scripts/db/migrate-config-system.ts",

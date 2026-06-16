@@ -29,7 +29,7 @@ Common path forms:
 | Context | Path |
 | --- | --- |
 | Agent file tools | `{project}/manuscript/001-volume/001-chapter/index.md` |
-| `writer.chapterPaths` | `{project}/manuscript/001-volume/001-chapter/` |
+| `writer` `invoke_agent.input.path` | `{project}/manuscript/001-volume/001-chapter/index.md` |
 | Plot stored `chapterPath` | `manuscript/001-volume/001-chapter/` |
 | Markdown link from nearby node | relative link such as `../001-chapter/` |
 

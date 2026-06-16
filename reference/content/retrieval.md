@@ -50,7 +50,7 @@ retrieval:
 }
 ```
 
-其中 `path` 是唯一会传给 `writer.lorebookEntries` 的字段；`reason` / `use` / `risk` / `note` 只给 Leader 判断，不直接传给 writer。
+其中 `path` 是唯一会传给 writer payload `context.lorebookEntries` 的字段；`reason` / `use` / `risk` / `note` 只给 Leader 判断，不直接传给 writer。
 
 ## Writer Flow
 
@@ -58,7 +58,7 @@ retrieval:
 
 1. Leader 或系统入口先创建并调用 `retrieval`。
 2. Retrieval profile 根据自然语言 prompt 召回内容节点，调用 `report_result` 返回 `data: { entries, note? }`。
-3. Leader 或系统入口阅读 `reason` / `use` / `risk` 后，把选中的 `entries[].path` 映射为 `writer.lorebookEntries` 参数。
-4. Writer 按输入数组顺序读取每个内容节点的 `index.md` 与同级可选 `state.md`，并注入 prompt。
+3. Leader 或系统入口阅读 `reason` / `use` / `risk` 后，把选中的 `entries[].path` 映射为 `invoke_agent.input.context.lorebookEntries`。
+4. Writer 根据本轮 `message` 判断是否用 `read` 主动读取内容节点的 `index.md` 与同级可选 `state.md`。
 
-这种设计让 retriever 专注路径选择，让 writer 获得明确文件上下文，同时不要求 writer 自己调用工具或进行多轮搜索。
+这种设计让 retriever 专注路径选择，让 writer 获得明确建议上下文，同时避免在 prepare 阶段无差别注入大量文件正文。

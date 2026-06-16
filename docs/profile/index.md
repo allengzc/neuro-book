@@ -40,7 +40,7 @@ workspace/.nbook/agent/profiles/
 | Profile | 职责 |
 | --- | --- |
 | `leader.default` | 普通小说项目的总调度，处理 Skill、writer、retrieval、researcher 和写作流程。 |
-| `writer` | 正式章节正文写作，一章节一 agent。 |
+| `writer` | 正式正文写作，长期 session 每轮通过 message + payload 指定任务和目标文件。 |
 | `retrieval` | 内容节点召回和候选判断。 |
 | `summarizer` | 后台生成 session title / summary。 |
 | `leader.assets` | 协助用户理解和维护 user-assets、profile、skill。 |
@@ -51,6 +51,6 @@ workspace/.nbook/agent/profiles/
 ## 继续阅读
 
 - [Leader](./leader.md)：默认 leader 如何调度写作、检索、研究和 RP。
-- [Writer](./writer.md)：普通 writer 的章节写作边界。
+- [Writer](./writer.md)：普通 writer 的正文写作边界。
 - [其他 Profile](./other-profiles.md)：retrieval、summarizer、assets、RP profiles。
 - [Profile Guide](https://github.com/notnotype/neuro-book/blob/master/reference/agent/profile-guide.md)：profile 作者主入口。
