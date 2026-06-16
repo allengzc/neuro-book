@@ -155,7 +155,7 @@ export class AgentProfileCatalog {
             key: profile.manifest.key,
             name: profile.manifest.name,
             description: profile.manifest.description,
-            toolKeys: profile.toolKeys,
+            toolKeys: profile.rootToolKeys,
             inputSchema: profile.inputSchema,
             outputSchema: profile.outputSchema,
             source,
@@ -373,7 +373,7 @@ export class AgentProfileCatalog {
             && "manifest" in value
             && "inputSchema" in value
             && "tools" in value
-            && "toolKeys" in value
+            && "rootToolKeys" in value
             && "prepare" in value
             && typeof (value as {prepare?: unknown}).prepare === "function",
         );

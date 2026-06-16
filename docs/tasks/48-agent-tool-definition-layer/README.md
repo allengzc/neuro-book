@@ -73,6 +73,31 @@
 
 ## Decisions / Discussion
 
+### 0. Profile author API 二次收敛
+
+2026-06-16 继续收敛 profile 工具作者 API：旧 `tools.*()` 看起来像“创建工具”，但实际只是 profile-level tool reference，容易和真正的 `AgentToolDefinition` 混淆。新 API 硬切为：
+
+```ts
+import {builtin, defineProfileTool, pluginTool, toolset} from "nbook/server/agent/profiles/profile-tools";
+
+tools: toolset(
+    builtin.file.read,
+    builtin.agent.create,
+    builtin.result.main({dataSchema: OutputSchema}),
+    builtin.result.sidecar(),
+    pluginTool("some_plugin"),
+    customProfileTool,
+),
+
+toolKeys: ["report_result"],
+```
+
+- `builtin` 是轻量内置工具引用层，不 import runtime 工具实现；真正执行仍由 registry / profile 私有 definition 解析。
+- `toolset()` 按 `item.key` 生成 profile root tools 对象，并拒绝重复 key。
+- `defineProfileTool()` 是 profile 作者侧的自带工具定义入口；底层 runtime 仍保留 `defineAgentTool()`。
+- `pluginTool(key)` 只表示引用已注册插件工具。
+- 顶层 `toolKeys` 表示主 run 执行工具子集；运行时派生的 root 最大集合改名为 `rootToolKeys`，避免同名冲突。sidecar 继续使用 `sidecar.toolKeys`。
+
 ### 1. 目标三层模型
 
 ```
@@ -243,6 +268,13 @@ type ReportResultBinding = ToolBinding<"report_result"> & { dataSchema?: TSchema
   - `createBuiltinTools()` 改为无参入口，Harness 不再传入死参数 `this`。
   - `server/agent/tools/builtin-tools.ts` 删除；控制工具迁入 `control-tools.ts`，agent 协作工具迁入 `agent-collaboration-tools.ts`，`index.ts` 只做聚合与 re-export。
   - 回退 `simulator.actor` 本轮误加的 `write` 权限，`actor.memory-save` 继续只使用 `subject_event_append` / `subject_memory_update` / `read` / `edit` / `report_result`。
+- 2026-06-16：二次收敛 profile author API：
+  - 生产 API 删除 `defineProfileTools` / `tools.*()`，改为 `toolset(builtin...)`、`pluginTool()` 和 `defineProfileTool()`。
+  - 内置工具引用统一进入分组 `builtin`：`file`、`agent`、`control`、`task`、`plot`、`sql`、`variable`、`subject`、`web`、`result`。
+  - profile 顶层 `mainRunToolKeys` 硬切为 `toolKeys`；运行时 root 最大集合 `profile.toolKeys` 改名为 `profile.rootToolKeys`。
+  - Harness 保持 provider-visible tools/schema 来自 `rootToolKeys`，主 run 执行权限来自 `profile.toolKeys ?? rootToolKeys`，sidecar 执行权限来自 `sidecar.toolKeys ?? rootToolKeys`。
+  - 12 个 system profiles、fallback `defaultAgentProfile` 和 `summarizerProfile` 已迁移到新 API，并重新编译 system `.compiled` artifacts。
+  - 验证通过：`bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/profiles/report-result-schema.test.ts server/agent/profiles/rp-profiles.test.ts server/agent/profiles/simulation-director-profiles.test.ts server/agent/profiles/leader-assets-profile.test.ts --reporter=dot`；`bunx vitest run server/agent/harness/neuro-agent-harness.test.ts -t "profile 自带工具|registered 引用缺失|自带审批工具|sidecar 保持 profile 最大工具 schema|主 run 可见 profile 最大工具 schema|主 run 执行权限|prepareTurn toolKeysPatch|report_sidecar_result|report_result 连续失败|simulator.actor" --reporter=dot`。
 
 ## TODO / Follow-ups
 

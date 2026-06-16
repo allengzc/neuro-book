@@ -21,13 +21,13 @@
 
 需要结构化结果时声明 `outputSchema`。存在 `outputSchema` 时，`report_result.data` 是主路结构化输出的 runtime 校验依据；provider-visible schema 中该字段保持 optional，方便任务失败或只返回可读错误说明时仍能结束主 run。旁路结构化结果不要复用 `report_result`，必须通过 `report_sidecar_result.data` 返回。
 
-`tools` 是 profile 的根工具绑定对象，决定模型可见工具 schema 和 profile 最大执行权限。推荐用 `defineProfileTools({...})` 显式声明工具集合；需要定制 `report_result.data` schema 时使用 `tools.reportResult({ dataSchema: OutputSchema })`。如果 profile 有 sidecar，root `tools` 需要同时声明 `report_sidecar_result: tools.reportSidecarResult()`；其 `data` schema 会由当前 profile 全部 `sidecarDataSchema` 汇总成 sidecar-name keyed 的 profile-stable union。sidecar 调用时必须传 `data: { "<sidecar-name>": payload }`，payload 才按该 sidecar 的 `sidecarDataSchema` 校验。主 run 需要收窄执行权限时声明 `mainRunToolKeys`，sidecar 需要收窄执行权限时声明 `sidecar.toolKeys`，二者都只能引用根 `tools` 中已有的 key。
+`tools` 是 profile 的根工具绑定对象，决定模型可见工具 schema 和 profile 最大执行权限。推荐用 `toolset(builtin...)` 显式声明工具集合；需要定制 `report_result.data` schema 时使用 `builtin.result.main({ dataSchema: OutputSchema })`。如果 profile 有 sidecar，root `tools` 需要同时声明 `builtin.result.sidecar()`；其 `data` schema 会由当前 profile 全部 `sidecarDataSchema` 汇总成 sidecar-name keyed 的 profile-stable union。sidecar 调用时必须传 `data: { "<sidecar-name>": payload }`，payload 才按该 sidecar 的 `sidecarDataSchema` 校验。主 run 需要收窄执行权限时声明顶层 `toolKeys`，sidecar 需要收窄执行权限时声明 `sidecar.toolKeys`，二者都只能引用根 `tools` 中已有的 key。
 
 `tools` 支持三种来源：
 
-- `tools.read()` / `tools.write()` 等：引用内置全局工具。
-- `defineAgentTool({...})`：定义并内联 profile 自带工具，该工具只在当前 profile run 内可见。
-- `tools.registered("plugin_tool")`：引用运行时已注册但没有 typed factory 的插件工具；不要用它内联自带工具。
+- `builtin.file.read` / `builtin.file.write` 等：引用内置全局工具。
+- `defineProfileTool({...})`：定义并内联 profile 自带工具，该工具只在当前 profile run 内可见。
+- `pluginTool("plugin_tool")`：引用运行时已注册但没有 typed API 的插件工具；不要用它内联自带工具。
 
 内置 profile 位于 `assets/workspace/.nbook/agent/profiles/builtin/`，例如：
 
@@ -229,7 +229,7 @@ Agent 需要读写变量时，按工具流程：
 /** @jsxRuntime automatic */
 import {Type} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {
     AppendingSet,
     HistorySet,
@@ -257,11 +257,11 @@ export const InputSchema = Type.Object({
 export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
-    tools: defineProfileTools({
-        read: tools.read(),
-        write: tools.write(),
-        edit: tools.edit(),
-    }),
+    tools: toolset(
+        builtin.file.read,
+        builtin.file.write,
+        builtin.file.edit,
+    ),
     context() {
         return (
             <ProfilePrompt>
@@ -291,13 +291,13 @@ export default defineAgentProfile({
 
 ## Profile-Owned Tool
 
-profile 可以用 `defineAgentTool()` 定义自带工具，并把 definition 本身放进根 `tools`。自带工具的 key 只在当前 profile run 内解析，不会注册进全局 registry。
+profile 可以用 `defineProfileTool()` 定义自带工具，并把 definition 本身放进根 `tools`。自带工具的 key 只在当前 profile run 内解析，不会注册进全局 registry。
 
 ```ts
 import {Type} from "typebox";
-import {defineAgentTool, defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
+import {builtin, defineProfileTool, toolset} from "nbook/server/agent/profiles/profile-tools";
 
-const roll_dice = defineAgentTool({
+const roll_dice = defineProfileTool({
     key: "roll_dice",
     description: "Roll one six-sided dice.",
     parameters: Type.Object({}),
@@ -310,10 +310,10 @@ const roll_dice = defineAgentTool({
     },
 });
 
-const profileTools = defineProfileTools({
+const profileTools = toolset(
     roll_dice,
-    report_result: tools.reportResult(),
-});
+    builtin.result.main(),
+);
 ```
 
 ## Checklist
@@ -323,7 +323,7 @@ const profileTools = defineProfileTools({
 - `key`、`kind`、`name` 和 `description` 是否准确。
 - `inputSchema` 是否只包含创建输入，不混入每轮动态状态。
 - 需要结构化结果时是否声明 `outputSchema`。
-- `tools` 是否是 profile 最大工具集合；`mainRunToolKeys` / `sidecar.toolKeys` 是否只是它的子集。
+- `tools` 是否是 profile 最大工具集合；顶层 `toolKeys` / `sidecar.toolKeys` 是否只是它的子集。
 - sidecar 是否使用 `report_sidecar_result` 而不是 `report_result` 返回旁路结果；是否声明了对应 `sidecarDataSchema`。
 - `System` 是否只放 profile 身份、职责和长期行为边界。
 - `HistorySet` 是否只放稳定前缀。

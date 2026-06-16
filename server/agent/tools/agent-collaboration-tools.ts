@@ -70,7 +70,7 @@ export const agentCollaborationTools = {
         name: "create_agent",
         label: "Create Agent",
         executionMode: "sequential",
-        description: "Create a new agent session and link it to current agent. Before every create_agent call, call get_agent_profile({ profileKey }) to inspect the target InputSchema, OutputSchema, report_result schema, and allowed tools. Pass input as a real JSON object matching that InputSchema, not a JSON string. Arrays, strings, numbers, booleans, and key=value text are rejected. This tool don't invoke the agent, use invoke_agent instead",
+        description: "Create a new agent session and link it to current agent. Before every create_agent call, call get_agent_profile({ profileKey }) to inspect the target InputSchema, OutputSchema, report_result schema, and profile root tools. Pass input as a real JSON object matching that InputSchema, not a JSON string. Arrays, strings, numbers, booleans, and key=value text are rejected. This tool don't invoke the agent, use invoke_agent instead",
         parameters: CreateAgentSchema,
         async executeWithContext(context, _toolCallId, params: unknown) {
             const agentInput = params as CreateAgentInput;
@@ -140,7 +140,7 @@ export const agentCollaborationTools = {
         name: "get_agent_profile",
         label: "Get Agent Profile",
         executionMode: "parallel",
-        description: "Get one agent profile's schema summary, OutputSchema, report_result schema, and allowed tools. This is the required schema-discovery step before create_agent. This queries profile catalog, not created agent sessions.",
+        description: "Get one agent profile's schema summary, OutputSchema, report_result schema, and profile root tools. This is the required schema-discovery step before create_agent. This queries profile catalog, not created agent sessions.",
         parameters: GetAgentProfileSchema,
         async executeWithContext(context, _toolCallId, params: unknown) {
             const query = params as GetAgentProfileInput;
@@ -208,7 +208,7 @@ function normalizeCreateAgentInput(profileKey: string, value: unknown): JsonValu
     return Value.Parse(Type.Record(Type.String(), Type.Unknown()), value) as JsonValue;
 }
 
-async function getAgentProfileDetail(harness: {profiles: {snapshot(): Promise<{profiles: Array<{key: string; name: string; description?: string; source: string; loadStatus: string; inputSchema?: unknown; outputSchema?: unknown}>}>; get(profileKey: string): Promise<{toolKeys: readonly string[]; inputSchema?: unknown; outputSchema?: unknown}>}}, profileKey: string): Promise<Record<string, JsonValue>> {
+async function getAgentProfileDetail(harness: {profiles: {snapshot(): Promise<{profiles: Array<{key: string; name: string; description?: string; source: string; loadStatus: string; inputSchema?: unknown; outputSchema?: unknown}>}>; get(profileKey: string): Promise<{rootToolKeys: readonly string[]; inputSchema?: unknown; outputSchema?: unknown}>}}, profileKey: string): Promise<Record<string, JsonValue>> {
     const {renderSchemaSummary} = await import("nbook/server/agent/profiles/profile-dsl");
     const {reportResultSchemaForProfile, reportSidecarResultSchemaForProfile} = await import("nbook/server/agent/profiles/report-result-schema");
     const snapshot = await harness.profiles.snapshot();
@@ -222,13 +222,13 @@ async function getAgentProfileDetail(harness: {profiles: {snapshot(): Promise<{p
         name: item.name,
         description: item.description ?? "",
         source: item.source,
-        toolKeys: [...profile.toolKeys],
+        toolKeys: [...profile.rootToolKeys],
         inputSchema: item.inputSchema ? renderSchemaSummary(item.inputSchema as never) : "none",
         outputSchema: item.outputSchema ? renderSchemaSummary(item.outputSchema as never) : "none",
-        reportResultSchema: profile.toolKeys.includes("report_result")
+        reportResultSchema: profile.rootToolKeys.includes("report_result")
             ? renderSchemaSummary(reportResultSchemaForProfile(profile as never))
             : "none",
-        reportSidecarResultSchema: profile.toolKeys.includes("report_sidecar_result")
+        reportSidecarResultSchema: profile.rootToolKeys.includes("report_sidecar_result")
             ? renderSchemaSummary(reportSidecarResultSchemaForProfile(profile as never))
             : "none",
     };

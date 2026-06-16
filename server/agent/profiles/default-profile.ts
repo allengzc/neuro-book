@@ -1,6 +1,6 @@
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {LeaderDefaultInputSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
-import {defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 
 /**
  * 最小内置 profile。真实 builtin profile 从 assets/workspace/.nbook 迁移。
@@ -13,22 +13,22 @@ export const defaultAgentProfile = defineAgentProfile({
     },
     inputSchema: LeaderDefaultInputSchema,
     outputSchema: LeaderDefaultOutputSchema,
-    tools: defineProfileTools({
-        read: tools.read(),
-        write: tools.write(),
-        edit: tools.edit(),
-        apply_patch: tools.applyPatch(),
-        bash: tools.bash(),
-        request_user_input: tools.requestUserInput(),
-        enter_plan_mode: tools.enterPlanMode(),
-        exit_plan_mode: tools.exitPlanMode(),
-        create_agent: tools.createAgent(),
-        invoke_agent: tools.invokeAgent(),
-        get_agent: tools.getAgent(),
-        get_agent_profile: tools.getAgentProfile(),
-        get_session: tools.getSession(),
-        detach_agent: tools.detachAgent(),
-    }),
+    tools: toolset(
+        builtin.file.read,
+        builtin.file.write,
+        builtin.file.edit,
+        builtin.file.applyPatch,
+        builtin.file.bash,
+        builtin.control.requestUserInput,
+        builtin.control.enterPlanMode,
+        builtin.control.exitPlanMode,
+        builtin.agent.create,
+        builtin.agent.invoke,
+        builtin.agent.get,
+        builtin.agent.getProfile,
+        builtin.agent.getSession,
+        builtin.agent.detach,
+    ),
     compaction: {},
     prepare() {
         return {

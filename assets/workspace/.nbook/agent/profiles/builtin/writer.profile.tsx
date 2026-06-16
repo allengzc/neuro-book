@@ -5,7 +5,7 @@ import {dirname, isAbsolute, join, posix, relative, resolve} from "node:path";
 import type {Static} from "typebox";
 import {z} from "zod";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {WriterInputSchema, WriterOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AppendingSet, HistorySet, If, Import, Message, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
@@ -46,13 +46,13 @@ export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
-    tools: defineProfileTools({
-        read: tools.read(),
-        write: tools.write(),
-        edit: tools.edit(),
-        apply_patch: tools.applyPatch(),
-        report_result: tools.reportResult(),
-    }),
+    tools: toolset(
+        builtin.file.read,
+        builtin.file.write,
+        builtin.file.edit,
+        builtin.file.applyPatch,
+        builtin.result.main(),
+    ),
     compaction: {},
     async context(ctx) {
         return buildWriterPrompt(ctx);

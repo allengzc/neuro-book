@@ -15,11 +15,11 @@ export function defineAgentProfile<
 >(profile: AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>): AgentProfile<TInputSchema, TOutputSchema, TSummarizerKey, TTools> {
     assertProfileManifest(profile.manifest);
     assertNoLegacyToolFields(profile.manifest.key, profile);
-    const toolKeys = assertProfileTools(profile.manifest.key, profile.tools);
+    const rootToolKeys = assertProfileTools(profile.manifest.key, profile.tools);
     assertProfileSummarizer(profile.manifest.key, profile.summarizer);
     validateCompactionPlan(profile.manifest.key, profile.compaction);
-    assertMainRunToolKeys(profile.manifest.key, toolKeys, profile.mainRunToolKeys);
-    assertProfileSidecars(profile.manifest.key, toolKeys, profile.sidecars);
+    assertProfileToolKeys(profile.manifest.key, rootToolKeys, profile.toolKeys);
+    assertProfileSidecars(profile.manifest.key, rootToolKeys, profile.sidecars);
     if (profile.context && profile.prepare) {
         throw new Error(`profile ${profile.manifest.key} 不能同时定义 context 和 prepare。`);
     }
@@ -42,7 +42,7 @@ export function defineAgentProfile<
         : agentRuntimeBuiltins.defaultSessionRuntime();
     return {
         ...profile,
-        toolKeys,
+        rootToolKeys,
         runtime,
         prepare,
     };
@@ -83,10 +83,13 @@ function assertProfileSummarizer(profileKey: string, summarizer: AgentProfile["s
  */
 function assertNoLegacyToolFields(profileKey: string, profile: object): void {
     if ("allowedToolKeys" in profile) {
-        throw new Error(`profile ${profileKey} 已移除 allowedToolKeys，请改用 tools: defineProfileTools({...})。`);
+        throw new Error(`profile ${profileKey} 已移除 allowedToolKeys，请改用 tools: toolset(...)。`);
     }
     if ("mainRunAllowedToolKeys" in profile) {
-        throw new Error(`profile ${profileKey} 已移除 mainRunAllowedToolKeys，请改用 mainRunToolKeys。`);
+        throw new Error(`profile ${profileKey} 已移除 mainRunAllowedToolKeys，请改用 toolKeys。`);
+    }
+    if ("mainRunToolKeys" in profile) {
+        throw new Error(`profile ${profileKey} 已移除 mainRunToolKeys，请改用 toolKeys。`);
     }
 }
 
@@ -121,14 +124,14 @@ function assertProfileTools<TTools extends ProfileTools>(profileKey: string, too
 /**
  * 校验主 run 的执行工具子集，允许 profile 为 sidecar 保留更大的 provider 可见工具集合。
  */
-function assertMainRunToolKeys(profileKey: string, toolKeys: readonly string[], mainRunToolKeys: readonly string[] | undefined): void {
-    if (!mainRunToolKeys) {
+function assertProfileToolKeys(profileKey: string, rootToolKeys: readonly string[], toolKeys: readonly string[] | undefined): void {
+    if (!toolKeys) {
         return;
     }
-    const allowed = new Set(toolKeys);
-    for (const toolKey of mainRunToolKeys) {
+    const allowed = new Set(rootToolKeys);
+    for (const toolKey of toolKeys) {
         if (!allowed.has(toolKey)) {
-            throw new Error(`profile ${profileKey} mainRunToolKeys 必须是 tools 子集：${toolKey}`);
+            throw new Error(`profile ${profileKey} toolKeys 必须是 tools 子集：${toolKey}`);
         }
     }
 }

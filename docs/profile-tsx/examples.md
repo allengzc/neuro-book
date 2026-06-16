@@ -9,7 +9,7 @@
 /** @jsxRuntime automatic */
 import {Type} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {
     AppendingSet,
     HistorySet,
@@ -36,11 +36,11 @@ export const InputSchema = Type.Object({
 export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
-    tools: defineProfileTools({
-        read: tools.read(),
-        write: tools.write(),
-        edit: tools.edit(),
-    }),
+    tools: toolset(
+        builtin.file.read,
+        builtin.file.write,
+        builtin.file.edit,
+    ),
     context() {
         return (
             <ProfilePrompt>

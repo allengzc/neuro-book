@@ -40,7 +40,7 @@ describe("simulation and director builtin profiles", () => {
 
         expect(simulatorLeaderProfile.inputSchema).toBe(SimulatorLeaderInputSchema);
         expect(simulatorLeaderProfile.outputSchema).toBe(SimulatorLeaderOutputSchema);
-        expect(simulatorLeaderProfile.toolKeys).toEqual([
+        expect(simulatorLeaderProfile.rootToolKeys).toEqual([
             "read",
             "write",
             "edit",
@@ -56,8 +56,8 @@ describe("simulation and director builtin profiles", () => {
             "get_story_scene_context",
             "get_chapter_plot",
         ]);
-        expect(simulatorLeaderProfile.toolKeys).not.toContain("create_story_plot");
-        expect(simulatorLeaderProfile.toolKeys).not.toContain("report_result");
+        expect(simulatorLeaderProfile.rootToolKeys).not.toContain("create_story_plot");
+        expect(simulatorLeaderProfile.rootToolKeys).not.toContain("report_result");
         expect(prompt).toContain("世界模拟主管");
         expect(prompt).toContain("writer_safe_brief");
         expect(prompt).toContain("director_handoff");
@@ -96,9 +96,9 @@ describe("simulation and director builtin profiles", () => {
 
         expect(directorProfile.inputSchema).toBe(DirectorInputSchema);
         expect(directorProfile.outputSchema).toBe(DirectorOutputSchema);
-        expect(directorProfile.toolKeys).toContain("create_story_plots");
-        expect(directorProfile.toolKeys).not.toContain("write");
-        expect(directorProfile.toolKeys).not.toContain("edit");
+        expect(directorProfile.rootToolKeys).toContain("create_story_plots");
+        expect(directorProfile.rootToolKeys).not.toContain("write");
+        expect(directorProfile.rootToolKeys).not.toContain("edit");
         expect(prompt).toContain("剧情导演");
         expect(prompt).toContain("Thread / Scene / Plot");
         expect(prompt).toContain("不维护 simulation/subjects/**");

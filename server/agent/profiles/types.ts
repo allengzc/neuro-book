@@ -178,7 +178,7 @@ export type AgentProfileDefinition<
     outputSchema?: TOutputSchema;
     tools: TTools;
     /** 主 run 实际可执行工具；不声明时等于 tools 的全部 key。sidecar 仍可声明自己的执行子集。 */
-    mainRunToolKeys?: readonly (keyof TTools & string)[];
+    toolKeys?: readonly (keyof TTools & string)[];
     sidecars?: readonly SidecarProfilePass<Static<TInputSchema>, JsonValue>[];
     summarizer?: AgentProfileSummarizerConfig<TSummarizerKey>;
     compaction?: ProfileCompactionPlan;
@@ -197,6 +197,6 @@ export type AgentProfile<
 > = Omit<AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>, "sidecars"> & {
     /** 运行时只需要 sidecar 合同本身；profile 定义阶段仍按 InputSchema 约束 ctx.input。 */
     sidecars?: readonly SidecarProfilePass<any, JsonValue>[];
-    /** 由 tools 对象派生的稳定工具 key 列表。运行时以 tools 为真相源，此字段只供便捷读取。 */
-    toolKeys: readonly (keyof TTools & string)[];
+    /** 由 tools 对象派生的稳定 root 工具 key 列表。运行时以 tools 为真相源，此字段只供便捷读取。 */
+    rootToolKeys: readonly (keyof TTools & string)[];
 };

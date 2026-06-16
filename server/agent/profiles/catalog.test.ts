@@ -567,7 +567,7 @@ describe("AgentProfileCatalog", () => {
                 inputSchema: { type: "object", properties: {} },
                 outputSchema: { type: "object", properties: {} },
                 tools: {},
-                toolKeys: [],
+                rootToolKeys: [],
                 prepare() { return { systemPrompt: "ok" }; },
             };
         `);
@@ -605,7 +605,7 @@ describe("AgentProfileCatalog", () => {
                 inputSchema: { type: "object", properties: {} },
                 outputSchema: { type: "object", properties: {} },
                 tools: {},
-                toolKeys: [],
+                rootToolKeys: [],
                 prepare() {
                     const marker = require("@nbook/" + "output-marker");
                     return { systemPrompt: marker.marker };
@@ -648,7 +648,7 @@ describe("AgentProfileCatalog", () => {
                 inputSchema: { type: "object", properties: {} },
                 outputSchema: { type: "object", properties: {} },
                 tools: {},
-                toolKeys: [],
+                rootToolKeys: [],
                 prepare() { return { systemPrompt: "ok" }; },
             };
         `);
@@ -710,7 +710,7 @@ describe("AgentProfileCatalog", () => {
                 inputSchema: { type: "object", properties: {} },
                 outputSchema: { type: "object", properties: {} },
                 tools: {},
-                toolKeys: [],
+                rootToolKeys: [],
                 prepare() {
                     const marker = require("@nbook/" + "portable-marker");
                     return { systemPrompt: marker.marker };

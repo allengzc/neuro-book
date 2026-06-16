@@ -4,7 +4,7 @@ import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import type {AgentRuntimeHookContext} from "nbook/server/agent/profiles/define-agent-runtime";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
-import {defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {SessionSummarizerInputSchema, SessionSummarizerOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {Message, ModelContext, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 
@@ -24,9 +24,9 @@ export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
-    tools: defineProfileTools({
-        report_result: tools.reportResult({dataSchema: OutputSchema}),
-    }),
+    tools: toolset(
+        builtin.result.main({dataSchema: OutputSchema}),
+    ),
     runtime: defineAgentRuntime<Input>({
         hooks: [
             agentRuntimeBuiltins.profilePrompt<Input>(),

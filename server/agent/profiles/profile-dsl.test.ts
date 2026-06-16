@@ -53,11 +53,11 @@ type LegacyTestProfile<
     TOutputSchema extends TSchema = TSchema,
     TSummarizerKey extends string = string,
     TTools extends ProfileTools = ProfileTools,
-> = Omit<AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>, "tools" | "mainRunToolKeys" | "sidecars"> & {
+> = Omit<AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>, "tools" | "toolKeys" | "sidecars"> & {
     tools?: ProfileTools;
     allowedToolKeys?: readonly string[];
     mainRunAllowedToolKeys?: readonly string[];
-    mainRunToolKeys?: readonly string[];
+    toolKeys?: readonly string[];
     sidecars?: readonly LegacyTestSidecar<Static<TInputSchema>>[];
 };
 
@@ -71,12 +71,13 @@ function defineAgentProfile<
         allowedToolKeys,
         mainRunAllowedToolKeys,
         sidecars,
+        toolKeys,
         ...rest
     } = profile;
     return defineRuntimeAgentProfile({
         ...rest,
         tools: rest.tools ?? profileToolsFromKeys(allowedToolKeys ?? []),
-        mainRunToolKeys: rest.mainRunToolKeys ?? mainRunAllowedToolKeys,
+        toolKeys: toolKeys ?? mainRunAllowedToolKeys,
         // 测试 helper 只做旧字段到新字段的机械迁移，最终运行时校验仍由 defineRuntimeAgentProfile 负责。
         sidecars: sidecars?.map((sidecar) => {
             const {

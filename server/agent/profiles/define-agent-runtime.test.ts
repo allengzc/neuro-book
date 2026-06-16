@@ -3,8 +3,16 @@ import {Type} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 
 describe("defineAgentRuntime", () => {
+    it("toolset 拒绝重复工具 key", () => {
+        expect(() => toolset(
+            builtin.file.read,
+            builtin.file.read,
+        )).toThrow("profile tools 重复：read");
+    });
+
     it("profile 未声明 runtime 时使用默认 runtime", () => {
         const profile = defineAgentProfile({
             manifest: {
@@ -50,7 +58,7 @@ describe("defineAgentRuntime", () => {
         })).toThrow("toolKeys 必须是 profile tools 子集");
     });
 
-    it("拒绝 mainRunToolKeys 使用 profile 未开放的工具", () => {
+    it("拒绝顶层 toolKeys 使用 profile 未开放的工具", () => {
         expect(() => defineAgentProfile({
             manifest: {
                 key: "test.main-run-tool-subset",
@@ -59,11 +67,11 @@ describe("defineAgentRuntime", () => {
             inputSchema: Type.Object({}),
             tools: profileToolsFromKeys(["report_result"]),
             // 故意绕过 TS 静态子集校验，覆盖运行时 profile loader 的错误路径。
-            mainRunToolKeys: ["read", "report_result"] as any,
+            toolKeys: ["read", "report_result"] as any,
             prepare() {
                 return {};
             },
-        })).toThrow("mainRunToolKeys 必须是 tools 子集");
+        })).toThrow("toolKeys 必须是 tools 子集");
     });
 
     it("拒绝 sidecar 使用 report_result", () => {

@@ -2,7 +2,7 @@
 /** @jsxRuntime automatic */
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {RpWriterInputSchema, RpWriterOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AppendingSet, HistorySet, If, Import, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {ProfilePrepareContext} from "nbook/server/agent/profiles/types";
@@ -28,13 +28,13 @@ export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
-    tools: defineProfileTools({
-        read: tools.read(),
-        write: tools.write(),
-        edit: tools.edit(),
-        bash: tools.bash(),
-        report_result: tools.reportResult(),
-    }),
+    tools: toolset(
+        builtin.file.read,
+        builtin.file.write,
+        builtin.file.edit,
+        builtin.file.bash,
+        builtin.result.main(),
+    ),
     compaction: {},
     async context(ctx) {
         return buildRpWriterPrompt(ctx);

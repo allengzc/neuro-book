@@ -2,7 +2,7 @@
 /** @jsxRuntime automatic */
 import type {Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {DirectorInputSchema, DirectorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {AgentCatalog, AppendingSet, HistorySet, Import, LinkedAgentsReminder, Message, ModelContext, ProfilePrompt, RuntimeLocationReminder, System, WorkspaceFocusReminder} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
@@ -23,26 +23,26 @@ export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
-    tools: defineProfileTools({
-        read: tools.read(),
-        create_agent: tools.createAgent(),
-        invoke_agent: tools.invokeAgent(),
-        get_agent: tools.getAgent(),
-        get_agent_profile: tools.getAgentProfile(),
-        get_session: tools.getSession(),
-        get_plot_tree: tools.getPlotTree(),
-        get_story_thread: tools.getStoryThread(),
-        get_story_scene_context: tools.getStorySceneContext(),
-        get_chapter_plot: tools.getChapterPlot(),
-        create_story_thread: tools.createStoryThread(),
-        update_story_thread: tools.updateStoryThread(),
-        create_story_scene: tools.createStoryScene(),
-        update_story_scene: tools.updateStoryScene(),
-        create_story_plot: tools.createStoryPlot(),
-        create_story_plots: tools.createStoryPlots(),
-        update_story_plot: tools.updateStoryPlot(),
-        report_result: tools.reportResult(),
-    }),
+    tools: toolset(
+        builtin.file.read,
+        builtin.agent.create,
+        builtin.agent.invoke,
+        builtin.agent.get,
+        builtin.agent.getProfile,
+        builtin.agent.getSession,
+        builtin.plot.getTree,
+        builtin.plot.getThread,
+        builtin.plot.getSceneContext,
+        builtin.plot.getChapter,
+        builtin.plot.createThread,
+        builtin.plot.updateThread,
+        builtin.plot.createScene,
+        builtin.plot.updateScene,
+        builtin.plot.createPlot,
+        builtin.plot.createPlots,
+        builtin.plot.updatePlot,
+        builtin.result.main(),
+    ),
     compaction: {},
     context(ctx) {
         return (

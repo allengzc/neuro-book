@@ -43,12 +43,13 @@ function defineAgentProfile(profile: any): ReturnType<typeof defineRuntimeAgentP
         allowedToolKeys,
         mainRunAllowedToolKeys,
         sidecars,
+        toolKeys,
         ...rest
     } = profile;
     return defineRuntimeAgentProfile({
         ...rest,
         tools: rest.tools ?? profileToolsFromKeys(allowedToolKeys ?? []),
-        mainRunToolKeys: rest.mainRunToolKeys ?? mainRunAllowedToolKeys,
+        toolKeys: toolKeys ?? mainRunAllowedToolKeys,
         sidecars: sidecars?.map((sidecar: any) => {
             const {
                 allowedToolKeys: sidecarAllowedToolKeys,

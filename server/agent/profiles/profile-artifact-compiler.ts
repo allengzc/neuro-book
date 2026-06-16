@@ -397,7 +397,7 @@ function isProfile(value: unknown): value is AgentProfile {
             && "manifest" in value
             && "inputSchema" in value
             && "tools" in value
-            && "toolKeys" in value
+            && "rootToolKeys" in value
             && "prepare" in value
             && typeof (value as {prepare?: unknown}).prepare === "function",
     );

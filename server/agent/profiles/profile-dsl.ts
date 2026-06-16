@@ -2139,7 +2139,7 @@ async function defaultAgentCatalogText(ctx: ProfilePrepareContext<any>): Promise
         "## Available Agents",
         "",
         "These agent profiles are currently available through create_agent / invoke_agent.",
-        "This catalog is only an index. Before calling an unfamiliar profile, call get_agent_profile({ profileKey }) to inspect InputSchema, OutputSchema, report_result schema, and allowed tools.",
+        "This catalog is only an index. Before calling an unfamiliar profile, call get_agent_profile({ profileKey }) to inspect InputSchema, OutputSchema, report_result schema, and profile root tools.",
         "",
         ...profiles,
         "</system-reminder>",

@@ -39,7 +39,7 @@ V1 规则：
 - 禁止 nested sidecar。
 - sidecar waiting、缺少必要结果、或多轮 tool error 后仍无法完成时，父 run 失败。
 - `toolKeys` 必须是当前 profile 根 `tools` 的 key 子集。
-- provider-visible tools 来自 profile 根 `tools`，保持 profile-stable；实际执行权限由主 run `mainRunToolKeys` 或 sidecar `toolKeys` 控制。
+- provider-visible tools 来自 profile 根 `tools`，保持 profile-stable；实际执行权限由主 run `toolKeys` 或 sidecar `toolKeys` 控制。
 - sidecar 不能创建或覆盖工具绑定，不能修改工具 schema、description 或执行函数。
 
 ## Result And Merge
@@ -64,7 +64,7 @@ type ReportSidecarResultArgs = {
 };
 ```
 
-- `report_result.data` 是主路结构化输出，按 profile `outputSchema` 或 `tools.reportResult({ dataSchema })` 校验。
+- `report_result.data` 是主路结构化输出，按 profile `outputSchema` 或 `builtin.result.main({ dataSchema })` 校验。
 - `report_sidecar_result.data` 是旁路结构化输出的 keyed 包装。profile normalize 会收集所有 sidecar 的 `sidecarDataSchema`，把它们渲染成 `{ "<sidecar-name>": payload }` 形态的 profile-stable union provider-visible schema。
 - provider-visible tools 和 schema 始终来自 profile root `tools`，不随当前 active sidecar 改变；sidecar 只用 `toolKeys` 收窄执行权限。
 - sidecar 运行期按当前 active sidecar 精确读取并校验 `report_sidecar_result.data[activeSidecar.name]`；缺 key、传错 key、额外 key 或 payload 类型不匹配都会在 tool execution 阶段返回模型可见 error toolResult，并允许同一 run 自我修正。

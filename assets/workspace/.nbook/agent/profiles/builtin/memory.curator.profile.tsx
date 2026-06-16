@@ -2,7 +2,7 @@
 /** @jsxRuntime automatic */
 import {type Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
+import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {MemoryCuratorInputSchema, MemoryCuratorOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {Message, ModelContext, ProfilePrompt, System} from "nbook/server/agent/profiles/profile-dsl";
 import {profileText} from "nbook/server/agent/profiles/profile-text";
@@ -23,9 +23,9 @@ export default defineAgentProfile({
     manifest: profileManifest,
     inputSchema: InputSchema,
     outputSchema: OutputSchema,
-    tools: defineProfileTools({
-        report_result: tools.reportResult({dataSchema: OutputSchema}),
-    }),
+    tools: toolset(
+        builtin.result.main({dataSchema: OutputSchema}),
+    ),
     compaction: {},
     context(ctx) {
         return (

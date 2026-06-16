@@ -777,7 +777,7 @@ export class NeuroAgentHarness {
                         timeoutMs: providerOptions.timeoutMs,
                         requestOptions: providerOptions.requestOptions,
                         sessionContextEnabled: input.sessionContextEnabled,
-                        toolKeys: [...input.profile.toolKeys],
+                        toolKeys: [...input.profile.rootToolKeys],
                         thinkingLevel,
                         runtimeState: input.runtimeState,
                         runResult: input.runResult,
@@ -912,8 +912,8 @@ export class NeuroAgentHarness {
         const providerOptions = this.providerOptions(config, model);
         const apiKey = resolvePiApiKeyForModelFromConfig(config, model);
         const runProfile = await this.profiles.get(context.profileKey);
-        const toolKeys = [...runProfile.toolKeys];
-        const executionToolKeys = runProfile.mainRunToolKeys ? [...runProfile.mainRunToolKeys] : undefined;
+        const toolKeys = [...runProfile.rootToolKeys];
+        const executionToolKeys = runProfile.toolKeys ? [...runProfile.toolKeys] : undefined;
         const thinkingLevel = this.resolveThinkingLevel(context, config, model);
         const systemPrompt = prepareRunHooks.profilePrompt ? prepared.plan.systemPrompt ?? context.systemPrompt : context.systemPrompt;
         const preparedModelContextMessages = prepareRunHooks.sessionContext === true ? prepared.plan.modelContextMessages ?? [] : [];
@@ -4696,7 +4696,7 @@ export class NeuroAgentHarness {
 
     private approvalToolKeysForProfile(profile: AgentProfile): string[] {
         const keys = new Set(this.tools.approvalToolKeys());
-        for (const toolKey of profile.toolKeys) {
+        for (const toolKey of profile.rootToolKeys) {
             const tool = this.resolveProfileTool(profile, toolKey);
             if (tool?.approvalRequired) {
                 keys.add(tool.key);

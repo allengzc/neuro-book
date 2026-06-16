@@ -11,7 +11,7 @@ import {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness"
 import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
 import {defineAgentProfile as defineRuntimeAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
 import {agentRuntimeBuiltins, defineAgentRuntime} from "nbook/server/agent/profiles/define-agent-runtime";
-import {defineAgentTool, defineProfileTools, tools} from "nbook/server/agent/profiles/profile-tools";
+import {builtin, defineProfileTool, pluginTool, toolset} from "nbook/server/agent/profiles/profile-tools";
 import type {ProfileTools} from "nbook/server/agent/profiles/profile-tools";
 import {profileToolsFromKeys} from "nbook/server/agent/test/profile-tools";
 import type {AgentCatalogSnapshot, AgentProfile, AgentProfileDefinition, SidecarProfilePass} from "nbook/server/agent/profiles/types";
@@ -34,11 +34,11 @@ type LegacyTestProfile<
     TOutputSchema extends TSchema = TSchema,
     TSummarizerKey extends string = string,
     TTools extends ProfileTools = ProfileTools,
-> = Omit<AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>, "tools" | "mainRunToolKeys" | "sidecars"> & {
+> = Omit<AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>, "tools" | "toolKeys" | "sidecars"> & {
     tools?: ProfileTools;
     allowedToolKeys?: readonly string[];
     mainRunAllowedToolKeys?: readonly string[];
-    mainRunToolKeys?: readonly string[];
+    toolKeys?: readonly string[];
     sidecars?: readonly LegacyTestSidecar<Static<TInputSchema>>[];
 };
 
@@ -52,6 +52,7 @@ function defineAgentProfile<
         allowedToolKeys,
         mainRunAllowedToolKeys,
         sidecars,
+        toolKeys,
         ...rest
     } = profile;
     const migratedSidecars = sidecars?.map((sidecar) => {
@@ -72,7 +73,7 @@ function defineAgentProfile<
     return defineRuntimeAgentProfile({
         ...rest,
         tools: rest.tools ?? profileToolsFromKeys(migratedAllowedToolKeys),
-        mainRunToolKeys: rest.mainRunToolKeys ?? mainRunAllowedToolKeys,
+        toolKeys: toolKeys ?? mainRunAllowedToolKeys,
         // 测试 helper 只做旧字段到新字段的机械迁移，最终运行时校验仍由 defineRuntimeAgentProfile 负责。
         sidecars: migratedSidecars as AgentProfileDefinition<TInputSchema, TOutputSchema, TSummarizerKey, TTools>["sidecars"],
     });
@@ -4072,7 +4073,7 @@ describe("NeuroAgentHarness", () => {
     it("profile 自带工具可见并可执行", async () => {
         let observedToolNames: string[] = [];
         let executedText = "";
-        const profileEcho = defineAgentTool({
+        const profileEcho = defineProfileTool({
             key: "profile_echo",
             name: "profile_echo",
             label: "Profile Echo",
@@ -4095,10 +4096,10 @@ describe("NeuroAgentHarness", () => {
                 name: "Profile Private Tool",
             },
             inputSchema: Type.Object({}),
-            tools: defineProfileTools({
-                profile_echo: profileEcho,
-                report_result: tools.reportResult(),
-            }),
+            tools: toolset(
+                profileEcho,
+                builtin.result.main(),
+            ),
             prepare() {
                 return {};
             },
@@ -4136,7 +4137,7 @@ describe("NeuroAgentHarness", () => {
     it("profile 自带工具通过 bind 覆盖描述后仍可见并可执行", async () => {
         let observedToolDescription = "";
         let executed = false;
-        const bindEcho = defineAgentTool({
+        const bindEcho = defineProfileTool({
             key: "bind_echo",
             name: "bind_echo",
             label: "Bind Echo",
@@ -4156,10 +4157,10 @@ describe("NeuroAgentHarness", () => {
                 name: "Profile Private Tool Bind",
             },
             inputSchema: Type.Object({}),
-            tools: defineProfileTools({
-                bind_echo: bindEcho.bind({description: "Profile override description."}),
-                report_result: tools.reportResult(),
-            }),
+            tools: toolset(
+                bindEcho.bind({description: "Profile override description."}),
+                builtin.result.main(),
+            ),
             prepare() {
                 return {};
             },
@@ -4210,7 +4211,7 @@ describe("NeuroAgentHarness", () => {
                 };
             },
         });
-        const privateShadowTool = defineAgentTool({
+        const privateShadowTool = defineProfileTool({
             key: "shadow_tool",
             name: "shadow_tool",
             label: "Private Shadow Tool",
@@ -4228,9 +4229,9 @@ describe("NeuroAgentHarness", () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {key: "test.private-shadow", name: "Private Shadow"},
             inputSchema: Type.Object({}),
-            tools: defineProfileTools({
-                shadow_tool: privateShadowTool,
-            }),
+            tools: toolset(
+                privateShadowTool,
+            ),
             prepare() {
                 return {};
             },
@@ -4238,9 +4239,9 @@ describe("NeuroAgentHarness", () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {key: "test.global-shadow", name: "Global Shadow"},
             inputSchema: Type.Object({}),
-            tools: defineProfileTools({
-                shadow_tool: tools.registered("shadow_tool"),
-            }),
+            tools: toolset(
+                pluginTool("shadow_tool"),
+            ),
             prepare() {
                 return {};
             },
@@ -4271,9 +4272,9 @@ describe("NeuroAgentHarness", () => {
                 name: "Missing Registered Tool",
             },
             inputSchema: Type.Object({}),
-            tools: defineProfileTools({
-                missing_plugin: tools.registered("missing_plugin"),
-            }),
+            tools: toolset(
+                pluginTool("missing_plugin"),
+            ),
             prepare() {
                 return {};
             },
@@ -4307,7 +4308,7 @@ describe("NeuroAgentHarness", () => {
 
     it("profile 自带审批工具可以 suspend 并通过 resolution 恢复", async () => {
         let privateApprovalExecuted = false;
-        const privateApproval = defineAgentTool({
+        const privateApproval = defineProfileTool({
             key: "private_approval",
             name: "private_approval",
             label: "Private Approval",
@@ -4331,10 +4332,10 @@ describe("NeuroAgentHarness", () => {
                 name: "Private Approval",
             },
             inputSchema: Type.Object({}),
-            tools: defineProfileTools({
-                private_approval: privateApproval,
-                report_result: tools.reportResult(),
-            }),
+            tools: toolset(
+                privateApproval,
+                builtin.result.main(),
+            ),
             prepare() {
                 return {};
             },
