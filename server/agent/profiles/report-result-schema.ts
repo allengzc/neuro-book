@@ -46,27 +46,32 @@ export function reportSidecarResultSchemaForProfile(profile: AgentProfile): TSch
         result: Type.String({
             description: "旁路阶段的可读结果；写简短摘要即可。",
         }),
-        data: sidecarDataUnionSchema(profile),
+        data: sidecarDataKeyedObjectSchema(profile),
     });
 }
 
 /**
- * 生成当前 profile 所有 sidecarDataSchema 的稳定 union。
+ * 生成当前 profile 所有 sidecarDataSchema 的稳定 keyed object。
+ *
+ * 模型可见结构为 { "<sidecar-name>": <sidecarDataSchema> }，一次只能返回一个
+ * sidecar key；这样可以保留每个 sidecar 的精确 schema，同时避开 provider 对
+ * anyOf/oneOf 工具参数的不稳定支持。
  */
-export function sidecarDataUnionSchema(profile: AgentProfile): TSchema {
-    const schemas = (profile.sidecars ?? [])
-        .map((pass) => pass.sidecarDataSchema)
-        .filter((schema): schema is TSchema => Boolean(schema));
-    if (schemas.length === 0) {
+export function sidecarDataKeyedObjectSchema(profile: AgentProfile): TSchema {
+    const properties = Object.fromEntries((profile.sidecars ?? [])
+        .flatMap((pass) => pass.sidecarDataSchema
+            ? [[pass.name, Type.Optional(pass.sidecarDataSchema)]]
+            : []));
+    if (Object.keys(properties).length === 0) {
         return Type.Never({
             description: "当前 profile 没有声明 sidecarDataSchema；不应调用 report_sidecar_result。",
         });
     }
-    if (schemas.length === 1) {
-        return schemas[0]!;
-    }
-    return Type.Union(schemas, {
-        description: "当前 profile 所有 sidecarDataSchema 的稳定 union；当前旁路的精确结构以 sidecar reminder 为准。",
+    return Type.Object(properties, {
+        additionalProperties: false,
+        minProperties: 1,
+        maxProperties: 1,
+        description: "当前 profile 所有 sidecarDataSchema 的稳定 keyed object；当前旁路只填写自己的 sidecar key。",
     });
 }
 

@@ -44,7 +44,7 @@ simulation/subjects/{subject-id}/
 `-- state.md
 ```
 
-- `simulator.actor` 主 run 不直接读取 subject 文件原文，且主 run 实际执行权限只允许 `report_result`；`actor.context-load` sidecar 可读取小文件并使用 `subject_rag_search` 注入 actor-safe context，注入内容会作为 harness-origin user message 持久化到 actor session。
+- `simulator.actor` 主 run 不直接读取 subject 文件原文，且主 run 实际执行权限只允许 `report_result`；`actor.context-load` sidecar 不读 subject 原文，只使用 `subject_rag_search` 注入 actor-safe context，注入内容会作为 harness-origin user message 持久化到 actor session。
 - `actor.memory-save` sidecar 维护 `events.jsonl`、`memory.jsonl` 与 `mind.md`，`state.md` 由 `simulator.leader` 裁决。
 - 旧 `events.md` / `knowledge.md` 合同已 hard cut；工具层不导入、不读取、不做长期双轨同步。
 - Task 42 已把 rollback 和 RAG 分离。本 task 不展开 rollback 实现，只需保证 RAG 索引可重建，且不把被回滚掉的非 active 现实当成当前记忆。
@@ -260,13 +260,12 @@ type MemoryCuratorOutput = {
 
 第一版只给 sidecar 使用 RAG / memory 工具，主路 `simulator.actor` 不直接使用。
 
-`simulator.actor` 的 profile 最大工具集合仍包含 sidecar 需要的 `subject_rag_search`、`subject_event_append`、`subject_memory_update`、`read`、`edit` 和 `report_result`，用于 provider-visible schema 和 sidecar 子集校验；但 profile 通过 `mainRunAllowedToolKeys: ["report_result"]` 把主 run 执行权限硬收窄为只允许 `report_result`。`leader.default` 不直接拥有 subject memory / RAG 工具。
+`simulator.actor` 的 profile 最大工具集合仍包含 sidecar 需要的 `subject_rag_search`、`subject_event_append`、`subject_memory_update`、`read`、`edit`、`report_result` 和 `report_sidecar_result`，用于 provider-visible schema 和 sidecar 子集校验；但 profile 通过 `mainRunToolKeys: ["report_result"]` 把主 run 执行权限硬收窄为只允许 `report_result`。`leader.default` 不直接拥有 subject memory / RAG 工具。
 
 `actor.context-load` 工具：
 
 - `subject_rag_search`
-- `read`
-- `report_result`
+- `report_sidecar_result`
 
 `actor.memory-save` 工具：
 
@@ -274,9 +273,9 @@ type MemoryCuratorOutput = {
 - `subject_memory_update`
 - `read`
 - `edit`
-- `report_result`
+- `report_sidecar_result`
 
-`subject_rag_search` 只做粗召回，不直接生成最终 actor context。`actor.context-load` 承担一部分 rerank 职责：它根据当前 actor-facing packet 过滤候选、合并重复内容、选择真正会影响角色反应的记忆，再通过 `report_sidecar_result.data` 返回纯文本，最终由 `merge()` 压缩注入 `<actor-sidecar-context>`。
+`subject_rag_search` 只做粗召回，不直接生成最终 actor context。`actor.context-load` 承担一部分 rerank 职责：它根据当前 actor-facing packet 过滤候选、合并重复内容、选择真正会影响角色反应的记忆，再通过 `report_sidecar_result.result` 返回纯文本，并用 `data: { "actor.context-load": {} }` 闭合旁路结果，最终由 `merge()` 压缩注入 `<actor-sidecar-context>`。
 
 ```ts
 type SubjectRagSearchInput = {
@@ -547,6 +546,7 @@ CREATE VIRTUAL TABLE subject_rag_vec USING vec0(
 - 2026-06-08：Harness sidecar merge 新增 `persistedMessages`。`actor.context-load` 的 `<actor-sidecar-context>` 已从 runtime-only 注入改为持久化注入，写入 actor session active path，后续 actor run 可见，并能进入 compaction summary；注入后若 provider-visible context 超出模型窗口，父 invocation 直接失败，已写入的 context 不回滚。
 - 2026-06-10：`actor.context-load` sidecarData 合同收敛为纯文本 string，不再返回 `{ actor_safe_context, sources, withheld, confidence }` 等对象；sidecar 自身 transcript 改为持久化在 session tree 旁路 leaf 上，完成后恢复父 run active leaf，主路只消费 `<actor-sidecar-context>` merge 结果。
 - 2026-06-14：旁路结果工具改为 `report_sidecar_result.data`；`actor.context-load` 仍返回纯文本 string，但不再通过 `report_result.sidecar_data` 旁路字段承载。
+- 2026-06-15：旁路结果协议改为 sidecar-name keyed data：`actor.context-load` 的纯文本正文改写到 `report_sidecar_result.result`，`data` 只传 `{ "actor.context-load": {} }`；`actor.memory-save` 同样只用 keyed 空对象，业务摘要写在 `result`。
 - 2026-06-08：验证结果：`bun scripts/smoke/subject-rag-smoke.ts` 通过；`bunx vitest run server/agent/tools/subject-memory-tools.test.ts server/agent/tools/sqlite-vec-smoke.test.ts --reporter=dot` 通过；`bunx vitest run shared/dto/app-settings.dto.test.ts server/config/config-service.test.ts server/utils/app-config.test.ts server/utils/model-settings.test.ts --reporter=dot` 通过；`bunx vitest run server/agent/harness/model-resolver.test.ts --reporter=dot` 通过；`simulator.actor 会通过 context-load` 窄测和 `rp-profiles.test.ts` 通过。`bunx tsc --noEmit --pretty false` 仍有既有无关红灯，当前不含本 task 新增的 subject RAG / embedding 类型错误。
 - 2026-06-08：根据用户最新决策删除旧 subject 文件导入兼容。`subject_event_append`、`subject_rag_search` 和 memory update 工具只处理 `events.jsonl` / `memory.jsonl`；旧 `events.md` / `knowledge.md` 即使存在也不会被工具读取或转换。新增测试覆盖旧 md 存在时仍按 JSONL 硬切行为执行。
 - 2026-06-08：补齐 sqlite-vec 产品打包保障。`scripts/build/patch-nitro-runtime-deps.mjs` 已把 `sqlite-vec` 纳入 Nitro runtime package seed，复制其当前平台 native optional package；`product:stage` 新增 `assertProductSqliteVecVendor()`，从 product 的 `.output/server/index.mjs` 解析 `sqlite-vec` 并确认 `load()` 与 native optional package 存在。当前本机验证 `.output/server/node_modules/sqlite-vec` 与 `sqlite-vec-windows-x64/vec0.dll` 存在，并能从 `.output/server/index.mjs` 解析到 `vec0.dll`；`bun run product:stage` 已通过，且 product 内可解析到 `product/.output/server/node_modules/sqlite-vec-windows-x64/vec0.dll`。

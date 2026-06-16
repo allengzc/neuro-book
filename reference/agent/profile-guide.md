@@ -21,7 +21,7 @@
 
 需要结构化结果时声明 `outputSchema`。存在 `outputSchema` 时，`report_result.data` 是主路结构化输出的 runtime 校验依据；provider-visible schema 中该字段保持 optional，方便任务失败或只返回可读错误说明时仍能结束主 run。旁路结构化结果不要复用 `report_result`，必须通过 `report_sidecar_result.data` 返回。
 
-`tools` 是 profile 的根工具绑定对象，决定模型可见工具 schema 和 profile 最大执行权限。推荐用 `defineProfileTools({...})` 显式声明工具集合；需要定制 `report_result.data` schema 时使用 `tools.reportResult({ dataSchema: OutputSchema })`。如果 profile 有 sidecar，root `tools` 需要同时声明 `report_sidecar_result: tools.reportSidecarResult()`；其 `data` schema 会由当前 profile 全部 `sidecarDataSchema` 汇总成 profile-stable union。主 run 需要收窄执行权限时声明 `mainRunToolKeys`，sidecar 需要收窄执行权限时声明 `sidecar.toolKeys`，二者都只能引用根 `tools` 中已有的 key。
+`tools` 是 profile 的根工具绑定对象，决定模型可见工具 schema 和 profile 最大执行权限。推荐用 `defineProfileTools({...})` 显式声明工具集合；需要定制 `report_result.data` schema 时使用 `tools.reportResult({ dataSchema: OutputSchema })`。如果 profile 有 sidecar，root `tools` 需要同时声明 `report_sidecar_result: tools.reportSidecarResult()`；其 `data` schema 会由当前 profile 全部 `sidecarDataSchema` 汇总成 sidecar-name keyed 的 profile-stable union。sidecar 调用时必须传 `data: { "<sidecar-name>": payload }`，payload 才按该 sidecar 的 `sidecarDataSchema` 校验。主 run 需要收窄执行权限时声明 `mainRunToolKeys`，sidecar 需要收窄执行权限时声明 `sidecar.toolKeys`，二者都只能引用根 `tools` 中已有的 key。
 
 `tools` 支持三种来源：
 

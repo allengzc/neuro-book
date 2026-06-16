@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { IDE_THEME_HOST_CLASS } from "nbook/app/utils/theme/theme-tokens";
-import {computed, onBeforeUnmount, onMounted, ref, useAttrs, watch} from "vue";
+import {computed, getCurrentInstance, onBeforeUnmount, onMounted, ref, watch} from "vue";
 /**
  * 通用对话框组件。
  *
@@ -107,10 +107,20 @@ const emit = defineEmits<{
     (e: "cancel"): void;
     (e: "request-close", reason: "overlay" | "cancel" | "close-button" | "esc"): void;
 }>();
-const attrs = useAttrs();
+const instance = getCurrentInstance();
 const overlayPointerButton = ref<number | null>(null);
-const hasRequestCloseListener = computed(() => "onRequestClose" in attrs);
-const hasConfirmListener = computed(() => "onConfirm" in attrs);
+
+/**
+ * 判断父组件是否监听了指定事件。
+ *
+ * 已在 `emits` 声明的事件不会进入 `useAttrs()`，因此这里从 vnode props 读取。
+ */
+function hasListener(name: "onRequestClose" | "onConfirm"): boolean {
+    return Boolean(instance?.vnode.props && name in instance.vnode.props);
+}
+
+const hasRequestCloseListener = computed(() => hasListener("onRequestClose"));
+const hasConfirmListener = computed(() => hasListener("onConfirm"));
 
 /**
  * 关闭对话框并触发 cancel 事件。

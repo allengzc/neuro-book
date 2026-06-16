@@ -24,7 +24,7 @@
 设计 profile-level tool binding 合同，使 profile 能声明模型可见工具 schema、执行校验 schema 和工具权限边界，验证面至少覆盖：
 
 - `report_result.data` 只负责主路结构化结果；新增 `report_sidecar_result.data` 专门负责 sidecar 旁路结构化结果。
-- `report_sidecar_result.data` 不再是裸 `unknown`，模型能看到当前 profile 允许的 sidecar result profile-stable union 结构。
+- `report_sidecar_result.data` 不再是裸 `unknown`，模型能看到当前 profile 允许的 sidecar-name keyed profile-stable union 结构。
 - `report_sidecar_result.data` 校验失败发生在 tool execution 阶段，返回模型可见 error toolResult，并复用现有 continuation 机制让 LLM 自我修正。
 - `create_agent.input` 保持任意 JSON object；目标 profile 的具体 InputSchema 通过先调用 `get_agent_profile` 获取。JSON string 不再静默 normalize，而是返回 tool error 让模型修正。
 - sidecar 只能通过 key 引用 profile 根 `tools` 对象里的工具，不能修改工具绑定。
@@ -122,13 +122,13 @@ export default defineAgentProfile({
 Sidecar API 推荐从：
 
 ```ts
-allowedToolKeys: ["subject_rag_search", "report_result"]
+allowedToolKeys: ["subject_rag_search", "report_sidecar_result"]
 ```
 
 迁移为：
 
 ```ts
-toolKeys: ["subject_rag_search", "report_result"]
+toolKeys: ["subject_rag_search", "report_sidecar_result"]
 ```
 
 规则：
@@ -158,21 +158,23 @@ type ReportResultArgs = {
 - 所有 sidecar 的 `sidecarDataSchema`
 - 或显式 `tools.reportSidecarResult({ dataSchema })`
 
-生成 profile-stable provider-visible union schema：
+生成 sidecar-name keyed 的 profile-stable provider-visible union schema：
 
 ```ts
 type ReportSidecarResultArgs = {
     result: string;
-    data: ActorContextLoadSidecarData | ActorMemorySaveSidecarData;
+    data:
+        | {"actor.context-load": ActorContextLoadSidecarData}
+        | {"actor.memory-save": ActorMemorySaveSidecarData};
 };
 ```
 
 运行时按 phase 精确校验：
 
 - main run：允许 / 校验 `report_result.data`；不能调用 `report_sidecar_result`。
-- sidecar run：必须通过 `report_sidecar_result.data` 返回旁路结果；不能调用 `report_result`。
-- `actor.context-load`：要求 `report_sidecar_result.data` 符合 `ActorContextLoadSidecarSchema`。
-- `actor.memory-save`：要求 `report_sidecar_result.data` 符合 `ActorMemorySaveSidecarSchema`。
+- sidecar run：必须通过 `report_sidecar_result.data[activeSidecar.name]` 返回旁路 payload；不能调用 `report_result`。
+- `actor.context-load`：要求 `report_sidecar_result.data` 只包含 `"actor.context-load"` key，payload 符合 `ActorContextLoadSidecarSchema`。
+- `actor.memory-save`：要求 `report_sidecar_result.data` 只包含 `"actor.memory-save"` key，payload 符合 `ActorMemorySaveSidecarSchema`。
 
 关键点：
 
@@ -252,7 +254,7 @@ type SidecarProfilePass<TInput, TSidecarData> = {
 
 - `tools.reportResult({ dataSchema })` 生成基础 binding。
 - `tools.reportSidecarResult({ dataSchema })` 生成旁路结果 binding。
-- profile 编译 / normalize 阶段收集 sidecars 的 `sidecarDataSchema`，构造 stable union schema 给 `report_sidecar_result.data`。
+- profile 编译 / normalize 阶段收集 sidecars 的 `sidecarDataSchema`，构造 sidecar-name keyed stable union schema 给 `report_sidecar_result.data`。
 - `report_result` execute 阶段只校验 main run `data`；sidecar 调用会返回准确工具错误。
 - `report_sidecar_result` execute 阶段只校验 sidecar run `data`；主 run 调用会返回准确工具错误。
 - 移除 sidecar 完成后才校验旁路结果的主路径；`readSidecarResult()` 只读取已校验的 `sidecarResult`。
@@ -289,6 +291,7 @@ type SidecarProfilePass<TInput, TSidecarData> = {
 最小测试面：
 
 - `report_sidecar_result.data` object schema 在 provider-visible schema 中不是 `unknown`。
+- `report_sidecar_result.data` 是按 sidecar name keyed 的 profile-stable union，每个 branch 只允许自己的 sidecar key。
 - sidecar 传错 `report_sidecar_result.data` 类型时，生成 error toolResult，并继续下一轮让模型修正。
 - `report_result` 连续 3 次工具错误后返回 Runtime Error，错误文本保留最后一次真实 tool error。
 - `report_sidecar_result` 连续 3 次工具错误后返回 Runtime Error，错误文本保留最后一次真实 tool error。
@@ -340,6 +343,9 @@ type SidecarProfilePass<TInput, TSidecarData> = {
 - 2026-06-14：继续顺着 simulator actor sidecar bug 链路复盘，修复三个缓存稳定版残留问题：缺失结果 reminder 现在按当前 turn `executionToolKeys` 判断结果工具是否可执行，不再只看 provider-visible root tools；sidecar 错用 `report_result` 连续失败 3 次时，Runtime Error 摘要按当前期望工具 `report_sidecar_result` 收口，同时保留最后一次真实工具错误；`final_message_as_result` 定义期校验收紧为只接受明确 string `sidecarDataSchema`，union / object 等复杂 schema 必须改用 `parse_final_message_json` 或 `report_sidecar_result`。系统 skill 参考也已清理为 `report_sidecar_result.data` 协议。验证通过：
   - `bunx vitest run server/agent/profiles/define-agent-runtime.test.ts server/agent/harness/neuro-agent-harness.test.ts -t "缺失结果 reminder 只在当前执行权限允许结果工具时注入|sidecar 错用 report_result 连续失败时按期望结果工具名收口|final_message_as_result 拒绝 union" --reporter=dot`
   - `bunx vitest run server/agent/profiles/report-result-schema.test.ts server/agent/profiles/define-agent-runtime.test.ts server/agent/profiles/rp-profiles.test.ts server/agent/harness/neuro-agent-harness.test.ts -t "reportSidecarResultSchemaForProfile|reportResultSchemaForProfile|拒绝 sidecar|sidecar 未开放|simulator.actor|outputFallback sidecar 的 reminder|sidecar 缺少 report_sidecar_result|report_sidecar_result.data 不符合 schema|sidecar report_sidecar_result 连续失败|sidecar 保持 profile 最大工具 schema|主 run 执行权限同时受|final_message_as_result|parse_final_message_json|缺失结果 reminder|sidecar 错用 report_result" --reporter=dot`
+- 2026-06-15：结果工具协议再收敛为 keyed sidecar data：`report_sidecar_result.data` 必须是 `{ "<sidecar-name>": payload }`，provider-visible schema 仍是 profile-stable union，但每个 branch 只允许自己的 sidecar key；执行期按 active sidecar 解包 `data[activeSidecar.name]` 后再用对应 `sidecarDataSchema` 校验。`simulator.actor` 两个 sidecar 的 payload schema 都改为空对象，业务正文/摘要写入 `report_sidecar_result.result`；`actor.context-load.merge()` 从 `result` 注入 `<actor-sidecar-context>`，`actor.memory-save.merge()` 不再写 `runtimeState`。验证通过：
+  - `bunx vitest run server/agent/profiles/report-result-schema.test.ts server/agent/profiles/rp-profiles.test.ts server/agent/profiles/define-agent-runtime.test.ts --reporter=dot`
+  - `bunx vitest run server/agent/harness/neuro-agent-harness.test.ts -t "report_sidecar_result|sidecar|缺失结果 reminder|连续失败" --reporter=dot`
 
 ## TODO / Follow-ups
 

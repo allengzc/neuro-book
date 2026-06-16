@@ -88,18 +88,18 @@ watch(treeRows, () => {
  */
 function roleToneClass(node: SessionTreeNode): string {
     if (node.role === "user") {
-        return "border-cyan-500/25 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300";
+        return "bg-cyan-500/15 text-cyan-700 dark:text-cyan-400";
     }
     if (node.role === "assistant") {
-        return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+        return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400";
     }
     if (node.role === "toolResult") {
-        return "border-slate-400/25 bg-slate-400/10 text-slate-600 dark:text-slate-300";
+        return "bg-slate-400/15 text-slate-600 dark:text-slate-400";
     }
     if (node.type === "invocation_lifecycle") {
-        return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+        return "bg-amber-500/15 text-amber-700 dark:text-amber-400";
     }
-    return "border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)]";
+    return "bg-[var(--bg-input)] text-[var(--text-secondary)]";
 }
 
 /**
@@ -122,17 +122,11 @@ function nodeDotClass(node: SessionTreeNode): string {
  * 列表行状态色彩。
  */
 function rowStateClass(row: AgentSessionTreeRow): string[] {
-    const classes = ["border-l-transparent"];
+    const classes = ["border-l-transparent", "hover:bg-[var(--bg-hover)]/60"];
     if (row.node.id === selectedNode.value?.id) {
-        classes.push("border-l-[var(--accent-main)]", "bg-[var(--accent-bg)]");
+        classes.push("!border-l-[var(--accent-main)]", "!bg-[var(--accent-bg)]/60");
     } else if (row.node.id === props.activeLeafId) {
-        classes.push("border-l-[var(--accent-main)]", "bg-[var(--accent-bg)]/55");
-    } else if (row.node.active) {
-        classes.push("border-l-[var(--border-color-hover)]", "bg-[var(--bg-hover)]/70");
-    } else if (row.isBranchPoint) {
-        classes.push("bg-[var(--bg-input)]/45", "hover:bg-[var(--bg-hover)]/75");
-    } else {
-        classes.push("hover:bg-[var(--bg-hover)]/75");
+        classes.push("!border-l-[var(--accent-main)]/70", "!bg-[var(--accent-bg)]/30");
     }
     return classes;
 }
@@ -318,7 +312,7 @@ function nodeIcon(node: SessionTreeNode): string {
  */
 function nodePreview(node: SessionTreeNode): string {
     const rawPreview = node.preview || node.label || node.type;
-    if (node.role === "assistant" && rawPreview.startsWith("[tool:") && !rawPreview.includes("] ") && rawPreview.endsWith("]")) {
+    if (node.role === "assistant" && /^(?:\[tool:[^\]]+\]\s*)+$/.test(rawPreview.trim())) {
         const matches = rawPreview.match(/\[tool:([^\]]+)\]/g);
         if (matches) {
             const names = matches.map(m => m.replace(/\[tool:|\]/g, ""));
@@ -583,7 +577,7 @@ function handleKeyDown(e: KeyboardEvent): void {
                             <span v-else class="h-6 w-6 shrink-0" aria-hidden="true"></span>
                             <button type="button" class="grid min-w-0 flex-1 grid-cols-[16px_auto_minmax(0,1fr)_minmax(46px,auto)_52px] items-center gap-2 rounded px-1.5 py-0.5 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--accent-main)]" :title="rowTitle(row)" @click="selectNode(row.node)" @dblclick="activateSelected">
                                 <span :class="nodeIcon(row.node)" class="h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]"></span>
-                                <span class="inline-flex h-5 max-w-[80px] shrink-0 items-center justify-center truncate rounded px-1.5 text-[10px] font-medium leading-none opacity-80 mix-blend-luminosity" :class="roleToneClass(row.node)" :title="roleTitle(row.node)">{{ roleLabel(row.node) }}</span>
+                                <span class="inline-flex h-5 max-w-[80px] shrink-0 items-center justify-center truncate rounded px-1.5 text-[10px] font-medium leading-none" :class="roleToneClass(row.node)" :title="roleTitle(row.node)">{{ roleLabel(row.node) }}</span>
                                 <span class="min-w-0 truncate text-[13px] leading-5" :class="previewToneClass(row)">{{ nodePreview(row.node) }}</span>
                                 <span class="flex min-w-[46px] justify-end">
                                     <span v-if="row.isBranchPoint" class="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 text-[10px] font-medium text-[var(--text-secondary)]" :title="branchBadgeTitle(row)">

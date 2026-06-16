@@ -62,8 +62,8 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 - 当用户要求推进剧情、判断下一段因果、模拟角色/势力/地点自然反应，或正文已经改变伤势、持有物、位置、机关、门锁、倒计时等状态时，Leader 可以启动 simulation tick，优先委托 `simulator.leader`。
 - 初始化运行态使用 `novel-workflow-05-emulation-bootstrap`；推进一个 tick 或写后提交使用 `novel-workflow-06-emulation-tick`。
 - Leader 可以维护 `simulation/subjects/`、`simulation/entities/` 和 `simulation/runs/`，但应把它视为世界状态 commit，不是随手笔记。
-- `simulation/runs/ticks/{id}-{slug}/report.md` 保存后台推演、裁决、信息边界、状态提交、writer-safe brief、未决问题和下一步钩子。
-- `simulation/runs/ticks/{id}-{slug}/prose.md` 保存用户可见正文。RP Tick 保存 `rp.writer` 输出的完整正文；`rp.leader` 只组装正文链接和元场景。正式章节正文仍以 `manuscript/.../index.md` 为主。
+- Project Workspace 内的 `simulation/runs/ticks/{id}-{slug}/report.md` 保存后台推演、裁决、信息边界、状态提交、writer-safe brief、未决问题和下一步钩子；文件工具路径必须写成 `{project-slug}/simulation/runs/ticks/{id}-{slug}/report.md`。
+- Project Workspace 内的 `simulation/runs/ticks/{id}-{slug}/prose.md` 保存用户可见正文。RP Tick 保存 `rp.writer` 输出的完整正文，传给 writer 的输出路径必须写成 `{project-slug}/simulation/runs/ticks/{id}-{slug}/prose.md`；`rp.leader` 只组装正文链接和元场景。正式章节正文仍以 `manuscript/.../index.md` 为主。
 
 ### Retrieval Collaboration
 

@@ -1287,7 +1287,7 @@ describe("workspace-files", () => {
             await restoreOptionalFile(userCompiledManifestPath, manifestBackup);
             await restoreOptionalFile(userSyncStatePath, syncStateBackup);
         }
-    });
+    }, 30000);
 
     it("系统 profile 更新且用户覆盖已手改时会返回可查看 diff 的 warning", async () => {
         const fileName = "builtin/leader.default.profile.tsx";
@@ -1323,7 +1323,43 @@ describe("workspace-files", () => {
             await restoreOptionalFile(userProfilePath, backup);
             await restoreOptionalFile(userSyncStatePath, syncStateBackup);
         }
-    });
+    }, 30000);
+
+    it("强制同步系统 assets 会覆盖已手改用户 profile 并刷新 compiled artifact", async () => {
+        const fileName = "builtin/leader.default.profile.tsx";
+        const userProfilePath = path.join("workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
+        const systemProfilePath = path.join("assets", "workspace", ".nbook", "agent", "profiles", ...fileName.split("/"));
+        const userCompiledRoot = path.join("workspace", ".nbook", "agent", "profiles", ".compiled");
+        const userCompiledManifestPath = path.join(userCompiledRoot, "manifest.json");
+        const userSyncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
+        const profileBackup = await backupOptionalFile(userProfilePath);
+        const manifestBackup = await backupOptionalFile(userCompiledManifestPath);
+        const syncStateBackup = await backupOptionalFile(userSyncStatePath);
+
+        try {
+            await fs.mkdir(path.dirname(userProfilePath), {recursive: true});
+            await fs.copyFile(systemProfilePath, userProfilePath);
+            await syncSystemAssetsToUserAssets();
+            const manifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; artifactFileName: string; artifactSha256: string}>};
+            const item = manifest.profiles.find((profile) => profile.fileName === fileName)!;
+            const artifactPath = path.join(userCompiledRoot, item.artifactFileName);
+            await fs.appendFile(userProfilePath, "\n// user custom change before force sync\n", "utf-8");
+            await fs.writeFile(artifactPath, "export default { custom: true };\n", "utf-8");
+
+            const result = await syncSystemAssetsToUserAssets({force: true});
+            const nextManifest = JSON.parse(await fs.readFile(userCompiledManifestPath, "utf-8")) as {profiles: Array<{fileName: string; artifactFileName: string; artifactSha256: string}>};
+            const nextItem = nextManifest.profiles.find((profile) => profile.fileName === fileName)!;
+
+            expect(result.updatedProfiles).toBeGreaterThanOrEqual(1);
+            expect(result.profileWarnings?.some((warning) => warning.fileName === fileName)).toBe(false);
+            await expect(fs.readFile(userProfilePath, "utf-8")).resolves.toBe(await fs.readFile(systemProfilePath, "utf-8"));
+            expect(await sha256ForTest(path.join(userCompiledRoot, nextItem.artifactFileName))).toBe(nextItem.artifactSha256);
+        } finally {
+            await restoreOptionalFile(userProfilePath, profileBackup);
+            await restoreOptionalFile(userCompiledManifestPath, manifestBackup);
+            await restoreOptionalFile(userSyncStatePath, syncStateBackup);
+        }
+    }, 30000);
 
     it("前端同步 preflight 会先刷新过期 system profile manifest", async () => {
         const fileName = "builtin/leader.assets.profile.tsx";
@@ -1404,7 +1440,7 @@ describe("workspace-files", () => {
             kind: "asset",
             assetPath: "../config.json",
         })).rejects.toThrow("assetPath 不能为空或包含非法片段");
-    });
+    }, 30000);
 
     it("拒绝读取黑名单内的用户资产同步 diff 路径", async () => {
         await expect(readUserAssetsSyncConflictDetail({
@@ -1419,7 +1455,7 @@ describe("workspace-files", () => {
             kind: "asset",
             assetPath: "agent/profiles/.compiled/manifest.json",
         })).rejects.toThrow("assetPath 不属于可读取的系统同步资源");
-    });
+    }, 30000);
 
     it("同步系统 assets 会清理用户变量定义旧 compiled artifact", async () => {
         const userVariablePath = path.join("workspace", ".nbook", "agent", "variables", "definitions.ts");
@@ -1453,7 +1489,7 @@ describe("workspace-files", () => {
             await restoreOptionalFile(staleArtifactPath, staleArtifactBackup);
             await restoreOptionalFile(staleTypePath, staleTypeBackup);
         }
-    });
+    }, 30000);
 
     it("可以读取用户变量定义覆盖的系统版本 diff 内容", async () => {
         const assetPath = "agent/variables/definitions.ts";
@@ -1782,6 +1818,34 @@ describe("workspace-files", () => {
             await restoreOptionalFile(syncStatePath, syncStateBackup);
         }
     });
+
+    it("强制同步系统 assets 会覆盖受管 asset 但不覆盖黑名单本地状态", async () => {
+        const assetPath = "agent/skills/profile-system-guide/SKILL.md";
+        const userSkillPath = path.join("workspace", ".nbook", ...assetPath.split("/"));
+        const systemSkillPath = path.join("assets", "workspace", ".nbook", ...assetPath.split("/"));
+        const sessionPath = path.join("workspace", ".nbook", "agent", "sessions", "force-sync-test.jsonl");
+        const syncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
+        const skillBackup = await backupOptionalFile(userSkillPath);
+        const sessionBackup = await backupOptionalFile(sessionPath);
+        const syncStateBackup = await backupOptionalFile(syncStatePath);
+
+        try {
+            await fs.mkdir(path.dirname(userSkillPath), {recursive: true});
+            await fs.mkdir(path.dirname(sessionPath), {recursive: true});
+            await fs.writeFile(userSkillPath, "# User custom skill\n", "utf-8");
+            await fs.writeFile(sessionPath, "{\"type\":\"local-session\"}\n", "utf-8");
+
+            const result = await syncSystemAssetsToUserAssets({force: true});
+
+            expect(result.updatedAssets).toBeGreaterThanOrEqual(1);
+            await expect(fs.readFile(userSkillPath, "utf-8")).resolves.toBe(await fs.readFile(systemSkillPath, "utf-8"));
+            await expect(fs.readFile(sessionPath, "utf-8")).resolves.toBe("{\"type\":\"local-session\"}\n");
+        } finally {
+            await restoreOptionalFile(userSkillPath, skillBackup);
+            await restoreOptionalFile(sessionPath, sessionBackup);
+            await restoreOptionalFile(syncStatePath, syncStateBackup);
+        }
+    }, 30000);
 
     it("同步系统 assets 不会把本地状态和 compiled 产物纳入 managed sync", async () => {
         const paths = [

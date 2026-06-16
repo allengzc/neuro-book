@@ -168,6 +168,13 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
 onMounted(() => {
     void loadSettings();
 });
+
+defineExpose({
+    dirty,
+    loading,
+    saving,
+    saveSettings,
+});
 </script>
 
 <template>
@@ -178,20 +185,6 @@ onMounted(() => {
                 <h3 class="text-base font-semibold text-[var(--text-main)]">默认 Agent Profile</h3>
                 <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ workspaceLabel }}的新建 Agent session 会使用这里的默认 Profile；已有 session 不受影响。</p>
             </div>
-
-            <button
-                class="group relative inline-flex h-8 shrink-0 items-center justify-center overflow-hidden rounded-lg px-4 text-xs font-medium transition-all duration-300 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
-                :class="dirty ? 'bg-[var(--accent-main)] text-white shadow-md hover:shadow-lg' : 'border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-muted)]'"
-                :disabled="!dirty || saving"
-                @click="void saveSettings()"
-            >
-                <span v-if="dirty" class="absolute inset-0 translate-y-full bg-white/20 transition-transform duration-300 ease-out group-hover:translate-y-0"></span>
-                <span class="relative flex items-center gap-1.5">
-                    <span v-if="saving" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
-                    <span v-else class="i-lucide-save h-3.5 w-3.5"></span>
-                    {{ saving ? "保存中..." : "保存设定" }}
-                </span>
-            </button>
         </div>
 
         <div v-if="errorText" class="flex items-start gap-3 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 shadow-sm">

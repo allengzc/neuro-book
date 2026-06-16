@@ -257,11 +257,8 @@ describe("RP builtin profiles", () => {
                 toolKeys: ["subject_event_append", "subject_memory_update", "read", "edit", "report_sidecar_result"],
             }));
             expect(simulatorActorProfile.mainRunToolKeys).toEqual(["report_result"]);
-            expect((contextLoad?.sidecarDataSchema as SchemaWithType | undefined)?.type).toBe("string");
-            expect((memorySave?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toHaveProperty("changed_files");
-            expect((memorySave?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toHaveProperty("events_summary");
-            expect((memorySave?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toHaveProperty("memory_summary");
-            expect((memorySave?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toHaveProperty("mind_summary");
+            expect((contextLoad?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toEqual({});
+            expect((memorySave?.sidecarDataSchema as SchemaWithProperties | undefined)?.properties).toEqual({});
             const memorySavePrompt = typeof memorySave?.enterPrompt === "function"
                 ? memorySave.enterPrompt({
                     name: "actor.memory-save",
@@ -318,7 +315,12 @@ describe("RP builtin profiles", () => {
             expect(memorySavePrompt).toContain("从上面的 report_result.data 提取 visible_response、spoken_dialogue、inner_response");
             expect(memorySavePrompt).toContain("不读取也不写 subject.md、soul.md、state.md");
             expect(memorySavePrompt).toContain("只有对应写入工具实际调用成功后");
-            expect(memorySavePrompt).toContain("changed_files 必须返回空数组");
+            expect(memorySavePrompt).toContain("report_sidecar_result.result");
+            expect(memorySavePrompt).toContain("\"actor.memory-save\"");
+            expect(memorySavePrompt).toContain("{ \"actor.memory-save\": {} }");
+            expect(contextLoadPrompt).toContain("{ \"actor.context-load\": {} }");
+            expect(memorySavePrompt).not.toContain("\"payload\": {}");
+            expect(contextLoadPrompt).not.toContain("\"sidecar\": \"actor.context-load\"");
             expect(systemPrompt).toContain("<actor>");
             expect(systemPrompt).toContain("<subject id=\"heroine\" kind=\"npc\" />");
             expect(systemPrompt).toContain("你就是 soul.md 描述的那个人");
@@ -378,32 +380,14 @@ describe("RP builtin profiles", () => {
         }
     });
 
-    it("simulator.actor context-load report_sidecar_result.data 使用纯文本协议", async () => {
+    it("simulator.actor context-load 从 report_sidecar_result.result 注入文本", async () => {
         const contextLoad = simulatorActorProfile.sidecars?.find((sidecar) => sidecar.name === "actor.context-load");
         const schema = contextLoad?.sidecarDataSchema;
         if (!contextLoad || !schema) {
             throw new Error("actor.context-load sidecarDataSchema missing");
         }
-        const legacyObjectSidecarData = {
-            actor_safe_context: "她知道自己正在学院区广场。",
-            sources: ["simulation/subjects/heroine/subject.md"],
-            withheld: [],
-        };
 
-        expect((schema as SchemaWithType).type).toBe("string");
-        expect(() => contextLoad.merge({
-            name: "actor.context-load",
-            stage: "prepareRun",
-            sessionId: -1,
-            session: testSession({profileKey: "simulator.actor"}),
-            input: {subjectPath: "rp-project/simulation/subjects/heroine", kind: "npc"},
-            invocationId: "test-invocation",
-            profileKey: "simulator.actor",
-            caller: {kind: "sidecar"},
-        }, {
-            result: "loaded",
-            sidecarData: legacyObjectSidecarData as never,
-        })).toThrow();
+        expect((schema as SchemaWithProperties).properties).toEqual({});
         const pureTextPlan = await contextLoad.merge({
             name: "actor.context-load",
             stage: "prepareRun",
@@ -414,29 +398,12 @@ describe("RP builtin profiles", () => {
             profileKey: "simulator.actor",
             caller: {kind: "sidecar"},
         }, {
-            result: "loaded",
-            sidecarData: "她知道自己正在学院区广场。",
+            result: "她知道自己正在学院区广场。",
+            sidecarData: {},
         });
-        expect(pureTextPlan.persistedMessages?.map(messageText).join("\n")).toContain("<actor-sidecar-context source=\"actor.context-load\">");
-        const normalizedPlan = await contextLoad.merge({
-            name: "actor.context-load",
-            stage: "prepareRun",
-            sessionId: -1,
-            session: testSession({profileKey: "simulator.actor"}),
-            input: {subjectPath: "rp-project/simulation/subjects/heroine", kind: "npc"},
-            invocationId: "test-invocation",
-            profileKey: "simulator.actor",
-            caller: {kind: "sidecar"},
-        }, {
-            result: "loaded",
-            sidecarData: JSON.stringify({
-                type: "actor-safe-context",
-                text: "她知道自己正在学院区广场。",
-            }),
-        });
-        const normalizedContextText = normalizedPlan.persistedMessages?.map(messageText).join("\n") ?? "";
-        expect(normalizedContextText).toContain("她知道自己正在学院区广场。");
-        expect(normalizedContextText).not.toContain("\"type\":\"actor-safe-context\"");
+        const text = pureTextPlan.persistedMessages?.map(messageText).join("\n") ?? "";
+        expect(text).toContain("<actor-sidecar-context source=\"actor.context-load\">");
+        expect(text).toContain("她知道自己正在学院区广场。");
     });
 
     it("simulator.actor 复用 subject simulator 合同并注入新 profile 身份", async () => {

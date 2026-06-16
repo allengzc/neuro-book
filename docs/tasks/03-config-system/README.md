@@ -197,6 +197,12 @@ Project Config 面板：
 
 模型健康检查、Provider 检查、模型发现入口已移动到 `/api/config/models/*`。旧 Agent 工具 allow/deny 设置分区已从设置 Dialog 删除。
 
+后续设置页体验修复：
+
+- 保存型配置面板的“保存设定”已提升到配置中心顶部配置目标栏右侧，滚动内容区时保持可见；Browser State 仍保持即时生效，不显示保存按钮。
+- 模型 Provider 配置 ID 编辑不再使用可编辑 ID 作为 Vue 节点 key，避免输入时右侧详情区重建闪烁。
+- 保存模型配置后保留当前 Provider 选中状态和本地展开/草稿状态；切换配置分区、配置目标或关闭弹窗时，如果当前保存型面板有未保存修改，会先阻止并提示保存。
+
 ## Bundled Workspace Template
 
 系统资源已收敛到：
@@ -302,6 +308,10 @@ assets/
 本轮设置页重构追加验证：
 
 - `bunx tsc --noEmit --pretty false`
+
+本轮设置页保存与闪烁修复追加验证：
+
+- `bun run typecheck` 仍受既有无关 TypeScript 错误阻塞，错误集中在 Agent session tree、Profile template editor、agent compaction 和 silly-tavern-card CLI 测试，未指向本轮配置中心文件。
 
 已知非本轮业务失败：
 

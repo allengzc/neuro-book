@@ -97,7 +97,7 @@
 - 根据已有 protagonist、重要 NPC、关键势力或用户指定对象创建最小 `subjects/`。
 - 按需创建初始 `entities/`，只实例化有独立状态、隐藏真相、唯一性、损坏、进度或剧情重要性的对象。
 - 写入 `simulation/current.md` 或 `simulation/runs/current.md` 的当前状态摘要。
-- 创建 `simulation/runs/ticks/000000-initial-state/`，记录初始化报告。
+- 在 Project Workspace 内创建 `simulation/runs/ticks/000000-initial-state/`，记录初始化报告；文件工具路径必须带 `{project-slug}/` 前缀。
 
 不负责：
 
@@ -117,8 +117,8 @@
 
 输出：
 
-- `simulation/runs/ticks/{tick-id}-{slug}/report.md`
-- 可选 `simulation/runs/ticks/{tick-id}-{slug}/prose.md`
+- Project Workspace 内的 `simulation/runs/ticks/{tick-id}-{slug}/report.md`，文件工具路径为 `{project-slug}/simulation/runs/ticks/{tick-id}-{slug}/report.md`
+- 可选 Project Workspace 内的 `simulation/runs/ticks/{tick-id}-{slug}/prose.md`，文件工具路径为 `{project-slug}/simulation/runs/ticks/{tick-id}-{slug}/prose.md`
 - 已裁决的 subject / entity state 更新。
 - 可交给 `director` 转入 Plot System 的剧情机会和后续钩子。
 

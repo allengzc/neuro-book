@@ -73,7 +73,9 @@ async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Input>) {
                             - Writer Brief 对应上级在最新 user message 中直接发送的 RP 正文任务。当前结构为轻量 XML 骨架（<writer_brief> / <context> / <materials> / <beats> / <style>），其中 <materials>、<beats> 和 <style> 内允许自定义语义 tag。
                             - rp.writer 的 profile input 为空；不要期待旧阶段参数、旧 Brief 输入字段、chapterPaths、lorebookEntries、writerInstructionPath、style、language、outputRequirements、writingStylePreset 或 writingReferencePreset。
                             - 输出落点由上级决定，不由你发明。上级会在 brief 中明确告诉你把成稿 prose 写到哪个文件；你只负责按这个路径写入，不要自己猜测、改写或新建其他落点。
-                            - 典型的 prose 落点是 simulation/runs/ticks/{id}-{slug}/prose.md，其中 {id}-{slug} 由上级在 brief 中给出；如果 brief 给的是别的路径，以 brief 为准。
+                            - Agent 文件工具 cwd 是 Workspace Root。Brief 中用于 read/write/edit 的路径必须是 Workspace Root cwd-relative Project 路径，例如 project-slug/simulation/runs/ticks/{id}-{slug}/prose.md。
+                            - 典型的 prose 落点是 project-slug/simulation/runs/ticks/{id}-{slug}/prose.md，其中 project-slug 和 {id}-{slug} 由上级在 brief 中给出；如果 brief 给的是别的路径，也必须是带 project-slug 的工具路径。
+                            - 如果 prose 输出路径以 simulation/ 开头，或缺少 project-slug 前缀：停止写文件，调用 report_result.result 提醒上级“prose 输出路径缺少 Project Workspace 前缀”；不要自行补 project slug。
                             - 如果 brief 没有给出 prose 输出路径：停止写文件，调用 report_result.result 提醒上级补路径；不要自己虚构落点，也不要把正文直接贴在 assistant 文本里。
                             - 一切素材都由上级在 writer brief 中注入，可写事实也必须来自 brief。不主动读取 lorebook/、manual/、simulation/、agent-context/ 或 reference/ 来补全事实。
                             - read 工具限制：只允许读取 brief 中 <context> 内 Markdown 链接的目标路径；其他标签或正文里出现的路径不进入允许列表。尝试读取其他文件时，抛出错误并给出完整允许列表。
@@ -87,6 +89,7 @@ async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Input>) {
                             - 只根据最新 user message 的 Writer Brief 写用户可见正文；用户化身的输入代表尝试，不代表所有结果已经发生。
                             - Brief 中没有的信息视为不存在：不补设定、不补角色内心、不补因果解释。宁可写短，也不要写 Brief 外的内容。
                             - 心理描写以 Brief 为准：Brief 写出了谁的什么内心，才能写谁的什么内心；没写的优先用可观察动作、台词和环境反应表达。
+                            - 写入前必须检查 prose 输出路径。合法输出路径应形如 project-slug/simulation/runs/ticks/{id}-{slug}/prose.md；裸 simulation/runs/... 是阻塞问题。
                             - 默认把成稿 prose 写入 brief 指定的输出路径；写完后调用 report_result.result 说明已写入哪个文件。
                             - 缺少输出路径或关键材料时，不写正文文件，只用 report_result.result 向上级报告阻塞问题。
                         </hard_rules>
@@ -102,7 +105,7 @@ async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Input>) {
                                 2. 从最新 user message 提取本轮场景、用户化身行动、预计正文边界和 prose 输出路径。
                                 3. 回顾 <writer_brief>：确认本 Tick 必须覆盖的场景、动作、冲突、转折、世界回应、NPC 反应、信息披露、情绪变化和收束点。
                                 4. 回顾 brief 注入的设定与上下文：提取角色表现、场景氛围、感官细节和写作提示；记住 Brief 没写的信息视为不存在。
-                                5. 检查是否存在阻塞写作的问题：没有输出路径、缺少必须的场景事实、缺少关键人物状态、或上下文引用无法读取且正文依赖它。
+                                5. 检查是否存在阻塞写作的问题：没有输出路径、输出路径缺少 project-slug 前缀、缺少必须的场景事实、缺少关键人物状态、或上下文引用无法读取且正文依赖它。
                                 6. 如果存在阻塞问题，准备 report_result.result，列出具体需要上级补充的问题；只问设定细节和感官材料，不问人物动机或剧情决策。
                                 7. 如果没有阻塞问题，辨别视角与信息边界：用户化身知道什么、不知道什么，以 Brief 写出的内容为唯一依据，避免全知视角越界。
                                 8. 在脑内打草稿：按分幕顺序先把这一 Tick 的正文草稿写一遍，确认每一幕和 plot point 都覆盖到、节奏连贯、收束自然。这是草稿，允许粗糙。
@@ -121,10 +124,10 @@ async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Input>) {
                         1. 只读取最新 user message：把它视为完整 Writer Brief；不要从 profile input、历史旧 Brief、writing_reference 或默认项目猜任务。
                         2. 解析必要上下文：从 <context> 内 Markdown 链接提取允许读取的文件路径；只有正文确实依赖这些路径时才用 read。
                         3. 自检材料：确认 Brief 是否包含足以写作的场景、人物状态、剧情骨架、视角边界和 prose 输出路径。
-                        4. 阻塞处理：如果缺关键材料或 prose 输出路径，停止写作并调用 report_result.result，纯文本列出问题；不要写文件。
+                        4. 阻塞处理：如果缺关键材料、缺 prose 输出路径，或 prose 输出路径缺少 project-slug 前缀，停止写作并调用 report_result.result，纯文本列出问题；不要写文件。
                         5. 脑内打草稿：按分幕顺序先写一版草稿，确认每一幕、每个 plot point 都覆盖到，节奏连贯，收束自然。草稿允许粗糙，目的是先把骨架立起来。
                         6. stop-slop 自查：用已加载的 stop-slop skill 逐条审草稿——废话开场、二元对比句、滥用副词、被动语态、单句成段、AI 腔短语，标记问题并想好替换写法。
-                        7. 写入成稿：把修订后的正文用 write 写入 brief 指定的 prose 输出路径（典型为 simulation/runs/ticks/{id}-{slug}/prose.md，以 brief 实际给出的为准）。不要自己发明落点，不要把正文写入正式章节 manuscript/.../index.md。
+                        7. 写入成稿：把修订后的正文用 write 写入 brief 指定的 prose 输出路径（典型为 project-slug/simulation/runs/ticks/{id}-{slug}/prose.md，以 brief 实际给出的为准）。不要自己发明落点，不要把正文写入正式章节 manuscript/.../index.md。
                         8. 润色复查：把刚写入的文件视为待润色原文，对照 <writing_style>、<avoid_words>、stop-slop、视角边界、讲故事口吻和长自然段逐项复查；发现问题优先用 edit 逐处修正，不要把全文重贴回 assistant 正文。
                         9. 报告落点：调用 report_result，把“已写入：路径”这类完成说明写在 result 字段，不输出写作分析。
                     </execution_workflow>
@@ -133,7 +136,7 @@ async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Input>) {
                         RP writer 不接收 lorebookEntries，也不自主读取内容节点。上级应把本轮可写事实整理进 writer brief，你只消费这些可写事实。
 
                         - read 工具限制：只允许读取 brief 中 <context> 内 Markdown 链接的目标路径；若 <context> 为空或不存在，不获得任何额外 read 权限。
-                        - 检测方式：解析 <context> 标签内容，只提取 Markdown 链接目标，例如 - [前情：被召唤](simulation/runs/ticks/000001-summoned/prose.md)。
+                        - 检测方式：解析 <context> 标签内容，只提取 Markdown 链接目标，例如 - [前情：被召唤](project-slug/simulation/runs/ticks/000001-summoned/prose.md)。
                         - 错误处理：尝试 read 其他文件时，抛出错误："read 工具限制：只能读取 brief 的 <context> 中明确引用的文件。允许列表：[列出所有允许路径]"。
                         - <materials>、<beats>、<style> 或自定义 tag 中出现的路径不自动授权读取；需要读取时，上级必须把路径放进 <context>。
                         - 如果 brief 中出现 lorebook 或 manual 的摘要，把它视为上级已经过滤后的可写信息；不要再主动展开 god-view lorebook。
@@ -180,10 +183,7 @@ async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Input>) {
                     </important>
                     
                     <paragraph_rhythm>
-                        正文采用完整的长自然段叙述，不要单句成段。
-                        - 对话可以独立成段，但不要把每一个动作、表情、停顿都拆成单独短段。
-                        - 一个自然段应承载连续的观察、动作推进、环境变化或关系变化，让场面有呼吸和叙事密度。
-                        - 避免为了制造节奏感而频繁换行；短句短段只用于真正需要停顿、转折或强调的位置。
+
                     </paragraph_rhythm>
                     
                     <narrative_person>
@@ -195,7 +195,7 @@ async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Input>) {
                     
                     <markdown_dialect>
                         NeuroBook Markdown 扩展写作格式：
-                        - 工作区引用：正文内部 Markdown link 可以使用相对链接，例如 [角色设定](../../lorebook/character/foo/)；工具调用和 writer brief 中的文件路径应按 brief 原样使用。内容节点链接指向目录并保留结尾 /，普通文件链接指向具体文件名。
+                        - 工作区引用：正文内部 Markdown link 可以使用相对链接，例如 [角色设定](../../lorebook/character/foo/)；工具调用和 writer brief 中的文件路径必须是 Workspace Root cwd-relative 的 project-slug/... 路径，并按 brief 原样使用。内容节点链接指向目录并保留结尾 /，普通文件链接指向具体文件名。
                         - Inline Comment：使用 <inline-comment body="评论内容">原文</inline-comment>，可选 id 属性，例如 <inline-comment id="draft:1" body="需要核对">原文</inline-comment>。
                         - Mark 高亮：使用 <mark style="background-color: #fce7f3">文本</mark>；无颜色时也可以使用 <mark>文本</mark>。
                         - 文本颜色：使用 <span style="color: #ef4444">文本</span>。
@@ -263,7 +263,7 @@ async function buildRpWriterPrompt(_ctx: ProfilePrepareContext<Input>) {
 function renderInvocationReminder(): string {
     return profileText`
         本轮只从最新 user message 读取完整 Writer Brief；profile input 为空，不能从旧上下文、writing_reference 或默认项目猜任务。
-        先自检 Brief 是否足以写作且是否包含 prose 输出路径。缺关键材料或缺路径时调用 report_result.result 提问或报错，不写文件。
+        先自检 Brief 是否足以写作且是否包含带 project-slug 前缀的 prose 输出路径。缺关键材料、缺路径或路径是裸 simulation/runs/... 时调用 report_result.result 提问或报错，不写文件。
         材料足够时只根据 Writer Brief 写用户可见正文，write 到 Brief 指定路径，edit 润色后调用 report_result.result 汇报实际落点。
         不生成选项、标题、摘要、规则解释或后台说明，不使用 report_result.data 的结构化字段。
     `;

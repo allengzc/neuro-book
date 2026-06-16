@@ -3,8 +3,9 @@ import {prepareSystemAssets} from "nbook/server/workspace-files/system-assets-pr
 const args = new Set(process.argv.slice(2));
 const syncUserAssets = args.has("--sync-user-assets");
 const force = args.has("--force");
+const forceSyncUserAssets = args.has("--force-sync-user-assets");
 
-const result = await prepareSystemAssets({syncUserAssets, force});
+const result = await prepareSystemAssets({syncUserAssets, force, forceSyncUserAssets});
 
 console.log(`prepared system variable definitions: ${result.variableManifest.definitions.length} definition file(s)`);
 console.log(`prepared system profiles: ${result.profileResult.manifest.profiles.length} profile(s), compiled ${result.profileResult.compiled.length} stale profile(s)`);

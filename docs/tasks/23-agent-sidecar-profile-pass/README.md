@@ -9,8 +9,8 @@
 - sidecar 用 `toolKeys` 收窄执行权限，且只能引用 root `tools` 中已有 key。
 - sidecar 不能覆盖工具 schema、description 或执行函数。
 - `report_result.data` 只用于主路结构化结果；sidecar 旁路结构化结果使用独立工具 `report_sidecar_result.data`。
-- `sidecarDataSchema` 会汇总进 profile-stable `report_sidecar_result.data` provider-visible union schema；schema 不随当前 active sidecar 动态变化。
-- `report_sidecar_result.data` 校验失败发生在 tool execution 阶段，运行期按当前 active sidecar 精确校验，返回模型可见 error toolResult 并允许同一 run 修正。
+- `sidecarDataSchema` 会汇总进 sidecar-name keyed 的 profile-stable `report_sidecar_result.data` provider-visible union schema；schema 不随当前 active sidecar 动态变化。
+- `report_sidecar_result.data` 校验失败发生在 tool execution 阶段，运行期按当前 active sidecar 精确校验 `data[activeSidecar.name]`，返回模型可见 error toolResult 并允许同一 run 修正。
 
 后续实现和 profile author 文档以 [Agent Profile Tool Bindings](../47-agent-profile-tool-bindings/README.md) 和 `reference/agent/sidecar-profile-pass.md` 为准；本文旧字段出现处视为历史设计记录。
 
@@ -54,8 +54,8 @@
 - sidecar 使用当前 session、当前 profile、当前 input、当前 session tree 上下文继续跑。
 - sidecar 从父 run 当前节点 fork，完成后 merge 回父 run 原位置。
 - sidecar transcript 持久化到 session tree 的旁路 leaf，但不成为主 active path，不污染 actor 主 run 对话历史。
-- 当前实现中，sidecar 通过 `report_sidecar_result.data` 返回结构化结果；无 `report_sidecar_result` 时可 fallback 到最后一条 assistant message。
-- `sidecarDataSchema` 会参与 `report_sidecar_result.data` 的 profile-stable provider-visible union schema，并在 Harness 执行期按 active sidecar 精确校验。
+- 当前实现中，sidecar 通过 `report_sidecar_result({ result, data })` 返回结果；`data` 必须是 `{ "<sidecar-name>": payload }`。无 `report_sidecar_result` 时可 fallback 到最后一条 assistant message。
+- `sidecarDataSchema` 会参与 `report_sidecar_result.data` 的 sidecar-name keyed profile-stable provider-visible union schema，并在 Harness 执行期按 active sidecar 精确校验 `data[activeSidecar.name]`。
 - sidecar 结果通过 `merge()` 转成主线可消费的 runtime 注入、runtime state 或显式写入计划。
 - sidecar 失败时直接让父 run 失败；V1 不做 skip/fallback。
 - 禁止嵌套 sidecar。
@@ -105,19 +105,28 @@ sidecar 的关键约束：
 
 为了避免破坏 provider prompt/tool cache，profile 的最大工具集合应保持稳定：
 
-- `allowedToolKeys` 仍描述 profile 的最大工具集合。
-- sidecar 的 `allowedToolKeys` 必须是当前 profile `allowedToolKeys` 的子集。
+- root `tools` 描述 profile 的最大工具集合和模型可见 schema。
+- sidecar 的 `toolKeys` 必须是当前 profile root `tools` 的 key 子集。
+- 主 run 用 `mainRunToolKeys` 收窄执行权限。
 - 主 phase 和 sidecar phase 可以通过 prompt/reminder 与运行时权限表达“当前阶段哪些工具可用”。
-- V1 暂时主要通过提示词限定主 phase 不使用被禁止工具。
+- V1 通过执行权限拒绝当前 phase 不允许的工具。
 - V1 不做工具违规后的上下文清理；后续可以在 Harness hook 中补“删除违规消息 + 注入 system-reminder + continue run”。
-- provider-visible tool schema 不能因为进入 sidecar 而变化；当前实现用独立的 `report_sidecar_result.data` 承载旁路返回结构，schema 是 profile-stable union，具体结构再通过 sidecar reminder 和 Harness runtime validator 约束。
+- provider-visible tool schema 不能因为进入 sidecar 而变化；当前实现用独立的 `report_sidecar_result.data` 承载旁路返回结构，schema 是 sidecar-name keyed profile-stable union，具体结构再通过 sidecar reminder 和 Harness runtime validator 约束。
 
 例子：
 
 ```ts
 defineAgentProfile({
-    key: "simulator.actor",
-    allowedToolKeys: ["read", "write", "edit", "report_result"],
+    tools: defineProfileTools({
+        subject_rag_search: tools.subjectRagSearch(),
+        subject_event_append: tools.subjectEventAppend(),
+        subject_memory_update: tools.subjectMemoryUpdate(),
+        read: tools.read(),
+        edit: tools.edit(),
+        report_result: tools.reportResult(),
+        report_sidecar_result: tools.reportSidecarResult(),
+    }),
+    mainRunToolKeys: ["report_result"],
     sidecars: [
         actorContextLoadPass,
         actorMemorySavePass,
@@ -134,7 +143,7 @@ type SidecarProfilePass<TInput, TOutput> = {
 
     enterPrompt: string | ((ctx: SidecarContext<TInput>) => string);
 
-    allowedToolKeys?: string[];
+    toolKeys?: string[];
 
     sidecarDataSchema?: TSchema;
     outputFallback?: "final_message_as_result" | "parse_final_message_json";
@@ -162,9 +171,9 @@ type SidecarMergePlan = {
 - `name`：稳定标识，例如 `actor.context-load`、`actor.memory-save`。
 - `stage`：V1 只支持 `prepareRun` 与 `settleRun`。
 - `enterPrompt`：进入旁路时注入的指令，例如“退出扮演模式，先检索本次 GM packet 相关且角色可知的设定”。
-- `allowedToolKeys`：旁路阶段允许执行的工具，必须是当前 profile `allowedToolKeys` 的子集。
-- `sidecarDataSchema`：旁路期望返回的 `report_sidecar_result.data` 结构，会参与 profile-stable provider-visible union schema，并在 Harness runtime 按 active sidecar 精确校验。
-- `outputFallback`：没有 `report_result` 时如何把最后一条 assistant message 视作结果。
+- `toolKeys`：旁路阶段允许执行的工具，必须是当前 profile root `tools` 的 key 子集。
+- `sidecarDataSchema`：旁路期望返回的 payload 结构，会参与 sidecar-name keyed profile-stable provider-visible union schema，并在 Harness runtime 按 active sidecar 精确校验 `report_sidecar_result.data[activeSidecar.name]`。
+- `outputFallback`：没有 `report_sidecar_result` 时如何把最后一条 assistant message 视作结果。
 - `merge`：把旁路结果转成主 run 的 runtime context、runtime state 或写入计划。
 
 注意：接口里不再有 `profileKey`。sidecar 不负责选择另一个 profile。
@@ -173,14 +182,14 @@ type SidecarMergePlan = {
 
 - `report_result` 与 `report_sidecar_result` 的 provider-visible tool schema 都必须稳定，不能按 sidecar 动态替换。
 - `report_result.data` 只用于主路结构化结果。
-- `report_sidecar_result.data` 专门给 sidecar phase 返回结构化结果。
+- `report_sidecar_result.data` 专门给 sidecar phase 返回 keyed 结构化结果，形如 `{ "<sidecar-name>": payload }`。
 - 进入 sidecar 时，Harness 注入 system reminder，明确告知模型：
   - 当前处于 sidecar phase。
   - 当前 sidecar 名称，例如 `actor.context-load`。
   - 当前允许使用的工具。
-  - 必须通过 `report_sidecar_result.data` 返回什么结构。
-- 优先要求 sidecar 使用 `report_sidecar_result.data` 退出旁路。
-- `sidecarDataSchema` 会汇总进 `report_sidecar_result.data` 的 profile-stable provider-visible union schema；Harness 执行期再按 active sidecar 精确校验。
+  - 必须通过 `report_sidecar_result.data` 返回当前 sidecar key 下的什么 payload 结构。
+- 优先要求 sidecar 使用 `report_sidecar_result` 退出旁路。
+- `sidecarDataSchema` 会汇总进 `report_sidecar_result.data` 的 sidecar-name keyed profile-stable provider-visible union schema；Harness 执行期再按 active sidecar 精确校验。
 - `report_result.data` 继续保留给主 profile 输出；sidecar 不应复用 `report_result.data` 承载旁路结果，避免和主路 output contract 混淆。
 - `report_result.data` 在 provider-visible tool schema 中也应保持可选。profile 的 `outputSchema` 只能表达“主路期望的结构化输出形状”，不能强制模型每次调用都必须传 `data`；因为任务失败、信息不足或 profile 自己选择只返回错误说明时，`data` 可能无法生成。
 - 主路如果要求 `data`，应由 profile prompt / system reminder / Harness runtime validator 表达，而不是通过 provider-visible required 字段表达。
@@ -197,11 +206,13 @@ type ReportResultArgs = {
 
 type ReportSidecarResultArgs = {
     result: string;
-    data: JsonValue;
+    data: {
+        [sidecarName: string]: JsonValue;
+    };
 };
 ```
 
-注意：当前实现中的 `reportResultSchemaForProfile(profile)` 只从 `profile.outputSchema` 派生模型可见 `report_result.data` schema。旁路专属 schema 进入 `reportSidecarResultSchemaForProfile(profile)`，并且是当前 profile 的稳定 union，不能按 active sidecar 动态替换，否则会破坏缓存。
+注意：当前实现中的 `reportResultSchemaForProfile(profile)` 只从 `profile.outputSchema` 派生模型可见 `report_result.data` schema。旁路专属 schema 进入 `reportSidecarResultSchemaForProfile(profile)`，并且是当前 profile 的 sidecar-name keyed 稳定 union，不能按 active sidecar 动态替换，否则会破坏缓存。
 同时，`profile.outputSchema` 不应再让 `report_result.data` 在 provider-visible schema 中变成 required；它应降级为可选字段的结构说明和 runtime 校验依据。
 
 ## Relationship With Run Kernel Hooks
@@ -236,12 +247,12 @@ type ReportSidecarResultArgs = {
 const actorContextLoadPass: SidecarProfilePass<ActorInput, ActorContextLoadResult> = {
     name: "actor.context-load",
     stage: "prepareRun",
-    allowedToolKeys: ["read", "report_result"],
+    toolKeys: ["subject_rag_search", "report_sidecar_result"],
     enterPrompt: (ctx) => "...退出扮演模式，检索本次 GM packet 相关且角色可知的设定...",
     sidecarDataSchema: actorContextLoadSchema,
     merge: (ctx, result) => ({
-        runtimeMessages: [
-            actorSafeLorebookMessage(result.sidecarData),
+        persistedMessages: [
+            actorSafeLorebookMessage(result.result),
         ],
     }),
 };
@@ -276,14 +287,10 @@ const actorContextLoadPass: SidecarProfilePass<ActorInput, ActorContextLoadResul
 const actorMemorySavePass: SidecarProfilePass<ActorInput, ActorMemorySaveResult> = {
     name: "actor.memory-save",
     stage: "settleRun",
-    allowedToolKeys: ["read", "write", "edit", "report_result"],
+    toolKeys: ["subject_event_append", "subject_memory_update", "read", "edit", "report_sidecar_result"],
     enterPrompt: (ctx) => "...退出扮演模式，更新该 actor 的 events.jsonl、memory.jsonl 与 mind.md...",
     sidecarDataSchema: actorMemorySaveSchema,
-    merge: (ctx, result) => ({
-        runtimeState: {
-            actorMemorySave: result.sidecarData.summary,
-        },
-    }),
+    merge: (ctx, result) => ({}),
 };
 ```
 
@@ -306,10 +313,10 @@ V1 策略：
 - 第一版只做 profile 声明式自动旁路；agent 主动调用旁路先不做。
 - V1 stage 只做 `prepareRun` 与 `settleRun`。
 - sidecar transcript 持久化到 session tree 的旁路 leaf；完成后恢复父 run active leaf。
-- 当前实现中，sidecar 结果优先使用 `report_sidecar_result.data`；无 `report_sidecar_result` 时 fallback 到最后一条 assistant message。
-- `sidecarDataSchema` 会汇总进 `report_sidecar_result.data` 的 profile-stable provider-visible union schema，并由 Harness runtime 按 active sidecar 精确校验。
+- 当前实现中，sidecar 结果优先使用 `report_sidecar_result`；无 `report_sidecar_result` 时 fallback 到最后一条 assistant message。
+- `sidecarDataSchema` 会汇总进 `report_sidecar_result.data` 的 sidecar-name keyed profile-stable provider-visible union schema，并由 Harness runtime 按 active sidecar 精确校验。
 - `report_result.data` 最终字段语义确认降级为 optional；`profile.outputSchema` 不再让 provider-visible `data` 必填，强约束交给 prompt/reminder 和 runtime validator。
-- `report_sidecar_result.data` 确认为旁路结构化返回字段。
+- `report_sidecar_result.data` 确认为旁路结构化返回的 keyed 包装字段。
 - 进入 sidecar 时必须注入 system reminder，让模型知道自己处于旁路 phase，并说明当前 `report_sidecar_result.data` 的期望结构。
 - sidecar 结果必须经过 `merge()` 才能注入主上下文。
 - sidecar 失败时父 run 失败。
@@ -363,7 +370,7 @@ V1 策略：
 - sidecar 失败、进入 waiting、缺少 `report_sidecar_result.data` 且无 fallback、或 `sidecarDataSchema` 校验失败时，父 run 失败。
 - provider-visible tool schema 保持 profile root `tools` 最大集合，sidecar 的 `toolKeys` 作为执行权限子集。模型仍能看到稳定工具 schema，但越权工具会返回 tool error 并允许模型同 run 修正。
 - `report_result.data` 改为 optional 且只供主路使用；`report_sidecar_result.data` 专供 sidecar 返回结构化结果。
-- `sidecarDataSchema` 汇总进 `report_sidecar_result.data` 的 profile-stable provider-visible schema；Harness runtime 再按 active sidecar 精确校验或校验 fallback 结果。
+- `sidecarDataSchema` 汇总进 `report_sidecar_result.data` 的 sidecar-name keyed profile-stable provider-visible schema；Harness runtime 再按 active sidecar 精确校验或校验 fallback 结果。
 
 ## TODO / Follow-ups
 

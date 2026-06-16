@@ -7,24 +7,22 @@ import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
 export const ReportResultSchema = Type.Object({
     result: Type.String(),
     data: Type.Optional(Type.Unknown()),
-});
+}, {additionalProperties: false});
 
 const ReportResultValidationSchema = Type.Object({
     result: Type.String(),
     data: Type.Optional(Type.Unknown()),
-    sidecar_data: Type.Optional(Type.Unknown()),
-});
+}, {additionalProperties: false});
 
 export const ReportSidecarResultSchema = Type.Object({
     result: Type.String(),
-    data: Type.Unknown(),
-});
+    data: Type.Record(Type.String(), Type.Unknown()),
+}, {additionalProperties: false});
 
 const ReportSidecarResultValidationSchema = Type.Object({
     result: Type.String(),
     data: Type.Optional(Type.Unknown()),
-    sidecar_data: Type.Optional(Type.Unknown()),
-});
+}, {additionalProperties: false});
 
 const RequestUserInputQuestionOptionSchema = Type.Object({
     label: Type.String({description: "User-facing option label, preferably 1-5 words."}),
@@ -155,11 +153,9 @@ export function createReportResultTool(parameters: TSchema, options: {
         parameters,
         validationSchema: ReportResultValidationSchema,
         async execute(_toolCallId, params: unknown) {
-            const report = params as {result: string; data?: unknown; sidecar_data?: unknown};
+            const report = params as {result: string; data?: unknown};
             if (options.activeSidecar) {
                 throw new Error(`当前处于 sidecar ${options.activeSidecar.name} 旁路阶段，不能使用 report_result；请改用 report_sidecar_result，并通过 report_sidecar_result.data 返回旁路结果。`);
-            } else if ("sidecar_data" in report) {
-                throw new Error("report_result 不再支持 sidecar_data；主路结构化结果请使用 report_result.data，旁路结果请使用 report_sidecar_result.data。");
             }
             if (options.dataSchema && "data" in report) {
                 try {
@@ -179,7 +175,7 @@ export function createReportResultTool(parameters: TSchema, options: {
 }
 
 /**
- * 创建带当前 profile sidecarDataSchema union 的 report_sidecar_result 工具。
+ * 创建带当前 profile keyed sidecarDataSchema 的 report_sidecar_result 工具。
  */
 export function createReportSidecarResultTool(parameters: TSchema, options: {
     activeSidecar?: {
@@ -196,24 +192,35 @@ export function createReportSidecarResultTool(parameters: TSchema, options: {
         parameters,
         validationSchema: ReportSidecarResultValidationSchema,
         async execute(_toolCallId, params: unknown) {
-            const report = params as {result: string; data?: unknown; sidecar_data?: unknown};
+            const report = params as {result: string; data?: unknown};
             if (!options.activeSidecar) {
                 throw new Error("当前是主 run，不能使用 report_sidecar_result；请改用 report_result 返回主路结果。");
             }
             if (!("data" in report)) {
-                if ("sidecar_data" in report) {
-                    throw new Error("report_sidecar_result 不再支持 sidecar_data；请把当前旁路结果直接放入 report_sidecar_result.data。");
-                }
                 throw new Error(`sidecar ${options.activeSidecar.name} 必须通过 report_sidecar_result.data 返回旁路结果。`);
+            }
+            if (typeof report.data === "string") {
+                throw new Error(`sidecar ${options.activeSidecar.name} report_sidecar_result.data 校验失败：收到的是字符串；请直接传对象 data: { "${options.activeSidecar.name}": ... }，不要传 JSON.stringify 后的文本。`);
+            }
+            if (!isRecord(report.data)) {
+                throw new Error(`sidecar ${options.activeSidecar.name} report_sidecar_result.data 校验失败：必须是对象 { "${options.activeSidecar.name}": ... }。`);
             }
             if (!options.activeSidecar.sidecarDataSchema) {
                 throw new Error(`sidecar ${options.activeSidecar.name} 未声明 sidecarDataSchema，不能使用 report_sidecar_result。`);
             }
+            const dataKeys = Object.keys(report.data);
+            if (dataKeys.length !== 1) {
+                throw new Error(`sidecar ${options.activeSidecar.name} report_sidecar_result.data 校验失败：只能包含一个 sidecar key，当前应为 "${options.activeSidecar.name}"。`);
+            }
+            if (!hasOwn(report.data, options.activeSidecar.name)) {
+                throw new Error(`sidecar ${options.activeSidecar.name} report_sidecar_result.data 校验失败：只能包含当前 sidecar key "${options.activeSidecar.name}"。`);
+            }
+            const sidecarData = report.data[options.activeSidecar.name];
             try {
-                assertStrictSchemaValue(options.activeSidecar.sidecarDataSchema, report.data);
+                assertStrictSchemaValue(options.activeSidecar.sidecarDataSchema, sidecarData);
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
-                throw new Error(`sidecar ${options.activeSidecar.name} report_sidecar_result.data 校验失败：${message}`);
+                throw new Error(`sidecar ${options.activeSidecar.name} report_sidecar_result.data["${options.activeSidecar.name}"] 校验失败：${message}`);
             }
             return {
                 content: [{type: "text", text: report.result}],
@@ -225,6 +232,14 @@ export function createReportSidecarResultTool(parameters: TSchema, options: {
             };
         },
     };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+    return Object.prototype.hasOwnProperty.call(value, key);
 }
 
 /**

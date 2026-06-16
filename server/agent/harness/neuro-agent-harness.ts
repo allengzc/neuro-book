@@ -22,7 +22,7 @@ import type {InvocationErrorInfo, InvocationErrorPhase, ModelChangeEntry, NeuroS
 import type {AgentRuntimeHook, AgentRuntimeHookResult, RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
 import {SkillCatalog} from "nbook/server/agent/skills/skill-catalog";
 import {findPendingApprovalCall, resolutionToToolResult} from "nbook/server/agent/tools/approval";
-import {createBuiltinTools, createReportResultTool, createReportSidecarResultTool} from "nbook/server/agent/tools/index";
+import {createBuiltinTools, createReportResultTool, createReportSidecarResultTool} from "nbook/server/agent";
 import {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import {isAgentToolDefinition} from "nbook/server/agent/tools/types";
 import type {AgentResolution, NeuroAgentTool, ProfileToolBinding, ReportResultToolBinding, ToolExecutionContext, ToolExecutionMode} from "nbook/server/agent/tools/types";
@@ -4486,11 +4486,14 @@ export class NeuroAgentHarness {
         const schemaText = pass.sidecarDataSchema
             ? JSON.stringify(pass.sidecarDataSchema, null, 2)
             : "未声明 sidecarDataSchema；当前旁路不应使用 report_sidecar_result。";
+        const dataExampleText = this.sidecarReportDataExample(pass);
         const resultInstructions = executionToolKeys.includes("report_sidecar_result")
             ? [
-                "完成旁路后优先调用 report_sidecar_result，并把旁路结构化结果直接放在 report_sidecar_result.data 字段；不要调用 report_result，也不要使用旧 sidecar_data 字段。",
+                `完成旁路后优先调用 report_sidecar_result，并把旁路结果数据放在 report_sidecar_result.data["${pass.name}"]；不要调用 report_result，也不要使用旧 sidecar_data 字段。`,
                 ...this.sidecarDataFormatInstructions(pass),
-                "report_sidecar_result.data 期望结构：",
+                "report_sidecar_result.data 必须直接传对象，不要传 JSON 字符串。期望结构：",
+                dataExampleText,
+                `report_sidecar_result.data["${pass.name}"] 的 schema：`,
                 schemaText,
             ]
             : [
@@ -4516,18 +4519,50 @@ export class NeuroAgentHarness {
         ].join("\n");
     }
 
-    private sidecarDataFormatInstructions(pass: SidecarProfilePass, key = "report_sidecar_result.data"): string[] {
+    private sidecarReportDataExample(pass: SidecarProfilePass): string {
         const schemaType = sidecarSchemaType(pass);
         if (schemaType === "string") {
-            return [
-                `${key} 必须直接是字符串正文；不要返回 JSON 对象，不要返回 JSON.stringify 后的对象文本。`,
-            ];
+            return JSON.stringify({[pass.name]: "旁路结果正文"}, null, 2);
+        }
+        if (schemaType === "object" && isEmptyObjectSchema(pass.sidecarDataSchema)) {
+            return JSON.stringify({[pass.name]: {}}, null, 2);
         }
         if (schemaType === "object") {
             return [
-                `${key} 必须直接是 JSON object；不要把对象包成字符串。`,
-                `${key} 顶层字段必须是业务结果字段；不要复制 schema 的 type / required / properties 外壳。`,
-            ];
+                "{",
+                `  "${pass.name}": <按下方 schema 填写的 JSON object>`,
+                "}",
+            ].join("\n");
+        }
+        return [
+            "{",
+            `  "${pass.name}": <按下方 schema 填写>`,
+            "}",
+        ].join("\n");
+    }
+
+    private sidecarDataFormatInstructions(pass: SidecarProfilePass, key = "report_sidecar_result.data"): string[] {
+        const schemaType = sidecarSchemaType(pass);
+        const usesReportEnvelope = key === "report_sidecar_result.data";
+        if (schemaType === "string") {
+            return usesReportEnvelope
+                ? [
+                    `${key} 必须是对象 { "${pass.name}": "..." }，"${pass.name}" 的值必须直接是字符串正文；不要返回 JSON.stringify 后的对象文本。`,
+                ]
+                : [
+                    `${key} 必须直接是字符串正文；不要返回 JSON.stringify 后的对象文本。`,
+                ];
+        }
+        if (schemaType === "object") {
+            return usesReportEnvelope
+                ? [
+                    `${key} 必须是对象 { "${pass.name}": {...} }，"${pass.name}" 的值必须直接是 JSON object；不要把对象包成字符串。`,
+                    `${key}["${pass.name}"] 里不要复制 schema 的 type / required / properties 外壳。`,
+                ]
+                : [
+                    `${key} 必须直接是 JSON object；不要把对象包成字符串。`,
+                    `${key} 里不要复制 schema 的 type / required / properties 外壳。`,
+                ];
         }
         return [];
     }
@@ -4540,7 +4575,7 @@ export class NeuroAgentHarness {
         if (report && "data" in report) {
             return {
                 result: report.result,
-                sidecarData: this.normalizeSidecarData(pass, report.data),
+                sidecarData: this.extractSidecarData(pass, report.data),
             };
         }
         if (!pass.outputFallback) {
@@ -4557,6 +4592,23 @@ export class NeuroAgentHarness {
         };
     }
 
+    private extractSidecarData(pass: SidecarProfilePass, value: unknown): JsonValue {
+        if (typeof value === "string") {
+            throw new Error(`sidecar ${pass.name} report_sidecar_result.data 校验失败：收到的是字符串；请直接传对象 data: { "${pass.name}": ... }，不要传 JSON.stringify 后的文本。`);
+        }
+        if (!isRecord(value)) {
+            throw new Error(`sidecar ${pass.name} report_sidecar_result.data 校验失败：必须是对象 { "${pass.name}": ... }。`);
+        }
+        const dataKeys = Object.keys(value);
+        if (dataKeys.length !== 1) {
+            throw new Error(`sidecar ${pass.name} report_sidecar_result.data 校验失败：只能包含一个 sidecar key，当前应为 "${pass.name}"。`);
+        }
+        if (!hasOwn(value, pass.name)) {
+            throw new Error(`sidecar ${pass.name} report_sidecar_result.data 校验失败：只能包含当前 sidecar key "${pass.name}"。`);
+        }
+        return this.normalizeSidecarData(pass, value[pass.name]);
+    }
+
     private normalizeSidecarData(pass: SidecarProfilePass, value: unknown): JsonValue {
         if (!pass.sidecarDataSchema) {
             return value as JsonValue;
@@ -4565,7 +4617,7 @@ export class NeuroAgentHarness {
             return Value.Parse(pass.sidecarDataSchema, value) as JsonValue;
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            throw new Error(`sidecar ${pass.name} report_sidecar_result.data 校验失败：${message}`);
+            throw new Error(`sidecar ${pass.name} report_sidecar_result.data["${pass.name}"] 校验失败：${message}`);
         }
     }
 
@@ -4686,6 +4738,10 @@ function estimateTextTokens(text: string): number {
 
 function isRecord(value: unknown): value is Record<string, JsonValue> {
     return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+    return Object.prototype.hasOwnProperty.call(value, key);
 }
 
 function isResultToolName(toolName: string): toolName is "report_result" | "report_sidecar_result" {

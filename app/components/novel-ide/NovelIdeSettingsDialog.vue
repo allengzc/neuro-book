@@ -10,6 +10,7 @@ import NovelIdeEmbeddingSettingsPanel from "nbook/app/components/novel-ide/setti
 import NovelIdeModelSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeModelSettingsPanel.vue";
 import NovelIdeWebSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeWebSettingsPanel.vue";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
+import {useNotification} from "nbook/app/composables/useNotification";
 import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStudioController";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
@@ -24,6 +25,13 @@ interface AppVersionDto {
     githubUrl: string;
 }
 
+type SettingsSavePanelExpose = {
+    readonly dirty: boolean;
+    readonly loading: boolean;
+    readonly saving: boolean;
+    saveSettings: () => Promise<void>;
+};
+
 const props = defineProps<{
     modelValue: boolean;
 }>();
@@ -33,6 +41,7 @@ const emit = defineEmits<{
 }>();
 
 const novelIdeStore = useNovelIdeStore();
+const notification = useNotification();
 const {
     promptExpanded,
     selectedReasoning,
@@ -47,6 +56,12 @@ const activeScope = ref<SettingsScope>("global");
 const targetNovelId = ref("");
 const appVersion = ref<AppVersionDto | null>(null);
 const appVersionPending = ref(false);
+const modelSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
+const embeddingSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
+const costSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
+const webSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
+const agentProfileDefaultSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
+const agentProfileModelSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 
 const frontendSectionItems: Array<{value: SettingsSection; label: string; description: string; iconClass: string}> = [
     {
@@ -208,18 +223,6 @@ const settingsPanelKey = computed(() => `${activeScope.value}:${targetQuery.valu
 const targetLabel = computed(() => activeScope.value === "project"
     ? targetNovel.value?.title || targetNovel.value?.workspaceSlug || targetNovelId.value || "Project Workspace"
     : "Workspace Root");
-const targetConfigPath = computed(() => {
-    if (activeScope.value === "browser") {
-        return "Pinia / localStorage / sessionStorage";
-    }
-    if (activeScope.value === "project") {
-        return targetNovel.value?.workspaceSlug
-            ? `workspace/${targetNovel.value.workspaceSlug}/.nbook/config.json`
-            : "workspace/{project}/.nbook/config.json";
-    }
-    return "workspace/.nbook/config.json";
-});
-
 const visibleSectionItems = computed(() => {
     const allowed = activeScope.value === "browser"
         ? browserSections
@@ -245,10 +248,67 @@ const versionLabel = computed(() => {
     return `版本 ${appVersion.value.versionLabel}`;
 });
 
+const activeSavePanel = computed<SettingsSavePanelExpose | null>(() => {
+    switch (activeSection.value) {
+        case "models":
+            return modelSettingsPanelRef.value;
+        case "embedding":
+            return embeddingSettingsPanelRef.value;
+        case "cost":
+            return costSettingsPanelRef.value;
+        case "web-tools":
+            return webSettingsPanelRef.value;
+        case "agent-profile-defaults":
+            return agentProfileDefaultSettingsPanelRef.value;
+        case "agent-profile-models":
+            return agentProfileModelSettingsPanelRef.value;
+        case "frontend":
+        case "editor":
+            return null;
+    }
+});
+const activeSaveDirty = computed(() => activeSavePanel.value?.dirty ?? false);
+const activeSaveLoading = computed(() => activeSavePanel.value?.loading ?? false);
+const activeSaveSaving = computed(() => activeSavePanel.value?.saving ?? false);
+const showHeaderSaveButton = computed(() => activeSavePanel.value !== null);
+const activeSaveDisabled = computed(() => activeSaveLoading.value || activeSaveSaving.value || !activeSaveDirty.value);
+
+/**
+ * 保存当前激活的配置面板。
+ */
+async function saveActivePanel(): Promise<void> {
+    const panel = activeSavePanel.value;
+    if (!panel || panel.loading || panel.saving || !panel.dirty) {
+        return;
+    }
+    await panel.saveSettings();
+}
+
+/**
+ * 有未保存修改时阻止切换配置目标、设置分区或关闭弹窗。
+ */
+function canLeaveCurrentPanel(): boolean {
+    if (activeSaveLoading.value || activeSaveSaving.value) {
+        notification.info(activeSaveSaving.value ? "当前配置正在保存，请稍候。" : "当前配置正在读取，请稍候。");
+        return false;
+    }
+    if (!activeSaveDirty.value) {
+        return true;
+    }
+    notification.warning("当前配置有未保存修改，请先保存设定。");
+    return false;
+}
+
 /**
  * 选择设置页配置目标，不改变当前 IDE 打开的小说。
  */
 function selectScope(scope: SettingsScope): void {
+    if (scope === activeScope.value) {
+        return;
+    }
+    if (!canLeaveCurrentPanel()) {
+        return;
+    }
     if (scope === "project" && novelIdeStore.workspaceKind === "user-assets") {
         activeScope.value = "global";
         activeSection.value = "agent-profile-defaults";
@@ -256,6 +316,32 @@ function selectScope(scope: SettingsScope): void {
     }
     activeScope.value = scope;
     activeSection.value = scope === "browser" ? "frontend" : "models";
+}
+
+/**
+ * 选择配置分区；保存型面板有未保存修改时先阻止卸载。
+ */
+function selectSection(section: SettingsSection): void {
+    if (section === activeSection.value) {
+        return;
+    }
+    if (!canLeaveCurrentPanel()) {
+        return;
+    }
+    activeSection.value = section;
+}
+
+/**
+ * 选择 Project Config 目标，不切换当前 IDE 打开的小说。
+ */
+function selectTargetNovel(novelId: string): void {
+    if (novelId === targetNovelId.value) {
+        return;
+    }
+    if (!canLeaveCurrentPanel()) {
+        return;
+    }
+    targetNovelId.value = novelId;
 }
 
 /**
@@ -324,6 +410,9 @@ function resetMonacoPreferences(): void {
  * 关闭设定弹窗。
  */
 function closeDialog(): void {
+    if (!canLeaveCurrentPanel()) {
+        return;
+    }
     emit("update:modelValue", false);
 }
 
@@ -409,44 +498,63 @@ watch(activeScope, (scope) => {
         overlay-type="blur"
         :busy="false"
         :show-footer="false"
+        @request-close="closeDialog"
         @update:model-value="emit('update:modelValue', $event)"
     >
         <!-- 固定高度，顶部配置目标栏 + 左右分栏 -->
         <div class="flex h-full flex-col gap-4">
             <!-- 配置目标栏 -->
-            <section class="shrink-0 rounded-2xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-20 px-4 py-3 shadow-sm transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
-                <div class="flex flex-wrap items-center justify-between gap-3">
-                    <div class="flex min-w-0 flex-wrap items-center gap-2">
+            <section class="shrink-0 rounded-2xl border border-[var(--border-color)] border-opacity-70 bg-[var(--bg-input)] bg-opacity-20 px-4 py-3 shadow-sm">
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                    <div class="min-w-0 space-y-3">
+                        <div class="flex min-w-0 flex-wrap items-center gap-2">
+                            <button
+                                v-for="scope in scopeOptions"
+                                :key="scope.value"
+                                type="button"
+                                class="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--border-color)] border-opacity-60 px-3 text-xs font-medium transition-all duration-200 disabled:pointer-events-none disabled:opacity-45"
+                                :class="activeScope === scope.value ? 'border-[var(--accent-main)] border-opacity-30 bg-[var(--accent-bg)] text-[var(--accent-text)] shadow-sm' : 'bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                                :disabled="scope.value === 'project' && novelIdeStore.workspaceKind === 'user-assets'"
+                                :title="scope.description"
+                                @click="selectScope(scope.value)"
+                            >
+                                <span :class="scope.iconClass" class="h-3.5 w-3.5"></span>
+                                <span>{{ scope.label }}</span>
+                            </button>
+                        </div>
+
+                        <div v-if="activeScope === 'project'" class="flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-secondary)]">
+                            <span class="inline-flex min-h-7 items-center gap-1 rounded-full border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-panel)] bg-opacity-50 px-2.5 py-1">
+                                <span class="i-lucide-pin h-3 w-3 text-[var(--text-muted)]"></span>
+                                只修改所选 Project，不切换当前小说
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                        <div v-if="activeScope === 'project'" class="flex min-w-[300px] items-center gap-2 rounded-lg border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-panel)] bg-opacity-35 px-2 py-1">
+                            <span class="shrink-0 text-[11px] font-semibold text-[var(--text-muted)]">Project</span>
+                            <div class="min-w-0 flex-1">
+                                <FormSelect :model-value="targetNovelId" :options="projectOptions" placeholder="选择 Project Workspace" @update:model-value="selectTargetNovel" />
+                            </div>
+                        </div>
+
                         <button
-                            v-for="scope in scopeOptions"
-                            :key="scope.value"
+                            v-if="showHeaderSaveButton"
                             type="button"
-                            class="inline-flex h-9 items-center gap-2 rounded-lg border border-[var(--border-color)] border-opacity-60 px-3 text-xs font-medium transition-all duration-200 disabled:pointer-events-none disabled:opacity-45"
-                            :class="activeScope === scope.value ? 'border-[var(--accent-main)] border-opacity-30 bg-[var(--accent-bg)] text-[var(--accent-text)] shadow-sm' : 'bg-[var(--bg-input)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                            :disabled="scope.value === 'project' && novelIdeStore.workspaceKind === 'user-assets'"
-                            :title="scope.description"
-                            @click="selectScope(scope.value)"
+                            class="group relative inline-flex h-9 shrink-0 items-center justify-center overflow-hidden rounded-lg px-4 text-xs font-medium transition-all duration-200 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+                            :class="activeSaveDirty && !activeSaveLoading ? 'bg-[var(--accent-main)] text-white shadow-md hover:shadow-lg' : 'border border-[var(--border-color)] bg-[var(--bg-panel)] bg-opacity-45 text-[var(--text-muted)]'"
+                            :disabled="activeSaveDisabled"
+                            @click="void saveActivePanel()"
                         >
-                            <span :class="scope.iconClass" class="h-3.5 w-3.5"></span>
-                            <span>{{ scope.label }}</span>
+                            <span v-if="activeSaveDirty && !activeSaveLoading" class="absolute inset-0 translate-y-full bg-white/20 transition-transform duration-300 ease-out group-hover:translate-y-0"></span>
+                            <span class="relative flex items-center gap-1.5">
+                                <span v-if="activeSaveLoading || activeSaveSaving" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
+                                <span v-else class="i-lucide-save h-3.5 w-3.5"></span>
+                                {{ activeSaveLoading ? "读取中..." : activeSaveSaving ? "保存中..." : "保存设定" }}
+                            </span>
                         </button>
                     </div>
-
-                    <div v-if="activeScope === 'project'" class="flex min-w-[280px] items-center gap-2">
-                        <span class="shrink-0 text-[11px] font-medium text-[var(--text-muted)]">Project</span>
-                        <FormSelect v-model="targetNovelId" :options="projectOptions" placeholder="选择 Project Workspace" />
-                    </div>
-                </div>
-
-                <div class="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[var(--text-secondary)]">
-                    <span class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] px-2.5 py-1">
-                        <span class="i-lucide-file-json-2 h-3 w-3 text-[var(--text-muted)]"></span>
-                        {{ targetConfigPath }}
-                    </span>
-                    <span v-if="activeScope === 'project'" class="inline-flex items-center gap-1 rounded-full border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] px-2.5 py-1">
-                        <span class="i-lucide-pin h-3 w-3 text-[var(--text-muted)]"></span>
-                        只修改所选 Project，不切换当前小说
-                    </span>
                 </div>
             </section>
 
@@ -463,7 +571,7 @@ watch(activeScope, (scope) => {
                         :key="item.value"
                         class="group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-all duration-200"
                         :class="activeSection === item.value ? 'bg-[var(--bg-input)] text-[var(--text-main)] shadow-[0_2px_8px_rgba(0,0,0,0.04)] border border-[var(--border-color)]' : 'border border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:bg-opacity-40 hover:text-[var(--text-main)]'"
-                        @click="activeSection = item.value"
+                        @click="selectSection(item.value)"
                     >
                         <!-- 图标 -->
                         <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors duration-300" :class="activeSection === item.value ? 'bg-[var(--accent-bg)] text-[var(--accent-text)] shadow-sm font-semibold' : 'bg-transparent text-[var(--text-muted)] group-hover:text-[var(--text-main)]'">
@@ -707,32 +815,32 @@ watch(activeScope, (scope) => {
                         <!-- 模型设定 -->
                         <div v-else-if="activeSection === 'models'" key="models">
                             <!-- 注意：ModelSettingsPanel 内部不使用 h-full，让外层自动撑开或根据内容滚动 -->
-                            <NovelIdeModelSettingsPanel :key="`models:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
+                            <NovelIdeModelSettingsPanel ref="modelSettingsPanelRef" :key="`models:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
                         </div>
 
                         <!-- Embedding 服务设定 -->
                         <div v-else-if="activeSection === 'embedding'" key="embedding">
-                            <NovelIdeEmbeddingSettingsPanel :key="`embedding:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
+                            <NovelIdeEmbeddingSettingsPanel ref="embeddingSettingsPanelRef" :key="`embedding:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
                         </div>
 
                         <!-- 费用显示设定 -->
                         <div v-else-if="activeSection === 'cost'" key="cost">
-                            <NovelIdeCostSettingsPanel :key="`cost:${settingsPanelKey}`" :target-query="targetQuery" />
+                            <NovelIdeCostSettingsPanel ref="costSettingsPanelRef" :key="`cost:${settingsPanelKey}`" :target-query="targetQuery" />
                         </div>
 
                         <!-- Web 工具设定 -->
                         <div v-else-if="activeSection === 'web-tools'" key="web-tools">
-                            <NovelIdeWebSettingsPanel :key="`web-tools:${settingsPanelKey}`" :target-query="targetQuery" :target-label="targetLabel" />
+                            <NovelIdeWebSettingsPanel ref="webSettingsPanelRef" :key="`web-tools:${settingsPanelKey}`" :target-query="targetQuery" :target-label="targetLabel" />
                         </div>
 
                         <!-- 默认 Profile 设定 -->
                         <div v-else-if="activeSection === 'agent-profile-defaults'" key="agent-profile-defaults">
-                            <NovelIdeAgentProfileDefaultSettingsPanel :key="`defaults:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
+                            <NovelIdeAgentProfileDefaultSettingsPanel ref="agentProfileDefaultSettingsPanelRef" :key="`defaults:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
                         </div>
 
                         <!-- Agent Profile 模型设定 -->
                         <div v-else-if="activeSection === 'agent-profile-models'" key="agent-profile-models">
-                            <NovelIdeAgentProfileModelSettingsPanel :key="`profile-models:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
+                            <NovelIdeAgentProfileModelSettingsPanel ref="agentProfileModelSettingsPanelRef" :key="`profile-models:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
                         </div>
                     </Transition>
                 </div>

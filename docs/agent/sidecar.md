@@ -19,7 +19,7 @@ Sidecar 不适合确定性上下文注入。确定性内容应优先用 profile 
 
 `simulator.actor` 已接入两个典型 sidecar：
 
-- `actor.context-load`：主 run 前读取小型 subject 文件，调用 `subject_rag_search` 检索当前 subject 的 `events.jsonl` / `memory.jsonl`，再整理 actor-safe context。
+- `actor.context-load`：主 run 前调用 `subject_rag_search` 检索当前 subject 的 `events.jsonl` / `memory.jsonl`，不直接读取 subject 原文，再整理 actor-safe context。
 - `actor.memory-save`：主 run 后通过 `subject_event_append` 追加 `events.jsonl`，通过 `subject_memory_update` 维护 `memory.jsonl`，并更新 `mind.md`。
 
 主 run 仍保持角色扮演纯度。actor 不直接读取完整 `simulation/`、`lorebook/`、`reference/` 或其他 subject。
@@ -30,7 +30,7 @@ Subject RAG 只检索当前 subject 自己的记忆，不检索 lorebook 或 Pro
 
 ## 工具权限
 
-Sidecar 的 `toolKeys` 必须是当前 profile 根 `tools` 的 key 子集。provider-visible tools 和 schema 保持 profile 最大集合，以保护工具 schema 缓存；进入 sidecar 时，执行层和 reminder 再限制本段 run 可用工具。主路结构化结果通过 `report_result.data` 返回；旁路结构化结果通过 `report_sidecar_result.data` 返回。`report_sidecar_result.data` 的模型可见 schema 来自当前 profile 全部 `sidecarDataSchema` 的稳定 union，运行期再按 active sidecar 精确校验；校验失败会生成模型可见 tool error，让同一 run 可以自我修正。
+Sidecar 的 `toolKeys` 必须是当前 profile 根 `tools` 的 key 子集。provider-visible tools 和 schema 保持 profile 最大集合，以保护工具 schema 缓存；进入 sidecar 时，执行层和 reminder 再限制本段 run 可用工具。主路结构化结果通过 `report_result.data` 返回；旁路结果通过 `report_sidecar_result({ result, data })` 返回，其中 `data` 必须是只包含当前 sidecar key 的对象，例如 `{ "actor.context-load": {} }`。`report_sidecar_result.data` 的模型可见 schema 来自当前 profile 全部 `sidecarDataSchema` 的 sidecar-name keyed 稳定 union，运行期再按 active sidecar 精确校验 `data[activeSidecar.name]`；校验失败会生成模型可见 tool error，让同一 run 可以自我修正。
 
 ## 继续阅读
 

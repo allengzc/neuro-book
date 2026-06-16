@@ -13,7 +13,7 @@
     "scripts/utils/*.mjs"
   ],
   "scripts": {
-    "dev": "nuxt prepare && bun run generate && bun scripts/build/prepare-system-assets.ts --sync-user-assets && nuxt dev",
+    "dev": "nuxt prepare && bun run generate && bun scripts/build/prepare-system-assets.ts --sync-user-assets --force-sync-user-assets && nuxt dev",
     "dev:warmup": "bun scripts/cli/warmup-dev-server.mjs",
     "nuxt:build": "nuxt prepare && bun run generate && bun scripts/build/prepare-system-assets.ts && nuxt build && bun scripts/build/patch-nitro-runtime-deps.mjs",
     "nuxt:preview": "nuxt preview",

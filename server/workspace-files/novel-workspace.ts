@@ -65,6 +65,12 @@ export type WorkspaceRootKind = "novel" | typeof USER_ASSETS_WORKSPACE_KIND;
 export type UserAssetsSyncResult = UserAssetsSyncResultDto;
 export type UserAssetsProfileSyncWarning = UserAssetsProfileSyncWarningDto;
 export type UserAssetsAssetSyncWarning = UserAssetsAssetSyncWarningDto;
+export type UserAssetsSyncOptions = {
+    /**
+     * 为 true 时覆盖用户侧受管系统资源。默认 false，保留用户手改内容。
+     */
+    force?: boolean;
+};
 
 export type SystemProfileMetadata = {
     generatedAt: string;
@@ -177,16 +183,17 @@ export async function ensureUserAssetsWorkspaceRoot(): Promise<string> {
 }
 
 /**
- * 将系统 assets 中缺失的文件补到用户 assets，不覆盖用户已经编辑过的文件。
+ * 将系统 assets 同步到用户 assets。默认只补缺失和仍跟随上游的文件；
+ * options.force 为 true 时覆盖用户侧受管系统资源。
  */
-export async function syncSystemAssetsToUserAssets(): Promise<UserAssetsSyncResult> {
+export async function syncSystemAssetsToUserAssets(options: UserAssetsSyncOptions = {}): Promise<UserAssetsSyncResult> {
     await ensureUserAssetsWorkspaceRoot();
     const result: UserAssetsSyncResult = {copied: 0, skipped: 0, updatedProfiles: 0, profileWarnings: [], updatedAssets: 0, assetWarnings: []};
     if (await isDirectory(SYSTEM_NBOOK_ROOT)) {
-        await syncManagedSystemAssetsToUserAssets(result);
+        await syncManagedSystemAssetsToUserAssets(result, options);
     }
-    await syncSystemProfilesToUserAssets(result);
-    await syncSystemVariableDefinitionsToUserAssets(result);
+    await syncSystemProfilesToUserAssets(result, options);
+    await syncSystemVariableDefinitionsToUserAssets(result, options);
     return result;
 }
 
@@ -336,7 +343,7 @@ async function normalizeNovelDirectoryTemplateArtifacts(templateRoot: string): P
 /**
  * 同步系统 .nbook 内默认受管理资源；黑名单只保留本地状态、运行记录和编译产物。
  */
-async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult): Promise<void> {
+async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult, options: UserAssetsSyncOptions): Promise<void> {
     const syncState = await readUserSystemAssetsSyncState();
     const assets = await listManagedSystemAssets();
     const activeAssetPaths = new Set(assets.map((asset) => asset.assetPath));
@@ -365,6 +372,14 @@ async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult)
         if (currentUserHash === item.sha256) {
             upsertUserAssetSyncState(syncState, item, currentUserHash);
             result.skipped += 1;
+            stateChanged = true;
+            continue;
+        }
+        if (options.force) {
+            await fs.copyFile(systemPath, userPath);
+            const hash = await sha256File(userPath);
+            upsertUserAssetSyncState(syncState, item, hash.sha256);
+            result.updatedAssets = (result.updatedAssets ?? 0) + 1;
             stateChanged = true;
             continue;
         }
@@ -426,7 +441,7 @@ async function removeDeletedManagedSystemAssets(syncState: UserSystemAssetsSyncS
     return changed;
 }
 
-async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult): Promise<void> {
+async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult, options: UserAssetsSyncOptions): Promise<void> {
     const metadata = await readSystemProfileMetadata();
     if (metadata.profiles.length === 0) {
         return;
@@ -484,6 +499,24 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult): Pro
             stateChanged = true;
             continue;
         }
+        if (options.force) {
+            const sourceCopy = await replaceFileWithRollback(systemPath, userPath);
+            const artifactSync = await syncCompiledProfileArtifact(item.fileName);
+            if (!artifactSync.ok) {
+                await sourceCopy.rollback();
+                result.profileWarnings?.push({fileName: item.fileName, profileKey: item.profileKey, message: artifactSync.message});
+                continue;
+            }
+            if (artifactSync.warning) {
+                result.profileWarnings?.push({fileName: item.fileName, profileKey: item.profileKey, message: artifactSync.warning});
+            }
+            await sourceCopy.commit();
+            const hash = await sha256File(userPath);
+            upsertUserProfileSyncState(syncState, item, hash.sha256);
+            result.updatedProfiles = (result.updatedProfiles ?? 0) + 1;
+            stateChanged = true;
+            continue;
+        }
         if (!stateItem) {
             result.profileWarnings?.push({
                 fileName: item.fileName,
@@ -527,7 +560,7 @@ async function syncSystemProfilesToUserAssets(result: UserAssetsSyncResult): Pro
     await removeCopiedSystemMetadata();
 }
 
-async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncResult): Promise<void> {
+async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncResult, options: UserAssetsSyncOptions): Promise<void> {
     const systemPath = path.join(SYSTEM_VARIABLE_DEFINITION_ROOT, "definitions.ts");
     if (!await pathExists(systemPath)) {
         return;
@@ -580,6 +613,22 @@ async function syncSystemVariableDefinitionsToUserAssets(result: UserAssetsSyncR
                     result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.warning});
                 }
                 upsertUserAssetSyncState(syncState, item, currentUserHash);
+                stateChanged = true;
+            }
+        } else if (options.force) {
+            const sourceCopy = await replaceFileWithRollback(systemPath, userPath);
+            const artifactSync = await syncCompiledVariableDefinitionArtifact();
+            if (!artifactSync.ok) {
+                await sourceCopy.rollback();
+                result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.message});
+            } else {
+                if (artifactSync.warning) {
+                    result.assetWarnings?.push({assetPath: item.assetPath, message: artifactSync.warning});
+                }
+                await sourceCopy.commit();
+                const hash = await sha256File(userPath);
+                upsertUserAssetSyncState(syncState, item, hash.sha256);
+                result.updatedAssets = (result.updatedAssets ?? 0) + 1;
                 stateChanged = true;
             }
         } else if (!stateItem) {

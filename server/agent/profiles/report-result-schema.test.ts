@@ -22,10 +22,8 @@ describe("reportResultSchemaForProfile", () => {
         expect(schema).toEqual(expect.objectContaining({
             required: ["result"],
         }));
-        expect(schema.properties).not.toEqual(expect.objectContaining({
-            data: expect.anything(),
-            sidecar_data: expect.anything(),
-        }));
+        expect(schema.properties).not.toHaveProperty("data");
+        expect(schema.properties).not.toHaveProperty("sidecar_data");
     });
 
     it("非空 OutputSchema 只要求 result，data 按 OutputSchema 可选", () => {
@@ -78,7 +76,7 @@ describe("reportResultSchemaForProfile", () => {
 });
 
 describe("reportSidecarResultSchemaForProfile", () => {
-    it("data 使用所有 sidecarDataSchema 生成 profile-stable union schema", () => {
+    it("data 使用所有 sidecarDataSchema 生成 profile-stable keyed object schema", () => {
         const textSchema = Type.String();
         const objectSchema = Type.Object({summary: Type.String()});
         const profile = defineAgentProfile({
@@ -113,14 +111,24 @@ describe("reportSidecarResultSchemaForProfile", () => {
             },
         });
 
-        const schema = reportSidecarResultSchemaForProfile(profile) as TSchema & {properties: {data?: TSchema & {anyOf?: TSchema[]}}};
+        const schema = reportSidecarResultSchemaForProfile(profile) as TSchema & {properties: {data?: TSchema & {anyOf?: TSchema[]; oneOf?: TSchema[]; properties?: Record<string, TSchema>; additionalProperties?: boolean; minProperties?: number; maxProperties?: number}}};
         expect(schema).toEqual(expect.objectContaining({
             required: ["result", "data"],
         }));
-        expect(schema.properties.data?.anyOf).toEqual([
-            textSchema,
-            objectSchema,
-        ]);
+        expect(schema.properties.data?.anyOf).toBeUndefined();
+        expect(schema.properties.data?.oneOf).toBeUndefined();
+        expect(schema.properties.data).toEqual(expect.objectContaining({
+            additionalProperties: false,
+            minProperties: 1,
+            maxProperties: 1,
+        }));
+        expect(schema.properties.data?.properties).toEqual(expect.objectContaining({
+            load: textSchema,
+            save: objectSchema,
+        }));
+        expect(schema.properties.data?.properties).not.toHaveProperty("sidecar");
+        expect(schema.properties.data?.properties).not.toHaveProperty("payload");
+        expect(schema.properties).not.toHaveProperty("sidecar_data");
     });
 
     it("忽略 report_sidecar_result binding 上的 dataSchema，避免模型 schema 与执行校验分裂", () => {
@@ -151,7 +159,14 @@ describe("reportSidecarResultSchemaForProfile", () => {
             },
         });
 
-        const schema = reportSidecarResultSchemaForProfile(profile) as TSchema & {properties: {data?: TSchema}};
-        expect(schema.properties.data).toBe(sidecarSchema);
+        const schema = reportSidecarResultSchemaForProfile(profile) as TSchema & {properties: {data?: TSchema & {properties?: Record<string, TSchema>; additionalProperties?: boolean; minProperties?: number; maxProperties?: number}}};
+        expect(schema.properties.data).toEqual(expect.objectContaining({
+            additionalProperties: false,
+            minProperties: 1,
+            maxProperties: 1,
+            properties: {
+                load: sidecarSchema,
+            },
+        }));
     });
 });

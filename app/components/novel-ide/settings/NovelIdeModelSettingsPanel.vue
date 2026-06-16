@@ -75,6 +75,7 @@ type ManualModelDraft = {
 };
 
 type ProviderDraft = {
+    localKey: string;
     id: string;
     name: string;
     api: string;
@@ -162,7 +163,7 @@ const notification = useNotification();
 
 const loading = ref(false);
 const saving = ref(false);
-const activeProviderId = ref("");
+const activeProviderKey = ref("");
 const selectedPreset = ref<string>(fallbackProviderPresetOptions[0]?.value ?? "custom");
 const draft = ref<ModelSettingsDraft>({
     defaultModelKey: null,
@@ -179,6 +180,7 @@ const manualModelDrafts = ref<Record<string, ManualModelDraft>>({});
 const libraryDialogOpen = ref(false);
 const editorSnapshot = ref<ConfigEditorSnapshotDto | null>(null);
 const projectReferencesDirty = ref(false);
+let providerLocalKeySeed = 0;
 
 const expandedGroups = ref<Record<string, boolean>>({});
 const editingModel = ref<ModelDraft | null>(null);
@@ -220,6 +222,27 @@ function toggleGroup(group: string): void {
 function openModelEdit(model: ModelDraft): void {
     editingModel.value = model;
     modelEditDialogOpen.value = true;
+}
+
+/**
+ * 创建只用于前端渲染和选中状态的稳定 Provider key。
+ */
+function createProviderLocalKey(providerId: string): string {
+    providerLocalKeySeed += 1;
+    return `provider-${providerLocalKeySeed}-${providerId.trim() || "draft"}`;
+}
+
+/**
+ * 收集当前 Provider 的本地 key。按队列复用，避免临时重复配置 ID 时生成重复 Vue key。
+ */
+function collectProviderLocalKeys(): Map<string, string[]> {
+    const localKeyMap = new Map<string, string[]>();
+    for (const provider of draft.value.providers) {
+        const localKeys = localKeyMap.get(provider.id) ?? [];
+        localKeys.push(provider.localKey);
+        localKeyMap.set(provider.id, localKeys);
+    }
+    return localKeyMap;
 }
 
 /**
@@ -372,8 +395,10 @@ function parseProviderRequestOptions(value: string): ProviderRequestOptions {
 /**
  * 克隆 Provider 草稿。
  */
-function cloneProvider(provider: ConfigModelSettingsDto["providers"][number]): ProviderDraft {
+function cloneProvider(provider: ConfigModelSettingsDto["providers"][number], localKeyMap: Map<string, string[]> = new Map()): ProviderDraft {
+    const localKeyQueue = localKeyMap.get(provider.id);
     return {
+        localKey: localKeyQueue?.shift() ?? createProviderLocalKey(provider.id),
         id: provider.id,
         name: provider.name,
         api: provider.api ?? "",
@@ -396,18 +421,24 @@ function cloneProvider(provider: ConfigModelSettingsDto["providers"][number]): P
 /**
  * 将接口响应应用到本地草稿。
  */
-function applySettings(snapshot: ConfigEditorSnapshotDto): void {
+function applySettings(snapshot: ConfigEditorSnapshotDto, options: {preserveUiState?: boolean; preferredProviderKey?: string} = {}): void {
+    const localKeyMap = collectProviderLocalKeys();
+    const preferredProviderKey = options.preferredProviderKey ?? activeProviderKey.value;
     draft.value = {
         defaultModelKey: snapshot.modelSettings.defaultModelKey,
-        providers: snapshot.modelSettings.providers.map(cloneProvider),
+        providers: snapshot.modelSettings.providers.map((provider) => cloneProvider(provider, localKeyMap)),
     };
     snapshotText.value = JSON.stringify(buildSavePayload());
-    activeProviderId.value = draft.value.providers[0]?.id ?? "";
-    discoveredModels.value = {};
+    activeProviderKey.value = draft.value.providers.some((provider) => provider.localKey === preferredProviderKey)
+        ? preferredProviderKey
+        : draft.value.providers[0]?.localKey ?? "";
+    if (!options.preserveUiState) {
+        discoveredModels.value = {};
+        manualModelDrafts.value = {};
+    }
     resolvedContextWindowMap.value = Object.fromEntries(
         snapshot.modelSettings.enabledModels.map((model) => [model.key, model.contextWindowTokens]),
     );
-    manualModelDrafts.value = {};
     projectReferencesDirty.value = false;
     novelIdeStore.setSelectedModelLabel(snapshot.modelSettings.defaultModelLabel);
 }
@@ -425,15 +456,18 @@ function readProjectDefaultModelKey(snapshot: ConfigEditorSnapshotDto): string |
  * 将 Project Config 默认模型覆盖应用到表单草稿。
  */
 function applyProjectSettings(snapshot: ConfigEditorSnapshotDto): void {
+    const localKeyMap = collectProviderLocalKeys();
     editorSnapshot.value = snapshot;
     draft.value = {
         defaultModelKey: readProjectDefaultModelKey(snapshot),
-        providers: snapshot.modelSettings.providers.map(cloneProvider),
+        providers: snapshot.modelSettings.providers.map((provider) => cloneProvider(provider, localKeyMap)),
     };
     snapshotText.value = JSON.stringify({
         defaultModelKey: draft.value.defaultModelKey,
     });
-    activeProviderId.value = draft.value.providers[0]?.id ?? "";
+    activeProviderKey.value = draft.value.providers.some((provider) => provider.localKey === activeProviderKey.value)
+        ? activeProviderKey.value
+        : draft.value.providers[0]?.localKey ?? "";
     discoveredModels.value = {};
     resolvedContextWindowMap.value = Object.fromEntries(
         snapshot.modelSettings.enabledModels.map((model) => [model.key, model.contextWindowTokens]),
@@ -790,7 +824,7 @@ function ensureDefaultModelKey(): void {
  * 获取当前激活的 Provider。
  */
 const activeProvider = computed<ProviderDraft | null>(() => {
-    return draft.value.providers.find((provider) => provider.id === activeProviderId.value) ?? null;
+    return draft.value.providers.find((provider) => provider.localKey === activeProviderKey.value) ?? null;
 });
 
 /**
@@ -1024,7 +1058,7 @@ function findPiProvider(providerId: string): PiBuiltinProviderDto | null {
  * 把 Pi 内置模型转成可写入配置的模型草稿。
  */
 function clonePiModel(model: PiBuiltinModelDto): ModelDraft {
-    const providerId = activeProviderId.value.trim();
+    const providerId = activeProvider.value?.id.trim() ?? "";
     const usesSameRegistryProvider = !providerId || providerId === model.provider;
     return {
         name: model.name,
@@ -1061,8 +1095,10 @@ async function addProvider(): Promise<void> {
     const builtinProvider = findPiProvider(preset.providerId);
     const providerId = buildUniqueProviderId(preset.providerId);
     const baseURL = preset.baseURL || builtinProvider?.baseUrl || "";
-    activeProviderId.value = providerId;
+    const localKey = createProviderLocalKey(providerId);
+    activeProviderKey.value = localKey;
     draft.value.providers.push({
+        localKey,
         id: providerId,
         name: preset.providerName,
         api: "",
@@ -1103,7 +1139,7 @@ async function saveSettings(): Promise<void> {
             applyProjectSettings(snapshot);
             notification.success("Project 默认模型覆盖已保存，后续新发起的请求会使用新的合并配置。");
         } else {
-            applySettings(snapshot);
+            applySettings(snapshot, {preserveUiState: true, preferredProviderKey: activeProviderKey.value});
             notification.success("模型设定已写入 Global Config，后续新发起的请求会使用新的默认模型。");
         }
     } catch (error) {
@@ -1125,7 +1161,6 @@ function renameActiveProviderId(nextProviderId: string): void {
     const previousProviderId = provider.id;
     const normalizedProviderId = nextProviderId.trim();
     provider.id = normalizedProviderId;
-    activeProviderId.value = normalizedProviderId;
 
     if (previousProviderId === normalizedProviderId) {
         return;
@@ -1237,7 +1272,7 @@ function confirmDeleteActiveProvider(): void {
     }
     delete discoveredModels.value[deletedProviderId];
     delete manualModelDrafts.value[deletedProviderId];
-    activeProviderId.value = draft.value.providers[0]?.id ?? "";
+    activeProviderKey.value = draft.value.providers[0]?.localKey ?? "";
     ensureDefaultModelKey();
     deleteProviderDialogOpen.value = false;
     notification.success(`已删除 Provider：${provider.name}`);
@@ -1622,7 +1657,7 @@ function toggleLibraryModel(model: { name: string; id: string; group: string; st
     }
 }
 
-watch(() => activeProviderId.value, (providerId) => {
+watch(() => activeProvider.value?.id ?? "", (providerId) => {
     if (!providerId) {
         return;
     }
@@ -1637,6 +1672,13 @@ onMounted(() => {
 watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.projectPath] as const, () => {
     void loadSettings();
 });
+
+defineExpose({
+    dirty,
+    loading,
+    saving,
+    saveSettings,
+});
 </script>
 
 <template>
@@ -1648,20 +1690,6 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                 <h3 class="text-base font-semibold text-[var(--text-main)]">{{ isProjectScope ? "Project 默认模型" : "模型连接设置" }}</h3>
                 <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ isProjectScope ? `只覆盖 ${props.targetLabel || "当前 Project"} 的默认模型；Provider 与 API Key 仍来自 Global Config。` : "配置 Provider、API 凭证与模型白名单，这会写入 Workspace Root .nbook/config.json。" }}</p>
             </div>
-            
-            <button
-                class="group relative inline-flex h-8 shrink-0 items-center justify-center overflow-hidden rounded-lg px-4 text-xs font-medium transition-all duration-300 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
-                :class="dirty ? 'bg-[var(--accent-main)] text-white shadow-md hover:shadow-lg' : 'border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-muted)]'"
-                :disabled="!dirty || saving"
-                @click="void saveSettings()"
-            >
-                <span v-if="dirty" class="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out"></span>
-                <span class="relative flex items-center gap-1.5">
-                    <span v-if="saving" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
-                    <span v-else class="i-lucide-save h-3.5 w-3.5"></span>
-                    {{ saving ? "保存中..." : "保存设定" }}
-                </span>
-            </button>
         </div>
 
         <!-- 顶部默认模型与新增 Provider -->
@@ -1726,20 +1754,20 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                 <div class="flex flex-col gap-1 overflow-y-auto px-1 pb-1 custom-scrollbar">
                     <button
                         v-for="provider in draft.providers"
-                        :key="provider.id"
+                        :key="provider.localKey"
                         class="group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all duration-300"
-                        :class="activeProviderId === provider.id ? 'bg-[var(--accent-bg)] text-[var(--accent-text)] shadow-sm' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
-                        @click="activeProviderId = provider.id"
+                        :class="activeProviderKey === provider.localKey ? 'bg-[var(--accent-bg)] text-[var(--accent-text)] shadow-sm' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                        @click="activeProviderKey = provider.localKey"
                     >
                         <!-- 激活状态左侧指示条 -->
                         <div
                             class="absolute left-0 top-1/2 h-1/2 w-[3px] -translate-y-1/2 rounded-r-full bg-[var(--accent-main)] transition-all duration-300"
-                            :class="activeProviderId === provider.id ? 'opacity-100' : 'opacity-0 scale-y-0'"
+                            :class="activeProviderKey === provider.localKey ? 'opacity-100' : 'opacity-0 scale-y-0'"
                         ></div>
 
-                        <span class="i-lucide-server h-4 w-4 shrink-0 transition-transform duration-300 group-hover:scale-110" :class="activeProviderId === provider.id ? 'text-[var(--accent-main)]' : 'text-[var(--text-muted)]'"></span>
+                        <span class="i-lucide-server h-4 w-4 shrink-0 transition-transform duration-300 group-hover:scale-110" :class="activeProviderKey === provider.localKey ? 'text-[var(--accent-main)]' : 'text-[var(--text-muted)]'"></span>
                         <div class="min-w-0 flex-1">
-                            <div class="truncate text-[13px] font-medium" :class="activeProviderId === provider.id ? 'text-[var(--accent-text)]' : 'text-[var(--text-main)]'">{{ provider.name }}</div>
+                            <div class="truncate text-[13px] font-medium" :class="activeProviderKey === provider.localKey ? 'text-[var(--accent-text)]' : 'text-[var(--text-main)]'">{{ provider.name }}</div>
                             <div class="mt-0.5 truncate text-[11px] opacity-70">{{ provider.models.filter((model) => model.enabled).length }} 个模型</div>
                         </div>
                     </button>
@@ -1752,7 +1780,7 @@ watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.p
                     name="fade-slide"
                     mode="out-in"
                 >
-                    <section v-if="activeProvider" :key="activeProvider.id" class="space-y-5 pb-8">
+                    <section v-if="activeProvider" :key="activeProvider.localKey" class="space-y-5 pb-8">
                         <!-- Provider 配置卡片 -->
                         <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-sm transition-all duration-300 hover:shadow-md">
                             <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-color)] pb-4">

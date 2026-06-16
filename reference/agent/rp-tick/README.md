@@ -30,10 +30,10 @@ Phase 0        Phase 1         Phase 2            Phase 3          Phase 4      
 
 开场白发生在第一个常规 Tick 之前，但它仍然是用户可见正文产物，不能由 `rp.leader` 直接撰写。
 
-- 初始化正文固定写入 `simulation/runs/ticks/000000-initial-state/prose.md`。
+- 初始化正文固定写入当前 Project Workspace 的 `simulation/runs/ticks/000000-initial-state/prose.md`；交给文件工具或 rp.writer 时必须写成 `{project-slug}/simulation/runs/ticks/000000-initial-state/prose.md`。
 - `rp.leader` 负责读取 manual / agent-context、确认化身和初始处境，必要时调用 `simulator.leader` 建立初始运行态。
 - 随后 `rp.leader` 生成开场白 Writer Brief，创建空 input 的 `rp.writer` session，并通过 `invoke_agent.message` 发送完整 Brief。
-- `rp.writer` 将开场白正文写入 `000000-initial-state/prose.md`；`rp.leader` 最终只组装正文链接和元场景引导。
+- `rp.writer` 将开场白正文写入带 `{project-slug}/` 前缀的 `000000-initial-state/prose.md`；`rp.leader` 最终只组装正文链接和元场景引导。
 
 ### Phase 1 — rp.leader：IC/OOC 审查
 

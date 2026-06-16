@@ -12,7 +12,7 @@ export type SystemAssetsPreflightResult = {
 /**
  * 准备系统 assets runtime artifact，并按需同步到用户 assets。
  */
-export async function prepareSystemAssets(options: {syncUserAssets?: boolean; force?: boolean} = {}): Promise<SystemAssetsPreflightResult> {
+export async function prepareSystemAssets(options: {syncUserAssets?: boolean; force?: boolean; forceSyncUserAssets?: boolean} = {}): Promise<SystemAssetsPreflightResult> {
     const profileRoot = path.resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profiles");
     const variableDefinitionRoot = path.resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "variables");
     const variableManifest = await compileVariableDefinitions({
@@ -26,7 +26,7 @@ export async function prepareSystemAssets(options: {syncUserAssets?: boolean; fo
         skipFresh: !options.force,
     });
     const userAssetsSync = options.syncUserAssets
-        ? await syncSystemAssetsToUserAssets()
+        ? await syncSystemAssetsToUserAssets({force: options.forceSyncUserAssets})
         : undefined;
     return {variableManifest, profileResult, userAssetsSync};
 }

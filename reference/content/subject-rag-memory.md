@@ -146,7 +146,7 @@ Agent runtime 读取配置时必须使用 `workspaceRoot + projectPath` 合并 P
 1. 基于 actor-facing packet 生成检索 query。
 2. 调用 `subject_rag_search` 粗召回当前 subject 的 `events.jsonl` 和/或 `memory.jsonl`；如果两层都需要，必须分别传 `["events"]`、`["memory"]` 调用两次。除 `limit` 外不使用额外查询调参。
 3. 自行 rerank、去重、过滤和压缩。
-4. 通过 `report_sidecar_result.data` 返回纯文本 actor-safe context。
+4. 通过 `report_sidecar_result.result` 返回纯文本 actor-safe context，并传 `data: { "actor.context-load": {} }` 闭合旁路结果。
 5. `merge()` 把少量相关经历和稳定认知写入 `<actor-sidecar-context>`，并通过 `persistedMessages` 写入 actor session 主 active path，让本轮主 run 可见。
 
 注入预算第一版限制为最多 6 条 events 和 4 条 memory，并限制最终注入文本长度。若注入后 provider-visible context 超出模型窗口，父 invocation 会失败；已写入的 persisted message 第一版不回滚。后续 compaction 会像处理其他 session history 一样处理这条 sidecar context。sidecar 自身 transcript 会持久化在 session tree 的旁路 leaf 上，但不会成为主 active path。

@@ -45,6 +45,7 @@ invoke_agent({
 rp.writer 在写作前检查：
 
 - 是否存在 `prose 输出路径`。
+- `prose 输出路径` 是否是 Workspace Root cwd-relative Project 路径，形如 `{project-slug}/simulation/runs/ticks/{id}-{slug}/prose.md`。
 - 是否有足够的场景底色、角色状态、剧情骨架和视角边界。
 - `<context>` 中的 Markdown 链接是否足以支撑 Brief 要求。
 - 是否存在需要上级补充、否则会迫使 writer 编造的关键材料。
@@ -60,8 +61,8 @@ Writer Brief 的稳定骨架很小：
 ```xml
 <writer_brief>
   <context>
-  - [前情：被召唤](simulation/runs/ticks/000001-summoned/prose.md)
-  - [召唤术式](lorebook/magic/召唤术式.md)
+  - [前情：被召唤](project-slug/simulation/runs/ticks/000001-summoned/prose.md)
+  - [召唤术式](project-slug/lorebook/magic/召唤术式.md)
   </context>
 
   <materials>
@@ -78,7 +79,7 @@ Writer Brief 的稳定骨架很小：
   </style>
 </writer_brief>
 
-prose 输出路径：simulation/runs/ticks/000001-awakening/prose.md
+prose 输出路径：project-slug/simulation/runs/ticks/000001-awakening/prose.md
 ```
 
 `<materials>`、`<beats>` 和 `<style>` 内允许自定义 tag，只要能更好表达意思即可。自定义 tag 不改变文件读取权限。
@@ -124,8 +125,8 @@ rp.writer 不自主检索 `lorebook/`、`manual/`、`simulation/`、`agent-conte
 
 ```xml
 <context>
-- [前情：被召唤](simulation/runs/ticks/000001-summoned/prose.md)
-- [召唤术式](lorebook/magic/召唤术式.md)
+- [前情：被召唤](project-slug/simulation/runs/ticks/000001-summoned/prose.md)
+- [召唤术式](project-slug/lorebook/magic/召唤术式.md)
 </context>
 ```
 
@@ -138,15 +139,17 @@ rp.writer 不自主检索 `lorebook/`、`manual/`、`simulation/`、`agent-conte
 Brief 必须用独立元数据行指定输出路径：
 
 ```text
-prose 输出路径：simulation/runs/ticks/000001-awakening/prose.md
+prose 输出路径：project-slug/simulation/runs/ticks/000001-awakening/prose.md
 ```
 
-如果缺少这行，rp.writer 不写文件，不自己生成项目名、tick slug 或默认路径，只用 `report_result.result` 报告缺少 prose 输出路径。
+这条路径会直接交给 Agent 文件工具。Agent cwd 是 Workspace Root，因此输出路径必须带 Project slug 前缀。`simulation/runs/...` 是错误路径，会写到 Workspace Root 直属 `simulation/`，不是当前 Project Workspace。
+
+如果缺少这行，或输出路径缺少 Project slug 前缀，rp.writer 不写文件，不自己生成项目名、tick slug 或默认路径，只用 `report_result.result` 报告缺少可用 prose 输出路径。
 
 写入完成后，rp.writer 用 `report_result.result` 汇报实际落点，例如：
 
 ```text
-已写入：simulation/runs/ticks/000001-awakening/prose.md
+已写入：project-slug/simulation/runs/ticks/000001-awakening/prose.md
 ```
 
 ## writing_reference 隔离
