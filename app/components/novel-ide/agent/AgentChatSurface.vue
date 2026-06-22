@@ -24,7 +24,7 @@ import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {formatCost, formatCostExact, usingCnyRate} from "nbook/app/utils/cost-format";
 import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
-import type {AgentQueuedMessageDto, AgentSessionListQueryDto, AgentSessionSnapshotDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentQueuedMessageDto, AgentSessionListQueryDto, AgentSessionSnapshotDto, AgentSessionSummaryDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
@@ -104,7 +104,7 @@ const runPhase = session.runPhase;
 const pendingUserInputSession = session.pendingUserInputSession;
 const pendingUserInputSessionsComputed = computed(() => {
     const pendings = session.snapshot.value?.pendingApprovals ?? [];
-    return pendings.map((approval) => toPendingUserInputSession(approval, messages.value))
+    return pendings.map((approval: AgentPendingApprovalDto) => toPendingUserInputSession(approval, messages.value))
         .filter((s): s is AgentPendingUserInputSession => s !== null);
 });
 const {confirm} = useDialog();
@@ -939,7 +939,26 @@ const submitUserInputAnswers = async (payload: {
         // 如果有多个待审批项，一次性提交所有审批
         const allPendingSessions = pendingUserInputSessionsComputed.value;
         if (allPendingSessions.length > 1) {
-            const resolutions = allPendingSessions.map((session) => {
+            type AnswerItem = {
+                questionIndex: number;
+                text: string;
+                selectedOptionIndex?: number;
+                selectedOptionIndexes?: number[];
+                note?: string;
+                ignored?: boolean;
+            };
+            type ResolutionItem = {
+                kind: "tool_approval";
+                toolCallId: string;
+                approved: boolean;
+                resultText: string;
+                answers: AnswerItem[];
+            } | {
+                kind: "user_input";
+                toolCallId: string;
+                answers: AnswerItem[];
+            };
+            const resolutions: Array<ResolutionItem | null> = allPendingSessions.map((session: AgentPendingUserInputSession) => {
                 const sessionToolCallId = session.questions[0]?.toolCallId ?? session.questions[0]?.toolNodeId;
                 const sessionFirstQuestion = session.questions[0];
                 if (!sessionToolCallId || !sessionFirstQuestion) {
@@ -947,7 +966,7 @@ const submitUserInputAnswers = async (payload: {
                 }
                 // 只有第一个审批使用用户交互的答案，其余使用默认批准
                 const isFirstSession = session === pendingSession;
-                const sessionAnswers = isFirstSession
+                const sessionAnswers: AnswerItem[] = isFirstSession
                     ? answers
                     : [{
                         questionIndex: 0,
@@ -970,12 +989,12 @@ const submitUserInputAnswers = async (payload: {
                     toolCallId: sessionToolCallId,
                     answers: sessionAnswers,
                 };
-            }).filter((r): r is NonNullable<typeof r> => r !== null);
+            }).filter((r: ResolutionItem | null): r is ResolutionItem => r !== null);
 
             const result = await agentApi.invokeSession(activeSessionId.value, {
                 mode: "continue",
                 clientState: buildClientState(),
-                resolutions,
+                resolutions: resolutions as any,
             });
             await handleInvokeResult(result);
             await syncActiveSessionSnapshot();

@@ -3,6 +3,7 @@ import type {TSchema} from "typebox";
 import type {NeuroAgentHarness} from "nbook/server/agent/harness/neuro-agent-harness";
 import type {ToolSessionWriteSink} from "nbook/server/agent/session/tool-session-write-sink";
 import type {ProfileVariableAccessor} from "nbook/server/agent/variables/types";
+import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
 
 export type ToolExecutionMode = "sequential" | "parallel";
 
@@ -19,6 +20,38 @@ export type ToolExecutionContext = {
     sessionWrites?: ToolSessionWriteSink;
 };
 
+/**
+ * 用户输入请求上下文。
+ * 工具在判断是否需要用户输入时可以访问的信息。
+ */
+export type UserInputRequestContext = {
+    /** 工具调用参数 */
+    args: unknown;
+    /** Session 上下文 */
+    session: {
+        sessionId: number;
+        profileKey: string;
+        workspaceRoot: string;
+        workspaceKey: string;
+        projectPath?: string;
+    };
+};
+
+/**
+ * 用户输入表单规格。
+ * 完全复用 Low-Code Form 系统，支持 8 种基础组件。
+ */
+export type UserInputFormSpec = {
+    /** Low-Code Form 定义 */
+    form: LowCodeFormDto;
+    /** 可选的返回值 schema，用于校验用户提交的数据 */
+    resultSchema?: TSchema;
+    /** 展示给用户的提示文本 */
+    prompt?: string;
+    /** 前端布局提示（第一版只支持 dialog） */
+    layout?: "dialog" | "inline" | "fullscreen";
+};
+
 export type NeuroAgentTool = AgentTool<any, any> & {
     key: string;
     approvalRequired?: boolean;
@@ -29,13 +62,28 @@ export type NeuroAgentTool = AgentTool<any, any> & {
      */
     executionMode?: ToolExecutionMode;
     /**
+     * 用户输入请求配置。
+     * 工具可以通过此字段声明在执行时需要用户输入。
+     */
+    userInputRequest?: {
+        /**
+         * 判断是否需要用户输入，返回表单规格或 null。
+         * - 返回 UserInputFormSpec：暂停执行，展示表单，等待用户提交
+         * - 返回 null：直接执行，无需用户输入
+         */
+        when: (context: UserInputRequestContext) => Promise<UserInputFormSpec | null> | UserInputFormSpec | null;
+    };
+    /**
      * v3 harness 自己执行工具时使用的上下文入口。Pi 的 AgentTool.execute 没有当前 session 信息，
      * 所以需要把 Neuro Book 的 session/link 语义保留在这一层。
+     *
+     * @param userInput - 当工具声明了 userInputRequest 且用户已提交表单时，此参数包含用户输入的数据
      */
     executeWithContext?: (
         context: ToolExecutionContext,
         toolCallId: string,
         params: unknown,
+        userInput?: unknown,
         signal?: AbortSignal,
         onUpdate?: Parameters<AgentTool<any, any>["execute"]>[3],
     ) => ReturnType<AgentTool<any, any>["execute"]>;

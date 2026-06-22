@@ -1,4 +1,4 @@
-import type {AgentRuntimeStreamEventDto, AgentSessionEventDto, AgentSessionLiveStateDto, AgentSessionRelationsDto, AgentSessionSnapshotDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentRuntimeStreamEventDto, AgentSessionEventDto, AgentSessionLiveStateDto, AgentSessionRelationsDto, AgentSessionSnapshotDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
 import {computed, getCurrentScope, onScopeDispose, ref, shallowRef} from "vue";
 import {
     applyRuntimeEventToMessages,
@@ -215,8 +215,8 @@ export function useAgentSession() {
             runPhase.value = "idle";
         }
         pendingUserInputSessions.value = payload.pendingApprovals
-            .map((approval) => toPendingUserInputSession(approval, messages.value))
-            .filter((session): session is AgentPendingUserInputSession => session !== null);
+            .map((approval: AgentPendingApprovalDto) => toPendingUserInputSession(approval, messages.value))
+            .filter((session: AgentPendingUserInputSession | null): session is AgentPendingUserInputSession => session !== null);
         eventEpoch.value = cursor.eventEpoch;
         lastSeq.value = cursor.after;
         needsSnapshot.value = false;
@@ -272,8 +272,8 @@ export function useAgentSession() {
             runPhase.value = "idle";
         }
         pendingUserInputSessions.value = state.pendingApprovals
-            .map((approval) => toPendingUserInputSession(approval, messages.value))
-            .filter((session): session is AgentPendingUserInputSession => session !== null);
+            .map((approval: AgentPendingApprovalDto) => toPendingUserInputSession(approval, messages.value))
+            .filter((session: AgentPendingUserInputSession | null): session is AgentPendingUserInputSession => session !== null);
         if (activePathChanged) {
             requestSnapshot("active_path_changed");
         }

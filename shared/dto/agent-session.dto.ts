@@ -255,7 +255,7 @@ export type AgentSessionRelationsDto = {
     linkedByAgents: AgentLinkedSessionDto[];
 };
 
-export type AgentPendingApprovalDto = {
+export type AgentPendingUserInputDto = {
     assistantMessageId?: string;
     toolCallId: string;
     toolName: string;
@@ -263,6 +263,9 @@ export type AgentPendingApprovalDto = {
     planFilePath?: string;
     planContent?: string;
 };
+
+/** @deprecated 使用 AgentPendingUserInputDto */
+export type AgentPendingApprovalDto = AgentPendingUserInputDto;
 
 export type AgentQueuedMessageDto = {
     id: string;
@@ -298,6 +301,7 @@ export type AgentSessionLiveStateDto = {
     activeLeafId: string | null;
     /** 显式 active path 重定位版本;变化时前端应拉 snapshot 重建消息投影。 */
     activePathRevision: string | null;
+    pendingUserInputs: AgentPendingUserInputDto[];
     pendingApprovals: AgentPendingApprovalDto[];
     steerQueue: AgentQueuedMessageDto[];
     followUpQueue: AgentFollowUpQueueStateDto;
@@ -315,29 +319,35 @@ export type AgentSessionLiveStateDto = {
 export type AgentRuntimeStreamEventDto =
     | {
         type: "agent_start";
+        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "agent_end";
         status: "completed" | "waiting" | "failed" | "aborted" | "interrupted";
         usage?: Usage;
+        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "turn_start";
         turnIndex: number;
+        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "turn_end";
         turnIndex: number;
         status: "completed" | "waiting" | "failed";
+        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "message_start" | "message_end";
         message: AgentMessage;
+        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "message_update";
         message: AgentMessage;
         assistantMessageEvent: AssistantMessageEvent;
+        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "tool_execution_start";
@@ -345,6 +355,7 @@ export type AgentRuntimeStreamEventDto =
         toolName: string;
         /** 工具参数来自异构 tool schema，第一版原样透传给工具卡展示。 */
         args: unknown;
+        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "tool_execution_update";
@@ -354,6 +365,7 @@ export type AgentRuntimeStreamEventDto =
         args: unknown;
         /** 工具流式 partial result 来自异构工具，后续如变大再做 preview/ref。 */
         partialResult: unknown;
+        sidecarContext?: { type: string; leafId: string };
     }
     | {
         type: "tool_execution_end";
@@ -362,6 +374,68 @@ export type AgentRuntimeStreamEventDto =
         /** 工具结果来自异构工具，第一版保持原样，后续如变大再做 preview/ref。 */
         result: unknown;
         isError: boolean;
+        sidecarContext?: { type: string; leafId: string };
+    }
+    | {
+        type: "tool.user-input-required";
+        toolCallId: string;
+        toolName: string;
+        args: unknown;
+        sidecarContext?: { type: string; leafId: string };
+    }
+    | {
+        type: "sidecar.start";
+        sidecarType: string;
+        stage: string;
+        leafId: string;
+    }
+    | {
+        type: "sidecar.complete";
+        sidecarType: string;
+        stage: string;
+        leafId: string;
+    }
+    | {
+        type: "sidecar.error";
+        sidecarType: string;
+        stage: string;
+        error: string;
+    }
+    | {
+        type: "sidecar_start";
+        /** sidecar 类型名称，例如 "context-load" */
+        sidecarType: string;
+        /** sidecar 执行阶段，prepareRun 或 settleRun */
+        stage: "prepareRun" | "settleRun";
+        /** sidecar transcript 在 session 中的 leafId */
+        leafId: string | null;
+        sidecarContext?: { type: string; leafId: string };
+    }
+    | {
+        type: "sidecar_complete";
+        sidecarType: string;
+        stage: "prepareRun" | "settleRun";
+        leafId: string | null;
+        /** sidecar 返回的结果数据，供前端展示或调试 */
+        sidecarResult: unknown;
+        sidecarContext?: { type: string; leafId: string };
+    }
+    | {
+        type: "sidecar_error";
+        sidecarType: string;
+        stage: "prepareRun" | "settleRun";
+        leafId: string | null;
+        error: string;
+        sidecarContext?: { type: string; leafId: string };
+    }
+    | {
+        type: "sidecar_merge";
+        /** 合并了哪些 sidecar 的数据 */
+        sidecarTypes: string[];
+        stage: "prepareRun" | "settleRun";
+        /** 合并后实际写入 persistedMessages 的消息数量 */
+        mergedMessageCount: number;
+        sidecarContext?: { type: string; leafId: string };
     };
 
 export type AgentSessionControlEvent =
@@ -436,6 +510,7 @@ export type AgentSessionSnapshotDto = {
     entries: SessionEntry[];
     linkedAgents: AgentLinkedSessionDto[];
     linkedByAgents: AgentLinkedSessionDto[];
+    pendingUserInputs: AgentPendingUserInputDto[];
     pendingApprovals: AgentPendingApprovalDto[];
     steerQueue: AgentQueuedMessageDto[];
     followUpQueue: AgentFollowUpQueueStateDto;

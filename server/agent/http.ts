@@ -152,7 +152,7 @@ export function toInvokeInput(
         message: body.message,
         payload: body.input,
         title: body.title,
-        resolution: body.resolution,
+        resolution: body.resolution as InvokeAgentInput["resolution"],
         clientState: body.clientState,
         caller: {kind: "user"},
         block: body.block,

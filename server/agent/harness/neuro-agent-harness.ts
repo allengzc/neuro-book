@@ -1161,6 +1161,7 @@ export class NeuroAgentHarness {
             ...(summarizer ? {summarizer} : {}),
             activeLeafId: projection.snapshot.leafId,
             activePathRevision: this.repo.activePathRevision(projection.snapshot),
+            pendingUserInputs: await Promise.all(projection.pendingApprovals.map((pending) => this.pendingApprovalDto(projection.snapshot, pending))),
             pendingApprovals: await Promise.all(projection.pendingApprovals.map((pending) => this.pendingApprovalDto(projection.snapshot, pending))),
             steerQueue: this.steerQueues.get(sessionId) ?? [],
             followUpQueue: this.followUpQueueState(sessionId, projection.context),
@@ -1202,6 +1203,7 @@ export class NeuroAgentHarness {
             entries: this.repo.activePath(snapshot),
             linkedAgents: relations.linkedAgents,
             linkedByAgents: relations.linkedByAgents,
+            pendingUserInputs: await Promise.all(projection.pendingApprovals.map((pending) => this.pendingApprovalDto(snapshot, pending))),
             pendingApprovals: await Promise.all(projection.pendingApprovals.map((pending) => this.pendingApprovalDto(snapshot, pending))),
             steerQueue: this.steerQueues.get(sessionId) ?? [],
             followUpQueue,
@@ -4587,6 +4589,15 @@ export class NeuroAgentHarness {
                 await this.writeExecutor.execute(mergePlan.writePlans, input.sidecarRun.invocationId);
             }
         }
+        // 发送 sidecar_merge 事件：所有 sidecar 完成且有数据注入时
+        if (passes.length > 0 && (applied.persistedMessagesWritten || applied.runtimeMessagesInjected)) {
+            this.publishRuntimeEvent(input.sidecarRun.sessionId, input.sidecarRun.invocationId, {
+                type: "sidecar_merge",
+                sidecarTypes: passes.map((p) => p.name),
+                stage: input.stage,
+                mergedMessageCount: input.sidecarRun.messages.length,
+            });
+        }
         return applied;
     }
 
@@ -4598,56 +4609,89 @@ export class NeuroAgentHarness {
         });
         const parentLeafId = sidecarRun.snapshot.leafId ?? null;
         const sidecarLeafId = await this.appendSidecarEnterMessage(pass.name, sidecarRun, sidecarReminder, parentLeafId);
-        const result = await this.runLoop({
-            sessionId: sidecarRun.sessionId,
-            workspaceKey: sidecarRun.snapshot.metadata.workspaceKey,
-            workspaceRoot: sidecarRun.context.workspaceRoot,
-            projectPath: sidecarRun.context.projectPath,
-            systemPrompt: sidecarRun.systemPrompt,
-            messages: [
-                ...sidecarRun.messages,
-                sidecarReminder,
-            ],
-            model: sidecarRun.model,
-            apiKey: sidecarRun.apiKey,
-            timeoutMs: sidecarRun.timeoutMs,
-            requestOptions: sidecarRun.requestOptions,
-            compaction: sidecarRun.compaction,
-            sessionContextEnabled: false,
-            toolKeys: sidecarRun.toolKeys,
-            executionToolKeys,
-            profileKey: sidecarRun.context.profileKey,
-            profile: sidecarRun.profile,
-            thinkingLevel: sidecarRun.thinkingLevel,
-            runtimeState: new Map(sidecarRun.runtimeState),
-            reportResultReminderEnabled: executionToolKeys.includes("report_sidecar_result"),
-            caller: {
-                kind: "sidecar",
-                sessionId: sidecarRun.sessionId,
-                profileKey: sidecarRun.context.profileKey,
-            },
-            abortSignal: sidecarRun.abortSignal,
-            invocationId: sidecarRun.invocationId,
-            forcePersistTranscript: true,
-            transcriptParentLeafId: sidecarLeafId,
-            restoreLeafAfterTranscript: true,
-            restoreLeafIdAfterTranscript: parentLeafId,
-            suppressEvents: true,
-            disableSteer: true,
-            disableAutomaticCompaction: true,
-            activeSidecar: {
-                name: pass.name,
-                sidecarDataSchema: pass.sidecarDataSchema,
-            },
+
+        // 发送 sidecar_start 事件
+        this.publishRuntimeEvent(sidecarRun.sessionId, sidecarRun.invocationId, {
+            type: "sidecar_start",
+            sidecarType: pass.name,
+            stage: pass.stage,
+            leafId: sidecarLeafId,
         });
-        if (result.status === "failed") {
-            throw new Error(`sidecar ${pass.name} 执行失败：${result.errorInfo.message}`);
+
+        let sidecarResult: unknown;
+        try {
+            const result = await this.runLoop({
+                sessionId: sidecarRun.sessionId,
+                workspaceKey: sidecarRun.snapshot.metadata.workspaceKey,
+                workspaceRoot: sidecarRun.context.workspaceRoot,
+                projectPath: sidecarRun.context.projectPath,
+                systemPrompt: sidecarRun.systemPrompt,
+                messages: [
+                    ...sidecarRun.messages,
+                    sidecarReminder,
+                ],
+                model: sidecarRun.model,
+                apiKey: sidecarRun.apiKey,
+                timeoutMs: sidecarRun.timeoutMs,
+                requestOptions: sidecarRun.requestOptions,
+                compaction: sidecarRun.compaction,
+                sessionContextEnabled: false,
+                toolKeys: sidecarRun.toolKeys,
+                executionToolKeys,
+                profileKey: sidecarRun.context.profileKey,
+                profile: sidecarRun.profile,
+                thinkingLevel: sidecarRun.thinkingLevel,
+                runtimeState: new Map(sidecarRun.runtimeState),
+                reportResultReminderEnabled: executionToolKeys.includes("report_sidecar_result"),
+                caller: {
+                    kind: "sidecar",
+                    sessionId: sidecarRun.sessionId,
+                    profileKey: sidecarRun.context.profileKey,
+                },
+                abortSignal: sidecarRun.abortSignal,
+                invocationId: sidecarRun.invocationId,
+                forcePersistTranscript: true,
+                transcriptParentLeafId: sidecarLeafId,
+                restoreLeafAfterTranscript: true,
+                restoreLeafIdAfterTranscript: parentLeafId,
+                suppressEvents: true, // 不透传内部事件，避免污染
+                disableSteer: true,
+                disableAutomaticCompaction: true,
+                activeSidecar: {
+                    name: pass.name,
+                    sidecarDataSchema: pass.sidecarDataSchema,
+                },
+            });
+            if (result.status === "failed") {
+                throw new Error(`sidecar ${pass.name} 执行失败：${result.errorInfo.message}`);
+            }
+            if (result.status === "waiting") {
+                throw new Error(`sidecar ${pass.name} 进入 waiting 状态；V1 sidecar 不支持用户审批或回答。`);
+            }
+            sidecarResult = this.readSidecarResult(pass, result);
+            const mergePlan = await pass.merge(context, sidecarResult as SidecarResult<JsonValue>);
+
+            // 发送 sidecar_complete 事件
+            this.publishRuntimeEvent(sidecarRun.sessionId, sidecarRun.invocationId, {
+                type: "sidecar_complete",
+                sidecarType: pass.name,
+                stage: pass.stage,
+                leafId: sidecarLeafId,
+                sidecarResult,
+            });
+
+            return mergePlan;
+        } catch (error) {
+            // 发送 sidecar_error 事件
+            this.publishRuntimeEvent(sidecarRun.sessionId, sidecarRun.invocationId, {
+                type: "sidecar_error",
+                sidecarType: pass.name,
+                stage: pass.stage,
+                leafId: sidecarLeafId,
+                error: error instanceof Error ? error.message : String(error),
+            });
+            throw error;
         }
-        if (result.status === "waiting") {
-            throw new Error(`sidecar ${pass.name} 进入 waiting 状态；V1 sidecar 不支持用户审批或回答。`);
-        }
-        const sidecarResult = this.readSidecarResult(pass, result);
-        return await pass.merge(context, sidecarResult);
     }
 
     private async appendSidecarEnterMessage(passName: string, sidecarRun: SidecarRunContext, message: Message, parentLeafId: SessionEntryId | null): Promise<SessionEntryId | null> {
