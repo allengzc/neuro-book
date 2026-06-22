@@ -73,6 +73,12 @@ const emit = defineEmits<{
             ignored?: boolean;
         }>;
     }): void;
+    /** Task 63: Low-Code Form 提交事件 */
+    (e: "submit-user-input-form", payload: {
+        assistantMessageId: string;
+        toolCallId: string;
+        data: import("nbook/shared/dto/low-code-form.dto").LowCodeJsonObject;
+    }): void;
     (e: "send"): void;
     (e: "steer"): void;
     (e: "followup"): void;
@@ -333,6 +339,7 @@ defineExpose({focus});
                 @update:notes="emit('update:notes', $event)"
                 @active-question-change="setActiveQuestion"
                 @submit="emit('submit-user-input', $event)"
+                @submit-form="emit('submit-user-input-form', $event)"
             />
         </div>
 

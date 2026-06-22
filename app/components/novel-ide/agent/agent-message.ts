@@ -3,6 +3,7 @@ import type {AssistantMessageEvent} from "@earendil-works/pi-ai";
 import type {AgentMessage as PiAgentMessage, AgentToolCall as PiAgentToolCall, AssistantMessage as PiAssistantMessage, Message as PiMessage, ToolResultMessage, Usage} from "nbook/server/agent/messages/types";
 import type {AgentRuntimeStreamEventDto, AgentSessionSnapshotDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
 import type {SessionEntry} from "nbook/server/agent/session/types";
+import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
 import {toStableArgsJson} from "nbook/app/components/novel-ide/agent/tool-args-stream";
 
 type PiAssistantContent = PiAssistantMessage["content"][number];
@@ -170,6 +171,10 @@ export type AgentPendingUserInputSession = {
     assistantMessageId: string;
     status: "pending";
     questions: AgentPendingUserInputQuestion[];
+    /** Task 63: Low-Code Form 表单规格（存在时优先使用 LowCodeForm 渲染）。类型递归深度限制，运行时验证由 LowCodeFormDtoSchema 保证。 */
+    form?: any;
+    /** Task 63: 当存在 form 时，关联的 toolCallId 用于提交 resolution。 */
+    formToolCallId?: string;
 };
 
 export type RequestUserInputAnswerView = {
@@ -700,6 +705,19 @@ export const toPendingUserInputSession = (
     const args = pending.args && typeof pending.args === "object" && !Array.isArray(pending.args)
         ? pending.args as Record<string, unknown>
         : {};
+
+    // Task 63: 检测 Low-Code Form
+    const form = (args as any).form;
+    if (form && typeof form === "object" && Array.isArray((form as any).fields)) {
+        return {
+            assistantMessageId: assistantMessage?.id ?? pending.assistantMessageId ?? pending.toolCallId,
+            status: "pending",
+            questions: [],
+            form: form as import("nbook/shared/dto/low-code-form.dto").LowCodeFormDto,
+            formToolCallId: pending.toolCallId,
+        };
+    }
+
     if (pending.toolName === "request_user_input") {
         const parsed = RequestUserInputToolArgsSchema.safeParse(args);
         const questions = parsed.success ? parsed.data.questions : [];

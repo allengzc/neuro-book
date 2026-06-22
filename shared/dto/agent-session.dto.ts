@@ -44,6 +44,8 @@ export const AgentResolutionDtoSchema = z.discriminatedUnion("kind", [
     z.object({
         kind: z.literal("user_input"),
         toolCallId: z.string().trim().min(1),
+        /** Task 63: Low-Code Form 提交数据（存在时优先于 answers）。 */
+        data: JsonValueSchema.optional(),
         answers: z.array(z.object({
             questionIndex: z.number().int().nonnegative(),
             text: z.string(),
@@ -51,7 +53,9 @@ export const AgentResolutionDtoSchema = z.discriminatedUnion("kind", [
             selectedOptionIndexes: z.array(z.number().int().min(-1)).optional(),
             note: z.string().optional(),
             ignored: z.boolean().optional(),
-        })),
+        })).optional(),
+    }).refine((value) => value.data !== undefined || value.answers !== undefined, {
+        message: "user_input resolution 必须提供 data 或 answers",
     }),
 ]);
 

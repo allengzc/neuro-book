@@ -351,7 +351,7 @@ export function useAgentSession() {
             messages.value = applySessionEntryToMessages(messages.value, payload.event.entry);
             if (payload.event.entry.type === "message" && payload.event.entry.message.role === "toolResult") {
                 const toolCallId = payload.event.entry.message.toolCallId;
-                pendingUserInputSessions.value = pendingUserInputSessions.value.filter((session) => {
+                pendingUserInputSessions.value = pendingUserInputSessions.value.filter((session): boolean => {
                     return !session.questions.some((question) => (question.toolCallId ?? question.toolNodeId) === toolCallId);
                 });
             }

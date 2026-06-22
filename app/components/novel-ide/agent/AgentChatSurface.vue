@@ -886,6 +886,52 @@ const reconnectActiveSessionEvents = async (): Promise<void> => {
 };
 
 /**
+ * Task 63: 提交 Low-Code Form 数据。
+ */
+const submitUserInputForm = async (payload: {
+    assistantMessageId: string;
+    toolCallId: string;
+    data: import("nbook/shared/dto/low-code-form.dto").LowCodeJsonObject;
+}): Promise<void> => {
+    if (!activeSessionId.value || !pendingUserInputSession.value) {
+        return;
+    }
+    const pendingSession = pendingUserInputSession.value;
+    const pendingKey = pendingUserInputKey(pendingSession);
+    if (pendingKey && submittingUserInputKey.value === pendingKey) {
+        return;
+    }
+    try {
+        submittingUserInputKey.value = pendingKey;
+        await ensureActiveSessionEvents();
+        session.clearPendingUserInputSession();
+        userInputSelectedAnswers.value = {};
+        userInputNotes.value = {};
+
+        const result = await agentApi.invokeSession(activeSessionId.value, {
+            mode: "continue",
+            clientState: buildClientState(),
+            resolution: {
+                kind: "user_input",
+                toolCallId: payload.toolCallId,
+                data: payload.data,
+            } as any,
+        });
+        await handleInvokeResult(result);
+        await syncActiveSessionSnapshot();
+    } catch (error) {
+        console.error("提交 Low-Code Form 失败", error);
+        await syncActiveSessionSnapshot();
+        notifyAgentError(error, t("agent.chatSurface.submitAnswersFailed"));
+        throw error;
+    } finally {
+        if (submittingUserInputKey.value === pendingKey) {
+            submittingUserInputKey.value = null;
+        }
+    }
+};
+
+/**
  * 提交结构化问题答案（支持单个或批量）。
  */
 const submitUserInputAnswers = async (payload: {
@@ -1991,6 +2037,7 @@ function isApprovalApproved(answer?: {
                 :resolve-menu="resolveInputMenu"
                 :on-skill-trigger-start="refreshSkillCatalog"
                 @submit-user-input="void submitUserInputAnswers($event)"
+                @submit-user-input-form="void submitUserInputForm($event)"
                 @send="void send()"
                 @steer="void steer()"
                 @followup="void followup()"
