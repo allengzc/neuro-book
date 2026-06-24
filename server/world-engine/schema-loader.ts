@@ -18,7 +18,8 @@ import {
 
 const SCHEMA_RELATIVE_PATH = "world-engine/schema.yaml";
 const ATTR_KINDS = new Set<WorldAttrKind>(["scalar", "list", "collection", "object"]);
-const VALUE_TYPES = new Set(["int", "float", "text", "bool", "enum"]);
+// 同时支持新旧格式的类型名称：text/string, bool/boolean
+const VALUE_TYPES = new Set(["int", "float", "text", "string", "bool", "boolean", "enum"]);
 const ITEM_VALUE_TYPES = new Set([...VALUE_TYPES, "object"]);
 
 /** 加载 Project Workspace 内的 world-engine/schema.yaml。 */
