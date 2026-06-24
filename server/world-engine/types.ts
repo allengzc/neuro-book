@@ -140,26 +140,6 @@ export type WorldSchemaV2 = {
 // ============================================================================
 
 /**
- * 新格式类型名 -> 旧格式类型名
- * string -> text, boolean -> bool
- */
-function newTypeToOldType(newType: string): string {
-    if (newType === "string") return "text";
-    if (newType === "boolean") return "bool";
-    return newType; // int, float, ref 保持不变
-}
-
-/**
- * 旧格式类型名 -> 新格式类型名
- * text -> string, bool -> boolean
- */
-function oldTypeToNewType(oldType: string): string {
-    if (oldType === "text") return "string";
-    if (oldType === "bool") return "boolean";
-    return oldType; // int, float, ref 保持不变
-}
-
-/**
  * 将新 schema node 转换为旧 WorldAttrKind。
  *
  * 映射规则：
@@ -199,8 +179,7 @@ export function schemaNodeToAttrSchema(node: WorldSchemaNode): WorldAttrSchema {
         if (node.type === "ref" && "ref" in node && node.ref) {
             base.type = `ref(${node.ref})`;
         } else {
-            // 转换新格式类型名到旧格式：string -> text, boolean -> bool
-            base.type = newTypeToOldType(node.type);
+            base.type = node.type;
         }
         if ("values" in node && node.values) {
             base.enum = node.values;
@@ -213,7 +192,7 @@ export function schemaNodeToAttrSchema(node: WorldSchemaNode): WorldAttrSchema {
         const itemNode = node.items;
         // 如果元素是基础类型，直接用 itemType
         if (itemNode.type !== "array" && itemNode.type !== "object") {
-            base.itemType = newTypeToOldType(itemNode.type);
+            base.itemType = itemNode.type;
         } else {
             // 如果元素是复合类型，标记为 object（旧系统可能不支持深度嵌套）
             base.itemType = "object";
@@ -225,8 +204,6 @@ export function schemaNodeToAttrSchema(node: WorldSchemaNode): WorldAttrSchema {
     if (node.type === "object") {
         if (node.dynamic && node.valueType) {
             // 动态键映射：旧系统用 itemType 表达值类型
-            base.itemType = newTypeToOldType(node.valueType);
-        } else if (node.properties) {
             base.itemType = node.valueType;
         } else if (node.properties) {
             // 固定键结构：递归转换 properties
@@ -251,7 +228,7 @@ export function attrSchemaToSchemaNode(attr: WorldAttrSchema): WorldSchemaNode {
 
     // scalar -> 基础类型
     if (kind === "scalar") {
-        const type = oldTypeToNewType(attr.type ?? "string"); // 转换 text->string, bool->boolean
+        const type = attr.type ?? "string";
         if (type === "int" || type === "float" || type === "string" || type === "boolean" || type.startsWith("ref")) {
             const node: WorldSchemaNodePrimitive = {
                 type: type.startsWith("ref") ? "ref" : (type as "int" | "float" | "string" | "boolean"),
@@ -270,7 +247,7 @@ export function attrSchemaToSchemaNode(attr: WorldAttrSchema): WorldSchemaNode {
 
     // list -> array
     if (kind === "list") {
-        const itemType = oldTypeToNewType(attr.itemType ?? "string"); // 转换旧类型名
+        const itemType = attr.itemType ?? "string";
         const items: WorldSchemaNode = itemType === "object"
             ? { type: "object" }
             : { type: itemType as "int" | "float" | "string" | "boolean" | "ref" };
@@ -286,7 +263,7 @@ export function attrSchemaToSchemaNode(attr: WorldAttrSchema): WorldSchemaNode {
 
     // collection -> array + unique
     if (kind === "collection") {
-        const itemType = oldTypeToNewType(attr.itemType ?? "string"); // 转换旧类型名
+        const itemType = attr.itemType ?? "string";
         const items: WorldSchemaNode = itemType === "object"
             ? { type: "object" }
             : { type: itemType as "int" | "float" | "string" | "boolean" | "ref" };
