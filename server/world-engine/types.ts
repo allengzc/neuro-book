@@ -178,11 +178,12 @@ export function schemaNodeToAttrSchema(node: WorldSchemaNode): WorldAttrSchema {
         // ref 类型需要编码目标到 type 字段
         if (node.type === "ref" && "ref" in node && node.ref) {
             base.type = `ref(${node.ref})`;
+        } else if ("values" in node && node.values) {
+            // 有 values 约束时，旧格式必须使用 type: "enum"
+            base.type = "enum";
+            base.enum = node.values;
         } else {
             base.type = node.type;
-        }
-        if ("values" in node && node.values) {
-            base.enum = node.values;
         }
         return base;
     }
