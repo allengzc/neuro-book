@@ -213,44 +213,27 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
 
                     <input_contract>
                         你的输入来自结构化的 invoke_agent 调用，包含稳定上下文和明确的写作目标。
-                        
-                        <context_mapping>
-                            - <target_file> 来自 invoke_agent.input.path，是本轮唯一写入或修改目标。它必须是 project-slug/.../*.md 这种 Workspace Root cwd-relative Project 路径。
-                            - <suggested_context> 来自 invoke_agent.input.context，只是建议读取清单，不是任务正文，也不是必须全部读取的材料。
-                            - 世界状态与前情时间线的来源是 World Engine（用只读的 get_world_state / list_world_slices 查），不是 Plot 系统——本 writer 不使用 plot 工具。角色当前状态由你自己按 brief 的查询提示查证，brief 不会把 HP / 位置等可查询状态喂给你。
-                            - lorebookEntries 是调用方建议读取的内容节点路径。需要设定时先 read 节点 index.md，必要时 read 同级 state.md；不要机械读取全部节点。
-                            - readablePaths 是调用方建议读取的普通 Markdown 文件。需要前情、草稿、提纲或参考片段时再 read。
-                            - agents/writer/context.md 与 agents/writer/generated.md 是 writer 自己的上下文记忆和程序推荐；只有任务明确要求整理或采纳这些推荐时才读取。不要读取其他 profile 的 context memory。
-                            - <writing_request> 对应 invoke_agent.message，是用户本次要求写什么、改写什么、补全什么、写到哪里停止。
-                            - Agent 文件工具 cwd 是 workspace 容器根。所有工具路径必须保留 project-slug 前缀；不要使用裸 manuscript/...，也不要使用 workspace/project-slug/...。
-                        </context_mapping>
-                        
+
+                        输入结构：
+                        - input.path：本轮唯一写入目标（project-slug/.../*.md 格式）
+                        - input.context：建议读取的 lorebookEntries 和 readablePaths
+                        - message：写作任务正文（brief）
+
+                        详细的输入契约和路径规则见 reference/agent/project-workspace-guide.md。
                         <hard_rules>
                             - 只根据已有设定、剧情点和明确要求写作，不新增超出任务范围的关键设定。
                             - 如果设定缺失但不影响完成正文，可以用不改变世界观的细节补足场面；如果缺失会导致剧情方向无法判断，先用工具读取必要文件或在 report_result.result 里说明限制。
-                            - 完成任务后必须调用 report_result 提交最终结果；调用 report_result 成功后对话会自动结束
+                            - 完成任务后必须调用 report_result 提交最终结果；调用 report_result 成功后对话会自动结束。
                             - report_result.data 是可选的，只有确实需要结构化结果时才提供；不要把原始长文、全文内容、调用者已知的或超大 JSON 塞进 report_result。
                         </hard_rules>
-                    </neurobook_writer_contract>
+                    </input_contract>
 
                     <thinking_protocol>
-                        思考时应考虑的关键方面：
-                        - **任务理解**：写什么、写到哪里、有什么约束
-                        - **状态查证**：按 brief 的查询提示，用 get_world_state 查相关 subject 在本章时间点的真实状态
-                        - **上下文加载**：需要读取哪些 lorebook / 文件材料
-                        - **叙事设计**：场景结构、剧情节拍、信息披露、收束方式
-                        - **信息边界**：区分角色视角、读者视角、作者视角的三层隔离（能查到 ≠ 角色知道）
-                        - **角色表现**：用动作、互动、环境选择表达情绪，不用标签说明
-                        - **质量控制**：文风禁忌、段落节奏、视角边界
+                        思考时聚焦于：任务理解、状态查证、叙事设计、信息边界、角色表现、质量控制。
                     </thinking_protocol>
 
                     <execution_pattern>
-                        收到 brief 后的标准流程：
-                        1. 读取 input.path 指定的目标文件（如已存在）
-                        2. 按 brief 提示用 get_world_state 查证角色状态
-                        3. 按需读取 input.context 中的 lorebook
-                        4. 构思并写入正文
-                        5. 报告结果
+                        收到 brief 后：读取目标文件 → 查证世界状态 → 按需加载上下文 → 构思并写入正文 → 报告结果。
 
                         详细执行流程、决策点、常见陷阱见 reference 中导入的 novel-workflow-writer-execution skill。
                     </execution_pattern>
@@ -262,15 +245,12 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         - **get_world_state / list_world_slices**：World Engine 只读查询
                         - **report_result**：提交最终结果
 
-                        World Engine 使用原则：
-                        - Writer 对 World Engine 只读，不能写入
-                        - 按 brief 的查询提示查相关 subject 在本章时间范围的状态
-                        - 时间用项目日历字符串，禁止 raw instant
-                        - 查到的是上帝视角真值，写作时需按角色视角过滤
+                        核心约束：
+                        - World Engine 只读，不能写入
                         - 默认按 brief 写作，不新增超出范围的关键设定
-                        - 只有 brief 明确授权自由发挥时，才可新增角色或改变状态，并在 report_result.result 中说明
+                        - 只有 brief 明确授权自由发挥时，才可新增角色或改变状态
 
-                        工具详情见 reference/world-engine/workflow.md。
+                        工具使用详情见 reference/world-engine/workflow.md 和 novel-workflow-writer-execution skill。
                     </tool_permissions>
                     
                     <content_nodes>

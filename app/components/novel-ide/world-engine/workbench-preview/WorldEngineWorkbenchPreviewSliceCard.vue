@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import {computed} from "vue";
-import {buildWorldWorkbenchSubjectFileProposals} from "nbook/app/utils/world-engine-workbench-real";
+import {
+    buildWorldWorkbenchSubjectFileProposals,
+    worldWorkbenchIssueLevel,
+    worldWorkbenchIssueStatusLabel,
+} from "nbook/app/utils/world-engine-workbench-real";
 import type {
     WorldWorkbenchPreviewMetadataDraftSummary,
     WorldWorkbenchPreviewReviewQueueItem,
@@ -173,7 +177,7 @@ function openSubjectFileProposals(): void {
 
 /** 将 World Engine issue code 映射成 A/E，便于主画布快速扫读。 */
 function issueLevel(code: WorldWorkbenchPreviewReviewQueueItem["code"]): "A" | "E" {
-    return code === "base-shifted" || code === "masked" ? "A" : "E";
+    return worldWorkbenchIssueLevel(code);
 }
 
 /** issue 级别的紧凑视觉样式。 */
@@ -183,13 +187,7 @@ function issueLevelClass(code: WorldWorkbenchPreviewReviewQueueItem["code"]): st
 
 /** issue triage 状态短文案。 */
 function issueStatusLabel(status: WorldWorkbenchPreviewReviewQueueItem["status"]): string {
-    if (status === "confirmed") {
-        return "已确认";
-    }
-    if (status === "ignored") {
-        return "已忽略";
-    }
-    return "待处理";
+    return worldWorkbenchIssueStatusLabel(status);
 }
 
 /** issue triage 状态视觉样式。 */

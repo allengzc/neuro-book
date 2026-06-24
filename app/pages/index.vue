@@ -810,6 +810,50 @@ function buildInlineVisibleMessage(payload: InlineEditPayload): string {
 }
 
 /**
+ * 将 IDE store 的 Project Workspace 相对路径转换为 Workspace Root cwd-relative 完整路径。
+ *
+ * @example
+ * // 当 currentNovelId = "ming-ding-zhi-shi-2"
+ * resolveInlineEditorTargetPath("manuscript/001/index.md")
+ * // => "ming-ding-zhi-shi-2/manuscript/001/index.md"
+ *
+ * resolveInlineEditorTargetPath("ming-ding-zhi-shi-2/manuscript/001/index.md")
+ * // => "ming-ding-zhi-shi-2/manuscript/001/index.md" (避免重复前缀)
+ */
+function resolveInlineEditorTargetPath(projectRelativePath: string): string {
+    if (!projectRelativePath) {
+        return projectRelativePath;
+    }
+    const projectSlug = currentNovelId.value;
+    if (!projectSlug) {
+        // user-assets 或 welcome 模式，直接返回原路径
+        return projectRelativePath;
+    }
+    // 避免重复前缀
+    if (projectRelativePath.startsWith(`${projectSlug}/`)) {
+        return projectRelativePath;
+    }
+    return `${projectSlug}/${projectRelativePath}`;
+}
+
+/**
+ * 批量转换 selection references 的路径，并重新生成 canonical chip。
+ */
+function resolveInlineEditorReferences(references: InlineEditReference[]): InlineEditReference[] {
+    return references.map((reference) => {
+        const resolvedPath = resolveInlineEditorTargetPath(reference.path);
+        return {
+            ...reference,
+            path: resolvedPath,
+            ref: buildSelectionRefChip({
+                path: resolvedPath,
+                range: reference.range,
+            }),
+        };
+    });
+}
+
+/**
  * 发送 Inline AI 编辑任务给 inline.editor profile。
  */
 async function sendInlineEditorPrompt(): Promise<void> {
@@ -832,9 +876,9 @@ async function sendInlineEditorPrompt(): Promise<void> {
     const payload: InlineEditPayload = {
         version: 1,
         task: inlinePromptTask.value,
-        targetPath: selectedFilePath.value,
+        targetPath: resolveInlineEditorTargetPath(selectedFilePath.value),
         instruction: inlinePromptInstruction.value.trim(),
-        references: inlinePromptReferences.value,
+        references: resolveInlineEditorReferences(inlinePromptReferences.value),
     };
     const agentSurface = agentSurfaceRef.value;
     if (!agentSurface?.sendInlineEditorPrompt) {

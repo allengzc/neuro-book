@@ -47,8 +47,9 @@ export default defineAgentProfile({
 
                         <inline_editor_contract>
                             - 本轮任务来自 hidden payload。可见 message 只是用户界面回执，不能从可见消息反解析选区正文。
-                            - 所有文件操作路径优先使用 <inline_edit target> 与 <ref path> 的原值。
-                            - 当前 Agent session 绑定 Project Workspace；裸 manuscript/... / lorebook/... 路径可以作为 Project 内路径使用。
+                            - Agent cwd 是 Workspace Root workspace/，所有文件工具路径必须包含 project slug 前缀。
+                            - 所有文件操作路径必须使用 <inline_edit target> 与 <ref path> 的完整原值，如 project-slug/manuscript/...。
+                            - 不要尝试截断或猜测路径；payload 已确保路径可直接传给 read/edit/write 工具。
                             - 修改前必须先 read target 文件确认上下文；引用路径不同于 target 时，也必须先 read 引用文件。
                             - 优先使用 edit 做局部修改。只有确实需要整体重写或创建文件时才使用 write。
                             - scope="selection" 时，优先只修改 refs 指向的范围及必要衔接文本。
@@ -71,6 +72,22 @@ export default defineAgentProfile({
 });
 
 /**
+ * 渲染当前 Project 上下文，明确告知 Agent projectSlug 和 projectPath。
+ */
+function renderProjectContext(ctx: ProfilePrepareContext<Initial, Payload>): string {
+    const projectPath = ctx.session.projectPath;
+    if (!projectPath) {
+        return "projectPath: (none - user-assets mode)";
+    }
+    // projectPath 通常是 "workspace/project-slug" 或 "project-slug"
+    const projectSlug = projectPath.replace(/^workspace\//u, "");
+    return [
+        `projectSlug: ${projectSlug}`,
+        `projectPath: ${projectPath.startsWith("workspace/") ? projectPath : `workspace/${projectPath}`}`,
+    ].join("\n");
+}
+
+/**
  * 渲染 inline editor payload。
  */
 function renderInlineEditContext(ctx: ProfilePrepareContext<Initial, Payload>): string {
@@ -79,6 +96,7 @@ function renderInlineEditContext(ctx: ProfilePrepareContext<Initial, Payload>): 
         return [
             "<inline_editor_input>",
             `Agent cwd: ${ctx.session.workspaceRoot}`,
+            renderProjectContext(ctx),
             "<missing_payload>未收到 inline editor payload。不要修改文件，调用 report_result 说明缺少编辑输入。</missing_payload>",
             "</inline_editor_input>",
         ].join("\n");
@@ -87,6 +105,7 @@ function renderInlineEditContext(ctx: ProfilePrepareContext<Initial, Payload>): 
     return [
         "<inline_editor_input>",
         `Agent cwd: ${ctx.session.workspaceRoot}`,
+        renderProjectContext(ctx),
         renderInlineEditXml(payload),
         "</inline_editor_input>",
     ].join("\n");

@@ -16,7 +16,10 @@ import {
     formatWorkbenchPreviewValue,
     parseWorkbenchPreviewMutationValue,
 } from "nbook/app/utils/world-engine-workbench-preview-value";
-import {matchesWorkbenchPreviewSliceFilter} from "nbook/app/utils/world-engine-workbench-preview-filter";
+import {
+    buildWorkbenchPreviewFiltersAfterSavedEdit,
+    matchesWorkbenchPreviewSliceFilter,
+} from "nbook/app/utils/world-engine-workbench-preview-filter";
 import {isWorldWorkbenchSubjectSystemMaintenanceSlice} from "nbook/app/utils/world-engine-workbench-slice-classifier";
 
 const pagePath = fileURLToPath(new URL("../pages/world-engine.workbench-preview.vue", import.meta.url));
@@ -252,6 +255,7 @@ describe("World Engine Workbench preview redesign", () => {
         expect(filterUtil).toContain("metadataDraftCount");
         expect(filterUtil).toContain("valueDraftCount");
         expect(filterUtil).toContain("matchesWorkbenchPreviewKeywordFilter");
+        expect(filterUtil).toContain("buildWorkbenchPreviewFiltersAfterSavedEdit");
         expect(realUtil).toContain("sourceLabel: sourceKind === \"direct-mutation\" ? \"直接触及该主体\" : \"当前主体语境下的 world 事件建议\"");
         expect(realUtil).toContain("`source: ${proposal.sourceLabel}`");
         expect(realUtil).toContain("`sliceId: ${proposal.sliceId}`");
@@ -528,8 +532,11 @@ describe("World Engine Workbench preview redesign", () => {
         expect(sliceCard).toContain("files {{ subjectFileProposalCount }}");
         expect(sliceCard).toContain("按当前主体语境，当前切片有主体文件建议");
         expect(sliceCard).toContain("focusReviewIssue");
-        expect(sliceCard).toContain("base-shifted");
-        expect(sliceCard).toContain("masked");
+        expect(sliceCard).toContain("worldWorkbenchIssueLevel");
+        expect(sliceCard).toContain("worldWorkbenchIssueStatusLabel");
+        expect(realUtil).toContain("export function worldWorkbenchIssueLevel");
+        expect(realUtil).toContain("export function worldWorkbenchIssueStatusLabel");
+        expect(realUtil).toContain("code === \"base-shifted\" || code === \"masked\"");
         expect(sliceCard).toContain("reviewBadgeLabel");
         expect(sliceCard).toContain("hasOpenIssues");
         expect(sliceCard).toContain("按 subject 分组");
@@ -884,8 +891,8 @@ describe("World Engine Workbench preview redesign", () => {
         expect(editor).toContain("mutation.op === \"collectionAdd\"");
         expect(editor).toContain("collectionRemove");
         expect(editor).toContain("currentSliceReviewItems");
-        expect(editor).toContain("base-shifted");
-        expect(editor).toContain("masked");
+        expect(editor).toContain("worldWorkbenchIssueLevel");
+        expect(editor).toContain("worldWorkbenchIssueStatusLabel");
         expect(editor).toContain("data-testid=\"mutation-editor-issue-row\"");
         expect(editor).toContain("focusReviewIssue");
         expect(editor).toContain("updateIssueTriage");
@@ -1095,6 +1102,35 @@ describe("World Engine Workbench preview redesign", () => {
             metadataDraftCount: 1,
             valueDraftCount: 0,
         })).toBe(true);
+
+        expect(buildWorkbenchPreviewFiltersAfterSavedEdit({
+            editedSlice: target!,
+            selectedSubjectIds: ["moran"],
+            sliceHealthFilter: "open",
+            sliceKindFilter: "init",
+            sliceSearch: "missing keyword",
+            subjectFilterMode: "all",
+        })).toEqual({
+            selectedSubjectIds: [],
+            sliceHealthFilter: "all",
+            sliceKindFilter: "all",
+            sliceSearch: "",
+            subjectFilterMode: "any",
+        });
+        expect(buildWorkbenchPreviewFiltersAfterSavedEdit({
+            editedSlice: target!,
+            selectedSubjectIds: ["erina"],
+            sliceHealthFilter: "all",
+            sliceKindFilter: "event",
+            sliceSearch: "durability",
+            subjectFilterMode: "any",
+        })).toEqual({
+            selectedSubjectIds: ["erina"],
+            sliceHealthFilter: "all",
+            sliceKindFilter: "event",
+            sliceSearch: "durability",
+            subjectFilterMode: "any",
+        });
     });
 
     it("识别主体系统维护切片，避免技术迁移记录默认占据主视图", () => {

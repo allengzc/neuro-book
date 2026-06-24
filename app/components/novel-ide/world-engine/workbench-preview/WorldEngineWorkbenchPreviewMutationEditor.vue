@@ -16,6 +16,10 @@ import {
     parseWorkbenchPreviewMutationValue,
 } from "nbook/app/utils/world-engine-workbench-preview-value";
 import {matchesWorkbenchPreviewSliceFilter} from "nbook/app/utils/world-engine-workbench-preview-filter";
+import {
+    worldWorkbenchIssueLevel,
+    worldWorkbenchIssueStatusLabel,
+} from "nbook/app/utils/world-engine-workbench-real";
 import type {
     WorldWorkbenchPreviewIssueStatus,
     WorldWorkbenchPreviewIssueTriagePatch,
@@ -387,7 +391,7 @@ function issueLevel(code: WorldIssueDto["code"] | "manual-focus"): "A" | "E" | "
     if (code === "manual-focus") {
         return "manual";
     }
-    return code === "base-shifted" || code === "masked" ? "A" : "E";
+    return worldWorkbenchIssueLevel(code);
 }
 
 /** issue 级别视觉样式。 */
@@ -404,16 +408,10 @@ function issueLevelClass(code: WorldIssueDto["code"] | "manual-focus"): string {
 
 /** issue triage 状态短文案。 */
 function issueStatusLabel(status: WorldWorkbenchPreviewIssueStatus | "manual"): string {
-    if (status === "confirmed") {
-        return "已确认";
-    }
-    if (status === "ignored") {
-        return "已忽略";
-    }
     if (status === "manual") {
         return "定位";
     }
-    return "待处理";
+    return worldWorkbenchIssueStatusLabel(status);
 }
 
 /** issue triage 状态视觉样式。 */

@@ -1,57 +1,177 @@
-# World Engine subject schema.
-# 这是第一版通用模板：项目可以按自己的世界观增删 subject type 与 attrs。
-subjectTypes:
+# 通用小说 World Engine Schema 模板（新格式）
+# 适用于大多数叙事类小说项目
+# 设计原则：
+# 1. 提供最基础、最通用的主体类型
+# 2. 技能作为角色的 array 属性（unique: true），不独立建模
+# 3. 物品选择性建模：只有需要追踪独立状态的才建 subject
+# 4. 保持简洁，避免过度设计
+# 5. 项目可以按自己的世界观扩展 subject type 与属性
+
+types:
   world:
-    desc: 世界本身，承载纪元、世界级状态和大事记
-    attrs:
-      era: { kind: scalar, type: text, default: "复兴纪元" }
-      currentYear: { kind: scalar, type: int, default: 1 }
-      events: { kind: list, itemType: text, default: [] }
+    type: object
+    desc: 世界本身，承载世界级状态和大事记
+    properties:
+      era:
+        type: string
+        default: "新纪元"
+        desc: "当前纪元名称，例如：魔法复兴时代、蒸汽朋克时代"
+
+      year:
+        type: int
+        default: 1
+        desc: "当前年份"
+
+      events:
+        type: array
+        items: { type: string }
+        default: []
+        desc: "世界大事记，按时间顺序记录世界级事件"
 
   character:
-    desc: 角色主体；默认对接 simulation/subjects 六文件主体系统
-    attrs:
-      hp: { kind: scalar, type: int, default: 100 }
-      maxHp: { kind: scalar, type: int, default: 100 }
-      location: { kind: scalar, type: ref(location) }
-      faction: { kind: scalar, type: ref(faction) }
-      mind: { kind: scalar, type: text }
-      memory: { kind: object, itemType: text }
-      inventory: { kind: collection, itemType: ref(item), default: [] }
-      events: { kind: list, itemType: text, default: [] }
-      sourcePath: { kind: scalar, type: text, desc: "simulation/subjects/<id> 根路径" }
-      legacyKind: { kind: scalar, type: text }
-      controlledBy: { kind: scalar, type: text }
-      profile: { kind: scalar, type: text }
-      canonicalSource: { kind: scalar, type: text }
-      subjectFiles: { kind: object, itemType: text, desc: "六文件主体系统文件拓扑：subject/soul/events/memory/mind/state" }
-      actorImportPath: { kind: scalar, type: text, desc: "actor 主路直接 Import 的文件路径" }
-      leaderOnlyPath: { kind: scalar, type: text, desc: "仅 simulator.leader 可见的全知文件路径" }
-      directStatePath: { kind: scalar, type: text, desc: "上级直接读取的可见状态文件路径" }
-      ragIndexSources: { kind: object, itemType: text, desc: "Subject RAG 索引源，通常为 events.jsonl 和 memory.jsonl" }
-      eventCount: { kind: scalar, type: int, default: 0 }
-      memoryCount: { kind: scalar, type: int, default: 0 }
-      subjectSystemVersion: { kind: scalar, type: text }
+    type: object
+    desc: 角色主体（主角、配角、重要 NPC）
+    properties:
+      # ========== 基本信息 ==========
+      name:
+        type: string
 
-  faction:
-    desc: 阵营、国家、组织或政治实体
-    attrs:
-      name: { kind: scalar, type: text }
-      capital: { kind: scalar, type: ref(location) }
-      treasury: { kind: scalar, type: int, default: 0 }
-      events: { kind: list, itemType: text, default: [] }
+      race:
+        type: string
+        desc: "种族，例如：人类、精灵、兽人、机械人等"
+
+      age:
+        type: int
+
+      # ========== 生命值 ==========
+      hp:
+        type: int
+        default: 100
+        desc: "当前生命值"
+
+      maxHp:
+        type: int
+        default: 100
+        desc: "最大生命值"
+
+      # ========== 关系 ==========
+      location:
+        type: ref
+        ref: location
+        desc: "当前位置"
+
+      faction:
+        type: ref
+        ref: faction
+        desc: "所属阵营/组织"
+
+      # ========== 持有物 ==========
+      inventory:
+        type: array
+        items: { type: string }
+        unique: true
+        default: []
+        desc: "持有物清单；普通物品直接存名称字符串，重要物品用 subject://id 引用 item subject"
+
+      # ========== 技能 ==========
+      skills:
+        type: array
+        items: { type: string }
+        unique: true
+        default: []
+        desc: "已学技能列表；格式：技能名称，例如：剑术、火球术、谈判"
+
+      # ========== 认知与记忆 ==========
+      memory:
+        type: object
+        dynamic: true
+        valueType: string
+        desc: "角色主观记忆；key=主题/人物，value=角色的认知（可能包含误解和主观偏见）"
+
+      # ========== 经历流 ==========
+      events:
+        type: array
+        items: { type: string }
+        default: []
+        desc: "角色经历流，按时间顺序记录重大事件"
 
   location:
-    desc: 地点、区域或可停留空间
-    attrs:
-      name: { kind: scalar, type: text }
-      control: { kind: scalar, type: ref(faction) }
-      events: { kind: list, itemType: text, default: [] }
+    type: object
+    desc: 地点、区域或可停留空间（城市、建筑、地下城、荒野等）
+    properties:
+      name:
+        type: string
+
+      locationType:
+        type: string
+        desc: "地点类型，例如：城市、村庄、地下城、森林、山脉"
+
+      control:
+        type: ref
+        ref: faction
+        desc: "控制方阵营"
+
+      events:
+        type: array
+        items: { type: string }
+        default: []
+        desc: "地点历史事件"
+
+  faction:
+    type: object
+    desc: 阵营、国家、组织或政治实体
+    properties:
+      name:
+        type: string
+
+      factionType:
+        type: string
+        desc: "阵营类型，例如：王国、帝国、商会、宗教组织、犯罪集团"
+
+      leader:
+        type: ref
+        ref: character
+        desc: "当前领袖"
+
+      capital:
+        type: ref
+        ref: location
+        desc: "首都/总部"
+
+      treasury:
+        type: int
+        default: 0
+        desc: "财富"
+
+      events:
+        type: array
+        items: { type: string }
+        default: []
+        desc: "阵营历史大事记"
 
   item:
-    desc: 需要独立追踪状态的物品
-    attrs:
-      name: { kind: scalar, type: text }
-      durability: { kind: scalar, type: int, default: 100 }
-      enchants: { kind: collection, itemType: text, default: [] }
-      events: { kind: list, itemType: text, default: [] }
+    type: object
+    desc: 需要独立追踪状态的物品（神器、魔法装备、重要道具）；普通物品不建 subject，直接存在 character.inventory 中
+    properties:
+      name:
+        type: string
+
+      itemType:
+        type: string
+        desc: "物品类型，例如：武器、防具、饰品、钥匙、文书"
+
+      owner:
+        type: ref
+        ref: character
+        desc: "当前持有者"
+
+      durability:
+        type: int
+        default: 100
+        desc: "耐久度（0-100）"
+
+      events:
+        type: array
+        items: { type: string }
+        default: []
+        desc: "物品历史（铸造、转手、使用等）"

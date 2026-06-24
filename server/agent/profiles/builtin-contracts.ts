@@ -186,11 +186,11 @@ export const InlineEditorPayloadSchema = Type.Object({
         Type.Literal("continue_after"),
         Type.Literal("bridge"),
     ], {description: "Inline AI 编辑任务类型。continue_after 在 UI 中显示为续写。"}),
-    targetPath: Type.String({minLength: 1, description: "本轮主要修改目标文件路径，优先使用 Project Workspace 相对路径，如 manuscript/001/index.md。"}),
+    targetPath: Type.String({minLength: 1, description: "本轮主要修改目标文件路径，必须使用 Workspace Root cwd-relative Project 路径，如 project-slug/manuscript/001/index.md。Agent cwd 是 workspace/，必须包含 project slug 前缀。"}),
     instruction: Type.String({description: "用户输入的自然语言编辑要求。可以为空，表示按 task 默认语义处理。"}),
     references: Type.Array(Type.Object({
         ref: Type.String({minLength: 1, description: "可见 selection chip，如 [[manuscript/001/index.md#L12-L18]]。"}),
-        path: Type.String({minLength: 1, description: "引用来源文件路径。"}),
+        path: Type.String({minLength: 1, description: "引用来源文件路径，必须使用 Workspace Root cwd-relative Project 路径，如 project-slug/manuscript/001/index.md。"}),
         range: Type.Optional(Type.Object({
             startLine: Type.Number({minimum: 1}),
             endLine: Type.Number({minimum: 1}),

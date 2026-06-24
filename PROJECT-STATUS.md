@@ -47,7 +47,7 @@ neuro-book 当前处于快速开发阶段。本轮产品主路径收敛到 **nov
 | [56 World Engine](docs/tasks/56-world-engine/README.md) | Stage Complete | 核心模型、API、Workbench、subject system discovery 与作者主路径已完成阶段收尾审计。 |
 | [64 World Engine Prompt Engineering](docs/tasks/64-world-engine-prompt-engineering/README.md) | Updated | 写作模式接入 World Engine，RP 模式隐藏但保留资料。 |
 | [65 Calendar Enhancement](docs/tasks/65-world-engine-calendar-enhancement/README.md) | Done | `calendar.ts` 硬切，`calendar.yaml` 仅作为历史记录。 |
-| [66 Codebase Cleanup](docs/tasks/66-codebase-cleanup/README.md) | In Progress | 清理 World Engine / 写作模式阶段后的大文件、过时文档和测试脆弱点；已完成初始审计并下沉一组 Workbench session 纯 util。 |
+| [66 Codebase Cleanup](docs/tasks/66-codebase-cleanup/README.md) | Stage Complete | 已完成一轮 World Engine / 写作模式阶段后的代码清理收口：Workbench 纯规则下沉、filter preservation、draft surface auto-open、issue level/status mapping 和专用 util 测试拆分已落地；命名 / 文件结构与复杂主体语境候选已记录待审批，后续等待真实作者使用反馈或用户重新开启。 |
 | Writer Profile 重构 | Done | 去除小猫之神角色定义，理清 profile / reference / skill 职责边界，从 650 行压缩到 535 行。 |
 
 ## Known Follow-ups

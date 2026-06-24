@@ -9,12 +9,15 @@ import type {
 import type {
     WorldWorkbenchPreviewIssueStatus,
     WorldWorkbenchPreviewIssueTriageSummary,
+    WorldWorkbenchPreviewMutationFocus,
     WorldWorkbenchPreviewMutationValuePatch,
     WorldWorkbenchPreviewReviewQueueItem,
     WorldWorkbenchPreviewSlice,
+    WorldWorkbenchPreviewSliceHealthFilter,
     WorldWorkbenchPreviewSliceReviewSummary,
     WorldWorkbenchSubjectFileProposal,
     WorldWorkbenchPreviewSubjectStat,
+    WorldWorkbenchPreviewSubjectFilterMode,
     WorldWorkbenchPreviewSubjectSystemPath,
     WorldWorkbenchPreviewSubjectSystemSummary,
 } from "nbook/app/components/novel-ide/world-engine/workbench-preview/world-engine-workbench-preview.types";
@@ -55,6 +58,30 @@ export type WorldWorkbenchEmptySliceState = {
     description: string;
     title: string;
 };
+
+export type WorldWorkbenchWorldViewFilterLabels = {
+    search: string;
+    status: string;
+    subjects: string;
+};
+
+export type WorldWorkbenchSliceComposerSubjectSelection = {
+    requestedSubjectId: string;
+    subjectId: string;
+};
+
+export type WorldWorkbenchUnsavedDraftCounts = {
+    hasSliceComposerDraft: boolean;
+    metadataDraftCount: number;
+    valueDraftSliceCount: number;
+};
+
+export type WorldWorkbenchDraftSurfaceState = {
+    expandMutationEditor: boolean;
+    openInspector: boolean;
+};
+
+export type WorldWorkbenchIssueLevel = "A" | "E";
 
 export const worldWorkbenchSubjectSystemAttrs = [
     "sourcePath",
@@ -160,6 +187,42 @@ export function collectWorldWorkbenchDraftSliceIds(input: {
     return [...timelineIds, ...draftIds];
 }
 
+/** 删除当前 slice 后，从会话草稿列表中找出仍需保留并打开的第一个草稿 slice。 */
+export function findWorldWorkbenchFirstRemainingDraftSliceId(draftSliceIds: string[], deletedSliceId: string): string {
+    return draftSliceIds.find((sliceId) => sliceId !== deletedSliceId) ?? "";
+}
+
+/** 汇总关闭 Workbench 时会丢弃的会话态草稿标签。 */
+export function buildWorldWorkbenchUnsavedDraftLabels(input: WorldWorkbenchUnsavedDraftCounts): string[] {
+    const labels: string[] = [];
+    if (input.hasSliceComposerDraft) {
+        labels.push("Slice Composer 草稿");
+    }
+    if (input.metadataDraftCount) {
+        labels.push(`${input.metadataDraftCount} 个 metadata 草稿`);
+    }
+    if (input.valueDraftSliceCount) {
+        labels.push(`${input.valueDraftSliceCount} 个 value 草稿`);
+    }
+    return labels;
+}
+
+/** 从 draft 时间线定位 slice 时，决定需要自动打开哪些草稿处理面板。 */
+export function buildWorldWorkbenchDraftSurfaceState(input: {
+    metadataDraftSliceIds: string[];
+    sliceHealthFilter: WorldWorkbenchPreviewSliceHealthFilter;
+    sliceId: string;
+    valueDraftSliceIds: string[];
+}): WorldWorkbenchDraftSurfaceState {
+    if (input.sliceHealthFilter !== "draft") {
+        return {expandMutationEditor: false, openInspector: false};
+    }
+    return {
+        expandMutationEditor: input.valueDraftSliceIds.includes(input.sliceId),
+        openInspector: input.metadataDraftSliceIds.includes(input.sliceId),
+    };
+}
+
 /** 决定主时间线空状态给作者展示的下一步动作，避免入口文案规则散落在 Dialog 模板附近。 */
 export function buildWorldWorkbenchEmptySliceState(input: {
     canCreateWorldSubject: boolean;
@@ -223,9 +286,123 @@ export function buildWorldWorkbenchEmptySliceState(input: {
     };
 }
 
+/** 选择 Slice Composer 默认 subject，同时保留未注册 subject 作为提示上下文。 */
+export function buildWorldWorkbenchSliceComposerSubjectSelection(input: {
+    focusedSubjectId: string;
+    selectedSubjectIds: string[];
+    worldSubjectIds: string[];
+}): WorldWorkbenchSliceComposerSubjectSelection {
+    const worldSubjectIdSet = new Set(input.worldSubjectIds);
+    const selectedRegisteredSubjectId = input.selectedSubjectIds.filter((subjectId) => worldSubjectIdSet.has(subjectId)).at(-1);
+    const requestedSubjectId = input.focusedSubjectId && worldSubjectIdSet.has(input.focusedSubjectId)
+        ? input.focusedSubjectId
+        : selectedRegisteredSubjectId ?? input.focusedSubjectId ?? input.selectedSubjectIds.at(-1) ?? "";
+    const subjectId = requestedSubjectId && worldSubjectIdSet.has(requestedSubjectId)
+        ? requestedSubjectId
+        : input.worldSubjectIds[0] ?? "world";
+    return {requestedSubjectId, subjectId};
+}
+
+/** 构造 Workbench 顶部“当前视角”标签片段，集中处理 subject / kind / status / search 的展示顺序。 */
+export function buildWorldWorkbenchWorldViewFilterParts(input: {
+    focusedSubjectHasSystemSummary: boolean;
+    focusedSubjectId: string;
+    labels: WorldWorkbenchWorldViewFilterLabels;
+    sliceHealthFilterLabel: string;
+    selectedSubjectIds: string[];
+    sliceHealthFilter: WorldWorkbenchPreviewSliceHealthFilter;
+    sliceKindFilter: string;
+    sliceSearch: string;
+    subjectFilterMode: WorldWorkbenchPreviewSubjectFilterMode;
+    subjectNames: Map<string, string>;
+}): string[] {
+    const parts: string[] = [];
+    if (input.focusedSubjectId && !input.selectedSubjectIds.includes(input.focusedSubjectId) && input.focusedSubjectHasSystemSummary) {
+        parts.push(`主体语境 ${input.subjectNames.get(input.focusedSubjectId) ?? input.focusedSubjectId}`);
+    }
+    if (input.selectedSubjectIds.length) {
+        const label = input.selectedSubjectIds.map((subjectId) => input.subjectNames.get(subjectId) ?? subjectId).join(", ");
+        const modeLabel = input.subjectFilterMode === "all" ? "全部 subject" : "任一 subject";
+        parts.push(`${input.labels.subjects}(${modeLabel}) ${label}`);
+    }
+    if (input.sliceKindFilter !== "all") {
+        parts.push(`kind ${input.sliceKindFilter}`);
+    }
+    if (input.sliceHealthFilter !== "all") {
+        parts.push(`${input.labels.status} ${input.sliceHealthFilterLabel}`);
+    }
+    const search = input.sliceSearch.trim();
+    if (search) {
+        parts.push(`${input.labels.search} ${shortWorldWorkbenchFilterText(search)}`);
+    }
+    return parts;
+}
+
 /** 汇总 review issue 的处理状态，供顶部队列和空状态提示共用。 */
 export function buildWorldWorkbenchIssueTriageSummary(reviewQueueItems: WorldWorkbenchPreviewReviewQueueItem[]): WorldWorkbenchPreviewIssueTriageSummary {
     return summarizeWorldWorkbenchReviewItems(reviewQueueItems);
+}
+
+/** 将 World Engine issue code 映射成作者可扫读的 A/E 等级。 */
+export function worldWorkbenchIssueLevel(code: WorldIssueDto["code"]): WorldWorkbenchIssueLevel {
+    return code === "base-shifted" || code === "masked" ? "A" : "E";
+}
+
+/** 将 issue triage 状态映射成用户可见短文案。 */
+export function worldWorkbenchIssueStatusLabel(status: WorldWorkbenchPreviewIssueStatus): string {
+    if (status === "confirmed") {
+        return "已确认";
+    }
+    if (status === "ignored") {
+        return "已忽略";
+    }
+    return "待处理";
+}
+
+/** 计算 review 队列当前高亮项，优先沿用 issue key，其次回落到当前 slice 的 subject/attr。 */
+export function buildWorldWorkbenchCurrentReviewQueueIndex(input: {
+    focus: WorldWorkbenchPreviewMutationFocus | null;
+    reviewQueueItems: Pick<WorldWorkbenchPreviewReviewQueueItem, "attr" | "key" | "sliceId" | "subjectId">[];
+    selectedSliceId: string;
+}): number {
+    const focus = input.focus;
+    if (focus) {
+        if (focus.issueKey) {
+            const issueIndex = input.reviewQueueItems.findIndex((item) => item.key === focus.issueKey);
+            if (issueIndex >= 0) {
+                return issueIndex;
+            }
+        }
+        const focusedIndex = input.reviewQueueItems.findIndex((item) => item.sliceId === input.selectedSliceId && item.subjectId === focus.subjectId && item.attr === focus.attr);
+        if (focusedIndex >= 0) {
+            return focusedIndex;
+        }
+    }
+    return input.reviewQueueItems.findIndex((item) => item.sliceId === input.selectedSliceId);
+}
+
+/** 判断 issue key 指向的 review item 是否已消失，需要清理旧高亮。 */
+export function shouldClearWorldWorkbenchReviewIssueFocus(input: {
+    focus: WorldWorkbenchPreviewMutationFocus | null;
+    reviewQueueItems: Pick<WorldWorkbenchPreviewReviewQueueItem, "key">[];
+}): boolean {
+    const issueKey = input.focus?.issueKey ?? "";
+    if (!issueKey) {
+        return false;
+    }
+    return !input.reviewQueueItems.some((item) => item.key === issueKey);
+}
+
+/** 判断保存后的 slice 是否仍命中当前 subject 过滤，避免保存后时间线突然隐藏目标切片。 */
+import {checkSubjectFilter} from "nbook/app/utils/world-engine-workbench-preview-filter";
+
+export function isWorldWorkbenchSliceVisibleInSubjectFilter(input: {
+    mutations: Pick<WorldSliceMutationDto, "subjectId">[];
+    selectedSubjectIds: string[];
+    subjectFilterMode: WorldWorkbenchPreviewSubjectFilterMode;
+}): boolean {
+    const mutationSubjectIds = input.mutations.map((m) => m.subjectId);
+    return checkSubjectFilter(mutationSubjectIds, input.selectedSubjectIds, input.subjectFilterMode);
 }
 
 /** 按 slice 汇总 review issue 状态，供 timeline 和 mutation editor 标记切片健康度。 */
@@ -318,6 +495,10 @@ function summarizeWorldWorkbenchReviewItems(reviewQueueItems: WorldWorkbenchPrev
     return {confirmed, done: confirmed + ignored, ignored, open, total: reviewQueueItems.length};
 }
 
+function shortWorldWorkbenchFilterText(text: string): string {
+    return text.length > 18 ? `${text.slice(0, 18)}...` : text;
+}
+
 /** 把懒加载的 slice 合并进当前时间线，尽量保留可见时间顺序。 */
 export function mergeWorldWorkbenchTimelineSlice(slices: WorldWorkbenchPreviewSlice[], loadedSlice: WorldWorkbenchPreviewSlice): WorldWorkbenchPreviewSlice[] {
     const withoutLoaded = slices.filter((slice) => slice.id !== loadedSlice.id);
@@ -333,6 +514,15 @@ export function mergeWorldWorkbenchTimelineSlice(slices: WorldWorkbenchPreviewSl
         loadedSlice,
         ...withoutLoaded.slice(previousIndex + 1),
     ];
+}
+
+/** 从时间线末尾向前找出最新触及任一目标 subject 的 slice。 */
+export function findWorldWorkbenchLatestSliceTouchingSubjects(slices: WorldWorkbenchPreviewSlice[], subjectIds: string[]): WorldWorkbenchPreviewSlice | null {
+    const subjectIdSet = new Set(subjectIds.filter(Boolean));
+    if (!subjectIdSet.size) {
+        return null;
+    }
+    return [...slices].reverse().find((slice) => slice.mutations.some((mutation) => subjectIdSet.has(mutation.subjectId))) ?? null;
 }
 
 /** 构造 editSlice body：metadata 和 value patch 都必须保留完整 mutations。 */

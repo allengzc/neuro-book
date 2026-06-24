@@ -80,6 +80,8 @@
 - 前端不直接替换选区；修改由 `inline.editor` 读取文件后使用文件工具完成。
 - 只删除旧写作 `/api/writing/continue`；不要删除 Agent session 的 `mode: "continue"`，它仍用于审批恢复、空消息继续和 session tree retry。
 - 用户主动绑定 session 第一版使用 Agent 面板 / SessionDialog 的 `all` 筛选与 `inline.editor` 创建入口；Project 级绑定 id 存在 localStorage。
+- 所有 Agent 的 cwd 都是 Workspace Root；所有文件工具路径必须包含 project slug 前缀，格式为 `project-slug/manuscript/...`。
+- 前端负责从 IDE store 的 Project Workspace 相对路径转换为完整路径；profile 只使用 payload 的完整原值，不做路径拼接或猜测。
 
 ## Implementation Walkthrough
 
@@ -91,6 +93,7 @@
 - 2026-06-18：只读调研现有代码后确认实现路径：保留并重构 `NovelPromptBar`，删除旧 `/api/writing/continue` 调用链；TipTap 富文本选区使用现有 `selectedClipboardText()` 作为 selection payload 正文来源；Prompt Bar 长输入复用 `ReferencePlainTextEditor`；Agent 调用复用 `AgentChatSurface` 的 session/invoke 能力和现有 `input -> payload` 映射，不新增业务 API；新增 `inline.editor` profile 使用现有 `read` / `edit` / `write` / `report_result` 工具。
 - 2026-06-18：完成第一版实现。新增 `app/utils/inline-editor-selection.ts`；扩展 `ReferencePlainTextEditor` plain token/node、reference chip 视觉和 Agent Markdown 渲染，使 `[[path#Lx-Ly]]` selection chip 可解析、序列化和展示；TipTap selection menu 的 `Improve` 改为“加入 AI 引用”，事件链贯通到首页；`NovelPromptBar` 重构为 Inline AI Prompt Bar，支持任务下拉、多个选区 chip、长输入、session/model 入口和 edit/write 工具预览；`AgentChatSurface` 暴露 `openInlineEditorSession()`、`sendInlineEditorPrompt()` 和 `inlineEditPreview`，自动创建 / 复用 `inline.editor` session；新增 `inline.editor.profile.tsx` 和 payload schema，并编译系统 profile artifact；删除旧 `/api/writing/continue`、`NovelContinue*` DTO、OpenAPI route-map/generator SSE 特判和首页旧 SSE 调用链。
 - 2026-06-18：审查后修复三类问题。短格式 selection chip 解析收窄为明确文件路径，避免把 `issue#123` 和 URL fragment 误识别为选区；TipTap 选区行号优先基于编辑器选区位置和序列化 Markdown 前缀推导，不再只依赖纯文本匹配；Prompt Bar 的 edit/write 预览只显示当前 `inline.editor` session 中正在运行的工具调用，避免无关历史工具污染。
+- 2026-06-24：路径解析修复。Session 244 审查发现工具调用失败根因是前端传递裸路径 `manuscript/...`，但 Agent cwd 是 `workspace/`，导致解析为 `workspace/manuscript/...` 而非 `workspace/project-slug/manuscript/...`。修复方案：前端新增 `resolveInlineEditorTargetPath()` 和 `resolveInlineEditorReferences()` helper，在构造 payload 时自动加上 project slug 前缀；修正 Schema 和 profile prompt 的误导表述；增强 profile context 渲染 projectSlug/projectPath。与 writer 的路径协议完全对齐。
 
 ## Code Research Notes
 

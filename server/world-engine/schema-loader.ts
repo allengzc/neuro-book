@@ -3,7 +3,18 @@ import path from "node:path";
 import {createError} from "h3";
 import * as yaml from "yaml";
 import {resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
-import type {JsonValue, WorldAttrKind, WorldAttrSchema, WorldSchema, WorldSchemaProjectionAttr} from "nbook/server/world-engine/types";
+import {
+    attrSchemaToSchemaNode,
+    schemaNodeToAttrSchema,
+    type JsonValue,
+    type WorldAttrKind,
+    type WorldAttrSchema,
+    type WorldSchema,
+    type WorldSchemaNode,
+    type WorldSchemaProjectionAttr,
+    type WorldSchemaV2,
+    type WorldSubjectTypeSchemaV2,
+} from "nbook/server/world-engine/types";
 
 const SCHEMA_RELATIVE_PATH = "world-engine/schema.yaml";
 const ATTR_KINDS = new Set<WorldAttrKind>(["scalar", "list", "collection", "object"]);
@@ -127,6 +138,13 @@ function normalizeSchema(input: unknown): WorldSchema {
     if (typeof input !== "object" || Array.isArray(input)) {
         throw createError({statusCode: 400, message: "schema 配置必须是 object"});
     }
+
+    // 新格式检测：有 types 字段
+    if ("types" in input && input.types) {
+        return normalizeNewSchemaToOld(input as {types: unknown});
+    }
+
+    // 旧格式：有 subjectTypes 字段
     const rawSubjectTypes = (input as {subjectTypes?: unknown}).subjectTypes;
     const subjectTypes = rawSubjectTypes === undefined ? {} : readRecord(rawSubjectTypes, "subjectTypes");
     const normalized: WorldSchema["subjectTypes"] = {};
@@ -142,6 +160,255 @@ function normalizeSchema(input: unknown): WorldSchema {
     const schema = {subjectTypes: normalized};
     assertRefTargets(schema);
     return schema;
+}
+
+/**
+ * 解析新格式 schema 并转换为旧格式（向后兼容）。
+ *
+ * 新格式示例：
+ * types:
+ *   character:
+ *     type: object
+ *     properties:
+ *       name: { type: string, default: "无名者" }
+ *       skills: { type: array, items: { type: string }, unique: true }
+ */
+function normalizeNewSchemaToOld(input: {types: unknown}): WorldSchema {
+    const rawTypes = readRecord(input.types, "types");
+    const subjectTypes: WorldSchema["subjectTypes"] = {};
+
+    for (const [typeName, rawTypeSchema] of Object.entries(rawTypes)) {
+        assertSubjectTypeName(typeName);
+        const typeSchema = readRecord(rawTypeSchema, `types.${typeName}`);
+
+        // 新格式要求 subject type 必须是 object
+        const nodeType = typeSchema.type;
+        if (nodeType !== "object") {
+            throw createError({
+                statusCode: 400,
+                message: `types.${typeName}: subject type 必须是 object，实际为 ${String(nodeType)}`,
+            });
+        }
+
+        const properties = typeSchema.properties
+            ? readRecord(typeSchema.properties, `types.${typeName}.properties`)
+            : {};
+
+        // 递归解析 properties，转换为旧格式 attrs
+        const attrs: Record<string, WorldAttrSchema> = {};
+        for (const [attrName, rawNode] of Object.entries(properties)) {
+            const node = normalizeSchemaNode(rawNode as unknown, `types.${typeName}.properties.${attrName}`);
+            attrs[attrName] = schemaNodeToAttrSchema(node);
+        }
+
+        subjectTypes[typeName] = {
+            desc: readDesc(typeSchema.desc, `types.${typeName}.desc`),
+            attrs,
+        };
+    }
+
+    const schema: WorldSchema = {subjectTypes};
+
+    // 校验 ref 引用
+    assertRefTargetsForNewSchema(schema, rawTypes);
+
+    return schema;
+}
+
+/**
+ * 递归规范化 WorldSchemaNode。
+ *
+ * 校验：
+ * - type 字段必须存在且合法
+ * - unique 约束只能用于 array
+ * - dynamic 约束只能用于 object
+ * - array 必须有 items
+ * - object 必须有 properties 或 dynamic
+ */
+function normalizeSchemaNode(input: unknown, pathLabel: string): WorldSchemaNode {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) {
+        throw createError({statusCode: 400, message: `${pathLabel}: schema node 必须是 object`});
+    }
+
+    const node = input as Record<string, unknown>;
+    const type = node.type;
+
+    if (typeof type !== "string") {
+        throw createError({statusCode: 400, message: `${pathLabel}: 缺少 type 字段或类型错误`});
+    }
+
+    const validTypes = new Set(["int", "float", "string", "boolean", "ref", "array", "object"]);
+    if (!validTypes.has(type)) {
+        throw createError({statusCode: 400, message: `${pathLabel}: 不合法的 type: ${type}`});
+    }
+
+    // 基础类型
+    if (type === "int" || type === "float" || type === "string" || type === "boolean" || type === "ref") {
+        const baseNode: WorldSchemaNode = {
+            type: type as "int" | "float" | "string" | "boolean" | "ref",
+            default: isJsonValue(node.default) ? node.default : undefined,
+            desc: typeof node.desc === "string" ? node.desc : undefined,
+        };
+
+        if (type === "ref" && typeof node.ref === "string") {
+            (baseNode as {ref?: string}).ref = node.ref;
+        }
+
+        if (node.values !== undefined) {
+            if (!Array.isArray(node.values)) {
+                throw createError({statusCode: 400, message: `${pathLabel}: values 必须是数组`});
+            }
+            if (!node.values.every(isJsonValue)) {
+                throw createError({statusCode: 400, message: `${pathLabel}: values 必须是 JSON 值数组`});
+            }
+            (baseNode as {values?: JsonValue[]}).values = node.values;
+        }
+
+        return baseNode;
+    }
+
+    // array 类型
+    if (type === "array") {
+        if (!node.items) {
+            throw createError({statusCode: 400, message: `${pathLabel}: array 必须有 items 字段`});
+        }
+
+        const items = normalizeSchemaNode(node.items, `${pathLabel}.items`);
+        const unique = typeof node.unique === "boolean" ? node.unique : undefined;
+
+        return {
+            type: "array",
+            items,
+            unique,
+            default: isJsonValue(node.default) ? node.default : undefined,
+            desc: typeof node.desc === "string" ? node.desc : undefined,
+        };
+    }
+
+    // object 类型
+    if (type === "object") {
+        const dynamic = typeof node.dynamic === "boolean" ? node.dynamic : undefined;
+        const valueType = typeof node.valueType === "string" ? node.valueType : undefined;
+
+        if (dynamic && !valueType) {
+            throw createError({statusCode: 400, message: `${pathLabel}: dynamic object 必须指定 valueType`});
+        }
+
+        if (node.properties && dynamic) {
+            throw createError({statusCode: 400, message: `${pathLabel}: 不能同时指定 properties 和 dynamic`});
+        }
+
+        if (!node.properties && !dynamic) {
+            throw createError({statusCode: 400, message: `${pathLabel}: object 必须有 properties 或 dynamic=true`});
+        }
+
+        if (node.properties) {
+            const rawProperties = readRecord(node.properties, `${pathLabel}.properties`);
+            const properties: Record<string, WorldSchemaNode> = {};
+
+            for (const [key, rawChild] of Object.entries(rawProperties)) {
+                properties[key] = normalizeSchemaNode(rawChild, `${pathLabel}.properties.${key}`);
+            }
+
+            return {
+                type: "object",
+                properties,
+                default: isJsonValue(node.default) ? node.default : undefined,
+                desc: typeof node.desc === "string" ? node.desc : undefined,
+            };
+        }
+
+        // dynamic object
+        return {
+            type: "object",
+            dynamic: true,
+            valueType,
+            default: isJsonValue(node.default) ? node.default : undefined,
+            desc: typeof node.desc === "string" ? node.desc : undefined,
+        };
+    }
+
+    throw createError({statusCode: 400, message: `${pathLabel}: 不支持的 type: ${type}`});
+}
+
+/** 校验新格式 schema 的 ref 引用 */
+function assertRefTargetsForNewSchema(schema: WorldSchema, rawTypes: Record<string, unknown>): void {
+    for (const [typeName, rawTypeSchema] of Object.entries(rawTypes)) {
+        const typeSchema = rawTypeSchema as Record<string, unknown>;
+        const properties = typeSchema.properties as Record<string, unknown> | undefined;
+
+        if (properties) {
+            assertRefTargetsInNode(schema, properties, `types.${typeName}.properties`);
+        }
+    }
+}
+
+/** 递归校验 node 中的 ref */
+function assertRefTargetsInNode(schema: WorldSchema, nodeOrNodes: unknown, pathLabel: string): void {
+    if (typeof nodeOrNodes !== "object" || nodeOrNodes === null) {
+        return;
+    }
+
+    if (Array.isArray(nodeOrNodes)) {
+        return;
+    }
+
+    const nodes = nodeOrNodes as Record<string, unknown>;
+
+    for (const [key, rawNode] of Object.entries(nodes)) {
+        if (typeof rawNode !== "object" || rawNode === null) {
+            continue;
+        }
+
+        const node = rawNode as Record<string, unknown>;
+        const nodePathLabel = `${pathLabel}.${key}`;
+
+        // 检查 ref
+        if (node.type === "ref" && typeof node.ref === "string") {
+            const refType = node.ref;
+            if (!schema.subjectTypes[refType]) {
+                throw createError({
+                    statusCode: 400,
+                    message: `${nodePathLabel}: ref 指向未声明的 subject type: ${refType}`,
+                });
+            }
+        }
+
+        // 递归检查 array items
+        if (node.type === "array" && node.items) {
+            assertRefTargetsInNode(schema, {_: node.items}, `${nodePathLabel}.items`);
+        }
+
+        // 递归检查 object properties
+        if (node.type === "object" && node.properties) {
+            assertRefTargetsInNode(schema, node.properties, `${nodePathLabel}.properties`);
+        }
+    }
+}
+
+/** 判断是否为合法 JSON 值 */
+function isJsonValue(input: unknown): input is JsonValue {
+    if (input === null || typeof input === "string" || typeof input === "boolean") {
+        return true;
+    }
+    if (typeof input === "number") {
+        return Number.isFinite(input);
+    }
+    if (Array.isArray(input)) {
+        return input.every(isJsonValue);
+    }
+    if (isPlainRecord(input)) {
+        return Object.values(input).every(isJsonValue);
+    }
+    return false;
+}
+
+function isPlainRecord(input: unknown): input is Record<string, unknown> {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) {
+        return false;
+    }
+    const proto = Object.getPrototypeOf(input) as unknown;
+    return proto === Object.prototype || proto === null;
 }
 
 function assertSubjectTypeName(type: string): void {
@@ -466,30 +733,6 @@ function assertRefDefault(pathLabel: string, value: JsonValue): void {
     if (targetId !== targetId.trim()) {
         throw createError({statusCode: 400, message: `${pathLabel} default 引用 id 不能包含前后空白：${targetId}`});
     }
-}
-
-function isJsonValue(input: unknown): input is JsonValue {
-    if (input === null || typeof input === "string" || typeof input === "boolean") {
-        return true;
-    }
-    if (typeof input === "number") {
-        return Number.isFinite(input);
-    }
-    if (Array.isArray(input)) {
-        return input.every(isJsonValue);
-    }
-    if (isPlainRecord(input)) {
-        return Object.values(input).every(isJsonValue);
-    }
-    return false;
-}
-
-function isPlainRecord(input: unknown): input is Record<string, unknown> {
-    if (typeof input !== "object" || input === null || Array.isArray(input)) {
-        return false;
-    }
-    const proto = Object.getPrototypeOf(input) as unknown;
-    return proto === Object.prototype || proto === null;
 }
 
 function stableJson(input: JsonValue): string {
