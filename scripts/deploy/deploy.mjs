@@ -179,13 +179,13 @@ fi
 COMPOSE_FILES="$COMPOSE_FILES -f .deploy/docker-compose.generated.yml"
 
 step "Nuxt prepare"
-bun run nuxt:prepare
+run_sudo bun run nuxt:prepare
 
 step "Prisma generate"
-bun run generate
+run_sudo bun run generate
 
 step "Nuxt build"
-bun run nuxt:build
+run_sudo bun run nuxt:build
 
 step "重启 app 容器"
 run_sudo docker compose --env-file ${ENV_FILE} $COMPOSE_FILES up -d --build --force-recreate --remove-orphans app
