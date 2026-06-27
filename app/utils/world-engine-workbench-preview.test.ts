@@ -54,6 +54,10 @@ function removedToken(...parts: string[]): string {
     return parts.join("");
 }
 
+async function readSource(path: string): Promise<string> {
+    return (await readFile(path, "utf-8")).replace(/\r\n/g, "\n");
+}
+
 function findSnapshotSubject(snapshots: WorldWorkbenchPreviewSnapshot[], sliceId: string, subjectId: string): SubjectStateDto {
     const snapshot = snapshots.find((item) => item.sliceId === sliceId);
     const subject = snapshot?.subjects.find((item) => item.subjectId === subjectId);
@@ -63,29 +67,29 @@ function findSnapshotSubject(snapshots: WorldWorkbenchPreviewSnapshot[], sliceId
 
 describe("World Engine Workbench preview redesign", () => {
     it("保留 mock 数据源和三栏 preview 入口", async () => {
-        const page = await readFile(pagePath, "utf-8");
-        const workbenchDialog = await readFile(workbenchDialogPath, "utf-8");
-        const mock = await readFile(mockPath, "utf-8");
-        const stateUtil = await readFile(stateUtilPath, "utf-8");
-        const valueUtil = await readFile(valueUtilPath, "utf-8");
-        const filterUtil = await readFile(filterUtilPath, "utf-8");
-        const realUtil = await readFile(realUtilPath, "utf-8");
-        const sidebar = await readFile(sidebarPath, "utf-8");
-        const sliceList = await readFile(sliceListPath, "utf-8");
-        const sliceCard = await readFile(sliceCardPath, "utf-8");
-        const inspector = await readFile(inspectorPath, "utf-8");
-        const editor = await readFile(editorPath, "utf-8");
-        const patchEditor = await readFile(patchEditorPath, "utf-8");
-        const sliceComposer = await readFile(sliceComposerPath, "utf-8");
-        const valueInput = await readFile(valueInputPath, "utf-8");
-        const types = await readFile(typesPath, "utf-8");
-        const combobox = await readFile(comboboxPath, "utf-8");
-        const formNumberInput = await readFile(formNumberInputPath, "utf-8");
-        const formSelect = await readFile(formSelectPath, "utf-8");
-        const segmentedControl = await readFile(segmentedControlPath, "utf-8");
-        const lowCodeRadio = await readFile(lowCodeRadioPath, "utf-8");
-        const zhLocale = await readFile(zhLocalePath, "utf-8");
-        const enLocale = await readFile(enLocalePath, "utf-8");
+        const page = await readSource(pagePath);
+        const workbenchDialog = await readSource(workbenchDialogPath);
+        const mock = await readSource(mockPath);
+        const stateUtil = await readSource(stateUtilPath);
+        const valueUtil = await readSource(valueUtilPath);
+        const filterUtil = await readSource(filterUtilPath);
+        const realUtil = await readSource(realUtilPath);
+        const sidebar = await readSource(sidebarPath);
+        const sliceList = await readSource(sliceListPath);
+        const sliceCard = await readSource(sliceCardPath);
+        const inspector = await readSource(inspectorPath);
+        const editor = await readSource(editorPath);
+        const patchEditor = await readSource(patchEditorPath);
+        const sliceComposer = await readSource(sliceComposerPath);
+        const valueInput = await readSource(valueInputPath);
+        const types = await readSource(typesPath);
+        const combobox = await readSource(comboboxPath);
+        const formNumberInput = await readSource(formNumberInputPath);
+        const formSelect = await readSource(formSelectPath);
+        const segmentedControl = await readSource(segmentedControlPath);
+        const lowCodeRadio = await readSource(lowCodeRadioPath);
+        const zhLocale = await readSource(zhLocalePath);
+        const enLocale = await readSource(enLocalePath);
 
         expect(page).toContain("World Engine Workbench Preview");
         expect(page).toContain("WorldEngineWorkbenchPreviewSidebar");
@@ -536,7 +540,6 @@ describe("World Engine Workbench preview redesign", () => {
         expect(sliceCard).toContain("hasMetadataDraft");
         expect(sliceCard).toContain("meta draft");
         expect(sliceCard).toContain("未应用 metadata 草稿");
-        expect(sliceCard).toContain("draft preview");
         expect(sliceCard).toContain("metadataDraftDiffLabel");
         expect(sliceCard).toContain("displayTitle");
         expect(sliceCard).toContain("已应用");
@@ -592,7 +595,7 @@ describe("World Engine Workbench preview redesign", () => {
         expect(sliceCard).toContain("i-lucide-arrow-down-to-line");
         expect(sliceCard).toContain("@click.stop=\"insertSliceBefore\"");
         expect(sliceCard).toContain("@click.stop=\"insertSliceAfter\"");
-        expect(sliceCard).toContain("grid-cols-[minmax(88px,0.56fr)_44px_minmax(96px,0.72fr)_minmax(0,1.65fr)]");
+        expect(sliceCard).toContain("grid-cols-[minmax(88px,0.56fr)_44px_minmax(96px,1.65fr)_minmax(0,0.72fr)]");
         expect(sliceCard).toContain("{{ mutation.path }}");
         expect(sliceCard).toContain("{{ opLabel(mutation.op) }}");
         expect(sliceCard).toContain("{{ mutation.summary ?? \"\" }}");
@@ -732,7 +735,7 @@ describe("World Engine Workbench preview redesign", () => {
         expect(inspector).toContain("title=\"打开 events.jsonl\"");
         expect(inspector).toContain("title=\"打开 memory.jsonl\"");
         expect(inspector).toContain("title=\"打开 state.md\"");
-        expect(inspector).toContain("order-7 space-y-2");
+        expect(inspector).toContain("order-7 flex flex-col gap-2");
         expect(inspector).not.toContain("reviewQueueItems");
         expect(inspector).not.toContain("reviewTriageSummary");
         expect(inspector).not.toContain("reviewQueueMode");
@@ -766,9 +769,8 @@ describe("World Engine Workbench preview redesign", () => {
         expect(inspector).toContain("worldEngine.workbenchPreview.stateSnapshot");
         expect(inspector).toContain("JsonViewer");
         expect(inspector).toContain("nbook/app/components/common/JsonViewer.vue");
-        expect(inspector).toContain("<JsonViewer :value=\"state.attrs\" :main-menu-bar=\"false\" :max-height=\"0\" />");
         expect(inspector).toContain("rawSnapshotValue");
-        expect(inspector).toContain("<JsonViewer :value=\"rawSnapshotValue\" :max-height=\"288\" />");
+        expect(inspector).toContain("<JsonViewer :value=\"rawSnapshotValue\" :max-height=\"400\" />");
         expect(inspector).not.toContain("SnapshotTreeNode");
         expect(inspector).not.toContain("SnapshotTreeView");
         expect(inspector).not.toContain("snapshotTreeNodes");
@@ -776,9 +778,9 @@ describe("World Engine Workbench preview redesign", () => {
         expect(inspector).not.toContain("snapshot-tree-node");
         expect(inspector).not.toContain("rawSnapshotJson");
         expect(inspector).not.toContain("<pre class=\"max-h-72");
-        expect(inspector).toContain("展开完整世界");
+        expect(inspector).toContain("完整世界");
+        expect(inspector).toContain("只看触及主体");
         expect(inspector).toContain(":aria-pressed=\"showFullState\"");
-        expect(inspector).toContain("worldEngine.workbenchPreview.rawStateJson");
         expect(inspector).not.toContain("worldEngine.workbenchPreview.schemaExcerpt");
 
         expect(editor).toContain("worldEngine.workbenchPreview.reviewWorkbench");
@@ -878,10 +880,12 @@ describe("World Engine Workbench preview redesign", () => {
         expect(editor).toContain("class=\"flex min-h-0 flex-col\"");
         expect(editor).toContain("WorldEngineWorkbenchPreviewPatchEditor");
         expect(editor).toContain("activeSubjectPatchEditorRows");
-        expect(patchEditor).toContain("class=\"min-h-0 flex-1 overflow-y-auto overflow-x-hidden rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] custom-scrollbar\"");
+        expect(patchEditor).toContain("class=\"min-h-0 flex-1 overflow-y-auto overflow-x-hidden flex flex-col gap-2 custom-scrollbar pr-1\"");
         expect(patchEditor).toContain("主行编辑 patch 字段，次行编辑 summary");
-        expect(patchEditor).toContain("xl:grid-cols-[minmax(88px,0.72fr)_minmax(82px,0.62fr)_minmax(0,1.5fr)]");
-        expect(patchEditor).toContain("class=\"absolute right-2 top-2");
+        expect(patchEditor).toContain("data-testid=\"mutation-editor-row\"");
+        expect(patchEditor).toContain("class=\"flex flex-col gap-2 rounded-md border border-[var(--we-border)] p-2.5 text-[11px] transition-colors\"");
+        expect(patchEditor).toContain("class=\"flex min-w-0 flex-1 items-start gap-2\"");
+        expect(patchEditor).toContain("class=\"mt-0.5 flex shrink-0 items-center justify-end gap-0.5\"");
         expect(patchEditor).toContain("FormSelect");
         expect(patchEditor).toContain("Combobox");
         expect(patchEditor).toContain("pathOptions");

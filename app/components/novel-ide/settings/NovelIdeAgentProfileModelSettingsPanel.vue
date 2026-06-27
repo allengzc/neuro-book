@@ -78,6 +78,7 @@ const profileModelDefaults = ref<AgentProfileModelDraft>({
     stream: true,
 });
 const profiles = ref([]) as Ref<AgentProfileDraft[]>;
+const expandedProfileSettings = ref<Set<string>>(new Set());
 const snapshotText = ref("");
 const configApi = useConfigApi();
 const dialog = useDialog();
@@ -125,6 +126,26 @@ const defaultProfileOptions = computed<SelectOption[]>(() => {
         ...options,
     ];
 });
+
+/**
+ * 判断指定 profile 的自定义 settings 表单是否展开。
+ */
+function isProfileSettingsExpanded(profileKey: string): boolean {
+    return expandedProfileSettings.value.has(profileKey);
+}
+
+/**
+ * 切换指定 profile 的自定义 settings 表单展开状态。
+ */
+function toggleProfileSettings(profileKey: string): void {
+    const next = new Set(expandedProfileSettings.value);
+    if (next.has(profileKey)) {
+        next.delete(profileKey);
+    } else {
+        next.add(profileKey);
+    }
+    expandedProfileSettings.value = next;
+}
 
 /**
  * 将数字配置转成表单文本。
@@ -860,13 +881,17 @@ defineExpose({
 
                         <!-- Profile 自定义低代码设置 -->
                         <div v-if="profile.settings" class="mt-4 border-t border-[var(--border-color)] pt-4">
-                            <div class="mb-3 flex items-start gap-2">
-                                <span class="i-lucide-sliders-horizontal mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]"></span>
-                                <div>
-                                    <div class="text-xs font-semibold text-[var(--text-main)]">{{ t("settings.panels.profileModels.profilePresets") }}</div>
-                                </div>
-                            </div>
-                            <div>
+                            <button
+                                type="button"
+                                class="mb-3 flex w-full items-center gap-2 text-left"
+                                :aria-expanded="isProfileSettingsExpanded(profile.profileKey)"
+                                @click="toggleProfileSettings(profile.profileKey)"
+                            >
+                                <span class="i-lucide-sliders-horizontal h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]"></span>
+                                <span class="min-w-0 flex-1 text-xs font-semibold text-[var(--text-main)]">{{ t("settings.panels.profileModels.profilePresets") }}</span>
+                                <span class="h-4 w-4 shrink-0 text-[var(--text-muted)]" :class="isProfileSettingsExpanded(profile.profileKey) ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"></span>
+                            </button>
+                            <div v-if="isProfileSettingsExpanded(profile.profileKey)">
                                 <LowCodeForm
                                     v-model="profile.settings.values"
                                     v-model:override-paths="profile.settings.overridePaths"
