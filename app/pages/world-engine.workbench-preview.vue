@@ -13,6 +13,7 @@ import {
     mockWorkbenchSubjects,
 } from "nbook/app/utils/world-engine-workbench-preview-mock";
 import {
+    applyWorkbenchPreviewMutationListPatch,
     applyWorkbenchPreviewMutationPatch,
     reduceWorkbenchPreviewSnapshots,
 } from "nbook/app/utils/world-engine-workbench-preview-state";
@@ -24,6 +25,7 @@ import type {
     WorldWorkbenchPreviewIssueTriageSummary,
     WorldWorkbenchPreviewMetadataDraftSummary,
     WorldWorkbenchPreviewMutationFocus,
+    WorldWorkbenchPreviewMutationListPatch,
     WorldWorkbenchPreviewMutationValuePatch,
     WorldWorkbenchPreviewReviewQueueItem,
     WorldWorkbenchPreviewReviewQueueMode,
@@ -65,8 +67,8 @@ type WorldWorkbenchPreviewLocalDraft = {
 };
 
 const localDraftStorageKey = "neuro-book:world-engine-workbench-preview:draft:v4";
-const defaultSidebarWidth = 280;
-const defaultInspectorWidth = 360;
+const defaultSidebarWidth = 320;
+const defaultInspectorWidth = 420;
 const defaultMutationEditorHeight = 292;
 const slices = shallowRef<WorldWorkbenchPreviewSlice[]>(cloneMockWorkbenchSlices());
 const snapshots = shallowRef<WorldWorkbenchPreviewSnapshot[]>(cloneMockWorkbenchSnapshots());
@@ -468,6 +470,23 @@ function applyMutationValuePatch(patch: WorldWorkbenchPreviewMutationValuePatch)
     snapshots.value = result.snapshots;
     persistLocalDraft();
     notice.value = `已更新 mutation：${result.label}`;
+}
+
+/** 将审查工作台的完整 patch 草稿应用到 mock slice，并重算后续 snapshot。 */
+function applyMutationListPatch(patch: WorldWorkbenchPreviewMutationListPatch): void {
+    const result = applyWorkbenchPreviewMutationListPatch({
+        patch,
+        schema: mockWorkbenchSchema,
+        slices: slices.value,
+        subjects: mockWorkbenchSubjects,
+    });
+    if (!result) {
+        return;
+    }
+    slices.value = result.slices;
+    snapshots.value = result.snapshots;
+    persistLocalDraft();
+    notice.value = `已更新 slice mutations：${result.label}`;
 }
 
 /** 批量应用审查工作台的 value 草稿；mock 页面逐条重算即可保持行为直观。 */
@@ -895,6 +914,7 @@ onMounted(restoreLocalDraft);
                     @clear-mutation-focus="clearMutationFocus"
                     @focus-subject="focusSubject"
                     @focus-review-issue="focusReviewIssue"
+                    @update-mutation-patches="applyMutationListPatch"
                     @update-mutation-value="applyMutationValuePatch"
                     @update-mutation-values="applyMutationValuePatches"
                     @update-issue-triage="updateIssueTriage"

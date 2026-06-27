@@ -27,7 +27,7 @@ function getSearchableText(slice: WorldWorkbenchPreviewSlice): string {
     let cached = searchableTextCache.get(slice);
     if (!cached) {
         const mutationText = slice.mutations.map((mutation) =>
-            [mutation.subjectId, mutation.attr, mutation.op, "value" in mutation ? JSON.stringify(mutation.value) : ""].join(" ")
+            [mutation.subjectId, mutation.path, mutation.op, "value" in mutation ? JSON.stringify(mutation.value) : ""].join(" ")
         ).join(" ");
         cached = [slice.id, slice.time, slice.title, slice.summary, slice.kind, mutationText].join(" ").toLowerCase();
         searchableTextCache.set(slice, cached);

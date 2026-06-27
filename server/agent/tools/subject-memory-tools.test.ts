@@ -264,7 +264,11 @@ describe("subject memory tools", () => {
 
             expect(text).toContain("粉色头发女孩");
             expect(text).not.toContain("旧事件只提到了王都学院走廊");
-            expect(result?.details).toBeUndefined();
+            expect(result?.details).toEqual({
+                subjectPath: "demo/simulation/subjects/heroine",
+                source: "events",
+                count: 1,
+            });
             await expect(readFile(join(workspaceRoot, "demo", ".nbook", "subject-rag-dirty.json"), "utf-8")).resolves.not.toContain("\"events\"");
             await expect(readFile(join(workspaceRoot, "demo", ".nbook", "subject-rag.sqlite"))).resolves.toBeInstanceOf(Buffer);
         } finally {

@@ -1,6 +1,6 @@
 import type {
     JsonValue,
-    WorldMutationOp,
+    WorldPatchOp,
     WorldPreviewSchemaType,
 } from "nbook/app/utils/world-engine-preview";
 
@@ -20,11 +20,12 @@ export type WorldSubjectDto = {
     name: string;
 };
 
-export type WorldSliceMutationDto = {
+export type WorldSlicePatchDto = {
     subjectId: string;
-    attr: string;
-    op: WorldMutationOp;
+    path: string;
+    op: WorldPatchOp;
     value?: WorkbenchJsonValue;
+    summary?: string;
 };
 
 export type WorldSliceDto = {
@@ -34,7 +35,7 @@ export type WorldSliceDto = {
     title: string;
     summary: string;
     kind: string;
-    mutations?: WorldSliceMutationDto[];
+    patches?: WorldSlicePatchDto[];
     issues?: WorldIssueDto[];
 };
 

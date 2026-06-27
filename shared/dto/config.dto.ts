@@ -274,6 +274,28 @@ export const GlobalConfigDtoSchema = z.object({
     web: WebConfigDtoSchema,
 }).partial().passthrough();
 
+export const GlobalConfigUpdateDtoSchema = z.object({
+    auth: z.object({
+        enabled: z.boolean().default(true),
+    }).optional(),
+    models: z.object({
+        default: NullableModelKeySchema,
+        providers: z.array(ConfiguredProviderConfigDtoSchema).default([]),
+    }).optional(),
+    embedding: EmbeddingServiceConfigDtoSchema.partial().optional(),
+    agent: z.object({
+        defaultProfileKey: z.object({
+            novel: ProfileKeySchema.nullable().default(null),
+            userAssets: ProfileKeySchema.nullable().default(null),
+        }).default({novel: null, userAssets: null}),
+        profileModelDefaults: AgentProfileModelConfigDtoSchema.partial().default({}),
+        profiles: ConfigAgentProfileMapDtoSchema,
+    }).optional(),
+    ui: UiConfigDtoSchema.optional(),
+    editor: EditorConfigDtoSchema.optional(),
+    web: z.preprocess((value) => value === undefined ? undefined : value, WebConfigDtoSchema).optional(),
+}).partial().passthrough();
+
 export const ProjectConfigDtoSchema = z.object({
     models: z.object({
         default: NullableModelKeySchema,
@@ -322,6 +344,7 @@ export type ConfigAgentProfileSettingsDto = z.infer<typeof ConfigAgentProfileSet
 export type ConfigDefaultProfileSettingsDto = z.infer<typeof ConfigDefaultProfileSettingsDtoSchema>;
 export type WebConfigDto = z.infer<typeof WebConfigDtoSchema>;
 export type GlobalConfigDto = z.infer<typeof GlobalConfigDtoSchema>;
+export type GlobalConfigUpdateDto = z.infer<typeof GlobalConfigUpdateDtoSchema>;
 export type ProjectConfigDto = z.infer<typeof ProjectConfigDtoSchema>;
 export type ConfigSnapshotDto = z.infer<typeof ConfigSnapshotDtoSchema>;
 export type ConfigEditorSnapshotDto = z.infer<typeof ConfigEditorSnapshotDtoSchema>;

@@ -147,7 +147,7 @@ export function assertProfileHomeResourceKey(directory: string, extension: strin
 
 function requireHome(ctx: ResourcePresetContext): ProfileHomeFacade {
     if (!ctx.home) {
-        throw new Error("resource-preset 需要 Project profile home。");
+        throw new Error("resource-preset 需要 profile home。");
     }
     return ctx.home;
 }

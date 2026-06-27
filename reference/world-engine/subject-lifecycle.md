@@ -18,41 +18,40 @@
 
 口诀沿用 simulation entity 规则：**三瓶普通血药是 inventory 计数；一瓶被下毒的血药才是 subject。** 关系（"在哪""属于哪个阵营""被谁装备"）不是独立的第三种东西，而是某个 subject 上一个值为 `ref` 的属性，随切面演化，不需要单独建模。
 
-subject 的类型由项目 schema（`world-engine/schema.yaml`）按"类型"声明：`character` / `quest` / `location` / `item` / `faction` / `world`…。一个类型是一份模板，100 个 NPC 共享一份 `character` schema。引擎本身不预设世界观，只认识抽象概念（subject / slice / instant / mutation / op / reduce）；"hp""国库"是什么，全部由项目 schema 表达。
+subject 的类型由项目 schema（`world-engine/schema/index.ts`）按"类型"声明：`character` / `quest` / `location` / `item` / `faction` / `world`…。一个类型是一份模板，100 个 NPC 共享一份 `character` schema。引擎本身不预设世界观，只认识抽象概念（subject / slice / instant / patch / op / reduce）；"hp""国库"是什么，全部由项目 schema 表达。
 
-## 2. subject 注册：`create_world_subject` 契约
+## 2. subject 创建：首次写入自动创建
 
-切面要引用某个 subject，这个 subject 必须先存在。注册 subject 用 `create_world_subject`：
+subject 不需要单独注册。**首次对某个 subject 写入切面时，World Engine 会自动创建该 subject**。这意味着"注册身份"和"写入首条状态"合并成一个操作：
 
+```typescript
+// 首次写入 erina 时自动创建 subject：在某条 patch 上声明 type（必填）+ name（可选）
+write_world_slice(projectPath, {
+    time: "星辉历312年 5月5日 14:00",
+    title: "艾莉娜转生到祭坛",
+    patches: [
+        { subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "replace", value: 100 },
+        { subjectId: "erina", path: "/location", op: "replace", value: "subject://altar-01" },
+    ],
+})
 ```
-create_world_subject(projectPath, {
-    id: string,      // 稳定全局唯一 id，ref 用 subject://<id> 指向它
-    type: string,    // 必须是 schema 声明的 subject type
-    name?: string,
-    time: string,    // subject 起始时刻（项目日历字符串），有 default 时作为 init slice 落点
-}) -> { subjectId: string, issues: WorldIssue[] }
-```
 
-契约要点：
+关键契约：
 
-- **`id` 全局唯一，不能为空白。** id 会进入 `subject://<id>` 引用 URI，不能为空，也不能含首尾空白。重复 id 返回 **409**——不做 upsert，调用方应改用已有 subject 或换一个新 id。
-- **`type` 必须是 schema 已声明的类型。** 类型名是稳定 key，不能为空、不能含空白或括号。拼错类型会被拒绝，不会静默建一个野类型。
-- **`time` 用项目日历字符串，不传 raw instant。** 写成 `instant:<number>` 这类调试格式会被公开入参直接拒绝。新建 subject 时，把 `time` 设为项目 Calendar 的纪元零点示例即可锚定起点。
+- **`subjectId` 全局唯一，不能为空白。** 首次出现某个 subjectId 时会创建 subject。重复 id 会复用已有 subject（不会创建第二个）。
+- **`type` 必须是 schema 已声明的类型。** 首次写入时必须在该 subject 的某条 patch 上明确指定 `type` 字段（如 `{ subjectId: "erina", type: "character", ... }`），可选附 `name`。subject 已存在后再写时 type/name 被忽略，可省略。
+- **`time` 用项目日历字符串，不传 raw instant。** 写成 `instant:<number>` 这类调试格式会被公开入参直接拒绝。
+- **schema default 会自动应用。** 如果 schema 为该 type 声明了非空 default，创建 subject 时会自动生成初始值（作为 init patch 写入）。
 
-注册时 init slice 的两种结果，取决于 schema 有没有非空 `default`：
+**与旧 `create_world_subject` 的差异**：
 
-- **schema 为该 type 声明了非空 default** → 生成一组 `kind=init` 的 `set` mutation，把每个 default 写成初值，落在 `time` 对应的 instant。reduce 从这条 init slice 起步就能拿到声明的初值，切面序列**自包含**，不需要 reduce 时回查 schema 兜底。
-- **schema 没有 default** → **只注册 subject 身份，不创建空切面**。这是"切面 = 状态变更"约束的直接后果：没有变更就没有切面。
-
-**init slice 的追加语义**（同一 instant 只能有一个 slice，见 §3）：
-
-- 如果 `time` 对应的 instant 上**已有 `kind=init` 切面**，新的 init mutation **追加**进那条 init slice。
-- 如果该 instant 上**已有非 init 切面**（如 `event` / `backstory`），返回 **409**，不会把 subject 初始化悄悄塞进普通事件切面。这时应改用 `edit_world_slice` 显式合并，或为这个 subject 选择另一个初始化时间。
-- init mutation 同样受单切面 100 条上限约束；追加后总数超过 100 会返回 400。
+- 旧版需要先调用 `create_world_subject` 注册，再用 `write_world_slice` 写入状态。
+- 新版合并为一步：首次 `write_world_slice` 时自动创建 subject。
+- 好处：减少一次 API 调用，避免"忘记注册导致 dangling-ref"的错误。
 
 ## 3. 切面是状态变更，不是快照
 
-subject 注册后，它的状态变化全部由**切面（slice / 切面）**承载。一个 slice = **一个时间点 + 一组 mutation**：
+subject 注册后，它的状态变化全部由**切面（slice / 切面）**承载。一个 slice = **一个时间点 + 一组 patch**：
 
 ```typescript
 interface Slice {
@@ -61,42 +60,43 @@ interface Slice {
     kind?: string;         // timeline 分类标签，默认 event，不参与 reduce
     title: string;
     summary?: string;
-    mutations: Mutation[]; // 这一刻发生的所有变更
+    patches: Patch[];      // 这一刻发生的所有变更
 }
 
-// 一条 mutation：对某 subject 的某属性做某 op
-interface Mutation {
+// 一条 patch：对某 subject 的某个 JSON Pointer path 做某 op
+interface Patch {
     subjectId: string;     // 改谁
-    attr: string;          // 改它的哪个属性（路径字符串，可点号深入）
-    op: string;            // set / add / unset / listAppend / collectionAdd / collectionRemove
-    value?: unknown;       // unset 省略
+    path: string;          // JSON Pointer，如 /hp、/equipment/weapon
+    op: string;            // replace / increment / remove / append
+    value?: unknown;       // 普通 remove 省略；collection remove 可提供 value 按 stable JSON 值删除元素
+    summary?: string;      // 人类可读摘要
 }
 ```
 
 关键性质：
 
 - **切面是增量（delta），不是全量快照。** 世界不存"当前状态"，只存切面序列。这个选择是被需求锁定的：核心诉求是"往前插切面补历史/补设定"。全量快照在往前插时会让所有后续快照失效；增量模型则让后续变更自然叠加，对补历史天然友好。
-- **同一 instant 只能有一个 slice。** 同一刻发生的多 subject / 多属性变化，必须放进同一个 slice 的 `mutations` 数组。`write_world_slice` 遇到目标 instant 已存在会报错；要改已有时间点的切面，走 `edit_world_slice`。
+- **同一 instant 只能有一个 slice。** 同一刻发生的多 subject / 多 path 变化，必须放进同一个 slice 的 `patches` 数组。`write_world_slice` 遇到目标 instant 已存在会报错；Agent 的 `write_world_slice` 没有编辑/覆盖已有切面的能力，要补同一时刻的内容就改用相邻时间点（整块编辑已有切面是 Workbench/HTTP `editSlice` 的能力，不在 Agent 写工具里）。
 - **补过去与写当前是同一个工具。** 给 `write_world_slice` 传一个比当前最新切面更早的 `time`，timeline 自动按底层时间戳归位。这就是"溯源"——为角色补一段早年经历，就是在更早的 instant 上插一条切面。
 
-**`edit_world_slice` 是整块替换，不是增量补丁。** 改已有时间点的切面走 `edit_world_slice`，它的入参 = `write_world_slice` 的全部字段（`time` / `title` / `summary` / `kind` / `mutations`）再加一个 `sliceId`：
+**整块替换已有切面（Workbench / HTTP `editSlice`，非 Agent 写工具）**：用完整的切面数据（含 `sliceId`）整块替换原切面：
 
-```
-edit_world_slice(projectPath, {
-    sliceId: string,       // 要改哪条切面
-    time: string,          // 完整重传，下面字段同 write_world_slice
+```typescript
+// 注意：这是 HTTP / Workbench 能力；Agent 的 write_world_slice 不接受 sliceId、不能编辑切面
+editSlice(projectPath, sliceId, {
+    time: string,          // 完整重传
     title: string,
     summary?: string,
     kind?: string,
-    mutations: Mutation[], // 整块替换：这条切面替换后保留的所有 mutation
+    patches: Patch[],      // 整块替换：这条切面替换后保留的所有 patch
 }) -> { issues: WorldIssue[] }
 ```
 
-语义是**整块替换**：提交后这条切面的 `mutations` 就是你这次传进去的那一组，**没带上的旧 mutation 会被丢弃**。因此"在已有切面上补一条 mutation"的正确做法不是只传新增那条，而是：先用 `list_world_slices` 读出原切面的完整 mutations，把新 mutation 合并进去，再整组提交。只传一条新增 mutation 会把原有 mutation 全部覆盖丢失。
+语义是**整块替换**：提交后这条切面的 `patches` 就是这次传进去的那一组，**没带上的旧 patch 会被丢弃**。因此"在已有切面上补一条 patch"的正确做法不是只传新增那条，而是：先用 `execute_world_query` 的 `world.slices()` 读出原切面的完整 patches，把新 patch 合并进去，再整组提交。只传一条新增 patch 会把原有 patch 全部覆盖丢失。
 
 ## 4. reduce 语义
 
-**任意时刻的世界状态 = 该时刻前所有切面，按 `instant` 升序、同一 slice 内按 `mutation.seq` 升序 reduce 出来的结果。** 这是经典 event sourcing。
+**任意时刻的世界状态 = 该时刻前所有切面，按 `instant` 升序、同一 slice 内按 patch 顺序 reduce 出来的结果。** 这是经典 event sourcing。
 
 - **截断时间 `at`**：reduce 只叠加 instant ≤ `at` 的切面，更晚的切面不参与。倒叙、回忆 = 把 `at` 设到更早的时间点。
 - 例：主角的出生切面在复兴历 470 年。查询 `at = 复兴历 200 年` 时，出生切面被截断，主角**尚不存在有效状态**——"倒叙看 200 年时主角还没出生"天然成立。
@@ -108,37 +108,38 @@ edit_world_slice(projectPath, {
 
 每个属性在 schema 里绑定一个 **kind**，kind 决定它接受哪些 op、reduce 怎么叠加。属性的演化形态因此分三类：
 
-**scalar（标量）——用 `set` / `add`。**
-- `set` 是绝对值："等级升到 5""status 改成 done""hp 设为 80"，后写覆盖前值。
-- `add` 是相对增量（仅数值有效）："扣 30 血"写 `hp add -30`，在当前值上累加。
-- `add` 的价值是**架构性的**：它可交换，对"往前插切面"稳定——前面再插一条扣血切面，本条 `add -30` 不用改，reduce 自动正确。`set` 是绝对值、对插入敏感。所以日常数值变化优先考虑 `add`。
+**scalar（标量）——用 `replace` / `increment` / `remove`。**
+- `replace` 是绝对值："等级升到 5""status 改成 done""hp 设为 80"，后写覆盖前值。
+- `increment` 是相对增量（仅数值有效）："扣 30 血"写 `/hp increment -30`，在当前值上累加。
+- `increment` 的价值是**架构性的**：它可交换，对"往前插切面"稳定——前面再插一条扣血切面，本条 `increment -30` 不用改，reduce 自动正确。`replace` 是绝对值、对插入敏感。所以日常数值变化优先考虑 `increment`。
 
-**list（有序流）——用 `listAppend`（也支持整组 `set`）。**
-- `listAppend` 是**只增的有序流**追加，语义对齐经历流（events）、任务日志（quest.log）。
+**list（有序流）——用 `append`（也支持整组 `replace`）。**
+- `append` 是**只增的有序流**追加，语义对齐经历流（events）、任务日志（quest.log）。
 - list **故意不支持中间插入**：要往"过去"补一条经历，正确做法是**往更早 instant 插一个切面**，而不是在现有 list 中间塞元素，否则破坏"events 顺序 = 切面 instant 顺序"的不变量。
 
-**collection（无序集合）——用 `collectionAdd` / `collectionRemove`（也支持整组 `set`）。**
+**collection（无序集合）——用 `append` / `remove`（也支持整组 `replace`）。**
 - 集合元素可增可删、无序、按 stable JSON 值去重，语义对齐背包物品、附魔列表、宗门弟子。
-- `collectionAdd` 按值去重追加，`collectionRemove` 按值删除。
+- `append` 按值去重追加；`remove` 不带 value 时删除指定 path，带 value 时只对 collection 有效，按 stable JSON 值删除匹配元素，找不到时幂等。list 不支持按值删。
 
-**object（嵌套结构）——对子路径做 `set` / `add` / `unset`，或整体 `set`。**
+**object（嵌套结构）——对子路径做 `replace` / `remove`，或整体 `replace`。**
 - 有 `fields` 是固定结构（如 `equipment.head` / `equipment.weapon`），无 `fields` 只有 `itemType` 是开放字典（如 `memory.师门`，key 运行时增减）。
-- 日常优先打**细路径**（`set equipment.weapon`）保留逐槽位历史；整体 `set equipment = {...}` 留给"换一整套装备"这类真整体操作。
+- 日常优先打**细路径**（`replace /equipment/weapon`）保留逐槽位历史；整体 `replace /equipment = {...}` 留给"换一整套装备"这类真整体操作。
 
-**历史轨迹不需要专门存储。** "hp 随时间的曲线"= 遍历所有打在 `hp` 上的 mutation（每条带 instant + op + 值），从切面序列直接得出。不存在"track 旧值"的机制，也不需要为成长史单独建表。
+**历史轨迹不需要专门存储。** "hp 随时间的曲线"= 遍历所有打在 `/hp` 上的 patch（每条带 instant + op + 值），从切面序列直接得出。不存在"track 旧值"的机制，也不需要为成长史单独建表。
 
 ## 6. 回退能力
 
-第一版的回退入口是 `delete_world_slice`：
+删除切面是 Workbench / HTTP 的 `deleteSlice` 能力（Agent 的 2 个工具里没有删除入口）：
 
-```
-delete_world_slice(projectPath, { sliceId }) -> { issues: WorldIssue[] }
+```typescript
+// 注意：HTTP / Workbench 能力；Agent 不能删除切面
+deleteSlice(projectPath, sliceId) -> { issues: WorldIssue[] }
 ```
 
 - **物理删除，不可恢复。** 删除某条切面后重新 reduce。没有旧值字段做 O(1) 逆操作，也没有可恢复的撤销。
 - **第一版没有通用 rollback / revert slice。** 也不自动补写、不自动改写后续切面。
-- 删除会返回受影响 subject 重新 reduce 后的 E issues。如果删掉的是某个相对 op 的基准切面，下游的 `add` / `listAppend` / `collectionRemove` 可能因缺基显形 `broken-relative`（见 §7）。
-- `delete_world_slice` **不会**自动删除应用层提前创建的 subject 身份。例如删掉"捡到剑"那条切面，`sword-01` 这个 subject 仍然存在，只是不再被任何切面引用。
+- 删除会返回受影响 subject 重新 reduce 后的 E issues。如果删掉的是某个相对 op 的基准切面，下游的 `increment` / `append` 可能因缺基显形 `broken-relative`（见 §7）。
+- 删除切面**不会**自动删除 subject 身份。例如删掉"捡到剑"那条切面，`sword-01` 这个 subject 仍然存在，只是不再被任何切面引用。
 
 ## 7. issues 反馈通道
 
@@ -146,12 +147,12 @@ delete_world_slice(projectPath, { sliceId }) -> { issues: WorldIssue[] }
 
 **E issues（持久数据错误，读时现算，必须修）：**
 
-- `broken-relative`：相对 op 缺少有效基准。例如某个 `hp add -30` 前面没有任何给 `hp` 设过初值的切面；或基准切面被删掉了。也包括 `add` 的累加结果溢出 / 非有限数。
+- `broken-relative`：相对 op 缺少有效基准。例如某个 `/hp increment -30` 前面没有任何给 `/hp` 设过初值的切面；或基准切面被删掉了。也包括 `increment` 的累加结果溢出 / 非有限数。
   - 向用户解释："某条数值变化缺少起始值，得先补一条设定初始值的记录。"
 - `dangling-ref`：schema 声明的 ref 值目标缺失或类型不符。例如 `equipment.weapon` 指向 `subject://sword-99`，但这个 subject 根本不存在。
   - 向用户解释："某处引用了一个不存在的对象，需要先建它或改引用。"
 
-E issues 是数据里的真实错误，`get_world_state` / `list_world_slices` 都会带回相关的 E issues，必须处理。
+E issues 是数据里的真实错误，`execute_world_query` 查询时也会返回相关的 E issues，必须处理。
 
 **A issues（一次性提醒，写/编辑时返回，确认语义即可）：**
 
@@ -163,23 +164,36 @@ A issues **不落库**，也不要求改数据；它们只是在你"往过去插
 - 向用户解释（`base-shifted`）："你改了过去的一个数值，后面那条'加减'的起点也跟着变了，确认一下这是你想要的。"
 - 向用户解释（`masked`）："你这条改动后面会被另一条覆盖，可能看不出效果，确认一下。"
 
-## 8. 查询契约：`get_world_state`
+## 8. 查询契约：`execute_world_query`
 
-查询单个或多个 subject 当前（或某历史时刻）状态用 `get_world_state`，本质是"按需 reduce 若干 subject"：
+查询世界状态使用 `execute_world_query`，在 CodeAct 沙盒中执行 JavaScript 代码。沙盒提供 `world` API：
 
-```
-get_world_state(projectPath, {
-    subjectIds?: string[],  // 只看这些 subject，如 ["erina","phoenix"]
-    type?: string,          // 或按类型，如 "character"
-    attrs?: string[],       // 属性投影，如 ["hp","location","mind"]；省略=全部
-    at?: string,            // reduce 截断时间（项目日历字符串）；省略=最新
-    listLimit?: number,     // list/collection 属性最多返回多少条（如 events 取最近 20）
-}) -> { subjects: SubjectState[], issues: WorldIssue[] }
+```javascript
+// 查询单个 subject（本质是 reduce）
+const erina = await world.get("erina");
+
+// 查询并自动解引用
+const erina = await world.get("erina", { deref: true, derefDepth: 1 });
+
+// 批量查询
+const states = await world.getMany(["erina", "phoenix-faction"]);
+
+// 列出某类型的所有 subject
+const characters = await world.list("character");
+
+// 反向查找引用
+const refs = await world.findRefs("phoenix-faction", "character");
+
+// 向量搜索
+const results = await world.searchText("遗迹封印", { k: 5, types: ["event"] });
+
+// 查询时间轴切面
+const slices = await world.slices({ limit: 10 });
 ```
 
 防全量倾倒是硬契约——成熟世界有几百 subject、每个几十属性：
 
-- **必须传 `subjectIds` 或 `type` 至少其一。** 都省略会报错要求收窄，不会裸调拉全量。（需要完整世界状态导出是 UI / 调试专用的 `getWorldState`，不暴露给 Agent。）
+- Agent 的 CodeAct API 不提供裸 `queryState({})` 入口；使用 `world.get` / `world.getMany` / `world.list(type)` / `world.slices()` 等收窄方法查询。HTTP `POST /state/query` 公开入口同样必须传 `subjectIds` 或 `type` 至少其一；都省略会报错要求收窄。完整世界状态导出只走 UI / debug 专用的 `GET /state`，内部复用 `queryState({at})`，不暴露给 Agent。
 - `subjectIds` 若传，必须是非空数组且每项唯一；空数组或重复 id 返回 400。
 - `attrs` 若传，必须是非空数组且每项唯一；用它**投影**只取关心的属性，省下无关字段。
 - `type` 若传，必须是 schema 已声明的类型，拼错会被拒绝。
@@ -196,7 +210,7 @@ get_world_state(projectPath, {
 
 ## 9. writer 的只读边界
 
-writer 角色拥有 World Engine **只读**查询能力（`get_world_state` / `list_world_slices`），用于读取世界状态辅助写作，**不能写入**。注册 subject、写切面、编辑切面、删切面都不属于 writer 的权限范围。需要改变世界状态时，由具备写入能力的角色承担。
+writer 角色拥有 World Engine **只读**查询能力（`execute_world_query`），用于读取世界状态辅助写作，**不能写入**。写入切面、修改切面、删除切面都不属于 writer 的权限范围。需要改变世界状态时，由具备写入能力的角色承担。
 
 ## 相关文档
 

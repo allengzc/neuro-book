@@ -16,18 +16,18 @@
 
 - [workflow.md](workflow.md)：写作模式整体工作流、World Engine / Lorebook / Manuscript 职责边界、技术细节透明原则、两种剧情录入模式、Leader-Writer 协作契约、信息控制。
 - [recording-principles.md](recording-principles.md)：最少支持当前叙事原则——群体角色、切片数量、按需溯源、模糊时间段、临时角色、记录边界。
-- [schema-system.md](schema-system.md)：schema 定位、kind（scalar/list/collection/object）、op 全集、ref 规则、attr path、default、校验宽松度、稳定 key 约束、典型奇幻 schema 示例。
-- [subject-lifecycle.md](subject-lifecycle.md)：subject 定义、`create_world_subject` 注册契约、init slice、切面增量模型、reduce 语义、状态演化形态、回退能力、issues 反馈、`get_world_state` 查询契约、writer 只读边界。
+- [schema-system.md](schema-system.md)：schema 定位、kind（scalar/list/collection/object）、4-op patch 全集、ref 规则、JSON Pointer path、default、校验宽松度、稳定 key 约束、典型奇幻 schema 示例。
+- [subject-lifecycle.md](subject-lifecycle.md)：subject 定义、init slice、切面增量模型、reduce 语义、状态演化形态、回退能力、issues 反馈、`execute_world_query` 查询契约、writer 只读边界。
 - [calendar-system.md](calendar-system.md)：唯一时间真相源 Instant、零点与纪元锚点（公元日）、Calendar 独立显示模块、calendar.ts 配置（支持 Simple / Gregorian / Custom 三种类型）、Agent/HTTP 时间入参边界。
 
 ## 核心边界（务必记住）
 
 - **第一版不接旧 simulation workflow，也不依赖 Plot 系统**。在写作模式提示词层面把这两个系统当做不存在，记录世界状态只用 World Engine 工具，不要调 plot / simulation 工具。
 - **时间对外一律用项目日历字符串**（第一版月份是数字，如 `星辉历312年 5月15日 14:00`）。Agent 工具与 HTTP 公开入参禁止 raw instant（`instant:<number>`）。
-- **mutation 不存旧值字段，后端不自动改写后续切面**。声明式 mutation 序列是唯一真相源，状态永远由 reduce 得来。
-- **同一 instant 只能有一个 slice**；写入冲突走 `edit_world_slice`。
+- **patch 不存旧值字段，后端不自动改写后续切面**。声明式 patch 序列是唯一真相源，状态永远由 reduce 得来。
+- **同一 instant 只能有一个 slice**；写入冲突需要读取原 slice 后用 `patches` 整块编辑。
 - **E issues**（`broken-relative` / `dangling-ref`）是持久数据错误，必须修；**A issues**（`base-shifted` / `masked`）是一次性提醒，确认语义即可。
-- **writer 对 World Engine 只读**（`get_world_state` / `list_world_slices`），不能写入。
+- **writer 对 World Engine 只读**（`execute_world_query`），不能写入。
 
 ## 契约真相源
 
@@ -35,5 +35,6 @@
 
 - [docs/tasks/56-world-engine/README.md](../../docs/tasks/56-world-engine/README.md)：核心模型与所有 Decisions 定论。
 - [docs/tasks/56-world-engine/schema-design.md](../../docs/tasks/56-world-engine/schema-design.md)：schema 字段格式与完整示例。
-- [docs/tasks/56-world-engine/agent-tools.md](../../docs/tasks/56-world-engine/agent-tools.md)：8 个 Agent 工具契约。
+- [docs/tasks/67-world-engine-zod-schema-codeact/README.md](../../docs/tasks/67-world-engine-zod-schema-codeact/README.md)：Zod schema 与 8→2 Agent 工具迁移来源。
+- [docs/tasks/69-world-engine-tool-cleanup/README.md](../../docs/tasks/69-world-engine-tool-cleanup/README.md)：旧协议清理、`WorldPatch` 表名、collection 按值删与 P0-P3 收口。
 - [docs/tasks/56-world-engine/sqlite-and-api.md](../../docs/tasks/56-world-engine/sqlite-and-api.md)：Project SQLite 表结构与 HTTP API 契约。

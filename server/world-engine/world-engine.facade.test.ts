@@ -1,1884 +1,249 @@
+import {afterAll, describe, expect, it} from "bun:test";
+import {PrismaClient} from "nbook/server/generated/project-prisma/client";
+import {PrismaLibSql} from "@prisma/adapter-libsql";
 import fs from "node:fs/promises";
 import path from "node:path";
-import {PrismaLibSql} from "@prisma/adapter-libsql";
-import {afterAll, afterEach, describe, expect, it} from "vitest";
-import {PrismaClient} from "nbook/server/generated/project-prisma/client";
-import {WorldEngineFacade, type JsonValue} from "nbook/server/world-engine";
-import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {WorldEngineFacade} from "nbook/server/world-engine/world-engine.facade";
 import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 
 const createdProjects: string[] = [];
 const createdFacades: WorldEngineFacade[] = [];
 
 describe("WorldEngineFacade", () => {
-    afterEach(async () => {
-        for (const facade of createdFacades.splice(0)) {
-            await Promise.all(createdProjects.map((projectPath) => facade.closeProject(projectPath)));
-        }
-    });
-
     afterAll(async () => {
-        for (const projectPath of createdProjects) {
-            const projectRoot = path.join(resolveWorkspaceContainerRoot(), projectPath.slice("workspace/".length));
-            await removeProjectRoot(projectRoot);
-        }
+        await Promise.all(createdFacades.map((facade) => facade.closeProject("workspace/__test__")));
+        await Promise.all(createdProjects.map((projectPath) => removeProjectRoot(projectPath)));
+        createdFacades.splice(0);
         createdProjects.splice(0);
-    }, 30_000);
+    });
 
-    it("创建 subject、写切面并按需查询状态", async () => {
+    it("首写自动创建 subject，并应用 schema default 与 4-op patch", async () => {
         const projectPath = await createProject();
         const facade = createFacade();
 
-        const createdSubject = await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
         const result = await facade.writeSlice(projectPath, {
             instant: 10n,
-            title: "城北遭遇战",
-            mutations: [
-                {subjectId: "erina", attr: "hp", op: "add", value: -20},
-                {subjectId: "erina", attr: "events", op: "listAppend", value: "被伏击"},
-                {subjectId: "erina", attr: "events", op: "listAppend", value: "捡到旧剑"},
+            title: "艾莉娜登场",
+            patches: [
+                {subjectId: "old-sword", type: "item", name: "旧剑", path: "/durability", op: "replace", value: 80},
+                {subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "increment", value: -20},
+                {subjectId: "erina", path: "/events", op: "append", value: "在祭坛醒来"},
+                {subjectId: "erina", path: "/inventory", op: "append", value: "subject://old-sword"},
             ],
         });
+        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["hp", "events", "inventory"]});
+        const subjects = await facade.listSubjects(projectPath);
 
-        expect(createdSubject).toEqual({subjectId: "erina", issues: []});
         expect(result.issues).toEqual([]);
-        await expect(facade.writeSlice(projectPath, {instant: 10n, title: "重复", mutations: []})).rejects.toThrow("existingSliceId=");
-
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["hp", "events"], listLimit: 1});
-        expect(state.subjects).toEqual([
-            {subjectId: "erina", type: "character", attrs: {hp: 80, events: ["捡到旧剑"]}},
-        ]);
-        expect(state.issues).toEqual([]);
-
-    });
-
-    it("queryState 的 listLimit 只裁剪 schema 声明的 list 和 collection", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "记录履历",
-            mutations: [
-                {subjectId: "erina", attr: "events", op: "listAppend", value: "出发"},
-                {subjectId: "erina", attr: "events", op: "listAppend", value: "抵达"},
-                {subjectId: "erina", attr: "profile", op: "set", value: {aliases: ["见习骑士", "旧剑持有者"], tags: ["north", "capital"]}},
-            ],
+        expect(subjects).toEqual(expect.arrayContaining([
+            {id: "erina", type: "character", name: "艾莉娜"},
+            {id: "old-sword", type: "item", name: "旧剑"},
+        ]));
+        expect(state.subjects[0]?.attrs).toEqual({
+            hp: 80,
+            events: ["在祭坛醒来"],
+            inventory: ["subject://old-sword"],
         });
-
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["events", "profile"], listLimit: 1});
-
-        expect(state.subjects).toEqual([
-            {
-                subjectId: "erina",
-                type: "character",
-                attrs: {
-                    events: ["抵达"],
-                    profile: {aliases: ["见习骑士", "旧剑持有者"], tags: ["north", "capital"]},
-                },
-            },
-        ]);
     });
 
-    it("queryState 拒绝重复 subjectIds", async () => {
+    it("collection append 去重，remove 可按值删除且幂等", async () => {
         const projectPath = await createProject();
         const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-
-        await expect(facade.queryState(projectPath, {
-            subjectIds: [],
-            attrs: ["hp"],
-        })).rejects.toThrow("subjectIds 不能为空");
-        await expect(facade.queryState(projectPath, {
-            subjectIds: ["erina", "erina"],
-            attrs: ["hp"],
-        })).rejects.toThrow("subjectIds 不能重复：erina");
-    });
-
-    it("queryState 拒绝重复 attrs 投影", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-
-        await expect(facade.queryState(projectPath, {
-            subjectIds: ["erina"],
-            attrs: [],
-        })).rejects.toThrow("attrs 不能为空");
-        await expect(facade.queryState(projectPath, {
-            subjectIds: ["erina"],
-            attrs: ["hp", "hp"],
-        })).rejects.toThrow("attrs 不能重复：hp");
-    });
-
-    it("collectionAdd 会去重且 collectionRemove 会删除已有 ref 项", async () => {
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      inventory: { kind: collection, itemType: ref(item), default: [] }",
-            "  item:",
-            "    attrs:",
-            "      name: { kind: scalar, type: text }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        await facade.createSubject(projectPath, {id: "old-sword", type: "item", name: "旧剑", at: 0n});
-        await facade.createSubject(projectPath, {id: "key", type: "item", name: "钥匙", at: 0n});
 
         await facade.writeSlice(projectPath, {
             instant: 10n,
-            title: "整理背包",
-            mutations: [
-                {subjectId: "erina", attr: "inventory", op: "collectionAdd", value: "subject://old-sword"},
-                {subjectId: "erina", attr: "inventory", op: "collectionAdd", value: "subject://old-sword"},
-                {subjectId: "erina", attr: "inventory", op: "collectionAdd", value: "subject://key"},
-                {subjectId: "erina", attr: "inventory", op: "collectionRemove", value: "subject://old-sword"},
+            title: "获得物品",
+            patches: [
+                {subjectId: "old-sword", type: "item", name: "旧剑", path: "/durability", op: "replace", value: 90},
+                {subjectId: "key", type: "item", name: "钥匙", path: "/durability", op: "replace", value: 100},
+                {subjectId: "coin", type: "item", name: "金币", path: "/durability", op: "replace", value: 100},
+                {subjectId: "erina", type: "character", name: "艾莉娜", path: "/inventory", op: "append", value: "subject://old-sword"},
+                {subjectId: "erina", path: "/inventory", op: "append", value: "subject://old-sword"},
+                {subjectId: "erina", path: "/inventory", op: "append", value: "subject://key"},
             ],
         });
-
+        await facade.writeSlice(projectPath, {
+            instant: 20n,
+            title: "交出旧剑",
+            patches: [
+                {subjectId: "erina", path: "/inventory", op: "remove", value: "subject://old-sword"},
+                {subjectId: "erina", path: "/inventory", op: "remove", value: "subject://coin"},
+            ],
+        });
         const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["inventory"]});
 
-        expect(state.subjects).toEqual([
-            {
-                subjectId: "erina",
-                type: "character",
-                attrs: {
-                    inventory: ["subject://key"],
-                },
-            },
-        ]);
+        expect(state.subjects[0]?.attrs.inventory).toEqual(["subject://key"]);
     });
 
-    it("list/collection 支持 object itemType 并按稳定 JSON 处理 collection", async () => {
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      badges: { kind: collection, itemType: object, default: [] }",
-            "      notes: { kind: list, itemType: object, default: [] }",
-            "",
-        ]);
+    it("编辑 collection remove 的 value 会重新计算下游 advisory", async () => {
+        const projectPath = await createProject();
         const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        const schema = await facade.getWorldSchema(projectPath);
-        expect(schema.subjectTypes[0].attrs).toEqual([
-            {name: "badges", kind: "collection", type: "object", itemType: "object", enum: undefined, default: [], desc: undefined},
-            {name: "notes", kind: "list", type: "object", itemType: "object", enum: undefined, default: [], desc: undefined},
-        ]);
 
         await facade.writeSlice(projectPath, {
             instant: 10n,
-            title: "记录对象项",
-            mutations: [
-                {subjectId: "erina", attr: "badges", op: "collectionAdd", value: {label: "north", score: 1}},
-                {subjectId: "erina", attr: "badges", op: "collectionAdd", value: {score: 1, label: "north"}},
-                {subjectId: "erina", attr: "badges", op: "collectionAdd", value: {label: "south", score: 2}},
-                {subjectId: "erina", attr: "badges", op: "collectionRemove", value: {score: 1, label: "north"}},
-                {subjectId: "erina", attr: "notes", op: "listAppend", value: {text: "抵达王都", mood: "calm"}},
+            title: "获得物品",
+            patches: [
+                {subjectId: "old-sword", type: "item", name: "旧剑", path: "/durability", op: "replace", value: 90},
+                {subjectId: "key", type: "item", name: "钥匙", path: "/durability", op: "replace", value: 100},
+                {subjectId: "coin", type: "item", name: "金币", path: "/durability", op: "replace", value: 100},
+                {subjectId: "erina", type: "character", name: "艾莉娜", path: "/inventory", op: "append", value: "subject://old-sword"},
+                {subjectId: "erina", path: "/inventory", op: "append", value: "subject://key"},
             ],
         });
-
-        await expect(facade.writeSlice(projectPath, {
-            instant: 11n,
-            title: "错误对象项",
-            mutations: [{subjectId: "erina", attr: "notes", op: "listAppend", value: "不是对象"}],
-        })).rejects.toThrow("notes 必须是 object");
-
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["badges", "notes"]});
-        expect(state.subjects).toEqual([
-            {
-                subjectId: "erina",
-                type: "character",
-                attrs: {
-                    badges: [{label: "south", score: 2}],
-                    notes: [{text: "抵达王都", mood: "calm"}],
-                },
-            },
-        ]);
-    });
-
-    it("queryState 在 service 层拒绝非法 listLimit", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-
-        await expect(facade.queryState(projectPath, {subjectIds: ["erina"], listLimit: 0})).rejects.toThrow("listLimit 必须是 1..100 的整数");
-        await expect(facade.queryState(projectPath, {subjectIds: ["erina"], listLimit: -1})).rejects.toThrow("listLimit 必须是 1..100 的整数");
-        await expect(facade.queryState(projectPath, {subjectIds: ["erina"], listLimit: 1.5})).rejects.toThrow("listLimit 必须是 1..100 的整数");
-        await expect(facade.queryState(projectPath, {subjectIds: ["erina"], listLimit: 101})).rejects.toThrow("listLimit 必须是 1..100 的整数");
-    });
-
-    it("writeSlice 和 editSlice 拒绝空 mutations", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        await expect(facade.writeSlice(projectPath, {instant: 10n, title: "空切面", mutations: []})).rejects.toThrow("mutations 不能为空");
-        const slice = await facade.writeSlice(projectPath, {
-            instant: 11n,
-            title: "有效切面",
-            mutations: [{subjectId: "erina", attr: "hp", op: "add", value: -1}],
-        });
-        await expect(facade.editSlice(projectPath, slice.sliceId, {instant: 11n, title: "编辑为空", mutations: []})).rejects.toThrow("mutations 不能为空");
-    });
-
-    it("writeSlice 和 editSlice 拒绝不可稳定过滤的 kind", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        await expect(facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "空 kind",
-            kind: "",
-            mutations: [{subjectId: "erina", attr: "events", op: "listAppend", value: "记录"}],
-        })).rejects.toThrow("kind 不能为空");
-        const slice = await facade.writeSlice(projectPath, {
-            instant: 11n,
-            title: "有效切面",
-            kind: "backstory",
-            mutations: [{subjectId: "erina", attr: "events", op: "listAppend", value: "有效"}],
-        });
-
-        await expect(facade.editSlice(projectPath, slice.sliceId, {
-            instant: 11n,
-            title: "空白 kind",
-            kind: " event ",
-            mutations: [{subjectId: "erina", attr: "events", op: "listAppend", value: "有效"}],
-        })).rejects.toThrow("kind 不能包含前后空白： event ");
-    });
-
-    it("writeSlice 和 editSlice 在 service 层拒绝超过 100 条 mutations", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-        const tooManyMutations = Array.from({length: 101}, (_, index) => ({
-            subjectId: "erina",
-            attr: "events",
-            op: "listAppend" as const,
-            value: `事件 ${index}`,
-        }));
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        await expect(facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "过大切面",
-            mutations: tooManyMutations,
-        })).rejects.toThrow("mutations 不能超过 100 条");
-        const slice = await facade.writeSlice(projectPath, {
-            instant: 11n,
-            title: "有效切面",
-            mutations: [{subjectId: "erina", attr: "events", op: "listAppend", value: "有效"}],
-        });
-
-        await expect(facade.editSlice(projectPath, slice.sliceId, {
-            instant: 11n,
-            title: "编辑为过大切面",
-            mutations: tooManyMutations,
-        })).rejects.toThrow("mutations 不能超过 100 条");
-    });
-
-    it("createSubject 的 default mutations 也遵守单切面 100 条上限", async () => {
-        const attrs = Array.from({length: 101}, (_, index) => `      attr${index}: { kind: scalar, type: text, default: value${index} }`);
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            ...attrs,
-            "",
-        ]);
-        const facade = createFacade();
-
-        await expect(facade.createSubject(projectPath, {
-            id: "erina",
-            type: "character",
-            name: "艾莉娜",
-            at: 0n,
-        })).rejects.toThrow("mutations 不能超过 100 条");
-    });
-
-    it("createSubject 追加 init mutations 时拒绝让已有切面超过 100 条", async () => {
-        const seedDefaults = Array.from({length: 99}, (_, index) => `      attr${index}: { kind: scalar, type: text, default: value${index} }`);
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  seed:",
-            "    attrs:",
-            ...seedDefaults,
-            "  character:",
-            "    attrs:",
-            "      hp: { kind: scalar, type: int, default: 100 }",
-            "      events: { kind: list, itemType: text, default: [] }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "seed", type: "seed", name: "种子", at: 0n});
-
-        await expect(facade.createSubject(projectPath, {
-            id: "erina",
-            type: "character",
-            name: "艾莉娜",
-            at: 0n,
-        })).rejects.toThrow("mutations 不能超过 100 条");
-    });
-
-    it("createSubject 拒绝把 init mutations 自动追加进非 init 切面", async () => {
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  marker:",
-            "    attrs:",
-            "      note: { kind: scalar, type: text }",
-            "  character:",
-            "    attrs:",
-            "      hp: { kind: scalar, type: int, default: 100 }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "marker", type: "marker", name: "标记", at: 0n});
-        await facade.writeSlice(projectPath, {
-            instant: 0n,
-            title: "已有事件",
-            kind: "event",
-            mutations: [{subjectId: "marker", attr: "note", op: "set", value: "已发生"}],
-        });
-
-        await expect(facade.createSubject(projectPath, {
-            id: "erina",
-            type: "character",
-            name: "艾莉娜",
-            at: 0n,
-        })).rejects.toThrow("目标时间已有非 init 切面");
-        await expect(facade.listWorldSubjects(projectPath)).resolves.toEqual([{id: "marker", type: "marker", name: "标记"}]);
-    });
-
-    it("createSubject 允许把 init mutations 追加进同 instant 已有切面", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        const world = await facade.createSubject(projectPath, {id: "world", type: "world", name: "世界", at: 0n});
-        const erina = await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-
-        const slices = await facade.listSlices(projectPath, {withMutations: true});
-        const orderedStates = await facade.queryState(projectPath, {subjectIds: ["erina", "world"], attrs: ["hp", "era"]});
-        expect(slices).toHaveLength(1);
-        expect(world).toEqual({subjectId: "world", issues: []});
-        expect(erina).toEqual({subjectId: "erina", issues: []});
-        expect(slices[0].mutations?.map((mutation) => mutation.subjectId).sort()).toEqual(["erina", "erina", "world"]);
-        expect(orderedStates.subjects.map((state) => state.subjectId)).toEqual(["erina", "world"]);
-
-    });
-
-    it("createSubject 在没有 default mutation 时不创建空切面", async () => {
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  marker:",
-            "    attrs:",
-            "      name: { kind: scalar, type: text }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        const created = await facade.createSubject(projectPath, {id: "marker-1", type: "marker", name: "标记", at: 0n});
-        const subjects = await facade.listWorldSubjects(projectPath);
-        const slices = await facade.listSlices(projectPath, {withMutations: true});
-        const state = await facade.queryState(projectPath, {subjectIds: ["marker-1"]});
-
-        expect(created).toEqual({subjectId: "marker-1", issues: []});
-        expect(subjects).toEqual([{id: "marker-1", type: "marker", name: "标记"}]);
-        expect(slices).toEqual([]);
-        expect(state.subjects).toEqual([{subjectId: "marker-1", type: "marker", attrs: {}}]);
-        expect(state.issues).toEqual([]);
-    });
-
-    it("createSubject 拒绝重复 subject id 并返回业务错误", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-
-        await expect(facade.createSubject(projectPath, {id: "erina", type: "location", name: "同名地点", at: 0n})).rejects.toMatchObject({
-            statusCode: 409,
-            message: "subject 已存在：erina（当前 type=character, name=艾莉娜）",
-        });
-    });
-
-    it("createSubject 在 service 层拒绝空白或带首尾空白的 subject id", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await expect(facade.createSubject(projectPath, {id: "", type: "character", name: "空", at: 0n})).rejects.toThrow("id 不能为空");
-        await expect(facade.createSubject(projectPath, {id: "   ", type: "character", name: "空白", at: 0n})).rejects.toThrow("id 不能为空");
-        await expect(facade.createSubject(projectPath, {id: " erina ", type: "character", name: "艾莉娜", at: 0n})).rejects.toThrow("id 不能包含前后空白： erina ");
-    });
-
-    it("createSubject 和按 type 查询拒绝不可稳定引用的 subject type 入参", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await expect(facade.createSubject(projectPath, {id: "erina", type: "", name: "空类型", at: 0n})).rejects.toThrow("subject type 不能为空");
-        await expect(facade.createSubject(projectPath, {id: "erina", type: " player character ", name: "空白类型", at: 0n})).rejects.toThrow("subject type 不能包含空白： player character ");
-        await expect(facade.createSubject(projectPath, {id: "erina", type: "player(character", name: "括号类型", at: 0n})).rejects.toThrow("subject type 不能包含括号：player(character");
-        await expect(facade.queryState(projectPath, {type: ""})).rejects.toThrow("subject type 不能为空");
-        await expect(facade.queryState(projectPath, {type: "player character"})).rejects.toThrow("subject type 不能包含空白：player character");
-        await expect(facade.queryState(projectPath, {type: "player)character"})).rejects.toThrow("subject type 不能包含括号：player)character");
-        await expect(facade.listWorldSubjects(projectPath, {type: ""})).rejects.toThrow("subject type 不能为空");
-        await expect(facade.listWorldSubjects(projectPath, {type: "player\tcharacter"})).rejects.toThrow("subject type 不能包含空白：player\tcharacter");
-        await expect(facade.listWorldSubjects(projectPath, {type: "player(character"})).rejects.toThrow("subject type 不能包含括号：player(character");
-    });
-
-    it("writeSlice 在 service 层拒绝带首尾空白的 mutation subjectId", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-
-        await expect(facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "空白 subjectId",
-            mutations: [{subjectId: " erina ", attr: "hp", op: "set", value: 80}],
-        })).rejects.toThrow("subjectId 不能包含前后空白： erina ");
-    });
-
-    it("listSlices 在 service 层拒绝非法 limit", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await expect(facade.listSlices(projectPath, {limit: 0})).rejects.toThrow("limit 必须是安全正整数");
-        await expect(facade.listSlices(projectPath, {limit: -1})).rejects.toThrow("limit 必须是安全正整数");
-        await expect(facade.listSlices(projectPath, {limit: 1.5})).rejects.toThrow("limit 必须是安全正整数");
-        await expect(facade.listSlices(projectPath, {limit: Number.MAX_SAFE_INTEGER + 1})).rejects.toThrow("limit 必须是安全正整数");
-    });
-
-    it("service 层拒绝超出 SQLite 64 位范围的 instant", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-        const tooLarge = BigInt("9223372036854775808");
-        const tooSmall = BigInt("-9223372036854775809");
-
-        await expect(facade.createSubject(projectPath, {id: "ghost", type: "character", name: "幽影", at: tooLarge})).rejects.toThrow("at 超出 SQLite INTEGER 64 位范围");
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        await expect(facade.writeSlice(projectPath, {
-            instant: tooLarge,
-            title: "过远未来",
-            mutations: [{subjectId: "erina", attr: "hp", op: "set", value: 80}],
-        })).rejects.toThrow("instant 超出 SQLite INTEGER 64 位范围");
-        await expect(facade.getWorldState(projectPath, tooLarge)).rejects.toThrow("at 超出 SQLite INTEGER 64 位范围");
-        await expect(facade.queryState(projectPath, {subjectIds: ["erina"], at: tooLarge})).rejects.toThrow("at 超出 SQLite INTEGER 64 位范围");
-        await expect(facade.listSlices(projectPath, {from: tooSmall})).rejects.toThrow("from 超出 SQLite INTEGER 64 位范围");
-    });
-
-    it("listSlices 拒绝 from 晚于 to 的时间范围", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await expect(facade.listSlices(projectPath, {from: 20n, to: 10n})).rejects.toThrow("from 不能晚于 to");
-    });
-
-    it("queryState 显式拒绝缺失的 subjectIds", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-
-        await expect(facade.queryState(projectPath, {})).rejects.toThrow("queryState 必须提供 subjectIds 或 type");
-        await expect(facade.queryState(projectPath, {subjectIds: ["erina", "ghost"], attrs: ["hp"]})).rejects.toThrow("subject 不存在或不匹配查询条件：ghost");
-        await expect(facade.queryState(projectPath, {subjectIds: ["erina"], type: "world", attrs: ["hp"]})).rejects.toThrow("subject 不存在或不匹配查询条件：erina");
-        await expect(facade.queryState(projectPath, {subjectIds: [" erina "], attrs: ["hp"]})).rejects.toThrow("subjectId 不能包含前后空白： erina ");
-
-        const worldState = await facade.getWorldState(projectPath);
-        expect(worldState.subjects.map((subject) => subject.subjectId)).toContain("erina");
-    });
-
-    it("按 type 查询时拒绝 schema 未声明的类型", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await expect(facade.queryState(projectPath, {type: "creature"})).rejects.toThrow("schema 未声明 subject type：creature");
-        await expect(facade.listWorldSubjects(projectPath, {type: "creature"})).rejects.toThrow("schema 未声明 subject type：creature");
-    });
-
-    it("queryState 拒绝带空段的 attrs 投影路径", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-
-        await expect(facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["profile..tags"]})).rejects.toThrow("attr 路径不能包含空段：profile..tags");
-        await expect(facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["profile. tags "]})).rejects.toThrow("attr 路径段不能包含前后空白：profile. tags ");
-    });
-
-    it("createSubject 校验 schema default，失败时事务回滚 subject 身份", async () => {
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      location: { kind: scalar, type: ref(location), default: subject://capital }",
-            "      events: { kind: list, itemType: text, default: [] }",
-            "  location:",
-            "    attrs:",
-            "      name: { kind: scalar, type: text }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await expect(facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n})).rejects.toThrow("引用目标不存在：subject://capital");
-        await expect(facade.listWorldSubjects(projectPath)).resolves.toEqual([]);
-        await expect(facade.listSlices(projectPath, {withMutations: true})).resolves.toEqual([]);
-    });
-
-    it("schema loader 拒绝非法 attr kind", async () => {
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      hp: { kind: numberish, type: int, default: 100 }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await expect(facade.getWorldSchema(projectPath)).rejects.toThrow("属性 kind 不合法：hp=numberish");
-    });
-
-    it("schema loader 拒绝不可稳定寻址的 attr 名", async () => {
-        const dottedAttrProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      \"memory.师门\": { kind: scalar, type: text }",
-            "",
-        ]);
-        const whitespaceAttrProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      \" hp \": { kind: scalar, type: int }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await expect(facade.getWorldSchema(dottedAttrProject)).rejects.toThrow("attr 名不能包含 .：memory.师门");
-        await expect(facade.getWorldSchema(whitespaceAttrProject)).rejects.toThrow("attr 名不能包含前后空白： hp ");
-    });
-
-    it("schema loader 拒绝非法 subject type 与 attrs 结构", async () => {
-        const invalidRootProject = await createProject([
-            "- subjectTypes",
-            "",
-        ]);
-        const emptyTypeProject = await createProject([
-            "subjectTypes:",
-            "  \"\":",
-            "    attrs: {}",
-            "",
-        ]);
-        const whitespaceTypeProject = await createProject([
-            "subjectTypes:",
-            "  \" player character \":",
-            "    attrs: {}",
-            "",
-        ]);
-        const bracketTypeProject = await createProject([
-            "subjectTypes:",
-            "  \"player(character\":",
-            "    attrs: {}",
-            "",
-        ]);
-        const whitespaceRefTypeProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      friend: { kind: scalar, type: \"ref(player character)\" }",
-            "",
-        ]);
-        const bracketRefTypeProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      friend: { kind: scalar, type: \"ref(player(character)\" }",
-            "",
-        ]);
-        const unknownRefTypeProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      friend: { kind: scalar, type: ref(creature) }",
-            "",
-        ]);
-        const invalidSubjectTypeProject = await createProject([
-            "subjectTypes:",
-            "  character: nope",
-            "",
-        ]);
-        const invalidAttrsProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs: []",
-            "",
-        ]);
-        const invalidSubjectDescProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    desc: 123",
-            "    attrs: {}",
-            "",
-        ]);
-        const invalidAttrDescProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      hp: { kind: scalar, type: int, desc: 123 }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await expect(facade.getWorldSchema(invalidRootProject)).rejects.toThrow("schema 配置必须是 object");
-        await expect(facade.getWorldSchema(emptyTypeProject)).rejects.toThrow("subject type 不能为空");
-        await expect(facade.getWorldSchema(whitespaceTypeProject)).rejects.toThrow("subject type 不能包含空白： player character ");
-        await expect(facade.getWorldSchema(bracketTypeProject)).rejects.toThrow("subject type 不能包含括号：player(character");
-        await expect(facade.getWorldSchema(whitespaceRefTypeProject)).rejects.toThrow("subject type 不能包含空白：player character");
-        await expect(facade.getWorldSchema(bracketRefTypeProject)).rejects.toThrow("subject type 不能包含括号：player(character");
-        await expect(facade.getWorldSchema(unknownRefTypeProject)).rejects.toThrow("schema ref 指向未声明 subject type：subjectTypes.character.attrs.friend -> creature");
-        await expect(facade.getWorldSchema(invalidSubjectTypeProject)).rejects.toThrow("schema 字段必须是 object：subjectTypes.character");
-        await expect(facade.getWorldSchema(invalidAttrsProject)).rejects.toThrow("schema 字段必须是 object：subjectTypes.character.attrs");
-        await expect(facade.getWorldSchema(invalidSubjectDescProject)).rejects.toThrow("desc 必须是字符串：subjectTypes.character.desc");
-        await expect(facade.getWorldSchema(invalidAttrDescProject)).rejects.toThrow("desc 必须是字符串：hp.desc");
-    }, 10_000);
-
-    it("schema loader 拒绝非法 enum 与非 JSON default", async () => {
-        const invalidEnumProject = await createProject([
-            "subjectTypes:",
-            "  quest:",
-            "    attrs:",
-            "      status: { kind: scalar, type: enum, enum: active }",
-            "",
-        ]);
-        const invalidDefaultProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      hp: { kind: scalar, type: float, default: .nan }",
-            "",
-        ]);
-        const invalidTypedDefaultProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      hp: { kind: scalar, type: int, default: bad }",
-            "",
-        ]);
-        const unsafeIntDefaultProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      hp: { kind: scalar, type: int, default: 9007199254740992 }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await expect(facade.getWorldSchema(invalidEnumProject)).rejects.toThrow("属性 enum 必须是 array：status");
-        await expect(facade.getWorldSchema(invalidDefaultProject)).rejects.toThrow("属性 default 必须是 JSON 值：hp");
-        await expect(facade.getWorldSchema(invalidTypedDefaultProject)).rejects.toThrow("hp default 必须是 int");
-        await expect(facade.getWorldSchema(unsafeIntDefaultProject)).rejects.toThrow("hp default 必须是安全整数");
-    });
-
-    it("schema loader 拒绝重复 enum 候选值", async () => {
-        const duplicatedScalarProject = await createProject([
-            "subjectTypes:",
-            "  quest:",
-            "    attrs:",
-            "      status: { kind: scalar, type: enum, enum: [active, active] }",
-            "",
-        ]);
-        const duplicatedObjectProject = await createProject([
-            "subjectTypes:",
-            "  quest:",
-            "    attrs:",
-            "      status:",
-            "        kind: scalar",
-            "        type: enum",
-            "        enum:",
-            "          - { phase: active, flag: urgent }",
-            "          - { flag: urgent, phase: active }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await expect(facade.getWorldSchema(duplicatedScalarProject)).rejects.toThrow("属性 enum 不能包含重复值：status[0] / status[1]");
-        await expect(facade.getWorldSchema(duplicatedObjectProject)).rejects.toThrow("属性 enum 不能包含重复值：status[0] / status[1]");
-    });
-
-    it("enum 对象值校验忽略 key 顺序", async () => {
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  quest:",
-            "    attrs:",
-            "      status:",
-            "        kind: scalar",
-            "        type: enum",
-            "        enum:",
-            "          - { phase: active, flag: urgent }",
-            "        default: { flag: urgent, phase: active }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "quest-01", type: "quest", name: "救援任务", at: 0n});
-        await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "状态确认",
-            mutations: [{subjectId: "quest-01", attr: "status", op: "set", value: {flag: "urgent", phase: "active"}}],
-        });
-
-        const state = await facade.queryState(projectPath, {subjectIds: ["quest-01"], attrs: ["status"]});
-        expect(state.subjects[0].attrs.status).toEqual({flag: "urgent", phase: "active"});
-    });
-
-    it("schema loader 拒绝非法 type/itemType 结构", async () => {
-        const invalidTypeProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      hp: { kind: scalar, type: integer }",
-            "",
-        ]);
-        const scalarObjectTypeProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      profile: { kind: scalar, type: object }",
-            "",
-        ]);
-        const missingItemTypeProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      events: { kind: list }",
-            "",
-        ]);
-        const missingEnumValuesProject = await createProject([
-            "subjectTypes:",
-            "  quest:",
-            "    attrs:",
-            "      status: { kind: scalar, type: enum }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await expect(facade.getWorldSchema(invalidTypeProject)).rejects.toThrow("属性 type 不合法：hp=integer");
-        await expect(facade.getWorldSchema(scalarObjectTypeProject)).rejects.toThrow("属性 type 不合法：profile=object");
-        await expect(facade.getWorldSchema(missingItemTypeProject)).rejects.toThrow("events(list) 必须声明 itemType");
-        await expect(facade.getWorldSchema(missingEnumValuesProject)).rejects.toThrow("status(enum) 必须声明非空 enum");
-    });
-
-    it("schema loader 拒绝 attr kind 与 type/itemType/fields 的非法组合", async () => {
-        const scalarItemTypeProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      hp: { kind: scalar, itemType: int }",
-            "",
-        ]);
-        const listTypeProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      events: { kind: list, type: text, itemType: text }",
-            "",
-        ]);
-        const scalarFieldsProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      profile: { kind: scalar, fields: { name: { type: text } } }",
-            "",
-        ]);
-        const objectTypeProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      profile: { kind: object, type: text }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await expect(facade.getWorldSchema(scalarItemTypeProject)).rejects.toThrow("hp(scalar) 不能声明 itemType");
-        await expect(facade.getWorldSchema(listTypeProject)).rejects.toThrow("events(list) 不能声明 type，请使用 itemType");
-        await expect(facade.getWorldSchema(scalarFieldsProject)).rejects.toThrow("profile(scalar) 不能声明 fields");
-        await expect(facade.getWorldSchema(objectTypeProject)).rejects.toThrow("profile(object) 不能声明 type");
-    });
-
-    it("编辑过去绝对 set，下游有相对 add 时返回 base-shifted 提醒（A）", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        const first = await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "轻伤",
-            mutations: [{subjectId: "erina", attr: "hp", op: "set", value: 80}],
-        });
-        await facade.writeSlice(projectPath, {
+        const removal = await facade.writeSlice(projectPath, {
             instant: 20n,
-            title: "继续战斗",
-            mutations: [{subjectId: "erina", attr: "hp", op: "add", value: -10}],
-        });
-
-        const edited = await facade.editSlice(projectPath, first.sliceId, {
-            instant: 10n,
-            title: "伤势修正",
-            mutations: [{subjectId: "erina", attr: "hp", op: "set", value: 90}],
-        });
-        expect(edited.sliceId).toBe(first.sliceId);
-        expect(edited.issues).toEqual([
-            expect.objectContaining({code: "base-shifted", subjectId: "erina", attr: "hp"}),
-        ]);
-
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["hp"]});
-        expect(state.subjects[0].attrs.hp).toBe(80);
-    });
-
-    it("editSlice 原样保存已有 mutation 时不重复返回 A issue", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        const first = await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "轻伤",
-            mutations: [{subjectId: "erina", attr: "hp", op: "set", value: 80}],
-        });
-        await facade.writeSlice(projectPath, {
-            instant: 20n,
-            title: "继续战斗",
-            mutations: [{subjectId: "erina", attr: "hp", op: "add", value: -10}],
-        });
-
-        const edited = await facade.editSlice(projectPath, first.sliceId, {
-            instant: 10n,
-            title: "轻伤（只改标题）",
-            mutations: [{subjectId: "erina", attr: "hp", op: "set", value: 80}],
-        });
-
-        expect(edited).toEqual({sliceId: first.sliceId, issues: []});
-    });
-
-    it("editSlice 把基准切面移到下游相对 op 之后时返回 base-shifted（A）", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        const first = await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "轻伤",
-            mutations: [{subjectId: "erina", attr: "hp", op: "set", value: 80}],
+            title: "交出旧剑",
+            patches: [{subjectId: "erina", path: "/inventory", op: "remove", value: "subject://old-sword"}],
         });
         const downstream = await facade.writeSlice(projectPath, {
-            instant: 20n,
-            title: "继续战斗",
-            mutations: [{subjectId: "erina", attr: "hp", op: "add", value: -10}],
-        });
-
-        const edited = await facade.editSlice(projectPath, first.sliceId, {
             instant: 30n,
-            title: "轻伤改到之后",
-            mutations: [{subjectId: "erina", attr: "hp", op: "set", value: 80}],
+            title: "获得金币",
+            patches: [{subjectId: "erina", path: "/inventory", op: "append", value: "subject://coin"}],
         });
-
-        expect(edited.issues).toEqual([
-            expect.objectContaining({code: "base-shifted", sliceId: downstream.sliceId, subjectId: "erina", attr: "hp"}),
-        ]);
-    });
-
-    it("editSlice 删除旧绝对 mutation 时仍返回下游 base-shifted（A）", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        const first = await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "轻伤与心境",
-            mutations: [
-                {subjectId: "erina", attr: "hp", op: "set", value: 80},
-                {subjectId: "erina", attr: "mind", op: "set", value: "警惕"},
-            ],
-        });
-        const downstream = await facade.writeSlice(projectPath, {
+        const edited = await facade.editSlice(projectPath, removal.sliceId, {
             instant: 20n,
-            title: "继续战斗",
-            mutations: [{subjectId: "erina", attr: "hp", op: "add", value: -10}],
+            title: "交出钥匙",
+            patches: [{subjectId: "erina", path: "/inventory", op: "remove", value: "subject://key"}],
         });
+        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["inventory"]});
 
-        const edited = await facade.editSlice(projectPath, first.sliceId, {
-            instant: 10n,
-            title: "只保留心境",
-            mutations: [{subjectId: "erina", attr: "mind", op: "set", value: "警惕"}],
-        });
-
-        expect(edited.issues).toEqual([
-            expect.objectContaining({code: "base-shifted", sliceId: downstream.sliceId, subjectId: "erina", attr: "hp"}),
-        ]);
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["hp"]});
-        expect(state.subjects[0].attrs.hp).toBe(90);
+        expect(edited.issues).toEqual([expect.objectContaining({code: "base-shifted", sliceId: downstream.sliceId, subjectId: "erina", attr: "inventory"})]);
+        expect(state.subjects[0]?.attrs.inventory).toEqual(["subject://old-sword", "subject://coin"]);
     });
 
-    it("editSlice 修改同切面其他 mutation 时不为未变化的绝对 mutation 返回 A issue", async () => {
+    it("list 拒绝按值 remove，保持时间顺序语义", async () => {
         const projectPath = await createProject();
         const facade = createFacade();
 
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        const first = await facade.writeSlice(projectPath, {
+        await expect(facade.writeSlice(projectPath, {
             instant: 10n,
-            title: "轻伤与心境",
-            mutations: [
-                {subjectId: "erina", attr: "hp", op: "set", value: 80},
-                {subjectId: "erina", attr: "mind", op: "set", value: "警惕"},
+            title: "错误删除经历",
+            patches: [
+                {subjectId: "erina", type: "character", name: "艾莉娜", path: "/events", op: "remove", value: "在祭坛醒来"},
             ],
-        });
+        })).rejects.toThrow("只有 collection 支持按值 remove");
+    });
+
+    it("queryState 支持内部全量查询，同时 attrs 投影和 listLimit 生效", async () => {
+        const projectPath = await createProject();
+        const facade = createFacade();
+
         await facade.writeSlice(projectPath, {
-            instant: 20n,
-            title: "继续战斗",
-            mutations: [{subjectId: "erina", attr: "hp", op: "add", value: -10}],
-        });
-
-        const edited = await facade.editSlice(projectPath, first.sliceId, {
             instant: 10n,
-            title: "调整心境",
-            mutations: [
-                {subjectId: "erina", attr: "hp", op: "set", value: 80},
-                {subjectId: "erina", attr: "mind", op: "set", value: "冷静"},
+            title: "初始化世界",
+            patches: [
+                {subjectId: "world", type: "world", name: "世界", path: "/era", op: "replace", value: "复兴纪元"},
+                {subjectId: "erina", type: "character", name: "艾莉娜", path: "/events", op: "append", value: "醒来"},
+                {subjectId: "erina", path: "/events", op: "append", value: "拿到旧剑"},
             ],
         });
+        const full = await facade.queryState(projectPath, {});
+        const narrowed = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["events"], listLimit: 1});
 
-        expect(edited.issues).toEqual([]);
+        expect(full.instant).toBe(10n);
+        expect(full.subjects.map((subject) => subject.subjectId).sort()).toEqual(["erina", "world"]);
+        expect(narrowed.subjects[0]?.attrs).toEqual({events: ["拿到旧剑"]});
     });
 
-    it("editSlice 纯重排相关 mutation 时返回下游 base-shifted（A）", async () => {
+    it("编辑过去绝对 patch 会返回 base-shifted，删除基准后显形 broken-relative", async () => {
         const projectPath = await createProject();
         const facade = createFacade();
 
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        const first = await facade.writeSlice(projectPath, {
+        const base = await facade.writeSlice(projectPath, {
             instant: 10n,
-            title: "连续修正伤势",
-            mutations: [
-                {subjectId: "erina", attr: "hp", op: "set", value: 80},
-                {subjectId: "erina", attr: "hp", op: "set", value: 90},
-            ],
-        });
-        const downstream = await facade.writeSlice(projectPath, {
-            instant: 20n,
-            title: "继续战斗",
-            mutations: [{subjectId: "erina", attr: "hp", op: "add", value: -10}],
-        });
-
-        const edited = await facade.editSlice(projectPath, first.sliceId, {
-            instant: 10n,
-            title: "调换伤势修正顺序",
-            mutations: [
-                {subjectId: "erina", attr: "hp", op: "set", value: 90},
-                {subjectId: "erina", attr: "hp", op: "set", value: 80},
-            ],
-        });
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["hp"]});
-
-        expect(edited.issues).toEqual([
-            expect.objectContaining({code: "base-shifted", sliceId: downstream.sliceId, subjectId: "erina", attr: "hp"}),
-        ]);
-        expect(state.subjects[0].attrs.hp).toBe(70);
-    });
-
-    it("editSlice 纯重排无关 mutation 时不为未变化绝对 mutation 返回 A issue", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        const first = await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "伤势与心境",
-            mutations: [
-                {subjectId: "erina", attr: "hp", op: "set", value: 80},
-                {subjectId: "erina", attr: "mind", op: "set", value: "警惕"},
-            ],
-        });
-        await facade.writeSlice(projectPath, {
-            instant: 20n,
-            title: "继续战斗",
-            mutations: [{subjectId: "erina", attr: "hp", op: "add", value: -10}],
-        });
-
-        const edited = await facade.editSlice(projectPath, first.sliceId, {
-            instant: 10n,
-            title: "先记心境再记伤势",
-            mutations: [
-                {subjectId: "erina", attr: "mind", op: "set", value: "警惕"},
-                {subjectId: "erina", attr: "hp", op: "set", value: 80},
-            ],
-        });
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["hp"]});
-
-        expect(edited.issues).toEqual([]);
-        expect(state.subjects[0].attrs.hp).toBe(70);
-    });
-
-    it("editSlice 新增无关 mutation 时仍检测保留 mutation 的相关重排", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        const first = await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "连续修正伤势",
-            mutations: [
-                {subjectId: "erina", attr: "hp", op: "set", value: 80},
-                {subjectId: "erina", attr: "hp", op: "set", value: 90},
-            ],
-        });
-        const downstream = await facade.writeSlice(projectPath, {
-            instant: 20n,
-            title: "继续战斗",
-            mutations: [{subjectId: "erina", attr: "hp", op: "add", value: -10}],
-        });
-
-        const edited = await facade.editSlice(projectPath, first.sliceId, {
-            instant: 10n,
-            title: "调换伤势修正顺序并补心境",
-            mutations: [
-                {subjectId: "erina", attr: "hp", op: "set", value: 90},
-                {subjectId: "erina", attr: "mind", op: "set", value: "警惕"},
-                {subjectId: "erina", attr: "hp", op: "set", value: 80},
-            ],
-        });
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["hp", "mind"]});
-
-        expect(edited.issues).toEqual([
-            expect.objectContaining({code: "base-shifted", sliceId: downstream.sliceId, subjectId: "erina", attr: "hp"}),
-        ]);
-        expect(state.subjects[0].attrs).toMatchObject({hp: 70, mind: "警惕"});
-    });
-
-    it("过去整体 set object 会提醒下游子路径相对 op 的 base-shifted（A）", async () => {
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      stats:",
-            "        kind: object",
-            "        fields:",
-            "          hp: { kind: scalar, type: int }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        const baseSlice = await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "设定状态",
-            mutations: [{subjectId: "erina", attr: "stats", op: "set", value: {hp: 100}}],
+            title: "体力基准",
+            patches: [{subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "replace", value: 100}],
         });
         await facade.writeSlice(projectPath, {
             instant: 20n,
             title: "受伤",
-            mutations: [{subjectId: "erina", attr: "stats.hp", op: "add", value: -10}],
+            patches: [{subjectId: "erina", path: "/hp", op: "increment", value: -10}],
         });
-
-        const edited = await facade.editSlice(projectPath, baseSlice.sliceId, {
+        const edited = await facade.editSlice(projectPath, base.sliceId, {
             instant: 10n,
-            title: "修正状态",
-            mutations: [{subjectId: "erina", attr: "stats", op: "set", value: {hp: 120}}],
+            title: "体力基准修正",
+            patches: [{subjectId: "erina", path: "/hp", op: "replace", value: 80}],
         });
+        const deleted = await facade.deleteSlice(projectPath, base.sliceId);
 
-        expect(edited.issues).toEqual([
-            expect.objectContaining({code: "base-shifted", subjectId: "erina", attr: "stats.hp"}),
-        ]);
+        expect(edited.issues).toEqual([expect.objectContaining({code: "base-shifted", subjectId: "erina", attr: "hp"})]);
+        expect(deleted.issues).toEqual([expect.objectContaining({code: "broken-relative", subjectId: "erina", attr: "hp"})]);
     });
 
-    it("过去整体 set object 会分别提醒多个下游子路径的 A issue", async () => {
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      stats:",
-            "        kind: object",
-            "        fields:",
-            "          hp: { kind: scalar, type: int }",
-            "          mp: { kind: scalar, type: int }",
-            "          note: { kind: scalar, type: text }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        const baseSlice = await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "设定状态",
-            mutations: [{subjectId: "erina", attr: "stats", op: "set", value: {hp: 100, mp: 30, note: "稳定"}}],
-        });
-        await facade.writeSlice(projectPath, {
-            instant: 20n,
-            title: "备注变化",
-            mutations: [{subjectId: "erina", attr: "stats.note", op: "set", value: "被覆盖的备注"}],
-        });
-        await facade.writeSlice(projectPath, {
-            instant: 30n,
-            title: "生命变化",
-            mutations: [{subjectId: "erina", attr: "stats.hp", op: "add", value: -10}],
-        });
-        await facade.writeSlice(projectPath, {
-            instant: 40n,
-            title: "魔力变化",
-            mutations: [{subjectId: "erina", attr: "stats.mp", op: "add", value: 5}],
-        });
-
-        const edited = await facade.editSlice(projectPath, baseSlice.sliceId, {
-            instant: 10n,
-            title: "修正状态",
-            mutations: [{subjectId: "erina", attr: "stats", op: "set", value: {hp: 120, mp: 40, note: "稳定"}}],
-        });
-
-        expect(edited.issues).toHaveLength(3);
-        expect(edited.issues).toEqual(expect.arrayContaining([
-            expect.objectContaining({code: "masked", subjectId: "erina", attr: "stats.note"}),
-            expect.objectContaining({code: "base-shifted", subjectId: "erina", attr: "stats.hp"}),
-            expect.objectContaining({code: "base-shifted", subjectId: "erina", attr: "stats.mp"}),
-        ]));
-    });
-
-    it("往过去写绝对 set 被下游绝对 set 覆盖时返回 masked 提醒（A）", async () => {
+    it("ref 目标缺失在查询时报告 dangling-ref，并归属写入切面", async () => {
         const projectPath = await createProject();
         const facade = createFacade();
 
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
         await facade.writeSlice(projectPath, {
-            instant: 20n,
-            title: "重设体力",
-            mutations: [{subjectId: "erina", attr: "hp", op: "set", value: 50}],
+            instant: 5n,
+            title: "地点存在",
+            patches: [{subjectId: "old-place", type: "location", name: "旧地点", path: "/name", op: "replace", value: "旧地点"}],
         });
-
-        const inserted = await facade.writeSlice(projectPath, {
+        const relation = await facade.writeSlice(projectPath, {
             instant: 10n,
-            title: "补一个中途体力",
-            mutations: [{subjectId: "erina", attr: "hp", op: "set", value: 999}],
+            title: "错误地点",
+            patches: [{subjectId: "erina", type: "character", name: "艾莉娜", path: "/location", op: "replace", value: "subject://old-place"}],
         });
-        expect(inserted.issues).toEqual([
-            expect.objectContaining({code: "masked", subjectId: "erina", attr: "hp"}),
-        ]);
-
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["hp"]});
-        expect(state.subjects[0].attrs.hp).toBe(50);
-    });
-
-    it("删除建立基准的切面后，下游相对 op 在 reduce 时显形 broken-relative（E）", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "受伤并记录",
-            mutations: [
-                {subjectId: "erina", attr: "hp", op: "add", value: -10},
-                {subjectId: "erina", attr: "events", op: "listAppend", value: "受伤"},
-            ],
-        });
-        const initSlice = (await facade.listSlices(projectPath)).find((slice) => slice.kind === "init");
-
-        const deleted = await facade.deleteSlice(projectPath, initSlice?.id ?? "");
-        expect(deleted.issues).toEqual(expect.arrayContaining([
-            expect.objectContaining({code: "broken-relative", subjectId: "erina", attr: "hp"}),
-            expect.objectContaining({code: "broken-relative", subjectId: "erina", attr: "events"}),
-        ]));
-
-        // getState 读时也现算同样的 E，并把它归属到显形切面
-        const state = await facade.getWorldState(projectPath);
-        expect(state.issues.some((issue) => issue.code === "broken-relative")).toBe(true);
-    });
-
-    it("读状态时把缺失 ref 目标报告为 dangling-ref（E）", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        await facade.createSubject(projectPath, {id: "capital", type: "location", name: "王都", at: 0n});
-        const relationSlice = await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "抵达王都",
-            mutations: [{subjectId: "erina", attr: "location", op: "set", value: "subject://capital"}],
-        });
-
-        await deleteWorldSubject(projectPath, "capital");
-
+        await deleteWorldSubject(projectPath, "old-place");
         const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["location"]});
-        const slices = await facade.listSlices(projectPath);
-        expect(state.subjects[0].attrs.location).toBe("subject://capital");
+
         expect(state.issues).toEqual([
-            expect.objectContaining({code: "dangling-ref", sliceId: relationSlice.sliceId, subjectId: "erina", attr: "location"}),
-        ]);
-        expect(slices.find((slice) => slice.id === relationSlice.sliceId)?.issues).toEqual([
-            expect.objectContaining({code: "dangling-ref", subjectId: "erina", attr: "location"}),
+            expect.objectContaining({code: "dangling-ref", sliceId: relation.sliceId, subjectId: "erina", attr: "location"}),
         ]);
     });
 
-    it("queryState 使用 attrs 投影时只返回相关属性的 E issue", async () => {
+    it("listSlices subject filter 支持 any/all，deleteSlice 会回退状态", async () => {
         const projectPath = await createProject();
         const facade = createFacade();
 
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        await facade.createSubject(projectPath, {id: "capital", type: "location", name: "王都", at: 0n});
-        const relationSlice = await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "抵达王都",
-            mutations: [{subjectId: "erina", attr: "location", op: "set", value: "subject://capital"}],
-        });
-
-        await deleteWorldSubject(projectPath, "capital");
-
-        const hpState = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["hp"]});
-        const locationState = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["location"]});
-        const fullState = await facade.queryState(projectPath, {subjectIds: ["erina"]});
-
-        expect(hpState.subjects[0].attrs).toEqual({hp: 100});
-        expect(hpState.issues).toEqual([]);
-        expect(locationState.issues).toEqual([
-            expect.objectContaining({code: "dangling-ref", sliceId: relationSlice.sliceId, subjectId: "erina", attr: "location"}),
-        ]);
-        expect(fullState.issues).toEqual([
-            expect.objectContaining({code: "dangling-ref", sliceId: relationSlice.sliceId, subjectId: "erina", attr: "location"}),
-        ]);
-    });
-
-    it("collection ref 的 dangling-ref 归属到写入该元素的切面", async () => {
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      inventory: { kind: collection, itemType: ref(item), default: [] }",
-            "  item:",
-            "    attrs:",
-            "      name: { kind: scalar, type: text }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        await facade.createSubject(projectPath, {id: "old-sword", type: "item", name: "旧剑", at: 0n});
-        await facade.createSubject(projectPath, {id: "key", type: "item", name: "钥匙", at: 0n});
-        const swordSlice = await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "拾起旧剑",
-            mutations: [{subjectId: "erina", attr: "inventory", op: "collectionAdd", value: "subject://old-sword"}],
-        });
-        const keySlice = await facade.writeSlice(projectPath, {
-            instant: 20n,
-            title: "拾起钥匙",
-            mutations: [{subjectId: "erina", attr: "inventory", op: "collectionAdd", value: "subject://key"}],
-        });
-
-        await deleteWorldSubject(projectPath, "old-sword");
-
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["inventory"]});
-        const slices = await facade.listSlices(projectPath);
-        expect(state.issues).toEqual([
-            expect.objectContaining({code: "dangling-ref", sliceId: swordSlice.sliceId, subjectId: "erina", attr: "inventory[0]"}),
-        ]);
-        expect(slices.find((slice) => slice.id === swordSlice.sliceId)?.issues).toEqual([
-            expect.objectContaining({code: "dangling-ref", subjectId: "erina", attr: "inventory[0]"}),
-        ]);
-        expect(slices.find((slice) => slice.id === keySlice.sliceId)?.issues).toBeUndefined();
-    });
-
-    it("deleteSlice 物理删除切面；删不存在的切面报 404", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        const slice = await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "受伤",
-            mutations: [{subjectId: "erina", attr: "hp", op: "add", value: -10}],
-        });
-
-        await expect(facade.editSlice(projectPath, ` ${slice.sliceId} `, {
-            instant: 10n,
-            title: "空白 sliceId",
-            mutations: [{subjectId: "erina", attr: "hp", op: "add", value: -10}],
-        })).rejects.toThrow(`sliceId 不能包含前后空白： ${slice.sliceId} `);
-        await expect(facade.deleteSlice(projectPath, ` ${slice.sliceId} `)).rejects.toThrow(`sliceId 不能包含前后空白： ${slice.sliceId} `);
-
-        const deleted = await facade.deleteSlice(projectPath, slice.sliceId);
-        expect(deleted.issues).toEqual([]);
-        const slices = await facade.listSlices(projectPath);
-        expect(slices.some((item) => item.id === slice.sliceId)).toBe(false);
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["hp"]});
-        expect(state.subjects[0].attrs.hp).toBe(100);
-
-        await expect(facade.deleteSlice(projectPath, "missing")).rejects.toThrow("切面不存在");
-    });
-
-    it("editSlice 只改元数据、且无下游相对依赖时不产生提醒", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
         const first = await facade.writeSlice(projectPath, {
             instant: 10n,
-            title: "记录身份",
-            mutations: [{subjectId: "erina", attr: "profile", op: "set", value: {aliases: ["旧剑持有者"], tags: ["capital"]}}],
+            title: "艾莉娜登场",
+            patches: [{subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "replace", value: 100}],
         });
-        await facade.writeSlice(projectPath, {
+        const second = await facade.writeSlice(projectPath, {
             instant: 20n,
-            title: "后续事件",
-            mutations: [{subjectId: "erina", attr: "hp", op: "add", value: -1}],
-        });
-
-        const edited = await facade.editSlice(projectPath, first.sliceId, {
-            instant: 10n,
-            title: "记录身份（改标题）",
-            mutations: [{subjectId: "erina", attr: "profile", op: "set", value: {tags: ["capital"], aliases: ["旧剑持有者"]}}],
-        });
-
-        expect(edited).toEqual({sliceId: first.sliceId, issues: []});
-    });
-
-    it("校验动态属性限制与 ref 目标类型", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        await facade.createSubject(projectPath, {id: "capital", type: "location", name: "王都", at: 0n});
-
-        await expect(facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "错误动态属性",
-            mutations: [{subjectId: "erina", attr: "unknownList", op: "listAppend", value: "x"}],
-        })).rejects.toThrow("未声明属性只允许 set/unset");
-
-        await expect(facade.writeSlice(projectPath, {
-            instant: 11n,
-            title: "错误引用",
-            mutations: [{subjectId: "erina", attr: "location", op: "set", value: "subject://erina"}],
-        })).rejects.toThrow("引用目标类型不匹配");
-
-        await expect(facade.writeSlice(projectPath, {
-            instant: 12n,
-            title: "空引用",
-            mutations: [{subjectId: "erina", attr: "location", op: "set", value: "subject://"}],
-        })).rejects.toThrow("location 引用 id 不能为空");
-
-        await expect(facade.writeSlice(projectPath, {
-            instant: 13n,
-            title: "空白引用",
-            mutations: [{subjectId: "erina", attr: "location", op: "set", value: "subject:// capital "}],
-        })).rejects.toThrow("location 引用 id 不能包含前后空白： capital ");
-
-        await facade.writeSlice(projectPath, {
-            instant: 14n,
-            title: "抵达王都",
-            mutations: [{subjectId: "erina", attr: "location", op: "set", value: "subject://capital"}],
-        });
-
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["location"]});
-        expect(state.subjects[0].attrs.location).toBe("subject://capital");
-
-    });
-
-    it("object 属性整体 set 时按 fields/itemType 校验子值", async () => {
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      memory: { kind: object, itemType: text }",
-            "      equipment:",
-            "        kind: object",
-            "        fields:",
-            "          weapon: { kind: scalar, type: ref(item) }",
-            "  item:",
-            "    attrs:",
-            "      name: { kind: scalar, type: text }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        await facade.createSubject(projectPath, {id: "old-sword", type: "item", name: "旧剑", at: 0n});
-
-        await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "整体更新对象",
-            mutations: [
-                {subjectId: "erina", attr: "memory", op: "set", value: {capital: "王都很安全"}},
-                {subjectId: "erina", attr: "equipment", op: "set", value: {weapon: "subject://old-sword"}},
+            title: "双人同行",
+            patches: [
+                {subjectId: "erina", path: "/events", op: "append", value: "遇见莫然"},
+                {subjectId: "moran", type: "character", name: "莫然", path: "/events", op: "append", value: "遇见艾莉娜"},
             ],
         });
+        const any = await facade.listSlices(projectPath, {subjectIds: ["erina"], subjectMode: "any", withPatches: true});
+        const all = await facade.listSlices(projectPath, {subjectIds: ["erina", "moran"], subjectMode: "all"});
+        await facade.deleteSlice(projectPath, second.sliceId);
+        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["hp", "events"]});
 
-        await expect(facade.writeSlice(projectPath, {
-            instant: 11n,
-            title: "错误开放对象值",
-            mutations: [{subjectId: "erina", attr: "memory", op: "set", value: {capital: 1}}],
-        })).rejects.toThrow("memory.capital 必须是 text");
-        await expect(facade.writeSlice(projectPath, {
-            instant: 12n,
-            title: "错误固定对象字段",
-            mutations: [{subjectId: "erina", attr: "equipment", op: "set", value: {ring: "subject://old-sword"}}],
-        })).rejects.toThrow("equipment.ring 未在 object.fields 声明");
-
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["memory", "equipment"]});
-        expect(state.subjects[0].attrs).toEqual({
-            memory: {capital: "王都很安全"},
-            equipment: {weapon: "subject://old-sword"},
-        });
+        expect(any.map((slice) => slice.title)).toEqual(["艾莉娜登场", "双人同行"]);
+        expect(all.map((slice) => slice.title)).toEqual(["双人同行"]);
+        expect(state.subjects[0]?.attrs).toEqual({hp: 100, events: []});
     });
 
-    it("开放 object 支持 itemType object 并校验每个子值", async () => {
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      memories: { kind: object, itemType: object, default: { first: { text: 初见王都 } } }",
-            "",
-        ]);
+    it("calendar 可格式化和解析同一个 instant", async () => {
+        const projectPath = await createProject();
         const facade = createFacade();
 
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
+        const formatted = await facade.formatTime(projectPath, 3661n);
+        const parsed = await facade.parseTime(projectPath, formatted);
+
+        expect(formatted).toBe("复兴纪元1日 01:01:01");
+        expect(parsed).toBe(3661n);
+    });
+
+    it("Project SQLite 使用 WorldPatch 表，不再创建 WorldMutation", async () => {
+        const projectPath = await createProject();
+        const facade = createFacade();
+
         await facade.writeSlice(projectPath, {
             instant: 10n,
-            title: "追加对象记忆",
-            mutations: [{subjectId: "erina", attr: "memories.second", op: "set", value: {text: "拿到旧剑"}}],
+            title: "建表验证",
+            patches: [{subjectId: "world", type: "world", name: "世界", path: "/era", op: "replace", value: "复兴纪元"}],
         });
 
-        await expect(facade.writeSlice(projectPath, {
-            instant: 11n,
-            title: "错误对象记忆",
-            mutations: [{subjectId: "erina", attr: "memories.third", op: "set", value: "不是对象"}],
-        })).rejects.toThrow("memories.third 必须是 object");
-
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["memories"]});
-        expect(state.subjects[0].attrs.memories).toEqual({
-            first: {text: "初见王都"},
-            second: {text: "拿到旧剑"},
-        });
-    });
-
-    it("object default 会按 itemType 校验子值", async () => {
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      memory: { kind: object, itemType: text, default: { capital: 1 } }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await expect(facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n})).rejects.toThrow("memory.capital default 必须是 text");
-    });
-
-    it("itemType object 的 default 必须逐项为 JSON object", async () => {
-        const listProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      notes: { kind: list, itemType: object, default: [bad] }",
-            "",
-        ]);
-        const collectionProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      badges: { kind: collection, itemType: object, default: [1] }",
-            "",
-        ]);
-        const objectProject = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      memories: { kind: object, itemType: object, default: { first: bad } }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await expect(facade.createSubject(listProject, {id: "erina", type: "character", name: "艾莉娜", at: 0n})).rejects.toThrow("notes[0] default 必须是 object");
-        await expect(facade.createSubject(collectionProject, {id: "erina", type: "character", name: "艾莉娜", at: 0n})).rejects.toThrow("badges[0] default 必须是 object");
-        await expect(facade.createSubject(objectProject, {id: "erina", type: "character", name: "艾莉娜", at: 0n})).rejects.toThrow("memories.first default 必须是 object");
-    });
-
-    it("unset 不允许携带 value，避免写入无语义载荷", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-
-        await expect(facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "错误 unset",
-            mutations: [{subjectId: "erina", attr: "mind", op: "unset", value: null}],
-        })).rejects.toThrow("mind 使用 unset 时不能提供 value");
-    });
-
-    it("非 unset mutation 必须显式携带 value，避免隐式写入 null", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-
-        await expect(facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "缺少 set value",
-            mutations: [{subjectId: "erina", attr: "dynamicNote", op: "set"}],
-        })).rejects.toThrow("dynamicNote 使用 set 时必须提供 value");
-        await facade.writeSlice(projectPath, {
-            instant: 11n,
-            title: "显式设置 null",
-            mutations: [{subjectId: "erina", attr: "dynamicNote", op: "set", value: null}],
-        });
-
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["dynamicNote"]});
-        expect(state.subjects[0].attrs.dynamicNote).toBeNull();
-    });
-
-    it("只有数值 scalar 支持 add", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-
-        await expect(facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "文本不能 add",
-            mutations: [{subjectId: "erina", attr: "mind", op: "add", value: 1}],
-        })).rejects.toThrow("mind(scalar) 不支持 add");
-
-        await expect(facade.writeSlice(projectPath, {
-            instant: 11n,
-            title: "引用不能 add",
-            mutations: [{subjectId: "erina", attr: "location", op: "add", value: 1}],
-        })).rejects.toThrow("location(scalar) 不支持 add");
-
-        await expect(facade.writeSlice(projectPath, {
-            instant: 12n,
-            title: "对象不能 add",
-            mutations: [{subjectId: "erina", attr: "profile", op: "add", value: 1}],
-        })).rejects.toThrow("profile(object) 不支持 add");
-
-        await facade.writeSlice(projectPath, {
-            instant: 13n,
-            title: "数值可以 add",
-            mutations: [{subjectId: "erina", attr: "hp", op: "add", value: -5}],
-        });
-
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["hp"]});
-        expect(state.subjects[0].attrs.hp).toBe(95);
-    });
-
-    it("拒绝 NaN / Infinity 与不安全整数进入数值 mutation", async () => {
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      hp: { kind: scalar, type: int, default: 100 }",
-            "      score: { kind: scalar, type: float, default: 0 }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-
-        await expect(facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "非法 add",
-            mutations: [{subjectId: "erina", attr: "hp", op: "add", value: Number.NaN}],
-        })).rejects.toThrow("hp 使用 add 时 value 必须是 finite number");
-        await expect(facade.writeSlice(projectPath, {
-            instant: 11n,
-            title: "非法 float",
-            mutations: [{subjectId: "erina", attr: "score", op: "set", value: Number.POSITIVE_INFINITY}],
-        })).rejects.toThrow("score 必须是 float");
-        await expect(facade.writeSlice(projectPath, {
-            instant: 12n,
-            title: "不安全 int",
-            mutations: [{subjectId: "erina", attr: "hp", op: "set", value: Number.MAX_SAFE_INTEGER + 1}],
-        })).rejects.toThrow("hp 必须是安全整数");
-        await expect(facade.writeSlice(projectPath, {
-            instant: 13n,
-            title: "不安全 int add",
-            mutations: [{subjectId: "erina", attr: "hp", op: "add", value: Number.MAX_SAFE_INTEGER + 1}],
-        })).rejects.toThrow("hp 必须是安全整数");
-    });
-
-    it("int add 结果超出安全整数范围时返回 broken-relative", async () => {
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      hp: { kind: scalar, type: int, default: 9007199254740991 }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        const result = await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "溢出增量",
-            mutations: [{subjectId: "erina", attr: "hp", op: "add", value: 1}],
-        });
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["hp"]});
-
-        expect(result.issues).toEqual(expect.arrayContaining([
-            expect.objectContaining({code: "broken-relative", sliceId: result.sliceId, subjectId: "erina", attr: "hp", message: "add hp 结果超出安全整数范围"}),
-        ]));
-        expect(state.subjects[0].attrs.hp).toBe(Number.MAX_SAFE_INTEGER);
-        expect(state.issues).toEqual(expect.arrayContaining([
-            expect.objectContaining({code: "broken-relative", sliceId: result.sliceId, subjectId: "erina", attr: "hp"}),
-        ]));
-    });
-
-    it("add 结果不是有限数时返回 broken-relative", async () => {
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  character:",
-            "    attrs:",
-            "      score: { kind: scalar, type: float, default: 0 }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-        await facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "设定极大分数",
-            mutations: [{subjectId: "erina", attr: "score", op: "set", value: Number.MAX_VALUE}],
-        });
-        const result = await facade.writeSlice(projectPath, {
-            instant: 11n,
-            title: "溢出分数",
-            mutations: [{subjectId: "erina", attr: "score", op: "add", value: Number.MAX_VALUE}],
-        });
-        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["score"]});
-
-        expect(result.issues).toEqual(expect.arrayContaining([
-            expect.objectContaining({code: "broken-relative", sliceId: result.sliceId, subjectId: "erina", attr: "score", message: "add score 结果不是有限数"}),
-        ]));
-        expect(state.subjects[0].attrs.score).toBe(Number.MAX_VALUE);
-        expect(state.issues).toEqual(expect.arrayContaining([
-            expect.objectContaining({code: "broken-relative", sliceId: result.sliceId, subjectId: "erina", attr: "score"}),
-        ]));
-    });
-
-    it("动态属性 set 也拒绝非 JSON value", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-        // 测试运行时非法输入：模拟非 HTTP / Agent 调用绕过 TypeScript 的 JsonValue 类型。
-        const nonJsonObject = new Date("2026-06-20T00:00:00.000Z") as unknown as JsonValue;
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-
-        await expect(facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "非法动态属性",
-            mutations: [{subjectId: "erina", attr: "dynamicScore", op: "set", value: Number.NaN}],
-        })).rejects.toThrow("dynamicScore value 必须是 JSON 值");
-        await expect(facade.writeSlice(projectPath, {
-            instant: 11n,
-            title: "非法嵌套动态属性",
-            mutations: [{subjectId: "erina", attr: "dynamicProfile", op: "set", value: {score: Number.POSITIVE_INFINITY}}],
-        })).rejects.toThrow("dynamicProfile value 必须是 JSON 值");
-        await expect(facade.writeSlice(projectPath, {
-            instant: 12n,
-            title: "非普通对象动态属性",
-            mutations: [{subjectId: "erina", attr: "dynamicProfile", op: "set", value: nonJsonObject}],
-        })).rejects.toThrow("dynamicProfile value 必须是 JSON 值");
-    });
-
-    it("拒绝带空段的 attr 路径", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-
-        await facade.createSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜", at: 0n});
-
-        await expect(facade.writeSlice(projectPath, {
-            instant: 10n,
-            title: "非法路径",
-            mutations: [{subjectId: "erina", attr: "profile..tags", op: "set", value: ["capital"]}],
-        })).rejects.toThrow("attr 路径不能包含空段：profile..tags");
-        await expect(facade.writeSlice(projectPath, {
-            instant: 11n,
-            title: "空白路径段",
-            mutations: [{subjectId: "erina", attr: "profile. tags ", op: "set", value: ["capital"]}],
-        })).rejects.toThrow("attr 路径段不能包含前后空白：profile. tags ");
-    });
-
-    it("默认 Calendar 可以 format/parse 同一个 instant", async () => {
-        const projectPath = await createProject();
-        const facade = createFacade();
-        const text = await facade.formatTime(projectPath, 15151500000n);
-        const beforeZero = await facade.formatTime(projectPath, -1n);
-        const schema = await facade.getWorldSchema(projectPath);
-
-        expect(text).toBe("复兴纪元488年 2月15日 14:00:00");
-        expect(await facade.parseTime(projectPath, text)).toBe(15151500000n);
-        expect(beforeZero).toBe("复兴纪元0年 12月30日 23:59:59");
-        expect(await facade.parseTime(projectPath, "instant:-5")).toBe(-5n);
-        expect(schema.calendar.examples).toContain("复兴纪元1年 1月1日 00:00:00");
-    });
-
-    it("Calendar 配置显式拒绝非法 simple calendar.ts", async () => {
-        const invalidRootProject = await createProject(undefined, [
-            "export default null;",
-        ]);
-        const invalidUnitProject = await createProject(undefined, [
-            "export default {",
-            "  type: 'simple',",
-            "  eraAfter: '星历',",
-            "  baseUnit: 'second',",
-            "  units: 'nope',",
-            "  format: '{eraName}{year}年',",
-            "};",
-        ]);
-        const invalidEraProject = await createProject(undefined, [
-            "export default {",
-            "  type: 'simple',",
-            "  eraAfter: 123,",
-            "  baseUnit: 'second',",
-            "  units: [{name: 'minute', parent: 'second', ratio: 60}],",
-            "  format: '{eraName}{minute}分',",
-            "};",
-        ]);
-        const invalidFormatProject = await createProject(undefined, [
-            "export default {",
-            "  type: 'simple',",
-            "  eraAfter: '星历',",
-            "  baseUnit: 'second',",
-            "  units: [{name: 'minute', parent: 'second', ratio: 60}],",
-            "  format: '',",
-            "};",
-        ]);
-        const isolatedUnitProject = await createProject(undefined, [
-            "export default {",
-            "  type: 'simple',",
-            "  eraAfter: '星历',",
-            "  baseUnit: 'second',",
-            "  units: [{name: 'hour', parent: 'minute', ratio: 60}],",
-            "  format: '{eraName}{hour}时',",
-            "};",
-        ]);
-        const cycleNamesProject = await createProject(undefined, [
-            "export default {",
-            "  type: 'simple',",
-            "  eraAfter: '星历',",
-            "  baseUnit: 'second',",
-            "  units: [{name: 'month', parent: 'second', ratio: 3, cycleNames: ['春', '夏']}],",
-            "  format: '{eraName}{monthName}',",
-            "};",
-        ]);
-        const unsafeNumberProject = await createProject(undefined, [
-            "export default {",
-            "  type: 'simple',",
-            "  eraAfter: '星历',",
-            "  baseUnit: 'second',",
-            "  units: [{name: 'hour', parent: 'second', ratio: 9007199254740992}],",
-            "  format: '{eraName}{hour}时',",
-            "};",
-        ]);
-        const facade = createFacade();
-
-        await expect(facade.formatTime(invalidRootProject, 0n)).rejects.toThrow("calendar.ts 必须 export default 一个配置对象");
-        await expect(facade.formatTime(invalidUnitProject, 0n)).rejects.toThrow("units 必须是数组");
-        await expect(facade.formatTime(invalidEraProject, 0n)).rejects.toThrow("eraAfter 必须是字符串");
-        await expect(facade.formatTime(invalidFormatProject, 0n)).rejects.toThrow("format 不能为空");
-        await expect(facade.formatTime(isolatedUnitProject, 0n)).rejects.toThrow("Units 存在孤立节点或环：hour");
-        await expect(facade.formatTime(cycleNamesProject, 0n)).rejects.toThrow("cycleNames 长度（2）必须等于 ratio（3）");
-        await expect(facade.formatTime(unsafeNumberProject, 0n)).rejects.toThrow("units[0].ratio 必须是正整数");
-    });
-
-    it("getWorldSchema 投影包含 enum、default、itemType 与 object fields，供 Agent 和 Preview 生成合法 mutation", async () => {
-        const projectPath = await createProject([
-            "subjectTypes:",
-            "  quest:",
-            "    attrs:",
-            "      status: { kind: scalar, type: enum, enum: [active, done], default: active, desc: 任务状态 }",
-            "      log: { kind: list, itemType: text, default: [] }",
-            "      memory: { kind: object, itemType: text }",
-            "      equipment:",
-            "        kind: object",
-            "        fields:",
-            "          weapon: { kind: scalar, type: ref(item) }",
-            "          durability: { kind: scalar, type: int, default: 100 }",
-            "  item:",
-            "    attrs:",
-            "      name: { kind: scalar, type: text }",
-            "",
-        ]);
-        const facade = createFacade();
-
-        const schema = await facade.getWorldSchema(projectPath);
-
-        expect(schema.subjectTypes[0]).toEqual({
-            type: "quest",
-            desc: undefined,
-            attrs: [
-                {name: "status", kind: "scalar", type: "enum", enum: ["active", "done"], default: "active", desc: "任务状态"},
-                {name: "log", kind: "list", type: "text", itemType: "text", enum: undefined, default: [], desc: undefined},
-                {name: "memory", kind: "object", type: "text", itemType: "text", enum: undefined, default: undefined, desc: undefined},
-                {
-                    name: "equipment",
-                    kind: "object",
-                    type: undefined,
-                    enum: undefined,
-                    default: undefined,
-                    desc: undefined,
-                    fields: {
-                        weapon: {name: "weapon", kind: "scalar", type: "ref(item)", enum: undefined, default: undefined, desc: undefined},
-                        durability: {name: "durability", kind: "scalar", type: "int", enum: undefined, default: 100, desc: undefined},
-                    },
-                },
-                {name: "equipment.weapon", kind: "scalar", type: "ref(item)", enum: undefined, default: undefined, desc: undefined},
-                {name: "equipment.durability", kind: "scalar", type: "int", enum: undefined, default: 100, desc: undefined},
-            ],
-        });
-    });
-
-    it("Calendar 支持合法固定进位配置", async () => {
-        const projectPath = await createProject(undefined, [
-            "export default {",
-            "  type: 'simple',",
-            "  eraBefore: '星历',",
-            "  eraAfter: '星历',",
-            "  baseUnit: 'second',",
-            "  units: [",
-            "    {name: 'minute', parent: 'second', ratio: 10},",
-            "    {name: 'hour', parent: 'minute', ratio: 10},",
-            "    {name: 'day', parent: 'hour', ratio: 10},",
-            "    {name: 'month', parent: 'day', ratio: 10},",
-            "    {name: 'year', parent: 'month', ratio: 10},",
-            "  ],",
-            "  format: '{eraName}{year}年 {month}月{day}日 {hour:02}:{minute:02}:{second:02}',",
-            "};",
-        ]);
-        const facade = createFacade();
-
-        expect(await facade.formatTime(projectPath, 1000n)).toBe("星历1年 1月2日 00:00:00");
-        expect(await facade.parseTime(projectPath, "星历1年 1月2日 00:00:00")).toBe(1000n);
-    });
-
-    it("Calendar simple 单位拒绝超过 JS safe integer 的 ratio", async () => {
-        const projectPath = await createProject(undefined, [
-            "export default {",
-            "  type: 'simple',",
-            "  eraAfter: '巨历',",
-            "  baseUnit: 'second',",
-            "  units: [{name: 'hour', parent: 'second', ratio: 9007199254740992}],",
-            "  format: '{eraName}{hour}时',",
-            "};",
-        ]);
-        const facade = createFacade();
-
-        await expect(facade.formatTime(projectPath, 0n)).rejects.toThrow("units[0].ratio 必须是正整数");
+        expect(await tableExists(projectPath, "WorldPatch")).toBe(true);
+        expect(await tableExists(projectPath, "WorldMutation")).toBe(false);
     });
 });
 
@@ -1888,38 +253,95 @@ function createFacade(): WorldEngineFacade {
     return facade;
 }
 
-async function createProject(schemaLines?: string[], calendarSourceLines?: string[]): Promise<string> {
+async function createProject(): Promise<string> {
     const slug = `world-engine-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const projectPath = `workspace/${slug}`;
-    const projectRoot = path.join(resolveWorkspaceContainerRoot(), slug);
-    await fs.mkdir(path.join(projectRoot, "world-engine"), {recursive: true});
-    await fs.writeFile(path.join(projectRoot, "project.yaml"), "kind: novel\ntitle: World Engine Test\nsummary: ''\n", "utf-8");
-    await fs.writeFile(path.join(projectRoot, "world-engine/schema.yaml"), (schemaLines ?? [
-        "subjectTypes:",
-        "  world:",
-        "    attrs:",
-        "      era: { kind: scalar, type: text, default: 复兴纪元 }",
-        "  character:",
-        "    attrs:",
-        "      hp: { kind: scalar, type: int, default: 100 }",
-        "      mind: { kind: scalar, type: text }",
-        "      profile: { kind: object }",
-        "      events: { kind: list, itemType: text, default: [] }",
-        "      location: { kind: scalar, type: ref(location) }",
-        "  location:",
-        "    attrs:",
-        "      name: { kind: scalar, type: text }",
-        "",
-    ]).join("\n"), "utf-8");
-    await fs.writeFile(path.join(projectRoot, "world-engine/calendar.ts"), (calendarSourceLines ?? defaultCalendarSourceLines()).join("\n"), "utf-8");
+    const root = projectRoot(projectPath);
+    await fs.mkdir(path.join(root, "world-engine", "schema"), {recursive: true});
+    await fs.writeFile(path.join(root, "project.yaml"), "kind: novel\ntitle: World Engine Test\nsummary: ''\n", "utf-8");
+    await fs.writeFile(path.join(root, "world-engine", "schema", "index.ts"), schemaSource(), "utf-8");
+    await fs.writeFile(path.join(root, "world-engine", "calendar.ts"), calendarSource(), "utf-8");
     createdProjects.push(projectPath);
     return projectPath;
 }
 
-/**
- * 生成 facade 测试使用的默认 calendar.ts，保持旧断言中的复兴纪元格式。
- */
-function defaultCalendarSourceLines(): string[] {
+function projectRoot(projectPath: string): string {
+    return path.join(resolveWorkspaceContainerRoot(), projectPath.slice("workspace/".length));
+}
+
+async function tableExists(projectPath: string, table: string): Promise<boolean> {
+    const client = new PrismaClient({adapter: new PrismaLibSql({url: toSqliteFileUrl(resolveProjectDatabasePath(projectPath))})});
+    try {
+        const rows = await client.$queryRawUnsafe<Array<{name: string}>>("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table);
+        return rows.length > 0;
+    } finally {
+        await client.$disconnect();
+    }
+}
+
+async function deleteWorldSubject(projectPath: string, subjectId: string): Promise<void> {
+    const client = new PrismaClient({adapter: new PrismaLibSql({url: toSqliteFileUrl(resolveProjectDatabasePath(projectPath))})});
+    try {
+        await client.worldSubject.delete({where: {id: subjectId}});
+    } finally {
+        await client.$disconnect();
+    }
+}
+
+async function removeProjectRoot(projectPath: string): Promise<void> {
+    for (let attempt = 0; attempt < 5; attempt++) {
+        collectReleasedSqliteHandles();
+        try {
+            await fs.rm(projectRoot(projectPath), {recursive: true, force: true});
+            return;
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "EBUSY" || attempt === 4) {
+                throw error;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+    }
+}
+
+function schemaSource(): string {
+    return [
+        'import {z} from "zod";',
+        "",
+        'declare module "zod" {',
+        '    interface ZodArray<T extends z.ZodTypeAny, Cardinality extends z.ArrayCardinality = "many"> {',
+        "        unique(): this;",
+        "    }",
+        "}",
+        "z.ZodArray.prototype.unique = function() {",
+        "    (this as any)._def.unique = true;",
+        "    return this;",
+        "};",
+        "function Ref(targetType: string) {",
+        "    return z.string().regex(/^subject:\\/\\/[\\w-]+$/).describe(`ref:${targetType}`);",
+        "}",
+        "export const WorldSchema = {",
+        "    world: z.object({",
+        "        era: z.string().default('复兴纪元').describe('纪元'),",
+        "        events: z.array(z.string()).default([]).describe('世界事件'),",
+        "    }),",
+        "    character: z.object({",
+        "        hp: z.number().int().default(100).describe('生命值'),",
+        "        events: z.array(z.string()).default([]).describe('经历'),",
+        "        inventory: z.array(Ref('item')).unique().default([]).describe('背包'),",
+        "        location: Ref('location').optional().describe('当前位置'),",
+        "    }),",
+        "    item: z.object({",
+        "        durability: z.number().int().default(100).describe('耐久'),",
+        "    }),",
+        "    location: z.object({",
+        "        name: z.string().optional().describe('名称'),",
+        "    }),",
+        "} as const;",
+        "",
+    ].join("\n");
+}
+
+function calendarSource(): string {
     return [
         "export default {",
         "  type: 'simple',",
@@ -1930,42 +352,9 @@ function defaultCalendarSourceLines(): string[] {
         "    {name: 'minute', parent: 'second', ratio: 60},",
         "    {name: 'hour', parent: 'minute', ratio: 60},",
         "    {name: 'day', parent: 'hour', ratio: 24},",
-        "    {name: 'month', parent: 'day', ratio: 30},",
-        "    {name: 'year', parent: 'month', ratio: 12},",
         "  ],",
-        "  format: '{eraName}{year}年 {month}月{day}日 {hour:02}:{minute:02}:{second:02}',",
+        "  format: '{eraName}{day}日 {hour:02}:{minute:02}:{second:02}',",
         "};",
-    ];
-}
-
-async function deleteWorldSubject(projectPath: string, subjectId: string): Promise<void> {
-    const client = new PrismaClient({
-        adapter: new PrismaLibSql({url: toSqliteFileUrl(resolveProjectDatabasePath(projectPath))}),
-    });
-    try {
-        await client.worldSubject.delete({where: {id: subjectId}});
-    } finally {
-        await client.$disconnect();
-    }
-}
-
-async function removeProjectRoot(projectRoot: string): Promise<void> {
-    for (let attempt = 0; attempt < 10; attempt += 1) {
-        try {
-            await fs.rm(projectRoot, {recursive: true, force: true});
-            return;
-        } catch (error) {
-            if (!(typeof error === "object" && error !== null && "code" in error && error.code === "EBUSY")) {
-                throw error;
-            }
-            await new Promise((resolve) => setTimeout(resolve, 50));
-        }
-    }
-    try {
-        await fs.rm(projectRoot, {recursive: true, force: true});
-    } catch (error) {
-        if (!(typeof error === "object" && error !== null && "code" in error && error.code === "EBUSY")) {
-            throw error;
-        }
-    }
+        "",
+    ].join("\n");
 }

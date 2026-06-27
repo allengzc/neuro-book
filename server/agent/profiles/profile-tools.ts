@@ -79,14 +79,9 @@ export const builtin = {
         memoryUpdate: registeredTool("subject_memory_update"),
     },
     world: {
-        getState: registeredTool("get_world_state"),
-        listSlices: registeredTool("list_world_slices"),
+        // World Engine 重构后只剩两个工具：CodeAct 只读查询 + 结构化写入。
+        query: registeredTool("execute_world_query"),
         writeSlice: registeredTool("write_world_slice"),
-        editSlice: registeredTool("edit_world_slice"),
-        deleteSlice: registeredTool("delete_world_slice"),
-        createSubject: registeredTool("create_world_subject"),
-        getSchema: registeredTool("get_world_schema"),
-        listSubjects: registeredTool("list_world_subjects"),
     },
     web: {
         search: registeredTool("web_search"),

@@ -1,50 +1,313 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import {pathToFileURL} from "node:url";
 import {createError} from "h3";
-import * as yaml from "yaml";
 import {resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
 import {
-    attrSchemaToSchemaNode,
-    schemaNodeToAttrSchema,
+    collectZodDefaults,
+    extractRefs,
+    extractUniqueArrays,
     type JsonValue,
     type WorldAttrKind,
     type WorldAttrSchema,
     type WorldSchema,
-    type WorldSchemaNode,
     type WorldSchemaProjectionAttr,
-    type WorldSchemaV2,
-    type WorldSubjectTypeSchemaV2,
+    type ZodSchemaRefs,
+    type ZodSchemaRegistry,
+    type ZodSchemaUniqueArrays,
 } from "nbook/server/world-engine/types";
+import {z} from "zod";
 
-const SCHEMA_RELATIVE_PATH = "world-engine/schema.yaml";
-const ATTR_KINDS = new Set<WorldAttrKind>(["scalar", "list", "collection", "object"]);
-// 新格式使用 string/boolean，旧格式使用 text/bool（向后兼容）
-const VALUE_TYPES = new Set(["int", "float", "string", "text", "boolean", "bool", "enum"]);
-const ITEM_VALUE_TYPES = new Set([...VALUE_TYPES, "object"]);
+const SCHEMA_TS_PATH = "world-engine/schema/index.ts";
 
-/** 加载 Project Workspace 内的 world-engine/schema.yaml。 */
+/**
+ * 加载 Project Workspace 内的 world-engine schema。
+ *
+ * Zod-native（Decision #23）：Zod 是运行时唯一真相，schema 只来自
+ * `world-engine/schema/index.ts`。不再支持 YAML，不再做有损的旧格式预转换。
+ *
+ * 运行时表示仍是 WorldSchema / WorldAttrSchema（reduce / 校验 / 投影沿用），
+ * 但由 Zod 无损派生：EmbeddingText 容器被标记为一等的 `embedding` 字段。
+ */
 export class WorldSchemaLoader {
     async load(projectPath: string): Promise<WorldSchema> {
-        const schemaPath = path.join(resolveProjectAbsolutePath(projectPath), SCHEMA_RELATIVE_PATH);
+        const projectAbsPath = resolveProjectAbsolutePath(projectPath);
+        const tsSchemaPath = path.join(projectAbsPath, SCHEMA_TS_PATH);
+
         try {
-            const parsed = yaml.parse(await fs.readFile(schemaPath, "utf-8")) as unknown;
-            return normalizeSchema(parsed);
+            await fs.access(tsSchemaPath);
         } catch (error) {
             if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
-                return {subjectTypes: {}};
+                // schema/index.ts 不存在，检查是否存在旧的 schema.yaml
+                const yamlSchemaPath = path.join(projectAbsPath, "world-engine/schema.yaml");
+                try {
+                    await fs.access(yamlSchemaPath);
+                    // 旧 schema.yaml 存在，提示迁移
+                    throw createError({
+                        statusCode: 400,
+                        message: "检测到旧格式 schema.yaml。World Engine 已硬切到 Zod schema (world-engine/schema/index.ts)，不再支持 YAML 格式。请参考文档迁移 schema。",
+                    });
+                } catch (yamlError) {
+                    if (typeof yamlError === "object" && yamlError !== null && "code" in yamlError && yamlError.code === "ENOENT") {
+                        // yaml 也不存在，返回空 schema（允许从空开始）
+                        return {subjectTypes: {}};
+                    }
+                    // yaml access 错误，说明 yaml 存在但无法访问，抛出迁移提示
+                    throw createError({
+                        statusCode: 400,
+                        message: "检测到旧格式 schema.yaml。World Engine 已硬切到 Zod schema (world-engine/schema/index.ts)，不再支持 YAML 格式。",
+                    });
+                }
             }
-            throw createError({statusCode: 400, message: `世界 schema 解析失败：${error instanceof Error ? error.message : String(error)}`});
+            throw createError({
+                statusCode: 500,
+                message: `无法访问 schema: ${error instanceof Error ? error.message : String(error)}`,
+            });
+        }
+
+        try {
+            const schemaModule = await import(pathToFileURL(tsSchemaPath).href);
+            const exportedSchema = schemaModule.default ?? schemaModule.WorldSchema;
+            const schemaRegistry = exportedSchema?.subjectTypes ?? exportedSchema;
+            if (!schemaRegistry || typeof schemaRegistry !== "object") {
+                throw createError({statusCode: 400, message: "schema 必须导出 { subjectTypes: {...} } 或 WorldSchema 注册表对象"});
+            }
+            const schema = buildWorldSchema(schemaRegistry as ZodSchemaRegistry);
+            validateRefTargets(schema);
+            return schema;
+        } catch (error) {
+            // 已是 h3 error 时原样抛出，避免吞掉 statusCode / message。
+            if (typeof error === "object" && error !== null && "statusCode" in error) {
+                throw error;
+            }
+            throw createError({
+                statusCode: 400,
+                message: `加载 schema 失败：${error instanceof Error ? error.message : String(error)}`,
+            });
         }
     }
 }
 
-/** 查询某个属性路径在 schema 中的定义；未声明属性返回 null。 */
+// ============================================================================
+// Zod -> 运行时 WorldSchema（无损派生）
+// ============================================================================
+
+/** 由 Zod 注册表构建运行时 WorldSchema。 */
+export function buildWorldSchema(registry: ZodSchemaRegistry): WorldSchema {
+    const subjectTypes: WorldSchema["subjectTypes"] = {};
+    for (const [typeName, zodSchema] of Object.entries(registry)) {
+        const refs = extractRefs(zodSchema);
+        const uniqueArrays = extractUniqueArrays(zodSchema);
+        const defaults = collectZodDefaults(zodSchema);
+        const attrs: Record<string, WorldAttrSchema> = {};
+        // Zod v4 把子类型静态记为 core $ZodType；运行时仍是 classic z.ZodType 实例，
+        // 故在边界处下转为 z.ZodType（instanceof 与 .description/.def 等都依赖 classic 视图）。
+        for (const [attrName, field] of Object.entries(zodSchema.shape)) {
+            attrs[attrName] = zodFieldToAttr(field as z.ZodType, attrName, refs, uniqueArrays, defaults);
+        }
+        subjectTypes[typeName] = {
+            desc: zodSchema.description,
+            attrs,
+        };
+    }
+    return {subjectTypes};
+}
+
+/** 把单个 Zod 字段转换为运行时 WorldAttrSchema（含 embedding 标记）。走 Zod 公开 API。 */
+function zodFieldToAttr(
+    field: z.ZodType,
+    attrName: string,
+    refs: ZodSchemaRefs,
+    uniqueArrays: ZodSchemaUniqueArrays,
+    defaults: Record<string, JsonValue | undefined>,
+): WorldAttrSchema {
+    const defaultValue = defaults[attrName];
+    const current = unwrapZod(field);
+    const description = field.description ?? current.description;
+
+    // 标量 ref（refs 由 .describe("ref:xxx") 提取）。
+    // 注意：ref 数组（"item[]"）/ ref record（"item{}"）不在此短路，
+    // 交给下面的 array / record 分支，由 itemType 记成 ref(item)。
+    const refMeta = refs[attrName];
+    if (refMeta && !refMeta.endsWith("[]") && !refMeta.endsWith("{}")) {
+        return {kind: "scalar", type: `ref(${refMeta})`, default: defaultValue, desc: description};
+    }
+
+    // 数组
+    if (current instanceof z.ZodArray) {
+        const items = unwrapZod(current.element as z.ZodType);
+        const isUnique = uniqueArrays.has(attrName);
+        const attr: WorldAttrSchema = {
+            kind: isUnique ? "collection" : "list",
+            itemType: zodItemType(items),
+            default: defaultValue,
+            desc: description,
+        };
+        // EmbeddingText 数组（如 events）：append-only，标记 embedding=array
+        if (isEmbeddingTextZod(items)) {
+            attr.embedding = "array";
+        }
+        return attr;
+    }
+
+    // 固定键对象
+    if (current instanceof z.ZodObject) {
+        const fields: Record<string, WorldAttrSchema> = {};
+        for (const [key, childField] of Object.entries(current.shape)) {
+            fields[key] = zodFieldToAttr(childField as z.ZodType, `${attrName}.${key}`, refs, uniqueArrays, defaults);
+        }
+        return {kind: "object", fields, default: defaultValue, desc: description};
+    }
+
+    // 动态键映射（Record）
+    if (current instanceof z.ZodRecord) {
+        const valueType = unwrapZod(zodRecordValueType(current, attrName));
+        const attr: WorldAttrSchema = {
+            kind: "object",
+            itemType: zodItemType(valueType),
+            default: defaultValue,
+            desc: description,
+        };
+        // EmbeddingText record（如 memory）：可变映射，标记 embedding=record
+        if (isEmbeddingTextZod(valueType)) {
+            attr.embedding = "record";
+        }
+        return attr;
+    }
+
+    // 枚举
+    if (current instanceof z.ZodEnum) {
+        return {kind: "scalar", type: "enum", enum: current.options, default: defaultValue, desc: description};
+    }
+
+    // 数值
+    if (current instanceof z.ZodNumber) {
+        return {kind: "scalar", type: zodIsInt(current) ? "int" : "float", default: defaultValue, desc: description};
+    }
+
+    // 布尔
+    if (current instanceof z.ZodBoolean) {
+        return {kind: "scalar", type: "boolean", default: defaultValue, desc: description};
+    }
+
+    // 字符串及兜底
+    return {kind: "scalar", type: "string", default: defaultValue, desc: description};
+}
+
+/** 读取 ZodRecord 的 value 类型；缺失时给出 schema 作者能直接修的错误。 */
+function zodRecordValueType(record: z.ZodRecord, attrName: string): z.ZodType {
+    const valueType = record.valueType as z.ZodType | undefined;
+    if (!valueType) {
+        throw new Error(`${attrName} 使用 z.record 时必须显式声明 value 类型，例如 z.record(z.string(), z.string())`);
+    }
+    return valueType;
+}
+
+/** 数组 / record 元素的旧格式 itemType：复合类型统一记为 "object"。 */
+function zodItemType(element: z.ZodType): string {
+    const description = element.description;
+    if (typeof description === "string") {
+        const match = description.match(/^ref:(\w+)/);
+        if (match?.[1]) {
+            return `ref(${match[1]})`;
+        }
+    }
+    if (element instanceof z.ZodNumber) {
+        return zodIsInt(element) ? "int" : "float";
+    }
+    if (element instanceof z.ZodBoolean) {
+        return "boolean";
+    }
+    if (element instanceof z.ZodObject || element instanceof z.ZodArray || element instanceof z.ZodRecord) {
+        return "object";
+    }
+    return "string";
+}
+
+/** 判断 Zod 类型是否为 EmbeddingText（含 text / vector / model 字段的对象）。 */
+function isEmbeddingTextZod(zodType: z.ZodType): boolean {
+    const unwrapped = unwrapZod(zodType);
+    if (!(unwrapped instanceof z.ZodObject)) {
+        return false;
+    }
+    const shape = unwrapped.shape;
+    return "text" in shape && "vector" in shape && "model" in shape;
+}
+
+/** 解包 ZodOptional / ZodNullable / ZodDefault，拿到内层类型（公开 .unwrap()）。 */
+function unwrapZod(field: z.ZodType): z.ZodType {
+    let current = field;
+    while (current instanceof z.ZodOptional || current instanceof z.ZodNullable || current instanceof z.ZodDefault) {
+        // .unwrap() 静态返回 core $ZodType，运行时仍是 classic 实例，边界处下转。
+        current = current.unwrap() as z.ZodType;
+    }
+    return current;
+}
+
+/** Zod v4 整数判定：`.int()` 在公开 `.def.checks` 上记 format "safeint"。
+ *  Zod 未公开"是否整数"的类型，故对 check 做一次最小字段读取（非 any/unknown 绕过）。 */
+function zodIsInt(field: z.ZodNumber): boolean {
+    const checks = field.def.checks ?? [];
+    return checks.some((check) => {
+        const c = check as {format?: string; isInt?: boolean};
+        return c.isInt === true || c.format === "safeint" || c.format === "int32" || c.format === "uint32";
+    });
+}
+
+/** 校验 schema 中所有 ref 指向已声明的 subject type。 */
+function validateRefTargets(schema: WorldSchema): void {
+    for (const [typeName, subjectType] of Object.entries(schema.subjectTypes)) {
+        validateAttrRefs(subjectType.attrs, schema.subjectTypes, `types.${typeName}`);
+    }
+}
+
+function validateAttrRefs(
+    attrs: Record<string, WorldAttrSchema>,
+    subjectTypes: WorldSchema["subjectTypes"],
+    pathLabel: string,
+): void {
+    for (const [name, attr] of Object.entries(attrs)) {
+        const attrPath = `${pathLabel}.${name}`;
+        const refType = extractRefType(attr.type) ?? extractRefType(attr.itemType);
+        if (refType && !subjectTypes[refType]) {
+            throw createError({statusCode: 400, message: `${attrPath}: ref 指向未声明的 subject type: ${refType}`});
+        }
+        if (attr.fields) {
+            validateAttrRefs(attr.fields, subjectTypes, attrPath);
+        }
+    }
+}
+
+function extractRefType(type: string | undefined): string | undefined {
+    if (!type) {
+        return undefined;
+    }
+    return /^ref\((.+)\)$/.exec(type)?.[1];
+}
+
+// ============================================================================
+// 访问器：reduce / 校验 / 投影沿用，作用于运行时 WorldSchema
+// ============================================================================
+
+/** 查询某个属性路径在 schema 中的定义；未声明属性返回 null。
+ *
+ * 支持两种路径格式：
+ * - JSON Pointer（`/equipment/head`）
+ * - 点号分隔符（`equipment.head`）
+ */
 export function findAttrSchema(schema: WorldSchema, subjectType: string, attrPath: string): WorldAttrSchema | null {
     const subjectSchema = schema.subjectTypes[subjectType];
     if (!subjectSchema) {
         return null;
     }
-    const parts = attrPath.split(".").filter(Boolean);
+
+    let parts: string[];
+    if (attrPath.startsWith("/")) {
+        parts = attrPath.slice(1).split("/").filter(Boolean);
+    } else {
+        parts = attrPath.split(".").filter(Boolean);
+    }
+
     if (parts.length === 0) {
         return null;
     }
@@ -73,7 +336,7 @@ export function findAttrSchema(schema: WorldSchema, subjectType: string, attrPat
         }
         return null;
     }
-    return current ? normalizeAttr(current) : null;
+    return current ?? null;
 }
 
 /** 返回属性的 kind，子字段省略 kind 时按 scalar 处理。 */
@@ -97,653 +360,37 @@ export function flattenAttrs(attrs: Record<string, WorldAttrSchema>, prefix = ""
     const result: WorldSchemaProjectionAttr[] = [];
     for (const [name, attr] of Object.entries(attrs)) {
         const fullName = prefix ? `${prefix}.${name}` : name;
-        const normalized = normalizeAttr(attr);
-        const projected = projectAttrSchema(fullName, normalized);
+        const projected = projectAttrSchema(fullName, attr);
         result.push({
             ...projected,
             name: fullName,
         });
-        if (normalized.kind === "object" && normalized.fields) {
-            result.push(...flattenAttrs(normalized.fields, fullName));
+        if (attr.kind === "object" && attr.fields) {
+            result.push(...flattenAttrs(attr.fields, fullName));
         }
     }
     return result;
 }
 
 function projectAttrSchema(name: string, attr: WorldAttrSchema): WorldSchemaProjectionAttr {
-    const normalized = normalizeAttr(attr);
-    const fields = normalized.fields
-        ? Object.fromEntries(Object.entries(normalized.fields).map(([fieldName, fieldSchema]) => [fieldName, projectAttrSchema(fieldName, fieldSchema)]))
+    const fields = attr.fields
+        ? Object.fromEntries(Object.entries(attr.fields).map(([fieldName, fieldSchema]) => [fieldName, projectAttrSchema(fieldName, fieldSchema)]))
         : undefined;
     const projected: WorldSchemaProjectionAttr = {
         name,
-        kind: normalizeAttrKind(normalized),
-        type: normalized.type ?? normalized.itemType,
-        enum: normalized.enum,
-        default: normalized.default,
-        desc: normalized.desc,
+        kind: normalizeAttrKind(attr),
+        type: attr.type ?? attr.itemType,
+        enum: attr.enum,
+        default: attr.default,
+        desc: attr.desc,
     };
-    if (normalized.itemType) {
-        projected.itemType = normalized.itemType;
+    if (attr.itemType) {
+        projected.itemType = attr.itemType;
     }
     if (fields) {
         projected.fields = fields;
     }
     return projected;
-}
-
-function normalizeSchema(input: unknown): WorldSchema {
-    if (input === null || input === undefined) {
-        return {subjectTypes: {}};
-    }
-    if (typeof input !== "object" || Array.isArray(input)) {
-        throw createError({statusCode: 400, message: "schema 配置必须是 object"});
-    }
-
-    // 新格式检测：有 types 字段
-    if ("types" in input && input.types) {
-        return normalizeNewSchemaToOld(input as {types: unknown});
-    }
-
-    // 旧格式：有 subjectTypes 字段
-    const rawSubjectTypes = (input as {subjectTypes?: unknown}).subjectTypes;
-    const subjectTypes = rawSubjectTypes === undefined ? {} : readRecord(rawSubjectTypes, "subjectTypes");
-    const normalized: WorldSchema["subjectTypes"] = {};
-    for (const [type, rawSubjectType] of Object.entries(subjectTypes)) {
-        assertSubjectTypeName(type);
-        const subjectType = readRecord(rawSubjectType, `subjectTypes.${type}`);
-        const attrs = subjectType.attrs === undefined ? {} : readRecord(subjectType.attrs, `subjectTypes.${type}.attrs`);
-        normalized[type] = {
-            desc: readDesc(subjectType.desc, `subjectTypes.${type}.desc`),
-            attrs: normalizeAttrs(attrs as Record<string, WorldAttrSchema>),
-        };
-    }
-    const schema = {subjectTypes: normalized};
-    assertRefTargets(schema);
-    return schema;
-}
-
-/**
- * 解析新格式 schema 并转换为旧格式（向后兼容）。
- *
- * 新格式示例：
- * types:
- *   character:
- *     type: object
- *     properties:
- *       name: { type: string, default: "无名者" }
- *       skills: { type: array, items: { type: string }, unique: true }
- */
-function normalizeNewSchemaToOld(input: {types: unknown}): WorldSchema {
-    const rawTypes = readRecord(input.types, "types");
-    const subjectTypes: WorldSchema["subjectTypes"] = {};
-
-    for (const [typeName, rawTypeSchema] of Object.entries(rawTypes)) {
-        assertSubjectTypeName(typeName);
-        const typeSchema = readRecord(rawTypeSchema, `types.${typeName}`);
-
-        // 新格式要求 subject type 必须是 object
-        const nodeType = typeSchema.type;
-        if (nodeType !== "object") {
-            throw createError({
-                statusCode: 400,
-                message: `types.${typeName}: subject type 必须是 object，实际为 ${String(nodeType)}`,
-            });
-        }
-
-        const properties = typeSchema.properties
-            ? readRecord(typeSchema.properties, `types.${typeName}.properties`)
-            : {};
-
-        // 递归解析 properties，转换为旧格式 attrs
-        const attrs: Record<string, WorldAttrSchema> = {};
-        for (const [attrName, rawNode] of Object.entries(properties)) {
-            const node = normalizeSchemaNode(rawNode as unknown, `types.${typeName}.properties.${attrName}`);
-            attrs[attrName] = schemaNodeToAttrSchema(node);
-        }
-
-        subjectTypes[typeName] = {
-            desc: readDesc(typeSchema.desc, `types.${typeName}.desc`),
-            attrs,
-        };
-    }
-
-    const schema: WorldSchema = {subjectTypes};
-
-    // 校验 ref 引用
-    assertRefTargetsForNewSchema(schema, rawTypes);
-
-    return schema;
-}
-
-/**
- * 递归规范化 WorldSchemaNode。
- *
- * 校验：
- * - type 字段必须存在且合法
- * - unique 约束只能用于 array
- * - dynamic 约束只能用于 object
- * - array 必须有 items
- * - object 必须有 properties 或 dynamic
- */
-function normalizeSchemaNode(input: unknown, pathLabel: string): WorldSchemaNode {
-    if (typeof input !== "object" || input === null || Array.isArray(input)) {
-        throw createError({statusCode: 400, message: `${pathLabel}: schema node 必须是 object`});
-    }
-
-    const node = input as Record<string, unknown>;
-    const type = node.type;
-
-    if (typeof type !== "string") {
-        throw createError({statusCode: 400, message: `${pathLabel}: 缺少 type 字段或类型错误`});
-    }
-
-    const validTypes = new Set(["int", "float", "string", "boolean", "ref", "array", "object"]);
-    if (!validTypes.has(type)) {
-        throw createError({statusCode: 400, message: `${pathLabel}: 不合法的 type: ${type}`});
-    }
-
-    // 基础类型
-    if (type === "int" || type === "float" || type === "string" || type === "boolean" || type === "ref") {
-        const baseNode: WorldSchemaNode = {
-            type: type as "int" | "float" | "string" | "boolean" | "ref",
-            default: isJsonValue(node.default) ? node.default : undefined,
-            desc: typeof node.desc === "string" ? node.desc : undefined,
-        };
-
-        if (type === "ref" && typeof node.ref === "string") {
-            (baseNode as {ref?: string}).ref = node.ref;
-        }
-
-        if (node.values !== undefined) {
-            if (!Array.isArray(node.values)) {
-                throw createError({statusCode: 400, message: `${pathLabel}: values 必须是数组`});
-            }
-            if (!node.values.every(isJsonValue)) {
-                throw createError({statusCode: 400, message: `${pathLabel}: values 必须是 JSON 值数组`});
-            }
-            (baseNode as {values?: JsonValue[]}).values = node.values;
-        }
-
-        return baseNode;
-    }
-
-    // array 类型
-    if (type === "array") {
-        if (!node.items) {
-            throw createError({statusCode: 400, message: `${pathLabel}: array 必须有 items 字段`});
-        }
-
-        const items = normalizeSchemaNode(node.items, `${pathLabel}.items`);
-        const unique = typeof node.unique === "boolean" ? node.unique : undefined;
-
-        return {
-            type: "array",
-            items,
-            unique,
-            default: isJsonValue(node.default) ? node.default : undefined,
-            desc: typeof node.desc === "string" ? node.desc : undefined,
-        };
-    }
-
-    // object 类型
-    if (type === "object") {
-        const dynamic = typeof node.dynamic === "boolean" ? node.dynamic : undefined;
-        const valueType = typeof node.valueType === "string" ? node.valueType : undefined;
-
-        if (dynamic && !valueType) {
-            throw createError({statusCode: 400, message: `${pathLabel}: dynamic object 必须指定 valueType`});
-        }
-
-        if (node.properties && dynamic) {
-            throw createError({statusCode: 400, message: `${pathLabel}: 不能同时指定 properties 和 dynamic`});
-        }
-
-        if (!node.properties && !dynamic) {
-            throw createError({statusCode: 400, message: `${pathLabel}: object 必须有 properties 或 dynamic=true`});
-        }
-
-        if (node.properties) {
-            const rawProperties = readRecord(node.properties, `${pathLabel}.properties`);
-            const properties: Record<string, WorldSchemaNode> = {};
-
-            for (const [key, rawChild] of Object.entries(rawProperties)) {
-                properties[key] = normalizeSchemaNode(rawChild, `${pathLabel}.properties.${key}`);
-            }
-
-            return {
-                type: "object",
-                properties,
-                default: isJsonValue(node.default) ? node.default : undefined,
-                desc: typeof node.desc === "string" ? node.desc : undefined,
-            };
-        }
-
-        // dynamic object
-        return {
-            type: "object",
-            dynamic: true,
-            valueType,
-            default: isJsonValue(node.default) ? node.default : undefined,
-            desc: typeof node.desc === "string" ? node.desc : undefined,
-        };
-    }
-
-    throw createError({statusCode: 400, message: `${pathLabel}: 不支持的 type: ${type}`});
-}
-
-/** 校验新格式 schema 的 ref 引用 */
-function assertRefTargetsForNewSchema(schema: WorldSchema, rawTypes: Record<string, unknown>): void {
-    for (const [typeName, rawTypeSchema] of Object.entries(rawTypes)) {
-        const typeSchema = rawTypeSchema as Record<string, unknown>;
-        const properties = typeSchema.properties as Record<string, unknown> | undefined;
-
-        if (properties) {
-            assertRefTargetsInNode(schema, properties, `types.${typeName}.properties`);
-        }
-    }
-}
-
-/** 递归校验 node 中的 ref */
-function assertRefTargetsInNode(schema: WorldSchema, nodeOrNodes: unknown, pathLabel: string): void {
-    if (typeof nodeOrNodes !== "object" || nodeOrNodes === null) {
-        return;
-    }
-
-    if (Array.isArray(nodeOrNodes)) {
-        return;
-    }
-
-    const nodes = nodeOrNodes as Record<string, unknown>;
-
-    for (const [key, rawNode] of Object.entries(nodes)) {
-        if (typeof rawNode !== "object" || rawNode === null) {
-            continue;
-        }
-
-        const node = rawNode as Record<string, unknown>;
-        const nodePathLabel = `${pathLabel}.${key}`;
-
-        // 检查 ref
-        if (node.type === "ref" && typeof node.ref === "string") {
-            const refType = node.ref;
-            if (!schema.subjectTypes[refType]) {
-                throw createError({
-                    statusCode: 400,
-                    message: `${nodePathLabel}: ref 指向未声明的 subject type: ${refType}`,
-                });
-            }
-        }
-
-        // 递归检查 array items
-        if (node.type === "array" && node.items) {
-            assertRefTargetsInNode(schema, {_: node.items}, `${nodePathLabel}.items`);
-        }
-
-        // 递归检查 object properties
-        if (node.type === "object" && node.properties) {
-            assertRefTargetsInNode(schema, node.properties, `${nodePathLabel}.properties`);
-        }
-    }
-}
-
-/** 判断是否为合法 JSON 值 */
-function isJsonValue(input: unknown): input is JsonValue {
-    if (input === null || typeof input === "string" || typeof input === "boolean") {
-        return true;
-    }
-    if (typeof input === "number") {
-        return Number.isFinite(input);
-    }
-    if (Array.isArray(input)) {
-        return input.every(isJsonValue);
-    }
-    if (isPlainRecord(input)) {
-        return Object.values(input).every(isJsonValue);
-    }
-    return false;
-}
-
-function isPlainRecord(input: unknown): input is Record<string, unknown> {
-    if (typeof input !== "object" || input === null || Array.isArray(input)) {
-        return false;
-    }
-    const proto = Object.getPrototypeOf(input) as unknown;
-    return proto === Object.prototype || proto === null;
-}
-
-function assertSubjectTypeName(type: string): void {
-    if (type.trim() === "") {
-        throw createError({statusCode: 400, message: "subject type 不能为空"});
-    }
-    if (/\s/.test(type)) {
-        throw createError({statusCode: 400, message: `subject type 不能包含空白：${type}`});
-    }
-    if (type.includes("(") || type.includes(")")) {
-        throw createError({statusCode: 400, message: `subject type 不能包含括号：${type}`});
-    }
-}
-
-function assertRefTargets(schema: WorldSchema): void {
-    for (const [subjectType, subjectSchema] of Object.entries(schema.subjectTypes)) {
-        assertAttrRefTargets(schema, subjectSchema.attrs, `subjectTypes.${subjectType}.attrs`);
-    }
-}
-
-function assertAttrRefTargets(schema: WorldSchema, attrs: Record<string, WorldAttrSchema>, prefix: string): void {
-    for (const [name, attr] of Object.entries(attrs)) {
-        const pathLabel = `${prefix}.${name}`;
-        const refType = readRefType(attr.type) ?? readRefType(attr.itemType);
-        if (refType && !schema.subjectTypes[refType]) {
-            throw createError({statusCode: 400, message: `schema ref 指向未声明 subject type：${pathLabel} -> ${refType}`});
-        }
-        if (attr.fields) {
-            assertAttrRefTargets(schema, attr.fields, pathLabel);
-        }
-    }
-}
-
-function readRefType(type: string | undefined): string | undefined {
-    if (type === undefined) {
-        return undefined;
-    }
-    return /^ref\((.+)\)$/.exec(type)?.[1];
-}
-
-function readRecord(input: unknown, pathLabel: string): Record<string, unknown> {
-    if (typeof input !== "object" || input === null || Array.isArray(input)) {
-        throw createError({statusCode: 400, message: `schema 字段必须是 object：${pathLabel}`});
-    }
-    return input as Record<string, unknown>;
-}
-
-function readDesc(input: unknown, pathLabel: string): string | undefined {
-    if (input === undefined) {
-        return undefined;
-    }
-    if (typeof input !== "string") {
-        throw createError({statusCode: 400, message: `desc 必须是字符串：${pathLabel}`});
-    }
-    return input;
-}
-
-function normalizeAttrs(attrs: Record<string, WorldAttrSchema>, prefix = ""): Record<string, WorldAttrSchema> {
-    const normalized: Record<string, WorldAttrSchema> = {};
-    for (const [name, attr] of Object.entries(attrs)) {
-        const fullName = prefix ? `${prefix}.${name}` : name;
-        assertAttrName(name, fullName);
-        normalized[name] = normalizeAttr(attr, fullName);
-    }
-    return normalized;
-}
-
-function assertAttrName(name: string, pathLabel: string): void {
-    if (name.trim() === "") {
-        throw createError({statusCode: 400, message: `attr 名不能为空：${pathLabel}`});
-    }
-    if (name !== name.trim()) {
-        throw createError({statusCode: 400, message: `attr 名不能包含前后空白：${pathLabel}`});
-    }
-    if (name.includes(".")) {
-        throw createError({statusCode: 400, message: `attr 名不能包含 .：${pathLabel}`});
-    }
-}
-
-function normalizeAttr(attr: WorldAttrSchema, pathLabel = "attr"): WorldAttrSchema {
-    if (typeof attr !== "object" || attr === null || Array.isArray(attr)) {
-        throw createError({statusCode: 400, message: `属性 schema 必须是 object：${pathLabel}`});
-    }
-    const kind = readAttrKind(attr, pathLabel);
-    const type = readValueType(attr, "type", pathLabel);
-    const itemType = readValueType(attr, "itemType", pathLabel);
-    const fields = readFields(attr, pathLabel);
-    const enumValues = readEnum(attr, pathLabel);
-    const defaultValue = readDefault(attr, pathLabel);
-    const desc = readDesc((attr as {desc?: unknown}).desc, `${pathLabel}.desc`);
-    assertAttrShape({kind, type, itemType, fields, enumValues, pathLabel});
-    const normalizedFields = fields ? normalizeAttrs(fields, pathLabel) : undefined;
-    const normalized: WorldAttrSchema = {
-        ...attr,
-        kind,
-        type,
-        itemType,
-        enum: enumValues,
-        default: defaultValue,
-        desc,
-        fields: normalizedFields,
-    };
-    if (defaultValue !== undefined) {
-        assertDefaultValue(pathLabel, defaultValue, normalized);
-    }
-    return normalized;
-}
-
-function readAttrKind(attr: WorldAttrSchema, pathLabel: string): WorldAttrKind {
-    const rawKind = (attr as {kind?: unknown}).kind;
-    if (rawKind === undefined) {
-        return "scalar";
-    }
-    if (typeof rawKind === "string" && ATTR_KINDS.has(rawKind as WorldAttrKind)) {
-        return rawKind as WorldAttrKind;
-    }
-    throw createError({statusCode: 400, message: `属性 kind 不合法：${pathLabel}=${String(rawKind)}`});
-}
-
-function readFields(attr: WorldAttrSchema, pathLabel: string): Record<string, WorldAttrSchema> | undefined {
-    const fields = (attr as {fields?: unknown}).fields;
-    if (fields === undefined) {
-        return undefined;
-    }
-    if (typeof fields !== "object" || fields === null || Array.isArray(fields)) {
-        throw createError({statusCode: 400, message: `属性 fields 必须是 object：${pathLabel}`});
-    }
-    return fields as Record<string, WorldAttrSchema>;
-}
-
-function readValueType(attr: WorldAttrSchema, field: "type" | "itemType", pathLabel: string): string | undefined {
-    const valueType = (attr as {type?: unknown; itemType?: unknown})[field];
-    if (valueType === undefined) {
-        return undefined;
-    }
-    if (typeof valueType !== "string" || !isKnownValueType(valueType, field)) {
-        throw createError({statusCode: 400, message: `属性 ${field} 不合法：${pathLabel}=${String(valueType)}`});
-    }
-    return valueType;
-}
-
-function isKnownValueType(type: string, field: "type" | "itemType"): boolean {
-    const valueTypes = field === "itemType" ? ITEM_VALUE_TYPES : VALUE_TYPES;
-    if (valueTypes.has(type)) {
-        return true;
-    }
-    const refType = /^ref\((.+)\)$/.exec(type)?.[1];
-    if (refType === undefined) {
-        return false;
-    }
-    assertSubjectTypeName(refType);
-    return true;
-}
-
-function assertAttrShape(input: {
-    kind: WorldAttrKind;
-    type?: string;
-    itemType?: string;
-    fields?: Record<string, WorldAttrSchema>;
-    enumValues?: JsonValue[];
-    pathLabel: string;
-}): void {
-    if (input.kind !== "object" && input.fields) {
-        throw createError({statusCode: 400, message: `${input.pathLabel}(${input.kind}) 不能声明 fields`});
-    }
-    if (input.kind === "scalar" && input.itemType) {
-        throw createError({statusCode: 400, message: `${input.pathLabel}(scalar) 不能声明 itemType`});
-    }
-    if ((input.kind === "list" || input.kind === "collection") && input.type) {
-        throw createError({statusCode: 400, message: `${input.pathLabel}(${input.kind}) 不能声明 type，请使用 itemType`});
-    }
-    if ((input.kind === "list" || input.kind === "collection") && !input.itemType) {
-        throw createError({statusCode: 400, message: `${input.pathLabel}(${input.kind}) 必须声明 itemType`});
-    }
-    if (input.kind === "object" && input.type) {
-        throw createError({statusCode: 400, message: `${input.pathLabel}(object) 不能声明 type`});
-    }
-    if (input.kind === "object" && input.fields && input.itemType) {
-        throw createError({statusCode: 400, message: `${input.pathLabel}(object) 不能同时声明 fields 和 itemType`});
-    }
-    const valueType = input.type ?? input.itemType;
-    if (valueType === "enum" && !input.enumValues?.length) {
-        throw createError({statusCode: 400, message: `${input.pathLabel}(enum) 必须声明非空 enum`});
-    }
-    if (input.enumValues && valueType !== "enum") {
-        throw createError({statusCode: 400, message: `${input.pathLabel} 只有 type/itemType=enum 时才能声明 enum`});
-    }
-}
-
-function readEnum(attr: WorldAttrSchema, pathLabel: string): JsonValue[] | undefined {
-    const enumValues = (attr as {enum?: unknown}).enum;
-    if (enumValues === undefined) {
-        return undefined;
-    }
-    if (!Array.isArray(enumValues)) {
-        throw createError({statusCode: 400, message: `属性 enum 必须是 array：${pathLabel}`});
-    }
-    for (const [index, item] of enumValues.entries()) {
-        if (!isJsonValue(item)) {
-            throw createError({statusCode: 400, message: `属性 enum 必须是 JSON 值：${pathLabel}[${index}]`});
-        }
-    }
-    assertUniqueEnumValues(enumValues, pathLabel);
-    return enumValues;
-}
-
-function assertUniqueEnumValues(enumValues: JsonValue[], pathLabel: string): void {
-    const seen = new Map<string, number>();
-    for (const [index, item] of enumValues.entries()) {
-        const key = stableJson(item);
-        const previousIndex = seen.get(key);
-        if (previousIndex !== undefined) {
-            throw createError({statusCode: 400, message: `属性 enum 不能包含重复值：${pathLabel}[${previousIndex}] / ${pathLabel}[${index}]`});
-        }
-        seen.set(key, index);
-    }
-}
-
-function readDefault(attr: WorldAttrSchema, pathLabel: string): JsonValue | undefined {
-    const defaultValue = (attr as {default?: unknown}).default;
-    if (defaultValue === undefined) {
-        return undefined;
-    }
-    if (!isJsonValue(defaultValue)) {
-        throw createError({statusCode: 400, message: `属性 default 必须是 JSON 值：${pathLabel}`});
-    }
-    return defaultValue;
-}
-
-function assertDefaultValue(pathLabel: string, value: JsonValue, attr: WorldAttrSchema): void {
-    const kind = normalizeAttrKind(attr);
-    if (kind === "list" || kind === "collection") {
-        if (!Array.isArray(value)) {
-            throw createError({statusCode: 400, message: `${pathLabel} default 必须是 array`});
-        }
-        const itemType = attr.itemType ?? attr.type;
-        if (itemType) {
-            for (const [index, item] of value.entries()) {
-                assertTypedDefault(`${pathLabel}[${index}]`, item, itemType, attr);
-            }
-        }
-        return;
-    }
-    if (kind === "object") {
-        assertObjectDefault(pathLabel, value, attr);
-        return;
-    }
-    const type = attr.type ?? attr.itemType;
-    if (type) {
-        assertTypedDefault(pathLabel, value, type, attr);
-    }
-}
-
-function assertObjectDefault(pathLabel: string, value: JsonValue, attr: WorldAttrSchema): void {
-    if (!isPlainRecord(value)) {
-        throw createError({statusCode: 400, message: `${pathLabel} default 必须是 object`});
-    }
-    if (attr.fields) {
-        for (const [key, item] of Object.entries(value)) {
-            const fieldSchema = attr.fields[key];
-            if (!fieldSchema) {
-                throw createError({statusCode: 400, message: `${pathLabel}.${key} 未在 object.fields 声明`});
-            }
-            assertDefaultValueBySchema(`${pathLabel}.${key}`, item, fieldSchema);
-        }
-        return;
-    }
-    if (attr.itemType) {
-        for (const [key, item] of Object.entries(value)) {
-            assertTypedDefault(`${pathLabel}.${key}`, item, attr.itemType, attr);
-        }
-    }
-}
-
-function assertDefaultValueBySchema(pathLabel: string, value: JsonValue, attr: WorldAttrSchema): void {
-    if (normalizeAttrKind(attr) === "object") {
-        assertObjectDefault(pathLabel, value, attr);
-        return;
-    }
-    const type = attr.type ?? attr.itemType;
-    if (type) {
-        assertTypedDefault(pathLabel, value, type, attr);
-    }
-}
-
-function assertTypedDefault(pathLabel: string, value: JsonValue, type: string, attr: WorldAttrSchema): void {
-    if (type === "int" && (typeof value !== "number" || !Number.isInteger(value))) {
-        throw createError({statusCode: 400, message: `${pathLabel} default 必须是 int`});
-    }
-    if (type === "int" && !Number.isSafeInteger(value)) {
-        throw createError({statusCode: 400, message: `${pathLabel} default 必须是安全整数`});
-    }
-    if (type === "float" && (typeof value !== "number" || !Number.isFinite(value))) {
-        throw createError({statusCode: 400, message: `${pathLabel} default 必须是 float`});
-    }
-    if (type === "text" && typeof value !== "string") {
-        throw createError({statusCode: 400, message: `${pathLabel} default 必须是 text`});
-    }
-    if (type === "bool" && typeof value !== "boolean") {
-        throw createError({statusCode: 400, message: `${pathLabel} default 必须是 bool`});
-    }
-    if (type === "enum" && attr.enum && !attr.enum.some((item) => stableJson(item) === stableJson(value))) {
-        throw createError({statusCode: 400, message: `${pathLabel} default 不在 enum 取值内`});
-    }
-    if (type === "object" && !isPlainRecord(value)) {
-        throw createError({statusCode: 400, message: `${pathLabel} default 必须是 object`});
-    }
-    const refType = readRefType(type);
-    if (refType) {
-        assertRefDefault(pathLabel, value);
-    }
-}
-
-function assertRefDefault(pathLabel: string, value: JsonValue): void {
-    if (typeof value !== "string" || !value.startsWith("subject://")) {
-        throw createError({statusCode: 400, message: `${pathLabel} default 必须是 subject://<id> 引用`});
-    }
-    const targetId = value.slice("subject://".length);
-    if (targetId.trim() === "") {
-        throw createError({statusCode: 400, message: `${pathLabel} default 引用 id 不能为空`});
-    }
-    if (targetId !== targetId.trim()) {
-        throw createError({statusCode: 400, message: `${pathLabel} default 引用 id 不能包含前后空白：${targetId}`});
-    }
-}
-
-function stableJson(input: JsonValue): string {
-    if (Array.isArray(input)) {
-        return `[${input.map((item) => stableJson(item)).join(",")}]`;
-    }
-    if (isPlainRecord(input)) {
-        return `{${Object.keys(input).sort().map((key) => `${JSON.stringify(key)}:${stableJson((input[key] as JsonValue | undefined) ?? null)}`).join(",")}}`;
-    }
-    return JSON.stringify(input);
 }
 
 function collectDefaultsFromAttrs(attrs: Record<string, WorldAttrSchema>, prefix: string, output: Array<{attr: string; value: JsonValue}>): void {
@@ -755,8 +402,7 @@ function collectDefaultsFromAttrs(attrs: Record<string, WorldAttrSchema>, prefix
             continue;
         }
         const kind = normalizeAttrKind(attr);
-        // list / collection 默认空数组：为相对 op（listAppend / collection*）建立基准，
-        // 这样首次追加不会被当成「缺基」E1，缺基只发生在 init 被删等真错误时。
+        // list / collection 默认空数组：为相对 op 建立基准，首次追加不被当成「缺基」。
         if (kind === "list" || kind === "collection") {
             output.push({attr: fullName, value: []});
             continue;

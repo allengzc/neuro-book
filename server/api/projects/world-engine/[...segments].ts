@@ -5,7 +5,7 @@ import {z} from "zod";
 import {parseSubjectEvent, parseSubjectEventsJsonl, serializeSubjectEventsJsonl, type SubjectEvent} from "nbook/server/agent/tools/subject-memory";
 import {markSubjectRagDirty, type SubjectPaths} from "nbook/server/agent/tools/subject-rag-index";
 import {worldEngineFacade} from "nbook/server/world-engine";
-import type {JsonValue, MutationInput, SliceInput, SliceListItem, WorldSliceSubjectFilterMode, WorldState} from "nbook/server/world-engine";
+import type {JsonValue, PatchInput, SliceInput, SliceListItem, WorldSliceSubjectFilterMode, WorldState} from "nbook/server/world-engine";
 import {requireProjectPathQuery, validateBody} from "nbook/server/utils/novel-chapter";
 import {assertProjectWorkspaceDirectory, resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
 
@@ -18,19 +18,26 @@ const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
     z.record(z.string(), JsonValueSchema),
 ]));
 
-const MutationSchema = z.object({
+const PatchSchema = z.object({
     subjectId: z.string().min(1, "subjectId 不能为空"),
-    attr: z.string().min(1, "attr 不能为空"),
-    op: z.enum(["set", "add", "unset", "listAppend", "collectionAdd", "collectionRemove"]),
+    path: z.string().min(1, "path 不能为空").regex(/^\//, "path 必须是 JSON Pointer（以 / 开头）"),
+    op: z.enum(["replace", "increment", "remove", "append"]),
     value: JsonValueSchema.optional(),
-}).strict();
+    summary: z.string().optional(),
+    type: z.string().min(1, "type 不能为空").optional(),
+    name: z.string().optional(),
+}).strict().superRefine((patch, ctx) => {
+    if (patch.op !== "remove" && patch.value === undefined) {
+        ctx.addIssue({code: z.ZodIssueCode.custom, path: ["value"], message: `${patch.op} patch 必须提供 value`});
+    }
+});
 
 const SliceBodySchema = z.object({
     time: z.string().min(1, "time 不能为空"),
     title: z.string().optional(),
     summary: z.string().optional(),
     kind: z.string().optional(),
-    mutations: z.array(MutationSchema).min(1, "mutations 不能为空").max(100, "mutations 不能超过 100 条"),
+    patches: z.array(PatchSchema).min(1, "patches 不能为空").max(100, "patches 不能超过 100 条"),
 }).strict();
 
 const QueryStateBodySchema = z.object({
@@ -83,7 +90,7 @@ export default defineEventHandler(async (event) => {
         return worldEngineFacade.getWorldSchema(projectPath);
     }
     if (method === "GET" && matchSegments(segments, ["subjects"])) {
-        return worldEngineFacade.listWorldSubjects(projectPath, {type: readOptionalStringQuery(event, "type")});
+        return worldEngineFacade.listSubjects(projectPath, {type: readOptionalStringQuery(event, "type")});
     }
     if (method === "POST" && matchSegments(segments, ["subjects"])) {
         return createSubject(projectPath, await validateBody<CreateSubjectBody>(event, CreateSubjectBodySchema));
@@ -107,7 +114,7 @@ export default defineEventHandler(async (event) => {
         return worldEngineFacade.deleteSlice(projectPath, requireSegment("sliceId", segments[1]));
     }
     if (method === "GET" && matchSegments(segments, ["state"])) {
-        return getWorldState(projectPath, event);
+        return readFullState(projectPath, event);
     }
     if (method === "POST" && matchSegments(segments, ["state", "query"])) {
         return queryState(projectPath, await validateBody<QueryStateBody>(event, QueryStateBodySchema));
@@ -134,7 +141,7 @@ async function listSlices(projectPath: string, event: H3Event): Promise<unknown>
         limit: readPositiveIntQuery(event, "limit"),
         from: await readOptionalTimeQuery(projectPath, event, "from"),
         to: await readOptionalTimeQuery(projectPath, event, "to"),
-        withMutations: readBooleanQuery(event, "withMutations"),
+        withPatches: readBooleanQuery(event, "withPatches"),
         subjectIds: readStringListQuery(event, "subjectIds"),
         subjectMode: readSubjectModeQuery(event),
     });
@@ -149,21 +156,22 @@ async function editSlice(projectPath: string, sliceId: string, body: SliceBody):
     return worldEngineFacade.editSlice(projectPath, sliceId, await toSliceInput(projectPath, body));
 }
 
-async function getWorldState(projectPath: string, event: H3Event): Promise<unknown> {
-    return serializeWorldState(projectPath, await worldEngineFacade.getWorldState(projectPath, await readOptionalTimeQuery(projectPath, event, "at")));
+async function readFullState(projectPath: string, event: H3Event): Promise<unknown> {
+    return serializeWorldState(projectPath, await worldEngineFacade.queryState(projectPath, {at: await readOptionalTimeQuery(projectPath, event, "at")}));
 }
 
 async function queryState(projectPath: string, body: QueryStateBody): Promise<unknown> {
     if (!body.subjectIds?.length && !body.type) {
         throw createError({statusCode: 400, message: "state/query 必须提供 subjectIds 或 type"});
     }
-    return worldEngineFacade.queryState(projectPath, {
+    const result = await worldEngineFacade.queryState(projectPath, {
         subjectIds: body.subjectIds,
         type: body.type,
         attrs: body.attrs,
         at: body.at ? await parsePublicTime(projectPath, body.at, "at") : undefined,
         listLimit: body.listLimit,
     });
+    return {subjects: result.subjects, issues: result.issues};
 }
 
 async function commitSubjectFileEvent(projectPath: string, body: SubjectFileEventCommitBody): Promise<unknown> {
@@ -231,11 +239,14 @@ async function toSliceInput(projectPath: string, body: SliceBody): Promise<Slice
         title: body.title,
         summary: body.summary,
         kind: body.kind,
-        mutations: body.mutations.map((mutation): MutationInput => ({
-            subjectId: mutation.subjectId,
-            attr: mutation.attr,
-            op: mutation.op,
-            ...(mutation.value === undefined ? {} : {value: mutation.value}),
+        patches: body.patches.map((patch): PatchInput => ({
+            subjectId: patch.subjectId,
+            path: patch.path,
+            op: patch.op,
+            ...(patch.value === undefined ? {} : {value: patch.value}),
+            ...(patch.summary ? {summary: patch.summary} : {}),
+            ...(patch.type ? {type: patch.type} : {}),
+            ...(patch.name ? {name: patch.name} : {}),
         })),
     };
 }
@@ -248,7 +259,7 @@ async function serializeSlice(projectPath: string, slice: SliceListItem): Promis
         title: slice.title,
         summary: slice.summary,
         kind: slice.kind,
-        ...(slice.mutations ? {mutations: slice.mutations} : {}),
+        ...(slice.patches ? {patches: slice.patches} : {}),
         ...(slice.issues && slice.issues.length ? {issues: slice.issues} : {}),
     };
 }

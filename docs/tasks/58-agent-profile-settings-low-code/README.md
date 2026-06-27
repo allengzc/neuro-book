@@ -753,6 +753,11 @@ export default defineAgentProfile({
   - 配置中心默认打开全局配置，并将 `Global Config` / `Project Config` / `Browser State` 等中文 UI 文案本地化。
   - “默认 Agent Profile”合并进 Agent Profile 模型面板顶部，独立左侧入口和旧面板组件移除。
   - 模型设置页删除默认模型卡片与新增 Provider 卡片的两段说明文字。
+- 2026-06-26：`leader.default` 接入低代码 settings 模板：
+  - 新增 `LeaderDefaultSettingsForm`，字段包括协作主动程度、NeuroBook 熟练度、提问策略、Leader 人设资源和最高优先级自定义插入槽位。
+  - 新增 `leader.default` profile home 初始化，默认写入 `personas/default.md` 精简彩绘人设；该人设只影响对话气质，不引入 RP 小屋、万华镜、第三人称动作回复或思维劫持。
+  - `leader.default` system prompt 改为按 `customTopSystemPrompt -> leaderPersona -> leader_settings -> 原始系统提示词` 顺序组装。
+  - 保守协作模式会提醒 Leader 更主动核查现实知识 / 外部事实，并在需要联网资料时通过现有 `researcher` profile 调研。
 
 ## Verification
 
@@ -783,6 +788,15 @@ export default defineAgentProfile({
   - `bun run typecheck`：通过。
 - 配置中心 UI 收敛后追加验证：
   - `bun run typecheck`：通过。
+- `leader.default` settings 模板追加验证：
+  - `bun scripts/build/profile.ts check builtin/leader.default.profile.tsx --system`：通过，提示 source 已修改需重新编译。
+  - `bun scripts/build/profile.ts compile builtin/leader.default.profile.tsx --system`：写入 `builtin__leader.default.mjs` 与 types。
+  - `bun scripts/build/prepare-system-assets.ts --sync-user-assets`：通过；prepared system profiles 14，compiled 13 stale profile(s)，synced user assets updated profiles 3。
+  - `bun test server/agent/profiles/leader-assets-profile.test.ts -t "Project home 初始化默认人设"`：1 pass，证明默认 persona resource 可初始化、校验并注入 prompt。
+  - `bun test server/agent/profiles/leader-assets-profile.test.ts -t "leader.default settings"`：1 pass，证明 catalog 标记 `hasSettingsForm`、默认 settings 校验、自定义插入槽位顺序和行为偏好渲染正常。
+  - `bun test server/agent/profiles/leader-assets-profile.test.ts -t "leader.default settings|Project home 初始化默认人设"`：2 pass，system assets 同步后复跑通过。
+  - `bun test server/config/config-service.test.ts server/low-code-form/low-code-form.test.ts`：92 pass，覆盖低代码 form、resource-preset、Config profile settings 基础通道。
+  - `bun run typecheck`：未通过；错误全部位于既有 `server/agent/tools/control-tools.test.ts`，与 `PROJECT-STATUS.md` 已记录的 pendingApprovals / control-tools 类型漂移一致，本轮 leader settings 未出现相关类型错误。
 
 未作为本任务验收门的命令：
 

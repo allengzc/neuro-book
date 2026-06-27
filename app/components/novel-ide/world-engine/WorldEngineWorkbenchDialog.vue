@@ -13,10 +13,6 @@ import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {isWorldWorkbenchSubjectSystemMaintenanceSlice} from "nbook/app/utils/world-engine-workbench-slice-classifier";
 import {
     formatWorldEngineConflictMessage,
-    previewDemoMutations,
-    previewDemoSubjects,
-    suggestNextPreviewTime,
-    validatePreviewDemoSchema,
 } from "nbook/app/utils/world-engine-preview";
 import {
     buildWorkbenchPreviewFiltersAfterSavedEdit,
@@ -63,7 +59,7 @@ import type {
     WorldIssueDto,
     WorldSchemaProjectionDto,
     WorldSliceDto,
-    WorldSliceMutationDto,
+    WorldSlicePatchDto,
     WorldStateDto,
     WorldStateQueryDto,
     WorldSubjectDto,
@@ -75,6 +71,7 @@ import type {
     WorldWorkbenchPreviewIssueTriageSummary,
     WorldWorkbenchPreviewMetadataDraftSummary,
     WorldWorkbenchPreviewMutationFocus,
+    WorldWorkbenchPreviewMutationListPatch,
     WorldWorkbenchPreviewMutationValuePatch,
     WorldWorkbenchPreviewReviewQueueItem,
     WorldWorkbenchPreviewReviewQueueMode,
@@ -106,8 +103,8 @@ const router = useRouter();
 const {t} = useI18n();
 const {confirm: confirmDialog} = useDialog();
 
-const defaultSidebarWidth = 280;
-const defaultInspectorWidth = 360;
+const defaultSidebarWidth = 320;
+const defaultInspectorWidth = 420;
 const defaultMutationEditorHeight = 292;
 const sliceLimit = 200;
 const queryListLimit = 40;
@@ -126,6 +123,11 @@ type LoadWorldOptions = {
 };
 type SliceComposerEditorExpose = InstanceType<typeof WorldEngineMutationEditor> & {
     hasUnsavedDraft: () => boolean;
+};
+type SliceComposerInsertContext = {
+    anchorTime: string;
+    direction: "before" | "after";
+    version: number;
 };
 
 const schema = shallowRef<WorldSchemaProjectionDto | null>(null);
@@ -157,6 +159,7 @@ const sliceComposerEditorRef = ref<SliceComposerEditorExpose | null>(null);
 const sliceComposerEditorKey = ref(0);
 const sliceComposerLoadKey = ref(0);
 const sliceComposerNewKey = ref(0);
+const sliceComposerInsertContext = ref<SliceComposerInsertContext | null>(null);
 const sidebarWidth = ref(defaultSidebarWidth);
 const inspectorWidth = ref(defaultInspectorWidth);
 const mutationEditorHeight = ref(defaultMutationEditorHeight);
@@ -354,18 +357,8 @@ const worldViewFilterParts = computed<string[]>(() => buildWorldWorkbenchWorldVi
 }));
 const worldViewLabel = computed(() => worldViewFilterParts.value.length ? `当前视角：${worldViewFilterParts.value.join(" · ")}` : "整体世界视角");
 const selectedSubjectLabel = computed(() => selectedSubjectIds.value.map((subjectId) => subjectNameMap.value.get(subjectId) ?? subjectId).join(", "));
-const demoWorldSchemaError = computed(() => {
-    if (!schema.value) {
-        return "Schema 未加载，无法创建示例世界。";
-    }
-    return validatePreviewDemoSchema(schema.value.subjectTypes, worldSubjects.value);
-});
-const canSeedDemoWorld = computed(() => Boolean(schema.value) && !demoWorldSchemaError.value);
-const demoWorldButtonTitle = computed(() => canSeedDemoWorld.value ? "创建内置示例 subject 和第一条事件 slice" : demoWorldSchemaError.value);
 const emptySliceState = computed<WorldWorkbenchEmptySliceState>(() => buildWorldWorkbenchEmptySliceState({
     canCreateWorldSubject: canCreateWorldSubject.value,
-    canSeedDemoWorld: canSeedDemoWorld.value,
-    demoWorldSchemaError: demoWorldSchemaError.value,
     hasSlices: slices.value.length > 0,
     hasWorldViewFilters: worldViewFilterParts.value.length > 0,
     pendingSubjectSystemCount: pendingSubjectSystemSummaries.value.length,
@@ -414,7 +407,7 @@ async function loadWorld(options: LoadWorldOptions = {}): Promise<void> {
         const [nextSchema, nextSubjects, nextSlices, subjectSystemOverview] = await Promise.all([
             $fetch<WorldSchemaProjectionDto>("/api/projects/world-engine/schema", {query}),
             $fetch<WorldSubjectDto[]>("/api/projects/world-engine/subjects", {query}),
-            $fetch<WorldSliceDto[]>("/api/projects/world-engine/slices", {query: {...query, limit: sliceLimit, withMutations: "true"}}),
+            $fetch<WorldSliceDto[]>("/api/projects/world-engine/slices", {query: {...query, limit: sliceLimit, withPatches: "true"}}),
             $fetch<ProjectRagOverviewDto>("/api/projects/rag/overview", {query}),
         ]);
         schema.value = nextSchema;
@@ -493,7 +486,7 @@ async function reloadTimelineForCurrentSubjectFilter(options: LoadWorldOptions =
             query: {
                 ...projectQuery(),
                 limit: sliceLimit,
-                withMutations: "true",
+                withPatches: "true",
                 ...sliceSubjectFilterQuery(),
             },
         });
@@ -641,6 +634,21 @@ async function saveMutationValuePatch(patch: WorldWorkbenchPreviewMutationValueP
     await saveMutationValuePatches([patch]);
 }
 
+/** 保存审查工作台里的完整 patch 列表草稿。 */
+async function saveMutationListPatch(patch: WorldWorkbenchPreviewMutationListPatch): Promise<void> {
+    const slice = slices.value.find((item) => item.id === patch.sliceId) ?? null;
+    if (!slice) {
+        return;
+    }
+    await saveSliceEdit(slice, {
+        time: slice.time,
+        title: slice.title,
+        summary: slice.summary,
+        kind: slice.kind,
+        patches: patch.patches,
+    }, `已保存 ${patch.patches.length} 个 mutation`);
+}
+
 /** 批量保存 mutation value 草稿，真实 API 只调用一次 editSlice。 */
 async function saveMutationValuePatches(patches: WorldWorkbenchPreviewMutationValuePatch[]): Promise<void> {
     const slice = selectedSlice.value;
@@ -668,7 +676,7 @@ async function saveSliceEdit(slice: WorldWorkbenchPreviewSlice, body: ReturnType
         clearFiltersIfSavedEditWouldBeHidden({
             ...slice,
             kind: body.kind,
-            mutations: body.mutations,
+            mutations: body.patches,
             summary: body.summary,
             time: body.time,
             title: body.title,
@@ -700,64 +708,6 @@ function clearFiltersIfSavedEditWouldBeHidden(editedSlice: WorldWorkbenchPreview
     sliceKindFilter.value = nextFilters.sliceKindFilter;
     sliceSearch.value = nextFilters.sliceSearch;
     sliceHealthFilter.value = nextFilters.sliceHealthFilter;
-}
-
-/** 为当前 Project 创建一组真实示例数据。 */
-async function seedDemoWorld(): Promise<void> {
-    if (blockSliceComposerSaving("Slice Composer 正在保存，请稍候再创建示例世界。")) {
-        return;
-    }
-    if (blockWorkbenchActionBusy("World Engine 工作台正在同步，请稍候再创建示例世界。")) {
-        return;
-    }
-    if (!props.projectPath || !schema.value) {
-        setWorkbenchError("Schema 未加载，无法创建示例世界。");
-        return;
-    }
-    const schemaError = demoWorldSchemaError.value;
-    if (schemaError) {
-        setWorkbenchError(schemaError);
-        return;
-    }
-    const initTime = schema.value.calendar.examples[0] ?? "";
-    if (!initTime) {
-        setWorkbenchError("Calendar examples 为空，无法推导示例时间。");
-        return;
-    }
-    actionBusy.value = true;
-    error.value = "";  // 清空工作台级加载错误（操作级错误已迁移到 notification）
-    try {
-        const eventTime = suggestNextPreviewTime(schema.value.calendar.examples, [...slices.value.map((slice) => slice.time), initTime]);
-        const subjectResult = await ensureDemoSubjects(initTime);
-        const result = await $fetch<SliceWriteResultDto>("/api/projects/world-engine/slices", {
-            method: "POST",
-            query: projectQuery(),
-            body: {
-                time: eventTime,
-                title: "示例：艾莉娜抵达王都",
-                summary: "主 IDE World Engine 工作台生成的第一条事件切面。",
-                kind: "event",
-                mutations: previewDemoMutations(),
-            },
-        });
-        const actionIssues = [...subjectResult.issues, ...result.issues];
-        notification.success(
-            actionIssues.length
-                ? `已创建示例世界：新增 ${subjectResult.created.length} 个 subject，跳过 ${subjectResult.skipped.length} 个已存在 subject，返回 ${actionIssues.length} 个 issue。`
-                : `已创建示例世界：新增 ${subjectResult.created.length} 个 subject，跳过 ${subjectResult.skipped.length} 个已存在 subject。`,
-            { title: "创建示例世界成功" }
-        );
-        await refreshWorldForCurrentTimeline({preferredSliceId: result.sliceId});
-        focusedSubjectId.value = worldSubjects.value.some((subject) => subject.id === "erina") ? "erina" : focusedSubjectId.value;
-        recordTransientIssues(actionIssues, result.sliceId);
-    } catch (seedError) {
-        notification.error(
-            formatWorldEngineConflictMessage(resolveApiErrorMessage(seedError, "创建示例世界失败")),
-            { title: "创建示例世界失败" }
-        );
-    } finally {
-        actionBusy.value = false;
-    }
 }
 
 /** 创建 subject 后刷新当前工作台，并选中新 subject。 */
@@ -1003,29 +953,6 @@ function discardSessionDraftsForSlice(sliceId: string): void {
     draftDiscardVersion.value += 1;
     metadataDraftSummaries.value = metadataDraftSummaries.value.filter((draft) => draft.sliceId !== sliceId);
     valueDraftSummaries.value = valueDraftSummaries.value.filter((draft) => draft.sliceId !== sliceId);
-}
-
-/** 确保示例 subject 存在。 */
-async function ensureDemoSubjects(initTime: string): Promise<{created: string[]; skipped: string[]; issues: WorldIssueDto[]}> {
-    const existingIds = new Set(worldSubjects.value.map((subject) => subject.id));
-    const created: string[] = [];
-    const skipped: string[] = [];
-    const issues: WorldIssueDto[] = [];
-    for (const seed of previewDemoSubjects()) {
-        if (existingIds.has(seed.id)) {
-            skipped.push(seed.id);
-            continue;
-        }
-        const result = await $fetch<CreateSubjectResultDto>("/api/projects/world-engine/subjects", {
-            method: "POST",
-            query: projectQuery(),
-            body: {id: seed.id, type: seed.type, name: seed.name, time: initTime},
-        });
-        existingIds.add(seed.id);
-        created.push(result.subjectId);
-        issues.push(...result.issues);
-    }
-    return {created, skipped, issues};
 }
 
 /** 把本次操作返回的 transient issue 加入当前会话 review queue。 */
@@ -1355,6 +1282,11 @@ function expandMutationEditorPanel(): void {
 }
 
 function openSliceComposer(): void {
+    openSliceComposerForInsert(null);
+}
+
+/** 打开新建 Slice Composer；传入上下文时按目标 slice 前后预填时间。 */
+function openSliceComposerForInsert(context: Omit<SliceComposerInsertContext, "version"> | null): void {
     if (blockSliceComposerSaving("Slice Composer 正在保存，请稍候再新建 Slice。")) {
         return;
     }
@@ -1375,10 +1307,31 @@ function openSliceComposer(): void {
     if (!wasVisible) {
         sliceComposerDirty.value = false;
     }
+    sliceComposerInsertContext.value = context
+        ? {
+            ...context,
+            version: (sliceComposerInsertContext.value?.version ?? 0) + 1,
+        }
+        : null;
     sliceComposerVisible.value = true;
     if (wasVisible) {
         sliceComposerNewKey.value += 1;
     }
+}
+
+/** 从 SliceCard 工具组打开相邻插入草稿。 */
+function openSliceComposerAroundSlice(sliceId: string, direction: "before" | "after"): void {
+    const slice = slices.value.find((item) => item.id === sliceId);
+    if (!slice) {
+        setWorkbenchNotice("目标 slice 已不在当前时间线中。");
+        return;
+    }
+    selectedSliceId.value = slice.id;
+    alignFocusedSubject(slice);
+    openSliceComposerForInsert({
+        anchorTime: slice.time,
+        direction,
+    });
 }
 
 /** 从空状态把作者带到左侧创建 Subject 面板。 */
@@ -1413,6 +1366,7 @@ async function openSelectedSliceComposer(): Promise<void> {
     if (!sliceComposerVisible.value) {
         sliceComposerDirty.value = false;
     }
+    sliceComposerInsertContext.value = null;
     sliceComposerVisible.value = true;
     await nextTick();
     sliceComposerLoadKey.value += 1;
@@ -1561,7 +1515,7 @@ function workbenchUnsavedDraftLabels(): string[] {
 }
 
 /** Slice Composer 写入/编辑成功后回到真实时间线，并把 issues 接入当前会话审查队列。 */
-async function handleSliceComposerSaved(payload: {result: SliceWriteResultDto; time: string; editing: boolean; continueAfterSave: boolean; contextSubjectId: string; mutations: WorldSliceMutationDto[]}): Promise<void> {
+async function handleSliceComposerSaved(payload: {result: SliceWriteResultDto; time: string; editing: boolean; continueAfterSave: boolean; contextSubjectId: string; mutations: WorldSlicePatchDto[]}): Promise<void> {
     const messagePrefix = payload.editing ? "已更新 slice" : "已写入 slice";
     const continueSuffix = payload.continueAfterSave ? "，已准备下一步草稿" : "";
     const savedNotice = payload.result.issues.length
@@ -1617,7 +1571,7 @@ async function handleSliceComposerSaved(payload: {result: SliceWriteResultDto; t
 }
 
 /** 保存后的切片如果不命中当前 subject 过滤，先切回整体视角，避免时间线立刻跳走。 */
-function clearSubjectFilterIfSavedSliceWouldBeHidden(mutations: WorldSliceMutationDto[]): void {
+function clearSubjectFilterIfSavedSliceWouldBeHidden(mutations: WorldSlicePatchDto[]): void {
     if (isWorldWorkbenchSliceVisibleInSubjectFilter({
         mutations,
         selectedSubjectIds: selectedSubjectIds.value,
@@ -1758,6 +1712,7 @@ function resetWorkbenchSessionState(): void {
     sliceComposerEditorKey.value += 1;
     sliceComposerLoadKey.value = 0;
     sliceComposerNewKey.value = 0;
+    sliceComposerInsertContext.value = null;
     metadataDraftSummaries.value = [];
     valueDraftSummaries.value = [];
     draftDiscardSliceId.value = "";
@@ -1926,10 +1881,6 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                         <span :class="actionBusy ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-trash-2'" class="h-3.5 w-3.5"></span>
                         删除 Slice
                     </button>
-                    <button type="button" class="hidden h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50 md:inline-flex" :disabled="workbenchActionBusy || !canSeedDemoWorld" :title="demoWorldButtonTitle" @click="void seedDemoWorld()">
-                        <span :class="actionBusy ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-sparkles'" class="h-3.5 w-3.5"></span>
-                        示例世界
-                    </button>
                     <button
                         type="button"
                         data-testid="world-workbench-inspector-toggle"
@@ -1979,6 +1930,7 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                         :selected-slice="selectedSlice"
                         :load-slice-key="sliceComposerLoadKey"
                         :new-slice-key="sliceComposerNewKey"
+                        :insert-slice-context="sliceComposerInsertContext"
                         :state-result="snapshotSubjects"
                         :used-times="sliceComposerUsedTimes"
                         :busy="workbenchActionBusy"
@@ -2012,26 +1964,6 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                     @toggle-collapsed="sidebarCollapsed = !sidebarCollapsed"
                 >
                     <template #actions>
-                        <section v-if="canCreateWorldSubject" data-testid="world-subject-bootstrap-panel" class="rounded-md border border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] p-2.5">
-                            <div class="flex items-start justify-between gap-2">
-                                <div class="min-w-0">
-                                    <div class="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--we-accent-strong)]">World subject</div>
-                                    <div class="mt-1 text-[11px] text-[var(--we-text-secondary)]">当前 schema 支持 world.events，但 Project 还没有 world subject。</div>
-                                    <div class="mt-1 text-[11px] text-[var(--we-text-secondary)]">创建后可写全局世界事件；不会写入 simulation/subjects 六文件。</div>
-                                </div>
-                                <span class="i-lucide-globe-2 h-4 w-4 shrink-0 text-[var(--we-accent)]"></span>
-                            </div>
-                            <div class="mt-2 rounded border border-[var(--we-accent-border)] bg-[var(--we-bg-panel)] p-2 text-[11px]">
-                                <div class="flex min-w-0 items-center justify-between gap-2">
-                                    <span class="shrink-0 text-[var(--we-text-muted)]">初始化时间</span>
-                                    <span class="min-w-0 truncate font-mono text-[var(--we-accent-strong)]">{{ worldSubjectDefaultTime || "未配置" }}</span>
-                                </div>
-                            </div>
-                            <button type="button" class="mt-2 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-[var(--we-accent-border)] bg-[var(--we-bg-panel)] px-2 text-[12px] font-medium text-[var(--we-accent-strong)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-50" :disabled="workbenchActionBusy || !worldSubjectDefaultTime" @click="void createWorldSubject()">
-                                <span :class="actionBusy ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-plus'" class="h-3.5 w-3.5"></span>
-                                创建 world subject
-                            </button>
-                        </section>
                         <section v-if="pendingSubjectSystemSummaries.length" data-testid="subject-system-sync-panel" class="rounded-md border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] p-2.5">
                             <div class="flex items-start justify-between gap-2">
                                 <div class="min-w-0">
@@ -2096,6 +2028,8 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                         @filter-subject="viewSubjectTimeline"
                         @focus-subject="focusSubject"
                         @focus-review-issue="void focusReviewIssue($event)"
+                        @insert-slice-before="openSliceComposerAroundSlice($event, 'before')"
+                        @insert-slice-after="openSliceComposerAroundSlice($event, 'after')"
                         @remove-subject-filter="removeSubjectFilter"
                         @select-slice="selectSlice"
                         @update-slice-health-filter="updateSliceHealthFilterForTimeline"
@@ -2132,6 +2066,7 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                         @clear-mutation-focus="clearMutationFocus"
                         @focus-subject="focusSubject"
                         @focus-review-issue="void focusReviewIssue($event)"
+                        @update-mutation-patches="void saveMutationListPatch($event)"
                         @update-mutation-value="void saveMutationValuePatch($event)"
                         @update-mutation-values="void saveMutationValuePatches($event)"
                         @update-issue-triage="updateIssueTriage"
@@ -2173,17 +2108,7 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                                 </button>
                                 <div v-if="hiddenEmptyReviewItemCount" class="rounded-md border border-[var(--we-warning-border)] bg-[var(--we-bg-panel)] px-2 py-1 text-[11px] text-[var(--we-text-muted)]">+{{ hiddenEmptyReviewItemCount }} issues</div>
                             </div>
-                            <div v-if="emptySliceState.action === 'seed-demo'" class="mt-4 flex flex-wrap items-center justify-center gap-2">
-                                <button type="button" class="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] px-3 text-[13px] text-[var(--we-text-main)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-50" :disabled="workbenchActionBusy" @click="openSubjectCreatorPanel">
-                                    <span class="i-lucide-user-plus h-4 w-4"></span>
-                                    创建 Subject
-                                </button>
-                                <button type="button" class="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] px-3 text-[13px] text-[var(--we-text-main)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-50" :disabled="workbenchActionBusy || !canSeedDemoWorld" :title="demoWorldButtonTitle" @click="void seedDemoWorld()">
-                                    <span :class="actionBusy ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-sparkles'" class="h-4 w-4"></span>
-                                    一键示例世界
-                                </button>
-                            </div>
-                            <button v-else-if="emptySliceState.action === 'create-subject'" type="button" class="mt-4 inline-flex h-9 items-center gap-2 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] px-3 text-[13px] text-[var(--we-text-main)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-50" :disabled="workbenchActionBusy" @click="openSubjectCreatorPanel">
+                            <button v-if="emptySliceState.action === 'create-subject'" type="button" class="mt-4 inline-flex h-9 items-center gap-2 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] px-3 text-[13px] text-[var(--we-text-main)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-50" :disabled="workbenchActionBusy" @click="openSubjectCreatorPanel">
                                 <span class="i-lucide-user-plus h-4 w-4"></span>
                                 创建 Subject
                             </button>

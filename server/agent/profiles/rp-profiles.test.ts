@@ -100,6 +100,7 @@ describe("RP builtin profiles", () => {
             vars: createTestVariableAccessor(),
             catalog: {profiles: [], issues: []},
             skills: [],
+            settings: {},
         });
         const systemPrompt = prepared.systemPrompt ?? "";
         const historyText = messagesText(prepared.historyInitMessages);
@@ -193,6 +194,7 @@ describe("RP builtin profiles", () => {
             vars: createTestVariableAccessor(),
             catalog: {profiles: [], issues: []},
             skills: [],
+            settings: {},
         });
         const systemPrompt = prepared.systemPrompt ?? "";
         const historyText = messagesText(prepared.historyInitMessages);
@@ -238,6 +240,7 @@ describe("RP builtin profiles", () => {
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
                 skills: [],
+                settings: {},
             });
             const systemPrompt = prepared.systemPrompt ?? "";
             const modelContextText = messagesText(prepared.modelContextMessages);
@@ -425,6 +428,7 @@ describe("RP builtin profiles", () => {
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
                 skills: [],
+                settings: {},
             });
             const systemPrompt = prepared.systemPrompt ?? "";
             const modelContextText = messagesText(prepared.modelContextMessages);
@@ -461,6 +465,7 @@ describe("RP builtin profiles", () => {
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
                 skills: [],
+                settings: {},
             });
             const systemPrompt = prepared.systemPrompt ?? "";
             const modelContextText = messagesText(prepared.modelContextMessages);
@@ -490,6 +495,7 @@ describe("RP builtin profiles", () => {
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
                 skills: [],
+                settings: {},
             });
             const systemPrompt = prepared.systemPrompt ?? "";
             const historyText = messagesText(prepared.historyInitMessages);

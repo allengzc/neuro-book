@@ -2,7 +2,7 @@
 import {computed} from "vue";
 import type {
     WorldSliceDto,
-    WorldSliceMutationDto,
+    WorldSlicePatchDto,
 } from "nbook/app/components/novel-ide/world-engine/world-engine-workbench.types";
 
 const props = defineProps<{
@@ -18,11 +18,12 @@ const emit = defineEmits<{
     (e: "delete-slice"): void;
 }>();
 
-const selectedSliceSubjectIds = computed<string[]>(() => Array.from(new Set((props.selectedSlice?.mutations ?? []).map((mutation) => mutation.subjectId))).filter(Boolean));
-const selectedSliceJson = computed(() => JSON.stringify(props.selectedSlice?.mutations ?? [], null, 2));
+const selectedSlicePatches = computed(() => props.selectedSlice?.patches ?? []);
+const selectedSliceSubjectIds = computed<string[]>(() => Array.from(new Set(selectedSlicePatches.value.map((patch) => patch.subjectId))).filter(Boolean));
+const selectedSliceJson = computed(() => JSON.stringify(selectedSlicePatches.value, null, 2));
 
 /** 将 mutation value 压成单行，方便在检查器列表中快速扫描。 */
-function formatMutationValue(mutation: WorldSliceMutationDto): string {
+function formatMutationValue(mutation: WorldSlicePatchDto): string {
     if (!("value" in mutation)) {
         return "";
     }
@@ -67,12 +68,12 @@ function formatMutationValue(mutation: WorldSliceMutationDto): string {
                 <span :class="actionBusy ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-search'" class="h-4 w-4"></span>
                 查询此时状态
             </button>
-            <button type="button" class="mt-2 inline-flex h-8 w-full items-center justify-center gap-2 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="!(selectedSlice.mutations?.length) || actionBusy" @click="emit('query-slice-subjects')">
+            <button type="button" class="mt-2 inline-flex h-8 w-full items-center justify-center gap-2 rounded-md border border-[var(--border-color)] px-3 text-[12px] text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="!selectedSlicePatches.length || actionBusy" @click="emit('query-slice-subjects')">
                 <span :class="actionBusy ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-users-round'" class="h-4 w-4"></span>
                 查询切面主体
             </button>
-            <div v-for="mutation in selectedSlice.mutations ?? []" :key="`${selectedSlice.id}:${mutation.subjectId}:${mutation.attr}:${mutation.op}:${formatMutationValue(mutation)}`" class="mt-2 rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1 text-[11px] text-[var(--text-secondary)]">
-                {{ mutation.subjectId }} · {{ mutation.attr }} · {{ mutation.op }} <span v-if="'value' in mutation">= {{ formatMutationValue(mutation) }}</span>
+            <div v-for="mutation in selectedSlicePatches" :key="`${selectedSlice.id}:${mutation.subjectId}:${mutation.path}:${mutation.op}:${formatMutationValue(mutation)}`" class="mt-2 rounded border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1 text-[11px] text-[var(--text-secondary)]">
+                {{ mutation.subjectId }} · {{ mutation.path }} · {{ mutation.op }} <span v-if="'value' in mutation">= {{ formatMutationValue(mutation) }}</span>
             </div>
             <pre class="mt-3 max-h-40 overflow-auto rounded bg-[var(--bg-panel)] p-2 text-[11px] leading-5 text-[var(--text-main)]">{{ selectedSliceJson }}</pre>
         </div>

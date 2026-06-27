@@ -8,6 +8,8 @@ export type ProfileHomeWriteResult = {
     written: boolean;
 };
 
+export type ProfileHomeScope = "global" | "project";
+
 export type ProfileHomeListItem = {
     name: string;
     path: string;
@@ -30,6 +32,9 @@ export type ProfileHomeFacade = {
 export type ProfileHomeContext = {
     profileKey: string;
     profileVersion: number;
+    scope: ProfileHomeScope;
+    root: string;
+    workspaceRoot?: string;
     projectRoot: string;
     home: ProfileHomeFacade;
 };
@@ -62,6 +67,13 @@ export function profileHomeRoot(projectRoot: string, profileKey: string): string
 }
 
 /**
+ * 计算 Workspace Root `.nbook` 下某个全局 profile home 根目录。
+ */
+export function globalProfileHomeRoot(workspaceNbookRoot: string, profileKey: string): string {
+    return path.join(workspaceNbookRoot, "agents", safeProfileId(profileKey));
+}
+
+/**
  * 将 session/config 中的 projectPath 解析为 Project Workspace 绝对路径。
  */
 export function resolveProjectRootForProfileHome(projectPath: string | undefined): string | null {
@@ -72,10 +84,79 @@ export function resolveProjectRootForProfileHome(projectPath: string | undefined
 }
 
 /**
+ * 将 workspaceRoot 解析为 Workspace Root `.nbook` 绝对路径。
+ */
+export function resolveGlobalRootForProfileHome(workspaceRoot: string | undefined): string {
+    if (!workspaceRoot?.trim()) {
+        return path.resolve(process.cwd(), "workspace", ".nbook");
+    }
+    const resolved = path.isAbsolute(workspaceRoot) ? path.resolve(workspaceRoot) : path.resolve(process.cwd(), workspaceRoot);
+    return path.basename(resolved) === ".nbook" ? resolved : path.join(resolved, ".nbook");
+}
+
+/**
  * 创建受限 profile home 文件 facade。
  */
 export function createProfileHomeFacade(projectRoot: string, profileKey: string): ProfileHomeFacade {
-    const root = profileHomeRoot(projectRoot, profileKey);
+    return createProfileHomeFacadeAtRoot(profileHomeRoot(projectRoot, profileKey));
+}
+
+/**
+ * 创建全局 profile home 文件 facade。
+ */
+export function createGlobalProfileHomeFacade(workspaceNbookRoot: string, profileKey: string): ProfileHomeFacade {
+    return createProfileHomeFacadeAtRoot(globalProfileHomeRoot(workspaceNbookRoot, profileKey));
+}
+
+/**
+ * 创建按 Project 优先、Global 兜底读取的 profile home facade。写入类操作只写 primary。
+ */
+export function createLayeredProfileHomeFacade(primary: ProfileHomeFacade, fallback: ProfileHomeFacade | undefined): ProfileHomeFacade {
+    if (!fallback) {
+        return primary;
+    }
+    return {
+        root: primary.root,
+        async readText(filePath) {
+            try {
+                return await primary.readText(filePath);
+            } catch (error) {
+                if (isNotFoundError(error)) {
+                    return fallback.readText(filePath);
+                }
+                throw error;
+            }
+        },
+        writeText: (filePath, content, options) => primary.writeText(filePath, content, options),
+        async readJson(filePath) {
+            try {
+                return await primary.readJson(filePath);
+            } catch (error) {
+                if (isNotFoundError(error)) {
+                    return fallback.readJson(filePath);
+                }
+                throw error;
+            }
+        },
+        writeJson: (filePath, value, options) => primary.writeJson(filePath, value, options),
+        exists: async (filePath) => await primary.exists(filePath) || await fallback.exists(filePath),
+        async list(directoryPath = "") {
+            const itemsByPath = new Map<string, ProfileHomeListItem>();
+            for (const item of await fallback.list(directoryPath)) {
+                itemsByPath.set(item.path, item);
+            }
+            for (const item of await primary.list(directoryPath)) {
+                itemsByPath.set(item.path, item);
+            }
+            return [...itemsByPath.values()].sort((left, right) => left.path.localeCompare(right.path));
+        },
+        move: (fromPath, toPath, options) => primary.move(fromPath, toPath, options),
+        remove: (filePath) => primary.remove(filePath),
+        clear: () => primary.clear(),
+    };
+}
+
+function createProfileHomeFacadeAtRoot(root: string): ProfileHomeFacade {
     return {
         root,
         readText: async (filePath) => fs.readFile(resolveHomePath(root, filePath), "utf-8"),
@@ -128,6 +209,51 @@ export async function ensureProfileHome(input: {
     definition?: ProfileHomeDefinition;
 }): Promise<ProfileHomeFacade> {
     const home = createProfileHomeFacade(input.projectRoot, input.profileKey);
+    return ensureProfileHomeFacade({
+        scope: "project",
+        root: home.root,
+        projectRoot: input.projectRoot,
+        profileKey: input.profileKey,
+        profileVersion: input.profileVersion,
+        definition: input.definition,
+        home,
+    });
+}
+
+/**
+ * 确保全局 profile home 已按 profile version 初始化或升级。
+ */
+export async function ensureGlobalProfileHome(input: {
+    workspaceRoot?: string;
+    profileKey: string;
+    profileVersion: number;
+    definition?: ProfileHomeDefinition;
+}): Promise<ProfileHomeFacade> {
+    const workspaceNbookRoot = resolveGlobalRootForProfileHome(input.workspaceRoot);
+    const home = createGlobalProfileHomeFacade(workspaceNbookRoot, input.profileKey);
+    return ensureProfileHomeFacade({
+        scope: "global",
+        root: home.root,
+        workspaceRoot: workspaceNbookRoot,
+        projectRoot: workspaceNbookRoot,
+        profileKey: input.profileKey,
+        profileVersion: input.profileVersion,
+        definition: input.definition,
+        home,
+    });
+}
+
+async function ensureProfileHomeFacade(input: {
+    scope: ProfileHomeScope;
+    root: string;
+    workspaceRoot?: string;
+    projectRoot: string;
+    profileKey: string;
+    profileVersion: number;
+    definition?: ProfileHomeDefinition;
+    home: ProfileHomeFacade;
+}): Promise<ProfileHomeFacade> {
+    const home = input.home;
     await fs.mkdir(home.root, {recursive: true});
     const metadataPath = path.join(home.root, "home.json");
     const now = new Date().toISOString();
@@ -135,6 +261,9 @@ export async function ensureProfileHome(input: {
     const ctx: ProfileHomeContext = {
         profileKey: input.profileKey,
         profileVersion: input.profileVersion,
+        scope: input.scope,
+        root: input.root,
+        ...(input.workspaceRoot ? {workspaceRoot: input.workspaceRoot} : {}),
         projectRoot: input.projectRoot,
         home,
     };
@@ -170,10 +299,58 @@ export async function resetProfileHome(input: {
     definition?: ProfileHomeDefinition;
 }): Promise<ProfileHomeFacade> {
     const home = createProfileHomeFacade(input.projectRoot, input.profileKey);
+    return resetProfileHomeFacade({
+        scope: "project",
+        root: home.root,
+        projectRoot: input.projectRoot,
+        profileKey: input.profileKey,
+        profileVersion: input.profileVersion,
+        definition: input.definition,
+        home,
+    });
+}
+
+/**
+ * 重置全局 profile home，并刷新 home metadata。
+ */
+export async function resetGlobalProfileHome(input: {
+    workspaceRoot?: string;
+    profileKey: string;
+    profileVersion: number;
+    definition?: ProfileHomeDefinition;
+}): Promise<ProfileHomeFacade> {
+    const workspaceNbookRoot = resolveGlobalRootForProfileHome(input.workspaceRoot);
+    const home = createGlobalProfileHomeFacade(workspaceNbookRoot, input.profileKey);
+    return resetProfileHomeFacade({
+        scope: "global",
+        root: home.root,
+        workspaceRoot: workspaceNbookRoot,
+        projectRoot: workspaceNbookRoot,
+        profileKey: input.profileKey,
+        profileVersion: input.profileVersion,
+        definition: input.definition,
+        home,
+    });
+}
+
+async function resetProfileHomeFacade(input: {
+    scope: ProfileHomeScope;
+    root: string;
+    workspaceRoot?: string;
+    projectRoot: string;
+    profileKey: string;
+    profileVersion: number;
+    definition?: ProfileHomeDefinition;
+    home: ProfileHomeFacade;
+}): Promise<ProfileHomeFacade> {
+    const home = input.home;
     await fs.mkdir(home.root, {recursive: true});
     const ctx: ProfileHomeContext = {
         profileKey: input.profileKey,
         profileVersion: input.profileVersion,
+        scope: input.scope,
+        root: input.root,
+        ...(input.workspaceRoot ? {workspaceRoot: input.workspaceRoot} : {}),
         projectRoot: input.projectRoot,
         home,
     };

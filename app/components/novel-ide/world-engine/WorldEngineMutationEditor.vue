@@ -24,6 +24,7 @@ import {
     previewAttrValueType,
     replaceMutationAt,
     resolvePreviewAttrPath,
+    suggestAdjacentPreviewTime,
     suggestNextPreviewTime,
     suggestSliceTime,
     type JsonValue,
@@ -37,7 +38,7 @@ import type {
     SliceWriteResultDto,
     WorldSchemaProjectionDto,
     WorldSliceDto,
-    WorldSliceMutationDto,
+    WorldSlicePatchDto,
     WorldSubjectDto,
 } from "nbook/app/components/novel-ide/world-engine/world-engine-workbench.types";
 
@@ -53,13 +54,18 @@ const props = defineProps<{
     newSliceKey: number;
     stateResult: SubjectStateDto[];
     usedTimes?: string[];
+    insertSliceContext?: {
+        anchorTime: string;
+        direction: "before" | "after";
+        version: number;
+    } | null;
     busy?: boolean;
 }>();
 
 const emit = defineEmits<{
     (e: "dirtyChange", dirty: boolean): void;
     (e: "savingChange", saving: boolean): void;
-    (e: "saved", payload: {result: SliceWriteResultDto; time: string; editing: boolean; continueAfterSave: boolean; contextSubjectId: string; mutations: WorldSliceMutationDto[]}): void;
+    (e: "saved", payload: {result: SliceWriteResultDto; time: string; editing: boolean; continueAfterSave: boolean; contextSubjectId: string; mutations: WorldSlicePatchDto[]}): void;
     (e: "error", message: string): void;
     (e: "notice", message: string): void;
 }>();
@@ -74,9 +80,9 @@ const sliceForm = reactive({
 });
 const mutationBuilder = reactive({
     subjectId: initialMutation.subjectId,
-    attr: initialMutation.attr,
+    path: initialMutation.path,
     op: initialMutation.op,
-    value: initialMutation.op === "unset" ? "" : formatBuilderValue(initialMutation.value),
+    value: initialMutation.op === "remove" ? "" : formatBuilderValue(initialMutation.value),
 });
 const objectBuilderRows = ref<ObjectBuilderRow[]>([{key: "", value: "", enabled: true}]);
 const saving = ref(false);
@@ -91,9 +97,9 @@ const {confirm: confirmDialog} = useDialog();
 const schemaTypes = computed<WorldPreviewSchemaType[]>(() => props.schema?.subjectTypes ?? []);
 const selectedSubject = computed<WorldSubjectDto | null>(() => props.subjects.find((subject) => subject.id === mutationBuilder.subjectId) ?? null);
 const builderAttrs = computed<WorldPreviewSchemaAttr[]>(() => attrsForSubjectId(mutationBuilder.subjectId));
-const builderAttr = computed<WorldPreviewSchemaAttr | null>(() => resolvePreviewAttrPath(builderAttrs.value, mutationBuilder.attr));
-const builderHasSchemaAttr = computed(() => builderAttrs.value.some((item) => item.name === mutationBuilder.attr));
-const builderOpOptions = computed<WorldMutationOp[]>(() => opOptionsForAttr(mutationBuilder.attr));
+const builderAttr = computed<WorldPreviewSchemaAttr | null>(() => resolvePreviewAttrPath(builderAttrs.value, mutationBuilder.path));
+const builderHasSchemaAttr = computed(() => builderAttrs.value.some((item) => attrToPointer(item.name) === mutationBuilder.path));
+const builderOpOptions = computed<WorldMutationOp[]>(() => opOptionsForAttr(mutationBuilder.path));
 const builderValueHint = computed(() => {
     const attr = builderAttr.value;
     if (!attr) {
@@ -127,7 +133,7 @@ const mutationLoadOptions = computed<Array<{label: string; value: string}>>(() =
         return [];
     }
     return parsed.value.map((mutation, index) => ({
-        label: `#${index + 1} ${mutation.subjectId}.${mutation.attr} ${mutation.op}`,
+        label: `#${index + 1} ${mutation.subjectId}${mutation.path} ${mutation.op}`,
         value: String(index),
     }));
 });
@@ -168,7 +174,7 @@ async function submitSlice(options: {continueAfterSave?: boolean} = {}): Promise
             && lastMutation
             && defaultForSelected
             && defaultForSelected.subjectId === lastMutation.subjectId
-            && defaultForSelected.attr === lastMutation.attr
+            && defaultForSelected.path === lastMutation.path
             && defaultForSelected.op === lastMutation.op,
         );
         const contextSubjectId = keepSelectedContext ? selectedSubjectId : lastMutation?.subjectId || selectedSubjectId || mutationBuilder.subjectId || "world";
@@ -180,7 +186,7 @@ async function submitSlice(options: {continueAfterSave?: boolean} = {}): Promise
                 title: sliceForm.title.trim(),
                 summary: sliceForm.summary.trim(),
                 kind: sliceForm.kind.trim() || "event",
-                mutations: parsed.value,
+                patches: parsed.value,
             },
         });
         const savedTime = sliceForm.time.trim();
@@ -247,9 +253,9 @@ function forceLoadSelectedSlice(): void {
     sliceForm.title = slice.title;
     sliceForm.summary = slice.summary;
     sliceForm.kind = slice.kind;
-    sliceForm.mutations = JSON.stringify(slice.mutations ?? [], null, 2);
+    sliceForm.mutations = JSON.stringify(slice.patches ?? [], null, 2);
     mutationLoadIndex.value = "0";
-    if ((slice.mutations ?? []).length) {
+    if ((slice.patches ?? []).length) {
         loadMutationToBuilder(0, true);
     }
     builderDraftDirty.value = false;
@@ -292,7 +298,7 @@ function fillMutation(typeName: string, attr: WorldPreviewSchemaAttr): void {
     sliceForm.mutations = JSON.stringify([mutation], null, 2);
     mutationLoadIndex.value = "0";
     mutationBuilder.subjectId = subjectId;
-    mutationBuilder.attr = attr.name;
+    mutationBuilder.path = attrToPointer(attr.name);
     mutationBuilder.op = mutation.op;
     mutationBuilder.value = formatBuilderValue(mutation.value);
     syncObjectRowsFromBuilderValue();
@@ -467,23 +473,23 @@ function applyDirtyBuilderDraftBeforeSubmit(): boolean {
     return true;
 }
 
-/** 从 Builder 表单构造 mutation，集中处理 subject / attr / value 校验。 */
+/** 从 Builder 表单构造 patch，集中处理 subject / path / value 校验。 */
 function buildMutationFromBuilder(): WorldMutationDraft | null {
     if (!mutationBuilder.subjectId.trim()) {
-        emit("error", "mutation subjectId 不能为空");
+        emit("error", "patch subjectId 不能为空");
         return null;
     }
-    if (!mutationBuilder.attr.trim()) {
-        emit("error", "mutation attr 不能为空");
+    if (!mutationBuilder.path.trim()) {
+        emit("error", "patch path 不能为空");
         return null;
     }
 
     const mutation: WorldMutationDraft = {
         subjectId: mutationBuilder.subjectId.trim(),
-        attr: mutationBuilder.attr.trim(),
+        path: mutationBuilder.path.trim(),
         op: mutationBuilder.op,
     };
-    if (mutationBuilder.op !== "unset") {
+    if (mutationBuilder.op !== "remove") {
         const parsedValue = parseBuilderValue();
         if (!parsedValue.ok) {
             emit("error", parsedValue.message);
@@ -537,9 +543,9 @@ function loadMutationToBuilder(index: number, silent = false): void {
     }
     mutationLoadIndex.value = String(index);
     mutationBuilder.subjectId = mutation.subjectId;
-    mutationBuilder.attr = mutation.attr;
+    mutationBuilder.path = mutation.path;
     mutationBuilder.op = mutation.op;
-    mutationBuilder.value = mutation.op === "unset" ? "" : formatBuilderValue(mutation.value);
+    mutationBuilder.value = mutation.op === "remove" ? "" : formatBuilderValue(mutation.value);
     syncObjectRowsFromBuilderValue();
     builderDraftDirty.value = false;
     if (!silent) {
@@ -548,7 +554,7 @@ function loadMutationToBuilder(index: number, silent = false): void {
 }
 
 /** 接收 Builder 子组件的字段更新，保留父组件里的 watcher 与校验链路。 */
-function updateBuilderField(field: "subjectId" | "attr" | "op" | "value", value: string): void {
+function updateBuilderField(field: "subjectId" | "path" | "op" | "value", value: string): void {
     if (builderDisabled.value) {
         return;
     }
@@ -575,8 +581,8 @@ function attrsForSubjectId(subjectId: string): WorldPreviewSchemaAttr[] {
     return schemaTypes.value.find((item) => item.type === typeName)?.attrs ?? [];
 }
 
-function opOptionsForAttr(attrName: string): WorldMutationOp[] {
-    const attr = resolvePreviewAttrPath(builderAttrs.value, attrName);
+function opOptionsForAttr(path: string): WorldMutationOp[] {
+    const attr = resolvePreviewAttrPath(builderAttrs.value, path);
     return opOptionsForPreviewAttr(attr);
 }
 
@@ -595,11 +601,11 @@ function schemaTypeShortcutTitle(typeName: string): string {
 }
 
 function refreshBuilderDefaultValue(): void {
-    if (mutationBuilder.op === "unset") {
+    if (mutationBuilder.op === "remove") {
         mutationBuilder.value = "";
         return;
     }
-    const attr = resolvePreviewAttrPath(builderAttrs.value, mutationBuilder.attr);
+    const attr = resolvePreviewAttrPath(builderAttrs.value, mutationBuilder.path);
     if (!attr) {
         return;
     }
@@ -636,7 +642,7 @@ function refOptionsForAttr(attr: WorldPreviewSchemaAttr | null): Array<{label: s
 }
 
 function resolveBuilderValueMode(attr: WorldPreviewSchemaAttr | null, op: WorldMutationOp): BuilderValueMode {
-    if (op === "unset") {
+    if (op === "remove") {
         return "hidden";
     }
     const valueType = previewAttrValueType(attr);
@@ -725,7 +731,7 @@ function objectFieldAttr(rowKey: string): WorldPreviewSchemaAttr | null {
 }
 
 function objectFieldValueMode(rowKey: string): BuilderValueMode {
-    const mode = resolveBuilderValueMode(objectFieldAttr(rowKey), "set");
+    const mode = resolveBuilderValueMode(objectFieldAttr(rowKey), "replace");
     if (mode === "object") {
         return "json";
     }
@@ -811,19 +817,23 @@ function parseRefType(type: string | undefined): string | null {
     return match?.[1] ?? null;
 }
 
+function attrToPointer(attr: string): string {
+    return `/${attr.split(".").filter(Boolean).map((part) => part.replace(/~/g, "~0").replace(/\//g, "~1")).join("/")}`;
+}
+
 function defaultSliceMutations(subjectId: string): string {
     return JSON.stringify([defaultMutationForPreviewSubject(props.schema?.subjectTypes ?? [], props.subjects, subjectId)], null, 2);
 }
 
-/** 生成默认 mutation 草稿，并让 Builder 表单与 textarea 保持同一个 subject/attr/op。 */
+/** 生成默认 patch 草稿，并让 Builder 表单与 textarea 保持同一个 subject/path/op。 */
 function applyDefaultSliceMutation(subjectId: string): void {
     const mutation = defaultMutationForPreviewSubject(props.schema?.subjectTypes ?? [], props.subjects, subjectId);
     sliceForm.mutations = JSON.stringify([mutation], null, 2);
     mutationLoadIndex.value = "0";
     mutationBuilder.subjectId = mutation.subjectId;
-    mutationBuilder.attr = mutation.attr;
+    mutationBuilder.path = mutation.path;
     mutationBuilder.op = mutation.op;
-    mutationBuilder.value = mutation.op === "unset" ? "" : formatBuilderValue(mutation.value);
+    mutationBuilder.value = mutation.op === "remove" ? "" : formatBuilderValue(mutation.value);
     syncObjectRowsFromBuilderValue();
     builderDraftDirty.value = false;
 }
@@ -831,6 +841,10 @@ function applyDefaultSliceMutation(subjectId: string): void {
 function suggestedNewSliceTime(extraUsedTimes: string[] = []): string {
     const examples = props.schema?.calendar.examples ?? [];
     const usedTimes = [...(props.usedTimes ?? []), ...extraUsedTimes];
+    const context = props.insertSliceContext;
+    if (context?.anchorTime) {
+        return suggestAdjacentPreviewTime(examples, usedTimes, context.anchorTime, context.direction);
+    }
     if (usedTimes.length) {
         return suggestNextPreviewTime(examples, usedTimes);
     }
@@ -898,16 +912,16 @@ watch(hasDirtyDraft, (dirty) => {
 
 watch(() => mutationBuilder.subjectId, () => {
     const attrs = attrsForSubjectId(mutationBuilder.subjectId);
-    if (attrs.length && !attrs.some((attr) => attr.name === mutationBuilder.attr)) {
-        mutationBuilder.attr = attrs[0]?.name ?? mutationBuilder.attr;
+    if (attrs.length && !attrs.some((attr) => attrToPointer(attr.name) === mutationBuilder.path)) {
+        mutationBuilder.path = attrs[0] ? attrToPointer(attrs[0].name) : mutationBuilder.path;
     }
     refreshBuilderDefaultValue();
 });
 
-watch(() => mutationBuilder.attr, () => {
-    const options = opOptionsForAttr(mutationBuilder.attr);
+watch(() => mutationBuilder.path, () => {
+    const options = opOptionsForAttr(mutationBuilder.path);
     if (!options.includes(mutationBuilder.op)) {
-        mutationBuilder.op = options[0] ?? "set";
+        mutationBuilder.op = options[0] ?? "replace";
     }
     refreshBuilderDefaultValue();
 });
@@ -936,6 +950,13 @@ watch(() => props.loadSliceKey, () => {
 watch(() => props.newSliceKey, (key) => {
     if (key > 0) {
         void clearEditMode();
+    }
+});
+
+watch(() => props.insertSliceContext?.version ?? 0, (version) => {
+    if (version > 0 && !editingSliceId.value) {
+        sliceForm.time = suggestedNewSliceTime();
+        markCleanSliceForm();
     }
 });
 

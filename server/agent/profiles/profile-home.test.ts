@@ -2,7 +2,7 @@ import {mkdtemp, readFile, rm} from "node:fs/promises";
 import path from "node:path";
 import {tmpdir} from "node:os";
 import {afterEach, beforeEach, describe, expect, it} from "vitest";
-import {defineProfileHome, ensureProfileHome, resetProfileHome} from "nbook/server/agent/profiles/profile-home";
+import {createLayeredProfileHomeFacade, defineProfileHome, ensureGlobalProfileHome, ensureProfileHome, resetProfileHome} from "nbook/server/agent/profiles/profile-home";
 
 describe("profile home", () => {
     let projectRoot: string;
@@ -80,5 +80,49 @@ describe("profile home", () => {
 
         await expect(home.exists("note.md")).resolves.toBe(false);
         await expect(home.readText("reset.md")).resolves.toBe("ok");
+    });
+
+    it("初始化 Global profile home 到 Workspace Root .nbook/agents", async () => {
+        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-global-profile-home-"));
+        try {
+            const calls: string[] = [];
+            const home = await ensureGlobalProfileHome({
+                workspaceRoot,
+                profileKey: "writer",
+                profileVersion: 1,
+                definition: defineProfileHome({
+                    async init(ctx) {
+                        calls.push(`${ctx.scope}:${path.relative(workspaceRoot, ctx.root).replaceAll("\\", "/")}`);
+                        await ctx.home.writeText("styles/global.md", "global");
+                    },
+                }),
+            });
+
+            expect(path.relative(workspaceRoot, home.root).replaceAll("\\", "/")).toBe(".nbook/agents/writer");
+            expect(calls).toEqual(["global:.nbook/agents/writer"]);
+            await expect(readFile(path.join(workspaceRoot, ".nbook", "agents", "writer", "styles", "global.md"), "utf-8")).resolves.toBe("global");
+        } finally {
+            await rm(workspaceRoot, {recursive: true, force: true});
+        }
+    });
+
+    it("层叠 home 读取 Project 优先并用 Global 兜底", async () => {
+        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-layered-profile-home-"));
+        try {
+            const globalHome = await ensureGlobalProfileHome({workspaceRoot, profileKey: "writer", profileVersion: 1});
+            const projectHome = await ensureProfileHome({projectRoot, profileKey: "writer", profileVersion: 1});
+            await globalHome.writeText("styles/shared.md", "global shared", {mode: "overwrite"});
+            await globalHome.writeText("styles/global.md", "global only", {mode: "overwrite"});
+            await projectHome.writeText("styles/shared.md", "project shared", {mode: "overwrite"});
+
+            const layered = createLayeredProfileHomeFacade(projectHome, globalHome);
+
+            await expect(layered.readText("styles/shared.md")).resolves.toBe("project shared");
+            await expect(layered.readText("styles/global.md")).resolves.toBe("global only");
+            await expect(layered.exists("styles/global.md")).resolves.toBe(true);
+            expect((await layered.list("styles")).map((item) => item.path)).toEqual(["styles/global.md", "styles/shared.md"]);
+        } finally {
+            await rm(workspaceRoot, {recursive: true, force: true});
+        }
     });
 });

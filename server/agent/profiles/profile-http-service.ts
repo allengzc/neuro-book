@@ -25,7 +25,7 @@ import type {
 } from "nbook/shared/dto/agent-profile.dto";
 import {reportResultSchemaForProfile, reportSidecarResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import {resolveRuntimeProfileSettings} from "nbook/server/agent/profiles/profile-settings";
-import {ensureProfileHome, resolveProjectRootForProfileHome} from "nbook/server/agent/profiles/profile-home";
+import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHome, resolveProjectRootForProfileHome} from "nbook/server/agent/profiles/profile-home";
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
 import {buildProfilePromptRoot} from "nbook/server/agent/profiles/profile-dsl-source-parser";
 
@@ -116,14 +116,17 @@ export async function previewAgentProfilePrepare(
     const catalog = await harness.profiles.snapshot();
     const skills = await harness.skills.list();
     const effectiveConfig = await loadPreviewEffectiveConfig(sessionContext);
-    const settings = await resolveRuntimeProfileSettings(profile, effectiveConfig.agent.profiles[request.profileKey]?.settings, {
-        profileKey: request.profileKey,
-        scope: sessionContext.projectPath ? "project" : "global",
-        workspaceRoot: sessionContext.workspaceRoot,
-        ...(sessionContext.projectPath ? {projectPath: sessionContext.projectPath} : {}),
-    });
+    const needsHome = profileNeedsHome(profile);
     const projectRoot = resolveProjectRootForProfileHome(sessionContext.projectPath);
-    const home = projectRoot
+    const globalHome = needsHome
+        ? await ensureGlobalProfileHome({
+            workspaceRoot: sessionContext.workspaceRoot,
+            profileKey: profile.manifest.key,
+            profileVersion: profile.manifest.version ?? 1,
+            definition: profile.home,
+        })
+        : undefined;
+    const projectHome = projectRoot && needsHome
         ? await ensureProfileHome({
             projectRoot,
             profileKey: profile.manifest.key,
@@ -131,6 +134,14 @@ export async function previewAgentProfilePrepare(
             definition: profile.home,
         })
         : undefined;
+    const home = projectHome ? createLayeredProfileHomeFacade(projectHome, globalHome) : globalHome;
+    const settings = await resolveRuntimeProfileSettings(profile, effectiveConfig.agent.profiles[request.profileKey]?.settings, {
+        profileKey: request.profileKey,
+        scope: sessionContext.projectPath ? "project" : "global",
+        workspaceRoot: sessionContext.workspaceRoot,
+        ...(sessionContext.projectPath ? {projectPath: sessionContext.projectPath} : {}),
+        ...(home ? {home, allowGlobalResourceKeys: true} : {}),
+    });
 
     try {
         const prepared = await profile.prepare!({
@@ -150,7 +161,7 @@ export async function previewAgentProfilePrepare(
                 now: new Date().toISOString(),
                 promptUserTurnCount: sessionContext.messages.filter((message) => message.role === "user").length,
             },
-        } as ProfilePrepareContext);
+        });
         const historyMessages = prepared.historyInitMessages ?? [];
         const modelContextAppendingMessages = prepared.modelContextAppendingMessages ?? [];
         const explicitAppendingMessages = prepared.appendingMessages ?? [];
@@ -216,6 +227,10 @@ export async function previewAgentProfilePrepare(
                 : null,
         };
     }
+}
+
+function profileNeedsHome(profile: AgentProfile): boolean {
+    return Boolean(profile.home) || Boolean(profile.settingsForm?.fields.some((field) => field.component === "resource-preset"));
 }
 
 /**

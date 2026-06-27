@@ -34,15 +34,28 @@ describe("deleteProjectWorkspace", () => {
             });
             await initProjectDatabase(projectPath);
             await mkdir(join(projectRoot, "manuscript"), {recursive: true});
-            await mkdir(join(projectRoot, "world-engine"), {recursive: true});
+            await mkdir(join(projectRoot, "world-engine", "schema"), {recursive: true});
             await writeFile(join(projectRoot, "manuscript", "chapter-1.md"), "# Chapter 1\n", "utf8");
-            await writeFile(join(projectRoot, "world-engine", "schema.yaml"), [
-                "subjectTypes:",
-                "  world:",
-                "    attrs:",
-                "      note:",
-                "        kind: scalar",
-                "        type: text",
+            await writeFile(join(projectRoot, "world-engine", "schema", "index.ts"), [
+                'import {z} from "zod";',
+                "",
+                "export const WorldSchema = {",
+                "    world: z.object({",
+                "        note: z.string().optional().describe('备注'),",
+                "    }),",
+                "} as const;",
+                "",
+            ].join("\n"), "utf8");
+            await writeFile(join(projectRoot, "world-engine", "calendar.ts"), [
+                "export default {",
+                "    type: 'simple',",
+                "    eraBefore: '复兴纪元',",
+                "    eraAfter: '复兴纪元',",
+                "    baseUnit: 'second',",
+                "    units: [{name: 'day', parent: 'second', ratio: 86400}],",
+                "    format: '{eraName}{day}日 {second}',",
+                "};",
+                "",
             ].join("\n"), "utf8");
 
             await plotFacade.getStoryDto(projectPath);
@@ -50,7 +63,7 @@ describe("deleteProjectWorkspace", () => {
             await worldEngineFacade.writeSlice(projectPath, {
                 instant: 10n,
                 title: "打开 World Engine client",
-                mutations: [{subjectId: "world", attr: "note", op: "set", value: "delete me"}],
+                patches: [{subjectId: "world", path: "/note", op: "replace", value: "delete me"}],
             });
             await getAgentSqlSchemaSummary(projectPath);
             await readProjectWorkspaceTreeSnapshot({root: projectRoot});

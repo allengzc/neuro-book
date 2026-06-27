@@ -1,15 +1,14 @@
 <script setup lang="ts">
-import {computed, watch} from "vue";
 import WorldEngineMutationActionButtons from "nbook/app/components/novel-ide/world-engine/WorldEngineMutationActionButtons.vue";
 import WorldEngineMutationListControls from "nbook/app/components/novel-ide/world-engine/WorldEngineMutationListControls.vue";
 import WorldEngineObjectValueEditor from "nbook/app/components/novel-ide/world-engine/WorldEngineObjectValueEditor.vue";
-import {collectionRemoveValueOptions, type WorldMutationOp, type WorldPreviewSchemaAttr} from "nbook/app/utils/world-engine-preview";
+import {type WorldMutationOp, type WorldPreviewSchemaAttr} from "nbook/app/utils/world-engine-preview";
 import type {SubjectStateDto, WorldSubjectDto} from "nbook/app/components/novel-ide/world-engine/world-engine-workbench.types";
 
 type BuilderValueMode = "hidden" | "number" | "boolean" | "enum" | "ref" | "object" | "json" | "text";
 type MutationBuilderModel = {
     subjectId: string;
-    attr: string;
+    path: string;
     op: WorldMutationOp;
     value: string;
 };
@@ -76,26 +75,8 @@ function updateBuilderField(field: keyof MutationBuilderModel, value: string): v
     emit("update-builder-field", field, value);
 }
 
-const collectionValueOptions = computed<Array<{label: string; value: string; key: string}>>(() => {
-    if (props.builder.op !== "collectionRemove") {
-        return [];
-    }
-    return collectionRemoveValueOptions(props.stateResult, props.builder.subjectId, props.builder.attr);
-});
-
-watch(collectionValueOptions, (options) => {
-    syncCollectionRemoveValue(options);
-}, {immediate: true});
-
-/** 下拉候选出现时，把 Builder value 对齐到真实会提交的选项。 */
-function syncCollectionRemoveValue(options: Array<{value: string}>): void {
-    if (props.builder.op !== "collectionRemove" || !options.length) {
-        return;
-    }
-    if (options.some((option) => option.value === props.builder.value)) {
-        return;
-    }
-    updateBuilderField("value", options[0]?.value ?? "");
+function attrPath(name: string): string {
+    return `/${name.split(".").filter(Boolean).map((part) => part.replace(/~/g, "~0").replace(/\//g, "~1")).join("/")}`;
 }
 </script>
 
@@ -122,21 +103,18 @@ function syncCollectionRemoveValue(options: Array<{value: string}>): void {
                 <select :value="builder.subjectId" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" @change="updateBuilderField('subjectId', inputValue($event))">
                     <option v-for="subject in subjects" :key="`builder:${subject.id}`" :value="subject.id">{{ subject.id }} · {{ subject.type }}</option>
                 </select>
-                <select :value="builder.attr" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" @change="updateBuilderField('attr', inputValue($event))">
-                    <option v-if="builder.attr && !builderHasSchemaAttr" :value="builder.attr">自定义 · {{ builder.attr }}</option>
-                    <option v-for="attr in builderAttrs" :key="`builder-attr:${attr.name}`" :value="attr.name">{{ attr.name }}</option>
+                <select :value="builder.path" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" @change="updateBuilderField('path', inputValue($event))">
+                    <option v-if="builder.path && !builderHasSchemaAttr" :value="builder.path">自定义 · {{ builder.path }}</option>
+                    <option v-for="attr in builderAttrs" :key="`builder-attr:${attr.name}`" :value="attrPath(attr.name)">{{ attr.name }}</option>
                 </select>
-                <input :value="builder.attr" list="world-engine-builder-attrs" class="col-span-2 h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 font-mono text-[12px] outline-none focus:border-[var(--accent-main)]" placeholder="attr path, e.g. equipment.weapon / memory.师门" @input="updateBuilderField('attr', inputValue($event))">
+                <input :value="builder.path" list="world-engine-builder-attrs" class="col-span-2 h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 font-mono text-[12px] outline-none focus:border-[var(--accent-main)]" placeholder="JSON Pointer path, e.g. /equipment/weapon /memory/师门" @input="updateBuilderField('path', inputValue($event))">
                 <datalist id="world-engine-builder-attrs">
-                    <option v-for="attr in builderAttrs" :key="`builder-attr-option:${attr.name}`" :value="attr.name"></option>
+                    <option v-for="attr in builderAttrs" :key="`builder-attr-option:${attr.name}`" :value="attrPath(attr.name)"></option>
                 </datalist>
                 <select :value="builder.op" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" @change="updateBuilderField('op', inputValue($event))">
                     <option v-for="op in builderOpOptions" :key="op" :value="op">{{ op }}</option>
                 </select>
-                <select v-if="builder.op === 'collectionRemove' && collectionValueOptions.length" :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" title="从当前 State Query 结果中选择要移除的 collection 项" @change="updateBuilderField('value', inputValue($event))">
-                    <option v-for="option in collectionValueOptions" :key="option.key" :value="option.value">{{ option.label }}</option>
-                </select>
-                <input v-else-if="builderValueMode === 'number'" :value="builder.value" type="number" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" placeholder="value" @input="updateBuilderField('value', inputValue($event))">
+                <input v-if="builderValueMode === 'number'" :value="builder.value" type="number" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" placeholder="value" @input="updateBuilderField('value', inputValue($event))">
                 <select v-else-if="builderValueMode === 'boolean'" :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" @change="updateBuilderField('value', inputValue($event))">
                     <option value="true">true</option>
                     <option value="false">false</option>
@@ -162,7 +140,7 @@ function syncCollectionRemoveValue(options: Array<{value: string}>): void {
                 />
                 <textarea v-else-if="builderValueMode === 'json'" :value="builder.value" rows="4" class="col-span-2 min-h-[96px] resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5 font-mono text-[12px] leading-5 outline-none focus:border-[var(--accent-main)]" placeholder="{&quot;key&quot;: &quot;value&quot;}" title="当前 value 需要填写 JSON object" @input="updateBuilderField('value', inputValue($event))"></textarea>
                 <input v-else-if="builderValueMode === 'text'" :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] outline-none focus:border-[var(--accent-main)]" placeholder="value" @input="updateBuilderField('value', inputValue($event))">
-                <input v-else class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] opacity-50 outline-none" disabled placeholder="unset">
+                <input v-else class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 text-[12px] opacity-50 outline-none" disabled placeholder="remove">
             </div>
             <WorldEngineMutationActionButtons
                 :disabled="props.disabled"

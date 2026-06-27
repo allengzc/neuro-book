@@ -50,6 +50,7 @@ export const LowCodeResourcePresetOptionDtoSchema = z.object({
     key: z.string().trim().min(1),
     label: z.string().trim().min(1),
     description: z.string().trim().optional(),
+    origin: z.enum(["global", "project"]).optional(),
     editable: z.boolean().default(false),
     deletable: z.boolean().default(false),
 });
@@ -58,6 +59,7 @@ export const LowCodeResourcePresetContentDtoSchema = z.object({
     key: z.string().trim().min(1),
     content: z.string(),
     contentType: z.literal("markdown"),
+    origin: z.enum(["global", "project"]).optional(),
     updatedAt: z.string().trim().optional(),
 });
 

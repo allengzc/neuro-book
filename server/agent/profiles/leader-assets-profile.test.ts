@@ -2,6 +2,7 @@ import {join, resolve} from "node:path";
 import {mkdir, rm, writeFile} from "node:fs/promises";
 import {randomUUID} from "node:crypto";
 import {describe, expect, it, vi} from "vitest";
+import leaderDefaultProfile, {LeaderDefaultSettingsForm} from "../../../assets/workspace/.nbook/agent/profiles/builtin/leader.default.profile";
 import writerProfile, {WriterSettingsForm} from "../../../assets/workspace/.nbook/agent/profiles/builtin/writer.profile";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {ResearcherInitialSchema, RetrievalInitialSchema, RetrievalOutputSchema, WriterInitialSchema, WriterPayloadSchema} from "nbook/server/agent/profiles/builtin-contracts";
@@ -13,6 +14,7 @@ import type {AgentDialogueContent} from "nbook/server/agent/session/dialogue-con
 import {DEFAULT_WRITING_REFERENCE_PRESET, homeReferenceKeyToLegacyKey, loadWritingReferencePresets} from "nbook/server/agent/profiles/writer-writing-reference";
 import {DEFAULT_WRITING_STYLE_PRESET, homeStyleKeyToLegacyKey, loadWritingStylePresets} from "nbook/server/agent/profiles/writer-writing-style";
 import {createTestVariableAccessor} from "nbook/server/agent/variables/test-utils";
+import {ensureProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {validateLowCodeFormValue} from "nbook/server/low-code-form";
 
 vi.mock("nbook/server/utils/prisma", () => ({
@@ -82,6 +84,7 @@ describe("assets builtin v3 profiles", () => {
                 rootPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "draft"),
                 skillPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "draft", "SKILL.md"),
             }],
+            settings: {},
         });
         const prompt = prepared.systemPrompt ?? "";
         const historyText = (prepared.historyInitMessages ?? []).map(messageText).join("\n");
@@ -105,17 +108,8 @@ describe("assets builtin v3 profiles", () => {
             "exit_plan_mode",
             "task_create",
             "task_set_status",
-            "get_plot_tree",
-            "get_story_thread",
-            "get_story_scene_context",
-            "get_chapter_plot",
-            "create_story_thread",
-            "update_story_thread",
-            "create_story_scene",
-            "update_story_scene",
-            "create_story_plot",
-            "create_story_plots",
-            "update_story_plot",
+            "execute_world_query",
+            "write_world_slice",
             "execute_sql",
             "variable_schema",
             "variable_read",
@@ -147,7 +141,8 @@ describe("assets builtin v3 profiles", () => {
         expect(visiblePrompt).toContain("variable_schema");
         expect(visiblePrompt).toContain("variable_read");
         expect(visiblePrompt).toContain("variable_patch");
-        expect(visiblePrompt).toContain("get_plot_tree");
+        expect(visiblePrompt).toContain("execute_world_query");
+        expect(visiblePrompt).toContain("write_world_slice");
         expect(visiblePrompt).toContain("writer");
         expect(visiblePrompt).toContain("retrieval");
         expect(visiblePrompt).toContain("`researcher` 是联网研究专用 agent");
@@ -224,8 +219,8 @@ describe("assets builtin v3 profiles", () => {
         expect(historyText).toContain("NeuroBook Markdown Dialect");
         expect(historyText).toContain("```reference/agent/project-workspace-guide.md");
         expect(historyText).toContain("Project Workspace Guide");
-        expect(historyText).toContain("```reference/plot/system.md");
-        expect(historyText).toContain("Plot System");
+        expect(historyText).toContain("```reference/world-engine/workflow.md");
+        expect(historyText).toContain("```reference/world-engine/recording-principles.md");
         const runtimePrepared = await profile.prepare!({
             session: testSession({
                 systemPrompt: "",
@@ -252,6 +247,7 @@ describe("assets builtin v3 profiles", () => {
             }),
             catalog: await catalog.snapshot(),
             skills: [],
+            settings: {},
         });
         const runtimeModelContextText = (runtimePrepared.modelContextMessages ?? []).flatMap((message) => {
             const content = "content" in message ? message.content : "";
@@ -297,6 +293,7 @@ describe("assets builtin v3 profiles", () => {
             vars: createTestVariableAccessor(),
             catalog: await catalog.snapshot(),
             skills: [],
+            settings: {},
         });
         const planModeText = (planModePrepared.appendingMessages ?? []).map(messageText).join("\n");
         expect(planModeText).toContain("## Thread Work Directory");
@@ -327,6 +324,7 @@ describe("assets builtin v3 profiles", () => {
             vars: createTestVariableAccessor(),
             catalog: await catalog.snapshot(),
             skills: [],
+            settings: {},
         });
         expect((exitPrepared.appendingMessages ?? []).map(messageText).join("\n")).toContain("## Exited Plan Mode");
         const snapshot = await catalog.snapshot();
@@ -359,6 +357,7 @@ describe("assets builtin v3 profiles", () => {
             vars: createTestVariableAccessor(),
             catalog: await catalog.snapshot(),
             skills: [],
+            settings: {},
         });
         const prompt = prepared.systemPrompt ?? "";
 
@@ -414,6 +413,7 @@ describe("assets builtin v3 profiles", () => {
                 rootPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "profile-system-guide"),
                 skillPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"),
             }],
+            settings: {},
         });
         const prompt = prepared.systemPrompt ?? "";
         const modelContextText = prepared.modelContextMessages
@@ -523,10 +523,8 @@ describe("assets builtin v3 profiles", () => {
             "read",
             "write",
             "edit",
-            "get_story_thread",
-            "get_story_scene_context",
-            "get_story_plot_context",
-            "get_chapter_plot",
+            "bash",
+            "execute_world_query",
             "report_result",
         ]));
         expect(writerProfile.rootToolKeys).not.toContain("apply_patch");
@@ -599,6 +597,7 @@ describe("assets builtin v3 profiles", () => {
             vars: createTestVariableAccessor(),
             catalog: await catalog.snapshot(),
             skills: [],
+            settings: {},
         });
 
         expect(profile.rootToolKeys).toEqual(["web_search", "web_fetch"]);
@@ -839,6 +838,100 @@ describe("assets builtin v3 profiles", () => {
 
         expect(legacyResult.issues).toEqual([]);
         expect(homeKeyResult.issues).toEqual([]);
+    });
+
+    it("leader.default settings 注入自定义槽位、人设和行为偏好", async () => {
+        const catalog = new AgentProfileCatalog(
+            resolve(".agent", "missing-system-profiles"),
+            resolve(".agent", "missing-user-profiles"),
+        );
+        catalog.register(leaderDefaultProfile);
+        const snapshot = await catalog.snapshot();
+        const leader = snapshot.profiles.find((profile) => profile.key === "leader.default");
+        const validation = await validateLowCodeFormValue(LeaderDefaultSettingsForm, undefined, {
+            profileKey: "leader.default",
+            scope: "global",
+        });
+        const prepared = await leaderDefaultProfile.prepare!({
+            session: testSession({
+                profileKey: "leader.default",
+                workspaceRoot: "workspace",
+            }),
+            initial: {},
+            settings: {
+                collaborationMode: "conservative",
+                neuroBookFamiliarity: "beginner",
+                questionStrategy: "thorough",
+                leaderPersonaPreset: "personas/default.md",
+                customTopSystemPrompt: "最高规则：先确认用户意图。",
+            },
+            vars: createTestVariableAccessor(),
+            catalog: snapshot,
+            skills: [],
+        });
+        const systemPrompt = prepared.systemPrompt ?? "";
+
+        expect(leader?.hasSettingsForm).toBe(true);
+        expect(validation.issues).toEqual([]);
+        expect(systemPrompt.trimStart().startsWith("<custom_top_system_prompt>")).toBe(true);
+        expect(systemPrompt.indexOf("最高规则：先确认用户意图。")).toBeLessThan(systemPrompt.indexOf("<leader_persona>"));
+        expect(systemPrompt.indexOf("<leader_persona>")).toBeLessThan(systemPrompt.indexOf("<leader_settings>"));
+        expect(systemPrompt.indexOf("<leader_settings>")).toBeLessThan(systemPrompt.indexOf("你现在在 Neuro Book 中作为默认 Leader Agent 工作"));
+        expect(systemPrompt).toContain("采用保守协作模式");
+        expect(systemPrompt).toContain("优先通过 researcher agent 调研");
+        expect(systemPrompt).toContain("默认用户刚开始使用 NeuroBook");
+        expect(systemPrompt).toContain("接近创作访谈");
+    });
+
+    it("leader.default Project home 初始化默认人设资源并可通过 resource-preset 校验", async () => {
+        const projectRoot = resolve(".agent", "workspace", "leader-default-home-test", randomUUID());
+        await mkdir(projectRoot, {recursive: true});
+        try {
+            const home = await ensureProfileHome({
+                projectRoot,
+                profileKey: "leader.default",
+                profileVersion: leaderDefaultProfile.manifest.version ?? 1,
+                definition: leaderDefaultProfile.home,
+            });
+            const validation = await validateLowCodeFormValue(LeaderDefaultSettingsForm, {
+                collaborationMode: "default",
+                neuroBookFamiliarity: "default",
+                questionStrategy: "concise",
+                leaderPersonaPreset: "personas/default.md",
+                customTopSystemPrompt: "",
+            }, {
+                profileKey: "leader.default",
+                scope: "project",
+                home,
+            });
+            const prepared = await leaderDefaultProfile.prepare!({
+                session: testSession({
+                    profileKey: "leader.default",
+                    workspaceRoot: "workspace",
+                }),
+                initial: {},
+                settings: {
+                    collaborationMode: "default",
+                    neuroBookFamiliarity: "default",
+                    questionStrategy: "concise",
+                    leaderPersonaPreset: "personas/default.md",
+                    customTopSystemPrompt: "",
+                },
+                home,
+                vars: createTestVariableAccessor(),
+                catalog: {profiles: [], issues: []},
+                skills: [],
+            });
+            const persona = await home.readText("personas/default.md");
+
+            expect(validation.issues).toEqual([]);
+            expect(persona).toContain("彩绘（精简主创伙伴）");
+            expect(prepared.systemPrompt).toContain("像长期一起写故事的创作伙伴");
+            expect(prepared.systemPrompt).toContain("不要使用万华镜");
+            expect(prepared.systemPrompt).toContain("少问问题");
+        } finally {
+            await rm(projectRoot, {recursive: true, force: true});
+        }
     });
 
     it("writer 无 payload 时不崩溃，非法 payload path 会明确拒绝", async () => {

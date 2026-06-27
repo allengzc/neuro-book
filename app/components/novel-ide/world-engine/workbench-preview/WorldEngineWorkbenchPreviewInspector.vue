@@ -26,13 +26,6 @@ import type {
     WorldWorkbenchSubjectFileProposal,
 } from "nbook/app/components/novel-ide/world-engine/workbench-preview/world-engine-workbench-preview.types";
 
-type MetadataDraftDiffRow = {
-    draftValue: string;
-    field: keyof WorldWorkbenchPreviewSlicePatch;
-    label: string;
-    originalValue: string;
-};
-
 const props = withDefaults(defineProps<{
     applyButtonLabel?: string;
     busy?: boolean;
@@ -104,11 +97,7 @@ const standardKindOptions: SelectOption[] = [
 
 const subjectMap = computed(() => new Map(props.subjects.map((subject) => [subject.id, subject])));
 const subjectNameMap = computed(() => new Map(props.subjects.map((subject) => [subject.id, subject.name || subject.id])));
-const subjectSystemSummaryMap = computed(() => new Map(props.subjectSystemSummaries.map((summary) => [summary.subjectId, summary])));
 const touchedSubjectIds = computed(() => Array.from(new Set(props.slice.mutations.map((mutation) => mutation.subjectId))));
-const touchedSubjectSystemSummaries = computed(() => touchedSubjectIds.value
-    .map((subjectId) => subjectSystemSummaryMap.value.get(subjectId))
-    .filter((summary): summary is WorldWorkbenchPreviewSubjectSystemSummary => Boolean(summary)));
 const subjectFileProposals = computed<WorldWorkbenchSubjectFileProposal[]>(() => buildWorldWorkbenchSubjectFileProposals({
     contextSubjectId: props.focusedSubjectId,
     slice: props.slice,
@@ -149,15 +138,6 @@ const metadataDraftDirty = computed(() => draft.time !== props.slice.time
     || draft.kind !== props.slice.kind);
 const metadataDraftStatusLabel = computed(() => metadataDraftDirty.value ? "未应用修改" : "已同步");
 const metadataStatusText = computed(() => `${metadataDraftStatusLabel.value} · ${props.metadataStatusSuffix}`);
-const metadataDraftDiffRows = computed<MetadataDraftDiffRow[]>(() => {
-    const rows: MetadataDraftDiffRow[] = [
-        {field: "time", label: "time", originalValue: props.slice.time, draftValue: draft.time},
-        {field: "kind", label: "kind", originalValue: props.slice.kind, draftValue: draft.kind},
-        {field: "title", label: "title", originalValue: props.slice.title, draftValue: draft.title},
-        {field: "summary", label: "summary", originalValue: props.slice.summary, draftValue: draft.summary},
-    ];
-    return rows.filter((row) => row.originalValue !== row.draftValue);
-});
 const metadataDraftSummaries = computed<WorldWorkbenchPreviewMetadataDraftSummary[]>(() => {
     const summaries = new Map<string, WorldWorkbenchPreviewMetadataDraftSummary>();
     for (const [sliceId, savedDraft] of Object.entries(metadataDrafts)) {
@@ -268,21 +248,6 @@ function requestFullSnapshotIfNeeded(): void {
     if (showFullState.value && props.fullSnapshotMode === "remote" && !props.fullSnapshotSubjects?.length && !props.fullSnapshotLoading && !props.busy) {
         emit("requestFullSnapshot");
     }
-}
-
-function subjectSystemSyncLabel(summary: WorldWorkbenchPreviewSubjectSystemSummary): string {
-    if (summary.syncStatus === "linked") {
-        return "已连接";
-    }
-    if (summary.syncStatus === "pending-world-subject") {
-        return "待接入";
-    }
-    return "孤儿";
-}
-
-function sourceStatusLabel(summary: WorldWorkbenchPreviewSubjectSystemSummary): string {
-    const labels = summary.sourceStatuses.map((status) => `${status.source}:${status.status}`);
-    return labels.length ? labels.join(" / ") : "-";
 }
 
 /** 复制主体文件建议文本；仍由作者决定是否写入六文件。 */
@@ -446,27 +411,6 @@ const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
                 <FormField label="summary">
                     <FormTextarea v-model="draft.summary" :rows="4" :disabled="props.busy" />
                 </FormField>
-                <div v-if="metadataDraftDiffRows.length" data-testid="metadata-draft-diff" class="mt-3 overflow-hidden rounded-md border border-amber-300 bg-[var(--we-warning-soft)]">
-                    <div class="flex items-center justify-between gap-2 border-b border-amber-300 px-2.5 py-1.5">
-                        <div class="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-[var(--we-warning)]">
-                            <span class="i-lucide-git-compare-arrows h-3.5 w-3.5 shrink-0"></span>
-                            <span>{{ t("worldEngine.workbenchPreview.metadataDraftDiff") }}</span>
-                        </div>
-                        <span class="rounded bg-[var(--we-bg-panel)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--we-warning)]">{{ t("worldEngine.workbenchPreview.fieldCount", {count: metadataDraftDiffRows.length}) }}</span>
-                    </div>
-                    <div class="grid grid-cols-[72px_minmax(0,1fr)_minmax(0,1fr)] border-b border-amber-200 bg-[var(--we-bg-panel)] px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--we-text-muted)]">
-                        <span>field</span>
-                        <span>{{ t("worldEngine.workbenchPreview.applied") }}</span>
-                        <span>{{ t("worldEngine.workbenchPreview.draft") }}</span>
-                    </div>
-                    <div class="divide-y divide-amber-200">
-                        <div v-for="row in metadataDraftDiffRows" :key="`metadata-diff:${row.field}`" class="grid grid-cols-[72px_minmax(0,1fr)_minmax(0,1fr)] gap-2 px-2.5 py-1.5 text-[11px]">
-                            <span class="font-mono text-[var(--we-warning)]">{{ row.label }}</span>
-                            <span class="min-w-0 truncate font-mono text-[var(--we-text-muted)]" :title="row.originalValue">{{ row.originalValue || "-" }}</span>
-                            <span class="min-w-0 truncate font-mono font-semibold text-[var(--we-text-main)]" :title="row.draftValue">{{ row.draftValue || "-" }}</span>
-                        </div>
-                    </div>
-                </div>
                 <div class="mt-3 flex items-center justify-between gap-2">
                     <span class="inline-flex min-w-0 items-center gap-1.5 text-[11px]" :class="metadataDraftDirty ? 'text-[var(--we-warning)]' : 'text-[var(--we-text-muted)]'">
                         <span :class="metadataDraftDirty ? 'i-lucide-pencil-line' : 'i-lucide-check'" class="h-3.5 w-3.5 shrink-0"></span>
@@ -481,63 +425,6 @@ const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
                             <span :class="props.busy ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-check'" class="h-3.5 w-3.5"></span>
                             {{ props.applyButtonLabel }}
                         </button>
-                    </div>
-                </div>
-            </section>
-
-            <section class="order-4 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-muted)] p-3">
-                <div class="mb-2 flex items-center justify-between gap-2">
-                    <div class="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--we-text-muted)]">{{ t("worldEngine.workbenchPreview.touchedSubjects") }}</div>
-                    <span class="text-[10px] text-[var(--we-text-muted)]">{{ touchedSubjectIds.length }}</span>
-                </div>
-                <div class="flex flex-wrap gap-1.5">
-                    <button
-                        v-for="subjectId in touchedSubjectIds"
-                        :key="`inspector-subject:${subjectId}`"
-                        type="button"
-                        class="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors"
-                        :class="props.focusedSubjectId === subjectId ? 'border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] text-[var(--we-accent-strong)]' : 'border-[var(--we-border)] bg-[var(--we-bg-panel)] text-[var(--we-text-secondary)] hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)]'"
-                        :title="`在审查工作台中查看 ${subjectMap.get(subjectId)?.name ?? subjectId}`"
-                        @click="emit('focusSubject', subjectId)"
-                    >
-                        {{ subjectMap.get(subjectId)?.name ?? subjectId }}
-                    </button>
-                </div>
-            </section>
-
-            <section v-if="touchedSubjectSystemSummaries.length" data-testid="subject-system-summary" class="order-5 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] p-3">
-                <div class="mb-2 flex items-center justify-between gap-2">
-                    <div>
-                        <div class="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--we-text-muted)]">Subject System</div>
-                        <div class="mt-0.5 text-[11px] text-[var(--we-text-muted)]">来自 simulation/subjects 的真实主体系统摘要</div>
-                    </div>
-                    <span class="rounded-full border border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] px-2 py-0.5 text-[10px] font-medium text-[var(--we-accent-strong)]">path only</span>
-                </div>
-                <div class="divide-y divide-[var(--we-border)]">
-                    <div v-for="summary in touchedSubjectSystemSummaries" :key="`subject-system:${summary.subjectId}`" class="py-2 first:pt-0 last:pb-0">
-                        <div class="flex items-center justify-between gap-2">
-                            <div class="min-w-0">
-                                <div class="truncate text-[12px] font-semibold text-[var(--we-text-main)]">{{ subjectMap.get(summary.subjectId)?.name ?? summary.subjectId }}</div>
-                                <div class="mt-0.5 truncate font-mono text-[10px] text-[var(--we-text-muted)]">{{ summary.sourcePath || summary.subjectId }}</div>
-                            </div>
-                            <div class="flex shrink-0 items-center gap-1">
-                                <span class="rounded border px-1.5 py-0.5 text-[10px] font-medium" :class="summary.syncStatus === 'linked' ? 'border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] text-[var(--we-accent-strong)]' : summary.syncStatus === 'pending-world-subject' ? 'border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)]' : 'border-[var(--we-border)] bg-[var(--we-bg-muted)] text-[var(--we-text-muted)]'">{{ subjectSystemSyncLabel(summary) }}</span>
-                                <span v-if="summary.eventCount !== null" class="rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--we-text-muted)]">{{ summary.eventCount }} events</span>
-                                <span v-if="summary.memoryCount !== null" class="rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--we-text-muted)]">{{ summary.memoryCount }} memory</span>
-                            </div>
-                        </div>
-                        <div class="mt-2 grid grid-cols-[82px_minmax(0,1fr)] gap-x-2 gap-y-1 text-[11px]">
-                            <span class="text-[var(--we-text-muted)]">actor import</span>
-                            <span class="min-w-0 truncate font-mono text-[var(--we-text-secondary)]" :title="summary.actorImportPath">{{ summary.actorImportPath || "-" }}</span>
-                            <span class="text-[var(--we-text-muted)]">leader only</span>
-                            <span class="min-w-0 truncate font-mono text-[var(--we-text-secondary)]" :title="summary.leaderOnlyPath">{{ summary.leaderOnlyPath || "-" }}</span>
-                            <span class="text-[var(--we-text-muted)]">direct state</span>
-                            <span class="min-w-0 truncate font-mono text-[var(--we-text-secondary)]" :title="summary.directStatePath">{{ summary.directStatePath || "-" }}</span>
-                            <span class="text-[var(--we-text-muted)]">RAG</span>
-                            <span class="min-w-0 truncate font-mono text-[var(--we-text-secondary)]" :title="summary.ragIndexSources.map((source) => `${source.label}: ${source.path}`).join('\n')">{{ summary.ragIndexSources.map((source) => source.label).join(" / ") || "-" }}</span>
-                            <span class="text-[var(--we-text-muted)]">index</span>
-                            <span class="min-w-0 truncate font-mono text-[var(--we-text-secondary)]" :title="sourceStatusLabel(summary)">{{ sourceStatusLabel(summary) }}</span>
-                        </div>
                     </div>
                 </div>
             </section>
@@ -664,7 +551,7 @@ const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
                 </div>
             </section>
 
-            <section class="order-7 space-y-2 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] p-3">
+            <section class="order-7 flex flex-col gap-2 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] p-3">
                 <div class="flex items-center justify-between gap-2">
                     <div>
                         <div class="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--we-text-muted)]">{{ t("worldEngine.workbenchPreview.stateSnapshot") }}</div>
@@ -672,7 +559,7 @@ const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
                     </div>
                     <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-2 text-[11px] text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)] disabled:opacity-45" :aria-pressed="showFullState" :disabled="props.busy || props.fullSnapshotLoading" @click="toggleFullState">
                         <span :class="props.fullSnapshotLoading && showFullState ? 'i-lucide-loader-2 animate-spin' : showFullState ? 'i-lucide-minimize-2' : 'i-lucide-expand'" class="h-3.5 w-3.5"></span>
-                        {{ showFullState ? "只看触及主体" : "展开完整世界" }}
+                        {{ showFullState ? "只看触及主体" : "完整世界" }}
                     </button>
                 </div>
 
@@ -687,26 +574,11 @@ const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
                     </div>
                 </div>
 
-                <div class="max-h-[360px] space-y-2 overflow-y-auto pr-1 custom-scrollbar">
-                    <div v-if="showFullState && props.fullSnapshotLoading" class="rounded-md border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-3 py-6 text-center text-[12px] text-[var(--we-text-muted)]">正在读取完整世界状态...</div>
-                    <div v-else-if="showFullState && props.fullSnapshotError" class="rounded-md border border-[var(--we-danger)] bg-[var(--we-danger-soft)] px-3 py-3 text-[12px] text-[var(--we-danger)]">{{ props.fullSnapshotError }}</div>
-                    <details v-for="state in visibleSnapshotSubjects" :key="`snapshot:${state.subjectId}`" class="overflow-hidden rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)]" :open="state.subjectId === props.focusedSubjectId">
-                        <summary class="flex cursor-pointer items-center justify-between gap-2 bg-[var(--we-bg-subtle)] px-3 py-2">
-                            <span class="min-w-0 truncate text-[12px] font-semibold text-[var(--we-text-main)]">{{ subjectMap.get(state.subjectId)?.name ?? state.subjectId }}</span>
-                            <span class="shrink-0 rounded-full bg-[var(--we-bg-muted)] px-1.5 py-0.5 text-[10px] text-[var(--we-text-muted)]">{{ Object.keys(state.attrs).length }} attrs</span>
-                        </summary>
-                        <div class="border-t border-[var(--we-border)] px-3 py-2">
-                            <JsonViewer :value="state.attrs" :main-menu-bar="false" :max-height="0" />
-                        </div>
-                    </details>
+                <div v-if="showFullState && props.fullSnapshotLoading" class="rounded-md border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-3 py-6 text-center text-[12px] text-[var(--we-text-muted)]">正在读取完整世界状态...</div>
+                <div v-else-if="showFullState && props.fullSnapshotError" class="rounded-md border border-[var(--we-danger)] bg-[var(--we-danger-soft)] px-3 py-3 text-[12px] text-[var(--we-danger)]">{{ props.fullSnapshotError }}</div>
+                <div v-else class="rounded-md border border-[var(--we-border)]">
+                    <JsonViewer :value="rawSnapshotValue" :max-height="400" />
                 </div>
-
-                <details class="overflow-hidden rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)]">
-                    <summary class="cursor-pointer bg-[var(--we-bg-subtle)] px-3 py-2 text-[12px] font-semibold text-[var(--we-text-secondary)]">{{ t("worldEngine.workbenchPreview.rawStateJson") }}</summary>
-                    <div class="border-t border-[var(--we-border)] p-2">
-                        <JsonViewer :value="rawSnapshotValue" :max-height="288" />
-                    </div>
-                </details>
             </section>
         </div>
     </aside>

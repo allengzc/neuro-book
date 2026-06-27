@@ -76,6 +76,8 @@ const emit = defineEmits<{
     (e: "filterSubject", subjectId: string): void;
     (e: "clearSubjectFilter"): void;
     (e: "removeSubjectFilter", subjectId: string): void;
+    (e: "insertSliceBefore", sliceId: string): void;
+    (e: "insertSliceAfter", sliceId: string): void;
     (e: "updateSliceHealthFilter", filter: WorldWorkbenchPreviewSliceHealthFilter): void;
     (e: "updateSliceKindFilter", filter: string): void;
     (e: "updateSliceSearch", value: string): void;
@@ -677,6 +679,8 @@ watch(() => props.resetKey, () => {
                         @filter-subject="emit('filterSubject', $event)"
                         @focus-subject="emit('focusSubject', $event)"
                         @focus-review-issue="emit('focusReviewIssue', $event)"
+                        @insert-slice-before="emit('insertSliceBefore', $event)"
+                        @insert-slice-after="emit('insertSliceAfter', $event)"
                         @open-subject-file-proposals="openSubjectFileProposals"
                         @select="emit('selectSlice', $event)"
                     />

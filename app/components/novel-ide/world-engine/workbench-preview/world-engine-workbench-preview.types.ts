@@ -4,7 +4,7 @@ import type {
     WorldIssueDto,
     WorldSchemaProjectionDto,
     WorldSliceDto,
-    WorldSliceMutationDto,
+    WorldSlicePatchDto,
     WorldSubjectDto,
 } from "nbook/app/components/novel-ide/world-engine/world-engine-workbench.types";
 import type {ProjectRagSourceStatusDto} from "nbook/shared/dto/project-rag.dto";
@@ -12,8 +12,8 @@ import type {ProjectRagSourceStatusDto} from "nbook/shared/dto/project-rag.dto";
 export type WorldWorkbenchPreviewSubject = WorldSubjectDto;
 export type WorldWorkbenchPreviewSchema = WorldSchemaProjectionDto;
 
-export type WorldWorkbenchPreviewSlice = Omit<WorldSliceDto, "mutations"> & {
-    mutations: WorldSliceMutationDto[];
+export type WorldWorkbenchPreviewSlice = Omit<WorldSliceDto, "patches"> & {
+    mutations: WorldSlicePatchDto[];
 };
 
 export type WorldWorkbenchPreviewSnapshot = {
@@ -32,6 +32,11 @@ export type WorldWorkbenchPreviewMutationValuePatch = {
     mutationIndex: number;
     sliceId: string;
     value: WorldWorkbenchPreviewJsonValue;
+};
+
+export type WorldWorkbenchPreviewMutationListPatch = {
+    patches: WorldSlicePatchDto[];
+    sliceId: string;
 };
 
 export type WorldWorkbenchPreviewValueDraftSummary = {
@@ -169,7 +174,7 @@ export type WorldWorkbenchSubjectFileProposal = {
 export type WorldWorkbenchPreviewSubjectGroup = {
     subject: WorldWorkbenchPreviewSubject | null;
     subjectId: string;
-    mutations: WorldSliceMutationDto[];
+    mutations: WorldSlicePatchDto[];
 };
 
 export type WorldWorkbenchPreviewJsonValue = WorkbenchJsonValue;

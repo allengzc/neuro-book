@@ -29,7 +29,7 @@
 | Profile | 简介 | 适合 | 不适合 | 错位时建议 |
 | --- | --- | --- | --- | --- |
 | `director` | 剧情导演，管理 Thread / Scene / Plot。 | 剧情结构、章节规划、节奏、伏笔、Plot System 落库、writer handoff。 | 正文写作、simulation state 写回、联网研究、用户资产维护。 | 正文转 `writer`；世界状态未裁决先转 `simulator.leader`；项目统筹回 `leader.default`。 |
-| `writer` | 长期可复用正式正文写作 agent。 | 根据本轮 message、目标 path 和 payload context 写作、续写、润色指定 Markdown 文件；可用只读 `get_world_state` / `list_world_slices` 自查世界状态。 | 大范围检索、剧情结构设计、写入 World Engine 世界状态、RP Tick 渲染。 | 需要上下文召回先转 `retrieval`；剧情设计与世界状态推进由上级 `leader.default` 在写作前完成；writer 只读 World Engine、不写入。 |
+| `writer` | 长期可复用正式正文写作 agent。 | 根据本轮 message、目标 path 和 payload context 写作、续写、润色指定 Markdown 文件；可用只读 `execute_world_query` 自查世界状态。 | 大范围检索、剧情结构设计、写入 World Engine 世界状态、RP Tick 渲染。 | 需要上下文召回先转 `retrieval`；剧情设计与世界状态推进由上级 `leader.default` 在写作前完成；writer 只读 World Engine、不写入。 |
 | `inline.editor` | 编辑器选区触发的短程文本编辑 agent。 | 根据 Inline AI Prompt Bar 的 hidden payload 修改当前 Markdown / 文本文件，处理改写、润色、扩写、缩写、续写、承接。 | 长期章节创作、大范围剧情设计、跨文件规划、通用项目统筹、联网研究。 | 长篇正式正文转 `writer`；剧情结构转 `director`；上下文召回转 `retrieval`；项目统筹回 `leader.default`。 |
 | `world.engine` | 世界引擎验证与维护 agent。 | 使用 World Engine 工具管理 subject、slice、re-settle 和按时刻 reduce 的世界状态；验证 `world-engine/schema.yaml` / `calendar.ts` 与工具体验。 | 旧 simulation workflow、RP 主持、正式正文、长期 Plot 设计、用户资产编辑。 | 旧 simulation 裁决转 `simulator.leader`；RP 体验转 `rp.leader`；正文转 `writer`；Project 统筹回 `leader.default`。 |
 | `rp.writer` | RP Tick 用户可见正文渲染 agent。 | 消费上级 writer brief，把裁决结果写成 RP prose 并写入指定路径。 | 裁决世界、主持用户、读取完整 lorebook/simulation、正式章节正文。 | 裁决转 `simulator.leader`；主持和 brief 编剧转 `rp.leader`；正式章节转 `writer`。 |

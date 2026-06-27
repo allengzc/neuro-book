@@ -161,7 +161,7 @@ function fieldHasPatch(field: LowCodeFieldDto): boolean {
  * 读取字段禁用状态。
  */
 function fieldDisabled(field: LowCodeFieldDto): boolean {
-    if (props.disabled || field.component === "resource-preset" && props.scope !== "project") {
+    if (props.disabled) {
         return true;
     }
     if (props.scope === "project" && props.inheritanceMode === "manual") {
@@ -214,7 +214,7 @@ function updateFieldResourceMutations(field: LowCodeFieldDto, mutations: LowCode
             <LowCodeComboboxField v-else-if="field.component === 'combobox'" :field="field" :model-value="fieldValue(field)" :disabled="fieldDisabled(field)" @update:model-value="updateField(field, $event)" />
             <LowCodeRadioField v-else-if="field.component === 'radio'" :field="field" :model-value="fieldValue(field)" :disabled="fieldDisabled(field)" @update:model-value="updateField(field, $event)" />
             <LowCodeCheckboxField v-else-if="field.component === 'checkbox'" :field="field" :model-value="fieldValue(field)" :disabled="fieldDisabled(field)" @update:model-value="updateField(field, $event)" />
-            <LowCodeResourcePresetField v-else-if="field.component === 'resource-preset'" :field="field" :model-value="fieldValue(field)" :disabled="fieldDisabled(field)" :mutations="fieldResourceMutations(field)" @update:model-value="updateField(field, $event)" @update:mutations="updateFieldResourceMutations(field, $event)" />
+            <LowCodeResourcePresetField v-else-if="field.component === 'resource-preset'" :field="field" :model-value="fieldValue(field)" :scope="props.scope" :disabled="fieldDisabled(field)" :mutations="fieldResourceMutations(field)" @update:model-value="updateField(field, $event)" @update:mutations="updateFieldResourceMutations(field, $event)" />
 
         </LowCodeFieldShell>
     </div>

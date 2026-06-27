@@ -136,18 +136,23 @@ CREATE TABLE IF NOT EXISTS "WorldSlice" (
     "kind" TEXT NOT NULL DEFAULT 'event',
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
-CREATE TABLE IF NOT EXISTS "WorldMutation" (
+CREATE TABLE IF NOT EXISTS "WorldPatch" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "sliceId" TEXT NOT NULL,
     "subjectId" TEXT NOT NULL,
     "instant" BIGINT NOT NULL,
     "seq" INTEGER NOT NULL DEFAULT 0,
-    "attr" TEXT NOT NULL,
+    "path" TEXT NOT NULL,
     "op" TEXT NOT NULL,
     "value" TEXT,
-    CONSTRAINT "WorldMutation_sliceId_fkey" FOREIGN KEY ("sliceId") REFERENCES "WorldSlice" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-    CONSTRAINT "WorldMutation_subjectId_fkey" FOREIGN KEY ("subjectId") REFERENCES "WorldSubject" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    "summary" TEXT,
+    "text" TEXT,
+    "vector" BLOB,
+    "model" TEXT,
+    CONSTRAINT "WorldPatch_sliceId_fkey" FOREIGN KEY ("sliceId") REFERENCES "WorldSlice" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "WorldPatch_subjectId_fkey" FOREIGN KEY ("subjectId") REFERENCES "WorldSubject" ("id") ON DELETE CASCADE ON UPDATE CASCADE
 );
+DROP TABLE IF EXISTS "WorldMutation";
 CREATE UNIQUE INDEX IF NOT EXISTS "StoryPhase_storyId_name_key" ON "StoryPhase"("storyId", "name");
 CREATE INDEX IF NOT EXISTS "StoryPhase_storyId_sortOrder_idx" ON "StoryPhase"("storyId", "sortOrder");
 CREATE UNIQUE INDEX IF NOT EXISTS "StoryThread_storyId_name_key" ON "StoryThread"("storyId", "name");
@@ -166,9 +171,9 @@ CREATE INDEX IF NOT EXISTS "StorySceneRef_targetPlotId_idx" ON "StorySceneRef"("
 CREATE UNIQUE INDEX IF NOT EXISTS "WorldSlice_instant_key" ON "WorldSlice"("instant");
 CREATE INDEX IF NOT EXISTS "WorldSlice_instant_idx" ON "WorldSlice"("instant");
 CREATE INDEX IF NOT EXISTS "WorldSubject_type_idx" ON "WorldSubject"("type");
-CREATE INDEX IF NOT EXISTS "WorldMutation_subjectId_instant_seq_idx" ON "WorldMutation"("subjectId", "instant", "seq");
-CREATE INDEX IF NOT EXISTS "WorldMutation_subjectId_attr_instant_idx" ON "WorldMutation"("subjectId", "attr", "instant");
-CREATE INDEX IF NOT EXISTS "WorldMutation_attr_idx" ON "WorldMutation"("attr");
+CREATE INDEX IF NOT EXISTS "WorldPatch_subjectId_instant_seq_idx" ON "WorldPatch"("subjectId", "instant", "seq");
+CREATE INDEX IF NOT EXISTS "WorldPatch_subjectId_path_instant_idx" ON "WorldPatch"("subjectId", "path", "instant");
+CREATE INDEX IF NOT EXISTS "WorldPatch_path_idx" ON "WorldPatch"("path");
 INSERT INTO "ProjectMetadata" ("key", "value", "updatedAt")
 VALUES ('schemaVersion', '1', CURRENT_TIMESTAMP)
 ON CONFLICT("key") DO UPDATE SET "value" = excluded."value", "updatedAt" = CURRENT_TIMESTAMP;

@@ -68,7 +68,7 @@ export type WorldSubject = Prisma.WorldSubjectModel
  */
 export type WorldSlice = Prisma.WorldSliceModel
 /**
- * Model WorldMutation
+ * Model WorldPatch
  * 
  */
-export type WorldMutation = Prisma.WorldMutationModel
+export type WorldPatch = Prisma.WorldPatchModel

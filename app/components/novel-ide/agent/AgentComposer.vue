@@ -376,7 +376,7 @@ defineExpose({focus});
 
             <div class="flex items-center justify-between border-t border-[var(--border-color)]/50 px-2 py-2">
                 <div class="flex min-w-0 items-center gap-2">
-                    <div ref="sessionModelControlsRef" class="relative flex w-[230px] shrink-0 items-center gap-1.5">
+                    <div ref="sessionModelControlsRef" class="relative flex w-[260px] shrink-0 items-center gap-1.5">
                         <div class="min-w-0 flex-1">
                             <NovelIdeModelSelect
                                 :model-value="props.sessionModelSelectionValue"

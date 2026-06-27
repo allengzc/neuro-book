@@ -28,7 +28,7 @@ type PreviewQueryForm = {
 
 type PreviewMutationBuilderModel = {
     subjectId: string;
-    attr: string;
+    path: string;
     op: WorldMutationOp;
     value: string;
 };

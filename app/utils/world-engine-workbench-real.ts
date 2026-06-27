@@ -3,7 +3,7 @@ import type {
     WorkbenchJsonValue,
     WorldIssueDto,
     WorldSliceDto,
-    WorldSliceMutationDto,
+    WorldSlicePatchDto,
     WorldSubjectDto,
 } from "nbook/app/components/novel-ide/world-engine/world-engine-workbench.types";
 import type {
@@ -29,7 +29,7 @@ export type WorldWorkbenchEditSliceBody = {
     title: string;
     summary: string;
     kind: string;
-    mutations: WorldSliceMutationDto[];
+    patches: WorldSlicePatchDto[];
 };
 
 export type WorldWorkbenchTransientIssue = {
@@ -51,7 +51,7 @@ export type WorldWorkbenchSubjectFileProposalInput = {
     subjectSystemSummaries: WorldWorkbenchPreviewSubjectSystemSummary[];
 };
 
-export type WorldWorkbenchEmptySliceAction = "create-subject" | "create-world-subject" | "new-slice" | "seed-demo" | "sync-subject-system" | "";
+export type WorldWorkbenchEmptySliceAction = "create-subject" | "create-world-subject" | "new-slice" | "sync-subject-system" | "";
 
 export type WorldWorkbenchEmptySliceState = {
     action: WorldWorkbenchEmptySliceAction;
@@ -149,7 +149,7 @@ export function normalizeWorldWorkbenchSlices(slices: WorldSliceDto[]): WorldWor
     return slices.map((slice) => ({
         ...slice,
         issues: slice.issues ?? [],
-        mutations: slice.mutations ?? [],
+        mutations: slice.patches ?? [],
     }));
 }
 
@@ -226,8 +226,6 @@ export function buildWorldWorkbenchDraftSurfaceState(input: {
 /** 决定主时间线空状态给作者展示的下一步动作，避免入口文案规则散落在 Dialog 模板附近。 */
 export function buildWorldWorkbenchEmptySliceState(input: {
     canCreateWorldSubject: boolean;
-    canSeedDemoWorld: boolean;
-    demoWorldSchemaError: string;
     hasSlices: boolean;
     hasWorldViewFilters: boolean;
     pendingSubjectSystemCount: number;
@@ -268,20 +266,13 @@ export function buildWorldWorkbenchEmptySliceState(input: {
             title: "当前 Project 还没有 World Engine slice",
         };
     }
-    if (!input.canSeedDemoWorld) {
-        return {
-            action: input.canCreateWorldSubject ? "create-world-subject" : input.worldSubjectCount ? "new-slice" : "create-subject",
-            description: input.worldSubjectCount
-                ? `内置示例暂不可用：${input.demoWorldSchemaError} 可以直接新建 Slice 推演当前世界。`
-                : input.canCreateWorldSubject
-                    ? `内置示例暂不可用：${input.demoWorldSchemaError} 可以先创建 world subject，承载全局世界事件。`
-                    : `内置示例暂不可用：${input.demoWorldSchemaError} 请先创建 subject，再写入第一条 slice。`,
-            title: "当前 Project 还没有 slice",
-        };
-    }
     return {
-        action: "seed-demo",
-        description: "可以先创建 subject，或写入示例世界后再回到这里检查时间线。",
+        action: input.canCreateWorldSubject ? "create-world-subject" : input.worldSubjectCount ? "new-slice" : "create-subject",
+        description: input.worldSubjectCount
+            ? "可以直接新建 Slice 推演当前世界。"
+            : input.canCreateWorldSubject
+                ? "可以先创建 world subject，承载全局世界事件。"
+                : "请先创建 subject，再写入第一条 slice。",
         title: "当前 Project 还没有 slice",
     };
 }
@@ -397,7 +388,7 @@ export function shouldClearWorldWorkbenchReviewIssueFocus(input: {
 import {checkSubjectFilter} from "nbook/app/utils/world-engine-workbench-preview-filter";
 
 export function isWorldWorkbenchSliceVisibleInSubjectFilter(input: {
-    mutations: Pick<WorldSliceMutationDto, "subjectId">[];
+    mutations: Pick<WorldSlicePatchDto, "subjectId">[];
     selectedSubjectIds: string[];
     subjectFilterMode: WorldWorkbenchPreviewSubjectFilterMode;
 }): boolean {
@@ -537,7 +528,7 @@ export function buildWorldWorkbenchEditSliceBody(
         title: metadata.title ?? slice.title,
         summary: metadata.summary ?? slice.summary,
         kind: metadata.kind ?? slice.kind,
-        mutations: slice.mutations.map((mutation, index) => patchMap.has(index) ? {
+        patches: slice.mutations.map((mutation, index) => patchMap.has(index) ? {
             ...mutation,
             value: patchMap.get(index),
         } : {...mutation}),
@@ -745,11 +736,11 @@ function subjectFileProposalSubjectIds(
     return [...ids];
 }
 
-function buildSubjectEventDraft(slice: WorldWorkbenchPreviewSlice, subjectName: string, mutations: WorldSliceMutationDto[]): string {
+function buildSubjectEventDraft(slice: WorldWorkbenchPreviewSlice, subjectName: string, mutations: WorldSlicePatchDto[]): string {
     return `${slice.time}｜${buildSubjectEventText(slice, subjectName, mutations)}`;
 }
 
-function buildSubjectEventText(slice: WorldWorkbenchPreviewSlice, subjectName: string, mutations: WorldSliceMutationDto[]): string {
+function buildSubjectEventText(slice: WorldWorkbenchPreviewSlice, subjectName: string, mutations: WorldSlicePatchDto[]): string {
     const title = stripAcceptanceEventPrefix(slice.title.trim() || slice.kind || "未命名切片");
     const summary = eventMutationNarrative(mutations) || stripAcceptanceEventPrefix(slice.summary.trim()) || mutations.map(formatMutationSummary).join("；") || "发生了新的世界状态变化。";
     const titleText = subjectVoiceText(title, subjectName);
@@ -761,20 +752,20 @@ function buildSubjectEventText(slice: WorldWorkbenchPreviewSlice, subjectName: s
 }
 
 function eventContextMutationsForSubject(
-    mutations: WorldSliceMutationDto[],
+    mutations: WorldSlicePatchDto[],
     subjectId: string,
-    fallbackMutations: WorldSliceMutationDto[],
-): WorldSliceMutationDto[] {
+    fallbackMutations: WorldSlicePatchDto[],
+): WorldSlicePatchDto[] {
     const eventMutations = mutations.filter((mutation) => (mutation.subjectId === subjectId || mutation.subjectId === "world")
-        && attrRoot(mutation.attr) === "events"
+        && attrRoot(mutation.path) === "events"
         && typeof mutation.value === "string"
         && mutation.value.trim());
     return eventMutations.length ? eventMutations : fallbackMutations;
 }
 
-function eventMutationNarrative(mutations: WorldSliceMutationDto[]): string {
+function eventMutationNarrative(mutations: WorldSlicePatchDto[]): string {
     return mutations
-        .filter((mutation) => attrRoot(mutation.attr) === "events" && typeof mutation.value === "string" && mutation.value.trim())
+        .filter((mutation) => attrRoot(mutation.path) === "events" && typeof mutation.value === "string" && mutation.value.trim())
         .map((mutation) => stripAcceptanceEventPrefix((mutation.value as string).trim()))
         .join("；");
 }
@@ -803,25 +794,25 @@ function normalizeSubjectVoicePronouns(text: string): string {
         .replace(/(^|[。！？；;]\s*)(?:他|她|它)(?=(?:决定|选择|意识到|发现|判断|认为|知道|明白|继续|暂时|没有|未|不会|不能|可以|需要|想|打算|准备|保持|开始|转而|感到|觉得))/g, "$1我");
 }
 
-function buildSubjectMemoryFacts(mutations: WorldSliceMutationDto[], slice: WorldWorkbenchPreviewSlice): string[] {
+function buildSubjectMemoryFacts(mutations: WorldSlicePatchDto[], slice: WorldWorkbenchPreviewSlice): string[] {
     return mutations
         .filter((mutation) => isMemoryMutation(mutation))
         .map((mutation) => `${slice.time} ${formatMutationSummary(mutation)}`);
 }
 
-function buildSubjectMemoryJsonLines(mutations: WorldSliceMutationDto[], slice: WorldWorkbenchPreviewSlice): string[] {
+function buildSubjectMemoryJsonLines(mutations: WorldSlicePatchDto[], slice: WorldWorkbenchPreviewSlice): string[] {
     return mutations
         .filter((mutation) => isMemoryMutation(mutation))
         .map((mutation) => JSON.stringify({
-            topic: memoryProposalTopic(mutation.attr, slice),
+            topic: memoryProposalTopic(mutation.path, slice),
             view: memoryProposalView(mutation, slice),
         }));
 }
 
-function buildStateReviewReasons(mutations: WorldSliceMutationDto[], slice: WorldWorkbenchPreviewSlice): string[] {
+function buildStateReviewReasons(mutations: WorldSlicePatchDto[], slice: WorldWorkbenchPreviewSlice): string[] {
     const reasons = mutations
-        .filter((mutation) => stateReviewAttrRoots.has(attrRoot(mutation.attr)))
-        .map((mutation) => `检查 state.md「${stateReviewSection(mutation.attr)}」：${formatMutationSummary(mutation)}`);
+        .filter((mutation) => stateReviewAttrRoots.has(attrRoot(mutation.path)))
+        .map((mutation) => `检查 state.md「${stateReviewSection(mutation.path)}」：${formatMutationSummary(mutation)}`);
     if (!reasons.length && slice.summary.trim()) {
         return ["slice summary 可能包含位置、关系压力、短期目标或可见状态变化，需要人工确认 state.md 是否要更新。"];
     }
@@ -851,30 +842,44 @@ function stateReviewSection(attr: string): string {
     return "可见状态";
 }
 
-function isMemoryMutation(mutation: WorldSliceMutationDto): boolean {
-    const root = attrRoot(mutation.attr);
+function isMemoryMutation(mutation: WorldSlicePatchDto): boolean {
+    const root = attrRoot(mutation.path);
     return root === "memory" || root === "relationship" || root === "relationships";
 }
 
-function memoryProposalTopic(attr: string, slice: WorldWorkbenchPreviewSlice): string {
-    const parts = attr.split(".").map((part) => part.trim()).filter(Boolean);
-    return parts.slice(1).join(".") || slice.title.trim() || attr;
+function memoryProposalTopic(path: string, slice: WorldWorkbenchPreviewSlice): string {
+    const parts = attrParts(path);
+    return parts.slice(1).join(".") || slice.title.trim() || patchAttr(path);
 }
 
-function memoryProposalView(mutation: WorldSliceMutationDto, slice: WorldWorkbenchPreviewSlice): string {
-    if (mutation.op !== "unset" && typeof mutation.value === "string" && mutation.value.trim()) {
+function memoryProposalView(mutation: WorldSlicePatchDto, slice: WorldWorkbenchPreviewSlice): string {
+    if (mutation.op !== "remove" && typeof mutation.value === "string" && mutation.value.trim()) {
         return mutation.value.trim();
     }
     return `${slice.time} ${formatMutationSummary(mutation)}`.trim();
 }
 
-function attrRoot(attr: string): string {
-    return attr.split(".")[0] ?? attr;
+function attrRoot(path: string): string {
+    return attrParts(path)[0] ?? patchAttr(path);
 }
 
-function formatMutationSummary(mutation: WorldSliceMutationDto): string {
-    const value = mutation.op === "unset" ? "" : ` = ${formatProposalValue(mutation.value)}`;
-    return `${mutation.subjectId}.${mutation.attr} ${mutation.op}${value}`;
+function formatMutationSummary(mutation: WorldSlicePatchDto): string {
+    if (mutation.summary?.trim()) {
+        return mutation.summary.trim();
+    }
+    const value = mutation.op === "remove" ? "" : ` = ${formatProposalValue(mutation.value)}`;
+    return `${mutation.subjectId}.${mutation.path} ${mutation.op}${value}`;
+}
+
+function patchAttr(path: string): string {
+    return path.startsWith("/") ? attrParts(path).join(".") : path;
+}
+
+function attrParts(path: string): string[] {
+    if (!path.startsWith("/")) {
+        return path.split(".").map((part) => part.trim()).filter(Boolean);
+    }
+    return path.slice(1).split("/").filter(Boolean).map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~"));
 }
 
 function formatProposalValue(value: WorkbenchJsonValue | undefined): string {

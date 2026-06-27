@@ -2044,7 +2044,8 @@ describe("workspace-files", {timeout: 60_000}, () => {
                 name: "世界",
                 at: 0n,
             })).resolves.toEqual({subjectId: "world", issues: []});
-            await expect(worldEngineFacade.queryState(projectPath, {subjectIds: ["world"], attrs: ["era"]})).resolves.toEqual({
+            await expect(worldEngineFacade.queryState(projectPath, {subjectIds: ["world"], attrs: ["era"]})).resolves.toMatchObject({
+                instant: 0n,
                 subjects: [{subjectId: "world", type: "world", attrs: {era: "复兴纪元"}}],
                 issues: [],
             });
@@ -2069,16 +2070,16 @@ describe("workspace-files", {timeout: 60_000}, () => {
             await expect(worldEngineFacade.writeSlice(projectPath, {
                 instant: 1n,
                 title: "示例：艾莉娜抵达王都",
-                mutations: [
-                    {subjectId: "world", attr: "events", op: "listAppend", value: "世界引擎示例启动"},
-                    {subjectId: "capital", attr: "name", op: "set", value: "王都"},
-                    {subjectId: "capital", attr: "events", op: "listAppend", value: "艾莉娜抵达王都"},
-                    {subjectId: "erina", attr: "location", op: "set", value: "subject://capital"},
-                    {subjectId: "erina", attr: "inventory", op: "collectionAdd", value: "subject://old-sword"},
-                    {subjectId: "erina", attr: "events", op: "listAppend", value: "抵达王都并拾起旧剑"},
-                    {subjectId: "old-sword", attr: "name", op: "set", value: "旧剑"},
-                    {subjectId: "old-sword", attr: "durability", op: "add", value: -5},
-                    {subjectId: "old-sword", attr: "events", op: "listAppend", value: "被艾莉娜拾起，剑身多了一道裂纹"},
+                patches: [
+                    {subjectId: "world", path: "/events", op: "append", value: "世界引擎示例启动"},
+                    {subjectId: "capital", path: "/name", op: "replace", value: "王都"},
+                    {subjectId: "capital", path: "/events", op: "append", value: "艾莉娜抵达王都"},
+                    {subjectId: "erina", path: "/location", op: "replace", value: "subject://capital"},
+                    {subjectId: "erina", path: "/inventory", op: "append", value: "subject://old-sword"},
+                    {subjectId: "erina", path: "/events", op: "append", value: "抵达王都并拾起旧剑"},
+                    {subjectId: "old-sword", path: "/name", op: "replace", value: "旧剑"},
+                    {subjectId: "old-sword", path: "/durability", op: "increment", value: -5},
+                    {subjectId: "old-sword", path: "/events", op: "append", value: "被艾莉娜拾起，剑身多了一道裂纹"},
                 ],
             })).resolves.toEqual(expect.objectContaining({issues: []}));
             await expect(worldEngineFacade.queryState(projectPath, {

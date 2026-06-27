@@ -810,6 +810,7 @@ function context() {
             now: "2026-05-23T00:00:00.000Z",
             promptUserTurnCount: 0,
         },
+        settings: {},
     };
 }
 

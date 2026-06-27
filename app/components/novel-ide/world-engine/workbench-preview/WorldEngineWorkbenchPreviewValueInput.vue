@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import {computed} from "vue";
+import FormNumberInput from "nbook/app/components/common/form/FormNumberInput.vue";
+import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
+import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import type {
     SubjectStateDto,
     WorkbenchJsonValue,
-    WorldSliceMutationDto,
+    WorldSlicePatchDto,
 } from "nbook/app/components/novel-ide/world-engine/world-engine-workbench.types";
 import {formatWorkbenchPreviewValue} from "nbook/app/utils/world-engine-workbench-preview-value";
 import type {
@@ -12,15 +15,11 @@ import type {
 } from "nbook/app/components/novel-ide/world-engine/workbench-preview/world-engine-workbench-preview.types";
 
 type PreviewSchemaAttr = WorldWorkbenchPreviewSchema["subjectTypes"][number]["attrs"][number];
-type ValueInputKind = "boolean" | "collectionItem" | "enum" | "json" | "number" | "ref" | "text";
-type ValueOption = {
-    label: string;
-    value: string;
-};
+type ValueInputKind = "boolean" | "enum" | "hidden" | "json" | "number" | "ref" | "text";
 
 const props = defineProps<{
     modelValue: string;
-    mutation: WorldSliceMutationDto;
+    mutation: WorldSlicePatchDto;
     schema: WorldWorkbenchPreviewSchema;
     snapshotSubjects: SubjectStateDto[];
     subjects: WorldWorkbenchPreviewSubject[];
@@ -37,6 +36,10 @@ const draft = computed({
 });
 const attrSchema = computed(() => resolveAttrSchema(props.mutation));
 const inputKind = computed<ValueInputKind>(() => resolveInputKind(props.mutation, attrSchema.value));
+const booleanOptions: SelectOption[] = [
+    {label: "true", value: "true"},
+    {label: "false", value: "false"},
+];
 const refSubjects = computed(() => {
     const refType = refSubjectType(attrSchema.value?.type ?? attrSchema.value?.itemType);
     if (!refType) {
@@ -44,35 +47,24 @@ const refSubjects = computed(() => {
     }
     return props.subjects.filter((subject) => subject.type === refType);
 });
-const enumOptions = computed(() => (attrSchema.value?.enum ?? []).map((value) => ({
+const refOptions = computed<SelectOption[]>(() => [
+    {label: "空值", value: ""},
+    ...refSubjects.value.map((subject) => ({
+        label: subject.name || subject.id,
+        value: `subject://${subject.id}`,
+        description: subject.id,
+    })),
+]);
+const enumOptions = computed<SelectOption[]>(() => (attrSchema.value?.enum ?? []).map((value) => ({
     label: formatWorkbenchPreviewValue(value),
     value: formatWorkbenchPreviewValue(value),
 })));
-const collectionItemOptions = computed<ValueOption[]>(() => {
-    const stateValue = props.snapshotSubjects.find((subject) => subject.subjectId === props.mutation.subjectId)?.attrs;
-    const values = arrayValue(stateValue ? readAttrPath(stateValue, props.mutation.attr) : undefined);
-    if (props.mutation.value !== undefined) {
-        values.unshift(props.mutation.value);
-    }
-    const seen = new Set<string>();
-    return values.flatMap((value) => {
-        const optionValue = formatWorkbenchPreviewValue(value);
-        if (seen.has(optionValue)) {
-            return [];
-        }
-        seen.add(optionValue);
-        return [{
-            label: formatOptionLabel(optionValue),
-            value: optionValue,
-        }];
-    });
-});
 
-/** 根据 mutation 的 subject type 和 attr path 找到对应 schema attr。 */
-function resolveAttrSchema(mutation: WorldSliceMutationDto): PreviewSchemaAttr | null {
+/** 根据 mutation 的 subject type 和 JSON Pointer path 找到对应 schema attr。 */
+function resolveAttrSchema(mutation: WorldSlicePatchDto): PreviewSchemaAttr | null {
     const subject = props.subjects.find((item) => item.id === mutation.subjectId);
     const subjectType = props.schema.subjectTypes.find((item) => item.type === subject?.type);
-    const [rootAttr, ...nestedAttrs] = mutation.attr.split(".").filter(Boolean);
+    const [rootAttr, ...nestedAttrs] = pathToAttr(mutation.path).split(".").filter(Boolean);
     let attr = subjectType?.attrs.find((item) => item.name === rootAttr) ?? null;
     for (const nestedAttr of nestedAttrs) {
         const nextAttr = attr?.fields?.[nestedAttr] ?? null;
@@ -85,9 +77,9 @@ function resolveAttrSchema(mutation: WorldSliceMutationDto): PreviewSchemaAttr |
 }
 
 /** 根据 schema attr 和当前 value 选择最贴近语义的编辑控件。 */
-function resolveInputKind(mutation: WorldSliceMutationDto, attr: PreviewSchemaAttr | null): ValueInputKind {
-    if (mutation.op === "collectionRemove") {
-        return "collectionItem";
+function resolveInputKind(mutation: WorldSlicePatchDto, attr: PreviewSchemaAttr | null): ValueInputKind {
+    if (mutation.op === "remove") {
+        return "hidden";
     }
     if (attr?.enum?.length) {
         return "enum";
@@ -116,80 +108,44 @@ function refSubjectType(valueType: string | undefined): string {
     return valueType?.match(/^ref\((.+)\)$/)?.[1] ?? "";
 }
 
-/** 读取点分 attr 路径，用于从当前 snapshot 中找 collection 候选。 */
-function readAttrPath(attrs: Record<string, WorkbenchJsonValue>, attr: string): WorkbenchJsonValue | undefined {
-    const parts = attr.split(".").filter(Boolean);
-    let cursor: WorkbenchJsonValue | undefined = attrs;
-    for (const part of parts) {
-        if (!cursor || typeof cursor !== "object" || Array.isArray(cursor)) {
-            return undefined;
-        }
-        cursor = cursor[part];
+function pathToAttr(path: string): string {
+    if (!path.startsWith("/")) {
+        return path;
     }
-    return cursor;
+    return path.slice(1).split("/").filter(Boolean).map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~")).join(".");
 }
 
-/** 将 JSON 值安全视为数组。 */
-function arrayValue(value: WorkbenchJsonValue | undefined): WorkbenchJsonValue[] {
-    return Array.isArray(value) ? [...value] : [];
-}
-
-/** 给候选值补一层 subject name，方便用户识别 ref value。 */
-function formatOptionLabel(value: string): string {
-    const subjectId = value.match(/^subject:\/\/(.+)$/)?.[1];
-    const subject = subjectId ? props.subjects.find((item) => item.id === subjectId) : null;
-    return subject ? `${subject.name || subject.id} · ${subject.id}` : value;
-}
 </script>
 
 <template>
     <!-- World Engine Workbench value 输入：按 schema 选择控件 -->
-    <select
+    <FormSelect
         v-if="inputKind === 'boolean'"
         v-model="draft"
-        class="h-7 w-full min-w-0 rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-2 font-mono text-[11px] text-[var(--we-text-main)] outline-none transition-colors focus:border-[var(--we-accent-border)] focus:bg-[var(--we-bg-panel)]"
-        @keydown.enter.prevent="emit('submit')"
-    >
-        <option value="true">true</option>
-        <option value="false">false</option>
-    </select>
-    <select
-        v-else-if="inputKind === 'collectionItem'"
-        v-model="draft"
-        class="h-7 w-full min-w-0 rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-2 font-mono text-[11px] text-[var(--we-text-main)] outline-none transition-colors focus:border-[var(--we-accent-border)] focus:bg-[var(--we-bg-panel)]"
-        @keydown.enter.prevent="emit('submit')"
-    >
-        <option v-if="!collectionItemOptions.length" value="">无候选项</option>
-        <option v-for="option in collectionItemOptions" :key="`value-collection:${props.mutation.subjectId}:${props.mutation.attr}:${option.value}`" :value="option.value">{{ option.label }}</option>
-    </select>
-    <select
+        :options="booleanOptions"
+        size="sm"
+    />
+    <input v-else-if="inputKind === 'hidden'" class="h-7 w-full min-w-0 rounded border border-[var(--we-border)] bg-[var(--we-bg-muted)] px-2 font-mono text-[11px] text-[var(--we-text-muted)] opacity-70" disabled value="remove">
+    <FormSelect
         v-else-if="inputKind === 'ref'"
         v-model="draft"
-        class="h-7 w-full min-w-0 rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-2 font-mono text-[11px] text-[var(--we-text-main)] outline-none transition-colors focus:border-[var(--we-accent-border)] focus:bg-[var(--we-bg-panel)]"
-        @keydown.enter.prevent="emit('submit')"
-    >
-        <option value="">空值</option>
-        <option v-for="subject in refSubjects" :key="`value-ref:${props.mutation.subjectId}:${props.mutation.attr}:${subject.id}`" :value="`subject://${subject.id}`">
-            {{ subject.name || subject.id }} · {{ subject.id }}
-        </option>
-    </select>
-    <select
+        :options="refOptions"
+        size="sm"
+    />
+    <FormSelect
         v-else-if="inputKind === 'enum'"
         v-model="draft"
-        class="h-7 w-full min-w-0 rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-2 font-mono text-[11px] text-[var(--we-text-main)] outline-none transition-colors focus:border-[var(--we-accent-border)] focus:bg-[var(--we-bg-panel)]"
-        @keydown.enter.prevent="emit('submit')"
-    >
-        <option v-for="option in enumOptions" :key="`value-enum:${props.mutation.subjectId}:${props.mutation.attr}:${option.value}`" :value="option.value">{{ option.label }}</option>
-    </select>
-    <input
+        :options="enumOptions"
+        size="sm"
+    />
+    <FormNumberInput
         v-else-if="inputKind === 'number'"
         v-model="draft"
-        class="h-7 w-full min-w-0 rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-2 font-mono text-[11px] text-[var(--we-text-main)] outline-none transition-colors focus:border-[var(--we-accent-border)] focus:bg-[var(--we-bg-panel)]"
         :step="attrSchema?.type === 'float' ? '0.1' : '1'"
         :title="formatWorkbenchPreviewValue(props.mutation.value)"
-        type="number"
-        @keydown.enter.prevent="emit('submit')"
-    >
+        size="sm"
+        @submit="emit('submit')"
+    />
     <textarea
         v-else-if="inputKind === 'json'"
         v-model="draft"

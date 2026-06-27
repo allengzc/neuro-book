@@ -224,7 +224,7 @@ export type WorldSliceWhereInput = {
   summary?: Prisma.StringFilter<"WorldSlice"> | string
   kind?: Prisma.StringFilter<"WorldSlice"> | string
   createdAt?: Prisma.DateTimeFilter<"WorldSlice"> | Date | string
-  mutations?: Prisma.WorldMutationListRelationFilter
+  patches?: Prisma.WorldPatchListRelationFilter
 }
 
 export type WorldSliceOrderByWithRelationInput = {
@@ -234,7 +234,7 @@ export type WorldSliceOrderByWithRelationInput = {
   summary?: Prisma.SortOrder
   kind?: Prisma.SortOrder
   createdAt?: Prisma.SortOrder
-  mutations?: Prisma.WorldMutationOrderByRelationAggregateInput
+  patches?: Prisma.WorldPatchOrderByRelationAggregateInput
 }
 
 export type WorldSliceWhereUniqueInput = Prisma.AtLeast<{
@@ -247,7 +247,7 @@ export type WorldSliceWhereUniqueInput = Prisma.AtLeast<{
   summary?: Prisma.StringFilter<"WorldSlice"> | string
   kind?: Prisma.StringFilter<"WorldSlice"> | string
   createdAt?: Prisma.DateTimeFilter<"WorldSlice"> | Date | string
-  mutations?: Prisma.WorldMutationListRelationFilter
+  patches?: Prisma.WorldPatchListRelationFilter
 }, "id" | "instant">
 
 export type WorldSliceOrderByWithAggregationInput = {
@@ -283,7 +283,7 @@ export type WorldSliceCreateInput = {
   summary?: string
   kind?: string
   createdAt?: Date | string
-  mutations?: Prisma.WorldMutationCreateNestedManyWithoutSliceInput
+  patches?: Prisma.WorldPatchCreateNestedManyWithoutSliceInput
 }
 
 export type WorldSliceUncheckedCreateInput = {
@@ -293,7 +293,7 @@ export type WorldSliceUncheckedCreateInput = {
   summary?: string
   kind?: string
   createdAt?: Date | string
-  mutations?: Prisma.WorldMutationUncheckedCreateNestedManyWithoutSliceInput
+  patches?: Prisma.WorldPatchUncheckedCreateNestedManyWithoutSliceInput
 }
 
 export type WorldSliceUpdateInput = {
@@ -303,7 +303,7 @@ export type WorldSliceUpdateInput = {
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  mutations?: Prisma.WorldMutationUpdateManyWithoutSliceNestedInput
+  patches?: Prisma.WorldPatchUpdateManyWithoutSliceNestedInput
 }
 
 export type WorldSliceUncheckedUpdateInput = {
@@ -313,7 +313,7 @@ export type WorldSliceUncheckedUpdateInput = {
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   kind?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
-  mutations?: Prisma.WorldMutationUncheckedUpdateManyWithoutSliceNestedInput
+  patches?: Prisma.WorldPatchUncheckedUpdateManyWithoutSliceNestedInput
 }
 
 export type WorldSliceCreateManyInput = {
@@ -391,21 +391,21 @@ export type BigIntFieldUpdateOperationsInput = {
   divide?: bigint | number
 }
 
-export type WorldSliceCreateNestedOneWithoutMutationsInput = {
-  create?: Prisma.XOR<Prisma.WorldSliceCreateWithoutMutationsInput, Prisma.WorldSliceUncheckedCreateWithoutMutationsInput>
-  connectOrCreate?: Prisma.WorldSliceCreateOrConnectWithoutMutationsInput
+export type WorldSliceCreateNestedOneWithoutPatchesInput = {
+  create?: Prisma.XOR<Prisma.WorldSliceCreateWithoutPatchesInput, Prisma.WorldSliceUncheckedCreateWithoutPatchesInput>
+  connectOrCreate?: Prisma.WorldSliceCreateOrConnectWithoutPatchesInput
   connect?: Prisma.WorldSliceWhereUniqueInput
 }
 
-export type WorldSliceUpdateOneRequiredWithoutMutationsNestedInput = {
-  create?: Prisma.XOR<Prisma.WorldSliceCreateWithoutMutationsInput, Prisma.WorldSliceUncheckedCreateWithoutMutationsInput>
-  connectOrCreate?: Prisma.WorldSliceCreateOrConnectWithoutMutationsInput
-  upsert?: Prisma.WorldSliceUpsertWithoutMutationsInput
+export type WorldSliceUpdateOneRequiredWithoutPatchesNestedInput = {
+  create?: Prisma.XOR<Prisma.WorldSliceCreateWithoutPatchesInput, Prisma.WorldSliceUncheckedCreateWithoutPatchesInput>
+  connectOrCreate?: Prisma.WorldSliceCreateOrConnectWithoutPatchesInput
+  upsert?: Prisma.WorldSliceUpsertWithoutPatchesInput
   connect?: Prisma.WorldSliceWhereUniqueInput
-  update?: Prisma.XOR<Prisma.XOR<Prisma.WorldSliceUpdateToOneWithWhereWithoutMutationsInput, Prisma.WorldSliceUpdateWithoutMutationsInput>, Prisma.WorldSliceUncheckedUpdateWithoutMutationsInput>
+  update?: Prisma.XOR<Prisma.XOR<Prisma.WorldSliceUpdateToOneWithWhereWithoutPatchesInput, Prisma.WorldSliceUpdateWithoutPatchesInput>, Prisma.WorldSliceUncheckedUpdateWithoutPatchesInput>
 }
 
-export type WorldSliceCreateWithoutMutationsInput = {
+export type WorldSliceCreateWithoutPatchesInput = {
   id?: string
   instant: bigint | number
   title?: string
@@ -414,7 +414,7 @@ export type WorldSliceCreateWithoutMutationsInput = {
   createdAt?: Date | string
 }
 
-export type WorldSliceUncheckedCreateWithoutMutationsInput = {
+export type WorldSliceUncheckedCreateWithoutPatchesInput = {
   id?: string
   instant: bigint | number
   title?: string
@@ -423,23 +423,23 @@ export type WorldSliceUncheckedCreateWithoutMutationsInput = {
   createdAt?: Date | string
 }
 
-export type WorldSliceCreateOrConnectWithoutMutationsInput = {
+export type WorldSliceCreateOrConnectWithoutPatchesInput = {
   where: Prisma.WorldSliceWhereUniqueInput
-  create: Prisma.XOR<Prisma.WorldSliceCreateWithoutMutationsInput, Prisma.WorldSliceUncheckedCreateWithoutMutationsInput>
+  create: Prisma.XOR<Prisma.WorldSliceCreateWithoutPatchesInput, Prisma.WorldSliceUncheckedCreateWithoutPatchesInput>
 }
 
-export type WorldSliceUpsertWithoutMutationsInput = {
-  update: Prisma.XOR<Prisma.WorldSliceUpdateWithoutMutationsInput, Prisma.WorldSliceUncheckedUpdateWithoutMutationsInput>
-  create: Prisma.XOR<Prisma.WorldSliceCreateWithoutMutationsInput, Prisma.WorldSliceUncheckedCreateWithoutMutationsInput>
+export type WorldSliceUpsertWithoutPatchesInput = {
+  update: Prisma.XOR<Prisma.WorldSliceUpdateWithoutPatchesInput, Prisma.WorldSliceUncheckedUpdateWithoutPatchesInput>
+  create: Prisma.XOR<Prisma.WorldSliceCreateWithoutPatchesInput, Prisma.WorldSliceUncheckedCreateWithoutPatchesInput>
   where?: Prisma.WorldSliceWhereInput
 }
 
-export type WorldSliceUpdateToOneWithWhereWithoutMutationsInput = {
+export type WorldSliceUpdateToOneWithWhereWithoutPatchesInput = {
   where?: Prisma.WorldSliceWhereInput
-  data: Prisma.XOR<Prisma.WorldSliceUpdateWithoutMutationsInput, Prisma.WorldSliceUncheckedUpdateWithoutMutationsInput>
+  data: Prisma.XOR<Prisma.WorldSliceUpdateWithoutPatchesInput, Prisma.WorldSliceUncheckedUpdateWithoutPatchesInput>
 }
 
-export type WorldSliceUpdateWithoutMutationsInput = {
+export type WorldSliceUpdateWithoutPatchesInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   instant?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
@@ -448,7 +448,7 @@ export type WorldSliceUpdateWithoutMutationsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
-export type WorldSliceUncheckedUpdateWithoutMutationsInput = {
+export type WorldSliceUncheckedUpdateWithoutPatchesInput = {
   id?: Prisma.StringFieldUpdateOperationsInput | string
   instant?: Prisma.BigIntFieldUpdateOperationsInput | bigint | number
   title?: Prisma.StringFieldUpdateOperationsInput | string
@@ -463,11 +463,11 @@ export type WorldSliceUncheckedUpdateWithoutMutationsInput = {
  */
 
 export type WorldSliceCountOutputType = {
-  mutations: number
+  patches: number
 }
 
 export type WorldSliceCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  mutations?: boolean | WorldSliceCountOutputTypeCountMutationsArgs
+  patches?: boolean | WorldSliceCountOutputTypeCountPatchesArgs
 }
 
 /**
@@ -483,8 +483,8 @@ export type WorldSliceCountOutputTypeDefaultArgs<ExtArgs extends runtime.Types.E
 /**
  * WorldSliceCountOutputType without action
  */
-export type WorldSliceCountOutputTypeCountMutationsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  where?: Prisma.WorldMutationWhereInput
+export type WorldSliceCountOutputTypeCountPatchesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.WorldPatchWhereInput
 }
 
 
@@ -495,7 +495,7 @@ export type WorldSliceSelect<ExtArgs extends runtime.Types.Extensions.InternalAr
   summary?: boolean
   kind?: boolean
   createdAt?: boolean
-  mutations?: boolean | Prisma.WorldSlice$mutationsArgs<ExtArgs>
+  patches?: boolean | Prisma.WorldSlice$patchesArgs<ExtArgs>
   _count?: boolean | Prisma.WorldSliceCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["worldSlice"]>
 
@@ -528,7 +528,7 @@ export type WorldSliceSelectScalar = {
 
 export type WorldSliceOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "instant" | "title" | "summary" | "kind" | "createdAt", ExtArgs["result"]["worldSlice"]>
 export type WorldSliceInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
-  mutations?: boolean | Prisma.WorldSlice$mutationsArgs<ExtArgs>
+  patches?: boolean | Prisma.WorldSlice$patchesArgs<ExtArgs>
   _count?: boolean | Prisma.WorldSliceCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type WorldSliceIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {}
@@ -537,7 +537,7 @@ export type WorldSliceIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.E
 export type $WorldSlicePayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "WorldSlice"
   objects: {
-    mutations: Prisma.$WorldMutationPayload<ExtArgs>[]
+    patches: Prisma.$WorldPatchPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: string
@@ -940,7 +940,7 @@ readonly fields: WorldSliceFieldRefs;
  */
 export interface Prisma__WorldSliceClient<T, Null = never, ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs, GlobalOmitOptions = {}> extends Prisma.PrismaPromise<T> {
   readonly [Symbol.toStringTag]: "PrismaPromise"
-  mutations<T extends Prisma.WorldSlice$mutationsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorldSlice$mutationsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$WorldMutationPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  patches<T extends Prisma.WorldSlice$patchesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.WorldSlice$patchesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$WorldPatchPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1362,27 +1362,27 @@ export type WorldSliceDeleteManyArgs<ExtArgs extends runtime.Types.Extensions.In
 }
 
 /**
- * WorldSlice.mutations
+ * WorldSlice.patches
  */
-export type WorldSlice$mutationsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+export type WorldSlice$patchesArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   /**
-   * Select specific fields to fetch from the WorldMutation
+   * Select specific fields to fetch from the WorldPatch
    */
-  select?: Prisma.WorldMutationSelect<ExtArgs> | null
+  select?: Prisma.WorldPatchSelect<ExtArgs> | null
   /**
-   * Omit specific fields from the WorldMutation
+   * Omit specific fields from the WorldPatch
    */
-  omit?: Prisma.WorldMutationOmit<ExtArgs> | null
+  omit?: Prisma.WorldPatchOmit<ExtArgs> | null
   /**
    * Choose, which related nodes to fetch as well
    */
-  include?: Prisma.WorldMutationInclude<ExtArgs> | null
-  where?: Prisma.WorldMutationWhereInput
-  orderBy?: Prisma.WorldMutationOrderByWithRelationInput | Prisma.WorldMutationOrderByWithRelationInput[]
-  cursor?: Prisma.WorldMutationWhereUniqueInput
+  include?: Prisma.WorldPatchInclude<ExtArgs> | null
+  where?: Prisma.WorldPatchWhereInput
+  orderBy?: Prisma.WorldPatchOrderByWithRelationInput | Prisma.WorldPatchOrderByWithRelationInput[]
+  cursor?: Prisma.WorldPatchWhereUniqueInput
   take?: number
   skip?: number
-  distinct?: Prisma.WorldMutationScalarFieldEnum | Prisma.WorldMutationScalarFieldEnum[]
+  distinct?: Prisma.WorldPatchScalarFieldEnum | Prisma.WorldPatchScalarFieldEnum[]
 }
 
 /**

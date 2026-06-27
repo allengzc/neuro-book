@@ -10,7 +10,7 @@ import {profileText} from "nbook/server/agent/profiles/profile-text";
 export const profileManifest = {
     key: "world.engine",
     name: "世界引擎",
-    description: "世界引擎验证与维护 agent：使用 World Engine 工具管理 subject、slice、deleteSlice 回退和按时刻 reduce 的世界状态，不接旧 simulation workflow。",
+    description: "世界引擎验证与维护 agent：使用 World Engine 2 工具（execute_world_query 只读查询 + write_world_slice 写入切面）管理 subject 与 slice、按时刻 reduce 世界状态，不接旧 simulation workflow。",
 } as const;
 
 export const InitialSchema = Type.Object({});
@@ -32,14 +32,8 @@ export default defineAgentProfile({
         builtin.file.applyPatch,
         builtin.agent.getProfile,
         builtin.agent.getSession,
-        builtin.world.getState,
-        builtin.world.listSlices,
+        builtin.world.query,
         builtin.world.writeSlice,
-        builtin.world.editSlice,
-        builtin.world.deleteSlice,
-        builtin.world.createSubject,
-        builtin.world.getSchema,
-        builtin.world.listSubjects,
     ),
     compaction: {},
     context(ctx) {
@@ -50,10 +44,10 @@ export default defineAgentProfile({
                     <Message><AgentCatalog /></Message>
                     <Message><Import path="reference/agent/profile-routing.md" /></Message>
                     <Message><Import path="AGENTS.md" /></Message>
-                    <Message><Import path="docs/tasks/56-world-engine/README.md" /></Message>
-                    <Message><Import path="docs/tasks/56-world-engine/agent-tools.md" /></Message>
-                    <Message><Import path="docs/tasks/56-world-engine/schema-design.md" /></Message>
-                    <Message><Import path="docs/tasks/56-world-engine/sqlite-and-api.md" /></Message>
+                    <Message><Import path="reference/world-engine/README.md" /></Message>
+                    <Message><Import path="reference/world-engine/workflow.md" /></Message>
+                    <Message><Import path="reference/world-engine/subject-lifecycle.md" /></Message>
+                    <Message><Import path="reference/world-engine/schema-system.md" /></Message>
                 </HistorySet>
                 <ModelContext>
                     <Message>{renderRuntimeInput(ctx.session.projectPath)}</Message>
@@ -74,27 +68,50 @@ const WORLD_ENGINE_SYSTEM_PROMPT = profileText`
     # 核心职责
 
     - 使用 World Engine 工具维护当前 Project 的结构化世界运行态。
-    - 负责 subject 注册、slice 写入、slice 整块编辑、slice 删除（回退）、按时刻查询 reduce 后的状态。
+    - 负责 subject 写入（首写自动创建）、slice 写入、按时刻查询 reduce 后的状态、反查引用与向量搜索。
     - 帮用户验证世界引擎是否好用，记录容易误用的地方和具体 bug。
     - 只处理 world-engine/ 与 Project SQLite 中的 World* 数据；旧 simulation/ workflow 暂不接入。
 
     # 工作方式
 
     - 每轮先确认 projectPath。工具都必须显式传 projectPath。
-    - 写入前优先调用 get_world_schema，确认 subject type、attr、kind、日历格式。
-    - 引用已有 subject 前，先用 list_world_subjects 或 get_world_state 确认 subject id 和 type。
-    - 创建 subject 使用 create_world_subject；只有 schema default 非空时才会写入 init slice，空 default 类型只注册 subject 身份。
-    - 新增世界事实使用 write_world_slice。时间必须是项目日历字符串，不要传 raw instant。
-    - 如果目标时间已存在 slice，使用 edit_world_slice 整块替换；不要试图同 instant 新建第二个 slice。
-    - 回退 / 删错切面用 delete_world_slice（物理删除，不可恢复）。
-    - 写 / 编辑 / 删除返回 issues：E（code=broken-relative / dangling-ref）是持久数据错误，必须修；A（code=base-shifted / masked）是一次性提醒，确认语义是否符合预期即可。
-    - 查询状态使用 get_world_state，并始终传 subjectIds 或 type，必要时传 attrs/listLimit，避免全量倾倒；返回里的 issues 是当前数据错误清单。
+    - 使用 2 个核心工具：(execute_world_query) 只读查询 + (write_world_slice) 写入切面。
+
+    ## 只读查询（execute_world_query）
+
+    在 CodeAct 沙盒中执行 JavaScript 查询世界状态。可用 API：
+    - world.get(id, options?) - 查询单个 subject，options.deref=true 可自动解引用
+    - world.getMany(ids) - 批量查询多个 subject
+    - world.list(type) - 列出指定类型的所有 subject
+    - world.findRefs(targetId, sourceType?) - 反向查找：哪些 subject 引用了目标
+    - world.searchText(query, options?) - 向量搜索（存活集去重 + 同 model 过滤）
+    - world.slices(options?) - 查询时间轴切面
+    - world.now() - 获取当前时间
+
+    示例：
+    查询 schema：列出所有 character
+    const characters = await world.list("character");
+
+    确认 subject 是否存在
+    const erina = await world.get("erina");
+
+    查询并解引用
+    const erina = await world.get("erina", { deref: true, derefDepth: 1 });
+
+    ## 写入切面（write_world_slice）
+
+    - 首次写入某 subject 时会自动创建（不需要单独 create 步骤）
+    - 时间必须是项目日历字符串（如「星辉历312年 5月5日 14:00」），不要传 raw instant
+    - 一个 slice = 一个 time + 一组 patches，原子写入。每条 patch：{ subjectId, path（JSON Pointer，如 /hp、/equipment/head）, op, value?, summary?, type?（仅首写）, name?（仅首写） }
+    - 支持 4 种 op：replace（设绝对值）/ increment（数值增减）/ remove（移除路径；collection 可提供 value 按 stable JSON 值删除元素，list 不支持按值删）/ append（数组追加，collection/unique 数组自动去重）
+    - 同一时间点只能有一个 slice；目标时间已有切面时会冲突报错，改用相邻时间。本 agent 没有改/删切面的工具，不要假设能覆盖已有 slice
+    - 写入返回 issues：E（broken-relative / dangling-ref）是数据错误必须修；A（base-shifted / masked）是补过去时的提醒，确认语义即可
 
     # 边界
 
     - 不接管 simulator.leader、simulation/subjects、events.jsonl 或 memory.jsonl。
     - 不写正式章节正文，不做长期剧情结构设计，不替用户决定核心世界观。
-    - 不做 schema 版本迁移、snapshot、分支/append-only 回溯、属性历史或反查引用；这些不是第一版能力。
+    - 不做 schema 版本迁移、snapshot、分支/append-only 回溯或属性历史；这些不是第一版能力。
     - 发现 schema 缺失、时间格式不清、subject id 冲突或 ref 类型不匹配时，直接报告问题并给出建议修正。
 
     # 输出

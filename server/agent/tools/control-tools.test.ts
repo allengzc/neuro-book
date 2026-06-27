@@ -2,13 +2,14 @@ import {describe, expect, it} from "vitest";
 import {Type} from "typebox";
 import {Value} from "typebox/value";
 import type {Static} from "typebox";
+import type {AgentToolResult} from "@earendil-works/pi-agent-core";
 import {controlTools} from "nbook/server/agent/tools/control-tools";
 import type {UserInputRequestContext, ToolExecutionContext} from "nbook/server/agent/tools/types";
 
 describe("request_user_input userInputRequest", () => {
     const requestUserInputTool = controlTools.requestUserInput.runtime();
 
-    it("单个开放式问题返回正确的 formSpec", () => {
+    it("单个开放式问题返回正确的 formSpec", async () => {
         // 1. 模拟工具参数
         const params = {
             questions: [
@@ -31,7 +32,7 @@ describe("request_user_input userInputRequest", () => {
         };
 
         // 3. 调用 userInputRequest.when()
-        const formSpec = requestUserInputTool.userInputRequest!.when(context);
+        const formSpec = await requestUserInputTool.userInputRequest!.when(context);
 
         // 4. 验证返回的 formSpec
         expect(formSpec).not.toBeNull();
@@ -46,7 +47,7 @@ describe("request_user_input userInputRequest", () => {
         expect(field.rows).toBe(3);
     });
 
-    it("单选问题返回正确的 radio formSpec", () => {
+    it("单选问题返回正确的 radio formSpec", async () => {
         const params = {
             questions: [
                 {
@@ -71,7 +72,7 @@ describe("request_user_input userInputRequest", () => {
             },
         };
 
-        const formSpec = requestUserInputTool.userInputRequest!.when(context);
+        const formSpec = await requestUserInputTool.userInputRequest!.when(context);
 
         expect(formSpec).not.toBeNull();
         expect(formSpec!.form.fields).toHaveLength(1);
@@ -88,7 +89,7 @@ describe("request_user_input userInputRequest", () => {
         expect(field.defaultValue).toBe(1);
     });
 
-    it("多选问题返回正确的 checkbox formSpec", () => {
+    it("多选问题返回正确的 checkbox formSpec", async () => {
         const params = {
             questions: [
                 {
@@ -114,7 +115,7 @@ describe("request_user_input userInputRequest", () => {
             },
         };
 
-        const formSpec = requestUserInputTool.userInputRequest!.when(context);
+        const formSpec = await requestUserInputTool.userInputRequest!.when(context);
 
         expect(formSpec).not.toBeNull();
         expect(formSpec!.form.fields).toHaveLength(1);
@@ -128,7 +129,7 @@ describe("request_user_input userInputRequest", () => {
         expect(field.defaultValue).toEqual([0, 2]);
     });
 
-    it("多个问题返回正确的 fields 数组", () => {
+    it("多个问题返回正确的 fields 数组", async () => {
         const params = {
             questions: [
                 {question: "第一个问题"},
@@ -150,7 +151,7 @@ describe("request_user_input userInputRequest", () => {
             },
         };
 
-        const formSpec = requestUserInputTool.userInputRequest!.when(context);
+        const formSpec = await requestUserInputTool.userInputRequest!.when(context);
 
         expect(formSpec).not.toBeNull();
         expect(formSpec!.form.fields).toHaveLength(3);
@@ -195,11 +196,11 @@ describe("request_user_input userInputRequest", () => {
 
         expect(result.terminate).toBe(true);
         expect(result.content).toHaveLength(1);
-        expect(result.content[0].type).toBe("text");
-        expect(result.content[0].text).toContain("您的名字？");
-        expect(result.content[0].text).toContain("回答：张三");
-        expect(result.content[0].text).toContain("您的爱好？");
-        expect(result.content[0].text).toContain("回答：阅读");
+        const text = readText(result);
+        expect(text).toContain("您的名字？");
+        expect(text).toContain("回答：张三");
+        expect(text).toContain("您的爱好？");
+        expect(text).toContain("回答：阅读");
 
         expect(result.details).toEqual({
             answers: [
@@ -366,7 +367,7 @@ describe("request_user_input userInputRequest", () => {
 describe("enter_plan_mode userInputRequest", () => {
     const enterPlanModeTool = controlTools.enterPlanMode.runtime();
 
-    it("生成 radio 字段用于批准选择", () => {
+    it("生成 radio 字段用于批准选择", async () => {
         const params = {
             reason: "需要制定详细的实现计划",
         };
@@ -381,7 +382,7 @@ describe("enter_plan_mode userInputRequest", () => {
             },
         };
 
-        const formSpec = enterPlanModeTool.userInputRequest!.when(context);
+        const formSpec = await enterPlanModeTool.userInputRequest!.when(context);
 
         expect(formSpec).not.toBeNull();
         expect(formSpec!.form.fields).toHaveLength(1);
@@ -414,7 +415,7 @@ describe("enter_plan_mode userInputRequest", () => {
 
         expect(result.terminate).toBe(true);
         expect(result.details).toEqual({approved: true, pending: true});
-        expect(result.content[0].text).toContain("请求进入计划模式：制定实现计划");
+        expect(readText(result)).toContain("请求进入计划模式：制定实现计划");
     });
 
     it("拒绝后终止并返回拒绝状态", async () => {
@@ -432,14 +433,14 @@ describe("enter_plan_mode userInputRequest", () => {
 
         expect(result.terminate).toBe(true);
         expect(result.details).toEqual({approved: false});
-        expect(result.content[0].text).toBe("用户拒绝进入计划模式。");
+        expect(readText(result)).toBe("用户拒绝进入计划模式。");
     });
 });
 
 describe("exit_plan_mode userInputRequest", () => {
     const exitPlanModeTool = controlTools.exitPlanMode.runtime();
 
-    it("生成 radio 字段用于批准选择", () => {
+    it("生成 radio 字段用于批准选择", async () => {
         const params = {
             reason: "计划已完成",
         };
@@ -454,7 +455,7 @@ describe("exit_plan_mode userInputRequest", () => {
             },
         };
 
-        const formSpec = exitPlanModeTool.userInputRequest!.when(context);
+        const formSpec = await exitPlanModeTool.userInputRequest!.when(context);
 
         expect(formSpec).not.toBeNull();
         expect(formSpec!.form.fields).toHaveLength(1);
@@ -466,7 +467,7 @@ describe("exit_plan_mode userInputRequest", () => {
         expect(field.description).toBe("计划已完成");
     });
 
-    it("提供 planFilePath 时添加预览提示字段", () => {
+    it("提供 planFilePath 时添加预览提示字段", async () => {
         const params = {
             reason: "计划已完成",
             planFilePath: ".agent/plan/feature-x.md",
@@ -482,7 +483,7 @@ describe("exit_plan_mode userInputRequest", () => {
             },
         };
 
-        const formSpec = exitPlanModeTool.userInputRequest!.when(context);
+        const formSpec = await exitPlanModeTool.userInputRequest!.when(context);
 
         expect(formSpec).not.toBeNull();
         expect(formSpec!.form.fields).toHaveLength(2);
@@ -518,7 +519,7 @@ describe("exit_plan_mode userInputRequest", () => {
 
         expect(result.terminate).toBe(true);
         expect(result.details).toEqual({approved: true, pending: true});
-        expect(result.content[0].text).toContain("请求退出计划模式：计划完成");
+        expect(readText(result)).toContain("请求退出计划模式：计划完成");
     });
 
     it("拒绝后终止", async () => {
@@ -536,7 +537,7 @@ describe("exit_plan_mode userInputRequest", () => {
 
         expect(result.terminate).toBe(true);
         expect(result.details).toEqual({approved: false});
-        expect(result.content[0].text).toBe("用户拒绝退出计划模式。");
+        expect(readText(result)).toBe("用户拒绝退出计划模式。");
     });
 });
 
@@ -599,6 +600,14 @@ describe("向后兼容性", () => {
         expect(Value.Check(exitTool.parameters, {})).toBe(true);
     });
 });
+
+function readText(result: AgentToolResult<unknown>): string {
+    const item = result.content[0];
+    if (!item || item.type !== "text") {
+        throw new Error("测试期望工具返回 text content");
+    }
+    return item.text;
+}
 
 function createToolContext(): ToolExecutionContext {
     return {

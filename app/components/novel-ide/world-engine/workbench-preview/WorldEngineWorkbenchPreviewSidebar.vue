@@ -46,7 +46,7 @@ const search = ref("");
 const selectedType = ref("");
 const subjectReviewFilter = ref<SubjectReviewFilter>("all");
 const resizeHandleRef = ref<HTMLElement | null>(null);
-const schemaSourcePath = "world-engine/schema.yaml";
+const schemaSourcePath = "world-engine/schema/index.ts";
 const calendarSourcePath = "world-engine/calendar.ts";
 const {t} = useI18n();
 

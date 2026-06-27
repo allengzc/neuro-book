@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import {computed, watch} from "vue";
 import WorldEngineMutationActionButtons from "nbook/app/components/novel-ide/world-engine/WorldEngineMutationActionButtons.vue";
 import WorldEngineMutationListControls from "nbook/app/components/novel-ide/world-engine/WorldEngineMutationListControls.vue";
-import {collectionRemoveValueOptions, type WorldMutationOp, type WorldPreviewSchemaAttr, type WorldPreviewStateSubject} from "nbook/app/utils/world-engine-preview";
+import {type WorldMutationOp, type WorldPreviewSchemaAttr, type WorldPreviewStateSubject} from "nbook/app/utils/world-engine-preview";
 
 type PreviewMutationBuilderModel = {
     subjectId: string;
-    attr: string;
+    path: string;
     op: WorldMutationOp;
     value: string;
 };
@@ -49,25 +48,8 @@ function inputValue(event: Event): string {
     return (event.target as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value;
 }
 
-const collectionValueOptions = computed<Array<{label: string; value: string; key: string}>>(() => {
-    if (props.builder.op !== "collectionRemove") {
-        return [];
-    }
-    return collectionRemoveValueOptions(props.stateResult, props.builder.subjectId, props.builder.attr);
-});
-
-watch(collectionValueOptions, (options) => {
-    syncCollectionRemoveValue(options);
-}, {immediate: true});
-
-function syncCollectionRemoveValue(options: Array<{value: string}>): void {
-    if (props.builder.op !== "collectionRemove" || !options.length) {
-        return;
-    }
-    if (options.some((option) => option.value === props.builder.value)) {
-        return;
-    }
-    emit("update-builder-field", "value", options[0]?.value ?? "");
+function attrPath(name: string): string {
+    return `/${name.split(".").filter(Boolean).map((part) => part.replace(/~/g, "~0").replace(/\//g, "~1")).join("/")}`;
 }
 </script>
 
@@ -95,21 +77,18 @@ function syncCollectionRemoveValue(options: Array<{value: string}>): void {
                 <option :value="subjectFormId">{{ subjectFormId || "subject" }}</option>
                 <option v-for="subject in subjects" :key="`builder:${subject.id}`" :value="subject.id">{{ subject.id }} · {{ subject.type }}</option>
             </select>
-            <select :value="builder.attr" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-xs outline-none focus:border-[var(--accent-main)]" @change="emit('update-builder-field', 'attr', inputValue($event))">
-                <option v-for="attr in builderAttrs" :key="`builder-attr:${attr.name}`" :value="attr.name">{{ attr.name }}</option>
+            <select :value="builder.path" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-xs outline-none focus:border-[var(--accent-main)]" @change="emit('update-builder-field', 'path', inputValue($event))">
+                <option v-for="attr in builderAttrs" :key="`builder-attr:${attr.name}`" :value="attrPath(attr.name)">{{ attr.name }}</option>
             </select>
-            <input :value="builder.attr" list="world-engine-preview-builder-attrs" class="col-span-2 h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 font-mono text-xs outline-none focus:border-[var(--accent-main)]" placeholder="attr path, e.g. memory.师门" @input="emit('update-builder-field', 'attr', inputValue($event))">
+            <input :value="builder.path" list="world-engine-preview-builder-attrs" class="col-span-2 h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 font-mono text-xs outline-none focus:border-[var(--accent-main)]" placeholder="JSON Pointer path, e.g. /memory/师门" @input="emit('update-builder-field', 'path', inputValue($event))">
             <datalist id="world-engine-preview-builder-attrs">
-                <option v-for="attr in builderAttrs" :key="`builder-attr-option:${attr.name}`" :value="attr.name"></option>
+                <option v-for="attr in builderAttrs" :key="`builder-attr-option:${attr.name}`" :value="attrPath(attr.name)"></option>
             </datalist>
             <select :value="builder.op" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-xs outline-none focus:border-[var(--accent-main)]" @change="emit('update-builder-field', 'op', inputValue($event))">
                 <option v-for="op in builderOpOptions" :key="op" :value="op">{{ op }}</option>
             </select>
-            <select v-if="builder.op === 'collectionRemove' && collectionValueOptions.length" :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-xs outline-none focus:border-[var(--accent-main)]" title="从当前 State Query 结果中选择要移除的 collection 项" @change="emit('update-builder-field', 'value', inputValue($event))">
-                <option v-for="option in collectionValueOptions" :key="option.key" :value="option.value">{{ option.label }}</option>
-            </select>
-            <textarea v-else-if="valueRequiresJsonObject" :value="builder.value" rows="4" class="col-span-2 min-h-[92px] resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5 font-mono text-xs leading-5 outline-none focus:border-[var(--accent-main)]" placeholder="{&quot;key&quot;: &quot;value&quot;}" title="当前 value 必须是 JSON object" @input="emit('update-builder-field', 'value', inputValue($event))"></textarea>
-            <input v-else :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-xs outline-none focus:border-[var(--accent-main)] disabled:opacity-50" :disabled="builder.op === 'unset'" placeholder="value" @input="emit('update-builder-field', 'value', inputValue($event))">
+            <textarea v-if="valueRequiresJsonObject" :value="builder.value" rows="4" class="col-span-2 min-h-[92px] resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5 font-mono text-xs leading-5 outline-none focus:border-[var(--accent-main)]" placeholder="{&quot;key&quot;: &quot;value&quot;}" title="当前 value 必须是 JSON object" @input="emit('update-builder-field', 'value', inputValue($event))"></textarea>
+            <input v-else :value="builder.value" class="h-8 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-xs outline-none focus:border-[var(--accent-main)] disabled:opacity-50" :disabled="builder.op === 'remove'" placeholder="value" @input="emit('update-builder-field', 'value', inputValue($event))">
         </div>
         <WorldEngineMutationActionButtons
             :disabled="props.disabled"

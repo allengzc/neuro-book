@@ -1,4 +1,5 @@
 import type {Prisma} from "nbook/server/generated/project-prisma/client";
+import type { z } from "zod";
 
 /** 世界引擎唯一时间真相源：自世界零点起经过的秒数。 */
 export type Instant = bigint;
@@ -6,11 +7,50 @@ export type Instant = bigint;
 /** JSON 可持久化值。 */
 export type JsonValue = null | boolean | number | string | JsonValue[] | {[key: string]: JsonValue};
 
-/** mutation 支持的操作全集。 */
-export type WorldMutationOp = "set" | "add" | "unset" | "listAppend" | "collectionAdd" | "collectionRemove";
+/** World Engine Patch 操作类型（JSON Patch 风格，精简版）。 */
+export type WorldPatchOp = "replace" | "increment" | "remove" | "append";
+
+/**
+ * World Engine Patch 操作。
+ *
+ * 操作语义：
+ * - replace: 替换指定路径的值。
+ * - increment: 数值累加，仅数值类型。
+ * - remove: 删除指定路径。
+ * - append: 数组追加，unique 数组自动去重。
+ *
+ * 路径格式：JSON Pointer（`/equipment/head`），不支持点号分隔符。
+ *
+ * 跨引用操作禁止：
+ * - ✅ `/equipment/armor/chest` → `"subject://mythril-plate"`（替换引用）
+ * - ❌ `/equipment/armor/chest/durability` → 50（不能操作引用目标的属性）
+ */
+export type WorldPatch = {
+    subjectId: string;
+    op: WorldPatchOp;
+    /** JSON Pointer 路径（如 `/equipment/head`）*/
+    path: string;
+    /** 操作值（remove 时不需要）*/
+    value?: unknown;
+    /** 可选的人类可读描述 */
+    summary?: string;
+};
 
 /** timeline subject 过滤模式：any=任一命中，all=全部命中。 */
 export type WorldSliceSubjectFilterMode = "any" | "all";
+
+// ============================================================================
+// 新类型系统：Zod Schema
+// ============================================================================
+
+/** Zod schema 注册表类型 */
+export type ZodSchemaRegistry = Record<string, z.ZodObject<any>>;
+
+/** 从 Zod schema 中提取的引用元数据：属性路径 -> 目标类型 */
+export type ZodSchemaRefs = Record<string, string>;
+
+/** 从 Zod schema 中提取的 unique 数组路径集合 */
+export type ZodSchemaUniqueArrays = Set<string>;
 
 // ============================================================================
 // 旧类型系统（保留向后兼容）
@@ -28,6 +68,13 @@ export type WorldAttrSchema = {
     fields?: Record<string, WorldAttrSchema>;
     default?: JsonValue;
     desc?: string;
+    /**
+     * EmbeddingText 容器标记（一等元数据，由 Zod schema 派生）。
+     * - "record"：`z.record(z.string(), EmbeddingText)`（如 memory），存活集按 key 取最新
+     * - "array"：`z.array(EmbeddingText)`（如 events），append-only 全保留
+     * 非空表示该字段承载可向量搜索的 EmbeddingText；空表示普通字段。
+     */
+    embedding?: "record" | "array";
 };
 
 /** schema 中单个 subject type 定义。@deprecated 使用新类型系统 WorldSubjectTypeSchemaV2 */
@@ -313,12 +360,17 @@ export function attrSchemaToSchemaNode(attr: WorldAttrSchema): WorldSchemaNode {
     return { type: "string" };
 }
 
-/** 一条待写入变更。 */
-export type MutationInput = {
+/** 一条待写入 patch。 */
+export type PatchInput = {
     subjectId: string;
-    attr: string;
-    op: WorldMutationOp;
+    op: WorldPatchOp;
+    path: string;
     value?: JsonValue;
+    summary?: string;
+    /** 仅首写该 subject 时使用：声明 subject 类型，writeSlice 据此自动注册 WorldSubject（C1）。subject 已存在时忽略。 */
+    type?: string;
+    /** 仅首写该 subject 时使用：subject 显示名（表级元数据）。subject 已存在时忽略。 */
+    name?: string;
 };
 
 /** 一个切面写入输入。 */
@@ -327,7 +379,8 @@ export type SliceInput = {
     title?: string;
     summary?: string;
     kind?: string;
-    mutations: MutationInput[];
+    /** 当前运行时唯一写入格式。 */
+    patches: PatchInput[];
 };
 
 /** 校验问题代号。
@@ -371,6 +424,7 @@ export type WorldState = {
 
 /** 收窄查询结果。issues：reduce 时现算的持久问题（E）；传 attrs 时只返回相关属性问题。 */
 export type QueryStateResult = {
+    instant: Instant;
     subjects: SubjectState[];
     issues: WorldIssue[];
 };
@@ -383,7 +437,7 @@ export type SliceListItem = {
     title: string;
     summary: string;
     kind: string;
-    mutations?: MutationInput[];
+    patches?: PatchInput[];
     issues?: WorldIssue[];
 };
 
@@ -438,17 +492,287 @@ export type WorldSchemaProjection = {
 export type WorldPrismaExecutor = Prisma.TransactionClient | {
     worldSubject: Prisma.TransactionClient["worldSubject"];
     worldSlice: Prisma.TransactionClient["worldSlice"];
-    worldMutation: Prisma.TransactionClient["worldMutation"];
+    worldPatch: Prisma.TransactionClient["worldPatch"];
 };
 
-/** 读取 mutation 时带上 subject type，避免 reduce 阶段反复查表。 */
-export type WorldMutationRow = {
+/** 读取 patch 时带上 subject type，避免 reduce 阶段反复查表。 */
+export type WorldPatchRow = {
     id: string;
     sliceId: string;
     subjectId: string;
     instant: bigint;
     seq: number;
-    attr: string;
+    path: string;
     op: string;
     value: string | null;
+    summary: string | null;
 };
+
+/**
+ * EmbeddingText 落到 WorldPatch 列的载荷（Phase 3，Decision #8）。
+ * 仅写 embedding 字段（memory / events）的 patch 才带；vector 为空表示未向量化。
+ */
+export type EmbeddingColumns = {
+    /** 文本内容（写入 text 列） */
+    text: string;
+    /** Float32 BLOB；null 表示尚未向量化 */
+    vector: Uint8Array | null;
+    /** 向量化模型；null 表示尚未向量化 */
+    model: string | null;
+};
+
+/** 检索 embedding 行的结果（供 searchText / vectorize）。 */
+export type WorldEmbeddingRow = {
+    id: string;
+    subjectId: string;
+    subjectType: string;
+    sliceId: string;
+    instant: bigint;
+    seq: number;
+    path: string;
+    op: string;
+    text: string;
+    /** Float32 BLOB；null 表示未向量化 */
+    vector: Uint8Array | null;
+    model: string | null;
+};
+
+// ============================================================================
+// Zod Schema 元数据提取
+// ============================================================================
+
+/**
+ * 从 Zod schema 中提取引用关系。
+ *
+ * 扫描 schema 的所有属性，查找 `.describe("ref:targetType")` 标记。
+ * 返回：属性路径 -> 目标类型的映射。
+ *
+ * @example
+ * ```ts
+ * const Character = z.object({
+ *     location: z.string().describe("ref:location").optional(),
+ *     equipment: z.object({
+ *         weapon: z.string().describe("ref:item").optional(),
+ *     }),
+ * });
+ *
+ * extractRefs(Character);
+ * // => { "location": "location", "equipment.weapon": "item" }
+ * ```
+ */
+export function extractRefs(schema: z.ZodObject<any>, prefix = ""): ZodSchemaRefs {
+    const refs: ZodSchemaRefs = {};
+    const shape = schema.shape;
+
+    for (const [key, field] of Object.entries(shape)) {
+        const fullPath = prefix ? `${prefix}.${key}` : key;
+        extractRefsFromField(field as z.ZodTypeAny, fullPath, refs);
+    }
+
+    return refs;
+}
+
+/**
+ * 从单个字段中提取引用关系（递归）。
+ */
+function extractRefsFromField(field: z.ZodTypeAny, path: string, refs: ZodSchemaRefs): void {
+    let currentField = field;
+
+    // 解包 ZodOptional / ZodNullable / ZodDefault
+    while (true) {
+        const typeName = (currentField as any)._def?.typeName || (currentField as any)._def?.type;
+        if (typeName === "ZodOptional" || typeName === "optional" ||
+            typeName === "ZodNullable" || typeName === "nullable" ||
+            typeName === "ZodDefault" || typeName === "default") {
+            currentField = (currentField as any)._def.innerType;
+        } else {
+            break;
+        }
+    }
+
+    // 检查 description 中的 ref 标记
+    const description = (currentField as any).description;
+    if (typeof description === "string") {
+        const match = description.match(/^ref:(\w+)/);
+        if (match?.[1]) {
+            refs[path] = match[1];
+            return; // ref 字段不再递归
+        }
+    }
+
+    // 递归处理复合类型
+    const typeName = (currentField as any)._def?.typeName || (currentField as any)._def?.type;
+
+    // ZodObject：递归处理 properties
+    if (typeName === "ZodObject" || typeName === "object") {
+        const shape = (currentField as z.ZodObject<any>).shape;
+        for (const [key, childField] of Object.entries(shape)) {
+            extractRefsFromField(childField as z.ZodTypeAny, `${path}.${key}`, refs);
+        }
+        return;
+    }
+
+    // ZodArray：递归处理 items
+    if (typeName === "ZodArray" || typeName === "array") {
+        const items = (currentField as any)._def.element || (currentField as any)._def.type || (currentField as any).element;
+        // 数组元素不展开路径，因为运行时是索引访问
+        // 但需要检查元素是否为 ref
+        const itemDescription = (items as any).description;
+        if (typeof itemDescription === "string") {
+            const match = itemDescription.match(/^ref:(\w+)/);
+            if (match) {
+                // 标记整个数组字段为 ref 数组
+                refs[path] = `${match[1]}[]`;
+                return;
+            }
+        }
+        return;
+    }
+
+    // ZodRecord：检查 value 类型
+    if (typeName === "ZodRecord" || typeName === "record") {
+        const valueType = (currentField as z.ZodRecord).valueType as z.ZodTypeAny | undefined;
+        if (!valueType) return;
+        const valueDescription = valueType.description;
+        if (typeof valueDescription === "string") {
+            const match = valueDescription.match(/^ref:(\w+)/);
+            if (match) {
+                // 标记整个 record 字段为 ref record
+                refs[path] = `${match[1]}{}`;
+                return;
+            }
+        }
+        return;
+    }
+}
+
+/**
+ * 从 Zod schema 中提取 unique 数组路径。
+ *
+ * 扫描 schema 的所有 ZodArray 字段，查找 `.unique()` 标记。
+ * 返回：标记为 unique 的数组字段路径集合。
+ *
+ * @example
+ * ```ts
+ * const Character = z.object({
+ *     skills: z.array(z.string()).unique(),
+ *     inventory: z.array(z.string()), // 非 unique
+ * });
+ *
+ * extractUniqueArrays(Character);
+ * // => Set(["skills"])
+ * ```
+ */
+export function extractUniqueArrays(schema: z.ZodObject<any>, prefix = ""): ZodSchemaUniqueArrays {
+    const uniqueArrays = new Set<string>();
+    const shape = schema.shape;
+
+    for (const [key, field] of Object.entries(shape)) {
+        const fullPath = prefix ? `${prefix}.${key}` : key;
+        extractUniqueArraysFromField(field as z.ZodTypeAny, fullPath, uniqueArrays);
+    }
+
+    return uniqueArrays;
+}
+
+/**
+ * 从单个字段中提取 unique 数组（递归）。
+ */
+function extractUniqueArraysFromField(field: z.ZodTypeAny, path: string, uniqueArrays: Set<string>): void {
+    let currentField = field;
+
+    // 解包 ZodOptional / ZodNullable / ZodDefault
+    while (true) {
+        const typeName = (currentField as any)._def?.typeName || (currentField as any)._def?.type;
+        if (typeName === "ZodOptional" || typeName === "optional" ||
+            typeName === "ZodNullable" || typeName === "nullable" ||
+            typeName === "ZodDefault" || typeName === "default") {
+            currentField = (currentField as any)._def.innerType;
+        } else {
+            break;
+        }
+    }
+
+    const typeName = (currentField as any)._def?.typeName || (currentField as any)._def?.type;
+
+    // ZodArray：检查 unique 标记
+    if (typeName === "ZodArray" || typeName === "array") {
+        const isUnique = (currentField as any)._def.unique === true;
+        if (isUnique) {
+            uniqueArrays.add(path);
+        }
+        return; // 不递归到数组元素
+    }
+
+    // ZodObject：递归处理 properties
+    if (typeName === "ZodObject" || typeName === "object") {
+        const shape = (currentField as z.ZodObject<any>).shape;
+        for (const [key, childField] of Object.entries(shape)) {
+            extractUniqueArraysFromField(childField as z.ZodTypeAny, `${path}.${key}`, uniqueArrays);
+        }
+        return;
+    }
+}
+
+/**
+ * 从 Zod schema 中收集所有属性的默认值（包括 undefined）。
+ *
+ * 用于创建 subject 时写入 init slice。
+ * 根据 Decision 12，所有 schema 属性都写入 init slice（包括无 default 的）。
+ *
+ * @example
+ * ```ts
+ * const Character = z.object({
+ *     hp: z.number().default(100),
+ *     location: z.string().optional(), // 无 default
+ * });
+ *
+ * collectZodDefaults(Character);
+ * // => { hp: 100, location: undefined }
+ * ```
+ */
+export function collectZodDefaults(schema: z.ZodObject<any>, prefix = ""): Record<string, JsonValue | undefined> {
+    const defaults: Record<string, JsonValue | undefined> = {};
+    const shape = schema.shape;
+
+    for (const [key, field] of Object.entries(shape)) {
+        const fullPath = prefix ? `${prefix}.${key}` : key;
+        const value = extractDefaultValue(field as z.ZodTypeAny);
+        defaults[fullPath] = value;
+    }
+
+    return defaults;
+}
+
+/**
+ * 从单个字段中提取默认值（递归）。
+ */
+function extractDefaultValue(field: z.ZodTypeAny): JsonValue | undefined {
+    let currentField = field;
+    let hasDefault = false;
+    let defaultValue: any = undefined;
+
+    // 解包 ZodOptional / ZodNullable / ZodDefault
+    while (true) {
+        const typeName = (currentField as any)._def?.typeName || (currentField as any)._def?.type;
+
+        if (typeName === "ZodDefault" || typeName === "default") {
+            hasDefault = true;
+            const defaultFn = (currentField as any)._def.defaultValue;
+            defaultValue = typeof defaultFn === "function" ? defaultFn() : defaultFn;
+            currentField = (currentField as any)._def.innerType;
+        } else if (typeName === "ZodOptional" || typeName === "optional" ||
+                   typeName === "ZodNullable" || typeName === "nullable") {
+            currentField = (currentField as any)._def.innerType;
+        } else {
+            break;
+        }
+    }
+
+    if (hasDefault) {
+        return defaultValue as JsonValue;
+    }
+
+    // 无 default 的字段返回 undefined
+    return undefined;
+}

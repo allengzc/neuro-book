@@ -107,7 +107,7 @@ export type ProfilePrepareContext<TInitial = JsonValue, TPayload = unknown, TSet
         /** prompt 模式下尚未写入 session 的本轮用户输入；continue 时为空。 */
         pendingUserMessage?: Message;
     };
-    /** 当前 Project Workspace 下的 profile home。仅 Project session / Project settings 可用。 */
+    /** 当前 profile home。Project session 读取时 Project 优先、Global 兜底；写入仍落当前主 home。 */
     home?: ProfileHomeFacade;
 } & ProfileSettingsContext<TSettings>;
 

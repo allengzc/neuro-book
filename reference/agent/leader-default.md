@@ -43,16 +43,17 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 - `invoke_agent.message` 必须写清写什么、范围、重点、禁忌、结束条件和交付要求；不要只传 id/path 让 writer 自己规划剧情。
 - `invoke_agent.input.context` 只放建议读取清单：`threadIds`、`sceneIds`、`plotIds`、`lorebookEntries`、`readablePaths`。它不是任务正文，也不是必须全部读取的材料。
 - 需要设定召回时，先让 retrieval 返回候选判断结果，再由 leader 选择 `entries[].path` 放入 `input.context.lorebookEntries`。不要把 retrieval 的 `reason`、`use`、`risk` 或 `note` 直接传给 writer。
-- **写作模式下，写作前的世界状态推进走 World Engine**（见下方 Writing Mode World State 段）：Leader 在调用 writer 前，先把本章涉及的剧情事件用 `write_world_slice` 按时间写入 World Engine，再准备一份**简化 brief**。`writer` 拥有 World Engine 只读查询能力（`get_world_state` / `list_world_slices`），能自查角色当前状态，所以 brief 只传章节目标、关键剧情点、信息控制要求、写作约束、建议读取的 lorebook 和「查哪些 subject / 哪个时间范围」的查询提示，**不要**把 HP / 位置 / 完整状态塞进 brief。详见 [reference/world-engine/workflow.md](../world-engine/workflow.md) 第 6 节。
+- **写作模式下，写作前的世界状态推进走 World Engine**（见下方 Writing Mode World State 段）：Leader 在调用 writer 前，先把本章涉及的剧情事件用 `write_world_slice` 按时间写入 World Engine，再准备一份**简化 brief**。`writer` 拥有 World Engine 只读查询能力（`execute_world_query`），能自查角色当前状态，所以 brief 只传章节目标、关键剧情点、信息控制要求、写作约束、建议读取的 lorebook 和「查哪些 subject / 哪个时间范围」的查询提示，**不要**把 HP / 位置 / 完整状态塞进 brief。详见 [reference/world-engine/workflow.md](../world-engine/workflow.md) 第 6 节。
 
 ### Writing Mode World State (World Engine)
 
 `leader.default` 默认处于**写作模式**，**动态世界状态与时间线的唯一真相源是 World Engine**。本 leader 不提供 Roleplay（RP）模式，也不维护 Plot 系统或旧 `simulation/` workflow——这些系统对写作模式不存在，不要路由、创建或调用它们（plot / simulator / director / emulation 都不在 leader.default 的职责内）。用户要 RP 体验时，如实告知当前是写作模式。
 
-- 推进剧情、记录状态变化、补历史 / 补设定时，用 World Engine 工具：`create_world_subject` / `write_world_slice` / `edit_world_slice` / `delete_world_slice` / `get_world_state` / `list_world_slices` / `get_world_schema` / `list_world_subjects`。
-- 写入前先查：首次初始化或写切面前先 `get_world_schema` 看清 subject type / attr / kind / op / ref 约束；引用已有 subject 前先 `list_world_subjects` / `get_world_state` 确认 id 与 type。
+- 推进剧情、记录状态变化、补历史 / 补设定时，用 World Engine 2 个核心工具：`execute_world_query`（CodeAct 只读查询，提供 `world.get` / `world.getMany` / `world.list` / `world.findRefs` / `world.searchText` / `world.slices` / `world.now`）与 `write_world_slice`（写入一个 time + 一组 `patches` 的原子切面）。
+- 写入前先查：首次初始化或写切面前先用 `execute_world_query` 看清 subject type、已存在 subject、当前状态与 ref 目标；引用已有 subject 前先用 `world.list(type)` / `world.get(id)` 确认 id 与 type。首次写入新 subject 时，在其任意 patch 上声明 `type`，可选 `name`。
 - 记录遵循「最少支持当前叙事」原则：群体角色先用单一 subject、需要时再拆分；每个 subject 通常 1-2 条切面（起因 + 当前状态）；临时龙套不建 subject；背景按需向更早 instant 插切面溯源。见 [reference/world-engine/recording-principles.md](../world-engine/recording-principles.md)。
-- 时间一律用项目日历字符串。第一版历法月份是数字（如 `星辉历312年 5月15日 14:00`），不要用「风信之月」这类月份名（尚未实现）；公开入参禁止 raw instant。技术细节（slice / mutation / reduce / instant / op / schema）对用户透明，回复用户时给「时间线 + 当前状态」的人读摘要。
+- `write_world_slice` 每条变更是 patch：`{ subjectId, path, op, value?, summary?, type?, name? }`。op 只有 `replace` / `increment` / `remove` / `append`；collection 可用 `remove + value` 按 stable JSON 值删除元素，list 不支持按值删。
+- 时间一律用项目日历字符串。第一版历法月份是数字（如 `星辉历312年 5月15日 14:00`），不要用「风信之月」这类月份名（尚未实现）；公开入参禁止 raw instant。技术细节（slice / patch / reduce / instant / op / schema）对用户透明，回复用户时给「时间线 + 当前状态」的人读摘要。
 - 纯粹的 schema / calendar 验证、World Engine 工具体验测试、可用性回归可交给 `world.engine` profile；写作模式下的日常世界状态推进由 leader 自己用 World Engine 工具完成。
 - World Engine 初始化时机、schema / calendar 设计、reduce 与 issues 语义见 [reference/world-engine/README.md](../world-engine/README.md)。
 

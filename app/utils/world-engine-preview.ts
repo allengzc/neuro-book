@@ -1,12 +1,14 @@
 export type JsonValue = null | boolean | number | string | JsonValue[] | {[key: string]: JsonValue};
 
-export type WorldMutationOp = "set" | "add" | "unset" | "listAppend" | "collectionAdd" | "collectionRemove";
+export type WorldPatchOp = "replace" | "increment" | "remove" | "append";
+export type WorldMutationOp = WorldPatchOp;
 
 export type WorldMutationDraft = {
     subjectId: string;
-    attr: string;
-    op: WorldMutationOp;
+    path: string;
+    op: WorldPatchOp;
     value?: JsonValue;
+    summary?: string;
 };
 
 export type MutationListUpdate = {
@@ -52,12 +54,6 @@ export type WorldPreviewStateSubject = {
     attrs: Record<string, JsonValue>;
 };
 
-export type WorldPreviewValueOption = {
-    label: string;
-    value: string;
-    key: string;
-};
-
 export type ParseResult<TValue> = {
     ok: true;
     value: TValue;
@@ -66,29 +62,7 @@ export type ParseResult<TValue> = {
     message: string;
 };
 
-const MUTATION_OPS = new Set<WorldMutationOp>(["set", "add", "unset", "listAppend", "collectionAdd", "collectionRemove"]);
-
-const PREVIEW_DEMO_SUBJECTS: WorldPreviewSubject[] = [
-    {id: "world", type: "world", name: "世界"},
-    {id: "capital", type: "location", name: "王都"},
-    {id: "erina", type: "character", name: "艾莉娜"},
-    {id: "old-sword", type: "item", name: "旧剑"},
-];
-
-const PREVIEW_DEMO_ATTR_REQUIREMENTS: Array<{
-    type: string;
-    attr: string;
-    kind: WorldPreviewAttrKind;
-    expectedTypes?: string[];
-}> = [
-    {type: "world", attr: "events", kind: "list", expectedTypes: ["text"]},
-    {type: "location", attr: "events", kind: "list", expectedTypes: ["text"]},
-    {type: "character", attr: "location", kind: "scalar", expectedTypes: ["ref(location)"]},
-    {type: "character", attr: "inventory", kind: "collection", expectedTypes: ["ref(item)"]},
-    {type: "character", attr: "events", kind: "list", expectedTypes: ["text"]},
-    {type: "item", attr: "durability", kind: "scalar", expectedTypes: ["int", "float"]},
-    {type: "item", attr: "events", kind: "list", expectedTypes: ["text"]},
-];
+const MUTATION_OPS = new Set<WorldPatchOp>(["replace", "increment", "remove", "append"]);
 
 /** 将逗号分隔输入整理为非空字符串数组。 */
 export function parseCsvList(input: string): string[] {
@@ -143,7 +117,7 @@ export function formatWorldEngineConflictMessage(message: string): string {
     }
     const detail = message.match(/existingSliceId=.*$/)?.[0] ?? "";
     const suffix = detail ? `\n${detail}` : "";
-    if (message.includes("edit_world_slice")) {
+    if (message.includes("该时间已有切面")) {
         return `该时间已有切面。请在 Timeline 中找到该时间的 slice，点击“载入编辑”把本次变更合并进去，或把 time 改到相邻时间。${suffix}`;
     }
     if (message.includes("目标时间已有非 init 切面")) {
@@ -155,19 +129,6 @@ export function formatWorldEngineConflictMessage(message: string): string {
     return message;
 }
 
-/** 从当前状态里为 collectionRemove 生成已有项下拉候选。 */
-export function collectionRemoveValueOptions(states: WorldPreviewStateSubject[], subjectId: string, attrPath: string): WorldPreviewValueOption[] {
-    const state = states.find((item) => item.subjectId === subjectId);
-    const value = state ? stateValueAtPath(state.attrs, attrPath) : undefined;
-    if (!Array.isArray(value)) {
-        return [];
-    }
-    return value.map((item, index) => {
-        const option = formatValueOption(item);
-        return {label: option.label, value: option.value, key: `${index}:${option.value}`};
-    });
-}
-
 /** 将 JSON mutation textarea 解析为 World Engine API 可接受的 mutation 数组。 */
 export function parseMutationJson(input: string): ParseResult<WorldMutationDraft[]> {
     const parsed = parseMutationListJson(input);
@@ -175,7 +136,7 @@ export function parseMutationJson(input: string): ParseResult<WorldMutationDraft
         return parsed;
     }
     if (parsed.value.length === 0) {
-        return {ok: false, message: "mutations 必须是非空数组"};
+        return {ok: false, message: "patches 必须是非空数组"};
     }
     return parsed;
 }
@@ -186,7 +147,7 @@ export function parseMutationListJson(input: string): ParseResult<WorldMutationD
         // JSON.parse 是外部输入边界，必须先以 unknown 接住再逐层校验。
         const parsed: unknown = JSON.parse(input);
         if (!Array.isArray(parsed)) {
-            return {ok: false, message: "mutations 必须是数组"};
+            return {ok: false, message: "patches 必须是数组"};
         }
         const mutations: WorldMutationDraft[] = [];
         for (const item of parsed) {
@@ -198,7 +159,7 @@ export function parseMutationListJson(input: string): ParseResult<WorldMutationD
         }
         return {ok: true, value: mutations};
     } catch (error) {
-        return {ok: false, message: error instanceof Error ? error.message : "mutations JSON 解析失败"};
+        return {ok: false, message: error instanceof Error ? error.message : "patches JSON 解析失败"};
     }
 }
 
@@ -381,6 +342,23 @@ export function suggestNextPreviewTime(examples: string[], usedTimes: string[]):
     return suggestSliceTime(examples);
 }
 
+/** 围绕指定切片时间建议相邻新 slice 时间；解析失败时回退到普通新建建议。 */
+export function suggestAdjacentPreviewTime(examples: string[], usedTimes: string[], anchorTime: string, direction: "before" | "after"): string {
+    const anchor = anchorTime.trim();
+    if (!anchor) {
+        return suggestNextPreviewTime(examples, usedTimes);
+    }
+    const used = new Set(usedTimes.map((item) => item.trim()).filter(Boolean));
+    const step = direction === "before" ? -1 : 1;
+    for (let offset = 1; offset < 3600; offset += 1) {
+        const candidate = addSecondsToPreviewTime(anchor, step * offset);
+        if (candidate && !used.has(candidate)) {
+            return candidate;
+        }
+    }
+    return suggestNextPreviewTime(examples, usedTimes);
+}
+
 /** 按可解析时间从新到旧尝试；不可解析字符串保留原来的后写优先。 */
 function orderedPreviewTimeBases(usedTimes: string[]): string[] {
     return usedTimes
@@ -429,70 +407,26 @@ function previewTimeSortKey(input: string): bigint | null {
     return isValidPreviewClock(hour, minute, second) ? BigInt(hour * 3600 + minute * 60 + second) : null;
 }
 
-/** 返回 preview 一键示例世界需要创建的 subjects。 */
-export function previewDemoSubjects(): WorldPreviewSubject[] {
-    return PREVIEW_DEMO_SUBJECTS.map((subject) => ({...subject}));
-}
-
-/** 返回 preview 一键示例世界写入的事件 mutations。 */
-export function previewDemoMutations(): WorldMutationDraft[] {
-    return [
-        {subjectId: "world", attr: "events", op: "listAppend", value: "世界引擎示例启动"},
-        {subjectId: "capital", attr: "name", op: "set", value: "王都"},
-        {subjectId: "capital", attr: "events", op: "listAppend", value: "艾莉娜抵达王都"},
-        {subjectId: "erina", attr: "location", op: "set", value: "subject://capital"},
-        {subjectId: "erina", attr: "inventory", op: "collectionAdd", value: "subject://old-sword"},
-        {subjectId: "erina", attr: "events", op: "listAppend", value: "抵达王都并拾起旧剑"},
-        {subjectId: "old-sword", attr: "name", op: "set", value: "旧剑"},
-        {subjectId: "old-sword", attr: "durability", op: "add", value: -5},
-        {subjectId: "old-sword", attr: "events", op: "listAppend", value: "被艾莉娜拾起，剑身多了一道裂纹"},
-    ];
-}
-
-/** 检查当前 schema 和已有 subjects 是否能承载 preview 内置示例世界。 */
-export function validatePreviewDemoSchema(schemaTypes: WorldPreviewSchemaType[], subjects: WorldPreviewSubject[]): string {
-    const availableTypes = new Set(schemaTypes.map((item) => item.type));
-    const missingTypes = Array.from(new Set(PREVIEW_DEMO_SUBJECTS.map((subject) => subject.type))).filter((type) => !availableTypes.has(type));
-    if (missingTypes.length) {
-        return `当前 schema 缺少示例所需类型：${missingTypes.join(", ")}`;
-    }
-    const attrErrors = validatePreviewDemoAttrs(schemaTypes);
-    if (attrErrors.length) {
-        return `当前 schema 不适合内置示例：${attrErrors.join("；")}`;
-    }
-    const conflicts = PREVIEW_DEMO_SUBJECTS.filter((seed) => {
-        const current = subjects.find((subject) => subject.id === seed.id);
-        return current && current.type !== seed.type;
-    });
-    if (conflicts.length) {
-        return `已有 subject 与示例 id 冲突：${conflicts.map((seed) => {
-            const current = subjects.find((subject) => subject.id === seed.id);
-            return `${seed.id}(需要 ${seed.type}，当前 ${current?.type ?? "未知"})`;
-        }).join(", ")}`;
-    }
-    return "";
-}
-
-/** 按 schema attr 推导 Mutation Builder 可用的 op 集合。 */
-export function opOptionsForPreviewAttr(attr: WorldPreviewSchemaAttr | null | undefined): WorldMutationOp[] {
+/** 按 schema attr 推导 Patch Builder 可用的 op 集合。 */
+export function opOptionsForPreviewAttr(attr: WorldPreviewSchemaAttr | null | undefined): WorldPatchOp[] {
     if (attr?.kind === "list") {
-        return ["listAppend"];
+        return ["append", "replace", "remove"];
     }
     if (attr?.kind === "collection") {
-        return ["collectionAdd", "collectionRemove"];
+        return ["append", "replace", "remove"];
     }
     if (attr?.kind === "object") {
-        return ["set", "unset"];
+        return ["replace", "remove"];
     }
     if (!attr?.type || attr.type === "int" || attr.type === "float") {
-        return ["set", "add", "unset"];
+        return ["replace", "increment", "remove"];
     }
-    return ["set", "unset"];
+    return ["replace", "remove"];
 }
 
 /** 按完整 attr path 解析 schema attr；开放 object key 会继承根 object 的 itemType 投影。 */
 export function resolvePreviewAttrPath(attrs: WorldPreviewSchemaAttr[], attrPath: string): WorldPreviewSchemaAttr | null {
-    const name = attrPath.trim();
+    const name = pointerToAttr(attrPath.trim());
     const exact = attrs.find((attr) => attr.name === name);
     if (exact) {
         return exact;
@@ -536,13 +470,13 @@ export function resolvePreviewAttrPath(attrs: WorldPreviewSchemaAttr[], attrPath
 
 /** 按 schema attr 推导快捷填充时的默认 mutation draft。 */
 export function defaultMutationForPreviewAttr(subjectId: string, attr: WorldPreviewSchemaAttr, subjects: WorldPreviewSubject[] = []): WorldMutationDraft {
-    const op = opOptionsForPreviewAttr(attr)[0] ?? "set";
+    const op = opOptionsForPreviewAttr(attr)[0] ?? "replace";
     const mutation: WorldMutationDraft = {
         subjectId,
-        attr: attr.name,
+        path: attrToPointer(attr.name),
         op,
     };
-    if (op !== "unset") {
+    if (op !== "remove") {
         mutation.value = defaultValueForPreviewAttr(attr, subjects);
     }
     return mutation;
@@ -572,7 +506,7 @@ export function defaultMutationForPreviewSubject(schemaTypes: WorldPreviewSchema
     if (firstAttr) {
         return defaultMutationForPreviewAttr(subjectId, firstAttr, subjects);
     }
-    return {subjectId, attr: "events", op: "listAppend", value: "世界事件"};
+    return {subjectId, path: "/events", op: "append", value: "世界事件"};
 }
 
 /** 读取一次 mutation.value 实际要填写的值类型；list/collection 优先使用 itemType。 */
@@ -588,7 +522,7 @@ export function previewAttrValueType(attr: WorldPreviewSchemaAttr | null | undef
 
 /** 判断当前 attr/op 的 value 是否必须是 JSON object。 */
 export function previewAttrNeedsJsonObject(attr: WorldPreviewSchemaAttr | null | undefined, op: WorldMutationOp): boolean {
-    if (!attr || op === "unset") {
+    if (!attr || op === "remove") {
         return false;
     }
     return attr.kind === "object" || previewAttrValueType(attr) === "object";
@@ -601,34 +535,36 @@ export function isJsonObjectValue(value: JsonValue): value is Record<string, Jso
 
 function parseMutation(input: unknown): ParseResult<WorldMutationDraft> {
     if (!isRecord(input)) {
-        return {ok: false, message: "mutation 必须是 object"};
+        return {ok: false, message: "patch 必须是 object"};
     }
     const subjectId = typeof input.subjectId === "string" ? input.subjectId.trim() : "";
-    const attr = typeof input.attr === "string" ? input.attr.trim() : "";
-    const op = typeof input.op === "string" && MUTATION_OPS.has(input.op as WorldMutationOp) ? input.op as WorldMutationOp : null;
+    const path = typeof input.path === "string" ? input.path.trim() : "";
+    const op = typeof input.op === "string" && MUTATION_OPS.has(input.op as WorldPatchOp) ? input.op as WorldPatchOp : null;
+    const summary = typeof input.summary === "string" ? input.summary.trim() : "";
     if (!subjectId) {
-        return {ok: false, message: "mutation.subjectId 不能为空"};
+        return {ok: false, message: "patch.subjectId 不能为空"};
     }
-    if (!attr) {
-        return {ok: false, message: "mutation.attr 不能为空"};
+    if (!path) {
+        return {ok: false, message: "patch.path 不能为空"};
+    }
+    if (!isJsonPointer(path)) {
+        return {ok: false, message: "patch.path 必须是 JSON Pointer（以 / 开头，且不能包含空段）"};
     }
     if (!op) {
-        return {ok: false, message: "mutation.op 不合法"};
+        return {ok: false, message: "patch.op 不合法"};
     }
     const hasValue = "value" in input;
-    if (op === "unset" && hasValue) {
-        return {ok: false, message: "mutation.value 在 unset 时必须省略"};
+    if (op !== "remove" && !hasValue) {
+        return {ok: false, message: "patch.value 不能为空"};
     }
-    if (op !== "unset" && !hasValue) {
-        return {ok: false, message: "mutation.value 不能为空"};
-    }
+    const base = summary ? {subjectId, path, op, summary} : {subjectId, path, op};
     if (!hasValue) {
-        return {ok: true, value: {subjectId, attr, op}};
+        return {ok: true, value: base};
     }
     if (!isJsonValue(input.value)) {
-        return {ok: false, message: "mutation.value 必须是 JSON 值"};
+        return {ok: false, message: "patch.value 必须是 JSON 值"};
     }
-    return {ok: true, value: {subjectId, attr, op, value: input.value}};
+    return {ok: true, value: {...base, value: input.value}};
 }
 
 function isValidMutationIndex(mutations: WorldMutationDraft[], index: number): boolean {
@@ -663,29 +599,23 @@ function cloneJsonValue(input: JsonValue): JsonValue {
     return JSON.parse(JSON.stringify(input)) as JsonValue;
 }
 
-function stateValueAtPath(attrs: Record<string, JsonValue>, attrPath: string): JsonValue | undefined {
-    const path = attrPath.trim();
-    if (!path) {
-        return undefined;
-    }
-    if (Object.prototype.hasOwnProperty.call(attrs, path)) {
-        return attrs[path];
-    }
-    let current: JsonValue | undefined = attrs;
-    for (const part of path.split(".")) {
-        if (!isJsonRecord(current) || !Object.prototype.hasOwnProperty.call(current, part)) {
-            return undefined;
-        }
-        current = current[part];
-    }
-    return current;
+function isJsonPointer(path: string): boolean {
+    return path.startsWith("/") && path.slice(1).split("/").every((part) => part !== "" && !/~(?![01])/.test(part));
 }
 
-function formatValueOption(value: JsonValue): {label: string; value: string} {
-    return {
-        label: typeof value === "string" ? value : JSON.stringify(value),
-        value: formatJsonInputValue(value),
-    };
+function attrToPointer(attr: string): string {
+    return `/${attr.split(".").filter(Boolean).map((part) => part.replace(/~/g, "~0").replace(/\//g, "~1")).join("/")}`;
+}
+
+function pointerToAttr(path: string): string {
+    if (!path.startsWith("/")) {
+        return path;
+    }
+    const parts = path.slice(1).split("/");
+    if (parts.some((part) => part === "")) {
+        return "";
+    }
+    return parts.map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~")).join(".");
 }
 
 function refPlaceholder(type: string | undefined, subjects: WorldPreviewSubject[]): JsonValue {
@@ -700,27 +630,6 @@ function refPlaceholder(type: string | undefined, subjects: WorldPreviewSubject[
 function parseRefType(type: string | undefined): string | null {
     const match = /^ref\(([^)]+)\)$/.exec(type ?? "");
     return match?.[1] ?? null;
-}
-
-function validatePreviewDemoAttrs(schemaTypes: WorldPreviewSchemaType[]): string[] {
-    const errors: string[] = [];
-    for (const requirement of PREVIEW_DEMO_ATTR_REQUIREMENTS) {
-        const subjectType = schemaTypes.find((item) => item.type === requirement.type);
-        const attr = subjectType?.attrs.find((item) => item.name === requirement.attr);
-        if (!attr) {
-            errors.push(`${requirement.type}.${requirement.attr} 缺失`);
-            continue;
-        }
-        if (attr.kind !== requirement.kind) {
-            errors.push(`${requirement.type}.${requirement.attr} 需要 ${requirement.kind}，当前是 ${attr.kind}`);
-            continue;
-        }
-        const valueType = previewAttrValueType(attr);
-        if (requirement.expectedTypes && (!valueType || !requirement.expectedTypes.includes(valueType))) {
-            errors.push(`${requirement.type}.${requirement.attr} 类型需要 ${requirement.expectedTypes.join("/")}，当前是 ${valueType ?? "未声明"}`);
-        }
-    }
-    return errors;
 }
 
 function isJsonValue(input: unknown): input is JsonValue {
@@ -738,10 +647,6 @@ function isJsonValue(input: unknown): input is JsonValue {
 
 function isRecord(input: unknown): input is Record<string, unknown> {
     return typeof input === "object" && input !== null && !Array.isArray(input);
-}
-
-function isJsonRecord(value: JsonValue | undefined): value is Record<string, JsonValue> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function shouldParseAsJson(input: string): boolean {
@@ -792,19 +697,24 @@ function addSecondsToNumericDateTime(input: string, offset: number): string | nu
         return null;
     }
     const total = hour * 3600 + minute * 60 + second + offset;
-    if (total < 0) {
-        return null;
-    }
     day += Math.floor(total / (24 * 3600));
+    while (day < 1) {
+        day += 30;
+        month -= 1;
+    }
     while (day > 30) {
         day -= 30;
         month += 1;
+    }
+    while (month < 1) {
+        month += 12;
+        year -= 1;
     }
     while (month > 12) {
         month -= 12;
         year += 1;
     }
-    const secondOfDay = total % (24 * 3600);
+    const secondOfDay = ((total % (24 * 3600)) + (24 * 3600)) % (24 * 3600);
     const nextHour = Math.floor(secondOfDay / 3600);
     const nextMinute = Math.floor((secondOfDay % 3600) / 60);
     const nextSecond = secondOfDay % 60;

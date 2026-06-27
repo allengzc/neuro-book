@@ -128,7 +128,7 @@ const scopeOptions = computed<Array<{value: SettingsScope; label: string; descri
 ]);
 
 const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-models"];
-const projectConfigSections: SettingsSection[] = ["models", "embedding", "web-tools", "agent-profile-models"];
+const projectConfigSections: SettingsSection[] = ["agent-profile-models"];
 const browserSections: SettingsSection[] = ["frontend", "editor"];
 
 const themeOptions: SelectOption[] = [

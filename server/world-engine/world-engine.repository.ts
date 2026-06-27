@@ -1,6 +1,9 @@
 import {randomUUID} from "node:crypto";
-import type {Client, InValue} from "@libsql/client";
-import type {MutationInput, SliceInput, WorldMutationRow, WorldSliceSubjectFilterMode} from "nbook/server/world-engine/types";
+import type {Client, InValue, Transaction} from "@libsql/client";
+import type {EmbeddingColumns, PatchInput, SliceInput, WorldEmbeddingRow, WorldPatchRow, WorldSliceSubjectFilterMode} from "nbook/server/world-engine/types";
+
+/** 待写入的 patch：带应用顺序 seq 与可选 embedding 列。 */
+type WritePatch = PatchInput & {seq: number; embed?: EmbeddingColumns};
 
 type WorldSubjectRow = {
     id: string;
@@ -18,12 +21,12 @@ type WorldSliceRow = {
     createdAt: Date;
 };
 
-type WorldMutationSqlRow = WorldMutationRow & {
+type WorldPatchSqlRow = WorldPatchRow & {
     id: string;
 };
 
-type WorldSliceWithMutations = WorldSliceRow & {
-    mutations: WorldMutationSqlRow[];
+type WorldSliceWithPatches = WorldSliceRow & {
+    patches: WorldPatchSqlRow[];
 };
 
 type SqlRow = Record<string, unknown>;
@@ -31,7 +34,7 @@ type SqlArgs = InValue[];
 
 /** 世界引擎 SQLite 仓储。 */
 export class WorldEngineRepository {
-    constructor(private readonly client: Client) {}
+    constructor(private readonly client: Client | Transaction) {}
 
     /** 创建 subject 身份记录。 */
     async createSubject(input: {id: string; type: string; name: string}): Promise<WorldSubjectRow> {
@@ -77,15 +80,15 @@ export class WorldEngineRepository {
         return row ? toSlice(row) : null;
     }
 
-    /** 查询切面及其 mutation。 */
-    async findSliceWithMutations(sliceId: string): Promise<WorldSliceWithMutations | null> {
+    /** 查询切面及其 patch 行。 */
+    async findSliceWithPatches(sliceId: string): Promise<WorldSliceWithPatches | null> {
         const slice = await this.queryOne(`SELECT * FROM "WorldSlice" WHERE "id" = ?`, [sliceId]);
         if (!slice) {
             return null;
         }
         return {
             ...toSlice(slice),
-            mutations: await this.listMutationsBySlice(sliceId),
+            patches: await this.listPatchesBySlice(sliceId),
         };
     }
 
@@ -98,60 +101,65 @@ export class WorldEngineRepository {
         return row ? toSlice(row) : null;
     }
 
-    /** 创建一个新切面与 mutation 行。 */
-    async createSlice(input: SliceInput, mutations: Array<MutationInput & {seq: number}>): Promise<WorldSliceRow> {
+    /** 创建一个新切面与 patch 行。 */
+    async createSlice(input: SliceInput, patches: WritePatch[]): Promise<WorldSliceRow> {
         const id = randomUUID();
         await this.execute(
             `INSERT INTO "WorldSlice" ("id", "instant", "title", "summary", "kind") VALUES (?, ?, ?, ?, ?)`,
             [id, input.instant, input.title ?? "", input.summary ?? "", input.kind ?? "event"],
         );
-        await this.appendMutations(id, input.instant, mutations);
-        const slice = await this.findSliceWithMutations(id);
+        await this.appendPatches(id, input.instant, patches);
+        const slice = await this.findSliceWithPatches(id);
         if (!slice) {
             throw new Error(`WorldSlice 写入后读取失败：${id}`);
         }
         return slice;
     }
 
-    /** 把 init mutations 追加进已有切面。 */
-    async appendMutations(sliceId: string, instant: bigint, mutations: Array<MutationInput & {seq: number}>): Promise<void> {
-        for (const mutation of mutations) {
+    /** 把 init patches 追加进已有切面。 */
+    async appendPatches(sliceId: string, instant: bigint, patches: WritePatch[]): Promise<void> {
+        for (const patch of patches) {
+            const embed = patch.embed;
             await this.execute(
-                `INSERT INTO "WorldMutation" ("id", "sliceId", "subjectId", "instant", "seq", "attr", "op", "value") VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                [randomUUID(), sliceId, mutation.subjectId, instant, mutation.seq, mutation.attr, mutation.op, encodeMutationValue(mutation)],
+                `INSERT INTO "WorldPatch" ("id", "sliceId", "subjectId", "instant", "seq", "path", "op", "value", "summary", "text", "vector", "model") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                    randomUUID(), sliceId, patch.subjectId, instant, patch.seq, patch.path, patch.op,
+                    encodePatchValue(patch), patch.summary ?? null,
+                    embed?.text ?? null, embed?.vector ?? null, embed?.model ?? null,
+                ],
             );
         }
     }
 
-    /** 返回某切面当前最大 seq；无 mutation 时返回 -1。 */
+    /** 返回某切面当前最大 seq；无 patch 时返回 -1。 */
     async maxSeq(sliceId: string): Promise<number> {
-        const row = await this.queryOne(`SELECT MAX("seq") AS "maxSeq" FROM "WorldMutation" WHERE "sliceId" = ?`, [sliceId]);
+        const row = await this.queryOne(`SELECT MAX("seq") AS "maxSeq" FROM "WorldPatch" WHERE "sliceId" = ?`, [sliceId]);
         const value = row?.maxSeq;
         return typeof value === "number" ? value : -1;
     }
 
-    /** 整块替换切面与 mutation。 */
-    async replaceSlice(sliceId: string, input: SliceInput, mutations: Array<MutationInput & {seq: number}>): Promise<WorldSliceRow> {
-        await this.execute(`DELETE FROM "WorldMutation" WHERE "sliceId" = ?`, [sliceId]);
+    /** 整块替换切面与 patch 行。 */
+    async replaceSlice(sliceId: string, input: SliceInput, patches: WritePatch[]): Promise<WorldSliceRow> {
+        await this.execute(`DELETE FROM "WorldPatch" WHERE "sliceId" = ?`, [sliceId]);
         await this.execute(
             `UPDATE "WorldSlice" SET "instant" = ?, "title" = ?, "summary" = ?, "kind" = ? WHERE "id" = ?`,
             [input.instant, input.title ?? "", input.summary ?? "", input.kind ?? "event", sliceId],
         );
-        await this.appendMutations(sliceId, input.instant, mutations);
-        const slice = await this.findSliceWithMutations(sliceId);
+        await this.appendPatches(sliceId, input.instant, patches);
+        const slice = await this.findSliceWithPatches(sliceId);
         if (!slice) {
             throw new Error(`WorldSlice 替换后读取失败：${sliceId}`);
         }
         return slice;
     }
 
-    /** 物理删除切面（其 mutation 行随 onDelete: Cascade 一并删除）。 */
+    /** 物理删除切面（其 patch 行随 onDelete: Cascade 一并删除）。 */
     async deleteSlice(sliceId: string): Promise<void> {
         await this.execute(`DELETE FROM "WorldSlice" WHERE "id" = ?`, [sliceId]);
     }
 
-    /** 查询某 subject 在 at 之前或之前含 at 的 mutation。 */
-    async findMutationsForSubject(input: {subjectId: string; at?: bigint; beforeInstant?: bigint; from?: bigint; excludeSliceId?: string}): Promise<WorldMutationRow[]> {
+    /** 查询某 subject 在 at 之前或之前含 at 的 patch。 */
+    async findPatchesForSubject(input: {subjectId: string; at?: bigint; beforeInstant?: bigint; from?: bigint; excludeSliceId?: string}): Promise<WorldPatchRow[]> {
         const where = [`"subjectId" = ?`];
         const args: SqlArgs = [input.subjectId];
         if (input.excludeSliceId) {
@@ -171,10 +179,10 @@ export class WorldEngineRepository {
             args.push(input.from);
         }
         const rows = await this.queryRows(
-            `SELECT * FROM "WorldMutation"${renderWhere(where)} ORDER BY "instant" ASC, "seq" ASC`,
+            `SELECT * FROM "WorldPatch"${renderWhere(where)} ORDER BY "instant" ASC, "seq" ASC`,
             args,
         );
-        return rows.map(toMutation);
+        return rows.map(toPatch);
     }
 
     /** 查询最新 instant。 */
@@ -183,8 +191,50 @@ export class WorldEngineRepository {
         return row ? toBigInt(row.instant) : null;
     }
 
+    /**
+     * 检索 embedding 行（text 非空），供 searchText / vectorize。
+     *
+     * 只做行级过滤（type / attr 前缀 / instant），存活集去重（memory 取最新、
+     * events 全保留）由调用方按 schema 在内存计算。按 instant,seq 升序返回。
+     *
+     * @param filter.types - 限定 subject type
+     * @param filter.attrs - 限定属性（"memory" 命中 /memory 与 /memory/...；"events" 命中 /events 与 /events/...）
+     * @param filter.at - time-travel：只取 instant <= at 的行
+     */
+    async findEmbeddingRows(filter: {types?: string[]; attrs?: string[]; at?: bigint} = {}): Promise<WorldEmbeddingRow[]> {
+        const where: string[] = [`m."text" IS NOT NULL`];
+        const args: SqlArgs = [];
+        if (filter.types?.length) {
+            where.push(`s."type" IN (${placeholders(filter.types.length)})`);
+            args.push(...filter.types);
+        }
+        if (filter.attrs?.length) {
+            const attrClauses: string[] = [];
+            for (const attr of filter.attrs) {
+                const path = attr.startsWith("/") ? attr : `/${attr.replace(/\./g, "/")}`;
+                attrClauses.push(`m."path" = ?`, `m."path" LIKE ?`);
+                args.push(path, `${path}/%`);
+            }
+            where.push(`(${attrClauses.join(" OR ")})`);
+        }
+        if (filter.at !== undefined) {
+            where.push(`m."instant" <= ?`);
+            args.push(filter.at);
+        }
+        const rows = await this.queryRows(
+            `SELECT m.*, s."type" AS "subjectType" FROM "WorldPatch" m JOIN "WorldSubject" s ON s."id" = m."subjectId"${renderWhere(where)} ORDER BY m."instant" ASC, m."seq" ASC`,
+            args,
+        );
+        return rows.map(toEmbeddingRow);
+    }
+
+    /** 按行回填向量列（vectorize / searchText 即时兜底持久化时用）。 */
+    async updatePatchVector(id: string, vector: Uint8Array, model: string): Promise<void> {
+        await this.execute(`UPDATE "WorldPatch" SET "vector" = ?, "model" = ? WHERE "id" = ?`, [vector, model, id]);
+    }
+
     /** 列切面。 */
-    async listSlices(query: {from?: bigint; to?: bigint; limit?: number; withMutations?: boolean; subjectIds?: string[]; subjectMode?: WorldSliceSubjectFilterMode}): Promise<Array<WorldSliceRow & {mutations?: WorldMutationSqlRow[]}>> {
+    async listSlices(query: {from?: bigint; to?: bigint; limit?: number; withPatches?: boolean; subjectIds?: string[]; subjectMode?: WorldSliceSubjectFilterMode}): Promise<Array<WorldSliceRow & {patches?: WorldPatchSqlRow[]}>> {
         const where: string[] = [];
         const args: SqlArgs = [];
         if (query.from !== undefined) {
@@ -204,21 +254,21 @@ export class WorldEngineRepository {
         );
         const slices = rows.map(toSlice);
         const ordered = order === "DESC" ? slices.reverse() : slices;
-        if (!query.withMutations) {
+        if (!query.withPatches) {
             return ordered;
         }
         return Promise.all(ordered.map(async (slice) => ({
             ...slice,
-            mutations: await this.listMutationsBySlice(slice.id),
+            patches: await this.listPatchesBySlice(slice.id),
         })));
     }
 
-    private async listMutationsBySlice(sliceId: string): Promise<WorldMutationSqlRow[]> {
+    private async listPatchesBySlice(sliceId: string): Promise<WorldPatchSqlRow[]> {
         const rows = await this.queryRows(
-            `SELECT * FROM "WorldMutation" WHERE "sliceId" = ? ORDER BY "seq" ASC`,
+            `SELECT * FROM "WorldPatch" WHERE "sliceId" = ? ORDER BY "seq" ASC`,
             [sliceId],
         );
-        return rows.map(toMutation);
+        return rows.map(toPatch);
     }
 
     private async execute(sql: string, args: SqlArgs): Promise<void> {
@@ -241,12 +291,12 @@ function appendSubjectFilters(where: string[], args: SqlArgs, subjectIds: string
     }
     if (mode === "all") {
         for (const subjectId of subjectIds) {
-            where.push(`EXISTS (SELECT 1 FROM "WorldMutation" m WHERE m."sliceId" = "WorldSlice"."id" AND m."subjectId" = ?)`);
+            where.push(`EXISTS (SELECT 1 FROM "WorldPatch" m WHERE m."sliceId" = "WorldSlice"."id" AND m."subjectId" = ?)`);
             args.push(subjectId);
         }
         return;
     }
-    where.push(`EXISTS (SELECT 1 FROM "WorldMutation" m WHERE m."sliceId" = "WorldSlice"."id" AND m."subjectId" IN (${placeholders(subjectIds.length)}))`);
+    where.push(`EXISTS (SELECT 1 FROM "WorldPatch" m WHERE m."sliceId" = "WorldSlice"."id" AND m."subjectId" IN (${placeholders(subjectIds.length)}))`);
     args.push(...subjectIds);
 }
 
@@ -278,21 +328,57 @@ function toSlice(row: SqlRow): WorldSliceRow {
     };
 }
 
-function toMutation(row: SqlRow): WorldMutationSqlRow {
+function toPatch(row: SqlRow): WorldPatchSqlRow {
     return {
         id: toText(row.id),
         sliceId: toText(row.sliceId),
         subjectId: toText(row.subjectId),
         instant: toBigInt(row.instant),
         seq: Number(row.seq ?? 0),
-        attr: toText(row.attr),
+        path: toText(row.path),
         op: toText(row.op),
         value: row.value === null || row.value === undefined ? null : toText(row.value),
+        summary: row.summary === null || row.summary === undefined ? null : toText(row.summary),
     };
 }
 
 function toText(value: unknown): string {
     return typeof value === "string" ? value : String(value ?? "");
+}
+
+/** SQLite BLOB -> Uint8Array；NULL 返回 null。 */
+function toBytes(value: unknown): Uint8Array | null {
+    if (value === null || value === undefined) {
+        return null;
+    }
+    if (value instanceof Uint8Array) {
+        return value;
+    }
+    if (value instanceof ArrayBuffer) {
+        return new Uint8Array(value);
+    }
+    // libsql 某些驱动以带 buffer 的视图返回
+    if (ArrayBuffer.isView(value)) {
+        const view = value as ArrayBufferView;
+        return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+    }
+    return null;
+}
+
+function toEmbeddingRow(row: SqlRow): WorldEmbeddingRow {
+    return {
+        id: toText(row.id),
+        subjectId: toText(row.subjectId),
+        subjectType: toText(row.subjectType),
+        sliceId: toText(row.sliceId),
+        instant: toBigInt(row.instant),
+        seq: Number(row.seq ?? 0),
+        path: toText(row.path),
+        op: toText(row.op),
+        text: toText(row.text),
+        vector: toBytes(row.vector),
+        model: row.model === null || row.model === undefined ? null : toText(row.model),
+    };
 }
 
 function toBigInt(value: unknown): bigint {
@@ -310,6 +396,6 @@ function toDate(value: unknown): Date {
     return new Date(text.includes("T") ? text : `${text.replace(" ", "T")}Z`);
 }
 
-function encodeMutationValue(mutation: MutationInput): string | null {
-    return mutation.op === "unset" ? null : JSON.stringify(mutation.value ?? null);
+function encodePatchValue(patch: PatchInput): string | null {
+    return patch.value === undefined ? null : JSON.stringify(patch.value);
 }

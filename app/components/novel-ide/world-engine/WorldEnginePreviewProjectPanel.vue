@@ -24,8 +24,6 @@ const props = defineProps<{
     schema: PreviewSchemaProjection | null;
     schemaTypes: WorldPreviewSchemaType[];
     projectReady: boolean;
-    canSeedDemoWorld: boolean;
-    demoWorldButtonTitle: string;
     loadingProjects: boolean;
     loadingWorld: boolean;
     actionBusy: boolean;
@@ -33,11 +31,10 @@ const props = defineProps<{
 
 const emit = defineEmits<{
     (e: "create-project"): void;
-    (e: "seed-demo-world"): void;
     (e: "fill-mutation", typeName: string, attr: WorldPreviewSchemaAttr): void;
 }>();
 
-const schemaSourcePath = "world-engine/schema.yaml";
+const schemaSourcePath = "world-engine/schema/index.ts";
 const calendarSourcePath = "world-engine/calendar.ts";
 
 /** 生成主 IDE 深链，用于从独立 Preview 跳回 Project Workspace 配置文件。 */
@@ -62,10 +59,6 @@ function buildIdeOpenPathHref(path: string): string {
                 <button type="button" class="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[var(--accent-main)] px-3 text-sm text-[var(--accent-contrast)] disabled:opacity-50" :disabled="loadingProjects || loadingWorld || actionBusy" @click="emit('create-project')">
                     <span class="i-lucide-folder-plus h-4 w-4"></span>
                     新建 Project
-                </button>
-                <button type="button" class="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-[var(--border-color)] px-3 text-sm hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="!canSeedDemoWorld || loadingProjects || loadingWorld || actionBusy" :title="demoWorldButtonTitle" @click="emit('seed-demo-world')">
-                    <span class="i-lucide-sparkles h-4 w-4"></span>
-                    创建示例世界
                 </button>
             </fieldset>
             <div v-if="selectedProject" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-3 text-xs leading-6">

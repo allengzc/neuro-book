@@ -103,22 +103,21 @@ export class GregorianCalendar implements CalendarStrategy {
     private partsFromInstant(instant: Instant): {year: bigint; month: bigint; day: bigint; hour: bigint; minute: bigint; second: bigint} {
         let rest = instant;
 
-        // 计算年份（逐年累减，因为闰年动态）
+        // 计算年份（逐年累减，因为闰年动态）。内部 year=0 表示公元前 1 年。
         let year = ONE;
-        const direction = rest >= ZERO ? ONE : -ONE;
-
-        while (true) {
-            const secondsThisYear = this.secondsInYear(year);
-            if (direction > ZERO && rest < secondsThisYear) break;
-            if (direction < ZERO && rest > -secondsThisYear) break;
-            rest -= direction * secondsThisYear;
-            year += direction;
-        }
-
-        // 如果是负数年份，rest 是负的，需要从上一年末倒推
-        if (direction < ZERO) {
-            year -= ONE;
-            rest += this.secondsInYear(year);
+        if (rest >= ZERO) {
+            while (rest >= this.secondsInYear(year)) {
+                rest -= this.secondsInYear(year);
+                year += ONE;
+            }
+        } else {
+            year = ZERO;
+            while (rest < ZERO) {
+                rest += this.secondsInYear(year);
+                if (rest < ZERO) {
+                    year -= ONE;
+                }
+            }
         }
 
         // 现在 rest 是本年内的秒数，计算 month/day/hour/minute/second
@@ -169,13 +168,15 @@ export class GregorianCalendar implements CalendarStrategy {
 
         let instant = ZERO;
 
-        // 累加完整年份
-        const direction = year > ZERO ? ONE : -ONE;
-        const startYear = direction > ZERO ? ONE : ZERO;
-        const endYear = direction > ZERO ? year : year + ONE;
-
-        for (let y = startYear; y !== endYear; y += direction) {
-            instant += direction * this.secondsInYear(y);
+        // 累加完整年份；内部 year=0 表示公元前 1 年，需向负方向包含该年整年。
+        if (year > ZERO) {
+            for (let y = ONE; y < year; y += ONE) {
+                instant += this.secondsInYear(y);
+            }
+        } else {
+            for (let y = ZERO; y >= year; y -= ONE) {
+                instant -= this.secondsInYear(y);
+            }
         }
 
         // 累加本年已过月份

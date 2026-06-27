@@ -1,32 +1,37 @@
 import {createError} from "h3";
 import {collectDefaultAttrs, findAttrSchema, flattenAttrs, normalizeAttrKind} from "nbook/server/world-engine/schema-loader";
 import {WorldEngineRepository} from "nbook/server/world-engine/world-engine.repository";
+import {cosineSimilarity, decodeVector, encodeVector} from "nbook/server/world-engine/embedding-vector";
+import {embedTexts, resolveWorldEmbedding, type WorldEmbeddingModel} from "nbook/server/world-engine/world-embedding";
+import {applyPatch} from "nbook/server/world-engine/patch-operations";
 import type {WorldCalendar} from "nbook/server/world-engine/calendar";
 import type {
     CreateWorldSubjectInput,
     JsonValue,
     CreateWorldSubjectResult,
     DeleteSliceResult,
-    MutationInput,
+    EmbeddingColumns,
+    PatchInput,
     QueryStateResult,
     SliceInput,
     SliceListItem,
     SliceWriteResult,
     WorldAttrSchema,
+    WorldEmbeddingRow,
     WorldIssue,
     WorldIssueCode,
-    WorldMutationOp,
-    WorldMutationRow,
+    WorldPatchOp,
+    WorldPatchRow,
     WorldSchema,
     WorldSchemaProjection,
     WorldSliceSubjectFilterMode,
-    WorldState,
     WorldSubjectListItem,
 } from "nbook/server/world-engine/types";
 
-const OPS: WorldMutationOp[] = ["set", "add", "unset", "listAppend", "collectionAdd", "collectionRemove"];
-const RELATIVE_OPS = new Set<string>(["add", "listAppend", "collectionAdd", "collectionRemove"]);
-const MAX_SLICE_MUTATIONS = 100;
+const OPS: WorldPatchOp[] = ["replace", "increment", "remove", "append"];
+const ABSOLUTE_OPS = new Set<string>(["replace", "remove"]);
+const RELATIVE_OPS = new Set<string>(["increment", "append"]);
+const MAX_SLICE_PATCHES = 100;
 const SQLITE_INT64_MIN = BigInt("-9223372036854775808");
 const SQLITE_INT64_MAX = BigInt("9223372036854775807");
 const MISSING = Symbol("missing");
@@ -40,6 +45,7 @@ export class WorldEngineService {
         private readonly repository: WorldEngineRepository,
         private readonly schema: WorldSchema,
         private readonly calendar: WorldCalendar,
+        private readonly projectPath: string,
     ) {}
 
     /** 创建 subject；只有 schema default 或初始化 attrs 非空时才写入 init slice。 */
@@ -52,50 +58,52 @@ export class WorldEngineService {
             throw createError({statusCode: 409, message: `subject 已存在：${input.id}（当前 type=${existing.type}${existing.name ? `, name=${existing.name}` : ""}）`});
         }
 
-        const initMutationByAttr = new Map<string, MutationInput>();
+        const initPatchByPath = new Map<string, PatchInput>();
         for (const item of collectDefaultAttrs(this.schema, input.type)) {
-            initMutationByAttr.set(item.attr, {
+            const path = attrToPath(item.attr);
+            initPatchByPath.set(path, {
                 subjectId: input.id,
-                attr: item.attr,
-                op: "set",
+                path,
+                op: "replace",
                 value: item.value,
             });
         }
         for (const [attr, value] of Object.entries(input.attrs ?? {})) {
-            initMutationByAttr.set(attr, {
+            const path = attrToPath(attr);
+            initPatchByPath.set(path, {
                 subjectId: input.id,
-                attr,
-                op: "set",
+                path,
+                op: "replace",
                 value,
             });
         }
-        const initMutations = [...initMutationByAttr.values()];
-        await this.validateInitialMutations(input.type, initMutations);
-        const slice = initMutations.length > 0 ? await this.repository.findSliceByInstant(input.at) : null;
+        const initPatches = [...initPatchByPath.values()];
+        await this.validateInitialPatches(input.type, initPatches);
+        const slice = initPatches.length > 0 ? await this.repository.findSliceByInstant(input.at) : null;
         if (slice && slice.kind !== "init") {
             throw createError({statusCode: 409, message: this.renderInstantConflict(slice, "目标时间已有非 init 切面，不能把 subject 初始化追加进去；请使用 editSlice 显式合并，或选择其他初始化时间。")});
         }
         await this.repository.createSubject({id: input.id, type: input.type, name: input.name ?? ""});
 
-        if (initMutations.length === 0) {
+        if (initPatches.length === 0) {
             return {subjectId: input.id, issues: []};
         }
 
         if (slice) {
             const startSeq = await this.repository.maxSeq(slice.id) + 1;
-            assertMutationCapacity(startSeq + initMutations.length);
-            await this.repository.appendMutations(slice.id, input.at, withSeq(initMutations, startSeq));
+            assertPatchCapacity(startSeq + initPatches.length);
+            await this.repository.appendPatches(slice.id, input.at, withSeq(initPatches, startSeq));
         } else {
-            assertMutationCapacity(initMutations.length);
+            assertPatchCapacity(initPatches.length);
             await this.repository.createSlice({
                 instant: input.at,
                 title: input.name ? `创建 ${input.name}` : `创建 ${input.id}`,
                 summary: "",
                 kind: "init",
-                mutations: initMutations,
-            }, withSeq(initMutations, 0));
+                patches: initPatches,
+            }, withSeq(initPatches, 0));
         }
-        // 新建 subject 只写自身初始化 set，不会与既有链条产生 E/A，issues 恒为空。
+        // 新建 subject 只写自身初始化 replace，不会与既有链条产生 E/A，issues 恒为空。
         return {subjectId: input.id, issues: []};
     }
 
@@ -103,13 +111,56 @@ export class WorldEngineService {
     async writeSlice(input: SliceInput): Promise<SliceWriteResult> {
         assertSqliteInstant(input.instant, "instant");
         assertSliceKind(input.kind);
+
         const existing = await this.repository.findSliceByInstant(input.instant);
         if (existing) {
-            throw createError({statusCode: 409, message: this.renderInstantConflict(existing, "该时间已有切面，请使用 edit_world_slice 合并到已有切面，或选择相邻时间。")});
+            throw createError({statusCode: 409, message: this.renderInstantConflict(existing, "该时间已有切面。请选择相邻时间，或先删除已有切面再重新写入。")});
         }
-        await this.validateMutations(input.mutations);
-        const slice = await this.repository.createSlice(input, withSeq(input.mutations, 0));
-        return {sliceId: slice.id, issues: await this.collectWriteIssues(input.instant, input.mutations, affectedSubjectIds(input.mutations))};
+        // C1：首写自动注册 subject。把新 subject 的 WorldSubject 行登记掉，并把其 schema default
+        // 作为本切面的前置 replace patch 写入（不另开 init 切面，保持单切面语义；用户 patch 在后覆盖默认值）。
+        const initPatches = await this.ensureNewSubjects(input.patches);
+        const patches = [...initPatches, ...input.patches];
+        await this.validatePatches(patches);
+        const slice = await this.repository.createSlice(input, await this.attachEmbedding(patches, 0));
+        return {sliceId: slice.id, issues: await this.collectWriteIssues(input.instant, patches, affectedSubjectIds(patches))};
+    }
+
+    /**
+     * C1：为 patches 中尚未登记的 subject 创建 WorldSubject 行，返回需前置写入本切面的 schema default patch。
+     * - 每个新 subject 必须在其某条 patch 上声明 `type`（首写契约），否则报错引导。
+     * - subject 已存在时忽略 patch 上的 type/name。
+     */
+    private async ensureNewSubjects(patches: PatchInput[]): Promise<PatchInput[]> {
+        // 收集每个 subject 首次出现的 type/name 声明。
+        const declBySubject = new Map<string, {type: string; name?: string}>();
+        for (const patch of patches) {
+            if (patch.type !== undefined && !declBySubject.has(patch.subjectId)) {
+                declBySubject.set(patch.subjectId, {type: patch.type, name: patch.name});
+            }
+        }
+        const initPatches: PatchInput[] = [];
+        const handled = new Set<string>();
+        for (const patch of patches) {
+            const id = patch.subjectId;
+            if (handled.has(id)) {
+                continue;
+            }
+            handled.add(id);
+            const found = await this.repository.findSubject(id);
+            if (found) {
+                continue;
+            }
+            const decl = declBySubject.get(id);
+            if (!decl) {
+                throw createError({statusCode: 400, message: `subject 尚未登记：${id}。首次写入时必须在其某条 patch 上声明 type（例如 { subjectId: "${id}", type: "character", path: "/name", op: "replace", value: "..." }）。`});
+            }
+            this.assertSubjectType(decl.type);
+            await this.repository.createSubject({id, type: decl.type, name: decl.name ?? ""});
+            for (const item of collectDefaultAttrs(this.schema, decl.type)) {
+                initPatches.push({subjectId: id, path: attrToPath(item.attr), op: "replace", value: item.value});
+            }
+        }
+        return initPatches;
     }
 
     /** 整块替换已有切面。 */
@@ -117,7 +168,7 @@ export class WorldEngineService {
         assertSliceId(sliceId);
         assertSqliteInstant(input.instant, "instant");
         assertSliceKind(input.kind);
-        const existing = await this.repository.findSliceWithMutations(sliceId);
+        const existing = await this.repository.findSliceWithPatches(sliceId);
         if (!existing) {
             throw createError({statusCode: 404, message: "切面不存在"});
         }
@@ -126,16 +177,16 @@ export class WorldEngineService {
             throw createError({statusCode: 409, message: this.renderInstantConflict(sliceAtNewInstant, "目标时间已有其他切面，不能把两个切面改到同一 instant。")});
         }
 
-        await this.validateMutations(input.mutations);
-        const previousMutations = existing.mutations.map(decodeRowMutation);
-        const sameSemanticSlice = existing.instant === input.instant && sameMutationSequence(existing.mutations, input.mutations);
-        await this.repository.replaceSlice(sliceId, input, withSeq(input.mutations, 0));
-        const affected = unique([...existing.mutations.map((mutation) => mutation.subjectId), ...affectedSubjectIds(input.mutations)]);
+        await this.validatePatches(input.patches);
+        const previousPatches = existing.patches.map(decodeRowPatch);
+        const sameSemanticSlice = existing.instant === input.instant && samePatchSequence(existing.patches, input.patches);
+        await this.repository.replaceSlice(sliceId, input, await this.attachEmbedding(input.patches, 0));
+        const affected = unique([...existing.patches.map((patch) => patch.subjectId), ...affectedSubjectIds(input.patches)]);
         return {sliceId, issues: await this.collectEditIssues({
             previousInstant: existing.instant,
             nextInstant: input.instant,
-            previousMutations,
-            mutations: input.mutations,
+            previousPatches,
+            patches: input.patches,
             affectedSubjectIds: affected,
             excludeSliceId: sliceId,
             skipAdvisories: sameSemanticSlice,
@@ -145,19 +196,19 @@ export class WorldEngineService {
     /** 物理删除一个切面；删后对受影响 subject 重算持久问题（E）返回。 */
     async deleteSlice(sliceId: string): Promise<DeleteSliceResult> {
         assertSliceId(sliceId);
-        const existing = await this.repository.findSliceWithMutations(sliceId);
+        const existing = await this.repository.findSliceWithPatches(sliceId);
         if (!existing) {
             throw createError({statusCode: 404, message: "切面不存在"});
         }
-        const affected = unique(existing.mutations.map((mutation) => mutation.subjectId));
+        const affected = unique(existing.patches.map((patch) => patch.subjectId));
         await this.repository.deleteSlice(sliceId);
         return {issues: await this.collectSubjectIssues(affected)};
     }
 
-    /** 读取单个 timeline 切面，附 mutation 与读时现算 issue。 */
+    /** 读取单个 timeline 切面，附 patch 与读时现算 issue。 */
     async getSlice(sliceId: string): Promise<SliceListItem> {
         assertSliceId(sliceId);
-        const row = await this.repository.findSliceWithMutations(sliceId);
+        const row = await this.repository.findSliceWithPatches(sliceId);
         if (!row) {
             throw createError({statusCode: 404, message: "切面不存在"});
         }
@@ -170,29 +221,18 @@ export class WorldEngineService {
             title: row.title,
             summary: row.summary,
             kind: row.kind,
-            mutations: row.mutations.map((mutation) => ({
-                subjectId: mutation.subjectId,
-                attr: mutation.attr,
-                op: mutation.op as WorldMutationOp,
-                value: mutation.value === null ? undefined : decodeJson(mutation.value),
+            patches: row.patches.map((patch) => ({
+                subjectId: patch.subjectId,
+                path: patch.path,
+                op: patch.op as WorldPatchOp,
+                ...(patch.value === null ? {} : {value: decodeJson(patch.value)}),
+                ...(patch.summary ? {summary: patch.summary} : {}),
             })),
             ...(issues && issues.length ? {issues} : {}),
         };
     }
 
-    /** 返回某时刻的全量世界状态。 */
-    async getWorldState(at?: bigint): Promise<WorldState> {
-        assertSqliteInstant(at, "at");
-        const instant = at ?? await this.repository.latestInstant() ?? BigInt(0);
-        const subjects = await this.repository.listSubjects();
-        const reduced = await Promise.all(subjects.map(async (subject) => {
-            const {attrs, issues} = await this.reduceWithIssues(subject.id, instant);
-            return {state: {subjectId: subject.id, type: subject.type, attrs}, issues};
-        }));
-        return {instant, subjects: reduced.map((item) => item.state), issues: reduced.flatMap((item) => item.issues)};
-    }
-
-    /** Agent / 业务使用的收窄查询。 */
+    /** 查询世界状态；无 subjectIds/type 时只供内部 UI/debug 全量路径使用，公开查询入口需自行收窄。 */
     async queryState(query: {subjectIds?: string[]; type?: string; attrs?: string[]; at?: bigint; listLimit?: number}): Promise<QueryStateResult> {
         assertSqliteInstant(query.at, "at");
         assertNonEmptyArray(query.subjectIds, "subjectIds");
@@ -208,7 +248,6 @@ export class WorldEngineService {
         if (query.type !== undefined) {
             this.assertSubjectType(query.type);
         }
-        assertQueryScope(query);
         assertListLimit(query.listLimit);
         const instant = query.at ?? await this.repository.latestInstant() ?? BigInt(0);
         const subjects = await this.repository.listSubjects({ids: query.subjectIds, type: query.type});
@@ -221,11 +260,11 @@ export class WorldEngineService {
             const visibleIssues = query.attrs?.length ? filterIssuesForAttrs(issues, query.attrs) : issues;
             return {state: {subjectId: subject.id, type: subject.type, attrs: limited}, issues: visibleIssues};
         }));
-        return {subjects: reduced.map((item) => item.state), issues: reduced.flatMap((item) => item.issues)};
+        return {instant, subjects: reduced.map((item) => item.state), issues: reduced.flatMap((item) => item.issues)};
     }
 
     /** 列出 timeline 切面，附读时现算、归属到该切面的持久问题（E）。 */
-    async listSlices(query: {from?: bigint; to?: bigint; limit?: number; withMutations?: boolean; subjectIds?: string[]; subjectMode?: WorldSliceSubjectFilterMode} = {}): Promise<SliceListItem[]> {
+    async listSlices(query: {from?: bigint; to?: bigint; limit?: number; withPatches?: boolean; subjectIds?: string[]; subjectMode?: WorldSliceSubjectFilterMode} = {}): Promise<SliceListItem[]> {
         assertSqliteInstant(query.from, "from");
         assertSqliteInstant(query.to, "to");
         assertPositiveInteger(query.limit, "limit");
@@ -249,11 +288,12 @@ export class WorldEngineService {
                 title: row.title,
                 summary: row.summary,
                 kind: row.kind,
-                mutations: row.mutations?.map((mutation) => ({
-                    subjectId: mutation.subjectId,
-                    attr: mutation.attr,
-                    op: mutation.op as WorldMutationOp,
-                    value: mutation.value === null ? undefined : decodeJson(mutation.value),
+                patches: row.patches?.map((patch) => ({
+                    subjectId: patch.subjectId,
+                    path: patch.path,
+                    op: patch.op as WorldPatchOp,
+                    ...(patch.value === null ? {} : {value: decodeJson(patch.value)}),
+                    ...(patch.summary ? {summary: patch.summary} : {}),
                 })),
                 ...(issues && issues.length ? {issues} : {}),
             };
@@ -261,12 +301,160 @@ export class WorldEngineService {
     }
 
     /** 列出 subject 身份，不返回状态。 */
-    async listWorldSubjects(query: {type?: string} = {}): Promise<WorldSubjectListItem[]> {
+    async listSubjects(query: {type?: string} = {}): Promise<WorldSubjectListItem[]> {
         if (query.type !== undefined) {
             this.assertSubjectType(query.type);
         }
         const subjects = await this.repository.listSubjects({type: query.type});
         return subjects.map((subject) => ({id: subject.id, type: subject.type, name: subject.name}));
+    }
+
+    /** 获取当前时间（latest instant，用于 CodeAct 查询）。 */
+    async getCurrentInstant(): Promise<bigint> {
+        return await this.repository.latestInstant() ?? BigInt(0);
+    }
+
+    /**
+     * 向量搜索（Decision #8/#19/#20/#21）。
+     *
+     * 流程：存活集去重（memory 取最新、events 全保留）→ 同 model 过滤 → 余弦 top-k；
+     * 未向量化 / 异 model 的命中即时 embed（内存，不落库，保持读侧只读）→ 保证“写了未 vectorize 也能搜到”。
+     *
+     * @param options.at - time-travel：只搜 instant <= at 的世界
+     * @returns 相似度降序的 [{ subjectId, attr, text, score }]，不含 vector
+     */
+    async searchText(query: string, options: {k?: number; threshold?: number; types?: string[]; attrs?: string[]; at?: bigint} = {}): Promise<Array<{subjectId: string; attr: string; text: string; score: number}>> {
+        const trimmed = query.trim();
+        if (!trimmed) {
+            return [];
+        }
+        const model = await resolveWorldEmbedding({projectPath: this.projectPath});
+        const at = options.at ?? await this.repository.latestInstant() ?? undefined;
+        const rows = await this.repository.findEmbeddingRows({types: options.types, attrs: options.attrs, at});
+        const live = this.liveEmbeddingRows(rows);
+        if (live.length === 0) {
+            return [];
+        }
+        const queryVector = (await embedTexts(model, [trimmed]))[0];
+        if (!queryVector) {
+            return [];
+        }
+        const usable = await this.resolveSearchVectors(live, model);
+        const scored = usable.map((row) => ({subjectId: row.subjectId, attr: row.attr, text: row.text, score: cosineSimilarity(queryVector, row.vector)}));
+        const filtered = options.threshold !== undefined ? scored.filter((item) => item.score >= options.threshold!) : scored;
+        filtered.sort((left, right) => right.score - left.score);
+        return filtered.slice(0, options.k ?? 10);
+    }
+
+    /**
+     * 显式向量化（Decision #8/#22）：把 subject 某 embedding 字段下未向量化（或异 model）的
+     * 存活条目 embed 后按行 UPDATE vector 列。写/服务侧能力，不进只读沙箱。
+     */
+    async vectorize(subjectId: string, attr: string): Promise<void> {
+        assertSubjectId(subjectId, "subjectId");
+        const subject = await this.repository.findSubject(subjectId);
+        if (!subject) {
+            throw createError({statusCode: 404, message: `subject 不存在：${subjectId}`});
+        }
+        const model = await resolveWorldEmbedding({projectPath: this.projectPath});
+        const at = await this.repository.latestInstant() ?? undefined;
+        const rows = await this.repository.findEmbeddingRows({types: [subject.type], attrs: [attr], at});
+        const live = this.liveEmbeddingRows(rows).filter((row) => row.subjectId === subjectId);
+        const pending = live.filter((row) => !row.vector || row.model !== model.modelId);
+        if (pending.length === 0) {
+            return;
+        }
+        const vectors = await embedTexts(model, pending.map((row) => row.text));
+        for (const [index, row] of pending.entries()) {
+            const vector = vectors[index];
+            if (vector) {
+                await this.repository.updatePatchVector(row.id, encodeVector(vector), model.modelId);
+            }
+        }
+    }
+
+    /** 给 patch 附加 seq 与 embedding 列（写 embedding 字段的条目时拆 text/vector/model 进列）。 */
+    private async attachEmbedding(patches: PatchInput[], startSeq: number): Promise<Array<PatchInput & {seq: number; embed?: EmbeddingColumns}>> {
+        const typeBySubject = new Map<string, string>();
+        const result: Array<PatchInput & {seq: number; embed?: EmbeddingColumns}> = [];
+        for (const [index, patch] of patches.entries()) {
+            let subjectType = typeBySubject.get(patch.subjectId);
+            if (subjectType === undefined) {
+                const subject = await this.repository.findSubject(patch.subjectId);
+                subjectType = subject?.type ?? "";
+                typeBySubject.set(patch.subjectId, subjectType);
+            }
+            const embed = subjectType ? embeddingColumnsFor(this.schema, subjectType, patch) : undefined;
+            result.push({...patch, seq: startSeq + index, embed});
+        }
+        return result;
+    }
+
+    /** 计算 embedding 行存活集：record（memory）按 (subject,attr) 取最新且非删除，array（events）全保留。 */
+    private liveEmbeddingRows(rows: WorldEmbeddingRow[]): WorldEmbeddingRow[] {
+        const live: WorldEmbeddingRow[] = [];
+        const latestRecordByKey = new Map<string, WorldEmbeddingRow>();
+        // rows 已按 instant,seq 升序：record 后写覆盖先写。
+        for (const row of rows) {
+            const kind = this.embeddingAttrKind(row.subjectType, row.path);
+            if (kind === "array") {
+                live.push(row);
+            } else if (kind === "record") {
+                latestRecordByKey.set(`${row.subjectId}\u0000${row.path}`, row);
+            }
+        }
+        for (const row of latestRecordByKey.values()) {
+            if (row.op === "remove") {
+                continue;
+            }
+            live.push(row);
+        }
+        return live;
+    }
+
+    /** 判断某 path 属于哪种 embedding 容器：array（字段本身）/ record（其 key 条目）/ null。 */
+    private embeddingAttrKind(subjectType: string, path: string): "record" | "array" | null {
+        const direct = findAttrSchema(this.schema, subjectType, path);
+        if (direct?.embedding === "array") {
+            return "array";
+        }
+        if (direct?.embedding === "record") {
+            return "record";
+        }
+        const parts = pointerParts(path);
+        if (parts.length > 1) {
+            const parent = findAttrSchema(this.schema, subjectType, pointerFromParts(parts.slice(0, -1)));
+            if (parent?.embedding === "record") {
+                return "record";
+            }
+        }
+        return null;
+    }
+
+    /** 把存活行解析成可比向量：同 model 用已存向量，否则即时 embed（内存，不落库）。 */
+    private async resolveSearchVectors(rows: WorldEmbeddingRow[], model: WorldEmbeddingModel): Promise<Array<{subjectId: string; attr: string; text: string; vector: number[]}>> {
+        const ready: Array<{subjectId: string; attr: string; text: string; vector: number[]}> = [];
+        const pending: WorldEmbeddingRow[] = [];
+        for (const row of rows) {
+            if (row.vector && row.model === model.modelId) {
+                const decoded = decodeVector(row.vector);
+                if (decoded.length === model.dimensions) {
+                    ready.push({subjectId: row.subjectId, attr: pathToAttr(row.path), text: row.text, vector: decoded});
+                    continue;
+                }
+            }
+            pending.push(row);
+        }
+        if (pending.length > 0) {
+            const vectors = await embedTexts(model, pending.map((row) => row.text));
+            pending.forEach((row, index) => {
+                const vector = vectors[index];
+                if (vector) {
+                    ready.push({subjectId: row.subjectId, attr: pathToAttr(row.path), text: row.text, vector});
+                }
+            });
+        }
+        return ready;
     }
 
     /** 返回 Agent 友好的 schema 与 calendar 投影。 */
@@ -282,8 +470,8 @@ export class WorldEngineService {
     }
 
     /** 写 / 编辑后的问题汇总：A（本次编辑一次性提醒）+ E（受影响 subject 的持久问题）。 */
-    private async collectWriteIssues(instant: bigint, mutations: MutationInput[], affectedSubjectIds: string[]): Promise<WorldIssue[]> {
-        const advisories = await this.collectAdvisories(instant, mutations);
+    private async collectWriteIssues(instant: bigint, patches: PatchInput[], affectedSubjectIds: string[]): Promise<WorldIssue[]> {
+        const advisories = await this.collectAdvisories(instant, patches);
         const errors = await this.collectSubjectIssues(affectedSubjectIds);
         return [...advisories, ...errors];
     }
@@ -292,15 +480,15 @@ export class WorldEngineService {
     private async collectEditIssues(input: {
         previousInstant: bigint;
         nextInstant: bigint;
-        previousMutations: MutationInput[];
-        mutations: MutationInput[];
+        previousPatches: PatchInput[];
+        patches: PatchInput[];
         affectedSubjectIds: string[];
         excludeSliceId: string;
         skipAdvisories: boolean;
     }): Promise<WorldIssue[]> {
-        const reordered = input.previousInstant === input.nextInstant ? reorderedOverlapCandidates(input.previousMutations, input.mutations) : {previous: [], next: []};
-        const previousCandidates = input.previousInstant === input.nextInstant ? uniqueMutations([...diffMutations(input.previousMutations, input.mutations), ...reordered.previous]) : input.previousMutations;
-        const nextCandidates = input.previousInstant === input.nextInstant ? uniqueMutations([...diffMutations(input.mutations, input.previousMutations), ...reordered.next]) : input.mutations;
+        const reordered = input.previousInstant === input.nextInstant ? reorderedOverlapCandidates(input.previousPatches, input.patches) : {previous: [], next: []};
+        const previousCandidates = input.previousInstant === input.nextInstant ? uniquePatches([...diffPatches(input.previousPatches, input.patches), ...reordered.previous]) : input.previousPatches;
+        const nextCandidates = input.previousInstant === input.nextInstant ? uniquePatches([...diffPatches(input.patches, input.previousPatches), ...reordered.next]) : input.patches;
         const advisories = input.skipAdvisories ? [] : dedupeIssues((await Promise.all([
             this.collectAdvisories(input.previousInstant, previousCandidates, input.excludeSliceId),
             this.collectAdvisories(input.nextInstant, nextCandidates, input.excludeSliceId),
@@ -309,38 +497,38 @@ export class WorldEngineService {
         return [...advisories, ...errors];
     }
 
-    /** A 通道：本次写入的绝对 op（set/unset）是否改了下游相对 op 的基（base-shifted），或被下游绝对 op 覆盖（masked）。每个 (subject,attr) 只提醒一次。 */
-    private async collectAdvisories(instant: bigint, mutations: MutationInput[], excludeSliceId?: string): Promise<WorldIssue[]> {
+    /** A 通道：本次写入的绝对 op 是否改了下游相对 op 的基（base-shifted），或被下游绝对 op 覆盖（masked）。每个 (subject,path) 只提醒一次。 */
+    private async collectAdvisories(instant: bigint, patches: PatchInput[], excludeSliceId?: string): Promise<WorldIssue[]> {
         if (instant >= SQLITE_INT64_MAX) {
             return [];
         }
         const issues: WorldIssue[] = [];
         const seen = new Set<string>();
-        for (const mutation of mutations) {
-            if (mutation.op !== "set" && mutation.op !== "unset") {
+        for (const patch of patches) {
+            if (!ABSOLUTE_OPS.has(patch.op)) {
                 continue;
             }
-            const key = `${mutation.subjectId}|${mutation.attr}`;
+            const key = `${patch.subjectId}|${patch.path}`;
             if (seen.has(key)) {
                 continue;
             }
             seen.add(key);
-            const downstream = await this.repository.findMutationsForSubject({subjectId: mutation.subjectId, from: instant + BigInt(1), excludeSliceId});
+            const downstream = await this.repository.findPatchesForSubject({subjectId: patch.subjectId, from: instant + BigInt(1), excludeSliceId});
             const coveredPaths: string[] = [];
             for (const nearest of downstream) {
-                if (!attrPathsOverlap(mutation.attr, nearest.attr) || isCoveredByPath(nearest.attr, coveredPaths)) {
+                if (!attrPathsOverlap(patch.path, nearest.path) || isCoveredByPath(nearest.path, coveredPaths)) {
                     continue;
                 }
                 if (RELATIVE_OPS.has(nearest.op)) {
-                    issues.push({code: "base-shifted", sliceId: nearest.sliceId, subjectId: mutation.subjectId, attr: nearest.attr, message: `插入/编辑的 ${mutation.op} ${mutation.attr} 改变了后续 ${nearest.op} ${nearest.attr} 的累加基准，请确认语义是否符合预期`});
-                    coveredPaths.push(nearest.attr);
+                    issues.push({code: "base-shifted", sliceId: nearest.sliceId, subjectId: patch.subjectId, attr: pathToAttr(nearest.path), message: `插入/编辑的 ${patch.op} ${patch.path} 改变了后续 ${nearest.op} ${nearest.path} 的累加基准，请确认语义是否符合预期`});
+                    coveredPaths.push(nearest.path);
                     continue;
                 }
-                issues.push({code: "masked", sliceId: nearest.sliceId, subjectId: mutation.subjectId, attr: nearest.attr, message: `本次对 ${mutation.attr} 的修改会被后续 ${nearest.op} ${nearest.attr} 覆盖，不会完整传播到最新状态`});
-                if (attrPathContains(nearest.attr, mutation.attr)) {
+                issues.push({code: "masked", sliceId: nearest.sliceId, subjectId: patch.subjectId, attr: pathToAttr(nearest.path), message: `本次对 ${patch.path} 的修改会被后续 ${nearest.op} ${nearest.path} 覆盖，不会完整传播到最新状态`});
+                if (attrPathContains(nearest.path, patch.path)) {
                     break;
                 }
-                coveredPaths.push(nearest.attr);
+                coveredPaths.push(nearest.path);
             }
         }
         return issues;
@@ -379,20 +567,20 @@ export class WorldEngineService {
     /** reduce 单个 subject 截至 instant 的状态，并收集 reduce 时显形的持久问题（E）。 */
     private async reduceWithIssues(subjectId: string, instant: bigint): Promise<{attrs: Record<string, JsonValue>; issues: WorldIssue[]}> {
         const subject = await this.repository.findSubject(subjectId);
-        const rows = await this.repository.findMutationsForSubject({subjectId, at: instant});
+        const rows = await this.repository.findPatchesForSubject({subjectId, at: instant});
         const state: Record<string, JsonValue> = {};
         const issues: WorldIssue[] = [];
         const originByAttr = new Map<string, string>();
         for (const row of rows) {
-            const mutation = decodeRowMutation(row);
-            const previousValue = getPath(state, mutation.attr);
-            const attrSchema = subject ? findAttrSchema(this.schema, subject.type, mutation.attr) : null;
-            const issue = applyAndDetect(state, mutation, attrSchema);
+            const patch = decodeRowPatch(row);
+            const previousValue = getPath(state, patch.path);
+            const attrSchema = subject ? findAttrSchema(this.schema, subject.type, patch.path) : null;
+            const issue = applyAndDetect(state, patch, attrSchema);
             if (issue) {
                 issues.push({...issue, sliceId: row.sliceId, subjectId});
                 continue;
             }
-            recordOriginAfterMutation(originByAttr, mutation, row.sliceId, previousValue, getPath(state, mutation.attr));
+            recordOriginAfterPatch(originByAttr, patch, row.sliceId, previousValue, getPath(state, patch.path));
         }
         if (!subject) {
             return {attrs: state, issues};
@@ -500,111 +688,125 @@ export class WorldEngineService {
         return `${prefix} existingSliceId=${slice.id}, time=${this.calendar.format(slice.instant)}, title=${slice.title || "(无标题)"}`;
     }
 
-    private async validateMutations(mutations: MutationInput[]): Promise<void> {
-        if (mutations.length === 0) {
-            throw createError({statusCode: 400, message: "mutations 不能为空"});
+    private async validatePatches(patches: PatchInput[]): Promise<void> {
+        if (patches.length === 0) {
+            throw createError({statusCode: 400, message: "patches 不能为空"});
         }
-        assertMutationCapacity(mutations.length);
-        for (const mutation of mutations) {
-            assertSubjectId(mutation.subjectId, "subjectId");
-            assertAttrPath(mutation.attr);
-            if (!OPS.includes(mutation.op)) {
-                throw createError({statusCode: 400, message: `不支持的 mutation op：${mutation.op}`});
+        assertPatchCapacity(patches.length);
+        for (const patch of patches) {
+            assertSubjectId(patch.subjectId, "subjectId");
+            assertJsonPointerPath(patch.path);
+            if (!OPS.includes(patch.op)) {
+                throw createError({statusCode: 400, message: `不支持的 patch op：${patch.op}`});
             }
-            const subject = await this.repository.findSubject(mutation.subjectId);
+            const subject = await this.repository.findSubject(patch.subjectId);
             if (!subject) {
-                throw createError({statusCode: 404, message: `subject 不存在：${mutation.subjectId}`});
+                throw createError({statusCode: 404, message: `subject 不存在：${patch.subjectId}`});
             }
-            const attrSchema = findAttrSchema(this.schema, subject.type, mutation.attr);
-            this.validateOp(mutation, attrSchema);
-            await this.validateValue(mutation, attrSchema);
+            const attrSchema = findAttrSchema(this.schema, subject.type, patch.path);
+            this.validateOp(patch, attrSchema);
+            await this.validateValue(patch, attrSchema);
         }
     }
 
-    private async validateInitialMutations(subjectType: string, mutations: MutationInput[]): Promise<void> {
-        assertMutationCapacity(mutations.length);
-        for (const mutation of mutations) {
-            assertAttrPath(mutation.attr);
-            const attrSchema = findAttrSchema(this.schema, subjectType, mutation.attr);
+    private async validateInitialPatches(subjectType: string, patches: PatchInput[]): Promise<void> {
+        assertPatchCapacity(patches.length);
+        for (const patch of patches) {
+            assertJsonPointerPath(patch.path);
+            const attrSchema = findAttrSchema(this.schema, subjectType, patch.path);
             if (!attrSchema) {
-                throw createError({statusCode: 400, message: `初始化属性不存在：${mutation.attr}`});
+                throw createError({statusCode: 400, message: `初始化属性不存在：${patch.path}`});
             }
-            this.validateOp(mutation, attrSchema);
-            await this.validateValue(mutation, attrSchema);
+            this.validateOp(patch, attrSchema);
+            await this.validateValue(patch, attrSchema);
         }
     }
 
-    private validateOp(mutation: MutationInput, attrSchema: WorldAttrSchema | null): void {
-        if (!attrSchema && mutation.op !== "set" && mutation.op !== "unset") {
-            throw createError({statusCode: 400, message: `未声明属性只允许 set/unset：${mutation.attr}`});
-        }
+    private validateOp(patch: PatchInput, attrSchema: WorldAttrSchema | null): void {
         const kind = normalizeAttrKind(attrSchema);
-        const allowed: Record<ReturnType<typeof normalizeAttrKind>, WorldMutationOp[]> = {
+        const allowed: Record<ReturnType<typeof normalizeAttrKind>, WorldPatchOp[]> = {
             scalar: scalarOps(attrSchema),
-            list: ["set", "listAppend"],
-            collection: ["set", "collectionAdd", "collectionRemove"],
-            object: ["set", "unset"],
+            list: ["replace", "append", "remove"],
+            collection: ["replace", "append", "remove"],
+            object: ["replace", "remove"],
         };
         const allowedOps = allowed[kind];
-        if (!allowedOps.includes(mutation.op)) {
-            throw createError({statusCode: 400, message: `${mutation.attr}(${kind}) 不支持 ${mutation.op}`});
+        if (!allowedOps.includes(patch.op)) {
+            throw createError({statusCode: 400, message: `${patch.path}(${kind}) 不支持 ${patch.op}`});
         }
     }
 
-    private async validateValue(mutation: MutationInput, attrSchema: WorldAttrSchema | null): Promise<void> {
-        if (mutation.op === "unset") {
-            if (mutation.value !== undefined) {
-                throw createError({statusCode: 400, message: `${mutation.attr} 使用 unset 时不能提供 value`});
+    private async validateValue(patch: PatchInput, attrSchema: WorldAttrSchema | null): Promise<void> {
+        if (patch.op === "remove") {
+            if (patch.value === undefined) {
+                return;
+            }
+            if (!isJsonValue(patch.value)) {
+                throw createError({statusCode: 400, message: `${patch.path} value 必须是 JSON 值`});
+            }
+            const kind = normalizeAttrKind(attrSchema);
+            if (kind !== "collection") {
+                throw createError({statusCode: 400, message: `${patch.path} 只有 collection 支持按值 remove`});
+            }
+            const itemType = attrSchema?.itemType ?? attrSchema?.type;
+            if (itemType) {
+                await this.validateTypedValue(`${patch.path}/-`, patch.value, itemType, attrSchema ?? {}, "patch");
             }
             return;
         }
-        if (mutation.value === undefined) {
-            throw createError({statusCode: 400, message: `${mutation.attr} 使用 ${mutation.op} 时必须提供 value`});
+        if (patch.value === undefined) {
+            throw createError({statusCode: 400, message: `${patch.path} 使用 ${patch.op} 时必须提供 value`});
         }
-        if (mutation.op === "add" && (typeof mutation.value !== "number" || !Number.isFinite(mutation.value))) {
-            throw createError({statusCode: 400, message: `${mutation.attr} 使用 add 时 value 必须是 finite number`});
+        if (patch.op === "increment" && (typeof patch.value !== "number" || !Number.isFinite(patch.value))) {
+            throw createError({statusCode: 400, message: `${patch.path} 使用 increment 时 value 必须是 finite number`});
         }
+        if (!isJsonValue(patch.value)) {
+            throw createError({statusCode: 400, message: `${patch.path} value 必须是 JSON 值`});
+        }
+
         const kind = normalizeAttrKind(attrSchema);
-        if (attrSchema && (kind === "list" || kind === "collection") && mutation.op === "set") {
-            if (!isJsonValue(mutation.value)) {
-                throw createError({statusCode: 400, message: `${mutation.attr} value 必须是 JSON 值`});
+        if (patch.op === "append") {
+            if (kind !== "list" && kind !== "collection") {
+                throw createError({statusCode: 400, message: `${patch.path} 只有数组属性支持 append`});
             }
-            if (!Array.isArray(mutation.value)) {
-                throw createError({statusCode: 400, message: `${mutation.attr}${valueErrorSuffix("array", "mutation")}`});
+            const itemType = attrSchema?.itemType ?? attrSchema?.type;
+            if (itemType) {
+                await this.validateTypedValue(`${patch.path}/-`, patch.value, itemType, attrSchema ?? {}, "patch");
+            }
+            return;
+        }
+
+        if (attrSchema && (kind === "list" || kind === "collection") && patch.op === "replace") {
+            if (!Array.isArray(patch.value)) {
+                throw createError({statusCode: 400, message: `${patch.path}${valueErrorSuffix("array", "patch")}`});
             }
             const itemType = attrSchema.itemType ?? attrSchema.type;
             if (itemType) {
-                for (const [index, item] of mutation.value.entries()) {
-                    await this.validateTypedValue(`${mutation.attr}[${index}]`, item, itemType, attrSchema, "mutation");
+                for (const [index, item] of patch.value.entries()) {
+                    await this.validateTypedValue(`${patch.path}/${index}`, item, itemType, attrSchema, "patch");
                 }
             }
             return;
         }
+
         const type = attrSchema?.type ?? attrSchema?.itemType;
-        if (type === "float") {
-            await this.validateTypedValue(mutation.attr, mutation.value, type, attrSchema ?? {}, "mutation");
-        }
-        if (!isJsonValue(mutation.value)) {
-            throw createError({statusCode: 400, message: `${mutation.attr} value 必须是 JSON 值`});
-        }
         if (attrSchema && normalizeAttrKind(attrSchema) === "object") {
-            await this.validateObjectValue(mutation.attr, mutation.value ?? null, attrSchema, "mutation");
+            await this.validateObjectValue(pathToAttr(patch.path), patch.value ?? null, attrSchema, "patch");
             return;
         }
         if (!attrSchema || !type) {
             return;
         }
         if (type === "object") {
-            // list / collection 的 itemType=object：被追加 / 加入的是单个 object item，不递归校验其内部字段。
-            if (!isObject(mutation.value)) {
-                throw createError({statusCode: 400, message: `${mutation.attr}${valueErrorSuffix("object", "mutation")}`});
+            if (!isObject(patch.value)) {
+                throw createError({statusCode: 400, message: `${patch.path}${valueErrorSuffix("object", "patch")}`});
             }
             return;
         }
-        await this.validateTypedValue(mutation.attr, mutation.value, type, attrSchema, "mutation");
+        await this.validateTypedValue(patch.path, patch.value, type, attrSchema, "patch");
     }
 
-    private async validateObjectValue(attr: string, value: JsonValue, attrSchema: WorldAttrSchema, mode: "mutation" | "default"): Promise<void> {
+    private async validateObjectValue(attr: string, value: JsonValue, attrSchema: WorldAttrSchema, mode: "patch" | "default"): Promise<void> {
         if (!isObject(value)) {
             throw createError({statusCode: 400, message: `${attr}${valueErrorSuffix("object", mode)}`});
         }
@@ -625,7 +827,7 @@ export class WorldEngineService {
         }
     }
 
-    private async validateValueBySchema(attr: string, value: JsonValue, attrSchema: WorldAttrSchema, mode: "mutation" | "default"): Promise<void> {
+    private async validateValueBySchema(attr: string, value: JsonValue, attrSchema: WorldAttrSchema, mode: "patch" | "default"): Promise<void> {
         if (normalizeAttrKind(attrSchema) === "object") {
             await this.validateObjectValue(attr, value, attrSchema, mode);
             return;
@@ -636,7 +838,7 @@ export class WorldEngineService {
         }
     }
 
-    private async validateTypedValue(attr: string, value: JsonValue | undefined, type: string, attrSchema: WorldAttrSchema, mode: "mutation" | "default"): Promise<void> {
+    private async validateTypedValue(attr: string, value: JsonValue | undefined, type: string, attrSchema: WorldAttrSchema, mode: "patch" | "default"): Promise<void> {
         if (type === "int" && (!Number.isInteger(value) || typeof value !== "number")) {
             throw createError({statusCode: 400, message: `${attr}${valueErrorSuffix("int", mode)}`});
         }
@@ -687,62 +889,63 @@ export class WorldEngineService {
     }
 }
 
-/** 给一组 mutation 补上从 startSeq 起的应用顺序。 */
-function withSeq(mutations: MutationInput[], startSeq: number): Array<MutationInput & {seq: number}> {
-    return mutations.map((mutation, offset) => ({...mutation, seq: startSeq + offset}));
+/** 给一组 patch 补上从 startSeq 起的应用顺序。 */
+function withSeq(patches: PatchInput[], startSeq: number): Array<PatchInput & {seq: number}> {
+    return patches.map((patch, offset) => ({...patch, seq: startSeq + offset}));
 }
 
-function decodeRowMutation(row: WorldMutationRow): MutationInput {
+function decodeRowPatch(row: WorldPatchRow): PatchInput {
     return {
         subjectId: row.subjectId,
-        attr: row.attr,
-        op: row.op as WorldMutationOp,
-        value: row.value === null ? undefined : decodeJson(row.value),
+        path: row.path,
+        op: row.op as WorldPatchOp,
+        ...(row.value === null ? {} : {value: decodeJson(row.value)}),
+        ...(row.summary ? {summary: row.summary} : {}),
     };
 }
 
-function sameMutationSequence(rows: WorldMutationRow[], mutations: MutationInput[]): boolean {
-    if (rows.length !== mutations.length) {
+function samePatchSequence(rows: WorldPatchRow[], patches: PatchInput[]): boolean {
+    if (rows.length !== patches.length) {
         return false;
     }
-    return rows.every((row, index) => mutationSignature(decodeRowMutation(row)) === mutationSignature(mutations[index]));
+    return rows.every((row, index) => patchSignature(decodeRowPatch(row)) === patchSignature(patches[index]));
 }
 
-function diffMutations(left: MutationInput[], right: MutationInput[]): MutationInput[] {
+function diffPatches(left: PatchInput[], right: PatchInput[]): PatchInput[] {
     const rightCounts = new Map<string, number>();
-    for (const mutation of right) {
-        const signature = mutationSignature(mutation);
+    for (const patch of right) {
+        const signature = patchSignature(patch);
         rightCounts.set(signature, (rightCounts.get(signature) ?? 0) + 1);
     }
-    const diff: MutationInput[] = [];
-    for (const mutation of left) {
-        const signature = mutationSignature(mutation);
+    const diff: PatchInput[] = [];
+    for (const patch of left) {
+        const signature = patchSignature(patch);
         const count = rightCounts.get(signature) ?? 0;
         if (count > 0) {
             rightCounts.set(signature, count - 1);
             continue;
         }
-        diff.push(mutation);
+        diff.push(patch);
     }
     return diff;
 }
 
-function reorderedOverlapCandidates(previous: MutationInput[], next: MutationInput[]): {previous: MutationInput[]; next: MutationInput[]} {
-    if (sameMutationInputSequence(previous, next)) {
+function reorderedOverlapCandidates(previous: PatchInput[], next: PatchInput[]): {previous: PatchInput[]; next: PatchInput[]} {
+    if (samePatchInputSequence(previous, next)) {
         return {previous: [], next: []};
     }
     const previousIndexes = new Map<string, number[]>();
-    for (const [index, mutation] of previous.entries()) {
-        const signature = mutationSignature(mutation);
+    for (const [index, patch] of previous.entries()) {
+        const signature = patchSignature(patch);
         previousIndexes.set(signature, [...(previousIndexes.get(signature) ?? []), index]);
     }
-    const matched = next.map((mutation, nextIndex) => {
-        const indexes = previousIndexes.get(mutationSignature(mutation)) ?? [];
+    const matched = next.map((patch, nextIndex) => {
+        const indexes = previousIndexes.get(patchSignature(patch)) ?? [];
         const previousIndex = indexes.shift();
-        return previousIndex === undefined ? null : {previousIndex, nextIndex, previous: previous[previousIndex], next: mutation};
-    }).filter((item): item is {previousIndex: number; nextIndex: number; previous: MutationInput; next: MutationInput} => item !== null);
-    const previousCandidates: MutationInput[] = [];
-    const nextCandidates: MutationInput[] = [];
+        return previousIndex === undefined ? null : {previousIndex, nextIndex, previous: previous[previousIndex], next: patch};
+    }).filter((item): item is {previousIndex: number; nextIndex: number; previous: PatchInput; next: PatchInput} => item !== null);
+    const previousCandidates: PatchInput[] = [];
+    const nextCandidates: PatchInput[] = [];
     for (let left = 0; left < matched.length; left += 1) {
         const leftItem = matched[left];
         if (!leftItem) {
@@ -753,128 +956,93 @@ function reorderedOverlapCandidates(previous: MutationInput[], next: MutationInp
             if (!rightItem) {
                 continue;
             }
-            if (leftItem.previousIndex < rightItem.previousIndex || !mutationsOverlap(leftItem.next, rightItem.next)) {
+            if (leftItem.previousIndex < rightItem.previousIndex || !patchesOverlap(leftItem.next, rightItem.next)) {
                 continue;
             }
             previousCandidates.push(leftItem.previous, rightItem.previous);
             nextCandidates.push(leftItem.next, rightItem.next);
         }
     }
-    return {previous: uniqueMutations(previousCandidates), next: uniqueMutations(nextCandidates)};
+    return {previous: uniquePatches(previousCandidates), next: uniquePatches(nextCandidates)};
 }
 
-function sameMutationInputSequence(left: MutationInput[], right: MutationInput[]): boolean {
+function samePatchInputSequence(left: PatchInput[], right: PatchInput[]): boolean {
     if (left.length !== right.length) {
         return false;
     }
-    return left.every((mutation, index) => mutationSignature(mutation) === mutationSignature(right[index]));
+    return left.every((patch, index) => patchSignature(patch) === patchSignature(right[index]));
 }
 
-function mutationsOverlap(left: MutationInput, right: MutationInput): boolean {
-    return left.subjectId === right.subjectId && attrPathsOverlap(left.attr, right.attr);
+function patchesOverlap(left: PatchInput, right: PatchInput): boolean {
+    return left.subjectId === right.subjectId && attrPathsOverlap(left.path, right.path);
 }
 
-function uniqueMutations(mutations: MutationInput[]): MutationInput[] {
+function uniquePatches(patches: PatchInput[]): PatchInput[] {
     const seen = new Set<string>();
-    const uniqueItems: MutationInput[] = [];
-    for (const mutation of mutations) {
-        const signature = mutationSignature(mutation);
+    const uniqueItems: PatchInput[] = [];
+    for (const patch of patches) {
+        const signature = patchSignature(patch);
         if (seen.has(signature)) {
             continue;
         }
         seen.add(signature);
-        uniqueItems.push(mutation);
+        uniqueItems.push(patch);
     }
     return uniqueItems;
 }
 
-function mutationSignature(mutation: MutationInput | undefined): string {
-    if (!mutation) {
+function patchSignature(patch: PatchInput | undefined): string {
+    if (!patch) {
         return "";
     }
-    const value = mutation.op === "unset" ? "" : stableJson(toJsonValue(mutation.value));
-    return `${mutation.subjectId}\u0000${mutation.attr}\u0000${mutation.op}\u0000${value}`;
+    const value = patch.value === undefined ? "u" : `v:${stableJson(toJsonValue(patch.value))}`;
+    return `${patch.subjectId}\u0000${patch.path}\u0000${patch.op}\u0000${value}\u0000${patch.summary ?? ""}`;
 }
 
-function scalarOps(attrSchema: WorldAttrSchema | null): WorldMutationOp[] {
+function scalarOps(attrSchema: WorldAttrSchema | null): WorldPatchOp[] {
     const type = attrSchema?.type;
     if (!type || type === "int" || type === "float") {
-        return ["set", "add", "unset"];
+        return ["replace", "increment", "remove"];
     }
-    return ["set", "unset"];
+    return ["replace", "remove"];
 }
 
 /**
- * 应用一条 mutation 到 reduce 状态；遇到相对 op 缺基 / 集合删不存在元素时**不兜底**，
+ * 应用一条 patch 到 reduce 状态；遇到相对 op 缺基时**不兜底**，
  * 返回一个属性级问题（broken-relative），由调用方补 subjectId / sliceId。
  */
-function applyAndDetect(state: Record<string, JsonValue>, mutation: MutationInput, attrSchema: WorldAttrSchema | null = null): AttrIssue | null {
-    const attr = mutation.attr;
-    if (mutation.op === "unset") {
-        unsetPath(state, attr);
+function applyAndDetect(state: Record<string, JsonValue>, patch: PatchInput, attrSchema: WorldAttrSchema | null = null): AttrIssue | null {
+    const uniqueArrays = normalizeAttrKind(attrSchema) === "collection" ? new Set([pathToAttr(patch.path)]) : new Set<string>();
+    const issue = applyPatch(state, patch, attrSchema, uniqueArrays);
+    if (!issue) {
         return null;
     }
-    if (mutation.op === "set") {
-        setPath(state, attr, toJsonValue(mutation.value ?? null));
-        return null;
-    }
-    if (mutation.op === "add") {
-        const base = getPath(state, attr);
-        if (base === MISSING || typeof base !== "number" || !Number.isFinite(base)) {
-            return {code: "broken-relative", attr, message: `add ${attr} 缺少已存在的数值基准`};
-        }
-        const delta = Number(mutation.value);
-        const result = base + delta;
-        if (!Number.isFinite(result)) {
-            return {code: "broken-relative", attr, message: `add ${attr} 结果不是有限数`};
-        }
-        if (attrSchema?.type === "int") {
-            if (!Number.isSafeInteger(base) || !Number.isSafeInteger(delta)) {
-                return {code: "broken-relative", attr, message: `add ${attr} 基准或增量不是安全整数`};
-            }
-            if (!Number.isSafeInteger(result)) {
-                return {code: "broken-relative", attr, message: `add ${attr} 结果超出安全整数范围`};
-            }
-        }
-        setPath(state, attr, result);
-        return null;
-    }
-    if (mutation.op === "listAppend") {
-        const base = getPath(state, attr);
-        if (base === MISSING || !Array.isArray(base)) {
-            return {code: "broken-relative", attr, message: `listAppend ${attr} 缺少已存在的 list 基准`};
-        }
-        setPath(state, attr, [...base, toJsonValue(mutation.value ?? null)]);
-        return null;
-    }
-    if (mutation.op === "collectionAdd") {
-        const base = getPath(state, attr);
-        if (base === MISSING || !Array.isArray(base)) {
-            return {code: "broken-relative", attr, message: `collectionAdd ${attr} 缺少已存在的 collection 基准`};
-        }
-        const value = toJsonValue(mutation.value ?? null);
-        const list = base.some((item) => stableJson(item) === stableJson(value)) ? [...base] : [...base, value];
-        setPath(state, attr, list);
-        return null;
-    }
-    if (mutation.op === "collectionRemove") {
-        const base = getPath(state, attr);
-        if (base === MISSING || !Array.isArray(base)) {
-            return {code: "broken-relative", attr, message: `collectionRemove ${attr} 缺少已存在的 collection 基准`};
-        }
-        const value = stableJson(toJsonValue(mutation.value ?? null));
-        if (!base.some((item) => stableJson(item) === value)) {
-            return {code: "broken-relative", attr, message: `collectionRemove ${attr} 目标元素不存在`};
-        }
-        setPath(state, attr, base.filter((item) => stableJson(item) !== value));
-        return null;
-    }
-    return null;
+    return {code: "broken-relative", attr: pathToAttr(issue.path), message: issue.message};
+}
+
+function pathParts(pathOrAttr: string): string[] {
+    return pathOrAttr.startsWith("/") ? pointerParts(pathOrAttr) : pathOrAttr.split(".").filter(Boolean);
+}
+
+function pointerParts(path: string): string[] {
+    return path.slice(1).split("/").filter(Boolean).map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~"));
+}
+
+function pointerFromParts(parts: string[]): string {
+    return `/${parts.map((part) => part.replace(/~/g, "~0").replace(/\//g, "~1")).join("/")}`;
+}
+
+function attrToPath(attr: string): string {
+    return attr.startsWith("/") ? attr : pointerFromParts(attr.split(".").filter(Boolean));
+}
+
+function pathToAttr(path: string): string {
+    return path.startsWith("/") ? pointerParts(path).join(".") : path;
 }
 
 function getPath(state: Record<string, JsonValue>, attr: string): JsonValue | typeof MISSING {
     let current: JsonValue | undefined = state;
-    for (const part of attr.split(".")) {
+    for (const part of pathParts(attr)) {
         if (!isObject(current) || !(part in current)) {
             return MISSING;
         }
@@ -884,7 +1052,7 @@ function getPath(state: Record<string, JsonValue>, attr: string): JsonValue | ty
 }
 
 function setPath(state: Record<string, JsonValue>, attr: string, value: JsonValue): void {
-    const parts = attr.split(".");
+    const parts = pathParts(attr);
     const leaf = parts.at(-1);
     if (!leaf) {
         throw createError({statusCode: 400, message: "attr 不能为空"});
@@ -901,7 +1069,7 @@ function setPath(state: Record<string, JsonValue>, attr: string, value: JsonValu
 }
 
 function unsetPath(state: Record<string, JsonValue>, attr: string): void {
-    const parts = attr.split(".");
+    const parts = pathParts(attr);
     const leaf = parts.at(-1);
     if (!leaf) {
         throw createError({statusCode: 400, message: "attr 不能为空"});
@@ -953,7 +1121,9 @@ function attrPathsOverlap(left: string, right: string): boolean {
 }
 
 function attrPathContains(parent: string, child: string): boolean {
-    return parent === child || child.startsWith(`${parent}.`) || child.startsWith(`${parent}[`);
+    const normalizedParent = pathToAttr(parent);
+    const normalizedChild = pathToAttr(child);
+    return normalizedParent === normalizedChild || normalizedChild.startsWith(`${normalizedParent}.`) || normalizedChild.startsWith(`${normalizedParent}[`);
 }
 
 function isCoveredByPath(attr: string, paths: string[]): boolean {
@@ -1016,43 +1186,67 @@ function parseRefType(type: string): string | null {
     return match?.[1] ?? null;
 }
 
-function recordOriginAfterMutation(
+/** EmbeddingText 值判定：对象且 text 为字符串。 */
+function isEmbeddingValue(value: JsonValue | undefined): value is Record<string, JsonValue> {
+    return isObject(value) && typeof value.text === "string";
+}
+
+/**
+ * 若 patch 写的是 embedding 字段的单条内容，拆出 text/vector/model 列；否则 undefined。
+ * - array（events）：append 到容器 path，value 是一条 EmbeddingText
+ * - record（memory）：replace 到 `/memory/<key>`，value 是一条 EmbeddingText
+ */
+function embeddingColumnsFor(schema: WorldSchema, subjectType: string, patch: PatchInput): EmbeddingColumns | undefined {
+    const value = patch.value;
+    if (!isEmbeddingValue(value)) {
+        return undefined;
+    }
+    const direct = findAttrSchema(schema, subjectType, patch.path);
+    if (direct?.embedding === "array" && patch.op === "append") {
+        return extractEmbeddingColumns(value);
+    }
+    if (patch.op === "replace") {
+        const parts = pointerParts(patch.path);
+        if (parts.length > 1) {
+            const parent = findAttrSchema(schema, subjectType, pointerFromParts(parts.slice(0, -1)));
+            if (parent?.embedding === "record") {
+                return extractEmbeddingColumns(value);
+            }
+        }
+    }
+    return undefined;
+}
+
+function extractEmbeddingColumns(value: Record<string, JsonValue>): EmbeddingColumns {
+    const rawVector = value.vector;
+    const vector = Array.isArray(rawVector) && rawVector.every((item) => typeof item === "number") ? encodeVector(rawVector as number[]) : null;
+    const model = typeof value.model === "string" ? value.model : null;
+    return {text: value.text as string, vector, model};
+}
+
+function recordOriginAfterPatch(
     originByAttr: Map<string, string>,
-    mutation: MutationInput,
+    patch: PatchInput,
     sliceId: string,
     previousValue: JsonValue | typeof MISSING,
     currentValue: JsonValue | typeof MISSING,
 ): void {
-    if (mutation.op === "unset") {
-        clearOrigin(originByAttr, mutation.attr);
+    const attr = pathToAttr(patch.path);
+    if (patch.op === "remove") {
+        clearOrigin(originByAttr, attr);
         return;
     }
-    if (mutation.op === "listAppend") {
-        if (Array.isArray(currentValue)) {
-            originByAttr.set(`${mutation.attr}[${currentValue.length - 1}]`, sliceId);
-        }
-        return;
-    }
-    if (mutation.op === "collectionAdd") {
+    if (patch.op === "append") {
         if (!Array.isArray(currentValue)) {
             return;
         }
-        const addedValue = stableJson(toJsonValue(mutation.value));
-        const alreadyExisted = Array.isArray(previousValue) && previousValue.some((item) => stableJson(item) === addedValue);
-        if (alreadyExisted) {
+        if (Array.isArray(previousValue) && currentValue.length <= previousValue.length) {
             return;
         }
-        const index = currentValue.findIndex((item) => stableJson(item) === addedValue);
-        if (index >= 0) {
-            originByAttr.set(`${mutation.attr}[${index}]`, sliceId);
-        }
+        originByAttr.set(`${attr}[${currentValue.length - 1}]`, sliceId);
         return;
     }
-    if (mutation.op === "collectionRemove") {
-        remapCollectionOrigins(originByAttr, mutation.attr, previousValue, currentValue);
-        return;
-    }
-    originByAttr.set(mutation.attr, sliceId);
+    originByAttr.set(attr, sliceId);
 }
 
 function clearOrigin(originByAttr: Map<string, string>, attr: string): void {
@@ -1105,20 +1299,20 @@ function findOriginSlice(originByAttr: Map<string, string>, attr: string): strin
     return undefined;
 }
 
-function valueErrorSuffix(type: string, mode: "mutation" | "default"): string {
+function valueErrorSuffix(type: string, mode: "patch" | "default"): string {
     return mode === "default" ? ` default 必须是 ${type}` : ` 必须是 ${type}`;
 }
 
-function safeIntegerErrorSuffix(mode: "mutation" | "default"): string {
+function safeIntegerErrorSuffix(mode: "patch" | "default"): string {
     return mode === "default" ? " default 必须是安全整数" : " 必须是安全整数";
 }
 
-function enumErrorSuffix(mode: "mutation" | "default"): string {
+function enumErrorSuffix(mode: "patch" | "default"): string {
     return mode === "default" ? " default 不在 enum 取值内" : " 不在 enum 取值内";
 }
 
-function affectedSubjectIds(mutations: MutationInput[]): string[] {
-    return unique(mutations.map((mutation) => mutation.subjectId));
+function affectedSubjectIds(patches: PatchInput[]): string[] {
+    return unique(patches.map((patch) => patch.subjectId));
 }
 
 function assertRequestedSubjectsFound<TSubject extends {id: string}>(requestedIds: string[] | undefined, subjects: TSubject[]): void {
@@ -1165,6 +1359,25 @@ function assertAttrPath(attr: string): void {
     }
 }
 
+function assertJsonPointerPath(path: string): void {
+    if (path.trim() === "") {
+        throw createError({statusCode: 400, message: "path 不能为空"});
+    }
+    if (path !== path.trim()) {
+        throw createError({statusCode: 400, message: `path 不能包含前后空白：${path}`});
+    }
+    if (!path.startsWith("/")) {
+        throw createError({statusCode: 400, message: `path 必须是 JSON Pointer（以 / 开头）：${path}`});
+    }
+    const parts = path.slice(1).split("/");
+    if (parts.length === 0 || parts.some((part) => part === "")) {
+        throw createError({statusCode: 400, message: `path 不能包含空段：${path}`});
+    }
+    if (parts.some((part) => /~(?![01])/.test(part))) {
+        throw createError({statusCode: 400, message: `path 只能使用 JSON Pointer 转义 ~0 / ~1：${path}`});
+    }
+}
+
 function assertSubjectId(subjectId: string, label: string): void {
     if (subjectId.trim() === "") {
         throw createError({statusCode: 400, message: `${label} 不能为空`});
@@ -1207,12 +1420,6 @@ function assertSliceKind(kind: string | undefined): void {
     }
 }
 
-function assertQueryScope(query: {subjectIds?: string[]; type?: string}): void {
-    if (!query.subjectIds?.length && !query.type) {
-        throw createError({statusCode: 400, message: "queryState 必须提供 subjectIds 或 type"});
-    }
-}
-
 function assertSliceSubjectMode(mode: WorldSliceSubjectFilterMode | undefined, subjectIds: string[] | undefined): void {
     if (mode === undefined) {
         return;
@@ -1243,9 +1450,9 @@ function assertSqliteInstant(value: bigint | undefined, label: string): void {
     }
 }
 
-function assertMutationCapacity(count: number): void {
-    if (count > MAX_SLICE_MUTATIONS) {
-        throw createError({statusCode: 400, message: `mutations 不能超过 ${MAX_SLICE_MUTATIONS} 条`});
+function assertPatchCapacity(count: number): void {
+    if (count > MAX_SLICE_PATCHES) {
+        throw createError({statusCode: 400, message: `patches 不能超过 ${MAX_SLICE_PATCHES} 条`});
     }
 }
 

@@ -53,7 +53,7 @@ import {toRunKernelErrorInfo, withRunKernelPhase} from "nbook/server/agent/harne
 import {consumeNextTurnModelMessages, createRunFrame} from "nbook/server/agent/harness/run-frame-state";
 import {isEmptyObjectSchema, reportResultSchemaForProfile, reportSidecarResultSchemaForProfile} from "nbook/server/agent/profiles/report-result-schema";
 import {resolveRuntimeProfileSettings} from "nbook/server/agent/profiles/profile-settings";
-import {ensureProfileHome, resolveProjectRootForProfileHome} from "nbook/server/agent/profiles/profile-home";
+import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHome, resolveProjectRootForProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {resolvePiApiKeyForModelFromConfig, resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
 import {planModeDirectory, resolvePlanModeFile} from "nbook/server/agent/plan-mode-path";
 import type {EffectiveConfig} from "nbook/server/config/types";
@@ -1310,6 +1310,9 @@ export class NeuroAgentHarness {
             return undefined;
         }
         const initial = this.profiles.parseInitial(profile, snapshot.metadata.initial);
+        const config = await loadEffectiveConfig(context);
+        const settings = await this.resolveProfileSettings(profile, config, context);
+        const home = await this.ensureProfileHome(profile, context);
         const session = this.createRuntimeSessionFacade({
             sessionId: snapshot.metadata.sessionId,
             profileKey: profile.manifest.key,
@@ -1320,6 +1323,8 @@ export class NeuroAgentHarness {
             session,
             initial: initial as never,
             vars: await this.createProfileVariableAccessor(snapshot, profile, {dryRun: true}),
+            settings: settings as never,
+            ...(home ? {home} : {}),
             catalog: await this.profiles.snapshot(),
             skills: await this.skills.list(),
             runtime: {
@@ -3658,17 +3663,31 @@ export class NeuroAgentHarness {
         });
     }
 
-    private async ensureProfileHome(profile: AgentProfile, context: NeuroSessionContext) {
-        const projectRoot = resolveProjectRootForProfileHome(context.projectPath);
-        if (!projectRoot) {
+    private async ensureProfileHome(profile: AgentProfile, context: Pick<NeuroSessionContext, "workspaceRoot" | "projectPath">) {
+        if (!this.profileNeedsHome(profile)) {
             return undefined;
         }
-        return ensureProfileHome({
+        const projectRoot = resolveProjectRootForProfileHome(context.projectPath);
+        const globalHome = await ensureGlobalProfileHome({
+            workspaceRoot: context.workspaceRoot,
+            profileKey: profile.manifest.key,
+            profileVersion: profile.manifest.version ?? 1,
+            definition: profile.home,
+        });
+        if (!projectRoot) {
+            return globalHome;
+        }
+        const projectHome = await ensureProfileHome({
             projectRoot,
             profileKey: profile.manifest.key,
             profileVersion: profile.manifest.version ?? 1,
             definition: profile.home,
         });
+        return createLayeredProfileHomeFacade(projectHome, globalHome);
+    }
+
+    private profileNeedsHome(profile: AgentProfile): boolean {
+        return Boolean(profile.home) || Boolean(profile.settingsForm?.fields.some((field) => field.component === "resource-preset"));
     }
 
     /**
@@ -3996,6 +4015,7 @@ export class NeuroAgentHarness {
         config: Pick<EffectiveConfig, "agent">,
         context: Pick<NeuroSessionContext, "profileKey" | "workspaceRoot" | "projectPath">,
     ): Promise<Record<string, JsonValue>> {
+        const home = await this.ensureProfileHome(profile, context);
         return resolveRuntimeProfileSettings(
             profile,
             config.agent.profiles[context.profileKey]?.settings,
@@ -4004,6 +4024,7 @@ export class NeuroAgentHarness {
                 scope: context.projectPath ? "project" : "global",
                 workspaceRoot: context.workspaceRoot,
                 ...(context.projectPath ? {projectPath: context.projectPath} : {}),
+                ...(home ? {home, allowGlobalResourceKeys: true} : {}),
             },
         );
     }

@@ -35,6 +35,7 @@ describe("simulation and director builtin profiles", () => {
             vars: createTestVariableAccessor(),
             catalog: {profiles: [], issues: []},
             skills: [],
+            settings: {},
         });
         const prompt = [prepared.systemPrompt ?? "", messagesText(prepared.historyInitMessages), messagesText(prepared.modelContextMessages)].join("\n");
 
@@ -91,6 +92,7 @@ describe("simulation and director builtin profiles", () => {
             vars: createTestVariableAccessor(),
             catalog: {profiles: [], issues: []},
             skills: [],
+            settings: {},
         });
         const prompt = [prepared.systemPrompt ?? "", messagesText(prepared.historyInitMessages), messagesText(prepared.modelContextMessages)].join("\n");
 

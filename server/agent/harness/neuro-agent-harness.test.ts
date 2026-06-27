@@ -441,6 +441,61 @@ describe("NeuroAgentHarness", () => {
         })).toBe(false);
     });
 
+    it("settings-aware profile 的 snapshot 解析并注入 settings 后再渲染 system prompt", async () => {
+        // 回归 GET /api/agent/sessions/:id 的 500：snapshotSystemPrompt 之前漏注入 settings，
+        // 任何在 context() 里读 ctx.settings 的 profile 都会在快照路径抛 undefined。
+        await mkdir(join(root, ".nbook"), {recursive: true});
+        await writeFile(join(root, ".nbook", "config.json"), JSON.stringify({
+            agent: {
+                profiles: {
+                    "test.snapshot-settings": {
+                        settings: {
+                            tone: "cinematic",
+                        },
+                    },
+                },
+            },
+        }, null, 4), "utf8");
+        const SettingsForm = defineLowCodeForm({
+            schema: Type.Object({tone: Type.String()}, {additionalProperties: false}),
+            defaults: {tone: "plain"},
+            fields: [{
+                path: "tone",
+                component: "select",
+                label: "语气",
+                options: [
+                    {value: "plain", label: "平实"},
+                    {value: "cinematic", label: "电影感"},
+                ],
+            }],
+        });
+        harness.profiles.register(defineRuntimeAgentProfile({
+            manifest: {
+                key: "test.snapshot-settings",
+                name: "Snapshot Settings",
+            },
+            initialSchema: Type.Object({}),
+            settingsForm: SettingsForm,
+            tools: toolset(),
+            context(ctx) {
+                // 直接读 ctx.settings：修复前快照路径不注入 settings，这里会抛 500。
+                return ProfilePrompt({
+                    children: System({children: `# Snapshot Settings\n\ntone=${ctx.settings.tone}`}),
+                });
+            },
+        }), false);
+        const created = await harness.createAgent({
+            profileKey: "test.snapshot-settings",
+            initial: {},
+            workspaceRoot: root,
+        });
+
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+
+        // 断 config 里的 cinematic（不是 schema 默认 plain），证明 settings 被真正解析注入。
+        expect(snapshot.systemPrompt).toContain("tone=cinematic");
+    });
+
     it("session snapshot 和 live state 暴露累计 usage 与 context usage", async () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",

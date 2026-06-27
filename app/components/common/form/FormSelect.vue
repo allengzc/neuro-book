@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import {nextTick, ref, toRef} from "vue";
+import {computed, nextTick, ref, toRef} from "vue";
 import {onClickOutside} from "@vueuse/core";
 import {useFloatingPanelLayout, type FloatingPanelDirection} from "nbook/app/composables/useFloatingPanelLayout";
+
+type SelectSize = "default" | "sm";
 
 export interface SelectOption {
     value: string;
@@ -15,12 +17,17 @@ const props = withDefaults(defineProps<{
     modelValue: string;
     options: SelectOption[];
     placeholder?: string;
+    /** 语义尺寸，sm 用于表格、行内编辑器这类紧凑表单。 */
+    size?: SelectSize;
     dropdownDirection?: FloatingPanelDirection;
     disabled?: boolean;
+    hideCheckmark?: boolean;
 }>(), {
     placeholder: "",
+    size: "default",
     dropdownDirection: "auto",
     disabled: false,
+    hideCheckmark: false,
 });
 
 const emit = defineEmits<{
@@ -66,13 +73,20 @@ const selectOption = (opt: SelectOption) => {
     open.value = false;
 };
 
+const controlSizeClass = computed(() => props.size === "sm"
+    ? "h-7 px-2 text-[12px]"
+    : "h-7 px-2.5 text-[12px]");
+const optionSizeClass = computed(() => props.size === "sm"
+    ? "min-h-7 px-2 py-1 text-[12px]"
+    : "min-h-7 px-2.5 py-1 text-[12px]");
+
 </script>
 
 <template>
     <div ref="rootRef" class="relative">
         <div
-            class="flex h-7 w-full items-center justify-between rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none transition-colors select-none"
-            :class="[open ? '!border-[var(--accent-main)] ring-1 ring-[var(--accent-main)]/30' : '', props.disabled ? 'cursor-default opacity-80' : 'cursor-pointer hover:bg-[var(--bg-hover)]']"
+            class="flex w-full items-center justify-between rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] outline-none transition-colors select-none"
+            :class="[controlSizeClass, open ? '!border-[var(--accent-main)] ring-1 ring-[var(--accent-main)]/30' : '', props.disabled ? 'cursor-default opacity-80' : 'cursor-pointer hover:bg-[var(--bg-hover)]']"
             :tabindex="props.disabled ? -1 : 0"
             :aria-disabled="props.disabled"
             @focus="emit('focus', $event)"
@@ -102,8 +116,8 @@ const selectOption = (opt: SelectOption) => {
                 <div
                     v-for="opt in options"
                     :key="opt.value"
-                    class="flex min-h-7 items-center gap-2 px-2.5 py-1 mb-1 last:mb-0 rounded-md text-[12px] cursor-pointer transition-colors hover:bg-[var(--bg-hover)]"
-                    :class="opt.value === modelValue ? 'text-[var(--text-main)] font-medium bg-[var(--bg-input)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-main)]'"
+                    class="mb-1 flex items-center gap-2 rounded-md cursor-pointer transition-colors last:mb-0 hover:bg-[var(--bg-hover)]"
+                    :class="[optionSizeClass, opt.value === modelValue ? 'text-[var(--text-main)] font-medium bg-[var(--bg-input)]' : 'text-[var(--text-secondary)] hover:text-[var(--text-main)]']"
                     @click="selectOption(opt)"
                 >
                     <span v-if="opt.indicatorClass" class="h-1.5 w-1.5 rounded-full shrink-0 shadow-sm" :class="opt.indicatorClass"></span>
@@ -112,7 +126,7 @@ const selectOption = (opt: SelectOption) => {
                         <span class="block truncate">{{ opt.label }}</span>
                         <span v-if="opt.description" class="mt-0.5 block truncate text-[10px] font-normal text-[var(--text-muted)]">{{ opt.description }}</span>
                     </span>
-                    <span v-if="opt.value === modelValue" class="i-lucide-check h-3 w-3 text-[var(--accent-main)] ml-auto shrink-0"></span>
+                    <span v-if="!props.hideCheckmark && opt.value === modelValue" class="i-lucide-check h-3 w-3 text-[var(--accent-main)] ml-auto shrink-0"></span>
                 </div>
             </div>
         </transition>

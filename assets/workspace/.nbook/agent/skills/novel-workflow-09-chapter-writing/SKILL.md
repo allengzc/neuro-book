@@ -36,7 +36,7 @@ when_to_use:
 操作边界（详见 `reference/world-engine/calendar-system.md` 与 `subject-lifecycle.md`）：
 
 - 时间一律用项目日历字符串（第一版月份是数字，如「星辉历312年 5月5日 14:00」），禁止 raw instant。
-- 同一 instant 只能有一个切面；目标时刻已存在切面时，用 `edit_world_slice` 修改，不要换相近时间硬塞第二条。
+- 同一 instant 只能有一个切面；**Agent 没有改/删已有切面的工具**，目标时刻已存在切面时会冲突报错，改用相邻时间点写入，不要试图覆盖（编辑/删除切面只在 Workbench HTTP 层可用）。
 - 写完后检查返回的 issues：E issues（`broken-relative` / `dangling-ref`）必须修；A issues（`base-shifted` / `masked`）确认本次语义符合预期即可，不落库。
 - 对用户用人话解释做了什么（"我把这段剧情记到时间线里了"），不抛 slice / mutation / op 这些术语。
 
@@ -59,7 +59,7 @@ brief 应当**简化**——因为写作前世界状态已推进好、writer 又
 | 建议读取的 lorebook（也可放 input.context） | 完整时间线记录 |
 | World Engine 查询提示（查哪些 subject、哪个时间范围） | mutation 细节 |
 
-**不要**把 HP、位置、完整状态塞进 brief。writer 会自己 `get_world_state` 查到当前真值；把状态都塞进 brief 既冗余，又会让 writer 退化成纯执行者，还浪费了它的查询能力。
+**不要**把 HP、位置、完整状态塞进 brief。writer 会自己用 `execute_world_query` 查到当前真值；把状态都塞进 brief 既冗余，又会让 writer 退化成纯执行者，还浪费了它的查询能力。
 
 信息控制是 brief 的硬要求：按 subject 视角分别说明知识边界，例如「薇洛丝视角：不知道莉雅的真实身份」「反派视角：从教会典籍见过项链记载，认出标志但不确定眼前女孩是谁」。writer 据此控制每个角色的言行与心理披露。
 
@@ -70,13 +70,13 @@ brief 示例（节选）：
 关键剧情点：1) 解封过程的异象 2) 莉雅失忆、只记得片段 3) 邪教徒追入，章末停在对峙瞬间。
 信息控制：薇洛丝不知道莉雅真实身份与被封印原因；莉雅失忆，不知外面世界过了多久。
 写作约束：薇洛丝单视角第三人称；节奏由探索转紧张；章末收在对峙未发生战斗的悬念上。
-World Engine 查询提示：用 get_world_state 查 weiluosi、liya、cultist-patrol-01 在「星辉历312年 5月5日」当天的状态。
+World Engine 查询提示：用 execute_world_query 查 weiluosi、liya、cultist-patrol-01 在「星辉历312年 5月5日」当天的状态。
 建议读取：project-slug/lorebook/location/ruins-meteor/。
 ```
 
 ## 第三步：writer 侧（自查状态后写正文）
 
-writer 拥有 `get_world_state` / `list_world_slices` 只读能力。它的典型流程是：读 brief 指定的 lorebook → 用 `get_world_state` 按提示查相关 subject 在章节时间范围的状态 → 构思并写入正文到章节 `index.md` → `report_result` 报告落点。
+writer 拥有 `execute_world_query` 只读能力。它的典型流程是：读 brief 指定的 lorebook → 用 `execute_world_query` 按提示查相关 subject 在章节时间范围的状态 → 构思并写入正文到章节 `index.md` → `report_result` 报告落点。
 
 leader 不需要在此步骤干预；writer 是自主子代理。注意 writer 能查到角色真值，但在某个角色视角的叙述里不会让该角色"知道"他不该知道的设定——查询服务于写作一致性，不等于授权角色越界知情。
 

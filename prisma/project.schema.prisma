@@ -192,7 +192,7 @@ model WorldSubject {
   type      String
   name      String          @default("")
   createdAt DateTime        @default(now())
-  mutations WorldMutation[]
+  patches   WorldPatch[]
 
   @@index([type])
 }
@@ -204,24 +204,28 @@ model WorldSlice {
   summary   String          @default("")
   kind      String          @default("event")
   createdAt DateTime        @default(now())
-  mutations WorldMutation[]
+  patches   WorldPatch[]
 
   @@index([instant])
 }
 
-model WorldMutation {
+model WorldPatch {
   id        String       @id @default(cuid())
   sliceId   String
   subjectId String
   instant   BigInt
   seq       Int          @default(0)
-  attr      String
+  path      String
   op        String
   value     String?
+  summary   String?
+  text      String?
+  vector    Bytes?
+  model     String?
   slice     WorldSlice   @relation(fields: [sliceId], references: [id], onDelete: Cascade)
   subject   WorldSubject @relation(fields: [subjectId], references: [id], onDelete: Cascade)
 
   @@index([subjectId, instant, seq])
-  @@index([subjectId, attr, instant])
-  @@index([attr])
+  @@index([subjectId, path, instant])
+  @@index([path])
 }

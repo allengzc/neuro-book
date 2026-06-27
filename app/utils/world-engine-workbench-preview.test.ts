@@ -2,13 +2,17 @@ import {readFile} from "node:fs/promises";
 import {fileURLToPath} from "node:url";
 import {describe, expect, it} from "vitest";
 import type {SubjectStateDto} from "nbook/app/components/novel-ide/world-engine/world-engine-workbench.types";
-import type {WorldWorkbenchPreviewSnapshot} from "nbook/app/components/novel-ide/world-engine/workbench-preview/world-engine-workbench-preview.types";
+import type {
+    WorldWorkbenchPreviewSlice,
+    WorldWorkbenchPreviewSnapshot,
+} from "nbook/app/components/novel-ide/world-engine/workbench-preview/world-engine-workbench-preview.types";
 import {
     cloneMockWorkbenchSlices,
     mockWorkbenchSchema,
     mockWorkbenchSubjects,
 } from "nbook/app/utils/world-engine-workbench-preview-mock";
 import {
+    applyWorkbenchPreviewMutationListPatch,
     applyWorkbenchPreviewMutationPatch,
     reduceWorkbenchPreviewSnapshots,
 } from "nbook/app/utils/world-engine-workbench-preview-state";
@@ -23,6 +27,7 @@ import {
 import {isWorldWorkbenchSubjectSystemMaintenanceSlice} from "nbook/app/utils/world-engine-workbench-slice-classifier";
 
 const pagePath = fileURLToPath(new URL("../pages/world-engine.workbench-preview.vue", import.meta.url));
+const workbenchDialogPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue", import.meta.url));
 const mockPath = fileURLToPath(new URL("./world-engine-workbench-preview-mock.ts", import.meta.url));
 const stateUtilPath = fileURLToPath(new URL("./world-engine-workbench-preview-state.ts", import.meta.url));
 const valueUtilPath = fileURLToPath(new URL("./world-engine-workbench-preview-value.ts", import.meta.url));
@@ -33,8 +38,13 @@ const sliceListPath = fileURLToPath(new URL("../components/novel-ide/world-engin
 const sliceCardPath = fileURLToPath(new URL("../components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewSliceCard.vue", import.meta.url));
 const inspectorPath = fileURLToPath(new URL("../components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewInspector.vue", import.meta.url));
 const editorPath = fileURLToPath(new URL("../components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewMutationEditor.vue", import.meta.url));
+const patchEditorPath = fileURLToPath(new URL("../components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewPatchEditor.vue", import.meta.url));
+const sliceComposerPath = fileURLToPath(new URL("../components/novel-ide/world-engine/WorldEngineMutationEditor.vue", import.meta.url));
 const valueInputPath = fileURLToPath(new URL("../components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewValueInput.vue", import.meta.url));
 const typesPath = fileURLToPath(new URL("../components/novel-ide/world-engine/workbench-preview/world-engine-workbench-preview.types.ts", import.meta.url));
+const comboboxPath = fileURLToPath(new URL("../components/common/form/Combobox.vue", import.meta.url));
+const formNumberInputPath = fileURLToPath(new URL("../components/common/form/FormNumberInput.vue", import.meta.url));
+const formSelectPath = fileURLToPath(new URL("../components/common/form/FormSelect.vue", import.meta.url));
 const segmentedControlPath = fileURLToPath(new URL("../components/common/form/SegmentedControl.vue", import.meta.url));
 const lowCodeRadioPath = fileURLToPath(new URL("../components/common/low-code-form/LowCodeRadioField.vue", import.meta.url));
 const zhLocalePath = fileURLToPath(new URL("../i18n/locales/zh-CN.ts", import.meta.url));
@@ -54,6 +64,7 @@ function findSnapshotSubject(snapshots: WorldWorkbenchPreviewSnapshot[], sliceId
 describe("World Engine Workbench preview redesign", () => {
     it("保留 mock 数据源和三栏 preview 入口", async () => {
         const page = await readFile(pagePath, "utf-8");
+        const workbenchDialog = await readFile(workbenchDialogPath, "utf-8");
         const mock = await readFile(mockPath, "utf-8");
         const stateUtil = await readFile(stateUtilPath, "utf-8");
         const valueUtil = await readFile(valueUtilPath, "utf-8");
@@ -64,8 +75,13 @@ describe("World Engine Workbench preview redesign", () => {
         const sliceCard = await readFile(sliceCardPath, "utf-8");
         const inspector = await readFile(inspectorPath, "utf-8");
         const editor = await readFile(editorPath, "utf-8");
+        const patchEditor = await readFile(patchEditorPath, "utf-8");
+        const sliceComposer = await readFile(sliceComposerPath, "utf-8");
         const valueInput = await readFile(valueInputPath, "utf-8");
         const types = await readFile(typesPath, "utf-8");
+        const combobox = await readFile(comboboxPath, "utf-8");
+        const formNumberInput = await readFile(formNumberInputPath, "utf-8");
+        const formSelect = await readFile(formSelectPath, "utf-8");
         const segmentedControl = await readFile(segmentedControlPath, "utf-8");
         const lowCodeRadio = await readFile(lowCodeRadioPath, "utf-8");
         const zhLocale = await readFile(zhLocalePath, "utf-8");
@@ -158,6 +174,8 @@ describe("World Engine Workbench preview redesign", () => {
         expect(page).toContain("neuro-book:world-engine-workbench-preview:draft:v4");
         expect(page).toContain("defaultSidebarWidth");
         expect(page).toContain("defaultInspectorWidth");
+        expect(page).toContain("const defaultSidebarWidth = 320;");
+        expect(page).toContain("const defaultInspectorWidth = 420;");
         expect(page).toContain("defaultMutationEditorHeight");
         expect(page).toContain("sidebarWidth = ref(defaultSidebarWidth)");
         expect(page).toContain("inspectorWidth = ref(defaultInspectorWidth)");
@@ -236,7 +254,7 @@ describe("World Engine Workbench preview redesign", () => {
         expect(mock).toContain("character");
         expect(mock).toContain("item");
         expect(mock).toContain("backstory");
-        expect(mock).toContain("collectionRemove");
+        expect(mock).toContain("remove/append 编辑路径");
         expect(mock).toContain("masked");
         expect(mock).toContain("旧剑旧伤补充可能遮蔽艾莉娜此前对东塔线索的理解");
         expect(mock).not.toContain(removedToken("cor", "rection"));
@@ -244,8 +262,9 @@ describe("World Engine Workbench preview redesign", () => {
         expect(stateUtil).toContain("applyWorkbenchPreviewMutationPatch");
         expect(stateUtil).toContain("reduceWorkbenchPreviewSnapshots");
         expect(stateUtil).toContain("schema default");
-        expect(stateUtil).toContain("collectionAdd");
-        expect(stateUtil).toContain("collectionRemove");
+        expect(stateUtil).toContain("replace");
+        expect(stateUtil).toContain("increment");
+        expect(stateUtil).toContain("append");
         expect(valueUtil).toContain("parseWorkbenchPreviewMutationValue");
         expect(valueUtil).toContain("formatWorkbenchPreviewValue");
         expect(filterUtil).toContain("matchesWorkbenchPreviewSliceFilter");
@@ -260,6 +279,17 @@ describe("World Engine Workbench preview redesign", () => {
         expect(realUtil).toContain("`source: ${proposal.sourceLabel}`");
         expect(realUtil).toContain("`sliceId: ${proposal.sliceId}`");
         expect(realUtil).toContain("sliceId: input.slice.id");
+        expect(formSelect).toContain("type SelectSize = \"default\" | \"sm\"");
+        expect(formSelect).toContain("size?: SelectSize");
+        expect(formSelect).toContain(":style=\"panelStyle\"");
+        expect(formSelect).not.toContain("panelSizeClass");
+        expect(combobox).toContain("type ComboboxSize = \"default\" | \"sm\"");
+        expect(combobox).toContain("autocomplete=\"off\"");
+        expect(combobox).toContain("disabled?: boolean");
+        expect(formNumberInput).toContain("type NumberInputSize = \"default\" | \"sm\"");
+        expect(formNumberInput).toContain("inputmode=\"decimal\"");
+        expect(formNumberInput).toContain("stepValueBy");
+        expect(formNumberInput).toContain("i-lucide-chevron-up");
         expect(segmentedControl).toContain("SegmentedControlOption");
         expect(segmentedControl).toContain("SegmentedControlValue");
         expect(segmentedControl).toContain("count?: number | string");
@@ -275,7 +305,7 @@ describe("World Engine Workbench preview redesign", () => {
         expect(lowCodeRadio).toContain("props.field.options.map");
 
         expect(sidebar).toContain("Schema");
-        expect(sidebar).toContain("const schemaSourcePath = \"world-engine/schema.yaml\";");
+        expect(sidebar).toContain("const schemaSourcePath = \"world-engine/schema/index.ts\";");
         expect(sidebar).toContain("const calendarSourcePath = \"world-engine/calendar.ts\";");
         expect(sidebar).toContain("(e: \"openWorkspacePath\", path: string): void;");
         expect(sidebar).toContain("@click=\"emit('openWorkspacePath', schemaSourcePath)\"");
@@ -498,9 +528,9 @@ describe("World Engine Workbench preview redesign", () => {
         expect(sliceList).not.toContain("relative space-y-3 pl-7");
         expect(sliceList).not.toContain("absolute bottom-3 left-3 top-3 w-px");
         expect(sliceList).not.toContain("absolute -left-[22px] top-8");
-        expect(sliceCard).toContain("mutationGroups");
+        expect(sliceCard).toContain("patchGroups");
         expect(sliceCard).toContain("data-testid=\"world-slice-card\"");
-        expect(sliceCard).toContain("data-testid=\"world-slice-select-button\"");
+        expect(sliceCard).not.toContain("data-testid=\"world-slice-select-button\"");
         expect(sliceCard).toContain("metadataDraftCount");
         expect(sliceCard).toContain("metadataDraftSummary");
         expect(sliceCard).toContain("hasMetadataDraft");
@@ -514,7 +544,7 @@ describe("World Engine Workbench preview redesign", () => {
         expect(sliceCard).toContain("hasValueDraft");
         expect(sliceCard).toContain("value draft {{ props.valueDraftCount }}");
         expect(sliceCard).toContain("未应用 value 草稿");
-        expect(sliceCard).toContain("选择切片");
+        expect(sliceCard).not.toContain("选择切片");
         expect(sliceCard).toContain("sliceReviewSummary");
         expect(sliceCard).toContain("reviewItems");
         expect(sliceCard).toContain("visibleReviewItems");
@@ -543,19 +573,53 @@ describe("World Engine Workbench preview redesign", () => {
         expect(sliceCard).toContain("props.slice.title");
         expect(sliceCard).toContain("props.slice.summary");
         expect(sliceCard).toContain("props.slice.kind");
-        expect(sliceCard).toContain("formatStringValue");
-        expect(sliceCard).toContain("list · ${value.length} items");
-        expect(sliceCard).toContain("object · ${keys.length} keys");
-        expect(sliceCard).toContain("${normalized.length} chars");
-        expect(sliceCard).toContain("maxVisibleMutationsPerSubject = 6");
-        expect(sliceCard).toContain("visibleMutations(group)");
-        expect(sliceCard).toContain("hiddenMutationCount(group)");
-        expect(sliceCard).toContain("+{{ hiddenMutationCount(group) }} mutations");
+        expect(sliceCard).toContain("const opLabels: Record<string, string>");
+        expect(sliceCard).toContain("append: \"追加\"");
+        expect(sliceCard).toContain("increment: \"增减\"");
+        expect(sliceCard).toContain("remove: \"移除\"");
+        expect(sliceCard).toContain("replace: \"设置\"");
+        expect(sliceCard).toContain("function opLabel(op: string): string");
+        expect(sliceCard).toContain("formatWorkbenchPreviewValue");
+        expect(sliceCard).toContain("function patchValueLabel(mutation: WorldWorkbenchPreviewSubjectGroup[\"mutations\"][number]): string");
+        expect(sliceCard).toContain("xl:grid-cols-[184px_minmax(0,1fr)]");
+        expect(sliceCard).toContain("(e: \"insertSliceBefore\", sliceId: string): void;");
+        expect(sliceCard).toContain("(e: \"insertSliceAfter\", sliceId: string): void;");
+        expect(sliceCard).toContain("function insertSliceBefore(): void");
+        expect(sliceCard).toContain("function insertSliceAfter(): void");
+        expect(sliceCard).toContain("在此 Slice 之前插入新 Slice");
+        expect(sliceCard).toContain("在此 Slice 之后插入新 Slice");
+        expect(sliceCard).toContain("i-lucide-arrow-up-to-line");
+        expect(sliceCard).toContain("i-lucide-arrow-down-to-line");
+        expect(sliceCard).toContain("@click.stop=\"insertSliceBefore\"");
+        expect(sliceCard).toContain("@click.stop=\"insertSliceAfter\"");
+        expect(sliceCard).toContain("grid-cols-[minmax(88px,0.56fr)_44px_minmax(96px,0.72fr)_minmax(0,1.65fr)]");
+        expect(sliceCard).toContain("{{ mutation.path }}");
+        expect(sliceCard).toContain("{{ opLabel(mutation.op) }}");
+        expect(sliceCard).toContain("{{ mutation.summary ?? \"\" }}");
+        expect(sliceCard).toContain(":title=\"patchValueLabel(mutation)\"");
+        expect(sliceCard).toContain("{{ patchValueLabel(mutation) }}");
+        expect(sliceCard).toContain("maxVisiblePatchesPerSubject = 6");
+        expect(sliceCard).toContain("visiblePatches(group)");
+        expect(sliceCard).toContain("hiddenPatchCount(group)");
+        expect(sliceCard).toContain("+{{ hiddenPatchCount(group) }} patches");
         expect(sliceCard).toContain("role=\"button\"");
         expect(sliceCard).toContain("tabindex=\"0\"");
         expect(sliceCard).toContain("@click.stop=\"focusSubject(group.subjectId)\"");
         expect(sliceCard).toContain("@keydown.enter.stop.prevent=\"focusSubject(group.subjectId)\"");
         expect(sliceCard).toContain("@keydown.space.stop.prevent=\"focusSubject(group.subjectId)\"");
+        expect(sliceList).toContain("(e: \"insertSliceBefore\", sliceId: string): void;");
+        expect(sliceList).toContain("(e: \"insertSliceAfter\", sliceId: string): void;");
+        expect(sliceList).toContain("@insert-slice-before=\"emit('insertSliceBefore', $event)\"");
+        expect(sliceList).toContain("@insert-slice-after=\"emit('insertSliceAfter', $event)\"");
+        expect(workbenchDialog).toContain("type SliceComposerInsertContext");
+        expect(workbenchDialog).toContain("const sliceComposerInsertContext = ref<SliceComposerInsertContext | null>(null);");
+        expect(workbenchDialog).toContain("function openSliceComposerAroundSlice(sliceId: string, direction: \"before\" | \"after\"): void");
+        expect(workbenchDialog).toContain("@insert-slice-before=\"openSliceComposerAroundSlice($event, 'before')\"");
+        expect(workbenchDialog).toContain("@insert-slice-after=\"openSliceComposerAroundSlice($event, 'after')\"");
+        expect(workbenchDialog).toContain(":insert-slice-context=\"sliceComposerInsertContext\"");
+        expect(sliceComposer).toContain("suggestAdjacentPreviewTime");
+        expect(sliceComposer).toContain("insertSliceContext?: {");
+        expect(sliceComposer).toContain("return suggestAdjacentPreviewTime(examples, usedTimes, context.anchorTime, context.direction);");
 
         expect(inspector).toContain("worldEngine.workbenchPreview.sliceContext");
         expect(zhLocale).toContain("sliceContext");
@@ -578,11 +642,10 @@ describe("World Engine Workbench preview redesign", () => {
         expect(inspector).toContain("baseline: WorldWorkbenchPreviewSlicePatch");
         expect(inspector).toContain("resetMetadataDrafts");
         expect(inspector).toContain("metadataDraftStatusLabel");
-        expect(inspector).toContain("MetadataDraftDiffRow");
-        expect(inspector).toContain("metadataDraftDiffRows");
-        expect(inspector).toContain("metadata-draft-diff");
-        expect(inspector).toContain("worldEngine.workbenchPreview.metadataDraftDiff");
-        expect(inspector).toContain("applied");
+        expect(inspector).not.toContain("MetadataDraftDiffRow");
+        expect(inspector).not.toContain("metadataDraftDiffRows");
+        expect(inspector).not.toContain("metadata-draft-diff");
+        expect(inspector).not.toContain("worldEngine.workbenchPreview.metadataDraftDiff");
         expect(inspector).toContain("metadataDraftSummaries");
         expect(inspector).toContain("WorldWorkbenchPreviewMetadataDraftSummary");
         expect(inspector).toContain("draftTitle");
@@ -610,12 +673,11 @@ describe("World Engine Workbench preview redesign", () => {
         expect(inspector).not.toContain("worldEngine.workbenchPreview.reviewIssues");
         expect(inspector).not.toContain("worldEngine.workbenchPreview.reviewQueue");
         expect(inspector).toContain("flex min-h-0 flex-1 flex-col gap-3");
-        expect(inspector).toContain("order-4 rounded-md");
-        expect(inspector).toContain("subject-system-summary");
-        expect(inspector).toContain("order-5 rounded-md");
-        expect(inspector).toContain("Subject System");
-        expect(inspector).toContain("来自 simulation/subjects 的真实主体系统摘要");
-        expect(inspector).toContain("path only");
+        expect(inspector).not.toContain("subject-system-summary");
+        expect(inspector).toContain("order-6 rounded-md");
+        expect(inspector).not.toContain("Subject System");
+        expect(inspector).not.toContain("来自 simulation/subjects 的真实主体系统摘要");
+        expect(inspector).not.toContain("path only");
         expect(inspector).toContain("subject-file-proposals");
         expect(inspector).toContain("subjectFileProposalFocusVersion?: number;");
         expect(inspector).toContain("const subjectFileProposalsRef = ref<HTMLElement | null>(null);");
@@ -670,7 +732,6 @@ describe("World Engine Workbench preview redesign", () => {
         expect(inspector).toContain("title=\"打开 events.jsonl\"");
         expect(inspector).toContain("title=\"打开 memory.jsonl\"");
         expect(inspector).toContain("title=\"打开 state.md\"");
-        expect(inspector).toContain("order-6 rounded-md");
         expect(inspector).toContain("order-7 space-y-2");
         expect(inspector).not.toContain("reviewQueueItems");
         expect(inspector).not.toContain("reviewTriageSummary");
@@ -726,7 +787,7 @@ describe("World Engine Workbench preview redesign", () => {
         expect(editor).not.toContain("变更编辑器");
         expect(editor).toContain("JsonViewer");
         expect(editor).toContain("nbook/app/components/common/JsonViewer.vue");
-        expect(editor).toContain("<JsonViewer v-if=\"activeSubjectState\" :value=\"activeSubjectState.attrs\" :main-menu-bar=\"false\" :max-height=\"220\" />");
+        expect(editor).toContain("<JsonViewer v-if=\"activeSubjectState\" class=\"min-h-0 flex-1\" :value=\"activeSubjectState.attrs\" :main-menu-bar=\"false\" :max-height=\"0\" />");
         expect(editor).not.toContain("stateRows");
         expect(editor).not.toContain("WorldWorkbenchPreviewAttrRow");
         expect(editor).toContain("useResizablePanel");
@@ -786,7 +847,8 @@ describe("World Engine Workbench preview redesign", () => {
         expect(editor).toContain("resetKey");
         expect(editor).toContain("resetAllValueDrafts");
         expect(editor).toContain("requestResetAllValueDrafts");
-        expect(editor).toContain("if (props.busy) {\n        return;\n    }\n    const key = valueDraftKey(index);");
+        expect(editor).toContain("if (props.busy)");
+        expect(editor).toContain("const key = valueDraftKey(index);");
         expect(editor).toContain("hasValueDraft");
         expect(editor).toContain("ValueDraftSummary");
         expect(editor).toContain("allDirtyValueDrafts");
@@ -807,10 +869,51 @@ describe("World Engine Workbench preview redesign", () => {
         expect(editor).toContain("reviewPanelStyle");
         expect(editor).toContain("height: \"40px\"");
         expect(editor).toContain("transition-[height] duration-300");
+        expect(editor).toContain("class=\"flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-3\"");
+        expect(editor).toContain("class=\"min-h-0 flex-1 space-y-3 overflow-y-auto custom-scrollbar\"");
+        expect(editor).toContain("class=\"grid min-h-0 flex-1 gap-3 xl:grid-cols-[240px_minmax(0,1fr)]\"");
+        expect(editor).toContain("class=\"flex min-h-0 flex-col overflow-hidden rounded-md border border-[var(--we-border)] bg-[var(--we-bg-subtle)] p-2.5\"");
+        expect(editor).toContain("class=\"min-h-0 flex-1 space-y-1 overflow-y-auto pr-1 custom-scrollbar\"");
+        expect(editor).toContain("class=\"grid min-h-0 flex-1 gap-3 2xl:grid-cols-2\"");
+        expect(editor).toContain("class=\"flex min-h-0 flex-col\"");
+        expect(editor).toContain("WorldEngineWorkbenchPreviewPatchEditor");
+        expect(editor).toContain("activeSubjectPatchEditorRows");
+        expect(patchEditor).toContain("class=\"min-h-0 flex-1 overflow-y-auto overflow-x-hidden rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] custom-scrollbar\"");
+        expect(patchEditor).toContain("主行编辑 patch 字段，次行编辑 summary");
+        expect(patchEditor).toContain("xl:grid-cols-[minmax(88px,0.72fr)_minmax(82px,0.62fr)_minmax(0,1.5fr)]");
+        expect(patchEditor).toContain("class=\"absolute right-2 top-2");
+        expect(patchEditor).toContain("FormSelect");
+        expect(patchEditor).toContain("Combobox");
+        expect(patchEditor).toContain("pathOptions");
+        expect(patchEditor).toContain("(e: \"append\"): void");
+        expect(patchEditor).toContain("(e: \"save\"): void");
+        expect(patchEditor).toContain("(e: \"reset\"): void");
+        expect(patchEditor).toContain("@click=\"emit('append')\"");
+        expect(patchEditor).toContain("@click=\"emit('save')\"");
+        expect(patchEditor).toContain("@click=\"emit('reset')\"");
+        expect(editor).toContain("@append=\"appendPatchDraft\"");
+        expect(editor).toContain("@save=\"savePatchDrafts\"");
+        expect(editor).toContain("@reset=\"resetPatchDrafts\"");
+        expect(editor).toContain(":dirty=\"patchDraftDirty\"");
+        expect(editor).toContain(":error=\"patchDraftError\"");
+        expect(patchEditor).toContain("<Combobox :model-value=\"row.mutation.path\"");
+        expect(patchEditor).toContain("<FormSelect :model-value=\"row.mutation.op\"");
+        expect(patchEditor).toContain("size=\"sm\"");
+        expect(patchEditor).not.toContain(">attr</span>");
+        expect(patchEditor).not.toContain(">op</span>");
+        expect(patchEditor).not.toContain(">value</span>");
+        expect(patchEditor).not.toContain("attrSelectOptions");
+        expect(patchEditor).not.toContain("pathDatalistId");
+        expect(patchEditor).not.toContain("<input :value=\"row.mutation.path\"");
+        expect(patchEditor).not.toContain("<datalist");
+        expect(patchEditor).not.toContain("<FormSelect :model-value=\"row.mutation.path\"");
+        expect(patchEditor).not.toContain("<select :value=\"row.mutation.op\"");
+        expect(patchEditor).not.toContain("切片前");
+        expect(patchEditor).not.toContain("切片后");
         expect(editor).toContain("Transition name=\"world-review-panel-body\"");
         expect(editor).toContain(".world-review-panel-body-enter-active");
         expect(editor).toContain("transform: translateY(8px)");
-        expect(editor).toContain("data-testid=\"mutation-editor-row\"");
+        expect(patchEditor).toContain("data-testid=\"mutation-editor-row\"");
         expect(editor).toContain("data-testid=\"mutation-editor-apply-all-banner\"");
         expect(editor).toContain("data-testid=\"mutation-editor-reset-all-banner\"");
         expect(editor).toContain("dirtyMutationRows");
@@ -829,9 +932,34 @@ describe("World Engine Workbench preview redesign", () => {
         expect(editor).toContain("还原全部");
         expect(editor).toContain("dirty");
         expect(editor).toContain("WorldEngineWorkbenchPreviewValueInput");
+        expect(patchEditor).toContain("WorldEngineWorkbenchPreviewValueInput");
         expect(editor).toContain("parseWorkbenchPreviewMutationValue");
+        expect(editor).toContain("parseMutationJson");
+        expect(editor).toContain("opOptionsForPreviewAttr");
+        expect(editor).toContain("resolvePreviewAttrPath");
+        expect(editor).toContain("defaultMutationForPreviewSubject");
+        expect(editor).toContain("defaultValueForPreviewAttr");
+        expect(editor).toContain("updateMutationPatches");
         expect(editor).toContain("updateMutationValue");
         expect(editor).toContain("updateValueDrafts");
+        expect(editor).toContain("patchDrafts");
+        expect(editor).toContain("patchValueDrafts");
+        expect(editor).toContain("patchDraftDirty");
+        expect(editor).toContain("activeSubjectPatchDraftRows");
+        expect(editor).toContain("activeSubjectPatchEditorRows");
+        expect(editor).toContain("savePatchDrafts");
+        expect(editor).toContain("resetPatchDrafts");
+        expect(editor).toContain("appendPatchDraft");
+        expect(editor).toContain("duplicatePatchDraft");
+        expect(editor).toContain("deletePatchDraft");
+        expect(editor).toContain("movePatchDraft");
+        expect(editor).toContain("updatePatchDraftPath");
+        expect(editor).toContain("updatePatchDraftOp");
+        expect(editor).toContain("updatePatchValueDraft");
+        expect(editor).toContain("updatePatchDraftSummary");
+        expect(editor).toContain("path");
+        expect(patchEditor).toContain("summary");
+        expect(patchEditor).toContain("patch draft");
         expect(editor).toContain("previousSnapshotSubjects");
         expect(editor).toContain("mutationBeforeValue");
         expect(editor).toContain("mutationAfterValue");
@@ -882,14 +1010,12 @@ describe("World Engine Workbench preview redesign", () => {
         expect(editor).toContain("mutationConfirmationText");
         expect(editor).toContain("mutationValueLabel");
         expect(editor).toContain("readableValue");
-        expect(editor).toContain("addValuePhrase");
+        expect(editor).toContain("incrementValuePhrase");
         expect(editor).toContain("relativeOperationQuestion");
-        expect(editor).toContain("mutation.op === \"set\"");
-        expect(editor).toContain("mutation.op === \"unset\"");
-        expect(editor).toContain("mutation.op === \"add\"");
-        expect(editor).toContain("mutation.op === \"listAppend\"");
-        expect(editor).toContain("mutation.op === \"collectionAdd\"");
-        expect(editor).toContain("collectionRemove");
+        expect(editor).toContain("mutation.op === \"replace\"");
+        expect(editor).toContain("mutation.op === \"remove\"");
+        expect(editor).toContain("mutation.op === \"increment\"");
+        expect(editor).toContain("使用 append");
         expect(editor).toContain("currentSliceReviewItems");
         expect(editor).toContain("worldWorkbenchIssueLevel");
         expect(editor).toContain("worldWorkbenchIssueStatusLabel");
@@ -917,14 +1043,18 @@ describe("World Engine Workbench preview redesign", () => {
         expect(editor).toContain("切片前");
         expect(editor).toContain("切片后");
         expect(editor).toContain("此时状态");
-        expect(editor).toContain("本切片变更");
+        expect(patchEditor).toContain("本切片变更");
         expect(valueInput).toContain("resolveInputKind");
+        expect(valueInput).toContain("FormSelect");
+        expect(valueInput).toContain("FormNumberInput");
         expect(valueInput).toContain("refSubjectType");
-        expect(valueInput).toContain("type=\"number\"");
+        expect(valueInput).toContain("v-else-if=\"inputKind === 'number'\"");
         expect(valueInput).toContain("inputKind === 'ref'");
         expect(valueInput).toContain("inputKind === 'boolean'");
+        expect(valueInput).toContain("inputKind === 'enum'");
         expect(valueInput).toContain("inputKind === 'json'");
-        expect(valueInput).toContain("inputKind === 'collectionItem'");
+        expect(valueInput).toContain("size=\"sm\"");
+        expect(valueInput).not.toContain("<select");
 
         expect(types).toContain("WorldWorkbenchPreviewSlice");
         expect(types).toContain("WorldWorkbenchPreviewSnapshot");
@@ -973,6 +1103,28 @@ describe("World Engine Workbench preview redesign", () => {
         expect(findSnapshotSubject(snapshots, "slice-erina-hands-sword", "old-sword").attrs.owner).toBe("subject://moran");
     });
 
+    it("mock snapshot append 与运行时一致：普通 list 保留重复，collection 去重", () => {
+        const slices: WorldWorkbenchPreviewSlice[] = [{
+            id: "slice-append-semantics",
+            time: "C01:00:01",
+            title: "append 语义检查",
+            summary: "普通 list 与 collection 的 append 语义不同。",
+            kind: "event",
+            mutations: [
+                {subjectId: "erina", path: "/events", op: "append", value: "重复事件"},
+                {subjectId: "erina", path: "/events", op: "append", value: "重复事件"},
+                {subjectId: "erina", path: "/inventory", op: "append", value: "subject://old-sword"},
+                {subjectId: "erina", path: "/inventory", op: "append", value: "subject://old-sword"},
+            ],
+        }];
+
+        const snapshots = reduceWorkbenchPreviewSnapshots(slices, mockWorkbenchSubjects, mockWorkbenchSchema);
+        const erina = findSnapshotSubject(snapshots, "slice-append-semantics", "erina");
+
+        expect(erina.attrs.events).toEqual(["重复事件", "重复事件"]);
+        expect(erina.attrs.inventory).toEqual(["subject://old-sword"]);
+    });
+
     it("应用 mutation value patch 后重算 snapshots 且不会重复叠加相对 mutation", () => {
         const slices = cloneMockWorkbenchSlices();
         const namePatch = applyWorkbenchPreviewMutationPatch({
@@ -985,7 +1137,7 @@ describe("World Engine Workbench preview redesign", () => {
                 value: "新王都",
             },
         });
-        expect(namePatch?.label).toBe("capital.name");
+        expect(namePatch?.label).toBe("capital/name");
         expect(findSnapshotSubject(namePatch?.snapshots ?? [], "slice-world-init", "capital").attrs.name).toBe("新王都");
         expect(findSnapshotSubject(namePatch?.snapshots ?? [], "slice-erina-arrives", "capital").attrs.name).toBe("新王都");
 
@@ -999,11 +1151,34 @@ describe("World Engine Workbench preview redesign", () => {
                 value: -10,
             },
         });
-        expect(durabilityPatch?.label).toBe("old-sword.durability");
+        expect(durabilityPatch?.label).toBe("old-sword/durability");
         expect(findSnapshotSubject(durabilityPatch?.snapshots ?? [], "slice-erina-arrives", "old-sword").attrs.durability).toBe(90);
         expect(findSnapshotSubject(durabilityPatch?.snapshots ?? [], "slice-east-tower-opened", "old-sword").attrs.durability).toBe(75);
         expect(findSnapshotSubject(durabilityPatch?.snapshots ?? [], "slice-old-sword-backstory", "old-sword").attrs.durability).toBe(82);
         expect(findSnapshotSubject(durabilityPatch?.snapshots ?? [], "slice-erina-arrives", "erina").attrs.inventory).toEqual(["subject://old-sword"]);
+    });
+
+    it("应用 mutation list patch 后整块替换 slice mutations 并重算 snapshots", () => {
+        const slices = cloneMockWorkbenchSlices();
+        const result = applyWorkbenchPreviewMutationListPatch({
+            schema: mockWorkbenchSchema,
+            slices,
+            subjects: mockWorkbenchSubjects,
+            patch: {
+                sliceId: "slice-erina-arrives",
+                patches: [
+                    {subjectId: "erina", path: "/location", op: "replace", value: "subject://east-tower", summary: "改为东塔"},
+                    {subjectId: "erina", path: "/events", op: "append", value: "提前抵达东塔"},
+                ],
+            },
+        });
+
+        expect(result?.slices.find((slice) => slice.id === "slice-erina-arrives")?.mutations).toEqual([
+            {subjectId: "erina", path: "/location", op: "replace", value: "subject://east-tower", summary: "改为东塔"},
+            {subjectId: "erina", path: "/events", op: "append", value: "提前抵达东塔"},
+        ]);
+        expect(findSnapshotSubject(result?.snapshots ?? [], "slice-erina-arrives", "erina").attrs.location).toBe("subject://east-tower");
+        expect(findSnapshotSubject(result?.snapshots ?? [], "slice-erina-arrives", "old-sword").attrs.owner).toBeUndefined();
     });
 
     it("解析审查工作台 value 草稿时区分 JSON-like 输入和普通文本", () => {

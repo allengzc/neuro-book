@@ -26,14 +26,11 @@ import {
     parseMutationListJson,
     previewAttrNeedsJsonObject,
     previewAttrValueType,
-    previewDemoMutations,
-    previewDemoSubjects,
     replaceMutationAt,
     resolvePreviewAttrPath,
     selectPreviewProjectPath,
     suggestNextPreviewTime,
     suggestSliceTime,
-    validatePreviewDemoSchema,
     type JsonValue,
     type WorldMutationDraft,
     type WorldMutationOp,
@@ -63,14 +60,15 @@ type WorldSliceDto = {
     title: string;
     summary: string;
     kind: string;
-    mutations?: WorldSliceMutationDto[];
+    patches?: WorldSlicePatchDto[];
     issues?: WorldIssueDto[];
 };
-type WorldSliceMutationDto = {
+type WorldSlicePatchDto = {
     subjectId: string;
-    attr: string;
+    path: string;
     op: WorldMutationOp;
     value?: unknown;
+    summary?: string;
 };
 type SubjectStateDto = {
     subjectId: string;
@@ -182,7 +180,7 @@ const sliceForm = reactive({
 
 const mutationBuilder = reactive({
     subjectId: "world",
-    attr: initialPreviewMutation.attr,
+    path: initialPreviewMutation.path,
     op: initialPreviewMutation.op,
     value: formatBuilderValue(initialPreviewMutation.value),
 });
@@ -201,16 +199,13 @@ const schemaTypes = computed(() => schema.value?.subjectTypes ?? []);
 const selectedTypeAttrs = computed(() => schemaTypes.value.find((item) => item.type === subjectForm.type)?.attrs ?? []);
 const latestSlice = computed(() => slices.value.at(-1) ?? null);
 const projectReady = computed(() => Boolean(selectedProjectPath.value));
-const previewDemoSchemaError = computed(() => schema.value ? validatePreviewDemoSchema(schema.value.subjectTypes, subjects.value) : "Schema 未加载，无法创建示例世界");
-const canSeedDemoWorld = computed(() => projectReady.value && Boolean(schema.value) && !previewDemoSchemaError.value);
-const demoWorldButtonTitle = computed(() => previewDemoSchemaError.value || "创建内置示例世界");
 const stateJson = computed(() => formatPreviewJson(stateResult.value as unknown as JsonValue[]));
 const writeResultJson = computed(() => formatPreviewJson(lastWriteResult.value as unknown as Record<string, JsonValue> | null));
 const sliceActionLabel = computed(() => editingSliceId.value ? "保存 Slice 编辑" : "写入 Slice");
 const mutationBuilderSubject = computed(() => subjects.value.find((subject) => subject.id === mutationBuilder.subjectId) ?? null);
 const mutationBuilderAttrs = computed(() => attrsForSubjectId(mutationBuilder.subjectId));
-const mutationBuilderAttr = computed(() => resolvePreviewAttrPath(mutationBuilderAttrs.value, mutationBuilder.attr));
-const mutationBuilderOpOptions = computed(() => opOptionsForAttr(mutationBuilder.attr));
+const mutationBuilderAttr = computed(() => resolvePreviewAttrPath(mutationBuilderAttrs.value, mutationBuilder.path));
+const mutationBuilderOpOptions = computed(() => opOptionsForAttr(mutationBuilder.path));
 const mutationBuilderNeedsJsonObject = computed(() => previewAttrNeedsJsonObject(mutationBuilderAttr.value, mutationBuilder.op));
 const mutationLoadOptions = computed(() => {
     const parsed = parseMutationJson(sliceForm.mutations);
@@ -218,7 +213,7 @@ const mutationLoadOptions = computed(() => {
         return [];
     }
     return parsed.value.map((mutation, index) => ({
-        label: `${index + 1}. ${mutation.subjectId}.${mutation.attr} · ${mutation.op}`,
+        label: `${index + 1}. ${mutation.subjectId}${mutation.path} · ${mutation.op}`,
         value: String(index),
     }));
 });
@@ -299,72 +294,6 @@ async function createProject(): Promise<void> {
     }
 }
 
-/** 在当前 Project 中创建一组可查询、可编辑的真实示例数据。 */
-async function seedDemoWorld(): Promise<void> {
-    if (loadingProjects.value) return;
-    if (loadingWorld.value) return;
-    if (actionBusy.value) return;
-    if (!selectedProjectPath.value) return;
-    const schemaError = previewDemoSchemaError.value;
-    if (schemaError) {
-        setPreviewError(schemaError);
-        return;
-    }
-    const initTime = schema.value?.calendar.examples[0] ?? "";
-    if (!initTime) {
-        setPreviewError("Calendar examples 为空，无法推导示例时间");
-        return;
-    }
-    actionBusy.value = true;
-    error.value = "";
-    notice.value = "";
-    editingSliceId.value = "";
-    actionIssues.value = [];
-    try {
-        const existingSlices = await $fetch<WorldSliceDto[]>("/api/projects/world-engine/slices", {query: {...projectQuery(), limit: 80}});
-        const occupiedTimes = [...existingSlices.map((slice) => slice.time), initTime];
-        const eventTime = suggestNextPreviewTime(schema.value?.calendar.examples ?? [initTime], occupiedTimes);
-        const subjectResult = await ensureDemoSubjects(initTime);
-        const result = await $fetch<SliceWriteResultDto>("/api/projects/world-engine/slices", {
-            method: "POST",
-            query: projectQuery(),
-            body: {
-                time: eventTime,
-                title: "示例：艾莉娜抵达王都",
-                summary: "一键示例世界生成的第一条事件切面。",
-                kind: "event",
-                mutations: previewDemoMutations(),
-            },
-        });
-        lastWriteResult.value = result;
-        actionIssues.value = [...subjectResult.issues, ...result.issues];
-        await loadWorld();
-        queryForm.subjectIds = "erina, old-sword, world";
-        queryForm.type = "";
-        queryForm.attrs = "hp,location,inventory,events,durability,era";
-        queryForm.at = "";
-        const state = await $fetch<WorldStateQueryDto>("/api/projects/world-engine/state/query", {
-            method: "POST",
-            query: projectQuery(),
-            body: {
-                subjectIds: ["erina", "old-sword", "world"],
-                attrs: ["hp", "location", "inventory", "events", "durability", "era"],
-                listLimit: queryForm.listLimit,
-            },
-        });
-        stateResult.value = state.subjects;
-        stateIssues.value = state.issues;
-        advanceSliceFormTime();
-        setPreviewNotice(actionIssues.value.length
-            ? `已创建示例世界：新增 ${subjectResult.created.length} 个 subject，跳过 ${subjectResult.skipped.length} 个已存在 subject，写入 ${eventTime}，返回 ${actionIssues.value.length} 个 issue`
-            : `已创建示例世界：新增 ${subjectResult.created.length} 个 subject，跳过 ${subjectResult.skipped.length} 个已存在 subject，写入 ${eventTime}`);
-    } catch (seedError) {
-        setPreviewError(formatWorldEngineConflictMessage(resolveApiErrorMessage(seedError, "创建示例世界失败")));
-    } finally {
-        actionBusy.value = false;
-    }
-}
-
 /** 读取当前 Project 的世界引擎 schema、subjects 和 timeline。 */
 async function loadWorld(): Promise<void> {
     if (!selectedProjectPath.value) {
@@ -382,7 +311,7 @@ async function loadWorld(): Promise<void> {
         const [nextSchema, nextSubjects, nextSlices] = await Promise.all([
             $fetch<WorldSchemaProjectionDto>("/api/projects/world-engine/schema", {query}),
             $fetch<WorldSubjectDto[]>("/api/projects/world-engine/subjects", {query}),
-            $fetch<WorldSliceDto[]>("/api/projects/world-engine/slices", {query: {...query, limit: 12, withMutations: "true"}}),
+            $fetch<WorldSliceDto[]>("/api/projects/world-engine/slices", {query: {...query, limit: 12, withPatches: "true"}}),
         ]);
         schema.value = nextSchema;
         subjects.value = nextSubjects;
@@ -405,34 +334,6 @@ async function refreshWorldFromStatePanel(): Promise<void> {
     if (loadingWorld.value) return;
     if (actionBusy.value) return;
     await loadWorld();
-}
-
-/** 创建示例 subject；已存在且 type 匹配时跳过。 */
-async function ensureDemoSubjects(initTime: string): Promise<{created: string[]; skipped: string[]; issues: WorldIssueDto[]}> {
-    const existingIds = new Set(subjects.value.map((subject) => subject.id));
-    const created: string[] = [];
-    const skipped: string[] = [];
-    const issues: WorldIssueDto[] = [];
-    for (const seed of previewDemoSubjects()) {
-        if (existingIds.has(seed.id)) {
-            skipped.push(seed.id);
-            continue;
-        }
-        const result = await $fetch<CreateSubjectResultDto>("/api/projects/world-engine/subjects", {
-            method: "POST",
-            query: projectQuery(),
-            body: {
-                id: seed.id,
-                type: seed.type,
-                name: seed.name,
-                time: initTime,
-            },
-        });
-        existingIds.add(seed.id);
-        created.push(result.subjectId);
-        issues.push(...result.issues);
-    }
-    return {created, skipped, issues};
 }
 
 /** 创建 subject，并刷新 timeline。 */
@@ -529,7 +430,7 @@ async function writeSlice(): Promise<void> {
                 title: sliceForm.title.trim(),
                 summary: sliceForm.summary.trim(),
                 kind: sliceForm.kind.trim() || "event",
-                mutations: parsed.value,
+                patches: parsed.value,
             },
         });
         actionIssues.value = lastWriteResult.value.issues;
@@ -689,7 +590,7 @@ function fillMutation(typeName: string, attr: WorldPreviewSchemaAttr): void {
     sliceForm.mutations = JSON.stringify([mutation], null, 2);
     mutationLoadIndex.value = "0";
     mutationBuilder.subjectId = subjectId;
-    mutationBuilder.attr = attr.name;
+    mutationBuilder.path = attrToPointer(attr.name);
     mutationBuilder.op = mutation.op;
     mutationBuilder.value = formatBuilderValue(mutation.value);
 }
@@ -708,9 +609,9 @@ function loadSliceForEdit(sliceId: string): void {
     sliceForm.title = slice.title;
     sliceForm.summary = slice.summary;
     sliceForm.kind = slice.kind;
-    sliceForm.mutations = JSON.stringify(slice.mutations ?? [], null, 2);
+    sliceForm.mutations = JSON.stringify(slice.patches ?? [], null, 2);
     mutationLoadIndex.value = "0";
-    if ((slice.mutations ?? []).length) {
+    if ((slice.patches ?? []).length) {
         loadMutationToBuilder(0, false);
     }
     setPreviewNotice(`正在编辑 slice ${slice.id}`);
@@ -744,7 +645,7 @@ function applyDefaultSliceMutation(subjectId: string): void {
     sliceForm.mutations = nextDraft;
     mutationLoadIndex.value = "0";
     mutationBuilder.subjectId = mutation.subjectId;
-    mutationBuilder.attr = mutation.attr;
+    mutationBuilder.path = mutation.path;
     mutationBuilder.op = mutation.op;
     mutationBuilder.value = formatBuilderValue(mutation.value);
 }
@@ -761,26 +662,26 @@ function applyWriteResultFeedback(result: SliceWriteResultDto, editing: boolean)
 
 function buildMutationFromBuilder(): WorldMutationDraft | null {
     if (!mutationBuilder.subjectId.trim()) {
-        setPreviewError("mutation subjectId 不能为空");
+        setPreviewError("patch subjectId 不能为空");
         return null;
     }
-    if (!mutationBuilder.attr.trim()) {
-        setPreviewError("mutation attr 不能为空");
+    if (!mutationBuilder.path.trim()) {
+        setPreviewError("patch path 不能为空");
         return null;
     }
     const mutation: WorldMutationDraft = {
         subjectId: mutationBuilder.subjectId.trim(),
-        attr: mutationBuilder.attr.trim(),
+        path: mutationBuilder.path.trim(),
         op: mutationBuilder.op,
     };
-    if (mutationBuilder.op !== "unset") {
+    if (mutationBuilder.op !== "remove") {
         const parsedValue = parseLooseJsonValue(mutationBuilder.value);
         if (!parsedValue.ok) {
             setPreviewError(parsedValue.message);
             return null;
         }
         if (mutationBuilderNeedsJsonObject.value && !isJsonObjectValue(parsedValue.value)) {
-            setPreviewError("mutation value 必须是 JSON object");
+            setPreviewError("patch value 必须是 JSON object");
             return null;
         }
         mutation.value = parsedValue.value;
@@ -820,7 +721,7 @@ function loadMutationToBuilder(index: number, showNotice = true): void {
     }
     mutationLoadIndex.value = String(safeIndex);
     mutationBuilder.subjectId = mutation.subjectId;
-    mutationBuilder.attr = mutation.attr;
+    mutationBuilder.path = mutation.path;
     mutationBuilder.op = mutation.op;
     mutationBuilder.value = formatBuilderValue(mutation.value);
     if (showNotice) {
@@ -928,7 +829,7 @@ function moveSelectedBuilderMutation(direction: "up" | "down"): void {
 }
 
 /** 更新 Preview Builder 字段；op 字段在父层收窄为 WorldMutationOp。 */
-function updateMutationBuilderField(field: "subjectId" | "attr" | "op" | "value", value: string): void {
+function updateMutationBuilderField(field: "subjectId" | "path" | "op" | "value", value: string): void {
     if (previewBuilderDisabled.value) return;
     if (field === "op") {
         mutationBuilder.op = value as WorldMutationOp;
@@ -948,8 +849,8 @@ function attrsForSubjectId(subjectId: string): WorldPreviewSchemaAttr[] {
     return schemaTypes.value.find((item) => item.type === type)?.attrs ?? [];
 }
 
-function opOptionsForAttr(attrName: string): WorldMutationOp[] {
-    const attr = resolvePreviewAttrPath(mutationBuilderAttrs.value, attrName);
+function opOptionsForAttr(path: string): WorldMutationOp[] {
+    const attr = resolvePreviewAttrPath(mutationBuilderAttrs.value, path);
     return opOptionsForPreviewAttr(attr);
 }
 
@@ -974,7 +875,11 @@ function subjectIdForSchemaType(typeName: string): string {
 }
 
 function refreshBuilderDefaults(): void {
-    const attr = resolvePreviewAttrPath(mutationBuilderAttrs.value, mutationBuilder.attr);
+    if (mutationBuilder.op === "remove") {
+        mutationBuilder.value = "";
+        return;
+    }
+    const attr = resolvePreviewAttrPath(mutationBuilderAttrs.value, mutationBuilder.path);
     if (!attr) {
         return;
     }
@@ -985,19 +890,23 @@ function formatBuilderValue(value: JsonValue | undefined): string {
     return value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }
 
+function attrToPointer(attr: string): string {
+    return `/${attr.split(".").filter(Boolean).map((part) => part.replace(/~/g, "~0").replace(/\//g, "~1")).join("/")}`;
+}
+
 watch(() => mutationBuilder.subjectId, () => {
     const attrs = attrsForSubjectId(mutationBuilder.subjectId);
-    if (attrs.length && !attrs.some((attr) => attr.name === mutationBuilder.attr)) {
-        mutationBuilder.attr = attrs[0]?.name ?? mutationBuilder.attr;
+    if (attrs.length && !attrs.some((attr) => attrToPointer(attr.name) === mutationBuilder.path)) {
+        mutationBuilder.path = attrs[0] ? attrToPointer(attrs[0].name) : mutationBuilder.path;
         return;
     }
     refreshBuilderDefaults();
 });
 
-watch(() => mutationBuilder.attr, () => {
-    const options = opOptionsForAttr(mutationBuilder.attr);
+watch(() => mutationBuilder.path, () => {
+    const options = opOptionsForAttr(mutationBuilder.path);
     if (!options.includes(mutationBuilder.op)) {
-        mutationBuilder.op = options[0] ?? "set";
+        mutationBuilder.op = options[0] ?? "replace";
     }
     refreshBuilderDefaults();
 });
@@ -1071,13 +980,10 @@ onMounted(() => {
                 :schema="schema"
                 :schema-types="schemaTypes"
                 :project-ready="projectReady"
-                :can-seed-demo-world="canSeedDemoWorld"
-                :demo-world-button-title="demoWorldButtonTitle"
                 :loading-projects="loadingProjects"
                 :loading-world="loadingWorld"
                 :action-busy="actionBusy"
                 @create-project="void createProject()"
-                @seed-demo-world="void seedDemoWorld()"
                 @fill-mutation="fillMutation"
             />
 

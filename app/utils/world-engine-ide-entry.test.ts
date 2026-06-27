@@ -34,35 +34,39 @@ function removedToken(...parts: string[]): string {
     return parts.join("");
 }
 
+async function readSource(path: string): Promise<string> {
+    return (await readFile(path, "utf-8")).replace(/\r\n/g, "\n");
+}
+
 describe("World Engine IDE entry", () => {
     it("保留 Header 入口并打开当前 Project 的工作台", async () => {
-        const header = await readFile(headerPath, "utf-8");
-        const indexPage = await readFile(indexPagePath, "utf-8");
-        const bookshelf = await readFile(bookshelfPath, "utf-8");
-        const previewPage = await readFile(previewPagePath, "utf-8");
-        const workbench = await readFile(workbenchPath, "utf-8");
-        const workbenchPreviewInspector = await readFile(workbenchPreviewInspectorPath, "utf-8");
-        const workbenchPreviewMutationEditor = await readFile(workbenchPreviewMutationEditorPath, "utf-8");
-        const workbenchPreviewSidebar = await readFile(workbenchPreviewSidebarPath, "utf-8");
-        const workbenchPreviewSliceCard = await readFile(workbenchPreviewSliceCardPath, "utf-8");
-        const workbenchPreviewSliceList = await readFile(workbenchPreviewSliceListPath, "utf-8");
-        const workbenchPreviewTypes = await readFile(workbenchPreviewTypesPath, "utf-8");
-        const previewProjectPanel = await readFile(previewProjectPanelPath, "utf-8");
-        const previewActions = await readFile(previewActionsPath, "utf-8");
-        const previewMutationBuilder = await readFile(previewMutationBuilderPath, "utf-8");
-        const previewStatePanel = await readFile(previewStatePanelPath, "utf-8");
-        const mutationEditor = await readFile(mutationEditorPath, "utf-8");
-        const mutationEditorHeader = await readFile(mutationEditorHeaderPath, "utf-8");
-        const sliceDraftForm = await readFile(sliceDraftFormPath, "utf-8");
-        const mutationBuilder = await readFile(mutationBuilderPath, "utf-8");
-        const mutationActionButtons = await readFile(mutationActionButtonsPath, "utf-8");
-        const mutationListControls = await readFile(mutationListControlsPath, "utf-8");
-        const objectValueEditor = await readFile(objectValueEditorPath, "utf-8");
-        const subjectCreator = await readFile(subjectCreatorPath, "utf-8");
-        const sliceInspector = await readFile(sliceInspectorPath, "utf-8");
-        const stateSummary = await readFile(stateSummaryPath, "utf-8");
-        const timeline = await readFile(timelinePath, "utf-8");
-        const realWorkbenchUtil = await readFile(realWorkbenchUtilPath, "utf-8");
+        const header = await readSource(headerPath);
+        const indexPage = await readSource(indexPagePath);
+        const bookshelf = await readSource(bookshelfPath);
+        const previewPage = await readSource(previewPagePath);
+        const workbench = await readSource(workbenchPath);
+        const workbenchPreviewInspector = await readSource(workbenchPreviewInspectorPath);
+        const workbenchPreviewMutationEditor = await readSource(workbenchPreviewMutationEditorPath);
+        const workbenchPreviewSidebar = await readSource(workbenchPreviewSidebarPath);
+        const workbenchPreviewSliceCard = await readSource(workbenchPreviewSliceCardPath);
+        const workbenchPreviewSliceList = await readSource(workbenchPreviewSliceListPath);
+        const workbenchPreviewTypes = await readSource(workbenchPreviewTypesPath);
+        const previewProjectPanel = await readSource(previewProjectPanelPath);
+        const previewActions = await readSource(previewActionsPath);
+        const previewMutationBuilder = await readSource(previewMutationBuilderPath);
+        const previewStatePanel = await readSource(previewStatePanelPath);
+        const mutationEditor = await readSource(mutationEditorPath);
+        const mutationEditorHeader = await readSource(mutationEditorHeaderPath);
+        const sliceDraftForm = await readSource(sliceDraftFormPath);
+        const mutationBuilder = await readSource(mutationBuilderPath);
+        const mutationActionButtons = await readSource(mutationActionButtonsPath);
+        const mutationListControls = await readSource(mutationListControlsPath);
+        const objectValueEditor = await readSource(objectValueEditorPath);
+        const subjectCreator = await readSource(subjectCreatorPath);
+        const sliceInspector = await readSource(sliceInspectorPath);
+        const stateSummary = await readSource(stateSummaryPath);
+        const timeline = await readSource(timelinePath);
+        const realWorkbenchUtil = await readSource(realWorkbenchUtilPath);
 
         expect(header).toContain("open-world-engine");
         expect(header).toContain("ide.header.worldEngine");
@@ -83,8 +87,9 @@ describe("World Engine IDE entry", () => {
         expect(indexPage).not.toContain("worldEngineWorkbenchOpen.value = false;\n    worldEngineWorkbenchHasUnsavedDrafts.value = false;\n    return true;");
         expect(indexPage).toContain("const restoreCurrentWorkspaceRoute = async (): Promise<void>");
         expect(indexPage).toContain("await router.replace(buildProjectRoute(USER_ASSETS_PROJECT_TARGET));");
-        expect(indexPage).toContain("if (!(await confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch())) {\n        await restoreCurrentWorkspaceRoute();\n        return;\n    }");
-        expect(indexPage).toContain("if (decision === \"cancel\") {\n        await restoreCurrentWorkspaceRoute();\n        return;\n    }");
+        expect(indexPage).toContain("if (!(await confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch()))");
+        expect(indexPage).toContain("await restoreCurrentWorkspaceRoute();");
+        expect(indexPage).toContain("if (decision === \"cancel\")");
         expect(indexPage).toContain(":before-workspace-switch=\"confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch\"");
         expect(indexPage).toContain("@has-unsaved-drafts-change=\"worldEngineWorkbenchHasUnsavedDrafts = $event\"");
         expect(indexPage).toContain("@saving-change=\"worldEngineWorkbenchSaving = $event\"");
@@ -120,10 +125,10 @@ describe("World Engine IDE entry", () => {
         expect(previewPage).toContain("function defaultPreviewProjectTitle(date = new Date()): string");
         expect(previewPage).toContain("function resetCreateProjectForm(): void");
         expect(previewPage).toContain("title: defaultPreviewProjectTitle()");
-        expect(previewPage).toContain("const previewDemoSchemaError = computed(() => schema.value ? validatePreviewDemoSchema(schema.value.subjectTypes, subjects.value) : \"Schema 未加载，无法创建示例世界\");");
-        expect(previewPage).toContain("const canSeedDemoWorld = computed(() => projectReady.value && Boolean(schema.value) && !previewDemoSchemaError.value);");
-        expect(previewPage).toContain("const demoWorldButtonTitle = computed(() => previewDemoSchemaError.value || \"创建内置示例世界\");");
-        expect(previewPage).toContain("const schemaError = previewDemoSchemaError.value;");
+        expect(previewPage).not.toContain("previewDemoSchemaError");
+        expect(previewPage).not.toContain("canSeedDemoWorld");
+        expect(previewPage).not.toContain("demoWorldButtonTitle");
+        expect(previewPage).not.toContain("validatePreviewDemoSchema");
         expect(previewPage).toContain("setPreviewError(\"subject id 不能为空\");");
         expect(previewPage).toContain("setPreviewError(\"subject type 不能为空\");");
         expect(previewPage).toContain("setPreviewError(\"subject time 不能为空\");");
@@ -219,16 +224,14 @@ describe("World Engine IDE entry", () => {
         expect(previewPage).toContain("function moveSelectedBuilderMutation(direction: \"up\" | \"down\"): void");
         expect(previewPage).toContain("mutationLoadIndex.value = String(clampMutationIndex(length, index));");
         expect(previewProjectPanel).toContain("新建 Project");
-        expect(previewProjectPanel).toContain("创建示例世界");
+        expect(previewProjectPanel).not.toContain("创建示例世界");
         expect(previewProjectPanel).toContain("loadingProjects: boolean;");
         expect(previewProjectPanel).toContain("loadingWorld: boolean;");
         expect(previewPage).toContain(":loading-projects=\"loadingProjects\"");
         expect(previewPage).toContain(":loading-world=\"loadingWorld\"");
         expect(previewProjectPanel).toContain("<fieldset class=\"space-y-3 disabled:opacity-60\" :disabled=\"loadingProjects || loadingWorld || actionBusy\">");
-        expect(previewProjectPanel).toContain("canSeedDemoWorld: boolean;");
-        expect(previewProjectPanel).toContain("demoWorldButtonTitle: string;");
-        expect(previewProjectPanel).toContain(":disabled=\"!canSeedDemoWorld || loadingProjects || loadingWorld || actionBusy\"");
-        expect(previewProjectPanel).toContain(":title=\"demoWorldButtonTitle\"");
+        expect(previewProjectPanel).not.toContain("canSeedDemoWorld");
+        expect(previewProjectPanel).not.toContain("demoWorldButtonTitle");
         expect(previewProjectPanel).toContain("fill-mutation");
         expect(previewProjectPanel).toContain(":disabled=\"loadingProjects || loadingWorld || actionBusy\"");
         expect(previewPage).toContain("async function refreshProjects(): Promise<void> {\n    if (loadingWorld.value) return;");
@@ -237,11 +240,12 @@ describe("World Engine IDE entry", () => {
         expect(previewPage).toContain("function fillMutation(typeName: string, attr: WorldPreviewSchemaAttr): void {\n    if (loadingProjects.value) return;\n    if (previewBuilderDisabled.value) return;");
         expect(previewPage).toContain("function addBuilderMutation(mode: \"append\" | \"replace\"): void {\n    if (previewBuilderDisabled.value) return;");
         expect(previewPage).toContain("function loadMutationToBuilder(index: number, showNotice = true): void {\n    if (previewBuilderDisabled.value) return;");
-        expect(previewPage).toContain("function updateMutationBuilderField(field: \"subjectId\" | \"attr\" | \"op\" | \"value\", value: string): void {\n    if (previewBuilderDisabled.value) return;");
+        expect(previewPage).toContain("function updateMutationBuilderField(field: \"subjectId\" | \"path\" | \"op\" | \"value\", value: string): void");
+        expect(previewPage).toContain("if (previewBuilderDisabled.value) return;");
         expect(previewPage).toContain("function updateMutationLoadIndex(value: string): void {\n    if (previewBuilderDisabled.value) return;");
         expect(previewPage).toContain("function requestClearSliceEditMode(): void {\n    if (previewBuilderDisabled.value) return;");
         expect(previewProjectPanel).toContain("schema.calendar.examples.join");
-        expect(previewProjectPanel).toContain("const schemaSourcePath = \"world-engine/schema.yaml\";");
+        expect(previewProjectPanel).toContain("const schemaSourcePath = \"world-engine/schema/index.ts\";");
         expect(previewProjectPanel).toContain("const calendarSourcePath = \"world-engine/calendar.ts\";");
         expect(previewProjectPanel).toContain("function buildIdeOpenPathHref(path: string): string");
         expect(previewProjectPanel).toContain("new URLSearchParams({project: props.selectedProject.projectPath, openPath: path})");
@@ -258,20 +262,10 @@ describe("World Engine IDE entry", () => {
         expect(indexPage).toContain("Calendar 配置已就绪");
         expect(indexPage).toContain("await openWelcomeWorkspacePath(filePath);");
         expect(indexPage).toContain("watch(() => [route.query.project, route.query.openPath] as const");
-        expect(indexPage).toContain([
-            "if (workspaceRouteSynced()) {",
-            "        await consumeWorkspaceOpenPathFromRoute();",
-            "        if (!isUserAssetsWorkspace.value) {",
-            "            await normalizeNovelRouteQuery();",
-            "        }",
-        ].join("\n"));
-        expect(indexPage).toContain([
-            "await initializeWorkspaceFromRoute();",
-            "    await consumeWorkspaceOpenPathFromRoute();",
-            "    if (!isUserAssetsWorkspace.value) {",
-            "        await normalizeNovelRouteQuery();",
-            "    }",
-        ].join("\n"));
+        expect(indexPage).toContain("if (workspaceRouteSynced())");
+        expect(indexPage).toContain("await consumeWorkspaceOpenPathFromRoute();");
+        expect(indexPage).toContain("await normalizeNovelRouteQuery();");
+        expect(indexPage).toContain("await initializeWorkspaceFromRoute();");
         expect(indexPage).toContain("const lastMissingProjectNoticeTarget = ref(\"\");");
         expect(indexPage).toContain("const discardOpenPathForProjectFallback = ref(false);");
         expect(indexPage).toContain("const notifyProjectRouteFallback = (target: ProjectRouteTarget): void =>");
@@ -335,18 +329,18 @@ describe("World Engine IDE entry", () => {
         expect(previewMutationBuilder).toContain("subjectTypeLabel");
         expect(previewMutationBuilder).toContain("mutationLoadOptions");
         expect(previewMutationBuilder).toContain("canUseSelectedMutation");
-        expect(previewMutationBuilder).toContain("collectionRemoveValueOptions");
-        expect(previewMutationBuilder).toContain("syncCollectionRemoveValue");
-        expect(previewMutationBuilder).toContain("从当前 State Query 结果中选择要移除的 collection 项");
-        expect(previewMutationBuilder).toContain("attr path, e.g. memory.师门");
+        expect(previewMutationBuilder).not.toContain("collectionRemoveValueOptions");
+        expect(previewMutationBuilder).not.toContain("syncCollectionRemoveValue");
+        expect(previewMutationBuilder).not.toContain("从当前 State Query 结果中选择要移除的 collection 项");
+        expect(previewMutationBuilder).toContain("JSON Pointer path, e.g. /memory/师门");
         expect(previewMutationBuilder).toContain("update-builder-field");
         expect(previewMutationBuilder).toContain("add-builder-mutation");
-        expect(previewMutationBuilder).toContain("builder.op === 'unset'");
+        expect(previewMutationBuilder).toContain("builder.op === 'remove'");
         expect(mutationActionButtons).toContain("i-lucide-list-plus");
         expect(mutationActionButtons).toContain("i-lucide-refresh-ccw");
         expect(previewStatePanel).toContain("World State");
         expect(previewStatePanel).toContain("State Query");
-        expect(previewStatePanel).toContain("formatSliceMutations");
+        expect(previewStatePanel).toContain("formatSlicePatches");
         expect(previewStatePanel).toContain("actionBusy: boolean;");
         expect(previewPage).toContain(":action-busy=\"actionBusy\"");
         expect(previewStatePanel).toContain(":disabled=\"loadingWorld || actionBusy || !projectReady\"");
@@ -366,13 +360,15 @@ describe("World Engine IDE entry", () => {
         expect(workbench).toContain(":focused-subject-id=\"focusedSubjectId\"");
         expect(workbench).toContain("@clear-subject-context=\"clearSubjectContext\"");
         expect(workbench).toContain("function clearSubjectContext(): void");
-        expect(workbench).toContain("setWorkbenchNotice(\"已清空主体文件建议语境。\");");
+        expect(workbench).toContain("notification.success(\"已清空主体文件建议语境。\");");
         expect(workbench).toContain("(e: \"openWorkspacePath\", path: string): void;");
         expect(workbench).toContain("function openWorkspacePathFromWorkbench(path: string): Promise<void>");
         expect(workbench).toContain("打开工作区文件会关闭 Workbench 并放弃这些会话草稿");
         expect(workbench).toContain("const {confirm: confirmDialog} = useDialog();");
         expect(workbench).toContain("confirmDialog(`确定要删除 slice");
-        expect(workbench).toContain("emit(\"update:modelValue\", false);\n    await nextTick();\n    emit(\"openWorkspacePath\", targetPath);");
+        expect(workbench).toContain("emit(\"update:modelValue\", false);");
+        expect(workbench).toContain("await nextTick();");
+        expect(workbench).toContain("emit(\"openWorkspacePath\", targetPath);");
         expect(workbench).toContain("@open-workspace-path=\"void openWorkspacePathFromWorkbench($event)\"");
         expect(workbench).toContain("WorldEngineWorkbenchPreviewSliceList");
         expect(workbench).toContain("WorldEngineWorkbenchPreviewMutationEditor");
@@ -417,9 +413,9 @@ describe("World Engine IDE entry", () => {
         expect(workbench).toContain("contextSubjectId: string");
         expect(workbench).toContain("const continueSubjectId = payload.continueAfterSave ? payload.contextSubjectId : \"\";");
         expect(workbench).toContain("focusedSubjectId.value = continueSubjectId;");
-        expect(workbench).toContain("mutations: WorldSliceMutationDto[]");
+        expect(workbench).toContain("mutations: WorldSlicePatchDto[]");
         expect(workbench).toContain("clearSubjectFilterIfSavedSliceWouldBeHidden(payload.mutations);");
-        expect(workbench).toContain("function clearSubjectFilterIfSavedSliceWouldBeHidden(mutations: WorldSliceMutationDto[]): void");
+        expect(workbench).toContain("function clearSubjectFilterIfSavedSliceWouldBeHidden(mutations: WorldSlicePatchDto[]): void");
         expect(workbench).toContain("selectedSubjectIds.value = [];");
         expect(workbench).toContain("function updateSliceComposerSaving(saving: boolean): void");
         expect(workbench).toContain("@saving-change=\"updateSliceComposerSaving\"");
@@ -453,7 +449,7 @@ describe("World Engine IDE entry", () => {
         expect(workbench).toContain("/api/projects/world-engine/slices");
         expect(workbench).toContain("/api/projects/rag/overview");
         expect(workbench).toContain("limit: sliceLimit");
-        expect(workbench).toContain("withMutations: \"true\"");
+        expect(workbench).toContain("withPatches: \"true\"");
         expect(workbench).toContain("refreshWorldForCurrentTimeline");
         expect(workbench).toContain("await loadWorld({...options, preferredSliceId, preferredSubjectIds});");
         expect(workbench).toContain("!selectedSubjectIds.value.some((subjectId) => worldSubjectIdSet.value.has(subjectId))");
@@ -525,16 +521,17 @@ describe("World Engine IDE entry", () => {
         expect(workbench).toContain("keepEmptyPreferredSubjectView");
         expect(workbench).toContain("focusedSubjectId.value = preferredSubjectIds.at(-1) ?? \"\";");
         expect(workbench).toContain("emptySliceState");
-        expect(workbench).toContain("const demoWorldSchemaError = computed(() => {");
-        expect(workbench).toContain("const canSeedDemoWorld = computed(() => Boolean(schema.value) && !demoWorldSchemaError.value);");
-        expect(workbench).toContain("const demoWorldButtonTitle = computed(() => canSeedDemoWorld.value ? \"创建内置示例 subject 和第一条事件 slice\" : demoWorldSchemaError.value);");
+        expect(workbench).not.toContain("demoWorldSchemaError");
+        expect(workbench).not.toContain("canSeedDemoWorld");
+        expect(workbench).not.toContain("demoWorldButtonTitle");
         expect(workbench).toContain("const canCreateWorldSubject = computed(() => hasWorldSchemaType.value && !hasWorldSubject.value);");
         expect(workbench).toContain("async function createWorldSubject(): Promise<void>");
         expect(workbench).toContain("const preservedSubjectContextId = focusedSubjectId.value && hasSubjectSystemSummary(focusedSubjectId.value)");
         expect(workbench).toContain("const nextSelectedSubjectIds = preservedSubjectContextId ? selectedBeforeCreate : [\"world\"];");
         expect(workbench).toContain("focusedSubjectId.value = nextFocusedSubjectId;");
-        expect(workbench).toContain("data-testid=\"world-subject-bootstrap-panel\"");
-        expect(workbench).toContain("不会写入 simulation/subjects 六文件");
+        expect(workbench).not.toContain("data-testid=\"world-subject-bootstrap-panel\"");
+        expect(workbench).not.toContain("当前 schema 支持 world.events，但 Project 还没有 world subject。");
+        expect(workbench).not.toContain("不会写入 simulation/subjects 六文件");
         expect(workbench).toContain("buildWorldWorkbenchEmptySliceState");
         expect(workbench).toContain("const emptySliceState = computed<WorldWorkbenchEmptySliceState>(() => buildWorldWorkbenchEmptySliceState({");
         expect(realWorkbenchUtil).toContain("export type WorldWorkbenchEmptySliceAction");
@@ -542,8 +539,8 @@ describe("World Engine IDE entry", () => {
         expect(workbench).toContain("emptySliceState.action === 'create-subject'");
         expect(workbench).toContain("emptySliceState.action === 'create-world-subject'");
         expect(workbench).toContain("@click=\"void createWorldSubject()\"");
-        expect(workbench).toContain(":disabled=\"workbenchActionBusy || !canSeedDemoWorld\"");
-        expect(workbench).toContain(":title=\"demoWorldButtonTitle\"");
+        expect(workbench).not.toContain(":disabled=\"workbenchActionBusy || !canSeedDemoWorld\"");
+        expect(workbench).not.toContain(":title=\"demoWorldButtonTitle\"");
         expect(workbench).toContain("const emptyReviewQueueItems = computed(() => reviewQueueItems.value.slice(0, 3));");
         expect(workbench).toContain("data-testid=\"empty-slice-review-issues\"");
         expect(workbench).toContain("{{ reviewTriageSummary.open }}/{{ reviewTriageSummary.total }}");
@@ -636,7 +633,7 @@ describe("World Engine IDE entry", () => {
         expect(workbenchPreviewMutationEditor).toContain("function navigateSubjectSlice(direction: \"previous\" | \"next\"): void {\n    if (props.busy) {");
         expect(workbenchPreviewMutationEditor).toContain("function navigateToOtherDraft(): void {\n    if (props.busy || !nextOtherSliceDraft.value) {");
         expect(workbenchPreviewMutationEditor).toContain("const valueDraftIdentities = reactive<Record<string, string>>({});");
-        expect(workbenchPreviewMutationEditor).toContain("function mutationDraftIdentity(mutation: WorldSliceMutationDto): string");
+        expect(workbenchPreviewMutationEditor).toContain("function mutationDraftIdentity(mutation: WorldSlicePatchDto): string");
         expect(workbenchPreviewMutationEditor).toContain("valueDraftIdentities[key] !== mutationDraftIdentity(mutation)");
         expect(workbenchPreviewMutationEditor).toContain("delete valueDraftIdentities[key];");
         expect(workbenchPreviewMutationEditor).toContain("props.slice.mutations.map(mutationDraftIdentity).join");
@@ -803,7 +800,6 @@ describe("World Engine IDE entry", () => {
         expect(workbench).toContain("syncStatusDotClass");
         expect(workbench).toContain("bg-[var(--we-success)]");
         expect(workbench).toContain("border-[var(--we-danger-border)] bg-[var(--we-danger-soft)]");
-        expect(workbench).toContain("border-[var(--we-success-border)] bg-[var(--we-success-soft)]");
         expect(workbench).not.toContain("--we-bg-canvas: #f6f8f7");
         expect(workbench).not.toContain("--we-bg-panel: #ffffff");
         expect(workbench).not.toContain("--we-accent: #078768");
@@ -819,7 +815,7 @@ describe("World Engine IDE entry", () => {
         expect(workbench).not.toContain("bg-emerald-500");
         expect(workbench).not.toContain("border-amber-300");
         expect(workbench).toContain("CreateSubjectResultDto");
-        expect(workbench).toContain("subjectResult.issues");
+        expect(workbench).toContain("recordTransientIssues(result.issues, selectedSlice.value?.id ?? \"\");");
         expect(workbench).toContain("resetWorkbenchSessionState");
         expect(workbench).toContain("selectedSliceId.value = \"\"");
         expect(workbench).toContain("selectedSubjectIds.value = []");
@@ -827,7 +823,7 @@ describe("World Engine IDE entry", () => {
         expect(workbench).toContain("transientIssues");
         expect(workbench).toContain("metadataDraftSummaries");
         expect(workbench).toContain("valueDraftSummaries");
-        expect(workbench).toContain("const actionIssues = [...subjectResult.issues, ...result.issues]");
+        expect(workbench).toContain("issues.push(...result.issues);");
         expect(workbench).toContain("method: \"DELETE\"");
         expect(workbench).toContain("await refreshWorldForCurrentTimeline({autoSelectSlice: false, preferredSliceId: nextDraftSliceId || undefined});");
         expect(workbench).toContain("options.autoSelectSlice === false");
@@ -843,7 +839,7 @@ describe("World Engine IDE entry", () => {
         expect(workbench).not.toContain("activeTab");
         expect(workbench).not.toContain("localStorage");
         expect(workbench).not.toContain("mockWorkbench");
-        expect(workbench).toContain("seedDemoWorld");
+        expect(workbench).not.toContain("seedDemoWorld");
         expect(realWorkbenchUtil).toContain("normalizeWorldWorkbenchSlices");
         expect(realWorkbenchUtil).toContain("buildWorldWorkbenchEditSliceBody");
         expect(realWorkbenchUtil).toContain("buildWorldWorkbenchReviewQueueItems");
@@ -887,9 +883,9 @@ describe("World Engine IDE entry", () => {
         expect(workbenchPreviewSidebar).toContain("legacyKind");
         expect(workbenchPreviewSidebar).toContain("eventCount");
         expect(workbenchPreviewSidebar).toContain("memoryCount");
-        expect(workbenchPreviewInspector).toContain("subject-system-summary");
-        expect(workbenchPreviewInspector).toContain("来自 simulation/subjects 的真实主体系统摘要");
-        expect(workbenchPreviewInspector).toContain("path only");
+        expect(workbenchPreviewInspector).not.toContain("subject-system-summary");
+        expect(workbenchPreviewInspector).not.toContain("来自 simulation/subjects 的真实主体系统摘要");
+        expect(workbenchPreviewInspector).not.toContain("path only");
         expect(workbenchPreviewInspector).toContain("buildWorldWorkbenchSubjectFileProposals");
         expect(workbenchPreviewInspector).toContain("data-testid=\"subject-file-proposals\"");
         expect(workbenchPreviewInspector).toContain("data-testid=\"subject-file-proposal-count\"");
@@ -977,7 +973,7 @@ describe("World Engine IDE entry", () => {
         expect(realWorkbenchUtil).toContain("function subjectVoiceText");
         expect(realWorkbenchUtil).toContain("function memoryProposalTopic");
         expect(realWorkbenchUtil).toContain("function stateReviewSection");
-        expect(realWorkbenchUtil).toContain("检查 state.md「${stateReviewSection(mutation.attr)}」");
+        expect(realWorkbenchUtil).toContain("检查 state.md「${stateReviewSection(mutation.path)}」");
         expect(mutationEditor).toContain("parseMutationJson");
         expect(mutationEditor).toContain("defaultMutationForPreviewAttr");
         expect(mutationEditor).toContain("defaultValueForPreviewAttr");
@@ -1008,7 +1004,7 @@ describe("World Engine IDE entry", () => {
         expect(mutationEditor).toContain("void clearEditMode();");
         expect(mutationEditor).toContain("const builderDisabled = computed(() => Boolean(props.busy) || saving.value);");
         expect(mutationEditor).toContain("function fillMutation(typeName: string, attr: WorldPreviewSchemaAttr): void {\n    if (builderDisabled.value) {");
-        expect(mutationEditor).toContain("function updateBuilderField(field: \"subjectId\" | \"attr\" | \"op\" | \"value\", value: string): void {\n    if (builderDisabled.value) {");
+        expect(mutationEditor).toContain("function updateBuilderField(field: \"subjectId\" | \"path\" | \"op\" | \"value\", value: string): void {\n    if (builderDisabled.value) {");
         expect(mutationEditor).toContain("function addBuilderMutation(mode: \"append\" | \"replace\"): void {\n    if (builderDisabled.value) {");
         expect(mutationEditor).toContain("function loadMutationToBuilder(index: number, silent = false): void {\n    if (builderDisabled.value) {");
         expect(mutationEditor).toContain("function updateObjectBuilderRow(index: number, patch: Partial<ObjectBuilderRow>): void {\n    if (builderDisabled.value) {");
@@ -1022,7 +1018,7 @@ describe("World Engine IDE entry", () => {
         expect(mutationEditor).toContain("当前编辑器有未保存草稿，确定切换到新建模式吗？");
         expect(mutationEditor).toContain("mutations: defaultSliceMutations(initialSubjectId)");
         expect(mutationEditor).toContain("subjectId: initialMutation.subjectId");
-        expect(mutationEditor).toContain("attr: initialMutation.attr");
+        expect(mutationEditor).toContain("path: initialMutation.path");
         expect(mutationEditor).toContain("op: initialMutation.op");
         expect(mutationEditor).toContain("function applyDefaultSliceMutation(subjectId: string): void");
         expect(mutationEditor).toContain("mutationBuilder.subjectId = mutation.subjectId");
@@ -1044,7 +1040,7 @@ describe("World Engine IDE entry", () => {
         expect(mutationEditor).toContain(":show-continue-action=\"!editingSliceId\"");
         expect(mutationEditor).toContain(":disabled=\"builderDisabled\"");
         expect(mutationEditor).toContain("@submit-and-continue=\"submitSlice({continueAfterSave: true})\"");
-        expect(mutationEditor).toContain("mutations: WorldSliceMutationDto[]");
+        expect(mutationEditor).toContain("mutations: WorldSlicePatchDto[]");
         expect(mutationEditor).toContain("emit(\"saved\", {result, time: savedTime, editing, continueAfterSave, contextSubjectId, mutations: parsed.value});");
         expect(sliceDraftForm).toContain("showContinueAction: boolean;");
         expect(sliceDraftForm).toContain("(e: \"submit-and-continue\"): void;");
@@ -1087,10 +1083,10 @@ describe("World Engine IDE entry", () => {
         expect(mutationBuilder).toContain("WorldEngineObjectValueEditor");
         expect(mutationBuilder).toContain("disabled?: boolean;");
         expect(mutationBuilder).toContain("<fieldset class=\"m-0 border-0 p-0 disabled:opacity-70\" :disabled=\"props.disabled\">");
-        expect(mutationBuilder).toContain("collectionValueOptions");
-        expect(mutationBuilder).toContain("collectionRemoveValueOptions");
-        expect(mutationBuilder).toContain("syncCollectionRemoveValue");
-        expect(mutationBuilder).toContain("从当前 State Query 结果中选择要移除的 collection 项");
+        expect(mutationBuilder).not.toContain("collectionValueOptions");
+        expect(mutationBuilder).not.toContain("collectionRemoveValueOptions");
+        expect(mutationBuilder).not.toContain("syncCollectionRemoveValue");
+        expect(mutationBuilder).not.toContain("从当前 State Query 结果中选择要移除的 collection 项");
         expect(mutationBuilder).toContain("update-builder-field");
         expect(mutationBuilder).toContain("update-object-row");
         expect(mutationBuilder).toContain("update-mutation-load-index");
@@ -1140,7 +1136,7 @@ describe("World Engine IDE entry", () => {
         expect(mutationBuilder).toContain("builderValueMode === 'object'");
         expect(mutationBuilder).toContain("builderValueMode === 'json'");
         expect(mutationBuilder).toContain("当前 value 需要填写 JSON object");
-        expect(mutationBuilder).toContain("attr path, e.g. equipment.weapon / memory.师门");
+        expect(mutationBuilder).toContain("JSON Pointer path, e.g. /equipment/weapon /memory/师门");
         expect(mutationEditor).toContain("/api/projects/world-engine/slices");
         expect(mutationEditor).toContain("/edit");
         expect(mutationEditor).toContain("hasDirtyDraft");
@@ -1224,7 +1220,7 @@ describe("World Engine IDE entry", () => {
         expect(timeline).toContain("edit-slice");
         expect(timeline).toContain("aria-label=\"编辑 slice\"");
         expect(timeline).toContain("编辑");
-        expect(timeline).toContain("seed-demo");
+        expect(timeline).not.toContain("seed-demo");
     });
 
 });

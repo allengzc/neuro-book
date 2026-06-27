@@ -268,6 +268,11 @@ type CreateWorldSubjectResult = {
 - 2026-06-20：左侧顶部 `active / open / done` stats 改为本地快捷过滤按钮，可快速收窄 subject 列表；该过滤不修改中间 timeline 的 subject 选择，保持左栏查找和主画布世界视角分离。
 - 2026-06-20：Review Queue 的 `只看 open / 全部 issue` 模式从 Inspector 内部状态提升到页面顶层，并写入浏览器 mock 草稿；刷新后会保留用户当前的处理 / 回看模式，旧 v3 草稿缺省时默认回到 `open`。
 - 2026-06-20：左侧 Sidebar 增加当前状态过滤 chip 和 subject review 分布展示；subject 行会显示 `done / ok / ignored` 紧凑 badge，并在 title 中保留 `total / open / confirmed / ignored` 完整分布。
+- 2026-06-27：审查工作台 Subject 视图的“本切片变更”抽出 `WorldEngineWorkbenchPreviewPatchEditor`，patch 行改为 attr / op / value 紧凑主行 + summary 次行，op 切换改用项目通用 `FormSelect`，保留原有完整 patch 草稿保存链路。
+- 2026-06-27：继续压实 `WorldEngineWorkbenchPreviewPatchEditor`：删除行内“切片前 / 切片后”对照，attr 改为 schema path `FormSelect`，op 和 value select 统一使用 `FormSelect size="sm"`，并为通用 `FormSelect` 增加紧凑尺寸配置。
+- 2026-06-27：修复 patch editor 横向 overflow；attr 回到可自由输入的 JSON Pointer 输入框并保留 schema datalist 辅助；撤销 `FormSelect sm` 的强制最小下拉宽度，让 options 与输入框同宽；新增 `FormNumberInput` 替换 value 的原生 number spinner。
+- 2026-06-27：将 patch editor attr 输入迁移到通用 `Combobox size="sm"`，保留自由输入和 schema path 候选，移除 native datalist，避免浏览器历史输入候选混入。
+- 2026-06-27：`WorldEngineWorkbenchPreviewPatchEditor` 接管“本切片变更”标题栏和新增 / 保存 / 还原按钮；每条 patch 的移动 / 复制 / 删除工具条移动到右上角，attr / op / value 可见字段标签删除，保留 summary 标签。
 - 2026-06-20：Mutation Editor subject 视图的上 / 下一个相关 slice 导航增加范围切换；默认按当前 subject 全量轨迹跳转，也可切到当前 subject 过滤组合，并复用 Slice List 的 `任一 / 全部 subject` 语义。
 - 2026-06-20：Slice List 的 search / kind / status 过滤状态从组件内部提升到页面顶层，并写入浏览器 mock 草稿；刷新后会恢复当前时间线巡检上下文，`重置 mock` 会同步清空这些过滤。
 - 2026-06-20：抽出 `world-engine-workbench-preview-filter.ts` 共享过滤 util；Slice List 和 Mutation Editor 的 `过滤组合` 导航现在共用同一套 subject / kind / status / search 判断，底部上 / 下一个会按当前主画布可见结果跳转。

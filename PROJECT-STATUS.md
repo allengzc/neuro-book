@@ -23,15 +23,15 @@ neuro-book 当前处于快速开发阶段。本轮产品主路径收敛到 **nov
 ## World Engine
 
 - World Engine 是写作模式的动态世界状态与时间线真相源，用于替代旧 Plot 系统和 `simulation/` 默认运行态。
-- 后端核心是 Project SQLite 三表：`WorldSubject`、`WorldSlice`、`WorldMutation`；mutation 不存旧值字段，后端不自动改写后续切面。
+- 后端核心是 Project SQLite 三表：`WorldSubject`、`WorldSlice`、`WorldPatch`；公开写入已硬切为 `patches` + 4-op（`replace` / `increment` / `remove` / `append`），collection 支持 `remove + value` 按 stable JSON 值删除元素，patch 不存旧值字段，后端不自动改写后续切面。
 - HTTP / Agent 工具覆盖 schema、subjects、slices、slice delete、state/query；公开时间入参拒绝 raw instant 调试格式、首尾空白和非法 percent encoding。
-- Agent 内置工具覆盖 `get_world_state`、`list_world_slices`、`write_world_slice`、`edit_world_slice`、`delete_world_slice`、`create_world_subject`、`get_world_schema`、`list_world_subjects`。
-- 默认 Project 模板包含 `world-engine/schema.yaml` 和 `world-engine/calendar.ts`，新 Project 不再默认生成 `simulation/`。
-- Calendar 已硬切到 `calendar.ts`，不再兼容 `calendar.yaml`；支持 `simple`、`gregorian`、`custom` 三类策略，缺少 `calendar.ts` 时应提示创建。
+- Agent 内置 World Engine 工具（Task 67/69 重构后）：`execute_world_query`（CodeAct 只读查询，含 world.get/list/findRefs/searchText/slices，只接受 inline code）与 `write_world_slice`（结构化 `patches` 写入，直调 facade.writeSlice）。旧的 8 个固定工具、`codePath` 查询分支和旧 6-op 写入入口不再保留。
+- 默认 Project 模板包含 `world-engine/schema/index.ts`（**Zod schema，硬切，不再支持 `schema.yaml`**）和 `world-engine/calendar.ts`，新 Project 不再默认生成 `simulation/`。
+- Calendar 已硬切到 `calendar.ts`，不再兼容 `calendar.yaml`；支持 `simple`、`gregorian`、`custom` 三类策略，缺少 `calendar.ts` 时应提示创建；Gregorian calendar 已覆盖公元前年份 parse/format 往返。
 - Round 423 已用临时 Project 验证默认模板 API 链路：`calendar.ts` 时间格式下创建 `world/player`、写入 slice、查询 state、删除 slice 和状态回退均通过且 issues 为 0。
 - Round 424 已用临时 Project 验证主 IDE Workbench 空项目第一步：默认模板 Project 可打开 Workbench，看到 schema/calendar 入口与创建入口，`创建 world subject` 会真实写入 `world` subject 和 init slice；临时 Project 已清理。
 - Round 425 已完成阶段收尾审计：Round 380-424 的真实项目、新 Project、默认模板、连续推演、常用操作和 Calendar 证据足以证明当前“前后端雏形拼接 + 作者视角主路径”阶段已跑通；后续进入体验打磨和新产品决策。
-- 主 IDE World Engine Workbench 支持创建 subject、写入 / 编辑 / 删除 slice、查询 state、展示 issues，并能从历史 `simulation/subjects` 发现真实主体系统摘要；该发现路径不代表 `simulation/` 是写作模式默认状态源。
+- 主 IDE World Engine Workbench 支持创建 subject、写入 / 编辑 / 删除 slice、查询 state、展示 issues，并能从历史 `simulation/subjects` 发现真实主体系统摘要；该发现路径不代表 `simulation/` 是写作模式默认状态源。Workbench 已移除“示例世界”入口，SliceCard 主画布按 `path / op label / summary` 展示 patch。
 
 ## Hidden Legacy Systems
 
@@ -48,6 +48,8 @@ neuro-book 当前处于快速开发阶段。本轮产品主路径收敛到 **nov
 | [64 World Engine Prompt Engineering](docs/tasks/64-world-engine-prompt-engineering/README.md) | Updated | 写作模式接入 World Engine，RP 模式隐藏但保留资料。 |
 | [65 Calendar Enhancement](docs/tasks/65-world-engine-calendar-enhancement/README.md) | Done | `calendar.ts` 硬切，`calendar.yaml` 仅作为历史记录。 |
 | [66 Codebase Cleanup](docs/tasks/66-codebase-cleanup/README.md) | Stage Complete | 已完成一轮 World Engine / 写作模式阶段后的代码清理收口：Workbench 纯规则下沉、filter preservation、draft surface auto-open、issue level/status mapping 和专用 util 测试拆分已落地；命名 / 文件结构与复杂主体语境候选已记录待审批，后续等待真实作者使用反馈或用户重新开启。 |
+| [69 World Engine Tool Cleanup](docs/tasks/69-world-engine-tool-cleanup/README.md) | Done | 旧协议已收口到 `patches/path/4-op`：运行时/DB 术语改为 `WorldPatch`，collection 支持按值删，内部全量查询统一走 `queryState`，Agent 查询只保留 inline CodeAct。 |
+| [58 Agent Profile Settings Low-Code](docs/tasks/58-agent-profile-settings-low-code/README.md) | Updated | `leader.default` 接入低代码 settings 与 profile home persona 资源，支持协作模式、熟练度、提问策略、Leader 人设和最高优先级自定义插入槽位。 |
 | Writer Profile 重构 | Done | 去除小猫之神角色定义，理清 profile / reference / skill 职责边界，从 650 行压缩到 535 行。 |
 
 ## Known Follow-ups

@@ -61,7 +61,7 @@ export const ModelName = {
   StorySceneRef: 'StorySceneRef',
   WorldSubject: 'WorldSubject',
   WorldSlice: 'WorldSlice',
-  WorldMutation: 'WorldMutation'
+  WorldPatch: 'WorldPatch'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -219,18 +219,22 @@ export const WorldSliceScalarFieldEnum = {
 export type WorldSliceScalarFieldEnum = (typeof WorldSliceScalarFieldEnum)[keyof typeof WorldSliceScalarFieldEnum]
 
 
-export const WorldMutationScalarFieldEnum = {
+export const WorldPatchScalarFieldEnum = {
   id: 'id',
   sliceId: 'sliceId',
   subjectId: 'subjectId',
   instant: 'instant',
   seq: 'seq',
-  attr: 'attr',
+  path: 'path',
   op: 'op',
-  value: 'value'
+  value: 'value',
+  summary: 'summary',
+  text: 'text',
+  vector: 'vector',
+  model: 'model'
 } as const
 
-export type WorldMutationScalarFieldEnum = (typeof WorldMutationScalarFieldEnum)[keyof typeof WorldMutationScalarFieldEnum]
+export type WorldPatchScalarFieldEnum = (typeof WorldPatchScalarFieldEnum)[keyof typeof WorldPatchScalarFieldEnum]
 
 
 export const SortOrder = {

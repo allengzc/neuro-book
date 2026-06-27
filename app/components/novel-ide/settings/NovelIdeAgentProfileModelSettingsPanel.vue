@@ -229,7 +229,7 @@ function cloneModelDraft(model: Partial<AgentProfileModelConfigDto> | undefined)
 }
 
 /**
- * 克隆 profile settings 草稿。Global 编辑完整值；Project Profile 设置默认写入项目级完整值。
+ * 克隆 profile settings 草稿。Global 编辑完整值；Project 只编辑显式覆盖 patch。
  */
 function cloneSettingsDraft(
     settings: ConfigAgentProfileSettingsDto["agentProfiles"][number]["settings"],
@@ -241,7 +241,7 @@ function cloneSettingsDraft(
     const patch = scope === "project" ? settings.projectPatch : settings.globalPatch;
     return {
         form: settings.form,
-        values: cloneLowCodeObject(settings.value),
+        values: scope === "project" ? cloneLowCodeObject(patch) : cloneLowCodeObject(settings.value),
         inheritedValue: cloneLowCodeObject(settings.inheritedValue),
         issues: settings.issues,
         overridePaths: scope === "project"
@@ -252,14 +252,14 @@ function cloneSettingsDraft(
 }
 
 /**
- * 构造 settings 保存值。Global 只保存与 profile defaults 不同的字段，Project 保存完整 Profile 设置。
+ * 构造 settings 保存值。Global 只保存与 profile defaults 不同的字段，Project 只保存显式覆盖字段。
  */
 function buildSettingsPatch(settings: AgentProfileSettingsDraft | null): LowCodeJsonObject {
     if (!settings) {
         return {};
     }
     if (isProjectScope.value) {
-        return Object.fromEntries(settings.form.fields.map((field) => {
+        return Object.fromEntries(settings.form.fields.filter((field) => settings.overridePaths.includes(field.path)).map((field) => {
             const value = readLowCodePath(settings.values, field.path);
             if (value !== undefined) {
                 return [field.path, value] as const;
@@ -295,7 +295,7 @@ function isEmptyObject(value: LowCodeJsonObject | Partial<AgentProfileModelConfi
 function buildProfileConfig(profile: AgentProfileDraft): AgentProfileConfigDraft | null {
     const modelPatch = isProjectScope.value ? buildProjectModelPatch(profile.model) : buildModelPatch(profile.model);
     const settingsPatch = buildSettingsPatch(profile.settings);
-    const resourceMutations = isProjectScope.value ? profile.settings?.resourceMutations ?? [] : [];
+    const resourceMutations = profile.settings?.resourceMutations ?? [];
     if (isEmptyObject(modelPatch) && (!profile.settings || isEmptyObject(settingsPatch)) && resourceMutations.length === 0) {
         return null;
     }
@@ -321,24 +321,24 @@ function buildProfileConfigMap(): Record<string, AgentProfileConfigDraft> {
 }
 
 /**
- * Global Config 当前不展示 Profile 设置；保存模型配置时保留已有 settings。
+ * 构造 Global profile 配置，未知 profile 保留，当前可见 profile 按草稿整体替换。
  */
 function buildGlobalProfileConfigMap(): Record<string, AgentProfileConfigDraft> {
-    const modelConfigs = buildProfileConfigMap();
     const baseProfiles = editorSnapshot.value?.global.agent?.profiles ?? {};
-    const result: Record<string, AgentProfileConfigDraft> = {};
-    const profileKeys = new Set([...Object.keys(baseProfiles), ...Object.keys(modelConfigs)]);
-    for (const profileKey of profileKeys) {
-        const base = baseProfiles[profileKey];
-        const model = modelConfigs[profileKey]?.model ?? base?.model ?? {};
-        const settings = base?.settings;
-        if (isEmptyObject(model) && settings === undefined) {
-            continue;
+    const visibleProfileKeys = new Set(profiles.value.map((profile) => profile.profileKey));
+    const result: Record<string, AgentProfileConfigDraft> = Object.fromEntries(
+        Object.entries(baseProfiles)
+            .filter(([profileKey]) => !visibleProfileKeys.has(profileKey))
+            .map(([profileKey, config]) => [profileKey, {
+                model: config.model ?? {},
+                ...(config.settings !== undefined ? {settings: cloneLowCodeObject(config.settings)} : {}),
+            } satisfies AgentProfileConfigDraft]),
+    );
+    for (const profile of profiles.value) {
+        const config = buildProfileConfig(profile);
+        if (config) {
+            result[profile.profileKey] = config;
         }
-        result[profileKey] = {
-            model,
-            ...(settings !== undefined ? {settings: cloneLowCodeObject(settings)} : {}),
-        };
     }
     return result;
 }
@@ -474,7 +474,7 @@ function buildGlobalSavePayload(): Record<string, unknown> {
     return {
         defaultProfileKey: buildGlobalDefaultProfileKey(),
         profileModelDefaults: buildCompleteModelConfig(profileModelDefaults.value),
-        profiles: buildProfileConfigMap(),
+        profiles: buildGlobalProfileConfigMap(),
     };
 }
 
@@ -496,7 +496,7 @@ async function loadSettings(): Promise<void> {
 
     try {
         const snapshot = await configApi.editorSnapshot(props.targetQuery, {
-            includeAgentProfileSettings: isProjectScope.value,
+            includeAgentProfileSettings: true,
             agentProfileSettingsScope: isProjectScope.value ? "project" : "global",
         });
         editorSnapshot.value = snapshot;
@@ -527,7 +527,7 @@ async function saveSettings(): Promise<void> {
     try {
         const snapshot = isProjectScope.value
             ? await configApi.saveProject(buildProjectConfigPayload(), props.targetQuery, {includeAgentProfileSettings: true, agentProfileSettingsScope: "project"})
-            : await configApi.saveGlobal(buildGlobalConfigPayload(), props.targetQuery, {includeAgentProfileSettings: false, agentProfileSettingsScope: "global"});
+            : await configApi.saveGlobal(buildGlobalConfigPayload(), props.targetQuery, {includeAgentProfileSettings: true, agentProfileSettingsScope: "global"});
         editorSnapshot.value = snapshot;
         if (isProjectScope.value) {
             applyProjectSettings(snapshot);
@@ -585,7 +585,7 @@ function resetProfile(profile: AgentProfileDraft): void {
     };
     if (profile.settings) {
         profile.settings.values = isProjectScope.value
-            ? cloneLowCodeObject(profile.settings.inheritedValue)
+            ? {}
             : cloneLowCodeObject(profile.settings.form.defaults);
         profile.settings.overridePaths = [];
         profile.settings.resourceMutations = [];
@@ -859,7 +859,7 @@ defineExpose({
                         </div>
 
                         <!-- Profile 自定义低代码设置 -->
-                        <div v-if="isProjectScope && profile.settings" class="mt-4 border-t border-[var(--border-color)] pt-4">
+                        <div v-if="profile.settings" class="mt-4 border-t border-[var(--border-color)] pt-4">
                             <div class="mb-3 flex items-start gap-2">
                                 <span class="i-lucide-sliders-horizontal mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]"></span>
                                 <div>
@@ -874,7 +874,7 @@ defineExpose({
                                     :form="profile.settings.form"
                                     :issues="profile.settings.issues"
                                     :scope="isProjectScope ? 'project' : 'global'"
-                                    inheritance-mode="always-override"
+                                    :inheritance-mode="isProjectScope ? 'manual' : 'always-override'"
                                     :inherited-value="profile.settings.inheritedValue"
                                 />
                             </div>

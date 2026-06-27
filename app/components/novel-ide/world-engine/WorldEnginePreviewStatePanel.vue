@@ -9,9 +9,10 @@ type PreviewSubject = {
 
 type PreviewSliceMutation = {
     subjectId: string;
-    attr: string;
+    path: string;
     op: WorldMutationOp;
     value?: unknown;
+    summary?: string;
 };
 
 type PreviewSlice = {
@@ -19,7 +20,7 @@ type PreviewSlice = {
     time: string;
     title: string;
     kind: string;
-    mutations?: PreviewSliceMutation[];
+    patches?: PreviewSliceMutation[];
     issues?: PreviewIssue[];
 };
 
@@ -53,8 +54,8 @@ const emit = defineEmits<{
     (e: "delete-slice", sliceId: string): void;
 }>();
 
-function formatSliceMutations(mutations: PreviewSliceMutation[] | undefined): string {
-    return JSON.stringify(mutations ?? [], null, 2);
+function formatSlicePatches(patches: PreviewSliceMutation[] | undefined): string {
+    return JSON.stringify(patches ?? [], null, 2);
 }
 </script>
 
@@ -139,7 +140,7 @@ function formatSliceMutations(mutations: PreviewSliceMutation[] | undefined): st
                                     <span class="i-lucide-triangle-alert h-3.5 w-3.5"></span>
                                     {{ slice.issues.length }}
                                 </div>
-                                <div class="text-xs text-[var(--text-muted)]">{{ slice.mutations?.length ?? 0 }} mutations</div>
+                                <div class="text-xs text-[var(--text-muted)]">{{ slice.patches?.length ?? 0 }} patches</div>
                                 <button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border-color)] px-2 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:opacity-50" :disabled="loadingWorld || actionBusy || !projectReady" title="载入编辑" aria-label="载入编辑 slice" @click="emit('load-slice', slice.id)">
                                     <span class="i-lucide-pencil h-3.5 w-3.5"></span>
                                     编辑
@@ -158,7 +159,7 @@ function formatSliceMutations(mutations: PreviewSliceMutation[] | undefined): st
                                 <div class="mt-0.5 text-[var(--text-main)]">{{ issue.message }}</div>
                             </div>
                         </div>
-                        <pre v-if="slice.mutations?.length" class="mt-2 max-h-28 overflow-auto rounded bg-[var(--bg-input)] p-2 text-[11px] leading-5">{{ formatSliceMutations(slice.mutations) }}</pre>
+                        <pre v-if="slice.patches?.length" class="mt-2 max-h-28 overflow-auto rounded bg-[var(--bg-input)] p-2 text-[11px] leading-5">{{ formatSlicePatches(slice.patches) }}</pre>
                     </div>
                     <div v-if="slices.length === 0" class="px-4 py-8 text-center text-sm text-[var(--text-muted)]">暂无 slice</div>
                 </div>

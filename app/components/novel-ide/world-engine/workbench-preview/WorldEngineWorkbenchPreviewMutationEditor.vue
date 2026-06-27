@@ -1,21 +1,32 @@
 <script setup lang="ts">
-import {computed, reactive, ref, watch} from "vue";
+import {computed, reactive, ref, shallowRef, watch} from "vue";
 import JsonViewer from "nbook/app/components/common/JsonViewer.vue";
+import type {SelectOption} from "nbook/app/components/common/form/FormSelect.vue";
 import SegmentedControl from "nbook/app/components/common/form/SegmentedControl.vue";
 import type {SegmentedControlOption, SegmentedControlValue} from "nbook/app/components/common/form/SegmentedControl.vue";
+import WorldEngineWorkbenchPreviewPatchEditor from "nbook/app/components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewPatchEditor.vue";
 import WorldEngineWorkbenchPreviewValueInput from "nbook/app/components/novel-ide/world-engine/workbench-preview/WorldEngineWorkbenchPreviewValueInput.vue";
 import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
 import type {
     SubjectStateDto,
     WorkbenchJsonValue,
     WorldIssueDto,
-    WorldSliceMutationDto,
+    WorldSlicePatchDto,
 } from "nbook/app/components/novel-ide/world-engine/world-engine-workbench.types";
 import {
     formatWorkbenchPreviewValue,
     parseWorkbenchPreviewMutationValue,
 } from "nbook/app/utils/world-engine-workbench-preview-value";
 import {matchesWorkbenchPreviewSliceFilter} from "nbook/app/utils/world-engine-workbench-preview-filter";
+import {
+    defaultMutationForPreviewSubject,
+    defaultValueForPreviewAttr,
+    opOptionsForPreviewAttr,
+    parseMutationJson,
+    resolvePreviewAttrPath,
+    type WorldPatchOp,
+    type WorldPreviewSchemaAttr,
+} from "nbook/app/utils/world-engine-preview";
 import {
     worldWorkbenchIssueLevel,
     worldWorkbenchIssueStatusLabel,
@@ -25,6 +36,7 @@ import type {
     WorldWorkbenchPreviewIssueTriagePatch,
     WorldWorkbenchPreviewIssueTriageSummary,
     WorldWorkbenchPreviewMutationFocus,
+    WorldWorkbenchPreviewMutationListPatch,
     WorldWorkbenchPreviewMutationValuePatch,
     WorldWorkbenchPreviewReviewQueueItem,
     WorldWorkbenchPreviewReviewQueueMode,
@@ -41,12 +53,12 @@ type EditorView = "review" | "subject" | "all";
 type SubjectNavigationScope = "subject" | "filter";
 type MutationEditorRow = {
     index: number;
-    mutation: WorldSliceMutationDto;
+    mutation: WorldSlicePatchDto;
 };
 type MutationContextItem = {
     index: number;
     isCurrent: boolean;
-    mutation: WorldSliceMutationDto;
+    mutation: WorldSlicePatchDto;
     slice: WorldWorkbenchPreviewSlice;
 };
 type MutationContextTriple = {
@@ -70,6 +82,13 @@ type MutationContextExplanation = {
 type ParsedValueDraft = {
     index: number;
     value: WorkbenchJsonValue;
+};
+type ParsedPatchDraft = {
+    error: string;
+    ok: false;
+} | {
+    ok: true;
+    patches: WorldSlicePatchDto[];
 };
 type ReviewFocusContext = {
     attr: string;
@@ -122,6 +141,7 @@ const emit = defineEmits<{
     (e: "update:height", value: number): void;
     (e: "selectSlice", sliceId: string): void;
     (e: "updateIssueTriage", patch: WorldWorkbenchPreviewIssueTriagePatch): void;
+    (e: "updateMutationPatches", patch: WorldWorkbenchPreviewMutationListPatch): void;
     (e: "updateMutationValue", patch: WorldWorkbenchPreviewMutationValuePatch): void;
     (e: "updateMutationValues", patches: WorldWorkbenchPreviewMutationValuePatch[]): void;
     (e: "updateReviewQueueMode", mode: WorldWorkbenchPreviewReviewQueueMode): void;
@@ -134,6 +154,11 @@ const subjectNavigationScope = ref<SubjectNavigationScope>("subject");
 const valueDrafts = reactive<Record<string, string>>({});
 const valueDraftErrors = reactive<Record<string, string>>({});
 const valueDraftIdentities = reactive<Record<string, string>>({});
+const patchDrafts = shallowRef<WorldSlicePatchDto[]>([]);
+const patchValueDrafts = shallowRef<string[]>([]);
+const patchDraftError = ref("");
+const patchDraftSliceId = ref("");
+const patchDraftSourceIdentity = ref("");
 const resizeHandleRef = ref<HTMLElement | null>(null);
 const {t} = useI18n();
 const issueTriageOptions: IssueTriageOption[] = [
@@ -169,8 +194,30 @@ const activeSubjectSummary = computed(() => {
 });
 const allMutationRows = computed<MutationEditorRow[]>(() => props.slice.mutations.map((mutation, index) => ({index, mutation})));
 const activeSubjectMutationRows = computed<MutationEditorRow[]>(() => allMutationRows.value.filter((row) => row.mutation.subjectId === activeSubjectId.value));
+const patchDraftRows = computed<MutationEditorRow[]>(() => patchDrafts.value.map((mutation, index) => ({index, mutation})));
+const activeSubjectPatchDraftRows = computed<MutationEditorRow[]>(() => patchDraftRows.value.filter((row) => row.mutation.subjectId === activeSubjectId.value));
+const activeSubjectPatchEditorRows = computed(() => activeSubjectPatchDraftRows.value.map((row) => ({
+    canMoveDown: canMovePatchDraft(row.index, "down"),
+    canMoveUp: canMovePatchDraft(row.index, "up"),
+    dirty: isPatchDraftRowDirty(row.index),
+    highlighted: isHighlightedMutation(row.mutation),
+    index: row.index,
+    mutation: row.mutation,
+    opOptions: patchOpOptions(row.mutation),
+    rowKey: patchDraftRowKey(row),
+    valueDraft: patchValueDraft(row.index),
+})));
 const activeSubjectPreviousState = computed(() => props.previousSnapshotSubjects.find((state) => state.subjectId === activeSubjectId.value) ?? null);
 const activeSubjectState = computed(() => props.snapshotSubjects.find((state) => state.subjectId === activeSubjectId.value) ?? null);
+const activeSubjectAttrs = computed(() => attrsForSubjectId(activeSubjectId.value));
+const activeSubjectPathOptions = computed<SelectOption[]>(() => activeSubjectAttrs.value.map((attr) => ({
+    label: attrToPointer(attr.name),
+    value: attrToPointer(attr.name),
+    description: attr.type ?? attr.kind,
+})));
+const patchDraftIdentity = computed(() => patchListDraftIdentity(patchDrafts.value, patchValueDrafts.value));
+const currentSlicePatchIdentity = computed(() => patchListDraftIdentity(props.slice.mutations, props.slice.mutations.map((mutation) => formatValue(mutation.value))));
+const patchDraftDirty = computed(() => patchDraftIdentity.value !== currentSlicePatchIdentity.value);
 const allDirtyValueDrafts = computed<WorldWorkbenchPreviewValueDraftSummary[]>(() => {
     const drafts: WorldWorkbenchPreviewValueDraftSummary[] = [];
     for (const slice of props.slices) {
@@ -186,7 +233,7 @@ const allDirtyValueDrafts = computed<WorldWorkbenchPreviewValueDraftSummary[]>((
                 continue;
             }
             drafts.push({
-                attr: mutation.attr,
+                attr: mutation.path,
                 mutationIndex: index,
                 sliceId: slice.id,
                 sliceTitle: slice.title || slice.id,
@@ -432,25 +479,25 @@ function buildIssueExplanation(context: ReviewFocusContext, triple: MutationCont
     if (context.code === "base-shifted") {
         return {
             title: `A1（提醒）：${target} 的相对变更基准可能变了`,
-            detail: `${currentAction}；但前面可能插入或改动了 set / unset，后续相对操作读到的基准会随之改变。`,
+            detail: `${currentAction}；但前面可能插入或改动了 replace / remove，后续相对操作读到的基准会随之改变。`,
             impact: "这是一次性提醒，不是持久错误；如果新基准符合剧情，确认即可。",
-            action: "请重点看前一个相关 mutation 和当前 mutation，确认这次扣减、追加或集合操作仍然符合新基准。",
+            action: "请重点看前一个相关 patch 和当前 patch，确认这次增减或追加仍然符合新基准。",
         };
     }
     if (context.code === "masked") {
         return {
             title: `A2（提醒）：${target} 的改动可能被后续重设盖住`,
-            detail: `${currentAction}；但后续 set / unset 会重新定义这个属性，最新状态可能不保留当前改动。`,
+            detail: `${currentAction}；但后续 replace / remove 会重新定义这个属性，最新状态可能不保留当前改动。`,
             impact: "这是一次性提醒，不是持久错误；它提醒你确认这段中途设定是否仍有叙事意义。",
-            action: "请查看后一个相关 mutation，确认当前改动被覆盖是有意的，而不是遗漏了要调整的后续切片。",
+            action: "请查看后一个相关 patch，确认当前改动被覆盖是有意的，而不是遗漏了要调整的后续切片。",
         };
     }
     if (context.code === "broken-relative") {
         return {
             title: `E1（持久）：${target} 的相对变更没有可用基准`,
             detail: `${currentAction}；但前面没有建立可累加、可追加或可移除的值。${relativeOperationQuestion(triple.current?.mutation.op)}`,
-            impact: "这是持续问题，reduce / query / list 会反复报出，直到补基准或改掉这条 mutation。",
-            action: "请在它之前补一个 set 初始化，或者把当前相对 op 改成能直接定义值的 set。",
+            impact: "这是持续问题，reduce / query / list 会反复报出，直到补基准或改掉这条 patch。",
+            action: "请在它之前补一个 replace 初始化，或者把当前相对 op 改成能直接定义值的 replace。",
         };
     }
     if (context.code === "dangling-ref") {
@@ -458,21 +505,21 @@ function buildIssueExplanation(context: ReviewFocusContext, triple: MutationCont
             title: `E2（持久）：${target} 的引用目标无效`,
             detail: `${currentAction}；reduce 后得到的 ref 指向不存在的 subject，或目标 subject 类型不符合 schema。`,
             impact: "这是持续问题，状态查询会一直看到它，直到引用值或目标 subject 被修正。",
-            action: "请确认引用目标 subject 仍存在、类型正确；如果目标已删除，把这里改成新的 ref 或 unset。",
+            action: "请确认引用目标 subject 仍存在、类型正确；如果目标已删除，把这里改成新的 ref 或 remove。",
         };
     }
     return {
         title: `手动定位：正在查看 ${target}`,
-        detail: `${currentAction}；这里用于沿同 subject + attr 路径检查相关 mutation。`,
+        detail: `${currentAction}；这里用于沿同 subject + path 路径检查相关 patch。`,
         impact: "这不是后端 issue，只是当前工作台的定位状态。",
         action: "可继续查看三联上下文，或清除定位回到普通浏览。",
     };
 }
 
-/** 当前 issue 的同 subject + attr 路径相关 mutation 时间线。 */
+/** 当前 issue 的同 subject + path 路径相关 patch 时间线。 */
 function mutationTimelineForIssue(context: ReviewFocusContext): MutationContextItem[] {
     return props.slices.flatMap((slice) => slice.mutations.flatMap((mutation, index) => {
-        if (mutation.subjectId !== context.subjectId || !attrPathRelated(mutation.attr, context.attr)) {
+        if (mutation.subjectId !== context.subjectId || !attrPathRelated(mutation.path, context.attr)) {
             return [];
         }
         return [{
@@ -484,18 +531,27 @@ function mutationTimelineForIssue(context: ReviewFocusContext): MutationContextI
     }));
 }
 
-/** 在当前 slice 内选择 issue 的目标 mutation，精确 attr 优先。 */
+/** 在当前 slice 内选择 issue 的目标 patch，精确 path 优先。 */
 function findCurrentMutationContext(timeline: MutationContextItem[], context: ReviewFocusContext): MutationContextItem | null {
     const currentSliceItems = timeline.filter((item) => item.slice.id === props.slice.id);
-    return currentSliceItems.find((item) => item.mutation.attr === context.attr) ?? currentSliceItems[0] ?? null;
+    return currentSliceItems.find((item) => attrPathRelated(item.mutation.path, context.attr)) ?? currentSliceItems[0] ?? null;
 }
 
-/** 判断两个点分 attr 是否属于同一属性链路。 */
+/** 判断两个 attr/path 是否属于同一属性链路。 */
 function attrPathRelated(left: string, right: string): boolean {
-    if (left === right) {
+    const normalizedLeft = pathToAttr(left);
+    const normalizedRight = pathToAttr(right);
+    if (normalizedLeft === normalizedRight) {
         return true;
     }
-    return left.startsWith(`${right}.`) || right.startsWith(`${left}.`);
+    return normalizedLeft.startsWith(`${normalizedRight}.`) || normalizedRight.startsWith(`${normalizedLeft}.`);
+}
+
+function pathToAttr(path: string): string {
+    if (!path.startsWith("/")) {
+        return path;
+    }
+    return path.slice(1).split("/").filter(Boolean).map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~")).join(".");
 }
 
 /** 生成三联卡里的使用者视角说明，而不是暴露底层 before / after。 */
@@ -511,45 +567,33 @@ function buildMutationContextExplanation(item: MutationContextItem, context: Rev
     };
 }
 
-/** 按 op 把 mutation value 转成自然语言动作。 */
-function mutationActionPhrase(mutation: WorldSliceMutationDto): string {
-    const target = `${subjectLabel(mutation.subjectId)} / ${mutation.attr}`;
-    if (mutation.op === "set") {
-        return `使用 set 设置 ${target} 为 ${readableValue(mutation.value)}`;
+/** 按 op 把 patch value 转成自然语言动作。 */
+function mutationActionPhrase(mutation: WorldSlicePatchDto): string {
+    const target = `${subjectLabel(mutation.subjectId)} / ${mutation.path}`;
+    if (mutation.op === "replace") {
+        return `使用 replace 设置 ${target} 为 ${readableValue(mutation.value)}`;
     }
-    if (mutation.op === "unset") {
-        return `使用 unset 移除 ${target}`;
+    if (mutation.op === "remove") {
+        return `使用 remove 移除 ${target}`;
     }
-    if (mutation.op === "add") {
-        return `使用 add ${addValuePhrase(mutation.value)} ${target}`;
+    if (mutation.op === "increment") {
+        return `使用 increment ${incrementValuePhrase(mutation.value)} ${target}`;
     }
-    if (mutation.op === "listAppend") {
-        return `使用 listAppend 向 ${target} 追加 ${readableValue(mutation.value)}`;
-    }
-    if (mutation.op === "collectionAdd") {
-        return `使用 collectionAdd 向 ${target} 加入 ${readableValue(mutation.value)}`;
-    }
-    return `使用 collectionRemove 从 ${target} 移除 ${readableValue(mutation.value)}`;
+    return `使用 append 向 ${target} 追加 ${readableValue(mutation.value)}`;
 }
 
 /** 解释 op 对前后链路的依赖或覆盖关系。 */
-function mutationRelationText(mutation: WorldSliceMutationDto): string {
-    if (mutation.op === "set") {
-        return "绝对 op：set 会重新定义这个属性，并截断更早的同属性改动。";
+function mutationRelationText(mutation: WorldSlicePatchDto): string {
+    if (mutation.op === "replace") {
+        return "绝对 op：replace 会重新定义这个路径，并截断更早的同路径改动。";
     }
-    if (mutation.op === "unset") {
-        return "绝对 op：unset 会移除这个属性；后续相对 op 可能因此失去基准。";
+    if (mutation.op === "remove") {
+        return "绝对 op：remove 会移除这个路径；后续相对 op 可能因此失去基准。";
     }
-    if (mutation.op === "add") {
-        return "相对 op：add 需要前面已经有有限数字，它是在旧值上累加。";
+    if (mutation.op === "increment") {
+        return "相对 op：increment 需要前面已经有有限数字，它是在旧值上增减。";
     }
-    if (mutation.op === "listAppend") {
-        return "相对 op：listAppend 需要前面已经有列表，它是在旧列表后追加。";
-    }
-    if (mutation.op === "collectionAdd") {
-        return "相对 op：collectionAdd 需要前面已经有集合；元素已存在时会静默 noop。";
-    }
-    return "相对 op：collectionRemove 需要前面已经有集合，并且要移除的元素确实存在。";
+    return "相对 op：append 需要前面已经有数组，它是在旧数组后追加；集合语义数组会自动去重。";
 }
 
 /** 根据 issue 与 op 给出需要用户确认的检查点。 */
@@ -558,54 +602,42 @@ function mutationConfirmationText(item: MutationContextItem, context: ReviewFocu
         return "确认这条相对变更读到的新基准仍符合剧情，而不是因为前面补设定导致数值偏移。";
     }
     if (context.code === "masked" && item.isCurrent) {
-        return "确认这条改动被后续重设盖住是有意的；如果它应该影响最新状态，需要调整后续 set / unset。";
+        return "确认这条改动被后续重设盖住是有意的；如果它应该影响最新状态，需要调整后续 replace / remove。";
     }
     if (context.code === "broken-relative" && item.isCurrent) {
-        return "先补初始化 set，或把这条相对 op 改成 set；否则它不知道要加到、追加到或移除自哪里。";
+        return "先补初始化 replace，或把这条相对 op 改成 replace；否则它不知道要增减或追加到哪里。";
     }
     if (context.code === "dangling-ref" && item.isCurrent) {
-        return "确认引用目标 subject 存在且类型符合 schema；目标失效时应改 ref 或 unset。";
+        return "确认引用目标 subject 存在且类型符合 schema；目标失效时应改 ref 或 remove。";
     }
-    if (item.mutation.op === "set") {
-        return "确认这个重设是否故意覆盖前面的设定；如果后面还有 set / unset，也要确认当前值是否只是过渡。";
+    if (item.mutation.op === "replace") {
+        return "确认这个重设是否故意覆盖前面的设定；如果后面还有 replace / remove，也要确认当前值是否只是过渡。";
     }
-    if (item.mutation.op === "unset") {
+    if (item.mutation.op === "remove") {
         return "确认删除这个值后，后续相对变更不会悬空。";
     }
-    if (item.mutation.op === "add") {
+    if (item.mutation.op === "increment") {
         return "确认它前面已经有数字基准，并且这次增减量符合当前时间线。";
     }
-    if (item.mutation.op === "listAppend") {
-        return "确认它前面已经有列表，并且这条追加记录属于这个时间点。";
-    }
-    if (item.mutation.op === "collectionAdd") {
-        return "确认它前面已经有集合；如果元素已经存在，这条变更不会产生新效果。";
-    }
-    return "确认它前面已经有集合且元素存在；否则这条移除没有明确对象。";
+    return "确认它前面已经有数组，并且这条追加记录属于这个时间点。";
 }
 
 /** 三联卡里展示的 value 摘要。 */
-function mutationValueLabel(mutation: WorldSliceMutationDto): string {
-    if (mutation.op === "unset") {
+function mutationValueLabel(mutation: WorldSlicePatchDto): string {
+    if (mutation.op === "remove") {
         return "不需要 value";
     }
-    if (mutation.op === "add") {
-        return addValuePhrase(mutation.value);
+    if (mutation.op === "increment") {
+        return incrementValuePhrase(mutation.value);
     }
-    if (mutation.op === "set") {
+    if (mutation.op === "replace") {
         return `设置为 ${readableValue(mutation.value)}`;
     }
-    if (mutation.op === "listAppend") {
-        return `追加 ${readableValue(mutation.value)}`;
-    }
-    if (mutation.op === "collectionAdd") {
-        return `加入 ${readableValue(mutation.value)}`;
-    }
-    return `移除 ${readableValue(mutation.value)}`;
+    return `追加 ${readableValue(mutation.value)}`;
 }
 
-/** add 的正负值需要用人能直接读懂的动词。 */
-function addValuePhrase(value: WorkbenchJsonValue | undefined): string {
+/** increment 的正负值需要用人能直接读懂的动词。 */
+function incrementValuePhrase(value: WorkbenchJsonValue | undefined): string {
     if (typeof value === "number") {
         if (value < 0) {
             return `扣减 ${Math.abs(value)}`;
@@ -616,18 +648,12 @@ function addValuePhrase(value: WorkbenchJsonValue | undefined): string {
 }
 
 /** E1 对不同相对 op 的核心问题。 */
-function relativeOperationQuestion(op: WorldSliceMutationDto["op"] | undefined): string {
-    if (op === "add") {
-        return "add 加到什么上？";
+function relativeOperationQuestion(op: WorldSlicePatchDto["op"] | undefined): string {
+    if (op === "increment") {
+        return "increment 要增减哪一个既有数字？";
     }
-    if (op === "listAppend") {
-        return "listAppend 要追加到哪一个列表？";
-    }
-    if (op === "collectionAdd") {
-        return "collectionAdd 要加入哪一个集合？";
-    }
-    if (op === "collectionRemove") {
-        return "collectionRemove 要从哪一个集合移除？";
+    if (op === "append") {
+        return "append 要追加到哪一个既有数组？";
     }
     return "相对 op 需要一个已经存在的基准。";
 }
@@ -716,6 +742,332 @@ function updateSubjectNavigationScope(value: SegmentedControlValue): void {
     if (value === "subject" || value === "filter") {
         setSubjectNavigationScope(value);
     }
+}
+
+/** 读取 subject 对应 schema attr 列表。 */
+function attrsForSubjectId(subjectId: string): WorldPreviewSchemaAttr[] {
+    const subject = subjectMap.value.get(subjectId);
+    const typeName = subject?.type ?? "";
+    return props.schema.subjectTypes.find((item) => item.type === typeName)?.attrs ?? [];
+}
+
+/** schema attr name 转成 JSON Pointer path。 */
+function attrToPointer(attr: string): string {
+    return `/${attr.split(".").filter(Boolean).map((part) => part.replace(/~/g, "~0").replace(/\//g, "~1")).join("/")}`;
+}
+
+/** 同步当前 slice patches 到本地 patch 编辑草稿。 */
+function syncPatchDrafts(force = false): void {
+    const sourceIdentity = currentSlicePatchIdentity.value;
+    const shouldReset = force || patchDraftSliceId.value !== props.slice.id || patchDraftSourceIdentity.value !== sourceIdentity;
+    if (!shouldReset && patchDraftDirty.value) {
+        return;
+    }
+    patchDrafts.value = clonePatchList(props.slice.mutations);
+    patchValueDrafts.value = props.slice.mutations.map((mutation) => formatValue(mutation.value));
+    patchDraftSliceId.value = props.slice.id;
+    patchDraftSourceIdentity.value = sourceIdentity;
+    patchDraftError.value = "";
+}
+
+/** 保存本地完整 patch 草稿。 */
+function savePatchDrafts(): void {
+    if (props.busy) {
+        return;
+    }
+    const parsed = parsePatchDrafts();
+    if (!parsed.ok) {
+        patchDraftError.value = parsed.error;
+        return;
+    }
+    patchDraftError.value = "";
+    emit("updateMutationPatches", {
+        sliceId: props.slice.id,
+        patches: parsed.patches,
+    });
+}
+
+/** 放弃本地完整 patch 草稿。 */
+function resetPatchDrafts(): void {
+    if (props.busy) {
+        return;
+    }
+    syncPatchDrafts(true);
+}
+
+/** 新增一条绑定当前 subject 的 patch 草稿。 */
+function appendPatchDraft(): void {
+    if (props.busy || !activeSubjectId.value) {
+        return;
+    }
+    const patch = defaultPatchForSubject(activeSubjectId.value);
+    patchDrafts.value = [...patchDrafts.value, patch];
+    patchValueDrafts.value = [...patchValueDrafts.value, formatValue(patch.value)];
+    patchDraftError.value = "";
+}
+
+/** 复制当前 patch 到下一行。 */
+function duplicatePatchDraft(index: number): void {
+    if (props.busy) {
+        return;
+    }
+    const patch = patchDrafts.value[index];
+    if (!patch) {
+        return;
+    }
+    const nextPatch = clonePatch(patch);
+    patchDrafts.value = [
+        ...patchDrafts.value.slice(0, index + 1),
+        nextPatch,
+        ...patchDrafts.value.slice(index + 1),
+    ];
+    patchValueDrafts.value = [
+        ...patchValueDrafts.value.slice(0, index + 1),
+        patchValueDrafts.value[index] ?? formatValue(patch.value),
+        ...patchValueDrafts.value.slice(index + 1),
+    ];
+    patchDraftError.value = "";
+}
+
+/** 删除当前 patch；slice 至少保留一条 patch。 */
+function deletePatchDraft(index: number): void {
+    if (props.busy) {
+        return;
+    }
+    if (patchDrafts.value.length <= 1) {
+        patchDraftError.value = "slice 至少需要保留 1 条 patch。";
+        return;
+    }
+    patchDrafts.value = patchDrafts.value.filter((_, rowIndex) => rowIndex !== index);
+    patchValueDrafts.value = patchValueDrafts.value.filter((_, rowIndex) => rowIndex !== index);
+    patchDraftError.value = "";
+}
+
+/** 在当前 subject 的可见 patch 顺序内上移或下移。 */
+function movePatchDraft(index: number, direction: "up" | "down"): void {
+    if (props.busy) {
+        return;
+    }
+    const targetIndex = siblingPatchDraftIndex(index, direction);
+    if (targetIndex < 0) {
+        return;
+    }
+    const nextPatches = [...patchDrafts.value];
+    const nextValues = [...patchValueDrafts.value];
+    const currentPatch = nextPatches[index];
+    const targetPatch = nextPatches[targetIndex];
+    const currentValue = nextValues[index] ?? "";
+    const targetValue = nextValues[targetIndex] ?? "";
+    if (!currentPatch || !targetPatch) {
+        return;
+    }
+    nextPatches[index] = targetPatch;
+    nextPatches[targetIndex] = currentPatch;
+    nextValues[index] = targetValue;
+    nextValues[targetIndex] = currentValue;
+    patchDrafts.value = nextPatches;
+    patchValueDrafts.value = nextValues;
+    patchDraftError.value = "";
+}
+
+/** 判断当前 patch 是否还能在同 subject 可见序列内移动。 */
+function canMovePatchDraft(index: number, direction: "up" | "down"): boolean {
+    return siblingPatchDraftIndex(index, direction) >= 0;
+}
+
+/** 更新 patch path，并按 schema 修正不再可用的 op。 */
+function updatePatchDraftPath(index: number, path: string): void {
+    const patch = patchDrafts.value[index];
+    if (!patch) {
+        return;
+    }
+    const nextPatch = {...patch, path: path.trim()};
+    const options = patchOpOptions(nextPatch);
+    if (!options.includes(nextPatch.op)) {
+        nextPatch.op = options[0] ?? "replace";
+    }
+    patchDrafts.value = replacePatchDraft(index, nextPatch);
+    ensurePatchValueDraft(index, nextPatch, true);
+    patchDraftError.value = "";
+}
+
+/** 更新 patch op，并同步 remove / 非 remove 的 value 草稿。 */
+function updatePatchDraftOp(index: number, op: string): void {
+    if (!isPatchOp(op)) {
+        return;
+    }
+    const patch = patchDrafts.value[index];
+    if (!patch) {
+        return;
+    }
+    const nextPatch: WorldSlicePatchDto = {...patch, op};
+    patchDrafts.value = replacePatchDraft(index, nextPatch);
+    ensurePatchValueDraft(index, nextPatch, patch.op === "remove");
+    patchDraftError.value = "";
+}
+
+/** 更新 patch value 文本草稿。 */
+function updatePatchValueDraft(index: number, value: string): void {
+    patchValueDrafts.value = patchValueDrafts.value.map((item, rowIndex) => rowIndex === index ? value : item);
+    patchDraftError.value = "";
+}
+
+/** 更新 patch summary。空字符串会在保存时省略。 */
+function updatePatchDraftSummary(index: number, summary: string): void {
+    const patch = patchDrafts.value[index];
+    if (!patch) {
+        return;
+    }
+    const nextPatch = {...patch};
+    const text = summary.trim();
+    if (text) {
+        nextPatch.summary = text;
+    } else {
+        delete nextPatch.summary;
+    }
+    patchDrafts.value = replacePatchDraft(index, nextPatch);
+    patchDraftError.value = "";
+}
+
+/** 读取 patch value 文本草稿。 */
+function patchValueDraft(index: number): string {
+    return patchValueDrafts.value[index] ?? "";
+}
+
+/** 当前 patch 对应 schema 推导出的 op 选项；保留当前 op 避免旧草稿瞬间丢选项。 */
+function patchOpOptions(patch: WorldSlicePatchDto): WorldPatchOp[] {
+    const options = opOptionsForPreviewAttr(resolvePreviewAttrPath(attrsForSubjectId(patch.subjectId), patch.path));
+    return options.includes(patch.op) ? options : [patch.op, ...options];
+}
+
+/** 当前 patch 是否有未保存改动。 */
+function isPatchDraftRowDirty(index: number): boolean {
+    const draft = patchDrafts.value[index];
+    const source = props.slice.mutations[index];
+    if (!draft || !source) {
+        return Boolean(draft || source);
+    }
+    return patchListDraftIdentity([draft], [patchValueDraft(index)]) !== patchListDraftIdentity([source], [formatValue(source.value)]);
+}
+
+/** 用于 v-for 的本地 patch 草稿稳定 key。 */
+function patchDraftRowKey(row: MutationEditorRow): string {
+    return `${row.index}:${row.mutation.subjectId}:${row.mutation.path}:${row.mutation.op}:${row.mutation.summary ?? ""}:${patchValueDraft(row.index)}`;
+}
+
+/** 按当前本地草稿生成可保存的 patch 列表。 */
+function parsePatchDrafts(): ParsedPatchDraft {
+    if (!patchDrafts.value.length) {
+        return {ok: false, error: "patches 不能为空"};
+    }
+    const patches: WorldSlicePatchDto[] = [];
+    for (const [index, patch] of patchDrafts.value.entries()) {
+        const nextPatch: WorldSlicePatchDto = {
+            subjectId: patch.subjectId.trim(),
+            path: patch.path.trim(),
+            op: patch.op,
+        };
+        const summary = patch.summary?.trim() ?? "";
+        if (summary) {
+            nextPatch.summary = summary;
+        }
+        if (patch.op !== "remove") {
+            const parsedValue = parseWorkbenchPreviewMutationValue(patchValueDraft(index));
+            if (!parsedValue.ok) {
+                return {ok: false, error: `第 ${index + 1} 条 patch value 解析失败：${parsedValue.error}`};
+            }
+            nextPatch.value = parsedValue.value;
+        }
+        patches.push(nextPatch);
+    }
+    const validation = parseMutationJson(JSON.stringify(patches));
+    if (!validation.ok) {
+        return {ok: false, error: validation.message};
+    }
+    return {
+        ok: true,
+        patches: validation.value.map((patch) => ({...patch})),
+    };
+}
+
+/** 创建当前 subject 的默认 patch。 */
+function defaultPatchForSubject(subjectId: string): WorldSlicePatchDto {
+    const draft = defaultMutationForPreviewSubject(props.schema.subjectTypes, props.subjects, subjectId);
+    return {
+        subjectId: draft.subjectId,
+        path: draft.path,
+        op: draft.op,
+        ...(draft.value === undefined ? {} : {value: draft.value}),
+        ...(draft.summary ? {summary: draft.summary} : {}),
+    };
+}
+
+/** 根据 op/path 确保 value 文本与 patch 结构一致。 */
+function ensurePatchValueDraft(index: number, patch: WorldSlicePatchDto, preferDefault: boolean): void {
+    if (patch.op === "remove") {
+        const nextPatch = {...patch};
+        delete nextPatch.value;
+        patchDrafts.value = replacePatchDraft(index, nextPatch);
+        updatePatchValueDraft(index, "");
+        return;
+    }
+    const currentValue = patchValueDraft(index);
+    if (!preferDefault && currentValue.trim()) {
+        return;
+    }
+    const attr = resolvePreviewAttrPath(attrsForSubjectId(patch.subjectId), patch.path);
+    const value = attr ? defaultValueForPreviewAttr(attr, props.subjects) : "";
+    const nextPatch = {...patch, value};
+    patchDrafts.value = replacePatchDraft(index, nextPatch);
+    updatePatchValueDraft(index, formatValue(value));
+}
+
+/** 返回同 subject 可见序列内的相邻全局 index。 */
+function siblingPatchDraftIndex(index: number, direction: "up" | "down"): number {
+    const patch = patchDrafts.value[index];
+    if (!patch) {
+        return -1;
+    }
+    const subjectIndexes = patchDrafts.value
+        .map((item, itemIndex) => ({item, itemIndex}))
+        .filter((entry) => entry.item.subjectId === patch.subjectId)
+        .map((entry) => entry.itemIndex);
+    const visibleIndex = subjectIndexes.indexOf(index);
+    if (visibleIndex < 0) {
+        return -1;
+    }
+    return direction === "up" ? subjectIndexes[visibleIndex - 1] ?? -1 : subjectIndexes[visibleIndex + 1] ?? -1;
+}
+
+/** 替换本地 patch 草稿里的单行。 */
+function replacePatchDraft(index: number, patch: WorldSlicePatchDto): WorldSlicePatchDto[] {
+    return patchDrafts.value.map((item, rowIndex) => rowIndex === index ? patch : item);
+}
+
+/** 深拷贝 patch 列表，避免本地草稿污染 props。 */
+function clonePatchList(patches: WorldSlicePatchDto[]): WorldSlicePatchDto[] {
+    return patches.map(clonePatch);
+}
+
+/** 深拷贝单条 patch。 */
+function clonePatch(patch: WorldSlicePatchDto): WorldSlicePatchDto {
+    return JSON.parse(JSON.stringify(patch)) as WorldSlicePatchDto;
+}
+
+/** patch 草稿身份；value 使用输入文本，避免未解析时也能判断 dirty。 */
+function patchListDraftIdentity(patches: WorldSlicePatchDto[], values: string[]): string {
+    return JSON.stringify(patches.map((patch, index) => ({
+        subjectId: patch.subjectId,
+        path: patch.path,
+        op: patch.op,
+        summary: patch.summary ?? "",
+        value: patch.op === "remove" ? "" : values[index] ?? "",
+    })));
+}
+
+/** 校验 op 字符串。 */
+function isPatchOp(value: string): value is WorldPatchOp {
+    return value === "replace" || value === "increment" || value === "remove" || value === "append";
 }
 
 /** 同步当前 slice 的 mutation value 到本地编辑草稿。 */
@@ -862,7 +1214,7 @@ function parseDirtyValueDrafts(): ParsedValueDraft[] | null {
 }
 
 /** 判断某条 mutation value 草稿是否已修改。 */
-function isValueDraftDirty(index: number, mutation: WorldSliceMutationDto): boolean {
+function isValueDraftDirty(index: number, mutation: WorldSlicePatchDto): boolean {
     const key = valueDraftKey(index);
     if (!hasValueDraft(key) || valueDraftIdentities[key] !== mutationDraftIdentity(mutation)) {
         return false;
@@ -918,24 +1270,24 @@ function discardStaleValueDraftRows(sliceId: string, currentKeys: Set<string>): 
 }
 
 /** 展示某条 mutation 在本 slice 前的 attr 值。 */
-function mutationBeforeValue(mutation: WorldSliceMutationDto): string {
+function mutationBeforeValue(mutation: WorldSlicePatchDto): string {
     const subject = mutation.subjectId === activeSubjectId.value ? activeSubjectPreviousState.value : props.previousSnapshotSubjects.find((state) => state.subjectId === mutation.subjectId) ?? null;
-    return formatStateValue(readStateAttrValue(subject, mutation.attr));
+    return formatStateValue(readStateAttrValue(subject, mutation.path));
 }
 
 /** 展示某条 mutation 在本 slice reduce 后的 attr 值。 */
-function mutationAfterValue(mutation: WorldSliceMutationDto): string {
+function mutationAfterValue(mutation: WorldSlicePatchDto): string {
     const subject = mutation.subjectId === activeSubjectId.value ? activeSubjectState.value : props.snapshotSubjects.find((state) => state.subjectId === mutation.subjectId) ?? null;
-    return formatStateValue(readStateAttrValue(subject, mutation.attr));
+    return formatStateValue(readStateAttrValue(subject, mutation.path));
 }
 
-/** 读取点分 attr 路径，用于 UI 层做切片前后值对照。 */
+/** 读取 attr/path 路径，用于 UI 层做切片前后值对照。 */
 function readStateAttrValue(subject: SubjectStateDto | null, attr: string): WorkbenchJsonValue | undefined {
     if (!subject) {
         return undefined;
     }
     let cursor: WorkbenchJsonValue | undefined = subject.attrs;
-    for (const part of attr.split(".").filter(Boolean)) {
+    for (const part of pathToAttr(attr).split(".").filter(Boolean)) {
         if (!isJsonObject(cursor)) {
             return undefined;
         }
@@ -946,7 +1298,7 @@ function readStateAttrValue(subject: SubjectStateDto | null, attr: string): Work
 
 /** 将缺失状态与 JSON 状态压成统一展示值。 */
 function formatStateValue(value: WorkbenchJsonValue | undefined): string {
-    return value === undefined ? "unset" : formatValue(value);
+    return value === undefined ? "missing" : formatValue(value);
 }
 
 /** 判断 JSON 值是否为可继续读取字段的对象。 */
@@ -960,22 +1312,23 @@ function formatValue(value: WorkbenchJsonValue | undefined): string {
 }
 
 /** 返回 mutation 的稳定展示 key。 */
-function mutationKey(mutation: WorldSliceMutationDto, index: number): string {
-    return `${index}:${mutation.subjectId}:${mutation.attr}:${mutation.op}:${formatValue(mutation.value)}`;
+function mutationKey(mutation: WorldSlicePatchDto, index: number): string {
+    return `${index}:${mutation.subjectId}:${mutation.path}:${mutation.op}:${formatValue(mutation.value)}`;
 }
 
 /** 返回 mutation 草稿绑定身份；value 也参与身份，防止同 index 替换后草稿串行。 */
-function mutationDraftIdentity(mutation: WorldSliceMutationDto): string {
-    return [mutation.subjectId, mutation.attr, mutation.op, formatValue(mutation.value)].join("\u0000");
+function mutationDraftIdentity(mutation: WorldSlicePatchDto): string {
+    return [mutation.subjectId, mutation.path, mutation.op, formatValue(mutation.value)].join("\u0000");
 }
 
 /** 判断当前 mutation 是否处在 issue 定位的 attr 链路上。 */
-function isHighlightedMutation(mutation: WorldSliceMutationDto): boolean {
-    return props.highlightedMutationFocus?.subjectId === mutation.subjectId && attrPathRelated(props.highlightedMutationFocus.attr, mutation.attr);
+function isHighlightedMutation(mutation: WorldSlicePatchDto): boolean {
+    return props.highlightedMutationFocus?.subjectId === mutation.subjectId && attrPathRelated(props.highlightedMutationFocus.attr, mutation.path);
 }
 
 watch(() => [props.slice.id, props.selectedSubjectIds.join("\u0000"), props.focusedSubjectId] as const, ensureActiveSubject, {immediate: true});
 watch(() => [props.slice.id, props.slice.mutations.map(mutationDraftIdentity).join("\u0000")] as const, syncValueDrafts, {immediate: true});
+watch(() => [props.slice.id, props.slice.mutations.map(mutationDraftIdentity).join("\u0000")] as const, () => syncPatchDrafts(), {immediate: true});
 watch(() => reviewFocusContext.value?.key ?? "", (key) => {
     if (key) {
         view.value = "review";
@@ -1043,8 +1396,8 @@ watch(() => props.selectedSubjectIds.length, (count) => {
         </div>
 
         <Transition name="world-review-panel-body">
-        <div v-if="!props.collapsed" class="min-h-0 flex-1 overflow-y-auto px-3 py-3 custom-scrollbar">
-            <div v-if="dirtyValueDraftCount || otherSliceDirtyDraftCount || valueDraftErrorCount" class="mb-3 rounded-md border border-amber-300 bg-[var(--we-warning-soft)] px-3 py-2">
+        <div v-if="!props.collapsed" class="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-3">
+            <div v-if="dirtyValueDraftCount || otherSliceDirtyDraftCount || valueDraftErrorCount" class="mb-3 shrink-0 rounded-md border border-amber-300 bg-[var(--we-warning-soft)] px-3 py-2">
                 <div class="flex flex-wrap items-center justify-between gap-2">
                     <div class="flex min-w-0 items-center gap-2">
                         <span class="i-lucide-pencil-line h-4 w-4 shrink-0 text-[var(--we-warning)]"></span>
@@ -1074,7 +1427,7 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                 </div>
             </div>
 
-            <div v-if="view === 'review'" class="space-y-3">
+            <div v-if="view === 'review'" class="min-h-0 flex-1 space-y-3 overflow-y-auto custom-scrollbar">
             <div v-if="reviewFocusContext && reviewIssueExplanation" class="rounded-md border border-amber-300 bg-[var(--we-warning-soft)] px-3 py-2">
                 <div class="flex flex-wrap items-start justify-between gap-2">
                     <div class="min-w-0 flex-1">
@@ -1177,7 +1530,7 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                             </div>
                             <div class="grid grid-cols-[minmax(0,1fr)_52px] gap-2 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-data)] px-2 py-1.5">
                                 <div class="min-w-0">
-                                    <div class="truncate font-mono font-semibold text-[var(--we-code-text)]">{{ contextItem.item.mutation.attr }}</div>
+                                    <div class="truncate font-mono font-semibold text-[var(--we-code-text)]">{{ contextItem.item.mutation.path }}</div>
                                     <div class="mt-0.5 truncate text-[var(--we-text-secondary)]">{{ subjectMap.get(contextItem.item.mutation.subjectId)?.name ?? contextItem.item.mutation.subjectId }}</div>
                                 </div>
                                 <span class="justify-self-end rounded bg-[var(--we-bg-subtle)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--we-accent-strong)]">{{ contextItem.item.mutation.op }}</span>
@@ -1240,10 +1593,10 @@ watch(() => props.selectedSubjectIds.length, (count) => {
             <div v-else class="rounded-md border border-dashed border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-3 py-8 text-center text-[12px] text-[var(--we-text-muted)]">当前切片没有审查问题</div>
             </div>
 
-            <div v-else-if="view === 'subject'" class="grid gap-3 xl:grid-cols-[240px_minmax(0,1fr)]">
-                <aside class="rounded-md border border-[var(--we-border)] bg-[var(--we-bg-subtle)] p-2.5">
-                    <div class="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--we-text-muted)]">{{ t("worldEngine.workbenchPreview.touchedSubjects") }}</div>
-                    <div class="space-y-1">
+            <div v-else-if="view === 'subject'" class="grid min-h-0 flex-1 gap-3 xl:grid-cols-[240px_minmax(0,1fr)]">
+                <aside class="flex min-h-0 flex-col overflow-hidden rounded-md border border-[var(--we-border)] bg-[var(--we-bg-subtle)] p-2.5">
+                    <div class="mb-2 shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--we-text-muted)]">{{ t("worldEngine.workbenchPreview.touchedSubjects") }}</div>
+                    <div class="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1 custom-scrollbar">
                         <button
                             v-for="subjectId in touchedSubjectIds"
                             :key="`editor-subject:${subjectId}`"
@@ -1259,8 +1612,8 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                     </div>
                 </aside>
 
-                <main class="min-w-0 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-subtle)] p-3">
-                    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <main class="flex min-w-0 min-h-0 flex-col overflow-hidden rounded-md border border-[var(--we-border)] bg-[var(--we-bg-subtle)] p-3">
+                    <div class="mb-3 flex shrink-0 flex-wrap items-center justify-between gap-2">
                         <div class="min-w-0">
                             <div class="truncate text-[13px] font-semibold text-[var(--we-text-main)]">{{ activeSubject?.name ?? (activeSubjectId || "未选择 subject") }}</div>
                             <div class="mt-0.5 font-mono text-[10px] text-[var(--we-text-muted)]">{{ activeSubjectId }}</div>
@@ -1279,74 +1632,45 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                         </div>
                     </div>
 
-                    <div class="grid gap-3 2xl:grid-cols-2">
-                        <section>
-                            <div class="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--we-text-muted)]">此时状态</div>
-                            <div class="overflow-hidden rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)]">
-                                <JsonViewer v-if="activeSubjectState" :value="activeSubjectState.attrs" :main-menu-bar="false" :max-height="220" />
-                                <div v-else class="px-3 py-6 text-center text-[12px] text-[var(--we-text-muted)]">当前 snapshot 没有状态</div>
+                    <div class="grid min-h-0 flex-1 gap-3 2xl:grid-cols-2">
+                        <section class="flex min-h-0 flex-col">
+                            <div class="mb-2 shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--we-text-muted)]">此时状态</div>
+                            <div class="flex min-h-0 flex-1 overflow-hidden rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)]">
+                                <JsonViewer v-if="activeSubjectState" class="min-h-0 flex-1" :value="activeSubjectState.attrs" :main-menu-bar="false" :max-height="0" />
+                                <div v-else class="flex min-h-0 flex-1 items-center justify-center px-3 py-6 text-center text-[12px] text-[var(--we-text-muted)]">当前 snapshot 没有状态</div>
                             </div>
                         </section>
 
-                        <section>
-                            <div class="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--we-text-muted)]">本切片变更</div>
-                            <div class="divide-y divide-[var(--we-border)] overflow-hidden rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)]">
-                                <div
-                                    v-for="row in activeSubjectMutationRows"
-                                    :key="mutationKey(row.mutation, row.index)"
-                                    :data-mutation-index="row.index"
-                                    data-testid="mutation-editor-row"
-                                    class="px-2 py-2 text-[11px]"
-                                    :class="isHighlightedMutation(row.mutation) ? 'bg-[var(--we-warning-soft)] shadow-[inset_3px_0_0_var(--we-warning)]' : ''"
-                                >
-                                    <div class="grid grid-cols-[minmax(0,1fr)_52px] gap-2">
-                                        <div class="min-w-0">
-                                            <div class="flex min-w-0 items-center gap-2">
-                                                <span class="min-w-0 truncate font-mono font-semibold text-[var(--we-code-text)]">{{ row.mutation.attr }}</span>
-                                                <span class="shrink-0 rounded bg-[var(--we-bg-subtle)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--we-accent-strong)]">{{ row.mutation.op }}</span>
-                                                <span v-if="isValueDraftDirty(row.index, row.mutation)" class="shrink-0 rounded border border-amber-300 bg-[var(--we-warning-soft)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--we-warning)]">dirty</span>
-                                                <span v-if="isHighlightedMutation(row.mutation)" class="shrink-0 rounded border border-amber-300 bg-[var(--we-bg-panel)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--we-warning)]">issue target</span>
-                                            </div>
-                                            <WorldEngineWorkbenchPreviewValueInput
-                                                class="mt-1"
-                                                :model-value="valueDraft(row.index)"
-                                                :mutation="row.mutation"
-                                                :schema="props.schema"
-                                                :snapshot-subjects="props.snapshotSubjects"
-                                                :subjects="props.subjects"
-                                                @update:model-value="setValueDraft(row.index, $event)"
-                                                @submit="applyValueDraft(row.index)"
-                                            />
-                                            <div class="mt-1 grid grid-cols-2 gap-1 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-data)] px-2 py-1 font-mono text-[10px]">
-                                                <div class="min-w-0">
-                                                    <div class="uppercase tracking-[0.12em] text-[var(--we-text-muted)]">切片前</div>
-                                                    <div class="truncate text-[var(--we-text-secondary)]" :title="mutationBeforeValue(row.mutation)">{{ mutationBeforeValue(row.mutation) }}</div>
-                                                </div>
-                                                <div class="min-w-0 border-l border-[var(--we-border)] pl-2">
-                                                    <div class="uppercase tracking-[0.12em] text-[var(--we-text-muted)]">切片后</div>
-                                                    <div class="truncate text-[var(--we-text-main)]" :title="mutationAfterValue(row.mutation)">{{ mutationAfterValue(row.mutation) }}</div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div class="flex justify-end gap-1">
-                                            <button type="button" class="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--we-text-muted)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-accent-strong)] disabled:opacity-40" title="应用 value" :disabled="props.busy || !isValueDraftDirty(row.index, row.mutation)" @click="applyValueDraft(row.index)">
-                                                <span class="i-lucide-check h-3.5 w-3.5"></span>
-                                            </button>
-                                            <button type="button" class="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--we-text-muted)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)] disabled:opacity-40" title="还原 value" :disabled="props.busy || !isValueDraftDirty(row.index, row.mutation)" @click="resetValueDraft(row.index)">
-                                                <span class="i-lucide-undo-2 h-3.5 w-3.5"></span>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div v-if="valueDraftErrors[valueDraftKey(row.index)]" class="mt-1 rounded bg-[var(--we-danger-soft)] px-2 py-1 text-[11px] text-[var(--we-danger)]">{{ valueDraftErrors[valueDraftKey(row.index)] }}</div>
-                                </div>
-                                <div v-if="!activeSubjectMutationRows.length" class="px-3 py-6 text-center text-[12px] text-[var(--we-text-muted)]">当前 subject 在此切片没有 mutation</div>
-                            </div>
+                        <section class="flex min-h-0 flex-col">
+                            <WorldEngineWorkbenchPreviewPatchEditor
+                                :busy="props.busy"
+                                :can-add="!!activeSubjectId"
+                                :dirty="patchDraftDirty"
+                                :error="patchDraftError"
+                                :path-options="activeSubjectPathOptions"
+                                :rows="activeSubjectPatchEditorRows"
+                                :schema="props.schema"
+                                :snapshot-subjects="props.snapshotSubjects"
+                                :subjects="props.subjects"
+                                :total-patch-count="patchDrafts.length"
+                                @append="appendPatchDraft"
+                                @delete="deletePatchDraft"
+                                @duplicate="duplicatePatchDraft"
+                                @move="movePatchDraft"
+                                @reset="resetPatchDrafts"
+                                @save="savePatchDrafts"
+                                @submit="savePatchDrafts"
+                                @update-op="updatePatchDraftOp"
+                                @update-path="updatePatchDraftPath"
+                                @update-summary="updatePatchDraftSummary"
+                                @update-value="updatePatchValueDraft"
+                            />
                         </section>
                     </div>
                 </main>
             </div>
 
-            <div v-else class="overflow-hidden rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)]">
+            <div v-else class="min-h-0 flex-1 overflow-auto rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] custom-scrollbar">
                 <div class="grid grid-cols-[42px_150px_minmax(0,1fr)_92px_58px] gap-2 border-b border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--we-text-muted)]">
                     <span>#</span>
                     <span>subject</span>
@@ -1367,7 +1691,7 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                         <span class="min-w-0 truncate text-[var(--we-text-main)]">{{ subjectMap.get(row.mutation.subjectId)?.name ?? row.mutation.subjectId }}</span>
                         <label class="grid min-w-0 grid-cols-[minmax(72px,0.5fr)_minmax(0,1fr)] items-center gap-2">
                             <span class="min-w-0">
-                                <span class="block truncate font-mono text-[var(--we-code-text)]">{{ row.mutation.attr }}</span>
+                                <span class="block truncate font-mono text-[var(--we-code-text)]">{{ row.mutation.path }}</span>
                                 <span v-if="isValueDraftDirty(row.index, row.mutation)" class="mt-1 inline-flex rounded border border-amber-300 bg-[var(--we-warning-soft)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--we-warning)]">dirty</span>
                                 <span v-if="isHighlightedMutation(row.mutation)" class="mt-1 inline-flex rounded border border-amber-300 bg-[var(--we-bg-panel)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--we-warning)]">issue target</span>
                             </span>

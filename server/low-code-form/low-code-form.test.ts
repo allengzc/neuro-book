@@ -13,7 +13,7 @@ import {
     validateLowCodeFormValue,
     type LowCodeFormResolveContext,
 } from "nbook/server/low-code-form";
-import {ensureProfileHome} from "nbook/server/agent/profiles/profile-home";
+import {ensureGlobalProfileHome, ensureProfileHome} from "nbook/server/agent/profiles/profile-home";
 
 describe("low-code form", () => {
     it("合并 defaults 并用 TypeBox 校验值", () => {
@@ -216,22 +216,24 @@ describe("low-code form", () => {
         await expect(resolveLowCodeForm(form, context())).rejects.toThrow("string 或 number");
     });
 
-    it("Global scope 下 resource-preset 返回禁用 DTO", async () => {
-        const form = resourceForm();
+    it("Global scope 下 resource-preset 使用 Global profile home", async () => {
+        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-global-resource-"));
+        try {
+            const home = await ensureGlobalProfileHome({workspaceRoot, profileKey: "writer", profileVersion: 1});
+            await home.writeText("styles/global.md", "---\ntitle: \"全局文风\"\n---\n\n正文", {mode: "overwrite"});
+            const form = resourceForm();
+            const ctx = context({home, values: {preset: "styles/global.md"}});
 
-        const dto = await resolveLowCodeForm(form, context());
+            const dto = await resolveLowCodeForm(form, ctx);
+            const validation = await validateLowCodeFormValue(form, {preset: "styles/global.md"}, ctx);
 
-        expect(dto.fields[0]?.resource).toMatchObject({
-            options: [],
-            content: null,
-            contents: [],
-            capabilities: {
-                create: false,
-                update: false,
-                rename: false,
-                remove: false,
-            },
-        });
+            expect(dto.fields[0]?.resource?.options).toEqual([expect.objectContaining({key: "styles/global.md", label: "全局文风", origin: "global"})]);
+            expect(dto.fields[0]?.resource?.content).toMatchObject({key: "styles/global.md", origin: "global"});
+            expect(dto.fields[0]?.resource?.capabilities).toMatchObject({create: true, update: true, rename: true, remove: true});
+            expect(validation.issues).toEqual([]);
+        } finally {
+            await rm(workspaceRoot, {recursive: true, force: true});
+        }
     });
 
     it("Project scope 下 resource-preset 列出 Markdown 资源并校验 selected key", async () => {
@@ -252,6 +254,34 @@ describe("low-code form", () => {
             expect(legacyResult.issues).toEqual([]);
         } finally {
             await rm(projectRoot, {recursive: true, force: true});
+        }
+    });
+
+    it("Project scope 下展示 Global resource 为只读继承资源", async () => {
+        const projectRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-resource-"));
+        const workspaceRoot = await mkdtemp(path.join(tmpdir(), "nbook-low-code-global-resource-"));
+        try {
+            const home = await ensureProfileHome({projectRoot, profileKey: "writer", profileVersion: 1});
+            const globalHome = await ensureGlobalProfileHome({workspaceRoot, profileKey: "writer", profileVersion: 1});
+            await home.writeText("styles/project.md", "---\ntitle: \"项目文风\"\n---\n\n项目正文", {mode: "overwrite"});
+            await globalHome.writeText("styles/global.md", "---\ntitle: \"全局文风\"\n---\n\n全局正文", {mode: "overwrite"});
+            const form = resourceForm();
+            const ctx = context({scope: "project", home, globalHome, values: {preset: "styles/global.md"}});
+
+            const dto = await resolveLowCodeForm(form, ctx);
+            const strictValidation = await validateLowCodeFormValue(form, {preset: "styles/global.md"}, ctx);
+            const inheritedValidation = await validateLowCodeFormValue(form, {preset: "styles/global.md"}, {...ctx, allowGlobalResourceKeys: true});
+
+            expect(dto.fields[0]?.resource?.options).toEqual([
+                expect.objectContaining({key: "styles/project.md", origin: "project", editable: true}),
+                expect.objectContaining({key: "styles/global.md", origin: "global", editable: false, deletable: false}),
+            ]);
+            expect(dto.fields[0]?.resource?.content).toMatchObject({key: "styles/global.md", origin: "global", content: expect.stringContaining("全局正文")});
+            expect(strictValidation.issues).toEqual([expect.objectContaining({path: "preset", code: "resource_key"})]);
+            expect(inheritedValidation.issues).toEqual([]);
+        } finally {
+            await rm(projectRoot, {recursive: true, force: true});
+            await rm(workspaceRoot, {recursive: true, force: true});
         }
     });
 

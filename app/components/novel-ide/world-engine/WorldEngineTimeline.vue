@@ -14,18 +14,17 @@ const props = defineProps<{
 const emit = defineEmits<{
     (e: "select-slice", sliceId: string): void;
     (e: "edit-slice", sliceId: string): void;
-    (e: "seed-demo"): void;
 }>();
 
 const timelineOnlySelectedSubject = ref(false);
 const timelineSearchText = ref("");
 
-const totalMutationCount = computed(() => props.slices.reduce((sum, slice) => sum + (slice.mutations?.length ?? 0), 0));
+const totalMutationCount = computed(() => props.slices.reduce((sum, slice) => sum + (slice.patches?.length ?? 0), 0));
 const totalIssueCount = computed(() => props.slices.reduce((sum, slice) => sum + (slice.issues?.length ?? 0), 0));
 const visibleSlices = computed<WorldSliceDto[]>(() => {
     const keyword = timelineSearchText.value.trim().toLowerCase();
     return props.slices.filter((slice) => {
-        if (timelineOnlySelectedSubject.value && props.selectedSubjectId && !(slice.mutations ?? []).some((mutation) => mutation.subjectId === props.selectedSubjectId)) {
+        if (timelineOnlySelectedSubject.value && props.selectedSubjectId && !(slice.patches ?? []).some((mutation) => mutation.subjectId === props.selectedSubjectId)) {
             return false;
         }
         if (!keyword) {
@@ -34,10 +33,10 @@ const visibleSlices = computed<WorldSliceDto[]>(() => {
         return timelineSliceSearchText(slice).includes(keyword);
     });
 });
-const visibleMutationCount = computed(() => visibleSlices.value.reduce((sum, slice) => sum + (slice.mutations?.length ?? 0), 0));
+const visibleMutationCount = computed(() => visibleSlices.value.reduce((sum, slice) => sum + (slice.patches?.length ?? 0), 0));
 const timelineEmptyText = computed(() => {
     if (!props.slices.length) {
-        return "暂无 slice。可以先创建示例世界。";
+        return "暂无 slice。可以先新建 Slice。";
     }
     if (timelineSearchText.value.trim()) {
         return "没有匹配当前搜索条件的 slice。";
@@ -47,9 +46,9 @@ const timelineEmptyText = computed(() => {
 
 /** 把 timeline slice 压成可搜索文本，覆盖事件元信息和 mutation 关键字段。 */
 function timelineSliceSearchText(slice: WorldSliceDto): string {
-    const mutationText = (slice.mutations ?? []).map((mutation) => {
+    const mutationText = (slice.patches ?? []).map((mutation) => {
         const value = "value" in mutation ? mutation.value : "";
-        return [mutation.subjectId, mutation.attr, mutation.op, typeof value === "string" ? value : JSON.stringify(value)].join(" ");
+        return [mutation.subjectId, mutation.path, mutation.op, typeof value === "string" ? value : JSON.stringify(value), mutation.summary ?? ""].join(" ");
     }).join(" ");
     return [slice.id, slice.time, slice.title, slice.summary, slice.kind, mutationText].join(" ").toLowerCase();
 }
@@ -69,10 +68,6 @@ function timelineSliceSearchText(slice: WorldSliceDto): string {
                     <span class="i-lucide-filter h-4 w-4"></span>
                     当前 subject
                 </label>
-                <button type="button" class="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--border-color)] px-3 text-[13px] text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="loading || actionBusy || !schemaLoaded" @click="emit('seed-demo')">
-                    <span :class="actionBusy ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-sparkles'" class="h-4 w-4"></span>
-                    一键示例世界
-                </button>
             </div>
         </div>
         <div class="mb-4 flex items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3">
@@ -95,7 +90,7 @@ function timelineSliceSearchText(slice: WorldSliceDto): string {
                             <span class="i-lucide-triangle-alert h-3.5 w-3.5"></span>
                             {{ slice.issues.length }}
                         </span>
-                        <span class="rounded-md bg-[var(--bg-input)] px-2 py-1 text-[11px] text-[var(--text-muted)]">{{ slice.mutations?.length ?? 0 }} mutations</span>
+                        <span class="rounded-md bg-[var(--bg-input)] px-2 py-1 text-[11px] text-[var(--text-muted)]">{{ slice.patches?.length ?? 0 }} patches</span>
                         <button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--border-color)] px-2 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="编辑 slice" aria-label="编辑 slice" @click.stop="emit('edit-slice', slice.id)">
                             <span class="i-lucide-pencil h-3.5 w-3.5"></span>
                             编辑

@@ -42,6 +42,7 @@ describe("world.engine profile", () => {
             vars: createTestVariableAccessor(),
             catalog: {profiles: [], issues: []},
             skills: [],
+            settings: {},
         });
         const systemPrompt = prepared.systemPrompt ?? "";
         const historyText = (prepared.historyInitMessages ?? []).map((message) => messageText(message as never)).join("\n");
@@ -54,27 +55,25 @@ describe("world.engine profile", () => {
             "apply_patch",
             "get_agent_profile",
             "get_session",
-            "get_world_state",
-            "list_world_slices",
+            "execute_world_query",
             "write_world_slice",
-            "edit_world_slice",
-            "delete_world_slice",
-            "create_world_subject",
-            "get_world_schema",
-            "list_world_subjects",
         ]);
         expect(worldEngineProfile.rootToolKeys).not.toContain("subject_rag_search");
         expect(worldEngineProfile.rootToolKeys).not.toContain("get_plot_tree");
         expect(worldEngineProfile.rootToolKeys).not.toContain("invoke_agent");
         expect(systemPrompt).toContain("世界引擎验证与维护 agent");
         expect(systemPrompt).toContain("旧 simulation/ workflow 暂不接入");
-        expect(systemPrompt).toContain("写入前优先调用 get_world_schema");
-        expect(systemPrompt).toContain("只有 schema default 非空时才会写入 init slice");
-        expect(systemPrompt).toContain("时间必须是项目日历字符串，不要传 raw instant");
-        expect(systemPrompt).toContain("回退 / 删错切面用 delete_world_slice");
+        expect(systemPrompt).toContain("使用 2 个核心工具：(execute_world_query) 只读查询 + (write_world_slice) 写入切面");
+        expect(systemPrompt).toContain("首次写入某 subject 时会自动创建（不需要单独 create 步骤）");
+        expect(systemPrompt).toContain("时间必须是项目日历字符串");
+        expect(systemPrompt).toContain("不要传 raw instant");
+        expect(systemPrompt).toContain("本 agent 没有改/删切面的工具");
         expect(systemPrompt).toContain("issues");
-        expect(historyText).toContain("```docs/tasks/56-world-engine/README.md");
-        expect(historyText).toContain("```docs/tasks/56-world-engine/agent-tools.md");
+        expect(historyText).toContain("```reference/world-engine/README.md");
+        expect(historyText).toContain("```reference/world-engine/workflow.md");
+        expect(historyText).toContain("```reference/world-engine/subject-lifecycle.md");
+        expect(historyText).toContain("```reference/world-engine/schema-system.md");
+        expect(historyText).toContain("```reference/world-engine/api-migration-zod.md");
         expect(modelContextText).toContain("projectPath: workspace/world-engine-demo");
         expect(modelContextText).toContain("rawInstant: forbidden for Agent tools");
     });

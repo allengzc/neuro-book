@@ -24,6 +24,14 @@ export type LowCodeFormResolveContext = {
     projectPath?: string;
     values?: LowCodeJsonObject;
     home?: ProfileHomeFacade;
+    globalHome?: ProfileHomeFacade;
+    allowGlobalResourceKeys?: boolean;
+    resourceMutationKeyView?: LowCodeResourceMutationKeyView;
+};
+
+export type LowCodeResourceMutationKeyView = {
+    knownKeys: ReadonlySet<string>;
+    finalKeys: ReadonlySet<string>;
 };
 
 export type LowCodeFieldOptionsProvider = (
@@ -325,33 +333,13 @@ async function resolveResourcePresetField(
     if (!field.resource) {
         throw new Error(`低代码 resource-preset 字段 ${field.path} 缺少 resource resolver。`);
     }
-    if (ctx.scope !== "project") {
-        return {
-            contentType: field.resource.contentType,
-            options: [],
-            content: null,
-            contents: [],
-            ...(field.resource.template !== undefined ? {template: field.resource.template} : {}),
-            ...(field.resource.createKeyPrefix !== undefined ? {createKeyPrefix: field.resource.createKeyPrefix} : {}),
-            ...(field.resource.createKeySuffix !== undefined ? {createKeySuffix: field.resource.createKeySuffix} : {}),
-            capabilities: {
-                create: false,
-                update: false,
-                rename: false,
-                remove: false,
-            },
-        };
+    if (!ctx.home) {
+        return disabledResourcePreset(field.resource);
     }
-    const options = [...await field.resource.list(ctx)];
+    const options = await listResourcePresetOptions(field.resource, ctx);
     const selected = readPath(ctx.values ?? {}, field.path) ?? defaultValue;
     const selectedKey = typeof selected === "string" ? selected : options[0]?.key;
-    const contents = await Promise.all(options.map(async (option) => {
-        try {
-            return await field.resource!.read(ctx, option.key);
-        } catch {
-            return null;
-        }
-    }));
+    const contents = await Promise.all(options.map((option) => readResourcePresetContent(field.resource!, ctx, option)));
     const availableContents = contents.filter((content): content is NonNullable<LowCodeResourcePresetDto["content"]> => Boolean(content));
     const content = selectedKey ? availableContents.find((item) => item.key === selectedKey) ?? null : null;
     return {
@@ -360,6 +348,7 @@ async function resolveResourcePresetField(
             key: option.key,
             label: option.label,
             ...(option.description ? {description: option.description} : {}),
+            ...(option.origin ? {origin: option.origin} : {}),
             editable: option.editable ?? false,
             deletable: option.deletable ?? false,
         })),
@@ -377,6 +366,82 @@ async function resolveResourcePresetField(
     };
 }
 
+function disabledResourcePreset(resource: ResourcePresetDefinition): LowCodeResourcePresetDto {
+    return {
+        contentType: resource.contentType,
+        options: [],
+        content: null,
+        contents: [],
+        ...(resource.template !== undefined ? {template: resource.template} : {}),
+        ...(resource.createKeyPrefix !== undefined ? {createKeyPrefix: resource.createKeyPrefix} : {}),
+        ...(resource.createKeySuffix !== undefined ? {createKeySuffix: resource.createKeySuffix} : {}),
+        capabilities: {
+            create: false,
+            update: false,
+            rename: false,
+            remove: false,
+        },
+    };
+}
+
+async function listResourcePresetOptions(
+    resource: ResourcePresetDefinition,
+    ctx: LowCodeFormResolveContext,
+): Promise<Array<LowCodeResourcePresetDto["options"][number]>> {
+    const optionsByKey = new Map<string, LowCodeResourcePresetDto["options"][number]>();
+    const primaryOrigin = ctx.scope === "global" ? "global" as const : "project" as const;
+    for (const option of await resource.list(ctx)) {
+        optionsByKey.set(option.key, {
+            ...option,
+            origin: option.origin ?? primaryOrigin,
+            editable: option.editable ?? false,
+            deletable: option.deletable ?? false,
+        });
+    }
+    if (ctx.scope === "project" && ctx.globalHome) {
+        const globalCtx = resourceContextWithHome(ctx, ctx.globalHome);
+        for (const option of await resource.list(globalCtx)) {
+            if (optionsByKey.has(option.key)) {
+                continue;
+            }
+            optionsByKey.set(option.key, {
+                ...option,
+                origin: "global",
+                editable: false,
+                deletable: false,
+            });
+        }
+    }
+    return [...optionsByKey.values()];
+}
+
+async function readResourcePresetContent(
+    resource: ResourcePresetDefinition,
+    ctx: LowCodeFormResolveContext,
+    option: LowCodeResourcePresetDto["options"][number],
+): Promise<LowCodeResourcePresetDto["content"]> {
+    const readCtx = option.origin === "global" && ctx.scope === "project" && ctx.globalHome
+        ? resourceContextWithHome(ctx, ctx.globalHome)
+        : ctx;
+    try {
+        const content = await resource.read(readCtx, option.key);
+        return {
+            ...content,
+            ...(option.origin ? {origin: option.origin} : {}),
+        };
+    } catch {
+        return null;
+    }
+}
+
+function resourceContextWithHome(ctx: LowCodeFormResolveContext, home: ProfileHomeFacade): LowCodeFormResolveContext {
+    return {
+        ...ctx,
+        home,
+        globalHome: undefined,
+    };
+}
+
 async function resourcePresetIssues(
     value: LowCodeJsonObject,
     fields: readonly LowCodeFieldDefinition[],
@@ -387,7 +452,7 @@ async function resourcePresetIssues(
         if (field.component !== "resource-preset" || !field.resource) {
             continue;
         }
-        if (ctx.scope !== "project") {
+        if (!ctx.home && !ctx.globalHome) {
             continue;
         }
         const current = readPath(value, field.path);
@@ -410,17 +475,7 @@ async function resourcePresetIssues(
             candidateKeys.push(`${field.resource.createKeyPrefix}${slug}${suffix}`);
         }
         const uniqueCandidateKeys = [...new Set(candidateKeys)];
-        let valid = false;
-        if (field.resource.validateKey) {
-            for (const key of uniqueCandidateKeys) {
-                if (await field.resource.validateKey(ctx, key)) {
-                    valid = true;
-                    break;
-                }
-            }
-        } else {
-            valid = (await field.resource.list(ctx)).some((option) => uniqueCandidateKeys.includes(option.key));
-        }
+        const valid = await resourcePresetKeyExists(field.resource, ctx, uniqueCandidateKeys, Boolean(ctx.allowGlobalResourceKeys));
         if (!valid) {
             issues.push({
                 path: field.path,
@@ -431,6 +486,47 @@ async function resourcePresetIssues(
         }
     }
     return issues;
+}
+
+async function resourcePresetKeyExists(
+    resource: ResourcePresetDefinition,
+    ctx: LowCodeFormResolveContext,
+    candidateKeys: readonly string[],
+    includeGlobalHome: boolean,
+): Promise<boolean> {
+    const mutationKeyResult = resourceMutationKeyResult(ctx, candidateKeys);
+    if (mutationKeyResult !== null) {
+        return mutationKeyResult;
+    }
+    const contexts = [
+        ...(ctx.home ? [ctx] : []),
+        ...(includeGlobalHome && ctx.globalHome ? [resourceContextWithHome(ctx, ctx.globalHome)] : []),
+    ];
+    for (const candidateCtx of contexts) {
+        if (resource.validateKey) {
+            for (const key of candidateKeys) {
+                if (await resource.validateKey(candidateCtx, key)) {
+                    return true;
+                }
+            }
+            continue;
+        }
+        if ((await resource.list(candidateCtx)).some((option) => candidateKeys.includes(option.key))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function resourceMutationKeyResult(ctx: LowCodeFormResolveContext, candidateKeys: readonly string[]): boolean | null {
+    if (!ctx.resourceMutationKeyView) {
+        return null;
+    }
+    const normalizedKeys = candidateKeys.map(normalizeResourceMutationKey);
+    if (!normalizedKeys.some((key) => ctx.resourceMutationKeyView!.knownKeys.has(key))) {
+        return null;
+    }
+    return normalizedKeys.some((key) => ctx.resourceMutationKeyView!.finalKeys.has(key));
 }
 
 export async function applyLowCodeResourceMutations(
