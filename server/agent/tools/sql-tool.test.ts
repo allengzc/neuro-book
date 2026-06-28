@@ -13,6 +13,7 @@ import {
     resolveProjectAbsolutePath,
     writeProjectManifest,
 } from "nbook/server/workspace-files/project-workspace";
+import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 
 describe("v3 execute_sql tool", () => {
     it("schema summary 不会把 sceneId 错挂到 StoryScene", () => {
@@ -75,11 +76,11 @@ describe("v3 execute_sql tool", () => {
         } finally {
             await closeAgentSqliteClient();
             await Promise.all([
-                rm(resolveProjectAbsolutePath(firstProjectPath), {recursive: true, force: true}),
-                rm(resolveProjectAbsolutePath(secondProjectPath), {recursive: true, force: true}),
+                removeProjectRoot(firstProjectPath),
+                removeProjectRoot(secondProjectPath),
             ]);
         }
-    });
+    }, 15_000);
 });
 
 function row(tableName: string, columnName: string, ordinalPosition: number) {
@@ -100,4 +101,23 @@ async function createProject(projectPath: string): Promise<void> {
         title: projectPath,
         summary: "",
     });
+}
+
+async function removeProjectRoot(projectPath: string): Promise<void> {
+    const projectRoot = resolveProjectAbsolutePath(projectPath);
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+        collectReleasedSqliteHandles();
+        try {
+            await rm(projectRoot, {recursive: true, force: true});
+            return;
+        } catch (error) {
+            if (!(typeof error === "object" && error !== null && "code" in error && error.code === "EBUSY")) {
+                throw error;
+            }
+            lastError = error;
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+    }
+    throw lastError;
 }

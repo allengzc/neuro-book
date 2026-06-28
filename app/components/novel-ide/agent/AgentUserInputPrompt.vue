@@ -216,6 +216,10 @@ function ignoreQuestion(): void {
  * 进入下一题，全部完成后提交。
  */
 function continueQuestion(): void {
+    if (isLowCodeFormMode.value) {
+        submitLowCodeForm();
+        return;
+    }
     if (!activeQuestion.value || !hasAnswer(questionKey(activeQuestion.value.toolNodeId, activeQuestion.value.questionIndex)) || props.submitting || props.readonly) {
         return;
     }

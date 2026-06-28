@@ -13,10 +13,19 @@ export interface InlineEditReferenceRange {
     endLine: number;
 }
 
+export interface InlineEditReferenceTextRange {
+    startOffset: number;
+    endOffset: number;
+}
+
 export interface InlineEditReference {
     ref: string;
     path: string;
     range?: InlineEditReferenceRange;
+    /**
+     * 正文纯文本 offset 范围；为空表示只能用 text 或行号弱定位。
+     */
+    textRange?: InlineEditReferenceTextRange;
     match: InlineEditReferenceMatch;
     text: string;
 }

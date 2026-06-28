@@ -1,6 +1,6 @@
 ---
 name: skill-creator-zh
-description: 用于在 Neuro Book 仓库中创建、改造或维护 skill。适用于新增 `.nbook/agent/skills/*`、重写现有 skill、整理 skill 目录结构、补充脚本或参考资料、修正 skill frontmatter 与触发描述等场景。
+description: 用于在 Neuro Book 仓库中创建、改造或维护 skill。适用于新增 `.nbook/agent/skills/*`、重写现有 skill、整理 skill 目录结构、补充脚本或参考资料、修正 skill frontmatter 与触发描述等场景。通常使用 skill-creator
 ---
 
 # Neuro Book Skill Creator

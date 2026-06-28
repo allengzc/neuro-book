@@ -2,221 +2,39 @@ import {Type} from "typebox";
 import type {Static, TSchema} from "typebox";
 import type {AgentToolResult} from "@earendil-works/pi-agent-core";
 import type {JsonValue as AgentJsonValue} from "nbook/server/agent/messages/types";
-import type {JsonValue as WorldJsonValue} from "nbook/server/world-engine/types";
-import {WORLD_FOCUS_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import type {NeuroAgentTool, ToolExecutionContext} from "nbook/server/agent/tools/types";
+import {buildExecuteWorldDescription} from "nbook/server/agent/world-engine-tool-description";
+import type {ExecuteWorldMode} from "nbook/server/world-engine/world-engine.facade";
 import {randomBytes} from "node:crypto";
 import {mkdir, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 
 const NonEmptyString = (description: string) => Type.String({minLength: 1, description});
-const ProjectScopedSchema = Type.Object({
-    projectPath: NonEmptyString("Required Project Path, e.g. workspace/silver-dragon-hime. The agent must pass it explicitly."),
-});
 
-const ExecuteWorldQuerySchema = Type.Object({
-    ...ProjectScopedSchema.properties,
-    code: Type.String({minLength: 1, description: "JavaScript code to execute in the sandbox"}),
+const ExecuteWorldSchema = Type.Object({
+    projectPath: NonEmptyString("Required Project Workspace path, e.g. workspace/silver-dragon-hime."),
+    code: Type.String({minLength: 1, description: "Inline JavaScript code to execute in the World Engine CodeAct sandbox."}),
 }, {
     additionalProperties: false,
-    description: `Execute JavaScript code to query World Engine state.
-
-Available API in sandbox:
-
-\`\`\`typescript
-declare const world: {
-    // 查询单个 subject 状态
-    get(id: string, options?: { deref?: boolean; derefDepth?: number }): Promise<any>;
-
-    // 批量查询多个 subject
-    getMany(ids: string[]): Promise<any[]>;
-
-    // 列出指定类型的所有 subject
-    list(type: string): Promise<Array<{ id: string; name: string }>>;
-
-    // 反向查找：哪些 subject 引用了目标
-    findRefs(targetId: string, sourceType?: string): Promise<Array<{ subjectId: string; attr: string }>>;
-
-    // 向量搜索（存活集去重 + 同 model 过滤 + 未向量化即时兜底 + time-travel at）
-    searchText(query: string, options?: { k?: number; threshold?: number; types?: string[]; attrs?: string[]; at?: bigint }): Promise<Array<{ subjectId: string; attr: string; text: string; score: number }>>;
-
-    // 查询时间轴切面
-    slices(options?: { from?: bigint; to?: bigint; limit?: number }): Promise<any[]>;
-
-    // 获取当前时间
-    now(): bigint;
-};
-\`\`\`
-
-Constraints:
-- Timeout: 5s
-- Max result size: 10KB
-- Blocked APIs: fetch, fs, process, require, eval, Function, Bun, globalThis
-- READ-ONLY：查询世界用本工具；写入世界请用 write_world_slice；删除切片请用 delete_world_slice。
-
-Example queries:
-
-\`\`\`javascript
-// 查询单个 subject（不解引用）
-const erina = await world.get("erina");
-return { hp: erina.hp, level: erina.level };
-
-// 查询并自动解引用
-const erina = await world.get("erina", { deref: true, derefDepth: 1 });
-// 引用字段会被展开，例如：
-// { location: { __ref: "subject://town1", name: "新手村", ... } }
-
-// 列出所有角色
-const characters = await world.list("character");
-return characters; // [{ id: "erina", name: "艾莉娜" }, ...]
-
-// 反向查找：谁引用了某个 subject
-const refs = await world.findRefs("phoenix-faction", "character");
-// 返回：[{ subjectId: "erina", attr: "faction" }, ...]
-
-// 批量查询
-const members = await world.findRefs("phoenix-faction", "character");
-const states = await world.getMany(members.map(ref => ref.subjectId));
-return states.map((state, i) => ({
-    id: members[i].subjectId,
-    hp: state?.hp,
-}));
-
-// 时间轴查询
-const recentSlices = await world.slices({ limit: 10 });
-return recentSlices.map(s => ({ time: s.instant, title: s.title }));
-\`\`\`
-
-Note: Code must use \`await\` for all world.* method calls.
-If code fails, it will be saved to .temp/ and the path will be returned for debugging.
-`,
-});
-
-const WorldPatchSchema = Type.Object({
-    subjectId: NonEmptyString("Target subject id"),
-    path: NonEmptyString("JSON Pointer path, e.g. /hp or /equipment/head"),
-    op: Type.Union([
-        Type.Literal("replace"),
-        Type.Literal("increment"),
-        Type.Literal("remove"),
-        Type.Literal("append"),
-    ], {description: "Patch op"}),
-    // value 可以是任意 JSON 值；remove 时省略。注释而非 any：工具入参是运行时 JSON。
-    value: Type.Optional(Type.Unknown()),
-    summary: Type.Optional(Type.String({description: "Human-readable patch summary"})),
-    // 首写该 subject 时声明类型/名字：subject 不存在时据此自动注册（无需单独 create 步骤）；已存在则忽略。
-    type: Type.Optional(Type.String({description: "Subject type, required only on the FIRST write of a new subject (e.g. character/location/item). Ignored if subject already exists."})),
-    name: Type.Optional(Type.String({description: "Subject display name, optional, used only on first write of a new subject."})),
-}, {additionalProperties: false});
-
-const WriteWorldSliceSchema = Type.Object({
-    ...ProjectScopedSchema.properties,
-    // 时间一律用项目日历字符串（如「星辉历312年 5月5日 14:00」），工具内部用 facade.parseTime 转 instant；禁止裸 raw instant 数字。
-    time: NonEmptyString("Slice time as a project calendar string, e.g. 星辉历312年 5月5日 14:00. Raw instant numbers are not accepted."),
-    title: Type.Optional(Type.String({description: "Slice title, e.g. 城北遭遇战"})),
-    summary: Type.Optional(Type.String({description: "Slice summary"})),
-    kind: Type.Optional(Type.String({description: "Slice kind (default: event)"})),
-    patches: Type.Array(WorldPatchSchema, {minItems: 1, description: "Patches applied atomically in this slice"}),
-}, {
-    additionalProperties: false,
-    description: `Write a new World Engine slice (an atomic, timestamped batch of patches).
-
-Each patch targets one subject JSON Pointer path with an op:
-- replace: 设置绝对值
-- increment: 数值增减（仅数值）
-- remove: 移除路径；collection 可提供 value 按 stable JSON 值删除指定元素，list 不支持按值删
-- append: 向数组追加元素（集合语义数组自动去重）
-
-首次写入某 subject 时无需单独 create 步骤：在该 subject 的某条 patch 上加 \`type\`（如 character/location），可选 \`name\`，工具会自动注册并应用 schema 默认值。subject 已存在时 type/name 被忽略。
-
-Example:
-\`\`\`json
-{
-  "projectPath": "workspace/silver-dragon-hime",
-  "time": "星辉历312年 5月5日 14:00",
-  "title": "城北遭遇战",
-  "patches": [
-    {"subjectId": "erina", "path": "/hp", "op": "increment", "value": -20, "summary": "受伤失去体力"},
-    {"subjectId": "erina", "path": "/events", "op": "append", "value": "被伏击", "summary": "记录遭遇战"},
-    {"subjectId": "erina", "path": "/inventory", "op": "remove", "value": "subject://old-sword", "summary": "交出旧剑"}
-  ]
-}
-\`\`\`
-Returns { sliceId, issues }. 同一时间点只能有一个 slice，目标时间已有切面时会冲突报错（改用相邻时间）。查询世界请用 execute_world_query（只读）。`,
-});
-
-const DeleteWorldSliceSchema = Type.Object({
-    ...ProjectScopedSchema.properties,
-    sliceId: NonEmptyString("Slice id from execute_world_query world.slices()."),
-}, {
-    additionalProperties: false,
-    description: `Delete a World Engine slice by id.
-
-物理删除，不可恢复。删除后会重新 reduce 受影响的 subject，并返回可能出现的 E issues。
-必须先用 execute_world_query 的 world.slices() 获取 sliceId。`,
 });
 
 /** 构造 World Engine Agent 工具。 */
 export function createWorldEngineTools(): NeuroAgentTool[] {
     return [
         tool(
-            "execute_world_query",
-            "Execute JavaScript code to query World Engine state. Use this to query subjects, find references, list entities, or explore the world timeline.",
-            ExecuteWorldQuerySchema,
+            "execute_world",
+            buildExecuteWorldDescription("readwrite"),
+            ExecuteWorldSchema,
             async (context, input) => {
-                // 执行查询
+                const mode = modeForContext(context);
                 try {
                     const facade = await loadWorldEngineFacade();
-                    const result = await facade.executeCodeActQuery(input.projectPath, input.code);
+                    const result = await facade.executeCodeActWorld(input.projectPath, input.code, mode);
                     return worldResult(result);
                 } catch (error) {
-                    // 保存失败的代码到 temp 文件
                     const tempPath = await saveTempCode(context, input.code);
                     const errorMessage = error instanceof Error ? error.message : String(error);
-                    throw new Error(`查询执行失败：${errorMessage}\n失败的代码已保存到：${tempPath}`);
-                }
-            },
-        ),
-        tool(
-            "write_world_slice",
-            "Write a new World Engine slice (atomic batch of patches at one instant). Use this to record state changes; querying is read-only via execute_world_query.",
-            WriteWorldSliceSchema,
-            async (_context, input) => {
-                const facade = await loadWorldEngineFacade();
-                // 日历字符串 → instant：工具层不接受 raw instant，统一通过项目 calendar 解析。
-                const instant = await facade.parseTime(input.projectPath, input.time);
-                const result = await facade.writeSlice(input.projectPath, {
-                    instant,
-                    title: input.title,
-                    summary: input.summary,
-                    kind: input.kind,
-                    patches: input.patches.map((patch) => ({
-                        subjectId: patch.subjectId,
-                        path: patch.path,
-                        op: patch.op,
-                        ...(patch.value === undefined ? {} : {value: patch.value as WorldJsonValue}),
-                        ...(patch.summary ? {summary: patch.summary} : {}),
-                        ...(patch.type ? {type: patch.type} : {}),
-                        ...(patch.name ? {name: patch.name} : {}),
-                    })),
-                });
-                return worldResult(result);
-            },
-        ),
-        tool(
-            "delete_world_slice",
-            "Delete a World Engine slice by id. Physical deletion, irreversible; use execute_world_query world.slices() to get sliceId first.",
-            DeleteWorldSliceSchema,
-            async (_context, input) => {
-                const facade = await loadWorldEngineFacade();
-                try {
-                    const result = await facade.deleteSlice(input.projectPath, input.sliceId);
-                    return worldResult({issues: result.issues});
-                } catch (error) {
-                    if (isMissingSliceError(error)) {
-                        throw new Error(`删除世界切片失败：sliceId 不存在或已删除：${input.sliceId}`);
-                    }
-                    throw error;
+                    throw new Error(`世界引擎脚本执行失败：${errorMessage}\n失败的代码已保存到：${tempPath}`);
                 }
             },
         ),
@@ -243,6 +61,10 @@ function tool<TSchemaValue extends TSchema>(
             return execute(context, params as Static<TSchemaValue>);
         },
     };
+}
+
+function modeForContext(context: ToolExecutionContext): ExecuteWorldMode {
+    return context.profileKey === "writer" ? "readonly" : "readwrite";
 }
 
 function worldResult(details: unknown): AgentToolResult<unknown> {
@@ -276,27 +98,15 @@ async function loadWorldEngineFacade(): Promise<typeof import("nbook/server/worl
     return (await import("nbook/server/world-engine")).worldEngineFacade;
 }
 
-/** 判断 facade 抛出的错误是否表示目标切面不存在。 */
-function isMissingSliceError(error: unknown): boolean {
-    if (!(error instanceof Error)) {
-        return false;
-    }
-    const statusCode = "statusCode" in error && typeof error.statusCode === "number" ? error.statusCode : undefined;
-    return statusCode === 404 || error.message.includes("切面不存在");
-}
-
-/**
- * 保存失败的代码到 .temp 目录。
- */
+/** 保存失败的 CodeAct 脚本，方便用户或后续 agent 复查。 */
 async function saveTempCode(context: ToolExecutionContext, code: string): Promise<string> {
     const tempDir = join(context.workspaceRoot, ".temp");
     await mkdir(tempDir, {recursive: true});
 
     const hash = randomBytes(6).toString("hex");
-    const filename = `world-query-${hash}.js`;
+    const filename = `world-execute-${hash}.js`;
     const fullPath = join(tempDir, filename);
 
     await writeFile(fullPath, code, "utf-8");
-
     return `.temp/${filename}`;
 }

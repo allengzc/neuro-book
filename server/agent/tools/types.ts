@@ -199,20 +199,23 @@ export type ToolApprovalResolution = {
     approved: boolean;
     resultText?: string;
     data?: JsonValue;
-    answers?: UserInputResolution["answers"];
+    answers?: UserInputAnswer[];
+};
+
+export type UserInputAnswer = {
+    questionIndex: number;
+    text: string;
+    selectedOptionIndex?: number;
+    selectedOptionIndexes?: number[];
+    note?: string;
+    ignored?: boolean;
 };
 
 export type UserInputResolution = {
     kind: "user_input";
     toolCallId: string;
-    answers: Array<{
-        questionIndex: number;
-        text: string;
-        selectedOptionIndex?: number;
-        selectedOptionIndexes?: number[];
-        note?: string;
-        ignored?: boolean;
-    }>;
+    data?: JsonValue;
+    answers?: UserInputAnswer[];
 };
 
 export type AgentResolution = ToolApprovalResolution | UserInputResolution;

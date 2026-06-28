@@ -7,7 +7,7 @@ import {streamSimple, validateToolArguments} from "@earendil-works/pi-ai";
 import {Value} from "typebox/value";
 import type {AgentMessage, AgentToolCall, AgentUserMessageInput, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
 import {createTextToolResult, createToolResultFromResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
-import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
+import {AgentProfileCatalog, type AgentProfileRuntimeResolution} from "nbook/server/agent/profiles/catalog";
 import {defaultAgentProfile} from "nbook/server/agent/profiles/default-profile";
 import {summarizerProfile} from "nbook/server/agent/profiles/summarizer-profile";
 import type {AgentProfile, ProfileCompactionPlan, ProfileTurnPlan, SidecarContext, SidecarMergePlan, SidecarProfilePass, SidecarProfilePassStage, SidecarResult} from "nbook/server/agent/profiles/types";
@@ -17,7 +17,7 @@ import {buildAgentDialogueContent} from "nbook/server/agent/session/dialogue-con
 import {SessionWriteExecutor} from "nbook/server/agent/session/write-plan";
 import type {AppendManySessionEntryDraft, SessionWritePlan} from "nbook/server/agent/session/write-plan";
 import {ToolSessionWriteSink} from "nbook/server/agent/session/tool-session-write-sink";
-import {AGENT_FOLLOW_UP_QUEUE_STATE_KEY, AGENT_PLAN_MODE_STATE_KEY, SESSION_SUMMARIZER_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
+import {AGENT_FOLLOW_UP_QUEUE_STATE_KEY, AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX, AGENT_PLAN_MODE_STATE_KEY, SESSION_SUMMARIZER_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import type {InvocationErrorInfo, InvocationErrorPhase, ModelChangeEntry, NeuroSessionContext, SessionEntry, SessionEntryDraft, SessionEntryId, SessionSnapshot} from "nbook/server/agent/session/types";
 import type {AgentRuntimeHook, AgentRuntimeHookResult, RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
 import {SkillCatalog} from "nbook/server/agent/skills/skill-catalog";
@@ -25,7 +25,7 @@ import {findPendingApprovalCall, findPendingApprovalCalls, resolutionToToolResul
 import {createBuiltinTools, createReportResultTool, createReportSidecarResultTool} from "nbook/server/agent";
 import {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import {isAgentToolDefinition} from "nbook/server/agent/tools/types";
-import type {AgentResolution, NeuroAgentTool, ProfileToolBinding, ReportResultToolBinding, ToolExecutionContext, ToolExecutionMode} from "nbook/server/agent/tools/types";
+import type {AgentResolution, NeuroAgentTool, ProfileToolBinding, ReportResultToolBinding, ToolExecutionContext, ToolExecutionMode, UserInputFormSpec} from "nbook/server/agent/tools/types";
 import {projectRuntimeEvent} from "nbook/server/agent/events/public-event-projection";
 import {appendCompaction, compactIfNeeded} from "nbook/server/agent/harness/compaction";
 import type {
@@ -84,6 +84,7 @@ import type {
     AgentSessionContextUsageDto,
     AgentSessionEventDto,
     AgentSessionEventsQueryDto,
+    AgentSessionListPageDto,
     AgentSessionListQueryDto,
     AgentSessionLiveStateDto,
     AgentSessionProfileAvailability,
@@ -98,6 +99,8 @@ import {createProfileVariableAccessor} from "nbook/server/agent/variables/access
 import {normalizeClientState} from "nbook/server/agent/variables/accessor";
 import {createVariableRegistryForProfile, createVariableRegistryForSession} from "nbook/server/agent/variables/profile-registry";
 import type {ClientStateSnapshot, ProfileVariableAccessor, VariableInvocationState, VariableJsonPatchOperation, VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
+import {appLogger} from "nbook/server/app-logs/logger";
+import {LowCodeFormDtoSchema} from "nbook/shared/dto/low-code-form.dto";
 
 type HarnessOptions = {
     repo?: JsonlSessionRepository;
@@ -137,6 +140,16 @@ type SessionSummarizerJob = {
 };
 
 type PendingApprovalLookup = ReturnType<typeof findPendingApprovalCalls>;
+
+type PendingUserResolutionState = {
+    toolCallId: string;
+    toolName: string;
+    formSpec?: {
+        form: JsonValue;
+        layout?: "dialog" | "inline" | "fullscreen";
+        prompt?: string;
+    };
+};
 
 type PreparedRunProfile = {
     plan: ProfileTurnPlan;
@@ -259,13 +272,6 @@ export class NeuroAgentHarness {
         reject: (error: Error) => void;
         timeout: ReturnType<typeof setTimeout>;
     }>();
-    /** Task 63: 缓存 tool.user-input-required 事件的 formSpec，key 为 `${sessionId}:${toolCallId}`。 */
-    private readonly pendingFormSpecs = new Map<string, {
-        form: import("nbook/shared/dto/low-code-form.dto").LowCodeFormDto;
-        layout?: "dialog" | "inline" | "fullscreen";
-        prompt?: string;
-    }>();
-
     constructor(options: HarnessOptions = {}) {
         this.repo = options.repo ?? new JsonlSessionRepository();
         this.profiles = options.profiles ?? new AgentProfileCatalog();
@@ -331,6 +337,14 @@ export class NeuroAgentHarness {
             this.publishLinkedAgentSnapshotRequired(snapshot.metadata.sessionId);
         }
         await this.publishSessionState(snapshot.metadata.sessionId);
+        void appLogger.info("agent.session.create", {
+            sessionId: snapshot.metadata.sessionId,
+            profileKey: input.profileKey,
+            workspaceRoot: snapshot.metadata.workspaceRoot,
+            workspaceKey: snapshot.metadata.workspaceKey,
+            projectPath: snapshot.metadata.projectPath ?? null,
+            parentSessionId: input.parentSessionId ?? null,
+        });
         return {
             sessionId: snapshot.metadata.sessionId,
             profileKey: input.profileKey,
@@ -361,6 +375,14 @@ export class NeuroAgentHarness {
             title: profile.manifest.name,
         });
         await this.publishSessionState(snapshot.metadata.sessionId);
+        void appLogger.info("agent.systemSession.create", {
+            sessionId: snapshot.metadata.sessionId,
+            profileKey: input.profileKey,
+            workspaceRoot: input.workspaceRoot,
+            workspaceKey: input.workspaceKey,
+            projectPath: input.projectPath ?? null,
+            systemRole: input.systemRole,
+        });
         return snapshot;
     }
 
@@ -405,6 +427,12 @@ export class NeuroAgentHarness {
             if (invokeTitle) {
                 await this.writeInvokeTitle(input.sessionId, invokeTitle, admission.queued.invocationId);
             }
+            void appLogger.info("agent.invoke.queued", {
+                sessionId: input.sessionId,
+                invocationId: admission.queued.invocationId,
+                status: admission.queued.status,
+                callerKind: caller.kind,
+            });
             return admission.queued;
         }
         let snapshot = admission.snapshot;
@@ -478,6 +506,19 @@ export class NeuroAgentHarness {
                 },
             });
             errorPhase = "model";
+            void appLogger.info("agent.invoke.start", {
+                sessionId: input.sessionId,
+                invocationId,
+                profileKey: preparedRun.context.profileKey,
+                model: resolveAgentModelLogName(preparedRun.model),
+                workspaceRoot: preparedRun.context.workspaceRoot,
+                workspaceKey: preparedRun.snapshot.metadata.workspaceKey,
+                projectPath: preparedRun.context.projectPath ?? null,
+                toolKeys: preparedRun.toolKeys,
+                executionToolKeys: preparedRun.executionToolKeys ?? null,
+                callerKind: caller.kind,
+                hasResolutions,
+            });
 
             const result = await this.runLoop({
                 sessionId: input.sessionId,
@@ -607,7 +648,7 @@ export class NeuroAgentHarness {
             const pendingMessages = context.messages.filter((message): message is Message => {
                 return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
             });
-            const pendingApprovals = findPendingApprovalCalls(pendingMessages, await this.approvalToolKeysForSnapshot(snapshot));
+            const pendingApprovals = findPendingApprovalCalls(pendingMessages, await this.userResolutionToolKeysForSnapshot(snapshot));
             const baseSummary = this.repo.summary(snapshot);
             currentInvocation = this.resolveActiveInvocation(input.sessionId, baseSummary.status, pendingApprovals, snapshot);
             if (pendingApprovals.length === 0) {
@@ -854,9 +895,24 @@ export class NeuroAgentHarness {
         }
         if (this.enableSessionSummarizer && input.finalResult.status === "completed" && input.profile.summarizer && input.profile.summarizer.enabled !== false) {
             this.scheduleSessionSummarizer(input.sessionId).catch((error) => {
-                console.error("[agent] schedule summarizer failed", error);
+                void appLogger.error("agent.summarizer.schedule.error", {
+                    sessionId: input.sessionId,
+                    invocationId: input.invocationId,
+                    profileKey: input.profile.manifest.key,
+                }, error, "Agent summarizer schedule failed");
             });
         }
+        void appLogger.info("agent.invoke.finish", {
+            sessionId: input.sessionId,
+            invocationId: input.invocationId,
+            profileKey: input.profile.manifest.key,
+            status: aborted ? "aborted" : input.finalResult.status,
+            errorPhase: input.finalResult.errorPhase ?? null,
+            elapsedMs: input.finalResult.elapsedMs,
+            usage: input.finalResult.usage ?? null,
+            waitingToolName: input.runResult.status === "waiting" ? input.runResult.waiting.toolName : null,
+            callerKind: input.caller.kind,
+        });
         if (input.finalResult.status === "completed") {
             await this.drainFollowUps(input.sessionId);
         }
@@ -877,6 +933,14 @@ export class NeuroAgentHarness {
         await this.writeLifecycle(input.sessionId, input.invocationId, input.aborted ? "aborted" : "error", errorInfo.message, errorInfo);
         await this.pauseFollowUps(input.sessionId, input.invocationId, input.aborted ? "aborted" : "error");
         await this.finishInvocation(input.sessionId, input.invocationId);
+        void appLogger.error("agent.invoke.error", {
+            sessionId: input.sessionId,
+            invocationId: input.invocationId,
+            status: input.aborted ? "aborted" : "error",
+            errorPhase: errorInfo.phase,
+            elapsedMs: Date.now() - input.startedAt,
+            errorMessage: errorInfo.message,
+        }, input.error, "Agent invocation failed");
         return {
             sessionId: input.sessionId,
             invocationId: input.invocationId,
@@ -973,7 +1037,7 @@ export class NeuroAgentHarness {
             ...prepareRunHooks.runtimeMessages,
             ...preparedModelContextMessages,
         ];
-        this.assertNoUnclosedToolCallsForModel(messages, this.approvalToolKeysForProfile(runProfile));
+        this.assertNoUnclosedToolCallsForModel(messages, this.userResolutionToolKeysForProfile(runProfile));
 
         snapshot = await this.repo.readSession(input.sessionId);
         context = this.repo.reduce(snapshot);
@@ -1092,21 +1156,132 @@ export class NeuroAgentHarness {
     }
 
     /**
-     * 列出前端可打开的顶层 session。
+     * 列出前端可打开的 session。内部调用保留数组形态；HTTP 使用 listSessionPage。
      */
     async listSessions(query: AgentSessionListQueryDto = {}): Promise<AgentSessionSummaryDto[]> {
+        const summaries = await this.resolveSessionListSummaries(query);
+        const offset = query.offset ?? 0;
+        return query.limit ? summaries.slice(offset, offset + query.limit) : summaries.slice(offset);
+    }
+
+    /**
+     * 分页列出前端可打开的 session。
+     */
+    async listSessionPage(query: AgentSessionListQueryDto = {}): Promise<AgentSessionListPageDto> {
+        const summaries = await this.resolveSessionListSummaries(query);
+        const offset = query.offset ?? 0;
+        const limit = query.limit ?? 50;
+        const items = summaries.slice(offset, offset + limit);
+        const nextOffset = offset + items.length;
+        const hasMore = nextOffset < summaries.length;
+        return {
+            items,
+            total: summaries.length,
+            offset,
+            limit,
+            hasMore,
+            ...(hasMore ? {nextOffset} : {}),
+        };
+    }
+
+    /**
+     * 构造列表摘要的轻量运行态投影。不要在这里解析完整 snapshot/system prompt/relations。
+     */
+    private async resolveSessionListSummaries(query: AgentSessionListQueryDto): Promise<AgentSessionSummaryDto[]> {
         const repoQuery = {
             ...query,
             includeArchived: query.includeArchived || query.status === "archived",
             status: undefined,
             limit: undefined,
+            offset: undefined,
         };
+        const baseSummaries = await this.repo.listSessions(repoQuery);
+        const profileRuntimeByKey = await this.resolveProfileRuntimeMap(baseSummaries.map((summary) => summary.profileKey));
+        const userResolutionToolKeysByProfile = new Map<string, string[]>();
         const summaries: AgentSessionSummaryDto[] = [];
-        for (const summary of await this.repo.listSessions(repoQuery)) {
-            summaries.push((await this.resolveSessionRuntimeProjection(summary.sessionId)).summary);
+        for (const summary of baseSummaries) {
+            const profileRuntime = profileRuntimeByKey.get(summary.profileKey) ?? {
+                profile: null,
+                availability: "missing" as const,
+                issueMessage: `未找到 agent profile: ${summary.profileKey}`,
+            };
+            summaries.push(await this.projectSessionListSummary(summary, profileRuntime, userResolutionToolKeysByProfile));
         }
-        const filtered = summaries.filter((summary) => this.matchesSessionStatusFilter(summary, query.status));
-        return query.limit ? filtered.slice(0, query.limit) : filtered;
+        return summaries.filter((summary) => this.matchesSessionStatusFilter(summary, query.status));
+    }
+
+    /**
+     * 批量解析列表所需 profile 运行态。missing 回退旧单个解析路径，兼容测试和自定义 catalog。
+     */
+    private async resolveProfileRuntimeMap(profileKeys: string[]): Promise<Map<string, AgentProfileRuntimeResolution>> {
+        const resolved = await this.profiles.resolveMany(profileKeys);
+        for (const profileKey of [...new Set(profileKeys)]) {
+            const runtime = resolved.get(profileKey);
+            if (runtime && runtime.availability !== "missing") {
+                continue;
+            }
+            resolved.set(profileKey, await this.resolveProfileRuntime(profileKey));
+        }
+        return resolved;
+    }
+
+    /**
+     * 为 session list 生成必要运行态字段。
+     */
+    private async projectSessionListSummary(
+        summary: AgentSessionSummaryDto,
+        profileRuntime: AgentProfileRuntimeResolution,
+        userResolutionToolKeysByProfile: Map<string, string[]>,
+    ): Promise<AgentSessionSummaryDto> {
+        const activeInvocation = this.activeInvocations.get(summary.sessionId) ?? await this.hydrateWaitingInvocationForList(
+            summary,
+            profileRuntime,
+            userResolutionToolKeysByProfile,
+        );
+        return {
+            ...summary,
+            status: this.resolveSessionStatus(summary.sessionId, summary.status, summary.archived, activeInvocation),
+            profileAvailability: profileRuntime.availability,
+            ...(profileRuntime.issueMessage ? {profileIssueMessage: profileRuntime.issueMessage} : {}),
+        };
+    }
+
+    /**
+     * 服务重启后，从历史 pending user input 恢复 waiting 状态。
+     */
+    private async hydrateWaitingInvocationForList(
+        summary: AgentSessionSummaryDto,
+        profileRuntime: AgentProfileRuntimeResolution,
+        userResolutionToolKeysByProfile: Map<string, string[]>,
+    ): Promise<AgentActiveInvocationDto | null> {
+        if (summary.archived || summary.status === "archived") {
+            return null;
+        }
+        const snapshot = await this.repo.readSession(summary.sessionId, summary.workspaceKey);
+        const context = this.repo.reduce(snapshot);
+        const pendingMessages = context.messages.filter((message): message is Message => {
+            return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
+        });
+        const toolKeys = this.userResolutionToolKeysForListProfile(summary.profileKey, profileRuntime.profile, userResolutionToolKeysByProfile);
+        const pendingApprovals = findPendingApprovalCalls(pendingMessages, toolKeys);
+        return this.resolveActiveInvocation(summary.sessionId, summary.status, pendingApprovals, snapshot);
+    }
+
+    /**
+     * 列表路径按 profileKey 缓存可恢复用户输入工具 key。
+     */
+    private userResolutionToolKeysForListProfile(
+        profileKey: string,
+        profile: AgentProfile | null,
+        cache: Map<string, string[]>,
+    ): string[] {
+        const cached = cache.get(profileKey);
+        if (cached) {
+            return cached;
+        }
+        const keys = profile ? this.userResolutionToolKeysForProfile(profile) : this.tools.userResolutionToolKeys();
+        cache.set(profileKey, keys);
+        return keys;
     }
 
     /**
@@ -1195,7 +1370,7 @@ export class NeuroAgentHarness {
         const latestSeq = this.eventHub.lastSeq(sessionId);
         const eventCursor = this.snapshotEventCursor(sessionId, latestSeq);
 
-        return {
+        const dto = {
             eventEpoch: this.eventHub.eventEpoch,
             eventCursor,
             latestSeq,
@@ -1222,6 +1397,7 @@ export class NeuroAgentHarness {
             usage: this.repo.usage(snapshot),
             contextUsage: await this.sessionContextUsage(snapshot, context),
         };
+        return dto;
     }
 
     private snapshotEventCursor(sessionId: number, latestSeq = this.eventHub.lastSeq(sessionId)): AgentSessionSnapshotDto["eventCursor"] {
@@ -1345,11 +1521,16 @@ export class NeuroAgentHarness {
             args: pending.args as JsonValue,
         };
 
-        // Task 63: 填充 formSpec（如果存在）
-        const formSpecKey = `${snapshot.metadata.sessionId}:${pending.toolCallId}`;
-        const formSpec = this.pendingFormSpecs.get(formSpecKey);
-        if (formSpec) {
-            base.formSpec = formSpec;
+        const pendingState = this.pendingUserResolutionState(snapshot, pending.toolCallId);
+        if (pendingState?.formSpec) {
+            const formValidation = LowCodeFormDtoSchema.safeParse(pendingState.formSpec.form);
+            if (formValidation.success) {
+                base.formSpec = {
+                    form: formValidation.data,
+                    layout: pendingState.formSpec.layout,
+                    prompt: pendingState.formSpec.prompt,
+                };
+            }
         }
 
         if (pending.toolName !== "exit_plan_mode") {
@@ -1368,6 +1549,69 @@ export class NeuroAgentHarness {
             ...base,
             planFilePath: target.displayPath,
             planContent: await readFile(target.absolutePath, "utf-8"),
+        };
+    }
+
+    private pendingUserResolutionState(snapshot: SessionSnapshot, toolCallId: string): PendingUserResolutionState | null {
+        const value = this.repo.reduce(snapshot).customState[this.pendingUserResolutionStateKey(toolCallId)];
+        if (!value || typeof value !== "object" || Array.isArray(value)) {
+            return null;
+        }
+        const record = value as Record<string, JsonValue>;
+        if (record.toolCallId !== toolCallId || typeof record.toolName !== "string") {
+            return null;
+        }
+        const formSpec = record.formSpec && typeof record.formSpec === "object" && !Array.isArray(record.formSpec)
+            ? record.formSpec as Record<string, JsonValue>
+            : null;
+        return {
+            toolCallId,
+            toolName: record.toolName,
+            ...(formSpec && formSpec.form
+                ? {
+                    formSpec: {
+                        form: formSpec.form,
+                        layout: formSpec.layout === "dialog" || formSpec.layout === "inline" || formSpec.layout === "fullscreen" ? formSpec.layout : undefined,
+                        prompt: typeof formSpec.prompt === "string" ? formSpec.prompt : undefined,
+                    },
+                }
+                : {}),
+        };
+    }
+
+    private pendingUserResolutionStateKey(toolCallId: string): string {
+        return `${AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX}${toolCallId}`;
+    }
+
+    private pendingUserResolutionEntry(waiting: RunToolBatchResult["waiting"] | undefined): AppendManySessionEntryDraft | null {
+        if (!waiting?.formSpec) {
+            return null;
+        }
+        const formSpec = this.pendingUserResolutionFormSpec(waiting.formSpec);
+        return {
+            type: "custom",
+            key: this.pendingUserResolutionStateKey(waiting.toolCallId),
+            value: {
+                toolCallId: waiting.toolCallId,
+                toolName: waiting.toolName,
+                formSpec,
+            },
+        };
+    }
+
+    private clearPendingUserResolutionEntry(pending: {toolCallId: string}): AppendManySessionEntryDraft {
+        return {
+            type: "custom",
+            key: this.pendingUserResolutionStateKey(pending.toolCallId),
+            value: null,
+        };
+    }
+
+    private pendingUserResolutionFormSpec(formSpec: UserInputFormSpec): JsonValue {
+        return {
+            form: formSpec.form as JsonValue,
+            ...(formSpec.layout ? {layout: formSpec.layout} : {}),
+            ...(formSpec.prompt ? {prompt: formSpec.prompt} : {}),
         };
     }
 
@@ -1718,7 +1962,7 @@ export class NeuroAgentHarness {
         const messages = context.messages.filter((message): message is Message => {
             return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
         });
-        const pendingApprovals = findPendingApprovalCalls(messages, await this.approvalToolKeysForSnapshot(snapshot));
+        const pendingApprovals = findPendingApprovalCalls(messages, await this.userResolutionToolKeysForSnapshot(snapshot));
         const baseSummary = this.repo.summary(snapshot);
         active = this.resolveActiveInvocation(sessionId, baseSummary.status, pendingApprovals, snapshot);
         if (active?.status === "waiting") {
@@ -1733,7 +1977,7 @@ export class NeuroAgentHarness {
         const messages = context.messages.filter((message): message is Message => {
             return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
         });
-        const pending = findPendingApprovalCall(messages, await this.approvalToolKeysForSnapshot(snapshot));
+        const pending = findPendingApprovalCall(messages, await this.userResolutionToolKeysForSnapshot(snapshot));
         if (!pending) {
             return;
         }
@@ -2204,7 +2448,7 @@ export class NeuroAgentHarness {
         const messages = context.messages.filter((message): message is Message => {
             return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
         });
-        const pendingApprovals = findPendingApprovalCalls(messages, await this.approvalToolKeysForSnapshot(snapshot));
+        const pendingApprovals = findPendingApprovalCalls(messages, await this.userResolutionToolKeysForSnapshot(snapshot));
 
         if (pendingApprovals.length === 0) {
             throw new Error("当前 session 没有等待中的审批 tool call");
@@ -2237,6 +2481,7 @@ export class NeuroAgentHarness {
                 message: resolutionToToolResult(storedResolution, pending),
                 origin: "harness",
             });
+            entries.push(this.clearPendingUserResolutionEntry(pending));
         }
 
         await this.executeWritePlan({
@@ -2249,17 +2494,12 @@ export class NeuroAgentHarness {
             }],
         }, invocationId);
 
-        // Task 63: 清理已解决的 formSpec 缓存
-        for (const pending of pendingApprovals) {
-            const formSpecKey = `${snapshot.metadata.sessionId}:${pending.toolCallId}`;
-            this.pendingFormSpecs.delete(formSpecKey);
-        }
-
         // 处理 plan mode transitions
         for (const pending of pendingApprovals) {
             const resolution = resolutionMap.get(pending.toolCallId)!;
-            if (resolution.kind === "tool_approval" && (pending.toolName === "enter_plan_mode" || pending.toolName === "exit_plan_mode")) {
-                await this.appendPlanModeResolution(snapshot, context, pending, resolution.approved, invocationId);
+            const approved = this.planModeDecision(pending, resolution);
+            if (approved !== null) {
+                await this.appendPlanModeResolution(snapshot, context, pending, approved, invocationId);
             }
         }
     }
@@ -2269,7 +2509,7 @@ export class NeuroAgentHarness {
         const messages = context.messages.filter((message): message is Message => {
             return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
         });
-        const pending = findPendingApprovalCall(messages, await this.approvalToolKeysForSnapshot(snapshot));
+        const pending = findPendingApprovalCall(messages, await this.userResolutionToolKeysForSnapshot(snapshot));
         if (!pending) {
             throw new Error("当前 session 没有等待中的审批 tool call");
         }
@@ -2279,21 +2519,21 @@ export class NeuroAgentHarness {
             cause: "resolution",
             durability: "savePoint",
             ops: [{
-                kind: "append",
-                entry: {
-                    type: "message",
-                    message: resolutionToToolResult(storedResolution, pending),
-                    origin: "harness",
-                },
+                kind: "appendMany",
+                entries: [
+                    {
+                        type: "message",
+                        message: resolutionToToolResult(storedResolution, pending),
+                        origin: "harness",
+                    },
+                    this.clearPendingUserResolutionEntry(pending),
+                ],
             }],
         }, invocationId);
 
-        // Task 63: 清理已解决的 formSpec 缓存
-        const formSpecKey = `${snapshot.metadata.sessionId}:${pending.toolCallId}`;
-        this.pendingFormSpecs.delete(formSpecKey);
-
-        if (resolution.kind === "tool_approval" && (pending.toolName === "enter_plan_mode" || pending.toolName === "exit_plan_mode")) {
-            await this.appendPlanModeResolution(snapshot, context, pending, resolution.approved, invocationId);
+        const approved = this.planModeDecision(pending, resolution);
+        if (approved !== null) {
+            await this.appendPlanModeResolution(snapshot, context, pending, approved, invocationId);
         }
     }
 
@@ -2305,7 +2545,7 @@ export class NeuroAgentHarness {
         pending: {toolName: string; args: Record<string, unknown>},
         resolution: AgentResolution,
     ): Promise<AgentResolution> {
-        if (resolution.kind !== "tool_approval" || pending.toolName !== "exit_plan_mode") {
+        if (pending.toolName !== "exit_plan_mode") {
             return resolution;
         }
         const planFilePath = typeof pending.args.planFilePath === "string" ? pending.args.planFilePath.trim() : "";
@@ -2325,6 +2565,20 @@ export class NeuroAgentHarness {
             preview.planContent = await readFile(target.absolutePath, "utf-8");
         } catch {
             // 计划文件可能在等待审批期间被移动或删除；审批结果仍应正常落库。
+        }
+        if (resolution.kind === "user_input") {
+            const data = resolution.data && typeof resolution.data === "object" && !Array.isArray(resolution.data)
+                ? resolution.data as Record<string, JsonValue>
+                : {userInput: resolution.data ?? null};
+            const userInput = "userInput" in data ? data.userInput : resolution.data ?? null;
+            return {
+                ...resolution,
+                data: {
+                    ...data,
+                    userInput,
+                    ...preview,
+                },
+            };
         }
         return {
             ...resolution,
@@ -2360,6 +2614,35 @@ export class NeuroAgentHarness {
             pending.toolName,
             {approved, hasExited, reason},
         ), snapshot.metadata.workspaceKey, invocationId);
+    }
+
+    private planModeDecision(pending: {toolName: string}, resolution: AgentResolution): boolean | null {
+        if (pending.toolName !== "enter_plan_mode" && pending.toolName !== "exit_plan_mode") {
+            return null;
+        }
+        if (resolution.kind === "tool_approval") {
+            return resolution.approved;
+        }
+        const userInput = this.resolutionUserInput(resolution);
+        if (isRecord(userInput) && typeof userInput.approved === "boolean") {
+            return userInput.approved;
+        }
+        const firstAnswer = resolution.answers?.[0];
+        if (firstAnswer?.selectedOptionIndex === 0 || firstAnswer?.selectedOptionIndexes?.includes(0)) {
+            return true;
+        }
+        if (firstAnswer?.selectedOptionIndex === 1 || firstAnswer?.selectedOptionIndexes?.includes(1)) {
+            return false;
+        }
+        return null;
+    }
+
+    private resolutionUserInput(resolution: AgentResolution): JsonValue | undefined {
+        const data = resolution.data;
+        if (data && typeof data === "object" && !Array.isArray(data) && "userInput" in data) {
+            return (data as {userInput?: JsonValue}).userInput;
+        }
+        return data;
     }
 
     private async runLoop(input: {
@@ -2398,7 +2681,7 @@ export class NeuroAgentHarness {
     }): Promise<RunLoopResult> {
         const frame = createRunFrame(input);
 
-        this.assertNoUnclosedToolCallsForModel(frame.messages, this.approvalToolKeysForProfile(frame.profile));
+        this.assertNoUnclosedToolCallsForModel(frame.messages, this.userResolutionToolKeysForProfile(frame.profile));
         await this.emitRuntimeEvent(frame, {type: "agent_start"});
         let shouldContinue = true;
         let failedResult: RunLoopResult | undefined;
@@ -3013,6 +3296,20 @@ export class NeuroAgentHarness {
             // 检查工具是否需要用户输入
             if (tool?.userInputRequest) {
                 await flushSegment();
+                const approvalError = await this.validateUserResolutionTool(input.executionToolKeys, input.toolOverrides, input.workspaceRoot, input.projectPath, toolCall);
+                if (approvalError) {
+                    const toolResult = createTextToolResult({
+                        toolCallId: toolCall.id,
+                        toolName: toolCall.name,
+                        text: approvalError,
+                        isError: true,
+                    });
+                    toolResults.push(toolResult);
+                    await input.emit({type: "message_start", message: toolResult});
+                    await input.emit({type: "message_end", message: toolResult});
+                    allExecutedTerminate = false;
+                    continue;
+                }
                 try {
                     const userInputContext = {
                         args: toolCall.arguments,
@@ -3026,13 +3323,6 @@ export class NeuroAgentHarness {
                     };
                     const formSpec = await tool.userInputRequest.when(userInputContext);
                     if (formSpec) {
-                        // 缓存 formSpec，供 pendingApprovalDto 使用
-                        const formSpecKey = `${input.sessionId}:${toolCall.id}`;
-                        this.pendingFormSpecs.set(formSpecKey, {
-                            form: formSpec.form,
-                            layout: formSpec.layout,
-                            prompt: formSpec.prompt,
-                        });
                         // 需要用户输入，暂停执行
                         await input.emit({
                             type: "tool_user_input_required",
@@ -3068,6 +3358,7 @@ export class NeuroAgentHarness {
                             waiting: {
                                 toolCallId: toolCall.id,
                                 toolName: toolCall.name,
+                                formSpec,
                             },
                             shouldContinue: false,
                         };
@@ -3090,7 +3381,7 @@ export class NeuroAgentHarness {
 
             if (tool?.approvalRequired) {
                 await flushSegment();
-                const approvalError = await this.validateApprovalTool(input.executionToolKeys, input.toolOverrides, input.workspaceRoot, input.projectPath, toolCall);
+                const approvalError = await this.validateUserResolutionTool(input.executionToolKeys, input.toolOverrides, input.workspaceRoot, input.projectPath, toolCall);
                 if (approvalError) {
                     const toolResult = createTextToolResult({
                         toolCallId: toolCall.id,
@@ -3400,7 +3691,7 @@ export class NeuroAgentHarness {
         }));
     }
 
-    private async validateApprovalTool(executionToolKeys: string[], toolOverrides: Record<string, NeuroAgentTool>, workspaceRoot: string, projectPath: string | undefined, toolCall: AgentToolCall): Promise<string | null> {
+    private async validateUserResolutionTool(executionToolKeys: string[], toolOverrides: Record<string, NeuroAgentTool>, workspaceRoot: string, projectPath: string | undefined, toolCall: AgentToolCall): Promise<string | null> {
         const tool = toolOverrides[toolCall.name] ?? this.tools.get(toolCall.name);
         if (!tool) {
             return `Tool ${toolCall.name} not found`;
@@ -3504,9 +3795,12 @@ export class NeuroAgentHarness {
                 if (toolResultMessage?.details && typeof toolResultMessage.details === "object") {
                     const details = toolResultMessage.details as {kind?: string; data?: unknown; answers?: unknown};
 
-                    // 优先从 resolution.data.userInput 提取（新格式）
+                    // 优先从 resolution.data.userInput 提取；Low-Code Form 兼容直接 data。
                     if (details.data && typeof details.data === "object" && "userInput" in details.data) {
                         userInput = (details.data as {userInput: unknown}).userInput;
+                    }
+                    else if (details.kind === "user_input" && "data" in details) {
+                        userInput = details.data;
                     }
                     // 向后兼容：从 resolution.answers 提取（旧格式）
                     else if (details.kind === "user_input" && details.answers) {
@@ -3767,12 +4061,6 @@ export class NeuroAgentHarness {
             this.invocationVariableStates.delete(invocationId);
             this.invocationRuntimeStates.delete(invocationId);
             this.rejectPendingClientPatches(invocationId);
-        }
-        // 清理 pending form specs
-        for (const key of this.pendingFormSpecs.keys()) {
-            if (key.startsWith(`${sessionId}:`)) {
-                this.pendingFormSpecs.delete(key);
-            }
         }
     }
 
@@ -4144,7 +4432,7 @@ export class NeuroAgentHarness {
         const pendingMessages = context.messages.filter((message): message is Message => {
             return message.role === "user" || message.role === "assistant" || message.role === "toolResult";
         });
-        const pendingApprovals = findPendingApprovalCalls(pendingMessages, await this.approvalToolKeysForSnapshot(currentSnapshot, profileRuntime.profile));
+        const pendingApprovals = findPendingApprovalCalls(pendingMessages, await this.userResolutionToolKeysForSnapshot(currentSnapshot, profileRuntime.profile));
         const baseSummary = this.repo.summary(currentSnapshot);
         const activeInvocation = this.resolveActiveInvocation(sessionId, baseSummary.status, pendingApprovals, currentSnapshot);
         const summary = {
@@ -4459,6 +4747,7 @@ export class NeuroAgentHarness {
             await this.flushPendingWritePlans(input.pendingWritePlans, input.invocationId);
             return {transcript: "runtime_only"};
         }
+        const pendingUserResolutionEntry = this.pendingUserResolutionEntry(input.waiting);
         const transcriptPlan: SessionWritePlan = {
             target: {sessionId: input.sessionId},
             cause: "turn.ingest",
@@ -4478,11 +4767,12 @@ export class NeuroAgentHarness {
                         message: toolResult,
                         origin: "harness" as const,
                     })),
+                    ...(pendingUserResolutionEntry ? [pendingUserResolutionEntry] : []),
                 ],
             }],
         };
         const transcriptResult = await this.writeExecutor.execute([transcriptPlan, ...this.orderedPendingWritePlans(input.pendingWritePlans)], input.invocationId);
-        const transcriptEntryCount = 1 + orderedToolResults.length;
+        const transcriptEntryCount = 1 + orderedToolResults.length + (pendingUserResolutionEntry ? 1 : 0);
         const transcriptLeafId = transcriptResult.entries.slice(0, transcriptEntryCount).at(-1)?.id ?? input.transcriptParentLeafId;
         input.pendingWritePlans.splice(0, input.pendingWritePlans.length);
         if (input.restoreLeafAfterTranscript) {
@@ -4854,6 +5144,14 @@ export class NeuroAgentHarness {
 
             return mergePlan;
         } catch (error) {
+            void appLogger.error("agent.sidecar.error", {
+                sessionId: sidecarRun.sessionId,
+                invocationId: sidecarRun.invocationId,
+                profileKey: sidecarRun.context.profileKey,
+                sidecarType: pass.name,
+                stage: pass.stage,
+                leafId: sidecarLeafId,
+            }, error, "Agent sidecar failed");
             // 发送 sidecar_error 事件
             this.publishRuntimeEvent(sidecarRun.sessionId, sidecarRun.invocationId, {
                 type: "sidecar_error",
@@ -5139,22 +5437,22 @@ export class NeuroAgentHarness {
         return overrides;
     }
 
-    private async approvalToolKeysForSnapshot(snapshot: SessionSnapshot, profile?: AgentProfile | null): Promise<string[]> {
+    private async userResolutionToolKeysForSnapshot(snapshot: SessionSnapshot, profile?: AgentProfile | null): Promise<string[]> {
         if (profile) {
-            return this.approvalToolKeysForProfile(profile);
+            return this.userResolutionToolKeysForProfile(profile);
         }
         const runtime = await this.resolveProfileRuntime(snapshot.metadata.profileKey);
         if (runtime.profile) {
-            return this.approvalToolKeysForProfile(runtime.profile);
+            return this.userResolutionToolKeysForProfile(runtime.profile);
         }
-        return this.tools.approvalToolKeys();
+        return this.tools.userResolutionToolKeys();
     }
 
-    private approvalToolKeysForProfile(profile: AgentProfile): string[] {
-        const keys = new Set(this.tools.approvalToolKeys());
+    private userResolutionToolKeysForProfile(profile: AgentProfile): string[] {
+        const keys = new Set<string>();
         for (const toolKey of profile.rootToolKeys) {
             const tool = this.resolveProfileTool(profile, toolKey);
-            if (tool?.approvalRequired) {
+            if (tool?.approvalRequired || tool?.userInputRequest) {
                 keys.add(tool.key);
             }
         }
@@ -5198,6 +5496,17 @@ function isRecord(value: unknown): value is Record<string, JsonValue> {
 
 function hasOwn(value: Record<string, unknown>, key: string): boolean {
     return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function resolveAgentModelLogName(model: Model<any>): string {
+    const record = typeof model === "object" && model !== null ? model as unknown as Record<string, unknown> : {};
+    for (const key of ["key", "id", "name", "model"]) {
+        const value = record[key];
+        if (typeof value === "string" && value.trim()) {
+            return value;
+        }
+    }
+    return "unknown";
 }
 
 function isResultToolName(toolName: string): toolName is "report_result" | "report_sidecar_result" {

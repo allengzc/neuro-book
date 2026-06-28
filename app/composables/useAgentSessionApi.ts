@@ -9,6 +9,7 @@ import type {
     AgentInvokeRequestDto,
     AgentSessionEventDto,
     AgentSessionEventsQueryDto,
+    AgentSessionListPageDto,
     AgentSessionListQueryDto,
     AgentSessionRelationsDto,
     AgentSessionSnapshotDto,
@@ -22,7 +23,7 @@ import type {
  */
 export function useAgentSessionApi() {
     const listSessions = (query: AgentSessionListQueryDto = {}) => {
-        return $fetch<AgentSessionSummaryDto[]>("/api/agent/sessions", {
+        return $fetch<AgentSessionListPageDto>("/api/agent/sessions", {
             query,
         });
     };

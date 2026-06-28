@@ -110,9 +110,12 @@ export const AgentSessionListQueryDtoSchema = z.object({
     projectPath: z.string().trim().min(1).optional(),
     includeArchived: z.coerce.boolean().optional(),
     includeSystem: z.coerce.boolean().optional(),
+    profileKey: z.string().trim().min(1).optional(),
     profileGroup: z.enum(["all", "leader"]).optional(),
     status: z.enum(["all", "active", "running", "waiting", "idle", "interrupted", "archived"]).optional(),
     relation: z.enum(["all", "top", "child"]).optional(),
+    search: z.string().trim().optional(),
+    offset: z.coerce.number().int().min(0).optional(),
     limit: z.coerce.number().int().min(1).max(200).optional(),
 });
 
@@ -233,6 +236,15 @@ export type AgentSessionSummaryDto = {
     archived: boolean;
     lastMessagePreview?: string;
     usage?: Usage;
+};
+
+export type AgentSessionListPageDto = {
+    items: AgentSessionSummaryDto[];
+    total: number;
+    offset: number;
+    limit: number;
+    hasMore: boolean;
+    nextOffset?: number;
 };
 
 export type AgentSessionSummarizerStateDto = {

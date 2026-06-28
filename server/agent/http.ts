@@ -10,6 +10,7 @@ import {
     type AgentInvokeRequestDto,
     type AgentSessionEventDto,
     type AgentSessionEventsQueryDto,
+    type AgentSessionListPageDto,
     type AgentSessionListQueryDto,
     type AgentTreeRequestDto,
 } from "nbook/shared/dto/agent-session.dto";
@@ -75,8 +76,18 @@ export async function createAgentSession(body: AgentCreateSessionRequestDto, har
 /**
  * 列出 Agent session 摘要。
  */
-export async function listAgentSessions(query: AgentSessionListQueryDto, harness = useAgentHarness()) {
-    return harness.listSessions(query);
+export async function listAgentSessions(query: AgentSessionListQueryDto, harness = useAgentHarness()): Promise<AgentSessionListPageDto> {
+    if ("listSessionPage" in harness && typeof harness.listSessionPage === "function") {
+        return harness.listSessionPage(query);
+    }
+    const items = await harness.listSessions(query);
+    return {
+        items,
+        total: items.length,
+        offset: query.offset ?? 0,
+        limit: query.limit ?? items.length,
+        hasMore: false,
+    };
 }
 
 /**

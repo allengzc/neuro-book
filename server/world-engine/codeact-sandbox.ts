@@ -2,7 +2,7 @@
  * CodeAct 沙箱执行环境。
  *
  * 设计目标：
- * - 超时控制（5s）
+ * - 超时控制（默认 5s，可由调用方覆盖）
  * - 结果大小限制（10KB）
  * - 只暴露 world API 给查询代码
  *
@@ -23,11 +23,17 @@
 export type WorldApi = {
     get(id: string, options?: { deref?: boolean; derefDepth?: number }): Promise<any>;
     getMany(ids: string[]): Promise<any[]>;
-    list(type: string): Promise<Array<{ id: string; name: string }>>;
+    list(type?: string): Promise<Array<{ id: string; name: string }>>;
     findRefs(targetId: string, sourceType?: string): Promise<Array<{ subjectId: string; attr: string }>>;
     searchText(query: string, options?: { k?: number; threshold?: number; types?: string[]; attrs?: string[]; at?: bigint }): Promise<Array<{ subjectId: string; attr: string; text: string; score: number }>>;
-    slices(options?: { from?: bigint; to?: bigint; limit?: number }): Promise<any[]>;
+    slices(options?: { from?: bigint; to?: bigint; limit?: number; withPatches?: boolean }): Promise<any[]>;
+    getSlice(id: string): Promise<any>;
+    parseTime(calendarText: string): bigint;
+    formatTime(instant: bigint): string;
     now(): bigint;
+    writeSlice?: (input: any) => Promise<{sliceId: string; issues: any[]}>;
+    editMutations?: (sliceId: string, edits: any[], meta?: any) => Promise<{sliceId: string; issues: any[]}>;
+    deleteSlice?: (sliceId: string) => Promise<{issues: any[]}>;
 };
 
 export type ExecuteCodeActOptions = {
@@ -99,7 +105,7 @@ export async function executeCodeAct(
     );
 
     const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("执行超时（5s 限制）")), timeout),
+        setTimeout(() => reject(new Error(`执行超时（${formatTimeout(timeout)} 限制）`)), timeout),
     );
 
     try {
@@ -123,4 +129,8 @@ export async function executeCodeAct(
         }
         throw new Error(String(error));
     }
+}
+
+function formatTimeout(timeout: number): string {
+    return timeout % 1000 === 0 ? `${timeout / 1000}s` : `${timeout}ms`;
 }

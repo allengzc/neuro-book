@@ -15,8 +15,7 @@ const argv = process.argv.slice(2);
 const projectPath = argv.find((a) => !a.startsWith("--")) ?? "workspace/ming-ding-zhi-shi-2";
 
 const tools = createWorldEngineTools();
-const writeTool = mustTool("write_world_slice");
-const queryTool = mustTool("execute_world_query");
+const executeWorldTool = mustTool("execute_world");
 
 const context: ToolExecutionContext = {
     harness: {} as ToolExecutionContext["harness"],
@@ -32,10 +31,17 @@ function mustTool(key: string): NeuroAgentTool {
     return tool;
 }
 
-async function executeTool(tool: NeuroAgentTool, input: Record<string, unknown>): Promise<any> {
-    const callId = `${tool.key}-${Date.now()}`;
-    const result = await tool.executeWithContext(context, callId, input);
-    return result.details;
+type WorldIssue = {code: string; subjectId?: string; attr?: string; message: string};
+type ExecuteWorldResult<TData> = {data: TData; issues: WorldIssue[]};
+
+const ERROR_ISSUE_CODES = new Set(["dangling-ref", "broken-relative"]);
+
+async function executeWorld<TData>(code: string): Promise<ExecuteWorldResult<TData>> {
+    const result = await executeWorldTool.executeWithContext(context, `execute_world-${Date.now()}`, {
+        projectPath,
+        code,
+    });
+    return result.details as unknown as ExecuteWorldResult<TData>;
 }
 
 function reset() {
@@ -205,20 +211,29 @@ async function seed() {
 
     const results: any[] = [];
     for (const slice of slices) {
-        const result = await executeTool(writeTool, {projectPath, ...slice});
-        console.log(`  ✍️  [${slice.kind || "event"}] ${slice.time} ${slice.title} -> slice ${result.sliceId}`);
+        const result = await executeWorld<{sliceId: string}>(`
+            const slice = ${JSON.stringify(slice)};
+            const written = await world.writeSlice({
+                time: world.parseTime(slice.time),
+                title: slice.title,
+                kind: slice.kind,
+                patches: slice.patches,
+            });
+            return {sliceId: written.sliceId};
+        `);
+        console.log(`  ✍️  [${slice.kind || "event"}] ${slice.time} ${slice.title} -> slice ${result.data.sliceId}`);
         results.push(result);
     }
 
     const totalIssues = results.flatMap((r) => r.issues || []);
-    const eIssues = totalIssues.filter((i: any) => i.level === "error").length;
-    const aIssues = totalIssues.filter((i: any) => i.level === "note").length;
+    const eIssues = totalIssues.filter((issue) => ERROR_ISSUE_CODES.has(issue.code)).length;
+    const aIssues = totalIssues.length - eIssues;
 
     console.log(`\n写入完成：${slices.length} 个切面；E 类 issues ${eIssues}，提示类 issues ${aIssues}。`);
 
     if (eIssues > 0) {
         console.error("\n❌ 存在 E 类 issues，必须修复：");
-        totalIssues.filter((i: any) => i.level === "error").forEach((issue: any) => console.error(JSON.stringify(issue, null, 2)));
+        totalIssues.filter((issue) => ERROR_ISSUE_CODES.has(issue.code)).forEach((issue) => console.error(JSON.stringify(issue, null, 2)));
         process.exit(1);
     }
 }
@@ -226,24 +241,28 @@ async function seed() {
 async function verify() {
     console.log("\n🔎 校验快照：");
 
-    const snapshot = await executeTool(queryTool, {
-        projectPath,
-        code: `
-const counts = {
-    world: (await world.list("world")).length,
-    faction: (await world.list("faction")).length,
-    location: (await world.list("location")).length,
-    character: (await world.list("character")).length,
-};
+    const snapshotResult = await executeWorld<{
+        counts: Record<string, number>;
+        worldList: string[];
+        viktorEvents: string[];
+        veiluosiLocation: string;
+        sliceCount: number;
+    }>(`
+        const counts = {
+            world: (await world.list("world")).length,
+            faction: (await world.list("faction")).length,
+            location: (await world.list("location")).length,
+            character: (await world.list("character")).length,
+        };
 
-const worldList = (await world.list("world")).map(s => s.id);
-const viktorEvents = (await world.get("viktor-brauer")).events || [];
-const veiluosiLocation = (await world.get("veiluosi")).location;
-const sliceCount = (await world.slices()).length;
+        const worldList = (await world.list("world")).map(s => s.id);
+        const viktorEvents = (await world.get("viktor-brauer")).events || [];
+        const veiluosiLocation = (await world.get("veiluosi")).location;
+        const sliceCount = (await world.slices()).length;
 
-return {counts, worldList, viktorEvents, veiluosiLocation, sliceCount};
-        `,
-    });
+        return {counts, worldList, viktorEvents, veiluosiLocation, sliceCount};
+    `);
+    const snapshot = snapshotResult.data;
 
     console.log(JSON.stringify(snapshot, null, 2));
 

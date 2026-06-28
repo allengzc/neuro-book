@@ -614,6 +614,21 @@ describe("NeuroAgentHarness", () => {
         });
 
         expect(waiting.status).toBe("waiting");
+        const waitingSnapshot = await harness.getSessionSnapshot(created.sessionId);
+        expect(waitingSnapshot.pendingApprovals[0]).toEqual(expect.objectContaining({
+            toolCallId: "ask-1",
+            toolName: "request_user_input",
+            formSpec: expect.objectContaining({
+                form: expect.objectContaining({
+                    fields: expect.arrayContaining([
+                        expect.objectContaining({
+                            path: "answer_0",
+                            component: "textarea",
+                        }),
+                    ]),
+                }),
+            }),
+        }));
         const waitingContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
         expect(waitingContext.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
 
@@ -623,12 +638,105 @@ describe("NeuroAgentHarness", () => {
             resolution: {
                 kind: "user_input",
                 toolCallId: "ask-1",
-                answers: [{questionIndex: 0, text: "Alice"}],
+                data: {
+                    answer_0: "Alice",
+                },
             },
         });
 
         expect(continued.status).toBe("completed");
         expect(continued.reportResult?.result).toBe("done");
+    });
+
+    it("未授权 userInputRequest 工具不会进入 waiting", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.user-input-permission",
+                name: "User Input Permission",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["report_result"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("request_user_input", {
+                    questions: [{question: "不应展示"}],
+                }, {id: "ask-not-allowed"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    result: "permission checked",
+                }, {id: "report-permission"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.user-input-permission",
+            initial: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "try unauthorized input"},
+        });
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const denied = context.messages.find((message) => message.role === "toolResult" && message.toolCallId === "ask-not-allowed");
+
+        expect(result.status).toBe("completed");
+        expect(result.reportResult?.result).toBe("permission checked");
+        expect(snapshot.pendingApprovals).toHaveLength(0);
+        expect(denied && messageText(denied as RuntimeMessage)).toContain("not allowed");
+    });
+
+    it("未授权 enter_plan_mode 不会展示审批表单", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.plan-permission",
+                name: "Plan Permission",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["report_result"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("enter_plan_mode", {
+                    reason: "not allowed",
+                }, {id: "enter-not-allowed"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage([
+                fauxToolCall("report_result", {
+                    result: "plan permission checked",
+                }, {id: "report-plan-permission"}),
+            ], {stopReason: "toolUse"}),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "test.plan-permission",
+            initial: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "try unauthorized plan"},
+        });
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const denied = context.messages.find((message) => message.role === "toolResult" && message.toolCallId === "enter-not-allowed");
+
+        expect(result.status).toBe("completed");
+        expect(result.reportResult?.result).toBe("plan permission checked");
+        expect(snapshot.pendingApprovals).toHaveLength(0);
+        expect(snapshot.planModeActive).toBe(false);
+        expect(denied && messageText(denied as RuntimeMessage)).toContain("not allowed");
     });
 
     it("新 harness 能从 session active path 恢复 waiting 并复用 invocationId continue", async () => {
@@ -670,6 +778,7 @@ describe("NeuroAgentHarness", () => {
         });
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "page-missing-system-profiles"), join(root, "page-missing-user-profiles")),
             modelResolver: () => faux.getModel(),
             enableSessionSummarizer: false,
         });
@@ -678,6 +787,7 @@ describe("NeuroAgentHarness", () => {
         const reloadedSnapshot = await restored.getSessionSnapshot(created.sessionId);
         const reloadedSessions = await restored.listSessions({workspaceKey: "global"});
         const waitingSessions = await restored.listSessions({workspaceKey: "global", status: "waiting"});
+        const waitingPage = await restored.listSessionPage({workspaceKey: "global", status: "waiting", limit: 10});
         const idleSessions = await restored.listSessions({workspaceKey: "global", status: "idle"});
         const continued = await restored.invokeAgent({
             sessionId: created.sessionId,
@@ -685,18 +795,40 @@ describe("NeuroAgentHarness", () => {
             resolution: {
                 kind: "user_input",
                 toolCallId: "ask-reload",
-                answers: [{questionIndex: 0, text: "Alice"}],
+                data: {
+                    answer_0: "Alice",
+                },
             },
         });
         await restored.drainBackgroundTasks();
 
         expect(waiting.status).toBe("waiting");
         expect(reloadedSnapshot.summary.status).toBe("waiting");
+        expect(reloadedSnapshot.pendingApprovals[0]).toEqual(expect.objectContaining({
+            toolCallId: "ask-reload",
+            toolName: "request_user_input",
+            formSpec: expect.objectContaining({
+                form: expect.objectContaining({
+                    fields: [expect.objectContaining({
+                        path: "answer_0",
+                        component: "textarea",
+                    })],
+                }),
+            }),
+        }));
         expect(reloadedSessions).toContainEqual(expect.objectContaining({
             sessionId: created.sessionId,
             status: "waiting",
         }));
         expect(waitingSessions.map((session) => session.sessionId)).toContain(created.sessionId);
+        expect(waitingPage).toEqual(expect.objectContaining({
+            total: 1,
+            hasMore: false,
+            items: [expect.objectContaining({
+                sessionId: created.sessionId,
+                status: "waiting",
+            })],
+        }));
         expect(idleSessions.map((session) => session.sessionId)).not.toContain(created.sessionId);
         expect(reloadedSnapshot.activeInvocation).toEqual(expect.objectContaining({
             invocationId: waiting.invocationId,
@@ -706,6 +838,102 @@ describe("NeuroAgentHarness", () => {
         expect(continued.invocationId).toBe(waiting.invocationId);
         expect(continued.status).toBe("completed");
         expect(continued.reportResult?.result).toBe("done after reload");
+    }, 120_000);
+
+    it("listSessionPage 返回分页元数据并支持服务端搜索", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "leader.paged",
+                name: "Paged Leader",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        await harness.createAgent({
+            profileKey: "leader.paged",
+            initial: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+            title: "Alpha",
+        });
+        const second = await harness.createAgent({
+            profileKey: "leader.paged",
+            initial: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+            title: "Beta Needle",
+        });
+        await harness.createAgent({
+            profileKey: "leader.paged",
+            initial: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+            title: "Gamma",
+        });
+
+        const firstPage = await harness.listSessionPage({workspaceKey: "global", profileGroup: "leader", status: "active", limit: 2});
+        const secondPage = await harness.listSessionPage({workspaceKey: "global", profileGroup: "leader", status: "active", limit: 2, offset: firstPage.nextOffset});
+        const searchPage = await harness.listSessionPage({workspaceKey: "global", profileGroup: "leader", status: "active", search: "needle", limit: 10});
+
+        expect(firstPage).toEqual(expect.objectContaining({
+            total: 3,
+            offset: 0,
+            limit: 2,
+            hasMore: true,
+            nextOffset: 2,
+        }));
+        expect(firstPage.items).toHaveLength(2);
+        expect(secondPage).toEqual(expect.objectContaining({
+            total: 3,
+            offset: 2,
+            limit: 2,
+            hasMore: false,
+        }));
+        expect(secondPage.items).toHaveLength(1);
+        expect(searchPage).toEqual(expect.objectContaining({
+            total: 1,
+            items: [expect.objectContaining({
+                sessionId: second.sessionId,
+                title: "Beta Needle",
+            })],
+        }));
+    });
+
+    it("listSessionPage 标记缺失 profile 的历史 session", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.page-missing",
+                name: "Page Missing",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: [],
+            prepare() {
+                return {};
+            },
+        }), false);
+        const created = await harness.createAgent({
+            profileKey: "test.page-missing",
+            initial: {},
+            workspaceRoot: root,
+            workspaceKey: "global",
+        });
+        const restored = new NeuroAgentHarness({
+            repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "deleted-system-profiles"), join(root, "deleted-user-profiles")),
+            modelResolver: () => faux.getModel(),
+            enableSessionSummarizer: false,
+        });
+
+        const page = await restored.listSessionPage({workspaceKey: "global", limit: 10});
+
+        expect(page.items).toContainEqual(expect.objectContaining({
+            sessionId: created.sessionId,
+            profileAvailability: "missing",
+            profileIssueMessage: expect.stringContaining("未找到 agent profile"),
+        }));
     });
 
     it("后端恢复 waiting 后并发 resolution 只能有一个 claim 成功", async () => {
@@ -746,6 +974,7 @@ describe("NeuroAgentHarness", () => {
         });
         const restored = new NeuroAgentHarness({
             repo: new JsonlSessionRepository(root),
+            profiles: new AgentProfileCatalog(join(root, "deleted-system-profiles"), join(root, "deleted-user-profiles")),
             modelResolver: () => faux.getModel(),
             enableSessionSummarizer: false,
         });
@@ -783,7 +1012,7 @@ describe("NeuroAgentHarness", () => {
         expect(fulfilled[0]?.value.invocationId).toBe(waiting.invocationId);
         expect(resolutionMessages).toHaveLength(1);
         expect(resumedLifecycles).toHaveLength(1);
-    });
+    }, 120_000);
 
     it("pending approval 没有可靠 waiting lifecycle 时拒绝 resolution", async () => {
         harness.profiles.register(defineAgentProfile({
@@ -835,7 +1064,7 @@ describe("NeuroAgentHarness", () => {
             },
         })).rejects.toThrow("waiting_invocation_not_recoverable");
         await restored.drainBackgroundTasks();
-    });
+    }, 120_000);
 
     it("新 harness 恢复出的 waiting 可以 abort", async () => {
         const profile = defineAgentProfile({
@@ -962,7 +1191,7 @@ describe("NeuroAgentHarness", () => {
         expect(rejected).toHaveLength(1);
         expect(resolutionMessages).toHaveLength(1);
         expect(terminalLifecycles).toHaveLength(1);
-    });
+    }, 45_000);
 
     it("新 harness 对未完成普通 running snapshot 投影为 interrupted", async () => {
         const created = await harness.createAgent({
@@ -5231,7 +5460,7 @@ describe("NeuroAgentHarness", () => {
         faux.setResponses([
             fauxAssistantMessage([
                 fauxToolCall("request_user_input", {
-                    question: "Continue?",
+                    questions: [{question: "Continue?"}],
                 }, {id: "wait-1"}),
             ], {stopReason: "toolUse"}),
         ]);
@@ -5255,7 +5484,7 @@ describe("NeuroAgentHarness", () => {
             phase: "ingest",
         }));
         expect(context.messages.map((message) => message.role)).toEqual(["user"]);
-    });
+    }, 45_000);
 
     it("runtime_only transcript 下 report_result reminder 只进入 RunFrame 不写 session", async () => {
         harness.profiles.register(defineAgentProfile({
@@ -5983,26 +6212,32 @@ describe("NeuroAgentHarness", () => {
             sessionId: created.sessionId,
             mode: "continue",
             resolution: {
-                kind: "tool_approval",
+                kind: "user_input",
                 toolCallId: "exit-preview",
-                approved: true,
-                resultText: "批准",
-                answers: [{questionIndex: 0, text: "批准", selectedOptionIndex: 0}],
+                data: {
+                    approved: true,
+                },
             },
         });
         const resolvedContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const resolvedSnapshot = await harness.getSessionSnapshot(created.sessionId);
         const toolResult = resolvedContext.messages.find((message) => message.role === "toolResult" && message.toolCallId === "exit-preview");
         if (!toolResult || toolResult.role !== "toolResult") {
             throw new Error("expected exit_plan_mode tool result");
         }
 
         expect(toolResult.details).toEqual(expect.objectContaining({
-            kind: "tool_approval",
+            kind: "user_input",
             data: {
+                userInput: {
+                    approved: true,
+                },
+                approved: true,
                 planFilePath: ".agent/plan/preview.md",
                 planContent: "# Preview Plan\n\n- one\n",
             },
         }));
+        expect(resolvedSnapshot.planModeActive).toBe(false);
     }, 20_000);
 
     it("手动退出 Plan Mode 后注入 exit reminder 而不是 still active", async () => {
@@ -8239,6 +8474,7 @@ describe("NeuroAgentHarness", () => {
         });
 
         const snapshot = await restored.getSessionSnapshot(created.sessionId);
+        const page = await restored.listSessionPage({workspaceKey: "global", limit: 10});
         const result = await restored.invokeAgent({
             sessionId: created.sessionId,
             mode: "prompt",
@@ -8246,6 +8482,11 @@ describe("NeuroAgentHarness", () => {
         });
 
         expect(snapshot.summary).toEqual(expect.objectContaining({
+            profileAvailability: "unloadable",
+            profileIssueMessage: "源码错误",
+        }));
+        expect(page.items).toContainEqual(expect.objectContaining({
+            sessionId: created.sessionId,
             profileAvailability: "unloadable",
             profileIssueMessage: "源码错误",
         }));

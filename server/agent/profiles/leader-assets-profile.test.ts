@@ -108,9 +108,7 @@ describe("assets builtin v3 profiles", () => {
             "exit_plan_mode",
             "task_create",
             "task_set_status",
-            "execute_world_query",
-            "write_world_slice",
-            "delete_world_slice",
+            "execute_world",
             "execute_sql",
             "variable_schema",
             "variable_read",
@@ -142,9 +140,8 @@ describe("assets builtin v3 profiles", () => {
         expect(visiblePrompt).toContain("variable_schema");
         expect(visiblePrompt).toContain("variable_read");
         expect(visiblePrompt).toContain("variable_patch");
-        expect(visiblePrompt).toContain("execute_world_query");
-        expect(visiblePrompt).toContain("write_world_slice");
-        expect(visiblePrompt).toContain("delete_world_slice");
+        expect(visiblePrompt).toContain("execute_world");
+        expect(visiblePrompt).toContain("world.editMutations");
         expect(visiblePrompt).toContain("writer");
         expect(visiblePrompt).toContain("retrieval");
         expect(visiblePrompt).toContain("`researcher` 是联网研究专用 agent");
@@ -526,7 +523,7 @@ describe("assets builtin v3 profiles", () => {
             "write",
             "edit",
             "bash",
-            "execute_world_query",
+            "execute_world",
             "report_result",
         ]));
         expect(writerProfile.rootToolKeys).not.toContain("apply_patch");

@@ -3,6 +3,7 @@ import Dropdown from "nbook/app/components/common/Dropdown.vue";
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import ReferencePlainTextEditor from "nbook/app/components/common/form/ReferencePlainTextEditor.vue";
 import {parseSelectionRefChip, type InlineEditReference, type InlineEditTask} from "nbook/app/utils/inline-editor-selection";
+import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 
 interface InlineTaskOption {
     id: InlineEditTask;
@@ -14,15 +15,17 @@ interface InlineTaskOption {
 const props = defineProps<{
     modelValue: string;
     loading: boolean;
-    statusText: string;
     selectedModel: string;
-    selectedReasoning: string;
     expanded: boolean;
     task: InlineEditTask;
     references: InlineEditReference[];
     currentPath: string;
     sessionLabel: string;
+    sessions: AgentSessionSummaryDto[];
+    activeSessionId: number | null;
+    sessionLoading: boolean;
     editPreview: string;
+    resultText: string;
 }>();
 
 const emit = defineEmits<{
@@ -33,8 +36,10 @@ const emit = defineEmits<{
     (e: "stop"): void;
     (e: "height-change", value: number): void;
     (e: "clear-reference", index: number): void;
-    (e: "bind-session"): void;
-    (e: "change-model"): void;
+    (e: "hover-reference", reference: InlineEditReference | null): void;
+    (e: "select-session", sessionId: number): void;
+    (e: "create-session"): void;
+    (e: "refresh-sessions"): void;
 }>();
 
 const rootRef = ref<HTMLDivElement | null>(null);
@@ -61,6 +66,34 @@ const taskDropdownItems = computed<DropdownItem[]>(() => taskOptions.value.map((
 
 const currentTask = computed(() => taskOptions.value.find((option) => option.id === props.task) ?? taskOptions.value[0]!);
 const canSubmit = computed(() => props.loading || Boolean(props.modelValue.trim()) || props.references.length > 0 || Boolean(props.currentPath));
+const sessionDropdownItems = computed<DropdownItem[]>(() => {
+    const items = props.sessions.length > 0
+        ? props.sessions.map((session) => ({
+            label: sessionTitle(session),
+            value: `session:${String(session.sessionId)}`,
+            iconClass: session.status === "running" || session.status === "waiting" ? "i-lucide-loader-circle" : "i-lucide-message-square-more",
+            active: session.sessionId === props.activeSessionId,
+            rightIconClass: session.sessionId === props.activeSessionId ? "i-lucide-check" : undefined,
+        }))
+        : [{
+            label: t("ide.inlineAi.noInlineSession"),
+            value: "__empty",
+            iconClass: "i-lucide-circle-dashed",
+        }];
+    return [
+        ...items,
+        {
+            label: t("ide.inlineAi.refreshSessions"),
+            value: "__refresh",
+            iconClass: "i-lucide-refresh-cw",
+        },
+        {
+            label: t("ide.inlineAi.createSession"),
+            value: "__create",
+            iconClass: "i-lucide-plus",
+        },
+    ];
+});
 
 /**
  * 选择 Inline AI 任务。
@@ -68,6 +101,27 @@ const canSubmit = computed(() => props.loading || Boolean(props.modelValue.trim(
 function selectTask(value: string): void {
     if (taskOptions.value.some((option) => option.id === value)) {
         emit("update:task", value as InlineEditTask);
+    }
+}
+
+/**
+ * 处理 Inline AI session 菜单。
+ */
+function selectSessionMenu(value: string): void {
+    if (value === "__refresh") {
+        emit("refresh-sessions");
+        return;
+    }
+    if (value === "__create") {
+        emit("create-session");
+        return;
+    }
+    if (!value.startsWith("session:")) {
+        return;
+    }
+    const sessionId = Number(value.slice("session:".length));
+    if (Number.isInteger(sessionId) && sessionId > 0) {
+        emit("select-session", sessionId);
     }
 }
 
@@ -107,16 +161,10 @@ function referenceLabel(reference: InlineEditReference): string {
 }
 
 /**
- * 读取引用定位状态。
+ * 返回 session 在 PromptBar 菜单里的展示名。
  */
-function referenceMatchLabel(reference: InlineEditReference): string {
-    if (reference.match === "unique") {
-        return t("ide.inlineAi.located");
-    }
-    if (reference.match === "ambiguous") {
-        return t("ide.inlineAi.ambiguous");
-    }
-    return t("ide.inlineAi.notLocated");
+function sessionTitle(session: AgentSessionSummaryDto): string {
+    return session.title || `Inline AI #${String(session.sessionId)}`;
 }
 
 watch(() => props.expanded, async (expanded) => {
@@ -127,7 +175,7 @@ watch(() => props.expanded, async (expanded) => {
     }
 }, {immediate: true});
 
-watch(() => [props.modelValue, props.references.length, props.editPreview], async () => {
+watch(() => [props.modelValue, props.references.length, props.editPreview, props.resultText], async () => {
     await nextTick();
     reportHeight();
 });
@@ -162,7 +210,7 @@ onBeforeUnmount(() => {
                 <span class="i-lucide-chevron-down h-3.5 w-3.5"></span>
             </button>
 
-            <div class="w-full overflow-hidden rounded-xl border border-[var(--prompt-border)] bg-[var(--prompt-bg)] shadow-2xl shadow-black/10 transition-all focus-within:border-[var(--accent-main)] focus-within:ring-1 focus-within:ring-[var(--accent-main)]">
+            <div class="w-full overflow-visible rounded-xl border border-[var(--prompt-border)] bg-[var(--prompt-bg)] shadow-2xl shadow-black/10 transition-all focus-within:border-[var(--accent-main)] focus-within:ring-1 focus-within:ring-[var(--accent-main)]">
                 <!-- Inline AI 修改预览 -->
                 <div v-if="props.editPreview" class="border-b border-[var(--border-color)] bg-[var(--bg-sidebar)] px-4 py-2 text-xs text-[var(--text-secondary)]">
                     <div class="mb-1 flex items-center gap-2 font-medium text-[var(--text-main)]">
@@ -172,27 +220,44 @@ onBeforeUnmount(() => {
                     <div class="line-clamp-3 whitespace-pre-wrap leading-5">{{ props.editPreview }}</div>
                 </div>
 
+                <!-- Inline AI 结果摘要 -->
+                <div v-if="props.resultText && !props.editPreview" class="border-b border-[var(--border-color)] bg-[var(--bg-sidebar)] px-4 py-2 text-xs text-[var(--text-secondary)]">
+                    <div class="mb-1 flex items-center gap-2 font-medium text-[var(--text-main)]">
+                        <span class="i-lucide-check-check h-3.5 w-3.5 text-emerald-500"></span>
+                        <span>{{ t("ide.inlineAi.result") }}</span>
+                    </div>
+                    <div class="line-clamp-3 whitespace-pre-wrap leading-5">{{ props.resultText }}</div>
+                </div>
+
                 <!-- Inline AI 引用区 -->
-                <div class="border-b border-[var(--border-color)] px-4 py-2">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <span class="inline-flex items-center gap-1 text-xs font-medium text-[var(--text-secondary)]">
+                <div class="border-b border-[var(--border-color)] px-4 py-1.5">
+                    <div class="flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1">
+                        <span class="inline-flex h-5 items-center gap-1 text-xs font-medium text-[var(--text-secondary)]">
                             <span class="i-lucide-quote h-3.5 w-3.5"></span>
                             <span>{{ t("ide.inlineAi.references") }}</span>
                         </span>
-                        <button
+                        <span
                             v-for="(reference, index) in props.references"
                             :key="`${reference.ref}:${String(index)}`"
-                            type="button"
-                            class="group inline-flex max-w-[18rem] items-center gap-1.5 rounded-full border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 py-1 text-xs text-[var(--text-main)] transition-colors hover:border-rose-500/50 hover:text-rose-600"
-                            :title="`${reference.ref} · ${referenceMatchLabel(reference)}`"
-                            @click="emit('clear-reference', index)"
+                            class="group inline-flex h-5 max-w-[18rem] items-center gap-1.5 rounded-full border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-xs leading-none text-[var(--text-main)] transition-colors hover:border-rose-500/50"
+                            :title="reference.ref"
+                            @mouseenter="emit('hover-reference', reference)"
+                            @mouseleave="emit('hover-reference', null)"
                         >
-                            <span class="i-lucide-text-select h-3.5 w-3.5 text-[var(--accent-text)] group-hover:hidden"></span>
-                            <span class="i-lucide-x hidden h-3.5 w-3.5 group-hover:inline-block"></span>
+                            <span class="i-lucide-text-select h-3.5 w-3.5 shrink-0 text-[var(--accent-text)]"></span>
                             <span class="truncate">{{ referenceLabel(reference) }}</span>
-                            <span class="shrink-0 text-[10px] text-[var(--text-muted)]">{{ referenceMatchLabel(reference) }}</span>
-                        </button>
-                        <span v-if="props.references.length === 0" class="text-xs text-[var(--text-muted)]">
+                            <button
+                                type="button"
+                                class="-mr-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-rose-500/10 hover:text-rose-600 focus:bg-rose-500/10 focus:text-rose-600 focus:outline-none"
+                                :title="t('ide.inlineAi.clearReference')"
+                                @focus="emit('hover-reference', reference)"
+                                @blur="emit('hover-reference', null)"
+                                @click.stop="emit('clear-reference', index); emit('hover-reference', null)"
+                            >
+                                <span class="i-lucide-x h-3 w-3"></span>
+                            </button>
+                        </span>
+                        <span v-if="props.references.length === 0" class="inline-flex h-5 items-center text-xs text-[var(--text-muted)]">
                             {{ t("ide.inlineAi.noReferenceBound") }}
                         </span>
                     </div>
@@ -222,26 +287,23 @@ onBeforeUnmount(() => {
                             </button>
                         </Dropdown>
 
-                        <button class="inline-flex h-8 max-w-[12rem] items-center gap-1.5 rounded-md px-2.5 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" type="button" :title="t('ide.inlineAi.bindSession')" @click="emit('bind-session')">
-                            <span class="i-lucide-message-square-more h-3.5 w-3.5 text-[var(--text-muted)]"></span>
-                            <span class="truncate">{{ props.sessionLabel }}</span>
-                        </button>
+                        <Dropdown :items="sessionDropdownItems" root-class="relative inline-block" menu-class="left-0 bottom-full mb-1.5 w-56" compact @select="selectSessionMenu">
+                            <button class="inline-flex h-8 max-w-[14rem] items-center gap-1.5 rounded-md px-2.5 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" type="button" :title="t('ide.inlineAi.selectSession')">
+                                <span :class="props.sessionLoading ? 'i-lucide-loader-circle animate-spin' : 'i-lucide-message-square-more'" class="h-3.5 w-3.5 text-[var(--text-muted)]"></span>
+                                <span class="truncate">{{ props.sessionLabel }}</span>
+                                <span class="i-lucide-chevron-up h-3 w-3 text-[var(--text-muted)]"></span>
+                            </button>
+                        </Dropdown>
 
-                        <button class="inline-flex h-8 max-w-[12rem] items-center gap-1.5 rounded-md px-2.5 text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" type="button" :title="t('ide.inlineAi.switchModel')" @click="emit('change-model')">
+                        <span class="inline-flex h-8 max-w-[12rem] items-center gap-1.5 rounded-md px-2.5 text-xs text-[var(--text-secondary)]" :title="props.selectedModel">
                             <span class="i-lucide-cpu h-3.5 w-3.5 text-[var(--text-muted)]"></span>
                             <span class="truncate">{{ props.selectedModel }}</span>
-                        </button>
-
-                        <span class="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-[var(--text-secondary)]" :title="t('ide.inlineAi.reasoningTitle', {reasoning: props.selectedReasoning})">
-                            <span class="i-lucide-brain h-3.5 w-3.5 text-[var(--text-muted)]"></span>
-                            <span>{{ props.selectedReasoning }}</span>
                         </span>
                     </div>
 
                     <div class="flex items-center gap-3">
                         <div class="hidden text-right sm:block">
                             <div class="text-[10px] uppercase tracking-[0.24em] text-[var(--text-muted)]">INLINE AI</div>
-                            <div class="max-w-[14rem] truncate text-xs text-[var(--text-secondary)]">{{ props.statusText }}</div>
                         </div>
 
                         <button

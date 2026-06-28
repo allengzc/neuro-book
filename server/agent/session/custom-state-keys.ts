@@ -19,6 +19,11 @@ export const WORLD_FOCUS_STATE_KEY = "world.focus";
 export const AGENT_PLAN_MODE_STATE_KEY = "agent.planMode";
 
 /**
+ * 等待用户 resolution 的工具表单 metadata，后缀为 toolCallId。
+ */
+export const AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX = "agent.pendingUserResolution.";
+
+/**
  * Session 展示标题/摘要后台维护状态。
  */
 export const SESSION_SUMMARIZER_STATE_KEY = "summarizer.state";

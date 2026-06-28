@@ -1,4 +1,4 @@
-import type {Message} from "nbook/server/agent/messages/types";
+import type {JsonValue, Message} from "nbook/server/agent/messages/types";
 import {createTextToolResult} from "nbook/server/agent/messages/message-utils";
 import type {AgentResolution} from "nbook/server/agent/tools/types";
 
@@ -56,20 +56,37 @@ export function resolutionToToolResult(resolution: AgentResolution, pending: {to
     }
 
     if (resolution.kind === "user_input") {
+        if (resolution.answers) {
+            return createTextToolResult({
+                toolCallId: pending.toolCallId,
+                toolName: pending.toolName,
+                text: [...resolution.answers]
+                    .sort((left, right) => left.questionIndex - right.questionIndex)
+                    .map((answer) => `${answer.questionIndex + 1}. ${answer.text}`)
+                    .join("\n"),
+                details: resolution,
+            });
+        }
+        const dataDetails = userInputDataDetails(resolution.data);
         return createTextToolResult({
             toolCallId: pending.toolCallId,
             toolName: pending.toolName,
-            text: resolution.answers
-                .sort((left, right) => left.questionIndex - right.questionIndex)
-                .map((answer) => `${answer.questionIndex + 1}. ${answer.text}`)
-                .join("\n"),
-            details: resolution,
+            text: userInputDataText(dataDetails.data.userInput),
+            details: {
+                ...resolution,
+                data: dataDetails.data,
+            },
         });
     }
 
-    // tool_approval 类型：优先从 data.userInput 提取用户输入，向后兼容 answers
-    const details = resolution.data && typeof resolution.data === "object" && "userInput" in resolution.data
-        ? {...resolution, data: {...resolution.data}}
+    // tool_approval 类型：保留结构化 data，并向后兼容 answers 作为 userInput。
+    const details = resolution.data && typeof resolution.data === "object" && !Array.isArray(resolution.data)
+        ? {
+            ...resolution,
+            data: "userInput" in resolution.data
+                ? {...resolution.data}
+                : resolution.answers ? {...resolution.data, userInput: resolution.answers} : {...resolution.data},
+        }
         : resolution.answers
             ? {...resolution, data: {userInput: resolution.answers}}
             : resolution;
@@ -83,4 +100,27 @@ export function resolutionToToolResult(resolution: AgentResolution, pending: {to
         isError: !resolution.approved,
         details,
     });
+}
+
+/**
+ * Low-Code Form 提交统一包进 data.userInput，便于工具恢复执行时提取。
+ */
+function userInputDataDetails(data: JsonValue | undefined): {
+    data: {userInput: unknown};
+} {
+    if (data && typeof data === "object" && !Array.isArray(data) && "userInput" in data) {
+        return {data: data as {userInput: unknown}};
+    }
+    return {data: {userInput: data}};
+}
+
+function userInputDataText(data: unknown): string {
+    if (typeof data === "string") {
+        return data;
+    }
+    try {
+        return JSON.stringify(data ?? {}, null, 2);
+    } catch {
+        return String(data);
+    }
 }

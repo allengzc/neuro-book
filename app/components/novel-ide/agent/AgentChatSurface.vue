@@ -19,12 +19,13 @@ import AgentLinkedAgentPanel from "nbook/app/components/novel-ide/agent/AgentLin
 import AgentSessionDialog from "nbook/app/components/novel-ide/agent/AgentSessionDialog.vue";
 import AgentSessionTreeDialog from "nbook/app/components/novel-ide/agent/AgentSessionTreeDialog.vue";
 import {deriveAgentTreeState, resolveBranchSwitchTarget} from "nbook/app/components/novel-ide/agent/session-tree";
+import {AgentSessionListRequestGuard} from "nbook/app/components/novel-ide/agent/session-list-request-guard";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {formatCost, formatCostExact, usingCnyRate} from "nbook/app/utils/cost-format";
 import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
-import type {AgentQueuedMessageDto, AgentSessionListQueryDto, AgentSessionSnapshotDto, AgentSessionSummaryDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentQueuedMessageDto, AgentSessionListPageDto, AgentSessionListQueryDto, AgentSessionSnapshotDto, AgentSessionSummaryDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {InvokeAgentResult} from "nbook/server/agent/harness/types";
@@ -65,9 +66,17 @@ const chatFlowRef = ref<InstanceType<typeof AgentChatFlow> | null>(null);
 const inputRef = ref<InstanceType<typeof AgentComposer> | null>(null);
 
 const sessions = ref<AgentSessionSummaryDto[]>([]);
+const sessionListTotal = ref(0);
+const sessionListHasMore = ref(false);
+const sessionListNextOffset = ref<number | null>(null);
 const activeSessionId = ref<number | null>(null);
+const inlineEditorSessions = ref<AgentSessionSummaryDto[]>([]);
+const inlineEditorSessionId = ref<number | null>(null);
+const inlineEditorSessionLoading = ref(false);
+const inlineEditorResultText = ref("");
 const linkedAgentPanelOpen = ref(false);
 const loadingSession = ref(false);
+const sessionListLoading = ref(false);
 const linkedAgentsLoading = ref(false);
 const previousSelectedFilePath = ref<string | null>(props.selectedFilePath || null);
 const fileChangedSinceLastSend = ref(false);
@@ -92,15 +101,45 @@ const userInputNotes = ref<Record<string, string>>({});
 let defaultProfileResolveRequest = 0;
 let ensureSessionRequest: Promise<AgentSessionSummaryDto[]> | null = null;
 let suppressLeaderProfileReset = false;
+let inlineEditorSessionRequestId = 0;
+const sessionListRequestGuard = new AgentSessionListRequestGuard();
 const hiddenWritingModeProfileKeys = new Set(["rp.leader", "simulator.leader"]);
+
+/**
+ * 应用 session 列表分页结果。
+ */
+function applySessionListPage(page: AgentSessionListPageDto, append: boolean): AgentSessionSummaryDto[] {
+    if (append) {
+        const seenSessionIds = new Set(sessions.value.map((sessionSummary) => sessionSummary.sessionId));
+        sessions.value = [
+            ...sessions.value,
+            ...page.items.filter((sessionSummary) => {
+                if (seenSessionIds.has(sessionSummary.sessionId)) {
+                    return false;
+                }
+                seenSessionIds.add(sessionSummary.sessionId);
+                return true;
+            }),
+        ];
+    } else {
+        sessions.value = page.items;
+    }
+    sessionListTotal.value = page.total;
+    sessionListHasMore.value = page.hasMore;
+    sessionListNextOffset.value = page.nextOffset ?? null;
+    return sessions.value;
+}
 
 const sanitizeHtml = ref<((html: string) => string) | null>(null);
 const session = useAgentSession();
+const inlineEditorSession = useAgentSession();
 const agentApi = useAgentSessionApi();
 const configApi = useConfigApi();
 const costDisplay = useCostDisplay();
 const messages = session.messages;
 const running = session.running;
+const inlineEditorMessages = inlineEditorSession.messages;
+const inlineEditorRunning = inlineEditorSession.running;
 const connectionStatus = session.connectionStatus;
 const runPhase = session.runPhase;
 const pendingUserInputSession = session.pendingUserInputSession;
@@ -156,10 +195,7 @@ const linkedAgentCount = computed(() => linkedAgents.value.length + linkedByAgen
 const planModeActive = computed(() => activeSnapshot.value?.planModeActive ?? false);
 const renderNodes = computed(() => messages.value);
 const inlineEditPreview = computed(() => {
-    if (activeSummary.value?.profileKey !== INLINE_EDITOR_PROFILE_KEY) {
-        return "";
-    }
-    const toolCall = messages.value
+    const toolCall = inlineEditorMessages.value
         .flatMap((message) => message.toolCalls ?? [])
         .filter((item) => (item.name === "edit" || item.name === "write") && (item.status === "streaming" || item.status === "running"))
         .at(-1);
@@ -172,10 +208,13 @@ const inlineEditPreview = computed(() => {
     return [`${status}${path ? `：${path}` : ""}`, result].filter(Boolean).join("\n");
 });
 const inlineEditorSessionLabel = computed(() => {
-    if (activeSummary.value?.profileKey !== INLINE_EDITOR_PROFILE_KEY) {
+    const selected = inlineEditorSessions.value.find((item) => item.sessionId === inlineEditorSessionId.value)
+        ?? inlineEditorSession.snapshot.value?.summary
+        ?? null;
+    if (!selected) {
         return t("agent.chatSurface.inlineSessionLabel");
     }
-    return activeSummary.value.title || `Inline AI #${String(activeSummary.value.sessionId)}`;
+    return selected.title || `Inline AI #${String(selected.sessionId)}`;
 });
 const messageActionsDisabled = computed(() => running.value || Boolean(messageActionId.value));
 const canContinueWithoutInput = computed(() => {
@@ -637,16 +676,33 @@ const refreshSessions = async (): Promise<AgentSessionSummaryDto[]> => {
  * 按弹窗筛选条件刷新 session 列表。
  */
 const refreshSessionsWithQuery = async (query: AgentSessionListQueryDto = {}): Promise<AgentSessionSummaryDto[]> => {
-    try {
-        sessions.value = await agentApi.listSessions({
-            ...query,
-            workspaceKey: workspaceKey.value,
-        });
+    const requestQuery = {
+        ...query,
+        workspaceKey: workspaceKey.value,
+    };
+    const request = sessionListRequestGuard.begin(requestQuery);
+    if (!request.shouldFetch) {
         return sessions.value;
+    }
+    sessionListRequestGuard.start();
+    sessionListLoading.value = true;
+    try {
+        const page = await agentApi.listSessions(requestQuery);
+        if (!sessionListRequestGuard.accepts(request)) {
+            return sessions.value;
+        }
+        const nextSessions = applySessionListPage(page, request.append);
+        sessionListRequestGuard.markApplied(request);
+        return nextSessions;
     } catch (error) {
+        if (!sessionListRequestGuard.accepts(request)) {
+            return sessions.value;
+        }
         console.error("刷新 session 列表失败", error);
         notifyAgentError(error, t("agent.chatSurface.loadSessionsFailed"));
         throw error;
+    } finally {
+        sessionListLoading.value = sessionListRequestGuard.finish(request);
     }
 };
 
@@ -825,6 +881,20 @@ const handleInvokeResult = async (result: InvokeAgentResult): Promise<void> => {
     }
 };
 
+/**
+ * 处理后台 Inline AI invoke 结果，并把最终摘要留给 PromptBar 展示。
+ */
+const handleInlineEditorInvokeResult = async (result: InvokeAgentResult): Promise<void> => {
+    inlineEditorResultText.value = result.reportResult?.result ?? result.finalMessage ?? "";
+    if (result.status !== "error") {
+        await refreshInlineEditorSessions();
+        return;
+    }
+    await inlineEditorStream.syncSnapshot("invoke_error_fallback");
+    inlineEditorResultText.value = result.error ?? t("agent.chatSurface.runFailed");
+    throw new Error(inlineEditorResultText.value);
+};
+
 function mergeQueuedMessages(queue: AgentQueuedMessageDto[], item: AgentQueuedMessageDto): AgentQueuedMessageDto[] {
     if (queue.some((current) => current.id === item.id)) {
         return queue;
@@ -874,6 +944,13 @@ const acknowledgeClientPatch = async (sessionId: number, request: Parameters<typ
  */
 const ensureActiveSessionEvents = async (): Promise<void> => {
     await sessionStream.ensure();
+};
+
+/**
+ * 发送 Inline AI 前确保后台 inline session SSE 处于连接状态。
+ */
+const ensureInlineEditorEvents = async (): Promise<void> => {
+    await inlineEditorStream.ensure();
 };
 
 /**
@@ -1209,23 +1286,20 @@ const sendInlineEditorPrompt = async (payload: InlineEditPayload, visibleMessage
     if (targetSession.status === "running" || targetSession.status === "waiting") {
         throw new Error(t("agent.chatSurface.inlineRunningError"));
     }
-
-    if (activeSessionId.value !== targetSession.sessionId) {
-        await loadSession(targetSession.sessionId);
-    }
-    if (!activeSessionId.value) {
-        throw new Error(t("agent.chatSurface.inlineLoadFailed"));
+    if (inlineEditorSessionId.value !== targetSession.sessionId || !inlineEditorSession.snapshot.value) {
+        await loadInlineEditorSession(targetSession.sessionId);
     }
 
-    session.appendOptimisticUserMessage(visibleMessage);
-    await ensureActiveSessionEvents();
-    const result = await agentApi.invokeSession(activeSessionId.value, {
+    inlineEditorResultText.value = "";
+    inlineEditorSession.appendOptimisticUserMessage(visibleMessage);
+    await ensureInlineEditorEvents();
+    const result = await agentApi.invokeSession(targetSession.sessionId, {
         mode: "prompt",
         message: {text: visibleMessage},
         input: inlineEditPayloadToJson(payload),
         clientState: buildClientState(),
     });
-    await handleInvokeResult(result);
+    await handleInlineEditorInvokeResult(result);
 };
 
 /**
@@ -1237,6 +1311,19 @@ const openInlineEditorSession = async (): Promise<AgentSessionSummaryDto> => {
         await loadSession(targetSession.sessionId);
     }
     return targetSession;
+};
+
+/**
+ * 停止后台 Inline AI session 当前运行。
+ */
+const stopInlineEditorPrompt = async (): Promise<void> => {
+    if (!inlineEditorSessionId.value) {
+        return;
+    }
+    await agentApi.abortSession(inlineEditorSessionId.value, {});
+    inlineEditorResultText.value = t("agent.chatSurface.stopped");
+    await inlineEditorStream.syncSnapshot("manual_refresh");
+    await refreshInlineEditorSessions();
 };
 
 /**
@@ -1499,6 +1586,21 @@ const sessionStream = useAgentSessionStream({
     },
 });
 
+const inlineEditorStream = useAgentSessionStream({
+    session: inlineEditorSession,
+    api: agentApi,
+    activeSessionId: inlineEditorSessionId,
+    onEvent: async (event) => {
+        if (event.kind === "session" && event.event.type === "client_variable_patch_requested" && inlineEditorSessionId.value) {
+            await acknowledgeClientPatch(inlineEditorSessionId.value, event.event.request);
+        }
+    },
+    onError: (error, fallback) => {
+        console.error(fallback, error);
+        notifyAgentError(error, fallback);
+    },
+});
+
 const cycleMessageBranch = async (messageId: string, direction: -1 | 1): Promise<void> => {
     if (!activeSessionId.value || messageActionId.value || running.value) {
         return;
@@ -1709,8 +1811,11 @@ const archiveSessionFromDialog = async (target: AgentSessionSummaryDto): Promise
  */
 function resetWorkspaceSessionState(): void {
     sessionStream.stop();
+    inlineEditorStream.stop();
     activeSessionId.value = null;
+    inlineEditorSessionId.value = null;
     sessions.value = [];
+    inlineEditorSessions.value = [];
     linkedAgentPanelOpen.value = false;
     sessionDialogOpen.value = false;
     sessionTreeDialogOpen.value = false;
@@ -1719,6 +1824,8 @@ function resetWorkspaceSessionState(): void {
     messageActionId.value = null;
     inputText.value = "";
     session.reset();
+    inlineEditorSession.reset();
+    inlineEditorResultText.value = "";
     syncSessionModelState(null);
 }
 
@@ -1792,6 +1899,7 @@ watch(() => [ideStore.workspaceKind, ideStore.currentNovelId] as const, async ()
 
 onBeforeUnmount(() => {
     sessionStream.stop();
+    inlineEditorStream.stop();
 });
 
 onMounted(() => {
@@ -1813,6 +1921,11 @@ defineExpose({
     loadingSession,
     linkedAgentsLoading,
     running,
+    inlineEditorRunning,
+    inlineEditorResultText,
+    inlineEditorSessionId,
+    inlineEditorSessions,
+    inlineEditorSessionLoading,
     inlineEditPreview,
     inlineEditorSessionLabel,
     sessionActionId,
@@ -1822,31 +1935,71 @@ defineExpose({
     createSession: createSessionFromHeader,
     archiveSessionFromDialog,
     openInlineEditorSession,
+    refreshInlineEditorSessions,
+    selectInlineEditorSession,
+    createInlineEditorSession,
     sendInlineEditorPrompt,
-    stopInlineEditorPrompt: stopRun,
+    stopInlineEditorPrompt,
 });
 
 /**
  * 确保 Project 级 Inline AI Session 可用。
  */
 async function ensureInlineEditorSession(): Promise<AgentSessionSummaryDto> {
-    const list = await agentApi.listSessions({
-        workspaceKey: workspaceKey.value,
-        profileGroup: "all",
-        status: "active",
-        relation: "all",
-        limit: 200,
-    });
-    const rememberedId = readInlineEditorSessionId();
-    const remembered = rememberedId
-        ? list.find((item) => item.sessionId === rememberedId && item.profileKey === INLINE_EDITOR_PROFILE_KEY)
+    const list = await refreshInlineEditorSessions();
+    const selected = inlineEditorSessionId.value
+        ? list.find((item) => item.sessionId === inlineEditorSessionId.value)
         : undefined;
-    const existing = remembered ?? list.find((item) => item.profileKey === INLINE_EDITOR_PROFILE_KEY);
-    if (existing) {
-        saveInlineEditorSessionId(existing.sessionId);
-        return existing;
+    if (selected) {
+        return selected;
     }
+    return createInlineEditorSession();
+}
 
+/**
+ * 刷新当前 Project Workspace 下的 Inline AI sessions。
+ */
+async function refreshInlineEditorSessions(): Promise<AgentSessionSummaryDto[]> {
+    const requestId = ++inlineEditorSessionRequestId;
+    inlineEditorSessionLoading.value = true;
+    try {
+        const page = await agentApi.listSessions({
+            workspaceKey: workspaceKey.value,
+            profileGroup: "all",
+            profileKey: INLINE_EDITOR_PROFILE_KEY,
+            status: "active",
+            relation: "all",
+            limit: 50,
+        });
+        if (requestId !== inlineEditorSessionRequestId) {
+            return inlineEditorSessions.value;
+        }
+        inlineEditorSessions.value = page.items;
+        const rememberedId = readInlineEditorSessionId();
+        const remembered = rememberedId ? page.items.find((item) => item.sessionId === rememberedId) : undefined;
+        const current = inlineEditorSessionId.value ? page.items.find((item) => item.sessionId === inlineEditorSessionId.value) : undefined;
+        const target = current ?? remembered ?? page.items[0];
+        if (target && inlineEditorSessionId.value !== target.sessionId) {
+            await loadInlineEditorSession(target.sessionId, {invalidateRefresh: false});
+        }
+        if (!target) {
+            inlineEditorSessionId.value = null;
+            inlineEditorSession.reset();
+            inlineEditorResultText.value = "";
+            inlineEditorStream.stop();
+        }
+        return inlineEditorSessions.value;
+    } finally {
+        if (requestId === inlineEditorSessionRequestId) {
+            inlineEditorSessionLoading.value = false;
+        }
+    }
+}
+
+/**
+ * 创建一个新的 Project 级 Inline AI session，并设为 PromptBar 当前 session。
+ */
+async function createInlineEditorSession(): Promise<AgentSessionSummaryDto> {
     const created = await agentApi.createSession({
         profileKey: INLINE_EDITOR_PROFILE_KEY,
         initial: {},
@@ -1854,9 +2007,43 @@ async function ensureInlineEditorSession(): Promise<AgentSessionSummaryDto> {
         workspaceKey: workspaceKey.value,
         projectPath: ideStore.workspaceKind === "user-assets" ? undefined : ideStore.currentNovelId,
     });
-    saveInlineEditorSessionId(created.sessionId);
-    const snapshot = await agentApi.getSession(created.sessionId);
-    await refreshSessions();
+    await loadInlineEditorSession(created.sessionId);
+    await refreshInlineEditorSessions();
+    const snapshot = inlineEditorSession.snapshot.value ?? await agentApi.getSession(created.sessionId);
+    return snapshot.summary;
+}
+
+/**
+ * 选择 PromptBar 当前使用的 Inline AI session，不影响右侧 Agent 面板。
+ */
+async function selectInlineEditorSession(sessionId: number): Promise<void> {
+    if (inlineEditorSessionId.value === sessionId) {
+        return;
+    }
+    await loadInlineEditorSession(sessionId);
+}
+
+/**
+ * 加载后台 Inline AI session snapshot，并启动它自己的 SSE。
+ */
+async function loadInlineEditorSession(sessionId: number, options: {invalidateRefresh?: boolean} = {}): Promise<AgentSessionSummaryDto> {
+    if (options.invalidateRefresh !== false) {
+        inlineEditorSessionRequestId += 1;
+    }
+    inlineEditorStream.stop();
+    inlineEditorSessionId.value = sessionId;
+    inlineEditorSession.reset();
+    inlineEditorResultText.value = "";
+    saveInlineEditorSessionId(sessionId);
+    const snapshot = await agentApi.getSession(sessionId);
+    if (snapshot.summary.profileKey !== INLINE_EDITOR_PROFILE_KEY) {
+        throw new Error(t("agent.chatSurface.inlineLoadFailed"));
+    }
+    inlineEditorSession.applySnapshot(snapshot);
+    inlineEditorSessions.value = inlineEditorSessions.value.some((item) => item.sessionId === snapshot.summary.sessionId)
+        ? inlineEditorSessions.value.map((item) => item.sessionId === snapshot.summary.sessionId ? snapshot.summary : item)
+        : [snapshot.summary, ...inlineEditorSessions.value];
+    void inlineEditorStream.start(sessionId);
     return snapshot.summary;
 }
 
@@ -2067,8 +2254,11 @@ function isApprovalApproved(answer?: {
             <AgentSessionDialog
                 v-model="sessionDialogOpen"
                 :sessions="sessions"
+                :total="sessionListTotal"
+                :has-more="sessionListHasMore"
+                :next-offset="sessionListNextOffset"
                 :active-session-id="activeSessionId"
-                :loading="loadingSession"
+                :loading="loadingSession || sessionListLoading"
                 :running="running"
                 :action-id="sessionActionId"
                 :create-profile-options="createProfileOptions"
@@ -2077,6 +2267,7 @@ function isApprovalApproved(answer?: {
                 @create="void createSessionFromDialog($event)"
                 @archive="void archiveSessionFromDialog($event)"
                 @refresh="void refreshSessionsWithQuery($event)"
+                @load-more="void refreshSessionsWithQuery($event)"
             />
 
             <AgentSessionTreeDialog

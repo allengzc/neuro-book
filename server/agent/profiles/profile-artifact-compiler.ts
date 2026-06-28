@@ -628,9 +628,10 @@ function packageManifestName(path: string): string | null {
     }
 }
 
-function resolveBarePackage(specifier: string, requireFromRuntime: NodeJS.Require): {path: string} | undefined {
+function resolveBarePackage(specifier: string, requireFromRuntime: NodeJS.Require): {path: string; external?: boolean} | undefined {
     try {
-        return {path: requireFromRuntime.resolve(specifier)};
+        const resolved = requireFromRuntime.resolve(specifier);
+        return isAbsolute(resolved) ? {path: resolved} : {path: specifier, external: true};
     } catch {
         return undefined;
     }

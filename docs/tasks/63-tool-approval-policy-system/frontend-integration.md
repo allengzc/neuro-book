@@ -281,9 +281,9 @@ userInput: {
 - ✅ 单元测试
 
 ### 后端待办（Task 63 其他部分）
-- ⏳ 在 `neuro-agent-harness.ts` 中解析 `resolution.data`
-- ⏳ 传递 `userInput` 给工具的 `execute()` 函数
-- ⏳ 实现 `userInputRequest.when()` 调用链路
+- ✅ 在 `neuro-agent-harness.ts` 中解析 `resolution.data`
+- ✅ 传递 `userInput` 给工具的 `execute()` 函数
+- ✅ 实现 `userInputRequest.when()` 调用链路
 - ⏳ 更新 Agent Profile 配置系统使用 Low-Code Form
 
 ## 影响范围
@@ -308,4 +308,4 @@ userInput: {
 
 ## 总结
 
-Task 63 前端集成已完成，Low-Code Form 成功集成到 Agent 用户输入系统。实现保持了向后兼容，新增功能通过自动检测透明启用。前端部分已就绪，等待后端 harness 实现 `userInputRequest` 调用链路和 `resolution.data` 解析。
+Task 63 前端集成已完成，Low-Code Form 成功集成到 Agent 用户输入系统。实现保持了向后兼容，新增功能通过自动检测透明启用。2026-06-28 追加修复后，`userInputRequest` 工具已经进入 durable pending/resume 链路，snapshot 恢复和 `resolution.data` 提交均由后端支持。

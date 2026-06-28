@@ -39,8 +39,14 @@ describe("agent session http helpers", () => {
         });
     });
 
-    it("listAgentSessions 调用 harness.listSessions", async () => {
-        const listSessions = vi.fn(async () => []);
+    it("listAgentSessions 调用 harness.listSessionPage", async () => {
+        const listSessionPage = vi.fn(async () => ({
+            items: [],
+            total: 0,
+            offset: 0,
+            limit: 25,
+            hasMore: false,
+        }));
         const query = {
             workspaceKey: "global",
             includeArchived: true,
@@ -50,9 +56,12 @@ describe("agent session http helpers", () => {
             limit: 25,
         } as const;
 
-        await listAgentSessions(query, {listSessions} as never);
+        await expect(listAgentSessions(query, {listSessionPage} as never)).resolves.toEqual(expect.objectContaining({
+            items: [],
+            total: 0,
+        }));
 
-        expect(listSessions).toHaveBeenCalledWith(query);
+        expect(listSessionPage).toHaveBeenCalledWith(query);
     });
 
     it("getAgentSessionSnapshot 调用 harness.getSessionSnapshot", async () => {

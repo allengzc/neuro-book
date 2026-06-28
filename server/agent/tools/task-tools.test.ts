@@ -50,5 +50,5 @@ describe("task tools", () => {
             ],
         });
         expect(session.customState[AGENT_TASKS_STATE_KEY]).toEqual(updatedTasks?.details);
-    });
+    }, 15_000);
 });

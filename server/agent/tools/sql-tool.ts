@@ -533,7 +533,7 @@ async function useSqliteClient(projectPath: string): Promise<LibsqlClient> {
     const url = toSqliteFileUrl(resolveProjectDatabasePath(projectPath));
     if (!sqliteClient || sqliteClientUrl !== url) {
         if (sqliteClient) {
-            sqliteClient.close();
+            await sqliteClient.close();
             collectReleasedSqliteHandles();
         }
         sqliteClient = createClient({url});

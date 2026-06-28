@@ -43,7 +43,7 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 - `invoke_agent.message` 必须写清写什么、范围、重点、禁忌、结束条件和交付要求；不要只传 id/path 让 writer 自己规划剧情。
 - `invoke_agent.input.context` 只放建议读取清单：`threadIds`、`sceneIds`、`plotIds`、`lorebookEntries`、`readablePaths`。它不是任务正文，也不是必须全部读取的材料。
 - 需要设定召回时，先让 retrieval 返回候选判断结果，再由 leader 选择 `entries[].path` 放入 `input.context.lorebookEntries`。不要把 retrieval 的 `reason`、`use`、`risk` 或 `note` 直接传给 writer。
-- **写作模式下，写作前的世界状态推进走 World Engine**（见下方 Writing Mode World State 段）：Leader 在调用 writer 前，先把本章涉及的剧情事件用 `write_world_slice` 按时间写入 World Engine，再准备一份**简化 brief**。`writer` 拥有 World Engine 只读查询能力（`execute_world_query`），能自查角色当前状态，所以 brief 只传章节目标、关键剧情点、信息控制要求、写作约束、建议读取的 lorebook 和「查哪些 subject / 哪个时间范围」的查询提示，**不要**把 HP / 位置 / 完整状态塞进 brief。详见 [reference/world-engine/workflow.md](../world-engine/workflow.md) 第 6 节。
+- **写作模式下，写作前的世界状态推进走 World Engine**（见下方 Writing Mode World State 段）：Leader 在调用 writer 前，先用 `execute_world` 把本章涉及的剧情事件写入 World Engine，再准备一份**简化 brief**。`writer` 拥有 World Engine 只读 `execute_world`，能自查角色当前状态，所以 brief 只传章节目标、关键剧情点、信息控制要求、写作约束、建议读取的 lorebook 和「查哪些 subject / 哪个时间范围」的查询提示，**不要**把 HP / 位置 / 完整状态塞进 brief。详见 [reference/world-engine/workflow.md](../world-engine/workflow.md) 第 6 节。
 
 ### Writing Mode World State (World Engine)
 
@@ -52,14 +52,15 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 完整操作指南见 [reference/world-engine/workflow.md](../world-engine/workflow.md)，特别是初始化流程（第 5 节）与剧情推进流程（第 6 节）。关注度等级系统详见 [reference/world-engine/focus-level-guide.md](../world-engine/focus-level-guide.md)。
 
 **核心工具**：
-- `execute_world_query`（CodeAct 只读查询）：提供 `world.get(id)` / `world.getMany(ids)` / `world.list(type)` / `world.findRefs(targetId)` / `world.searchText(query)` / `world.slices()` / `world.now()`
-- `write_world_slice`（写入切面）：写入一个 time + 一组 patches 的原子切面。首次写入新 subject 时，在其任意 patch 上声明 `type` 字段，可选 `name`。
-- `delete_world_slice`（删除切面）：物理删除，不可恢复。只用于剧情回退、修正错误切面或清理误写数据。先用 `world.slices()` 获取 sliceId。
+- `execute_world`：在同一个 CodeAct 脚本里查询、写入、精确编辑和删除 World Engine 切面。读 API 包含 `world.get` / `world.getMany` / `world.list` / `world.findRefs` / `world.searchText` / `world.slices` / `world.getSlice` / `world.parseTime` / `world.formatTime` / `world.now`。
+- Leader 可在 `execute_world` 中使用 `world.writeSlice` 写入一个 instant + 一组 patches 的原子切面。首次写入新 subject 时，在其任意 patch 上声明 `type` 字段，可选 `name`。
+- 需要修正已有切面时，先用 `world.getSlice` 或 `world.slices({withPatches:true})` 获取 `patchId`，再用 `world.editMutations` 精确修改。
+- `world.deleteSlice` 是物理删除，不可恢复。只用于剧情回退、修正错误切面或清理误写数据。先用 `world.slices()` 获取 `sliceId`。
 
 **高频原则**：
-- 写入前先查：用 `execute_world_query` 查清 subject type、已存在 subject、当前状态与 ref 目标。
+- 写入前先查：用 `execute_world` 查清 subject type、已存在 subject、当前状态与 ref 目标。
 - 记录遵循「最少支持当前叙事」原则：见 [reference/world-engine/recording-principles.md](../world-engine/recording-principles.md)。
-- 时间一律用项目日历字符串；公开入参禁止 raw instant。
+- 时间对用户一律用项目日历字符串；脚本内先用 `world.parseTime("项目日历字符串")` 转成 instant，再传给 `world.writeSlice` / `world.editMutations`。
 - 技术细节（slice / patch / reduce / instant / op / schema）对用户透明，回复用户时给「时间线 + 当前状态」的人读摘要。
 - E issues（`broken-relative` / `dangling-ref`）是数据错误必须修；A issues（`base-shifted` / `masked`）是一次性提醒，确认语义即可。
 

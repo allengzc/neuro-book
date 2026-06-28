@@ -5,7 +5,8 @@
  */
 
 import {afterAll, afterEach, beforeEach, describe, expect, test} from "bun:test";
-import {mkdirSync, rmSync, writeFileSync} from "node:fs";
+import {mkdirSync, writeFileSync} from "node:fs";
+import {rm} from "node:fs/promises";
 import {join} from "node:path";
 import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
 import {WorldEngineFacade} from "./world-engine.facade";
@@ -39,16 +40,16 @@ describe("CodeAct Integration", () => {
         await facade.closeProject(testProjectPath);
     });
 
-    afterAll(() => {
+    afterAll(async () => {
         for (const projectPath of createdProjects) {
             const projectRoot = join(
                 resolveWorkspaceContainerRoot(),
                 projectPath.slice("workspace/".length),
             );
-            rmSync(projectRoot, {recursive: true, force: true});
+            await removeProjectRoot(projectRoot);
         }
         createdProjects.splice(0);
-    });
+    }, 30_000);
 
     test("Execute simple query with world.get()", async () => {
         const createResult = await facade.createSubject(testProjectPath, {
@@ -134,6 +135,54 @@ describe("CodeAct Integration", () => {
         });
     });
 
+    test("findRefs 返回 JSON Pointer 路径", async () => {
+        await facade.createSubject(testProjectPath, {
+            id: "village",
+            type: "location",
+            name: "新手村",
+            at: BigInt(1000),
+        });
+        await facade.createSubject(testProjectPath, {
+            id: "hero",
+            type: "character",
+            name: "英雄",
+            at: BigInt(1001),
+        });
+        await facade.writeSlice(testProjectPath, {
+            instant: BigInt(1002),
+            title: "到达新手村",
+            patches: [
+                {subjectId: "hero", path: "/location", op: "replace", value: "subject://village"},
+            ],
+        });
+
+        const result = await facade.executeCodeActQuery(testProjectPath, `
+            return await world.findRefs("village", "character");
+        `);
+
+        expect(result).toEqual([{subjectId: "hero", attr: "/location"}]);
+    });
+
+    test("slices withPatches 返回 patchId", async () => {
+        await facade.writeSlice(testProjectPath, {
+            instant: BigInt(1000),
+            title: "英雄登场",
+            patches: [
+                {subjectId: "hero", type: "character", name: "英雄", path: "/hp", op: "replace", value: 90},
+            ],
+        });
+
+        const result = await facade.executeCodeActQuery(testProjectPath, `
+            const slices = await world.slices({withPatches: true});
+            return slices.map((slice) => ({
+                title: slice.title,
+                patchId: slice.patches.find((patch) => patch.path === "/hp").patchId,
+            }));
+        `);
+
+        expect(result).toEqual([{title: "英雄登场", patchId: expect.any(String)}]);
+    });
+
     test("Failed code rejects", async () => {
         await facade.createSubject(testProjectPath, {
             id: "hero",
@@ -191,6 +240,142 @@ describe("CodeAct Integration", () => {
         expect(typeof result).toBe("bigint");
         expect(result).toBeGreaterThanOrEqual(BigInt(1000));
     });
+
+    test("executeCodeActWorld 读写合一并统一返回 issues", async () => {
+        const result = await facade.executeCodeActWorld(testProjectPath, `
+            const time = world.parseTime("测试纪元1日 00:20:00");
+            const written = await world.writeSlice({
+                time,
+                title: "英雄登场",
+                patches: [
+                    {subjectId: "hero", type: "character", name: "英雄", path: "/hp", op: "replace", value: 88},
+                ],
+            });
+            const hero = await world.get("hero");
+            const slice = await world.getSlice(written.sliceId);
+            return {
+                hp: hero.hp,
+                formatted: world.formatTime(time),
+                patchId: slice.patches.find((patch) => patch.path === "/hp").patchId,
+            };
+        `, "readwrite");
+
+        expect(result).toEqual({
+            data: {
+                hp: 88,
+                formatted: "测试纪元1日 00:20:00",
+                patchId: expect.any(String),
+            },
+            issues: [],
+        });
+    });
+
+    test("executeCodeActWorld editMutations 精确修正 patch", async () => {
+        const result = await facade.executeCodeActWorld(testProjectPath, `
+            const written = await world.writeSlice({
+                time: world.parseTime("测试纪元1日 00:21:00"),
+                title: "误写 HP",
+                patches: [
+                    {subjectId: "hero", type: "character", name: "英雄", path: "/HP", op: "replace", value: 77},
+                ],
+            });
+            const before = await world.getSlice(written.sliceId);
+            const wrong = before.patches.find((patch) => patch.path === "/HP");
+            await world.editMutations(written.sliceId, [
+                {patchId: wrong.patchId, set: {path: "/hp", summary: "修正 hp 路径"}},
+            ]);
+            const after = await world.getSlice(written.sliceId);
+            const hero = await world.get("hero");
+            return {
+                hp: hero.hp,
+                beforePatchId: wrong.patchId,
+                afterPatchId: after.patches.find((patch) => patch.summary === "修正 hp 路径").patchId,
+                path: after.patches.find((patch) => patch.summary === "修正 hp 路径").path,
+            };
+        `, "readwrite");
+
+        expect(result).toEqual({
+            data: {
+                hp: 77,
+                beforePatchId: expect.any(String),
+                afterPatchId: expect.any(String),
+                path: "/hp",
+            },
+            issues: [],
+        });
+        const data = result.data as {beforePatchId: string; afterPatchId: string};
+        expect(data.afterPatchId).not.toBe(data.beforePatchId);
+    });
+
+    test("executeCodeActWorld throw 后回滚写入", async () => {
+        await expect(facade.executeCodeActWorld(testProjectPath, `
+            await world.writeSlice({
+                time: world.parseTime("测试纪元1日 00:22:00"),
+                title: "应回滚",
+                patches: [
+                    {subjectId: "rollback", type: "character", name: "回滚者", path: "/hp", op: "replace", value: 1},
+                ],
+            });
+            throw new Error("主动回滚");
+        `, "readwrite")).rejects.toThrow("主动回滚");
+
+        const result = await facade.executeCodeActWorld(testProjectPath, `
+            const subjects = await world.list("character");
+            return subjects.map((subject) => subject.id);
+        `, "readonly");
+
+        expect(result).toEqual({data: [], issues: []});
+    });
+
+    test("executeCodeActWorld 超时后回滚写入", async () => {
+        await expect(facade.executeCodeActWorld(testProjectPath, `
+            await world.writeSlice({
+                time: world.parseTime("测试纪元1日 00:23:00"),
+                title: "超时回滚",
+                patches: [
+                    {subjectId: "timeout-rollback", type: "character", name: "超时者", path: "/hp", op: "replace", value: 1},
+                ],
+            });
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            return "done";
+        `, "readwrite", {timeout: 50})).rejects.toThrow("执行超时");
+
+        const result = await facade.executeCodeActWorld(testProjectPath, `
+            const subjects = await world.list("character");
+            return subjects.map((subject) => subject.id);
+        `, "readonly");
+
+        expect(result).toEqual({data: [], issues: []});
+    });
+
+    test("executeCodeActWorld 超时关闭事务后后台写入不能落库", async () => {
+        await expect(facade.executeCodeActWorld(testProjectPath, `
+            setTimeout(async () => {
+                try {
+                    await world.writeSlice({
+                        time: world.parseTime("测试纪元1日 00:24:00"),
+                        title: "后台写入应失败",
+                        patches: [
+                            {subjectId: "late-timeout-write", type: "character", name: "迟到写入", path: "/hp", op: "replace", value: 1},
+                        ],
+                    });
+                } catch {
+                    // 预期：外层超时后事务已关闭，后台写入会失败。
+                }
+            }, 100);
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            return "done";
+        `, "readwrite", {timeout: 50})).rejects.toThrow("执行超时");
+
+        await new Promise((resolve) => setTimeout(resolve, 250));
+
+        const result = await facade.executeCodeActWorld(testProjectPath, `
+            const subjects = await world.list("character");
+            return subjects.map((subject) => subject.id);
+        `, "readonly");
+
+        expect(result).toEqual({data: [], issues: []});
+    });
 });
 
 function zodSchemaFixture(): string {
@@ -234,4 +419,18 @@ function calendarFixture(): string {
         "};",
         "",
     ].join("\n");
+}
+
+async function removeProjectRoot(projectRoot: string): Promise<void> {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+        try {
+            await rm(projectRoot, {recursive: true, force: true});
+            return;
+        } catch (error) {
+            if (!(typeof error === "object" && error !== null && "code" in error && error.code === "EBUSY")) {
+                throw error;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+    }
 }

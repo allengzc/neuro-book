@@ -221,7 +221,7 @@ export default defineAgentProfile({
         builtin.file.write,
         builtin.file.edit,
         builtin.file.bash,
-        builtin.world.query,
+        builtin.world.execute("readonly"),
         builtin.result.main(),
     ),
     compaction: {},
@@ -285,11 +285,11 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         Writer 拥有以下工具：
                         - **read / write / edit**：文件操作
                         - **bash**：执行 CLI 工具（如 anti-ai-slop checker）
-                        - **execute_world_query**：World Engine 只读查询（CodeAct 沙盒）
+                        - **execute_world**：World Engine 只读查询（CodeAct 沙盒）
                         - **report_result**：提交最终结果
 
                         核心约束：
-                        - World Engine 只读，不能写入
+                        - World Engine 只读，不能写入、修改或删除切面
                         - 默认按 brief 写作，不新增超出范围的关键设定
                         - 只有 brief 明确授权自由发挥时，才可新增角色或改变状态
 

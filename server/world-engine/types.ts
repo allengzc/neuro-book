@@ -362,6 +362,8 @@ export function attrSchemaToSchemaNode(attr: WorldAttrSchema): WorldSchemaNode {
 
 /** 一条待写入 patch。 */
 export type PatchInput = {
+    /** 只在读取既有切面时出现：对应 WorldPatch 行 id。写入新切面时不要传。 */
+    patchId?: string;
     subjectId: string;
     op: WorldPatchOp;
     path: string;

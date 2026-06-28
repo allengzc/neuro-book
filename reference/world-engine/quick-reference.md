@@ -83,7 +83,7 @@
 ## 剧情推进检查清单
 
 ### Phase 1：剧情设计
-- [ ] 读取当前世界状态（`execute_world_query`）
+- [ ] 读取当前世界状态（`execute_world`）
 - [ ] 向用户提出 2-4 个候选方向
 - [ ] 确认本轮剧情的目标、范围、关键事件、预期结局
 - [ ] 明确信息控制要求（谁知道什么、谁不知道什么）
@@ -91,7 +91,7 @@
 ### Phase 2：写入切片
 - [ ] 把剧情框架拆分为若干场景或关键状态变化
 - [ ] 为每个场景确定时间点（精确到小时或分钟）
-- [ ] 为每个场景写入切片（`write_world_slice`）
+- [ ] 为每个场景写入切片（`execute_world` 中调用 `world.writeSlice`）
 - [ ] 更新角色 `location`、`hp`、`events`、`relationships`、`knowledge`
 - [ ] 验证：每个切片的时间点符合剧情顺序
 - [ ] 验证：所有角色的状态变化都已记录
@@ -113,9 +113,12 @@
 
 ## 常用工具
 
-### execute_world_query（只读查询）
+### execute_world（读写合一 CodeAct）
 
 ```javascript
+// 时间转换：写入用 instant，展示给人看时再格式化
+const time = world.parseTime("星辉历312年 5月10日 00:00");
+
 // 查询单个 subject
 const veiluosi = await world.get("veiluosi");
 
@@ -132,66 +135,57 @@ const whoReferencesVeiluosi = await world.findRefs("veiluosi");
 const results = await world.searchText("岩石魔法");
 
 // 查询时间轴切面
-const slices = await world.slices();
+const slices = await world.slices({limit: 10, withPatches: true});
 
 // 获取当前时间
-const now = await world.now();
-```
+const now = world.now();
 
-### write_world_slice（写入切片）
-
-```javascript
 // 首次写入新 subject（自动创建）
-{
-  time: "星辉历312年 5月10日 00:00",
-  title: "薇洛丝转生",
-  patches: [
-    {
-      subjectId: "veiluosi",
-      type: "character",  // 仅首次写入时需要
-      name: "薇洛丝",      // 仅首次写入时需要
-      path: "/age",
-      op: "replace",
-      value: 19
-    }
-  ]
-}
+const created = await world.writeSlice({
+    time,
+    title: "薇洛丝转生",
+    patches: [
+        {
+            subjectId: "veiluosi",
+            type: "character",  // 仅首次写入时需要
+            name: "薇洛丝",      // 仅首次写入时需要
+            path: "/age",
+            op: "replace",
+            value: 19,
+        },
+    ],
+});
 
 // 后续写入（不需要 type 和 name）
-{
-  time: "星辉历312年 5月10日 00:05",
-  title: "初次对话",
-  patches: [
-    {
-      subjectId: "veiluosi",
-      path: "/location",
-      op: "replace",
-      value: "subject://castle-brauer"
-    },
-    {
-      subjectId: "veiluosi",
-      path: "/events",
-      op: "append",
-      value: {time: "星辉历312年 5月10日 00:05", text: "听到维克托解释召唤目的"},
-      summary: "薇洛丝听到召唤者的解释"
-    }
-  ]
-}
+await world.writeSlice({
+    time: world.parseTime("星辉历312年 5月10日 00:05"),
+    title: "初次对话",
+    patches: [
+        {subjectId: "veiluosi", path: "/location", op: "replace", value: "subject://castle-brauer"},
+        {
+            subjectId: "veiluosi",
+            path: "/events",
+            op: "append",
+            value: {time: "星辉历312年 5月10日 00:05", text: "听到维克托解释召唤目的"},
+            summary: "薇洛丝听到召唤者的解释",
+        },
+    ],
+});
+
+// 精确修正已有 mutation：先拿 patchId，再 editMutations
+const slice = await world.getSlice(created.sliceId);
+const agePatch = slice.patches.find((patch) => patch.path === "/age");
+await world.editMutations(created.sliceId, [
+    {patchId: agePatch.patchId, set: {path: "/realAge", summary: "年龄字段修正"}},
+]);
+
+// 整条切面作废时才物理删除
+await world.deleteSlice(created.sliceId);
+
+return "已完成 World Engine 更新";
 ```
 
-### delete_world_slice（删除切片）
-
-```javascript
-// 1. 先查询 sliceId
-const slices = await world.slices();
-const targetSlice = slices.find(s => s.title === "初次对话");
-const sliceId = targetSlice.id;
-
-// 2. 调用 delete_world_slice
-// （使用 Agent 工具，不是 CodeAct）
-```
-
-**注意**：删除是物理删除，不可恢复。只用于剧情回退、修正错误切面或清理误写数据。
+**注意**：删除是物理删除，不可恢复。修正单条 mutation 时优先使用 `editMutations`，不要整片删除重写。
 
 ## 4-op 语义速查
 

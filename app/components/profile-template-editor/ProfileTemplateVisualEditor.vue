@@ -504,7 +504,8 @@ async function fetchTemplateDetail(): Promise<ProfileTemplateDetailDto> {
 async function loadThreads(): Promise<void> {
     loadingThreads.value = true;
     try {
-        threads.value = (await agentApi.listSessions({workspaceKey: novelIdeStore.workspaceKind === "user-assets" ? "user-assets" : `novel-${novelIdeStore.currentNovelId}`}))
+        const page = await agentApi.listSessions({workspaceKey: novelIdeStore.workspaceKind === "user-assets" ? "user-assets" : `novel-${novelIdeStore.currentNovelId}`, limit: 200});
+        threads.value = page.items
             .filter((session) => session.profileKey === currentThreadProfileKey());
         if (!selectedThreadId.value || !threads.value.some((thread) => String(thread.sessionId) === selectedThreadId.value)) {
             selectedThreadId.value = threads.value[0]?.sessionId ? String(threads.value[0].sessionId) : "";

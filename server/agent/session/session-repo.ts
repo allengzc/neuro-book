@@ -129,7 +129,9 @@ export class JsonlSessionRepository {
         }
 
         const sorted = summaries.sort((left, right) => right.updatedAt - left.updatedAt);
-        return input.limit ? sorted.slice(0, input.limit) : sorted;
+        const offset = input.offset ?? 0;
+        const limited = input.limit ? sorted.slice(offset, offset + input.limit) : sorted.slice(offset);
+        return limited;
     }
 
     /**
@@ -140,6 +142,9 @@ export class JsonlSessionRepository {
             return false;
         }
         if (!input.includeArchived && summary.archived) {
+            return false;
+        }
+        if (input.profileKey && summary.profileKey !== input.profileKey) {
             return false;
         }
         if (input.profileGroup === "leader" && !this.isLeaderProfile(summary.profileKey)) {
@@ -157,6 +162,9 @@ export class JsonlSessionRepository {
         if (input.relation === "child" && !summary.parentSessionId) {
             return false;
         }
+        if (!this.matchesSearch(summary, input.search)) {
+            return false;
+        }
         if (!input.status || input.status === "all") {
             return true;
         }
@@ -167,6 +175,21 @@ export class JsonlSessionRepository {
             return !summary.archived;
         }
         return summary.status === input.status;
+    }
+
+    /**
+     * 按 session 摘要字段做服务端搜索。搜索不读取完整 snapshot 之外的数据。
+     */
+    private matchesSearch(summary: AgentSessionSummaryDto, search?: string): boolean {
+        const keyword = search?.trim().toLowerCase();
+        if (!keyword) {
+            return true;
+        }
+        return String(summary.sessionId).includes(keyword)
+            || summary.profileKey.toLowerCase().includes(keyword)
+            || Boolean(summary.title?.toLowerCase().includes(keyword))
+            || Boolean(summary.summary?.toLowerCase().includes(keyword))
+            || Boolean(summary.lastMessagePreview?.toLowerCase().includes(keyword));
     }
 
     /**

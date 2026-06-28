@@ -108,6 +108,9 @@ function createMockWorldApi(overrides: Partial<WorldApi> = {}): WorldApi {
         async findRefs() { return []; },
         async searchText() { return []; },
         async slices() { return []; },
+        async getSlice() { return null; },
+        parseTime() { return BigInt(0); },
+        formatTime(instant: bigint) { return instant.toString(); },
         now() { return BigInt(0); },
         ...overrides,
     };

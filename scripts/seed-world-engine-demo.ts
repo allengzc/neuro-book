@@ -5,8 +5,8 @@
  *   1. 为指定 Project Workspace 写入一套干净、连贯、可复现的 World Engine 示范数据，
  *      覆盖全部 5 个 subject type（world/faction/location/character/item）、4 种 op
  *      （replace/increment/remove/append）、ref 引用、首写自动创建、backstory 溯源与当前事件。
- *   2. 全程**通过 agent 暴露的 World 工具**（write_world_slice / execute_world_query）写入与校验，
- *      因此本脚本同时是这两个工具的端到端冒烟验证入口。
+ *   2. 全程**通过 agent 暴露的 World 工具**（execute_world）写入、精确编辑与校验，
+ *      因此本脚本同时是读写合一 CodeAct 工具的端到端冒烟验证入口。
  *
  * 用法（bun 命令需在沙盒外提权执行）：
  *   bun scripts/seed-world-engine-demo.ts [projectPath] [--verify-only] [--keep]
@@ -35,10 +35,9 @@ const keepExisting = flags.has("--keep");
 // ========== Agent 工具装配（忠实复现 world-engine-tools.test.ts 的最小上下文）==========
 
 const tools = createWorldEngineTools();
-const writeTool = mustTool("write_world_slice");
-const queryTool = mustTool("execute_world_query");
+const executeWorldTool = mustTool("execute_world");
 
-// write_world_slice 不使用 harness；execute_world_query 仅读取 workspaceRoot 存调试 temp。
+// execute_world 失败时会读取 workspaceRoot 写入调试 temp。
 const context: ToolExecutionContext = {
     harness: {} as ToolExecutionContext["harness"],
     sessionId: 1,
@@ -55,7 +54,7 @@ function mustTool(key: string): NeuroAgentTool {
 
 // ========== 类型 ==========
 
-/** 一条 patch；字段对齐 write_world_slice 工具入参。 */
+/** 一条 patch；字段对齐 world.writeSlice 的 patches 入参。 */
 type Patch = {
     subjectId: string;
     path: string;
@@ -69,7 +68,8 @@ type Patch = {
 /** 一个切面：一个日历时间 + 一组原子 patches。 */
 type Slice = {time: string; title: string; kind: string; patches: Patch[]};
 
-/** write_world_slice 返回结构。 */
+/** execute_world 工具 details 结构。 */
+type ExecuteWorldResult<TData> = {data: TData; issues: WorldIssue[]};
 type WriteResult = {sliceId: string; issues: WorldIssue[]};
 type WorldIssue = {code: string; subjectId?: string; attr?: string; message: string};
 
@@ -259,13 +259,14 @@ const SLICES: Slice[] = [
         ],
     },
     {
-        // #11 遗迹余波（当前最新）：increment(hp 恢复) + replace(位置/元素亲和/饰品) + append(战利品/经历) + record(memory)。
+        // #11 遗迹余波（当前最新）：故意把 /hp 写成 /HP，随后用 editMutations 精确修正。
+        //     其余 patches 覆盖 replace(位置/元素亲和/饰品) + append(战利品/经历) + record(memory)。
         time: "复兴纪元312年5月20日 09:00:00",
         title: "遗迹余波：撤返学院",
         kind: "event",
         patches: [
             {subjectId: "erina", path: "/location", op: "replace", value: "subject://location-academy", summary: "撤回学院疗伤"},
-            {subjectId: "erina", path: "/hp", op: "increment", value: 20, summary: "休整恢复"},
+            {subjectId: "erina", path: "/HP", op: "replace", value: 90, summary: "故意写错 path，稍后用 editMutations 修正为 /hp"},
             {subjectId: "erina", path: "/elementalAffinity", op: "replace", value: {fire: 0, water: 2, wind: 3, earth: 0, light: 12, dark: 1}},
             {subjectId: "erina", path: "/equipment/accessory", op: "replace", value: "晨曦徽记"},
             {subjectId: "erina", path: "/inventory", op: "append", value: "古代徽记"},
@@ -296,7 +297,7 @@ async function reset(): Promise<void> {
     console.log(`🧹 已清空 World 表：${dbPath}`);
 }
 
-/** 逐切面通过 write_world_slice 工具写入，收集并分类 issues。 */
+/** 逐切面通过 execute_world 工具写入，收集并分类 issues。 */
 async function seed(): Promise<{written: number; errorIssues: WorldIssue[]; noteIssues: WorldIssue[]}> {
     const errorIssues: WorldIssue[] = [];
     const noteIssues: WorldIssue[] = [];
@@ -311,32 +312,80 @@ async function seed(): Promise<{written: number; errorIssues: WorldIssue[]; note
         }
         const tag = result.issues.length ? `（${result.issues.length} issues）` : "";
         console.log(`  ✍️  [${slice.kind}] ${slice.time} ${slice.title} -> slice ${result.sliceId}${tag}`);
+        if (slice.title === "遗迹余波：撤返学院") {
+            const editResult = await repairHpTypo(result.sliceId);
+            for (const issue of editResult.issues) {
+                if (ERROR_ISSUE_CODES.has(issue.code)) errorIssues.push(issue);
+                else noteIssues.push(issue);
+            }
+            const editTag = editResult.issues.length ? `（${editResult.issues.length} issues）` : "";
+            console.log(`  🛠️  editMutations 修正 /HP -> ${editResult.path}，erina.hp=${editResult.hp}${editTag}`);
+        }
     }
     return {written, errorIssues, noteIssues};
 }
 
-/** 调用 write_world_slice 工具。 */
+/** 调用 execute_world 中的 world.writeSlice。 */
 async function callWrite(slice: Slice): Promise<WriteResult> {
-    const res = await writeTool.executeWithContext!(context, "write_world_slice-call", {
-        projectPath,
-        time: slice.time,
-        title: slice.title,
-        kind: slice.kind,
-        patches: slice.patches,
-    });
-    return res.details as unknown as WriteResult;
+    const result = await executeWorld<{sliceId: string}>(`
+        const slice = ${JSON.stringify(slice)};
+        const written = await world.writeSlice({
+            time: world.parseTime(slice.time),
+            title: slice.title,
+            kind: slice.kind,
+            patches: slice.patches,
+        });
+        return {sliceId: written.sliceId};
+    `);
+    return {sliceId: result.data.sliceId, issues: result.issues};
 }
 
-/** 调用 execute_world_query 工具，返回查询代码的结果。 */
-async function query(code: string): Promise<unknown> {
-    const res = await queryTool.executeWithContext!(context, "execute_world_query-call", {projectPath, code});
-    return res.details;
+/** 演示通过 patchId 精确修复已有 mutation。 */
+async function repairHpTypo(sliceId: string): Promise<{path: string; hp: number; issues: WorldIssue[]}> {
+    const result = await executeWorld<{path: string; hp: number}>(`
+        const sliceId = ${JSON.stringify(sliceId)};
+        const before = await world.getSlice(sliceId);
+        const wrong = before.patches.find((patch) => patch.path === "/HP");
+        if (!wrong) {
+            throw new Error("seed demo 预期存在 /HP 误写 patch");
+        }
+        await world.editMutations(sliceId, [
+            {patchId: wrong.patchId, set: {path: "/hp", summary: "修正 seed demo 中故意写错的 HP 路径"}},
+        ]);
+        const after = await world.getSlice(sliceId);
+        const fixed = after.patches.find((patch) => patch.path === "/hp" && patch.summary === "修正 seed demo 中故意写错的 HP 路径");
+        if (!fixed) {
+            throw new Error("seed demo 未找到修正后的 /hp patch");
+        }
+        const erina = await world.get("erina");
+        return {path: fixed.path, hp: erina.hp};
+    `);
+    return {path: result.data.path, hp: result.data.hp, issues: result.issues};
+}
+
+/** 调用 execute_world 工具，返回统一 details。 */
+async function executeWorld<TData>(code: string): Promise<ExecuteWorldResult<TData>> {
+    const res = await executeWorldTool.executeWithContext!(context, "execute_world-call", {projectPath, code});
+    return res.details as unknown as ExecuteWorldResult<TData>;
+}
+
+/** 调用 execute_world 工具，返回查询代码的 data。 */
+async function query<TData>(code: string): Promise<TData> {
+    return (await executeWorld<TData>(code)).data;
 }
 
 /** 只读查询 + 断言。任一断言失败抛错。 */
 async function verify(): Promise<void> {
-    // 一次性取回所有需要校验的快照（注意：execute_world_query 结果上限 10KB，故只取关键字段）。
-    const snapshot = await query(`
+    // 一次性取回所有需要校验的快照（注意：execute_world 结果上限 10KB，故只取关键字段）。
+    const snapshot = await query<{
+        counts: Record<string, number>;
+        worldList: string[];
+        erina: {hp: number; HP?: number; mp: number; level: number; gold: number; location: unknown; faction: unknown; skills: string[]; inventory: string[]; eventsCount: number};
+        kingdomLeader: unknown;
+        empireRefSubjects: string[];
+        sliceInstants: number[];
+        typoPatchPaths: string[];
+    }>(`
         const types = ["world", "faction", "location", "item", "character"];
         const counts = {};
         for (const t of types) counts[t] = (await world.list(t)).length;
@@ -344,12 +393,18 @@ async function verify(): Promise<void> {
         const erina = await world.get("erina");
         const empireRefs = await world.findRefs("faction-empire");
         const kingdom = await world.get("faction-kingdom");
-        const sliceInstants = (await world.slices({ limit: 50 })).map(s => Number(s.instant));
+        const slices = await world.slices({ limit: 50, withPatches: true });
+        const sliceInstants = slices.map(s => Number(s.instant));
+        const typoPatchPaths = slices
+            .flatMap((slice) => slice.patches ?? [])
+            .filter((patch) => patch.summary === "修正 seed demo 中故意写错的 HP 路径")
+            .map((patch) => patch.path);
         return {
             counts,
             worldList,
             erina: {
                 hp: erina.hp,
+                HP: erina.HP,
                 mp: erina.mp,
                 level: erina.level,
                 gold: erina.gold,
@@ -362,15 +417,9 @@ async function verify(): Promise<void> {
             kingdomLeader: kingdom.leader,
             empireRefSubjects: empireRefs.map(r => r.subjectId).sort(),
             sliceInstants,
+            typoPatchPaths,
         };
-    `) as {
-        counts: Record<string, number>;
-        worldList: string[];
-        erina: {hp: number; mp: number; level: number; gold: number; location: unknown; faction: unknown; skills: string[]; inventory: string[]; eventsCount: number};
-        kingdomLeader: unknown;
-        empireRefSubjects: string[];
-        sliceInstants: number[];
-    };
+    `);
 
     console.log("\n🔎 校验快照：");
     console.log(JSON.stringify(snapshot, null, 2));
@@ -384,7 +433,8 @@ async function verify(): Promise<void> {
     assert(snapshot.counts.character === 5, `character 数应为 5，实际 ${snapshot.counts.character}`);
 
     // erina 状态：跨多个切面累积（含溯源、increment、replace、collection remove+value）。
-    assert(snapshot.erina.hp === 90, `erina.hp 应为 90（100 -30 +20），实际 ${snapshot.erina.hp}`);
+    assert(snapshot.erina.hp === 90, `erina.hp 应为 90（先 -30，后由 editMutations 修正 /HP replace 为 /hp），实际 ${snapshot.erina.hp}`);
+    assert(snapshot.erina.HP === undefined, `erina.HP 不应残留，实际 ${String(snapshot.erina.HP)}`);
     assert(snapshot.erina.mp === 50, `erina.mp 应为 50，实际 ${snapshot.erina.mp}`);
     assert(snapshot.erina.level === 3, `erina.level 应为 3，实际 ${snapshot.erina.level}`);
     assert(snapshot.erina.gold === 200, `erina.gold 应为 200，实际 ${snapshot.erina.gold}`);
@@ -408,6 +458,7 @@ async function verify(): Promise<void> {
     assert(snapshot.sliceInstants.length === 11, `切面数应为 11，实际 ${snapshot.sliceInstants.length}`);
     const sorted = [...snapshot.sliceInstants].sort((a, b) => a - b);
     assert(JSON.stringify(sorted) === JSON.stringify(snapshot.sliceInstants), `切面应按 instant 升序，实际 ${snapshot.sliceInstants.join(",")}`);
+    assert(JSON.stringify(snapshot.typoPatchPaths) === JSON.stringify(["/hp"]), `editMutations 应把 seed demo 的 /HP 修正为 /hp，实际 ${snapshot.typoPatchPaths.join(",")}`);
 
     console.log("\n✅ 全部断言通过。");
 }
@@ -442,7 +493,7 @@ async function main(): Promise<void> {
     }
 
     await verify();
-    console.log("\n🎉 World Engine 示范数据就绪，两个 agent 工具均工作正常。");
+    console.log("\n🎉 World Engine 示范数据就绪，execute_world 读写合一工具工作正常。");
 }
 
 try {

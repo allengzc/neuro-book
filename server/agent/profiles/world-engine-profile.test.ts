@@ -55,21 +55,18 @@ describe("world.engine profile", () => {
             "apply_patch",
             "get_agent_profile",
             "get_session",
-            "execute_world_query",
-            "write_world_slice",
-            "delete_world_slice",
+            "execute_world",
         ]);
         expect(worldEngineProfile.rootToolKeys).not.toContain("subject_rag_search");
         expect(worldEngineProfile.rootToolKeys).not.toContain("get_plot_tree");
         expect(worldEngineProfile.rootToolKeys).not.toContain("invoke_agent");
         expect(systemPrompt).toContain("世界引擎验证与维护 agent");
         expect(systemPrompt).toContain("旧 simulation/ workflow 暂不接入");
-        expect(systemPrompt).toContain("使用 3 个核心工具：(execute_world_query) 只读查询 + (write_world_slice) 写入切面 + (delete_world_slice) 删除切面");
+        expect(systemPrompt).toContain("使用单一核心工具 execute_world");
         expect(systemPrompt).toContain("首次写入某 subject 时会自动创建（不需要单独 create 步骤）");
-        expect(systemPrompt).toContain("时间必须是项目日历字符串");
-        expect(systemPrompt).toContain("不要传 raw instant");
+        expect(systemPrompt).toContain("world.parseTime");
+        expect(systemPrompt).toContain("world.editMutations");
         expect(systemPrompt).toContain("物理删除，不可恢复");
-        expect(systemPrompt).toContain("world.slices() 获取 sliceId");
         expect(systemPrompt).toContain("issues");
         expect(historyText).toContain("```reference/world-engine/README.md");
         expect(historyText).toContain("```reference/world-engine/workflow.md");

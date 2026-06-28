@@ -9,6 +9,7 @@ import type {
     AgentFollowUpQueueStateDto,
     AgentQueuedMessageDto,
     AgentRuntimeStreamEventDto,
+    AgentSessionListPageDto,
     AgentSessionListQueryDto,
     AgentSessionRelationsDto,
     AgentSessionSnapshotDto,
@@ -142,6 +143,7 @@ export type AgentAbortResult = {
 
 export type AgentSessionService = {
     listSessions(query?: AgentSessionListQueryDto): Promise<AgentSessionSummaryDto[]>;
+    listSessionPage(query?: AgentSessionListQueryDto): Promise<AgentSessionListPageDto>;
     getSessionSnapshot(sessionId: number): Promise<AgentSessionSnapshotDto>;
     getSessionRelations(sessionId: number): Promise<AgentSessionRelationsDto>;
     runCommand(sessionId: number, body: AgentCommandRequestDto): Promise<AgentCommandResult>;

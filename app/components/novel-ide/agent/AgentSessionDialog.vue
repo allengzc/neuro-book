@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed, ref} from "vue";
-import {onClickOutside} from "@vueuse/core";
+import {onClickOutside, useDebounceFn} from "@vueuse/core";
 import Dialog from "nbook/app/components/common/Dialog.vue";
 import Dropdown from "nbook/app/components/common/Dropdown.vue";
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
@@ -17,6 +17,9 @@ type CreateProfileOption = {
 const props = defineProps<{
     modelValue: boolean;
     sessions: AgentSessionSummaryDto[];
+    total: number;
+    hasMore: boolean;
+    nextOffset: number | null;
     activeSessionId: number | null;
     loading: boolean;
     running: boolean;
@@ -31,6 +34,7 @@ const emit = defineEmits<{
     (e: "create", profileKey?: string): void;
     (e: "archive", session: AgentSessionSummaryDto): void;
     (e: "refresh", query: AgentSessionListQueryDto): void;
+    (e: "loadMore", query: AgentSessionListQueryDto): void;
 }>();
 
 const sessionSearch = ref("");
@@ -71,19 +75,11 @@ const query = computed<AgentSessionListQueryDto>(() => ({
     status: statusFilter.value,
     relation: relationFilter.value,
     includeArchived: statusFilter.value === "archived",
+    search: sessionSearch.value.trim() || undefined,
+    offset: 0,
     limit: 50,
 }));
-const filteredSessions = computed(() => {
-    const keyword = sessionSearch.value.trim().toLowerCase();
-    if (!keyword) return props.sessions;
-    return props.sessions.filter((session) => {
-        return (session.title?.toLowerCase().includes(keyword)
-            || session.summary?.toLowerCase().includes(keyword)
-            || session.lastMessagePreview?.toLowerCase().includes(keyword)
-            || session.profileKey.toLowerCase().includes(keyword)
-            || String(session.sessionId).includes(keyword));
-    });
-});
+const listedSessions = computed(() => props.sessions);
 const sessionTitle = (session: AgentSessionSummaryDto) => session.title || `Session #${String(session.sessionId)}`;
 const sessionPreview = (session: AgentSessionSummaryDto) => session.summary || session.lastMessagePreview || t("agent.session.noRecentMessages");
 const canArchiveSession = (session: AgentSessionSummaryDto): boolean => session.status !== "running" && session.status !== "waiting";
@@ -102,14 +98,30 @@ function refresh(): void {
     emit("refresh", query.value);
 }
 
+const debouncedRefresh = useDebounceFn(refresh, 250);
+
 /**
  * 重置筛选条件到默认 leader 近期会话。
  */
 function resetFilters(): void {
+    sessionSearch.value = "";
     profileFilter.value = "leader";
     statusFilter.value = "active";
     relationFilter.value = "all";
     refresh();
+}
+
+/**
+ * 请求下一页 session。
+ */
+function loadMore(): void {
+    if (!props.hasMore || props.nextOffset === null) {
+        return;
+    }
+    emit("loadMore", {
+        ...query.value,
+        offset: props.nextOffset,
+    });
 }
 
 /**
@@ -178,7 +190,9 @@ function profileDisplayName(profileKey: string): string {
     }
 }
 
-watch(query, refresh, {deep: true});
+watch(query, () => {
+    debouncedRefresh();
+}, {deep: true});
 watch(() => props.modelValue, (open) => {
     if (open) {
         refresh();
@@ -266,7 +280,7 @@ onClickOutside(filterPanelRef, () => {
             <!-- 近期 Session 列表 -->
             <div class="min-h-0 flex-1 space-y-2 overflow-y-auto px-1.5 py-1 custom-scrollbar">
                 <div
-                    v-for="session in filteredSessions"
+                    v-for="session in listedSessions"
                     :key="session.sessionId"
                     class="group flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-3 text-left transition-all duration-200"
                     :class="session.sessionId === activeSessionId ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] shadow-sm' : 'border-[var(--border-color)] bg-transparent hover:bg-[var(--bg-hover)]'"
@@ -300,7 +314,15 @@ onClickOutside(filterPanelRef, () => {
                     </button>
                 </div>
 
-                <div v-if="filteredSessions.length === 0" class="rounded-lg border border-dashed border-[var(--border-color)] bg-[var(--bg-sidebar)] px-4 py-10 text-center text-sm text-[var(--text-muted)]">
+                <div v-if="props.hasMore" class="flex justify-center py-2">
+                    <button type="button" class="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="props.loading" @click="loadMore">
+                        <span v-if="props.loading" class="i-lucide-loader-circle h-3.5 w-3.5 animate-spin"></span>
+                        <span v-else class="i-lucide-list-plus h-3.5 w-3.5"></span>
+                        {{ t("agent.session.loadMore") }}
+                    </button>
+                </div>
+
+                <div v-if="listedSessions.length === 0" class="rounded-lg border border-dashed border-[var(--border-color)] bg-[var(--bg-sidebar)] px-4 py-10 text-center text-sm text-[var(--text-muted)]">
                     {{ t("agent.session.noMatching") }}
                     <div class="mt-3 flex justify-center gap-2">
                         <button type="button" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]" @click="resetFilters">{{ t("agent.session.resetFilters") }}</button>
@@ -312,7 +334,7 @@ onClickOutside(filterPanelRef, () => {
 
         <template #footer>
             <div class="flex w-full items-center justify-between">
-                <div class="text-[11px] text-[var(--text-muted)]">{{ t("agent.session.recentCount", {filtered: filteredSessions.length, total: props.sessions.length}) }}</div>
+                <div class="text-[11px] text-[var(--text-muted)]">{{ t("agent.session.recentCount", {filtered: listedSessions.length, total: props.total}) }}</div>
                 <button class="inline-flex h-8 cursor-pointer items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-4 text-[13px] font-medium text-[var(--text-main)] transition-colors duration-200 hover:bg-[var(--bg-hover)] active:scale-95" @click="close">{{ t("agent.session.close") }}</button>
             </div>
         </template>

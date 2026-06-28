@@ -329,6 +329,8 @@ function issueStatusClass(status: WorldWorkbenchPreviewReviewQueueItem["status"]
                                 type="button"
                                 class="w-full text-left px-2.5 py-1.5 text-[11px] font-medium text-[var(--we-text-muted)] hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)] transition-colors"
                                 @click.stop="toggleSubjectExpanded(group.subjectId)"
+                                @keydown.enter.stop
+                                @keydown.space.stop
                             >
                                 +{{ hiddenPatchCount(group) }} patches (点击展开)
                             </button>
@@ -337,6 +339,8 @@ function issueStatusClass(status: WorldWorkbenchPreviewReviewQueueItem["status"]
                                 type="button"
                                 class="w-full text-left px-2.5 py-1.5 text-[11px] font-medium text-[var(--we-text-muted)] hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)] transition-colors"
                                 @click.stop="toggleSubjectExpanded(group.subjectId)"
+                                @keydown.enter.stop
+                                @keydown.space.stop
                             >
                                 收起
                             </button>

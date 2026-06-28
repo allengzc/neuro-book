@@ -11,7 +11,7 @@
 - `leader.default` 负责和用户讨论剧情、确认 canon、推进 World Engine、选择必要 lorebook，并调用 `writer`。
 - `writer` 是章节正文 agent，不是剧情导演、世界模拟 agent 或状态写入 agent。
 - `writer` 创建 initial 为空；每轮通过 `invoke_agent.message` 接收写作 brief，通过 `invoke_agent.input` 接收唯一目标 `path` 和建议读取清单。
-- `writer` 拥有 `execute_world_query`，只能只读查询 World Engine；不能写入、删除或编辑 slice。
+- `writer` 拥有只读 `execute_world`，只能查询 World Engine；不能写入、删除或编辑 slice。
 - `writer` 不读取 Plot / simulation 作为普通写作状态源；payload 里遗留的 `threadIds` / `sceneIds` / `plotIds` 兼容字段会被忽略。
 - `writer` 不默认展开全项目 lorebook；只按 brief 判断是否读取 `lorebookEntries` / `readablePaths`。
 - 写作前，leader 应先通过 `novel-workflow-08-plot-planning` 把本章剧情事实推进进 World Engine；写作后若 writer 自由发挥产生新事实，由 leader 回到 `08` 确认并补回 World Engine。
@@ -52,7 +52,7 @@
 - `invoke_agent.input.context.readablePaths`：建议读取的普通 Markdown 文件路径。
 - `invoke_agent.message`：本章目标、关键剧情点、信息控制、写作约束和 World Engine 查询提示。
 
-不要把完整 World Engine 状态、HP / 位置等可查询细节、slice / patch JSON 或旧 Plot handoff 塞进 brief。writer 会用 `execute_world_query` 自查状态。
+不要把完整 World Engine 状态、HP / 位置等可查询细节、slice / patch JSON 或旧 Plot handoff 塞进 brief。writer 会用只读 `execute_world` 自查状态。
 
 ## Legacy Boundary
 

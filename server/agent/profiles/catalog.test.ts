@@ -95,6 +95,31 @@ describe("AgentProfileCatalog", () => {
         }));
     });
 
+    it("resolveMany 批量返回 loaded、missing 和 unloadable", async () => {
+        await writeProfile(systemRoot, "custom.loaded.profile.tsx", profileSource("custom.loaded", "Loaded"));
+        await writeProfile(systemRoot, "custom.unloadable.profile.tsx", "export default { manifest: { key: 'custom.unloadable', name: 'Broken' } };");
+        await compileRoot(systemRoot, "custom.loaded.profile.tsx");
+        const catalog = new AgentProfileCatalog(systemRoot, userRoot);
+
+        const resolved = await catalog.resolveMany(["custom.loaded", "custom.missing", "custom.unloadable"]);
+
+        expect(resolved.get("custom.loaded")).toEqual(expect.objectContaining({
+            availability: "loaded",
+            profile: expect.objectContaining({
+                manifest: expect.objectContaining({key: "custom.loaded"}),
+            }),
+        }));
+        expect(resolved.get("custom.missing")).toEqual(expect.objectContaining({
+            availability: "missing",
+            profile: null,
+        }));
+        expect(resolved.get("custom.unloadable")).toEqual(expect.objectContaining({
+            availability: "unloadable",
+            profile: null,
+            issueMessage: expect.stringContaining("未编译"),
+        }));
+    });
+
     it("加载 TSX DSL profile 时使用自动 JSX runtime", async () => {
         await writeProfile(systemRoot, "custom.jsx.profile.tsx", `
             /** @jsxImportSource nbook/server/agent/profiles/profile-dsl */

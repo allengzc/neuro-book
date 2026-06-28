@@ -3,7 +3,7 @@
 ## 任务概述
 
 **创建时间**：2026-06-21  
-**状态**：🟢 设计完成，准备实施  
+**状态**：🟢 已实施，本轮完成 durable pending / resume 收口  
 **优先级**：P1（功能增强）  
 **前置依赖**：Task 62.1.2（多 pendingApprovals 支持）
 
@@ -113,3 +113,24 @@ type UserInputFormSpec = {
 - `execute()` 第三参数接收用户输入
 
 ---
+
+## 2026-06-28 修复：durable pending / resume 链路
+
+本轮修复 Task 63 落地后的 `request_user_input` 展示与恢复问题：
+
+- `request_user_input` 已迁移为 `userInputRequest` 工具，不再依赖 `approvalRequired`；Harness 的 pending 查找必须使用统一的 user resolution tool keys，覆盖 `approvalRequired` 与 `userInputRequest` 两类会等待用户恢复的工具。
+- `pendingApprovals` / `pendingUserInputs` DTO 字段名暂时保留兼容，但其语义已扩展为“等待用户 resolution 的 pending tool call”，不能只按 approval 理解。
+- `resolution.kind === "user_input"` 同时支持旧 `answers` 与 Low-Code Form `data`；后端写入 toolResult 时把表单数据规范化到 `details.data.userInput`，供工具恢复执行读取。
+- 前端 Low-Code Form pending 时，底部 Composer 的 Enter / 主按钮必须提交表单，不再走旧 questions 的 `continueQuestion()` 空分支。
+- 修复验证重点：snapshot / live state reload 后仍能恢复 pending UI，`continue + resolution.data` 能闭合原 tool call 并复用 waiting invocation。
+
+### 2026-06-28 系统性收口
+
+代码审查发现 Task 63 初版仍有三类系统性风险：`formSpec` 只存在内存 Map、`userInputRequest` 暂停早于 profile 权限校验、`enter_plan_mode` / `exit_plan_mode` 迁到 Low-Code Form 后仍只用旧 `tool_approval` 更新 Plan Mode lifecycle。
+
+本轮收口后的约束：
+
+- pending metadata 必须 durable：等待用户 resolution 的 Low-Code Form metadata 写入 session custom entry `agent.pendingUserResolution.<toolCallId>`；snapshot、live state、list reload、新 harness 都从 transcript 恢复，不能只依赖实时 SSE 事件或进程内缓存。
+- 权限校验必须前置：`approvalRequired` 与 `userInputRequest` 都属于 user resolution suspend point，进入 waiting 前必须通过工具存在性、profile allowed keys 和 exit plan preview 路径校验；未授权工具写错误 toolResult，不展示 pending UI。
+- Plan Mode resolution 必须按 toolName + decision 处理：`enter_plan_mode` / `exit_plan_mode` 同时接受旧 `tool_approval.approved` 与 Low-Code Form `user_input.data.approved`，并统一更新 `ui.planMode.active` / `agent.planMode`。
+- `exit_plan_mode` 的计划预览继续保留在 toolResult `details.data.planFilePath` / `details.data.planContent`，同时 Low-Code Form 用户提交保留在 `details.data.userInput`。

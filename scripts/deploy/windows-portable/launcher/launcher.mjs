@@ -2,7 +2,7 @@ import * as p from "@clack/prompts";
 import {spawn} from "node:child_process";
 import {createHash, randomBytes} from "node:crypto";
 import {createServer} from "node:net";
-import {existsSync} from "node:fs";
+import {createWriteStream, existsSync} from "node:fs";
 import {cp, lstat, mkdir, readFile, readdir, realpath, rename, rm, symlink, writeFile} from "node:fs/promises";
 import {basename, dirname, join, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
@@ -14,6 +14,7 @@ const PORTABLE_ROOT = process.env.NEURO_BOOK_PORTABLE_ROOT
     : resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const APP_DIR = join(PORTABLE_ROOT, "app");
 const DATA_DIR = join(PORTABLE_ROOT, "data");
+const DATA_LOG_DIR = join(DATA_DIR, "logs");
 const DATA_WORKSPACE_DIR = join(DATA_DIR, "workspace");
 const APP_WORKSPACE_PATH = join(APP_DIR, "workspace");
 const DEPLOY_DIR = join(DATA_DIR, ".deploy");
@@ -25,6 +26,8 @@ const PORTABLE_RELEASE = join(PORTABLE_ROOT, "portable-release.json");
 const PACKAGE_ROOT_NAME = "neuro-book-windows-x64";
 const WINDOWS_ZIP_NAME = `${PACKAGE_ROOT_NAME}.zip`;
 const SHA256SUMS_NAME = "SHA256SUMS";
+const LAUNCHER_LOG_MAX_BYTES = 10 * 1024 * 1024;
+const LAUNCHER_LOG_RETENTION = 8;
 const UPDATE_RELEASE_API = process.env.NEURO_BOOK_UPDATE_RELEASE_API
     ?? "https://api.github.com/repos/notnotype/neuro-book/releases?per_page=30";
 const LAUNCHER_ROOT_FILES = [
@@ -64,6 +67,7 @@ async function main() {
 async function start() {
     await assertProductPayload();
     await ensurePortableConfig();
+    await writeLauncherLog("info", "launcher start");
     const env = await loadDataEnv();
     await ensurePortAvailable(env);
     await prepareSystemAssets();
@@ -399,6 +403,7 @@ async function assertProductPayload() {
  */
 async function ensurePortableConfig() {
     await mkdir(join(DATA_WORKSPACE_DIR, ".nbook"), {recursive: true});
+    await ensureLauncherLogDirectory();
     await ensureWorkspaceLink();
 
     const envPath = join(DATA_DIR, ".env");
@@ -495,11 +500,22 @@ async function runProductTsScript(relativeScript, options) {
 async function runServer(env) {
     const port = webPort(env);
     const url = `http://localhost:${port}`;
+    const logSink = await createLauncherLogSink();
+    const stdoutFormatter = createProcessLogFormatter("server.stdout");
+    const stderrFormatter = createProcessLogFormatter("server.stderr");
     const child = spawn(BUN_EXE, [SERVER_ENTRY], {
         cwd: APP_DIR,
         env,
-        stdio: "inherit",
+        stdio: ["inherit", "pipe", "pipe"],
         windowsHide: false,
+    });
+    child.stdout?.on("data", (chunk) => {
+        process.stdout.write(chunk);
+        logSink.write(stdoutFormatter.write(chunk));
+    });
+    child.stderr?.on("data", (chunk) => {
+        process.stderr.write(chunk);
+        logSink.write(stderrFormatter.write(chunk));
     });
 
     if (process.env.NEURO_BOOK_NO_OPEN_BROWSER !== "1") {
@@ -509,8 +525,16 @@ async function runServer(env) {
     }
 
     await new Promise((resolvePromise, rejectPromise) => {
-        child.on("error", rejectPromise);
-        child.on("exit", (code, signal) => {
+        child.on("error", async (error) => {
+            logSink.write(stdoutFormatter.flush());
+            logSink.write(stderrFormatter.flush());
+            await logSink.close();
+            rejectPromise(error);
+        });
+        child.on("exit", async (code, signal) => {
+            logSink.write(stdoutFormatter.flush());
+            logSink.write(stderrFormatter.flush());
+            await logSink.close();
             if (signal) {
                 rejectPromise(new Error(`服务被信号中断：${signal}`));
                 return;
@@ -562,6 +586,7 @@ async function productEnv() {
         NODE_ENV: process.env.NODE_ENV || "production",
         DATABASE_KIND: env.DATABASE_KIND ?? "sqlite",
         DATABASE_URL: env.DATABASE_URL ?? "file:../data/workspace/.nbook/neuro-book.sqlite",
+        NEURO_BOOK_LOG_DIR: env.NEURO_BOOK_LOG_DIR ?? DATA_LOG_DIR,
         PORT: port,
         NITRO_PORT: port,
         NUXT_PORT: port,
@@ -778,6 +803,7 @@ function renderEnv(port, sessionPassword) {
         "",
         "DATABASE_KIND=sqlite",
         "DATABASE_URL=file:../data/workspace/.nbook/neuro-book.sqlite",
+        "NEURO_BOOK_LOG_DIR=../data/logs",
         "",
     ].join("\n");
 }
@@ -813,6 +839,195 @@ function renderGlobalConfig() {
 }
 
 main().catch((error) => {
+    void writeLauncherLog("error", error instanceof Error ? error.stack ?? error.message : String(error));
     p.log.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
 });
+
+function launcherLogPath() {
+    return join(DATA_LOG_DIR, `launcher-${new Date().toISOString().slice(0, 10)}.log`);
+}
+
+async function ensureLauncherLogDirectory() {
+    try {
+        await mkdir(DATA_LOG_DIR, {recursive: true});
+    } catch (error) {
+        process.stderr.write(`[launcher-log] mkdir failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    }
+}
+
+async function writeLauncherLog(level, message) {
+    try {
+        await mkdir(DATA_LOG_DIR, {recursive: true});
+        await rotateLauncherLogIfNeeded(Buffer.byteLength(message, "utf8"));
+        await writeFile(launcherLogPath(), `[${new Date().toISOString()}] [${level}] ${redactSensitiveText(message)}\n`, {encoding: "utf8", flag: "a"});
+        await pruneLauncherLogFiles();
+    } catch (error) {
+        process.stderr.write(`[launcher-log] write failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    }
+}
+
+function createProcessLogFormatter(source) {
+    let pending = "";
+    return {
+        write(chunk) {
+            pending += Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+            const lines = pending.split(/\r?\n/u);
+            pending = lines.pop() ?? "";
+            return lines.map((line) => formatProcessLine(source, line)).join("");
+        },
+        flush() {
+            if (!pending) {
+                return "";
+            }
+            const line = pending;
+            pending = "";
+            return formatProcessLine(source, line);
+        },
+    };
+}
+
+function formatProcessLine(source, line) {
+    if (!line) {
+        return "";
+    }
+    return `[${new Date().toISOString()}] [${source}] ${redactSensitiveText(line)}\n`;
+}
+
+function redactSensitiveText(input) {
+    return [
+        [/\b(authorization\s*[:=]\s*)(bearer\s+)?[^\s,;"']+/giu, "$1$2[REDACTED]"],
+        [/\b(cookie|set-cookie)\s*[:=]\s*[^\r\n]+/giu, "$1=[REDACTED]"],
+        [/\b(api[-_]?key|apikey|password|token|secret|credential)\s*[:=]\s*([^\s,;"']+)/giu, "$1=[REDACTED]"],
+        [/\b(sk-[A-Za-z0-9_-]{12,})\b/gu, "[REDACTED]"],
+    ].reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), input);
+}
+
+async function createLauncherLogSink() {
+    try {
+        return await createFileLauncherLogSink();
+    } catch (error) {
+        process.stderr.write(`[launcher-log] init failed: ${error instanceof Error ? error.message : String(error)}\n`);
+        return {
+            write() {},
+            async close() {},
+        };
+    }
+}
+
+async function createFileLauncherLogSink() {
+    await mkdir(DATA_LOG_DIR, {recursive: true});
+    await rotateLauncherLogIfNeeded(0);
+    await pruneLauncherLogFiles();
+    let bytes = await launcherLogSize();
+    let stream = createWriteStream(launcherLogPath(), {flags: "a"});
+    let failed = false;
+    let closed = false;
+    let queue = Promise.resolve();
+
+    const markFailed = (error) => {
+        failed = true;
+        process.stderr.write(`[launcher-log] write failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    };
+    stream.on("error", markFailed);
+
+    return {
+        write(text) {
+            if (!text || closed || failed) {
+                return;
+            }
+            queue = queue.then(async () => {
+                if (failed) {
+                    return;
+                }
+                const textBytes = Buffer.byteLength(text, "utf8");
+                if (bytes + textBytes > LAUNCHER_LOG_MAX_BYTES) {
+                    await closeLogStream(stream);
+                    await rotateLauncherLogFile();
+                    await pruneLauncherLogFiles();
+                    bytes = 0;
+                    stream = createWriteStream(launcherLogPath(), {flags: "a"});
+                    stream.on("error", markFailed);
+                }
+                if (failed) {
+                    return;
+                }
+                stream.write(text);
+                bytes += textBytes;
+            }).catch(markFailed);
+        },
+        async close() {
+            closed = true;
+            await queue.catch(() => undefined);
+            await closeLogStream(stream);
+        },
+    };
+}
+
+function closeLogStream(logStream) {
+    return new Promise((resolvePromise) => {
+        if (logStream.closed || logStream.destroyed) {
+            resolvePromise();
+            return;
+        }
+        logStream.once("finish", resolvePromise);
+        logStream.once("error", resolvePromise);
+        logStream.end();
+    });
+}
+
+async function rotateLauncherLogIfNeeded(nextBytes) {
+    if (await launcherLogSize() + nextBytes <= LAUNCHER_LOG_MAX_BYTES) {
+        return;
+    }
+    await rotateLauncherLogFile();
+}
+
+async function launcherLogSize() {
+    try {
+        const stat = await lstat(launcherLogPath());
+        return stat.size;
+    } catch (error) {
+        if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+            return 0;
+        }
+        throw error;
+    }
+}
+
+async function rotateLauncherLogFile() {
+    const source = launcherLogPath();
+    if (!existsSync(source)) {
+        return;
+    }
+    const target = join(DATA_LOG_DIR, `launcher-${formatLauncherRotatedTimestamp(new Date())}-${process.pid}-${randomBytes(4).toString("hex")}.log`);
+    await rename(source, target);
+}
+
+async function pruneLauncherLogFiles() {
+    const entries = await readdir(DATA_LOG_DIR, {withFileTypes: true}).catch((error) => {
+        if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+            return [];
+        }
+        throw error;
+    });
+    const files = [];
+    for (const entry of entries) {
+        if (!entry.isFile() || !/^launcher-\d{4}-\d{2}-\d{2}(?:-\d{6}-\d+-[a-f0-9]+)?\.log$/iu.test(entry.name)) {
+            continue;
+        }
+        const filePath = join(DATA_LOG_DIR, entry.name);
+        const stat = await lstat(filePath);
+        files.push({path: filePath, mtimeMs: stat.mtimeMs, name: entry.name});
+    }
+    files.sort((left, right) => right.mtimeMs - left.mtimeMs || left.name.localeCompare(right.name));
+    for (const file of files.slice(LAUNCHER_LOG_RETENTION)) {
+        await rm(file.path, {force: true});
+    }
+}
+
+function formatLauncherRotatedTimestamp(date) {
+    const day = date.toISOString().slice(0, 10);
+    const time = date.toISOString().slice(11, 19).replace(/:/g, "");
+    return `${day}-${time}`;
+}

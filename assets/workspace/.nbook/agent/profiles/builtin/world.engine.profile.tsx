@@ -32,9 +32,7 @@ export default defineAgentProfile({
         builtin.file.applyPatch,
         builtin.agent.getProfile,
         builtin.agent.getSession,
-        builtin.world.query,
-        builtin.world.writeSlice,
-        builtin.world.deleteSlice,
+        builtin.world.execute("readwrite"),
     ),
     compaction: {},
     context(ctx) {
@@ -75,18 +73,20 @@ const WORLD_ENGINE_SYSTEM_PROMPT = profileText`
 
     # 工作方式
 
-    - 每轮先确认 projectPath。工具都必须显式传 projectPath。
-    - 使用 3 个核心工具：(execute_world_query) 只读查询 + (write_world_slice) 写入切面 + (delete_world_slice) 删除切面。
+    - 每轮先确认 projectPath。工具必须显式传 projectPath。
+    - 使用单一核心工具 execute_world：在同一个 CodeAct 脚本里完成查询、写入、精确修改和删除。
 
-    ## 只读查询（execute_world_query）
+    ## 查询
 
     在 CodeAct 沙盒中执行 JavaScript 查询世界状态。可用 API：
     - world.get(id, options?) - 查询单个 subject，options.deref=true 可自动解引用
     - world.getMany(ids) - 批量查询多个 subject
-    - world.list(type) - 列出指定类型的所有 subject
+    - world.list(type?) - 列出指定类型或全部 subject
     - world.findRefs(targetId, sourceType?) - 反向查找：哪些 subject 引用了目标
     - world.searchText(query, options?) - 向量搜索（存活集去重 + 同 model 过滤）
-    - world.slices(options?) - 查询时间轴切面
+    - world.slices(options?) - 查询时间轴切面；需要 patch 明细时传 {withPatches: true}
+    - world.getSlice(id) - 读取单个切面及 patchId
+    - world.parseTime(text) / world.formatTime(instant) - 项目日历字符串与 instant 互转
     - world.now() - 获取当前时间
 
     示例：
@@ -99,20 +99,16 @@ const WORLD_ENGINE_SYSTEM_PROMPT = profileText`
     查询并解引用
     const erina = await world.get("erina", { deref: true, derefDepth: 1 });
 
-    ## 写入切面（write_world_slice）
+    ## 写入与精确编辑
 
     - 首次写入某 subject 时会自动创建（不需要单独 create 步骤）
-    - 时间必须是项目日历字符串（如「星辉历312年 5月5日 14:00」），不要传 raw instant
+    - 对用户说项目日历字符串；脚本内用 world.parseTime("星辉历312年 5月5日 14:00") 转成 instant 后写入
     - 一个 slice = 一个 time + 一组 patches，原子写入。每条 patch：{ subjectId, path（JSON Pointer，如 /hp、/equipment/head）, op, value?, summary?, type?（仅首写）, name?（仅首写） }
     - 支持 4 种 op：replace（设绝对值）/ increment（数值增减）/ remove（移除路径；collection 可提供 value 按 stable JSON 值删除元素，list 不支持按值删）/ append（数组追加，collection/unique 数组自动去重）
-    - 同一时间点只能有一个 slice；目标时间已有切面时会冲突报错，改用相邻时间，不要假设能覆盖已有 slice
-    - 写入返回 issues：E（broken-relative / dangling-ref）是数据错误必须修；A（base-shifted / masked）是补过去时的提醒，确认语义即可
-
-    ## 删除切面（delete_world_slice）
-
-    - 物理删除，不可恢复；只用于剧情回退、修正错误切面或清理误写数据
-    - 必须先用 execute_world_query 的 world.slices() 获取 sliceId，再调用 delete_world_slice
-    - 删除后会重新 reduce 受影响 subject，并返回可能显形的 E issues
+    - 同一时间点只能有一个 slice；目标时间已有切面且只是补/改某条 patch 时，用 world.editMutations，不要改用相邻时间制造重复事件
+    - 改错时先用 world.getSlice 或 world.slices({withPatches:true}) 取得 patchId，再 world.editMutations(sliceId, edits, meta?)
+    - 删除是物理删除，不可恢复；只用于剧情回退、整条切面作废或清理误写数据
+    - execute_world 统一返回 {data, issues}；E（broken-relative / dangling-ref）是数据错误必须修，A（base-shifted / masked）是补过去时的提醒，确认语义即可
 
     # 边界
 

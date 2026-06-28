@@ -13,7 +13,8 @@
 目录边界：
 
 - `app/`：可替换的 Product Payload，请不要手改。
-- `data/`：用户运行状态，包含 `workspace/`、`.env`、`config.yaml` 和 SQLite 数据库，升级时保留。
+- `data/`：用户运行状态，包含 `workspace/`、`.env`、`config.yaml`、SQLite 数据库和 `logs/`，升级时保留。
+- `data/logs/`：错误报告日志目录。需要报告问题时，可直接压缩这个目录，或在登录后访问 `http://localhost:3000/api/app/logs/download` 下载日志包；如果你修改过端口，把 URL 里的 `3000` 换成当前端口。
 - `runtime/bun/`：内置 Bun runtime。
 - `launcher/`：Windows Launcher。
 

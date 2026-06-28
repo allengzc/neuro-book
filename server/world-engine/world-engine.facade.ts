@@ -1,5 +1,6 @@
 import {createClient, type Client, type Transaction} from "@libsql/client";
 import {WorldCalendarLoader} from "nbook/server/world-engine/calendar";
+import type {WorldCalendar} from "nbook/server/world-engine/calendar";
 import {flattenAttrs, WorldSchemaLoader} from "nbook/server/world-engine/schema-loader";
 import {WorldEngineRepository} from "nbook/server/world-engine/world-engine.repository";
 import {WorldEngineService} from "nbook/server/world-engine/world-engine.service";
@@ -16,6 +17,7 @@ import type {
     WorldSchemaProjection,
     WorldSliceSubjectFilterMode,
     WorldSubjectListItem,
+    WorldIssue,
 } from "nbook/server/world-engine/types";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {initProjectDatabase, normalizeProjectPath, resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
@@ -23,10 +25,22 @@ import {initProjectDatabase, normalizeProjectPath, resolveProjectDatabasePath, t
 type WorldEngineModule = {
     service: WorldEngineService;
     repository: WorldEngineRepository;
+    calendar: WorldCalendar;
 };
 
 type WorldEngineClientEntry = {
     client: Client;
+};
+
+export type ExecuteWorldMode = "readonly" | "readwrite";
+
+export type ExecuteWorldResult = {
+    data: unknown;
+    issues: WorldIssue[];
+};
+
+export type ExecuteWorldOptions = {
+    timeout?: number;
 };
 
 /** 世界引擎后端门面。 */
@@ -109,26 +123,39 @@ export class WorldEngineFacade {
 
     /** 执行 CodeAct 查询代码。 */
     async executeCodeActQuery(projectPath: string, code: string): Promise<unknown> {
-        return this.runWithModule(projectPath, async (module) => {
-            // 获取当前时间（latest instant）
-            const currentInstant = await module.service.getCurrentInstant();
+        return (await this.executeCodeActWorld(projectPath, code, "readonly")).data;
+    }
 
-            // 创建 World API
+    /** 在同一 deferred 事务内执行 CodeAct 世界读写代码。 */
+    async executeCodeActWorld(projectPath: string, code: string, mode: ExecuteWorldMode = "readwrite", options: ExecuteWorldOptions = {}): Promise<ExecuteWorldResult> {
+        return this.runInTransaction(projectPath, async (module) => {
+            const currentInstant = await module.service.getCurrentInstant();
+            const issues: WorldIssue[] = [];
+
             const worldApi = createWorldApi({
                 service: module.service,
                 repository: module.repository,
                 currentInstant,
+                mode,
+                issueCollector: issues,
+                parseTime: (input) => module.calendar.parse(input),
+                formatTime: (instant) => module.calendar.format(instant),
             });
 
-            // 在沙箱中执行代码
-            return await executeCodeAct(code, worldApi);
-        });
+            const data = await executeCodeAct(code, worldApi, {
+                timeout: options.timeout ?? (mode === "readwrite" ? 15_000 : 5_000),
+            });
+            return {
+                data: data === undefined ? "执行完成" : data,
+                issues,
+            };
+        }, "deferred");
     }
 
-    private async runInTransaction<TResult>(projectPath: string, callback: (module: WorldEngineModule) => Promise<TResult>): Promise<TResult> {
+    private async runInTransaction<TResult>(projectPath: string, callback: (module: WorldEngineModule) => Promise<TResult>, mode: "write" | "read" | "deferred" = "write"): Promise<TResult> {
         const entry = await this.createClientEntry(projectPath);
         const normalizedProjectPath = normalizeProjectPath(projectPath);
-        const transaction = await entry.client.transaction("write");
+        const transaction = await entry.client.transaction(mode);
         try {
             const result = await callback(await this.createModuleFromExecutor(transaction, normalizedProjectPath));
             await transaction.commit();
@@ -179,6 +206,7 @@ export class WorldEngineFacade {
         return {
             service: new WorldEngineService(repository, schema, calendar, projectPath),
             repository,
+            calendar,
         };
     }
 }

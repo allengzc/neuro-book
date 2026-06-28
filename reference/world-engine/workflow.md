@@ -14,7 +14,7 @@ World Engine 是项目内**动态世界状态 + 时间线的唯一真相源**。
 
 - **slice / 切面**：一个时间点 + 该时间点发生的一组变更。同一个时间点只能有一个 slice。
 - **subject / 主体**：能独立演变状态的对象。不限于人物，地点、势力、王国、任务、重要物品都可以是 subject。
-- **instant**：底层时间真相源，一个连续单调的整数刻。**对外永远用项目日历字符串表达**（见第 3 节）。
+- **instant**：底层时间真相源，一个连续单调的整数刻。用户侧用项目日历字符串表达；`execute_world` 沙箱内用 `world.parseTime()` / `world.formatTime()` 在日历字符串与 instant bigint 之间转换。
 - **patch / 变更**：对某 subject 某个 path 的一次操作。
 - **op / 操作**：patch 的动作类型，全集为 `replace` / `increment` / `remove` / `append`。
 - **reduce / 归约**：把一段 slice 序列叠加算出某时刻状态的过程。
@@ -227,7 +227,7 @@ World Engine 初始化的完整流程分为 5 个 Phase，每个 Phase 有明确
 **目标**：确定下一段剧情的框架。
 
 **Leader 的职责**：
-- 读取当前世界状态（用 `execute_world_query` 查询角色位置、状态、目标）
+- 读取当前世界状态（用 `execute_world` 查询角色位置、状态、目标）
 - 向用户提出 2-4 个候选方向（基于当前状态和用户之前表达的意图）
 - 确认本轮剧情的目标、范围、关键事件、预期结局
 
@@ -245,7 +245,7 @@ World Engine 初始化的完整流程分为 5 个 Phase，每个 Phase 有明确
 **操作步骤**：
 1. 把剧情框架拆分为若干场景或关键状态变化
 2. 为每个场景确定时间点（精确到小时或分钟）
-3. 为每个场景写入切片（`write_world_slice`）：
+3. 为每个场景写入切片（`execute_world` 中调用 `world.writeSlice`）：
    - 更新角色 `location`（如果移动）
    - 更新角色 `hp` / `mp`（如果战斗）
    - append 到角色 `events`（记录发生了什么）
@@ -257,7 +257,7 @@ World Engine 初始化的完整流程分为 5 个 Phase，每个 Phase 有明确
 **验收**：
 - 每个切片的时间点符合剧情顺序
 - 所有角色的状态变化都已记录
-- `execute_world_query` 查询结果符合预期
+- `execute_world` 查询结果符合预期
 
 ### Phase 3：写正文（Writer 基于世界状态）
 
@@ -270,7 +270,7 @@ World Engine 初始化的完整流程分为 5 个 Phase，每个 Phase 有明确
 
 **Writer 的职责**：
 1. 读取 brief 和 lorebook
-2. 用 `execute_world_query` 查询角色当前状态
+2. 用 readonly `execute_world` 查询角色当前状态
 3. 写出符合状态的章节正文
 4. 报告完成情况
 
@@ -372,7 +372,7 @@ Lorebook 与 World Engine 的互补关系最容易混淆，用一个例子点清
 
 **用户只需要讲故事、设计角色、推进剧情，永远不需要理解 World Engine 的技术结构。** leader 负责把用户的自然语言自动映射到 slice / patch / reduce / instant / op / schema / calendar 这些技术概念，用户侧不应该看到它们。
 
-时间是这条原则最硬的约束：**对外一律用项目日历字符串**（如 "星辉历312年 5月5日 14:00"）。Agent 工具与 HTTP 公开入参**禁止 raw instant**（`instant:<number>` 这类调试格式会被直接拒绝）。底层的连续整数刻只在引擎内部存在，leader 通过项目 Calendar 把日历字符串 parse / format 成 instant，用户和 writer 都不接触它。
+时间是这条原则最硬的约束：**对用户一律用项目日历字符串**（如 "星辉历312年 5月5日 14:00"）。HTTP 公开入参禁止 raw instant；`execute_world` 沙箱内使用 instant bigint，leader 通过 `world.parseTime()` / `world.formatTime()` 做转换，用户和 writer 只看到日历文本。
 
 应该对用户说的"人话" vs 不该暴露的术语对照：
 
@@ -383,7 +383,7 @@ Lorebook 与 World Engine 的互补关系最容易混淆，用一个例子点清
 | "我帮你补一段莉雅的过去" | "向更早 instant 插入一个 `kind=backstory` 的 slice" |
 | "星辉历 312 年 5 月 5 日 14:00" | "instant: 9849600" |
 | "薇洛丝学会了岩石魔法" | "对 `/skills` 做 `append` patch" |
-| "她现在状态怎么样" | "execute_world_query 查询状态" |
+| "她现在状态怎么样" | "execute_world 查询状态" |
 
 leader 在回复用户时用左列，在调用工具时用右列。报告世界状态时给"时间线 + 当前状态"的人读摘要，不要把 slice id、patch JSON、op 名字甩给用户。
 
@@ -454,13 +454,13 @@ leader 设计剧情 → leader 推进 World Engine（写作前完成）→ leade
 | 建议读取的 lorebook 路径 | 完整时间线记录 |
 | World Engine 查询提示（查哪些 subject、哪个时间范围） | mutation 细节 |
 
-不传 HP、位置这类细节，是因为 writer 会自己用 `execute_world_query` 查到当前真值。把状态都塞进 brief 既冗余、又会让 writer 退化成纯执行者、还浪费了它的查询能力。brief 给框架，状态留给 writer 查。
+不传 HP、位置这类细节，是因为 writer 会自己用 readonly `execute_world` 查到当前真值。把状态都塞进 brief 既冗余、又会让 writer 退化成纯执行者、还浪费了它的查询能力。brief 给框架，状态留给 writer 查。
 
 ### 6.3 Writer 能力边界
 
 | 能力 | 说明 |
 | --- | --- |
-| 查询 World Engine | `execute_world_query`（**只读**，CodeAct 沙盒） |
+| 查询 World Engine | `execute_world`（writer 绑定 readonly 模式） |
 | 读取 lorebook | 角色设定、地点描述、规则 |
 | 自主查询状态 | 按需查角色 HP、位置、心理等 |
 | 写作自由度 | 可在 brief 框架内发挥细节 |
@@ -468,7 +468,7 @@ leader 设计剧情 → leader 推进 World Engine（写作前完成）→ leade
 | 创建 subject | **不能**，首次写入由 leader 负责 |
 | 主线剧情设计 | **不应承担**，剧情设计权在 leader |
 
-writer 的典型工作流：读 brief 指定的 lorebook → 用 `execute_world_query` 查相关 subject 在章节时间范围的状态 → 构思并写入正文 → 报告结果。leader 在 writer 完成后检查成果，确认 writer 的细节发挥（环境描写、角色反应、内心独白等）是否在合理范围内；通常这些细节不改变世界状态，不需要补回 World Engine。
+writer 的典型工作流：读 brief 指定的 lorebook → 用 readonly `execute_world` 查相关 subject 在章节时间范围的状态 → 构思并写入正文 → 报告结果。leader 在 writer 完成后检查成果，确认 writer 的细节发挥（环境描写、角色反应、内心独白等）是否在合理范围内；通常这些细节不改变世界状态，不需要补回 World Engine。
 
 ### 6.4 自由发挥模式（可选，默认不推荐）
 
@@ -490,7 +490,7 @@ leader 在 brief 中必须明确**谁知道什么、谁不知道什么**，write
 - 莉雅视角：失忆，不知道自己被封印了多久、不知道外面的世界。
 - 反派视角：从教会典籍见过古代魔女项链的记载，认出标志，但不确定眼前的女孩是谁。
 
-writer 写每个角色的言行、心理时只能基于该角色已知的信息。读者层面的悬念由"角色不知道、读者也暂时不知道"共同维持。注意 World Engine 的 `execute_world_query` 是上帝视角真值源——writer 能查到莉雅的真实状态，但在薇洛丝视角的叙述里不能让薇洛丝"知道"这些 writer 查到的设定。查询能力服务于写作一致性，不等于授权角色越界知情。
+writer 写每个角色的言行、心理时只能基于该角色已知的信息。读者层面的悬念由"角色不知道、读者也暂时不知道"共同维持。注意 World Engine 的 readonly `execute_world` 是上帝视角真值源——writer 能查到莉雅的真实状态，但在薇洛丝视角的叙述里不能让薇洛丝"知道"这些 writer 查到的设定。查询能力服务于写作一致性，不等于授权角色越界知情。
 
 ## 相关文档
 

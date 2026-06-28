@@ -112,7 +112,6 @@ const {
     selectedFileNode,
     selectedFilePath,
     selectedModel,
-    selectedReasoning,
     theme,
     viewMode,
     markdownEditorPreferences,
@@ -309,7 +308,6 @@ const displaySelectedFileNode = computed(() => workspaceDisplayReady.value ? sel
 const displayCurrentEditorKind = computed<WorkspaceEditorKind>(() => workspaceDisplayReady.value ? currentEditorKind.value : "readonly");
 const displayCurrentWorkspaceViewMode = computed<WorkspaceEditorViewMode>(() => workspaceDisplayReady.value ? currentWorkspaceViewMode.value : "source");
 const displaySelectedModel = computed(() => workspaceBootstrapped.value ? selectedModel.value : t("ide.shell.modelNotConfigured"));
-const displaySelectedReasoning = computed(() => workspaceBootstrapped.value ? selectedReasoning.value : t("ide.shell.defaultReasoning"));
 const displayMonacoTemporaryFontSize = computed(() => displayActiveWorkspaceTabPath.value
     ? monacoFontSizeOverridesByPath.value[displayActiveWorkspaceTabPath.value] ?? null
     : null);
@@ -351,11 +349,27 @@ const inlinePromptExpanded = ref(false);
 const inlinePromptInstruction = ref("");
 const inlinePromptTask = ref<InlineEditTask>("polish");
 const inlinePromptReferences = ref<InlineEditReference[]>([]);
+const inlinePromptHoveredReference = ref<InlineEditReference | null>(null);
 const inlinePromptRunning = ref(false);
 const inlinePromptStatusText = ref(t("ide.inlineAi.initialStatus"));
 const inlinePromptEditPreview = ref("");
 const displayInlinePromptSessionLabel = computed(() => {
     return unref(agentSurfaceRef.value?.inlineEditorSessionLabel) || t("ide.inlineAi.sessionLabel");
+});
+const inlinePromptSessions = computed<AgentSessionSummaryDto[]>(() => {
+    return unref(agentSurfaceRef.value?.inlineEditorSessions) ?? [];
+});
+const inlinePromptSessionId = computed<number | null>(() => {
+    return unref(agentSurfaceRef.value?.inlineEditorSessionId) ?? null;
+});
+const inlinePromptSessionLoading = computed(() => {
+    return unref(agentSurfaceRef.value?.inlineEditorSessionLoading) ?? false;
+});
+const inlinePromptResultText = computed(() => {
+    return unref(agentSurfaceRef.value?.inlineEditorResultText) || "";
+});
+const inlinePromptAgentRunning = computed(() => {
+    return unref(agentSurfaceRef.value?.inlineEditorRunning) ?? false;
 });
 const displayInlinePromptEditPreview = computed(() => {
     return unref(agentSurfaceRef.value?.inlineEditPreview) || inlinePromptEditPreview.value;
@@ -795,7 +809,11 @@ function addInlineAiReference(reference: InlineEditReference): void {
  * 清除一个 Inline AI 引用。
  */
 function clearInlineAiReference(index: number): void {
+    const removedReference = inlinePromptReferences.value[index] ?? null;
     inlinePromptReferences.value = inlinePromptReferences.value.filter((_reference, referenceIndex) => referenceIndex !== index);
+    if (removedReference && inlinePromptHoveredReference.value?.ref === removedReference.ref) {
+        inlinePromptHoveredReference.value = null;
+    }
 }
 
 /**
@@ -887,7 +905,6 @@ async function sendInlineEditorPrompt(): Promise<void> {
     }
 
     await saveCurrentWorkspaceFile();
-    rightPanelOpen.value = true;
     inlinePromptRunning.value = true;
     inlinePromptStatusText.value = t("ide.inlineAi.sending");
     inlinePromptEditPreview.value = "";
@@ -896,6 +913,7 @@ async function sendInlineEditorPrompt(): Promise<void> {
         await agentSurface.sendInlineEditorPrompt(payload, buildInlineVisibleMessage(payload));
         inlinePromptInstruction.value = "";
         inlinePromptReferences.value = [];
+        inlinePromptHoveredReference.value = null;
         inlinePromptStatusText.value = t("ide.inlineAi.started");
     } catch (error) {
         inlinePromptStatusText.value = resolveApiErrorMessage(error, t("ide.inlineAi.sendFailed"));
@@ -915,12 +933,11 @@ async function stopInlineEditorPrompt(): Promise<void> {
 }
 
 /**
- * 打开 Inline AI 绑定入口。第一版复用右侧 Agent 面板管理 session。
+ * 在 PromptBar 内切换后台 Inline AI session。
  */
-async function bindInlineEditorSession(): Promise<void> {
-    rightPanelOpen.value = true;
+async function selectInlineEditorSession(sessionId: number): Promise<void> {
     try {
-        await agentSurfaceRef.value?.openInlineEditorSession?.();
+        await agentSurfaceRef.value?.selectInlineEditorSession?.(sessionId);
         inlinePromptStatusText.value = t("ide.inlineAi.boundSession");
     } catch (error) {
         inlinePromptStatusText.value = resolveApiErrorMessage(error, t("ide.inlineAi.bindFailed"));
@@ -929,15 +946,27 @@ async function bindInlineEditorSession(): Promise<void> {
 }
 
 /**
- * 打开模型切换入口。第一版复用右侧 Agent 面板模型控制。
+ * 在当前 Project Workspace 下创建新的 Inline AI session。
  */
-async function changeInlineEditorModel(): Promise<void> {
-    rightPanelOpen.value = true;
+async function createInlineEditorSession(): Promise<void> {
     try {
-        await agentSurfaceRef.value?.openInlineEditorSession?.();
-        inlinePromptStatusText.value = t("ide.inlineAi.modelPanelOpened");
+        await agentSurfaceRef.value?.createInlineEditorSession?.();
+        inlinePromptStatusText.value = t("ide.inlineAi.sessionCreated");
     } catch (error) {
-        inlinePromptStatusText.value = resolveApiErrorMessage(error, t("ide.inlineAi.openModelPanelFailed"));
+        inlinePromptStatusText.value = resolveApiErrorMessage(error, t("ide.inlineAi.createSessionFailed"));
+        notification.error(inlinePromptStatusText.value, {title: "Inline AI"});
+    }
+}
+
+/**
+ * 刷新 PromptBar 的 Inline AI session 列表。
+ */
+async function refreshInlineEditorSessions(): Promise<void> {
+    try {
+        await agentSurfaceRef.value?.refreshInlineEditorSessions?.();
+        inlinePromptStatusText.value = t("ide.inlineAi.sessionsRefreshed");
+    } catch (error) {
+        inlinePromptStatusText.value = resolveApiErrorMessage(error, t("ide.inlineAi.refreshSessionsFailed"));
         notification.error(inlinePromptStatusText.value, {title: "Inline AI"});
     }
 }
@@ -957,8 +986,15 @@ watch(currentWorkspaceViewMode, (mode) => {
     viewMode.value = mode;
 }, {immediate: true});
 
+watch([inlinePromptAvailable, agentSurfaceRef], ([available, surface]) => {
+    if (available && surface?.refreshInlineEditorSessions) {
+        void surface.refreshInlineEditorSessions();
+    }
+}, {immediate: true});
+
 watch(selectedFilePath, () => {
     inlinePromptReferences.value = [];
+    inlinePromptHoveredReference.value = null;
     inlinePromptEditPreview.value = "";
     inlinePromptStatusText.value = t("ide.inlineAi.initialStatus");
 });
@@ -2090,6 +2126,8 @@ onBeforeUnmount(() => {
                             :resolve-menu="resolveMarkdownMenu"
                             :open-reference="openWorkspaceReference"
                             :resolve-reference="resolveWorkspaceReferencePreview"
+                            :inline-ai-references="inlinePromptReferences"
+                            :inline-ai-highlight-reference="inlinePromptHoveredReference"
                             :enable-quick-triggers="true"
                             @select-tab="void selectWorkspaceTab($event)"
                             @close-tab="void closeEditorTab($event)"
@@ -2133,22 +2171,26 @@ onBeforeUnmount(() => {
                     v-if="!isAgentMode && inlinePromptAvailable"
                     class="ide-prompt-bar"
                     :model-value="inlinePromptInstruction"
-                    :loading="inlinePromptRunning || loadingWorkspace"
-                    :status-text="inlinePromptStatusText"
+                    :loading="inlinePromptRunning || inlinePromptAgentRunning || loadingWorkspace"
                     :selected-model="displaySelectedModel"
-                    :selected-reasoning="displaySelectedReasoning"
                     :expanded="inlinePromptExpanded"
                     :task="inlinePromptTask"
                     :references="inlinePromptReferences"
                     :current-path="selectedFilePath"
                     :session-label="displayInlinePromptSessionLabel"
+                    :sessions="inlinePromptSessions"
+                    :active-session-id="inlinePromptSessionId"
+                    :session-loading="inlinePromptSessionLoading"
                     :edit-preview="displayInlinePromptEditPreview"
+                    :result-text="inlinePromptResultText"
                     @update:model-value="inlinePromptInstruction = $event"
                     @update:expanded="inlinePromptExpanded = $event"
                     @update:task="inlinePromptTask = $event"
                     @clear-reference="clearInlineAiReference"
-                    @bind-session="void bindInlineEditorSession()"
-                    @change-model="void changeInlineEditorModel()"
+                    @hover-reference="inlinePromptHoveredReference = $event"
+                    @select-session="void selectInlineEditorSession($event)"
+                    @create-session="void createInlineEditorSession()"
+                    @refresh-sessions="void refreshInlineEditorSessions()"
                     @send="void sendInlineEditorPrompt()"
                     @stop="void stopInlineEditorPrompt()"
                 />

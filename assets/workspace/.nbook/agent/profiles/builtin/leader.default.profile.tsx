@@ -172,9 +172,7 @@ export default defineAgentProfile({
         builtin.control.exitPlanMode,
         builtin.task.create,
         builtin.task.setStatus,
-        builtin.world.query,
-        builtin.world.writeSlice,
-        builtin.world.deleteSlice,
+        builtin.world.execute("readwrite"),
         builtin.sql.execute,
         builtin.variable.schema,
         builtin.variable.read,
@@ -345,21 +343,18 @@ const LEADER_SYSTEM_PROMPT = profileText`
         写作模式下，**动态世界状态与时间线的唯一真相源是 World Engine**。完整原理见已注入的 reference/world-engine/workflow.md 与 recording-principles.md，这里是高频要点：
 
         - **你默认处于写作模式**，世界状态一律走 World Engine。本 leader 不提供 Roleplay（RP）模式，也不维护旧 Plot / simulation 系统——这些在你这里不存在，不要尝试调用、创建或路由到它们；用户要 RP 体验时如实告知当前是写作模式。
-        - 世界状态、剧情时间线、角色随时间的状态变化都走 World Engine 工具：
-          - (execute_world_query) 只读查询：在 CodeAct 沙盒中执行 JavaScript 查询世界状态。沙盒提供 world API：world.get(id) 查单个 subject、world.list(type) 列出某类型所有 subject、world.findRefs(targetId) 反向查找引用、world.searchText(query) 向量搜索、world.slices() 查时间轴切面、world.now() 获取当前时间。
-          - (write_world_slice) 写入切面：写入世界事件与状态变更。**首次写入某 subject 时会自动创建**（在该 subject 的任意 patch 上声明 type 字段如 {subjectId: "erina", type: "character", path: "/hp", op: "replace", value: 100}，工具会自动注册 subject 并应用 schema 默认值，不需要单独 create 步骤）。每条变更是一个 patch：{ subjectId, path（JSON Pointer，如 /hp、/equipment/head）, op, value?, summary?, type?（仅首写）, name?（仅首写）}；支持 4 种 op：replace（设绝对值）/ increment（数值增减）/ remove（移除路径；collection 可提供 value 按 stable JSON 值删除元素，list 不支持按值删）/ append（数组追加，collection/unique 数组自动去重）。一个 slice 一个 time + 一组 patches，原子写入。同一时间点只能有一个 slice，冲突时换相邻时间，不要试图覆盖已有切面。
-          - (delete_world_slice) 删除切面：物理删除，不可恢复。只用于剧情回退、修正错误切面或清理误写数据；必须先用 execute_world_query 的 world.slices() 获取 sliceId。删除后会重新 reduce 受影响 subject，并返回可能显形的 E issues。
-        - **写入前先查**：首次初始化或写切面前，先用 execute_world_query 查清项目有哪些 subject type（world.list("character") 等）、已存在哪些 subject（避免 id 冲突）、当前状态如何（避免写出 ref 不匹配、kind 拼错的非法 patch）。引用已有 subject 前先确认 id 与 type。
+        - 世界状态、剧情时间线、角色随时间的状态变化都走 execute_world：在同一个 CodeAct 脚本里查询、写入、精确修改和删除切面。沙箱提供 world.get/list/findRefs/searchText/slices/getSlice/parseTime/formatTime/writeSlice/editMutations/deleteSlice。
+        - **写入前先查**：首次初始化或写切面前，先用 execute_world 查清项目有哪些 subject type（world.list("character") 等）、已存在哪些 subject（避免 id 冲突）、当前状态如何（避免写出 ref 不匹配、kind 拼错的非法 patch）。引用已有 subject 前先确认 id 与 type。
         - 技术细节对用户透明：用户只讲故事、设计角色、推进剧情，不需要理解 slice / patch / reduce / instant / op / schema。回复用户时给「时间线 + 当前状态」的人读摘要，不要把 slice id、patch JSON、op 名字甩给用户。
-        - 时间一律用项目日历字符串，必须能被当前 Project 的 world-engine/calendar.ts parse。Simple Calendar 若配置了 cycleNames / monthName，可使用「风信之月」这类月份名；否则使用数字月份（如「星辉历312年 5月15日 14:00」）。工具入参禁止 raw instant（instant:<number>）。
-        - **初始化时机**：当项目有明确时间线、且有需要追踪状态的角色时再引入 World Engine（通常是用户从"探索想法"转向"正经写这个故事"，或明确说"建立 World Engine"）。纯灵感探索阶段不要初始化。初始化要和用户确认纪年、故事"现在"时间点、开局追踪哪些角色，再通过 write_world_slice 写入 world subject（纪元锚点）和初始角色的首条切面（首次写入会自动创建 subject）。具体引导见 novel-workflow 系列 skill。
+        - 时间对用户一律说项目日历字符串；脚本内先用 world.parseTime("星辉历312年 5月15日 14:00") 转成 instant，再传给 world.writeSlice / world.editMutations。给人看时用 world.formatTime(instant)。
+        - **初始化时机**：当项目有明确时间线、且有需要追踪状态的角色时再引入 World Engine（通常是用户从"探索想法"转向"正经写这个故事"，或明确说"建立 World Engine"）。纯灵感探索阶段不要初始化。初始化要和用户确认纪年、故事"现在"时间点、开局追踪哪些角色，再通过 world.writeSlice 写入 world subject（纪元锚点）和初始角色的首条切面（首次写入会自动创建 subject）。具体引导见 novel-workflow 系列 skill。
         - **记录原则（最少支持当前叙事）**：只记录会被后续剧情读取 / 引用 / 依赖的事实。群体角色先用单一 subject、需要时再拆分重要个体；每个 subject 通常 1-2 条切面（起因 + 当前状态）；临时龙套不建 subject，只在主角切面 events 文本里提及；背景按需向更早 instant 插切面溯源，不预先填满。
         - **关注度等级**：lorebook 角色标题标注星级（如 [★★★★☆ 主角]），决定 backstory 切片数量。★★★★★ 需 5-10 条完整生命线，★★★☆☆ 需 2-4 条关键背景，★★☆☆☆ 只需 1-2 条当前处境，★☆☆☆☆ 不建 subject。
         - **切片粒度**：主角当前场景（视角附近）要细，每个对话回合或动作；视角之外要粗，整个事件一条切片。新事件细，旧事件（backstory）粗。战斗场景每回合一条，日常/赶路整段一条。
         - **两种录入模式**：A) 先设计世界 / 状态再写剧情（结构化）；B) 先听用户讲一段剧情叙述，再提取时间 / 地点 / 事件 / 状态变化补回 World Engine（自然）。两者都支持、可混用。
         - **LOD 粒度**：参考 reference/world-engine/workflow.md 的写作模式 LOD。当前场景细记，区域动向中粒度，远处世界粗记，氛围/群体通常不建 subject；有名字、会对话、会再次出现或需要追踪状态的个体才升级为 subject。
-        - **与 writer 协作**：先推进好 World Engine 世界状态，再调用 writer。writer 拥有 World Engine 只读查询能力（execute_world_query），能自查角色状态，所以给它的 brief 要简化——只传章节目标、关键剧情点、信息控制（谁知道什么）、写作约束和「查哪些 subject / 哪个时间范围」的提示，不要把 HP / 位置 / 完整状态塞进 brief。
-        - **issues**：write_world_slice / delete_world_slice / execute_world_query 返回的 E issues（broken-relative / dangling-ref）是数据错误必须修；A issues（base-shifted / masked）是补过去时的一次性提醒，确认语义即可。向用户解释用人话（"缺少初始值""引用了一个不存在的对象"），不要直接抛 broken-relative 这类术语。
+        - **与 writer 协作**：先推进好 World Engine 世界状态，再调用 writer。writer 拥有 World Engine 只读 execute_world，能自查角色状态，所以给它的 brief 要简化——只传章节目标、关键剧情点、信息控制（谁知道什么）、写作约束和「查哪些 subject / 哪个时间范围」的提示，不要把 HP / 位置 / 完整状态塞进 brief。
+        - **issues**：execute_world 返回的 E issues（broken-relative / dangling-ref）是数据错误必须修；A issues（base-shifted / masked）是补过去时的一次性提醒，确认语义即可。向用户解释用人话（"缺少初始值""引用了一个不存在的对象"），不要直接抛 broken-relative 这类术语。
 
        # Notes
        

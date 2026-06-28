@@ -77,6 +77,12 @@ type PendingCatalogLoad = {
     promise: Promise<LoadedProfileCatalog>;
 };
 
+export type AgentProfileRuntimeResolution = {
+    profile: AgentProfile | null;
+    availability: "loaded" | "missing" | "unloadable";
+    issueMessage?: string;
+};
+
 const SYSTEM_PROFILE_ROOT = resolve(process.cwd(), "assets", "workspace", ".nbook", "agent", "profiles");
 const USER_PROFILE_ROOT = resolve(process.cwd(), "workspace", ".nbook", "agent", "profiles");
 
@@ -132,6 +138,40 @@ export class AgentProfileCatalog {
             throw new Error(`未找到 agent profile: ${profileKey}`);
         }
         return profile;
+    }
+
+    /**
+     * 批量解析 profile 运行态。列表类调用必须跨一次 catalog seam，
+     * 避免对每个 session 重复扫描 profile inventory 和依赖签名。
+     */
+    async resolveMany(profileKeys: Iterable<string>): Promise<Map<string, AgentProfileRuntimeResolution>> {
+        const catalog = await this.loadAll();
+        const result = new Map<string, AgentProfileRuntimeResolution>();
+        for (const profileKey of [...new Set(profileKeys)]) {
+            const source = catalog.profiles.get(profileKey);
+            if (source) {
+                result.set(profileKey, {
+                    profile: source.profile,
+                    availability: "loaded",
+                });
+                continue;
+            }
+            const unloaded = catalog.unloadedProfiles.get(profileKey);
+            if (unloaded) {
+                result.set(profileKey, {
+                    profile: null,
+                    availability: "unloadable",
+                    issueMessage: unloaded.issue?.message ?? `agent profile ${profileKey} 不可运行`,
+                });
+                continue;
+            }
+            result.set(profileKey, {
+                profile: null,
+                availability: "missing",
+                issueMessage: `未找到 agent profile: ${profileKey}`,
+            });
+        }
+        return result;
     }
 
     /**

@@ -5,13 +5,14 @@
  */
 
 import {createWorldEngineTools} from "nbook/server/agent/tools/world-engine-tools";
+import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
 
 const tools = createWorldEngineTools();
-const writeTool = tools.find((t) => t.key === "write_world_slice");
+const executeWorldTool = tools.find((t) => t.key === "execute_world");
 
-const context = {
-    harness: {},
+const context: ToolExecutionContext = {
+    harness: {} as ToolExecutionContext["harness"],
     sessionId: 1,
     profileKey: "scripts.chapter-01-slices",
     workspaceRoot: resolveWorkspaceContainerRoot(),
@@ -21,12 +22,25 @@ const context = {
 const projectPath = "workspace/ming-ding-zhi-shi-2";
 
 async function writeSlice(slice: {time: string; title: string; kind?: string; patches: any[]}) {
-    const result = await writeTool.executeWithContext(context, `write-${Date.now()}`, {
+    if (!executeWorldTool?.executeWithContext) {
+        throw new Error("缺少 World Engine 工具：execute_world");
+    }
+    const result = await executeWorldTool.executeWithContext(context, `execute-world-${Date.now()}`, {
         projectPath,
-        ...slice,
+        code: `
+            const slice = ${JSON.stringify(slice)};
+            const written = await world.writeSlice({
+                time: world.parseTime(slice.time),
+                title: slice.title,
+                kind: slice.kind,
+                patches: slice.patches,
+            });
+            return {sliceId: written.sliceId};
+        `,
     });
-    console.log(`  ✍️  [${slice.kind || "event"}] ${slice.time} ${slice.title} -> slice ${result.details.sliceId}`);
-    return result.details;
+    const details = result.details as {data: {sliceId: string}; issues: unknown[]};
+    console.log(`  ✍️  [${slice.kind || "event"}] ${slice.time} ${slice.title} -> slice ${details.data.sliceId}`);
+    return details;
 }
 
 async function main() {

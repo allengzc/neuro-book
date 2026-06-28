@@ -105,6 +105,76 @@ describe("JsonlSessionRepository", () => {
         expect(sessions.some((session) => session.sessionId === projectSession.metadata.sessionId)).toBe(false);
     });
 
+    it("session 列表支持摘要搜索和 offset 分页", async () => {
+        const alpha = await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "workspace",
+            title: "Alpha Session",
+        });
+        const beta = await repo.createSession({
+            profileKey: "writer",
+            initial: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "workspace",
+            title: "Beta Session",
+        });
+        await repo.appendEntry(alpha.metadata.sessionId, {
+            type: "session_update",
+            updates: {summary: "dragon outline"},
+        }, alpha.metadata.workspaceKey);
+        await repo.appendUserMessage(beta.metadata.sessionId, "needle in preview", beta.metadata.workspaceKey);
+
+        await expect(repo.listSessions({workspaceKey: "workspace", search: "dragon"})).resolves.toEqual([
+            expect.objectContaining({sessionId: alpha.metadata.sessionId}),
+        ]);
+        await expect(repo.listSessions({workspaceKey: "workspace", search: "writer"})).resolves.toEqual([
+            expect.objectContaining({sessionId: beta.metadata.sessionId}),
+        ]);
+        await expect(repo.listSessions({workspaceKey: "workspace", search: "needle"})).resolves.toEqual([
+            expect.objectContaining({sessionId: beta.metadata.sessionId}),
+        ]);
+        await expect(repo.listSessions({workspaceKey: "workspace", offset: 1, limit: 1})).resolves.toHaveLength(1);
+    });
+
+    it("session 列表支持按 profileKey 精确筛选", async () => {
+        const inline = await repo.createSession({
+            profileKey: "inline.editor",
+            initial: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "workspace/novel-a",
+            title: "inline",
+        });
+        await repo.createSession({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "workspace/novel-a",
+            title: "leader",
+        });
+        await repo.createSession({
+            profileKey: "inline.editor",
+            initial: {},
+            workspaceRoot: "workspace",
+            workspaceKey: "workspace/novel-b",
+            title: "other inline",
+        });
+
+        const sessions = await repo.listSessions({
+            workspaceKey: "workspace/novel-a",
+            profileKey: "inline.editor",
+        });
+
+        expect(sessions).toEqual([
+            expect.objectContaining({
+                sessionId: inline.metadata.sessionId,
+                profileKey: "inline.editor",
+                workspaceKey: "workspace/novel-a",
+            }),
+        ]);
+    });
+
     it("session summary 累加 active path 中所有 assistant usage", async () => {
         const session = await repo.createSession({
             profileKey: "leader.default",

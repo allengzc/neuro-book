@@ -26,8 +26,8 @@ subject 不需要单独注册。**首次对某个 subject 写入切面时，Worl
 
 ```typescript
 // 首次写入 erina 时自动创建 subject：在某条 patch 上声明 type（必填）+ name（可选）
-write_world_slice(projectPath, {
-    time: "星辉历312年 5月5日 14:00",
+await world.writeSlice({
+    time: world.parseTime("星辉历312年 5月5日 14:00"),
     title: "艾莉娜转生到祭坛",
     patches: [
         { subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "replace", value: 100 },
@@ -40,13 +40,13 @@ write_world_slice(projectPath, {
 
 - **`subjectId` 全局唯一，不能为空白。** 首次出现某个 subjectId 时会创建 subject。重复 id 会复用已有 subject（不会创建第二个）。
 - **`type` 必须是 schema 已声明的类型。** 首次写入时必须在该 subject 的某条 patch 上明确指定 `type` 字段（如 `{ subjectId: "erina", type: "character", ... }`），可选附 `name`。subject 已存在后再写时 type/name 被忽略，可省略。
-- **`time` 用项目日历字符串，不传 raw instant。** 写成 `instant:<number>` 这类调试格式会被公开入参直接拒绝。
+- **Agent 脚本里 `time` 用 instant bigint。** 先用 `world.parseTime("项目日历字符串")` 转换；给用户展示时再用 `world.formatTime(instant)`。
 - **schema default 会自动应用。** 如果 schema 为该 type 声明了非空 default，创建 subject 时会自动生成初始值（作为 init patch 写入）。
 
 **与旧 `create_world_subject` 的差异**：
 
-- 旧版需要先调用 `create_world_subject` 注册，再用 `write_world_slice` 写入状态。
-- 新版合并为一步：首次 `write_world_slice` 时自动创建 subject。
+- 旧版需要先调用 `create_world_subject` 注册，再用旧写入工具写入状态。
+- 新版合并为一步：首次 `world.writeSlice` 时自动创建 subject。
 - 好处：减少一次 API 调用，避免"忘记注册导致 dangling-ref"的错误。
 
 ## 3. 切面是状态变更，不是快照
@@ -76,23 +76,20 @@ interface Patch {
 关键性质：
 
 - **切面是增量（delta），不是全量快照。** 世界不存"当前状态"，只存切面序列。这个选择是被需求锁定的：核心诉求是"往前插切面补历史/补设定"。全量快照在往前插时会让所有后续快照失效；增量模型则让后续变更自然叠加，对补历史天然友好。
-- **同一 instant 只能有一个 slice。** 同一刻发生的多 subject / 多 path 变化，必须放进同一个 slice 的 `patches` 数组。`write_world_slice` 遇到目标 instant 已存在会报错；Agent 的 `write_world_slice` 没有编辑/覆盖已有切面的能力，要补同一时刻的内容就改用相邻时间点（整块编辑已有切面是 Workbench/HTTP `editSlice` 的能力，不在 Agent 写工具里）。
-- **补过去与写当前是同一个工具。** 给 `write_world_slice` 传一个比当前最新切面更早的 `time`，timeline 自动按底层时间戳归位。这就是"溯源"——为角色补一段早年经历，就是在更早的 instant 上插一条切面。
+- **同一 instant 只能有一个 slice。** 同一刻发生的多 subject / 多 path 变化，必须放进同一个 slice 的 `patches` 数组。`world.writeSlice` 遇到目标 instant 已存在会报错；要补同一时刻的内容，先用 `world.slices({withPatches:true})` 或 `world.getSlice()` 读出已有切面，再用 `world.editMutations()` 精确添加 patch。
+- **补过去与写当前是同一个工具。** 给 `world.writeSlice` 传一个比当前最新切面更早的 `time`，timeline 自动按底层时间戳归位。这就是"溯源"——为角色补一段早年经历，就是在更早的 instant 上插一条切面。
 
-**整块替换已有切面（Workbench / HTTP `editSlice`，非 Agent 写工具）**：用完整的切面数据（含 `sliceId`）整块替换原切面：
+**精确编辑已有 mutation（Agent `world.editMutations`）**：先读取完整切面拿到 `patchId`，再按 patchId 修改、删除或新增 patch：
 
 ```typescript
-// 注意：这是 HTTP / Workbench 能力；Agent 的 write_world_slice 不接受 sliceId、不能编辑切面
-editSlice(projectPath, sliceId, {
-    time: string,          // 完整重传
-    title: string,
-    summary?: string,
-    kind?: string,
-    patches: Patch[],      // 整块替换：这条切面替换后保留的所有 patch
-}) -> { issues: WorldIssue[] }
+const slice = await world.getSlice(sliceId);
+const wrong = slice.patches.find((patch) => patch.path === "/HP");
+await world.editMutations(sliceId, [
+    {patchId: wrong.patchId, set: {path: "/hp", summary: "修正 HP 路径大小写"}},
+]);
 ```
 
-语义是**整块替换**：提交后这条切面的 `patches` 就是这次传进去的那一组，**没带上的旧 patch 会被丢弃**。因此"在已有切面上补一条 patch"的正确做法不是只传新增那条，而是：先用 `execute_world_query` 的 `world.slices()` 读出原切面的完整 patches，把新 patch 合并进去，再整组提交。只传一条新增 patch 会把原有 patch 全部覆盖丢失。
+`editMutations` 内部复用 `editSlice` 整块替换该切面的 patch 行，因此编辑后原有 `patchId` 全部失效；连续编辑同一切面必须重新 `getSlice`。新增 patch 可用 `{add:{...}}`，但 `add` 不负责首写创建 subject，建新 subject 仍走 `world.writeSlice`。
 
 ## 4. reduce 语义
 
@@ -129,10 +126,10 @@ editSlice(projectPath, sliceId, {
 
 ## 6. 回退能力
 
-删除切面可通过 Agent `delete_world_slice`、Workbench 或 HTTP `deleteSlice` 完成：
+删除切面可通过 Agent `world.deleteSlice`、Workbench 或 HTTP `deleteSlice` 完成：
 
 ```typescript
-delete_world_slice(projectPath, { sliceId }) -> { issues: WorldIssue[] }
+await world.deleteSlice(sliceId) -> { issues: WorldIssue[] }
 deleteSlice(projectPath, sliceId) -> { issues: WorldIssue[] } // HTTP / Workbench
 ```
 
@@ -152,7 +149,7 @@ deleteSlice(projectPath, sliceId) -> { issues: WorldIssue[] } // HTTP / Workbenc
 - `dangling-ref`：schema 声明的 ref 值目标缺失或类型不符。例如 `equipment.weapon` 指向 `subject://sword-99`，但这个 subject 根本不存在。
   - 向用户解释："某处引用了一个不存在的对象，需要先建它或改引用。"
 
-E issues 是数据里的真实错误，`execute_world_query` 查询时也会返回相关的 E issues，必须处理。
+E issues 是数据里的真实错误，`execute_world` 查询时也会返回相关的 E issues，必须处理。
 
 **A issues（一次性提醒，写/编辑时返回，确认语义即可）：**
 
@@ -164,11 +161,15 @@ A issues **不落库**，也不要求改数据；它们只是在你"往过去插
 - 向用户解释（`base-shifted`）："你改了过去的一个数值，后面那条'加减'的起点也跟着变了，确认一下这是你想要的。"
 - 向用户解释（`masked`）："你这条改动后面会被另一条覆盖，可能看不出效果，确认一下。"
 
-## 8. 查询契约：`execute_world_query`
+## 8. 查询契约：`execute_world`
 
-查询世界状态使用 `execute_world_query`，在 CodeAct 沙盒中执行 JavaScript 代码。沙盒提供 `world` API：
+查询与写入世界状态都使用 `execute_world`，在 CodeAct 沙盒中执行 JavaScript 代码。沙盒提供 `world` API：
 
 ```javascript
+// 时间转换
+const time = world.parseTime("星辉历312年 5月5日 14:00");
+const display = world.formatTime(time);
+
 // 查询单个 subject（本质是 reduce）
 const erina = await world.get("erina");
 
@@ -188,7 +189,12 @@ const refs = await world.findRefs("phoenix-faction", "character");
 const results = await world.searchText("遗迹封印", { k: 5, types: ["event"] });
 
 // 查询时间轴切面
-const slices = await world.slices({ limit: 10 });
+const slices = await world.slices({ limit: 10, withPatches: true });
+
+// 写入 / 编辑 / 删除（writer profile 下不可用）
+const written = await world.writeSlice({time, title: "状态更新", patches: [{subjectId: "erina", path: "/hp", op: "replace", value: 90}]});
+await world.editMutations(written.sliceId, [{add: {subjectId: "erina", path: "/events", op: "append", value: "状态更新完成"}}]);
+await world.deleteSlice(written.sliceId);
 ```
 
 防全量倾倒是硬契约——成熟世界有几百 subject、每个几十属性：
@@ -197,7 +203,7 @@ const slices = await world.slices({ limit: 10 });
 - `subjectIds` 若传，必须是非空数组且每项唯一；空数组或重复 id 返回 400。
 - `attrs` 若传，必须是非空数组且每项唯一；用它**投影**只取关心的属性，省下无关字段。
 - `type` 若传，必须是 schema 已声明的类型，拼错会被拒绝。
-- `at` 用项目日历字符串做时间截断（倒叙/回忆）；省略取最新。
+- `at` 在 CodeAct 里使用 instant bigint；省略取最新。
 - `listLimit` 控制 list / collection 属性最多返回多少条，避免长 events 流把上下文撑爆。
 - 返回的 `issues` 是当前 reduce 显形的 E 问题；如果传了 `attrs`，issues 也跟随投影范围收窄（查 `hp` 不会带回 `location` 的 `dangling-ref` 噪音）。
 
@@ -210,7 +216,7 @@ const slices = await world.slices({ limit: 10 });
 
 ## 9. writer 的只读边界
 
-writer 角色拥有 World Engine **只读**查询能力（`execute_world_query`），用于读取世界状态辅助写作，**不能写入**。写入切面、修改切面、删除切面都不属于 writer 的权限范围。需要改变世界状态时，由具备写入能力的角色承担。
+writer 角色拥有 World Engine **只读** `execute_world`，用于读取世界状态辅助写作，**不能写入**。readonly 模式不会注入 `world.writeSlice`、`world.editMutations`、`world.deleteSlice`；需要改变世界状态时，由具备写入能力的角色承担。
 
 ## 相关文档
 

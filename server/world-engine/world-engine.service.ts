@@ -52,7 +52,7 @@ export class WorldEngineService {
     async createSubject(input: CreateWorldSubjectInput): Promise<CreateWorldSubjectResult> {
         assertSubjectId(input.id, "id");
         this.assertSubjectType(input.type);
-        assertSqliteInstant(input.at, "at");
+        this.assertWritableInstant(input.at, "at");
         const existing = await this.repository.findSubject(input.id);
         if (existing) {
             throw createError({statusCode: 409, message: `subject 已存在：${input.id}（当前 type=${existing.type}${existing.name ? `, name=${existing.name}` : ""}）`});
@@ -109,7 +109,7 @@ export class WorldEngineService {
 
     /** 写入一个新的切面；同 instant 已存在时直接报错。 */
     async writeSlice(input: SliceInput): Promise<SliceWriteResult> {
-        assertSqliteInstant(input.instant, "instant");
+        this.assertWritableInstant(input.instant, "instant");
         assertSliceKind(input.kind);
 
         const existing = await this.repository.findSliceByInstant(input.instant);
@@ -166,7 +166,7 @@ export class WorldEngineService {
     /** 整块替换已有切面。 */
     async editSlice(sliceId: string, input: SliceInput): Promise<SliceWriteResult> {
         assertSliceId(sliceId);
-        assertSqliteInstant(input.instant, "instant");
+        this.assertWritableInstant(input.instant, "instant");
         assertSliceKind(input.kind);
         const existing = await this.repository.findSliceWithPatches(sliceId);
         if (!existing) {
@@ -222,6 +222,7 @@ export class WorldEngineService {
             summary: row.summary,
             kind: row.kind,
             patches: row.patches.map((patch) => ({
+                patchId: patch.id,
                 subjectId: patch.subjectId,
                 path: patch.path,
                 op: patch.op as WorldPatchOp,
@@ -289,6 +290,7 @@ export class WorldEngineService {
                 summary: row.summary,
                 kind: row.kind,
                 patches: row.patches?.map((patch) => ({
+                    patchId: patch.id,
                     subjectId: patch.subjectId,
                     path: patch.path,
                     op: patch.op as WorldPatchOp,
@@ -370,6 +372,17 @@ export class WorldEngineService {
             if (vector) {
                 await this.repository.updatePatchVector(row.id, encodeVector(vector), model.modelId);
             }
+        }
+    }
+
+    /** 写入时间必须既能落 SQLite，也能被当前项目 calendar 格式化展示。 */
+    private assertWritableInstant(value: bigint, label: string): void {
+        assertSqliteInstant(value, label);
+        try {
+            this.calendar.format(value);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw createError({statusCode: 400, message: `${label} 不能被当前项目 calendar 格式化：${message}`});
         }
     }
 

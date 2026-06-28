@@ -52,6 +52,16 @@ export class AgentToolRegistry {
     }
 
     /**
+     * 判断工具是否会暂停 run，并等待用户 resolution 恢复。
+     */
+    userResolutionToolKeys(): string[] {
+        return [...this.tools.values()]
+            .filter((tool) => tool.approvalRequired || Boolean(tool.userInputRequest))
+            .map((tool) => tool.key)
+            .sort((left, right) => left.localeCompare(right));
+    }
+
+    /**
      * 列出已注册工具 key。
      */
     keys(): string[] {

@@ -72,6 +72,70 @@ describe("approval helpers", () => {
         expect(message.details).toEqual(resolution);
     });
 
+    it("把 Low-Code Form data resolution 转成可恢复 toolResult", () => {
+        const message = resolutionToToolResult({
+            kind: "user_input",
+            toolCallId: "call-1",
+            data: {
+                answer_0: "Alice",
+            },
+        }, {
+            toolCallId: "call-1",
+            toolName: "request_user_input",
+        }) as Message;
+
+        expect(message.role).toBe("toolResult");
+        expect(messageText(message)).toBe("{\n  \"answer_0\": \"Alice\"\n}");
+        if (message.role !== "toolResult") {
+            throw new Error("expected toolResult");
+        }
+        expect(message.details).toEqual({
+            kind: "user_input",
+            toolCallId: "call-1",
+            data: {
+                userInput: {
+                    answer_0: "Alice",
+                },
+            },
+        });
+    });
+
+    it("tool_approval 同时存在 data 和 answers 时保留结构化 data", () => {
+        const message = resolutionToToolResult({
+            kind: "tool_approval",
+            toolCallId: "call-1",
+            approved: true,
+            data: {
+                planFilePath: ".agent/plan/preview.md",
+            },
+            answers: [
+                {questionIndex: 0, text: "批准", selectedOptionIndex: 0},
+            ],
+        }, {
+            toolCallId: "call-1",
+            toolName: "exit_plan_mode",
+        }) as Message;
+
+        expect(message.role).toBe("toolResult");
+        if (message.role !== "toolResult") {
+            throw new Error("expected toolResult");
+        }
+        expect(message.details).toEqual({
+            kind: "tool_approval",
+            toolCallId: "call-1",
+            approved: true,
+            data: {
+                planFilePath: ".agent/plan/preview.md",
+                userInput: [
+                    {questionIndex: 0, text: "批准", selectedOptionIndex: 0},
+                ],
+            },
+            answers: [
+                {questionIndex: 0, text: "批准", selectedOptionIndex: 0},
+            ],
+        });
+    });
+
     it("request_user_input schema 拒绝空问题和非法默认选项", () => {
         const schema = requestUserInputSchema();
 
@@ -106,6 +170,13 @@ describe("approval helpers", () => {
                 defaultOptionIndexes: [0, -1],
             }],
         })).toBe(true);
+    });
+
+    it("用户 resolution 工具集合包含动态用户输入工具", () => {
+        const harness = new NeuroAgentHarness();
+
+        expect(harness.tools.approvalToolKeys()).not.toContain("request_user_input");
+        expect(harness.tools.userResolutionToolKeys()).toContain("request_user_input");
     });
 });
 

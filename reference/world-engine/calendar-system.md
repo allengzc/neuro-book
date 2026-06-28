@@ -166,7 +166,7 @@ export default {
 
 **公开入参只接受项目日历字符串**：
 
-- Agent 工具（`write_world_slice` 的 `time`、`execute_world_query` 中 world API 的 `at` 参数）和 HTTP API 只接受当前项目 Calendar 能 parse 的人读字符串。
+- HTTP API 只接受当前项目 Calendar 能 parse 的人读字符串；Agent 的 `execute_world` 沙箱内使用 instant bigint，并通过 `world.parseTime()` / `world.formatTime()` 与项目日历字符串互转。
 - **禁止 raw instant 格式**：公开入参拒绝 `instant:<number>`（底层 parse 仍兼容，仅供直调测试）。
 - **禁止首尾空白**：公开时间字符串带首尾空白返回 400（底层 parse 仍 trim）。
 

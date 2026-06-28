@@ -19,6 +19,8 @@ const props = withDefaults(defineProps<{
     resolveMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     openReference?: (target: string) => void;
     resolveReference?: WorkspaceReferenceResolver;
+    inlineAiReferences?: InlineEditReference[];
+    inlineAiHighlightReference?: InlineEditReference | null;
     enableQuickTriggers?: boolean;
 }>(), {
     readonly: false,
@@ -34,6 +36,8 @@ const props = withDefaults(defineProps<{
         sections: [],
     }),
     openReference: () => {},
+    inlineAiReferences: () => [],
+    inlineAiHighlightReference: null,
     enableQuickTriggers: false,
 });
 
@@ -89,6 +93,8 @@ function handleSourceBlur(): void {
                     :resolve-menu="props.resolveMenu"
                     :open-reference="props.openReference"
                     :resolve-reference="props.resolveReference"
+                    :inline-ai-references="props.inlineAiReferences"
+                    :inline-ai-highlight-reference="props.inlineAiHighlightReference"
                     :enable-quick-triggers="props.enableQuickTriggers"
                     @change="onPreviewChange"
                     @focus="controller.onPreviewFocus"

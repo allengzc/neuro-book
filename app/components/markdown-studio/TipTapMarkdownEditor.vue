@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import {EditorContent, useEditor} from "@tiptap/vue-3";
-import {getTextBetween, getTextSerializersFromSchema, type Editor, type JSONContent} from "@tiptap/core";
+import {Extension, getTextBetween, getTextSerializersFromSchema, type Editor, type JSONContent} from "@tiptap/core";
+import {Plugin, PluginKey} from "@tiptap/pm/state";
+import {Decoration, DecorationSet} from "@tiptap/pm/view";
 import {flattenAgentSuggestionItems, type AgentSuggestionMenuState} from "nbook/app/components/novel-ide/agent/tiptap/agent-suggestion";
 import type {AgentTriggerMenuContext, AgentTriggerMenuState} from "nbook/app/components/novel-ide/agent/trigger-menu";
 import ContextMenu, {type ContextMenuItem} from "nbook/app/components/common/ContextMenu.vue";
@@ -15,10 +17,40 @@ import {useNotification} from "nbook/app/composables/useNotification";
 import {refreshWorkspaceReferenceNodes, type WorkspaceReferenceResolver} from "nbook/app/components/markdown-studio/tiptap/WorkspaceReference";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, type FrontmatterProfileKind, type MarkdownEditorPreferences} from "nbook/shared/editor-workbench";
 import {splitMarkdownFrontmatter} from "nbook/shared/editor-workbench";
-import {buildSelectionRefChip, locateSelectionRange, type InlineEditReference, type SelectionRangeLocation} from "nbook/app/utils/inline-editor-selection";
+import {buildSelectionRefChip, locateSelectionRange, type InlineEditReference, type InlineEditReferenceTextRange, type SelectionRangeLocation} from "nbook/app/utils/inline-editor-selection";
 import YAML from "yaml";
 
 type PopoverDirection = "auto" | "up" | "down";
+
+const INLINE_AI_REFERENCE_HIGHLIGHT_PLUGIN_KEY = new PluginKey<DecorationSet>("inlineAiReferenceHighlight");
+
+const inlineAiReferenceHighlightExtension = Extension.create({
+    name: "inlineAiReferenceHighlight",
+    addProseMirrorPlugins() {
+        return [
+            new Plugin<DecorationSet>({
+                key: INLINE_AI_REFERENCE_HIGHLIGHT_PLUGIN_KEY,
+                state: {
+                    init: () => DecorationSet.empty,
+                    apply(transaction, decorationSet) {
+                        const nextDecorationSet = transaction.getMeta(INLINE_AI_REFERENCE_HIGHLIGHT_PLUGIN_KEY) as DecorationSet | undefined;
+                        if (nextDecorationSet) {
+                            return nextDecorationSet;
+                        }
+                        return transaction.docChanged
+                            ? decorationSet.map(transaction.mapping, transaction.doc)
+                            : decorationSet;
+                    },
+                },
+                props: {
+                    decorations(state) {
+                        return INLINE_AI_REFERENCE_HIGHLIGHT_PLUGIN_KEY.getState(state) ?? DecorationSet.empty;
+                    },
+                },
+            }),
+        ];
+    },
+});
 
 const props = withDefaults(defineProps<{
     initialValue?: string;
@@ -28,6 +60,8 @@ const props = withDefaults(defineProps<{
     placeholder?: string;
     autofocus?: boolean;
     activePath?: string;
+    inlineAiReferences?: InlineEditReference[];
+    inlineAiHighlightReference?: InlineEditReference | null;
     referenceRefreshKey?: string | number;
     resolveMenu?: (context: AgentTriggerMenuContext) => AgentTriggerMenuState;
     openReference?: (target: string) => void;
@@ -46,6 +80,8 @@ const props = withDefaults(defineProps<{
     placeholder: "",
     autofocus: false,
     activePath: "",
+    inlineAiReferences: () => [],
+    inlineAiHighlightReference: null,
     referenceRefreshKey: "",
     resolveMenu: () => ({
         title: "",
@@ -173,21 +209,24 @@ function frontmatterLineOffset(): number {
 const editor = useEditor({
     content: splitMarkdownFrontmatter(props.initialValue).body,
     contentType: "markdown",
-    extensions: createMarkdownEditorExtensions({
-        placeholder: editorPlaceholder.value,
-        resolveMenu: props.resolveMenu,
-        onMenuStateChange: syncMenuState,
-        getMenuState: () => suggestionMenuState.value,
-        getActiveIndex: () => activeIndex.value,
-        setActiveIndex: (index: number) => {
-            activeIndex.value = index;
-        },
-        openReference: props.openReference,
-        onInlineCommentSelect: handleInlineCommentSelect,
-        sourcePath: props.activePath,
-        resolveReference: props.resolveReference,
-        enableQuickTriggers: props.enableQuickTriggers,
-    }),
+    extensions: [
+        ...createMarkdownEditorExtensions({
+            placeholder: editorPlaceholder.value,
+            resolveMenu: props.resolveMenu,
+            onMenuStateChange: syncMenuState,
+            getMenuState: () => suggestionMenuState.value,
+            getActiveIndex: () => activeIndex.value,
+            setActiveIndex: (index: number) => {
+                activeIndex.value = index;
+            },
+            openReference: props.openReference,
+            onInlineCommentSelect: handleInlineCommentSelect,
+            sourcePath: props.activePath,
+            resolveReference: props.resolveReference,
+            enableQuickTriggers: props.enableQuickTriggers,
+        }),
+        inlineAiReferenceHighlightExtension,
+    ],
     editable: !props.readonly,
     editorProps: {
         attributes: {
@@ -239,6 +278,7 @@ const editor = useEditor({
     },
     onCreate: ({editor: currentEditor}) => {
         syncInlineComments(currentEditor);
+        refreshInlineAiReferenceHighlight(currentEditor);
     },
     onSelectionUpdate: ({editor: currentEditor}) => {
         syncInlineComments(currentEditor);
@@ -260,6 +300,11 @@ const editor = useEditor({
 watch(() => props.readonly, (readonly) => {
     editor.value?.setEditable(!readonly);
 });
+
+watch(() => [props.inlineAiReferences, props.inlineAiHighlightReference, props.activePath] as const, () => {
+    refreshInlineAiReferenceHighlight();
+});
+
 const frontmatterProfileKind = computed<FrontmatterProfileKind | null>(() => {
     if (!hasFrontmatter.value || frontmatterError.value) {
         return null;
@@ -333,7 +378,10 @@ function update(markdown: string): void {
         contentType: "markdown",
         emitUpdate: false,
     });
-    nextTick(() => syncInlineComments(editor.value));
+    nextTick(() => {
+        syncInlineComments(editor.value);
+        refreshInlineAiReferenceHighlight();
+    });
     queueMicrotask(() => {
         syncingFromOutside.value = false;
     });
@@ -694,6 +742,296 @@ function countMarkdownLines(markdown: string): number {
 }
 
 /**
+ * 根据 PromptBar 当前 hover 的 Inline AI 引用刷新编辑器里的临时高亮。
+ */
+function refreshInlineAiReferenceHighlight(targetEditor?: Editor): void {
+    const currentEditor = targetEditor ?? editor.value;
+    if (!currentEditor) {
+        return;
+    }
+    const decorations = buildInlineAiReferenceDecorations(
+        currentEditor,
+        props.inlineAiReferences,
+        props.inlineAiHighlightReference,
+    );
+    currentEditor.view.dispatch(currentEditor.state.tr
+        .setMeta(INLINE_AI_REFERENCE_HIGHLIGHT_PLUGIN_KEY, decorations)
+        .setMeta("addToHistory", false));
+}
+
+/**
+ * 将所有 PromptBar 引用映射成正文标记；hover 中的引用额外叠加背景高亮。
+ */
+function buildInlineAiReferenceDecorations(currentEditor: Editor, references: InlineEditReference[], highlightedReference: InlineEditReference | null | undefined): DecorationSet {
+    const decorations: Decoration[] = [];
+
+    for (const reference of references) {
+        if (!inlineAiReferencePathMatches(reference.path, props.activePath)) {
+            continue;
+        }
+        const highlighted = inlineAiReferenceEquals(reference, highlightedReference);
+        const textRange = locateInlineAiReferenceText(currentEditor, reference);
+        if (textRange) {
+            decorations.push(Decoration.inline(textRange.from, textRange.to, {
+                class: highlighted
+                    ? "nb-inline-ai-reference-mark nb-inline-ai-reference-highlight"
+                    : "nb-inline-ai-reference-mark",
+            }));
+            continue;
+        }
+        decorations.push(...buildInlineAiReferenceLineDecorations(currentEditor, reference, highlighted));
+    }
+
+    return DecorationSet.create(currentEditor.state.doc, decorations);
+}
+
+/**
+ * 优先用 reference.text 定位具体字符范围；chip 行号只用于缩小搜索范围。
+ */
+function locateInlineAiReferenceText(currentEditor: Editor, reference: InlineEditReference): {from: number; to: number} | null {
+    const needle = normalizeInlineAiReferenceText(reference.text);
+    if (!needle) {
+        return null;
+    }
+
+    const mappedText = buildInlineAiReferenceTextMap(currentEditor);
+    const searchBounds = inlineAiReferenceSearchBounds(mappedText.text, reference);
+    const globalIndex = bestInlineAiReferenceTextIndex(mappedText.text, needle, searchBounds, reference.textRange);
+    if (globalIndex < 0) {
+        return null;
+    }
+
+    const from = firstMappedPosition(mappedText.positions, globalIndex, globalIndex + needle.length);
+    const to = lastMappedPosition(mappedText.positions, globalIndex, globalIndex + needle.length);
+    if (from === null || to === null || from >= to) {
+        return null;
+    }
+    return {from, to};
+}
+
+/**
+ * 在重复文本中优先选择离原始选区 offset 最近的候选。
+ */
+function bestInlineAiReferenceTextIndex(text: string, needle: string, bounds: {from: number; to: number}, preferredRange?: InlineEditReferenceTextRange): number {
+    const boundedCandidates = collectInlineAiReferenceTextIndexes(text, needle, bounds.from, bounds.to);
+    if (boundedCandidates.length > 0) {
+        return nearestInlineAiReferenceTextIndex(boundedCandidates, preferredRange);
+    }
+    const globalCandidates = collectInlineAiReferenceTextIndexes(text, needle, 0, text.length);
+    if (globalCandidates.length === 0) {
+        return -1;
+    }
+    return nearestInlineAiReferenceTextIndex(globalCandidates, preferredRange);
+}
+
+function collectInlineAiReferenceTextIndexes(text: string, needle: string, from: number, to: number): number[] {
+    const indexes: number[] = [];
+    const safeFrom = Math.max(0, Math.min(from, text.length));
+    const safeTo = Math.max(safeFrom, Math.min(to, text.length));
+    let index = text.indexOf(needle, safeFrom);
+    while (index >= 0 && index + needle.length <= safeTo) {
+        indexes.push(index);
+        index = text.indexOf(needle, index + Math.max(1, needle.length));
+    }
+    return indexes;
+}
+
+function nearestInlineAiReferenceTextIndex(indexes: number[], preferredRange?: InlineEditReferenceTextRange): number {
+    if (!preferredRange) {
+        return indexes[0] ?? -1;
+    }
+    const targetOffset = Math.max(0, Math.floor(preferredRange.startOffset));
+    return indexes.reduce((nearest, candidate) => {
+        return Math.abs(candidate - targetOffset) < Math.abs(nearest - targetOffset)
+            ? candidate
+            : nearest;
+    }, indexes[0] ?? -1);
+}
+
+/**
+ * 生成“正文纯文本 offset -> ProseMirror position”的映射，供精确 inline decoration 使用。
+ */
+function buildInlineAiReferenceTextMap(currentEditor: Editor): {text: string; positions: Array<number | null>} {
+    const textParts: string[] = [];
+    const positions: Array<number | null> = [];
+    let firstBlock = true;
+
+    currentEditor.state.doc.descendants((node, position) => {
+        if (!node.isTextblock) {
+            return;
+        }
+        if (!firstBlock) {
+            textParts.push("\n");
+            positions.push(null);
+        }
+        firstBlock = false;
+        node.descendants((child, childPosition) => {
+            if (!child.isText) {
+                return;
+            }
+            const text = child.text ?? "";
+            const absoluteStart = position + 1 + childPosition;
+            for (let index = 0; index < text.length; index += 1) {
+                textParts.push(text[index] ?? "");
+                positions.push(absoluteStart + index);
+            }
+        });
+    });
+
+    return {text: textParts.join(""), positions};
+}
+
+function inlineAiReferenceSearchBounds(text: string, reference: InlineEditReference): {from: number; to: number} {
+    if (!reference.range) {
+        return {from: 0, to: text.length};
+    }
+    const bodyStartLine = Math.max(1, Math.floor(reference.range.startLine) - frontmatterLineOffset());
+    const bodyEndLine = Math.max(bodyStartLine, Math.floor(reference.range.endLine) - frontmatterLineOffset());
+    return {
+        from: textOffsetAtLine(text, bodyStartLine),
+        to: textOffsetAtLine(text, bodyEndLine + 1),
+    };
+}
+
+function textOffsetAtLine(text: string, line: number): number {
+    if (line <= 1) {
+        return 0;
+    }
+    let currentLine = 1;
+    for (let index = 0; index < text.length; index += 1) {
+        if (text[index] !== "\n") {
+            continue;
+        }
+        currentLine += 1;
+        if (currentLine === line) {
+            return index + 1;
+        }
+    }
+    return text.length;
+}
+
+function firstMappedPosition(positions: Array<number | null>, from: number, to: number): number | null {
+    for (let index = from; index < to; index += 1) {
+        const position = positions[index] ?? null;
+        if (position !== null) {
+            return position;
+        }
+    }
+    return null;
+}
+
+function lastMappedPosition(positions: Array<number | null>, from: number, to: number): number | null {
+    for (let index = to - 1; index >= from; index -= 1) {
+        const position = positions[index] ?? null;
+        if (position !== null) {
+            return position + 1;
+        }
+    }
+    return null;
+}
+
+/**
+ * 记录选区在正文纯文本中的 offset，解决同一行重复文本的高亮歧义。
+ */
+function locateInlineAiSelectionTextRange(currentEditor: Editor): InlineEditReferenceTextRange | undefined {
+    const {from, to} = currentEditor.state.selection;
+    if (from === to) {
+        return undefined;
+    }
+    const mappedText = buildInlineAiReferenceTextMap(currentEditor);
+    const startOffset = firstTextOffsetAtOrAfter(mappedText.positions, from, to);
+    const endOffset = lastTextOffsetBefore(mappedText.positions, from, to);
+    if (startOffset === null || endOffset === null || startOffset >= endOffset) {
+        return undefined;
+    }
+    return {startOffset, endOffset};
+}
+
+function firstTextOffsetAtOrAfter(positions: Array<number | null>, fromPosition: number, toPosition: number): number | null {
+    for (let index = 0; index < positions.length; index += 1) {
+        const position = positions[index] ?? null;
+        if (position !== null && position >= fromPosition && position < toPosition) {
+            return index;
+        }
+    }
+    return null;
+}
+
+function lastTextOffsetBefore(positions: Array<number | null>, fromPosition: number, toPosition: number): number | null {
+    for (let index = positions.length - 1; index >= 0; index -= 1) {
+        const position = positions[index] ?? null;
+        if (position !== null && position >= fromPosition && position < toPosition) {
+            return index + 1;
+        }
+    }
+    return null;
+}
+
+/**
+ * 精确文本无法匹配时，退回到行号文本块标记，避免引用提示完全消失。
+ */
+function buildInlineAiReferenceLineDecorations(currentEditor: Editor, reference: InlineEditReference, highlighted: boolean): Decoration[] {
+    if (!reference.range) {
+        return [];
+    }
+    const targetStartLine = Math.max(1, Math.floor(reference.range.startLine));
+    const targetEndLine = Math.max(targetStartLine, Math.floor(reference.range.endLine));
+    const lineOffset = frontmatterLineOffset();
+    const decorations: Decoration[] = [];
+
+    currentEditor.state.doc.descendants((node, position) => {
+        if (!node.isTextblock) {
+            return;
+        }
+        const blockFrom = position + 1;
+        const blockTo = position + node.nodeSize - 1;
+        const blockStartLine = lineOffset + countMarkdownLines(serializeEditorPrefix(currentEditor, blockFrom));
+        const blockEndLine = lineOffset + countMarkdownLines(serializeEditorPrefix(currentEditor, blockTo));
+        if (blockEndLine < targetStartLine || blockStartLine > targetEndLine) {
+            return;
+        }
+        decorations.push(Decoration.node(position, position + node.nodeSize, {
+            class: highlighted
+                ? "nb-inline-ai-reference-mark nb-inline-ai-reference-highlight"
+                : "nb-inline-ai-reference-mark",
+        }));
+    });
+
+    return decorations;
+}
+
+/**
+ * 比较 PromptBar 引用路径和当前打开路径，兼容 Project Workspace 前缀差异。
+ */
+function inlineAiReferencePathMatches(referencePath: string, currentPath: string): boolean {
+    const normalizedReferencePath = normalizeInlineAiReferencePath(referencePath);
+    const normalizedCurrentPath = normalizeInlineAiReferencePath(currentPath);
+    if (!normalizedReferencePath || !normalizedCurrentPath) {
+        return false;
+    }
+    return normalizedReferencePath === normalizedCurrentPath
+        || normalizedReferencePath.endsWith(`/${normalizedCurrentPath}`)
+        || normalizedCurrentPath.endsWith(`/${normalizedReferencePath}`);
+}
+
+function normalizeInlineAiReferencePath(path: string): string {
+    return path.trim().replace(/\\/g, "/").replace(/^\.\//u, "").replace(/^\/+/u, "");
+}
+
+function normalizeInlineAiReferenceText(text: string): string {
+    return text.replace(/\r\n/g, "\n").trim();
+}
+
+function inlineAiReferenceEquals(reference: InlineEditReference, other: InlineEditReference | null | undefined): boolean {
+    if (!other) {
+        return false;
+    }
+    return reference.ref === other.ref
+        && reference.path === other.path
+        && reference.text === other.text;
+}
+
+/**
  * 把当前选区加入 Inline AI 引用。
  */
 function addAiReferenceFromSelection(): void {
@@ -714,6 +1052,7 @@ function addAiReferenceFromSelection(): void {
     const located = locatedFromEditor.match === "unique"
         ? locatedFromEditor
         : locateSelectionRange(getMarkdown(), text);
+    const textRange = currentEditor ? locateInlineAiSelectionTextRange(currentEditor) : undefined;
     emit("inline-ai-reference", {
         ref: buildSelectionRefChip({
             path,
@@ -721,6 +1060,7 @@ function addAiReferenceFromSelection(): void {
         }),
         path,
         range: located.range,
+        textRange,
         match: located.match,
         text,
     });
@@ -1539,5 +1879,21 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
 :deep(align[value="justify"]) {
     display: block;
     text-align: justify;
+}
+
+:deep(.nb-inline-ai-reference-mark) {
+    text-decoration-line: underline;
+    text-decoration-style: wavy;
+    text-decoration-color: color-mix(in srgb, var(--accent-main) 78%, transparent);
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 3px;
+    border-radius: 3px;
+}
+
+:deep(.nb-inline-ai-reference-highlight) {
+    border-radius: 4px;
+    background: color-mix(in srgb, var(--accent-main) 18%, transparent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-main) 20%, transparent);
+    transition: background 120ms ease, box-shadow 120ms ease;
 }
 </style>

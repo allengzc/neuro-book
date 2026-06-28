@@ -1,5 +1,7 @@
 import type {TSchema} from "typebox";
 import type {ProfileToolBinding, ProfileTools, ReportResultToolBinding, ReportSidecarResultToolBinding, ToolBinding} from "nbook/server/agent/tools/types";
+import {buildExecuteWorldDescription} from "nbook/server/agent/world-engine-tool-description";
+import type {ExecuteWorldMode} from "nbook/server/world-engine/world-engine.facade";
 
 export type {ProfileTools, ReportResultToolBinding, ReportSidecarResultToolBinding, ToolBinding} from "nbook/server/agent/tools/types";
 export {defineAgentTool as defineProfileTool} from "nbook/server/agent/tools/types";
@@ -79,10 +81,11 @@ export const builtin = {
         memoryUpdate: registeredTool("subject_memory_update"),
     },
     world: {
-        // World Engine 当前暴露：CodeAct 只读查询 + 结构化写入 + 物理删除切面。
-        query: registeredTool("execute_world_query"),
-        writeSlice: registeredTool("write_world_slice"),
-        deleteSlice: registeredTool("delete_world_slice"),
+        // World Engine 当前暴露：CodeAct 读写合一工具；不同 profile 通过 description 暴露只读/读写边界。
+        execute: (mode: ExecuteWorldMode): ToolBinding<"execute_world"> => ({
+            key: "execute_world",
+            description: buildExecuteWorldDescription(mode),
+        }),
     },
     web: {
         search: registeredTool("web_search"),

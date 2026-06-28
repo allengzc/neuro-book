@@ -30,7 +30,7 @@
 
 ```typescript
 // 错误：为每个邪教徒创建独立 subject，制造大量无叙事意义的主体
-write_world_slice({ 
+await world.writeSlice({ 
     patches: [
         { subjectId: "cultist-1", path: "/name", op: "replace", value: "邪教徒A" },
         { subjectId: "cultist-2", path: "/name", op: "replace", value: "邪教徒B" },
@@ -43,8 +43,8 @@ write_world_slice({
 
 ```typescript
 // 正确：首次写入时自动创建 subject
-write_world_slice({
-    time: "星辉历312年 5月1日 00:00",
+await world.writeSlice({
+    time: world.parseTime("星辉历312年 5月1日 00:00"),
     title: "邪教徒巡逻队部署",
     patches: [
         { subjectId: "cultist-patrol-01", path: "/name", op: "replace", value: "邪教徒巡逻队" },
@@ -57,8 +57,8 @@ write_world_slice({
 
 ```typescript
 // 队长成为重要角色时再拆分；首次写入自动创建 subject
-write_world_slice({
-    time: "星辉历312年 5月5日 12:00",
+await world.writeSlice({
+    time: world.parseTime("星辉历312年 5月5日 12:00"),
     title: "邪教徒队长与主角对峙",
     patches: [
         { subjectId: "cultist-captain", path: "/name", op: "replace", value: "邪教徒队长" },
@@ -82,8 +82,8 @@ write_world_slice({
 
 ```typescript
 // 切片 1：起因
-write_world_slice({
-    time: "星辉历312年 5月3日 09:00",
+await world.writeSlice({
+    time: world.parseTime("星辉历312年 5月3日 09:00"),
     title: "邪教徒巡逻队接受任务",
     patches: [
         { subjectId: "cultist-patrol-01", path: "/status", op: "replace", value: "接到探索星陨遗迹的任务" },
@@ -92,8 +92,8 @@ write_world_slice({
 })
 
 // 切片 2：当前状态
-write_world_slice({
-    time: "星辉历312年 5月5日 10:00",
+await world.writeSlice({
+    time: world.parseTime("星辉历312年 5月5日 10:00"),
     title: "邪教徒巡逻队到达遗迹",
     patches: [
         { subjectId: "cultist-patrol-01", path: "/location", op: "replace", value: "subject://ruins-meteor" }
@@ -107,7 +107,7 @@ write_world_slice({
 
 剧情推进时常常需要角色展现一项之前未交代的能力、知识或关系。正确的处理不是在当前时刻凭空 replace 一个属性，而是**向时间线更早处插入一条切片，把这项设定溯源到它合理的来历**。
 
-补过去与写当前是**同一个工具**：`write_world_slice` 传一个比当前最新切片更早的 `time`，timeline 会自动按时间归位。这正是 `increment` 之类相对 op 在架构上稳定的原因——往过去插一条变更，后续相对增量不受影响，reduce 自动得到正确结果。
+补过去与写当前是**同一个工具**：`world.writeSlice` 传一个比当前最新切片更早的 `time`，timeline 会自动按时间归位。这正是 `increment` 之类相对 op 在架构上稳定的原因——往过去插一条变更，后续相对增量不受影响，reduce 自动得到正确结果。
 
 > 前提：下列示例假定项目 schema 已把 `skills`、`knowledge` 声明为 `list`（`events` 默认已是 list）。注意：schema 未声明的属性默认按 scalar 处理；要对数组使用 `append`，先确认该属性在 schema 里声明了对应 kind（见 [schema-system.md](schema-system.md)）。
 
@@ -117,8 +117,8 @@ write_world_slice({
 
 ```typescript
 // 在过去插入一条切片，说明莉雅何时、如何学会这个魔法
-write_world_slice({
-    time: "星辉历80年 3月15日 00:00",
+await world.writeSlice({
+    time: world.parseTime("星辉历80年 3月15日 00:00"),
     title: "莉雅学会岩石魔法",
     kind: "backstory",
     patches: [
@@ -134,8 +134,8 @@ write_world_slice({
 
 ```typescript
 // 补充队长了解项链来历的背景
-write_world_slice({
-    time: "星辉历310年 3月1日 00:00",
+await world.writeSlice({
+    time: world.parseTime("星辉历310年 3月1日 00:00"),
     title: "邪教徒队长读过古代魔女典籍",
     kind: "backstory",
     patches: [
@@ -161,8 +161,8 @@ World Engine 的时间真相源 instant 是**精确时刻**（公开入参一律
 
 ```typescript
 // 用切片起点的精确时间锚定，靠 summary 与 events 文本表达"一段时期"
-write_world_slice({
-    time: "星辉历60年 3月1日 00:00",
+await world.writeSlice({
+    time: world.parseTime("星辉历60年 3月1日 00:00"),
     title: "莉雅的魔法修行时期",
     kind: "backstory",
     summary: "星辉历60-90年间，莉雅跟随导师学习各种魔法",
@@ -185,8 +185,8 @@ write_world_slice({
 
 ```typescript
 // 临时 NPC 不建 subject，只在主角切片的 events 文本中记录互动
-write_world_slice({
-    time: "星辉历312年 5月5日 13:00",
+await world.writeSlice({
+    time: world.parseTime("星辉历312年 5月5日 13:00"),
     title: "薇洛丝在集市问路",
     patches: [
         { subjectId: "weiluosi", path: "/events", op: "append", value: "向集市一名卖花老妇打听遗迹方向，得知需绕过北侧断桥。", summary: "记录问路经历" }
@@ -219,8 +219,8 @@ write_world_slice({
 
 记录决策不能绕过 World Engine 的契约，以下边界始终成立：
 
-- **第一版不接旧 simulation workflow，也不依赖 Plot 系统**。记录世界状态只用 World Engine 工具（`execute_world_query` 查询 + `write_world_slice` 写入），不要为了记录状态去调 plot / simulation 工具。
+- **第一版不接旧 simulation workflow，也不依赖 Plot 系统**。记录世界状态只用 World Engine 工具（`execute_world`），不要为了记录状态去调 plot / simulation 工具。
 - **patch 不存旧值，后端不自动改写后续切片**。声明式的 patch 序列是唯一真相源，状态永远由 reduce 得来；补过去时要意识到这一点，必要的下游影响由 issues 提醒。
-- **同一 instant 只能有一个切片**。目标时间点已存在切片时，`write_world_slice` 会冲突报错。Agent 没有编辑已有切片的工具，所以同一时刻要补内容时改用相邻时间点写入，不要假设能覆盖已有切片；确实误写时可先用 `world.slices()` 找到 `sliceId`，再用 `delete_world_slice` 物理删除错误切片。
+- **同一 instant 只能有一个切片**。目标时间点已存在切片时，`world.writeSlice` 会冲突报错。同一时刻要补内容时先用 `world.slices({withPatches:true})` 或 `world.getSlice()` 找到切面和 patchId，再用 `world.editMutations()` 精确增删改；只有整条切片作废时才 `world.deleteSlice()` 物理删除。
 - **issues 分两类，处理方式不同**。E issues（`broken-relative` / `dangling-ref`）是持久的数据错误，必须修；A issues（`base-shifted` / `masked`）是补过去时的一次性提醒，确认本次修改的语义符合预期即可，不落库。
-- **writer 对 World Engine 只读**。writer 拥有 `execute_world_query` 的查询能力用于读取世界状态，但不能写入；所有切片记录由 leader 负责。
+- **writer 对 World Engine 只读**。writer 拥有 readonly `execute_world` 用于读取世界状态，但不能写入；所有切片记录由 leader 负责。
