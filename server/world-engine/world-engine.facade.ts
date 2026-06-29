@@ -1,4 +1,4 @@
-import {createClient, type Client, type Transaction} from "@libsql/client";
+import {createClient, type Client} from "@libsql/client";
 import {WorldCalendarLoader} from "nbook/server/world-engine/calendar";
 import type {WorldCalendar} from "nbook/server/world-engine/calendar";
 import {flattenAttrs, WorldSchemaLoader} from "nbook/server/world-engine/schema-loader";
@@ -6,6 +6,7 @@ import {WorldEngineRepository} from "nbook/server/world-engine/world-engine.repo
 import {WorldEngineService} from "nbook/server/world-engine/world-engine.service";
 import {executeCodeAct} from "nbook/server/world-engine/codeact-sandbox";
 import {createWorldApi} from "nbook/server/world-engine/codeact-api";
+import {dedupeWorldIssues} from "nbook/server/world-engine/world-issue-builder";
 import type {
     CreateWorldSubjectInput,
     DeleteSliceResult,
@@ -29,8 +30,10 @@ type WorldEngineModule = {
 };
 
 type WorldEngineClientEntry = {
-    client: Client;
+    client: Client | null;
 };
+
+type TransactionMode = "write" | "read" | "deferred";
 
 export type ExecuteWorldMode = "readonly" | "readwrite";
 
@@ -51,7 +54,7 @@ export class WorldEngineFacade {
     /** 关闭指定 Project SQLite 的 PrismaClient。 */
     async closeProject(_projectPath: string): Promise<void> {
         // World Engine 不持久缓存 Project PrismaClient；这里保留为删除流程的释放兜底。
-        collectReleasedSqliteHandles();
+        collectReleasedSqliteHandles({force: true});
     }
 
     /** 创建 subject + 初始化切面。 */
@@ -147,32 +150,28 @@ export class WorldEngineFacade {
             });
             return {
                 data: data === undefined ? "执行完成" : data,
-                issues,
+                issues: dedupeWorldIssues(issues),
             };
         }, "deferred");
     }
 
-    private async runInTransaction<TResult>(projectPath: string, callback: (module: WorldEngineModule) => Promise<TResult>, mode: "write" | "read" | "deferred" = "write"): Promise<TResult> {
+    private async runInTransaction<TResult>(projectPath: string, callback: (module: WorldEngineModule) => Promise<TResult>, mode: TransactionMode = "write"): Promise<TResult> {
         const entry = await this.createClientEntry(projectPath);
         const normalizedProjectPath = normalizeProjectPath(projectPath);
-        const transaction = await entry.client.transaction(mode);
+        const client = this.requireClient(entry);
+        await client.execute(transactionBeginStatement(mode));
         try {
-            const result = await callback(await this.createModuleFromExecutor(transaction, normalizedProjectPath));
-            await transaction.commit();
+            const result = await callback(await this.createModuleFromExecutor(client, normalizedProjectPath));
+            await client.execute("COMMIT");
             return result;
         } catch (error) {
-            if (!transaction.closed) {
-                try {
-                    await transaction.rollback();
-                } catch {
-                    // 保留原始业务错误，rollback 失败只说明连接已不可恢复或事务已被关闭。
-                }
+            try {
+                await client.execute("ROLLBACK");
+            } catch {
+                // 保留原始业务错误，rollback 失败只说明连接已不可恢复或事务已结束。
             }
             throw error;
         } finally {
-            if (!transaction.closed) {
-                transaction.close();
-            }
             await this.closeClientEntry(entry);
         }
     }
@@ -180,8 +179,9 @@ export class WorldEngineFacade {
     private async runWithModule<TResult>(projectPath: string, callback: (module: WorldEngineModule) => Promise<TResult>): Promise<TResult> {
         const entry = await this.createClientEntry(projectPath);
         const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const client = this.requireClient(entry);
         try {
-            return await callback(await this.createModuleFromExecutor(entry.client, normalizedProjectPath));
+            return await callback(await this.createModuleFromExecutor(client, normalizedProjectPath));
         } finally {
             await this.closeClientEntry(entry);
         }
@@ -195,11 +195,21 @@ export class WorldEngineFacade {
     }
 
     private async closeClientEntry(entry: WorldEngineClientEntry): Promise<void> {
-        entry.client.close();
+        const client = this.requireClient(entry);
+        client.close();
+        entry.client = null;
+        await Promise.resolve();
         collectReleasedSqliteHandles();
     }
 
-    private async createModuleFromExecutor(executor: Client | Transaction, projectPath: string): Promise<WorldEngineModule> {
+    private requireClient(entry: WorldEngineClientEntry): Client {
+        if (!entry.client) {
+            throw new Error("World Engine SQLite client 已关闭");
+        }
+        return entry.client;
+    }
+
+    private async createModuleFromExecutor(executor: Client, projectPath: string): Promise<WorldEngineModule> {
         const schema = await this.schemaLoader.load(projectPath);
         const calendar = await this.calendarLoader.load(projectPath);
         const repository = new WorldEngineRepository(executor);
@@ -209,4 +219,14 @@ export class WorldEngineFacade {
             calendar,
         };
     }
+}
+
+function transactionBeginStatement(mode: TransactionMode): string {
+    if (mode === "write") {
+        return "BEGIN IMMEDIATE";
+    }
+    if (mode === "read") {
+        return "BEGIN TRANSACTION READONLY";
+    }
+    return "BEGIN DEFERRED";
 }

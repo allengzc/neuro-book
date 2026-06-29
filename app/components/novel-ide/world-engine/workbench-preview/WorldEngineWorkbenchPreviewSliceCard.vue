@@ -197,14 +197,14 @@ function insertSliceAfter(): void {
     emit("insertSliceAfter", props.slice.id);
 }
 
-/** 将 World Engine issue code 映射成 A/E，便于主画布快速扫读。 */
-function issueLevel(code: WorldWorkbenchPreviewReviewQueueItem["code"]): "A" | "E" {
-    return worldWorkbenchIssueLevel(code);
+/** 将后端 issue severity 映射成 A/E，便于主画布快速扫读。 */
+function issueLevel(severity: WorldWorkbenchPreviewReviewQueueItem["severity"]): "A" | "E" {
+    return worldWorkbenchIssueLevel(severity);
 }
 
 /** issue 级别的紧凑视觉样式。 */
-function issueLevelClass(code: WorldWorkbenchPreviewReviewQueueItem["code"]): string {
-    return issueLevel(code) === "E" ? "border-[var(--we-danger)] bg-[var(--we-danger-soft)] text-[var(--we-danger)]" : "border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)]";
+function issueLevelClass(severity: WorldWorkbenchPreviewReviewQueueItem["severity"]): string {
+    return issueLevel(severity) === "E" ? "border-[var(--we-danger)] bg-[var(--we-danger-soft)] text-[var(--we-danger)]" : "border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)]";
 }
 
 /** issue triage 状态短文案。 */
@@ -270,7 +270,7 @@ function issueStatusClass(status: WorldWorkbenchPreviewReviewQueueItem["status"]
                                 :title="item.message"
                                 @click.stop="focusReviewIssue(item)"
                             >
-                                <span class="justify-self-start rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold" :class="issueLevelClass(item.code)">{{ issueLevel(item.code) }}</span>
+                                <span class="justify-self-start rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold" :class="issueLevelClass(item.severity)">{{ item.label }}</span>
                                 <span class="min-w-0 truncate font-mono text-[var(--we-code-text)]">{{ item.code }}</span>
                                 <span class="min-w-0 truncate text-[var(--we-text-secondary)]">
                                     {{ subjectMap.get(item.subjectId)?.name ?? item.subjectId }}

@@ -6,7 +6,15 @@
 
 **2026-06-14 update**：用户面表述从旧的风格清理心智收敛为“文本润色”；步骤 3 增加 stop-slop 风格的快速审查清单和 Directness / Rhythm / Trust / Authenticity / Density 五维 50 分评分；stop-slop 的核心规则已本地化注入 static rules、LLM rules 和 category suggestions。
 
-**2026-06-28 update**：`anti-ai-slop` 硬切重命名为 `llmlint`，旧 skill key 不保留 alias；CLI 模块化为自包含 ESM package，规则迁移为默认 `anti-ai-slop` preset，并支持 `llmlint.config.ts` 规则覆盖。
+**2026-06-28 update**：`anti-ai-slop` 硬切重命名为 `llmlint`，旧 skill key 不保留 alias；CLI 模块化为自包含 ESM package。
+
+**2026-06-29 update**：llmlint 规则升级为 flat Rule Registry；当时默认规则包为 `builtin/anti-ai-slop` ruleset，配置改为 `rulesets` / `namespaces` / `rules` 三层覆盖。规则入口后续已收敛到 `builtin/default`。
+
+**2026-06-29 update 2**：`.agent/workspace/llmlint_rules` 的 11 个中文规则样本曾取精华策展合并为单一 `builtin/cn`。该入口后续已与人工规则合并到 `builtin/default`。
+
+**2026-06-29 update 3**：默认规则入口收敛为单一 `builtin/default`，合并原人工 anti-ai-slop 规则与中文策展规则；中文规则 ID 从 hash 改为英文语义 slug，例如 `cn.vocabulary.body.skull-head`。
+
+**2026-06-29 update 4**：硬切删除旧格式兼容字段和公开单文件导入入口；`.agent/workspace/llmlint_rules` 只作为官方默认规则集的策展素材。
 
 **核心需求**：
 1. CLI 工具：类似 eslint 的文本检查器，输出问题列表
@@ -58,19 +66,23 @@
 - ✅ CLI 输出格式设计（类似 eslint）
 - ✅ 完整的 6 步润色流程设计
 - ✅ 规格说明文档（`.agent/workspace/anti-ai-slop-spec.md`）
-- ✅ 规则 JSON 文件（presets/anti-ai-slop/static-rules.json, llm-rules.json, category-suggestions.json）
+- ✅ 规则 JSON 文件（rulesets/builtin/default/ruleset.json, rules.json）
 - ✅ CLI 检查工具（llmlint/bin/llmlint.ts + src 模块）
 - ✅ SKILL.md 和 reference 文档
 - ✅ 2026-06-14：注入 stop-slop 本地化规则，新增快速审查评分流程
 - ✅ 2026-06-14：验证 JSON 解析、CLI static 命中、LLM rule 输出和自然文本反向样例
 - ✅ 2026-06-28：硬切重命名为 `llmlint`，不保留 `anti-ai-slop` skill alias
-- ✅ 2026-06-28：新增 `package.json`、`llmlint.config.example.ts`、模块化 `src/` 与默认 preset
+- ✅ 2026-06-28：新增 `package.json`、`llmlint.config.example.ts`、模块化 `src/`
+- ✅ 2026-06-29：迁移为 flat Rule Registry，并最终收敛到默认 `builtin/default` ruleset
+- ✅ 2026-06-29：策展合并中文规则样本，并最终收敛到默认 `builtin/default`
+- ✅ 2026-06-29：默认入口合并为 `builtin/default`，中文规则 ID 改为语义 slug
+- ✅ 2026-06-29：硬切删除旧格式兼容字段和公开单文件导入入口
 
 ## Decisions / Discussion
 
 ### 2026-06-28 llmlint 系统化重构
 
-**决策**：将系统 skill key 从 `anti-ai-slop` 硬切为 `llmlint`，不保留旧 alias。`anti-ai-slop` 只作为默认规则 preset 名保留。
+**决策**：将系统 skill key 从 `anti-ai-slop` 硬切为 `llmlint`，不保留旧 alias。后续默认规则入口已进一步合并为 `builtin/default`。
 
 **理由**：
 - `llmlint` 更准确表达“像 eslint 一样规范 LLM 输出”的能力边界。
@@ -79,8 +91,8 @@
 
 **变更**：
 - 新入口：`assets/workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts`。
-- 规则迁移到 `presets/anti-ai-slop/`。
-- 新增 `llmlint.config.ts` 配置加载，支持 `off` / `warn` / `error` / `low` / `medium` / `high`。
+- 规则最终收敛到 `rulesets/builtin/default/`。
+- `llmlint.config.ts` 使用 `rulesets` / `namespaces` / `rules` 三层配置，支持 `off` / `warn` / `error` / `low` / `medium` / `high`。
 - CLI 拆分为 config / rules / scanner / reporter / types / cli 模块，后续 Web 或编辑器复用时不需要解析命令行输出。
 
 ### 2026-06-14 文本润色升级
@@ -406,9 +418,8 @@ bun assets/workspace/.nbook/agent/skills/llmlint/bin/llmlint.ts check .agent/tes
 ### 已完成的产物
 
 1. **规则文件**（3 个 JSON）：
-   - `presets/anti-ai-slop/static-rules.json`
-   - `presets/anti-ai-slop/llm-rules.json`
-   - `presets/anti-ai-slop/category-suggestions.json`
+   - `rulesets/builtin/default/ruleset.json`
+   - `rulesets/builtin/default/rules.json`
 
 2. **CLI 工具**：
    - `bin/llmlint.ts` + `src/` 模块
@@ -642,11 +653,13 @@ write: 生成报告
 - [x] 2026-06-14：注入 stop-slop 本地化规则
 - [x] 2026-06-14：加入快速审查清单和 50 分评分
 - [x] 2026-06-28：重命名为 llmlint 并硬切旧 skill key
-- [x] 2026-06-28：改为自包含 ESM package 与默认 preset
+- [x] 2026-06-28：改为自包含 ESM package
 - [x] 2026-06-28：支持 `llmlint.config.ts` 规则覆盖
+- [x] 2026-06-29：升级为 flat Rule Registry，加入 ruleset / namespace / rule 三层配置、override diagnostics、curated 默认规则集生成和 JSON 输出
+- [x] 2026-06-29：策展合并 `.agent/workspace/llmlint_rules`，通过内部模块生成单一中文精选 ruleset
+- [x] 2026-06-29：合并官方默认 ruleset 为 `builtin/default`，中文规则 ID 语义化
 
 ### 后续增强（第二版）
-- [ ] 基于真实用户反馈继续调低误伤率
 - [ ] 为快速审查评分沉淀更稳定的示例集
 - [ ] 支持 --context 显示详细上下文
 - [ ] 支持 --category 过滤特定类别

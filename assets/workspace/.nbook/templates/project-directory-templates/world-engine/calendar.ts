@@ -3,6 +3,9 @@
  *
  * 默认使用 Gregorian Calendar（真实公历），适合现代、校园、都市、近未来等题材。
  * 架空世界可改为 type: 'simple' 或 type: 'custom'。
+ *
+ * 注意：这是单文件配置入口。本地文件、绝对路径和 URL/protocol import/export 会被 loader 拒绝；
+ * 自定义 format/parse helper 请直接写在本文件，或使用包级 import 与 node: 内置模块。
  */
 
 export default {

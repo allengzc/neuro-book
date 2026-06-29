@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import {pathToFileURL} from "node:url";
 import {createError} from "h3";
 import {resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
+import {importSingleFileTypeScriptConfig} from "nbook/server/world-engine/single-file-typescript-config-import";
 import {
     collectZodDefaults,
     extractRefs,
@@ -66,9 +66,13 @@ export class WorldSchemaLoader {
         }
 
         try {
-            const schemaModule = await import(pathToFileURL(tsSchemaPath).href);
+            const schemaModule = await importSingleFileTypeScriptConfig<{default?: unknown; WorldSchema?: unknown}>(tsSchemaPath, "schema");
             const exportedSchema = schemaModule.default ?? schemaModule.WorldSchema;
-            const schemaRegistry = exportedSchema?.subjectTypes ?? exportedSchema;
+            if (!exportedSchema || typeof exportedSchema !== "object") {
+                throw createError({statusCode: 400, message: "schema 必须导出 { subjectTypes: {...} } 或 WorldSchema 注册表对象"});
+            }
+            const schemaRecord = exportedSchema as {subjectTypes?: unknown};
+            const schemaRegistry = schemaRecord.subjectTypes ?? exportedSchema;
             if (!schemaRegistry || typeof schemaRegistry !== "object") {
                 throw createError({statusCode: 400, message: "schema 必须导出 { subjectTypes: {...} } 或 WorldSchema 注册表对象"});
             }

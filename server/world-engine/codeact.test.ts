@@ -4,10 +4,11 @@
  * 测试完整的 World Engine + CodeAct 查询流程。
  */
 
-import {afterAll, afterEach, beforeEach, describe, expect, test} from "bun:test";
+import {afterAll, afterEach, beforeEach, describe, expect, test} from "vitest";
 import {mkdirSync, writeFileSync} from "node:fs";
 import {rm} from "node:fs/promises";
 import {join} from "node:path";
+import {pathToFileURL} from "node:url";
 import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
 import {WorldEngineFacade} from "./world-engine.facade";
 
@@ -49,7 +50,7 @@ describe("CodeAct Integration", () => {
             await removeProjectRoot(projectRoot);
         }
         createdProjects.splice(0);
-    }, 30_000);
+    }, 60_000);
 
     test("Execute simple query with world.subject.get()", async () => {
         const createResult = await facade.createSubject(testProjectPath, {
@@ -213,6 +214,300 @@ describe("CodeAct Integration", () => {
         `);
 
         expect(result).toEqual([{title: "英雄登场", patchId: expect.any(String)}]);
+    });
+
+    test("world.slice.list 支持按 subjectIds 查询相关切面", async () => {
+        await facade.writeSlice(testProjectPath, {
+            instant: BigInt(1000),
+            title: "双人登场",
+            patches: [
+                {subjectId: "hero", type: "character", name: "英雄", path: "/hp", op: "replace", value: 90},
+                {subjectId: "village", type: "location", name: "村庄", path: "/name", op: "replace", value: "村庄"},
+            ],
+        });
+        await facade.writeSlice(testProjectPath, {
+            instant: BigInt(1001),
+            title: "英雄独行",
+            patches: [
+                {subjectId: "hero", path: "/level", op: "replace", value: 2},
+            ],
+        });
+
+        const result = await facade.executeCodeActQuery(testProjectPath, `
+            const any = await world.slice.list({subjectIds: ["hero"], withPatches: true});
+            const all = await world.slice.list({subjectIds: ["hero", "village"], subjectMode: "all"});
+            const solo = any.find((slice) => slice.title === "英雄独行");
+            return {
+                any: any.map((slice) => slice.title).sort(),
+                all: all.map((slice) => slice.title),
+                soloHeroPatchCount: solo.patches.filter((patch) => patch.subjectId === "hero").length,
+            };
+        `);
+
+        expect(result).toEqual({
+            any: ["双人登场", "英雄独行"],
+            all: ["双人登场"],
+            soloHeroPatchCount: 1,
+        });
+    });
+
+    test("executeCodeActWorld 删除切面后同脚本查询返回重算状态", async () => {
+        const result = await facade.executeCodeActWorld(testProjectPath, `
+            const first = await world.slice.write({
+                time: world.time.parse("测试纪元1日 00:30:00"),
+                title: "英雄受伤",
+                patches: [
+                    {subjectId: "hero", type: "character", name: "英雄", path: "/hp", op: "replace", value: 50},
+                ],
+            });
+            const second = await world.slice.write({
+                time: world.time.parse("测试纪元1日 00:31:00"),
+                title: "英雄恢复",
+                patches: [
+                    {subjectId: "hero", path: "/hp", op: "replace", value: 80},
+                ],
+            });
+            await world.slice.delete(second.sliceId);
+            const hero = await world.subject.get("hero");
+            const slices = await world.slice.list({subjectIds: ["hero"]});
+            return {hp: hero.hp, titles: slices.map((slice) => slice.title)};
+        `, "readwrite");
+
+        expect(result).toEqual({
+            data: {
+                hp: 50,
+                titles: ["英雄受伤"],
+            },
+            issues: [],
+        });
+    });
+
+    test("calendar.ts 修改后同 facade 再读使用新内容", async () => {
+        const projectRoot = join(resolveWorkspaceContainerRoot(), testProjectPath.slice("workspace/".length));
+        expect(await facade.parseTime(testProjectPath, "测试纪元1日 00:00:00")).toBe(0n);
+
+        writeFileSync(join(projectRoot, "world-engine/calendar.ts"), [
+            "export default {",
+            "    type: 'simple',",
+            "    eraBefore: '新纪元',",
+            "    eraAfter: '新纪元',",
+            "    baseUnit: 'second',",
+            "    units: [",
+            "        {name: 'minute', parent: 'second', ratio: 60},",
+            "        {name: 'hour', parent: 'minute', ratio: 60},",
+            "        {name: 'day', parent: 'hour', ratio: 24},",
+            "    ],",
+            "    format: '{eraName}{day}日 {hour:02}:{minute:02}:{second:02}',",
+            "};",
+            "",
+        ].join("\n"), "utf-8");
+
+        expect(await facade.parseTime(testProjectPath, "新纪元1日 00:00:00")).toBe(0n);
+        await expect(facade.parseTime(testProjectPath, "测试纪元1日 00:00:00")).rejects.toThrow();
+    });
+
+    test("schema/index.ts 修改后同 facade 再读使用新内容", async () => {
+        const projectRoot = join(resolveWorkspaceContainerRoot(), testProjectPath.slice("workspace/".length));
+        const before = await facade.getWorldSchema(testProjectPath);
+        expect(before.subjectTypes.find((item) => item.type === "character")?.attrs.map((attr) => attr.name)).not.toContain("mana");
+
+        writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), zodSchemaWithManaFixture(), "utf-8");
+
+        const after = await facade.getWorldSchema(testProjectPath);
+        expect(after.subjectTypes.find((item) => item.type === "character")?.attrs.map((attr) => attr.name)).toContain("mana");
+    });
+
+    test("calendar.ts 使用 Project 本地相对 import 时加载失败", async () => {
+        const projectRoot = join(resolveWorkspaceContainerRoot(), testProjectPath.slice("workspace/".length));
+        writeFileSync(join(projectRoot, "world-engine/calendar-config.ts"), [
+            "export default {",
+            "    type: 'simple',",
+            "    eraBefore: '拆分纪元',",
+            "    eraAfter: '拆分纪元',",
+            "    baseUnit: 'second',",
+            "    units: [",
+            "        {name: 'minute', parent: 'second', ratio: 60},",
+            "        {name: 'hour', parent: 'minute', ratio: 60},",
+            "        {name: 'day', parent: 'hour', ratio: 24},",
+            "    ],",
+            "    format: '{eraName}{day}日 {hour:02}:{minute:02}:{second:02}',",
+            "};",
+            "",
+        ].join("\n"), "utf-8");
+        writeFileSync(join(projectRoot, "world-engine/calendar.ts"), [
+            "import config from './calendar-config';",
+            "export default config;",
+            "",
+        ].join("\n"), "utf-8");
+
+        await expect(facade.parseTime(testProjectPath, "拆分纪元1日 00:00:00"))
+            .rejects.toThrow("calendar 配置必须是单文件");
+        await expect(facade.parseTime(testProjectPath, "拆分纪元1日 00:00:00"))
+            .rejects.toThrow("./calendar-config");
+    });
+
+    test("schema/index.ts 使用 Project 本地相对 import 时加载失败", async () => {
+        const projectRoot = join(resolveWorkspaceContainerRoot(), testProjectPath.slice("workspace/".length));
+        writeFileSync(join(projectRoot, "world-engine/schema/character.ts"), [
+            'import {z} from "zod";',
+            "export const Character = z.object({",
+            "    name: z.string().optional(),",
+            "});",
+            "",
+        ].join("\n"), "utf-8");
+        writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), [
+            "import {Character} from './character';",
+            "export const WorldSchema = {character: Character} as const;",
+            "",
+        ].join("\n"), "utf-8");
+
+        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("schema 配置必须是单文件");
+        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("./character");
+    });
+
+    test("schema/index.ts 使用 Project 本地 import type 时加载失败", async () => {
+        const projectRoot = join(resolveWorkspaceContainerRoot(), testProjectPath.slice("workspace/".length));
+        writeFileSync(join(projectRoot, "world-engine/schema/types.ts"), [
+            "export type CharacterName = string;",
+            "",
+        ].join("\n"), "utf-8");
+        writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), [
+            'import {z} from "zod";',
+            "import type {CharacterName} from './types';",
+            "const fallbackName: CharacterName = '未命名';",
+            "export const WorldSchema = {",
+            "    character: z.object({",
+            "        name: z.string().default(fallbackName),",
+            "    }),",
+            "} as const;",
+            "",
+        ].join("\n"), "utf-8");
+
+        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("schema 配置必须是单文件");
+        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("./types");
+    });
+
+    test("schema/index.ts 使用 TS import type expression 时加载失败", async () => {
+        const projectRoot = join(resolveWorkspaceContainerRoot(), testProjectPath.slice("workspace/".length));
+        writeFileSync(join(projectRoot, "world-engine/schema/types.ts"), [
+            "export type CharacterName = string;",
+            "",
+        ].join("\n"), "utf-8");
+        writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), [
+            'import {z} from "zod";',
+            "type CharacterName = import('./types').CharacterName;",
+            "const fallbackName: CharacterName = '未命名';",
+            "export const WorldSchema = {",
+            "    character: z.object({",
+            "        name: z.string().default(fallbackName),",
+            "    }),",
+            "} as const;",
+            "",
+        ].join("\n"), "utf-8");
+
+        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("schema 配置必须是单文件");
+        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("./types");
+    });
+
+    test("schema/index.ts 使用 file URL import 时加载失败", async () => {
+        const projectRoot = join(resolveWorkspaceContainerRoot(), testProjectPath.slice("workspace/".length));
+        const typesPath = join(projectRoot, "world-engine/schema/types.ts");
+        const typesUrl = pathToFileURL(typesPath).href;
+        writeFileSync(typesPath, [
+            "export type CharacterName = string;",
+            "",
+        ].join("\n"), "utf-8");
+        writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), [
+            'import {z} from "zod";',
+            `import type {CharacterName} from "${typesUrl}";`,
+            "const fallbackName: CharacterName = '未命名';",
+            "export const WorldSchema = {",
+            "    character: z.object({",
+            "        name: z.string().default(fallbackName),",
+            "    }),",
+            "} as const;",
+            "",
+        ].join("\n"), "utf-8");
+
+        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("不支持本地文件、绝对路径或 URL import/export");
+        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("file:");
+    });
+
+    test("schema/index.ts 使用 Windows 或 POSIX 绝对路径 import 时加载失败", async () => {
+        const projectRoot = join(resolveWorkspaceContainerRoot(), testProjectPath.slice("workspace/".length));
+        for (const specifier of ["C:/world-engine-helper.ts", "/world-engine-helper.ts"]) {
+            writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), [
+                'import {z} from "zod";',
+                `import {Character} from "${specifier}";`,
+                "export const WorldSchema = {",
+                "    character: Character ?? z.object({}),",
+                "} as const;",
+                "",
+            ].join("\n"), "utf-8");
+
+            await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("不支持本地文件、绝对路径或 URL import/export");
+            await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow(specifier);
+        }
+    });
+
+    test("schema/index.ts 使用非静态 dynamic import 时加载失败", async () => {
+        const projectRoot = join(resolveWorkspaceContainerRoot(), testProjectPath.slice("workspace/".length));
+        writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), [
+            'import {z} from "zod";',
+            "const helperPath = './character';",
+            "await import(helperPath);",
+            "export const WorldSchema = {",
+            "    character: z.object({",
+            "        name: z.string().optional(),",
+            "    }),",
+            "} as const;",
+            "",
+        ].join("\n"), "utf-8");
+
+        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("动态 import/require 必须使用静态字符串");
+        await expect(facade.getWorldSchema(testProjectPath)).rejects.toThrow("动态 import(<non-literal>)");
+    });
+
+    test("schema/index.ts 允许 zod 与 nbook/world-engine/schema 包级 import", async () => {
+        const projectRoot = join(resolveWorkspaceContainerRoot(), testProjectPath.slice("workspace/".length));
+        writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), [
+            'import {z} from "zod";',
+            'import {Ref, EmbeddingText} from "nbook/world-engine/schema";',
+            "",
+            "export const WorldSchema = {",
+            "    character: z.object({",
+            "        location: Ref('location').optional(),",
+            "        events: z.array(EmbeddingText).default([]),",
+            "    }),",
+            "    location: z.object({",
+            "        name: z.string().optional(),",
+            "    }),",
+            "} as const;",
+            "",
+        ].join("\n"), "utf-8");
+
+        const schema = await facade.getWorldSchema(testProjectPath);
+        const characterAttrs = schema.subjectTypes.find((item) => item.type === "character")?.attrs.map((attr) => attr.name);
+        expect(characterAttrs).toEqual(expect.arrayContaining(["location", "events"]));
+    });
+
+    test("schema/index.ts 允许 node: 内置模块 import", async () => {
+        const projectRoot = join(resolveWorkspaceContainerRoot(), testProjectPath.slice("workspace/".length));
+        writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), [
+            'import {z} from "zod";',
+            'import {basename} from "node:path";',
+            "",
+            "export const WorldSchema = {",
+            "    character: z.object({",
+            "        name: z.string().default(basename('hero.md', '.md')),",
+            "    }),",
+            "} as const;",
+            "",
+        ].join("\n"), "utf-8");
+
+        const schema = await facade.getWorldSchema(testProjectPath);
+        const characterAttrs = schema.subjectTypes.find((item) => item.type === "character")?.attrs.map((attr) => attr.name);
+        expect(characterAttrs).toEqual(expect.arrayContaining(["name"]));
     });
 
     test("Failed code rejects", async () => {
@@ -423,6 +718,32 @@ function zodSchemaFixture(): string {
         "        name: z.string().optional().describe('姓名'),",
         "        hp: z.number().int().default(100).describe('生命值'),",
         "        level: z.number().int().default(1).describe('等级'),",
+        "        inventory: z.array(z.string()).default([]).describe('背包'),",
+        "        location: Ref('location').optional().describe('当前位置'),",
+        "    }),",
+        "    location: z.object({",
+        "        name: z.string().optional().describe('地点名称'),",
+        "        description: z.string().optional().describe('地点描述'),",
+        "    }),",
+        "} as const;",
+        "",
+    ].join("\n");
+}
+
+function zodSchemaWithManaFixture(): string {
+    return [
+        'import {z} from "zod";',
+        "",
+        "function Ref(targetType: string) {",
+        "    return z.string().regex(/^subject:\\/\\/[\\w-]+$/).describe(`ref:${targetType}`);",
+        "}",
+        "",
+        "export const WorldSchema = {",
+        "    character: z.object({",
+        "        name: z.string().optional().describe('姓名'),",
+        "        hp: z.number().int().default(100).describe('生命值'),",
+        "        level: z.number().int().default(1).describe('等级'),",
+        "        mana: z.number().int().default(7).describe('魔力'),",
         "        inventory: z.array(z.string()).default([]).describe('背包'),",
         "        location: Ref('location').optional().describe('当前位置'),",
         "    }),",

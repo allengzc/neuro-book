@@ -76,11 +76,22 @@ type SubjectStateDto = {
     attrs: Record<string, JsonValue>;
 };
 type WorldIssueDto = {
-    code: "broken-relative" | "dangling-ref" | "base-shifted" | "masked";
+    code: "broken-relative" | "dangling-ref" | "base-shifted" | "masked" | "invalid-path" | "cross-ref" | "embedding-whole-replace";
+    label: "E1" | "E2" | "E3" | "E4" | "E5" | "A1" | "A2";
+    severity: "error" | "advisory";
     sliceId?: string;
+    patchId?: string;
     subjectId: string;
     attr: string;
+    path?: string;
+    op?: WorldPatchOp;
+    title: string;
     message: string;
+    explanation: {
+        whatHappened: string;
+        whyItMatters: string;
+        suggestedAction: string;
+    };
 };
 type WorldStateQueryDto = {
     subjects: SubjectStateDto[];

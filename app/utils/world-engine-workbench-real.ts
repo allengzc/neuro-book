@@ -35,13 +35,20 @@ export type WorldWorkbenchEditSliceBody = {
 export type WorldWorkbenchTransientIssue = {
     attr: string;
     code: WorldIssueDto["code"];
+    explanation: WorldIssueDto["explanation"];
     issueIndex: number;
     key: string;
+    label: WorldIssueDto["label"];
     message: string;
+    op?: WorldIssueDto["op"];
+    patchId?: string;
+    path?: string;
+    severity: WorldIssueDto["severity"];
     sliceId: string;
     sliceTime: string;
     sliceTitle: string;
     subjectId: string;
+    title: string;
 };
 
 export type WorldWorkbenchSubjectFileProposalInput = {
@@ -334,9 +341,9 @@ export function buildWorldWorkbenchIssueTriageSummary(reviewQueueItems: WorldWor
     return summarizeWorldWorkbenchReviewItems(reviewQueueItems);
 }
 
-/** 将 World Engine issue code 映射成作者可扫读的 A/E 等级。 */
-export function worldWorkbenchIssueLevel(code: WorldIssueDto["code"]): WorldWorkbenchIssueLevel {
-    return code === "base-shifted" || code === "masked" ? "A" : "E";
+/** 将后端 issue severity 映射成作者可扫读的 A/E 等级。 */
+export function worldWorkbenchIssueLevel(severity: WorldIssueDto["severity"]): WorldWorkbenchIssueLevel {
+    return severity === "advisory" ? "A" : "E";
 }
 
 /** 将 issue triage 状态映射成用户可见短文案。 */
@@ -906,14 +913,21 @@ export function worldWorkbenchIssueIdentity(item: Pick<WorldWorkbenchReviewIssue
 type WorldWorkbenchReviewIssueSource = {
     attr: string;
     code: WorldIssueDto["code"];
+    explanation: WorldIssueDto["explanation"];
     identity: string;
     issueIndex: number;
     key: string;
+    label: WorldIssueDto["label"];
     message: string;
+    op?: WorldIssueDto["op"];
+    patchId?: string;
+    path?: string;
+    severity: WorldIssueDto["severity"];
     sliceId: string;
     sliceTime: string;
     sliceTitle: string;
     subjectId: string;
+    title: string;
 };
 
 /** 合并持久 slice issue 和本次操作 transient issue，triage 只在前端会话态生效。 */
@@ -926,6 +940,7 @@ export function buildWorldWorkbenchReviewQueueItems(input: {
     const persisted = input.slices.flatMap((slice) => (slice.issues ?? []).map((issue, issueIndex): WorldWorkbenchReviewIssueSource => ({
         attr: issue.attr,
         code: issue.code,
+        explanation: issue.explanation,
         identity: worldWorkbenchIssueIdentity({...issue, sliceId: slice.id}),
         issueIndex,
         key: (() => {
@@ -934,11 +949,17 @@ export function buildWorldWorkbenchReviewQueueItems(input: {
             persistedIdentityCounts.set(identity, occurrence + 1);
             return persistedWorldWorkbenchIssueKey(slice.id, occurrence, issue);
         })(),
+        label: issue.label,
         message: issue.message,
+        op: issue.op,
+        patchId: issue.patchId,
+        path: issue.path,
+        severity: issue.severity,
         sliceId: slice.id,
         sliceTime: slice.time,
         sliceTitle: slice.title,
         subjectId: issue.subjectId,
+        title: issue.title,
     })));
     const persistedIdentities = new Set(persisted.map(worldWorkbenchIssueIdentity));
     const transient = input.transientIssues

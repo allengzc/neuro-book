@@ -70,9 +70,23 @@ function modeForContext(context: ToolExecutionContext): ExecuteWorldMode {
 function worldResult(details: unknown): AgentToolResult<unknown> {
     const normalized = normalizeToolDetails(details);
     return {
-        content: [{type: "text" as const, text: JSON.stringify(normalized, null, 2)}],
+        content: [{type: "text" as const, text: renderWorldResultText(normalized)}],
         details: normalized,
     };
+}
+
+function renderWorldResultText(details: AgentJsonValue): string {
+    if (isRecord(details) && typeof details.data === "string" && Array.isArray(details.issues)) {
+        if (details.issues.length === 0) {
+            return details.data;
+        }
+        return `${details.data}\n\nissues:\n${JSON.stringify(details.issues, null, 2)}`;
+    }
+    return JSON.stringify(details, null, 2);
+}
+
+function isRecord(value: AgentJsonValue): value is Record<string, AgentJsonValue> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function normalizeToolDetails(value: unknown): AgentJsonValue {

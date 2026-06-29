@@ -1,6 +1,5 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import {pathToFileURL} from "node:url";
 import {createError} from "h3";
 import {resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
 import type {Instant} from "nbook/server/world-engine/types";
@@ -8,6 +7,7 @@ import type {CalendarStrategy} from "nbook/server/world-engine/calendar-strategy
 import {SimpleCalendar, normalizeSimpleCalendarConfig} from "nbook/server/world-engine/calendars/simple";
 import {GregorianCalendar, normalizeGregorianCalendarConfig} from "nbook/server/world-engine/calendars/gregorian";
 import {CustomCalendar, normalizeCustomCalendarConfig} from "nbook/server/world-engine/calendars/custom";
+import {importSingleFileTypeScriptConfig} from "nbook/server/world-engine/single-file-typescript-config-import";
 
 /**
  * WorldCalendar Facade
@@ -59,9 +59,8 @@ export class WorldCalendarLoader {
 
     private async loadFromTypeScript(tsPath: string): Promise<WorldCalendar> {
         try {
-            // 动态 import（需要 file:// URL）
-            const fileUrl = pathToFileURL(tsPath).href;
-            const module = await import(fileUrl);
+            // calendar.ts 是单文件配置入口；入口内容变化时通过 hash 模块路径热加载。
+            const module = await importSingleFileTypeScriptConfig<{default?: unknown}>(tsPath, "calendar");
             const config = module.default;
 
             if (!config || typeof config !== "object") {

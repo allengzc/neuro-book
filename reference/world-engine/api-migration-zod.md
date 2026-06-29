@@ -40,11 +40,11 @@ const written = await world.slice.write({
 });
 
 const erina = await world.subject.get("erina");
-return {
-    sliceId: written.sliceId,
-    time: world.time.format(time),
-    hp: erina.hp,
-};
+return [
+    `已写入切面：${written.sliceId}`,
+    `时间：${world.time.format(time)}`,
+    `艾莉娜生命值：${erina.hp}`,
+].join("\n");
 ```
 
 ## 精确修正示例
@@ -61,8 +61,11 @@ await world.slice.editPatches(written.sliceId, [
 ## 提醒
 
 - 在 `execute_world` 沙箱内，写入时间用 instant bigint：`world.time.parse()` 转入，`world.time.format()` 转出。
+- 已知道 subject schema 字段含义时，优先在脚本内把 subject state 转成文本摘要并 `return string`，不要默认返回原始 JSON。
 - 写入前先查已有 subject 和目标时间附近的 slice。
 - 批量读取使用 `world.subject.gets(ids)`；`world.getMany` 已删除，不保留 alias。
+- `world.slice.get(sliceId)` 只接受 sliceId；按 subject 查相关切面用 `world.slice.list({subjectIds:["id"], withPatches:true})`。
 - 同一 instant 只能有一个 slice；要补同一时刻内容，读 patchId 后用 `world.slice.editPatches`。
+- 默认 `EmbeddingText` 字段只写 `{text:"..."}`；`vector` / `model` 由系统维护。
 - E issues 必须修；A issues 只需确认语义。
 - 用户不需要理解 schema、slice、patch、op；对用户汇报用时间线和当前状态摘要。

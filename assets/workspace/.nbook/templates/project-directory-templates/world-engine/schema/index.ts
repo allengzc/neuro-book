@@ -10,6 +10,9 @@
  * 3. 物品选择性建模：只有需要追踪独立状态的才建 subject
  * 4. 保持简洁，避免过度设计
  * 5. 使用 EmbeddingText 支持向量搜索（memory、events 字段）
+ *
+ * 注意：这是单文件配置入口。本地文件、绝对路径和 URL/protocol import/export 会被 loader 拒绝；
+ * 需要 helper 时请直接写在本文件，或使用包级 helper 与 node: 内置模块。
  */
 
 import {z} from "zod";

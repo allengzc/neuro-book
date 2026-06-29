@@ -56,6 +56,8 @@ if (用户消息包含文件路径) {
 
 快速识别可以稳定定位的候选问题，生成可供 Agent 复核的报告。
 
+默认配置会加载 `builtin/default`。它包含 R18/成人词汇规则；用户若关闭了 `vocabulary.r18` namespace，Agent 不应再按该 namespace 提出候选。
+
 ### 实现细节
 
 **执行命令**：
@@ -64,7 +66,7 @@ bun .nbook/agent/skills/llmlint/bin/llmlint.ts check <文件路径>
 ```
 
 **解析输出**：
-CLI 输出按 static rule 分组，包含规则 ID、命中上下文、行号、列号和修复建议：
+CLI 输出按 regex rule 分组，包含规则 ID、namespace、ruleset 来源、命中上下文、行号、列号和 action 建议：
 ```text
 filler-word-actually (其实、实际上、事实上)
   1:9  这个问题很复杂。其实我们可以从另一个角度来看。
@@ -73,7 +75,7 @@ filler-word-actually (其实、实际上、事实上)
   1 occurrence. 修复建议：这类填充词通常不增加实质内容，建议直接删除。
 ```
 
-注意：CLI 只负责定位候选文本，不负责决定是否修复。所有 static 命中项都需要结合上下文复核。
+注意：CLI 只负责定位候选文本，不负责决定是否修复。所有 regex 命中项都需要结合上下文复核。
 
 ### 边界情况
 
@@ -101,7 +103,7 @@ filler-word-actually (其实、实际上、事实上)
 
 ### 目标
 
-读取 LLM 规则，对 static 命中项与 LLM 语义规则进行上下文审查，再用快速审查清单和 50 分评分补足整体风格判断。
+读取 LLM 规则，对 regex 命中项与 LLM 语义规则进行上下文审查，再用快速审查清单和 50 分评分补足整体风格判断。
 
 ### 获取 LLM 规则
 
@@ -115,7 +117,7 @@ bun .nbook/agent/skills/llmlint/bin/llmlint.ts show-llm-rules
 
 ### 审查流程
 
-1. 复核 CLI static 命中项：
+1. 复核 CLI regex 命中项：
    - 读取命中位置上下文。
    - 判断候选是否真的影响自然度、密度或可信度。
    - 给出建议修复、建议保留或需要用户确认。
@@ -136,7 +138,7 @@ bun .nbook/agent/skills/llmlint/bin/llmlint.ts show-llm-rules
 
 ### 判断标准
 
-**Static Rules**：
+**Regex Rules**：
 - High：强烈建议修复，但仍需确认上下文是否合理。
 - Medium：读取前后 2-3 行判断；对话和口语场景可能保留。
 - Low：默认保留，除非明显影响阅读。
@@ -498,6 +500,5 @@ oldText: "这个问题很复杂。其实我们可以从另一个角度来看。"
 
 1. **自动迭代**：修复后自动再检查，直到无问题。
 2. **冲突检测**：检测修复引入的新问题。
-3. **批量处理**：一次处理多个文件。
-4. **自定义规则**：用户可以添加自己的规则。
-5. **学习优化**：根据用户反馈调整规则权重。
+3. **自定义规则示例库**：沉淀不同文体的配置片段。
+4. **学习优化**：根据用户反馈调整规则权重。

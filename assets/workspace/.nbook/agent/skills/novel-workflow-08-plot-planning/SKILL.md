@@ -140,10 +140,9 @@ await world.slice.write({
 
 写入、删除或查询后检查 issues：
 
-- E issues 是持久数据错误，必须修。用人话解释为“缺少初始值”“引用了不存在的对象”“引用类型不匹配”。
-- A issues 是补过去时的提醒，确认语义即可。用人话解释为“这会影响后续某条加减变化的结果”或“这条改动后面会被覆盖”。
-
-不要把 `broken-relative`、`dangling-ref`、`base-shifted`、`masked` 直接抛给用户。
+- `severity: "error"` 是持久数据错误，必须修。
+- `severity: "advisory"` 是补过去时的提醒，确认语义即可。
+- 向用户解释时使用返回的 `title`、`message`、`explanation`，不要把 code 直接抛给用户。
 
 ## Phase 8：回报当前状态
 

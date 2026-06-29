@@ -297,6 +297,7 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         查询角色当前状态：const erina = await world.subject.get("erina");
                         列出所有角色：const characters = await world.subject.list("character");
                         查询某时间段的切面：const recentSlices = await world.slice.list(options);
+                        查询返回规则：已知道 subject schema 字段含义时，在 CodeAct 脚本内把状态整理成文本摘要并 return string；不要默认回传原始 attrs JSON。
 
                         工具使用详情见 reference/world-engine/workflow.md 和 novel-workflow-writer-execution skill。
                     </tool_permissions>

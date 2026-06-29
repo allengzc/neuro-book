@@ -1,38 +1,47 @@
-import type {Issue, StaticRule} from "./types.ts";
+import type {Issue, RegexRuleRecord} from "./types";
 
 /**
- * 使用 static rules 扫描全文。static 命中只表示候选，是否修复仍由 Agent 结合上下文判断。
+ * 使用 regex detector 扫描全文。命中只表示候选，是否修复仍由 Agent 结合上下文判断。
  */
-export function scanText(content: string, rules: StaticRule[]): Issue[] {
+export function scanText(content: string, rules: RegexRuleRecord[]): Issue[] {
     const lineStarts = buildLineStarts(content);
     const issues: Issue[] = [];
 
     for (const rule of rules) {
-        let regex: RegExp;
-        try {
-            regex = new RegExp(rule.pattern, "g");
-        } catch (error) {
-            throw new Error(`规则 ${rule.id} 的正则无效: ${error instanceof Error ? error.message : String(error)}`);
-        }
+        for (const target of rule.detector.targets) {
+            let regex: RegExp;
+            try {
+                regex = new RegExp(target, ensureGlobalFlags(rule.detector.flags));
+            } catch (error) {
+                throw new Error(`规则 ${rule.id} 的正则无效: ${error instanceof Error ? error.message : String(error)}`);
+            }
 
-        let match: RegExpExecArray | null;
-        while ((match = regex.exec(content)) !== null) {
-            const position = locatePosition(lineStarts, match.index);
-            issues.push({
-                rule,
-                line: position.line,
-                column: position.column,
-                match: match[0],
-                context: extractContext(content, match.index, match[0].length),
-            });
+            let match: RegExpExecArray | null;
+            while ((match = regex.exec(content)) !== null) {
+                const position = locatePosition(lineStarts, match.index);
+                issues.push({
+                    rule,
+                    line: position.line,
+                    column: position.column,
+                    match: match[0],
+                    target,
+                    context: extractContext(content, match.index, match[0].length),
+                });
 
-            if (match[0].length === 0) {
-                regex.lastIndex++;
+                if (match[0].length === 0) {
+                    regex.lastIndex++;
+                }
             }
         }
     }
 
     return issues;
+}
+
+function ensureGlobalFlags(flags: string | undefined): string {
+    const merged = new Set((flags ?? "").split("").filter((flag) => flag.length > 0));
+    merged.add("g");
+    return [...merged].join("");
 }
 
 function buildLineStarts(content: string): number[] {

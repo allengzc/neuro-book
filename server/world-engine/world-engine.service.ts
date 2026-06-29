@@ -4,6 +4,8 @@ import {WorldEngineRepository} from "nbook/server/world-engine/world-engine.repo
 import {cosineSimilarity, decodeVector, encodeVector} from "nbook/server/world-engine/embedding-vector";
 import {embedTexts, resolveWorldEmbedding, type WorldEmbeddingModel} from "nbook/server/world-engine/world-embedding";
 import {applyPatch} from "nbook/server/world-engine/patch-operations";
+import {worldIssueCatalogItem} from "nbook/server/world-engine/world-issue-catalog";
+import {buildWorldIssue, dedupeWorldIssues} from "nbook/server/world-engine/world-issue-builder";
 import type {WorldCalendar} from "nbook/server/world-engine/calendar";
 import type {
     CreateWorldSubjectInput,
@@ -36,8 +38,8 @@ const SQLITE_INT64_MIN = BigInt("-9223372036854775808");
 const SQLITE_INT64_MAX = BigInt("9223372036854775807");
 const MISSING = Symbol("missing");
 
-/** apply 阶段检测到的属性级问题（subjectId / sliceId 由调用方补上）。 */
-type AttrIssue = {code: WorldIssueCode; attr: string; message: string};
+/** apply 阶段检测到的属性级问题（subjectId / sliceId / patchId 由调用方补上）。 */
+type AttrIssue = {code: WorldIssueCode; attr: string; path: string; op: WorldPatchOp; message: string};
 
 /** 世界引擎核心服务。 */
 export class WorldEngineService {
@@ -119,7 +121,7 @@ export class WorldEngineService {
         // C1：首写自动注册 subject。把新 subject 的 WorldSubject 行登记掉，并把其 schema default
         // 作为本切面的前置 replace patch 写入（不另开 init 切面，保持单切面语义；用户 patch 在后覆盖默认值）。
         const initPatches = await this.ensureNewSubjects(input.patches);
-        const patches = [...initPatches, ...input.patches];
+        const patches = await this.withAppendInitializers([...initPatches, ...input.patches], {instant: input.instant});
         await this.validatePatches(patches);
         const slice = await this.repository.createSlice(input, await this.attachEmbedding(patches, 0));
         return {sliceId: slice.id, issues: await this.collectWriteIssues(input.instant, patches, affectedSubjectIds(patches))};
@@ -163,6 +165,73 @@ export class WorldEngineService {
         return initPatches;
     }
 
+    /**
+     * 写入层 append 便利：对 schema 明确声明的数组字段，如果当前时间线缺少数组基准，
+     * 在 append 前插入真实 `replace []` patch。reduce 层仍保持严格，不做隐式兜底。
+     */
+    private async withAppendInitializers(patches: PatchInput[], options: {instant: bigint; excludeSliceId?: string}): Promise<PatchInput[]> {
+        const result: PatchInput[] = [];
+        const replayBySubject = new Map<string, {subjectType: string; state: Record<string, JsonValue>} | null>();
+
+        for (const patch of patches) {
+            let replay = replayBySubject.get(patch.subjectId);
+            if (replay === undefined) {
+                replay = await this.replaySubjectBefore(patch.subjectId, options);
+                replayBySubject.set(patch.subjectId, replay);
+            }
+
+            if (replay && this.shouldInsertAppendInitializer(replay.subjectType, replay.state, patch)) {
+                const initializer: PatchInput = {subjectId: patch.subjectId, path: patch.path, op: "replace", value: []};
+                result.push(initializer);
+                this.applyPatchToReplayState(replay.subjectType, replay.state, initializer);
+            }
+
+            result.push(patch);
+            if (replay) {
+                this.applyPatchToReplayState(replay.subjectType, replay.state, patch);
+            }
+        }
+
+        return result;
+    }
+
+    /** 重放目标切面之前的 subject 状态；编辑当前切面时排除原切面自身。 */
+    private async replaySubjectBefore(subjectId: string, options: {instant: bigint; excludeSliceId?: string}): Promise<{subjectType: string; state: Record<string, JsonValue>} | null> {
+        const subject = await this.repository.findSubject(subjectId);
+        if (!subject) {
+            return null;
+        }
+
+        const state: Record<string, JsonValue> = {};
+        const rows = await this.repository.findPatchesForSubject({
+            subjectId,
+            beforeInstant: options.instant,
+            excludeSliceId: options.excludeSliceId,
+        });
+        for (const row of rows) {
+            this.applyPatchToReplayState(subject.type, state, decodeRowPatch(row));
+        }
+        return {subjectType: subject.type, state};
+    }
+
+    private shouldInsertAppendInitializer(subjectType: string, state: Record<string, JsonValue>, patch: PatchInput): boolean {
+        if (patch.op !== "append" || !patch.path.startsWith("/")) {
+            return false;
+        }
+        const attrSchema = findAttrSchema(this.schema, subjectType, patch.path);
+        const kind = normalizeAttrKind(attrSchema);
+        if (!attrSchema || (kind !== "list" && kind !== "collection")) {
+            return false;
+        }
+        return getPath(state, patch.path) === MISSING;
+    }
+
+    private applyPatchToReplayState(subjectType: string, state: Record<string, JsonValue>, patch: PatchInput): void {
+        const attrSchema = findAttrSchema(this.schema, subjectType, patch.path);
+        const replayPatch = patch.value === undefined || !isJsonValue(patch.value) ? patch : {...patch, value: cloneJson(patch.value)};
+        applyAndDetect(state, replayPatch, attrSchema);
+    }
+
     /** 整块替换已有切面。 */
     async editSlice(sliceId: string, input: SliceInput): Promise<SliceWriteResult> {
         assertSliceId(sliceId);
@@ -177,16 +246,17 @@ export class WorldEngineService {
             throw createError({statusCode: 409, message: this.renderInstantConflict(sliceAtNewInstant, "目标时间已有其他切面，不能把两个切面改到同一 instant。")});
         }
 
-        await this.validatePatches(input.patches);
         const previousPatches = existing.patches.map(decodeRowPatch);
-        const sameSemanticSlice = existing.instant === input.instant && samePatchSequence(existing.patches, input.patches);
-        await this.repository.replaceSlice(sliceId, input, await this.attachEmbedding(input.patches, 0));
-        const affected = unique([...existing.patches.map((patch) => patch.subjectId), ...affectedSubjectIds(input.patches)]);
+        const patches = await this.withAppendInitializers(input.patches, {instant: input.instant, excludeSliceId: sliceId});
+        await this.validatePatches(patches);
+        const sameSemanticSlice = existing.instant === input.instant && samePatchSequence(existing.patches, patches);
+        await this.repository.replaceSlice(sliceId, input, await this.attachEmbedding(patches, 0));
+        const affected = unique([...existing.patches.map((patch) => patch.subjectId), ...affectedSubjectIds(patches)]);
         return {sliceId, issues: await this.collectEditIssues({
             previousInstant: existing.instant,
             nextInstant: input.instant,
             previousPatches,
-            patches: input.patches,
+            patches,
             affectedSubjectIds: affected,
             excludeSliceId: sliceId,
             skipAdvisories: sameSemanticSlice,
@@ -261,7 +331,7 @@ export class WorldEngineService {
             const visibleIssues = query.attrs?.length ? filterIssuesForAttrs(issues, query.attrs) : issues;
             return {state: {subjectId: subject.id, type: subject.type, attrs: limited}, issues: visibleIssues};
         }));
-        return {instant, subjects: reduced.map((item) => item.state), issues: reduced.flatMap((item) => item.issues)};
+        return {instant, subjects: reduced.map((item) => item.state), issues: dedupeWorldIssues(reduced.flatMap((item) => item.issues))};
     }
 
     /** 列出 timeline 切面，附读时现算、归属到该切面的持久问题（E）。 */
@@ -486,7 +556,7 @@ export class WorldEngineService {
     private async collectWriteIssues(instant: bigint, patches: PatchInput[], affectedSubjectIds: string[]): Promise<WorldIssue[]> {
         const advisories = await this.collectAdvisories(instant, patches);
         const errors = await this.collectSubjectIssues(affectedSubjectIds);
-        return [...advisories, ...errors];
+        return dedupeWorldIssues([...advisories, ...errors]);
     }
 
     /** editSlice 会移动或替换既有切面；A issue 需要同时观察旧位置和新位置，且排除当前切面自身。 */
@@ -502,12 +572,12 @@ export class WorldEngineService {
         const reordered = input.previousInstant === input.nextInstant ? reorderedOverlapCandidates(input.previousPatches, input.patches) : {previous: [], next: []};
         const previousCandidates = input.previousInstant === input.nextInstant ? uniquePatches([...diffPatches(input.previousPatches, input.patches), ...reordered.previous]) : input.previousPatches;
         const nextCandidates = input.previousInstant === input.nextInstant ? uniquePatches([...diffPatches(input.patches, input.previousPatches), ...reordered.next]) : input.patches;
-        const advisories = input.skipAdvisories ? [] : dedupeIssues((await Promise.all([
+        const advisories = input.skipAdvisories ? [] : dedupeWorldIssues((await Promise.all([
             this.collectAdvisories(input.previousInstant, previousCandidates, input.excludeSliceId),
             this.collectAdvisories(input.nextInstant, nextCandidates, input.excludeSliceId),
         ])).flat());
         const errors = await this.collectSubjectIssues(input.affectedSubjectIds);
-        return [...advisories, ...errors];
+        return dedupeWorldIssues([...advisories, ...errors]);
     }
 
     /** A 通道：本次写入的绝对 op 是否改了下游相对 op 的基（base-shifted），或被下游绝对 op 覆盖（masked）。每个 (subject,path) 只提醒一次。 */
@@ -533,11 +603,29 @@ export class WorldEngineService {
                     continue;
                 }
                 if (RELATIVE_OPS.has(nearest.op)) {
-                    issues.push({code: "base-shifted", sliceId: nearest.sliceId, subjectId: patch.subjectId, attr: pathToAttr(nearest.path), message: `插入/编辑的 ${patch.op} ${patch.path} 改变了后续 ${nearest.op} ${nearest.path} 的累加基准，请确认语义是否符合预期`});
+                    issues.push(buildWorldIssue({
+                        code: "base-shifted",
+                        sliceId: nearest.sliceId,
+                        patchId: nearest.id,
+                        subjectId: patch.subjectId,
+                        attr: pathToAttr(nearest.path),
+                        path: nearest.path,
+                        op: nearest.op as WorldPatchOp,
+                        message: `插入/编辑的 ${patch.op} ${patch.path} 改变了后续 ${nearest.op} ${nearest.path} 的累加基准，请确认语义是否符合预期`,
+                    }));
                     coveredPaths.push(nearest.path);
                     continue;
                 }
-                issues.push({code: "masked", sliceId: nearest.sliceId, subjectId: patch.subjectId, attr: pathToAttr(nearest.path), message: `本次对 ${patch.path} 的修改会被后续 ${nearest.op} ${nearest.path} 覆盖，不会完整传播到最新状态`});
+                issues.push(buildWorldIssue({
+                    code: "masked",
+                    sliceId: nearest.sliceId,
+                    patchId: nearest.id,
+                    subjectId: patch.subjectId,
+                    attr: pathToAttr(nearest.path),
+                    path: nearest.path,
+                    op: nearest.op as WorldPatchOp,
+                    message: `本次对 ${patch.path} 的修改会被后续 ${nearest.op} ${nearest.path} 覆盖，不会完整传播到最新状态`,
+                }));
                 if (attrPathContains(nearest.path, patch.path)) {
                     break;
                 }
@@ -555,7 +643,7 @@ export class WorldEngineService {
             const {issues: subIssues} = await this.reduceWithIssues(subjectId, latest);
             issues.push(...subIssues);
         }
-        return issues;
+        return dedupeWorldIssues(issues);
     }
 
     /** 把所有 subject 的持久问题按显形切面 sliceId 归并，供 listSlices 读时投影。 */
@@ -574,6 +662,9 @@ export class WorldEngineService {
                 bySlice.set(issue.sliceId, list);
             }
         }
+        for (const [sliceId, issues] of bySlice) {
+            bySlice.set(sliceId, dedupeWorldIssues(issues));
+        }
         return bySlice;
     }
 
@@ -590,16 +681,21 @@ export class WorldEngineService {
             const attrSchema = subject ? findAttrSchema(this.schema, subject.type, patch.path) : null;
             const issue = applyAndDetect(state, patch, attrSchema);
             if (issue) {
-                issues.push({...issue, sliceId: row.sliceId, subjectId});
+                issues.push(buildWorldIssue({
+                    ...issue,
+                    sliceId: row.sliceId,
+                    patchId: row.id,
+                    subjectId,
+                }));
                 continue;
             }
             recordOriginAfterPatch(originByAttr, patch, row.sliceId, previousValue, getPath(state, patch.path));
         }
         if (!subject) {
-            return {attrs: state, issues};
+            return {attrs: state, issues: dedupeWorldIssues(issues)};
         }
         const danglingRefIssues = await this.collectDanglingRefIssues(subject.id, subject.type, state, originByAttr);
-        return {attrs: state, issues: [...issues, ...danglingRefIssues]};
+        return {attrs: state, issues: dedupeWorldIssues([...issues, ...danglingRefIssues])};
     }
 
     /** 按 schema 扫描最终状态中的 ref 值，把旧数据/手工损坏造成的悬空引用转成持久 E issue。 */
@@ -684,16 +780,37 @@ export class WorldEngineService {
     ): Promise<void> {
         const sliceId = findOriginSlice(originByAttr, attr);
         if (typeof value !== "string" || !value.startsWith("subject://")) {
-            issues.push({code: "dangling-ref", sliceId, subjectId, attr, message: `${attr} 引用值不是 subject://<id>`});
+            issues.push(buildWorldIssue({
+                code: "dangling-ref",
+                sliceId,
+                subjectId,
+                attr,
+                path: attrToPath(attr.replace(/\[\d+\]/g, "")),
+                message: `${attr} 引用值不是 subject://<id>`,
+            }));
             return;
         }
         const target = await this.repository.findSubject(value.slice("subject://".length));
         if (!target) {
-            issues.push({code: "dangling-ref", sliceId, subjectId, attr, message: `引用目标不存在：${value}`});
+            issues.push(buildWorldIssue({
+                code: "dangling-ref",
+                sliceId,
+                subjectId,
+                attr,
+                path: attrToPath(attr.replace(/\[\d+\]/g, "")),
+                message: `引用目标不存在：${value}`,
+            }));
             return;
         }
         if (target.type !== refType) {
-            issues.push({code: "dangling-ref", sliceId, subjectId, attr, message: `引用目标类型不匹配：${value} 需要 ${refType}，实际 ${target.type}`});
+            issues.push(buildWorldIssue({
+                code: "dangling-ref",
+                sliceId,
+                subjectId,
+                attr,
+                path: attrToPath(attr.replace(/\[\d+\]/g, "")),
+                message: `引用目标类型不匹配：${value} 需要 ${refType}，实际 ${target.type}`,
+            }));
         }
     }
 
@@ -718,7 +835,7 @@ export class WorldEngineService {
             }
             const attrSchema = findAttrSchema(this.schema, subject.type, patch.path);
             this.validateOp(patch, attrSchema);
-            await this.validateValue(patch, attrSchema);
+            await this.validateValue(patch, attrSchema, subject.type);
         }
     }
 
@@ -731,7 +848,7 @@ export class WorldEngineService {
                 throw createError({statusCode: 400, message: `初始化属性不存在：${patch.path}`});
             }
             this.validateOp(patch, attrSchema);
-            await this.validateValue(patch, attrSchema);
+            await this.validateValue(patch, attrSchema, subjectType);
         }
     }
 
@@ -749,7 +866,8 @@ export class WorldEngineService {
         }
     }
 
-    private async validateValue(patch: PatchInput, attrSchema: WorldAttrSchema | null): Promise<void> {
+    private async validateValue(patch: PatchInput, attrSchema: WorldAttrSchema | null, subjectType: string): Promise<void> {
+        this.validateEmbeddingWriteBoundary(subjectType, patch);
         if (patch.op === "remove") {
             if (patch.value === undefined) {
                 return;
@@ -776,12 +894,21 @@ export class WorldEngineService {
         if (!isJsonValue(patch.value)) {
             throw createError({statusCode: 400, message: `${patch.path} value 必须是 JSON 值`});
         }
+        this.validateEmbeddingTextPayload(subjectType, patch);
 
         if (patch.op === "replace" && attrSchema?.embedding && !isEmptyEmbeddingContainer(patch.value, attrSchema.embedding)) {
             const hint = attrSchema.embedding === "record" ? `replace ${patch.path}/<key>` : `append ${patch.path}`;
+            const item = worldIssueCatalogItem("embedding-whole-replace");
             throw createError({
                 statusCode: 400,
                 message: `embedding 字段 ${patch.path} 禁止整块 replace 写入非空内容；空容器 replace（[] / {}）仅可用于初始化。真实文本请按 key/元素单条写入（如 ${hint}，value: {text:"..."}），vector 由系统维护。`,
+                data: {
+                    code: item.code,
+                    label: item.label,
+                    severity: item.severity,
+                    title: item.title,
+                    explanation: item.explanation,
+                },
             });
         }
 
@@ -825,6 +952,88 @@ export class WorldEngineService {
             return;
         }
         await this.validateTypedValue(patch.path, patch.value, type, attrSchema, "patch");
+    }
+
+    private validateEmbeddingWriteBoundary(subjectType: string, patch: PatchInput): void {
+        const container = this.findEmbeddingContainer(subjectType, patch.path);
+        if (!container) {
+            return;
+        }
+
+        const pathParts = pointerParts(patch.path);
+        const containerParts = pointerParts(container.path);
+        const relativeDepth = pathParts.length - containerParts.length;
+
+        if (container.attr.embedding === "array") {
+            if (relativeDepth === 0) {
+                if (patch.op === "append") {
+                    return;
+                }
+                if (patch.op === "replace") {
+                    return;
+                }
+            }
+            throw createError({
+                statusCode: 400,
+                message: `EmbeddingText array 字段 ${container.path} 只支持 replace 空数组初始化或 append 单条 {text:"..."}；不要直接写 ${patch.path}，如需修正历史文本请用 world.slice.editPatches 修改原 patch。`,
+            });
+        }
+
+        if (relativeDepth === 0) {
+            if (patch.op === "replace") {
+                return;
+            }
+            throw createError({
+                statusCode: 400,
+                message: `EmbeddingText record 字段 ${container.path} 只支持 replace 空对象初始化，真实文本请写到 ${container.path}/<key>。`,
+            });
+        }
+
+        if (relativeDepth === 1 && (patch.op === "replace" || patch.op === "remove")) {
+            return;
+        }
+
+        throw createError({
+            statusCode: 400,
+            message: `EmbeddingText record 字段 ${container.path} 的真实文本必须按 key 整条 replace/remove；不要直接写 ${patch.path}，vector/model 由系统维护。`,
+        });
+    }
+
+    private findEmbeddingContainer(subjectType: string, path: string): {path: string; attr: WorldAttrSchema} | null {
+        const parts = pointerParts(path);
+        for (let end = parts.length; end >= 1; end--) {
+            const candidatePath = pointerFromParts(parts.slice(0, end));
+            const attr = findAttrSchema(this.schema, subjectType, candidatePath);
+            if (attr?.embedding) {
+                return {path: candidatePath, attr};
+            }
+        }
+        return null;
+    }
+
+    private validateEmbeddingTextPayload(subjectType: string, patch: PatchInput): void {
+        if (!this.isEmbeddingTextItemWrite(subjectType, patch)) {
+            return;
+        }
+
+        const value = patch.value;
+        if (!isObject(value) || !hasOwn(value, "text") || Object.keys(value).length !== 1 || typeof value.text !== "string" || value.text.trim() === "") {
+            throw createError({
+                statusCode: 400,
+                message: `EmbeddingText 字段 ${patch.path} 的公共写入只接受 {text:"非空文本"}；vector/model 由系统维护，额外 metadata 需要另行设计。`,
+            });
+        }
+    }
+
+    private isEmbeddingTextItemWrite(subjectType: string, patch: PatchInput): boolean {
+        const direct = findAttrSchema(this.schema, subjectType, patch.path);
+        if (patch.op === "append" && direct?.embedding === "array") {
+            return true;
+        }
+
+        const parts = pointerParts(patch.path);
+        const parent = parts.length > 1 ? findAttrSchema(this.schema, subjectType, pointerFromParts(parts.slice(0, -1))) : null;
+        return patch.op === "replace" && parent?.embedding === "record";
     }
 
     private async validateObjectValue(attr: string, value: JsonValue, attrSchema: WorldAttrSchema, mode: "patch" | "default"): Promise<void> {
@@ -1029,8 +1238,8 @@ function scalarOps(attrSchema: WorldAttrSchema | null): WorldPatchOp[] {
 }
 
 /**
- * 应用一条 patch 到 reduce 状态；遇到相对 op 缺基时**不兜底**，
- * 返回一个属性级问题（broken-relative），由调用方补 subjectId / sliceId。
+ * 应用一条 patch 到 reduce 状态；遇到无法应用的 patch 时**不兜底**，
+ * 返回属性级问题，由调用方补 subjectId / sliceId / patchId。
  */
 function applyAndDetect(state: Record<string, JsonValue>, patch: PatchInput, attrSchema: WorldAttrSchema | null = null): AttrIssue | null {
     const uniqueArrays = normalizeAttrKind(attrSchema) === "collection" ? new Set([pathToAttr(patch.path)]) : new Set<string>();
@@ -1038,7 +1247,7 @@ function applyAndDetect(state: Record<string, JsonValue>, patch: PatchInput, att
     if (!issue) {
         return null;
     }
-    return {code: "broken-relative", attr: pathToAttr(issue.path), message: issue.message};
+    return {code: issue.code, attr: pathToAttr(issue.path), path: issue.path, op: patch.op, message: issue.message};
 }
 
 function pathParts(pathOrAttr: string): string[] {
@@ -1176,6 +1385,10 @@ function limitAttrRecord(value: Record<string, JsonValue>, limit: number, schema
 
 function isObject(input: JsonValue | undefined): input is Record<string, JsonValue> {
     return typeof input === "object" && input !== null && !Array.isArray(input);
+}
+
+function hasOwn(input: Record<string, JsonValue>, key: string): boolean {
+    return Object.prototype.hasOwnProperty.call(input, key);
 }
 
 /** 空 EmbeddingText 容器 replace 只用于建立相对 op 基准。 */
@@ -1506,20 +1719,6 @@ function unique(input: string[]): string[] {
 
 function uniqueInstants(input: bigint[]): bigint[] {
     return [...new Set(input.map((item) => item.toString()))].map((item) => BigInt(item)).sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
-}
-
-function dedupeIssues(issues: WorldIssue[]): WorldIssue[] {
-    const seen = new Set<string>();
-    const result: WorldIssue[] = [];
-    for (const issue of issues) {
-        const key = `${issue.code}\u0000${issue.sliceId ?? ""}\u0000${issue.subjectId}\u0000${issue.attr}`;
-        if (seen.has(key)) {
-            continue;
-        }
-        seen.add(key);
-        result.push(issue);
-    }
-    return result;
 }
 
 function orderSubjects<TSubject extends {id: string}>(subjects: TSubject[], ids: string[] | undefined): TSubject[] {

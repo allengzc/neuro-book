@@ -41,6 +41,18 @@ describe("world engine agent tools", () => {
         expect(builtinKeys).not.toContain("delete_world_slice");
     });
 
+    it("execute_world description 暴露当前 slice 查询和 issue 契约", () => {
+        const tool = createWorldEngineTools().find((item) => item.key === "execute_world");
+        const description = tool?.description ?? "";
+
+        expect(description).toContain("specified Project Workspace World Engine");
+        expect(description).toContain("subjectIds?: string[]");
+        expect(description).toContain('subjectMode?: "any" | "all"');
+        expect(description).toContain("title/message/explanation");
+        expect(description).toContain("human-readable string summary");
+        expect(description).not.toContain("current Project Workspace World Engine");
+    });
+
     it("execute_world 在一个脚本内写入并查询，统一返回 data 和 issues", async () => {
         const result = await executeWorld(context, projectPath, `
             const time = world.time.parse("复兴纪元1日 00:00:10");
@@ -68,6 +80,55 @@ describe("world engine agent tools", () => {
             issues: [],
         });
         expect(readText(result)).toContain('"hp": 70');
+    });
+
+    it("execute_world 字符串 data 直接作为工具文本返回", async () => {
+        const result = await executeWorld(context, projectPath, `
+            await world.slice.write({
+                time: world.time.parse("复兴纪元1日 00:00:13"),
+                title: "艾莉娜状态记录",
+                patches: [
+                    {subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "replace", value: 70},
+                ],
+            });
+            const erina = await world.subject.get("erina");
+            return \`艾莉娜：HP \${erina.hp}\`;
+        `);
+
+        expect(result.details).toEqual({data: "艾莉娜：HP 70", issues: []});
+        expect(readText(result)).toBe("艾莉娜：HP 70");
+    });
+
+    it("execute_world 字符串 data 带 issues 时保留 issue 明细", async () => {
+        const result = await executeWorld(context, projectPath, `
+            const first = await world.slice.write({
+                time: world.time.parse("复兴纪元1日 00:00:14"),
+                title: "初始生命值",
+                patches: [
+                    {subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "replace", value: 100},
+                ],
+            });
+            await world.slice.write({
+                time: world.time.parse("复兴纪元1日 00:00:15"),
+                title: "受伤",
+                patches: [
+                    {subjectId: "erina", path: "/hp", op: "increment", value: -10},
+                ],
+            });
+            const slice = await world.slice.get(first.sliceId);
+            const hpPatch = slice.patches.find((patch) => patch.path === "/hp");
+            await world.slice.editPatches(first.sliceId, [
+                {patchId: hpPatch.patchId, set: {value: 80}},
+            ]);
+            return "已修正艾莉娜初始生命值。";
+        `);
+
+        expect(readText(result)).toContain("已修正艾莉娜初始生命值。");
+        expect(readText(result)).toContain("base-shifted");
+        expect(result.details).toEqual({
+            data: "已修正艾莉娜初始生命值。",
+            issues: [expect.objectContaining({code: "base-shifted", severity: "advisory"})],
+        });
     });
 
     it("execute_world 支持 collection 按值 remove", async () => {

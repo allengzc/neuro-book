@@ -137,6 +137,9 @@ const results = await world.search.text("岩石魔法");
 // 查询时间轴切面
 const slices = await world.slice.list({limit: 10, withPatches: true});
 
+// 查询某 subject 相关切面；world.slice.get 只接受 sliceId，不接受 subjectId
+const veiluosiSlices = await world.slice.list({subjectIds: ["veiluosi"], withPatches: true});
+
 // 获取当前时间
 const now = world.time.now();
 
@@ -201,18 +204,13 @@ return "已完成 World Engine 更新";
 
 ## Issues 速查
 
-| 类型 | 含义 | 处理方式 |
-|------|------|----------|
-| **E issues** | 持久数据错误 | **必须修** |
-| `broken-relative` | 相对路径操作（increment/remove）缺少初始值 | 补一个更早的 `replace` 切片设置初始值 |
-| `dangling-ref` | ref 引用的 subject 不存在 | 检查 target id 拼写，或先创建被引用的 subject |
-| **A issues** | 一次性提醒 | 确认语义即可 |
-| `base-shifted` | 补过去时，更早处出现了初始值 | 确认"补的值"和"已有初始值"是否冲突 |
-| `masked` | 补过去时，后续已有相同路径的操作 | 确认"补的值"是否会被后续操作覆盖 |
+完整 code 表、`WorldIssue` 字段和处理方式见 [issues.md](issues.md)。
 
-**向用户解释 issues 时用人话**：
-- ❌ "broken-relative on /hp"
-- ✅ "角色 HP 缺少初始值，需要补充"
+处理口诀：
+
+- **E issues**：持久数据错误，必须修。
+- **A issues**：一次性提醒，确认语义即可。
+- 向用户解释时使用后端返回的 `title` / `message` / `explanation`，不要直接抛 code。
 
 ## 相关文档
 
@@ -221,4 +219,5 @@ return "已完成 World Engine 更新";
 - [recording-principles.md](recording-principles.md)：最少支持当前叙事原则
 - [schema-system.md](schema-system.md)：schema 与 4-op 语义
 - [subject-lifecycle.md](subject-lifecycle.md)：subject 生命周期与 reduce
+- [issues.md](issues.md)：issue taxonomy、catalog 与展示规则
 - [calendar-system.md](calendar-system.md)：时间系统

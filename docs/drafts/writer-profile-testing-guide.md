@@ -25,7 +25,7 @@ bun test ./assets/workspace/.nbook/agent/profiles/builtin/writer.profile.test.ts
 
 ## 待测试项（需要实际运行环境）
 
-### 3. Anti-AI-Slop CLI 工具测试
+### 3. llmlint CLI 工具测试
 
 **目的**: 验证 bash 工具能否正常执行 CLI 检查
 
@@ -238,7 +238,7 @@ bun test --filter="writer"
 - [x] Schemas 定义正确
 
 ### 功能验证 ⏳
-- [ ] Anti-AI-Slop CLI 能正常执行
+- [ ] llmlint CLI 能正常执行
 - [ ] Writer 按新 thinking 流程思考
 - [ ] Writer 按 8 步 execution 流程执行
 - [ ] 信息三层隔离正确工作

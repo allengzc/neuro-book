@@ -40,7 +40,7 @@ when_to_use:
 
 - 时间一律用项目 `world-engine/calendar.ts` 能 parse 的日历字符串。Simple Calendar 若配置了 `cycleNames` / `monthName`，可使用月份名；否则使用数字月份。禁止 raw instant。
 - 同一 instant 只能有一个切面；目标时刻已存在切面时会冲突报错。优先用 `execute_world` 的 `world.slice.list({withPatches:true})` 或 `world.slice.get(sliceId)` 取得 `sliceId` / `patchId`，再用 `world.slice.editPatches` 合并或修正。只有整条切面作废时才用 `world.slice.delete` 物理删除。
-- 写完后检查返回的 issues：E issues（`broken-relative` / `dangling-ref`）必须修；A issues（`base-shifted` / `masked`）确认本次语义符合预期即可，不落库。
+- 写完后检查返回的 issues：`severity: "error"` 必须修；`severity: "advisory"` 确认本次语义符合预期即可，不落库。向用户解释时使用返回的 `title`、`message`、`explanation`，不要自行按 code 生成文案。
 - 对用户用人话解释做了什么（"我把这段剧情记到时间线里了"），不抛 slice / patch / op 这些术语。
 
 ## 第二步：准备简化 brief 调用 writer

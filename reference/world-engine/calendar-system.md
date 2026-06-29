@@ -37,6 +37,8 @@ type Instant = bigint;
 
 Calendar 配置是项目级资产，放 Project Workspace 的 `world-engine/calendar.ts`。
 
+`calendar.ts` 是**单文件配置入口**。本地文件、绝对路径和 URL/protocol `import` / `export ... from`（例如 `./calendar-config`、`../time-helper`、`C:/helper.ts`、`file:///...`）会被 loader 拒绝；请把配置和自定义 `format/parse` helper 合并到 `calendar.ts`，或只使用包级 import 与 `node:` 内置模块。
+
 ### 4.1 三种 Calendar 类型
 
 **Type 1：Simple Calendar（通用单位链）**

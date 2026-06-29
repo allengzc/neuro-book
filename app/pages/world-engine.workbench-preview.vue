@@ -241,14 +241,21 @@ const reviewQueueItems = computed<WorldWorkbenchPreviewReviewQueueItem[]>(() => 
     return {
         attr: issue.attr,
         code: issue.code,
+        explanation: issue.explanation,
         issueIndex,
         key,
+        label: issue.label,
         message: issue.message,
+        op: issue.op,
+        patchId: issue.patchId,
+        path: issue.path,
+        severity: issue.severity,
         sliceId: slice.id,
         sliceTime: slice.time,
         sliceTitle: slice.title,
         status: issueTriageMap.value.get(key) ?? "open",
         subjectId: issue.subjectId,
+        title: issue.title,
     };
 })));
 const reviewTriageSummary = computed<WorldWorkbenchPreviewIssueTriageSummary>(() => {

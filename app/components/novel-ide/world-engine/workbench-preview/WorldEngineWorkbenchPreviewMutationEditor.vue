@@ -93,12 +93,19 @@ type ParsedPatchDraft = {
 type ReviewFocusContext = {
     attr: string;
     code: WorldIssueDto["code"] | "manual-focus";
+    explanation: WorldIssueDto["explanation"];
     identity?: string;
     key: string;
+    label: WorldIssueDto["label"] | "manual";
     message: string;
+    op?: WorldIssueDto["op"];
+    patchId?: string;
+    path?: string;
+    severity: WorldIssueDto["severity"] | "manual";
     status: WorldWorkbenchPreviewIssueStatus | "manual";
     subjectId: string;
     subjectLabel: string;
+    title: string;
 };
 type IssueTriageOption = {
     icon: string;
@@ -326,12 +333,23 @@ const reviewFocusContext = computed<ReviewFocusContext | null>(() => {
     return {
         attr: focus.attr,
         code: issue?.code ?? "manual-focus",
+        explanation: issue?.explanation ?? {
+            whatHappened: "当前 patch 行来自审查工作台或外部检查入口定位。",
+            whyItMatters: "这不是后端 issue，只是当前工作台的定位状态。",
+            suggestedAction: "可继续查看三联上下文，或清除定位回到普通浏览。",
+        },
         identity: issue?.identity,
         key: issue?.key ?? `manual:${props.slice.id}:${focus.subjectId}:${focus.attr}`,
+        label: issue?.label ?? "manual",
         message: issue?.message ?? "当前 mutation 行来自审查工作台或外部检查入口定位。",
+        op: issue?.op,
+        patchId: issue?.patchId,
+        path: issue?.path,
+        severity: issue?.severity ?? "manual",
         status: issue?.status ?? "manual",
         subjectId: focus.subjectId,
         subjectLabel: subject?.name ?? focus.subjectId,
+        title: issue?.title ?? `手动定位：正在查看 ${subject?.name ?? focus.subjectId} / ${focus.attr}`,
     };
 });
 const reviewMutationContext = computed<MutationContextTriple>(() => {
@@ -358,7 +376,12 @@ const reviewIssueExplanation = computed<IssueExplanation | null>(() => {
     if (!context) {
         return null;
     }
-    return buildIssueExplanation(context, reviewMutationContext.value);
+    return {
+        title: context.title,
+        detail: context.explanation.whatHappened,
+        impact: context.explanation.whyItMatters,
+        action: context.explanation.suggestedAction,
+    };
 });
 const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
     size: computed(() => props.height),
@@ -433,17 +456,17 @@ function updateIssueTriage(item: ReviewFocusContext | WorldWorkbenchPreviewRevie
     });
 }
 
-/** 将 World Engine issue code 映射成 A/E。 */
-function issueLevel(code: WorldIssueDto["code"] | "manual-focus"): "A" | "E" | "manual" {
-    if (code === "manual-focus") {
+/** 将 World Engine issue severity 映射成 A/E。 */
+function issueLevel(severity: WorldIssueDto["severity"] | "manual"): "A" | "E" | "manual" {
+    if (severity === "manual") {
         return "manual";
     }
-    return worldWorkbenchIssueLevel(code);
+    return worldWorkbenchIssueLevel(severity);
 }
 
 /** issue 级别视觉样式。 */
-function issueLevelClass(code: WorldIssueDto["code"] | "manual-focus"): string {
-    const level = issueLevel(code);
+function issueLevelClass(severity: WorldIssueDto["severity"] | "manual"): string {
+    const level = issueLevel(severity);
     if (level === "E") {
         return "border-[var(--we-danger)] bg-[var(--we-danger-soft)] text-[var(--we-danger)]";
     }
@@ -470,50 +493,6 @@ function issueStatusClass(status: WorldWorkbenchPreviewIssueStatus | "manual"): 
         return "border-[var(--we-border)] bg-[var(--we-bg-muted)] text-[var(--we-text-muted)]";
     }
     return "border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)]";
-}
-
-/** 根据 issue code 与同属性链路，生成面向使用者的人话诊断。 */
-function buildIssueExplanation(context: ReviewFocusContext, triple: MutationContextTriple): IssueExplanation {
-    const target = `${context.subjectLabel} / ${context.attr}`;
-    const currentAction = triple.current ? mutationActionPhrase(triple.current.mutation) : `${target} 发生变更`;
-    if (context.code === "base-shifted") {
-        return {
-            title: `A1（提醒）：${target} 的相对变更基准可能变了`,
-            detail: `${currentAction}；但前面可能插入或改动了 replace / remove，后续相对操作读到的基准会随之改变。`,
-            impact: "这是一次性提醒，不是持久错误；如果新基准符合剧情，确认即可。",
-            action: "请重点看前一个相关 patch 和当前 patch，确认这次增减或追加仍然符合新基准。",
-        };
-    }
-    if (context.code === "masked") {
-        return {
-            title: `A2（提醒）：${target} 的改动可能被后续重设盖住`,
-            detail: `${currentAction}；但后续 replace / remove 会重新定义这个属性，最新状态可能不保留当前改动。`,
-            impact: "这是一次性提醒，不是持久错误；它提醒你确认这段中途设定是否仍有叙事意义。",
-            action: "请查看后一个相关 patch，确认当前改动被覆盖是有意的，而不是遗漏了要调整的后续切片。",
-        };
-    }
-    if (context.code === "broken-relative") {
-        return {
-            title: `E1（持久）：${target} 的相对变更没有可用基准`,
-            detail: `${currentAction}；但前面没有建立可累加、可追加或可移除的值。${relativeOperationQuestion(triple.current?.mutation.op)}`,
-            impact: "这是持续问题，reduce / query / list 会反复报出，直到补基准或改掉这条 patch。",
-            action: "请在它之前补一个 replace 初始化，或者把当前相对 op 改成能直接定义值的 replace。",
-        };
-    }
-    if (context.code === "dangling-ref") {
-        return {
-            title: `E2（持久）：${target} 的引用目标无效`,
-            detail: `${currentAction}；reduce 后得到的 ref 指向不存在的 subject，或目标 subject 类型不符合 schema。`,
-            impact: "这是持续问题，状态查询会一直看到它，直到引用值或目标 subject 被修正。",
-            action: "请确认引用目标 subject 仍存在、类型正确；如果目标已删除，把这里改成新的 ref 或 remove。",
-        };
-    }
-    return {
-        title: `手动定位：正在查看 ${target}`,
-        detail: `${currentAction}；这里用于沿同 subject + path 路径检查相关 patch。`,
-        impact: "这不是后端 issue，只是当前工作台的定位状态。",
-        action: "可继续查看三联上下文，或清除定位回到普通浏览。",
-    };
 }
 
 /** 当前 issue 的同 subject + path 路径相关 patch 时间线。 */
@@ -598,17 +577,8 @@ function mutationRelationText(mutation: WorldSlicePatchDto): string {
 
 /** 根据 issue 与 op 给出需要用户确认的检查点。 */
 function mutationConfirmationText(item: MutationContextItem, context: ReviewFocusContext): string {
-    if (context.code === "base-shifted" && item.isCurrent) {
-        return "确认这条相对变更读到的新基准仍符合剧情，而不是因为前面补设定导致数值偏移。";
-    }
-    if (context.code === "masked" && item.isCurrent) {
-        return "确认这条改动被后续重设盖住是有意的；如果它应该影响最新状态，需要调整后续 replace / remove。";
-    }
-    if (context.code === "broken-relative" && item.isCurrent) {
-        return "先补初始化 replace，或把这条相对 op 改成 replace；否则它不知道要增减或追加到哪里。";
-    }
-    if (context.code === "dangling-ref" && item.isCurrent) {
-        return "确认引用目标 subject 存在且类型符合 schema；目标失效时应改 ref 或 remove。";
+    if (item.isCurrent) {
+        return context.explanation.suggestedAction;
     }
     if (item.mutation.op === "replace") {
         return "确认这个重设是否故意覆盖前面的设定；如果后面还有 replace / remove，也要确认当前值是否只是过渡。";
@@ -645,17 +615,6 @@ function incrementValuePhrase(value: WorkbenchJsonValue | undefined): string {
         return `增加 ${value}`;
     }
     return `累加 ${readableValue(value)}`;
-}
-
-/** E1 对不同相对 op 的核心问题。 */
-function relativeOperationQuestion(op: WorldSlicePatchDto["op"] | undefined): string {
-    if (op === "increment") {
-        return "increment 要增减哪一个既有数字？";
-    }
-    if (op === "append") {
-        return "append 要追加到哪一个既有数组？";
-    }
-    return "相对 op 需要一个已经存在的基准。";
 }
 
 /** subject id 在解释文案里尽量显示用户能识别的名字。 */
@@ -1433,7 +1392,7 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                     <div class="min-w-0 flex-1">
                         <div class="flex min-w-0 items-center gap-2">
                             <span class="i-lucide-crosshair h-4 w-4 shrink-0 text-[var(--we-warning)]"></span>
-                            <span class="shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold" :class="issueLevelClass(reviewFocusContext.code)">{{ issueLevel(reviewFocusContext.code) }}</span>
+                            <span class="shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold" :class="issueLevelClass(reviewFocusContext.severity)">{{ reviewFocusContext.label }}</span>
                             <span class="min-w-0 truncate font-mono text-[11px] text-[var(--we-code-text)]">{{ reviewFocusContext.code }}</span>
                             <span class="shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-semibold" :class="issueStatusClass(reviewFocusContext.status)">{{ issueStatusLabel(reviewFocusContext.status) }}</span>
                         </div>
@@ -1583,7 +1542,7 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                         :disabled="props.busy"
                         @click="focusReviewIssue(item)"
                     >
-                        <span class="rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold" :class="issueLevelClass(item.code)">{{ issueLevel(item.code) }}</span>
+                        <span class="rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold" :class="issueLevelClass(item.severity)">{{ item.label }}</span>
                         <span class="min-w-0 truncate font-mono text-[var(--we-code-text)]">{{ item.code }}</span>
                         <span class="min-w-0 truncate text-[var(--we-text-secondary)]">{{ subjectMap.get(item.subjectId)?.name ?? item.subjectId }} <span class="font-mono text-[var(--we-text-muted)]">· {{ item.attr }}</span></span>
                         <span class="rounded border px-1.5 py-0.5 text-[10px] font-semibold" :class="issueStatusClass(item.status)">{{ issueStatusLabel(item.status) }}</span>

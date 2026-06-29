@@ -31,9 +31,9 @@ neuro-book 当前处于快速开发阶段。本轮产品主路径收敛到 **nov
 - HTTP API 覆盖 schema、subjects、slices、slice delete、state/query；公开时间入参拒绝 raw instant 调试格式、首尾空白和非法 percent encoding。
 - Agent 内置 World Engine 工具收敛为单一 `execute_world`：Leader / world.engine 使用 readwrite CodeAct，公共 API 为分组形态 `world.time.*`、`world.subject.*`、`world.search.*`、`world.slice.*`；writer 使用 readonly 模式，不注入 `world.slice.write/editPatches/delete`。旧的 8 个固定工具、Task 69 三工具、`codePath` 查询分支、旧 6-op 写入入口、旧平铺 `world.*` API 和 `world.getMany` 不再保留。
 - 默认 Project 模板包含 `world-engine/schema/index.ts`（**Zod schema，硬切，不再支持 `schema.yaml`**）和 `world-engine/calendar.ts`，新 Project 默认 Calendar 已切到 Gregorian 现实日历，format 到分钟、不带秒；新 Project 不再默认生成 `simulation/`。
-- World Engine reference 与 writing workflow 已对齐当前协议：Agent 统一走 `execute_world`，脚本只 return 数据，issues 由运行时 collector 汇总；时间在沙箱内用 `world.time.parse/format` 和 instant bigint 互转，读写路径统一 JSON Pointer，误写单条 patch 优先用 `world.slice.editPatches` 精确修正。旧 API 名称仅保留在 migration / legacy / historical research 语境。
-- Calendar 已硬切到 `calendar.ts`，不再兼容 `calendar.yaml`；支持 `simple`、`gregorian`、`custom` 三类策略，缺少 `calendar.ts` 时应提示创建；Gregorian calendar 已覆盖公元前年份与默认现实时间 `公元2020年4月12日 18:00` 的 parse/format 往返。
-- EmbeddingText 容器初始化死锁已修复：空 `replace /events []` / `replace /memory {}` 可作为 default 初始化基准，非空 embedding 内容仍必须按单条 patch 写入，错误信息会提示 `{text:"..."}` 写法和 `vector` 由系统维护。
+- World Engine reference 与 writing workflow 已对齐当前协议：Agent 统一走 `execute_world`，脚本只 return 数据，issues 由运行时 collector 汇总；查询状态时优先在 CodeAct 内把已知 schema 的 attrs 转成文本摘要并 `return string`，工具文本会直接展示该摘要，结构化 `{data, issues}` 仍保留在 details；时间在沙箱内用 `world.time.parse/format` 和 instant bigint 互转，读写路径统一 JSON Pointer，误写单条 patch 优先用 `world.slice.editPatches` 精确修正；按 subject 查相关切面走 `world.slice.list({subjectIds})`，`world.slice.get` 只接受 sliceId。旧 API 名称仅保留在 migration / legacy / historical research 语境。
+- Calendar 已硬切到 `calendar.ts`，不再兼容 `calendar.yaml`；支持 `simple`、`gregorian`、`custom` 三类策略，缺少 `calendar.ts` 时应提示创建；Gregorian calendar 已覆盖公元前年份与默认现实时间 `公元2020年4月12日 18:00` 的 parse/format 往返。`calendar.ts` 与 `schema/index.ts` 是单文件配置入口：入口内容变化可热加载，本地文件、绝对路径和 URL/protocol import/export 会被拒绝，包级 import 与 `node:` 内置模块继续允许。
+- EmbeddingText 容器初始化死锁已修复：空 `replace /events []` / `replace /memory {}` 可作为 default 初始化基准，非空 embedding 内容仍必须按单条 patch 写入，错误信息会提示 `{text:"..."}` 写法；`vector/model` 由系统维护，显式字段和内部路径绕过都会被拒绝。
 - Round 423 已用临时 Project 验证默认模板 API 链路：`calendar.ts` 时间格式下创建 `world/player`、写入 slice、查询 state、删除 slice 和状态回退均通过且 issues 为 0。
 - Round 424 已用临时 Project 验证主 IDE Workbench 空项目第一步：默认模板 Project 可打开 Workbench，看到 schema/calendar 入口与创建入口，`创建 world subject` 会真实写入 `world` subject 和 init slice；临时 Project 已清理。
 - Round 425 已完成阶段收尾审计：Round 380-424 的真实项目、新 Project、默认模板、连续推演、常用操作和 Calendar 证据足以证明当前“前后端雏形拼接 + 作者视角主路径”阶段已跑通；后续进入体验打磨和新产品决策。
@@ -61,15 +61,16 @@ neuro-book 当前处于快速开发阶段。本轮产品主路径收敛到 **nov
 | [72 Error Report Logs](docs/tasks/72-error-report-logs/README.md) | Implemented | 新增后端 JSONL 日志、日志包下载 API、请求/异常/Agent 摘要日志和 Windows portable `data/logs/` 落盘。 |
 | [73 Agent Session List Performance Pagination](docs/tasks/73-agent-session-list-performance-pagination/README.md) | Implemented | `/api/agent/sessions` 改为分页 Page 返回，新增服务端 search；列表路径使用轻量运行态摘要和 profileKey 批量解析，避免按 session 重复解析 profile catalog。 |
 | [74 Agent Command Performance](docs/tasks/74-agent-command-performance/README.md) | Implemented | `/api/agent/sessions/:id/commands` 轻控制命令返回 live state，不再生成完整 snapshot；relation index 已收敛到 write executor after-write observer，并修复 rebuild pending link/detach 漏账；profile catalog dirty cache 已加 generation race 防护和 HTTP runtime watcher。 |
-| [75 World Engine API / Calendar / EmbeddingText 收口](docs/tasks/75-world-engine-api-calendar-embedding-cleanup/README.md) | Implemented | World API 改为分组形态，删除 `world.getMany` 和旧平铺 alias，`editMutations` 迁移为 `world.slice.editPatches`；默认 Calendar 切 Gregorian 到分钟，`ming-ding-zhi-shi-2` 保留复兴纪元但去秒；EmbeddingText 空容器初始化死锁和错误提示已修。 |
-| [51 llmlint Text Lint Skill](docs/tasks/51-anti-ai-slop-skill/README.md) | Updated | `anti-ai-slop` skill 已硬切重命名为 `llmlint`；CLI 改为自包含 ESM package，规则迁移为默认 `anti-ai-slop` preset，并支持 `llmlint.config.ts` 规则覆盖。 |
+| [75 World Engine API / Calendar / EmbeddingText 收口](docs/tasks/75-world-engine-api-calendar-embedding-cleanup/README.md) | Implemented | World API 改为分组形态，删除 `world.getMany` 和旧平铺 alias，`editMutations` 迁移为 `world.slice.editPatches`；默认 Calendar 切 Gregorian 到分钟，`ming-ding-zhi-shi-2` 保留复兴纪元但去秒；EmbeddingText 空容器初始化、vector/model 公共写入边界、subject 相关切面查询、schema/calendar 单文件热加载契约、task checklist 分支局部稳定性与 `execute_world` 文本摘要返回契约已修。 |
+| [78 Plot Scene / World Engine Bridge](docs/tasks/78-plot-scene-world-engine-bridge/README.md) | Design | 重新设计 Plot 工作台与 World Engine 的结合方式：Scene 作为桥梁，通过时间范围、地点 subject 和出场 subject 连接 World Engine；Chapter 独立负责 writer-facing 叙事节奏覆盖；`StoryPlot / Plot Beat` 暂定退场。 |
+| [51 llmlint Text Lint Skill](docs/tasks/51-anti-ai-slop-skill/README.md) | Updated | `llmlint` 已升级为 flat Rule Registry：默认只启用 `builtin/default`，合并人工 anti-ai-slop 规则与中文规则样本策展结果；中文规则 ID 已改为语义 slug，支持 namespace 关闭 R18、override diagnostics 和 JSON 输出；user-assets 同步已清理旧 presets / 旧 `cn-*` ruleset，并修复真实用户侧 CLI 半同步失效。 |
 | [58 Agent Profile Settings Low-Code](docs/tasks/58-agent-profile-settings-low-code/README.md) | Updated | `leader.default` 接入低代码 settings 与 profile home persona 资源，支持协作模式、熟练度、提问策略、Leader 人设和最高优先级自定义插入槽位。 |
 | Writer Profile 重构 | Done | 去除小猫之神角色定义，理清 profile / reference / skill 职责边界，从 650 行压缩到 535 行。 |
 
 ## Known Follow-ups
 
 - World Engine 写作模式主路径已阶段收尾；后续重点是体验打磨、`memory.jsonl` / `state.md` 是否显式 commit、以及真实作者长期使用反馈。
-- World Engine 后续单独讨论更大的 API 形态：subject 到 slice 的便利查询、批量读取命名、列表过滤 DSL、以及 calendar/schema 热加载最小复现。
+- World Engine 后续单独讨论更大的 API 形态：是否增加 subject 视角便利查询、批量读取命名、列表过滤 DSL。
 - RP 模式恢复时需要重新设计入口、profile routing、simulation 资料使用边界。
 - Agent 用户输入 pending 已按 Task 63 收口到 durable user resolution 语义；后续前端验收仍建议覆盖多窗口同步、approval resume、Plan Mode、compact、edit/retry/rollback/fallback 和流式工具卡片。
 - Agent session 列表已新增分页与服务端搜索；后续如果 Workspace Root 中 session 数增长到数千级，再设计持久化 session 摘要索引。

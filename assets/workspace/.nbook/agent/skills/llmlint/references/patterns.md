@@ -11,7 +11,21 @@
 5. **信任读者**：不反复解释、不替读者下结论、不用口号式收束。
 6. **调整节奏**：混合长短句，避免每段都用同一种结尾。
 
-## Static Rule 候选模式
+## 内置规则包
+
+默认启用 `builtin/default`。它合并人工维护的 anti-ai-slop 规则与 `.agent/workspace/llmlint_rules` 中文规则样本的策展结果：同 detector 去重、同 target 的替换候选取并集。它包含 R18/成人词汇规则；普通项目如果不希望检查这类词汇，可以在配置中设置：
+
+```typescript
+export default {
+    namespaces: {
+        "vocabulary.r18": "off",
+    },
+};
+```
+
+策展样本中的 `[可选]`、`[选开]`、`冲突` 组，以及强偏好专项来源默认 disabled；需要时通过 `namespaces` 或 rule id 显式打开。中文规则 ID 使用可读英文语义 slug，例如 `cn.vocabulary.body.skull-head`。
+
+## Regex Detector 候选模式
 
 这些模式可以被 CLI 稳定定位，但是否修复仍要结合上下文判断。
 

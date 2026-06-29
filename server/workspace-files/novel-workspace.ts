@@ -59,9 +59,27 @@ const DELETED_MANAGED_SYSTEM_ASSET_PATHS = new Set([
     "templates/project-directory-templates/lorebook/note/synopsis/index.md",
     "templates/project-directory-templates/lorebook/note/theme/index.md",
     "templates/project-directory-templates/lorebook/note/initial-plot-seed/index.md",
+    "agent/skills/llmlint/src/legacy-import.ts",
 ]);
 const DELETED_MANAGED_SYSTEM_ASSET_PREFIXES = [
+    "agent/skills/anti-ai-slop/",
+    "agent/skills/llmlint/presets/",
+    "agent/skills/llmlint/rulesets/builtin/anti-ai-slop/",
+    "agent/skills/llmlint/rulesets/builtin/cn/",
+    "agent/skills/llmlint/rulesets/builtin/cn-light/",
+    "agent/skills/llmlint/rulesets/builtin/cn-standard/",
+    "agent/skills/llmlint/rulesets/builtin/cn-strong/",
+    "agent/skills/llmlint/rulesets/builtin/cn-extreme/",
     "templates/project-directory-templates/simulation/",
+];
+const HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PREFIXES = [
+    "agent/skills/llmlint/presets/",
+    "agent/skills/llmlint/rulesets/builtin/anti-ai-slop/",
+    "agent/skills/llmlint/rulesets/builtin/cn/",
+    "agent/skills/llmlint/rulesets/builtin/cn-light/",
+    "agent/skills/llmlint/rulesets/builtin/cn-standard/",
+    "agent/skills/llmlint/rulesets/builtin/cn-strong/",
+    "agent/skills/llmlint/rulesets/builtin/cn-extreme/",
 ];
 const LEGACY_WORKSPACE_MANIFEST_FILE = "workspace.yaml";
 const USER_ASSETS_DIFF_MAX_BYTES = 512 * 1024;
@@ -440,6 +458,7 @@ async function syncManagedSystemAssetsToUserAssets(result: UserAssetsSyncResult,
         stateChanged = true;
     }
     stateChanged = await removeDeletedManagedSystemAssets(syncState, activeAssetPaths, result) || stateChanged;
+    stateChanged = await removeHardCutDeletedManagedSystemAssetPrefixes(syncState, result) || stateChanged;
     if (stateChanged) {
         await writeUserSystemAssetsSyncState(syncState);
     }
@@ -468,6 +487,86 @@ async function removeDeletedManagedSystemAssets(syncState: UserSystemAssetsSyncS
             assetPath: item.assetPath,
             message: "系统 .nbook asset 已删除，但用户覆盖已手改，未自动删除。",
         });
+    }
+    return changed;
+}
+
+/**
+ * 清理硬切旧官方目录中没有 sync state 的残留文件。
+ *
+ * 普通 deleted asset 清理依赖 sync state；llmlint 曾短暂生成过几组官方旧目录，
+ * 真实 user-assets 可能出现“文件残留但 state 不完整”的半同步状态。这里仅扫描
+ * 已硬切的官方前缀，不触碰 user ruleset。
+ */
+async function removeHardCutDeletedManagedSystemAssetPrefixes(syncState: UserSystemAssetsSyncState, result: UserAssetsSyncResult): Promise<boolean> {
+    let changed = false;
+    for (const assetPrefix of HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PREFIXES) {
+        const userPrefixPath = resolveInsideRoot(USER_NBOOK_ABSOLUTE_ROOT, assetPrefix);
+        if (!await pathExists(userPrefixPath)) {
+            continue;
+        }
+
+        for (const assetPath of await listUserAssetFilesUnderPrefix(assetPrefix)) {
+            const userPath = resolveInsideRoot(USER_NBOOK_ABSOLUTE_ROOT, assetPath);
+            const stateItem = syncState.assets?.find((item) => item.assetPath === assetPath);
+            if (stateItem) {
+                const currentUserHash = (await sha256File(userPath)).sha256;
+                if (currentUserHash !== stateItem.lastSyncedUserHash) {
+                    result.assetWarnings?.push({
+                        assetPath,
+                        message: "系统 .nbook asset 已硬切删除，但用户覆盖已手改，未自动删除。",
+                    });
+                    continue;
+                }
+                removeUserAssetSyncState(syncState, assetPath);
+            }
+            await fs.rm(userPath, {force: true});
+            changed = true;
+        }
+
+        changed = await removeEmptyDirectories(userPrefixPath) || changed;
+    }
+    return changed;
+}
+
+async function listUserAssetFilesUnderPrefix(assetPrefix: string): Promise<string[]> {
+    const root = resolveInsideRoot(USER_NBOOK_ABSOLUTE_ROOT, assetPrefix);
+    if (!await pathExists(root)) {
+        return [];
+    }
+    const result: string[] = [];
+    await collectUserAssetFiles(root, result);
+    return result;
+}
+
+async function collectUserAssetFiles(root: string, result: string[]): Promise<void> {
+    const entries = await fs.readdir(root, {withFileTypes: true});
+    for (const entry of entries) {
+        const entryPath = path.join(root, entry.name);
+        if (entry.isDirectory()) {
+            await collectUserAssetFiles(entryPath, result);
+            continue;
+        }
+        if (!entry.isFile()) {
+            continue;
+        }
+        result.push(path.relative(USER_NBOOK_ABSOLUTE_ROOT, entryPath).split(path.sep).join("/"));
+    }
+}
+
+async function removeEmptyDirectories(root: string): Promise<boolean> {
+    if (!await pathExists(root)) {
+        return false;
+    }
+    let changed = false;
+    for (const entry of await fs.readdir(root, {withFileTypes: true})) {
+        if (entry.isDirectory()) {
+            changed = await removeEmptyDirectories(path.join(root, entry.name)) || changed;
+        }
+    }
+    if ((await fs.readdir(root)).length === 0) {
+        await fs.rm(root, {recursive: true, force: true});
+        return true;
     }
     return changed;
 }

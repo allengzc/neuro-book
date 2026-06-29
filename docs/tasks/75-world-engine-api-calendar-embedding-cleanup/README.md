@@ -1,14 +1,15 @@
 # World Engine API / Calendar / EmbeddingText 收口
 
-> Active task。围绕本轮 World Engine 工具调用阻碍报告，收口 `execute_world` 沙箱 API 形态、修复 EmbeddingText 容器初始化死锁，并把新项目默认 Calendar 模板与 reference 示例改到可直接工作的现实日历基线。
+> Active task。围绕本轮 World Engine 工具调用阻碍报告，收口 `execute_world` 沙箱 API 形态、修复 EmbeddingText 容器初始化死锁，把新项目默认 Calendar 模板与 reference 示例改到可直接工作的现实日历基线，并把 schema/calendar loader 收紧为单文件配置契约。
 
 ## Relative documents refs
 
 - `docs/tasks/71-world-engine-codeact-readwrite/README.md`：`execute_world`、`world.gets` / `world.getMany`、`world.editMutations`、`patchId` 与读写合一契约来源。
 - `docs/tasks/56-world-engine/agent-tools.md`：当前 Agent 工具契约文档，需要同步 API 命名与 `editMutations` 边界。
+- `docs/tasks/76-world-engine-issue-contract/README.md`：WorldIssue catalog 与 UI 展示契约的独立 active task；本任务只同步交叉链接，不把 issue 文案治理并入 API / loader / EmbeddingText 收口。
 - `reference/world-engine/README.md`：World Engine reference 入口。
 - `reference/world-engine/calendar-system.md`：Calendar 配置、Simple / Gregorian / Custom 说明与示例。
-- `reference/world-engine/examples/calendar-simple.ts`：Simple Calendar 示例，当前 `cycleNames.length !== ratio`。
+- `reference/world-engine/examples/calendar-simple.ts`：Simple Calendar 示例，已修正 `cycleNames.length === ratio` 规则。
 - `reference/world-engine/quick-reference.md`、`reference/world-engine/subject-lifecycle.md`、`reference/world-engine/api-migration-zod.md`、`reference/world-engine/schema-system.md`、`reference/world-engine/recording-principles.md`：可能引用 `world.getMany` / `editMutations` / Calendar 示例或 `/events` 写法的速查文档。
 - `reference/agent/leader-default.md`、`reference/agent/novel-writing-workflow.md`、`reference/agent/profile-routing.md`：Agent reference 中仍可能保留旧 World API 名称或 `world.getMany` 示例。
 - `assets/workspace/.nbook/agent/skills/novel-workflow-world-engine-init/SKILL.md`：World Engine 初始化 skill。压缩前诊断确认它仍在教旧协议 `execute_world_query` / `write_world_slice`，会继续误导初始化流程。
@@ -48,11 +49,11 @@
   5. 技术术语尽量统一为 `patch` / `patchId`；`mutation` 不再作为当前 API / 类型 / 提示词术语。
   6. 修 Calendar 文档和示例；默认模板应改到 `assets/workspace/.nbook/templates/project-directory-templates/world-engine`，默认使用现实日历系统，format 到分钟、不带秒。
   7. 同步迁移现有项目 `workspace/ming-ding-zhi-shi-2`；该项目已有 SQLite 数据，实施前必须确认 calendar / schema / 旧 patch 数据迁移策略。
-  8. Calendar / schema 热加载风险先不做。
+  8. Calendar / schema 热加载风险原本先不做；后续已纳入本 task，并按用户确认收紧为单文件配置入口。
 
 ## Goal
 
-/goal 完成 World Engine API / Calendar / EmbeddingText 三项收口，verified by：新增或更新针对 EmbeddingText 空容器初始化、分组 World API、`world.slice.editPatches` / `patchId` 文档契约、Gregorian 默认模板 parse/format、初始化 / 剧情推进 / 写作 skills 当前协议的测试或静态断言通过；相关 reference / task / bundled skills / builtin profiles 文档与模板一致；`bun test server/world-engine server/agent/tools` 中受影响用例通过；必要时 `bun run typecheck` 通过。Constraints：不做 calendar/schema 热加载风险修复，只记录待复现边界；不引入 SQL 直写绕过；不改变 WorldPatch 事件溯源核心语义；不破坏 writer readonly 边界；历史 walkthrough / migration 文档可保留 `mutation` 作为历史名词，但当前 API、类型、tool description、profile、skill 和 reference 应尽量统一为 `patch`；迁移 `workspace/ming-ding-zhi-shi-2` 前必须先确认是否改写已有 SQLite 数据。Boundaries：优先修改 `server/world-engine/**`、`server/agent/world-engine-tool-description.ts`、`docs/tasks/56-world-engine/agent-tools.md`、`reference/world-engine/**`、`reference/agent/**`、`assets/workspace/.nbook/agent/skills/**` 中的 World Engine 相关 skill、`assets/workspace/.nbook/agent/profiles/builtin/**` 中的 World Engine 相关 profile、`assets/workspace/.nbook/templates/project-directory-templates/world-engine/calendar.ts`、`workspace/ming-ding-zhi-shi-2/world-engine/**`、`scripts/**` 中调用 `execute_world` 的脚本与相关测试；`workspace/ming-ding-zhi-shi-2/.nbook/project.sqlite` 仅在迁移策略确认后处理。Iteration policy：先以最小复现锁定 EmbeddingText 初始化死锁，再修代码和文档；Calendar 先修模板与示例，并同步用户指定现有项目，不扩大到热加载；World API 分组形态已确认，实施时统一修改实现、文档、profile 和 tool description。Blocked stop condition：若允许空容器初始化会破坏 embedding 向量一行一条的存储约束，停止并报告替代设计；若 `ming-ding-zhi-shi-2` 的 schema/calendar 迁移需要重写既有 WorldPatch 数据但策略未确认，停止并报告。
+/goal 完成 World Engine API / Calendar / EmbeddingText 三项收口，verified by：新增或更新针对 EmbeddingText 空容器初始化、分组 World API、`world.slice.editPatches` / `patchId` 文档契约、Gregorian 默认模板 parse/format、schema/calendar 单文件 loader 契约、初始化 / 剧情推进 / 写作 skills 当前协议的测试或静态断言通过；相关 reference / task / bundled skills / builtin profiles 文档与模板一致；`bun run test server/world-engine server/agent/tools` 中受影响用例通过；必要时 `bun run typecheck` 通过。Constraints：calendar/schema 热加载风险已在 Round 03 纳入修复，Round 05 收紧为内容 hash 稳定缓存，Round 07 收紧为单文件配置入口；入口文件内容变化可热加载，本地文件、绝对路径和 URL/protocol import/export 直接报错，只允许包级 import 与 `node:` 内置模块，不做依赖图热加载；不引入 SQL 直写绕过；不改变 WorldPatch 事件溯源核心语义；不破坏 writer readonly 边界；历史 walkthrough / migration 文档可保留 `mutation` 作为历史名词，但当前 API、类型、tool description、profile、skill 和 reference 应尽量统一为 `patch`；迁移 `workspace/ming-ding-zhi-shi-2` 前必须先确认是否改写已有 SQLite 数据。Boundaries：优先修改 `server/world-engine/**`、`server/agent/world-engine-tool-description.ts`、`docs/tasks/56-world-engine/agent-tools.md`、`reference/world-engine/**`、`reference/agent/**`、`assets/workspace/.nbook/agent/skills/**` 中的 World Engine 相关 skill、`assets/workspace/.nbook/agent/profiles/builtin/**` 中的 World Engine 相关 profile、`assets/workspace/.nbook/templates/project-directory-templates/world-engine/calendar.ts`、`assets/workspace/.nbook/templates/project-directory-templates/world-engine/schema/index.ts`、`workspace/ming-ding-zhi-shi-2/world-engine/**`、`scripts/**` 中调用 `execute_world` 的脚本与相关测试；`workspace/ming-ding-zhi-shi-2/.nbook/project.sqlite` 仅在迁移策略确认后处理。Iteration policy：先以最小复现锁定 EmbeddingText 初始化死锁，再修代码和文档；Calendar 先修模板与示例，并同步用户指定现有项目；World API 分组形态已确认，实施时统一修改实现、文档、profile 和 tool description。Blocked stop condition：若允许空容器初始化会破坏 embedding 向量一行一条的存储约束，停止并报告替代设计；若 `ming-ding-zhi-shi-2` 的 schema/calendar 迁移需要重写既有 WorldPatch 数据但策略未确认，停止并报告。
 
 ## Initial State Before Round 01
 
@@ -108,7 +109,7 @@ world.slice.delete(sliceId)
 - **D5：EmbeddingText 允许空容器初始化**。允许 `replace /events []` 和 `replace /memory {}` 作为初始化基准；继续禁止 `replace /events [{text: "..."}]` 或 `replace /memory {key:{text:"..."}}` 这类承载实际 embedding 内容的整块写入。
 - **D6：Calendar 默认模板改为 Gregorian 现实日历，默认不带秒**。新 Project Workspace 默认应适合现代/校园/现实题材，减少初始化时 parse 失败概率。默认 format 到分钟即可；秒作为 Gregorian 能力保留在 reference / 进阶示例。Simple Calendar 留作进阶示例。
 - **D7：修文档示例，不放宽 `cycleNames.length === ratio` 校验**。当前规则是合理的：`cycleNames` 是该单位每个取值的名称表。错误在文档示例，而不是校验。
-- **D8：Calendar / schema 热加载风险本任务不做**。压缩前诊断发现 `calendar.ts` / `schema/index.ts` 都通过同路径动态 import，理论上有模块缓存风险；但 `session 268` 没有复现该风险，只证明首次解析前改好的 calendar 生效。本任务只记录“需要单独最小复现”，不把热加载修复纳入本轮。
+- **D8：Calendar / schema 热加载风险原计划暂缓，Round 03 已覆盖，Round 05 收紧。** 压缩前诊断发现 `calendar.ts` / `schema/index.ts` 都通过同路径动态 import，理论上有模块缓存风险；`session 268` 没有复现该风险，只证明首次解析前改好的 calendar 生效。Round 03 确认 Bun 同路径 `.ts` import 缓存风险真实存在并修复，Round 05 改为内容 hash 稳定缓存，避免每次调用都制造新的 module cache entry。
 - **D9：不建议通过 SQL 直写表绕过 World Engine**。`WorldSlice` / `WorldSubject` / `WorldPatch` 是内部持久层；Agent 和修复方案应走 service / facade / `execute_world`，避免破坏 issue、embedding、reduce 与事务语义。
 - **D10：初始化 skill 必须跟随当前工具协议**。`novel-workflow-world-engine-init` 应改为单一 `execute_world`，示例使用分组 API，例如 `world.time.parse` / `world.slice.write` / `world.slice.editPatches`，并解释 writer readonly；不再教 Agent 直接调用旧 `write_world_slice`。
 - **D11：剧情推进和写作 skills 也必须跟随当前工具协议**。`novel-workflow-08-plot-planning` 是 World Engine 写入主流程，必须和 init 一起迁移；09 / writer-execution 只保留 readonly `execute_world` 查询说明，不再出现旧工具名作为当前流程。
@@ -123,6 +124,14 @@ world.slice.delete(sliceId)
 - **Resolved D17：旧脚本直接迁移到分组 API。** `scripts/**` 中的当前 seed / write 脚本不标记废弃，已迁移 `world.slice.*` / `world.subject.*` / `world.time.*`。
 - **Deferred D18：World API 下一轮设计。** 本任务只落地已确认的分组 API 与删除 `world.getMany` / `editMutations` 迁移；更大的 API 形态问题，例如 subject 到 slice 的便利查询、批量读取命名、列表过滤 DSL、返回缺失项的语义，应单独讨论，不混入本轮实现。
 - **Resolved D19：`EmbeddingText.vector` 不作为 Agent 初始化字段。** Agent 只写 `{text:"..."}`；`vector` 由 embedding / reduce 链路维护，错误信息已明确这一点。
+
+## Decisions After Round 03
+
+- **Resolved D20：按 subject 查切面走 `world.slice.list` 过滤，不重载 `world.slice.get`。** `world.slice.get(sliceId)` 继续只读单个切面；CodeAct `world.slice.list` 暴露已有后端 `subjectIds` / `subjectMode` 能力，用于 `subjectId -> slices` 查询。
+- **Resolved D21：task checklist 保持分支局部状态，但真实 turn 内双写 immediate + savePoint。** immediate 写入保证同一轮后续工具能读到，savePoint 写入保证 transcript 持久化后任务状态仍在当前 active path 上；不改成全 session projection。
+- **Resolved D22：calendar/schema 热加载风险已按单文件配置契约收紧。** Bun 对同一路径 `.ts` import 会复用编译缓存，URL query 不足以破缓存；loader 导入同目录内容 hash 临时副本并在导入后删除。Round 05 改为进程内按 hash 复用 import promise，避免随机文件名导致长期运行中 module cache 无界增长。Round 07 按用户决策收紧为单文件配置入口：`world-engine/calendar.ts` 与 `world-engine/schema/index.ts` 的入口内容变化可热加载；本地文件、绝对路径和 URL/protocol `import` / `export ... from` 直接报错；包级 import（如 `zod`、`nbook/world-engine/schema`）与 `node:` 内置模块继续允许。不做多文件依赖图热加载，也不假装支持拆分文件。
+- **Resolved D23：EmbeddingText 公共写入拒绝 `vector` / `model`。** `vector` / `model` 是系统维护字段；Agent/API 只写 `{text:"..."}`，向量列由 WorldPatch embedding 链路维护。
+- **Resolved D24：World Engine 测试清理不再使用生产删除 fallback。** `WorldEngineFacade.runInTransaction` 改为普通 client 显式 `BEGIN/COMMIT/ROLLBACK`，避免 `@libsql/client.transaction()` 在 commit 后遗留 native Database 句柄；`collectReleasedSqliteHandles` 同时支持 Bun GC 与 Node/Vitest GC；`world-engine.facade.test.ts` 恢复严格 `fs.rm` 清理，若 SQLite 句柄未释放应直接失败。
 
 ## Overall Review Addendum
 
@@ -141,7 +150,7 @@ world.slice.delete(sliceId)
 - `world.slice.editPatches` 的语义是编辑某个 slice 的 patch 列表，不是按 subjectId 修改状态。调用者必须先拿到 `sliceId` 和 `patchId`；编辑后旧 `patchId` 可能失效，文档要提醒重新读取 slice。
 - EmbeddingText 修复只允许空容器基准初始化。非空内容仍应一条文本一条 patch 写入，避免破坏“一条 EmbeddingText = 一条可嵌入/可追踪 patch”的核心约束。
 - 如果允许空容器 replace 后仍然出现 `append /events 缺少已存在的数组基准`，优先排查 schema default / reduce 初始化链路，不要通过文案要求 Agent 手写 SQL 或绕过 service。
-- Calendar 只修默认模板与示例；热加载风险已明确暂缓。实现中如果顺手发现模块缓存问题，只记录最小复现和后续任务，不混入本轮。
+- Calendar 默认模板与示例已收口；热加载风险已纳入 Round 03/05/07。实现中继续避免把热加载变成运行时自动编译、依赖图猜测或 SQL 直写绕过。
 - 脚本、测试、skills、profiles 中的旧调用是迁移对象，不是“历史兼容证据”。只有 archived / walkthrough / migration 说明里可以保留旧名作为历史描述。
 - 本任务需要实际 walkthrough 文件记录实现轮次、偏离原 task 的设计选择、验证结果和未决策项；不要只在 README 的总览段落里追加流水账。
 
@@ -231,13 +240,13 @@ replace /events [{...}]  ❌ 仍禁止，避免一行 patch 承载多个向量
   - 静态扫描当前协议文档、skills、profiles、tool description：旧工具名不再作为推荐流程出现；历史 walkthrough / archived / migration 文档可以保留旧名用于迁移说明。
   - 静态扫描当前协议文档、skills、profiles、tool description：旧平铺 API 不再作为推荐流程出现，包括 `world.get(`、`world.gets(`、`world.list(`、`world.slices(`、`world.getSlice(`、`world.parseTime`、`world.formatTime`、`world.writeSlice`、`world.editMutations`、`world.deleteSlice`。
 - 建议命令：
-  - `bun test server/world-engine`
-  - `bunx vitest run server/agent/tools`
+  - `bun run test server/world-engine`
+  - `bun run test server/agent/tools`
   - `bun run typecheck`
 
 ## Implementation Walkthrough
 
-> 状态：Round 01 已完成运行时 API、EmbeddingText、Calendar 模板、脚本、profile artifact 与核心文档同步。Round 02 已完成当前 reference / bundled skills 的文档契约补漏，统一公历示例、`EmbeddingText` events 写法、首写 `type` 与 `search.types` 语义。详见 [walkthroughs/2026-06-28-round-01-runtime-api-calendar-scripts.md](walkthroughs/2026-06-28-round-01-runtime-api-calendar-scripts.md) 与 [walkthroughs/2026-06-28-round-02-reference-skill-contract-cleanup.md](walkthroughs/2026-06-28-round-02-reference-skill-contract-cleanup.md)。
+> 状态：Round 01 已完成运行时 API、EmbeddingText、Calendar 模板、脚本、profile artifact 与核心文档同步。Round 02 已完成当前 reference / bundled skills 的文档契约补漏，统一公历示例、`EmbeddingText` events 写法、首写 `type` 与 `search.types` 语义。Round 03 补齐报告后续项：task checklist 稳定性、subject 相关切面查询、EmbeddingText vector/model 边界、calendar/schema 热加载与 delete/rollback 验证。Round 04 收口 `world.engine` profile runtime 文案。Round 05 收紧 compiled artifact、Vitest 入口与热加载缓存。Round 06 修复 Windows 下 SQLite 句柄释放与测试清理残留。Round 07 按用户决策把 schema/calendar loader 收紧为单文件配置入口。Round 08 收口 `execute_world` 字符串摘要返回契约，减少 Agent 默认读取低效 JSON。Round 09 修复四项审查问题：收紧 EmbeddingText payload、更新 Task 56 当前契约、纳入 Task 76、拆掉 server 测试对前端组件的跨层依赖。Round 10 收口 issue 去重与 append 自动初始化：公共 issue identity 保留 `sliceId/patchId` 定位，写入层对缺基准数组插入真实 `replace []`。详见 [walkthroughs/2026-06-28-round-01-runtime-api-calendar-scripts.md](walkthroughs/2026-06-28-round-01-runtime-api-calendar-scripts.md)、[walkthroughs/2026-06-28-round-02-reference-skill-contract-cleanup.md](walkthroughs/2026-06-28-round-02-reference-skill-contract-cleanup.md)、[walkthroughs/2026-06-29-round-03-report-followups.md](walkthroughs/2026-06-29-round-03-report-followups.md)、[walkthroughs/2026-06-29-round-04-world-engine-profile-runtime-contract.md](walkthroughs/2026-06-29-round-04-world-engine-profile-runtime-contract.md)、[walkthroughs/2026-06-29-round-05-runtime-contract-system-closure.md](walkthroughs/2026-06-29-round-05-runtime-contract-system-closure.md)、[walkthroughs/2026-06-29-round-06-sqlite-handle-cleanup.md](walkthroughs/2026-06-29-round-06-sqlite-handle-cleanup.md)、[walkthroughs/2026-06-29-round-07-single-file-loader-contract.md](walkthroughs/2026-06-29-round-07-single-file-loader-contract.md)、[walkthroughs/2026-06-29-round-08-execute-world-text-return.md](walkthroughs/2026-06-29-round-08-execute-world-text-return.md)、[walkthroughs/2026-06-29-round-09-embedding-issue-doc-review-fixes.md](walkthroughs/2026-06-29-round-09-embedding-issue-doc-review-fixes.md) 与 [walkthroughs/2026-06-29-round-10-issue-dedupe-append-initializer.md](walkthroughs/2026-06-29-round-10-issue-dedupe-append-initializer.md)。
 
 建议实施顺序：
 
@@ -261,7 +270,7 @@ replace /events [{...}]  ❌ 仍禁止，避免一行 patch 承载多个向量
 - [x] 迁移或废弃 `scripts/**` 中仍使用旧平铺 World API 的脚本。
 - [x] 更新 `novel-workflow-world-engine-init`：当前协议改为单一 `execute_world`，删除 `execute_world_query` / `write_world_slice` 旧示例。
 - [x] 更新 `novel-workflow-08-plot-planning`：当前协议改为单一 `execute_world`，删除 `execute_world_query` / `write_world_slice` / `delete_world_slice` 旧示例，并把 `world.getMany` 改为 `world.subject.gets(ids)`。
-- [x] 检查写作流程 skills、builtin profiles 和 agent reference，迁移旧 World Engine 工具名与 `world.getMany` 示例。
+- [x] 检查写作流程 skills、builtin profiles（`leader.default` / `world.engine`）和 agent reference，迁移旧 World Engine 工具名与 `world.getMany` 示例。
 - [x] 统一 reference / skills 中默认 `EmbeddingText` 的 `/events` 示例：`append` value 使用 `{text:"..."}`，不再用裸字符串误导 Agent。
 - [x] 默认 Calendar 模板切到 Gregorian 现实日历，format 到分钟、不带秒。
 - [x] 确认 `workspace/ming-ding-zhi-shi-2` 的 `/events` schema 策略：本轮保留 `z.array(z.string())`，不改写 SQLite 旧 patch。
@@ -279,5 +288,15 @@ replace /events [{...}]  ❌ 仍禁止，避免一行 patch 承载多个向量
 - [x] Round 02 补漏：默认 schema 语境下 `/events` 示例统一为 `EmbeddingText` 载荷 `{text:"..."}`；`schema-system.md` 简化 schema 也同步到 `EmbeddingText`。
 - [x] Round 02 补漏：首写 subject 示例补齐 `type` / `name`，并修正 `world.search.text` 的 `types` / `attrs` 语义说明。
 - [x] Round 02 决策：用户确认本轮只修文档，不新增 docs/static contract lint 或自动测试；后续若要彻底防回归，另开独立任务。
-- [ ] 暂缓：calendar/schema 热加载风险；另开最小复现验证“首次加载后改文件再解析”场景。
-- [ ] 暂缓：`task_create` / `task_set_status` 稳定性问题，另开任务处理。
+- [x] Round 03：修复 calendar/schema 热加载风险，验证同一 facade 在文件修改后读到新内容。
+- [x] Round 03：修复 `task_create` / `task_set_status` 真实 turn 内任务状态易丢问题，保持分支局部语义。
+- [x] Round 03：CodeAct `world.slice.list` 暴露 `subjectIds` / `subjectMode`，按 subject 查切面不再误用 `world.slice.get(subjectId)`。
+- [x] Round 03：公共写入拒绝手写 EmbeddingText `vector` / `model`，并拒绝 `/events/0`、`/memory/key/vector` 等内部路径绕过。
+- [x] Round 05：`server/world-engine` 测试迁到 Vitest，统一 `bun run test ...` 验收入口。
+- [x] Round 05：calendar/schema 热加载改为内容 hash 稳定缓存，不再每次调用使用随机临时模块路径。
+- [x] Round 07：schema/calendar loader 收紧为单文件配置入口；入口内容变化可热加载，本地文件、绝对路径和 URL/protocol import/export 被清晰拒绝，包级 import 与 `node:` 内置模块保持可用。
+- [x] Round 05：全量重新编译 system profiles，确保 `.compiled` runtime artifact 同步当前 `execute_world` description。
+- [x] Round 06：修复 Windows 下 World Engine SQLite 句柄释放和测试清理残留，不再用生产 `deleteProjectWorkspace()` 掩盖单测 cleanup 失败。
+- [x] Round 08：`execute_world` 的字符串 `data` 直接作为工具文本展示；tool description、builtin profiles 与 migration reference 明确要求已知 schema 时优先返回文本摘要，不默认回传原始 attrs JSON。
+- [x] Round 09：`EmbeddingText` 公共写入严格收口为唯一 `{text:"非空文本"}`；Task 56 当前契约、Task 76 交叉链接和 issue catalog 测试分层完成审查修复。
+- [x] Round 10：公共 `WorldIssue` 去重落地；`writeSlice` / `editSlice` 对 schema 明确的数组 append 自动插入显式 `replace []`，不改 reducer 严格语义。

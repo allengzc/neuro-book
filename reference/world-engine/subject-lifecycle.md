@@ -140,26 +140,13 @@ deleteSlice(projectPath, sliceId) -> { issues: WorldIssue[] } // HTTP / Workbenc
 
 ## 7. issues 反馈通道
 
-写入、编辑、删除、查询都会通过 `issues` 暴露两类问题。Agent 必须区分对待，并向用户用人话解释，**不要把 `broken-relative` 这类术语直接抛给用户**。
+写入、编辑、删除、查询都会通过 `issues` 暴露需要处理或确认的问题。完整 code 表、`WorldIssue` wire shape 和用户展示规则见 [issues.md](issues.md)；本文只讲它们在生命周期中何时出现。
 
-**E issues（持久数据错误，读时现算，必须修）：**
+**E issues（持久数据错误，读时现算，必须修）** 来自 reduce 或读时扫描。例如相对 op 缺少基准、旧数据里有坏路径、ref 目标失效。E issues 是数据里的真实错误，`execute_world` 查询时也会返回相关的 E issues，必须处理。
 
-- `broken-relative`：相对 op 缺少有效基准。例如某个 `/hp increment -30` 前面没有任何给 `/hp` 设过初值的切面；或基准切面被删掉了。也包括 `increment` 的累加结果溢出 / 非有限数。
-  - 向用户解释："某条数值变化缺少起始值，得先补一条设定初始值的记录。"
-- `dangling-ref`：schema 声明的 ref 值目标缺失或类型不符。例如 `equipment.weapon` 指向 `subject://sword-99`，但这个 subject 根本不存在。
-  - 向用户解释："某处引用了一个不存在的对象，需要先建它或改引用。"
+**A issues（一次性提醒，写/编辑时返回，确认语义即可）** 来自"补过去"或"编辑旧切面"。它们不落库，也不要求自动改数据；它们只是在提醒你确认本次修改是否有意改变下游语义。
 
-E issues 是数据里的真实错误，`execute_world` 查询时也会返回相关的 E issues，必须处理。
-
-**A issues（一次性提醒，写/编辑时返回，确认语义即可）：**
-
-- `base-shifted`：本次对过去的绝对修改，改变了下游某个相对 op 的累加基准。
-- `masked`：本次修改会被下游一个绝对 op 覆盖。
-
-A issues **不落库**，也不要求改数据；它们只是在你"往过去插切面"或"编辑旧切面"时，提醒你确认语义是否符合预期。
-
-- 向用户解释（`base-shifted`）："你改了过去的一个数值，后面那条'加减'的起点也跟着变了，确认一下这是你想要的。"
-- 向用户解释（`masked`）："你这条改动后面会被另一条覆盖，可能看不出效果，确认一下。"
+Agent 和 UI 向用户解释时应使用后端返回的 `title`、`message`、`explanation`，不要自行按 code 生成文案，也不要把 `broken-relative` 这类 code 直接抛给用户。
 
 ## 8. 查询契约：`execute_world`
 
@@ -190,6 +177,7 @@ const results = await world.search.text("遗迹封印", { k: 5, attrs: ["events"
 
 // 查询时间轴切面
 const slices = await world.slice.list({ limit: 10, withPatches: true });
+const erinaSlices = await world.slice.list({ subjectIds: ["erina"], withPatches: true });
 
 // 写入 / 编辑 / 删除（writer profile 下不可用）
 const written = await world.slice.write({time, title: "状态更新", patches: [{subjectId: "erina", type: "character", name: "艾莉娜", path: "/hp", op: "replace", value: 90}]});
@@ -200,6 +188,7 @@ await world.slice.delete(written.sliceId);
 防全量倾倒是硬契约——成熟世界有几百 subject、每个几十属性：
 
 - Agent 的 CodeAct API 不提供裸 `queryState({})` 入口；使用 `world.subject.get` / `world.subject.gets` / `world.subject.list(type)` / `world.slice.list()` 等收窄方法查询。HTTP `POST /state/query` 公开入口同样必须传 `subjectIds` 或 `type` 至少其一；都省略会报错要求收窄。完整世界状态导出只走 UI / debug 专用的 `GET /state`，内部复用 `queryState({at})`，不暴露给 Agent。
+- `world.slice.get(sliceId)` 只读取单个切面，不接受 `subjectId`。按 subject 查相关切面用 `world.slice.list({ subjectIds: ["erina"], subjectMode: "any", withPatches: true })`；需要同时包含多个 subject 的切面时用 `subjectMode: "all"`。
 - `subjectIds` 若传，必须是非空数组且每项唯一；空数组或重复 id 返回 400。
 - `attrs` 若传，必须是非空数组且每项唯一；用它**投影**只取关心的属性，省下无关字段。
 - `type` 若传，必须是 schema 已声明的类型，拼错会被拒绝。
@@ -224,5 +213,6 @@ writer 角色拥有 World Engine **只读** `execute_world`，用于读取世界
 - [README.md](README.md)：World Engine reference 书架入口。
 - [schema-system.md](schema-system.md)：schema、kind、op、ref、default 契约（决定 subject 有哪些属性、怎么叠加）。
 - [recording-principles.md](recording-principles.md)：记录什么、记录到什么粒度（最少支持当前叙事）。
+- [issues.md](issues.md)：issue taxonomy、catalog 与展示规则。
 - [calendar-system.md](calendar-system.md)：时间真相源与时间入参边界。
 - [workflow.md](workflow.md)：写作模式整体工作流与 leader/writer 协作。

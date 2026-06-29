@@ -21,6 +21,7 @@ export type WorldSubjectDto = {
 };
 
 export type WorldSlicePatchDto = {
+    patchId?: string;
     subjectId: string;
     path: string;
     op: WorldPatchOp;
@@ -45,13 +46,28 @@ export type SubjectStateDto = {
     attrs: Record<string, WorkbenchJsonValue>;
 };
 
-/** 数据校验问题：E（broken-relative / dangling-ref，持久）与 A（base-shifted / masked，一次性）。 */
+export type WorldIssueSeverityDto = "error" | "advisory";
+export type WorldIssueLabelDto = "E1" | "E2" | "E3" | "E4" | "E5" | "A1" | "A2";
+export type WorldIssueExplanationDto = {
+    whatHappened: string;
+    whyItMatters: string;
+    suggestedAction: string;
+};
+
+/** 数据校验问题：后端负责生成 label/title/explanation，前端只负责展示和 triage。 */
 export type WorldIssueDto = {
-    code: "broken-relative" | "dangling-ref" | "base-shifted" | "masked";
+    code: "broken-relative" | "dangling-ref" | "base-shifted" | "masked" | "invalid-path" | "cross-ref" | "embedding-whole-replace";
+    label: WorldIssueLabelDto;
+    severity: WorldIssueSeverityDto;
     sliceId?: string;
+    patchId?: string;
     subjectId: string;
     attr: string;
+    path?: string;
+    op?: WorldPatchOp;
+    title: string;
     message: string;
+    explanation: WorldIssueExplanationDto;
 };
 
 export type WorldStateQueryDto = {

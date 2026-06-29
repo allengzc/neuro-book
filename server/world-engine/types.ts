@@ -385,18 +385,43 @@ export type SliceInput = {
     patches: PatchInput[];
 };
 
-/** 校验问题代号。
- *  E（持久，reduce 时现算）：broken-relative（相对 op 缺基）、dangling-ref（ref 目标不存在）。
- *  A（一次性，写操作返回）：base-shifted（插/改绝对 op 改了下游相对 op 的累加基）、masked（改动被下游绝对 set 覆盖）。*/
-export type WorldIssueCode = "broken-relative" | "dangling-ref" | "base-shifted" | "masked";
+/** World Engine 诊断问题代号；具体含义以 `reference/world-engine/issues.md` 和运行时 catalog 为准。 */
+export type WorldIssueCode =
+    | "broken-relative"
+    | "dangling-ref"
+    | "base-shifted"
+    | "masked"
+    | "invalid-path"
+    | "cross-ref"
+    | "embedding-whole-replace";
+
+/** World Engine issue 处理级别：error 必须修，advisory 只需确认本次写入语义。 */
+export type WorldIssueSeverity = "error" | "advisory";
+
+/** World Engine issue 的 reference label，用于 UI 展示和文档锚点。 */
+export type WorldIssueLabel = "E1" | "E2" | "E3" | "E4" | "E5" | "A1" | "A2";
+
+/** 面向作者/Agent 的结构化解释。 */
+export type WorldIssueExplanation = {
+    whatHappened: string;
+    whyItMatters: string;
+    suggestedAction: string;
+};
 
 /** 一条数据校验问题。sliceId：E 表示错误显形的切面；A 表示触发本次提醒的下游切面。 */
 export type WorldIssue = {
     code: WorldIssueCode;
+    label: WorldIssueLabel;
+    severity: WorldIssueSeverity;
     sliceId?: string;
+    patchId?: string;
     subjectId: string;
     attr: string;
+    path?: string;
+    op?: WorldPatchOp;
+    title: string;
     message: string;
+    explanation: WorldIssueExplanation;
 };
 
 /** 写入或编辑切面后的结果：切面 id + 本次产生的问题（E + A）；edit 原样保存不重复返回 A。 */

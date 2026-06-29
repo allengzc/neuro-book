@@ -1,23 +1,21 @@
-import {afterAll, describe, expect, it} from "bun:test";
+import {afterAll, afterEach, describe, expect, it} from "vitest";
+import {createClient} from "@libsql/client";
 import {PrismaClient} from "nbook/server/generated/project-prisma/client";
-import {PrismaLibSql} from "@prisma/adapter-libsql";
 import fs from "node:fs/promises";
 import path from "node:path";
 import {WorldEngineFacade} from "nbook/server/world-engine/world-engine.facade";
+import type {JsonValue} from "nbook/server/world-engine/types";
 import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
 import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
+import {TrackedPrismaLibSql} from "nbook/server/workspace-files/tracked-prisma-libsql";
 
 const createdProjects: string[] = [];
 const createdFacades: WorldEngineFacade[] = [];
 
 describe("WorldEngineFacade", () => {
-    afterAll(async () => {
-        await Promise.all(createdFacades.map((facade) => facade.closeProject("workspace/__test__")));
-        await Promise.all(createdProjects.map((projectPath) => removeProjectRoot(projectPath)));
-        createdFacades.splice(0);
-        createdProjects.splice(0);
-    });
+    afterEach(cleanupCreatedProjects);
+    afterAll(cleanupCreatedProjects);
 
     it("首写自动创建 subject，并应用 schema default 与 4-op patch", async () => {
         const projectPath = await createProject();
@@ -85,13 +83,257 @@ describe("WorldEngineFacade", () => {
         const projectPath = await createProject(embeddingSchemaSource());
         const facade = createFacade();
 
-        await expect(facade.writeSlice(projectPath, {
+        const input = {
             instant: 10n,
             title: "错误整块写入经历",
             patches: [
                 {subjectId: "erina", type: "character", name: "艾莉娜", path: "/events", op: "replace", value: [{text: "在祭坛醒来"}]},
             ],
-        })).rejects.toThrow("embedding 字段 /events 禁止整块 replace");
+        };
+        await expect(facade.writeSlice(projectPath, input)).rejects.toThrow("embedding 字段 /events 禁止整块 replace");
+
+        let thrown: unknown;
+        try {
+            await facade.writeSlice(projectPath, input);
+        } catch (error) {
+            thrown = error;
+        }
+        expect(thrown).toMatchObject({
+            data: {
+                code: "embedding-whole-replace",
+                label: "E5",
+                severity: "error",
+                title: expect.any(String),
+                explanation: expect.objectContaining({
+                    whatHappened: expect.any(String),
+                    whyItMatters: expect.any(String),
+                    suggestedAction: expect.any(String),
+                }),
+            },
+        });
+    });
+
+    it("EmbeddingText 单条写入拒绝手写 vector/model", async () => {
+        const projectPath = await createProject(embeddingSchemaSource());
+        const facade = createFacade();
+
+        await expect(facade.writeSlice(projectPath, {
+            instant: 10n,
+            title: "错误手写 vector",
+            patches: [
+                {subjectId: "erina", type: "character", name: "艾莉娜", path: "/events", op: "append", value: {text: "在祭坛醒来", vector: [0.1, 0.2]}},
+            ],
+        })).rejects.toThrow("vector");
+
+        await expect(facade.writeSlice(projectPath, {
+            instant: 11n,
+            title: "错误手写 model",
+            patches: [
+                {subjectId: "erina", type: "character", name: "艾莉娜", path: "/memory/师门", op: "replace", value: {text: "她信任师门", model: "manual"}},
+            ],
+        })).rejects.toThrow("model");
+    });
+
+    it("EmbeddingText 单条写入必须是唯一 text 非空字符串", async () => {
+        const projectPath = await createProject(embeddingSchemaSource());
+        const facade = createFacade();
+        const invalidEventValues: JsonValue[] = [
+            {},
+            {text: 123},
+            {text: ""},
+            {text: "   "},
+            {text: "在祭坛醒来", source: "manual"},
+        ];
+
+        for (const [index, value] of invalidEventValues.entries()) {
+            await expect(facade.writeSlice(projectPath, {
+                instant: BigInt(20 + index),
+                title: "错误 EmbeddingText events 写入",
+                patches: [
+                    {subjectId: "erina", type: "character", name: "艾莉娜", path: "/events", op: "append", value},
+                ],
+            })).rejects.toThrow("只接受 {text:");
+        }
+
+        await expect(facade.writeSlice(projectPath, {
+            instant: 40n,
+            title: "错误 EmbeddingText memory 写入",
+            patches: [
+                {subjectId: "erina", type: "character", name: "艾莉娜", path: "/memory/师门", op: "replace", value: {}},
+            ],
+        })).rejects.toThrow("只接受 {text:");
+    });
+
+    it("EmbeddingText 拒绝通过内部路径绕过托管字段", async () => {
+        const projectPath = await createProject(embeddingSchemaSource());
+        const facade = createFacade();
+
+        await facade.writeSlice(projectPath, {
+            instant: 10n,
+            title: "初始化经历与记忆",
+            patches: [
+                {subjectId: "erina", type: "character", name: "艾莉娜", path: "/events", op: "append", value: {text: "在祭坛醒来"}},
+                {subjectId: "erina", path: "/memory/师门", op: "replace", value: {text: "她信任师门"}},
+            ],
+        });
+
+        await expect(facade.writeSlice(projectPath, {
+            instant: 11n,
+            title: "错误改写 events 内部元素",
+            patches: [
+                {subjectId: "erina", path: "/events/0", op: "replace", value: {text: "改写经历", vector: [0.1, 0.2]}},
+            ],
+        })).rejects.toThrow("EmbeddingText array 字段 /events 只支持");
+
+        await expect(facade.writeSlice(projectPath, {
+            instant: 12n,
+            title: "错误改写 memory vector",
+            patches: [
+                {subjectId: "erina", path: "/memory/师门/vector", op: "replace", value: [0.1, 0.2]},
+            ],
+        })).rejects.toThrow("EmbeddingText record 字段 /memory 的真实文本必须按 key");
+    });
+
+    it("已有 subject 缺少数组基准时 append 自动插入显式 replace 空数组", async () => {
+        const projectPath = await createProject(optionalListSchemaSource());
+        const facade = createFacade();
+
+        await facade.listSubjects(projectPath);
+        await insertRawWorldSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜"});
+        const firstAppend = await facade.writeSlice(projectPath, {
+            instant: 20n,
+            title: "补第一条笔记",
+            patches: [{subjectId: "erina", path: "/notes", op: "append", value: "第一次记录"}],
+        });
+        const secondAppend = await facade.writeSlice(projectPath, {
+            instant: 30n,
+            title: "补第二条笔记",
+            patches: [{subjectId: "erina", path: "/notes", op: "append", value: "第二次记录"}],
+        });
+        const firstSlice = await facade.getSlice(projectPath, firstAppend.sliceId);
+        const secondSlice = await facade.getSlice(projectPath, secondAppend.sliceId);
+        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["notes"]});
+
+        expect(firstAppend.issues).toEqual([]);
+        expect(firstSlice.patches.map((patch) => ({path: patch.path, op: patch.op, value: patch.value}))).toEqual([
+            {path: "/notes", op: "replace", value: []},
+            {path: "/notes", op: "append", value: "第一次记录"},
+        ]);
+        expect(secondSlice.patches.map((patch) => ({path: patch.path, op: patch.op, value: patch.value}))).toEqual([
+            {path: "/notes", op: "append", value: "第二次记录"},
+        ]);
+        expect(state.subjects[0]?.attrs).toEqual({notes: ["第一次记录", "第二次记录"]});
+    });
+
+    it("editSlice 添加 append 时同样自动补数组基准并保持顺序", async () => {
+        const projectPath = await createProject(optionalListSchemaSource());
+        const facade = createFacade();
+
+        await facade.listSubjects(projectPath);
+        await insertRawWorldSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜"});
+        const draft = await facade.writeSlice(projectPath, {
+            instant: 20n,
+            title: "待改切面",
+            patches: [{subjectId: "erina", path: "/name", op: "replace", value: "艾莉娜"}],
+        });
+        const edited = await facade.editSlice(projectPath, draft.sliceId, {
+            instant: 20n,
+            title: "编辑补笔记",
+            patches: [{subjectId: "erina", path: "/notes", op: "append", value: "编辑补记"}],
+        });
+        const slice = await facade.getSlice(projectPath, edited.sliceId);
+        const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["notes"]});
+
+        expect(edited.issues).toEqual([]);
+        expect(slice.patches.map((patch) => ({path: patch.path, op: patch.op, value: patch.value}))).toEqual([
+            {path: "/notes", op: "replace", value: []},
+            {path: "/notes", op: "append", value: "编辑补记"},
+        ]);
+        expect(state.subjects[0]?.attrs).toEqual({notes: ["编辑补记"]});
+    });
+
+    it("append 遇到历史非数组基准时不自动覆盖并继续返回定位 issue", async () => {
+        const projectPath = await createProject(optionalListSchemaSource());
+        const facade = createFacade();
+
+        await facade.listSubjects(projectPath);
+        await insertRawWorldSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜"});
+        await insertRawWorldPatch(projectPath, {
+            sliceId: "raw-bad-notes-slice",
+            patchId: "raw-bad-notes-patch",
+            instant: 20n,
+            title: "历史坏 notes",
+            subjectId: "erina",
+            path: "/notes",
+            op: "replace",
+            valueJson: JSON.stringify("坏值"),
+        });
+        const written = await facade.writeSlice(projectPath, {
+            instant: 30n,
+            title: "追加 notes",
+            patches: [{subjectId: "erina", path: "/notes", op: "append", value: "新记录"}],
+        });
+        const slice = await facade.getSlice(projectPath, written.sliceId);
+
+        expect(slice.patches.map((patch) => ({path: patch.path, op: patch.op, value: patch.value}))).toEqual([
+            {path: "/notes", op: "append", value: "新记录"},
+        ]);
+        expect(written.issues).toEqual([expect.objectContaining({
+            code: "broken-relative",
+            sliceId: written.sliceId,
+            patchId: expect.any(String),
+            subjectId: "erina",
+            path: "/notes",
+            op: "append",
+            message: "append /notes 基准不是数组，实际：string",
+        })]);
+    });
+
+    it("executeCodeActWorld 连续写入时对同一持久 issue 去重但保留不同 patch", async () => {
+        const projectPath = await createProject(optionalListSchemaSource());
+        const facade = createFacade();
+
+        await facade.listSubjects(projectPath);
+        await insertRawWorldSubject(projectPath, {id: "erina", type: "character", name: "艾莉娜"});
+        await insertRawWorldPatch(projectPath, {
+            sliceId: "raw-missing-notes-slice-1",
+            patchId: "raw-missing-notes-patch-1",
+            instant: 20n,
+            title: "历史坏 notes 1",
+            subjectId: "erina",
+            path: "/notes",
+            op: "append",
+            valueJson: JSON.stringify("孤立记录 1"),
+        });
+        await insertRawWorldPatch(projectPath, {
+            sliceId: "raw-missing-notes-slice-2",
+            patchId: "raw-missing-notes-patch-2",
+            instant: 21n,
+            title: "历史坏 notes 2",
+            subjectId: "erina",
+            path: "/notes",
+            op: "append",
+            valueJson: JSON.stringify("孤立记录 2"),
+        });
+
+        const result = await facade.executeCodeActWorld(projectPath, `
+            await world.slice.write({
+                time: 30n,
+                title: "第一次脚本写入",
+                patches: [{subjectId: "erina", path: "/name", op: "replace", value: "艾莉娜一"}],
+            });
+            await world.slice.write({
+                time: 40n,
+                title: "第二次脚本写入",
+                patches: [{subjectId: "erina", path: "/name", op: "replace", value: "艾莉娜二"}],
+            });
+            return "done";
+        `, "readwrite");
+
+        expect(result.issues).toEqual([
+            expect.objectContaining({patchId: "raw-missing-notes-patch-1", sliceId: "raw-missing-notes-slice-1"}),
+            expect.objectContaining({patchId: "raw-missing-notes-patch-2", sliceId: "raw-missing-notes-slice-2"}),
+        ]);
     });
 
     it("collection append 去重，remove 可按值删除且幂等", async () => {
@@ -155,7 +397,17 @@ describe("WorldEngineFacade", () => {
         });
         const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["inventory"]});
 
-        expect(edited.issues).toEqual([expect.objectContaining({code: "base-shifted", sliceId: downstream.sliceId, subjectId: "erina", attr: "inventory"})]);
+        expect(edited.issues).toEqual([expect.objectContaining({
+            code: "base-shifted",
+            label: "A1",
+            severity: "advisory",
+            sliceId: downstream.sliceId,
+            patchId: expect.any(String),
+            subjectId: "erina",
+            attr: "inventory",
+            title: expect.any(String),
+            explanation: expect.objectContaining({suggestedAction: expect.any(String)}),
+        })]);
         expect(state.subjects[0]?.attrs.inventory).toEqual(["subject://old-sword", "subject://coin"]);
     });
 
@@ -214,8 +466,8 @@ describe("WorldEngineFacade", () => {
         });
         const deleted = await facade.deleteSlice(projectPath, base.sliceId);
 
-        expect(edited.issues).toEqual([expect.objectContaining({code: "base-shifted", subjectId: "erina", attr: "hp"})]);
-        expect(deleted.issues).toEqual([expect.objectContaining({code: "broken-relative", subjectId: "erina", attr: "hp"})]);
+        expect(edited.issues).toEqual([expect.objectContaining({code: "base-shifted", label: "A1", severity: "advisory", subjectId: "erina", attr: "hp"})]);
+        expect(deleted.issues).toEqual([expect.objectContaining({code: "broken-relative", label: "E1", severity: "error", patchId: expect.any(String), subjectId: "erina", attr: "hp"})]);
     });
 
     it("ref 目标缺失在查询时报告 dangling-ref，并归属写入切面", async () => {
@@ -236,7 +488,7 @@ describe("WorldEngineFacade", () => {
         const state = await facade.queryState(projectPath, {subjectIds: ["erina"], attrs: ["location"]});
 
         expect(state.issues).toEqual([
-            expect.objectContaining({code: "dangling-ref", sliceId: relation.sliceId, subjectId: "erina", attr: "location"}),
+            expect.objectContaining({code: "dangling-ref", label: "E2", severity: "error", sliceId: relation.sliceId, subjectId: "erina", attr: "location"}),
         ]);
     });
 
@@ -299,6 +551,17 @@ function createFacade(): WorldEngineFacade {
     return facade;
 }
 
+async function cleanupCreatedProjects(): Promise<void> {
+    const facades = createdFacades.splice(0);
+    const projectPaths = createdProjects.splice(0);
+    for (const facade of facades) {
+        await facade.closeProject("workspace/__test__");
+    }
+    for (const projectPath of projectPaths) {
+        await removeProjectRoot(projectPath);
+    }
+}
+
 async function createProject(schema = schemaSource()): Promise<string> {
     const slug = `world-engine-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const projectPath = `workspace/${slug}`;
@@ -316,37 +579,91 @@ function projectRoot(projectPath: string): string {
 }
 
 async function tableExists(projectPath: string, table: string): Promise<boolean> {
-    const client = new PrismaClient({adapter: new PrismaLibSql({url: toSqliteFileUrl(resolveProjectDatabasePath(projectPath))})});
+    const adapter = new TrackedPrismaLibSql({url: toSqliteFileUrl(resolveProjectDatabasePath(projectPath))});
+    const client = new PrismaClient({adapter});
     try {
         const rows = await client.$queryRawUnsafe<Array<{name: string}>>("SELECT name FROM sqlite_master WHERE type='table' AND name=?", table);
         return rows.length > 0;
     } finally {
         await client.$disconnect();
+        adapter.closeTrackedClients();
+        collectReleasedSqliteHandles();
     }
 }
 
 async function deleteWorldSubject(projectPath: string, subjectId: string): Promise<void> {
-    const client = new PrismaClient({adapter: new PrismaLibSql({url: toSqliteFileUrl(resolveProjectDatabasePath(projectPath))})});
+    const adapter = new TrackedPrismaLibSql({url: toSqliteFileUrl(resolveProjectDatabasePath(projectPath))});
+    const client = new PrismaClient({adapter});
     try {
         await client.worldSubject.delete({where: {id: subjectId}});
     } finally {
         await client.$disconnect();
+        adapter.closeTrackedClients();
+        collectReleasedSqliteHandles();
+    }
+}
+
+async function insertRawWorldSubject(projectPath: string, input: {id: string; type: string; name: string}): Promise<void> {
+    const client = createClient({url: toSqliteFileUrl(resolveProjectDatabasePath(projectPath))});
+    try {
+        await client.execute({
+            sql: `INSERT INTO "WorldSubject" ("id", "type", "name") VALUES (?, ?, ?)`,
+            args: [input.id, input.type, input.name],
+        });
+    } finally {
+        client.close();
+        collectReleasedSqliteHandles({force: true});
+    }
+}
+
+async function insertRawWorldPatch(projectPath: string, input: {
+    sliceId: string;
+    patchId: string;
+    instant: bigint;
+    title: string;
+    subjectId: string;
+    path: string;
+    op: string;
+    valueJson: string;
+}): Promise<void> {
+    const client = createClient({url: toSqliteFileUrl(resolveProjectDatabasePath(projectPath))});
+    try {
+        await client.execute({
+            sql: `INSERT INTO "WorldSlice" ("id", "instant", "title", "summary", "kind") VALUES (?, ?, ?, ?, ?)`,
+            args: [input.sliceId, input.instant, input.title, "", "event"],
+        });
+        await client.execute({
+            sql: `INSERT INTO "WorldPatch" ("id", "sliceId", "subjectId", "instant", "seq", "path", "op", "value", "summary", "text", "vector", "model") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            args: [input.patchId, input.sliceId, input.subjectId, input.instant, 0, input.path, input.op, input.valueJson, null, null, null, null],
+        });
+    } finally {
+        client.close();
+        collectReleasedSqliteHandles({force: true});
     }
 }
 
 async function removeProjectRoot(projectPath: string): Promise<void> {
-    for (let attempt = 0; attempt < 5; attempt++) {
-        collectReleasedSqliteHandles();
+    const root = projectRoot(projectPath);
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+        collectReleasedSqliteHandles({force: true});
         try {
-            await fs.rm(projectRoot(projectPath), {recursive: true, force: true});
+            await fs.rm(root, {recursive: true, force: true});
             return;
         } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "EBUSY" || attempt === 4) {
+            if (!isBusyError(error) || attempt === 29) {
                 throw error;
             }
-            await new Promise((resolve) => setTimeout(resolve, 100));
+            await delay(100);
         }
     }
+}
+
+function isBusyError(error: unknown): boolean {
+    return typeof error === "object" && error !== null && "code" in error && error.code === "EBUSY";
+}
+
+function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function schemaSource(): string {
@@ -381,6 +698,20 @@ function schemaSource(): string {
         "    }),",
         "    location: z.object({",
         "        name: z.string().optional().describe('名称'),",
+        "    }),",
+        "} as const;",
+        "",
+    ].join("\n");
+}
+
+function optionalListSchemaSource(): string {
+    return [
+        'import {z} from "zod";',
+        "",
+        "export const WorldSchema = {",
+        "    character: z.object({",
+        "        name: z.string().optional().describe('姓名'),",
+        "        notes: z.array(z.string()).optional().describe('无 default 的笔记列表'),",
         "    }),",
         "} as const;",
         "",

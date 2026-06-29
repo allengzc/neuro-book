@@ -48,7 +48,7 @@
 - 不要使用相对路径导入，使用 `import {Sessions} from "nb/types/session"`
 - async 函数优先：尽量避免回调函数。try catch 优先。尽量避免 Promise API
 - 日志使用规范：this.logger.debug({ kind: message.kind }, "自然语言描述，不要用 tui.adapter.emit");
-- 目前项目处于快速开发阶段，可以直接激进地修改项目代码，不需要对老代码做兼容。数据库结构、数据可以随意变更，不用兼容。
+- **Important：目前项目处于快速开发阶段，可以直接激进地修改本项目代码，不需要对老代码做兼容。数据库结构、数据可以随意变更，不用兼容。永远不要出现 legacy**
 - 有时候 throw 比 try catch 更好
 - 后端代码（gateway、runtime 等需要高领域表达力的）推荐使用 class 模式，前端代码 web/ 下推荐使用 Functional Programming 模式
 - 代码多使用中文注释。设计接口和类时，要为接口和每一个函数写规范

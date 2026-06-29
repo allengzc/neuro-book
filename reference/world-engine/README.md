@@ -19,6 +19,7 @@
 - [recording-principles.md](recording-principles.md)：最少支持当前叙事原则——群体角色、切片数量、按需溯源、模糊时间段、临时角色、记录边界。
 - [schema-system.md](schema-system.md)：schema 定位、kind（scalar/list/collection/object）、4-op patch 全集、ref 规则、JSON Pointer path、default、校验宽松度、稳定 key 约束、典型奇幻 schema 示例。
 - [subject-lifecycle.md](subject-lifecycle.md)：subject 定义、init slice、切面增量模型、reduce 语义、状态演化形态、回退能力、issues 反馈、`execute_world` 契约、writer 只读边界。
+- [issues.md](issues.md)：World Engine issue taxonomy、`WorldIssue` wire shape、E/A catalog、error vs issue 通道、作者可见解释规则。
 - [calendar-system.md](calendar-system.md)：唯一时间真相源 Instant、零点与纪元锚点（公元日）、Calendar 独立显示模块、calendar.ts 配置（支持 Simple / Gregorian / Custom 三种类型）、Agent/HTTP 时间入参边界。
 - [api-migration-zod.md](api-migration-zod.md)：Zod schema + 当前 Agent 工具协议速查，说明旧 `schema.yaml` / `create_world_subject` / `mutations` 的替代写法。
 
@@ -28,7 +29,8 @@
 - **时间对作者 / HTTP 公开入口一律用项目日历字符串**，必须能被项目 `world-engine/calendar.ts` parse。`execute_world` 沙箱内部使用 instant bigint：写入前调用 `world.time.parse()`，展示给人看时调用 `world.time.format()`。
 - **patch 不存旧值字段，后端不自动改写后续切面**。声明式 patch 序列是唯一真相源，状态永远由 reduce 得来。
 - **同一 instant 只能有一个 slice**。Agent 写入冲突时优先判断是否应合并到已有切面：用 `world.slice.list({withPatches:true})` 或 `world.slice.get(sliceId)` 取得 sliceId / patchId，再用 `world.slice.editPatches()` 精确增删改；只有整条切面作废时才 `world.slice.delete()` 物理删除。
-- **E issues**（`broken-relative` / `dangling-ref`）是持久数据错误，必须修；**A issues**（`base-shifted` / `masked`）是一次性提醒，确认语义即可。
+- **`world.slice.get` 只接受 sliceId**。按 subject 查相关切面时用 `world.slice.list({subjectIds:["id"], withPatches:true})`，不要把 subjectId 传给 `get`。
+- **E issues** 是持久数据错误，必须修；**A issues** 是一次性提醒，确认语义即可。完整 code 表与处理方式见 [issues.md](issues.md)。
 - **writer 对 World Engine 只读**：writer 也使用 `execute_world`，但 readonly 模式不注入 `world.slice.write` / `world.slice.editPatches` / `world.slice.delete`。
 
 ## 契约真相源

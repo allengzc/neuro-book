@@ -2,7 +2,7 @@
  * Phase 2: Patch Operations 测试
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect } from "vitest";
 import { applyPatch } from "./patch-operations";
 import type { PatchInput, JsonValue } from "./types";
 

@@ -40,22 +40,31 @@ export function buildExecuteWorldDescription(mode: ExecuteWorldMode): string {
             Writing rules:
             - Write time is an instant bigint. Use world.time.parse("项目日历字符串") before writing and world.time.format(instant) when returning human-readable summaries.
             - Use JSON Pointer paths everywhere, such as /hp or /memory/师门.
-            - Do not catch and swallow write errors. If issues prove the write should not commit, throw to roll back the whole script.
+            - Do not catch and swallow write errors. If returned issues include severity: "error", throw to roll back the whole script.
+            - If returned issues include severity: "advisory", do not roll back automatically; include a concise user-facing confirmation or follow-up using title/message/explanation.
             - Do not return issues yourself; the tool result always includes collector issues as {data, issues}.
             - To fix a wrong patch in an existing slice, read patchId via world.slice.get(sliceId) or world.slice.list({withPatches:true}), then use world.slice.editPatches. Do not delete and rewrite a whole slice just to fix one patch.
+            - For EmbeddingText fields, write only {text:"..."}. vector/model are maintained by the system.
         `
         : profileText`
             This profile has readonly World Engine access. world.slice.write, world.slice.editPatches, and world.slice.delete are not available.
         `;
 
     return profileText`
-        Execute JavaScript code against the current Project Workspace World Engine.
+        Execute JavaScript code against the specified Project Workspace World Engine.
 
         The tool always returns:
 
         \`\`\`typescript
         { data: unknown, issues: WorldIssue[] }
         \`\`\`
+
+        WorldIssue includes code, label, severity, title, message, and explanation. Use title/message/explanation when explaining issues to the user; code is for filtering and debugging.
+
+        Return rules:
+        - When you query subject state for yourself or the user and the subject schema shape is clear, convert JSON attrs into a human-readable string summary inside the script, then return that string.
+        - Return objects or arrays only when the next step truly needs structured data. Do not return raw subject state JSON just because it is easy.
+        - A returned string is shown to you as the primary tool text; issues are still collected separately in tool details.
 
         Read API:
 
@@ -71,16 +80,21 @@ export function buildExecuteWorldDescription(mode: ExecuteWorldMode): string {
 
         world.search.text(query: string, options?: {k?: number, threshold?: number, types?: string[], attrs?: string[], at?: bigint}): Promise<Array<{subjectId: string, attr: string, text: string, score: number}>>;
 
-        world.slice.list(options?: {from?: bigint, to?: bigint, limit?: number, withPatches?: boolean}): Promise<any[]>;
+        world.slice.list(options?: {from?: bigint, to?: bigint, limit?: number, withPatches?: boolean, subjectIds?: string[], subjectMode?: "any" | "all"}): Promise<any[]>;
         world.slice.get(sliceId: string): Promise<{id: string, instant: bigint, title: string, summary: string, kind: string, patches: Array<{patchId: string, subjectId: string, path: string, op: string, value?: unknown, summary?: string}>}>;
         \`\`\`
+
+        Search rules:
+        - world.search.text options.types filters subject types such as character or location; it does not mean event text or slice kind.
+        - To search event text, use attrs: ["events"].
+        - world.slice.get only accepts sliceId. To find slices touching a subject, use world.slice.list({subjectIds:["subject-id"], withPatches:true}).
 
         ${writeApi}
 
         Constraints:
         - Code must be inline in the code argument.
         - Use await for async world.subject.* / world.search.* / world.slice.* methods.
-        - Result data is limited to 10KB; return summaries or selected fields, not full world dumps.
+        - Result data is limited to 10KB; return a human-readable string summary or selected fields, not full world dumps.
         - BigInt values are serialized as strings in the final tool details.
     `;
 }

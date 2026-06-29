@@ -1,4 +1,4 @@
-import {describe, expect, test} from "bun:test";
+import {describe, expect, test} from "vitest";
 import * as yaml from "yaml";
 import {WorldSchemaLoader} from "./schema-loader";
 

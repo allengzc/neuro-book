@@ -1,4 +1,4 @@
-import {describe, test, expect} from "bun:test";
+import {describe, test, expect} from "vitest";
 import {GregorianCalendar, normalizeGregorianCalendarConfig} from "nbook/server/world-engine/calendars/gregorian";
 
 describe("GregorianCalendar", () => {

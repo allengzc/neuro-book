@@ -1,17 +1,20 @@
 import {existsSync} from "node:fs";
-import {pathToFileURL} from "node:url";
 import {dirname, isAbsolute, join, resolve} from "node:path";
-import type {LlmlintConfig, NormalizedLlmlintConfig, RuleOverride} from "./types.ts";
+import {pathToFileURL} from "node:url";
+import type {LlmlintConfig, LlmlintOutput, NormalizedLlmlintConfig, RuleOverride, RulesetOverride} from "./types";
 
 const DEFAULT_CONFIG: NormalizedLlmlintConfig = {
-    presets: ["anti-ai-slop"],
+    rulesets: ["builtin/default"],
+    trustedRulesets: [],
+    rulesetOverrides: {},
+    namespaces: {},
     rules: {},
-    files: [],
-    ignores: [],
     output: "stylish",
 };
 
 const VALID_RULE_OVERRIDES = new Set<RuleOverride>(["off", "warn", "error", "high", "medium", "low"]);
+const VALID_RULESET_OVERRIDES = new Set<RulesetOverride>(["off", "on"]);
+const VALID_OUTPUTS = new Set<LlmlintOutput>(["stylish", "json"]);
 
 export type LoadedConfig = {
     config: NormalizedLlmlintConfig;
@@ -19,7 +22,7 @@ export type LoadedConfig = {
 };
 
 /**
- * 加载 llmlint 配置。显式 --config 缺失时报错；未显式配置时使用默认配置。
+ * 加载 llmlint 配置。显式 --config 缺失时报错；未显式配置时使用默认 ruleset。
  */
 export async function loadConfig(options: {cwd: string; configPath?: string}): Promise<LoadedConfig> {
     const explicitPath = options.configPath?.trim();
@@ -28,7 +31,7 @@ export async function loadConfig(options: {cwd: string; configPath?: string}): P
         : findConfigPath(options.cwd);
 
     if (!configPath) {
-        return {config: DEFAULT_CONFIG, configPath: null};
+        return {config: cloneDefaultConfig(), configPath: null};
     }
 
     if (!existsSync(configPath)) {
@@ -63,30 +66,59 @@ function findConfigPath(cwd: string): string | null {
 }
 
 function normalizeConfig(config: LlmlintConfig): NormalizedLlmlintConfig {
-    const rules = normalizeRules(config.rules);
     return {
-        presets: normalizeStringArray(config.presets, DEFAULT_CONFIG.presets, "presets"),
-        rules,
-        files: normalizeStringArray(config.files, DEFAULT_CONFIG.files, "files"),
-        ignores: normalizeStringArray(config.ignores, DEFAULT_CONFIG.ignores, "ignores"),
-        output: config.output ?? DEFAULT_CONFIG.output,
+        rulesets: normalizeStringArray(config.rulesets, DEFAULT_CONFIG.rulesets, "rulesets"),
+        trustedRulesets: normalizeStringArray(config.trustedRulesets, DEFAULT_CONFIG.trustedRulesets, "trustedRulesets"),
+        rulesetOverrides: normalizeRulesetOverrides(config.rulesetOverrides),
+        namespaces: normalizeRuleOverrides(config.namespaces, "namespaces"),
+        rules: normalizeRuleOverrides(config.rules, "rules"),
+        output: normalizeOutput(config.output),
     };
 }
 
-function normalizeRules(rules: LlmlintConfig["rules"]): Record<string, RuleOverride> {
-    if (rules === undefined) {
+function cloneDefaultConfig(): NormalizedLlmlintConfig {
+    return {
+        rulesets: [...DEFAULT_CONFIG.rulesets],
+        trustedRulesets: [],
+        rulesetOverrides: {},
+        namespaces: {},
+        rules: {},
+        output: DEFAULT_CONFIG.output,
+    };
+}
+
+function normalizeRulesetOverrides(value: LlmlintConfig["rulesetOverrides"]): Record<string, RulesetOverride> {
+    if (value === undefined) {
         return {};
     }
-    if (!isConfigObject(rules)) {
-        throw new Error("配置 rules 必须是对象。");
+    if (!isConfigObject(value)) {
+        throw new Error("配置 rulesetOverrides 必须是对象。");
+    }
+
+    const normalized: Record<string, RulesetOverride> = {};
+    for (const [rulesetId, override] of Object.entries(value)) {
+        if (!VALID_RULESET_OVERRIDES.has(override as RulesetOverride)) {
+            throw new Error(`规则包 ${rulesetId} 的覆盖值无效: ${String(override)}`);
+        }
+        normalized[rulesetId] = override as RulesetOverride;
+    }
+    return normalized;
+}
+
+function normalizeRuleOverrides(value: Record<string, RuleOverride> | undefined, fieldName: string): Record<string, RuleOverride> {
+    if (value === undefined) {
+        return {};
+    }
+    if (!isConfigObject(value)) {
+        throw new Error(`配置 ${fieldName} 必须是对象。`);
     }
 
     const normalized: Record<string, RuleOverride> = {};
-    for (const [ruleId, override] of Object.entries(rules)) {
+    for (const [key, override] of Object.entries(value)) {
         if (!VALID_RULE_OVERRIDES.has(override as RuleOverride)) {
-            throw new Error(`规则 ${ruleId} 的覆盖值无效: ${String(override)}`);
+            throw new Error(`${fieldName} ${key} 的覆盖值无效: ${String(override)}`);
         }
-        normalized[ruleId] = override as RuleOverride;
+        normalized[key] = override as RuleOverride;
     }
     return normalized;
 }
@@ -95,10 +127,20 @@ function normalizeStringArray(value: string[] | undefined, fallback: string[], f
     if (value === undefined) {
         return [...fallback];
     }
-    if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
-        throw new Error(`配置 ${fieldName} 必须是字符串数组。`);
+    if (!Array.isArray(value) || !value.every((item) => typeof item === "string" && item.trim().length > 0)) {
+        throw new Error(`配置 ${fieldName} 必须是非空字符串数组。`);
     }
-    return [...value];
+    return value.map((item) => item.trim());
+}
+
+function normalizeOutput(output: LlmlintConfig["output"]): LlmlintOutput {
+    if (output === undefined) {
+        return DEFAULT_CONFIG.output;
+    }
+    if (!VALID_OUTPUTS.has(output)) {
+        throw new Error(`配置 output 无效: ${String(output)}`);
+    }
+    return output;
 }
 
 function isConfigObject(value: unknown): value is Record<string, unknown> {

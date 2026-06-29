@@ -3,6 +3,7 @@ import type {Static} from "typebox";
 import {Value} from "typebox/value";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
+import type {ToolExecutionContext} from "nbook/server/agent/tools/types";
 import {AGENT_TASKS_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 
 const TaskStatusSchema = Type.Union([
@@ -84,7 +85,7 @@ export function createTaskTools(): NeuroAgentTool[] {
                     updatedAt: now,
                 };
                 assertTaskList(taskList);
-                await context.harness.appendCustomState(context.sessionId, AGENT_TASKS_STATE_KEY, taskList as JsonValue, context.workspaceKey);
+                await writeTaskList(context, taskList);
                 return taskToolResult(taskList);
             },
         },
@@ -129,11 +130,16 @@ export function createTaskTools(): NeuroAgentTool[] {
                     throw new Error(`任务步骤不存在：${input.id}`);
                 }
                 assertTaskList(taskList);
-                await context.harness.appendCustomState(context.sessionId, AGENT_TASKS_STATE_KEY, taskList as JsonValue, context.workspaceKey);
+                await writeTaskList(context, taskList);
                 return taskToolResult(taskList);
             },
         },
     ];
+}
+
+async function writeTaskList(context: ToolExecutionContext, taskList: TaskList): Promise<void> {
+    await context.harness.appendCustomState(context.sessionId, AGENT_TASKS_STATE_KEY, taskList as JsonValue, context.workspaceKey, context.invocationId);
+    context.sessionWrites?.savePointCustomState("tool.custom_state", AGENT_TASKS_STATE_KEY, taskList as JsonValue);
 }
 
 function trimOptional(value: string | undefined): string | undefined {

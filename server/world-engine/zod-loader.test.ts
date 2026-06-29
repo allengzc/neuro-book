@@ -1,4 +1,4 @@
-import {describe, test, expect} from "bun:test";
+import {describe, test, expect} from "vitest";
 import {z} from "zod";
 import {Ref, EmbeddingText} from "nbook/world-engine/schema";
 import {buildWorldSchema, findAttrSchema, flattenAttrs, collectDefaultAttrs} from "nbook/server/world-engine/schema-loader";

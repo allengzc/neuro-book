@@ -200,7 +200,7 @@ await world.slice.write({
 
 - **同一 instant 只能有一个 slice**。如果这个时间点已经有切面，`world.slice.write` 会冲突报错；先用 `world.slice.list({withPatches:true})` 或 `world.slice.get(sliceId)` 找到已有切面，再用 `world.slice.editPatches` 补 patch；不要为了同一事件改用相邻时间制造重复记录。
 - **遵循最少支持当前叙事**：每个 subject 通常 1-2 条切面（起因 + 当前状态）就够，不预先填满；背景按需向更早时间溯源（补一段过去就是往更早时间插一条切面）。原则见 `reference/world-engine/recording-principles.md`。
-- 写入返回的 issues 要看：E issues（缺初始值、引用了不存在的对象）必须修，用人话向用户解释（"某条数值变化缺起始值，得先补一条设定初值的记录"）；A issues（改过去影响了下游）确认语义即可。不要把 `broken-relative` 这类术语抛给用户。
+- 写入返回的 issues 要看：`severity: "error"` 必须修；`severity: "advisory"` 确认语义即可。向用户解释时使用返回的 `title`、`message`、`explanation`，不要把 code 直接抛给用户。
 
 ## 第五步：教会用户使用
 

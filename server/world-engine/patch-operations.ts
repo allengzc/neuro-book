@@ -15,14 +15,15 @@ import type {
     JsonValue,
     PatchInput,
     WorldAttrSchema,
+    WorldIssueCode,
     ZodSchemaUniqueArrays,
 } from "nbook/server/world-engine/types";
 
 const MISSING = Symbol("missing");
 
-/** Patch 操作错误 */
-type PatchIssue = {
-    code: "broken-relative" | "cross-ref" | "invalid-path" | "embedding-whole-replace";
+/** Patch 操作错误。新写入时通常走 error；旧数据 reduce 显形时会被转换成 WorldIssue。 */
+export type PatchIssue = {
+    code: Extract<WorldIssueCode, "broken-relative" | "cross-ref" | "invalid-path" | "embedding-whole-replace">;
     path: string;
     message: string;
 };

@@ -1,5 +1,6 @@
 import type {
     SubjectStateDto,
+    WorldIssueDto,
     WorldSchemaProjectionDto,
 } from "nbook/app/components/novel-ide/world-engine/world-engine-workbench.types";
 import type {
@@ -8,6 +9,96 @@ import type {
     WorldWorkbenchPreviewSubject,
     WorldWorkbenchPreviewSubjectSystemSummary,
 } from "nbook/app/components/novel-ide/world-engine/workbench-preview/world-engine-workbench-preview.types";
+
+type MockIssueCatalogItem = Pick<WorldIssueDto, "label" | "severity" | "title" | "explanation">;
+
+/**
+ * 仅供浏览器 mock preview 使用的 fixture。
+ * 生产 issue catalog 的唯一真相在后端 `server/world-engine/world-issue-catalog.ts`。
+ */
+const mockIssueCatalog: Record<WorldIssueDto["code"], MockIssueCatalogItem> = {
+    "broken-relative": {
+        label: "E1",
+        severity: "error",
+        title: "相对变更没有可用基准",
+        explanation: {
+            whatHappened: "某条相对 patch 无法在当前时间线中找到可安全应用的已有值。",
+            whyItMatters: "这是持久数据错误，必须修。",
+            suggestedAction: "在更早时间补 replace 初始化，或修正当前 patch。",
+        },
+    },
+    "dangling-ref": {
+        label: "E2",
+        severity: "error",
+        title: "引用目标无效",
+        explanation: {
+            whatHappened: "ref 值没有指向有效 subject，或目标类型不符合 schema。",
+            whyItMatters: "这是持久数据错误，必须修。",
+            suggestedAction: "创建或修正目标 subject，或改掉当前 ref。",
+        },
+    },
+    "invalid-path": {
+        label: "E3",
+        severity: "error",
+        title: "patch 路径无法应用",
+        explanation: {
+            whatHappened: "JSON Pointer 路径或目标容器形状不符合当前状态。",
+            whyItMatters: "patch 无法可靠改变世界状态。",
+            suggestedAction: "修正 path 或先补齐父路径。",
+        },
+    },
+    "cross-ref": {
+        label: "E4",
+        severity: "error",
+        title: "patch 试图穿过引用目标",
+        explanation: {
+            whatHappened: "patch 路径试图穿过 subject:// 引用。",
+            whyItMatters: "跨引用写会破坏 subject 边界。",
+            suggestedAction: "分别修改引用值和目标 subject 自己的属性。",
+        },
+    },
+    "embedding-whole-replace": {
+        label: "E5",
+        severity: "error",
+        title: "EmbeddingText 字段不能整块写入非空内容",
+        explanation: {
+            whatHappened: "EmbeddingText 容器被非空整块 replace。",
+            whyItMatters: "一条 EmbeddingText 必须对应一行 WorldPatch/vector。",
+            suggestedAction: "空容器可 replace 初始化；真实文本用 append 或 key 级 replace 单条写入。",
+        },
+    },
+    "base-shifted": {
+        label: "A1",
+        severity: "advisory",
+        title: "下游相对变更的基准可能改变",
+        explanation: {
+            whatHappened: "本次对过去的绝对修改会改变后续相对 op 的基准。",
+            whyItMatters: "这是一次性提醒，确认语义即可。",
+            suggestedAction: "检查相关 patch，确认结果符合剧情。",
+        },
+    },
+    masked: {
+        label: "A2",
+        severity: "advisory",
+        title: "本次改动可能被后续绝对变更覆盖",
+        explanation: {
+            whatHappened: "本次对过去的修改后面还有绝对 op 覆盖相关路径。",
+            whyItMatters: "这是一次性提醒，确认语义即可。",
+            suggestedAction: "检查后续覆盖 patch，确认覆盖是有意的。",
+        },
+    },
+};
+
+function mockIssue(input: Pick<WorldIssueDto, "code" | "sliceId" | "subjectId" | "attr" | "message">): WorldIssueDto {
+    const catalogItem = mockIssueCatalog[input.code];
+    return {
+        ...input,
+        label: catalogItem.label,
+        severity: catalogItem.severity,
+        title: catalogItem.title,
+        explanation: catalogItem.explanation,
+    };
+}
 
 export const mockWorkbenchSchema: WorldSchemaProjectionDto = {
     calendar: {
@@ -196,7 +287,7 @@ export const mockWorkbenchSlices: WorldWorkbenchPreviewSlice[] = [
             {subjectId: "old-sword", path: "/durability", op: "increment", value: -15},
         ],
         issues: [
-            {code: "base-shifted", sliceId: "slice-east-tower-opened", subjectId: "old-sword", attr: "durability", message: "旧剑耐久被提前消耗，后续相对变更需要确认。"},
+            mockIssue({code: "base-shifted", sliceId: "slice-east-tower-opened", subjectId: "old-sword", attr: "durability", message: "旧剑耐久被提前消耗，后续相对变更需要确认。"}),
         ],
     },
     {
@@ -211,7 +302,7 @@ export const mockWorkbenchSlices: WorldWorkbenchPreviewSlice[] = [
             {subjectId: "erina", path: "/memory/旧剑状况", op: "replace", value: "剑柄机关造成额外磨损但仍可使用"},
         ],
         issues: [
-            {code: "masked", sliceId: "slice-old-sword-backstory", subjectId: "erina", attr: "memory.旧剑状况", message: "旧剑旧伤补充可能遮蔽艾莉娜此前对东塔线索的理解，需要确认人物记忆是否仍连贯。"},
+            mockIssue({code: "masked", sliceId: "slice-old-sword-backstory", subjectId: "erina", attr: "memory.旧剑状况", message: "旧剑旧伤补充可能遮蔽艾莉娜此前对东塔线索的理解，需要确认人物记忆是否仍连贯。"}),
         ],
     },
     {

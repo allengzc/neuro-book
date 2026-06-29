@@ -2,7 +2,7 @@
  * Phase 3: CodeAct Sandbox 测试
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect } from "vitest";
 import { executeCodeAct } from "./codeact-sandbox";
 import type { WorldApi } from "./codeact-sandbox";
 

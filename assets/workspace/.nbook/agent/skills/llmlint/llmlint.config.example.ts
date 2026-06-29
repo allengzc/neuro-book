@@ -1,13 +1,18 @@
-import type {LlmlintConfig} from "./src/types.ts";
-
 export default {
-    presets: ["anti-ai-slop"],
+    rulesets: [
+        "builtin/default",
+    ],
+    trustedRulesets: [],
+    rulesetOverrides: {},
+    namespaces: {
+        modifier: "medium",
+        "vocabulary.r18": "off",
+        "商务黑话": "off",
+    },
     rules: {
         "filler-word-actually": "warn",
         "firstly-secondly": "error",
         "filler-lets": "off",
     },
-    files: ["manuscript/**/*.md"],
-    ignores: [],
     output: "stylish",
-} satisfies LlmlintConfig;
+};

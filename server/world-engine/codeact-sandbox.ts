@@ -40,7 +40,7 @@ export type WorldApi = {
     };
     /** Timeline slice 读取与可选写入能力。readonly 模式不注入写方法。 */
     slice: {
-        list(options?: { from?: bigint; to?: bigint; limit?: number; withPatches?: boolean }): Promise<any[]>;
+        list(options?: { from?: bigint; to?: bigint; limit?: number; withPatches?: boolean; subjectIds?: string[]; subjectMode?: "any" | "all" }): Promise<any[]>;
         get(id: string): Promise<any>;
         write?: (input: any) => Promise<{sliceId: string; issues: any[]}>;
         editPatches?: (sliceId: string, edits: any[], meta?: any) => Promise<{sliceId: string; issues: any[]}>;

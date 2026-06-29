@@ -109,6 +109,8 @@
 - `bun test server/world-engine`：当前源目录用例通过，但 Bun 同时扫到 `product/server/world-engine/zod-loader.test.ts`，该 product 复制目录缺 `nbook/world-engine/schema` 导入，导致宽命令非零退出。该失败不来自本轮修改的 `server/world-engine/**` 源测试。
 - `bunx vitest run server/agent/tools`：`world-engine-tools` 与其它工具用例通过，但 `server/agent/tools/task-tools.test.ts` 在 15s 超时；这对应本 task 已暂缓的 `task_create` / `task_set_status` 稳定性问题，不作为本轮 World Engine API 收口的完成条件。
 
+Round 03 update：上述两个宽测遗留项已收口。`task_create` / `task_set_status` 改为真实 turn 内 immediate + savePoint 双写；`product/server/world-engine/zod-loader.test.ts` 改用相对 schema helper import。当前 `bun test server/world-engine` 与 `bunx vitest run server/agent/tools` 均通过，详见 [2026-06-29-round-03-report-followups.md](2026-06-29-round-03-report-followups.md)。
+
 静态扫描结果：
 
 - 当前协议面没有旧平铺 World API 调用残留。

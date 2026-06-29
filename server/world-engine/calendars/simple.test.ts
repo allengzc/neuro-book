@@ -1,4 +1,4 @@
-import {describe, test, expect} from "bun:test";
+import {describe, test, expect} from "vitest";
 import {SimpleCalendar, normalizeSimpleCalendarConfig} from "nbook/server/world-engine/calendars/simple";
 
 describe("SimpleCalendar", () => {

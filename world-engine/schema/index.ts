@@ -67,7 +67,7 @@ export const EmbeddingText = z.object({
 export type EmbeddingText = z.infer<typeof EmbeddingText>;
 
 // ============================================================================
-// 示例 Schema（可按需拆分到独立文件）
+// 示例 Schema。Project 配置入口需保持单文件；不要用本地文件、绝对路径或 URL import 拆分 helper。
 // ============================================================================
 
 /**

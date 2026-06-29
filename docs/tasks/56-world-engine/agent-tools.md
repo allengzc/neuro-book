@@ -51,13 +51,14 @@ world.subject.findRefs(targetId: string, sourceType?: string): Promise<Array<{su
 
 world.search.text(query: string, options?: {k?: number, threshold?: number, types?: string[], attrs?: string[], at?: bigint}): Promise<Array<{subjectId: string, attr: string, text: string, score: number}>>;
 
-world.slice.list(options?: {from?: bigint, to?: bigint, limit?: number, withPatches?: boolean}): Promise<SliceListItem[]>;
+world.slice.list(options?: {from?: bigint, to?: bigint, limit?: number, withPatches?: boolean, subjectIds?: string[], subjectMode?: "any" | "all"}): Promise<SliceListItem[]>;
 world.slice.get(sliceId: string): Promise<SliceListItem>;
 ```
 
 - 写入前先查 schema 语义和现有 subject，避免 id/type/ref 拼错。
 - 批量读取用 `world.subject.gets(ids)`；缺失 subject 按输入顺序返回 `null`。
 - 需要精确编辑 patch 时，用 `world.slice.get(sliceId)` 或 `world.slice.list({withPatches:true})` 取得 `sliceId` 与 `patchId`。
+- `world.slice.get` 只接受 `sliceId`；按 subject 查相关切面用 `world.slice.list({subjectIds:["erina"], withPatches:true})`，需要同时包含多个 subject 时传 `subjectMode:"all"`。
 - `world.subject.findRefs` 内部批量查询 subject；返回 attr 已转成 JSON Pointer。
 - `world.search.text` 的 `types` 过滤 subject type（如 `character` / `location`），不是 slice kind；要搜经历流文本，用 `attrs: ["events"]`。
 
@@ -114,8 +115,8 @@ const written = await world.slice.write({
     ],
 });
 
-if (written.issues.some((issue) => issue.code === "broken-relative" || issue.code === "dangling-ref")) {
-    throw new Error("写入产生 E issue，回滚本次脚本");
+if (written.issues.some((issue) => issue.severity === "error")) {
+    throw new Error("写入产生 error issue，回滚本次脚本");
 }
 
 const erina = await world.subject.get("erina");
@@ -128,9 +129,10 @@ return {
 
 ## 5. Issues 处理
 
-- E issues（`broken-relative` / `dangling-ref`）是数据错误，必须修。
-- A issues（`base-shifted` / `masked`）是补过去时的一次性提醒，确认语义即可。
-- 写方法返回 issues 供脚本内判断是否 throw；工具结果中的 `issues` 是运行时 collector 汇总结果，最终解释给用户时用人话。
+- `severity: "error"` 是数据错误，必须修。
+- `severity: "advisory"` 是补过去或覆盖关系的一次性提醒，不自动回滚，但要确认语义是否符合剧情。
+- 写方法返回 issues 供脚本内判断是否 throw；工具结果中的 `issues` 是运行时 collector 汇总结果，最终解释给用户时使用后端返回的 `title`、`message`、`explanation`。
+- 完整 code 表和 `WorldIssue` 字段见 `reference/world-engine/issues.md`。
 
 ## 6. 与旧协议的关系
 

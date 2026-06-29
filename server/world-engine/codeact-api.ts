@@ -1,5 +1,5 @@
 import type { WorldApi } from "nbook/server/world-engine/codeact-sandbox";
-import type { SubjectState, Instant, JsonValue, PatchInput, SliceInput, WorldIssue, WorldPatchOp } from "nbook/server/world-engine/types";
+import type { SubjectState, Instant, JsonValue, PatchInput, SliceInput, WorldIssue, WorldPatchOp, WorldSliceSubjectFilterMode } from "nbook/server/world-engine/types";
 import type { WorldEngineService } from "nbook/server/world-engine/world-engine.service";
 import type { WorldEngineRepository } from "nbook/server/world-engine/world-engine.repository";
 
@@ -179,12 +179,14 @@ export function createWorldApi(options: WorldApiOptions): WorldApi {
             },
         },
         slice: {
-            async list(options?: { from?: Instant; to?: Instant; limit?: number; withPatches?: boolean }) {
+            async list(options?: { from?: Instant; to?: Instant; limit?: number; withPatches?: boolean; subjectIds?: string[]; subjectMode?: WorldSliceSubjectFilterMode }) {
                 return await service.listSlices({
                     from: options?.from,
                     to: options?.to,
                     limit: options?.limit,
                     withPatches: options?.withPatches,
+                    subjectIds: options?.subjectIds,
+                    subjectMode: options?.subjectMode,
                 });
             },
             async get(id: string) {

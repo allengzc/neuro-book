@@ -35,66 +35,15 @@
 
 ## Current State
 
-- 已完成时间系统、切面增量模型、schema/op、Project SQLite 存储、第一版 API/Agent 工具边界的方向定论。
-- 后端核心已落地：Project SQLite 已增加 `WorldSubject` / `WorldSlice` / `WorldMutation`，`server/world-engine` 已提供 subject 创建、slice 写入 / 编辑 / 删除、reduce 查询、schema/calendar 加载与核心测试；mutation 不存旧值字段，后端不自动改写后续切面。
-- Agent 工具已接入内置工具注册：`get_world_state`、`list_world_slices`、`write_world_slice`、`edit_world_slice`、`delete_world_slice`、`create_world_subject`、`get_world_schema`、`list_world_subjects`。
-- `/api/projects/world-engine/**` 已提供最小 HTTP API，覆盖 schema、subjects、slices、slice detail、slice delete、state/query；`GET /slices` 支持 `subjectIds` + `subjectMode=any|all` 服务端过滤，用于长时间线下查看单 subject / 多 subject 相关切片；`GET /slices/:sliceId` 可按 id 精确取回单个切面及 mutations，并返回 `previousTime` 供 UI 查询切片前状态；API / Agent 边界使用项目日历字符串，不暴露 raw instant，公开入参会拒绝 `instant:<number>` 调试格式。
-- 默认 Project Workspace 模板已包含 `world-engine/schema.yaml` 与 `world-engine/calendar.ts`，新建 Project 可直接使用 World Engine。
-- `/world-engine.preview` 已提供独立前端调试入口，可通过真实 API 新建 Project、创建 subject、写入 / 编辑 / 删除 slice、查询 state、查看 E/A issues，并提供 Mutation Builder 与一键示例世界。
-- 主 IDE Workbench 已接入真实 API 与主体系统 discovery；Schema 区域会显示 `world-engine/schema.yaml` 与 `world-engine/calendar.ts` 两个 Project Workspace 内真相源路径，点击路径会复用主 IDE 文件树打开对应配置文件；若旧 Project 缺少 `calendar.ts`，前端会通过 workspace-files create API 创建默认 Simple Calendar 草稿再打开；新建 Slice Composer 只会默认写向已注册的 World Engine subject，当前焦点是“待接入”主体时会提示先同步主体系统；待接入同步面板会显示本次用于 `createSubject` 的初始化时间；空 Project 主画布会同时提供 `创建 Subject` 与 `一键示例世界` 入口，但内置示例世界会先校验当前 schema，schema 不匹配时会禁用示例按钮并改为引导创建 subject 或新建 Slice；选中 timeline slice 后可通过顶栏“编辑 Slice”直接打开 Composer 并载入该 slice，也可通过“删除 Slice”走二次确认后的真实删除。
-- 主 IDE Workbench 的手动创建 subject 入口已补连续录入保护：创建成功后清空 `id/name`、保留 `type/time`，并在请求飞行中禁用表单且使用请求体快照回传父层，避免慢请求下父层 subject 信息与真实提交不一致。
-- 主 IDE Workbench 的手动创建 subject 表单已补 Project/schema 默认值保护：切换 Project 后会重置为 `world / 世界 / 当前 schema 默认时间`，schema 刷新时只会替换仍是旧默认值的 time，不覆盖作者手动改过的初始化时间。
-- 独立 `/world-engine.preview` 的手动创建 subject 入口也已补必填前置校验和连续录入保护：`id/type/time` 为空时按钮禁用且函数入口直接提示，创建成功后清空 `id/name`、保留 `type/time`，同时 query 和 Mutation Builder 继续聚焦刚创建的 subject。
-- 独立 `/world-engine.preview` 点击已有 subject 载入上下文后，创建 subject 入口会识别当前 id 已存在并禁用按钮；函数入口同样会提示填写新 id，避免把同一个 subject 重复提交到后端。
-- 独立 `/world-engine.preview` 点击已有 subject 载入上下文后，如果当前 mutations 仍是系统自动草稿且不在编辑已有 slice，会同步默认 mutation 到该 subject，避免 Query / Builder 已切换但待写入 textarea 仍指向旧 subject。
-- 独立 `/world-engine.preview` 的 Schema attr 快捷填充已优先使用当前 Mutation Builder / Query subject；多角色项目里点击 `character` 属性不会再默认写到同类型第一个 subject，而是尊重作者当前上下文。
-- 独立 `/world-engine.preview` 的 Mutation Builder 已接通多 mutation 单条编辑控制：可从 mutations JSON 中选择任意一条载入 Builder，并支持替换所选、插入其后、复制所选、删除所选、上移 / 下移所选；手写 JSON 导致列表变短时会自动夹取 selection。
-- 独立 `/world-engine.preview` 载入已有 slice 编辑时会把第一条 mutation 同步进 Builder，并把 mutation selection 归零；schema 快捷填充和默认 mutation 草稿也会同步重置 selection，避免 textarea 与 Builder 指向不同 mutation。
-- 独立 `/world-engine.preview` 保存已有 slice 编辑成功后会回到新的默认 slice 草稿，不再让 title/summary/mutations 停在刚编辑的旧 slice，避免下一次“写入 Slice”误复制旧内容。
-- 独立 `/world-engine.preview` 的 Write Slice 区域会在写入 / 编辑请求飞行中整体禁用，避免作者继续修改 Builder 或 textarea 后又被请求完成后的刷新覆盖。
-- 主 IDE Slice Composer 与独立 `/world-engine.preview` 的 Builder 已区分提交解析和编辑解析：提交仍拒绝空 mutations，编辑器内部允许 `[]` 作为临时草稿，因此删除最后一条 mutation 后可以继续用“追加”补回新 mutation。
-- 主 IDE Workbench 的 Slice Composer 编辑入口已补 Builder 对齐：载入所选 slice 时会把第一条 mutation 静默同步进 Builder，避免 textarea 已切到当前 slice、Builder 仍停在旧默认值。
-- 主 IDE Workbench 的 Slice Composer 已把后端 `time` 必填契约前移到前端校验：time 为空会直接显示 `time 不能为空` 并禁用写入按钮。
-- 独立 `/world-engine.preview` 的写入 / 编辑入口也已补 `time` 必填前置校验：time 为空会直接显示 `time 不能为空`，不再把空时间请求发到后端。
-- 独立 `/world-engine.preview` 的写入 / 编辑 slice 按钮也已绑定 `time` 必填状态：`sliceForm.time` 为空时按钮禁用，同时保留函数入口的 `time 不能为空` 校验。
-- 独立 `/world-engine.preview` 的 State Query 按钮已绑定查询 scope：`subjectIds` 和 `type` 同时为空时按钮禁用，同时保留函数入口的 `查询必须提供 subjectIds 或 type` 校验。
-- 独立 `/world-engine.preview` 的错误 / 成功反馈已改为互斥 helper：Project、示例世界、subject、slice 写入 / 编辑 / 删除、state query 与 Mutation Builder 校验都会通过 `setPreviewError()` / `setPreviewNotice()` 更新反馈，避免旧成功提示和新错误同时残留。
-- 独立 `/world-engine.preview` 的 Schema / Calendar 路径 chip 已可打开主 IDE 深链：`/?project=<projectPath>&openPath=world-engine/schema.yaml|world-engine/calendar.ts`；主 IDE 会在 Project route 同步完成后打开对应 Project Workspace 文件，补上新建 Project 后设置 subject schema / calendar 的直达路径；旧 Project 缺少 `calendar.ts` 时会自动创建默认草稿。
-- 独立 `/world-engine.preview` 已兼容主 IDE 的 `?project=workspace/...` 参数，同时继续支持旧 `?projectPath=workspace/...`，避免作者按主 IDE URL 习惯打开 Preview 时选错 Project。
-- 主 IDE 的 `openPath` 深链消费顺序已修正：首次初始化、workspace route 已匹配和 Project 切换完成后都会先消费 `openPath` 打开文件，再规范 `project` query，避免 URL 规范化提前清掉 `openPath`。
-- 真实浏览器已在 `ming-ding-zhi-shi-2` 上只读确认 schema/calendar 配置入口闭环：Preview 会生成 `_blank` 主 IDE 深链，直接打开 schema / calendar link 后主 IDE 能选中对应文件并清理 `openPath`；主 Workbench 左栏 schema chip 也能关闭 Workbench 并打开 `world-engine/schema.yaml`。
-- 主 IDE Workbench 的 Slice Composer 在 `写入并继续下一步` 成功后，会在 Composer 内显示上一条 slice 已写入的回执，让 overlay 仍打开时作者也能确认上一条已保存。
-- 主 IDE Workbench 的 Slice Composer 在 `写入并继续下一步` 时会保留作者当前 subject 语境：如果角色没有 `events` 而默认 mutation 回退到 `world.events`，下一步草稿仍按原角色上下文生成，避免连续推演被带到 `world`。
-- 主 IDE Workbench 的真实作者流 P0 已补齐：历史 slice 的 `files N` 会稳定绑定被点击 slice 与主体文件 proposal subject；`world.events` slice 不会把已聚焦的真实主体语境强行改成 `world`；Slice Composer 编辑 Builder text value 时，`[验收] ...` 这类普通文本不会被误当 JSON，保存前也会兜底同步 Builder 草稿到 mutations JSON。
-- 主 IDE Workbench 作者流常用动作已补验：左栏 `语境` 可把 `薇洛丝` 设为主体文件建议语境而不改变 timeline filter；设置后左栏会显示 `清语境`，当前主体按钮显示 `语境中`，点击 `清语境` 会回到整体世界视角且不触发 subject filter；`清语境` / `语境中` 只认 `simulation/subjects` 主体系统 subject，不再把选中 `world.events` slice 后的 `world` 焦点误显示成角色六文件建议语境；三条 `[验收]` `world.events` slice 的 `files 1` 可分别打开对应主体文件 proposal；proposal 的复制建议 / 复制全部 / 复制 events.jsonl 行 / 复制 state.md 审查提示已在真实浏览器剪贴板读回；打开 `events.jsonl` / `state.md` 会关闭 Workbench 并打开对应 Project Workspace 文件。Slice Composer 删除 / 移动 mutation 后会重载当前 Builder，且父层关闭保护会同步查询子组件 `hasUnsavedDraft()` 并捕获表单 input/change 兜底标记 dirty。
-- 主体文件建议已排除 `kind: "init"` 初始化切面：注册主体 / schema default 生成的 `hp set 100`、`events set []` 不再显示 `files N`，避免把默认值初始化误导成角色经历；普通 `event` slice 在主体语境下仍显示 `files 1` 并可打开 Inspector proposal。
-- 主体文件建议会清理开发验收留下的内部 `[验收]` / `[验收-...]` 前缀：Round 380 保留的验收 slice 仍可作为证据存在于 Project SQLite，但复制到 `events.jsonl` 的候选正文不再带验收标签。
-- 主体文件建议的第一人称草稿已补常见代词残留收敛：在当前 subject name 已替换成 `我` 后，`给了她/他/它...机会/继续...`、句首 `她/他/它决定/意识到/...` 这类明显主体自我叙事会转成 `给了我...`、`我决定/...`；不会全局替换所有第三人称，避免误伤其它角色。真实浏览器已确认 Round 400 暴露的 `给了她继续观察...她决定...` 候选现在显示为 `给了我继续观察...我决定...`。
-- 主体文件建议的落地提示已更明确：`events.jsonl` 提醒确认后追加到文件末尾，`memory.jsonl` 提醒追加新行或按 `topic` 改写，`state.md` 提醒按提示检查对应区块；仍不自动写 `simulation/subjects`。
-- 主体文件建议的 P1 `events.jsonl` 显式 commit 已接通前后端最小闭环：`POST /api/projects/world-engine/subject-file-proposals/events/commit` 可把单个 proposal 的 subject event 幂等追加到既有 `simulation/subjects/<id>/events.jsonl`，用 `time + text` 去重，写入后只标记 events RAG dirty，不自动 rebuild；Workbench Inspector 的 `events.jsonl draft` 已有 `追加` 按钮，点击后走应用内确认、调用 API 并刷新主体系统 overview；`memory.jsonl` 与 `state.md` 仍保持 copy / review。真实浏览器已在 `ming-ding-zhi-shi-2` 上验收应用内确认取消分支：点击 `取消` 后 Workbench 保持原位，`simulation/subjects/player/events.jsonl` SHA256 与验收前一致，没有写真实六文件。当前 Workbench 会话内 API 返回 `appended` 或 `already-exists` 后，同一 proposal 会显示 `已追加` 并禁用，避免作者重复点击。
-- Project Workspace 删除流程已补 World Engine client 释放：`deleteProjectWorkspace()` 在删除目录前会关闭 `worldEngineFacade` 持有的 Project PrismaClient，避免打开过 World Engine SQLite 的临时 Project 在 Windows 下删除超时或留下 `.nbook` 残留；目标测试与最小复现脚本已覆盖 Round 403 暴露的失败条件。
-- 主 Workbench 同步 `simulation/subjects` 待接入主体时，若当前 schema 已声明主体系统映射字段，会通过 `POST /api/projects/world-engine/subjects attrs` 把 `sourcePath / subjectFiles / ragIndexSources / eventCount / memoryCount` 等轻量元数据写入 init slice；通用 schema 未声明这些字段时仍只注册 subject 身份，不复制或改写六文件正文。
-- Round 406 已用临时 Project 跑通接近作者视角的浏览器验收：Preview 新建 Project，应用 API 写入命定之诗式 schema/calendar 与最小主体六文件，主 IDE Workbench 同步 `player`，连续写入两条 player-only event slice，看到 `files 1` 主体文件建议和 State Snapshot `hp/location` 变化，并通过应用内确认删除第二条 slice 后状态回退。
-- Round 406 暴露两个后续卡点：新 Project schema 有 `world` type 但没有 `world` subject 时，写 `world.events` 会返回 `subject 不存在：world`；Project delete API 在打开过主 IDE / Workbench 的临时 Project 上仍可能客户端超时，尽管服务端稍后完成删除。
-- 主 IDE Workbench 的 subject filter 恢复入口已补可发现性：进入单 subject / 多 subject 时间线后，中间列表顶部 scope 区域会显示 `清空过滤`，点击后回到整体世界时间线；真实浏览器已在 `ming-ding-zhi-shi-2` 上确认从 `眼镜长发女生` 单 subject 视角恢复到整体世界，kind 计数回到 `全部 4 / init 1 / event 3`。
-- 主 IDE Workbench / Slice Composer 的纯图标关闭按钮已补 `aria-label`、`title` 和稳定 `data-testid`，改善可访问性与浏览器验收定位；本轮再次尝试原生 `window.confirm` 取消分支时，in-app browser 自动化通道仍无法可靠暴露可 dismiss 的 JS dialog，因此取消分支仍需人工可见浏览器补验，或后续改为应用内确认 Dialog。
-- 主 IDE Workbench 已把删除 slice、关闭 Slice Composer、关闭 Workbench、打开工作区文件前的放弃草稿确认从原生 `window.confirm` 迁到应用内 `useDialog()`。真实浏览器已确认：Slice Composer 有未保存标题草稿时点击关闭会出现应用内确认，点击 `取消` 后 Composer、草稿标题和未保存提示都保留。
-- 主 IDE Slice Composer 内部的 `新建模式` 草稿确认也已迁到应用内 `useDialog()`；编辑已有 slice 且存在未保存草稿时，切回新建模式会使用同一套应用内确认，不再依赖原生 `window.confirm`。真实浏览器已确认点击 `取消` 后仍停留在编辑模式，title 草稿和未保存提示都保留。
-- 主 IDE Workbench 的主要应用内确认取消分支已补验：Workbench 关闭、打开 `events.jsonl` 工作区文件、删除 slice 都会显示应用内 Dialog；点击 `取消` 后 Workbench 留在原位，会话草稿 / 当前 slice 状态保留，且没有保存或删除数据。
-- 独立 `/world-engine.preview` 的删除 slice 确认也已迁到应用内 `useDialog()`：真实浏览器确认点击 `删除` 会出现 `删除 World Engine Slice` 应用内 Dialog，`取消` 后 Dialog 消失、slice 数量保持不变且没有删除提示。
-- 主体文件建议的 `events.jsonl` 草稿现在优先使用 slice 内 `events` mutation narrative，再回退到 summary；编辑 mutation value 后，proposal 会反映最新事件正文。
-- 主 IDE Workbench 顶栏 `新建 Slice` 在 Composer 已经打开且处于编辑模式时，会向子编辑器发送切回新建模式请求；如果有未保存草稿，继续复用已有确认，避免作者以为新建下一条、实际仍在整块替换旧 slice。
-- 主 IDE Workbench / Preview 的下一条默认 slice 时间已支持默认数字历日 / 月 / 年边界进位：`23:59:59` 会推到次日 `00:00:00`，30 日月末会推到下月 1 日，12 月 30 日会推到下一年 1 月 1 日。
-- 主 IDE Workbench 会前置校验内置示例世界所需 schema；像 `ming-ding-zhi-shi-2` 这类自定义 schema 不满足示例字段时，顶栏和空状态示例按钮会禁用并显示原因，空 Project 会优先进入创建 subject / 新建 Slice 的真实推演路径。
-- 独立 `/world-engine.preview` 的“创建示例世界”按钮也已复用示例 schema 校验：schema 不适配内置示例时按钮禁用，并通过 title 暴露原因；函数入口继续保留同一校验。
-- 主 IDE Workbench 的 Inspector metadata 草稿与底部 mutation value 草稿已补保存失败 / 保存中保护：保存失败不会提前丢草稿，真实 API 保存中 metadata 字段与 value 草稿 apply/reset/clear 入口会禁用，避免重复提交、继续输入被回流覆盖或在刷新前误清草稿。
-- 主 IDE Workbench 的 Slice Composer 整块编辑保存已有 slice 后，会清理同 slice 的 metadata/value 会话草稿，避免 Drafts 队列继续指向旧草稿或让旧草稿覆盖刚保存的新结果。
-- 主 IDE Workbench 底部 mutation value 草稿已绑定 mutation 身份；如果同一 slice 被整块编辑、重排或替换 mutations，旧草稿不会再按 `sliceId:index` 串到新的 mutation 行。
-- 主 IDE Workbench 删除 slice 后会清理该 slice 的会话态 metadata/value 草稿、transient issues、review focus 和 snapshot 缓存；如果仍有其它草稿 slice，会直接切到剩余草稿，避免 Drafts 入口指向已删除记录或其它草稿随子组件卸载丢失。
-- 主 IDE Workbench 删除 slice 后会把删除 API 返回的 issues 归因到被删除的 slice 来源；即使刷新后选中了其它 slice，Review Queue 也不会把删后 issue 错挂到新的当前 slice。
-- 主 IDE Workbench 无选中 slice 的空状态会展示当前 Review Queue issue 摘要；删除后即使底部审查工作台因无选中 slice 卸载，作者仍能看到删后 issue code、来源时间、subject/attr，并可点击尝试定位。
-- 主 IDE Workbench 的 Review Queue 焦点会跟随 issue 生命周期清理；编辑 / 刷新后如果当前 `issueKey` 已不在队列中，底部审查区会清空旧焦点，不再把已解决 issue 显示成 `manual-focus`。
-- 主 IDE Workbench 的 State Snapshot 会在选中 slice 缺少 `previousTime` 时按需读取 slice detail，用真实全局前一刻查询 before 状态；不再把 subject-filtered / 懒加载 / 窗口化列表的前一项当作前态。detail 回填已有 slice 时会原位替换，避免当前 subject-filtered timeline 发生跳位。
+- 当前 World Engine 已采用 `WorldSubject` / `WorldSlice` / `WorldPatch` 事件溯源模型；patch 不存旧值字段，后端不自动改写后续切面，任意时刻状态仍由切面序列 reduce 得到。
+- 当前 Project 配置入口是 TypeScript 单文件：`world-engine/schema/index.ts`（Zod schema）和 `world-engine/calendar.ts`（项目 Calendar）。`schema.yaml` / `calendar.yaml` 是历史方案，不再作为当前配置入口。
+- 当前 Agent 工具入口统一为 `execute_world`。CodeAct 沙箱只暴露分组 API：`world.time.*`、`world.subject.*`、`world.search.*`、`world.slice.*`；旧固定工具和旧平铺 `world.*` API 只保留在历史 walkthrough / migration 语境。
+- 当前 timeline 查询按 slice 组织：`world.slice.get(sliceId)` 只接受 sliceId；按 subject 查相关切面使用 `world.slice.list({subjectIds, subjectMode, withPatches:true})`。返回明细字段使用 `patches` / `patchId` / `withPatches`。
+- 当前 issue 契约以 [reference/world-engine/issues.md](../../../reference/world-engine/issues.md) 和 [Task 76](../76-world-engine-issue-contract/README.md) 为准：后端返回 `label/severity/title/message/explanation`，Agent 和 UI 不再按 code 自行生成解释。
+- Workbench / Preview 仍提供世界线调试、slice 写入编辑、subject filter、issue review、主体文件建议等 UI 能力；其历史实现流水里可能保留 `mutation` / `schema.yaml` 等旧名，以下记录仅作为当时实现背景，不代表当前 API 术语。
+
+### Historical Implementation Notes
+
 - 第四十四轮曾收紧旧 Preview 后续处理提交条件；当前最新路线已移除对应 UI。
 - 第四十五轮已完成一次用户视角浏览器实跑：新建真实 Project、运行一键示例世界、写入后续 slice、编辑较早 slice；旧后续处理步骤已随新路线移除。
 - 第四十六轮已优化 Preview Project 选择体验：顶部增加 Project 搜索，按 title / projectPath / summary 过滤，并保证当前选中 Project 不会被搜索词隐藏。
@@ -397,8 +346,7 @@ interface Mutation {
 ### 已明确：mutation 不存旧值字段；issues 是一致性反馈通道
 
 - **存储形态（当前定论）**：切面 mutation 持久化为 `op + value`，不存旧值字段，不维护后端派生改写缓存。声明式 mutation 序列是唯一真相源，任意时刻状态都由 reduce 得到。
-- **E issues（持久，读时现算）**：`broken-relative` 表示相对 op 缺少有效基准；`dangling-ref` 表示 schema 声明的 ref 值目标缺失或类型不符。`getWorldState` / `queryState` / `listSlices` 都会返回相关 issues。
-- **A issues（一次性，写 / 编辑时返回）**：`base-shifted` 表示本次过去绝对修改改变了下游相对 op 的累加基；`masked` 表示本次修改会被下游绝对 op 覆盖。A 不落库，作者 / Agent 确认语义即可。
+- **E/A issues**：issue 字段、完整 code catalog、E/A taxonomy 和作者可见解释以 [reference/world-engine/issues.md](../../../reference/world-engine/issues.md) 为准。当前处理口诀是：`severity: "error"` 表示持久数据错误，必须修；`severity: "advisory"` 表示补过去或编辑旧时间点的一次性提醒，确认语义即可。UI / Agent 应使用后端返回的 `title`、`message`、`explanation`，不要自行按 code 生成文案。
 - **第一版回退能力**：提供 `deleteSlice` 物理删除切面，返回删除后受影响 subject 的 E issues；不做可恢复撤销、不做自动补写、不自动改写后续切面。
 
 ### 已明确：嵌套属性 + 引用规则

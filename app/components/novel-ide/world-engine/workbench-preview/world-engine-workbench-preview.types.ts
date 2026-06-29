@@ -92,15 +92,22 @@ export type WorldWorkbenchPreviewSliceReviewSummary = WorldWorkbenchPreviewIssue
 export type WorldWorkbenchPreviewReviewQueueItem = {
     attr: string;
     code: WorldIssueDto["code"];
+    explanation: WorldIssueDto["explanation"];
     identity?: string;
     issueIndex: number;
     key: string;
+    label: WorldIssueDto["label"];
     message: string;
+    op?: WorldIssueDto["op"];
+    patchId?: string;
+    path?: string;
+    severity: WorldIssueDto["severity"];
     sliceId: string;
     sliceTime: string;
     sliceTitle: string;
     status: WorldWorkbenchPreviewIssueStatus;
     subjectId: string;
+    title: string;
 };
 
 export type WorldWorkbenchPreviewReviewQueueMode = "open" | "all";

@@ -1,0 +1,6942 @@
+[
+  {
+    "id": "filler-word-actually",
+    "namespace": "filler",
+    "title": "无意义填充词",
+    "level": "medium",
+    "note": "这类词通常不增加实质内容，只是为了让语气显得缓和或自然。读取上下文判断是否为角色口癖；若删除后句意不变，建议直接删除。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "其实|实际上|事实上"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "filler-worth-noting",
+    "namespace": "filler",
+    "title": "喉舌式开头",
+    "level": "medium",
+    "note": "这类开头先宣布重点再进入内容，常削弱陈述力度。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "值得注意的是|需要指出的是|需要强调的是"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "filler-can-say",
+    "namespace": "filler",
+    "title": "弱化陈述词",
+    "level": "low",
+    "note": "这类词弱化了陈述的确定性，通常可以直接删除。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "可以说|不得不说"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "filler-lets",
+    "namespace": "filler",
+    "title": "虚假邀请句式",
+    "level": "low",
+    "note": "“让我们”常用于制造共同探讨感，在正式写作中容易显得做作。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "让我们"
+      ]
+    },
+    "action": {
+      "type": "suggest",
+      "message": "改为“我们”或直接陈述，避免虚假的邀请感。"
+    }
+  },
+  {
+    "id": "firstly-secondly",
+    "namespace": "transition.mechanical",
+    "title": "机械列举过渡",
+    "level": "high",
+    "note": "这种列举方式过于刻板，缺乏自然的叙述节奏。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "首先.*?其次.*?(?:最后|再次)"
+      ]
+    },
+    "action": {
+      "type": "suggest",
+      "message": "如果不是技术步骤或报告提纲，改成自然并列、因果推进，或直接使用列表。"
+    }
+  },
+  {
+    "id": "on-one-hand",
+    "namespace": "transition.mechanical",
+    "title": "机械对比过渡",
+    "level": "medium",
+    "note": "这种对比方式过于套路化，更自然的写作会使用更灵活的过渡。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "一方面.*?另一方面"
+      ]
+    },
+    "action": {
+      "type": "suggest",
+      "message": "用简单并列、转折或具体因果替代机械对比。"
+    }
+  },
+  {
+    "id": "not-but-structure",
+    "namespace": "contrast.binary",
+    "title": "二元对比结构",
+    "level": "medium",
+    "note": "“不是...而是...”可以被稳定识别为候选结构，是否生硬仍需要结合上下文判断。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "不是[^。！？\\n，,；;]*?[，,；;]?\\s*而是"
+      ]
+    },
+    "action": {
+      "type": "suggest",
+      "message": "判断前半部分是否在纠正真实误解；若只是制造戏剧化，可直接陈述“而是”后的内容。"
+    }
+  },
+  {
+    "id": "not-x-is-y",
+    "namespace": "contrast.binary",
+    "title": "问题定义对比",
+    "level": "medium",
+    "note": "定义式反转可以被静态识别，是否多余需要结合上下文判断。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:问题|答案|关键)不是[^。！？\\n，,；;]*?[，,；;]?\\s*(?:是|在于)"
+      ]
+    },
+    "action": {
+      "type": "suggest",
+      "message": "判断前半部分是否在重新框定问题；若只是铺垫反转，改为直接陈述核心判断。"
+    }
+  },
+  {
+    "id": "negative-listing",
+    "namespace": "contrast.negative-listing",
+    "title": "负向列举",
+    "level": "medium",
+    "note": "连续否定常用来制造揭示感，但很多时候读者不需要先看一串被否定的选项。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:不是|并非)[^。！？\\n]{0,24}(?:。|，|,|；|;)?\\s*(?:也不是|不是|并非)"
+      ]
+    },
+    "action": {
+      "type": "suggest",
+      "message": "如果否定项没有纠正常见误解，建议直接陈述真正判断。"
+    }
+  },
+  {
+    "id": "dated-opening",
+    "namespace": "opening.mouthpiece",
+    "title": "喉舌式时代开头",
+    "level": "medium",
+    "note": "这些是典型的作文式开头，容易用宏大背景替代具体事实。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "在当今社会|随着.*?的发展|众所周知|不可否认"
+      ]
+    },
+    "action": {
+      "type": "suggest",
+      "message": "直接进入具体对象、事件、数据或场景。"
+    }
+  },
+  {
+    "id": "empty-expression",
+    "namespace": "abstraction.hollow",
+    "title": "空洞抽象表达",
+    "level": "low",
+    "note": "这些评价性表达缺乏具体内容，常见于公文和模板化文本。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "具有.*?意义|起到.*?作用|产生.*?影响|取得.*?成效"
+      ]
+    },
+    "action": {
+      "type": "suggest",
+      "message": "用具体事实、动作、结果替代抽象评价，说明实际发生了什么。"
+    }
+  },
+  {
+    "id": "comprehensive-listing",
+    "namespace": "transition.mechanical",
+    "title": "全面式并列结构",
+    "level": "medium",
+    "note": "这种面面俱到的并列结构容易为了显得全面而稀释重点。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "无论(?:是)?.*?还是.*?都|不仅.*?而且.*?(?:更|还)"
+      ]
+    },
+    "action": {
+      "type": "suggest",
+      "message": "简化为简单并列，或只保留最重要的一点。"
+    }
+  },
+  {
+    "id": "meta-announcement",
+    "namespace": "meta",
+    "title": "元叙述式公告",
+    "level": "low",
+    "note": "这些是自我引用的结构公告，文本先宣布自己要做什么，而不是直接推进内容。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "下面(?:我们)?(?:将)?(?:来)?(?:介绍|分析|探讨)|接下来(?:我们)?(?:将)?|本文(?:将)?(?:从|通过)|本节(?:将)?(?:介绍|说明|分析)"
+      ]
+    },
+    "action": {
+      "type": "suggest",
+      "message": "如果不是教程、报告或章节导语，建议直接进入内容。"
+    }
+  },
+  {
+    "id": "rhetorical-setup",
+    "namespace": "rhetorical-question",
+    "title": "公式化设问",
+    "level": "medium",
+    "note": "公式化设问常用来制造悬念，但多数时候下一句可以直接陈述。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "为什么这么说|这意味着什么|这说明什么|你有没有想过|试想一下|换个角度想|你可能会问"
+      ]
+    },
+    "action": {
+      "type": "suggest",
+      "message": "若问题没有真正打开思考空间，删掉设问并直接陈述答案。"
+    }
+  },
+  {
+    "id": "emphasis-crutch",
+    "namespace": "emphasis-crutch",
+    "title": "强调拐杖",
+    "level": "medium",
+    "note": "这类词常用强调姿态替代具体内容。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "毫无疑问|显而易见|毋庸置疑|请记住|重点是|关键在于|说到底|归根结底"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "business-jargon",
+    "namespace": "jargon.business",
+    "title": "商务黑话候选",
+    "level": "low",
+    "note": "这类词可能是准确术语，也可能遮住了具体动作。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "赋能|抓手|闭环|沉淀|对齐|拉通|落地|链路|打法|颗粒度|方法论|心智|生态|组合拳|护城河|增长飞轮"
+      ]
+    },
+    "action": {
+      "type": "suggest",
+      "message": "判断目标读者是否需要这些术语；若术语遮住动作，改写为谁在何时做了什么。"
+    }
+  },
+  {
+    "id": "lazy-extremes",
+    "namespace": "absolute",
+    "title": "懒惰绝对词",
+    "level": "low",
+    "note": "绝对词容易制造虚假的权威感，除非文本能给出明确范围。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "所有人|每个人|大家都|永远|从来不|一定会|必然|毫无例外|没有人|任何人都"
+      ]
+    },
+    "action": {
+      "type": "suggest",
+      "message": "补充具体范围、对象或条件；如果无法限定，改成更准确的表达。"
+    }
+  },
+  {
+    "id": "adverb-intensifier",
+    "namespace": "modifier",
+    "title": "过度副词和强化词",
+    "level": "low",
+    "note": "强化词常用来替代具体程度或证据。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "非常|十分|极其|特别|高度|深刻地|充分地|有效地|显著地|真正地|完全地|本质上|根本上"
+      ]
+    },
+    "action": {
+      "type": "suggest",
+      "message": "如果强化词没有提供具体程度，建议删除或改成事实、数字、动作。"
+    }
+  },
+  {
+    "id": "quotable-punchline-candidate",
+    "namespace": "punchline",
+    "title": "金句式收束候选",
+    "level": "low",
+    "note": "这类句式容易变成可摘录的标语，而不是推进信息。",
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "真正的[^。！？\\n]{1,24}|这才是[^。！？\\n]{1,24}|从来不是[^。！？\\n]{1,24}而是"
+      ]
+    },
+    "action": {
+      "type": "suggest",
+      "message": "判断它是否承担具体信息；若只是姿态，改成具体动作、结果或场景。"
+    }
+  },
+  {
+    "id": "hollow-summary-paragraph",
+    "namespace": "abstraction.hollow",
+    "title": "空泛总结段",
+    "level": "medium",
+    "note": "段落用抽象价值判断收束，却没有提供新的具体信息。",
+    "detector": {
+      "type": "llm",
+      "prompt": "判断段落是否只是把前文包装成空泛总结，而没有推进事实、情绪、论点或场景。\n\n判断标准：\n1. 如果删掉该句或该段后，信息几乎不变，并且主要由抽象名词、价值判断、宏大词汇组成，应标记为需要修复。\n2. 如果总结压缩了前文并引出下一步、明确立场或形成必要节奏，可以保留。\n3. 小说叙述中，如果它替代了人物行动、感官细节或冲突推进，应标记为需要修复。\n\n请分析上下文，给出修复或保留的判断和理由。"
+    },
+    "action": {
+      "type": "suggest",
+      "message": "改成具体结果、动作、情绪变化、论点推进或可观察场景。"
+    },
+    "examples": [
+      {
+        "bad": "几次调整之后，事情似乎走向了更开阔的地方。",
+        "reason": "句子只给出抽象方向感，没有说明调整带来什么具体变化。"
+      },
+      {
+        "bad": "他把空杯放回桌面，终于明白这场谈判已经结束。",
+        "good": "保留",
+        "reason": "这句用具体动作和认知变化完成段落收束。"
+      }
+    ]
+  },
+  {
+    "id": "register-mismatch",
+    "namespace": "register",
+    "title": "语体错位",
+    "level": "medium",
+    "note": "文本突然出现与体裁、叙述视角或人物声音不一致的说明书/公文/营销式语气。",
+    "detector": {
+      "type": "llm",
+      "prompt": "判断某句或某段是否与文本体裁、叙述视角、人物声音不一致。\n\n判断标准：\n1. 如果文本是小说、随笔、对话或第一人称体验，却突然出现报告式、教程式、宣传式、课堂总结式语气，应标记为需要修复。\n2. 如果目标文本本来就是说明文、报告、教程、产品文案，且该语体服务于内容，可以保留。\n3. 如果语体变化来自人物设定、讽刺、引用或刻意模仿，可以保留。\n\n请分析上下文，给出修复或保留的判断和理由。"
+    },
+    "action": {
+      "type": "suggest",
+      "message": "把语气改回文本体裁、叙述视角或人物声音。"
+    },
+    "examples": [
+      {
+        "bad": "她攥紧门把手。这个动作反映了她面对压力时的回避倾向。",
+        "reason": "小说叙述突然切换成分析报告语气。"
+      },
+      {
+        "bad": "缓存失效通常来自过期策略、主动清理和写入竞争。",
+        "good": "保留",
+        "reason": "技术文档中的直接说明，语体匹配。"
+      }
+    ]
+  },
+  {
+    "id": "monotone-rhythm",
+    "namespace": "rhythm",
+    "title": "节奏单调",
+    "level": "medium",
+    "note": "连续句子或段落使用相近长度、相同结构、相同收束方式，读起来像模板。",
+    "detector": {
+      "type": "llm",
+      "prompt": "判断文本是否因为连续句式、句长、段尾收束方式过于相似而显得机械。\n\n判断标准：\n1. 如果连续三句以上使用相近结构或长度，且不是诗性重复、角色口吻或刻意修辞，应标记为需要修复。\n2. 如果每段都用短促总结、抽象拔高或类似句式收尾，应标记为需要修复。\n3. 如果重复服务于节奏、人物心理、诗性回环或论证清晰，可以保留。\n\n请指出重复模式，并建议通过长短句混合、拆并句、改变段尾方式来修复。"
+    },
+    "action": {
+      "type": "suggest",
+      "message": "通过长短句混合、拆并句、改变段尾方式来修复。"
+    },
+    "examples": [
+      {
+        "bad": "她推开门。她看见灯。她听见雨。她停在原地。",
+        "reason": "连续短句结构重复，如果不是刻意节奏会显得机械。"
+      },
+      {
+        "bad": "他等。她也等。门外的雨替他们说完了剩下的话。",
+        "good": "保留",
+        "reason": "短句重复服务于停滞气氛。"
+      }
+    ]
+  },
+  {
+    "id": "over-explaining-reader",
+    "namespace": "explanation.over",
+    "title": "过度解释",
+    "level": "medium",
+    "note": "文本反复说明读者已经能从事实、动作或上下文中推断出的意思。",
+    "detector": {
+      "type": "llm",
+      "prompt": "判断文本是否替读者解释了已经能从动作、事实或上下文中推断出的内容。\n\n判断标准：\n1. 如果一句话只是解释上一句已经表达清楚的情绪、因果或意义，应标记为需要修复。\n2. 如果解释提供了新信息、关键约束或必要背景，可以保留。\n3. 小说文本中，优先用动作、感官、对话承载情绪；说明文中，必要解释可以保留。\n\n请标出可删除或可压缩的解释，并说明删除后是否损失信息。"
+    },
+    "action": {
+      "type": "suggest",
+      "message": "删除或压缩读者已经能推断出的解释，保留新信息和必要约束。"
+    },
+    "examples": [
+      {
+        "bad": "他离开了房间。这说明他已经不想继续谈下去了，也意味着这段关系出现了裂痕。",
+        "reason": "后一句替读者解释动作含义，且没有提供新信息。"
+      },
+      {
+        "bad": "他离开房间，因为楼下的消防铃响了。",
+        "good": "保留",
+        "reason": "解释提供了新的因果信息。"
+      }
+    ]
+  },
+  {
+    "id": "low-specificity",
+    "namespace": "specificity.low",
+    "title": "缺少具体信息",
+    "level": "medium",
+    "note": "句子有判断或评价，但缺少事实、行动、对象、时间、结果。",
+    "detector": {
+      "type": "llm",
+      "prompt": "判断文本是否用抽象判断替代了具体信息。\n\n判断标准：\n1. 如果句子说某事重要、有效、复杂、深刻，却没有说明对象、动作、数字、结果或可观察变化，应标记为需要修复。\n2. 如果抽象判断前后已经有足够具体证据，可以保留或轻微压缩。\n3. 如果文本是诗性表达或角色感受，可以保留抽象，但应确认它是否服务于声音和节奏。\n\n请指出缺少的具体信息类型，并给出更具体的改写方向。"
+    },
+    "action": {
+      "type": "suggest",
+      "message": "补充事实、行动、对象、时间、数字、结果或可观察变化。"
+    },
+    "examples": [
+      {
+        "bad": "这个方案具有很强的可执行性。",
+        "reason": "只有评价，没有说明为什么可执行。"
+      },
+      {
+        "bad": "这个方案只需要改两张表，不碰收款代码。",
+        "good": "保留",
+        "reason": "给出了可执行性的具体理由。"
+      }
+    ]
+  },
+  {
+    "id": "hidden-actor",
+    "namespace": "actor.hidden",
+    "title": "隐藏行动者",
+    "level": "medium",
+    "note": "抽象名词、系统或事物承担人类动作，隐藏了真正做决定或采取行动的人。",
+    "detector": {
+      "type": "llm",
+      "prompt": "判断句子是否让抽象名词或事物承担了本应由人完成的动作。\n\n判断标准：\n1. 如果句子写“决定浮现”“文化改变”“数据告诉我们”“局面推动了...”，但没有说明谁判断、谁决定、谁行动，应标记为需要修复。\n2. 如果无生命主语只是普通比喻，且不影响清晰度，可以保留。\n3. 如果具体行动者未知，可以改成更诚实的表达，而不是强行编造主体。\n\n请优先建议把人、团队、角色或具体机制放回主语位置。"
+    },
+    "action": {
+      "type": "suggest",
+      "message": "把真正判断、决定或行动的人、团队、角色或机制放回主语位置。"
+    },
+    "examples": [
+      {
+        "bad": "决策逐渐浮现，团队文化发生转变。",
+        "reason": "句子隐藏了谁决定、谁改变行为。"
+      },
+      {
+        "bad": "夜色压下来，他终于开口。",
+        "good": "保留",
+        "reason": "这是文学化环境描写，不是逃避行动者。"
+      }
+    ]
+  },
+  {
+    "id": "quotable-punchline",
+    "namespace": "punchline",
+    "title": "金句感",
+    "level": "low",
+    "note": "句子像社交媒体摘录、标语或段尾 punchline，但没有推动信息。",
+    "detector": {
+      "type": "llm",
+      "prompt": "判断句子是否为了显得有洞察而写成可摘录的金句，却没有承担事实、动作、情绪推进或论证功能。\n\n判断标准：\n1. 如果句子删掉后信息不变，并且主要靠对仗、反转、抽象名词或漂亮收束制造效果，应标记为需要修复。\n2. 如果它确实压缩了前文的具体洞察，或是角色语言、标题、口号场景，可以保留。\n3. 不要只因为一句话好听就标记；关键看它是否替代了内容。\n\n请说明它承担了什么信息，或为什么只是姿态。"
+    },
+    "action": {
+      "type": "suggest",
+      "message": "用具体动作、事实、结果、情绪推进或论证功能替代姿态式收束。"
+    },
+    "examples": [
+      {
+        "bad": "每一次沉默，都会在时间深处开出答案。",
+        "reason": "抽象且像可摘录的标语，没有提供具体情节或判断。"
+      },
+      {
+        "bad": "她第二天又来了，这次带着账本。",
+        "good": "保留",
+        "reason": "具体动作推进了故事。"
+      }
+    ]
+  },
+  {
+    "id": "mechanical-elevation-ending",
+    "namespace": "ending.elevation",
+    "title": "段尾机械升华",
+    "level": "medium",
+    "note": "段落结尾频繁拔高主题、总结意义或抛出愿景，替代具体推进。",
+    "detector": {
+      "type": "llm",
+      "prompt": "判断文本是否在多个段尾反复使用抽象拔高、愿景、价值判断或主题升华。\n\n判断标准：\n1. 如果每段结尾都升到“意义、可能、未来、成长、时代、价值”等抽象层，且没有新信息，应标记为需要修复。\n2. 如果升华是全文关键收束，且前文已有具体事实支撑，可以保留。\n3. 小说中，如果升华替代了人物动作、环境反馈或冲突推进，应标记为需要修复。\n\n请指出重复的段尾模式，并建议改成具体结果、动作、感官细节或明确判断。"
+    },
+    "action": {
+      "type": "suggest",
+      "message": "把段尾改成具体结果、动作、感官细节或明确判断。"
+    },
+    "examples": [
+      {
+        "bad": "会议结束后，白板上的三行字还没擦掉。那个夜晚仿佛给团队打开了新的未来。",
+        "reason": "段尾从具体会议突然升到抽象未来。"
+      },
+      {
+        "bad": "他把辞职信放进抽屉，锁上了。",
+        "good": "保留",
+        "reason": "具体动作完成段落收束。"
+      }
+    ]
+  },
+  {
+    "id": "cn.action-expression.calm-voice-shell",
+    "namespace": "action-expression",
+    "title": "动作与神态",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "action-expression\t\t(?:声音依旧|很)?平稳(?:与|，)?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:声音依旧|很)?平稳(?:与|，)?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.action-expression.explicit-teasing-tone",
+    "namespace": "action-expression",
+    "title": "动作与神态",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "action-expression\t\t却?带有?明显的?戏谑",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "却?带有?明显的?戏谑"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.action-expression.flat-tone-shell",
+    "namespace": "action-expression",
+    "title": "动作与神态",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "action-expression\t\t(?:用平淡的语气|语气平淡地)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:用平淡的语气|语气平淡地)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.action-expression.force-white-knuckle",
+    "namespace": "action-expression",
+    "title": "动作与神态",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "action-expression\t\t因为用力而泛白",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "因为用力而泛白"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "用力"
+      ]
+    }
+  },
+  {
+    "id": "cn.action-expression.mouth-corner-arc",
+    "namespace": "action-expression",
+    "title": "动作与神态",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "action-expression\t\t(?:嘴|唇)角(?:弯出|翘起|扯出|勾起)一?个(?:好看的|没有温度的|的)?弧度",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:嘴|唇)角(?:弯出|翘起|扯出|勾起)一?个(?:好看的|没有温度的|的)?弧度"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "嘴唇上扬"
+      ]
+    }
+  },
+  {
+    "id": "cn.action-expression.mouth-corner-hook",
+    "namespace": "action-expression",
+    "title": "动作与神态",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "action-expression\t\t嘴角勾",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "嘴角勾"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "嘴唇上扬"
+      ]
+    }
+  },
+  {
+    "id": "cn.action-expression.rough-manner-modifier",
+    "namespace": "action-expression",
+    "title": "动作与神态",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "action-expression\t\t(?:粗重|粗暴|疯狂)(?:的|地)?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:粗重|粗暴|疯狂)(?:的|地)?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.action-expression.scream-to-whimper",
+    "namespace": "action-expression",
+    "title": "动作与神态",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "action-expression\t\t尖叫",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "尖叫"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "呜咽"
+      ]
+    }
+  },
+  {
+    "id": "cn.action-expression.teasing-attitude-shell",
+    "namespace": "action-expression",
+    "title": "动作与神态",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "action-expression\t\t(?:以|用)?戏谑的态度",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:以|用)?戏谑的态度"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.action-expression.teasing-modifier",
+    "namespace": "action-expression",
+    "title": "动作与神态",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "action-expression\t\t的?戏谑(?:的|地)?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "的?戏谑(?:的|地)?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.action-expression.tightly-clenched",
+    "namespace": "action-expression",
+    "title": "动作与神态",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "action-expression\t\t绞得紧紧的",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "绞得紧紧的"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "绞紧"
+      ]
+    }
+  },
+  {
+    "id": "cn.causal.due-to.due-to-filler",
+    "namespace": "causal.due-to",
+    "title": "由于删除",
+    "level": "medium",
+    "enabled": false,
+    "source": {
+      "canonicalKey": "causal.due-to\t\t由于(?:的|地|得)?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "由于(?:的|地|得)?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.awkward-fit-judgment",
+    "namespace": "cliche",
+    "title": "弱化抽象评断词",
+    "level": "medium",
+    "enabled": true,
+    "note": "弱化抽象评断词",
+    "source": {
+      "canonicalKey": "cliche\t\t格格不入",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "格格不入"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "不合拍"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.baguwen.amazing-possibility-modifier",
+    "namespace": "cliche.baguwen",
+    "title": "八股句式/短语删除",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.baguwen\t\t可能惊人的",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "可能惊人的"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.baguwen.death-grip-adverb",
+    "namespace": "cliche.baguwen",
+    "title": "八股句式/短语删除",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.baguwen\t\t得死死的",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "得死死的"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.baguwen.dialogue-colon-to-comma",
+    "namespace": "cliche.baguwen",
+    "title": "八股句式/短语删除",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.baguwen\t\t：“",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "：“"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "，“"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.baguwen.driftwood-metaphor",
+    "namespace": "cliche.baguwen",
+    "title": "八股句式/短语删除",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.baguwen\t\t，?仿佛那是一根救命的浮木",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "，?仿佛那是一根救命的浮木"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.baguwen.even-is",
+    "namespace": "cliche.baguwen",
+    "title": "八股句式/短语删除",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.baguwen\t\t甚至是",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "甚至是"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.baguwen.extreme-degree",
+    "namespace": "cliche.baguwen",
+    "title": "八股句式/短语删除",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.baguwen\t\t到了极致",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "到了极致"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.baguwen.inertia-cause",
+    "namespace": "cliche.baguwen",
+    "title": "八股句式/短语删除",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.baguwen\t\t因为惯性",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "因为惯性"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.baguwen.irrefutable-tone-colon",
+    "namespace": "cliche.baguwen",
+    "title": "八股句式/短语删除",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.baguwen\t\t语气不容置喙：",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "语气不容置喙："
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.baguwen.irresistible-but",
+    "namespace": "cliche.baguwen",
+    "title": "八股句式/短语删除",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.baguwen\t\t但不可抗拒",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "但不可抗拒"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.baguwen.point-reference",
+    "namespace": "cliche.baguwen",
+    "title": "八股句式/短语删除",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.baguwen\t\t(?:了|这)一点",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:了|这)一点"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.baguwen.shell-noun",
+    "namespace": "cliche.baguwen",
+    "title": "八股句式/短语删除",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.baguwen\t\t外壳",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "外壳"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.baguwen.sudden-moment",
+    "namespace": "cliche.baguwen",
+    "title": "八股句式/短语删除",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.baguwen\t\t(?:突|忽)然间?，?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:突|忽)然间?，?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.baguwen.taut-neck",
+    "namespace": "cliche.baguwen",
+    "title": "八股句式/短语删除",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.baguwen\t\t(?:脖颈绷|板)得紧紧的",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:脖颈绷|板)得紧紧的"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.baguwen.unquestionable-claim",
+    "namespace": "cliche.baguwen",
+    "title": "八股句式/短语删除",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.baguwen\t\t(?:与|却)?不容置疑",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:与|却)?不容置疑"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.baguwen.vague-amount-noun",
+    "namespace": "cliche.baguwen",
+    "title": "八股句式/短语删除",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.baguwen\t\t(?:一|那)股子?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:一|那)股子?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.baguwen.white-knuckles",
+    "namespace": "cliche.baguwen",
+    "title": "八股句式/短语删除",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.baguwen\t\t，?手指泛白",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "，?手指泛白"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.blank-face",
+    "namespace": "cliche",
+    "title": "弱化模板化面部描写",
+    "level": "medium",
+    "enabled": true,
+    "note": "弱化模板化面部描写",
+    "source": {
+      "canonicalKey": "cliche\t\t面无表情",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "面无表情"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "没什么表情"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.body-reaction.controlling-gaze",
+    "namespace": "cliche.body-reaction",
+    "title": "嘴角与生理泪水",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.body-reaction\t\t(?:探究|审视|掌控)(?:着)?(?:的|地)?(?:目光|眼神)?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:探究|审视|掌控)(?:着)?(?:的|地)?(?:目光|眼神)?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "打量"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.body-reaction.mouth-corner-lift-arc",
+    "namespace": "cliche.body-reaction",
+    "title": "嘴角与生理泪水",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.body-reaction\t\t(?:嘴|唇)角挑起(?:了)?一(?:抹|丝|个)\\*(?:弧度|笑意)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:嘴|唇)角挑起(?:了)?一(?:抹|丝|个)\\*(?:弧度|笑意)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "唇角微扬",
+        "浅浅勾唇",
+        "眼尾弯了",
+        "唇边漾起浅浅的笑意",
+        "唇角悄然上扬"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.body-reaction.mouth-corner-smile-arc",
+    "namespace": "cliche.body-reaction",
+    "title": "嘴角与生理泪水",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.body-reaction\t\t(?:嘴|唇)角勾起(?:了)?一(?:抹|丝|个)\\*(?:弧度|笑意)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:嘴|唇)角勾起(?:了)?一(?:抹|丝|个)\\*(?:弧度|笑意)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "浅笑了一下",
+        "微微一笑",
+        "莞尔一笑",
+        "抿唇轻笑",
+        "唇角微扬",
+        "浅浅勾唇",
+        "眼尾弯了弯，唇边漾起浅浅的笑意",
+        "唇角悄然上扬",
+        "眉眼柔和，嘴角微微提起"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.body-reaction.physiological-tears",
+    "namespace": "cliche.body-reaction",
+    "title": "嘴角与生理泪水",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.body-reaction\t\t生理泪水",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "生理泪水"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "泪水"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.body-reaction.smile-arc-comma-marked",
+    "namespace": "cliche.body-reaction",
+    "title": "嘴角与生理泪水",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.body-reaction\t\t(?:唇|嘴)角\\*，\\*(?:弧度|笑意)\\*(?:，|。)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:唇|嘴)角\\*，\\*(?:弧度|笑意)\\*(?:，|。)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "唇角微扬。",
+        "浅浅勾唇。",
+        "眼尾弯了弯, 唇边漾起浅浅的笑意。",
+        "唇角悄然上扬。"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.body-reaction.smile-arc-marked",
+    "namespace": "cliche.body-reaction",
+    "title": "嘴角与生理泪水",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "cliche.body-reaction\t\t(?:唇|嘴)角\\*(?:弧度|笑意)\\*(?:，|。)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:唇|嘴)角\\*(?:弧度|笑意)\\*(?:，|。)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "唇角微扬。",
+        "浅浅勾唇。",
+        "眼尾弯了弯, 唇边漾起浅浅的笑意。",
+        "唇角悄然上扬。"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.chest-rise",
+    "namespace": "cliche",
+    "title": "删身体局部糖精特写",
+    "level": "medium",
+    "enabled": true,
+    "note": "删身体局部糖精特写",
+    "source": {
+      "canonicalKey": "cliche\t\t胸腔起伏",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "胸腔起伏"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.chest-vibration",
+    "namespace": "cliche",
+    "title": "删身体局部糖精特写",
+    "level": "medium",
+    "enabled": true,
+    "note": "删身体局部糖精特写",
+    "source": {
+      "canonicalKey": "cliche\t\t胸膛震动",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "胸膛震动"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.cold-touch-shell",
+    "namespace": "cliche",
+    "title": "删触感模板壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删触感模板壳",
+    "source": {
+      "canonicalKey": "cliche\t\t冰凉的触感",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "冰凉的触感"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.contrast-summary",
+    "namespace": "cliche",
+    "title": "缩短总结式对比句",
+    "level": "medium",
+    "enabled": true,
+    "note": "缩短总结式对比句",
+    "source": {
+      "canonicalKey": "cliche\t\t形成鲜明对比",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "形成鲜明对比"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "反差很大"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.cup-collision",
+    "namespace": "cliche",
+    "title": "删接触音效细节",
+    "level": "medium",
+    "enabled": true,
+    "note": "删接触音效细节",
+    "source": {
+      "canonicalKey": "cliche\t\t杯子碰撞",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "杯子碰撞"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.direct-mouth-arc",
+    "namespace": "cliche",
+    "title": "嘴角弧度改成直接动作",
+    "level": "medium",
+    "enabled": true,
+    "note": "嘴角弧度改成直接动作",
+    "source": {
+      "canonicalKey": "cliche\t\t(?:^|[，,])(?:嘴角|唇角)(?:轻轻|微微|缓缓)?(?:勾起|扬起|牵起)(?:一抹|一点|些微)?弧度(?=。)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:^|[，,])(?:嘴角|唇角)(?:轻轻|微微|缓缓)?(?:勾起|扬起|牵起)(?:一抹|一点|些微)?弧度(?=。)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "笑了一下"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.drained-face",
+    "namespace": "cliche",
+    "title": "弱化模板化面色描写",
+    "level": "medium",
+    "enabled": true,
+    "note": "弱化模板化面色描写",
+    "source": {
+      "canonicalKey": "cliche\t\t面色尽失",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "面色尽失"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "脸色发白"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.gaze-emotion-container",
+    "namespace": "cliche",
+    "title": "删眼神情绪总结壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删眼神情绪总结壳",
+    "source": {
+      "canonicalKey": "cliche\t\t(?:眼神|眼底|眼中)(?:里)?(?:带着|满是|透着)[\\u4e00-\\u9fff]{1,8}(?=[，,。])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:眼神|眼底|眼中)(?:里)?(?:带着|满是|透着)[\\u4e00-\\u9fff]{1,8}(?=[，,。])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.hand-appearance-shell",
+    "namespace": "cliche",
+    "title": "删手部外观修饰壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删手部外观修饰壳",
+    "source": {
+      "canonicalKey": "cliche\t\t骨节分明的",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "骨节分明的"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.hand-color-clause",
+    "namespace": "cliche",
+    "title": "删除句子中各处分句",
+    "level": "medium",
+    "enabled": true,
+    "note": "删除句子中各处分句",
+    "source": {
+      "canonicalKey": "cliche\t\t[,，。](?:手指|骨节|指[尖节甲骨]|指关节)[\\u4e00-\\u9fff、]+(?:白了?|[白青血颜]色)(?=[,，。]|[,，:：][“「\"])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "[,，。](?:手指|骨节|指[尖节甲骨]|指关节)[\\u4e00-\\u9fff、]+(?:白了?|[白青血颜]色)(?=[,，。]|[,，:：][“「\"])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.hand-whitening-detail",
+    "namespace": "cliche",
+    "title": "删手部泛白特写",
+    "level": "medium",
+    "enabled": true,
+    "note": "删手部泛白特写",
+    "source": {
+      "canonicalKey": "cliche\t\t[,，](?:手指|骨节|指[尖节甲]|指关节)[\\u4e00-\\u9fff]{1,20}(?:白|[白青血颜]色)(?=[,，。])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "[,，](?:手指|骨节|指[尖节甲]|指关节)[\\u4e00-\\u9fff]{1,20}(?:白|[白青血颜]色)(?=[,，。])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.knuckle-crack",
+    "namespace": "cliche",
+    "title": "删身体局部糖精特写",
+    "level": "medium",
+    "enabled": true,
+    "note": "删身体局部糖精特写",
+    "source": {
+      "canonicalKey": "cliche\t\t骨节作响",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "骨节作响"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.mid-sentence-summary",
+    "namespace": "cliche",
+    "title": "删句中总结腔",
+    "level": "medium",
+    "enabled": true,
+    "note": "删句中总结腔",
+    "source": {
+      "canonicalKey": "cliche\t\t取而代之的[,，]?是|[，,](?:带着|[尾声]音|语[气调])[\\u4e00-\\u9fff]*(?=。)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "取而代之的[,，]?是|[，,](?:带着|[尾声]音|语[气调])[\\u4e00-\\u9fff]*(?=。)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.mouth-corner-arc-cliche",
+    "namespace": "cliche",
+    "title": "删嘴角弧度套话",
+    "level": "medium",
+    "enabled": true,
+    "note": "删嘴角弧度套话",
+    "source": {
+      "canonicalKey": "cliche\t\t[,，]嘴[角唇][\\u4e00-\\u9fff、]{1,20}弧度(?=。)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "[,，]嘴[角唇][\\u4e00-\\u9fff、]{1,20}弧度(?=。)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.personified-telling",
+    "namespace": "cliche",
+    "title": "弱化拟人化元叙述",
+    "level": "medium",
+    "enabled": true,
+    "note": "弱化拟人化元叙述",
+    "source": {
+      "canonicalKey": "cliche\t\t都在诉说着",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "都在诉说着"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "都显出"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.personified-telling-short",
+    "namespace": "cliche",
+    "title": "弱化拟人化元叙述",
+    "level": "medium",
+    "enabled": true,
+    "note": "弱化拟人化元叙述",
+    "source": {
+      "canonicalKey": "cliche\t\t都在诉说",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "都在诉说"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "都显出"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.quote-meta-as-if",
+    "namespace": "cliche",
+    "title": "弱化引语元叙述壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "弱化引语元叙述壳",
+    "source": {
+      "canonicalKey": "cliche\t\t仿佛在说",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "仿佛在说"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "在说"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.quote-meta-like",
+    "namespace": "cliche",
+    "title": "弱化引语元叙述壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "弱化引语元叙述壳",
+    "source": {
+      "canonicalKey": "cliche\t\t像是在说",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "像是在说"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "在说"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.quote-meta-seems",
+    "namespace": "cliche",
+    "title": "弱化引语元叙述壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "弱化引语元叙述壳",
+    "source": {
+      "canonicalKey": "cliche\t\t好像在说",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "好像在说"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "在说"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.rough-fingertip-touch",
+    "namespace": "cliche",
+    "title": "删触感模板壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删触感模板壳",
+    "source": {
+      "canonicalKey": "cliche\t\t粗糙的指腹",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "粗糙的指腹"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.table-cup-touch",
+    "namespace": "cliche",
+    "title": "删接触音效细节",
+    "level": "medium",
+    "enabled": true,
+    "note": "删接触音效细节",
+    "source": {
+      "canonicalKey": "cliche\t\t杯底触碰桌面",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "杯底触碰桌面"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.teeth-clenched-speech",
+    "namespace": "cliche",
+    "title": "弱化咬字方式模板",
+    "level": "medium",
+    "enabled": true,
+    "note": "弱化咬字方式模板",
+    "source": {
+      "canonicalKey": "cliche\t\t从牙缝里挤出",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "从牙缝里挤出"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "说出"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.teeth-pressed-speech",
+    "namespace": "cliche",
+    "title": "弱化咬字方式模板",
+    "level": "medium",
+    "enabled": true,
+    "note": "弱化咬字方式模板",
+    "source": {
+      "canonicalKey": "cliche\t\t从齿间挤出",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "从齿间挤出"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "说出"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.throat-roll",
+    "namespace": "cliche",
+    "title": "删身体局部糖精特写",
+    "level": "medium",
+    "enabled": true,
+    "note": "删身体局部糖精特写",
+    "source": {
+      "canonicalKey": "cliche\t\t喉咙滚出",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "喉咙滚出"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.tongue-roll",
+    "namespace": "cliche",
+    "title": "删身体局部糖精特写",
+    "level": "medium",
+    "enabled": true,
+    "note": "删身体局部糖精特写",
+    "source": {
+      "canonicalKey": "cliche\t\t舌尖滚过",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "舌尖滚过"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.trailing-callus-clause",
+    "namespace": "cliche",
+    "title": "只删末尾或对话前置分句",
+    "level": "medium",
+    "enabled": true,
+    "note": "只删末尾或对话前置分句",
+    "source": {
+      "canonicalKey": "cliche\t\t[,，。][\\u4e00-\\u9fff、]+茧子?(?=。|[,，:：][“「\"])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "[,，。][\\u4e00-\\u9fff、]+茧子?(?=。|[,，:：][“「\"])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.trailing-mouth-arc-clause",
+    "namespace": "cliche",
+    "title": "只删末尾或对话前置分句",
+    "level": "medium",
+    "enabled": true,
+    "note": "只删末尾或对话前置分句",
+    "source": {
+      "canonicalKey": "cliche\t\t[,，](?:嘴角|勾)[\\u4e00-\\u9fff、]+弧度(?=。|[,，:：][“「\"])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "[,，](?:嘴角|勾)[\\u4e00-\\u9fff、]+弧度(?=。|[,，:：][“「\"])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.trailing-sensory-clause",
+    "namespace": "cliche",
+    "title": "只删末尾或对话前置分句",
+    "level": "medium",
+    "enabled": true,
+    "note": "只删末尾或对话前置分句",
+    "source": {
+      "canonicalKey": "cliche\t\t[,，。](?:带着|展现|喉咙|指甲|[尾声]音|语[气调])[\\u4e00-\\u9fff、]+(?=。|[,，:：][“「\"])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "[,，。](?:带着|展现|喉咙|指甲|[尾声]音|语[气调])[\\u4e00-\\u9fff、]+(?=。|[,，:：][“「\"])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.trailing-sound-clause",
+    "namespace": "cliche",
+    "title": "只删末尾或对话前置分句",
+    "level": "medium",
+    "enabled": true,
+    "note": "只删末尾或对话前置分句",
+    "source": {
+      "canonicalKey": "cliche\t\t[,，]发出[\\u4e00-\\u9fff“”\"、]+[声音响](?=。|[,，:：][“「\"])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "[,，]发出[\\u4e00-\\u9fff“”\"、]+[声音响](?=。|[,，:：][“「\"])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.trained-instinct",
+    "namespace": "cliche",
+    "title": "删机械化修饰",
+    "level": "medium",
+    "enabled": true,
+    "note": "删机械化修饰",
+    "source": {
+      "canonicalKey": "cliche\t\t训练有素的本能",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "训练有素的本能"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "本能"
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.vague-transition-phrase",
+    "namespace": "cliche",
+    "title": "删特定词汇或短语",
+    "level": "medium",
+    "enabled": true,
+    "note": "删特定词汇或短语",
+    "source": {
+      "canonicalKey": "cliche\t\t(?<!套)近乎于?|取而代之的[,，]?是",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<!套)近乎于?|取而代之的[,，]?是"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.voice-emotion-container",
+    "namespace": "cliche",
+    "title": "删声音状态容器壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删声音状态容器壳",
+    "source": {
+      "canonicalKey": "cliche\t\t(?:声音|语气|语调)里(?:带着|满是|透着)[\\u4e00-\\u9fff]{1,8}(?=[，,。])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:声音|语气|语调)里(?:带着|满是|透着)[\\u4e00-\\u9fff]{1,8}(?=[，,。])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.voice-evaluation-abrupt",
+    "namespace": "cliche",
+    "title": "删声音评价壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删声音评价壳",
+    "source": {
+      "canonicalKey": "cliche\t\t声音格外突兀",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "声音格外突兀"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.voice-evaluation-clear",
+    "namespace": "cliche",
+    "title": "删声音评价壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删声音评价壳",
+    "source": {
+      "canonicalKey": "cliche\t\t声音格外清晰",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "声音格外清晰"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.voice-travel-shell",
+    "namespace": "cliche",
+    "title": "删声音传递过程壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删声音传递过程壳",
+    "source": {
+      "canonicalKey": "cliche\t\t(?:(?:声音|话音|嗓音)[\\u4e00-\\u9fff]{0,4}回荡|(?:声音|话音|嗓音)(?:贴着|顺着)[\\u4e00-\\u9fff]{0,6}传来)(?=[，,。])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:(?:声音|话音|嗓音)[\\u4e00-\\u9fff]{0,4}回荡|(?:声音|话音|嗓音)(?:贴着|顺着)[\\u4e00-\\u9fff]{0,6}传来)(?=[，,。])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.warm-palm-touch",
+    "namespace": "cliche",
+    "title": "删触感模板壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删触感模板壳",
+    "source": {
+      "canonicalKey": "cliche\t\t掌心干燥温热",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "掌心干燥温热"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.cliche.words-chewing",
+    "namespace": "cliche",
+    "title": "删身体局部糖精特写",
+    "level": "medium",
+    "enabled": true,
+    "note": "删身体局部糖精特写",
+    "source": {
+      "canonicalKey": "cliche\t\t咀嚼字句",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "咀嚼字句"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.collection.deepseek.decompose-to-understand",
+    "namespace": "collection.deepseek",
+    "title": "合集 3",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "collection.deepseek\t\t拆解",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "拆解"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "理解"
+      ]
+    }
+  },
+  {
+    "id": "cn.color-description.crisp-voice-ideophone",
+    "namespace": "color-description",
+    "title": "颜色描写",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "color-description\t\t脆生生",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "脆生生"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "甜甜",
+        "奶声奶气",
+        "稚嫩",
+        "软糯",
+        "娇憨"
+      ]
+    }
+  },
+  {
+    "id": "cn.color-description.glans-purple-color",
+    "namespace": "color-description",
+    "title": "颜色描写",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "color-description\t\t龟头泛着(?:紫红|紫黑|红紫|暗红)色?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "龟头泛着(?:紫红|紫黑|红紫|暗红)色?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.color-description.pale-color-ideophone",
+    "namespace": "color-description",
+    "title": "颜色描写",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "color-description\t\t白花花",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "白花花"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "白皙",
+        "雪白",
+        "白净",
+        "莹白",
+        "白嫩",
+        "软白",
+        "凝脂般",
+        "光洁",
+        "粉白",
+        "嫩白",
+        "奶白",
+        "粉嫩",
+        "洁白",
+        "白润"
+      ]
+    }
+  },
+  {
+    "id": "cn.color-description.purple-dark-color-modifier",
+    "namespace": "color-description",
+    "title": "颜色描写",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "color-description\t\t(?:深紫|紫红|紫黑|红紫|暗红|发黑|发紫)色?的?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:深紫|紫红|紫黑|红紫|暗红|发黑|发紫)色?的?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.color-description.purple-red-color-result",
+    "namespace": "color-description",
+    "title": "颜色描写",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "color-description\t\t成(?:紫红|紫黑|红紫|暗红)色",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "成(?:紫红|紫黑|红紫|暗红)色"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "起"
+      ]
+    }
+  },
+  {
+    "id": "cn.color-description.white-fresh-ideophone",
+    "namespace": "color-description",
+    "title": "颜色描写",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "color-description\t\t白生生",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "白生生"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "白皙",
+        "雪白",
+        "白净",
+        "莹白",
+        "白嫩",
+        "软白",
+        "凝脂般",
+        "光洁",
+        "粉白",
+        "嫩白",
+        "奶白",
+        "粉嫩",
+        "洁白",
+        "白润"
+      ]
+    }
+  },
+  {
+    "id": "cn.contrast.binary.binary-contrast-comma",
+    "namespace": "contrast.binary",
+    "title": "不是而是",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "contrast.binary\t\t(?:，|。)\\*(?:既不是|是|不是)\\*，(?:是|不是|而是|只是)\\*，",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:，|。)\\*(?:既不是|是|不是)\\*，(?:是|不是|而是|只是)\\*，"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.contrast.binary.binary-contrast-period",
+    "namespace": "contrast.binary",
+    "title": "不是而是",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "contrast.binary\t\t(?:，|。)\\*(?:既不是|是|不是)\\*，(?:是|不是|而是|只是)\\*。",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:，|。)\\*(?:既不是|是|不是)\\*，(?:是|不是|而是|只是)\\*。"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.big-joke-simile",
+    "namespace": "metaphor",
+    "title": "删假想情境比喻",
+    "level": "medium",
+    "enabled": true,
+    "note": "删假想情境比喻",
+    "source": {
+      "canonicalKey": "metaphor\t\t像是听到了什么天大的笑话",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "像是听到了什么天大的笑话"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.comparison-preface",
+    "namespace": "metaphor",
+    "title": "删参照对比前半句",
+    "level": "medium",
+    "enabled": true,
+    "note": "删参照对比前半句",
+    "source": {
+      "canonicalKey": "metaphor\t\t不像[\\u4e00-\\u9fff，、“”‘’]{1,12}[，,]倒像",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "不像[\\u4e00-\\u9fff，、“”‘’]{1,12}[，,]倒像"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "像"
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.drained-strength-simile",
+    "namespace": "metaphor",
+    "title": "缩短抽空感比喻",
+    "level": "medium",
+    "enabled": true,
+    "note": "缩短抽空感比喻",
+    "source": {
+      "canonicalKey": "metaphor\t\t像被抽干了力气",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "像被抽干了力气"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "没了力气"
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.inserted-simile-shell",
+    "namespace": "metaphor",
+    "title": "删插入式比喻壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删插入式比喻壳",
+    "source": {
+      "canonicalKey": "metaphor\t\t(?<=[\\u4e00-\\u9fff，,])(?:[好就]?像|仿佛|如[若同]|[宛犹][如若])[\\u4e00-\\u9fff]{1,10}(?:似的|一?般|一样)[的，,]?(?=[\\u4e00-\\u9fff])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<=[\\u4e00-\\u9fff，,])(?:[好就]?像|仿佛|如[若同]|[宛犹][如若])[\\u4e00-\\u9fff]{1,10}(?:似的|一?般|一样)[的，,]?(?=[\\u4e00-\\u9fff])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.like.bare-like-placeholder",
+    "namespace": "metaphor.like",
+    "title": "像像像",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "metaphor.like\t\t(?:，|。)像\\*(?:。|，)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:，|。)像\\*(?:。|，)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "。"
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.like.double-like-is",
+    "namespace": "metaphor.like",
+    "title": "像像像",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "metaphor.like\t\t\\*像是\\*，\\*又像是\\*(?:，|。)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "\\*像是\\*，\\*又像是\\*(?:，|。)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "。"
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.like.double-seems-like",
+    "namespace": "metaphor.like",
+    "title": "像像像",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "metaphor.like\t\t(?:，|。)好像\\*，又好像\\*(?:。|，)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:，|。)好像\\*，又好像\\*(?:。|，)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "。"
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.like.like-doing",
+    "namespace": "metaphor.like",
+    "title": "像像像",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "metaphor.like\t\t(?:，|。)\\*像在\\*(?:。|，)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:，|。)\\*像在\\*(?:。|，)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "。"
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.like.like-is-doing",
+    "namespace": "metaphor.like",
+    "title": "像像像",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "metaphor.like\t\t(?:，|。)\\*像是在\\*(?:。|，)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:，|。)\\*像是在\\*(?:。|，)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "。"
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.like.like-is-placeholder",
+    "namespace": "metaphor.like",
+    "title": "像像像",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "metaphor.like\t\t(?:，|。)\\*像是\\*(?:。|，)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:，|。)\\*像是\\*(?:。|，)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "。"
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.like.unlike-but-like",
+    "namespace": "metaphor.like",
+    "title": "像像像",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "metaphor.like\t\t(?:，|。)不像\\*，倒像\\*(?:。|，)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:，|。)不像\\*，倒像\\*(?:。|，)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "。"
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.mind-ripple-metaphor",
+    "namespace": "metaphor",
+    "title": "涟漪类心理比喻改直述",
+    "level": "medium",
+    "enabled": true,
+    "note": "涟漪类心理比喻改直述",
+    "source": {
+      "canonicalKey": "metaphor\t\t(?:心湖|心海)(?:里|中)?(?:泛起|荡开|漾开|掀起)(?:层层|阵阵)?(?:涟漪|波澜)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:心湖|心海)(?:里|中)?(?:泛起|荡开|漾开|掀起)(?:层层|阵阵)?(?:涟漪|波澜)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "心里起了波动"
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.sentence-final-simile-tail",
+    "namespace": "metaphor",
+    "title": "删句尾整段比喻尾巴",
+    "level": "medium",
+    "enabled": true,
+    "note": "删句尾整段比喻尾巴",
+    "source": {
+      "canonicalKey": "metaphor\t\t(?:[，,](?:[好就]?像|仿佛|如[若同]|[宛犹][如若]))[\\u4e00-\\u9fff]*(?=。)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:[，,](?:[好就]?像|仿佛|如[若同]|[宛犹][如若]))[\\u4e00-\\u9fff]*(?=。)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.simile-modifier-shell",
+    "namespace": "metaphor",
+    "title": "删除特定比喻类修饰语",
+    "level": "medium",
+    "enabled": true,
+    "note": "删除特定比喻类修饰语",
+    "source": {
+      "canonicalKey": "metaphor\t\t(?<=[\\u4e00-\\u9fff,，])(?:如|仿佛|[好就]?像|[宛犹][如若])[\\u4e00-\\u9fff]{1,10}(?:似的|一样|一?般)[的地,，]?(?=[\\u4e00-\\u9fff])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<=[\\u4e00-\\u9fff,，])(?:如|仿佛|[好就]?像|[宛犹][如若])[\\u4e00-\\u9fff]{1,10}(?:似的|一样|一?般)[的地,，]?(?=[\\u4e00-\\u9fff])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.stone-water-metaphor",
+    "namespace": "metaphor",
+    "title": "投石入水比喻改成直接结果",
+    "level": "medium",
+    "enabled": true,
+    "note": "投石入水比喻改成直接结果",
+    "source": {
+      "canonicalKey": "metaphor\t\t(?:像|仿佛|如同)(?:一颗|一粒|一块)?(?:石子|石头|碎石|巨石)(?:投入|投进|抛入|扔进|落入|沉入)(?:了)?(?:平静的?)?(?:心湖|心海|湖面|水面)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:像|仿佛|如同)(?:一颗|一粒|一块)?(?:石子|石头|碎石|巨石)(?:投入|投进|抛入|扔进|落入|沉入)(?:了)?(?:平静的?)?(?:心湖|心海|湖面|水面)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "一下打破了平静"
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.trailing-simile-clause",
+    "namespace": "metaphor",
+    "title": "只删末尾或对话前置分句",
+    "level": "medium",
+    "enabled": true,
+    "note": "只删末尾或对话前置分句",
+    "source": {
+      "canonicalKey": "metaphor\t\t[,，。](?:[好就]?像|仿佛|如[若同]|[宛犹][如若])[\\u4e00-\\u9fff、]+(?=。|[,，:：][“「\"])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "[,，。](?:[好就]?像|仿佛|如[若同]|[宛犹][如若])[\\u4e00-\\u9fff、]+(?=。|[,，:：][“「\"])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.weather-talk-simile",
+    "namespace": "metaphor",
+    "title": "删天气式比喻壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删天气式比喻壳",
+    "source": {
+      "canonicalKey": "metaphor\t\t像在谈论今天的天气",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "像在谈论今天的天气"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.metaphor.whole-sentence-stone-simile",
+    "namespace": "metaphor",
+    "title": "整句删除投石变种比喻[选开]",
+    "level": "medium",
+    "enabled": true,
+    "note": "整句删除投石变种比喻[选开]",
+    "source": {
+      "canonicalKey": "metaphor\t\t(?<=^|[。!！?？][”」]?)[\\u4e00-\\u9fff,，、]*(?:像|仿佛|如[同若]|[犹宛][如若])[\\u4e00-\\u9fff,，、]*[投掉扔抛落沉丢砸][在到进入向下了][\\u4e00-\\u9fff,，、]*。",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<=^|[。!！?？][”」]?)[\\u4e00-\\u9fff,，、]*(?:像|仿佛|如[同若]|[犹宛][如若])[\\u4e00-\\u9fff,，、]*[投掉扔抛落沉丢砸][在到进入向下了][\\u4e00-\\u9fff,，、]*。"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.absolute-claim-modifier",
+    "namespace": "modifier",
+    "title": "必带“的/地”防误伤",
+    "level": "medium",
+    "enabled": true,
+    "note": "必带“的/地”防误伤",
+    "source": {
+      "canonicalKey": "modifier\t\t(?:不容|不可|无法|难以)(?:质疑|置疑|置喙|拒绝|抗拒|言喻|言明|言说|分说)(?:的|地)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:不容|不可|无法|难以)(?:质疑|置疑|置喙|拒绝|抗拒|言喻|言明|言说|分说)(?:的|地)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.absolute-judgment-modifier",
+    "namespace": "modifier",
+    "title": "形副词系",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "modifier\t\t(?:不容|不可|无法|难以)(?:质疑|置疑|置喙|拒绝|抗拒)(?:的|地)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:不容|不可|无法|难以)(?:质疑|置疑|置喙|拒绝|抗拒)(?:的|地)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.bare-degree-adverb",
+    "namespace": "modifier",
+    "title": "兼容不带“的/地”",
+    "level": "medium",
+    "enabled": true,
+    "note": "兼容不带“的/地”",
+    "source": {
+      "canonicalKey": "modifier\t\t(?:死死|紧紧|深深|浅浅|浓浓|稍稍|完全|彻底|[格分]外|[甚乃]至|[全突忽]然|极[其度致具]|[稍略轻微]微|[猛勐][的地]|[无下]意识|不自觉|习惯性)[的地]?(?=[\\u4e00-\\u9fff])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:死死|紧紧|深深|浅浅|浓浓|稍稍|完全|彻底|[格分]外|[甚乃]至|[全突忽]然|极[其度致具]|[稍略轻微]微|[猛勐][的地]|[无下]意识|不自觉|习惯性)[的地]?(?=[\\u4e00-\\u9fff])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.barely-perceptible-modifier",
+    "namespace": "modifier",
+    "title": "必带“的/地”防误伤",
+    "level": "medium",
+    "enabled": true,
+    "note": "必带“的/地”防误伤",
+    "source": {
+      "canonicalKey": "modifier\t\t(?:几不|微不)(?:可查|可察|可闻)(?:的|地)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:几不|微不)(?:可查|可察|可闻)(?:的|地)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.blurry-degree-description",
+    "namespace": "modifier",
+    "title": "删失焦程度描述",
+    "level": "medium",
+    "enabled": true,
+    "note": "删失焦程度描述",
+    "source": {
+      "canonicalKey": "modifier\t\t不轻不重",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "不轻不重"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.dull-optional",
+    "namespace": "modifier",
+    "title": "形副词[可选]",
+    "level": "medium",
+    "enabled": false,
+    "source": {
+      "canonicalKey": "modifier\t\t而?沉闷(?:的|地)?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "而?沉闷(?:的|地)?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.excessive-state-simile",
+    "namespace": "modifier",
+    "title": "必带“的/地”防误伤",
+    "level": "medium",
+    "enabled": true,
+    "note": "必带“的/地”防误伤",
+    "source": {
+      "canonicalKey": "modifier\t\t(?:谄媚|讨好|卑微|顺从|虔诚|狂热|屈辱|崩溃|绝望|病态|空洞|麻木|木讷|笨拙|僵硬|机械|灭顶|细若蚊蝇|细若蚊呐|毫无生气|不似人声|似有似无|若有若无|并不存在|不存在|铺天盖地|毁天灭地|狂风暴雨|暴风骤雨)般?(?:的|地)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:谄媚|讨好|卑微|顺从|虔诚|狂热|屈辱|崩溃|绝望|病态|空洞|麻木|木讷|笨拙|僵硬|机械|灭顶|细若蚊蝇|细若蚊呐|毫无生气|不似人声|似有似无|若有若无|并不存在|不存在|铺天盖地|毁天灭地|狂风暴雨|暴风骤雨)般?(?:的|地)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.extreme-sensory-simile",
+    "namespace": "modifier",
+    "title": "形副词系",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "modifier\t\t(?:惊人|灭顶|细若蚊蝇|细若蚊呐|不似人声|似有似无|若有若无|铺天盖地|毁天灭地|狂风暴雨|暴风骤雨)般?(?:的|地)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:惊人|灭顶|细若蚊蝇|细若蚊呐|不似人声|似有似无|若有若无|铺天盖地|毁天灭地|狂风暴雨|暴风骤雨)般?(?:的|地)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.extreme.extreme-adverb",
+    "namespace": "modifier.extreme",
+    "title": "极其删除",
+    "level": "medium",
+    "enabled": false,
+    "source": {
+      "canonicalKey": "modifier.extreme\t\t极其(?:的|地|得)?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "极其(?:的|地|得)?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "",
+        "非常",
+        "十分",
+        "特别",
+        "格外",
+        "很"
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.grandiose-simile-modifier",
+    "namespace": "modifier",
+    "title": "删夸张比附修饰",
+    "level": "medium",
+    "enabled": true,
+    "note": "删夸张比附修饰",
+    "source": {
+      "canonicalKey": "modifier\t\t(?:惊人|灭顶|细若蚊蝇|细若蚊呐|不似人声|似有似无|若有若无|并不存在|不存在|铺天盖地|毁天灭地|狂风暴雨|暴风骤雨)般?(?:的|地)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:惊人|灭顶|细若蚊蝇|细若蚊呐|不似人声|似有似无|若有若无|并不存在|不存在|铺天盖地|毁天灭地|狂风暴雨|暴风骤雨)般?(?:的|地)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.hard-to-notice-modifier",
+    "namespace": "modifier",
+    "title": "必带“的/地”防误伤",
+    "level": "medium",
+    "enabled": true,
+    "note": "必带“的/地”防误伤",
+    "source": {
+      "canonicalKey": "modifier\t\t(?:不可|不容|不易|无法|难以)(?:察觉|查觉|觉察|觉查|察察|查查)(?:的|地)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:不可|不容|不易|无法|难以)(?:察觉|查觉|觉察|觉查|察察|查查)(?:的|地)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.heavy-degree-shell",
+    "namespace": "modifier",
+    "title": "形副词系",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "modifier\t\t(?:显得格外)?沉甸甸(?:的|地)?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:显得格外)?沉甸甸(?:的|地)?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.hollow-state-modifier",
+    "namespace": "modifier",
+    "title": "形副词系",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "modifier\t\t(?:谄媚|讨好|虔诚|狂热|绝望|病态|空洞|麻木|木讷|笨拙|毫无生气)(?:的|地)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:谄媚|讨好|虔诚|狂热|绝望|病态|空洞|麻木|木讷|笨拙|毫无生气)(?:的|地)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.ineffable-absolute-modifier",
+    "namespace": "modifier",
+    "title": "形副词系",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "modifier\t\t(?:不容|无法)(?:言喻|言明|言说|分说)(?:的|地)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:不容|无法)(?:言喻|言明|言说|分说)(?:的|地)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.low-information-degree",
+    "namespace": "modifier",
+    "title": "删低信息程度壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删低信息程度壳",
+    "source": {
+      "canonicalKey": "modifier\t\t(?:一丝丝|极其|极度|极致|死死|紧紧|深深|浅浅|浓浓|稍稍|稍微|略微|轻微|微微|完全|彻底|格外|分外|甚至|乃至|全然|突然|忽然|猛的|猛地|勐的|勐地|近乎于|近乎|无意识|下意识|不自觉|习惯性)(?:的|地)?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:一丝丝|极其|极度|极致|死死|紧紧|深深|浅浅|浓浓|稍稍|稍微|略微|轻微|微微|完全|彻底|格外|分外|甚至|乃至|全然|突然|忽然|猛的|猛地|勐的|勐地|近乎于|近乎|无意识|下意识|不自觉|习惯性)(?:的|地)?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.measure.empty-measure-word",
+    "namespace": "modifier.measure",
+    "title": "删空泛量词壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删空泛量词壳",
+    "source": {
+      "canonicalKey": "modifier.measure\t\t一丝(?!不[挂苟])|(?<=[这那着被是以用有了和出起到过成为])(?:几分|一?股子?|[一某][种缕抹点道层声])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "一丝(?!不[挂苟])|(?<=[这那着被是以用有了和出起到过成为])(?:几分|一?股子?|[一某][种缕抹点道层声])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.measure.hand-callus-adjective",
+    "namespace": "modifier.measure",
+    "title": "删除手部形容词",
+    "level": "medium",
+    "enabled": true,
+    "note": "删除手部形容词",
+    "source": {
+      "canonicalKey": "modifier.measure\t\t(?:[布长带生][满有着]|满是)[薄老厚]茧的",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:[布长带生][满有着]|满是)[薄老厚]茧的"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.measure.physiological-label",
+    "namespace": "modifier.measure",
+    "title": "删除生理/生理性",
+    "level": "medium",
+    "enabled": true,
+    "note": "删除生理/生理性",
+    "source": {
+      "canonicalKey": "modifier.measure\t\t生理性?(?=[眼泪]|快感)|生理(?:性|层面|本能)的",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "生理性?(?=[眼泪]|快感)|生理(?:性|层面|本能)的"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.measure.specific-measure-word",
+    "namespace": "modifier.measure",
+    "title": "删除特定量词",
+    "level": "medium",
+    "enabled": true,
+    "note": "删除特定量词",
+    "source": {
+      "canonicalKey": "modifier.measure\t\t一丝丝|一丝(?!不[挂苟])|(?<=[这那着被是以用有了和出起到过成为])(?:几分(?!钟)|一?股(?!沟)子?|[这那]种|[一某][种缕抹点道层声])(?=[\\u4e00-\\u9fff])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "一丝丝|一丝(?!不[挂苟])|(?<=[这那着被是以用有了和出起到过成为])(?:几分(?!钟)|一?股(?!沟)子?|[这那]种|[一某][种缕抹点道层声])(?=[\\u4e00-\\u9fff])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.measure.subject-measure-word",
+    "namespace": "modifier.measure",
+    "title": "删除主语的量词",
+    "level": "medium",
+    "enabled": true,
+    "note": "删除主语的量词",
+    "source": {
+      "canonicalKey": "modifier.measure\t\t(?<=^|[,，。])(?:一股(?!脑)子?|[这那]具)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<=^|[,，。])(?:一股(?!脑)子?|[这那]具)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.near-collapse-modifier",
+    "namespace": "modifier",
+    "title": "形副词系",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "modifier\t\t(?:快要)?崩溃(?:的|地)?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:快要)?崩溃(?:的|地)?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.optional-adjective-bundle",
+    "namespace": "modifier",
+    "title": "删可选氛围修饰",
+    "level": "medium",
+    "enabled": false,
+    "note": "删可选氛围修饰",
+    "source": {
+      "canonicalKey": "modifier\t\t(?:准确|精准|准确无误|精准无误|慵懒|暧昧|禁忌|磁性|低沉|深沉|沉闷|变调|高亢|压迫感|上位者|高大|挺拔|恶劣|恶意|平静|平稳|平淡|平平|冷冷|清冷|冷声|冷淡|逼人)(?:的|地)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:准确|精准|准确无误|精准无误|慵懒|暧昧|禁忌|磁性|低沉|深沉|沉闷|变调|高亢|压迫感|上位者|高大|挺拔|恶劣|恶意|平静|平稳|平淡|平平|冷冷|清冷|冷声|冷淡|逼人)(?:的|地)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.optional-atmosphere-modifier",
+    "namespace": "modifier",
+    "title": "形副词[可选]",
+    "level": "medium",
+    "enabled": false,
+    "source": {
+      "canonicalKey": "modifier\t\t(?:准确|精准|准确无误|精准无误|暧昧|禁忌|磁性|低沉|深沉|变调|高亢|压迫感|上位者|高大|挺拔|恶意|平静|平淡|平平|冷冷|清冷|冷声|冷淡|逼人)(?:的|地)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:准确|精准|准确无误|精准无误|暧昧|禁忌|磁性|低沉|深沉|变调|高亢|压迫感|上位者|高大|挺拔|恶意|平静|平淡|平平|冷冷|清冷|冷声|冷淡|逼人)(?:的|地)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.optional-mood-modifiers",
+    "namespace": "modifier",
+    "title": "必带“的/地”防误伤[可选]",
+    "level": "medium",
+    "enabled": true,
+    "note": "必带“的/地”防误伤[可选]",
+    "source": {
+      "canonicalKey": "modifier\t\t(?:准确|精准|准确无误|精准无误|慵懒|暧昧|禁忌|旖旎|低沉|深沉|沉闷|大咧咧|上位者|居高临下|一瘸一拐)(?:的|地)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:准确|精准|准确无误|精准无误|慵懒|暧昧|禁忌|旖旎|低沉|深沉|沉闷|大咧咧|上位者|居高临下|一瘸一拐)(?:的|地)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.petty-nasty-optional",
+    "namespace": "modifier",
+    "title": "形副词[可选]",
+    "level": "medium",
+    "enabled": false,
+    "source": {
+      "canonicalKey": "modifier\t\t有点小?恶劣(?:的|地)?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "有点小?恶劣(?:的|地)?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.physiological.physiological-modifier",
+    "namespace": "modifier.physiological",
+    "title": "生理删除",
+    "level": "medium",
+    "enabled": false,
+    "source": {
+      "canonicalKey": "modifier.physiological\t\t(?:生理|生理性)(?:的|地|得)?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:生理|生理性)(?:的|地|得)?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.sensory-atmosphere-core",
+    "namespace": "modifier",
+    "title": "形副词系",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "modifier\t\t(?:略显粗糙|粗糙|逼仄|玩味|餍足|旖旎|甜腻|低哑|喑哑|沙哑|嘶哑|微哑|亮晶晶|直勾勾|硬生生)(?:的|地)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:略显粗糙|粗糙|逼仄|玩味|餍足|旖旎|甜腻|低哑|喑哑|沙哑|嘶哑|微哑|亮晶晶|直勾勾|硬生生)(?:的|地)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.sensory-atmosphere-modifier",
+    "namespace": "modifier",
+    "title": "必带“的/地”防误伤",
+    "level": "medium",
+    "enabled": true,
+    "note": "必带“的/地”防误伤",
+    "source": {
+      "canonicalKey": "modifier\t\t(?:略显粗糙|粗糙|逼仄|惊人|戏谑|狡黠|玩味|餍足|甜腻|黏腻|磁性|低哑|喑哑|沙哑|嘶哑|微哑|沉甸甸|亮晶晶|直勾勾|硬生生)(?:的|地)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:略显粗糙|粗糙|逼仄|惊人|戏谑|狡黠|玩味|餍足|甜腻|黏腻|磁性|低哑|喑哑|沙哑|嘶哑|微哑|沉甸甸|亮晶晶|直勾勾|硬生生)(?:的|地)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.stacked-degree-adverbs",
+    "namespace": "modifier",
+    "title": "形副词系",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "modifier\t\t(?:一丝丝|极其|极度|极致|死死|紧紧|深深|浅浅|浓浓|稍稍|稍微|略微|极轻微|轻微|微微|完全|彻底|格外|分外|乃至|全然|突然|忽然|猛的|猛地|勐的|勐地|近乎于|近乎|无意识|下意识|不自觉|习惯性)(?:的|地)?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:一丝丝|极其|极度|极致|死死|紧紧|深深|浅浅|浓浓|稍稍|稍微|略微|极轻微|轻微|微微|完全|彻底|格外|分外|乃至|全然|突然|忽然|猛的|猛地|勐的|勐地|近乎于|近乎|无意识|下意识|不自觉|习惯性)(?:的|地)?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.sticky-optional",
+    "namespace": "modifier",
+    "title": "形副词系",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "modifier\t\t黏腻(?:的|与)?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "黏腻(?:的|与)?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.stiff-remaining",
+    "namespace": "modifier",
+    "title": "形副词系",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "modifier\t\t依然?僵硬(?:的|地)?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "依然?僵硬(?:的|地)?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.template-atmosphere-modifier",
+    "namespace": "modifier",
+    "title": "删模板化修饰壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删模板化修饰壳",
+    "source": {
+      "canonicalKey": "modifier\t\t(?:略显粗糙|粗糙|生理层面|生理本能|生理性|生理|逼仄|戏谑|狡黠|玩味|餍足|旖旎|甜腻|黏腻|低哑|喑哑|沙哑|嘶哑|微哑|沉甸甸|亮晶晶|直勾勾|硬生生)(?:的|地)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:略显粗糙|粗糙|生理层面|生理本能|生理性|生理|逼仄|戏谑|狡黠|玩味|餍足|旖旎|甜腻|黏腻|低哑|喑哑|沙哑|嘶哑|微哑|沉甸甸|亮晶晶|直勾勾|硬生生)(?:的|地)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.modifier.template-state-modifier",
+    "namespace": "modifier",
+    "title": "删模板化状态修饰",
+    "level": "medium",
+    "enabled": true,
+    "note": "删模板化状态修饰",
+    "source": {
+      "canonicalKey": "modifier\t\t(?:谄媚|讨好|虔诚|狂热|崩溃|绝望|病态|空洞|麻木|木讷|笨拙|僵硬|机械|毫无生气)(?:的|地)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:谄媚|讨好|虔诚|狂热|崩溃|绝望|病态|空洞|麻木|木讷|笨拙|僵硬|机械|毫无生气)(?:的|地)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.numeral.three.few-words-idiom",
+    "namespace": "numeral.three",
+    "title": "三",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "numeral.three\t\t几言两语",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "几言两语"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "只言片语",
+        "言简意赅"
+      ]
+    }
+  },
+  {
+    "id": "cn.numeral.three.hat-typo",
+    "namespace": "numeral.three",
+    "title": "三",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "numeral.three\t\t几度笠",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "几度笠"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "斗笠"
+      ]
+    }
+  },
+  {
+    "id": "cn.numeral.three.intermittent-typo",
+    "namespace": "numeral.three",
+    "title": "三",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "numeral.three\t\t隔几差五",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "隔几差五"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "时不时"
+      ]
+    }
+  },
+  {
+    "id": "cn.numeral.three.numeral-five-typo",
+    "namespace": "numeral.three",
+    "title": "三",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "numeral.three\t\t几五",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "几五"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "几"
+      ]
+    }
+  },
+  {
+    "id": "cn.numeral.three.numeral-three",
+    "namespace": "numeral.three",
+    "title": "三",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "numeral.three\t\t三",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "三"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "几"
+      ]
+    }
+  },
+  {
+    "id": "cn.paragraph.merge-short.merge-short-line-ending",
+    "namespace": "paragraph.merge-short",
+    "title": "顺序① 段尾标点变逗号+跨行合并",
+    "level": "medium",
+    "enabled": false,
+    "note": "顺序① 段尾标点变逗号+跨行合并",
+    "source": {
+      "canonicalKey": "paragraph.merge-short\t\t(?<=^[\\u4e00-\\u9fff，,]{1,20})[。!！…—]+\\n+(?=[\\u4e00-\\u9fff])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<=^[\\u4e00-\\u9fff，,]{1,20})[。!！…—]+\\n+(?=[\\u4e00-\\u9fff])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "，"
+      ]
+    }
+  },
+  {
+    "id": "cn.paragraph.merge-short.merge-short-paragraph",
+    "namespace": "paragraph.merge-short",
+    "title": "顺序② 30字以内的段落与下段合并",
+    "level": "medium",
+    "enabled": false,
+    "note": "顺序② 30字以内的段落与下段合并",
+    "source": {
+      "canonicalKey": "paragraph.merge-short\t\t(?<=^[\\u4e00-\\u9fff,，。.、!！?？~～…—0-9a-zA-Z]{1,30}$)\\n+(?=[\\u4e00-\\u9fff])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<=^[\\u4e00-\\u9fff,，。.、!！?？~～…—0-9a-zA-Z]{1,30}$)\\n+(?=[\\u4e00-\\u9fff])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.paragraph.split-long.split-long-paragraph",
+    "namespace": "paragraph.split-long",
+    "title": "分割较长段落[选开]",
+    "level": "medium",
+    "enabled": false,
+    "source": {
+      "canonicalKey": "paragraph.split-long\t\t^([,，。.、!！?？~～…—“”\"‘’「」〖〗（）()0-9a-zA-Z\\u4e00-\\u9fff]{150,200}。)([\\u4e00-\\u9fff])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "^([,，。.、!！?？~～…—“”\"‘’「」〖〗（）()0-9a-zA-Z\\u4e00-\\u9fff]{150,200}。)([\\u4e00-\\u9fff])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "$1\\n\\n$2"
+      ]
+    }
+  },
+  {
+    "id": "cn.proliferation.mixed.cn-internal-hyphen",
+    "namespace": "proliferation.mixed",
+    "title": "删中文间的连字符",
+    "level": "medium",
+    "enabled": false,
+    "note": "删中文间的连字符",
+    "source": {
+      "canonicalKey": "proliferation.mixed\t\t(?<=[\\u4e00-\\u9fff])[\\u0020\\-]*-[\\u0020\\-]*(?=[\\u4e00-\\u9fff])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<=[\\u4e00-\\u9fff])[\\u0020\\-]*-[\\u0020\\-]*(?=[\\u4e00-\\u9fff])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.proliferation.mixed.dangling-cn-hyphen",
+    "namespace": "proliferation.mixed",
+    "title": "删中文连字符",
+    "level": "medium",
+    "enabled": true,
+    "note": "删中文连字符",
+    "source": {
+      "canonicalKey": "proliferation.mixed\t\t(?<!\\s|^)-(?=[\\u4e00-\\u9fff])|(?<=[\\u4e00-\\u9fff])-",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<!\\s|^)-(?=[\\u4e00-\\u9fff])|(?<=[\\u4e00-\\u9fff])-"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.proliferation.mixed.extra-punctuation",
+    "namespace": "proliferation.mixed",
+    "title": "删增殖标点",
+    "level": "medium",
+    "enabled": true,
+    "note": "删增殖标点",
+    "source": {
+      "canonicalKey": "proliferation.mixed\t\t(?<=(?:^|[、。,，…~～])[\\u4e00-\\u9fff]{1,4})(?:[、，,。~～]|…{1,2}(?!…))(?=[\\u4e00-\\u9fff])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<=(?:^|[、。,，…~～])[\\u4e00-\\u9fff]{1,4})(?:[、，,。~～]|…{1,2}(?!…))(?=[\\u4e00-\\u9fff])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.proliferation.mixed.merge-short-paragraphs",
+    "namespace": "proliferation.mixed",
+    "title": "短段落并入下一段",
+    "level": "medium",
+    "enabled": true,
+    "note": "短段落并入下一段",
+    "source": {
+      "canonicalKey": "proliferation.mixed\t\t(?<=^[\\u4e00-\\u9fff,，。.、!！?？~～…\\da-zA-Z]{1,30}$)\\n\\n*(?=[\\u4e00-\\u9fff])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<=^[\\u4e00-\\u9fff,，。.、!！?？~～…\\da-zA-Z]{1,30}$)\\n\\n*(?=[\\u4e00-\\u9fff])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.proliferation.mixed.repeated-de-pairs",
+    "namespace": "proliferation.mixed",
+    "title": "AA的、BB的、CC的→AA的",
+    "level": "medium",
+    "enabled": true,
+    "note": "AA的、BB的、CC的→AA的",
+    "source": {
+      "canonicalKey": "proliferation.mixed\t\t(?<=的)(?:、[\\u4e00-\\u9fff]{1,6}的)+|(?<=地)(?:、[\\u4e00-\\u9fff]{1,6}地)+",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<=的)(?:、[\\u4e00-\\u9fff]{1,6}的)+|(?<=地)(?:、[\\u4e00-\\u9fff]{1,6}地)+"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.proliferation.mixed.repeated-punctuation",
+    "namespace": "proliferation.mixed",
+    "title": "连续相同符号去重",
+    "level": "medium",
+    "enabled": false,
+    "note": "连续相同符号去重",
+    "source": {
+      "canonicalKey": "proliferation.mixed\t\t([,，。~～!！?？])\\1+|(?<=……)…+|(?<=——)—+",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "([,，。~～!！?？])\\1+|(?<=……)…+|(?<=——)—+"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "$1"
+      ]
+    }
+  },
+  {
+    "id": "cn.proliferation.mixed.symbol-proliferation",
+    "namespace": "proliferation.mixed",
+    "title": "处理多种符号增殖",
+    "level": "medium",
+    "enabled": false,
+    "note": "处理多种符号增殖",
+    "source": {
+      "canonicalKey": "proliferation.mixed\t\t(?<=(?:^|[、。,，…~～])[\\u4e00-\\u9fff]{1,4})(?:[、。,，~～]|…{1,2}(?!…))(?=[\\u4e00-\\u9fff])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<=(?:^|[、。,，…~～])[\\u4e00-\\u9fff]{1,4})(?:[、。,，~～]|…{1,2}(?!…))(?=[\\u4e00-\\u9fff])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash-ellipsis-proliferation.cn-inline-dash-to-comma",
+    "namespace": "punctuation.dash-ellipsis-proliferation",
+    "title": "中文间破折号变逗号",
+    "level": "medium",
+    "enabled": false,
+    "note": "中文间破折号变逗号",
+    "source": {
+      "canonicalKey": "punctuation.dash-ellipsis-proliferation\t\t(?<=[\\u4e00-\\u9fff])—+(?=[\\u4e00-\\u9fff])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<=[\\u4e00-\\u9fff])—+(?=[\\u4e00-\\u9fff])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "，"
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash-ellipsis-proliferation.dialogue-dash-close-quote",
+    "namespace": "punctuation.dash-ellipsis-proliferation",
+    "title": "形式：——+对话引号",
+    "level": "medium",
+    "enabled": false,
+    "note": "形式：——+对话引号",
+    "source": {
+      "canonicalKey": "punctuation.dash-ellipsis-proliferation\t\t—+(?=[”」])|(?<=[\\u4e00-\\u9fff])—+(?=\")",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "—+(?=[”」])|(?<=[\\u4e00-\\u9fff])—+(?=\")"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "。"
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash-ellipsis-proliferation.leading-dash-ellipsis",
+    "namespace": "punctuation.dash-ellipsis-proliferation",
+    "title": "段首或单独成段的情况",
+    "level": "medium",
+    "enabled": false,
+    "note": "段首或单独成段的情况",
+    "source": {
+      "canonicalKey": "punctuation.dash-ellipsis-proliferation\t\t^[—…]+|(?<=\\n)\\n*^[—…]+$\\n",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "^[—…]+|(?<=\\n)\\n*^[—…]+$\\n"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash-ellipsis-proliferation.linebreak-dash-join",
+    "namespace": "punctuation.dash-ellipsis-proliferation",
+    "title": "段尾处破折号连接下段",
+    "level": "medium",
+    "enabled": false,
+    "note": "段尾处破折号连接下段",
+    "source": {
+      "canonicalKey": "punctuation.dash-ellipsis-proliferation\t\t(?<=[\\u4e00-\\u9fff])—+\\n+(?:—+)?(?=[\\u4e00-\\u9fff])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<=[\\u4e00-\\u9fff])—+\\n+(?:—+)?(?=[\\u4e00-\\u9fff])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "，"
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash-ellipsis-proliferation.punctuation-adjacent-dash-ellipsis",
+    "namespace": "punctuation.dash-ellipsis-proliferation",
+    "title": "形式：—…与其他符号相邻",
+    "level": "medium",
+    "enabled": false,
+    "note": "形式：—…与其他符号相邻",
+    "source": {
+      "canonicalKey": "punctuation.dash-ellipsis-proliferation\t\t[—…]+(?=[,，。!！?？])|(?<=[,，。!！?？])[—…]+",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "[—…]+(?=[,，。!！?？])|(?<=[,，。!！?？])[—…]+"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash-ellipsis-proliferation.quote-edge-dash-ellipsis",
+    "namespace": "punctuation.dash-ellipsis-proliferation",
+    "title": "形式：对话引号+——或……",
+    "level": "medium",
+    "enabled": false,
+    "note": "形式：对话引号+——或……",
+    "source": {
+      "canonicalKey": "punctuation.dash-ellipsis-proliferation\t\t(?<=[“”「」])[—…]+|(?<=\")[—…]+(?=[\\u4e00-\\u9fff])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<=[“”「」])[—…]+|(?<=\")[—…]+(?=[\\u4e00-\\u9fff])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash-proliferation.dash-to-period-before-quote",
+    "namespace": "punctuation.dash-proliferation",
+    "title": "破折号改句号",
+    "level": "medium",
+    "enabled": false,
+    "note": "破折号改句号",
+    "source": {
+      "canonicalKey": "punctuation.dash-proliferation\t\t—+(?=[”」])|(?<=[\\u4e00-\\u9fff])—+(?=\")",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "—+(?=[”」])|(?<=[\\u4e00-\\u9fff])—+(?=\")"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "。"
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash-proliferation.inline-dash-to-comma",
+    "namespace": "punctuation.dash-proliferation",
+    "title": "段中破折号改逗号",
+    "level": "medium",
+    "enabled": false,
+    "note": "段中破折号改逗号",
+    "source": {
+      "canonicalKey": "punctuation.dash-proliferation\t\t(?<!—|^)—+(?=[“「\\u4e00-\\u9fff])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<!—|^)—+(?=[“「\\u4e00-\\u9fff])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "，"
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash-proliferation.linebreak-dash-to-comma",
+    "namespace": "punctuation.dash-proliferation",
+    "title": "段尾破折号连到下句",
+    "level": "medium",
+    "enabled": false,
+    "note": "段尾破折号连到下句",
+    "source": {
+      "canonicalKey": "punctuation.dash-proliferation\t\t(?<=[\\u4e00-\\u9fff])—+\\n+(?:—+)?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<=[\\u4e00-\\u9fff])—+\\n+(?:—+)?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "，"
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash-proliferation.punctuation-adjacent-dash",
+    "namespace": "punctuation.dash-proliferation",
+    "title": "删与标点相邻的破折号",
+    "level": "medium",
+    "enabled": false,
+    "note": "删与标点相邻的破折号",
+    "source": {
+      "canonicalKey": "punctuation.dash-proliferation\t\t—+(?=[,，。!！?？])|(?<=[,，。!！?？])—+",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "—+(?=[,，。!！?？])|(?<=[,，。!！?？])—+"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash-proliferation.quote-edge-extra-dash",
+    "namespace": "punctuation.dash-proliferation",
+    "title": "删引号边多余破折号",
+    "level": "medium",
+    "enabled": false,
+    "note": "删引号边多余破折号",
+    "source": {
+      "canonicalKey": "punctuation.dash-proliferation\t\t(?<=[“”「」])—+|(?<=\")—+(?=[\\u4e00-\\u9fff])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<=[“”「」])—+|(?<=\")—+(?=[\\u4e00-\\u9fff])"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash.bracket-before-dash",
+    "namespace": "punctuation.dash",
+    "title": "破折号",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "punctuation.dash\t\t「——",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "「——"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "「"
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash.cn-quote-before-dash",
+    "namespace": "punctuation.dash",
+    "title": "破折号",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "punctuation.dash\t\t“——",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "“——"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash.dash-alone-to-comma",
+    "namespace": "punctuation.dash",
+    "title": "破折号",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "punctuation.dash\t\t——",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "——"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "，"
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash.dash-before-cn-bracket",
+    "namespace": "punctuation.dash",
+    "title": "破折号",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "punctuation.dash\t\t——」",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "——」"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "」"
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash.dash-before-cn-quote",
+    "namespace": "punctuation.dash",
+    "title": "破折号",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "punctuation.dash\t\t——”",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "——”"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash.dash-before-quote",
+    "namespace": "punctuation.dash",
+    "title": "破折号",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "punctuation.dash\t\t——\"",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "——\""
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dash.quote-before-dash",
+    "namespace": "punctuation.dash",
+    "title": "破折号",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "punctuation.dash\t\t\"——",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "\"——"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dedup.ellipsis-dash-tail",
+    "namespace": "punctuation.dedup",
+    "title": "省略号和破折号去尾巴",
+    "level": "medium",
+    "enabled": true,
+    "note": "省略号和破折号去尾巴",
+    "source": {
+      "canonicalKey": "punctuation.dedup\t\t(?<=……)[….]+|(?<=——)—+",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<=……)[….]+|(?<=——)—+"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.punctuation.dedup.repeated-symbols",
+    "namespace": "punctuation.dedup",
+    "title": "连续符号去重",
+    "level": "medium",
+    "enabled": true,
+    "note": "连续符号去重",
+    "source": {
+      "canonicalKey": "punctuation.dedup\t\t([,，。~～!！?？])\\1+",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "([,，。~～!！?？])\\1+"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "$1"
+      ]
+    }
+  },
+  {
+    "id": "cn.regex.advanced.arc-outline",
+    "namespace": "regex.advanced",
+    "title": "正则-高级替换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "regex.advanced\tg\t([顶撑][起出][^\\n]{1,8}?)(?:的)?弧度",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "([顶撑][起出][^\\n]{1,8}?)(?:的)?弧度"
+      ],
+      "flags": "g"
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "$1的轮廓",
+        "$1的形状",
+        "$1的曲线",
+        "$1的隆起",
+        "$1的凸起"
+      ]
+    }
+  },
+  {
+    "id": "cn.regex.advanced.callus-clause",
+    "namespace": "regex.advanced",
+    "title": "正则-高级替换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "regex.advanced\tg\t(?:略带|布满|长满|带着?|生着?|满是|覆着|留下)[了的]?(?:微薄|细微|[薄老厚细])?茧(?:子)?[，,的 ]?却?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:略带|布满|长满|带着?|生着?|满是|覆着|留下)[了的]?(?:微薄|细微|[薄老厚细])?茧(?:子)?[，,的 ]?却?"
+      ],
+      "flags": "g"
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.regex.advanced.empty-quantifier",
+    "namespace": "regex.advanced",
+    "title": "正则-高级替换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "regex.advanced\tg\t一丝(?!不[挂苟])|(?<=[这那着被是以用有了和出起到过成为])(一?股子?|[一某][种缕抹点道层声])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "一丝(?!不[挂苟])|(?<=[这那着被是以用有了和出起到过成为])(一?股子?|[一某][种缕抹点道层声])"
+      ],
+      "flags": "g"
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.regex.advanced.few-degree",
+    "namespace": "regex.advanced",
+    "title": "正则-高级替换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "regex.advanced\tg\t([有了上带添多染])几分",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "([有了上带添多染])几分"
+      ],
+      "flags": "g"
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "$1些",
+        "$1些许"
+      ]
+    }
+  },
+  {
+    "id": "cn.regex.advanced.generic-arc-shell",
+    "namespace": "regex.advanced",
+    "title": "正则-高级替换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "regex.advanced\tg\t(依旧)?(?:是|有着)(?:那种|这种|一种)?([^\\n的]{1,4}?)的弧度",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(依旧)?(?:是|有着)(?:那种|这种|一种)?([^\\n的]{1,4}?)的弧度"
+      ],
+      "flags": "g"
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "$1$2"
+      ]
+    }
+  },
+  {
+    "id": "cn.regex.advanced.lifted-smile-arc",
+    "namespace": "regex.advanced",
+    "title": "正则-高级替换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "regex.advanced\tg\t([弯勾翘扬扯])([起出])(?:一抹|一个|一丝)?([^的\\n]{1,4}?)的弧度",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "([弯勾翘扬扯])([起出])(?:一抹|一个|一丝)?([^的\\n]{1,4}?)的弧度"
+      ],
+      "flags": "g"
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "$3地$1$2"
+      ]
+    }
+  },
+  {
+    "id": "cn.regex.advanced.momentary-reaction",
+    "namespace": "regex.advanced",
+    "title": "正则-高级替换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "regex.advanced\tg\t([抖颤缩躲愣惊])了?一下",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "([抖颤缩躲愣惊])了?一下"
+      ],
+      "flags": "g"
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "$1了$1",
+        "微$1",
+        "轻$1"
+      ]
+    }
+  },
+  {
+    "id": "cn.regex.advanced.oral-inner-wall",
+    "namespace": "regex.advanced",
+    "title": "正则-高级替换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "regex.advanced\tg\t([^，。、？！\\n他她你我它]{1,10})的口腔(?:内壁|内膜)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "([^，。、？！\\n他她你我它]{1,10})的口腔(?:内壁|内膜)"
+      ],
+      "flags": "g"
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "小嘴内$1的软肉",
+        "小嘴内$1的嫩肉",
+        "小嘴内$1的媚肉",
+        "小嘴里$1的软肉",
+        "小嘴里$1的嫩肉",
+        "小嘴里$1的媚肉",
+        "小嘴中$1的软肉",
+        "小嘴中$1的嫩肉",
+        "小嘴中$1的媚肉",
+        "嘴内$1的软肉",
+        "嘴内$1的嫩肉",
+        "嘴内$1的媚肉",
+        "嘴里$1的软肉",
+        "嘴里$1的嫩肉",
+        "嘴里$1的媚肉",
+        "嘴中$1的软肉",
+        "嘴中$1的嫩肉",
+        "嘴中$1的媚肉",
+        "口内$1的软肉",
+        "口内$1的嫩肉",
+        "口内$1的媚肉",
+        "口中$1的软肉",
+        "口中$1的嫩肉",
+        "口中$1的媚肉",
+        "唇舌间$1的软肉",
+        "唇舌间$1的嫩肉",
+        "唇舌间$1的媚肉",
+        "唇舌中$1的软肉",
+        "唇舌中$1的嫩肉",
+        "唇舌中$1的媚肉",
+        "唇齿间$1的软肉",
+        "唇齿间$1的嫩肉",
+        "唇齿间$1的媚肉",
+        "唇齿中$1的软肉",
+        "唇齿中$1的嫩肉",
+        "唇齿中$1的媚肉"
+      ]
+    }
+  },
+  {
+    "id": "cn.regex.advanced.parenthetical-example",
+    "namespace": "regex.advanced",
+    "title": "正则-高级替换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "regex.advanced\tg\t[（\\(](如|例如|比如)[^）\\)]+[）\\)]",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "[（\\(](如|例如|比如)[^）\\)]+[）\\)]"
+      ],
+      "flags": "g"
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.regex.advanced.pressured-arc-outline",
+    "namespace": "regex.advanced",
+    "title": "正则-高级替换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "regex.advanced\tg\t([顶撑压挤勒][起出]|勾勒出)([^\\n]{1,8}?)(?:的)?(?:弧度|弧线)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "([顶撑压挤勒][起出]|勾勒出)([^\\n]{1,8}?)(?:的)?(?:弧度|弧线)"
+      ],
+      "flags": "g"
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "$1$2的曲线",
+        "$1$2的轮廓",
+        "$1$2的形状",
+        "$1$2的隆起",
+        "$1$2的凸起"
+      ]
+    }
+  },
+  {
+    "id": "cn.regex.advanced.simile-like",
+    "namespace": "regex.advanced",
+    "title": "正则-高级替换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "regex.advanced\tg\t(像|如同|仿佛|宛如)([^，。！？\\n]{1,30}?)一样(?=[，。！？、；：”'\"\\n]|$)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(像|如同|仿佛|宛如)([^，。！？\\n]{1,30}?)一样(?=[，。！？、；：”'\"\\n]|$)"
+      ],
+      "flags": "g"
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "$1$2"
+      ]
+    }
+  },
+  {
+    "id": "cn.regex.advanced.simile-like-continuation",
+    "namespace": "regex.advanced",
+    "title": "正则-高级替换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "regex.advanced\tg\t(像|如同|仿佛|宛如|跟|和)([^，。！？\\n]{1,30}?)一样(?=[^，。！？\\n])",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(像|如同|仿佛|宛如|跟|和)([^，。！？\\n]{1,30}?)一样(?=[^，。！？\\n])"
+      ],
+      "flags": "g"
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "像$2般",
+        "如同$2般",
+        "宛若$2般",
+        "仿佛$2般"
+      ]
+    }
+  },
+  {
+    "id": "cn.sentence.compound.contrastive-turn-preface",
+    "namespace": "sentence.compound",
+    "title": "修剪特定转折句",
+    "level": "medium",
+    "enabled": true,
+    "note": "修剪特定转折句",
+    "source": {
+      "canonicalKey": "sentence.compound\t\t(?:非但|不[是像再]|并[未非不]|(?:并|不仅)?没有)[\\u4e00-\\u9fff]+[,，](?:是|反[而倒]是?|[而倒只也更又全][是像]是?)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:非但|不[是像再]|并[未非不]|(?:并|不仅)?没有)[\\u4e00-\\u9fff]+[,，](?:是|反[而倒]是?|[而倒只也更又全][是像]是?)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.sentence.compound.dialogue-echo-after-quote",
+    "namespace": "sentence.compound",
+    "title": "删对白后的回声壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删对白后的回声壳",
+    "source": {
+      "canonicalKey": "sentence.compound\t\t(^|[。！？；\\n])(?:这句话|那句话|这几个字|这番话)(?:一出口|出口|一落下|落下)?[，,]",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(^|[。！？；\\n])(?:这句话|那句话|这几个字|这番话)(?:一出口|出口|一落下|落下)?[，,]"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "$1"
+      ]
+    }
+  },
+  {
+    "id": "cn.sentence.compound.generic-comparison-tone",
+    "namespace": "sentence.compound",
+    "title": "删泛化类比口气壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删泛化类比口气壳",
+    "source": {
+      "canonicalKey": "sentence.compound\t\t和(?:谈起|聊起|说起)[\\u4e00-\\u9fff]{1,8}一样(?=(?:地)?(?:说|开口|问|回答|讲|提起))",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "和(?:谈起|聊起|说起)[\\u4e00-\\u9fff]{1,8}一样(?=(?:地)?(?:说|开口|问|回答|讲|提起))"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "平静地"
+      ]
+    }
+  },
+  {
+    "id": "cn.sentence.compound.immediate-delay-shell",
+    "namespace": "sentence.compound",
+    "title": "弱化固定句壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "弱化固定句壳",
+    "source": {
+      "canonicalKey": "sentence.compound\t\t并没有立刻",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "并没有立刻"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "没有马上"
+      ]
+    }
+  },
+  {
+    "id": "cn.sentence.compound.ordinary-days-preface",
+    "namespace": "sentence.compound",
+    "title": "删参照依赖句壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删参照依赖句壳",
+    "source": {
+      "canonicalKey": "sentence.compound\t\t平日里",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "平日里"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.sentence.compound.repeated-not-is",
+    "namespace": "sentence.compound",
+    "title": "修剪连续“不是…不是…”",
+    "level": "medium",
+    "enabled": true,
+    "note": "修剪连续“不是…不是…”",
+    "source": {
+      "canonicalKey": "sentence.compound\t\t(?:(?<=^|[,，。])不是[\\u4e00-\\u9fff]+[,，。])+[而只]?是",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:(?<=^|[,，。])不是[\\u4e00-\\u9fff]+[,，。])+[而只]?是"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.sentence.compound.setting-space-preface",
+    "namespace": "sentence.compound",
+    "title": "删句首场域空壳",
+    "level": "medium",
+    "enabled": true,
+    "note": "删句首场域空壳",
+    "source": {
+      "canonicalKey": "sentence.compound\t\t(^|[。！？；\\n])在这个空间里[，,]",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(^|[。！？；\\n])在这个空间里[，,]"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "$1"
+      ]
+    }
+  },
+  {
+    "id": "cn.sentence.compound.single-negative-contrast",
+    "namespace": "sentence.compound",
+    "title": "删单层否定对比前半句",
+    "level": "medium",
+    "enabled": true,
+    "note": "删单层否定对比前半句",
+    "source": {
+      "canonicalKey": "sentence.compound\t\t(?<!不是不)([\\u4e00-\\u9fff]+)不是[\\u4e00-\\u9fff，、“”‘’]{1,20}[，,]而是",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?<!不是不)([\\u4e00-\\u9fff]+)不是[\\u4e00-\\u9fff，、“”‘’]{1,20}[，,]而是"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "$1是"
+      ]
+    }
+  },
+  {
+    "id": "cn.sentence.compound.unrealized-preface",
+    "namespace": "sentence.compound",
+    "title": "删未发生部分前半句",
+    "level": "medium",
+    "enabled": true,
+    "note": "删未发生部分前半句",
+    "source": {
+      "canonicalKey": "sentence.compound\t\t(?:并[未非不]|并?(?:没有|不[再是像])|非但)[\\u4e00-\\u9fff]{1,20}[,，](?:[更又全也倒只而][像是]|反[而倒]是?)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:并[未非不]|并?(?:没有|不[再是像])|非但)[\\u4e00-\\u9fff]{1,20}[,，](?:[更又全也倒只而][像是]|反[而倒]是?)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.sentence.compound.unrealized-subject-preface",
+    "namespace": "sentence.compound",
+    "title": "删未发生部分前半句",
+    "level": "medium",
+    "enabled": true,
+    "note": "删未发生部分前半句",
+    "source": {
+      "canonicalKey": "sentence.compound\t\t([\\u4e00-\\u9fff]+)并(?:没有|未)[\\u4e00-\\u9fff，、“”‘’]{1,20}[，,]而是",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "([\\u4e00-\\u9fff]+)并(?:没有|未)[\\u4e00-\\u9fff，、“”‘’]{1,20}[，,]而是"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "$1"
+      ]
+    }
+  },
+  {
+    "id": "cn.sentence.compound.weather-tone-chat",
+    "namespace": "sentence.compound",
+    "title": "天气式口气改直接状态",
+    "level": "medium",
+    "enabled": true,
+    "note": "天气式口气改直接状态",
+    "source": {
+      "canonicalKey": "sentence.compound\t\t像在聊天气一样(?=(?:地)?(?:说|开口|问|回答|讲|提起))",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "像在聊天气一样(?=(?:地)?(?:说|开口|问|回答|讲|提起))"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "平静地"
+      ]
+    }
+  },
+  {
+    "id": "cn.sentence.compound.weather-tone-chat-today",
+    "namespace": "sentence.compound",
+    "title": "天气式口气改直接状态",
+    "level": "medium",
+    "enabled": true,
+    "note": "天气式口气改直接状态",
+    "source": {
+      "canonicalKey": "sentence.compound\t\t像聊今天天气一样(?=(?:地)?(?:说|开口|问|回答|讲|提起))",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "像聊今天天气一样(?=(?:地)?(?:说|开口|问|回答|讲|提起))"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "平静地"
+      ]
+    }
+  },
+  {
+    "id": "cn.sentence.compound.weather-tone-direct-state",
+    "namespace": "sentence.compound",
+    "title": "改成直接说话状态",
+    "level": "medium",
+    "enabled": true,
+    "note": "改成直接说话状态",
+    "source": {
+      "canonicalKey": "sentence.compound\t\t用聊天气的口气",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "用聊天气的口气"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "平静地"
+      ]
+    }
+  },
+  {
+    "id": "cn.sentence.compound.weather-tone-discuss",
+    "namespace": "sentence.compound",
+    "title": "天气式口气改直接状态",
+    "level": "medium",
+    "enabled": true,
+    "note": "天气式口气改直接状态",
+    "source": {
+      "canonicalKey": "sentence.compound\t\t像在讨论天气一样(?=(?:地)?(?:说|开口|问|回答|讲|提起))",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "像在讨论天气一样(?=(?:地)?(?:说|开口|问|回答|讲|提起))"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "平静地"
+      ]
+    }
+  },
+  {
+    "id": "cn.sentence.compound.weather-tone-discussion",
+    "namespace": "sentence.compound",
+    "title": "天气式口气改直接状态",
+    "level": "medium",
+    "enabled": true,
+    "note": "天气式口气改直接状态",
+    "source": {
+      "canonicalKey": "sentence.compound\t\t跟讨论天气一样(?=(?:地)?(?:说|开口|问|回答|讲|提起))",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "跟讨论天气一样(?=(?:地)?(?:说|开口|问|回答|讲|提起))"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "平静地"
+      ]
+    }
+  },
+  {
+    "id": "cn.sound.once.generic-one-sound",
+    "namespace": "sound.once",
+    "title": "正则-杀“一声”",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "sound.once\tg\t([^他她它我你人男女的了着过，。、：；！？“”‘’\\n\\s])(笑|哼|吼|喘|叹|呼|叫|咽|泣|咳|骂|喊)了?一声",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "([^他她它我你人男女的了着过，。、：；！？“”‘’\\n\\s])(笑|哼|吼|喘|叹|呼|叫|咽|泣|咳|骂|喊)了?一声"
+      ],
+      "flags": "g"
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "$1$2"
+      ]
+    }
+  },
+  {
+    "id": "cn.sound.once.hum-one-sound",
+    "namespace": "sound.once",
+    "title": "正则-杀“一声”",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "sound.once\tg\t哼了?一声",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "哼了?一声"
+      ],
+      "flags": "g"
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "轻哼",
+        "冷哼"
+      ]
+    }
+  },
+  {
+    "id": "cn.sound.once.laugh-one-sound",
+    "namespace": "sound.once",
+    "title": "正则-杀“一声”",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "sound.once\tg\t笑了?一声",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "笑了?一声"
+      ],
+      "flags": "g"
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "笑了笑",
+        "笑出声"
+      ]
+    }
+  },
+  {
+    "id": "cn.sound.once.sigh-one-sound",
+    "namespace": "sound.once",
+    "title": "正则-杀“一声”",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "sound.once\tg\t叹了?一声",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "叹了?一声"
+      ],
+      "flags": "g"
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "叹了口气"
+      ]
+    }
+  },
+  {
+    "id": "cn.tone.tone-placeholder",
+    "namespace": "tone",
+    "title": "语气",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "tone\t\t(?:，|。)语气\\*(?:，|。)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:，|。)语气\\*(?:，|。)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.academic-anatomy.academic-body-terms",
+    "namespace": "vocabulary.academic-anatomy",
+    "title": "学术与解剖词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.academic-anatomy\t\t的?(?:肌肉|结构|频率)的?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "的?(?:肌肉|结构|频率)的?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.academic-anatomy.bony-feel",
+    "namespace": "vocabulary.academic-anatomy",
+    "title": "学术与解剖词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.academic-anatomy\t\t骨感",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "骨感"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.academic-anatomy.physiological-academic-label",
+    "namespace": "vocabulary.academic-anatomy",
+    "title": "学术与解剖词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.academic-anatomy\t\t(?:生理性|生理层面|生理本能)的?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:生理性|生理层面|生理本能)的?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.academic-anatomy.regularity-term",
+    "namespace": "vocabulary.academic-anatomy",
+    "title": "学术与解剖词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.academic-anatomy\t\t规律",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "规律"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.academic-anatomy.rhythmic-regularity",
+    "namespace": "vocabulary.academic-anatomy",
+    "title": "学术与解剖词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.academic-anatomy\t\t极?有规律地",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "极?有规律地"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.academic-anatomy.sphincter",
+    "namespace": "vocabulary.academic-anatomy",
+    "title": "学术与解剖词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.academic-anatomy\t\t括约肌",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "括约肌"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        ""
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.back-head",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇转换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t后脑勺",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "后脑勺"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "头",
+        "脑袋"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.back-ridge",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t背脊",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "背脊"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "背",
+        "后背"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.back-spine",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t脊背",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "脊背"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "背",
+        "后背"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.body-formal",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t身躯",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "身躯"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "身体"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.butt-cheek",
+    "namespace": "vocabulary.body",
+    "title": "人体词换通俗说法",
+    "level": "medium",
+    "enabled": true,
+    "note": "人体词换通俗说法",
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t屁股蛋",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "屁股蛋"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "屁股"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.butt-cheek-plain",
+    "namespace": "vocabulary.body",
+    "title": "人体词换通俗说法",
+    "level": "medium",
+    "enabled": true,
+    "note": "人体词换通俗说法",
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t屁股蛋子",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "屁股蛋子"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "屁股"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.butt-cheek-suffix",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t屁股蛋子?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "屁股蛋子?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "屁股"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.cheekbone",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t颧骨",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "颧骨"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "脸颊"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.chest-cavity",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇转换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t胸腔",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "胸腔"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "胸部",
+        "胸口",
+        "胸脯"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.collagen",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇转换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t胶原蛋白",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "胶原蛋白"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "婴儿肥"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.eye-corner-lid",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇转换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t眼(?:角|皮|皮子)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "眼(?:角|皮|皮子)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "眼睛"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.finger-bone",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇转换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t指骨",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "指骨"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "手指"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.finger-joint-phrase",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇转换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t(?:指骨|手指)的?关节",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:指骨|手指)的?关节"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "手指"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.finger-segment",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇转换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t指节",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "指节"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "手指"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.flesh-skin",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇转换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t皮肉",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "皮肉"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "皮肤",
+        "肌肤"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.hip-bone",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t胯骨",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "胯骨"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "胯部",
+        "腰胯"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.knuckle",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇转换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t骨节",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "骨节"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "手指"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.lift-eyelids",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇转换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t抬起眼皮",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "抬起眼皮"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "抬眼"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.mouth-corner",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇转换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t嘴角",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "嘴角"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "嘴唇"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.muscle-texture",
+    "namespace": "vocabulary.body",
+    "title": "医用词换通俗说法",
+    "level": "medium",
+    "enabled": true,
+    "note": "医用词换通俗说法",
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t肌理",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "肌理"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "肌肉"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.oral-cavity",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇转换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t口腔",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "口腔"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "小嘴",
+        "嘴"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.pelvis-bone",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t髋骨",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "髋骨"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "臀部"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.physiological-tear-label",
+    "namespace": "vocabulary.body",
+    "title": "删生理学标签",
+    "level": "medium",
+    "enabled": true,
+    "note": "删生理学标签",
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t生理泪",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "生理泪"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "泪"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.physiological-tear-label-full",
+    "namespace": "vocabulary.body",
+    "title": "删生理学标签",
+    "level": "medium",
+    "enabled": true,
+    "note": "删生理学标签",
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t生理性泪",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "生理性泪"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "泪"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.physiological-tear-water",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇转换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t生理性?泪水?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "生理性?泪水?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "泪",
+        "泪水"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.pubic-bone",
+    "namespace": "vocabulary.body",
+    "title": "医用部位换通俗说法",
+    "level": "medium",
+    "enabled": true,
+    "note": "医用部位换通俗说法",
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t耻骨",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "耻骨"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "小腹"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.rib",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t肋骨",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "肋骨"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "胸口"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.shoulder-blade",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t肩胛骨",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "肩胛骨"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "后肩",
+        "肩膀"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.skull-head",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t头颅",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "头颅"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "头",
+        "脑袋"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.spine-column",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t脊[椎柱][骨沟]?",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "脊[椎柱][骨沟]?"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "脊梁"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.tailbone",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t尾椎骨",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "尾椎骨"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "腰眼"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.throat-inside",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇转换",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t喉咙里",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "喉咙里"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "喉间",
+        "唇齿间"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.torso-formal",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t躯体",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "躯体"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "身体"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.body.whole-limbs-body",
+    "namespace": "vocabulary.body",
+    "title": "人体词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.body\t\t四肢百骸",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "四肢百骸"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "全身",
+        "整副身体"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.optional.cicada-wing-thin",
+    "namespace": "vocabulary.optional",
+    "title": "词汇替换[可选]",
+    "level": "medium",
+    "enabled": false,
+    "source": {
+      "canonicalKey": "vocabulary.optional\t\t薄如蝉翼",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "薄如蝉翼"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "轻若无物",
+        "薄透轻柔"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.optional.dig-scratch",
+    "namespace": "vocabulary.optional",
+    "title": "词汇替换[可选]",
+    "level": "medium",
+    "enabled": false,
+    "source": {
+      "canonicalKey": "vocabulary.optional\t\t抠挖",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "抠挖"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "拨弄",
+        "挑弄"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.optional.large-breast-adjective",
+    "namespace": "vocabulary.optional",
+    "title": "词汇替换[可选]",
+    "level": "medium",
+    "enabled": false,
+    "source": {
+      "canonicalKey": "vocabulary.optional\t\t巨大(?=的(?:[胸奶]|乳房))",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "巨大(?=的(?:[胸奶]|乳房))"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "浑圆",
+        "丰盈",
+        "丰润",
+        "软弹",
+        "滑嫩"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.optional.large-butt-adjective",
+    "namespace": "vocabulary.optional",
+    "title": "词汇替换[可选]",
+    "level": "medium",
+    "enabled": false,
+    "source": {
+      "canonicalKey": "vocabulary.optional\t\t[巨宽肥]大(?=的臀)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "[巨宽肥]大(?=的臀)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "圆硕",
+        "丰隆",
+        "腴润",
+        "圆嫩",
+        "水嫩"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.optional.layered-stack",
+    "namespace": "vocabulary.optional",
+    "title": "词汇替换[可选]",
+    "level": "medium",
+    "enabled": false,
+    "source": {
+      "canonicalKey": "vocabulary.optional\t\t层层叠叠",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "层层叠叠"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "交错堆叠",
+        "连绵起伏"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.breast-formal",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t乳房",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "乳房"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "奶子",
+        "酥胸"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.coarse-male-organ",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t(?:粗|大)屌",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:粗|大)屌"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "肉棒",
+        "鸡巴"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.erotic-wall",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t(?:肉|穴|肠|阴道)壁",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:肉|穴|肠|阴道)壁"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "嫩肉",
+        "媚肉",
+        "软肉"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.euphemism-that-thing",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t那话儿",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "那话儿"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "肉棒",
+        "鸡巴",
+        "阴茎",
+        "屌"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.euphemism-that-work",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t那活儿",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "那活儿"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "肉棒",
+        "鸡巴"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.euphemistic-opening",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t(?:花|阴)户",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:花|阴)户"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "小穴",
+        "嫩穴",
+        "嫩屄",
+        "穴",
+        "屄"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.flesh-blade",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t肉刃",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "肉刃"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "肉棒",
+        "鸡巴",
+        "阴茎",
+        "屌"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.flesh-hole",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t肉洞",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "肉洞"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "小穴",
+        "嫩穴",
+        "嫩屄",
+        "穴",
+        "屄"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.flesh-opening",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t肉穴",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "肉穴"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "小穴",
+        "蜜穴"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.floral-opening",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t(?:花|粉)穴",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:花|粉)穴"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "小穴",
+        "嫩穴",
+        "嫩屄",
+        "穴",
+        "屄"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.formal-vaginal-area",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t阴(?:道|部)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "阴(?:道|部)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "小穴",
+        "嫩穴",
+        "嫩屄",
+        "穴",
+        "屄"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.intestinal-fluid",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t肠液",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "肠液"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "爱液",
+        "淫液",
+        "淫水"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.labia-formal",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t阴唇",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "阴唇"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "嫩肉",
+        "媚肉",
+        "软肉"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.male-organ-compound",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t肉(?:刃|茎)",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "肉(?:刃|茎)"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "肉棒",
+        "鸡巴"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.male-organ-euphemism",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t阳物",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "阳物"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "肉棒",
+        "鸡巴",
+        "阴茎",
+        "屌"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.male-stalk",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t肉茎",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "肉茎"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "肉棒",
+        "鸡巴",
+        "阴茎",
+        "屌"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.passage-euphemism",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t甬道",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "甬道"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "小穴",
+        "蜜穴",
+        "逼"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.passage-term",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t(?:甬|肉)道",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "(?:甬|肉)道"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "小穴",
+        "嫩穴",
+        "嫩屄",
+        "穴",
+        "屄"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.penis-formal",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇",
+    "level": "medium",
+    "enabled": true,
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t阴茎",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "阴茎"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "肉棒",
+        "鸡巴"
+      ]
+    }
+  },
+  {
+    "id": "cn.vocabulary.r18.shaft-formal",
+    "namespace": "vocabulary.r18",
+    "title": "R18词汇换通俗说法",
+    "level": "medium",
+    "enabled": true,
+    "note": "R18词汇换通俗说法",
+    "source": {
+      "canonicalKey": "vocabulary.r18\t\t柱身",
+      "importedFrom": ".agent/workspace/llmlint_rules"
+    },
+    "detector": {
+      "type": "regex",
+      "targets": [
+        "柱身"
+      ]
+    },
+    "action": {
+      "type": "replace",
+      "replacements": [
+        "肉棒",
+        "鸡巴",
+        "阴茎",
+        "屌"
+      ]
+    }
+  }
+]

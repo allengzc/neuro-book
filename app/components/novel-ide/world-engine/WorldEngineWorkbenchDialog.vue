@@ -969,13 +969,20 @@ function recordTransientIssues(issues: WorldIssueDto[], fallbackSliceId: string,
         return {
             attr: issue.attr,
             code: issue.code,
+            explanation: issue.explanation,
             issueIndex: index,
             key,
+            label: issue.label,
             message: issue.message,
+            op: issue.op,
+            patchId: issue.patchId,
+            path: issue.path,
+            severity: issue.severity,
             sliceId,
             sliceTime: slice?.time ?? "",
             sliceTitle: slice?.title ?? sliceId,
             subjectId: issue.subjectId,
+            title: issue.title,
         };
     });
     transientIssues.value = [
@@ -1774,8 +1781,8 @@ function issueStatusLabel(status: WorldWorkbenchPreviewIssueStatus): string {
     return worldWorkbenchIssueStatusLabel(status);
 }
 
-function issueLevel(code: WorldWorkbenchPreviewReviewQueueItem["code"]): "A" | "E" {
-    return worldWorkbenchIssueLevel(code);
+function issueLevel(severity: WorldWorkbenchPreviewReviewQueueItem["severity"]): "A" | "E" {
+    return worldWorkbenchIssueLevel(severity);
 }
 
 watch(() => props.modelValue, (visible) => {
@@ -2097,7 +2104,7 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
                                     :title="`${item.sliceTime || item.sliceId} · ${item.message}`"
                                     @click="void focusReviewIssue(item)"
                                 >
-                                    <span class="justify-self-start rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold" :class="issueLevel(item.code) === 'E' ? 'border-[var(--we-danger-border)] bg-[var(--we-danger-soft)] text-[var(--we-danger)]' : 'border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] text-[var(--we-warning)]'">{{ issueLevel(item.code) }}</span>
+                                    <span class="justify-self-start rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold" :class="issueLevel(item.severity) === 'E' ? 'border-[var(--we-danger-border)] bg-[var(--we-danger-soft)] text-[var(--we-danger)]' : 'border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] text-[var(--we-warning)]'">{{ issueLevel(item.severity) }}</span>
                                     <span class="min-w-0 truncate font-mono text-[var(--we-code-text)]">{{ item.code }}</span>
                                     <span class="min-w-0 truncate text-[var(--we-text-secondary)]">
                                         <span class="font-mono text-[var(--we-text-muted)]">{{ item.sliceTime || item.sliceId || "-" }}</span>

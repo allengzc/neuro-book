@@ -66,6 +66,14 @@ describe("world.engine profile", () => {
         expect(systemPrompt).toContain("首次写入某 subject 时会自动创建（不需要单独 create 步骤）");
         expect(systemPrompt).toContain("world.time.parse");
         expect(systemPrompt).toContain("world.slice.editPatches");
+        expect(systemPrompt).toContain("公元2020年4月12日 18:00");
+        expect(systemPrompt).toContain("severity");
+        expect(systemPrompt).toContain("title/message/explanation");
+        expect(systemPrompt).toContain("return string");
+        expect(systemPrompt).toContain("文本摘要");
+        expect(systemPrompt).not.toContain("星辉历");
+        expect(systemPrompt).not.toContain("broken-relative / dangling-ref");
+        expect(systemPrompt).not.toContain("E/A 判断");
         expect(systemPrompt).not.toContain("world.parseTime");
         expect(systemPrompt).not.toContain("world.editMutations");
         expect(systemPrompt).toContain("物理删除，不可恢复");

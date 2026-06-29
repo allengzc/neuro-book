@@ -2,7 +2,7 @@
 
 ## 基本用法
 
-检查文件中的 static 规则命中项：
+检查文件中的 regex detector 命中项：
 
 ```bash
 bun .nbook/agent/skills/llmlint/bin/llmlint.ts check <文件路径>
@@ -20,15 +20,16 @@ bun .nbook/agent/skills/llmlint/bin/llmlint.ts show-llm-rules
 bun .nbook/agent/skills/llmlint/bin/llmlint.ts --config llmlint.config.ts check <文件路径>
 ```
 
-兼容旧用法：
+输出 JSON：
 
 ```bash
-bun .nbook/agent/skills/llmlint/bin/llmlint.ts <文件路径>
+bun .nbook/agent/skills/llmlint/bin/llmlint.ts --format json check <文件路径>
+bun .nbook/agent/skills/llmlint/bin/llmlint.ts --format json show-llm-rules
 ```
 
 ## check 输出格式
 
-`check` 只运行 static rules。Static rule 表示“候选文本可以被稳定识别”，不表示一定要修复。
+`check` 只运行 regex detector。regex detector 表示“候选文本可以被稳定识别”，不表示一定要修复。
 
 输出按规则分组：
 
@@ -54,8 +55,9 @@ not-but-structure (不是...而是...)
 - 行号和列号
 - 命中文本附近的上下文
 - 命中位置指示
+- rule id、namespace、ruleset 来源
 - 规则级别统计
-- 规则修复建议
+- 规则 action 中的删除、替换候选或提示
 
 ## show-llm-rules 输出格式
 
@@ -91,9 +93,37 @@ LLM 判断规则
 当前没有启用需要全文语义审查的 LLM 规则。
 ```
 
-## Static Rules 与 LLM Rules
+## JSON 输出格式
 
-Static rules 负责定位候选文本，例如：
+`check --format json` 输出：
+
+```json
+{
+  "kind": "check",
+  "filePath": "manuscript/chapter-01.md",
+  "configPath": "llmlint.config.ts",
+  "summary": {"total": 2, "high": 0, "medium": 2, "low": 0},
+  "registry": {"rulesets": [], "totalRules": 0, "activeRules": 0, "disabledRules": 0, "namespaces": []},
+  "diagnostics": [],
+  "issues": []
+}
+```
+
+`show-llm-rules --format json` 输出：
+
+```json
+{
+  "kind": "llm-rules",
+  "configPath": "llmlint.config.ts",
+  "registry": {"rulesets": [], "totalRules": 0, "activeRules": 0, "disabledRules": 0, "namespaces": []},
+  "diagnostics": [],
+  "rules": []
+}
+```
+
+## Regex Detector 与 LLM Detector
+
+`regex` detector 负责定位候选文本，例如：
 - 填充词：其实、实际上、事实上
 - 机械过渡：首先...其次...最后...
 - 二元对比：不是...而是...
@@ -104,7 +134,7 @@ Static rules 负责定位候选文本，例如：
 - 商务黑话：赋能、抓手、闭环、拉通、落地等候选词
 - 懒惰绝对词：所有人、永远、一定、毫无例外等候选词
 
-LLM rules 负责无法靠固定正则稳定定位的问题，例如：
+`llm` detector 负责无法靠固定正则稳定定位的问题，例如：
 - 空泛总结段
 - 语体错位
 - 节奏单调
@@ -114,7 +144,7 @@ LLM rules 负责无法靠固定正则稳定定位的问题，例如：
 - 金句感
 - 段尾机械升华
 
-二元对比、公式化设问、商务黑话等虽然可以被 static rule 定位，但修复决策仍需要上下文判断。不要因为 CLI 命中就自动修改。
+二元对比、公式化设问、商务黑话等虽然可以被 regex detector 定位，但修复决策仍需要上下文判断。不要因为 CLI 命中就自动修改。
 
 ## 退出码
 
@@ -127,9 +157,9 @@ LLM rules 负责无法靠固定正则稳定定位的问题，例如：
 
 标准流程：
 
-1. 执行 `check <file>`，获取 static 规则命中项。
+1. 执行 `check <file>`，获取 regex detector 命中项。
 2. 执行 `show-llm-rules`，获取需要主动全文审查的 LLM 规则。
-3. 复核 static 命中项，读取上下文后判断修复、保留或需要用户确认。
+3. 复核 regex 命中项，读取上下文后判断修复、保留或需要用户确认。
 4. 对每条 LLM rule 主动审查全文；没有候选也要在计划中说明“未发现明显问题”。
 5. 执行快速审查清单，并给出 Directness / Rhythm / Trust / Authenticity / Density 五维评分。
 6. 用面向用户的 Markdown 生成审查结论和修复计划，不要输出 JSON、YAML 或 TypeScript interface。
@@ -148,13 +178,20 @@ LLM rules 负责无法靠固定正则稳定定位的问题，例如：
 
 第一版不支持自动修复。修复由 Agent 根据上下文判断和用户审批后执行。
 
-### 如何添加自定义规则？
+### 如何配置规则包？
 
-优先创建 `llmlint.config.ts` 调整规则级别或关闭规则：
+优先创建 `llmlint.config.ts` 选择已经安装的 ruleset，并按 namespace 或 rule id 调整级别：
 
 ```typescript
 export default {
-    presets: ["anti-ai-slop"],
+    rulesets: [
+        "builtin/default",
+    ],
+    namespaces: {
+        modifier: "medium",
+        "vocabulary.r18": "off",
+        "商务黑话": "off",
+    },
     rules: {
         "filler-word-actually": "warn",
         "firstly-secondly": "error",
@@ -163,9 +200,9 @@ export default {
 };
 ```
 
-需要扩展内置规则时，编辑 `presets/anti-ai-slop/` 下的 JSON 文件：
-- `static-rules.json`：添加可以稳定定位候选文本的规则。
-- `llm-rules.json`：添加需要 Agent 主动阅读全文审查的语义规则。
+合并顺序由 `rulesets` 数组决定。同 namespace 不同 id 会追加；同 id 会被后加载规则覆盖，CLI 会在 diagnostics 中提醒来源变化。
+
+默认配置会启用 `builtin/default`。它已包含 R18/成人词汇规则；普通项目可用 `namespaces: {"vocabulary.r18": "off"}` 关闭。
 
 ### CLI 工具支持哪些文件格式？
 

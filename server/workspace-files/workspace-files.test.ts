@@ -1643,6 +1643,8 @@ describe("workspace-files", {timeout: 60_000}, () => {
         const paths = [
             path.join("workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"),
             path.join("workspace", ".nbook", "agent", "skills", "llmlint", "package.json"),
+            path.join("workspace", ".nbook", "agent", "skills", "llmlint", "rulesets", "builtin", "default", "ruleset.json"),
+            path.join("workspace", ".nbook", "agent", "skills", "llmlint", "src", "curated-slugs.ts"),
             path.join("workspace", ".nbook", "templates", "content-node-templates", "chapter", "index.md"),
             path.join("workspace", ".nbook", "templates", "project-directory-templates", "agents", "leader.default", "context.md"),
             path.join("workspace", ".nbook", "agent", "bin", "profile"),
@@ -1660,13 +1662,17 @@ describe("workspace-files", {timeout: 60_000}, () => {
             expect(result.copied + (result.updatedAssets ?? 0)).toBeGreaterThan(0);
             await expect(fs.readFile(paths[0]!, "utf-8")).resolves.toContain("profile");
             await expect(fs.readFile(paths[1]!, "utf-8")).resolves.toContain("@neuro-book/llmlint-skill");
-            await expect(fs.readFile(paths[2]!, "utf-8")).resolves.toContain("chapter");
-            await expect(fs.readFile(paths[3]!, "utf-8")).resolves.toContain("Leader Default Context Notes");
-            await expect(fs.readFile(paths[4]!, "utf-8")).resolves.toContain("../scripts/profile.ts");
-            await expect(fs.readFile(paths[5]!, "utf-8")).resolves.toContain("--path-separator=/");
+            await expect(fs.readFile(paths[2]!, "utf-8")).resolves.toContain("builtin/default");
+            await expect(fs.readFile(paths[3]!, "utf-8")).resolves.toContain("CURATED_RULE_SLUGS");
+            await expect(fs.readFile(paths[4]!, "utf-8")).resolves.toContain("chapter");
+            await expect(fs.readFile(paths[5]!, "utf-8")).resolves.toContain("Leader Default Context Notes");
+            await expect(fs.readFile(paths[6]!, "utf-8")).resolves.toContain("../scripts/profile.ts");
+            await expect(fs.readFile(paths[7]!, "utf-8")).resolves.toContain("--path-separator=/");
             expect(syncState.assets).toEqual(expect.arrayContaining([
                 expect.objectContaining({assetPath: "agent/skills/profile-system-guide/SKILL.md"}),
                 expect.objectContaining({assetPath: "agent/skills/llmlint/package.json"}),
+                expect.objectContaining({assetPath: "agent/skills/llmlint/rulesets/builtin/default/ruleset.json"}),
+                expect.objectContaining({assetPath: "agent/skills/llmlint/src/curated-slugs.ts"}),
                 expect.objectContaining({assetPath: "templates/content-node-templates/chapter/index.md"}),
                 expect.objectContaining({assetPath: "templates/project-directory-templates/agents/leader.default/context.md"}),
                 expect.objectContaining({assetPath: "agent/bin/profile"}),
@@ -1738,6 +1744,173 @@ describe("workspace-files", {timeout: 60_000}, () => {
         } finally {
             await restoreOptionalFile(deletedUserPath, deletedBackup);
             await restoreOptionalFile(editedUserPath, editedBackup);
+            await restoreOptionalFile(syncStatePath, syncStateBackup);
+        }
+    });
+
+    it("同步系统 assets 会清理未手改的旧 anti-ai-slop skill 副本", async () => {
+        const deletedAssetPath = "agent/skills/anti-ai-slop/SKILL.md";
+        const deletedUserPath = path.join("workspace", ".nbook", ...deletedAssetPath.split("/"));
+        const deletedSystemPath = path.join("assets", "workspace", ".nbook", ...deletedAssetPath.split("/"));
+        const syncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
+        const deletedBackup = await backupOptionalFile(deletedUserPath);
+        const syncStateBackup = await backupOptionalFile(syncStatePath);
+        const syncedContent = "old anti-ai-slop skill\n";
+        const syncedHash = createHash("sha256").update(syncedContent).digest("hex");
+
+        try {
+            await expect(fs.access(deletedSystemPath)).rejects.toMatchObject({code: "ENOENT"});
+            await fs.mkdir(path.dirname(deletedUserPath), {recursive: true});
+            await fs.writeFile(deletedUserPath, syncedContent, "utf-8");
+            await fs.writeFile(syncStatePath, JSON.stringify({
+                profiles: [],
+                assets: [{
+                    assetPath: deletedAssetPath,
+                    upstreamHash: syncedHash,
+                    lastSyncedUserHash: syncedHash,
+                    syncedAt: new Date(0).toISOString(),
+                }],
+            }, null, 2), "utf-8");
+
+            await syncSystemAssetsToUserAssets();
+            const syncState = JSON.parse(await fs.readFile(syncStatePath, "utf-8")) as {assets?: Array<{assetPath: string}>};
+            const assetPaths = syncState.assets?.map((asset) => asset.assetPath) ?? [];
+
+            await expect(fs.access(deletedUserPath)).rejects.toMatchObject({code: "ENOENT"});
+            expect(assetPaths).not.toContain(deletedAssetPath);
+        } finally {
+            await restoreOptionalFile(deletedUserPath, deletedBackup);
+            await restoreOptionalFile(syncStatePath, syncStateBackup);
+        }
+    });
+
+    it("同步系统 assets 会清理未手改的旧 llmlint 受管文件", async () => {
+        const deletedAssetPaths = [
+            "agent/skills/llmlint/src/legacy-import.ts",
+            "agent/skills/llmlint/presets/anti-ai-slop/static-rules.json",
+            "agent/skills/llmlint/presets/anti-ai-slop/llm-rules.json",
+            "agent/skills/llmlint/presets/anti-ai-slop/category-suggestions.json",
+            "agent/skills/llmlint/rulesets/builtin/anti-ai-slop/ruleset.json",
+            "agent/skills/llmlint/rulesets/builtin/cn/ruleset.json",
+            "agent/skills/llmlint/rulesets/builtin/cn-light/ruleset.json",
+            "agent/skills/llmlint/rulesets/builtin/cn-standard/ruleset.json",
+            "agent/skills/llmlint/rulesets/builtin/cn-strong/ruleset.json",
+            "agent/skills/llmlint/rulesets/builtin/cn-extreme/ruleset.json",
+        ];
+        const orphanDeletedAssetPaths = [
+            "agent/skills/llmlint/rulesets/builtin/cn-light/rules.json",
+            "agent/skills/llmlint/rulesets/builtin/cn-standard/rules.json",
+        ];
+        const updatedAssetPaths = [
+            "agent/skills/llmlint/src/cli.ts",
+            "agent/skills/llmlint/src/rules.ts",
+        ];
+        const deletedUserPaths = deletedAssetPaths.map((assetPath) => path.join("workspace", ".nbook", ...assetPath.split("/")));
+        const deletedSystemPaths = deletedAssetPaths.map((assetPath) => path.join("assets", "workspace", ".nbook", ...assetPath.split("/")));
+        const orphanDeletedUserPaths = orphanDeletedAssetPaths.map((assetPath) => path.join("workspace", ".nbook", ...assetPath.split("/")));
+        const orphanDeletedSystemPaths = orphanDeletedAssetPaths.map((assetPath) => path.join("assets", "workspace", ".nbook", ...assetPath.split("/")));
+        const updatedUserPaths = updatedAssetPaths.map((assetPath) => path.join("workspace", ".nbook", ...assetPath.split("/")));
+        const updatedSystemPaths = updatedAssetPaths.map((assetPath) => path.join("assets", "workspace", ".nbook", ...assetPath.split("/")));
+        const syncStatePath = path.join("workspace", ".nbook", ".system-assets-sync-state.json");
+        const deletedBackups = await Promise.all(deletedUserPaths.map((userPath) => backupOptionalFile(userPath)));
+        const orphanDeletedBackups = await Promise.all(orphanDeletedUserPaths.map((userPath) => backupOptionalFile(userPath)));
+        const updatedBackups = await Promise.all(updatedUserPaths.map((userPath) => backupOptionalFile(userPath)));
+        const syncStateBackup = await backupOptionalFile(syncStatePath);
+        const syncedContents = [
+            "old legacy import\n",
+            "{\"id\":\"static-rules\"}\n",
+            "{\"id\":\"llm-rules\"}\n",
+            "{\"id\":\"category-suggestions\"}\n",
+            "{\"id\":\"builtin/anti-ai-slop\"}\n",
+            "{\"id\":\"builtin/cn\"}\n",
+            "{\"id\":\"builtin/cn-light\"}\n",
+            "{\"id\":\"builtin/cn-standard\"}\n",
+            "{\"id\":\"builtin/cn-strong\"}\n",
+            "{\"id\":\"builtin/cn-extreme\"}\n",
+        ];
+        const syncedHashes = syncedContents.map((content) => createHash("sha256").update(content).digest("hex"));
+        const oldUpdatedContents = [
+            "import {formatLegacyImportReport} from \"./legacy-import\";\nprogram.command(\"import-legacy\");\nprogram.command(\"import-curated\");\nprogram.argument(\"[file]\");\n",
+            "function readLegacySources() {}\nconst key = \"source.legacy\";\n",
+        ];
+        const oldUpdatedHashes = oldUpdatedContents.map((content) => createHash("sha256").update(content).digest("hex"));
+        const llmlintBinPath = path.join("workspace", ".nbook", "agent", "skills", "llmlint", "bin", "llmlint.ts");
+
+        try {
+            for (const deletedSystemPath of deletedSystemPaths) {
+                await expect(fs.access(deletedSystemPath)).rejects.toMatchObject({code: "ENOENT"});
+            }
+            for (const orphanDeletedSystemPath of orphanDeletedSystemPaths) {
+                await expect(fs.access(orphanDeletedSystemPath)).rejects.toMatchObject({code: "ENOENT"});
+            }
+            for (let index = 0; index < deletedUserPaths.length; index++) {
+                const deletedUserPath = deletedUserPaths[index]!;
+                await fs.mkdir(path.dirname(deletedUserPath), {recursive: true});
+                await fs.writeFile(deletedUserPath, syncedContents[index]!, "utf-8");
+            }
+            for (const orphanDeletedUserPath of orphanDeletedUserPaths) {
+                await fs.mkdir(path.dirname(orphanDeletedUserPath), {recursive: true});
+                await fs.writeFile(orphanDeletedUserPath, "{\"id\":\"orphan old builtin\"}\n", "utf-8");
+            }
+            for (let index = 0; index < updatedUserPaths.length; index++) {
+                const updatedUserPath = updatedUserPaths[index]!;
+                await fs.mkdir(path.dirname(updatedUserPath), {recursive: true});
+                await fs.writeFile(updatedUserPath, oldUpdatedContents[index]!, "utf-8");
+            }
+            await fs.writeFile(syncStatePath, JSON.stringify({
+                profiles: [],
+                assets: [
+                    ...deletedAssetPaths.map((assetPath, index) => ({
+                        assetPath,
+                        upstreamHash: syncedHashes[index],
+                        lastSyncedUserHash: syncedHashes[index],
+                        syncedAt: new Date(0).toISOString(),
+                    })),
+                    ...updatedAssetPaths.map((assetPath, index) => ({
+                        assetPath,
+                        upstreamHash: oldUpdatedHashes[index],
+                        lastSyncedUserHash: oldUpdatedHashes[index],
+                        syncedAt: new Date(0).toISOString(),
+                    })),
+                ],
+            }, null, 2), "utf-8");
+
+            await syncSystemAssetsToUserAssets();
+            const syncState = JSON.parse(await fs.readFile(syncStatePath, "utf-8")) as {assets?: Array<{assetPath: string}>};
+            const assetPaths = syncState.assets?.map((asset) => asset.assetPath) ?? [];
+            const cliSource = await fs.readFile(updatedUserPaths[0]!, "utf-8");
+            const rulesSource = await fs.readFile(updatedUserPaths[1]!, "utf-8");
+            const {stdout: helpStdout} = await execFileAsync("bun", [llmlintBinPath, "--help"], {
+                encoding: "utf-8",
+                timeout: 10000,
+            });
+
+            for (const deletedUserPath of deletedUserPaths) {
+                await expect(fs.access(deletedUserPath)).rejects.toMatchObject({code: "ENOENT"});
+            }
+            for (const orphanDeletedUserPath of orphanDeletedUserPaths) {
+                await expect(fs.access(orphanDeletedUserPath)).rejects.toMatchObject({code: "ENOENT"});
+            }
+            for (const deletedAssetPath of deletedAssetPaths) {
+                expect(assetPaths).not.toContain(deletedAssetPath);
+            }
+            for (let index = 0; index < updatedUserPaths.length; index++) {
+                await expect(fs.readFile(updatedUserPaths[index]!, "utf-8")).resolves.toBe(await fs.readFile(updatedSystemPaths[index]!, "utf-8"));
+            }
+            expect(cliSource).not.toContain("legacy-import");
+            expect(cliSource).not.toContain("import-legacy");
+            expect(cliSource).not.toContain("import-curated");
+            expect(cliSource).not.toContain("[file]");
+            expect(rulesSource).not.toContain("source.legacy");
+            expect(rulesSource).not.toContain("readLegacySources");
+            expect(helpStdout).toContain("check [options] <file>");
+            expect(helpStdout).toContain("show-llm-rules");
+            expect(helpStdout).not.toContain("import-legacy");
+            expect(helpStdout).not.toContain("import-curated");
+        } finally {
+            await Promise.all(deletedUserPaths.map((userPath, index) => restoreOptionalFile(userPath, deletedBackups[index]!)));
+            await Promise.all(orphanDeletedUserPaths.map((userPath, index) => restoreOptionalFile(userPath, orphanDeletedBackups[index]!)));
+            await Promise.all(updatedUserPaths.map((userPath, index) => restoreOptionalFile(userPath, updatedBackups[index]!)));
             await restoreOptionalFile(syncStatePath, syncStateBackup);
         }
     });
