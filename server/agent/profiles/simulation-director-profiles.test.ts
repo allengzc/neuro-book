@@ -1,5 +1,6 @@
 import {resolve} from "node:path";
 import {describe, expect, it} from "vitest";
+import {Value} from "typebox/value";
 import directorProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/director.profile";
 import simulatorLeaderProfile from "../../../assets/workspace/.nbook/agent/profiles/builtin/simulator.leader.profile";
 import {DirectorInitialSchema, DirectorOutputSchema, SimulatorLeaderInitialSchema, SimulatorLeaderOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
@@ -19,6 +20,22 @@ function messagesText(messages: Array<Message | AgentMessage> | undefined): stri
     }).join("\n");
 }
 
+const validDirectorOutput = {
+    summary: "已整理本章 Scene。",
+    status: "completed",
+    plot_updates: [{
+        kind: "scene",
+        action: "updated",
+        id: "scene-1",
+        title: "遭遇",
+        summary: "补齐 World Anchor。",
+    }],
+    chapter_plan: "按 Scene 顺序推进。",
+    writer_handoff: "交给 writer 的 Scene / World Context brief。",
+    world_engine_requests: ["需要确认 scene-1 结束时 erina 的位置。"],
+    open_questions: [],
+};
+
 describe("simulation and director builtin profiles", () => {
     it("simulator.leader 暴露世界模拟合同和受限工具", async () => {
         const prepared = await simulatorLeaderProfile.prepare!({
@@ -37,7 +54,8 @@ describe("simulation and director builtin profiles", () => {
             skills: [],
             settings: {},
         });
-        const prompt = [prepared.systemPrompt ?? "", messagesText(prepared.historyInitMessages), messagesText(prepared.modelContextMessages)].join("\n");
+        const systemPrompt = prepared.systemPrompt ?? "";
+        const prompt = [systemPrompt, messagesText(prepared.historyInitMessages), messagesText(prepared.modelContextMessages)].join("\n");
 
         expect(simulatorLeaderProfile.initialSchema).toBe(SimulatorLeaderInitialSchema);
         expect(simulatorLeaderProfile.outputSchema).toBe(SimulatorLeaderOutputSchema);
@@ -60,9 +78,10 @@ describe("simulation and director builtin profiles", () => {
         expect(simulatorLeaderProfile.rootToolKeys).not.toContain("create_story_plot");
         expect(simulatorLeaderProfile.rootToolKeys).not.toContain("report_result");
         expect(prompt).toContain("世界模拟主管");
-        expect(prompt).toContain("writer_safe_brief");
-        expect(prompt).toContain("director_handoff");
-        expect(prompt).toContain("不设计长期 Thread / Scene / Plot");
+        expect(prompt).toContain("RP Tick 模式");
+        expect(prompt).toContain("普通写作模式：当前由 leader.default 直接管理");
+        expect(prompt).toContain("不设计长期 Thread / Scene");
+        expect(prompt).toContain("Scene / Plot System 落库交给 director");
         expect(prompt).toContain("mode: 每轮任务 prompt 指定");
         expect(prompt).toContain("AGENTS.md 和 agents/simulator.leader/context.md");
         expect(prompt).toContain("最小 subject scaffold");
@@ -74,7 +93,7 @@ describe("simulation and director builtin profiles", () => {
         expect(prompt).toContain("reference/content/simulation.md");
     });
 
-    it("director 暴露 Plot System 合同和 create_story_plots", async () => {
+    it("director 暴露 Plot System 合同和 Scene World Context", async () => {
         const prepared = await directorProfile.prepare!({
             session: testSession({
                 profileKey: "director",
@@ -94,18 +113,58 @@ describe("simulation and director builtin profiles", () => {
             skills: [],
             settings: {},
         });
-        const prompt = [prepared.systemPrompt ?? "", messagesText(prepared.historyInitMessages), messagesText(prepared.modelContextMessages)].join("\n");
+        const systemPrompt = prepared.systemPrompt ?? "";
+        const prompt = [systemPrompt, messagesText(prepared.historyInitMessages), messagesText(prepared.modelContextMessages)].join("\n");
 
         expect(directorProfile.initialSchema).toBe(DirectorInitialSchema);
         expect(directorProfile.outputSchema).toBe(DirectorOutputSchema);
-        expect(directorProfile.rootToolKeys).toContain("create_story_plots");
+        expect(directorProfile.rootToolKeys).toContain("get_scene_world_context");
+        expect(directorProfile.rootToolKeys).toContain("get_chapter_writer_brief");
+        expect(directorProfile.rootToolKeys).not.toContain("create_story_plots");
         expect(directorProfile.rootToolKeys).not.toContain("write");
         expect(directorProfile.rootToolKeys).not.toContain("edit");
         expect(prompt).toContain("剧情导演");
-        expect(prompt).toContain("Thread / Scene / Plot");
+        expect(prompt).toContain("Thread / Scene");
+        expect(systemPrompt).toContain("world_engine_requests");
+        expect(systemPrompt).toContain("不写 World Engine");
+        expect(systemPrompt).toContain("World Engine gate");
+        expect(systemPrompt).toContain("get_chapter_writer_brief");
+        expect(systemPrompt).toContain("suggestedBriefMarkdown");
         expect(prompt).toContain("不维护 simulation/subjects/**");
         expect(prompt).toContain("reference/plot/agent-spec.md");
         expect(prompt).toContain("defaultChapterPath: rp-project/manuscript/001-volume/001-chapter/");
+        expect(systemPrompt).not.toContain("simulator.leader");
+        expect(systemPrompt).not.toContain("simulator_requests");
+        expect(systemPrompt).not.toContain("Simulation gate");
+    });
+
+    it("director output schema 拒绝旧 simulator contract 和额外字段", () => {
+        expect(Value.Check(DirectorOutputSchema, validDirectorOutput)).toBe(true);
+        expect(Value.Check(DirectorOutputSchema, {
+            ...validDirectorOutput,
+            simulator_requests: [],
+        })).toBe(false);
+        expect(Value.Check(DirectorOutputSchema, {
+            ...validDirectorOutput,
+            extra: true,
+        })).toBe(false);
+        expect(Value.Check(DirectorOutputSchema, {
+            ...validDirectorOutput,
+            plot_updates: [{
+                ...validDirectorOutput.plot_updates[0],
+                kind: "plot",
+            }],
+        })).toBe(false);
+        expect(Value.Check(DirectorOutputSchema, {
+            ...validDirectorOutput,
+            plot_updates: [{
+                ...validDirectorOutput.plot_updates[0],
+                extra: true,
+            }],
+        })).toBe(false);
+        const {world_engine_requests, ...withoutWorldEngineRequests} = validDirectorOutput;
+        expect(world_engine_requests).toHaveLength(1);
+        expect(Value.Check(DirectorOutputSchema, withoutWorldEngineRequests)).toBe(false);
     });
 });
 

@@ -10,7 +10,7 @@ import {profileText} from "nbook/server/agent/profiles/profile-text";
 export const profileManifest = {
     key: "simulator.leader",
     name: "世界模拟",
-    description: "世界模拟主管：先做 LOD 分层世界模拟，再调度 simulator.actor 模拟角色，裁决因果并写回 simulation/ 状态。RP Tick 模式返回全知裁决结果报告；写作模式输出 writer-safe brief 与 director handoff。",
+    description: "世界模拟主管：先做 LOD 分层世界模拟，再调度 simulator.actor 模拟角色，裁决因果并写回 simulation/ 状态。RP Tick 模式返回全知裁决结果报告。普通写作模式由 leader.default 直接管理 World Engine 和 Plot。",
 } as const;
 
 export const InitialSchema = SimulatorLeaderInitialSchema;
@@ -85,12 +85,12 @@ function renderSystemPrompt(): string {
         - 维护已裁决的 simulation/subjects/**、simulation/entities/** 和 simulation/runs/**。
         - 每轮裁决前先执行 LOD 分层世界模拟（见 lod-simulation.md），让世界先于角色运行。
         - RP Tick 模式：向 rp.leader 返回全知裁决结果报告（格式见 adjudication-report.md）；Writer Brief 由 rp.leader 编剧，你不产出 writer brief。
-        - 写作模式：产出 writer_safe_brief、director_handoff 和 plot_handoff，让 writer / director 使用。
+        - 普通写作模式：当前由 leader.default 直接管理 World Engine 和 Plot；simulator.leader 只在 RP 或 legacy simulation workflow 中使用。
 
         # 不负责
 
         - 不写正式章节正文。
-        - 不设计长期 Thread / Scene / Plot；只输出剧情机会和因果后果，Plot 落库交给 director。
+        - 不设计长期 Thread / Scene；只输出剧情机会和因果后果，Scene / Plot System 落库交给 director。
         - 不直接维护 subject 的 events.jsonl、memory.jsonl、mind.md；这些由 subject simulator sidecar 或后续 memory 机制维护。
         - 不替用户决定核心行动。重大不可逆结果、核心剧情方向和用户角色关键选择写入 open_questions。
 
@@ -99,7 +99,7 @@ function renderSystemPrompt(): string {
         - 文件工具 cwd 是 Workspace Root。Project 文件使用 project-slug/... 路径。
         - 当前 Project 由 session projectPath / Current Workspace Focus 指定。
         - simulation/ 路径根据当前 Project 推导为 project-slug/simulation/。
-        - 不创建 emulation/ 目录；写作模式里的世界运行态也落在 simulation/。
+        - 不创建 emulation/ 目录。RP/simulation 模式下的世界运行态落在 simulation/；普通写作模式的动态世界状态由 leader.default 通过 World Engine 推进。
         - lorebook/ 是 god-view canon。引用 lorebook prototype 不是 visibility authorization。
         - 每轮开始先确认并遵守 Project AGENTS.md 和 agents/simulator.leader/context.md。二者冲突时，以 AGENTS.md 为准；agents/simulator.leader/context.md 只约束本 Project 的世界模拟协议。
 
@@ -139,7 +139,7 @@ function renderSystemPrompt(): string {
         - leader.default 和用户入口通常只与你交流，不直接调用 simulator.actor。
         - 你负责把 god-view context 转换成 actor-facing packet，再调用 simulator.actor。
         - 默认半自动模式下，重大不可逆裁决、长期状态变更和未授权核心设定需要先报告；如果本轮任务明确要求全自动下一 tick，可以直接给出下一 tick，但仍要把创建和状态提交写清楚。
-        - 如果收到的任务要求你绕过 director 直接设计长期 Thread / Scene / Plot，应返回 director_handoff 或 open_questions，不要抢 Plot System 职责。
+        - 如果收到的任务要求你绕过 director 直接设计长期 Thread / Scene，应返回 director_handoff 或 open_questions，不要抢 Plot System 职责。
 
         # 写入规则
 

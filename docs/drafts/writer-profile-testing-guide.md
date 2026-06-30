@@ -10,12 +10,13 @@ bun run typecheck
 
 ### ✅ 2. 单元测试
 ```bash
-bun test ./assets/workspace/.nbook/agent/profiles/builtin/writer.profile.test.ts
+bunx vitest run server/agent/profiles/writer-profile-contract.test.ts
 ```
 **测试内容**:
 - ✅ Profile manifest 正确 (key: "writer", name: "正文写作")
 - ✅ Bash 工具已添加 (`rootToolKeys` 包含 "bash")
-- ✅ 所有 plot 工具存在 (get_story_thread, get_story_scene_context, get_story_plot_context, get_chapter_plot)
+- ✅ World Engine 只读工具存在 (`execute_world`)
+- ✅ Plot tools 不存在，writer 只消费上游 message 中的 Scene / World Context brief
 - ✅ 文件工具存在 (read, write, edit)
 - ✅ Schemas 已定义 (initialSchema, payloadSchema, outputSchema)
 
@@ -123,45 +124,50 @@ knowledge:
 - Writer thinking 中是否明确区分了三层视角？
 - 正文中是否正确控制了信息披露？
 
-### 5. Plot 工具使用测试
+### 5. Chapter Brief 消费测试
 
-**目的**: 验证 writer 是否按 tool_usage_guide 正确使用 plot 工具
+**目的**: 验证 writer 正确消费上游编译的 chapter brief，而不是自行调用 Plot tools
 
-**测试场景**: 续写章节，提供多个 context 引用
+**测试场景**: 续写章节，leader 传入完整 brief
 
 ```typescript
-await invokeAgent(session.id, {
-    message: "续写这一章节，延续前情",
-    payload: {
-        path: "project-slug/manuscript/002-chapter/index.md",
+// Step 1: Leader 编译 brief
+const briefResult = await getChapterWriterBrief({
+    projectPath: "workspace/my-novel",
+    chapterPath: "manuscript/002-chapter/"
+});
+
+if (briefResult.details.status !== "ready") {
+    // 处理未就绪状态：补 Plot、World Anchor 或 World Context
+    console.warn("Brief not ready:", briefResult.details.warnings);
+    return;
+}
+
+// Step 2: 调用 writer，把 brief 写入 message
+const writerResult = await invokeAgent(writerSessionId, {
+    message: `续写这一章节：
+
+${briefResult.details.suggestedBriefMarkdown}
+
+写完后 report_result 汇报实际修改路径和剧情摘要。`,
+    input: {
+        path: "my-novel/manuscript/002-chapter/index.md",
         context: {
-            threadIds: ["thread-001"],
-            sceneIds: ["scene-005"],
-            plotIds: ["plot-010", "plot-011"],
-            lorebookEntries: [
-                "project-slug/lorebook/character/protagonist/",
-                "project-slug/lorebook/location/castle/",
-            ],
-            readablePaths: ["project-slug/manuscript/001-chapter/index.md"],
+            lorebookEntries: ["my-novel/lorebook/character/protagonist/"],
+            readablePaths: ["my-novel/manuscript/001-chapter/index.md"],
         },
     },
 });
 ```
 
 **观察点**:
-1. Writer 是否机械读取了全部 context？
-   - ❌ 不应该：盲目读取所有 threadIds/sceneIds/plotIds/lorebookEntries
-   - ✅ 应该：根据任务需要，选择性读取
 
-2. Writer 是否正确使用了 plot 工具？
-   - `get_story_thread`: 用于理解前情剧情线
-   - `get_story_scene_context`: 用于特定场景细节
-   - `get_story_plot_context`: 用于剧情点信息
-   - `get_chapter_plot`: 只在整章写作时使用
+1. ✅ Writer 是否按 brief 中的 Scene / World Context 写作？
+2. ✅ Writer 是否用 `execute_world` 自查状态，而非依赖 brief 中的完整状态？
+3. ✅ Writer 工具调用日志中**不应出现** `get_story_thread`、`get_story_scene_context`、`get_chapter_plot`
+4. ❌ Writer 如果主动调用 Plot tools，视为契约违反
 
-3. 日志中 plot 工具调用次数是否合理？
-   - 如果全部读取 = 问题（机械读取）
-   - 如果按需读取 = 正确
+**参考**：实际门禁测试见 `server/agent/profiles/writer-profile-contract.test.ts` 和 `server/agent/profiles/leader-owned-plot-reference.test.ts`
 
 ### 6. 错误处理测试
 
@@ -288,7 +294,7 @@ fi
 
 # 2. 单元测试
 echo "2. 运行单元测试..."
-bun test ./assets/workspace/.nbook/agent/profiles/builtin/writer.profile.test.ts
+bunx vitest run server/agent/profiles/writer-profile-contract.test.ts
 if [ $? -eq 0 ]; then
     echo "✅ 单元测试通过"
 else
