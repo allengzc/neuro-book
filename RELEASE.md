@@ -1,5 +1,29 @@
 # Release Notes
 
+## 0.5.2-canary - 2026-07-01
+
+这次 patch 主要修产品运行时兼容性和 llmlint 文档口径，适合继续在 0.5.1 canary 基础上验证。
+
+1. World Engine 配置加载更稳
+`calendar.ts` 与 `schema/index.ts` 仍保持 TypeScript 入口，但运行时会先转译成内容 hash `.mjs` 再导入，不再依赖宿主环境能直接动态导入 `.ts` 文件。Product runtime 也会带上 `nbook/world-engine/schema` helper，避免产品包里解析 schema helper 失败。
+
+2. 临时模块清理更完整
+World Engine loader 会清理旧 `.world-engine-*.ts` 与新 `.world-engine-*.mjs` 临时文件，减少异常中断后残留文件影响后续加载的可能。
+
+3. Agent 结构化提问面板更宽松
+Agent pending user input 的结构化问题区域高度上调，选项和说明较多时不容易显得拥挤。
+
+4. llmlint 安装与运行说明更准确
+llmlint 文档改为推荐通过 `skills` CLI 安装，并明确运行时是 Bun 原生或 Node + `tsx`；裸 Node 直接运行 TypeScript 源码不是支持路径。`fix` 命令、`fixability:auto` 和自动修复说明也同步到当前实现。
+
+5. llmlint 发布模型说明收口
+文档澄清 `assets/workspace/.nbook/agent/skills/llmlint` 既是 NeuroBook vendored runtime snapshot，也是 llmlint 独立发布仓的就地嵌套 git 工作区；早期 `.agent/workspace/llmlint` 只是废弃 scratch 克隆。
+
+6. llmlint eval harness 跑出首轮真实 lift
+评测生成侧已经能用真实模型从 brief 生成 render，并跑出第一张 AI vs 人类文本判别报告。小样本显示 ROC-AUC 1.000，deepseek-v4-flash 在当前样本上比 mimo 更接近人类文本；该结果只作为 M3 扩量前的方向性验证。
+
+验证记录来自对应任务：World Engine loader 增加了 TS-only schema、`nbook/world-engine/schema` helper 和临时模块清理测试；llmlint 文档收口记录了 Bun、Node+tsx、裸 Node 三态验证，以及 skill/assets 双拷贝一致性检查；eval harness 记录了模型 smoke、brief/render 生成和首轮 lift 报告。本次发布不等待 GitHub Actions release workflow。
+
 ## 0.5.1-canary - 2026-06-30
 
 这次 patch 主要是性能和工具体验打磨，适合在 0.5.0 canary 的基础上继续验证。

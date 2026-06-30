@@ -370,7 +370,7 @@ defineExpose({
     </div>
 
     <!-- 挂起中的结构化问题 -->
-    <div v-else-if="activeQuestion" class="flex h-[220px] min-w-0 w-full flex-col overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] shadow-lg shadow-black/5 sm:h-[240px]">
+    <div v-else-if="activeQuestion" class="flex h-[280px] min-w-0 w-full flex-col overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] shadow-lg shadow-black/5 sm:h-[320px]">
         <div class="flex items-center justify-between gap-3 border-b border-[var(--border-color)]/60 px-3 py-1.5">
             <div class="min-w-0">
                 <div class="flex items-center gap-2 text-[11px] font-medium text-[var(--text-muted)]">

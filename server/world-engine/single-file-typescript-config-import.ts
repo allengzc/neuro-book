@@ -1,13 +1,15 @@
+import {existsSync} from "node:fs";
 import fs from "node:fs/promises";
 import {createHash} from "node:crypto";
 import {builtinModules, createRequire} from "node:module";
 import path from "node:path";
-import {pathToFileURL} from "node:url";
+import {fileURLToPath, pathToFileURL} from "node:url";
 import {build, type Plugin} from "esbuild";
 import type * as TypeScript from "typescript";
 
 const require = createRequire(import.meta.url);
 const ts = require("typescript") as typeof TypeScript;
+const runtimeNbookRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 const importCache = new Map<string, Promise<unknown>>();
 const STALE_TEMP_FILE_AGE_MS = 10 * 60 * 1000;
@@ -19,7 +21,7 @@ const NODE_BUILTIN_MODULES = new Set(builtinModules.map((moduleName) => moduleNa
  *
  * World Engine 明确只支持 `calendar.ts` 与 `schema/index.ts` 两个单文件入口。
  * 本地文件、绝对路径和 URL import 会造成依赖图缓存语义不清，因此在导入前直接拒绝；
- * `zod`、`nbook/world-engine/schema` 这类包级 import 与 `node:` 内置模块仍由运行时正常解析。
+ * 入口文件会先转译为 hash `.mjs` 再导入，避免依赖宿主环境直接 import TypeScript。
  */
 export async function importSingleFileTypeScriptConfig<TModule extends object>(
     filePath: string,
@@ -27,7 +29,7 @@ export async function importSingleFileTypeScriptConfig<TModule extends object>(
 ): Promise<TModule> {
     const content = await fs.readFile(filePath);
     const hash = createHash("sha256").update(content).digest("hex").slice(0, 16);
-    const cachePath = path.join(path.dirname(filePath), `.world-engine-${label}-${hash}.ts`);
+    const cachePath = path.join(path.dirname(filePath), `.world-engine-${label}-${hash}.mjs`);
     const cached = importCache.get(cachePath);
     if (cached) {
         return await cached as TModule;
@@ -199,13 +201,19 @@ async function importValidatedHashedTypeScript<TModule extends object>(
     label: string,
 ): Promise<TModule> {
     await assertSingleFileConfig(filePath, content.toString("utf-8"), label);
-    return await importHashedTypeScript<TModule>(cachePath, content, label);
+    return await importHashedTypeScript<TModule>(filePath, cachePath, content, label);
 }
 
-/** 写入稳定临时文件并导入，导入完成后清理磁盘文件。 */
-async function importHashedTypeScript<TModule extends object>(cachePath: string, content: Buffer, label: string): Promise<TModule> {
+/** 转译成稳定临时 mjs 并导入，导入完成后清理磁盘文件。 */
+async function importHashedTypeScript<TModule extends object>(
+    filePath: string,
+    cachePath: string,
+    content: Buffer,
+    label: string,
+): Promise<TModule> {
     await cleanupStaleTempFiles(path.dirname(cachePath), label);
-    await fs.writeFile(cachePath, content);
+    const compiled = await compileSingleFileTypeScript(filePath, content.toString("utf-8"));
+    await fs.writeFile(cachePath, compiled, "utf-8");
     try {
         return await import(pathToFileURL(cachePath).href) as TModule;
     } finally {
@@ -213,12 +221,81 @@ async function importHashedTypeScript<TModule extends object>(cachePath: string,
     }
 }
 
+/** 只编译用户入口和 nbook 公共 helper；第三方包由当前 runtime vendor 解析。 */
+async function compileSingleFileTypeScript(filePath: string, source: string): Promise<string> {
+    const result = await build({
+        stdin: {
+            contents: source,
+            sourcefile: filePath,
+            resolveDir: path.dirname(filePath),
+            loader: "ts",
+        },
+        bundle: true,
+        write: false,
+        platform: "node",
+        format: "esm",
+        target: "esnext",
+        logLevel: "silent",
+        plugins: [runtimeConfigCompilePlugin()],
+    });
+    const output = result.outputFiles[0];
+    if (!output) {
+        throw new Error("World Engine TypeScript 配置转译未产生输出文件。");
+    }
+    return output.text;
+}
+
+function runtimeConfigCompilePlugin(): Plugin {
+    return {
+        name: "world-engine-config-compile",
+        setup(buildApi) {
+            buildApi.onResolve({filter: /^(nbook|neuro_book)\//}, (args) => ({
+                path: resolveRepoAliasPath(args.path.replace(/^(nbook|neuro_book)\//, "")),
+            }));
+            buildApi.onResolve({filter: /^[^./].*/}, (args) => {
+                if (isNodeBuiltinSpecifier(args.path)) {
+                    return {path: args.path, external: true};
+                }
+                if (!isBarePackageSpecifier(args.path)) {
+                    return undefined;
+                }
+                const resolved = require.resolve(args.path);
+                return {path: pathToFileURL(resolved).href, external: true};
+            });
+        },
+    };
+}
+
+function resolveRepoAliasPath(relativePath: string): string {
+    const basePath = path.resolve(runtimeNbookRoot, relativePath);
+    const candidates = [
+        path.join(basePath, "index.ts"),
+        path.join(basePath, "index.tsx"),
+        path.join(basePath, "index.js"),
+        path.join(basePath, "index.mjs"),
+        `${basePath}.ts`,
+        `${basePath}.tsx`,
+        `${basePath}.js`,
+        `${basePath}.mjs`,
+        basePath,
+    ];
+    const resolved = candidates.find((candidate) => existsSync(candidate));
+    if (!resolved) {
+        throw new Error(`无法解析 World Engine 配置中的 nbook 包级 import：${relativePath}`);
+    }
+    return resolved;
+}
+
 /** 清理异常中断留下的旧临时文件；保留近期文件，避免误删并发导入中的文件。 */
 async function cleanupStaleTempFiles(directory: string, label: string): Promise<void> {
     const entries = await fs.readdir(directory, {withFileTypes: true}).catch(() => []);
     const now = Date.now();
     await Promise.all(entries
-        .filter((entry) => entry.isFile() && entry.name.startsWith(`.world-engine-${label}-`) && entry.name.endsWith(".ts"))
+        .filter((entry) =>
+            entry.isFile()
+            && entry.name.startsWith(`.world-engine-${label}-`)
+            && (entry.name.endsWith(".ts") || entry.name.endsWith(".mjs")),
+        )
         .map(async (entry) => {
             const filePath = path.join(directory, entry.name);
             const stats = await fs.stat(filePath).catch(() => null);

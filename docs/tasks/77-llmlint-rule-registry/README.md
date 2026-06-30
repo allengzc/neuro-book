@@ -761,6 +761,31 @@ export default {
 - ripgrep 经评估不采用：外部二进制、项目未捆进产品、依赖 PATH，与「JS 依赖装 skill 目录」模型不符。
 - 独立发布仓库 `.agent/workspace/llmlint` 的依赖与 republish 仍留作后续。
 
+### 2026-07-01 文档/运行时收口 + 整体审查：skills CLI 安装、Node+tsx 运行时、发布模型澄清
+
+需求：把 llmlint 当独立可发布项目收口文档与运行时，并做整体审查（检查任务遗漏、各链路是否通顺）。用户三点：README 推荐用 `skills` CLI 安装；运行时不再只强调 Bun，Node 也要能跑；SKILL 提到可手动 `npm install` 装依赖。随后整体审查。
+
+实现 / 审查发现：
+
+- **安装推荐**：README / README.en / SKILL 增「`npx skills add notnotype/llmlint`」（vercel-labs `skills` CLI，skills.sh）作为首选；Agent Skill 段补「装好后在 skill 目录跑一次 `npm install` / `bun install` / `pnpm install`」。
+- **运行时澄清（关键纠错）**：实测裸 `node bin/llmlint.ts`（含 `--experimental-strip-types`）失败 —— 源码 40 处无扩展名 TS 相对导入，Node 自带类型剥离不补 `.ts`，报 `ERR_MODULE_NOT_FOUND`。真相是 **Bun（原生）或 Node + `tsx`（`npx tsx …`）**，裸 node 不行。修正 README / README.en / SKILL / cli-usage 之前「node 直接运行」的过度声称。让裸 node 跑需给 40 处导入加 `.ts` + `allowImportingTsExtensions`，牵动全仓 typecheck，代价大收益小（tsx 即 node），不做。
+- **审查修复的遗漏**：(a) cli-usage.md「fixability 预留给未来 `--fix`」与「FAQ：第一版不支持自动修复」均与已落地的 `fix` 命令矛盾 → 改为指向 `fix`；(b) `src/types.ts` Fixability 注释同样「预留未来」→ 更新为 fix 已落地；(c) `package.json` description「Bun CLI」→ 运行时中性；(d) README.en 整体落后（Runtime 仅 Bun、无 skills CLI、无 npm install）→ 镜像中文 README。
+- **发布模型澄清**：独立发布从早期「`.agent/workspace/llmlint` 骨架」演进为「就地嵌套 git」—— `assets/workspace/.nbook/agent/skills/llmlint` 自身即嵌套 git 仓（remote `github.com/notnotype/llmlint`），同目录既是 vendored snapshot 又是发布源。`.agent/workspace/llmlint` 是无 remote 的废弃 scratch 克隆。
+
+变更文件：README.md / README.en.md / SKILL.md / references/cli-usage.md（运行时 + skills CLI + fix 文案）、`src/types.ts`（注释）、`package.json`（description）；PROJECT-STATUS Task 51 行发布位置纠正。
+
+验证：
+
+- `bun vitest run ...llmlint.test.ts ...skill-catalog.test.ts`：2 files / 53 passed。
+- `bun run typecheck`：0 错误。
+- 运行时三态：Bun ✓ 原生；Node + `tsx` ✓ 全功能（check / glob / fix / json，assets 与部署副本均通）；裸 node ✗。
+- 双拷贝：`sync-user-assets`（updatedAssets=4）后 `diff -rq`（排除 node_modules / .git / evals）零差异。
+
+计划出入 / 留作用户决定：
+
+- 嵌套发布仓（`assets/.../llmlint`）现有本轮未提交的文档修正；commit + push 到 notnotype/llmlint 留作用户手动。
+- 废弃 scratch 克隆 `.agent/workspace/llmlint`（无 remote）建议删除或确认保留，未擅自删除。
+
 ## References
 
 - 当前 llmlint skill：`assets/workspace/.nbook/agent/skills/llmlint/`

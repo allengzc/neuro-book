@@ -5,7 +5,7 @@
  */
 
 import {afterAll, afterEach, beforeEach, describe, expect, test} from "vitest";
-import {mkdirSync, writeFileSync} from "node:fs";
+import {mkdirSync, readdirSync, writeFileSync} from "node:fs";
 import {rm} from "node:fs/promises";
 import {join} from "node:path";
 import {pathToFileURL} from "node:url";
@@ -315,6 +315,41 @@ describe("CodeAct Integration", () => {
 
         const after = await facade.getWorldSchema(testProjectPath);
         expect(after.subjectTypes.find((item) => item.type === "character")?.attrs.map((attr) => attr.name)).toContain("mana");
+    });
+
+    test("schema/index.ts 支持 TS-only 语法和 nbook helper，并清理临时模块", async () => {
+        const projectRoot = join(resolveWorkspaceContainerRoot(), testProjectPath.slice("workspace/".length));
+        writeFileSync(join(projectRoot, "world-engine/schema/index.ts"), [
+            'import {z} from "zod";',
+            'import {Ref, EmbeddingText} from "nbook/world-engine/schema";',
+            "",
+            "type CharacterName = string;",
+            "const defaultName: CharacterName = '未命名';",
+            "const tagDefaults = ['traveler'] as const;",
+            "",
+            "const Character = z.object({",
+            "    name: z.string().default(defaultName),",
+            "    location: Ref('location').optional(),",
+            "    tags: z.array(z.string()).unique().default([...tagDefaults]),",
+            "    memory: z.record(z.string(), EmbeddingText).default({}),",
+            "    events: z.array(EmbeddingText).default([]),",
+            "});",
+            "const Location = z.object({name: z.string().optional()});",
+            "",
+            "export const WorldSchema = {",
+            "    character: Character,",
+            "    location: Location,",
+            "} satisfies Record<string, z.ZodObject<any>>;",
+            "",
+        ].join("\n"), "utf-8");
+
+        const schema = await facade.getWorldSchema(testProjectPath);
+        const character = schema.subjectTypes.find((item) => item.type === "character");
+        expect(character?.attrs.map((attr) => attr.name)).toEqual(expect.arrayContaining(["name", "location", "tags", "memory", "events"]));
+
+        await facade.parseTime(testProjectPath, "测试纪元1日 00:00:00");
+        expect(listWorldEngineTempFiles(join(projectRoot, "world-engine"))).toEqual([]);
+        expect(listWorldEngineTempFiles(join(projectRoot, "world-engine/schema"))).toEqual([]);
     });
 
     test("calendar.ts 使用 Project 本地相对 import 时加载失败", async () => {
@@ -812,4 +847,10 @@ async function removeProjectRoot(projectRoot: string): Promise<void> {
             await new Promise((resolve) => setTimeout(resolve, 100));
         }
     }
+}
+
+function listWorldEngineTempFiles(directory: string): string[] {
+    return readdirSync(directory)
+        .filter((name) => /^\.world-engine-.+\.(?:ts|mjs)$/.test(name))
+        .sort();
 }

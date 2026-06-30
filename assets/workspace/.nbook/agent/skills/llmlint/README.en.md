@@ -3,7 +3,7 @@
 > Lint and polish LLM-generated Chinese text — locate AI writing tells deterministically, fix them with judgment.
 
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/License-PolyForm--Noncommercial--1.0.0-blue.svg)](./LICENSE)
-[![Runtime: Bun](https://img.shields.io/badge/Runtime-Bun-black.svg)](https://bun.sh)
+[![Runtime: Node.js or Bun](https://img.shields.io/badge/Runtime-Node.js%20or%20Bun-green.svg)](#requirements)
 [![Version](https://img.shields.io/badge/version-2.0.0-green.svg)](./package.json)
 
 **[中文](./README.md) · English**
@@ -31,31 +31,36 @@ llmlint splits those two jobs: deterministic location (CLI) and contextual judgm
 
 ## Requirements
 
-- [Bun](https://bun.sh) (the CLI runs TypeScript directly, no build step)
+- **Bun** (runs TypeScript directly, no build step) or **Node.js + [`tsx`](https://github.com/privatenumber/tsx)** (`npx tsx bin/llmlint.ts …`). The CLI source uses extensionless TS relative imports, which Node's built-in type stripping doesn't resolve — run it through `tsx` (or build first); Bun supports it natively.
 - Dependencies: `commander`, `picocolors`, `tinyglobby` (all tiny, pure-JS, no native build)
 
 ## Install
 
+**Recommended (as an Agent Skill)** — use the open [`skills`](https://skills.sh) CLI to install it into any supported agent (Claude Code, Codex, Cursor, …) with one command:
+
+```bash
+npx skills add notnotype/llmlint
+```
+
+It copies / links the skill files into the agent's skills directory and drives the CLI per `SKILL.md`.
+
+**Standalone CLI** — clone and install dependencies (Bun or Node both work):
+
 ```bash
 git clone https://github.com/notnotype/llmlint.git
 cd llmlint
-bun install
+bun install        # or npm install / pnpm install
 ```
 
-Run it directly:
+Run it directly (Bun runs TS natively; for Node see [Requirements](#requirements)):
 
 ```bash
-bun bin/llmlint.ts check <file>
+bun bin/llmlint.ts check <file>     # Node: npx tsx bin/llmlint.ts check <file>
 ```
 
-Or expose the `llmlint` command on your PATH (declared in `package.json` `bin`):
+Or expose the `llmlint` command on your PATH (declared in `package.json` `bin`): run `bun link`, then `llmlint check <file>`.
 
-```bash
-bun link
-llmlint check <file>
-```
-
-> The docs in `SKILL.md` / `references/` call the CLI as `bun .nbook/agent/skills/llmlint/bin/llmlint.ts …`. That path is for when llmlint is installed as an embedded agent skill (see [Using as an Agent Skill](#using-as-an-agent-skill)). Standalone, just use `bun bin/llmlint.ts …`.
+> The docs in `SKILL.md` / `references/` call the CLI as `bun .nbook/agent/skills/llmlint/bin/llmlint.ts …`. That path is for when llmlint is installed as an embedded agent skill (see [Using as an Agent Skill](#using-as-an-agent-skill)). Standalone, just use `bin/llmlint.ts` and swap `bun` for your Node runner.
 
 ## Quick start
 
@@ -145,7 +150,9 @@ Exit codes follow the **visible view**: hits hidden by `--review` / `--min-level
 
 ## Using as an Agent Skill
 
-This repo is also a self-contained **Agent Skill**. `SKILL.md` defines a 6-step polish workflow: get input → `check` → `show-llm-rules` + 50-point review → fix plan (user-approved) → apply → report. To install it for an agent, copy this folder into your agent's skills directory, e.g. `.claude/skills/llmlint/` or NeuroBook's `.nbook/agent/skills/llmlint/`, and the agent will drive the CLI through the documented flow.
+This repo is also a self-contained **Agent Skill**. `SKILL.md` defines a 6-step polish workflow: get input → `check` → `show-llm-rules` + 50-point review → fix plan (user-approved) → apply → report.
+
+Recommended install via the [`skills`](https://skills.sh) CLI — `npx skills add notnotype/llmlint` — which drops the files into the agent's skills directory (e.g. `.claude/skills/llmlint/` or NeuroBook's `.nbook/agent/skills/llmlint/`); or copy the folder manually. After installing, run the dependency install once in the skill directory (`npm install` / `bun install` / `pnpm install`), and the agent can drive the CLI through the documented flow.
 
 ## Documentation
 

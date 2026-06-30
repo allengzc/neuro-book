@@ -287,9 +287,18 @@ async function copyNbookRuntimePackage() {
     await cp(resolve(PRODUCT_ROOT, ".output", "server", "server"), resolve(packageRoot, "server"), {recursive: true});
     await cp(resolve(PRODUCT_ROOT, ".output", "server", "shared"), resolve(packageRoot, "shared"), {recursive: true});
     await cp(resolve(REPO_ROOT, "app"), resolve(packageRoot, "app"), {recursive: true});
+    await cp(resolve(REPO_ROOT, "world-engine"), resolve(packageRoot, "world-engine"), {recursive: true});
+    assertNbookWorldEngineHelper(packageRoot);
     const profileDslRoot = resolve(packageRoot, "server", "agent", "profiles", "profile-dsl");
     await writeFile(resolve(profileDslRoot, "index.jsx"), 'export * from "../profile-dsl.ts";\n', "utf8");
     await writeFile(resolve(profileDslRoot, "index.js"), 'export * from "../profile-dsl.ts";\n', "utf8");
+}
+
+function assertNbookWorldEngineHelper(packageRoot) {
+    const helperPath = resolve(packageRoot, "world-engine", "schema", "index.ts");
+    if (!existsSync(helperPath)) {
+        throw new Error(`Product nbook runtime package 缺少 World Engine schema helper：${helperPath}`);
+    }
 }
 
 /**

@@ -1,5 +1,7 @@
 # CLI 工具使用说明
 
+> 下文命令用 `bun` 演示；CLI 是 TypeScript，参数与运行器无关 —— Bun 原生运行，Node 通过 [`tsx`](https://github.com/privatenumber/tsx) 运行（把 `bun` 换成 `npx tsx`）。裸 `node` 不行：源码用了无扩展名相对导入，需 `tsx` 或 Bun 解析。首次使用若报缺依赖，在 skill 目录运行一次 `npm install`（或 `bun install` / `pnpm install`）。
+
 ## 基本用法
 
 检查文件中的 regex detector 命中项：
@@ -92,7 +94,7 @@ bun .nbook/agent/skills/llmlint/bin/llmlint.ts fix chapter.md --format json
 每条规则有三个互相独立的维度：
 - `level`（high / medium / low）：只表严重度，决定 `--min-level` 过滤和退出码。
 - `review`（agent / human / none）：审查受众，决定默认进入哪个审查出口。`check` 默认只展示 `review: agent` 的命中，把破折号、比喻、泛词形副词等更偏作者偏好的命中归到 `human`，把连续符号去重等机械命中归到 `none`。
-- `fixability`（auto / candidate / manual）：机械修复能力，预留给未来 opt-in 的 `--fix`，当前只展示，不自动改写。
+- `fixability`（auto / candidate / manual）：机械修复能力，决定能否被 `fix` 命令自动改写。`fix` 只应用 `auto` 桶（零宽字符、连续符号去重）；`check` 永远不改写。
 
 默认输出先按 high / medium / low 分段，再按规则分组。每条命中显示位置范围和命中文本，不重复打印完整原文行：
 
@@ -261,7 +263,7 @@ stylish 输出在交互式终端（TTY）下按语义着色：级别 high 红、
 
 ### CLI 工具可以自动修复吗？
 
-第一版不支持自动修复。修复由 Agent 根据上下文判断和用户审批后执行。
+只有 `fixability: auto` 的机械规则（零宽字符、连续符号去重）可由 `fix` 命令确定性修复（见上文「fix」节：默认 dry-run，`--write` 才落盘）。删填充词、改写句式等语义修复不在此列，仍由 Agent 读上下文、经用户审批后执行。`check` 本身永不改写正文。
 
 ### 如何配置规则包？
 

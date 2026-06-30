@@ -10,8 +10,8 @@ export type RuleLevel = "high" | "medium" | "low";
 export type Review = "agent" | "human" | "none";
 
 /**
- * 机械修复能力：描述规则能否被确定性替换，预留给未来 opt-in 的 --fix。
- * - auto：单一确定替换，未来可自动修复。
+ * 机械修复能力：描述规则能否被确定性替换，决定 fix 命令是否自动改写。
+ * - auto：单一确定替换，由 fix 命令自动修复（默认 dry-run，--write 落盘）。
  * - candidate：有删除/替换候选，但仍需判断上下文。
  * - manual：无机械替换，需要人工或 LLM 改写。
  */

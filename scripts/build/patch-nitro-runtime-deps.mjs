@@ -300,6 +300,15 @@ async function copyNbookRuntimePackage() {
     await copyDirectory(resolve("server"), resolve(packageRoot, "server"));
     await copyDirectory(resolve("shared"), resolve(packageRoot, "shared"));
     await copyDirectory(resolve("app"), resolve(packageRoot, "app"));
+    await copyDirectory(resolve("world-engine"), resolve(packageRoot, "world-engine"));
+    assertNbookWorldEngineHelper(packageRoot);
+}
+
+function assertNbookWorldEngineHelper(packageRoot) {
+    const helperPath = resolve(packageRoot, "world-engine", "schema", "index.ts");
+    if (!existsSync(helperPath)) {
+        throw new Error(`Product nbook runtime package 缺少 World Engine schema helper：${helperPath}`);
+    }
 }
 
 /**

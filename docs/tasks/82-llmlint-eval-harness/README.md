@@ -95,6 +95,7 @@ flowchart TB
 ## Current State
 
 - **M1(消费侧 consumer)+ acquisition 已实现并验证**(见 [walkthroughs/2026-06-30-round-01](./walkthroughs/2026-06-30-round-01-m1-consumer-and-acquisition.md));fixture 自检 ROC-AUC=1.000,真实人类 reference 出误杀基线。差 render(需模型 API)才出真实 lift。
+- **M2(eval-writer + 首条真实 lift)已完成**(见 [round-02](./walkthroughs/2026-06-30-round-02-eval-writer-first-lift.md)):`evals/generator/` 复用 pi-ai `completeSimple`,用 config.json 的 mimo + deepseek-v4-flash 照 brief 生成 render。首跑(2 题组/10 ref/4 render,同 brief):**ROC-AUC 1.000**,模型排名 deepseek-v4-flash(40.11)更像人 > mimo(56.75);破折号/量词/比喻等强判别多在 human 桶(给 Task 77)。样本小,需 M3 扩量。
 - 已确认:三层评测模型、配对 lift 法、先建判别挖掘 harness、AI 样本走 writer 管线。
 - 已查明 writer 管线现实(见下),据此定下"解耦、先用便宜样本种子化仪器"的实施路线。
 - 数据管线架构定型:**消费侧(skill 仓库,进 git)只接收数据;生成侧(本地,不进 git,依赖 NeuroBook)产数据**。本轮主任务 = 判别验证(副产物:AI 检测器 + 最像人类模型排名)。
@@ -234,7 +235,8 @@ flowchart TB
 
 - [x] 第一轮(主任务):**消费侧打分仪器** `evals/`（scan/corpus/metrics/report/score）+ **acquisition**（epub/txt→reference）。见 round-01 walkthrough。
 - [x] 人类 reference 种子:已用 诡秘之主.txt(GBK)+ 2 个魔法少女 epub 切出 reference 单元。
-- [ ] **M2(出首条真实 lift)**:brief 抽取(固定 prompt,只记剧情不带风格)+ eval-writer(单次 LLM completion,需模型 API)→ render → 真实 lift 体检表交 Task 77。
+- [x] **M2(首条真实 lift)**:brief 抽取 + eval-writer(pi-ai completeSimple,mimo+deepseek-v4-flash)→ render → 真实 lift/AUC/模型榜。见 round-02。
+- [ ] **M3(扩量 + 统计显著)**:更多题材/题组/模型 + 文风预设档 + holdout 切分;稳后把规则体检表正式交 Task 77。
 - [ ] 之后:critic 审批员给全池(人类/原始 AI/修复 AI)按参考打分。
 - [ ] 之后:第 ② 层产品成绩单、第 ③ 层显形回归集(以 4-tell DeepSeek 章为 #1)。
 - [ ] 落地后同步 `PROJECT-STATUS.md` 与本 README。
