@@ -240,7 +240,7 @@ bun test --filter="writer"
 - [x] TypeScript 编译通过
 - [x] 单元测试通过
 - [x] Bash 工具已添加
-- [x] Plot 工具存在
+- [x] execute_world 工具存在（只读 World Engine）
 - [x] Schemas 定义正确
 
 ### 功能验证 ⏳
@@ -248,7 +248,7 @@ bun test --filter="writer"
 - [ ] Writer 按新 thinking 流程思考
 - [ ] Writer 按 8 步 execution 流程执行
 - [ ] 信息三层隔离正确工作
-- [ ] Plot 工具按需使用（不机械读取）
+- [ ] Writer 正确消费 leader 编译的 Chapter Brief（不主动调用 Plot tools）
 
 ### 质量验证 ⏳
 - [ ] 输出无禁用词和句式

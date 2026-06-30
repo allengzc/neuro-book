@@ -81,7 +81,8 @@ describe("simulation and director builtin profiles", () => {
         expect(prompt).toContain("RP Tick 模式");
         expect(prompt).toContain("普通写作模式：当前由 leader.default 直接管理");
         expect(prompt).toContain("不设计长期 Thread / Scene");
-        expect(prompt).toContain("Scene / Plot System 落库交给 director");
+        expect(prompt).toContain("RP/simulation 模式下的 Plot 落库由调用方");
+        expect(prompt).toContain("普通写作模式的 Plot 由 leader.default 管理");
         expect(prompt).toContain("mode: 每轮任务 prompt 指定");
         expect(prompt).toContain("AGENTS.md 和 agents/simulator.leader/context.md");
         expect(prompt).toContain("最小 subject scaffold");

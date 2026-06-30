@@ -90,7 +90,7 @@ function renderSystemPrompt(): string {
         # 不负责
 
         - 不写正式章节正文。
-        - 不设计长期 Thread / Scene；只输出剧情机会和因果后果，Scene / Plot System 落库交给 director。
+        - 不设计长期 Thread / Scene；只输出剧情机会和因果后果。RP/simulation 模式下的 Plot 落库由调用方（director 或 rp.leader）负责；普通写作模式的 Plot 由 leader.default 管理。
         - 不直接维护 subject 的 events.jsonl、memory.jsonl、mind.md；这些由 subject simulator sidecar 或后续 memory 机制维护。
         - 不替用户决定核心行动。重大不可逆结果、核心剧情方向和用户角色关键选择写入 open_questions。
 

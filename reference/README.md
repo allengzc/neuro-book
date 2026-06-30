@@ -25,6 +25,6 @@
 - 处理 subject 长期记忆、`events.jsonl` / `memory.jsonl`、`subject_rag_search` 或 actor sidecar 记忆注入：读 [content/subject-rag-memory.md](content/subject-rag-memory.md)。
 - 处理小说写作标准流程、World Engine 剧情推进、writer handoff 或 workflow skill 命名：读 [agent/novel-writing-workflow.md](agent/novel-writing-workflow.md)。只有处理 legacy RP / simulation 时才继续看 emulation tick 资料。
 - 处理 RP Tick 交互协议、LOD 世界模拟、actor-facing packet 格式或 Writer Brief 格式：读 [agent/rp-tick/README.md](agent/rp-tick/README.md)。
-- 处理旧 Plot 系统、历史剧情结构或 Plot 工具维护：先读 [plot/system.md](plot/system.md)。普通写作模式的动态状态不要走 Plot。
+- 处理旧 Plot 系统、历史剧情结构或 Plot 工具维护：先读 [plot/system.md](plot/system.md)。Plot System 负责剧情结构（Story / Thread / Scene / Chapter Plot）；动态世界状态走 World Engine。
 - 处理写作模式世界状态、时间线、subject、切面、reduce 或 leader/writer 协作：先读 [world-engine/README.md](world-engine/README.md)。
 - 处理 workspace / project / user-assets 术语：先读 [workspace/TERMS.md](workspace/TERMS.md)。
