@@ -1590,7 +1590,7 @@ const initializeWorkspaceFromRoute = async (): Promise<void> => {
     }
 
     if (target.kind === "project") {
-        const list = await loadNovels({includeProjectPath: target.projectPath});
+        const list = await loadNovels();
         const routeProjectExists = list.some((novel) => novel.id === target.projectPath);
         discardOpenPathForProjectFallback.value = !routeProjectExists;
         await switchToNovelWorkspace(routeProjectExists ? target.projectPath : list[0]?.id);

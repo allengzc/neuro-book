@@ -920,6 +920,49 @@ describe("llmlint", () => {
         expect(report.totalOccurrences).toBeGreaterThanOrEqual(1);
         expect(report.files[0]?.changed).toBe(true);
     });
+
+    it("CLI check 支持 glob 模式与 ! 排除", async () => {
+        const dir = `llmlint-glob-${randomUUID()}`;
+        const absDir = resolve(process.cwd(), dir);
+        tempRoots.push(absDir);
+        await mkdir(join(absDir, "drafts"), {recursive: true});
+        await writeFile(join(absDir, "a.md"), "其实甲。", "utf-8");
+        await writeFile(join(absDir, "b.md"), "其实乙。", "utf-8");
+        await writeFile(join(absDir, "drafts", "skip.md"), "其实丙。", "utf-8");
+        const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+        await runCli(["bun", "llmlint", "check", `${dir}/**/*.md`, `!${dir}/drafts/**`, "--review", "all", "--format", "json"]);
+        const report = JSON.parse(String(log.mock.calls[0]?.[0])) as {kind: string; files: Array<{filePath: string}>};
+        expect(report.kind).toBe("check-multi");
+        expect(report.files).toHaveLength(2);
+        expect(report.files.every((file) => !file.filePath.includes("drafts"))).toBe(true);
+    });
+
+    it("formatCheckReport color 门控：true 含 ANSI、false 纯文本", async () => {
+        const rulesetId = `test/${randomUUID()}`;
+        tempRoots.push(join(RULESETS_ROOT, "test"));
+        await writeRuleset(rulesetId, [{...regexRule("test.color", "test.output", "颜色规则", "高风险词"), level: "high"}]);
+        const loadedRules = await loadRules(emptyConfig([rulesetId]));
+        const issues = scanText("有高风险词。", loadedRules.regexRules);
+
+        const colored = formatCheckReport("input.md", issues, loadedRules, {color: true});
+        const plain = formatCheckReport("input.md", issues, loadedRules, {color: false});
+        const esc = String.fromCharCode(0x1B);
+        expect(colored).toContain(esc);
+        expect(plain).not.toContain(esc);
+    });
+
+    it("CLI check 被抓取（非 TTY）输出纯文本，无 ANSI", async () => {
+        const root = await mkdtemp(join(tmpdir(), "llmlint-noansi-"));
+        tempRoots.push(root);
+        const filePath = join(root, "input.md");
+        await writeFile(filePath, "其实甲。", "utf-8");
+        const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+        await runCli(["bun", "llmlint", "check", filePath, "--review", "all"]);
+
+        expect(String(log.mock.calls[0]?.[0])).not.toContain(String.fromCharCode(0x1B));
+    });
 });
 
 function emptyConfig(rulesets: string[]) {

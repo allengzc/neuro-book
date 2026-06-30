@@ -21,7 +21,7 @@ describe("server timing", () => {
         (globalThis as typeof globalThis & {defineNitroPlugin?: unknown}).defineNitroPlugin = (plugin: unknown) => plugin;
         const plugin = (await import("nbook/server/plugins/server-timing")).default;
         const {event, headers} = createTestEvent();
-        let beforeResponse: ((event: H3Event, response: {body?: unknown}) => void) | null = null;
+        let beforeResponse: ((event: H3Event, response: {headers?: Record<string, string>}) => void) | null = null;
         const nitroApp = {
             hooks: {
                 hook: vi.fn((name: string, callback: typeof beforeResponse) => {
@@ -33,9 +33,21 @@ describe("server timing", () => {
 
         plugin(nitroApp as never);
         createServerTiming(event).mark("agent.total", 12.34);
-        beforeResponse?.(event, {});
+        const response = {headers: {"server-timing": "existing;dur=1.0"}};
+        beforeResponse?.(event, response);
 
-        expect(headers["server-timing"]).toBe("agent.total;dur=12.3");
+        expect(headers["server-timing"]).toBe("existing;dur=1.0, agent.total;dur=12.3");
+        expect(response.headers["Server-Timing"]).toBe("existing;dur=1.0, agent.total;dur=12.3");
+    });
+
+    it("会合并 Nuxt dev runtime 在 res.end 前晚写入的 Server-Timing", async () => {
+        const {event, headers} = createTestEvent();
+
+        createServerTiming(event).mark("projects.total", 5);
+        flushServerTiming(event);
+        event.node.res.setHeader("Server-Timing", "-;dur=1;desc=\"Generate\"");
+
+        expect(headers["server-timing"]).toBe("-;dur=1;desc=\"Generate\", projects.total;dur=5.0");
     });
 });
 

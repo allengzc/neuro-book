@@ -56,6 +56,15 @@ bun .nbook/agent/skills/llmlint/bin/llmlint.ts check a.md b.md
 bun .nbook/agent/skills/llmlint/bin/llmlint.ts check manuscript/
 ```
 
+也支持 glob 模式（`**` 递归、`!` 排除、`{a,b}` 花括号）：
+
+```bash
+bun .nbook/agent/skills/llmlint/bin/llmlint.ts check 'manuscript/**/*.md'
+bun .nbook/agent/skills/llmlint/bin/llmlint.ts check 'manuscript/**/*.md' '!manuscript/drafts/**'
+```
+
+> glob 模式按相对当前工作目录解析；用引号包住模式，避免被 shell 提前展开。目录参数（如 `manuscript/`）则在该目录内递归。
+
 对 Markdown 文件，默认跳过代码块 / frontmatter / 行内代码 / 链接等结构区域，避免把代码、链接当正文误杀。`--scan-all` 关闭遮罩，扫描全部内容：
 
 ```bash
@@ -212,6 +221,11 @@ namespace: abstraction.hollow
 
 - `detector`（regex / llm）决定**用什么手段检测**：regex 由 `check` 静态扫描命中，llm 由 `show-llm-rules` 交给 Agent 全文审查。
 - `review`（agent / human / none）决定一条 regex 命中**默认给谁看**。`check --review agent` 是 regex 命中里需要 Agent 处理的审查入口；它和 `show-llm-rules`（detector 为 llm 的全文语义规则）是两个互补的 Agent 审查面，完整审查时两者都要跑。
+
+## 彩色输出
+
+stylish 输出在交互式终端（TTY）下按语义着色：级别 high 红、medium 黄、low 暗；规则 id 青色、命中文本黄色、汇总 `✖` 红 / `✓` 绿；`fix` 预览 before 红、after 绿。
+被管道、重定向或 Agent 抓取（非 TTY）、设置环境变量 `NO_COLOR`、或用 `--format json` 时，自动退化为纯文本，不输出任何 ANSI 转义码，保证机读安全。
 
 ## 退出码
 

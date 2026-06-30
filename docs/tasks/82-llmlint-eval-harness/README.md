@@ -5,6 +5,7 @@
 ## Relative documents refs
 
 - 被测对象:`assets/workspace/.nbook/agent/skills/llmlint/`
+- **数据获取工程(reference 怎么来)**:[data-acquisition.md](./data-acquisition.md)
 - 规则修复任务(本任务的下游消费者):[Task 77 llmlint Rule Registry](../77-llmlint-rule-registry/README.md)
 - llmlint 历史源头:[Task 51 anti-ai-slop / llmlint skill](../51-anti-ai-slop-skill/README.md)
 - 评测结构参考:`.agent/github/shuorenhua/evals/`(SF/SNF + 三轴评分 + 双模型交叉判分)
@@ -93,7 +94,7 @@ flowchart TB
 
 ## Current State
 
-- 设计已对齐,**尚未开始编码**。
+- **M1(消费侧 consumer)+ acquisition 已实现并验证**(见 [walkthroughs/2026-06-30-round-01](./walkthroughs/2026-06-30-round-01-m1-consumer-and-acquisition.md));fixture 自检 ROC-AUC=1.000,真实人类 reference 出误杀基线。差 render(需模型 API)才出真实 lift。
 - 已确认:三层评测模型、配对 lift 法、先建判别挖掘 harness、AI 样本走 writer 管线。
 - 已查明 writer 管线现实(见下),据此定下"解耦、先用便宜样本种子化仪器"的实施路线。
 - 数据管线架构定型:**消费侧(skill 仓库,进 git)只接收数据;生成侧(本地,不进 git,依赖 NeuroBook)产数据**。本轮主任务 = 判别验证(副产物:AI 检测器 + 最像人类模型排名)。
@@ -159,6 +160,8 @@ flowchart TB
 
 生成侧最前面加一个 **acquire + curate** 层,决定 reference 怎么来(**reference 纯度 = 检测器天花板,这层承重**)。
 
+**两种 reference 输入格式**:① 全书(epub/txt)需切章;② **人工精选片段直接作 reference**(高质量入口)。**人工选"优秀且典型的人类正文"是不可自动化的质量闸门。** 详见 [data-acquisition.md](./data-acquisition.md)。
+
 **reference 策略(推荐)**:
 - **主力 = 中文网文,6-8 主流题材 × 多作者**:玄幻/异世界、仙侠修真、都市(系统/爽文)、古言、现言、科幻末世、悬疑灵异、历史穿越。题材内要 作者/笔法 多样,并覆盖 第一/第三人称、对话密集/描写密集。
 - **小量人类高端锚点 = 传统/严肃文学**(genre=`literary`):给检测器"极人类"参照,防规则误杀文学手法(长句、比喻、意识流),不进主力池。
@@ -209,7 +212,8 @@ flowchart TB
   reference.md  render-001.md  render-002.md ...  brief.md
   meta.json   # 每篇 sample: {file, role:"reference"|"render"|"repair",
               #   model?, modelVersion?, styleKey?, difficulty?,
-              #   split:"train"|"test", sourceUrl?, pubYear?, charCount}
+              #   split:"train"|"test", referenceSource?:"book-segment"|"hand-picked",
+              #   sourceUrl?, pubYear?, charCount}
 ```
 
 判别时 `role:reference` = 人类类,`role:render` = AI 类;`repair` 单独统计(衡量"修复有没有把 AI 推向人类")。
@@ -228,9 +232,9 @@ flowchart TB
 
 ## TODO / Follow-ups
 
-- [ ] **待用户提供**:一篇同体裁(穿越异世界奇幻)人类网文章节当种子,与 DeepSeek 章配对。
-- [ ] 第一轮(主任务,本地):**消费侧打分脚本** `evals/`——复用 llmlint 引擎(import),出 规则体检表 + AI 检测器 AUC + 模型排名;定死 corpus/meta 契约。
-- [ ] 生成侧(本地,不进 git):brief 抽取(固定 prompt,只记剧情不带风格)+ eval-writer 多模型/文风照 brief render。
+- [x] 第一轮(主任务):**消费侧打分仪器** `evals/`（scan/corpus/metrics/report/score）+ **acquisition**（epub/txt→reference）。见 round-01 walkthrough。
+- [x] 人类 reference 种子:已用 诡秘之主.txt(GBK)+ 2 个魔法少女 epub 切出 reference 单元。
+- [ ] **M2(出首条真实 lift)**:brief 抽取(固定 prompt,只记剧情不带风格)+ eval-writer(单次 LLM completion,需模型 API)→ render → 真实 lift 体检表交 Task 77。
 - [ ] 之后:critic 审批员给全池(人类/原始 AI/修复 AI)按参考打分。
 - [ ] 之后:第 ② 层产品成绩单、第 ③ 层显形回归集(以 4-tell DeepSeek 章为 #1)。
 - [ ] 落地后同步 `PROJECT-STATUS.md` 与本 README。

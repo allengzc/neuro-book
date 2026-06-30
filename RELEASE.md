@@ -1,21 +1,55 @@
 # Release Notes
 
-本文件用于记录任务完成后的 release note。每次任务更新后，可以在 `Unreleased` 下方追加用户可读的变更摘要，方便后续整理版本发布说明。
+## 0.5.1-canary - 2026-06-30
 
-## Unreleased
+这次 patch 主要是性能和工具体验打磨，适合在 0.5.0 canary 的基础上继续验证。
+
+1. 项目列表速度优化
+`/api/projects` 增加了 5 秒短缓存和分层统计缓存。Novel IDE 主入口不再发会绕过缓存的 include-only 查询，项目列表热请求可以直接命中缓存；接口也加了 `Server-Timing` 分段，方便之后继续定位慢点。
+
+2. 项目列表后台预热
+服务启动后会后台渐进预热 Project manifest、Agent session count 和单项目统计缓存，不阻塞服务启动，也不会把第一个真实请求绑进全量预热。
+
+3. llmlint 命令行更像一个真正的稿件工具
+`llmlint check/fix` 支持 tinyglobby glob 输入，例如 `manuscript/**/*.md` 和 `!drafts/**`；输出在终端下会有颜色，在 JSON、管道或 Agent 抓取时保持纯文本。
+
+4. llmlint 依赖自包含
+llmlint skill 目录声明并安装自己的运行依赖，部署副本也能直接解析 `tinyglobby` / `picocolors`，减少产品环境里“根依赖碰巧存在”的隐患。
+
+5. llmlint 评测体系进入第一阶段
+评测 harness 的消费侧和数据获取文档已落地：支持 reference / brief / rendition / plot group 这套语料合同，后续可以用 AI vs 人类配对 lift、检测器 AUC 和模型“最像人类”排名来治理规则质量。
+
+6. 文档与发布纪律
+`AGENTS.md` 已补充发布流程：发布前读 tasks、更新 `RELEASE.md`，canary 发布命令统一带 `--no-watch`，创建 GitHub Release 后不再等待 GitHub Actions。
+
+验证记录来自对应任务：Task 83 记录了 5 files / 19 tests passed 与 typecheck passed；Task 77 记录了 llmlint CLI、glob、颜色、自包含依赖和 user-assets 同步验证；Task 82 记录了 M1 consumer/acquisition 的 fixture 自检与 reference 输入策略。本次发布不等待 GitHub Actions release workflow。
 
 ## 0.5.0-canary - 2026-06-30
 
-本次 canary 是写作模式 v1 的一次 minor 版本收口，重点是把 Plot、World Engine、Agent profile 编译、Agent 工具交互和 llmlint 工具链推进到新的稳定基线。
+这次更新是"写作模式"第一版的收尾，把剧情系统、世界设定、AI 助手、AI 痕迹检测工具这几块核心功能做稳定了。
 
-- 写作主路径：Plot 入口回到普通写作界面，Plot System 收敛为 Scene-only 模型；Scene 通过时间范围、地点 subject 和出场 subject 连接 World Engine，旧 `StoryPlot / Plot Beat` 退出正式模型。
-- Plot / World Engine 桥接：Scene 可查询对应 World Engine slices 和 subject states；Plot Workbench 增加 World Engine 连接编辑、Subject 选择器和上下文面板，Agent 可通过 `get_chapter_writer_brief` 取得章节写作 brief。
-- Agent profile 编译系统：`.compiled` 改为内容寻址 artifact + 原子 manifest，runtime 严格拒绝 stale / failed profile；设置页改用专用 settings / build-status 接口展示编译状态，减少 editor snapshot 热路径负担。
-- Agent 工具交互：`request_user_input` 从 Low-Code Form 拆出，成为专用问答协议；`read` / `edit` / approval / Plan Mode 等工具恢复链路补齐 durable pending、行号定位和预检诊断。
-- llmlint：默认规则集改为 `rules/` 目录递归加载，内置规则扩展到稿件级检测；CLI 支持多文件 / 目录扫描、Markdown 结构遮罩和 `fix` 自动修复零宽字符、重复标点等机械痕迹。
-- llmlint 发布准备：在 `.agent/workspace/llmlint` 准备独立 GitHub-only Bun CLI + Agent Skill 发布骨架，neuro-book 继续保留 vendored runtime snapshot。
-- llmlint eval harness：完成评测体系设计，明确 reference / brief / rendition / plot group 等术语，采用 AI vs 人类配对 lift、检测器 AUC 和模型“最像人类”排名作为规则治理指标。
-- Profile MCP Config：完成第一版架构设计，推荐 Workspace Root MCP server registry + profile tool allowlist + frozen run tool snapshot；MCP 不进入 profile 编译热路径。
-- 文档与参考：`PROJECT-STATUS.md`、`reference/plot`、`reference/world-engine`、`reference/agent` 和相关 task walkthrough 已同步当前产品合同。
+1. 剧情系统大幅简化
+以前写剧情要进一个单独的界面，现在直接在正常写作界面里就能写。剧情结构也砍简单了——只保留"场景（Scene）"这一个概念，原来那套"故事线 /
+剧情节拍"废弃了。每个场景靠"什么时间、在哪、有谁出场"跟世界设定挂钩。
 
-验证记录来自对应 tasks：Task 78 completion audit 覆盖 Plot / brief / profile contract；Task 79 覆盖 profile 编译系统并发、发布与隔离；Task 77 / 51 覆盖 llmlint rule registry、CLI、user-assets 同步与 typecheck；Task 18 / 63 覆盖 Agent runtime hooks、user input、approval、file tools 和 session 恢复链路。本次提交流程不额外进行浏览器验证。
+2. 场景能联动世界设定了
+写场景时能直接查到对应的世界设定和角色当时的状态。剧情工作台加了新功能：编辑场景与设定的关联、选角色/地点、看上下文。AI
+也能拿到"这一章该怎么写"的简报。
+
+3. AI 助手的配置更可靠
+配置编译后的存储方式改了，保证绝不会用到过期或编译失败的旧配置。设置页能看到编译状态，而且这套机制不再拖慢编辑器。
+
+4. AI 助手的工具交互更顺
+"AI 向你提问"的功能独立成了专门的问答机制。读文件、改文件、审批、计划模式这些操作在中断后能更好地恢复，还加了行号定位和预检查。
+
+5. llmlint（AI 痕迹检测工具）增强
+- 检测规则从目录里自动加载，新增了整篇稿件级别的检测
+- 命令行能扫多文件/整个目录，能自动修掉零宽字符、重复标点这类"一看就是 AI 写的"机械痕迹
+- 搭好了单独发布到 GitHub 的骨架（独立命令行工具 + Agent Skill）
+- 设计完了一套评测方法：拿 AI 写的和人写的对比，看检测器能不能区分、哪个模型写得"最像人"
+
+6. AI 助手的 MCP 配置方案
+第一版架构设计定了，关键点是 MCP 配置不会拖慢编译。
+
+7. 文档同步
+相关文档都更新到了最新状态。

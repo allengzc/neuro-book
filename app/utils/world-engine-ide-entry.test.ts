@@ -269,7 +269,7 @@ describe("World Engine IDE entry", () => {
         expect(indexPage).toContain("const lastMissingProjectNoticeTarget = ref(\"\");");
         expect(indexPage).toContain("const discardOpenPathForProjectFallback = ref(false);");
         expect(indexPage).toContain("const notifyProjectRouteFallback = (target: ProjectRouteTarget): void =>");
-        expect(indexPage).toContain("const list = await loadNovels({includeProjectPath: target.projectPath});");
+        expect(indexPage).toContain("const list = await loadNovels();");
         expect(indexPage).toContain("const routeProjectExists = list.some((novel) => novel.id === target.projectPath);");
         expect(indexPage).toContain("discardOpenPathForProjectFallback.value = !routeProjectExists;");
         expect(indexPage).toContain("await switchToNovelWorkspace(routeProjectExists ? target.projectPath : list[0]?.id);");

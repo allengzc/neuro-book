@@ -734,6 +734,33 @@ export default {
 - 原计划 glob 用 `Bun.Glob`；实测仓库未装 bun-types（`Bun` 全局无类型，测试传递性 typecheck 会报错），且 bash globstar 默认关、`@types/node` 的 `globSync` 不可靠。改为强类型零依赖的 `node:fs` 目录递归（`readdirSync recursive`）+ 显式多文件，覆盖「扫整部稿件」的真实需求，不留类型债；代价是不支持裸 `*.md` glob 模式（用目录递归或 shell 展开替代）。
 - 标准 GitHub 发布仓库 `.agent/workspace/llmlint` 本轮未同步、未 republish；属独立发布动作，留作后续。
 
+### 2026-06-30 CLI 体验打磨：tinyglobby glob + picocolors 彩色 + 依赖自包含
+
+需求：继续打磨 CLI 输入/输出，并确定依赖模型。用户三条决定：依赖写进 skill `package.json` 并在 skill 目录 `bun install`（自包含，解决上一轮「产品端依赖供给」不确定性）；优先用 NeuroBook 已有库；glob 用 tinyglobby（非 ripgrep）。
+
+实现：
+
+- **依赖自包含**：`package.json` 增 `tinyglobby`/`picocolors`（均为仓库根现有传递依赖，最轻同类件）；skill 目录 `bun install` 生成本地 `node_modules` + `bun.lock`；新增 skill 本地 `.gitignore` 忽略 `node_modules`（仓库根 `.gitignore` 只忽略 `/node_modules`）。sync 会把 node_modules 复制到 workspace 部署副本使其自包含（`workspace/` 整体 gitignore，无 git 污染）。
+- **glob 输入**（`src/cli.ts` `expandInputs`）：改 tinyglobby `globSync` —— 字面文件保留「不存在」语义；目录以自身为 cwd 递归 glob（避免绝对路径跨盘符在 tinyglobby 下不匹配）；glob 模式（含 `* ? { } [ ] !`）相对 cwd 直通，支持 `**`/`!` 排除/花括号。`fix` 复用同一展开。
+- **彩色输出**（`src/reporter.ts`）：picocolors `createColors(color)`，各 formatter 加 `color` 参数；严格门控 `resolveColor = output!==json && stdout.isTTY && !NO_COLOR`（`src/cli.ts`）。级别 high 红/medium 黄/low 暗、规则 id 青、命中黄、汇总红/绿、fix 预览红/绿、诊断红/黄；json/管道/Agent 抓取一律纯文本。
+
+变更文件：`package.json`、新增 `.gitignore`、`src/cli.ts`（expandInputs 改 tinyglobby + `resolveColor` + color 下传）、`src/reporter.ts`（formatter +color + createColors）；测试 `server/agent/skills/llmlint.test.ts` +3；文档 cli-usage.md / SKILL.md。
+
+验证：
+
+- `cd assets/.../llmlint && bun install`：5 包（commander/picocolors/tinyglobby + fdir/picomatch），`--version` 正常。
+- `bun vitest run ...llmlint.test.ts ...skill-catalog.test.ts`：2 files / 53 passed（llmlint 45→48）。
+- `bun run typecheck`：0 错误（两包自带类型）。
+- 真实样本：`check 'manuscript/**/*.md'` glob 递归命中、`!drafts/**` 排除生效、目录递归仍工作、不存在路径报「不存在」；管道 / `--format json` 输出 0 个 ANSI 字节（Agent 安全），`createColors(true)` 证明着色机制。
+- 部署副本：从 `workspace/.../bin/llmlint.ts` 跑 glob 通过，自包含 node_modules 正确解析 tinyglobby/picocolors（registry 仍 340/311）。
+- 双拷贝：`sync-user-assets`（copied=49 含 node_modules）后源码/文档/package.json `diff -rq` 零差异；两处 node_modules 与 `workspace/` 均 gitignore，`bun.lock` 可入库。
+
+计划出入：
+
+- glob 选型在用户决策下从上一轮的 `node:fs` 目录递归升级为 tinyglobby，获得真 glob 模式；目录分支改为「以目录自身为 cwd」glob，修掉绝对路径在 tinyglobby 下不匹配的回归。
+- ripgrep 经评估不采用：外部二进制、项目未捆进产品、依赖 PATH，与「JS 依赖装 skill 目录」模型不符。
+- 独立发布仓库 `.agent/workspace/llmlint` 的依赖与 republish 仍留作后续。
+
 ## References
 
 - 当前 llmlint skill：`assets/workspace/.nbook/agent/skills/llmlint/`

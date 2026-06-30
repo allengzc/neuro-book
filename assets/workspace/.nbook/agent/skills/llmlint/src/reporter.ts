@@ -1,4 +1,8 @@
+import {createColors} from "picocolors";
 import type {CheckFileEntry, CheckFilterInfo, CheckJsonReport, CheckMultiJsonReport, CheckSummary, FixFileEntry, FixFileResult, FixReport, FixRuleCount, Issue, LLMRuleRecord, LLMRulesJsonReport, LoadedRules, RegistryDiagnostic, Review, RuleLevel} from "./types";
+
+/** picocolors 着色器；createColors(false) 时所有方法为恒等，输出纯文本。 */
+type Painter = ReturnType<typeof createColors>;
 
 const LEVEL_ORDER: RuleLevel[] = ["high", "medium", "low"];
 const MAX_MATCH_TEXT_LENGTH = 80;
@@ -14,19 +18,22 @@ export type CheckReportOptions = {
     showLines?: boolean;
     /** 多文件模式下抑制重复的诊断块；缺省 true（单文件时正常展示）。 */
     includeDiagnostics?: boolean;
+    /** 是否对 stylish 输出着色；由 CLI 按 TTY/NO_COLOR/非 json 决定，缺省 false。 */
+    color?: boolean;
 };
 
 export function formatCheckReport(filePath: string, issues: Issue[], loadedRules: LoadedRules, options: CheckReportOptions = {}): string {
+    const pc = createColors(options.color ?? false);
     const lines: string[] = [
-        filePath,
+        pc.bold(filePath),
         "",
-        ...(options.includeDiagnostics === false ? [] : formatDiagnostics(loadedRules.diagnostics)),
+        ...(options.includeDiagnostics === false ? [] : formatDiagnostics(loadedRules.diagnostics, pc)),
     ];
     const hiddenByReview = options.hiddenByReview ?? 0;
     const hiddenByLevel = options.hiddenByLevel ?? 0;
     if (issues.length === 0) {
         const hiddenNote = formatHiddenNote(hiddenByReview, hiddenByLevel);
-        lines.push(hiddenNote ? `✓ No problems found in current view.${hiddenNote}` : "✓ No problems found");
+        lines.push(hiddenNote ? `${pc.green("✓ No problems found in current view.")}${hiddenNote}` : pc.green("✓ No problems found"));
         return lines.join("\n");
     }
 
@@ -42,7 +49,7 @@ export function formatCheckReport(filePath: string, issues: Issue[], loadedRules
         if (levelIssues.length === 0) {
             continue;
         }
-        lines.push(`${level} (${levelIssues.length} problem${levelIssues.length > 1 ? "s" : ""})`);
+        lines.push(colorizeLevel(pc, level, `${level} (${levelIssues.length} problem${levelIssues.length > 1 ? "s" : ""})`));
         lines.push("");
 
         for (const ruleIssues of groupByRule(levelIssues).values()) {
@@ -51,13 +58,13 @@ export function formatCheckReport(filePath: string, issues: Issue[], loadedRules
                 continue;
             }
             const rule = firstIssue.rule;
-            lines.push(`${rule.id} [${rule.namespace}] (${rule.title})`);
-            lines.push(`  来源：${rule.ruleset}；级别：${rule.level}；审查：${rule.review}；修复：${rule.fixability}`);
+            lines.push(`${pc.cyan(rule.id)} ${pc.dim(`[${rule.namespace}]`)} (${rule.title})`);
+            lines.push(pc.dim(`  来源：${rule.ruleset}；级别：${rule.level}；审查：${rule.review}；修复：${rule.fixability}`));
 
             for (const issue of ruleIssues) {
                 lines.push(options.showLines
                     ? `  ${formatIssueRange(issue)}  ${formatMarkedLine(issue)}`.trimEnd()
-                    : `  ${formatIssueRange(issue)}  match: ${formatMatchText(issue.match)}`);
+                    : `  ${formatIssueRange(issue)}  match: ${pc.yellow(formatMatchText(issue.match))}`);
                 if (options.showLines) {
                     lines.push("");
                 }
@@ -69,7 +76,7 @@ export function formatCheckReport(filePath: string, issues: Issue[], loadedRules
             const occurrenceText = ruleIssues.length === 1 ? "occurrence" : "occurrences";
             lines.push(`  ${ruleIssues.length} ${occurrenceText}. ${formatAction(rule.action)}`);
             if (rule.note) {
-                lines.push(`  说明：${rule.note}`);
+                lines.push(pc.dim(`  说明：${rule.note}`));
             }
             lines.push("");
         }
@@ -80,9 +87,20 @@ export function formatCheckReport(filePath: string, issues: Issue[], loadedRules
     if (summary.medium > 0) parts.push(`${summary.medium} medium`);
     if (summary.low > 0) parts.push(`${summary.low} low`);
     // 隐藏统计只在顶部过滤表头展示一次，总结行不重复。
-    lines.push(`✖ ${summary.total} problem${summary.total > 1 ? "s" : ""} (${parts.join(", ")})`);
+    lines.push(pc.red(`✖ ${summary.total} problem${summary.total > 1 ? "s" : ""} (${parts.join(", ")})`));
 
     return lines.join("\n");
+}
+
+/** 按级别给文本上色：high 红粗、medium 黄、low 暗。 */
+function colorizeLevel(pc: Painter, level: RuleLevel, text: string): string {
+    if (level === "high") {
+        return pc.red(pc.bold(text));
+    }
+    if (level === "medium") {
+        return pc.yellow(text);
+    }
+    return pc.dim(text);
 }
 
 /** 拼出过滤表头：审查受众一行 + 级别一行，仅在确实隐藏了命中时显示。 */
@@ -124,7 +142,8 @@ export function createCheckJsonReport(filePath: string, configPath: string | nul
 }
 
 /** 多文件汇总行：文件数、有命中文件数、各级别总数。 */
-export function formatCheckAggregate(files: CheckFileEntry[]): string {
+export function formatCheckAggregate(files: CheckFileEntry[], color = false): string {
+    const pc = createColors(color);
     const summary = aggregateSummary(files);
     const filesWithIssues = files.filter((file) => file.issues.length > 0).length;
     const parts: string[] = [];
@@ -132,7 +151,7 @@ export function formatCheckAggregate(files: CheckFileEntry[]): string {
     if (summary.medium > 0) parts.push(`${summary.medium} medium`);
     if (summary.low > 0) parts.push(`${summary.low} low`);
     const detail = parts.length > 0 ? ` (${parts.join(", ")})` : "";
-    return `═══ 汇总：${files.length} 个文件，${filesWithIssues} 个有命中，共 ${summary.total} problem${summary.total === 1 ? "" : "s"}${detail} ═══`;
+    return pc.bold(`═══ 汇总：${files.length} 个文件，${filesWithIssues} 个有命中，共 ${summary.total} problem${summary.total === 1 ? "" : "s"}${detail} ═══`);
 }
 
 export function createMultiCheckJsonReport(configPath: string | null, files: CheckFileEntry[], loadedRules: LoadedRules, filter: CheckFilterInfo): CheckMultiJsonReport {
@@ -174,31 +193,34 @@ export function formatJsonReport(report: CheckJsonReport | CheckMultiJsonReport 
 }
 
 /** fix 命令的 stylish 输出：逐文件规则计数 + 变更行预览，末尾汇总。 */
-export function formatFixReport(results: FixFileResult[], write: boolean): string {
+export function formatFixReport(results: FixFileResult[], write: boolean, color = false): string {
+    const pc = createColors(color);
     const sections: string[] = [];
     let total = 0;
     for (const result of results) {
         total += result.issues.length;
         if (!result.changed) {
-            sections.push(`${result.filePath}\n  ✓ 无可自动修复项`);
+            sections.push(`${pc.bold(result.filePath)}\n  ${pc.green("✓ 无可自动修复项")}`);
             continue;
         }
-        const lines: string[] = [result.filePath];
+        const lines: string[] = [pc.bold(result.filePath)];
         for (const [ruleId, ruleIssues] of groupByRule(result.issues)) {
-            lines.push(`  ${ruleId} (${ruleIssues[0]?.rule.title ?? ""})：${ruleIssues.length} 处`);
+            lines.push(`  ${pc.cyan(ruleId)} (${ruleIssues[0]?.rule.title ?? ""})：${ruleIssues.length} 处`);
         }
         const changedLines = collectChangedLines(result.content, result.fixed).slice(0, 5);
         if (changedLines.length > 0) {
             lines.push("  预览（before → after）：");
             for (const changed of changedLines) {
-                lines.push(`    L${changed.line}: ${changed.before} → ${changed.after}`);
+                lines.push(`    L${changed.line}: ${pc.red(changed.before)} → ${pc.green(changed.after)}`);
             }
         }
-        lines.push(write ? `  已写入 ${result.issues.length} 处修复` : `  ${result.issues.length} 处可修复（dry-run，加 --write 落盘）`);
+        lines.push(write
+            ? pc.green(`  已写入 ${result.issues.length} 处修复`)
+            : pc.yellow(`  ${result.issues.length} 处可修复（dry-run，加 --write 落盘）`));
         sections.push(lines.join("\n"));
     }
     const verb = write ? "已修复" : "可修复（dry-run）";
-    sections.push(`═══ ${verb}：${results.length} 个文件，共 ${total} 处 ═══`);
+    sections.push(pc.bold(`═══ ${verb}：${results.length} 个文件，共 ${total} 处 ═══`));
     return sections.join("\n\n");
 }
 
@@ -249,10 +271,11 @@ function revealInvisible(text: string): string {
     return text.replace(new RegExp(`[${charClass}]`, "g"), "▯");
 }
 
-export function formatLLMRules(rules: LLMRuleRecord[], diagnostics: RegistryDiagnostic[]): string {
+export function formatLLMRules(rules: LLMRuleRecord[], diagnostics: RegistryDiagnostic[], color = false): string {
+    const pc = createColors(color);
     const lines: string[] = [
-        ...formatDiagnostics(diagnostics),
-        "LLM 判断规则",
+        ...formatDiagnostics(diagnostics, pc),
+        pc.bold("LLM 判断规则"),
         "",
         "说明：以下规则需要 Agent 根据上下文主动审查，不由 CLI 静态扫描命中。",
         "",
@@ -268,7 +291,7 @@ export function formatLLMRules(rules: LLMRuleRecord[], diagnostics: RegistryDiag
         if (!rule) {
             continue;
         }
-        lines.push(`规则 ${ruleIndex + 1}: ${rule.id} - ${rule.title}`);
+        lines.push(`规则 ${ruleIndex + 1}: ${pc.cyan(rule.id)} - ${rule.title}`);
         lines.push("");
         lines.push(`namespace: ${rule.namespace}`);
         lines.push("");
@@ -319,16 +342,28 @@ export function hasHighLevelIssue(issues: Issue[]): boolean {
     return issues.some((issue) => issue.rule.level === "high");
 }
 
-function formatDiagnostics(diagnostics: RegistryDiagnostic[]): string[] {
+function formatDiagnostics(diagnostics: RegistryDiagnostic[], pc: Painter): string[] {
     const visible = diagnostics.filter((diagnostic) => diagnostic.level !== "info");
     if (visible.length === 0) {
         return [];
     }
     return [
         "规则加载提示：",
-        ...visible.map((diagnostic) => `  [${diagnostic.level}] ${diagnostic.code}: ${diagnostic.message}`),
+        ...visible.map((diagnostic) => `  ${colorizeDiagLevel(pc, diagnostic.level)} ${diagnostic.code}: ${diagnostic.message}`),
         "",
     ];
+}
+
+/** 诊断级别标签着色：error 红、warning 黄、info 暗（info 一般已被过滤）。 */
+function colorizeDiagLevel(pc: Painter, level: RegistryDiagnostic["level"]): string {
+    const label = `[${level}]`;
+    if (level === "error") {
+        return pc.red(label);
+    }
+    if (level === "warning") {
+        return pc.yellow(label);
+    }
+    return pc.dim(label);
 }
 
 function formatAction(action: Issue["rule"]["action"]): string {

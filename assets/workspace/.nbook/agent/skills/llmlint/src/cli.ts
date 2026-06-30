@@ -1,6 +1,7 @@
-import {existsSync, readFileSync, readdirSync, statSync, writeFileSync} from "node:fs";
+import {existsSync, readFileSync, statSync, writeFileSync} from "node:fs";
 import {resolve} from "node:path";
 import {Command} from "commander";
+import {globSync} from "tinyglobby";
 import {loadConfig} from "./config";
 import {loadRules} from "./rules";
 import {computeMaskedRanges} from "./markdown-mask";
@@ -119,10 +120,11 @@ async function checkFiles(inputs: string[], options: GlobalOptions): Promise<voi
         return {filePath, summary: summarizeIssues(issues), issues, hiddenByReview, hiddenByLevel};
     });
 
+    const color = resolveColor(output);
     if (results.length === 1) {
-        printSingle(results[0]!, configPath, loadedRules, output, {review, minLevel, showLines: options.showLines === true});
+        printSingle(results[0]!, configPath, loadedRules, output, {review, minLevel, showLines: options.showLines === true, color});
     } else {
-        printMulti(results, configPath, loadedRules, output, {review, minLevel, showLines: options.showLines === true});
+        printMulti(results, configPath, loadedRules, output, {review, minLevel, showLines: options.showLines === true, color});
     }
     // 退出码跟随可见视图：任一文件存在未被过滤掉的 high 命中即置 1。
     if (results.some((result) => hasHighLevelIssue(result.issues))) {
@@ -130,7 +132,7 @@ async function checkFiles(inputs: string[], options: GlobalOptions): Promise<voi
     }
 }
 
-type PrintOptions = {review: Review | "all"; minLevel: RuleLevel; showLines: boolean};
+type PrintOptions = {review: Review | "all"; minLevel: RuleLevel; showLines: boolean; color: boolean};
 
 /** 单文件输出：保持与历史一致的 JSON / stylish 形态。 */
 function printSingle(result: FileResult, configPath: string | null, loadedRules: Awaited<ReturnType<typeof loadRules>>, output: LlmlintOutput, options: PrintOptions): void {
@@ -139,6 +141,7 @@ function printSingle(result: FileResult, configPath: string | null, loadedRules:
         hiddenByReview: result.hiddenByReview,
         minLevel: options.minLevel,
         hiddenByLevel: result.hiddenByLevel,
+        color: options.color,
         ...(options.showLines ? {showLines: true} : {}),
     };
     console.log(output === "json"
@@ -164,34 +167,49 @@ function printMulti(results: FileResult[], configPath: string | null, loadedRule
         minLevel: options.minLevel,
         hiddenByLevel: result.hiddenByLevel,
         includeDiagnostics: index === 0,
+        color: options.color,
         ...(options.showLines ? {showLines: true} : {}),
     }));
-    console.log([...sections, formatCheckAggregate(results)].join("\n\n"));
+    console.log([...sections, formatCheckAggregate(results, options.color)].join("\n\n"));
 }
 
-/** 展开输入：目录递归收集 .md/.markdown/.txt，文件按字面路径；去重排序为绝对路径。 */
+/** 展开输入：字面文件直接收，目录递归 .md/.markdown/.txt，glob 模式交给 tinyglobby。去重排序为绝对路径。 */
 function expandInputs(inputs: string[]): string[] {
     const files = new Set<string>();
+    const patterns: string[] = [];
     for (const input of inputs) {
+        // 含 glob 元字符 → 当模式交给 tinyglobby（支持 **、! 排除、{a,b} 花括号）。
+        if (/[*?{}[\]!]/.test(input)) {
+            patterns.push(toPosix(input));
+            continue;
+        }
         const absolute = resolve(process.cwd(), input);
         if (!existsSync(absolute)) {
             throw new Error(`文件或目录不存在: ${input}`);
         }
         if (statSync(absolute).isDirectory()) {
-            for (const entry of readdirSync(absolute, {recursive: true})) {
-                const relativePath = typeof entry === "string" ? entry : String(entry);
-                if (/\.(md|markdown|txt)$/i.test(relativePath)) {
-                    files.add(resolve(absolute, relativePath));
-                }
+            // 目录：以目录本身为 cwd 递归 glob，避免绝对路径 / 跨盘符模式在 tinyglobby 下不匹配。
+            for (const match of globSync("**/*.{md,markdown,txt}", {cwd: absolute, absolute: true, onlyFiles: true})) {
+                files.add(match);
             }
             continue;
         }
         files.add(absolute);
     }
+    if (patterns.length > 0) {
+        for (const match of globSync(patterns, {cwd: process.cwd(), absolute: true, onlyFiles: true, expandDirectories: false})) {
+            files.add(match);
+        }
+    }
     if (files.size === 0) {
-        throw new Error("未匹配到任何可检查的文件（目录下没有 .md / .markdown / .txt）。");
+        throw new Error(`未匹配到任何可检查的文件: ${inputs.join(", ")}`);
     }
     return [...files].sort((left, right) => left.localeCompare(right));
+}
+
+/** Windows 反斜杠路径转 POSIX 正斜杠，供 glob 模式匹配使用。 */
+function toPosix(path: string): string {
+    return path.replace(/\\/g, "/");
 }
 
 /** 仅对 Markdown 文件计算遮罩区间；--scan-all 或非 Markdown 后缀时不遮罩。 */
@@ -226,7 +244,7 @@ async function fixFiles(inputs: string[], options: GlobalOptions): Promise<void>
 
     console.log(output === "json"
         ? formatJsonReport(createFixJsonReport(configPath, results, write))
-        : formatFixReport(results, write));
+        : formatFixReport(results, write, resolveColor(output)));
     // dry-run 且存在待修复项时置退出码 1（便于 CI 门禁，如「禁止零宽字符入库」）；--write 或无改动为 0。
     if (!write && results.some((result) => result.changed)) {
         process.exitCode = 1;
@@ -274,7 +292,7 @@ async function showLLMRules(options: GlobalOptions): Promise<void> {
     const output = resolveOutput(config.output, options.format);
     console.log(output === "json"
         ? formatJsonReport(createLLMRulesJsonReport(configPath, loadedRules))
-        : formatLLMRules(loadedRules.llmRules, loadedRules.diagnostics));
+        : formatLLMRules(loadedRules.llmRules, loadedRules.diagnostics, resolveColor(output)));
 }
 
 function mergeOptions(program: Command, commandOptions: GlobalOptions | Command): GlobalOptions {
@@ -316,6 +334,11 @@ function resolveReview(review: string | undefined): Review | "all" {
         throw new Error(`审查受众过滤无效: ${review}`);
     }
     return review as Review | "all";
+}
+
+/** stylish 是否着色：仅当输出非 json、stdout 是 TTY、且未设 NO_COLOR；Agent/管道下自动纯文本。 */
+function resolveColor(output: LlmlintOutput): boolean {
+    return output !== "json" && process.stdout.isTTY === true && !process.env.NO_COLOR;
 }
 
 function filterIssuesByLevel(issues: Issue[], minLevel: RuleLevel): Issue[] {
