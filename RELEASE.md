@@ -1,5 +1,23 @@
 # Release Notes
 
+## 待发布
+
+这次修复 GHCR 部署和管理员创建链路，重点是让安装器、镜像版本和 Product Runtime 合同重新对齐。
+
+1. GHCR 部署可以选择 release 版本
+`neuro-book-deploy --deploy-mode ghcr` 会在交互模式列出 stable / canary / alpha / beta / rc 版本，并保留 release tag 原始大小写。非交互模式默认使用当前安装器版本对应的镜像 tag，不再让 canary 安装器默认拉旧的 `latest`。`latest` 只代表最新 stable。
+
+2. 管理员脚本不再误走宿主机源码
+文档和部署 README 会按 local-git、ghcr、source Docker 分别给出管理员创建命令。ghcr 使用容器内 `.output/server/scripts/cli/create-admin.ts`，依赖镜像内 Nitro vendor 和打包好的 `nbook` runtime package。
+
+3. Prisma Client 缺失时行为更清楚
+local-git / source 源码运行时如果缺少 `server/generated/prisma/client.ts`，CLI 会先自动执行 Prisma generate。Product / GHCR 运行时不会在运行机生成 Prisma Client，而是检查 `.output/server/node_modules/nbook/server/generated/prisma/client.ts`，缺失时直接提示拉取匹配镜像或重新构建。
+
+4. 构建门禁补齐 Product 运行文件
+Nuxt/Nitro 后处理和 Product staging 都会检查管理员脚本、`has-users`、Prisma preflight、SQLite migration、Prisma schema/config 和打包后的 Prisma Client，避免镜像发布后才发现运行文件缺失。
+
+本轮已验证管理员脚本最小复现、GHCR dry-run、GHCR tag dry-run、`bun run nuxt:build` 和 `bun run product:stage`。Docker smoke 因当前本机没有 `docker` 命令未执行。
+
 ## 0.5.3-canary - 2026-07-01
 
 这次 patch 继续修产品运行时加载和 llmlint 工程结构，适合在 0.5.2 canary 基础上验证。

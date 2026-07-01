@@ -111,8 +111,10 @@ bunx --bun --package github:notnotype/neuro-book neuro-book-deploy
 部署模式选择 `ghcr`。脚本会使用预构建镜像：
 
 ```text
-ghcr.io/notnotype/neuro-book:latest
+ghcr.io/notnotype/neuro-book:<release-tag>
 ```
+
+交互模式会列出 GitHub Releases 中的 stable / canary / alpha / beta / rc 版本供选择。非交互模式默认使用当前安装器版本对应的镜像 tag，例如 `v0.5.3-canary...`；也可以用 `--release <tag>` 指定版本，或用 `--image <image>` 覆盖完整镜像名。`latest` 只代表最新 stable，不作为 canary 默认值。
 
 数据、配置和 Project Workspace 仍保存在宿主机 `workspace/` 挂载目录中。
 GHCR 镜像保留源码目录用于排障，但 app runner 使用 Bun runtime，服务启动、SQLite migration 和管理员脚本都使用镜像内预构建的 `.output/server/scripts/**`；服务器和容器启动时不执行依赖安装，也不要求根 `node_modules`。
@@ -131,10 +133,24 @@ bun scripts/deploy/neuro-book-deploy.mjs --deploy-mode source
 
 ## 管理员和模型配置
 
-全站鉴权默认开启。Windows Product Portable 首次启动会自动引导创建管理员；源码部署中如果需要手工创建，可以在应用目录运行：
+全站鉴权默认开启。Windows Product Portable 首次启动会自动引导创建管理员；其他部署方式按运行时选择管理员命令：
+
+local-git：
 
 ```powershell
 bun run auth:create-admin admin
+```
+
+ghcr：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun .output/server/scripts/cli/create-admin.ts
+```
+
+source Docker：
+
+```bash
+docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun run auth:create-admin
 ```
 
 脚本会隐藏输入密码。不要把密码作为命令参数传入。

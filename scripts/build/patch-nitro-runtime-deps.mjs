@@ -55,6 +55,7 @@ const runtimeContextPaths = [
     "prisma.config.ts",
     "scripts/cli/create-admin.ts",
     "scripts/cli/has-users.ts",
+    "scripts/cli/prisma-runtime-preflight.ts",
     "scripts/cli/sync-user-assets.ts",
     "scripts/deploy/product-start.mjs",
     "scripts/db",
@@ -104,8 +105,8 @@ await measure("copy profile import context", async () => {
         await copyDirectory(source, target);
     }
 });
-await measure("assert product output scripts", async () => {
-    await assertProductOutputScripts();
+await measure("assert product output runtime files", async () => {
+    await assertProductOutputRuntimeFiles();
 });
 
 await measure("copy workspace cli runtime script", async () => {
@@ -116,6 +117,9 @@ await measure("write product package manifest", async () => {
 });
 await measure("copy nbook runtime package", async () => {
     await copyNbookRuntimePackage();
+});
+await measure("assert nbook runtime package", async () => {
+    assertNbookRuntimePackage(resolve(serverRoot, "node_modules", "nbook"));
 });
 const patchedImportMetaFiles = await measure("patch import.meta fallbacks", async () => {
     return await patchImportMetaFallbacks(resolve(serverRoot, "chunks"));
@@ -153,22 +157,38 @@ async function measure(label, action) {
  * GHCR / 通用 `.output` runner 不经过 `product:stage`，启动所需脚本必须在
  * Nitro 后处理阶段进入 `.output/server/scripts/**`。
  */
-async function assertProductOutputScripts() {
+async function assertProductOutputRuntimeFiles() {
     const requiredPaths = [
+        "prisma/migrations/sqlite",
+        "prisma/schema.sqlite.prisma",
+        "prisma.config.ts",
         "scripts/build/prepare-system-assets.ts",
         "scripts/deploy/product-start.mjs",
         "scripts/db/prisma-migrate.mjs",
         "scripts/cli/create-admin.ts",
         "scripts/cli/has-users.ts",
+        "scripts/cli/prisma-runtime-preflight.ts",
     ];
     const missing = requiredPaths.filter((runtimePath) => !existsSync(resolve(serverRoot, runtimePath)));
+    const migrationDir = resolve(serverRoot, "prisma", "migrations", "sqlite");
+    if (missing.length === 0 && !await hasSqliteMigration(migrationDir)) {
+        missing.push("prisma/migrations/sqlite/*/migration.sql");
+    }
     if (missing.length > 0) {
         throw new Error([
-            "Nitro product output is missing required runtime scripts.",
+            "Nitro product output is missing required runtime files.",
             "Missing:",
             ...missing.map((runtimePath) => `- .output/server/${runtimePath}`),
         ].join("\n"));
     }
+}
+
+/**
+ * 确认 SQLite migration 目录里至少有一个可执行 migration.sql。
+ */
+async function hasSqliteMigration(migrationDir) {
+    const entries = await readdir(migrationDir, {withFileTypes: true}).catch(() => []);
+    return entries.some((entry) => entry.isDirectory() && existsSync(resolve(migrationDir, entry.name, "migration.sql")));
 }
 
 /**
@@ -301,13 +321,19 @@ async function copyNbookRuntimePackage() {
     await copyDirectory(resolve("shared"), resolve(packageRoot, "shared"));
     await copyDirectory(resolve("app"), resolve(packageRoot, "app"));
     await copyDirectory(resolve("world-engine"), resolve(packageRoot, "world-engine"));
-    assertNbookWorldEngineHelper(packageRoot);
 }
 
-function assertNbookWorldEngineHelper(packageRoot) {
-    const helperPath = resolve(packageRoot, "world-engine", "schema", "index.ts");
-    if (!existsSync(helperPath)) {
-        throw new Error(`Product nbook runtime package 缺少 World Engine schema helper：${helperPath}`);
+function assertNbookRuntimePackage(packageRoot) {
+    const requiredPaths = [
+        resolve(packageRoot, "world-engine", "schema", "index.ts"),
+        resolve(packageRoot, "server", "generated", "prisma", "client.ts"),
+    ];
+    const missing = requiredPaths.filter((path) => !existsSync(path));
+    if (missing.length > 0) {
+        throw new Error([
+            "Product nbook runtime package 缺少必要运行文件：",
+            ...missing.map((path) => `- ${path}`),
+        ].join("\n"));
     }
 }
 

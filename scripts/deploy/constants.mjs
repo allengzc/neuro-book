@@ -1,7 +1,7 @@
 /** 部署脚本常量与 Provider 定义。 */
 
 export const REPO_URL = "https://github.com/notnotype/neuro-book.git";
-export const DEFAULT_IMAGE = "ghcr.io/notnotype/neuro-book:latest";
+export const DEFAULT_IMAGE = "ghcr.io/notnotype/neuro-book";
 export const DEPLOY_DIRNAME = ".deploy";
 export const ENV_FILENAME = ".env";
 export const CONFIG_FILENAME = "config.yaml";

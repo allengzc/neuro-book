@@ -36,7 +36,7 @@ export async function askText({interactive, value, message, placeholder, initial
 /** 在交互模式下选择选项；非交互模式直接使用默认值。 */
 export async function askSelect({interactive, value, message, options, initialValue}) {
     if (value !== undefined && value !== null && value !== '') {
-        return String(value).toLowerCase();
+        return String(value);
     }
 
     if (!interactive) {

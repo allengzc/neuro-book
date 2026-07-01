@@ -609,3 +609,45 @@
 - `node --check scripts/deploy/product-runtime.mjs`
 - `node --check scripts/deploy/windows-portable.mjs`
 - `product:stage` 未完成：当前本机 `product/` 目录被占用，Windows 返回 `EACCES: permission denied, rm ...\product`；未强行删除或关闭占用进程。
+
+## GHCR Admin / Version Contract Fix
+
+### User Request
+
+- 用户通过 `bunx --bun --package github:notnotype/neuro-book neuro-book-deploy` 使用 ghcr 安装后，创建管理员时报：
+  - `Cannot find module 'nbook/server/generated/prisma/client'`
+  - `script "auth:create-admin" exited with code 1`
+
+### Diagnosis
+
+- 干净 Git checkout 不包含 `server/generated/prisma`；源码命令 `bun run auth:create-admin` 需要先生成 Prisma Client。
+- Product / GHCR 合同已经要求管理员脚本从 `.output/server/scripts/**` 运行，并从 `.output/server/node_modules/nbook/**` 解析打包后的 runtime source。
+- README / `docs/deployment.md` 仍把管理员命令写成通用 `bun run auth:create-admin admin`，容易让 ghcr 用户在宿主机源码 checkout 中执行错误入口。
+- `has-users.ts` 顶层静态导入 Prisma，会在首次启动链路中绕过 `create-admin` 的修复点提前失败。
+- 当前 canary 安装器默认 ghcr `latest` 会拉到旧 stable/旧镜像，和安装器脚本版本不一致。
+
+### Decisions
+
+- local-git / source 源码运行时缺 App Prisma Client 时自动执行现有 `scripts/db/prisma-generate.mjs`；Product / GHCR 运行时只校验打包后的 `.output/server/node_modules/nbook/server/generated/prisma/client.ts`，缺失就报清晰错误。
+- `has-users.ts` 和 `create-admin.ts` 共用脚本级 Prisma runtime preflight，并在 preflight 后动态导入 `nbook/server/utils/prisma`。
+- `neuro-book-deploy --deploy-mode ghcr` 在交互模式列出 GitHub Releases 中的 stable / canary / alpha / beta / rc；非交互默认使用当前安装器 package version 对应的 `v...` 镜像 tag。
+- `--release <tag>` 用于选择默认 GHCR app 镜像的版本；`--image <image>` 仍作为完整镜像覆盖，两者互斥。
+- ghcr 启动前先 `docker compose pull app`，再 `up -d`，减少本地旧镜像缓存导致的版本错位。
+- 本地 `publish-ghcr-image.mjs` 默认 tag 与 release workflow 对齐：stable 推 `vX.Y.Z` 和 `latest`，prerelease/canary 只推 `vX.Y.Z-...`。
+- 通用 select prompt 不再隐式小写化返回值，避免交互选择 canary release 时把 tag 中的 `Z` 改成 `z`。
+- Nitro 后处理与 Product stage 都显式断言 Prisma schema/config、SQLite migration 目录和 packaged Prisma Client，迁移目录不再只是复制副作用。
+
+### Verification
+
+- `bunx vitest run server/deploy/ghcr-releases.test.ts server/deploy/prisma-runtime-preflight.test.ts`：2 files / 9 tests passed。
+- `node --check scripts/deploy/prompts.mjs && node --check scripts/deploy/shared.mjs && node --check scripts/deploy/ghcr-releases.mjs && node --check scripts/deploy/publish-ghcr-image.mjs && node --check scripts/build/patch-nitro-runtime-deps.mjs && node --check scripts/deploy/product-runtime.mjs`：通过。
+- `bun -e "import {resolveGhcrImageOption} from './scripts/deploy/shared.mjs'; ..."`：`--release v0.5.3-canary.20260701.030929Z.69581b3e` 生成 `ghcr.io/notnotype/neuro-book:v0.5.3-canary.20260701.030929Z.69581b3e`，保留 tag 大小写。
+- `bun scripts/deploy/neuro-book-deploy.mjs --yes --deploy-mode ghcr --dry-run --release v0.5.3-canary.20260701.030929Z.69581b3e --dir .agent/workspace/deploy-ghcr-case-dry-run --port 3997`：通过，输出先 `docker compose ... pull app` 再 `up -d`。
+- `bun scripts/deploy/neuro-book-deploy.mjs --yes --deploy-mode ghcr --dry-run --dir .agent/workspace/deploy-ghcr-version-dry-run --port 3998`：通过，输出先 `docker compose ... pull app` 再 `up -d`。
+- `bun scripts/deploy/publish-ghcr-image.mjs --dry-run`：通过；当前 canary package 只生成 `v0.5.3-canary...` tag，不生成 `latest`。
+- `bun pm pack --dry-run`：通过；安装器包包含 `scripts/deploy/ghcr-releases.mjs`、`prompts.mjs`、`shared.mjs` 等部署入口依赖。
+- `bun run nuxt:build`：通过；Nitro 后处理复制 Product runtime scripts、`nbook` runtime package，并通过打包 Prisma Client 门禁。
+- `bun scripts/build/patch-nitro-runtime-deps.mjs`：通过；新增的 `assert product output runtime files` 门禁确认 `.output/server` 内 Prisma schema/config、SQLite migration 和 runtime scripts 存在。
+- `bun run product:stage`：通过；Product Root staged 到 `product/`，系统变量与 14 个系统 profile artifact 已重新准备，Product Root Prisma runtime 文件门禁通过。
+- 临时干净源码树复现：删除 `server/generated/prisma` 且不复制 `.nuxt` 后执行 `bun scripts/cli/create-admin.ts admin`，脚本先 `nuxt:prepare`，再 Prisma generate、SQLite migration，最终输出 `管理员已就绪：admin (#1)`；临时目录已清理。
+- Docker smoke 未执行：当前本机没有 `docker` 命令；本轮依赖 Product/Nitro 构建门禁和 dry-run 合同验证。

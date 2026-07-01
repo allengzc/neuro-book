@@ -1,4 +1,5 @@
 import {cancel, isCancel, password as promptPassword, text} from "@clack/prompts";
+import {ensurePrismaRuntime} from "./prisma-runtime-preflight";
 import {hashUserPassword} from "nbook/server/utils/password";
 import {spawn} from "node:child_process";
 import {resolve as resolvePath} from "node:path";
@@ -83,6 +84,7 @@ async function readPassword(): Promise<string> {
  * 创建或升级管理员账号。
  */
 async function main(): Promise<void> {
+    await ensurePrismaRuntime({log: (message) => console.log(message)});
     const username = await readUsername();
     const password = await readPassword();
     if (password.length < 8) {

@@ -5,7 +5,7 @@ import {resolve} from 'node:path';
 import {Command} from 'commander';
 import * as p from '@clack/prompts';
 
-import {REPO_URL, DEFAULT_IMAGE, DOCKER_DEPLOY_MODES} from './constants.mjs';
+import {REPO_URL, DOCKER_DEPLOY_MODES} from './constants.mjs';
 import {needCommand} from '../utils/process.mjs';
 import {printInternalInstallPlans} from './native-deps.mjs';
 import {
@@ -37,7 +37,8 @@ const program = new Command()
     .option('--api-key <key>', 'Provider API key.')
     .option('--database <mode>', 'Database mode. Only sqlite is supported.')
     .option('--deploy-mode <mode>', 'Deploy mode: local-git, ghcr, or source. native is accepted as an alias.', process.env.NEURO_BOOK_DEPLOY_MODE)
-    .option('--image <image>', 'GHCR app image.', process.env.NEURO_BOOK_IMAGE ?? DEFAULT_IMAGE)
+    .option('--image <image>', 'GHCR app image override.', process.env.NEURO_BOOK_IMAGE)
+    .option('--release <tag>', 'GHCR release tag, for example v0.5.3 or v0.5.3-canary.20260701.030929Z.69581b3e.', process.env.NEURO_BOOK_RELEASE)
     .option('--windows-package-manager <manager>', 'Windows local-git dependency installer: auto, winget, or scoop.', process.env.NEURO_BOOK_WINDOWS_PACKAGE_MANAGER)
     .option('--redeploy', 'Regenerate .deploy compose files while preserving existing .env, config.yaml and workspace config.', false)
     .option('--yes', 'Use defaults and skip interactive prompts.', false)

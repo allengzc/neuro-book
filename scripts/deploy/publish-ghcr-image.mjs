@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 import {spawn} from "node:child_process";
 import {readFile} from "node:fs/promises";
+import {resolve} from "node:path";
+import {pathToFileURL} from "node:url";
 import {Command} from "commander";
 import * as p from "@clack/prompts";
 
@@ -17,10 +19,8 @@ const program = new Command()
     .option("--platform <platform>", "Docker build platform.", process.env.NEURO_BOOK_IMAGE_PLATFORM ?? "linux/amd64")
     .option("--dry-run", "Print the docker buildx commands without running them.", false);
 
-program.parse();
-
 /** 读取 package.json 版本，用于默认镜像 tag。 */
-async function readPackageVersion() {
+export async function readPackageVersion() {
     const packageJson = JSON.parse(await readFile("package.json", "utf-8"));
     return String(packageJson.version);
 }
@@ -71,10 +71,17 @@ function resolveImages(options) {
 }
 
 /** 返回本次发布使用的 tag 列表。 */
-async function resolveTags(options) {
+export async function resolveTags(options) {
     return options.tag && options.tag.length > 0
         ? options.tag
-        : ["latest", await readPackageVersion()];
+        : defaultImageTags(await readPackageVersion());
+}
+
+/** 默认镜像 tag 与 release workflow 对齐：stable 才写 latest。 */
+export function defaultImageTags(packageVersion) {
+    const version = String(packageVersion).trim().replace(/^v/u, "");
+    const versionTag = `v${version}`;
+    return version.includes("-") ? [versionTag] : [versionTag, "latest"];
 }
 
 /** 组装 docker buildx build --push 命令参数。 */
@@ -136,7 +143,10 @@ async function main() {
     p.outro(`Pushed ${runtimeImage} and ${appImage}`);
 }
 
-main().catch((error) => {
-    p.log.error(error instanceof Error ? error.message : String(error));
-    process.exit(1);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+    program.parse();
+    main().catch((error) => {
+        p.log.error(error instanceof Error ? error.message : String(error));
+        process.exit(1);
+    });
+}

@@ -11,7 +11,6 @@ import * as p from '@clack/prompts';
 
 import {
     REPO_URL,
-    DEFAULT_IMAGE,
     DEPLOY_DIRNAME,
     ENV_FILENAME,
     CONFIG_FILENAME,
@@ -26,6 +25,14 @@ import {run, runCapture, validatePort} from '../utils/process.mjs';
 import {askText, askSelect} from './prompts.mjs';
 import {localGitStartCommand, nativeStartScriptName, nativeAdminScriptName, renderNativeScript, dryRunCommand, nativeStartHelp} from './scripts-gen.mjs';
 import {renderEnv, renderBootConfig, renderGlobalConfig, parseEnv, randomSecret} from './config-render.mjs';
+import {
+    defaultReleaseTag,
+    fetchGhcrReleases,
+    ghcrReleaseOptions,
+    imageForReleaseTag,
+    normalizeReleaseTag,
+    readInstallerPackageVersion,
+} from './ghcr-releases.mjs';
 
 /** 查询路径是否存在，并返回 stat 信息。 */
 async function tryStat(path) {
@@ -79,6 +86,39 @@ function normalizeDatabaseMode(value) {
         return 'sqlite';
     }
     throw new Error(`数据库模式只支持 sqlite；PostgreSQL 部署入口已移除：${value}`);
+}
+
+/** 解析 ghcr 模式使用的镜像。 */
+export async function resolveGhcrImageOption({interactive, image, release}) {
+    if (image && release) {
+        throw new Error('--image 和 --release 只能选择一个。--image 用于完整镜像覆盖，--release 用于选择 ghcr.io/notnotype/neuro-book:<tag>。');
+    }
+    if (image) {
+        return image;
+    }
+    if (release) {
+        return imageForReleaseTag(normalizeReleaseTag(release));
+    }
+
+    const packageVersion = await readInstallerPackageVersion();
+    const fallbackTag = defaultReleaseTag(packageVersion);
+    if (!interactive) {
+        return imageForReleaseTag(fallbackTag);
+    }
+
+    const releases = await fetchGhcrReleases();
+    const options = ghcrReleaseOptions(releases);
+    const initialValue = options.some((option) => option.value === fallbackTag)
+        ? fallbackTag
+        : options[0]?.value;
+    const selectedTag = await askSelect({
+        interactive,
+        value: null,
+        message: 'GHCR 版本',
+        initialValue,
+        options,
+    });
+    return imageForReleaseTag(selectedTag);
 }
 
 /** 返回部署私有文件目录。 */
@@ -141,7 +181,7 @@ export async function readConfig(options) {
     if (!DEPLOY_MODES.includes(deployMode)) {
         throw new Error(`部署模式必须是 local-git、ghcr 或 source：${deployMode}`);
     }
-    const windowsPackageManager = process.platform === 'win32' && deployMode === LOCAL_GIT_DEPLOY_MODE
+    const windowsPackageManager = (process.platform === 'win32' && deployMode === LOCAL_GIT_DEPLOY_MODE
         ? await askSelect({
             interactive,
             value: options.windowsPackageManager,
@@ -153,7 +193,7 @@ export async function readConfig(options) {
                 {value: 'scoop', label: 'Scoop', hint: '开发者工具链常用'},
             ],
         })
-        : 'auto';
+        : 'auto').toLowerCase();
     if (!['auto', 'winget', 'scoop'].includes(windowsPackageManager)) {
         throw new Error(`Windows 包管理器必须是 auto、winget 或 scoop：${windowsPackageManager}`);
     }
@@ -161,11 +201,10 @@ export async function readConfig(options) {
     const databaseMode = normalizeDatabaseMode(options.database ?? 'sqlite');
 
     const image = deployMode === 'ghcr'
-        ? await askText({
+        ? await resolveGhcrImageOption({
             interactive,
-            value: options.image,
-            message: '应用镜像',
-            initialValue: DEFAULT_IMAGE,
+            image: options.image,
+            release: options.release,
         })
         : options.image;
 
@@ -270,6 +309,12 @@ function upCommand(config, mode) {
         return nativeStartHelp(localGitStartCommand());
     }
     const files = ['-f', 'docker-compose.yml', '-f', `${DEPLOY_DIRNAME}/docker-compose.generated.yml`];
+    if (config.deployMode === 'ghcr') {
+        return [
+            `docker compose --env-file ${ENV_FILENAME} ${files.join(' ')} pull app`,
+            `docker compose --env-file ${ENV_FILENAME} ${files.join(' ')} up -d`,
+        ].join('\n');
+    }
     const upArgs = config.deployMode === 'source' ? 'up -d --build' : 'up -d';
     return `docker compose --env-file ${ENV_FILENAME} ${files.join(' ')} ${upArgs}`;
 }
@@ -465,15 +510,21 @@ export async function runCompose(config, mode) {
     }
 
     const composeFiles = ['-f', 'docker-compose.yml', '-f', `${DEPLOY_DIRNAME}/docker-compose.generated.yml`];
-    const args = ['compose', ...composeFiles, '--env-file', ENV_FILENAME, 'up', '-d'];
+    const upArgs = ['compose', ...composeFiles, '--env-file', ENV_FILENAME, 'up', '-d'];
     if (config.deployMode === 'source') {
-        args.push('--build');
+        upArgs.push('--build');
     }
 
     if (config.dryRun) {
-        dryRunCommand('docker', args, {cwd: config.deployDir});
+        if (config.deployMode === 'ghcr') {
+            dryRunCommand('docker', ['compose', ...composeFiles, '--env-file', ENV_FILENAME, 'pull', 'app'], {cwd: config.deployDir});
+        }
+        dryRunCommand('docker', upArgs, {cwd: config.deployDir});
         return;
     }
 
-    await run('docker', args, {cwd: config.deployDir});
+    if (config.deployMode === 'ghcr') {
+        await run('docker', ['compose', ...composeFiles, '--env-file', ENV_FILENAME, 'pull', 'app'], {cwd: config.deployDir});
+    }
+    await run('docker', upArgs, {cwd: config.deployDir});
 }

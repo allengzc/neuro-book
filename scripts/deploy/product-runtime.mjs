@@ -41,6 +41,7 @@ async function stageProduct() {
     await copyRuntimeScripts();
     await writeProductWorkspaceScriptWrapper();
     await copyPrismaRuntimeFiles();
+    await assertProductPrismaRuntimeFiles();
     await copyPath(".nuxt/tsconfig.json", ".nuxt/tsconfig.json");
     await copyPath(".nuxt/tsconfig.server.json", ".nuxt/tsconfig.server.json");
     await writeProductTsConfig();
@@ -122,6 +123,7 @@ async function copyRuntimeScripts() {
     const files = [
         "scripts/cli/create-admin.ts",
         "scripts/cli/has-users.ts",
+        "scripts/cli/prisma-runtime-preflight.ts",
         "scripts/cli/sync-user-assets.ts",
         "scripts/deploy/product-start.mjs",
         "scripts/db",
@@ -135,6 +137,7 @@ async function copyRuntimeScripts() {
     await copyPath("scripts/utils", "scripts/utils");
     await copyPath("scripts/cli/create-admin.ts", ".output/server/scripts/cli/create-admin.ts");
     await copyPath("scripts/cli/has-users.ts", ".output/server/scripts/cli/has-users.ts");
+    await copyPath("scripts/cli/prisma-runtime-preflight.ts", ".output/server/scripts/cli/prisma-runtime-preflight.ts");
     await copyPath("scripts/cli/sync-user-assets.ts", ".output/server/scripts/cli/sync-user-assets.ts");
     await copyPath("scripts/deploy/product-start.mjs", ".output/server/scripts/deploy/product-start.mjs");
     await copyPath("scripts/db", ".output/server/scripts/db");
@@ -205,6 +208,36 @@ async function copyPrismaRuntimeFiles() {
     await copyPath("prisma/migrations/sqlite", "prisma/migrations/sqlite");
     await copyPath("prisma/schema.sqlite.prisma", "prisma/schema.sqlite.prisma");
     await copyPath("prisma.config.ts", "prisma.config.ts");
+}
+
+/**
+ * 确认 Product Root 中的 Prisma runtime 文件足够执行 SQLite migration。
+ */
+async function assertProductPrismaRuntimeFiles() {
+    const requiredPaths = [
+        "prisma/migrations/sqlite",
+        "prisma/schema.sqlite.prisma",
+        "prisma.config.ts",
+    ];
+    const missing = requiredPaths.filter((runtimePath) => !existsSync(resolve(PRODUCT_ROOT, runtimePath)));
+    const migrationDir = resolve(PRODUCT_ROOT, "prisma", "migrations", "sqlite");
+    if (missing.length === 0 && !await hasSqliteMigration(migrationDir)) {
+        missing.push("prisma/migrations/sqlite/*/migration.sql");
+    }
+    if (missing.length > 0) {
+        throw new Error([
+            "Product Root 缺少必要 Prisma runtime 文件：",
+            ...missing.map((runtimePath) => `- ${resolve(PRODUCT_ROOT, runtimePath)}`),
+        ].join("\n"));
+    }
+}
+
+/**
+ * 确认 SQLite migration 目录里至少有一个可执行 migration.sql。
+ */
+async function hasSqliteMigration(migrationDir) {
+    const entries = await readdir(migrationDir, {withFileTypes: true}).catch(() => []);
+    return entries.some((entry) => entry.isDirectory() && existsSync(resolve(migrationDir, entry.name, "migration.sql")));
 }
 
 /**
@@ -288,16 +321,23 @@ async function copyNbookRuntimePackage() {
     await cp(resolve(PRODUCT_ROOT, ".output", "server", "shared"), resolve(packageRoot, "shared"), {recursive: true});
     await cp(resolve(REPO_ROOT, "app"), resolve(packageRoot, "app"), {recursive: true});
     await cp(resolve(REPO_ROOT, "world-engine"), resolve(packageRoot, "world-engine"), {recursive: true});
-    assertNbookWorldEngineHelper(packageRoot);
+    assertNbookRuntimePackage(packageRoot);
     const profileDslRoot = resolve(packageRoot, "server", "agent", "profiles", "profile-dsl");
     await writeFile(resolve(profileDslRoot, "index.jsx"), 'export * from "../profile-dsl.ts";\n', "utf8");
     await writeFile(resolve(profileDslRoot, "index.js"), 'export * from "../profile-dsl.ts";\n', "utf8");
 }
 
-function assertNbookWorldEngineHelper(packageRoot) {
-    const helperPath = resolve(packageRoot, "world-engine", "schema", "index.ts");
-    if (!existsSync(helperPath)) {
-        throw new Error(`Product nbook runtime package 缺少 World Engine schema helper：${helperPath}`);
+function assertNbookRuntimePackage(packageRoot) {
+    const requiredPaths = [
+        resolve(packageRoot, "world-engine", "schema", "index.ts"),
+        resolve(packageRoot, "server", "generated", "prisma", "client.ts"),
+    ];
+    const missing = requiredPaths.filter((path) => !existsSync(path));
+    if (missing.length > 0) {
+        throw new Error([
+            "Product nbook runtime package 缺少必要运行文件：",
+            ...missing.map((path) => `- ${path}`),
+        ].join("\n"));
     }
 }
 

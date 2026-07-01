@@ -7,6 +7,7 @@ neuro-book 当前处于快速开发阶段。本轮产品主路径收敛到 **nov
 ## Product / Workspace Facts
 
 - 部署主线是 Product-first：Windows Product Portable 是普通用户默认 release，zip 内包含 `app/` Product Payload、`data/` 运行状态、`runtime/bun/` 内置 Bun 和 `launcher/`。
+- GHCR 部署按 release tag 选择预构建镜像；canary 安装器默认使用同版本 canary 镜像，`latest` 只代表最新 stable。ghcr 管理员脚本必须在容器内运行 `.output/server/scripts/cli/create-admin.ts`，不再使用宿主机源码命令。
 - Windows Product Portable 错误报告日志落在 `data/logs/`；后端提供 `/api/app/logs/status` 与 `/api/app/logs/download`，日志包只包含日志和 manifest，不包含 config、数据库或 workspace 正文。
 - 数据库已硬切 SQLite-only：App SQLite 位于 `workspace/.nbook/neuro-book.sqlite`；Project SQLite 位于每个 Project Workspace 的 `.nbook/project.sqlite`。
 - Project Workspace 根目录 `project.yaml` 是项目身份真相源，App SQLite 不维护 Project index 或 `Novel` mapping。
