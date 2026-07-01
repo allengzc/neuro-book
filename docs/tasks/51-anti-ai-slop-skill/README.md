@@ -10,11 +10,11 @@
 
 **2026-06-29 update**：llmlint 规则升级为 flat Rule Registry；当时默认规则包为 `builtin/anti-ai-slop` ruleset，配置改为 `rulesets` / `namespaces` / `rules` 三层覆盖。规则入口后续已收敛到 `builtin/default`。
 
-**2026-06-29 update 2**：`.agent/workspace/llmlint_rules` 的 11 个中文规则样本曾取精华策展合并为单一 `builtin/cn`。该入口后续已与人工规则合并到 `builtin/default`。
+**2026-06-29 update 2**：`旧中文规则样本目录` 的 11 个中文规则样本曾取精华策展合并为单一 `builtin/cn`。该入口后续已与人工规则合并到 `builtin/default`。
 
 **2026-06-29 update 3**：默认规则入口收敛为单一 `builtin/default`，合并原人工 anti-ai-slop 规则与中文策展规则；中文规则 ID 从 hash 改为英文语义 slug，例如 `cn.vocabulary.body.skull-head`。
 
-**2026-06-29 update 4**：硬切删除旧格式兼容字段和公开单文件导入入口；`.agent/workspace/llmlint_rules` 只作为官方默认规则集的策展素材。
+**2026-06-29 update 4**：硬切删除旧格式兼容字段和公开单文件导入入口；`旧中文规则样本目录` 只作为官方默认规则集的策展素材。
 
 **2026-06-30 update**：`builtin/default` 规则资产硬切为 `rules/` 层级目录递归加载，`ruleset.json` 不再声明规则文件清单，也不兼容旧根 `rules.json`。
 
@@ -663,7 +663,7 @@ write: 生成报告
 - [x] 2026-06-28：改为自包含 ESM package
 - [x] 2026-06-28：支持 `llmlint.config.ts` 规则覆盖
 - [x] 2026-06-29：升级为 flat Rule Registry，加入 ruleset / namespace / rule 三层配置、override diagnostics、curated 默认规则集生成和 JSON 输出
-- [x] 2026-06-29：策展合并 `.agent/workspace/llmlint_rules`，通过内部模块生成单一中文精选 ruleset
+- [x] 2026-06-29：策展合并 `旧中文规则样本目录`，通过内部模块生成单一中文精选 ruleset
 - [x] 2026-06-29：合并官方默认 ruleset 为 `builtin/default`，中文规则 ID 语义化
 - [x] 2026-06-29：优化 CLI stylish 输出，按 high / medium / low 分段，默认紧凑显示行列范围和命中文本，并支持 `--min-level`
 - [x] 2026-06-29：新增 `--show-lines`，小文件或人类阅读时显示完整命中行与 `<mark>`

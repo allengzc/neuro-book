@@ -4,7 +4,7 @@
 
 ## Relative documents refs
 
-- 被测对象:`assets/workspace/.nbook/agent/skills/llmlint/`
+- 被测对象:`../llmlint/skill/`（NeuroBook 内置 snapshot 为 `assets/workspace/.nbook/agent/skills/llmlint/`）
 - **数据获取工程(reference 怎么来)**:[data-acquisition.md](./data-acquisition.md)
 - 规则修复任务(本任务的下游消费者):[Task 77 llmlint Rule Registry](../77-llmlint-rule-registry/README.md)
 - llmlint 历史源头:[Task 51 anti-ai-slop / llmlint skill](../51-anti-ai-slop-skill/README.md)
@@ -45,7 +45,7 @@ flowchart TB
   end
   FT --> H["基准正文 reference"]
 
-  subgraph GEN["② 生成 generator（本地·不进 git）"]
+  subgraph GEN["② 生成 generator（llmlint/evals·进 git）"]
     direction TB
     EX["抽取 extract<br/>固定 prompt·只记剧情不带风格"]
     B["剧情纲 brief"]
@@ -57,13 +57,13 @@ flowchart TB
     W --> R1 & R2 & R3
   end
 
-  subgraph CORP["③ 语料 corpus（.agent/workspace/llmlint-evals/）"]
+  subgraph CORP["③ 语料 corpus（llmlint/evals/corpus/）"]
     C["&lt;genre&gt;/&lt;plot-id&gt;/<br/>reference + 各 render + brief + meta.json"]
   end
   H --> C
   R1 & R2 & R3 --> C
 
-  subgraph CON["④ 消费 consumer（skill/evals·本地·复用 llmlint 引擎）"]
+  subgraph CON["④ 消费 consumer（llmlint/evals·复用 skill 引擎）"]
     direction TB
     SC["扫描 scan"] --> ME["度量 metrics<br/>配对 lift·AUC·排名"] --> RE["报告 report"]
   end
@@ -87,8 +87,8 @@ flowchart TB
 
 - **Outcome**:一条命令,输出按 `体裁 × 模型 × 文风` 分层的 per-rule lift、人类侧误杀率、AI/人总分分离度;规则自动分入 `强判别 / 弱 / 噪声 / 反指标` 四桶。外加两个副产物:**llmlint 作 AI 检测器的聚合判别分**、各模型**「最像人类」排名**。
 - **Verification surface**:在种子配对(DeepSeek 章 + 同体裁人类网文)上算出非平凡 lift;显形样本 #1 的 4 个已知 tell 能被对应规则的 lift 体现,或被明确标记为"需 LLM 通道覆盖,regex 不该管"。
-- **Constraints**:不改 llmlint 规则与 CLI 逻辑(那属 Task 77);不把版权网文打包进 skill;消费侧代码放 `evals/` 但**本地化(gitignore + asset-sync 黑名单,已落),不进 git、不随系统 assets 同步**;语料库放 skill 之外(`.agent/workspace/llmlint-evals/`)。
-- **Boundaries**:**复用 llmlint 引擎(直接 import `src/rules` + `src/scanner`,不 spawn CLI)**、evals 语料、shuorenhua evals 结构参考;不碰 runtime/gateway。
+- **Constraints**:不改 llmlint 规则与 CLI 逻辑(那属 Task 77);不把评测资产打包进可安装 `skill/`;`evals/` 进入 sibling llmlint 仓 git，但不随 NeuroBook user-assets 同步到用户 runtime。
+- **Boundaries**:**复用 llmlint 引擎(直接 import `skill/src/rules` + `skill/src/scanner`,不 spawn CLI)**、evals 语料、shuorenhua evals 结构参考;不碰 runtime/gateway。
 - **Iteration policy**:每轮记录改了什么、规则体检表怎么变、下一步最该补的样本或口径。
 - **Blocked stop**:缺同体裁人类种子样本,或 writer 生成器无法批量驱动时,停下报告卡点与所需输入。
 
@@ -96,10 +96,11 @@ flowchart TB
 
 - **M1(消费侧 consumer)+ acquisition 已实现并验证**(见 [walkthroughs/2026-06-30-round-01](./walkthroughs/2026-06-30-round-01-m1-consumer-and-acquisition.md));fixture 自检 ROC-AUC=1.000,真实人类 reference 出误杀基线。差 render(需模型 API)才出真实 lift。
 - **M2(eval-writer + 首条真实 lift)已完成**(见 [round-02](./walkthroughs/2026-06-30-round-02-eval-writer-first-lift.md)):`evals/generator/` 复用 pi-ai `completeSimple`,用 config.json 的 mimo + deepseek-v4-flash 照 brief 生成 render。首跑(2 题组/10 ref/4 render,同 brief):**ROC-AUC 1.000**,模型排名 deepseek-v4-flash(40.11)更像人 > mimo(56.75);破折号/量词/比喻等强判别多在 human 桶(给 Task 77)。样本小,需 M3 扩量。
+- **Round-03(口径修复 + 全链路审查 + 语料搬迁)已完成**(见 [round-03](./walkthroughs/2026-07-01-round-03-metrics-kdiff-fix.md)):审查发现 `docScore` 没按 README 锁的口径走「去重 span」、`dedupSpanCount`/`agentRawHits` 是死字段。已修:`docScore`→去重 span(AUC+排名)、误杀率上线、死字段复活、加 `metrics.ts` 单测守门、render 空输出防护。语料从旧 scratch 目录(被外部进程清掉)**全量重建并搬到 `evals/`**(耐清理)。round-03 真跑:AUC 1.000,docScore 人类 14.70/AI 26.27(去重 span),误杀基线 4.27,deepseek 更像人。
 - 已确认:三层评测模型、配对 lift 法、先建判别挖掘 harness、AI 样本走 writer 管线。
 - 已查明 writer 管线现实(见下),据此定下"解耦、先用便宜样本种子化仪器"的实施路线。
-- 数据管线架构定型:**消费侧(skill 仓库,进 git)只接收数据;生成侧(本地,不进 git,依赖 NeuroBook)产数据**。本轮主任务 = 判别验证(副产物:AI 检测器 + 最像人类模型排名)。
-- 消费侧本地化定案:放 `evals/` 但 gitignore + asset-sync 黑名单(已落),语料外置 `.agent/workspace/llmlint-evals/`。
+- 数据管线架构已随 Task 84 调整:**`evals/` 是 sibling llmlint 开发仓内的受控资产，进 git；可安装 runtime package 仍只在 `skill/`。** 本轮主任务 = 判别验证(副产物:AI 检测器 + 最像人类模型排名)。
+- 消费侧路径定案:语料/acquire/report 自 round-03 起统一在 `evals/`(`evals/corpus`、`evals/acquire`、`evals/report`)，不再放 `.agent/workspace`；CLI 默认路径用 `import.meta.dir` 相对，cwd 无关。NeuroBook assets/user-assets 同步不会复制 `evals/`。
 - 术语已对齐(见 Glossary);生成侧 writer 方案讨论中(倾向专用 eval-writer,见 Decisions)。
 
 ## Decisions / Discussion
@@ -142,8 +143,8 @@ flowchart TB
 ### 数据管线架构(2026-06-30 用户补充,定型)
 
 **消费/生成两侧硬分离:**
-- **Skill 仓库侧(进 git,随 skill 发布)= 只消费数据**:eval 管线接收一个语料目录,跑 llmlint,产出判别报告。**不负责生成数据。**
-- **生成侧(不进 git,本地依赖 NeuroBook)= 数据生成管线**:产出语料喂给消费侧。语料库与生成器都不进 git。
+- **llmlint 开发仓侧(进 git)= 评测代码 + fixture + 当前基线语料/报告**:eval 管线接收一个语料目录,跑 llmlint,产出判别报告。
+- **可安装 skill package(`skill/`)= runtime only**:不包含 `evals/`，NeuroBook user-assets 同步也不复制评测资产。
 
 **生成数据流**:人类正文(标准,手动录入)→ AI 抽取剧情 brief → 各模型/文风管道照 brief 生成正文 →(可选)llmlint 修复后正文 →(可选)critic 审批员按参考给全池打分(数据后续可能有用)。
 
@@ -172,7 +173,7 @@ flowchart TB
 
 **获取工具**:Tomato-Novel-Downloader(Rust 预编译 exe,番茄小说,输出 TXT/EPUB)。CLI 只支持 `--update <book_id>` 更新已有书;新书要先 TUI/Web 交互拉一次 → acquire **半自动**(人工按题材选 book_id),clean 起自动化。**单一来源(番茄)= 人类类有平台 bias,v1 可接受,后续加 起点/传统文学 增广。**
 
-**合规边界**:下载网文有版权/ToS 限制(工具自述"仅自读、看完即删")。本评测**严格本地、不入 git、不再分发**(已 gitignore+黑名单),低并发别压服务器;法律风险归用户。
+**合规边界**:下载网文有版权/ToS 限制(工具自述"仅自读、看完即删")。Task 84 后 `evals/` 会进入 llmlint 开发仓 git，因此新增或替换公开语料前必须确认可公开保存；临时/不可公开语料应放 `.agent/evals/` 或本机私有目录。
 
 ### 护栏(借鉴 shuorenhua,升级成量化)
 
@@ -191,18 +192,19 @@ flowchart TB
 
 > 计划已审批(2026-06-30)。每轮实现报告记入本目录 `walkthroughs/`。
 
-### 消费侧模块(主任务,放 `evals/`,本地化)
+### 消费侧模块(主任务,放 sibling `llmlint/evals/`)
 
 | 模块 | 职责 | 关键点 |
 |---|---|---|
 | `corpus.ts` | 读 + 校验语料 | 按 meta 契约加载;对"非自产语料"稳健(缺字段/文件不匹配/编码) |
-| `scan.ts` | 每篇跑 llmlint | **直接 import `../src/rules` + `../src/scanner`,不 spawn CLI**;出 原始命中 + 去重 span |
+| `scan.ts` | 每篇跑 llmlint | **直接 import `../skill/src/rules` + `../skill/src/scanner`,不 spawn CLI**;出 原始命中 + 去重 span |
 | `metrics.ts` | lift / 检测器 / 排名 | 见下度量 |
 | `report.ts` | 出报告 | `report.json` + `report.md`(规则体检表 + 检测器 AUC + 模型榜) |
-| `score.ts` | CLI 入口 | `--corpus --out --holdout --min-support` |
+| `score.ts` | CLI 入口 | `--corpus --out --min-support`(默认 corpus=`evals/corpus`、out=`evals/report`,`import.meta.dir` 相对) |
 | `fixtures/` | 手造微语料 | 验证数学,不依赖真实语料 |
+| `metrics.test.ts` | 数学守门(`bun test`) | round-03 加:断言 docScore 走去重 span、per-rule 走原始命中、误杀率口径 |
 
-度量:`fireRate = 原始命中 / 字数 × 1000`;`lift = (AI 中位 fireRate + α) / (人类中位 + α)`,分 `体裁×模型×文风` 层;`%pairs(AI>human)`;误杀率 = 人类侧 agent 桶 fireRate;四桶 + **min-support 守门**;`docScore = Σ w_r·fireRate` → AI vs 人 **ROC-AUC**;模型榜 = 各模型 docScore 中位数(越低越像人)。
+度量:`fireRate = 原始命中 / 字数 × 1000`;`lift = (AI 中位 fireRate + α) / (人类中位 + α)`,分 `体裁×模型×文风` 层;`%pairs(AI>human)`;四桶 + **min-support 守门**;**`docScore = 去重 span / 字数 × 1000`(round-03 定案:文档负担口径,非原始命中求和)** → AI vs 人 **ROC-AUC**;模型榜 = 各模型 docScore 中位数(越低越像人);**误杀率 = 人类侧 agent 桶命中率中位(命中/千字),已上线报告**。
 
 **扫描边界**:纯扫描只覆盖 ~284 条 **regex 规则**;8 条 **LLM 规则**(含 `register-mismatch` = 机器人数据化)需 LLM judge,属 M5,本轮标"需 LLM 通道"。
 
@@ -236,7 +238,8 @@ flowchart TB
 - [x] 第一轮(主任务):**消费侧打分仪器** `evals/`（scan/corpus/metrics/report/score）+ **acquisition**（epub/txt→reference）。见 round-01 walkthrough。
 - [x] 人类 reference 种子:已用 诡秘之主.txt(GBK)+ 2 个魔法少女 epub 切出 reference 单元。
 - [x] **M2(首条真实 lift)**:brief 抽取 + eval-writer(pi-ai completeSimple,mimo+deepseek-v4-flash)→ render → 真实 lift/AUC/模型榜。见 round-02。
-- [ ] **M3(扩量 + 统计显著)**:更多题材/题组/模型 + 文风预设档 + holdout 切分;稳后把规则体检表正式交 Task 77。
+- [x] **Round-03(口径修复 + 审查 + 搬迁)**:docScore→去重 span、误杀率上线、死字段复活、`metrics.ts` 单测、render 空输出防护;语料全量重建并搬到 `evals/`。见 [round-03](./walkthroughs/2026-07-01-round-03-metrics-kdiff-fix.md)。
+- [ ] **M3(扩量 + 统计显著)**:更多题材/题组/模型 + 文风预设档 + holdout 切分;**问题 2**(中位数 fireRate 漏「稀疏但只在 AI 出现」的判别器 → 补 prevalence 口径或把 `pairsAiGreater` 纳入裁决);**问题 3**(真 1:1 同 brief 配对:每篇 reference 各抽 brief 各 render,现为题组级近似);稳后把规则体检表正式交 Task 77。
 - [ ] 之后:critic 审批员给全池(人类/原始 AI/修复 AI)按参考打分。
 - [ ] 之后:第 ② 层产品成绩单、第 ③ 层显形回归集(以 4-tell DeepSeek 章为 #1)。
 - [ ] 落地后同步 `PROJECT-STATUS.md` 与本 README。

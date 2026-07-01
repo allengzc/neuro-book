@@ -7,7 +7,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "tone\t\t(?:，|。)语气\\*(?:，|。)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

@@ -1,10 +1,10 @@
 # Round 01 — M1 消费侧 consumer + Acquisition（2026-06-30）
 
-> 计划：`docs/tasks/82-llmlint-eval-harness/README.md` 的 Implementation Walkthrough（审批稿存 `~/.claude/plans/m1-acquisition-elegant-goblet.md`）。本轮交付 M1（消费侧打分仪器）+ acquisition（整本小说 → reference）。都本地、不进 git。
+> 计划：`docs/tasks/82-llmlint-eval-harness/README.md` 的 Implementation Walkthrough（审批稿存 `~/.claude/plans/m1-acquisition-elegant-goblet.md`）。本轮交付 M1（消费侧打分仪器）+ acquisition（整本小说 → reference）。当时按本地私有资产处理；当前 git 边界见 Task 84。
 
 ## 做了什么
 
-### 生成侧 acquisition（`.agent/workspace/llmlint-evals/acquire/`，本地）
+### 生成侧 acquisition（`旧评测 scratch 目录acquire/`，本地）
 - `txt.ts`：编码探测（UTF-8 strict 失败回退 **gb18030**）+ 按 `第X章/回/节` 切章（卷标题丢弃、长度上限挡误判）。
 - `epub.ts`：`fflate.unzipSync` 解 epub → OPF/spine → xhtml 去标签取纯文本（模式参照已有 `novel-import-tomato-reference/scripts/tomato-novel.ts`，最小化）。
 - `clean.ts`：去站点/付费/作者噪声行 + 归一空白；**刻意不动标点字形**（破折号/全角符号是规则要测的对象，动了污染评测）；`segmentChapter` 把超长章按段落切到 ~2-4k 字。
@@ -34,7 +34,7 @@
 ## 计划出入
 
 - 计划留了"epub 复用 tomato-novel.ts shell-out vs 自包含"，实测选**自包含最小实现**（fflate + ~50 行），因主力种子诡秘之主是 txt/GBK，tomato 工具本就不处理，统一自实现更干净、且 eval 不耦合 git 内 skill 的 CLI。
-- 未跑全仓 `bun run typecheck`：评测工具本地、不进 git、不入 CI；bun 直接运行通过 + fixture 即回归保障（CLAUDE.md：不过度测试）。
+- 未跑全仓 `bun run typecheck`：当时评测工具按本地私有资产处理、未入 CI；bun 直接运行通过 + fixture 即回归保障（CLAUDE.md：不过度测试）。
 
 ## Follow-ups
 

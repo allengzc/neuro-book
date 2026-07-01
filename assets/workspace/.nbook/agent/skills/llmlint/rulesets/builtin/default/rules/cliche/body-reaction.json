@@ -7,7 +7,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "cliche.body-reaction\t\t(?:探究|审视|掌控)(?:着)?(?:的|地)?(?:目光|眼神)?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -30,7 +30,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "cliche.body-reaction\t\t(?:嘴|唇)角挑起(?:了)?一(?:抹|丝|个)\\*(?:弧度|笑意)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -57,7 +57,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "cliche.body-reaction\t\t(?:嘴|唇)角勾起(?:了)?一(?:抹|丝|个)\\*(?:弧度|笑意)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -88,7 +88,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "cliche.body-reaction\t\t生理泪水",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -111,7 +111,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "cliche.body-reaction\t\t(?:唇|嘴)角\\*，\\*(?:弧度|笑意)\\*(?:，|。)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -137,7 +137,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "cliche.body-reaction\t\t(?:唇|嘴)角\\*(?:弧度|笑意)\\*(?:，|。)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

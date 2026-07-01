@@ -8,7 +8,7 @@
     "note": "破折号改句号",
     "source": {
       "canonicalKey": "punctuation.dash-proliferation\t\t—+(?=[”」])|(?<=[\\u4e00-\\u9fff])—+(?=\")",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -32,7 +32,7 @@
     "note": "段中破折号改逗号",
     "source": {
       "canonicalKey": "punctuation.dash-proliferation\t\t(?<!—|^)—+(?=[“「\\u4e00-\\u9fff])",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -56,7 +56,7 @@
     "note": "段尾破折号连到下句",
     "source": {
       "canonicalKey": "punctuation.dash-proliferation\t\t(?<=[\\u4e00-\\u9fff])—+\\n+(?:—+)?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -80,7 +80,7 @@
     "note": "删与标点相邻的破折号",
     "source": {
       "canonicalKey": "punctuation.dash-proliferation\t\t—+(?=[,，。!！?？])|(?<=[,，。!！?？])—+",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -104,7 +104,7 @@
     "note": "删引号边多余破折号",
     "source": {
       "canonicalKey": "punctuation.dash-proliferation\t\t(?<=[“”「」])—+|(?<=\")—+(?=[\\u4e00-\\u9fff])",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

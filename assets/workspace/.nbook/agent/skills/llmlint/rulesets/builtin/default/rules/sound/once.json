@@ -7,7 +7,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "sound.once\tg\t([^他她它我你人男女的了着过，。、：；！？“”‘’\\n\\s])(笑|哼|吼|喘|叹|呼|叫|咽|泣|咳|骂|喊)了?一声",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -31,7 +31,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "sound.once\tg\t哼了?一声",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -56,7 +56,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "sound.once\tg\t笑了?一声",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -81,7 +81,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "sound.once\tg\t叹了?一声",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

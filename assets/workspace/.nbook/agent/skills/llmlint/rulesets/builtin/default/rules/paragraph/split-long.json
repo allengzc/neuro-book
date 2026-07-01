@@ -7,7 +7,7 @@
     "enabled": false,
     "source": {
       "canonicalKey": "paragraph.split-long\t\t^([,，。.、!！?？~～…—“”\"‘’「」〖〗（）()0-9a-zA-Z\\u4e00-\\u9fff]{150,200}。)([\\u4e00-\\u9fff])",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

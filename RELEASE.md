@@ -1,5 +1,29 @@
 # Release Notes
 
+## 0.5.3-canary - 2026-07-01
+
+这次 patch 继续修产品运行时加载和 llmlint 工程结构，适合在 0.5.2 canary 基础上验证。
+
+1. Product / Nitro 动态 artifact 加载更稳
+新增服务端内部 `importRuntimeArtifact()`，让运行时生成的 `.mjs` 文件通过原生动态 import 加载，避免 Product/Nitro bundle 接管 `import(variable)` 后无法解析运行时文件路径。World Engine schema/calendar、profile compiled artifact 和 variable definition artifact 都改走同一入口。
+
+2. World Engine 配置加载继续收口
+`calendar.ts` / `schema/index.ts` 仍先转译为 hash `.mjs`，再通过新的 runtime artifact import 加载。这样既保留 TypeScript 配置入口，也避免产品包里动态生成模块被打包器解析路径误伤。
+
+3. llmlint 切到 sibling 独立开发仓
+llmlint 真相源改为 sibling `../llmlint` 仓库；NeuroBook 内的 `assets/workspace/.nbook/agent/skills/llmlint/` 现在只是 `../llmlint/skill` 的 runtime snapshot。新增同步脚本把 skill 镜像回 NeuroBook，并清理旧嵌套 `.git`、`node_modules`、`evals` 和 `.gitignore`。
+
+4. user-assets 同步更干净
+真实用户 runtime 副本会硬切清理 llmlint 旧开发资产，避免把仓库元数据、依赖目录或评测语料同步进用户 workspace。
+
+5. llmlint 评测指标口径修复
+eval harness 的文档负担分数改用去重 span / 千字，AI 检测器 AUC 和模型排名不再被同一句多规则重复命中放大；报告也补上人类侧 Agent 桶误杀率。
+
+6. llmlint 规则与测试去 scratch 化
+curated import 测试改用最小 fixture，不再依赖旧临时规则样本目录；规则文档也把历史 scratch 路径改成稳定描述。内置规则文件同步了本轮从 sibling 仓镜像回来的最新 snapshot。
+
+验证记录来自对应任务：runtime artifact import 覆盖了 helper 单测、World Engine、profile、variable definition、Nuxt build、product stage 和 staged Product smoke；llmlint sibling 仓迁移记录了独立仓测试、同步脚本、user-assets 清理和 runtime 副本检查；eval harness 记录了 fixture 与真实小样本指标重跑。本次发布不等待 GitHub Actions release workflow。
+
 ## 0.5.2-canary - 2026-07-01
 
 这次 patch 主要修产品运行时兼容性和 llmlint 文档口径，适合继续在 0.5.1 canary 基础上验证。

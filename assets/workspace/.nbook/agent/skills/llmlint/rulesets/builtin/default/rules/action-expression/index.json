@@ -7,7 +7,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "action-expression\t\t(?:声音依旧|很)?平稳(?:与|，)?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -30,7 +30,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "action-expression\t\t却?带有?明显的?戏谑",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -53,7 +53,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "action-expression\t\t(?:用平淡的语气|语气平淡地)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -76,7 +76,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "action-expression\t\t因为用力而泛白",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -99,7 +99,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "action-expression\t\t(?:嘴|唇)角(?:弯出|翘起|扯出|勾起)一?个(?:好看的|没有温度的|的)?弧度",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -122,7 +122,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "action-expression\t\t嘴角勾",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -145,7 +145,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "action-expression\t\t(?:粗重|粗暴|疯狂)(?:的|地)?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -168,7 +168,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "action-expression\t\t尖叫",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -191,7 +191,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "action-expression\t\t(?:以|用)?戏谑的态度",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -214,7 +214,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "action-expression\t\t的?戏谑(?:的|地)?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -237,7 +237,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "action-expression\t\t绞得紧紧的",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

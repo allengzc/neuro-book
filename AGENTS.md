@@ -127,13 +127,12 @@
 - 不要等待或盯 GitHub Actions release workflow；发布命令必须带 `--no-watch`。创建 GitHub Release 成功后，报告 release tag / URL，并说明 Actions 后台自行运行。
 - 如果 release 命令被中断，先检查 `git status --short --branch`、`git log --oneline -5`、`package.json.version`，再用 `gh release view <tag> --repo notnotype/neuro-book` 判断版本提交和 GitHub Release 是否已经完成，避免重复发布。
 
-## llmlint 独立仓库发布（嵌套仓）
+## llmlint 独立开发仓（sibling source + vendored snapshot）
 
-- `assets/workspace/.nbook/agent/skills/llmlint/` 既是 NeuroBook 内嵌 skill，又作为独立公开仓库发布在 **github.com/notnotype/llmlint**（PolyForm-Noncommercial-1.0.0）。它在该目录内有**自己的嵌套 `.git`**（origin `git@github.com:notnotype/llmlint.git`，分支 `master`）。
-- **git 取 cwd 向上最近的 `.git`**：在 llmlint 目录**里面**跑 git → 作用于 **llmlint 仓**；在该目录**外**、neuro-book 里跑 → 作用于 **neuro-book 仓**（origin `neuro-book.git`）。
-- **任何 `push` / `remote` 操作前先 `git remote -v` 或 `git rev-parse --show-toplevel` 确认身在哪个仓**，绝不把 neuro-book 推到 llmlint。发 llmlint 一律先 `cd` 进该目录。
-- **两个仓各自独立跟踪同一批文件，不自动同步**。改了 llmlint 文件后：发布 → 进 llmlint 目录 `git add -A && git commit && git push`；要让 neuro-book 也记录 → 在 neuro-book 根按**具体文件路径** `git add <file>` 再 commit。
-- neuro-book 里**不要** `git add` 整个 llmlint 目录、也**不要** `git rm -r --cached` 该路径——只有这两者才可能把目录塌缩成 gitlink。文件已被 neuro-book 当普通 blob 跟踪，按文件 `git add` 不会触发 embedded 告警。
-- llmlint 目录内的 `.gitignore` 对两个仓都生效。`evals/`（评测 harness 的 consumer 代码 / 语料）已排除，**绝不发布到公开 llmlint 仓**。
-- README 为中英双语双文件：`README.md`（中文，GitHub 默认）+ `README.en.md`（英文），互相链接。改其一记得同步另一份。
-- 不要在 llmlint 仓 force push；远端拒绝就停下报告。
+- llmlint 真正开发仓位于 sibling 路径 `C:\Users\notnotype\Documents\CodeRepository\GithubProjects\llmlint`，remote 是 **github.com/notnotype/llmlint**（PolyForm-Noncommercial-1.0.0）。仓库根是开发工作区，真正可安装的 skill package 固定在 `skill/`。
+- NeuroBook 内置副本 `assets/workspace/.nbook/agent/skills/llmlint/` 只是 `../llmlint/skill` 的 vendored runtime snapshot，不再有嵌套 `.git`，不要在该目录内执行 llmlint 仓的 git 操作。
+- 改 llmlint 源码、规则、README 或 evals 时，先进入 sibling llmlint 仓修改；改完从 llmlint 根运行 `bun run sync:neuro-book`，或从 NeuroBook 根运行 `bun scripts/cli/sync-llmlint-skill.ts`，再执行 `bun scripts/cli/sync-user-assets.ts` 更新真实 user runtime 副本。
+- NeuroBook 同步脚本只镜像 `skill/`，并排除 `.git/`、`node_modules/`、`.bun/`、`.agent/`、`evals/`、`tests/`、coverage/report 临时产物；`workspace/.nbook/agent/skills/llmlint/` 也必须保持为 runtime-only 副本。
+- `evals/` 进入 sibling llmlint 仓 git，作为规则评测 harness、fixture、语料和基线报告的开发资产；它不属于可安装 skill package，也不随 NeuroBook user-assets 同步到用户 workspace。
+- README 为中英双语双文件：仓库根 `README.md` / `README.en.md` 说明开发仓，`skill/README.md` / `skill/README.en.md` 说明可安装 skill。改安装或运行方式时两层文档都要同步。
+- 不要在 llmlint 仓 force push；远端拒绝就停下报告。任何 `push` / `remote` 操作前先 `git remote -v` 或 `git rev-parse --show-toplevel` 确认当前仓库。

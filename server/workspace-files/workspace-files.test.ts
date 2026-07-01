@@ -2095,6 +2095,10 @@ describe("workspace-files", {timeout: 60_000}, () => {
             "agent/skills/llmlint/rulesets/builtin/cn-extreme/ruleset.json",
         ];
         const orphanDeletedAssetPaths = [
+            "agent/skills/llmlint/.gitignore",
+            "agent/skills/llmlint/.git/config",
+            "agent/skills/llmlint/node_modules/tinyglobby/package.json",
+            "agent/skills/llmlint/evals/README.md",
             "agent/skills/llmlint/rulesets/builtin/cn-light/rules.json",
             "agent/skills/llmlint/rulesets/builtin/cn-standard/rules.json",
         ];

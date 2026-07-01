@@ -7,7 +7,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t后脑勺",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -31,7 +31,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t背脊",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -55,7 +55,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t脊背",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -79,7 +79,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t身躯",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -103,7 +103,7 @@
     "note": "人体词换通俗说法",
     "source": {
       "canonicalKey": "vocabulary.body\t\t屁股蛋",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -127,7 +127,7 @@
     "note": "人体词换通俗说法",
     "source": {
       "canonicalKey": "vocabulary.body\t\t屁股蛋子",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -150,7 +150,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t屁股蛋子?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -173,7 +173,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t颧骨",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -196,7 +196,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t胸腔",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -221,7 +221,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t胶原蛋白",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -244,7 +244,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t眼(?:角|皮|皮子)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -267,7 +267,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t指骨",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -290,7 +290,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t(?:指骨|手指)的?关节",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -313,7 +313,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t指节",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -336,7 +336,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t皮肉",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -360,7 +360,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t胯骨",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -384,7 +384,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t骨节",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -407,7 +407,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t抬起眼皮",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -430,7 +430,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t嘴角",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -454,7 +454,7 @@
     "note": "医用词换通俗说法",
     "source": {
       "canonicalKey": "vocabulary.body\t\t肌理",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -477,7 +477,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t口腔",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -501,7 +501,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t髋骨",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -525,7 +525,7 @@
     "note": "删生理学标签",
     "source": {
       "canonicalKey": "vocabulary.body\t\t生理泪",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -549,7 +549,7 @@
     "note": "删生理学标签",
     "source": {
       "canonicalKey": "vocabulary.body\t\t生理性泪",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -572,7 +572,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t生理性?泪水?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -597,7 +597,7 @@
     "note": "医用部位换通俗说法",
     "source": {
       "canonicalKey": "vocabulary.body\t\t耻骨",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -620,7 +620,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t肋骨",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -643,7 +643,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t肩胛骨",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -667,7 +667,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t头颅",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -691,7 +691,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t脊[椎柱][骨沟]?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -714,7 +714,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t尾椎骨",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -737,7 +737,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t喉咙里",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -761,7 +761,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t躯体",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -784,7 +784,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.body\t\t四肢百骸",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

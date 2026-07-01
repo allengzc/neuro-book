@@ -7,7 +7,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "punctuation.dash\t\t「——",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -30,7 +30,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "punctuation.dash\t\t“——",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -53,7 +53,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "punctuation.dash\t\t——",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -76,7 +76,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "punctuation.dash\t\t——」",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -99,7 +99,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "punctuation.dash\t\t——”",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -122,7 +122,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "punctuation.dash\t\t——\"",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -145,7 +145,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "punctuation.dash\t\t\"——",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

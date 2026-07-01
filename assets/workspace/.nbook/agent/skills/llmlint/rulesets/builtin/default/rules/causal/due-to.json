@@ -7,7 +7,7 @@
     "enabled": false,
     "source": {
       "canonicalKey": "causal.due-to\t\t由于(?:的|地|得)?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

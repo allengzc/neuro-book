@@ -39,7 +39,7 @@ llmlint splits those two jobs: deterministic location (CLI) and contextual judgm
 **Recommended (as an Agent Skill)** — use the open [`skills`](https://skills.sh) CLI to install it into any supported agent (Claude Code, Codex, Cursor, …) with one command:
 
 ```bash
-npx skills add notnotype/llmlint
+npx skills add notnotype/llmlint --skill llmlint --full-depth
 ```
 
 It copies / links the skill files into the agent's skills directory and drives the CLI per `SKILL.md`.
@@ -48,7 +48,7 @@ It copies / links the skill files into the agent's skills directory and drives t
 
 ```bash
 git clone https://github.com/notnotype/llmlint.git
-cd llmlint
+cd llmlint/skill
 bun install        # or npm install / pnpm install
 ```
 
@@ -152,7 +152,7 @@ Exit codes follow the **visible view**: hits hidden by `--review` / `--min-level
 
 This repo is also a self-contained **Agent Skill**. `SKILL.md` defines a 6-step polish workflow: get input → `check` → `show-llm-rules` + 50-point review → fix plan (user-approved) → apply → report.
 
-Recommended install via the [`skills`](https://skills.sh) CLI — `npx skills add notnotype/llmlint` — which drops the files into the agent's skills directory (e.g. `.claude/skills/llmlint/` or NeuroBook's `.nbook/agent/skills/llmlint/`); or copy the folder manually. After installing, run the dependency install once in the skill directory (`npm install` / `bun install` / `pnpm install`), and the agent can drive the CLI through the documented flow.
+Recommended install via the [`skills`](https://skills.sh) CLI — `npx skills add notnotype/llmlint --skill llmlint --full-depth` — which searches the repository recursively, installs the `llmlint` skill from `skill/`, and drops it into the agent's skills directory (e.g. `.claude/skills/llmlint/` or NeuroBook's `.nbook/agent/skills/llmlint/`). For manual installation, copy the repository's `skill/` directory and name it `llmlint/` in the target skills directory. After installing, run the dependency install once in the skill directory (`npm install` / `bun install` / `pnpm install`), and the agent can drive the CLI through the documented flow.
 
 ## Documentation
 

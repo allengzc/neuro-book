@@ -44,8 +44,8 @@
 - 主力:中文网文 6-8 题材(番茄为主,经 Tomato-Novel-Downloader 取);
 - 高端锚:传统 / 严肃文学(genre=`literary`),小量,防误杀文学手法;
 - 工具 **Tomato-Novel-Downloader**:Rust 预编译 exe,番茄小说,输出 TXT/EPUB,CLI 仅 `--update <book_id>`,新书需 TUI 交互 → acquire **半自动**。
-- 合规:严格本地、不进 git(主仓 + 嵌套 llmlint 仓双重 gitignore)、不再分发,低并发别压服务器;法律风险归用户。
+- 合规:`evals/` 已随 Task 84 进入 sibling llmlint 开发仓 git,只能放可公开保存的 fixture、基线语料和报告。不可公开或授权不清的采集语料必须留在 `.agent/evals/` 或本机私有目录,不分发,低并发别压服务器;法律风险归用户。
 
 ## 代码位置
 
-acquire + curate 属**生成侧(本地,不进 git)**。脚本与语料放 `.agent/workspace/llmlint-evals/`(主仓 `/.agent/` 已 gitignore)。
+acquire + curate 属**生成侧**。当前稳定位置是 sibling llmlint 仓的 `evals/`(`evals/acquire/` 脚本、`evals/corpus/` 语料、`evals/report/` 报告),其中可公开保存的 fixture / baseline 进入 llmlint 仓 git；不可公开语料只放 `.agent/evals/` 或本机私有目录。**早先放 `旧评测 scratch 目录` 的版本被外部进程清掉过,故当前不再依赖该位置。**

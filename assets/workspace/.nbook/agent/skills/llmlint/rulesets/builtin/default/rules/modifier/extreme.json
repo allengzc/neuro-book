@@ -7,7 +7,7 @@
     "enabled": false,
     "source": {
       "canonicalKey": "modifier.extreme\t\t极其(?:的|地|得)?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

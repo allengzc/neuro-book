@@ -8,7 +8,7 @@
     "note": "修剪特定转折句",
     "source": {
       "canonicalKey": "sentence.compound\t\t(?:非但|不[是像再]|并[未非不]|(?:并|不仅)?没有)[\\u4e00-\\u9fff]+[,，](?:是|反[而倒]是?|[而倒只也更又全][是像]是?)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -32,7 +32,7 @@
     "note": "删对白后的回声壳",
     "source": {
       "canonicalKey": "sentence.compound\t\t(^|[。！？；\\n])(?:这句话|那句话|这几个字|这番话)(?:一出口|出口|一落下|落下)?[，,]",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -56,7 +56,7 @@
     "note": "删泛化类比口气壳",
     "source": {
       "canonicalKey": "sentence.compound\t\t和(?:谈起|聊起|说起)[\\u4e00-\\u9fff]{1,8}一样(?=(?:地)?(?:说|开口|问|回答|讲|提起))",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -80,7 +80,7 @@
     "note": "弱化固定句壳",
     "source": {
       "canonicalKey": "sentence.compound\t\t并没有立刻",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -104,7 +104,7 @@
     "note": "删参照依赖句壳",
     "source": {
       "canonicalKey": "sentence.compound\t\t平日里",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -128,7 +128,7 @@
     "note": "修剪连续“不是…不是…”",
     "source": {
       "canonicalKey": "sentence.compound\t\t(?:(?<=^|[,，。])不是[\\u4e00-\\u9fff]+[,，。])+[而只]?是",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -152,7 +152,7 @@
     "note": "删句首场域空壳",
     "source": {
       "canonicalKey": "sentence.compound\t\t(^|[。！？；\\n])在这个空间里[，,]",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -176,7 +176,7 @@
     "note": "删单层否定对比前半句",
     "source": {
       "canonicalKey": "sentence.compound\t\t(?<!不是不)([\\u4e00-\\u9fff]+)不是[\\u4e00-\\u9fff，、“”‘’]{1,20}[，,]而是",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -200,7 +200,7 @@
     "note": "删未发生部分前半句",
     "source": {
       "canonicalKey": "sentence.compound\t\t(?:并[未非不]|并?(?:没有|不[再是像])|非但)[\\u4e00-\\u9fff]{1,20}[,，](?:[更又全也倒只而][像是]|反[而倒]是?)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -224,7 +224,7 @@
     "note": "删未发生部分前半句",
     "source": {
       "canonicalKey": "sentence.compound\t\t([\\u4e00-\\u9fff]+)并(?:没有|未)[\\u4e00-\\u9fff，、“”‘’]{1,20}[，,]而是",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -248,7 +248,7 @@
     "note": "天气式口气改直接状态",
     "source": {
       "canonicalKey": "sentence.compound\t\t像在聊天气一样(?=(?:地)?(?:说|开口|问|回答|讲|提起))",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -272,7 +272,7 @@
     "note": "天气式口气改直接状态",
     "source": {
       "canonicalKey": "sentence.compound\t\t像聊今天天气一样(?=(?:地)?(?:说|开口|问|回答|讲|提起))",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -296,7 +296,7 @@
     "note": "改成直接说话状态",
     "source": {
       "canonicalKey": "sentence.compound\t\t用聊天气的口气",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -320,7 +320,7 @@
     "note": "天气式口气改直接状态",
     "source": {
       "canonicalKey": "sentence.compound\t\t像在讨论天气一样(?=(?:地)?(?:说|开口|问|回答|讲|提起))",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -344,7 +344,7 @@
     "note": "天气式口气改直接状态",
     "source": {
       "canonicalKey": "sentence.compound\t\t跟讨论天气一样(?=(?:地)?(?:说|开口|问|回答|讲|提起))",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

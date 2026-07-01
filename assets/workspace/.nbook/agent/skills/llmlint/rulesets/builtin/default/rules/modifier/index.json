@@ -59,7 +59,7 @@
     "note": "必带“的/地”防误伤",
     "source": {
       "canonicalKey": "modifier\t\t(?:不容|不可|无法|难以)(?:质疑|置疑|置喙|拒绝|抗拒|言喻|言明|言说|分说)(?:的|地)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -82,7 +82,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "modifier\t\t(?:不容|不可|无法|难以)(?:质疑|置疑|置喙|拒绝|抗拒)(?:的|地)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -106,7 +106,7 @@
     "note": "兼容不带“的/地”",
     "source": {
       "canonicalKey": "modifier\t\t(?:死死|紧紧|深深|浅浅|浓浓|稍稍|完全|彻底|[格分]外|[甚乃]至|[全突忽]然|极[其度致具]|[稍略轻微]微|[猛勐][的地]|[无下]意识|不自觉|习惯性)[的地]?(?=[\\u4e00-\\u9fff])",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -130,7 +130,7 @@
     "note": "必带“的/地”防误伤",
     "source": {
       "canonicalKey": "modifier\t\t(?:几不|微不)(?:可查|可察|可闻)(?:的|地)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -154,7 +154,7 @@
     "note": "删失焦程度描述",
     "source": {
       "canonicalKey": "modifier\t\t不轻不重",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -177,7 +177,7 @@
     "enabled": false,
     "source": {
       "canonicalKey": "modifier\t\t而?沉闷(?:的|地)?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -201,7 +201,7 @@
     "note": "必带“的/地”防误伤",
     "source": {
       "canonicalKey": "modifier\t\t(?:谄媚|讨好|卑微|顺从|虔诚|狂热|屈辱|崩溃|绝望|病态|空洞|麻木|木讷|笨拙|僵硬|机械|灭顶|细若蚊蝇|细若蚊呐|毫无生气|不似人声|似有似无|若有若无|并不存在|不存在|铺天盖地|毁天灭地|狂风暴雨|暴风骤雨)般?(?:的|地)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -224,7 +224,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "modifier\t\t(?:惊人|灭顶|细若蚊蝇|细若蚊呐|不似人声|似有似无|若有若无|铺天盖地|毁天灭地|狂风暴雨|暴风骤雨)般?(?:的|地)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -248,7 +248,7 @@
     "note": "删夸张比附修饰",
     "source": {
       "canonicalKey": "modifier\t\t(?:惊人|灭顶|细若蚊蝇|细若蚊呐|不似人声|似有似无|若有若无|并不存在|不存在|铺天盖地|毁天灭地|狂风暴雨|暴风骤雨)般?(?:的|地)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -272,7 +272,7 @@
     "note": "必带“的/地”防误伤",
     "source": {
       "canonicalKey": "modifier\t\t(?:不可|不容|不易|无法|难以)(?:察觉|查觉|觉察|觉查|察察|查查)(?:的|地)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -295,7 +295,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "modifier\t\t(?:显得格外)?沉甸甸(?:的|地)?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -318,7 +318,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "modifier\t\t(?:谄媚|讨好|虔诚|狂热|绝望|病态|空洞|麻木|木讷|笨拙|毫无生气)(?:的|地)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -341,7 +341,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "modifier\t\t(?:不容|无法)(?:言喻|言明|言说|分说)(?:的|地)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -365,7 +365,7 @@
     "note": "删低信息程度壳",
     "source": {
       "canonicalKey": "modifier\t\t(?:一丝丝|极其|极度|极致|死死|紧紧|深深|浅浅|浓浓|稍稍|稍微|略微|轻微|微微|完全|彻底|格外|分外|甚至|乃至|全然|突然|忽然|猛的|猛地|勐的|勐地|近乎于|近乎|无意识|下意识|不自觉|习惯性)(?:的|地)?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -388,7 +388,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "modifier\t\t(?:快要)?崩溃(?:的|地)?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -412,7 +412,7 @@
     "note": "删可选氛围修饰",
     "source": {
       "canonicalKey": "modifier\t\t(?:准确|精准|准确无误|精准无误|慵懒|暧昧|禁忌|磁性|低沉|深沉|沉闷|变调|高亢|压迫感|上位者|高大|挺拔|恶劣|恶意|平静|平稳|平淡|平平|冷冷|清冷|冷声|冷淡|逼人)(?:的|地)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -435,7 +435,7 @@
     "enabled": false,
     "source": {
       "canonicalKey": "modifier\t\t(?:准确|精准|准确无误|精准无误|暧昧|禁忌|磁性|低沉|深沉|变调|高亢|压迫感|上位者|高大|挺拔|恶意|平静|平淡|平平|冷冷|清冷|冷声|冷淡|逼人)(?:的|地)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -459,7 +459,7 @@
     "note": "必带“的/地”防误伤[可选]",
     "source": {
       "canonicalKey": "modifier\t\t(?:准确|精准|准确无误|精准无误|慵懒|暧昧|禁忌|旖旎|低沉|深沉|沉闷|大咧咧|上位者|居高临下|一瘸一拐)(?:的|地)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -482,7 +482,7 @@
     "enabled": false,
     "source": {
       "canonicalKey": "modifier\t\t有点小?恶劣(?:的|地)?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -505,7 +505,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "modifier\t\t(?:略显粗糙|粗糙|逼仄|玩味|餍足|旖旎|甜腻|低哑|喑哑|沙哑|嘶哑|微哑|亮晶晶|直勾勾|硬生生)(?:的|地)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -529,7 +529,7 @@
     "note": "必带“的/地”防误伤",
     "source": {
       "canonicalKey": "modifier\t\t(?:略显粗糙|粗糙|逼仄|惊人|戏谑|狡黠|玩味|餍足|甜腻|黏腻|磁性|低哑|喑哑|沙哑|嘶哑|微哑|沉甸甸|亮晶晶|直勾勾|硬生生)(?:的|地)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -552,7 +552,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "modifier\t\t(?:一丝丝|极其|极度|极致|死死|紧紧|深深|浅浅|浓浓|稍稍|稍微|略微|极轻微|轻微|微微|完全|彻底|格外|分外|乃至|全然|突然|忽然|猛的|猛地|勐的|勐地|近乎于|近乎|无意识|下意识|不自觉|习惯性)(?:的|地)?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -575,7 +575,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "modifier\t\t黏腻(?:的|与)?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -598,7 +598,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "modifier\t\t依然?僵硬(?:的|地)?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -622,7 +622,7 @@
     "note": "删模板化修饰壳",
     "source": {
       "canonicalKey": "modifier\t\t(?:略显粗糙|粗糙|生理层面|生理本能|生理性|生理|逼仄|戏谑|狡黠|玩味|餍足|旖旎|甜腻|黏腻|低哑|喑哑|沙哑|嘶哑|微哑|沉甸甸|亮晶晶|直勾勾|硬生生)(?:的|地)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -646,7 +646,7 @@
     "note": "删模板化状态修饰",
     "source": {
       "canonicalKey": "modifier\t\t(?:谄媚|讨好|虔诚|狂热|崩溃|绝望|病态|空洞|麻木|木讷|笨拙|僵硬|机械|毫无生气)(?:的|地)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

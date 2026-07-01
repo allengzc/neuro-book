@@ -7,7 +7,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "color-description\t\t脆生生",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -34,7 +34,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "color-description\t\t龟头泛着(?:紫红|紫黑|红紫|暗红)色?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -57,7 +57,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "color-description\t\t白花花",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -93,7 +93,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "color-description\t\t(?:深紫|紫红|紫黑|红紫|暗红|发黑|发紫)色?的?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -116,7 +116,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "color-description\t\t成(?:紫红|紫黑|红紫|暗红)色",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -139,7 +139,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "color-description\t\t白生生",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

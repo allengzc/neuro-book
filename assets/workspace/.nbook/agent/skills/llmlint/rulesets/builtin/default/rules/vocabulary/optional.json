@@ -7,7 +7,7 @@
     "enabled": false,
     "source": {
       "canonicalKey": "vocabulary.optional\t\t薄如蝉翼",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -31,7 +31,7 @@
     "enabled": false,
     "source": {
       "canonicalKey": "vocabulary.optional\t\t抠挖",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -55,7 +55,7 @@
     "enabled": false,
     "source": {
       "canonicalKey": "vocabulary.optional\t\t巨大(?=的(?:[胸奶]|乳房))",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -82,7 +82,7 @@
     "enabled": false,
     "source": {
       "canonicalKey": "vocabulary.optional\t\t[巨宽肥]大(?=的臀)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -109,7 +109,7 @@
     "enabled": false,
     "source": {
       "canonicalKey": "vocabulary.optional\t\t层层叠叠",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

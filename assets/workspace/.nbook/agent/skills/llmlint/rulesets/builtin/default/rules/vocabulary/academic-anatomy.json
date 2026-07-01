@@ -7,7 +7,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.academic-anatomy\t\t的?(?:肌肉|结构|频率)的?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -30,7 +30,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.academic-anatomy\t\t骨感",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -53,7 +53,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.academic-anatomy\t\t(?:生理性|生理层面|生理本能)的?",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -76,7 +76,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.academic-anatomy\t\t规律",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -99,7 +99,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.academic-anatomy\t\t极?有规律地",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -122,7 +122,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.academic-anatomy\t\t括约肌",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

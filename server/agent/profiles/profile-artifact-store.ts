@@ -1,8 +1,7 @@
-import {copyFile, mkdir, stat} from "node:fs/promises";
-import {join, resolve} from "node:path";
-import {pathToFileURL} from "node:url";
+import {join} from "node:path";
 import {PROFILE_COMPILED_DIR_NAME, type ProfileArtifactManifestItem} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import type {AgentProfile, AgentProfileIssueCode} from "nbook/server/agent/profiles/types";
+import {importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
 
 /**
  * 按内容寻址 sha 加载 compiled profile artifact。该组件只负责 artifact import，
@@ -14,31 +13,18 @@ export class ProfileArtifactStore {
      */
     async importProfile(profileRoot: string, item: ProfileArtifactManifestItem): Promise<AgentProfile> {
         const artifactPath = join(profileRoot, PROFILE_COMPILED_DIR_NAME, item.artifactFileName);
-        const importPath = await this.prepareImportPath(artifactPath, item);
-        const mod = await import(pathToFileURL(importPath).href) as {
+        const mod = await importRuntimeArtifact<{
             default?: unknown;
-        };
+        }>(artifactPath, {
+            cacheKey: item.artifactSha256,
+            cacheNamespace: "profile",
+            expectedBytes: item.artifactBytes,
+        });
         const profile = mod.default;
         if (!this.isProfile(profile)) {
             throw new ProfileArtifactStoreError("invalid_export", `compiled profile 没有默认导出有效的 defineAgentProfile 结果：${artifactPath}`);
         }
         return profile;
-    }
-
-    /**
-     * Bun 会忽略 file URL query 的模块缓存差异；复制到带 hash 的物理路径后再 import。
-     */
-    private async prepareImportPath(artifactPath: string, item: ProfileArtifactManifestItem): Promise<string> {
-        const cacheRoot = resolve(process.cwd(), ".agent", "workspace", "profile-import-cache");
-        const safeArtifactName = item.artifactFileName.split(/[\\/]+/).join("__");
-        const importPath = join(cacheRoot, safeArtifactName.replace(/\.mjs$/u, `.${item.artifactSha256.slice(0, 16)}.mjs`));
-        const existing = await stat(importPath).catch(() => null);
-        if (existing?.size === item.artifactBytes) {
-            return importPath;
-        }
-        await mkdir(cacheRoot, {recursive: true});
-        await copyFile(artifactPath, importPath);
-        return importPath;
     }
 
     private isProfile(value: unknown): value is AgentProfile {

@@ -7,7 +7,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t乳房",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -31,7 +31,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t(?:粗|大)屌",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -55,7 +55,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t(?:肉|穴|肠|阴道)壁",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -80,7 +80,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t那话儿",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -106,7 +106,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t那活儿",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -130,7 +130,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t(?:花|阴)户",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -157,7 +157,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t肉刃",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -183,7 +183,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t肉洞",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -210,7 +210,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t肉穴",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -234,7 +234,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t(?:花|粉)穴",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -261,7 +261,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t阴(?:道|部)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -288,7 +288,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t肠液",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -313,7 +313,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t阴唇",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -338,7 +338,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t肉(?:刃|茎)",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -362,7 +362,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t阳物",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -388,7 +388,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t肉茎",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -414,7 +414,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t甬道",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -439,7 +439,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t(?:甬|肉)道",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -466,7 +466,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "vocabulary.r18\t\t阴茎",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -491,7 +491,7 @@
     "note": "R18词汇换通俗说法",
     "source": {
       "canonicalKey": "vocabulary.r18\t\t柱身",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

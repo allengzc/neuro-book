@@ -1,6 +1,6 @@
 # Round 02 — M2 eval-writer(render)+ 首条真实 lift（2026-06-30）
 
-> 计划：`~/.claude/plans/m1-acquisition-elegant-goblet.md`（M2 稿）。本轮在 skill 仓库 `evals/generator/` 搭会调真实模型的测试环境,用 config.json 两个模型照 brief 生成 render,跑出第一张真实 lift。都本地、不进 git。
+> 计划：`~/.claude/plans/m1-acquisition-elegant-goblet.md`（M2 稿）。本轮在 skill 仓库 `evals/generator/` 搭会调真实模型的测试环境,用 config.json 两个模型照 brief 生成 render,跑出第一张真实 lift。当时按本地私有资产处理；当前 git 边界见 Task 84。
 
 ## 做了什么
 

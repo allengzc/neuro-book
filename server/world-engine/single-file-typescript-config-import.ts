@@ -6,6 +6,7 @@ import path from "node:path";
 import {fileURLToPath, pathToFileURL} from "node:url";
 import {build, type Plugin} from "esbuild";
 import type * as TypeScript from "typescript";
+import {importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
 
 const require = createRequire(import.meta.url);
 const ts = require("typescript") as typeof TypeScript;
@@ -215,7 +216,7 @@ async function importHashedTypeScript<TModule extends object>(
     const compiled = await compileSingleFileTypeScript(filePath, content.toString("utf-8"));
     await fs.writeFile(cachePath, compiled, "utf-8");
     try {
-        return await import(pathToFileURL(cachePath).href) as TModule;
+        return await importRuntimeArtifact<TModule>(cachePath);
     } finally {
         await fs.rm(cachePath, {force: true}).catch(() => undefined);
     }

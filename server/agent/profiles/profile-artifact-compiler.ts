@@ -11,6 +11,7 @@ import {lock as lockFile} from "proper-lockfile";
 import type {AgentProfile} from "nbook/server/agent/profiles/types";
 import {generateVariableTypes, VARIABLE_TYPES_FILE_NAME, type VariableTypeGenerationDiagnostic} from "nbook/server/agent/variables/generated-types";
 import {appLogger} from "nbook/server/app-logs/logger";
+import {importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
 
 export const PROFILE_ARTIFACT_COMPILER_VERSION = 6;
 export const PROFILE_COMPILED_DIR_NAME = ".compiled";
@@ -871,7 +872,7 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
         const artifactHash = await hashFile(temporaryOutputPath);
         const artifactFileName = `${PROFILE_COMPILED_ARTIFACTS_DIR_NAME}/${artifactHash.sha256}.mjs`;
         const artifactPath = join(compiledDir, ...artifactFileName.split("/"));
-        const profile = await importCompiledProfile(temporaryOutputPath, artifactHash.sha256);
+        const profile = await importCompiledProfile(temporaryOutputPath, artifactHash);
         const typeFileName = `${PROFILE_COMPILED_ARTIFACTS_DIR_NAME}/${artifactHash.sha256}.${VARIABLE_TYPES_FILE_NAME}`;
         const typePath = join(compiledDir, ...typeFileName.split("/"));
         const generatedTypes = generateVariableTypes(profile.variableDefinitions ?? [], {
@@ -904,8 +905,12 @@ async function compileProfileFile(profileRoot: string, compiledDir: string, file
     }
 }
 
-async function importCompiledProfile(artifactPath: string, artifactHash: string): Promise<AgentProfile> {
-    const mod = await import(`${pathToFileURL(artifactPath).href}?compiled=${artifactHash}`) as {default?: unknown};
+async function importCompiledProfile(artifactPath: string, artifactHash: {sha256: string; bytes: number}): Promise<AgentProfile> {
+    const mod = await importRuntimeArtifact<{default?: unknown}>(artifactPath, {
+        cacheKey: artifactHash.sha256,
+        cacheNamespace: "profile-compiler",
+        expectedBytes: artifactHash.bytes,
+    });
     const profile = mod.default;
     if (!isProfile(profile)) {
         throw new Error(`compiled profile 没有默认导出有效的 defineAgentProfile 结果：${artifactPath}`);

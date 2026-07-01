@@ -2,12 +2,12 @@ import {createHash, randomUUID} from "node:crypto";
 import {existsSync} from "node:fs";
 import {copyFile, mkdir, readFile, readdir, rename, rm, writeFile} from "node:fs/promises";
 import {basename, dirname, isAbsolute, join, relative, resolve} from "node:path";
-import {pathToFileURL} from "node:url";
 import {builtinModules} from "node:module";
 import {build, type Metafile, type Plugin} from "esbuild";
 import type {VariableDefinition, VariableNamespace, VariableAccessorIssue} from "nbook/server/agent/variables/types";
 import {hashFile, resolveArtifactPath} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import {generateVariableTypes, VARIABLE_TYPES_FILE_NAME, type VariableTypeGenerationDiagnostic} from "nbook/server/agent/variables/generated-types";
+import {importRuntimeArtifact} from "nbook/server/utils/runtime-artifact-import";
 
 export const VARIABLE_DEFINITION_COMPILER_VERSION = 1;
 export const VARIABLE_DEFINITION_COMPILED_DIR = ".compiled";
@@ -105,7 +105,10 @@ export async function loadCompiledVariableDefinitions(input: {
             continue;
         }
         try {
-            const loaded = await importDefinitions(join(root, VARIABLE_DEFINITION_COMPILED_DIR, item.artifactFileName), item.artifactSha256);
+            const loaded = await importDefinitions(join(root, VARIABLE_DEFINITION_COMPILED_DIR, item.artifactFileName), {
+                sha256: item.artifactSha256,
+                bytes: item.artifactBytes,
+            });
             for (const definition of loaded) {
                 if (definition.namespace !== input.namespace) {
                     throw new Error(`${file.fileName} 只能注册 ${input.namespace}.*，实际为 ${definition.namespace}.${definition.key}`);
@@ -209,7 +212,7 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
         const artifactFileName = `${artifactStem}.mjs`;
         const artifactPath = join(compiledDir, artifactFileName);
         const artifactHash = await hashFile(temporaryOutputPath);
-        const definitions = await importDefinitions(temporaryOutputPath, artifactHash.sha256);
+        const definitions = await importDefinitions(temporaryOutputPath, artifactHash);
         const typeFileName = `${artifactStem}.${VARIABLE_TYPES_FILE_NAME}`;
         const typePath = join(compiledDir, typeFileName);
         const generatedTypes = generateVariableTypes(definitions, {
@@ -240,8 +243,12 @@ async function compileDefinitionFile(root: string, compiledDir: string, file: De
     }
 }
 
-async function importDefinitions(artifactPath: string, artifactHash: string): Promise<VariableDefinition[]> {
-    const mod = await import(`${pathToFileURL(artifactPath).href}?definition=${artifactHash}`) as {default?: unknown; definitions?: unknown};
+async function importDefinitions(artifactPath: string, artifactHash: {sha256: string; bytes: number}): Promise<VariableDefinition[]> {
+    const mod = await importRuntimeArtifact<{default?: unknown; definitions?: unknown}>(artifactPath, {
+        cacheKey: artifactHash.sha256,
+        cacheNamespace: "variable-definition",
+        expectedBytes: artifactHash.bytes,
+    });
     const value = mod.definitions ?? mod.default;
     if (!Array.isArray(value) || !value.every(isVariableDefinition)) {
         throw new Error(`compiled variable definition 没有导出 VariableDefinition[]：${artifactPath}`);

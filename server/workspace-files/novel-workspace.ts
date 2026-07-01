@@ -67,6 +67,9 @@ const DELETED_MANAGED_SYSTEM_ASSET_PATHS = new Set([
 ]);
 const DELETED_MANAGED_SYSTEM_ASSET_PREFIXES = [
     "agent/skills/anti-ai-slop/",
+    "agent/skills/llmlint/.git/",
+    "agent/skills/llmlint/node_modules/",
+    "agent/skills/llmlint/evals/",
     "agent/skills/llmlint/presets/",
     "agent/skills/llmlint/rulesets/builtin/anti-ai-slop/",
     "agent/skills/llmlint/rulesets/builtin/cn/",
@@ -94,6 +97,9 @@ export function setUserAssetsProfileArtifactStagedHookForTest(hook: ((fileName: 
     userAssetsProfileArtifactStagedHookForTest = hook;
 }
 const HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PREFIXES = [
+    "agent/skills/llmlint/.git/",
+    "agent/skills/llmlint/node_modules/",
+    "agent/skills/llmlint/evals/",
     "agent/skills/llmlint/presets/",
     "agent/skills/llmlint/rulesets/builtin/anti-ai-slop/",
     "agent/skills/llmlint/rulesets/builtin/cn/",
@@ -102,6 +108,9 @@ const HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PREFIXES = [
     "agent/skills/llmlint/rulesets/builtin/cn-strong/",
     "agent/skills/llmlint/rulesets/builtin/cn-extreme/",
 ];
+const HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PATHS = new Set([
+    "agent/skills/llmlint/.gitignore",
+]);
 const STALE_MANAGED_SYSTEM_ASSET_PREFIXES = [
     "agent/skills/llmlint/rulesets/builtin/default/rules/",
 ];
@@ -617,6 +626,28 @@ async function removeStaleManagedSystemAssets(
  */
 async function removeHardCutDeletedManagedSystemAssetPrefixes(syncState: UserSystemAssetsSyncState, result: UserAssetsSyncResult, preservedDeletedAssetPaths: Set<string>): Promise<boolean> {
     let changed = false;
+    for (const assetPath of HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PATHS) {
+        const userPath = resolveInsideRoot(userNbookAbsoluteRoot(), assetPath);
+        if (!await pathExists(userPath)) {
+            continue;
+        }
+        const stateItem = syncState.assets?.find((item) => item.assetPath === assetPath);
+        if (stateItem) {
+            const currentUserHash = (await sha256File(userPath)).sha256;
+            if (currentUserHash !== stateItem.lastSyncedUserHash) {
+                if (!preservedDeletedAssetPaths.has(assetPath)) {
+                    result.assetWarnings?.push({
+                        assetPath,
+                        message: "系统 .nbook asset 已硬切删除，但用户覆盖已手改，未自动删除。",
+                    });
+                }
+                continue;
+            }
+            removeUserAssetSyncState(syncState, assetPath);
+        }
+        await fs.rm(userPath, {force: true});
+        changed = true;
+    }
     for (const assetPrefix of HARD_CUT_DELETED_MANAGED_SYSTEM_ASSET_PREFIXES) {
         const userPrefixPath = resolveInsideRoot(userNbookAbsoluteRoot(), assetPrefix);
         if (!await pathExists(userPrefixPath)) {
@@ -1018,7 +1049,9 @@ function isManagedAssetBlacklisted(assetPath: string): boolean {
         || normalized.startsWith("agent/sessions/")
         || (normalized.startsWith("agent/profiles/") && !normalized.startsWith("agent/profiles/builtin/writer.home/"))
         || normalized === "agent/variables/definitions.ts"
-        // llmlint 评测 harness 只在本地运行，不随系统 assets 同步到用户 workspace
+        // llmlint 独立仓开发资产不随系统 assets 同步到用户 workspace。
+        || normalized.startsWith("agent/skills/llmlint/.git/")
+        || normalized.startsWith("agent/skills/llmlint/node_modules/")
         || normalized.startsWith("agent/skills/llmlint/evals/")
         || parts.includes(".compiled");
 }
@@ -1514,4 +1547,3 @@ async function isDirectory(directoryPath: string): Promise<boolean> {
         throw error;
     }
 }
-

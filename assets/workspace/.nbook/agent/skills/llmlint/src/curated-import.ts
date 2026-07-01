@@ -331,7 +331,7 @@ function toRuleRecord(draft: CuratedRuleDraft): LintRuleRecord {
         note: draft.note,
         source: {
             canonicalKey: draft.canonicalKey,
-            importedFrom: ".agent/workspace/llmlint_rules",
+            importedFrom: "curated-cn-rule-samples",
         },
         detector: draft.detector,
         action: {

@@ -8,7 +8,7 @@
     "note": "中文间破折号变逗号",
     "source": {
       "canonicalKey": "punctuation.dash-ellipsis-proliferation\t\t(?<=[\\u4e00-\\u9fff])—+(?=[\\u4e00-\\u9fff])",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -32,7 +32,7 @@
     "note": "形式：——+对话引号",
     "source": {
       "canonicalKey": "punctuation.dash-ellipsis-proliferation\t\t—+(?=[”」])|(?<=[\\u4e00-\\u9fff])—+(?=\")",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -56,7 +56,7 @@
     "note": "段首或单独成段的情况",
     "source": {
       "canonicalKey": "punctuation.dash-ellipsis-proliferation\t\t^[—…]+|(?<=\\n)\\n*^[—…]+$\\n",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -80,7 +80,7 @@
     "note": "段尾处破折号连接下段",
     "source": {
       "canonicalKey": "punctuation.dash-ellipsis-proliferation\t\t(?<=[\\u4e00-\\u9fff])—+\\n+(?:—+)?(?=[\\u4e00-\\u9fff])",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -104,7 +104,7 @@
     "note": "形式：—…与其他符号相邻",
     "source": {
       "canonicalKey": "punctuation.dash-ellipsis-proliferation\t\t[—…]+(?=[,，。!！?？])|(?<=[,，。!！?？])[—…]+",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -128,7 +128,7 @@
     "note": "形式：对话引号+——或……",
     "source": {
       "canonicalKey": "punctuation.dash-ellipsis-proliferation\t\t(?<=[“”「」])[—…]+|(?<=\")[—…]+(?=[\\u4e00-\\u9fff])",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

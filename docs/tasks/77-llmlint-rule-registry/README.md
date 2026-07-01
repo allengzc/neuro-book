@@ -4,7 +4,7 @@
 
 围绕 `llmlint` 的下一阶段规则系统设计：从当前 `static-rules.json` / `llm-rules.json` / `category-suggestions.json` 的分裂结构，升级为可融合多来源规则包的扁平化 Rule Registry。
 
-用户提供了 `.agent/workspace/llmlint_rules/` 作为真实规则样本，包含 Claude / Gemini / deepseek / 通用 / 轻量等多个规则包。样本呈现出“规则包 -> 分类组 -> subRules”的来源形态，但长期设计应转为一条规则一条记录，便于检索、合并、覆盖和用户安装。
+用户提供了 `旧中文规则样本目录` 作为真实规则样本，包含 Claude / Gemini / deepseek / 通用 / 轻量等多个规则包。样本呈现出“规则包 -> 分类组 -> subRules”的来源形态，但长期设计应转为一条规则一条记录，便于检索、合并、覆盖和用户安装。
 
 ## Goal
 
@@ -192,13 +192,13 @@ export default {
 
 - 实现前 `llmlint` 的 `presets` / `customRules.static` / `customRules.llm` 是过渡结构；本任务已迁移到 `rulesets` + flat rule records。
 - 现有 `static-rules.json` 与 `llm-rules.json` 可迁移为同一 `rules.jsonl` 或 `rules.json`。
-- 现有 `.agent/workspace/llmlint_rules` 中的 `text` / `simple` / `regex` 三类来源格式，应先归一化为标准 regex；registry 内不保留 `simple` mode。
+- 现有 `旧中文规则样本目录` 中的 `text` / `simple` / `regex` 三类来源格式，应先归一化为标准 regex；registry 内不保留 `simple` mode。
 - 样本规则中 `simple` 数量较多，导入器必须负责把花括号候选表达式转换为标准 regex；转换失败时不能静默丢弃，必须产生 diagnostics。
 - 样本规则中存在 `/.../g` 形式的 JavaScript regex literal，导入器需要解析为 `pattern + flags`；scanner 也需要支持 rule detector 自带 flags，而不是固定追加 `g`。
 - 样本规则中存在 `enabled: false` 的组和“可选”组，导入时应保留为规则默认 enabled 状态或 ruleset profile metadata，不能默认全部启用。
 - 样本规则中 `replacements: []` 表示删除，迁移为 `action: {type: "replace", replacements: [""]}`；多个 replacements 表示多个候选替换。
 - 现有 `category-suggestions.json` 不作为独立文件继续扩展；其中有价值的建议迁移到具体 rule 的 `action` / `note` / `examples`。
-- handler rule 是新能力，不从现有 `.agent/workspace/llmlint_rules` 样本直接推导；它服务于未来复杂规则扩展。
+- handler rule 是新能力，不从现有 `旧中文规则样本目录` 样本直接推导；它服务于未来复杂规则扩展。
 - 第一版迁移不实现 handler 执行，避免在 rule registry 迁移时引入沙盒与信任边界风险。
 
 ## Code Feasibility Audit
@@ -276,7 +276,7 @@ export default {
 - `src/rules.ts` 实现 ruleset loader、namespace alias、同 id override diagnostics、ruleset / namespace / rule 覆盖优先级和 registry summary。
 - `src/scanner.ts` 改为扫描 `regex` detector，支持多个 targets 和 detector flags。
 - `src/reporter.ts` 在 stylish / JSON 中输出 ruleset、namespace、registry summary 和 diagnostics。
-- `.agent/workspace/llmlint_rules` 仅作为内置默认规则集的策展素材，不提供公开单文件导入入口。
+- `旧中文规则样本目录` 仅作为内置默认规则集的策展素材，不提供公开单文件导入入口。
 - `curated-import` 作为内部模块用于重建官方默认 ruleset，不作为用户 CLI 能力。
 - 默认规则迁移到 `rulesets/builtin/default/ruleset.json` 与 `rules.json`，删除旧 `presets/anti-ai-slop/*.json` 分裂规则文件。
 - `llmlint.config.example.ts`、`SKILL.md`、`references/cli-usage.md`、`references/workflow.md`、`references/patterns.md` 同步到新口径。
@@ -304,8 +304,8 @@ export default {
 
 已完成：
 
-- 新增 `src/curated-import.ts`，用于读取 `.agent/workspace/llmlint_rules/*.json`，并与人工基础规则一起生成官方默认 ruleset。
-- 新增内部 `curated-import` 模块，用于读取 `.agent/workspace/llmlint_rules/*.json` 并重建官方默认 ruleset。
+- 新增 `src/curated-import.ts`，用于读取 `旧中文规则样本目录*.json`，并与人工基础规则一起生成官方默认 ruleset。
+- 新增内部 `curated-import` 模块，用于读取 `旧中文规则样本目录*.json` 并重建官方默认 ruleset。
 - 新增内置 ruleset：`builtin/default`。
 - 默认配置改为只启用 `builtin/default`。
 - `builtin/default` 合并原人工 anti-ai-slop 规则与中文策展规则，默认包含并启用 R18 / 成人词汇规则；用户可用 `namespaces: {"vocabulary.r18": "off"}` 关闭。
@@ -326,7 +326,7 @@ export default {
 
 计划出入：
 
-- 策展素材源文件 `.agent/workspace/llmlint_rules` 保留，不删除。
+- 策展素材源文件 `旧中文规则样本目录` 保留，不删除。
 - 旧单文件导入入口已硬切删除；官方默认规则集生成只保留内部模块路径。
 - 曾短暂实现 `cn-light` / `cn-standard` / `cn-strong` / `cn-extreme` 四档方案；按用户反馈“取其精华合并成一个规则集”收敛为单一 `builtin/cn`，不再暴露四档内置 ruleset。
 - 随后按用户反馈继续把 `builtin/anti-ai-slop` 与 `builtin/cn` 合并为单一 `builtin/default`，不保留两个旧公开入口。
@@ -348,7 +348,7 @@ export default {
 已完成：
 
 - 正式 rule schema 删除旧格式来源数组，`rules.json` 不再携带旧文件、旧组名、旧 mode、原始 target、原始 enabled 等结构。
-- 删除公开单文件导入模块和 CLI 入口；`.agent/workspace/llmlint_rules` 只作为官方默认规则集的策展素材。
+- 删除公开单文件导入模块和 CLI 入口；`旧中文规则样本目录` 只作为官方默认规则集的策展素材。
 - `curated-import` 内部命名改为 source / curated 语义，生成的 `builtin/default` 规则看起来是 llmlint 原生规则。
 - loader 遇到已移除的旧格式来源字段会报错，避免旧结构重新进入规则文件。
 - `SKILL.md`、CLI reference、patterns、Task 51 和 `PROJECT-STATUS.md` 已同步到硬切口径。
@@ -664,7 +664,7 @@ export default {
 
 决策：
 
-- 独立 repo 工作副本放在 `.agent/workspace/llmlint`，仓库名按计划固定为 `llmlint`。
+- 独立 repo 工作副本放在 `早期 scratch llmlint 工作副本`，仓库名按计划固定为 `llmlint`。
 - 第一版不做 npm、Homebrew、Docker、VS Code/Cursor 扩展；`package.json.private` 保持 `true`，`bin.llmlint` 保留给本地 link 或未来改 npm 使用。
 - 许可证使用 PolyForm Noncommercial 1.0.0。
 - 版本源为 `package.json.version`；`SKILL.md metadata.version` 和 `src/version.ts` 必须同步，当前均为 `2.0.0`。
@@ -672,7 +672,7 @@ export default {
 
 已完成：
 
-- `.agent/workspace/llmlint` 已初始化为独立 git 工作副本，并保留 `SKILL.md`、`references/`、`rulesets/`、`src/`、`bin/`、`llmlint.config.example.ts`。
+- `早期 scratch llmlint 工作副本` 已初始化为独立 git 工作副本，并保留 `SKILL.md`、`references/`、`rulesets/`、`src/`、`bin/`、`llmlint.config.example.ts`。
 - 独立 repo 新增 `README.md`、`CHANGELOG.md`、`CONTRIBUTING.md`、`AGENTS.md`、`LICENSE`、`tsconfig.json`、`scripts/verify-release.ts`、`tests/llmlint.test.ts`、`.gitignore`、`.gitattributes` 和 `bun.lock`。
 - 独立 repo 与 bundled source 的默认规则资产已对齐为 61 个规则文件、340 rules / 311 active；`rules/vocabulary/r18.json` 仍为 20 条 `vocabulary.r18`，mechanical 规则文件也纳入发布校验。
 - neuro-book `workspace-files` 集成测试已从旧包名 `@neuro-book/llmlint-skill` 更新为断言 `name/version/license`，包名硬切为 `llmlint`。
@@ -696,7 +696,7 @@ export default {
 
 审查发现：
 
-- `.agent/workspace/llmlint` 曾在早期 `git add` 后继续更新，git index 处于半旧状态，`bun.lock` 和 `rules/mechanical/*.json` 仍未追踪；如果直接提交会漏发布文件。
+- `早期 scratch llmlint 工作副本` 曾在早期 `git add` 后继续更新，git index 处于半旧状态，`bun.lock` 和 `rules/mechanical/*.json` 仍未追踪；如果直接提交会漏发布文件。
 - 真实 `workspace/.nbook/agent/skills/llmlint/package.json` 还未同步 bundled snapshot 的 `repository` 字段。
 
 已修复：
@@ -732,7 +732,7 @@ export default {
 计划出入：
 
 - 原计划 glob 用 `Bun.Glob`；实测仓库未装 bun-types（`Bun` 全局无类型，测试传递性 typecheck 会报错），且 bash globstar 默认关、`@types/node` 的 `globSync` 不可靠。改为强类型零依赖的 `node:fs` 目录递归（`readdirSync recursive`）+ 显式多文件，覆盖「扫整部稿件」的真实需求，不留类型债；代价是不支持裸 `*.md` glob 模式（用目录递归或 shell 展开替代）。
-- 标准 GitHub 发布仓库 `.agent/workspace/llmlint` 本轮未同步、未 republish；属独立发布动作，留作后续。
+- 标准 GitHub 发布仓库 `早期 scratch llmlint 工作副本` 本轮未同步、未 republish；属独立发布动作，留作后续。
 
 ### 2026-06-30 CLI 体验打磨：tinyglobby glob + picocolors 彩色 + 依赖自包含
 
@@ -759,7 +759,7 @@ export default {
 
 - glob 选型在用户决策下从上一轮的 `node:fs` 目录递归升级为 tinyglobby，获得真 glob 模式；目录分支改为「以目录自身为 cwd」glob，修掉绝对路径在 tinyglobby 下不匹配的回归。
 - ripgrep 经评估不采用：外部二进制、项目未捆进产品、依赖 PATH，与「JS 依赖装 skill 目录」模型不符。
-- 独立发布仓库 `.agent/workspace/llmlint` 的依赖与 republish 仍留作后续。
+- 独立发布仓库 `早期 scratch llmlint 工作副本` 的依赖与 republish 仍留作后续。
 
 ### 2026-07-01 文档/运行时收口 + 整体审查：skills CLI 安装、Node+tsx 运行时、发布模型澄清
 
@@ -770,7 +770,7 @@ export default {
 - **安装推荐**：README / README.en / SKILL 增「`npx skills add notnotype/llmlint`」（vercel-labs `skills` CLI，skills.sh）作为首选；Agent Skill 段补「装好后在 skill 目录跑一次 `npm install` / `bun install` / `pnpm install`」。
 - **运行时澄清（关键纠错）**：实测裸 `node bin/llmlint.ts`（含 `--experimental-strip-types`）失败 —— 源码 40 处无扩展名 TS 相对导入，Node 自带类型剥离不补 `.ts`，报 `ERR_MODULE_NOT_FOUND`。真相是 **Bun（原生）或 Node + `tsx`（`npx tsx …`）**，裸 node 不行。修正 README / README.en / SKILL / cli-usage 之前「node 直接运行」的过度声称。让裸 node 跑需给 40 处导入加 `.ts` + `allowImportingTsExtensions`，牵动全仓 typecheck，代价大收益小（tsx 即 node），不做。
 - **审查修复的遗漏**：(a) cli-usage.md「fixability 预留给未来 `--fix`」与「FAQ：第一版不支持自动修复」均与已落地的 `fix` 命令矛盾 → 改为指向 `fix`；(b) `src/types.ts` Fixability 注释同样「预留未来」→ 更新为 fix 已落地；(c) `package.json` description「Bun CLI」→ 运行时中性；(d) README.en 整体落后（Runtime 仅 Bun、无 skills CLI、无 npm install）→ 镜像中文 README。
-- **发布模型澄清**：独立发布从早期「`.agent/workspace/llmlint` 骨架」演进为「就地嵌套 git」—— `assets/workspace/.nbook/agent/skills/llmlint` 自身即嵌套 git 仓（remote `github.com/notnotype/llmlint`），同目录既是 vendored snapshot 又是发布源。`.agent/workspace/llmlint` 是无 remote 的废弃 scratch 克隆。
+- **发布模型澄清（历史，已被 Task 84 取代）**：本轮曾把独立发布源临时收口到 `assets/workspace/.nbook/agent/skills/llmlint`。2026-07-01 后当前模型已改为 sibling `../llmlint` 开发仓 + NeuroBook vendored snapshot；不要再把 assets 目录当发布源。
 
 变更文件：README.md / README.en.md / SKILL.md / references/cli-usage.md（运行时 + skills CLI + fix 文案）、`src/types.ts`（注释）、`package.json`（description）；PROJECT-STATUS Task 51 行发布位置纠正。
 
@@ -784,10 +784,27 @@ export default {
 计划出入 / 留作用户决定：
 
 - 嵌套发布仓（`assets/.../llmlint`）现有本轮未提交的文档修正；commit + push 到 notnotype/llmlint 留作用户手动。
-- 废弃 scratch 克隆 `.agent/workspace/llmlint`（无 remote）建议删除或确认保留，未擅自删除。
+- 废弃 scratch 克隆 `早期 scratch llmlint 工作副本`（无 remote）建议删除或确认保留，未擅自删除。
+
+### 2026-07-01 独立开发仓硬切：sibling source + skill snapshot
+
+需求：llmlint 复杂度继续上升（评测、未来 web），不再让 NeuroBook assets 目录同时承担发布源和 runtime snapshot。用户明确决定：独立仓根是开发仓，真正的 skill 是其中一个目录；`evals/` 可以进入 git。
+
+已完成：
+
+- 新真相源切到 sibling `../llmlint`；仓库根承载开发 `package.json`、`tests/`、`evals/`，可安装 runtime package 固定在 `skill/`。
+- NeuroBook `assets/workspace/.nbook/agent/skills/llmlint/` 只保留从 `../llmlint/skill` 镜像来的 vendored snapshot；旧嵌套 `.git`、`node_modules`、`evals` 和 `.gitignore` 均已移除。
+- 新增 `scripts/cli/sync-llmlint-skill.ts`，从 sibling `skill/` 同步到 bundled snapshot；user-assets 同步硬切清理真实 runtime 副本中的旧开发目录。
+- `evals/` 进入 sibling llmlint 仓 git，作为评测 harness / fixture / 语料 / 基线报告开发资产；不属于 `skill/`，也不随 NeuroBook user-assets 同步。
+
+计划出入：
+
+- 旧 `旧中文规则样本目录` 已不存在；独立仓测试改用最小 fixture 覆盖 curated import 行为，不再依赖历史 scratch 目录。
+- “skill 依赖自包含并同步 node_modules 到部署副本”的上一轮策略已被硬切：runtime 依赖由 package 声明，NeuroBook 内置运行时从仓库根 `node_modules` 解析，`node_modules` 不再同步进 user-assets。
 
 ## References
 
-- 当前 llmlint skill：`assets/workspace/.nbook/agent/skills/llmlint/`
+- 当前 llmlint source：`../llmlint/`
+- 当前 llmlint skill package：`../llmlint/skill/`
+- NeuroBook bundled snapshot：`assets/workspace/.nbook/agent/skills/llmlint/`
 - 当前历史任务：[51 anti-ai-slop / llmlint skill](../51-anti-ai-slop-skill/README.md)
-- 用户规则样本：`.agent/workspace/llmlint_rules/`

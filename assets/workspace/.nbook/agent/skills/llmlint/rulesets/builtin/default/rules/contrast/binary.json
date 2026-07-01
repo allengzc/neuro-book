@@ -41,7 +41,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "contrast.binary\t\t(?:，|。)\\*(?:既不是|是|不是)\\*，(?:是|不是|而是|只是)\\*，",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -64,7 +64,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "contrast.binary\t\t(?:，|。)\\*(?:既不是|是|不是)\\*，(?:是|不是|而是|只是)\\*。",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

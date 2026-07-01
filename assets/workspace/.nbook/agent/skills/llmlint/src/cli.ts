@@ -36,6 +36,8 @@ const LEVEL_RANK: Record<RuleLevel, number> = {
  * llmlint 命令行入口。CLI 只做参数解析和错误出口，规则行为由模块提供。
  */
 export async function runCli(argv: string[]): Promise<void> {
+    // runCli 可被测试或宿主进程多次调用；每轮都应独立计算退出码。
+    process.exitCode = 0;
     const program = new Command();
 
     program

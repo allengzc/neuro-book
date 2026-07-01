@@ -8,7 +8,7 @@
     "note": "删中文间的连字符",
     "source": {
       "canonicalKey": "proliferation.mixed\t\t(?<=[\\u4e00-\\u9fff])[\\u0020\\-]*-[\\u0020\\-]*(?=[\\u4e00-\\u9fff])",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -32,7 +32,7 @@
     "note": "删中文连字符",
     "source": {
       "canonicalKey": "proliferation.mixed\t\t(?<!\\s|^)-(?=[\\u4e00-\\u9fff])|(?<=[\\u4e00-\\u9fff])-",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -56,7 +56,7 @@
     "note": "删增殖标点",
     "source": {
       "canonicalKey": "proliferation.mixed\t\t(?<=(?:^|[、。,，…~～])[\\u4e00-\\u9fff]{1,4})(?:[、，,。~～]|…{1,2}(?!…))(?=[\\u4e00-\\u9fff])",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -80,7 +80,7 @@
     "note": "短段落并入下一段",
     "source": {
       "canonicalKey": "proliferation.mixed\t\t(?<=^[\\u4e00-\\u9fff,，。.、!！?？~～…\\da-zA-Z]{1,30}$)\\n\\n*(?=[\\u4e00-\\u9fff])",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -104,7 +104,7 @@
     "note": "AA的、BB的、CC的→AA的",
     "source": {
       "canonicalKey": "proliferation.mixed\t\t(?<=的)(?:、[\\u4e00-\\u9fff]{1,6}的)+|(?<=地)(?:、[\\u4e00-\\u9fff]{1,6}地)+",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -128,7 +128,7 @@
     "note": "连续相同符号去重",
     "source": {
       "canonicalKey": "proliferation.mixed\t\t([,，。~～!！?？])\\1+|(?<=……)…+|(?<=——)—+",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
@@ -152,7 +152,7 @@
     "note": "处理多种符号增殖",
     "source": {
       "canonicalKey": "proliferation.mixed\t\t(?<=(?:^|[、。,，…~～])[\\u4e00-\\u9fff]{1,4})(?:[、。,，~～]|…{1,2}(?!…))(?=[\\u4e00-\\u9fff])",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",

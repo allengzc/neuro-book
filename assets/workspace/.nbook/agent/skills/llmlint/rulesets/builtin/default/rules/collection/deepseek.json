@@ -7,7 +7,7 @@
     "enabled": true,
     "source": {
       "canonicalKey": "collection.deepseek\t\t拆解",
-      "importedFrom": ".agent/workspace/llmlint_rules"
+      "importedFrom": "curated-cn-rule-samples"
     },
     "detector": {
       "type": "regex",
