@@ -1,6 +1,6 @@
 # Release Notes
 
-## 0.5.4-canary - 2026-07-03
+## 0.5.6-canary - 2026-07-03
 
 这次修复 GHCR 部署和管理员创建链路，重点是让安装器、镜像版本和 Product Runtime 合同重新对齐。
 
