@@ -71,6 +71,7 @@ export type ModelProviderOptionsConfig = {
 
 export type ConfiguredProviderConfig = {
     name: string;
+    enabled: boolean;
     api: string | null;
     options: ModelProviderOptionsConfig;
     models: Record<string, ConfiguredModelConfig>;

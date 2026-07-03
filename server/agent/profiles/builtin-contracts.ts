@@ -178,13 +178,14 @@ export const InlineEditorInitialSchema = Type.Object({}, {
 export const InlineEditorPayloadSchema = Type.Object({
     version: Type.Literal(1),
     task: Type.Union([
+        Type.Literal("chat"),
         Type.Literal("rewrite"),
         Type.Literal("polish"),
         Type.Literal("expand"),
         Type.Literal("condense"),
         Type.Literal("continue_after"),
         Type.Literal("bridge"),
-    ], {description: "Inline AI 编辑任务类型。continue_after 在 UI 中显示为续写。"}),
+    ], {description: "Inline AI 编辑任务类型。chat 在 UI 中显示为对话，但仍允许根据上下文编辑文件。continue_after 在 UI 中显示为续写。"}),
     targetPath: Type.String({minLength: 1, description: "本轮主要修改目标文件路径，必须使用 Workspace Root cwd-relative Project 路径，如 project-slug/manuscript/001/index.md。Agent cwd 是 workspace/，必须包含 project slug 前缀。"}),
     instruction: Type.String({description: "用户输入的自然语言编辑要求。可以为空，表示按 task 默认语义处理。"}),
     references: Type.Array(Type.Object({
@@ -218,19 +219,12 @@ export const WriterPayloadSchema = Type.Object({
         minLength: 1,
         description: "本轮写入或修改的目标 Markdown 文件路径，必须是 Workspace Root cwd-relative Project 路径，例如 project-slug/manuscript/001-volume/001-chapter/index.md。writer 只能写这个路径。",
     }),
+    // 自主模式:leader 传本章 StoryChapter id,writer 自行 get_chapter_writer_brief 取 brief。
+    chapterId: Type.Optional(Type.String({
+        minLength: 1,
+        description: "本章对应的 StoryChapter id。autonomous 模式下 writer 可用它调 get_chapter_writer_brief 自取章节 brief;缺省时以 message 中的 brief 为准。",
+    })),
     context: Type.Optional(Type.Object({
-        threadIds: Type.Optional(Type.Array(Type.String({
-            minLength: 1,
-            description: "Legacy Plot 兼容字段。普通写作模式 writer 会忽略；请改用 message 中完整的 Scene / World Context brief、World Engine 查询提示、lorebookEntries 或 readablePaths。",
-        }))),
-        sceneIds: Type.Optional(Type.Array(Type.String({
-            minLength: 1,
-            description: "Legacy Plot 兼容字段。普通写作模式 writer 会忽略；请改用 message 中完整的 Scene / World Context brief、World Engine 查询提示、lorebookEntries 或 readablePaths。",
-        }))),
-        plotIds: Type.Optional(Type.Array(Type.String({
-            minLength: 1,
-            description: "Legacy Plot 兼容字段。普通写作模式 writer 会忽略；请改用 message 中完整的 Scene / World Context brief、World Engine 查询提示、lorebookEntries 或 readablePaths。",
-        }))),
         lorebookEntries: Type.Optional(Type.Array(Type.String({
             minLength: 1,
             description: "建议 writer 按需读取的内容节点路径，可是 Project 内目录或 .md 文件。",

@@ -2589,6 +2589,239 @@ describe("NeuroAgentHarness", () => {
         });
     });
 
+    it("创建 session 时绑定当前解析出的具体模型", async () => {
+        const defaultModel = {
+            ...faux.getModel(),
+            id: "session-default-model",
+            name: "Session Default Model",
+            provider: "session-provider",
+            providerConfigId: "session-provider",
+        };
+        harness = new NeuroAgentHarness({
+            repo: harness.repo,
+            profiles: harness.profiles,
+            modelResolver: () => defaultModel,
+            enableSessionSummarizer: false,
+        });
+
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+        expect(snapshot.model).toEqual(expect.objectContaining({
+            id: "session-default-model",
+            providerConfigId: "session-provider",
+        }));
+        expect(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).model).toEqual(expect.objectContaining({
+            id: "session-default-model",
+            providerConfigId: "session-provider",
+        }));
+    });
+
+    it("model command 的 null 会绑定当前 profile/default 解析出的具体模型", async () => {
+        const defaultModel = {
+            ...faux.getModel(),
+            id: "default-command-model",
+            name: "Default Command Model",
+            provider: "default-provider",
+            providerConfigId: "default-provider",
+        };
+        const explicitModel = {
+            ...faux.getModel(),
+            id: "explicit-command-model",
+            name: "Explicit Command Model",
+            provider: "explicit-provider",
+            providerConfigId: "explicit-provider",
+        };
+        harness = new NeuroAgentHarness({
+            repo: harness.repo,
+            profiles: harness.profiles,
+            modelResolver: (_config, _profileKey, override) => override?.modelKey ? explicitModel : defaultModel,
+            enableSessionSummarizer: false,
+        });
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        await harness.runCommand(created.sessionId, {
+            command: "model",
+            modelKey: "explicit-provider/explicit-command-model",
+        });
+        expect(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).model).toEqual(expect.objectContaining({
+            id: "explicit-command-model",
+        }));
+
+        await harness.runCommand(created.sessionId, {
+            command: "model",
+            modelKey: null,
+        });
+
+        expect((await harness.getSessionSnapshot(created.sessionId)).model).toEqual(expect.objectContaining({
+            id: "default-command-model",
+            providerConfigId: "default-provider",
+        }));
+        expect(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).model).toEqual(expect.objectContaining({
+            id: "default-command-model",
+            providerConfigId: "default-provider",
+        }));
+    });
+
+    it("已删除的 session 模型在 snapshot 显示和下一次 run 前回落到当前默认模型", async () => {
+        await mkdir(join(root, ".nbook"), {recursive: true});
+        await writeFile(join(root, ".nbook", "config.json"), JSON.stringify({
+            models: {
+                default: "default-provider/default-model",
+                providers: [{
+                    id: "default-provider",
+                    name: "Default Provider",
+                    api: null,
+                    options: {
+                        apiKey: "",
+                        baseURL: "",
+                        proxy: "",
+                        timeoutMs: null,
+                        requestOptions: {},
+                    },
+                    models: [{
+                        id: "default-model",
+                        name: "Default Model",
+                        group: null,
+                        enabled: true,
+                        contextWindowTokens: 128000,
+                    }],
+                }],
+            },
+        }, null, 4), "utf8");
+        const defaultModel = {
+            ...faux.getModel(),
+            id: "default-model",
+            name: "Default Model",
+            provider: "default-provider",
+            providerConfigId: "default-provider",
+        };
+        const deletedModel = {
+            ...faux.getModel(),
+            id: "deleted-model",
+            name: "Deleted Model",
+            provider: "deleted-provider",
+            providerConfigId: "deleted-provider",
+        };
+        harness = new NeuroAgentHarness({
+            repo: harness.repo,
+            profiles: harness.profiles,
+            modelResolver: (_config, _profileKey, override) => override?.modelKey ? deletedModel : defaultModel,
+            enableSessionSummarizer: false,
+        });
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        await harness.runCommand(created.sessionId, {
+            command: "model",
+            modelKey: "deleted-provider/deleted-model",
+        });
+        expect(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).model).toEqual(expect.objectContaining({
+            id: "deleted-model",
+        }));
+
+        expect((await harness.getSessionSnapshot(created.sessionId)).model).toEqual(expect.objectContaining({
+            id: "default-model",
+            providerConfigId: "default-provider",
+        }));
+
+        faux.setResponses([fauxAssistantMessage("done")]);
+        await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run with reconciled model"},
+        });
+
+        expect(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).model).toEqual(expect.objectContaining({
+            id: "default-model",
+            providerConfigId: "default-provider",
+        }));
+    });
+
+    it("没有可用默认模型时新 session 保持空模型并在运行时报配置错误", async () => {
+        harness = new NeuroAgentHarness({
+            repo: harness.repo,
+            profiles: harness.profiles,
+            modelResolver: () => {
+                throw new Error("配置未设置 models.default");
+            },
+            enableSessionSummarizer: false,
+        });
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+
+        expect((await harness.getSessionSnapshot(created.sessionId)).model).toBeNull();
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run without model"},
+        });
+
+        expect(result.status).toBe("error");
+        expect(result.errorInfo?.message).toContain("配置未设置 models.default");
+    });
+
+    it("没有可用默认模型时不会把历史 session 模型写成空模型", async () => {
+        const deletedModel = {
+            ...faux.getModel(),
+            id: "deleted-model",
+            name: "Deleted Model",
+            provider: "deleted-provider",
+            providerConfigId: "deleted-provider",
+        };
+        harness = new NeuroAgentHarness({
+            repo: harness.repo,
+            profiles: harness.profiles,
+            modelResolver: (_config, _profileKey, override) => {
+                if (override?.modelKey) {
+                    return deletedModel;
+                }
+                throw new Error("配置未设置 models.default");
+            },
+            enableSessionSummarizer: false,
+        });
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+        await harness.runCommand(created.sessionId, {
+            command: "model",
+            modelKey: "deleted-provider/deleted-model",
+        });
+
+        await expect(harness.runCommand(created.sessionId, {
+            command: "model",
+            modelKey: null,
+        })).rejects.toThrow("配置未设置 models.default");
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "run without default"},
+        });
+
+        expect(result.status).toBe("error");
+        expect(result.errorInfo?.message).toContain("配置未设置 models.default");
+        expect(harness.repo.reduce(await harness.repo.readSession(created.sessionId)).model).toEqual(expect.objectContaining({
+            id: "deleted-model",
+            providerConfigId: "deleted-provider",
+        }));
+        expect((await harness.getSessionSnapshot(created.sessionId)).model).toBeNull();
+    });
+
     it("profile runtime hook 可以写 session、保存运行态并 patch 每轮 TurnSnapshot", async () => {
         const observedRequestOptions: unknown[] = [];
         const observedToolNames: string[][] = [];
@@ -8226,6 +8459,10 @@ describe("NeuroAgentHarness", () => {
             mode: "prompt",
             message: {text: "start"},
         });
+        await waitFor(async () => {
+            const snapshot = await harness.getSessionSnapshot(created.sessionId);
+            expect(snapshot.activeInvocation).not.toBeNull();
+        });
         await harness.invokeAgent({
             sessionId: created.sessionId,
             mode: "steer",
@@ -8479,6 +8716,10 @@ describe("NeuroAgentHarness", () => {
                     lateSteerError = error instanceof Error ? error.message : String(error);
                 }
             },
+        });
+        await waitFor(async () => {
+            const snapshot = await harness.getSessionSnapshot(created.sessionId);
+            expect(snapshot.activeInvocation).not.toBeNull();
         });
         await harness.invokeAgent({
             sessionId: created.sessionId,

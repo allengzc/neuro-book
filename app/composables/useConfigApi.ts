@@ -115,11 +115,13 @@ export function useConfigApi() {
         global: GlobalConfigDto,
         query: ConfigWorkspaceQueryDto = currentQuery(),
     ): Promise<ConfigEditorSnapshotDto> {
-        return $fetch<ConfigEditorSnapshotDto>("/api/config/global", {
+        const snapshot = await $fetch<ConfigEditorSnapshotDto>("/api/config/global", {
             method: "PUT",
             query,
             body: global,
         });
+        novelIdeStore.bumpConfigRevision();
+        return snapshot;
     }
 
     /**
@@ -129,11 +131,13 @@ export function useConfigApi() {
         project: ProjectConfigDto,
         query: ConfigWorkspaceQueryDto = projectQuery(),
     ): Promise<ConfigEditorSnapshotDto> {
-        return $fetch<ConfigEditorSnapshotDto>("/api/config/project", {
+        const snapshot = await $fetch<ConfigEditorSnapshotDto>("/api/config/project", {
             method: "PUT",
             query,
             body: project,
         });
+        novelIdeStore.bumpConfigRevision();
+        return snapshot;
     }
 
     /**
@@ -143,11 +147,13 @@ export function useConfigApi() {
         profileKey: string,
         query: ConfigWorkspaceQueryDto = projectQuery(),
     ): Promise<ConfigEditorSnapshotDto> {
-        return $fetch<ConfigEditorSnapshotDto>("/api/config/profile-home/reset", {
+        const snapshot = await $fetch<ConfigEditorSnapshotDto>("/api/config/profile-home/reset", {
             method: "POST",
             query,
             body: {profileKey},
         });
+        novelIdeStore.bumpConfigRevision();
+        return snapshot;
     }
 
     /**

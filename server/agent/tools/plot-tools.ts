@@ -47,8 +47,8 @@ const ThreadPatchSchema = {
 };
 
 const ScenePatchSchema = {
-    threadId: Type.Optional(NonEmptyString("Thread ID. Defaults to plot.selection selected thread when omitted.")),
-    chapterPath: Type.Optional(NullableString("Manuscript chapter content-node path. Null removes manuscript ordering.")),
+    threadId: Type.Optional(NonEmptyString("Thread ID. Defaults to plot.selection selected thread.")),
+    chapterId: Type.Optional(NullableString("StoryChapter ID to attach this scene to. Null removes chapter ordering.")),
     title: Type.Optional(NonEmptyString("Human-readable scene title.")),
     status: Type.Optional(Type.Union([
         Type.Literal("draft"),
@@ -65,15 +65,57 @@ const ScenePatchSchema = {
     refs: Type.Optional(Type.Array(StoryRefSchema)),
 };
 
+// ChapterBrief:章级写作指令。全部可选自由文本;undefined 不修改,null 显式清空。
+const ChapterBriefSchema = Type.Object({
+    goal: Type.Optional(NullableString("Chapter goal / landing point. Null clears it.")),
+    pov: Type.Optional(NullableString("POV, narrative distance and switching constraints. Null clears it.")),
+    tone: Type.Optional(NullableString("Tone / emotional temperature / style constraints. Null clears it.")),
+    pacing: Type.Optional(NullableString("Pacing, suspense and next-chapter pull. Null clears it.")),
+    readerKnows: Type.Optional(NullableString("Info control: what the reader already knows. Null clears it.")),
+    protagonistKnows: Type.Optional(NullableString("Info control: what the protagonist knows. Null clears it.")),
+    mustHide: Type.Optional(NullableString("Info control: facts that must stay hidden this chapter. Null clears it.")),
+    hintOnly: Type.Optional(NullableString("Info control: may be hinted at but never stated. Null clears it.")),
+    opening: Type.Optional(NullableString("Opening hook. Null clears it.")),
+    ending: Type.Optional(NullableString("Chapter landing / closing line. Null clears it.")),
+    doNotWrite: Type.Optional(NullableString("Do-not-write list (secrets, premature reveals). Null clears it.")),
+});
+
+const ActPatchSchema = {
+    name: Type.Optional(NonEmptyString("Machine-friendly act name (lowercase, digits, hyphens).")),
+    title: Type.Optional(NonEmptyString("Human-readable act (volume) title.")),
+    summary: Type.Optional(Type.String()),
+    note: Type.Optional(NullableString("Optional note. Null clears it.")),
+    sortOrder: Type.Optional(Type.Integer({minimum: 0, description: "Act order within the story."})),
+};
+
+const ChapterPatchSchema = {
+    actId: Type.Optional(NullableString("Act ID to group this chapter under. Null moves to ungrouped.")),
+    name: Type.Optional(NonEmptyString("Machine-friendly chapter name. Prose files point back via frontmatter `chapter: <name>`; renaming breaks existing pointers.")),
+    title: Type.Optional(NonEmptyString("Human-readable chapter title.")),
+    note: Type.Optional(NullableString("Optional note. Null clears it.")),
+    sortOrder: Type.Optional(Type.Integer({minimum: 0, description: "Chapter order within the story."})),
+    brief: Type.Optional(ChapterBriefSchema),
+};
+
 const GetPlotTreeSchema = ProjectScopedSchema;
 const GetStoryThreadSchema = Type.Object({...ProjectScopedSchema.properties, threadId: Type.Optional(NonEmptyString("Thread ID. Defaults to plot.selection selected thread."))});
 const GetStorySceneContextSchema = Type.Object({...ProjectScopedSchema.properties, sceneId: Type.Optional(NonEmptyString("Scene ID. Defaults to plot.selection selected scene."))});
-const GetChapterPlotSchema = Type.Object({...ProjectScopedSchema.properties, chapterPath: NonEmptyString("Manuscript chapter path, e.g. manuscript/001-opening/.")});
-const GetChapterWriterBriefSchema = Type.Object({...ProjectScopedSchema.properties, chapterPath: NonEmptyString("Manuscript chapter path, e.g. manuscript/001-opening/.")});
+const GetChapterPlotSchema = Type.Object({...ProjectScopedSchema.properties, chapterId: NonEmptyString("StoryChapter ID. Use get_plot_tree to list chapters.")});
+const GetChapterWriterBriefSchema = Type.Object({
+    ...ProjectScopedSchema.properties,
+    chapterId: NonEmptyString("StoryChapter ID. Use get_plot_tree to list chapters."),
+    mode: Type.Optional(Type.Union([Type.Literal("autonomous"), Type.Literal("curated")], {
+        description: "Anti-omniscience mode. autonomous (default): writer self-queries World Engine/lorebook, brief gives only query hints. curated: writer can't read sources, brief expands filtered state summaries for the leader to feed.",
+    })),
+});
 const CreateStoryThreadSchema = Type.Object({...ProjectScopedSchema.properties, ...ThreadPatchSchema, name: NonEmptyString("Machine-friendly thread name."), title: NonEmptyString("Human-readable thread title.")});
 const UpdateStoryThreadSchema = Type.Object({...ProjectScopedSchema.properties, threadId: Type.Optional(NonEmptyString("Thread ID. Defaults to plot.selection selected thread.")), ...ThreadPatchSchema});
 const CreateStorySceneSchema = Type.Object({...ProjectScopedSchema.properties, ...ScenePatchSchema, title: NonEmptyString("Human-readable scene title.")});
 const UpdateStorySceneSchema = Type.Object({...ProjectScopedSchema.properties, sceneId: Type.Optional(NonEmptyString("Scene ID. Defaults to plot.selection selected scene.")), ...ScenePatchSchema});
+const CreateStoryActSchema = Type.Object({...ProjectScopedSchema.properties, ...ActPatchSchema, name: NonEmptyString("Machine-friendly act name (lowercase, digits, hyphens)."), title: NonEmptyString("Human-readable act (volume) title.")});
+const UpdateStoryActSchema = Type.Object({...ProjectScopedSchema.properties, actId: NonEmptyString("Act ID."), ...ActPatchSchema});
+const CreateStoryChapterSchema = Type.Object({...ProjectScopedSchema.properties, ...ChapterPatchSchema, name: NonEmptyString("Machine-friendly chapter name. Prose files point back via frontmatter `chapter: <name>`."), title: NonEmptyString("Human-readable chapter title.")});
+const UpdateStoryChapterSchema = Type.Object({...ProjectScopedSchema.properties, chapterId: NonEmptyString("StoryChapter ID."), ...ChapterPatchSchema});
 
 type PlotSelection = {
     projectPath?: string;
@@ -113,7 +155,7 @@ export function createPlotTools(): NeuroAgentTool[] {
             const facade = await loadPlotFacade();
             const scene = await facade.getStorySceneDetailDto(input.projectPath, sceneId);
             const thread = await facade.getStoryThreadDetailDto(input.projectPath, parseEntityId("threadId", scene.threadId));
-            const chapterPlot = scene.chapterPath ? await facade.getChapterPlotDetailDto(input.projectPath, scene.chapterPath) : null;
+            const chapterPlot = scene.chapterId ? await facade.getChapterPlotDetailDto(input.projectPath, parseEntityId("chapterId", scene.chapterId)) : null;
             await writeSelection(context, {projectPath: input.projectPath, threadId: scene.threadId, sceneId: String(sceneId)});
             return plotResult({thread, scene, chapterPlot});
         }),
@@ -124,17 +166,37 @@ export function createPlotTools(): NeuroAgentTool[] {
             await writeSelection(context, {projectPath: input.projectPath, sceneId: String(sceneId)});
             return plotResult(result);
         }),
-        tool("get_chapter_plot", "Read scenes attached to a manuscript chapter content-node.", GetChapterPlotSchema, async (_context, input) => {
+        tool("get_chapter_plot", "Read scenes attached to a StoryChapter.", GetChapterPlotSchema, async (_context, input) => {
             const facade = await loadPlotFacade();
-            return plotResult(await facade.getChapterPlotDetailDto(input.projectPath, input.chapterPath));
+            return plotResult(await facade.getChapterPlotDetailDto(input.projectPath, parseEntityId("chapterId", input.chapterId)));
         }),
-        tool("get_chapter_writer_brief", "Compile a chapter writer brief from Plot Scenes and filtered World Engine context. Returns markdown text for writer handoff and full DTO in details.", GetChapterWriterBriefSchema, async (_context, input) => {
+        tool("get_chapter_writer_brief", "Compile a chapter writer brief from ChapterBrief, Plot Scenes and filtered World Engine context. mode=autonomous (default) gives query hints; mode=curated expands state summaries. Returns markdown text for writer handoff and full DTO in details.", GetChapterWriterBriefSchema, async (_context, input) => {
             const facade = await loadPlotFacade();
-            const result = await facade.getChapterWriterBrief(input.projectPath, input.chapterPath);
+            const result = await facade.getChapterWriterBrief(input.projectPath, parseEntityId("chapterId", input.chapterId), input.mode ?? "autonomous");
             return {
                 content: [{type: "text" as const, text: result.suggestedBriefMarkdown}],
                 details: result as JsonValue,
             };
+        }),
+        tool("create_story_act", "Create a story act (volume) in the carrier tree.", CreateStoryActSchema, async (_context, input) => {
+            const facade = await loadPlotFacade();
+            const {projectPath, ...payload} = input;
+            return plotResult(await facade.createStoryAct(projectPath, payload));
+        }),
+        tool("update_story_act", "Update a story act (volume).", UpdateStoryActSchema, async (_context, input) => {
+            const facade = await loadPlotFacade();
+            const {projectPath, actId, ...payload} = input;
+            return plotResult(await facade.updateStoryAct(projectPath, parseEntityId("actId", actId), payload));
+        }),
+        tool("create_story_chapter", "Create a StoryChapter (carrier tree). Prose files link back via frontmatter `chapter: <name>`. ChapterBrief fields (goal, POV, info control, opening/ending, do-not-write) can be set via `brief`.", CreateStoryChapterSchema, async (_context, input) => {
+            const facade = await loadPlotFacade();
+            const {projectPath, ...payload} = input;
+            return plotResult(await facade.createStoryChapter(projectPath, payload));
+        }),
+        tool("update_story_chapter", "Update a StoryChapter, including its ChapterBrief fields via `brief` (undefined keeps, null clears).", UpdateStoryChapterSchema, async (_context, input) => {
+            const facade = await loadPlotFacade();
+            const {projectPath, chapterId, ...payload} = input;
+            return plotResult(await facade.updateStoryChapter(projectPath, parseEntityId("chapterId", chapterId), payload));
         }),
         tool("create_story_thread", "Create a new story thread and return its detail.", CreateStoryThreadSchema, async (context, input) => {
             const facade = await loadPlotFacade();

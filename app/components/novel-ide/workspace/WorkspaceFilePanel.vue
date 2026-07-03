@@ -1,12 +1,19 @@
 <script setup lang="ts">
 import {storeToRefs} from "pinia";
 import ContextMenu, {type ContextMenuItem} from "nbook/app/components/common/ContextMenu.vue";
+import WorkspaceCreateFileDialog, {
+    type WorkspaceCreateKind,
+    type WorkspaceCreatePayload,
+} from "nbook/app/components/novel-ide/workspace/WorkspaceCreateFileDialog.vue";
 import WorkspaceFileTree from "nbook/app/components/novel-ide/workspace/WorkspaceFileTree.vue";
 import WorkspaceFileDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceFileDetailPanel.vue";
 import WorkspaceCharacterDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterDetailPanel.vue";
 import WorkspaceLorebookDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceLorebookDetailPanel.vue";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
+import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
+import {buildDefaultWorkspaceCreatePath} from "nbook/app/utils/workspace-create-path";
+import {buildWorkspacePathCopyText, type WorkspacePathCopyMode} from "nbook/app/utils/workspace-path-copy";
 import {useNovelIdeStore, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import {
     canMovePath,
@@ -21,8 +28,8 @@ import {
 } from "nbook/app/components/novel-ide/workspace/workspace-file-tree";
 
 const store = useNovelIdeStore();
-const {choose, confirm, prompt} = useDialog();
-const {error: notifyError} = useNotification();
+const {confirm, prompt} = useDialog();
+const {error: notifyError, success: notifySuccess} = useNotification();
 const {t} = useI18n();
 const {
     canAccessWorkspace,
@@ -40,6 +47,10 @@ const contextMenuVisible = ref(false);
 const contextMenuX = ref(0);
 const contextMenuY = ref(0);
 const contextMenuItems = ref<ContextMenuItem[]>([]);
+const createDialogVisible = ref(false);
+const createDialogKind = ref<WorkspaceCreateKind>("file");
+const createDialogDefaultPath = ref("");
+const creatingWorkspaceNode = ref(false);
 const WORKSPACE_EXPANDED_PATHS_STORAGE_KEY = "nbook.workspaceFilePanel.expandedPaths";
 const LOREBOOK_ENTRY_TYPES = ["location", "character", "item", "rule", "note"] as const;
 
@@ -98,94 +109,73 @@ async function refreshTree(): Promise<void> {
 }
 
 /**
- * 复制当前文件引用。
+ * 复制当前文件路径或引用。
  */
-async function copyReference(node = selectedFileNode.value): Promise<void> {
-    if (!node || !import.meta.client) {
-        return;
-    }
-    await navigator.clipboard.writeText(buildReferenceTarget(node));
-}
-
-/**
- * 新建文件。
- */
-async function createFile(baseDir = ""): Promise<void> {
+async function copyPathText(node: WorkspaceFileNode, mode: WorkspacePathCopyMode): Promise<void> {
     if (!import.meta.client) {
         return;
     }
-
-    const prefix = baseDir ? `${baseDir.replace(/\/$/, "")}/` : "";
-    const input = await prompt(t("ide.workspace.filePanel.newFilePathPrompt"), `${prefix}new-file.md`);
-    const filePath = typeof input === "string" ? input.trim() : "";
-    if (!filePath) {
-        return;
-    }
-
-    const node = await store.createWorkspaceFile(filePath, "");
-    await store.selectWorkspacePath(node.path);
+    await navigator.clipboard.writeText(buildWorkspacePathCopyText(node, mode));
 }
 
 /**
- * 通过通用文件接口创建一个带 lorebook frontmatter 的 Markdown 文件。
+ * 打开新建 Dialog。
  */
-async function createLorebookEntry(baseDir: string | null = null): Promise<void> {
-    if (!import.meta.client) {
+function openCreateDialog(kind: WorkspaceCreateKind, defaultPath: string): void {
+    createDialogKind.value = kind;
+    createDialogDefaultPath.value = defaultPath;
+    createDialogVisible.value = true;
+}
+
+/**
+ * 处理新建 Dialog 提交。
+ */
+async function submitCreateDialog(payload: WorkspaceCreatePayload): Promise<void> {
+    if (creatingWorkspaceNode.value) {
         return;
     }
 
-    const selectedType = await choose(t("ide.workspace.filePanel.newLorebookTypePrompt"), [
-        {label: t("ide.workspace.filePanel.lorebookLocation"), value: "location", tone: "primary"},
-        {label: t("ide.workspace.filePanel.lorebookCharacter"), value: "character"},
-        {label: t("ide.workspace.filePanel.lorebookItem"), value: "item"},
-        {label: t("ide.workspace.filePanel.lorebookRule"), value: "rule"},
-        {label: t("ide.workspace.filePanel.lorebookNote"), value: "note"},
-    ], t("ide.workspace.filePanel.newLorebookTitle"));
-    if (!isLorebookEntryType(selectedType)) {
-        return;
-    }
-
-    const defaultDir = baseDir === null ? `lorebook/${selectedType}/` : baseDir;
-    const prefix = defaultDir ? `${defaultDir.replace(/\/$/, "")}/` : "";
-    const input = await prompt(t("ide.workspace.filePanel.newLorebookPathPrompt"), `${prefix}new-entry`, t("ide.workspace.filePanel.newLorebookTitle"));
-    const rawPath = typeof input === "string" ? input.trim() : "";
-    if (!rawPath) {
-        return;
-    }
-
-    const filePath = normalizeLorebookEntryIndexPath(rawPath);
-    if (!isWorkspaceLorebookScopePath(filePath)) {
-        notifyError(t("ide.workspace.filePanel.newLorebookScopeError"), {title: t("ide.workspace.filePanel.createLorebookFailed")});
-        return;
-    }
-
+    creatingWorkspaceNode.value = true;
     try {
-        const node = await store.createWorkspaceFile(filePath, buildLorebookEntryContent(filePath, selectedType));
+        if (payload.kind === "directory") {
+            const node = await store.createWorkspaceDirectory(payload.path);
+            expandedPaths.value = [...new Set([...expandedPaths.value, node.path])];
+            await store.selectWorkspacePath(node.path);
+            notifySuccess(t("ide.workspace.filePanel.createSuccess", {path: node.path}), {title: t("ide.workspace.filePanel.createSuccessTitle")});
+            createDialogVisible.value = false;
+            return;
+        }
+
+        if (payload.kind === "lorebook") {
+            const selectedType = payload.lorebookType;
+            if (!selectedType) {
+                return;
+            }
+
+            const filePath = normalizeLorebookEntryIndexPath(payload.path);
+            if (!isWorkspaceLorebookScopePath(filePath)) {
+                notifyError(t("ide.workspace.filePanel.newLorebookScopeError"), {title: t("ide.workspace.filePanel.createLorebookFailed")});
+                return;
+            }
+
+            const node = await store.createWorkspaceFile(filePath, buildLorebookEntryContent(filePath, selectedType));
+            expandedPaths.value = [...new Set([...expandedPaths.value, resolveParentDirectory(node.path)])].filter(Boolean);
+            await store.selectWorkspacePath(node.path);
+            notifySuccess(t("ide.workspace.filePanel.createSuccess", {path: node.path}), {title: t("ide.workspace.filePanel.createSuccessTitle")});
+            createDialogVisible.value = false;
+            return;
+        }
+
+        const node = await store.createWorkspaceFile(payload.path, "");
         expandedPaths.value = [...new Set([...expandedPaths.value, resolveParentDirectory(node.path)])].filter(Boolean);
         await store.selectWorkspacePath(node.path);
+        notifySuccess(t("ide.workspace.filePanel.createSuccess", {path: node.path}), {title: t("ide.workspace.filePanel.createSuccessTitle")});
+        createDialogVisible.value = false;
     } catch (error) {
-        notifyError(formatCreateError(error), {title: t("ide.workspace.filePanel.createLorebookFailed")});
+        notifyError(resolveApiErrorMessage(error, formatCreateError(error)), {title: createFailedTitle(payload.kind)});
+    } finally {
+        creatingWorkspaceNode.value = false;
     }
-}
-
-/**
- * 新建普通目录，不默认创建 index.md。
- */
-async function createDirectory(baseDir = ""): Promise<void> {
-    if (!import.meta.client) {
-        return;
-    }
-
-    const prefix = baseDir ? `${baseDir.replace(/\/$/, "")}/` : "";
-    const input = await prompt(t("ide.workspace.filePanel.newDirectoryPathPrompt"), `${prefix}new-folder`);
-    const dirPath = typeof input === "string" ? input.trim() : "";
-    if (!dirPath) {
-        return;
-    }
-
-    const node = await store.createWorkspaceDirectory(dirPath);
-    expandedPaths.value = [...new Set([...expandedPaths.value, node.path])];
-    await store.selectWorkspacePath(node.path);
 }
 
 /**
@@ -299,6 +289,68 @@ async function moveNode(payload: WorkspaceFileMovePayload): Promise<void> {
 }
 
 /**
+ * 构造节点右键的新建子菜单。
+ */
+function buildNodeCreateMenu(node: WorkspaceFileNode, baseDir: string, siblingDir: string): ContextMenuItem {
+    const children: ContextMenuItem[] = [
+        {label: t("ide.workspace.filePanel.newChildFile"), iconClass: "i-lucide-file-plus", disabled: !node.isDirectory, action: () => openCreateDialog("file", defaultFilePath(baseDir))},
+        {label: t("ide.workspace.filePanel.newChildDirectory"), iconClass: "i-lucide-folder-plus", disabled: !node.isDirectory, action: () => openCreateDialog("directory", defaultDirectoryPath(baseDir))},
+    ];
+
+    if (node.isDirectory && isWorkspaceLorebookScopePath(baseDir)) {
+        children.push({label: t("ide.workspace.filePanel.newChildLorebook"), iconClass: "i-lucide-book-plus", action: () => openCreateDialog("lorebook", defaultLorebookPath(baseDir))});
+    }
+
+    children.push(
+        {separator: true},
+        {label: t("ide.workspace.filePanel.newSiblingFile"), iconClass: "i-lucide-file-plus-2", action: () => openCreateDialog("file", defaultFilePath(siblingDir))},
+        {label: t("ide.workspace.filePanel.newSiblingDirectory"), iconClass: "i-lucide-folder-plus", action: () => openCreateDialog("directory", defaultDirectoryPath(siblingDir))},
+    );
+
+    if (isWorkspaceLorebookScopePath(siblingDir)) {
+        children.push({label: t("ide.workspace.filePanel.newSiblingLorebook"), iconClass: "i-lucide-book-plus", action: () => openCreateDialog("lorebook", defaultLorebookPath(siblingDir))});
+    }
+
+    return {
+        label: t("ide.workspace.filePanel.create"),
+        iconClass: "i-lucide-plus",
+        children,
+    };
+}
+
+/**
+ * 构造根区域右键的新建子菜单。
+ */
+function buildRootCreateMenu(): ContextMenuItem {
+    return {
+        label: t("ide.workspace.filePanel.create"),
+        iconClass: "i-lucide-plus",
+        children: [
+            {label: t("ide.workspace.filePanel.newFile"), iconClass: "i-lucide-file-plus", action: () => openCreateDialog("file", defaultFilePath(""))},
+            {label: t("ide.workspace.filePanel.newDirectory"), iconClass: "i-lucide-folder-plus", action: () => openCreateDialog("directory", defaultDirectoryPath(""))},
+            {label: t("ide.workspace.filePanel.newLorebook"), iconClass: "i-lucide-book-plus", action: () => openCreateDialog("lorebook", defaultLorebookPath(null))},
+        ],
+    };
+}
+
+/**
+ * 构造复制路径/引用子菜单。
+ */
+function buildCopyMenu(node: WorkspaceFileNode): ContextMenuItem {
+    return {
+        label: t("ide.workspace.common.copyReference"),
+        iconClass: "i-lucide-copy",
+        children: [
+            {label: t("ide.workspace.filePanel.copyRelativePath"), iconClass: "i-lucide-link", action: () => void copyPathText(node, "relative-path")},
+            {label: t("ide.workspace.filePanel.copyAbsolutePath"), iconClass: "i-lucide-hard-drive", action: () => void copyPathText(node, "absolute-path")},
+            {separator: true},
+            {label: t("ide.workspace.filePanel.copyRelativeReference"), iconClass: "i-lucide-brackets", action: () => void copyPathText(node, "relative-reference")},
+            {label: t("ide.workspace.filePanel.copyAbsoluteReference"), iconClass: "i-lucide-brackets", action: () => void copyPathText(node, "absolute-reference")},
+        ],
+    };
+}
+
+/**
  * 打开节点右键菜单。
  */
 function openNodeMenu(node: WorkspaceFileNode, event: MouseEvent): void {
@@ -313,18 +365,8 @@ function openNodeMenu(node: WorkspaceFileNode, event: MouseEvent): void {
             action: () => toggleExpanded(node.path),
         },
         {separator: true},
-        {label: t("ide.workspace.filePanel.newChildFile"), iconClass: "i-lucide-file-plus", disabled: !node.isDirectory, action: () => void createFile(baseDir)},
-        {label: t("ide.workspace.filePanel.newChildDirectory"), iconClass: "i-lucide-folder-plus", disabled: !node.isDirectory, action: () => void createDirectory(baseDir)},
-        {label: t("ide.workspace.filePanel.newSiblingFile"), iconClass: "i-lucide-file-plus-2", action: () => void createFile(siblingDir)},
-        {label: t("ide.workspace.filePanel.newSiblingDirectory"), iconClass: "i-lucide-folder-plus", action: () => void createDirectory(siblingDir)},
+        buildNodeCreateMenu(node, baseDir, siblingDir),
     ];
-
-    if (node.isDirectory && isWorkspaceLorebookScopePath(baseDir)) {
-        items.push({label: t("ide.workspace.filePanel.newChildLorebook"), iconClass: "i-lucide-book-plus", action: () => void createLorebookEntry(baseDir)});
-    }
-    if (!node.isDirectory && isWorkspaceLorebookScopePath(siblingDir)) {
-        items.push({label: t("ide.workspace.filePanel.newSiblingLorebook"), iconClass: "i-lucide-book-plus", action: () => void createLorebookEntry(siblingDir)});
-    }
     if (canCreateDirectoryIndex(node)) {
         items.push({label: t("ide.workspace.filePanel.convertDirectoryNode"), iconClass: "i-lucide-file-symlink", action: () => void createDirectoryIndex(node)});
     }
@@ -334,7 +376,7 @@ function openNodeMenu(node: WorkspaceFileNode, event: MouseEvent): void {
 
     items.push(
         {separator: true},
-        {label: t("ide.workspace.common.copyReference"), iconClass: "i-lucide-copy", action: () => void copyReference(node)},
+        buildCopyMenu(node),
         {label: t("ide.workspace.common.rename"), iconClass: "i-lucide-pencil", action: () => void renameNode(node)},
         {label: t("ide.workspace.common.delete"), iconClass: "i-lucide-trash-2", danger: true, action: () => void deleteNode(node)},
     );
@@ -346,9 +388,7 @@ function openNodeMenu(node: WorkspaceFileNode, event: MouseEvent): void {
  */
 function openRootMenu(event: MouseEvent): void {
     openContextMenu(event, [
-        {label: t("ide.workspace.filePanel.newFile"), iconClass: "i-lucide-file-plus", action: () => void createFile()},
-        {label: t("ide.workspace.filePanel.newDirectory"), iconClass: "i-lucide-folder-plus", action: () => void createDirectory()},
-        {label: t("ide.workspace.filePanel.newLorebook"), iconClass: "i-lucide-book-plus", action: () => void createLorebookEntry(null)},
+        buildRootCreateMenu(),
         {separator: true},
         {label: t("ide.workspace.common.refresh"), iconClass: "i-lucide-refresh-cw", action: () => void refreshTree()},
     ]);
@@ -368,12 +408,37 @@ function toggleExpanded(path: string): void {
 }
 
 /**
- * 根据当前活动文件生成 Markdown 相对引用。
+ * 生成默认新文件路径。
  */
-function buildReferenceTarget(node: WorkspaceFileNode): string {
-    const targetPath = resolveReferenceTargetPath(node);
-    const sourceDir = selectedFilePath.value ? resolveParentDirectory(selectedFilePath.value).replace(/\/$/, "") : "";
-    return relativeWorkspacePath(sourceDir, targetPath);
+function defaultFilePath(baseDir: string): string {
+    return buildDefaultWorkspaceCreatePath("file", baseDir);
+}
+
+/**
+ * 生成默认新目录路径。
+ */
+function defaultDirectoryPath(baseDir: string): string {
+    return buildDefaultWorkspaceCreatePath("directory", baseDir);
+}
+
+/**
+ * 生成默认 Lorebook 条目路径。
+ */
+function defaultLorebookPath(baseDir: string | null): string {
+    return buildDefaultWorkspaceCreatePath("lorebook", baseDir);
+}
+
+/**
+ * 返回创建失败通知标题。
+ */
+function createFailedTitle(kind: WorkspaceCreateKind): string {
+    if (kind === "directory") {
+        return t("ide.workspace.filePanel.createDirectoryFailed");
+    }
+    if (kind === "lorebook") {
+        return t("ide.workspace.filePanel.createLorebookFailed");
+    }
+    return t("ide.workspace.filePanel.createFileFailed");
 }
 
 function resolveParentDirectory(filePath: string): string {
@@ -463,13 +528,6 @@ function normalizeLorebookEntryIndexPath(filePath: string): string {
 }
 
 /**
- * 判断对话框返回值是否是合法 Lorebook 类型。
- */
-function isLorebookEntryType(value: string): value is LorebookEntryType {
-    return LOREBOOK_ENTRY_TYPES.includes(value as LorebookEntryType);
-}
-
-/**
  * 生成文件化 Lorebook 条目的初始 Markdown 内容。
  */
 function buildLorebookEntryContent(filePath: string, entryType: LorebookEntryType): string {
@@ -507,44 +565,6 @@ function canCreateDirectoryIndex(node: WorkspaceFileNode): boolean {
 function buildDirectoryIndexContent(node: WorkspaceFileNode): string {
     const title = node.title || basename(node.path) || "index";
     return `---\ntitle: ${JSON.stringify(title)}\nstatus: draft\n---\n\n`;
-}
-
-/**
- * 将节点转换为 refs / inline link 推荐使用的相对引用目标。
- */
-function resolveReferenceTargetPath(node: WorkspaceFileNode): string {
-    const normalizedPath = node.path.replace(/\/$/, "");
-    if (normalizedPath.toLowerCase().endsWith("/index.md")) {
-        return `${normalizedPath.slice(0, -"/index.md".length)}/`;
-    }
-    if (node.isDirectory) {
-        return `${normalizedPath}/`;
-    }
-    return node.path;
-}
-
-/**
- * 计算从当前文件目录到目标路径的 Markdown 相对路径。
- */
-function relativeWorkspacePath(sourceDir: string, targetPath: string): string {
-    const targetIsDirectory = targetPath.endsWith("/");
-    const sourceSegments = sourceDir.split("/").filter(Boolean);
-    const targetSegments = targetPath.replace(/\/$/, "").split("/").filter(Boolean);
-    let commonLength = 0;
-    while (
-        commonLength < sourceSegments.length
-        && commonLength < targetSegments.length
-        && sourceSegments[commonLength] === targetSegments[commonLength]
-    ) {
-        commonLength++;
-    }
-
-    const upSegments = Array.from({length: sourceSegments.length - commonLength}, () => "..");
-    const downSegments = targetSegments.slice(commonLength);
-    const relativeSegments = [...upSegments, ...downSegments];
-    const relativePath = relativeSegments.length > 0 ? relativeSegments.join("/") : ".";
-    const prefixedPath = relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
-    return targetIsDirectory && !prefixedPath.endsWith("/") ? `${prefixedPath}/` : prefixedPath;
 }
 
 function formatMoveError(error: unknown): string {
@@ -687,6 +707,15 @@ watch(canAccessWorkspace, (canAccess) => {
             :y="contextMenuY"
             :items="contextMenuItems"
             @close="contextMenuVisible = false"
+        />
+
+        <WorkspaceCreateFileDialog
+            v-model="createDialogVisible"
+            :kind="createDialogKind"
+            :default-path="createDialogDefaultPath"
+            :busy="creatingWorkspaceNode"
+            :restrict-lorebook-scope="createDialogKind === 'lorebook'"
+            @submit="void submitCreateDialog($event)"
         />
     </div>
 </template>

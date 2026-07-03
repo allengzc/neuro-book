@@ -107,6 +107,8 @@ type EntityIdLabel =
     | "threadId"
     | "sceneId"
     | "plotId"
+    | "actId"
+    | "chapterId"
     | "entryId"
     | "parentId";
 

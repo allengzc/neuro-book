@@ -197,11 +197,15 @@ local-git：
 bun run auth:create-admin admin
 ```
 
+local-git 是源码运行模式，管理员脚本要求该目录已经执行过 `bun install --frozen-lockfile`。脚本可以自动补缺失的 Prisma Client；但如果本地 Nuxt CLI 依赖不存在，会直接提示先安装依赖，不会自动安装。
+
 ghcr：
 
 ```bash
 docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun .output/server/scripts/cli/create-admin.ts
 ```
+
+ghcr 必须使用容器内 Product 脚本，不要在宿主机源码 checkout 中执行 `bun run auth:create-admin`。GHCR 运行机不会执行 `bun install`、`nuxt:prepare` 或 Prisma generate。
 
 source Docker：
 

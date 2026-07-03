@@ -4,6 +4,7 @@ import ContextMenu, {type ContextMenuItem} from "nbook/app/components/common/Con
 import WorkspaceCharacterDetailPanel from "nbook/app/components/novel-ide/workspace/WorkspaceCharacterDetailPanel.vue";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
+import {buildWorkspacePathCopyText, type WorkspacePathCopyMode} from "nbook/app/utils/workspace-path-copy";
 import {useNovelIdeStore, type WorkspaceFileNode} from "nbook/app/stores/novel-ide";
 import {isWorkspaceLorebookEntry} from "nbook/app/components/novel-ide/workspace/workspace-file-tree";
 
@@ -139,13 +140,30 @@ async function deleteCharacter(node: WorkspaceFileNode): Promise<void> {
 }
 
 /**
- * 复制角色的 Markdown 相对引用。
+ * 复制角色路径或引用。
  */
-async function copyReference(node: WorkspaceFileNode): Promise<void> {
+async function copyPathText(node: WorkspaceFileNode, mode: WorkspacePathCopyMode): Promise<void> {
     if (!import.meta.client) {
         return;
     }
-    await navigator.clipboard.writeText(buildReferenceTarget(node));
+    await navigator.clipboard.writeText(buildWorkspacePathCopyText(node, mode));
+}
+
+/**
+ * 构造复制路径/引用子菜单。
+ */
+function buildCopyMenu(node: WorkspaceFileNode): ContextMenuItem {
+    return {
+        label: t("ide.workspace.common.copyReference"),
+        iconClass: "i-lucide-copy",
+        children: [
+            {label: t("ide.workspace.filePanel.copyRelativePath"), iconClass: "i-lucide-link", action: () => void copyPathText(node, "relative-path")},
+            {label: t("ide.workspace.filePanel.copyAbsolutePath"), iconClass: "i-lucide-hard-drive", action: () => void copyPathText(node, "absolute-path")},
+            {separator: true},
+            {label: t("ide.workspace.filePanel.copyRelativeReference"), iconClass: "i-lucide-brackets", action: () => void copyPathText(node, "relative-reference")},
+            {label: t("ide.workspace.filePanel.copyAbsoluteReference"), iconClass: "i-lucide-brackets", action: () => void copyPathText(node, "absolute-reference")},
+        ],
+    };
 }
 
 /**
@@ -154,7 +172,7 @@ async function copyReference(node: WorkspaceFileNode): Promise<void> {
 function openNodeMenu(node: WorkspaceFileNode, event: MouseEvent): void {
     openContextMenu(event, [
         {label: t("ide.workspace.common.open"), iconClass: "i-lucide-folder-open", action: () => void selectCharacter(node)},
-        {label: t("ide.workspace.common.copyReference"), iconClass: "i-lucide-copy", action: () => void copyReference(node)},
+        buildCopyMenu(node),
         {separator: true},
         {label: t("ide.workspace.character.create"), iconClass: "i-lucide-user-plus", action: () => void createCharacter()},
         {label: t("ide.workspace.common.rename"), iconClass: "i-lucide-pencil", action: () => void renameCharacter(node)},
@@ -187,46 +205,6 @@ function normalizeCharacterIndexPath(filePath: string): string {
 function buildCharacterContent(filePath: string): string {
     const title = basename(filePath.replace(/\/index\.md$/i, "")) || "new-character";
     return `---\ntitle: ${JSON.stringify(title)}\ntype: character\nsubtype: person\nstatus: draft\naliases: []\ntags: []\nsummary: ""\nrefs: []\nretrieval:\n    enabled: true\n    trigger: null\ngovernance:\n    source: manual\n    review: proposed\ncharacter:\n    logline: ""\n    profile: {}\n    story: {}\n    meta:\n        pinned: false\n        primaryContext: null\n---\n\n`;
-}
-
-function buildReferenceTarget(node: WorkspaceFileNode): string {
-    const targetPath = `${node.path.replace(/\/index\.md$/i, "").replace(/\/$/, "")}/`;
-    const sourceDir = selectedFilePath.value ? resolveParentDirectory(selectedFilePath.value).replace(/\/$/, "") : "";
-    return relativeWorkspacePath(sourceDir, targetPath);
-}
-
-/**
- * 返回当前文件路径的父目录。
- */
-function resolveParentDirectory(filePath: string): string {
-    const normalizedPath = filePath.replace(/\/$/, "");
-    if (!normalizedPath.includes("/")) {
-        return "";
-    }
-    return `${normalizedPath.slice(0, normalizedPath.lastIndexOf("/"))}/`;
-}
-
-/**
- * 计算从当前文件目录到角色节点的 Markdown 相对路径。
- */
-function relativeWorkspacePath(sourceDir: string, targetPath: string): string {
-    const sourceSegments = sourceDir.split("/").filter(Boolean);
-    const targetSegments = targetPath.replace(/\/$/, "").split("/").filter(Boolean);
-    let commonLength = 0;
-    while (
-        commonLength < sourceSegments.length
-        && commonLength < targetSegments.length
-        && sourceSegments[commonLength] === targetSegments[commonLength]
-    ) {
-        commonLength++;
-    }
-
-    const upSegments = Array.from({length: sourceSegments.length - commonLength}, () => "..");
-    const downSegments = targetSegments.slice(commonLength);
-    const relativeSegments = [...upSegments, ...downSegments];
-    const relativePath = relativeSegments.length > 0 ? relativeSegments.join("/") : ".";
-    const prefixedPath = relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
-    return prefixedPath.endsWith("/") ? prefixedPath : `${prefixedPath}/`;
 }
 
 function displayTitle(node: WorkspaceFileNode): string {

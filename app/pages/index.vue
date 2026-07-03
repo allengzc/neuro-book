@@ -12,6 +12,7 @@ import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSetti
 import NovelIdeToolPanel from "nbook/app/components/novel-ide/NovelIdeToolPanel.vue";
 import WorldEngineWorkbenchDialog from "nbook/app/components/novel-ide/world-engine/WorldEngineWorkbenchDialog.vue";
 import NovelPromptBar from "nbook/app/components/novel-ide/NovelPromptBar.vue";
+import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import WorkspaceFilePanel from "nbook/app/components/novel-ide/workspace/WorkspaceFilePanel.vue";
 import NovelBookshelfDialog from "nbook/app/components/novel-ide/NovelBookshelfDialog.vue";
 import UserProfileWorkbenchDialog from "nbook/app/components/profile-template-editor/UserProfileWorkbenchDialog.vue";
@@ -111,7 +112,6 @@ const {
     selectedFileContent,
     selectedFileNode,
     selectedFilePath,
-    selectedModel,
     theme,
     viewMode,
     markdownEditorPreferences,
@@ -308,7 +308,6 @@ const displayActiveWorkspaceTabPath = computed(() => workspaceDisplayReady.value
 const displaySelectedFileNode = computed(() => workspaceDisplayReady.value ? selectedFileNode.value : null);
 const displayCurrentEditorKind = computed<WorkspaceEditorKind>(() => workspaceDisplayReady.value ? currentEditorKind.value : "readonly");
 const displayCurrentWorkspaceViewMode = computed<WorkspaceEditorViewMode>(() => workspaceDisplayReady.value ? currentWorkspaceViewMode.value : "source");
-const displaySelectedModel = computed(() => workspaceBootstrapped.value ? selectedModel.value : t("ide.shell.modelNotConfigured"));
 const displayMonacoTemporaryFontSize = computed(() => displayActiveWorkspaceTabPath.value
     ? monacoFontSizeOverridesByPath.value[displayActiveWorkspaceTabPath.value] ?? null
     : null);
@@ -348,7 +347,7 @@ const isMarkdownFile = computed(() => currentFileExtension.value === ".md");
 const isPlainTextFile = computed(() => [".txt", ".text", ".markdown"].includes(currentFileExtension.value));
 const inlinePromptExpanded = ref(false);
 const inlinePromptInstruction = ref("");
-const inlinePromptTask = ref<InlineEditTask>("polish");
+const inlinePromptTask = ref<InlineEditTask>("chat");
 const inlinePromptReferences = ref<InlineEditReference[]>([]);
 const inlinePromptHoveredReference = ref<InlineEditReference | null>(null);
 const inlinePromptRunning = ref(false);
@@ -372,9 +371,26 @@ const inlinePromptResultText = computed(() => {
 const inlinePromptAgentRunning = computed(() => {
     return unref(agentSurfaceRef.value?.inlineEditorRunning) ?? false;
 });
+const inlinePromptBusy = computed(() => inlinePromptRunning.value || inlinePromptAgentRunning.value || loadingWorkspace.value);
 const displayInlinePromptEditPreview = computed(() => {
     return unref(agentSurfaceRef.value?.inlineEditPreview) || inlinePromptEditPreview.value;
 });
+const inlinePromptLiveView = computed(() => unref(agentSurfaceRef.value?.inlineEditorLiveView) ?? {
+    thinking: "",
+    content: "",
+    status: null,
+    editPreview: "",
+    resultText: "",
+});
+const inlinePromptSelectableModels = computed(() => unref(agentSurfaceRef.value?.selectableModels) ?? []);
+const inlinePromptSessionModelSelectionValue = computed(() => unref(agentSurfaceRef.value?.inlineSessionModelSelectionValue) ?? null);
+const inlinePromptSessionModelDraft = computed<AgentSessionModelDraft>(() => unref(agentSurfaceRef.value?.inlineSessionModelDraft) ?? {
+    modelKey: null,
+    reasoningEffort: null,
+});
+const inlinePromptSessionModelSaving = computed(() => unref(agentSurfaceRef.value?.inlineSessionModelSaving) ?? false);
+const inlinePromptSessionModelPopoverOpen = computed(() => unref(agentSurfaceRef.value?.inlineSessionModelPopoverOpen) ?? false);
+const inlinePromptSessionThinkingResolvedLabel = computed(() => unref(agentSurfaceRef.value?.inlineSessionThinkingResolvedLabel) ?? "");
 const inlinePromptAvailable = computed(() => {
     return workspaceDisplayReady.value
         && selectedFileNode.value?.editable === true
@@ -382,6 +398,7 @@ const inlinePromptAvailable = computed(() => {
 });
 
 const inlineTaskLabels = computed<Record<InlineEditTask, string>>(() => ({
+    chat: t("ide.inlineAi.taskChat"),
     rewrite: t("ide.inlineAi.taskRewrite"),
     polish: t("ide.inlineAi.taskPolish"),
     expand: t("ide.inlineAi.taskExpand"),
@@ -876,7 +893,7 @@ function resolveInlineEditorReferences(references: InlineEditReference[]): Inlin
  * 发送 Inline AI 编辑任务给 inline.editor profile。
  */
 async function sendInlineEditorPrompt(): Promise<void> {
-    if (inlinePromptRunning.value) {
+    if (inlinePromptBusy.value) {
         return;
     }
     if (!inlinePromptAvailable.value) {
@@ -905,12 +922,12 @@ async function sendInlineEditorPrompt(): Promise<void> {
         return;
     }
 
-    await saveCurrentWorkspaceFile();
     inlinePromptRunning.value = true;
     inlinePromptStatusText.value = t("ide.inlineAi.sending");
     inlinePromptEditPreview.value = "";
 
     try {
+        await saveCurrentWorkspaceFile();
         await agentSurface.sendInlineEditorPrompt(payload, buildInlineVisibleMessage(payload));
         inlinePromptInstruction.value = "";
         inlinePromptReferences.value = [];
@@ -960,16 +977,24 @@ async function createInlineEditorSession(): Promise<void> {
 }
 
 /**
- * 刷新 PromptBar 的 Inline AI session 列表。
+ * 显式打开右侧 Agent 面板查看当前 Inline AI session。
  */
-async function refreshInlineEditorSessions(): Promise<void> {
+async function openInlineEditorSessionChat(): Promise<void> {
     try {
-        await agentSurfaceRef.value?.refreshInlineEditorSessions?.();
-        inlinePromptStatusText.value = t("ide.inlineAi.sessionsRefreshed");
+        rightPanelOpen.value = true;
+        await agentSurfaceRef.value?.openInlineEditorSession?.();
     } catch (error) {
-        inlinePromptStatusText.value = resolveApiErrorMessage(error, t("ide.inlineAi.refreshSessionsFailed"));
+        inlinePromptStatusText.value = resolveApiErrorMessage(error, t("ide.inlineAi.openModelPanelFailed"));
         notification.error(inlinePromptStatusText.value, {title: "Inline AI"});
     }
+}
+
+function updateInlineSessionModelDraft(value: AgentSessionModelDraft): void {
+    agentSurfaceRef.value?.setInlineSessionModelDraft?.(value);
+}
+
+function updateInlineSessionModelPopoverOpen(value: boolean): void {
+    agentSurfaceRef.value?.setInlineSessionModelPopoverOpen?.(value);
 }
 
 /**
@@ -2199,8 +2224,8 @@ onBeforeUnmount(() => {
                     v-if="!isAgentMode && inlinePromptAvailable"
                     class="ide-prompt-bar"
                     :model-value="inlinePromptInstruction"
-                    :loading="inlinePromptRunning || inlinePromptAgentRunning || loadingWorkspace"
-                    :selected-model="displaySelectedModel"
+                    :loading="inlinePromptBusy"
+                    :running="inlinePromptRunning || inlinePromptAgentRunning"
                     :expanded="inlinePromptExpanded"
                     :task="inlinePromptTask"
                     :references="inlinePromptReferences"
@@ -2211,6 +2236,13 @@ onBeforeUnmount(() => {
                     :session-loading="inlinePromptSessionLoading"
                     :edit-preview="displayInlinePromptEditPreview"
                     :result-text="inlinePromptResultText"
+                    :live-view="inlinePromptLiveView"
+                    :selectable-models="inlinePromptSelectableModels"
+                    :session-model-selection-value="inlinePromptSessionModelSelectionValue"
+                    :session-model-draft="inlinePromptSessionModelDraft"
+                    :session-model-saving="inlinePromptSessionModelSaving"
+                    :session-model-popover-open="inlinePromptSessionModelPopoverOpen"
+                    :session-thinking-resolved-label="inlinePromptSessionThinkingResolvedLabel"
                     @update:model-value="inlinePromptInstruction = $event"
                     @update:expanded="inlinePromptExpanded = $event"
                     @update:task="inlinePromptTask = $event"
@@ -2218,7 +2250,13 @@ onBeforeUnmount(() => {
                     @hover-reference="inlinePromptHoveredReference = $event"
                     @select-session="void selectInlineEditorSession($event)"
                     @create-session="void createInlineEditorSession()"
-                    @refresh-sessions="void refreshInlineEditorSessions()"
+                    @open-session-chat="void openInlineEditorSessionChat()"
+                    @update-session-model-selection="void agentSurfaceRef?.updateInlineSessionModelSelection?.($event)"
+                    @update:session-model-draft="updateInlineSessionModelDraft"
+                    @update:session-model-popover-open="updateInlineSessionModelPopoverOpen"
+                    @toggle-session-model-popover="agentSurfaceRef?.toggleInlineSessionModelPopover?.()"
+                    @apply-session-model-settings="void agentSurfaceRef?.applyInlineSessionModelSettings?.()"
+                    @reset-session-model-settings="void agentSurfaceRef?.resetInlineSessionModelSettings?.()"
                     @send="void sendInlineEditorPrompt()"
                     @stop="void stopInlineEditorPrompt()"
                 />

@@ -11,6 +11,8 @@
 export type * from './models/ProjectMetadata'
 export type * from './models/DatabaseLock'
 export type * from './models/Story'
+export type * from './models/StoryAct'
+export type * from './models/StoryChapter'
 export type * from './models/StoryPhase'
 export type * from './models/StoryThread'
 export type * from './models/StoryScene'

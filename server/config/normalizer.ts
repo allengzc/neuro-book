@@ -271,6 +271,7 @@ export function normalizeModelSettings(input: StoredGlobalConfig["models"] | und
         providers: Object.fromEntries(
             normalizeStoredProviders(input?.providers).map((provider) => [provider.id, {
                 name: normalizeText(provider.name) || provider.id,
+                enabled: provider.enabled ?? true,
                 api: normalizeNullableText(provider.api),
                 options: normalizeProviderOptions(provider.options),
                 models: Object.fromEntries(provider.models.map((model) => [model.id, normalizeModel(model)])),
@@ -289,6 +290,7 @@ export function serializeModelSettings(config: ModelSettingsConfig): StoredGloba
             .map(([providerId, provider]) => ({
                 id: providerId,
                 name: provider.name,
+                enabled: provider.enabled,
                 api: provider.api,
                 options: provider.options,
                 models: Object.values(provider.models)
@@ -416,6 +418,7 @@ function normalizeStoredProviders(input: StoredProviderConfig[] | undefined): St
         .map((provider) => ({
             id: normalizeText(provider.id),
             name: normalizeText(provider.name),
+            enabled: provider.enabled ?? true,
             api: normalizeNullableText(provider.api),
             options: normalizeProviderOptions(provider.options),
             models: Array.isArray(provider.models) ? provider.models.map(normalizeModel) : [],

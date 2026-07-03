@@ -33,6 +33,16 @@ export type DatabaseLock = Prisma.DatabaseLockModel
  */
 export type Story = Prisma.StoryModel
 /**
+ * Model StoryAct
+ * 
+ */
+export type StoryAct = Prisma.StoryActModel
+/**
+ * Model StoryChapter
+ * 
+ */
+export type StoryChapter = Prisma.StoryChapterModel
+/**
  * Model StoryPhase
  * 
  */

@@ -1,6 +1,6 @@
 # Release Notes
 
-## 待发布
+## 0.5.4-canary - 2026-07-03
 
 这次修复 GHCR 部署和管理员创建链路，重点是让安装器、镜像版本和 Product Runtime 合同重新对齐。
 
@@ -16,10 +16,13 @@ local-git / source 源码运行时如果缺少 `server/generated/prisma/client.t
 4. 构建门禁补齐 Product 运行文件
 Nuxt/Nitro 后处理和 Product staging 都会检查管理员脚本、`has-users`、Prisma preflight、SQLite migration、Prisma schema/config 和打包后的 Prisma Client，避免镜像发布后才发现运行文件缺失。
 
-5. World Engine 配置加载不再依赖项目目录临时模块
+5. 源码管理员命令缺依赖时提示更明确
+local-git / source 管理员脚本在自动补 Prisma Client 前会先确认本地 Nuxt CLI 是否存在；即使 `.nuxt/tsconfig.json` 残留，只要源码依赖没有安装，也会直接提示先 `bun install --frozen-lockfile`，并提醒 ghcr 用户改用容器内 Product 脚本。`nuxt:prepare` 失败和 Prisma generate 失败也会分开报告，不再误导为同一个错误。
+
+6. World Engine 配置加载不再依赖项目目录临时模块
 `calendar.ts` 与 `schema/index.ts` 仍保持单文件 TypeScript 配置入口，但转译后的 `.mjs` 现在会进入统一 runtime artifact cache 后再导入。Project Workspace 下的 `.world-engine-*.mjs` 只作为短暂中转文件，避免 Product / Agent 环境在加载时误把被清理的临时文件当成根因。
 
-本轮已验证管理员脚本最小复现、GHCR dry-run、GHCR tag dry-run、World Engine 用户配置 smoke、Product runtime smoke、`bun run nuxt:build` 和 `bun run product:stage`。Docker smoke 因当前本机没有 `docker` 命令未执行。
+本轮已验证管理员脚本最小复现、源码缺 Nuxt CLI 提示、残留 `.nuxt` 但缺依赖提示、GHCR dry-run、GHCR tag dry-run、World Engine 用户配置 smoke、Product runtime smoke、`bun run nuxt:build` 和 `bun run product:stage`。Docker smoke 因当前本机没有 `docker` 命令未执行。
 
 ## 0.5.3-canary - 2026-07-01
 

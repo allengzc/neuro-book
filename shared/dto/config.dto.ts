@@ -106,6 +106,7 @@ export const ConfigModelProviderOptionsDtoSchema = z.object({
 export const ConfiguredProviderConfigDtoSchema = z.object({
     id: ProviderIdSchema,
     name: z.string().trim().min(1),
+    enabled: z.boolean().default(true),
     api: NullableTextSchema,
     options: ConfigModelProviderOptionsDtoSchema,
     models: z.array(ConfiguredModelDtoSchema).default([]),

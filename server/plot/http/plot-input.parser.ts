@@ -1,21 +1,25 @@
 import {parseEntityId, parseNullableEntityId} from "nbook/server/utils/novel-chapter";
 import type {
+    ParsedCreateStoryChapterInput,
     ParsedCreateStorySceneInput,
     ParsedCreateStoryThreadInput,
     ParsedReorderStoryPhaseItem,
     ParsedReorderStorySceneItem,
     ParsedReorderStoryThreadItem,
+    ParsedUpdateStoryChapterInput,
     ParsedUpdateStorySceneInput,
     ParsedUpdateStoryThreadInput,
     ResolvedStoryRefInput,
     SceneWorldAnchor,
 } from "nbook/server/plot/core/types";
 import type {
+    CreateStoryChapterRequestDto,
     CreateStorySceneRequestDto,
     CreateStoryThreadRequestDto,
     ReorderStoryPhasesRequestDto,
     ReorderStoryScenesRequestDto,
     ReorderStoryThreadsRequestDto,
+    UpdateStoryChapterRequestDto,
     UpdateStorySceneRequestDto,
     UpdateStoryThreadRequestDto,
 } from "nbook/shared/dto/plot.dto";
@@ -70,6 +74,28 @@ export class PlotInputParser {
     }
 
     /**
+     * 解析章节创建输入。
+     */
+    parseCreateChapter(input: CreateStoryChapterRequestDto): ParsedCreateStoryChapterInput {
+        return {
+            ...input,
+            actId: parseNullableEntityId("actId", input.actId),
+        };
+    }
+
+    /**
+     * 解析章节更新输入。
+     */
+    parseUpdateChapter(input: UpdateStoryChapterRequestDto): ParsedUpdateStoryChapterInput {
+        return {
+            ...input,
+            actId: input.actId === undefined
+                ? undefined
+                : parseNullableEntityId("actId", input.actId),
+        };
+    }
+
+    /**
      * 解析场景创建输入。
      */
     parseCreateScene(
@@ -78,7 +104,7 @@ export class PlotInputParser {
         return {
             ...input,
             threadId: parseEntityId("threadId", input.threadId),
-            chapterPath: input.chapterPath ?? null,
+            chapterId: parseNullableEntityId("chapterId", input.chapterId),
             refs: input.refs ?? [],
         };
     }
@@ -92,7 +118,7 @@ export class PlotInputParser {
         return {
             ...input,
             threadId: input.threadId === undefined ? undefined : parseEntityId("threadId", input.threadId),
-            chapterPath: input.chapterPath,
+            chapterId: input.chapterId === undefined ? undefined : parseNullableEntityId("chapterId", input.chapterId),
             refs: input.refs,
         };
     }
@@ -104,7 +130,7 @@ export class PlotInputParser {
         return input.items.map((item) => ({
             sceneId: parseEntityId("sceneId", item.sceneId),
             threadId: parseEntityId("threadId", item.threadId),
-            chapterPath: item.chapterPath,
+            chapterId: parseNullableEntityId("chapterId", item.chapterId),
             threadSortOrder: item.threadSortOrder,
             chapterSortOrder: item.chapterSortOrder,
         }));

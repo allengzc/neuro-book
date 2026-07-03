@@ -29,6 +29,7 @@ type SettingsSavePanelExpose = {
     readonly loading: boolean;
     readonly saving: boolean;
     saveSettings: () => Promise<void>;
+    restoreSettings: () => Promise<void>;
 };
 
 const props = defineProps<{
@@ -265,6 +266,7 @@ const activeSaveLoading = computed(() => activeSavePanel.value?.loading ?? false
 const activeSaveSaving = computed(() => activeSavePanel.value?.saving ?? false);
 const showHeaderSaveButton = computed(() => activeSavePanel.value !== null);
 const activeSaveDisabled = computed(() => activeSaveLoading.value || activeSaveSaving.value || !activeSaveDirty.value);
+const activeRestoreDisabled = computed(() => activeSaveLoading.value || activeSaveSaving.value || !activeSaveDirty.value);
 
 /**
  * 读取当前配置目标允许显示的设置分区。
@@ -298,6 +300,17 @@ async function saveActivePanel(): Promise<void> {
         return;
     }
     await panel.saveSettings();
+}
+
+/**
+ * 从已保存配置重新读取当前面板，丢弃本地草稿。
+ */
+async function restoreActivePanel(): Promise<void> {
+    const panel = activeSavePanel.value;
+    if (!panel || panel.loading || panel.saving || !panel.dirty) {
+        return;
+    }
+    await panel.restoreSettings();
 }
 
 /**
@@ -544,6 +557,17 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                                 <FormSelect :model-value="targetNovelId" :options="projectOptions" :placeholder="t('settings.scope.project.selectorPlaceholder')" @update:model-value="selectTargetNovel" />
                             </div>
                         </div>
+
+                        <button
+                            v-if="showHeaderSaveButton"
+                            type="button"
+                            class="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] bg-opacity-45 px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors duration-200 hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] active:scale-95 disabled:pointer-events-none disabled:opacity-50"
+                            :disabled="activeRestoreDisabled"
+                            @click="void restoreActivePanel()"
+                        >
+                            <span class="i-lucide-rotate-ccw h-3.5 w-3.5"></span>
+                            <span>{{ t("common.restore") }}</span>
+                        </button>
 
                         <button
                             v-if="showHeaderSaveButton"

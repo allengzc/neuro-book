@@ -12,7 +12,6 @@ import {useNotification} from "nbook/app/composables/useNotification";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import type {
     CheckModelResponseDto,
-    CheckProviderResponseDto,
     ConfiguredModelDto,
     DiscoverProviderModelsResponseDto,
     DiscoveredProviderModelDto,
@@ -78,6 +77,7 @@ type ProviderDraft = {
     localKey: string;
     id: string;
     name: string;
+    enabled: boolean;
     api: string;
     options: {
         apiKey: string;
@@ -95,6 +95,19 @@ type ProviderDraft = {
 type ModelSettingsDraft = {
     defaultModelKey: string | null;
     providers: ProviderDraft[];
+};
+
+type ModelCheckResult = CheckModelResponseDto & {
+    cancelled?: boolean;
+};
+
+type ModelCheckControllerState = {
+    controller: AbortController;
+};
+
+type ModelCheckBatchState = {
+    providerKey: string;
+    modelKeys: string[];
 };
 
 type ProviderPreset = {
@@ -175,14 +188,16 @@ const snapshotText = ref("");
 const discoveredModels = ref<Record<string, DiscoveredProviderModelDto[]>>({});
 const piCatalog = ref<PiBuiltinCatalogDto | null>(null);
 const resolvedContextWindowMap = ref<Record<string, number | null>>({});
-const providerTestingId = ref("");
 const providerDiscoveringId = ref("");
-const modelTestingKey = ref("");
+const modelCheckControllers = ref<Record<string, ModelCheckControllerState>>({});
+const modelCheckResults = ref<Record<string, ModelCheckResult>>({});
+const activeModelCheckBatches = ref<Record<string, ModelCheckBatchState>>({});
 const manualModelDrafts = ref<Record<string, ManualModelDraft>>({});
 const libraryDialogOpen = ref(false);
 const editorSnapshot = ref<ConfigEditorSnapshotDto | null>(null);
 const projectReferencesDirty = ref(false);
 let providerLocalKeySeed = 0;
+let modelCheckStateVersion = 0;
 
 const expandedGroups = ref<Record<string, boolean>>({});
 const editingModel = ref<ModelDraft | null>(null);
@@ -403,6 +418,7 @@ function cloneProvider(provider: ConfigModelSettingsDto["providers"][number], lo
         localKey: localKeyQueue?.shift() ?? createProviderLocalKey(provider.id),
         id: provider.id,
         name: provider.name,
+        enabled: provider.enabled,
         api: provider.api ?? "",
         options: {
             apiKey: "",
@@ -438,6 +454,7 @@ function applySettings(snapshot: ConfigEditorSnapshotDto, options: {preserveUiSt
         discoveredModels.value = {};
         manualModelDrafts.value = {};
     }
+    resetModelCheckState();
     resolvedContextWindowMap.value = Object.fromEntries(
         snapshot.modelSettings.enabledModels.map((model) => [model.key, model.contextWindowTokens]),
     );
@@ -475,6 +492,7 @@ function applyProjectSettings(snapshot: ConfigEditorSnapshotDto): void {
         snapshot.modelSettings.enabledModels.map((model) => [model.key, model.contextWindowTokens]),
     );
     manualModelDrafts.value = {};
+    resetModelCheckState();
     projectReferencesDirty.value = false;
     novelIdeStore.setSelectedModelLabel(snapshot.modelSettings.defaultModelLabel);
 }
@@ -526,6 +544,7 @@ function buildSavePayload(): UpdateModelSettingsRequestDto {
         providers: draft.value.providers.map((provider) => ({
             id: provider.id.trim(),
             name: provider.name.trim(),
+            enabled: provider.enabled,
             api: provider.api.trim() || null,
             options: {
                 apiKey: provider.options.apiKey.trim(),
@@ -567,6 +586,7 @@ function buildGlobalConfigPayload(): GlobalConfigDto {
             providers: draft.value.providers.map((provider) => ({
                 id: provider.id.trim(),
                 name: provider.name.trim(),
+                enabled: provider.enabled,
                 api: provider.api.trim() || null,
                 options: {
                     apiKey: buildSecretPayload(provider),
@@ -620,7 +640,7 @@ function buildProjectConfigPayload(): ProjectConfigDto {
  */
 function availableModelKeys(): Set<string> {
     return new Set(draft.value.providers.flatMap((provider) => provider.models
-        .filter((model) => model.enabled && provider.id.trim() && model.id.trim())
+        .filter((model) => provider.enabled && model.enabled && provider.id.trim() && model.id.trim())
         .map((model) => `${provider.id.trim()}/${model.id.trim()}`)));
 }
 
@@ -809,7 +829,7 @@ function buildUniqueProviderId(baseId: string): string {
  */
 function ensureDefaultModelKey(): void {
     const enabledModelKeys = draft.value.providers.flatMap((provider) => provider.models
-        .filter((model) => model.enabled && model.id.trim())
+        .filter((model) => provider.enabled && model.enabled && model.id.trim())
         .map((model) => `${provider.id}/${model.id.trim()}`));
 
     if (enabledModelKeys.length === 0) {
@@ -830,6 +850,56 @@ const activeProvider = computed<ProviderDraft | null>(() => {
 });
 
 /**
+ * Provider 下模型自身标记为 enabled 的数量。
+ */
+function providerEnabledModelCount(provider: ProviderDraft): number {
+    return provider.models.filter((model) => model.enabled).length;
+}
+
+const activeProviderEnabledModelCount = computed(() => {
+    return activeProvider.value?.enabled ? providerEnabledModelCount(activeProvider.value) : 0;
+});
+
+const activeProviderModelCheckKeys = computed(() => {
+    const provider = activeProvider.value;
+    if (!provider?.enabled) {
+        return [] as string[];
+    }
+    return provider.models
+        .filter((model) => model.enabled)
+        .map((model) => modelCheckKey(provider, model));
+});
+
+const activeProviderCheckingModelKeys = computed(() => {
+    return activeProviderModelCheckKeys.value.filter((key) => Boolean(modelCheckControllers.value[key]));
+});
+
+const activeProviderCheckingModelCount = computed(() => activeProviderCheckingModelKeys.value.length);
+const checkingAllModels = computed(() => {
+    const provider = activeProvider.value;
+    if (!provider) {
+        return false;
+    }
+    const batch = activeModelCheckBatches.value[provider.localKey];
+    return batch?.modelKeys.some((modelKey) => Boolean(modelCheckControllers.value[modelKey])) ?? false;
+});
+
+/**
+ * 切换 Provider 启用状态；禁用后运行时把它视为不存在。
+ */
+function toggleActiveProviderEnabled(): void {
+    const provider = activeProvider.value;
+    if (!provider) {
+        return;
+    }
+    if (provider.enabled) {
+        cancelProviderChecks(provider, {clearBatch: true});
+    }
+    provider.enabled = !provider.enabled;
+    ensureDefaultModelKey();
+}
+
+/**
  * 当前草稿是否有未保存修改。
  */
 const dirty = computed(() => {
@@ -846,7 +916,7 @@ const dirty = computed(() => {
  */
 const defaultModelOptions = computed<EnabledModelOptionDto[]>(() => {
     return draft.value.providers.flatMap((provider) => provider.models
-        .filter((model) => model.enabled && model.id.trim())
+        .filter((model) => provider.enabled && model.enabled && model.id.trim())
         .map((model) => ({
             key: `${provider.id}/${model.id.trim()}`,
             label: `${provider.name} / ${model.name || model.id}`,
@@ -862,7 +932,7 @@ const defaultModelOptions = computed<EnabledModelOptionDto[]>(() => {
  */
 const enabledModelGroups = computed(() => {
     const provider = activeProvider.value;
-    if (!provider) {
+    if (!provider?.enabled) {
         return [] as Array<{group: string; models: ModelDraft[]}>;
     }
 
@@ -1103,6 +1173,7 @@ async function addProvider(): Promise<void> {
         localKey,
         id: providerId,
         name: preset.providerName,
+        enabled: true,
         api: "",
         options: {
             apiKey: "",
@@ -1120,11 +1191,11 @@ async function addProvider(): Promise<void> {
 }
 
 /**
- * 保存模型设定。
+ * 保存模型设定并返回是否成功，供删除 Provider 这类复合操作复用。
  */
-async function saveSettings(): Promise<void> {
+async function saveSettingsResult(successMessage?: string): Promise<boolean> {
     if (!dirty.value || saving.value) {
-        return;
+        return false;
     }
 
     saving.value = true;
@@ -1139,16 +1210,32 @@ async function saveSettings(): Promise<void> {
         editorSnapshot.value = snapshot;
         if (isProjectScope.value) {
             applyProjectSettings(snapshot);
-            notification.success(t("settings.panels.models.projectSaveSuccess"));
+            notification.success(successMessage ?? t("settings.panels.models.projectSaveSuccess"));
         } else {
             applySettings(snapshot, {preserveUiState: true, preferredProviderKey: activeProviderKey.value});
-            notification.success(t("settings.panels.models.globalSaveSuccess"));
+            notification.success(successMessage ?? t("settings.panels.models.globalSaveSuccess"));
         }
+        return true;
     } catch (error) {
         notification.error(resolveApiErrorMessage(error, t("settings.panels.models.saveFailed")));
+        return false;
     } finally {
         saving.value = false;
     }
+}
+
+/**
+ * 保存模型设定。
+ */
+async function saveSettings(): Promise<void> {
+    await saveSettingsResult();
+}
+
+/**
+ * 重新读取已保存的模型设定，放弃当前草稿。
+ */
+async function restoreSettings(): Promise<void> {
+    await loadSettings();
 }
 
 /**
@@ -1162,6 +1249,7 @@ function renameActiveProviderId(nextProviderId: string): void {
 
     const previousProviderId = provider.id;
     const normalizedProviderId = nextProviderId.trim();
+    cancelProviderChecks(provider, {clearBatch: true});
     provider.id = normalizedProviderId;
 
     if (previousProviderId === normalizedProviderId) {
@@ -1258,9 +1346,9 @@ function requestDeleteActiveProvider(): void {
 }
 
 /**
- * 删除当前 Provider，并清理它关联的默认模型与临时状态。
+ * 删除当前 Provider，确认后立即保存当前模型面板草稿。
  */
-function confirmDeleteActiveProvider(): void {
+async function confirmDeleteActiveProvider(): Promise<void> {
     const provider = activeProvider.value;
     if (!provider) {
         deleteProviderDialogOpen.value = false;
@@ -1268,6 +1356,7 @@ function confirmDeleteActiveProvider(): void {
     }
 
     const deletedProviderId = provider.id;
+    const deletedProviderName = provider.name;
     draft.value.providers = draft.value.providers.filter((item) => item !== provider);
     if (draft.value.defaultModelKey?.startsWith(`${deletedProviderId}/`)) {
         draft.value.defaultModelKey = null;
@@ -1277,7 +1366,7 @@ function confirmDeleteActiveProvider(): void {
     activeProviderKey.value = draft.value.providers[0]?.localKey ?? "";
     ensureDefaultModelKey();
     deleteProviderDialogOpen.value = false;
-    notification.success(t("settings.panels.models.providerDeleted", {name: provider.name}));
+    await saveSettingsResult(t("settings.panels.models.providerDeleted", {name: deletedProviderName}));
 }
 
 /**
@@ -1304,23 +1393,6 @@ function shouldUseSavedProviderApiKey(provider: ProviderDraft): boolean {
     return !provider.options.apiKeyCleared && !provider.options.apiKey.trim();
 }
 
-function buildProviderCheckRequest(provider: ProviderDraft): {
-    provider: ModelProviderDraftDto;
-    models: Array<Omit<ConfiguredModelDto, "enabled">>;
-    useSavedApiKey: boolean;
-    useSavedModels: boolean;
-} {
-    const models = provider.models
-        .filter((model) => model.enabled)
-        .map(buildModelCheckDraft);
-    return {
-        ...buildProviderRequest(provider),
-        models,
-        useSavedApiKey: shouldUseSavedProviderApiKey(provider),
-        useSavedModels: models.length === 0 && !dirty.value,
-    };
-}
-
 function buildModelCheckDraft(model: ModelDraft): Omit<ConfiguredModelDto, "enabled"> {
     return {
         name: model.name.trim(),
@@ -1336,31 +1408,6 @@ function buildModelCheckDraft(model: ModelDraft): Omit<ConfiguredModelDto, "enab
         compat: parseModelCompat(model.compat),
         contextWindowTokens: parseContextWindowTokens(model.contextWindowTokens),
     };
-}
-
-/**
- * 测试 Provider API 连通性。
- */
-async function checkProvider(): Promise<void> {
-    const provider = activeProvider.value;
-    if (!provider || providerTestingId.value) {
-        return;
-    }
-
-    providerTestingId.value = provider.id;
-
-    try {
-        const result = await $fetch<CheckProviderResponseDto>("/api/config/models/provider-check", {
-            method: "POST",
-            body: buildProviderCheckRequest(provider),
-        });
-        const notify = result.success ? notification.success : notification.error;
-        notify(result.message);
-    } catch (error) {
-        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.providerCheckFailed")));
-    } finally {
-        providerTestingId.value = "";
-    }
 }
 
 /**
@@ -1472,6 +1519,10 @@ function enableModel(model: {
  * 将模型标记为禁用。
  */
 function disableModel(model: ModelDraft): void {
+    const provider = activeProvider.value;
+    if (provider) {
+        cancelModelCheck(provider, model);
+    }
     model.enabled = false;
     ensureDefaultModelKey();
 }
@@ -1512,37 +1563,208 @@ function addManualModel(): void {
     notification.success(t("settings.panels.models.manualAdded"));
 }
 
+function modelCheckKey(provider: ProviderDraft, model: ModelDraft): string {
+    return `${provider.id.trim()}/${model.id.trim()}`;
+}
+
+function modelCheckResult(provider: ProviderDraft, model: ModelDraft): ModelCheckResult | null {
+    return modelCheckResults.value[modelCheckKey(provider, model)] ?? null;
+}
+
+function isModelChecking(provider: ProviderDraft, model: ModelDraft): boolean {
+    return Boolean(modelCheckControllers.value[modelCheckKey(provider, model)]);
+}
+
+function isAbortError(error: unknown): boolean {
+    if (error instanceof DOMException && error.name === "AbortError") {
+        return true;
+    }
+    const name = typeof error === "object" && error !== null && "name" in error
+        ? (error as {name?: unknown}).name
+        : null;
+    return name === "AbortError";
+}
+
+function setModelCheckController(modelKey: string, controller: AbortController): void {
+    modelCheckControllers.value = {
+        ...modelCheckControllers.value,
+        [modelKey]: {controller},
+    };
+}
+
 /**
- * 对单个模型执行健康检查。
+ * 批次下所有模型都停止后，释放“检测全部”的 UI 锁。
  */
-async function checkModel(model: ModelDraft): Promise<void> {
+function clearModelCheckBatchesIfSettled(providerKey?: string): void {
+    const nextBatches = {...activeModelCheckBatches.value};
+    const entries = providerKey
+        ? [[providerKey, nextBatches[providerKey]] as const]
+        : Object.entries(nextBatches);
+    let changed = false;
+
+    for (const [batchProviderKey, batch] of entries) {
+        if (!batch) {
+            continue;
+        }
+        if (batch.modelKeys.some((modelKey) => Boolean(modelCheckControllers.value[modelKey]))) {
+            continue;
+        }
+        delete nextBatches[batchProviderKey];
+        changed = true;
+    }
+
+    if (changed) {
+        activeModelCheckBatches.value = nextBatches;
+    }
+}
+
+/**
+ * Provider 被禁用或重命名时，丢弃旧 Provider 批次锁。
+ */
+function clearProviderModelCheckBatch(provider: ProviderDraft): void {
+    if (activeModelCheckBatches.value[provider.localKey]) {
+        const nextBatches = {...activeModelCheckBatches.value};
+        delete nextBatches[provider.localKey];
+        activeModelCheckBatches.value = nextBatches;
+    }
+}
+
+function clearModelCheckController(modelKey: string, controller: AbortController): void {
+    if (modelCheckControllers.value[modelKey]?.controller !== controller) {
+        return;
+    }
+    const nextControllers = {...modelCheckControllers.value};
+    delete nextControllers[modelKey];
+    modelCheckControllers.value = nextControllers;
+    clearModelCheckBatchesIfSettled();
+}
+
+function writeModelCheckResult(modelKey: string, result: ModelCheckResult): void {
+    modelCheckResults.value = {
+        ...modelCheckResults.value,
+        [modelKey]: result,
+    };
+}
+
+function resetModelCheckState(): void {
+    modelCheckStateVersion += 1;
+    for (const state of Object.values(modelCheckControllers.value)) {
+        state.controller.abort();
+    }
+    modelCheckControllers.value = {};
+    modelCheckResults.value = {};
+    activeModelCheckBatches.value = {};
+}
+
+function cancelProviderChecks(provider: ProviderDraft, options: {clearBatch?: boolean} = {}): void {
+    for (const model of provider.models) {
+        modelCheckControllers.value[modelCheckKey(provider, model)]?.controller.abort();
+    }
+    if (options.clearBatch) {
+        clearProviderModelCheckBatch(provider);
+    }
+}
+
+function cancelModelCheck(provider: ProviderDraft, model: ModelDraft): void {
+    modelCheckControllers.value[modelCheckKey(provider, model)]?.controller.abort();
+}
+
+function cancelActiveProviderChecks(): void {
     const provider = activeProvider.value;
     if (!provider) {
         return;
     }
+    cancelProviderChecks(provider);
+}
 
-    const modelKey = `${provider.id}/${model.id}`;
-    if (modelTestingKey.value === modelKey) {
-        return;
-    }
-
-    modelTestingKey.value = modelKey;
+/**
+ * 对单个模型执行健康检查，并把结果写入模型行临时状态。
+ */
+async function runModelCheck(provider: ProviderDraft, model: ModelDraft): Promise<ModelCheckResult> {
+    const modelKey = modelCheckKey(provider, model);
+    const controller = new AbortController();
+    const stateVersion = modelCheckStateVersion;
+    setModelCheckController(modelKey, controller);
 
     try {
         const result = await $fetch<CheckModelResponseDto>("/api/config/models/model-check", {
             method: "POST",
+            signal: controller.signal,
             body: {
                 provider: buildProviderRequest(provider).provider,
                 model: buildModelCheckDraft(model),
                 useSavedApiKey: shouldUseSavedProviderApiKey(provider),
             },
         });
-        const notify = result.success ? notification.success : notification.error;
-        notify(result.message);
+        if (stateVersion === modelCheckStateVersion && !controller.signal.aborted) {
+            writeModelCheckResult(modelKey, result);
+        }
+        return result;
     } catch (error) {
-        notification.error(resolveApiErrorMessage(error, t("settings.panels.models.modelCheckFailed")));
+        const result: ModelCheckResult = controller.signal.aborted || isAbortError(error)
+            ? {
+                success: false,
+                latencyMs: null,
+                message: t("settings.panels.models.modelCheckCancelled"),
+                cancelled: true,
+            }
+            : {
+                success: false,
+                latencyMs: null,
+                message: resolveApiErrorMessage(error, t("settings.panels.models.modelCheckFailed")),
+            };
+        if (stateVersion === modelCheckStateVersion) {
+            writeModelCheckResult(modelKey, result);
+        }
+        return result;
     } finally {
-        modelTestingKey.value = "";
+        clearModelCheckController(modelKey, controller);
+    }
+}
+
+/**
+ * 对单个模型执行健康检查。
+ */
+async function checkModel(model: ModelDraft): Promise<void> {
+    const provider = activeProvider.value;
+    if (!provider?.enabled || !model.enabled || isModelChecking(provider, model)) {
+        return;
+    }
+
+    await runModelCheck(provider, model);
+}
+
+/**
+ * 并发检测当前 Provider 下所有启用且尚未检测中的模型。
+ */
+async function checkAllActiveProviderModels(): Promise<void> {
+    const provider = activeProvider.value;
+    if (!provider?.enabled || checkingAllModels.value) {
+        return;
+    }
+    const enabledModels = provider.models.filter((model) => model.enabled);
+    if (enabledModels.length === 0) {
+        notification.info(t("settings.panels.models.noEnabledProviderModels"));
+        return;
+    }
+    const batchModelKeys = enabledModels.map((model) => modelCheckKey(provider, model));
+    activeModelCheckBatches.value = {
+        ...activeModelCheckBatches.value,
+        [provider.localKey]: {
+            providerKey: provider.localKey,
+            modelKeys: batchModelKeys,
+        },
+    };
+    const models = enabledModels.filter((model) => !isModelChecking(provider, model));
+    if (models.length === 0) {
+        clearModelCheckBatchesIfSettled(provider.localKey);
+        return;
+    }
+
+    try {
+        await Promise.allSettled(models.map((model) => runModelCheck(provider, model)));
+    } finally {
+        clearModelCheckBatchesIfSettled(provider.localKey);
     }
 }
 
@@ -1671,6 +1893,10 @@ onMounted(() => {
     void loadSettings();
 });
 
+onBeforeUnmount(() => {
+    resetModelCheckState();
+});
+
 watch(() => [props.scope, props.targetQuery?.workspaceKind, props.targetQuery?.projectPath] as const, () => {
     void loadSettings();
 });
@@ -1680,6 +1906,7 @@ defineExpose({
     loading,
     saving,
     saveSettings,
+    restoreSettings,
 });
 </script>
 
@@ -1756,7 +1983,7 @@ defineExpose({
                         v-for="provider in draft.providers"
                         :key="provider.localKey"
                         class="group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-all duration-300"
-                        :class="activeProviderKey === provider.localKey ? 'bg-[var(--accent-bg)] text-[var(--accent-text)] shadow-sm' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                        :class="activeProviderKey === provider.localKey ? 'bg-[var(--accent-bg)] text-[var(--accent-text)] shadow-sm' : provider.enabled ? 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]' : 'text-[var(--text-muted)] opacity-65 hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]'"
                         @click="activeProviderKey = provider.localKey"
                     >
                         <!-- 激活状态左侧指示条 -->
@@ -1765,10 +1992,13 @@ defineExpose({
                             :class="activeProviderKey === provider.localKey ? 'opacity-100' : 'opacity-0 scale-y-0'"
                         ></div>
 
-                        <span class="i-lucide-server h-4 w-4 shrink-0 transition-transform duration-300 group-hover:scale-110" :class="activeProviderKey === provider.localKey ? 'text-[var(--accent-main)]' : 'text-[var(--text-muted)]'"></span>
+                        <span class="h-4 w-4 shrink-0 transition-transform duration-300 group-hover:scale-110" :class="[provider.enabled ? 'i-lucide-server' : 'i-lucide-server-off', activeProviderKey === provider.localKey ? 'text-[var(--accent-main)]' : 'text-[var(--text-muted)]']"></span>
                         <div class="min-w-0 flex-1">
                             <div class="truncate text-[13px] font-medium" :class="activeProviderKey === provider.localKey ? 'text-[var(--accent-text)]' : 'text-[var(--text-main)]'">{{ provider.name }}</div>
-                            <div class="mt-0.5 truncate text-[11px] opacity-70">{{ t("settings.panels.models.modelCount", {count: provider.models.filter((model) => model.enabled).length}) }}</div>
+                            <div class="mt-0.5 flex min-w-0 items-center gap-1 truncate text-[11px] opacity-70">
+                                <span class="truncate">{{ t("settings.panels.models.modelCount", {count: provider.enabled ? providerEnabledModelCount(provider) : 0}) }}</span>
+                                <span v-if="!provider.enabled" class="shrink-0 rounded border border-amber-500/20 bg-amber-500/10 px-1 text-[10px] text-amber-700">{{ t("settings.panels.models.providerDisabled") }}</span>
+                            </div>
                         </div>
                     </button>
                 </div>
@@ -1781,19 +2011,19 @@ defineExpose({
                     mode="out-in"
                 >
                     <section v-if="activeProvider" :key="activeProvider.localKey" class="space-y-5 pb-8">
-                        <!-- Provider 配置卡片 -->
+                        <!-- Provider 连接表单 -->
                         <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-sm transition-all duration-300 hover:shadow-md">
-                            <div class="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-color)] pb-4">
-                                <div>
-                                    <h3 class="text-base font-semibold text-[var(--text-main)]">{{ t("settings.panels.models.providerConfig") }}</h3>
-                                    <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ t("settings.panels.models.providerConfigDescription") }}</p>
+                            <!-- Provider 操作区 -->
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <div v-if="!activeProvider.enabled" class="inline-flex min-h-8 min-w-0 items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700">
+                                    <span class="i-lucide-server-off h-3.5 w-3.5"></span>
+                                    {{ t("settings.panels.models.providerDisabledHint") }}
                                 </div>
 
-                                <div class="flex flex-wrap items-center gap-2">
-                                    <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-main)] shadow-sm transition-all duration-200 hover:bg-[var(--bg-hover)] hover:shadow active:scale-95 disabled:pointer-events-none disabled:opacity-60" :disabled="providerTestingId === activeProvider.id" @click="void checkProvider()">
-                                        <span v-if="providerTestingId === activeProvider.id" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
-                                        <span v-else class="i-lucide-activity h-3.5 w-3.5 text-[var(--text-muted)]"></span>
-                                        {{ providerTestingId === activeProvider.id ? t("settings.panels.models.checking") : t("settings.panels.models.checkProvider") }}
+                                <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
+                                    <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium shadow-sm transition-all duration-200 hover:shadow active:scale-95" :class="activeProvider.enabled ? 'border-amber-500/20 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15'" @click="toggleActiveProviderEnabled">
+                                        <span class="h-3.5 w-3.5" :class="activeProvider.enabled ? 'i-lucide-power-off' : 'i-lucide-power'"></span>
+                                        {{ activeProvider.enabled ? t("settings.panels.models.disableProvider") : t("settings.panels.models.enableProvider") }}
                                     </button>
                                     <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-main)] shadow-sm transition-all duration-200 hover:bg-[var(--bg-hover)] hover:shadow active:scale-95 disabled:pointer-events-none disabled:opacity-60" :disabled="providerDiscoveringId === activeProvider.id" @click="void discoverModels()">
                                         <span v-if="providerDiscoveringId === activeProvider.id" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
@@ -1808,7 +2038,7 @@ defineExpose({
                             </div>
 
                             <!-- Provider 表单 -->
-                            <div class="mt-5 grid gap-4 md:grid-cols-2">
+                            <div class="mt-4 grid gap-4 md:grid-cols-2">
                                 <div class="group space-y-1.5">
                                     <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">{{ t("settings.panels.models.providerId") }}</label>
                                     <FormInput :model-value="activeProvider.id" :placeholder="t('settings.panels.models.providerIdPlaceholder')" @update:model-value="renameActiveProviderId" />
@@ -1853,9 +2083,19 @@ defineExpose({
                                 <div>
                                     <div class="flex items-center gap-2">
                                         <h3 class="text-base font-semibold text-[var(--text-main)]">{{ t("settings.panels.models.enabledModels") }}</h3>
-                                        <div class="flex items-center justify-center rounded-full bg-[var(--bg-input)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-secondary)]">{{ activeProvider.models.filter(m => m.enabled).length }}</div>
+                                        <div class="flex items-center justify-center rounded-full bg-[var(--bg-input)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-secondary)]">{{ activeProviderEnabledModelCount }}</div>
                                     </div>
                                     <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ t("settings.panels.models.enabledModelsDescription") }}</p>
+                                </div>
+                                <div class="flex flex-wrap items-center justify-end gap-2">
+                                    <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-main)] shadow-sm transition-all duration-200 hover:bg-[var(--bg-hover)] active:scale-95 disabled:pointer-events-none disabled:opacity-50" :disabled="checkingAllModels || activeProviderEnabledModelCount === 0" @click="void checkAllActiveProviderModels()">
+                                        <span class="h-3.5 w-3.5" :class="checkingAllModels ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-list-checks'"></span>
+                                        {{ checkingAllModels ? t("settings.panels.models.checkingAllModels") : t("settings.panels.models.checkAllModels") }}
+                                    </button>
+                                    <button v-if="activeProviderCheckingModelCount > 0" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/8 px-3 text-xs font-medium text-rose-600 shadow-sm transition-all duration-200 hover:bg-rose-500/15 active:scale-95" @click="cancelActiveProviderChecks">
+                                        <span class="i-lucide-circle-x h-3.5 w-3.5"></span>
+                                        {{ t("settings.panels.models.cancelModelChecks") }}
+                                    </button>
                                 </div>
                             </div>
 
@@ -1895,13 +2135,21 @@ defineExpose({
                                                             </span>
                                                         </div>
                                                         <div class="truncate text-[11px] text-[var(--text-muted)] mt-0.5">{{ model.id }}</div>
+                                                        <div v-if="modelCheckResult(activeProvider, model)" class="mt-1 flex max-w-[520px] items-center gap-1.5 text-[11px]" :class="modelCheckResult(activeProvider, model)?.cancelled ? 'text-[var(--text-muted)]' : modelCheckResult(activeProvider, model)?.success ? 'text-emerald-600' : 'text-rose-600'" :title="modelCheckResult(activeProvider, model)?.message">
+                                                            <span class="h-3 w-3 shrink-0" :class="modelCheckResult(activeProvider, model)?.cancelled ? 'i-lucide-circle-slash' : modelCheckResult(activeProvider, model)?.success ? 'i-lucide-circle-check' : 'i-lucide-circle-x'"></span>
+                                                            <span class="truncate">{{ modelCheckResult(activeProvider, model)?.message }}</span>
+                                                            <span v-if="modelCheckResult(activeProvider, model)?.latencyMs !== null" class="shrink-0 opacity-70">{{ modelCheckResult(activeProvider, model)?.latencyMs }}ms</span>
+                                                        </div>
                                                     </div>
                                                 </div>
 
-                                                <div class="flex items-center gap-1 opacity-0 transition-opacity duration-200 group-hover/model:opacity-100">
-                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-input)] hover:text-[var(--text-main)] transition-colors disabled:opacity-50" :disabled="modelTestingKey === `${activeProvider.id}/${model.id}`" :title="t('settings.panels.models.checkModel')" @click="void checkModel(model)">
-                                                        <span v-if="modelTestingKey === `${activeProvider.id}/${model.id}`" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
+                                                <div class="flex shrink-0 items-center gap-1">
+                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-input)] hover:text-[var(--text-main)] transition-colors disabled:opacity-50" :disabled="isModelChecking(activeProvider, model)" :title="t('settings.panels.models.checkModel')" @click="void checkModel(model)">
+                                                        <span v-if="isModelChecking(activeProvider, model)" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
                                                         <span v-else class="i-lucide-play h-3.5 w-3.5"></span>
+                                                    </button>
+                                                    <button v-if="isModelChecking(activeProvider, model)" class="flex h-7 w-7 items-center justify-center rounded-md text-rose-500 transition-colors hover:bg-rose-500/10 hover:text-rose-600" :title="t('settings.panels.models.cancelModelCheck')" @click="cancelModelCheck(activeProvider, model)">
+                                                        <span class="i-lucide-circle-x h-3.5 w-3.5"></span>
                                                     </button>
                                                     <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-input)] hover:text-[var(--text-main)] transition-colors" :title="t('settings.panels.models.editSettings')" @click="openModelEdit(model)">
                                                         <span class="i-lucide-settings h-3.5 w-3.5"></span>

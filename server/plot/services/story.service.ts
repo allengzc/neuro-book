@@ -2,6 +2,7 @@ import type {
     Story,
 } from "nbook/server/generated/project-prisma/client";
 import type {
+    ChapterRepository,
     StoryRepository,
     ThreadRepository,
 } from "nbook/server/plot/contracts/plot-repositories";
@@ -27,6 +28,7 @@ export class StoryService {
     constructor(
         private readonly storyRepository: StoryRepository,
         private readonly threadRepository: ThreadRepository,
+        private readonly chapterRepository: ChapterRepository,
         private readonly orderService: OrderService,
         private readonly assembler: PlotDtoAssembler,
         private readonly scopeGuard: PlotScopeGuard,
@@ -70,19 +72,23 @@ export class StoryService {
     }
 
     /**
-     * 读取剧情树。
+     * 读取剧情树(因果树 + 承载树)。
      */
     async getPlotTree(projectPath: string): Promise<PlotTreeDto> {
         const story = await this.ensureStory(projectPath);
-        const [phases, ungroupedThreads] = await Promise.all([
+        const [phases, ungroupedThreads, acts, ungroupedChapters] = await Promise.all([
             this.threadRepository.findPhaseThreadsWithScenes(story.id),
             this.threadRepository.findUngroupedThreads(story.id),
+            this.chapterRepository.findActsWithChapters(story.id),
+            this.chapterRepository.findUngroupedChapters(story.id),
         ]);
 
         return this.assembler.toPlotTreeDto({
             story,
             phases,
             ungroupedThreads,
+            acts,
+            ungroupedChapters,
         });
     }
 

@@ -24,16 +24,16 @@
 
 ## Goal
 
-把 Markdown 富文本选区 AI 从旧的 `/api/writing/continue` 流式续写能力迁移到 Agent session 体系：用户在 TipTap 选区菜单点击 sparkles 后，底部 Inline AI Prompt Bar 自动展开并接收当前选区引用；用户可选择改写、润色、扩写、缩写、续写或承接，输入更长的自然语言要求，选择模型和绑定 session，然后把带文件路径 / 行号 / XML 选区正文的 prompt 发送给 `inline.editor` profile 的 Project 级绑定 session。Agent 默认直接修改目标文件，而不是只返回建议。
+把 Markdown 富文本选区 AI 从旧的 `/api/writing/continue` 流式续写能力迁移到 Agent session 体系：用户在 TipTap 选区菜单点击 sparkles 后，底部 Inline AI Prompt Bar 自动展开并接收当前选区引用；用户可选择对话、改写、润色、扩写、缩写、续写或承接，输入更长的自然语言要求，选择 inline session 与模型，然后把带文件路径 / 行号 / XML 选区正文的 prompt 发送给 `inline.editor` profile 的 Project 级绑定 session。Agent 默认直接修改目标文件，而不是只返回建议。
 
 验收证据：
 
 - 旧 `NovelPromptBar` 不再承担 `/api/writing/continue` 续写职责，而是被重构为默认收起的 Inline AI Prompt Bar。
 - `/api/writing/continue`、`NovelContinue*` DTO、OpenAPI 特判和前端调用全部删除。
 - TipTap selection menu 的 sparkles / AI 按钮会展开底部 Prompt Bar，并把当前选区引用写入该输入栏。
-- 底部 Prompt Bar 支持任务下拉、模型切换、session 绑定、选区引用展示和长文本编辑要求输入。
+- 底部 Prompt Bar 支持任务下拉、inline session 选择、独立新建 session、原地模型切换、选区引用展示和长文本编辑要求输入。
 - Prompt Bar 只在当前 active file 是可编辑文本表面时渲染 / 启用；非文本文件、欢迎页、只读或不可编辑节点不显示这个入口。
-- 发送后会打开 / 聚焦 Agent 面板，自动创建或复用当前 Project Workspace 的 `inline.editor` session。
+- 发送后后台运行，不自动打开 / 聚焦 Agent 面板；Prompt Bar 自动创建或复用当前 Project Workspace 的 `inline.editor` session，只有用户显式点击“打开 Session 聊天”才进入右侧 Agent 面板。
 - edit 工具调用运行时，输入框上方能流式显示当前修改内容或修改摘要。
 - 发送到 Agent 的消息包含目标文件、选区行号定位、XML 包裹的选区正文和明确动作。
 - `inline.editor` profile 可加载、可创建 session，并拥有 `read` / `edit` / `write` / `report_result` 工具。
@@ -56,10 +56,10 @@
 - 新增 profile key 使用 `inline.editor`，中文名“Inline AI 编辑”。
 - `NovelPromptBar` 不删除，改造成 Inline AI Prompt Bar；删除的是旧 `/api/writing/continue` 语义和调用链。
 - Inline AI Prompt Bar 默认收起；selection menu 的 sparkles / AI 只负责展开它并传入当前选区引用。
-- 任务选择放在 Prompt Bar 内部，用带图标的下拉菜单承载“改写、润色、扩写、缩写、续写、承接”。
+- 任务选择放在 Prompt Bar 内部，用带图标的下拉菜单承载“对话、改写、润色、扩写、缩写、续写、承接”。
 - 用户可能输入较多要求，所以不做临时 popover 输入框；Prompt Bar textarea 是主要输入面。
 - Prompt Bar 显示当前绑定 session，并提供绑定 / 切换入口。
-- Prompt Bar v1 的模型切换入口复用 Agent 面板现有 session 模型控制；Prompt Bar 内原地模型选择是后续增强。
+- Prompt Bar 内原地复用 Agent session 模型控制组件，模型覆盖只作用于当前 `inline.editor` session。
 - Prompt Bar 显示当前选区引用卡片，包含文件名、行号状态、选区摘要和清除引用入口。
 - edit 工具流式适配以“修改预览条 / diff 摘要 / 当前编辑片段”形式显示在输入框上方，不把大段工具流塞进按钮状态。
 - Prompt Bar 的启用范围绑定当前 active editor：Markdown / 纯文本可编辑文件启用；欢迎页、不可编辑节点和非文本文件禁用或不渲染。
@@ -79,7 +79,7 @@
 - 行号定位基于当前序列化 Markdown 尽力匹配选区文本；唯一匹配给起止行号，重复或找不到时标记 `ambiguous` / `unknown` 并仍发送选区正文。
 - 前端不直接替换选区；修改由 `inline.editor` 读取文件后使用文件工具完成。
 - 只删除旧写作 `/api/writing/continue`；不要删除 Agent session 的 `mode: "continue"`，它仍用于审批恢复、空消息继续和 session tree retry。
-- 用户主动管理 session 使用 PromptBar 内半透明 session 菜单，只列出当前 Project Workspace 的 `inline.editor` active sessions，支持选择、刷新、新建；Project 级绑定 id 存在 localStorage。右侧 Agent 面板只作为显式模型设置 / 调试入口。
+- 用户主动管理 session 使用 PromptBar 内半透明 session 菜单，只列出当前 Project Workspace 的 `inline.editor` active sessions；session 列表自动刷新，新建 session 使用独立按钮，Project 级绑定 id 存在 localStorage。右侧 Agent 面板只作为显式聊天 / 调试入口。
 - 所有 Agent 的 cwd 都是 Workspace Root；所有文件工具路径必须包含 project slug 前缀，格式为 `project-slug/manuscript/...`。
 - 前端负责从 IDE store 的 Project Workspace 相对路径转换为完整路径；profile 只使用 payload 的完整原值，不做路径拼接或猜测。
 
@@ -94,7 +94,8 @@
 - 2026-06-18：完成第一版实现。新增 `app/utils/inline-editor-selection.ts`；扩展 `ReferencePlainTextEditor` plain token/node、reference chip 视觉和 Agent Markdown 渲染，使 `[[path#Lx-Ly]]` selection chip 可解析、序列化和展示；TipTap selection menu 的 `Improve` 改为“加入 AI 引用”，事件链贯通到首页；`NovelPromptBar` 重构为 Inline AI Prompt Bar，支持任务下拉、多个选区 chip、长输入、session/model 入口和 edit/write 工具预览；`AgentChatSurface` 暴露 `openInlineEditorSession()`、`sendInlineEditorPrompt()` 和 `inlineEditPreview`，自动创建 / 复用 `inline.editor` session；新增 `inline.editor.profile.tsx` 和 payload schema，并编译系统 profile artifact；删除旧 `/api/writing/continue`、`NovelContinue*` DTO、OpenAPI route-map/generator SSE 特判和首页旧 SSE 调用链。
 - 2026-06-18：审查后修复三类问题。短格式 selection chip 解析收窄为明确文件路径，避免把 `issue#123` 和 URL fragment 误识别为选区；TipTap 选区行号优先基于编辑器选区位置和序列化 Markdown 前缀推导，不再只依赖纯文本匹配；Prompt Bar 的 edit/write 预览只显示当前 `inline.editor` session 中正在运行的工具调用，避免无关历史工具污染。
 - 2026-06-24：路径解析修复。Session 244 审查发现工具调用失败根因是前端传递裸路径 `manuscript/...`，但 Agent cwd 是 `workspace/`，导致解析为 `workspace/manuscript/...` 而非 `workspace/project-slug/manuscript/...`。修复方案：前端新增 `resolveInlineEditorTargetPath()` 和 `resolveInlineEditorReferences()` helper，在构造 payload 时自动加上 project slug 前缀；修正 Schema 和 profile prompt 的误导表述；增强 profile context 渲染 projectSlug/projectPath。与 writer 的路径协议完全对齐。
-- 2026-06-28：半透明 session 管理调整。Inline AI 发送改为后台运行，不再自动打开右侧 Agent 面板或切换主 Agent active session；`AgentChatSurface` 维护独立 inline session snapshot/messages/SSE stream；`NovelPromptBar` 内新增当前 Project 的 `inline.editor` session 菜单，支持选择、刷新、新建，并展示后台 edit/write 预览和 `report_result.result` 摘要。显式点击模型按钮时才打开右侧 Agent 面板进入当前 inline session。
+- 2026-06-28：半透明 session 管理调整。Inline AI 发送改为后台运行，不再自动打开右侧 Agent 面板或切换主 Agent active session；`AgentChatSurface` 维护独立 inline session snapshot/messages/SSE stream；`NovelPromptBar` 内新增当前 Project 的 `inline.editor` session 菜单，支持选择、自动刷新与独立新建，并展示后台 edit/write 预览和 `report_result.result` 摘要。显式点击“打开 Session 聊天”时才打开右侧 Agent 面板进入当前 inline session。
+- 2026-07-03：系统性修复 PromptBar 半透明 session 细节。系统 profiles 统一重新编译，修复 `inline.editor` 默认 `chat` 任务在 runtime 中因 stale artifact 不可运行的问题；PromptBar 禁止“空输入 + 无引用”误发送；后台 live view 和 edit/write 预览只投影最新用户消息之后的当前 turn，避免新一轮开始时显示上一轮 thinking/content；Inline AI session 模型控件在运行、加载、保存或无 session 时统一禁用，并在被拦截或保存失败后恢复 snapshot 草稿，避免 UI 与真实 session 设置漂移。
 
 ## Code Research Notes
 
@@ -343,7 +344,7 @@ L14 | ...
 
 - Done: 旧 `/api/writing/continue` 前端调用、服务端 route、DTO、OpenAPI route-map 和 generator SSE 特判已删除；Agent session 的 `mode: "continue"` 未删除。
 - Done: `NovelPromptBar.vue` 已重构为默认收起的 Inline AI Prompt Bar，并只在当前文件是 Markdown / 纯文本可编辑文件时由首页渲染。
-- Done: Prompt Bar 输入面复用 `ReferencePlainTextEditor`，支持长输入；任务下拉支持改写、润色、扩写、缩写、续写、承接；发送成功清空输入和 selection chips，失败保留。
+- Done: Prompt Bar 输入面复用 `ReferencePlainTextEditor`，默认一行起步并支持展开长输入；任务下拉支持对话、改写、润色、扩写、缩写、续写、承接；发送成功清空输入和 selection chips，失败保留。
 - Done: selection chip 支持 `[[path#Lstart-Lend]]`、`[[path#Lline]]`、`[[path]]` 与短格式 `path#start-end`；Agent Markdown 渲染显示为“选区” chip。
 - Done: TipTap selection menu 的 AI 入口改成“加入 AI 引用”，点击只追加引用并展开 Prompt Bar，不立即发送。
 - Done: 事件链已贯通 `MarkdownSelectionMenu -> TipTapMarkdownEditor -> MarkdownStudio -> MarkdownStudioWorkbench -> app/pages/index.vue -> AgentChatSurface`。
@@ -352,9 +353,12 @@ L14 | ...
 - Done: 短格式 selection chip 已收窄，`issue#123` / `https://example.com/a#45` 不会再被误识别；`src/server.ts#45-67` 仍会 canonical 序列化为 `[[src/server.ts#L45-L67]]`。
 - Done: TipTap selection chip 行号定位优先使用编辑器选区位置，包含标题 / Markdown 标记的选区也能尽力生成行号；失败时仍回退到旧的唯一文本匹配。
 - Done: Prompt Bar 顶部 edit/write 预览已限制为当前 `inline.editor` session 的运行中工具调用，不展示主创 session 或历史已完成工具调用。
-- Done: Inline AI 发送后后台运行，不自动打开右侧 Agent 面板、不切换主 Agent active session；PromptBar 内可选择、刷新、新建当前 Project 的 `inline.editor` sessions，并展示最终 `report_result.result`。
+- Done: Inline AI 发送后后台运行，不自动打开右侧 Agent 面板、不切换主 Agent active session；PromptBar 内可选择当前 Project 的 `inline.editor` sessions、独立新建 session、原地调整 inline session 模型，并流式展示当前 session 的思考、正文、edit/write 预览和最终 `report_result.result`。
+- Done: PromptBar 发送条件已收紧为空输入无引用不可发送；页面发送入口也保留同样 guard，仍允许“有输入但无选区”处理当前文件。
+- Done: PromptBar 的后台 live view / edit-write 预览只显示当前 inline turn；新一轮发送追加用户消息后不会继续展示上一轮 assistant 流内容。
+- Done: Inline AI session 模型控件在运行、加载、保存和无 session 时统一禁用；被防御式拦截或保存失败时会恢复当前 snapshot 草稿。
+- Done: 系统 profile compiled artifacts 已整体刷新，`inline.editor` 与其它系统 profiles 在 runtime status 中均为 loaded。
 - Done: `reference/agent/profile-routing.md` 和 `PROJECT-STATUS.md` 已同步。
-- Follow-up: 模型切换仍复用右侧 Agent 面板现有 session 模型控制；后续可补 PromptBar 内原地模型选择菜单。
 - Follow-up: v1 只支持 TipTap 富文本 selection menu 选区捕获；Monaco / 源码模式选区捕获后续单独补。
 
 ## Verification
@@ -368,3 +372,7 @@ L14 | ...
 - Passed: 浏览器交互审查已运行。打开 `http://localhost:3000/?project=workspace%2Fming-ding-zhi-shi-2`，进入 `manuscript/001-volume/001-chapter/index.md` 后，selection menu 的“加入 AI 引用”可展开 Prompt Bar，任务下拉可见改写 / 润色 / 扩写 / 缩写 / 续写 / 承接；未点击发送以避免真实改写文件。控制台无新增 error，仅有 Nuxt timer warning。
 - Passed after review fixes: `bunx vitest run app/utils/plain-reference-text.test.ts app/utils/markdown/render.test.ts`
 - Blocked after review fixes: `bunx vue-tsc --noEmit --pretty false` 和浏览器复验当前被本地依赖状态阻塞。`node_modules` 缺少 package.json 已声明的 `@nuxtjs/i18n`，页面进入 Nuxt 错误页；`bun install --frozen-lockfile` 拒绝执行，因为当前 `bun.lock` 没有该依赖且 frozen 模式会要求改锁文件。该问题不是 Inline Editor Agent 改动引入。
+- Blocked current PromptBar optimization: `bunx vue-tsc --noEmit --pretty false` 当前失败在既有 `app/components/novel-ide/plot/NovelPlotPanel.vue` 的 `chapterPath/chapterId` 类型不一致；本轮修改相关文件未出现在报错列表中。
+- Passed current system profile refresh: `bun scripts/build/profile.ts compile --all --system` 重新生成 14 个系统 profile artifact；`bun scripts/build/profile.ts status --all --system` 确认全部系统 profiles 为 `loaded`。
+- Passed current inline artifact spot-check: 新 `inline.editor` artifact 包含 `Literal("chat")`、`task=chat` contract 和 `case "chat"` 默认指令分支。
+- Blocked current PromptBar system-fix typecheck: `bunx vue-tsc --noEmit --pretty false` 仍失败在既有 `app/components/novel-ide/plot/NovelPlotPanel.vue` 的 `chapterPath/chapterId` 类型不一致；Inline AI 相关文件未出现在报错列表中。

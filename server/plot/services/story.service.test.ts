@@ -1,4 +1,5 @@
 import type {
+    ChapterRepository,
     SceneRepository,
     StoryRepository,
     ThreadRepository,
@@ -58,6 +59,7 @@ describe("StoryService", () => {
             }),
         } as ThreadRepository;
         const sceneRepository = {} as SceneRepository;
+        const chapterRepository = {} as ChapterRepository;
         const orderService = new OrderService(
             storyRepository,
             threadRepository,
@@ -67,6 +69,7 @@ describe("StoryService", () => {
             storyRepository,
             threadRepository,
             sceneRepository,
+            chapterRepository,
         );
         scopeGuard.assertPhase = vi.fn(async (_storyId: number, phaseId: number) => {
             const phase = phases.find((item) => item.id === phaseId);
@@ -78,6 +81,7 @@ describe("StoryService", () => {
         const service = new StoryService(
             storyRepository,
             threadRepository,
+            chapterRepository,
             orderService,
             new PlotDtoAssembler(),
             scopeGuard,

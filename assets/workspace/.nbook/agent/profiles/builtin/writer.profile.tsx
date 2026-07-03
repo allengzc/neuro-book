@@ -28,7 +28,7 @@ export const profileManifest = {
     key: "writer",
     name: "正文写作",
     version: 2,
-    description: "长期可复用正文写作 agent：创建 initial 为空，每轮 invoke.message 写任务，invoke.input 指定目标 Markdown path 与建议读取上下文。写正文时不要自己写，总是优先使用 writer",
+    description: "长期可复用正文写作 agent（autonomous 防全知模式）：创建 initial 为空，每轮 invoke.message 写任务、invoke.input 传 {path, chapterId?, context?}。writer 自主用 get_chapter_writer_brief / execute_world / read 查证设定与状态。brief 格式规范见 reference/plot/writer-brief.md。写正文时不要自己写，总是优先使用 writer。",
 } as const;
 
 export const InitialSchema = WriterInitialSchema;
@@ -222,6 +222,13 @@ export default defineAgentProfile({
         builtin.file.edit,
         builtin.file.bash,
         builtin.world.execute("readonly"),
+        // autonomous 模式:writer 自主读 Plot(只读),可自取章节 brief 与场景/世界上下文;不含 Plot 写工具。
+        builtin.plot.getChapterWriterBrief,
+        builtin.plot.getChapter,
+        builtin.plot.getSceneContext,
+        builtin.plot.getSceneWorldContext,
+        builtin.plot.getTree,
+        builtin.plot.getThread,
         builtin.result.main(),
     ),
     compaction: {},
@@ -258,13 +265,15 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
 
                         输入结构：
                         - input.path：本轮唯一写入目标（project-slug/.../*.md 格式）
+                        - input.chapterId：本章 StoryChapter id（可选）；有它时用 get_chapter_writer_brief 自取章节 brief
                         - input.context：建议读取的 lorebookEntries 和 readablePaths
                         - message：写作任务正文（brief）
 
-                        详细的输入契约和路径规则见 reference/agent/project-workspace-guide.md。
+                        详细的输入契约和路径规则见 reference/agent/project-workspace-guide.md。brief 格式规范见 reference/plot/writer-brief.md。
                         <hard_rules>
                             - 只根据已有设定、剧情点和明确要求写作，不新增超出任务范围的关键设定。
-                            - 如果 message 包含上游 leader（或手动 director）生成的 Scene / World Context brief，把它作为本轮写作依据；你不持有 Plot tools，也不要根据 threadIds / sceneIds / plotIds 自行读取 Plot。
+                            - 你处于 autonomous（自主全知）模式：拥有 Plot 只读、World Engine 只读、lorebook 读能力。message 里的 brief 只给框架与查询提示，不含可查询状态；HP / 位置 / 属性等状态**由你自己查证**，不要当作 brief 遗漏。
+                            - 有 input.chapterId 时优先 get_chapter_writer_brief 自取 brief；需要场景/世界上下文用 get_chapter_plot / get_story_scene_context / get_scene_world_context；需要角色当前状态用 execute_world。
                             - Profile settings 提供长期默认偏好；如果本轮 message 明确指定段落节奏、字数、人称、润色流程或风格约束，优先服从本轮 message。
                             - 如果设定缺失但不影响完成正文，可以用不改变世界观的细节补足场面；如果缺失会导致剧情方向无法判断，先用工具读取必要文件或在 report_result.result 里说明限制。
                             - 完成任务后必须调用 report_result 提交最终结果；调用 report_result 成功后对话会自动结束。
@@ -287,10 +296,12 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
                         - **read / write / edit**：文件操作
                         - **bash**：执行 CLI 工具（如 llmlint）
                         - **execute_world**：World Engine 只读查询（CodeAct 沙盒）
+                        - **get_chapter_writer_brief / get_chapter_plot / get_story_scene_context / get_scene_world_context / get_plot_tree / get_story_thread**：Plot 只读
                         - **report_result**：提交最终结果
 
                         核心约束：
                         - World Engine 只读，不能写入、修改或删除切面
+                        - Plot 只读，不能创建或修改 Thread / Scene / Chapter；剧情设计权在 leader
                         - 默认按 brief 写作，不新增超出范围的关键设定
                         - 只有 brief 明确授权自由发挥时，才可新增角色或改变状态
 
@@ -445,6 +456,7 @@ async function renderInputContext(ctx: ProfilePrepareContext<Initial, Payload>):
         "<writer_input_context>",
         `Agent cwd: ${ctx.session.workspaceRoot}`,
         renderTargetFile(target),
+        payload.chapterId ? `<chapter_id>${payload.chapterId}</chapter_id>\n用 get_chapter_writer_brief({projectPath: "${target.projectPath}", chapterId: "${payload.chapterId}"}) 自取本章 brief。` : "",
         renderSuggestedContext(target, context),
         "</writer_input_context>",
     ].filter(Boolean).join("\n");
@@ -486,8 +498,6 @@ async function resolvePayloadTarget(rawPath: string): Promise<WriterPayloadTarge
  * 校验并规范化 payload.context 中的建议读取路径。
  */
 function normalizePayloadContext(target: WriterPayloadTarget, context: Payload["context"] | undefined): NonNullable<Payload["context"]> {
-    // writer 不直接持有 Plot tools：threadIds / sceneIds / plotIds 即使在 payload schema 里仍存在，
-    // 也不再规范化、不再渲染；上游应把 Scene / World Context brief 放进 invoke_agent.message。
     return {
         lorebookEntries: context?.lorebookEntries?.map((path) => normalizeProjectPathRef(path, target.projectSlug, "writer.input.context.lorebookEntries", {preserveTrailingSlash: true})),
         readablePaths: context?.readablePaths?.map((path) => normalizeProjectPathRef(path, target.projectSlug, "writer.input.context.readablePaths", {mustBeMarkdown: true})),

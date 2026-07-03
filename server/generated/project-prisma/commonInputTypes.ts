@@ -144,18 +144,6 @@ export type IntNullableFilter<$PrismaModel = never> = {
   not?: Prisma.NestedIntNullableFilter<$PrismaModel> | number | null
 }
 
-export type BoolFilter<$PrismaModel = never> = {
-  equals?: boolean | Prisma.BooleanFieldRefInput<$PrismaModel>
-  not?: Prisma.NestedBoolFilter<$PrismaModel> | boolean
-}
-
-export type EnumStoryThreadStatusFilter<$PrismaModel = never> = {
-  equals?: $Enums.StoryThreadStatus | Prisma.EnumStoryThreadStatusFieldRefInput<$PrismaModel>
-  in?: $Enums.StoryThreadStatus[]
-  notIn?: $Enums.StoryThreadStatus[]
-  not?: Prisma.NestedEnumStoryThreadStatusFilter<$PrismaModel> | $Enums.StoryThreadStatus
-}
-
 export type IntNullableWithAggregatesFilter<$PrismaModel = never> = {
   equals?: number | Prisma.IntFieldRefInput<$PrismaModel> | null
   in?: number[] | null
@@ -170,6 +158,18 @@ export type IntNullableWithAggregatesFilter<$PrismaModel = never> = {
   _sum?: Prisma.NestedIntNullableFilter<$PrismaModel>
   _min?: Prisma.NestedIntNullableFilter<$PrismaModel>
   _max?: Prisma.NestedIntNullableFilter<$PrismaModel>
+}
+
+export type BoolFilter<$PrismaModel = never> = {
+  equals?: boolean | Prisma.BooleanFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedBoolFilter<$PrismaModel> | boolean
+}
+
+export type EnumStoryThreadStatusFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryThreadStatus | Prisma.EnumStoryThreadStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryThreadStatus[]
+  notIn?: $Enums.StoryThreadStatus[]
+  not?: Prisma.NestedEnumStoryThreadStatusFilter<$PrismaModel> | $Enums.StoryThreadStatus
 }
 
 export type BoolWithAggregatesFilter<$PrismaModel = never> = {
@@ -448,18 +448,6 @@ export type NestedIntNullableFilter<$PrismaModel = never> = {
   not?: Prisma.NestedIntNullableFilter<$PrismaModel> | number | null
 }
 
-export type NestedBoolFilter<$PrismaModel = never> = {
-  equals?: boolean | Prisma.BooleanFieldRefInput<$PrismaModel>
-  not?: Prisma.NestedBoolFilter<$PrismaModel> | boolean
-}
-
-export type NestedEnumStoryThreadStatusFilter<$PrismaModel = never> = {
-  equals?: $Enums.StoryThreadStatus | Prisma.EnumStoryThreadStatusFieldRefInput<$PrismaModel>
-  in?: $Enums.StoryThreadStatus[]
-  notIn?: $Enums.StoryThreadStatus[]
-  not?: Prisma.NestedEnumStoryThreadStatusFilter<$PrismaModel> | $Enums.StoryThreadStatus
-}
-
 export type NestedIntNullableWithAggregatesFilter<$PrismaModel = never> = {
   equals?: number | Prisma.IntFieldRefInput<$PrismaModel> | null
   in?: number[] | null
@@ -485,6 +473,18 @@ export type NestedFloatNullableFilter<$PrismaModel = never> = {
   gt?: number | Prisma.FloatFieldRefInput<$PrismaModel>
   gte?: number | Prisma.FloatFieldRefInput<$PrismaModel>
   not?: Prisma.NestedFloatNullableFilter<$PrismaModel> | number | null
+}
+
+export type NestedBoolFilter<$PrismaModel = never> = {
+  equals?: boolean | Prisma.BooleanFieldRefInput<$PrismaModel>
+  not?: Prisma.NestedBoolFilter<$PrismaModel> | boolean
+}
+
+export type NestedEnumStoryThreadStatusFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryThreadStatus | Prisma.EnumStoryThreadStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryThreadStatus[]
+  notIn?: $Enums.StoryThreadStatus[]
+  not?: Prisma.NestedEnumStoryThreadStatusFilter<$PrismaModel> | $Enums.StoryThreadStatus
 }
 
 export type NestedBoolWithAggregatesFilter<$PrismaModel = never> = {

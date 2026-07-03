@@ -1,17 +1,23 @@
 import type {Prisma} from "nbook/server/generated/project-prisma/client";
 import type {
+    StoryAct,
+    StoryChapter,
     StoryPhase,
     StoryScene,
     StorySceneRef,
     StoryThread,
 } from "nbook/server/generated/project-prisma/client";
 import type {
+    CreateStoryActRequestDto,
+    CreateStoryChapterRequestDto,
     CreateStorySceneRequestDto,
     CreateStoryThreadRequestDto,
     ReorderStoryPhasesRequestDto,
     ReorderStoryScenesRequestDto,
     ReorderStoryThreadsRequestDto,
     StoryRefDto,
+    UpdateStoryActRequestDto,
+    UpdateStoryChapterRequestDto,
     UpdateStorySceneRequestDto,
     UpdateStoryThreadRequestDto,
 } from "nbook/shared/dto/plot.dto";
@@ -22,6 +28,8 @@ import type {Instant} from "nbook/server/world-engine/types";
  */
 export type PrismaExecutor = Prisma.TransactionClient | {
     story: Prisma.TransactionClient["story"];
+    storyAct: Prisma.TransactionClient["storyAct"];
+    storyChapter: Prisma.TransactionClient["storyChapter"];
     storyPhase: Prisma.TransactionClient["storyPhase"];
     storyThread: Prisma.TransactionClient["storyThread"];
     storyScene: Prisma.TransactionClient["storyScene"];
@@ -62,16 +70,45 @@ export type StoryThreadEntity = Omit<StoryThread, "tags"> & {
 };
 
 /**
+ * Scene 上内嵌的 Chapter 轻量引用。
+ */
+export type StoryChapterRef = Pick<StoryChapter, "id" | "name" | "title">;
+
+/**
+ * 带所属 Chapter 摘要的 Scene 读取模型;`chapter` 为空表示 Scene 未挂章。
+ */
+export type StorySceneWithChapter = StoryScene & {
+    chapter: StoryChapterRef | null;
+};
+
+/**
+ * ChapterBrief 的数据库列展开(StoryChapter 上的 brief* 字段组)。
+ */
+export type ChapterBriefColumns = Pick<
+    StoryChapter,
+    "briefGoal" | "briefPov" | "briefTone" | "briefPacing"
+    | "briefReaderKnows" | "briefProtagonistKnows" | "briefMustHide" | "briefHintOnly"
+    | "briefOpening" | "briefEnding" | "briefDoNotWrite"
+>;
+
+/**
+ * 带 Chapter 的 Act 聚合结果(承载树节点)。
+ */
+export type StoryActWithChapters = StoryAct & {
+    chapters: StoryChapter[];
+};
+
+/**
  * Thread 详情聚合结果，不包含 refs。
  */
 export type StoryThreadWithScenes = StoryThreadEntity & {
-    scenes: StoryScene[];
+    scenes: StorySceneWithChapter[];
 };
 
 /**
  * Scene 详情聚合结果。
  */
-export type StorySceneWithDetails = StoryScene & {
+export type StorySceneWithDetails = StorySceneWithChapter & {
     refs: StorySceneRefWithTargets[];
     thread: StoryThreadEntity;
 };
@@ -79,7 +116,7 @@ export type StorySceneWithDetails = StoryScene & {
 /**
  * Workbench Scene 聚合结果。
  */
-export type StoryWorkbenchScene = StoryScene & {
+export type StoryWorkbenchScene = StorySceneWithChapter & {
     refs: StorySceneRefWithTargets[];
 };
 
@@ -105,10 +142,37 @@ export type ChapterPlotSceneWithThread = StoryScene & {
 };
 
 /**
- * Chapter writer brief 专用 Scene read model。
+ * Chapter writer brief 专用 Scene read model。带 refs 以便编译「建议读取」。
  */
 export type ChapterWriterBriefSceneWithThread = StoryScene & {
     thread: Pick<StoryThread, "id" | "title" | "isMainThread" | "summary" | "writingTip">;
+    refs: StorySceneRefWithTargets[];
+};
+
+/**
+ * Act 创建输入。
+ */
+export type ParsedCreateStoryActInput = CreateStoryActRequestDto;
+
+/**
+ * Act 更新输入。
+ */
+export type ParsedUpdateStoryActInput = UpdateStoryActRequestDto;
+
+/**
+ * Chapter 创建输入。
+ */
+export type ParsedCreateStoryChapterInput = Omit<CreateStoryChapterRequestDto, "actId"> & {
+    // `actId` 为 null 表示创建未归卷章节。
+    actId: number | null;
+};
+
+/**
+ * Chapter 更新输入。
+ */
+export type ParsedUpdateStoryChapterInput = Omit<UpdateStoryChapterRequestDto, "actId"> & {
+    // `actId` 为 undefined 表示不修改;null 表示移动到未归卷区。
+    actId?: number | null;
 };
 
 /**
@@ -149,7 +213,7 @@ export type ParsedReorderStoryThreadItem = {
 export type ParsedReorderStorySceneItem = {
     sceneId: number;
     threadId: number;
-    chapterPath: string | null;
+    chapterId: number | null;
     threadSortOrder: number;
     chapterSortOrder: number | null;
 };
@@ -172,9 +236,9 @@ export type ParsedUpdateStoryThreadInput = Omit<UpdateStoryThreadRequestDto, "st
 /**
  * 场景创建输入。
  */
-export type ParsedCreateStorySceneInput = Omit<CreateStorySceneRequestDto, "threadId" | "chapterPath" | "refs" | "worldAnchor"> & {
+export type ParsedCreateStorySceneInput = Omit<CreateStorySceneRequestDto, "threadId" | "chapterId" | "refs" | "worldAnchor"> & {
     threadId: number;
-    chapterPath: string | null;
+    chapterId: number | null;
     refs: StoryRefDto[];
     // `resolvedRefs` 非空表示内容层已经完成目标存在性校验，可直接写库。
     resolvedRefs?: ResolvedStoryRefInput[];
@@ -184,11 +248,11 @@ export type ParsedCreateStorySceneInput = Omit<CreateStorySceneRequestDto, "thre
 /**
  * 场景更新输入。
  */
-export type ParsedUpdateStorySceneInput = Omit<UpdateStorySceneRequestDto, "threadId" | "chapterPath" | "refs" | "worldAnchor"> & {
+export type ParsedUpdateStorySceneInput = Omit<UpdateStorySceneRequestDto, "threadId" | "chapterId" | "refs" | "worldAnchor"> & {
     // `threadId` 为 undefined 表示不修改所属线程。
     threadId?: number;
-    // `chapterPath` 为 undefined 表示不修改；null 表示从章节顺序中移除。
-    chapterPath?: string | null;
+    // `chapterId` 为 undefined 表示不修改；null 表示从章节顺序中移除。
+    chapterId?: number | null;
     refs?: StoryRefDto[];
     // `resolvedRefs` 非空表示内容层已经完成目标存在性校验，可直接写库。
     resolvedRefs?: ResolvedStoryRefInput[];

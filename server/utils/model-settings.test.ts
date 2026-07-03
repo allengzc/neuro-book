@@ -1,6 +1,6 @@
 import {afterEach, describe, expect, it, vi} from "vitest";
 import {fauxAssistantMessage, fauxText, registerFauxProvider} from "@earendil-works/pi-ai";
-import {checkModelHealth, checkProviderConnection, discoverProviderModels, withSavedProviderApiKey} from "nbook/server/utils/model-settings";
+import {buildModelSettingsDto, checkModelHealth, checkProviderConnection, convertModelSettingsRequestToConfig, discoverProviderModels, MODEL_SMOKE_CHECK_PROMPTS, pickModelSmokeCheckPrompt, resolveConfiguredModel, withSavedProviderApiKey} from "nbook/server/utils/model-settings";
 import type {ConfiguredModelDto, ModelProviderDraftDto} from "nbook/shared/dto/app-settings.dto";
 
 function createProviderDraft(overrides: Partial<ModelProviderDraftDto> = {}): ModelProviderDraftDto {
@@ -37,6 +37,49 @@ function createModelDraft(overrides: Partial<Omit<ConfiguredModelDto, "enabled">
     };
 }
 
+function createConfiguredModel(overrides: Partial<ConfiguredModelDto> = {}): ConfiguredModelDto {
+    return {
+        ...createModelDraft(),
+        enabled: true,
+        ...overrides,
+    };
+}
+
+describe("model settings provider enabled", () => {
+    it("disabled Provider 下的模型不进入 enabledModels，也不能被解析为默认模型", () => {
+        const config = convertModelSettingsRequestToConfig({
+            defaultModelKey: "enabled-provider/enabled-model",
+            providers: [{
+                id: "disabled-provider",
+                name: "Disabled Provider",
+                enabled: false,
+                api: "openai-completions",
+                options: createProviderDraft().options,
+                models: [createConfiguredModel({id: "disabled-model", name: "Disabled Model"})],
+            }, {
+                id: "enabled-provider",
+                name: "Enabled Provider",
+                enabled: true,
+                api: "openai-completions",
+                options: createProviderDraft().options,
+                models: [createConfiguredModel({id: "enabled-model", name: "Enabled Model"})],
+            }],
+        });
+
+        const dto = buildModelSettingsDto({models: config});
+
+        expect(dto.providers.find((provider) => provider.id === "disabled-provider")?.enabled).toBe(false);
+        expect(dto.enabledModels.map((model) => model.key)).toEqual(["enabled-provider/enabled-model"]);
+        expect(resolveConfiguredModel(config, "disabled-provider/disabled-model")).toBeNull();
+    });
+
+    it("smoke prompt 从固定问题列表抽取，不再发送简单 ok 请求", () => {
+        expect(MODEL_SMOKE_CHECK_PROMPTS).not.toContain("Reply with ok.");
+        expect(pickModelSmokeCheckPrompt(() => 0)).toBe(MODEL_SMOKE_CHECK_PROMPTS[0]);
+        expect(pickModelSmokeCheckPrompt(() => 0.999)).toBe(MODEL_SMOKE_CHECK_PROMPTS[MODEL_SMOKE_CHECK_PROMPTS.length - 1]);
+    });
+});
+
 describe("provider/model Pi checks", () => {
     it("model check 通过 Pi streamSimple smoke", async () => {
         const faux = registerFauxProvider({
@@ -55,6 +98,47 @@ describe("provider/model Pi checks", () => {
 
             expect(result.success).toBe(true);
             expect(result.message).toContain("Pi 检查通过");
+        } finally {
+            faux.unregister();
+        }
+    });
+
+    it("model check 收到已取消 signal 时不进入 Pi stream", async () => {
+        const controller = new AbortController();
+        controller.abort();
+        const result = await checkModelHealth(createProviderDraft(), createModelDraft(), {
+            signal: controller.signal,
+        });
+
+        expect(result).toMatchObject({
+            success: false,
+            latencyMs: null,
+        });
+        expect(result.message).toContain("检查已取消");
+    });
+
+    it("model check 将 active signal 传给 Pi streamSimple", async () => {
+        const controller = new AbortController();
+        const faux = registerFauxProvider({
+            provider: "faux-signal-check",
+            models: [{id: "faux-fast"}],
+        });
+        faux.setResponses([(_context, options) => {
+            expect(options?.signal).toBe(controller.signal);
+            return fauxAssistantMessage(fauxText("ok"));
+        }]);
+        try {
+            const result = await checkModelHealth(createProviderDraft({
+                id: "faux-signal-check",
+                name: "Faux Signal",
+                api: faux.api,
+            }), createModelDraft({
+                id: "faux-fast",
+            }), {
+                signal: controller.signal,
+            });
+
+            expect(result.success).toBe(true);
         } finally {
             faux.unregister();
         }

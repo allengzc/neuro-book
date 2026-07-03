@@ -7,9 +7,7 @@
 [![Bun](https://img.shields.io/badge/runtime%20%2B%20build-Bun-000000?logo=bun)](https://bun.sh/)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE)
 
-NeuroBook 是一个基于 Nuxt 构建的长篇小说创作与 AI 角色扮演 IDE。它以作者为主导，集成文件化 Project Workspace、Markdown Studio、剧情结构管理和领域化 Agent 系统，面向长篇写作、世界模拟、AI RP 和 SillyTavern 角色卡迁移等场景。
-
-项目底层运行时基于 Pi 框架扩展，复用了 multi-provider、tool calling、append-only session tree 等基础抽象，并在此之上构建了 NeuroAgentHarness。NeuroBook 进一步引入 Profile、TSX Profile 和 Sidecar Context，让 Agent 能围绕小说创作和角色扮演建立可检索、可审查、可记忆、可长期维护的工作流。
+**NeuroBook 是一个本地优先的长篇小说 AI 创作 IDE。** 它不是又一个聊天框：用世界引擎管住设定与时间线，用各司其职的多 Agent 流水线推进剧情和章节，再用 llmlint 检查掉 AI 味——整部作品以 Markdown 文件和 SQLite 保存在你自己手里。
 
 <div style="display: flex; justify-content: space-between;">
   <img src="./docs/images/主页.png" width="31%"/>
@@ -18,181 +16,100 @@ NeuroBook 是一个基于 Nuxt 构建的长篇小说创作与 AI 角色扮演 ID
 </div>
 <br/>
 
-> 测试网站：http://8.148.4.22:3001/
+> 🖥️ 在线试用：http://8.148.4.22:3001/ ｜ 📦 [Windows 免安装包下载](https://github.com/notnotype/neuro-book/releases)
 
-## 核心特点
+## 为什么是 NeuroBook
 
-- **长篇小说 IDE**：用 Project Workspace 统一管理 `lorebook/`、`manuscript/`、`simulation/`、`reference/` 和项目配置，让设定、正文、状态和外部素材都能被人和 Agent 共同维护。
-- **领域化 Agent 设计**：围绕写作和 RP 拆分 leader、writer、retrieval、researcher、simulator leader、actor、rp.writer 等职责，避免把检索、裁决、写作和记忆维护都压进一次模型调用。
-- **NeuroAgentHarness**：在 Pi 风格 multi-provider、tool calling、append-only session tree 之上，支持 Multi-Agent 协作、HITL（Human-in-the-Loop）、运行时 Profile / Tool Catalog、上下文压缩、会话摘要、生命周期管理与 Runtime Hooks。
-- **Profile**：定义 Agent 的行为边界，包括工具白名单、输入 / 输出 Schema、系统提示词、动态上下文、压缩策略、摘要策略和 Runtime Hooks。
-- **TSX Profile**：使用 TSX 作为上下文模板语言，通过 System、History、Dynamic Context、Reminder、Import、SkillCatalog 等节点描述上下文结构，兼顾类型安全、可预览和低代码辅助编辑。
-- **Sidecar Context**：在 Agent 主运行前或运行后 fork runtime-only 分支，用于检索、反思、记忆维护或状态整理；sidecar transcript 不进入主 history，只把整理后的结果合并回主线，保持主任务上下文纯净。
-- **SillyTavern 角色卡迁移**：支持 `inspect -> unpack -> import` 三段式流程，保留原始卡片和 worldbook 归档，把稳定设定迁入 lorebook，并为后续 RP / simulation 迁移保留动态机制材料。
+AI 能写好一段文字，但写不好一部长篇：设定会漂移，时间线会混乱，写到几十万字就开始吃书；一整章丢给模型，回来的文字带着一股 AI 味。NeuroBook 把长篇创作当作一个 IDE 问题来解决：
 
-## 快速选择
+- 设定、正文、剧情和世界状态都是 Project Workspace 里可见的文件，作者和 Agent 共同维护，而不是锁在对话记录里。
+- 世界状态有专门的引擎和时间轴，不依赖模型的记忆力。
+- 写作由多个职责明确的 Agent 协作完成，检索、规划、写作、审校各归其位，而不是一次模型调用包打天下。
 
-| 方式 | 适合 | 特点 |
-| --- | --- | --- |
-| Windows Product Portable | Windows 本机普通用户 | 解压后点击启动，内置 Bun 和预构建 Product Payload。 |
-| Product Bun | 已有 Bun 的本机或服务器 | 解压 Product Payload 后用 Bun 启动，不需要源码和根 `node_modules`。 |
-| ghcr | 低内存服务器 | Docker 拉取预构建镜像，服务器不执行 Nuxt build。 |
-| Source Dev | 开发者 | 源码 checkout、本机依赖安装、开发和测试。 |
+## 核心能力
 
-不确定时：Windows 用户选 Product Portable；服务器优先选 `ghcr` 或 Product Bun。
+### 🌍 World Engine：不吃书的世界状态引擎
 
-## Windows Product Portable
+长篇最大的敌人是设定漂移。World Engine 用「时间线 + 切面」做事件溯源：每个重要时间点记录一次状态变更，任意时刻的世界状态都由该时刻之前的切面推算得出——角色三个月前受的伤、王国十年前的国库存量，随时可查、不会漂移。补设定就是在合适的时间点插入一个切面，倒叙和回忆天然支持。
 
-从 [GitHub Releases](https://github.com/notnotype/neuro-book/releases) 下载 Windows x64 zip，解压到新目录后运行：
+- 用 Zod schema 定义你自己的世界结构：人物、门派、王国、大陆都可以是有状态的 subject。
+- 自定义历法：现实公历、简化纪年或完全架空的历法都支持，公元前也能算。
+- Agent 通过沙箱化的 `execute_world` 读写世界状态：leader 可写、writer 只读，权限分明。
+- 剧情 Scene 直接锚定世界时间轴、地点和出场角色，剧情规划与世界状态互相咬合。
+
+### ✍️ 领域化多 Agent 写作流水线
+
+写作不是一句 prompt 的事。NeuroBook 把创作拆给不同职责的 Agent：leader 负责剧情规划与调度，writer 专职正文，retrieval / researcher 负责查设定查资料。默认写作主链是：灵感探索 → 项目与世界书初始化 → World Engine 建档 → 剧情规划与状态推进 → 章节写作 → 写后回补。每个 Agent 有独立的工具白名单和上下文边界，全程支持人工审批（HITL）、上下文压缩和会话树回溯。
+
+### 🧹 llmlint：给文字做 lint，去掉 AI 味
+
+像 eslint 检查代码一样检查稿件。340 条规则覆盖填充词、机械过渡、公式化设问、二元对比、空泛总结、节奏单调等典型 AI 写作痕迹；静态正则规则秒级扫全稿，LLM 规则做语境判断，机械问题支持自动修复。既是编辑器里的润色 Skill，也是独立 CLI：[notnotype/llmlint](https://github.com/notnotype/llmlint)。
+
+### 📂 文件化 Project Workspace：作品在你手里
+
+`lorebook/`（世界书）、`manuscript/`（正文）、`reference/`（素材）、`world-engine/`（世界配置）都是本地 Markdown / TypeScript 文件，加上项目级 SQLite。没有云端锁定：随时整包迁移、随时用任何编辑器打开、随时让 Agent 在明确权限内读写同一份文件。模型 Provider 和 API Key 由你自己配置。
+
+### 📝 Markdown Studio 与 Inline AI
+
+写作主界面是完整的 Markdown 编辑器：左侧文件树、角色面板、剧情工作台随手切换。选中文字即可唤起 Inline AI 在后台改稿，流式预览修改、不打断你的编辑流、不占用主 Agent 会话。
+
+### 🎭 SillyTavern 角色卡迁移
+
+`inspect → unpack → import` 三段式导入 SillyTavern 角色卡：原始卡片与 worldbook 完整归档，稳定设定迁入 lorebook，动态机制素材保留归档。AI RP 模式的入口正在按写作模式的标准重新设计中。
+
+## 快速开始
+
+**Windows：解压即用。** 从 [GitHub Releases](https://github.com/notnotype/neuro-book/releases) 下载 zip，解压后运行：
 
 ```powershell
 .\Start Neuro Book.cmd
 ```
 
-包内已经包含预构建 `app/` Product Payload 和 `runtime/bun/`。首次启动会初始化 `data/`、迁移 SQLite，并在没有用户时引导创建管理员；不会 clone 源码、安装依赖或执行 Nuxt build。
+包内内置 Bun runtime 和预构建产物，不 clone 源码、不装依赖、不跑构建；首次启动自动初始化数据并引导创建管理员。之后用 `.\Update Neuro Book.cmd` 一键升级，`data/` 中的作品和配置全部保留。
 
-更新时运行：
-
-```powershell
-.\Update Neuro Book.cmd
-```
-
-更新入口会列出 GitHub Releases 中带 Windows 包的可用版本，包括 stable 和 canary，选择目标版本后下载 zip，校验 `SHA256SUMS`，保留 `data/` 后切换新版 `app/`、`launcher/` 和根启动脚本。内置 `runtime/bun/` 会保留当前版本，避免替换正在运行的 `bun.exe`。
-
-目录边界：
-
-- `app/`：可替换的 Product Payload。
-- `data/`：升级时保留的运行状态，包含 `workspace/`、`.env`、`config.yaml` 和 SQLite 数据库。
-- `launcher/`：Windows Launcher。
-- `runtime/bun/`：内置 Bun runtime。
-
-## Product Bun
-
-Product Bun 适合已有 Bun 的本机或服务器。构建机生成 Product Payload：
-
-```bash
-bun run nuxt:build
-bun run product:stage
-```
-
-运行机从 Product Root 启动：
-
-```bash
-cd product
-bun .output/server/scripts/deploy/product-start.mjs
-```
-
-## local-git
-
-`local-git` 保留为源码部署过渡方案，适合熟悉命令行并希望跟随源码更新的用户：
+**服务器 / Docker：**
 
 ```bash
 bunx --bun --package github:notnotype/neuro-book neuro-book-deploy
 ```
 
-脚本会询问部署目录、端口和部署模式。`local-git` 会在宿主机 clone/pull 源码、安装依赖、构建应用、执行 SQLite migration，并在 `.deploy/README.md` 中生成启动说明。
+| 方式 | 适合 |
+| --- | --- |
+| Windows Product Portable | Windows 本机用户，解压即用 |
+| ghcr | 服务器 Docker 部署，拉取预构建镜像，低内存友好 |
+| Product Bun | 已有 Bun 的本机或服务器，免源码运行 |
+| Source Dev | 开发者，源码开发和测试 |
 
-也可以 clone 后运行：
+完整的部署、更新、管理员与模型配置说明见 [docs/deployment.md](docs/deployment.md)。要让其他 AI Agent 协助部署或排障，把 [docs/operator-bridge.md](docs/operator-bridge.md) 发给它即可。
 
-```bash
-git clone https://github.com/notnotype/neuro-book.git
-cd neuro-book
-bun scripts/deploy/neuro-book-deploy.mjs --deploy-mode local-git
-```
+## 面向开发者：可编程的 Agent 底座
 
-## ghcr
+NeuroBook 的 Agent 系统构建在自研 NeuroAgentHarness 上（基于 Pi 框架的 multi-provider、tool calling、append-only session tree 扩展），并且整个 Agent 行为层是可编程的：
 
-推荐给不想在服务器上执行 Nuxt build 的 Docker 部署：
+- **Profile**：声明式定义 Agent 的工具白名单、输入 / 输出 Schema、系统提示词、压缩与摘要策略和 Runtime Hooks。
+- **TSX Profile**：用类型安全的 TSX 模板描述 Agent 上下文结构（System、History、Dynamic Context、Reminder、Import、SkillCatalog），可预览、可低代码编辑。
+- **Sidecar Context**：在主任务前后 fork runtime-only 分支做检索、反思和记忆维护，旁路 transcript 不进入主 history，只把整理结果合并回主线。
 
-```bash
-bunx --bun --package github:notnotype/neuro-book neuro-book-deploy
-```
-
-部署模式选择 `ghcr`。脚本会使用预构建镜像：
-
-```text
-ghcr.io/notnotype/neuro-book:<release-tag>
-```
-
-交互模式会列出 GitHub Releases 中的 stable / canary / alpha / beta / rc 版本供选择。非交互模式默认使用当前安装器版本对应的镜像 tag，例如 `v0.5.3-canary...`；也可以用 `--release <tag>` 指定版本，或用 `--image <image>` 覆盖完整镜像名。`latest` 只代表最新 stable，不作为 canary 默认值。
-
-数据、配置和 Project Workspace 仍保存在宿主机 `workspace/` 挂载目录中。
-GHCR 镜像保留源码目录用于排障，但 app runner 使用 Bun runtime，服务启动、SQLite migration 和管理员脚本都使用镜像内预构建的 `.output/server/scripts/**`；服务器和容器启动时不执行依赖安装，也不要求根 `node_modules`。
-
-## Source Dev
-
-推荐给开发服务器或需要源码挂载的 Docker 部署：
-
-```bash
-git clone https://github.com/notnotype/neuro-book.git
-cd neuro-book
-bun scripts/deploy/neuro-book-deploy.mjs --deploy-mode source
-```
-
-`source` 模式会构建 runtime 容器，并把宿主机项目目录挂载到容器 `/app`。宿主机仍需要安装依赖并构建应用。低内存服务器优先使用 `ghcr`。
-
-## 管理员和模型配置
-
-全站鉴权默认开启。Windows Product Portable 首次启动会自动引导创建管理员；其他部署方式按运行时选择管理员命令：
-
-local-git：
-
-```powershell
-bun run auth:create-admin admin
-```
-
-ghcr：
-
-```bash
-docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun .output/server/scripts/cli/create-admin.ts
-```
-
-source Docker：
-
-```bash
-docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun run auth:create-admin
-```
-
-脚本会隐藏输入密码。不要把密码作为命令参数传入。
-
-模型 Provider、API Key、默认模型和 Agent Profile 模型覆盖在前端设置页配置。长期配置保存在：
-
-```text
-workspace/.nbook/config.json
-```
-
-这个文件属于本机运行状态，不要提交到 Git。
-
-## 本地开发
+本地开发：
 
 ```bash
 bun install
 bun run dev
 ```
 
-常用命令：
-
-```bash
-bun run typecheck
-bun run test
-bun run docs:dev
-bun run docs:build
-```
+常用命令：`bun run typecheck`、`bun run test`、`bun run docs:dev`。
 
 ## 文档
 
 - [官网文档首页](docs/index.md)
 - [快速开始](docs/quick-start.md)
+- [基础教程：从第一本书到第一次 RP](docs/tutorials/index.md)
 - [部署方式](docs/deployment.md)
-- [基础教程](docs/tutorials/index.md)
 - [Agent 心智模型](docs/agent/index.md)
-- [Profile 介绍](docs/profile/index.md)
-- [Profile TSX 介绍](docs/profile-tsx/index.md)
+- [Profile 介绍](docs/profile/index.md) / [Profile TSX 介绍](docs/profile-tsx/index.md)
 - [Sidecar Context](docs/agent/sidecar.md)
 - [NeuroBook Reference Bookshelf](reference/README.md)
 - [PROJECT-STATUS.md](PROJECT-STATUS.md)
-
-如果要让其他 Agent 协助部署、更新或排障，优先把 [docs/operator-bridge.md](docs/operator-bridge.md) 发给它。
 
 ## License
 

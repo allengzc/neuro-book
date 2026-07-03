@@ -698,14 +698,6 @@ export type EnumStoryThreadStatusFieldUpdateOperationsInput = {
   set?: $Enums.StoryThreadStatus
 }
 
-export type NullableIntFieldUpdateOperationsInput = {
-  set?: number | null
-  increment?: number
-  decrement?: number
-  multiply?: number
-  divide?: number
-}
-
 export type StoryThreadCreateNestedOneWithoutScenesInput = {
   create?: Prisma.XOR<Prisma.StoryThreadCreateWithoutScenesInput, Prisma.StoryThreadUncheckedCreateWithoutScenesInput>
   connectOrCreate?: Prisma.StoryThreadCreateOrConnectWithoutScenesInput

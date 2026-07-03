@@ -92,7 +92,11 @@ describe("/api/projects/plot", () => {
     it("GET /chapter-writer-brief 返回章节 Scene / World Context brief", async () => {
         const projectPath = await createProject();
         const handler = (await import("nbook/server/api/projects/plot/[...segments]")).default;
-        const chapterPath = "manuscript/001/001-opening/";
+        const chapter = await callApi(handler, projectPath, "POST", "chapters", {
+            name: "001-opening",
+            title: "开篇",
+            brief: {mustHide: "薇洛丝不知道项链是前作遗物"},
+        });
         const thread = await callApi(handler, projectPath, "POST", "threads", {
             name: "main",
             title: "主线",
@@ -110,7 +114,7 @@ describe("/api/projects/plot", () => {
         });
         await callApi(handler, projectPath, "POST", "scenes", {
             threadId: readId(thread),
-            chapterPath,
+            chapterId: readId(chapter),
             title: "神殿相遇",
             summary: "主角在神殿遇到未来盟友。",
             purpose: "建立同盟关系。",
@@ -125,10 +129,14 @@ describe("/api/projects/plot", () => {
             },
         });
 
-        const brief = await callApi(handler, projectPath, "GET", "chapter-writer-brief", undefined, {chapterPath});
+        const brief = await callApi(handler, projectPath, "GET", "chapter-writer-brief", undefined, {chapterId: readId(chapter)});
 
         expect(brief).toMatchObject({
-            chapterPath,
+            chapter: {
+                name: "001-opening",
+                title: "开篇",
+            },
+            mode: "autonomous",
             status: "ready",
             totalScenes: 1,
             scenes: [
@@ -147,8 +155,15 @@ describe("/api/projects/plot", () => {
             ],
             suggestedBriefMarkdown: expect.stringContaining("神殿相遇"),
         });
-        expect((brief as {suggestedBriefMarkdown: string}).suggestedBriefMarkdown).toContain("神殿灯火");
-        expect((brief as {suggestedBriefMarkdown: string}).suggestedBriefMarkdown).not.toContain("\"hp\"");
+        // autonomous 默认:只给查询提示,不展开状态切面。
+        expect((brief as {suggestedBriefMarkdown: string}).suggestedBriefMarkdown).toContain("World 查询提示");
+        expect((brief as {suggestedBriefMarkdown: string}).suggestedBriefMarkdown).not.toContain("神殿灯火");
+
+        // curated:同一章展开 World Context 状态摘要,供 leader 投喂。
+        const curated = await callApi(handler, projectPath, "GET", "chapter-writer-brief", undefined, {chapterId: readId(chapter), mode: "curated"});
+        expect((curated as {mode: string}).mode).toBe("curated");
+        expect((curated as {suggestedBriefMarkdown: string}).suggestedBriefMarkdown).toContain("神殿灯火");
+        expect((curated as {suggestedBriefMarkdown: string}).suggestedBriefMarkdown).not.toContain("\"hp\"");
     });
 
     it("缺 projectPath query 时返回 400", async () => {

@@ -103,6 +103,13 @@ async function loadSettings(): Promise<void> {
 }
 
 /**
+ * 重新读取已保存的费用显示设置，放弃当前草稿。
+ */
+async function restoreSettings(): Promise<void> {
+    await loadSettings();
+}
+
+/**
  * 保存费用显示币种。汇率不写入配置，仅保存在当前前端会话。
  */
 async function saveSettings(): Promise<void> {
@@ -155,6 +162,7 @@ defineExpose({
     loading,
     saving,
     saveSettings,
+    restoreSettings,
 });
 </script>
 

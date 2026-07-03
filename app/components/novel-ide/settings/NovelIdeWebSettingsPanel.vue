@@ -262,6 +262,13 @@ async function loadSettings(): Promise<void> {
 }
 
 /**
+ * 重新读取已保存的 Web 工具配置，放弃当前草稿。
+ */
+async function restoreSettings(): Promise<void> {
+    await loadSettings();
+}
+
+/**
  * 保存 Web 配置到 Workspace Root Global Config。
  */
 async function saveSettings(): Promise<void> {
@@ -390,6 +397,7 @@ defineExpose({
     loading,
     saving,
     saveSettings,
+    restoreSettings,
 });
 </script>
 

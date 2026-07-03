@@ -80,6 +80,9 @@ export type WorkspaceContentIssueOptions = {
     lorebookRoot?: string;
     chapterRoot?: string;
     existingPathSet?: Set<string>;
+    // 当前 Story 已注册的 StoryChapter name 集合;传入后启用 Prose frontmatter `chapter:` 反指校验(孤儿指针 → WARN)。
+    // 未传时跳过该规则,tree snapshot 等不查库的调用方保持零成本。
+    knownChapterNames?: Set<string>;
 };
 
 export type WorkspaceNewFileInput = {
@@ -593,6 +596,55 @@ export function createWorkspaceContentIssues(options: WorkspaceContentIssueOptio
     issues.push(...validateDuplicateOrder(options.nodes));
     issues.push(...validateReferences(root, contentNodes, options.existingPathSet));
     issues.push(...validateStateReferences(root, contentNodes, options.existingPathSet));
+    issues.push(...validateChapterPointers(contentNodes, {
+        chapterRoot: options.chapterRoot ?? DEFAULT_CHAPTER_ROOT,
+        knownChapterNames: options.knownChapterNames,
+    }));
+    return issues;
+}
+
+/**
+ * 校验 Prose frontmatter 的 `chapter:` 反指。
+ * 指针格式非法一律报 WARN;指向不存在的 Chapter name 仅在调用方提供 knownChapterNames 时报 WARN。
+ */
+function validateChapterPointers(
+    contentNodes: WorkspaceFileNode[],
+    options: {chapterRoot: string; knownChapterNames?: Set<string>},
+): WorkspaceFileIssue[] {
+    const issues: WorkspaceFileIssue[] = [];
+    const chapterRootPrefix = `${options.chapterRoot}/`;
+    for (const node of contentNodes) {
+        const pointer = node.frontmatter.chapter;
+        if (pointer === undefined || pointer === null) {
+            continue;
+        }
+        if (typeof pointer !== "string" || !pointer.trim()) {
+            issues.push({
+                level: "WARN",
+                code: "chapter-pointer-invalid",
+                path: node.path,
+                message: "frontmatter.chapter 必须是非空字符串,取值为 Plot 系统里 StoryChapter 的 name",
+            });
+            continue;
+        }
+        if (!node.path.startsWith(chapterRootPrefix)) {
+            issues.push({
+                level: "WARN",
+                code: "chapter-pointer-outside-manuscript",
+                path: node.path,
+                message: `frontmatter.chapter 只应出现在 ${options.chapterRoot}/ 下的 Prose 节点上`,
+            });
+            continue;
+        }
+        if (options.knownChapterNames && !options.knownChapterNames.has(pointer.trim())) {
+            issues.push({
+                level: "WARN",
+                code: "chapter-pointer-orphan",
+                path: node.path,
+                message: `frontmatter.chapter 指向的章节 name 不存在：${pointer.trim()};请先在 Plot 系统创建该 StoryChapter,或修正指针`,
+            });
+        }
+    }
     return issues;
 }
 

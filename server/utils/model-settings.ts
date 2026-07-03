@@ -51,6 +51,10 @@ type ProviderFetchInit = RequestInit & {
     dispatcher?: ProxyAgent;
 };
 
+type ModelHealthCheckOptions = {
+    signal?: AbortSignal;
+};
+
 export type AgentProfileSettingDefinition = {
     profileKey: string;
     name: string;
@@ -60,6 +64,13 @@ const DEFAULT_MODEL_DISCOVERY_TIMEOUT_MS = 30_000;
 const DEFAULT_MODEL_SMOKE_TIMEOUT_MS = 30_000;
 const DEFAULT_CONTEXT_WINDOW = 256_000;
 const DEFAULT_MAX_TOKENS = 256_000;
+export const MODEL_SMOKE_CHECK_PROMPTS = [
+    "随便想一个问题，然后用一句话自己回答。",
+    "用一句话解释一个常见自然现象。",
+    "给出一个两步以内的小计划。",
+    "用一句话总结今天适合做的一件小事。",
+    "提出一个简单判断题，并直接给出答案。",
+] as const;
 const XIAOMI_TOKEN_PLAN_COMPAT: NonNullable<Model<"openai-completions">["compat"]> = {
     supportsDeveloperRole: false,
     maxTokensField: "max_tokens",
@@ -118,6 +129,7 @@ export function convertModelSettingsRequestToConfig(request: UpdateModelSettings
         providers: Object.fromEntries(
             request.providers.map((provider) => [provider.id, {
                 name: provider.name,
+                enabled: provider.enabled,
                 api: provider.api,
                 options: {
                     apiKey: provider.options.apiKey.trim(),
@@ -173,6 +185,7 @@ export function buildModelSettingsDto(appConfig: {models: ModelSettingsConfig}):
     const providers = Object.entries(config.providers).map(([providerId, provider]) => ({
         id: providerId,
         name: provider.name,
+        enabled: provider.enabled,
         api: provider.api,
         options: {
             apiKey: provider.options.apiKey,
@@ -232,6 +245,9 @@ export function listEnabledModels(config: ModelSettingsConfig): EnabledModelOpti
     const enabledModels: EnabledModelOptionDto[] = [];
 
     for (const [providerId, provider] of Object.entries(config.providers)) {
+        if (!provider.enabled) {
+            continue;
+        }
         for (const model of Object.values(provider.models)) {
             if (!model.enabled) {
                 continue;
@@ -268,7 +284,7 @@ export function resolveConfiguredModel(config: ModelSettingsConfig, modelKey: st
     const modelId = normalizedModelKey.slice(separatorIndex + 1);
     const provider = config.providers[providerId];
     const model = provider?.models[modelId];
-    if (!provider || !model || !model.enabled) {
+    if (!provider || !provider.enabled || !model || !model.enabled) {
         return null;
     }
 
@@ -342,8 +358,17 @@ export async function discoverProviderModels(providerDraft: ModelProviderDraftDt
 export async function checkModelHealth(
     providerDraft: ModelProviderDraftDto,
     modelDraft: Omit<ConfiguredModelDto, "enabled">,
+    options: ModelHealthCheckOptions = {},
 ): Promise<CheckModelResponseDto> {
-    return runPiModelSmokeCheck(providerDraft, modelDraft, "model");
+    return runPiModelSmokeCheck(providerDraft, modelDraft, "model", options);
+}
+
+/**
+ * 从固定 smoke prompt 列表中随机抽取一个检查问题。
+ */
+export function pickModelSmokeCheckPrompt(random = Math.random): string {
+    const index = Math.floor(random() * MODEL_SMOKE_CHECK_PROMPTS.length);
+    return MODEL_SMOKE_CHECK_PROMPTS[Math.min(Math.max(index, 0), MODEL_SMOKE_CHECK_PROMPTS.length - 1)] ?? MODEL_SMOKE_CHECK_PROMPTS[0];
 }
 
 /**
@@ -393,6 +418,7 @@ async function runPiModelSmokeCheck(
     providerDraft: ModelProviderDraftDto,
     modelDraft: Omit<ConfiguredModelDto, "enabled">,
     scope: "provider" | "model",
+    options: ModelHealthCheckOptions = {},
 ): Promise<CheckModelResponseDto> {
     if (providerDraft.options.proxy.trim()) {
         return {
@@ -411,24 +437,40 @@ async function runPiModelSmokeCheck(
         };
     }
 
+    if (options.signal?.aborted) {
+        return {
+            success: false,
+            latencyMs: null,
+            message: `${providerDraft.name}/${modelDraft.id} 检查已取消。`,
+        };
+    }
+
     const model = resolvePiModelForDraft(providerDraft, modelDraft);
     const startedAt = Date.now();
     try {
         const stream = streamSimple(model, {
             systemPrompt: "You are a concise connectivity smoke test assistant.",
-            messages: [createUserMessage({text: "Reply with ok."})],
+            messages: [createUserMessage({text: pickModelSmokeCheckPrompt()})],
             tools: [],
         }, {
             apiKey,
             timeoutMs: providerDraft.options.timeoutMs ?? DEFAULT_MODEL_SMOKE_TIMEOUT_MS,
-            maxTokens: Math.min(32, model.maxTokens),
+            maxTokens: Math.min(96, model.maxTokens),
             reasoning: undefined,
             ...piSmokeRequestOptions(providerDraft.options.requestOptions),
             cacheRetention: "none",
+            signal: options.signal,
         });
         const response = await stream.result();
         const latencyMs = Date.now() - startedAt;
-        if (response.stopReason === "error" || response.stopReason === "aborted") {
+        if (options.signal?.aborted || response.stopReason === "aborted") {
+            return {
+                success: false,
+                latencyMs,
+                message: `${providerDraft.name}/${model.id} 检查已取消。`,
+            };
+        }
+        if (response.stopReason === "error") {
             return {
                 success: false,
                 latencyMs,
@@ -444,12 +486,32 @@ async function runPiModelSmokeCheck(
         };
     } catch (error) {
         const latencyMs = Date.now() - startedAt;
+        if (options.signal?.aborted || isAbortError(error)) {
+            return {
+                success: false,
+                latencyMs,
+                message: `${providerDraft.name}/${model.id} 检查已取消。`,
+            };
+        }
         return {
             success: false,
             latencyMs,
             message: `${providerDraft.name}/${model.id} 检查失败：${sanitizeProviderError(error instanceof Error ? error.message : String(error))}`,
         };
     }
+}
+
+/**
+ * 判断 Provider SDK 抛出的错误是否来自 AbortSignal。
+ */
+function isAbortError(error: unknown): boolean {
+    if (typeof DOMException !== "undefined" && error instanceof DOMException && error.name === "AbortError") {
+        return true;
+    }
+    const name = typeof error === "object" && error !== null && "name" in error
+        ? (error as {name?: unknown}).name
+        : null;
+    return name === "AbortError";
 }
 
 function resolvePiModelForDraft(providerDraft: ModelProviderDraftDto, modelDraft: Omit<ConfiguredModelDto, "enabled">): Model<any> {

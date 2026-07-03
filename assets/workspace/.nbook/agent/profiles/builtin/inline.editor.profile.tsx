@@ -55,6 +55,7 @@ export default defineAgentProfile({
                             - scope="selection" 时，优先只修改 refs 指向的范围及必要衔接文本。
                             - scope="auto" 时，根据 instruction 判断最小必要修改范围。
                             - L12 | 这类行号只是定位标记，不是正文，绝对不能写回文件。
+                            - task=chat 时，根据用户要求与上下文自然处理；如果用户要求修改正文，可以直接 edit/write。
                             - task=continue_after 时，在最后一个引用范围之后续写。
                             - task=bridge 时，补出承上启下的过渡；如果有两个引用，优先连接 r1 到 r2。
                             - 不要输出完整改后正文到聊天里；完成后调用 report_result，用 result 简短说明改了哪里。
@@ -161,6 +162,7 @@ function taskOp(task: Payload["task"]): "replace" | "insert_after" | "bridge" {
 
 function defaultInstruction(task: Payload["task"]): string {
     switch (task) {
+        case "chat": return "根据当前要求处理，可直接修改目标文件。";
         case "rewrite": return "改写引用文本，保留核心信息。";
         case "polish": return "润色引用文本，改善表达与节奏。";
         case "expand": return "扩写引用文本，增加必要细节。";

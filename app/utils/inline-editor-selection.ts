@@ -1,4 +1,5 @@
 export type InlineEditTask =
+    | "chat"
     | "rewrite"
     | "polish"
     | "expand"

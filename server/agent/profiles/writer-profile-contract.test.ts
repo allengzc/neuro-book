@@ -20,7 +20,7 @@ describe("writer profile contract", () => {
         expect(writerProfile.outputSchema).toBeDefined();
     });
 
-    it("拥有文件工具和 readonly World Engine，但不持有 Plot tools", () => {
+    it("拥有文件工具、readonly World Engine 和 Plot 只读工具，但不持有 Plot 写工具", () => {
         const toolKeys = writerProfile.rootToolKeys;
 
         expect(toolKeys).toContain("read");
@@ -29,19 +29,24 @@ describe("writer profile contract", () => {
         expect(toolKeys).toContain("bash");
         expect(toolKeys).toContain("execute_world");
         expect(toolKeys).toContain("report_result");
+        // autonomous 模式:writer 自主读 Plot。
+        expect(toolKeys).toContain("get_chapter_writer_brief");
+        expect(toolKeys).toContain("get_chapter_plot");
+        expect(toolKeys).toContain("get_story_scene_context");
+        expect(toolKeys).toContain("get_scene_world_context");
+        expect(toolKeys).toContain("get_plot_tree");
+        expect(toolKeys).toContain("get_story_thread");
+        // 只读:不持有 Plot 写工具与文件 apply_patch。
         expect(toolKeys).not.toContain("apply_patch");
+        expect(toolKeys).not.toContain("create_story_scene");
+        expect(toolKeys).not.toContain("update_story_scene");
+        expect(toolKeys).not.toContain("create_story_thread");
+        expect(toolKeys).not.toContain("create_story_chapter");
         expect(toolKeys).not.toContain("write_world_slice");
         expect(toolKeys).not.toContain("delete_world_slice");
-        expect(toolKeys).not.toContain("get_plot_tree");
-        expect(toolKeys).not.toContain("get_story_thread");
-        expect(toolKeys).not.toContain("get_story_scene_context");
-        expect(toolKeys).not.toContain("get_story_plot_context");
-        expect(toolKeys).not.toContain("get_chapter_plot");
-        expect(toolKeys).not.toContain("get_chapter_writer_brief");
-        expect(toolKeys).not.toContain("create_story_scene");
     });
 
-    it("提示词允许消费 leader brief，但禁止自行读取 Plot", async () => {
+    it("提示词声明 autonomous 自主模式，并渲染 input.chapterId 自取 brief 提示", async () => {
         const projectSlug = `writer-project-${randomUUID()}`;
         const projectRoot = resolve("workspace", projectSlug);
         await mkdir(projectRoot, {recursive: true});
@@ -55,13 +60,11 @@ describe("writer profile contract", () => {
                 initial: {},
                 settings: defaultWriterSettings(),
                 invocation: {
-                    message: "请根据上游 Scene / World Context brief 写正文。",
+                    message: "请根据本章 brief 写正文。",
                     payload: {
                         path: `${projectSlug}/manuscript/001-chapter/index.md`,
+                        chapterId: "42",
                         context: {
-                            threadIds: ["thread-main"],
-                            sceneIds: ["scene-main"],
-                            plotIds: ["plot-legacy"],
                             lorebookEntries: [`${projectSlug}/lorebook/character/hero/`],
                             readablePaths: [`${projectSlug}/manuscript/000-prologue/index.md`],
                         },
@@ -76,16 +79,16 @@ describe("writer profile contract", () => {
             const historyContext = (prepared.historyInitMessages ?? []).map(messageText).join("\n");
             const writerInputContext = historyContext.slice(historyContext.indexOf("<writer_input_context>"));
 
-            expect(systemPrompt).toContain("Scene / World Context brief");
-            expect(systemPrompt).toContain("你不持有 Plot tools");
-            expect(systemPrompt).toContain("leader（或手动 director）");
-            expect(systemPrompt).not.toContain("上游 leader/director");
+            // autonomous 契约:自主查证,不再宣称"不持有 Plot tools"。
+            expect(systemPrompt).toContain("autonomous");
+            expect(systemPrompt).toContain("get_chapter_writer_brief");
+            expect(systemPrompt).not.toContain("你不持有 Plot tools");
             expect(historyContext).toContain("<writer_input_context>");
             expect(historyContext).toContain(`path: ${projectSlug}/manuscript/001-chapter/index.md`);
             expect(historyContext).toContain("chapterPath: manuscript/001-chapter/");
-            expect(writerInputContext).not.toContain("thread-main");
-            expect(writerInputContext).not.toContain("scene-main");
-            expect(writerInputContext).not.toContain("plot-legacy");
+            // input.chapterId 渲染为自取 brief 提示。
+            expect(writerInputContext).toContain("42");
+            expect(writerInputContext).toContain("get_chapter_writer_brief");
             expect(writerInputContext).toContain(`${projectSlug}/lorebook/character/hero/`);
             expect(writerInputContext).toContain(`${projectSlug}/manuscript/000-prologue/index.md`);
         } finally {

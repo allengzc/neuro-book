@@ -1,55 +1,58 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import type {
-    PlotRepository,
+    ChapterRepository,
     SceneRepository,
     StoryRepository,
     ThreadRepository,
 } from "nbook/server/plot/contracts/plot-repositories";
+import type {StoryAct, StoryChapter} from "nbook/server/generated/project-prisma/client";
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
-import {afterEach, describe, expect, it, vi} from "vitest";
+import {describe, expect, it, vi} from "vitest";
 
-const workspaceSlug = `plot-scope-${Date.now()}`;
-const workspaceRoot = path.join(process.cwd(), "workspace", workspaceSlug);
+/** 构造只带 chapter 仓储的 guard,其余仓储用空对象占位。 */
+function createGuard(chapterRepository: Partial<ChapterRepository>): PlotScopeGuard {
+    return new PlotScopeGuard(
+        {} as StoryRepository,
+        {} as ThreadRepository,
+        {} as SceneRepository,
+        chapterRepository as ChapterRepository,
+    );
+}
 
 describe("PlotScopeGuard", () => {
-    afterEach(async () => {
-        await fs.rm(workspaceRoot, {recursive: true, force: true});
+    it("assertChapter 校验章存在且属于当前 Story", async () => {
+        const chapter = {id: 7, storyId: 10, actId: null, name: "001-opening", title: "开篇"} as StoryChapter;
+        const guard = createGuard({
+            findChapterById: vi.fn(async (chapterId: number) => chapterId === 7 ? chapter : null),
+        });
+
+        await expect(guard.assertChapter(10, 7)).resolves.toBe(chapter);
+        await expect(guard.assertChapter(10, 8)).rejects.toThrow("章节不存在");
+        // 属于其他 Story 的章不可见。
+        await expect(guard.assertChapter(11, 7)).rejects.toThrow("章节不存在");
     });
 
-    it("只接受当前 Project Workspace 中真实存在的 manuscript 章节节点", async () => {
-        await fs.mkdir(path.join(workspaceRoot, "manuscript", "001", "001-opening"), {recursive: true});
-        await fs.writeFile(path.join(workspaceRoot, "manuscript", "001", "001-opening", "index.md"), "---\ntitle: 开篇\n---\n", "utf-8");
+    it("assertAct 校验卷存在且属于当前 Story", async () => {
+        const act = {id: 3, storyId: 10, name: "002-volume", title: "第二卷"} as StoryAct;
+        const guard = createGuard({
+            findActById: vi.fn(async (actId: number) => actId === 3 ? act : null),
+        });
 
-        const guard = new PlotScopeGuard(
-            {} as StoryRepository,
-            {} as ThreadRepository,
-            {} as SceneRepository,
-            {} as PlotRepository,
-        );
-
-        await expect(guard.assertChapterPath(`workspace/${workspaceSlug}`, "manuscript/001/001-opening/"))
-            .resolves.toBe("manuscript/001/001-opening/");
-        await expect(guard.assertChapterPath(`workspace/${workspaceSlug}`, `${workspaceSlug}/manuscript/001/001-opening/`))
-            .resolves.toBe("manuscript/001/001-opening/");
-        await expect(guard.assertChapterPath(`workspace/${workspaceSlug}`, `workspace/${workspaceSlug}/manuscript/001/001-opening/`))
-            .resolves.toBe("manuscript/001/001-opening/");
-        await expect(guard.assertChapterPath(`workspace/${workspaceSlug}`, "manuscript/001/missing/"))
-            .rejects.toThrow("章节不存在");
+        await expect(guard.assertAct(10, 3)).resolves.toBe(act);
+        await expect(guard.assertAct(10, 4)).rejects.toThrow("剧情卷不存在");
+        await expect(guard.assertAct(11, 3)).rejects.toThrow("剧情卷不存在");
     });
 
-    it("传入卷目录时返回可行动错误", async () => {
-        await fs.mkdir(path.join(workspaceRoot, "manuscript", "004-volume"), {recursive: true});
-        await fs.writeFile(path.join(workspaceRoot, "manuscript", "004-volume", "index.md"), "---\ntitle: 第二章\n---\n", "utf-8");
+    it("assertChapterNameUnique 拒绝重名章;Prose frontmatter 依赖 name 反指", async () => {
+        const guard = createGuard({
+            findChapterByName: vi.fn(async (_storyId: number, name: string, excludeChapterId?: number) => (
+                name === "001-opening" && excludeChapterId !== 7
+                    ? {id: 7, storyId: 10, name} as StoryChapter
+                    : null
+            )),
+        });
 
-        const guard = new PlotScopeGuard(
-            {} as StoryRepository,
-            {} as ThreadRepository,
-            {} as SceneRepository,
-            {} as PlotRepository,
-        );
-
-        await expect(guard.assertChapterPath(`workspace/${workspaceSlug}`, "manuscript/004-volume/"))
-            .rejects.toThrow("chapterPath 指向的是卷目录，不是章节目录");
+        await expect(guard.assertChapterNameUnique(10, "001-opening")).rejects.toThrow("章节 name 已存在");
+        await expect(guard.assertChapterNameUnique(10, "001-opening", 7)).resolves.toBeUndefined();
+        await expect(guard.assertChapterNameUnique(10, "002-chapter")).resolves.toBeUndefined();
     });
 });

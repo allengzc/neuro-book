@@ -233,6 +233,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const workspaceBuffers = ref<Record<string, WorkspaceFileBuffer>>({});
     const workspaceSessions = ref<Record<string, WorkspaceSessionState>>({});
     const workspaceKind = ref<WorkspaceKind>("novel");
+    const configRevision = ref(0);
     const activeWorkspaceFile = ref<WorkspaceActiveFile | null>(null);
     const workspaceIssues = ref<WorkspaceFileIssue[]>([]);
     const workspaceWriteConflict = ref<WorkspaceWriteConflictDto | null>(null);
@@ -289,6 +290,13 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const setSelectedModelLabel = (label: string | null | undefined): void => {
         const normalizedLabel = label?.trim() ?? "";
         selectedModel.value = normalizedLabel || DEFAULT_MODEL_LABEL;
+    };
+
+    /**
+     * 标记配置文件已经被保存型设置面板更新。
+     */
+    const bumpConfigRevision = (): void => {
+        configRevision.value += 1;
     };
 
     /**
@@ -2262,6 +2270,8 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         pushDetailUndoSnapshot,
         popDetailUndoSnapshot,
         clearDetailUndoStack,
+        configRevision,
+        bumpConfigRevision,
         reasoningOptions,
         refreshTreeAndLoadChapter,
         reorderChapters,

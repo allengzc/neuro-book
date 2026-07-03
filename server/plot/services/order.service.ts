@@ -50,12 +50,12 @@ export class OrderService {
     /**
      * 读取章节内 Scene 的下一个排序值。
      */
-    async getNextSceneChapterSortOrder(chapterPath: string | null): Promise<number | null> {
-        if (chapterPath === null) {
+    async getNextSceneChapterSortOrder(chapterId: number | null): Promise<number | null> {
+        if (chapterId === null) {
             return null;
         }
 
-        const scenes = await this.sceneRepository.findScenesByChapter(chapterPath);
+        const scenes = await this.sceneRepository.findScenesByChapter(chapterId);
         const lastScene = scenes.at(-1);
         return lastScene?.chapterSortOrder === undefined || lastScene.chapterSortOrder === null
             ? 0
@@ -104,12 +104,12 @@ export class OrderService {
     /**
      * 压缩章节内 Scene 排序。
      */
-    async normalizeSceneChapter(chapterPath: string | null): Promise<void> {
-        if (chapterPath === null) {
+    async normalizeSceneChapter(chapterId: number | null): Promise<void> {
+        if (chapterId === null) {
             return;
         }
 
-        const scenes = await this.sceneRepository.findScenesByChapter(chapterPath);
+        const scenes = await this.sceneRepository.findScenesByChapter(chapterId);
         for (const [index, scene] of scenes.entries()) {
             if (scene.chapterSortOrder === index) {
                 continue;
@@ -171,10 +171,10 @@ export class OrderService {
             if (!existingThreadIdSet.has(item.threadId)) {
                 throwPlotBadRequest(`剧情线程 ${item.threadId} 不属于当前小说`);
             }
-            if (item.chapterPath === null && item.chapterSortOrder !== null) {
+            if (item.chapterId === null && item.chapterSortOrder !== null) {
                 throwPlotBadRequest("未挂入章节的 Scene 不能提供 chapterSortOrder");
             }
-            if (item.chapterPath !== null && item.chapterSortOrder === null) {
+            if (item.chapterId !== null && item.chapterSortOrder === null) {
                 throwPlotBadRequest("已挂入章节的 Scene 必须提供 chapterSortOrder");
             }
         }
@@ -187,8 +187,8 @@ export class OrderService {
         );
         if (items.length === existingSceneIds.length) {
             this.assertGroupedContinuousOrders(
-                items.filter((item) => item.chapterPath !== null),
-                (item) => String(item.chapterPath),
+                items.filter((item) => item.chapterId !== null),
+                (item) => String(item.chapterId),
                 (item) => item.chapterSortOrder ?? 0,
                 (groupKey) => `章节 ${groupKey} 下的 Scene`,
             );

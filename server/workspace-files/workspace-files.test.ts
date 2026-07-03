@@ -2260,7 +2260,8 @@ describe("workspace-files", {timeout: 60_000}, () => {
             expect(cliSource).not.toContain("[file]");
             expect(rulesSource).not.toContain("source.legacy");
             expect(rulesSource).not.toContain("readLegacySources");
-            expect(helpStdout).toContain("check [options] <file>");
+            expect(helpStdout).toContain("check [options] <files...>");
+            expect(helpStdout).toContain("fix [options] <files...>");
             expect(helpStdout).toContain("show-llm-rules");
             expect(helpStdout).not.toContain("import-legacy");
             expect(helpStdout).not.toContain("import-curated");

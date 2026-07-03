@@ -128,11 +128,12 @@ local-git 模式不使用 Docker。应用直接在宿主机项目目录中运行
 
 特点：
 
-- 服务器拉取 `ghcr.io/notnotype/neuro-book:latest`。
+- 服务器拉取 `ghcr.io/notnotype/neuro-book:<release-tag>`；交互安装会列出 stable / canary / alpha / beta / rc release，非交互安装默认使用当前安装器版本对应的 `v...` tag。
 - 服务器不执行 Nuxt build，避免 OOM。
 - app 镜像内部包含项目源码、Prisma、`.output`、`.output/server/node_modules` Nitro vendor、Bun runtime 和 agent 常用工具。
 - 容器启动时执行 SQLite migration，并用 Product 启动脚本运行服务；不会执行 `bun install`，也不依赖根 `node_modules`。
 - 创建管理员时使用 Bun 运行产品内脚本，不使用根 `bun run auth:create-admin`。
+- `latest` 只代表最新 stable；canary / alpha / beta / rc 不会默认覆盖 `latest`。
 
 适合：
 
@@ -471,8 +472,9 @@ bun scripts/deploy/publish-ghcr-image.mjs
 
 默认 tag：
 
-- `latest`
-- `package.json` 中的 version
+- `v${package.json.version}`
+- stable 版本额外推送 `latest`
+- prerelease / canary / alpha / beta / rc 只推送对应的 `v...` release tag，不覆盖 `latest`
 
 指定 tag：
 
@@ -482,17 +484,13 @@ bun scripts/deploy/publish-ghcr-image.mjs --tag v0.1.0
 
 GitHub Actions 只在 GitHub Release `published` 时发布镜像，不在普通 push 或 pull request 时发布。
 
-Canary 发布使用 GitHub prerelease，tag 建议使用 `v<package-version>-canary.<YYYYMMDD>.<short-sha>`。执行顺序：
+Canary 发布使用项目 release 脚本，它会更新 `package.json.version`、创建 release commit、push 当前分支并创建 GitHub prerelease。patch canary 使用：
 
 ```bash
-git push origin master
-git tag -a v0.1.0-canary.YYYYMMDD.<short-sha> -m "Canary release v0.1.0-canary.YYYYMMDD.<short-sha>"
-git push origin v0.1.0-canary.YYYYMMDD.<short-sha>
-gh release create v0.1.0-canary.YYYYMMDD.<short-sha> --prerelease --title "Canary v0.1.0-canary.YYYYMMDD.<short-sha>"
-gh run watch <release-container-run-id> --exit-status
+bun run release -- canary --next patch --push --yes --no-watch
 ```
 
-Release Container workflow 会推送 runtime/app 两类镜像的 release tag 和 `latest`。该 workflow 保留 GitHub Actions JavaScript action 兼容环境变量；这只影响 Actions 自身，不改变 Product/GHCR 的 Bun runtime 合同。
+创建 GitHub Release 后不要等待 Actions；Release Container workflow 会在后台推送 runtime/app 两类镜像的 release tag。只有 stable release 会额外推送 `latest`。该 workflow 保留 GitHub Actions JavaScript action 兼容环境变量；这只影响 Actions 自身，不改变 Product/GHCR 的 Bun runtime 合同。
 
 ## 配置与敏感信息边界
 

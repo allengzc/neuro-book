@@ -49,10 +49,11 @@ export class SceneService {
     /**
      * 查询章节下的剧情 Scene。
      */
-    async getChapterPlotDetailDto(projectPath: string, chapterPath: string): Promise<ChapterPlotDetailDto> {
-        const normalizedChapterPath = await this.scopeGuard.assertChapterPath(projectPath, chapterPath);
-        const scenes = await this.sceneRepository.findChapterScenes(normalizedChapterPath);
-        return this.assembler.toChapterPlotDetailDto(normalizedChapterPath, scenes);
+    async getChapterPlotDetailDto(projectPath: string, chapterId: number): Promise<ChapterPlotDetailDto> {
+        const story = await this.storyService.ensureStory(projectPath);
+        const chapter = await this.scopeGuard.assertChapter(story.id, chapterId);
+        const scenes = await this.sceneRepository.findChapterScenes(chapter.id);
+        return this.assembler.toChapterPlotDetailDto(chapter, scenes);
     }
 
     /**
@@ -62,16 +63,16 @@ export class SceneService {
         const story = await this.storyService.ensureStory(projectPath);
 
         await this.scopeGuard.assertThread(story.id, input.threadId);
-        const chapterPath = input.chapterPath === null ? null : await this.scopeGuard.assertChapterPath(projectPath, input.chapterPath);
+        const chapterId = input.chapterId === null ? null : (await this.scopeGuard.assertChapter(story.id, input.chapterId)).id;
         this.worldAnchorValidator.validate(input.worldAnchor);
 
         const refs = input.resolvedRefs ?? await this.refResolverService.resolveRefs(story.id, input.refs);
         const scene = await this.sceneRepository.createScene({
             storyId: story.id,
             threadId: input.threadId,
-            chapterPath,
+            chapterId,
             threadSortOrder: await this.orderService.getNextSceneThreadSortOrder(input.threadId),
-            chapterSortOrder: await this.orderService.getNextSceneChapterSortOrder(chapterPath),
+            chapterSortOrder: await this.orderService.getNextSceneChapterSortOrder(chapterId),
             title: input.title,
             status: input.status ?? "draft",
             summary: input.summary ?? "",
@@ -99,13 +100,13 @@ export class SceneService {
         const story = await this.storyService.ensureStory(projectPath);
         const scene = await this.scopeGuard.assertScene(story.id, sceneId);
         const nextThreadId = patch.threadId === undefined ? scene.threadId : patch.threadId;
-        const nextChapterPath = patch.chapterPath === undefined
-            ? scene.chapterPath
-            : patch.chapterPath === null
+        const nextChapterId = patch.chapterId === undefined
+            ? scene.chapterId
+            : patch.chapterId === null
                 ? null
-                : await this.scopeGuard.assertChapterPath(projectPath, patch.chapterPath);
+                : (await this.scopeGuard.assertChapter(story.id, patch.chapterId)).id;
         const threadChanged = nextThreadId !== scene.threadId;
-        const chapterChanged = nextChapterPath !== scene.chapterPath;
+        const chapterChanged = nextChapterId !== scene.chapterId;
 
         if (threadChanged) {
             await this.scopeGuard.assertThread(story.id, nextThreadId);
@@ -119,14 +120,14 @@ export class SceneService {
         }
         await this.sceneRepository.updateScene(scene.id, {
             threadId: nextThreadId,
-            chapterPath: patch.chapterPath === undefined ? undefined : nextChapterPath,
+            chapterId: patch.chapterId === undefined ? undefined : nextChapterId,
             threadSortOrder: threadChanged ? await this.orderService.getNextSceneThreadSortOrder(nextThreadId) : undefined,
-            chapterSortOrder: patch.chapterPath === undefined
+            chapterSortOrder: patch.chapterId === undefined
                 ? undefined
-                : nextChapterPath === null
+                : nextChapterId === null
                     ? null
                     : chapterChanged
-                        ? await this.orderService.getNextSceneChapterSortOrder(nextChapterPath)
+                        ? await this.orderService.getNextSceneChapterSortOrder(nextChapterId)
                         : undefined,
             title: patch.title,
             status: patch.status,
@@ -146,8 +147,8 @@ export class SceneService {
         if (threadChanged) {
             await this.orderService.normalizeSceneThread(scene.threadId);
         }
-        if (chapterChanged && scene.chapterPath !== null) {
-            await this.orderService.normalizeSceneChapter(scene.chapterPath);
+        if (chapterChanged && scene.chapterId !== null) {
+            await this.orderService.normalizeSceneChapter(scene.chapterId);
         }
 
         return this.getStorySceneDetailDto(projectPath, scene.id);
@@ -161,7 +162,7 @@ export class SceneService {
         const scene = await this.scopeGuard.assertScene(story.id, sceneId);
         await this.sceneRepository.deleteScene(scene.id);
         await this.orderService.normalizeSceneThread(scene.threadId);
-        await this.orderService.normalizeSceneChapter(scene.chapterPath);
+        await this.orderService.normalizeSceneChapter(scene.chapterId);
     }
 
     /**
@@ -174,8 +175,8 @@ export class SceneService {
             this.scopeGuard.listThreadIds(story.id),
         ]);
         for (const item of items) {
-            if (item.chapterPath !== null) {
-                item.chapterPath = await this.scopeGuard.assertChapterPath(projectPath, item.chapterPath);
+            if (item.chapterId !== null) {
+                await this.scopeGuard.assertChapter(story.id, item.chapterId);
             }
         }
         const parsedItems = this.orderService.validateSceneReorderItems(
@@ -199,7 +200,7 @@ export class SceneService {
         for (const [index, item] of parsedItems.entries()) {
             await this.sceneRepository.updateScene(item.sceneId, {
                 threadId: item.threadId,
-                chapterPath: item.chapterPath,
+                chapterId: item.chapterId,
                 threadSortOrder: -(index + 1),
                 chapterSortOrder: item.chapterSortOrder,
             });

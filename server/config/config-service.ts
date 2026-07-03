@@ -463,6 +463,7 @@ function buildConfigModelSettingsDto(effective: EffectiveConfig): ConfigModelSet
     const providers = Object.entries(effective.models.providers).map(([providerId, provider]) => ({
         id: providerId,
         name: provider.name,
+        enabled: provider.enabled,
         api: provider.api,
         options: {
             apiKey: maskSecret(provider.options.apiKey),

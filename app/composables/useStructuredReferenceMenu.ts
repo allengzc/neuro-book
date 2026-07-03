@@ -35,7 +35,6 @@ type PlotSceneReferenceCandidate = {
     threadTitle: string;
     title: string;
     summary: string;
-    chapterPath: string | null;
 };
 
 const PLOT_RESULT_LIMIT = 20;
@@ -183,7 +182,6 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
                 threadTitle: thread.title,
                 title: scene.title,
                 summary: scene.summary,
-                chapterPath: scene.chapterPath,
             })))
             .filter((scene) => matchesReferenceQuery(query, [scene.id, scene.title, scene.threadTitle, scene.summary]))
             .slice(0, PLOT_RESULT_LIMIT);

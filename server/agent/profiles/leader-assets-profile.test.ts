@@ -553,18 +553,22 @@ describe("assets builtin v3 profiles", () => {
             "bash",
             "execute_world",
             "report_result",
+            "get_chapter_writer_brief",
+            "get_chapter_plot",
+            "get_plot_tree",
         ]));
         expect(writerProfile.rootToolKeys).not.toContain("apply_patch");
-        expect(writerProfile.rootToolKeys).not.toContain("get_plot_tree");
-        expect(writerProfile.rootToolKeys).not.toContain("get_chapter_plot");
-        expect(writerProfile.rootToolKeys).not.toContain("get_chapter_writer_brief");
         expect(writerProfile.rootToolKeys).not.toContain("create_story_scene");
+        expect(writerProfile.rootToolKeys).not.toContain("update_story_scene");
+        expect(writerProfile.rootToolKeys).not.toContain("create_story_chapter");
         expect(initialProperties).toEqual({});
         expect(payloadProperties).toHaveProperty("path");
+        expect(payloadProperties).toHaveProperty("chapterId");
         expect(payloadProperties).toHaveProperty("context");
-        expect(contextSchema.properties).toHaveProperty("threadIds");
-        expect(contextSchema.properties).toHaveProperty("sceneIds");
-        expect(contextSchema.properties).toHaveProperty("plotIds");
+        // 旧 legacy Plot 兼容字段已删除。
+        expect(contextSchema.properties).not.toHaveProperty("threadIds");
+        expect(contextSchema.properties).not.toHaveProperty("sceneIds");
+        expect(contextSchema.properties).not.toHaveProperty("plotIds");
         expect(contextSchema.properties).toHaveProperty("lorebookEntries");
         expect(contextSchema.properties).toHaveProperty("readablePaths");
         expect(initialProperties).not.toHaveProperty("prompt");
@@ -764,9 +768,6 @@ describe("assets builtin v3 profiles", () => {
                     payload: {
                         path: `${projectSlug}/manuscript/001-chapter/index.md`,
                         context: {
-                            threadIds: ["thread-main"],
-                            sceneIds: ["scene-ledger"],
-                            plotIds: ["plot-missing-page"],
                             lorebookEntries: [`${projectSlug}/lorebook/character/hero/`],
                             readablePaths: [`${projectSlug}/manuscript/000-prologue/index.md`],
                         },
@@ -786,17 +787,14 @@ describe("assets builtin v3 profiles", () => {
 
             expect(historyContext).toContain("<writer_input_context>");
             expect(prepared.systemPrompt).toContain(".nbook/agent/skills/stop-slop/SKILL.md");
-            expect(prepared.systemPrompt).toContain("Scene / World Context brief");
-            expect(prepared.systemPrompt).toContain("你不持有 Plot tools");
+            expect(prepared.systemPrompt).toContain("autonomous");
+            expect(prepared.systemPrompt).not.toContain("你不持有 Plot tools");
             expect(historyContext).toContain("<target_file>");
             expect(historyContext).toContain(`path: ${projectSlug}/manuscript/001-chapter/index.md`);
             expect(historyContext).toContain(`projectSlug: ${projectSlug}`);
             expect(historyContext).toContain(`projectPath: workspace/${projectSlug}`);
             expect(historyContext).toContain("chapterPath: manuscript/001-chapter/");
             expect(historyContext).toContain("<suggested_context>");
-            expect(writerInputContext).not.toContain("thread-main");
-            expect(writerInputContext).not.toContain("scene-ledger");
-            expect(writerInputContext).not.toContain("plot-missing-page");
             expect(historyContext).toContain(`${projectSlug}/lorebook/character/hero/`);
             expect(historyContext).toContain(`${projectSlug}/manuscript/000-prologue/index.md`);
             expect(appendingContext).toContain("请续写这一章，写到账册缺页被发现为止。");

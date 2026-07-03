@@ -46,7 +46,7 @@ export function resolvePiModelFromConfig(
     }
     const provider = config.models.providers[providerId];
     const model = provider?.models[modelId];
-    if (!provider || !model || !model.enabled) {
+    if (!provider || !provider.enabled || !model || !model.enabled) {
         throw new Error(`模型未启用或不存在：${modelKey}`);
     }
 

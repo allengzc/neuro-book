@@ -1,0 +1,42 @@
+{
+  "entries": [
+    {
+      "ref": "books/001-天龙八部-金庸.mobi",
+      "status": "curated",
+      "convertedPath": "converted/001-天龙八部-金庸.epub",
+      "genreKey": "wuxia",
+      "plotId": "tianlong-babu",
+      "selectedChapters": {
+        "skip": 1,
+        "maxChapters": 1
+      },
+      "pubYear": 1963,
+      "notes": "第一回切 6 单元；skip 释名"
+    },
+    {
+      "ref": "books/014-后宫·甄嬛传-流潋紫.mobi",
+      "status": "curated",
+      "convertedPath": "converted/014-后宫·甄嬛传-流潋紫.epub",
+      "genreKey": "gongdou",
+      "plotId": "zhenhuan-zhuan",
+      "selectedChapters": {
+        "skip": 1,
+        "maxChapters": 5
+      },
+      "pubYear": 2007,
+      "notes": "数据集为终结篇单卷；章短 ~1.4k；skip 目录页"
+    },
+    {
+      "ref": "books/026-无限恐怖-zhttty.txt",
+      "status": "curated",
+      "genreKey": "wuxianliu",
+      "plotId": "wuxian-kongbu",
+      "selectedChapters": {
+        "skip": 0,
+        "maxChapters": 5
+      },
+      "pubYear": 2007,
+      "notes": "txt 无需转换；前 5 章（一至三章上下）"
+    }
+  ]
+}

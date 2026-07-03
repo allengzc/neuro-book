@@ -49,15 +49,68 @@ model DatabaseLock {
 }
 
 model Story {
-  id        Int           @id @default(autoincrement())
+  id        Int            @id @default(autoincrement())
   title     String
-  summary   String        @default("")
+  summary   String         @default("")
   note      String?
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @default(now()) @updatedAt
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @default(now()) @updatedAt
+  acts      StoryAct[]
+  chapters  StoryChapter[]
   phases    StoryPhase[]
   threads   StoryThread[]
   scenes    StoryScene[]
+}
+
+// 承载树:Act(卷)。语义对应 manuscript 的 volume 层,但与文件系统切割;排序权威在 sortOrder,目录名前缀只是装饰。
+model StoryAct {
+  id        Int            @id @default(autoincrement())
+  storyId   Int
+  sortOrder Int
+  name      String
+  title     String
+  summary   String         @default("")
+  note      String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @default(now()) @updatedAt
+  story     Story          @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  chapters  StoryChapter[]
+
+  @@unique([storyId, name])
+  @@index([storyId, sortOrder])
+}
+
+// 承载树:Chapter(章)一等实体。与 manuscript 切割:Prose 文件通过 frontmatter `chapter: <name>` 反指本表 name,
+// 文件移动/改名不影响 Chapter;一个 Chapter 可关联多份 Prose(通常一份)。
+// brief* 字段组 = ChapterBrief(章级写作指令),全部可选、自由文本为主(防限死创造力),兼作写后审查依据;
+// 不保存动态世界状态(那是 World Engine 的职责),也不替代 Scene 剧情点。
+model StoryChapter {
+  id                    Int          @id @default(autoincrement())
+  storyId               Int
+  actId                 Int?
+  sortOrder             Int
+  name                  String
+  title                 String
+  note                  String?
+  briefGoal             String? // 章节目标 / 落点
+  briefPov              String? // 本章视角、叙述距离、切换限制
+  briefTone             String? // 语气 / 情绪温度 / 风格约束
+  briefPacing           String? // 节奏、悬念、下一章牵引
+  briefReaderKnows      String? // 信息控制:读者已知
+  briefProtagonistKnows String? // 信息控制:主角已知
+  briefMustHide         String? // 信息控制:必须隐藏
+  briefHintOnly         String? // 信息控制:可暗示但不可明说
+  briefOpening          String? // 开场钩子
+  briefEnding           String? // 章节落点 / 结尾定句
+  briefDoNotWrite       String? // 禁写事项
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @default(now()) @updatedAt
+  story                 Story        @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  act                   StoryAct?    @relation(fields: [actId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  scenes                StoryScene[]
+
+  @@unique([storyId, name])
+  @@index([storyId, actId, sortOrder])
 }
 
 model StoryPhase {
@@ -106,7 +159,7 @@ model StoryScene {
   id                 Int               @id @default(autoincrement())
   storyId            Int
   threadId           Int
-  chapterPath        String?
+  chapterId          Int?
   threadSortOrder    Int
   chapterSortOrder   Int?
   title              String
@@ -123,12 +176,13 @@ model StoryScene {
   updatedAt          DateTime          @default(now()) @updatedAt
   story              Story             @relation(fields: [storyId], references: [id], onDelete: Cascade)
   thread             StoryThread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  chapter            StoryChapter?     @relation(fields: [chapterId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   refs               StorySceneRef[]   @relation("StorySceneRefs")
   incomingSceneRefs  StorySceneRef[]   @relation("StorySceneRefTargetScene")
 
   @@unique([threadId, threadSortOrder])
   @@index([threadId, threadSortOrder])
-  @@index([chapterPath, chapterSortOrder])
+  @@index([chapterId, chapterSortOrder])
   @@index([storyId, status])
   @@index([startInstant])
 }

@@ -16,6 +16,7 @@ import {useCostDisplay} from "nbook/app/composables/useCostDisplay";
 import Dropdown from "nbook/app/components/common/Dropdown.vue";
 import AgentChatFlow from "nbook/app/components/novel-ide/agent/AgentChatFlow.vue";
 import AgentComposer from "nbook/app/components/novel-ide/agent/AgentComposer.vue";
+import type {AgentSessionModelDraft} from "nbook/app/components/novel-ide/agent/agent-session-model-controls";
 import AgentLinkedAgentPanel from "nbook/app/components/novel-ide/agent/AgentLinkedAgentPanel.vue";
 import AgentSessionDialog from "nbook/app/components/novel-ide/agent/AgentSessionDialog.vue";
 import AgentSessionTreeDialog from "nbook/app/components/novel-ide/agent/AgentSessionTreeDialog.vue";
@@ -33,11 +34,6 @@ import type {AgentCommandResult, InvokeAgentResult} from "nbook/server/agent/har
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {InlineEditPayload} from "nbook/app/utils/inline-editor-selection";
 import {LowCodeJsonObjectSchema} from "nbook/shared/dto/low-code-form.dto";
-
-type SessionModelDraft = {
-    modelKey: string | null;
-    reasoningEffort: ThinkingLevelDto | null;
-};
 
 type LeaderCreateProfileOption = {
     profileKey: string;
@@ -89,13 +85,18 @@ const editingMessageId = ref<string | null>(null);
 const messageActionId = ref<string | null>(null);
 const selectableModels = ref<ConfigModelSettingsDto["enabledModels"]>([]);
 const resolvedDefaultProfileKey = ref("leader.default");
-const sessionModelMode = ref<"default" | "override">("default");
-const sessionModelDraft = ref<SessionModelDraft>({
+const sessionModelDraft = ref<AgentSessionModelDraft>({
     modelKey: null,
     reasoningEffort: null,
 });
 const sessionModelPopoverOpen = ref(false);
 const sessionModelSaving = ref(false);
+const inlineSessionModelDraft = ref<AgentSessionModelDraft>({
+    modelKey: null,
+    reasoningEffort: null,
+});
+const inlineSessionModelPopoverOpen = ref(false);
+const inlineSessionModelSaving = ref(false);
 const submittingUserInputKey = ref<string | null>(null);
 const userInputSelectedAnswers = ref<Record<string, number[]>>({});
 const userInputNotes = ref<Record<string, string>>({});
@@ -195,8 +196,14 @@ const queuedMessages = computed<AgentQueuedMessageDto[]>(() => [
 const linkedAgentCount = computed(() => linkedAgents.value.length + linkedByAgents.value.length);
 const planModeActive = computed(() => activeSnapshot.value?.planModeActive ?? false);
 const renderNodes = computed(() => messages.value);
+const inlineEditorCurrentTurnMessages = computed<AgentMessage[]>(() => {
+    const latestUserIndex = inlineEditorMessages.value.findLastIndex((message) => message.type === "user");
+    return latestUserIndex >= 0
+        ? inlineEditorMessages.value.slice(latestUserIndex + 1)
+        : inlineEditorMessages.value;
+});
 const inlineEditPreview = computed(() => {
-    const toolCall = inlineEditorMessages.value
+    const toolCall = inlineEditorCurrentTurnMessages.value
         .flatMap((message) => message.toolCalls ?? [])
         .filter((item) => (item.name === "edit" || item.name === "write") && (item.status === "streaming" || item.status === "running"))
         .at(-1);
@@ -207,6 +214,18 @@ const inlineEditPreview = computed(() => {
     const status = t("agent.chatSurface.inlineRunning");
     const result = toolCall.error || toolCall.result || "";
     return [`${status}${path ? `：${path}` : ""}`, result].filter(Boolean).join("\n");
+});
+const inlineEditorLiveView = computed(() => {
+    const latestAssistant = inlineEditorCurrentTurnMessages.value
+        .filter((message) => message.type === "ai")
+        .at(-1);
+    return {
+        thinking: latestAssistant?.thinking ?? "",
+        content: latestAssistant?.content ?? "",
+        status: latestAssistant?.status ?? null,
+        editPreview: inlineEditPreview.value,
+        resultText: inlineEditorResultText.value,
+    };
 });
 const inlineEditorSessionLabel = computed(() => {
     const selected = inlineEditorSessions.value.find((item) => item.sessionId === inlineEditorSessionId.value)
@@ -447,11 +466,22 @@ const summarizerStatus = computed<null | {
     }
     return null;
 });
-const sessionModelDefaultLabel = computed(() => t("agent.chatSurface.followProfileDefault"));
-const sessionModelSelectionValue = computed(() => sessionModelMode.value === "override" ? sessionModelDraft.value.modelKey : null);
+const sessionModelSelectionValue = computed(() => sessionModelDraft.value.modelKey);
 const sessionThinkingResolvedLabel = computed(() => {
     const requested = activeSnapshot.value?.thinkingLevel ?? null;
     const effective = activeSnapshot.value?.effectiveThinkingLevel ?? "off";
+    if (requested === null) {
+        return t("agent.chatSurface.followProfileCurrent", {level: thinkingLevelLabel(effective)});
+    }
+    if (requested === effective) {
+        return thinkingLevelLabel(effective);
+    }
+    return t("agent.chatSurface.requestedEffective", {requested: thinkingLevelLabel(requested), effective: thinkingLevelLabel(effective)});
+});
+const inlineSessionModelSelectionValue = computed(() => inlineSessionModelDraft.value.modelKey);
+const inlineSessionThinkingResolvedLabel = computed(() => {
+    const requested = inlineEditorSession.snapshot.value?.thinkingLevel ?? null;
+    const effective = inlineEditorSession.snapshot.value?.effectiveThinkingLevel ?? "off";
     if (requested === null) {
         return t("agent.chatSurface.followProfileCurrent", {level: thinkingLevelLabel(effective)});
     }
@@ -1517,7 +1547,6 @@ const cancelEditingMessage = (): void => {
  * 更新当前 session 模型覆盖。
  */
 const updateSessionModelSelection = async (modelKey: string | null): Promise<void> => {
-    sessionModelMode.value = modelKey === null ? "default" : "override";
     sessionModelDraft.value = {
         ...sessionModelDraft.value,
         modelKey,
@@ -1591,17 +1620,171 @@ async function resetSessionModelSettings(): Promise<void> {
     sessionModelPopoverOpen.value = false;
 }
 
-function syncSessionModelState(_summary: AgentSessionSummaryDto | null): void {
-    const model = session.snapshot.value?.model ?? null;
-    sessionModelMode.value = model ? "override" : "default";
+function modelDraftFromSnapshot(snapshot: AgentSessionSnapshotDto | null): AgentSessionModelDraft {
+    const model = snapshot?.model ?? null;
     const providerConfigId = model && "providerConfigId" in model && typeof model.providerConfigId === "string"
         ? model.providerConfigId
         : model?.provider;
+    return {
+        modelKey: model ? `${providerConfigId}/${model.id}` : null,
+        reasoningEffort: snapshot?.thinkingLevel ?? null,
+    };
+}
+
+function syncSessionModelState(_summary: AgentSessionSummaryDto | null): void {
     sessionModelDraft.value = {
         ...sessionModelDraft.value,
-        modelKey: model ? `${providerConfigId}/${model.id}` : null,
-        reasoningEffort: session.snapshot.value?.thinkingLevel ?? null,
+        ...modelDraftFromSnapshot(session.snapshot.value),
     };
+}
+
+function syncInlineSessionModelState(): void {
+    inlineSessionModelDraft.value = {
+        ...inlineSessionModelDraft.value,
+        ...modelDraftFromSnapshot(inlineEditorSession.snapshot.value),
+    };
+}
+
+/**
+ * 判断 Inline AI session 模型设置此刻是否允许写入。
+ */
+function inlineSessionModelActionBlocked(): boolean {
+    return !inlineEditorSessionId.value || inlineEditorRunning.value || inlineEditorSessionLoading.value || inlineSessionModelSaving.value;
+}
+
+/**
+ * 丢弃未落库草稿，恢复为当前 snapshot 中的真实模型设置。
+ */
+function restoreInlineSessionModelDraft(): void {
+    syncInlineSessionModelState();
+}
+
+/**
+ * 更新 Inline AI session 模型覆盖，不影响右侧主 Agent 当前会话。
+ */
+const updateInlineSessionModelSelection = async (modelKey: string | null): Promise<boolean> => {
+    if (inlineSessionModelActionBlocked()) {
+        restoreInlineSessionModelDraft();
+        return false;
+    }
+    const sessionId = inlineEditorSessionId.value;
+    if (!sessionId) {
+        restoreInlineSessionModelDraft();
+        return false;
+    }
+
+    inlineSessionModelDraft.value = {
+        ...inlineSessionModelDraft.value,
+        modelKey,
+    };
+
+    inlineSessionModelSaving.value = true;
+    try {
+        await agentApi.runCommand(sessionId, {
+            command: "model",
+            modelKey,
+        });
+        await inlineEditorStream.syncSnapshot("manual_refresh");
+        syncInlineSessionModelState();
+        return true;
+    } catch (error) {
+        console.error("更新 Inline AI session 模型失败", error);
+        notifyAgentError(error, t("agent.chatSurface.updateModelFailed"));
+        restoreInlineSessionModelDraft();
+        return false;
+    } finally {
+        inlineSessionModelSaving.value = false;
+    }
+};
+
+/**
+ * 更新 Inline AI session 推理强度覆盖。
+ */
+const updateInlineSessionThinkingLevel = async (thinkingLevel: ThinkingLevelDto | null): Promise<boolean> => {
+    if (inlineSessionModelActionBlocked()) {
+        restoreInlineSessionModelDraft();
+        return false;
+    }
+    const sessionId = inlineEditorSessionId.value;
+    if (!sessionId) {
+        restoreInlineSessionModelDraft();
+        return false;
+    }
+
+    inlineSessionModelDraft.value = {
+        ...inlineSessionModelDraft.value,
+        reasoningEffort: thinkingLevel,
+    };
+
+    inlineSessionModelSaving.value = true;
+    try {
+        await agentApi.runCommand(sessionId, {
+            command: "thinking",
+            thinkingLevel,
+        });
+        await inlineEditorStream.syncSnapshot("manual_refresh");
+        syncInlineSessionModelState();
+        return true;
+    } catch (error) {
+        console.error("更新 Inline AI session 推理强度失败", error);
+        notifyAgentError(error, t("agent.chatSurface.updateThinkingFailed"));
+        restoreInlineSessionModelDraft();
+        return false;
+    } finally {
+        inlineSessionModelSaving.value = false;
+    }
+};
+
+function toggleInlineSessionModelPopover(): void {
+    if (!inlineSessionModelPopoverOpen.value && inlineSessionModelActionBlocked()) {
+        restoreInlineSessionModelDraft();
+        inlineSessionModelPopoverOpen.value = false;
+        return;
+    }
+    inlineSessionModelPopoverOpen.value = !inlineSessionModelPopoverOpen.value;
+}
+
+function setInlineSessionModelDraft(value: AgentSessionModelDraft): void {
+    if (inlineSessionModelActionBlocked()) {
+        restoreInlineSessionModelDraft();
+        return;
+    }
+    inlineSessionModelDraft.value = value;
+}
+
+function setInlineSessionModelPopoverOpen(value: boolean): void {
+    if (value && inlineSessionModelActionBlocked()) {
+        restoreInlineSessionModelDraft();
+        inlineSessionModelPopoverOpen.value = false;
+        return;
+    }
+    inlineSessionModelPopoverOpen.value = value;
+}
+
+async function applyInlineSessionModelSettings(): Promise<void> {
+    if (inlineSessionModelActionBlocked()) {
+        restoreInlineSessionModelDraft();
+        inlineSessionModelPopoverOpen.value = false;
+        return;
+    }
+    const nextModelKey = inlineSessionModelDraft.value.modelKey;
+    const nextThinkingLevel = inlineSessionModelDraft.value.reasoningEffort;
+    await updateInlineSessionModelSelection(nextModelKey);
+    await updateInlineSessionThinkingLevel(nextThinkingLevel);
+    restoreInlineSessionModelDraft();
+    inlineSessionModelPopoverOpen.value = false;
+}
+
+async function resetInlineSessionModelSettings(): Promise<void> {
+    if (inlineSessionModelActionBlocked()) {
+        restoreInlineSessionModelDraft();
+        inlineSessionModelPopoverOpen.value = false;
+        return;
+    }
+    await updateInlineSessionModelSelection(null);
+    await updateInlineSessionThinkingLevel(null);
+    restoreInlineSessionModelDraft();
+    inlineSessionModelPopoverOpen.value = false;
 }
 
 const sessionStream = useAgentSessionStream({
@@ -1626,6 +1809,9 @@ const inlineEditorStream = useAgentSessionStream({
     session: inlineEditorSession,
     api: agentApi,
     activeSessionId: inlineEditorSessionId,
+    applySnapshotSideEffects: () => {
+        syncInlineSessionModelState();
+    },
     onEvent: async (event) => {
         if (event.kind === "session" && event.event.type === "client_variable_patch_requested" && inlineEditorSessionId.value) {
             await acknowledgeClientPatch(inlineEditorSessionId.value, event.event.request);
@@ -1856,6 +2042,8 @@ function resetWorkspaceSessionState(): void {
     sessionDialogOpen.value = false;
     sessionTreeDialogOpen.value = false;
     sessionModelPopoverOpen.value = false;
+    inlineSessionModelPopoverOpen.value = false;
+    inlineSessionModelSaving.value = false;
     editingMessageId.value = null;
     messageActionId.value = null;
     inputText.value = "";
@@ -1863,6 +2051,7 @@ function resetWorkspaceSessionState(): void {
     inlineEditorSession.reset();
     inlineEditorResultText.value = "";
     syncSessionModelState(null);
+    syncInlineSessionModelState();
 }
 
 watch(() => props.selectedFilePath, (nextFilePath, previousFilePath) => {
@@ -1881,6 +2070,7 @@ watch(() => props.active, async (active) => {
         sessionDialogOpen.value = false;
         linkedAgentPanelOpen.value = false;
         sessionModelPopoverOpen.value = false;
+        inlineSessionModelPopoverOpen.value = false;
         editingMessageId.value = null;
         messageActionId.value = null;
         return;
@@ -1933,6 +2123,15 @@ watch(() => [ideStore.workspaceKind, ideStore.currentNovelId] as const, async ()
     }
 });
 
+watch(() => ideStore.configRevision, async () => {
+    if (!props.active) {
+        return;
+    }
+    await loadSelectableModels();
+    await loadResolvedLeaderProfileKey();
+    await syncActiveSessionSnapshot("manual_refresh");
+});
+
 onBeforeUnmount(() => {
     sessionStream.stop();
     inlineEditorStream.stop();
@@ -1957,13 +2156,20 @@ defineExpose({
     loadingSession,
     linkedAgentsLoading,
     running,
+    selectableModels,
     inlineEditorRunning,
     inlineEditorResultText,
+    inlineEditorLiveView,
     inlineEditorSessionId,
     inlineEditorSessions,
     inlineEditorSessionLoading,
     inlineEditPreview,
     inlineEditorSessionLabel,
+    inlineSessionModelDraft,
+    inlineSessionModelPopoverOpen,
+    inlineSessionModelSaving,
+    inlineSessionModelSelectionValue,
+    inlineSessionThinkingResolvedLabel,
     sessionActionId,
     ensureSessionReady,
     refreshSessionsWithQuery,
@@ -1974,6 +2180,12 @@ defineExpose({
     refreshInlineEditorSessions,
     selectInlineEditorSession,
     createInlineEditorSession,
+    setInlineSessionModelDraft,
+    setInlineSessionModelPopoverOpen,
+    updateInlineSessionModelSelection,
+    toggleInlineSessionModelPopover,
+    applyInlineSessionModelSettings,
+    resetInlineSessionModelSettings,
     sendInlineEditorPrompt,
     stopInlineEditorPrompt,
 });
@@ -2023,6 +2235,7 @@ async function refreshInlineEditorSessions(): Promise<AgentSessionSummaryDto[]> 
             inlineEditorSession.reset();
             inlineEditorResultText.value = "";
             inlineEditorStream.stop();
+            syncInlineSessionModelState();
         }
         return inlineEditorSessions.value;
     } finally {
@@ -2076,6 +2289,7 @@ async function loadInlineEditorSession(sessionId: number, options: {invalidateRe
         throw new Error(t("agent.chatSurface.inlineLoadFailed"));
     }
     inlineEditorSession.applySnapshot(snapshot);
+    syncInlineSessionModelState();
     inlineEditorSessions.value = inlineEditorSessions.value.some((item) => item.sessionId === snapshot.summary.sessionId)
         ? inlineEditorSessions.value.map((item) => item.sessionId === snapshot.summary.sessionId ? snapshot.summary : item)
         : [snapshot.summary, ...inlineEditorSessions.value];
@@ -2244,7 +2458,6 @@ function isApprovalApproved(answer?: {
                 :loading-session="loadingSession"
                 :session-model-saving="sessionModelSaving"
                 :session-model-selection-value="sessionModelSelectionValue"
-                :session-model-default-label="sessionModelDefaultLabel"
                 :session-thinking-resolved-label="sessionThinkingResolvedLabel"
                 :selectable-models="selectableModels"
                 :plan-mode-active="planModeActive"

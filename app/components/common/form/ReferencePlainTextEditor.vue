@@ -17,6 +17,7 @@ const props = withDefaults(defineProps<{
     placeholder?: string;
     minHeight?: number;
     maxHeight?: number;
+    expanded?: boolean;
     readonly?: boolean;
     borderless?: boolean;
     submitOnEnter?: boolean;
@@ -27,8 +28,9 @@ const props = withDefaults(defineProps<{
     onSkillTriggerStart?: () => void;
 }>(), {
     placeholder: "",
-    minHeight: 44,
+    minHeight: 36,
     maxHeight: 150,
+    expanded: false,
     readonly: false,
     borderless: false,
     submitOnEnter: false,
@@ -71,10 +73,12 @@ const menuVisible = computed(() => Boolean(suggestionMenuState.value && suggesti
 const skillTriggerActive = computed(() => suggestionMenuState.value?.contextKind === "skill");
 const popoverTeleportTarget = computed(() => wrapperRef.value?.closest(".novel-ide-theme") as HTMLElement | null);
 const rootClass = computed(() => props.borderless ? "reference-plain-text-editor--borderless" : "");
+const effectiveMinHeight = computed(() => props.expanded ? Math.max(props.minHeight, 220) : props.minHeight);
+const effectiveMaxHeight = computed(() => props.expanded ? Math.max(props.maxHeight, 420) : props.maxHeight);
 const bodyStyle = computed(() => ({
     height: `${heightPx.value}px`,
-    minHeight: `${props.minHeight}px`,
-    maxHeight: `${props.maxHeight}px`,
+    minHeight: `${effectiveMinHeight.value}px`,
+    maxHeight: `${effectiveMaxHeight.value}px`,
     overflowY: overflowing.value ? "auto" as const : "hidden" as const,
 }));
 
@@ -190,7 +194,7 @@ watch(() => props.readonly, (readonly) => {
     editor.value?.setEditable(!readonly);
 });
 
-watch(() => [props.minHeight, props.maxHeight], () => {
+watch(() => [props.minHeight, props.maxHeight, props.expanded], () => {
     scheduleHeightMeasure();
 });
 
@@ -313,7 +317,7 @@ function scheduleHeightMeasure(): void {
 function measureHeight(): void {
     const body = bodyRef.value;
     if (!body) {
-        heightPx.value = props.minHeight;
+        heightPx.value = effectiveMinHeight.value;
         overflowing.value = false;
         shouldStickToBottom.value = true;
         return;
@@ -332,8 +336,8 @@ function measureHeight(): void {
     body.style.height = previousHeight;
     body.style.overflowY = previousOverflowY;
 
-    const boundedHeight = Math.min(Math.max(wantedHeight, props.minHeight), props.maxHeight);
-    const nextOverflowing = wantedHeight > props.maxHeight;
+    const boundedHeight = Math.min(Math.max(wantedHeight, effectiveMinHeight.value), effectiveMaxHeight.value);
+    const nextOverflowing = wantedHeight > effectiveMaxHeight.value;
     heightPx.value = boundedHeight;
     overflowing.value = nextOverflowing;
     if (!nextOverflowing) {

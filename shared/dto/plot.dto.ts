@@ -132,6 +132,70 @@ export const StoryPhaseDtoSchema = z.object({
     updatedAt: z.string(),
 });
 
+// 承载树:Act(卷)。与 manuscript volume 目录切割,排序权威在 sortOrder。
+export const StoryActDtoSchema = z.object({
+    id: z.string(),
+    storyId: z.string(),
+    sortOrder: z.number().int().nonnegative(),
+    name: z.string(),
+    title: z.string(),
+    summary: z.string(),
+    // `note` 为空表示没有额外备注。
+    note: z.string().nullable(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+});
+
+// ChapterBrief:章级写作指令(POV/信息控制/开头收尾/禁写等)。字段全部可空,
+// 空表示该维度未约束、交给 writer 自由发挥;非空即 leader/用户对本章的显式指令,兼作写后审查依据。
+export const ChapterBriefDtoSchema = z.object({
+    // 章节目标 / 落点。
+    goal: z.string().nullable(),
+    // 本章视角、叙述距离、切换限制。
+    pov: z.string().nullable(),
+    // 语气 / 情绪温度 / 风格约束。
+    tone: z.string().nullable(),
+    // 节奏、悬念、下一章牵引。
+    pacing: z.string().nullable(),
+    // 信息控制:读者已知。
+    readerKnows: z.string().nullable(),
+    // 信息控制:主角已知。
+    protagonistKnows: z.string().nullable(),
+    // 信息控制:必须隐藏。
+    mustHide: z.string().nullable(),
+    // 信息控制:可暗示但不可明说。
+    hintOnly: z.string().nullable(),
+    // 开场钩子。
+    opening: z.string().nullable(),
+    // 章节落点 / 结尾定句。
+    ending: z.string().nullable(),
+    // 禁写事项。
+    doNotWrite: z.string().nullable(),
+});
+
+// 承载树:Chapter(章)一等实体。Prose 文件通过 frontmatter `chapter: <name>` 反指本实体。
+export const StoryChapterDtoSchema = z.object({
+    id: z.string(),
+    storyId: z.string(),
+    // `actId` 为空表示该章尚未归入具体卷。
+    actId: z.string().nullable(),
+    sortOrder: z.number().int().nonnegative(),
+    name: z.string(),
+    title: z.string(),
+    // `note` 为空表示没有额外备注。
+    note: z.string().nullable(),
+    brief: ChapterBriefDtoSchema,
+    createdAt: z.string(),
+    updatedAt: z.string(),
+});
+
+// Scene 上内嵌的 Chapter 轻量摘要,供列表/树展示,避免 UI 再查一次。
+export const StorySceneChapterRefDtoSchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    title: z.string(),
+});
+
 export const StoryThreadSummaryDtoSchema = z.object({
     id: z.string(),
     storyId: z.string(),
@@ -156,8 +220,10 @@ export const StorySceneSummaryDtoSchema = z.object({
     id: z.string(),
     storyId: z.string(),
     threadId: z.string(),
-    // `chapterPath` 为空表示当前 Scene 还未挂入具体章节。
-    chapterPath: z.string().nullable(),
+    // `chapterId` 为空表示当前 Scene 还未挂入具体章节。
+    chapterId: z.string().nullable(),
+    // `chapter` 为空同 chapterId;非空时是所属 Chapter 的轻量摘要。
+    chapter: StorySceneChapterRefDtoSchema.nullable(),
     threadSortOrder: z.number().int().nonnegative(),
     // `chapterSortOrder` 为空表示当前 Scene 未进入正文顺序。
     chapterSortOrder: z.number().int().nonnegative().nullable(),
@@ -191,7 +257,7 @@ export const ChapterPlotSceneDtoSchema = z.object({
     threadId: z.string(),
     threadTitle: z.string(),
     threadIsMain: z.boolean(),
-    chapterPath: z.string().nullable(),
+    chapterId: z.string().nullable(),
     chapterSortOrder: z.number().int().nonnegative().nullable(),
     threadSortOrder: z.number().int().nonnegative(),
     title: z.string(),
@@ -202,17 +268,35 @@ export const ChapterPlotSceneDtoSchema = z.object({
 });
 
 export const ChapterPlotDetailDtoSchema = z.object({
-    chapterPath: z.string(),
+    chapter: StoryChapterDtoSchema,
     scenes: z.array(ChapterPlotSceneDtoSchema),
     totalScenes: z.number().int().nonnegative(),
 });
+
+// Writer 防全知模式:autonomous=writer 自查 World Engine/lorebook,brief 只给查询提示;
+// curated=writer 读不到设定源,brief 需带上过滤后的状态摘要,由 leader 投喂。
+export const ChapterWriterBriefModeSchema = z.enum(["autonomous", "curated"]);
 
 export const ChapterWriterBriefStatusSchema = z.enum([
     "ready",
     "needs_plot",
     "needs_world_anchor",
     "needs_world_context",
+    // 信息控制四项(读者已知/主角已知/必须隐藏/可暗示)全空:信息控制是防全知唯一的按章控制面,必填。
+    "needs_chapter_brief",
 ]);
+
+// brief 编译出的建议读取项。来源于 Scene/Thread 的结构化 refs(content 类),替代 leader 手写设定复述。
+export const ChapterWriterBriefReadingDtoSchema = z.object({
+    // Project Workspace 相对内容节点路径,例如 lorebook/character/weiluosi/。
+    path: z.string(),
+    // 关系标签(foreshadows/depends_on 等),作为「为什么读」的 gloss。
+    relation: z.string(),
+    // `note` 为空表示该 ref 没有额外备注。
+    note: z.string().nullable(),
+    // 引用来源:来自某个 Scene 还是所属 Thread。
+    source: z.enum(["scene", "thread"]),
+});
 
 export const ChapterWriterBriefSceneDtoSchema = z.object({
     id: z.string(),
@@ -222,7 +306,7 @@ export const ChapterWriterBriefSceneDtoSchema = z.object({
     threadSummary: z.string(),
     // `threadWritingTip` 为空表示该 Thread 没有额外写作提示。
     threadWritingTip: z.string().nullable(),
-    chapterPath: z.string().nullable(),
+    chapterId: z.string().nullable(),
     chapterSortOrder: z.number().int().nonnegative().nullable(),
     threadSortOrder: z.number().int().nonnegative(),
     title: z.string(),
@@ -239,10 +323,13 @@ export const ChapterWriterBriefSceneDtoSchema = z.object({
 });
 
 export const ChapterWriterBriefDtoSchema = z.object({
-    chapterPath: z.string(),
+    chapter: StoryChapterDtoSchema,
+    mode: ChapterWriterBriefModeSchema,
     status: ChapterWriterBriefStatusSchema,
     scenes: z.array(ChapterWriterBriefSceneDtoSchema),
     totalScenes: z.number().int().nonnegative(),
+    // 由 Scene/Thread refs 编译的建议读取清单(已按 path 去重)。
+    suggestedReading: z.array(ChapterWriterBriefReadingDtoSchema),
     warnings: z.array(z.string()),
     suggestedBriefMarkdown: z.string().min(1),
 });
@@ -255,13 +342,24 @@ export const StoryPhaseTreeNodeDtoSchema = StoryPhaseDtoSchema.extend({
     threads: z.array(StoryThreadTreeNodeDtoSchema),
 });
 
+// 承载树节点:Act 携带旗下 Chapter(按 sortOrder 排列)。
+export const StoryActTreeNodeDtoSchema = StoryActDtoSchema.extend({
+    chapters: z.array(StoryChapterDtoSchema),
+});
+
 export const PlotTreeDtoSchema = z.object({
     story: StoryDtoSchema,
+    // 因果树:Phase → Thread → Scene。
     phases: z.array(StoryPhaseTreeNodeDtoSchema),
     ungroupedThreads: z.array(StoryThreadTreeNodeDtoSchema),
+    // 承载树:Act → Chapter;未归卷的 Chapter 平铺在 ungroupedChapters。
+    acts: z.array(StoryActTreeNodeDtoSchema),
+    ungroupedChapters: z.array(StoryChapterDtoSchema),
     totalPhases: z.number().int().nonnegative(),
     totalThreads: z.number().int().nonnegative(),
     totalScenes: z.number().int().nonnegative(),
+    totalActs: z.number().int().nonnegative(),
+    totalChapters: z.number().int().nonnegative(),
 });
 
 export const StoryWorkbenchSceneDtoSchema = StorySceneSummaryDtoSchema.extend({
@@ -326,6 +424,76 @@ export const ReorderStoryPhasesRequestDtoSchema = z.object({
     items: z.array(ReorderStoryPhaseItemDtoSchema).min(1, "items 不能为空"),
 });
 
+// ChapterBrief 写入 schema:每个字段 undefined=不修改,null=显式清空。
+export const ChapterBriefInputDtoSchema = z.object({
+    goal: StorySummarySchema.nullable().optional().describe("Chapter goal / landing point. Null clears it."),
+    pov: StorySummarySchema.nullable().optional().describe("POV, narrative distance and switching constraints for this chapter. Null clears it."),
+    tone: StorySummarySchema.nullable().optional().describe("Tone / emotional temperature / style constraints. Null clears it."),
+    pacing: StorySummarySchema.nullable().optional().describe("Pacing, suspense and next-chapter pull. Null clears it."),
+    readerKnows: StorySummarySchema.nullable().optional().describe("Information control: what the reader already knows. Null clears it."),
+    protagonistKnows: StorySummarySchema.nullable().optional().describe("Information control: what the protagonist knows. Null clears it."),
+    mustHide: StorySummarySchema.nullable().optional().describe("Information control: facts that must stay hidden this chapter. Null clears it."),
+    hintOnly: StorySummarySchema.nullable().optional().describe("Information control: may be hinted at but not stated. Null clears it."),
+    opening: StorySummarySchema.nullable().optional().describe("Opening hook. Null clears it."),
+    ending: StorySummarySchema.nullable().optional().describe("Chapter landing / closing line. Null clears it."),
+    doNotWrite: StorySummarySchema.nullable().optional().describe("Do-not-write list (secrets, premature reveals). Null clears it."),
+});
+
+export const CreateStoryActRequestDtoSchema = z.object({
+    name: StoryNameSchema.describe("Machine-friendly name (lowercase letters, digits, hyphens)."),
+    title: NonEmptyStringSchema.max(MAX_STORY_TITLE_LENGTH, "title 过长").describe("Human-readable act (volume) title."),
+    summary: StorySummarySchema.optional().describe("Act summary (max 5000 characters)."),
+    // `note` 为空表示显式清空备注。
+    note: StoryNoteSchema.nullable().optional().describe("Optional note. Null clears it."),
+});
+
+export const UpdateStoryActRequestDtoSchema = z.object({
+    name: StoryNameSchema.optional().describe("Machine-friendly name (lowercase letters, digits, hyphens)."),
+    title: NonEmptyStringSchema.max(MAX_STORY_TITLE_LENGTH, "title 过长").optional().describe("Human-readable act (volume) title."),
+    summary: StorySummarySchema.optional().describe("Act summary (max 5000 characters)."),
+    // `note` 为空表示显式清空备注。
+    note: StoryNoteSchema.nullable().optional().describe("Optional note. Null clears it."),
+    sortOrder: z.number().int().nonnegative().optional().describe("Act order within the story."),
+}).refine((value) => (
+    value.name !== undefined
+    || value.title !== undefined
+    || value.summary !== undefined
+    || value.note !== undefined
+    || value.sortOrder !== undefined
+), {
+    message: "至少提供一个更新字段",
+});
+
+export const CreateStoryChapterRequestDtoSchema = z.object({
+    // `actId` 为空表示创建未归卷章节。
+    actId: z.string().trim().min(1, "actId 不能为空").nullable().optional().describe("Act ID to group this chapter under. Null for an ungrouped chapter."),
+    name: StoryNameSchema.describe("Machine-friendly name (lowercase letters, digits, hyphens). Prose files point back via frontmatter `chapter: <name>`."),
+    title: NonEmptyStringSchema.max(MAX_STORY_TITLE_LENGTH, "title 过长").describe("Human-readable chapter title."),
+    // `note` 为空表示显式清空备注。
+    note: StoryNoteSchema.nullable().optional().describe("Optional note. Null clears it."),
+    brief: ChapterBriefInputDtoSchema.optional().describe("Chapter-level writer brief (goal, POV, info control, opening/ending, do-not-write)."),
+});
+
+export const UpdateStoryChapterRequestDtoSchema = z.object({
+    // `actId` 为空表示移动到未归卷区。
+    actId: z.string().trim().min(1, "actId 不能为空").nullable().optional().describe("Act ID to move the chapter to. Null moves to ungrouped."),
+    name: StoryNameSchema.optional().describe("Machine-friendly name (lowercase letters, digits, hyphens). Renaming breaks existing prose frontmatter pointers."),
+    title: NonEmptyStringSchema.max(MAX_STORY_TITLE_LENGTH, "title 过长").optional().describe("Human-readable chapter title."),
+    // `note` 为空表示显式清空备注。
+    note: StoryNoteSchema.nullable().optional().describe("Optional note. Null clears it."),
+    sortOrder: z.number().int().nonnegative().optional().describe("Chapter order within the story."),
+    brief: ChapterBriefInputDtoSchema.optional().describe("Chapter-level writer brief fields to update. Omitted fields stay unchanged; null fields are cleared."),
+}).refine((value) => (
+    value.actId !== undefined
+    || value.name !== undefined
+    || value.title !== undefined
+    || value.note !== undefined
+    || value.sortOrder !== undefined
+    || value.brief !== undefined
+), {
+    message: "至少提供一个更新字段",
+});
+
 export const CreateStoryThreadRequestDtoSchema = z.object({
     // `storyPhaseId` 为空表示创建未分组线程。
     storyPhaseId: z.string().trim().min(1, "storyPhaseId 不能为空").nullable().optional().describe("Phase ID to group this thread under. Null for an ungrouped thread."),
@@ -381,8 +549,8 @@ export const ReorderStoryThreadsRequestDtoSchema = z.object({
 
 export const CreateStorySceneRequestDtoSchema = z.object({
     threadId: z.string().trim().min(1, "threadId 不能为空").describe("Thread ID to attach this scene to."),
-    // `chapterPath` 为空表示当前 Scene 还未挂入具体章节。
-    chapterPath: z.string().trim().min(1, "chapterPath 不能为空").nullable().optional().describe("Chapter content-node path to attach this scene to. Null if not yet placed in a chapter."),
+    // `chapterId` 为空表示当前 Scene 还未挂入具体章节。
+    chapterId: z.string().trim().min(1, "chapterId 不能为空").nullable().optional().describe("StoryChapter ID to attach this scene to. Null if not yet placed in a chapter."),
     title: NonEmptyStringSchema.max(MAX_STORY_TITLE_LENGTH, "title 过长").describe("Human-readable scene title."),
     status: StorySceneStatusSchema.optional().describe("Scene status (draft, active, written, revised, archived)."),
     summary: StorySummarySchema.optional().describe("Scene summary (max 5000 characters)."),
@@ -398,8 +566,8 @@ export const CreateStorySceneRequestDtoSchema = z.object({
 
 export const UpdateStorySceneRequestDtoSchema = z.object({
     threadId: z.string().trim().min(1, "threadId 不能为空").optional().describe("Thread ID to move this scene to."),
-    // `chapterPath` 为空表示从章节顺序中移除当前 Scene。
-    chapterPath: z.string().trim().min(1, "chapterPath 不能为空").nullable().optional().describe("Chapter content-node path. Null removes the scene from chapter ordering."),
+    // `chapterId` 为空表示从章节顺序中移除当前 Scene。
+    chapterId: z.string().trim().min(1, "chapterId 不能为空").nullable().optional().describe("StoryChapter ID. Null removes the scene from chapter ordering."),
     title: NonEmptyStringSchema.max(MAX_STORY_TITLE_LENGTH, "title 过长").optional().describe("Human-readable scene title."),
     status: StorySceneStatusSchema.optional().describe("Scene status (draft, active, written, revised, archived)."),
     summary: StorySummarySchema.optional().describe("Scene summary (max 5000 characters)."),
@@ -413,7 +581,7 @@ export const UpdateStorySceneRequestDtoSchema = z.object({
     refs: StoryRefsInputSchema.optional().describe("Structured references (max 100). Use workspace content-node paths for lore, e.g. lorebook/character/foo/. Use thread:// or scene:// for plot entities. pending:// is not supported."),
 }).refine((value) => (
     value.threadId !== undefined
-    || value.chapterPath !== undefined
+    || value.chapterId !== undefined
     || value.title !== undefined
     || value.status !== undefined
     || value.summary !== undefined
@@ -429,8 +597,8 @@ export const UpdateStorySceneRequestDtoSchema = z.object({
 export const ReorderStorySceneItemDtoSchema = z.object({
     sceneId: z.string().trim().min(1, "sceneId 不能为空"),
     threadId: z.string().trim().min(1, "threadId 不能为空"),
-    // `chapterPath` 为空表示该 Scene 当前不挂入正文顺序。
-    chapterPath: z.string().trim().min(1, "chapterPath 不能为空").nullable(),
+    // `chapterId` 为空表示该 Scene 当前不挂入正文顺序。
+    chapterId: z.string().trim().min(1, "chapterId 不能为空").nullable(),
     threadSortOrder: z.number().int().nonnegative(),
     // `chapterSortOrder` 为空表示该 Scene 当前不挂入正文顺序。
     chapterSortOrder: z.number().int().nonnegative().nullable(),
@@ -452,6 +620,10 @@ export type StorySceneWorldAnchorDto = z.infer<typeof StorySceneWorldAnchorDtoSc
 export type SceneWorldContextDto = z.infer<typeof SceneWorldContextDtoSchema>;
 export type StoryDto = z.infer<typeof StoryDtoSchema>;
 export type StoryPhaseDto = z.infer<typeof StoryPhaseDtoSchema>;
+export type StoryActDto = z.infer<typeof StoryActDtoSchema>;
+export type ChapterBriefDto = z.infer<typeof ChapterBriefDtoSchema>;
+export type StoryChapterDto = z.infer<typeof StoryChapterDtoSchema>;
+export type StorySceneChapterRefDto = z.infer<typeof StorySceneChapterRefDtoSchema>;
 export type StoryThreadSummaryDto = z.infer<typeof StoryThreadSummaryDtoSchema>;
 export type StoryThreadDetailDto = z.infer<typeof StoryThreadDetailDtoSchema>;
 export type StoryThreadWriteResponseDto = z.infer<typeof StoryThreadWriteResponseDtoSchema>;
@@ -461,10 +633,13 @@ export type StorySceneWriteResponseDto = z.infer<typeof StorySceneWriteResponseD
 export type ChapterPlotSceneDto = z.infer<typeof ChapterPlotSceneDtoSchema>;
 export type ChapterPlotDetailDto = z.infer<typeof ChapterPlotDetailDtoSchema>;
 export type ChapterWriterBriefStatus = z.infer<typeof ChapterWriterBriefStatusSchema>;
+export type ChapterWriterBriefMode = z.infer<typeof ChapterWriterBriefModeSchema>;
+export type ChapterWriterBriefReadingDto = z.infer<typeof ChapterWriterBriefReadingDtoSchema>;
 export type ChapterWriterBriefSceneDto = z.infer<typeof ChapterWriterBriefSceneDtoSchema>;
 export type ChapterWriterBriefDto = z.infer<typeof ChapterWriterBriefDtoSchema>;
 export type StoryThreadTreeNodeDto = z.infer<typeof StoryThreadTreeNodeDtoSchema>;
 export type StoryPhaseTreeNodeDto = z.infer<typeof StoryPhaseTreeNodeDtoSchema>;
+export type StoryActTreeNodeDto = z.infer<typeof StoryActTreeNodeDtoSchema>;
 export type PlotTreeDto = z.infer<typeof PlotTreeDtoSchema>;
 export type StoryWorkbenchSceneDto = z.infer<typeof StoryWorkbenchSceneDtoSchema>;
 export type StoryWorkbenchThreadDto = z.infer<typeof StoryWorkbenchThreadDtoSchema>;
@@ -473,6 +648,11 @@ export type PlotWorkbenchDto = z.infer<typeof PlotWorkbenchDtoSchema>;
 export type UpdateStoryRequestDto = z.infer<typeof UpdateStoryRequestDtoSchema>;
 export type CreateStoryPhaseRequestDto = z.infer<typeof CreateStoryPhaseRequestDtoSchema>;
 export type UpdateStoryPhaseRequestDto = z.infer<typeof UpdateStoryPhaseRequestDtoSchema>;
+export type ChapterBriefInputDto = z.infer<typeof ChapterBriefInputDtoSchema>;
+export type CreateStoryActRequestDto = z.infer<typeof CreateStoryActRequestDtoSchema>;
+export type UpdateStoryActRequestDto = z.infer<typeof UpdateStoryActRequestDtoSchema>;
+export type CreateStoryChapterRequestDto = z.infer<typeof CreateStoryChapterRequestDtoSchema>;
+export type UpdateStoryChapterRequestDto = z.infer<typeof UpdateStoryChapterRequestDtoSchema>;
 export type ReorderStoryPhasesRequestDto = z.infer<typeof ReorderStoryPhasesRequestDtoSchema>;
 export type CreateStoryThreadRequestDto = z.infer<typeof CreateStoryThreadRequestDtoSchema>;
 export type UpdateStoryThreadRequestDto = z.infer<typeof UpdateStoryThreadRequestDtoSchema>;

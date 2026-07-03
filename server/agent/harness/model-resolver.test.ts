@@ -50,6 +50,7 @@ describe("resolvePiModelFromConfig", () => {
                 providers: {
                     deepseek: {
                         name: "DeepSeek",
+                        enabled: true,
                         api: null,
                         options: {
                             apiKey: "sk-global",
@@ -86,6 +87,58 @@ describe("resolvePiModelFromConfig", () => {
         expect((model as {providerConfigId?: string}).providerConfigId).toBe("deepseek");
     });
 
+    it("Provider 禁用时模型被视为不可用", () => {
+        const config: Pick<EffectiveConfig, "agent" | "models"> = {
+            agent: {
+                defaultProfileKey: {novel: null, userAssets: null},
+                profileModelDefaults: {
+                    modelKey: null,
+                    temperature: null,
+                    topK: null,
+                    reasoningEffort: "off",
+                    stream: true,
+                },
+                profiles: {},
+            },
+            models: {
+                defaultModelKey: "deepseek/deepseek-v4-flash",
+                providers: {
+                    deepseek: {
+                        name: "DeepSeek",
+                        enabled: false,
+                        api: null,
+                        options: {
+                            apiKey: "sk-global",
+                            baseURL: "",
+                            proxy: "",
+                            timeoutMs: null,
+                            requestOptions: {},
+                        },
+                        models: {
+                            "deepseek-v4-flash": {
+                                name: "DeepSeek V4 Flash",
+                                id: "deepseek-v4-flash",
+                                group: null,
+                                enabled: true,
+                                provider: null,
+                                api: null,
+                                baseUrl: null,
+                                reasoning: null,
+                                input: null,
+                                maxTokens: null,
+                                cost: null,
+                                compat: null,
+                                contextWindowTokens: null,
+                            },
+                        },
+                    },
+                },
+            },
+        };
+
+        expect(() => resolvePiModelFromConfig(config, "leader.default")).toThrow("模型未启用或不存在");
+    });
+
     it("允许同一个 Pi provider 使用多个本地 Provider 实例", () => {
         const config: Pick<EffectiveConfig, "agent" | "models"> = {
             agent: {
@@ -107,6 +160,7 @@ describe("resolvePiModelFromConfig", () => {
                 providers: {
                     "deepseek-2": {
                         name: "DeepSeek Alt",
+                        enabled: true,
                         api: null,
                         options: {
                             apiKey: "sk-alt",
@@ -165,6 +219,7 @@ describe("resolvePiModelFromConfig", () => {
                 providers: {
                     custom: {
                         name: "Custom Mimo",
+                        enabled: true,
                         api: null,
                         options: {
                             apiKey: "sk-custom",
@@ -248,6 +303,7 @@ describe("resolvePiModelFromConfig", () => {
                 providers: {
                     custom: {
                         name: "Custom",
+                        enabled: true,
                         api: "openai-completions",
                         options: {
                             apiKey: "sk-custom",
@@ -305,6 +361,7 @@ describe("resolvePiModelFromConfig", () => {
                 providers: {
                     siliconflow: {
                         name: "SiliconFlow",
+                        enabled: true,
                         api: "openai-completions",
                         options: {
                             apiKey: "sk-sf",
@@ -362,6 +419,7 @@ describe("resolvePiModelFromConfig", () => {
                 providers: {
                     deepseek: {
                         name: "DeepSeek",
+                        enabled: true,
                         api: "openai-completions",
                         options: {
                             apiKey: "sk-ds",

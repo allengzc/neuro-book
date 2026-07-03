@@ -70,6 +70,7 @@ export const ConfiguredModelDtoSchema = z.object({
 export const ConfiguredProviderDtoSchema = z.object({
     id: ProviderIdSchema,
     name: z.string().trim().min(1, "Provider 名称不能为空"),
+    enabled: z.boolean().default(true),
     /**
      * Provider 下模型的默认 Pi API adapter。模型级 api 为空时继承此值。
      */
@@ -155,7 +156,7 @@ export const UpdateModelSettingsRequestDtoSchema = z.object({
             }
             modelIdSet.add(model.id);
 
-            if (model.enabled) {
+            if (provider.enabled && model.enabled) {
                 enabledModelKeys.add(`${provider.id}/${model.id}`);
             }
         }

@@ -141,40 +141,6 @@ function canEditProfileSettings(profile: AgentProfileDraft): boolean {
 }
 
 /**
- * 将 Profile 加载状态显示为简短文案。
- */
-function profileStatusLabel(profile: AgentProfileDraft): string {
-    switch (profile.loadStatus) {
-        case "loaded":
-            return profile.hasSettingsForm
-                ? t("settings.panels.profileModels.settingsUnavailable")
-                : t("settings.panels.profileModels.noSettingsForm");
-        case "compiling": return t("settings.panels.profileModels.profileCompiling");
-        case "compile_failed": return t("settings.panels.profileModels.profileCompileFailed");
-        case "compile_stale": return t("settings.panels.profileModels.profileCompileStale");
-        case "not_compiled": return t("settings.panels.profileModels.profileNotCompiled");
-        case "compiled_load_failed": return t("settings.panels.profileModels.profileCompiledLoadFailed");
-        case "source_error": return t("settings.panels.profileModels.profileSourceError");
-    }
-}
-
-/**
- * 将 Profile 加载问题显示为可读说明。
- */
-function profileStatusDescription(profile: AgentProfileDraft): string {
-    if (profile.issue?.message) {
-        return profile.issue.message;
-    }
-    if (profile.loadStatus === "loaded" && !profile.hasSettingsForm) {
-        return t("settings.panels.profileModels.noSettingsFormDescription");
-    }
-    if (profile.loadStatus === "compiling" || profile.buildState.running || profile.buildState.queued) {
-        return t("settings.panels.profileModels.profileCompilingDescription");
-    }
-    return t("settings.panels.profileModels.profileUnavailableDescription");
-}
-
-/**
  * 判断指定 profile 的自定义 settings 表单是否展开。
  */
 function isProfileSettingsExpanded(profileKey: string): boolean {
@@ -643,6 +609,13 @@ async function loadSettings(): Promise<void> {
 }
 
 /**
+ * 重新读取已保存的 Agent Profile 模型设定，放弃当前草稿。
+ */
+async function restoreSettings(): Promise<void> {
+    await loadSettings();
+}
+
+/**
  * 保存 Agent Profile 模型设定。
  */
 async function saveSettings(): Promise<void> {
@@ -826,6 +799,7 @@ defineExpose({
     loading,
     saving,
     saveSettings,
+    restoreSettings,
 });
 </script>
 
@@ -1007,15 +981,6 @@ defineExpose({
                                 <span class="min-w-0 flex-1 text-xs font-semibold text-[var(--text-main)]">{{ t("settings.panels.profileModels.profilePresets") }}</span>
                                 <span class="h-4 w-4 shrink-0 text-[var(--text-muted)]" :class="isProfileSettingsExpanded(profile.profileKey) ? 'i-lucide-chevron-up' : 'i-lucide-chevron-down'"></span>
                             </button>
-                            <div v-else class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/20 px-3 py-2">
-                                <div class="flex items-start gap-2">
-                                    <span class="mt-0.5 h-3.5 w-3.5 shrink-0" :class="profile.loadStatus === 'compiling' || profile.buildState.running || profile.buildState.queued ? 'i-lucide-loader-circle animate-spin text-[var(--accent-color)]' : profile.loadStatus === 'loaded' ? 'i-lucide-info text-[var(--text-muted)]' : 'i-lucide-circle-alert text-amber-500'"></span>
-                                    <div class="min-w-0">
-                                        <p class="text-xs font-semibold text-[var(--text-main)]">{{ profileStatusLabel(profile) }}</p>
-                                        <p class="mt-1 break-words text-xs text-[var(--text-secondary)]">{{ profileStatusDescription(profile) }}</p>
-                                    </div>
-                                </div>
-                            </div>
                             <div v-if="profile.settings && canEditProfileSettings(profile) && isProfileSettingsExpanded(profile.profileKey)">
                                 <LowCodeForm
                                     v-model="profile.settings.values"

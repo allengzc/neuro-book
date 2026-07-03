@@ -17,6 +17,7 @@ type CommandRunner = (
     options: {
         cwd: string;
         env: typeof process.env;
+        label: string;
         stdio: "inherit";
     },
 ) => Promise<void>;
@@ -77,22 +78,24 @@ export async function ensurePrismaRuntime(options: PrismaRuntimePreflightOptions
         throw new Error(`源码部署缺少 Prisma generate 脚本：${plan.generateScriptPath ?? "<unknown>"}`);
     }
 
+    assertSourceDependencies(cwd, exists);
+
     const nuxtTsConfigPath = resolve(cwd, ".nuxt", "tsconfig.json");
     if (!exists(nuxtTsConfigPath)) {
         options.log?.("未找到 Nuxt TS 配置，正在执行 nuxt:prepare。");
-        await (options.runCommand ?? runCommand)(process.execPath, ["run", "nuxt:prepare"], {
+        await runPreflightCommand("Nuxt prepare", process.execPath, ["run", "nuxt:prepare"], {
             cwd,
             env: options.env ?? process.env,
             stdio: "inherit",
-        });
+        }, options.runCommand ?? runCommand);
     }
 
     options.log?.("未找到 App Prisma Client，正在自动生成。");
-    await (options.runCommand ?? runCommand)(process.execPath, [plan.generateScriptPath], {
+    await runPreflightCommand("Prisma generate", process.execPath, [plan.generateScriptPath], {
         cwd,
         env: options.env ?? process.env,
         stdio: "inherit",
-    });
+    }, options.runCommand ?? runCommand);
 
     if (!exists(plan.clientPath)) {
         throw new Error(`Prisma generate 已执行，但仍缺少 App Prisma Client：${plan.clientPath}`);
@@ -100,9 +103,54 @@ export async function ensurePrismaRuntime(options: PrismaRuntimePreflightOptions
 }
 
 /**
+ * 源码模式自愈需要本地源码依赖，Nuxt CLI 是最低依赖探针。
+ */
+function assertSourceDependencies(cwd: string, exists: (path: string) => boolean): void {
+    if (nuxtCliCandidatePaths(cwd).some((path) => exists(path))) {
+        return;
+    }
+
+    throw new Error([
+        "源码部署缺少本地 Nuxt CLI，无法执行管理员脚本自愈流程。",
+        "请先在源码部署目录运行 bun install --frozen-lockfile，再运行 bun run auth:create-admin。",
+        "如果这是 GHCR 部署，不要在宿主机源码 checkout 中运行 bun run auth:create-admin；请在部署目录使用 docker compose --env-file .env -f docker-compose.yml -f .deploy/docker-compose.generated.yml exec app bun .output/server/scripts/cli/create-admin.ts。",
+    ].join("\n"));
+}
+
+function nuxtCliCandidatePaths(cwd: string): string[] {
+    return [
+        resolve(cwd, "node_modules", ".bin", "nuxt"),
+        resolve(cwd, "node_modules", ".bin", "nuxt.exe"),
+        resolve(cwd, "node_modules", ".bin", "nuxt.cmd"),
+        resolve(cwd, "node_modules", ".bin", "nuxt.ps1"),
+        resolve(cwd, "node_modules", ".bin", "nuxt.bunx"),
+    ];
+}
+
+/**
+ * 执行 preflight 子命令，并保留失败阶段。
+ */
+async function runPreflightCommand(
+    label: string,
+    command: string,
+    args: string[],
+    options: {cwd: string; env: typeof process.env; stdio: "inherit"},
+    runner: CommandRunner,
+): Promise<void> {
+    try {
+        await runner(command, args, {...options, label});
+    } catch (error) {
+        if (error instanceof Error && error.message.startsWith(`${label} `)) {
+            throw error;
+        }
+        throw new Error(`${label} 失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+/**
  * 执行外部命令并继承当前终端输出。
  */
-async function runCommand(command: string, args: string[], options: {cwd: string; env: typeof process.env; stdio: "inherit"}): Promise<void> {
+async function runCommand(command: string, args: string[], options: {cwd: string; env: typeof process.env; label: string; stdio: "inherit"}): Promise<void> {
     await new Promise<void>((resolvePromise, rejectPromise) => {
         const child = spawn(command, args, {
             cwd: options.cwd,
@@ -114,11 +162,11 @@ async function runCommand(command: string, args: string[], options: {cwd: string
         child.on("error", rejectPromise);
         child.on("exit", (code, signal) => {
             if (signal) {
-                rejectPromise(new Error(`Prisma generate 被信号中断：${signal}`));
+                rejectPromise(new Error(`${options.label} 被信号中断：${signal}`));
                 return;
             }
             if (code !== 0) {
-                rejectPromise(new Error(`Prisma generate 失败，退出码：${code ?? 1}`));
+                rejectPromise(new Error(`${options.label} 失败，退出码：${code ?? 1}`));
                 return;
             }
             resolvePromise();

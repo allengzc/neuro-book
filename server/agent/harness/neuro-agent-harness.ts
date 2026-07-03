@@ -502,6 +502,20 @@ export class NeuroAgentHarness {
             parentSessionId: input.parentSessionId,
             title,
         });
+        const initialModel = await this.resolveInitialSessionModel(snapshot);
+        if (initialModel) {
+            await this.executeWritePlan({
+                target: {sessionId: snapshot.metadata.sessionId},
+                cause: "agent.session.initial_model",
+                ops: [{
+                    kind: "append",
+                    entry: {
+                        type: "model_change",
+                        model: initialModel,
+                    },
+                }],
+            });
+        }
         if (input.parentSessionId) {
             await new ToolSessionWriteSink({
                 executor: this.writeExecutor,
@@ -516,7 +530,9 @@ export class NeuroAgentHarness {
             });
             this.publishLinkedAgentSnapshotRequired(snapshot.metadata.sessionId);
         }
-        await this.publishSessionState(snapshot.metadata.sessionId);
+        if (!initialModel) {
+            await this.publishSessionState(snapshot.metadata.sessionId);
+        }
         void appLogger.info("agent.session.create", {
             sessionId: snapshot.metadata.sessionId,
             profileKey: input.profileKey,
@@ -1021,7 +1037,7 @@ export class NeuroAgentHarness {
                 const snapshot = await this.repo.readSession(input.sessionId);
                 const context = this.repo.reduce(snapshot);
                 const config = await loadEffectiveConfig(context);
-                const model = context.model ?? this.modelResolver(config, context.profileKey);
+                const model = this.resolveEffectiveSessionModel(config, context) ?? this.modelResolver(config, context.profileKey);
                 const providerOptions = this.providerOptions(config, model);
                 const apiKey = resolvePiApiKeyForModelFromConfig(config, model);
                 const thinkingLevel = this.resolveThinkingLevel(context, config, model);
@@ -1203,7 +1219,10 @@ export class NeuroAgentHarness {
 
         let context = this.repo.reduce(snapshot);
         const config = await loadEffectiveConfig(context);
-        const model = context.model ?? this.modelResolver(config, context.profileKey);
+        const preparedModel = await this.ensureSessionModelConfigured(snapshot, context, config);
+        snapshot = preparedModel.snapshot;
+        context = preparedModel.context;
+        const model = preparedModel.model ?? this.modelResolver(config, context.profileKey);
         const providerOptions = this.providerOptions(config, model);
         const apiKey = resolvePiApiKeyForModelFromConfig(config, model);
         const runProfile = await this.profiles.get(context.profileKey);
@@ -1516,6 +1535,7 @@ export class NeuroAgentHarness {
     async getSessionLiveState(sessionId: number): Promise<AgentSessionLiveStateDto> {
         const projection = await this.resolveSessionRuntimeProjection(sessionId);
         const effectiveThinkingLevel = await this.snapshotThinkingLevel(projection.snapshot, projection.context);
+        const model = await this.snapshotModel(projection.snapshot, projection.context);
         const summarizer = this.sessionSummarizerStateDto(projection.context);
         return {
             summary: projection.summary,
@@ -1527,7 +1547,7 @@ export class NeuroAgentHarness {
             steerQueue: this.steerQueues.get(sessionId) ?? [],
             followUpQueue: this.followUpQueueState(sessionId, projection.context),
             activeInvocation: projection.activeInvocation,
-            model: projection.context.model,
+            model,
             thinkingLevel: projection.context.thinkingLevel,
             effectiveThinkingLevel,
             planModeActive: projection.context.planModeActive,
@@ -1562,6 +1582,7 @@ export class NeuroAgentHarness {
             () => this.snapshotSystemPrompt(snapshot, context, projection.profile),
         );
         const effectiveThinkingLevel = await this.snapshotThinkingLevel(snapshot, context);
+        const model = await this.snapshotModel(snapshot, context);
         const summarizer = this.sessionSummarizerStateDto(context);
         const followUpQueue = this.followUpQueueState(sessionId, context);
         const latestSeq = this.eventHub.lastSeq(sessionId);
@@ -1586,7 +1607,7 @@ export class NeuroAgentHarness {
             steerQueue: this.steerQueues.get(sessionId) ?? [],
             followUpQueue,
             activeInvocation: projection.activeInvocation,
-            model: context.model,
+            model,
             thinkingLevel: context.thinkingLevel,
             effectiveThinkingLevel,
             planModeActive: context.planModeActive,
@@ -1930,10 +1951,34 @@ export class NeuroAgentHarness {
     private async snapshotThinkingLevel(snapshot: SessionSnapshot, context: NeuroSessionContext): Promise<ThinkingLevel> {
         try {
             const config = await loadEffectiveConfig(snapshot.metadata);
-            const model = context.model ?? this.modelResolver(config, context.profileKey);
+            const model = this.resolveEffectiveSessionModel(config, context) ?? this.modelResolver(config, context.profileKey);
             return this.resolveThinkingLevel(context, config, model);
         } catch {
             return "off";
+        }
+    }
+
+    /**
+     * 解析 snapshot 显示用模型。若 session 绑定的模型已被删除，则回落到当前 profile/default。
+     */
+    private async snapshotModel(snapshot: SessionSnapshot, context: NeuroSessionContext): Promise<Model<any> | null> {
+        try {
+            const config = await loadEffectiveConfig(snapshot.metadata);
+            return this.resolveEffectiveSessionModel(config, context);
+        } catch {
+            return context.model;
+        }
+    }
+
+    /**
+     * 创建 session 时尝试绑定当前解析出的具体模型；未配置模型时允许创建空 session。
+     */
+    private async resolveInitialSessionModel(snapshot: SessionSnapshot): Promise<Model<any> | null> {
+        try {
+            const config = await loadEffectiveConfig(snapshot.metadata);
+            return this.resolveConfiguredSessionModel(config, snapshot.metadata.profileKey, null);
+        } catch {
+            return null;
         }
     }
 
@@ -2072,9 +2117,12 @@ export class NeuroAgentHarness {
         if (body.command === "model") {
             const context = measureAgentTimingStepSync(timing, "reduce", () => this.repo.reduce(snapshot));
             const config = await loadEffectiveConfig(snapshot.metadata);
+            const nextModel = body.modelKey
+                ? this.modelResolver(config, context.profileKey, {modelKey: body.modelKey})
+                : this.modelResolver(config, context.profileKey);
             const entry: Omit<ModelChangeEntry, "id" | "parentId" | "timestamp"> = {
                 type: "model_change",
-                model: body.modelKey ? this.modelResolver(config, snapshot.metadata.profileKey, {modelKey: body.modelKey}) : null,
+                model: nextModel,
             };
             if (this.modelSelectionKey(context.model) === this.modelSelectionKey(entry.model)) {
                 return this.commandLiveStateResult(sessionId, "completed", undefined, timing);
@@ -4438,6 +4486,85 @@ export class NeuroAgentHarness {
         return `${providerConfigId}/${model.id}`;
     }
 
+    /**
+     * 按当前配置解析 profile/default 模型；解析失败返回 null，调用方决定是否报错。
+     */
+    private resolveConfiguredSessionModel(
+        config: Pick<EffectiveConfig, "agent" | "models">,
+        profileKey: string,
+        override?: {modelKey?: string | null} | null,
+    ): Model<any> | null {
+        try {
+            return override ? this.modelResolver(config, profileKey, override) : this.modelResolver(config, profileKey);
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * 判断 session 中冻结的模型 key 是否仍存在于当前配置并处于启用状态。
+     */
+    private sessionModelExists(config: Pick<EffectiveConfig, "models">, model: Model<any> | null): boolean {
+        const modelKey = this.modelSelectionKey(model);
+        if (!modelKey) {
+            return false;
+        }
+        const separatorIndex = modelKey.indexOf("/");
+        if (separatorIndex <= 0 || separatorIndex === modelKey.length - 1) {
+            return false;
+        }
+        const providerId = modelKey.slice(0, separatorIndex);
+        const modelId = modelKey.slice(separatorIndex + 1);
+        const provider = config.models.providers[providerId];
+        return provider?.enabled === true && provider.models[modelId]?.enabled === true;
+    }
+
+    /**
+     * 返回当前 session 实际应展示/使用的有效模型。
+     */
+    private resolveEffectiveSessionModel(config: Pick<EffectiveConfig, "agent" | "models">, context: NeuroSessionContext): Model<any> | null {
+        if (this.sessionModelExists(config, context.model)) {
+            return context.model;
+        }
+        return this.resolveConfiguredSessionModel(config, context.profileKey, null);
+    }
+
+    /**
+     * 运行前把缺失或已删除的 session 模型修正成当前有效默认模型。
+     */
+    private async ensureSessionModelConfigured(
+        snapshot: SessionSnapshot,
+        context: NeuroSessionContext,
+        config: Pick<EffectiveConfig, "agent" | "models">,
+    ): Promise<{snapshot: SessionSnapshot; context: NeuroSessionContext; model: Model<any> | null}> {
+        const model = this.resolveEffectiveSessionModel(config, context);
+        if (this.modelSelectionKey(context.model) === this.modelSelectionKey(model)) {
+            return {snapshot, context, model};
+        }
+        if (!model) {
+            return {snapshot, context, model};
+        }
+
+        await this.executeWritePlan({
+            target: {sessionId: snapshot.metadata.sessionId},
+            cause: "agent.session.model_reconcile",
+            ops: [{
+                kind: "append",
+                entry: {
+                    type: "model_change",
+                    model,
+                },
+            }],
+        });
+        const nextSnapshot = await this.repo.readSession(snapshot.metadata.sessionId);
+        const nextContext = this.repo.reduce(nextSnapshot);
+        return {
+            snapshot: nextSnapshot,
+            context: nextContext,
+            model: nextContext.model,
+        };
+    }
+
     private followUpQueueState(sessionId: number, context?: NeuroSessionContext): AgentFollowUpQueueStateDto {
         const existing = this.followUpQueues.get(sessionId);
         if (existing) {
@@ -4873,7 +5000,7 @@ export class NeuroAgentHarness {
         let limitTokens: number | null = null;
         try {
             const config = await loadEffectiveConfig(snapshot.metadata);
-            const model = context.model ?? this.modelResolver(config, context.profileKey);
+            const model = this.resolveEffectiveSessionModel(config, context) ?? this.modelResolver(config, context.profileKey);
             limitTokens = typeof model.contextWindow === "number" && Number.isFinite(model.contextWindow)
                 ? model.contextWindow
                 : null;
@@ -4972,7 +5099,7 @@ export class NeuroAgentHarness {
             const snapshot = await this.repo.readSession(sessionId);
             const context = this.repo.reduce(snapshot);
             const config = await loadEffectiveConfig(context);
-            const model = context.model ?? this.modelResolver(config, context.profileKey);
+            const model = this.resolveEffectiveSessionModel(config, context) ?? this.modelResolver(config, context.profileKey);
             const providerOptions = this.providerOptions(config, model);
             const thinkingLevel = this.resolveThinkingLevel(context, config, model);
             const profile = await this.profiles.get(context.profileKey);

@@ -54,6 +54,8 @@ export const ModelName = {
   ProjectMetadata: 'ProjectMetadata',
   DatabaseLock: 'DatabaseLock',
   Story: 'Story',
+  StoryAct: 'StoryAct',
+  StoryChapter: 'StoryChapter',
   StoryPhase: 'StoryPhase',
   StoryThread: 'StoryThread',
   StoryScene: 'StoryScene',
@@ -106,6 +108,47 @@ export const StoryScalarFieldEnum = {
 export type StoryScalarFieldEnum = (typeof StoryScalarFieldEnum)[keyof typeof StoryScalarFieldEnum]
 
 
+export const StoryActScalarFieldEnum = {
+  id: 'id',
+  storyId: 'storyId',
+  sortOrder: 'sortOrder',
+  name: 'name',
+  title: 'title',
+  summary: 'summary',
+  note: 'note',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type StoryActScalarFieldEnum = (typeof StoryActScalarFieldEnum)[keyof typeof StoryActScalarFieldEnum]
+
+
+export const StoryChapterScalarFieldEnum = {
+  id: 'id',
+  storyId: 'storyId',
+  actId: 'actId',
+  sortOrder: 'sortOrder',
+  name: 'name',
+  title: 'title',
+  note: 'note',
+  briefGoal: 'briefGoal',
+  briefPov: 'briefPov',
+  briefTone: 'briefTone',
+  briefPacing: 'briefPacing',
+  briefReaderKnows: 'briefReaderKnows',
+  briefProtagonistKnows: 'briefProtagonistKnows',
+  briefMustHide: 'briefMustHide',
+  briefHintOnly: 'briefHintOnly',
+  briefOpening: 'briefOpening',
+  briefEnding: 'briefEnding',
+  briefDoNotWrite: 'briefDoNotWrite',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type StoryChapterScalarFieldEnum = (typeof StoryChapterScalarFieldEnum)[keyof typeof StoryChapterScalarFieldEnum]
+
+
 export const StoryPhaseScalarFieldEnum = {
   id: 'id',
   storyId: 'storyId',
@@ -145,7 +188,7 @@ export const StorySceneScalarFieldEnum = {
   id: 'id',
   storyId: 'storyId',
   threadId: 'threadId',
-  chapterPath: 'chapterPath',
+  chapterId: 'chapterId',
   threadSortOrder: 'threadSortOrder',
   chapterSortOrder: 'chapterSortOrder',
   title: 'title',

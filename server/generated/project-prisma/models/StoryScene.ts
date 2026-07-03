@@ -30,6 +30,7 @@ export type StorySceneAvgAggregateOutputType = {
   id: number | null
   storyId: number | null
   threadId: number | null
+  chapterId: number | null
   threadSortOrder: number | null
   chapterSortOrder: number | null
   startInstant: number | null
@@ -40,6 +41,7 @@ export type StorySceneSumAggregateOutputType = {
   id: number | null
   storyId: number | null
   threadId: number | null
+  chapterId: number | null
   threadSortOrder: number | null
   chapterSortOrder: number | null
   startInstant: bigint | null
@@ -50,7 +52,7 @@ export type StorySceneMinAggregateOutputType = {
   id: number | null
   storyId: number | null
   threadId: number | null
-  chapterPath: string | null
+  chapterId: number | null
   threadSortOrder: number | null
   chapterSortOrder: number | null
   title: string | null
@@ -71,7 +73,7 @@ export type StorySceneMaxAggregateOutputType = {
   id: number | null
   storyId: number | null
   threadId: number | null
-  chapterPath: string | null
+  chapterId: number | null
   threadSortOrder: number | null
   chapterSortOrder: number | null
   title: string | null
@@ -92,7 +94,7 @@ export type StorySceneCountAggregateOutputType = {
   id: number
   storyId: number
   threadId: number
-  chapterPath: number
+  chapterId: number
   threadSortOrder: number
   chapterSortOrder: number
   title: number
@@ -115,6 +117,7 @@ export type StorySceneAvgAggregateInputType = {
   id?: true
   storyId?: true
   threadId?: true
+  chapterId?: true
   threadSortOrder?: true
   chapterSortOrder?: true
   startInstant?: true
@@ -125,6 +128,7 @@ export type StorySceneSumAggregateInputType = {
   id?: true
   storyId?: true
   threadId?: true
+  chapterId?: true
   threadSortOrder?: true
   chapterSortOrder?: true
   startInstant?: true
@@ -135,7 +139,7 @@ export type StorySceneMinAggregateInputType = {
   id?: true
   storyId?: true
   threadId?: true
-  chapterPath?: true
+  chapterId?: true
   threadSortOrder?: true
   chapterSortOrder?: true
   title?: true
@@ -156,7 +160,7 @@ export type StorySceneMaxAggregateInputType = {
   id?: true
   storyId?: true
   threadId?: true
-  chapterPath?: true
+  chapterId?: true
   threadSortOrder?: true
   chapterSortOrder?: true
   title?: true
@@ -177,7 +181,7 @@ export type StorySceneCountAggregateInputType = {
   id?: true
   storyId?: true
   threadId?: true
-  chapterPath?: true
+  chapterId?: true
   threadSortOrder?: true
   chapterSortOrder?: true
   title?: true
@@ -285,7 +289,7 @@ export type StorySceneGroupByOutputType = {
   id: number
   storyId: number
   threadId: number
-  chapterPath: string | null
+  chapterId: number | null
   threadSortOrder: number
   chapterSortOrder: number | null
   title: string
@@ -329,7 +333,7 @@ export type StorySceneWhereInput = {
   id?: Prisma.IntFilter<"StoryScene"> | number
   storyId?: Prisma.IntFilter<"StoryScene"> | number
   threadId?: Prisma.IntFilter<"StoryScene"> | number
-  chapterPath?: Prisma.StringNullableFilter<"StoryScene"> | string | null
+  chapterId?: Prisma.IntNullableFilter<"StoryScene"> | number | null
   threadSortOrder?: Prisma.IntFilter<"StoryScene"> | number
   chapterSortOrder?: Prisma.IntNullableFilter<"StoryScene"> | number | null
   title?: Prisma.StringFilter<"StoryScene"> | string
@@ -346,6 +350,7 @@ export type StorySceneWhereInput = {
   updatedAt?: Prisma.DateTimeFilter<"StoryScene"> | Date | string
   story?: Prisma.XOR<Prisma.StoryScalarRelationFilter, Prisma.StoryWhereInput>
   thread?: Prisma.XOR<Prisma.StoryThreadScalarRelationFilter, Prisma.StoryThreadWhereInput>
+  chapter?: Prisma.XOR<Prisma.StoryChapterNullableScalarRelationFilter, Prisma.StoryChapterWhereInput> | null
   refs?: Prisma.StorySceneRefListRelationFilter
   incomingSceneRefs?: Prisma.StorySceneRefListRelationFilter
 }
@@ -354,7 +359,7 @@ export type StorySceneOrderByWithRelationInput = {
   id?: Prisma.SortOrder
   storyId?: Prisma.SortOrder
   threadId?: Prisma.SortOrder
-  chapterPath?: Prisma.SortOrderInput | Prisma.SortOrder
+  chapterId?: Prisma.SortOrderInput | Prisma.SortOrder
   threadSortOrder?: Prisma.SortOrder
   chapterSortOrder?: Prisma.SortOrderInput | Prisma.SortOrder
   title?: Prisma.SortOrder
@@ -371,6 +376,7 @@ export type StorySceneOrderByWithRelationInput = {
   updatedAt?: Prisma.SortOrder
   story?: Prisma.StoryOrderByWithRelationInput
   thread?: Prisma.StoryThreadOrderByWithRelationInput
+  chapter?: Prisma.StoryChapterOrderByWithRelationInput
   refs?: Prisma.StorySceneRefOrderByRelationAggregateInput
   incomingSceneRefs?: Prisma.StorySceneRefOrderByRelationAggregateInput
 }
@@ -383,7 +389,7 @@ export type StorySceneWhereUniqueInput = Prisma.AtLeast<{
   NOT?: Prisma.StorySceneWhereInput | Prisma.StorySceneWhereInput[]
   storyId?: Prisma.IntFilter<"StoryScene"> | number
   threadId?: Prisma.IntFilter<"StoryScene"> | number
-  chapterPath?: Prisma.StringNullableFilter<"StoryScene"> | string | null
+  chapterId?: Prisma.IntNullableFilter<"StoryScene"> | number | null
   threadSortOrder?: Prisma.IntFilter<"StoryScene"> | number
   chapterSortOrder?: Prisma.IntNullableFilter<"StoryScene"> | number | null
   title?: Prisma.StringFilter<"StoryScene"> | string
@@ -400,6 +406,7 @@ export type StorySceneWhereUniqueInput = Prisma.AtLeast<{
   updatedAt?: Prisma.DateTimeFilter<"StoryScene"> | Date | string
   story?: Prisma.XOR<Prisma.StoryScalarRelationFilter, Prisma.StoryWhereInput>
   thread?: Prisma.XOR<Prisma.StoryThreadScalarRelationFilter, Prisma.StoryThreadWhereInput>
+  chapter?: Prisma.XOR<Prisma.StoryChapterNullableScalarRelationFilter, Prisma.StoryChapterWhereInput> | null
   refs?: Prisma.StorySceneRefListRelationFilter
   incomingSceneRefs?: Prisma.StorySceneRefListRelationFilter
 }, "id" | "threadId_threadSortOrder">
@@ -408,7 +415,7 @@ export type StorySceneOrderByWithAggregationInput = {
   id?: Prisma.SortOrder
   storyId?: Prisma.SortOrder
   threadId?: Prisma.SortOrder
-  chapterPath?: Prisma.SortOrderInput | Prisma.SortOrder
+  chapterId?: Prisma.SortOrderInput | Prisma.SortOrder
   threadSortOrder?: Prisma.SortOrder
   chapterSortOrder?: Prisma.SortOrderInput | Prisma.SortOrder
   title?: Prisma.SortOrder
@@ -437,7 +444,7 @@ export type StorySceneScalarWhereWithAggregatesInput = {
   id?: Prisma.IntWithAggregatesFilter<"StoryScene"> | number
   storyId?: Prisma.IntWithAggregatesFilter<"StoryScene"> | number
   threadId?: Prisma.IntWithAggregatesFilter<"StoryScene"> | number
-  chapterPath?: Prisma.StringNullableWithAggregatesFilter<"StoryScene"> | string | null
+  chapterId?: Prisma.IntNullableWithAggregatesFilter<"StoryScene"> | number | null
   threadSortOrder?: Prisma.IntWithAggregatesFilter<"StoryScene"> | number
   chapterSortOrder?: Prisma.IntNullableWithAggregatesFilter<"StoryScene"> | number | null
   title?: Prisma.StringWithAggregatesFilter<"StoryScene"> | string
@@ -455,7 +462,6 @@ export type StorySceneScalarWhereWithAggregatesInput = {
 }
 
 export type StorySceneCreateInput = {
-  chapterPath?: string | null
   threadSortOrder: number
   chapterSortOrder?: number | null
   title: string
@@ -472,6 +478,7 @@ export type StorySceneCreateInput = {
   updatedAt?: Date | string
   story: Prisma.StoryCreateNestedOneWithoutScenesInput
   thread: Prisma.StoryThreadCreateNestedOneWithoutScenesInput
+  chapter?: Prisma.StoryChapterCreateNestedOneWithoutScenesInput
   refs?: Prisma.StorySceneRefCreateNestedManyWithoutSceneInput
   incomingSceneRefs?: Prisma.StorySceneRefCreateNestedManyWithoutTargetSceneInput
 }
@@ -480,7 +487,7 @@ export type StorySceneUncheckedCreateInput = {
   id?: number
   storyId: number
   threadId: number
-  chapterPath?: string | null
+  chapterId?: number | null
   threadSortOrder: number
   chapterSortOrder?: number | null
   title: string
@@ -500,7 +507,6 @@ export type StorySceneUncheckedCreateInput = {
 }
 
 export type StorySceneUpdateInput = {
-  chapterPath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
@@ -517,6 +523,7 @@ export type StorySceneUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   story?: Prisma.StoryUpdateOneRequiredWithoutScenesNestedInput
   thread?: Prisma.StoryThreadUpdateOneRequiredWithoutScenesNestedInput
+  chapter?: Prisma.StoryChapterUpdateOneWithoutScenesNestedInput
   refs?: Prisma.StorySceneRefUpdateManyWithoutSceneNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUpdateManyWithoutTargetSceneNestedInput
 }
@@ -525,7 +532,7 @@ export type StorySceneUncheckedUpdateInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
   storyId?: Prisma.IntFieldUpdateOperationsInput | number
   threadId?: Prisma.IntFieldUpdateOperationsInput | number
-  chapterPath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  chapterId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
@@ -548,7 +555,7 @@ export type StorySceneCreateManyInput = {
   id?: number
   storyId: number
   threadId: number
-  chapterPath?: string | null
+  chapterId?: number | null
   threadSortOrder: number
   chapterSortOrder?: number | null
   title: string
@@ -566,7 +573,6 @@ export type StorySceneCreateManyInput = {
 }
 
 export type StorySceneUpdateManyMutationInput = {
-  chapterPath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
@@ -587,7 +593,7 @@ export type StorySceneUncheckedUpdateManyInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
   storyId?: Prisma.IntFieldUpdateOperationsInput | number
   threadId?: Prisma.IntFieldUpdateOperationsInput | number
-  chapterPath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  chapterId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
@@ -623,7 +629,7 @@ export type StorySceneCountOrderByAggregateInput = {
   id?: Prisma.SortOrder
   storyId?: Prisma.SortOrder
   threadId?: Prisma.SortOrder
-  chapterPath?: Prisma.SortOrder
+  chapterId?: Prisma.SortOrder
   threadSortOrder?: Prisma.SortOrder
   chapterSortOrder?: Prisma.SortOrder
   title?: Prisma.SortOrder
@@ -644,6 +650,7 @@ export type StorySceneAvgOrderByAggregateInput = {
   id?: Prisma.SortOrder
   storyId?: Prisma.SortOrder
   threadId?: Prisma.SortOrder
+  chapterId?: Prisma.SortOrder
   threadSortOrder?: Prisma.SortOrder
   chapterSortOrder?: Prisma.SortOrder
   startInstant?: Prisma.SortOrder
@@ -654,7 +661,7 @@ export type StorySceneMaxOrderByAggregateInput = {
   id?: Prisma.SortOrder
   storyId?: Prisma.SortOrder
   threadId?: Prisma.SortOrder
-  chapterPath?: Prisma.SortOrder
+  chapterId?: Prisma.SortOrder
   threadSortOrder?: Prisma.SortOrder
   chapterSortOrder?: Prisma.SortOrder
   title?: Prisma.SortOrder
@@ -675,7 +682,7 @@ export type StorySceneMinOrderByAggregateInput = {
   id?: Prisma.SortOrder
   storyId?: Prisma.SortOrder
   threadId?: Prisma.SortOrder
-  chapterPath?: Prisma.SortOrder
+  chapterId?: Prisma.SortOrder
   threadSortOrder?: Prisma.SortOrder
   chapterSortOrder?: Prisma.SortOrder
   title?: Prisma.SortOrder
@@ -696,6 +703,7 @@ export type StorySceneSumOrderByAggregateInput = {
   id?: Prisma.SortOrder
   storyId?: Prisma.SortOrder
   threadId?: Prisma.SortOrder
+  chapterId?: Prisma.SortOrder
   threadSortOrder?: Prisma.SortOrder
   chapterSortOrder?: Prisma.SortOrder
   startInstant?: Prisma.SortOrder
@@ -751,6 +759,48 @@ export type StorySceneUncheckedUpdateManyWithoutStoryNestedInput = {
   connect?: Prisma.StorySceneWhereUniqueInput | Prisma.StorySceneWhereUniqueInput[]
   update?: Prisma.StorySceneUpdateWithWhereUniqueWithoutStoryInput | Prisma.StorySceneUpdateWithWhereUniqueWithoutStoryInput[]
   updateMany?: Prisma.StorySceneUpdateManyWithWhereWithoutStoryInput | Prisma.StorySceneUpdateManyWithWhereWithoutStoryInput[]
+  deleteMany?: Prisma.StorySceneScalarWhereInput | Prisma.StorySceneScalarWhereInput[]
+}
+
+export type StorySceneCreateNestedManyWithoutChapterInput = {
+  create?: Prisma.XOR<Prisma.StorySceneCreateWithoutChapterInput, Prisma.StorySceneUncheckedCreateWithoutChapterInput> | Prisma.StorySceneCreateWithoutChapterInput[] | Prisma.StorySceneUncheckedCreateWithoutChapterInput[]
+  connectOrCreate?: Prisma.StorySceneCreateOrConnectWithoutChapterInput | Prisma.StorySceneCreateOrConnectWithoutChapterInput[]
+  createMany?: Prisma.StorySceneCreateManyChapterInputEnvelope
+  connect?: Prisma.StorySceneWhereUniqueInput | Prisma.StorySceneWhereUniqueInput[]
+}
+
+export type StorySceneUncheckedCreateNestedManyWithoutChapterInput = {
+  create?: Prisma.XOR<Prisma.StorySceneCreateWithoutChapterInput, Prisma.StorySceneUncheckedCreateWithoutChapterInput> | Prisma.StorySceneCreateWithoutChapterInput[] | Prisma.StorySceneUncheckedCreateWithoutChapterInput[]
+  connectOrCreate?: Prisma.StorySceneCreateOrConnectWithoutChapterInput | Prisma.StorySceneCreateOrConnectWithoutChapterInput[]
+  createMany?: Prisma.StorySceneCreateManyChapterInputEnvelope
+  connect?: Prisma.StorySceneWhereUniqueInput | Prisma.StorySceneWhereUniqueInput[]
+}
+
+export type StorySceneUpdateManyWithoutChapterNestedInput = {
+  create?: Prisma.XOR<Prisma.StorySceneCreateWithoutChapterInput, Prisma.StorySceneUncheckedCreateWithoutChapterInput> | Prisma.StorySceneCreateWithoutChapterInput[] | Prisma.StorySceneUncheckedCreateWithoutChapterInput[]
+  connectOrCreate?: Prisma.StorySceneCreateOrConnectWithoutChapterInput | Prisma.StorySceneCreateOrConnectWithoutChapterInput[]
+  upsert?: Prisma.StorySceneUpsertWithWhereUniqueWithoutChapterInput | Prisma.StorySceneUpsertWithWhereUniqueWithoutChapterInput[]
+  createMany?: Prisma.StorySceneCreateManyChapterInputEnvelope
+  set?: Prisma.StorySceneWhereUniqueInput | Prisma.StorySceneWhereUniqueInput[]
+  disconnect?: Prisma.StorySceneWhereUniqueInput | Prisma.StorySceneWhereUniqueInput[]
+  delete?: Prisma.StorySceneWhereUniqueInput | Prisma.StorySceneWhereUniqueInput[]
+  connect?: Prisma.StorySceneWhereUniqueInput | Prisma.StorySceneWhereUniqueInput[]
+  update?: Prisma.StorySceneUpdateWithWhereUniqueWithoutChapterInput | Prisma.StorySceneUpdateWithWhereUniqueWithoutChapterInput[]
+  updateMany?: Prisma.StorySceneUpdateManyWithWhereWithoutChapterInput | Prisma.StorySceneUpdateManyWithWhereWithoutChapterInput[]
+  deleteMany?: Prisma.StorySceneScalarWhereInput | Prisma.StorySceneScalarWhereInput[]
+}
+
+export type StorySceneUncheckedUpdateManyWithoutChapterNestedInput = {
+  create?: Prisma.XOR<Prisma.StorySceneCreateWithoutChapterInput, Prisma.StorySceneUncheckedCreateWithoutChapterInput> | Prisma.StorySceneCreateWithoutChapterInput[] | Prisma.StorySceneUncheckedCreateWithoutChapterInput[]
+  connectOrCreate?: Prisma.StorySceneCreateOrConnectWithoutChapterInput | Prisma.StorySceneCreateOrConnectWithoutChapterInput[]
+  upsert?: Prisma.StorySceneUpsertWithWhereUniqueWithoutChapterInput | Prisma.StorySceneUpsertWithWhereUniqueWithoutChapterInput[]
+  createMany?: Prisma.StorySceneCreateManyChapterInputEnvelope
+  set?: Prisma.StorySceneWhereUniqueInput | Prisma.StorySceneWhereUniqueInput[]
+  disconnect?: Prisma.StorySceneWhereUniqueInput | Prisma.StorySceneWhereUniqueInput[]
+  delete?: Prisma.StorySceneWhereUniqueInput | Prisma.StorySceneWhereUniqueInput[]
+  connect?: Prisma.StorySceneWhereUniqueInput | Prisma.StorySceneWhereUniqueInput[]
+  update?: Prisma.StorySceneUpdateWithWhereUniqueWithoutChapterInput | Prisma.StorySceneUpdateWithWhereUniqueWithoutChapterInput[]
+  updateMany?: Prisma.StorySceneUpdateManyWithWhereWithoutChapterInput | Prisma.StorySceneUpdateManyWithWhereWithoutChapterInput[]
   deleteMany?: Prisma.StorySceneScalarWhereInput | Prisma.StorySceneScalarWhereInput[]
 }
 
@@ -839,7 +889,6 @@ export type StorySceneUpdateOneWithoutIncomingSceneRefsNestedInput = {
 }
 
 export type StorySceneCreateWithoutStoryInput = {
-  chapterPath?: string | null
   threadSortOrder: number
   chapterSortOrder?: number | null
   title: string
@@ -855,6 +904,7 @@ export type StorySceneCreateWithoutStoryInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   thread: Prisma.StoryThreadCreateNestedOneWithoutScenesInput
+  chapter?: Prisma.StoryChapterCreateNestedOneWithoutScenesInput
   refs?: Prisma.StorySceneRefCreateNestedManyWithoutSceneInput
   incomingSceneRefs?: Prisma.StorySceneRefCreateNestedManyWithoutTargetSceneInput
 }
@@ -862,7 +912,7 @@ export type StorySceneCreateWithoutStoryInput = {
 export type StorySceneUncheckedCreateWithoutStoryInput = {
   id?: number
   threadId: number
-  chapterPath?: string | null
+  chapterId?: number | null
   threadSortOrder: number
   chapterSortOrder?: number | null
   title: string
@@ -913,7 +963,7 @@ export type StorySceneScalarWhereInput = {
   id?: Prisma.IntFilter<"StoryScene"> | number
   storyId?: Prisma.IntFilter<"StoryScene"> | number
   threadId?: Prisma.IntFilter<"StoryScene"> | number
-  chapterPath?: Prisma.StringNullableFilter<"StoryScene"> | string | null
+  chapterId?: Prisma.IntNullableFilter<"StoryScene"> | number | null
   threadSortOrder?: Prisma.IntFilter<"StoryScene"> | number
   chapterSortOrder?: Prisma.IntNullableFilter<"StoryScene"> | number | null
   title?: Prisma.StringFilter<"StoryScene"> | string
@@ -930,8 +980,7 @@ export type StorySceneScalarWhereInput = {
   updatedAt?: Prisma.DateTimeFilter<"StoryScene"> | Date | string
 }
 
-export type StorySceneCreateWithoutThreadInput = {
-  chapterPath?: string | null
+export type StorySceneCreateWithoutChapterInput = {
   threadSortOrder: number
   chapterSortOrder?: number | null
   title: string
@@ -947,6 +996,75 @@ export type StorySceneCreateWithoutThreadInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   story: Prisma.StoryCreateNestedOneWithoutScenesInput
+  thread: Prisma.StoryThreadCreateNestedOneWithoutScenesInput
+  refs?: Prisma.StorySceneRefCreateNestedManyWithoutSceneInput
+  incomingSceneRefs?: Prisma.StorySceneRefCreateNestedManyWithoutTargetSceneInput
+}
+
+export type StorySceneUncheckedCreateWithoutChapterInput = {
+  id?: number
+  storyId: number
+  threadId: number
+  threadSortOrder: number
+  chapterSortOrder?: number | null
+  title: string
+  status?: $Enums.StorySceneStatus
+  summary?: string
+  purpose?: string | null
+  writingTip?: string | null
+  note?: string | null
+  startInstant?: bigint | number | null
+  endInstant?: bigint | number | null
+  subjectIdsJson?: string
+  locationSubjectId?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  refs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutSceneInput
+  incomingSceneRefs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutTargetSceneInput
+}
+
+export type StorySceneCreateOrConnectWithoutChapterInput = {
+  where: Prisma.StorySceneWhereUniqueInput
+  create: Prisma.XOR<Prisma.StorySceneCreateWithoutChapterInput, Prisma.StorySceneUncheckedCreateWithoutChapterInput>
+}
+
+export type StorySceneCreateManyChapterInputEnvelope = {
+  data: Prisma.StorySceneCreateManyChapterInput | Prisma.StorySceneCreateManyChapterInput[]
+}
+
+export type StorySceneUpsertWithWhereUniqueWithoutChapterInput = {
+  where: Prisma.StorySceneWhereUniqueInput
+  update: Prisma.XOR<Prisma.StorySceneUpdateWithoutChapterInput, Prisma.StorySceneUncheckedUpdateWithoutChapterInput>
+  create: Prisma.XOR<Prisma.StorySceneCreateWithoutChapterInput, Prisma.StorySceneUncheckedCreateWithoutChapterInput>
+}
+
+export type StorySceneUpdateWithWhereUniqueWithoutChapterInput = {
+  where: Prisma.StorySceneWhereUniqueInput
+  data: Prisma.XOR<Prisma.StorySceneUpdateWithoutChapterInput, Prisma.StorySceneUncheckedUpdateWithoutChapterInput>
+}
+
+export type StorySceneUpdateManyWithWhereWithoutChapterInput = {
+  where: Prisma.StorySceneScalarWhereInput
+  data: Prisma.XOR<Prisma.StorySceneUpdateManyMutationInput, Prisma.StorySceneUncheckedUpdateManyWithoutChapterInput>
+}
+
+export type StorySceneCreateWithoutThreadInput = {
+  threadSortOrder: number
+  chapterSortOrder?: number | null
+  title: string
+  status?: $Enums.StorySceneStatus
+  summary?: string
+  purpose?: string | null
+  writingTip?: string | null
+  note?: string | null
+  startInstant?: bigint | number | null
+  endInstant?: bigint | number | null
+  subjectIdsJson?: string
+  locationSubjectId?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  story: Prisma.StoryCreateNestedOneWithoutScenesInput
+  chapter?: Prisma.StoryChapterCreateNestedOneWithoutScenesInput
   refs?: Prisma.StorySceneRefCreateNestedManyWithoutSceneInput
   incomingSceneRefs?: Prisma.StorySceneRefCreateNestedManyWithoutTargetSceneInput
 }
@@ -954,7 +1072,7 @@ export type StorySceneCreateWithoutThreadInput = {
 export type StorySceneUncheckedCreateWithoutThreadInput = {
   id?: number
   storyId: number
-  chapterPath?: string | null
+  chapterId?: number | null
   threadSortOrder: number
   chapterSortOrder?: number | null
   title: string
@@ -999,7 +1117,6 @@ export type StorySceneUpdateManyWithWhereWithoutThreadInput = {
 }
 
 export type StorySceneCreateWithoutRefsInput = {
-  chapterPath?: string | null
   threadSortOrder: number
   chapterSortOrder?: number | null
   title: string
@@ -1016,6 +1133,7 @@ export type StorySceneCreateWithoutRefsInput = {
   updatedAt?: Date | string
   story: Prisma.StoryCreateNestedOneWithoutScenesInput
   thread: Prisma.StoryThreadCreateNestedOneWithoutScenesInput
+  chapter?: Prisma.StoryChapterCreateNestedOneWithoutScenesInput
   incomingSceneRefs?: Prisma.StorySceneRefCreateNestedManyWithoutTargetSceneInput
 }
 
@@ -1023,7 +1141,7 @@ export type StorySceneUncheckedCreateWithoutRefsInput = {
   id?: number
   storyId: number
   threadId: number
-  chapterPath?: string | null
+  chapterId?: number | null
   threadSortOrder: number
   chapterSortOrder?: number | null
   title: string
@@ -1047,7 +1165,6 @@ export type StorySceneCreateOrConnectWithoutRefsInput = {
 }
 
 export type StorySceneCreateWithoutIncomingSceneRefsInput = {
-  chapterPath?: string | null
   threadSortOrder: number
   chapterSortOrder?: number | null
   title: string
@@ -1064,6 +1181,7 @@ export type StorySceneCreateWithoutIncomingSceneRefsInput = {
   updatedAt?: Date | string
   story: Prisma.StoryCreateNestedOneWithoutScenesInput
   thread: Prisma.StoryThreadCreateNestedOneWithoutScenesInput
+  chapter?: Prisma.StoryChapterCreateNestedOneWithoutScenesInput
   refs?: Prisma.StorySceneRefCreateNestedManyWithoutSceneInput
 }
 
@@ -1071,7 +1189,7 @@ export type StorySceneUncheckedCreateWithoutIncomingSceneRefsInput = {
   id?: number
   storyId: number
   threadId: number
-  chapterPath?: string | null
+  chapterId?: number | null
   threadSortOrder: number
   chapterSortOrder?: number | null
   title: string
@@ -1106,7 +1224,6 @@ export type StorySceneUpdateToOneWithWhereWithoutRefsInput = {
 }
 
 export type StorySceneUpdateWithoutRefsInput = {
-  chapterPath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1123,6 +1240,7 @@ export type StorySceneUpdateWithoutRefsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   story?: Prisma.StoryUpdateOneRequiredWithoutScenesNestedInput
   thread?: Prisma.StoryThreadUpdateOneRequiredWithoutScenesNestedInput
+  chapter?: Prisma.StoryChapterUpdateOneWithoutScenesNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUpdateManyWithoutTargetSceneNestedInput
 }
 
@@ -1130,7 +1248,7 @@ export type StorySceneUncheckedUpdateWithoutRefsInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
   storyId?: Prisma.IntFieldUpdateOperationsInput | number
   threadId?: Prisma.IntFieldUpdateOperationsInput | number
-  chapterPath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  chapterId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1160,7 +1278,6 @@ export type StorySceneUpdateToOneWithWhereWithoutIncomingSceneRefsInput = {
 }
 
 export type StorySceneUpdateWithoutIncomingSceneRefsInput = {
-  chapterPath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1177,6 +1294,7 @@ export type StorySceneUpdateWithoutIncomingSceneRefsInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   story?: Prisma.StoryUpdateOneRequiredWithoutScenesNestedInput
   thread?: Prisma.StoryThreadUpdateOneRequiredWithoutScenesNestedInput
+  chapter?: Prisma.StoryChapterUpdateOneWithoutScenesNestedInput
   refs?: Prisma.StorySceneRefUpdateManyWithoutSceneNestedInput
 }
 
@@ -1184,7 +1302,7 @@ export type StorySceneUncheckedUpdateWithoutIncomingSceneRefsInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
   storyId?: Prisma.IntFieldUpdateOperationsInput | number
   threadId?: Prisma.IntFieldUpdateOperationsInput | number
-  chapterPath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  chapterId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1205,7 +1323,7 @@ export type StorySceneUncheckedUpdateWithoutIncomingSceneRefsInput = {
 export type StorySceneCreateManyStoryInput = {
   id?: number
   threadId: number
-  chapterPath?: string | null
+  chapterId?: number | null
   threadSortOrder: number
   chapterSortOrder?: number | null
   title: string
@@ -1223,7 +1341,6 @@ export type StorySceneCreateManyStoryInput = {
 }
 
 export type StorySceneUpdateWithoutStoryInput = {
-  chapterPath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1239,6 +1356,7 @@ export type StorySceneUpdateWithoutStoryInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   thread?: Prisma.StoryThreadUpdateOneRequiredWithoutScenesNestedInput
+  chapter?: Prisma.StoryChapterUpdateOneWithoutScenesNestedInput
   refs?: Prisma.StorySceneRefUpdateManyWithoutSceneNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUpdateManyWithoutTargetSceneNestedInput
 }
@@ -1246,7 +1364,7 @@ export type StorySceneUpdateWithoutStoryInput = {
 export type StorySceneUncheckedUpdateWithoutStoryInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
   threadId?: Prisma.IntFieldUpdateOperationsInput | number
-  chapterPath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  chapterId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1268,7 +1386,90 @@ export type StorySceneUncheckedUpdateWithoutStoryInput = {
 export type StorySceneUncheckedUpdateManyWithoutStoryInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
   threadId?: Prisma.IntFieldUpdateOperationsInput | number
-  chapterPath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  chapterId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
+  chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  summary?: Prisma.StringFieldUpdateOperationsInput | string
+  purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startInstant?: Prisma.NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+  endInstant?: Prisma.NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+  subjectIdsJson?: Prisma.StringFieldUpdateOperationsInput | string
+  locationSubjectId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+}
+
+export type StorySceneCreateManyChapterInput = {
+  id?: number
+  storyId: number
+  threadId: number
+  threadSortOrder: number
+  chapterSortOrder?: number | null
+  title: string
+  status?: $Enums.StorySceneStatus
+  summary?: string
+  purpose?: string | null
+  writingTip?: string | null
+  note?: string | null
+  startInstant?: bigint | number | null
+  endInstant?: bigint | number | null
+  subjectIdsJson?: string
+  locationSubjectId?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+}
+
+export type StorySceneUpdateWithoutChapterInput = {
+  threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
+  chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  summary?: Prisma.StringFieldUpdateOperationsInput | string
+  purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startInstant?: Prisma.NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+  endInstant?: Prisma.NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+  subjectIdsJson?: Prisma.StringFieldUpdateOperationsInput | string
+  locationSubjectId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  story?: Prisma.StoryUpdateOneRequiredWithoutScenesNestedInput
+  thread?: Prisma.StoryThreadUpdateOneRequiredWithoutScenesNestedInput
+  refs?: Prisma.StorySceneRefUpdateManyWithoutSceneNestedInput
+  incomingSceneRefs?: Prisma.StorySceneRefUpdateManyWithoutTargetSceneNestedInput
+}
+
+export type StorySceneUncheckedUpdateWithoutChapterInput = {
+  id?: Prisma.IntFieldUpdateOperationsInput | number
+  storyId?: Prisma.IntFieldUpdateOperationsInput | number
+  threadId?: Prisma.IntFieldUpdateOperationsInput | number
+  threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
+  chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  summary?: Prisma.StringFieldUpdateOperationsInput | string
+  purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startInstant?: Prisma.NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+  endInstant?: Prisma.NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+  subjectIdsJson?: Prisma.StringFieldUpdateOperationsInput | string
+  locationSubjectId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  refs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutSceneNestedInput
+  incomingSceneRefs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutTargetSceneNestedInput
+}
+
+export type StorySceneUncheckedUpdateManyWithoutChapterInput = {
+  id?: Prisma.IntFieldUpdateOperationsInput | number
+  storyId?: Prisma.IntFieldUpdateOperationsInput | number
+  threadId?: Prisma.IntFieldUpdateOperationsInput | number
   threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1288,7 +1489,7 @@ export type StorySceneUncheckedUpdateManyWithoutStoryInput = {
 export type StorySceneCreateManyThreadInput = {
   id?: number
   storyId: number
-  chapterPath?: string | null
+  chapterId?: number | null
   threadSortOrder: number
   chapterSortOrder?: number | null
   title: string
@@ -1306,7 +1507,6 @@ export type StorySceneCreateManyThreadInput = {
 }
 
 export type StorySceneUpdateWithoutThreadInput = {
-  chapterPath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1322,6 +1522,7 @@ export type StorySceneUpdateWithoutThreadInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   story?: Prisma.StoryUpdateOneRequiredWithoutScenesNestedInput
+  chapter?: Prisma.StoryChapterUpdateOneWithoutScenesNestedInput
   refs?: Prisma.StorySceneRefUpdateManyWithoutSceneNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUpdateManyWithoutTargetSceneNestedInput
 }
@@ -1329,7 +1530,7 @@ export type StorySceneUpdateWithoutThreadInput = {
 export type StorySceneUncheckedUpdateWithoutThreadInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
   storyId?: Prisma.IntFieldUpdateOperationsInput | number
-  chapterPath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  chapterId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1351,7 +1552,7 @@ export type StorySceneUncheckedUpdateWithoutThreadInput = {
 export type StorySceneUncheckedUpdateManyWithoutThreadInput = {
   id?: Prisma.IntFieldUpdateOperationsInput | number
   storyId?: Prisma.IntFieldUpdateOperationsInput | number
-  chapterPath?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  chapterId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
@@ -1412,7 +1613,7 @@ export type StorySceneSelect<ExtArgs extends runtime.Types.Extensions.InternalAr
   id?: boolean
   storyId?: boolean
   threadId?: boolean
-  chapterPath?: boolean
+  chapterId?: boolean
   threadSortOrder?: boolean
   chapterSortOrder?: boolean
   title?: boolean
@@ -1429,6 +1630,7 @@ export type StorySceneSelect<ExtArgs extends runtime.Types.Extensions.InternalAr
   updatedAt?: boolean
   story?: boolean | Prisma.StoryDefaultArgs<ExtArgs>
   thread?: boolean | Prisma.StoryThreadDefaultArgs<ExtArgs>
+  chapter?: boolean | Prisma.StoryScene$chapterArgs<ExtArgs>
   refs?: boolean | Prisma.StoryScene$refsArgs<ExtArgs>
   incomingSceneRefs?: boolean | Prisma.StoryScene$incomingSceneRefsArgs<ExtArgs>
   _count?: boolean | Prisma.StorySceneCountOutputTypeDefaultArgs<ExtArgs>
@@ -1438,7 +1640,7 @@ export type StorySceneSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Ex
   id?: boolean
   storyId?: boolean
   threadId?: boolean
-  chapterPath?: boolean
+  chapterId?: boolean
   threadSortOrder?: boolean
   chapterSortOrder?: boolean
   title?: boolean
@@ -1455,13 +1657,14 @@ export type StorySceneSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Ex
   updatedAt?: boolean
   story?: boolean | Prisma.StoryDefaultArgs<ExtArgs>
   thread?: boolean | Prisma.StoryThreadDefaultArgs<ExtArgs>
+  chapter?: boolean | Prisma.StoryScene$chapterArgs<ExtArgs>
 }, ExtArgs["result"]["storyScene"]>
 
 export type StorySceneSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
   storyId?: boolean
   threadId?: boolean
-  chapterPath?: boolean
+  chapterId?: boolean
   threadSortOrder?: boolean
   chapterSortOrder?: boolean
   title?: boolean
@@ -1478,13 +1681,14 @@ export type StorySceneSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Ex
   updatedAt?: boolean
   story?: boolean | Prisma.StoryDefaultArgs<ExtArgs>
   thread?: boolean | Prisma.StoryThreadDefaultArgs<ExtArgs>
+  chapter?: boolean | Prisma.StoryScene$chapterArgs<ExtArgs>
 }, ExtArgs["result"]["storyScene"]>
 
 export type StorySceneSelectScalar = {
   id?: boolean
   storyId?: boolean
   threadId?: boolean
-  chapterPath?: boolean
+  chapterId?: boolean
   threadSortOrder?: boolean
   chapterSortOrder?: boolean
   title?: boolean
@@ -1501,10 +1705,11 @@ export type StorySceneSelectScalar = {
   updatedAt?: boolean
 }
 
-export type StorySceneOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "storyId" | "threadId" | "chapterPath" | "threadSortOrder" | "chapterSortOrder" | "title" | "status" | "summary" | "purpose" | "writingTip" | "note" | "startInstant" | "endInstant" | "subjectIdsJson" | "locationSubjectId" | "createdAt" | "updatedAt", ExtArgs["result"]["storyScene"]>
+export type StorySceneOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "storyId" | "threadId" | "chapterId" | "threadSortOrder" | "chapterSortOrder" | "title" | "status" | "summary" | "purpose" | "writingTip" | "note" | "startInstant" | "endInstant" | "subjectIdsJson" | "locationSubjectId" | "createdAt" | "updatedAt", ExtArgs["result"]["storyScene"]>
 export type StorySceneInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   story?: boolean | Prisma.StoryDefaultArgs<ExtArgs>
   thread?: boolean | Prisma.StoryThreadDefaultArgs<ExtArgs>
+  chapter?: boolean | Prisma.StoryScene$chapterArgs<ExtArgs>
   refs?: boolean | Prisma.StoryScene$refsArgs<ExtArgs>
   incomingSceneRefs?: boolean | Prisma.StoryScene$incomingSceneRefsArgs<ExtArgs>
   _count?: boolean | Prisma.StorySceneCountOutputTypeDefaultArgs<ExtArgs>
@@ -1512,10 +1717,12 @@ export type StorySceneInclude<ExtArgs extends runtime.Types.Extensions.InternalA
 export type StorySceneIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   story?: boolean | Prisma.StoryDefaultArgs<ExtArgs>
   thread?: boolean | Prisma.StoryThreadDefaultArgs<ExtArgs>
+  chapter?: boolean | Prisma.StoryScene$chapterArgs<ExtArgs>
 }
 export type StorySceneIncludeUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   story?: boolean | Prisma.StoryDefaultArgs<ExtArgs>
   thread?: boolean | Prisma.StoryThreadDefaultArgs<ExtArgs>
+  chapter?: boolean | Prisma.StoryScene$chapterArgs<ExtArgs>
 }
 
 export type $StoryScenePayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1523,6 +1730,7 @@ export type $StoryScenePayload<ExtArgs extends runtime.Types.Extensions.Internal
   objects: {
     story: Prisma.$StoryPayload<ExtArgs>
     thread: Prisma.$StoryThreadPayload<ExtArgs>
+    chapter: Prisma.$StoryChapterPayload<ExtArgs> | null
     refs: Prisma.$StorySceneRefPayload<ExtArgs>[]
     incomingSceneRefs: Prisma.$StorySceneRefPayload<ExtArgs>[]
   }
@@ -1530,7 +1738,7 @@ export type $StoryScenePayload<ExtArgs extends runtime.Types.Extensions.Internal
     id: number
     storyId: number
     threadId: number
-    chapterPath: string | null
+    chapterId: number | null
     threadSortOrder: number
     chapterSortOrder: number | null
     title: string
@@ -1941,6 +2149,7 @@ export interface Prisma__StorySceneClient<T, Null = never, ExtArgs extends runti
   readonly [Symbol.toStringTag]: "PrismaPromise"
   story<T extends Prisma.StoryDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryDefaultArgs<ExtArgs>>): Prisma.Prisma__StoryClient<runtime.Types.Result.GetResult<Prisma.$StoryPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   thread<T extends Prisma.StoryThreadDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryThreadDefaultArgs<ExtArgs>>): Prisma.Prisma__StoryThreadClient<runtime.Types.Result.GetResult<Prisma.$StoryThreadPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
+  chapter<T extends Prisma.StoryScene$chapterArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryScene$chapterArgs<ExtArgs>>): Prisma.Prisma__StoryChapterClient<runtime.Types.Result.GetResult<Prisma.$StoryChapterPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   refs<T extends Prisma.StoryScene$refsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryScene$refsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$StorySceneRefPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   incomingSceneRefs<T extends Prisma.StoryScene$incomingSceneRefsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryScene$incomingSceneRefsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$StorySceneRefPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
@@ -1975,7 +2184,7 @@ export interface StorySceneFieldRefs {
   readonly id: Prisma.FieldRef<"StoryScene", 'Int'>
   readonly storyId: Prisma.FieldRef<"StoryScene", 'Int'>
   readonly threadId: Prisma.FieldRef<"StoryScene", 'Int'>
-  readonly chapterPath: Prisma.FieldRef<"StoryScene", 'String'>
+  readonly chapterId: Prisma.FieldRef<"StoryScene", 'Int'>
   readonly threadSortOrder: Prisma.FieldRef<"StoryScene", 'Int'>
   readonly chapterSortOrder: Prisma.FieldRef<"StoryScene", 'Int'>
   readonly title: Prisma.FieldRef<"StoryScene", 'String'>
@@ -2381,6 +2590,25 @@ export type StorySceneDeleteManyArgs<ExtArgs extends runtime.Types.Extensions.In
    * Limit how many StoryScenes to delete.
    */
   limit?: number
+}
+
+/**
+ * StoryScene.chapter
+ */
+export type StoryScene$chapterArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the StoryChapter
+   */
+  select?: Prisma.StoryChapterSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the StoryChapter
+   */
+  omit?: Prisma.StoryChapterOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.StoryChapterInclude<ExtArgs> | null
+  where?: Prisma.StoryChapterWhereInput
 }
 
 /**

@@ -651,3 +651,26 @@
 - `bun run product:stage`：通过；Product Root staged 到 `product/`，系统变量与 14 个系统 profile artifact 已重新准备，Product Root Prisma runtime 文件门禁通过。
 - 临时干净源码树复现：删除 `server/generated/prisma` 且不复制 `.nuxt` 后执行 `bun scripts/cli/create-admin.ts admin`，脚本先 `nuxt:prepare`，再 Prisma generate、SQLite migration，最终输出 `管理员已就绪：admin (#1)`；临时目录已清理。
 - Docker smoke 未执行：当前本机没有 `docker` 命令；本轮依赖 Product/Nitro 构建门禁和 dry-run 合同验证。
+
+## Source Admin Dependency Preflight Follow-up
+
+### User Report
+
+- 发布 canary 后，用户继续在源码 checkout 中执行 `bun run auth:create-admin admin`，缺 `.nuxt/tsconfig.json` 时脚本尝试 `bun run nuxt:prepare`。
+- 该环境没有安装源码依赖，`nuxt` 命令不存在，最终输出 `nuxt: command not found`，但 preflight 报成了 `Prisma generate 失败`。
+
+### Decisions
+
+- 不让管理员脚本自动执行 `bun install`，避免 GHCR / 低内存服务器被带回完整源码依赖安装链路。
+- 源码模式需要自愈生成 Prisma Client 时，先检查本地 Nuxt CLI 是否存在；即使 `.nuxt/tsconfig.json` 残留，缺依赖也直接提示先 `bun install --frozen-lockfile`。
+- 错误提示按阶段区分 `Nuxt prepare` 和 `Prisma generate`，不再把 Nuxt CLI 缺失包装成 Prisma generate 失败。
+- 文档继续强调：GHCR 管理员创建必须使用容器内 `.output/server/scripts/cli/create-admin.ts`，不要在宿主机源码 checkout 中执行 `bun run auth:create-admin`。
+- `docs/operator-bridge.md` 同步 GHCR release tag 合同：canary 安装器默认使用同版本 `v...` 镜像，`latest` 只代表最新 stable；canary 发布使用 release 脚本并带 `--no-watch`。
+
+### Verification
+
+- `bunx vitest run server/deploy/prisma-runtime-preflight.test.ts server/deploy/ghcr-releases.test.ts`：2 files / 13 tests passed。
+- `bun --check scripts/cli/prisma-runtime-preflight.ts`：通过。
+- 无 `node_modules/.bin/nuxt` 的临时源码目录调用 preflight：直接提示 `源码部署缺少本地 Nuxt CLI` 和 `bun install --frozen-lockfile`，未执行 `nuxt:prepare`。
+- 残留 `.nuxt/tsconfig.json` 但无 `node_modules/.bin/nuxt` 的临时源码目录调用 preflight：直接提示缺 Nuxt CLI，未进入 Prisma generate。
+- 单测覆盖：Nuxt prepare 失败与 Prisma generate 失败分别显示对应阶段名。

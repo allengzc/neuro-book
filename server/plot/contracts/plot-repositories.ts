@@ -1,14 +1,19 @@
 import type {
     Story,
+    StoryAct,
+    StoryChapter,
     StoryPhase,
     StoryScene,
     StoryThread,
 } from "nbook/server/generated/project-prisma/client";
 import type {
+    ChapterBriefColumns,
     ChapterPlotSceneWithThread,
     ChapterWriterBriefSceneWithThread,
     ResolvedStoryRefInput,
+    StoryActWithChapters,
     StoryThreadEntity,
+    StorySceneWithChapter,
     StorySceneWithDetails,
     StoryThreadWithScenes,
     StoryWorkbenchPhase,
@@ -59,10 +64,30 @@ export interface ThreadRepository {
     >> & {tags?: string[]}): Promise<StoryThreadEntity>;
     deleteThread(threadId: number): Promise<void>;
     findThreadTargetByName(storyId: number, name: string): Promise<Pick<StoryThread, "id" | "name"> | null>;
-    findUngroupedThreads(storyId: number): Promise<Array<StoryThreadEntity & {scenes: StoryScene[]}>>;
-    findPhaseThreadsWithScenes(storyId: number): Promise<Array<StoryPhase & {threads: Array<StoryThreadEntity & {scenes: StoryScene[]}>}>>;
+    findUngroupedThreads(storyId: number): Promise<Array<StoryThreadEntity & {scenes: StorySceneWithChapter[]}>>;
+    findPhaseThreadsWithScenes(storyId: number): Promise<Array<StoryPhase & {threads: Array<StoryThreadEntity & {scenes: StorySceneWithChapter[]}>}>>;
     findUngroupedWorkbenchThreads(storyId: number): Promise<StoryWorkbenchThread[]>;
     findWorkbenchPhaseThreads(storyId: number): Promise<StoryWorkbenchPhase[]>;
+}
+
+/**
+ * Act / Chapter(承载树)仓储接口。
+ */
+export interface ChapterRepository {
+    findActById(actId: number): Promise<StoryAct | null>;
+    findActsByStory(storyId: number): Promise<StoryAct[]>;
+    findActByName(storyId: number, name: string, excludeActId?: number): Promise<StoryAct | null>;
+    findActsWithChapters(storyId: number): Promise<StoryActWithChapters[]>;
+    createAct(input: {storyId: number; sortOrder: number; name: string; title: string; summary: string; note: string | null}): Promise<StoryAct>;
+    updateAct(actId: number, data: Partial<Pick<StoryAct, "name" | "title" | "summary" | "note" | "sortOrder">>): Promise<StoryAct>;
+    deleteAct(actId: number): Promise<void>;
+    findChapterById(chapterId: number): Promise<StoryChapter | null>;
+    findChaptersByStory(storyId: number): Promise<StoryChapter[]>;
+    findUngroupedChapters(storyId: number): Promise<StoryChapter[]>;
+    findChapterByName(storyId: number, name: string, excludeChapterId?: number): Promise<StoryChapter | null>;
+    createChapter(input: {storyId: number; actId: number | null; sortOrder: number; name: string; title: string; note: string | null} & Partial<ChapterBriefColumns>): Promise<StoryChapter>;
+    updateChapter(chapterId: number, data: Partial<Pick<StoryChapter, "actId" | "sortOrder" | "name" | "title" | "note">> & Partial<ChapterBriefColumns>): Promise<StoryChapter>;
+    deleteChapter(chapterId: number): Promise<void>;
 }
 
 /**
@@ -71,13 +96,13 @@ export interface ThreadRepository {
 export interface SceneRepository {
     findSceneById(sceneId: number): Promise<StoryScene | null>;
     findSceneWithDetailsById(sceneId: number): Promise<StorySceneWithDetails | null>;
-    findChapterScenes(chapterPath: string): Promise<ChapterPlotSceneWithThread[]>;
-    findChapterScenesForBrief(chapterPath: string): Promise<ChapterWriterBriefSceneWithThread[]>;
+    findChapterScenes(chapterId: number): Promise<ChapterPlotSceneWithThread[]>;
+    findChapterScenesForBrief(chapterId: number): Promise<ChapterWriterBriefSceneWithThread[]>;
     findSceneIdsByStory(storyId: number): Promise<number[]>;
     createScene(input: {
         storyId: number;
         threadId: number;
-        chapterPath: string | null;
+        chapterId: number | null;
         threadSortOrder: number;
         chapterSortOrder: number | null;
         title: string;
@@ -93,10 +118,10 @@ export interface SceneRepository {
     }): Promise<StoryScene>;
     updateScene(sceneId: number, data: Partial<Pick<
         StoryScene,
-        "threadId" | "chapterPath" | "threadSortOrder" | "chapterSortOrder" | "title" | "status" | "summary" | "purpose" | "writingTip" | "note" | "startInstant" | "endInstant" | "subjectIdsJson" | "locationSubjectId"
+        "threadId" | "chapterId" | "threadSortOrder" | "chapterSortOrder" | "title" | "status" | "summary" | "purpose" | "writingTip" | "note" | "startInstant" | "endInstant" | "subjectIdsJson" | "locationSubjectId"
     >>): Promise<StoryScene>;
     deleteScene(sceneId: number): Promise<void>;
     replaceRefs(sceneId: number, refs: ResolvedStoryRefInput[]): Promise<void>;
     findScenesByThread(threadId: number): Promise<Pick<StoryScene, "id" | "threadSortOrder">[]>;
-    findScenesByChapter(chapterPath: string): Promise<Pick<StoryScene, "id" | "chapterSortOrder">[]>;
+    findScenesByChapter(chapterId: number): Promise<Pick<StoryScene, "id" | "chapterSortOrder">[]>;
 }

@@ -45,4 +45,7 @@ assets/workspace/.nbook/agent/variables/.compiled/
 assets/workspace/.nbook/agent/profiles/.system-profile-metadata.json
 # llmlint 评测 harness（消费侧代码）：本地运行，不进 git
 assets/workspace/.nbook/agent/skills/llmlint/evals/
+# AIGC 检测 reference 语料（104 本版权书，I11 合规边界）：正文绝不入 git；catalog.json 元数据可进
+datasets/aigc-detection/books/
+datasets/aigc-detection/converted/
 server/agent/variables/generated-profile-variable-types.d.ts

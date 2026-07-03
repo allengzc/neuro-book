@@ -352,7 +352,7 @@ export default {
 - `curated-import` 内部命名改为 source / curated 语义，生成的 `builtin/default` 规则看起来是 llmlint 原生规则。
 - loader 遇到已移除的旧格式来源字段会报错，避免旧结构重新进入规则文件。
 - `SKILL.md`、CLI reference、patterns、Task 51 和 `PROJECT-STATUS.md` 已同步到硬切口径。
-- 旧入口收尾继续删除 `import-curated` CLI 和 `llmlint <file>` 兼容用法；CLI 只保留 `check <file>` 与 `show-llm-rules`。
+- 旧入口收尾继续删除 `import-curated` CLI 和 `llmlint <file>` 兼容用法；当时公开 CLI 收口为 `check` 与 `show-llm-rules`，后续已扩展为 `check <files...>`、`fix <files...>` 与 `show-llm-rules`。
 
 验证目标：
 
@@ -364,7 +364,7 @@ export default {
 
 已完成：
 
-- 删除公开 `import-legacy` / `legacy-import` 残留入口；CLI 帮助只保留 `check <file>` 与 `show-llm-rules`。
+- 删除公开 `import-legacy` / `legacy-import` 残留入口；当时 CLI 帮助只保留 `check` 与 `show-llm-rules`，后续已扩展为当前的多文件 `check`、`fix` 与 `show-llm-rules`。
 - 系统 assets 删除清单补充 `agent/skills/llmlint/src/legacy-import.ts`，同步时会清理未手改的旧受管副本。
 - 复查公开内置 ruleset：系统 assets 中只保留 `rulesets/builtin/default/`，旧 `builtin/anti-ai-slop` 与 `builtin/cn` 只在清理代码、清理测试和历史 walkthrough 中出现。
 - 更新当前测试指南和 Task 51 当前状态，避免继续把当前 CLI 称为 Anti-AI-Slop 或把默认 ruleset 写成旧入口。

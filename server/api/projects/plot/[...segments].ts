@@ -1,20 +1,28 @@
 import {
+    CreateStoryActRequestDtoSchema,
+    CreateStoryChapterRequestDtoSchema,
     CreateStoryPhaseRequestDtoSchema,
     CreateStorySceneRequestDtoSchema,
     CreateStoryThreadRequestDtoSchema,
     ReorderStoryPhasesRequestDtoSchema,
     ReorderStoryScenesRequestDtoSchema,
     ReorderStoryThreadsRequestDtoSchema,
+    UpdateStoryActRequestDtoSchema,
+    UpdateStoryChapterRequestDtoSchema,
     UpdateStoryPhaseRequestDtoSchema,
     UpdateStoryRequestDtoSchema,
     UpdateStorySceneRequestDtoSchema,
     UpdateStoryThreadRequestDtoSchema,
+    type CreateStoryActRequestDto,
+    type CreateStoryChapterRequestDto,
     type CreateStoryPhaseRequestDto,
     type CreateStorySceneRequestDto,
     type CreateStoryThreadRequestDto,
     type ReorderStoryPhasesRequestDto,
     type ReorderStoryScenesRequestDto,
     type ReorderStoryThreadsRequestDto,
+    type UpdateStoryActRequestDto,
+    type UpdateStoryChapterRequestDto,
     type UpdateStoryPhaseRequestDto,
     type UpdateStoryRequestDto,
     type UpdateStorySceneRequestDto,
@@ -204,14 +212,20 @@ export default defineEventHandler(async (event) => {
         return plotFacade.getPlotWorkbench(projectPath);
     }
     if (method === "GET" && matchSegments(segments, ["chapter"])) {
-        return plotFacade.getChapterPlotDetailDto(projectPath, requireChapterPathQuery(event));
+        return plotFacade.getChapterPlotDetailDto(projectPath, requireChapterIdQuery(event));
     }
     if (method === "GET" && matchSegments(segments, ["chapter-writer-brief"])) {
-        return plotFacade.getChapterWriterBrief(projectPath, requireChapterPathQuery(event));
+        return plotFacade.getChapterWriterBrief(projectPath, requireChapterIdQuery(event), readBriefModeQuery(event));
     }
 
     if (segments[0] === "phases") {
         return handlePhases(event, projectPath, method, segments);
+    }
+    if (segments[0] === "acts") {
+        return handleActs(event, projectPath, method, segments);
+    }
+    if (segments[0] === "chapters") {
+        return handleChapters(event, projectPath, method, segments);
     }
     if (segments[0] === "threads") {
         return handleThreads(event, projectPath, method, segments);
@@ -222,6 +236,42 @@ export default defineEventHandler(async (event) => {
 
     throw createError({statusCode: 404, message: "未知 Project Plot API"});
 });
+
+/** 承载树 Act(卷)CRUD。 */
+async function handleActs(event: H3Event, projectPath: string, method: string, segments: string[]): Promise<unknown> {
+    if (method === "POST" && matchSegments(segments, ["acts"])) {
+        const body = await validateBody<CreateStoryActRequestDto>(event, CreateStoryActRequestDtoSchema);
+        return plotFacade.createStoryAct(projectPath, body);
+    }
+    if (segments.length === 2) {
+        const actId = parseEntityId("actId", segments[1] ?? "");
+        if (method === "GET") return plotFacade.getStoryActDto(projectPath, actId);
+        if (method === "PATCH") {
+            const body = await validateBody<UpdateStoryActRequestDto>(event, UpdateStoryActRequestDtoSchema);
+            return plotFacade.updateStoryAct(projectPath, actId, body);
+        }
+        if (method === "DELETE") return plotFacade.deleteStoryAct(projectPath, actId);
+    }
+    throw createError({statusCode: 404, message: "未知 Project Act API"});
+}
+
+/** 承载树 Chapter(章)CRUD,含 ChapterBrief 字段更新。 */
+async function handleChapters(event: H3Event, projectPath: string, method: string, segments: string[]): Promise<unknown> {
+    if (method === "POST" && matchSegments(segments, ["chapters"])) {
+        const body = await validateBody<CreateStoryChapterRequestDto>(event, CreateStoryChapterRequestDtoSchema);
+        return plotFacade.createStoryChapter(projectPath, body);
+    }
+    if (segments.length === 2) {
+        const chapterId = parseEntityId("chapterId", segments[1] ?? "");
+        if (method === "GET") return plotFacade.getStoryChapterDto(projectPath, chapterId);
+        if (method === "PATCH") {
+            const body = await validateBody<UpdateStoryChapterRequestDto>(event, UpdateStoryChapterRequestDtoSchema);
+            return plotFacade.updateStoryChapter(projectPath, chapterId, body);
+        }
+        if (method === "DELETE") return plotFacade.deleteStoryChapter(projectPath, chapterId);
+    }
+    throw createError({statusCode: 404, message: "未知 Project Chapter API"});
+}
 
 async function handlePhases(event: H3Event, projectPath: string, method: string, segments: string[]): Promise<unknown> {
     if (method === "POST" && matchSegments(segments, ["phases"])) {
@@ -300,11 +350,16 @@ function matchSegments(left: string[], right: string[]): boolean {
     return left.length === right.length && left.every((segment, index) => segment === right[index]);
 }
 
-function requireChapterPathQuery(event: H3Event): string {
-    const value = getQuery(event).chapterPath;
+function requireChapterIdQuery(event: H3Event): number {
+    const value = getQuery(event).chapterId;
     const text = typeof value === "string" ? value.trim() : "";
     if (!text) {
-        throw createError({statusCode: 400, message: "chapterPath query 不能为空"});
+        throw createError({statusCode: 400, message: "chapterId query 不能为空"});
     }
-    return text;
+    return parseEntityId("chapterId", text);
+}
+
+/** 读取 brief 防全知模式 query;缺省或非法一律回落 autonomous。 */
+function readBriefModeQuery(event: H3Event): "autonomous" | "curated" {
+    return getQuery(event).mode === "curated" ? "curated" : "autonomous";
 }

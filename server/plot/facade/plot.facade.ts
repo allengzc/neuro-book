@@ -1,5 +1,6 @@
 import {Prisma, PrismaClient} from "nbook/server/generated/project-prisma/client";
 import {PlotDtoAssembler} from "nbook/server/plot/assemblers/plot-dto.assembler";
+import {PrismaChapterRepository} from "nbook/server/plot/repositories/prisma-chapter.repository";
 import {PrismaSceneRepository} from "nbook/server/plot/repositories/prisma-scene.repository";
 import {PrismaStoryRepository} from "nbook/server/plot/repositories/prisma-story.repository";
 import {PrismaThreadRepository} from "nbook/server/plot/repositories/prisma-thread.repository";
@@ -7,6 +8,9 @@ import type {PrismaExecutor, SceneWorldAnchor} from "nbook/server/plot/core/type
 import {PlotInputParser} from "nbook/server/plot/http/plot-input.parser";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {TrackedPrismaLibSql} from "nbook/server/workspace-files/tracked-prisma-libsql";
+import {ChapterService} from "nbook/server/plot/services/chapter.service";
+import {ChapterBootstrapService, type CarrierTreeBootstrapResult} from "nbook/server/plot/services/chapter-bootstrap.service";
+import {ChapterProseService, type ChapterProseNode} from "nbook/server/plot/services/chapter-prose.service";
 import {OrderService} from "nbook/server/plot/services/order.service";
 import {ChapterWriterBriefService} from "nbook/server/plot/services/chapter-writer-brief.service";
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
@@ -29,7 +33,10 @@ import {STORY_STRUCTURED_REFERENCE_KINDS} from "nbook/shared/reference-core";
 import type {
     ChapterPlotDetailDto,
     ChapterWriterBriefDto,
+    ChapterWriterBriefMode,
     PlotWorkbenchDto,
+    CreateStoryActRequestDto,
+    CreateStoryChapterRequestDto,
     CreateStoryPhaseRequestDto,
     CreateStorySceneRequestDto,
     CreateStoryThreadRequestDto,
@@ -38,12 +45,16 @@ import type {
     ReorderStoryScenesRequestDto,
     ReorderStoryThreadsRequestDto,
     SceneWorldContextDto,
+    StoryActDto,
+    StoryChapterDto,
     StoryDto,
     StoryPhaseDto,
     StorySceneDetailDto,
     StorySceneWriteResponseDto,
     StoryThreadDetailDto,
     StoryThreadWriteResponseDto,
+    UpdateStoryActRequestDto,
+    UpdateStoryChapterRequestDto,
     UpdateStoryPhaseRequestDto,
     UpdateStoryRequestDto,
     UpdateStorySceneRequestDto,
@@ -57,6 +68,8 @@ type PlotModule = {
     storyService: StoryService;
     threadService: ThreadService;
     sceneService: SceneService;
+    chapterService: ChapterService;
+    chapterBootstrapService: ChapterBootstrapService;
     sceneWorldContextService: SceneWorldContextService;
     chapterWriterBriefService: ChapterWriterBriefService;
     refResolverService: RefResolverService;
@@ -73,8 +86,36 @@ type PlotClientEntry = {
 export class PlotFacade {
     private readonly clients = new Map<string, PlotClientEntry>();
     private readonly sceneWorldAnchorResolutionService = new SceneWorldAnchorResolutionService(worldEngineFacade);
+    // Prose 反指解析不依赖 Project SQLite,直接复用 workspace 内存索引,做 facade 级单例。
+    private readonly chapterProseService = new ChapterProseService();
 
     constructor() {}
+
+    /**
+     * 解析指定章的 Prose 文件(frontmatter `chapter: <name>` 反指)。
+     */
+    async findProseForChapter(projectPath: string, chapterName: string): Promise<ChapterProseNode[]> {
+        return this.chapterProseService.findProseForChapter(normalizeProjectPath(projectPath), chapterName);
+    }
+
+    /**
+     * 按已注册 Chapter name 分拣孤儿 Prose 指针。
+     */
+    async findOrphanProsePointers(projectPath: string): Promise<ChapterProseNode[]> {
+        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const module = await this.createModule(projectPath);
+        const story = await module.storyService.ensureStory(normalizedProjectPath);
+        const chapters = await module.chapterService.listChapterNames(normalizedProjectPath, story.id);
+        return this.chapterProseService.findOrphanPointers(normalizedProjectPath, new Set(chapters));
+    }
+
+    /**
+     * 承载树 Bootstrap:把现有 manuscript 目录导入 Act/Chapter,并回写 Prose frontmatter 反指。
+     * 一次性迁移工具,幂等可重跑。DB 写入走事务;frontmatter 文件写回在事务提交后由服务内部完成。
+     */
+    async bootstrapCarrierTree(projectPath: string): Promise<CarrierTreeBootstrapResult> {
+        return this.runInTransaction(projectPath, (module) => module.chapterBootstrapService.bootstrapCarrierTree(normalizeProjectPath(projectPath)));
+    }
 
     /**
      * 关闭指定 Project SQLite 的 PrismaClient。Project 删除前必须先释放文件句柄。
@@ -235,17 +276,84 @@ export class PlotFacade {
     /**
      * 查询章节下的剧情 Scene。
      */
-    async getChapterPlotDetailDto(projectPath: string, chapterPath: string): Promise<ChapterPlotDetailDto> {
+    async getChapterPlotDetailDto(projectPath: string, chapterId: number): Promise<ChapterPlotDetailDto> {
         const normalizedProjectPath = normalizeProjectPath(projectPath);
-        return this.formatChapterPlotAnchors(normalizedProjectPath, await (await this.createModule(projectPath)).sceneService.getChapterPlotDetailDto(normalizedProjectPath, chapterPath));
+        return this.formatChapterPlotAnchors(normalizedProjectPath, await (await this.createModule(projectPath)).sceneService.getChapterPlotDetailDto(normalizedProjectPath, chapterId));
     }
 
     /**
      * 查询章节 writer brief。
+     * @param mode 防全知模式;默认 autonomous。
      */
-    async getChapterWriterBrief(projectPath: string, chapterPath: string): Promise<ChapterWriterBriefDto> {
+    async getChapterWriterBrief(projectPath: string, chapterId: number, mode: ChapterWriterBriefMode = "autonomous"): Promise<ChapterWriterBriefDto> {
         const normalizedProjectPath = normalizeProjectPath(projectPath);
-        return (await this.createModule(projectPath)).chapterWriterBriefService.getChapterWriterBrief(normalizedProjectPath, chapterPath);
+        return (await this.createModule(projectPath)).chapterWriterBriefService.getChapterWriterBrief(normalizedProjectPath, chapterId, mode);
+    }
+
+    /**
+     * 查询卷详情。
+     */
+    async getStoryActDto(projectPath: string, actId: number): Promise<StoryActDto> {
+        return (await this.createModule(projectPath)).chapterService.getStoryActDto(normalizeProjectPath(projectPath), actId);
+    }
+
+    /**
+     * 创建卷。
+     */
+    async createStoryAct(projectPath: string, input: CreateStoryActRequestDto): Promise<StoryActDto> {
+        return this.runInTransaction(projectPath, (module) => module.chapterService.createStoryAct(normalizeProjectPath(projectPath), input));
+    }
+
+    /**
+     * 更新卷。
+     */
+    async updateStoryAct(projectPath: string, actId: number, patch: UpdateStoryActRequestDto): Promise<StoryActDto> {
+        return this.runInTransaction(projectPath, (module) => module.chapterService.updateStoryAct(normalizeProjectPath(projectPath), actId, patch));
+    }
+
+    /**
+     * 删除卷。
+     */
+    async deleteStoryAct(projectPath: string, actId: number): Promise<void> {
+        await this.runInTransaction(projectPath, (module) => module.chapterService.deleteStoryAct(normalizeProjectPath(projectPath), actId));
+    }
+
+    /**
+     * 查询章详情(含 ChapterBrief)。
+     */
+    async getStoryChapterDto(projectPath: string, chapterId: number): Promise<StoryChapterDto> {
+        return (await this.createModule(projectPath)).chapterService.getStoryChapterDto(normalizeProjectPath(projectPath), chapterId);
+    }
+
+    /**
+     * 创建章。
+     */
+    async createStoryChapter(projectPath: string, input: CreateStoryChapterRequestDto): Promise<StoryChapterDto> {
+        const processedInput = processTextFieldsWithResults(input, ["note"]);
+        return this.runInTransaction(projectPath, (module) => (
+            module.chapterService.createStoryChapter(normalizeProjectPath(projectPath), module.inputParser.parseCreateChapter({
+                ...processedInput.values,
+            }))
+        ));
+    }
+
+    /**
+     * 更新章(含 ChapterBrief 字段)。
+     */
+    async updateStoryChapter(projectPath: string, chapterId: number, patch: UpdateStoryChapterRequestDto): Promise<StoryChapterDto> {
+        const processedPatch = processTextFieldsWithResults(patch, ["note"]);
+        return this.runInTransaction(projectPath, (module) => (
+            module.chapterService.updateStoryChapter(normalizeProjectPath(projectPath), chapterId, module.inputParser.parseUpdateChapter({
+                ...processedPatch.values,
+            }))
+        ));
+    }
+
+    /**
+     * 删除章。
+     */
+    async deleteStoryChapter(projectPath: string, chapterId: number): Promise<void> {
+        await this.runInTransaction(projectPath, (module) => module.chapterService.deleteStoryChapter(normalizeProjectPath(projectPath), chapterId));
     }
 
     /**
@@ -531,15 +639,18 @@ export class PlotFacade {
         const storyRepository = new PrismaStoryRepository(executor);
         const threadRepository = new PrismaThreadRepository(executor);
         const sceneRepository = new PrismaSceneRepository(executor);
+        const chapterRepository = new PrismaChapterRepository(executor);
         const orderService = new OrderService(storyRepository, threadRepository, sceneRepository);
         const scopeGuard = new PlotScopeGuard(
             storyRepository,
             threadRepository,
             sceneRepository,
+            chapterRepository,
         );
         const storyService = new StoryService(
             storyRepository,
             threadRepository,
+            chapterRepository,
             orderService,
             assembler,
             scopeGuard,
@@ -568,8 +679,20 @@ export class PlotFacade {
             scopeGuard,
             worldEngineFacade,
         );
+        const chapterService = new ChapterService(
+            chapterRepository,
+            storyService,
+            scopeGuard,
+            assembler,
+        );
+        const chapterBootstrapService = new ChapterBootstrapService(
+            chapterRepository,
+            storyService,
+            scopeGuard,
+        );
         const chapterWriterBriefService = new ChapterWriterBriefService(
             sceneRepository,
+            storyService,
             scopeGuard,
             sceneWorldContextService,
             this.sceneWorldAnchorResolutionService,
@@ -581,6 +704,8 @@ export class PlotFacade {
             storyService,
             threadService,
             sceneService,
+            chapterService,
+            chapterBootstrapService,
             sceneWorldContextService,
             chapterWriterBriefService,
             refResolverService,

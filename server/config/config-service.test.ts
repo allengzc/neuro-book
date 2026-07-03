@@ -57,6 +57,65 @@ describe("config service", {timeout: 30_000}, () => {
         await expect(fs.access(path.join("workspace", "config-test-project", ".nbook", "config.json"))).rejects.toMatchObject({code: "ENOENT"});
     });
 
+    it("Provider enabled 旧配置默认 true，保存 false 时会持久化", async () => {
+        await fs.mkdir(path.join("workspace", ".nbook"), {recursive: true});
+        await fs.writeFile(path.join("workspace", ".nbook", "config.json"), JSON.stringify({
+            models: {
+                default: "legacy-provider/legacy-model",
+                providers: [{
+                    id: "legacy-provider",
+                    name: "Legacy Provider",
+                    api: "openai-completions",
+                    options: {
+                        apiKey: "",
+                        baseURL: "",
+                        proxy: "",
+                        timeoutMs: null,
+                        requestOptions: {},
+                    },
+                    models: [{
+                        id: "legacy-model",
+                        name: "Legacy Model",
+                        enabled: true,
+                    }],
+                }],
+            },
+        }, null, 4), "utf8");
+        const legacySnapshot = await readConfigEditorSnapshot({workspaceKind: "user-assets"}, catalog);
+        expect(legacySnapshot.modelSettings.providers[0]?.enabled).toBe(true);
+
+        const saved = await saveGlobalConfig({
+            models: {
+                default: null,
+                providers: [{
+                    id: "legacy-provider",
+                    name: "Legacy Provider",
+                    enabled: false,
+                    api: "openai-completions",
+                    options: {
+                        apiKey: {configured: false, maskedValue: null, value: ""},
+                        baseURL: "",
+                        proxy: "",
+                        timeoutMs: null,
+                        requestOptions: {},
+                    },
+                    models: [{
+                        id: "legacy-model",
+                        name: "Legacy Model",
+                        group: null,
+                        enabled: true,
+                        contextWindowTokens: 128000,
+                    }],
+                }],
+            },
+        }, {workspaceKind: "user-assets"}, catalog);
+        const raw = JSON.parse(await fs.readFile(path.join("workspace", ".nbook", "config.json"), "utf8")) as {models?: {providers?: Array<{enabled?: boolean}>}};
+
+        expect(saved.modelSettings.providers[0]?.enabled).toBe(false);
+        expect(saved.modelSettings.enabledModels).toEqual([]);
+        expect(raw.models?.providers?.[0]?.enabled).toBe(false);
+    });
+
     it("Global UI 费用显示币种可以保存并被 bootstrap 读回", async () => {
         const snapshot = await saveGlobalConfig({
             ui: {

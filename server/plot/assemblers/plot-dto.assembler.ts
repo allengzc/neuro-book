@@ -1,11 +1,15 @@
 import type {
     Story,
+    StoryAct,
+    StoryChapter,
     StoryPhase,
     StoryScene,
 } from "nbook/server/generated/project-prisma/client";
 import type {
     ChapterPlotSceneWithThread,
+    StoryActWithChapters,
     StorySceneRefWithTargets,
+    StorySceneWithChapter,
     StorySceneWithDetails,
     StoryThreadEntity,
     StoryThreadWithScenes,
@@ -15,10 +19,14 @@ import type {
 } from "nbook/server/plot/core/types";
 import {stringifyEntityId} from "nbook/server/utils/novel-chapter";
 import type {
+    ChapterBriefDto,
     ChapterPlotDetailDto,
     ChapterPlotSceneDto,
     PlotTreeDto,
     PlotWorkbenchDto,
+    StoryActDto,
+    StoryActTreeNodeDto,
+    StoryChapterDto,
     StoryDto,
     StoryEffectiveRefDto,
     StoryPhaseDto,
@@ -96,14 +104,83 @@ export class PlotDtoAssembler {
     }
 
     /**
+     * 映射 StoryAct DTO。
+     */
+    toStoryActDto(act: StoryAct): StoryActDto {
+        return {
+            id: stringifyEntityId(act.id),
+            storyId: stringifyEntityId(act.storyId),
+            sortOrder: act.sortOrder,
+            name: act.name,
+            title: act.title,
+            summary: act.summary,
+            note: act.note,
+            createdAt: act.createdAt.toISOString(),
+            updatedAt: act.updatedAt.toISOString(),
+        };
+    }
+
+    /**
+     * 映射 ChapterBrief DTO(StoryChapter 上的 brief* 列 → 嵌套对象)。
+     */
+    toChapterBriefDto(chapter: StoryChapter): ChapterBriefDto {
+        return {
+            goal: chapter.briefGoal,
+            pov: chapter.briefPov,
+            tone: chapter.briefTone,
+            pacing: chapter.briefPacing,
+            readerKnows: chapter.briefReaderKnows,
+            protagonistKnows: chapter.briefProtagonistKnows,
+            mustHide: chapter.briefMustHide,
+            hintOnly: chapter.briefHintOnly,
+            opening: chapter.briefOpening,
+            ending: chapter.briefEnding,
+            doNotWrite: chapter.briefDoNotWrite,
+        };
+    }
+
+    /**
+     * 映射 StoryChapter DTO。
+     */
+    toStoryChapterDto(chapter: StoryChapter): StoryChapterDto {
+        return {
+            id: stringifyEntityId(chapter.id),
+            storyId: stringifyEntityId(chapter.storyId),
+            actId: chapter.actId === null ? null : stringifyEntityId(chapter.actId),
+            sortOrder: chapter.sortOrder,
+            name: chapter.name,
+            title: chapter.title,
+            note: chapter.note,
+            brief: this.toChapterBriefDto(chapter),
+            createdAt: chapter.createdAt.toISOString(),
+            updatedAt: chapter.updatedAt.toISOString(),
+        };
+    }
+
+    /**
+     * 映射承载树 Act 节点 DTO。
+     */
+    toStoryActTreeNodeDto(act: StoryActWithChapters): StoryActTreeNodeDto {
+        return {
+            ...this.toStoryActDto(act),
+            chapters: act.chapters.map((chapter) => this.toStoryChapterDto(chapter)),
+        };
+    }
+
+    /**
      * 映射 Scene 摘要 DTO。
      */
-    toStorySceneSummaryDto(scene: StoryScene): StorySceneSummaryDto {
+    toStorySceneSummaryDto(scene: StorySceneWithChapter): StorySceneSummaryDto {
         return {
             id: stringifyEntityId(scene.id),
             storyId: stringifyEntityId(scene.storyId),
             threadId: stringifyEntityId(scene.threadId),
-            chapterPath: scene.chapterPath,
+            chapterId: scene.chapterId === null ? null : stringifyEntityId(scene.chapterId),
+            chapter: scene.chapter === null ? null : {
+                id: stringifyEntityId(scene.chapter.id),
+                name: scene.chapter.name,
+                title: scene.chapter.title,
+            },
             threadSortOrder: scene.threadSortOrder,
             chapterSortOrder: scene.chapterSortOrder,
             title: scene.title,
@@ -216,7 +293,7 @@ export class PlotDtoAssembler {
             threadId: stringifyEntityId(scene.thread.id),
             threadTitle: scene.thread.title,
             threadIsMain: scene.thread.isMainThread,
-            chapterPath: scene.chapterPath,
+            chapterId: scene.chapterId === null ? null : stringifyEntityId(scene.chapterId),
             chapterSortOrder: scene.chapterSortOrder,
             threadSortOrder: scene.threadSortOrder,
             title: scene.title,
@@ -230,9 +307,9 @@ export class PlotDtoAssembler {
     /**
      * 映射章节剧情详情 DTO。
      */
-    toChapterPlotDetailDto(chapterPath: string, scenes: ChapterPlotSceneWithThread[]): ChapterPlotDetailDto {
+    toChapterPlotDetailDto(chapter: StoryChapter, scenes: ChapterPlotSceneWithThread[]): ChapterPlotDetailDto {
         return {
-            chapterPath,
+            chapter: this.toStoryChapterDto(chapter),
             scenes: scenes.map((scene) => this.toChapterPlotSceneDto(scene)),
             totalScenes: scenes.length,
         };
@@ -269,12 +346,14 @@ export class PlotDtoAssembler {
     }
 
     /**
-     * 组装剧情树 DTO。
+     * 组装剧情树 DTO(因果树 + 承载树)。
      */
     toPlotTreeDto(input: {
         story: Story;
-        phases: Array<StoryPhase & {threads: Array<StoryThreadEntity & {scenes: StoryScene[]}>}>;
-        ungroupedThreads: Array<StoryThreadEntity & {scenes: StoryScene[]}>;
+        phases: Array<StoryPhase & {threads: Array<StoryThreadEntity & {scenes: StorySceneWithChapter[]}>}>;
+        ungroupedThreads: Array<StoryThreadEntity & {scenes: StorySceneWithChapter[]}>;
+        acts: StoryActWithChapters[];
+        ungroupedChapters: StoryChapter[];
     }): PlotTreeDto {
         const phases = input.phases.map((phase) => ({
             ...this.toStoryPhaseDto(phase),
@@ -287,16 +366,22 @@ export class PlotDtoAssembler {
             ...this.toStoryThreadSummaryDto(thread),
             scenes: thread.scenes.map((scene) => this.toStorySceneSummaryDto(scene)),
         }));
+        const acts = input.acts.map((act) => this.toStoryActTreeNodeDto(act));
+        const ungroupedChapters = input.ungroupedChapters.map((chapter) => this.toStoryChapterDto(chapter));
 
         return {
             story: this.toStoryDto(input.story),
             phases,
             ungroupedThreads,
+            acts,
+            ungroupedChapters,
             totalPhases: phases.length,
             totalThreads: phases.reduce((sum, phase) => sum + phase.threads.length, 0) + ungroupedThreads.length,
             totalScenes: phases.reduce((sum, phase) => (
                 sum + phase.threads.reduce((threadSum, thread) => threadSum + thread.scenes.length, 0)
             ), 0) + ungroupedThreads.reduce((sum, thread) => sum + thread.scenes.length, 0),
+            totalActs: acts.length,
+            totalChapters: acts.reduce((sum, act) => sum + act.chapters.length, 0) + ungroupedChapters.length,
         };
     }
 

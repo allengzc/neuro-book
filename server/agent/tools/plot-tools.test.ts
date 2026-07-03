@@ -138,10 +138,12 @@ describe("plot tools", () => {
             getChapterWriterBrief: ReturnType<typeof vi.fn>;
         };
         plotFacadeMock.getChapterWriterBrief.mockResolvedValueOnce({
-            chapterPath: "manuscript/001/",
+            chapter: {id: "7", name: "001-opening", title: "开篇"},
+            mode: "autonomous",
             status: "ready",
             scenes: [],
             totalScenes: 0,
+            suggestedReading: [],
             warnings: [],
             suggestedBriefMarkdown: "# Brief\n\n写作交接。",
         });
@@ -155,7 +157,7 @@ describe("plot tools", () => {
         const context = {
             harness,
             sessionId: 1,
-            profileKey: "director",
+            profileKey: "leader.default",
             workspaceRoot: ".agent/plot-tools-test",
             workspaceKey: "plot-tools-test",
         };
@@ -164,17 +166,17 @@ describe("plot tools", () => {
         expect(tool).toBeDefined();
         expect(Value.Check(tool!.parameters, {
             projectPath: "workspace/novel-1",
-            chapterPath: "manuscript/001/",
+            chapterId: "7",
         })).toBe(true);
         const result = await tool!.executeWithContext!(context, "plot-brief-1", {
             projectPath: "workspace/novel-1",
-            chapterPath: "manuscript/001/",
+            chapterId: "7",
         });
 
-        expect(plotFacadeMock.getChapterWriterBrief).toHaveBeenCalledWith("workspace/novel-1", "manuscript/001/");
+        expect(plotFacadeMock.getChapterWriterBrief).toHaveBeenCalledWith("workspace/novel-1", 7, "autonomous");
         expect(result.content).toEqual([{type: "text", text: "# Brief\n\n写作交接。"}]);
         expect(result.details).toMatchObject({
-            chapterPath: "manuscript/001/",
+            chapter: {id: "7", name: "001-opening"},
             status: "ready",
             suggestedBriefMarkdown: "# Brief\n\n写作交接。",
         });

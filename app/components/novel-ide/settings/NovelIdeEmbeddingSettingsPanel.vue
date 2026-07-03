@@ -199,6 +199,13 @@ async function loadSettings(): Promise<void> {
 }
 
 /**
+ * 重新读取已保存的 Embedding 配置，放弃当前草稿。
+ */
+async function restoreSettings(): Promise<void> {
+    await loadSettings();
+}
+
+/**
  * 保存 Embedding 配置。
  */
 async function saveSettings(): Promise<void> {
@@ -285,6 +292,7 @@ defineExpose({
     loading,
     saving,
     saveSettings,
+    restoreSettings,
 });
 </script>
 
