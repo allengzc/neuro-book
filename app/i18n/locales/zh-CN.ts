@@ -749,6 +749,9 @@ const zhCN = {
                 lorebookItem: "物品",
                 lorebookRule: "规则",
                 lorebookNote: "笔记",
+                download: "下载",
+                downloadSuccess: "下载成功：{filename}",
+                downloadFailed: "下载失败",
             },
             fileDetail: {
                 title: "文件详情",

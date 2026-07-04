@@ -235,6 +235,18 @@ async function renameNode(node: WorkspaceFileNode): Promise<void> {
 }
 
 /**
+ * 下载单个文件或文件夹。
+ */
+async function downloadItem(node: WorkspaceFileNode): Promise<void> {
+    try {
+        const filename = await store.downloadWorkspaceItem(node);
+        notifySuccess(t("ide.workspace.filePanel.downloadSuccess", {filename}));
+    } catch (error) {
+        notifyError(resolveApiErrorMessage(error, t("ide.workspace.filePanel.downloadFailed")), {title: t("ide.workspace.filePanel.downloadFailed")});
+    }
+}
+
+/**
  * 删除节点，目录失败后允许用户确认递归删除。
  */
 async function deleteNode(node: WorkspaceFileNode): Promise<void> {
@@ -378,6 +390,7 @@ function openNodeMenu(node: WorkspaceFileNode, event: MouseEvent): void {
         {separator: true},
         buildCopyMenu(node),
         {label: t("ide.workspace.common.rename"), iconClass: "i-lucide-pencil", action: () => void renameNode(node)},
+        {label: t("ide.workspace.filePanel.download"), iconClass: "i-lucide-download", action: () => void downloadItem(node)},
         {label: t("ide.workspace.common.delete"), iconClass: "i-lucide-trash-2", danger: true, action: () => void deleteNode(node)},
     );
     openContextMenu(event, items);

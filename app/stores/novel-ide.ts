@@ -1029,6 +1029,39 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         return result;
     };
 
+
+    /**
+     * 下载单个文件或文件夹。
+     * 文件：直接下载文件内容
+     * 文件夹：打包为zip下载
+     */
+    const downloadWorkspaceItem = async (node: WorkspaceFileNode): Promise<string> => {
+        if (!import.meta.client) {
+            throw new Error("只能在客户端下载");
+        }
+
+        const response = await $fetch.raw<Blob>("/api/workspace-files/download-item", {
+            query: {
+                ...workspaceQuery(),
+                path: node.path,
+            },
+            responseType: "blob",
+        });
+        
+        const fallbackName = node.isDirectory
+            ? `${(node.title || node.path.split("/").filter(Boolean).pop() || "folder")}.zip`
+            : (node.title || node.path.split("/").pop() || "file");
+        const filename = resolveDownloadFilename(response.headers.get("content-disposition")) ?? fallbackName;
+        
+        const blob = response._data;
+        if (!blob) {
+            throw new Error("下载响应为空");
+        }
+
+        triggerBrowserDownload(blob, filename);
+        return filename;
+    };
+
     /**
      * 上传 Project 文件集合，目录结构由浏览器 relative path 保留。
      */
@@ -2261,6 +2294,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         deleteWorkspacePath,
         dismissPendingAgentChapterUpdate,
         downloadCurrentWorkspace,
+        downloadWorkspaceItem,
         fetchChapterDetail,
         hasUnsavedChapterChanges,
         hasUnsavedFileChanges,

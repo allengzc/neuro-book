@@ -751,6 +751,9 @@ const enUS = {
                 lorebookItem: "Item",
                 lorebookRule: "Rule",
                 lorebookNote: "Note",
+                download: "Download",
+                downloadSuccess: "Download successful: {filename}",
+                downloadFailed: "Download failed",
             },
             fileDetail: {
                 title: "File Details",

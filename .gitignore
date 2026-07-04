@@ -49,3 +49,5 @@ assets/workspace/.nbook/agent/skills/llmlint/evals/
 datasets/aigc-detection/books/
 datasets/aigc-detection/converted/
 server/agent/variables/generated-profile-variable-types.d.ts
+Makefile
+.agent*
