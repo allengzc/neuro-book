@@ -1394,14 +1394,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         }
 
         const activeStillExists = workspaceTree.value.some((node) => normalizeWorkspaceFilePath(node.path) === normalizeWorkspaceFilePath(previousActivePath));
-        if (previousActiveDirty) {
-            return {
-                activeFile: "dirty",
-                dirtyPaths: [...dirtyPaths, previousActivePath],
-                deletedPaths: activeStillExists ? deletedPaths : [...deletedPaths, previousActivePath],
-            };
-        }
-
         if (!activeStillExists) {
             removeWorkspaceTabState(previousActivePath);
             return {
@@ -1411,13 +1403,15 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             };
         }
 
+        // 从磁盘读取最新内容，判断 agent 是否真的修改了文件
+        let latestContent: string | null = null;
+        let latestMtimeMs: number | null = null;
         try {
-            await selectWorkspacePath(previousActivePath, previousActiveTab?.preview ? "preview" : "permanent", {forceDisk: true});
-            return {
-                activeFile: "reloaded",
-                dirtyPaths,
-                deletedPaths,
-            };
+            const latestFile = await $fetch<WorkspaceReadResponse>("/api/workspace-files/read", {
+                query: {...workspaceQuery(), path: previousActivePath},
+            });
+            latestContent = latestFile.content;
+            latestMtimeMs = latestFile.mtimeMs;
         } catch {
             removeWorkspaceTabState(previousActivePath);
             return {
@@ -1426,6 +1420,43 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
                 deletedPaths: [...deletedPaths, previousActivePath],
             };
         }
+
+        // 判断 agent 是否真的修改了文件：最新内容与上次同步内容不同
+        const agentModified = latestContent !== (activeWorkspaceFile.value?.lastSyncedContent ?? "");
+        if (!agentModified) {
+            // agent 没有真正修改文件，不需要更新
+            return {
+                activeFile: "unchanged",
+                dirtyPaths,
+                deletedPaths,
+            };
+        }
+
+        // agent 修改了文件，检查用户是否有未保存的修改
+        if (previousActiveDirty) {
+            // 用户有未保存的修改 + agent 也修改了文件，显示冲突
+            return {
+                activeFile: "dirty",
+                dirtyPaths: [...dirtyPaths, previousActivePath],
+                deletedPaths,
+            };
+        }
+
+        // 用户没有未保存的修改，agent 修改了文件，直接更新
+        if (activeWorkspaceFile.value && activeWorkspaceFile.value.node.path === previousActivePath) {
+            activeWorkspaceFile.value = {
+                ...activeWorkspaceFile.value,
+                content: latestContent,
+                lastSyncedContent: latestContent,
+                lastSyncedMtimeMs: latestMtimeMs ?? activeWorkspaceFile.value.lastSyncedMtimeMs,
+            };
+            syncWorkspaceTabDirty(previousActivePath);
+        }
+        return {
+            activeFile: "reloaded",
+            dirtyPaths,
+            deletedPaths,
+        };
     };
 
     /**
@@ -2374,3 +2405,4 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         },
     ],
 });
+
