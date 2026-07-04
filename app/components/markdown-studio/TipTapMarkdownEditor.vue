@@ -9,7 +9,7 @@ import ContextMenu, {type ContextMenuItem} from "nbook/app/components/common/Con
 import ReferenceSelectorPopover from "nbook/app/components/common/form/ReferenceSelectorPopover.vue";
 import MarkdownSelectionMenu from "nbook/app/components/markdown-studio/MarkdownSelectionMenu.vue";
 import TipTapFrontmatterPanel from "nbook/app/components/markdown-studio/TipTapFrontmatterPanel.vue";
-import type {MarkdownFormatCommand, MarkdownInlineCommentItem, MarkdownStudioEditorHandle} from "nbook/app/composables/useMarkdownStudioController";
+import type {MarkdownFormatCommand, MarkdownInlineCommentItem, MarkdownStudioEditorHandle, MarkdownStudioScrollPosition} from "nbook/app/composables/useMarkdownStudioController";
 import {createMarkdownEditorExtensions} from "nbook/app/components/markdown-studio/tiptap/markdown-editor-extensions";
 import {collectInlineComments, INLINE_COMMENT_PLUGIN_KEY, type InlineCommentRange} from "nbook/app/components/markdown-studio/tiptap/InlineComment";
 import {useDialog} from "nbook/app/composables/useDialog";
@@ -461,6 +461,27 @@ function focus(): void {
  */
 function scrollToTop(): void {
     wrapperRef.value?.scrollTo({top: 0, behavior: "auto"});
+}
+
+/**
+ * 读取富文本编辑器滚动位置。
+ */
+function readScrollPosition(): MarkdownStudioScrollPosition {
+    return {
+        top: wrapperRef.value?.scrollTop ?? 0,
+        left: wrapperRef.value?.scrollLeft ?? 0,
+    };
+}
+
+/**
+ * 恢复富文本编辑器滚动位置。
+ */
+function restoreScrollPosition(position: MarkdownStudioScrollPosition): void {
+    wrapperRef.value?.scrollTo({
+        top: position.top,
+        left: position.left,
+        behavior: "auto",
+    });
 }
 
 /**
@@ -1243,6 +1264,8 @@ defineExpose<MarkdownStudioEditorHandle>({
     update,
     focus,
     scrollToTop,
+    readScrollPosition,
+    restoreScrollPosition,
     undo,
     redo,
     insertMarkdown,

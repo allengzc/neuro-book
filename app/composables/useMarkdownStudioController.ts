@@ -45,6 +45,11 @@ export interface MarkdownStreamOptions {
     prependParagraphBreak?: boolean;
 }
 
+export interface MarkdownStudioScrollPosition {
+    top: number;
+    left: number;
+}
+
 /**
  * 编辑器句柄接口。
  */
@@ -52,6 +57,8 @@ export type MarkdownStudioEditorHandle = {
     update: (markdown: string) => void;
     focus: () => void;
     scrollToTop?: () => void;
+    readScrollPosition?: () => MarkdownStudioScrollPosition;
+    restoreScrollPosition?: (position: MarkdownStudioScrollPosition) => void;
     undo?: () => void;
     redo?: () => void;
     getValue?: () => string;
@@ -71,6 +78,7 @@ export type MarkdownStudioEditorHandle = {
 type UseMarkdownStudioControllerOptions = {
     markdown: Ref<string>;
     viewMode: Ref<MarkdownStudioViewMode>;
+    activePath?: Readonly<Ref<string>>;
     typewriterIntervalMs?: number;
     typewriterChunkSize?: number;
     initialStatusText?: string;
@@ -93,6 +101,15 @@ export const useMarkdownStudioController = (options: UseMarkdownStudioController
     const activeEditor = ref<ActiveEditor>(null);
     const sourceHandle = shallowRef<MarkdownStudioEditorHandle | null>(null);
     const previewHandle = shallowRef<MarkdownStudioEditorHandle | null>(null);
+    const defaultScrollPositions = (): Record<MarkdownStudioViewMode, MarkdownStudioScrollPosition> => ({
+        rich: {top: 0, left: 0},
+        source: {top: 0, left: 0},
+    });
+    const scrollPositions: Record<MarkdownStudioViewMode, MarkdownStudioScrollPosition> = {
+        rich: {top: 0, left: 0},
+        source: {top: 0, left: 0},
+    };
+    const scrollPositionsByPath = new Map<string, Record<MarkdownStudioViewMode, MarkdownStudioScrollPosition>>();
     const streamWriting = ref(false);
     const commentViewOpen = ref(false);
     const inlineComments = ref<MarkdownInlineCommentItem[]>([]);
@@ -201,6 +218,9 @@ export const useMarkdownStudioController = (options: UseMarkdownStudioController
      */
     const registerSourceHandle = (handle: MarkdownStudioEditorHandle | null): void => {
         sourceHandle.value = handle;
+        nextTick(() => {
+            scheduleRestoreEditorScroll("source");
+        });
     };
 
     /**
@@ -208,6 +228,9 @@ export const useMarkdownStudioController = (options: UseMarkdownStudioController
      */
     const registerPreviewHandle = (handle: MarkdownStudioEditorHandle | null): void => {
         previewHandle.value = handle;
+        nextTick(() => {
+            scheduleRestoreEditorScroll("rich");
+        });
     };
 
     /**
@@ -377,8 +400,90 @@ export const useMarkdownStudioController = (options: UseMarkdownStudioController
      * 将两个编辑器的滚动位置都重置到顶部。
      */
     const scrollToTop = (): void => {
+        scrollPositions.rich = {top: 0, left: 0};
+        scrollPositions.source = {top: 0, left: 0};
+        saveScrollPositionsForPath(options.activePath?.value);
         previewHandle.value?.scrollToTop?.();
         sourceHandle.value?.scrollToTop?.();
+    };
+
+    /**
+     * 清理当前文档的滚动缓存。
+     */
+    const resetScrollPositions = (): void => {
+        scrollPositions.rich = {top: 0, left: 0};
+        scrollPositions.source = {top: 0, left: 0};
+        if (options.activePath?.value) {
+            scrollPositionsByPath.delete(options.activePath.value);
+        }
+    };
+
+    /**
+     * 将当前滚动缓存保存到指定文件路径。
+     */
+    const saveScrollPositionsForPath = (path: string | undefined): void => {
+        if (!path) {
+            return;
+        }
+        scrollPositionsByPath.set(path, {
+            rich: {...scrollPositions.rich},
+            source: {...scrollPositions.source},
+        });
+    };
+
+    /**
+     * 载入指定文件路径对应的滚动缓存。
+     */
+    const loadScrollPositionsForPath = (path: string | undefined): void => {
+        const saved = path ? scrollPositionsByPath.get(path) : undefined;
+        const nextPositions = saved ?? defaultScrollPositions();
+        scrollPositions.rich = {...nextPositions.rich};
+        scrollPositions.source = {...nextPositions.source};
+    };
+
+    /**
+     * 读取当前视图的滚动位置，用于切换视图后恢复阅读进度。
+     */
+    const rememberEditorScroll = (mode: MarkdownStudioViewMode, path = options.activePath?.value): void => {
+        const handle = mode === "rich" ? previewHandle.value : sourceHandle.value;
+        const position = handle?.readScrollPosition?.();
+        if (!position) {
+            return;
+        }
+        scrollPositions[mode] = position;
+        saveScrollPositionsForPath(path);
+    };
+
+    /**
+     * 恢复指定视图的滚动位置。
+     */
+    const restoreEditorScroll = (mode: MarkdownStudioViewMode): void => {
+        const handle = mode === "rich" ? previewHandle.value : sourceHandle.value;
+        handle?.restoreScrollPosition?.(scrollPositions[mode]);
+    };
+
+    /**
+     * 在编辑器挂载和布局完成后重复恢复一次滚动位置。
+     */
+    const scheduleRestoreEditorScroll = (mode: MarkdownStudioViewMode): void => {
+        const restore = (): void => {
+            restoreEditorScroll(mode);
+        };
+        restore();
+        if (typeof requestAnimationFrame !== "function") {
+            return;
+        }
+        requestAnimationFrame(() => {
+            restore();
+            requestAnimationFrame(restore);
+        });
+    };
+
+    /**
+     * 保存当前可见编辑器的滚动位置。
+     */
+    const rememberCurrentScroll = (): void => {
+        rememberEditorScroll(viewMode.value);
     };
 
     /**
@@ -388,6 +493,9 @@ export const useMarkdownStudioController = (options: UseMarkdownStudioController
         if (viewMode.value === mode) {
             return;
         }
+
+        const previousMode = viewMode.value;
+        rememberEditorScroll(previousMode);
 
         if (mode === "rich" && activeEditor.value === "source") {
             activeEditor.value = null;
@@ -400,10 +508,10 @@ export const useMarkdownStudioController = (options: UseMarkdownStudioController
         nextTick(() => {
             if (mode === "rich") {
                 focusPreview();
-                return;
+            } else {
+                focusSource();
             }
-
-            focusSource();
+            scheduleRestoreEditorScroll(mode);
         });
     };
 
@@ -505,6 +613,14 @@ export const useMarkdownStudioController = (options: UseMarkdownStudioController
         lastKnownMarkdown = newMarkdown;
     });
 
+    watch(() => options.activePath?.value ?? "", (newPath, oldPath) => {
+        rememberEditorScroll(viewMode.value, oldPath);
+        loadScrollPositionsForPath(newPath);
+        nextTick(() => {
+            scheduleRestoreEditorScroll(viewMode.value);
+        });
+    });
+
     return {
         markdown: options.markdown,
         loading,
@@ -542,6 +658,8 @@ export const useMarkdownStudioController = (options: UseMarkdownStudioController
         focusSource,
         focusPreview,
         scrollToTop,
+        resetScrollPositions,
+        rememberCurrentScroll,
         setViewMode,
         showPreviewOnly,
         showSourceOnly,

@@ -719,3 +719,4 @@ watch(canAccessWorkspace, (canAccess) => {
         />
     </div>
 </template>
+

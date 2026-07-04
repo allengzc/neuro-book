@@ -4,7 +4,7 @@ import { buildMonacoTheme } from "nbook/app/components/markdown-studio/monaco-th
 import { loadMonacoEditor } from "nbook/app/components/markdown-studio/load-monaco-editor";
 import type { MonacoEditorApi } from "nbook/app/components/markdown-studio/load-monaco-editor";
 import type * as Monaco from "monaco-editor/esm/vs/editor/editor.api.js";
-import type { MarkdownStudioEditorHandle } from "nbook/app/composables/useMarkdownStudioController";
+import type { MarkdownStudioEditorHandle, MarkdownStudioScrollPosition } from "nbook/app/composables/useMarkdownStudioController";
 import {DEFAULT_MONACO_EDITOR_PREFERENCES, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
 const props = withDefaults(defineProps<{
@@ -267,6 +267,24 @@ const scrollToTop = (): void => {
 };
 
 /**
+ * 读取源码编辑器滚动位置。
+ */
+const readScrollPosition = (): MarkdownStudioScrollPosition => {
+    return {
+        top: editorInstance?.getScrollTop() ?? 0,
+        left: editorInstance?.getScrollLeft() ?? 0,
+    };
+};
+
+/**
+ * 恢复源码编辑器滚动位置。
+ */
+const restoreScrollPosition = (position: MarkdownStudioScrollPosition): void => {
+    editorInstance?.setScrollTop(position.top);
+    editorInstance?.setScrollLeft(position.left);
+};
+
+/**
  * 获取当前源码值。
  */
 const getValue = (): string => {
@@ -503,6 +521,8 @@ defineExpose<MarkdownStudioEditorHandle>({
     update,
     focus,
     scrollToTop,
+    readScrollPosition,
+    restoreScrollPosition,
     undo,
     redo,
     insertMarkdown,

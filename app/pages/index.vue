@@ -156,6 +156,7 @@ const agentSurfaceRef = ref<InstanceType<typeof AgentChatSurface> | null>(null);
 const studio = useMarkdownStudioController({
     markdown: selectedFileContent,
     viewMode,
+    activePath: selectedFilePath,
 });
 
 const {choose, prompt} = useDialog();
@@ -1005,7 +1006,7 @@ const setCurrentWorkspaceViewMode = (mode: WorkspaceEditorViewMode): void => {
         return;
     }
     setWorkspaceTabViewMode(selectedFilePath.value, mode);
-    viewMode.value = mode;
+    studio.setViewMode(mode);
 };
 
 watch(currentWorkspaceViewMode, (mode) => {
@@ -1032,6 +1033,9 @@ const closeEditorTab = async (filePath: string): Promise<void> => {
     const tab = workspaceTabs.value.find((item) => item.path === filePath);
     if (!tab) {
         return;
+    }
+    if (filePath === selectedFilePath.value) {
+        studio.rememberCurrentScroll();
     }
     if (!tab.dirty) {
         await closeWorkspaceTab(filePath, true);
