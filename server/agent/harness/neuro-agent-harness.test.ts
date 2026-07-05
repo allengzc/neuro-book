@@ -8817,6 +8817,22 @@ describe("NeuroAgentHarness", () => {
         expect(activeText.at(-1)).toContain("retry after user");
     });
 
+    it("tree 移动目标 entry 过期时返回可恢复冲突错误", async () => {
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+
+        await expect(harness.moveTree(created.sessionId, {
+            targetEntryId: "assistant:missing",
+            position: "at",
+        })).rejects.toMatchObject({
+            statusCode: 409,
+            message: expect.stringContaining("目标消息已变化"),
+        });
+    });
+
     it("tree empty 会清空当前 active leaf 但保留旧 entries，并让下一轮从空历史分支开始", async () => {
         faux.setResponses([
             fauxAssistantMessage(fauxText("first")),

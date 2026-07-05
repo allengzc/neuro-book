@@ -24,7 +24,7 @@ import {closeWorkspaceTreeIndex, invalidateProjectWorkspaceIndexAfterMutation, r
 import {prepareSystemAssets} from "nbook/server/workspace-files/system-assets-preflight";
 import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
 import {createIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
-import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
+import {createWorkspaceContentState, createWorkspaceDirectory, readWorkspaceTextFile, scanWorkspaceTree, statWorkspacePath, validateWorkspaceContentNodes, validateWorkspaceTree, writeWorkspaceTextFile} from "nbook/server/workspace-files/workspace-files";
 import {updateNovelByTool} from "nbook/server/utils/novel-chapter";
 
 const AGENT_WORKSPACE_SCRIPT_PATH = path.join("assets", "workspace", ".nbook", "agent", "scripts", "workspace.ts");
@@ -163,6 +163,17 @@ describe("workspace-files", {timeout: 60_000}, () => {
         expect(nodes.find((node) => node.path === "manuscript/001-volume/001-chapter/draft.md")?.contentNode).toBe(false);
         expect(nodes.find((node) => node.path === "manuscript/001-volume/001-chapter/draft.md")?.entryType).toBeNull();
         expect(issues.filter((issue) => issue.code === "invalid-type")).toEqual([]);
+    });
+
+    it("读取缺少 index.md 的内容目录元信息时回退为普通目录", async () => {
+        await fs.mkdir(path.join(root, "manuscript", "001", "穿插"), {recursive: true});
+
+        const node = await statWorkspacePath(root, "manuscript/001/穿插/index.md");
+
+        expect(node.path).toBe("manuscript/001/穿插/");
+        expect(node.isDirectory).toBe(true);
+        expect(node.contentNode).toBe(false);
+        expect(node.hasIndex).toBe(false);
     });
 
     it("只在内容根内拒绝同级文件 stem 与目录同名", async () => {

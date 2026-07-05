@@ -479,7 +479,8 @@ export async function deleteWorkspacePath(rootInput: string | undefined, filePat
 export async function statWorkspacePath(rootInput: string | undefined, filePath: string): Promise<WorkspaceFileNode> {
     const root = resolveWorkspaceRoot(rootInput);
     const absolutePath = resolveWorkspacePath(root, filePath);
-    return buildWorkspaceNode(root, absolutePath, {
+    const nodePath = await resolveExistingWorkspaceStatPath(absolutePath);
+    return buildWorkspaceNode(root, nodePath, {
         lorebookRoot: DEFAULT_LOREBOOK_ROOT,
         chapterRoot: DEFAULT_CHAPTER_ROOT,
         iconConfig: await readWorkspaceIconConfig(root),
@@ -1771,6 +1772,28 @@ export async function pathExists(filePath: string): Promise<boolean> {
     } catch {
         return false;
     }
+}
+
+/**
+ * 读取节点元信息时，内容目录缺少 index.md 应回退到目录本身。
+ */
+async function resolveExistingWorkspaceStatPath(absolutePath: string): Promise<string> {
+    if (await pathExists(absolutePath)) {
+        return absolutePath;
+    }
+    if (path.basename(absolutePath).toLowerCase() !== "index.md") {
+        return absolutePath;
+    }
+    const directoryPath = path.dirname(absolutePath);
+    try {
+        const stat = await fs.stat(directoryPath);
+        if (stat.isDirectory()) {
+            return directoryPath;
+        }
+    } catch {
+        return absolutePath;
+    }
+    return absolutePath;
 }
 
 function formatMode(stat: Awaited<ReturnType<typeof fs.stat>>, isDirectory: boolean): string {

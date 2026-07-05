@@ -5072,7 +5072,7 @@ export class NeuroAgentHarness {
         const snapshot = await measureAgentTimingStep(timing, "readSession", () => this.repo.readSession(sessionId));
         const target = snapshot.entries.find((entry) => entry.id === targetEntryId);
         if (!target || target.type === "leaf") {
-            throw new Error(`未找到目标 entry：${targetEntryId}`);
+            throw createAgentTreeConflictError(`目标消息已变化，请刷新会话后重试：${targetEntryId}`);
         }
         await this.executeWritePlan({
             target: {sessionId},
@@ -6069,6 +6069,15 @@ function normalizeAgentWorkspaceRoot(workspaceRoot: string | undefined, projectP
         return WORKSPACE_CONTAINER_ROOT;
     }
     return normalized;
+}
+
+/**
+ * tree 操作用到的 entry 来自前端旧快照时，返回可恢复的冲突错误。
+ */
+function createAgentTreeConflictError(message: string): Error & {statusCode: number} {
+    return Object.assign(new Error(message), {
+        statusCode: 409,
+    });
 }
 
 function clientPatchKey(invocationId: string | undefined, toolCallId: string | undefined, path: string): string {
