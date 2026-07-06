@@ -43,10 +43,28 @@ const RequestUserInputSchema = Type.Object({
 
 type RequestUserInputParams = Static<typeof RequestUserInputSchema>;
 
-const PlanModeSchema = Type.Object({
-    reason: Type.Optional(Type.String({description: "Short reason shown to the user for this Plan Mode transition."})),
-    planFilePath: Type.Optional(Type.String({description: "For exit_plan_mode only. Optional Project Workspace relative Markdown file under .agent/plan/, for example .agent/plan/profile-migration.md."})),
+/**
+ * switch_mode 工具参数（Task 90）。targetMode 为必填枚举；
+ * planFilePath 仅在 plan→normal 切换时有意义，供审批 UI 预览计划文件。
+ */
+const SwitchModeSchema = Type.Object({
+    targetMode: Type.Union([
+        Type.Literal("normal"),
+        Type.Literal("discuss"),
+        Type.Literal("plan"),
+    ], {description: "Target mode: \"normal\" (full read-write execution), \"discuss\" (read-only discussion, file writes need approval), \"plan\" (read-only planning, file writes need approval)."}),
+    reason: Type.Optional(Type.String({description: "Short reason shown to the user explaining why you want to switch."})),
+    planFilePath: Type.Optional(Type.String({description: "Only when leaving plan mode into normal. A Project Workspace relative Markdown file under .agent/plan/ (for example .agent/plan/feature.md) so the approval UI can preview the plan."})),
 });
+
+type SwitchModeParams = Static<typeof SwitchModeSchema>;
+
+/** switch_mode 审批表单的模式文案。 */
+const SWITCH_MODE_APPROVAL: Record<SwitchModeParams["targetMode"], {prompt: string; label: string; modeLabel: string}> = {
+    normal: {prompt: "切换到普通模式并开始执行", label: "是否批准切换到普通模式（开始执行）？", modeLabel: "普通"},
+    discuss: {prompt: "进入讨论模式", label: "是否批准进入讨论模式？", modeLabel: "讨论"},
+    plan: {prompt: "进入计划模式", label: "是否批准进入计划模式？", modeLabel: "计划"},
+};
 
 export const controlTools = {
     reportResult: defineAgentTool({
@@ -109,77 +127,23 @@ export const controlTools = {
             };
         },
     }),
-    enterPlanMode: defineAgentTool({
-        key: "enter_plan_mode",
-        name: "enter_plan_mode",
-        label: "Enter Plan Mode",
+    switchMode: defineAgentTool({
+        key: "switch_mode",
+        name: "switch_mode",
+        label: "Switch Mode",
         executionMode: "sequential",
-        description: "Request entering plan mode.",
-        parameters: PlanModeSchema,
+        description: "Request approval to switch the agent working mode. The switch only takes effect after the user approves. Use \"plan\" to enter read-only planning before a complex task, \"discuss\" for read-only discussion, and \"normal\" to leave plan/discuss and start executing once the plan or direction is agreed. When leaving plan mode with a prepared plan file, pass planFilePath like .agent/plan/<slug>.md so the approval UI can preview it.",
+        parameters: SwitchModeSchema,
         userInputRequest: {
             when(context: UserInputRequestContext): UserInputFormSpec {
-                const params = context.args as Static<typeof PlanModeSchema>;
-
-                return {
-                    form: {
-                        defaults: {
-                            approved: true,
-                        },
-                        fields: [
-                            {
-                                path: "approved",
-                                component: "radio" as const,
-                                label: "是否批准进入计划模式？",
-                                description: params.reason,
-                                required: true,
-                                options: [
-                                    {value: true, label: "批准"},
-                                    {value: false, label: "拒绝"},
-                                ],
-                                defaultValue: true,
-                            },
-                        ],
-                    },
-                    prompt: "进入计划模式",
-                    layout: "dialog",
-                };
-            },
-        },
-        async executeWithContext(_context, _toolCallId, params, userInput) {
-            const plan = params as Static<typeof PlanModeSchema>;
-            const formData = userInput as {approved?: boolean};
-
-            if (!formData?.approved) {
-                return {
-                    content: [{type: "text", text: "用户拒绝进入计划模式。"}],
-                    details: {approved: false},
-                    terminate: true,
-                };
-            }
-
-            return {
-                content: [{type: "text", text: plan.reason ? `请求进入计划模式：${plan.reason}` : "请求进入计划模式。"}],
-                details: {approved: true, pending: true},
-                terminate: true,
-            };
-        },
-    }),
-    exitPlanMode: defineAgentTool({
-        key: "exit_plan_mode",
-        name: "exit_plan_mode",
-        label: "Exit Plan Mode",
-        executionMode: "sequential",
-        description: "Request exiting plan mode. Optionally pass planFilePath for a Project Workspace relative Markdown file under .agent/plan/ so the approval UI can preview it.",
-        parameters: PlanModeSchema,
-        userInputRequest: {
-            when(context: UserInputRequestContext): UserInputFormSpec {
-                const params = context.args as Static<typeof PlanModeSchema>;
+                const params = context.args as SwitchModeParams;
+                const copy = SWITCH_MODE_APPROVAL[params.targetMode] ?? SWITCH_MODE_APPROVAL.normal;
 
                 const fields: LowCodeFieldDto[] = [
                     {
                         path: "approved",
                         component: "radio" as const,
-                        label: "是否批准退出计划模式？",
+                        label: copy.label,
                         description: params.reason,
                         required: true,
                         options: [
@@ -190,8 +154,8 @@ export const controlTools = {
                     },
                 ];
 
-                // 如果提供了 planFilePath，添加提示文字段
-                if (params.planFilePath) {
+                // 仅退出到 normal 且带 planFilePath 时，加计划文件预览提示字段
+                if (params.targetMode === "normal" && params.planFilePath) {
                     fields.push({
                         path: "planPreviewNote",
                         component: "text" as const,
@@ -210,26 +174,27 @@ export const controlTools = {
                         },
                         fields,
                     },
-                    prompt: "退出计划模式",
+                    prompt: copy.prompt,
                     layout: "dialog",
                 };
             },
         },
         async executeWithContext(_context, _toolCallId, params, userInput) {
-            const plan = params as Static<typeof PlanModeSchema>;
+            const request = params as SwitchModeParams;
+            const copy = SWITCH_MODE_APPROVAL[request.targetMode] ?? SWITCH_MODE_APPROVAL.normal;
             const formData = userInput as {approved?: boolean};
 
             if (!formData?.approved) {
                 return {
-                    content: [{type: "text", text: "用户拒绝退出计划模式。"}],
-                    details: {approved: false},
+                    content: [{type: "text", text: `用户拒绝切换到${copy.modeLabel}模式。`}],
+                    details: {approved: false, targetMode: request.targetMode},
                     terminate: true,
                 };
             }
 
             return {
-                content: [{type: "text", text: plan.reason ? `请求退出计划模式：${plan.reason}` : "请求退出计划模式。"}],
-                details: {approved: true, pending: true},
+                content: [{type: "text", text: request.reason ? `请求切换到${copy.modeLabel}模式：${request.reason}` : `请求切换到${copy.modeLabel}模式。`}],
+                details: {approved: true, pending: true, targetMode: request.targetMode},
                 terminate: true,
             };
         },

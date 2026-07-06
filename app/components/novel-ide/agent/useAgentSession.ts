@@ -284,7 +284,7 @@ export function useAgentSession() {
             model: state.model,
             thinkingLevel: state.thinkingLevel,
             effectiveThinkingLevel: state.effectiveThinkingLevel,
-            planModeActive: state.planModeActive,
+            agentMode: state.agentMode,
             usage: state.usage,
             contextUsage: state.contextUsage,
         };

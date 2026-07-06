@@ -88,7 +88,7 @@ function handleKeydown(event: KeyboardEvent): void {
                 <button type="button" class="frontmatter-summary" @click="toggleOpen">
                     <span :class="props.open ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="h-3.5 w-3.5 shrink-0"></span>
                     <span class="min-w-0 truncate font-mono">{{ frontmatterSummary }}</span>
-                    <span v-if="props.error" class="i-lucide-triangle-alert h-3.5 w-3.5 shrink-0 text-rose-500"></span>
+                    <span v-if="props.error" class="i-lucide-triangle-alert h-3.5 w-3.5 shrink-0 text-[var(--status-danger)]"></span>
                 </button>
                 <div class="frontmatter-actions">
                     <button v-if="props.profileKind" type="button" class="frontmatter-icon-action" :title="profileLabel" @click="openProfile">
@@ -111,7 +111,7 @@ function handleKeydown(event: KeyboardEvent): void {
                     @keydown="handleKeydown"
                     @blur="emit('blur')"
                 ></textarea>
-                <p v-if="props.error" class="min-w-0 truncate text-[11px] text-rose-600">{{ props.error }}</p>
+                <p v-if="props.error" class="min-w-0 truncate text-[11px] text-[var(--status-danger)]">{{ props.error }}</p>
             </div>
         </div>
 
@@ -138,7 +138,7 @@ function handleKeydown(event: KeyboardEvent): void {
 }
 
 .frontmatter-card.is-error {
-    border-color: color-mix(in srgb, #e11d48 38%, var(--border-color));
+    border-color: var(--status-danger-border);
 }
 
 .frontmatter-head {
@@ -185,8 +185,8 @@ function handleKeydown(event: KeyboardEvent): void {
 }
 
 .frontmatter-icon-action.is-danger:hover:not(:disabled) {
-    background: color-mix(in srgb, #e11d48 10%, transparent);
-    color: #e11d48;
+    background: var(--status-danger-bg);
+    color: var(--status-danger);
 }
 
 .frontmatter-editor {

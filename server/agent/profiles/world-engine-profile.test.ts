@@ -36,7 +36,7 @@ describe("world.engine profile", () => {
                 customState: {},
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {},
             vars: createTestVariableAccessor(),
@@ -98,7 +98,7 @@ function testSession(input: Partial<NeuroSessionContext>): RuntimeSessionFacade 
         customState: {},
         linkedAgents: [],
         archived: false,
-        planModeActive: false,
+        agentMode: "normal",
         ...input,
         async read() {
             return {

@@ -1531,7 +1531,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     height: 100%;
     min-height: 100%;
     overflow-y: auto;
-    background: var(--editor-preview-bg);
+    background: var(--editor-bg);
 }
 
 .tiptap-markdown-content {
@@ -1654,7 +1654,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     border-collapse: collapse;
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    background: var(--editor-preview-bg);
+    background: var(--editor-bg);
     table-layout: fixed;
     white-space: normal;
 }
@@ -1713,7 +1713,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     border-radius: 6px;
     background: var(--source-bg);
     padding: 0.04rem 0.34rem;
-    color: color-mix(in srgb, var(--text-main) 90%, #92400e);
+    color: var(--source-text);
     font-family: inherit;
     font-size: 0.95em;
     line-height: 1.25;
@@ -1728,7 +1728,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     margin: 0.25rem 0 1rem;
     border: 1px solid var(--border-color);
     border-radius: 4px;
-    background: color-mix(in srgb, var(--source-bg) 88%, #000 12%);
+    background: color-mix(in srgb, var(--source-bg) 88%, var(--shadow-color) 12%);
     object-fit: contain;
 }
 
@@ -1741,7 +1741,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
 }
 
 :deep(.nb-markdown-editor a) {
-    color: #2563eb;
+    color: var(--accent-text);
     text-decoration: underline;
     text-decoration-thickness: 1px;
     text-underline-offset: 2px;
@@ -1749,7 +1749,7 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
 }
 
 :deep(.nb-markdown-editor a:hover) {
-    color: #1d4ed8;
+    color: color-mix(in srgb, var(--accent-text) 82%, var(--text-main));
 }
 
 :deep(.nb-inline-comment-mark) {
@@ -1762,14 +1762,14 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     cursor: text;
     text-decoration-line: underline;
     text-decoration-style: wavy;
-    text-decoration-color: #f59e0b;
+    text-decoration-color: var(--status-warning);
     text-decoration-thickness: 1px;
     text-underline-offset: 0.18em;
 }
 
 :deep(.nb-inline-comment-mark.is-active) {
-    background: color-mix(in srgb, #f59e0b 20%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, #f59e0b 42%, transparent);
+    background: var(--status-warning-bg);
+    box-shadow: inset 0 0 0 1px var(--status-warning-border);
 }
 
 :deep(.nb-inline-comment-mark[data-inline-comment-index])::after {
@@ -1783,10 +1783,10 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     height: 0.82rem;
     align-items: center;
     justify-content: center;
-    border: 1px solid #f59e0b;
+    border: 1px solid var(--status-warning);
     border-radius: 999px;
-    background: var(--editor-preview-bg);
-    color: #d97706;
+    background: var(--editor-bg);
+    color: var(--status-warning);
     font-size: 0.52em;
     font-weight: 700;
     line-height: 1;
@@ -1794,8 +1794,8 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
 }
 
 :deep(.nb-inline-comment-mark.is-active[data-inline-comment-index])::after {
-    background: #f59e0b;
-    color: #fff;
+    background: var(--status-warning);
+    color: var(--text-inverse);
 }
 
 :deep(.nb-workspace-reference-node) {
@@ -1804,89 +1804,6 @@ function isSaveShortcut(event: KeyboardEvent): boolean {
     align-items: center;
     margin: 0 0.1rem;
     vertical-align: baseline;
-}
-
-:deep(.nb-workspace-reference-node .nb-reference-chip) {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
-    max-width: min(100%, 24rem);
-    padding: 0.04rem 0.38rem;
-    border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
-    border-radius: 0.8rem;
-    background: color-mix(in srgb, currentColor 9%, var(--bg-panel));
-    color: var(--text-main);
-    line-height: 1.2;
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 4%, transparent);
-}
-
-:deep(.nb-workspace-reference-node .nb-reference-chip__icon) {
-    flex: none;
-    width: 0.8rem;
-    height: 0.8rem;
-    opacity: 0.88;
-}
-
-:deep(.nb-workspace-reference-node .nb-reference-chip__label) {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 0.88em;
-    line-height: 1.25;
-    font-weight: 600;
-}
-
-:deep(.nb-workspace-reference-node .nb-reference-chip__badge) {
-    flex: none;
-    padding: 0.02rem 0.26rem;
-    border-radius: 0.6rem;
-    background: color-mix(in srgb, currentColor 12%, transparent);
-    color: color-mix(in srgb, currentColor 78%, var(--text-main));
-    font-size: 0.58rem;
-    line-height: 1.1;
-    letter-spacing: 0.08em;
-}
-
-:deep(.nb-workspace-reference-node .nb-reference-chip.is-chapter) {
-    color: #2563eb;
-}
-
-:deep(.nb-workspace-reference-node .nb-reference-chip.is-character),
-:deep(.nb-workspace-reference-node .nb-reference-chip.is-lorebook) {
-    color: #0f766e;
-}
-
-:deep(.nb-workspace-reference-node .nb-reference-chip.is-location) {
-    color: #0891b2;
-}
-
-:deep(.nb-workspace-reference-node .nb-reference-chip.is-item) {
-    color: #c2410c;
-}
-
-:deep(.nb-workspace-reference-node .nb-reference-chip.is-rule) {
-    color: #be123c;
-}
-
-:deep(.nb-workspace-reference-node .nb-reference-chip.is-note) {
-    color: #6b7280;
-}
-
-:deep(.nb-workspace-reference-node .nb-reference-chip.is-plan) {
-    color: #4f46e5;
-}
-
-:deep(.nb-workspace-reference-node .nb-reference-chip.is-file) {
-    color: #475569;
-}
-
-:deep(.nb-workspace-reference-node .nb-reference-chip.is-folder) {
-    color: #b45309;
-}
-
-:deep(.nb-workspace-reference-node .nb-reference-chip.is-broken) {
-    color: #dc2626;
-    text-decoration: line-through;
 }
 
 :deep(align[value="center"]) {

@@ -16,8 +16,8 @@ const password = ref("");
 const busy = ref(false);
 const errorMessage = ref("");
 const novelIdeStore = useNovelIdeStore();
-const {theme} = storeToRefs(novelIdeStore);
-const {mountThemeHost} = useIdeTheme(theme);
+const {activeThemeId, customThemes, themeVarsSnapshot} = storeToRefs(novelIdeStore);
+const {mountThemeHost} = useIdeTheme(activeThemeId, customThemes, themeVarsSnapshot);
 const {t} = useI18n();
 
 /**
@@ -91,13 +91,13 @@ onMounted(() => {
                         <FormInput v-model="password" type="password" autocomplete="current-password" :placeholder="t('auth.passwordPlaceholder')" />
                     </label>
 
-                    <div v-if="errorMessage" class="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
+                    <div v-if="errorMessage" class="rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-sm text-[var(--status-danger)]">
                         {{ errorMessage }}
                     </div>
 
                     <button
                         type="submit"
-                        class="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[var(--accent-main)] px-4 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        class="inline-flex h-10 w-full items-center justify-center rounded-lg bg-[var(--accent-main)] px-4 text-sm font-medium text-[var(--text-inverse)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                         :disabled="busy"
                     >
                         {{ busy ? t("auth.loggingIn") : t("auth.loginButton") }}

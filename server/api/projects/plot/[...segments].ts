@@ -270,6 +270,12 @@ async function handleChapters(event: H3Event, projectPath: string, method: strin
         }
         if (method === "DELETE") return plotFacade.deleteStoryChapter(projectPath, chapterId);
     }
+    // GET /chapters/:id/prose:列出通过 frontmatter `chapter: <name>` 反指本章的正文节点。
+    if (method === "GET" && segments.length === 3 && segments[2] === "prose") {
+        const chapterId = parseEntityId("chapterId", segments[1] ?? "");
+        const chapter = await plotFacade.getStoryChapterDto(projectPath, chapterId);
+        return plotFacade.findProseForChapter(projectPath, chapter.name);
+    }
     throw createError({statusCode: 404, message: "未知 Project Chapter API"});
 }
 

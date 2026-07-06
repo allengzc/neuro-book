@@ -38,28 +38,28 @@ const isOrphan = computed(() => {
 <template>
     <!-- Scene 节点 -->
     <div
-        class="relative w-[224px] rounded-[22px] border bg-[var(--bg-panel)] px-4 py-3 shadow-[0_14px_30px_rgba(15,23,42,0.10)] transition-shadow"
+        class="relative w-[224px] rounded-[22px] border bg-[var(--bg-panel)] px-4 py-3 shadow-[0_14px_30px_color-mix(in_srgb,var(--shadow-color)_10%,transparent)] transition-shadow"
         :class="[
             props.data.branchRole === 'main'
-                ? 'border-amber-500/45 shadow-[0_14px_34px_rgba(245,158,11,0.16)]'
+                ? 'border-[var(--border-accent)] shadow-[0_14px_34px_color-mix(in_srgb,var(--accent-main)_16%,transparent)]'
                 : toneStyle.border,
         ]"
     >
-        <Handle type="target" :position="Position.Left" class="!h-3 !w-3 !border-slate-400 !bg-slate-400" />
-        <Handle type="source" :position="Position.Right" class="!h-3 !w-3 !border-amber-500 !bg-amber-500" />
+        <Handle type="target" :position="Position.Left" class="!h-3 !w-3 !border-[var(--border-strong)] !bg-[var(--border-strong)]" />
+        <Handle type="source" :position="Position.Right" class="!h-3 !w-3 !border-[var(--accent-main)] !bg-[var(--accent-main)]" />
 
         <!-- Scene 标签 -->
         <div class="flex items-center justify-between gap-2">
             <div class="flex flex-wrap items-center gap-2">
                 <span
                     class="rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]"
-                    :class="props.data.branchRole === 'main' ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' : toneStyle.chip"
+                    :class="props.data.branchRole === 'main' ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : toneStyle.chip"
                 >
                     {{ branchLabel }}
                 </span>
                 <span
                     v-if="isOrphan"
-                    class="rounded-full border border-slate-400/35 bg-slate-400/10 px-2.5 py-1 text-[10px] text-slate-600 dark:text-slate-300"
+                    class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 py-1 text-[10px] text-[var(--text-muted)]"
                 >
                     游离 Scene
                 </span>
@@ -118,7 +118,7 @@ const isOrphan = computed(() => {
             </button>
             <button
                 type="button"
-                class="rounded-xl border border-rose-500/35 bg-rose-500/10 px-3 py-2 text-xs text-rose-700 transition-colors hover:bg-rose-500/15 dark:text-rose-300"
+                class="rounded-xl border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-xs text-[var(--status-danger)] transition-colors hover:bg-[var(--bg-hover)]"
                 @click.stop="props.data.actions.deleteScene(props.data.scene.id)"
             >
                 删除 Scene

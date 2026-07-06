@@ -7,6 +7,8 @@ import PlotThreadDetailPanel from "nbook/app/components/novel-ide/plot/thread-pa
 import PlotThreadEditorDialog from "nbook/app/components/novel-ide/plot/thread-panel/PlotThreadEditorDialog.vue";
 import PlotThreadScenePanel from "nbook/app/components/novel-ide/plot/thread-panel/PlotThreadScenePanel.vue";
 import PlotWorkbenchDialog from "nbook/app/components/novel-ide/plot/workbench/PlotWorkbenchDialog.vue";
+import PlotChapterEditorDialog from "nbook/app/components/novel-ide/plot/chapter-panel/PlotChapterEditorDialog.vue";
+import type {PlotChapterEditorSave} from "nbook/app/components/novel-ide/plot/chapter-panel/PlotChapterEditorDialog.vue";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {
     createPanelRefFromEffectiveRef,
@@ -23,9 +25,13 @@ import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import type {
     CreateStorySceneRequestDto,
     CreateStoryThreadRequestDto,
+    CreateStoryActRequestDto,
+    CreateStoryChapterRequestDto,
     PlotTreeDto,
     PlotWorkbenchDto,
     ReorderStoryScenesRequestDto,
+    StoryActDto,
+    StoryChapterDto,
     StoryRefDto,
     StorySceneDetailDto,
     StorySceneWorldAnchorDto,
@@ -34,6 +40,7 @@ import type {
     StoryThreadTreeNodeDto,
     StoryThreadWriteResponseDto,
     UpdateStorySceneRequestDto,
+    UpdateStoryChapterRequestDto,
     UpdateStoryThreadRequestDto,
 } from "nbook/shared/dto/plot.dto";
 
@@ -45,7 +52,6 @@ const {
     currentNovel,
     loadingWorkspace,
     plotWorkbenchOpen,
-    workspaceTree,
     selectedStoryThreadId,
     selectedStorySceneId,
     plotRefreshVersion,
@@ -84,6 +90,22 @@ const detailPanelRef = ref<InstanceType<typeof PlotThreadDetailPanel> | null>(nu
 const pinnedWorkbenchThreadIds = ref<string[]>([]);
 const loadingWorkbench = ref(false);
 const workbenchError = ref("");
+// 承载树章节实体(含所属卷标题),由剧情树刷新填充;是章节下拉与挂章的唯一来源。
+const chapterTreeNodes = ref<Array<{chapter: StoryChapterDto; volumeTitle: string}>>([]);
+// 承载树卷实体,供章节编辑器的「所属卷」下拉。
+const actNodes = ref<StoryActDto[]>([]);
+// 章节 / ChapterBrief 编辑器状态。
+const chapterEditorVisible = ref(false);
+const chapterEditorMode = ref<"create" | "edit">("create");
+const editingChapter = ref<StoryChapterDto | null>(null);
+const savingChapter = ref(false);
+const chapterEditorError = ref("");
+// 卷(Act)快速创建状态。
+const actDialogVisible = ref(false);
+const actDraftTitle = ref("");
+const actDraftName = ref("");
+const savingAct = ref(false);
+const actDialogError = ref("");
 
 function projectPlotOptions(options: Record<string, unknown> = {}): Record<string, unknown> {
     return {
@@ -116,18 +138,34 @@ let treeRequestVersion = 0;
 let workbenchRequestVersion = 0;
 
 /**
- * 当前章节列表，直接从 manuscript content-node 派生。
+ * 当前章节列表，来自承载树 StoryChapter 实体(经剧情树填充)。
+ * 章不再从 manuscript 文件目录派生;正文承载由 Prose frontmatter 反指表达。
  */
 const chapters = computed<PlotThreadPanelChapter[]>(() => {
-    return workspaceTree.value
-        .filter((node) => node.isDirectory && node.contentNode && node.entryType === "chapter" && normalizeChapterPath(node.path).startsWith("manuscript/"))
-        .map((node, index) => ({
-            id: normalizeChapterPath(node.path),
-            volumeTitle: resolveVolumeTitle(node.path),
-            numberLabel: buildChapterLabel(node.path, index),
-            title: node.title || node.path.split("/").filter(Boolean).at(-1) || "未命名章节",
-            summary: node.summary,
-        }));
+    return chapterTreeNodes.value.map((node) => ({
+        id: node.chapter.id,
+        volumeTitle: node.volumeTitle,
+        numberLabel: `第${String(node.chapter.sortOrder + 1)}章`,
+        title: node.chapter.title || node.chapter.name || "未命名章节",
+        summary: node.chapter.note ?? "",
+    }));
+});
+
+/**
+ * 章节管理条用的章节芯片:携带原始 StoryChapter 实体(供编辑器)与展示标签。
+ * `hasBrief` 表示该章已填写至少一项 ChapterBrief 字段,用于给 leader 提示信息控制是否就绪。
+ */
+const chapterChips = computed(() => {
+    return chapterTreeNodes.value.map((node) => {
+        const brief = node.chapter.brief;
+        const hasBrief = Object.values(brief).some((value) => value !== null && value !== "");
+        return {
+            chapter: node.chapter,
+            label: node.chapter.title || node.chapter.name || "未命名章节",
+            volumeTitle: node.volumeTitle,
+            hasBrief,
+        };
+    });
 });
 
 /**
@@ -247,7 +285,7 @@ const workbenchScenes = computed<PlotThreadPanelScene[]>(() => {
     return nodes.flatMap((item) => item.thread.scenes.map((scene) => ({
         id: scene.id,
         threadId: scene.threadId,
-        chapterPath: scene.chapterPath,
+        chapterId: scene.chapterId,
         title: scene.title,
         summary: scene.summary,
         purpose: scene.purpose,
@@ -290,8 +328,8 @@ const currentDetail = computed<PlotThreadPanelDetail | null>(() => {
     }
 
     const sceneDetail = sceneDetailMap.value[scene.id] ?? null;
-    const chapter = scene.chapterPath
-        ? (chapters.value.find((item) => item.id === scene.chapterPath) ?? null)
+    const chapter = scene.chapterId
+        ? (chapters.value.find((item) => item.id === scene.chapterId) ?? null)
         : null;
 
     return {
@@ -349,34 +387,6 @@ function formatDiagnosticsText(detail: {
         ...(detail.diagnostics?.warnings ?? []),
         ...(detail.diagnostics?.notes ?? []),
     ].join("；");
-}
-
-/**
- * 规范化章节 content-node 目录路径。
- */
-function normalizeChapterPath(path: string): string {
-    const withoutIndex = path.replace(/\\/g, "/").replace(/\/index\.md$/i, "/");
-    return withoutIndex.endsWith("/") ? withoutIndex : `${withoutIndex}/`;
-}
-
-/**
- * 从章节路径推导所属卷标题。
- */
-function resolveVolumeTitle(path: string): string {
-    const segments = normalizeChapterPath(path).split("/").filter(Boolean);
-    return segments.at(-2) ?? "manuscript";
-}
-
-/**
- * 生成章节标签。
- */
-function buildChapterLabel(path: string, fallbackIndex: number): string {
-    const segments = normalizeChapterPath(path).split("/").filter(Boolean);
-    const volumeToken = segments.at(-2) ?? "";
-    const chapterToken = segments.at(-1) ?? "";
-    const volumeNumber = volumeToken.match(/(\d+)/)?.[1] ?? "1";
-    const chapterNumber = chapterToken.match(/(\d+)/)?.[1] ?? String(fallbackIndex + 1);
-    return `第${volumeNumber}卷-${chapterNumber.padStart(2, "0")}章`;
 }
 
 /**
@@ -490,7 +500,7 @@ function applyPlotTree(tree: PlotTreeDto): void {
     scenes.value = threadNodes.flatMap((item) => item.thread.scenes.map((scene) => ({
         id: scene.id,
         threadId: scene.threadId,
-        chapterPath: scene.chapterPath,
+        chapterId: scene.chapterId,
         title: scene.title,
         summary: scene.summary,
         purpose: scene.purpose,
@@ -501,6 +511,24 @@ function applyPlotTree(tree: PlotTreeDto): void {
         worldAnchor: scene.worldAnchor,
         refs: mapSceneRefs(scene.id),
     })));
+
+    // 承载树:Act 旗下章 + 未归卷章,拍平成章节实体列表(带所属卷标题)。
+    chapterTreeNodes.value = [
+        ...tree.acts.flatMap((act) => act.chapters.map((chapter) => ({chapter, volumeTitle: act.title || act.name}))),
+        ...tree.ungroupedChapters.map((chapter) => ({chapter, volumeTitle: "未归卷"})),
+    ];
+    // 卷实体列表(不含旗下章),供章节编辑器归卷下拉。
+    actNodes.value = tree.acts.map((act) => ({
+        id: act.id,
+        storyId: act.storyId,
+        sortOrder: act.sortOrder,
+        name: act.name,
+        title: act.title,
+        summary: act.summary,
+        note: act.note,
+        createdAt: act.createdAt,
+        updatedAt: act.updatedAt,
+    }));
 }
 
 /**
@@ -576,7 +604,7 @@ function applySceneDetail(detail: StorySceneDetailDto): void {
         ? {
             ...scene,
             threadId: detail.threadId,
-            chapterPath: detail.chapterPath,
+            chapterId: detail.chapterId,
             title: detail.title,
             summary: detail.summary,
             purpose: detail.purpose,
@@ -640,10 +668,120 @@ async function loadPlotTree(options: {
 }
 
 /**
+ * 打开章节 / ChapterBrief 编辑器。传 chapter 为编辑,否则为新建。
+ */
+function openChapterEditor(chapter: StoryChapterDto | null): void {
+    chapterEditorMode.value = chapter ? "edit" : "create";
+    editingChapter.value = chapter;
+    chapterEditorError.value = "";
+    chapterEditorVisible.value = true;
+}
+
+/**
+ * 打开新建卷对话框。
+ */
+function openActDialog(): void {
+    actDraftTitle.value = "";
+    actDraftName.value = "";
+    actDialogError.value = "";
+    actDialogVisible.value = true;
+}
+
+/**
+ * 保存新建卷:POST /acts,成功后刷新剧情树。name 空时按 title 派生 slug。
+ */
+async function saveAct(): Promise<void> {
+    if (!currentNovelId.value || savingAct.value) {
+        return;
+    }
+    const title = actDraftTitle.value.trim();
+    if (!title) {
+        actDialogError.value = "请填写卷标题";
+        return;
+    }
+    // name 供机器标识:优先用户输入,否则从 title 派生 slug,再兜底时间戳。
+    const name = (actDraftName.value.trim() || title)
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, "")
+        .replace(/\s+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "") || `act-${String(Date.now())}`;
+
+    savingAct.value = true;
+    actDialogError.value = "";
+    try {
+        await $fetch(`/api/projects/plot/acts`, projectPlotOptions({
+            method: "POST",
+            body: {name, title} satisfies CreateStoryActRequestDto,
+        }));
+        actDialogVisible.value = false;
+        await loadPlotTree({
+            preferredThreadId: selectedThreadId.value,
+            preferredSceneId: selectedSceneId.value,
+        });
+    } catch (error) {
+        actDialogError.value = resolveApiErrorMessage(error, "创建卷失败");
+    } finally {
+        savingAct.value = false;
+    }
+}
+
+/**
+ * 保存章节:新建走 POST /chapters,编辑走 PATCH /chapters/:id,成功后刷新剧情树。
+ */
+async function saveChapter(payload: PlotChapterEditorSave): Promise<void> {
+    if (!currentNovelId.value || savingChapter.value) {
+        return;
+    }
+    if (!payload.name.trim()) {
+        chapterEditorError.value = "请填写章节 name(供 Prose frontmatter 反指)";
+        return;
+    }
+
+    savingChapter.value = true;
+    chapterEditorError.value = "";
+    try {
+        const editing = editingChapter.value;
+        if (editing) {
+            await $fetch(`/api/projects/plot/chapters/${editing.id}`, projectPlotOptions({
+                method: "PATCH",
+                body: {
+                    actId: payload.actId,
+                    name: payload.name,
+                    title: payload.title,
+                    note: payload.note,
+                    brief: payload.brief,
+                } satisfies UpdateStoryChapterRequestDto,
+            }));
+        } else {
+            await $fetch(`/api/projects/plot/chapters`, projectPlotOptions({
+                method: "POST",
+                body: {
+                    actId: payload.actId,
+                    name: payload.name,
+                    title: payload.title,
+                    note: payload.note,
+                    brief: payload.brief,
+                } satisfies CreateStoryChapterRequestDto,
+            }));
+        }
+        chapterEditorVisible.value = false;
+        editingChapter.value = null;
+        await loadPlotTree({
+            preferredThreadId: selectedThreadId.value,
+            preferredSceneId: selectedSceneId.value,
+        });
+    } catch (error) {
+        chapterEditorError.value = resolveApiErrorMessage(error, "保存章节失败");
+    } finally {
+        savingChapter.value = false;
+    }
+}
+
+/**
  * 拉取剧本工作台聚合数据。
  */
-async function loadPlotWorkbench(force = false): Promise<void> {
-    if (!currentNovelId.value) {
+async function loadPlotWorkbench(force = false): Promise<void> {    if (!currentNovelId.value) {
         plotWorkbenchData.value = null;
         workbenchError.value = "";
         return;
@@ -1073,7 +1211,7 @@ async function updateWorkbenchScene(sceneId: string, patch: Partial<PlotThreadPa
             method: "PATCH",
             body: {
                 threadId: patch.threadId,
-                chapterPath: patch.chapterPath,
+                chapterId: patch.chapterId,
                 title: patch.title,
                 status: patch.status,
                 summary: patch.summary,
@@ -1111,7 +1249,7 @@ async function quickUpdateScene(payload: PlotThreadQuickSceneUpdate): Promise<vo
                 purpose: payload.purpose,
                 writingTip: payload.writingTip,
                 status: payload.status,
-                chapterPath: payload.chapterPath,
+                chapterId: payload.chapterId,
                 worldAnchor: payload.worldAnchor,
             } satisfies UpdateStorySceneRequestDto,
         }));
@@ -1212,7 +1350,7 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
                 method: "POST",
                 body: {
                     threadId: selectedThreadId.value,
-                    chapterPath: payload.chapterPath,
+                    chapterId: payload.chapterId,
                     title: payload.title,
                     status: payload.status,
                     summary: payload.summary,
@@ -1231,7 +1369,7 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
                 method: "PATCH",
                 body: {
                     threadId: selectedThreadId.value,
-                    chapterPath: payload.chapterPath,
+                    chapterId: payload.chapterId,
                     title: payload.title,
                     status: payload.status,
                     summary: payload.summary,
@@ -1328,7 +1466,7 @@ async function createWorkbenchScene(threadId: string): Promise<void> {
             method: "POST",
             body: {
                 threadId,
-                chapterPath: null,
+                chapterId: null,
                 title: "新建 Scene",
                 status: "draft",
                 summary: "",
@@ -1410,7 +1548,7 @@ async function reorderScenes(sceneIds: string[]): Promise<void> {
             return {
                 sceneId,
                 threadId: scene.threadId,
-                chapterPath: scene.chapterPath,
+                chapterId: scene.chapterId,
                 threadSortOrder: index,
                 chapterSortOrder: scene.chapterSortOrder,
             };
@@ -1494,12 +1632,12 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
 <template>
     <div class="flex h-full min-h-0 flex-col">
         <!-- 错误提示 -->
-        <div v-if="treeError" class="border-b border-rose-500/20 bg-rose-500/8 px-3 py-2 text-[11px] text-rose-700">
+        <div v-if="treeError" class="border-b border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[11px] text-[var(--status-danger)]">
             <div class="flex items-center justify-between gap-3">
                 <span>{{ treeError }}</span>
                 <button
                     type="button"
-                    class="rounded-md border border-rose-500/20 px-2 py-1 text-[10px] font-semibold tracking-[0.12em] text-rose-700 transition-colors hover:bg-rose-500/10"
+                    class="rounded-md border border-[var(--status-danger-border)] px-2 py-1 text-[10px] font-semibold tracking-[0.12em] text-[var(--status-danger)] transition-colors hover:bg-[var(--status-danger-bg)]"
                     @click="loadPlotTree({
                         preferredThreadId: selectedThreadId,
                         preferredSceneId: selectedSceneId,
@@ -1516,15 +1654,51 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
                 <div class="truncate text-[12px] font-semibold text-[var(--text-main)]">剧情编排</div>
                 <div class="truncate text-[11px] text-[var(--text-muted)]">Thread / Scene / World Anchor</div>
             </div>
+            <div class="flex shrink-0 items-center gap-2">
+                <button
+                    type="button"
+                    data-testid="plot-panel-chapter-create"
+                    class="inline-flex h-8 shrink-0 items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-[12px] font-semibold text-[var(--text-secondary)] transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)]"
+                    @click="openChapterEditor(null)"
+                >
+                    <span class="i-lucide-book-plus h-4 w-4"></span>
+                    <span>章节</span>
+                </button>
+                <button
+                    type="button"
+                    data-testid="plot-panel-workbench-entry"
+                    class="inline-flex h-8 shrink-0 items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-[12px] font-semibold text-[var(--text-secondary)] transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)]"
+                    :disabled="loadingWorkbench"
+                    @click="plotWorkbenchOpen = true"
+                >
+                    <span :class="loadingWorkbench ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-git-branch-plus'" class="h-4 w-4"></span>
+                    <span>剧本工作台</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 承载树章节管理条:点击芯片编辑章节 + ChapterBrief;圆点表示已填写章级指令 -->
+        <div v-if="chapterChips.length || actNodes.length" class="flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-1.5">
+            <span class="shrink-0 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">章节</span>
+            <button
+                v-for="chip in chapterChips"
+                :key="chip.chapter.id"
+                type="button"
+                class="inline-flex shrink-0 items-center gap-1 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 text-[11px] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)]"
+                :title="`${chip.volumeTitle} · ${chip.label}`"
+                @click="openChapterEditor(chip.chapter)"
+            >
+                <span :class="chip.hasBrief ? 'bg-[var(--status-success)]' : 'bg-[var(--text-muted)]/40'" class="h-1.5 w-1.5 rounded-full"></span>
+                <span class="max-w-[120px] truncate">{{ chip.label }}</span>
+            </button>
             <button
                 type="button"
-                data-testid="plot-panel-workbench-entry"
-                class="inline-flex h-8 shrink-0 items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-[12px] font-semibold text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color-hover)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)]"
-                :disabled="loadingWorkbench"
-                @click="plotWorkbenchOpen = true"
+                data-testid="plot-panel-act-create"
+                class="inline-flex shrink-0 items-center gap-1 rounded-md border border-dashed border-[var(--border-color)] px-2 py-1 text-[11px] text-[var(--text-muted)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--accent-text)]"
+                @click="openActDialog"
             >
-                <span :class="loadingWorkbench ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-git-branch-plus'" class="h-4 w-4"></span>
-                <span>剧本工作台</span>
+                <span class="i-lucide-plus h-3 w-3"></span>
+                <span>卷</span>
             </button>
         </div>
 
@@ -1615,6 +1789,49 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
             @update:visible="editorVisible = $event"
             @save="handleEditorSave"
         />
+
+        <PlotChapterEditorDialog
+            :visible="chapterEditorVisible"
+            :mode="chapterEditorMode"
+            :chapter="editingChapter"
+            :acts="actNodes"
+            :project-path="currentNovelId ?? ''"
+            :saving="savingChapter"
+            :error="chapterEditorError"
+            @update:visible="chapterEditorVisible = $event"
+            @save="saveChapter"
+        />
+
+        <!-- 新建卷(Act)对话框 -->
+        <Dialog
+            :model-value="actDialogVisible"
+            title="新建卷"
+            width="440px"
+            show-cancel
+            overlay-type="blur"
+            :busy="savingAct"
+            @request-close="actDialogVisible = false"
+            @update:model-value="actDialogVisible = $event"
+        >
+            <template #footer>
+                <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)] active:scale-95 disabled:opacity-50" :disabled="savingAct" @click="actDialogVisible = false">取消</button>
+                <button class="inline-flex items-center justify-center h-8 min-w-[92px] px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-[var(--text-inverse)] transition-all hover:opacity-90 active:scale-95 disabled:opacity-50" :disabled="savingAct" @click="saveAct">
+                    <span v-if="savingAct" class="i-lucide-loader-circle h-4 w-4 animate-spin"></span>
+                    <span v-else>确定</span>
+                </button>
+            </template>
+            <div class="space-y-3 px-1 mt-1">
+                <div v-if="actDialogError" class="text-[11px] text-[var(--status-danger)]">{{ actDialogError }}</div>
+                <label class="block space-y-1">
+                    <span class="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--text-muted)]">卷标题</span>
+                    <input v-model="actDraftTitle" placeholder="如 第一卷 · 序章" class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none focus:border-[var(--accent-main)]" />
+                </label>
+                <label class="block space-y-1">
+                    <span class="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--text-muted)]">name(可空,自动派生)</span>
+                    <input v-model="actDraftName" placeholder="小写字母/数字/连字符" class="h-8 w-full rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[12px] text-[var(--text-main)] outline-none focus:border-[var(--accent-main)]" />
+                </label>
+            </div>
+        </Dialog>
 
         <Dialog
             :model-value="Boolean(deleteTarget)"

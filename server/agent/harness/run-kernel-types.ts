@@ -8,7 +8,9 @@ import type {AgentToolRegistry} from "nbook/server/agent/tools/tool-registry";
 import type {NeuroAgentTool} from "nbook/server/agent/tools/types";
 import type {AgentInvokeCaller, InvokeAgentResult} from "nbook/server/agent/harness/types";
 import type {AgentRuntimeStreamEventDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {UserInputFormSpec} from "nbook/server/agent/tools/types";
+import type {PiTraceSettings} from "nbook/server/agent/observability/traced-provider";
 
 export type RunRuntimeState = Map<string, JsonValue>;
 
@@ -148,12 +150,16 @@ export type RunFrame = {
     timeoutMs?: number | null;
     requestOptions?: Record<string, JsonValue>;
     compaction?: ProfileCompactionPlan;
+    /** 本 run 的 Pi 请求 trace 设置，由 prepareRun 从 effective config 解析。缺省表示不追踪。 */
+    piTrace?: PiTraceSettings;
     sessionContextEnabled: boolean;
     toolKeys: string[];
     /** 当前 phase 实际可执行工具；为空时等于 toolKeys。 */
     executionToolKeys?: string[];
     profileKey: string;
     profile: AgentProfile;
+    /** 本 run 的 Agent 工作模式（Task 90）；只读模式下写工具注入审批。 */
+    agentMode: AgentMode;
     thinkingLevel: ThinkingLevel;
     runtimeState: RunRuntimeState;
     abortSignal?: AbortSignal;

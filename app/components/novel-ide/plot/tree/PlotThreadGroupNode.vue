@@ -26,10 +26,10 @@ const canDelete = computed(() => {
 <template>
     <!-- Thread Group 节点 -->
     <div
-        class="h-full w-full rounded-[28px] border border-dashed bg-[var(--bg-panel)]/82 p-4 shadow-[0_18px_50px_rgba(15,23,42,0.08)] backdrop-blur-sm"
+        class="h-full w-full rounded-[28px] border border-dashed bg-[var(--bg-panel)]/82 p-4 shadow-[0_18px_50px_color-mix(in_srgb,var(--shadow-color)_8%,transparent)] backdrop-blur-sm"
         :class="[
             toneStyle.border,
-            props.data.thread.isMainThread ? 'ring-1 ring-amber-500/35' : '',
+            props.data.thread.isMainThread ? 'ring-1 ring-[var(--border-accent)]' : '',
         ]"
     >
         <!-- Thread 头部 -->
@@ -38,7 +38,7 @@ const canDelete = computed(() => {
                 <div class="flex flex-wrap items-center gap-2">
                     <span
                         class="rounded-full px-2.5 py-1 text-[11px] font-semibold tracking-[0.08em]"
-                        :class="props.data.thread.isMainThread ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' : toneStyle.chip"
+                        :class="props.data.thread.isMainThread ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : toneStyle.chip"
                     >
                         {{ props.data.thread.isMainThread ? "主线 Thread" : "支线 Thread" }}
                     </span>
@@ -81,7 +81,7 @@ const canDelete = computed(() => {
                 type="button"
                 class="rounded-xl border px-3 py-1.5 text-xs transition-colors"
                 :class="canDelete
-                    ? 'border-rose-500/35 bg-rose-500/10 text-rose-700 hover:bg-rose-500/15 dark:text-rose-300'
+                    ? 'border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[var(--status-danger)] hover:bg-[var(--bg-hover)]'
                     : 'cursor-not-allowed border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)] opacity-60'"
                 :disabled="!canDelete"
                 @click.stop="props.data.actions.deleteThread(props.data.thread.id)"

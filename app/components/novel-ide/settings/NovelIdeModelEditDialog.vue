@@ -105,7 +105,7 @@ function updateOpen(value: boolean): void {
             <div class="flex-1 overflow-y-auto px-6 py-5 custom-scrollbar">
                 <div class="grid gap-5 md:grid-cols-2">
                     <!-- 基本信息 -->
-                    <section class="rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-20 p-4 space-y-4 transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:border-[var(--accent-main)] hover:border-opacity-30">
+                    <section class="rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-20 p-4 space-y-4 transition-all duration-300 hover:shadow-[0_4px_20px_color-mix(in_srgb,var(--shadow-color)_2%,transparent)] hover:border-[var(--accent-main)] hover:border-opacity-30">
                         <div class="flex items-center gap-2 pb-1">
                             <span class="flex items-center justify-center w-5 h-5 rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">
                                 <span class="i-lucide-badge-info h-3.5 w-3.5"></span>
@@ -129,7 +129,7 @@ function updateOpen(value: boolean): void {
                     </section>
 
                     <!-- 接口配置 -->
-                    <section class="rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-20 p-4 space-y-4 transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:border-[var(--accent-main)] hover:border-opacity-30">
+                    <section class="rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-20 p-4 space-y-4 transition-all duration-300 hover:shadow-[0_4px_20px_color-mix(in_srgb,var(--shadow-color)_2%,transparent)] hover:border-[var(--accent-main)] hover:border-opacity-30">
                         <div class="flex items-center gap-2 pb-1">
                             <span class="flex items-center justify-center w-5 h-5 rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">
                                 <span class="i-lucide-plug h-3.5 w-3.5"></span>
@@ -159,7 +159,7 @@ function updateOpen(value: boolean): void {
                     </section>
 
                     <!-- 运行限制 -->
-                    <section class="rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-20 p-4 space-y-4 transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:border-[var(--accent-main)] hover:border-opacity-30">
+                    <section class="rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-20 p-4 space-y-4 transition-all duration-300 hover:shadow-[0_4px_20px_color-mix(in_srgb,var(--shadow-color)_2%,transparent)] hover:border-[var(--accent-main)] hover:border-opacity-30">
                         <div class="flex items-center gap-2 pb-1">
                             <span class="flex items-center justify-center w-5 h-5 rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">
                                 <span class="i-lucide-gauge h-3.5 w-3.5"></span>
@@ -187,7 +187,7 @@ function updateOpen(value: boolean): void {
                     </section>
 
                     <!-- 能力 -->
-                    <section class="rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-20 p-4 space-y-4 transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:border-[var(--accent-main)] hover:border-opacity-30">
+                    <section class="rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-20 p-4 space-y-4 transition-all duration-300 hover:shadow-[0_4px_20px_color-mix(in_srgb,var(--shadow-color)_2%,transparent)] hover:border-[var(--accent-main)] hover:border-opacity-30">
                         <div class="flex items-center gap-2 pb-1">
                             <span class="flex items-center justify-center w-5 h-5 rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">
                                 <span class="i-lucide-sliders-horizontal h-3.5 w-3.5"></span>
@@ -240,7 +240,7 @@ function updateOpen(value: boolean): void {
                 </div>
 
                 <!-- 高级配置 -->
-                <div class="mt-5 rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-20 p-4 space-y-4 transition-all duration-300 hover:shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:border-[var(--accent-main)] hover:border-opacity-30">
+                <div class="mt-5 rounded-xl border border-[var(--border-color)] border-opacity-60 bg-[var(--bg-input)] bg-opacity-20 p-4 space-y-4 transition-all duration-300 hover:shadow-[0_4px_20px_color-mix(in_srgb,var(--shadow-color)_2%,transparent)] hover:border-[var(--accent-main)] hover:border-opacity-30">
                     <div class="flex items-center gap-2 pb-1">
                         <span class="flex items-center justify-center w-5 h-5 rounded bg-[var(--accent-bg)] text-[var(--accent-text)]">
                             <span class="i-lucide-braces h-3.5 w-3.5"></span>

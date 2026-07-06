@@ -48,6 +48,11 @@ export class JsonlSessionRepository {
         this.rootWorkspace = rootWorkspace;
     }
 
+    /** Pi 请求 trace 的存储根目录。`.nbook/agent/*` 的布局知识统一收敛在本仓库类。 */
+    get tracesRoot(): string {
+        return join(this.rootWorkspace, ".nbook", "agent", "traces");
+    }
+
     /**
      * 创建一个空 session，只写 header 和初始 leaf。
      */
@@ -381,7 +386,7 @@ export class JsonlSessionRepository {
         let summary = snapshot.metadata.summary;
         let compaction: CompactionSessionEntry | null = null;
         let archived = snapshot.entries.some((entry) => entry.type === "session_archived");
-        let planModeActive = false;
+        let agentMode: NeuroSessionContext["agentMode"] = "normal";
 
         const reduceEntries = snapshot.entries.filter((entry) => {
             if (pathIds.has(entry.id)) {
@@ -403,8 +408,8 @@ export class JsonlSessionRepository {
             }
             if (entry.type === "custom") {
                 customState[entry.key] = entry.value;
-                if (entry.origin !== "projection" && entry.key === "ui.planMode.active") {
-                    planModeActive = entry.value === true;
+                if (entry.origin !== "projection" && entry.key === "ui.agentMode") {
+                    agentMode = entry.value === "discuss" || entry.value === "plan" ? entry.value : "normal";
                 }
                 continue;
             }
@@ -458,7 +463,7 @@ export class JsonlSessionRepository {
             title,
             summary,
             archived,
-            planModeActive,
+            agentMode,
         };
     }
 

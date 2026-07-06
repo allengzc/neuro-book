@@ -270,7 +270,7 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
                 <span class="hidden max-w-[260px] truncate text-[13px] text-[var(--text-secondary)] lg:inline">主线：{{ selectedThread?.title ?? props.story.title }}</span>
 
                 <span class="ml-auto flex items-center gap-2 text-[11px] text-[var(--text-muted)]">
-                    <span class="h-2 w-2 rounded-full" :class="props.error ? 'bg-rose-500' : props.loading ? 'bg-amber-500' : 'bg-emerald-500'"></span>
+                    <span class="h-2 w-2 rounded-full" :class="props.error ? 'bg-[var(--status-danger)]' : props.loading ? 'bg-[var(--status-warning)]' : 'bg-[var(--status-success)]'"></span>
                     {{ props.error ? "加载失败" : props.loading ? "加载中" : "已保存" }}
                     <span v-if="!props.error">刚刚</span>
                 </span>
@@ -299,7 +299,7 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
             </nav>
 
             <div class="relative flex min-h-0 flex-1">
-                <div v-if="props.error" class="absolute left-1/2 top-[70px] z-20 -translate-x-1/2 rounded-md border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-[12px] text-rose-700 shadow-sm">
+                <div v-if="props.error" class="absolute left-1/2 top-[70px] z-20 -translate-x-1/2 rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[12px] text-[var(--status-danger)] shadow-sm">
                     {{ props.error }}
                 </div>
 
@@ -383,7 +383,7 @@ function toPanelRefs(refs: WorkbenchManualRef[]): PlotThreadPanelRef[] {
     border-radius: 0.375rem;
     border: 1px solid color-mix(in srgb, var(--accent-main) 58%, var(--border-color));
     background: color-mix(in srgb, var(--accent-main) 18%, var(--bg-panel));
-    color: color-mix(in srgb, var(--accent-main) 86%, #5f3300);
+    color: color-mix(in srgb, var(--accent-main) 86%, var(--accent-text));
 }
 
 .inspector-enter-active,

@@ -112,7 +112,7 @@ const canQueryState = computed(() => props.projectReady && !props.loadingWorld &
                     <div class="flex flex-wrap gap-1">
                         <button v-for="attr in selectedTypeAttrs.slice(0, 8)" :key="attr.name" type="button" class="rounded border border-[var(--border-color)] px-2 py-1 text-[11px] text-[var(--text-muted)]" disabled>{{ attr.name }}</button>
                     </div>
-                    <div v-if="subjectIdAlreadyExists" class="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-200">该 subject 已存在。点击左侧 subject 会载入查询上下文；新建 subject 请填写新的 id。</div>
+                    <div v-if="subjectIdAlreadyExists" class="rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-xs text-[var(--status-warning)]">该 subject 已存在。点击左侧 subject 会载入查询上下文；新建 subject 请填写新的 id。</div>
                     <button type="button" class="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border border-[var(--border-color)] px-3 text-sm hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="!canCreateSubject" @click="emit('create-subject')">
                         <span class="i-lucide-circle-plus h-4 w-4"></span>
                         创建 Subject

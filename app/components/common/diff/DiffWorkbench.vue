@@ -275,10 +275,10 @@ watch(() => [
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    border: 1px solid rgba(245, 158, 11, 0.32);
+    border: 1px solid var(--status-warning-border);
     border-radius: 8px;
-    background: rgba(245, 158, 11, 0.1);
-    color: rgb(180, 83, 9);
+    background: var(--status-warning-bg);
+    color: var(--status-warning);
 }
 
 .diff-workbench__metadata {

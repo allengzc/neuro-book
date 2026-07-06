@@ -102,7 +102,7 @@ const optionSizeClass = computed(() => props.size === "sm"
 <template>
     <div ref="rootRef" class="relative min-w-0">
         <div 
-            class="flex items-center border border-[var(--border-color)] bg-[var(--bg-input)] transition-colors focus-within:!border-[var(--accent-main)] focus-within:ring-1 focus-within:ring-[var(--accent-main)]/30 hover:border-[var(--border-color-hover)]"
+            class="flex items-center border border-[var(--border-color)] bg-[var(--bg-input)] transition-colors focus-within:!border-[var(--accent-main)] focus-within:ring-1 focus-within:ring-[var(--accent-main)]/30 hover:border-[var(--border-strong)]"
             :class="[controlSizeClass, props.disabled ? 'cursor-default opacity-80' : '']"
         >
             <input 

@@ -530,10 +530,10 @@ onUnmounted(() => {
     gap: 2px;
     border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
     border-radius: 18px;
-    background: color-mix(in srgb, var(--bg-panel) 96%, var(--editor-preview-bg));
+    background: color-mix(in srgb, var(--bg-panel) 96%, var(--editor-bg));
     padding: 6px;
     color: var(--text-main);
-    box-shadow: 0 18px 44px color-mix(in srgb, #000 16%, transparent), 0 1px 2px color-mix(in srgb, #000 14%, transparent);
+    box-shadow: 0 18px 44px color-mix(in srgb, var(--shadow-color) 16%, transparent), 0 1px 2px color-mix(in srgb, var(--shadow-color) 14%, transparent);
 }
 
 .markdown-selection-menu__button {
@@ -639,7 +639,7 @@ onUnmounted(() => {
     border-radius: 14px;
     background: var(--bg-panel);
     padding: 6px;
-    box-shadow: 0 16px 38px color-mix(in srgb, #000 18%, transparent);
+    box-shadow: 0 16px 38px color-mix(in srgb, var(--shadow-color) 18%, transparent);
 }
 
 .markdown-selection-menu__dropdown--text {

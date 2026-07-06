@@ -181,13 +181,13 @@ watch(() => props.modelValue, async (visible) => {
                 </select>
             </label>
 
-            <p v-if="localError" class="mb-0 mt-2 text-[12px] leading-4 text-rose-500">{{ localError }}</p>
+            <p v-if="localError" class="mb-0 mt-2 text-[12px] leading-4 text-[var(--status-danger)]">{{ localError }}</p>
 
             <div class="mt-3 flex items-center justify-end gap-2">
                 <button class="h-7 rounded-md border border-[var(--border-color)] bg-transparent px-3 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" type="button" :disabled="props.busy" @click="closeDialog">
                     {{ t("common.cancel") }}
                 </button>
-                <button class="h-7 rounded-md border border-transparent bg-[var(--accent-main)] px-3 text-[12px] font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" type="submit" :disabled="props.busy">
+                <button class="h-7 rounded-md border border-transparent bg-[var(--accent-main)] px-3 text-[12px] font-medium text-[var(--text-inverse)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" type="submit" :disabled="props.busy">
                     {{ t("common.confirm") }}
                 </button>
             </div>

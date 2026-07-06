@@ -141,6 +141,7 @@ export function buildPlotTreeEdges(graph: PlotTreeGraph): PlotTreeFlowEdge[] {
 
         const branchRole = resolvePlotTreeBranchRole(scene);
         const sourceId = scene.sourceId;
+        const edgeColor = branchRole === "main" ? "var(--accent-main)" : "var(--text-muted)";
 
         edges.push({
             id: `${sourceId}->${scene.id}`,
@@ -153,11 +154,11 @@ export function buildPlotTreeEdges(graph: PlotTreeGraph): PlotTreeFlowEdge[] {
                 type: MarkerType.ArrowClosed,
                 width: 16,
                 height: 16,
-                color: branchRole === "main" ? "#f59e0b" : "#64748b",
+                color: edgeColor,
             },
             style: {
                 strokeWidth: branchRole === "main" ? 2.8 : 1.8,
-                stroke: branchRole === "main" ? "#f59e0b" : "#64748b",
+                stroke: edgeColor,
                 strokeDasharray: branchRole === "side" ? "6 6" : undefined,
             },
             data: {

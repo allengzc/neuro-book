@@ -70,10 +70,10 @@ const { isDragging, isDropTarget } = useSortable({
         <span class="ml-2 w-10 shrink-0 text-right opacity-60">{{ chapter.wordCount }}</span>
         <span class="w-12 shrink-0 text-right" :class="statusClass">{{ statusLabel }}</span>
         <div class="ml-2 flex items-center gap-0.5">
-            <button class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-gray-500/20 hover:text-[var(--text-main)]" :title="t('ide.chapterPanel.editChapter')" @click.stop="emit('edit', chapter)">
+            <button class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('ide.chapterPanel.editChapter')" @click.stop="emit('edit', chapter)">
                 <span class="i-lucide-settings-2 h-4 w-4"></span>
             </button>
-            <button class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-red-500/10 hover:text-red-500" :title="t('ide.chapterPanel.deleteChapter')" @click.stop="emit('delete', chapter.id)">
+            <button class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)]" :title="t('ide.chapterPanel.deleteChapter')" @click.stop="emit('delete', chapter.id)">
                 <span class="i-lucide-trash h-4 w-4"></span>
             </button>
         </div>

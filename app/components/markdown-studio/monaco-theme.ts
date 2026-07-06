@@ -1,5 +1,5 @@
 import type * as Monaco from "monaco-editor";
-import type { IdeTheme } from "nbook/app/utils/theme/theme-tokens";
+import type {ThemeAppearance} from "nbook/shared/theme/theme-vars";
 
 type ThemeVars = {
     accent: string;
@@ -134,10 +134,10 @@ const buildDarkPreset = (vars: ThemeVars): ThemePreset => ({
 /**
  * 根据 IDE 主题变量生成 Monaco 主题。
  */
-export const buildMonacoTheme = (theme: IdeTheme, vars: ThemeVars): Monaco.editor.IStandaloneThemeData => {
-    const preset = theme === "sepia"
+export const buildMonacoTheme = (themeId: string, appearance: ThemeAppearance, vars: ThemeVars): Monaco.editor.IStandaloneThemeData => {
+    const preset = themeId === "sepia"
         ? buildSepiaPreset(vars)
-        : theme === "dark"
+        : appearance === "dark"
             ? buildDarkPreset(vars)
             : buildLightPreset(vars);
 

@@ -43,7 +43,7 @@ const baseSnapshot = (lastSeq = 0): AgentSessionSnapshotDto => ({
     model: null,
     thinkingLevel: null,
     effectiveThinkingLevel: "off",
-    planModeActive: false,
+    agentMode: "normal",
     lastSeq,
 });
 
@@ -366,7 +366,7 @@ describe("useAgentSession", () => {
                     model: null,
                     thinkingLevel: null,
                     effectiveThinkingLevel: "off",
-                    planModeActive: false,
+                    agentMode: "normal",
                 },
             },
         });
@@ -406,7 +406,7 @@ describe("useAgentSession", () => {
                     model: null,
                     thinkingLevel: null,
                     effectiveThinkingLevel: "off",
-                    planModeActive: false,
+                    agentMode: "normal",
                 },
             },
         });
@@ -453,7 +453,7 @@ describe("useAgentSession", () => {
                     model: null,
                     thinkingLevel: null,
                     effectiveThinkingLevel: "off",
-                    planModeActive: false,
+                    agentMode: "normal",
                 },
             },
         });

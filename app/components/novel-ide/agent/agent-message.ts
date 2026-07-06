@@ -156,7 +156,9 @@ export type AgentPendingUserInputQuestion = z.infer<typeof AgentUserInputQuestio
     toolCallId?: string | null;
     toolName: string;
     kind: "question" | "tool_approval";
-    approvalAction?: "enter_plan_mode" | "exit_plan_mode" | "skill";
+    approvalAction?: "switch_mode" | "skill";
+    /** switch_mode 审批的目标模式；非 switch_mode 审批为空。 */
+    switchTargetMode?: "normal" | "discuss" | "plan";
     approvalToolArgsText?: string;
     planFilePath?: string;
     planContent?: string;
@@ -250,13 +252,13 @@ export const formatTimestamp = (value?: string | number): string => {
  */
 export const toolStatusClass = (toolCall: AgentToolCall): string => {
     switch (toolCall.status) {
-        case "success": return "bg-green-500/10 text-green-500";
+        case "success": return "bg-[var(--status-success-bg)] text-[var(--status-success)]";
         case "error":
         case "invalid":
-            return "bg-rose-500/10 text-rose-500";
+            return "bg-[var(--status-danger-bg)] text-[var(--status-danger)]";
         case "running":
         case "streaming":
-            return "bg-blue-500/10 text-[var(--accent-text)]";
+            return "bg-[var(--status-info-bg)] text-[var(--status-info)]";
         default:
             return "bg-[var(--bg-input)] text-[var(--text-muted)]";
     }
@@ -764,12 +766,15 @@ export const toPendingUserInputSession = (
             toolCallId: pending.toolCallId,
             toolName: pending.toolName,
             kind: "tool_approval",
-            approvalAction: pending.toolName === "enter_plan_mode" || pending.toolName === "exit_plan_mode" || pending.toolName === "skill"
+            approvalAction: pending.toolName === "switch_mode" || pending.toolName === "skill"
                 ? pending.toolName
                 : undefined,
+            switchTargetMode: pending.toolName === "switch_mode" && (args.targetMode === "normal" || args.targetMode === "discuss" || args.targetMode === "plan")
+                ? args.targetMode
+                : undefined,
             approvalToolArgsText: JSON.stringify(args, null, 2),
-            planFilePath: pending.toolName === "exit_plan_mode" ? pending.planFilePath : undefined,
-            planContent: pending.toolName === "exit_plan_mode" ? pending.planContent : undefined,
+            planFilePath: pending.toolName === "switch_mode" ? pending.planFilePath : undefined,
+            planContent: pending.toolName === "switch_mode" ? pending.planContent : undefined,
             header: pending.toolName === "skill" ? "Skill" : translate("agent.approval.header", "审批"),
             question: approvalQuestion(pending.toolName, args),
             options: [
@@ -1245,15 +1250,14 @@ const extractLinkedSessionId = (value: unknown): number | undefined => {
 };
 
 const approvalQuestion = (toolName: string, args: Record<string, unknown>): string => {
-    if (toolName === "enter_plan_mode") {
+    if (toolName === "switch_mode") {
+        const targetMode = args.targetMode === "normal" || args.targetMode === "discuss" || args.targetMode === "plan" ? args.targetMode : "normal";
+        const modeLabel = targetMode === "normal"
+            ? translate("agent.mode.normal", "普通模式")
+            : targetMode === "discuss" ? translate("agent.mode.discuss", "讨论模式") : translate("agent.mode.plan", "计划模式");
         return typeof args.reason === "string" && args.reason
-            ? translate("agent.approval.enterPlanWithReason", `Agent 请求进入 Plan Mode：${args.reason}`, {reason: args.reason})
-            : translate("agent.approval.enterPlan", "Agent 请求进入 Plan Mode。");
-    }
-    if (toolName === "exit_plan_mode") {
-        return typeof args.reason === "string" && args.reason
-            ? translate("agent.approval.exitPlanWithReason", `Agent 请求退出 Plan Mode：${args.reason}`, {reason: args.reason})
-            : translate("agent.approval.exitPlan", "Agent 请求退出 Plan Mode。");
+            ? translate("agent.approval.switchModeWithReason", `Agent 请求切换到${modeLabel}：${args.reason}`, {mode: modeLabel, reason: args.reason})
+            : translate("agent.approval.switchMode", `Agent 请求切换到${modeLabel}。`, {mode: modeLabel});
     }
     if (toolName === "skill") {
         const skillKey = typeof args.skillKey === "string" ? args.skillKey : translate("agent.approval.unknownSkill", "未知 skill");

@@ -41,6 +41,13 @@ const modeItems: Array<{value: ThreadFilterMode; label: string}> = [
     {value: "unmounted", label: "未挂载"},
     {value: "pinned", label: "已 Pin"},
 ];
+const threadStatusClass: Record<PlotThreadPanelThread["status"], string> = {
+    active: "border-[var(--status-info-border)] bg-[var(--status-info-bg)] text-[var(--status-info)]",
+    archived: "border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]",
+    done: "border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success)]",
+    draft: "border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]",
+    paused: "border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]",
+};
 
 const filterPanelOpen = ref(false);
 const filterPanelRef = ref<HTMLElement | null>(null);
@@ -161,16 +168,16 @@ onClickOutside(filterPanelRef, () => {
                 <button
                     v-if="selectedThread"
                     type="button"
-                    class="w-full rounded-md border border-amber-500/25 bg-amber-500/8 px-3 py-2 text-left"
+                    class="w-full rounded-md border border-[var(--border-accent)] bg-[var(--accent-bg)] px-3 py-2 text-left"
                     @click="emit('selectThread', selectedThread.id)"
                 >
                     <div class="flex items-center justify-between gap-2">
                         <span class="flex min-w-0 items-center gap-2">
-                            <span class="i-lucide-crown h-3.5 w-3.5 shrink-0 text-amber-600"></span>
+                            <span class="i-lucide-crown h-3.5 w-3.5 shrink-0 text-[var(--accent-main)]"></span>
                             <span class="truncate text-[12px] font-semibold text-[var(--text-main)]">{{ selectedThread.title }}</span>
                         </span>
                         <span class="flex shrink-0 items-center gap-1">
-                            <span class="rounded-full bg-emerald-500/12 px-2 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-300">
+                            <span class="rounded-full border px-2 py-0.5 text-[10px]" :class="threadStatusClass[selectedThread.status]">
                                 {{ PLOT_THREAD_STATUS_LABELS[selectedThread.status] }}
                             </span>
                             <button type="button" class="inline-flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" title="编辑 Thread" @click.stop="emit('editThread', selectedThread.id)">
@@ -201,7 +208,7 @@ onClickOutside(filterPanelRef, () => {
                     :key="thread.id"
                     type="button"
                     class="w-full rounded-md border px-2.5 py-2 text-left transition-colors"
-                    :class="props.selectedThreadId === thread.id ? 'border-amber-500/35 bg-amber-500/8' : 'border-transparent bg-transparent hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)]'"
+                    :class="props.selectedThreadId === thread.id ? 'border-[var(--border-accent)] bg-[var(--accent-bg)]' : 'border-transparent bg-transparent hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)]'"
                     @click="emit('selectThread', thread.id)"
                     @contextmenu.prevent.stop="openThreadMenu(thread, $event)"
                 >
@@ -232,13 +239,13 @@ onClickOutside(filterPanelRef, () => {
                     :key="thread.id"
                     type="button"
                     class="w-full rounded-md border px-2.5 py-2 text-left transition-colors"
-                    :class="props.selectedThreadId === thread.id ? 'border-amber-500/35 bg-amber-500/8' : 'border-transparent bg-transparent hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)]'"
+                    :class="props.selectedThreadId === thread.id ? 'border-[var(--border-accent)] bg-[var(--accent-bg)]' : 'border-transparent bg-transparent hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)]'"
                     @click="emit('selectThread', thread.id)"
                     @contextmenu.prevent.stop="openThreadMenu(thread, $event)"
                 >
                     <div class="flex items-center justify-between gap-2">
                         <span class="flex min-w-0 items-center gap-2">
-                            <span :class="thread.isMainThread ? 'i-lucide-crown text-amber-600' : 'i-lucide-waypoints text-[var(--text-muted)]'" class="h-3.5 w-3.5 shrink-0"></span>
+                            <span :class="thread.isMainThread ? 'i-lucide-crown text-[var(--accent-main)]' : 'i-lucide-waypoints text-[var(--text-muted)]'" class="h-3.5 w-3.5 shrink-0"></span>
                             <span class="truncate text-[12px] font-semibold text-[var(--text-main)]">{{ thread.title }}</span>
                         </span>
                         <span class="flex shrink-0 items-center gap-1">
@@ -355,6 +362,6 @@ onClickOutside(filterPanelRef, () => {
 .workbench-main-chip {
     border: 1px solid color-mix(in srgb, var(--accent-main) 42%, transparent);
     background: color-mix(in srgb, var(--accent-main) 18%, var(--bg-panel));
-    color: color-mix(in srgb, var(--accent-main) 88%, #5f3300);
+    color: color-mix(in srgb, var(--accent-main) 88%, var(--accent-text));
 }
 </style>

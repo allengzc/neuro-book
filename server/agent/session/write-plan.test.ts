@@ -49,7 +49,7 @@ describe("SessionWriteExecutor", () => {
                     model: null,
                     thinkingLevel: null,
                     effectiveThinkingLevel: "off",
-                    planModeActive: false,
+                    agentMode: "normal",
                 };
             },
         });
@@ -256,7 +256,7 @@ describe("SessionWriteExecutor", () => {
                     model: null,
                     thinkingLevel: null,
                     effectiveThinkingLevel: "off",
-                    planModeActive: false,
+                    agentMode: "normal",
                 };
             },
             onEntriesWritten: (batch) => {
@@ -347,7 +347,7 @@ describe("SessionWriteExecutor", () => {
                     model: null,
                     thinkingLevel: null,
                     effectiveThinkingLevel: "off",
-                    planModeActive: false,
+                    agentMode: "normal",
                 };
             },
             onEntriesWritten: () => {

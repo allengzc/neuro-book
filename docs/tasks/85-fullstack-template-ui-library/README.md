@@ -497,6 +497,124 @@ llmlint 保留：
 - 本轮没有引入大型设计系统、Storybook、npm 发布、monorepo workspace 或浏览器验证。
 - 没有动 NeuroBook / llmlint 源码，未迁移它们的组件 import。
 
+### 2026-07-06 模板配置文件与可关闭认证
+
+问题判断：
+
+- `nb-fullstack-template` 原本只有 `.env.example`，没有项目级配置文件；`.env` 适合密钥、数据库地址和部署环境变量，不适合作为模板产品行为的主配置。
+- 认证启用状态被硬编码为默认事实：`AuthSessionDto.authEnabled` 是字面量 `true`，`/api/auth/me` 总返回 `authEnabled: true`，route middleware 和 `requireCurrentUser(event)` 都只能按“必须登录”工作。
+- 这会导致派生项目如果不需要登录，只能删代码或绕过 middleware，不符合模板应有的配置契约。
+
+已完成：
+
+- 新增 `../nb-fullstack-template/shared/config/template.config.ts`，作为模板项目级配置入口。
+- `templateConfig.auth.enabled` 默认 `true`；派生项目可改为 `false` 来关闭登录、注册、session 校验和受保护页面跳转。
+- `templateConfig.auth.anonymousUser` 定义认证关闭后的当前身份；`useAuthState()`、`/api/auth/me`、`app/middleware/auth.ts`、`requireCurrentUser(event)` 都会使用同一份配置身份。
+- `AuthSessionDto.authEnabled` 从 `true` 字面量改为 `boolean`。
+- `getCurrentUser(event)` 和 `requireCurrentUser(event)` 的 Interface 改为返回 `AuthUserDto` 身份；认证开启时来自数据库用户，认证关闭时来自配置身份。
+- `login` / `register` / `logout` API 在认证关闭时返回当前配置 session，不再强制读写数据库 session。
+- 首页会显示“认证已关闭”和当前配置身份；登录/注册页直接访问时会刷新配置并回到首页。
+- README 增加 `Template config` 章节和派生项目 checklist。
+
+验证结果：
+
+- `nb-fullstack-template`
+  - `bun run typecheck`：通过。
+  - `bun run test`：3 files / 4 tests passed，新增测试覆盖认证关闭时返回 configured anonymous identity。
+  - `bun run build`：通过；仅见 Vue/Nitro 上游 deprecation warning。
+  - `$env:DATABASE_URL='file:./.agent/smoke-template-config.db'; bun run db:setup`：通过，迁移与默认 `admin` 初始化均非交互完成。
+
+未执行：
+
+- 浏览器验证未执行；当前只验证类型、测试、构建和数据库初始化链路。
+
+### 2026-07-06 模板默认关闭认证
+
+已完成：
+
+- `../nb-fullstack-template/shared/config/template.config.ts` 中 `templateConfig.auth.enabled` 默认值从 `true` 改为 `false`。
+- 配置注释改为说明：模板默认关闭认证；需要登录、注册、session 校验和受保护页面跳转时，再显式改为 `true`。
+- README 改成 optional auth 语义，说明默认不会有登录墙；admin 初始账号和 `NUXT_SESSION_PASSWORD` 只在启用认证时是主路径关注项。
+- `server/utils/auth-config.test.ts` 新增断言，锁定默认 `auth.enabled === false`。
+
+验证结果：
+
+- `nb-fullstack-template`
+  - `bun run typecheck`：通过。
+  - `bun run test`：3 files / 5 tests passed。
+  - `bun run build`：通过；仅见 Vue/Nitro 上游 deprecation warning。
+
+### 2026-07-06 模板全局样式与组件展示页
+
+问题判断：
+
+- 截图中的白边来自模板缺少全局 reset，浏览器默认 `body { margin: 8px; }` 让 `html` 白色背景露出。
+- `nb-ui` 作为组件库不应强行重置宿主 app 的 body margin；这个 reset 应放在 `nb-fullstack-template` 的 app 级全局样式里。
+
+已完成：
+
+- 新增 `../nb-fullstack-template/app/styles/global.css`：
+  - 设置全局 `box-sizing`。
+  - 去掉 `body` 默认 margin。
+  - 给 `html`、`body`、`#__nuxt` 设置高度和模板背景兜底。
+  - 统一 form control 继承字体。
+- `../nb-fullstack-template/nuxt.config.ts` 引入 `~/styles/global.css`。
+- `../nb-fullstack-template/app/app.vue` 将 `templateDarkTheme` 同时应用到 `document.documentElement` 和 `document.body`。
+- 新增 `../nb-fullstack-template/app/pages/components.vue`，展示 Button、IconButton、Panel、Form、FormSelect、FormNumberInput、FormTextarea、FormCheckbox、SegmentedControl、SwitchField、Dropdown、Notification、Dialog。
+- 首页新增“组件展示”入口。
+- `../nb-fullstack-template/README.md` 记录全局样式和 `/components` 页面。
+
+验证结果：
+
+- `nb-fullstack-template`
+  - `bun run typecheck`：通过。
+  - `bun run test`：3 files / 5 tests passed。
+  - `bun run build`：通过；产物包含 `components` 页面 chunk。仍只有 Nuxt/Rollup/Vue 上游 sourcemap / deprecation warning。
+
+未执行：
+
+- 按项目约束未自动执行浏览器验证；如果需要视觉验收，可以单独打开 dev server 检查 `/` 和 `/components`。
+
+### 2026-07-06 nb-ui 反馈组件与展示页质感补强
+
+问题判断：
+
+- `/components` 页面虽然已经使用部分 nb-ui 组件，但整体仍像临时 demo：静态反馈没有真正的 nb-ui 组件，只能靠 toast 容器或手写样式；`FormCheckbox` 仍是原生 checkbox，视觉明显弱于其它表单组件。
+- 通用缺口应该补进 `nb-ui`，但展示页专用 Section/Header/Swatch 不进入组件库，避免过度设计。
+
+已完成：
+
+- `nb-ui` 新增 `Notification.vue`：
+  - 支持 `info / success / warning / error` tone。
+  - 支持 title、message、dismiss、action、默认 slot、title slot、action slot。
+  - 使用现有 theme tokens 派生视觉，不引入新色板。
+- `NotificationViewport.vue` 改为复用 `Notification.vue` 渲染 toast，静态通知和全局 toast 共享同一套外观。
+- `FormCheckbox.vue` 改为 nb-ui 自绘 checkbox，保留真实 checkbox input、v-model、disabled、required、FormField context 和 aria 透传。
+- `@notnotype/nb-ui/components` 导出 `Notification` 与 `NotificationTone`。
+- `nb-fullstack-template /components` 重做为文档式 demo：
+  - 每个展示区使用 `Panel`。
+  - 静态反馈使用 `Notification`。
+  - toast 只通过 `useNotification()` 展示行为。
+  - 表单区展示默认、说明、错误、禁用和自绘 checkbox。
+  - 控件区展示 SegmentedControl、SwitchField、Dropdown、IconButton。
+  - Dialog 区展示普通和 busy 状态。
+- `nb-ui` README 与模板 README 已同步。
+
+验证结果：
+
+- `nb-ui`
+  - `bun run typecheck`：通过。
+  - `bun run test`：3 files / 16 tests passed。
+  - `bun run build`：通过；仅见 Nuxt/Rollup/Vue 上游 sourcemap / deprecation warning。
+- `nb-fullstack-template`
+  - `bun run typecheck`：通过。
+  - `bun run test`：3 files / 5 tests passed。
+  - `bun run build`：通过；产物包含 `components` 页面 chunk。
+
+未执行：
+
+- 浏览器视觉验证未执行，符合本轮约束。
+
 ## Verification / Test
 
 基础契约修复后的验证结果：

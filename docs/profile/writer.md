@@ -38,11 +38,13 @@
 
 `writer` 通过 profile settings 提供可视化预设配置。入口在设置页的“Agent Profile 模型”面板中，`writer` 卡片会显示“Profile 预设”区域。
 
-第一版字段：
+当前字段：
 
-- `writingStylePreset`：默认文风预设，来自当前 Project Workspace 的 `agents/writer/styles/`，可在 Project Config 中选择、编辑、新增、重命名和删除非当前资源。
-- `writingReferencePreset`：默认文风参考样本，来自当前 Project Workspace 的 `agents/writer/references/`，可在 Project Config 中选择、编辑、新增、重命名和删除非当前资源。
+- `customTopSystemPrompt`：最高优先级置顶提示词，插入在 Writer 系统提示词最前面，是优先级最高的自定义规则；留空不注入。
+- `writingStylePreset`：默认文风要求（条文式规则），来自当前 Project Workspace 的 `agents/writer/styles/`，可在 Project Config 中选择、编辑、新增、重命名和删除非当前资源。
+- `writingReferencePreset`：默认文风参考样本（供模仿的正文），来自当前 Project Workspace 的 `agents/writer/references/`，可在 Project Config 中选择、编辑、新增、重命名和删除非当前资源。
 - `narrativePerson`：默认人称，支持第一人称、第二人称、第三人称。
+- `paragraphRhythm` / `wordCountControl` / `polishingWorkflow` / `adultStylePrompt`：段落节奏、默认字数、润色工作流和成人风格增强；都是长期默认值，本轮 message 明确要求时以任务为准，`adultStylePrompt` 留空则完全不注入。
 
 这些设置保存在 Config 的 `agent.profiles.writer.settings` patch 中。Global Config 只能保存 selected key / 人称这类配置值，不绑定某个 Project 的资源文件；Project Config 可对单个字段选择“继承”或“覆盖”，并把资源内容变更随同一次保存提交。保存后下一次 writer prepare / run 生效，已有长期 session 不需要重建。
 

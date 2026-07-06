@@ -120,7 +120,7 @@ function resetWorkspace(): void {
 
         <!-- 右侧检查器 -->
         <aside class="space-y-4">
-            <section class="rounded-[24px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-4 shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+            <section class="rounded-[24px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-4 shadow-[0_18px_50px_color-mix(in_srgb,var(--shadow-color)_8%,transparent)]">
                 <div class="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Inspector</div>
                 <div class="mt-3 text-lg font-semibold text-[var(--text-main)]">
                     {{ selectedScene?.title ?? selectedThread?.title ?? "未选中节点" }}
@@ -131,7 +131,7 @@ function resetWorkspace(): void {
                         <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-1 text-[var(--text-muted)]">
                             所属线程：{{ selectedThread?.title ?? "游离 Scene" }}
                         </span>
-                        <span class="rounded-full border px-3 py-1" :class="selectedScene.isMainBranch ? 'border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-slate-400/35 bg-slate-400/10 text-slate-600 dark:text-slate-300'">
+                        <span class="rounded-full border px-3 py-1" :class="selectedScene.isMainBranch ? 'border-[var(--border-accent)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]'">
                             {{ selectedScene.isMainBranch ? "主线分支" : "支线分支" }}
                         </span>
                     </div>
@@ -154,7 +154,7 @@ function resetWorkspace(): void {
 
                 <template v-else-if="selectedThread">
                     <div class="mt-3 flex flex-wrap items-center gap-2 text-xs">
-                        <span class="rounded-full border px-3 py-1" :class="selectedThread.isMainThread ? 'border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300' : 'border-slate-400/35 bg-slate-400/10 text-slate-600 dark:text-slate-300'">
+                        <span class="rounded-full border px-3 py-1" :class="selectedThread.isMainThread ? 'border-[var(--border-accent)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]'">
                             {{ selectedThread.isMainThread ? "主线 Thread" : "支线 Thread" }}
                         </span>
                         <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-1 text-[var(--text-muted)]">

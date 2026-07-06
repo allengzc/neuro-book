@@ -86,11 +86,11 @@ describe("generateOpenAPISpec", () => {
         ]));
         expect(chapter?.parameters).toEqual(expect.arrayContaining([
             expect.objectContaining({name: "projectPath", in: "query", required: true}),
-            expect.objectContaining({name: "chapterPath", in: "query", required: true}),
+            expect.objectContaining({name: "chapterId", in: "query", required: true}),
         ]));
         expect(chapterWriterBrief?.parameters).toEqual(expect.arrayContaining([
             expect.objectContaining({name: "projectPath", in: "query", required: true}),
-            expect.objectContaining({name: "chapterPath", in: "query", required: true}),
+            expect.objectContaining({name: "chapterId", in: "query", required: true}),
         ]));
         expect(paths.some((path) => path.startsWith("/api/novels/{novelId}/plot"))).toBe(false);
         expect(paths).not.toContain("/api/projects/plot/{segments}");

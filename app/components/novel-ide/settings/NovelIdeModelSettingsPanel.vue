@@ -1997,7 +1997,7 @@ defineExpose({
                             <div class="truncate text-[13px] font-medium" :class="activeProviderKey === provider.localKey ? 'text-[var(--accent-text)]' : 'text-[var(--text-main)]'">{{ provider.name }}</div>
                             <div class="mt-0.5 flex min-w-0 items-center gap-1 truncate text-[11px] opacity-70">
                                 <span class="truncate">{{ t("settings.panels.models.modelCount", {count: provider.enabled ? providerEnabledModelCount(provider) : 0}) }}</span>
-                                <span v-if="!provider.enabled" class="shrink-0 rounded border border-amber-500/20 bg-amber-500/10 px-1 text-[10px] text-amber-700">{{ t("settings.panels.models.providerDisabled") }}</span>
+                                <span v-if="!provider.enabled" class="shrink-0 rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-1 text-[10px] text-[var(--status-warning)]">{{ t("settings.panels.models.providerDisabled") }}</span>
                             </div>
                         </div>
                     </button>
@@ -2015,13 +2015,13 @@ defineExpose({
                         <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] p-5 shadow-sm transition-all duration-300 hover:shadow-md">
                             <!-- Provider 操作区 -->
                             <div class="flex flex-wrap items-center justify-between gap-2">
-                                <div v-if="!activeProvider.enabled" class="inline-flex min-h-8 min-w-0 items-center gap-1.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700">
+                                <div v-if="!activeProvider.enabled" class="inline-flex min-h-8 min-w-0 items-center gap-1.5 rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-2.5 py-1 text-xs font-medium text-[var(--status-warning)]">
                                     <span class="i-lucide-server-off h-3.5 w-3.5"></span>
                                     {{ t("settings.panels.models.providerDisabledHint") }}
                                 </div>
 
                                 <div class="ml-auto flex flex-wrap items-center justify-end gap-2">
-                                    <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium shadow-sm transition-all duration-200 hover:shadow active:scale-95" :class="activeProvider.enabled ? 'border-amber-500/20 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15'" @click="toggleActiveProviderEnabled">
+                                    <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium shadow-sm transition-all duration-200 hover:shadow active:scale-95" :class="activeProvider.enabled ? 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)] hover:bg-[var(--status-warning-bg)]' : 'border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success)] hover:bg-[var(--status-success-bg)]'" @click="toggleActiveProviderEnabled">
                                         <span class="h-3.5 w-3.5" :class="activeProvider.enabled ? 'i-lucide-power-off' : 'i-lucide-power'"></span>
                                         {{ activeProvider.enabled ? t("settings.panels.models.disableProvider") : t("settings.panels.models.enableProvider") }}
                                     </button>
@@ -2030,7 +2030,7 @@ defineExpose({
                                         <span v-else class="i-lucide-cloud-lightning h-3.5 w-3.5 text-[var(--text-muted)]"></span>
                                         {{ providerDiscoveringId === activeProvider.id ? t("settings.panels.models.discovering") : t("settings.panels.models.discoverModels") }}
                                     </button>
-                                    <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/8 px-3 text-xs font-medium text-rose-600 shadow-sm transition-all duration-200 hover:bg-rose-500/15 hover:shadow active:scale-95" @click="requestDeleteActiveProvider">
+                                    <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 text-xs font-medium text-[var(--status-danger)] shadow-sm transition-all duration-200 hover:bg-[var(--status-danger-bg)] hover:shadow active:scale-95" @click="requestDeleteActiveProvider">
                                         <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
                                         {{ t("settings.panels.models.delete") }}
                                     </button>
@@ -2058,7 +2058,7 @@ defineExpose({
                                 <div class="group space-y-1.5 md:col-span-2">
                                     <div class="flex items-center justify-between gap-3">
                                         <label class="text-xs font-medium text-[var(--text-secondary)] transition-colors group-focus-within:text-[var(--text-main)]">API Key</label>
-                                        <button v-if="activeProvider.options.apiKeyConfigured" type="button" class="text-[11px] text-rose-500 transition-colors hover:text-rose-600" @click="clearActiveProviderApiKey">{{ t("settings.panels.models.clearApiKey") }}</button>
+                                        <button v-if="activeProvider.options.apiKeyConfigured" type="button" class="text-[11px] text-[var(--status-danger)] transition-colors hover:opacity-80" @click="clearActiveProviderApiKey">{{ t("settings.panels.models.clearApiKey") }}</button>
                                     </div>
                                     <FormInput v-model="activeProvider.options.apiKey" :placeholder="activeProvider.options.apiKeyConfigured ? t('settings.panels.models.configuredApiKeyPlaceholder', {value: activeProvider.options.apiKeyMaskedValue ?? ''}) : 'sk-...'" type="password" />
                                 </div>
@@ -2092,7 +2092,7 @@ defineExpose({
                                         <span class="h-3.5 w-3.5" :class="checkingAllModels ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-list-checks'"></span>
                                         {{ checkingAllModels ? t("settings.panels.models.checkingAllModels") : t("settings.panels.models.checkAllModels") }}
                                     </button>
-                                    <button v-if="activeProviderCheckingModelCount > 0" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/20 bg-rose-500/8 px-3 text-xs font-medium text-rose-600 shadow-sm transition-all duration-200 hover:bg-rose-500/15 active:scale-95" @click="cancelActiveProviderChecks">
+                                    <button v-if="activeProviderCheckingModelCount > 0" class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 text-xs font-medium text-[var(--status-danger)] shadow-sm transition-all duration-200 hover:bg-[var(--status-danger-bg)] active:scale-95" @click="cancelActiveProviderChecks">
                                         <span class="i-lucide-circle-x h-3.5 w-3.5"></span>
                                         {{ t("settings.panels.models.cancelModelChecks") }}
                                     </button>
@@ -2118,7 +2118,7 @@ defineExpose({
                                         <div v-show="expandedGroups[group.group] !== false" class="border-t border-[var(--border-color)] bg-[var(--bg-input)]/10 divide-y divide-[var(--border-color)]">
                                             <div v-for="(model, index) in group.models" :key="`${group.group}-${String(index)}`" class="group/model relative flex items-center justify-between px-4 py-2.5 transition-colors hover:bg-[var(--bg-hover)]/40">
                                                 <div class="flex items-center gap-3 min-w-0">
-                                                    <div class="flex h-6 w-6 items-center justify-center rounded bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-indigo-500 shrink-0">
+                                                    <div class="flex h-6 w-6 items-center justify-center rounded bg-[var(--accent-bg)] text-[var(--accent-text)] shrink-0">
                                                         <span class="i-lucide-sparkles h-3.5 w-3.5"></span>
                                                     </div>
                                                     <div class="min-w-0 flex flex-col">
@@ -2135,7 +2135,7 @@ defineExpose({
                                                             </span>
                                                         </div>
                                                         <div class="truncate text-[11px] text-[var(--text-muted)] mt-0.5">{{ model.id }}</div>
-                                                        <div v-if="modelCheckResult(activeProvider, model)" class="mt-1 flex max-w-[520px] items-center gap-1.5 text-[11px]" :class="modelCheckResult(activeProvider, model)?.cancelled ? 'text-[var(--text-muted)]' : modelCheckResult(activeProvider, model)?.success ? 'text-emerald-600' : 'text-rose-600'" :title="modelCheckResult(activeProvider, model)?.message">
+                                                        <div v-if="modelCheckResult(activeProvider, model)" class="mt-1 flex max-w-[520px] items-center gap-1.5 text-[11px]" :class="modelCheckResult(activeProvider, model)?.cancelled ? 'text-[var(--text-muted)]' : modelCheckResult(activeProvider, model)?.success ? 'text-[var(--status-success)]' : 'text-[var(--status-danger)]'" :title="modelCheckResult(activeProvider, model)?.message">
                                                             <span class="h-3 w-3 shrink-0" :class="modelCheckResult(activeProvider, model)?.cancelled ? 'i-lucide-circle-slash' : modelCheckResult(activeProvider, model)?.success ? 'i-lucide-circle-check' : 'i-lucide-circle-x'"></span>
                                                             <span class="truncate">{{ modelCheckResult(activeProvider, model)?.message }}</span>
                                                             <span v-if="modelCheckResult(activeProvider, model)?.latencyMs !== null" class="shrink-0 opacity-70">{{ modelCheckResult(activeProvider, model)?.latencyMs }}ms</span>
@@ -2148,13 +2148,13 @@ defineExpose({
                                                         <span v-if="isModelChecking(activeProvider, model)" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
                                                         <span v-else class="i-lucide-play h-3.5 w-3.5"></span>
                                                     </button>
-                                                    <button v-if="isModelChecking(activeProvider, model)" class="flex h-7 w-7 items-center justify-center rounded-md text-rose-500 transition-colors hover:bg-rose-500/10 hover:text-rose-600" :title="t('settings.panels.models.cancelModelCheck')" @click="cancelModelCheck(activeProvider, model)">
+                                                    <button v-if="isModelChecking(activeProvider, model)" class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--status-danger)] transition-colors hover:bg-[var(--status-danger-bg)] hover:opacity-80" :title="t('settings.panels.models.cancelModelCheck')" @click="cancelModelCheck(activeProvider, model)">
                                                         <span class="i-lucide-circle-x h-3.5 w-3.5"></span>
                                                     </button>
                                                     <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-input)] hover:text-[var(--text-main)] transition-colors" :title="t('settings.panels.models.editSettings')" @click="openModelEdit(model)">
                                                         <span class="i-lucide-settings h-3.5 w-3.5"></span>
                                                     </button>
-                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-rose-500/10 hover:text-rose-500 transition-colors" :title="t('settings.panels.models.disableModel')" @click="disableModel(model)">
+                                                    <button class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-secondary)] transition-colors hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)]" :title="t('settings.panels.models.disableModel')" @click="disableModel(model)">
                                                         <span class="i-lucide-minus h-3.5 w-3.5"></span>
                                                     </button>
                                                 </div>
@@ -2165,7 +2165,7 @@ defineExpose({
                             </div>
                             
                             <div class="flex items-center gap-3 px-4 py-3 bg-[var(--bg-panel)] border-t border-[var(--border-color)]">
-                                <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-emerald-600/20 bg-emerald-500/10 px-4 text-xs font-medium text-emerald-600 shadow-sm transition-all duration-200 hover:bg-emerald-500/20 active:scale-95" @click="libraryDialogOpen = true">
+                                <button class="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--status-success-border)] bg-[var(--status-success-bg)] px-4 text-xs font-medium text-[var(--status-success)] shadow-sm transition-all duration-200 hover:bg-[var(--status-success-bg)] active:scale-95" @click="libraryDialogOpen = true">
                                     <span class="i-lucide-list-filter h-3.5 w-3.5"></span>
                                     {{ t("settings.panels.models.manageLibrary") }}
                                 </button>
@@ -2231,7 +2231,7 @@ defineExpose({
                         <div v-show="libraryExpandedGroups[group.group] !== false" class="border-t border-[var(--border-color)] divide-y divide-[var(--border-color)] bg-[var(--bg-panel)]">
                             <div v-for="(model, index) in group.models" :key="`${group.group}-${model.id}`" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-hover)]/40 transition-colors" :class="{'opacity-60': model.state !== 'enabled'}">
                                 <div class="flex items-center gap-3 min-w-0 flex-1 pr-4">
-                                    <div class="flex h-6 w-6 items-center justify-center rounded bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-indigo-500 shrink-0">
+                                    <div class="flex h-6 w-6 items-center justify-center rounded bg-[var(--accent-bg)] text-[var(--accent-text)] shrink-0">
                                         <span class="i-lucide-sparkles h-3.5 w-3.5"></span>
                                     </div>
                                     <div class="min-w-0 flex flex-col">
@@ -2258,7 +2258,7 @@ defineExpose({
                     </div>
                     <FormInput v-model="getManualModelDraft(activeProvider.id).api" :placeholder="t('settings.panels.models.customApiFormat')" class="w-[180px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
                     <FormInput v-model="getManualModelDraft(activeProvider.id).contextWindowTokens" :placeholder="t('settings.panels.models.contextWindow')" class="w-[120px] bg-[var(--bg-panel)] shadow-sm !h-8 !text-xs" />
-                    <button class="inline-flex h-8 shrink-0 items-center justify-center rounded-md bg-[var(--accent-main)] text-white px-3 text-xs font-medium shadow-sm transition-all hover:opacity-90 active:scale-95" @click="addManualModel">
+                    <button class="inline-flex h-8 shrink-0 items-center justify-center rounded-md bg-[var(--accent-main)] px-3 text-xs font-medium text-[var(--text-inverse)] shadow-sm transition-all hover:opacity-90 active:scale-95" @click="addManualModel">
                         {{ t("settings.panels.models.add") }}
                     </button>
                 </div>
@@ -2276,7 +2276,7 @@ defineExpose({
     >
         <div v-if="activeProvider" class="space-y-3">
             <p class="text-sm text-[var(--text-secondary)]">{{ t("settings.panels.models.deleteProviderMessage", {name: activeProvider.name}) }}</p>
-            <p class="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700">{{ t("settings.panels.models.deleteProviderWarning") }}</p>
+            <p class="rounded-lg border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-xs text-[var(--status-warning)]">{{ t("settings.panels.models.deleteProviderWarning") }}</p>
         </div>
     </Dialog>
 

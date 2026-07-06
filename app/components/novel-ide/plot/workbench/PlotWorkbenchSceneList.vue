@@ -62,6 +62,13 @@ const sceneCount = computed(() => visibleScenes.value.length);
 const focusScene = computed(() => visibleScenes.value.find((scene) => scene.status === "active") ?? visibleScenes.value[0] ?? null);
 const sceneCheckMessage = ref<string | null>(null);
 const renderedScenes = computed(() => dragScenes.value ?? visibleScenes.value);
+const sceneStatusClass: Record<PlotThreadPanelScene["status"], string> = {
+    active: "border-[var(--status-info-border)] bg-[var(--status-info-bg)] text-[var(--status-info)]",
+    archived: "border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]",
+    draft: "border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]",
+    revised: "border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success)]",
+    written: "border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success)]",
+};
 
 /**
  * 判断是否为 Scene 拖拽数据。
@@ -208,7 +215,7 @@ function autoSortScenes(): void {
  * 检查当前 Thread 下 Scene 的基础依赖信息。
  */
 function checkSceneDependencies(): void {
-    const unmountedScenes = visibleScenes.value.filter((scene) => !scene.chapterPath).length;
+    const unmountedScenes = visibleScenes.value.filter((scene) => !scene.chapterId).length;
     const emptyPurposeScenes = visibleScenes.value.filter((scene) => !(scene.purpose ?? "").trim()).length;
     const issues = [
         unmountedScenes ? `${unmountedScenes} 个 Scene 未挂章` : "",
@@ -292,11 +299,11 @@ watch(() => props.thread?.id, () => {
             <!-- Thread 摘要区 -->
             <div class="flex min-w-0 flex-1 flex-col p-3.5">
                 <div class="flex flex-wrap items-center gap-2.5">
-                    <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] border border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                    <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] border border-[var(--border-accent)] bg-[var(--accent-bg)] text-[var(--accent-main)]">
                         <span class="i-lucide-drama h-4 w-4"></span>
                     </span>
                     <h2 class="min-w-0 truncate text-[15px] font-semibold text-[var(--text-main)]">{{ props.thread.title }}</h2>
-                    <span class="rounded-[4px] bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 ring-1 ring-inset ring-amber-500/20 dark:text-amber-400">
+                    <span class="rounded-[4px] bg-[var(--accent-bg)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent-text)] ring-1 ring-inset ring-[var(--border-accent)]">
                         {{ props.thread.isMainThread ? "主线" : "支线" }}
                     </span>
                     <span class="text-[11.5px] font-medium text-[var(--text-muted)]">{{ props.phaseTitle ?? "未分阶段" }}</span>
@@ -308,7 +315,7 @@ watch(() => props.thread?.id, () => {
                         <p class="min-w-0 flex-1">{{ displayInlineText(props.thread.summary) }}</p>
                     </div>
                     <div class="flex items-start gap-2">
-                        <span class="i-lucide-lightbulb mt-[3px] h-3.5 w-3.5 shrink-0 text-amber-500/70"></span>
+                        <span class="i-lucide-lightbulb mt-[3px] h-3.5 w-3.5 shrink-0 text-[var(--status-warning)]"></span>
                         <p class="min-w-0 flex-1 text-[var(--text-muted)]">{{ displayInlineText(props.thread.writingTip ?? "保持清晰的因果链，避免场景只承担说明功能。") }}</p>
                     </div>
                 </div>
@@ -322,7 +329,7 @@ watch(() => props.thread?.id, () => {
                 <div class="mb-3 flex items-center justify-between">
                     <div class="flex items-center gap-1.5">
                         <div class="flex h-5 w-5 items-center justify-center rounded bg-[var(--bg-panel)] shadow-sm ring-1 ring-inset ring-[var(--border-color)]">
-                            <span class="i-lucide-target h-3 w-3 text-blue-500"></span>
+                            <span class="i-lucide-target h-3 w-3 text-[var(--status-info)]"></span>
                         </div>
                         <span class="text-[11px] font-semibold tracking-wider text-[var(--text-muted)]">当前推进</span>
                     </div>
@@ -334,7 +341,7 @@ watch(() => props.thread?.id, () => {
                         <div class="min-w-0 flex-1 text-[13px] font-medium leading-snug text-[var(--text-main)]">
                             {{ focusScene ? focusScene.title : "未选中 Scene" }}
                         </div>
-                        <span v-if="focusScene" class="shrink-0 rounded-[4px] bg-[var(--bg-main)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)] ring-1 ring-inset ring-[var(--border-color)]">
+                        <span v-if="focusScene" class="shrink-0 rounded-[4px] border px-1.5 py-0.5 text-[10px] font-medium" :class="sceneStatusClass[focusScene.status]">
                             {{ PLOT_SCENE_STATUS_LABELS[focusScene.status] }}
                         </span>
                     </div>
@@ -342,7 +349,7 @@ watch(() => props.thread?.id, () => {
                     <div class="flex flex-wrap items-center gap-1.5 text-[10.5px]">
                         <span class="flex items-center gap-1 rounded bg-[var(--bg-main)] px-1.5 py-0.5 text-[var(--text-muted)] ring-1 ring-inset ring-[var(--border-color)]/50">
                             <span class="i-lucide-book-open h-3 w-3 opacity-70"></span>
-                            {{ focusScene?.chapterPath ? (chapterMap.get(focusScene.chapterPath)?.numberLabel ?? "未识别章节") : "未挂章" }}
+                            {{ focusScene?.chapterId ? (chapterMap.get(focusScene.chapterId)?.numberLabel ?? "未识别章节") : "未挂章" }}
                         </span>
                         <span class="flex items-center gap-1 rounded bg-[var(--bg-main)] px-1.5 py-0.5 text-[var(--text-muted)] ring-1 ring-inset ring-[var(--border-color)]/50">
                             <span class="i-lucide-hash h-3 w-3 opacity-70"></span>
@@ -366,11 +373,11 @@ watch(() => props.thread?.id, () => {
                 Scene
             </button>
             <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 text-[11.5px] font-medium text-[var(--text-main)] shadow-sm transition-colors hover:bg-[var(--bg-hover)]" @click="autoSortScenes">
-                <span class="i-lucide-route h-3.5 w-3.5 text-blue-500/70"></span>
+                <span class="i-lucide-route h-3.5 w-3.5 text-[var(--status-info)]"></span>
                 自动排序
             </button>
             <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2.5 text-[11.5px] font-medium text-[var(--text-main)] shadow-sm transition-colors hover:bg-[var(--bg-hover)]" @click="checkSceneDependencies">
-                <span class="i-lucide-list-checks h-3.5 w-3.5 text-emerald-500/70"></span>
+                <span class="i-lucide-list-checks h-3.5 w-3.5 text-[var(--status-success)]"></span>
                 依赖检查
             </button>
         </div>
@@ -391,7 +398,7 @@ watch(() => props.thread?.id, () => {
                         :scene="scene"
                         :index="index"
                         :thread-id="props.thread?.id ?? 'thread-empty'"
-                        :chapter="scene.chapterPath ? (chapterMap.get(scene.chapterPath) ?? null) : null"
+                        :chapter="scene.chapterId ? (chapterMap.get(scene.chapterId) ?? null) : null"
                         :can-move-up="index > 0"
                         :can-move-down="index < renderedScenes.length - 1"
                         @edit-scene="emit('editScene', $event)"
@@ -415,7 +422,7 @@ watch(() => props.thread?.id, () => {
     border-radius: 0.5rem;
     border: 1px solid color-mix(in srgb, var(--accent-main) 58%, var(--border-color));
     background: color-mix(in srgb, var(--accent-main) 18%, var(--bg-panel));
-    color: color-mix(in srgb, var(--accent-main) 88%, #5f3300);
+    color: color-mix(in srgb, var(--accent-main) 88%, var(--accent-text));
 }
 
 .workbench-main-chip {
@@ -427,7 +434,7 @@ watch(() => props.thread?.id, () => {
     padding: 0.125rem 0.5rem;
     font-size: 11px;
     font-weight: 600;
-    color: color-mix(in srgb, var(--accent-main) 88%, #5f3300);
+    color: color-mix(in srgb, var(--accent-main) 88%, var(--accent-text));
 }
 
 </style>

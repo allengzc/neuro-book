@@ -45,7 +45,7 @@ const threadMap = computed(() => {
 <template>
     <!-- Chapter / Scene 规划视图 -->
     <div class="grid min-h-0 gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
-        <section class="flex min-h-0 flex-col overflow-hidden rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
+        <section class="flex min-h-0 flex-col overflow-hidden rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_18px_50px_color-mix(in_srgb,var(--shadow-color)_8%,transparent)]">
             <div class="border-b border-[var(--border-color)] px-4 py-3">
                 <div class="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Chapters</div>
                 <div class="mt-1 text-sm font-semibold text-[var(--text-main)]">规划一章的承载内容</div>
@@ -71,7 +71,7 @@ const threadMap = computed(() => {
             </div>
         </section>
 
-        <section class="flex min-h-0 flex-col overflow-hidden rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
+        <section class="flex min-h-0 flex-col overflow-hidden rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_18px_50px_color-mix(in_srgb,var(--shadow-color)_8%,transparent)]">
             <div class="border-b border-[var(--border-color)] px-5 py-4">
                 <div class="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Chapter Rhythm</div>
                 <div class="mt-1 text-sm font-semibold text-[var(--text-main)]">

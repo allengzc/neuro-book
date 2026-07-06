@@ -14,6 +14,9 @@ import {
     LowCodeJsonObjectSchema,
     LowCodeResourceMutationDtoSchema,
 } from "nbook/shared/dto/low-code-form.dto";
+import {themeAppearanceValues, themeVarNames} from "nbook/shared/theme/theme-vars";
+
+const themeVarNameSet = new Set<string>(themeVarNames);
 
 const JsonValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
     z.string(),
@@ -235,8 +238,26 @@ export const MonacoEditorConfigDtoSchema = z.object({
     renderWhitespace: z.boolean().default(DEFAULT_MONACO_EDITOR_PREFERENCES.renderWhitespace),
 });
 
+export const CustomThemeDtoSchema = z.object({
+    id: z.string().trim().regex(/^custom-[a-z0-9-]+$/u),
+    name: z.string().trim().min(1).max(50),
+    appearance: z.enum(themeAppearanceValues),
+    vars: z.record(z.string(), z.string()).superRefine((vars, ctx) => {
+        for (const key of Object.keys(vars)) {
+            if (!themeVarNameSet.has(key)) {
+                ctx.addIssue({
+                    code: "custom",
+                    path: [key],
+                    message: `未知主题变量：${key}`,
+                });
+            }
+        }
+    }),
+}).strict();
+
 export const UiConfigDtoSchema = z.object({
-    theme: z.enum(["sepia", "light", "dark"]).default("sepia"),
+    theme: z.string().trim().min(1).default("sepia"),
+    customThemes: z.array(CustomThemeDtoSchema).max(50).default([]),
     costCurrency: z.enum(["USD", "CNY"]).default("USD"),
 });
 
@@ -285,6 +306,15 @@ export const WebConfigDtoSchema = z.object({
     }).partial().default({}),
 }).partial().default({});
 
+/** 可观测配置（Pi 请求 trace 开关）。无 secret 字段，不需要掩码。 */
+export const ObservabilityConfigDtoSchema = z.object({
+    piTrace: z.object({
+        enabled: z.boolean(),
+        maxRecords: z.number().int().nonnegative(),
+        capturePayload: z.boolean(),
+    }).partial().default({}),
+}).partial().default({});
+
 export const GlobalConfigDtoSchema = z.object({
     auth: z.object({
         enabled: z.boolean().default(true),
@@ -302,12 +332,13 @@ export const GlobalConfigDtoSchema = z.object({
         profileModelDefaults: AgentProfileModelConfigDtoSchema.partial().default({}),
         profiles: ConfigAgentProfileMapDtoSchema,
     }).default({defaultProfileKey: {novel: null, userAssets: null}, profileModelDefaults: {}, profiles: {}}),
-    ui: UiConfigDtoSchema.default({theme: "sepia", costCurrency: "USD"}),
+    ui: UiConfigDtoSchema.default({theme: "sepia", customThemes: [], costCurrency: "USD"}),
     editor: EditorConfigDtoSchema.default({
         markdown: DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
         monaco: DEFAULT_MONACO_EDITOR_PREFERENCES,
     }),
     web: WebConfigDtoSchema,
+    observability: ObservabilityConfigDtoSchema,
 }).partial().passthrough();
 
 export const GlobalConfigUpdateDtoSchema = z.object({
@@ -330,6 +361,7 @@ export const GlobalConfigUpdateDtoSchema = z.object({
     ui: UiConfigDtoSchema.optional(),
     editor: EditorConfigDtoSchema.optional(),
     web: z.preprocess((value) => value === undefined ? undefined : value, WebConfigDtoSchema).optional(),
+    observability: ObservabilityConfigDtoSchema.optional(),
 }).partial().passthrough();
 
 export const ProjectConfigDtoSchema = z.object({
@@ -370,6 +402,7 @@ export type ConfigEditorSnapshotQueryDto = z.infer<typeof ConfigEditorSnapshotQu
 export type ConfigAgentProfileSettingsQueryDto = z.infer<typeof ConfigAgentProfileSettingsQueryDtoSchema>;
 export type ConfigProfileHomeResetRequestDto = z.infer<typeof ConfigProfileHomeResetRequestDtoSchema>;
 export type ConfigModelSettingsDto = z.infer<typeof ConfigModelSettingsDtoSchema>;
+export type CustomThemeDto = z.infer<typeof CustomThemeDtoSchema>;
 export type EmbeddingServiceConfigDto = z.infer<typeof EmbeddingServiceConfigDtoSchema>;
 export type EmbeddingProjectConfigDto = z.infer<typeof EmbeddingProjectConfigDtoSchema>;
 export type ConfigEmbeddingSettingsDto = z.infer<typeof ConfigEmbeddingSettingsDtoSchema>;
@@ -378,6 +411,7 @@ export type ConfigAgentProfileSettingsDto = z.infer<typeof ConfigAgentProfileSet
 export type ConfigAgentProfileBuildStatusDto = z.infer<typeof ConfigAgentProfileBuildStatusDtoSchema>;
 export type ConfigDefaultProfileSettingsDto = z.infer<typeof ConfigDefaultProfileSettingsDtoSchema>;
 export type WebConfigDto = z.infer<typeof WebConfigDtoSchema>;
+export type ObservabilityConfigDto = z.infer<typeof ObservabilityConfigDtoSchema>;
 export type GlobalConfigDto = z.infer<typeof GlobalConfigDtoSchema>;
 export type GlobalConfigUpdateDto = z.infer<typeof GlobalConfigUpdateDtoSchema>;
 export type ProjectConfigDto = z.infer<typeof ProjectConfigDtoSchema>;
@@ -404,6 +438,8 @@ export const ConfigBootstrapDtoSchema = z.object({
         effectiveProfileKey: ProfileKeySchema.nullable(),
     }),
     ui: z.object({
+        theme: z.string().trim().min(1).default("sepia"),
+        customThemes: z.array(CustomThemeDtoSchema).default([]),
         costCurrency: z.enum(["USD", "CNY"]).default("USD"),
     }),
 });

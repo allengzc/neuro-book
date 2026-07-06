@@ -196,7 +196,7 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                 v-for="tab in pinnedTabs"
                 :key="tab.path"
                 class="group relative flex h-8 w-[188px] max-w-[188px] cursor-pointer select-none items-center gap-2 px-3 text-xs transition-colors"
-                :class="tab.path === props.activePath ? 'bg-[var(--editor-canvas-bg)] text-[var(--text-main)] after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-full after:bg-[var(--accent-main)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                :class="tab.path === props.activePath ? 'bg-[var(--editor-bg)] text-[var(--text-main)] after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-full after:bg-[var(--accent-main)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
                 :title="tab.path"
                 data-role="markdown-studio-tab"
                 draggable="true"
@@ -217,7 +217,7 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                 <span :class="tabIconClass(tab)" class="h-3.5 w-3.5 shrink-0"></span>
                 <span class="min-w-0 flex-1 truncate" :class="tab.preview ? 'italic' : ''">{{ tab.title }}</span>
                 <span class="flex h-2 w-2 shrink-0 items-center justify-center">
-                    <span v-if="tab.dirty" class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+                    <span v-if="tab.dirty" class="h-1.5 w-1.5 rounded-full bg-[var(--status-warning)]"></span>
                 </span>
                 <button type="button" class="-mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-[var(--bg-hover)] group-hover:opacity-100" :title="t('markdownStudio.toolbar.close')" @click.stop="emit('close-tab', tab.path)">
                     <span class="i-lucide-x h-3 w-3"></span>
@@ -237,7 +237,7 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                     v-for="tab in regularTabs"
                     :key="tab.path"
                     class="group relative flex h-[34px] w-[188px] max-w-[188px] cursor-pointer select-none items-center gap-2 px-3 text-xs transition-colors"
-                    :class="tab.path === props.activePath ? 'bg-[var(--editor-canvas-bg)] text-[var(--text-main)] after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-full after:bg-[var(--accent-main)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                    :class="tab.path === props.activePath ? 'bg-[var(--editor-bg)] text-[var(--text-main)] after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-full after:bg-[var(--accent-main)]' : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
                     :title="tab.path"
                     data-role="markdown-studio-tab"
                     draggable="true"
@@ -258,7 +258,7 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                     <span :class="tabIconClass(tab)" class="h-3.5 w-3.5 shrink-0"></span>
                     <span class="min-w-0 flex-1 truncate" :class="tab.preview ? 'italic' : ''">{{ tab.title }}</span>
                     <span class="flex h-2 w-2 shrink-0 items-center justify-center">
-                        <span v-if="tab.dirty" class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+                        <span v-if="tab.dirty" class="h-1.5 w-1.5 rounded-full bg-[var(--status-warning)]"></span>
                     </span>
                     <button type="button" class="-mr-1 flex h-5 w-5 shrink-0 items-center justify-center rounded opacity-0 hover:bg-[var(--bg-hover)] group-hover:opacity-100" :title="t('markdownStudio.toolbar.close')" @click.stop="emit('close-tab', tab.path)">
                         <span class="i-lucide-x h-3 w-3"></span>
@@ -291,7 +291,7 @@ function isDropTarget(tab: WorkspaceEditorTab, pinned: boolean, position: TabDro
                     <span class="i-lucide-message-square-text h-4 w-4"></span>
                     <span
                         v-if="props.commentCount > 0"
-                        class="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border border-[var(--toolbar-bg)] bg-amber-500 px-0.5 text-[9px] font-semibold leading-none text-white"
+                        class="absolute -right-1 -top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border border-[var(--toolbar-bg)] bg-[var(--status-warning)] px-0.5 text-[9px] font-semibold leading-none text-[var(--text-inverse)]"
                     >{{ props.commentCount > 9 ? "9+" : props.commentCount }}</span>
                 </button>
                 <button class="flex h-7 w-7 items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('markdownStudio.toolbar.more')" @click="emit('more')">

@@ -208,7 +208,7 @@ watch(() => props.modelValue, async (open) => {
         @cancel="handleClose"
     >
         <div class="flex min-h-0 flex-1 flex-col px-1 py-1">
-            <div v-if="bookshelfError" class="mb-3 rounded-md border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-600">
+            <div v-if="bookshelfError" class="mb-3 rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-xs leading-5 text-[var(--status-danger)]">
                 {{ bookshelfError }}
             </div>
 
@@ -277,7 +277,7 @@ watch(() => props.modelValue, async (open) => {
                             </button>
                             <button
                                 type="submit"
-                                class="inline-flex items-center justify-center gap-1 rounded-md bg-[var(--accent-main)] px-3 py-2 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+                                class="inline-flex items-center justify-center gap-1 rounded-md bg-[var(--accent-main)] px-3 py-2 text-xs font-medium text-[var(--text-inverse)] transition-opacity hover:opacity-90 disabled:opacity-60"
                                 :disabled="isCreating"
                             >
                                 <span v-if="isCreating" class="i-lucide-loader-2 h-3.5 w-3.5 animate-spin"></span>
@@ -332,7 +332,7 @@ watch(() => props.modelValue, async (open) => {
                         <!-- 悬浮操作菜单 -->
                         <div class="absolute left-2 top-2 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                             <button
-                                class="p-1.5 bg-[var(--bg-main)]/80 backdrop-blur-sm hover:bg-red-500/10 text-[var(--text-muted)] hover:text-red-500 rounded-lg transition-colors border border-transparent hover:border-red-500/20 shadow-sm"
+                                class="rounded-lg border border-transparent bg-[var(--bg-main)]/80 p-1.5 text-[var(--text-muted)] shadow-sm backdrop-blur-sm transition-colors hover:border-[var(--status-danger-border)] hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)]"
                                 :title="t('ide.bookshelf.deleteBook')"
                                 :aria-label="t('ide.bookshelf.deleteBook')"
                                 @click.stop="handleDeleteNovel(novel.id, novel.title)"

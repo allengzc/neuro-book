@@ -14,7 +14,7 @@ import {
     LinkedAgentsReminder,
     Message,
     MentionedSkillsReminder,
-    PlanModeReminder,
+    ModeReminder,
     ProfilePrompt,
     RuntimeLocationReminder,
     SkillCatalog,
@@ -52,8 +52,7 @@ export default defineAgentProfile({
         builtin.agent.getSession,
         builtin.agent.detach,
         builtin.control.requestUserInput,
-        builtin.control.enterPlanMode,
-        builtin.control.exitPlanMode,
+        builtin.control.switchMode,
         builtin.variable.schema,
         builtin.variable.read,
         builtin.variable.patch,
@@ -94,7 +93,7 @@ export default defineAgentProfile({
                         {"<system-reminder>\n- When the user wants story content changed, ask them to switch back to the target Project Workspace.\n</system-reminder>"}
                     </Message>
                     <LinkedAgentsReminder />
-                    <PlanModeReminder />
+                    <ModeReminder />
                     <Message>
                         <MentionedSkillsReminder />
                     </Message>

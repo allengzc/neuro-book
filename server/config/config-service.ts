@@ -175,6 +175,8 @@ export async function readConfigBootstrap(
             effectiveProfileKey: resolveDefaultProfileKeyFromConfig(target.workspaceKind, global, project),
         },
         ui: {
+            theme: effective.ui.theme,
+            customThemes: effective.ui.customThemes,
             costCurrency: effective.ui.costCurrency,
         },
     };
@@ -199,6 +201,7 @@ export async function saveGlobalConfig(
         ...(input.agent !== undefined ? {agent: input.agent} : {}),
         ...(input.ui !== undefined ? {ui: input.ui} : {}),
         ...(input.editor !== undefined ? {editor: input.editor} : {}),
+        ...(input.observability !== undefined ? {observability: input.observability} : {}),
         ...(input.web !== undefined ? {web: normalizeGlobalWebForWrite(input.web, current)} : {}),
         ...(input.models !== undefined ? {models: normalizeGlobalModelsForWrite(input.models, current)} : {}),
         ...(input.embedding !== undefined ? {embedding: normalizeGlobalEmbeddingForWrite(input.embedding, current)} : {}),
@@ -425,6 +428,7 @@ function redactGlobalConfig(config: StoredGlobalConfig): GlobalConfigDto {
         agent: config.agent,
         ui: config.ui,
         editor: config.editor,
+        observability: config.observability,
         web: {
             search: {
                 order: config.web?.search?.order ?? [],

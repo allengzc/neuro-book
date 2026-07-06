@@ -5,7 +5,7 @@ import type {ConfigBootstrapDto} from "nbook/shared/dto/config.dto";
 import {isNovelIdeTab, type NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import MarkdownStudioWorkbench from "nbook/app/components/markdown-studio/MarkdownStudioWorkbench.vue";
 import AgentChatSurface from "nbook/app/components/novel-ide/agent/AgentChatSurface.vue";
-import AgentModeSessionSidebar from "nbook/app/components/novel-ide/agent/AgentModeSessionSidebar.vue";
+import AgentTraceViewerDialog from "nbook/app/components/novel-ide/agent/trace-viewer/AgentTraceViewerDialog.vue";import AgentModeSessionSidebar from "nbook/app/components/novel-ide/agent/AgentModeSessionSidebar.vue";
 import NovelIdeHeader from "nbook/app/components/novel-ide/NovelIdeHeader.vue";
 import NovelIdeSidebar from "nbook/app/components/novel-ide/NovelIdeSidebar.vue";
 import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSettingsDialog.vue";
@@ -59,6 +59,7 @@ const themeHostRef = ref<HTMLElement | null>(null);
 const currentUser = ref<AuthSessionDto["user"]>(null);
 const bookshelfOpen = ref(false);
 const settingsDialogOpen = ref(false);
+const traceViewerOpen = ref(false);
 const worldEngineWorkbenchOpen = ref(false);
 const worldEngineWorkbenchHasUnsavedDrafts = ref(false);
 const worldEngineWorkbenchSaving = ref(false);
@@ -112,7 +113,9 @@ const {
     selectedFileContent,
     selectedFileNode,
     selectedFilePath,
-    theme,
+    activeThemeId,
+    customThemes,
+    themeVarsSnapshot,
     viewMode,
     markdownEditorPreferences,
     monacoEditorPreferences,
@@ -148,7 +151,7 @@ const {
     switchToUserAssetsWorkspace,
     loadNovels,
 } = novelIdeStore;
-const {mountThemeHost} = useIdeTheme(theme);
+const {mountThemeHost} = useIdeTheme(activeThemeId, customThemes, themeVarsSnapshot);
 const workspaceFileEvents = useWorkspaceFileEvents();
 const authSessionState = useAuthSessionState();
 const agentSurfaceRef = ref<InstanceType<typeof AgentChatSurface> | null>(null);
@@ -1382,6 +1385,18 @@ const selectAgentModeSession = async (sessionId: number): Promise<void> => {
 };
 
 /**
+ * trace 查看器请求打开某个 session：先切 session（loadSession 同步落 activeSessionId，
+ * 使随后 active watcher 的 ensureSessionReady 提前返回，避免恢复旧 session 覆盖目标），
+ * 再确保 Agent 面板可见（Agent Mode 下面板已可见，无需动开关）。
+ */
+const openTraceSession = async (sessionId: number): Promise<void> => {
+    await agentSurfaceRef.value?.selectSession(sessionId);
+    if (!isAgentMode.value) {
+        rightPanelOpen.value = true;
+    }
+};
+
+/**
  * Agent Mode 新建默认 leader session。
  */
 const createAgentModeSession = async (): Promise<void> => {
@@ -1521,6 +1536,7 @@ const syncDefaultModelLabel = async (): Promise<void> => {
             query,
         });
         setSelectedModelLabel(settings.modelSettings.defaultModelLabel);
+        novelIdeStore.applyThemeConfig(settings.ui.theme, settings.ui.customThemes);
     } catch {
         setSelectedModelLabel(null);
     }
@@ -2099,6 +2115,7 @@ onBeforeUnmount(() => {
             @open-world-engine="openWorldEngineWorkbench"
             @open-user-assets="openUserAssets"
             @open-profile-workbench="profileWorkbenchOpen = true"
+            @open-trace-viewer="traceViewerOpen = true"
             @switch-novel="handleSwitchNovel"
             @open-admin="void openAdmin()"
             @logout="void logout()"
@@ -2137,7 +2154,7 @@ onBeforeUnmount(() => {
 
             <!-- Studio 工作区 -->
             <main
-                class="mode-transition-studio ide-editor-canvas relative flex min-w-0 flex-col overflow-hidden bg-[var(--editor-canvas-bg)] transition-[width,flex-basis,opacity,border-color,transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
+                class="mode-transition-studio ide-editor-canvas relative flex min-w-0 flex-col overflow-hidden bg-[var(--editor-bg)] transition-[width,flex-basis,opacity,border-color,transform] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]"
                 :class="[
                     isAgentMode ? 'shrink order-3' : 'flex-1 order-2',
                     isAgentMode && agentStudioPanelOpen && layoutTransitionDirection !== 'to-agent' ? 'border-l border-[var(--border-color)] opacity-100' : '',
@@ -2172,7 +2189,7 @@ onBeforeUnmount(() => {
                             :node="displaySelectedFileNode"
                             :editor-kind="displayCurrentEditorKind"
                             :workspace-view-mode="displayCurrentWorkspaceViewMode"
-                            :theme="theme"
+                            :theme="activeThemeId"
                             :compact="isAgentMode"
                             :agent-mode-active="isAgentMode"
                             :workspace-mode="isUserAssetsWorkspace ? 'user-assets' : 'novel'"
@@ -2300,11 +2317,12 @@ onBeforeUnmount(() => {
 
         <NovelBookshelfDialog v-model="bookshelfOpen" :before-workspace-switch="confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch" @switched="void router.replace(buildProjectRoute($event))" />
         <NovelIdeSettingsDialog v-model="settingsDialogOpen" />
+        <AgentTraceViewerDialog v-model="traceViewerOpen" @open-session="void openTraceSession($event)" />
         <UserProfileWorkbenchDialog v-model="profileWorkbenchOpen" />
         <WorkspaceFileConflictDialog
             v-model="novelIdeStore.workspaceConflictDialogOpen"
             :conflict="novelIdeStore.workspaceWriteConflict"
-            :theme="theme"
+            :theme="activeThemeId"
             @resolve="void resolveWorkspaceWriteConflict($event)"
         />
         <WorkspaceCharacterDetailPanel

@@ -139,11 +139,11 @@ function statusLabel(status: AgentSessionSummaryDto["status"]): string {
  */
 function statusClass(status: AgentSessionSummaryDto["status"]): string {
     switch (status) {
-        case "running": return "border-blue-500/35 bg-blue-500/10 text-blue-600 dark:text-blue-300";
-        case "waiting": return "border-amber-500/35 bg-amber-500/10 text-amber-700 dark:text-amber-300";
-        case "interrupted": return "border-rose-500/35 bg-rose-500/10 text-rose-600 dark:text-rose-300";
+        case "running": return "border-[var(--status-info-border)] bg-[var(--status-info-bg)] text-[var(--status-info)]";
+        case "waiting": return "border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]";
+        case "interrupted": return "border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[var(--status-danger)]";
         case "archived": return "border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]";
-        default: return "border-emerald-500/25 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300";
+        default: return "border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success)]";
     }
 }
 
@@ -216,7 +216,7 @@ watch(storageKey, loadPinnedSessions, {immediate: true});
                     <span class="flex min-w-0 items-center gap-1.5">
                         <span class="truncate text-[12px] font-semibold text-[var(--text-main)]">{{ sessionTitle(session) }}</span>
                         <span class="shrink-0 rounded border px-1 py-0.5 text-[9px]" :class="statusClass(session.status)">{{ statusLabel(session.status) }}</span>
-                        <span v-if="profileAvailabilityLabel(session)" class="inline-flex shrink-0 items-center gap-1 rounded border border-amber-500/25 bg-amber-500/10 px-1 py-0.5 text-[9px] text-amber-700 dark:text-amber-300" :title="profileAvailabilityTitle(session)">
+                        <span v-if="profileAvailabilityLabel(session)" class="inline-flex shrink-0 items-center gap-1 rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-1 py-0.5 text-[9px] text-[var(--status-warning)]" :title="profileAvailabilityTitle(session)">
                             <span class="i-lucide-lock h-3 w-3"></span>
                             {{ profileAvailabilityLabel(session) }}
                         </span>
@@ -231,7 +231,7 @@ watch(storageKey, loadPinnedSessions, {immediate: true});
                     <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--bg-input)] hover:text-[var(--accent-text)]" :title="pinnedSet.has(session.sessionId) ? t('agent.session.unpin') : t('agent.session.pin')" @click.stop="togglePin(session.sessionId)">
                         <span class="i-lucide-pin h-3.5 w-3.5"></span>
                     </button>
-                    <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] hover:bg-red-500/10 hover:text-red-500 disabled:opacity-40" :title="t('agent.session.archive')" :disabled="loading || actionId === session.sessionId || !canArchiveSession(session)" @click.stop="emit('archive', session)">
+                    <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)] disabled:opacity-40" :title="t('agent.session.archive')" :disabled="loading || actionId === session.sessionId || !canArchiveSession(session)" @click.stop="emit('archive', session)">
                         <span v-if="actionId === session.sessionId" class="i-lucide-loader-circle h-3.5 w-3.5 animate-spin"></span>
                         <span v-else class="i-lucide-archive h-3.5 w-3.5"></span>
                     </button>

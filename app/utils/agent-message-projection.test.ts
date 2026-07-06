@@ -41,8 +41,9 @@ describe("agent message projection helpers", () => {
     it("approval pending session 保留批准和拒绝选项", () => {
         const session = toPendingUserInputSession({
             toolCallId: "plan-1",
-            toolName: "enter_plan_mode",
+            toolName: "switch_mode",
             args: {
+                targetMode: "plan",
                 reason: "需要先制定计划",
             },
         }, []);
@@ -55,11 +56,12 @@ describe("agent message projection helpers", () => {
         }));
     });
 
-    it("exit_plan_mode pending session 保留计划文件预览", () => {
+    it("switch_mode 退出计划 pending session 保留计划文件预览", () => {
         const session = toPendingUserInputSession({
             toolCallId: "exit-1",
-            toolName: "exit_plan_mode",
+            toolName: "switch_mode",
             args: {
+                targetMode: "normal",
                 reason: "ready",
                 planFilePath: ".agent/plan/preview.md",
             },
@@ -68,19 +70,20 @@ describe("agent message projection helpers", () => {
         }, []);
         const enterSession = toPendingUserInputSession({
             toolCallId: "enter-1",
-            toolName: "enter_plan_mode",
+            toolName: "switch_mode",
             args: {
+                targetMode: "plan",
                 reason: "需要先制定计划",
             },
-            planFilePath: ".agent/plan/preview.md",
-            planContent: "# Preview\n",
         }, []);
 
         expect(session?.questions[0]).toEqual(expect.objectContaining({
-            approvalAction: "exit_plan_mode",
+            approvalAction: "switch_mode",
+            switchTargetMode: "normal",
             planFilePath: ".agent/plan/preview.md",
             planContent: "# Preview\n\n- one\n",
         }));
+        expect(enterSession?.questions[0]?.switchTargetMode).toBe("plan");
         expect(enterSession?.questions[0]?.planFilePath).toBeUndefined();
         expect(enterSession?.questions[0]?.planContent).toBeUndefined();
     });
@@ -302,7 +305,7 @@ describe("agent message projection helpers", () => {
             model: null,
             thinkingLevel: null,
             effectiveThinkingLevel: "off",
-            planModeActive: false,
+            agentMode: "normal",
             lastSeq: 0,
         });
 
@@ -434,7 +437,7 @@ describe("agent message projection helpers", () => {
             model: null,
             thinkingLevel: null,
             effectiveThinkingLevel: "off",
-            planModeActive: false,
+            agentMode: "normal",
             lastSeq: 0,
         });
 

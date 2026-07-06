@@ -50,7 +50,7 @@ const emit = defineEmits<{
     <!-- TSX Profile 顶部工具栏 -->
     <header class="flex h-12 shrink-0 items-center gap-4 border-b border-[var(--border-color)] bg-[var(--bg-panel)] px-4">
         <div class="flex min-w-0 items-center gap-3">
-            <div class="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--accent-main)] text-xs font-semibold text-white shadow-sm">TS</div>
+            <div class="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--accent-main)] text-xs font-semibold text-[var(--text-inverse)] shadow-sm">TS</div>
             <div class="min-w-0">
                 <div class="flex items-center gap-2 text-[13px] font-semibold">
                     <span class="truncate">{{ props.title ?? "TSX Profile 可视化编辑器" }}</span>
@@ -62,7 +62,7 @@ const emit = defineEmits<{
         <FormSelect :model-value="props.selectedTemplate" :options="props.templateOptions" placeholder="选择模板" dropdown-direction="down" class="min-w-[320px]" @update:model-value="emit('update:selectedTemplate', $event)" />
 
         <div class="ml-auto flex items-center gap-2">
-            <span class="hidden items-center gap-1 text-xs text-emerald-600 md:flex">
+            <span class="hidden items-center gap-1 text-xs text-[var(--status-success)] md:flex">
                 <span class="i-lucide-circle-check h-3.5 w-3.5"></span>
                 <span>{{ props.editorStatusText }}</span>
             </span>

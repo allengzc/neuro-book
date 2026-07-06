@@ -381,7 +381,7 @@ const endSwipe = (event: PointerEvent): void => {
         <button
             class="flex min-w-0 w-full items-center gap-2 rounded-md border text-left transition-colors"
             :class="isSystemError
-                ? 'border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-600 hover:bg-rose-500/15'
+                ? 'border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-xs text-[var(--status-danger)] hover:bg-[var(--status-danger-bg)]'
                 : isSystemReminder
                     ? 'border-[var(--border-color)]/50 bg-[var(--bg-panel)]/45 px-2.5 py-1.5 text-[11px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)]/60 hover:text-[var(--text-secondary)]'
                     : 'border-[var(--border-color)] bg-[var(--bg-main)] px-3 py-2 text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
@@ -397,9 +397,9 @@ const endSwipe = (event: PointerEvent): void => {
         <div v-show="!isSystemCollapsed" class="mt-2 min-w-0 w-full">
             <div
                 class="min-w-0 max-w-full overflow-y-auto rounded-lg border border-[var(--border-color)] bg-[var(--bg-sidebar)]/55 px-3 py-2 shadow-sm"
-                :class="isSystemError ? 'max-h-[240px] border-rose-500/30 bg-rose-500/5' : isSystemReminder ? 'max-h-[180px]' : 'max-h-[320px]'"
+                :class="isSystemError ? 'max-h-[240px] border-[var(--status-danger-border)] bg-[var(--status-danger-bg)]' : isSystemReminder ? 'max-h-[180px]' : 'max-h-[320px]'"
             >
-                <div v-if="props.node.message.content" class="min-w-0 text-xs leading-relaxed" :class="isSystemError ? 'text-rose-700' : 'text-[var(--text-muted)]'">
+                <div v-if="props.node.message.content" class="min-w-0 text-xs leading-relaxed" :class="isSystemError ? 'text-[var(--status-danger)]' : 'text-[var(--text-muted)]'">
                     <AgentMarkdownContent :content="props.node.message.content" :html="props.node.message.html" :open-reference="props.openReference" />
                 </div>
             </div>
@@ -451,7 +451,7 @@ const endSwipe = (event: PointerEvent): void => {
                 <button v-if="canRetry" class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled || props.runActionDisabled" :title="t('agent.textBubble.retry')" @click="emit('retry', props.node.message)">
                     <span class="i-lucide-rotate-cw h-3.5 w-3.5"></span>
                 </button>
-                <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-rose-500 disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" :title="t('agent.textBubble.rollback')" @click="emit('delete', props.node.message)">
+                <button class="rounded p-1 transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--status-danger)] disabled:cursor-not-allowed disabled:opacity-40" :disabled="props.actionDisabled" :title="t('agent.textBubble.rollback')" @click="emit('delete', props.node.message)">
                     <span class="i-lucide-undo-2 h-3.5 w-3.5"></span>
                 </button>
             </div>
@@ -490,8 +490,8 @@ const endSwipe = (event: PointerEvent): void => {
             @pointercancel="swipeStart = null"
         >
             <div
-                class="min-w-0 max-w-full rounded-2xl border border-[var(--border-color)] bg-[var(--agent-bg)] px-4 py-3 shadow-sm"
-                :class="props.node.message.error ? 'border-rose-500/40 bg-rose-500/5' : ''"
+                class="min-w-0 max-w-full rounded-2xl border border-[var(--border-color)] bg-[var(--chat-ai-bg)] px-4 py-3 shadow-sm"
+                :class="props.node.message.error ? 'border-[var(--status-danger-border)] bg-[var(--status-danger-bg)]' : ''"
             >
                 <div v-if="isEditing" class="space-y-3">
                     <!-- 消息编辑器 -->
@@ -515,7 +515,7 @@ const endSwipe = (event: PointerEvent): void => {
                         <button class="inline-flex h-7 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[11px] text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.savingEdit" @click="cancelEdit">
                             {{ t("agent.textBubble.cancel") }}
                         </button>
-                        <button class="inline-flex h-7 items-center justify-center rounded-md border border-transparent bg-[var(--accent-main)] px-2.5 text-[11px] text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.savingEdit || props.runActionDisabled || !editingDraft.trim()" @click="saveEdit">
+                        <button class="inline-flex h-7 items-center justify-center rounded-md border border-transparent bg-[var(--accent-main)] px-2.5 text-[11px] text-[var(--text-inverse)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.savingEdit || props.runActionDisabled || !editingDraft.trim()" @click="saveEdit">
                             {{ props.savingEdit ? t("agent.textBubble.saving") : t("agent.textBubble.save") }}
                         </button>
                     </div>

@@ -204,7 +204,7 @@ function issueLevel(severity: WorldWorkbenchPreviewReviewQueueItem["severity"]):
 
 /** issue 级别的紧凑视觉样式。 */
 function issueLevelClass(severity: WorldWorkbenchPreviewReviewQueueItem["severity"]): string {
-    return issueLevel(severity) === "E" ? "border-[var(--we-danger)] bg-[var(--we-danger-soft)] text-[var(--we-danger)]" : "border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)]";
+    return issueLevel(severity) === "E" ? "border-[var(--we-danger)] bg-[var(--we-danger-soft)] text-[var(--we-danger)]" : "border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] text-[var(--we-warning)]";
 }
 
 /** issue triage 状态短文案。 */
@@ -220,7 +220,7 @@ function issueStatusClass(status: WorldWorkbenchPreviewReviewQueueItem["status"]
     if (status === "ignored") {
         return "border-[var(--we-border)] bg-[var(--we-bg-muted)] text-[var(--we-text-muted)]";
     }
-    return "border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)]";
+    return "border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] text-[var(--we-warning)]";
 }
 </script>
 
@@ -250,13 +250,13 @@ function issueStatusClass(status: WorldWorkbenchPreviewReviewQueueItem["status"]
                 <div class="flex items-start justify-between gap-3">
                     <div class="min-w-0 flex-1">
                         <div class="flex flex-wrap items-center gap-2">
-                            <span v-if="hasMetadataDraft" class="rounded-md border border-amber-300 bg-[var(--we-warning-soft)] px-2 py-1 text-[11px] font-semibold text-[var(--we-warning)]" :title="`未应用 metadata 草稿：${metadataDraftDiffLabel}`">meta draft</span>
-                            <span v-if="hasValueDraft" class="rounded-md border border-amber-300 bg-[var(--we-warning-soft)] px-2 py-1 text-[11px] font-semibold text-[var(--we-warning)]" :title="`${props.valueDraftCount} 个未应用 value 草稿`">value draft {{ props.valueDraftCount }}</span>
+                            <span v-if="hasMetadataDraft" class="rounded-md border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-2 py-1 text-[11px] font-semibold text-[var(--we-warning)]" :title="`未应用 metadata 草稿：${metadataDraftDiffLabel}`">meta draft</span>
+                            <span v-if="hasValueDraft" class="rounded-md border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-2 py-1 text-[11px] font-semibold text-[var(--we-warning)]" :title="`${props.valueDraftCount} 个未应用 value 草稿`">value draft {{ props.valueDraftCount }}</span>
                             <button v-if="subjectFileProposalCount" data-testid="slice-card-subject-file-proposal-count" type="button" class="inline-flex items-center gap-1 rounded-md border border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] px-2 py-1 text-[11px] font-semibold text-[var(--we-accent-strong)] transition-colors hover:bg-[var(--we-bg-active)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--we-accent-border)]" title="按当前主体语境，当前切片有主体文件建议；打开右侧 Inspector 查看" @click.stop="openSubjectFileProposals">
                                 <span class="i-lucide-files h-3 w-3"></span>
                                 files {{ subjectFileProposalCount }}
                             </button>
-                            <span v-if="hasIssues" class="rounded-md border px-2 py-1 text-[11px] font-semibold" :class="hasOpenIssues ? 'border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)]' : 'border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] text-[var(--we-accent-strong)]'">{{ reviewBadgeLabel }}</span>
+                            <span v-if="hasIssues" class="rounded-md border px-2 py-1 text-[11px] font-semibold" :class="hasOpenIssues ? 'border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] text-[var(--we-warning)]' : 'border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] text-[var(--we-accent-strong)]'">{{ reviewBadgeLabel }}</span>
                         </div>
                         <div class="mt-2 truncate text-[14px] font-semibold text-[var(--we-text-main)]" :title="hasMetadataDraft ? `草稿：${displayTitle}；已应用：${props.slice.title || props.slice.id}` : displayTitle">{{ displayTitle }}</div>
                         <div v-if="hasMetadataDraft" class="mt-1 truncate text-[10px] text-[var(--we-text-muted)]">已应用：{{ props.slice.title || props.slice.id }}</div>
@@ -266,7 +266,7 @@ function issueStatusClass(status: WorldWorkbenchPreviewReviewQueueItem["status"]
                                 :key="`slice-card-issue:${item.key}`"
                                 type="button"
                                 data-testid="slice-card-issue-row"
-                                class="grid w-full grid-cols-[28px_minmax(76px,0.7fr)_minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-2 py-1.5 text-left text-[11px] transition-colors hover:border-amber-300 hover:bg-[var(--we-warning-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--we-accent-border)]"
+                                class="grid w-full grid-cols-[28px_minmax(76px,0.7fr)_minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-2 py-1.5 text-left text-[11px] transition-colors hover:border-[var(--we-warning-border)] hover:bg-[var(--we-warning-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--we-accent-border)]"
                                 :title="item.message"
                                 @click.stop="focusReviewIssue(item)"
                             >

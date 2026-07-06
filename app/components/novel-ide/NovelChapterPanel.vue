@@ -272,9 +272,9 @@ const matchVolume = (volume: LocalVolume): boolean => {
  * 状态颜色。
  */
 const statusClass = (status: ChapterStatusDto): string => {
-    if (status === "DRAFT") return "text-sky-500";
-    if (status === "REVISING") return "text-amber-500";
-    if (status === "DONE") return "text-emerald-500";
+    if (status === "DRAFT") return "text-[var(--status-info)]";
+    if (status === "REVISING") return "text-[var(--status-warning)]";
+    if (status === "DONE") return "text-[var(--status-success)]";
     return "text-[var(--text-muted)]";
 };
 
@@ -947,7 +947,7 @@ watch(selectedVolume, () => {
                 <div v-if="selectedVolume" class="flex min-w-0 flex-1 items-start gap-2 overflow-hidden">
                     <span
                         v-if="isVolumeDetailDirty"
-                        class="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500"
+                        class="mt-1 h-2 w-2 shrink-0 rounded-full bg-[var(--status-warning)]"
                         :title="t('ide.chapterPanel.dirtyTitle')"
                     ></span>
                     <span class="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden">
@@ -964,7 +964,7 @@ watch(selectedVolume, () => {
                 <div v-else-if="selectedChapter" class="flex min-w-0 flex-1 items-start gap-2 overflow-hidden">
                     <span
                         v-if="isChapterDetailDirty"
-                        class="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500"
+                        class="mt-1 h-2 w-2 shrink-0 rounded-full bg-[var(--status-warning)]"
                         :title="t('ide.chapterPanel.dirtyTitle')"
                     ></span>
                     <span class="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden">
@@ -1118,7 +1118,7 @@ watch(selectedVolume, () => {
                                 <div class="h-10 animate-pulse rounded-xl bg-[var(--bg-panel)]/60"></div>
                             </div>
 
-                            <div v-else-if="chapterPlotError" class="rounded-xl border border-rose-500/20 bg-rose-500/6 px-3 py-2 text-[11px] text-rose-700">
+                            <div v-else-if="chapterPlotError" class="rounded-xl border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[11px] text-[var(--status-danger)]">
                                 {{ chapterPlotError }}
                             </div>
 
@@ -1141,7 +1141,7 @@ watch(selectedVolume, () => {
                                                 <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5">
                                                     {{ scene.threadTitle }}
                                                 </span>
-                                                <span v-if="scene.threadIsMain" class="rounded-full border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-amber-700">
+                                                <span v-if="scene.threadIsMain" class="rounded-full border border-[var(--border-accent)] bg-[var(--accent-bg)] px-1.5 py-0.5 text-[var(--accent-text)]">
                                                     {{ t("ide.chapterPanel.mainThread") }}
                                                 </span>
                                                 <span>{{ sceneStatusLabel(scene.status) }}</span>
@@ -1181,7 +1181,7 @@ watch(selectedVolume, () => {
                         <span class="i-lucide-loader-circle animate-spin"></span>
                         {{ t("ide.chapterPanel.saving") }}
                     </span>
-                    <span v-else class="text-rose-500">{{ editChapterError }}</span>
+                    <span v-else class="text-[var(--status-danger)]">{{ editChapterError }}</span>
                 </div>
             </template>
             <div class="space-y-1">
@@ -1214,7 +1214,7 @@ watch(selectedVolume, () => {
             </div>
             <template #footer>
                 <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] transition-colors duration-200 hover:bg-[var(--bg-hover)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="savingEditChapter" @click="showEditChapterDialog = false">{{ t("ide.chapterPanel.cancel") }}</button>
-                <button class="inline-flex min-w-[92px] items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-white transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="savingEditChapter" @click="confirmEditChapter">
+                <button class="inline-flex min-w-[92px] items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-[var(--text-inverse)] transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="savingEditChapter" @click="confirmEditChapter">
                     <span v-if="savingEditChapter" class="flex items-center gap-1">
                         <span class="i-lucide-loader-circle h-4 w-4 animate-spin"></span>
                         {{ t("ide.chapterPanel.saving") }}
@@ -1232,7 +1232,7 @@ watch(selectedVolume, () => {
                         <span class="i-lucide-loader-circle animate-spin"></span>
                         {{ t("ide.chapterPanel.saving") }}
                     </span>
-                    <span v-else class="text-rose-500">{{ editVolumeError }}</span>
+                    <span v-else class="text-[var(--status-danger)]">{{ editVolumeError }}</span>
                 </div>
             </template>
             <div class="space-y-1">
@@ -1245,7 +1245,7 @@ watch(selectedVolume, () => {
             </div>
             <template #footer>
                 <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] transition-colors duration-200 hover:bg-[var(--bg-hover)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="savingEditVolume" @click="showEditVolumeDialog = false">{{ t("ide.chapterPanel.cancel") }}</button>
-                <button class="inline-flex min-w-[92px] items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-white transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="savingEditVolume" @click="confirmEditVolume">
+                <button class="inline-flex min-w-[92px] items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-[var(--text-inverse)] transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="savingEditVolume" @click="confirmEditVolume">
                     <span v-if="savingEditVolume" class="flex items-center gap-1">
                         <span class="i-lucide-loader-circle h-4 w-4 animate-spin"></span>
                         {{ t("ide.chapterPanel.saving") }}

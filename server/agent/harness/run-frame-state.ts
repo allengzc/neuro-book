@@ -14,11 +14,13 @@ export type CreateRunFrameInput = {
     timeoutMs?: RunFrame["timeoutMs"];
     requestOptions?: RunFrame["requestOptions"];
     compaction?: RunFrame["compaction"];
+    piTrace?: RunFrame["piTrace"];
     sessionContextEnabled: RunFrame["sessionContextEnabled"];
     toolKeys: RunFrame["toolKeys"];
     executionToolKeys?: RunFrame["executionToolKeys"];
     profileKey: RunFrame["profileKey"];
     profile: RunFrame["profile"];
+    agentMode: RunFrame["agentMode"];
     thinkingLevel: RunFrame["thinkingLevel"];
     runtimeState: RunFrame["runtimeState"];
     reportResultReminderEnabled: RunFrame["reportResultReminderEnabled"];
@@ -53,11 +55,13 @@ export function createRunFrame(input: CreateRunFrameInput): RunFrame {
         timeoutMs: input.timeoutMs,
         requestOptions: input.requestOptions,
         compaction: input.compaction,
+        piTrace: input.piTrace,
         sessionContextEnabled: input.sessionContextEnabled,
         toolKeys: input.toolKeys,
         executionToolKeys: input.executionToolKeys,
         profileKey: input.profileKey,
         profile: input.profile,
+        agentMode: input.agentMode,
         thinkingLevel: input.thinkingLevel,
         runtimeState: input.runtimeState,
         caller: input.caller,

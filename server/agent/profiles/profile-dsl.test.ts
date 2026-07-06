@@ -13,13 +13,10 @@ import {
     LinkedAgentsReminder,
     Message,
     MentionedSkillsReminder,
+    ModeAvailabilityReminder,
+    ModeReminder,
+    ModeSlot,
     ModelContext,
-    PlanModeAvailabilityReminder,
-    PlanModeExit,
-    PlanModeFull,
-    PlanModeReminder,
-    PlanModeReentry,
-    PlanModeSparse,
     ProfilePrompt,
     Reminder,
     RuntimeLocationReminder,
@@ -774,10 +771,10 @@ describe("profile TSX DSL", () => {
                             children: [
                                 RuntimeLocationReminder(),
                                 WorkspaceFocusReminder(),
-                                PlanModeAvailabilityReminder(),
+                                ModeAvailabilityReminder(),
                                 LinkedAgentsReminder(),
                                 TaskReminder({repeatEveryTurns: 8}),
-                                PlanModeReminder(),
+                                ModeReminder(),
                                 Message({children: MentionedSkillsReminder()}),
                             ],
                         }),
@@ -801,14 +798,15 @@ describe("profile TSX DSL", () => {
                         title: "Test plan",
                         steps: [{id: "one", text: "Do one", status: "pending"}],
                     },
-                    "agent.planMode": {
-                        active: true,
-                        reminderKind: "full",
+                    "agent.mode": {
+                        mode: "plan",
+                        phase: "enter",
+                        fromMode: "normal",
                         workDirectory: "workspace/.agent/123",
                     },
                 },
                 linkedAgents: [{sessionId: 7, profileKey: "writer", detached: false}],
-                planModeActive: true,
+                agentMode: "plan",
             },
         });
         const modelText = (plan.modelContextMessages ?? []).map((message) => message.role === "user" ? messageText(message) : "").join("\n");
@@ -824,37 +822,46 @@ describe("profile TSX DSL", () => {
         expect(appendingText).toContain("Current Project Workspace: workspace/novel-7");
         expect(appendingText).toContain("use novel-7/lorebook/... or novel-7/manuscript/...");
         expect(appendingText).toContain("Current selected file: novel-7/manuscript/001-opening/index.md");
-        expect(appendingText).not.toContain("Plan mode is inactive");
+        expect(appendingText).not.toContain("You are in normal mode. switch_mode is available");
         expect(appendingText).toContain("Current linked agents:");
         expect(appendingText).toContain("Current task list: Test plan");
-        expect(appendingText).toContain("## Thread Work Directory");
-        expect(appendingText).toContain("## Restrictions");
+        expect(appendingText).toContain("## Mode Constraints");
+        expect(appendingText).toContain("## Plan Work Directory");
         expect(appendingText).toContain("## Workflow");
         expect(appendingText).toContain("The user explicitly mentioned skill(s): $draft");
         expect(appendingText).toContain("read the matching SKILL.md location");
         expect(appendingText).not.toContain("{sessionId}");
     });
 
-    it("PlanModeAvailabilityReminder 首轮 inactive 时注入可用性提醒", async () => {
+    it("ModeAvailabilityReminder 只在 normal 模式注入可用性提醒", async () => {
         const profile = defineAgentProfile({
             manifest: {
-                key: "test.plan-mode-availability",
-                name: "Plan Mode Availability",
+                key: "test.mode-availability",
+                name: "Mode Availability",
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
                     children: AppendingSet({
-                        children: PlanModeAvailabilityReminder(),
+                        children: ModeAvailabilityReminder(),
                     }),
                 });
             },
         });
 
-        const plan = await profile.prepare!(context());
+        const normal = await profile.prepare!(context());
+        expect((normal.appendingMessages ?? []).map(messageText).join("\n")).toContain("You are in normal mode. switch_mode is available");
 
-        expect((plan.appendingMessages ?? []).map(messageText).join("\n")).toContain("Plan mode is inactive");
+        const base = context();
+        const plan = await profile.prepare!({
+            ...base,
+            session: {
+                ...base.session,
+                agentMode: "plan",
+            },
+        });
+        expect(plan.appendingMessages ?? []).toEqual([]);
     });
 
     it("WorkspaceFocusReminder 在 Project Workspace 或选中文件变化时注入焦点提醒", async () => {
@@ -938,70 +945,51 @@ describe("profile TSX DSL", () => {
         expect(fileText).toContain("Use this cwd-relative path directly in file tools.");
     });
 
-    it("PlanModeReminder 支持 exit 和 reentry lifecycle 文案", async () => {
+    it("ModeReminder 支持 exit 和 reentry lifecycle 文案", async () => {
         const profile = defineAgentProfile({
             manifest: {
-                key: "test.plan-mode-reminder",
-                name: "Plan Mode Reminder",
+                key: "test.mode-reminder",
+                name: "Mode Reminder",
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
                     children: [
-                        AppendingSet({children: PlanModeReminder()}),
+                        AppendingSet({children: ModeReminder()}),
                     ],
                 });
             },
         });
 
-        const exitPlan = await profile.prepare!({
-            ...context(),
-            session: {
-                ...context().session,
-                planModeActive: false,
-                customState: {
-                    "agent.planMode": {
-                        active: false,
-                        reminderKind: "exit",
-                        workDirectory: "workspace/.agent/123",
-                    },
-                },
-            },
-        });
-        const reentryPlan = await profile.prepare!({
-            ...context(),
-            session: {
-                ...context().session,
-                planModeActive: true,
-                customState: {
-                    "agent.planMode": {
-                        active: true,
-                        reminderKind: "reentry_full",
-                        workDirectory: "workspace/.agent/123",
-                    },
-                },
-            },
-        });
+        const exitFromPlan = await profile.prepare!(modeContext("normal", "exit", "plan"));
+        const exitFromDiscuss = await profile.prepare!(modeContext("normal", "exit", "discuss"));
+        const reentryPlan = await profile.prepare!(modeContext("plan", "reentry", "normal"));
 
-        const exitText = (exitPlan.appendingMessages ?? []).map(messageText).join("\n");
-        expect(exitText).toContain("## Exited Plan Mode");
-        expect(exitText).not.toContain("Plan mode still active");
+        const exitPlanText = (exitFromPlan.appendingMessages ?? []).map(messageText).join("\n");
+        expect(exitPlanText).toContain("## Left Plan Mode");
+        expect(exitPlanText).toContain("Implement the approved plan");
+        expect(exitPlanText).not.toContain("Plan mode is still active");
+
+        const exitDiscussText = (exitFromDiscuss.appendingMessages ?? []).map(messageText).join("\n");
+        expect(exitDiscussText).toContain("## Left Discuss Mode");
+        expect(exitDiscussText).not.toContain("Implement the approved plan");
+
         expect((reentryPlan.appendingMessages ?? []).map(messageText).join("\n")).toContain("## Re-entering Plan Mode");
     });
 
-    it("PlanModeReminder 在 UI soft toggle active 时也会注入 full reminder", async () => {
+    it("ModeReminder 状态变化出全文，周期重放出 steady 轻文案", async () => {
         const profile = defineAgentProfile({
             manifest: {
-                key: "test.plan-mode-soft-toggle",
-                name: "Plan Mode Soft Toggle",
+                key: "test.mode-reminder-steady",
+                name: "Mode Reminder Steady",
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
                     children: [
-                        AppendingSet({children: PlanModeReminder()}),
+                        AppendingSet({children: ModeReminder()}),
                     ],
                 });
             },
@@ -1009,42 +997,69 @@ describe("profile TSX DSL", () => {
 
         const idle = await profile.prepare!(context());
 
+        // normal 模式无 reminder：不注入消息也不写 reminder 指纹
         expect(idle.appendingMessages ?? []).toEqual([]);
         expect(idle.stateWrites).toBeUndefined();
 
-        const toggled = await profile.prepare!({
-            ...context(),
+        const base = context();
+        const modeState = {
+            "agent.mode": {
+                mode: "plan",
+                phase: "enter",
+                fromMode: "normal",
+                workDirectory: "workspace/alpha/.agent/plan",
+            },
+        };
+        const entered = await profile.prepare!({
+            ...base,
             session: {
-                ...context().session,
+                ...base.session,
+                profileKey: "test.mode-reminder-steady",
                 projectPath: "workspace/alpha",
-                planModeActive: true,
+                agentMode: "plan",
+                customState: modeState,
+            },
+        });
+        const enteredText = (entered.appendingMessages ?? []).map(messageText).join("\n");
+
+        expect(enteredText).toContain("Plan mode is active");
+        expect(enteredText).toContain("## Mode Constraints");
+        expect(enteredText).toContain("## Plan Work Directory");
+        expect(enteredText).toContain("workspace/alpha/.agent/plan");
+        expect(enteredText).toContain("planFilePath like .agent/plan/<slug>.md");
+        expect(enteredText).toContain("approval UI displays that Project Workspace file");
+
+        // 把第一次 prepare 写下的 reminder 指纹回填 customState，模拟 6 轮后的周期重放
+        const reminderWrite = (entered.stateWrites ?? []).flatMap((write) => {
+            return write.type === "custom" && write.key === "profileState.test.mode-reminder-steady" ? [write] : [];
+        })[0];
+        expect(reminderWrite).toBeDefined();
+        const steady = await profile.prepare!({
+            ...base,
+            runtime: {...base.runtime, promptUserTurnCount: 7},
+            session: {
+                ...base.session,
+                profileKey: "test.mode-reminder-steady",
+                projectPath: "workspace/alpha",
+                agentMode: "plan",
                 customState: {
-                    "profileState.test.plan-mode-soft-toggle": {
-                        reminders: {
-                            "plan-mode": {
-                                fingerprint: "__undefined__",
-                                injectedAtTurn: 1,
-                            },
-                        },
-                    },
+                    ...modeState,
+                    "profileState.test.mode-reminder-steady": reminderWrite!.value,
                 },
             },
         });
-        const text = (toggled.appendingMessages ?? []).map(messageText).join("\n");
+        const steadyText = (steady.appendingMessages ?? []).map(messageText).join("\n");
 
-        expect(text).toContain("## Thread Work Directory");
-        expect(text).toContain("## Restrictions");
-        expect(text).toContain("workspace/alpha/.agent/plan");
-        expect(text).toContain("alpha/.agent/plan/<slug>.md");
-        expect(text).toContain("planFilePath like .agent/plan/<slug>.md");
-        expect(text).toContain("approval UI displays that Project Workspace file");
+        expect(steadyText).toContain("Plan mode is still active");
+        expect(steadyText).not.toContain("## Mode Constraints");
+        expect(steadyText).not.toContain("## Workflow");
     });
 
-    it("PlanModeReminder 支持四种子节点插槽覆盖默认文案", async () => {
+    it("ModeReminder 支持 ModeSlot 插槽覆盖默认文案", async () => {
         const profile = defineAgentProfile({
             manifest: {
-                key: "test.plan-mode-slots",
-                name: "Plan Mode Slots",
+                key: "test.mode-slots",
+                name: "Mode Slots",
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
@@ -1052,12 +1067,12 @@ describe("profile TSX DSL", () => {
                 return ProfilePrompt({
                     children: [
                         AppendingSet({
-                            children: PlanModeReminder({
+                            children: ModeReminder({
                                 children: [
-                                    PlanModeFull({children: "CUSTOM_FULL"}),
-                                    PlanModeSparse({children: "CUSTOM_SPARSE"}),
-                                    PlanModeExit({children: "CUSTOM_EXIT"}),
-                                    PlanModeReentry({children: "CUSTOM_REENTRY"}),
+                                    ModeSlot({kind: "plan_enter", children: "CUSTOM_PLAN_ENTER"}),
+                                    ModeSlot({kind: "plan_steady", children: "CUSTOM_PLAN_STEADY"}),
+                                    ModeSlot({kind: "discuss_enter", children: "CUSTOM_DISCUSS_ENTER"}),
+                                    ModeSlot({kind: "exit_from_plan", children: "CUSTOM_EXIT_FROM_PLAN"}),
                                 ],
                             }),
                         }),
@@ -1066,36 +1081,41 @@ describe("profile TSX DSL", () => {
             },
         });
 
-        const full = await profile.prepare!(planModeContext("full", true));
-        const sparse = await profile.prepare!(planModeContext("sparse", true));
-        const exit = await profile.prepare!(planModeContext("exit", false));
-        const reentry = await profile.prepare!(planModeContext("reentry_full", true));
+        const planEnter = await profile.prepare!(modeContext("plan", "enter", "normal"));
+        const planSteady = await profile.prepare!(modeContext("plan", "steady", "normal"));
+        const discussEnter = await profile.prepare!(modeContext("discuss", "enter", "normal"));
+        const exitFromPlan = await profile.prepare!(modeContext("normal", "exit", "plan"));
+        // 未覆盖的插槽档位回落默认文案
+        const exitPlain = await profile.prepare!(modeContext("normal", "exit", "discuss"));
 
-        expect((full.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_FULL");
-        expect((full.appendingMessages ?? []).map(messageText).join("\n")).not.toContain("## Thread Work Directory");
-        expect((sparse.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_SPARSE");
-        expect((exit.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_EXIT");
-        expect((reentry.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_REENTRY");
+        const planEnterText = (planEnter.appendingMessages ?? []).map(messageText).join("\n");
+        expect(planEnterText).toContain("CUSTOM_PLAN_ENTER");
+        expect(planEnterText).toContain("Thread work directory:");
+        expect(planEnterText).not.toContain("## Plan Work Directory");
+        expect((planSteady.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_PLAN_STEADY");
+        expect((discussEnter.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_DISCUSS_ENTER");
+        expect((exitFromPlan.appendingMessages ?? []).map(messageText).join("\n")).toContain("CUSTOM_EXIT_FROM_PLAN");
+        expect((exitPlain.appendingMessages ?? []).map(messageText).join("\n")).toContain("## Left Discuss Mode");
     });
 
-    it("PlanMode slot 不能脱离 PlanModeReminder 使用", async () => {
+    it("ModeSlot 不能脱离 ModeReminder 使用", async () => {
         const profile = defineAgentProfile({
             manifest: {
-                key: "test.bad-plan-mode-slot",
-                name: "Bad Plan Mode Slot",
+                key: "test.bad-mode-slot",
+                name: "Bad Mode Slot",
             },
             initialSchema: Type.Object({}),
             allowedToolKeys: [],
             context() {
                 return ProfilePrompt({
                     children: [
-                        AppendingSet({children: PlanModeFull({children: "bad"})}),
+                        AppendingSet({children: ModeSlot({kind: "plan_enter", children: "bad"})}),
                     ],
                 });
             },
         });
 
-        await expect(profile.prepare!(context())).rejects.toThrow("PlanModeFull");
+        await expect(profile.prepare!(context())).rejects.toThrow("ModeSlot");
     });
 
     it("VariableSchema 默认输出局部 schema", async () => {
@@ -1155,7 +1175,7 @@ function context(): ProfilePrepareContext<object> {
         customState: {},
         linkedAgents: [],
         archived: false,
-        planModeActive: false,
+        agentMode: "normal",
         async read() {
             return {
                 snapshot: {
@@ -1199,16 +1219,18 @@ function context(): ProfilePrepareContext<object> {
     };
 }
 
-function planModeContext(kind: string, active: boolean): ProfilePrepareContext<object> {
+/** 构造带 agent.mode 状态的 prepare 上下文；mode/phase/fromMode 对应新模式状态。 */
+function modeContext(mode: "normal" | "discuss" | "plan", phase: string, fromMode: "normal" | "discuss" | "plan"): ProfilePrepareContext<object> {
     return {
         ...context(),
         session: {
             ...context().session,
-            planModeActive: active,
+            agentMode: mode,
             customState: {
-                "agent.planMode": {
-                    active,
-                    reminderKind: kind,
+                "agent.mode": {
+                    mode,
+                    phase,
+                    fromMode,
                     workDirectory: "workspace/.agent/custom",
                 },
             },

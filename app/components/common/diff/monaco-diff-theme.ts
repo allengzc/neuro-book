@@ -1,6 +1,8 @@
 import {buildMonacoTheme} from "nbook/app/components/markdown-studio/monaco-theme";
 import type {MonacoEditorApi} from "nbook/app/components/markdown-studio/load-monaco-editor";
 import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
+import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
+import {resolveTheme} from "nbook/app/utils/theme/resolve-theme";
 
 export function readDiffThemeVars(host: HTMLElement | null): CSSStyleDeclaration {
     const themeHost = host?.closest(".novel-ide-theme");
@@ -9,8 +11,10 @@ export function readDiffThemeVars(host: HTMLElement | null): CSSStyleDeclaration
 
 export function applyMonacoDiffTheme(monacoApi: MonacoEditorApi, theme: IdeTheme, host: HTMLElement | null): string {
     const cssVars = readDiffThemeVars(host);
-    const themeName = `neuro-book-diff-${theme}`;
-    monacoApi.editor.defineTheme(themeName, buildMonacoTheme(theme, {
+    const novelIdeStore = useNovelIdeStore();
+    const resolvedTheme = resolveTheme(theme, novelIdeStore.customThemes);
+    const themeName = `neuro-book-diff-${theme.replace(/[^a-z0-9-]/gi, "-")}`;
+    monacoApi.editor.defineTheme(themeName, buildMonacoTheme(theme, resolvedTheme.appearance, {
         accent: cssVars.getPropertyValue("--accent-main").trim() || "#3b82f6",
         background: cssVars.getPropertyValue("--source-bg").trim() || "#1f1f1f",
         border: cssVars.getPropertyValue("--border-color").trim() || "#2b3340",

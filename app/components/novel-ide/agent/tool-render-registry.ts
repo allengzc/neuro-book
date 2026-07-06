@@ -2,7 +2,7 @@ import { defineAsyncComponent, markRaw, type Component } from "vue";
 import type {AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-message";
 import AgentEditFileBubble from "nbook/app/components/novel-ide/agent/AgentEditFileBubble.vue";
 import AgentRequestUserInputBubble from "nbook/app/components/novel-ide/agent/AgentRequestUserInputBubble.vue";
-import AgentExitPlanModeBubble from "nbook/app/components/novel-ide/agent/AgentExitPlanModeBubble.vue";
+import AgentSwitchModeBubble from "nbook/app/components/novel-ide/agent/AgentSwitchModeBubble.vue";
 import AgentWriteFileBubble from "nbook/app/components/novel-ide/agent/AgentWriteFileBubble.vue";
 import AgentApplyPatchBubble from "nbook/app/components/novel-ide/agent/AgentApplyPatchBubble.vue";
 import AgentTaskBubble from "nbook/app/components/novel-ide/agent/AgentTaskBubble.vue";
@@ -31,17 +31,11 @@ const TOOL_RENDER_REGISTRY: Record<string, AgentToolRenderConfig> = {
         collapsedPreviewKey: "agent.tool.waitingUserAnswer",
         component: markRaw(AgentRequestUserInputBubble),
     },
-    enter_plan_mode: {
-        mode: "block",
-        typeLabel: "Plan Mode",
-        collapsedPreviewKey: "agent.tool.waitingApproval",
-        component: markRaw(AgentRequestUserInputBubble),
-    },
-    exit_plan_mode: {
+    switch_mode: {
         mode: "message",
-        typeLabel: "Plan Mode",
-        collapsedPreviewKey: "agent.tool.planApproval",
-        component: markRaw(AgentExitPlanModeBubble),
+        typeLabel: "Mode",
+        collapsedPreviewKey: "agent.tool.modeSwitchApproval",
+        component: markRaw(AgentSwitchModeBubble),
     },
     write: {
         mode: "block",

@@ -78,7 +78,7 @@ function inputValue(event: Event): string {
         <div class="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2">
             <div class="flex min-w-0 items-center gap-2">
                 <span class="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--we-text-muted)]">本切片变更</span>
-                <span v-if="props.dirty" class="rounded border border-amber-300 bg-[var(--we-warning-soft)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--we-warning)]">patch draft</span>
+                <span v-if="props.dirty" class="rounded border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--we-warning)]">patch draft</span>
             </div>
             <div class="flex shrink-0 items-center gap-1">
                 <button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] px-2 text-[11px] text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy || !props.canAdd" title="新增当前 subject 的 patch" @click="emit('append')">
@@ -146,8 +146,8 @@ function inputValue(event: Event): string {
                 <label class="flex h-7 min-w-0 items-center gap-2 rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-2 transition-colors focus-within:border-[var(--we-accent-border)] focus-within:bg-[var(--we-bg-panel)]">
                     <span class="flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--we-text-muted)]">
                         <span>summary</span>
-                        <span v-if="row.dirty" class="rounded border border-amber-300 bg-[var(--we-warning-soft)] px-1 py-0 text-[9px] normal-case tracking-normal text-[var(--we-warning)]">dirty</span>
-                        <span v-if="row.highlighted" class="rounded border border-amber-300 bg-[var(--we-bg-panel)] px-1 py-0 text-[9px] normal-case tracking-normal text-[var(--we-warning)]">issue target</span>
+                        <span v-if="row.dirty" class="rounded border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-1 py-0 text-[9px] normal-case tracking-normal text-[var(--we-warning)]">dirty</span>
+                        <span v-if="row.highlighted" class="rounded border border-[var(--we-warning-border)] bg-[var(--we-bg-panel)] px-1 py-0 text-[9px] normal-case tracking-normal text-[var(--we-warning)]">issue target</span>
                     </span>
                     <input :value="row.mutation.summary ?? ''" class="h-full w-full min-w-0 bg-transparent text-[11px] text-[var(--we-text-main)] outline-none disabled:opacity-60" placeholder="本次 patch 的人话说明" :disabled="props.busy" @input="emit('update-summary', row.index, inputValue($event))">
                 </label>

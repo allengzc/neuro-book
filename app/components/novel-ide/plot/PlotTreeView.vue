@@ -56,7 +56,7 @@ function handleGraphUpdate(graph: PlotTreeGraph): void {
     <!-- PlotTreeView 外层壳 -->
     <div class="space-y-4">
         <!-- 顶部摘要 -->
-        <section class="rounded-[28px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-5 shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
+        <section class="rounded-[28px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-5 shadow-[0_18px_60px_color-mix(in_srgb,var(--shadow-color)_8%,transparent)]">
             <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div class="max-w-[880px]">
                     <div class="text-[11px] uppercase tracking-[0.28em] text-[var(--text-muted)]">Plot Tree</div>
@@ -83,8 +83,8 @@ function handleGraphUpdate(graph: PlotTreeGraph): void {
             </div>
 
             <div class="mt-4 flex flex-wrap items-center gap-2 text-xs text-[var(--text-muted)]">
-                <span class="rounded-full border border-amber-500/35 bg-amber-500/10 px-3 py-1 text-amber-700 dark:text-amber-300">主线节点 / 主线连线</span>
-                <span class="rounded-full border border-slate-400/35 bg-slate-400/10 px-3 py-1 text-slate-600 dark:text-slate-300">支线节点 / 支线连线</span>
+                <span class="rounded-full border border-[var(--border-accent)] bg-[var(--accent-bg)] px-3 py-1 text-[var(--accent-text)]">主线节点 / 主线连线</span>
+                <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-1 text-[var(--text-muted)]">支线节点 / 支线连线</span>
                 <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-1">默认从左向右延伸</span>
                 <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-1">Thread 为 Group</span>
                 <span class="rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-1">Thread 内 Scene 单链</span>

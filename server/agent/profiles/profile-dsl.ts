@@ -5,7 +5,7 @@ import type {AgentMessage, AssistantMessage, JsonValue, Message, ToolResultMessa
 import {createAssistantTextMessage, createTextToolResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
 import type {AgentCatalogItem, AgentProfile, ProfileCompactionPlan, ProfilePrepareContext, ProfileTurnPlan} from "nbook/server/agent/profiles/types";
 import {planModeDirectory, planModeToolDirectory} from "nbook/server/agent/plan-mode-path";
-import {AGENT_PLAN_MODE_STATE_KEY, AGENT_TASKS_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
+import {AGENT_MODE_STATE_KEY, AGENT_TASKS_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import type {NeuroSessionContext, SessionEntryDraft} from "nbook/server/agent/session/types";
 import type {ProfileVariablePathInput, VariableNamespace} from "nbook/server/agent/variables/types";
 
@@ -22,7 +22,7 @@ export type ProfileDslNode =
     | ProfileStringFragmentNode
     | ProfileVariableNode
     | ProfileVariableSchemaNode
-    | ProfilePlanModeSlotNode
+    | ProfileModeSlotNode
     | ProfileFragmentNode;
 
 export type ProfilePromptNode = {
@@ -135,11 +135,14 @@ export type ProfileVariableSchemaNode = {
     includeToolGuide?: boolean;
 };
 
-export type PlanModeSlotKind = "full" | "sparse" | "exit" | "reentry_full";
+/**
+ * ModeReminder 插槽档位（Task 90）：mode × phase 的 7 种默认文案，slot 可逐档覆盖。
+ */
+export type ModeSlotKind = "plan_enter" | "plan_reentry" | "plan_steady" | "discuss_enter" | "discuss_steady" | "exit_from_plan" | "exit_plain";
 
-export type ProfilePlanModeSlotNode = {
-    kind: "PlanModeSlot";
-    slot: PlanModeSlotKind;
+export type ProfileModeSlotNode = {
+    kind: "ModeSlot";
+    slot: ModeSlotKind;
     children: ProfileDslChild[];
 };
 
@@ -637,15 +640,15 @@ export function WorkspaceFocusReminder(props: {id?: string; repeatEveryTurns?: n
 }
 
 /**
- * 首轮提示 Plan Mode 可用性。PlanModeReminder 仍负责 active/exit/reentry 生命周期。
+ * normal 模式下提示 switch_mode 可用性（Task 90）。活跃只读模式的持续提醒由 ModeReminder 负责。
  */
-export function PlanModeAvailabilityReminder(props: {id?: string; repeatEveryTurns?: number} = {}): ProfileReminderNode {
+export function ModeAvailabilityReminder(props: {id?: string; repeatEveryTurns?: number} = {}): ProfileReminderNode {
     return Reminder({
-        id: props.id ?? "plan-mode-availability",
-        watch: (ctx) => ctx.session.planModeActive ? "active" : "inactive",
+        id: props.id ?? "mode-availability",
+        watch: (ctx) => ctx.session.agentMode,
         repeatEveryTurns: props.repeatEveryTurns,
-        render: (change) => change.currentValue === "inactive"
-            ? Message({children: systemReminder("Plan mode is inactive. For large, risky, or multi-step changes, use enter_plan_mode before editing.")})
+        render: (change) => change.currentValue === "normal"
+            ? Message({children: systemReminder("You are in normal mode. switch_mode is available: propose \"plan\" before large, risky, or multi-step changes to prepare a read-only plan first, or \"discuss\" when the user wants to talk through direction before any changes. Each switch takes effect only after user approval.")})
             : null,
     });
 }
@@ -664,35 +667,26 @@ export function TaskReminder(props: {id?: string; stateKey?: string; repeatEvery
 }
 
 /**
- * Plan Mode 生命周期提醒。默认读取 agent.planMode custom state。
+ * Agent 工作模式生命周期提醒（Task 90）。默认读取 agent.mode custom state。
+ * 状态变化（didChange=true）按 phase 渲染 enter/reentry/exit 全文；
+ * repeatEveryTurns 周期重放（didChange=false）渲染 steady 轻提醒，normal 模式渲染空。
  */
-export function PlanModeReminder(props: {
+export function ModeReminder(props: {
     id?: string;
     stateKey?: string;
     repeatEveryTurns?: number;
     children?: ProfileDslChild | ProfileDslChild[];
 } = {}): ProfileReminderNode {
-    const stateKey = props.stateKey ?? AGENT_PLAN_MODE_STATE_KEY;
+    const stateKey = props.stateKey ?? AGENT_MODE_STATE_KEY;
+    const slots = readModeSlots(normalizeChildren(props.children));
     return Reminder({
-        id: props.id ?? "plan-mode",
+        id: props.id ?? "agent-mode",
         watch: (ctx) => ({
-            active: ctx.session.planModeActive,
+            mode: ctx.session.agentMode,
             state: ctx.session.customState[stateKey] ?? null,
         }),
-        repeatEveryTurns: props.repeatEveryTurns,
-        children: Message({children: PlanModeReminderText({stateKey, slots: readPlanModeSlots(normalizeChildren(props.children))})}),
-    });
-}
-
-/**
- * Plan Mode 活跃期间每轮提醒。适合放在 AppendingSet。
- */
-export function ActivePlanModeReminder(props: {id?: string; stateKey?: string} = {}): ProfileReminderNode {
-    const stateKey = props.stateKey ?? AGENT_PLAN_MODE_STATE_KEY;
-    return Reminder({
-        id: props.id ?? "plan-mode-active",
-        watch: (ctx) => readRecord(ctx.session.customState[stateKey]).active as JsonValue | undefined,
-        children: Message({children: PlanModeReminderText({stateKey})}),
+        repeatEveryTurns: props.repeatEveryTurns ?? 6,
+        render: (change) => Message({children: ModeReminderText({stateKey, slots, steadyOnly: !change.didChange})}),
     });
 }
 
@@ -707,31 +701,14 @@ export function MentionedSkillsReminder(_props: Record<string, never> = {}): Pro
 }
 
 /**
- * Plan Mode full reminder 自定义插槽。只能作为 PlanModeReminder 子节点。
+ * ModeReminder 自定义插槽（Task 90）。只能作为 ModeReminder 直接子节点，每个 kind 至多一次。
  */
-export function PlanModeFull(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfilePlanModeSlotNode {
-    return PlanModeSlot("full", props.children);
-}
-
-/**
- * Plan Mode sparse reminder 自定义插槽。只能作为 PlanModeReminder 子节点。
- */
-export function PlanModeSparse(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfilePlanModeSlotNode {
-    return PlanModeSlot("sparse", props.children);
-}
-
-/**
- * Plan Mode exit reminder 自定义插槽。只能作为 PlanModeReminder 子节点。
- */
-export function PlanModeExit(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfilePlanModeSlotNode {
-    return PlanModeSlot("exit", props.children);
-}
-
-/**
- * Plan Mode reentry reminder 自定义插槽。只能作为 PlanModeReminder 子节点。
- */
-export function PlanModeReentry(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfilePlanModeSlotNode {
-    return PlanModeSlot("reentry_full", props.children);
+export function ModeSlot(props: {kind: ModeSlotKind; children?: ProfileDslChild | ProfileDslChild[]}): ProfileModeSlotNode {
+    return {
+        kind: "ModeSlot",
+        slot: props.kind,
+        children: normalizeChildren(props.children),
+    };
 }
 
 export function Fragment(props: {children?: ProfileDslChild | ProfileDslChild[]}): ProfileFragmentNode {
@@ -741,16 +718,8 @@ export function Fragment(props: {children?: ProfileDslChild | ProfileDslChild[]}
     };
 }
 
-function PlanModeSlot(slot: PlanModeSlotKind, children: ProfileDslChild | ProfileDslChild[] | undefined): ProfilePlanModeSlotNode {
-    return {
-        kind: "PlanModeSlot",
-        slot,
-        children: normalizeChildren(children),
-    };
-}
-
-function readPlanModeSlots(children: ProfileDslChild[]): Partial<Record<PlanModeSlotKind, ProfileDslChild[]>> {
-    const slots: Partial<Record<PlanModeSlotKind, ProfileDslChild[]>> = {};
+function readModeSlots(children: ProfileDslChild[]): Partial<Record<ModeSlotKind, ProfileDslChild[]>> {
+    const slots: Partial<Record<ModeSlotKind, ProfileDslChild[]>> = {};
     const flat = children.flatMap(flattenChildren);
     for (const child of flat) {
         if (child === null || child === undefined || child === false || child === true) {
@@ -758,35 +727,22 @@ function readPlanModeSlots(children: ProfileDslChild[]): Partial<Record<PlanMode
         }
         if (typeof child === "string" || typeof child === "number") {
             if (String(child).trim() !== "") {
-                throw new Error("PlanModeReminder 只能直接包含 PlanModeFull/PlanModeSparse/PlanModeExit/PlanModeReentry。");
+                throw new Error("ModeReminder 只能直接包含 ModeSlot。");
             }
             continue;
         }
         if (Array.isArray(child)) {
             continue;
         }
-        if (child.kind !== "PlanModeSlot") {
-            throw new Error(`PlanModeReminder 只能直接包含 PlanModeFull/PlanModeSparse/PlanModeExit/PlanModeReentry，不能包含 ${child.kind}。`);
+        if (child.kind !== "ModeSlot") {
+            throw new Error(`ModeReminder 只能直接包含 ModeSlot，不能包含 ${child.kind}。`);
         }
         if (slots[child.slot]) {
-            throw new Error(`${slotNodeName(child.slot)} 只能出现一次。`);
+            throw new Error(`ModeSlot kind="${child.slot}" 只能出现一次。`);
         }
         slots[child.slot] = child.children;
     }
     return slots;
-}
-
-function slotNodeName(slot: PlanModeSlotKind): string {
-    if (slot === "full") {
-        return "PlanModeFull";
-    }
-    if (slot === "sparse") {
-        return "PlanModeSparse";
-    }
-    if (slot === "exit") {
-        return "PlanModeExit";
-    }
-    return "PlanModeReentry";
 }
 
 async function renderRoot(state: CompileState, tree: ProfileDslNode): Promise<void> {
@@ -946,8 +902,8 @@ async function renderChild(state: CompileState, zone: RenderZone, child: Profile
         }
         return [];
     }
-    if (child.kind === "PlanModeSlot") {
-        throw new Error(`${slotNodeName(child.slot)} 只能作为 PlanModeReminder 的直接子节点。`);
+    if (child.kind === "ModeSlot") {
+        throw new Error(`ModeSlot kind="${child.slot}" 只能作为 ModeReminder 的直接子节点。`);
     }
     throw new Error(`未知 Profile DSL 节点：${JSON.stringify(child)}`);
 }
@@ -1049,7 +1005,7 @@ function collectToolCalls(children: ProfileDslChild[]): ProfileToolCallNode[] {
             }
             return;
         }
-        if (child.kind === "PlanModeSlot") {
+        if (child.kind === "ModeSlot") {
             for (const item of child.children) {
                 visit(item);
             }
@@ -1097,7 +1053,7 @@ function validateAssistantChildSequence(children: ProfileDslChild[], seenToolCal
             localSeenToolCall = validateAssistantChildSequence(child.children, localSeenToolCall);
             continue;
         }
-        if (child.kind === "PlanModeSlot") {
+        if (child.kind === "ModeSlot") {
             localSeenToolCall = validateAssistantChildSequence(child.children, localSeenToolCall);
             continue;
         }
@@ -1453,8 +1409,8 @@ async function renderStringChildren(state: CompileState, zone: RenderZone, child
         if (child.kind === "Variable" || child.kind === "VariableSchema") {
             throw new Error(`${child.kind} 第一版只能作为 ModelContext 的直接子节点。`);
         }
-        if (child.kind === "PlanModeSlot") {
-            throw new Error(`${slotNodeName(child.slot)} 只能作为 PlanModeReminder 的直接子节点。`);
+        if (child.kind === "ModeSlot") {
+            throw new Error(`ModeSlot kind="${child.slot}" 只能作为 ModeReminder 的直接子节点。`);
         }
         if (child.kind === "ToolCall" && zone === "assistant") {
             return;
@@ -1946,15 +1902,22 @@ function TaskReminderText(props: {stateKey: string}): ProfileStringFragmentNode 
     };
 }
 
-function PlanModeReminderText(props: {stateKey: string; slots?: Partial<Record<PlanModeSlotKind, ProfileDslChild[]>>}): ProfileStringFragmentNode {
+function ModeReminderText(props: {stateKey: string; slots: Partial<Record<ModeSlotKind, ProfileDslChild[]>>; steadyOnly: boolean}): ProfileStringFragmentNode {
     return {
         kind: "StringFragment",
         text: async (ctx) => {
-            const planModeState = readRecord(ctx.session.customState[props.stateKey]);
-            const active = typeof planModeState.active === "boolean" ? planModeState.active : ctx.session.planModeActive;
-            const kind = typeof planModeState.reminderKind === "string" ? planModeState.reminderKind : active ? "full" : "";
-            const workDirectory = typeof planModeState.workDirectory === "string"
-                ? planModeState.workDirectory
+            const modeState = readRecord(ctx.session.customState[props.stateKey]);
+            const mode = modeState.mode === "discuss" || modeState.mode === "plan" || modeState.mode === "normal"
+                ? modeState.mode
+                : ctx.session.agentMode;
+            const phase = modeState.phase === "enter" || modeState.phase === "reentry" || modeState.phase === "exit" || modeState.phase === "steady"
+                ? modeState.phase
+                : "steady";
+            const fromMode = modeState.fromMode === "discuss" || modeState.fromMode === "plan" || modeState.fromMode === "normal"
+                ? modeState.fromMode
+                : "normal";
+            const workDirectory = typeof modeState.workDirectory === "string"
+                ? modeState.workDirectory
                 : planModeDirectory({
                     workspaceRoot: ctx.session.workspaceRoot,
                     projectPath: ctx.session.projectPath,
@@ -1963,99 +1926,142 @@ function PlanModeReminderText(props: {stateKey: string; slots?: Partial<Record<P
                 workspaceRoot: ctx.session.workspaceRoot,
                 projectPath: ctx.session.projectPath,
             });
-            return renderPlanModeReminderText(ctx, kind, workDirectory, toolDirectory, props.slots ?? {});
+            // 周期重放只出 steady 档；状态变化按 phase 出全文
+            const slotKind = resolveModeSlotKind(mode, props.steadyOnly ? "steady" : phase, fromMode);
+            if (!slotKind) {
+                return "";
+            }
+            const custom = props.slots[slotKind];
+            if (custom) {
+                return renderModeSlotText(ctx, custom, workDirectory);
+            }
+            return renderModeReminderText(slotKind, workDirectory, toolDirectory);
         },
     };
 }
 
-async function renderPlanModeReminderText(
-    ctx: ProfilePrepareContext<any>,
-    kind: string,
-    workDirectory: string,
-    toolDirectory: string,
-    slots: Partial<Record<PlanModeSlotKind, ProfileDslChild[]>>,
-): Promise<string> {
-    if (!kind) {
-        return "";
+/**
+ * mode × phase(× fromMode) → 插槽档位。normal 非 exit 阶段无 reminder（返回 null）。
+ */
+function resolveModeSlotKind(mode: string, phase: string, fromMode: string): ModeSlotKind | null {
+    if (mode === "plan") {
+        return phase === "reentry" ? "plan_reentry" : phase === "steady" ? "plan_steady" : "plan_enter";
     }
-    if (kind === "full" || kind === "sparse" || kind === "exit" || kind === "reentry_full") {
-        const custom = slots[kind];
-        if (custom) {
-            return renderPlanModeSlotText(ctx, custom, workDirectory);
-        }
+    if (mode === "discuss") {
+        return phase === "steady" ? "discuss_steady" : "discuss_enter";
     }
-    if (kind === "exit") {
+    if (phase === "exit") {
+        return fromMode === "plan" ? "exit_from_plan" : "exit_plain";
+    }
+    return null;
+}
+
+/**
+ * Task 90 模式 reminder 默认文案矩阵。全文契约见 docs/tasks/90-agent-mode-system/README.md 4.6。
+ */
+function renderModeReminderText(kind: ModeSlotKind, workDirectory: string, toolDirectory: string): string {
+    if (kind === "exit_from_plan") {
         return systemReminder([
-            "## Exited Plan Mode",
+            "## Left Plan Mode",
             "",
-            "You have exited plan mode. You can now make edits, run tools, and take actions.",
-            `Use the approved plan from the exit approval. If a Markdown file was shown from ${workDirectory}, treat that Project Workspace plan file as the implementation reference and read or cite only that file for details.`,
+            "You are now in normal mode. You can make edits, run tools, and take actions.",
+            `Implement the approved plan from the switch approval. If a Markdown plan file was shown from ${workDirectory}, treat that Project Workspace plan file as the implementation reference and read or cite only that file for details.`,
         ].join("\n"));
     }
-    if (kind === "sparse") {
+    if (kind === "exit_plain") {
         return systemReminder([
-            "Plan mode still active (see full instructions earlier in conversation).",
-            "This project uses soft Plan Mode: follow the restriction yourself even though tools are still visible.",
-            `Read-only except optional Markdown work files under ${workDirectory}. Do not modify other files, configs, plot data, database data, or commits.`,
-            `When using file tools from the Workspace Root cwd, write or edit plan files via ${toolDirectory}/<slug>.md. For exit_plan_mode, pass planFilePath as .agent/plan/<slug>.md so the approval UI can preview the Project Workspace file.`,
-            "Do not create or invoke Explore agents.",
-            "Keep the user informed in chat: summarize important findings, unresolved decisions, and the current plan.",
-            `For implementation planning, keep the plan in chat and, when the work is non-trivial, capture the reviewable plan, walkthrough, or research notes in a Markdown file under ${workDirectory}. It is the Project Workspace shared plan directory, not a session-specific directory.`,
-            "Do not put scratch/cache/command-output drafts under Project Workspace .agent; use the system temp directory for temporary files.",
-            "If an unresolved decision materially changes the plan, use request_user_input before exiting.",
-            "Before exit_plan_mode, tell the user what was planned and cite the .agent/plan Markdown file path when one exists. Never ask for plan approval via plain text or request_user_input; exit_plan_mode is the approval request.",
+            "## Left Discuss Mode",
+            "",
+            "You are now in normal mode. You can make edits, run tools, and take actions.",
+            "Act on the conclusions agreed in the conversation. If scope was not settled during the discussion, confirm it with the user before large or risky changes.",
         ].join("\n"));
     }
-    const reentry = kind === "reentry_full"
+    if (kind === "plan_steady") {
+        return systemReminder([
+            "Plan mode is still active (full instructions appeared earlier in this conversation).",
+            `- Read-only except Markdown work files under ${workDirectory}. File write tools targeting other paths will pause for user approval; bash stays read-only inspection.`,
+            `- Write or edit plan files via ${toolDirectory}/<slug>.md. For switch_mode to normal, pass planFilePath as .agent/plan/<slug>.md so the approval UI can preview the Project Workspace file.`,
+            "- Do not create or invoke Explore agents.",
+            "- Keep the user informed in chat: summarize important findings, unresolved decisions, and the current plan direction.",
+            "- Do not put scratch/cache/command-output drafts under Project Workspace .agent; use the system temp directory for temporary files.",
+            "- If an unresolved decision materially changes the plan, use request_user_input before switching.",
+            "- Do not start implementing. Call switch_mode with targetMode \"normal\" when the plan is ready for approval; never ask for plan approval via plain text or request_user_input.",
+        ].join("\n"));
+    }
+    if (kind === "discuss_enter") {
+        return systemReminder([
+            "Discuss mode is active. The user wants a read-only discussion: analysis, answers, options, and recommendations — not execution.",
+            "",
+            "## Mode Constraints",
+            "",
+            "- Read-only exploration is allowed and encouraged: read files, search, and run read-only commands to ground your answers in the real project.",
+            "- File write tools will pause and ask the user for approval before executing. Do not attempt writes unless the user explicitly asks for a specific change mid-discussion; prefer describing what you would change and where.",
+            "- bash is for read-only inspection only. Never write files through shell redirection or scripts.",
+            "- Do not create or invoke Explore agents. Work locally with read/search tools.",
+            "",
+            "## How to Work in Discuss Mode",
+            "",
+            "- Focus on the conversation: answer questions, compare options with tradeoffs, point out risks, and give concrete recommendations.",
+            "- Ground claims in evidence: cite file paths and actual content you inspected rather than guessing.",
+            "- This is not plan mode: do not produce .agent/plan files or push toward an implementation plan unless the user asks for one.",
+            "- If a plan draft already exists from earlier planning, treat it as discussion material: clarify and challenge it with the user instead of implementing it.",
+            "- When the discussion converges and the user wants action, call switch_mode with targetMode \"normal\" to start executing, or \"plan\" if the task first needs a written plan. The switch takes effect only after user approval.",
+        ].join("\n"));
+    }
+    if (kind === "discuss_steady") {
+        return systemReminder([
+            "Discuss mode is still active (full instructions appeared earlier in this conversation).",
+            "Stay read-only: discuss, analyze, and recommend. File write tools pause for user approval; bash stays read-only inspection.",
+            "Do not start implementing or producing plan files. When the user wants execution, request it via switch_mode.",
+        ].join("\n"));
+    }
+    const reentry = kind === "plan_reentry"
         ? [
             "## Re-entering Plan Mode",
             "",
-            `You are returning to plan mode after previously exiting it. Only Markdown files under ${workDirectory} are writable while Plan Mode is active.`,
-            "Before proceeding, inspect the latest chat context and any relevant Markdown plan file in that directory when available. Revise the visible plan in chat and update the plan file when the task still requires an implementation plan.",
+            `You are returning to plan mode after previously leaving it. Before proceeding, inspect the latest chat context and any relevant Markdown plan file under ${workDirectory} when available. Revise the visible plan in chat and update the plan file when the task still requires an implementation plan.`,
             "",
         ].join("\n")
         : "";
     return systemReminder([
         reentry,
-        "Plan mode is active. The user indicated that they do not want you to execute yet.",
-        "This project implements soft Plan Mode: tools are still visible, but you MUST treat this run as planning-only.",
+        "Plan mode is active. The user wants a plan before execution, not execution itself.",
         "",
-        "## Thread Work Directory",
+        "## Mode Constraints",
         "",
-        `The Project Workspace Plan Mode directory is ${workDirectory}. It can contain plan files, walkthrough files, or research notes for this project.`,
-        `When using file tools from the Workspace Root cwd, write plan files via ${toolDirectory}/<slug>.md. The exit_plan_mode planFilePath argument must still be Project Workspace relative, for example .agent/plan/<slug>.md, so the approval UI can preview the file.`,
-        "No file is bound when entering Plan Mode. Choose a short readable Markdown file name in this directory when the task needs persisted planning or walkthrough notes.",
-        "If a relevant Markdown file already exists in this exact plan directory, you can read it and make incremental edits using read and edit.",
-        "This directory is the only place you may create or edit files while Plan Mode is active. Do not create files just for formality for small non-editing tasks.",
-        "Do not create scratch/cache/command-output drafts in Project Workspace .agent; use the system temp directory for temporary files.",
-        "Build the plan visibly in chat as you learn and keep any Markdown work file aligned when one is used. Do not hide important decisions only in a file.",
-        "The final planning response before exit_plan_mode should summarize the implementation plan for the user and cite the .agent/plan Markdown file path when one was prepared.",
-        "",
-        "## Restrictions",
-        "",
-        `- Do not edit, create, delete, move, format, migrate, commit, or otherwise mutate files or product data, except Markdown work files under ${workDirectory}.`,
-        "- Read-only code and document exploration is allowed.",
-        "- Tests or commands are allowed only when they are read-only enough to refine the plan and do not update tracked files.",
+        "- Read-only exploration is allowed and encouraged: read files, search, and run read-only commands.",
+        `- The only directly writable location is Markdown files under ${workDirectory}. File write tools targeting any other path will pause and ask the user for approval; do not attempt such writes unless the user explicitly asks for a specific change mid-planning.`,
+        "- bash is for read-only inspection only. Never write files through shell redirection or scripts; use file tools so the mode rules apply.",
         "- Do not create or invoke Explore agents. Work locally with read/search tools.",
-        "- Do not write outside the .agent/plan directory while Plan Mode is active. Temporary scratch/cache belongs in the system temp directory.",
-        "- If the user asks you to implement while Plan Mode is active, keep planning instead. For anything beyond a small non-editing task, explain that implementation requires leaving Plan Mode through exit_plan_mode after the plan is ready.",
+        "- Tests or commands are allowed only when they are read-only enough to refine the plan and do not update tracked files.",
+        "- If the user asks you to implement while plan mode is active, keep planning instead. Explain that implementation starts after switching to normal mode through switch_mode once the plan is ready.",
         "- Do not work silently for long stretches. After meaningful exploration, report concise findings and the current direction in chat.",
+        "",
+        "## Plan Work Directory",
+        "",
+        `- The Project Workspace plan directory is ${workDirectory}. It can contain plan files, walkthrough files, or research notes for this project.`,
+        `- When using file tools from the Workspace Root cwd, write plan files via ${toolDirectory}/<slug>.md. The switch_mode planFilePath argument must be Project Workspace relative, for example .agent/plan/<slug>.md, so the approval UI can preview the file.`,
+        "- No file is bound when entering plan mode. Choose a short readable Markdown file name when the task needs persisted planning or walkthrough notes. Do not create files just for formality for small non-editing tasks.",
+        "- If a relevant Markdown file already exists in this exact plan directory, you can read it and make incremental edits using read and edit.",
+        "- Do not put scratch/cache/command-output drafts under Project Workspace .agent; use the system temp directory for temporary files.",
+        "- Build the plan visibly in chat as you learn and keep any Markdown work file aligned when one is used. Do not hide important decisions only in a file.",
         "",
         "## Workflow",
         "",
-        "1. Ground in the real repository with read-only exploration: inspect relevant files, schemas, tools, tests, and existing patterns.",
-        "2. Report what you learned in chat when it changes the plan, including unresolved decisions and the next intended step.",
-        "3. Ask the user via request_user_input only when an unresolved decision cannot be discovered from the repo and materially changes the implementation.",
-        `4. Present a concise execution-ready plan in chat. For non-trivial implementation work, also write or update a readable Markdown plan, walkthrough, or research note under ${workDirectory}; the file name is your choice and the system will not generate a random slug.`,
-        "5. Before exit_plan_mode, briefly report the plan status in chat and cite the Markdown file path when you wrote one. If you skip a file because the task is only a small non-editing task, say that briefly before requesting approval.",
-        "6. Call exit_plan_mode when the plan is complete and ready for approval. When a plan file exists, pass planFilePath like .agent/plan/<slug>.md so the approval UI displays that Project Workspace file.",
-        "7. After approval, implement from the approved chat plan or the approved Markdown file shown during exit approval.",
+        "1. If the preceding conversation already worked through this task (for example in discuss mode), consolidate the agreed conclusions into the plan before new exploration.",
+        "2. Ground in the real repository with read-only exploration: inspect relevant files, schemas, tools, tests, and existing patterns.",
+        "3. Report what you learned in chat when it changes the plan, including unresolved decisions and the next intended step.",
+        "4. Ask the user via request_user_input only when an unresolved decision cannot be discovered from the repo and materially changes the implementation.",
+        `5. Present a concise execution-ready plan in chat. For non-trivial implementation work, also write or update a readable Markdown plan, walkthrough, or research note under ${workDirectory}; the file name is your choice and the system will not generate a random slug.`,
+        "6. Before requesting the switch, briefly report the plan status in chat and cite the Markdown file path when you wrote one. If you skip the file because the task is only a small non-editing task, say that briefly before requesting approval.",
+        "7. Call switch_mode with targetMode \"normal\" when the plan is complete and ready for approval. When a plan file exists, pass planFilePath like .agent/plan/<slug>.md so the approval UI displays that Project Workspace file. Never ask for plan approval via plain text or request_user_input; switch_mode is the approval request.",
+        "8. After approval, implement from the approved chat plan or the approved Markdown plan file shown during the switch approval.",
         "",
-        "The user explicitly requested no Explore agent for this project Plan Mode.",
+        "The user explicitly requested no Explore agent for this project.",
     ].join("\n"));
 }
 
-async function renderPlanModeSlotText(ctx: ProfilePrepareContext<any>, children: ProfileDslChild[], workDirectory: string): Promise<string> {
+async function renderModeSlotText(ctx: ProfilePrepareContext<any>, children: ProfileDslChild[], workDirectory: string): Promise<string> {
     const body = await renderStandaloneString(ctx, [
         `Thread work directory: ${workDirectory}\n`,
         ...children,

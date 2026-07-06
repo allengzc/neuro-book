@@ -105,7 +105,7 @@ function fakeContext(input: {messageCount: number}): NeuroSessionContext {
         messages: Array.from({length: input.messageCount}, (_, index) => createUserMessage({text: `message-${index}`})),
         customState: {},
         linkedAgents: [],
-        planModeActive: false,
+        agentMode: "normal",
         archived: false,
     } as NeuroSessionContext;
 }

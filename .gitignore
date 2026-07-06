@@ -33,6 +33,7 @@ product/
 .agent/diagnostics/
 .agent/agent-smoke/
 .agent/agent-*/
+.playwright-cli/
 .agent/manual-retrieval-e2e-build-check/
 .agent/workspace
 /workspace/

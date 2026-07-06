@@ -321,11 +321,11 @@ watch(() => props.resetKey, clearLocalFilters);
                     <span class="i-lucide-filter h-3 w-3"></span>
                     {{ props.selectedSubjectIds.length }}
                 </span>
-                <span v-if="openReviewSubjectCount" class="inline-flex h-7 w-8 items-center justify-center gap-0.5 rounded-md border border-amber-300 bg-[var(--we-warning-soft)] font-mono text-[10px] text-[var(--we-warning)]" :title="t('worldEngine.workbenchPreview.subjectsWithOpenReviewIssues')">
+                <span v-if="openReviewSubjectCount" class="inline-flex h-7 w-8 items-center justify-center gap-0.5 rounded-md border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] font-mono text-[10px] text-[var(--we-warning)]" :title="t('worldEngine.workbenchPreview.subjectsWithOpenReviewIssues')">
                     <span class="i-lucide-alert-triangle h-3 w-3"></span>
                     {{ openReviewSubjectCount }}
                 </span>
-                <span v-if="draftSubjectCount" class="inline-flex h-7 w-8 items-center justify-center gap-0.5 rounded-md border border-amber-300 bg-[var(--we-warning-soft)] font-mono text-[10px] text-[var(--we-warning)]" :title="t('worldEngine.workbenchPreview.subjectsWithValueDrafts')">
+                <span v-if="draftSubjectCount" class="inline-flex h-7 w-8 items-center justify-center gap-0.5 rounded-md border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] font-mono text-[10px] text-[var(--we-warning)]" :title="t('worldEngine.workbenchPreview.subjectsWithValueDrafts')">
                     <span class="i-lucide-pencil-line h-3 w-3"></span>
                     {{ draftSubjectCount }}
                 </span>
@@ -402,7 +402,7 @@ watch(() => props.resetKey, clearLocalFilters);
                             </div>
                             <div class="mt-0.5 truncate font-mono text-[11px] text-[var(--we-text-muted)]">{{ subject.id }}</div>
                             <div v-if="subjectSystemSummary(subject.id)" class="mt-2 flex min-w-0 flex-wrap items-center gap-1" :title="subjectSystemSyncTitle(subjectSystemSummary(subject.id))">
-                                <span class="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium" :class="subjectSystemSummary(subject.id)?.syncStatus === 'linked' ? 'border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] text-[var(--we-accent-strong)]' : subjectSystemSummary(subject.id)?.syncStatus === 'pending-world-subject' ? 'border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)]' : 'border-[var(--we-border)] bg-[var(--we-bg-muted)] text-[var(--we-text-muted)]'">
+                                <span class="inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium" :class="subjectSystemSummary(subject.id)?.syncStatus === 'linked' ? 'border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] text-[var(--we-accent-strong)]' : subjectSystemSummary(subject.id)?.syncStatus === 'pending-world-subject' ? 'border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] text-[var(--we-warning)]' : 'border-[var(--we-border)] bg-[var(--we-bg-muted)] text-[var(--we-text-muted)]'">
                                     <span class="i-lucide-folder-tree h-3 w-3"></span>
                                     {{ subjectSystemSyncLabel(subjectSystemSummary(subject.id)) }}
                                 </span>
@@ -418,8 +418,8 @@ watch(() => props.resetKey, clearLocalFilters);
                                 </div>
                                 <div class="flex min-w-0 flex-wrap items-center justify-end gap-1">
                                     <span class="rounded border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-1.5 py-0.5 font-mono text-[var(--we-text-muted)]">{{ t("worldEngine.workbenchPreview.mutationCountShort", {count: subjectStat(subject.id)?.mutationCount ?? 0}) }}</span>
-                                    <span v-if="subjectDraftCount(subject.id)" class="rounded border border-amber-300 bg-[var(--we-warning-soft)] px-1.5 py-0.5 font-mono font-semibold text-[var(--we-warning)]" :title="t('worldEngine.workbenchPreview.valueDraftCountTitle', {count: subjectDraftCount(subject.id)})">{{ t("worldEngine.workbenchPreview.valueCountShort", {count: subjectDraftCount(subject.id)}) }}</span>
-                                    <span v-if="subjectStat(subject.id)?.openIssueCount" class="rounded border border-amber-300 bg-[var(--we-warning-soft)] px-1.5 py-0.5 font-mono font-semibold text-[var(--we-warning)]" :title="subjectReviewTitle(subjectStat(subject.id))">{{ t("worldEngine.workbenchPreview.openCountShort", {count: subjectStat(subject.id)?.openIssueCount}) }}</span>
+                                    <span v-if="subjectDraftCount(subject.id)" class="rounded border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-1.5 py-0.5 font-mono font-semibold text-[var(--we-warning)]" :title="t('worldEngine.workbenchPreview.valueDraftCountTitle', {count: subjectDraftCount(subject.id)})">{{ t("worldEngine.workbenchPreview.valueCountShort", {count: subjectDraftCount(subject.id)}) }}</span>
+                                    <span v-if="subjectStat(subject.id)?.openIssueCount" class="rounded border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-1.5 py-0.5 font-mono font-semibold text-[var(--we-warning)]" :title="subjectReviewTitle(subjectStat(subject.id))">{{ t("worldEngine.workbenchPreview.openCountShort", {count: subjectStat(subject.id)?.openIssueCount}) }}</span>
                                     <template v-if="subjectStat(subject.id)?.doneIssueCount">
                                         <span class="rounded border border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] px-1.5 py-0.5 font-mono font-semibold text-[var(--we-accent-strong)]" :title="subjectReviewTitle(subjectStat(subject.id))">{{ t("worldEngine.workbenchPreview.doneCountShort", {count: subjectStat(subject.id)?.doneIssueCount}) }}</span>
                                         <span v-if="subjectStat(subject.id)?.confirmedIssueCount" class="rounded border border-[var(--we-accent-border)] bg-[var(--we-bg-panel)] px-1.5 py-0.5 font-mono text-[var(--we-accent-strong)]" :title="subjectReviewTitle(subjectStat(subject.id))">{{ t("worldEngine.workbenchPreview.confirmedCountShort", {count: subjectStat(subject.id)?.confirmedIssueCount}) }}</span>

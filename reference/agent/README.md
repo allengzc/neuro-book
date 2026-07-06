@@ -22,6 +22,7 @@
 - [harness-black-box-contract.md](harness-black-box-contract.md)：prompt / continue / steer / followup 的外部行为合同。
 - [frontend.md](frontend.md)：Agent 前端状态与交互约定。
 - [sse.md](sse.md)：Agent session SSE / snapshot / event contract。
+- [pi-trace-observability.md](pi-trace-observability.md)：Pi 请求 trace 的存储布局、隐私边界、统一入口约束与抽库 runbook。
 
 ## Reading Rules
 

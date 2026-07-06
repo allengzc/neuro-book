@@ -442,25 +442,36 @@ leader 设计剧情 → leader 推进 World Engine（写作前完成）→ leade
 
 关键原则是**先演化世界 + 设计剧情，然后再调用 writer**。leader 在调用 writer 之前，就把本章涉及的剧情事件按时间顺序写入 World Engine（解封、交流、追入、对峙……）。这样世界状态先行，writer 看到的永远是一致的、已推进到位的状态，而不是滞后于正文的状态。
 
-### 6.2 Brief 简化原则
+### 6.2 Brief 简化原则（两条正交的轴）
 
-因为写作前 leader 已经推进好世界状态、writer 又能自己查询，brief 应当**简化**：只传剧情框架，不传可查询的状态细节。
+brief 的"简化"其实是两条互相独立的轴，别混为一谈：
 
-| brief 应该传 | brief 不需要传 |
+- **轴 A：可查询状态是否进 brief —— 由防全知模式决定。**
+  - `autonomous`（自主全知，默认）：writer 有 World Engine 只读 + Plot 只读能力，可查询状态（HP / 位置 / 属性 / 关系）**不进 brief**，brief 只给「查哪些 subject、哪个时间窗」的查询提示。塞状态进 brief 既冗余，又让 writer 退化成纯执行者、浪费它的查询能力。
+  - `curated`（受控投喂，当前 leader 手动使用）：writer 读不到设定源，可查询状态**必须由编译器 / leader 展开投喂**，规则相对 autonomous 恰好反转；leader 投喂前按 `mustHide` 删减。
+- **轴 B：剧情精细度 —— 是一个用户可调的档位，与模式无关。**
+  - 默认粗粒度：brief 给章节目标 + 关键剧情点（框架级）。
+  - 精细档：可细到分镜级（用户拨到高精度时）。精细版本本轮不做，但档位属于 brief 内容本身，不受防全知模式影响。
+
+两轴的共同不变量（任何模式、任何精细度都成立）：
+
+| brief 始终传 | brief 始终不传 |
 | --- | --- |
-| 章节目标 / 关键剧情点 | 详细角色状态 |
-| 信息控制要求 | 完整世界状态 |
-| 写作约束（视角、节奏、章节如何收尾） | HP / 位置等细节 |
-| 建议读取的 lorebook 路径 | 完整时间线记录 |
-| World Engine 查询提示（查哪些 subject、哪个时间范围） | patch 细节 |
+| 章节目标 / 关键剧情点 | 设定复述（角色底设、力量体系、世界规则 → 指向 lorebook） |
+| 信息控制要求（读者已知 / 主角已知 / 必须隐藏 / 可暗示） | 文风约束（文风、避讳词、节奏方言 → 全在 writer profile） |
+| 本章覆盖参数（仅覆盖 writer 默认的项，如 POV） | 完整时间线 / patch 细节 |
+| 建议读取（由 Scene refs 编译，带 relation gloss） | —— |
 
-不传 HP、位置这类细节，是因为 writer 会自己用 readonly `execute_world` 查到当前真值。把状态都塞进 brief 既冗余、又会让 writer 退化成纯执行者、还浪费了它的查询能力。brief 给框架，状态留给 writer 查。
+可查询状态（HP / 位置等）落在轴 A：autonomous 不传（writer 自查），curated 传（编译器代查代填）。brief 格式契约的逐段定义见 [../plot/writer-brief.md](../plot/writer-brief.md)。
 
 ### 6.3 Writer 能力边界
+
+writer 当前默认 `autonomous` 模式，能力如下（`curated` 模式会剥掉 World Engine / Plot / bash，只留受控投喂 + 反问 leader 逃脱口，当前由 leader 手动切换）：
 
 | 能力 | 说明 |
 | --- | --- |
 | 查询 World Engine | `execute_world`（writer 绑定 readonly 模式） |
+| 查询 Plot（只读） | `get_chapter_writer_brief` / `get_chapter_plot` / `get_story_scene_context` 等；只读，不创建 / 修改 Thread / Scene / Chapter |
 | 读取 lorebook | 角色设定、地点描述、规则 |
 | 自主查询状态 | 按需查角色 HP、位置、心理等 |
 | 写作自由度 | 可在 brief 框架内发挥细节 |
@@ -468,7 +479,7 @@ leader 设计剧情 → leader 推进 World Engine（写作前完成）→ leade
 | 创建 subject | **不能**，首次写入由 leader 负责 |
 | 主线剧情设计 | **不应承担**，剧情设计权在 leader |
 
-writer 的典型工作流：读 brief 指定的 lorebook → 用 readonly `execute_world` 查相关 subject 在章节时间范围的状态 → 构思并写入正文 → 报告结果。leader 在 writer 完成后检查成果，确认 writer 的细节发挥（环境描写、角色反应、内心独白等）是否在合理范围内；通常这些细节不改变世界状态，不需要补回 World Engine。
+writer 的典型工作流（autonomous）：有 `input.chapterId` 时用 `get_chapter_writer_brief` 自取本章 brief → 读 brief 指定的 lorebook → 用 readonly `execute_world` 查相关 subject 在章节时间范围的状态 → 构思并写入正文 → 报告结果。leader 在 writer 完成后检查成果，确认 writer 的细节发挥（环境描写、角色反应、内心独白等）是否在合理范围内；通常这些细节不改变世界状态，不需要补回 World Engine。
 
 ### 6.4 自由发挥模式（可选，默认不推荐）
 

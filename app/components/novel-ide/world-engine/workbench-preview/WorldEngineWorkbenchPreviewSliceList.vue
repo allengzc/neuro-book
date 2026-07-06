@@ -584,14 +584,14 @@ watch(() => props.resetKey, () => {
                     <span class="i-lucide-search h-3.5 w-3.5 shrink-0 text-[var(--we-text-muted)]"></span>
                 </template>
             </FormInput>
-            <div v-if="draftQueueItems.length" data-testid="slice-list-draft-queue" class="mt-2 rounded-md border border-amber-300 bg-[var(--we-warning-soft)] px-2.5 py-2">
+            <div v-if="draftQueueItems.length" data-testid="slice-list-draft-queue" class="mt-2 rounded-md border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-2.5 py-2">
                 <div class="flex flex-wrap items-center justify-between gap-2">
                     <div class="flex min-w-0 items-center gap-1.5 text-[11px] font-medium text-[var(--we-warning)]">
                         <span class="i-lucide-list-todo h-3.5 w-3.5 shrink-0"></span>
                         <span>{{ t("worldEngine.workbenchPreview.draftQueue") }}</span>
                         <span class="rounded bg-[var(--we-bg-panel)] px-1.5 font-mono text-[10px]">{{ t("worldEngine.workbenchPreview.sliceCountShort", {count: draftQueueItems.length}) }}</span>
                     </div>
-                    <button type="button" class="inline-flex h-6 items-center gap-1 rounded-md border border-amber-300 bg-[var(--we-bg-panel)] px-2 text-[10px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy" title="清空 search / kind / subject 过滤，只看有未应用草稿的切片" @click="showDraftSlices">
+                    <button type="button" class="inline-flex h-6 items-center gap-1 rounded-md border border-[var(--we-warning-border)] bg-[var(--we-bg-panel)] px-2 text-[10px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy" title="清空 search / kind / subject 过滤，只看有未应用草稿的切片" @click="showDraftSlices">
                         <span class="i-lucide-filter h-3 w-3"></span>
                         查看草稿切片
                     </button>
@@ -603,7 +603,7 @@ watch(() => props.resetKey, () => {
                         type="button"
                         data-testid="slice-list-draft-queue-item"
                         class="inline-flex h-8 max-w-[260px] shrink-0 items-center gap-1.5 rounded-md border px-2 text-left text-[11px] transition-colors"
-                        :class="item.sliceId === props.selectedSliceId ? 'border-[var(--we-accent-border)] bg-[var(--we-bg-active)] text-[var(--we-accent-strong)]' : 'border-amber-300 bg-[var(--we-bg-panel)] text-[var(--we-text-secondary)] hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)]'"
+                        :class="item.sliceId === props.selectedSliceId ? 'border-[var(--we-accent-border)] bg-[var(--we-bg-active)] text-[var(--we-accent-strong)]' : 'border-[var(--we-warning-border)] bg-[var(--we-bg-panel)] text-[var(--we-text-secondary)] hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)]'"
                         :disabled="props.busy"
                         :title="`定位草稿：${item.displayTime} · ${item.displayTitle}`"
                         @click="focusDraftQueueItem(item)"
@@ -611,8 +611,8 @@ watch(() => props.resetKey, () => {
                         <span class="shrink-0 font-mono text-[10px] text-[var(--we-text-muted)]">{{ item.displayTime }}</span>
                         <span class="min-w-0 truncate font-medium">{{ item.displayTitle }}</span>
                         <span class="shrink-0 rounded bg-[var(--we-bg-subtle)] px-1 font-mono text-[10px] text-[var(--we-text-muted)]">{{ item.displayKind }}</span>
-                        <span v-if="item.metadataDraftCount" class="shrink-0 rounded border border-amber-300 bg-[var(--we-warning-soft)] px-1 font-mono text-[10px] text-[var(--we-warning)]">meta</span>
-                        <span v-if="item.valueDraftCount" class="shrink-0 rounded border border-amber-300 bg-[var(--we-warning-soft)] px-1 font-mono text-[10px] text-[var(--we-warning)]">value {{ item.valueDraftCount }}</span>
+                        <span v-if="item.metadataDraftCount" class="shrink-0 rounded border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-1 font-mono text-[10px] text-[var(--we-warning)]">meta</span>
+                        <span v-if="item.valueDraftCount" class="shrink-0 rounded border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-1 font-mono text-[10px] text-[var(--we-warning)]">value {{ item.valueDraftCount }}</span>
                         <span v-if="item.draftSummary" class="shrink-0 rounded bg-[var(--we-bg-subtle)] px-1 text-[10px] text-[var(--we-text-muted)]">preview</span>
                     </button>
                 </div>

@@ -139,7 +139,7 @@ const selectedSliceSubjectFileProposalCount = computed(() => selectedSlice.value
 }).length : 0);
 const inspectorButtonAttentionClass = computed(() => {
     if (metadataDraftSliceCount.value && !inspectorVisible.value) {
-        return "border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)] hover:bg-[var(--we-bg-hover)]";
+        return "border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] text-[var(--we-warning)] hover:bg-[var(--we-bg-hover)]";
     }
     if (selectedSliceSubjectFileProposalCount.value && !inspectorVisible.value) {
         return "border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] text-[var(--we-accent-strong)] hover:bg-[var(--we-bg-hover)]";
@@ -787,8 +787,8 @@ onMounted(restoreLocalDraft);
 
 <template>
     <!-- World Engine Workbench mock preview route -->
-    <div class="world-engine-workbench-preview flex h-screen flex-col overflow-hidden bg-[var(--we-bg-canvas)] text-[var(--we-text-main)]">
-        <header class="flex h-14 shrink-0 items-center gap-3 border-b border-[var(--we-border)] bg-[var(--we-bg-panel)] px-4 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+    <div class="world-engine-workbench-preview world-engine-workbench-theme flex h-screen flex-col overflow-hidden bg-[var(--we-bg-canvas)] text-[var(--we-text-main)]">
+        <header class="flex h-14 shrink-0 items-center gap-3 border-b border-[var(--we-border)] bg-[var(--we-bg-panel)] px-4 shadow-[0_1px_0_color-mix(in_srgb,var(--shadow-color)_4%,transparent)]">
             <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] text-[12px] font-bold text-[var(--we-accent)]">
                 WE
             </span>
@@ -815,15 +815,15 @@ onMounted(restoreLocalDraft);
                     v-if="totalDraftSliceCount"
                     type="button"
                     data-testid="world-workbench-draft-summary"
-                    class="inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-300 bg-[var(--we-warning-soft)] px-2.5 text-[12px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)]"
+                    class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-2.5 text-[12px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)]"
                     :title="draftSummaryTitle"
                     @click="showAllDraftSlices"
                 >
                     <span class="i-lucide-list-todo h-3.5 w-3.5"></span>
                     {{ t("worldEngine.workbenchPreview.drafts") }}
                     <span class="rounded bg-[var(--we-bg-panel)] px-1.5 font-mono text-[10px]">{{ totalDraftSliceCount }}</span>
-                    <span v-if="metadataDraftSliceCount" class="hidden rounded border border-amber-300 bg-[var(--we-bg-panel)] px-1.5 py-0.5 font-mono text-[10px] md:inline">meta {{ metadataDraftSliceCount }}</span>
-                    <span v-if="valueDraftSliceCount" class="hidden rounded border border-amber-300 bg-[var(--we-bg-panel)] px-1.5 py-0.5 font-mono text-[10px] md:inline">value {{ valueDraftSliceCount }}</span>
+                    <span v-if="metadataDraftSliceCount" class="hidden rounded border border-[var(--we-warning-border)] bg-[var(--we-bg-panel)] px-1.5 py-0.5 font-mono text-[10px] md:inline">meta {{ metadataDraftSliceCount }}</span>
+                    <span v-if="valueDraftSliceCount" class="hidden rounded border border-[var(--we-warning-border)] bg-[var(--we-bg-panel)] px-1.5 py-0.5 font-mono text-[10px] md:inline">value {{ valueDraftSliceCount }}</span>
                 </button>
                 <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] px-3 text-[12px] text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] hover:text-[var(--we-text-main)]" @click="resetMockData">
                     <span class="i-lucide-refresh-cw h-3.5 w-3.5"></span>
@@ -839,7 +839,7 @@ onMounted(restoreLocalDraft);
                 >
                     <span :class="inspectorVisible ? 'i-lucide-panel-right-close' : 'i-lucide-panel-right-open'" class="h-3.5 w-3.5"></span>
                     {{ t("worldEngine.workbenchPreview.inspector") }}
-                    <span v-if="metadataDraftSliceCount" class="rounded border border-amber-300 bg-[var(--we-warning-soft)] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[var(--we-warning)]">meta {{ metadataDraftSliceCount }}</span>
+                    <span v-if="metadataDraftSliceCount" class="rounded border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[var(--we-warning)]">meta {{ metadataDraftSliceCount }}</span>
                     <span v-if="selectedSliceSubjectFileProposalCount" data-testid="world-workbench-inspector-proposal-count" class="rounded bg-[var(--we-bg-panel)] px-1.5 font-mono text-[10px]">{{ selectedSliceSubjectFileProposalCount }}</span>
                 </button>
             </div>
@@ -967,45 +967,6 @@ onMounted(restoreLocalDraft);
 </template>
 
 <style scoped>
-.world-engine-workbench-preview {
-    --we-bg-canvas: #f6f8f7;
-    --we-bg-panel: #ffffff;
-    --we-bg-subtle: #f2f6f5;
-    --we-bg-muted: #e8efec;
-    --we-bg-hover: #edf4f1;
-    --we-bg-active: #def4ec;
-    --we-bg-data: #f7faf9;
-    --we-border: #d5dedb;
-    --we-border-strong: #b8c8c2;
-    --we-text-main: #10201b;
-    --we-text-secondary: #40564f;
-    --we-text-muted: #72847d;
-    --we-accent: #078768;
-    --we-accent-strong: #006b52;
-    --we-accent-soft: #dff5ee;
-    --we-accent-border: #80cdbb;
-    --we-warning: #b86b00;
-    --we-warning-soft: #fff2d6;
-    --we-danger: #c2414b;
-    --we-danger-soft: #ffe5e8;
-    --we-code-bg: #eef3f6;
-    --we-code-text: #1f3a4d;
-    --bg-main: var(--we-bg-canvas);
-    --bg-panel: var(--we-bg-panel);
-    --bg-sidebar: var(--we-bg-subtle);
-    --bg-hover: var(--we-bg-hover);
-    --bg-active: var(--we-bg-active);
-    --bg-input: var(--we-bg-subtle);
-    --text-main: var(--we-text-main);
-    --text-secondary: var(--we-text-secondary);
-    --text-muted: var(--we-text-muted);
-    --border-color: var(--we-border);
-    --border-color-hover: var(--we-border-strong);
-    --accent-main: var(--we-accent);
-    --accent-bg: var(--we-accent-soft);
-    --accent-text: var(--we-accent-strong);
-}
-
 .world-inspector-enter-active,
 .world-inspector-leave-active {
     transition: margin-right 0.25s ease, transform 0.25s ease, opacity 0.25s ease;

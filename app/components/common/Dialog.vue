@@ -243,7 +243,7 @@ onMounted(() => {
             ]" @pointerdown.self="handleOverlayPointerDown" @pointerup.self="handleOverlayPointerUp" @contextmenu.self="handleOverlayContextMenu">
                 <!-- 对话框主体 -->
                 <div 
-                    class="flex flex-col overflow-hidden rounded-xl shadow-[0_12px_48px_rgba(0,0,0,0.22)] border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-main)] transition-all duration-300 transform"
+                    class="flex flex-col overflow-hidden rounded-xl shadow-[0_12px_48px_color-mix(in_srgb,var(--shadow-color)_22%,transparent)] border border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-main)] transition-all duration-300 transform"
                     :style="{ width: resolvedWidth, height: resolvedHeight, maxHeight: resolvedMaxHeight }"
                 >
                     <!-- header 区域 -->
@@ -268,7 +268,7 @@ onMounted(() => {
                     <div v-if="props.showFooter" class="flex items-center justify-end gap-2.5 px-5 py-2 border-t border-[var(--border-color)] bg-transparent">
                         <slot name="footer" :confirm="handleConfirm" :cancel="() => requestClose('cancel')">
                             <button v-if="props.showCancel" class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] transition-colors duration-200 hover:bg-[var(--bg-hover)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.busy" @click="requestClose('cancel')">{{ t("common.cancel") }}</button>
-                            <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-white transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.busy" @click="handleConfirm">{{ t("common.confirm") }}</button>
+                            <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-[var(--text-inverse)] transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.busy" @click="handleConfirm">{{ t("common.confirm") }}</button>
                         </slot>
                     </div>
                 </div>

@@ -120,14 +120,14 @@ const defaultProfileOptions = computed<SelectOption[]>(() => {
         value: profile.profileKey,
         label: profile.profileKey,
         description: profile.name,
-        indicatorClass: profile.loadStatus === "loaded" ? "bg-emerald-500" : "bg-rose-500",
+        indicatorClass: profile.loadStatus === "loaded" ? "bg-[var(--status-success)]" : "bg-[var(--status-danger)]",
     })) ?? [];
     return [
         {
             value: "",
             label: t("settings.panels.defaultProfile.followDefault", {profile: inheritedDefaultProfileKey.value}),
             description: t("settings.panels.defaultProfile.followDefaultDescription"),
-            indicatorClass: "bg-slate-400",
+            indicatorClass: "bg-[var(--text-muted)]",
         },
         ...options,
     ];
@@ -823,13 +823,13 @@ defineExpose({
             leave-to-class="opacity-0 scale-[0.98]"
             class="relative flex flex-col gap-2"
         >
-            <div v-if="errorText" key="error" class="flex items-start gap-3 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 shadow-sm backdrop-blur-md">
-                <span class="i-lucide-alert-circle mt-0.5 h-4 w-4 shrink-0 text-rose-500"></span>
-                <div class="text-sm text-rose-700">{{ errorText }}</div>
+            <div v-if="errorText" key="error" class="flex items-start gap-3 rounded-xl border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-4 py-3 shadow-sm backdrop-blur-md">
+                <span class="i-lucide-alert-circle mt-0.5 h-4 w-4 shrink-0 text-[var(--status-danger)]"></span>
+                <div class="text-sm text-[var(--status-danger)]">{{ errorText }}</div>
             </div>
-            <div v-if="successText" key="success" class="flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 shadow-sm backdrop-blur-md">
-                <span class="i-lucide-check-circle-2 mt-0.5 h-4 w-4 shrink-0 text-emerald-500"></span>
-                <div class="text-sm text-emerald-700">{{ successText }}</div>
+            <div v-if="successText" key="success" class="flex items-start gap-3 rounded-xl border border-[var(--status-success-border)] bg-[var(--status-success-bg)] px-4 py-3 shadow-sm backdrop-blur-md">
+                <span class="i-lucide-check-circle-2 mt-0.5 h-4 w-4 shrink-0 text-[var(--status-success)]"></span>
+                <div class="text-sm text-[var(--status-success)]">{{ successText }}</div>
             </div>
         </TransitionGroup>
 
@@ -854,7 +854,7 @@ defineExpose({
                     <div class="space-y-1.5">
                         <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.defaultProfile.currentEffective") }}</label>
                         <div class="flex h-7 w-full items-center gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)]/30 px-2.5 text-[12px] select-all">
-                            <span class="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-500"></span>
+                            <span class="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-[var(--status-success)]"></span>
                             <span class="truncate font-mono text-[11px] font-semibold text-[var(--text-main)]">{{ effectiveDefaultProfileKey || "-" }}</span>
                         </div>
                     </div>
@@ -918,7 +918,7 @@ defineExpose({
                                 <div class="mt-1 text-[11px] text-[var(--text-muted)]">{{ profile.profileKey }}</div>
                             </div>
                             <div class="flex flex-wrap items-center gap-2">
-                                <button v-if="isProjectScope && profile.canResetHome" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-rose-500/40 bg-rose-500/5 px-3 text-[11px] font-medium text-rose-600 transition-colors hover:bg-rose-500/10 disabled:opacity-50" :disabled="Boolean(resettingHomeProfileKey) || saving" @click="void resetProfileHome(profile)">
+                                <button v-if="isProjectScope && profile.canResetHome" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 text-[11px] font-medium text-[var(--status-danger)] transition-colors hover:bg-[var(--status-danger-bg)] disabled:opacity-50" :disabled="Boolean(resettingHomeProfileKey) || saving" @click="void resetProfileHome(profile)">
                                     <span :class="resettingHomeProfileKey === profile.profileKey ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-rotate-ccw'" class="h-3 w-3"></span>
                                     {{ t("settings.panels.profileModels.resetHome") }}
                                 </button>

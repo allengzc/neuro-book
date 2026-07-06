@@ -264,25 +264,18 @@ describe("request_user_input userInputRequest", () => {
     });
 });
 
-describe("enter_plan_mode userInputRequest", () => {
-    const enterPlanModeTool = controlTools.enterPlanMode.runtime();
+describe("switch_mode userInputRequest", () => {
+    const switchModeTool = controlTools.switchMode.runtime();
 
-    it("生成 radio 字段用于批准选择", async () => {
-        const params = {
+    it("工具描述为英文", () => {
+        expect(switchModeTool.description).not.toMatch(/[一-鿿]/);
+    });
+
+    it("plan 目标生成 radio 审批字段", async () => {
+        const formSpec = expectUserInputFormSpec(await switchModeTool.userInputRequest!.when(requestContext({
+            targetMode: "plan",
             reason: "需要制定详细的实现计划",
-        };
-
-        const context: UserInputRequestContext = {
-            args: params,
-            session: {
-                sessionId: 1,
-                profileKey: "test-profile",
-                workspaceRoot: "/test/workspace",
-                workspaceKey: "test-workspace",
-            },
-        };
-
-        const formSpec = expectUserInputFormSpec(await enterPlanModeTool.userInputRequest!.when(context));
+        })));
 
         expect(formSpec.form.fields).toHaveLength(1);
 
@@ -299,95 +292,29 @@ describe("enter_plan_mode userInputRequest", () => {
         expect(field.defaultValue).toBe(true);
     });
 
-    it("批准后返回 pending 状态", async () => {
-        const params = {reason: "制定实现计划"};
-        const userInput = {approved: true};
-
-        const context = createToolContext();
-
-        const result = await enterPlanModeTool.executeWithContext!(
-            context,
-            "call-1",
-            params,
-            userInput,
-        );
-
-        expect(result.terminate).toBe(true);
-        expect(result.details).toEqual({approved: true, pending: true});
-        expect(readText(result)).toContain("请求进入计划模式：制定实现计划");
-    });
-
-    it("拒绝后终止并返回拒绝状态", async () => {
-        const params = {reason: "制定计划"};
-        const userInput = {approved: false};
-
-        const context = createToolContext();
-
-        const result = await enterPlanModeTool.executeWithContext!(
-            context,
-            "call-1",
-            params,
-            userInput,
-        );
-
-        expect(result.terminate).toBe(true);
-        expect(result.details).toEqual({approved: false});
-        expect(readText(result)).toBe("用户拒绝进入计划模式。");
-    });
-});
-
-describe("exit_plan_mode userInputRequest", () => {
-    const exitPlanModeTool = controlTools.exitPlanMode.runtime();
-
-    it("生成 radio 字段用于批准选择", async () => {
-        const params = {
-            reason: "计划已完成",
-        };
-
-        const context: UserInputRequestContext = {
-            args: params,
-            session: {
-                sessionId: 1,
-                profileKey: "test-profile",
-                workspaceRoot: "/test/workspace",
-                workspaceKey: "test-workspace",
-            },
-        };
-
-        const formSpec = expectUserInputFormSpec(await exitPlanModeTool.userInputRequest!.when(context));
+    it("discuss 目标使用讨论模式文案", async () => {
+        const formSpec = expectUserInputFormSpec(await switchModeTool.userInputRequest!.when(requestContext({
+            targetMode: "discuss",
+        })));
 
         expect(formSpec.form.fields).toHaveLength(1);
-
-        const field = formSpec.form.fields[0]!;
-        expect(field.path).toBe("approved");
-        expect(field.component).toBe("radio");
-        expect(field.label).toBe("是否批准退出计划模式？");
-        expect(field.description).toBe("计划已完成");
+        expect(formSpec.form.fields[0]!.label).toBe("是否批准进入讨论模式？");
+        expect(formSpec.prompt).toBe("进入讨论模式");
     });
 
-    it("提供 planFilePath 时添加预览提示字段", async () => {
-        const params = {
+    it("normal 目标带 planFilePath 时添加计划文件预览字段", async () => {
+        const formSpec = expectUserInputFormSpec(await switchModeTool.userInputRequest!.when(requestContext({
+            targetMode: "normal",
             reason: "计划已完成",
             planFilePath: ".agent/plan/feature-x.md",
-        };
-
-        const context: UserInputRequestContext = {
-            args: params,
-            session: {
-                sessionId: 1,
-                profileKey: "test-profile",
-                workspaceRoot: "/test/workspace",
-                workspaceKey: "test-workspace",
-            },
-        };
-
-        const formSpec = expectUserInputFormSpec(await exitPlanModeTool.userInputRequest!.when(context));
+        })));
 
         expect(formSpec.form.fields).toHaveLength(2);
 
         const approvalField = formSpec.form.fields[0]!;
         expect(approvalField.path).toBe("approved");
         expect(approvalField.component).toBe("radio");
+        expect(approvalField.label).toBe("是否批准切换到普通模式（开始执行）？");
 
         const previewField = formSpec.form.fields[1]!;
         expect(previewField.path).toBe("planPreviewNote");
@@ -398,43 +325,40 @@ describe("exit_plan_mode userInputRequest", () => {
         expect(previewField.required).toBe(false);
     });
 
-    it("批准后返回 pending 状态", async () => {
-        const params = {
-            reason: "计划完成",
-            planFilePath: ".agent/plan/test.md",
-        };
-        const userInput = {approved: true};
+    it("非 normal 目标忽略 planFilePath 预览字段", async () => {
+        const formSpec = expectUserInputFormSpec(await switchModeTool.userInputRequest!.when(requestContext({
+            targetMode: "plan",
+            planFilePath: ".agent/plan/feature-x.md",
+        })));
 
-        const context = createToolContext();
-
-        const result = await exitPlanModeTool.executeWithContext!(
-            context,
-            "call-1",
-            params,
-            userInput,
-        );
-
-        expect(result.terminate).toBe(true);
-        expect(result.details).toEqual({approved: true, pending: true});
-        expect(readText(result)).toContain("请求退出计划模式：计划完成");
+        expect(formSpec.form.fields).toHaveLength(1);
+        expect(formSpec.form.fields[0]!.path).toBe("approved");
     });
 
-    it("拒绝后终止", async () => {
-        const params = {reason: "计划完成"};
-        const userInput = {approved: false};
-
-        const context = createToolContext();
-
-        const result = await exitPlanModeTool.executeWithContext!(
-            context,
+    it("批准后返回 pending 与 targetMode", async () => {
+        const result = await switchModeTool.executeWithContext!(
+            createToolContext(),
             "call-1",
-            params,
-            userInput,
+            {targetMode: "normal", reason: "计划完成", planFilePath: ".agent/plan/test.md"},
+            {approved: true},
         );
 
         expect(result.terminate).toBe(true);
-        expect(result.details).toEqual({approved: false});
-        expect(readText(result)).toBe("用户拒绝退出计划模式。");
+        expect(result.details).toEqual({approved: true, pending: true, targetMode: "normal"});
+        expect(readText(result)).toContain("请求切换到普通模式：计划完成");
+    });
+
+    it("拒绝后终止并返回拒绝状态", async () => {
+        const result = await switchModeTool.executeWithContext!(
+            createToolContext(),
+            "call-1",
+            {targetMode: "plan", reason: "制定计划"},
+            {approved: false},
+        );
+
+        expect(result.terminate).toBe(true);
+        expect(result.details).toEqual({approved: false, targetMode: "plan"});
+        expect(readText(result)).toBe("用户拒绝切换到计划模式。");
     });
 });
 
@@ -476,22 +400,22 @@ describe("协议边界", () => {
         })).toBe(false);
     });
 
-    it("plan mode schema 保持向后兼容", () => {
-        const enterTool = controlTools.enterPlanMode.runtime();
-        const exitTool = controlTools.exitPlanMode.runtime();
+    it("switch_mode schema 要求合法 targetMode", () => {
+        const tool = controlTools.switchMode.runtime();
 
-        // 带 reason
-        expect(Value.Check(enterTool.parameters, {reason: "test"})).toBe(true);
-        // 空对象
-        expect(Value.Check(enterTool.parameters, {})).toBe(true);
+        // targetMode 必填且只接受三个合法值
+        expect(Value.Check(tool.parameters, {})).toBe(false);
+        expect(Value.Check(tool.parameters, {targetMode: "unknown"})).toBe(false);
+        expect(Value.Check(tool.parameters, {targetMode: "normal"})).toBe(true);
+        expect(Value.Check(tool.parameters, {targetMode: "discuss", reason: "test"})).toBe(true);
+        expect(Value.Check(tool.parameters, {targetMode: "plan", reason: "test"})).toBe(true);
 
-        // 带 reason 和 planFilePath
-        expect(Value.Check(exitTool.parameters, {
+        // 退出计划模式可携带 planFilePath
+        expect(Value.Check(tool.parameters, {
+            targetMode: "normal",
             reason: "done",
             planFilePath: ".agent/plan/test.md",
         })).toBe(true);
-        // 空对象
-        expect(Value.Check(exitTool.parameters, {})).toBe(true);
     });
 });
 

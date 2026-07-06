@@ -421,7 +421,7 @@ const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
                             <span class="i-lucide-undo-2 h-3.5 w-3.5"></span>
                             还原
                         </button>
-                        <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50" :class="metadataDraftDirty && !props.busy ? 'border-[var(--we-accent-border)] bg-[var(--we-accent)] text-white hover:bg-[var(--we-accent-strong)]' : 'border-[var(--we-border)] bg-[var(--we-bg-muted)] text-[var(--we-text-muted)]'" :disabled="props.busy || !metadataDraftDirty" @click="applyPatch">
+                        <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-[12px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50" :class="metadataDraftDirty && !props.busy ? 'border-[var(--we-accent-border)] bg-[var(--we-accent)] text-[var(--text-inverse)] hover:bg-[var(--we-accent-strong)]' : 'border-[var(--we-border)] bg-[var(--we-bg-muted)] text-[var(--we-text-muted)]'" :disabled="props.busy || !metadataDraftDirty" @click="applyPatch">
                             <span :class="props.busy ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-check'" class="h-3.5 w-3.5"></span>
                             {{ props.applyButtonLabel }}
                         </button>
@@ -448,7 +448,7 @@ const {isResizing, panelStyle} = useResizablePanel(resizeHandleRef, {
                         <summary class="flex cursor-pointer items-center justify-between gap-2 bg-[var(--we-bg-subtle)] px-3 py-2">
                             <span class="flex min-w-0 items-center gap-1.5">
                                 <span class="min-w-0 truncate text-[12px] font-semibold text-[var(--we-text-main)]">{{ proposal.subjectName }}</span>
-                                <span class="min-w-0 max-w-[168px] truncate rounded border px-1.5 py-0.5 text-[10px]" :class="proposal.sourceKind === 'direct-mutation' ? 'border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] text-[var(--we-accent-strong)]' : 'border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)]'" :title="proposal.sourceLabel">{{ proposal.sourceLabel }}</span>
+                                <span class="min-w-0 max-w-[168px] truncate rounded border px-1.5 py-0.5 text-[10px]" :class="proposal.sourceKind === 'direct-mutation' ? 'border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] text-[var(--we-accent-strong)]' : 'border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] text-[var(--we-warning)]'" :title="proposal.sourceLabel">{{ proposal.sourceLabel }}</span>
                             </span>
                             <span class="min-w-0 shrink-0 truncate font-mono text-[10px] text-[var(--we-text-muted)]">{{ proposal.subjectPath }}</span>
                         </summary>

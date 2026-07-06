@@ -9,7 +9,7 @@ import {PlotInputParser} from "nbook/server/plot/http/plot-input.parser";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {TrackedPrismaLibSql} from "nbook/server/workspace-files/tracked-prisma-libsql";
 import {ChapterService} from "nbook/server/plot/services/chapter.service";
-import {ChapterBootstrapService, type CarrierTreeBootstrapResult} from "nbook/server/plot/services/chapter-bootstrap.service";
+import {ChapterBootstrapService, writeProsePointers, type CarrierTreeBootstrapResult} from "nbook/server/plot/services/chapter-bootstrap.service";
 import {ChapterProseService, type ChapterProseNode} from "nbook/server/plot/services/chapter-prose.service";
 import {OrderService} from "nbook/server/plot/services/order.service";
 import {ChapterWriterBriefService} from "nbook/server/plot/services/chapter-writer-brief.service";
@@ -22,6 +22,7 @@ import {SceneWorldContextService} from "nbook/server/plot/services/scene-world-c
 import {StoryService} from "nbook/server/plot/services/story.service";
 import {ThreadService} from "nbook/server/plot/services/thread.service";
 import {initProjectDatabase, normalizeProjectPath, resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
+import {readProjectWorkspaceTreeSnapshot} from "nbook/server/workspace-files/project-workspace-index";
 import {worldEngineFacade} from "nbook/server/world-engine";
 import {
     mergeContentDiagnostics,
@@ -111,10 +112,24 @@ export class PlotFacade {
 
     /**
      * 承载树 Bootstrap:把现有 manuscript 目录导入 Act/Chapter,并回写 Prose frontmatter 反指。
-     * 一次性迁移工具,幂等可重跑。DB 写入走事务;frontmatter 文件写回在事务提交后由服务内部完成。
+     * 一次性迁移工具,幂等可重跑。
+     *
+     * 事务边界:manuscript 目录扫描(事务前)与 frontmatter 回写(事务提交后)都是慢文件 I/O,必须留在
+     * DB interactive transaction 之外——否则真实项目会撑爆默认 5s 事务超时(Task 87 实测踩坑)。
+     * 事务内只做 Act/Chapter 的纯 DB 写入。
      */
     async bootstrapCarrierTree(projectPath: string): Promise<CarrierTreeBootstrapResult> {
-        return this.runInTransaction(projectPath, (module) => module.chapterBootstrapService.bootstrapCarrierTree(normalizeProjectPath(projectPath)));
+        const normalized = normalizeProjectPath(projectPath);
+        const snapshot = await readProjectWorkspaceTreeSnapshot({root: normalized});
+        const dbResult = await this.runInTransaction(normalized, (module) => module.chapterBootstrapService.applyCarrierTree(normalized, snapshot.nodes));
+        const fsResult = await writeProsePointers(normalized, dbResult.pendingPointers);
+        return {
+            actsCreated: dbResult.actsCreated,
+            chaptersCreated: dbResult.chaptersCreated,
+            chaptersLinkedToAct: dbResult.chaptersLinkedToAct,
+            proseFrontmatterWritten: fsResult.proseFrontmatterWritten,
+            warnings: fsResult.warnings,
+        };
     }
 
     /**

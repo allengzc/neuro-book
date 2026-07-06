@@ -86,7 +86,7 @@ function sourceLabel(value: string): string {
                         <div>实际维数：{{ valueLabel(selection.chunk.vector.dimensions) }}</div>
                         <div>索引时间：{{ embeddingMetaLabel(selection.chunk.vector.embeddingIndexedAt) }}</div>
                     </div>
-                    <div v-if="!selection.chunk.vector.embeddingModel" class="mt-2 rounded border border-amber-500/20 bg-amber-500/10 p-2 text-[11px] leading-5 text-amber-700">这条缓存来自旧版索引，chunk 正文可以查看，但条目级 embedding 元数据需要重建索引后才会补齐。</div>
+                    <div v-if="!selection.chunk.vector.embeddingModel" class="mt-2 rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] p-2 text-[11px] leading-5 text-[var(--status-warning)]">这条缓存来自旧版索引，chunk 正文可以查看，但条目级 embedding 元数据需要重建索引后才会补齐。</div>
                     <div class="mt-2 rounded bg-[var(--bg-panel)] p-2 font-mono text-[11px] text-[var(--text-secondary)]">
                         向量预览（{{ selection.chunk.vector.previewDimensions }}/{{ selection.chunk.vector.dimensions ?? "?" }}）：[{{ selection.chunk.vector.preview.map((item) => Number(item).toFixed(4)).join(", ") }}]
                     </div>
@@ -115,7 +115,7 @@ function sourceLabel(value: string): string {
             </template>
 
             <template v-else>
-                <div v-if="inspector.index.readError" class="mb-3 rounded-md border border-rose-500/20 bg-rose-500/8 p-2 text-[11px] text-rose-700">SQLite 读取失败：{{ inspector.index.readError }}</div>
+                <div v-if="inspector.index.readError" class="mb-3 rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-2 text-[11px] text-[var(--status-danger)]">SQLite 读取失败：{{ inspector.index.readError }}</div>
                 <div class="mb-3 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-3">
                     <div class="mb-2 text-[12px] font-semibold text-[var(--text-main)]">当前嵌入配置</div>
                     <div class="space-y-1 text-[11px] text-[var(--text-secondary)]">
@@ -158,7 +158,7 @@ function sourceLabel(value: string): string {
                 <button type="button" class="rounded-md border border-[var(--border-color)] px-2 py-1.5 text-[11px] text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="actionBusy || !inspector?.selectedSubjectPath" @click="emit('debug', 'mark-dirty', '标记当前 subject 待索引')">标记待索引</button>
                 <button type="button" class="rounded-md border border-[var(--border-color)] px-2 py-1.5 text-[11px] text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="actionBusy || !inspector?.selectedSubjectPath" @click="emit('debug', 'delete-subject-index', '删除当前 subject 索引缓存')">删除本角色索引</button>
                 <button type="button" class="rounded-md border border-[var(--border-color)] px-2 py-1.5 text-[11px] text-[var(--text-main)] hover:bg-[var(--bg-hover)] disabled:opacity-50" :disabled="actionBusy || !inspector?.selectedSubjectPath" @click="emit('debug', 'clear-index-cache-and-rebuild', '清空缓存并重建当前 subject')">清空并重建</button>
-                <button type="button" class="rounded-md border border-rose-500/40 px-2 py-1.5 text-[11px] text-rose-700 hover:bg-rose-500/10 disabled:opacity-50" :disabled="actionBusy" @click="emit('debug', 'clear-index-cache', '清空 Project RAG SQLite 缓存')">清空缓存</button>
+                <button type="button" class="rounded-md border border-[var(--status-danger-border)] px-2 py-1.5 text-[11px] text-[var(--status-danger)] hover:bg-[var(--status-danger-bg)] disabled:opacity-50" :disabled="actionBusy" @click="emit('debug', 'clear-index-cache', '清空 Project RAG SQLite 缓存')">清空缓存</button>
             </div>
             <div class="mt-2 text-[10px] leading-4 text-[var(--text-muted)]">这些操作只影响 RAG 缓存或 dirty state，不会修改 events.jsonl / memory.jsonl。</div>
         </div>

@@ -318,7 +318,7 @@ async function buildPreviewSession(harness: NeuroAgentHarness, request: AgentPro
         customState: {},
         linkedAgents: [],
         archived: false,
-        planModeActive: false,
+        agentMode: "normal",
     };
 }
 

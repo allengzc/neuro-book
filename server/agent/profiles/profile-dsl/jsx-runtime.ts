@@ -23,14 +23,10 @@ const components = {
     LinkedAgentsReminder: dsl.LinkedAgentsReminder,
     RuntimeLocationReminder: dsl.RuntimeLocationReminder,
     WorkspaceFocusReminder: dsl.WorkspaceFocusReminder,
-    PlanModeAvailabilityReminder: dsl.PlanModeAvailabilityReminder,
+    ModeAvailabilityReminder: dsl.ModeAvailabilityReminder,
     TaskReminder: dsl.TaskReminder,
-    PlanModeReminder: dsl.PlanModeReminder,
-    PlanModeFull: dsl.PlanModeFull,
-    PlanModeSparse: dsl.PlanModeSparse,
-    PlanModeExit: dsl.PlanModeExit,
-    PlanModeReentry: dsl.PlanModeReentry,
-    ActivePlanModeReminder: dsl.ActivePlanModeReminder,
+    ModeReminder: dsl.ModeReminder,
+    ModeSlot: dsl.ModeSlot,
     MentionedSkillsReminder: dsl.MentionedSkillsReminder,
     AgentCatalog: dsl.AgentCatalog,
     SkillCatalog: dsl.SkillCatalog,
@@ -83,14 +79,10 @@ export namespace JSX {
         LinkedAgentsReminder: Parameters<typeof dsl.LinkedAgentsReminder>[0];
         RuntimeLocationReminder: Parameters<typeof dsl.RuntimeLocationReminder>[0];
         WorkspaceFocusReminder: Parameters<typeof dsl.WorkspaceFocusReminder>[0];
-        PlanModeAvailabilityReminder: Parameters<typeof dsl.PlanModeAvailabilityReminder>[0];
+        ModeAvailabilityReminder: Parameters<typeof dsl.ModeAvailabilityReminder>[0];
         TaskReminder: Parameters<typeof dsl.TaskReminder>[0];
-        PlanModeReminder: Parameters<typeof dsl.PlanModeReminder>[0];
-        PlanModeFull: Parameters<typeof dsl.PlanModeFull>[0];
-        PlanModeSparse: Parameters<typeof dsl.PlanModeSparse>[0];
-        PlanModeExit: Parameters<typeof dsl.PlanModeExit>[0];
-        PlanModeReentry: Parameters<typeof dsl.PlanModeReentry>[0];
-        ActivePlanModeReminder: Parameters<typeof dsl.ActivePlanModeReminder>[0];
+        ModeReminder: Parameters<typeof dsl.ModeReminder>[0];
+        ModeSlot: Parameters<typeof dsl.ModeSlot>[0];
         MentionedSkillsReminder: Record<string, never>;
         AgentCatalog: Parameters<typeof dsl.AgentCatalog>[0];
         SkillCatalog: Parameters<typeof dsl.SkillCatalog>[0];

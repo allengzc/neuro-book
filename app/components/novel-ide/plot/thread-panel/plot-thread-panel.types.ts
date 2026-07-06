@@ -16,6 +16,7 @@ export type PlotThreadTone = "amber" | "sky" | "emerald" | "rose";
  * 单 Thread 面板使用的章节视图模型。
  */
 export type PlotThreadPanelChapter = {
+    // StoryChapter 实体 id。
     id: string;
     volumeTitle: string;
     numberLabel: string;
@@ -54,7 +55,8 @@ export type PlotThreadPanelThread = {
 export type PlotThreadPanelScene = {
     id: string;
     threadId: string;
-    chapterPath: string | null;
+    // 挂载章节实体 id;为空表示 Scene 尚未挂章。
+    chapterId: string | null;
     title: string;
     summary: string;
     purpose: string | null;
@@ -86,7 +88,8 @@ export type PlotThreadQuickSceneUpdate = {
     summary: string;
     purpose: string | null;
     status: StorySceneStatusDto;
-    chapterPath: string | null;
+    // 挂载章节实体 id;为空表示取消挂章。
+    chapterId: string | null;
     writingTip: string | null;
     worldAnchor: StorySceneWorldAnchorDto;
 };
@@ -113,7 +116,8 @@ export type PlotThreadEditorSceneSave = {
     summary: string;
     purpose: string | null;
     status: StorySceneStatusDto;
-    chapterPath: string | null;
+    // 挂载章节实体 id;为空表示取消挂章。
+    chapterId: string | null;
     writingTip: string | null;
     worldAnchor: StorySceneWorldAnchorDto;
     refs: PlotThreadPanelRef[];

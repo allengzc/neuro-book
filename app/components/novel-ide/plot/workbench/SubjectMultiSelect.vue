@@ -85,7 +85,7 @@ function removeSubject(subjectId: string): void {
                 v-for="subject in selectedSubjects"
                 :key="subject.id"
                 type="button"
-                class="inline-flex max-w-full items-center gap-1 rounded bg-sky-500/10 px-1.5 py-0.5 text-[11px] text-sky-700 ring-1 ring-inset ring-sky-500/20 dark:text-sky-300"
+                class="inline-flex max-w-full items-center gap-1 rounded bg-[var(--status-info-bg)] px-1.5 py-0.5 text-[11px] text-[var(--status-info)] ring-1 ring-inset ring-[var(--status-info-border)]"
                 :title="`${subject.type} · ${subject.id}`"
                 @click="removeSubject(subject.id)"
             >
@@ -119,6 +119,6 @@ function removeSubject(subjectId: string): void {
             <div v-if="loading" class="px-2 py-3 text-center text-[11px] text-[var(--text-muted)]">加载中...</div>
         </div>
 
-        <div v-if="error" class="text-[11px] text-rose-600">{{ error }}</div>
+        <div v-if="error" class="text-[11px] text-[var(--status-danger)]">{{ error }}</div>
     </div>
 </template>

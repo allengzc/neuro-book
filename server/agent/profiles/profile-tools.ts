@@ -46,8 +46,7 @@ export const builtin = {
     },
     control: {
         requestUserInput: registeredTool("request_user_input"),
-        enterPlanMode: registeredTool("enter_plan_mode"),
-        exitPlanMode: registeredTool("exit_plan_mode"),
+        switchMode: registeredTool("switch_mode"),
     },
     task: {
         create: registeredTool("task_create"),

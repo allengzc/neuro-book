@@ -14,9 +14,15 @@ export const PLOT_SELECTION_STATE_KEY = "plot.selection";
 export const WORLD_FOCUS_STATE_KEY = "world.focus";
 
 /**
- * Plan Mode reminder 状态在 session custom state 中的固定 key。
+ * Agent 工作模式 reminder 状态在 session custom state 中的固定 key（Task 90）。
+ * 值 shape：{mode, fromMode, phase, hasExitedPlan, reason?, workDirectory, lastTransition, approved?, updatedAt}。
  */
-export const AGENT_PLAN_MODE_STATE_KEY = "agent.planMode";
+export const AGENT_MODE_STATE_KEY = "agent.mode";
+
+/**
+ * Agent 工作模式的前端投影 key，值为 "normal" | "discuss" | "plan"。
+ */
+export const AGENT_MODE_UI_STATE_KEY = "ui.agentMode";
 
 /**
  * 等待用户 resolution 的工具表单 metadata，后缀为 toolCallId。

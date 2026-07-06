@@ -118,9 +118,9 @@ describe("agent session http helpers", () => {
             sessionId: 12,
         }));
 
-        await runAgentSessionCommand(12, {command: "plan", active: true}, {runCommand} as never);
+        await runAgentSessionCommand(12, {command: "mode", mode: "plan"}, {runCommand} as never);
 
-        expect(runCommand).toHaveBeenCalledWith(12, {command: "plan", active: true});
+        expect(runCommand).toHaveBeenCalledWith(12, {command: "mode", mode: "plan"});
     });
 
     it("热路径 helper 会把 Server-Timing sink 传给 harness", async () => {
@@ -138,11 +138,11 @@ describe("agent session http helpers", () => {
 
         await getAgentSessionSnapshot(12, {getSessionSnapshot} as never, timingSink);
         await getAgentSessionRelations(12, {getSessionRelations} as never, timingSink);
-        await runAgentSessionCommand(12, {command: "plan", active: true}, {runCommand} as never, timingSink);
+        await runAgentSessionCommand(12, {command: "mode", mode: "plan"}, {runCommand} as never, timingSink);
 
         expect(getSessionSnapshot).toHaveBeenCalledWith(12, timingSink);
         expect(getSessionRelations).toHaveBeenCalledWith(12, timingSink);
-        expect(runCommand).toHaveBeenCalledWith(12, {command: "plan", active: true}, timingSink);
+        expect(runCommand).toHaveBeenCalledWith(12, {command: "mode", mode: "plan"}, timingSink);
     });
 
     it("moveAgentSessionTree 调用 harness.moveTree", async () => {

@@ -471,7 +471,7 @@ function issueLevelClass(severity: WorldIssueDto["severity"] | "manual"): string
         return "border-[var(--we-danger)] bg-[var(--we-danger-soft)] text-[var(--we-danger)]";
     }
     if (level === "A") {
-        return "border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)]";
+        return "border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] text-[var(--we-warning)]";
     }
     return "border-[var(--we-border)] bg-[var(--we-bg-muted)] text-[var(--we-text-muted)]";
 }
@@ -492,7 +492,7 @@ function issueStatusClass(status: WorldWorkbenchPreviewIssueStatus | "manual"): 
     if (status === "ignored" || status === "manual") {
         return "border-[var(--we-border)] bg-[var(--we-bg-muted)] text-[var(--we-text-muted)]";
     }
-    return "border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)]";
+    return "border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] text-[var(--we-warning)]";
 }
 
 /** 当前 issue 的同 subject + path 路径相关 patch 时间线。 */
@@ -1328,10 +1328,10 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                 <span class="min-w-0 max-w-[160px] truncate font-mono text-[11px] text-[var(--we-text-muted)]">{{ props.slice.id }}</span>
                 <span class="hidden shrink-0 whitespace-nowrap rounded-md border border-[var(--we-border)] bg-[var(--we-bg-subtle)] px-2 py-0.5 text-[11px] text-[var(--we-text-secondary)] xl:inline">{{ editorSummary }}</span>
                 <span class="hidden min-w-0 max-w-[160px] truncate rounded-md border border-[var(--we-accent-border)] bg-[var(--we-accent-soft)] px-2 py-0.5 text-[11px] text-[var(--we-accent-strong)] xl:inline">{{ activeSubjectSummary }}</span>
-                <span class="hidden shrink-0 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] xl:inline" :class="dirtyValueDraftCount || otherSliceDirtyDraftCount ? 'border-amber-300 bg-[var(--we-warning-soft)] text-[var(--we-warning)]' : 'border-[var(--we-border)] bg-[var(--we-bg-subtle)] text-[var(--we-text-muted)]'">{{ valueDraftStatusLabel }}</span>
+                <span class="hidden shrink-0 whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] xl:inline" :class="dirtyValueDraftCount || otherSliceDirtyDraftCount ? 'border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] text-[var(--we-warning)]' : 'border-[var(--we-border)] bg-[var(--we-bg-subtle)] text-[var(--we-text-muted)]'">{{ valueDraftStatusLabel }}</span>
             </div>
             <div class="flex shrink-0 items-center gap-2">
-                <button v-if="nextOtherSliceDraft" data-testid="mutation-editor-next-draft-toolbar" type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-300 bg-[var(--we-warning-soft)] px-2 text-[11px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy" :title="`跳到 ${nextOtherSliceDraft.sliceTitle} 的未应用草稿`" @click="navigateToOtherDraft">
+                <button v-if="nextOtherSliceDraft" data-testid="mutation-editor-next-draft-toolbar" type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-2 text-[11px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy" :title="`跳到 ${nextOtherSliceDraft.sliceTitle} 的未应用草稿`" @click="navigateToOtherDraft">
                     <span class="i-lucide-arrow-right-from-line h-3.5 w-3.5"></span>
                     <span class="hidden xl:inline">跳到草稿</span>
                 </button>
@@ -1356,7 +1356,7 @@ watch(() => props.selectedSubjectIds.length, (count) => {
 
         <Transition name="world-review-panel-body">
         <div v-if="!props.collapsed" class="flex min-h-0 flex-1 flex-col overflow-hidden px-3 py-3">
-            <div v-if="dirtyValueDraftCount || otherSliceDirtyDraftCount || valueDraftErrorCount" class="mb-3 shrink-0 rounded-md border border-amber-300 bg-[var(--we-warning-soft)] px-3 py-2">
+            <div v-if="dirtyValueDraftCount || otherSliceDirtyDraftCount || valueDraftErrorCount" class="mb-3 shrink-0 rounded-md border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-3 py-2">
                 <div class="flex flex-wrap items-center justify-between gap-2">
                     <div class="flex min-w-0 items-center gap-2">
                         <span class="i-lucide-pencil-line h-4 w-4 shrink-0 text-[var(--we-warning)]"></span>
@@ -1366,19 +1366,19 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                         </span>
                     </div>
                     <div class="flex shrink-0 items-center gap-1.5">
-                        <button v-if="nextOtherSliceDraft" data-testid="mutation-editor-next-draft-slice" type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-300 bg-[var(--we-bg-panel)] px-2 text-[11px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy" :title="`跳到 ${nextOtherSliceDraft.sliceTitle} 的未应用草稿`" @click="navigateToOtherDraft">
+                        <button v-if="nextOtherSliceDraft" data-testid="mutation-editor-next-draft-slice" type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--we-warning-border)] bg-[var(--we-bg-panel)] px-2 text-[11px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy" :title="`跳到 ${nextOtherSliceDraft.sliceTitle} 的未应用草稿`" @click="navigateToOtherDraft">
                             <span class="i-lucide-arrow-right-from-line h-3.5 w-3.5"></span>
                             跳到草稿
                         </button>
-                        <button v-if="allDirtyValueDraftCount" data-testid="mutation-editor-clear-all-drafts" type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-300 bg-[var(--we-bg-panel)] px-2 text-[11px] font-medium text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy" title="放弃所有 slice 的未应用 value 草稿" @click="requestResetAllValueDrafts">
+                        <button v-if="allDirtyValueDraftCount" data-testid="mutation-editor-clear-all-drafts" type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--we-warning-border)] bg-[var(--we-bg-panel)] px-2 text-[11px] font-medium text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy" title="放弃所有 slice 的未应用 value 草稿" @click="requestResetAllValueDrafts">
                             <span class="i-lucide-eraser h-3.5 w-3.5"></span>
                             清空草稿
                         </button>
-                        <button data-testid="mutation-editor-apply-all-banner" type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-300 bg-[var(--we-bg-panel)] px-2 text-[11px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy || !dirtyValueDraftCount" @click="applyDirtyValueDrafts">
+                        <button data-testid="mutation-editor-apply-all-banner" type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--we-warning-border)] bg-[var(--we-bg-panel)] px-2 text-[11px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy || !dirtyValueDraftCount" @click="applyDirtyValueDrafts">
                             <span class="i-lucide-check-check h-3.5 w-3.5"></span>
                             应用全部
                         </button>
-                        <button data-testid="mutation-editor-reset-all-banner" type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-300 bg-[var(--we-bg-panel)] px-2 text-[11px] font-medium text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy || !dirtyValueDraftCount" @click="resetDirtyValueDrafts">
+                        <button data-testid="mutation-editor-reset-all-banner" type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--we-warning-border)] bg-[var(--we-bg-panel)] px-2 text-[11px] font-medium text-[var(--we-text-secondary)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy || !dirtyValueDraftCount" @click="resetDirtyValueDrafts">
                             <span class="i-lucide-undo-2 h-3.5 w-3.5"></span>
                             还原全部
                         </button>
@@ -1387,7 +1387,7 @@ watch(() => props.selectedSubjectIds.length, (count) => {
             </div>
 
             <div v-if="view === 'review'" class="min-h-0 flex-1 space-y-3 overflow-y-auto custom-scrollbar">
-            <div v-if="reviewFocusContext && reviewIssueExplanation" class="rounded-md border border-amber-300 bg-[var(--we-warning-soft)] px-3 py-2">
+            <div v-if="reviewFocusContext && reviewIssueExplanation" class="rounded-md border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-3 py-2">
                 <div class="flex flex-wrap items-start justify-between gap-2">
                     <div class="min-w-0 flex-1">
                         <div class="flex min-w-0 items-center gap-2">
@@ -1405,15 +1405,15 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                             <span class="min-w-0 truncate text-[var(--we-text-secondary)]">{{ reviewFocusContext.message }}</span>
                         </div>
                         <div class="mt-2 grid gap-1.5 text-[11px] leading-5 md:grid-cols-3">
-                            <div class="rounded-md border border-amber-200 bg-[var(--we-bg-panel)] px-2.5 py-1.5">
+                            <div class="rounded-md border border-[var(--we-warning-border)] bg-[var(--we-bg-panel)] px-2.5 py-1.5">
                                 <div class="font-semibold text-[var(--we-warning)]">发生了什么</div>
                                 <div class="mt-0.5 text-[var(--we-text-secondary)]">{{ reviewIssueExplanation.detail }}</div>
                             </div>
-                            <div class="rounded-md border border-amber-200 bg-[var(--we-bg-panel)] px-2.5 py-1.5">
+                            <div class="rounded-md border border-[var(--we-warning-border)] bg-[var(--we-bg-panel)] px-2.5 py-1.5">
                                 <div class="font-semibold text-[var(--we-warning)]">为什么要看</div>
                                 <div class="mt-0.5 text-[var(--we-text-secondary)]">{{ reviewIssueExplanation.impact }}</div>
                             </div>
-                            <div class="rounded-md border border-amber-200 bg-[var(--we-bg-panel)] px-2.5 py-1.5">
+                            <div class="rounded-md border border-[var(--we-warning-border)] bg-[var(--we-bg-panel)] px-2.5 py-1.5">
                                 <div class="font-semibold text-[var(--we-warning)]">建议处理</div>
                                 <div class="mt-0.5 text-[var(--we-text-secondary)]">{{ reviewIssueExplanation.action }}</div>
                             </div>
@@ -1442,15 +1442,15 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                         </div>
                     </div>
                     <div class="flex shrink-0 items-center gap-1.5">
-                        <button v-if="reviewFocusContext.status !== 'manual'" type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-amber-300 bg-[var(--we-bg-panel)] px-2 text-[11px] text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy || !previousReviewQueueItem" :title="previousReviewQueueItem ? `${previousReviewQueueItem.sliceTime} · ${previousReviewQueueItem.sliceTitle}` : '没有上一个可见 issue'" @click="focusReviewIssue(previousReviewQueueItem)">
+                        <button v-if="reviewFocusContext.status !== 'manual'" type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--we-warning-border)] bg-[var(--we-bg-panel)] px-2 text-[11px] text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy || !previousReviewQueueItem" :title="previousReviewQueueItem ? `${previousReviewQueueItem.sliceTime} · ${previousReviewQueueItem.sliceTitle}` : '没有上一个可见 issue'" @click="focusReviewIssue(previousReviewQueueItem)">
                             <span class="i-lucide-arrow-up h-3.5 w-3.5"></span>
                             {{ reviewQueueMode === "open" ? t("worldEngine.workbenchPreview.previousOpen") : t("worldEngine.workbenchPreview.previousIssue") }}
                         </button>
-                        <button v-if="reviewFocusContext.status !== 'manual'" type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-amber-300 bg-[var(--we-bg-panel)] px-2 text-[11px] text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy || !nextReviewQueueItem" :title="nextReviewQueueItem ? `${nextReviewQueueItem.sliceTime} · ${nextReviewQueueItem.sliceTitle}` : '没有下一个可见 issue'" @click="focusReviewIssue(nextReviewQueueItem)">
+                        <button v-if="reviewFocusContext.status !== 'manual'" type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-[var(--we-warning-border)] bg-[var(--we-bg-panel)] px-2 text-[11px] text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)] disabled:opacity-45" :disabled="props.busy || !nextReviewQueueItem" :title="nextReviewQueueItem ? `${nextReviewQueueItem.sliceTime} · ${nextReviewQueueItem.sliceTitle}` : '没有下一个可见 issue'" @click="focusReviewIssue(nextReviewQueueItem)">
                             {{ reviewQueueMode === "open" ? t("worldEngine.workbenchPreview.nextOpen") : t("worldEngine.workbenchPreview.nextIssue") }}
                             <span class="i-lucide-arrow-down h-3.5 w-3.5"></span>
                         </button>
-                        <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-300 bg-[var(--we-bg-panel)] px-2 text-[11px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)]" @click="clearReviewFocus">
+                        <button type="button" class="inline-flex h-7 items-center gap-1.5 rounded-md border border-[var(--we-warning-border)] bg-[var(--we-bg-panel)] px-2 text-[11px] font-medium text-[var(--we-warning)] transition-colors hover:bg-[var(--we-bg-hover)]" @click="clearReviewFocus">
                             <span class="i-lucide-x h-3.5 w-3.5"></span>
                             清除定位
                         </button>
@@ -1476,7 +1476,7 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                         :key="`mutation-context:${contextItem.slot}`"
                         data-testid="mutation-context-card"
                         class="min-w-0 rounded-md border bg-[var(--we-bg-panel)] p-2"
-                        :class="contextItem.item?.isCurrent ? 'border-amber-300 shadow-[inset_3px_0_0_var(--we-warning)]' : 'border-[var(--we-border)]'"
+                        :class="contextItem.item?.isCurrent ? 'border-[var(--we-warning-border)] shadow-[inset_3px_0_0_var(--we-warning)]' : 'border-[var(--we-border)]'"
                     >
                         <div class="mb-2 flex items-center justify-between gap-2">
                             <span class="text-[11px] font-semibold text-[var(--we-text-main)]">{{ contextItem.label }}</span>
@@ -1527,7 +1527,7 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                     <div class="flex min-w-0 items-center gap-2">
                         <span class="i-lucide-list-checks h-4 w-4 shrink-0 text-[var(--we-warning)]"></span>
                         <span class="shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--we-text-muted)]">{{ t("worldEngine.workbenchPreview.reviewIssues") }}</span>
-                        <span class="rounded-md border border-amber-300 bg-[var(--we-warning-soft)] px-2 py-0.5 font-mono text-[10px] text-[var(--we-warning)]">{{ t("worldEngine.workbenchPreview.openCountShort", {count: currentSliceReviewItems.filter((item) => item.status === "open").length}) }}</span>
+                        <span class="rounded-md border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-2 py-0.5 font-mono text-[10px] text-[var(--we-warning)]">{{ t("worldEngine.workbenchPreview.openCountShort", {count: currentSliceReviewItems.filter((item) => item.status === "open").length}) }}</span>
                     </div>
                     <span class="text-[11px] text-[var(--we-text-muted)]">点击 issue 进入问题处理</span>
                 </div>
@@ -1537,7 +1537,7 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                         :key="`editor-slice-issue:${item.key}`"
                         type="button"
                         data-testid="mutation-editor-issue-row"
-                        class="grid min-w-0 grid-cols-[28px_minmax(72px,0.65fr)_minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] px-2 py-1.5 text-left text-[11px] transition-colors hover:border-amber-300 hover:bg-[var(--we-warning-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--we-accent-border)] disabled:opacity-45"
+                        class="grid min-w-0 grid-cols-[28px_minmax(72px,0.65fr)_minmax(0,1fr)_auto] items-center gap-2 rounded-md border border-[var(--we-border)] bg-[var(--we-bg-panel)] px-2 py-1.5 text-left text-[11px] transition-colors hover:border-[var(--we-warning-border)] hover:bg-[var(--we-warning-soft)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--we-accent-border)] disabled:opacity-45"
                         :title="item.message"
                         :disabled="props.busy"
                         @click="focusReviewIssue(item)"
@@ -1651,8 +1651,8 @@ watch(() => props.selectedSubjectIds.length, (count) => {
                         <label class="grid min-w-0 grid-cols-[minmax(72px,0.5fr)_minmax(0,1fr)] items-center gap-2">
                             <span class="min-w-0">
                                 <span class="block truncate font-mono text-[var(--we-code-text)]">{{ row.mutation.path }}</span>
-                                <span v-if="isValueDraftDirty(row.index, row.mutation)" class="mt-1 inline-flex rounded border border-amber-300 bg-[var(--we-warning-soft)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--we-warning)]">dirty</span>
-                                <span v-if="isHighlightedMutation(row.mutation)" class="mt-1 inline-flex rounded border border-amber-300 bg-[var(--we-bg-panel)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--we-warning)]">issue target</span>
+                                <span v-if="isValueDraftDirty(row.index, row.mutation)" class="mt-1 inline-flex rounded border border-[var(--we-warning-border)] bg-[var(--we-warning-soft)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--we-warning)]">dirty</span>
+                                <span v-if="isHighlightedMutation(row.mutation)" class="mt-1 inline-flex rounded border border-[var(--we-warning-border)] bg-[var(--we-bg-panel)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--we-warning)]">issue target</span>
                             </span>
                             <span class="min-w-0">
                                 <WorldEngineWorkbenchPreviewValueInput

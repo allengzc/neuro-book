@@ -174,12 +174,12 @@ function handleAction(action: DiffWorkbenchAction): void {
 .diff-workbench-dialog__button.primary {
     border-color: transparent;
     background: var(--accent-main);
-    color: white;
+    color: var(--text-inverse);
 }
 
 .diff-workbench-dialog__button.danger {
-    border-color: rgba(225, 29, 72, 0.28);
-    background: rgba(225, 29, 72, 0.1);
-    color: rgb(190, 18, 60);
+    border-color: var(--status-danger-border);
+    background: var(--status-danger-bg);
+    color: var(--status-danger);
 }
 </style>

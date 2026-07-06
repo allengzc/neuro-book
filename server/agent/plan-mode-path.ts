@@ -48,16 +48,16 @@ export function resolvePlanModeFile(input: PlanModeLocationInput & {planFilePath
 } {
     const normalizedInput = input.planFilePath.trim().replace(/\\/g, "/");
     if (!normalizedInput) {
-        throw new Error("exit_plan_mode planFilePath cannot be empty.");
+        throw new Error("switch_mode planFilePath cannot be empty.");
     }
     if (normalizedInput.startsWith("/") || /^[A-Za-z]:\//.test(normalizedInput)) {
-        throw new Error("exit_plan_mode planFilePath must be relative to the Project Workspace.");
+        throw new Error("switch_mode planFilePath must be relative to the Project Workspace.");
     }
     if (normalizedInput.split("/").includes("..")) {
-        throw new Error("exit_plan_mode planFilePath cannot contain '..'.");
+        throw new Error("switch_mode planFilePath cannot contain '..'.");
     }
     if (!normalizedInput.toLowerCase().endsWith(".md")) {
-        throw new Error("exit_plan_mode planFilePath must point to a Markdown .md file.");
+        throw new Error("switch_mode planFilePath must point to a Markdown .md file.");
     }
 
     const projectRoot = planModeProjectRoot(input);
@@ -65,7 +65,7 @@ export function resolvePlanModeFile(input: PlanModeLocationInput & {planFilePath
     const absolutePath = normalize(join(projectRoot, normalizedInput));
     const relativeToPlanRoot = relative(planRoot, absolutePath);
     if (relativeToPlanRoot.startsWith("..") || relativeToPlanRoot === "" || relativeToPlanRoot.startsWith("/") || /^[A-Za-z]:/.test(relativeToPlanRoot)) {
-        throw new Error(`exit_plan_mode planFilePath must stay inside ${PLAN_MODE_DIRECTORY}/.`);
+        throw new Error(`switch_mode planFilePath must stay inside ${PLAN_MODE_DIRECTORY}/.`);
     }
 
     return {

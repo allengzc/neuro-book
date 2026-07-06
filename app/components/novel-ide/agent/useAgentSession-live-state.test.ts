@@ -1,17 +1,17 @@
 import {describe, expect, it} from "vitest";
 import {useAgentSession} from "nbook/app/components/novel-ide/agent/useAgentSession";
-import type {AgentSessionLiveStateDto, AgentSessionSnapshotDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentMode, AgentSessionLiveStateDto, AgentSessionSnapshotDto, AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 
 describe("useAgentSession live state", () => {
     it("applyLiveState 可立即更新 Plan Mode，重复 SSE state 不请求 snapshot", () => {
         const session = useAgentSession();
         session.applySnapshot(snapshot(1));
-        const state = liveState(1, true);
+        const state = liveState(1, "plan");
 
         session.applyLiveState(state);
         session.applyLiveState(state);
 
-        expect(session.snapshot.value?.planModeActive).toBe(true);
+        expect(session.snapshot.value?.agentMode).toBe("plan");
         expect(session.needsSnapshot.value).toBe(false);
         expect(session.snapshotReasons.value).toEqual([]);
     });
@@ -56,12 +56,12 @@ function snapshot(sessionId: number): AgentSessionSnapshotDto {
         model: null,
         thinkingLevel: null,
         effectiveThinkingLevel: "off",
-        planModeActive: false,
+        agentMode: "normal",
         lastSeq: 0,
     };
 }
 
-function liveState(sessionId: number, planModeActive: boolean): AgentSessionLiveStateDto {
+function liveState(sessionId: number, agentMode: AgentMode): AgentSessionLiveStateDto {
     return {
         summary: {
             ...summary(sessionId),
@@ -80,6 +80,6 @@ function liveState(sessionId: number, planModeActive: boolean): AgentSessionLive
         model: null,
         thinkingLevel: null,
         effectiveThinkingLevel: "off",
-        planModeActive,
+        agentMode,
     };
 }

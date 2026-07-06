@@ -78,6 +78,14 @@
 - 通用组件索引：
   - app/components/common/NotificationViewport.vue
   - app/components/common/Dialog.vue
+  - app/components/common/DialogWindow.vue（非模态浮动窗口：无遮罩、标题栏拖动、毛玻璃；模态确认继续用 Dialog）
+  - app/components/common/form/FormColorField.vue（取色字段：色块弹层调色盘 + 原生 EyeDropper 吸管）
+- Novel IDE 颜色一律消费 `app/utils/theme/README.md` 登记的 CSS 主题变量，禁止新增 Tailwind 调色板类（如 `bg-gray-*`、`text-amber-*`、`border-rose-*`）和 `dark:` 变体；明暗差异由当前主题变量承载。
+- 状态语义映射口诀：草稿/待审/未保存/占位用 `warning`，完成/已同步用 `success`，错误/删除/冲突用 `danger`，运行中/引用/说明用 `info`，选中/当前项/主操作用 `accent`。
+- World Engine `--we-*` 仍是局部别名层，唯一映射源在 `app/styles/theme-vars.css` 的 `.world-engine-workbench-theme`；真实 Dialog 与 preview 必须挂这个 class，不要在 preview 或 scoped style 中反向覆盖全局主题变量。
+- Plot / Workspace / Reference chip 分类色板是类别识别色例外，不迁移为状态色；`ReferenceChip.vue` 只输出 `is-chapter` / `is-character` 等语义 class，chip 外观统一在 `app/styles/reference-chips.css`，不要在 TipTap 或业务组件里重复写色。
+- Profile template 节点类型 accent、Markdown 正文颜色选择器、JsonViewer/Monaco 语法色属于内容/第三方编辑器色板例外；只清理它们周边普通 UI 的状态色、阴影和文本色。
+- 新增组件层主题变量前必须先确认无法用背景/文本/边框/强调/状态/编辑器变量表达，并同步登记到 `app/utils/theme/README.md`、`reference/theme/system.md` 与 8 套内置主题。
 - 前端 API 错误文案统一使用 `app/utils/api-error.ts` 的 `resolveApiErrorMessage(error, fallback)` 解析，不要在业务组件里重复解析 `$fetch` 错误结构。
 - **前端通知途径规范**（详见 `docs/frontend-notification-channels.md`）：
   - **全局通知 `useNotification()`**：跨入口操作、后台动作（自动保存、Agent 运行）、即时反馈（复制、粘贴、文件操作）、成功提示。使用 `notification.success()` / `error()` / `warning()` / `info()`，配合 `resolveApiErrorMessage()` 解析错误。

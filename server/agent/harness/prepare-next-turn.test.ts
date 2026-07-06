@@ -76,6 +76,7 @@ function fakeFrame(): RunFrame {
         toolKeys: ["report_result"],
         profileKey: "test",
         profile: {} as RunFrame["profile"],
+        agentMode: "normal",
         thinkingLevel: "off",
         runtimeState: new Map(),
         messages: [],

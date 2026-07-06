@@ -267,11 +267,11 @@ onMounted(() => {
                 :key="node.path"
                 type="button"
                 class="group mb-1 flex w-full items-start gap-2 rounded-lg border px-2.5 py-2 text-left transition-colors"
-                :class="selectedFilePath === node.path ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-900' : 'border-transparent text-[var(--text-main)] hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)]'"
+                :class="selectedFilePath === node.path ? 'border-[var(--border-accent)] bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border-transparent text-[var(--text-main)] hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)]'"
                 @click="void selectCharacter(node)"
                 @contextmenu.prevent.stop="openNodeMenu(node, $event)"
             >
-                <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-700">
+                <span class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[var(--border-accent)] bg-[var(--accent-bg)] text-[var(--accent-text)]">
                     <span class="i-lucide-user-round h-4 w-4"></span>
                 </span>
                 <span class="min-w-0 flex-1">

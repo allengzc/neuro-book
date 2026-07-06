@@ -43,7 +43,7 @@ const parsedResult = computed<unknown | null>(() => {
 </script>
 
 <template>
-    <div v-if="renderConfig.mode !== 'hidden'" class="w-full overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--agent-bg)] shadow-sm">
+    <div v-if="renderConfig.mode !== 'hidden'" class="w-full overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--chat-ai-bg)] shadow-sm">
         <!-- 容器头部：点击切换展开 -->
         <button class="flex w-full items-center justify-between px-3 py-1.5 text-left transition-colors hover:bg-[var(--bg-hover)]" @click="emit('toggle')">
             <div class="flex min-w-0 items-center gap-2.5 overflow-hidden">
@@ -91,7 +91,7 @@ const parsedResult = computed<unknown | null>(() => {
                     </div>
                     <div v-if="props.toolCall.error">
                         <div class="mb-1 text-[9px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Error</div>
-                        <div class="break-all whitespace-pre-wrap rounded border border-rose-500/30 bg-rose-500/5 p-2 font-mono text-xs text-rose-500">
+                        <div class="break-all whitespace-pre-wrap rounded border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-2 font-mono text-xs text-[var(--status-danger)]">
                             {{ props.toolCall.error }}
                         </div>
                     </div>

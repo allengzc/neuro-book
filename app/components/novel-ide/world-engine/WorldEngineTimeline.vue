@@ -86,7 +86,7 @@ function timelineSliceSearchText(slice: WorldSliceDto): string {
                         <div v-if="slice.summary" class="mt-2 line-clamp-2 text-[12px] text-[var(--text-secondary)]">{{ slice.summary }}</div>
                     </div>
                     <div class="flex shrink-0 items-center gap-2">
-                        <span v-if="slice.issues?.length" class="inline-flex items-center gap-1 rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-700">
+                        <span v-if="slice.issues?.length" class="inline-flex items-center gap-1 rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-2 py-1 text-[11px] text-[var(--status-warning)]">
                             <span class="i-lucide-triangle-alert h-3.5 w-3.5"></span>
                             {{ slice.issues.length }}
                         </span>

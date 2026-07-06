@@ -400,14 +400,14 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
     <SideDetailPanel v-if="!props.dialogOnly" :visible="Boolean(props.node)" :height="props.height" body-class="overflow-x-hidden p-3" @update:height="emit('update:height', $event)" @close="emit('close')">
         <template #header>
             <div class="flex min-w-0 items-center gap-2">
-                <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-700">
+                <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border border-[var(--border-accent)] bg-[var(--accent-bg)] text-[var(--accent-text)]">
                     <span class="i-lucide-user-round h-3.5 w-3.5"></span>
                 </span>
                 <div class="min-w-0">
                     <div class="truncate text-sm font-semibold text-[var(--text-main)]">{{ editForm?.title || t("ide.workspace.character.panelTitle") }}</div>
                     <div class="truncate text-[10px] text-[var(--text-muted)]">{{ editForm?.path }}</div>
                 </div>
-                <span v-if="isDirty" class="h-2 w-2 shrink-0 rounded-full bg-amber-500" :title="t('ide.workspace.common.dirty')"></span>
+                <span v-if="isDirty" class="h-2 w-2 shrink-0 rounded-full bg-[var(--status-warning)]" :title="t('ide.workspace.common.dirty')"></span>
             </div>
         </template>
 
@@ -420,7 +420,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
             <!-- 角色详情入口 -->
             <div class="rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)]/40 p-3">
                 <div class="flex items-start gap-3">
-                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-700">
+                    <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[var(--border-accent)] bg-[var(--accent-bg)] text-[var(--accent-text)]">
                         <span class="i-lucide-user-round h-5 w-5"></span>
                     </span>
                     <div class="min-w-0 flex-1">
@@ -450,14 +450,14 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
             <!-- 角色档案头部 -->
             <div class="flex min-w-0 flex-1 items-center justify-between gap-4">
                 <div class="flex min-w-0 items-center gap-4">
-                    <span class="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-700 shadow-sm">
+                    <span class="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-[var(--border-accent)] bg-[var(--accent-bg)] text-[var(--accent-text)] shadow-sm">
                         <span class="i-lucide-user-round h-8 w-8"></span>
                     </span>
                     <div class="min-w-0">
                         <div class="flex items-center gap-2">
                             <h2 class="truncate text-2xl font-bold tracking-wide text-[var(--text-main)]">{{ editForm?.title || t("ide.workspace.character.profileTitle") }}</h2>
-                            <span v-if="editForm?.status" class="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-700">{{ editForm.status }}</span>
-                            <span v-if="isDirty" class="h-2 w-2 shrink-0 rounded-full bg-amber-500" :title="t('ide.workspace.common.dirty')"></span>
+                            <span v-if="editForm?.status" class="rounded-full border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-2 py-0.5 text-[11px] text-[var(--status-warning)]">{{ editForm.status }}</span>
+                            <span v-if="isDirty" class="h-2 w-2 shrink-0 rounded-full bg-[var(--status-warning)]" :title="t('ide.workspace.common.dirty')"></span>
                         </div>
                         <div class="mt-1 truncate text-sm text-[var(--text-secondary)]">{{ editForm?.character.logline || editForm?.summary || t("ide.workspace.character.noDefinition") }}</div>
                         <div class="mt-2 flex flex-wrap gap-1.5">
@@ -475,8 +475,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
         </template>
 
         <div v-if="editForm" class="space-y-3 text-[11px]" :class="savingFile ? 'pointer-events-none opacity-80' : ''">
-            <div v-if="diagnostics" class="rounded-md border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-amber-800">{{ diagnostics }}</div>
-            <div v-for="issue in relatedIssues" :key="`${issue.code}:${issue.path}:${issue.message}`" class="rounded-md border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-amber-800">[{{ issue.level }}] {{ issue.message }}</div>
+            <div v-if="diagnostics" class="rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-[var(--status-warning)]">{{ diagnostics }}</div>
+            <div v-for="issue in relatedIssues" :key="`${issue.code}:${issue.path}:${issue.message}`" class="rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-[var(--status-warning)]">[{{ issue.level }}] {{ issue.message }}</div>
 
             <!-- 角色表单分页 -->
             <div class="flex rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] p-1">
@@ -655,7 +655,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
                     <div v-for="(entryRef, index) in editForm.refs" :key="index" class="flex items-center gap-1">
                         <input v-model="entryRef.relation" type="text" :placeholder="t('ide.workspace.common.relation')" class="field w-[76px]" @blur="void saveDraft()">
                         <input v-model="entryRef.target" type="text" :placeholder="t('ide.workspace.common.targetPath')" class="field min-w-0 flex-1 font-mono" @blur="void saveDraft()">
-                        <button type="button" class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-rose-500/10 hover:text-rose-500" @click="removeRef(index)">
+                        <button type="button" class="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)]" @click="removeRef(index)">
                             <span class="i-lucide-x h-3.5 w-3.5"></span>
                         </button>
                     </div>

@@ -190,7 +190,7 @@ describe("assets builtin v3 profiles", () => {
         expect(visiblePrompt).toContain("projectPath");
         expect(visiblePrompt).not.toContain("\"novelId\"");
         expect(visiblePrompt).toContain("\"StoryScene\"");
-        expect(visiblePrompt).toContain("\"chapterPath\"");
+        expect(visiblePrompt).toContain("\"chapterId\"");
         expect(visiblePrompt).toContain("\"threadSortOrder\"");
         expect(visiblePrompt).toContain("动态世界状态与时间线的唯一真相源");
         expect(visiblePrompt).toContain("剧情初步设计 -> 推进 World Engine -> 剧情设计 -> 更新 Plot -> 调用 writer");
@@ -221,7 +221,7 @@ describe("assets builtin v3 profiles", () => {
         expect(historyText).toContain("Available Agents");
         expect(historyText).toContain("writer");
         expect(historyText).toContain("长期可复用正式正文写作 agent");
-        expect(historyText).toContain("invoke.input 指定目标 Markdown path");
+        expect(historyText).toContain("invoke.input 传 {path, chapterId?, context?}");
         expect(historyText).toContain("内容节点召回和候选判断 agent");
         expect(historyText).toContain("get_agent_profile");
         expect(historyText).not.toContain("本次写作任务");
@@ -835,6 +835,7 @@ describe("assets builtin v3 profiles", () => {
                 }),
                 initial: {},
                 settings: {
+                    customTopSystemPrompt: "写作置顶规则：一切场景优先保证角色逻辑。",
                     writingStylePreset: "darkside-kitten.light-lively",
                     writingReferencePreset: referenceKey,
                     narrativePerson: "second",
@@ -848,6 +849,9 @@ describe("assets builtin v3 profiles", () => {
                 skills: [],
             });
 
+            const systemPrompt = prepared.systemPrompt ?? "";
+            expect(systemPrompt.trimStart().startsWith("<custom_top_system_prompt>")).toBe(true);
+            expect(systemPrompt.indexOf("写作置顶规则：一切场景优先保证角色逻辑。")).toBeLessThan(systemPrompt.indexOf("<writing_reference>"));
             expect(prepared.systemPrompt).toContain('key="darkside-kitten.light-lively"');
             expect(prepared.systemPrompt).toContain("正文用轻松、活泼的风格");
             expect(prepared.systemPrompt).toContain("测试参考正文：句子短促，节奏明快。");
@@ -881,7 +885,8 @@ describe("assets builtin v3 profiles", () => {
             polishingWorkflow: "使用 stop-slop。",
             adultStylePrompt: "",
         }, {profileKey: "writer", scope: "global"});
-        const legacyAdultStyleResult = await validateLowCodeFormValue(WriterSettingsForm, {
+        // enableKittenAdultStyle 已从 schema 下线；旧存档残留的 key 应被合并层忽略，而不是校验失败
+        const retiredKeyResult = await validateLowCodeFormValue(WriterSettingsForm, {
             writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
             writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
             narrativePerson: "third",
@@ -894,7 +899,8 @@ describe("assets builtin v3 profiles", () => {
 
         expect(legacyResult.issues).toEqual([]);
         expect(homeKeyResult.issues).toEqual([]);
-        expect(legacyAdultStyleResult.issues).toEqual([]);
+        expect(retiredKeyResult.issues).toEqual([]);
+        expect(retiredKeyResult.value).not.toHaveProperty("enableKittenAdultStyle");
     });
 
     it("leader.default settings 注入自定义槽位、人设和行为偏好", async () => {
@@ -1077,6 +1083,7 @@ describe("assets builtin v3 profiles", () => {
  */
 function defaultWriterSettings() {
     return {
+        customTopSystemPrompt: "",
         writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
         writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
         narrativePerson: "third" as const,

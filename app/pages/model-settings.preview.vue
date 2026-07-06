@@ -76,7 +76,7 @@ onMounted(() => {
 
         <!-- 页面主体 -->
         <main class="mx-auto max-w-[1800px] px-5 py-4">
-            <section class="rounded-[28px] border border-[var(--border-color)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--bg-panel)_94%,transparent),color-mix(in_srgb,var(--bg-sidebar)_90%,transparent))] px-5 py-5 shadow-[0_24px_80px_rgba(0,0,0,0.10)]">
+            <section class="rounded-[28px] border border-[var(--border-color)] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--bg-panel)_94%,transparent),color-mix(in_srgb,var(--bg-sidebar)_90%,transparent))] px-5 py-5 shadow-[0_24px_80px_color-mix(in_srgb,var(--shadow-color)_10%,transparent)]">
                 <NovelIdeModelSettingsPanel :key="panelRevision" />
             </section>
         </main>

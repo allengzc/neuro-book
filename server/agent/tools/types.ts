@@ -55,6 +55,12 @@ export type UserInputFormSpec = {
 export type NeuroAgentTool = AgentTool<any, any> & {
     key: string;
     approvalRequired?: boolean;
+    /**
+     * 工具会修改 workspace 文件（write/edit/apply_patch 等）。
+     * 只读模式（discuss/plan）下 harness 依此标记自动注入写审批（Task 90）。
+     * 新增会写文件的工具必须标注，否则只读模式约束不生效。
+     */
+    mutatesWorkspace?: boolean;
     /** 为空时使用 parameters 校验；非空时 provider-visible parameters 和执行校验 schema 可以分离。 */
     validationSchema?: TSchema;
     /**
@@ -121,6 +127,8 @@ export type AgentToolDefinitionInput<TKey extends string = string> = {
     parameters: TSchema;
     validationSchema?: TSchema;
     approvalRequired?: boolean;
+    /** 见 NeuroAgentTool.mutatesWorkspace：只读模式写审批的能力标记。 */
+    mutatesWorkspace?: boolean;
     executionMode?: ToolExecutionMode;
     userInputRequest?: NeuroAgentTool["userInputRequest"];
     prepareArguments?: NeuroAgentTool["prepareArguments"];
@@ -158,6 +166,7 @@ export function defineAgentTool<const TKey extends string>(input: AgentToolDefin
                 parameters: options.parameters ?? input.parameters,
                 validationSchema: options.validationSchema ?? input.validationSchema,
                 approvalRequired: input.approvalRequired,
+                mutatesWorkspace: input.mutatesWorkspace,
                 executionMode: input.executionMode,
                 userInputRequest: input.userInputRequest,
                 prepareArguments: input.prepareArguments,
@@ -183,6 +192,7 @@ export function defineAgentToolFromRuntime<const TKey extends string>(tool: Neur
         parameters: tool.parameters,
         validationSchema: tool.validationSchema,
         approvalRequired: tool.approvalRequired,
+        mutatesWorkspace: tool.mutatesWorkspace,
         executionMode: tool.executionMode,
         prepareArguments: tool.prepareArguments,
         execute: tool.execute,

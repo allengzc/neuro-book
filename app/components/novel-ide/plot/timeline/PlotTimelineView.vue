@@ -31,7 +31,7 @@ const sceneCount = computed(() => props.timeline.scenes.length);
     <!-- 时间轴视图外层壳 -->
     <div class="space-y-4">
         <!-- 顶部摘要 -->
-        <section class="rounded-[28px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-5 shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
+        <section class="rounded-[28px] border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-5 shadow-[0_18px_60px_color-mix(in_srgb,var(--shadow-color)_8%,transparent)]">
             <div class="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div class="max-w-[900px]">
                     <div class="text-[11px] uppercase tracking-[0.28em] text-[var(--text-muted)]">Plot Timeline</div>

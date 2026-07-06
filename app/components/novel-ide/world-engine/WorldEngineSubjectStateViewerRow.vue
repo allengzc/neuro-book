@@ -82,7 +82,7 @@ function toggle() {
         <div class="flex items-center gap-2 px-2 py-1.5 transition-colors hover:bg-[var(--bg-hover)]" :style="{ paddingLeft: `${props.depth * 16 + 8}px` }">
             <!-- Name -->
             <div class="flex w-[180px] shrink-0 items-center gap-1 font-mono text-[var(--text-secondary)]">
-                <button v-if="hasChildren" type="button" class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded hover:bg-[var(--bg-active)]" @click.stop="toggle">
+                <button v-if="hasChildren" type="button" class="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded hover:bg-[var(--bg-hover)]" @click.stop="toggle">
                     <span :class="expanded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="h-3 w-3 text-[var(--text-muted)]"></span>
                 </button>
                 <div v-else class="h-4 w-4 shrink-0"></div>

@@ -783,13 +783,22 @@ function readPath(value: LowCodeJsonObject, path: string): LowCodeJsonValue | un
 }
 
 /**
- * 合并 settings patch。
+ * 合并 settings patch。只保留 defaults 声明过的顶层 key：
+ * 表单字段下线后，旧存档里残留的 key 会被直接忽略，而不是触发
+ * additionalProperties 校验失败导致整份 settings 回退默认或保存被拒。
  */
 function mergeSettings(defaults: LowCodeJsonObject, patch: LowCodeJsonObject | undefined): LowCodeJsonObject {
-    return {
-        ...cloneJsonObject(defaults),
-        ...(patch ? cloneJsonObject(patch) : {}),
-    };
+    const merged = cloneJsonObject(defaults);
+    if (!patch) {
+        return merged;
+    }
+    const clonedPatch = cloneJsonObject(patch);
+    for (const key of Object.keys(merged)) {
+        if (Object.hasOwn(clonedPatch, key)) {
+            merged[key] = clonedPatch[key];
+        }
+    }
+    return merged;
 }
 
 /**

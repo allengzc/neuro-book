@@ -17,12 +17,6 @@ import {normalizeProjectPath, readProjectManifest} from "nbook/server/workspace-
 const DEFAULT_PARAGRAPH_RHYTHM = "段落节奏偏短段分行，接近网络小说排版：一句话、一个动作节拍或一个情绪转折可以单独成段；不要为了凑短段打碎完整语义，场景描写、复杂动作和连续心理变化可以保留为较短自然段。";
 const DEFAULT_WORD_COUNT_CONTROL = "2000-2600 字";
 const DEFAULT_POLISHING_WORKFLOW = "润色时使用 .nbook/agent/skills/stop-slop/SKILL.md 作为自查流程，并优先在原文基础上做最小必要修改。不要输出 <refine> JSON，不把润色分析混进正文。";
-const DEFAULT_ADULT_STYLE_PROMPT = `- nsfw要注重色情，要有细节。五感上的色情特写以及语言上的低俗挑逗，用词直白（直接使用肉棒、鸡巴、小穴、逼、乳、奶子……等下流词汇）色情不避讳，最大化欲望与色情氛围。
-色情场景要细致，在没有用户的要求时，不应结束性爱，而是将回复停止在性爱中途
-- nsfw剧情要温柔！不许有任何粗暴、过度激烈的行为，生理反应要弱化，身体反弓剧烈颤抖尖叫痉挛是千万避免的禁止项。
-- 氛围保持温柔、亲密、尊重角色关系，不使用粗暴、过度激烈或破坏人设的表达。
-- 重点写角色互动、情绪推进和关系变化，避免把场景写成机械细节堆叠。
-- 成人场景也必须遵守 <char_performance> 与 <writing_style>，不能因为题材变化就丢掉角色逻辑、视角边界和文风禁用项。`;
 
 export const profileManifest = {
     key: "writer",
@@ -35,6 +29,7 @@ export const InitialSchema = WriterInitialSchema;
 export const PayloadSchema = WriterPayloadSchema;
 export const OutputSchema = WriterOutputSchema;
 export const SettingsSchema = Type.Object({
+    customTopSystemPrompt: Type.String(),
     writingStylePreset: Type.String(),
     writingReferencePreset: Type.String(),
     narrativePerson: Type.Union([
@@ -46,7 +41,6 @@ export const SettingsSchema = Type.Object({
     wordCountControl: Type.String(),
     polishingWorkflow: Type.String(),
     adultStylePrompt: Type.String(),
-    enableKittenAdultStyle: Type.Optional(Type.Boolean()),
 }, {additionalProperties: false});
 
 export type Initial = Static<typeof InitialSchema>;
@@ -57,6 +51,7 @@ export type Settings = Static<typeof SettingsSchema>;
 export const WriterSettingsForm = defineLowCodeForm({
     schema: SettingsSchema,
     defaults: {
+        customTopSystemPrompt: "",
         writingStylePreset: DEFAULT_WRITING_STYLE_PRESET,
         writingReferencePreset: DEFAULT_WRITING_REFERENCE_PRESET,
         narrativePerson: "third",
@@ -67,10 +62,19 @@ export const WriterSettingsForm = defineLowCodeForm({
     },
     fields: [
         {
+            path: "customTopSystemPrompt",
+            component: "textarea",
+            label: "最高优先级置顶提示词",
+            description: "插入在 Writer 系统提示词的最前面，是优先级最高的自定义规则；文风、字数等其他设置都排在它后面。",
+            placeholder: "写入需要长期置顶的指令，例如破限预设、整体尺度、长期禁写内容。",
+            rows: 6,
+        },
+        {
             path: "writingStylePreset",
             component: "resource-preset",
-            label: "文风预设",
-            placeholder: "选择默认文风",
+            label: "文风要求",
+            description: "条文式的文风规则（用词、句式、禁用项），作为写作约束注入。",
+            placeholder: "选择默认文风要求",
             resource: profileHomeResource({
                 directory: "styles",
                 extension: ".md",
@@ -81,6 +85,7 @@ export const WriterSettingsForm = defineLowCodeForm({
             path: "writingReferencePreset",
             component: "resource-preset",
             label: "文风参考",
+            description: "供模仿语感的正文样本，与「文风要求」互补：一个给规则，一个给示例。",
             placeholder: "选择默认参考样本",
             resource: profileHomeResource({
                 directory: "references",
@@ -92,6 +97,7 @@ export const WriterSettingsForm = defineLowCodeForm({
             path: "narrativePerson",
             component: "radio",
             label: "默认人称",
+            description: "正文默认叙事人称；本轮写作任务另有要求时以任务为准。",
             options: [
                 {value: "third", label: "第三人称"},
                 {value: "first", label: "第一人称"},
@@ -102,26 +108,30 @@ export const WriterSettingsForm = defineLowCodeForm({
             path: "paragraphRhythm",
             component: "textarea",
             label: "段落节奏",
+            description: "默认段落与分行节奏偏好；本轮写作任务另有要求时以任务为准。",
             rows: 4,
             placeholder: "描述你偏好的长段、短段或分行节奏。",
         },
         {
             path: "wordCountControl",
             component: "text",
-            label: "字数控制",
+            label: "默认字数",
+            description: "单章默认字数范围；材料不足时 Writer 不会硬凑字数。",
             placeholder: "例如：2000-2600 字",
         },
         {
             path: "polishingWorkflow",
             component: "text",
             label: "润色工作流",
+            description: "写完正文后的自查与润色流程。",
             placeholder: "描述写完后如何复查和润色。",
         },
         {
             path: "adultStylePrompt",
             component: "text",
             label: "成人风格增强",
-            placeholder: "留空则不注入；填写后作为成人场景写作约束注入。",
+            description: "填写后作为成人场景写作约束注入；留空则完全不注入。",
+            placeholder: "例如：注重情绪推进与关系变化，避免机械描写。",
         },
     ],
     async validate(value, ctx) {
@@ -137,7 +147,7 @@ export const WriterSettingsForm = defineLowCodeForm({
             ? await ctx.home.exists(normalizeReferenceHomeKey(value.writingReferencePreset))
             : references.some((reference) => reference.key === value.writingReferencePreset || legacyReferenceKeyToHomeKey(reference.key) === value.writingReferencePreset);
         if (!styleExists) {
-            issues.push({path: "writingStylePreset", severity: "error" as const, message: "选择的文风预设不存在。"});
+            issues.push({path: "writingStylePreset", severity: "error" as const, message: "选择的文风要求不存在。"});
         }
         if (!referenceExists) {
             issues.push({path: "writingReferencePreset", severity: "error" as const, message: "选择的文风参考不存在。"});
@@ -244,11 +254,19 @@ export async function buildWriterPrompt(ctx: ProfilePrepareContext<Initial, Payl
     const writingStyle = await buildWritingStyle({preset: ctx.settings.writingStylePreset, home: ctx.home});
     const writingReference = await buildWritingReference({preset: ctx.settings.writingReferencePreset, home: ctx.home});
     const narrativePerson = narrativePersonText(ctx.settings.narrativePerson);
-    const adultStylePrompt = ctx.settings.adultStylePrompt.trim() || (ctx.settings.enableKittenAdultStyle ? DEFAULT_ADULT_STYLE_PROMPT : "");
+    const customTopPrompt = ctx.settings.customTopSystemPrompt.trim();
+    const adultStylePrompt = ctx.settings.adultStylePrompt.trim();
     const inputContext = await renderInputContext(ctx);
     return (
         <ProfilePrompt>
             <System>
+                <If condition={customTopPrompt.length > 0}>
+                    {profileText`
+                        <custom_top_system_prompt>
+                            ${customTopPrompt}
+                        </custom_top_system_prompt>
+                    `}
+                </If>
                 {profileText`
                     <writing_reference>
                         ${writingReference}

@@ -32,11 +32,11 @@ const profileLabel = (profileKey: string) => {
 const statusDotClass = (status: AgentLinkedSessionDto["status"], detached: boolean) => {
     if (detached) return "bg-[var(--text-muted)]";
     switch (status) {
-        case "running": return "animate-pulse bg-blue-500";
-        case "waiting": return "animate-pulse bg-amber-500";
-        case "interrupted": return "bg-rose-500";
+        case "running": return "animate-pulse bg-[var(--status-info)]";
+        case "waiting": return "animate-pulse bg-[var(--status-warning)]";
+        case "interrupted": return "bg-[var(--status-danger)]";
         case "archived": return "bg-[var(--text-muted)]";
-        default: return "bg-green-500";
+        default: return "bg-[var(--status-success)]";
     }
 };
 
@@ -72,7 +72,7 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
             <span class="flex items-center gap-2 text-xs font-semibold tracking-wider text-[var(--accent-text)]">
                 <span class="i-lucide-boxes h-4 w-4"></span>
                 {{ t("agent.linkedAgents.title") }}
-                <span v-if="totalRelations" class="rounded-sm bg-[var(--accent-main)] px-1.5 py-0.5 text-[9px] font-bold text-white">{{ totalRelations }}</span>
+                <span v-if="totalRelations" class="rounded-sm bg-[var(--accent-main)] px-1.5 py-0.5 text-[9px] font-bold text-[var(--text-inverse)]">{{ totalRelations }}</span>
             </span>
             <div class="flex shrink-0 gap-1.5">
                 <button class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :disabled="props.loading" :title="t('agent.linkedAgents.refresh')" @click="emit('refresh')">
@@ -100,7 +100,7 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
                             <div class="flex items-center gap-2">
                                 <span class="truncate text-xs font-medium text-[var(--text-main)] transition-colors group-hover:text-[var(--accent-main)]">{{ item.title || `Agent #${item.sessionId}` }}</span>
                                 <span class="rounded bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">{{ profileLabel(item.profileKey) }}</span>
-                                <span v-if="profileAvailabilityLabel(item)" class="inline-flex shrink-0 items-center gap-1 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300" :title="profileAvailabilityTitle(item)">
+                                <span v-if="profileAvailabilityLabel(item)" class="inline-flex shrink-0 items-center gap-1 rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-1.5 py-0.5 text-[10px] text-[var(--status-warning)]" :title="profileAvailabilityTitle(item)">
                                     <span class="i-lucide-lock h-3 w-3"></span>
                                     {{ profileAvailabilityLabel(item) }}
                                 </span>
@@ -133,7 +133,7 @@ const profileAvailabilityTitle = (session: AgentLinkedSessionDto): string => {
                             <div class="flex items-center gap-2">
                                 <span class="truncate text-xs font-medium text-[var(--text-main)] transition-colors group-hover:text-[var(--accent-main)]">{{ item.title || `Agent #${item.sessionId}` }}</span>
                                 <span class="rounded bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">{{ profileLabel(item.profileKey) }}</span>
-                                <span v-if="profileAvailabilityLabel(item)" class="inline-flex shrink-0 items-center gap-1 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-300" :title="profileAvailabilityTitle(item)">
+                                <span v-if="profileAvailabilityLabel(item)" class="inline-flex shrink-0 items-center gap-1 rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-1.5 py-0.5 text-[10px] text-[var(--status-warning)]" :title="profileAvailabilityTitle(item)">
                                     <span class="i-lucide-lock h-3 w-3"></span>
                                     {{ profileAvailabilityLabel(item) }}
                                 </span>

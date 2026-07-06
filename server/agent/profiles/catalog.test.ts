@@ -1355,7 +1355,7 @@ function context() {
         customState: {},
         linkedAgents: [],
         archived: false,
-        planModeActive: false,
+        agentMode: "normal" as const,
         async read() {
             return {
                 snapshot: {

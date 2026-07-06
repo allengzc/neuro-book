@@ -3,6 +3,8 @@ import type { IdeTheme } from "nbook/app/utils/theme/theme-tokens";
 import { buildMonacoTheme } from "nbook/app/components/markdown-studio/monaco-theme";
 import { loadMonacoEditor } from "nbook/app/components/markdown-studio/load-monaco-editor";
 import type { MonacoEditorApi } from "nbook/app/components/markdown-studio/load-monaco-editor";
+import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
+import {resolveTheme} from "nbook/app/utils/theme/resolve-theme";
 import type * as Monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import type { MarkdownStudioEditorHandle, MarkdownStudioScrollPosition } from "nbook/app/composables/useMarkdownStudioController";
 import {DEFAULT_MONACO_EDITOR_PREFERENCES, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
@@ -45,6 +47,7 @@ const emit = defineEmits<{
     (e: "update-temporary-font-size", value: number): void;
 }>();
 const {t} = useI18n();
+const novelIdeStore = useNovelIdeStore();
 
 const editorRootRef = ref<HTMLDivElement | null>(null);
 let monacoApi: MonacoEditorApi | null = null;
@@ -122,9 +125,10 @@ const applyTheme = (): void => {
     const lineHighlight = cssVars.getPropertyValue("--bg-hover").trim() || "rgba(255,255,255,0.04)";
     const selection = cssVars.getPropertyValue("--accent-bg").trim() || "rgba(59,130,246,0.18)";
     const border = cssVars.getPropertyValue("--border-color").trim() || "#2b3340";
-    const themeName = `neuro-book-source-${props.theme}`;
+    const resolvedTheme = resolveTheme(props.theme, novelIdeStore.customThemes);
+    const themeName = `neuro-book-source-${props.theme.replace(/[^a-z0-9-]/gi, "-")}`;
 
-    monacoApi.editor.defineTheme(themeName, buildMonacoTheme(props.theme, {
+    monacoApi.editor.defineTheme(themeName, buildMonacoTheme(props.theme, resolvedTheme.appearance, {
         accent,
         background,
         border,

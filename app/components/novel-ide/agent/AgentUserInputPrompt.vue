@@ -73,7 +73,8 @@ const activeQuestionCanContinue = computed(() => activeQuestion.value
     : false);
 
 const isToolApproval = computed(() => activeQuestion.value?.kind === "tool_approval");
-const isExitPlanModeApproval = computed(() => activeQuestion.value?.approvalAction === "exit_plan_mode");
+/** switch_mode 退出到 normal 的审批：第三选项语义是“补充建议”。 */
+const isPlanExitApproval = computed(() => activeQuestion.value?.approvalAction === "switch_mode" && activeQuestion.value?.switchTargetMode === "normal");
 
 const submitButtonLabel = computed(() => {
     if (!isToolApproval.value) {
@@ -82,14 +83,14 @@ const submitButtonLabel = computed(() => {
     if (activeAnswer.value.includes(0)) {
         return t("agent.userInput.approve");
     }
-    return isExitPlanModeApproval.value && activeAnswer.value.includes(NONE_OF_ABOVE_OPTION_INDEX)
+    return isPlanExitApproval.value && activeAnswer.value.includes(NONE_OF_ABOVE_OPTION_INDEX)
         ? t("agent.userInput.submitSuggestion")
         : t("agent.userInput.submit");
 });
 
 const cancelButtonLabel = computed(() => t("agent.userInput.terminateRun"));
-const noneOfAboveLabel = computed(() => isExitPlanModeApproval.value ? t("agent.userInput.addSuggestion") : t("agent.userInput.otherAnswer"));
-const noneOfAboveDescription = computed(() => isExitPlanModeApproval.value
+const noneOfAboveLabel = computed(() => isPlanExitApproval.value ? t("agent.userInput.addSuggestion") : t("agent.userInput.otherAnswer"));
+const noneOfAboveDescription = computed(() => isPlanExitApproval.value
     ? t("agent.userInput.suggestionDescription")
     : t("agent.userInput.otherAnswerDescription"));
 
@@ -357,7 +358,7 @@ defineExpose({
                 </button>
                 <button
                     type="button"
-                    class="inline-flex h-7 items-center gap-1.5 rounded-md bg-[var(--accent-main)] px-3 text-[11px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                    class="inline-flex h-7 items-center gap-1.5 rounded-md bg-[var(--accent-main)] px-3 text-[11px] font-semibold text-[var(--text-inverse)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                     :disabled="props.submitting || props.readonly"
                     @click="submitLowCodeForm"
                 >
@@ -480,7 +481,7 @@ defineExpose({
                 </button>
                 <button
                     type="button"
-                    class="inline-flex h-7 items-center gap-1.5 rounded-md bg-[var(--accent-main)] px-3 text-[11px] font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                    class="inline-flex h-7 items-center gap-1.5 rounded-md bg-[var(--accent-main)] px-3 text-[11px] font-semibold text-[var(--text-inverse)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                     :disabled="!hasAnswer(questionKey(activeQuestion.toolNodeId, activeQuestion.questionIndex)) || props.submitting || props.readonly"
                     @click="continueQuestion"
                 >

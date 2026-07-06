@@ -150,7 +150,11 @@ const ProjectPlotProjectQuerySchema = z_.object({
 });
 
 const ProjectPlotChapterQuerySchema = ProjectPlotProjectQuerySchema.extend({
-    chapterPath: z_.string().trim().min(1).describe("Chapter content-node path, for example manuscript/volume-1/chapter-1.md"),
+    chapterId: z_.string().trim().min(1).describe("StoryChapter entity id, for example 12"),
+});
+
+const ProjectPlotChapterWriterBriefQuerySchema = ProjectPlotChapterQuerySchema.extend({
+    mode: z_.union([z_.literal("autonomous"), z_.literal("curated")]).optional().describe("Anti-omniscience mode. Defaults to autonomous (writer self-queries); curated expands filtered state."),
 });
 
 const ProjectRagSubjectQuerySchema = ProjectRagProjectQuerySchema.extend({
@@ -355,7 +359,7 @@ export const routeMetaMap: RouteMetaEntry[] = [
         method: "get",
         tags: ["Plot"],
         summary: "Get a scene/world-context writer brief for a chapter",
-        queryParams: ProjectPlotChapterQuerySchema,
+        queryParams: ProjectPlotChapterWriterBriefQuerySchema,
         responseBody: ChapterWriterBriefDtoSchema,
     },
 

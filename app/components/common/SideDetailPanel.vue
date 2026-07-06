@@ -72,7 +72,7 @@ watch(resizing, (nextResizing) => {
     <!-- 通用侧边 detail 面板壳 -->
     <div
         v-if="visible"
-        class="relative z-10 flex shrink-0 flex-col border-t border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_-4px_16px_rgba(0,0,0,0.06)] transition-[height] duration-150 ease-out"
+        class="relative z-10 flex shrink-0 flex-col border-t border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_-4px_16px_color-mix(in_srgb,var(--shadow-color)_6%,transparent)] transition-[height] duration-150 ease-out"
         :class="[panelClass, isResizing ? 'select-none transition-none' : '']"
         :style="isResizing ? panelStyle : { height: visibleHeight }"
     >
@@ -102,7 +102,7 @@ watch(resizing, (nextResizing) => {
                 </button>
                 <button
                     type="button"
-                    class="inline-flex h-6 w-6 items-center justify-center rounded-lg text-[var(--text-muted)] transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+                    class="inline-flex h-6 w-6 items-center justify-center rounded-lg text-[var(--text-muted)] transition-colors hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)]"
                     title="关闭详情"
                     @click="emit('close')"
                 >

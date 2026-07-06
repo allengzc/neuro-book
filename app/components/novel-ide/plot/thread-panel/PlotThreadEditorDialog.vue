@@ -59,7 +59,7 @@ const sceneDraft = reactive({
     summary: "",
     purpose: "",
     status: "draft" as PlotThreadPanelScene["status"],
-    chapterPath: "",
+    chapterId: "",
     writingTip: "",
 });
 
@@ -139,7 +139,7 @@ const isDirty = computed(() => {
         summary: sceneDraft.summary,
         purpose: sceneDraft.purpose,
         status: sceneDraft.status,
-        chapterPath: sceneDraft.chapterPath,
+        chapterId: sceneDraft.chapterId,
         writingTip: sceneDraft.writingTip,
         refs: sceneRefsDraft.value,
     }) !== initialSceneSnapshot.value;
@@ -174,7 +174,7 @@ function resetSceneDraft(): void {
     sceneDraft.summary = props.scene?.summary ?? "";
     sceneDraft.purpose = props.scene?.purpose ?? "";
     sceneDraft.status = props.scene?.status ?? "draft";
-    sceneDraft.chapterPath = props.scene?.chapterPath ?? "";
+    sceneDraft.chapterId = props.scene?.chapterId ?? "";
     sceneDraft.writingTip = props.scene?.writingTip ?? "";
     sceneRefsDraft.value = props.sceneRefs.map((refItem) => ({...refItem}));
     initialSceneSnapshot.value = JSON.stringify({
@@ -182,7 +182,7 @@ function resetSceneDraft(): void {
         summary: sceneDraft.summary,
         purpose: sceneDraft.purpose,
         status: sceneDraft.status,
-        chapterPath: sceneDraft.chapterPath,
+        chapterId: sceneDraft.chapterId,
         writingTip: sceneDraft.writingTip,
         refs: sceneRefsDraft.value,
     });
@@ -316,7 +316,7 @@ function submit(): void {
         summary: sceneDraft.summary.trim(),
         purpose: sceneDraft.purpose.trim() || null,
         status: sceneDraft.status,
-        chapterPath: sceneDraft.chapterPath || null,
+        chapterId: sceneDraft.chapterId || null,
         writingTip: sceneDraft.writingTip.trim() || null,
         worldAnchor: props.scene?.worldAnchor ?? {
             startTime: null,
@@ -417,13 +417,13 @@ watch(threadTags, (value) => {
                     <span class="i-lucide-loader-circle animate-spin"></span>
                     保存中
                 </span>
-                <span v-else class="text-rose-500">{{ props.error }}</span>
+                <span v-else class="text-[var(--status-danger)]">{{ props.error }}</span>
             </div>
         </template>
         <template #footer>
             <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] transition-colors duration-200 hover:bg-[var(--bg-hover)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.saving" @click="closeDialog">取消</button>
             <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] transition-colors duration-200 hover:bg-[var(--bg-hover)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.saving" @click="openAiDialog">AI 批注</button>
-            <button class="inline-flex items-center justify-center h-8 min-w-[92px] px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-white transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.saving" @click="submit">
+            <button class="inline-flex items-center justify-center h-8 min-w-[92px] px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-[var(--text-inverse)] transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.saving" @click="submit">
                 <span v-if="props.saving" class="flex items-center gap-1">
                     <span class="i-lucide-loader-circle h-4 w-4 animate-spin"></span>
                     保存中
@@ -482,7 +482,7 @@ watch(threadTags, (value) => {
             </div>
             
             <FormField label="所属章节">
-                <FormSelect v-model="sceneDraft.chapterPath" :options="chapterOptions" placeholder="未挂章" />
+                <FormSelect v-model="sceneDraft.chapterId" :options="chapterOptions" placeholder="未挂章" />
             </FormField>
 
             <FormField label="摘要">
@@ -554,7 +554,7 @@ watch(threadTags, (value) => {
                             />
                             <button
                                 type="button"
-                                class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+                                class="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] transition-colors hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)]"
                                 title="删除 Ref"
                                 @click="removeSceneRef(refItem.id)"
                             >
@@ -596,7 +596,7 @@ watch(threadTags, (value) => {
                     summary: sceneDraft.summary,
                     purpose: sceneDraft.purpose,
                     status: sceneDraft.status,
-                    chapterPath: sceneDraft.chapterPath || null,
+                    chapterId: sceneDraft.chapterId || null,
                     writingTip: sceneDraft.writingTip,
                     refs: sceneRefsDraft,
                 }"

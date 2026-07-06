@@ -289,9 +289,21 @@
    - 后续实现 `report_result` 新语义时，需要把当前 `result/data` 工具参数调整为按目标 profile 派生的动态 schema：`OutputSchema = Type.Object({})` 只暴露并校验 `walkthrough`，非空 OutputSchema 暴露并校验 `walkthrough + data`，其中 `data` 的模型可见类型来自 `OutputSchema`。
    - `ProfilePrompt` 可视化辅助编辑写回后是否自动跑 prepare preview、源码保存后是否自动刷新 runtime catalog/detail，先调研旧编辑器节奏、当前 dynamic import/cache 行为和 UI 成本后再决定。
 
+## 2026-07-06 Profile CLI / Workbench CWD Fix
+
+- 修复 profile CLI 从 Workspace Root `.nbook` 执行时把用户 profile root 解析成嵌套 `workspace/.nbook/workspace/.nbook` 的问题。`scripts/build/profile.ts` 改为复用 Workspace assets root resolver，并在 CLI build 入口统一切到应用根。
+- `agent/scripts/profile.ts` 改为先识别 Product Runtime manifest；Product Root 走 `.output/server/scripts/build/profile.ts`，源码仓即使存在旧 `.output` 仍走根源码入口，避免 user-assets wrapper 吃到 stale product copy。
+- Product 分支 `agent/bin/profile` / `profile.cmd` 使用 `neuro-book-product` / `neuro-book-output` manifest 判定，执行 `.output/server/scripts/build/profile.ts` 前切到 Product Root，保持 Product Runtime 的 cwd 合同。
+- Workbench 刷新 profile 文件列表时改为优先保留当前选中项；仅当前文件不存在时才 fallback 到 `preferredTemplate` 或 `leader.default`，避免保存 `leader.default` 后跳回 `leader.assets` 并误触发“编译未开始”。
+
 ## Files Changed
 
 - `docs/tasks/04-tsx-profile-workbench/README.md`
+- `scripts/build/profile.ts`
+- `scripts/build/profile-cli-path.test.ts`
+- `assets/workspace/.nbook/agent/bin/profile`
+- `assets/workspace/.nbook/agent/bin/profile.cmd`
+- `assets/workspace/.nbook/agent/scripts/profile.ts`
 - `docs/tasks/02-pi-agent-harness-migration/README.md`
 - `docs/tasks/05-leader-profile-v2-adaptation/README.md`
 - `docs/modules/agent/harness.md`
@@ -300,6 +312,8 @@
 - `app/components/profile-template-editor/ProfileTemplateHeader.vue`
 - `app/components/profile-template-editor/ProfileTemplateInspectorPanel.vue`
 - `app/components/profile-template-editor/ProfileTemplateVisualEditor.vue`
+- `app/components/profile-template-editor/profile-template-selection-utils.ts`
+- `app/components/profile-template-editor/profile-template-selection-utils.test.ts`
 - `app/components/profile-template-editor/UserProfileWorkbenchDialog.vue`
 - `app/components/profile-template-editor/profile-template-form-utils.ts`
 - `app/components/novel-ide/NovelAgentDrawer.vue`
@@ -321,9 +335,21 @@
 - `shared/dto/agent-profile.dto.ts`
 - `shared/dto/profile-template.dto.ts`
 - `server/agent/test/setup.ts`
+- `vitest.config.ts`
+- `workspace/.nbook/agent/scripts/profile.ts`
 
 ## Verification
 
+- 2026-07-06 本轮修复验证：
+  - `bash -c './workspace/.nbook/agent/bin/profile status leader.default'`：通过，返回 `leader.default: loaded`。
+  - `bash -c './assets/workspace/.nbook/agent/bin/profile status leader.default'`：通过，源码仓存在 `.output` 时仍返回 `leader.default: loaded`。
+  - 在 `workspace/.nbook` 下执行 `bash -c './agent/bin/profile status leader.default'`：通过，返回 `leader.default: loaded`。
+  - 在 `workspace/.nbook` 下执行 `bash -c './agent/bin/profile check leader.default'`：通过，返回 `profile check passed`。
+  - 临时 Product Root smoke：同时放置根 `scripts/build/profile.ts` 与 `.output/server/scripts/build/profile.ts` 后运行 `assets/workspace/.nbook/agent/bin/profile`，输出 `product-bin` 且 cwd 为临时 Product Root，确认 sh wrapper 命中 `.output/server`。
+  - `bunx vitest run app/components/profile-template-editor/profile-template-selection-utils.test.ts scripts/build/profile-cli-path.test.ts server/agent/profiles/workbench-service.test.ts --testTimeout=120000 --hookTimeout=120000`：通过，3 files / 15 tests passed。
+  - `bunx vitest run server/agent/profiles/profile-compile-worker.test.ts -t "Product Root 仅有 .output package manifest" --testTimeout=120000 --hookTimeout=120000`：通过，1 test passed / 20 skipped。
+  - `bunx vitest run server/agent/profiles/catalog.test.ts -t "Product profile artifact|通用 .output Product runner|Product 用户层 artifact" --testTimeout=120000 --hookTimeout=120000`：通过，4 tests passed / 39 skipped。
+  - `bunx vitest run server/agent/profiles/catalog.test.ts server/agent/profiles/profile-compile-worker.test.ts --testTimeout=120000 --hookTimeout=120000`：本轮复查中超过 2 分钟无增量输出且未按单测超时退出，已中断；改用上方 Product 相关窄用例覆盖本轮改动边界。
 - `bunx tsc --noEmit --pretty false` 通过。
 - `bunx vitest run server/agent/profiles/workbench-service.test.ts server/agent/profiles/profile-compile-worker.test.ts server/agent/profiles/catalog.test.ts` 通过，覆盖轻量 draft 读取不触发 runtime catalog、真实 worker service 后台编译、worker crash 结构化 issue、catalog compiled-only 加载和 user profile 文件读写。
 - 手动跑过 Node worker service 探针：`useProfileCompileWorker().compile({ fileName: "builtin/leader.default.profile.tsx", preview: false })` 返回 `ok: true`、`manifest.key = leader.default`、error issue 数为 0。

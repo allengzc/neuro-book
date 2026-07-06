@@ -41,18 +41,18 @@ function formatMutationValue(mutation: WorldSlicePatchDto): string {
                     <div class="truncate text-[13px] font-medium text-[var(--text-main)]">{{ selectedSlice.title || selectedSlice.id }}</div>
                     <div class="mt-1 text-[12px] text-[var(--text-muted)]">{{ selectedSlice.time }} · {{ selectedSlice.kind }}</div>
                 </div>
-                <button type="button" class="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[11px] text-[var(--text-secondary)] hover:bg-rose-500/10 hover:text-rose-600 disabled:opacity-50" :disabled="actionBusy" title="删除 slice" aria-label="删除 slice" @click="emit('delete-slice')">
+                <button type="button" class="inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)] disabled:opacity-50" :disabled="actionBusy" title="删除 slice" aria-label="删除 slice" @click="emit('delete-slice')">
                     <span :class="actionBusy ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-trash-2'" class="h-3.5 w-3.5"></span>
                     删除
                 </button>
             </div>
             <div v-if="selectedSlice.issues?.length" class="mt-3 space-y-1.5">
-                <div class="inline-flex items-center gap-1 rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-700">
+                <div class="inline-flex items-center gap-1 rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-2 py-1 text-[11px] font-medium text-[var(--status-warning)]">
                     <span class="i-lucide-triangle-alert h-3.5 w-3.5"></span>
                     {{ selectedSlice.issues.length }} issues
                 </div>
-                <div v-for="issue in selectedSlice.issues" :key="`selected-slice-issue:${issue.code}:${issue.subjectId}:${issue.attr}:${issue.message}`" class="rounded border border-amber-500/20 bg-[var(--bg-panel)] px-2 py-1.5 text-[11px] text-[var(--text-secondary)]">
-                    <span class="font-mono text-amber-700">{{ issue.code }}</span>
+                <div v-for="issue in selectedSlice.issues" :key="`selected-slice-issue:${issue.code}:${issue.subjectId}:${issue.attr}:${issue.message}`" class="rounded border border-[var(--status-warning-border)] bg-[var(--bg-panel)] px-2 py-1.5 text-[11px] text-[var(--text-secondary)]">
+                    <span class="font-mono text-[var(--status-warning)]">{{ issue.code }}</span>
                     <span class="mx-1 text-[var(--text-muted)]">·</span>
                     <span class="font-mono">{{ issue.subjectId }}.{{ issue.attr }}</span>
                     <div class="mt-0.5 text-[var(--text-main)]">{{ issue.message }}</div>

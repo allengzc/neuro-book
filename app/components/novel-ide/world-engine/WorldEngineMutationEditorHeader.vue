@@ -36,9 +36,9 @@ const emit = defineEmits<{
     <div v-if="editingSliceId" class="mb-4 rounded-md border border-[var(--accent-main)]/30 bg-[var(--accent-bg)] px-3 py-2 text-[12px] text-[var(--text-secondary)]">
         当前将整块替换 slice：{{ editingSliceId }}
     </div>
-    <div v-if="hasDirtyDraft" class="mb-4 flex items-center justify-between gap-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[12px] text-amber-700">
+    <div v-if="hasDirtyDraft" class="mb-4 flex items-center justify-between gap-3 rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-[12px] text-[var(--status-warning)]">
         <span>当前有未保存草稿，切换载入其他 slice 前会保留这份内容。</span>
-        <button v-if="pendingLoadSelectedSlice" type="button" class="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-amber-500/30 px-2 text-[11px] hover:bg-amber-500/10 disabled:opacity-50" :disabled="saving || busy" @click="emit('discard-draft-and-load-selected-slice')">
+        <button v-if="pendingLoadSelectedSlice" type="button" class="inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-[var(--status-warning-border)] px-2 text-[11px] hover:bg-[var(--status-warning-bg)] disabled:opacity-50" :disabled="saving || busy" @click="emit('discard-draft-and-load-selected-slice')">
             <span class="i-lucide-file-warning h-3.5 w-3.5"></span>
             放弃草稿并载入
         </button>

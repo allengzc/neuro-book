@@ -117,6 +117,7 @@ describe("turn failure helpers", () => {
             toolKeys: [],
             profileKey: "test",
             profile: {} as RunFrame["profile"],
+            agentMode: "normal",
             thinkingLevel: "off",
             runtimeState: new Map(),
             messages: [finalAssistant],

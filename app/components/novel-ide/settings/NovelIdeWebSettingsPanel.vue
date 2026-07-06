@@ -411,9 +411,9 @@ defineExpose({
             </div>
         </div>
 
-        <div v-if="errorText" class="flex items-start gap-3 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 shadow-sm">
-            <span class="i-lucide-alert-circle mt-0.5 h-4 w-4 shrink-0 text-rose-500"></span>
-            <div class="text-sm text-rose-700">{{ errorText }}</div>
+        <div v-if="errorText" class="flex items-start gap-3 rounded-xl border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-4 py-3 shadow-sm">
+            <span class="i-lucide-alert-circle mt-0.5 h-4 w-4 shrink-0 text-[var(--status-danger)]"></span>
+            <div class="text-sm text-[var(--status-danger)]">{{ errorText }}</div>
         </div>
 
         <div v-if="loading" class="flex min-h-[260px] flex-col items-center justify-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm">
@@ -450,7 +450,7 @@ defineExpose({
                                 <div class="min-w-0">
                                     <div class="flex flex-wrap items-center gap-2">
                                         <h5 class="text-sm font-semibold text-[var(--text-main)]">{{ item.name }}</h5>
-                                        <span class="h-2 w-2 rounded-full" :class="item.enabled ? 'bg-emerald-500' : 'bg-slate-400'"></span>
+                                        <span class="h-2 w-2 rounded-full" :class="item.enabled ? 'bg-[var(--status-success)]' : 'bg-[var(--text-muted)]'"></span>
                                         <span class="rounded border border-[var(--border-color)] bg-[var(--bg-input)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)]">{{ item.configured ? t("settings.panels.web.keyConfigured") : t("settings.panels.web.noKey") }}</span>
                                     </div>
                                     <p class="mt-1 text-xs text-[var(--text-secondary)]">{{ item.description }}</p>
@@ -475,7 +475,7 @@ defineExpose({
                                 <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.web.apiKey") }}</span>
                                 <div class="flex gap-2">
                                     <FormInput v-model="providerDraft(item.key).apiKey" type="password" :placeholder="providerDraft(item.key).apiKeyConfigured ? providerDraft(item.key).apiKeyMaskedValue ?? t('settings.panels.web.apiKeyConfigured') : t('settings.panels.web.notConfigured')" />
-                                    <button type="button" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-rose-500/20 bg-rose-500/10 px-2.5 text-[11px] font-medium text-rose-600 hover:bg-rose-500/20" @click="clearProviderApiKey(item.key)">
+                                    <button type="button" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-2.5 text-[11px] font-medium text-[var(--status-danger)] hover:bg-[var(--status-danger-bg)]" @click="clearProviderApiKey(item.key)">
                                         <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
                                         {{ t("settings.panels.web.clear") }}
                                     </button>
@@ -513,7 +513,7 @@ defineExpose({
                 <div class="grid gap-3 md:grid-cols-3">
                     <button type="button" class="flex items-center justify-between gap-4 rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-left shadow-sm transition-all hover:bg-[var(--bg-hover)]" @click="draft.localFetch.enabled = !draft.localFetch.enabled">
                         <span><span class="block text-sm font-medium text-[var(--text-main)]">{{ t("settings.panels.web.localFirst") }}</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.panels.web.localFirstDescription") }}</span></span>
-                        <span class="h-2.5 w-2.5 rounded-full" :class="draft.localFetch.enabled ? 'bg-emerald-500' : 'bg-slate-400'"></span>
+                        <span class="h-2.5 w-2.5 rounded-full" :class="draft.localFetch.enabled ? 'bg-[var(--status-success)]' : 'bg-[var(--text-muted)]'"></span>
                     </button>
                     <label class="space-y-1.5">
                         <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.web.timeoutMs") }}</span>

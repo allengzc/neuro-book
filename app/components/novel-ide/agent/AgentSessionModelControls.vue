@@ -125,7 +125,7 @@ function updateSessionModelDraft(patch: Partial<AgentSessionModelDraft>): void {
                 <button class="inline-flex h-8 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="actionDisabled" @click="emit('reset-session-model-settings')">
                     {{ t("agent.composer.resetProfileDefault") }}
                 </button>
-                <button class="inline-flex h-8 items-center justify-center rounded-md bg-[var(--accent-main)] px-3 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="actionDisabled" @click="emit('apply-session-model-settings')">
+                <button class="inline-flex h-8 items-center justify-center rounded-md bg-[var(--accent-main)] px-3 text-xs font-medium text-[var(--text-inverse)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="actionDisabled" @click="emit('apply-session-model-settings')">
                     <span v-if="props.sessionModelSaving" class="i-lucide-loader-2 mr-1.5 h-3.5 w-3.5 animate-spin"></span>
                     {{ t("agent.composer.applySession") }}
                 </button>

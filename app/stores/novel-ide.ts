@@ -9,7 +9,10 @@ import type {
     UpdateVolumeRequestDto,
     VolumeDto,
 } from "nbook/shared/dto/novel-chapter.dto";
-import type { IdeTheme } from "nbook/app/utils/theme/theme-tokens";
+import type {ThemeVars} from "nbook/app/utils/theme/theme-tokens";
+import {resolveTheme} from "nbook/app/utils/theme/resolve-theme";
+import {triggerBrowserDownload} from "nbook/app/utils/browser-download";
+import type {CustomThemeDto, ThemeAppearance} from "nbook/shared/theme/theme-vars";
 import type { NovelIdeTab } from "nbook/app/components/novel-ide/mock-data";
 import {
     DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
@@ -264,7 +267,11 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const rightPanelWidth = ref(400);
     const selectedModel = ref<string>(DEFAULT_MODEL_LABEL);
     const selectedReasoning = ref<string>(REASONING_OPTIONS[2] ?? "中");
-    const theme = ref<IdeTheme>("sepia");
+    const activeThemeId = ref<string>("sepia");
+    const customThemes = ref<CustomThemeDto[]>([]);
+    const activeThemeAppearance = ref<ThemeAppearance>("light");
+    const themeVarsSnapshot = ref<ThemeVars | null>(null);
+    const theme = activeThemeId;
     const viewMode = ref<WorkspaceEditorViewMode>("rich");
     const markdownEditorPreferences = ref<MarkdownEditorPreferences>({
         ...DEFAULT_MARKDOWN_EDITOR_PREFERENCES,
@@ -283,6 +290,41 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     const workspaceTreeRevision = ref(0);
 
     const reasoningOptions = [...REASONING_OPTIONS];
+
+    /**
+     * 按当前主题 ID 与自定义主题列表刷新首屏主题快照。
+     */
+    const rememberThemeSnapshot = (): void => {
+        const resolved = resolveTheme(activeThemeId.value, customThemes.value);
+        activeThemeId.value = resolved.id;
+        activeThemeAppearance.value = resolved.appearance;
+        themeVarsSnapshot.value = {...resolved.vars};
+    };
+
+    /**
+     * 应用后端返回的全局主题配置。
+     */
+    const applyThemeConfig = (themeId: string, nextCustomThemes: CustomThemeDto[]): void => {
+        customThemes.value = [...nextCustomThemes];
+        activeThemeId.value = themeId;
+        rememberThemeSnapshot();
+    };
+
+    /**
+     * 只切换当前活动主题，并同步首屏快照。
+     */
+    const applyThemeSelection = (themeId: string): void => {
+        activeThemeId.value = themeId;
+        rememberThemeSnapshot();
+    };
+
+    /**
+     * 更新自定义主题列表，并保证当前主题仍可解析。
+     */
+    const applyCustomThemes = (nextCustomThemes: CustomThemeDto[]): void => {
+        customThemes.value = [...nextCustomThemes];
+        rememberThemeSnapshot();
+    };
 
     /**
      * 同步当前默认模型展示名。
@@ -1599,20 +1641,6 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
     };
 
     /**
-     * 在浏览器中触发 Blob 下载。
-     */
-    const triggerBrowserDownload = (blob: Blob, filename: string): void => {
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = filename;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
-    };
-
-    /**
      * 判断某个工作区路径是否被文件事件影响。
      */
     const workspacePathTouchedByEvents = (filePath: string, events: WorkspaceFileChangeEventDto[]): boolean => {
@@ -2268,10 +2296,15 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
 
     return {
         activeLeftTab,
+        activeThemeAppearance,
+        activeThemeId,
         activeWorkspaceTabPath,
         acceptPendingAgentChapterUpdate,
         applyAgentWorkspaceSync,
         applyChapterDetail,
+        applyCustomThemes,
+        applyThemeConfig,
+        applyThemeSelection,
         applyWorkspaceConflictMergedContent,
         applyWorkspaceConflictRemote,
         chapterPanelBusy,
@@ -2289,6 +2322,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         currentNovel,
         currentNovelId,
         currentWorkspaceRoot,
+        customThemes,
         canAccessWorkspace,
         deleteNovel,
         deleteWorkspacePath,
@@ -2378,6 +2412,7 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
         syncNovelTree,
         syncVolumeSummary,
         theme,
+        themeVarsSnapshot,
         markdownEditorPreferences,
         monacoEditorPreferences,
         monacoFontSizeOverridesByPath,
@@ -2431,7 +2466,10 @@ export const useNovelIdeStore = defineStore("novelIde", () => {
             "rightPanelWidth",
             "selectedModel",
             "selectedReasoning",
-            "theme",
+            "activeThemeId",
+            "activeThemeAppearance",
+            "customThemes",
+            "themeVarsSnapshot",
             "viewMode",
             "markdownEditorPreferences",
             "monacoEditorPreferences",

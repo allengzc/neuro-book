@@ -142,11 +142,11 @@ function statusLabel(status: AgentSessionSummaryDto["status"]): string {
  */
 function statusClass(status: AgentSessionSummaryDto["status"]): string {
     switch (status) {
-        case "running": return "bg-blue-500/10 text-blue-600 border border-blue-500/20 dark:bg-blue-500/20 dark:text-blue-400";
-        case "waiting": return "bg-amber-500/10 text-amber-600 border border-amber-500/20 dark:bg-amber-500/20 dark:text-amber-400";
-        case "interrupted": return "bg-red-500/10 text-red-600 border border-red-500/20 dark:bg-red-500/20 dark:text-red-400";
+        case "running": return "border border-[var(--status-info-border)] bg-[var(--status-info-bg)] text-[var(--status-info)]";
+        case "waiting": return "border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]";
+        case "interrupted": return "border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[var(--status-danger)]";
         case "archived": return "bg-[var(--bg-input)] text-[var(--text-muted)] border border-[var(--border-color)]";
-        default: return "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20 dark:bg-emerald-500/20 dark:text-emerald-400";
+        default: return "border border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success)]";
     }
 }
 
@@ -288,13 +288,13 @@ onClickOutside(filterPanelRef, () => {
                 >
                     <div class="min-w-0 flex-1">
                         <div class="flex min-w-0 items-center gap-3">
-                            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-all duration-200" :class="session.parentSessionId ? 'border-blue-500/20 bg-blue-500/10 text-blue-600 dark:border-blue-500/30 dark:bg-blue-500/20 dark:text-blue-400' : 'border-orange-500/20 bg-orange-500/10 text-orange-600 dark:border-orange-500/30 dark:bg-orange-500/20 dark:text-orange-400'">
+                            <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-all duration-200" :class="session.parentSessionId ? 'border-[var(--status-info-border)] bg-[var(--status-info-bg)] text-[var(--status-info)]' : 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]'">
                                 <span :class="session.parentSessionId ? 'i-lucide-bot' : 'i-lucide-crown'" class="h-4.5 w-4.5"></span>
                             </div>
                             <span class="truncate text-sm font-semibold text-[var(--text-main)] transition-colors group-hover:text-[var(--accent-main)]">{{ sessionTitle(session) }}</span>
-                            <span v-if="session.sessionId === activeSessionId" class="rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-white bg-[var(--accent-main)] shadow-sm">{{ t("agent.session.active") }}</span>
+                            <span v-if="session.sessionId === activeSessionId" class="rounded bg-[var(--accent-main)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-[0.1em] text-[var(--text-inverse)] shadow-sm">{{ t("agent.session.active") }}</span>
                             <span class="rounded px-1.5 py-0.5 text-[10px] font-medium" :class="statusClass(session.status)">{{ statusLabel(session.status) }}</span>
-                            <span v-if="profileAvailabilityLabel(session)" class="inline-flex shrink-0 items-center gap-1 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300" :title="profileAvailabilityTitle(session)">
+                            <span v-if="profileAvailabilityLabel(session)" class="inline-flex shrink-0 items-center gap-1 rounded border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--status-warning)]" :title="profileAvailabilityTitle(session)">
                                 <span class="i-lucide-lock h-3 w-3"></span>
                                 {{ profileAvailabilityLabel(session) }}
                             </span>
@@ -308,7 +308,7 @@ onClickOutside(filterPanelRef, () => {
                             <span v-if="session.parentSessionId" class="rounded border border-[var(--border-color)] px-1.5 py-0.5 text-[10px] font-medium tracking-normal text-[var(--text-secondary)]">{{ t("agent.session.parentSession", {id: session.parentSessionId}) }}</span>
                         </div>
                     </div>
-                    <button class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-50 transition-all hover:bg-red-500/10 hover:text-red-500 hover:opacity-100 group-hover:opacity-100 disabled:opacity-40" :disabled="actionId === session.sessionId || loading || !canArchiveSession(session)" :title="t('agent.session.archive')" @click.stop="emit('archive', session)">
+                    <button class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] opacity-50 transition-all hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)] hover:opacity-100 group-hover:opacity-100 disabled:opacity-40" :disabled="actionId === session.sessionId || loading || !canArchiveSession(session)" :title="t('agent.session.archive')" @click.stop="emit('archive', session)">
                         <span v-if="actionId === session.sessionId" class="i-lucide-loader-circle h-4 w-4 animate-spin"></span>
                         <span v-else class="i-lucide-archive h-4 w-4"></span>
                     </button>

@@ -96,6 +96,12 @@ describe("World Engine Workbench preview redesign", () => {
         expect(page).toContain("WorldEngineWorkbenchPreviewSliceList");
         expect(page).toContain("WorldEngineWorkbenchPreviewMutationEditor");
         expect(page).toContain("WorldEngineWorkbenchPreviewInspector");
+        expect(page).toContain("world-engine-workbench-preview world-engine-workbench-theme");
+        expect(page).not.toContain("--we-bg-canvas: #f6f8f7");
+        expect(page).not.toContain("--we-bg-panel: #ffffff");
+        expect(page).not.toContain("--we-accent: #078768");
+        expect(page).not.toContain("--bg-main: var(--we-bg-canvas)");
+        expect(page).not.toContain("--accent-main: var(--we-accent)");
         expect(page).toContain("mock 数据源");
         expect(page).toContain("mockWorkbenchSubjectSystemSummaries");
         expect(page).toContain(":subject-system-summaries=\"mockWorkbenchSubjectSystemSummaries\"");

@@ -1,4 +1,5 @@
-import {completeSimple} from "@earendil-works/pi-ai";
+import {tracedCompleteSimple} from "nbook/server/agent/observability/traced-provider";
+import type {PiTraceBinding} from "nbook/server/agent/observability/traced-provider";
 import {estimateContextTokens, estimateTokens} from "@earendil-works/pi-agent-core";
 import type {AgentMessage, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
 import type {ProfileCompactionPlan} from "nbook/server/agent/profiles/types";
@@ -68,6 +69,7 @@ export async function compactIfNeeded(input: {
     requestOptions?: Record<string, JsonValue>;
     thinkingLevel?: ThinkingLevel;
     compaction?: ProfileCompactionPlan;
+    trace?: PiTraceBinding;
     writeCompactionEntry: (entry: Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">) => Promise<void>;
 }): Promise<boolean> {
     if (!input.compaction) {
@@ -93,6 +95,7 @@ export async function compactIfNeeded(input: {
         requestOptions: input.requestOptions,
         thinkingLevel: input.thinkingLevel,
         options,
+        trace: input.trace,
         writeCompactionEntry: input.writeCompactionEntry,
     });
     return true;
@@ -114,6 +117,7 @@ export async function appendCompaction(input: {
     instructions?: string;
     compaction?: ProfileCompactionPlan;
     options?: CompactionOptions;
+    trace?: PiTraceBinding;
     writeCompactionEntry: (entry: Omit<CompactionSessionEntry, "id" | "parentId" | "timestamp">) => Promise<void>;
 }): Promise<void> {
     if (!input.options && !input.compaction) {
@@ -135,6 +139,7 @@ export async function appendCompaction(input: {
         thinkingLevel: input.thinkingLevel,
         reserveTokens: options.reserveTokens,
         prompt: options.prompt,
+        trace: input.trace,
     });
     const summary = `${options.summaryPrefix}\n\n${generatedSummary}`;
     const tokensBefore = input.tokensBefore ?? estimateContextTokens(input.messages).tokens;
@@ -215,6 +220,7 @@ async function generateCompactionSummary(input: {
     thinkingLevel?: ThinkingLevel;
     reserveTokens: number;
     prompt: string;
+    trace?: PiTraceBinding;
 }): Promise<string> {
     const conversation = input.messages.length
         ? input.messages.map((message) => `${message.role}: ${messageText(message)}`).join("\n\n")
@@ -226,17 +232,20 @@ async function generateCompactionSummary(input: {
         `<conversation>\n${conversation}\n</conversation>`,
     ].filter(Boolean).join("\n\n");
     const requestOptions = piStreamOptions(input.requestOptions);
-    const response = await completeSimple(input.model, {
+    const completeContext = {
         systemPrompt: input.prompt,
         messages: [createUserMessage({text: prompt})],
-    }, {
+    };
+    const completeOptions = {
         apiKey: input.apiKey,
         timeoutMs: input.timeoutMs ?? undefined,
         ...requestOptions,
         headers: mergeHeaders(readHeaders(requestOptions.headers), input.model.headers),
         maxTokens: Math.min(Math.floor(input.reserveTokens * 0.8), input.model.maxTokens),
         reasoning: input.thinkingLevel && input.thinkingLevel !== "off" ? input.thinkingLevel as never : undefined,
-    });
+    };
+    // 统一入口：trace 缺省时 tracedCompleteSimple 等同裸 completeSimple（不落记录、零开销）。
+    const response = await tracedCompleteSimple(input.model, completeContext, completeOptions, input.trace);
 
     if (response.stopReason === "error" || response.stopReason === "aborted") {
         throw new Error(response.errorMessage || "compaction summary 生成失败");

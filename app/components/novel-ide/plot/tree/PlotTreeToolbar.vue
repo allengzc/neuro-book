@@ -20,7 +20,7 @@ const buttonClass = "rounded-xl border border-[var(--border-color)] bg-[var(--bg
 
 <template>
     <!-- PlotTree 工具条 -->
-    <div class="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)]/95 px-3 py-2 shadow-[0_10px_30px_rgba(15,23,42,0.12)] backdrop-blur">
+    <div class="flex flex-wrap items-center gap-2 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)]/95 px-3 py-2 shadow-[0_10px_30px_color-mix(in_srgb,var(--shadow-color)_12%,transparent)] backdrop-blur">
         <button
             v-if="props.editable"
             type="button"

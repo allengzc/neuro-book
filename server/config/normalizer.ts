@@ -22,12 +22,18 @@ import type {
     StoredWebSettingsConfig,
     WebSearchProviderKey,
     WebSettingsConfig,
+    ObservabilityConfig,
+    PiTraceConfig,
 } from "nbook/server/config/types";
 import type {JsonValue} from "nbook/server/agent/messages/types";
 import {ThinkingLevelSchema} from "nbook/shared/dto/app-settings.dto";
+import {builtInThemeIds, themeAppearanceValues, themeVarNames, type CustomThemeDto, type ThemeAppearance, type ThemeVarName} from "nbook/shared/theme/theme-vars";
 
 const DEFAULT_THEME: EffectiveConfig["ui"]["theme"] = "sepia";
 const DEFAULT_COST_CURRENCY: EffectiveConfig["ui"]["costCurrency"] = "USD";
+const builtInThemeIdSet = new Set<string>(builtInThemeIds);
+const themeAppearanceSet = new Set<string>(themeAppearanceValues);
+const themeVarNameSet = new Set<string>(themeVarNames);
 const DEFAULT_AGENT_PROFILE_MODEL_DEFAULTS: AgentProfileModelConfig = {
     modelKey: null,
     temperature: null,
@@ -79,6 +85,26 @@ const DEFAULT_WEB_SETTINGS: WebSettingsConfig = {
     },
 };
 
+const DEFAULT_PI_TRACE: PiTraceConfig = {
+    enabled: true,
+    maxRecords: 100,
+    capturePayload: true,
+};
+
+/**
+ * 归一化可观测配置：从存储层 partial 覆盖默认值，带类型守卫。
+ */
+function normalizeObservability(input: StoredGlobalConfig["observability"]): ObservabilityConfig {
+    const raw = input?.piTrace && typeof input.piTrace === "object" ? input.piTrace : {};
+    return {
+        piTrace: {
+            enabled: typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_PI_TRACE.enabled,
+            maxRecords: typeof raw.maxRecords === "number" && Number.isInteger(raw.maxRecords) && raw.maxRecords >= 0 ? raw.maxRecords : DEFAULT_PI_TRACE.maxRecords,
+            capturePayload: typeof raw.capturePayload === "boolean" ? raw.capturePayload : DEFAULT_PI_TRACE.capturePayload,
+        },
+    };
+}
+
 /**
  * 创建完整的默认 effective config。
  */
@@ -102,6 +128,7 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
         },
         ui: {
             theme: DEFAULT_THEME,
+            customThemes: [],
             costCurrency: DEFAULT_COST_CURRENCY,
         },
         editor: {
@@ -109,6 +136,7 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
             monaco: {...DEFAULT_MONACO_EDITOR_PREFERENCES},
         },
         web: normalizeWebSettings(undefined),
+        observability: normalizeObservability(undefined),
     };
 }
 
@@ -117,6 +145,7 @@ export function createDefaultEffectiveConfig(): EffectiveConfig {
  */
 export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null | undefined): StoredGlobalConfig {
     const raw = input && typeof input === "object" ? input : {};
+    const customThemes = normalizeCustomThemes(raw.ui?.customThemes);
     return {
         ...raw,
         auth: {
@@ -136,7 +165,8 @@ export function normalizeGlobalConfig(input: Partial<StoredGlobalConfig> | null 
             profiles: normalizeAgentProfiles(raw.agent?.profiles),
         },
         ui: {
-            theme: normalizeTheme(raw.ui?.theme),
+            theme: normalizeTheme(raw.ui?.theme, customThemes),
+            customThemes,
             costCurrency: normalizeCostCurrency(raw.ui?.costCurrency),
         },
         editor: {
@@ -196,11 +226,13 @@ export function resolveEffectiveConfig(globalConfig: StoredGlobalConfig, project
     };
     effective.agent.profileModelDefaults = normalizeAgentProfileModelDefaults(globalConfig.agent?.profileModelDefaults);
     effective.agent.profiles = normalizeCompleteAgentProfiles(globalProfilePatches, effective.agent.profileModelDefaults);
-    effective.ui.theme = normalizeTheme(globalConfig.ui?.theme);
+    effective.ui.customThemes = normalizeCustomThemes(globalConfig.ui?.customThemes);
+    effective.ui.theme = normalizeTheme(globalConfig.ui?.theme, effective.ui.customThemes);
     effective.ui.costCurrency = normalizeCostCurrency(globalConfig.ui?.costCurrency);
     effective.editor.markdown = normalizeMarkdownPreferences(globalConfig.editor?.markdown);
     effective.editor.monaco = normalizeMonacoPreferences(globalConfig.editor?.monaco);
     effective.web = normalizeWebSettings(globalConfig.web);
+    effective.observability = normalizeObservability(globalConfig.observability);
 
     if (!projectConfig) {
         return effective;
@@ -470,8 +502,64 @@ function normalizeMonacoPreferences(input: Partial<MonacoEditorPreferences> | un
     };
 }
 
-function normalizeTheme(input: unknown): EffectiveConfig["ui"]["theme"] {
-    return input === "light" || input === "dark" || input === "sepia" ? input : DEFAULT_THEME;
+function normalizeTheme(input: unknown, customThemes: CustomThemeDto[] = []): EffectiveConfig["ui"]["theme"] {
+    const themeId = normalizeText(input);
+    if (builtInThemeIdSet.has(themeId) || customThemes.some((theme) => theme.id === themeId)) {
+        return themeId;
+    }
+    return DEFAULT_THEME;
+}
+
+function normalizeCustomThemes(input: unknown): CustomThemeDto[] {
+    if (!Array.isArray(input)) {
+        return [];
+    }
+    const result: CustomThemeDto[] = [];
+    const seenIds = new Set<string>();
+    for (const item of input) {
+        const theme = normalizeCustomTheme(item);
+        if (!theme || seenIds.has(theme.id)) {
+            continue;
+        }
+        seenIds.add(theme.id);
+        result.push(theme);
+        if (result.length >= 50) {
+            break;
+        }
+    }
+    return result;
+}
+
+function normalizeCustomTheme(input: unknown): CustomThemeDto | null {
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+        return null;
+    }
+    const record = input as Record<string, unknown>;
+    const id = normalizeText(record.id);
+    const name = normalizeText(record.name).slice(0, 50);
+    const appearance = normalizeThemeAppearance(record.appearance);
+    const vars = normalizeThemeVars(record.vars);
+    if (!/^custom-[a-z0-9-]+$/u.test(id) || !name || !appearance) {
+        return null;
+    }
+    return {id: id as CustomThemeDto["id"], name, appearance, vars};
+}
+
+function normalizeThemeAppearance(input: unknown): ThemeAppearance | null {
+    return typeof input === "string" && themeAppearanceSet.has(input) ? input as ThemeAppearance : null;
+}
+
+function normalizeThemeVars(input: unknown): Partial<Record<ThemeVarName, string>> {
+    if (!input || typeof input !== "object" || Array.isArray(input)) {
+        return {};
+    }
+    const result: Partial<Record<ThemeVarName, string>> = {};
+    for (const [key, value] of Object.entries(input)) {
+        if (themeVarNameSet.has(key) && typeof value === "string") {
+            result[key as ThemeVarName] = value.trim();
+        }
+    }
+    return result;
 }
 
 function normalizeCostCurrency(input: unknown): EffectiveConfig["ui"]["costCurrency"] {

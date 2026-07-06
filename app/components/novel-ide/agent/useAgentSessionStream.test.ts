@@ -42,7 +42,7 @@ const baseSnapshot = (lastSeq = 0, eventEpoch = "epoch-1"): AgentSessionSnapshot
     model: null,
     thinkingLevel: null,
     effectiveThinkingLevel: "off",
-    planModeActive: false,
+    agentMode: "normal",
     lastSeq,
 });
 
@@ -333,7 +333,7 @@ describe("useAgentSessionStream", () => {
                             model: null,
                             thinkingLevel: null,
                             effectiveThinkingLevel: "off",
-                            planModeActive: false,
+                            agentMode: "normal",
                         },
                     },
                 }));

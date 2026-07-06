@@ -307,7 +307,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
                     <span class="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg border text-[11px]" :class="typeMeta.iconClass">
                         <span :class="currentIconClass" class="h-3.5 w-3.5"></span>
                     </span>
-                    <span v-if="isDirty" class="h-2 w-2 shrink-0 rounded-full bg-amber-500" :title="t('ide.workspace.common.dirty')"></span>
+                    <span v-if="isDirty" class="h-2 w-2 shrink-0 rounded-full bg-[var(--status-warning)]" :title="t('ide.workspace.common.dirty')"></span>
                     <span class="truncate font-serif text-sm font-bold tracking-wide text-[var(--text-main)]">{{ editForm.title || editForm.name }}</span>
                 </template>
             </div>
@@ -319,8 +319,8 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
         </template>
 
         <div v-if="editForm" class="space-y-4 p-3 pb-6 text-[11px]" :class="savingFile ? 'pointer-events-none opacity-80' : ''">
-            <div v-if="diagnostics" class="rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-[11px] leading-5 text-amber-800">{{ diagnostics }}</div>
-            <div v-for="issue in relatedIssues" :key="`${issue.code}:${issue.path}:${issue.message}`" class="rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-[11px] leading-5 text-amber-800">
+            <div v-if="diagnostics" class="rounded-xl border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-[11px] leading-5 text-[var(--status-warning)]">{{ diagnostics }}</div>
+            <div v-for="issue in relatedIssues" :key="`${issue.code}:${issue.path}:${issue.message}`" class="rounded-xl border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-[11px] leading-5 text-[var(--status-warning)]">
                 [{{ issue.level }}] {{ issue.message }}
             </div>
 
@@ -404,7 +404,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
                         <input v-model="entryRef.relation" type="text" :placeholder="t('ide.workspace.common.relation')" class="w-[76px] rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-1 text-[11px] outline-none" @blur="void saveDraft()">
                         <span class="i-lucide-arrow-right h-3 w-3 shrink-0 text-[var(--text-muted)]"></span>
                         <input v-model="entryRef.target" type="text" :placeholder="t('ide.workspace.lorebookDetail.targetOrPending')" class="min-w-0 flex-1 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-1.5 py-1 text-[11px] font-mono outline-none" @blur="void saveDraft()">
-                        <button type="button" class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-rose-500/10 hover:text-rose-500" @click="removeRef(index)">
+                        <button type="button" class="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)]" @click="removeRef(index)">
                             <span class="i-lucide-x h-3.5 w-3.5"></span>
                         </button>
                     </div>

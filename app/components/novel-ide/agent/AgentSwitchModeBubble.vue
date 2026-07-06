@@ -9,14 +9,15 @@ const NONE_OF_ABOVE_OPTION_INDEX = -1;
 const REJECT_OPTION_INDEX = 1;
 const APPROVE_OPTION_INDEX = 0;
 
-const ExitPlanModePreviewDataSchema = z.object({
+const SwitchModePreviewDataSchema = z.object({
     planFilePath: z.string().optional(),
     planContent: z.string().optional(),
 });
 
-const ExitPlanModeRawResultSchema = z.object({
+const SwitchModeRawResultSchema = z.object({
     answers: z.array(RequestUserInputToolAnswerSchema).optional(),
     approved: z.boolean().optional(),
+    targetMode: z.enum(["normal", "discuss", "plan"]).optional(),
     planFilePath: z.string().optional(),
     planContent: z.string().optional(),
     data: z.unknown().optional(),
@@ -31,7 +32,23 @@ const showApprovedPreview = ref(false);
 const {t} = useI18n();
 
 /**
- * 当前 exit_plan_mode 是否仍在等待审批。
+ * switch_mode 参数中的目标模式；参数流式未完成时回退 rawResult。
+ */
+const targetMode = computed<"normal" | "discuss" | "plan">(() => {
+    let value: unknown = parsedRawResult.value?.targetMode;
+    try {
+        const args = JSON.parse(props.toolCall.argsJson ?? props.toolCall.argsText) as Record<string, unknown>;
+        value = args.targetMode ?? value;
+    } catch {
+        // 参数仍在流式输出中，保持 rawResult 回退值
+    }
+    return value === "discuss" || value === "plan" ? value : "normal";
+});
+
+const targetModeLabel = computed(() => t(`agent.mode.${targetMode.value}`));
+
+/**
+ * 当前 switch_mode 是否仍在等待审批。
  */
 const pendingQuestion = computed(() => {
     return userInputContext?.pendingSession.value?.questions.find((question) => question.toolNodeId === props.toolCall.id) ?? null;
@@ -45,12 +62,12 @@ const isPendingQuestion = computed(() => {
 });
 
 const parsedRawResult = computed(() => {
-    const parsed = ExitPlanModeRawResultSchema.safeParse(props.toolCall.rawResult);
+    const parsed = SwitchModeRawResultSchema.safeParse(props.toolCall.rawResult);
     return parsed.success ? parsed.data : null;
 });
 
 const parsedPreviewData = computed(() => {
-    const parsed = ExitPlanModePreviewDataSchema.safeParse(parsedRawResult.value?.data);
+    const parsed = SwitchModePreviewDataSchema.safeParse(parsedRawResult.value?.data);
     return parsed.success ? parsed.data : null;
 });
 
@@ -64,6 +81,9 @@ const planContent = computed(() => {
 
 const hasPlanFilePreview = computed(() => Boolean(planFilePath.value && planContent.value));
 const hasPlanFileArgument = computed(() => Boolean(planFilePath.value));
+
+/** 只有退出到 normal 的切换才涉及计划实现语义；进入 discuss/plan 展示切换请求本身。 */
+const isExitToNormal = computed(() => targetMode.value === "normal");
 
 const parsedAnswer = computed(() => {
     const answer = parsedRawResult.value?.answers?.[0];
@@ -139,14 +159,20 @@ const planSummary = computed(() => {
 
 const statusLabel = computed(() => {
     if (isPendingQuestion.value) {
+        if (!isExitToNormal.value) {
+            return t("agent.modeSwitch.pending", {mode: targetModeLabel.value});
+        }
         return hasPlanFileArgument.value ? t("agent.planApproval.pendingFile") : t("agent.planApproval.pendingChat");
     }
     if (!parsedAnswer.value) {
         if (parsedRawResult.value?.approved === true) {
-            return t("agent.planApproval.approved");
+            return t("agent.modeSwitch.approved", {mode: targetModeLabel.value});
         }
         if (parsedRawResult.value?.approved === false) {
-            return t("agent.planApproval.rejected");
+            return t("agent.modeSwitch.rejected", {mode: targetModeLabel.value});
+        }
+        if (!isExitToNormal.value) {
+            return t("agent.modeSwitch.request", {mode: targetModeLabel.value});
         }
         return hasPlanFileArgument.value ? t("agent.planApproval.fileApproval") : t("agent.planApproval.chatApproval");
     }
@@ -154,24 +180,24 @@ const statusLabel = computed(() => {
         return t("agent.planApproval.paused");
     }
     if (selectedIndexes.value.includes(APPROVE_OPTION_INDEX)) {
-        return t("agent.planApproval.approved");
+        return t("agent.modeSwitch.approved", {mode: targetModeLabel.value});
     }
     if (selectedIndexes.value.includes(NONE_OF_ABOVE_OPTION_INDEX)) {
         return t("agent.planApproval.suggestionAdded");
     }
     if (selectedIndexes.value.includes(REJECT_OPTION_INDEX) || parsedRawResult.value?.approved === false) {
-        return t("agent.planApproval.rejected");
+        return t("agent.modeSwitch.rejected", {mode: targetModeLabel.value});
     }
     return t("agent.planApproval.suggestionAdded");
 });
 </script>
 
 <template>
-    <!-- exit_plan_mode 正文式计划审批预览 -->
+    <!-- switch_mode 模式切换审批气泡；退出到 normal 时附带计划文件预览 -->
     <div class="min-w-0 w-full">
-        <div class="min-w-0 w-full rounded-xl border border-[var(--border-color)] bg-[var(--agent-bg)] px-3 py-2.5 shadow-sm">
+        <div class="min-w-0 w-full rounded-xl border border-[var(--border-color)] bg-[var(--chat-ai-bg)] px-3 py-2.5 shadow-sm">
             <div class="mb-1.5 flex min-w-0 items-center gap-2 text-[11px] leading-5 text-[var(--text-muted)]">
-                <span :class="isPendingQuestion ? 'i-lucide-clock text-amber-600' : 'i-lucide-file-check-2 text-emerald-600'" class="h-3.5 w-3.5 shrink-0"></span>
+                <span :class="isPendingQuestion ? 'i-lucide-clock text-[var(--status-warning)]' : 'i-lucide-file-check-2 text-[var(--status-success)]'" class="h-3.5 w-3.5 shrink-0"></span>
                 <span class="shrink-0 font-medium text-[var(--text-main)]">{{ statusLabel }}</span>
                 <span v-if="planFilePath" class="min-w-0 truncate font-mono text-[11px] text-[var(--text-muted)]">{{ planFilePath }}</span>
                 <button
@@ -191,11 +217,11 @@ const statusLabel = computed(() => {
             <div v-else-if="planSummary" class="line-clamp-2 break-words text-xs leading-5 text-[var(--text-secondary)]">
                 {{ planSummary || t("agent.planApproval.collapsed") }}
             </div>
-            <div v-else class="text-xs leading-5 text-[var(--text-muted)]">
+            <div v-else-if="isExitToNormal" class="text-xs leading-5 text-[var(--text-muted)]">
                 {{ hasPlanFileArgument ? t("agent.planApproval.noFileContent") : t("agent.planApproval.noChatContent") }}
             </div>
 
-            <div v-if="isPendingQuestion" class="mt-2 flex items-center gap-2 text-[11px] leading-5 text-amber-700">
+            <div v-if="isPendingQuestion" class="mt-2 flex items-center gap-2 text-[11px] leading-5 text-[var(--status-warning)]">
                 <span class="i-lucide-clock h-3.5 w-3.5 shrink-0"></span>
                 <span>{{ t("agent.planApproval.waiting") }}</span>
             </div>

@@ -50,7 +50,7 @@ const emit = defineEmits<{
     border-radius: 8px;
     background: var(--bg-panel);
     padding: 12px;
-    box-shadow: 0 16px 44px rgba(15, 23, 42, 0.05);
+    box-shadow: 0 16px 44px color-mix(in srgb, var(--shadow-color) 5%, transparent);
 }
 
 .panel-title {

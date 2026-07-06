@@ -405,7 +405,7 @@ function normalizeSelectedKey(key: string): string {
                     <button type="button" class="inline-flex h-8 items-center justify-center rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-4 text-[13px] font-medium text-[var(--text-main)] hover:bg-[var(--bg-hover)]" @click="cancel">
                         取消
                     </button>
-                    <button type="button" class="inline-flex h-8 items-center justify-center rounded-md border border-transparent bg-[var(--accent-main)] px-4 text-[13px] font-medium text-white hover:opacity-90 disabled:opacity-50" :disabled="resourceDialogMode === 'create' ? !draftLabel.trim() : !renameLabel.trim()" @click="confirmResourceDialog">
+                    <button type="button" class="inline-flex h-8 items-center justify-center rounded-md border border-transparent bg-[var(--accent-main)] px-4 text-[13px] font-medium text-[var(--text-inverse)] hover:opacity-90 disabled:opacity-50" :disabled="resourceDialogMode === 'create' ? !draftLabel.trim() : !renameLabel.trim()" @click="confirmResourceDialog">
                         {{ resourceDialogConfirmText }}
                     </button>
                 </template>

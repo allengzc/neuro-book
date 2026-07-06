@@ -184,10 +184,10 @@ function basename(filePath: string): string {
  */
 function resolveDirectoryMeta(name: string): {icon: string; colorClass: string; label: string} | null {
     if (name === "lorebook") {
-        return {icon: "i-lucide-library", colorClass: "text-indigo-500", label: "lore"};
+        return {icon: "i-lucide-library", colorClass: "text-[var(--accent-text)]", label: "lore"};
     }
     if (name === "manuscript" || name === "chapter" || name === "chapters") {
-        return {icon: "i-lucide-book-open-text", colorClass: "text-cyan-600", label: "chapter"};
+        return {icon: "i-lucide-book-open-text", colorClass: "text-[var(--status-info)]", label: "chapter"};
     }
     if (name === "location" || name === "character" || name === "item" || name === "rule" || name === "note") {
         const meta = getWorkspaceLorebookTypeMeta(name);
@@ -224,7 +224,7 @@ onUnmounted(() => {
                 isInsideNodeDropTarget ? 'bg-[var(--accent-bg)] ring-1 ring-[var(--accent-main)]/50 shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--accent-main)_35%,transparent)]' : '',
                 isSelected ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-main)] hover:bg-[var(--bg-hover)]',
                 isLorebookEntry && !isSelected && !isDropTarget && lorebookStatus === 'archived' ? 'opacity-40 grayscale hover:opacity-60' : '',
-                isLorebookEntry && !isSelected && !isDropTarget && lorebookStatus === 'pending' ? 'bg-sky-500/5' : '',
+                isLorebookEntry && !isSelected && !isDropTarget && lorebookStatus === 'pending' ? 'bg-[var(--status-info-bg)]' : '',
                 isDragging ? 'opacity-45' : '',
                 !node.editable && !node.isDirectory ? 'opacity-70' : ''
             ]"
@@ -270,7 +270,7 @@ onUnmounted(() => {
                 :class="isLorebookEntry ? [
                     isSelected ? 'text-[var(--accent-text)]' : (
                         lorebookStatus === 'archived' ? 'text-[var(--text-muted)]' :
-                        lorebookStatus === 'pending' ? 'text-sky-500/90' :
+                        lorebookStatus === 'pending' ? 'text-[var(--status-info)]' :
                         lorebookTypeMeta.iconClass.split(' ')[0]
                     ),
                     lorebookStatus === 'draft' ? 'opacity-50' : 'opacity-80 group-hover:opacity-100'
@@ -289,7 +289,7 @@ onUnmounted(() => {
                     :class="isLorebookEntry ? [
                         lorebookStatus === 'draft' ? 'italic' : '',
                         lorebookStatus === 'pending' ? 'underline decoration-dotted underline-offset-2' : '',
-                        !isSelected && lorebookStatus === 'pending' ? 'text-sky-600/90' : ''
+                        !isSelected && lorebookStatus === 'pending' ? 'text-[var(--status-info)]' : ''
                     ] : ''"
                 >
                     {{ nodeTitle }}
@@ -307,7 +307,7 @@ onUnmounted(() => {
                     node
                 </span>
                 <span v-if="isLorebookEntry" class="ml-auto h-1.5 w-1.5 shrink-0 rounded-full" :class="statusIndicatorClass" :title="statusLabel"></span>
-                <span v-else-if="node.status" class="ml-auto h-1.5 w-1.5 shrink-0 rounded-full" :class="node.status === 'active' ? 'bg-emerald-500' : node.status === 'pending' ? 'bg-sky-500' : node.status === 'draft' ? 'bg-amber-500' : 'bg-slate-400'" :title="node.status"></span>
+                <span v-else-if="node.status" class="ml-auto h-1.5 w-1.5 shrink-0 rounded-full" :class="node.status === 'active' ? 'bg-[var(--status-success)]' : node.status === 'pending' ? 'bg-[var(--status-info)]' : node.status === 'draft' ? 'bg-[var(--status-warning)]' : 'bg-[var(--text-muted)]'" :title="node.status"></span>
             </div>
         </div>
 

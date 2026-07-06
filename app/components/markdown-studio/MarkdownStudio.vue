@@ -76,10 +76,10 @@ function handleSourceBlur(): void {
 
 <template>
     <!-- Markdown 工作区正文 -->
-    <section class="ide-editor-shell flex min-h-0 flex-1 flex-col bg-[var(--editor-shell-bg)]">
+    <section class="ide-editor-shell flex min-h-0 flex-1 flex-col">
         <div
             v-show="controller.isPreviewVisible.value"
-            class="min-h-0 flex-1 overflow-hidden bg-[var(--editor-preview-bg)]"
+            class="min-h-0 flex-1 overflow-hidden bg-[var(--editor-bg)]"
         >
             <ClientOnly>
                 <TipTapMarkdownEditor
@@ -135,3 +135,9 @@ function handleSourceBlur(): void {
         </div>
     </section>
 </template>
+
+<style scoped>
+.ide-editor-shell {
+    background: color-mix(in srgb, var(--bg-panel) 88%, transparent);
+}
+</style>

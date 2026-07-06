@@ -38,12 +38,13 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 ### Writer Collaboration
 
 - `writer` 是正文写作专用 agent，是长期可复用写作工位。创建 writer 时使用 `create_agent({profileKey: "writer", initial: {}, title})`。
-- 每轮写作任务都通过 `invoke_agent` 发送：`message` 写自然语言任务，`input` 按 writer `PayloadSchema` 传 `{path, context?}`。
+- 每轮写作任务都通过 `invoke_agent` 发送：`message` 写自然语言任务，`input` 按 writer `PayloadSchema` 传 `{path, chapterId?, context?}`。
 - `invoke_agent.input.path` 是本轮唯一写入或修改目标，必须是 Agent cwd-relative Project Markdown 路径，例如 `silver-dragon-hime/manuscript/001-第一章/index.md`。
-- `invoke_agent.message` 必须写清写什么、范围、重点、禁忌、结束条件和交付要求；不要只传 id/path 让 writer 自己规划剧情。
-- `invoke_agent.input.context` 只放建议读取清单：`lorebookEntries`、`readablePaths`。`threadIds`、`sceneIds`、`plotIds` 是 legacy 兼容字段，writer 会忽略；需要 Scene / World Context 时，把完整 brief 放进 `invoke_agent.message`。
+- `invoke_agent.input.chapterId` 是本章 `StoryChapter` id：writer 处于 `autonomous`（自主全知，默认）模式，有 Plot 只读能力，会用它自取 `get_chapter_writer_brief` 编译好的本章 brief。传了 chapterId 就不必把整份 brief 复制进 message；message 仍写清任务重点与结束条件。
+- `invoke_agent.message` 必须写清写什么、范围、重点、禁忌、结束条件和交付要求；不要只传 id/path 让 writer 自己规划剧情。剧情设计权仍在 leader，writer 只读 Plot、不创建 / 修改 Thread / Scene / Chapter。
+- `invoke_agent.input.context` 只放建议读取清单：`lorebookEntries`、`readablePaths`。legacy `threadIds` / `sceneIds` / `plotIds` 已从 PayloadSchema 删除，不要再传；需要章节剧情时传 `chapterId` 让 writer 自取，或把关键点写进 `message`。
 - 需要设定召回时，先让 retrieval 返回候选判断结果，再由 leader 选择 `entries[].path` 放入 `input.context.lorebookEntries`。不要把 retrieval 的 `reason`、`use`、`risk` 或 `note` 直接传给 writer。
-- **写作模式下，写作前的世界状态推进走 World Engine**（见下方 Writing Mode World State 段）：Leader 在调用 writer 前，先用 `execute_world` 把本章涉及的剧情事件写入 World Engine，再由 leader 自己更新 Thread / Scene / Chapter Plot，最后用 `get_chapter_writer_brief` 编译 Scene / World Context brief。`writer` 拥有 World Engine 只读 `execute_world`，能自查角色当前状态，所以 brief 只传章节目标、关键剧情点、Scene / World Context 摘要、信息控制要求、写作约束、建议读取的 lorebook 和「查哪些 subject / 哪个时间范围」的查询提示，**不要**把 HP / 位置 / 完整状态塞进 brief。详见 [reference/world-engine/workflow.md](../world-engine/workflow.md) 第 6 节。
+- **写作模式下，写作前的世界状态推进走 World Engine**（见下方 Writing Mode World State 段）：Leader 在调用 writer 前，先用 `execute_world` 把本章涉及的剧情事件写入 World Engine，再由 leader 自己更新 Thread / Scene / Chapter Plot 与 ChapterBrief，最后（可选）用 `get_chapter_writer_brief` 自查确认 status = `ready`。`writer` 在 autonomous 模式下拥有 World Engine 只读 + Plot 只读，能自查角色当前状态与本章 brief，所以 leader **不要**把 HP / 位置 / 完整状态或设定复述塞进 brief，也**不要**传文风约束（writer profile 自带）。信息控制（读者已知 / 主角已知 / 必须隐藏 / 可暗示）必须落在 ChapterBrief 上，否则 brief status 停在 `needs_chapter_brief`。brief 格式契约见 [reference/plot/writer-brief.md](../plot/writer-brief.md)，协作原理见 [reference/world-engine/workflow.md](../world-engine/workflow.md) 第 6 / 12 节。
 
 ### Writing Mode World State (World Engine)
 
@@ -102,7 +103,7 @@ Task tools are for execution tracking, not for storing novel facts. Stable world
 ```sql
 SELECT id, title
 FROM "StoryScene"
-WHERE "chapterPath" = 'manuscript/001-opening/'
+WHERE "chapterId" = 12
 ORDER BY "threadSortOrder";
 ```
 

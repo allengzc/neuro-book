@@ -669,7 +669,7 @@ Subject 选择器组件：
 - [x] 按 Round 133 的 OpenAPI Explicit Path 开工顺序落地：先扩展 `RouteMetaEntry.path/emitRouteMeta` 并给 world-context explicit path，再抽共享 operation builder，导出 `buildOpenAPISpecForRoutes(entries)` 并加 duplicate guard，最后让 `generate-openapi-meta.ts` 通过 representative selector 复用同一 operation builder；测试使用 synthetic entries，不依赖真实写 route files。
 - [x] 按 Round 134 的 Chapter Writer Brief Module 开工顺序落地：新增 `ChapterWriterBriefDtoSchema`、`findChapterScenesForBrief()`、Scene 实体级 World Context helper、`ChapterWriterBriefService` status fixture 和 `suggestedBriefMarkdown` 正负断言；不要扩胖 `ChapterPlotDetailDto`，不要靠捕获 `getSceneWorldContext()` 错误 message 判断状态，HTTP/tool 层只做 Adapter。
 - [x] writer 完成后由 leader 负责 post-write reconciliation：新事实回补 World Engine，再由 leader 更新 Scene / Thread summary；writer 不直接更新 Plot。
-- [x] 后续设计 Chapter Override / WriterBriefService：承接 POV、tone、reader information、do-not-reveal、章节收尾等 writer-facing 指令。已单列到 [Task 80](../80-chapter-override-writer-brief/README.md)，不属于 Task 78 完成门禁。
+- [x] 后续设计 Chapter Override / WriterBriefService：承接 POV、tone、reader information、do-not-reveal、章节收尾等 writer-facing 指令。已单列到 Task 80（更名 ChapterBrief 落地于 [Task 87](../87-plot-two-trees-and-writer-modes/README.md)，Task 80 归档见 [archived/chapter-override-writer-brief](../archived/chapter-override-writer-brief/README.md)），不属于 Task 78 完成门禁。
 - [x] 修复 DTO drift 剩余点：`PlotFacade.parseWorldAnchorDto()` 已改接收 `StorySceneWorldAnchorInputDto`；前端 empty anchor 与 `SceneWorldContextService.unresolvedSubjectIds` 已补齐。
 - [x] 用独立 `SceneWorldAnchorResolutionService` 统一把 `subjectIds/locationSubjectId` resolve 为 `{id,name,type,resolved}`，供 Workbench、Scene World Context 和后续 writer brief 复用；该服务使用 calendar-free subject identity，避免 Plot 读取强依赖 World Engine calendar。
 

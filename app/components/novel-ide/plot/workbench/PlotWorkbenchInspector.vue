@@ -316,7 +316,7 @@ function updateWorldAnchor(patch: Partial<PlotThreadPanelScene["worldAnchor"]>):
                 </div>
                 <div class="grid grid-cols-1 gap-2">
                     <FormField label="所属章节">
-                        <FormSelect :model-value="props.scene.chapterPath ?? ''" :options="chapterOptions" @update:model-value="updateScene({chapterPath: $event || null})" />
+                        <FormSelect :model-value="props.scene.chapterId ?? ''" :options="chapterOptions" @update:model-value="updateScene({chapterId: $event || null})" />
                     </FormField>
                 </div>
                 <FormField label="摘要">
@@ -373,7 +373,7 @@ function updateWorldAnchor(patch: Partial<PlotThreadPanelScene["worldAnchor"]>):
                     <FormField label="地点">
                         <SubjectSingleSelect :project-path="props.projectPath" :model-value="props.scene.worldAnchor.locationSubjectId" @update:model-value="updateWorldAnchor({locationSubjectId: $event})" />
                     </FormField>
-                    <div v-if="props.scene.worldAnchor.unresolvedSubjectIds.length" class="rounded-md border border-amber-500/20 bg-amber-500/10 px-2.5 py-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+                    <div v-if="props.scene.worldAnchor.unresolvedSubjectIds.length" class="rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-2.5 py-2 text-[11px] leading-relaxed text-[var(--status-warning)]">
                         <div class="mb-1 flex items-center gap-1 font-semibold">
                             <span class="i-lucide-alert-triangle h-3.5 w-3.5"></span>
                             World Engine subject 尚未接入
@@ -402,7 +402,7 @@ function updateWorldAnchor(patch: Partial<PlotThreadPanelScene["worldAnchor"]>):
                             <!-- DISPLAY CARD -->
                             <div 
                                 :ref="(el) => setRefCardRef(el, refItem.id)"
-                                class="group relative flex cursor-pointer flex-col gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-2.5 transition-all hover:border-[var(--border-color-hover)] hover:shadow-sm" 
+                                class="group relative flex cursor-pointer flex-col gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-2.5 transition-all hover:border-[var(--border-strong)] hover:shadow-sm" 
                                 :class="activeRefId === refItem.id ? 'ring-1 ring-[var(--accent-main)]/50 !border-[var(--accent-main)]/50 shadow-sm' : ''"
                                 @click.stop="activeRefId = activeRefId === refItem.id ? null : refItem.id"
                             >
@@ -456,12 +456,12 @@ function updateWorldAnchor(patch: Partial<PlotThreadPanelScene["worldAnchor"]>):
                                 {{ group.label }}
                             </div>
                             <div class="space-y-1.5">
-                                <div v-for="refItem in group.items" :key="refItem.id" class="flex flex-col gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-2.5 transition-all hover:border-[var(--border-color-hover)] hover:shadow-sm">
+                                <div v-for="refItem in group.items" :key="refItem.id" class="flex flex-col gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] p-2.5 transition-all hover:border-[var(--border-strong)] hover:shadow-sm">
                                     <div class="flex items-start gap-2">
-                                        <span class="mt-0.5 shrink-0 text-[14px] text-amber-500/80" :class="getTargetIcon(refItem.target)"></span>
+                                        <span class="mt-0.5 shrink-0 text-[14px] text-[var(--accent-main)]" :class="getTargetIcon(refItem.target)"></span>
                                         <div class="min-w-0 flex-1">
                                             <div class="flex items-center gap-1.5">
-                                                <span class="rounded-[4px] bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600/90">inline</span>
+                                                <span class="rounded-[4px] bg-[var(--accent-bg)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--accent-text)]">inline</span>
                                                 <span class="truncate text-[12px] font-semibold text-[var(--text-main)]">{{ getTargetLabel(refItem.target) }}</span>
                                             </div>
                                             <div class="mt-0.5 truncate font-mono text-[9px] text-[var(--text-muted)] opacity-60">{{ refItem.target }}</div>

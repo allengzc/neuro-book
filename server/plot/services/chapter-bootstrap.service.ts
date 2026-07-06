@@ -4,7 +4,7 @@ import type {ChapterRepository} from "nbook/server/plot/contracts/plot-repositor
 import {PlotScopeGuard} from "nbook/server/plot/services/plot-scope.guard";
 import {StoryService} from "nbook/server/plot/services/story.service";
 import {chapterIdentityFromPath} from "nbook/server/workspace-files/project-workspace";
-import {invalidateProjectWorkspaceIndexAfterMutation, readProjectWorkspaceTreeSnapshot} from "nbook/server/workspace-files/project-workspace-index";
+import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
 import {parseMarkdownDocument, renderMarkdownDocument, resolveWorkspaceRoot} from "nbook/server/workspace-files/workspace-files";
 import type {WorkspaceFileNode} from "nbook/server/workspace-files/workspace-files";
 
@@ -15,6 +15,20 @@ export type CarrierTreeBootstrapResult = {
     chaptersLinkedToAct: number;
     proseFrontmatterWritten: string[];
     warnings: string[];
+};
+
+/** 待回写的 Prose frontmatter 反指:章目录节点 + 章 name。事务提交后由 writeProsePointers 落盘。 */
+export type PendingProsePointer = {
+    node: WorkspaceFileNode;
+    chapterName: string;
+};
+
+/** applyCarrierTree(事务内)产出:DB 统计 + 待事务外落盘的 frontmatter 指针清单。 */
+export type CarrierTreeDbResult = {
+    actsCreated: number;
+    chaptersCreated: number;
+    chaptersLinkedToAct: number;
+    pendingPointers: PendingProsePointer[];
 };
 
 /**
@@ -32,21 +46,23 @@ export class ChapterBootstrapService {
     ) {}
 
     /**
-     * 扫描 manuscript 目录 → 建 Act(volume)/Chapter(chapter)行 → 回写 Prose frontmatter。
+     * 事务内:根据 manuscript 节点建 Act(卷)/Chapter(章)行,并收集待写 frontmatter 反指清单。
+     *
+     * 只做 DB 写入。manuscript 目录扫描已由调用方在事务外完成(传入 nodes),Prose frontmatter
+     * 回写由 writeProsePointers 在事务提交后执行——两处慢文件 I/O 都不能进 Prisma interactive
+     * transaction,否则真实项目会撑爆默认 5s 事务超时(见 Task 87 bootstrap 实测)。
      */
-    async bootstrapCarrierTree(projectPath: string): Promise<CarrierTreeBootstrapResult> {
+    async applyCarrierTree(projectPath: string, nodes: WorkspaceFileNode[]): Promise<CarrierTreeDbResult> {
         const story = await this.storyService.ensureStory(projectPath);
-        const snapshot = await readProjectWorkspaceTreeSnapshot({root: projectPath});
-        const result: CarrierTreeBootstrapResult = {
+        const result: CarrierTreeDbResult = {
             actsCreated: 0,
             chaptersCreated: 0,
             chaptersLinkedToAct: 0,
-            proseFrontmatterWritten: [],
-            warnings: [],
+            pendingPointers: [],
         };
 
-        const volumeNodes = collectManuscriptNodes(snapshot.nodes, "volume");
-        const chapterNodes = collectManuscriptNodes(snapshot.nodes, "chapter");
+        const volumeNodes = collectManuscriptNodes(nodes, "volume");
+        const chapterNodes = collectManuscriptNodes(nodes, "chapter");
 
         // 1. 卷:按目录序 ensure StoryAct;name 与 chapter 同一推导契约。
         const actIdByVolumePath = new Map<string, number>();
@@ -100,19 +116,35 @@ export class ChapterBootstrapService {
                 }
             }
 
-            // 3. 回写 Prose frontmatter 反指(已有 chapter 字段的文件不动)。
-            const written = await writeChapterPointer(projectPath, node, identity.name, result.warnings);
-            if (written) {
-                result.proseFrontmatterWritten.push(written);
-            }
+            // 3. 收集待写 frontmatter 反指清单(不碰文件系统,留到事务提交后)。
+            result.pendingPointers.push({node, chapterName: identity.name});
         }
 
-        if (result.proseFrontmatterWritten.length > 0) {
-            // frontmatter 写回绕过了常规写入口,手动失效 workspace 索引让反指立即可查。
-            invalidateProjectWorkspaceIndexAfterMutation({root: resolveWorkspaceRoot(projectPath)});
-        }
         return result;
     }
+}
+
+/**
+ * 事务提交后回写 Prose frontmatter 反指(纯文件 I/O,与 DB 事务解耦)。
+ * 已有 chapter 指针的文件跳过;有写入则失效 workspace 索引让反指立即可查。
+ */
+export async function writeProsePointers(
+    projectPath: string,
+    pointers: PendingProsePointer[],
+): Promise<{proseFrontmatterWritten: string[]; warnings: string[]}> {
+    const proseFrontmatterWritten: string[] = [];
+    const warnings: string[] = [];
+    for (const {node, chapterName} of pointers) {
+        const written = await writeChapterPointer(projectPath, node, chapterName, warnings);
+        if (written) {
+            proseFrontmatterWritten.push(written);
+        }
+    }
+    if (proseFrontmatterWritten.length > 0) {
+        // frontmatter 写回绕过了常规写入口,手动失效 workspace 索引让反指立即可查。
+        invalidateProjectWorkspaceIndexAfterMutation({root: resolveWorkspaceRoot(projectPath)});
+    }
+    return {proseFrontmatterWritten, warnings};
 }
 
 /**

@@ -99,7 +99,7 @@ const detail = computed<PlotThreadPanelDetail | null>(() => {
     return {
         thread,
         scene,
-        chapter: scene?.chapterPath ? (chapterMap.value.get(scene.chapterPath) ?? null) : null,
+        chapter: scene?.chapterId ? (chapterMap.value.get(scene.chapterId) ?? null) : null,
         effectiveRefs: buildEffectiveRefs(thread.refs, scene?.refs ?? []),
     };
 });
@@ -184,12 +184,12 @@ function quickUpdateScene(payload: PlotThreadQuickSceneUpdate): void {
             summary: payload.summary,
             purpose: payload.purpose,
             status: payload.status === "archived" ? "draft" : payload.status,
-            chapterPath: payload.chapterPath,
-            chapterSortOrder: payload.chapterPath === null
+            chapterId: payload.chapterId,
+            chapterSortOrder: payload.chapterId === null
                 ? null
-                : (scene.chapterPath === payload.chapterPath
+                : (scene.chapterId === payload.chapterId
                     ? scene.chapterSortOrder
-                    : scenes.value.filter((item) => item.chapterPath === payload.chapterPath).length),
+                    : scenes.value.filter((item) => item.chapterId === payload.chapterId).length),
         }
         : scene);
 }
@@ -428,7 +428,7 @@ function saveScene(payload: {
     summary: string;
     purpose: string | null;
     status: PlotThreadPanelScene["status"];
-    chapterPath: string | null;
+    chapterId: string | null;
     writingTip: string | null;
     worldAnchor: PlotThreadPanelScene["worldAnchor"];
     refs: PlotPreviewRef[];
@@ -441,14 +441,14 @@ function saveScene(payload: {
         const nextScene: PlotThreadPanelScene = {
             id: createId("scene"),
             threadId: selectedThreadId.value,
-            chapterPath: payload.chapterPath,
+            chapterId: payload.chapterId,
             title: payload.title,
             summary: payload.summary,
             purpose: payload.purpose,
             status: payload.status === "archived" ? "draft" : payload.status,
             threadSortOrder: scenes.value.filter((scene) => scene.threadId === selectedThreadId.value).length,
-            chapterSortOrder: payload.chapterPath
-                ? scenes.value.filter((scene) => scene.chapterPath === payload.chapterPath).length
+            chapterSortOrder: payload.chapterId
+                ? scenes.value.filter((scene) => scene.chapterId === payload.chapterId).length
                 : null,
             writingTip: payload.writingTip,
             worldAnchor: payload.worldAnchor,
@@ -470,13 +470,13 @@ function saveScene(payload: {
             summary: payload.summary,
             purpose: payload.purpose,
             status: payload.status === "archived" ? "draft" : payload.status,
-            chapterPath: payload.chapterPath,
+            chapterId: payload.chapterId,
             writingTip: payload.writingTip,
-            chapterSortOrder: payload.chapterPath === null
+            chapterSortOrder: payload.chapterId === null
                 ? null
-                : (scene.chapterPath === payload.chapterPath
+                : (scene.chapterId === payload.chapterId
                     ? scene.chapterSortOrder
-                    : scenes.value.filter((item) => item.chapterPath === payload.chapterPath).length),
+                    : scenes.value.filter((item) => item.chapterId === payload.chapterId).length),
             worldAnchor: payload.worldAnchor,
             refs: payload.refs.map((refItem) => ({...refItem})),
         }
@@ -572,11 +572,16 @@ function cloneThreads(source: PlotPreviewThread[]): PlotPreviewThread[] {
  * 克隆 Scene 数据，避免直接改写静态 mock。
  */
 function cloneScenes(source: PlotPreviewScene[]): PlotThreadPanelScene[] {
-    return source.map((scene) => ({
-        ...scene,
-        worldAnchor: emptyWorldAnchor,
-        refs: scene.refs.map((refItem) => ({...refItem})),
-    }));
+    return source.map((scene) => {
+        const {chapterPath, ...rest} = scene;
+        return {
+            ...rest,
+            // 预览 mock 仍以路径占位;桥接到面板模型时映射为 chapterId 占位值。
+            chapterId: chapterPath,
+            worldAnchor: emptyWorldAnchor,
+            refs: scene.refs.map((refItem) => ({...refItem})),
+        };
+    });
 }
 
 </script>

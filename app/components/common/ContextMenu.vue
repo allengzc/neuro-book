@@ -17,8 +17,8 @@
                         type="button"
                         class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors disabled:cursor-not-allowed disabled:opacity-45"
                         :class="[
-                            item.danger ? 'hover:bg-rose-500/10 hover:text-rose-500 disabled:hover:bg-transparent disabled:hover:text-[var(--text-main)]' : 'hover:bg-[var(--bg-hover)]',
-                            activeSubmenuIndex === index ? item.danger ? 'bg-rose-500/10 text-rose-500' : 'bg-[var(--bg-hover)]' : '',
+                            item.danger ? 'hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)] disabled:hover:bg-transparent disabled:hover:text-[var(--text-main)]' : 'hover:bg-[var(--bg-hover)]',
+                            activeSubmenuIndex === index ? item.danger ? 'bg-[var(--status-danger-bg)] text-[var(--status-danger)]' : 'bg-[var(--bg-hover)]' : '',
                         ]"
                         :disabled="item.disabled"
                         @mouseenter="openSubmenu(index, item)"
@@ -42,7 +42,7 @@
                                 v-else
                                 type="button"
                                 class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors disabled:cursor-not-allowed disabled:opacity-45"
-                                :class="child.danger ? 'hover:bg-rose-500/10 hover:text-rose-500 disabled:hover:bg-transparent disabled:hover:text-[var(--text-main)]' : 'hover:bg-[var(--bg-hover)]'"
+                                :class="child.danger ? 'hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)] disabled:hover:bg-transparent disabled:hover:text-[var(--text-main)]' : 'hover:bg-[var(--bg-hover)]'"
                                 :disabled="child.disabled"
                                 @click="handleItemClick(child)"
                             >

@@ -2,6 +2,7 @@ import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {MarkdownEditorPreferences, MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {ModelInputKind} from "nbook/shared/dto/app-settings.dto";
+import type {CustomThemeDto} from "nbook/shared/theme/theme-vars";
 
 export type ConfigScope = "boot" | "global" | "global-workspace";
 export type ConfigEffect = "hot" | "next-run" | "next-session" | "restart-required";
@@ -166,7 +167,8 @@ export type EffectiveConfig = {
         profiles: Record<string, AgentProfileConfig>;
     };
     ui: {
-        theme: "sepia" | "light" | "dark";
+        theme: string;
+        customThemes: CustomThemeDto[];
         costCurrency: "USD" | "CNY";
     };
     editor: {
@@ -174,6 +176,21 @@ export type EffectiveConfig = {
         monaco: MonacoEditorPreferences;
     };
     web: WebSettingsConfig;
+    observability: ObservabilityConfig;
+};
+
+/** 可观测配置。第一版只有 Pi 请求 trace。 */
+export type ObservabilityConfig = {
+    piTrace: PiTraceConfig;
+};
+
+/** Pi 请求 trace 开关。enabled 默认开；maxRecords 是每 session 保留条数。 */
+export type PiTraceConfig = {
+    enabled: boolean;
+    /** 每 session 保留最近多少条 trace。 */
+    maxRecords: number;
+    /** 是否完整存 provider 原生请求体（含 prompt）。false 时只留元数据（暂未实现摘要）。 */
+    capturePayload: boolean;
 };
 
 export type StoredProviderConfig = Omit<ConfiguredProviderConfig, "models"> & {
@@ -204,6 +221,9 @@ export type StoredGlobalConfig = {
         monaco?: Partial<MonacoEditorPreferences>;
     };
     web?: StoredWebSettingsConfig;
+    observability?: {
+        piTrace?: Partial<PiTraceConfig>;
+    };
 };
 
 export type StoredProjectConfig = {

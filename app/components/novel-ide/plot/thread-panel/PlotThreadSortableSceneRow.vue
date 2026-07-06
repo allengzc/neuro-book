@@ -118,7 +118,7 @@ const hasWorldAnchor = computed(() => {
                 <span v-if="chapter" class="rounded-full border border-[var(--border-color)] px-1.5 py-0.5">{{ chapter.numberLabel }}</span>
                 <span v-else class="rounded-full border border-dashed border-[var(--border-color)] px-1.5 py-0.5">未挂章</span>
                 <span v-if="scene.purpose" class="rounded-full border border-[var(--border-color)] px-1.5 py-0.5">目的</span>
-                <span class="rounded-full border px-1.5 py-0.5" :class="hasWorldAnchor ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300' : 'border-dashed border-[var(--border-color)]'">
+                <span class="rounded-full border px-1.5 py-0.5" :class="hasWorldAnchor ? 'border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success)]' : 'border-dashed border-[var(--border-color)]'">
                     {{ hasWorldAnchor ? "World" : "未连接 World" }}
                 </span>
                 <span class="rounded-full border border-[var(--border-color)] px-1.5 py-0.5">R {{ scene.refs.length }}</span>

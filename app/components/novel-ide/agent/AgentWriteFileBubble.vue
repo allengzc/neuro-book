@@ -43,11 +43,11 @@ const contentText = computed(() => parsedArgs.value.content ?? extractStreamingS
             </div>
         </div>
 
-        <div v-if="props.toolCall.error" class="break-all whitespace-pre-wrap rounded border border-rose-500/30 bg-rose-500/5 p-2 font-mono text-xs text-rose-500 mt-2">
+        <div v-if="props.toolCall.error" class="mt-2 break-all whitespace-pre-wrap rounded border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-2 font-mono text-xs text-[var(--status-danger)]">
             {{ props.toolCall.error }}
         </div>
         
-        <div v-if="props.toolCall.status === 'success'" class="flex items-center text-[11px] text-green-500/80 mt-2 gap-1.5 font-medium">
+        <div v-if="props.toolCall.status === 'success'" class="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-[var(--status-success)]">
             <span class="i-lucide-check-circle h-3.5 w-3.5"></span>
             {{ t("agent.tool.fileWritten") }}
         </div>

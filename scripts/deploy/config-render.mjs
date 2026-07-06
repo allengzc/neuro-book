@@ -67,6 +67,8 @@ export function renderGlobalConfig(config, legacyText = null) {
         },
         ui: {
             theme: legacy?.ui?.theme ?? 'sepia',
+            customThemes: legacy?.ui?.customThemes ?? [],
+            costCurrency: legacy?.ui?.costCurrency ?? 'USD',
         },
         editor: legacy?.editor ?? {},
     }, null, 4)}\n`;

@@ -2189,40 +2189,6 @@ watch(() => reviewQueueItems.value.map((item) => item.key).join("\u0000"), clear
 </template>
 
 <style scoped>
-.world-engine-workbench-theme {
-    /* World Engine 语义色从 IDE 当前主题派生，避免覆盖 sepia / dark 等项目主题。 */
-    --we-bg-canvas: var(--bg-main);
-    --we-bg-panel: var(--bg-panel);
-    --we-bg-subtle: var(--bg-sidebar);
-    --we-bg-muted: color-mix(in srgb, var(--bg-sidebar) 78%, var(--bg-panel));
-    --we-bg-hover: var(--bg-hover);
-    --we-bg-active: var(--bg-active);
-    --we-bg-data: color-mix(in srgb, var(--bg-panel) 82%, var(--bg-main));
-    --we-border: var(--border-color);
-    --we-border-strong: var(--border-color-hover);
-    --we-text-main: var(--text-main);
-    --we-text-secondary: var(--text-secondary);
-    --we-text-muted: var(--text-muted);
-    --we-accent: var(--accent-main);
-    --we-accent-strong: var(--accent-text);
-    --we-accent-soft: var(--accent-bg);
-    --we-accent-border: color-mix(in srgb, var(--accent-main) 46%, var(--border-color));
-    --we-info: var(--status-info);
-    --we-info-border: var(--status-info-border);
-    --we-info-soft: var(--status-info-bg);
-    --we-success: var(--status-success);
-    --we-success-border: var(--status-success-border);
-    --we-success-soft: var(--status-success-bg);
-    --we-warning: var(--status-warning);
-    --we-warning-border: var(--status-warning-border);
-    --we-warning-soft: var(--status-warning-bg);
-    --we-danger: var(--status-danger);
-    --we-danger-border: var(--status-danger-border);
-    --we-danger-soft: var(--status-danger-bg);
-    --we-code-bg: var(--source-bg);
-    --we-code-text: var(--source-text);
-}
-
 .world-inspector-enter-active,
 .world-inspector-leave-active {
     transition: margin-right 0.25s ease, transform 0.25s ease, opacity 0.25s ease;

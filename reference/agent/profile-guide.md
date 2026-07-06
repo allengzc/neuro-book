@@ -60,7 +60,7 @@
 
 ## Profile Settings
 
-`settingsForm` 用来表达 profile 自己拥有的可视化设置，例如 writer 的文风预设、文风参考预设和默认人称。它适合放“长期默认偏好”，不适合放本轮任务、目标文件、临时上下文或用户自然语言要求。
+`settingsForm` 用来表达 profile 自己拥有的可视化设置，例如 writer 的文风要求、文风参考和默认人称。它适合放“长期默认偏好”，不适合放本轮任务、目标文件、临时上下文或用户自然语言要求。
 
 settings 使用 `defineLowCodeForm()` 定义：
 
@@ -80,8 +80,8 @@ export const WriterSettingsForm = defineLowCodeForm({
     fields: [{
         path: "writingStylePreset",
         component: "combobox",
-        label: "文风预设",
-        placeholder: "选择默认文风",
+        label: "文风要求",
+        placeholder: "选择默认文风要求",
         async options() {
             return [
                 {value: "default", label: "默认文风"},
@@ -97,6 +97,7 @@ export const WriterSettingsForm = defineLowCodeForm({
 - `defaults` 默认值。
 - 字段级动态 `options(ctx)`。
 - async `validate(value, ctx)` 自定义校验，返回字段级 issue。
+- 合并 stored patch 时忽略 `defaults` 未声明的顶层 key：字段下线后，旧存档残留不会导致校验失败或整份 settings 回退默认。
 - 组件：`text`、`textarea`、`number`、`switch`、`select`、`combobox`、`radio`、`checkbox`。
 
 第一版限制：

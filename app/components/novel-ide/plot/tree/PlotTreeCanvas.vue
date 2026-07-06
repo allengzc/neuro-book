@@ -472,12 +472,12 @@ function resolveMiniMapColor(node: GraphNode): string {
     const data = node.data as PlotTreeGraphNodeData;
 
     if (data.kind === "root") {
-        return "#f59e0b";
+        return "var(--accent-main)";
     }
 
     if (data.kind === "thread") {
         return data.thread.isMainThread
-            ? "#f59e0b"
+            ? "var(--accent-main)"
             : PLOT_TREE_TONE_STYLES[data.thread.tone].minimap;
     }
 
@@ -486,7 +486,7 @@ function resolveMiniMapColor(node: GraphNode): string {
     }
 
     return data.branchRole === "main"
-        ? "#f59e0b"
+        ? "var(--accent-main)"
         : PLOT_TREE_TONE_STYLES[data.thread.tone].minimap;
 }
 
@@ -642,7 +642,7 @@ function notifyUser(message: string): void {
 
 <template>
     <!-- Vue Flow 画布 -->
-    <div class="relative h-[780px] w-full overflow-hidden rounded-[28px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_24px_80px_rgba(15,23,42,0.12)]">
+    <div class="relative h-[780px] w-full overflow-hidden rounded-[28px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_24px_80px_color-mix(in_srgb,var(--shadow-color)_12%,transparent)]">
         <ClientOnly>
             <VueFlow
                 :id="flowId"
@@ -668,17 +668,17 @@ function notifyUser(message: string): void {
                 @node-drag-stop="handleNodeDragStop"
                 @connect="handleConnect"
             >
-                <Background :gap="24" :size="1.1" pattern-color="rgba(120, 113, 108, 0.12)" />
+                <Background :gap="24" :size="1.1" pattern-color="var(--border-color)" />
 
                 <MiniMap
                     pannable
                     zoomable
                     :node-color="resolveMiniMapColor"
-                    :mask-color="'rgba(15,23,42,0.08)'"
-                    class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)]/95 shadow-[0_10px_30px_rgba(15,23,42,0.12)]"
+                    :mask-color="'color-mix(in srgb, var(--shadow-color) 8%, transparent)'"
+                    class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)]/95 shadow-[0_10px_30px_color-mix(in_srgb,var(--shadow-color)_12%,transparent)]"
                 />
 
-                <Controls position="top-right" class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)]/95 shadow-[0_10px_30px_rgba(15,23,42,0.12)]" />
+                <Controls position="top-right" class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)]/95 shadow-[0_10px_30px_color-mix(in_srgb,var(--shadow-color)_12%,transparent)]" />
 
                 <Panel position="top-left">
                     <PlotTreeToolbar
@@ -697,17 +697,11 @@ function notifyUser(message: string): void {
 <style scoped>
 .plot-tree-flow-canvas :deep(.vue-flow__pane) {
     background:
-        radial-gradient(circle at top left, rgba(245, 158, 11, 0.08), transparent 22%),
-        linear-gradient(180deg, rgba(251, 250, 249, 0.78), rgba(244, 241, 235, 0.88));
-}
-
-.dark .plot-tree-flow-canvas :deep(.vue-flow__pane) {
-    background:
-        radial-gradient(circle at top left, rgba(245, 158, 11, 0.08), transparent 24%),
-        linear-gradient(180deg, rgba(17, 24, 39, 0.88), rgba(12, 18, 29, 0.94));
+        radial-gradient(circle at top left, color-mix(in srgb, var(--accent-main) 8%, transparent), transparent 22%),
+        linear-gradient(180deg, color-mix(in srgb, var(--bg-panel) 78%, transparent), color-mix(in srgb, var(--bg-main) 88%, var(--bg-panel)));
 }
 
 .plot-tree-flow-canvas :deep(.vue-flow__node.plot-tree-node--selected > div) {
-    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.35);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-main) 35%, transparent);
 }
 </style>

@@ -238,19 +238,19 @@ onBeforeUnmount(() => {
     <div ref="rootRef" class="ide-prompt-bar z-20 shrink-0 px-4">
         <div v-if="props.expanded" class="relative mx-auto w-full max-w-4xl pb-5 pt-7">
             <button
-                class="absolute left-1/2 top-7 flex h-6 w-12 -translate-x-1/2 -translate-y-full items-center justify-center rounded-t-full border border-b-0 border-[var(--prompt-border)] bg-[var(--prompt-bg)] text-[var(--text-secondary)] shadow-sm transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                class="absolute left-1/2 top-7 flex h-6 w-12 -translate-x-1/2 -translate-y-full items-center justify-center rounded-t-full border border-b-0 border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-secondary)] shadow-sm transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
                 :title="t('ide.inlineAi.collapse')"
                 @click="toggleExpanded"
             >
                 <span class="i-lucide-chevron-down h-3.5 w-3.5"></span>
             </button>
 
-            <div class="w-full overflow-visible rounded-xl border border-[var(--prompt-border)] bg-[var(--prompt-bg)] shadow-2xl shadow-black/10 transition-all focus-within:border-[var(--accent-main)] focus-within:ring-1 focus-within:ring-[var(--accent-main)]">
+            <div class="w-full overflow-visible rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-2xl shadow-black/10 transition-all focus-within:border-[var(--accent-main)] focus-within:ring-1 focus-within:ring-[var(--accent-main)]">
                 <!-- Inline AI 当前 Session 展示区 -->
                 <div v-if="hasLivePanel" class="border-b border-[var(--border-color)] bg-[var(--bg-sidebar)] px-4 py-2 text-xs text-[var(--text-secondary)]">
                     <div class="mb-2 flex items-center justify-between gap-3">
                         <div class="flex min-w-0 items-center gap-2 font-medium text-[var(--text-main)]">
-                            <span :class="props.running ? 'i-lucide-loader-circle animate-spin text-[var(--accent-text)]' : 'i-lucide-message-square-text text-emerald-500'" class="h-3.5 w-3.5 shrink-0"></span>
+                            <span :class="props.running ? 'i-lucide-loader-circle animate-spin text-[var(--accent-text)]' : 'i-lucide-message-square-text text-[var(--status-success)]'" class="h-3.5 w-3.5 shrink-0"></span>
                             <span class="truncate">{{ livePanelTitle }}</span>
                         </div>
                         <button class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-[11px] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" type="button" @click="emit('open-session-chat')">
@@ -276,8 +276,8 @@ onBeforeUnmount(() => {
                             </div>
                             <div class="whitespace-pre-wrap leading-5">{{ displayEditPreview }}</div>
                         </div>
-                        <div v-if="displayResultText && !displayEditPreview" class="rounded-md border border-emerald-500/20 bg-emerald-500/5 px-2.5 py-2 text-[var(--text-secondary)]">
-                            <div class="mb-1 flex items-center gap-1.5 text-[10px] font-medium uppercase text-emerald-600">
+                        <div v-if="displayResultText && !displayEditPreview" class="rounded-md border border-[var(--status-success-border)] bg-[var(--status-success-bg)] px-2.5 py-2 text-[var(--text-secondary)]">
+                            <div class="mb-1 flex items-center gap-1.5 text-[10px] font-medium uppercase text-[var(--status-success)]">
                                 <span class="i-lucide-check-check h-3 w-3"></span>
                                 <span>{{ t("ide.inlineAi.result") }}</span>
                             </div>
@@ -296,7 +296,7 @@ onBeforeUnmount(() => {
                         <span
                             v-for="(reference, index) in props.references"
                             :key="`${reference.ref}:${String(index)}`"
-                            class="group inline-flex h-5 max-w-[18rem] items-center gap-1.5 rounded-full border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-xs leading-none text-[var(--text-main)] transition-colors hover:border-rose-500/50"
+                            class="group inline-flex h-5 max-w-[18rem] items-center gap-1.5 rounded-full border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 text-xs leading-none text-[var(--text-main)] transition-colors hover:border-[var(--status-danger-border)]"
                             :title="reference.ref"
                             @mouseenter="emit('hover-reference', reference)"
                             @mouseleave="emit('hover-reference', null)"
@@ -305,7 +305,7 @@ onBeforeUnmount(() => {
                             <span class="truncate">{{ referenceLabel(reference) }}</span>
                             <button
                                 type="button"
-                                class="-mr-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-rose-500/10 hover:text-rose-600 focus:bg-rose-500/10 focus:text-rose-600 focus:outline-none"
+                                class="-mr-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] transition-colors hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)] focus:bg-[var(--status-danger-bg)] focus:text-[var(--status-danger)] focus:outline-none"
                                 :title="t('ide.inlineAi.clearReference')"
                                 @focus="emit('hover-reference', reference)"
                                 @blur="emit('hover-reference', null)"
@@ -397,7 +397,7 @@ onBeforeUnmount(() => {
                     <div class="flex items-center gap-2">
                         <button
                             class="flex h-8 w-8 items-center justify-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-45"
-                            :class="props.running ? 'border-rose-500/50 bg-rose-500/10 text-rose-500' : 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)] hover:opacity-85'"
+                            :class="props.running ? 'border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[var(--status-danger)]' : 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)] hover:opacity-85'"
                             :disabled="!canSubmit"
                             :title="props.running ? t('ide.inlineAi.stop') : t('ide.inlineAi.send')"
                             @click="submit"
@@ -412,7 +412,7 @@ onBeforeUnmount(() => {
 
         <div v-else class="flex justify-center">
             <button
-                class="flex h-6 w-12 items-center justify-center rounded-t-full border border-b-0 border-[var(--prompt-border)] bg-[var(--prompt-bg)] text-[var(--text-secondary)] shadow-sm transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
+                class="flex h-6 w-12 items-center justify-center rounded-t-full border border-b-0 border-[var(--border-color)] bg-[var(--bg-panel)] text-[var(--text-secondary)] shadow-sm transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]"
                 :title="t('ide.inlineAi.expandBar')"
                 @click="toggleExpanded"
             >

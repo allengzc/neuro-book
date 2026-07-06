@@ -77,7 +77,7 @@ const chapterLinkedCountMap = computed(() => {
 <template>
     <!-- Story / Phase / Thread 定位视图 -->
     <div class="grid min-h-0 gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
-        <section class="flex min-h-0 flex-col overflow-hidden rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
+        <section class="flex min-h-0 flex-col overflow-hidden rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_18px_50px_color-mix(in_srgb,var(--shadow-color)_8%,transparent)]">
             <div class="border-b border-[var(--border-color)] px-4 py-3">
                 <div class="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Story / Phase</div>
                 <div class="mt-1 text-sm font-semibold text-[var(--text-main)]">{{ story.title }}</div>
@@ -120,7 +120,7 @@ const chapterLinkedCountMap = computed(() => {
             </div>
         </section>
 
-        <section class="flex min-h-0 flex-col overflow-hidden rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
+        <section class="flex min-h-0 flex-col overflow-hidden rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_18px_50px_color-mix(in_srgb,var(--shadow-color)_8%,transparent)]">
             <div class="flex items-center justify-between gap-3 border-b border-[var(--border-color)] px-4 py-3">
                 <div>
                     <div class="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Threads</div>

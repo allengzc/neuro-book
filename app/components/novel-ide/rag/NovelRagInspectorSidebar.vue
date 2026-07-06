@@ -16,10 +16,10 @@ const emit = defineEmits<{
  * 生成 subject 行状态样式。
  */
 function statusClass(subject: ProjectRagSubjectSummaryDto): string {
-    if (subject.errors.length) return "text-rose-600";
-    if (subject.sourceStatuses.some((status) => status.status === "dirty")) return "text-amber-600";
-    if (subject.sourceStatuses.some((status) => status.status === "error")) return "text-rose-600";
-    if (subject.sourceStatuses.some((status) => status.status === "synced")) return "text-emerald-600";
+    if (subject.errors.length) return "text-[var(--status-danger)]";
+    if (subject.sourceStatuses.some((status) => status.status === "dirty")) return "text-[var(--status-warning)]";
+    if (subject.sourceStatuses.some((status) => status.status === "error")) return "text-[var(--status-danger)]";
+    if (subject.sourceStatuses.some((status) => status.status === "synced")) return "text-[var(--status-success)]";
     return "text-[var(--text-muted)]";
 }
 
@@ -66,7 +66,7 @@ function statusLabel(subject: ProjectRagSubjectSummaryDto): string {
                     <span>·</span>
                     <span>{{ subject.memoryCount }} 条记忆</span>
                 </div>
-                <div v-if="subject.errors[0]" class="mt-1 truncate text-[10px] text-rose-600">{{ subject.errors[0].source }}: {{ subject.errors[0].message }}</div>
+                <div v-if="subject.errors[0]" class="mt-1 truncate text-[10px] text-[var(--status-danger)]">{{ subject.errors[0].source }}: {{ subject.errors[0].message }}</div>
             </button>
         </div>
     </aside>

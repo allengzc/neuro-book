@@ -4,7 +4,7 @@ import type {AgentSessionLiveStateDto, AgentSessionSnapshotDto, AgentSessionSumm
 
 describe("applyAgentCommandResult", () => {
     it("live_state 只应用 live state，不走 snapshot fallback", async () => {
-        const state = liveState(12, {planModeActive: true});
+        const state = liveState(12, {agentMode: "plan"});
         const context = createContext(12);
 
         await applyAgentCommandResult({
@@ -89,7 +89,7 @@ function summary(sessionId: number): AgentSessionSummaryDto {
     };
 }
 
-function liveState(sessionId: number, overrides: Partial<Pick<AgentSessionLiveStateDto, "planModeActive">> = {}): AgentSessionLiveStateDto {
+function liveState(sessionId: number, overrides: Partial<Pick<AgentSessionLiveStateDto, "agentMode">> = {}): AgentSessionLiveStateDto {
     return {
         summary: summary(sessionId),
         activeLeafId: null,
@@ -105,7 +105,7 @@ function liveState(sessionId: number, overrides: Partial<Pick<AgentSessionLiveSt
         model: null,
         thinkingLevel: null,
         effectiveThinkingLevel: "off",
-        planModeActive: overrides.planModeActive ?? false,
+        agentMode: overrides.agentMode ?? "normal",
     };
 }
 
@@ -136,7 +136,7 @@ function sessionSnapshot(sessionId: number): AgentSessionSnapshotDto {
         model: null,
         thinkingLevel: null,
         effectiveThinkingLevel: "off",
-        planModeActive: false,
+        agentMode: "normal",
         lastSeq: 0,
     };
 }

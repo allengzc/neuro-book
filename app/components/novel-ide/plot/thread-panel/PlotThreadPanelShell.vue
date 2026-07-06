@@ -36,7 +36,7 @@ const emit = defineEmits<{
 
 <template>
     <!-- 侧边栏外层壳，结构对齐 NovelIdeToolPanel -->
-    <aside class="z-10 flex h-full min-h-0 w-[340px] shrink-0 flex-col border-r border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_28px_70px_rgba(15,23,42,0.10)]">
+    <aside class="z-10 flex h-full min-h-0 w-[340px] shrink-0 flex-col border-r border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_28px_70px_color-mix(in_srgb,var(--shadow-color)_10%,transparent)]">
         <div class="flex shrink-0 items-center justify-between border-b border-[var(--border-color)] px-3 py-2">
             <span class="text-[11px] font-medium tracking-[0.24em] text-[var(--text-secondary)]">
                 剧情大纲

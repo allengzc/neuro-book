@@ -1,5 +1,7 @@
 # Chapter Override / Writer Brief
 
+> **已归档（2026-07-05）**：本任务从未落地。它规划的 `ChapterOverride`（章级 writer 指令层）被 **Task 87「Plot 两棵树重设计 + Writer 双模式 + ChapterBrief」** 吸收并重设计——`ChapterOverride` 更名为 `ChapterBrief`，作为一等实体 `StoryChapter` 上的字段组落地，不再按 `chapterPath` 字符串关联，而是章实体 + Prose frontmatter 反指。本任务保留仅作历史与需求溯源。当前实现见 [docs/tasks/87-plot-two-trees-and-writer-modes/README.md](../../87-plot-two-trees-and-writer-modes/README.md) 与 [reference/plot/writer-brief.md](../../../../reference/plot/writer-brief.md)。
+
 ## User Request / Topic
 
 Task 78 已完成 Scene ↔ World Engine 桥接闭环，但不实现章节覆盖。本任务单列 `ChapterOverride`：作为章节级 writer 指令层，服务章节写作交接、节奏控制和信息控制，不保存动态世界状态，也不替代 Scene / World Engine。

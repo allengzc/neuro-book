@@ -35,6 +35,22 @@ describe("low-code form", () => {
         });
     });
 
+    it("忽略 defaults 未声明的残留 key（字段下线后旧存档不炸）", () => {
+        const form = defineLowCodeForm({
+            schema: Type.Object({
+                title: Type.String(),
+            }, {additionalProperties: false}),
+            defaults: {
+                title: "默认",
+            },
+            fields: [],
+        });
+
+        expect(parseLowCodeFormValue(form, {title: "覆盖", retiredSwitch: true})).toEqual({
+            title: "覆盖",
+        });
+    });
+
     it("把 TypeBox 校验失败转换为 issue", async () => {
         const form = defineLowCodeForm({
             schema: Type.Object({

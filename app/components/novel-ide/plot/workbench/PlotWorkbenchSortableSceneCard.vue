@@ -64,6 +64,13 @@ const worldTimeLabel = computed(() => {
 });
 const locationLabel = computed(() => props.scene.worldAnchor.locationSubject?.name ?? props.scene.worldAnchor.locationSubjectId);
 const locationResolved = computed(() => props.scene.worldAnchor.locationSubject?.resolved ?? false);
+const sceneStatusClass: Record<PlotThreadPanelScene["status"], string> = {
+    active: "border-[var(--status-info-border)] bg-[var(--status-info-bg)] text-[var(--status-info)]",
+    archived: "border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]",
+    draft: "border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]",
+    revised: "border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success)]",
+    written: "border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success)]",
+};
 
 /**
  * 卡片只展示 inline ref 的标题，Markdown 源码仍由 Inspector 保留。
@@ -81,7 +88,7 @@ function displayInlineText(text: string | null): string {
         :data-dragging="isDragging || undefined"
         :data-drop-target="isDropTarget || undefined"
         class="plot-workbench-scene-card group flex flex-col rounded-xl border bg-[var(--bg-panel)] transition-all duration-200"
-        :class="'border-[var(--border-color)] shadow-sm hover:border-[var(--border-color-hover)] hover:shadow-md'"
+        :class="'border-[var(--border-color)] shadow-sm hover:border-[var(--border-strong)] hover:shadow-md'"
     >
         <div class="flex items-start gap-3 p-3.5">
             <!-- 拖拽手柄与序号 -->
@@ -101,7 +108,7 @@ function displayInlineText(text: string | null): string {
                     <div class="flex min-w-0 flex-col gap-1.5">
                         <div class="flex items-center gap-2.5">
                             <h3 class="truncate text-[15px] font-semibold tracking-tight text-[var(--text-main)]">{{ props.scene.title }}</h3>
-                            <span class="shrink-0 rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 ring-1 ring-inset ring-emerald-500/20 dark:text-emerald-400">
+                            <span class="shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-medium" :class="sceneStatusClass[props.scene.status]">
                                 {{ PLOT_SCENE_STATUS_LABELS[props.scene.status] }}
                             </span>
                         </div>
@@ -133,11 +140,11 @@ function displayInlineText(text: string | null): string {
 
                 <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
                     <template v-if="hasWorldAnchor">
-                        <span class="inline-flex items-center gap-1 rounded bg-blue-500/10 px-1.5 py-0.5 text-blue-700 ring-1 ring-inset ring-blue-500/20 dark:text-blue-300">
+                        <span class="inline-flex items-center gap-1 rounded bg-[var(--status-info-bg)] px-1.5 py-0.5 text-[var(--status-info)] ring-1 ring-inset ring-[var(--status-info-border)]">
                             <span class="i-lucide-clock h-3 w-3"></span>
                             {{ worldTimeLabel }}
                         </span>
-                        <span v-if="props.scene.worldAnchor.locationSubjectId" class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 ring-1 ring-inset" :class="locationResolved ? 'bg-emerald-500/10 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300' : 'bg-amber-500/10 text-amber-700 ring-amber-500/20 dark:text-amber-300'">
+                        <span v-if="props.scene.worldAnchor.locationSubjectId" class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 ring-1 ring-inset" :class="locationResolved ? 'bg-[var(--status-success-bg)] text-[var(--status-success)] ring-[var(--status-success-border)]' : 'bg-[var(--status-warning-bg)] text-[var(--status-warning)] ring-[var(--status-warning-border)]'">
                             <span class="i-lucide-map-pin h-3 w-3"></span>
                             {{ locationLabel }}
                         </span>
@@ -145,7 +152,7 @@ function displayInlineText(text: string | null): string {
                             <span class="i-lucide-users h-3 w-3"></span>
                             出场 {{ props.scene.worldAnchor.subjectIds.length }}
                         </span>
-                        <span v-if="props.scene.worldAnchor.unresolvedSubjectIds.length" class="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-amber-700 ring-1 ring-inset ring-amber-500/20 dark:text-amber-300">
+                        <span v-if="props.scene.worldAnchor.unresolvedSubjectIds.length" class="inline-flex items-center gap-1 rounded bg-[var(--status-warning-bg)] px-1.5 py-0.5 text-[var(--status-warning)] ring-1 ring-inset ring-[var(--status-warning-border)]">
                             <span class="i-lucide-alert-triangle h-3 w-3"></span>
                             占位 {{ props.scene.worldAnchor.unresolvedSubjectIds.length }}
                         </span>

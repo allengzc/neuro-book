@@ -46,7 +46,7 @@ const removeTag = (index: number) => {
             :class="accentStyle ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'border border-[var(--border-color)] text-[var(--text-main)]'"
         >
             {{ tag }}
-            <button type="button" class="i-lucide-x h-3 w-3 opacity-50 hover:opacity-100 hover:text-rose-500 transition-colors flex-shrink-0 cursor-pointer" @click="removeTag(i)"></button>
+            <button type="button" class="i-lucide-x h-3 w-3 flex-shrink-0 cursor-pointer opacity-50 transition-colors hover:text-[var(--status-danger)] hover:opacity-100" @click="removeTag(i)"></button>
         </span>
         <input 
             v-model="inputValue" 

@@ -306,9 +306,9 @@ defineExpose({
             </div>
         </div>
 
-        <div v-if="errorText" class="flex items-start gap-3 rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 shadow-sm">
-            <span class="i-lucide-alert-circle mt-0.5 h-4 w-4 shrink-0 text-rose-500"></span>
-            <div class="text-sm text-rose-700">{{ errorText }}</div>
+        <div v-if="errorText" class="flex items-start gap-3 rounded-xl border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-4 py-3 shadow-sm">
+            <span class="i-lucide-alert-circle mt-0.5 h-4 w-4 shrink-0 text-[var(--status-danger)]"></span>
+            <div class="text-sm text-[var(--status-danger)]">{{ errorText }}</div>
         </div>
 
         <div v-if="loading" class="flex min-h-[260px] flex-col items-center justify-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-sm">
@@ -379,7 +379,7 @@ defineExpose({
                         <span class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.embedding.apiKey") }}</span>
                         <div class="flex gap-2">
                             <FormInput v-model="globalDraft.apiKey" type="password" :placeholder="globalDraft.apiKeyConfigured ? globalDraft.apiKeyMaskedValue ?? t('settings.panels.embedding.apiKeyConfigured') : 'sk-...'" />
-                            <button type="button" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-rose-500/20 bg-rose-500/10 px-2.5 text-[11px] font-medium text-rose-600 hover:bg-rose-500/20" @click="clearApiKey">
+                            <button type="button" class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-2.5 text-[11px] font-medium text-[var(--status-danger)] hover:bg-[var(--status-danger-bg)]" @click="clearApiKey">
                                 <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
                                 {{ t("settings.panels.embedding.clear") }}
                             </button>

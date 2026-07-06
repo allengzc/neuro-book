@@ -119,14 +119,27 @@ describe("config service", {timeout: 30_000}, () => {
     it("Global UI 费用显示币种可以保存并被 bootstrap 读回", async () => {
         const snapshot = await saveGlobalConfig({
             ui: {
-                theme: "sepia",
+                theme: "custom-editor",
+                customThemes: [{
+                    id: "custom-editor",
+                    name: "Editor Custom",
+                    appearance: "dark",
+                    vars: {
+                        "bg-main": "#101014",
+                        "accent-main": "#88ccff",
+                    },
+                }],
                 costCurrency: "CNY",
             },
         }, {workspaceKind: "user-assets"});
         const bootstrap = await readConfigBootstrap({workspaceKind: "user-assets"}, catalog);
 
+        expect(snapshot.global.ui?.theme).toBe("custom-editor");
+        expect(snapshot.global.ui?.customThemes).toHaveLength(1);
         expect(snapshot.global.ui?.costCurrency).toBe("CNY");
-        expect(snapshot.effective.ui).toMatchObject({costCurrency: "CNY"});
+        expect(snapshot.effective.ui).toMatchObject({theme: "custom-editor", costCurrency: "CNY"});
+        expect(bootstrap.ui.theme).toBe("custom-editor");
+        expect(bootstrap.ui.customThemes).toHaveLength(1);
         expect(bootstrap.ui.costCurrency).toBe("CNY");
     });
 

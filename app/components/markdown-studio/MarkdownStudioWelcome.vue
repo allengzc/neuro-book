@@ -234,7 +234,7 @@ function tabIconClass(tab: WorkspaceEditorTab): string {
 
 <template>
     <!-- Markdown Studio 新标签页 -->
-    <section class="studio-welcome-root min-h-0 flex-1 overflow-y-auto bg-[var(--editor-canvas-bg)] px-6 py-6 custom-scrollbar">
+    <section class="studio-welcome-root min-h-0 flex-1 overflow-y-auto bg-[var(--editor-bg)] px-6 py-6 custom-scrollbar">
         <div v-if="readonlyNode" class="studio-welcome-container mx-auto flex w-full max-w-[760px] flex-col gap-5">
             <!-- 不可编辑节点提示 -->
             <div class="flex items-start gap-4 border-b border-[var(--border-color)] pb-5">
@@ -257,14 +257,14 @@ function tabIconClass(tab: WorkspaceEditorTab): string {
             </div>
 
             <div class="studio-starts-grid">
-                <button type="button" class="flex min-h-14 items-center gap-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-left transition-colors hover:border-[var(--border-color-hover)] hover:bg-[var(--bg-hover)]" @click="emit('open-files')">
+                <button type="button" class="flex min-h-14 items-center gap-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-left transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]" @click="emit('open-files')">
                     <span class="i-lucide-folder-tree h-5 w-5 shrink-0 text-[var(--accent-text)]"></span>
                     <span class="min-w-0">
                         <span class="block text-sm font-medium text-[var(--text-main)]">{{ t("markdownStudio.welcome.openFileTree") }}</span>
                         <span class="block truncate text-xs text-[var(--text-secondary)]">{{ t("markdownStudio.welcome.locateNodeDescription") }}</span>
                     </span>
                 </button>
-                <button type="button" class="flex min-h-14 items-center gap-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-left transition-colors hover:border-[var(--border-color-hover)] hover:bg-[var(--bg-hover)]" @click="openTutorialDialog">
+                <button type="button" class="flex min-h-14 items-center gap-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-4 py-3 text-left transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]" @click="openTutorialDialog">
                     <span class="i-lucide-message-circle-question h-5 w-5 shrink-0 text-[var(--accent-text)]"></span>
                     <span class="min-w-0">
                         <span class="block text-sm font-medium text-[var(--text-main)]">{{ t("markdownStudio.welcome.askTutorialAgent") }}</span>
@@ -305,7 +305,7 @@ function tabIconClass(tab: WorkspaceEditorTab): string {
                             <h2 class="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text-secondary)]">{{ t("markdownStudio.welcome.startSection") }}</h2>
                         </div>
                         <div class="studio-starts-grid">
-                            <button v-for="action in startActions" :key="action.id" type="button" class="group flex min-h-20 items-start gap-3 rounded-lg border px-4 py-3 text-left transition-colors" :class="action.primary ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] hover:bg-[var(--bg-hover)]' : 'border-[var(--border-color)] bg-[var(--bg-panel)] hover:border-[var(--border-color-hover)] hover:bg-[var(--bg-hover)]'" @click="action.action">
+                            <button v-for="action in startActions" :key="action.id" type="button" class="group flex min-h-20 items-start gap-3 rounded-lg border px-4 py-3 text-left transition-colors" :class="action.primary ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] hover:bg-[var(--bg-hover)]' : 'border-[var(--border-color)] bg-[var(--bg-panel)] hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]'" @click="action.action">
                                 <span :class="action.iconClass" class="mt-0.5 h-5 w-5 shrink-0 text-[var(--accent-text)]"></span>
                                 <span class="min-w-0">
                                     <span class="block text-sm font-medium text-[var(--text-main)]">{{ action.label }}</span>
@@ -355,7 +355,7 @@ function tabIconClass(tab: WorkspaceEditorTab): string {
                     <section class="flex flex-col gap-3">
                         <h2 class="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text-secondary)]">{{ t("markdownStudio.welcome.projectEntries") }}</h2>
                         <div class="studio-projects-grid">
-                            <button v-for="entry in projectEntries" :key="entry.id" type="button" class="flex min-h-16 items-start gap-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-3 text-left transition-colors hover:border-[var(--border-color-hover)] hover:bg-[var(--bg-hover)]" @click="entry.action">
+                            <button v-for="entry in projectEntries" :key="entry.id" type="button" class="flex min-h-16 items-start gap-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-3 text-left transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]" @click="entry.action">
                                 <span :class="entry.iconClass" class="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
                                 <span class="min-w-0">
                                     <span class="block truncate text-sm font-medium text-[var(--text-main)]">{{ entry.label }}</span>
@@ -371,13 +371,13 @@ function tabIconClass(tab: WorkspaceEditorTab): string {
                     <section class="flex flex-col gap-3">
                         <h2 class="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text-secondary)]">{{ t("markdownStudio.welcome.continueSection") }}</h2>
                         <div v-if="visibleTabs.length > 0" class="flex flex-col gap-2">
-                            <button v-for="tab in visibleTabs" :key="tab.path" type="button" class="flex min-h-11 items-center gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-left transition-colors hover:border-[var(--border-color-hover)] hover:bg-[var(--bg-hover)]" :title="tab.path" @click="emit('select-tab', tab.path)">
+                            <button v-for="tab in visibleTabs" :key="tab.path" type="button" class="flex min-h-11 items-center gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-left transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]" :title="tab.path" @click="emit('select-tab', tab.path)">
                                 <span :class="tabIconClass(tab)" class="h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
                                 <span class="min-w-0 flex-1">
                                     <span class="block truncate text-sm font-medium text-[var(--text-main)]" :class="tab.preview ? 'italic' : ''">{{ tab.title }}</span>
                                     <span class="block truncate text-xs text-[var(--text-secondary)]">{{ tab.path }}</span>
                                 </span>
-                                <span v-if="tab.dirty" class="h-2 w-2 shrink-0 rounded-full bg-amber-500"></span>
+                                <span v-if="tab.dirty" class="h-2 w-2 shrink-0 rounded-full bg-[var(--status-warning)]"></span>
                             </button>
                         </div>
                         <button v-else type="button" class="flex min-h-11 items-center gap-2 rounded-lg border border-dashed border-[var(--border-color)] bg-transparent px-3 text-left text-xs text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)]" @click="emit('open-files')">
@@ -390,7 +390,7 @@ function tabIconClass(tab: WorkspaceEditorTab): string {
                     <section class="flex flex-col gap-3">
                         <h2 class="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--text-secondary)]">{{ t("markdownStudio.welcome.topEntries") }}</h2>
                         <div class="flex flex-col gap-2">
-                            <button v-for="action in headerActions" :key="action.id" type="button" class="flex min-h-12 items-center gap-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-left transition-colors hover:border-[var(--border-color-hover)] hover:bg-[var(--bg-hover)]" @click="action.action">
+                            <button v-for="action in headerActions" :key="action.id" type="button" class="flex min-h-12 items-center gap-3 rounded-lg border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 text-left transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)]" @click="action.action">
                                 <span :class="action.iconClass" class="h-4 w-4 shrink-0 text-[var(--accent-text)]"></span>
                                 <span class="min-w-0 flex-1">
                                     <span class="block text-sm font-medium text-[var(--text-main)]">{{ action.label }}</span>

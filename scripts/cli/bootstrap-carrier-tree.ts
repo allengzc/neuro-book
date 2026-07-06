@@ -16,7 +16,7 @@ import {plotFacade} from "nbook/server/plot";
  *   bun scripts/cli/bootstrap-carrier-tree.ts workspace/ming-ding-zhi-shi-2
  *   bun scripts/cli/bootstrap-carrier-tree.ts --all            # 扫描 workspace/ 下全部项目
  */
-async function main(): Promise<void> {
+async function main(): Promise<number> {
     const args = process.argv.slice(2);
     const projectPaths = args.includes("--all")
         ? await collectWorkspaceProjects()
@@ -27,6 +27,7 @@ async function main(): Promise<void> {
         process.exit(1);
     }
 
+    let hadError = false;
     for (const projectPath of projectPaths) {
         console.log(`\n▸ ${projectPath}`);
         try {
@@ -40,11 +41,13 @@ async function main(): Promise<void> {
                 console.warn(`  ! ${warning}`);
             }
         } catch (error) {
+            hadError = true;
             console.error(`  ✗ 失败: ${error instanceof Error ? error.message : String(error)}`);
         } finally {
             await plotFacade.closeProject(projectPath);
         }
     }
+    return hadError ? 1 : 0;
 }
 
 /**
@@ -59,4 +62,6 @@ async function collectWorkspaceProjects(): Promise<string[]> {
         .sort();
 }
 
-await main();
+// libsql native 在 bun/Windows 上 close() 后仍挂着 event-loop 句柄,进程不会自然退出,
+// 残留的 SQLite 文件锁会让下次运行报 SQLITE_BUSY。一次性 CLI 必须显式退出以强制释放句柄。
+process.exit(await main());

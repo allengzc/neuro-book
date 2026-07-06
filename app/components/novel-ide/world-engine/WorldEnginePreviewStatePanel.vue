@@ -77,16 +77,16 @@ function formatSlicePatches(patches: PreviewSliceMutation[] | undefined): string
             <h2 class="text-sm font-semibold">World State</h2>
             <div class="text-xs text-[var(--text-muted)]">{{ subjects.length }} subjects · {{ slices.length }} slices</div>
         </div>
-        <div v-if="error" class="border-b border-rose-500/20 bg-rose-500/10 px-4 py-2 text-sm text-rose-700">{{ error }}</div>
-        <div v-if="notice" class="border-b border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-700">{{ notice }}</div>
-        <div v-if="actionIssues.length" class="border-b border-amber-500/25 bg-amber-500/10 px-4 py-3">
-            <div class="mb-2 flex items-center gap-2 text-xs font-semibold text-amber-800">
+        <div v-if="error" class="border-b border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-4 py-2 text-sm text-[var(--status-danger)]">{{ error }}</div>
+        <div v-if="notice" class="border-b border-[var(--status-success-border)] bg-[var(--status-success-bg)] px-4 py-2 text-sm text-[var(--status-success)]">{{ notice }}</div>
+        <div v-if="actionIssues.length" class="border-b border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-4 py-3">
+            <div class="mb-2 flex items-center gap-2 text-xs font-semibold text-[var(--status-warning)]">
                 <span class="i-lucide-triangle-alert h-4 w-4"></span>
                 本次操作 issues · {{ actionIssues.length }}
             </div>
             <div class="grid gap-1.5">
-                <div v-for="issue in actionIssues" :key="`preview-action-issue:${issue.code}:${issue.sliceId}:${issue.subjectId}:${issue.attr}:${issue.message}`" class="rounded-md border border-amber-500/20 bg-[var(--bg-panel)] px-3 py-2 text-xs text-[var(--text-secondary)]">
-                    <span class="font-mono text-amber-700">{{ issue.code }}</span>
+                <div v-for="issue in actionIssues" :key="`preview-action-issue:${issue.code}:${issue.sliceId}:${issue.subjectId}:${issue.attr}:${issue.message}`" class="rounded-md border border-[var(--status-warning-border)] bg-[var(--bg-panel)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                    <span class="font-mono text-[var(--status-warning)]">{{ issue.code }}</span>
                     <span class="mx-1 text-[var(--text-muted)]">·</span>
                     <span class="font-mono">{{ issue.subjectId }}.{{ issue.attr }}</span>
                     <span v-if="issue.sliceId" class="ml-1 text-[var(--text-muted)]">slice {{ issue.sliceId }}</span>
@@ -94,14 +94,14 @@ function formatSlicePatches(patches: PreviewSliceMutation[] | undefined): string
                 </div>
             </div>
         </div>
-        <div v-if="stateIssues.length" class="border-b border-amber-500/25 bg-amber-500/10 px-4 py-3">
-            <div class="mb-2 flex items-center gap-2 text-xs font-semibold text-amber-800">
+        <div v-if="stateIssues.length" class="border-b border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-4 py-3">
+            <div class="mb-2 flex items-center gap-2 text-xs font-semibold text-[var(--status-warning)]">
                 <span class="i-lucide-triangle-alert h-4 w-4"></span>
                 State Query issues · {{ stateIssues.length }}
             </div>
             <div class="grid gap-1.5">
-                <div v-for="issue in stateIssues" :key="`preview-state-issue:${issue.code}:${issue.sliceId}:${issue.subjectId}:${issue.attr}:${issue.message}`" class="rounded-md border border-amber-500/20 bg-[var(--bg-panel)] px-3 py-2 text-xs text-[var(--text-secondary)]">
-                    <span class="font-mono text-amber-700">{{ issue.code }}</span>
+                <div v-for="issue in stateIssues" :key="`preview-state-issue:${issue.code}:${issue.sliceId}:${issue.subjectId}:${issue.attr}:${issue.message}`" class="rounded-md border border-[var(--status-warning-border)] bg-[var(--bg-panel)] px-3 py-2 text-xs text-[var(--text-secondary)]">
+                    <span class="font-mono text-[var(--status-warning)]">{{ issue.code }}</span>
                     <span class="mx-1 text-[var(--text-muted)]">·</span>
                     <span class="font-mono">{{ issue.subjectId }}.{{ issue.attr }}</span>
                     <span v-if="issue.sliceId" class="ml-1 text-[var(--text-muted)]">slice {{ issue.sliceId }}</span>
@@ -147,7 +147,7 @@ function formatSlicePatches(patches: PreviewSliceMutation[] | undefined): string
                                 <div class="mt-1 text-xs text-[var(--text-muted)]">{{ slice.time }} · {{ slice.kind }}</div>
                             </div>
                             <div class="flex shrink-0 items-center gap-2">
-                                <div v-if="slice.issues?.length" class="inline-flex items-center gap-1 rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1 text-xs text-amber-700">
+                                <div v-if="slice.issues?.length" class="inline-flex items-center gap-1 rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-2 py-1 text-xs text-[var(--status-warning)]">
                                     <span class="i-lucide-triangle-alert h-3.5 w-3.5"></span>
                                     {{ slice.issues.length }}
                                 </div>
@@ -156,15 +156,15 @@ function formatSlicePatches(patches: PreviewSliceMutation[] | undefined): string
                                     <span class="i-lucide-pencil h-3.5 w-3.5"></span>
                                     编辑
                                 </button>
-                                <button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-transparent px-2 text-[11px] text-[var(--text-secondary)] hover:bg-rose-500/10 hover:text-rose-600 disabled:opacity-50" :disabled="loadingWorld || actionBusy || !projectReady" title="删除 slice" aria-label="删除 slice" @click="emit('delete-slice', slice.id)">
+                                <button type="button" class="inline-flex h-7 items-center gap-1 rounded-md border border-transparent px-2 text-[11px] text-[var(--text-secondary)] hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)] disabled:opacity-50" :disabled="loadingWorld || actionBusy || !projectReady" title="删除 slice" aria-label="删除 slice" @click="emit('delete-slice', slice.id)">
                                     <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
                                     删除
                                 </button>
                             </div>
                         </div>
                         <div v-if="slice.issues?.length" class="mt-2 space-y-1.5">
-                            <div v-for="issue in slice.issues" :key="`preview-slice-issue:${slice.id}:${issue.code}:${issue.subjectId}:${issue.attr}:${issue.message}`" class="rounded border border-amber-500/20 bg-[var(--bg-input)] px-2 py-1.5 text-[11px] text-[var(--text-secondary)]">
-                                <span class="font-mono text-amber-700">{{ issue.code }}</span>
+                            <div v-for="issue in slice.issues" :key="`preview-slice-issue:${slice.id}:${issue.code}:${issue.subjectId}:${issue.attr}:${issue.message}`" class="rounded border border-[var(--status-warning-border)] bg-[var(--bg-input)] px-2 py-1.5 text-[11px] text-[var(--text-secondary)]">
+                                <span class="font-mono text-[var(--status-warning)]">{{ issue.code }}</span>
                                 <span class="mx-1 text-[var(--text-muted)]">·</span>
                                 <span class="font-mono">{{ issue.subjectId }}.{{ issue.attr }}</span>
                                 <div class="mt-0.5 text-[var(--text-main)]">{{ issue.message }}</div>

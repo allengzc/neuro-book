@@ -85,6 +85,10 @@ defineRouteMeta({
                                                 "type": "string",
                                                 "minLength": 1
                                             },
+                                            "enabled": {
+                                                "default": true,
+                                                "type": "boolean"
+                                            },
                                             "api": {},
                                             "options": {
                                                 "type": "object",
@@ -261,6 +265,7 @@ defineRouteMeta({
                                         "required": [
                                             "id",
                                             "name",
+                                            "enabled",
                                             "api",
                                             "options",
                                             "models"
@@ -624,6 +629,7 @@ defineRouteMeta({
                         "ui": {
                             "default": {
                                 "theme": "sepia",
+                                "customThemes": [],
                                 "costCurrency": "USD"
                             },
                             "type": "object",
@@ -631,11 +637,46 @@ defineRouteMeta({
                                 "theme": {
                                     "default": "sepia",
                                     "type": "string",
-                                    "enum": [
-                                        "sepia",
-                                        "light",
-                                        "dark"
-                                    ]
+                                    "minLength": 1
+                                },
+                                "customThemes": {
+                                    "default": [],
+                                    "maxItems": 50,
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "id": {
+                                                "type": "string",
+                                                "pattern": "^custom-[a-z0-9-]+$"
+                                            },
+                                            "name": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 50
+                                            },
+                                            "appearance": {
+                                                "type": "string",
+                                                "enum": [
+                                                    "light",
+                                                    "dark"
+                                                ]
+                                            },
+                                            "vars": {
+                                                "type": "object",
+                                                "additionalProperties": {
+                                                    "type": "string"
+                                                }
+                                            }
+                                        },
+                                        "required": [
+                                            "id",
+                                            "name",
+                                            "appearance",
+                                            "vars"
+                                        ],
+                                        "additionalProperties": false
+                                    }
                                 },
                                 "costCurrency": {
                                     "default": "USD",
@@ -648,6 +689,7 @@ defineRouteMeta({
                             },
                             "required": [
                                 "theme",
+                                "customThemes",
                                 "costCurrency"
                             ],
                             "additionalProperties": false
@@ -987,6 +1029,31 @@ defineRouteMeta({
                                 }
                             },
                             "additionalProperties": false
+                        },
+                        "observability": {
+                            "default": {},
+                            "type": "object",
+                            "properties": {
+                                "piTrace": {
+                                    "default": {},
+                                    "type": "object",
+                                    "properties": {
+                                        "enabled": {
+                                            "type": "boolean"
+                                        },
+                                        "maxRecords": {
+                                            "type": "integer",
+                                            "minimum": 0,
+                                            "maximum": 9007199254740991
+                                        },
+                                        "capturePayload": {
+                                            "type": "boolean"
+                                        }
+                                    },
+                                    "additionalProperties": false
+                                }
+                            },
+                            "additionalProperties": false
                         }
                     },
                     "additionalProperties": {},
@@ -1157,6 +1224,10 @@ defineRouteMeta({
                                                         "name": {
                                                             "type": "string",
                                                             "minLength": 1
+                                                        },
+                                                        "enabled": {
+                                                            "default": true,
+                                                            "type": "boolean"
                                                         },
                                                         "api": {},
                                                         "options": {
@@ -1334,6 +1405,7 @@ defineRouteMeta({
                                                     "required": [
                                                         "id",
                                                         "name",
+                                                        "enabled",
                                                         "api",
                                                         "options",
                                                         "models"
@@ -1697,6 +1769,7 @@ defineRouteMeta({
                                     "ui": {
                                         "default": {
                                             "theme": "sepia",
+                                            "customThemes": [],
                                             "costCurrency": "USD"
                                         },
                                         "type": "object",
@@ -1704,11 +1777,46 @@ defineRouteMeta({
                                             "theme": {
                                                 "default": "sepia",
                                                 "type": "string",
-                                                "enum": [
-                                                    "sepia",
-                                                    "light",
-                                                    "dark"
-                                                ]
+                                                "minLength": 1
+                                            },
+                                            "customThemes": {
+                                                "default": [],
+                                                "maxItems": 50,
+                                                "type": "array",
+                                                "items": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "id": {
+                                                            "type": "string",
+                                                            "pattern": "^custom-[a-z0-9-]+$"
+                                                        },
+                                                        "name": {
+                                                            "type": "string",
+                                                            "minLength": 1,
+                                                            "maxLength": 50
+                                                        },
+                                                        "appearance": {
+                                                            "type": "string",
+                                                            "enum": [
+                                                                "light",
+                                                                "dark"
+                                                            ]
+                                                        },
+                                                        "vars": {
+                                                            "type": "object",
+                                                            "additionalProperties": {
+                                                                "type": "string"
+                                                            }
+                                                        }
+                                                    },
+                                                    "required": [
+                                                        "id",
+                                                        "name",
+                                                        "appearance",
+                                                        "vars"
+                                                    ],
+                                                    "additionalProperties": false
+                                                }
                                             },
                                             "costCurrency": {
                                                 "default": "USD",
@@ -1721,6 +1829,7 @@ defineRouteMeta({
                                         },
                                         "required": [
                                             "theme",
+                                            "customThemes",
                                             "costCurrency"
                                         ],
                                         "additionalProperties": false
@@ -2054,6 +2163,31 @@ defineRouteMeta({
                                                             }
                                                         },
                                                         "additionalProperties": false
+                                                    }
+                                                },
+                                                "additionalProperties": false
+                                            }
+                                        },
+                                        "additionalProperties": false
+                                    },
+                                    "observability": {
+                                        "default": {},
+                                        "type": "object",
+                                        "properties": {
+                                            "piTrace": {
+                                                "default": {},
+                                                "type": "object",
+                                                "properties": {
+                                                    "enabled": {
+                                                        "type": "boolean"
+                                                    },
+                                                    "maxRecords": {
+                                                        "type": "integer",
+                                                        "minimum": 0,
+                                                        "maximum": 9007199254740991
+                                                    },
+                                                    "capturePayload": {
+                                                        "type": "boolean"
                                                     }
                                                 },
                                                 "additionalProperties": false
@@ -2596,6 +2730,10 @@ defineRouteMeta({
                                                     "type": "string",
                                                     "minLength": 1
                                                 },
+                                                "enabled": {
+                                                    "default": true,
+                                                    "type": "boolean"
+                                                },
                                                 "api": {},
                                                 "options": {
                                                     "type": "object",
@@ -2772,6 +2910,7 @@ defineRouteMeta({
                                             "required": [
                                                 "id",
                                                 "name",
+                                                "enabled",
                                                 "api",
                                                 "options",
                                                 "models"

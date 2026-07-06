@@ -1,9 +1,9 @@
 import {createHash, randomUUID} from "node:crypto";
 import {readFile} from "node:fs/promises";
-import {join, resolve} from "node:path";
+import {isAbsolute, join, normalize, relative, resolve} from "node:path";
 import type {AgentEvent, AgentToolResult} from "@earendil-works/pi-agent-core";
 import {estimateContextTokens} from "@earendil-works/pi-agent-core";
-import {streamSimple, validateToolArguments} from "@earendil-works/pi-ai";
+import {validateToolArguments} from "@earendil-works/pi-ai";
 import {Value} from "typebox/value";
 import type {AgentMessage, AgentToolCall, AgentUserMessageInput, AssistantMessage, JsonValue, Message, Model, ThinkingLevel, ToolResultMessage} from "nbook/server/agent/messages/types";
 import {createTextToolResult, createToolResultFromResult, createUserMessage, messageText} from "nbook/server/agent/messages/message-utils";
@@ -18,7 +18,7 @@ import {SessionWriteExecutor} from "nbook/server/agent/session/write-plan";
 import type {AppendManySessionEntryDraft, SessionWriteEntryBatch, SessionWritePlan, SessionWriteResult, SessionWriteTimingSink} from "nbook/server/agent/session/write-plan";
 import {ToolSessionWriteSink} from "nbook/server/agent/session/tool-session-write-sink";
 import {relationLedgerChange} from "nbook/server/agent/session/relation-ledger";
-import {AGENT_FOLLOW_UP_QUEUE_STATE_KEY, AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX, AGENT_PLAN_MODE_STATE_KEY, SESSION_SUMMARIZER_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
+import {AGENT_FOLLOW_UP_QUEUE_STATE_KEY, AGENT_MODE_STATE_KEY, AGENT_MODE_UI_STATE_KEY, AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX, SESSION_SUMMARIZER_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import type {InvocationErrorInfo, InvocationErrorPhase, ModelChangeEntry, NeuroSessionContext, SessionEntry, SessionEntryDraft, SessionEntryId, SessionSnapshot} from "nbook/server/agent/session/types";
 import type {AgentRuntimeHook, AgentRuntimeHookResult, RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
 import {SkillCatalog} from "nbook/server/agent/skills/skill-catalog";
@@ -57,6 +57,8 @@ import {resolveRuntimeProfileSettings} from "nbook/server/agent/profiles/profile
 import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHome, resolveProjectRootForProfileHome} from "nbook/server/agent/profiles/profile-home";
 import {resolvePiApiKeyForModelFromConfig, resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
 import {planModeDirectory, resolvePlanModeFile} from "nbook/server/agent/plan-mode-path";
+import {resolveWorkspacePath} from "nbook/server/agent/tools/file-tool-utils";
+import {isReadonlyMode, type AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {EffectiveConfig} from "nbook/server/config/types";
 import {WORKSPACE_CONTAINER_ROOT, USER_ASSETS_WORKSPACE_ROOT} from "nbook/server/workspace-files/novel-workspace";
 import type {
@@ -101,6 +103,10 @@ import {normalizeClientState} from "nbook/server/agent/variables/accessor";
 import {createVariableRegistryForProfile, createVariableRegistryForSession} from "nbook/server/agent/variables/profile-registry";
 import type {ClientStateSnapshot, ProfileVariableAccessor, VariableInvocationState, VariableJsonPatchOperation, VariablePatchAck, VariablePatchRequest} from "nbook/server/agent/variables/types";
 import {appLogger} from "nbook/server/app-logs/logger";
+import {PiRequestRecorder} from "nbook/server/agent/observability/pi-request-recorder";
+import type {PiTraceCorrelation, PiTraceKind} from "nbook/server/agent/observability/pi-request-recorder";
+import {tracedStreamSimple} from "nbook/server/agent/observability/traced-provider";
+import type {PiTraceBinding, PiTraceSettings} from "nbook/server/agent/observability/traced-provider";
 import type {ServerTimingSink} from "nbook/server/utils/server-timing";
 import {LowCodeFormDtoSchema} from "nbook/shared/dto/low-code-form.dto";
 import {ProfileBuildCoordinator} from "nbook/server/agent/profiles/profile-build-coordinator";
@@ -178,6 +184,7 @@ type PreparedRun = {
     timeoutMs: number | null;
     requestOptions: Record<string, JsonValue>;
     compaction?: ProfileCompactionPlan;
+    piTrace?: PiTraceSettings;
     sessionContextEnabled: boolean;
     toolKeys: string[];
     executionToolKeys?: string[];
@@ -198,6 +205,8 @@ type SidecarRunContext = {
     timeoutMs: number | null;
     requestOptions: Record<string, JsonValue>;
     compaction?: ProfileCompactionPlan;
+    /** sidecar 内层 runLoop 的 Pi trace 设置；缺省表示 sidecar 请求不追踪。 */
+    piTrace?: PiTraceSettings;
     sessionContextEnabled: boolean;
     toolKeys: string[];
     thinkingLevel: ThinkingLevel;
@@ -351,6 +360,8 @@ function roundAgentOperationTiming(timing: AgentOperationTiming): AgentOperation
  */
 export class NeuroAgentHarness {
     readonly repo: JsonlSessionRepository;
+    /** 全局唯一 recorder 实例；trace 的写入与 clearBucket 都必须走它的串行队列（route 不得另建）。 */
+    readonly piTraceRecorder: PiRequestRecorder;
     readonly profiles: AgentProfileCatalog;
     readonly skills: SkillCatalog;
     readonly tools: AgentToolRegistry;
@@ -382,6 +393,12 @@ export class NeuroAgentHarness {
     }>();
     constructor(options: HarnessOptions = {}) {
         this.repo = options.repo ?? new JsonlSessionRepository();
+        this.piTraceRecorder = new PiRequestRecorder({
+            tracesRoot: this.repo.tracesRoot,
+            onWriteError: (error) => {
+                void appLogger.warn("agent.piTrace.writeFailed", {error: error instanceof Error ? error.message : String(error)});
+            },
+        });
         this.profiles = options.profiles ?? new AgentProfileCatalog();
         this.skills = options.skills ?? new SkillCatalog();
         this.tools = options.tools ?? new AgentToolRegistry();
@@ -681,6 +698,7 @@ export class NeuroAgentHarness {
                     timeoutMs: preparedRun.timeoutMs,
                     requestOptions: preparedRun.requestOptions,
                     compaction: preparedRun.compaction,
+                    piTrace: preparedRun.piTrace,
                     sessionContextEnabled: preparedRun.sessionContextEnabled,
                     toolKeys: preparedRun.toolKeys,
                     thinkingLevel: preparedRun.thinkingLevel,
@@ -728,11 +746,13 @@ export class NeuroAgentHarness {
                 timeoutMs: preparedRun.timeoutMs,
                 requestOptions: preparedRun.requestOptions,
                 compaction: preparedRun.compaction,
+                piTrace: preparedRun.piTrace,
                 sessionContextEnabled: preparedRun.sessionContextEnabled,
                 toolKeys: preparedRun.toolKeys,
                 executionToolKeys: preparedRun.executionToolKeys,
                 profileKey: preparedRun.context.profileKey,
                 profile: preparedRun.profile,
+                agentMode: preparedRun.context.agentMode,
                 thinkingLevel: preparedRun.thinkingLevel,
                 runtimeState,
                 reportResultReminderEnabled: preparedRun.reportResultReminderEnabled,
@@ -1055,6 +1075,7 @@ export class NeuroAgentHarness {
                         apiKey,
                         timeoutMs: providerOptions.timeoutMs,
                         requestOptions: providerOptions.requestOptions,
+                        piTrace: this.piTraceSettings(config),
                         sessionContextEnabled: input.sessionContextEnabled,
                         toolKeys: [...input.profile.rootToolKeys],
                         thinkingLevel,
@@ -1256,6 +1277,7 @@ export class NeuroAgentHarness {
             timeoutMs: providerOptions.timeoutMs,
             requestOptions: providerOptions.requestOptions,
             compaction: runProfile.compaction,
+            piTrace: this.piTraceSettings(config),
             sessionContextEnabled: prepareRunHooks.sessionContext === true,
             toolKeys,
             executionToolKeys,
@@ -1550,7 +1572,7 @@ export class NeuroAgentHarness {
             model,
             thinkingLevel: projection.context.thinkingLevel,
             effectiveThinkingLevel,
-            planModeActive: projection.context.planModeActive,
+            agentMode: projection.context.agentMode,
             usage: this.repo.usage(projection.snapshot),
             contextUsage: await this.sessionContextUsage(projection.snapshot, projection.context),
         };
@@ -1610,7 +1632,7 @@ export class NeuroAgentHarness {
             model,
             thinkingLevel: context.thinkingLevel,
             effectiveThinkingLevel,
-            planModeActive: context.planModeActive,
+            agentMode: context.agentMode,
             lastSeq: eventCursor.after,
             usage: this.repo.usage(snapshot),
             contextUsage: await this.sessionContextUsage(snapshot, context),
@@ -1863,7 +1885,8 @@ export class NeuroAgentHarness {
             }
         }
 
-        if (pending.toolName !== "exit_plan_mode") {
+        // switch_mode 退出 plan（targetMode=normal）且带 planFilePath 时，为审批 UI 附带计划文件预览
+        if (pending.toolName !== "switch_mode" || this.readTargetMode(pending.args) !== "normal") {
             return base;
         }
         const planFilePath = typeof pending.args.planFilePath === "string" ? pending.args.planFilePath : "";
@@ -1982,32 +2005,56 @@ export class NeuroAgentHarness {
         }
     }
 
-    private planModeState(
+    /**
+     * 构造 agent.mode custom state 值（Task 90）。
+     * phase 决定 ModeReminder 的渲染档位；fromMode 供 exit 文案分叉；hasExitedPlan 供 plan 再进入判定 reentry。
+     */
+    private agentModeState(
         snapshot: SessionSnapshot,
         context: NeuroSessionContext,
-        active: boolean,
-        reminderKind: string,
+        next: {mode: AgentMode; fromMode: AgentMode; phase: "enter" | "reentry" | "steady" | "exit"},
         lastTransition: string,
-        extra: {approved?: boolean; hasExited?: boolean; reason?: string} = {},
+        extra: {approved?: boolean; reason?: string} = {},
     ): JsonValue {
-        const previous = context.customState[AGENT_PLAN_MODE_STATE_KEY];
+        const previous = context.customState[AGENT_MODE_STATE_KEY];
         const previousRecord = previous && typeof previous === "object" && !Array.isArray(previous)
             ? previous as Record<string, JsonValue>
             : {};
-        const hasExited = extra.hasExited ?? Boolean(previousRecord.hasExited);
+        // plan 退出过一次后，再进入 plan 使用 reentry 提示
+        const hasExitedPlan = Boolean(previousRecord.hasExitedPlan) || (next.fromMode === "plan" && next.mode !== "plan");
         return {
-            active,
-            reminderKind,
+            mode: next.mode,
+            fromMode: next.fromMode,
+            phase: next.phase,
+            hasExitedPlan,
             workDirectory: planModeDirectory({
                 workspaceRoot: snapshot.metadata.workspaceRoot,
                 projectPath: snapshot.metadata.projectPath,
             }).replace(/\\/g, "/"),
             lastTransition,
-            hasExited,
             updatedAt: new Date().toISOString(),
             ...(extra.approved !== undefined ? {approved: extra.approved} : {}),
             ...(extra.reason ? {reason: extra.reason} : {}),
         };
+    }
+
+    /**
+     * 读取当前 agent.mode state 的 hasExitedPlan 标记。
+     */
+    private hasExitedPlan(context: NeuroSessionContext): boolean {
+        const previous = context.customState[AGENT_MODE_STATE_KEY];
+        return Boolean(previous && typeof previous === "object" && !Array.isArray(previous)
+            && (previous as Record<string, JsonValue>).hasExitedPlan);
+    }
+
+    /**
+     * 计算切换到 targetMode 的 reminder phase。
+     */
+    private modeSwitchPhase(targetMode: AgentMode, context: NeuroSessionContext): "enter" | "reentry" | "exit" {
+        if (targetMode === "normal") {
+            return "exit";
+        }
+        return targetMode === "plan" && this.hasExitedPlan(context) ? "reentry" : "enter";
     }
 
     /**
@@ -2078,36 +2125,32 @@ export class NeuroAgentHarness {
                 snapshot: await this.buildSessionSnapshot(sessionId, undefined, timing),
             };
         }
-        if (body.command === "plan") {
-            const active = body.active;
+        if (body.command === "mode") {
+            const targetMode = body.mode;
             const context = measureAgentTimingStepSync(timing, "reduce", () => this.repo.reduce(snapshot));
-            if (context.planModeActive === active) {
+            if (context.agentMode === targetMode) {
                 return this.commandLiveStateResult(sessionId, "completed", undefined, timing);
             }
-            const previous = context.customState[AGENT_PLAN_MODE_STATE_KEY];
-            const previousRecord = previous && typeof previous === "object" && !Array.isArray(previous)
-                ? previous as Record<string, JsonValue>
-                : {};
-            const reminderKind = active
-                ? previousRecord.hasExited ? "reentry_full" : "full"
-                : "exit";
+            const phase = this.modeSwitchPhase(targetMode, context);
             const result = await this.executeWritePlanResult({
                 target: {sessionId},
-                cause: "command.plan",
+                cause: "command.mode",
                 ops: [{
                     kind: "appendMany",
                     entries: [
                         {
                             type: "custom",
-                            key: "ui.planMode.active",
-                            value: active,
+                            key: AGENT_MODE_UI_STATE_KEY,
+                            value: targetMode,
                         },
                         {
                             type: "custom",
-                            key: AGENT_PLAN_MODE_STATE_KEY,
-                            value: this.planModeState(snapshot, context, active, reminderKind, "ui_plan_toggle", {
-                                hasExited: !active ? true : undefined,
-                            }),
+                            key: AGENT_MODE_STATE_KEY,
+                            value: this.agentModeState(snapshot, context, {
+                                mode: targetMode,
+                                fromMode: context.agentMode,
+                                phase,
+                            }, "ui_mode_toggle"),
                         },
                     ],
                 }],
@@ -2831,10 +2874,12 @@ export class NeuroAgentHarness {
         const entries: AppendManySessionEntryDraft[] = [];
         for (const pending of pendingApprovals) {
             const resolution = resolutionMap.get(pending.toolCallId)!;
-            const storedResolution = await this.withExitPlanModePreview(snapshot, pending, resolution);
+            // Task 90: 注入的写审批批准后真实执行工具，以执行结果落库
+            const writerResult = await this.writerApprovalToolResult(snapshot, context, pending, resolution, invocationId);
+            const storedResolution = await this.withModeSwitchPreview(snapshot, pending, resolution);
             entries.push({
                 type: "message",
-                message: resolutionToToolResult(storedResolution, pending),
+                message: writerResult ?? resolutionToToolResult(storedResolution, pending),
                 origin: "harness",
             });
             entries.push(this.clearPendingUserResolutionEntry(pending));
@@ -2850,12 +2895,12 @@ export class NeuroAgentHarness {
             }],
         }, invocationId);
 
-        // 处理 plan mode transitions
+        // 处理 mode switch transitions
         for (const pending of pendingApprovals) {
             const resolution = resolutionMap.get(pending.toolCallId)!;
-            const approved = this.planModeDecision(pending, resolution);
+            const approved = this.modeSwitchDecision(pending, resolution);
             if (approved !== null) {
-                await this.appendPlanModeResolution(snapshot, context, pending, approved, invocationId);
+                await this.appendModeSwitchResolution(snapshot, context, pending, approved, invocationId);
             }
         }
     }
@@ -2869,7 +2914,9 @@ export class NeuroAgentHarness {
         if (!pending) {
             throw new Error("当前 session 没有等待中的审批 tool call");
         }
-        const storedResolution = await this.withExitPlanModePreview(snapshot, pending, resolution);
+        // Task 90: 注入的写审批批准后真实执行工具，以执行结果落库
+        const writerResult = await this.writerApprovalToolResult(snapshot, context, pending, resolution, invocationId);
+        const storedResolution = await this.withModeSwitchPreview(snapshot, pending, resolution);
         await this.executeWritePlan({
             target: {sessionId: snapshot.metadata.sessionId},
             cause: "resolution",
@@ -2879,7 +2926,7 @@ export class NeuroAgentHarness {
                 entries: [
                     {
                         type: "message",
-                        message: resolutionToToolResult(storedResolution, pending),
+                        message: writerResult ?? resolutionToToolResult(storedResolution, pending),
                         origin: "harness",
                     },
                     this.clearPendingUserResolutionEntry(pending),
@@ -2887,21 +2934,21 @@ export class NeuroAgentHarness {
             }],
         }, invocationId);
 
-        const approved = this.planModeDecision(pending, resolution);
+        const approved = this.modeSwitchDecision(pending, resolution);
         if (approved !== null) {
-            await this.appendPlanModeResolution(snapshot, context, pending, approved, invocationId);
+            await this.appendModeSwitchResolution(snapshot, context, pending, approved, invocationId);
         }
     }
 
     /**
-     * 为 exit_plan_mode 的历史审批结果补齐 UI-only 计划文件预览。
+     * 为 switch_mode（targetMode=normal）的历史审批结果补齐 UI-only 计划文件预览。
      */
-    private async withExitPlanModePreview(
+    private async withModeSwitchPreview(
         snapshot: SessionSnapshot,
         pending: {toolName: string; args: Record<string, unknown>},
         resolution: AgentResolution,
     ): Promise<AgentResolution> {
-        if (pending.toolName !== "exit_plan_mode") {
+        if (pending.toolName !== "switch_mode" || this.readTargetMode(pending.args) !== "normal") {
             return resolution;
         }
         const planFilePath = typeof pending.args.planFilePath === "string" ? pending.args.planFilePath.trim() : "";
@@ -2942,40 +2989,65 @@ export class NeuroAgentHarness {
         };
     }
 
-    private async appendPlanModeResolution(
+    /**
+     * 消费 switch_mode 审批结果并写入模式状态（Task 90）。
+     * 批准 → 切到 targetMode（phase 按 enter/reentry/exit 计算）；拒绝 → 保持原模式，写 steady 轻提醒。
+     * no-op（已在目标模式）不写状态，避免 updatedAt 变化重复触发 reminder。
+     */
+    private async appendModeSwitchResolution(
         snapshot: SessionSnapshot,
         context: NeuroSessionContext,
         pending: {toolName: string; args: Record<string, unknown>},
         approved: boolean,
         invocationId?: string,
     ): Promise<void> {
-        const active = pending.toolName === "enter_plan_mode"
-            ? approved
-            : approved ? false : context.planModeActive;
-        const previous = context.customState[AGENT_PLAN_MODE_STATE_KEY];
-        const previousRecord = previous && typeof previous === "object" && !Array.isArray(previous)
-            ? previous as Record<string, JsonValue>
-            : {};
-        const hasExited = Boolean(previousRecord.hasExited) || (pending.toolName === "exit_plan_mode" && approved);
-        const reminderKind = pending.toolName === "enter_plan_mode" && approved
-            ? previousRecord.hasExited ? "reentry_full" : "full"
-            : pending.toolName === "exit_plan_mode" && approved ? "exit" : "sparse";
+        const targetMode = this.readTargetMode(pending.args);
+        if (!targetMode) {
+            return;
+        }
         const reason = typeof pending.args.reason === "string" ? pending.args.reason : undefined;
-        await this.appendCustomState(snapshot.metadata.sessionId, "ui.planMode.active", active, snapshot.metadata.workspaceKey, invocationId);
-        await this.appendCustomState(snapshot.metadata.sessionId, AGENT_PLAN_MODE_STATE_KEY, this.planModeState(
+        if (!approved) {
+            await this.appendCustomState(snapshot.metadata.sessionId, AGENT_MODE_STATE_KEY, this.agentModeState(snapshot, context, {
+                mode: context.agentMode,
+                fromMode: context.agentMode,
+                phase: "steady",
+            }, "switch_mode", {approved, reason}), snapshot.metadata.workspaceKey, invocationId);
+            return;
+        }
+        if (targetMode === context.agentMode) {
+            return;
+        }
+        const phase = this.modeSwitchPhase(targetMode, context);
+        await this.appendCustomState(snapshot.metadata.sessionId, AGENT_MODE_UI_STATE_KEY, targetMode, snapshot.metadata.workspaceKey, invocationId);
+        await this.appendCustomState(snapshot.metadata.sessionId, AGENT_MODE_STATE_KEY, this.agentModeState(
             snapshot,
             context,
-            active,
-            reminderKind,
-            pending.toolName,
-            {approved, hasExited, reason},
+            {mode: targetMode, fromMode: context.agentMode, phase},
+            "switch_mode",
+            {approved, reason},
         ), snapshot.metadata.workspaceKey, invocationId);
     }
 
-    private planModeDecision(pending: {toolName: string}, resolution: AgentResolution): boolean | null {
-        if (pending.toolName !== "enter_plan_mode" && pending.toolName !== "exit_plan_mode") {
+    /**
+     * 从 switch_mode 参数读取合法 targetMode；非法值返回 null。
+     */
+    private readTargetMode(args: Record<string, unknown>): AgentMode | null {
+        const value = args.targetMode;
+        return value === "normal" || value === "discuss" || value === "plan" ? value : null;
+    }
+
+    private modeSwitchDecision(pending: {toolName: string}, resolution: AgentResolution): boolean | null {
+        if (pending.toolName !== "switch_mode") {
             return null;
         }
+        return this.resolutionApprovalDecision(resolution);
+    }
+
+    /**
+     * 从 resolution 中读取"批准/拒绝"判定；无法判定时返回 null。
+     * 供 switch_mode 审批与只读模式写审批（Task 90）共用。
+     */
+    private resolutionApprovalDecision(resolution: AgentResolution): boolean | null {
         if (resolution.kind === "tool_approval") {
             return resolution.approved;
         }
@@ -3013,11 +3085,14 @@ export class NeuroAgentHarness {
         timeoutMs?: number | null;
         requestOptions?: Record<string, JsonValue>;
         compaction?: ProfileCompactionPlan;
+        piTrace?: PiTraceSettings;
         sessionContextEnabled: boolean;
         toolKeys: string[];
         executionToolKeys?: string[];
         profileKey: string;
         profile: AgentProfile;
+        /** 本 run 的 Agent 工作模式（Task 90）。 */
+        agentMode: AgentMode;
         thinkingLevel: ThinkingLevel;
         runtimeState: RunRuntimeState;
         reportResultReminderEnabled: boolean;
@@ -3037,7 +3112,7 @@ export class NeuroAgentHarness {
     }): Promise<RunLoopResult> {
         const frame = createRunFrame(input);
 
-        this.assertNoUnclosedToolCallsForModel(frame.messages, this.userResolutionToolKeysForProfile(frame.profile));
+        this.assertNoUnclosedToolCallsForModel(frame.messages, this.userResolutionToolKeysForProfile(frame.profile, isReadonlyMode(frame.agentMode)));
         await this.emitRuntimeEvent(frame, {type: "agent_start"});
         let shouldContinue = true;
         let failedResult: RunLoopResult | undefined;
@@ -3269,6 +3344,7 @@ export class NeuroAgentHarness {
                 sessionId: frame.sessionId,
                 abortSignal: frame.abortSignal,
                 emit: (event) => this.emitFrameEvent(frame, event),
+                trace: this.piTraceBinding(frame),
             });
             if (assistant.stopReason === "error" || assistant.stopReason === "aborted") {
                 return {
@@ -3288,6 +3364,7 @@ export class NeuroAgentHarness {
                 projectPath: frame.projectPath,
                 profileKey: frame.profileKey,
                 invocationId: frame.invocationId,
+                agentMode: snapshot.sessionContext.agentMode,
                 assistant,
                 toolCalls,
                 executionToolKeys: snapshot.executionToolKeys,
@@ -3461,6 +3538,7 @@ export class NeuroAgentHarness {
             timeoutMs: frame.timeoutMs,
             requestOptions: frame.requestOptions,
             compaction: frame.compaction,
+            trace: this.piTraceBinding(frame, "compaction"),
             writeCompactionEntry: async (entry) => {
                 await new ToolSessionWriteSink({
                     executor: this.writeExecutor,
@@ -3533,11 +3611,50 @@ export class NeuroAgentHarness {
         throw new Error(`当前 profile ${frame.profileKey} 未声明 compaction 配置，上下文 ${usage.tokens} tokens 已超过模型 ${frame.model.id} 的 ${frame.model.contextWindow} token 限制。`);
     }
 
+    /** 从 effective config 摘 Pi trace 设置三元组（prepareRun / settleRun sidecar / 无 frame 场景共用）。 */
+    private piTraceSettings(config: EffectiveConfig): PiTraceSettings {
+        return {
+            enabled: config.observability.piTrace.enabled,
+            capturePayload: config.observability.piTrace.capturePayload,
+            maxRecords: config.observability.piTrace.maxRecords,
+        };
+    }
+
+    /** 从 RunFrame 组装本轮 Pi 请求 trace 绑定：recorder + config 解析的开关 + 领域关联。 */
+    private piTraceBinding(frame: RunFrame, kind: PiTraceKind = "turn"): PiTraceBinding {
+        return {
+            recorder: this.piTraceRecorder,
+            settings: {
+                enabled: frame.piTrace?.enabled ?? false,
+                capturePayload: frame.piTrace?.capturePayload ?? false,
+                maxRecords: frame.piTrace?.maxRecords ?? 100,
+            },
+            correlation: {
+                kind,
+                sessionId: frame.sessionId,
+                invocationId: frame.invocationId,
+                profileKey: frame.profileKey,
+                turnIndex: frame.turnIndex,
+                mode: frame.activeSidecar ? `sidecar:${frame.activeSidecar.name}` : frame.caller.kind,
+            },
+        };
+    }
+
+    /** 无 RunFrame 时（手动 compact / health-check）从 effective config 组装 trace 绑定。 */
+    private piTraceBindingFromConfig(config: EffectiveConfig, correlation: PiTraceCorrelation): PiTraceBinding {
+        return {
+            recorder: this.piTraceRecorder,
+            settings: this.piTraceSettings(config),
+            correlation,
+        };
+    }
+
     private async streamAssistant(input: {
         snapshot: TurnSnapshot;
         sessionId: number;
         abortSignal?: AbortSignal;
         emit: (event: AgentEvent) => Promise<void>;
+        trace: PiTraceBinding;
     }): Promise<AssistantMessage> {
         const context = {
             systemPrompt: input.snapshot.systemPrompt,
@@ -3552,7 +3669,7 @@ export class NeuroAgentHarness {
             ...this.piStreamOptions(input.snapshot.requestOptions),
             signal: input.abortSignal,
         };
-        const stream = await streamSimple(input.snapshot.model, context, options);
+        const stream = await tracedStreamSimple(input.snapshot.model, context, options, input.trace);
 
         let started = false;
         for await (const event of stream) {
@@ -3594,6 +3711,8 @@ export class NeuroAgentHarness {
         projectPath?: string;
         profileKey: string;
         invocationId?: string;
+        /** 当前 session 工作模式；只读模式下写工具会被注入审批挂起（Task 90）。 */
+        agentMode: AgentMode;
         assistant: AssistantMessage;
         toolCalls: AgentToolCall[];
         executionToolKeys: string[];
@@ -3648,6 +3767,22 @@ export class NeuroAgentHarness {
         for (let index = 0; index < input.toolCalls.length; index += 1) {
             const toolCall = input.toolCalls[index]!;
             const tool = input.toolOverrides[toolCall.name] ?? this.tools.get(toolCall.name);
+
+            // Task 90: switch_mode no-op 前置拦截 —— 已在目标模式时直接报错，不发起用户审批
+            if (toolCall.name === "switch_mode" && this.readTargetMode(toolCall.arguments) === input.agentMode) {
+                await flushSegment();
+                const toolResult = createTextToolResult({
+                    toolCallId: toolCall.id,
+                    toolName: toolCall.name,
+                    text: `Already in ${input.agentMode} mode. No switch needed.`,
+                    isError: true,
+                });
+                toolResults.push(toolResult);
+                await input.emit({type: "message_start", message: toolResult});
+                await input.emit({type: "message_end", message: toolResult});
+                allExecutedTerminate = false;
+                continue;
+            }
 
             // 检查工具是否需要用户输入
             if (tool?.userInputRequest) {
@@ -3753,6 +3888,52 @@ export class NeuroAgentHarness {
                     waiting: {
                         toolCallId: toolCall.id,
                         toolName: toolCall.name,
+                    },
+                    shouldContinue: false,
+                };
+            }
+
+            // Task 90: 只读模式（discuss/plan）下写工具注入审批挂起；plan 模式计划目录内 .md 写入豁免
+            if (tool?.mutatesWorkspace && !tool.userInputRequest && !tool.approvalRequired && isReadonlyMode(input.agentMode)
+                && !(input.agentMode === "plan" && this.planDirectoryWriteExempt(toolCall, input.workspaceRoot, input.projectPath))) {
+                await flushSegment();
+                const approvalError = await this.validateUserResolutionTool(input.executionToolKeys, input.toolOverrides, input.workspaceRoot, input.projectPath, toolCall);
+                if (approvalError) {
+                    const toolResult = createTextToolResult({
+                        toolCallId: toolCall.id,
+                        toolName: toolCall.name,
+                        text: approvalError,
+                        isError: true,
+                    });
+                    toolResults.push(toolResult);
+                    await input.emit({type: "message_start", message: toolResult});
+                    await input.emit({type: "message_end", message: toolResult});
+                    allExecutedTerminate = false;
+                    continue;
+                }
+                const formSpec = this.readonlyWriteApprovalFormSpec(input.agentMode, toolCall);
+                await input.emit({
+                    type: "tool_user_input_required",
+                    toolCallId: toolCall.id,
+                    toolName: toolCall.name,
+                    args: toolCall.arguments,
+                    formSpec,
+                } as unknown as AgentEvent);
+                const skippedToolResults = this.skippedToolResultsAfterUserInput(input.toolCalls, toolCall);
+                await this.emitToolResultMessages(skippedToolResults, input.emit);
+                return {
+                    toolResults: [
+                        ...toolResults,
+                        ...skippedToolResults,
+                    ],
+                    reportResult,
+                    sidecarResult,
+                    reportResultError,
+                    sidecarResultError,
+                    waiting: {
+                        toolCallId: toolCall.id,
+                        toolName: toolCall.name,
+                        formSpec,
                     },
                     shouldContinue: false,
                 };
@@ -4043,7 +4224,7 @@ export class NeuroAgentHarness {
         if (!executionToolKeys.includes(tool.key)) {
             return `Tool ${toolCall.name} is not allowed by this profile`;
         }
-        if (toolCall.name === "exit_plan_mode" && typeof toolCall.arguments.planFilePath === "string" && toolCall.arguments.planFilePath.trim()) {
+        if (toolCall.name === "switch_mode" && toolCall.arguments.targetMode === "normal" && typeof toolCall.arguments.planFilePath === "string" && toolCall.arguments.planFilePath.trim()) {
             try {
                 await readFile(resolvePlanModeFile({
                     workspaceRoot,
@@ -4055,6 +4236,140 @@ export class NeuroAgentHarness {
             }
         }
         return null;
+    }
+
+    /**
+     * plan 模式写豁免（Task 90 决策 10）：写目标全部是计划目录内的 .md 文件时免审批。
+     * 解析失败或目标不可识别时不豁免（fail closed）。
+     */
+    private planDirectoryWriteExempt(toolCall: AgentToolCall, workspaceRoot: string, projectPath: string | undefined): boolean {
+        const paths = this.mutationTargetPaths(toolCall);
+        if (paths.length === 0) {
+            return false;
+        }
+        const planRoot = normalize(planModeDirectory({workspaceRoot, projectPath}));
+        return paths.every((path) => {
+            if (!path.toLowerCase().endsWith(".md")) {
+                return false;
+            }
+            try {
+                const absolutePath = normalize(resolveWorkspacePath(path, workspaceRoot, projectPath));
+                const relativePath = relative(planRoot, absolutePath);
+                return relativePath !== "" && !relativePath.startsWith("..") && !isAbsolute(relativePath);
+            } catch {
+                return false;
+            }
+        });
+    }
+
+    /**
+     * 提取写工具的目标文件路径。apply_patch 解析 patch 文本内的全部目标文件；未知写工具返回空（不豁免）。
+     */
+    private mutationTargetPaths(toolCall: AgentToolCall): string[] {
+        if (toolCall.name === "write" || toolCall.name === "edit") {
+            const path = toolCall.arguments.path;
+            return typeof path === "string" && path.trim() ? [path.trim()] : [];
+        }
+        if (toolCall.name === "apply_patch") {
+            const patch = toolCall.arguments.patch;
+            if (typeof patch !== "string") {
+                return [];
+            }
+            const paths: string[] = [];
+            for (const line of patch.split(/\r?\n/)) {
+                const match = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/.exec(line.trim());
+                if (match?.[1]) {
+                    paths.push(match[1].trim());
+                }
+            }
+            return paths;
+        }
+        return [];
+    }
+
+    /**
+     * 只读模式写审批表单（Task 90）。批准仅豁免该次调用。
+     */
+    private readonlyWriteApprovalFormSpec(agentMode: AgentMode, toolCall: AgentToolCall): UserInputFormSpec {
+        const modeLabel = agentMode === "plan" ? "计划" : "讨论";
+        const paths = this.mutationTargetPaths(toolCall);
+        const target = paths.length > 0 ? paths.join("、") : `${toolCall.name} 目标文件`;
+        return {
+            form: {
+                defaults: {
+                    approved: true,
+                },
+                fields: [
+                    {
+                        path: "approved",
+                        component: "radio" as const,
+                        label: `是否允许本次写入 ${target}？`,
+                        description: `${modeLabel}模式下 Agent 请求使用 ${toolCall.name} 写入文件。批准仅对本次调用生效。`,
+                        required: true,
+                        options: [
+                            {value: true, label: "批准"},
+                            {value: false, label: "拒绝"},
+                        ],
+                        defaultValue: true,
+                    },
+                ],
+            },
+            prompt: `${modeLabel}模式下请求写入文件`,
+            layout: "dialog",
+        };
+    }
+
+    /**
+     * 消费只读模式写审批的 resolution（Task 90）。
+     * 返回 null 表示 pending 不是注入的写审批；批准时真实执行工具并以执行结果落库，拒绝时落库引导文本。
+     */
+    private async writerApprovalToolResult(
+        snapshot: SessionSnapshot,
+        context: NeuroSessionContext,
+        pending: {toolCallId: string; toolName: string; args: Record<string, unknown>},
+        resolution: AgentResolution,
+        invocationId?: string,
+    ): Promise<ToolResultMessage | null> {
+        const runtime = await this.resolveProfileRuntime(snapshot.metadata.profileKey);
+        const tool = runtime.profile
+            ? this.resolveProfileTool(runtime.profile, pending.toolName)
+            : this.tools.get(pending.toolName);
+        // 只处理"harness 注入"的写审批：工具自身没有 userInputRequest/approvalRequired
+        if (!tool?.mutatesWorkspace || tool.userInputRequest || tool.approvalRequired) {
+            return null;
+        }
+        const approved = this.resolutionApprovalDecision(resolution) === true;
+        if (!approved) {
+            const planning = context.agentMode === "plan";
+            return createTextToolResult({
+                toolCallId: pending.toolCallId,
+                toolName: pending.toolName,
+                text: `The user declined this file write in ${planning ? "plan" : "discuss"} mode. Stay read-only: continue the ${planning ? "planning" : "discussion"} or ask what should change instead. Do not retry the same write. If the user wants execution, request it via switch_mode with targetMode "normal".`,
+                isError: true,
+            });
+        }
+        const executed = await this.executeTool({
+            sessionId: snapshot.metadata.sessionId,
+            workspaceKey: snapshot.metadata.workspaceKey,
+            workspaceRoot: snapshot.metadata.workspaceRoot,
+            projectPath: snapshot.metadata.projectPath,
+            profileKey: snapshot.metadata.profileKey,
+            invocationId,
+            executionToolKeys: [tool.key],
+            toolOverrides: {[pending.toolName]: tool},
+            toolCallIndex: 0,
+            toolCall: {
+                id: pending.toolCallId,
+                name: pending.toolName,
+                arguments: pending.args,
+            } as AgentToolCall,
+        });
+        return createToolResultFromResult({
+            toolCallId: pending.toolCallId,
+            toolName: pending.toolName,
+            result: executed.result,
+            isError: executed.isError,
+        });
     }
 
     private async executeTool(input: {
@@ -5118,6 +5433,7 @@ export class NeuroAgentHarness {
                 thinkingLevel,
                 instructions,
                 compaction,
+                trace: this.piTraceBindingFromConfig(config, {kind: "compaction", sessionId, invocationId, profileKey: context.profileKey}),
                 writeCompactionEntry: async (entry) => {
                     await new ToolSessionWriteSink({
                         executor: this.writeExecutor,
@@ -5567,11 +5883,13 @@ export class NeuroAgentHarness {
                 timeoutMs: sidecarRun.timeoutMs,
                 requestOptions: sidecarRun.requestOptions,
                 compaction: sidecarRun.compaction,
+                piTrace: sidecarRun.piTrace,
                 sessionContextEnabled: false,
                 toolKeys: sidecarRun.toolKeys,
                 executionToolKeys,
                 profileKey: sidecarRun.context.profileKey,
                 profile: sidecarRun.profile,
+                agentMode: sidecarRun.context.agentMode,
                 thinkingLevel: sidecarRun.thinkingLevel,
                 runtimeState: new Map(sidecarRun.runtimeState),
                 reportResultReminderEnabled: executionToolKeys.includes("report_sidecar_result"),
@@ -5907,22 +6225,33 @@ export class NeuroAgentHarness {
         return overrides;
     }
 
+    /**
+     * 当前 session 的"等待用户 resolution"工具集合。
+     * Task 90：只读模式下并入 mutatesWorkspace 工具，保证注入的写审批挂起在恢复/投影路径可被识别。
+     */
     private async userResolutionToolKeysForSnapshot(snapshot: SessionSnapshot, profile?: AgentProfile | null): Promise<string[]> {
+        const readonlyModeActive = isReadonlyMode(this.repo.reduce(snapshot).agentMode);
         if (profile) {
-            return this.userResolutionToolKeysForProfile(profile);
+            return this.userResolutionToolKeysForProfile(profile, readonlyModeActive);
         }
         const runtime = await this.resolveProfileRuntime(snapshot.metadata.profileKey);
         if (runtime.profile) {
-            return this.userResolutionToolKeysForProfile(runtime.profile);
+            return this.userResolutionToolKeysForProfile(runtime.profile, readonlyModeActive);
         }
-        return this.tools.userResolutionToolKeys();
+        const keys = new Set(this.tools.userResolutionToolKeys());
+        if (readonlyModeActive) {
+            for (const key of this.tools.workspaceMutatingToolKeys()) {
+                keys.add(key);
+            }
+        }
+        return [...keys].sort((left, right) => left.localeCompare(right));
     }
 
-    private userResolutionToolKeysForProfile(profile: AgentProfile): string[] {
+    private userResolutionToolKeysForProfile(profile: AgentProfile, includeWorkspaceMutating = false): string[] {
         const keys = new Set<string>();
         for (const toolKey of profile.rootToolKeys) {
             const tool = this.resolveProfileTool(profile, toolKey);
-            if (tool?.approvalRequired || tool?.userInputRequest) {
+            if (tool?.approvalRequired || tool?.userInputRequest || (includeWorkspaceMutating && tool?.mutatesWorkspace)) {
                 keys.add(tool.key);
             }
         }

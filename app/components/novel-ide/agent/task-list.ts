@@ -67,9 +67,9 @@ export const taskStatusClass = (status: AgentTaskStatus): string => {
         case "pending":
             return "border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-muted)]";
         case "in_progress":
-            return "border-amber-500/30 bg-amber-500/10 text-amber-700";
+            return "border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]";
         case "completed":
-            return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
+            return "border-[var(--status-success-border)] bg-[var(--status-success-bg)] text-[var(--status-success)]";
     }
 };
 

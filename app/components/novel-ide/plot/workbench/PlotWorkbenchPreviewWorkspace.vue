@@ -85,7 +85,7 @@ const extraScenes: PlotThreadPanelScene[] = [
     {
         id: "scene-counterattack",
         threadId: "thread-main",
-        chapterPath: "chapter-02",
+        chapterId: "chapter-02",
         title: "反杀落单敌人，激活系统",
         summary: "主角利用祭坛阴影诱导追兵分散，在绝境中反杀落单敌人，并第一次触发系统反馈。",
         purpose: "把逃亡线从被动闪避推进到主动求生，建立系统能力的第一次可信使用。",
@@ -99,7 +99,7 @@ const extraScenes: PlotThreadPanelScene[] = [
     {
         id: "scene-message",
         threadId: "thread-main",
-        chapterPath: "chapter-02",
+        chapterId: "chapter-02",
         title: "传送阵逃脱",
         summary: "主角抢在追兵合围前启动残破传送阵，带着未解的身份线索逃离祭坛区域。",
         purpose: "完成第一阶段逃亡，同时把下一阶段目的地和追杀后果抛给读者。",
@@ -133,7 +133,7 @@ const detail = computed<PlotThreadPanelDetail | null>(() => {
     return {
         thread,
         scene,
-        chapter: scene.chapterPath ? (chapterMap.value.get(scene.chapterPath) ?? null) : null,
+        chapter: scene.chapterId ? (chapterMap.value.get(scene.chapterId) ?? null) : null,
         effectiveRefs: [
             ...thread.refs.map((refItem) => ({...refItem, source: "thread" as const})),
             ...scene.refs.map((refItem) => ({...refItem, source: "scene" as const})),
@@ -193,7 +193,7 @@ function createScene(threadId: string): void {
     const nextScene: PlotThreadPanelScene = {
         id: `scene-preview-${Date.now()}`,
         threadId,
-        chapterPath: null,
+        chapterId: null,
         title: `新建 Scene ${nextOrder + 1}`,
         summary: "这里记录新 Scene 的主要事件、场面变化和读者需要获得的信息。",
         purpose: "明确这个 Scene 推进哪一段冲突或揭示哪一条线索。",
@@ -327,8 +327,12 @@ function cloneThreads(source: PlotPreviewThread[]): PlotThreadPanelThread[] {
  * 克隆 Scene mock 数据。
  */
 function cloneScenes(source: PlotPreviewScene[]): PlotThreadPanelScene[] {
-    return [...source.map((scene) => ({
-        ...scene,
+    return [...source.map((scene) => {
+        const {chapterPath, ...rest} = scene;
+        return {
+        ...rest,
+        // 预览 mock 仍以路径占位;桥接到面板模型时映射为 chapterId 占位值。
+        chapterId: chapterPath,
         worldAnchor: emptyWorldAnchor,
         ...(scene.id === "scene-auction"
             ? {
@@ -355,7 +359,8 @@ function cloneScenes(source: PlotPreviewScene[]): PlotThreadPanelScene[] {
             }
             : {}),
         refs: cloneRefs(scene.refs),
-    })), ...extraScenes];
+    };
+    }), ...extraScenes];
 }
 
 </script>
@@ -363,7 +368,7 @@ function cloneScenes(source: PlotPreviewScene[]): PlotThreadPanelScene[] {
 <template>
     <!-- 剧情大纲侧边栏 + 工作台 Dialog 预览 -->
     <div class="flex min-h-[760px] w-full gap-5">
-        <div class="flex min-h-[760px] shrink-0 overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_24px_70px_rgba(15,23,42,0.10)]">
+        <div class="flex min-h-[760px] shrink-0 overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_24px_70px_color-mix(in_srgb,var(--shadow-color)_10%,transparent)]">
             <PlotThreadPanelShell
                 :threads="threads"
                 :scenes="scenes"
@@ -387,7 +392,7 @@ function cloneScenes(source: PlotPreviewScene[]): PlotThreadPanelScene[] {
         </div>
 
         <section class="flex min-w-0 flex-1 flex-col justify-center rounded-xl border border-dashed border-[var(--border-color)] bg-[var(--bg-panel)]/70 px-8 py-10 text-center">
-            <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+            <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]">
                 <span class="i-lucide-panels-top-left h-6 w-6"></span>
             </div>
             <h2 class="mt-4 text-xl font-semibold text-[var(--text-main)]">剧本工作台 Dialog 预览</h2>
@@ -396,7 +401,7 @@ function cloneScenes(source: PlotPreviewScene[]): PlotThreadPanelScene[] {
             </p>
             <button
                 type="button"
-                class="mx-auto mt-5 inline-flex h-10 items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-4 text-sm font-semibold text-amber-700 transition-colors hover:bg-amber-500/15 dark:text-amber-300"
+                class="mx-auto mt-5 inline-flex h-10 items-center gap-2 rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-4 text-sm font-semibold text-[var(--status-warning)] transition-colors hover:bg-[var(--bg-hover)]"
                 @click="workbenchVisible = true"
             >
                 <span class="i-lucide-panels-top-left h-4 w-4"></span>

@@ -94,7 +94,7 @@ describe("RP builtin profiles", () => {
                 customState: {},
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {},
             vars: createTestVariableAccessor(),
@@ -188,7 +188,7 @@ describe("RP builtin profiles", () => {
                 customState: {},
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {},
             vars: createTestVariableAccessor(),
@@ -232,7 +232,7 @@ describe("RP builtin profiles", () => {
                     customState: {},
                     linkedAgents: [],
                     archived: false,
-                    planModeActive: false,
+                    agentMode: "normal",
                 }),
                 initial: {
                     subjectPath: `${fixture.projectSlug}/simulation/subjects/heroine`,
@@ -420,7 +420,7 @@ describe("RP builtin profiles", () => {
                     customState: {},
                     linkedAgents: [],
                     archived: false,
-                    planModeActive: false,
+                    agentMode: "normal",
                 }),
                 initial: {
                     subjectPath: `${fixture.projectSlug}/simulation/subjects/heroine`,
@@ -457,7 +457,7 @@ describe("RP builtin profiles", () => {
                     customState: {},
                     linkedAgents: [],
                     archived: false,
-                    planModeActive: false,
+                    agentMode: "normal",
                 }),
                 initial: {
                     subjectPath: `${fixture.projectSlug}/simulation/subjects/heroine`,
@@ -490,7 +490,7 @@ describe("RP builtin profiles", () => {
                     customState: {},
                     linkedAgents: [],
                     archived: false,
-                    planModeActive: false,
+                    agentMode: "normal",
                 }),
                 initial: {},
                 vars: createTestVariableAccessor(),
@@ -652,7 +652,7 @@ function testSession(input: Partial<NeuroSessionContext>): RuntimeSessionFacade 
         customState: {},
         linkedAgents: [],
         archived: false,
-        planModeActive: false,
+        agentMode: "normal",
         ...input,
         async read() {
             return {

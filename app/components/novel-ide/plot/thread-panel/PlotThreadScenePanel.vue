@@ -240,7 +240,7 @@ watch(() => [props.selectedThreadId, props.scenes], () => {
                             <span
                                 v-if="selectedThread"
                                 class="shrink-0 rounded-full px-1.5 py-0.5 text-[10px]"
-                                :class="selectedThread.isMainThread ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' : PLOT_THREAD_TONE_STYLES[selectedThread.tone].chipClass"
+                                :class="selectedThread.isMainThread ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : PLOT_THREAD_TONE_STYLES[selectedThread.tone].chipClass"
                             >
                                 {{ selectedThread.isMainThread ? "主线" : "支线" }}
                             </span>
@@ -252,7 +252,7 @@ watch(() => [props.selectedThreadId, props.scenes], () => {
                 <div v-if="selectedThread" class="flex flex-wrap items-center gap-1 text-[10px] text-[var(--text-muted)]">
                     <span
                         class="rounded-full px-1.5 py-0.5"
-                        :class="selectedThread.isMainThread ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' : PLOT_THREAD_TONE_STYLES[selectedThread.tone].chipClass"
+                        :class="selectedThread.isMainThread ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : PLOT_THREAD_TONE_STYLES[selectedThread.tone].chipClass"
                     >
                         {{ selectedThread.isMainThread ? "主线" : "支线" }}
                     </span>
@@ -307,7 +307,7 @@ watch(() => [props.selectedThreadId, props.scenes], () => {
                         :thread-id="props.selectedThreadId ?? 'thread-empty'"
                         :selected="props.selectedSceneId === scene.id"
                         :drag-disabled="dragDisabled"
-                        :chapter="scene.chapterPath ? (chapterMap.get(scene.chapterPath) ?? null) : null"
+                        :chapter="scene.chapterId ? (chapterMap.get(scene.chapterId) ?? null) : null"
                         @select="emit('selectScene', $event)"
                         @open-editor="emit('editScene', $event)"
                         @open-menu="emit('openSceneMenu', $event)"
@@ -324,7 +324,7 @@ watch(() => [props.selectedThreadId, props.scenes], () => {
                     :thread-id="props.selectedThreadId ?? 'thread-empty'"
                     :selected="props.selectedSceneId === scene.id"
                     :drag-disabled="true"
-                    :chapter="scene.chapterPath ? (chapterMap.get(scene.chapterPath) ?? null) : null"
+                    :chapter="scene.chapterId ? (chapterMap.get(scene.chapterId) ?? null) : null"
                     @select="emit('selectScene', $event)"
                     @open-editor="emit('editScene', $event)"
                     @open-menu="emit('openSceneMenu', $event)"

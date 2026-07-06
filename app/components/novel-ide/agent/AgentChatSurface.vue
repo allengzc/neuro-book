@@ -24,10 +24,11 @@ import {deriveAgentTreeState, resolveBranchSwitchTarget} from "nbook/app/compone
 import {AgentSessionListRequestGuard} from "nbook/app/components/novel-ide/agent/session-list-request-guard";
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
 import {useConfigApi} from "nbook/app/composables/useConfigApi";
+import {useThemeManager} from "nbook/app/composables/useThemeManager";
 import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {formatCost, formatCostExact, usingCnyRate} from "nbook/app/utils/cost-format";
 import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
-import type {AgentQueuedMessageDto, AgentSessionListPageDto, AgentSessionListQueryDto, AgentSessionSnapshotDto, AgentSessionSummaryDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentQueuedMessageDto, AgentSessionListPageDto, AgentSessionListQueryDto, AgentSessionSnapshotDto, AgentSessionSummaryDto, AgentPendingApprovalDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {AgentCommandResult, InvokeAgentResult} from "nbook/server/agent/harness/types";
@@ -137,6 +138,7 @@ const session = useAgentSession();
 const inlineEditorSession = useAgentSession();
 const agentApi = useAgentSessionApi();
 const configApi = useConfigApi();
+const themeManager = useThemeManager();
 const costDisplay = useCostDisplay();
 const messages = session.messages;
 const running = session.running;
@@ -194,7 +196,7 @@ const queuedMessages = computed<AgentQueuedMessageDto[]>(() => [
     ...activeSnapshot.value?.followUpQueue.items ?? [],
 ].sort((left, right) => left.createdAt - right.createdAt));
 const linkedAgentCount = computed(() => linkedAgents.value.length + linkedByAgents.value.length);
-const planModeActive = computed(() => activeSnapshot.value?.planModeActive ?? false);
+const agentMode = computed<AgentMode>(() => activeSnapshot.value?.agentMode ?? "normal");
 const renderNodes = computed(() => messages.value);
 const inlineEditorCurrentTurnMessages = computed<AgentMessage[]>(() => {
     const latestUserIndex = inlineEditorMessages.value.findLastIndex((message) => message.type === "user");
@@ -441,7 +443,7 @@ const summarizerStatus = computed<null | {
         return {
             label: t("agent.chatSurface.summaryQueued"),
             icon: "i-lucide-refresh-cw",
-            className: "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+            className: "border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]",
             title: t("agent.chatSurface.summaryQueuedTitle"),
             spinning: true,
         };
@@ -450,7 +452,7 @@ const summarizerStatus = computed<null | {
         return {
             label: t("agent.chatSurface.summarizing"),
             icon: "i-lucide-loader-circle",
-            className: "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300",
+            className: "border-[var(--status-info-border)] bg-[var(--status-info-bg)] text-[var(--status-info)]",
             title: t("agent.chatSurface.summarizingTitle"),
             spinning: true,
         };
@@ -459,7 +461,7 @@ const summarizerStatus = computed<null | {
         return {
             label: t("agent.chatSurface.summaryFailed"),
             icon: "i-lucide-triangle-alert",
-            className: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+            className: "border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[var(--status-danger)]",
             title: state.lastError,
             spinning: false,
         };
@@ -625,7 +627,7 @@ const buildClientState = () => {
     const isUserAssetsWorkspace = ideStore.workspaceKind === "user-assets";
     return buildAgentClientState({
         activePanel: isNovelIdeTab(ideStore.activeLeftTab) ? ideStore.activeLeftTab : null,
-        theme: ideStore.theme,
+        theme: ideStore.activeThemeId,
         novelId: isUserAssetsWorkspace ? "" : ideStore.currentNovelId,
         workspace: ideStore.currentWorkspaceRoot || null,
         workspaceKind: ideStore.workspaceKind,
@@ -946,13 +948,12 @@ const scrollToBottom = (): void => {
 
 const acknowledgeClientPatch = async (sessionId: number, request: Parameters<typeof applyClientVariablePatch>[0]): Promise<void> => {
     try {
-        const appliedValue = applyClientVariablePatch(request, buildClientState(), {
+        const appliedValue = await applyClientVariablePatch(request, buildClientState(), {
             setActivePanel: (value) => {
                 ideStore.activeLeftTab = value;
             },
-            setTheme: (value) => {
-                ideStore.theme = value;
-            },
+            setTheme: (value) => themeManager.setTheme(value),
+            customThemeIds: ideStore.customThemes.map((theme) => theme.id),
         });
         await agentApi.acknowledgeClientVariablePatch(sessionId, {
             namespace: "client",
@@ -1283,22 +1284,31 @@ const stopRun = async (): Promise<void> => {
 };
 
 /**
- * 快捷键切换 Plan Mode。
+ * 切换到指定 Agent 模式（三态按钮、Shift+Tab 与 /mode 命令共用）。
  */
-const togglePlanMode = async (): Promise<void> => {
+const setAgentMode = async (mode: AgentMode): Promise<void> => {
     if (!activeSessionId.value || running.value) {
         return;
     }
     try {
         const result = await agentApi.runCommand(activeSessionId.value, {
-            command: "plan",
-            active: !planModeActive.value,
+            command: "mode",
+            mode,
         });
         await applyCommandResult(result);
     } catch (error) {
-        console.error("切换 Plan Mode 失败", error);
-        notifyAgentError(error, t("agent.chatSurface.togglePlanFailed"));
+        console.error("切换 Agent 模式失败", error);
+        notifyAgentError(error, t("agent.chatSurface.switchModeFailed"));
     }
+};
+
+/**
+ * 循环切换 Agent 模式：normal → discuss → plan → normal。
+ */
+const cycleAgentMode = async (): Promise<void> => {
+    const order: AgentMode[] = ["normal", "discuss", "plan"];
+    const next = order[(order.indexOf(agentMode.value) + 1) % order.length] ?? "normal";
+    await setAgentMode(next);
 };
 
 /**
@@ -1461,8 +1471,17 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
         await applySnapshotOrSync(result.snapshot);
         return true;
     }
+    if (command === "/mode") {
+        const requested = rest[0];
+        if (requested === "normal" || requested === "discuss" || requested === "plan") {
+            await setAgentMode(requested);
+        } else {
+            await cycleAgentMode();
+        }
+        return true;
+    }
     if (command === "/plan") {
-        await togglePlanMode();
+        await setAgentMode("plan");
         return true;
     }
     if (command === "/compact") {
@@ -2392,7 +2411,7 @@ function isApprovalApproved(answer?: {
                     </button>
                     <button class="flex items-center gap-1.5 rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :class="{'bg-[var(--bg-hover)] text-[var(--accent-main)]': linkedAgentPanelOpen}" :title="t('agent.chatSurface.linkedAgentsTitle')" @click="linkedAgentPanelOpen = !linkedAgentPanelOpen">
                         <span class="i-lucide-users h-4 w-4"></span>
-                        <span v-if="linkedAgentCount" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-white">{{ linkedAgentCount }}</span>
+                        <span v-if="linkedAgentCount" class="rounded-sm bg-[var(--accent-main)] px-1 text-[9px] font-bold text-[var(--text-inverse)]">{{ linkedAgentCount }}</span>
                     </button>
                     <button class="rounded p-1.5 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-40" :title="t('agent.chatSurface.sessionTreeTitle')" :disabled="!activeSessionId" @click="sessionTreeDialogOpen = true">
                         <span class="i-lucide-git-branch h-4 w-4"></span>
@@ -2460,7 +2479,7 @@ function isApprovalApproved(answer?: {
                 :session-model-selection-value="sessionModelSelectionValue"
                 :session-thinking-resolved-label="sessionThinkingResolvedLabel"
                 :selectable-models="selectableModels"
-                :plan-mode-active="planModeActive"
+                :agent-mode="agentMode"
                 :can-continue-without-input="canContinueWithoutInput"
                 :context-usage-exact-label="contextUsageExactLabel"
                 :context-usage-compact-label="contextUsageCompactLabel"
@@ -2486,7 +2505,7 @@ function isApprovalApproved(answer?: {
                 @steer="void steer()"
                 @followup="void followup()"
                 @stop="void stopRun()"
-                @toggle-plan-mode="void togglePlanMode()"
+                @cycle-mode="void cycleAgentMode()"
                 @toggle-session-model-popover="toggleSessionModelPopover"
                 @update-session-model-selection="void updateSessionModelSelection($event)"
                 @apply-session-model-settings="void applySessionModelSettings()"

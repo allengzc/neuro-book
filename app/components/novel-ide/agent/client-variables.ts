@@ -3,11 +3,17 @@ import type {JsonValue} from "nbook/server/agent/messages/types";
 import type {VariablePatchRequest} from "nbook/server/agent/variables/types";
 import type {NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import {isNovelIdeTab, NOVEL_IDE_TABS} from "nbook/app/components/novel-ide/mock-data";
-import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
-import {themeTokens} from "nbook/app/utils/theme/theme-tokens";
+import {ideThemeIds} from "nbook/app/utils/theme/theme-tokens";
 
 type RuntimeI18n = {
     t: (key: string, params?: {[key: string]: string | number}) => string;
+};
+
+type ClientVariableSetterResult = void | boolean | Promise<void | boolean>;
+type ClientVariablePatchOptions = {
+    setActivePanel?: (value: NovelIdeTab | null) => ClientVariableSetterResult;
+    setTheme?: (value: string) => ClientVariableSetterResult;
+    customThemeIds?: string[];
 };
 
 /**
@@ -77,36 +83,37 @@ export const buildNovelIdeClientVariables = buildAgentClientState;
  * 应用 Agent 请求的 client.* patch。返回应用后的变量值；调用方可传入安全 setter
  * 把允许写的 browser state 同步到实际 UI store。
  */
-export function applyClientVariablePatch(request: VariablePatchRequest, currentState: ClientStateSnapshotDto, options: {
-    setActivePanel?: (value: NovelIdeTab | null) => void;
-    setTheme?: (value: IdeTheme) => void;
-} = {}): JsonValue {
+export async function applyClientVariablePatch(request: VariablePatchRequest, currentState: ClientStateSnapshotDto, options: ClientVariablePatchOptions = {}): Promise<JsonValue> {
     const nextState = JSON.parse(JSON.stringify(currentState)) as Record<string, JsonValue>;
     const currentValue = readDotPath(nextState, request.path);
     const nextValue = applyJsonPatch(currentValue, request.operations);
     writeDotPath(nextState, request.path, nextValue);
-    applyKnownClientState(request.path, nextValue, options);
+    await applyKnownClientState(request.path, nextValue, options);
     return readDotPath(nextState, request.path) ?? null;
 }
 
-function applyKnownClientState(path: string, value: JsonValue, options: {
-    setActivePanel?: (value: NovelIdeTab | null) => void;
-    setTheme?: (value: IdeTheme) => void;
-}): void {
+async function applyKnownClientState(path: string, value: JsonValue, options: ClientVariablePatchOptions): Promise<void> {
     if (path === "ide.activePanel") {
         if (value !== null && (typeof value !== "string" || !isNovelIdeTab(value))) {
             const values = NOVEL_IDE_TABS.join("/");
             throw new Error(translate("agent.clientVariables.activePanelInvalid", `client.ide.activePanel 只能写入 ${values} 或 null。`, {values}));
         }
-        options.setActivePanel?.(value);
+        await assertClientSetterApplied(options.setActivePanel?.(value), "client.ide.activePanel");
         return;
     }
     if (path === "ide.theme") {
-        if (typeof value !== "string" || !(value in themeTokens)) {
-            const values = Object.keys(themeTokens).join("/");
+        const allowedThemeIds = [...ideThemeIds, ...(options.customThemeIds ?? [])];
+        if (typeof value !== "string" || !allowedThemeIds.includes(value)) {
+            const values = allowedThemeIds.join("/");
             throw new Error(translate("agent.clientVariables.themeInvalid", `client.ide.theme 只能写入 ${values}。`, {values}));
         }
-        options.setTheme?.(value as IdeTheme);
+        await assertClientSetterApplied(options.setTheme?.(value), "client.ide.theme");
+    }
+}
+
+async function assertClientSetterApplied(result: ClientVariableSetterResult | undefined, path: string): Promise<void> {
+    if (await result === false) {
+        throw new Error(translate("agent.clientVariables.applyFailed", `${path} 应用失败。`, {path}));
     }
 }
 

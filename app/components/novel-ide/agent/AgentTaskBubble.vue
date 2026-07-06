@@ -104,7 +104,7 @@ const stepSummary = computed(() => taskList.value
             {{ toolCall.result?.trim() || t("agent.tasks.parsing") }}
         </div>
 
-        <div v-if="toolCall.error && !isCollapsed" class="mt-2 break-all whitespace-pre-wrap rounded-md border border-rose-500/30 bg-rose-500/5 p-2 font-mono text-[11px] text-rose-500">
+        <div v-if="toolCall.error && !isCollapsed" class="mt-2 break-all whitespace-pre-wrap rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-2 font-mono text-[11px] text-[var(--status-danger)]">
             {{ toolCall.error }}
         </div>
     </div>

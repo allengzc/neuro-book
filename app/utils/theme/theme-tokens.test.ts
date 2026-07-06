@@ -2,9 +2,13 @@ import {readFile} from "node:fs/promises";
 import {fileURLToPath} from "node:url";
 import {describe, expect, it} from "vitest";
 import {clearThemeVars, applyThemeVars} from "nbook/app/utils/theme/apply-theme";
-import {themeTokens, themeVarKeys, type IdeTheme} from "nbook/app/utils/theme/theme-tokens";
+import {ideThemeIds, themeTokens, themeVarKeys, type IdeTheme, type ThemeVarKey, type ThemeVars} from "nbook/app/utils/theme/theme-tokens";
 
 const fallbackCssPath = fileURLToPath(new URL("../../styles/theme-vars.css", import.meta.url));
+const plotTreeGraphPath = fileURLToPath(new URL("../../components/novel-ide/plot/tree/plot-tree.graph.ts", import.meta.url));
+const plotTreeCanvasPath = fileURLToPath(new URL("../../components/novel-ide/plot/tree/PlotTreeCanvas.vue", import.meta.url));
+const modelSettingsPreviewPath = fileURLToPath(new URL("../../pages/model-settings.preview.vue", import.meta.url));
+const profileTemplateNodePath = fileURLToPath(new URL("../../components/profile-template-editor/ProfileTemplateNodeView.vue", import.meta.url));
 
 const semanticStatusKeys = [
     "--status-info",
@@ -21,9 +25,24 @@ const semanticStatusKeys = [
     "--status-danger-border",
 ] as const;
 
+/**
+ * 转义 CSS 变量名，供同步锁正则匹配使用。
+ */
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * 从 fallback CSS 中读取变量值。
+ */
+function readFallbackValue(css: string, key: ThemeVarKey): string | null {
+    const match = css.match(new RegExp(`${escapeRegExp(key)}:\\s*([^;]+);`));
+    return match?.[1]?.trim() ?? null;
+}
+
 describe("theme semantic status tokens", () => {
     it("keeps complete semantic status tokens for every IDE theme", () => {
-        for (const [theme, vars] of Object.entries(themeTokens) as Array<[IdeTheme, typeof themeTokens[IdeTheme]]>) {
+        for (const [theme, vars] of Object.entries(themeTokens) as Array<[IdeTheme, ThemeVars]>) {
             for (const key of semanticStatusKeys) {
                 expect(vars[key], `${theme} should define ${key}`).toBeTruthy();
             }
@@ -55,11 +74,38 @@ describe("theme semantic status tokens", () => {
         clearThemeVars(host);
         expect(host.style.getPropertyValue("--status-warning")).toBe("");
     });
+});
 
-    it("keeps SSR fallback aligned with sepia semantic status tokens", async () => {
-        const css = await readFile(fallbackCssPath, "utf8");
-        for (const key of semanticStatusKeys) {
-            expect(css).toContain(`${key}: ${themeTokens.sepia[key]};`);
+describe("theme v2.1 token table", () => {
+    it("keeps the built-in theme table locked to the 36 variable contract", () => {
+        expect(themeVarKeys).toHaveLength(36);
+        for (const themeId of ideThemeIds) {
+            expect(Object.keys(themeTokens[themeId]).sort()).toEqual([...themeVarKeys].sort());
         }
+    });
+
+    it("keeps SSR fallback aligned with sepia tokens", async () => {
+        const css = await readFile(fallbackCssPath, "utf8");
+        for (const key of themeVarKeys) {
+            expect(readFallbackValue(css, key)).toBe(themeTokens.sepia[key]);
+        }
+        expect(css).toContain(".novel-ide-theme ::selection");
+        expect(css).toContain("background: var(--selection-bg);");
+    });
+
+    it("keeps ordinary UI chrome on theme variables instead of fixed palette colors", async () => {
+        const plotTreeGraph = await readFile(plotTreeGraphPath, "utf8");
+        const plotTreeCanvas = await readFile(plotTreeCanvasPath, "utf8");
+        const modelSettingsPreview = await readFile(modelSettingsPreviewPath, "utf8");
+        const profileTemplateNode = await readFile(profileTemplateNodePath, "utf8");
+
+        expect(plotTreeGraph).toContain("var(--accent-main)");
+        expect(plotTreeGraph).toContain("var(--text-muted)");
+        expect(plotTreeGraph).not.toContain("#f59e0b");
+        expect(plotTreeGraph).not.toContain("#64748b");
+        expect(plotTreeCanvas).toContain("pattern-color=\"var(--border-color)\"");
+        expect(modelSettingsPreview).toContain("var(--shadow-color)");
+        expect(modelSettingsPreview).not.toContain("shadow-[0_24px_80px_rgba(0,0,0,0.10)]");
+        expect(profileTemplateNode).toContain("color: var(--status-danger);");
     });
 });

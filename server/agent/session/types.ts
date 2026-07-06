@@ -1,5 +1,6 @@
 import type {AgentMessage, JsonValue, Message, Model, ThinkingLevel} from "nbook/server/agent/messages/types";
 import type {VariableJsonPatchOperation, VariableNamespace} from "nbook/server/agent/variables/types";
+import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
 
 export type SessionId = number;
 export type SessionEntryId = string;
@@ -260,7 +261,8 @@ export type NeuroSessionContext = {
     title?: string;
     summary?: string;
     archived: boolean;
-    planModeActive: boolean;
+    /** 当前 Agent 工作模式（normal / discuss / plan），由 ui.agentMode custom state 归约。 */
+    agentMode: AgentMode;
 };
 
 export type LinkedAgentSummary = {

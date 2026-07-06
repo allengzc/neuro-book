@@ -44,7 +44,7 @@ function isSelected(option: SegmentedControlOption): boolean {
 function buttonClass(option: SegmentedControlOption): string {
     if (isSelected(option)) {
         if (optionTone(option) === "warning") {
-            return "bg-[var(--bg-panel)] text-amber-700 shadow-sm";
+            return "bg-[var(--bg-panel)] text-[var(--accent-text)] shadow-sm";
         }
         if (optionTone(option) === "accent") {
             return "bg-[var(--bg-panel)] text-[var(--accent-main)] shadow-sm";

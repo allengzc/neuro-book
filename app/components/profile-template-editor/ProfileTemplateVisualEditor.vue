@@ -51,6 +51,7 @@ import {
     publicRuntimeProps,
     renderPreviewNodeText,
 } from "nbook/app/components/profile-template-editor/profile-template-source-utils";
+import {resolveRefreshedTemplateSelection} from "nbook/app/components/profile-template-editor/profile-template-selection-utils";
 import {
     canHaveChildren,
     canInsertNodeIntoParent,
@@ -78,7 +79,6 @@ import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
 import {useAgentSessionApi} from "nbook/app/composables/useAgentSessionApi";
 import {useNotification} from "nbook/app/composables/useNotification";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
-import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
 import type {AgentSessionSummaryDto} from "nbook/shared/dto/agent-session.dto";
 import type {
     AgentProfileCatalogItemDto,
@@ -169,13 +169,15 @@ const emit = defineEmits<{
 
 const themeHostRef = ref<HTMLElement | null>(null);
 const novelIdeStore = useNovelIdeStore();
-const theme = computed<IdeTheme>({
+const theme = computed<string>({
     get: () => novelIdeStore.theme,
     set: (value) => {
-        novelIdeStore.theme = value;
+        novelIdeStore.applyThemeSelection(value);
     },
 });
-const {mountThemeHost} = useIdeTheme(theme);
+const customThemes = computed(() => novelIdeStore.customThemes);
+const themeVarsSnapshot = computed(() => novelIdeStore.themeVarsSnapshot);
+const {mountThemeHost} = useIdeTheme(theme, customThemes, themeVarsSnapshot);
 
 const templates = ref<ProfileTemplateSummaryDto[]>([]);
 const profileCatalog = ref<AgentProfileCatalogItemDto[]>([]);
@@ -468,18 +470,12 @@ async function loadTemplates(): Promise<void> {
     } else {
         templates.value = await $fetch<ProfileTemplateSummaryDto[]>("/api/agent/profile-templates");
     }
-    const preferred = props.preferredTemplate || selectedTemplate.value;
-    const hasPreferred = templates.value.some((item) => props.mode === "user-profile"
-        ? item.fileName === preferred
-        : item.name === preferred);
-    if (hasPreferred) {
-        selectedTemplate.value = preferred;
-        return;
-    }
-    const defaultUserProfile = templates.value.find((item) => item.fileName.includes("leader.default.profile.tsx") || item.fileName.includes("leader-default.profile.tsx"));
-    selectedTemplate.value = props.mode === "user-profile"
-        ? defaultUserProfile?.fileName ?? templates.value[0]?.fileName ?? ""
-        : templates.value[0]?.name ?? "";
+    selectedTemplate.value = resolveRefreshedTemplateSelection({
+        mode: props.mode,
+        templates: templates.value,
+        currentTemplate: selectedTemplate.value,
+        preferredTemplate: props.preferredTemplate,
+    });
 }
 
 /**
@@ -2528,7 +2524,7 @@ onBeforeUnmount(() => {
     background: var(--bg-panel);
     padding: 10px 6px;
     color: var(--text-muted);
-    box-shadow: 0 16px 44px rgba(15, 23, 42, 0.05);
+    box-shadow: 0 16px 44px color-mix(in srgb, var(--shadow-color) 5%, transparent);
     transition: border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease;
 }
 
@@ -2542,7 +2538,7 @@ onBeforeUnmount(() => {
     border-radius: 8px;
     background: var(--bg-panel);
     padding: 8px 5px;
-    box-shadow: 0 16px 44px rgba(15, 23, 42, 0.05);
+    box-shadow: 0 16px 44px color-mix(in srgb, var(--shadow-color) 5%, transparent);
 }
 
 .rail-icon-btn {
@@ -2564,7 +2560,7 @@ onBeforeUnmount(() => {
 }
 
 .rail-icon-btn:hover {
-    border-color: var(--border-color-hover);
+    border-color: var(--border-strong);
     background: var(--bg-hover);
     color: var(--accent-text);
     transform: translateY(-1px);
@@ -2657,17 +2653,13 @@ onBeforeUnmount(() => {
 
 .library-node-RuntimeLocationReminder,
 .library-node-WorkspaceFocusReminder,
-.library-node-PlanModeAvailabilityReminder {
+.library-node-ModeAvailabilityReminder {
     --component-accent: #b65f5b;
 }
 
 .library-node-TaskReminder,
-.library-node-PlanModeReminder,
-.library-node-PlanModeFull,
-.library-node-PlanModeSparse,
-.library-node-PlanModeExit,
-.library-node-PlanModeReentry,
-.library-node-ActivePlanModeReminder {
+.library-node-ModeReminder,
+.library-node-ModeSlot {
     --component-accent: #8a639e;
 }
 
@@ -2696,7 +2688,7 @@ onBeforeUnmount(() => {
 }
 
 .panel-rail:hover {
-    border-color: var(--border-color-hover);
+    border-color: var(--border-strong);
     background: var(--bg-hover);
     color: var(--accent-text);
 }

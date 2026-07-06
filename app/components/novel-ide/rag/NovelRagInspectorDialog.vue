@@ -66,9 +66,9 @@ const indexStatus = computed(() => {
     return "可用";
 });
 const statusToneClass = computed(() => {
-    if (indexStatus.value === "可用") return "bg-emerald-500";
-    if (indexStatus.value === "读取失败" || indexStatus.value === "索引失败") return "bg-rose-500";
-    return "bg-amber-500";
+    if (indexStatus.value === "可用") return "bg-[var(--status-success)]";
+    if (indexStatus.value === "读取失败" || indexStatus.value === "索引失败") return "bg-[var(--status-danger)]";
+    return "bg-[var(--status-warning)]";
 });
 
 /**
@@ -338,7 +338,7 @@ watch(() => props.projectPath, () => {
 
         <!-- RAG Workbench 主体 -->
         <div class="flex min-h-0 flex-1 flex-col overflow-hidden bg-[color-mix(in_srgb,var(--bg-main)_96%,white)]">
-            <div v-if="error" class="shrink-0 border-b border-rose-500/20 bg-rose-500/8 px-3 py-2 text-[12px] text-rose-700">{{ error }}</div>
+            <div v-if="error" class="shrink-0 border-b border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[12px] text-[var(--status-danger)]">{{ error }}</div>
             <div class="relative flex min-h-0 flex-1">
                 <NovelRagInspectorSidebar
                     :project-path="props.projectPath"
@@ -401,7 +401,7 @@ watch(() => props.projectPath, () => {
     border-radius: 0.375rem;
     border: 1px solid color-mix(in srgb, var(--accent-main) 58%, var(--border-color));
     background: color-mix(in srgb, var(--accent-main) 18%, var(--bg-panel));
-    color: color-mix(in srgb, var(--accent-main) 86%, #5f3300);
+    color: var(--accent-text);
 }
 
 .rag-inspector-enter-active,

@@ -408,9 +408,9 @@ function formatSourceStatus(statuses: ProjectRagSourceStatusDto[] | undefined): 
 
 function sourceStatusClass(statuses: ProjectRagSourceStatusDto[] | undefined): string {
     const label = formatSourceStatus(statuses);
-    if (label === "已同步") return "text-emerald-600";
-    if (label === "有修改待索引") return "text-amber-600";
-    if (label === "索引失败") return "text-rose-600";
+    if (label === "已同步") return "text-[var(--status-success)]";
+    if (label === "有修改待索引") return "text-[var(--status-warning)]";
+    if (label === "索引失败") return "text-[var(--status-danger)]";
     return "text-[var(--text-muted)]";
 }
 
@@ -451,7 +451,7 @@ onMounted(() => {
                 </div>
             </div>
 
-            <div v-if="error" class="border-b border-rose-500/20 bg-rose-500/8 p-2 text-[11px] text-rose-700">{{ error }}</div>
+            <div v-if="error" class="border-b border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-2 text-[11px] text-[var(--status-danger)]">{{ error }}</div>
 
             <div class="min-h-0 flex-1 overflow-auto p-2">
                 <div v-if="!currentNovelId" class="py-8 text-center text-[12px] text-[var(--text-muted)]">当前没有 Project Workspace。</div>
@@ -496,7 +496,7 @@ onMounted(() => {
                 <button type="button" class="px-3 py-1.5 text-[12px]" :class="activeTab === 'search' ? 'border-b-2 border-[var(--accent-main)] text-[var(--text-main)]' : 'text-[var(--text-muted)]'" @click="activeTab = 'search'">Search</button>
             </div>
 
-            <div v-if="subjectDetail?.errors.length" class="border-b border-rose-500/20 bg-rose-500/8 px-3 py-2 text-[11px] text-rose-700">
+            <div v-if="subjectDetail?.errors.length" class="border-b border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[11px] text-[var(--status-danger)]">
                 <div v-for="item in subjectDetail.errors" :key="`${item.source}:${item.message}`">{{ item.source }}: {{ item.message }}</div>
             </div>
 
@@ -520,7 +520,7 @@ onMounted(() => {
                                 <button type="button" class="rounded p-1 hover:bg-[var(--bg-hover)] disabled:opacity-40" title="上移" :disabled="index === 0 || selectedSubjectHasEventError" @click="void reorderEvent(index, -1)"><span class="i-lucide-arrow-up h-3 w-3"></span></button>
                                 <button type="button" class="rounded p-1 hover:bg-[var(--bg-hover)] disabled:opacity-40" title="下移" :disabled="index === subjectDetail.events.length - 1 || selectedSubjectHasEventError" @click="void reorderEvent(index, 1)"><span class="i-lucide-arrow-down h-3 w-3"></span></button>
                                 <button type="button" class="rounded p-1 hover:bg-[var(--bg-hover)]" title="编辑" :disabled="selectedSubjectHasEventError" @click="openEditEvent(event, index)"><span class="i-lucide-pencil h-3 w-3"></span></button>
-                                <button type="button" class="rounded p-1 text-rose-600 hover:bg-rose-500/10" title="删除" :disabled="selectedSubjectHasEventError" @click="queueDeleteEvent(event, index)"><span class="i-lucide-trash-2 h-3 w-3"></span></button>
+                                <button type="button" class="rounded p-1 text-[var(--status-danger)] hover:bg-[var(--status-danger-bg)]" title="删除" :disabled="selectedSubjectHasEventError" @click="queueDeleteEvent(event, index)"><span class="i-lucide-trash-2 h-3 w-3"></span></button>
                             </span>
                         </div>
                         <div class="whitespace-pre-wrap text-[12px] leading-5">{{ event.text }}</div>
@@ -545,7 +545,7 @@ onMounted(() => {
                             </div>
                             <div class="flex shrink-0 items-center gap-1 text-[var(--text-muted)]">
                                 <button type="button" class="rounded p-1 hover:bg-[var(--bg-hover)]" title="编辑" :disabled="selectedSubjectHasMemoryError" @click="openEditMemory(memory)"><span class="i-lucide-pencil h-3 w-3"></span></button>
-                                <button type="button" class="rounded p-1 text-rose-600 hover:bg-rose-500/10" title="删除" :disabled="selectedSubjectHasMemoryError" @click="queueDeleteMemory(memory)"><span class="i-lucide-trash-2 h-3 w-3"></span></button>
+                                <button type="button" class="rounded p-1 text-[var(--status-danger)] hover:bg-[var(--status-danger-bg)]" title="删除" :disabled="selectedSubjectHasMemoryError" @click="queueDeleteMemory(memory)"><span class="i-lucide-trash-2 h-3 w-3"></span></button>
                             </div>
                         </div>
                         <div class="whitespace-pre-wrap text-[12px] leading-5">{{ memory.view }}</div>
@@ -559,7 +559,7 @@ onMounted(() => {
                             <span :class="searching ? 'i-lucide-loader-2 animate-spin' : 'i-lucide-search'" class="mr-1 inline-block h-3 w-3 align-[-2px]"></span>Search
                         </button>
                     </div>
-                    <div v-if="searchError" class="mb-3 rounded-md border border-rose-500/20 bg-rose-500/8 p-2 text-[11px] text-rose-700">{{ searchError }}</div>
+                    <div v-if="searchError" class="mb-3 rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-2 text-[11px] text-[var(--status-danger)]">{{ searchError }}</div>
                     <div v-if="searchResult && searchResult.candidates.length === 0" class="py-8 text-center text-[12px] text-[var(--text-muted)]">没有召回候选。</div>
                     <div v-for="candidate in searchResult?.candidates ?? []" :key="`${candidate.rank}:${candidate.source}:${candidate.text}`" class="mb-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2">
                         <div class="mb-1 text-[10px] text-[var(--text-muted)]">

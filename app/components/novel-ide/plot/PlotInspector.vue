@@ -8,7 +8,7 @@ const props = defineProps<{
 
 <template>
     <!-- 当前选中对象检查器 -->
-    <aside class="flex min-h-0 flex-col overflow-hidden rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_18px_50px_rgba(0,0,0,0.08)]">
+    <aside class="flex min-h-0 flex-col overflow-hidden rounded-[22px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_18px_50px_color-mix(in_srgb,var(--shadow-color)_8%,transparent)]">
         <div class="border-b border-[var(--border-color)] px-4 py-3">
             <div class="text-[11px] uppercase tracking-[0.24em] text-[var(--text-muted)]">Inspector</div>
             <div class="mt-1 text-sm font-semibold text-[var(--text-main)]">当前对象详情</div>

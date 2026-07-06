@@ -78,7 +78,7 @@ function runDeleteSelectedMutation(): void {
             <span class="i-lucide-copy-plus h-3.5 w-3.5"></span>
             复制所选
         </button>
-        <button type="button" class="inline-flex h-8 min-w-[86px] flex-1 items-center justify-center gap-1 rounded-md border border-red-500/30 px-2 text-[12px] text-red-600 hover:bg-red-500/10 disabled:opacity-50" :disabled="props.disabled || !canUseSelectedMutation" title="删除所选 mutation" @click="runDeleteSelectedMutation">
+        <button type="button" class="inline-flex h-8 min-w-[86px] flex-1 items-center justify-center gap-1 rounded-md border border-[var(--status-danger-border)] px-2 text-[12px] text-[var(--status-danger)] hover:bg-[var(--status-danger-bg)] disabled:opacity-50" :disabled="props.disabled || !canUseSelectedMutation" title="删除所选 mutation" @click="runDeleteSelectedMutation">
             <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
             删除所选
         </button>

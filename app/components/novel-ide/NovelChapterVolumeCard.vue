@@ -105,13 +105,13 @@ watch(() => props.showInlineCreate, (visible) => {
                 </span>
             </button>
             <div class="flex shrink-0 items-center gap-1" @click.stop>
-                <button class="flex h-6 w-6 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-gray-500/20 hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="creating" :title="t('ide.chapterPanel.createChapterInVolume')" @click="emit('startInlineCreate', volume.id)">
+                <button class="flex h-6 w-6 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="creating" :title="t('ide.chapterPanel.createChapterInVolume')" @click="emit('startInlineCreate', volume.id)">
                     <span class="i-lucide-plus h-4 w-4"></span>
                 </button>
-                <button class="flex h-6 w-6 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-gray-500/20 hover:text-[var(--text-main)]" :title="t('ide.chapterPanel.editVolume')" @click="emit('editVolume', volume)">
+                <button class="flex h-6 w-6 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('ide.chapterPanel.editVolume')" @click="emit('editVolume', volume)">
                     <span class="i-lucide-settings-2 h-4 w-4"></span>
                 </button>
-                <button class="flex h-6 w-6 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-red-500/10 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-50" :disabled="creating" :title="t('ide.chapterPanel.deleteVolume')" @click="emit('deleteVolume', volume)">
+                <button class="flex h-6 w-6 items-center justify-center rounded-full bg-transparent text-[var(--text-secondary)] transition-all hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)] disabled:cursor-not-allowed disabled:opacity-50" :disabled="creating" :title="t('ide.chapterPanel.deleteVolume')" @click="emit('deleteVolume', volume)">
                     <span class="i-lucide-trash h-4 w-4"></span>
                 </button>
             </div>
@@ -145,7 +145,7 @@ watch(() => props.showInlineCreate, (visible) => {
                 </span>
                 <div class="flex flex-1 items-center justify-between rounded-2 border border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1 focus-within:border-[var(--accent-main)]">
                     <input ref="inlineInputRef" :value="inlineTitle" type="text" :placeholder="t('ide.chapterPanel.inlineChapterPlaceholder')" class="min-w-0 flex-1 bg-transparent text-xs text-[var(--text-main)] outline-none placeholder:text-[var(--text-muted)]" @input="emit('update:inlineTitle', ($event.target as HTMLInputElement).value)" @keydown.enter="emit('confirmInlineCreate')" @keydown.esc="emit('cancelInlineCreate')" @blur="emit('confirmInlineCreate')">
-                    <button class="ml-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[var(--accent-main)] transition-colors hover:bg-[var(--accent-main)] hover:text-white" :title="t('ide.chapterPanel.confirmCreate')" @mousedown.prevent @click="emit('confirmInlineCreate')">
+                    <button class="ml-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[var(--accent-main)] transition-colors hover:bg-[var(--accent-main)] hover:text-[var(--text-inverse)]" :title="t('ide.chapterPanel.confirmCreate')" @mousedown.prevent @click="emit('confirmInlineCreate')">
                         <span class="i-lucide-check h-3 w-3"></span>
                     </button>
                 </div>

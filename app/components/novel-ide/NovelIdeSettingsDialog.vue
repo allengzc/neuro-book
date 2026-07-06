@@ -6,17 +6,25 @@ import FormSelect from "nbook/app/components/common/form/FormSelect.vue";
 import NovelIdeAgentProfileModelSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeAgentProfileModelSettingsPanel.vue";
 import NovelIdeCostSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeCostSettingsPanel.vue";
 import NovelIdeEmbeddingSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeEmbeddingSettingsPanel.vue";
+import ThemeEditorDialog from "nbook/app/components/novel-ide/settings/theme/ThemeEditorDialog.vue";
 import NovelIdeModelSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeModelSettingsPanel.vue";
+import NovelIdeObservabilitySettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeObservabilitySettingsPanel.vue";
 import NovelIdeWebSettingsPanel from "nbook/app/components/novel-ide/settings/NovelIdeWebSettingsPanel.vue";
 import {useNovelIdeStore} from "nbook/app/stores/novel-ide";
 import {useNotification} from "nbook/app/composables/useNotification";
-import type {IdeTheme} from "nbook/app/utils/theme/theme-tokens";
+import {useThemeManager} from "nbook/app/composables/useThemeManager";
+import {ideThemeIds, themeMeta, type ThemeVars} from "nbook/app/utils/theme/theme-tokens";
+import {resolveTheme, isBuiltInThemeId} from "nbook/app/utils/theme/resolve-theme";
+import {createCustomThemeId, themeVarsToCustomVars} from "nbook/app/utils/theme/theme-editor";
+import {downloadThemeJson, parseThemeJson} from "nbook/app/utils/theme/theme-io";
 import type {MarkdownStudioViewMode} from "nbook/app/composables/useMarkdownStudioController";
+import type {CustomThemeDto, ThemeAppearance} from "nbook/shared/theme/theme-vars";
 import {DEFAULT_MARKDOWN_EDITOR_PREFERENCES, DEFAULT_MONACO_EDITOR_PREFERENCES, type MarkdownEditorPreferences, type MonacoEditorPreferences} from "nbook/shared/editor-workbench";
 
-type SettingsSection = "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models";
+type SettingsSection = "frontend" | "editor" | "models" | "embedding" | "cost" | "web-tools" | "agent-profile-models" | "observability";
 type SettingsScope = "global" | "project" | "browser";
 type AppVersionKind = "release" | "tag" | "commit" | "package";
+type ThemeEditorMode = "create" | "edit" | "copy";
 
 interface AppVersionDto {
     versionLabel: string;
@@ -42,10 +50,12 @@ const emit = defineEmits<{
 
 const novelIdeStore = useNovelIdeStore();
 const notification = useNotification();
+const themeManager = useThemeManager();
 const {locale, setLocale, t} = useI18n();
 const {
     selectedReasoning,
-    theme,
+    activeThemeId,
+    customThemes,
     viewMode,
     markdownEditorPreferences,
     monacoEditorPreferences,
@@ -61,6 +71,12 @@ const embeddingSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const costSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const webSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
 const agentProfileModelSettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
+const observabilitySettingsPanelRef = ref<SettingsSavePanelExpose | null>(null);
+const themeEditorOpen = ref(false);
+const themeEditorMode = ref<ThemeEditorMode>("create");
+const themeEditorInitialTheme = ref<CustomThemeDto | null>(null);
+const themeDeleteTarget = ref<CustomThemeDto | null>(null);
+const themeImportInputRef = ref<HTMLInputElement | null>(null);
 
 const frontendSectionItems = computed<Array<{value: SettingsSection; label: string; description: string; iconClass: string}>>(() => [
     {
@@ -105,6 +121,12 @@ const frontendSectionItems = computed<Array<{value: SettingsSection; label: stri
         description: t("settings.section.agentProfileModels.description"),
         iconClass: "i-lucide-bot-message-square",
     },
+    {
+        value: "observability",
+        label: t("settings.section.observability.label"),
+        description: t("settings.section.observability.description"),
+        iconClass: "i-lucide-activity",
+    },
 ]);
 
 const scopeOptions = computed<Array<{value: SettingsScope; label: string; description: string; iconClass: string}>>(() => [
@@ -128,20 +150,36 @@ const scopeOptions = computed<Array<{value: SettingsScope; label: string; descri
     },
 ]);
 
-const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-models"];
+const globalConfigSections: SettingsSection[] = ["models", "embedding", "cost", "web-tools", "agent-profile-models", "observability"];
 const projectConfigSections: SettingsSection[] = ["agent-profile-models"];
 const browserSections: SettingsSection[] = ["frontend", "editor"];
 
-const themeOptions: SelectOption[] = [
-    {value: "sepia", label: "Sepia Paper"},
-    {value: "light", label: "Light Editorial"},
-    {value: "dark", label: "Default Dark"},
-    {value: "catppuccin", label: "Catppuccin"},
-    {value: "dracula", label: "Dracula"},
-    {value: "monokai", label: "Monokai"},
-    {value: "one-dark-pro", label: "One Dark Pro"},
-    {value: "tokyo-night", label: "Tokyo Night"},
-];
+/** 主题卡片渲染数据：迷你预览用该主题自己的变量绘制 */
+type ThemeCard = {
+    id: string;
+    name: string;
+    appearance: ThemeAppearance;
+    vars: ThemeVars;
+    /** 非空表示自定义主题，携带可编辑的原始 DTO */
+    custom: CustomThemeDto | null;
+};
+
+const builtInThemeCards = computed<ThemeCard[]>(() => ideThemeIds.map((themeId) => ({
+    id: themeId,
+    name: themeMeta[themeId].label,
+    appearance: themeMeta[themeId].appearance,
+    vars: resolveTheme(themeId, customThemes.value).vars,
+    custom: null,
+})));
+const customThemeCards = computed<ThemeCard[]>(() => customThemes.value.map((customTheme) => ({
+    id: customTheme.id,
+    name: customTheme.name,
+    appearance: customTheme.appearance,
+    vars: resolveTheme(customTheme.id, customThemes.value).vars,
+    custom: customTheme,
+})));
+const activeResolvedTheme = computed(() => resolveTheme(activeThemeId.value, customThemes.value));
+const activeThemeIsBuiltIn = computed(() => isBuiltInThemeId(activeResolvedTheme.value.id));
 
 const viewModeOptions = computed<SelectOption[]>(() => [
     {value: "rich", label: t("settings.frontend.viewModeRich")},
@@ -256,6 +294,8 @@ const activeSavePanel = computed<SettingsSavePanelExpose | null>(() => {
             return webSettingsPanelRef.value;
         case "agent-profile-models":
             return agentProfileModelSettingsPanelRef.value;
+        case "observability":
+            return observabilitySettingsPanelRef.value;
         case "frontend":
         case "editor":
             return null;
@@ -446,7 +486,175 @@ function closeDialog(): void {
  * 处理主题选择。
  */
 function updateTheme(value: string): void {
-    theme.value = value as IdeTheme;
+    void themeManager.setTheme(value);
+}
+
+/**
+ * 克隆自定义主题，避免 Dialog 草稿直接改写 store 引用。
+ */
+function cloneCustomTheme(theme: CustomThemeDto): CustomThemeDto {
+    return {
+        id: theme.id,
+        name: theme.name,
+        appearance: theme.appearance,
+        vars: {...theme.vars},
+    };
+}
+
+/**
+ * 基于指定主题创建编辑器初始草稿（新建/复制的起点）。
+ */
+function createThemeDraftFrom(sourceThemeId: string, mode: Exclude<ThemeEditorMode, "edit">): CustomThemeDto {
+    const resolvedTheme = resolveTheme(sourceThemeId, customThemes.value);
+    const name = mode === "copy"
+        ? t("settings.frontend.themeCopyName", {name: resolvedTheme.label})
+        : t("settings.frontend.themeNewName", {name: resolvedTheme.label});
+    return {
+        id: createCustomThemeId(name, customThemes.value),
+        name,
+        appearance: resolvedTheme.appearance,
+        vars: themeVarsToCustomVars(resolvedTheme.vars),
+    };
+}
+
+/**
+ * 打开新建主题编辑器（以当前主题为起点）。
+ */
+function openThemeCreator(): void {
+    themeEditorMode.value = "create";
+    themeEditorInitialTheme.value = createThemeDraftFrom(activeThemeId.value, "create");
+    themeEditorOpen.value = true;
+}
+
+/**
+ * 复制指定主题为自定义主题并打开编辑器。
+ */
+function openThemeCopier(sourceThemeId: string): void {
+    themeEditorMode.value = "copy";
+    themeEditorInitialTheme.value = createThemeDraftFrom(sourceThemeId, "copy");
+    themeEditorOpen.value = true;
+}
+
+/**
+ * 打开指定自定义主题的编辑器。
+ */
+function openThemeEditor(theme: CustomThemeDto): void {
+    themeEditorMode.value = "edit";
+    themeEditorInitialTheme.value = cloneCustomTheme(theme);
+    themeEditorOpen.value = true;
+}
+
+/**
+ * 主题编辑器保存成功后的反馈。
+ */
+function handleThemeSaved(theme: CustomThemeDto): void {
+    notification.success(t("settings.frontend.themeSaved", {name: theme.name}));
+}
+
+/**
+ * 主题编辑器是浮动窗口：打开时收起设置对话框让用户看到真实页面，
+ * 关闭后恢复设置对话框继续操作。
+ */
+const resumeSettingsAfterThemeEditor = ref(false);
+watch(themeEditorOpen, (open) => {
+    if (open) {
+        if (props.modelValue) {
+            resumeSettingsAfterThemeEditor.value = true;
+            emit("update:modelValue", false);
+        }
+        return;
+    }
+    if (resumeSettingsAfterThemeEditor.value) {
+        resumeSettingsAfterThemeEditor.value = false;
+        emit("update:modelValue", true);
+    }
+});
+
+/**
+ * 请求删除指定自定义主题。
+ */
+function requestDeleteTheme(theme: CustomThemeDto): void {
+    themeDeleteTarget.value = cloneCustomTheme(theme);
+}
+
+/**
+ * 删除确认后保存新主题列表；若删掉当前主题则回退 Sepia。
+ */
+async function confirmDeleteTheme(): Promise<void> {
+    const target = themeDeleteTarget.value;
+    if (!target) {
+        return;
+    }
+    const nextThemes = customThemes.value.filter((theme) => theme.id !== target.id);
+    const nextThemeId = activeThemeId.value === target.id ? "sepia" : activeThemeId.value;
+    const saved = await themeManager.saveThemeConfig(nextThemeId, nextThemes);
+    if (!saved) {
+        return;
+    }
+    themeDeleteTarget.value = null;
+    notification.success(t("settings.frontend.themeDeleted", {name: target.name}));
+}
+
+/**
+ * 导出指定主题为 JSON 文件；内置主题会先转成具体变量。
+ */
+function exportTheme(themeId: string): void {
+    const resolvedTheme = resolveTheme(themeId, customThemes.value);
+    downloadThemeJson({
+        name: resolvedTheme.label,
+        appearance: resolvedTheme.appearance,
+        vars: themeVarsToCustomVars(resolvedTheme.vars),
+    }, `${themeFileSlug(resolvedTheme.label)}.json`);
+    notification.success(t("settings.frontend.themeExported", {name: resolvedTheme.label}));
+}
+
+/**
+ * 打开主题 JSON 文件选择器。
+ */
+function triggerThemeImport(): void {
+    themeImportInputRef.value?.click();
+}
+
+/**
+ * 导入主题 JSON 并保存为新的自定义主题。
+ */
+async function importThemeFile(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0] ?? null;
+    input.value = "";
+    if (!file) {
+        return;
+    }
+
+    try {
+        const parsed = parseThemeJson(await file.text());
+        if (!parsed.ok) {
+            notification.error(parsed.message, {title: t("settings.frontend.themeImportFailed")});
+            return;
+        }
+        const importedTheme: CustomThemeDto = {
+            id: createCustomThemeId(parsed.theme.name, customThemes.value),
+            name: parsed.theme.name,
+            appearance: parsed.theme.appearance,
+            vars: parsed.theme.vars,
+        };
+        const saved = await themeManager.saveThemeConfig(importedTheme.id, [...customThemes.value, importedTheme]);
+        if (saved) {
+            notification.success(t("settings.frontend.themeImported", {name: importedTheme.name}));
+        }
+    } catch (error) {
+        notification.error(error instanceof Error ? error.message : t("settings.frontend.themeImportFailed"), {title: t("settings.frontend.themeImportFailed")});
+    }
+}
+
+/**
+ * 把主题名转换为稳定文件名片段。
+ */
+function themeFileSlug(name: string): string {
+    return name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/gu, "-")
+        .replace(/^-+|-+$/gu, "") || "theme";
 }
 
 /**
@@ -573,7 +781,7 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                             v-if="showHeaderSaveButton"
                             type="button"
                             class="group relative inline-flex h-9 shrink-0 items-center justify-center overflow-hidden rounded-lg px-4 text-xs font-medium transition-all duration-200 active:scale-95 disabled:pointer-events-none disabled:opacity-50"
-                            :class="activeSaveDirty && !activeSaveLoading ? 'bg-[var(--accent-main)] text-white shadow-md hover:shadow-lg' : 'border border-[var(--border-color)] bg-[var(--bg-panel)] bg-opacity-45 text-[var(--text-muted)]'"
+                            :class="activeSaveDirty && !activeSaveLoading ? 'bg-[var(--accent-main)] text-[var(--text-inverse)] shadow-md hover:shadow-lg' : 'border border-[var(--border-color)] bg-[var(--bg-panel)] bg-opacity-45 text-[var(--text-muted)]'"
                             :disabled="activeSaveDisabled"
                             @click="void saveActivePanel()"
                         >
@@ -600,7 +808,7 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                         v-for="item in visibleSectionItems"
                         :key="item.value"
                         class="group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-all duration-200"
-                        :class="activeSection === item.value ? 'bg-[var(--bg-input)] text-[var(--text-main)] shadow-[0_2px_8px_rgba(0,0,0,0.04)] border border-[var(--border-color)]' : 'border border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:bg-opacity-40 hover:text-[var(--text-main)]'"
+                        :class="activeSection === item.value ? 'bg-[var(--bg-input)] text-[var(--text-main)] shadow-[0_2px_8px_color-mix(in_srgb,var(--shadow-color)_4%,transparent)] border border-[var(--border-color)]' : 'border border-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:bg-opacity-40 hover:text-[var(--text-main)]'"
                         @click="selectSection(item.value)"
                     >
                         <!-- 图标 -->
@@ -656,16 +864,113 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                                     </div>
                                 </div>
 
-                                <div class="group flex items-center gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm transition-all duration-300 hover:shadow-md">
-                                    <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors group-hover:bg-[var(--accent-bg)] group-hover:text-[var(--accent-main)]">
-                                        <span class="i-lucide-palette h-5 w-5"></span>
+                                <div class="rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 shadow-sm">
+                                    <!-- 主题管理入口 -->
+                                    <div class="flex flex-wrap items-start gap-4">
+                                        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--bg-input)] text-[var(--text-secondary)]">
+                                            <span class="i-lucide-palette h-5 w-5"></span>
+                                        </div>
+                                        <div class="min-w-0 flex-1">
+                                            <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.frontend.themeTitle") }}</div>
+                                            <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.frontend.themeDescription") }}</div>
+                                            <div class="mt-2 text-xs text-[var(--text-muted)]">{{ activeResolvedTheme.label }} · {{ activeThemeIsBuiltIn ? t("settings.frontend.themeBuiltInPreset") : t("settings.frontend.themeCustomPreset") }}</div>
+                                        </div>
+                                        <div class="flex shrink-0 items-center gap-2">
+                                            <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-transparent bg-[var(--accent-main)] px-3 text-xs font-medium text-[var(--text-inverse)] transition-opacity hover:opacity-90" @click="openThemeCreator">
+                                                <span class="i-lucide-plus h-3.5 w-3.5"></span>
+                                                <span>{{ t("settings.frontend.themeCreate") }}</span>
+                                            </button>
+                                            <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] px-3 text-xs font-medium text-[var(--text-main)] transition-colors hover:bg-[var(--bg-hover)]" @click="triggerThemeImport">
+                                                <span class="i-lucide-upload h-3.5 w-3.5"></span>
+                                                <span>{{ t("settings.frontend.themeImport") }}</span>
+                                            </button>
+                                            <input ref="themeImportInputRef" class="hidden" type="file" accept="application/json,.json" @change="void importThemeFile($event)">
+                                        </div>
                                     </div>
-                                    <div class="min-w-0 flex-1">
-                                        <div class="text-sm font-medium text-[var(--text-main)]">{{ t("settings.frontend.themeTitle") }}</div>
-                                        <div class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ t("settings.frontend.themeDescription") }}</div>
+
+                                    <!-- 内置主题卡片网格 -->
+                                    <div class="mt-4">
+                                        <div class="mb-2 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">{{ t("settings.frontend.themeBuiltInGroup") }}</div>
+                                        <div class="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]">
+                                            <div v-for="card in builtInThemeCards" :key="card.id" class="group relative cursor-pointer overflow-hidden rounded-lg border transition-all" :class="activeResolvedTheme.id === card.id ? 'border-[var(--accent-main)] shadow-[0_0_0_1px_var(--accent-main)]' : 'border-[var(--border-color)] hover:border-[var(--border-strong)] hover:shadow-sm'" @click="updateTheme(card.id)">
+                                                <!-- 迷你预览：使用该主题自己的变量绘制 -->
+                                                <div class="relative h-16" :style="{background: card.vars['--bg-main']}">
+                                                    <div class="absolute inset-y-1.5 left-1.5 w-6 rounded-sm" :style="{background: card.vars['--bg-sidebar']}"></div>
+                                                    <div class="absolute bottom-1.5 left-9 right-1.5 top-1.5 rounded-sm border px-1.5 py-1" :style="{background: card.vars['--bg-panel'], borderColor: card.vars['--border-color']}">
+                                                        <div class="text-[11px] font-semibold leading-none" :style="{color: card.vars['--text-main']}">Aa</div>
+                                                        <div class="mt-1 h-1 w-9 rounded-full" :style="{background: card.vars['--text-muted']}"></div>
+                                                        <div class="absolute bottom-1 left-1.5 flex items-center gap-1">
+                                                            <span class="h-1.5 w-3 rounded-full" :style="{background: card.vars['--accent-main']}"></span>
+                                                            <span class="h-1.5 w-1.5 rounded-full" :style="{background: card.vars['--status-info']}"></span>
+                                                            <span class="h-1.5 w-1.5 rounded-full" :style="{background: card.vars['--status-success']}"></span>
+                                                            <span class="h-1.5 w-1.5 rounded-full" :style="{background: card.vars['--status-warning']}"></span>
+                                                            <span class="h-1.5 w-1.5 rounded-full" :style="{background: card.vars['--status-danger']}"></span>
+                                                        </div>
+                                                    </div>
+                                                    <!-- 悬停操作：复制为自定义 / 导出 -->
+                                                    <div class="absolute right-1 top-1 flex items-center gap-0.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-0.5 opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+                                                        <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('settings.frontend.themeCopy')" @click.stop="openThemeCopier(card.id)">
+                                                            <span class="i-lucide-copy h-3.5 w-3.5"></span>
+                                                        </button>
+                                                        <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('settings.frontend.themeExport')" @click.stop="exportTheme(card.id)">
+                                                            <span class="i-lucide-download h-3.5 w-3.5"></span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <!-- 名称行：使用当前主题变量，保证列表底盘一致 -->
+                                                <div class="flex items-center gap-1.5 border-t border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5">
+                                                    <span class="h-3 w-3 shrink-0 text-[var(--text-muted)]" :class="card.appearance === 'dark' ? 'i-lucide-moon' : 'i-lucide-sun'"></span>
+                                                    <span class="min-w-0 flex-1 truncate text-xs text-[var(--text-main)]">{{ card.name }}</span>
+                                                    <span v-if="activeResolvedTheme.id === card.id" class="i-lucide-check h-3.5 w-3.5 shrink-0 text-[var(--accent-main)]"></span>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <div class="w-40 shrink-0">
-                                        <FormSelect :model-value="theme" :options="themeOptions" @update:model-value="updateTheme" />
+
+                                    <!-- 自定义主题卡片网格 -->
+                                    <div class="mt-4">
+                                        <div class="mb-2 text-[11px] font-medium uppercase tracking-wide text-[var(--text-muted)]">{{ t("settings.frontend.themeCustomGroup") }}</div>
+                                        <div v-if="customThemeCards.length" class="grid gap-2.5 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]">
+                                            <div v-for="card in customThemeCards" :key="card.id" class="group relative cursor-pointer overflow-hidden rounded-lg border transition-all" :class="activeThemeId === card.id ? 'border-[var(--accent-main)] shadow-[0_0_0_1px_var(--accent-main)]' : 'border-[var(--border-color)] hover:border-[var(--border-strong)] hover:shadow-sm'" @click="updateTheme(card.id)">
+                                                <!-- 迷你预览：使用该主题自己的变量绘制 -->
+                                                <div class="relative h-16" :style="{background: card.vars['--bg-main']}">
+                                                    <div class="absolute inset-y-1.5 left-1.5 w-6 rounded-sm" :style="{background: card.vars['--bg-sidebar']}"></div>
+                                                    <div class="absolute bottom-1.5 left-9 right-1.5 top-1.5 rounded-sm border px-1.5 py-1" :style="{background: card.vars['--bg-panel'], borderColor: card.vars['--border-color']}">
+                                                        <div class="text-[11px] font-semibold leading-none" :style="{color: card.vars['--text-main']}">Aa</div>
+                                                        <div class="mt-1 h-1 w-9 rounded-full" :style="{background: card.vars['--text-muted']}"></div>
+                                                        <div class="absolute bottom-1 left-1.5 flex items-center gap-1">
+                                                            <span class="h-1.5 w-3 rounded-full" :style="{background: card.vars['--accent-main']}"></span>
+                                                            <span class="h-1.5 w-1.5 rounded-full" :style="{background: card.vars['--status-info']}"></span>
+                                                            <span class="h-1.5 w-1.5 rounded-full" :style="{background: card.vars['--status-success']}"></span>
+                                                            <span class="h-1.5 w-1.5 rounded-full" :style="{background: card.vars['--status-warning']}"></span>
+                                                            <span class="h-1.5 w-1.5 rounded-full" :style="{background: card.vars['--status-danger']}"></span>
+                                                        </div>
+                                                    </div>
+                                                    <!-- 悬停操作：编辑 / 复制 / 导出 / 删除 -->
+                                                    <div class="absolute right-1 top-1 flex items-center gap-0.5 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-0.5 opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+                                                        <button v-if="card.custom" type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('settings.frontend.themeEdit')" @click.stop="openThemeEditor(card.custom)">
+                                                            <span class="i-lucide-pencil h-3.5 w-3.5"></span>
+                                                        </button>
+                                                        <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('settings.frontend.themeCopy')" @click.stop="openThemeCopier(card.id)">
+                                                            <span class="i-lucide-copy h-3.5 w-3.5"></span>
+                                                        </button>
+                                                        <button type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('settings.frontend.themeExport')" @click.stop="exportTheme(card.id)">
+                                                            <span class="i-lucide-download h-3.5 w-3.5"></span>
+                                                        </button>
+                                                        <button v-if="card.custom" type="button" class="flex h-6 w-6 items-center justify-center rounded text-[var(--status-danger)] transition-colors hover:bg-[var(--status-danger-bg)]" :title="t('settings.frontend.themeDelete')" @click.stop="requestDeleteTheme(card.custom)">
+                                                            <span class="i-lucide-trash-2 h-3.5 w-3.5"></span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                                <!-- 名称行：使用当前主题变量，保证列表底盘一致 -->
+                                                <div class="flex items-center gap-1.5 border-t border-[var(--border-color)] bg-[var(--bg-input)] px-2 py-1.5">
+                                                    <span class="h-3 w-3 shrink-0 text-[var(--text-muted)]" :class="card.appearance === 'dark' ? 'i-lucide-moon' : 'i-lucide-sun'"></span>
+                                                    <span class="min-w-0 flex-1 truncate text-xs text-[var(--text-main)]">{{ card.name }}</span>
+                                                    <span v-if="activeThemeId === card.id" class="i-lucide-check h-3.5 w-3.5 shrink-0 text-[var(--accent-main)]"></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div v-else class="rounded-md bg-[var(--bg-input)] px-3 py-2 text-xs text-[var(--text-muted)]">{{ t("settings.frontend.themeNoCustom") }}</div>
                                     </div>
                                 </div>
 
@@ -824,19 +1129,19 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                                 <div class="grid gap-3 md:grid-cols-2">
                                     <button type="button" class="flex items-center justify-between gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 text-left shadow-sm transition-all hover:bg-[var(--bg-hover)]" @click="updateMonacoPreferences({wordWrap: !monacoEditorPreferences.wordWrap})">
                                         <span><span class="block text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.wordWrapTitle") }}</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.wordWrapDescription") }}</span></span>
-                                        <span class="h-2.5 w-2.5 rounded-full" :class="monacoEditorPreferences.wordWrap ? 'bg-emerald-500' : 'bg-slate-400'"></span>
+                                        <span class="h-2.5 w-2.5 rounded-full" :class="monacoEditorPreferences.wordWrap ? 'bg-[var(--status-success)]' : 'bg-[var(--text-muted)]'"></span>
                                     </button>
                                     <button type="button" class="flex items-center justify-between gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 text-left shadow-sm transition-all hover:bg-[var(--bg-hover)]" @click="updateMonacoPreferences({minimapEnabled: !monacoEditorPreferences.minimapEnabled})">
                                         <span><span class="block text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.minimapTitle") }}</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.minimapDescription") }}</span></span>
-                                        <span class="h-2.5 w-2.5 rounded-full" :class="monacoEditorPreferences.minimapEnabled ? 'bg-emerald-500' : 'bg-slate-400'"></span>
+                                        <span class="h-2.5 w-2.5 rounded-full" :class="monacoEditorPreferences.minimapEnabled ? 'bg-[var(--status-success)]' : 'bg-[var(--text-muted)]'"></span>
                                     </button>
                                     <button type="button" class="flex items-center justify-between gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 text-left shadow-sm transition-all hover:bg-[var(--bg-hover)]" @click="updateMonacoPreferences({lineNumbers: !monacoEditorPreferences.lineNumbers})">
                                         <span><span class="block text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.lineNumbersTitle") }}</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.lineNumbersDescription") }}</span></span>
-                                        <span class="h-2.5 w-2.5 rounded-full" :class="monacoEditorPreferences.lineNumbers ? 'bg-emerald-500' : 'bg-slate-400'"></span>
+                                        <span class="h-2.5 w-2.5 rounded-full" :class="monacoEditorPreferences.lineNumbers ? 'bg-[var(--status-success)]' : 'bg-[var(--text-muted)]'"></span>
                                     </button>
                                     <button type="button" class="flex items-center justify-between gap-4 rounded-2xl border border-[var(--border-color)] bg-[var(--bg-panel)] px-5 py-4 text-left shadow-sm transition-all hover:bg-[var(--bg-hover)]" @click="updateMonacoPreferences({renderWhitespace: !monacoEditorPreferences.renderWhitespace})">
                                         <span><span class="block text-sm font-medium text-[var(--text-main)]">{{ t("settings.editor.whitespaceTitle") }}</span><span class="mt-0.5 block text-xs text-[var(--text-secondary)]">{{ t("settings.editor.whitespaceDescription") }}</span></span>
-                                        <span class="h-2.5 w-2.5 rounded-full" :class="monacoEditorPreferences.renderWhitespace ? 'bg-emerald-500' : 'bg-slate-400'"></span>
+                                        <span class="h-2.5 w-2.5 rounded-full" :class="monacoEditorPreferences.renderWhitespace ? 'bg-[var(--status-success)]' : 'bg-[var(--text-muted)]'"></span>
                                     </button>
                                 </div>
                             </div>
@@ -867,11 +1172,38 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
                         <div v-else-if="activeSection === 'agent-profile-models'" key="agent-profile-models">
                             <NovelIdeAgentProfileModelSettingsPanel ref="agentProfileModelSettingsPanelRef" :key="`profile-models:${settingsPanelKey}`" :scope="activeScope === 'project' ? 'project' : 'global'" :target-query="targetQuery" :target-label="targetLabel" />
                         </div>
+
+                        <!-- 可观测设定（Pi 请求 trace） -->
+                        <div v-else-if="activeSection === 'observability'" key="observability">
+                            <NovelIdeObservabilitySettingsPanel ref="observabilitySettingsPanelRef" :key="`observability:${settingsPanelKey}`" :target-query="targetQuery" />
+                        </div>
                     </Transition>
                 </div>
             </section>
             </div>
         </div>
+    </Dialog>
+
+    <ThemeEditorDialog
+        v-model="themeEditorOpen"
+        :mode="themeEditorMode"
+        :initial-theme="themeEditorInitialTheme"
+        :existing-themes="customThemes"
+        @saved="handleThemeSaved"
+    />
+
+    <Dialog
+        :model-value="Boolean(themeDeleteTarget)"
+        :title="t('settings.frontend.themeDeleteTitle')"
+        width="420px"
+        overlay-type="blur"
+        show-cancel
+        @confirm="void confirmDeleteTheme()"
+        @request-close="themeDeleteTarget = null"
+        @update:model-value="themeDeleteTarget = $event ? themeDeleteTarget : null"
+    >
+        <!-- 删除自定义主题确认 -->
+        <p class="text-sm text-[var(--text-secondary)]">{{ t("settings.frontend.themeDeleteMessage", {name: themeDeleteTarget?.name ?? ""}) }}</p>
     </Dialog>
 </template>
 
@@ -889,4 +1221,3 @@ watch(activeScope, alignActiveSectionToScope, {immediate: true});
     transform: translateX(-10px) scale(0.98);
 }
 </style>
-

@@ -27,11 +27,9 @@ const pendingQuestion = computed(() => {
     return userInputContext?.pendingSession.value?.questions.find((question) => question.toolNodeId === props.toolCall.id) ?? null;
 });
 
-const isPlanModeApproval = computed(() => {
-    return props.toolCall.name === "enter_plan_mode"
-        || pendingQuestion.value?.kind === "tool_approval";
-});
-const isExitPlanModeApproval = computed(() => pendingQuestion.value?.approvalAction === "exit_plan_mode" || props.toolCall.name === "exit_plan_mode");
+const isToolApproval = computed(() => pendingQuestion.value?.kind === "tool_approval");
+/** switch_mode 退出到 normal 的审批：第三选项语义是“补充建议”而不是“其他回答”。 */
+const isPlanExitApproval = computed(() => pendingQuestion.value?.approvalAction === "switch_mode" && pendingQuestion.value?.switchTargetMode === "normal");
 
 /**
  * 当前 tool 是否仍处于等待用户回答状态。
@@ -60,7 +58,7 @@ const questionOptions = computed(() => {
 const answerViews = computed(() => {
     return deriveRequestUserInputAnswerViews(parsedArgs.value, props.toolCall.rawResult, {
         fallbackQuestion: pendingQuestion.value,
-        otherLabel: isExitPlanModeApproval.value ? t("agent.userInput.addSuggestion") : t("agent.userInput.otherAnswer"),
+        otherLabel: isPlanExitApproval.value ? t("agent.userInput.addSuggestion") : t("agent.userInput.otherAnswer"),
     });
 });
 
@@ -76,7 +74,7 @@ const toolArgsText = computed(() => {
     <!-- request_user_input 已回答 / 待回答 -->
     <div class="mt-2 space-y-2">
         <div class="rounded-lg border border-[var(--border-color)] bg-[var(--bg-main)] p-3">
-            <div class="mb-1 text-[9px] uppercase tracking-[0.24em] text-[var(--text-muted)]">{{ isPlanModeApproval ? "Approval" : "Question" }}</div>
+            <div class="mb-1 text-[9px] uppercase tracking-[0.24em] text-[var(--text-muted)]">{{ isToolApproval ? "Approval" : "Question" }}</div>
             <div v-if="questionText" class="text-sm leading-6 text-[var(--text-main)]">
                 {{ questionText }}
             </div>
@@ -108,13 +106,13 @@ const toolArgsText = computed(() => {
 
         <div
             class="rounded-lg p-3"
-            :class="isPendingQuestion ? 'border border-amber-500/30 bg-amber-500/5' : answerViews.length > 0 ? 'border border-emerald-500/20 bg-emerald-500/5' : 'border border-[var(--border-color)] bg-[var(--bg-main)]'"
+            :class="isPendingQuestion ? 'border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)]' : answerViews.length > 0 ? 'border border-[var(--status-success-border)] bg-[var(--status-success-bg)]' : 'border border-[var(--border-color)] bg-[var(--bg-main)]'"
         >
-            <div class="mb-1 text-[9px] uppercase tracking-[0.24em] text-[var(--text-muted)]">{{ isPlanModeApproval ? "Decision" : "Answer" }}</div>
+            <div class="mb-1 text-[9px] uppercase tracking-[0.24em] text-[var(--text-muted)]">{{ isToolApproval ? "Decision" : "Answer" }}</div>
 
-            <div v-if="isPendingQuestion" class="flex items-center gap-2 text-xs leading-5 text-amber-700">
+            <div v-if="isPendingQuestion" class="flex items-center gap-2 text-xs leading-5 text-[var(--status-warning)]">
                 <span class="i-lucide-clock h-3.5 w-3.5 shrink-0"></span>
-                <span>{{ isPlanModeApproval ? t("agent.userInput.waitingApproval") : t("agent.userInput.waitingAnswer") }}</span>
+                <span>{{ isToolApproval ? t("agent.userInput.waitingApproval") : t("agent.userInput.waitingAnswer") }}</span>
             </div>
 
             <div v-else-if="answerViews.length > 0" class="space-y-3">

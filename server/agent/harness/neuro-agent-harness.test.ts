@@ -22,7 +22,7 @@ import {createAssistantTextMessage, createTextToolResult, createUserMessage, mes
 import {HistorySet, Message, ModelContext, ProfilePrompt, Reminder, System} from "nbook/server/agent/profiles/profile-dsl";
 import type {AgentMessage, JsonValue, Message as RuntimeMessage, Usage} from "nbook/server/agent/messages/types";
 import type {AgentSessionEventDto} from "nbook/shared/dto/agent-session.dto";
-import {AGENT_PLAN_MODE_STATE_KEY, AGENT_TASKS_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
+import {AGENT_MODE_STATE_KEY, AGENT_TASKS_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import {defineSessionVariable} from "nbook/server/agent/variables/registry";
 
 type LegacyTestSidecar<TInput = JsonValue> = Omit<SidecarProfilePass<TInput, JsonValue>, "toolKeys"> & {
@@ -577,7 +577,7 @@ describe("NeuroAgentHarness", () => {
         expect(context.projectPath).toBe("workspace/novel-7");
     });
 
-    it("轻控制 command 返回 live state，plan no-op 不追加 entry", async () => {
+    it("轻控制 command 返回 live state，mode no-op 不追加 entry", async () => {
         const created = await harness.createAgent({
             profileKey: "leader.default",
             initial: {},
@@ -586,13 +586,13 @@ describe("NeuroAgentHarness", () => {
         const initialEntryCount = (await harness.repo.readSession(created.sessionId)).entries.length;
 
         const enabled = await harness.runCommand(created.sessionId, {
-            command: "plan",
-            active: true,
+            command: "mode",
+            mode: "plan",
         });
         const afterEnableEntryCount = (await harness.repo.readSession(created.sessionId)).entries.length;
         const enabledAgain = await harness.runCommand(created.sessionId, {
-            command: "plan",
-            active: true,
+            command: "mode",
+            mode: "plan",
         });
         const afterNoopEntryCount = (await harness.repo.readSession(created.sessionId)).entries.length;
         const thinking = await harness.runCommand(created.sessionId, {
@@ -602,7 +602,7 @@ describe("NeuroAgentHarness", () => {
 
         expect(enabled.kind).toBe("live_state");
         if (enabled.kind === "live_state") {
-            expect(enabled.state.planModeActive).toBe(true);
+            expect(enabled.state.agentMode).toBe("plan");
             expect(enabled).not.toHaveProperty("snapshot");
         }
         expect(afterEnableEntryCount).toBeGreaterThan(initialEntryCount);
@@ -623,8 +623,8 @@ describe("NeuroAgentHarness", () => {
         const marks = new Map<string, number>();
 
         await harness.runCommand(created.sessionId, {
-            command: "plan",
-            active: true,
+            command: "mode",
+            mode: "plan",
         }, {
             mark(name, durationMs) {
                 marks.set(name, durationMs);
@@ -654,14 +654,14 @@ describe("NeuroAgentHarness", () => {
             workspaceRoot: root,
         });
         await harness.runCommand(created.sessionId, {
-            command: "plan",
-            active: true,
+            command: "mode",
+            mode: "plan",
         });
         const marks = new Map<string, number>();
 
         await harness.runCommand(created.sessionId, {
-            command: "plan",
-            active: true,
+            command: "mode",
+            mode: "plan",
         }, {
             mark(name, durationMs) {
                 marks.set(name, durationMs);
@@ -836,7 +836,7 @@ describe("NeuroAgentHarness", () => {
         expect(denied && messageText(denied as RuntimeMessage)).toContain("not allowed");
     });
 
-    it("未授权 enter_plan_mode 不会展示审批表单", async () => {
+    it("未授权 switch_mode 不会展示审批表单", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.plan-permission",
@@ -850,7 +850,8 @@ describe("NeuroAgentHarness", () => {
         }), false);
         faux.setResponses([
             fauxAssistantMessage([
-                fauxToolCall("enter_plan_mode", {
+                fauxToolCall("switch_mode", {
+                    targetMode: "plan",
                     reason: "not allowed",
                 }, {id: "enter-not-allowed"}),
             ], {stopReason: "toolUse"}),
@@ -878,7 +879,7 @@ describe("NeuroAgentHarness", () => {
         expect(result.status).toBe("completed");
         expect(result.reportResult?.result).toBe("plan permission checked");
         expect(snapshot.pendingApprovals).toHaveLength(0);
-        expect(snapshot.planModeActive).toBe(false);
+        expect(snapshot.agentMode).toBe("normal");
         expect(denied && messageText(denied as RuntimeMessage)).toContain("not allowed");
     });
 
@@ -6608,7 +6609,7 @@ describe("NeuroAgentHarness", () => {
                 name: "Plan Mode Preview",
             },
             initialSchema: Type.Object({}),
-            allowedToolKeys: ["exit_plan_mode"],
+            allowedToolKeys: ["switch_mode"],
             prepare() {
                 return {};
             },
@@ -6620,13 +6621,14 @@ describe("NeuroAgentHarness", () => {
             projectPath,
         });
         await harness.runCommand(created.sessionId, {
-            command: "plan",
-            active: true,
+            command: "mode",
+            mode: "plan",
         });
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-        const planModeState = context.customState[AGENT_PLAN_MODE_STATE_KEY] as Record<string, unknown>;
+        const modeState = context.customState[AGENT_MODE_STATE_KEY] as Record<string, unknown>;
 
-        expect(planModeState.workDirectory).toBe(`${projectRoot.replace(/\\/g, "/")}/.agent/plan`);
+        expect(modeState.mode).toBe("plan");
+        expect(modeState.workDirectory).toBe(`${projectRoot.replace(/\\/g, "/")}/.agent/plan`);
 
         await mkdir(join(workspaceRoot, ".nbook"), {recursive: true});
         await writeFile(join(workspaceRoot, ".nbook", "config.json"), "{}", "utf-8");
@@ -6636,7 +6638,8 @@ describe("NeuroAgentHarness", () => {
         await writeFile(join(projectRoot, ".agent", "plan", "preview.md"), "# Preview Plan\n\n- one\n", "utf-8");
         faux.setResponses([
             fauxAssistantMessage([
-                fauxToolCall("exit_plan_mode", {
+                fauxToolCall("switch_mode", {
+                    targetMode: "normal",
                     reason: "ready",
                     planFilePath: ".agent/plan/preview.md",
                 }, {id: "exit-preview"}),
@@ -6653,7 +6656,7 @@ describe("NeuroAgentHarness", () => {
 
         expect(snapshot.pendingApprovals[0]).toEqual(expect.objectContaining({
             toolCallId: "exit-preview",
-            toolName: "exit_plan_mode",
+            toolName: "switch_mode",
             planFilePath: ".agent/plan/preview.md",
             planContent: "# Preview Plan\n\n- one\n",
         }));
@@ -6673,7 +6676,7 @@ describe("NeuroAgentHarness", () => {
         const resolvedSnapshot = await harness.getSessionSnapshot(created.sessionId);
         const toolResult = resolvedContext.messages.find((message) => message.role === "toolResult" && message.toolCallId === "exit-preview");
         if (!toolResult || toolResult.role !== "toolResult") {
-            throw new Error("expected exit_plan_mode tool result");
+            throw new Error("expected switch_mode tool result");
         }
 
         expect(toolResult.details).toEqual(expect.objectContaining({
@@ -6687,10 +6690,14 @@ describe("NeuroAgentHarness", () => {
                 planContent: "# Preview Plan\n\n- one\n",
             },
         }));
-        expect(resolvedSnapshot.planModeActive).toBe(false);
+        expect(resolvedSnapshot.agentMode).toBe("normal");
+        const resolvedModeState = resolvedContext.customState[AGENT_MODE_STATE_KEY] as Record<string, unknown>;
+        expect(resolvedModeState.mode).toBe("normal");
+        expect(resolvedModeState.phase).toBe("exit");
+        expect(resolvedModeState.fromMode).toBe("plan");
     }, 20_000);
 
-    it("手动退出 Plan Mode 后注入 exit reminder 而不是 still active", async () => {
+    it("手动退出 Plan Mode 后写入 exit phase 并记录 hasExitedPlan", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.plan-mode-manual-exit",
@@ -6713,38 +6720,51 @@ describe("NeuroAgentHarness", () => {
         });
 
         await harness.runCommand(created.sessionId, {
-            command: "plan",
-            active: true,
+            command: "mode",
+            mode: "plan",
         });
         await harness.runCommand(created.sessionId, {
-            command: "plan",
-            active: false,
+            command: "mode",
+            mode: "normal",
         });
 
         const snapshot = await harness.getSessionSnapshot(created.sessionId);
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-        const planModeState = context.customState[AGENT_PLAN_MODE_STATE_KEY] as Record<string, unknown>;
+        const modeState = context.customState[AGENT_MODE_STATE_KEY] as Record<string, unknown>;
 
-        expect(snapshot.planModeActive).toBe(false);
-        expect(planModeState.reminderKind).toBe("exit");
-        expect(planModeState.hasExited).toBe(true);
+        expect(snapshot.agentMode).toBe("normal");
+        expect(modeState.phase).toBe("exit");
+        expect(modeState.fromMode).toBe("plan");
+        expect(modeState.hasExitedPlan).toBe(true);
+
+        // 再次进入 plan：hasExitedPlan 使 phase 变为 reentry
+        await harness.runCommand(created.sessionId, {
+            command: "mode",
+            mode: "plan",
+        });
+        const reentryContext = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const reentryState = reentryContext.customState[AGENT_MODE_STATE_KEY] as Record<string, unknown>;
+
+        expect(reentryState.mode).toBe("plan");
+        expect(reentryState.phase).toBe("reentry");
     }, 10_000);
 
-    it("exit_plan_mode preview 拒绝 .agent/plan 外的计划路径", async () => {
+    it("switch_mode preview 拒绝 .agent/plan 外的计划路径", async () => {
         harness.profiles.register(defineAgentProfile({
             manifest: {
                 key: "test.plan-mode-bad-preview",
                 name: "Plan Mode Bad Preview",
             },
             initialSchema: Type.Object({}),
-            allowedToolKeys: ["exit_plan_mode"],
+            allowedToolKeys: ["switch_mode"],
             prepare() {
                 return {};
             },
         }), false);
         faux.setResponses([
             fauxAssistantMessage([
-                fauxToolCall("exit_plan_mode", {
+                fauxToolCall("switch_mode", {
+                    targetMode: "normal",
                     planFilePath: "README.md",
                 }, {id: "exit-bad-preview"}),
             ], {stopReason: "toolUse"}),
@@ -6754,6 +6774,11 @@ describe("NeuroAgentHarness", () => {
             profileKey: "test.plan-mode-bad-preview",
             initial: {},
             workspaceRoot: root,
+        });
+        // 先进入 plan，避免 targetMode normal 被 no-op 拦截
+        await harness.runCommand(created.sessionId, {
+            command: "mode",
+            mode: "plan",
         });
 
         const result = await harness.invokeAgent({
@@ -6768,6 +6793,240 @@ describe("NeuroAgentHarness", () => {
         expect(toolResult ? messageText(toolResult) : "").toContain(".agent/plan");
         expect(result.finalMessage).toBe("plan path rejected");
     });
+
+    it("讨论模式 write 挂起审批，批准后真实执行工具", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.readonly-write-approve",
+                name: "Readonly Write Approve",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["write"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        const created = await harness.createAgent({
+            profileKey: "test.readonly-write-approve",
+            initial: {},
+            workspaceRoot: root,
+        });
+        await harness.runCommand(created.sessionId, {
+            command: "mode",
+            mode: "discuss",
+        });
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("write", {
+                    path: "notes/approved.md",
+                    content: "APPROVED CONTENT",
+                }, {id: "write-approve"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage(fauxText("after write")),
+        ]);
+
+        const waiting = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "please write"},
+        });
+        const snapshot = await harness.getSessionSnapshot(created.sessionId);
+
+        // 注入的写审批必须在快照 pending 路径可被识别
+        expect(waiting.status).toBe("waiting");
+        expect(snapshot.pendingApprovals[0]).toEqual(expect.objectContaining({
+            toolCallId: "write-approve",
+            toolName: "write",
+        }));
+
+        const resolved = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "continue",
+            resolution: {
+                kind: "user_input",
+                toolCallId: "write-approve",
+                data: {
+                    approved: true,
+                },
+            },
+        });
+
+        // 批准后工具被真实执行：文件落盘，工具结果非错误
+        expect(resolved.status).toBe("completed");
+        expect(resolved.finalMessage).toBe("after write");
+        expect(await readFile(join(root, "notes", "approved.md"), "utf-8")).toBe("APPROVED CONTENT");
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const toolResult = context.messages.find((message) => message.role === "toolResult" && message.toolCallId === "write-approve");
+        expect(toolResult && toolResult.role === "toolResult" ? toolResult.isError ?? false : true).toBe(false);
+    }, 20_000);
+
+    it("讨论模式 write 被拒绝时不执行并返回引导文本", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.readonly-write-decline",
+                name: "Readonly Write Decline",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["write"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        const created = await harness.createAgent({
+            profileKey: "test.readonly-write-decline",
+            initial: {},
+            workspaceRoot: root,
+        });
+        await harness.runCommand(created.sessionId, {
+            command: "mode",
+            mode: "discuss",
+        });
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("write", {
+                    path: "notes/declined.md",
+                    content: "SHOULD NOT EXIST",
+                }, {id: "write-decline"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage(fauxText("stay readonly")),
+        ]);
+
+        const waiting = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "please write"},
+        });
+        expect(waiting.status).toBe("waiting");
+
+        const resolved = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "continue",
+            resolution: {
+                kind: "user_input",
+                toolCallId: "write-decline",
+                data: {
+                    approved: false,
+                },
+            },
+        });
+
+        expect(resolved.status).toBe("completed");
+        await expect(readFile(join(root, "notes", "declined.md"), "utf-8")).rejects.toThrow();
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const toolResult = context.messages.find((message) => message.role === "toolResult" && message.toolCallId === "write-decline");
+        expect(toolResult ? messageText(toolResult) : "").toContain("declined this file write in discuss mode");
+    }, 20_000);
+
+    it("计划模式写 .agent/plan 下 Markdown 豁免审批，普通路径仍挂起", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.plan-write-exempt",
+                name: "Plan Write Exempt",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["write"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        const created = await harness.createAgent({
+            profileKey: "test.plan-write-exempt",
+            initial: {},
+            workspaceRoot: root,
+        });
+        await harness.runCommand(created.sessionId, {
+            command: "mode",
+            mode: "plan",
+        });
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("write", {
+                    path: ".agent/plan/draft.md",
+                    content: "# Plan Draft",
+                }, {id: "write-exempt"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage(fauxText("plan file written")),
+        ]);
+
+        const exempt = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "write plan file"},
+        });
+
+        // plan 目录内 .md 直接执行，不挂审批
+        expect(exempt.status).toBe("completed");
+        expect(exempt.finalMessage).toBe("plan file written");
+        expect(await readFile(join(root, ".agent", "plan", "draft.md"), "utf-8")).toBe("# Plan Draft");
+        expect((await harness.getSessionSnapshot(created.sessionId)).pendingApprovals).toHaveLength(0);
+
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("write", {
+                    path: "notes/outside.md",
+                    content: "outside plan dir",
+                }, {id: "write-outside"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage(fauxText("unused")),
+        ]);
+        const outside = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "write outside"},
+        });
+
+        expect(outside.status).toBe("waiting");
+        expect((await harness.getSessionSnapshot(created.sessionId)).pendingApprovals[0]).toEqual(expect.objectContaining({
+            toolCallId: "write-outside",
+            toolName: "write",
+        }));
+    }, 20_000);
+
+    it("switch_mode 目标与当前模式相同时直接拦截为 no-op", async () => {
+        harness.profiles.register(defineAgentProfile({
+            manifest: {
+                key: "test.switch-mode-noop",
+                name: "Switch Mode Noop",
+            },
+            initialSchema: Type.Object({}),
+            allowedToolKeys: ["switch_mode"],
+            prepare() {
+                return {};
+            },
+        }), false);
+        const created = await harness.createAgent({
+            profileKey: "test.switch-mode-noop",
+            initial: {},
+            workspaceRoot: root,
+        });
+        await harness.runCommand(created.sessionId, {
+            command: "mode",
+            mode: "plan",
+        });
+        faux.setResponses([
+            fauxAssistantMessage([
+                fauxToolCall("switch_mode", {
+                    targetMode: "plan",
+                    reason: "already here",
+                }, {id: "switch-noop"}),
+            ], {stopReason: "toolUse"}),
+            fauxAssistantMessage(fauxText("noop handled")),
+        ]);
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "switch again"},
+        });
+
+        // 不产生审批挂起，直接回错误 toolResult 让模型继续
+        expect(result.status).toBe("completed");
+        expect(result.finalMessage).toBe("noop handled");
+        expect((await harness.getSessionSnapshot(created.sessionId)).pendingApprovals).toHaveLength(0);
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const toolResult = context.messages.find((message) => message.role === "toolResult" && message.toolCallId === "switch-noop");
+        expect(toolResult ? messageText(toolResult) : "").toContain("Already in plan mode");
+    }, 20_000);
 
     it("缺少 report_result 时会自动提醒一次并收集第二轮 report", async () => {
         harness.profiles.register(defineAgentProfile({
@@ -8738,7 +8997,7 @@ describe("NeuroAgentHarness", () => {
         expect(contextText).not.toContain("too late during drain");
     });
 
-    it("session command 和 tree API 支持 plan、archive、retry、tree+invoke", async () => {
+    it("session command 和 tree API 支持 mode、archive、retry、tree+invoke", async () => {
         faux.setResponses([
             fauxAssistantMessage(fauxText("first")),
             fauxAssistantMessage(fauxText("retry")),
@@ -8757,10 +9016,10 @@ describe("NeuroAgentHarness", () => {
         const assistantEntry = beforeRetry.entries.findLast((entry) => entry.type === "message" && entry.message.role === "assistant");
 
         await harness.runCommand(created.sessionId, {
-            command: "plan",
-            active: true,
+            command: "mode",
+            mode: "plan",
         });
-        expect((await harness.getSessionSnapshot(created.sessionId)).planModeActive).toBe(true);
+        expect((await harness.getSessionSnapshot(created.sessionId)).agentMode).toBe("plan");
 
         const moved = await harness.moveTree(created.sessionId, {
             targetEntryId: assistantEntry!.id,

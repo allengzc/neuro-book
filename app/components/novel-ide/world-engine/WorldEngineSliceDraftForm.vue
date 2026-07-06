@@ -62,7 +62,7 @@ function submitAndContinueForm(): void {
         <slot></slot>
 
         <textarea :value="mutations" class="min-h-[360px] w-full resize-y rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-3 py-2 font-mono text-[12px] leading-5 text-[var(--text-main)] outline-none focus:border-[var(--accent-main)] disabled:opacity-60" :disabled="saving" spellcheck="false" @input="emit('update:mutations', inputValue($event))"></textarea>
-        <div v-if="!validationOk" class="rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2 text-[12px] text-red-600">
+        <div v-if="!validationOk" class="rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[12px] text-[var(--status-danger)]">
             {{ validationMessage }}
         </div>
 

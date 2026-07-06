@@ -32,8 +32,8 @@ const editForm = reactive({
 });
 const resetPassword = ref("");
 const novelIdeStore = useNovelIdeStore();
-const {theme} = storeToRefs(novelIdeStore);
-const {mountThemeHost} = useIdeTheme(theme);
+const {activeThemeId, customThemes, themeVarsSnapshot} = storeToRefs(novelIdeStore);
+const {mountThemeHost} = useIdeTheme(activeThemeId, customThemes, themeVarsSnapshot);
 const {t} = useI18n();
 const editOpen = computed({
     get: () => Boolean(editTarget.value),
@@ -230,12 +230,12 @@ onMounted(() => {
 
             <div class="flex items-center justify-between">
                 <div class="text-sm text-[var(--text-secondary)]">{{ t("admin.totalUsers", {count: users.length}) }}</div>
-                <button class="rounded-lg bg-[var(--accent-main)] px-4 py-2 text-sm font-medium text-white hover:opacity-90" @click="createOpen = true">
+                <button class="rounded-lg bg-[var(--accent-main)] px-4 py-2 text-sm font-medium text-[var(--text-inverse)] hover:opacity-90" @click="createOpen = true">
                     {{ t("admin.createUser") }}
                 </button>
             </div>
 
-            <div v-if="errorMessage" class="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            <div v-if="errorMessage" class="rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-4 py-3 text-sm text-[var(--status-danger)]">
                 {{ errorMessage }}
             </div>
 
@@ -277,7 +277,7 @@ onMounted(() => {
 
         <Dialog v-model="createOpen" :title="t('admin.createUser')" width="520px" show-cancel :teleport-target="false" @confirm="void createUser()">
             <div class="space-y-4 text-sm">
-                <div v-if="dialogErrorMessage" class="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-red-200">
+                <div v-if="dialogErrorMessage" class="rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[var(--status-danger)]">
                     {{ dialogErrorMessage }}
                 </div>
                 <label class="block">
@@ -307,7 +307,7 @@ onMounted(() => {
 
         <Dialog v-model="editOpen" :title="t('admin.editUser')" width="520px" show-cancel :teleport-target="false" @confirm="void saveUser()">
             <div class="space-y-4 text-sm">
-                <div v-if="dialogErrorMessage" class="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-red-200">
+                <div v-if="dialogErrorMessage" class="rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[var(--status-danger)]">
                     {{ dialogErrorMessage }}
                 </div>
                 <label class="block">
@@ -327,7 +327,7 @@ onMounted(() => {
 
         <Dialog v-model="resetOpen" :title="t('admin.resetPassword')" width="480px" show-cancel :teleport-target="false" @confirm="void submitReset()">
             <div class="space-y-4 text-sm">
-                <div v-if="dialogErrorMessage" class="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-red-200">
+                <div v-if="dialogErrorMessage" class="rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[var(--status-danger)]">
                     {{ dialogErrorMessage }}
                 </div>
                 <div class="text-[var(--text-secondary)]">{{ t("admin.setNewPasswordFor", {username: resetTarget?.username ?? ""}) }}</div>
@@ -348,6 +348,6 @@ onMounted(() => {
 
 <style scoped>
 .admin-page {
-    --editor-canvas-bg: var(--bg-main);
+    --editor-bg: var(--bg-main);
 }
 </style>

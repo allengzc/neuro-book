@@ -57,11 +57,11 @@ const touchedFiles = computed(() => {
             <pre class="max-h-64 overflow-y-auto whitespace-pre-wrap break-all p-3 font-mono text-xs text-[var(--text-secondary)]">{{ patchText || "..." }}</pre>
         </div>
 
-        <div v-if="props.toolCall.error" class="mt-2 break-all whitespace-pre-wrap rounded border border-rose-500/30 bg-rose-500/5 p-2 font-mono text-xs text-rose-500">
+        <div v-if="props.toolCall.error" class="mt-2 break-all whitespace-pre-wrap rounded border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-2 font-mono text-xs text-[var(--status-danger)]">
             {{ props.toolCall.error }}
         </div>
 
-        <div v-if="props.toolCall.status === 'success'" class="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-green-500/80">
+        <div v-if="props.toolCall.status === 'success'" class="mt-2 flex items-center gap-1.5 text-[11px] font-medium text-[var(--status-success)]">
             <span class="i-lucide-check-circle h-3.5 w-3.5"></span>
             {{ t("agent.tool.patchApplied") }}
         </div>

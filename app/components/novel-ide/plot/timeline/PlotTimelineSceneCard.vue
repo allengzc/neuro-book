@@ -19,7 +19,7 @@ const cardClass = computed(() => {
     }
 
     if (props.isMainThread) {
-        return "border-amber-500/35 bg-amber-500/10";
+        return "border-[var(--border-accent)] bg-[var(--accent-bg)]";
     }
 
     return `${PLOT_TONE_STYLES[props.tone].borderClass} bg-[var(--bg-panel)]`;
@@ -42,7 +42,7 @@ const cardClass = computed(() => {
             </div>
             <span
                 class="shrink-0 rounded-full px-2 py-0.5 text-[10px]"
-                :class="props.isMainThread ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' : PLOT_TONE_STYLES[props.tone].chipClass"
+                :class="props.isMainThread ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : PLOT_TONE_STYLES[props.tone].chipClass"
             >
                 {{ props.card.scene.status }}
             </span>

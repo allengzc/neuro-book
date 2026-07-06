@@ -62,6 +62,16 @@ export class AgentToolRegistry {
     }
 
     /**
+     * 列出会修改 workspace 文件的工具 key。只读模式（Task 90）下这些工具会被注入写审批挂起。
+     */
+    workspaceMutatingToolKeys(): string[] {
+        return [...this.tools.values()]
+            .filter((tool) => Boolean(tool.mutatesWorkspace))
+            .map((tool) => tool.key)
+            .sort((left, right) => left.localeCompare(right));
+    }
+
+    /**
      * 列出已注册工具 key。
      */
     keys(): string[] {

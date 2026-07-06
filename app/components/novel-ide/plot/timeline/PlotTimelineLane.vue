@@ -32,11 +32,11 @@ const laneGridStyle = computed(() => {
  */
 function resolveSlotClass(slot: PlotTimelineSlot): string {
     if (slot.kind === "draft") {
-        return "border-dashed border-slate-400/30 bg-slate-500/6";
+        return "border-dashed border-[var(--border-color)] bg-[var(--bg-input)]/45";
     }
 
     return props.lane.thread.isMainThread
-        ? "border-amber-500/12 bg-amber-500/6"
+        ? "border-[var(--border-accent)] bg-[var(--accent-bg)]"
         : "border-[var(--border-color)] bg-[var(--bg-input)]/45";
 }
 </script>
@@ -45,8 +45,8 @@ function resolveSlotClass(slot: PlotTimelineSlot): string {
     <!-- 单条 Thread 泳道 -->
     <div class="grid grid-cols-[220px_minmax(0,1fr)] gap-3">
         <!-- 左侧泳道标题 -->
-        <div class="sticky left-0 z-10 flex min-h-[188px] flex-col justify-between rounded-2xl border bg-[var(--bg-panel)] px-4 py-4 shadow-[0_12px_36px_rgba(15,23,42,0.08)]"
-            :class="props.lane.thread.isMainThread ? 'border-amber-500/35' : PLOT_TONE_STYLES[props.lane.thread.tone].borderClass">
+        <div class="sticky left-0 z-10 flex min-h-[188px] flex-col justify-between rounded-2xl border bg-[var(--bg-panel)] px-4 py-4 shadow-[0_12px_36px_color-mix(in_srgb,var(--shadow-color)_8%,transparent)]"
+            :class="props.lane.thread.isMainThread ? 'border-[var(--border-accent)]' : PLOT_TONE_STYLES[props.lane.thread.tone].borderClass">
             <button
                 type="button"
                 class="text-left"
@@ -55,7 +55,7 @@ function resolveSlotClass(slot: PlotTimelineSlot): string {
                 <div class="flex items-center gap-2">
                     <span
                         class="rounded-full px-2 py-0.5 text-[10px]"
-                        :class="props.lane.thread.isMainThread ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300' : PLOT_TONE_STYLES[props.lane.thread.tone].chipClass"
+                        :class="props.lane.thread.isMainThread ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : PLOT_TONE_STYLES[props.lane.thread.tone].chipClass"
                     >
                         {{ props.lane.thread.isMainThread ? "主线" : "支线" }}
                     </span>

@@ -105,16 +105,16 @@ watch(treeRows, () => {
  */
 function roleToneClass(node: SessionTreeNode): string {
     if (node.role === "user") {
-        return "bg-cyan-500/15 text-cyan-700 dark:text-cyan-400";
+        return "bg-[var(--status-info-bg)] text-[var(--status-info)]";
     }
     if (node.role === "assistant") {
-        return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400";
+        return "bg-[var(--status-success-bg)] text-[var(--status-success)]";
     }
     if (node.role === "toolResult") {
-        return "bg-slate-400/15 text-slate-600 dark:text-slate-400";
+        return "bg-[var(--bg-input)] text-[var(--text-secondary)]";
     }
     if (node.type === "invocation_lifecycle") {
-        return "bg-amber-500/15 text-amber-700 dark:text-amber-400";
+        return "bg-[var(--status-warning-bg)] text-[var(--status-warning)]";
     }
     return "bg-[var(--bg-input)] text-[var(--text-secondary)]";
 }
@@ -130,9 +130,9 @@ function nodeDotClass(node: SessionTreeNode): string {
         return "border-[var(--accent-main)] bg-[var(--accent-main)]/70";
     }
     if (!node.terminal) {
-        return "border-amber-500/45 bg-amber-500/20";
+        return "border-[var(--status-warning-border)] bg-[var(--status-warning-bg)]";
     }
-    return "border-[var(--border-color-hover)] bg-[var(--bg-panel)]";
+    return "border-[var(--border-strong)] bg-[var(--bg-panel)]";
 }
 
 /**
@@ -198,7 +198,7 @@ function guideCellClass(row: AgentSessionTreeRow, part: TreeGuidePart, guideInde
         || guideCellHasLeftHorizontalLine(row, part, guideIndex)
         || guideCellHasRightHorizontalLine(row, part, guideIndex)
         || guideCellHasDot(row, part, guideIndex)
-        ? "text-[var(--border-color-hover)]"
+        ? "text-[var(--border-strong)]"
         : "";
 }
 
@@ -532,7 +532,7 @@ function handleKeyDown(e: KeyboardEvent): void {
                         <div class="text-base font-semibold leading-snug text-[var(--text-main)]">{{ t("agent.sessionTree.title") }}</div>
                         <div class="mt-0.5 flex min-w-0 flex-wrap items-center gap-2 text-[11px] text-[var(--text-muted)]">
                             <span>{{ t("agent.sessionTree.nodeCount", {count: props.tree.length}) }}</span>
-                            <span class="h-1 w-1 rounded-full bg-[var(--border-color-hover)]"></span>
+                            <span class="h-1 w-1 rounded-full bg-[var(--border-strong)]"></span>
                             <span class="truncate font-mono">{{ t("agent.sessionTree.leaf", {leaf: activeLeafLabel}) }}</span>
                         </div>
                     </div>
@@ -557,7 +557,7 @@ function handleKeyDown(e: KeyboardEvent): void {
                             :key="option.value"
                             type="button"
                             class="min-w-[74px] rounded px-2.5 text-xs font-medium transition-colors"
-                            :class="filterMode === option.value ? 'bg-[var(--accent-main)] text-white shadow-sm' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
+                            :class="filterMode === option.value ? 'bg-[var(--accent-main)] text-[var(--text-inverse)] shadow-sm' : 'text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]'"
                             :title="option.title"
                             @click="filterMode = option.value"
                         >
@@ -653,8 +653,8 @@ function handleKeyDown(e: KeyboardEvent): void {
 
                     <template v-if="parsedMessage">
                         <!-- Thinking process -->
-                        <div v-if="parsedMessage.thinking" class="mb-4 rounded-md border border-amber-500/25 bg-amber-500/5 p-3">
-                            <div class="mb-2 flex items-center gap-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+                        <div v-if="parsedMessage.thinking" class="mb-4 rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] p-3">
+                            <div class="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--status-warning)]">
                                 <span class="i-lucide-brain h-4 w-4"></span>
                                 {{ t("agent.sessionTree.thinking") }}
                             </div>
@@ -761,7 +761,7 @@ function handleKeyDown(e: KeyboardEvent): void {
                     {{ t("agent.sessionTree.selectNodeHint") }}
                 </div>
                 <div class="border-t border-[var(--border-color)] bg-[var(--bg-main)] px-4 py-3">
-                    <button type="button" class="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[var(--accent-main)] text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.running || !selectedNode" @click="activateSelected">
+                    <button type="button" class="inline-flex h-9 w-full items-center justify-center gap-2 rounded-md bg-[var(--accent-main)] text-sm font-medium text-[var(--text-inverse)] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50" :disabled="props.running || !selectedNode" @click="activateSelected">
                         <span class="i-lucide-git-branch h-4 w-4"></span>
                         {{ t("agent.sessionTree.activateNode") }}
                     </button>

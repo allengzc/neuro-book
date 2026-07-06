@@ -22,7 +22,7 @@ const props = withDefaults(defineProps<{
         :class="[
             props.size === 'sm' ? 'h-6 w-6' : 'h-7 w-7',
             props.variant === 'danger'
-                ? 'text-[var(--text-muted)] hover:bg-rose-500/10 hover:text-rose-500'
+                ? 'text-[var(--text-muted)] hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)]'
                 : 'text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]',
         ]"
     >

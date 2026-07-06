@@ -79,7 +79,7 @@ function searchKey(candidate: RagInspectorSearchCandidate): string {
             <div v-if="loading" class="py-12 text-center text-[12px] text-[var(--text-muted)]">正在加载 RAG Inspector...</div>
 
             <template v-else-if="mode === 'chunks'">
-                <div v-if="chunksTruncated" class="mb-3 rounded-md border border-amber-500/20 bg-amber-500/10 p-2 text-[11px] text-amber-700">当前只显示前 {{ chunkLimit }} 条索引条目，可切换上限查看更多。</div>
+                <div v-if="chunksTruncated" class="mb-3 rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] p-2 text-[11px] text-[var(--status-warning)]">当前只显示前 {{ chunkLimit }} 条索引条目，可切换上限查看更多。</div>
                 <div v-if="chunks.length === 0" class="mx-auto mt-20 max-w-[420px] rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] p-4 text-center">
                     <div class="mx-auto mb-3 flex h-9 w-9 items-center justify-center rounded-md bg-[var(--bg-input)] text-[var(--text-muted)]">
                         <span class="i-lucide-database-x h-4 w-4"></span>
@@ -120,7 +120,7 @@ function searchKey(candidate: RagInspectorSearchCandidate): string {
                         搜索
                     </button>
                 </div>
-                <div v-if="searchError" class="mb-3 rounded-md border border-rose-500/20 bg-rose-500/8 p-2 text-[11px] text-rose-700">{{ searchError }}</div>
+                <div v-if="searchError" class="mb-3 rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-2 text-[11px] text-[var(--status-danger)]">{{ searchError }}</div>
                 <div v-if="searchResult && searchResult.candidates.length === 0" class="py-10 text-center text-[12px] text-[var(--text-muted)]">没有召回候选。</div>
                 <button
                     v-for="candidate in searchResult?.candidates ?? []"

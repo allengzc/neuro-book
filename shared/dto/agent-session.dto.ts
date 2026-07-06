@@ -17,6 +17,23 @@ const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
 
 export const AgentSessionIdSchema = z.number().int().positive();
 
+/**
+ * Agent 工作模式（Task 90）。
+ * - normal：无特殊约束，可读可写。
+ * - discuss：只读讨论导向，写文件工具挂起审批。
+ * - plan：只读计划导向，写文件工具挂起审批（计划目录内 .md 豁免）。
+ */
+export const AgentModeSchema = z.enum(["normal", "discuss", "plan"]);
+
+export type AgentMode = z.infer<typeof AgentModeSchema>;
+
+/**
+ * 判断模式是否为只读模式（discuss / plan 共有约束：写文件工具需审批）。
+ */
+export function isReadonlyMode(mode: AgentMode): boolean {
+    return mode === "discuss" || mode === "plan";
+}
+
 export const AgentUserMessageInputDtoSchema = z.object({
     text: z.string(),
     images: z.array(z.object({
@@ -126,7 +143,7 @@ export const AgentCommandRequestDtoSchema = z.discriminatedUnion("command", [
     z.object({command: z.literal("new")}),
     z.object({command: z.literal("archive"), reason: z.string().optional()}),
     z.object({command: z.literal("compact"), instructions: z.string().optional()}),
-    z.object({command: z.literal("plan"), active: z.boolean()}),
+    z.object({command: z.literal("mode"), mode: AgentModeSchema}),
     z.object({command: z.literal("model"), modelKey: z.string().trim().min(1).nullable()}),
     z.object({command: z.literal("thinking"), thinkingLevel: ThinkingLevelSchema.nullable()}),
     z.object({command: z.literal("retry"), entryId: z.string().trim().min(1).optional()}),
@@ -332,7 +349,7 @@ export type AgentSessionLiveStateDto = {
     thinkingLevel: z.infer<typeof ThinkingLevelSchema> | null;
     /** 当前新 run 实际会传给 PI 的 thinking level。 */
     effectiveThinkingLevel: z.infer<typeof ThinkingLevelSchema>;
-    planModeActive: boolean;
+    agentMode: AgentMode;
     usage?: Usage;
     contextUsage?: AgentSessionContextUsageDto;
 };
@@ -547,7 +564,7 @@ export type AgentSessionSnapshotDto = {
     thinkingLevel: z.infer<typeof ThinkingLevelSchema> | null;
     /** 当前新 run 实际会传给 PI 的 thinking level。 */
     effectiveThinkingLevel: z.infer<typeof ThinkingLevelSchema>;
-    planModeActive: boolean;
+    agentMode: AgentMode;
     /** 兼容字段；值等于 eventCursor.after，不再表示 EventHub 尾部。 */
     lastSeq: number;
     usage?: Usage;

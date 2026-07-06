@@ -81,7 +81,15 @@ export const CONFIG_REGISTRY: ConfigItemMeta[] = [
         effect: "hot",
         merge: "replace",
         secret: false,
-        description: "Novel IDE 默认主题。",
+        description: "Novel IDE 当前主题 ID。可指向内置主题或现存自定义主题。",
+    },
+    {
+        key: "ui.customThemes",
+        scope: "global",
+        effect: "hot",
+        merge: "replace",
+        secret: false,
+        description: "Novel IDE 用户自定义主题列表，保存调色盘变量覆盖。",
     },
     {
         key: "editor.markdown",

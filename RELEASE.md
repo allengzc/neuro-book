@@ -1,5 +1,35 @@
 # Release Notes
 
+## 0.5.7-canary - 2026-07-06
+
+这次 canary 主要是写作工作台体验、Plot/Writer 架构、Agent 可观测性和主题系统的一轮大更新。
+
+1. Agent 请求可观测性
+新增 Pi 请求 trace 记录与查看器。Agent 主 turn、sidecar、compaction 的 provider 请求会记录模型、usage、耗时、TTFT、规范化 context 和原生 payload；IDE 顶栏新增 Trace 入口，可按最近请求、session 或 system scope 查看详情。Trace 默认不进入可分享日志包，避免泄露 prompt 与正文。
+
+2. Plot 升级为两棵树
+Plot 从 Scene-only 进一步升级为承载树和因果树：Story -> Act -> Chapter -> Prose，以及 Story -> Phase -> Thread -> Scene。Scene 通过 `chapterId` 与 Chapter 交汇，ChapterBrief 成为 `StoryChapter` 的一等字段组，用于保存章节目标、POV、信息控制、节奏、开头收尾和禁写事项。
+
+3. Writer brief 更结构化
+writer 的章节 brief 改为基于 StoryChapter / Scene / World Engine 上下文编译，支持 autonomous 模式下的 Plot 只读工具和 ChapterBrief 信息控制。原 Task 80 ChapterOverride 已被 ChapterBrief 吸收并归档。
+
+4. Plot 前端工作台迁移
+Plot 面板从 manuscript 文件树派生章节，迁移为使用 StoryChapter 实体。新增章节编辑、ChapterBrief 表单、章节管理条、新建卷对话框和 Prose 关联视图。新 UI 还未做浏览器验收。
+
+5. 主题系统 v2.1 与自定义主题
+主题变量收口到 36 个 v2.1 token，8 套内置主题保留，World Engine / Agent / Markdown / diff / settings 等入口同步改用语义变量。设置页新增自定义主题编辑器，支持实时预览、核心调色、全变量编辑、重新生成、JSON 导入导出和取色器。浏览器全流程验证仍待执行。
+
+6. Workshop 平台推进
+`nb-workshop` sibling 仓完成 Phase 1 后端、Web 前端和友好上传流程：浏览、详情、发布、个人页、admin、邀请码、评论/点赞/收藏/举报、zip manifest 校验与在线编辑打包均已记录到 Task 88。NeuroBook 客户端安装闭环仍是后续 Phase 2。
+
+7. Agent 模式系统准备
+新增 normal / discuss / plan 三模式设计与相关前后端改造基础，目标是把“只读讨论”“只读计划”“正常执行”明确分开，并让只读模式下的写操作走用户审批。该系统仍以 Task 90 的后续实现和验证为准。
+
+8. 其他体验与文档
+Markdown Studio、Agent 气泡、Profile Template Editor、设置页、低代码表单、World Engine Workbench、参考文档和主题规范都有一轮 UI 与契约同步。
+
+本轮验证主要来自各任务记录：Task 86 后端/reader/view-model/guard 单测与真实 provider smoke，Task 87 backend plot/profile/API 测试和 typecheck，Task 88 sibling 仓 typecheck/test/build，Task 89 聚焦主题测试与 OpenAPI 生成。部分前端新 UI 尚未浏览器验证，release 后建议重点手动验收 Trace 查看器、Plot ChapterBrief 编辑器、自定义主题编辑器和 Workshop 客户端后续接入路径。
+
 ## 0.5.6-canary - 2026-07-03
 
 这次修复 GHCR 部署和管理员创建链路，重点是让安装器、镜像版本和 Product Runtime 合同重新对齐。

@@ -104,7 +104,7 @@ watch(() => props.modelValue, (visible) => {
                 ></textarea>
             </div>
 
-            <div v-if="error" class="rounded-lg border border-rose-500/20 bg-rose-500/8 px-3 py-2 text-xs text-rose-700">
+            <div v-if="error" class="rounded-lg border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-xs text-[var(--status-danger)]">
                 {{ error }}
             </div>
 
@@ -135,7 +135,7 @@ watch(() => props.modelValue, (visible) => {
             <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-main)] transition-colors duration-200 hover:bg-[var(--bg-hover)] active:scale-95 disabled:opacity-50" :disabled="loading || !instruction.trim()" @click="runAnnotation">
                 {{ loading ? "处理中..." : "运行 AI 批注" }}
             </button>
-            <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-white transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95 disabled:opacity-50" :disabled="!response" @click="applyDraft">
+            <button class="inline-flex items-center justify-center h-8 px-4 rounded-md text-[13px] font-medium cursor-pointer border border-transparent bg-[var(--accent-main)] text-[var(--text-inverse)] transition-all duration-200 hover:opacity-90 hover:shadow-md active:scale-95 disabled:opacity-50" :disabled="!response" @click="applyDraft">
                 应用草稿
             </button>
         </template>

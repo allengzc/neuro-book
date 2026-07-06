@@ -193,6 +193,7 @@ function createWriteTool(): NeuroAgentTool {
         name: "write",
         label: "write",
         executionMode: "sequential",
+        mutatesWorkspace: true,
         description: "Create or overwrite a file. Automatically creates parent directories. Use write only for new files or complete rewrites, not targeted edits to existing files.",
         parameters: WriteSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {
@@ -217,6 +218,7 @@ function createEditTool(): NeuroAgentTool {
         name: "edit",
         label: "edit",
         executionMode: "sequential",
+        mutatesWorkspace: true,
         description: "Edit a single file using exact text replacement. Every edits[].oldText must match a unique, non-overlapping region of the original file. When changing multiple separate locations in one file, use one edit call with multiple entries in edits[]. Each oldText is matched against the original file, not incrementally. Merge nearby changes into one edit and keep oldText as small as possible while still unique.",
         parameters: EditSchema,
         prepareArguments(args: unknown) {
@@ -268,6 +270,7 @@ function createApplyPatchTool(): NeuroAgentTool {
         name: "apply_patch",
         label: "apply_patch",
         executionMode: "sequential",
+        mutatesWorkspace: true,
         description: "Use the `apply_patch` tool to edit files by passing a Codex apply_patch patch in the `patch` string field. Use it when a change is naturally cohesive in one verified patch. For multiple separate locations in one file, prefer one edit call with multiple entries in edits[].",
         parameters: ApplyPatchSchema,
         async executeWithContext(context: ToolExecutionContext, _toolCallId: string, params: unknown, _userInput?: unknown, signal?: AbortSignal) {

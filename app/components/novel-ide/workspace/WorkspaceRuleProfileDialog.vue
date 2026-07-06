@@ -207,7 +207,7 @@ watch(() => [props.modelValue, props.node?.path, selectedFileContent.value], () 
             <!-- 规则档案头部 -->
             <div class="flex min-w-0 flex-1 items-center justify-between gap-4">
                 <div class="flex min-w-0 items-center gap-4">
-                    <span class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-rose-500/20 bg-rose-500/10 text-rose-700">
+                    <span class="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[var(--status-danger)]">
                         <span class="i-lucide-book-key h-7 w-7"></span>
                     </span>
                     <div class="min-w-0">
@@ -225,11 +225,11 @@ watch(() => [props.modelValue, props.node?.path, selectedFileContent.value], () 
         </template>
 
         <div v-if="draft" class="space-y-3 text-xs" :class="savingFile ? 'pointer-events-none opacity-80' : ''">
-            <div v-if="diagnostics" class="rounded-md border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-rose-700">{{ diagnostics }}</div>
-            <div v-for="issue in relatedIssues" :key="`${issue.code}:${issue.path}:${issue.message}`" class="rounded-md border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-amber-800">[{{ issue.level }}] {{ issue.message }}</div>
+            <div v-if="diagnostics" class="rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-3 py-2 text-[var(--status-danger)]">{{ diagnostics }}</div>
+            <div v-for="issue in relatedIssues" :key="`${issue.code}:${issue.path}:${issue.message}`" class="rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-3 py-2 text-[var(--status-warning)]">[{{ issue.level }}] {{ issue.message }}</div>
 
             <!-- 规则核心信息 -->
-            <section class="rounded-xl border border-rose-500/15 bg-rose-500/5 p-3">
+            <section class="rounded-xl border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-3">
                 <div class="grid grid-cols-[minmax(0,1fr)_132px_150px] gap-2">
                     <label class="space-y-1"><span>{{ t("ide.workspace.typedProfile.ruleName") }}</span><input v-model="draft.title" class="field" @blur="void saveDraft()"></label>
                     <label class="space-y-1"><span>{{ t("ide.workspace.common.status") }}</span><FormSelect :model-value="draft.status" :options="statusOptions" @update:model-value="draft.status = $event; void saveDraft()" /></label>
@@ -275,7 +275,7 @@ watch(() => [props.modelValue, props.node?.path, selectedFileContent.value], () 
                 <div v-for="(entryRef, index) in draft.refs" :key="index" class="flex items-center gap-1">
                     <input v-model="entryRef.relation" class="field w-[88px]" :placeholder="t('ide.workspace.common.relation')" @blur="void saveDraft()">
                     <input v-model="entryRef.target" class="field min-w-0 flex-1 font-mono" :placeholder="t('ide.workspace.common.targetPath')" @blur="void saveDraft()">
-                    <button type="button" class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-rose-500/10 hover:text-rose-500" @click="removeRef(index)"><span class="i-lucide-x h-3.5 w-3.5"></span></button>
+                    <button type="button" class="flex h-7 w-7 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger)]" @click="removeRef(index)"><span class="i-lucide-x h-3.5 w-3.5"></span></button>
                 </div>
                 <button type="button" class="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] hover:text-[var(--text-main)]" @click="addRef"><span class="i-lucide-plus h-3 w-3"></span>{{ t("ide.workspace.common.addReference") }}</button>
             </section>

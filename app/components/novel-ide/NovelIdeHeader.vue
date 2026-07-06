@@ -23,6 +23,7 @@ const emit = defineEmits<{
     (e: "open-world-engine"): void;
     (e: "open-user-assets"): void;
     (e: "open-profile-workbench"): void;
+    (e: "open-trace-viewer"): void;
     (e: "switch-novel", value: string): void;
     (e: "open-admin"): void;
     (e: "logout"): void;
@@ -83,7 +84,7 @@ const handleUserMenuSelect = (value: string): void => {
                 role="switch"
                 :aria-label="t('ide.header.layoutMode')"
                 :aria-checked="agentModeActive"
-                class="ide-agent-mode-switch relative hidden h-8 w-[150px] items-center rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] p-[3px] transition-colors hover:border-[var(--border-color-hover)] sm:flex"
+                class="ide-agent-mode-switch relative hidden h-8 w-[150px] items-center rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] p-[3px] transition-colors hover:border-[var(--border-strong)] sm:flex"
                 :title="agentModeActive ? t('ide.header.switchToIde') : t('ide.header.switchToAgent')"
                 @click="emit('toggle-layout-mode')"
             >
@@ -139,6 +140,11 @@ const handleUserMenuSelect = (value: string): void => {
                 <span class="i-lucide-git-branch h-4 w-4 text-[var(--accent-text)]"></span>
                 <span>Plot</span>
             </button>
+            <!-- Pi 请求 trace 查看器入口：全局观测，user-assets 模式同样可用 -->
+            <button class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" :title="t('ide.header.traceViewerTitle')" @click="emit('open-trace-viewer')">
+                <span class="i-lucide-activity h-4 w-4 text-[var(--accent-text)]"></span>
+                <span>Trace</span>
+            </button>
             <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" :title="t('ide.header.userAssetsTitle')" @click="emit('open-user-assets')">
                 <span class="i-lucide-folder-cog h-4 w-4 text-[var(--accent-text)]"></span>
                 <span>{{ t("ide.header.userAssets") }}</span>
@@ -161,7 +167,7 @@ const handleUserMenuSelect = (value: string): void => {
 
             <div class="w-8 shrink-0">
                 <Dropdown :items="userMenuItems" menu-class="right-0 top-full mt-2 w-40" @select="handleUserMenuSelect">
-                    <button class="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color-hover)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('ide.header.accountMenu')">
+                    <button class="flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] text-[var(--text-secondary)] transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" :title="t('ide.header.accountMenu')">
                         <span class="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--accent-bg)] text-[11px] font-semibold text-[var(--accent-text)]">{{ userInitial }}</span>
                     </button>
                 </Dropdown>

@@ -91,7 +91,7 @@ watch(() => props.activePath, () => {
 
 <template>
     <!-- Markdown Studio 工作台 -->
-    <section class="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--editor-canvas-bg)]" :class="props.compact ? 'min-w-[260px]' : 'min-w-[640px]'">
+    <section class="flex min-h-0 flex-1 flex-col overflow-hidden bg-[var(--editor-bg)]" :class="props.compact ? 'min-w-[260px]' : 'min-w-[640px]'">
         <MarkdownStudioToolbar
             :tabs="props.tabs"
             :active-path="props.activePath"
@@ -110,7 +110,7 @@ watch(() => props.activePath, () => {
             @more="emit('more')"
         />
 
-        <div class="relative flex min-h-0 flex-1 overflow-hidden bg-[var(--editor-canvas-bg)]">
+        <div class="relative flex min-h-0 flex-1 overflow-hidden bg-[var(--editor-bg)]">
             <MarkdownStudioWelcome
                 v-if="!props.activePath || !props.node"
                 :node="props.node"
@@ -217,7 +217,7 @@ watch(() => props.activePath, () => {
     display: flex;
     min-height: 0;
     overflow: hidden;
-    background: var(--editor-canvas-bg);
+    background: var(--editor-bg);
 }
 
 .markdown-comment-layout__spacer {

@@ -29,14 +29,14 @@ function formatStateAttrValue(value: WorkbenchJsonValue): string {
 
 <template>
     <!-- State Query 摘要列表 -->
-    <div v-if="issues?.length" class="mb-4 rounded-md border border-amber-500/25 bg-amber-500/10 p-3">
-        <div class="mb-2 flex items-center gap-2 text-[12px] font-semibold text-amber-800">
+    <div v-if="issues?.length" class="mb-4 rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] p-3">
+        <div class="mb-2 flex items-center gap-2 text-[12px] font-semibold text-[var(--status-warning)]">
             <span class="i-lucide-triangle-alert h-4 w-4"></span>
             Query 返回 {{ issues.length }} 个 issue
         </div>
         <div class="space-y-1.5">
-            <div v-for="issue in issues" :key="`state-issue:${issue.code}:${issue.sliceId}:${issue.subjectId}:${issue.attr}:${issue.message}`" class="rounded-md border border-amber-500/20 bg-[var(--bg-panel)] px-3 py-2 text-[12px] text-[var(--text-secondary)]">
-                <span class="font-mono text-amber-700">{{ issue.code }}</span>
+            <div v-for="issue in issues" :key="`state-issue:${issue.code}:${issue.sliceId}:${issue.subjectId}:${issue.attr}:${issue.message}`" class="rounded-md border border-[var(--status-warning-border)] bg-[var(--bg-panel)] px-3 py-2 text-[12px] text-[var(--text-secondary)]">
+                <span class="font-mono text-[var(--status-warning)]">{{ issue.code }}</span>
                 <span class="mx-1 text-[var(--text-muted)]">·</span>
                 <span class="font-mono">{{ issue.subjectId }}.{{ issue.attr }}</span>
                 <span v-if="issue.sliceId" class="ml-1 text-[var(--text-muted)]">slice {{ issue.sliceId }}</span>

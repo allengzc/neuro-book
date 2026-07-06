@@ -342,8 +342,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
                 <div class="mt-4 border-t border-[var(--border-color)] pt-3">
                     <div class="mb-2 text-xs font-semibold text-[var(--text-secondary)]">验证结果</div>
-                    <div v-if="props.issues.length === 0" class="text-xs text-emerald-600">暂无问题</div>
-                    <div v-for="issue in props.issues" :key="`${issue.message}-${issue.nodeId ?? ''}`" class="mb-1 rounded-md border px-2 py-1 text-xs" :class="issue.severity === 'error' ? 'border-red-500/20 bg-red-500/10 text-red-600' : 'border-amber-500/20 bg-amber-500/10 text-amber-700'">
+                    <div v-if="props.issues.length === 0" class="text-xs text-[var(--status-success)]">暂无问题</div>
+                    <div v-for="issue in props.issues" :key="`${issue.message}-${issue.nodeId ?? ''}`" class="mb-1 rounded-md border px-2 py-1 text-xs" :class="issue.severity === 'error' ? 'border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[var(--status-danger)]' : 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]'">
                         <div class="font-medium">{{ issue.message }}</div>
                         <div v-if="props.issueDetail(issue)" class="mt-1 text-[10px] leading-4 opacity-80">{{ props.issueDetail(issue) }}</div>
                     </div>
@@ -427,7 +427,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     border-radius: 8px;
     background: var(--bg-panel);
     padding: 12px;
-    box-shadow: 0 16px 44px rgba(15, 23, 42, 0.05);
+    box-shadow: 0 16px 44px color-mix(in srgb, var(--shadow-color) 5%, transparent);
 }
 
 .panel-icon-btn {
@@ -445,7 +445,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 .panel-icon-btn:hover {
-    border-color: var(--border-color-hover);
+    border-color: var(--border-strong);
     background: var(--bg-hover);
     color: var(--accent-text);
 }
@@ -579,7 +579,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 .schema-icon-btn:hover,
 .schema-action-btn:not(:disabled):hover {
-    border-color: var(--border-color-hover);
+    border-color: var(--border-strong);
     background: var(--bg-hover);
     color: var(--accent-text);
 }

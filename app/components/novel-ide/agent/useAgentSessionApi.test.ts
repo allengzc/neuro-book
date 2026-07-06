@@ -71,7 +71,7 @@ describe("useAgentSessionApi", () => {
                 model: null,
                 thinkingLevel: null,
                 effectiveThinkingLevel: "off",
-                planModeActive: true,
+                agentMode: "plan",
             },
         };
         const fetchMock = vi.fn(async () => result);
@@ -80,10 +80,10 @@ describe("useAgentSessionApi", () => {
 
         const api = useAgentSessionApi();
 
-        await expect(api.runCommand(12, {command: "plan", active: true})).resolves.toEqual(result);
+        await expect(api.runCommand(12, {command: "mode", mode: "plan"})).resolves.toEqual(result);
         expect(fetchMock).toHaveBeenCalledWith("/api/agent/sessions/12/commands", {
             method: "POST",
-            body: {command: "plan", active: true},
+            body: {command: "mode", mode: "plan"},
         });
     });
 });

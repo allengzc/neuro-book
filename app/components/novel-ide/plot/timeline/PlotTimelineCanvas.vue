@@ -28,7 +28,7 @@ const headerGridStyle = computed(() => {
 
 <template>
     <!-- 时间轴主体画布 -->
-    <div class="overflow-auto rounded-[28px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_24px_80px_rgba(15,23,42,0.12)]">
+    <div class="overflow-auto rounded-[28px] border border-[var(--border-color)] bg-[var(--bg-panel)] shadow-[0_24px_80px_color-mix(in_srgb,var(--shadow-color)_12%,transparent)]">
         <div class="min-w-max px-4 py-4">
             <!-- 顶部章节分段 -->
             <div class="sticky top-0 z-20 mb-4 grid grid-cols-[220px_minmax(0,1fr)] gap-3 bg-[var(--bg-panel)]/96 pb-3 backdrop-blur">
@@ -47,7 +47,7 @@ const headerGridStyle = computed(() => {
                         type="button"
                         class="rounded-2xl border px-4 py-3 text-left transition-colors"
                         :class="segment.kind === 'draft'
-                            ? 'border-dashed border-slate-400/35 bg-slate-500/8'
+                            ? 'border-dashed border-[var(--status-warning-border)] bg-[var(--status-warning-bg)]'
                             : (props.selectedChapterId === segment.chapterId
                                 ? 'border-[var(--accent-main)] bg-[var(--accent-bg)] text-[var(--accent-text)]'
                                 : 'border-[var(--border-color)] bg-[var(--bg-input)]')"

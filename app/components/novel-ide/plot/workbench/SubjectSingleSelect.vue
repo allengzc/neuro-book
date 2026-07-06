@@ -98,6 +98,6 @@ async function loadSubjects(): Promise<void> {
             <div v-if="loading" class="px-2 py-3 text-center text-[11px] text-[var(--text-muted)]">加载中...</div>
         </div>
 
-        <div v-if="error" class="text-[11px] text-rose-600">{{ error }}</div>
+        <div v-if="error" class="text-[11px] text-[var(--status-danger)]">{{ error }}</div>
     </div>
 </template>

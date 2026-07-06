@@ -52,10 +52,9 @@ const meta = computed(() => getReferenceChipMeta({
     border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
     border-radius: 0.75rem;
     background: color-mix(in srgb, currentColor 10%, var(--bg-panel));
-    color: var(--text-main);
     vertical-align: baseline;
     line-height: 1.25;
-    color: #7c3aed;
+    color: var(--status-info);
 }
 
 .nb-inline-comment__badge {

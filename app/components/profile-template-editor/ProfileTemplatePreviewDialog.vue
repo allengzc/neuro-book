@@ -165,7 +165,7 @@ const emit = defineEmits<{
                         <span>问题</span>
                     </div>
                     <div class="space-y-2">
-                        <div v-for="issue in props.issues" :key="`dialog-${issue.message}-${issue.nodeId ?? issue.path ?? ''}`" class="rounded-md border px-3 py-2 text-xs" :class="issue.severity === 'error' ? 'border-red-500/20 bg-red-500/10 text-red-600' : 'border-amber-500/20 bg-amber-500/10 text-amber-700'">
+                        <div v-for="issue in props.issues" :key="`dialog-${issue.message}-${issue.nodeId ?? issue.path ?? ''}`" class="rounded-md border px-3 py-2 text-xs" :class="issue.severity === 'error' ? 'border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] text-[var(--status-danger)]' : 'border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] text-[var(--status-warning)]'">
                             <div class="font-semibold">{{ issue.message }}</div>
                             <div v-if="props.issueDetail(issue)" class="mt-1 leading-5 opacity-80">{{ props.issueDetail(issue) }}</div>
                         </div>

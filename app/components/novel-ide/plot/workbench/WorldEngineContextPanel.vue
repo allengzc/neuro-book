@@ -90,9 +90,9 @@ function formatValue(value: unknown): string {
         </div>
 
         <div v-if="loading" class="py-4 text-center text-[11px] text-[var(--text-muted)]">正在查询...</div>
-        <div v-else-if="error" class="rounded-md border border-rose-500/20 bg-rose-500/10 px-2 py-2 text-[11px] leading-relaxed text-rose-700">{{ error }}</div>
+        <div v-else-if="error" class="rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] px-2 py-2 text-[11px] leading-relaxed text-[var(--status-danger)]">{{ error }}</div>
         <div v-else-if="!hasContext" class="space-y-2">
-            <div v-if="unresolvedSubjectIds.length" class="rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+            <div v-if="unresolvedSubjectIds.length" class="rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-2 py-2 text-[11px] leading-relaxed text-[var(--status-warning)]">
                 <div class="mb-1 flex items-center justify-center gap-1 font-semibold">
                     <span class="i-lucide-alert-triangle h-3.5 w-3.5"></span>
                     Subject 尚未接入 World Engine
@@ -102,7 +102,7 @@ function formatValue(value: unknown): string {
             <div class="rounded-md border border-dashed border-[var(--border-color)] px-2 py-4 text-center text-[11px] text-[var(--text-muted)]">暂无匹配的 slices 或 subject 状态</div>
         </div>
         <div v-else class="space-y-3">
-            <div v-if="unresolvedSubjectIds.length" class="rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
+            <div v-if="unresolvedSubjectIds.length" class="rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] px-2 py-2 text-[11px] leading-relaxed text-[var(--status-warning)]">
                 <div class="mb-1 flex items-center gap-1 font-semibold">
                     <span class="i-lucide-alert-triangle h-3.5 w-3.5"></span>
                     未接入 subject 不参与本次查询
@@ -130,7 +130,7 @@ function formatValue(value: unknown): string {
                     <div v-for="subject in context.subjectStates" :key="subject.subjectId" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5">
                         <div class="flex items-center gap-2 text-[11px]">
                             <span class="truncate font-semibold text-[var(--text-main)]">{{ subject.name || subject.subjectId }}</span>
-                            <span class="shrink-0 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-300">{{ subject.type }}</span>
+                            <span class="shrink-0 rounded bg-[var(--status-success-bg)] px-1.5 py-0.5 text-[10px] text-[var(--status-success)]">{{ subject.type }}</span>
                         </div>
                         <div class="mt-1 line-clamp-2 text-[11px] leading-relaxed text-[var(--text-secondary)]">{{ attrsSummary(subject.attrs) }}</div>
                     </div>

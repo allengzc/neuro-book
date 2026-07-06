@@ -353,14 +353,14 @@ function basename(filePath: string): string {
                 <div class="mt-1 max-w-full truncate font-mono text-[11px] text-[var(--text-main)]" :title="props.node.path">{{ props.node.path }}</div>
             </div>
 
-            <div v-if="isContentDirectoryWithoutIndex" class="rounded-md border border-amber-500/20 bg-amber-500/8 p-2 text-amber-800">
+            <div v-if="isContentDirectoryWithoutIndex" class="rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] p-2 text-[var(--status-warning)]">
                 {{ t("ide.workspace.fileDetail.contentDirectoryWithoutIndex") }}
             </div>
             <div v-else-if="isDirectoryWithoutIndex" class="rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2 text-[var(--text-muted)]">
                 {{ t("ide.workspace.fileDetail.directoryWithoutIndex") }}
             </div>
 
-            <div v-if="localFrontmatterError || props.node.frontmatterError" class="rounded-md border border-rose-500/20 bg-rose-500/8 p-2 text-rose-700">
+            <div v-if="localFrontmatterError || props.node.frontmatterError" class="rounded-md border border-[var(--status-danger-border)] bg-[var(--status-danger-bg)] p-2 text-[var(--status-danger)]">
                 {{ localFrontmatterError || props.node.frontmatterError }}
             </div>
 
@@ -370,7 +370,7 @@ function basename(filePath: string): string {
                     <div class="text-[10px] uppercase tracking-[0.16em] text-[var(--text-muted)]">Manuscript</div>
                     <div class="flex shrink-0 items-center gap-2">
                         <span v-if="manuscriptStats.updatedAt" class="text-[10px] text-[var(--text-muted)]">{{ manuscriptStats.updatedAt }}</span>
-                        <span v-if="isFrontmatterDirty" class="text-[10px] text-amber-600">{{ t("ide.workspace.common.unsaved") }}</span>
+                        <span v-if="isFrontmatterDirty" class="text-[10px] text-[var(--status-warning)]">{{ t("ide.workspace.common.unsaved") }}</span>
                         <button type="button" class="rounded-md border border-[var(--border-color)] px-1.5 py-0.5 text-[10px] text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-main)]" @click="refreshManuscriptStats">{{ t("ide.workspace.fileDetail.updateStats") }}</button>
                     </div>
                 </div>
@@ -419,7 +419,7 @@ function basename(filePath: string): string {
             <div v-else-if="isContentIndexFile || props.node.contentNode" class="space-y-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-input)] p-2">
                 <div class="flex items-center justify-between gap-2">
                     <div class="text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)]">Frontmatter</div>
-                    <span v-if="isContentIndexFile && isFrontmatterDirty" class="text-[10px] text-amber-600">{{ t("ide.workspace.common.unsaved") }}</span>
+                    <span v-if="isContentIndexFile && isFrontmatterDirty" class="text-[10px] text-[var(--status-warning)]">{{ t("ide.workspace.common.unsaved") }}</span>
                 </div>
                 <div v-if="isContentIndexFile" class="flex items-center justify-between gap-2 rounded-md border border-[var(--border-color)] bg-[var(--bg-panel)] px-2 py-1.5">
                     <div class="flex min-w-0 items-center gap-2">
@@ -445,7 +445,7 @@ function basename(filePath: string): string {
 
             <div v-if="hasRelatedIssues" class="space-y-2">
                 <div class="text-[10px] uppercase tracking-[0.18em] text-[var(--text-muted)]">{{ t("ide.workspace.fileDetail.validate") }}</div>
-                <div v-for="issue in relatedIssues" :key="`${issue.code}:${issue.path}:${issue.message}`" class="rounded-md border border-amber-500/20 bg-amber-500/8 p-2 text-amber-800">
+                <div v-for="issue in relatedIssues" :key="`${issue.code}:${issue.path}:${issue.message}`" class="rounded-md border border-[var(--status-warning-border)] bg-[var(--status-warning-bg)] p-2 text-[var(--status-warning)]">
                     <div class="font-medium">[{{ issue.level }}] {{ issue.code }}</div>
                     <div class="mt-1 leading-5">{{ issue.message }}</div>
                 </div>

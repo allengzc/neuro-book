@@ -26,7 +26,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
     (e: "update:modelValue", value: string): void;
     (e: "submit", payload?: {ctrlKey?: boolean; metaKey?: boolean}): void;
-    (e: "toggle-plan-mode"): void;
+    (e: "cycle-mode"): void;
 }>();
 
 const editorRef = ref<InstanceType<typeof ReferencePlainTextEditor> | null>(null);
@@ -78,6 +78,6 @@ defineExpose({
         :borderless="props.borderless"
         @update:model-value="emit('update:modelValue', $event)"
         @submit="emit('submit', $event)"
-        @shift-tab="emit('toggle-plan-mode')"
+        @shift-tab="emit('cycle-mode')"
     />
 </template>

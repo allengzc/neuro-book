@@ -26,7 +26,7 @@ const viewItems: ViewItem[] = [
 
 <template>
     <!-- 剧情模块视图切换器 -->
-    <div class="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[0_12px_36px_rgba(0,0,0,0.08)]">
+    <div class="rounded-[20px] border border-[var(--border-color)] bg-[var(--bg-panel)] p-2 shadow-[0_12px_36px_color-mix(in_srgb,var(--shadow-color)_8%,transparent)]">
         <div class="grid gap-2 md:grid-cols-4">
             <button
                 v-for="item in viewItems"
