@@ -113,7 +113,11 @@ export async function getAgentSessionRelations(sessionId: number, harness = useA
  * 阻塞调用 Agent session。
  */
 export async function invokeAgentSession(sessionId: number, body: AgentInvokeRequestDto, harness = useAgentHarness()) {
-    return harness.invokeAgent(toInvokeInput(sessionId, body));
+    try {
+        return await harness.invokeAgent(toInvokeInput(sessionId, body));
+    } catch (error) {
+        throw normalizeInvokeAdmissionError(error);
+    }
 }
 
 /**
@@ -176,4 +180,32 @@ export function toInvokeInput(
         block: body.block,
         onEvent,
     };
+}
+
+/**
+ * 将 invocation admission 的状态机拒绝转换为 HTTP 可恢复错误。
+ */
+function normalizeInvokeAdmissionError(error: unknown): unknown {
+    if (!(error instanceof Error)) {
+        return error;
+    }
+    const conflictMessages = new Set([
+        "active_invocation_aborting",
+        "active_invocation_exists",
+        "steer_not_available",
+        "waiting_invocation_not_recoverable",
+    ]);
+    if (conflictMessages.has(error.message)) {
+        return createError({
+            statusCode: 409,
+            message: error.message,
+        });
+    }
+    if (error.message === "active_invocation_required") {
+        return createError({
+            statusCode: 400,
+            message: error.message,
+        });
+    }
+    return error;
 }

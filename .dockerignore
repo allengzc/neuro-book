@@ -1,5 +1,7 @@
 .git
 .agent
+.agents
+.codex
 .cache
 .deploy
 .env
@@ -7,6 +9,7 @@
 !.env.example
 !.env.docker.example
 .idea
+.vscode
 .nitro
 .nuxt
 .output
@@ -15,10 +18,15 @@ coverage
 dist
 node_modules
 out-tsc
+product
 server/generated/prisma
 tmp
 workspace
 config.yaml
+.DS_Store
+Makefile
+bun.lockb
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*

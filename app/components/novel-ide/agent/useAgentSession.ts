@@ -68,6 +68,8 @@ export function useAgentSession() {
     const needsSnapshot = ref(false);
     const snapshotReasons = ref<string[]>([]);
     const running = computed(() => Boolean(snapshot.value?.activeInvocation) || liveRunStatus.value === "running" || liveRunStatus.value === "aborting");
+    const canSteer = computed(() => snapshot.value?.activeInvocation?.status === "running");
+    const canFollowUp = computed(() => Boolean(snapshot.value?.activeInvocation) && snapshot.value?.activeInvocation?.status !== "aborting");
     const pendingUserInputSession = computed(() => pendingUserInputSessions.value[0] ?? null);
     const pendingMessageUpdates: PendingMessageUpdate[] = [];
     let runtimeUpdateFrame: number | null = null;
@@ -448,6 +450,8 @@ export function useAgentSession() {
         applyLiveState,
         applyRelations,
         applySnapshot,
+        canSteer,
+        canFollowUp,
         clearSnapshotRequest,
         clearPendingUserInputSession,
         connectionStatus,

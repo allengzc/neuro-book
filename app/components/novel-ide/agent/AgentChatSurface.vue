@@ -142,6 +142,8 @@ const themeManager = useThemeManager();
 const costDisplay = useCostDisplay();
 const messages = session.messages;
 const running = session.running;
+const canSteer = session.canSteer;
+const canFollowUp = session.canFollowUp;
 const inlineEditorMessages = inlineEditorSession.messages;
 const inlineEditorRunning = inlineEditorSession.running;
 const connectionStatus = session.connectionStatus;
@@ -1407,7 +1409,7 @@ const stopInlineEditorPrompt = async (): Promise<void> => {
  */
 const steer = async (): Promise<void> => {
     const message = inputText.value.trim();
-    if (!activeSessionId.value || !running.value || !message) {
+    if (!activeSessionId.value || !canSteer.value || !message) {
         return;
     }
     try {
@@ -1423,6 +1425,7 @@ const steer = async (): Promise<void> => {
         notification.success(t("agent.chatSurface.steered"));
     } catch (error) {
         console.error("引导消息失败", error);
+        await syncActiveSessionSnapshot("invoke_error_fallback");
         notifyAgentError(error, t("agent.chatSurface.steerFailed"));
     }
 };
@@ -1432,7 +1435,7 @@ const steer = async (): Promise<void> => {
  */
 const followup = async (): Promise<void> => {
     const message = inputText.value.trim();
-    if (!activeSessionId.value || !running.value || !message) {
+    if (!activeSessionId.value || !canFollowUp.value || !message) {
         return;
     }
     try {
@@ -1448,6 +1451,7 @@ const followup = async (): Promise<void> => {
         notification.success(t("agent.chatSurface.queued"));
     } catch (error) {
         console.error("排队消息失败", error);
+        await syncActiveSessionSnapshot("invoke_error_fallback");
         notifyAgentError(error, t("agent.chatSurface.queueFailed"));
     }
 };

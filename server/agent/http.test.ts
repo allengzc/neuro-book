@@ -112,6 +112,34 @@ describe("agent session http helpers", () => {
         });
     });
 
+    it("invokeAgentSession 将 active invocation 状态拒绝转成 409", async () => {
+        const invokeAgent = vi.fn(async () => {
+            throw new Error("active_invocation_aborting");
+        });
+
+        await expect(invokeAgentSession(12, {
+            mode: "steer",
+            message: {text: "wait"},
+        }, {invokeAgent} as never)).rejects.toMatchObject({
+            statusCode: 409,
+            message: "active_invocation_aborting",
+        });
+    });
+
+    it("invokeAgentSession 将 idle steer 转成 400", async () => {
+        const invokeAgent = vi.fn(async () => {
+            throw new Error("active_invocation_required");
+        });
+
+        await expect(invokeAgentSession(12, {
+            mode: "steer",
+            message: {text: "wait"},
+        }, {invokeAgent} as never)).rejects.toMatchObject({
+            statusCode: 400,
+            message: "active_invocation_required",
+        });
+    });
+
     it("runAgentSessionCommand 调用 harness.runCommand", async () => {
         const runCommand = vi.fn(async () => ({
             status: "completed",

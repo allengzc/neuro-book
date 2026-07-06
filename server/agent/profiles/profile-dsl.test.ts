@@ -1034,9 +1034,13 @@ describe("profile TSX DSL", () => {
             return write.type === "custom" && write.key === "profileState.test.mode-reminder-steady" ? [write] : [];
         })[0];
         expect(reminderWrite).toBeDefined();
+        const runtime = base.runtime ?? {
+            now: "2026-05-23T00:00:00.000Z",
+            promptUserTurnCount: 1,
+        };
         const steady = await profile.prepare!({
             ...base,
-            runtime: {...base.runtime, promptUserTurnCount: 7},
+            runtime: {...runtime, promptUserTurnCount: 7},
             session: {
                 ...base.session,
                 profileKey: "test.mode-reminder-steady",

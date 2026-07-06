@@ -372,6 +372,8 @@ describe("useAgentSession", () => {
         });
 
         expect(session.running.value).toBe(true);
+        expect(session.canSteer.value).toBe(true);
+        expect(session.canFollowUp.value).toBe(true);
         expect(session.liveRunStatus.value).toBe("running");
         expect(session.runPhase.value).toBe("model_pending");
         expect(session.snapshot.value?.summarizer).toEqual(expect.objectContaining({
@@ -379,6 +381,51 @@ describe("useAgentSession", () => {
             lastDialogueContentTokens: 42,
         }));
         expect(session.needsSnapshot.value).toBe(false);
+    });
+
+    it("aborting active invocation 仍显示运行中但禁止 steer 和 followUp", () => {
+        const session = useAgentSession();
+        session.applySnapshot(baseSnapshot(0));
+
+        applyEvent(session, {
+            seq: 1,
+            sessionId: 1,
+            kind: "session",
+            event: {
+                type: "session_state_changed",
+                state: {
+                    summary: {
+                        ...baseSnapshot(1).summary,
+                        status: "running",
+                    },
+                    activeInvocation: {
+                        invocationId: "run-1",
+                        sessionId: 1,
+                        status: "aborting",
+                        mode: "prompt",
+                        startedAt: Date.now(),
+                    },
+                    activeLeafId: null,
+                    activePathRevision: null,
+                    pendingUserInputs: [],
+                    pendingApprovals: [],
+                    steerQueue: [],
+                    followUpQueue: {
+                        status: "ready",
+                        items: [],
+                    },
+                    model: null,
+                    thinkingLevel: null,
+                    effectiveThinkingLevel: "off",
+                    agentMode: "normal",
+                },
+            },
+        });
+
+        expect(session.running.value).toBe(true);
+        expect(session.canSteer.value).toBe(false);
+        expect(session.canFollowUp.value).toBe(false);
+        expect(session.liveRunStatus.value).toBe("aborting");
     });
 
     it("session_state_changed 发现 active path revision 改变时请求 snapshot", () => {

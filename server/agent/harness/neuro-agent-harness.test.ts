@@ -6913,7 +6913,7 @@ describe("NeuroAgentHarness", () => {
         expect(resolved.status).toBe("completed");
         await expect(readFile(join(root, "notes", "declined.md"), "utf-8")).rejects.toThrow();
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-        const toolResult = context.messages.find((message) => message.role === "toolResult" && message.toolCallId === "write-decline");
+        const toolResult = context.messages.find((message): message is RuntimeMessage => message.role === "toolResult" && message.toolCallId === "write-decline");
         expect(toolResult ? messageText(toolResult) : "").toContain("declined this file write in discuss mode");
     }, 20_000);
 
@@ -7024,7 +7024,7 @@ describe("NeuroAgentHarness", () => {
         expect(result.finalMessage).toBe("noop handled");
         expect((await harness.getSessionSnapshot(created.sessionId)).pendingApprovals).toHaveLength(0);
         const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
-        const toolResult = context.messages.find((message) => message.role === "toolResult" && message.toolCallId === "switch-noop");
+        const toolResult = context.messages.find((message): message is RuntimeMessage => message.role === "toolResult" && message.toolCallId === "switch-noop");
         expect(toolResult ? messageText(toolResult) : "").toContain("Already in plan mode");
     }, 20_000);
 

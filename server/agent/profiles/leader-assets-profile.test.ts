@@ -80,7 +80,7 @@ describe("assets builtin v3 profiles", () => {
                 customState: {},
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {},
             vars: createTestVariableAccessor(),
@@ -265,7 +265,7 @@ describe("assets builtin v3 profiles", () => {
                 },
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {},
             vars: createTestVariableAccessor({
@@ -314,7 +314,7 @@ describe("assets builtin v3 profiles", () => {
                 },
                 linkedAgents: [],
                 archived: false,
-                planModeActive: true,
+                agentMode: "plan",
             }),
             initial: {},
             vars: createTestVariableAccessor(),
@@ -345,7 +345,7 @@ describe("assets builtin v3 profiles", () => {
                 },
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {},
             vars: createTestVariableAccessor(),
@@ -376,7 +376,7 @@ describe("assets builtin v3 profiles", () => {
                 customState: {},
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {
                 prompt: "找主角相关设定",
@@ -426,7 +426,7 @@ describe("assets builtin v3 profiles", () => {
                 customState: {},
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {},
             vars: createTestVariableAccessor(),
@@ -621,7 +621,7 @@ describe("assets builtin v3 profiles", () => {
                 customState: {},
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {
                 topic: "web research",
@@ -759,7 +759,7 @@ describe("assets builtin v3 profiles", () => {
                     customState: {},
                     linkedAgents: [],
                     archived: false,
-                    planModeActive: false,
+                    agentMode: "normal",
                 }),
                 initial: {},
                 settings: defaultWriterSettings(),
@@ -1006,7 +1006,7 @@ describe("assets builtin v3 profiles", () => {
         const projectRoot = resolve("workspace", projectSlug);
         await mkdir(projectRoot, {recursive: true});
         await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Writer Test\nsummary: \"\"\n", "utf8");
-        const baseSession = {
+        const baseSession: Partial<NeuroSessionContext> = {
             systemPrompt: "",
             messages: [],
             model: null,
@@ -1016,7 +1016,7 @@ describe("assets builtin v3 profiles", () => {
             customState: {},
             linkedAgents: [],
             archived: false,
-            planModeActive: false,
+            agentMode: "normal",
         };
         const contextBase = {
             session: testSession(baseSession),
@@ -1105,7 +1105,7 @@ function testSession(input: Partial<NeuroSessionContext>): RuntimeSessionFacade 
         customState: {},
         linkedAgents: [],
         archived: false,
-        planModeActive: false,
+        agentMode: "normal",
         ...input,
         async read() {
             return {

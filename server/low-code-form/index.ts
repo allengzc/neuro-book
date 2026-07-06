@@ -795,7 +795,10 @@ function mergeSettings(defaults: LowCodeJsonObject, patch: LowCodeJsonObject | u
     const clonedPatch = cloneJsonObject(patch);
     for (const key of Object.keys(merged)) {
         if (Object.hasOwn(clonedPatch, key)) {
-            merged[key] = clonedPatch[key];
+            const value = clonedPatch[key];
+            if (value !== undefined) {
+                merged[key] = value;
+            }
         }
     }
     return merged;
