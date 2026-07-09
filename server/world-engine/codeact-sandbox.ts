@@ -125,7 +125,7 @@ export async function executeCodeAct(
 
         // 检查结果大小（BigInt 无法被 JSON.stringify，需 replacer 转字符串；
         // world.time.now() / world.slice.list() 的 instant 都是 BigInt）。返回值交由工具层归一化。
-        const resultStr = JSON.stringify(result, (_key, value) => typeof value === "bigint" ? value.toString() : value);
+        const resultStr = JSON.stringify(result ?? null, (_key, value) => typeof value === "bigint" ? value.toString() : value);
         if (resultStr.length > maxResultSize) {
             throw new Error(
                 `查询结果超过 ${maxResultSize / 1024}KB 限制（实际：${(resultStr.length / 1024).toFixed(1)}KB）。` +

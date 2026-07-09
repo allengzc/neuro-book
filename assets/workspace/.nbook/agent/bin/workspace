@@ -1,6 +1,22 @@
 #!/usr/bin/env sh
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-PRODUCT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../../../../.." && pwd)
+
+# Walk up from SCRIPT_DIR to find the product root (.output directory)
+PRODUCT_ROOT=""
+probe="$SCRIPT_DIR"
+while [ "$probe" != "/" ]; do
+    if [ -d "$probe/.output" ]; then
+        PRODUCT_ROOT="$probe"
+        break
+    fi
+    probe=$(dirname "$probe")
+done
+
+# Fallback: try 5 levels up (original layout for Windows Product Portable)
+if [ -z "$PRODUCT_ROOT" ]; then
+    PRODUCT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/../../../../.." && pwd)
+fi
+
 PRODUCT_WORKSPACE_SCRIPT="$PRODUCT_ROOT/.output/server/scripts/agent/workspace.ts"
 PORTABLE_BUN="$PRODUCT_ROOT/../runtime/bun/bun.exe"
 
