@@ -133,6 +133,20 @@ type HarnessOptions = {
 };
 
 const REPORT_RESULT_ERROR_LIMIT = 3;
+const MODEL_TRANSPORT_MAX_ATTEMPTS = 3;
+
+/**
+ * 标记“模型连接层临时断开，可安全重试”的错误。
+ *
+ * 只在 provider 尚未产出有效内容时抛出；一旦已有正文 / thinking / tool call，
+ * 本轮就必须保留 partial error，避免自动重试生成重复内容。
+ */
+class RetryableModelTransportError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = "RetryableModelTransportError";
+    }
+}
 
 type SessionSummarizerState = {
     sessionId?: number;
@@ -3523,82 +3537,115 @@ export class NeuroAgentHarness {
      * 执行单个 ReAct turn，输出可被 ingest/failure path 消费的 TurnOutcome。
      */
     private async executeTurn(frame: RunFrame, snapshot: TurnSnapshot): Promise<TurnOutcome> {
-        try {
-            const assistant = await this.streamAssistant({
-                snapshot,
-                sessionId: frame.sessionId,
-                abortSignal: frame.abortSignal,
-                emit: (event) => this.emitFrameEvent(frame, event),
-                trace: this.piTraceBinding(frame),
-            });
-            if (assistant.stopReason === "error" || assistant.stopReason === "aborted") {
+        for (let attempt = 1; attempt <= MODEL_TRANSPORT_MAX_ATTEMPTS; attempt += 1) {
+            try {
+                const assistant = await this.streamAssistant({
+                    snapshot,
+                    sessionId: frame.sessionId,
+                    abortSignal: frame.abortSignal,
+                    emit: (event) => this.emitFrameEvent(frame, event),
+                    trace: this.piTraceBinding(frame),
+                });
+                if (assistant.stopReason === "error" && isRetryableModelTransportAssistant(assistant) && attempt < MODEL_TRANSPORT_MAX_ATTEMPTS && !frame.abortSignal?.aborted) {
+                    this.logModelTransportRetry(frame, assistant.errorMessage ?? "模型连接临时断开。", attempt);
+                    continue;
+                }
+                if (assistant.stopReason === "error" || assistant.stopReason === "aborted") {
+                    return {
+                        kind: "failed",
+                        phase: "provider",
+                        errorInfo: this.toInvocationErrorInfo(assistant.errorMessage || (assistant.stopReason === "aborted" ? "生成已中断。" : "生成失败，provider 未返回错误详情。"), "model"),
+                        finalAssistant: assistant,
+                        partialAssistant: sanitizePartialAssistant(assistant) ?? undefined,
+                        messageStatus: assistant.stopReason === "aborted" ? "interrupted" : "partial",
+                    };
+                }
+                const toolCalls = assistant.content.filter((block): block is AgentToolCall => block.type === "toolCall");
+                const toolBatch = await this.runToolBatch({
+                    sessionId: frame.sessionId,
+                    workspaceKey: frame.workspaceKey,
+                    workspaceRoot: frame.workspaceRoot,
+                    projectPath: frame.projectPath,
+                    profileKey: frame.profileKey,
+                    invocationId: frame.invocationId,
+                    agentMode: snapshot.sessionContext.agentMode,
+                    assistant,
+                    toolCalls,
+                    executionToolKeys: snapshot.executionToolKeys,
+                    toolOverrides: snapshot.toolOverrides,
+                    activeSidecar: frame.activeSidecar,
+                    enqueueSavePointWrite: (plan, source) => {
+                        frame.pendingWritePlans.push({
+                            ...source,
+                            enqueueOrder: frame.pendingWritePlans.length,
+                            plan,
+                        });
+                    },
+                    abortSignal: frame.abortSignal,
+                    emit: (event) => this.emitFrameEvent(frame, event),
+                    messages: frame.messages,
+                });
+                const turn: RuntimeTurn = {
+                    index: snapshot.index,
+                    snapshot,
+                    assistant,
+                    toolCalls,
+                    toolResults: toolBatch.toolResults,
+                    reportResult: toolBatch.reportResult,
+                    sidecarResult: toolBatch.sidecarResult,
+                    reportResultError: toolBatch.reportResultError,
+                    sidecarResultError: toolBatch.sidecarResultError,
+                    waiting: toolBatch.waiting,
+                    shouldContinue: toolBatch.shouldContinue,
+                };
+                if (toolBatch.waiting) {
+                    return {
+                        kind: "waiting",
+                        turn,
+                        waiting: toolBatch.waiting,
+                    };
+                }
+                return {
+                    kind: "completed",
+                    turn,
+                };
+            } catch (error) {
+                if (error instanceof RetryableModelTransportError && attempt < MODEL_TRANSPORT_MAX_ATTEMPTS && !frame.abortSignal?.aborted) {
+                    this.logModelTransportRetry(frame, errorMessage(error), attempt);
+                    continue;
+                }
+                const assistant = createRuntimeErrorAssistant(error);
                 return {
                     kind: "failed",
                     phase: "provider",
-                    errorInfo: this.toInvocationErrorInfo(assistant.errorMessage || (assistant.stopReason === "aborted" ? "生成已中断。" : "生成失败，provider 未返回错误详情。"), "model"),
+                    errorInfo: this.toInvocationErrorInfo(error, "model"),
                     finalAssistant: assistant,
-                    partialAssistant: sanitizePartialAssistant(assistant) ?? undefined,
-                    messageStatus: assistant.stopReason === "aborted" ? "interrupted" : "partial",
                 };
             }
-            const toolCalls = assistant.content.filter((block): block is AgentToolCall => block.type === "toolCall");
-            const toolBatch = await this.runToolBatch({
-                sessionId: frame.sessionId,
-                workspaceKey: frame.workspaceKey,
-                workspaceRoot: frame.workspaceRoot,
-                projectPath: frame.projectPath,
-                profileKey: frame.profileKey,
-                invocationId: frame.invocationId,
-                agentMode: snapshot.sessionContext.agentMode,
-                assistant,
-                toolCalls,
-                executionToolKeys: snapshot.executionToolKeys,
-                toolOverrides: snapshot.toolOverrides,
-                activeSidecar: frame.activeSidecar,
-                enqueueSavePointWrite: (plan, source) => {
-                    frame.pendingWritePlans.push({
-                        ...source,
-                        enqueueOrder: frame.pendingWritePlans.length,
-                        plan,
-                    });
-                },
-                abortSignal: frame.abortSignal,
-                emit: (event) => this.emitFrameEvent(frame, event),
-                messages: frame.messages,
-            });
-            const turn: RuntimeTurn = {
-                index: snapshot.index,
-                snapshot,
-                assistant,
-                toolCalls,
-                toolResults: toolBatch.toolResults,
-                reportResult: toolBatch.reportResult,
-                sidecarResult: toolBatch.sidecarResult,
-                reportResultError: toolBatch.reportResultError,
-                sidecarResultError: toolBatch.sidecarResultError,
-                waiting: toolBatch.waiting,
-                shouldContinue: toolBatch.shouldContinue,
-            };
-            if (toolBatch.waiting) {
-                return {
-                    kind: "waiting",
-                    turn,
-                    waiting: toolBatch.waiting,
-                };
-            }
-            return {
-                kind: "completed",
-                turn,
-            };
-        } catch (error) {
-            const assistant = createRuntimeErrorAssistant(error);
-            return {
-                kind: "failed",
-                phase: "provider",
-                errorInfo: this.toInvocationErrorInfo(error, "model"),
-                finalAssistant: assistant,
-            };
         }
+        const error = new Error("模型连接多次临时断开，已达到自动重试上限。");
+        const assistant = createRuntimeErrorAssistant(error);
+        return {
+            kind: "failed",
+            phase: "provider",
+            errorInfo: this.toInvocationErrorInfo(error, "model"),
+            finalAssistant: assistant,
+        };
+    }
+
+    /**
+     * 记录 provider transport 层重试。这里不写 session 消息，避免把临时连接抖动暴露成历史噪音。
+     */
+    private logModelTransportRetry(frame: RunFrame, message: string, attempt: number): void {
+        void appLogger.warn("agent.model.transportRetry", {
+            sessionId: frame.sessionId,
+            invocationId: frame.invocationId,
+            profileKey: frame.profileKey,
+            model: resolveAgentModelLogName(frame.model),
+            attempt,
+            maxAttempts: MODEL_TRANSPORT_MAX_ATTEMPTS,
+            errorMessage: message,
+        }, "Agent model transport failed before content; retrying");
     }
 
     /**
@@ -3854,39 +3901,56 @@ export class NeuroAgentHarness {
             ...this.piStreamOptions(input.snapshot.requestOptions),
             signal: input.abortSignal,
         };
-        const stream = await tracedStreamSimple(input.snapshot.model, context, options, input.trace);
-
+        let emittedMessageEvent = false;
         let started = false;
-        for await (const event of stream) {
-            const message = "partial" in event ? event.partial : "message" in event ? event.message : "error" in event ? event.error : null;
-            if (event.type === "start" && message) {
-                started = true;
-                await input.emit({type: "message_start", message});
-                continue;
-            }
-            if (event.type === "done" || event.type === "error") {
-                const finalMessage = await stream.result();
-                if (!started) {
-                    await input.emit({type: "message_start", message: finalMessage});
-                }
-                await input.emit({type: "message_end", message: finalMessage});
-                return finalMessage;
-            }
-            if (message) {
-                await input.emit({
-                    type: "message_update",
-                    message,
-                    assistantMessageEvent: event,
-                });
-            }
-        }
+        try {
+            const stream = await tracedStreamSimple(input.snapshot.model, context, options, input.trace);
 
-        const finalMessage = await stream.result();
-        if (!started) {
-            await input.emit({type: "message_start", message: finalMessage});
+            for await (const event of stream) {
+                const message = "partial" in event ? event.partial : "message" in event ? event.message : "error" in event ? event.error : null;
+                if (event.type === "start" && message) {
+                    started = true;
+                    emittedMessageEvent = true;
+                    await input.emit({type: "message_start", message});
+                    continue;
+                }
+                if (event.type === "done" || event.type === "error") {
+                    const finalMessage = await stream.result();
+                    if (event.type === "error" && !emittedMessageEvent && isRetryableModelTransportAssistant(finalMessage)) {
+                        throw new RetryableModelTransportError(finalMessage.errorMessage ?? "模型连接临时断开。");
+                    }
+                    if (!started) {
+                        emittedMessageEvent = true;
+                        await input.emit({type: "message_start", message: finalMessage});
+                    }
+                    emittedMessageEvent = true;
+                    await input.emit({type: "message_end", message: finalMessage});
+                    return finalMessage;
+                }
+                if (message) {
+                    emittedMessageEvent = true;
+                    await input.emit({
+                        type: "message_update",
+                        message,
+                        assistantMessageEvent: event,
+                    });
+                }
+            }
+
+            const finalMessage = await stream.result();
+            if (!started) {
+                emittedMessageEvent = true;
+                await input.emit({type: "message_start", message: finalMessage});
+            }
+            emittedMessageEvent = true;
+            await input.emit({type: "message_end", message: finalMessage});
+            return finalMessage;
+        } catch (error) {
+            if (!emittedMessageEvent && isRetryableModelTransportText(errorMessage(error))) {
+                throw new RetryableModelTransportError(errorMessage(error));
+            }
+            throw error;
         }
-        await input.emit({type: "message_end", message: finalMessage});
-        return finalMessage;
     }
 
     private async runToolBatch(input: {
@@ -6574,6 +6638,54 @@ function mergeRuntimeState(previous: JsonValue | undefined, next: JsonValue): Js
         };
     }
     return next;
+}
+
+/**
+ * 判断 provider 返回的错误是否是连接层临时失败。
+ *
+ * 这些错误通常来自 Bun fetch / Undici / WebSocket / 代理连接，而不是模型拒绝请求。
+ */
+function isRetryableModelTransportAssistant(message: AssistantMessage): boolean {
+    return message.stopReason === "error"
+        && !hasMeaningfulAssistantContent(message)
+        && isRetryableModelTransportText(message.errorMessage ?? "");
+}
+
+/**
+ * 只要已经有可见正文、thinking 或 tool call，就不做自动重试，避免重复生成污染会话。
+ */
+function hasMeaningfulAssistantContent(message: AssistantMessage): boolean {
+    return message.content.some((block) => {
+        if (block.type === "text") {
+            return block.text.trim().length > 0;
+        }
+        if (block.type === "thinking") {
+            return block.thinking.trim().length > 0;
+        }
+        return block.type === "toolCall";
+    });
+}
+
+/**
+ * 识别常见 transient transport 文本。保持窄匹配，避免把 quota / 认证 / 参数错误误重试。
+ */
+function isRetryableModelTransportText(message: string): boolean {
+    const normalized = message.toLowerCase();
+    return normalized.includes("socket connection was closed unexpectedly")
+        || normalized.includes("connection closed unexpectedly")
+        || normalized.includes("socket hang up")
+        || normalized.includes("econnreset")
+        || normalized.includes("und_err_socket")
+        || normalized.includes("other side closed")
+        || normalized.includes("fetch failed")
+        || normalized.includes("network error");
+}
+
+/**
+ * 把 unknown error 压成稳定文本，用于日志与 retry 判定。
+ */
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
 }
 
 async function loadEffectiveConfig(input: {workspaceRoot?: string; projectPath?: string}): Promise<EffectiveConfig> {

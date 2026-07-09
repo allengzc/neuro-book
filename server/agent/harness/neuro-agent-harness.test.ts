@@ -9305,6 +9305,35 @@ describe("NeuroAgentHarness", () => {
             : true).toBe(false);
     });
 
+    it("模型连接在未产出内容前临时断开会自动重试", async () => {
+        faux.setResponses([
+            async () => {
+                throw new Error("The socket connection was closed unexpectedly. For more information, pass verbose: true in the second argument to fetch()");
+            },
+            fauxAssistantMessage("recovered after socket retry"),
+        ]);
+        const created = await harness.createAgent({
+            profileKey: "leader.default",
+            initial: {},
+            workspaceRoot: root,
+        });
+
+        const result = await harness.invokeAgent({
+            sessionId: created.sessionId,
+            mode: "prompt",
+            message: {text: "start"},
+        });
+        const context = harness.repo.reduce(await harness.repo.readSession(created.sessionId));
+        const snapshot = await harness.repo.readSession(created.sessionId);
+
+        expect(result.status).toBe("completed");
+        expect(result.finalMessage).toBe("recovered after socket retry");
+        expect(faux.state.callCount).toBe(2);
+        expect(context.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
+        expect(messageText(context.messages.at(-1) as RuntimeMessage)).toBe("recovered after socket retry");
+        expect(snapshot.entries.filter((entry) => entry.type === "invocation_lifecycle").map((entry) => entry.status)).toEqual(["start", "end"]);
+    });
+
     it("safe point drain 期间拒绝新的 steer，避免成功入队后被清理", async () => {
         harness.tools.register({
             key: "finish_once",

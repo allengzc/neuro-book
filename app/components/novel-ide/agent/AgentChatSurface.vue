@@ -335,6 +335,39 @@ const notifyAgentError = (error: unknown, fallback: string, title = fallback): s
 };
 
 /**
+ * 判断阻塞 invoke 的 HTTP socket 是否只是临时断开。
+ *
+ * 这类错误可能发生在模型长时间无响应时；真实 invocation 仍可能在后端继续跑，
+ * 所以后续必须先同步 snapshot 再决定是否报错。
+ */
+function isInvokeSocketDisconnect(error: unknown): boolean {
+    const raw = error instanceof Error ? error.message : String(error);
+    const resolved = resolveApiErrorMessage(error, raw);
+    const message = `${raw}\n${resolved}`.toLowerCase();
+    return message.includes("socket connection was closed unexpectedly")
+        || message.includes("connection closed unexpectedly")
+        || message.includes("failed to fetch")
+        || message.includes("networkerror")
+        || message.includes("load failed")
+        || message.includes("fetch failed");
+}
+
+/**
+ * 阻塞 invoke socket 断开时，用 snapshot 兜底确认后端是否仍在运行。
+ */
+async function recoverInvokeSocketDisconnect(
+    error: unknown,
+    syncSnapshot: () => Promise<boolean>,
+    readSnapshot: () => AgentSessionSnapshotDto | null | undefined,
+): Promise<boolean> {
+    if (!isInvokeSocketDisconnect(error)) {
+        return false;
+    }
+    const synced = await syncSnapshot();
+    return synced && Boolean(readSnapshot());
+}
+
+/**
  * 将 InlineEditPayload 转成 DTO 接受的 JsonValue。
  */
 function inlineEditPayloadToJson(payload: InlineEditPayload): JsonValue {
@@ -1335,12 +1368,21 @@ const send = async (): Promise<void> => {
 
     if (!message) {
         if (canContinueWithoutInput.value) {
-            await ensureActiveSessionEvents();
-            const result = await agentApi.invokeSession(activeSessionId.value, {
-                mode: "continue",
-                clientState: buildClientState(),
-            });
-            await handleInvokeResult(result);
+            try {
+                await ensureActiveSessionEvents();
+                const result = await agentApi.invokeSession(activeSessionId.value, {
+                    mode: "continue",
+                    clientState: buildClientState(),
+                });
+                await handleInvokeResult(result);
+            } catch (error) {
+                if (await recoverInvokeSocketDisconnect(error, () => sessionStream.syncSnapshot("invoke_error_fallback"), () => activeSnapshot.value)) {
+                    return;
+                }
+                console.error("继续 Agent 运行失败", error);
+                await syncActiveSessionSnapshot("invoke_error_fallback");
+                notifyAgentError(error, t("agent.chatSurface.runFailed"));
+            }
         }
         return;
     }
@@ -1348,13 +1390,22 @@ const send = async (): Promise<void> => {
     const prompt = inputText.value;
     resetInput();
     session.appendOptimisticUserMessage(prompt);
-    await ensureActiveSessionEvents();
-    const result = await agentApi.invokeSession(activeSessionId.value, {
-        mode: "prompt",
-        message: {text: prompt},
-        clientState: buildClientState(),
-    });
-    await handleInvokeResult(result);
+    try {
+        await ensureActiveSessionEvents();
+        const result = await agentApi.invokeSession(activeSessionId.value, {
+            mode: "prompt",
+            message: {text: prompt},
+            clientState: buildClientState(),
+        });
+        await handleInvokeResult(result);
+    } catch (error) {
+        if (await recoverInvokeSocketDisconnect(error, () => sessionStream.syncSnapshot("invoke_error_fallback"), () => activeSnapshot.value)) {
+            return;
+        }
+        console.error("运行 Agent 失败", error);
+        await syncActiveSessionSnapshot("invoke_error_fallback");
+        notifyAgentError(error, t("agent.chatSurface.runFailed"));
+    }
 };
 
 /**
@@ -1371,14 +1422,24 @@ const sendInlineEditorPrompt = async (payload: InlineEditPayload, visibleMessage
 
     inlineEditorResultText.value = "";
     inlineEditorSession.appendOptimisticUserMessage(visibleMessage);
-    await ensureInlineEditorEvents();
-    const result = await agentApi.invokeSession(targetSession.sessionId, {
-        mode: "prompt",
-        message: {text: visibleMessage},
-        input: inlineEditPayloadToJson(payload),
-        clientState: buildClientState(),
-    });
-    await handleInlineEditorInvokeResult(result);
+    try {
+        await ensureInlineEditorEvents();
+        const result = await agentApi.invokeSession(targetSession.sessionId, {
+            mode: "prompt",
+            message: {text: visibleMessage},
+            input: inlineEditPayloadToJson(payload),
+            clientState: buildClientState(),
+        });
+        await handleInlineEditorInvokeResult(result);
+    } catch (error) {
+        if (await recoverInvokeSocketDisconnect(error, () => inlineEditorStream.syncSnapshot("invoke_error_fallback"), () => inlineEditorSession.snapshot.value)) {
+            if (inlineEditorSession.snapshot.value?.activeInvocation) {
+                inlineEditorResultText.value = t("agent.chatSurface.inlineRunning");
+            }
+            return;
+        }
+        throw error;
+    }
 };
 
 /**
