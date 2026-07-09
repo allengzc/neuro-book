@@ -10,7 +10,9 @@ services:
             DATABASE_URL: ${DATABASE_URL:-file:./workspace/.nbook/neuro-book.sqlite}
             NUXT_SESSION_PASSWORD: ${NUXT_SESSION_PASSWORD:?NUXT_SESSION_PASSWORD must be set}
         ports:
-            - "${NUXT_PORT:-3000}:3000"
+            # 容器内按 Boot Config/PORT 监听 NUXT_PORT，宿主与容器必须同端口映射，
+            # 否则非 3000 端口部署会映射到容器内没人监听的 3000。
+            - "${NUXT_PORT:-3000}:${NUXT_PORT:-3000}"
         volumes:
             - ./workspace:/app/workspace
         restart: unless-stopped

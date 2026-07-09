@@ -101,6 +101,8 @@ const detail = computed<PlotThreadPanelDetail | null>(() => {
         scene,
         chapter: scene?.chapterId ? (chapterMap.value.get(scene.chapterId) ?? null) : null,
         effectiveRefs: buildEffectiveRefs(thread.refs, scene?.refs ?? []),
+        // 预览 mock 无规划层数据,promise beats 恒为空。
+        promiseBeats: [],
     };
 });
 
@@ -382,17 +384,19 @@ function saveThread(payload: {
     summary: string;
     status: PlotThreadPanelThread["status"];
     isMainThread: boolean;
+    miceType: PlotThreadPanelThread["miceType"];
     tags: string[];
     writingTip: string | null;
 }): void {
     if (editorMode.value === "create") {
-        const nextThread: PlotPreviewThread = {
+        const nextThread: PlotThreadPanelThread = {
             id: createId("thread"),
             phaseId: selectedThread.value?.phaseId ?? plotPreviewDataset.phases[0]?.id ?? null,
             title: payload.title,
             summary: payload.summary,
             status: payload.status === "archived" ? "draft" : payload.status,
             isMainThread: payload.isMainThread,
+            miceType: payload.miceType,
             tags: payload.tags,
             writingTip: payload.writingTip,
             tone: toneCycle[threads.value.length % toneCycle.length] ?? "amber",
@@ -414,6 +418,7 @@ function saveThread(payload: {
             summary: payload.summary,
             status: payload.status === "archived" ? "draft" : payload.status,
             isMainThread: payload.isMainThread,
+            miceType: payload.miceType,
             tags: payload.tags,
             writingTip: payload.writingTip,
         }
@@ -428,6 +433,8 @@ function saveScene(payload: {
     summary: string;
     purpose: string | null;
     status: PlotThreadPanelScene["status"];
+    outcomeType: PlotThreadPanelScene["outcomeType"];
+    pacingRole: PlotThreadPanelScene["pacingRole"];
     chapterId: string | null;
     writingTip: string | null;
     worldAnchor: PlotThreadPanelScene["worldAnchor"];
@@ -446,6 +453,8 @@ function saveScene(payload: {
             summary: payload.summary,
             purpose: payload.purpose,
             status: payload.status === "archived" ? "draft" : payload.status,
+            outcomeType: payload.outcomeType,
+            pacingRole: payload.pacingRole,
             threadSortOrder: scenes.value.filter((scene) => scene.threadId === selectedThreadId.value).length,
             chapterSortOrder: payload.chapterId
                 ? scenes.value.filter((scene) => scene.chapterId === payload.chapterId).length
@@ -470,6 +479,8 @@ function saveScene(payload: {
             summary: payload.summary,
             purpose: payload.purpose,
             status: payload.status === "archived" ? "draft" : payload.status,
+            outcomeType: payload.outcomeType,
+            pacingRole: payload.pacingRole,
             chapterId: payload.chapterId,
             writingTip: payload.writingTip,
             chapterSortOrder: payload.chapterId === null
@@ -560,9 +571,11 @@ function buildEffectiveRefs(threadRefs: PlotPreviewRef[], sceneRefs: PlotPreview
 /**
  * 克隆 Thread 数据，避免直接改写静态 mock。
  */
-function cloneThreads(source: PlotPreviewThread[]): PlotPreviewThread[] {
+function cloneThreads(source: PlotPreviewThread[]): PlotThreadPanelThread[] {
     return source.map((thread) => ({
         ...thread,
+        // 预览 mock 不携带规划层线型,桥接到面板模型时按未填写处理。
+        miceType: null,
         tags: [...thread.tags],
         refs: thread.refs.map((refItem) => ({...refItem})),
     }));
@@ -578,6 +591,9 @@ function cloneScenes(source: PlotPreviewScene[]): PlotThreadPanelScene[] {
             ...rest,
             // 预览 mock 仍以路径占位;桥接到面板模型时映射为 chapterId 占位值。
             chapterId: chapterPath,
+            // 预览 mock 不携带规划层节奏字段,按未填写处理。
+            outcomeType: null,
+            pacingRole: null,
             worldAnchor: emptyWorldAnchor,
             refs: scene.refs.map((refItem) => ({...refItem})),
         };

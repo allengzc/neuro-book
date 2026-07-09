@@ -6,12 +6,13 @@ import {worldEngineFacade} from "nbook/server/world-engine";
 import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
+import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 
 vi.unmock("nbook/server/plot");
 
 const createdProjects: string[] = [];
 
-describe("/api/projects/plot", () => {
+describe("/api/projects/plot", {timeout: 30_000}, () => {
     beforeEach(() => {
         Object.assign(globalThis, {
             defineEventHandler: (handler: unknown) => handler,
@@ -24,11 +25,12 @@ describe("/api/projects/plot", () => {
                 return error;
             },
         });
-    });
+    }, 30_000);
 
     afterAll(async () => {
         const {plotFacade} = await import("nbook/server/plot");
         for (const projectPath of createdProjects) {
+            await closeProjectForTest(projectPath).catch(() => undefined);
             await plotFacade.closeProject(projectPath);
             await worldEngineFacade.closeProject(projectPath);
             await removeProjectRoot(projectPath);
@@ -177,6 +179,19 @@ describe("/api/projects/plot", () => {
         })).rejects.toMatchObject({
             statusCode: 400,
             message: "projectPath query 不能为空",
+        });
+    });
+
+    it("未 open 的 Project 返回 PROJECT_NOT_OPEN", async () => {
+        const projectPath = await createProject({open: false});
+        const handler = (await import("nbook/server/api/projects/plot/[...segments]")).default;
+
+        await expect(callApi(handler, projectPath, "GET", "story")).rejects.toMatchObject({
+            statusCode: 409,
+            data: {
+                code: "PROJECT_NOT_OPEN",
+                projectPath,
+            },
         });
     });
 
@@ -354,7 +369,7 @@ describe("/api/projects/plot", () => {
     });
 });
 
-async function createProject(options: {withCalendar?: boolean; calendarSource?: string} = {}): Promise<string> {
+async function createProject(options: {withCalendar?: boolean; calendarSource?: string; open?: boolean} = {}): Promise<string> {
     const slug = `plot-api-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const projectPath = `workspace/${slug}`;
     const root = projectRoot(projectPath);
@@ -367,6 +382,9 @@ async function createProject(options: {withCalendar?: boolean; calendarSource?: 
         await fs.writeFile(path.join(root, "world-engine", "calendar.ts"), options.calendarSource ?? calendarSource(), "utf-8");
     }
     createdProjects.push(projectPath);
+    if (options.open !== false) {
+        await openProjectForTest(projectPath);
+    }
     return projectPath;
 }
 

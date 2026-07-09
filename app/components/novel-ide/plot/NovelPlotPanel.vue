@@ -36,6 +36,7 @@ import type {
     StorySceneDetailDto,
     StorySceneWorldAnchorDto,
     StorySceneWriteResponseDto,
+    StoryScenePromiseBeatDto,
     StoryThreadDetailDto,
     StoryThreadTreeNodeDto,
     StoryThreadWriteResponseDto,
@@ -52,6 +53,8 @@ const {
     currentNovel,
     loadingWorkspace,
     plotWorkbenchOpen,
+    plotWorkbenchTab,
+    plotPlanningFocusId,
     selectedStoryThreadId,
     selectedStorySceneId,
     plotRefreshVersion,
@@ -90,6 +93,9 @@ const detailPanelRef = ref<InstanceType<typeof PlotThreadDetailPanel> | null>(nu
 const pinnedWorkbenchThreadIds = ref<string[]>([]);
 const loadingWorkbench = ref(false);
 const workbenchError = ref("");
+// 规划层 open 计数(loadPlotTree 响应携带):侧栏「承诺 / 未决」入口徽标;0 表示当前无进行中承诺 / 未决决策。
+const openPromiseCount = ref(0);
+const openDecisionCount = ref(0);
 // 承载树章节实体(含所属卷标题),由剧情树刷新填充;是章节下拉与挂章的唯一来源。
 const chapterTreeNodes = ref<Array<{chapter: StoryChapterDto; volumeTitle: string}>>([]);
 // 承载树卷实体,供章节编辑器的「所属卷」下拉。
@@ -266,6 +272,7 @@ const workbenchThreads = computed<PlotThreadPanelThread[]>(() => {
         summary: item.thread.summary,
         status: item.thread.status,
         isMainThread: item.thread.isMainThread,
+        miceType: item.thread.miceType,
         tags: [...item.thread.tags],
         writingTip: item.thread.writingTip,
         tone: resolveThreadTone(index),
@@ -290,6 +297,8 @@ const workbenchScenes = computed<PlotThreadPanelScene[]>(() => {
         summary: scene.summary,
         purpose: scene.purpose,
         status: scene.status,
+        outcomeType: scene.outcomeType,
+        pacingRole: scene.pacingRole,
         threadSortOrder: scene.threadSortOrder,
         chapterSortOrder: scene.chapterSortOrder,
         writingTip: scene.writingTip,
@@ -339,8 +348,28 @@ const currentDetail = computed<PlotThreadPanelDetail | null>(() => {
         effectiveRefs: sceneDetail
             ? sceneDetail.effectiveRefs.map(createPanelRefFromEffectiveRef)
             : [...thread.refs, ...scene.refs],
+        promiseBeats: sceneDetail?.promiseBeats ?? [],
     };
 });
+
+/**
+ * 当前选中 Scene 的 promise beats(「这场戏服务哪些线」);详情未加载时为空数组。
+ * 供剧本工作台 Inspector 的 Scene 模式展示只读芯片。
+ */
+const selectedScenePromiseBeats = computed<StoryScenePromiseBeatDto[]>(() => {
+    return selectedSceneId.value
+        ? (sceneDetailMap.value[selectedSceneId.value]?.promiseBeats ?? [])
+        : [];
+});
+
+/**
+ * 从 Scene 侧芯片跳转承诺账本并聚焦该 Promise(打开工作台并定位 tab)。
+ */
+function focusPromiseFromScene(promiseId: string): void {
+    plotPlanningFocusId.value = promiseId;
+    plotWorkbenchTab.value = "promises";
+    plotWorkbenchOpen.value = true;
+}
 
 /**
  * 删除确认文案。
@@ -491,6 +520,7 @@ function applyPlotTree(tree: PlotTreeDto): void {
         summary: item.thread.summary,
         status: item.thread.status,
         isMainThread: item.thread.isMainThread,
+        miceType: item.thread.miceType,
         tags: [...item.thread.tags],
         writingTip: item.thread.writingTip,
         tone: resolveThreadTone(index),
@@ -505,6 +535,8 @@ function applyPlotTree(tree: PlotTreeDto): void {
         summary: scene.summary,
         purpose: scene.purpose,
         status: scene.status,
+        outcomeType: scene.outcomeType,
+        pacingRole: scene.pacingRole,
         threadSortOrder: scene.threadSortOrder,
         chapterSortOrder: scene.chapterSortOrder,
         writingTip: scene.writingTip,
@@ -529,6 +561,10 @@ function applyPlotTree(tree: PlotTreeDto): void {
         createdAt: act.createdAt,
         updatedAt: act.updatedAt,
     }));
+
+    // 规划层摘要计数:承诺账本 / 决策记录入口徽标。
+    openPromiseCount.value = tree.openPromiseCount;
+    openDecisionCount.value = tree.openDecisionCount;
 }
 
 /**
@@ -584,6 +620,7 @@ function applyThreadDetail(detail: StoryThreadDetailDto): void {
             summary: detail.summary,
             status: detail.status,
             isMainThread: detail.isMainThread,
+            miceType: detail.miceType,
             tags: [...detail.tags],
             writingTip: detail.writingTip,
             refs: [],
@@ -609,6 +646,8 @@ function applySceneDetail(detail: StorySceneDetailDto): void {
             summary: detail.summary,
             purpose: detail.purpose,
             status: detail.status,
+            outcomeType: detail.outcomeType,
+            pacingRole: detail.pacingRole,
             threadSortOrder: detail.threadSortOrder,
             chapterSortOrder: detail.chapterSortOrder,
             writingTip: detail.writingTip,
@@ -665,6 +704,14 @@ async function loadPlotTree(options: {
             loadingTree.value = false;
         }
     }
+}
+
+/**
+ * 从侧栏计数入口打开剧本工作台,并定位到规划层 tab(承诺账本 / 决策记录)。
+ */
+function openPlanningTab(tab: "promises" | "decisions"): void {
+    plotWorkbenchTab.value = tab;
+    plotWorkbenchOpen.value = true;
 }
 
 /**
@@ -1179,6 +1226,7 @@ async function updateWorkbenchThread(threadId: string, patch: Partial<PlotThread
                 title: patch.title,
                 isMainThread: patch.isMainThread,
                 status: patch.status,
+                miceType: patch.miceType,
                 summary: patch.summary,
                 tags: patch.tags,
                 writingTip: patch.writingTip,
@@ -1214,6 +1262,8 @@ async function updateWorkbenchScene(sceneId: string, patch: Partial<PlotThreadPa
                 chapterId: patch.chapterId,
                 title: patch.title,
                 status: patch.status,
+                outcomeType: patch.outcomeType,
+                pacingRole: patch.pacingRole,
                 summary: patch.summary,
                 purpose: patch.purpose,
                 writingTip: patch.writingTip,
@@ -1284,6 +1334,7 @@ async function saveThread(payload: PlotThreadEditorSave): Promise<void> {
                     title: payload.title,
                     isMainThread: payload.isMainThread,
                     status: payload.status,
+                    miceType: payload.miceType,
                     summary: payload.summary,
                     tags: payload.tags,
                     writingTip: payload.writingTip,
@@ -1309,6 +1360,7 @@ async function saveThread(payload: PlotThreadEditorSave): Promise<void> {
                 title: payload.title,
                 isMainThread: payload.isMainThread,
                 status: payload.status,
+                miceType: payload.miceType,
                 summary: payload.summary,
                 tags: payload.tags,
                 writingTip: payload.writingTip,
@@ -1353,6 +1405,8 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
                     chapterId: payload.chapterId,
                     title: payload.title,
                     status: payload.status,
+                    outcomeType: payload.outcomeType,
+                    pacingRole: payload.pacingRole,
                     summary: payload.summary,
                     purpose: payload.purpose,
                     writingTip: payload.writingTip,
@@ -1372,6 +1426,8 @@ async function saveScene(payload: PlotThreadEditorSave): Promise<void> {
                     chapterId: payload.chapterId,
                     title: payload.title,
                     status: payload.status,
+                    outcomeType: payload.outcomeType,
+                    pacingRole: payload.pacingRole,
                     summary: payload.summary,
                     purpose: payload.purpose,
                     writingTip: payload.writingTip,
@@ -1601,6 +1657,8 @@ watch(() => ({
         scenes.value = [];
         selectedThreadId.value = null;
         selectedSceneId.value = null;
+        openPromiseCount.value = 0;
+        openDecisionCount.value = 0;
         return;
     }
 
@@ -1655,6 +1713,29 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
                 <div class="truncate text-[11px] text-[var(--text-muted)]">Thread / Scene / World Anchor</div>
             </div>
             <div class="flex shrink-0 items-center gap-2">
+                <!-- 规划层计数入口:点击打开工作台对应 tab;0 计数弱化显示但不隐藏(入口可发现性) -->
+                <button
+                    type="button"
+                    data-testid="plot-panel-planning-promises"
+                    class="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[11px] font-semibold text-[var(--text-secondary)] transition-all hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)]"
+                    :class="openPromiseCount === 0 ? 'opacity-50' : ''"
+                    title="承诺账本:进行中的读者债务"
+                    @click="openPlanningTab('promises')"
+                >
+                    <span class="i-lucide-scroll-text h-3.5 w-3.5"></span>
+                    <span>承诺 {{ openPromiseCount }}</span>
+                </button>
+                <button
+                    type="button"
+                    data-testid="plot-panel-planning-decisions"
+                    class="inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-[var(--border-color)] bg-[var(--bg-input)] px-2.5 text-[11px] font-semibold text-[var(--text-secondary)] transition-all hover:border-[var(--border-strong)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)]"
+                    :class="openDecisionCount === 0 ? 'opacity-50' : ''"
+                    title="决策记录:待拍板的未决决策"
+                    @click="openPlanningTab('decisions')"
+                >
+                    <span class="i-lucide-gavel h-3.5 w-3.5"></span>
+                    <span>未决 {{ openDecisionCount }}</span>
+                </button>
                 <button
                     type="button"
                     data-testid="plot-panel-chapter-create"
@@ -1737,6 +1818,7 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
                     @close="closeDetailPanel"
                     @edit="openSceneEditorFromDetail"
                     @update-scene="quickUpdateScene"
+                    @focus-promise="focusPromiseFromScene"
                 />
             </template>
         </div>
@@ -1759,6 +1841,7 @@ watch(plotRefreshVersion, async (version, previousVersion) => {
             :chapters="chapters"
             :selected-thread-id="selectedThreadId"
             :selected-scene-id="selectedSceneId"
+            :scene-promise-beats="selectedScenePromiseBeats"
             :pinned-thread-ids="pinnedWorkbenchThreadIds"
             :loading="loadingWorkbench"
             :error="workbenchError"

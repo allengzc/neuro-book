@@ -68,6 +68,8 @@ export type AgentCatalogItem = {
     builtin: boolean;
     loadStatus: AgentProfileLoadStatus;
     hasSettingsForm: boolean;
+    /** profile 源码是否声明了后台会话摘要（summarizer），设置面板据此展示摘要开关。 */
+    hasSummarizer: boolean;
     canResetHome: boolean;
     issue?: AgentProfileIssue;
 };
@@ -208,6 +210,11 @@ export type AgentProfileDefinition<
     tools: TTools;
     /** 主 run 实际可执行工具；不声明时等于 tools 的全部 key。sidecar 仍可声明自己的执行子集。 */
     toolKeys?: readonly (keyof TTools & string)[];
+    /**
+     * Skill catalog 可见性白名单。声明 include 后，prepare ctx.skills 只保留列表内的 skill key。
+     * 这是提示层可见性过滤，不是文件级权限隔离：文件工具仍可读取任何 skill 目录。不声明时全量可见。
+     */
+    skills?: {include: readonly string[]};
     sidecars?: readonly SidecarProfilePass<Static<TInitialSchema>, JsonValue>[];
     summarizer?: AgentProfileSummarizerConfig<TSummarizerKey>;
     compaction?: ProfileCompactionPlan;

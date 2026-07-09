@@ -52,7 +52,8 @@ export function renderGlobalConfig(config, legacyText = null) {
 
     return `${JSON.stringify({
         auth: {
-            enabled: legacy?.auth?.enabled ?? true,
+            // 部署交互/--auth 的显式选择优先于旧配置迁移值。
+            enabled: config.authEnabled ?? legacy?.auth?.enabled ?? true,
         },
         models: {
             default: legacy?.models?.default ?? modelKey,

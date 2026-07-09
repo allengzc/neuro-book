@@ -146,6 +146,8 @@ export const AgentCommandRequestDtoSchema = z.discriminatedUnion("command", [
     z.object({command: z.literal("mode"), mode: AgentModeSchema}),
     z.object({command: z.literal("model"), modelKey: z.string().trim().min(1).nullable()}),
     z.object({command: z.literal("thinking"), thinkingLevel: ThinkingLevelSchema.nullable()}),
+    z.object({command: z.literal("rename"), title: z.string().trim().min(1)}),
+    z.object({command: z.literal("summarize")}),
     z.object({command: z.literal("retry"), entryId: z.string().trim().min(1).optional()}),
     z.object({command: z.literal("fork"), entryId: z.string().trim().min(1).optional()}),
     z.object({

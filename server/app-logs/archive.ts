@@ -16,6 +16,7 @@ type ZipFileWithBuffer = ZipFile & {
 
 /**
  * 创建错误报告日志 zip。只包含日志文件和 manifest，不读取业务配置、数据库或 workspace 正文。
+ * 隐私红线（Task 95）：`workspace/<slug>/.nbook/history.sqlite` 含项目文件全文快照，严禁纳入本日志包。
  */
 export async function createAppLogsZipStream(directory = resolveAppLogDirectory()): Promise<AppLogsArchive> {
     await fs.mkdir(directory, {recursive: true});

@@ -154,6 +154,7 @@ function fakeFrame(): RunFrame {
         profileKey: "test",
         profile: {} as RunFrame["profile"],
         agentMode: "normal",
+        fileChangeAwareness: "off",
         thinkingLevel: "off",
         runtimeState: new Map(),
         messages: [],

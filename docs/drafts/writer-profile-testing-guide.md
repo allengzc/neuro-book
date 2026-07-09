@@ -1,5 +1,7 @@
 # Writer Profile 优化测试指南
 
+> **时效声明（2026-07-09）**：本文写于 writer 尚无 Plot 工具的阶段，工具契约相关内容已随 Task 87（writer 获得 Plot 只读）与 Task 97（读 `get_story_*` / 写 `save_*` 重排）演进。工具契约以 `reference/plot/system.md` §Agent Tools 与 `server/agent/profiles/writer-profile-contract.test.ts` 为准；本文其余示例（如入参形态）也可能过时，验收前先对照真相源。
+
 ## 已完成的测试
 
 ### ✅ 1. TypeScript 编译测试
@@ -16,7 +18,7 @@ bunx vitest run server/agent/profiles/writer-profile-contract.test.ts
 - ✅ Profile manifest 正确 (key: "writer", name: "正文写作")
 - ✅ Bash 工具已添加 (`rootToolKeys` 包含 "bash")
 - ✅ World Engine 只读工具存在 (`execute_world`)
-- ✅ Plot tools 不存在，writer 只消费上游 message 中的 Scene / World Context brief
+- ✅ Plot 只读工具存在（Task 87/97 后 writer 持有 8 个 `get_*`，无任何 `save_*` 写工具）
 - ✅ 文件工具存在 (read, write, edit)
 - ✅ Schemas 已定义 (initialSchema, payloadSchema, outputSchema)
 
@@ -164,8 +166,8 @@ ${briefResult.details.suggestedBriefMarkdown}
 
 1. ✅ Writer 是否按 brief 中的 Scene / World Context 写作？
 2. ✅ Writer 是否用 `execute_world` 自查状态，而非依赖 brief 中的完整状态？
-3. ✅ Writer 工具调用日志中**不应出现** `get_story_thread`、`get_story_scene_context`、`get_chapter_plot`
-4. ❌ Writer 如果主动调用 Plot tools，视为契约违反
+3. ✅ Writer **可以**调用 Plot 只读工具（Task 87 autonomous 模式起 writer 持有 8 个 `get_*`：`get_chapter_writer_brief` / `get_story_chapter` / `get_story_scene_context` / `get_scene_world_context` / `get_story_tree` / `get_story_thread` / `get_story_promise` / `get_story_decision`；清单以 `reference/plot/system.md` §Agent Tools 为准）
+4. ❌ Writer 工具调用日志中**不应出现**任何 `save_*` Plot 写工具；出现视为契约违反（剧情设计权在 leader，Task 97 后写面统一为 `save_*` + 显式 action）
 
 **参考**：实际门禁测试见 `server/agent/profiles/writer-profile-contract.test.ts` 和 `server/agent/profiles/leader-owned-plot-reference.test.ts`
 

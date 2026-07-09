@@ -178,6 +178,8 @@ export const ConfigAgentProfileSettingsDtoSchema = z.object({
         model: AgentProfileModelConfigDtoSchema,
         loadStatus: ConfigAgentProfileLoadStatusDtoSchema,
         hasSettingsForm: z.boolean().default(false),
+        // profile 源码是否声明了后台会话摘要（summarizer）；true 时设置面板才展示摘要开关。
+        hasSummarizer: z.boolean().default(false),
         issue: ConfigAgentProfileIssueDtoSchema.nullable().default(null),
         sourcePath: z.string().trim().min(1).nullable().default(null),
         buildState: ConfigAgentProfileBuildStateDtoSchema,
@@ -270,6 +272,8 @@ export const ConfigAgentProfileMapDtoSchema = z.record(z.string(), z.object({
     model: AgentProfileModelConfigDtoSchema.partial().default({}),
     settings: LowCodeJsonObjectSchema.optional(),
     resourceMutations: z.array(LowCodeResourceMutationDtoSchema).optional(),
+    // 后台会话摘要开关。缺省沿用 profile 源码默认（开启）；enabled=false 表示对该 profile 禁用 summarizer。
+    summarizer: z.object({enabled: z.boolean().optional()}).optional(),
 })).default({});
 
 export const WebConfigDtoSchema = z.object({
@@ -315,6 +319,20 @@ export const ObservabilityConfigDtoSchema = z.object({
     }).partial().default({}),
 }).partial().default({});
 
+/** 文件历史（操作日志）字段集。enabled 是 Global 独有总开关；其余四项 Project 可覆盖。 */
+const WorkspaceHistoryFieldsDtoSchema = z.object({
+    enabled: z.boolean(),
+    retentionFullDays: z.number().int().min(1),
+    keepDailyLastAfterWindow: z.boolean(),
+    autoAcceptEnabled: z.boolean(),
+    autoAcceptDays: z.number().int().min(1),
+});
+
+export const WorkspaceHistoryConfigDtoSchema = WorkspaceHistoryFieldsDtoSchema.partial().default({});
+
+/** Project 侧文件历史覆盖：结构性不含 enabled。 */
+export const ProjectWorkspaceHistoryConfigDtoSchema = WorkspaceHistoryFieldsDtoSchema.omit({enabled: true}).partial();
+
 export const GlobalConfigDtoSchema = z.object({
     auth: z.object({
         enabled: z.boolean().default(true),
@@ -339,6 +357,7 @@ export const GlobalConfigDtoSchema = z.object({
     }),
     web: WebConfigDtoSchema,
     observability: ObservabilityConfigDtoSchema,
+    history: WorkspaceHistoryConfigDtoSchema,
 }).partial().passthrough();
 
 export const GlobalConfigUpdateDtoSchema = z.object({
@@ -362,6 +381,7 @@ export const GlobalConfigUpdateDtoSchema = z.object({
     editor: EditorConfigDtoSchema.optional(),
     web: z.preprocess((value) => value === undefined ? undefined : value, WebConfigDtoSchema).optional(),
     observability: ObservabilityConfigDtoSchema.optional(),
+    history: WorkspaceHistoryConfigDtoSchema.optional(),
 }).partial().passthrough();
 
 export const ProjectConfigDtoSchema = z.object({
@@ -375,6 +395,7 @@ export const ProjectConfigDtoSchema = z.object({
         profiles: ConfigAgentProfileMapDtoSchema.optional(),
     }).partial().optional(),
     editor: EditorConfigDtoSchema.partial().optional(),
+    history: ProjectWorkspaceHistoryConfigDtoSchema.optional(),
 }).partial().passthrough();
 
 export const ConfigSnapshotDtoSchema = z.object({

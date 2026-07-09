@@ -532,6 +532,7 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
                 builtin,
                 loadStatus: buildState.running || buildState.queued ? "compiling" : issue ? statusFromIssue(issue) : "loaded",
                 hasSettingsForm: Boolean(profile.settingsForm),
+                hasSummarizer: Boolean(profile.summarizer),
                 canResetHome: Boolean(profile.home?.reset),
                 issue,
             };
@@ -547,6 +548,7 @@ export class AgentProfileCatalog implements ProfileReleaseRegistrySink {
                 builtin: profile.builtin,
                 loadStatus: buildState.running || buildState.queued ? "compiling" : profile.loadStatus,
                 hasSettingsForm: false,
+                hasSummarizer: false,
                 canResetHome: false,
                 issue: profile.issue,
             };

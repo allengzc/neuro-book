@@ -20,7 +20,7 @@ describe("leader-owned Plot reference contract", () => {
         expect(plotSystem).toContain("`get_chapter_writer_brief`");
         expect(plotSystem).toContain("若 status 不是 `ready`");
         expect(plotSystem).toContain("重新编译");
-        expect(plotSystem).not.toContain("Writer 写章节时，Leader 应优先用 `get_chapter_plot`");
+        expect(plotSystem).not.toContain("Writer 写章节时，Leader 应优先用 `get_story_chapter`");
     });
 
     it("Plot agent spec 不再把普通 Scene 落库责任只写给 director", async () => {

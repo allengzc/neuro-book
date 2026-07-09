@@ -68,6 +68,7 @@ import {
     listEnabledModels,
     resolveConfiguredModel,
 } from "nbook/server/utils/model-settings";
+import {assertProjectOpen, markProjectActivity} from "nbook/server/workspace-files/project-session";
 
 const GLOBAL_CONFIG_PATH = path.resolve(process.cwd(), "workspace", ".nbook", "config.json");
 
@@ -123,6 +124,10 @@ export async function readConfigAgentProfileSettings(
     options: ConfigAgentProfileSettingsOptions = {},
 ): Promise<ConfigAgentProfileSettingsDto> {
     const target = await resolveConfigTarget(query);
+    const settingsScope = options.agentProfileSettingsScope ?? (target.workspaceKind === "novel" ? "project" : "global");
+    if (settingsScope === "project") {
+        assertProjectConfigDataPlaneOpen(target, query);
+    }
     const {global, project} = await readConfigFiles(query, target);
     const effective = resolveEffectiveConfig(global, project);
     const catalog = await profiles.snapshot();
@@ -134,7 +139,7 @@ export async function readConfigAgentProfileSettings(
         catalogProfiles: catalog.profiles,
         query,
         includeSettings: true,
-        settingsScope: options.agentProfileSettingsScope ?? (target.workspaceKind === "novel" ? "project" : "global"),
+        settingsScope,
     });
 }
 
@@ -202,6 +207,7 @@ export async function saveGlobalConfig(
         ...(input.ui !== undefined ? {ui: input.ui} : {}),
         ...(input.editor !== undefined ? {editor: input.editor} : {}),
         ...(input.observability !== undefined ? {observability: input.observability} : {}),
+        ...(input.history !== undefined ? {history: input.history} : {}),
         ...(input.web !== undefined ? {web: normalizeGlobalWebForWrite(input.web, current)} : {}),
         ...(input.models !== undefined ? {models: normalizeGlobalModelsForWrite(input.models, current)} : {}),
         ...(input.embedding !== undefined ? {embedding: normalizeGlobalEmbeddingForWrite(input.embedding, current)} : {}),
@@ -225,6 +231,7 @@ export async function saveProjectConfig(
             message: "user-assets 入口没有独立 Project Config",
         });
     }
+    assertProjectConfigDataPlaneOpen(target, query);
     assertProjectConfigDoesNotContainGlobalOnly(input);
     const global = await readGlobalConfigFile();
     await assertProfileSettingsInput(input.agent?.profiles, query, profiles, global.agent?.profiles, {
@@ -247,6 +254,7 @@ export async function resetProjectProfileHome(
     if (!target.projectConfigPath || target.workspaceKind !== "novel") {
         throw createError({statusCode: 400, message: "只有 Project Config 支持重置 profile home。"});
     }
+    assertProjectConfigDataPlaneOpen(target, query);
     const projectRoot = resolveProjectRootForProfileHome(query.projectPath);
     if (!projectRoot) {
         throw createError({statusCode: 400, message: "重置 profile home 需要 Project Workspace。"});
@@ -402,6 +410,27 @@ export async function resolveConfigTarget(query: ConfigWorkspaceQueryDto): Promi
     };
 }
 
+/**
+ * Project Config / Project Profile Home 都是 Project Workspace 数据面，必须在显式 open 后访问。
+ */
+function assertProjectConfigDataPlaneOpen(target: ConfigTarget, query: ConfigWorkspaceQueryDto): void {
+    if (target.workspaceKind !== "novel" || !target.projectConfigPath) {
+        return;
+    }
+    assertProjectPathOpen(query.projectPath);
+}
+
+/**
+ * 校验 Project 数据面生命周期并刷新 activity。无 projectPath 是调用方契约错误，按 400 暴露。
+ */
+function assertProjectPathOpen(projectPath: string | undefined): void {
+    if (!projectPath) {
+        throw createError({statusCode: 400, message: "Project 数据面访问必须提供 projectPath。"});
+    }
+    assertProjectOpen(projectPath);
+    markProjectActivity(projectPath);
+}
+
 async function readConfigFiles(query: ConfigWorkspaceQueryDto, knownTarget?: ConfigTarget): Promise<{
     global: StoredGlobalConfig;
     project: StoredProjectConfig | null;
@@ -531,6 +560,7 @@ async function buildConfigAgentProfileSettingsDto(input: {
             }),
             loadStatus: definition.loadStatus,
             hasSettingsForm: definition.hasSettingsForm,
+            hasSummarizer: definition.hasSummarizer,
             issue: toConfigProfileIssue(definition.issue),
             sourcePath: definition.sourcePath ?? null,
             buildState: input.profiles.buildStateFor(definition.key),
@@ -783,6 +813,9 @@ async function lowCodeFormContext(
     const workspaceRoot = query.workspaceKind === "novel" ? WORKSPACE_CONTAINER_ROOT : USER_ASSETS_WORKSPACE_ROOT;
     const needsHome = profileNeedsHome(profile);
     const projectRoot = scope === "project" && query.workspaceKind === "novel" ? resolveProjectRootForProfileHome(query.projectPath) : null;
+    if (projectRoot && profile && needsHome) {
+        assertProjectPathOpen(query.projectPath);
+    }
     const projectHome = projectRoot && profile && needsHome
         ? await ensureProfileHome({
             projectRoot,
@@ -890,6 +923,7 @@ function stripProfileResourceMutations(input: ProjectConfigDto): ProjectConfigDt
                 {
                     model: profileConfig.model,
                     ...(profileConfig.settings !== undefined ? {settings: profileConfig.settings} : {}),
+                    ...(profileConfig.summarizer !== undefined ? {summarizer: profileConfig.summarizer} : {}),
                 },
             ]))),
         },
@@ -1101,6 +1135,13 @@ function assertProjectConfigDoesNotContainGlobalOnly(input: ProjectConfigDto): v
         throw createError({
             statusCode: 400,
             message: "Project Config 只能覆盖 embedding.model 和 embedding.dimensions",
+        });
+    }
+    const history = record.history as Record<string, unknown> | undefined;
+    if (history && "enabled" in history) {
+        throw createError({
+            statusCode: 400,
+            message: "Project Config 不能覆盖 history.enabled（文件历史总开关仅 Global）",
         });
     }
 }

@@ -6,179 +6,159 @@
 [![GHCR App](https://img.shields.io/badge/GHCR-neuro--book-8957e5?logo=github&label=app)](https://github.com/notnotype/neuro-book/pkgs/container/neuro-book)
 [![Bun](https://img.shields.io/badge/runtime%20%2B%20build-Bun-000000?logo=bun)](https://bun.sh/)
 [![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE)
+[![Discord](https://img.shields.io/badge/Discord-join%20community-5865F2?logo=discord&logoColor=white)](https://discord.gg/bSQB7mNpHB)
+![QQ Group](https://img.shields.io/badge/QQ%20Group-287447372-12B7F5?logo=qq&logoColor=white)
 
-NeuroBook is a Nuxt-based IDE for long-form novel writing and AI roleplay. It is author-led and integrates a file-based Project Workspace, Markdown Studio, story structure management, and domain-specific Agent systems for long-form writing, world simulation, AI RP, and SillyTavern character card migration.
+**The creative writing IDE that gets your novel finished.**
 
-The runtime is extended from the Pi framework and reuses core abstractions such as multi-provider model access, tool calling, and an append-only session tree. NeuroBook builds NeuroAgentHarness on top of that foundation. It also introduces Profile, TSX Profile, and Sidecar Context so Agents can build searchable, reviewable, memorable, and maintainable workflows around novel writing and roleplay.
+Everyone has a novel in them, and most of those novels die halfway — not from lack of talent, but from lack of engineering. NeuroBook takes thirty years of software engineering practice and a century of creative writing methodology, and turns them into one set of tools shared by you and your AI: world state is computed by an engine instead of remembered by a model, foreshadowing is tracked like technical debt, and finished prose is linted against 340 rules. Your work lives in local Markdown files and SQLite — take it anywhere, anytime.
 
 <div style="display: flex; justify-content: space-between;">
   <img src="./docs/images/主页.png" width="31%"/>
-  <img src="./docs/images/剧本工作台.png" width="31%"/>
   <img src="./docs/images/TSX可视化编辑器.png" width="31%"/>
 </div>
 <br/>
 
-> Demo site: http://8.148.4.22:3001/
+> 🖥️ Live demo: http://8.148.4.22:3001/ ｜ 📦 [Windows portable download](https://github.com/notnotype/neuro-book/releases) ｜ 💬 [Discord](https://discord.gg/bSQB7mNpHB) ｜ 🐧 QQ Group 287447372
 
-## Core Features
+## Why NeuroBook
 
-- **Long-form novel IDE**: Manage `lorebook/`, `manuscript/`, `simulation/`, `reference/`, and project configuration through Project Workspace, so settings, prose, state, and external materials can be maintained by both authors and Agents.
-- **Domain-specific Agent design**: Writing and RP responsibilities are split across leader, writer, retrieval, researcher, simulator leader, actor, rp.writer, and related roles, instead of forcing retrieval, arbitration, writing, and memory maintenance into one model call.
-- **NeuroAgentHarness**: Built on Pi-style multi-provider access, tool calling, and append-only session trees, with support for Multi-Agent collaboration, HITL (Human-in-the-Loop), runtime Profile / Tool Catalog, context compaction, session summaries, lifecycle management, and Runtime Hooks.
-- **Profile**: Defines Agent behavior boundaries, including tool allowlists, input / output schemas, system prompts, dynamic context, compaction policy, summary policy, and Runtime Hooks.
-- **TSX Profile**: Uses TSX as a context template language. Nodes such as System, History, Dynamic Context, Reminder, Import, and SkillCatalog describe context structure while keeping templates type-safe, previewable, and friendly to low-code editing.
-- **Sidecar Context**: Forks runtime-only branches before or after a main Agent run for retrieval, reflection, memory maintenance, or state cleanup. Sidecar transcripts do not enter the main history; only the processed result is merged back into the main line.
-- **SillyTavern character card migration**: Supports the `inspect -> unpack -> import` flow, preserves original cards and worldbook archives, migrates stable setting material into lorebook, and keeps dynamic mechanism material available for later RP / simulation migration.
+AI can write a good paragraph, but it cannot write a good novel:
 
-## Quick Selection
+- **Lore drift**: the world lives in the model's chat memory and drifts as you write — the arm that was severed last volume grows back this volume.
+- **Dropped foreshadowing**: the gun planted in chapter 3 still hasn't fired by chapter 200; the AI's reasoning evaporates when the chat closes, and your own sticky notes are lost within three months.
+- **The AI flavor**: filler words, mechanical transitions, formulaic parallelism — readers spot it instantly.
+- **Scattered tools**: prose in Word, lore in Obsidian, plot discussions in a web chatbox — three tools, three copies of the data, none of them aware of each other.
 
-| Option | Best for | Notes |
-| --- | --- | --- |
-| Windows Product Portable | Regular Windows users | Unzip and start; includes Bun and a prebuilt Product Payload. |
-| Product Bun | Local machines or servers that already have Bun | Start from an unpacked Product Payload with Bun; source code and root `node_modules` are not required. |
-| ghcr | Low-memory servers | Pull the prebuilt Docker image; the server does not run a Nuxt build. |
-| Source Dev | Developers | Source checkout, local dependency install, development, and tests. |
+NeuroBook treats these as engineering problems — lore, plot, prose, and world state are all visible files in one workspace, maintained by you and your Agents within explicit permission boundaries.
 
-If unsure: Windows users should choose Product Portable; servers should prefer `ghcr` or Product Bun.
+| Capability | AI chatbox | Roleplay tools | Static codex tools | Auto-grind engines | NeuroBook |
+| --- | --- | --- | --- | --- | --- |
+| Long-form lore management | Chat memory | Static entries | Static cards | Summary chains | ✅ World state that evolves over time |
+| State at any point in time | ❌ | ❌ | ❌ | ❌ | ✅ Computed from slices, auditable |
+| Consistency checks | ❌ | ❌ | Limited | Partial | ✅ Engine proactively reports issues |
+| Foreshadow plant / advance / payoff | ❌ | ❌ | Manual spreadsheets | Partial | ✅ Promise ledger |
+| De-AI-flavoring | ❌ | ❌ | ❌ | ❌ | ✅ llmlint |
+| Creative control | Human | Human | Human | Machine | ✅ Human-led + Agent execution |
+| Data ownership | Cloud | Local | Varies | Local | ✅ Local files + SQLite |
 
-## Windows Product Portable
+## Four Core Capabilities
 
-Download the Windows x64 zip from [GitHub Releases](https://github.com/notnotype/neuro-book/releases), unzip it into a new directory, and run:
+### 🌍 World Engine: world state that never eats itself
+
+The biggest enemy of a long novel is lore drift. World Engine does event sourcing with a timeline of slices: every significant moment records a state change, and the world state at any point in time is computed from the slices before it — the wound your character took three months ago, the kingdom's treasury ten years back, always queryable, never drifting. Retconning is just inserting a slice at the right moment; flashbacks come for free.
+
+- Define your own world structure (Zod schemas): characters, sects, kingdoms, continents can all be stateful subjects.
+- Query any subject's state at any point in time.
+- Custom calendars: real-world, simplified, or fully invented — BCE dates work too.
+- Every change is a timestamped, auditable record — exactly when he obtained that sword is fully traceable.
+- Sandboxed read/write separation: the leader Agent can write, the writer Agent is read-only — writing prose can never corrupt your world.
+
+### 🧵 Plot Workbench: foreshadowing gets a ledger, decisions get an archive
+
+Structure and causality are separate concerns: the **narrative tree** manages where the story is told (volumes → chapters), the **causal tree** manages why the story happens (threads → scenes). Flashbacks, interleaving, multiple storylines — arrange them freely, the causal chain stays clear.
+
+- **Promise system**: every foreshadow is a promise to the reader — planting, advancing, and payoff are all tracked; beats attach to scenes and update as the plot moves; when you reach the target chapter, it enters the writing brief automatically. Chekhov said the gun on the wall must fire — NeuroBook reminds you it hasn't yet. Not just foreshadowing: want your romance arc to deliver every few chapters? Log it, and it will tell you it's been thirty chapters since the last sweet scene.
+- **Creative decision records**: why did you turn the protagonist dark three months ago? Looking back you only find the result, never the reason — Decision remembers: recorded at the moment, risk field required, reversals leave a trail.
+- **Chapter information control**: what the reader knows, what the protagonist knows, what must be hidden, what may only be hinted — Hitchcock's suspense theory, turned into fields.
+- Scenes anchor directly to the world timeline, locations, and cast — plot planning and world state interlock.
+
+### ✍️ Multi-Agent writing studio: a good horse deserves a good saddle
+
+AI is already a fine horse; NeuroBook is the harness (NeuroAgentHarness — harness as in horse tack), and the reins stay in your hands. Today's AI cannot finish a quality novel on its own — but what it does best is exactly this: organizing material, verifying details, brainstorming with you, playing devil's advocate. The hardest part of writing alone isn't the difficulty, it's the loneliness — now you have a partner.
+
+- Division of labor: leader plans and dispatches, writer writes prose only, retrieval / researcher look things up — numbers aren't invented (the engine keeps the books), facts aren't guessed (the researcher goes and checks).
+- Default writing pipeline: inspiration → project & lorebook init → World Engine onboarding → plot planning & state advancement → chapter writing → post-writing backfill.
+- **Three modes**: discuss mode only gives ideas and never touches your draft; plan mode presents a full proposal and executes only after your approval; every mode switch requires your nod.
+- In-editor Inline AI: select-and-rewrite with streaming preview, without interrupting your editing flow or occupying the main session.
+
+### 🧹 llmlint: lint your prose, remove the AI flavor
+
+Check manuscripts the way eslint checks code. 340 rules cover filler words, mechanical transitions, formulaic rhetorical questions, binary contrasts, vacuous summaries, monotonous rhythm, and other typical AI writing artifacts; static rules sweep a full manuscript in seconds, LLM rules handle context-dependent judgment, and mechanical issues support autofix. It works both as an in-editor polishing Skill and as a standalone CLI: [notnotype/llmlint](https://github.com/notnotype/llmlint).
+
+## And More
+
+- 🧭 **An AI assistant with the manual built in**: don't worry about complexity — the built-in assistant has read the full documentation. Ask it "how do I start a new book" or "how do I register a foreshadow"; it teaches you and can perform many operations for you. The barrier to entry is being able to type.
+- 📂 **You own your data**: `lorebook/`, `manuscript/`, and `world-engine/` are all local Markdown / TypeScript files plus a per-project SQLite database. No cloud lock-in, migrate the whole package anytime, open it with any editor.
+- 💰 **Transparent billing**: token usage is metered by input / output / cache-write / cache-hit and converted to USD / CNY — you know exactly what each chapter cost.
+- 🔑 **Bring your own model**: multiple providers, your own API keys.
+- 📝 **Structured editor**: TipTap rich text with extended Markdown syntax.
+- 🎭 **SillyTavern character card migration**: a three-stage inspect → unpack → import flow; original cards and worldbooks are fully archived, stable lore migrates into the lorebook. The AI RP mode entry is being redesigned to the same standard as the writing mode.
+
+## Quick Start
+
+**Windows: unzip and run.** Download the zip from [GitHub Releases](https://github.com/notnotype/neuro-book/releases), unzip, and run:
 
 ```powershell
 .\Start Neuro Book.cmd
 ```
 
-The package already includes the prebuilt `app/` Product Payload and `runtime/bun/`. On first start, it initializes `data/`, runs SQLite migrations, and guides administrator creation if no user exists. It does not clone source code, install dependencies, or run a Nuxt build.
+The package bundles the Bun runtime, prebuilt artifacts, and a full source snapshot — no dependency install, no build; first start initializes data and works password-free by default. Run `.\Create Admin.cmd` anytime to create an administrator and enable password protection. Upgrade later with `.\Update Neuro Book.cmd`; everything in `data/` is preserved.
 
-To update, run:
-
-```powershell
-.\Update Neuro Book.cmd
-```
-
-The updater lists available GitHub Releases that include Windows packages, including stable and canary releases. After you choose a target version, it downloads the zip, verifies `SHA256SUMS`, preserves `data/`, and switches to the new `app/`, `launcher/`, and root startup scripts. The bundled `runtime/bun/` keeps the current version to avoid replacing a running `bun.exe`.
-
-Directory boundaries:
-
-- `app/`: replaceable Product Payload.
-- `data/`: runtime state preserved during upgrades, including `workspace/`, `.env`, `config.yaml`, and the SQLite database.
-- `launcher/`: Windows Launcher.
-- `runtime/bun/`: bundled Bun runtime.
-
-## Product Bun
-
-Product Bun is for local machines or servers that already have Bun. On the build machine, generate the Product Payload:
-
-```bash
-bun run nuxt:build
-bun run product:stage
-```
-
-On the runtime machine, start from the Product Root:
-
-```bash
-cd product
-bun .output/server/scripts/deploy/product-start.mjs
-```
-
-## local-git
-
-`local-git` remains as a transitional source deployment mode for users who are comfortable with the command line and want to follow source updates:
+**Server / Docker:**
 
 ```bash
 bunx --bun --package github:notnotype/neuro-book neuro-book-deploy
 ```
 
-The script asks for the deployment directory, port, and deployment mode. `local-git` clones or pulls source code on the host, installs dependencies, builds the app, runs SQLite migrations, and generates startup instructions in `.deploy/README.md`.
+| Option | Best for |
+| --- | --- |
+| Windows Product Portable | Windows users — unzip and run |
+| ghcr | Server Docker deployments, prebuilt image, low-memory friendly |
+| Product Bun | Machines that already have Bun, run without source |
+| Source Dev | Developers — source development and tests |
 
-You can also clone the repository and run:
+Full deployment, update, administrator, and model configuration instructions: [docs/deployment.md](docs/deployment.md). To have another AI Agent assist with deployment or troubleshooting, just send it [docs/operator-bridge.md](docs/operator-bridge.md).
 
-```bash
-git clone https://github.com/notnotype/neuro-book.git
-cd neuro-book
-bun scripts/deploy/neuro-book-deploy.mjs --deploy-mode local-git
-```
+## For Developers: a Programmable Agent Foundation
 
-## ghcr
+Every core feature of NeuroBook has a dual heritage — a mature software engineering practice × a classic creative writing theory:
 
-Recommended for Docker deployments where the server should not run a Nuxt build:
+| NeuroBook feature | Software engineering heritage | Creative writing heritage |
+| --- | --- | --- |
+| World Engine | Event Sourcing (Martin Fowler) | The story bible |
+| Promise system | Technical debt tracking (Ward Cunningham) | Chekhov's gun, Sanderson's Promise / Progress / Payoff |
+| Chapter information control | Least privilege / information isolation | Hitchcock's bomb-under-the-table theory |
+| Narrative tree / causal tree | Separation of concerns | Fabula / sjuzhet (story vs. narration) |
+| Creative decision records | ADR (Michael Nygard) | The commentarial tradition of Jin Shengtan and Zhiyanzhai |
+| llmlint | lint (Bell Labs, 1978) | Orwell's "Politics and the English Language" |
+| Three modes + approval | Code review, plan / apply | The editorial three-pass review |
 
-```bash
-bunx --bun --package github:notnotype/neuro-book neuro-book-deploy
-```
+All of this runs on the homegrown NeuroAgentHarness (built on the Pi framework's multi-provider access, tool calling, and append-only session tree), and the entire Agent behavior layer is programmable:
 
-Choose `ghcr` as the deployment mode. The script uses the prebuilt image:
+- **Profile**: declaratively defines an Agent's tool allowlist, input / output schemas, system prompts, compaction and summary policies, and Runtime Hooks.
+- **TSX Profile**: describes an Agent's context structure (System, History, Dynamic Context, Reminder, Import) with type-safe TSX templates — previewable, low-code editable, with a "user asset assistant" Agent that helps you edit them: an Agent that helps you modify Agents.
+- **Sidecar Context**: forks runtime-only branches before or after the main task for retrieval, reflection, and memory maintenance; sidecar transcripts stay out of the main history — only the distilled results merge back.
 
-```text
-ghcr.io/notnotype/neuro-book:latest
-```
-
-Data, configuration, and Project Workspace remain in the host-mounted `workspace/` directory.
-The GHCR image keeps the source directory for troubleshooting, but the app runner uses the Bun runtime. Service startup, SQLite migrations, and administrator scripts all use prebuilt `.output/server/scripts/**` files inside the image. The server and container do not install dependencies or require root `node_modules` at startup.
-
-## Source Dev
-
-Recommended for development servers or Docker deployments that need a mounted source tree:
-
-```bash
-git clone https://github.com/notnotype/neuro-book.git
-cd neuro-book
-bun scripts/deploy/neuro-book-deploy.mjs --deploy-mode source
-```
-
-`source` mode builds the runtime container and mounts the host project directory to `/app` in the container. The host still needs dependencies installed and the app built. Prefer `ghcr` for low-memory servers.
-
-## Administrator And Model Configuration
-
-Full-site authentication is enabled by default. Windows Product Portable guides administrator creation on first start. For source deployments, create an administrator manually from the app directory when needed:
-
-```powershell
-bun run auth:create-admin admin
-```
-
-The script hides password input. Do not pass the password as a command argument.
-
-Model Provider, API Key, default model, and Agent Profile model overrides are configured in the frontend settings page. Long-term configuration is saved in:
-
-```text
-workspace/.nbook/config.json
-```
-
-This file is local runtime state. Do not commit it to Git.
-
-## Local Development
+Local development:
 
 ```bash
 bun install
 bun run dev
 ```
 
-Common commands:
-
-```bash
-bun run typecheck
-bun run test
-bun run docs:dev
-bun run docs:build
-```
+Common commands: `bun run typecheck`, `bun run test`, `bun run docs:dev`.
 
 ## Documentation
 
 Most documentation is currently in Chinese.
 
-- [Chinese documentation home](docs/index.md)
+- [Documentation home](docs/index.md)
 - [Quick start](docs/quick-start.md)
+- [Tutorials: from your first book to your first RP](docs/tutorials/index.md)
 - [Deployment](docs/deployment.md)
-- [Tutorials](docs/tutorials/index.md)
 - [Agent mental model](docs/agent/index.md)
-- [Profile introduction](docs/profile/index.md)
-- [Profile TSX introduction](docs/profile-tsx/index.md)
+- [Profile introduction](docs/profile/index.md) / [Profile TSX introduction](docs/profile-tsx/index.md)
 - [Sidecar Context](docs/agent/sidecar.md)
 - [NeuroBook Reference Bookshelf](reference/README.md)
 - [PROJECT-STATUS.md](PROJECT-STATUS.md)
 
-If you want another Agent to help with deployment, updates, or troubleshooting, send it [docs/operator-bridge.md](docs/operator-bridge.md) first.
+## Community
+
+- 💬 Discord: https://discord.gg/bSQB7mNpHB
+- 🐧 QQ group: 287447372
+
+Come say hi — feature requests, bug reports, or just tell us about the book you're writing.
 
 ## License
 

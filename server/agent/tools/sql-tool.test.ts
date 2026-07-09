@@ -13,6 +13,8 @@ import {
     resolveProjectAbsolutePath,
     writeProjectManifest,
 } from "nbook/server/workspace-files/project-workspace";
+import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
+import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 
 describe("v3 execute_sql tool", () => {
@@ -59,6 +61,10 @@ describe("v3 execute_sql tool", () => {
         expect(() => clearAgentSqlSchemaSummaryCache()).not.toThrow();
     });
 
+    it("未 open 的 Project 拒绝打开 execute_sql SQLite client", async () => {
+        await expect(getAgentSqlSchemaSummary("workspace/not-open")).rejects.toBeInstanceOf(ProjectNotOpenError);
+    });
+
     it("关闭指定 Project SQLite client 后可以为另一个 Project 重建连接", async () => {
         const firstProjectPath = `workspace/sql-close-${randomUUID()}`;
         const secondProjectPath = `workspace/sql-close-${randomUUID()}`;
@@ -71,6 +77,10 @@ describe("v3 execute_sql tool", () => {
 
             await expect(getAgentSqlSchemaSummary(secondProjectPath)).resolves.toContain('"ProjectMetadata"');
         } finally {
+            await Promise.all([
+                closeProjectForTest(firstProjectPath).catch(() => undefined),
+                closeProjectForTest(secondProjectPath).catch(() => undefined),
+            ]);
             await closeAgentSqliteClient();
             await Promise.all([
                 removeProjectRoot(firstProjectPath),
@@ -98,6 +108,7 @@ async function createProject(projectPath: string): Promise<void> {
         title: projectPath,
         summary: "",
     });
+    await openProjectForTest(projectPath);
 }
 
 async function removeProjectRoot(projectPath: string): Promise<void> {

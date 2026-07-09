@@ -12,10 +12,19 @@ export type ProfileCompileStagedRelease = {
 };
 
 /**
+ * worker 内部生命周期错误。它不是公开 DTO 字段，主线程收到后会重新抛 typed error。
+ */
+export type ProfileCompileLifecycleError = {
+    code: "PROJECT_NOT_OPEN";
+    projectPath: string;
+};
+
+/**
  * worker 线程内部返回值。stagedRelease 是 server 内部字段，不进入 HTTP DTO schema。
  */
 export type ProfileCompileWorkerResult = AgentProfileCompileResultDto & {
     stagedRelease?: ProfileCompileStagedRelease;
+    lifecycleError?: ProfileCompileLifecycleError;
 };
 
 /**

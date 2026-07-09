@@ -3,6 +3,8 @@ import type {AgentToolCall} from "nbook/app/components/novel-ide/agent/agent-mes
 import {AGENT_REQUEST_USER_INPUT_CONTEXT_KEY} from "nbook/app/components/novel-ide/agent/request-user-input-context";
 import {RequestUserInputToolAnswerSchema} from "nbook/app/components/novel-ide/agent/agent-message";
 import AgentMarkdownContent from "nbook/app/components/novel-ide/agent/AgentMarkdownContent.vue";
+import {parseToolArgsObject} from "nbook/app/components/novel-ide/agent/tool-args-stream";
+import {AgentModeSchema, type AgentMode} from "nbook/shared/dto/agent-session.dto";
 import {z} from "zod";
 
 const NONE_OF_ABOVE_OPTION_INDEX = -1;
@@ -17,7 +19,7 @@ const SwitchModePreviewDataSchema = z.object({
 const SwitchModeRawResultSchema = z.object({
     answers: z.array(RequestUserInputToolAnswerSchema).optional(),
     approved: z.boolean().optional(),
-    targetMode: z.enum(["normal", "discuss", "plan"]).optional(),
+    targetMode: AgentModeSchema.optional(),
     planFilePath: z.string().optional(),
     planContent: z.string().optional(),
     data: z.unknown().optional(),
@@ -32,17 +34,13 @@ const showApprovedPreview = ref(false);
 const {t} = useI18n();
 
 /**
- * switch_mode 参数中的目标模式；参数流式未完成时回退 rawResult。
+ * switch_mode 参数中的目标模式；参数流式期间用 partial-json 解析，未完成时回退 rawResult。
  */
-const targetMode = computed<"normal" | "discuss" | "plan">(() => {
-    let value: unknown = parsedRawResult.value?.targetMode;
-    try {
-        const args = JSON.parse(props.toolCall.argsJson ?? props.toolCall.argsText) as Record<string, unknown>;
-        value = args.targetMode ?? value;
-    } catch {
-        // 参数仍在流式输出中，保持 rawResult 回退值
-    }
-    return value === "discuss" || value === "plan" ? value : "normal";
+const targetMode = computed<AgentMode>(() => {
+    const streamedArgs = parseToolArgsObject<{targetMode?: unknown}>(props.toolCall.argsJson ?? props.toolCall.argsText);
+    const candidate = streamedArgs?.targetMode ?? parsedRawResult.value?.targetMode;
+    const parsed = AgentModeSchema.safeParse(candidate);
+    return parsed.success ? parsed.data : "normal";
 });
 
 const targetModeLabel = computed(() => t(`agent.mode.${targetMode.value}`));

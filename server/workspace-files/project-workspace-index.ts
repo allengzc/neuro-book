@@ -12,7 +12,7 @@ import {
     type WorkspaceScanOptions,
 } from "nbook/server/workspace-files/workspace-files";
 import {readProjectManifestIssueFromRoot} from "nbook/server/workspace-files/project-workspace";
-import {registerProjectResourceOwner, touchProjectResources} from "nbook/server/workspace-files/project-resources";
+import {assertProjectOpen, markProjectActivity, registerProjectResourceOwner} from "nbook/server/workspace-files/project-session";
 import type {
     WorkspaceFileChangeEventDto,
     WorkspaceFileEventKind,
@@ -62,6 +62,31 @@ type ProjectWorkspaceIndexEntry = {
 const WORKSPACE_INDEX_REBUILD_DEBOUNCE_MS = 120;
 const indexEntries = new Map<string, ProjectWorkspaceIndexEntry>();
 let beforeProjectWorkspaceIndexCommitForTest: (() => void | Promise<void>) | null = null;
+
+/** Project Workspace 文件变更批（watcher 防抖合并后）。path 相对项目根、正斜杠、无前导斜杠。 */
+export type ProjectWorkspaceFileChangeBatch = {
+    /** watcher root 的绝对路径（= Project Workspace 根） */
+    root: string;
+    /** 归一化项目路径，如 `workspace/my-book` */
+    projectPath: string;
+    events: WorkspaceFileChangeEventDto[];
+};
+
+export type ProjectWorkspaceFileChangeListener = (batch: ProjectWorkspaceFileChangeBatch) => void | Promise<void>;
+
+const projectFileChangeListeners = new Set<ProjectWorkspaceFileChangeListener>();
+
+/**
+ * 订阅 Project Workspace 的文件变更批。只对 `workspace/<slug>` 的 project-workspace index 触发，
+ * 在 watcher 防抖合并后（与树重建解耦，重建失败也通知）。listener 异常自吞，不影响 index 主流程。
+ * 供操作日志对账等旁路消费。返回取消订阅函数。
+ */
+export function onProjectWorkspaceFileChange(listener: ProjectWorkspaceFileChangeListener): () => void {
+    projectFileChangeListeners.add(listener);
+    return () => {
+        projectFileChangeListeners.delete(listener);
+    };
+}
 
 // Project 资源生命周期：tree index watcher 纳入统一注册表；SSE 订阅在线视为 busy，空闲清扫跳过。
 registerProjectResourceOwner({
@@ -188,20 +213,25 @@ export function assertFullTreeSnapshotQuery(input: {targets: string[]; type: str
 
 async function ensureIndexEntry(options: WorkspaceTreeIndexOptions): Promise<ProjectWorkspaceIndexEntry> {
     const root = resolveWorkspaceRoot(options.root);
-    touchProjectResourcesForRootInput(normalizeRootInput(options.root), resolveWorkspaceTreeIndexKind(options));
+    const rootInput = normalizeRootInput(options.root);
+    const workspaceKind = resolveWorkspaceTreeIndexKind(options);
+    if (workspaceKind === "project-workspace" && /^workspace\/[^/]+$/u.test(rootInput)) {
+        assertProjectOpen(rootInput);
+        markProjectActivity(rootInput);
+    }
     const existing = indexEntries.get(root);
     if (existing) {
-        existing.rootInput = normalizeRootInput(options.root);
+        existing.rootInput = rootInput;
         existing.scanOptions = normalizeScanOptions(options, root);
-        existing.workspaceKind = resolveWorkspaceTreeIndexKind(options);
+        existing.workspaceKind = workspaceKind;
         await ensureWorkspaceTreeIndexWatcher(existing);
         return existing;
     }
 
     const entry: ProjectWorkspaceIndexEntry = {
         root,
-        rootInput: normalizeRootInput(options.root),
-        workspaceKind: resolveWorkspaceTreeIndexKind(options),
+        rootInput,
+        workspaceKind,
         scanOptions: normalizeScanOptions(options, root),
         index: null,
         buildPromise: null,
@@ -321,7 +351,9 @@ async function ensureWorkspaceTreeIndexWatcher(entry: ProjectWorkspaceIndexEntry
         },
         cwd: entry.root,
         ignoreInitial: true,
-        ignored: isIgnoredWorkspaceWatchPath,
+        // chokidar 回调给的是绝对路径：先转成相对 watch root 再判忽略段，
+        // 否则 root 自身路径里的 .nbook/.agent 段（user-assets root、测试临时目录）会把整个 root 忽略掉。
+        ignored: (watchedPath: string) => isIgnoredWorkspaceWatchPath(path.relative(entry.root, watchedPath)),
         persistent: true,
     });
     entry.watcher.on("all", (eventName, changedPath) => {
@@ -407,6 +439,10 @@ async function flushWorkspaceTreeIndexChanges(entry: ProjectWorkspaceIndexEntry)
     entry.rebuildTimer = null;
     const events = [...entry.pendingEvents.values()];
     entry.pendingEvents.clear();
+    // 旁路 listener 在树重建之前通知：对账消费不依赖（也不应受阻于）index 重建结果。
+    if (events.length > 0) {
+        notifyProjectWorkspaceFileChange(entry, events);
+    }
 
     try {
         if (entry.buildPromise) {
@@ -437,6 +473,30 @@ async function flushWorkspaceTreeIndexChanges(entry: ProjectWorkspaceIndexEntry)
         console.error("[workspace-tree-index] rebuild failed", {
             root: entry.rootInput,
         }, error);
+    }
+}
+
+/**
+ * 向旁路 listener 分发 Project Workspace 文件变更批。仅 `workspace/<slug>` 的 project-workspace index 触发；
+ * listener 异常只记日志，不影响 index 主流程。
+ */
+function notifyProjectWorkspaceFileChange(entry: ProjectWorkspaceIndexEntry, events: WorkspaceFileChangeEventDto[]): void {
+    if (entry.workspaceKind !== "project-workspace" || !/^workspace\/[^/]+$/u.test(entry.rootInput)) {
+        return;
+    }
+    const batch: ProjectWorkspaceFileChangeBatch = {
+        root: entry.root,
+        projectPath: entry.rootInput,
+        events,
+    };
+    for (const listener of projectFileChangeListeners) {
+        void Promise.resolve()
+            .then(() => listener(batch))
+            .catch((error) => {
+                console.error("[workspace-tree-index] file change listener failed", {
+                    root: entry.rootInput,
+                }, error);
+            });
     }
 }
 
@@ -471,16 +531,14 @@ function normalizeWorkspaceEventPath(root: string, changedPath: string): string 
     return toWorkspaceDisplayPath(root, absolutePath).replace(/\\/g, "/").replace(/\/+$/u, "");
 }
 
-function isIgnoredWorkspaceWatchPath(value: string): boolean {
-    return value.replace(/\\/g, "/").split("/").includes(".git");
-}
+/**
+ * watcher 忽略段：`.git` 版本库、`.nbook` 运行态（project.sqlite / history.sqlite 的 WAL 高频写会抖动索引重建）、
+ * `.agent` 运行态（plan 草稿等）。只收窄 watcher 事件面，不影响 scanWorkspaceTree 的树展示（读取路径 dirty 重建兜底）。
+ */
+const IGNORED_WORKSPACE_WATCH_SEGMENTS = new Set([".git", ".nbook", ".agent"]);
 
-/** rootInput 指向 Project Workspace（workspace/<slug> 相对形）时向生命周期注册表报活；user-assets 与绝对路径入参不参与空闲清扫。 */
-function touchProjectResourcesForRootInput(rootInput: string, kind: WorkspaceTreeIndexKind): void {
-    if (kind !== "project-workspace" || !/^workspace\/[^/]+$/u.test(rootInput)) {
-        return;
-    }
-    touchProjectResources(rootInput);
+export function isIgnoredWorkspaceWatchPath(value: string): boolean {
+    return value.replace(/\\/g, "/").split("/").some((segment) => IGNORED_WORKSPACE_WATCH_SEGMENTS.has(segment));
 }
 
 function normalizeRootInput(rootInput: string | undefined): string {

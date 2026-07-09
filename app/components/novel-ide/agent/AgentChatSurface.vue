@@ -29,6 +29,7 @@ import {resolveApiErrorMessage} from "nbook/app/utils/api-error";
 import {formatCost, formatCostExact, usingCnyRate} from "nbook/app/utils/cost-format";
 import type {ConfigModelSettingsDto} from "nbook/shared/dto/config.dto";
 import type {AgentQueuedMessageDto, AgentSessionListPageDto, AgentSessionListQueryDto, AgentSessionSnapshotDto, AgentSessionSummaryDto, AgentPendingApprovalDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
+import {AgentModeSchema} from "nbook/shared/dto/agent-session.dto";
 import type {DropdownItem} from "nbook/app/components/common/dropdown.types";
 import type {ThinkingLevelDto} from "nbook/shared/dto/app-settings.dto";
 import type {AgentCommandResult, InvokeAgentResult} from "nbook/server/agent/harness/types";
@@ -152,7 +153,7 @@ const pendingUserInputSessionsComputed = computed(() => {
     return pendings.map((approval: AgentPendingApprovalDto) => toPendingUserInputSession(approval, messages.value))
         .filter((s): s is AgentPendingUserInputSession => s !== null);
 });
-const {confirm} = useDialog();
+const {confirm, prompt} = useDialog();
 const notification = useNotification();
 const {t} = useI18n();
 
@@ -1472,9 +1473,9 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
         return true;
     }
     if (command === "/mode") {
-        const requested = rest[0];
-        if (requested === "normal" || requested === "discuss" || requested === "plan") {
-            await setAgentMode(requested);
+        const requested = AgentModeSchema.safeParse(rest[0]);
+        if (requested.success) {
+            await setAgentMode(requested.data);
         } else {
             await cycleAgentMode();
         }
@@ -1494,6 +1495,29 @@ const handleSlashCommand = async (message: string): Promise<boolean> => {
             modelKey: rest[0] ?? null,
         });
         await applyCommandResult(result);
+        return true;
+    }
+    if (command === "/rename") {
+        // 用原始剩余文本作为标题，保留标题内部的连续空格。
+        const title = message.trim().slice("/rename".length).trim();
+        if (!title) {
+            notification.error(t("agent.chatSurface.renameMissingTitle"));
+            return true;
+        }
+        await renameSession(activeSessionId.value, title);
+        return true;
+    }
+    if (command === "/summarize") {
+        try {
+            const result = await agentApi.runCommand(activeSessionId.value, {
+                command: "summarize",
+            });
+            await applyCommandResult(result);
+            notification.success(t("agent.chatSurface.summarizeStarted"));
+        } catch (error) {
+            console.error("重新生成摘要失败", error);
+            notifyAgentError(error, t("agent.chatSurface.summarizeFailed"));
+        }
         return true;
     }
     return false;
@@ -2019,6 +2043,46 @@ const createSessionFromHeader = async (profileKey?: string): Promise<void> => {
     }
 };
 
+/**
+ * 重命名 session 的共享核心：/rename 命令与侧边栏/列表按钮共用。
+ * 改名后标题所有权归用户，自动摘要不再覆盖标题；失败走通知反馈。
+ */
+const renameSession = async (sessionId: number, title: string): Promise<void> => {
+    try {
+        const result = await agentApi.runCommand(sessionId, {
+            command: "rename",
+            title,
+        });
+        if (sessionId === activeSessionId.value) {
+            await applyCommandResult(result);
+        }
+        await refreshSessions();
+        notification.success(t("agent.chatSurface.renamed"));
+    } catch (error) {
+        console.error("重命名 session 失败", error);
+        notifyAgentError(error, t("agent.chatSurface.renameFailed"));
+    }
+};
+
+/**
+ * 手动重命名 session：弹输入框后走共享 renameSession 核心。
+ */
+const renameSessionFromDialog = async (target: AgentSessionSummaryDto): Promise<void> => {
+    if (loadingSession.value || sessionActionId.value) {
+        return;
+    }
+    const title = (await prompt(t("agent.session.renamePrompt"), target.title ?? "", t("agent.session.rename")))?.trim();
+    if (!title) {
+        return;
+    }
+    sessionActionId.value = target.sessionId;
+    try {
+        await renameSession(target.sessionId, title);
+    } finally {
+        sessionActionId.value = null;
+    }
+};
+
 const archiveSessionFromDialog = async (target: AgentSessionSummaryDto): Promise<void> => {
     if (target.status === "running" || target.status === "waiting" || loadingSession.value || sessionActionId.value) {
         return;
@@ -2195,6 +2259,7 @@ defineExpose({
     selectSession,
     createSession: createSessionFromHeader,
     archiveSessionFromDialog,
+    renameSessionFromDialog,
     openInlineEditorSession,
     refreshInlineEditorSessions,
     selectInlineEditorSession,
@@ -2530,6 +2595,7 @@ function isApprovalApproved(answer?: {
                 @select="void selectSession($event)"
                 @create="void createSessionFromDialog($event)"
                 @archive="void archiveSessionFromDialog($event)"
+                @rename="void renameSessionFromDialog($event)"
                 @refresh="void refreshSessionsWithQuery($event)"
                 @load-more="void refreshSessionsWithQuery($event)"
             />

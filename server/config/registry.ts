@@ -131,4 +131,12 @@ export const CONFIG_REGISTRY: ConfigItemMeta[] = [
         secret: false,
         description: "Agent web_fetch 的本地抓取限制和外部 provider fallback 策略。",
     },
+    {
+        key: "history",
+        scope: "global-workspace",
+        effect: "next-session",
+        merge: "deep-merge",
+        secret: false,
+        description: "工作区文件历史（操作日志）配置。Global 持有总开关 enabled；retentionFullDays / keepDailyLastAfterWindow / autoAcceptEnabled / autoAcceptDays 可被 Project Config 覆盖。改动在项目下次 open 时生效。",
+    },
 ];

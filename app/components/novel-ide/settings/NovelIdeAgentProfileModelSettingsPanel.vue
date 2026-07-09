@@ -40,6 +40,9 @@ type AgentProfileDraft = {
     model: AgentProfileModelDraft;
     loadStatus: ConfigAgentProfileSettingsDto["agentProfiles"][number]["loadStatus"];
     hasSettingsForm: boolean;
+    hasSummarizer: boolean;
+    /** 后台自动摘要开关草稿；null 表示未覆盖（沿用上级或 profile 默认开启）。 */
+    summarizerEnabled: boolean | null;
     issue: ConfigAgentProfileSettingsDto["agentProfiles"][number]["issue"];
     sourcePath: string | null;
     buildState: ConfigAgentProfileSettingsDto["agentProfiles"][number]["buildState"];
@@ -67,6 +70,8 @@ type AgentProfileConfigDraft = {
     model: Partial<AgentProfileModelConfigDto>;
     settings?: LowCodeJsonObject;
     resourceMutations?: LowCodeResourceMutationDto[];
+    /** 后台自动摘要覆盖；缺省表示不覆盖（沿用上级配置或 profile 默认开启）。 */
+    summarizer?: {enabled?: boolean};
 };
 
 const loading = ref(false);
@@ -250,6 +255,28 @@ function setProfileStream(profile: AgentProfileDraft, value: string): void {
 }
 
 /**
+ * 后台自动摘要开关的三态 select 选项：继承（默认/Global）、开启、关闭。
+ */
+function summarizerOptionsForProfile(profile: AgentProfileDraft): SelectOption[] {
+    const inheritedEnabled = isProjectScope.value
+        ? editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.summarizer?.enabled ?? true
+        : true;
+    const inheritedLabel = streamLabel(inheritedEnabled);
+    return [
+        {value: "inherit", label: isProjectScope.value ? t("settings.panels.profileModels.inheritGlobal", {value: inheritedLabel}) : t("settings.panels.profileModels.defaultValue", {value: inheritedLabel})},
+        {value: "true", label: t("settings.panels.profileModels.enabled")},
+        {value: "false", label: t("settings.panels.profileModels.disabled")},
+    ];
+}
+
+/**
+ * 后台自动摘要三态 select 写回草稿：inherit → null（不覆盖），true/false → 显式开关。
+ */
+function setProfileSummarizerEnabled(profile: AgentProfileDraft, value: string): void {
+    profile.summarizerEnabled = parseStreamSelectValue(value);
+}
+
+/**
  * 克隆模型草稿。
  */
 function cloneModelDraft(model: Partial<AgentProfileModelConfigDto> | undefined): AgentProfileModelDraft {
@@ -330,13 +357,16 @@ function buildProfileConfig(profile: AgentProfileDraft): AgentProfileConfigDraft
     const modelPatch = isProjectScope.value ? buildProjectModelPatch(profile.model) : buildModelPatch(profile.model);
     const settingsPatch = buildSettingsPatch(profile.settings);
     const resourceMutations = profile.settings?.resourceMutations ?? [];
-    if (isEmptyObject(modelPatch) && (!profile.settings || isEmptyObject(settingsPatch)) && resourceMutations.length === 0) {
+    // 持久化只看草稿值：profile 临时 compiling/编译失败（hasSummarizer=false）时保存其它设置不丢已存覆盖。
+    const summarizerPatch = profile.summarizerEnabled !== null ? {enabled: profile.summarizerEnabled} : undefined;
+    if (isEmptyObject(modelPatch) && (!profile.settings || isEmptyObject(settingsPatch)) && resourceMutations.length === 0 && !summarizerPatch) {
         return null;
     }
     return {
         model: modelPatch,
         ...(profile.settings && !isEmptyObject(settingsPatch) ? {settings: settingsPatch} : {}),
         ...(resourceMutations.length > 0 ? {resourceMutations} : {}),
+        ...(summarizerPatch ? {summarizer: summarizerPatch} : {}),
     };
 }
 
@@ -366,6 +396,7 @@ function buildGlobalProfileConfigMap(): Record<string, AgentProfileConfigDraft> 
             .map(([profileKey, config]) => [profileKey, {
                 model: config.model ?? {},
                 ...(config.settings !== undefined ? {settings: cloneLowCodeObject(config.settings)} : {}),
+                ...(config.summarizer !== undefined ? {summarizer: config.summarizer} : {}),
             } satisfies AgentProfileConfigDraft]),
     );
     for (const profile of profiles.value) {
@@ -474,6 +505,8 @@ function applySettings(settings: ConfigAgentProfileSettingsDto): void {
         model: cloneModelDraft(editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.model),
         loadStatus: profile.loadStatus,
         hasSettingsForm: profile.hasSettingsForm,
+        hasSummarizer: profile.hasSummarizer,
+        summarizerEnabled: editorSnapshot.value?.global.agent?.profiles?.[profile.profileKey]?.summarizer?.enabled ?? null,
         issue: profile.issue,
         sourcePath: profile.sourcePath,
         buildState: profile.buildState,
@@ -499,6 +532,8 @@ function applyProjectSettings(settings: ConfigAgentProfileSettingsDto): void {
             model: cloneModelDraft(override),
             loadStatus: profile.loadStatus,
             hasSettingsForm: profile.hasSettingsForm,
+            hasSummarizer: profile.hasSummarizer,
+            summarizerEnabled: editorSnapshot.value?.project?.agent?.profiles?.[profile.profileKey]?.summarizer?.enabled ?? null,
             issue: profile.issue,
             sourcePath: profile.sourcePath,
             buildState: profile.buildState,
@@ -688,6 +723,7 @@ function resetProfile(profile: AgentProfileDraft): void {
         reasoningEffort: null,
         stream: null,
     };
+    profile.summarizerEnabled = null;
     if (profile.settings) {
         profile.settings.values = isProjectScope.value
             ? {}
@@ -965,6 +1001,12 @@ defineExpose({
                             <div class="space-y-1.5">
                                 <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.stream") }}</label>
                                 <FormSelect :model-value="streamSelectValue(profile.model.stream)" :options="streamOptionsForProfile(profile)" @update:model-value="setProfileStream(profile, $event)" />
+                            </div>
+
+                            <!-- 后台自动摘要开关（仅声明了 summarizer 的 profile 展示） -->
+                            <div v-if="profile.hasSummarizer" class="space-y-1.5">
+                                <label class="text-xs font-medium text-[var(--text-secondary)]">{{ t("settings.panels.profileModels.summarizer") }}</label>
+                                <FormSelect :model-value="streamSelectValue(profile.summarizerEnabled)" :options="summarizerOptionsForProfile(profile)" @update:model-value="setProfileSummarizerEnabled(profile, $event)" />
                             </div>
                         </div>
 

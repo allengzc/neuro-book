@@ -1,7 +1,9 @@
 import {createError, getRequestHeader, readMultipartFormData, type MultiPartData} from "h3";
 import {resolveWorkspaceRootInput} from "nbook/server/workspace-files/novel-workspace";
 import {invalidateProjectWorkspaceIndexAfterMutation} from "nbook/server/workspace-files/project-workspace-index";
+import {assertProjectOpenForRoot} from "nbook/server/workspace-files/project-open-guard";
 import {uploadWorkspaceFile, WorkspaceUploadError} from "nbook/server/workspace-files/workspace-upload";
+import {recordUploadedFiles, USER_LOCAL_ACTOR} from "nbook/server/workspace-history/tracked-workspace-files";
 
 /**
  * 上传单个文件到当前挂载根的 upload/ 目录。已有文件跳过。
@@ -15,12 +17,14 @@ export default defineEventHandler(async (event) => {
         projectPath: readTextPart(parts, "projectPath"),
         workspaceKind,
     });
+    assertProjectOpenForRoot(root);
 
     try {
         const result = await uploadWorkspaceFile(root, {
             fileName: file.filename ?? "upload.bin",
             data: file.data,
         });
+        await recordUploadedFiles({root, files: result.files, actor: USER_LOCAL_ACTOR});
         invalidateProjectWorkspaceIndexAfterMutation({root, workspaceKind});
         return result;
     } catch (error) {

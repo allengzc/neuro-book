@@ -23,6 +23,7 @@ export {profileSourceFileSetChangedSinceCompile} from "nbook/server/agent/profil
 import type {ProfileCompilePublishOptions, ProfileCompileWorkerResult} from "nbook/server/agent/profiles/profile-compile-worker-types";
 import {appLogger} from "nbook/server/app-logs/logger";
 import {resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
 import type {
     AgentProfileCompileAllRequestDto,
     AgentProfileCompileRequestDto,
@@ -35,6 +36,7 @@ type CompileTask = {
     input: AgentProfileCompileRequestDto | AgentProfileCompileAllRequestDto;
     mode: "single" | "all";
     resolve: (result: AgentProfileCompileResultDto) => void;
+    reject: (error: Error) => void;
     publish?: ProfileCompilePublishOptions;
     stale: boolean;
 };
@@ -129,11 +131,13 @@ export class ProfileCompileWorkerService {
             input,
             mode,
             resolve: () => {},
+            reject: () => {},
             publish,
             stale: false,
         };
-        const promise = new Promise<AgentProfileCompileResultDto>((resolvePromise) => {
+        const promise = new Promise<AgentProfileCompileResultDto>((resolvePromise, rejectPromise) => {
             task.resolve = resolvePromise;
+            task.reject = rejectPromise;
         });
         if (mode === "all") {
             this.markAllPendingStale();
@@ -280,7 +284,11 @@ export class ProfileCompileWorkerService {
         }, (error) => {
             slot.task = null;
             this.running.delete(task.id);
-            task.resolve(workerFailedResult(task.input, error instanceof Error ? error : new Error(String(error))));
+            if (error instanceof ProjectNotOpenError) {
+                task.reject(error);
+            } else {
+                task.resolve(workerFailedResult(task.input, error instanceof Error ? error : new Error(String(error))));
+            }
             this.pump();
         });
     }
@@ -450,6 +458,7 @@ export class ProfileCompileWorkerService {
  * 在主线程发布 worker 生成的 staging release，并清理临时目录。
  */
 async function publishWorkerResult(task: CompileTask, result: ProfileCompileWorkerResult, cleanupStagedDir: CleanupStagedDir = defaultCleanupStagedDir): Promise<AgentProfileCompileResultDto> {
+    throwLifecycleError(result);
     const staged = result.stagedRelease;
     if (!staged) {
         return stripWorkerResult(result);
@@ -608,8 +617,17 @@ function elapsedSince(startedAt: number): number {
  * 去掉 worker 内部字段，避免 staging 目录路径进入 HTTP 响应。
  */
 function stripWorkerResult(result: ProfileCompileWorkerResult): AgentProfileCompileResultDto {
-    const {stagedRelease: _stagedRelease, ...publicResult} = result;
+    const {stagedRelease: _stagedRelease, lifecycleError: _lifecycleError, ...publicResult} = result;
     return publicResult;
+}
+
+function throwLifecycleError(result: ProfileCompileWorkerResult): void {
+    if (!result.lifecycleError) {
+        return;
+    }
+    if (result.lifecycleError.code === "PROJECT_NOT_OPEN") {
+        throw new ProjectNotOpenError(result.lifecycleError.projectPath);
+    }
 }
 
 function workerFailedResult(input: AgentProfileCompileRequestDto | AgentProfileCompileAllRequestDto, error: Error): AgentProfileCompileResultDto {

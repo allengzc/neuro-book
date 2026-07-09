@@ -8,6 +8,8 @@ import {worldEngineFacade} from "nbook/server/world-engine";
 import type {JsonValue, PatchInput, SliceInput, SliceListItem, WorldSliceSubjectFilterMode, WorldState} from "nbook/server/world-engine";
 import {requireProjectPathQuery, validateBody} from "nbook/server/utils/novel-chapter";
 import {assertProjectWorkspaceDirectory, resolveProjectAbsolutePath} from "nbook/server/workspace-files/project-workspace";
+import {assertProjectOpen, ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
+import {createProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
 
 const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() => z.union([
     z.null(),
@@ -82,7 +84,22 @@ type SubjectFileEventCommitBody = z.infer<typeof SubjectFileEventCommitBodySchem
  * World Engine Project API：所有时间入参和出参都使用项目日历字符串。
  */
 export default defineEventHandler(async (event) => {
+    try {
+        return await handleWorldEngineApi(event);
+    } catch (error) {
+        if (error instanceof ProjectNotOpenError) {
+            throw createProjectNotOpenHttpError(error);
+        }
+        throw error;
+    }
+});
+
+/**
+ * 处理 World Engine 数据面 API。先守卫 open，避免时间/schema 预处理在未 open 时绕过会话模型。
+ */
+async function handleWorldEngineApi(event: H3Event): Promise<unknown> {
     const projectPath = await assertProjectWorkspaceDirectory(requireProjectPathQuery(event));
+    assertProjectOpen(projectPath);
     const segments = readSegments(event);
     const method = event.method.toUpperCase();
 
@@ -124,7 +141,7 @@ export default defineEventHandler(async (event) => {
     }
 
     throw createError({statusCode: 404, message: "未知 World Engine API"});
-});
+}
 
 async function createSubject(projectPath: string, body: CreateSubjectBody): Promise<unknown> {
     return worldEngineFacade.createSubject(projectPath, {

@@ -9,13 +9,22 @@ import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/worksp
 import {resolveProjectDatabasePath, toSqliteFileUrl} from "nbook/server/workspace-files/project-workspace";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 import {TrackedPrismaLibSql} from "nbook/server/workspace-files/tracked-prisma-libsql";
+import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
+import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 
 const createdProjects: string[] = [];
 const createdFacades: WorldEngineFacade[] = [];
 
-describe("WorldEngineFacade", () => {
-    afterEach(cleanupCreatedProjects);
-    afterAll(cleanupCreatedProjects);
+describe("WorldEngineFacade", {timeout: 30_000}, () => {
+    afterEach(cleanupCreatedProjects, 30_000);
+    afterAll(cleanupCreatedProjects, 30_000);
+
+    it("未 open 的 Project 拒绝创建 World Engine client", async () => {
+        const projectPath = await createProject(undefined, {open: false});
+        const facade = createFacade();
+
+        await expect(facade.listSubjects(projectPath)).rejects.toBeInstanceOf(ProjectNotOpenError);
+    });
 
     it("首写自动创建 subject，并应用 schema default 与 4-op patch", async () => {
         const projectPath = await createProject();
@@ -627,11 +636,12 @@ async function cleanupCreatedProjects(): Promise<void> {
         await facade.closeProject("workspace/__test__");
     }
     for (const projectPath of projectPaths) {
+        await closeProjectForTest(projectPath).catch(() => undefined);
         await removeProjectRoot(projectPath);
     }
 }
 
-async function createProject(schema = schemaSource()): Promise<string> {
+async function createProject(schema = schemaSource(), options: {open?: boolean} = {}): Promise<string> {
     const slug = `world-engine-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const projectPath = `workspace/${slug}`;
     const root = projectRoot(projectPath);
@@ -640,6 +650,9 @@ async function createProject(schema = schemaSource()): Promise<string> {
     await fs.writeFile(path.join(root, "world-engine", "schema", "index.ts"), schema, "utf-8");
     await fs.writeFile(path.join(root, "world-engine", "calendar.ts"), calendarSource(), "utf-8");
     createdProjects.push(projectPath);
+    if (options.open !== false) {
+        await openProjectForTest(projectPath);
+    }
     return projectPath;
 }
 

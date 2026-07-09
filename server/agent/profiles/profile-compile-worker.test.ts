@@ -3,6 +3,7 @@ import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import {pathToFileURL} from "node:url";
 import {setTimeout as sleep} from "node:timers/promises";
+import {randomUUID} from "node:crypto";
 import {describe, expect, it} from "vitest";
 import {AgentProfileCatalog} from "nbook/server/agent/profiles/catalog";
 import {ProfileCompileWorkerService, profileSourceFileSetChangedSinceCompile, resolveProfileCompileWorkerPathsForRoot, useProfileCompileWorker} from "nbook/server/agent/profiles/profile-compile-worker";
@@ -10,6 +11,8 @@ import {runProfileCompile, runProfileCompileAll, runProfileCompileEntry} from "n
 import {assertProfileFullReleaseFresh, PROFILE_COMPILED_DIR_NAME, readProfileArtifactManifest, stageProfileArtifacts} from "nbook/server/agent/profiles/profile-artifact-compiler";
 import type {ProfileCompileWorkerResult} from "nbook/server/agent/profiles/profile-compile-worker-types";
 import {withIsolatedWorkspaceAssets, type IsolatedWorkspaceAssets} from "nbook/server/workspace-files/workspace-assets-test-helper";
+import {JsonlSessionRepository} from "nbook/server/agent/session/session-repo";
+import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
 
 describe("profile compile worker runtime", () => {
     it("Product Root 仅有 .output package manifest 时从 .output/server vendor 解析 tsx API", async () => {
@@ -543,6 +546,56 @@ describe("profile compile worker runtime", () => {
             await expect(pathExists(compiledManifest)).resolves.toBe(false);
         });
     }, 120000);
+
+    it("worker runtime 将 Project lifecycle error 返回为内部字段", async () => {
+        await withIsolatedWorkspaceAssets({seedUserAssets: true, useAsCwd: true}, async (assets) => {
+            const {projectPath, sessionId} = await createUnopenedProjectSession(assets);
+            const fileName = "builtin/writer.profile.tsx";
+            const source = await readFile(profilePath(assets, fileName), "utf8");
+
+            const result = await runProfileCompile({
+                fileName,
+                source,
+                dryRun: true,
+                preview: true,
+                sessionId: String(sessionId),
+                userProfileRoot: assets.userProfileRoot,
+            });
+
+            expect(result.lifecycleError).toEqual({
+                code: "PROJECT_NOT_OPEN",
+                projectPath,
+            });
+            expect(result.issues).toEqual([]);
+            await expect(readFile(join(assets.workspaceContainerRoot, projectPath.slice("workspace/".length), "agents", "writer", "home.json"), "utf8")).rejects.toMatchObject({code: "ENOENT"});
+        });
+    }, 120000);
+
+    it("worker service 将 Project lifecycle error 重新抛为 ProjectNotOpenError", async () => {
+        await withIsolatedWorkspaceAssets({seedUserAssets: true, useAsCwd: true}, async (assets) => {
+            const {projectPath, sessionId} = await createUnopenedProjectSession(assets);
+            const fileName = "builtin/writer.profile.tsx";
+            const source = await readFile(profilePath(assets, fileName), "utf8");
+            const worker = new ProfileCompileWorkerService("test-project-lifecycle-error", 1, undefined, assets.userProfileRoot);
+            try {
+                try {
+                    await worker.compile({
+                        fileName,
+                        source,
+                        dryRun: true,
+                        preview: true,
+                        sessionId: String(sessionId),
+                    });
+                    throw new Error("Expected ProjectNotOpenError");
+                } catch (error) {
+                    expect(error).toBeInstanceOf(ProjectNotOpenError);
+                    expect(error).toMatchObject({projectPath});
+                }
+            } finally {
+                worker.dispose();
+            }
+        });
+    }, 120000);
 });
 
 async function readDirNames(root: string): Promise<string[]> {
@@ -610,6 +663,21 @@ async function copyRuntimePackage(packageName: string, productRoot: string): Pro
 
 async function withCompiledRootSnapshot(run: (assets: IsolatedWorkspaceAssets) => Promise<void>): Promise<void> {
     await withIsolatedWorkspaceAssets({seedUserAssets: true}, run);
+}
+
+async function createUnopenedProjectSession(assets: IsolatedWorkspaceAssets): Promise<{projectPath: string; sessionId: number}> {
+    const slug = `profile-lifecycle-${randomUUID()}`;
+    const projectPath = `workspace/${slug}`;
+    const projectRoot = join(assets.workspaceContainerRoot, slug);
+    await mkdir(projectRoot, {recursive: true});
+    await writeFile(join(projectRoot, "project.yaml"), "kind: novel\ntitle: Profile Lifecycle\nsummary: ''\n", "utf8");
+    const snapshot = await new JsonlSessionRepository().createSession({
+        profileKey: "writer",
+        initial: {},
+        workspaceRoot: "workspace",
+        projectPath,
+    });
+    return {projectPath, sessionId: snapshot.metadata.sessionId};
 }
 
 function profilePath(assets: IsolatedWorkspaceAssets, fileName: string): string {

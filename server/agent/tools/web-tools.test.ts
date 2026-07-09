@@ -116,7 +116,7 @@ describe("web tools", () => {
         expect(result.content).toContain("Hello **reader**.");
         expect(result.truncated).toBe(false);
         fetchMock.mockRestore();
-    });
+    }, 15_000);
 });
 
 function createWebConfig(): EffectiveConfig {

@@ -1,5 +1,5 @@
 import {PlotFacade} from "nbook/server/plot/facade/plot.facade";
-import {registerProjectResourceOwner} from "nbook/server/workspace-files/project-resources";
+import {registerProjectResourceOwner} from "nbook/server/workspace-files/project-session";
 import {
     requirePhaseId,
     requirePlotId,

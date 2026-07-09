@@ -4,9 +4,11 @@ import type {
     StoryPhase,
     StoryScene,
 } from "nbook/server/generated/project-prisma/client";
-import type {StoryThreadEntity} from "nbook/server/plot/core/types";
+import type {StoryDecisionEntity, StoryPromiseEntity, StoryThreadEntity} from "nbook/server/plot/core/types";
 import type {
     ChapterRepository,
+    DecisionRepository,
+    PromiseRepository,
     SceneRepository,
     StoryRepository,
     ThreadRepository,
@@ -23,6 +25,8 @@ export class PlotScopeGuard {
         private readonly threadRepository: ThreadRepository,
         private readonly sceneRepository: SceneRepository,
         private readonly chapterRepository: ChapterRepository,
+        private readonly promiseRepository: PromiseRepository,
+        private readonly decisionRepository: DecisionRepository,
     ) {}
 
     /**
@@ -78,6 +82,50 @@ export class PlotScopeGuard {
             throwPlotNotFound("章节不存在;chapterId 必须指向当前 Story 下的 StoryChapter");
         }
         return chapter;
+    }
+
+    /**
+     * 校验 Promise 属于当前 Story。
+     * beat 写入(scene×promise)两侧都过本守卫即保证同 story。
+     */
+    async assertPromise(storyId: number, promiseId: number): Promise<StoryPromiseEntity> {
+        const promise = await this.promiseRepository.findPromiseById(promiseId);
+        if (!promise || promise.storyId !== storyId) {
+            throwPlotNotFound("Promise 不存在;promiseId 必须指向当前 Story 下的 StoryPromise");
+        }
+        return promise;
+    }
+
+    /**
+     * 校验 Promise name 唯一。name 是互指引用的 slug,冲突会破坏引用解析。
+     */
+    async assertPromiseNameUnique(storyId: number, name: string, excludePromiseId?: number): Promise<void> {
+        const promise = await this.promiseRepository.findPromiseByName(storyId, name, excludePromiseId);
+        if (promise) {
+            throwPlotBadRequest(`Promise name 已存在：${name}`);
+        }
+    }
+
+    /**
+     * 校验 Decision 属于当前 Story。
+     * anchor 各外键与 supersededById 写入都过本守卫即保证同 story(D12)。
+     */
+    async assertDecision(storyId: number, decisionId: number): Promise<StoryDecisionEntity> {
+        const decision = await this.decisionRepository.findDecisionById(decisionId);
+        if (!decision || decision.storyId !== storyId) {
+            throwPlotNotFound("Decision 不存在;decisionId 必须指向当前 Story 下的 StoryDecision");
+        }
+        return decision;
+    }
+
+    /**
+     * 校验 Decision name 唯一。name 是互指引用的 slug(如 d-liya-truth),冲突会破坏引用解析。
+     */
+    async assertDecisionNameUnique(storyId: number, name: string, excludeDecisionId?: number): Promise<void> {
+        const decision = await this.decisionRepository.findDecisionByName(storyId, name, excludeDecisionId);
+        if (decision) {
+            throwPlotBadRequest(`Decision name 已存在：${name}`);
+        }
     }
 
     /**

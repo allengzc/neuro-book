@@ -1,5 +1,7 @@
 import type {
     ChapterRepository,
+    DecisionRepository,
+    PromiseRepository,
     SceneRepository,
     StoryRepository,
     ThreadRepository,
@@ -60,6 +62,8 @@ describe("StoryService", () => {
         } as ThreadRepository;
         const sceneRepository = {} as SceneRepository;
         const chapterRepository = {} as ChapterRepository;
+        const promiseRepository = {} as PromiseRepository;
+        const decisionRepository = {} as DecisionRepository;
         const orderService = new OrderService(
             storyRepository,
             threadRepository,
@@ -70,6 +74,8 @@ describe("StoryService", () => {
             threadRepository,
             sceneRepository,
             chapterRepository,
+            promiseRepository,
+            decisionRepository,
         );
         scopeGuard.assertPhase = vi.fn(async (_storyId: number, phaseId: number) => {
             const phase = phases.find((item) => item.id === phaseId);
@@ -82,6 +88,8 @@ describe("StoryService", () => {
             storyRepository,
             threadRepository,
             chapterRepository,
+            promiseRepository,
+            decisionRepository,
             orderService,
             new PlotDtoAssembler(),
             scopeGuard,

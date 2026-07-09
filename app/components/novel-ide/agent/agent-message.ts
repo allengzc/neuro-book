@@ -1,7 +1,8 @@
 import {z} from "zod";
 import type {AssistantMessageEvent} from "@earendil-works/pi-ai";
 import type {AgentMessage as PiAgentMessage, AgentToolCall as PiAgentToolCall, AssistantMessage as PiAssistantMessage, Message as PiMessage, ToolResultMessage, Usage} from "nbook/server/agent/messages/types";
-import type {AgentRuntimeStreamEventDto, AgentSessionSnapshotDto, AgentPendingApprovalDto} from "nbook/shared/dto/agent-session.dto";
+import type {AgentRuntimeStreamEventDto, AgentSessionSnapshotDto, AgentPendingApprovalDto, AgentMode} from "nbook/shared/dto/agent-session.dto";
+import {AgentModeSchema} from "nbook/shared/dto/agent-session.dto";
 import type {SessionEntry} from "nbook/server/agent/session/types";
 import type {LowCodeFormDto} from "nbook/shared/dto/low-code-form.dto";
 import {LowCodeFormDtoSchema} from "nbook/shared/dto/low-code-form.dto";
@@ -158,7 +159,7 @@ export type AgentPendingUserInputQuestion = z.infer<typeof AgentUserInputQuestio
     kind: "question" | "tool_approval";
     approvalAction?: "switch_mode" | "skill";
     /** switch_mode 审批的目标模式；非 switch_mode 审批为空。 */
-    switchTargetMode?: "normal" | "discuss" | "plan";
+    switchTargetMode?: AgentMode;
     approvalToolArgsText?: string;
     planFilePath?: string;
     planContent?: string;
@@ -769,8 +770,8 @@ export const toPendingUserInputSession = (
             approvalAction: pending.toolName === "switch_mode" || pending.toolName === "skill"
                 ? pending.toolName
                 : undefined,
-            switchTargetMode: pending.toolName === "switch_mode" && (args.targetMode === "normal" || args.targetMode === "discuss" || args.targetMode === "plan")
-                ? args.targetMode
+            switchTargetMode: pending.toolName === "switch_mode"
+                ? parseAgentMode(args.targetMode)
                 : undefined,
             approvalToolArgsText: JSON.stringify(args, null, 2),
             planFilePath: pending.toolName === "switch_mode" ? pending.planFilePath : undefined,
@@ -1249,9 +1250,15 @@ const extractLinkedSessionId = (value: unknown): number | undefined => {
     return undefined;
 };
 
+/** 将任意工具参数值解析为 AgentMode；非法/缺失时返回 undefined。复用 shared schema 避免手写枚举漂移。 */
+const parseAgentMode = (value: unknown): AgentMode | undefined => {
+    const parsed = AgentModeSchema.safeParse(value);
+    return parsed.success ? parsed.data : undefined;
+};
+
 const approvalQuestion = (toolName: string, args: Record<string, unknown>): string => {
     if (toolName === "switch_mode") {
-        const targetMode = args.targetMode === "normal" || args.targetMode === "discuss" || args.targetMode === "plan" ? args.targetMode : "normal";
+        const targetMode = parseAgentMode(args.targetMode) ?? "normal";
         const modeLabel = targetMode === "normal"
             ? translate("agent.mode.normal", "普通模式")
             : targetMode === "discuss" ? translate("agent.mode.discuss", "讨论模式") : translate("agent.mode.plan", "计划模式");

@@ -80,7 +80,7 @@ describe("assets builtin v3 profiles", () => {
                 customState: {},
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {},
             vars: createTestVariableAccessor(),
@@ -113,21 +113,25 @@ describe("assets builtin v3 profiles", () => {
             "get_session",
             "detach_agent",
             "request_user_input",
-            "enter_plan_mode",
-            "exit_plan_mode",
+            "switch_mode",
             "task_create",
             "task_set_status",
             "execute_world",
-            "get_plot_tree",
+            "get_story_tree",
             "get_story_thread",
             "get_story_scene_context",
             "get_scene_world_context",
-            "get_chapter_plot",
+            "get_story_chapter",
             "get_chapter_writer_brief",
-            "create_story_thread",
-            "update_story_thread",
-            "create_story_scene",
-            "update_story_scene",
+            "get_story_promise",
+            "get_story_decision",
+            "save_story_act",
+            "save_story_chapter",
+            "save_story_thread",
+            "save_story_scene",
+            "save_story_promise",
+            "save_promise_beat",
+            "save_story_decision",
             "execute_sql",
             "variable_schema",
             "variable_read",
@@ -265,7 +269,7 @@ describe("assets builtin v3 profiles", () => {
                 },
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {},
             vars: createTestVariableAccessor({
@@ -295,7 +299,7 @@ describe("assets builtin v3 profiles", () => {
         expect(runtimeAppendingText).toContain("Current Project Workspace: workspace/novel-7");
         expect(runtimeAppendingText).toContain("use novel-7/lorebook/... or novel-7/manuscript/...");
         expect(runtimeAppendingText).toContain("Current selected file: novel-7/manuscript/001-opening/index.md");
-        expect(runtimeAppendingText).toContain("Plan mode is inactive");
+        expect(runtimeAppendingText).toContain("You are in normal mode. switch_mode is available");
         expect(runtimeAppendingText).not.toContain("Current plot focus:");
         const planModePrepared = await profile.prepare!({
             session: testSession({
@@ -306,15 +310,16 @@ describe("assets builtin v3 profiles", () => {
                 profileKey: "leader.default",
                 workspaceRoot: resolve("workspace"),
                 customState: {
-                    "agent.planMode": {
-                        active: true,
-                        reminderKind: "full",
+                    "agent.mode": {
+                        mode: "plan",
+                        phase: "enter",
+                        fromMode: "normal",
                         workDirectory: "workspace/.agent/123",
                     },
                 },
                 linkedAgents: [],
                 archived: false,
-                planModeActive: true,
+                agentMode: "plan",
             }),
             initial: {},
             vars: createTestVariableAccessor(),
@@ -323,8 +328,8 @@ describe("assets builtin v3 profiles", () => {
             settings: {},
         });
         const planModeText = (planModePrepared.appendingMessages ?? []).map(messageText).join("\n");
-        expect(planModeText).toContain("## Thread Work Directory");
-        expect(planModeText).toContain("## Restrictions");
+        expect(planModeText).toContain("## Plan Work Directory");
+        expect(planModeText).toContain("## Mode Constraints");
         expect(planModeText).toContain("## Workflow");
         expect(planModeText).toContain("Do not create or invoke Explore agents");
         expect(planModeText).not.toContain("{sessionId}");
@@ -337,15 +342,16 @@ describe("assets builtin v3 profiles", () => {
                 profileKey: "leader.default",
                 workspaceRoot: resolve("workspace"),
                 customState: {
-                    "agent.planMode": {
-                        active: false,
-                        reminderKind: "exit",
+                    "agent.mode": {
+                        mode: "normal",
+                        phase: "exit",
+                        fromMode: "plan",
                         workDirectory: "workspace/.agent/123",
                     },
                 },
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {},
             vars: createTestVariableAccessor(),
@@ -353,7 +359,7 @@ describe("assets builtin v3 profiles", () => {
             skills: [],
             settings: {},
         });
-        expect((exitPrepared.appendingMessages ?? []).map(messageText).join("\n")).toContain("## Exited Plan Mode");
+        expect((exitPrepared.appendingMessages ?? []).map(messageText).join("\n")).toContain("## Left Plan Mode");
         const snapshot = await catalog.snapshot();
         expect(snapshot.profiles.map((item) => item.key)).toContain("leader.default");
     }, 20_000);
@@ -376,7 +382,7 @@ describe("assets builtin v3 profiles", () => {
                 customState: {},
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {
                 prompt: "找主角相关设定",
@@ -426,7 +432,7 @@ describe("assets builtin v3 profiles", () => {
                 customState: {},
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {},
             vars: createTestVariableAccessor(),
@@ -464,8 +470,7 @@ describe("assets builtin v3 profiles", () => {
             "get_session",
             "detach_agent",
             "request_user_input",
-            "enter_plan_mode",
-            "exit_plan_mode",
+            "switch_mode",
             "variable_schema",
             "variable_read",
             "variable_patch",
@@ -473,10 +478,30 @@ describe("assets builtin v3 profiles", () => {
         expect(prompt).toContain("workspace/.nbook/agent/profiles");
         expect(prompt).toContain("assets/workspace/.nbook/agent/profiles/builtin/writer.home/{styles,references}");
         expect(prompt).toContain("Workspace Root .nbook");
-        expect(prompt).toContain("workspace/.nbook/agent/variables/definitions.ts");
+        expect(prompt).toContain("agent/variables/definitions.ts");
         expect(prompt).toContain("workspace/.nbook/agent/variables/.compiled");
         expect(prompt).toContain("Project SQLite");
         expect(prompt).toContain("assets/workspace/.nbook/agent/skills");
+        expect(prompt).toContain("agents/{profileKey}/");
+        expect(prompt).toContain("agent/profile-templates/");
+        expect(prompt).toContain("templates/content-node-templates/");
+        expect(prompt).toContain("templates/project-directory-templates/");
+        expect(prompt).toContain("config.json");
+        expect(prompt).toContain("agent/sessions/");
+        expect(prompt).not.toContain("agent-v2");
+        expect(prompt).toContain("# 哪里做什么");
+        expect(prompt).toContain("Agent Profile 模型");
+        expect(prompt).toContain("TSX Profile 工作台");
+        expect(prompt).toContain("settingsForm");
+        expect(prompt).toContain("defineLowCodeForm");
+        expect(prompt).toContain("agent.profiles.<key>.settings");
+        expect(prompt).toContain("defineProfileHome");
+        expect(prompt).toContain("home.json");
+        expect(prompt).toContain("manifest.version");
+        expect(prompt).toContain("skills.include");
+        expect(prompt).toContain("resource-preset");
+        expect(prompt).toContain("skill-creator");
+        expect(prompt).toContain("tsx-profile-editing");
         expect(prompt).toContain("defineAgentProfile");
         expect(prompt).toContain("ProfilePrompt");
         expect(prompt).toContain("ProfileTurnPlan");
@@ -532,6 +557,10 @@ describe("assets builtin v3 profiles", () => {
         expect(historyText).toContain(resolve("assets", "workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"));
         expect(historyText).toContain("There is no separate skill tool");
         expect(historyText).toContain("read the SKILL.md file at the catalog location");
+        expect(historyText).toContain("Skill roots: agent/skills/ overrides assets/workspace/.nbook/agent/skills/");
+        expect(historyText).toContain("You may proactively choose a skill");
+        // fork 版 renderUserAssetsSkillCatalogText 已删除，改用 DSL 默认文本的 userAssets mode。
+        expect(historyText).not.toContain("Skills are reusable work methods for this turn");
         expect(modelContextText).toBe("");
         expect(appendingText).toContain("Runtime Location:");
         expect(appendingText).toContain("- Tool cwd: workspace/.nbook/");
@@ -539,6 +568,58 @@ describe("assets builtin v3 profiles", () => {
         expect(appendingText).toContain("user-assets is Workspace Root .nbook");
         expect(appendingText).toContain("Do not write novel lorebook");
         expect(appendingText).toContain("Project SQLite");
+        expect(appendingText).toContain("You are in normal mode. switch_mode is available");
+        // 旧版每轮追加的裸 Message 提醒已删除；该边界规则由 system prompt 与 RuntimeLocationReminder 承载。
+        expect(appendingText).not.toContain("When the user wants story content changed");
+    });
+
+    it("leader.assets settings 注入置顶提示词且 skill 白名单过滤 catalog", async () => {
+        const catalog = new AgentProfileCatalog(
+            resolve("assets", "workspace", ".nbook", "agent", "profiles"),
+            resolve(".agent", "missing-user-profiles"),
+        );
+        catalog.register(defaultAgentProfile);
+
+        const profile = await catalog.get("leader.assets");
+        const prepared = await profile.prepare!({
+            session: testSession({
+                profileKey: "leader.assets",
+                workspaceRoot: resolve("workspace", ".nbook"),
+            }),
+            initial: {},
+            vars: createTestVariableAccessor(),
+            catalog: await catalog.snapshot(),
+            skills: [{
+                key: "profile-system-guide",
+                name: "profile-system-guide",
+                description: "Profile 系统指南。",
+                source: "system",
+                rootPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "profile-system-guide"),
+                skillPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "profile-system-guide", "SKILL.md"),
+            }, {
+                key: "novel-workflow-09-chapter-writing",
+                name: "章节写作",
+                description: "章节写作流程。",
+                source: "system",
+                rootPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "novel-workflow-09-chapter-writing"),
+                skillPath: resolve("assets", "workspace", ".nbook", "agent", "skills", "novel-workflow-09-chapter-writing", "SKILL.md"),
+            }],
+            settings: {
+                customTopSystemPrompt: "资产助手置顶规则：先解释再动手。",
+            },
+        });
+        const systemPrompt = prepared.systemPrompt ?? "";
+        const historyText = (prepared.historyInitMessages ?? []).map(messageText).join("\n");
+        const snapshot = await catalog.snapshot();
+        const leaderAssets = snapshot.profiles.find((item) => item.key === "leader.assets");
+
+        expect(leaderAssets?.hasSettingsForm).toBe(true);
+        expect(systemPrompt.trimStart().startsWith("<custom_top_system_prompt>")).toBe(true);
+        expect(systemPrompt).toContain("资产助手置顶规则：先解释再动手。");
+        expect(systemPrompt.indexOf("资产助手置顶规则")).toBeLessThan(systemPrompt.indexOf("用户资产助手"));
+        // skills.include 白名单：写作流程 skill 不进本 agent 的 catalog。
+        expect(historyText).toContain("key: profile-system-guide");
+        expect(historyText).not.toContain("novel-workflow-09-chapter-writing");
     });
 
     it("writer 输入合同硬切为空 initial 和 invocation payload", () => {
@@ -554,13 +635,13 @@ describe("assets builtin v3 profiles", () => {
             "execute_world",
             "report_result",
             "get_chapter_writer_brief",
-            "get_chapter_plot",
-            "get_plot_tree",
+            "get_story_chapter",
+            "get_story_tree",
         ]));
         expect(writerProfile.rootToolKeys).not.toContain("apply_patch");
-        expect(writerProfile.rootToolKeys).not.toContain("create_story_scene");
-        expect(writerProfile.rootToolKeys).not.toContain("update_story_scene");
-        expect(writerProfile.rootToolKeys).not.toContain("create_story_chapter");
+        expect(writerProfile.rootToolKeys).not.toContain("save_story_scene");
+        expect(writerProfile.rootToolKeys).not.toContain("save_story_thread");
+        expect(writerProfile.rootToolKeys).not.toContain("save_story_chapter");
         expect(initialProperties).toEqual({});
         expect(payloadProperties).toHaveProperty("path");
         expect(payloadProperties).toHaveProperty("chapterId");
@@ -621,7 +702,7 @@ describe("assets builtin v3 profiles", () => {
                 customState: {},
                 linkedAgents: [],
                 archived: false,
-                planModeActive: false,
+                agentMode: "normal",
             }),
             initial: {
                 topic: "web research",
@@ -759,7 +840,7 @@ describe("assets builtin v3 profiles", () => {
                     customState: {},
                     linkedAgents: [],
                     archived: false,
-                    planModeActive: false,
+                    agentMode: "normal",
                 }),
                 initial: {},
                 settings: defaultWriterSettings(),
@@ -843,6 +924,7 @@ describe("assets builtin v3 profiles", () => {
                     wordCountControl: "3200-3600 字",
                     polishingWorkflow: "自定义润色流程：先按 stop-slop 检查，再逐句修正。",
                     adultStylePrompt: "自定义成人风格：强调温柔互动和关系变化。",
+                    fileChangeAwareness: "minimal",
                 },
                 vars: createTestVariableAccessor(),
                 catalog: {profiles: [], issues: []},
@@ -927,6 +1009,7 @@ describe("assets builtin v3 profiles", () => {
                 questionStrategy: "thorough",
                 leaderPersonaPreset: "personas/caihui-lite.md",
                 customTopSystemPrompt: "最高规则：先确认用户意图。",
+                fileChangeAwareness: "full",
             },
             vars: createTestVariableAccessor(),
             catalog: snapshot,
@@ -983,6 +1066,7 @@ describe("assets builtin v3 profiles", () => {
                     questionStrategy: "concise",
                     leaderPersonaPreset: "personas/caihui-lite.md",
                     customTopSystemPrompt: "",
+                    fileChangeAwareness: "full",
                 },
                 home,
                 vars: createTestVariableAccessor(),
@@ -1016,7 +1100,7 @@ describe("assets builtin v3 profiles", () => {
             customState: {},
             linkedAgents: [],
             archived: false,
-            planModeActive: false,
+            agentMode: "normal" as const,
         };
         const contextBase = {
             session: testSession(baseSession),
@@ -1091,6 +1175,7 @@ function defaultWriterSettings() {
         wordCountControl: "2000-2600 字",
         polishingWorkflow: "润色时使用 .nbook/agent/skills/stop-slop/SKILL.md 作为自查流程，并优先在原文基础上做最小必要修改。",
         adultStylePrompt: "",
+        fileChangeAwareness: "minimal" as const,
     };
 }
 
@@ -1105,7 +1190,7 @@ function testSession(input: Partial<NeuroSessionContext>): RuntimeSessionFacade 
         customState: {},
         linkedAgents: [],
         archived: false,
-        planModeActive: false,
+        agentMode: "normal",
         ...input,
         async read() {
             return {

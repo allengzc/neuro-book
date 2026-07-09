@@ -16,7 +16,7 @@ type StoryThreadWithJsonTags = Omit<StoryThread, "tags"> & {
 
 type StoryThreadData = Partial<Pick<
     StoryThread,
-    "storyPhaseId" | "sortOrder" | "name" | "title" | "isMainThread" | "status" | "summary" | "writingTip" | "note"
+    "storyPhaseId" | "sortOrder" | "name" | "title" | "isMainThread" | "status" | "miceType" | "summary" | "writingTip" | "note"
 >> & {
     tags?: string[];
 };
@@ -109,6 +109,7 @@ export class PrismaThreadRepository implements ThreadRepository {
         title: string;
         isMainThread: boolean;
         status: StoryThread["status"];
+        miceType: StoryThread["miceType"];
         summary: string;
         tags: string[];
         writingTip: string | null;

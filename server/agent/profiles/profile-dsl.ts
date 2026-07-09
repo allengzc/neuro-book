@@ -8,6 +8,7 @@ import {planModeDirectory, planModeToolDirectory} from "nbook/server/agent/plan-
 import {AGENT_MODE_STATE_KEY, AGENT_TASKS_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
 import type {NeuroSessionContext, SessionEntryDraft} from "nbook/server/agent/session/types";
 import type {ProfileVariablePathInput, VariableNamespace} from "nbook/server/agent/variables/types";
+import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
 
 export type ProfileDslChild = ProfileDslNode | string | number | boolean | null | undefined | ProfileDslChild[];
 
@@ -434,12 +435,13 @@ export function If(props: {condition?: boolean; children?: ProfileDslChild | Pro
 }
 
 /**
- * Skill catalog string fragment。
+ * Skill catalog string fragment。mode 只切换默认文案中与运行位置相关的行：
+ * userAssets 供 cwd=Workspace Root .nbook 的 profile 使用，其余原则两种 mode 共享同一份文本。
  */
-export function SkillCatalog(props: {text?: string | ((ctx: ProfilePrepareContext<any>) => string | Promise<string>)}): ProfileStringFragmentNode {
+export function SkillCatalog(props: {mode?: "workspace" | "userAssets"; text?: string | ((ctx: ProfilePrepareContext<any>) => string | Promise<string>)}): ProfileStringFragmentNode {
     return {
         kind: "StringFragment",
-        text: props.text ?? defaultSkillCatalogText,
+        text: props.text ?? ((ctx) => defaultSkillCatalogText(ctx, props.mode ?? "workspace")),
     };
 }
 
@@ -1942,18 +1944,21 @@ function ModeReminderText(props: {stateKey: string; slots: Partial<Record<ModeSl
 
 /**
  * mode × phase(× fromMode) → 插槽档位。normal 非 exit 阶段无 reminder（返回 null）。
+ * mode 用穷尽 switch：未来给 AgentMode 新增模式时这里会编译报错，强制补全映射矩阵（Task 90）。
  */
-function resolveModeSlotKind(mode: string, phase: string, fromMode: string): ModeSlotKind | null {
-    if (mode === "plan") {
-        return phase === "reentry" ? "plan_reentry" : phase === "steady" ? "plan_steady" : "plan_enter";
+function resolveModeSlotKind(mode: AgentMode, phase: "enter" | "reentry" | "exit" | "steady", fromMode: AgentMode): ModeSlotKind | null {
+    switch (mode) {
+        case "plan":
+            return phase === "reentry" ? "plan_reentry" : phase === "steady" ? "plan_steady" : "plan_enter";
+        case "discuss":
+            return phase === "steady" ? "discuss_steady" : "discuss_enter";
+        case "normal":
+            return phase === "exit" ? (fromMode === "plan" ? "exit_from_plan" : "exit_plain") : null;
+        default: {
+            const exhaustive: never = mode;
+            return exhaustive;
+        }
     }
-    if (mode === "discuss") {
-        return phase === "steady" ? "discuss_steady" : "discuss_enter";
-    }
-    if (phase === "exit") {
-        return fromMode === "plan" ? "exit_from_plan" : "exit_plain";
-    }
-    return null;
 }
 
 /**
@@ -1979,7 +1984,7 @@ function renderModeReminderText(kind: ModeSlotKind, workDirectory: string, toolD
     if (kind === "plan_steady") {
         return systemReminder([
             "Plan mode is still active (full instructions appeared earlier in this conversation).",
-            `- Read-only except Markdown work files under ${workDirectory}. File write tools targeting other paths will pause for user approval; bash stays read-only inspection.`,
+            `- Read-only except Markdown work files under ${workDirectory}. File write tools targeting other paths will pause for user approval; bash stays read-only inspection, and state-changing tools (execute_sql / execute_world / plot save_* / variable_patch) stay read-only.`,
             `- Write or edit plan files via ${toolDirectory}/<slug>.md. For switch_mode to normal, pass planFilePath as .agent/plan/<slug>.md so the approval UI can preview the Project Workspace file.`,
             "- Do not create or invoke Explore agents.",
             "- Keep the user informed in chat: summarize important findings, unresolved decisions, and the current plan direction.",
@@ -1997,6 +2002,7 @@ function renderModeReminderText(kind: ModeSlotKind, workDirectory: string, toolD
             "- Read-only exploration is allowed and encouraged: read files, search, and run read-only commands to ground your answers in the real project.",
             "- File write tools will pause and ask the user for approval before executing. Do not attempt writes unless the user explicitly asks for a specific change mid-discussion; prefer describing what you would change and where.",
             "- bash is for read-only inspection only. Never write files through shell redirection or scripts.",
+            "- Do not change project state through non-file tools either: no execute_sql INSERT/UPDATE/DELETE, no execute_world slice writes or patches, no plot save_* tools, no variable_patch. Keep these to read-only use (SELECT queries, world reads, get_* lookups, variable_read) and request writes via switch_mode to normal.",
             "- Do not create or invoke Explore agents. Work locally with read/search tools.",
             "",
             "## How to Work in Discuss Mode",
@@ -2011,7 +2017,7 @@ function renderModeReminderText(kind: ModeSlotKind, workDirectory: string, toolD
     if (kind === "discuss_steady") {
         return systemReminder([
             "Discuss mode is still active (full instructions appeared earlier in this conversation).",
-            "Stay read-only: discuss, analyze, and recommend. File write tools pause for user approval; bash stays read-only inspection.",
+            "Stay read-only: discuss, analyze, and recommend. File write tools pause for user approval; bash and state-changing tools (execute_sql / execute_world / plot save_* / variable_patch) stay read-only.",
             "Do not start implementing or producing plan files. When the user wants execution, request it via switch_mode.",
         ].join("\n"));
     }
@@ -2032,6 +2038,7 @@ function renderModeReminderText(kind: ModeSlotKind, workDirectory: string, toolD
         "- Read-only exploration is allowed and encouraged: read files, search, and run read-only commands.",
         `- The only directly writable location is Markdown files under ${workDirectory}. File write tools targeting any other path will pause and ask the user for approval; do not attempt such writes unless the user explicitly asks for a specific change mid-planning.`,
         "- bash is for read-only inspection only. Never write files through shell redirection or scripts; use file tools so the mode rules apply.",
+        "- Do not change project state through non-file tools either: no execute_sql INSERT/UPDATE/DELETE, no execute_world slice writes or patches, no plot save_* tools, no variable_patch. Keep these to read-only use (SELECT queries, world reads, get_* lookups, variable_read) and request writes via switch_mode to normal.",
         "- Do not create or invoke Explore agents. Work locally with read/search tools.",
         "- Tests or commands are allowed only when they are read-only enough to refine the plan and do not update tracked files.",
         "- If the user asks you to implement while plan mode is active, keep planning instead. Explain that implementation starts after switching to normal mode through switch_mode once the plan is ready.",
@@ -2096,7 +2103,7 @@ function displaySkillLocation(skillPath: string): string {
     return resolve(skillPath);
 }
 
-async function defaultSkillCatalogText(ctx: ProfilePrepareContext<any>): Promise<string> {
+async function defaultSkillCatalogText(ctx: ProfilePrepareContext<any>, mode: "workspace" | "userAssets" = "workspace"): Promise<string> {
     if (ctx.skills.length === 0) {
         return "";
     }
@@ -2115,7 +2122,10 @@ async function defaultSkillCatalogText(ctx: ProfilePrepareContext<any>): Promise
         "",
         "Skills are reusable work methods. They are not long-term memory and they are not mandatory for every turn.",
         "",
-        "- Skill roots: workspace/.nbook/agent/skills/ overrides assets/workspace/.nbook/agent/skills/.",
+        // userAssets：cwd 已经是 Workspace Root .nbook，用 cwd 相对视角描述 skill roots。
+        mode === "userAssets"
+            ? "- Skill roots: agent/skills/ overrides assets/workspace/.nbook/agent/skills/."
+            : "- Skill roots: workspace/.nbook/agent/skills/ overrides assets/workspace/.nbook/agent/skills/.",
         "- User assets override system assets by whole skill directory, not by merging individual files.",
         "- There is no separate skill tool. To use a skill, read the SKILL.md file at the catalog location.",
         "- Read SKILL.md first as the entry card; if it references relative files such as references, scripts, templates, or examples, read only the needed files under the same skill directory.",
@@ -2123,7 +2133,10 @@ async function defaultSkillCatalogText(ctx: ProfilePrepareContext<any>): Promise
         "- If the user explicitly types $skill-key, or the task clearly matches a catalog description, read the matching SKILL.md before continuing.",
         "- You may proactively choose a skill when it is likely to materially improve the turn, even if the user did not mention it.",
         "- Do not read skills merely for formality; use the catalog description and when_to_use to keep selection focused.",
-        "- A skill guides this turn only. Stable world facts belong in Lorebook, plot progress belongs in Plot System, and temporary plans stay in the conversation.",
+        // userAssets：Lorebook/Plot 归属行对用户资产 agent 不适用，换成长期资产的对应纪律。
+        mode === "userAssets"
+            ? "- A skill guides this turn only. Do not hard-code temporary conversation preferences into long-term profiles or skill files unless the user explicitly asks."
+            : "- A skill guides this turn only. Stable world facts belong in Lorebook, plot progress belongs in Plot System, and temporary plans stay in the conversation.",
         "- If a skill conflicts with the user's goal, prioritize the user's goal; ask one minimal clarification only when the conflict materially changes the result.",
         "- After using a skill, the final response should report key output and necessary verification, not repeat the full skill content.",
         "",

@@ -49,6 +49,7 @@ export type StoryThreadMinAggregateOutputType = {
   title: string | null
   isMainThread: boolean | null
   status: $Enums.StoryThreadStatus | null
+  miceType: $Enums.StoryThreadMiceType | null
   summary: string | null
   tags: string | null
   writingTip: string | null
@@ -66,6 +67,7 @@ export type StoryThreadMaxAggregateOutputType = {
   title: string | null
   isMainThread: boolean | null
   status: $Enums.StoryThreadStatus | null
+  miceType: $Enums.StoryThreadMiceType | null
   summary: string | null
   tags: string | null
   writingTip: string | null
@@ -83,6 +85,7 @@ export type StoryThreadCountAggregateOutputType = {
   title: number
   isMainThread: number
   status: number
+  miceType: number
   summary: number
   tags: number
   writingTip: number
@@ -116,6 +119,7 @@ export type StoryThreadMinAggregateInputType = {
   title?: true
   isMainThread?: true
   status?: true
+  miceType?: true
   summary?: true
   tags?: true
   writingTip?: true
@@ -133,6 +137,7 @@ export type StoryThreadMaxAggregateInputType = {
   title?: true
   isMainThread?: true
   status?: true
+  miceType?: true
   summary?: true
   tags?: true
   writingTip?: true
@@ -150,6 +155,7 @@ export type StoryThreadCountAggregateInputType = {
   title?: true
   isMainThread?: true
   status?: true
+  miceType?: true
   summary?: true
   tags?: true
   writingTip?: true
@@ -254,6 +260,7 @@ export type StoryThreadGroupByOutputType = {
   title: string
   isMainThread: boolean
   status: $Enums.StoryThreadStatus
+  miceType: $Enums.StoryThreadMiceType | null
   summary: string
   tags: string
   writingTip: string | null
@@ -294,6 +301,7 @@ export type StoryThreadWhereInput = {
   title?: Prisma.StringFilter<"StoryThread"> | string
   isMainThread?: Prisma.BoolFilter<"StoryThread"> | boolean
   status?: Prisma.EnumStoryThreadStatusFilter<"StoryThread"> | $Enums.StoryThreadStatus
+  miceType?: Prisma.EnumStoryThreadMiceTypeNullableFilter<"StoryThread"> | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringFilter<"StoryThread"> | string
   tags?: Prisma.StringFilter<"StoryThread"> | string
   writingTip?: Prisma.StringNullableFilter<"StoryThread"> | string | null
@@ -304,6 +312,7 @@ export type StoryThreadWhereInput = {
   storyPhase?: Prisma.XOR<Prisma.StoryPhaseNullableScalarRelationFilter, Prisma.StoryPhaseWhereInput> | null
   scenes?: Prisma.StorySceneListRelationFilter
   incomingSceneRefs?: Prisma.StorySceneRefListRelationFilter
+  anchoredDecisions?: Prisma.StoryDecisionListRelationFilter
 }
 
 export type StoryThreadOrderByWithRelationInput = {
@@ -315,6 +324,7 @@ export type StoryThreadOrderByWithRelationInput = {
   title?: Prisma.SortOrder
   isMainThread?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  miceType?: Prisma.SortOrderInput | Prisma.SortOrder
   summary?: Prisma.SortOrder
   tags?: Prisma.SortOrder
   writingTip?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -325,6 +335,7 @@ export type StoryThreadOrderByWithRelationInput = {
   storyPhase?: Prisma.StoryPhaseOrderByWithRelationInput
   scenes?: Prisma.StorySceneOrderByRelationAggregateInput
   incomingSceneRefs?: Prisma.StorySceneRefOrderByRelationAggregateInput
+  anchoredDecisions?: Prisma.StoryDecisionOrderByRelationAggregateInput
 }
 
 export type StoryThreadWhereUniqueInput = Prisma.AtLeast<{
@@ -340,6 +351,7 @@ export type StoryThreadWhereUniqueInput = Prisma.AtLeast<{
   title?: Prisma.StringFilter<"StoryThread"> | string
   isMainThread?: Prisma.BoolFilter<"StoryThread"> | boolean
   status?: Prisma.EnumStoryThreadStatusFilter<"StoryThread"> | $Enums.StoryThreadStatus
+  miceType?: Prisma.EnumStoryThreadMiceTypeNullableFilter<"StoryThread"> | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringFilter<"StoryThread"> | string
   tags?: Prisma.StringFilter<"StoryThread"> | string
   writingTip?: Prisma.StringNullableFilter<"StoryThread"> | string | null
@@ -350,6 +362,7 @@ export type StoryThreadWhereUniqueInput = Prisma.AtLeast<{
   storyPhase?: Prisma.XOR<Prisma.StoryPhaseNullableScalarRelationFilter, Prisma.StoryPhaseWhereInput> | null
   scenes?: Prisma.StorySceneListRelationFilter
   incomingSceneRefs?: Prisma.StorySceneRefListRelationFilter
+  anchoredDecisions?: Prisma.StoryDecisionListRelationFilter
 }, "id" | "storyId_name">
 
 export type StoryThreadOrderByWithAggregationInput = {
@@ -361,6 +374,7 @@ export type StoryThreadOrderByWithAggregationInput = {
   title?: Prisma.SortOrder
   isMainThread?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  miceType?: Prisma.SortOrderInput | Prisma.SortOrder
   summary?: Prisma.SortOrder
   tags?: Prisma.SortOrder
   writingTip?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -386,6 +400,7 @@ export type StoryThreadScalarWhereWithAggregatesInput = {
   title?: Prisma.StringWithAggregatesFilter<"StoryThread"> | string
   isMainThread?: Prisma.BoolWithAggregatesFilter<"StoryThread"> | boolean
   status?: Prisma.EnumStoryThreadStatusWithAggregatesFilter<"StoryThread"> | $Enums.StoryThreadStatus
+  miceType?: Prisma.EnumStoryThreadMiceTypeNullableWithAggregatesFilter<"StoryThread"> | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringWithAggregatesFilter<"StoryThread"> | string
   tags?: Prisma.StringWithAggregatesFilter<"StoryThread"> | string
   writingTip?: Prisma.StringNullableWithAggregatesFilter<"StoryThread"> | string | null
@@ -400,6 +415,7 @@ export type StoryThreadCreateInput = {
   title: string
   isMainThread?: boolean
   status?: $Enums.StoryThreadStatus
+  miceType?: $Enums.StoryThreadMiceType | null
   summary?: string
   tags?: string
   writingTip?: string | null
@@ -410,6 +426,7 @@ export type StoryThreadCreateInput = {
   storyPhase?: Prisma.StoryPhaseCreateNestedOneWithoutThreadsInput
   scenes?: Prisma.StorySceneCreateNestedManyWithoutThreadInput
   incomingSceneRefs?: Prisma.StorySceneRefCreateNestedManyWithoutTargetThreadInput
+  anchoredDecisions?: Prisma.StoryDecisionCreateNestedManyWithoutAnchorThreadInput
 }
 
 export type StoryThreadUncheckedCreateInput = {
@@ -421,6 +438,7 @@ export type StoryThreadUncheckedCreateInput = {
   title: string
   isMainThread?: boolean
   status?: $Enums.StoryThreadStatus
+  miceType?: $Enums.StoryThreadMiceType | null
   summary?: string
   tags?: string
   writingTip?: string | null
@@ -429,6 +447,7 @@ export type StoryThreadUncheckedCreateInput = {
   updatedAt?: Date | string
   scenes?: Prisma.StorySceneUncheckedCreateNestedManyWithoutThreadInput
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutTargetThreadInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedCreateNestedManyWithoutAnchorThreadInput
 }
 
 export type StoryThreadUpdateInput = {
@@ -437,6 +456,7 @@ export type StoryThreadUpdateInput = {
   title?: Prisma.StringFieldUpdateOperationsInput | string
   isMainThread?: Prisma.BoolFieldUpdateOperationsInput | boolean
   status?: Prisma.EnumStoryThreadStatusFieldUpdateOperationsInput | $Enums.StoryThreadStatus
+  miceType?: Prisma.NullableEnumStoryThreadMiceTypeFieldUpdateOperationsInput | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   tags?: Prisma.StringFieldUpdateOperationsInput | string
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -447,6 +467,7 @@ export type StoryThreadUpdateInput = {
   storyPhase?: Prisma.StoryPhaseUpdateOneWithoutThreadsNestedInput
   scenes?: Prisma.StorySceneUpdateManyWithoutThreadNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUpdateManyWithoutTargetThreadNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUpdateManyWithoutAnchorThreadNestedInput
 }
 
 export type StoryThreadUncheckedUpdateInput = {
@@ -458,6 +479,7 @@ export type StoryThreadUncheckedUpdateInput = {
   title?: Prisma.StringFieldUpdateOperationsInput | string
   isMainThread?: Prisma.BoolFieldUpdateOperationsInput | boolean
   status?: Prisma.EnumStoryThreadStatusFieldUpdateOperationsInput | $Enums.StoryThreadStatus
+  miceType?: Prisma.NullableEnumStoryThreadMiceTypeFieldUpdateOperationsInput | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   tags?: Prisma.StringFieldUpdateOperationsInput | string
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -466,6 +488,7 @@ export type StoryThreadUncheckedUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   scenes?: Prisma.StorySceneUncheckedUpdateManyWithoutThreadNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutTargetThreadNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedUpdateManyWithoutAnchorThreadNestedInput
 }
 
 export type StoryThreadCreateManyInput = {
@@ -477,6 +500,7 @@ export type StoryThreadCreateManyInput = {
   title: string
   isMainThread?: boolean
   status?: $Enums.StoryThreadStatus
+  miceType?: $Enums.StoryThreadMiceType | null
   summary?: string
   tags?: string
   writingTip?: string | null
@@ -491,6 +515,7 @@ export type StoryThreadUpdateManyMutationInput = {
   title?: Prisma.StringFieldUpdateOperationsInput | string
   isMainThread?: Prisma.BoolFieldUpdateOperationsInput | boolean
   status?: Prisma.EnumStoryThreadStatusFieldUpdateOperationsInput | $Enums.StoryThreadStatus
+  miceType?: Prisma.NullableEnumStoryThreadMiceTypeFieldUpdateOperationsInput | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   tags?: Prisma.StringFieldUpdateOperationsInput | string
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -508,6 +533,7 @@ export type StoryThreadUncheckedUpdateManyInput = {
   title?: Prisma.StringFieldUpdateOperationsInput | string
   isMainThread?: Prisma.BoolFieldUpdateOperationsInput | boolean
   status?: Prisma.EnumStoryThreadStatusFieldUpdateOperationsInput | $Enums.StoryThreadStatus
+  miceType?: Prisma.NullableEnumStoryThreadMiceTypeFieldUpdateOperationsInput | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   tags?: Prisma.StringFieldUpdateOperationsInput | string
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -540,6 +566,7 @@ export type StoryThreadCountOrderByAggregateInput = {
   title?: Prisma.SortOrder
   isMainThread?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  miceType?: Prisma.SortOrder
   summary?: Prisma.SortOrder
   tags?: Prisma.SortOrder
   writingTip?: Prisma.SortOrder
@@ -564,6 +591,7 @@ export type StoryThreadMaxOrderByAggregateInput = {
   title?: Prisma.SortOrder
   isMainThread?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  miceType?: Prisma.SortOrder
   summary?: Prisma.SortOrder
   tags?: Prisma.SortOrder
   writingTip?: Prisma.SortOrder
@@ -581,6 +609,7 @@ export type StoryThreadMinOrderByAggregateInput = {
   title?: Prisma.SortOrder
   isMainThread?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  miceType?: Prisma.SortOrder
   summary?: Prisma.SortOrder
   tags?: Prisma.SortOrder
   writingTip?: Prisma.SortOrder
@@ -698,6 +727,10 @@ export type EnumStoryThreadStatusFieldUpdateOperationsInput = {
   set?: $Enums.StoryThreadStatus
 }
 
+export type NullableEnumStoryThreadMiceTypeFieldUpdateOperationsInput = {
+  set?: $Enums.StoryThreadMiceType | null
+}
+
 export type StoryThreadCreateNestedOneWithoutScenesInput = {
   create?: Prisma.XOR<Prisma.StoryThreadCreateWithoutScenesInput, Prisma.StoryThreadUncheckedCreateWithoutScenesInput>
   connectOrCreate?: Prisma.StoryThreadCreateOrConnectWithoutScenesInput
@@ -728,12 +761,29 @@ export type StoryThreadUpdateOneWithoutIncomingSceneRefsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.StoryThreadUpdateToOneWithWhereWithoutIncomingSceneRefsInput, Prisma.StoryThreadUpdateWithoutIncomingSceneRefsInput>, Prisma.StoryThreadUncheckedUpdateWithoutIncomingSceneRefsInput>
 }
 
+export type StoryThreadCreateNestedOneWithoutAnchoredDecisionsInput = {
+  create?: Prisma.XOR<Prisma.StoryThreadCreateWithoutAnchoredDecisionsInput, Prisma.StoryThreadUncheckedCreateWithoutAnchoredDecisionsInput>
+  connectOrCreate?: Prisma.StoryThreadCreateOrConnectWithoutAnchoredDecisionsInput
+  connect?: Prisma.StoryThreadWhereUniqueInput
+}
+
+export type StoryThreadUpdateOneWithoutAnchoredDecisionsNestedInput = {
+  create?: Prisma.XOR<Prisma.StoryThreadCreateWithoutAnchoredDecisionsInput, Prisma.StoryThreadUncheckedCreateWithoutAnchoredDecisionsInput>
+  connectOrCreate?: Prisma.StoryThreadCreateOrConnectWithoutAnchoredDecisionsInput
+  upsert?: Prisma.StoryThreadUpsertWithoutAnchoredDecisionsInput
+  disconnect?: Prisma.StoryThreadWhereInput | boolean
+  delete?: Prisma.StoryThreadWhereInput | boolean
+  connect?: Prisma.StoryThreadWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.StoryThreadUpdateToOneWithWhereWithoutAnchoredDecisionsInput, Prisma.StoryThreadUpdateWithoutAnchoredDecisionsInput>, Prisma.StoryThreadUncheckedUpdateWithoutAnchoredDecisionsInput>
+}
+
 export type StoryThreadCreateWithoutStoryInput = {
   sortOrder: number
   name: string
   title: string
   isMainThread?: boolean
   status?: $Enums.StoryThreadStatus
+  miceType?: $Enums.StoryThreadMiceType | null
   summary?: string
   tags?: string
   writingTip?: string | null
@@ -743,6 +793,7 @@ export type StoryThreadCreateWithoutStoryInput = {
   storyPhase?: Prisma.StoryPhaseCreateNestedOneWithoutThreadsInput
   scenes?: Prisma.StorySceneCreateNestedManyWithoutThreadInput
   incomingSceneRefs?: Prisma.StorySceneRefCreateNestedManyWithoutTargetThreadInput
+  anchoredDecisions?: Prisma.StoryDecisionCreateNestedManyWithoutAnchorThreadInput
 }
 
 export type StoryThreadUncheckedCreateWithoutStoryInput = {
@@ -753,6 +804,7 @@ export type StoryThreadUncheckedCreateWithoutStoryInput = {
   title: string
   isMainThread?: boolean
   status?: $Enums.StoryThreadStatus
+  miceType?: $Enums.StoryThreadMiceType | null
   summary?: string
   tags?: string
   writingTip?: string | null
@@ -761,6 +813,7 @@ export type StoryThreadUncheckedCreateWithoutStoryInput = {
   updatedAt?: Date | string
   scenes?: Prisma.StorySceneUncheckedCreateNestedManyWithoutThreadInput
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutTargetThreadInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedCreateNestedManyWithoutAnchorThreadInput
 }
 
 export type StoryThreadCreateOrConnectWithoutStoryInput = {
@@ -800,6 +853,7 @@ export type StoryThreadScalarWhereInput = {
   title?: Prisma.StringFilter<"StoryThread"> | string
   isMainThread?: Prisma.BoolFilter<"StoryThread"> | boolean
   status?: Prisma.EnumStoryThreadStatusFilter<"StoryThread"> | $Enums.StoryThreadStatus
+  miceType?: Prisma.EnumStoryThreadMiceTypeNullableFilter<"StoryThread"> | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringFilter<"StoryThread"> | string
   tags?: Prisma.StringFilter<"StoryThread"> | string
   writingTip?: Prisma.StringNullableFilter<"StoryThread"> | string | null
@@ -814,6 +868,7 @@ export type StoryThreadCreateWithoutStoryPhaseInput = {
   title: string
   isMainThread?: boolean
   status?: $Enums.StoryThreadStatus
+  miceType?: $Enums.StoryThreadMiceType | null
   summary?: string
   tags?: string
   writingTip?: string | null
@@ -823,6 +878,7 @@ export type StoryThreadCreateWithoutStoryPhaseInput = {
   story: Prisma.StoryCreateNestedOneWithoutThreadsInput
   scenes?: Prisma.StorySceneCreateNestedManyWithoutThreadInput
   incomingSceneRefs?: Prisma.StorySceneRefCreateNestedManyWithoutTargetThreadInput
+  anchoredDecisions?: Prisma.StoryDecisionCreateNestedManyWithoutAnchorThreadInput
 }
 
 export type StoryThreadUncheckedCreateWithoutStoryPhaseInput = {
@@ -833,6 +889,7 @@ export type StoryThreadUncheckedCreateWithoutStoryPhaseInput = {
   title: string
   isMainThread?: boolean
   status?: $Enums.StoryThreadStatus
+  miceType?: $Enums.StoryThreadMiceType | null
   summary?: string
   tags?: string
   writingTip?: string | null
@@ -841,6 +898,7 @@ export type StoryThreadUncheckedCreateWithoutStoryPhaseInput = {
   updatedAt?: Date | string
   scenes?: Prisma.StorySceneUncheckedCreateNestedManyWithoutThreadInput
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutTargetThreadInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedCreateNestedManyWithoutAnchorThreadInput
 }
 
 export type StoryThreadCreateOrConnectWithoutStoryPhaseInput = {
@@ -874,6 +932,7 @@ export type StoryThreadCreateWithoutScenesInput = {
   title: string
   isMainThread?: boolean
   status?: $Enums.StoryThreadStatus
+  miceType?: $Enums.StoryThreadMiceType | null
   summary?: string
   tags?: string
   writingTip?: string | null
@@ -883,6 +942,7 @@ export type StoryThreadCreateWithoutScenesInput = {
   story: Prisma.StoryCreateNestedOneWithoutThreadsInput
   storyPhase?: Prisma.StoryPhaseCreateNestedOneWithoutThreadsInput
   incomingSceneRefs?: Prisma.StorySceneRefCreateNestedManyWithoutTargetThreadInput
+  anchoredDecisions?: Prisma.StoryDecisionCreateNestedManyWithoutAnchorThreadInput
 }
 
 export type StoryThreadUncheckedCreateWithoutScenesInput = {
@@ -894,6 +954,7 @@ export type StoryThreadUncheckedCreateWithoutScenesInput = {
   title: string
   isMainThread?: boolean
   status?: $Enums.StoryThreadStatus
+  miceType?: $Enums.StoryThreadMiceType | null
   summary?: string
   tags?: string
   writingTip?: string | null
@@ -901,6 +962,7 @@ export type StoryThreadUncheckedCreateWithoutScenesInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutTargetThreadInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedCreateNestedManyWithoutAnchorThreadInput
 }
 
 export type StoryThreadCreateOrConnectWithoutScenesInput = {
@@ -925,6 +987,7 @@ export type StoryThreadUpdateWithoutScenesInput = {
   title?: Prisma.StringFieldUpdateOperationsInput | string
   isMainThread?: Prisma.BoolFieldUpdateOperationsInput | boolean
   status?: Prisma.EnumStoryThreadStatusFieldUpdateOperationsInput | $Enums.StoryThreadStatus
+  miceType?: Prisma.NullableEnumStoryThreadMiceTypeFieldUpdateOperationsInput | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   tags?: Prisma.StringFieldUpdateOperationsInput | string
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -934,6 +997,7 @@ export type StoryThreadUpdateWithoutScenesInput = {
   story?: Prisma.StoryUpdateOneRequiredWithoutThreadsNestedInput
   storyPhase?: Prisma.StoryPhaseUpdateOneWithoutThreadsNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUpdateManyWithoutTargetThreadNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUpdateManyWithoutAnchorThreadNestedInput
 }
 
 export type StoryThreadUncheckedUpdateWithoutScenesInput = {
@@ -945,6 +1009,7 @@ export type StoryThreadUncheckedUpdateWithoutScenesInput = {
   title?: Prisma.StringFieldUpdateOperationsInput | string
   isMainThread?: Prisma.BoolFieldUpdateOperationsInput | boolean
   status?: Prisma.EnumStoryThreadStatusFieldUpdateOperationsInput | $Enums.StoryThreadStatus
+  miceType?: Prisma.NullableEnumStoryThreadMiceTypeFieldUpdateOperationsInput | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   tags?: Prisma.StringFieldUpdateOperationsInput | string
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -952,6 +1017,7 @@ export type StoryThreadUncheckedUpdateWithoutScenesInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutTargetThreadNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedUpdateManyWithoutAnchorThreadNestedInput
 }
 
 export type StoryThreadCreateWithoutIncomingSceneRefsInput = {
@@ -960,6 +1026,7 @@ export type StoryThreadCreateWithoutIncomingSceneRefsInput = {
   title: string
   isMainThread?: boolean
   status?: $Enums.StoryThreadStatus
+  miceType?: $Enums.StoryThreadMiceType | null
   summary?: string
   tags?: string
   writingTip?: string | null
@@ -969,6 +1036,7 @@ export type StoryThreadCreateWithoutIncomingSceneRefsInput = {
   story: Prisma.StoryCreateNestedOneWithoutThreadsInput
   storyPhase?: Prisma.StoryPhaseCreateNestedOneWithoutThreadsInput
   scenes?: Prisma.StorySceneCreateNestedManyWithoutThreadInput
+  anchoredDecisions?: Prisma.StoryDecisionCreateNestedManyWithoutAnchorThreadInput
 }
 
 export type StoryThreadUncheckedCreateWithoutIncomingSceneRefsInput = {
@@ -980,6 +1048,7 @@ export type StoryThreadUncheckedCreateWithoutIncomingSceneRefsInput = {
   title: string
   isMainThread?: boolean
   status?: $Enums.StoryThreadStatus
+  miceType?: $Enums.StoryThreadMiceType | null
   summary?: string
   tags?: string
   writingTip?: string | null
@@ -987,6 +1056,7 @@ export type StoryThreadUncheckedCreateWithoutIncomingSceneRefsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   scenes?: Prisma.StorySceneUncheckedCreateNestedManyWithoutThreadInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedCreateNestedManyWithoutAnchorThreadInput
 }
 
 export type StoryThreadCreateOrConnectWithoutIncomingSceneRefsInput = {
@@ -1011,6 +1081,7 @@ export type StoryThreadUpdateWithoutIncomingSceneRefsInput = {
   title?: Prisma.StringFieldUpdateOperationsInput | string
   isMainThread?: Prisma.BoolFieldUpdateOperationsInput | boolean
   status?: Prisma.EnumStoryThreadStatusFieldUpdateOperationsInput | $Enums.StoryThreadStatus
+  miceType?: Prisma.NullableEnumStoryThreadMiceTypeFieldUpdateOperationsInput | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   tags?: Prisma.StringFieldUpdateOperationsInput | string
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1020,6 +1091,7 @@ export type StoryThreadUpdateWithoutIncomingSceneRefsInput = {
   story?: Prisma.StoryUpdateOneRequiredWithoutThreadsNestedInput
   storyPhase?: Prisma.StoryPhaseUpdateOneWithoutThreadsNestedInput
   scenes?: Prisma.StorySceneUpdateManyWithoutThreadNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUpdateManyWithoutAnchorThreadNestedInput
 }
 
 export type StoryThreadUncheckedUpdateWithoutIncomingSceneRefsInput = {
@@ -1031,6 +1103,7 @@ export type StoryThreadUncheckedUpdateWithoutIncomingSceneRefsInput = {
   title?: Prisma.StringFieldUpdateOperationsInput | string
   isMainThread?: Prisma.BoolFieldUpdateOperationsInput | boolean
   status?: Prisma.EnumStoryThreadStatusFieldUpdateOperationsInput | $Enums.StoryThreadStatus
+  miceType?: Prisma.NullableEnumStoryThreadMiceTypeFieldUpdateOperationsInput | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   tags?: Prisma.StringFieldUpdateOperationsInput | string
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1038,6 +1111,101 @@ export type StoryThreadUncheckedUpdateWithoutIncomingSceneRefsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   scenes?: Prisma.StorySceneUncheckedUpdateManyWithoutThreadNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedUpdateManyWithoutAnchorThreadNestedInput
+}
+
+export type StoryThreadCreateWithoutAnchoredDecisionsInput = {
+  sortOrder: number
+  name: string
+  title: string
+  isMainThread?: boolean
+  status?: $Enums.StoryThreadStatus
+  miceType?: $Enums.StoryThreadMiceType | null
+  summary?: string
+  tags?: string
+  writingTip?: string | null
+  note?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  story: Prisma.StoryCreateNestedOneWithoutThreadsInput
+  storyPhase?: Prisma.StoryPhaseCreateNestedOneWithoutThreadsInput
+  scenes?: Prisma.StorySceneCreateNestedManyWithoutThreadInput
+  incomingSceneRefs?: Prisma.StorySceneRefCreateNestedManyWithoutTargetThreadInput
+}
+
+export type StoryThreadUncheckedCreateWithoutAnchoredDecisionsInput = {
+  id?: number
+  storyId: number
+  storyPhaseId?: number | null
+  sortOrder: number
+  name: string
+  title: string
+  isMainThread?: boolean
+  status?: $Enums.StoryThreadStatus
+  miceType?: $Enums.StoryThreadMiceType | null
+  summary?: string
+  tags?: string
+  writingTip?: string | null
+  note?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  scenes?: Prisma.StorySceneUncheckedCreateNestedManyWithoutThreadInput
+  incomingSceneRefs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutTargetThreadInput
+}
+
+export type StoryThreadCreateOrConnectWithoutAnchoredDecisionsInput = {
+  where: Prisma.StoryThreadWhereUniqueInput
+  create: Prisma.XOR<Prisma.StoryThreadCreateWithoutAnchoredDecisionsInput, Prisma.StoryThreadUncheckedCreateWithoutAnchoredDecisionsInput>
+}
+
+export type StoryThreadUpsertWithoutAnchoredDecisionsInput = {
+  update: Prisma.XOR<Prisma.StoryThreadUpdateWithoutAnchoredDecisionsInput, Prisma.StoryThreadUncheckedUpdateWithoutAnchoredDecisionsInput>
+  create: Prisma.XOR<Prisma.StoryThreadCreateWithoutAnchoredDecisionsInput, Prisma.StoryThreadUncheckedCreateWithoutAnchoredDecisionsInput>
+  where?: Prisma.StoryThreadWhereInput
+}
+
+export type StoryThreadUpdateToOneWithWhereWithoutAnchoredDecisionsInput = {
+  where?: Prisma.StoryThreadWhereInput
+  data: Prisma.XOR<Prisma.StoryThreadUpdateWithoutAnchoredDecisionsInput, Prisma.StoryThreadUncheckedUpdateWithoutAnchoredDecisionsInput>
+}
+
+export type StoryThreadUpdateWithoutAnchoredDecisionsInput = {
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  isMainThread?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  status?: Prisma.EnumStoryThreadStatusFieldUpdateOperationsInput | $Enums.StoryThreadStatus
+  miceType?: Prisma.NullableEnumStoryThreadMiceTypeFieldUpdateOperationsInput | $Enums.StoryThreadMiceType | null
+  summary?: Prisma.StringFieldUpdateOperationsInput | string
+  tags?: Prisma.StringFieldUpdateOperationsInput | string
+  writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  story?: Prisma.StoryUpdateOneRequiredWithoutThreadsNestedInput
+  storyPhase?: Prisma.StoryPhaseUpdateOneWithoutThreadsNestedInput
+  scenes?: Prisma.StorySceneUpdateManyWithoutThreadNestedInput
+  incomingSceneRefs?: Prisma.StorySceneRefUpdateManyWithoutTargetThreadNestedInput
+}
+
+export type StoryThreadUncheckedUpdateWithoutAnchoredDecisionsInput = {
+  id?: Prisma.IntFieldUpdateOperationsInput | number
+  storyId?: Prisma.IntFieldUpdateOperationsInput | number
+  storyPhaseId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  sortOrder?: Prisma.IntFieldUpdateOperationsInput | number
+  name?: Prisma.StringFieldUpdateOperationsInput | string
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  isMainThread?: Prisma.BoolFieldUpdateOperationsInput | boolean
+  status?: Prisma.EnumStoryThreadStatusFieldUpdateOperationsInput | $Enums.StoryThreadStatus
+  miceType?: Prisma.NullableEnumStoryThreadMiceTypeFieldUpdateOperationsInput | $Enums.StoryThreadMiceType | null
+  summary?: Prisma.StringFieldUpdateOperationsInput | string
+  tags?: Prisma.StringFieldUpdateOperationsInput | string
+  writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  scenes?: Prisma.StorySceneUncheckedUpdateManyWithoutThreadNestedInput
+  incomingSceneRefs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutTargetThreadNestedInput
 }
 
 export type StoryThreadCreateManyStoryInput = {
@@ -1048,6 +1216,7 @@ export type StoryThreadCreateManyStoryInput = {
   title: string
   isMainThread?: boolean
   status?: $Enums.StoryThreadStatus
+  miceType?: $Enums.StoryThreadMiceType | null
   summary?: string
   tags?: string
   writingTip?: string | null
@@ -1062,6 +1231,7 @@ export type StoryThreadUpdateWithoutStoryInput = {
   title?: Prisma.StringFieldUpdateOperationsInput | string
   isMainThread?: Prisma.BoolFieldUpdateOperationsInput | boolean
   status?: Prisma.EnumStoryThreadStatusFieldUpdateOperationsInput | $Enums.StoryThreadStatus
+  miceType?: Prisma.NullableEnumStoryThreadMiceTypeFieldUpdateOperationsInput | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   tags?: Prisma.StringFieldUpdateOperationsInput | string
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1071,6 +1241,7 @@ export type StoryThreadUpdateWithoutStoryInput = {
   storyPhase?: Prisma.StoryPhaseUpdateOneWithoutThreadsNestedInput
   scenes?: Prisma.StorySceneUpdateManyWithoutThreadNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUpdateManyWithoutTargetThreadNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUpdateManyWithoutAnchorThreadNestedInput
 }
 
 export type StoryThreadUncheckedUpdateWithoutStoryInput = {
@@ -1081,6 +1252,7 @@ export type StoryThreadUncheckedUpdateWithoutStoryInput = {
   title?: Prisma.StringFieldUpdateOperationsInput | string
   isMainThread?: Prisma.BoolFieldUpdateOperationsInput | boolean
   status?: Prisma.EnumStoryThreadStatusFieldUpdateOperationsInput | $Enums.StoryThreadStatus
+  miceType?: Prisma.NullableEnumStoryThreadMiceTypeFieldUpdateOperationsInput | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   tags?: Prisma.StringFieldUpdateOperationsInput | string
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1089,6 +1261,7 @@ export type StoryThreadUncheckedUpdateWithoutStoryInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   scenes?: Prisma.StorySceneUncheckedUpdateManyWithoutThreadNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutTargetThreadNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedUpdateManyWithoutAnchorThreadNestedInput
 }
 
 export type StoryThreadUncheckedUpdateManyWithoutStoryInput = {
@@ -1099,6 +1272,7 @@ export type StoryThreadUncheckedUpdateManyWithoutStoryInput = {
   title?: Prisma.StringFieldUpdateOperationsInput | string
   isMainThread?: Prisma.BoolFieldUpdateOperationsInput | boolean
   status?: Prisma.EnumStoryThreadStatusFieldUpdateOperationsInput | $Enums.StoryThreadStatus
+  miceType?: Prisma.NullableEnumStoryThreadMiceTypeFieldUpdateOperationsInput | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   tags?: Prisma.StringFieldUpdateOperationsInput | string
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1115,6 +1289,7 @@ export type StoryThreadCreateManyStoryPhaseInput = {
   title: string
   isMainThread?: boolean
   status?: $Enums.StoryThreadStatus
+  miceType?: $Enums.StoryThreadMiceType | null
   summary?: string
   tags?: string
   writingTip?: string | null
@@ -1129,6 +1304,7 @@ export type StoryThreadUpdateWithoutStoryPhaseInput = {
   title?: Prisma.StringFieldUpdateOperationsInput | string
   isMainThread?: Prisma.BoolFieldUpdateOperationsInput | boolean
   status?: Prisma.EnumStoryThreadStatusFieldUpdateOperationsInput | $Enums.StoryThreadStatus
+  miceType?: Prisma.NullableEnumStoryThreadMiceTypeFieldUpdateOperationsInput | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   tags?: Prisma.StringFieldUpdateOperationsInput | string
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1138,6 +1314,7 @@ export type StoryThreadUpdateWithoutStoryPhaseInput = {
   story?: Prisma.StoryUpdateOneRequiredWithoutThreadsNestedInput
   scenes?: Prisma.StorySceneUpdateManyWithoutThreadNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUpdateManyWithoutTargetThreadNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUpdateManyWithoutAnchorThreadNestedInput
 }
 
 export type StoryThreadUncheckedUpdateWithoutStoryPhaseInput = {
@@ -1148,6 +1325,7 @@ export type StoryThreadUncheckedUpdateWithoutStoryPhaseInput = {
   title?: Prisma.StringFieldUpdateOperationsInput | string
   isMainThread?: Prisma.BoolFieldUpdateOperationsInput | boolean
   status?: Prisma.EnumStoryThreadStatusFieldUpdateOperationsInput | $Enums.StoryThreadStatus
+  miceType?: Prisma.NullableEnumStoryThreadMiceTypeFieldUpdateOperationsInput | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   tags?: Prisma.StringFieldUpdateOperationsInput | string
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1156,6 +1334,7 @@ export type StoryThreadUncheckedUpdateWithoutStoryPhaseInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   scenes?: Prisma.StorySceneUncheckedUpdateManyWithoutThreadNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutTargetThreadNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedUpdateManyWithoutAnchorThreadNestedInput
 }
 
 export type StoryThreadUncheckedUpdateManyWithoutStoryPhaseInput = {
@@ -1166,6 +1345,7 @@ export type StoryThreadUncheckedUpdateManyWithoutStoryPhaseInput = {
   title?: Prisma.StringFieldUpdateOperationsInput | string
   isMainThread?: Prisma.BoolFieldUpdateOperationsInput | boolean
   status?: Prisma.EnumStoryThreadStatusFieldUpdateOperationsInput | $Enums.StoryThreadStatus
+  miceType?: Prisma.NullableEnumStoryThreadMiceTypeFieldUpdateOperationsInput | $Enums.StoryThreadMiceType | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   tags?: Prisma.StringFieldUpdateOperationsInput | string
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1182,11 +1362,13 @@ export type StoryThreadUncheckedUpdateManyWithoutStoryPhaseInput = {
 export type StoryThreadCountOutputType = {
   scenes: number
   incomingSceneRefs: number
+  anchoredDecisions: number
 }
 
 export type StoryThreadCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   scenes?: boolean | StoryThreadCountOutputTypeCountScenesArgs
   incomingSceneRefs?: boolean | StoryThreadCountOutputTypeCountIncomingSceneRefsArgs
+  anchoredDecisions?: boolean | StoryThreadCountOutputTypeCountAnchoredDecisionsArgs
 }
 
 /**
@@ -1213,6 +1395,13 @@ export type StoryThreadCountOutputTypeCountIncomingSceneRefsArgs<ExtArgs extends
   where?: Prisma.StorySceneRefWhereInput
 }
 
+/**
+ * StoryThreadCountOutputType without action
+ */
+export type StoryThreadCountOutputTypeCountAnchoredDecisionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.StoryDecisionWhereInput
+}
+
 
 export type StoryThreadSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -1223,6 +1412,7 @@ export type StoryThreadSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   title?: boolean
   isMainThread?: boolean
   status?: boolean
+  miceType?: boolean
   summary?: boolean
   tags?: boolean
   writingTip?: boolean
@@ -1233,6 +1423,7 @@ export type StoryThreadSelect<ExtArgs extends runtime.Types.Extensions.InternalA
   storyPhase?: boolean | Prisma.StoryThread$storyPhaseArgs<ExtArgs>
   scenes?: boolean | Prisma.StoryThread$scenesArgs<ExtArgs>
   incomingSceneRefs?: boolean | Prisma.StoryThread$incomingSceneRefsArgs<ExtArgs>
+  anchoredDecisions?: boolean | Prisma.StoryThread$anchoredDecisionsArgs<ExtArgs>
   _count?: boolean | Prisma.StoryThreadCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["storyThread"]>
 
@@ -1245,6 +1436,7 @@ export type StoryThreadSelectCreateManyAndReturn<ExtArgs extends runtime.Types.E
   title?: boolean
   isMainThread?: boolean
   status?: boolean
+  miceType?: boolean
   summary?: boolean
   tags?: boolean
   writingTip?: boolean
@@ -1264,6 +1456,7 @@ export type StoryThreadSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.E
   title?: boolean
   isMainThread?: boolean
   status?: boolean
+  miceType?: boolean
   summary?: boolean
   tags?: boolean
   writingTip?: boolean
@@ -1283,6 +1476,7 @@ export type StoryThreadSelectScalar = {
   title?: boolean
   isMainThread?: boolean
   status?: boolean
+  miceType?: boolean
   summary?: boolean
   tags?: boolean
   writingTip?: boolean
@@ -1291,12 +1485,13 @@ export type StoryThreadSelectScalar = {
   updatedAt?: boolean
 }
 
-export type StoryThreadOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "storyId" | "storyPhaseId" | "sortOrder" | "name" | "title" | "isMainThread" | "status" | "summary" | "tags" | "writingTip" | "note" | "createdAt" | "updatedAt", ExtArgs["result"]["storyThread"]>
+export type StoryThreadOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "storyId" | "storyPhaseId" | "sortOrder" | "name" | "title" | "isMainThread" | "status" | "miceType" | "summary" | "tags" | "writingTip" | "note" | "createdAt" | "updatedAt", ExtArgs["result"]["storyThread"]>
 export type StoryThreadInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   story?: boolean | Prisma.StoryDefaultArgs<ExtArgs>
   storyPhase?: boolean | Prisma.StoryThread$storyPhaseArgs<ExtArgs>
   scenes?: boolean | Prisma.StoryThread$scenesArgs<ExtArgs>
   incomingSceneRefs?: boolean | Prisma.StoryThread$incomingSceneRefsArgs<ExtArgs>
+  anchoredDecisions?: boolean | Prisma.StoryThread$anchoredDecisionsArgs<ExtArgs>
   _count?: boolean | Prisma.StoryThreadCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type StoryThreadIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1315,6 +1510,7 @@ export type $StoryThreadPayload<ExtArgs extends runtime.Types.Extensions.Interna
     storyPhase: Prisma.$StoryPhasePayload<ExtArgs> | null
     scenes: Prisma.$StoryScenePayload<ExtArgs>[]
     incomingSceneRefs: Prisma.$StorySceneRefPayload<ExtArgs>[]
+    anchoredDecisions: Prisma.$StoryDecisionPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: number
@@ -1325,6 +1521,7 @@ export type $StoryThreadPayload<ExtArgs extends runtime.Types.Extensions.Interna
     title: string
     isMainThread: boolean
     status: $Enums.StoryThreadStatus
+    miceType: $Enums.StoryThreadMiceType | null
     summary: string
     tags: string
     writingTip: string | null
@@ -1729,6 +1926,7 @@ export interface Prisma__StoryThreadClient<T, Null = never, ExtArgs extends runt
   storyPhase<T extends Prisma.StoryThread$storyPhaseArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryThread$storyPhaseArgs<ExtArgs>>): Prisma.Prisma__StoryPhaseClient<runtime.Types.Result.GetResult<Prisma.$StoryPhasePayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   scenes<T extends Prisma.StoryThread$scenesArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryThread$scenesArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$StoryScenePayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   incomingSceneRefs<T extends Prisma.StoryThread$incomingSceneRefsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryThread$incomingSceneRefsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$StorySceneRefPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  anchoredDecisions<T extends Prisma.StoryThread$anchoredDecisionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryThread$anchoredDecisionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$StoryDecisionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1766,6 +1964,7 @@ export interface StoryThreadFieldRefs {
   readonly title: Prisma.FieldRef<"StoryThread", 'String'>
   readonly isMainThread: Prisma.FieldRef<"StoryThread", 'Boolean'>
   readonly status: Prisma.FieldRef<"StoryThread", 'StoryThreadStatus'>
+  readonly miceType: Prisma.FieldRef<"StoryThread", 'StoryThreadMiceType'>
   readonly summary: Prisma.FieldRef<"StoryThread", 'String'>
   readonly tags: Prisma.FieldRef<"StoryThread", 'String'>
   readonly writingTip: Prisma.FieldRef<"StoryThread", 'String'>
@@ -2230,6 +2429,30 @@ export type StoryThread$incomingSceneRefsArgs<ExtArgs extends runtime.Types.Exte
   take?: number
   skip?: number
   distinct?: Prisma.StorySceneRefScalarFieldEnum | Prisma.StorySceneRefScalarFieldEnum[]
+}
+
+/**
+ * StoryThread.anchoredDecisions
+ */
+export type StoryThread$anchoredDecisionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the StoryDecision
+   */
+  select?: Prisma.StoryDecisionSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the StoryDecision
+   */
+  omit?: Prisma.StoryDecisionOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.StoryDecisionInclude<ExtArgs> | null
+  where?: Prisma.StoryDecisionWhereInput
+  orderBy?: Prisma.StoryDecisionOrderByWithRelationInput | Prisma.StoryDecisionOrderByWithRelationInput[]
+  cursor?: Prisma.StoryDecisionWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.StoryDecisionScalarFieldEnum | Prisma.StoryDecisionScalarFieldEnum[]
 }
 
 /**

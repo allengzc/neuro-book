@@ -2,7 +2,7 @@
 /** @jsxRuntime automatic */
 import {Type, type Static} from "typebox";
 import {defineAgentProfile} from "nbook/server/agent/profiles/define-agent-profile";
-import {builtin, toolset} from "nbook/server/agent/profiles/profile-tools";
+import {builtin, plotReadBindings, plotWriteBindings, toolset} from "nbook/server/agent/profiles/profile-tools";
 import {LeaderDefaultInitialSchema, LeaderDefaultOutputSchema} from "nbook/server/agent/profiles/builtin-contracts";
 import {
     AgentCatalog,
@@ -54,6 +54,11 @@ export const SettingsSchema = Type.Object({
     ]),
     leaderPersonaPreset: Type.String(),
     customTopSystemPrompt: Type.String(),
+    fileChangeAwareness: Type.Union([
+        Type.Literal("off"),
+        Type.Literal("minimal"),
+        Type.Literal("full"),
+    ]),
 }, {additionalProperties: false});
 
 export type Initial = Static<typeof InitialSchema>;
@@ -70,6 +75,7 @@ export const LeaderDefaultSettingsForm = defineLowCodeForm({
         questionStrategy: "default",
         leaderPersonaPreset: DEFAULT_LEADER_PERSONA_PRESET,
         customTopSystemPrompt: "",
+        fileChangeAwareness: "full",
     },
     fields: [
         {
@@ -119,6 +125,17 @@ export const LeaderDefaultSettingsForm = defineLowCodeForm({
                 {value: "default", label: "默认", description: "只问关键阻塞问题。"},
                 {value: "concise", label: "少问", description: "少问问题，优先给建议和默认路径。"},
                 {value: "thorough", label: "细问", description: "更多追问，接近创作访谈，但避免无意义表单化提问。"},
+            ],
+        },
+        {
+            path: "fileChangeAwareness",
+            component: "radio",
+            label: "文件变更感知",
+            description: "每轮开始前提醒 agent：上次看过之后，项目文件被其他人（用户 / 其他 agent / 外部工具）改过哪些。",
+            options: [
+                {value: "full", label: "完整", description: "含归因（谁改的）与操作类型，并提示续写前先重读相关文件。"},
+                {value: "minimal", label: "精简", description: "只列变更文件路径和条数。"},
+                {value: "off", label: "关闭", description: "不注入文件变更提醒。"},
             ],
         },
     ],
@@ -173,16 +190,9 @@ export default defineAgentProfile({
         builtin.task.create,
         builtin.task.setStatus,
         builtin.world.execute("readwrite"),
-        builtin.plot.getTree,
-        builtin.plot.getThread,
-        builtin.plot.getSceneContext,
-        builtin.plot.getSceneWorldContext,
-        builtin.plot.getChapter,
-        builtin.plot.getChapterWriterBrief,
-        builtin.plot.createThread,
-        builtin.plot.updateThread,
-        builtin.plot.createScene,
-        builtin.plot.updateScene,
+        // Plot 读写 bundle（Task 97 D7）：leader 持有全部 Plot 读工具与 save_* 写工具。
+        ...plotReadBindings,
+        ...plotWriteBindings,
         builtin.sql.execute,
         builtin.variable.schema,
         builtin.variable.read,
@@ -363,7 +373,7 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - 剧情初步设计阶段先确定章节目标、关键事件、参与 subjects、时间范围、地点和信息控制；核心创作选择仍由用户确认或按用户授权执行。写作约束（文风、避讳词、节奏）不归你传，writer profile 自带。
         - 推进 World Engine 阶段用 execute_world 查询并写入已确认的动态事实，不把 HP、位置、关系等动态状态另存到 Plot。
         - 剧情设计阶段把 World Engine 已确认结果整理成可写 Scene：每个 Scene 要有具体行动链、信息变化、purpose、writingTip 和 worldAnchor。
-        - 更新 Plot 阶段使用 get_chapter_plot / get_story_scene_context / create_story_scene / update_story_scene / update_story_thread / update_story_chapter 等 Plot tools，维护 Thread summary、Scene summary、Scene World Anchor、章级 ChapterBrief（章节目标、POV、信息控制、禁写）和章节承载顺序；信息控制（读者已知/主角已知/必须隐藏/可暗示）必须落到 ChapterBrief，否则 brief status 停在 needs_chapter_brief。不要用 SQL 绕过 Plot 业务校验。
+        - 更新 Plot 阶段使用 get_story_chapter / get_story_scene_context / save_story_scene / save_story_thread / save_story_chapter 等 Plot tools，维护 Thread summary、Scene summary、Scene World Anchor、章级 ChapterBrief（章节目标、POV、信息控制、禁写）和章节承载顺序；信息控制（读者已知/主角已知/必须隐藏/可暗示）必须落到 ChapterBrief，否则 brief status 停在 needs_chapter_brief。不要用 SQL 绕过 Plot 业务校验。
         - 调用 writer 前可用 get_chapter_writer_brief 自查确认 status = ready；若不是 ready，先补 Plot、ChapterBrief、World Anchor 或 World Context 再自查。
         - writer 处于 autonomous（自主全知）模式，有 Plot 只读能力：invoke_agent.input 传 chapterId 让 writer 自取本章 brief（无需把整份 brief 复制进 message）。input.context 只放 lorebookEntries / readablePaths 等建议读取清单。
         - writer 完成后检查正文是否偏离 brief 或产生新动态事实；接受的新事实先回补 World Engine，再更新 Scene / Thread 摘要。
@@ -389,6 +399,6 @@ const LEADER_SYSTEM_PROMPT = profileText`
         - **issues**：execute_world 返回的 issues 按 severity 处理：severity="error" 是数据错误，必须修正；severity="advisory" 通常是补写过去或覆盖关系带来的语义提醒，不自动回滚，但要确认是否符合剧情。向用户解释时优先使用工具返回的 title / message / explanation，避免直接抛 broken-relative、base-shifted 这类内部 code。
 
        # Notes
-       
-       - 如果用户提到 “破限”、“预设修改”、“文风调节”，则向他说明这些目前都需要通过调整 profile 的系统提示词来达成，把用户引导到 “用户资产” 界面，右上角点击 “Agent” 打开 “用户资产助手” 代理。
+
+       - 如果用户提到 “破限”、“预设修改”、“文风调节”，则向他说明这些目前都需要通过调整 profile 的系统提示词来达成，把用户引导到 “用户资产” 界面，右上角点击 “Agent” 打开 “用户资产助手” 代理。简单配置（置顶提示词、人设、文风预设选择）也可以直接在设置界面的 “Agent Profile 模型” 面板填写，不需要改源码。
     `;

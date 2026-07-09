@@ -53,16 +53,21 @@ export const builtin = {
         setStatus: registeredTool("task_set_status"),
     },
     plot: {
-        getTree: registeredTool("get_plot_tree"),
+        getTree: registeredTool("get_story_tree"),
         getThread: registeredTool("get_story_thread"),
         getSceneContext: registeredTool("get_story_scene_context"),
         getSceneWorldContext: registeredTool("get_scene_world_context"),
-        getChapter: registeredTool("get_chapter_plot"),
+        getChapter: registeredTool("get_story_chapter"),
         getChapterWriterBrief: registeredTool("get_chapter_writer_brief"),
-        createThread: registeredTool("create_story_thread"),
-        updateThread: registeredTool("update_story_thread"),
-        createScene: registeredTool("create_story_scene"),
-        updateScene: registeredTool("update_story_scene"),
+        getPromise: registeredTool("get_story_promise"),
+        getDecision: registeredTool("get_story_decision"),
+        saveAct: registeredTool("save_story_act"),
+        saveChapter: registeredTool("save_story_chapter"),
+        saveThread: registeredTool("save_story_thread"),
+        saveScene: registeredTool("save_story_scene"),
+        savePromise: registeredTool("save_story_promise"),
+        savePromiseBeat: registeredTool("save_promise_beat"),
+        saveDecision: registeredTool("save_story_decision"),
     },
     sql: {
         execute: registeredTool("execute_sql"),
@@ -98,6 +103,33 @@ export const builtin = {
         }),
     },
 };
+
+/**
+ * Plot 读工具 bundle（Task 97 D7 分层绑定）：writer 只 spread 此组；leader/director 读写两组都 spread。
+ */
+export const plotReadBindings = [
+    builtin.plot.getTree,
+    builtin.plot.getThread,
+    builtin.plot.getSceneContext,
+    builtin.plot.getSceneWorldContext,
+    builtin.plot.getChapter,
+    builtin.plot.getChapterWriterBrief,
+    builtin.plot.getPromise,
+    builtin.plot.getDecision,
+] as const;
+
+/**
+ * Plot 写工具 bundle（Task 97 D7 分层绑定）：save_* 显式 action 写面，writer 不持有。
+ */
+export const plotWriteBindings = [
+    builtin.plot.saveAct,
+    builtin.plot.saveChapter,
+    builtin.plot.saveThread,
+    builtin.plot.saveScene,
+    builtin.plot.savePromise,
+    builtin.plot.savePromiseBeat,
+    builtin.plot.saveDecision,
+] as const;
 
 /**
  * 引用运行时已注册但 profile API 尚未 typed 化的插件工具。

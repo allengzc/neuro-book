@@ -27,7 +27,7 @@ export class PrismaSceneRepository implements SceneRepository {
     }
 
     /**
-     * 查询场景详情。
+     * 查询场景详情(含 refs、thread 与本场 promise beats)。
      */
     async findSceneWithDetailsById(sceneId: number): Promise<StorySceneWithDetails | null> {
         const scene = await this.prisma.storyScene.findUnique({
@@ -41,6 +41,23 @@ export class PrismaSceneRepository implements SceneRepository {
                     ],
                     include: STORY_SCENE_REF_INCLUDE,
                 },
+                promiseBeats: {
+                    orderBy: [
+                        {promiseId: "asc"},
+                        {id: "asc"},
+                    ],
+                    include: {
+                        promise: {
+                            select: {
+                                id: true,
+                                name: true,
+                                title: true,
+                                status: true,
+                                payoffExpectation: true,
+                            },
+                        },
+                    },
+                },
                 thread: {
                     select: {
                         id: true,
@@ -51,6 +68,7 @@ export class PrismaSceneRepository implements SceneRepository {
                         title: true,
                         isMainThread: true,
                         status: true,
+                        miceType: true,
                         summary: true,
                         tags: true,
                         writingTip: true,
@@ -145,6 +163,8 @@ export class PrismaSceneRepository implements SceneRepository {
         chapterSortOrder: number | null;
         title: string;
         status: StoryScene["status"];
+        outcomeType: StoryScene["outcomeType"];
+        pacingRole: StoryScene["pacingRole"];
         summary: string;
         purpose: string | null;
         writingTip: string | null;
@@ -166,7 +186,7 @@ export class PrismaSceneRepository implements SceneRepository {
         sceneId: number,
         data: Partial<Pick<
         StoryScene,
-        "threadId" | "chapterId" | "threadSortOrder" | "chapterSortOrder" | "title" | "status" | "summary" | "purpose" | "writingTip" | "note" | "startInstant" | "endInstant" | "subjectIdsJson" | "locationSubjectId"
+        "threadId" | "chapterId" | "threadSortOrder" | "chapterSortOrder" | "title" | "status" | "outcomeType" | "pacingRole" | "summary" | "purpose" | "writingTip" | "note" | "startInstant" | "endInstant" | "subjectIdsJson" | "locationSubjectId"
     >>,
     ): Promise<StoryScene> {
         return this.prisma.storyScene.update({

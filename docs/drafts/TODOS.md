@@ -198,13 +198,15 @@
 - [ ]
 - [ ]
 - [ ] 继续优化 novel 流程，融合几个 skill，优化杀 bug skill
-- [ ] exit_plan_mode approval 表单优化
+- [ ] switch_mode approval 表单优化
 - [ ]
 - [ ] 接入 llmlint
 - [ ] 请求查看器
 - [ ] 先写后补设定
-- [ ]
-- [ ]
+- [ ] summary + recap
+
+
+- [ ] llmlint 复制指令标明行号
 - [ ]
 - [ ]
 - [ ] 

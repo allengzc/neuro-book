@@ -4,10 +4,11 @@ import {afterAll, beforeEach, describe, expect, it} from "vitest";
 import {worldEngineFacade} from "nbook/server/world-engine";
 import {resolveWorkspaceContainerRoot} from "nbook/server/workspace-files/workspace-assets-root";
 import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
+import {closeProjectForTest, openProjectForTest} from "nbook/server/workspace-files/project-session-test-utils";
 
 const createdProjects: string[] = [];
 
-describe("/api/projects/world-engine", () => {
+describe("/api/projects/world-engine", {timeout: 30_000}, () => {
     beforeEach(() => {
         Object.assign(globalThis, {
             defineEventHandler: (handler: unknown) => handler,
@@ -23,6 +24,7 @@ describe("/api/projects/world-engine", () => {
 
     afterAll(async () => {
         for (const projectPath of createdProjects) {
+            await closeProjectForTest(projectPath).catch(() => undefined);
             await worldEngineFacade.closeProject(projectPath);
             await removeProjectRoot(projectPath);
         }
@@ -36,6 +38,19 @@ describe("/api/projects/world-engine", () => {
         await expect(callApi(handler, projectPath, "GET", "slices/%E0%A4%A")).rejects.toMatchObject({
             statusCode: 400,
             message: "API path 编码不合法：%E0%A4%A",
+        });
+    }, 30_000);
+
+    it("未 open 的 Project 返回 PROJECT_NOT_OPEN", async () => {
+        const projectPath = await createProject({open: false});
+        const handler = (await import("nbook/server/api/projects/world-engine/[...segments]")).default;
+
+        await expect(callApi(handler, projectPath, "GET", "schema")).rejects.toMatchObject({
+            statusCode: 409,
+            data: {
+                code: "PROJECT_NOT_OPEN",
+                projectPath,
+            },
         });
     });
 
@@ -151,7 +166,7 @@ describe("/api/projects/world-engine", () => {
     });
 });
 
-async function createProject(): Promise<string> {
+async function createProject(options: {open?: boolean} = {}): Promise<string> {
     const slug = `world-engine-api-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const projectPath = `workspace/${slug}`;
     const root = projectRoot(projectPath);
@@ -160,6 +175,9 @@ async function createProject(): Promise<string> {
     await fs.writeFile(path.join(root, "world-engine", "schema", "index.ts"), schemaSource(), "utf-8");
     await fs.writeFile(path.join(root, "world-engine", "calendar.ts"), calendarSource(), "utf-8");
     createdProjects.push(projectPath);
+    if (options.open !== false) {
+        await openProjectForTest(projectPath);
+    }
     return projectPath;
 }
 

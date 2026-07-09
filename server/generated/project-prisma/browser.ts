@@ -63,6 +63,21 @@ export type StoryScene = Prisma.StorySceneModel
  */
 export type StorySceneRef = Prisma.StorySceneRefModel
 /**
+ * Model StoryPromise
+ * 
+ */
+export type StoryPromise = Prisma.StoryPromiseModel
+/**
+ * Model StoryPromiseBeat
+ * 
+ */
+export type StoryPromiseBeat = Prisma.StoryPromiseBeatModel
+/**
+ * Model StoryDecision
+ * 
+ */
+export type StoryDecision = Prisma.StoryDecisionModel
+/**
  * Model WorldSubject
  * 
  */

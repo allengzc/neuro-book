@@ -1,16 +1,21 @@
 import {mkdir, mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
 import {join} from "node:path";
 import {tmpdir} from "node:os";
-import {afterEach, beforeEach, describe, expect, it, vi} from "vitest";
+import {afterAll, afterEach, beforeEach, describe, expect, it, vi} from "vitest";
 import {parseSubjectEventsJsonl, parseSubjectMemoriesJsonl} from "nbook/server/agent/tools/subject-memory";
+import {collectReleasedSqliteHandles} from "nbook/server/workspace-files/sqlite-handle-release";
 
 type ProjectRagVisualizationService = typeof import("nbook/server/rag/project-rag-visualization");
+type ProjectSessionTestUtils = typeof import("nbook/server/workspace-files/project-session-test-utils");
+
+const createdRoots: string[] = [];
 
 describe("project RAG visualization service", () => {
     let root: string;
     let originalCwd: string;
     let originalFetch: typeof fetch;
     let service: ProjectRagVisualizationService;
+    let sessionUtils: ProjectSessionTestUtils | null = null;
     const projectPath = "workspace/rag-visual-test";
 
     beforeEach(async () => {
@@ -21,6 +26,7 @@ describe("project RAG visualization service", () => {
         await mkdir(join(root, "assets", "workspace", ".nbook"), {recursive: true});
         vi.resetModules();
         service = await import("nbook/server/rag/project-rag-visualization");
+        sessionUtils = await import("nbook/server/workspace-files/project-session-test-utils");
         await mkdir(join(root, "workspace", "rag-visual-test", "simulation", "subjects", "heroine"), {recursive: true});
         await writeFile(join(root, "workspace", "rag-visual-test", "project.yaml"), "kind: novel\ntitle: RAG Test\nsummary: ''\n", "utf-8");
         await writeFile(join(root, "workspace", "rag-visual-test", "simulation", "subjects", "heroine", "subject.md"), [
@@ -48,13 +54,23 @@ describe("project RAG visualization service", () => {
             "{\"topic\":\"艾琳娜\",\"aliases\":[\"粉色头发女孩\"],\"view\":\"她帮过我，我对她有感谢。\"}",
             "",
         ].join("\n"), "utf-8");
+        await sessionUtils.openProjectForTest(projectPath);
     });
 
     afterEach(async () => {
+        await sessionUtils?.closeProjectForTest(projectPath).catch(() => undefined);
+        collectReleasedSqliteHandles({force: true});
         globalThis.fetch = originalFetch;
         process.chdir(originalCwd);
         vi.resetModules();
-        await rm(root, {recursive: true, force: true});
+        createdRoots.push(root);
+        sessionUtils = null;
+    });
+
+    afterAll(async () => {
+        for (const createdRoot of createdRoots.splice(0)) {
+            await removeTempRoot(createdRoot);
+        }
     });
 
     it("读取 Project 级 subject RAG 概览和详情", async () => {
@@ -85,12 +101,27 @@ describe("project RAG visualization service", () => {
     });
 
     it("无 subjects 时返回空概览", async () => {
+        const emptyProjectPath = "workspace/empty-rag-project";
         await mkdir(join(root, "workspace", "empty-rag-project"), {recursive: true});
         await writeFile(join(root, "workspace", "empty-rag-project", "project.yaml"), "kind: novel\ntitle: Empty RAG\nsummary: ''\n", "utf-8");
 
-        const overview = await service.readProjectRagOverview("workspace/empty-rag-project");
+        await sessionUtils.openProjectForTest(emptyProjectPath);
+        try {
+            const overview = await service.readProjectRagOverview(emptyProjectPath);
 
-        expect(overview.subjects).toEqual([]);
+            expect(overview.subjects).toEqual([]);
+        } finally {
+            await sessionUtils.closeProjectForTest(emptyProjectPath);
+        }
+    });
+
+    it("未 open 的 Project 拒绝读取 RAG 数据面", async () => {
+        const unopenedProjectPath = "workspace/unopened-rag-project";
+        const {ProjectNotOpenError} = await import("nbook/server/workspace-files/project-session");
+        await mkdir(join(root, "workspace", "unopened-rag-project"), {recursive: true});
+        await writeFile(join(root, "workspace", "unopened-rag-project", "project.yaml"), "kind: novel\ntitle: Unopened RAG\nsummary: ''\n", "utf-8");
+
+        await expect(service.readProjectRagOverview(unopenedProjectPath)).rejects.toBeInstanceOf(ProjectNotOpenError);
     });
 
     it("events CRUD 会写回 JSONL 并标记 dirty", async () => {
@@ -391,5 +422,27 @@ describe("project RAG visualization service", () => {
         } finally {
             db.close();
         }
+    }
+
+    async function removeTempRoot(target: string): Promise<void> {
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+            collectReleasedSqliteHandles({force: true});
+            try {
+                await rm(target, {recursive: true, force: true});
+                return;
+            } catch (error) {
+                if (!isBusyFileError(error)) {
+                    throw error;
+                }
+                if (attempt === 19) {
+                    return;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 100));
+            }
+        }
+    }
+
+    function isBusyFileError(error: unknown): boolean {
+        return Boolean(typeof error === "object" && error !== null && "code" in error && ["EBUSY", "EPERM", "ENOTEMPTY"].includes(String(error.code)));
     }
 });

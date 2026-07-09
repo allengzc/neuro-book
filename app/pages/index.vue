@@ -5,7 +5,7 @@ import type {ConfigBootstrapDto} from "nbook/shared/dto/config.dto";
 import {isNovelIdeTab, type NovelIdeTab} from "nbook/app/components/novel-ide/mock-data";
 import MarkdownStudioWorkbench from "nbook/app/components/markdown-studio/MarkdownStudioWorkbench.vue";
 import AgentChatSurface from "nbook/app/components/novel-ide/agent/AgentChatSurface.vue";
-import AgentTraceViewerDialog from "nbook/app/components/novel-ide/agent/trace-viewer/AgentTraceViewerDialog.vue";import AgentModeSessionSidebar from "nbook/app/components/novel-ide/agent/AgentModeSessionSidebar.vue";
+import AgentTraceViewerDialog from "nbook/app/components/novel-ide/agent/trace-viewer/AgentTraceViewerDialog.vue";import WorkspaceHistoryInboxDialog from "nbook/app/components/novel-ide/history/WorkspaceHistoryInboxDialog.vue";import AgentModeSessionSidebar from "nbook/app/components/novel-ide/agent/AgentModeSessionSidebar.vue";
 import NovelIdeHeader from "nbook/app/components/novel-ide/NovelIdeHeader.vue";
 import NovelIdeSidebar from "nbook/app/components/novel-ide/NovelIdeSidebar.vue";
 import NovelIdeSettingsDialog from "nbook/app/components/novel-ide/NovelIdeSettingsDialog.vue";
@@ -25,6 +25,7 @@ import {useIdeTheme} from "nbook/app/composables/useIdeTheme";
 import {useAuthSessionState} from "nbook/app/composables/useAuthSessionState";
 import {useMarkdownStudioController} from "nbook/app/composables/useMarkdownStudioController";
 import {useWorkspaceFileEvents} from "nbook/app/composables/useWorkspaceFileEvents";
+import {useProjectSession} from "nbook/app/composables/useProjectSession";
 import {useResizablePanel} from "nbook/app/composables/useResizablePanel";
 import {useDialog} from "nbook/app/composables/useDialog";
 import {useNotification} from "nbook/app/composables/useNotification";
@@ -60,6 +61,7 @@ const currentUser = ref<AuthSessionDto["user"]>(null);
 const bookshelfOpen = ref(false);
 const settingsDialogOpen = ref(false);
 const traceViewerOpen = ref(false);
+const historyInboxOpen = ref(false);
 const worldEngineWorkbenchOpen = ref(false);
 const worldEngineWorkbenchHasUnsavedDrafts = ref(false);
 const worldEngineWorkbenchSaving = ref(false);
@@ -153,6 +155,9 @@ const {
 } = novelIdeStore;
 const {mountThemeHost} = useIdeTheme(activeThemeId, customThemes, themeVarsSnapshot);
 const workspaceFileEvents = useWorkspaceFileEvents();
+// Task 94：项目显式生命周期——当前小说项目保持 open 并声明用户在场；user-assets 工作区不参与 open/presence。
+const projectSessionTarget = computed<string | null>(() => workspaceKind.value === "novel" && currentNovelId.value ? currentNovelId.value : null);
+useProjectSession(projectSessionTarget);
 const authSessionState = useAuthSessionState();
 const agentSurfaceRef = ref<InstanceType<typeof AgentChatSurface> | null>(null);
 
@@ -1407,6 +1412,13 @@ const archiveAgentModeSession = async (session: AgentSessionSummaryDto): Promise
 };
 
 /**
+ * Agent Mode 手动重命名指定 session。
+ */
+const renameAgentModeSession = async (session: AgentSessionSummaryDto): Promise<void> => {
+    await agentSurfaceRef.value?.renameSessionFromDialog(session);
+};
+
+/**
  * 关闭当前 Agent 槽位。
  */
 const closeAgentSurface = (): void => {
@@ -2112,6 +2124,7 @@ onBeforeUnmount(() => {
             @open-user-assets="openUserAssets"
             @open-profile-workbench="profileWorkbenchOpen = true"
             @open-trace-viewer="traceViewerOpen = true"
+            @open-history-inbox="historyInboxOpen = true"
             @switch-novel="handleSwitchNovel"
             @open-admin="void openAdmin()"
             @logout="void logout()"
@@ -2134,6 +2147,7 @@ onBeforeUnmount(() => {
                 @select="void selectAgentModeSession($event)"
                 @create="void createAgentModeSession()"
                 @archive="void archiveAgentModeSession($event)"
+                @rename="void renameAgentModeSession($event)"
                 @refresh="void refreshAgentModeSessions()"
             />
 
@@ -2314,6 +2328,7 @@ onBeforeUnmount(() => {
         <NovelBookshelfDialog v-model="bookshelfOpen" :before-workspace-switch="confirmWorldEngineWorkbenchDraftDiscardForProjectSwitch" @switched="void router.replace(buildProjectRoute($event))" />
         <NovelIdeSettingsDialog v-model="settingsDialogOpen" />
         <AgentTraceViewerDialog v-model="traceViewerOpen" @open-session="void openTraceSession($event)" />
+        <WorkspaceHistoryInboxDialog v-model="historyInboxOpen" :project-path="isUserAssetsWorkspace ? null : currentNovelId" :theme="activeThemeId" />
         <UserProfileWorkbenchDialog v-model="profileWorkbenchOpen" />
         <WorkspaceFileConflictDialog
             v-model="novelIdeStore.workspaceConflictDialogOpen"

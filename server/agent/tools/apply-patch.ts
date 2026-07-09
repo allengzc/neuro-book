@@ -29,7 +29,7 @@ type PatchChunk = {
     newLines: string[];
 };
 
-type PlannedFileChange = {
+export type PlannedFileChange = {
     displayPath: string;
     absolutePath: string;
     action: "add" | "update" | "delete";
@@ -43,6 +43,8 @@ export type ApplyCodexPatchResult = {
         path: string;
         action: "add" | "update" | "delete";
     }>;
+    /** 成功落盘的完整变更清单（含 before/after 全文），供调用方做文件历史归因记账。 */
+    changes: PlannedFileChange[];
     diff: string;
     firstChangedLine?: number;
 };
@@ -94,6 +96,27 @@ export function parseCodexPatch(patchText: string): PatchOperation[] {
         throw new Error(`无法解析 apply_patch 行：${line}`);
     }
     throw new Error("apply_patch 缺少 *** End Patch。");
+}
+
+/**
+ * 提取一段 apply_patch 文本会写入/影响的全部目标路径。
+ * 包含 Add/Update/Delete 的 File 路径，以及 Update 的 `*** Move to:` 重命名目标——
+ * 后者是真实写入点，只读模式的写豁免/审批必须把它算作目标（Task 90 修复）。
+ * 解析失败时返回空数组（fail-closed：调用方据此判定"目标不可识别，不豁免"）。
+ */
+export function extractPatchTargetPaths(patchText: string): string[] {
+    try {
+        const paths: string[] = [];
+        for (const operation of parseCodexPatch(patchText)) {
+            paths.push(operation.path);
+            if (operation.type === "update" && operation.moveTo) {
+                paths.push(operation.moveTo);
+            }
+        }
+        return paths;
+    } catch {
+        return [];
+    }
 }
 
 /**
@@ -211,6 +234,7 @@ export async function applyCodexPatch(input: {
             path: change.displayPath,
             action: change.action,
         })),
+        changes: plannedChanges,
         diff,
         firstChangedLine: firstChangedLine(diff),
     };

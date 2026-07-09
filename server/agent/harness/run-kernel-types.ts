@@ -11,6 +11,7 @@ import type {AgentRuntimeStreamEventDto} from "nbook/shared/dto/agent-session.dt
 import type {AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {UserInputFormSpec} from "nbook/server/agent/tools/types";
 import type {PiTraceSettings} from "nbook/server/agent/observability/traced-provider";
+import type {FileChangeAwareness} from "nbook/server/agent/harness/file-change-reminder";
 
 export type RunRuntimeState = Map<string, JsonValue>;
 
@@ -160,6 +161,10 @@ export type RunFrame = {
     profile: AgentProfile;
     /** 本 run 的 Agent 工作模式（Task 90）；只读模式下写工具注入审批。 */
     agentMode: AgentMode;
+    /** 文件变更感知模式（Task 95）：off 时不注入 <file-change-notice>。 */
+    fileChangeAwareness: FileChangeAwareness;
+    /** 本轮 notice 覆盖到的游标目标（unseen 组的最大 maxEntryId，按模块 last_seen 语义原样传）；ingest 成功后 advanceCursor 用，失败轮保留（N9 at-least-once）。 */
+    pendingHistoryCursorAdvance?: number;
     thinkingLevel: ThinkingLevel;
     runtimeState: RunRuntimeState;
     abortSignal?: AbortSignal;

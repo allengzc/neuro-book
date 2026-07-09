@@ -24,6 +24,7 @@ const emit = defineEmits<{
     (e: "open-user-assets"): void;
     (e: "open-profile-workbench"): void;
     (e: "open-trace-viewer"): void;
+    (e: "open-history-inbox"): void;
     (e: "switch-novel", value: string): void;
     (e: "open-admin"): void;
     (e: "logout"): void;
@@ -144,6 +145,11 @@ const handleUserMenuSelect = (value: string): void => {
             <button class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" :title="t('ide.header.traceViewerTitle')" @click="emit('open-trace-viewer')">
                 <span class="i-lucide-activity h-4 w-4 text-[var(--accent-text)]"></span>
                 <span>Trace</span>
+            </button>
+            <!-- 文件变更收件箱入口：审查 agent 对项目文件的改动，仅 novel 模式可用 -->
+            <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" :title="t('ide.header.historyInboxTitle')" @click="emit('open-history-inbox')">
+                <span class="i-lucide-inbox h-4 w-4 text-[var(--accent-text)]"></span>
+                <span>{{ t("ide.header.historyInbox") }}</span>
             </button>
             <button v-if="!isUserAssetsMode" class="hidden items-center gap-2 rounded-full border border-transparent px-4 py-1.5 text-[12px] tracking-[0.2em] uppercase text-[var(--text-secondary)] transition-colors hover:border-[var(--border-color)] hover:bg-[var(--bg-hover)] hover:text-[var(--accent-text)] md:flex" :title="t('ide.header.userAssetsTitle')" @click="emit('open-user-assets')">
                 <span class="i-lucide-folder-cog h-4 w-4 text-[var(--accent-text)]"></span>

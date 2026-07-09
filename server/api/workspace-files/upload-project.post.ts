@@ -7,6 +7,7 @@ import {
     WorkspaceUploadError,
     type WorkspaceUploadFile,
 } from "nbook/server/workspace-files/workspace-upload";
+import {recordUploadedFiles, USER_LOCAL_ACTOR} from "nbook/server/workspace-history/tracked-workspace-files";
 
 /**
  * 上传 Project 文件夹或 zip 到当前挂载根。已有文件跳过。
@@ -29,6 +30,7 @@ export default defineEventHandler(async (event) => {
                 fileName: zipFile.filename ?? "project.zip",
                 data: zipFile.data,
             });
+            await recordUploadedFiles({root, files: result.files, actor: USER_LOCAL_ACTOR});
             invalidateProjectWorkspaceIndexAfterMutation({root, workspaceKind});
             return result;
         } catch (error) {
@@ -52,6 +54,7 @@ export default defineEventHandler(async (event) => {
     }
     try {
         const result = await uploadWorkspaceProjectFiles(root, files);
+        await recordUploadedFiles({root, files: result.files, actor: USER_LOCAL_ACTOR});
         invalidateProjectWorkspaceIndexAfterMutation({root, workspaceKind});
         return result;
     } catch (error) {

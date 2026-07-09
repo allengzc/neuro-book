@@ -393,6 +393,9 @@ export const ModelName = {
   StoryThread: 'StoryThread',
   StoryScene: 'StoryScene',
   StorySceneRef: 'StorySceneRef',
+  StoryPromise: 'StoryPromise',
+  StoryPromiseBeat: 'StoryPromiseBeat',
+  StoryDecision: 'StoryDecision',
   WorldSubject: 'WorldSubject',
   WorldSlice: 'WorldSlice',
   WorldPatch: 'WorldPatch'
@@ -411,7 +414,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "projectMetadata" | "databaseLock" | "story" | "storyAct" | "storyChapter" | "storyPhase" | "storyThread" | "storyScene" | "storySceneRef" | "worldSubject" | "worldSlice" | "worldPatch"
+    modelProps: "projectMetadata" | "databaseLock" | "story" | "storyAct" | "storyChapter" | "storyPhase" | "storyThread" | "storyScene" | "storySceneRef" | "storyPromise" | "storyPromiseBeat" | "storyDecision" | "worldSubject" | "worldSlice" | "worldPatch"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -1081,6 +1084,228 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    StoryPromise: {
+      payload: Prisma.$StoryPromisePayload<ExtArgs>
+      fields: Prisma.StoryPromiseFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.StoryPromiseFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromisePayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.StoryPromiseFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromisePayload>
+        }
+        findFirst: {
+          args: Prisma.StoryPromiseFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromisePayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.StoryPromiseFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromisePayload>
+        }
+        findMany: {
+          args: Prisma.StoryPromiseFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromisePayload>[]
+        }
+        create: {
+          args: Prisma.StoryPromiseCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromisePayload>
+        }
+        createMany: {
+          args: Prisma.StoryPromiseCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.StoryPromiseCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromisePayload>[]
+        }
+        delete: {
+          args: Prisma.StoryPromiseDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromisePayload>
+        }
+        update: {
+          args: Prisma.StoryPromiseUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromisePayload>
+        }
+        deleteMany: {
+          args: Prisma.StoryPromiseDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.StoryPromiseUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.StoryPromiseUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromisePayload>[]
+        }
+        upsert: {
+          args: Prisma.StoryPromiseUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromisePayload>
+        }
+        aggregate: {
+          args: Prisma.StoryPromiseAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateStoryPromise>
+        }
+        groupBy: {
+          args: Prisma.StoryPromiseGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.StoryPromiseGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.StoryPromiseCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.StoryPromiseCountAggregateOutputType> | number
+        }
+      }
+    }
+    StoryPromiseBeat: {
+      payload: Prisma.$StoryPromiseBeatPayload<ExtArgs>
+      fields: Prisma.StoryPromiseBeatFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.StoryPromiseBeatFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromiseBeatPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.StoryPromiseBeatFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromiseBeatPayload>
+        }
+        findFirst: {
+          args: Prisma.StoryPromiseBeatFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromiseBeatPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.StoryPromiseBeatFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromiseBeatPayload>
+        }
+        findMany: {
+          args: Prisma.StoryPromiseBeatFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromiseBeatPayload>[]
+        }
+        create: {
+          args: Prisma.StoryPromiseBeatCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromiseBeatPayload>
+        }
+        createMany: {
+          args: Prisma.StoryPromiseBeatCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.StoryPromiseBeatCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromiseBeatPayload>[]
+        }
+        delete: {
+          args: Prisma.StoryPromiseBeatDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromiseBeatPayload>
+        }
+        update: {
+          args: Prisma.StoryPromiseBeatUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromiseBeatPayload>
+        }
+        deleteMany: {
+          args: Prisma.StoryPromiseBeatDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.StoryPromiseBeatUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.StoryPromiseBeatUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromiseBeatPayload>[]
+        }
+        upsert: {
+          args: Prisma.StoryPromiseBeatUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryPromiseBeatPayload>
+        }
+        aggregate: {
+          args: Prisma.StoryPromiseBeatAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateStoryPromiseBeat>
+        }
+        groupBy: {
+          args: Prisma.StoryPromiseBeatGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.StoryPromiseBeatGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.StoryPromiseBeatCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.StoryPromiseBeatCountAggregateOutputType> | number
+        }
+      }
+    }
+    StoryDecision: {
+      payload: Prisma.$StoryDecisionPayload<ExtArgs>
+      fields: Prisma.StoryDecisionFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.StoryDecisionFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryDecisionPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.StoryDecisionFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryDecisionPayload>
+        }
+        findFirst: {
+          args: Prisma.StoryDecisionFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryDecisionPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.StoryDecisionFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryDecisionPayload>
+        }
+        findMany: {
+          args: Prisma.StoryDecisionFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryDecisionPayload>[]
+        }
+        create: {
+          args: Prisma.StoryDecisionCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryDecisionPayload>
+        }
+        createMany: {
+          args: Prisma.StoryDecisionCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.StoryDecisionCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryDecisionPayload>[]
+        }
+        delete: {
+          args: Prisma.StoryDecisionDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryDecisionPayload>
+        }
+        update: {
+          args: Prisma.StoryDecisionUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryDecisionPayload>
+        }
+        deleteMany: {
+          args: Prisma.StoryDecisionDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.StoryDecisionUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.StoryDecisionUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryDecisionPayload>[]
+        }
+        upsert: {
+          args: Prisma.StoryDecisionUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$StoryDecisionPayload>
+        }
+        aggregate: {
+          args: Prisma.StoryDecisionAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateStoryDecision>
+        }
+        groupBy: {
+          args: Prisma.StoryDecisionGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.StoryDecisionGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.StoryDecisionCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.StoryDecisionCountAggregateOutputType> | number
+        }
+      }
+    }
     WorldSubject: {
       payload: Prisma.$WorldSubjectPayload<ExtArgs>
       fields: Prisma.WorldSubjectFieldRefs
@@ -1434,6 +1659,7 @@ export const StoryThreadScalarFieldEnum = {
   title: 'title',
   isMainThread: 'isMainThread',
   status: 'status',
+  miceType: 'miceType',
   summary: 'summary',
   tags: 'tags',
   writingTip: 'writingTip',
@@ -1454,6 +1680,8 @@ export const StorySceneScalarFieldEnum = {
   chapterSortOrder: 'chapterSortOrder',
   title: 'title',
   status: 'status',
+  outcomeType: 'outcomeType',
+  pacingRole: 'pacingRole',
   summary: 'summary',
   purpose: 'purpose',
   writingTip: 'writingTip',
@@ -1485,6 +1713,69 @@ export const StorySceneRefScalarFieldEnum = {
 } as const
 
 export type StorySceneRefScalarFieldEnum = (typeof StorySceneRefScalarFieldEnum)[keyof typeof StorySceneRefScalarFieldEnum]
+
+
+export const StoryPromiseScalarFieldEnum = {
+  id: 'id',
+  storyId: 'storyId',
+  name: 'name',
+  title: 'title',
+  status: 'status',
+  importance: 'importance',
+  summary: 'summary',
+  payoffExpectation: 'payoffExpectation',
+  cadenceChapters: 'cadenceChapters',
+  deadlineChapterId: 'deadlineChapterId',
+  tags: 'tags',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type StoryPromiseScalarFieldEnum = (typeof StoryPromiseScalarFieldEnum)[keyof typeof StoryPromiseScalarFieldEnum]
+
+
+export const StoryPromiseBeatScalarFieldEnum = {
+  id: 'id',
+  promiseId: 'promiseId',
+  sceneId: 'sceneId',
+  kind: 'kind',
+  note: 'note',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type StoryPromiseBeatScalarFieldEnum = (typeof StoryPromiseBeatScalarFieldEnum)[keyof typeof StoryPromiseBeatScalarFieldEnum]
+
+
+export const StoryDecisionScalarFieldEnum = {
+  id: 'id',
+  storyId: 'storyId',
+  name: 'name',
+  title: 'title',
+  status: 'status',
+  question: 'question',
+  options: 'options',
+  deadlineChapterId: 'deadlineChapterId',
+  decision: 'decision',
+  motivation: 'motivation',
+  rejectedAlternatives: 'rejectedAlternatives',
+  risk: 'risk',
+  serves: 'serves',
+  dependsOn: 'dependsOn',
+  supersededById: 'supersededById',
+  anchorKind: 'anchorKind',
+  anchorActId: 'anchorActId',
+  anchorChapterId: 'anchorChapterId',
+  anchorThreadId: 'anchorThreadId',
+  anchorSceneId: 'anchorSceneId',
+  anchorPromiseId: 'anchorPromiseId',
+  anchorPath: 'anchorPath',
+  note: 'note',
+  createdAt: 'createdAt',
+  updatedAt: 'updatedAt'
+} as const
+
+export type StoryDecisionScalarFieldEnum = (typeof StoryDecisionScalarFieldEnum)[keyof typeof StoryDecisionScalarFieldEnum]
 
 
 export const WorldSubjectScalarFieldEnum = {
@@ -1585,9 +1876,30 @@ export type EnumStoryThreadStatusFieldRefInput<$PrismaModel> = FieldRefInputType
 
 
 /**
+ * Reference to a field of type 'StoryThreadMiceType'
+ */
+export type EnumStoryThreadMiceTypeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'StoryThreadMiceType'>
+    
+
+
+/**
  * Reference to a field of type 'StorySceneStatus'
  */
 export type EnumStorySceneStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'StorySceneStatus'>
+    
+
+
+/**
+ * Reference to a field of type 'StorySceneOutcomeType'
+ */
+export type EnumStorySceneOutcomeTypeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'StorySceneOutcomeType'>
+    
+
+
+/**
+ * Reference to a field of type 'StoryScenePacingRole'
+ */
+export type EnumStoryScenePacingRoleFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'StoryScenePacingRole'>
     
 
 
@@ -1609,6 +1921,41 @@ export type EnumStoryRefTargetKindFieldRefInput<$PrismaModel> = FieldRefInputTyp
  * Reference to a field of type 'StoryRefVisibility'
  */
 export type EnumStoryRefVisibilityFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'StoryRefVisibility'>
+    
+
+
+/**
+ * Reference to a field of type 'StoryPromiseStatus'
+ */
+export type EnumStoryPromiseStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'StoryPromiseStatus'>
+    
+
+
+/**
+ * Reference to a field of type 'StoryPromiseImportance'
+ */
+export type EnumStoryPromiseImportanceFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'StoryPromiseImportance'>
+    
+
+
+/**
+ * Reference to a field of type 'StoryPromiseBeatKind'
+ */
+export type EnumStoryPromiseBeatKindFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'StoryPromiseBeatKind'>
+    
+
+
+/**
+ * Reference to a field of type 'StoryDecisionStatus'
+ */
+export type EnumStoryDecisionStatusFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'StoryDecisionStatus'>
+    
+
+
+/**
+ * Reference to a field of type 'StoryDecisionAnchorKind'
+ */
+export type EnumStoryDecisionAnchorKindFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'StoryDecisionAnchorKind'>
     
 
 
@@ -1729,6 +2076,9 @@ export type GlobalOmitConfig = {
   storyThread?: Prisma.StoryThreadOmit
   storyScene?: Prisma.StorySceneOmit
   storySceneRef?: Prisma.StorySceneRefOmit
+  storyPromise?: Prisma.StoryPromiseOmit
+  storyPromiseBeat?: Prisma.StoryPromiseBeatOmit
+  storyDecision?: Prisma.StoryDecisionOmit
   worldSubject?: Prisma.WorldSubjectOmit
   worldSlice?: Prisma.WorldSliceOmit
   worldPatch?: Prisma.WorldPatchOmit

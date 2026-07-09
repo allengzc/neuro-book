@@ -57,6 +57,8 @@ export type StorySceneMinAggregateOutputType = {
   chapterSortOrder: number | null
   title: string | null
   status: $Enums.StorySceneStatus | null
+  outcomeType: $Enums.StorySceneOutcomeType | null
+  pacingRole: $Enums.StoryScenePacingRole | null
   summary: string | null
   purpose: string | null
   writingTip: string | null
@@ -78,6 +80,8 @@ export type StorySceneMaxAggregateOutputType = {
   chapterSortOrder: number | null
   title: string | null
   status: $Enums.StorySceneStatus | null
+  outcomeType: $Enums.StorySceneOutcomeType | null
+  pacingRole: $Enums.StoryScenePacingRole | null
   summary: string | null
   purpose: string | null
   writingTip: string | null
@@ -99,6 +103,8 @@ export type StorySceneCountAggregateOutputType = {
   chapterSortOrder: number
   title: number
   status: number
+  outcomeType: number
+  pacingRole: number
   summary: number
   purpose: number
   writingTip: number
@@ -144,6 +150,8 @@ export type StorySceneMinAggregateInputType = {
   chapterSortOrder?: true
   title?: true
   status?: true
+  outcomeType?: true
+  pacingRole?: true
   summary?: true
   purpose?: true
   writingTip?: true
@@ -165,6 +173,8 @@ export type StorySceneMaxAggregateInputType = {
   chapterSortOrder?: true
   title?: true
   status?: true
+  outcomeType?: true
+  pacingRole?: true
   summary?: true
   purpose?: true
   writingTip?: true
@@ -186,6 +196,8 @@ export type StorySceneCountAggregateInputType = {
   chapterSortOrder?: true
   title?: true
   status?: true
+  outcomeType?: true
+  pacingRole?: true
   summary?: true
   purpose?: true
   writingTip?: true
@@ -294,6 +306,8 @@ export type StorySceneGroupByOutputType = {
   chapterSortOrder: number | null
   title: string
   status: $Enums.StorySceneStatus
+  outcomeType: $Enums.StorySceneOutcomeType | null
+  pacingRole: $Enums.StoryScenePacingRole | null
   summary: string
   purpose: string | null
   writingTip: string | null
@@ -338,6 +352,8 @@ export type StorySceneWhereInput = {
   chapterSortOrder?: Prisma.IntNullableFilter<"StoryScene"> | number | null
   title?: Prisma.StringFilter<"StoryScene"> | string
   status?: Prisma.EnumStorySceneStatusFilter<"StoryScene"> | $Enums.StorySceneStatus
+  outcomeType?: Prisma.EnumStorySceneOutcomeTypeNullableFilter<"StoryScene"> | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.EnumStoryScenePacingRoleNullableFilter<"StoryScene"> | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFilter<"StoryScene"> | string
   purpose?: Prisma.StringNullableFilter<"StoryScene"> | string | null
   writingTip?: Prisma.StringNullableFilter<"StoryScene"> | string | null
@@ -353,6 +369,8 @@ export type StorySceneWhereInput = {
   chapter?: Prisma.XOR<Prisma.StoryChapterNullableScalarRelationFilter, Prisma.StoryChapterWhereInput> | null
   refs?: Prisma.StorySceneRefListRelationFilter
   incomingSceneRefs?: Prisma.StorySceneRefListRelationFilter
+  promiseBeats?: Prisma.StoryPromiseBeatListRelationFilter
+  anchoredDecisions?: Prisma.StoryDecisionListRelationFilter
 }
 
 export type StorySceneOrderByWithRelationInput = {
@@ -364,6 +382,8 @@ export type StorySceneOrderByWithRelationInput = {
   chapterSortOrder?: Prisma.SortOrderInput | Prisma.SortOrder
   title?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  outcomeType?: Prisma.SortOrderInput | Prisma.SortOrder
+  pacingRole?: Prisma.SortOrderInput | Prisma.SortOrder
   summary?: Prisma.SortOrder
   purpose?: Prisma.SortOrderInput | Prisma.SortOrder
   writingTip?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -379,6 +399,8 @@ export type StorySceneOrderByWithRelationInput = {
   chapter?: Prisma.StoryChapterOrderByWithRelationInput
   refs?: Prisma.StorySceneRefOrderByRelationAggregateInput
   incomingSceneRefs?: Prisma.StorySceneRefOrderByRelationAggregateInput
+  promiseBeats?: Prisma.StoryPromiseBeatOrderByRelationAggregateInput
+  anchoredDecisions?: Prisma.StoryDecisionOrderByRelationAggregateInput
 }
 
 export type StorySceneWhereUniqueInput = Prisma.AtLeast<{
@@ -394,6 +416,8 @@ export type StorySceneWhereUniqueInput = Prisma.AtLeast<{
   chapterSortOrder?: Prisma.IntNullableFilter<"StoryScene"> | number | null
   title?: Prisma.StringFilter<"StoryScene"> | string
   status?: Prisma.EnumStorySceneStatusFilter<"StoryScene"> | $Enums.StorySceneStatus
+  outcomeType?: Prisma.EnumStorySceneOutcomeTypeNullableFilter<"StoryScene"> | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.EnumStoryScenePacingRoleNullableFilter<"StoryScene"> | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFilter<"StoryScene"> | string
   purpose?: Prisma.StringNullableFilter<"StoryScene"> | string | null
   writingTip?: Prisma.StringNullableFilter<"StoryScene"> | string | null
@@ -409,6 +433,8 @@ export type StorySceneWhereUniqueInput = Prisma.AtLeast<{
   chapter?: Prisma.XOR<Prisma.StoryChapterNullableScalarRelationFilter, Prisma.StoryChapterWhereInput> | null
   refs?: Prisma.StorySceneRefListRelationFilter
   incomingSceneRefs?: Prisma.StorySceneRefListRelationFilter
+  promiseBeats?: Prisma.StoryPromiseBeatListRelationFilter
+  anchoredDecisions?: Prisma.StoryDecisionListRelationFilter
 }, "id" | "threadId_threadSortOrder">
 
 export type StorySceneOrderByWithAggregationInput = {
@@ -420,6 +446,8 @@ export type StorySceneOrderByWithAggregationInput = {
   chapterSortOrder?: Prisma.SortOrderInput | Prisma.SortOrder
   title?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  outcomeType?: Prisma.SortOrderInput | Prisma.SortOrder
+  pacingRole?: Prisma.SortOrderInput | Prisma.SortOrder
   summary?: Prisma.SortOrder
   purpose?: Prisma.SortOrderInput | Prisma.SortOrder
   writingTip?: Prisma.SortOrderInput | Prisma.SortOrder
@@ -449,6 +477,8 @@ export type StorySceneScalarWhereWithAggregatesInput = {
   chapterSortOrder?: Prisma.IntNullableWithAggregatesFilter<"StoryScene"> | number | null
   title?: Prisma.StringWithAggregatesFilter<"StoryScene"> | string
   status?: Prisma.EnumStorySceneStatusWithAggregatesFilter<"StoryScene"> | $Enums.StorySceneStatus
+  outcomeType?: Prisma.EnumStorySceneOutcomeTypeNullableWithAggregatesFilter<"StoryScene"> | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.EnumStoryScenePacingRoleNullableWithAggregatesFilter<"StoryScene"> | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringWithAggregatesFilter<"StoryScene"> | string
   purpose?: Prisma.StringNullableWithAggregatesFilter<"StoryScene"> | string | null
   writingTip?: Prisma.StringNullableWithAggregatesFilter<"StoryScene"> | string | null
@@ -466,6 +496,8 @@ export type StorySceneCreateInput = {
   chapterSortOrder?: number | null
   title: string
   status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
   summary?: string
   purpose?: string | null
   writingTip?: string | null
@@ -481,6 +513,8 @@ export type StorySceneCreateInput = {
   chapter?: Prisma.StoryChapterCreateNestedOneWithoutScenesInput
   refs?: Prisma.StorySceneRefCreateNestedManyWithoutSceneInput
   incomingSceneRefs?: Prisma.StorySceneRefCreateNestedManyWithoutTargetSceneInput
+  promiseBeats?: Prisma.StoryPromiseBeatCreateNestedManyWithoutSceneInput
+  anchoredDecisions?: Prisma.StoryDecisionCreateNestedManyWithoutAnchorSceneInput
 }
 
 export type StorySceneUncheckedCreateInput = {
@@ -492,6 +526,8 @@ export type StorySceneUncheckedCreateInput = {
   chapterSortOrder?: number | null
   title: string
   status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
   summary?: string
   purpose?: string | null
   writingTip?: string | null
@@ -504,6 +540,8 @@ export type StorySceneUncheckedCreateInput = {
   updatedAt?: Date | string
   refs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutSceneInput
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutTargetSceneInput
+  promiseBeats?: Prisma.StoryPromiseBeatUncheckedCreateNestedManyWithoutSceneInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedCreateNestedManyWithoutAnchorSceneInput
 }
 
 export type StorySceneUpdateInput = {
@@ -511,6 +549,8 @@ export type StorySceneUpdateInput = {
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -526,6 +566,8 @@ export type StorySceneUpdateInput = {
   chapter?: Prisma.StoryChapterUpdateOneWithoutScenesNestedInput
   refs?: Prisma.StorySceneRefUpdateManyWithoutSceneNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUpdateManyWithoutTargetSceneNestedInput
+  promiseBeats?: Prisma.StoryPromiseBeatUpdateManyWithoutSceneNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUpdateManyWithoutAnchorSceneNestedInput
 }
 
 export type StorySceneUncheckedUpdateInput = {
@@ -537,6 +579,8 @@ export type StorySceneUncheckedUpdateInput = {
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -549,6 +593,8 @@ export type StorySceneUncheckedUpdateInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   refs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutSceneNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutTargetSceneNestedInput
+  promiseBeats?: Prisma.StoryPromiseBeatUncheckedUpdateManyWithoutSceneNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedUpdateManyWithoutAnchorSceneNestedInput
 }
 
 export type StorySceneCreateManyInput = {
@@ -560,6 +606,8 @@ export type StorySceneCreateManyInput = {
   chapterSortOrder?: number | null
   title: string
   status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
   summary?: string
   purpose?: string | null
   writingTip?: string | null
@@ -577,6 +625,8 @@ export type StorySceneUpdateManyMutationInput = {
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -598,6 +648,8 @@ export type StorySceneUncheckedUpdateManyInput = {
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -634,6 +686,8 @@ export type StorySceneCountOrderByAggregateInput = {
   chapterSortOrder?: Prisma.SortOrder
   title?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  outcomeType?: Prisma.SortOrder
+  pacingRole?: Prisma.SortOrder
   summary?: Prisma.SortOrder
   purpose?: Prisma.SortOrder
   writingTip?: Prisma.SortOrder
@@ -666,6 +720,8 @@ export type StorySceneMaxOrderByAggregateInput = {
   chapterSortOrder?: Prisma.SortOrder
   title?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  outcomeType?: Prisma.SortOrder
+  pacingRole?: Prisma.SortOrder
   summary?: Prisma.SortOrder
   purpose?: Prisma.SortOrder
   writingTip?: Prisma.SortOrder
@@ -687,6 +743,8 @@ export type StorySceneMinOrderByAggregateInput = {
   chapterSortOrder?: Prisma.SortOrder
   title?: Prisma.SortOrder
   status?: Prisma.SortOrder
+  outcomeType?: Prisma.SortOrder
+  pacingRole?: Prisma.SortOrder
   summary?: Prisma.SortOrder
   purpose?: Prisma.SortOrder
   writingTip?: Prisma.SortOrder
@@ -850,6 +908,14 @@ export type EnumStorySceneStatusFieldUpdateOperationsInput = {
   set?: $Enums.StorySceneStatus
 }
 
+export type NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput = {
+  set?: $Enums.StorySceneOutcomeType | null
+}
+
+export type NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput = {
+  set?: $Enums.StoryScenePacingRole | null
+}
+
 export type NullableBigIntFieldUpdateOperationsInput = {
   set?: bigint | number | null
   increment?: bigint | number
@@ -888,11 +954,43 @@ export type StorySceneUpdateOneWithoutIncomingSceneRefsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.StorySceneUpdateToOneWithWhereWithoutIncomingSceneRefsInput, Prisma.StorySceneUpdateWithoutIncomingSceneRefsInput>, Prisma.StorySceneUncheckedUpdateWithoutIncomingSceneRefsInput>
 }
 
+export type StorySceneCreateNestedOneWithoutPromiseBeatsInput = {
+  create?: Prisma.XOR<Prisma.StorySceneCreateWithoutPromiseBeatsInput, Prisma.StorySceneUncheckedCreateWithoutPromiseBeatsInput>
+  connectOrCreate?: Prisma.StorySceneCreateOrConnectWithoutPromiseBeatsInput
+  connect?: Prisma.StorySceneWhereUniqueInput
+}
+
+export type StorySceneUpdateOneRequiredWithoutPromiseBeatsNestedInput = {
+  create?: Prisma.XOR<Prisma.StorySceneCreateWithoutPromiseBeatsInput, Prisma.StorySceneUncheckedCreateWithoutPromiseBeatsInput>
+  connectOrCreate?: Prisma.StorySceneCreateOrConnectWithoutPromiseBeatsInput
+  upsert?: Prisma.StorySceneUpsertWithoutPromiseBeatsInput
+  connect?: Prisma.StorySceneWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.StorySceneUpdateToOneWithWhereWithoutPromiseBeatsInput, Prisma.StorySceneUpdateWithoutPromiseBeatsInput>, Prisma.StorySceneUncheckedUpdateWithoutPromiseBeatsInput>
+}
+
+export type StorySceneCreateNestedOneWithoutAnchoredDecisionsInput = {
+  create?: Prisma.XOR<Prisma.StorySceneCreateWithoutAnchoredDecisionsInput, Prisma.StorySceneUncheckedCreateWithoutAnchoredDecisionsInput>
+  connectOrCreate?: Prisma.StorySceneCreateOrConnectWithoutAnchoredDecisionsInput
+  connect?: Prisma.StorySceneWhereUniqueInput
+}
+
+export type StorySceneUpdateOneWithoutAnchoredDecisionsNestedInput = {
+  create?: Prisma.XOR<Prisma.StorySceneCreateWithoutAnchoredDecisionsInput, Prisma.StorySceneUncheckedCreateWithoutAnchoredDecisionsInput>
+  connectOrCreate?: Prisma.StorySceneCreateOrConnectWithoutAnchoredDecisionsInput
+  upsert?: Prisma.StorySceneUpsertWithoutAnchoredDecisionsInput
+  disconnect?: Prisma.StorySceneWhereInput | boolean
+  delete?: Prisma.StorySceneWhereInput | boolean
+  connect?: Prisma.StorySceneWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.StorySceneUpdateToOneWithWhereWithoutAnchoredDecisionsInput, Prisma.StorySceneUpdateWithoutAnchoredDecisionsInput>, Prisma.StorySceneUncheckedUpdateWithoutAnchoredDecisionsInput>
+}
+
 export type StorySceneCreateWithoutStoryInput = {
   threadSortOrder: number
   chapterSortOrder?: number | null
   title: string
   status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
   summary?: string
   purpose?: string | null
   writingTip?: string | null
@@ -907,6 +1005,8 @@ export type StorySceneCreateWithoutStoryInput = {
   chapter?: Prisma.StoryChapterCreateNestedOneWithoutScenesInput
   refs?: Prisma.StorySceneRefCreateNestedManyWithoutSceneInput
   incomingSceneRefs?: Prisma.StorySceneRefCreateNestedManyWithoutTargetSceneInput
+  promiseBeats?: Prisma.StoryPromiseBeatCreateNestedManyWithoutSceneInput
+  anchoredDecisions?: Prisma.StoryDecisionCreateNestedManyWithoutAnchorSceneInput
 }
 
 export type StorySceneUncheckedCreateWithoutStoryInput = {
@@ -917,6 +1017,8 @@ export type StorySceneUncheckedCreateWithoutStoryInput = {
   chapterSortOrder?: number | null
   title: string
   status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
   summary?: string
   purpose?: string | null
   writingTip?: string | null
@@ -929,6 +1031,8 @@ export type StorySceneUncheckedCreateWithoutStoryInput = {
   updatedAt?: Date | string
   refs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutSceneInput
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutTargetSceneInput
+  promiseBeats?: Prisma.StoryPromiseBeatUncheckedCreateNestedManyWithoutSceneInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedCreateNestedManyWithoutAnchorSceneInput
 }
 
 export type StorySceneCreateOrConnectWithoutStoryInput = {
@@ -968,6 +1072,8 @@ export type StorySceneScalarWhereInput = {
   chapterSortOrder?: Prisma.IntNullableFilter<"StoryScene"> | number | null
   title?: Prisma.StringFilter<"StoryScene"> | string
   status?: Prisma.EnumStorySceneStatusFilter<"StoryScene"> | $Enums.StorySceneStatus
+  outcomeType?: Prisma.EnumStorySceneOutcomeTypeNullableFilter<"StoryScene"> | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.EnumStoryScenePacingRoleNullableFilter<"StoryScene"> | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFilter<"StoryScene"> | string
   purpose?: Prisma.StringNullableFilter<"StoryScene"> | string | null
   writingTip?: Prisma.StringNullableFilter<"StoryScene"> | string | null
@@ -985,6 +1091,8 @@ export type StorySceneCreateWithoutChapterInput = {
   chapterSortOrder?: number | null
   title: string
   status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
   summary?: string
   purpose?: string | null
   writingTip?: string | null
@@ -999,6 +1107,8 @@ export type StorySceneCreateWithoutChapterInput = {
   thread: Prisma.StoryThreadCreateNestedOneWithoutScenesInput
   refs?: Prisma.StorySceneRefCreateNestedManyWithoutSceneInput
   incomingSceneRefs?: Prisma.StorySceneRefCreateNestedManyWithoutTargetSceneInput
+  promiseBeats?: Prisma.StoryPromiseBeatCreateNestedManyWithoutSceneInput
+  anchoredDecisions?: Prisma.StoryDecisionCreateNestedManyWithoutAnchorSceneInput
 }
 
 export type StorySceneUncheckedCreateWithoutChapterInput = {
@@ -1009,6 +1119,8 @@ export type StorySceneUncheckedCreateWithoutChapterInput = {
   chapterSortOrder?: number | null
   title: string
   status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
   summary?: string
   purpose?: string | null
   writingTip?: string | null
@@ -1021,6 +1133,8 @@ export type StorySceneUncheckedCreateWithoutChapterInput = {
   updatedAt?: Date | string
   refs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutSceneInput
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutTargetSceneInput
+  promiseBeats?: Prisma.StoryPromiseBeatUncheckedCreateNestedManyWithoutSceneInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedCreateNestedManyWithoutAnchorSceneInput
 }
 
 export type StorySceneCreateOrConnectWithoutChapterInput = {
@@ -1053,6 +1167,8 @@ export type StorySceneCreateWithoutThreadInput = {
   chapterSortOrder?: number | null
   title: string
   status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
   summary?: string
   purpose?: string | null
   writingTip?: string | null
@@ -1067,6 +1183,8 @@ export type StorySceneCreateWithoutThreadInput = {
   chapter?: Prisma.StoryChapterCreateNestedOneWithoutScenesInput
   refs?: Prisma.StorySceneRefCreateNestedManyWithoutSceneInput
   incomingSceneRefs?: Prisma.StorySceneRefCreateNestedManyWithoutTargetSceneInput
+  promiseBeats?: Prisma.StoryPromiseBeatCreateNestedManyWithoutSceneInput
+  anchoredDecisions?: Prisma.StoryDecisionCreateNestedManyWithoutAnchorSceneInput
 }
 
 export type StorySceneUncheckedCreateWithoutThreadInput = {
@@ -1077,6 +1195,8 @@ export type StorySceneUncheckedCreateWithoutThreadInput = {
   chapterSortOrder?: number | null
   title: string
   status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
   summary?: string
   purpose?: string | null
   writingTip?: string | null
@@ -1089,6 +1209,8 @@ export type StorySceneUncheckedCreateWithoutThreadInput = {
   updatedAt?: Date | string
   refs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutSceneInput
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutTargetSceneInput
+  promiseBeats?: Prisma.StoryPromiseBeatUncheckedCreateNestedManyWithoutSceneInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedCreateNestedManyWithoutAnchorSceneInput
 }
 
 export type StorySceneCreateOrConnectWithoutThreadInput = {
@@ -1121,6 +1243,8 @@ export type StorySceneCreateWithoutRefsInput = {
   chapterSortOrder?: number | null
   title: string
   status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
   summary?: string
   purpose?: string | null
   writingTip?: string | null
@@ -1135,6 +1259,8 @@ export type StorySceneCreateWithoutRefsInput = {
   thread: Prisma.StoryThreadCreateNestedOneWithoutScenesInput
   chapter?: Prisma.StoryChapterCreateNestedOneWithoutScenesInput
   incomingSceneRefs?: Prisma.StorySceneRefCreateNestedManyWithoutTargetSceneInput
+  promiseBeats?: Prisma.StoryPromiseBeatCreateNestedManyWithoutSceneInput
+  anchoredDecisions?: Prisma.StoryDecisionCreateNestedManyWithoutAnchorSceneInput
 }
 
 export type StorySceneUncheckedCreateWithoutRefsInput = {
@@ -1146,6 +1272,8 @@ export type StorySceneUncheckedCreateWithoutRefsInput = {
   chapterSortOrder?: number | null
   title: string
   status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
   summary?: string
   purpose?: string | null
   writingTip?: string | null
@@ -1157,6 +1285,8 @@ export type StorySceneUncheckedCreateWithoutRefsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutTargetSceneInput
+  promiseBeats?: Prisma.StoryPromiseBeatUncheckedCreateNestedManyWithoutSceneInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedCreateNestedManyWithoutAnchorSceneInput
 }
 
 export type StorySceneCreateOrConnectWithoutRefsInput = {
@@ -1169,6 +1299,8 @@ export type StorySceneCreateWithoutIncomingSceneRefsInput = {
   chapterSortOrder?: number | null
   title: string
   status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
   summary?: string
   purpose?: string | null
   writingTip?: string | null
@@ -1183,6 +1315,8 @@ export type StorySceneCreateWithoutIncomingSceneRefsInput = {
   thread: Prisma.StoryThreadCreateNestedOneWithoutScenesInput
   chapter?: Prisma.StoryChapterCreateNestedOneWithoutScenesInput
   refs?: Prisma.StorySceneRefCreateNestedManyWithoutSceneInput
+  promiseBeats?: Prisma.StoryPromiseBeatCreateNestedManyWithoutSceneInput
+  anchoredDecisions?: Prisma.StoryDecisionCreateNestedManyWithoutAnchorSceneInput
 }
 
 export type StorySceneUncheckedCreateWithoutIncomingSceneRefsInput = {
@@ -1194,6 +1328,8 @@ export type StorySceneUncheckedCreateWithoutIncomingSceneRefsInput = {
   chapterSortOrder?: number | null
   title: string
   status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
   summary?: string
   purpose?: string | null
   writingTip?: string | null
@@ -1205,6 +1341,8 @@ export type StorySceneUncheckedCreateWithoutIncomingSceneRefsInput = {
   createdAt?: Date | string
   updatedAt?: Date | string
   refs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutSceneInput
+  promiseBeats?: Prisma.StoryPromiseBeatUncheckedCreateNestedManyWithoutSceneInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedCreateNestedManyWithoutAnchorSceneInput
 }
 
 export type StorySceneCreateOrConnectWithoutIncomingSceneRefsInput = {
@@ -1228,6 +1366,8 @@ export type StorySceneUpdateWithoutRefsInput = {
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1242,6 +1382,8 @@ export type StorySceneUpdateWithoutRefsInput = {
   thread?: Prisma.StoryThreadUpdateOneRequiredWithoutScenesNestedInput
   chapter?: Prisma.StoryChapterUpdateOneWithoutScenesNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUpdateManyWithoutTargetSceneNestedInput
+  promiseBeats?: Prisma.StoryPromiseBeatUpdateManyWithoutSceneNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUpdateManyWithoutAnchorSceneNestedInput
 }
 
 export type StorySceneUncheckedUpdateWithoutRefsInput = {
@@ -1253,6 +1395,8 @@ export type StorySceneUncheckedUpdateWithoutRefsInput = {
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1264,6 +1408,8 @@ export type StorySceneUncheckedUpdateWithoutRefsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutTargetSceneNestedInput
+  promiseBeats?: Prisma.StoryPromiseBeatUncheckedUpdateManyWithoutSceneNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedUpdateManyWithoutAnchorSceneNestedInput
 }
 
 export type StorySceneUpsertWithoutIncomingSceneRefsInput = {
@@ -1282,6 +1428,8 @@ export type StorySceneUpdateWithoutIncomingSceneRefsInput = {
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1296,6 +1444,8 @@ export type StorySceneUpdateWithoutIncomingSceneRefsInput = {
   thread?: Prisma.StoryThreadUpdateOneRequiredWithoutScenesNestedInput
   chapter?: Prisma.StoryChapterUpdateOneWithoutScenesNestedInput
   refs?: Prisma.StorySceneRefUpdateManyWithoutSceneNestedInput
+  promiseBeats?: Prisma.StoryPromiseBeatUpdateManyWithoutSceneNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUpdateManyWithoutAnchorSceneNestedInput
 }
 
 export type StorySceneUncheckedUpdateWithoutIncomingSceneRefsInput = {
@@ -1307,6 +1457,8 @@ export type StorySceneUncheckedUpdateWithoutIncomingSceneRefsInput = {
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1318,6 +1470,244 @@ export type StorySceneUncheckedUpdateWithoutIncomingSceneRefsInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   refs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutSceneNestedInput
+  promiseBeats?: Prisma.StoryPromiseBeatUncheckedUpdateManyWithoutSceneNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedUpdateManyWithoutAnchorSceneNestedInput
+}
+
+export type StorySceneCreateWithoutPromiseBeatsInput = {
+  threadSortOrder: number
+  chapterSortOrder?: number | null
+  title: string
+  status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
+  summary?: string
+  purpose?: string | null
+  writingTip?: string | null
+  note?: string | null
+  startInstant?: bigint | number | null
+  endInstant?: bigint | number | null
+  subjectIdsJson?: string
+  locationSubjectId?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  story: Prisma.StoryCreateNestedOneWithoutScenesInput
+  thread: Prisma.StoryThreadCreateNestedOneWithoutScenesInput
+  chapter?: Prisma.StoryChapterCreateNestedOneWithoutScenesInput
+  refs?: Prisma.StorySceneRefCreateNestedManyWithoutSceneInput
+  incomingSceneRefs?: Prisma.StorySceneRefCreateNestedManyWithoutTargetSceneInput
+  anchoredDecisions?: Prisma.StoryDecisionCreateNestedManyWithoutAnchorSceneInput
+}
+
+export type StorySceneUncheckedCreateWithoutPromiseBeatsInput = {
+  id?: number
+  storyId: number
+  threadId: number
+  chapterId?: number | null
+  threadSortOrder: number
+  chapterSortOrder?: number | null
+  title: string
+  status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
+  summary?: string
+  purpose?: string | null
+  writingTip?: string | null
+  note?: string | null
+  startInstant?: bigint | number | null
+  endInstant?: bigint | number | null
+  subjectIdsJson?: string
+  locationSubjectId?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  refs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutSceneInput
+  incomingSceneRefs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutTargetSceneInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedCreateNestedManyWithoutAnchorSceneInput
+}
+
+export type StorySceneCreateOrConnectWithoutPromiseBeatsInput = {
+  where: Prisma.StorySceneWhereUniqueInput
+  create: Prisma.XOR<Prisma.StorySceneCreateWithoutPromiseBeatsInput, Prisma.StorySceneUncheckedCreateWithoutPromiseBeatsInput>
+}
+
+export type StorySceneUpsertWithoutPromiseBeatsInput = {
+  update: Prisma.XOR<Prisma.StorySceneUpdateWithoutPromiseBeatsInput, Prisma.StorySceneUncheckedUpdateWithoutPromiseBeatsInput>
+  create: Prisma.XOR<Prisma.StorySceneCreateWithoutPromiseBeatsInput, Prisma.StorySceneUncheckedCreateWithoutPromiseBeatsInput>
+  where?: Prisma.StorySceneWhereInput
+}
+
+export type StorySceneUpdateToOneWithWhereWithoutPromiseBeatsInput = {
+  where?: Prisma.StorySceneWhereInput
+  data: Prisma.XOR<Prisma.StorySceneUpdateWithoutPromiseBeatsInput, Prisma.StorySceneUncheckedUpdateWithoutPromiseBeatsInput>
+}
+
+export type StorySceneUpdateWithoutPromiseBeatsInput = {
+  threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
+  chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
+  summary?: Prisma.StringFieldUpdateOperationsInput | string
+  purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startInstant?: Prisma.NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+  endInstant?: Prisma.NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+  subjectIdsJson?: Prisma.StringFieldUpdateOperationsInput | string
+  locationSubjectId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  story?: Prisma.StoryUpdateOneRequiredWithoutScenesNestedInput
+  thread?: Prisma.StoryThreadUpdateOneRequiredWithoutScenesNestedInput
+  chapter?: Prisma.StoryChapterUpdateOneWithoutScenesNestedInput
+  refs?: Prisma.StorySceneRefUpdateManyWithoutSceneNestedInput
+  incomingSceneRefs?: Prisma.StorySceneRefUpdateManyWithoutTargetSceneNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUpdateManyWithoutAnchorSceneNestedInput
+}
+
+export type StorySceneUncheckedUpdateWithoutPromiseBeatsInput = {
+  id?: Prisma.IntFieldUpdateOperationsInput | number
+  storyId?: Prisma.IntFieldUpdateOperationsInput | number
+  threadId?: Prisma.IntFieldUpdateOperationsInput | number
+  chapterId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
+  chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
+  summary?: Prisma.StringFieldUpdateOperationsInput | string
+  purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startInstant?: Prisma.NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+  endInstant?: Prisma.NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+  subjectIdsJson?: Prisma.StringFieldUpdateOperationsInput | string
+  locationSubjectId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  refs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutSceneNestedInput
+  incomingSceneRefs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutTargetSceneNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedUpdateManyWithoutAnchorSceneNestedInput
+}
+
+export type StorySceneCreateWithoutAnchoredDecisionsInput = {
+  threadSortOrder: number
+  chapterSortOrder?: number | null
+  title: string
+  status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
+  summary?: string
+  purpose?: string | null
+  writingTip?: string | null
+  note?: string | null
+  startInstant?: bigint | number | null
+  endInstant?: bigint | number | null
+  subjectIdsJson?: string
+  locationSubjectId?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  story: Prisma.StoryCreateNestedOneWithoutScenesInput
+  thread: Prisma.StoryThreadCreateNestedOneWithoutScenesInput
+  chapter?: Prisma.StoryChapterCreateNestedOneWithoutScenesInput
+  refs?: Prisma.StorySceneRefCreateNestedManyWithoutSceneInput
+  incomingSceneRefs?: Prisma.StorySceneRefCreateNestedManyWithoutTargetSceneInput
+  promiseBeats?: Prisma.StoryPromiseBeatCreateNestedManyWithoutSceneInput
+}
+
+export type StorySceneUncheckedCreateWithoutAnchoredDecisionsInput = {
+  id?: number
+  storyId: number
+  threadId: number
+  chapterId?: number | null
+  threadSortOrder: number
+  chapterSortOrder?: number | null
+  title: string
+  status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
+  summary?: string
+  purpose?: string | null
+  writingTip?: string | null
+  note?: string | null
+  startInstant?: bigint | number | null
+  endInstant?: bigint | number | null
+  subjectIdsJson?: string
+  locationSubjectId?: string | null
+  createdAt?: Date | string
+  updatedAt?: Date | string
+  refs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutSceneInput
+  incomingSceneRefs?: Prisma.StorySceneRefUncheckedCreateNestedManyWithoutTargetSceneInput
+  promiseBeats?: Prisma.StoryPromiseBeatUncheckedCreateNestedManyWithoutSceneInput
+}
+
+export type StorySceneCreateOrConnectWithoutAnchoredDecisionsInput = {
+  where: Prisma.StorySceneWhereUniqueInput
+  create: Prisma.XOR<Prisma.StorySceneCreateWithoutAnchoredDecisionsInput, Prisma.StorySceneUncheckedCreateWithoutAnchoredDecisionsInput>
+}
+
+export type StorySceneUpsertWithoutAnchoredDecisionsInput = {
+  update: Prisma.XOR<Prisma.StorySceneUpdateWithoutAnchoredDecisionsInput, Prisma.StorySceneUncheckedUpdateWithoutAnchoredDecisionsInput>
+  create: Prisma.XOR<Prisma.StorySceneCreateWithoutAnchoredDecisionsInput, Prisma.StorySceneUncheckedCreateWithoutAnchoredDecisionsInput>
+  where?: Prisma.StorySceneWhereInput
+}
+
+export type StorySceneUpdateToOneWithWhereWithoutAnchoredDecisionsInput = {
+  where?: Prisma.StorySceneWhereInput
+  data: Prisma.XOR<Prisma.StorySceneUpdateWithoutAnchoredDecisionsInput, Prisma.StorySceneUncheckedUpdateWithoutAnchoredDecisionsInput>
+}
+
+export type StorySceneUpdateWithoutAnchoredDecisionsInput = {
+  threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
+  chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
+  summary?: Prisma.StringFieldUpdateOperationsInput | string
+  purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startInstant?: Prisma.NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+  endInstant?: Prisma.NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+  subjectIdsJson?: Prisma.StringFieldUpdateOperationsInput | string
+  locationSubjectId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  story?: Prisma.StoryUpdateOneRequiredWithoutScenesNestedInput
+  thread?: Prisma.StoryThreadUpdateOneRequiredWithoutScenesNestedInput
+  chapter?: Prisma.StoryChapterUpdateOneWithoutScenesNestedInput
+  refs?: Prisma.StorySceneRefUpdateManyWithoutSceneNestedInput
+  incomingSceneRefs?: Prisma.StorySceneRefUpdateManyWithoutTargetSceneNestedInput
+  promiseBeats?: Prisma.StoryPromiseBeatUpdateManyWithoutSceneNestedInput
+}
+
+export type StorySceneUncheckedUpdateWithoutAnchoredDecisionsInput = {
+  id?: Prisma.IntFieldUpdateOperationsInput | number
+  storyId?: Prisma.IntFieldUpdateOperationsInput | number
+  threadId?: Prisma.IntFieldUpdateOperationsInput | number
+  chapterId?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  threadSortOrder?: Prisma.IntFieldUpdateOperationsInput | number
+  chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
+  title?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
+  summary?: Prisma.StringFieldUpdateOperationsInput | string
+  purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  note?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  startInstant?: Prisma.NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+  endInstant?: Prisma.NullableBigIntFieldUpdateOperationsInput | bigint | number | null
+  subjectIdsJson?: Prisma.StringFieldUpdateOperationsInput | string
+  locationSubjectId?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  refs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutSceneNestedInput
+  incomingSceneRefs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutTargetSceneNestedInput
+  promiseBeats?: Prisma.StoryPromiseBeatUncheckedUpdateManyWithoutSceneNestedInput
 }
 
 export type StorySceneCreateManyStoryInput = {
@@ -1328,6 +1718,8 @@ export type StorySceneCreateManyStoryInput = {
   chapterSortOrder?: number | null
   title: string
   status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
   summary?: string
   purpose?: string | null
   writingTip?: string | null
@@ -1345,6 +1737,8 @@ export type StorySceneUpdateWithoutStoryInput = {
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1359,6 +1753,8 @@ export type StorySceneUpdateWithoutStoryInput = {
   chapter?: Prisma.StoryChapterUpdateOneWithoutScenesNestedInput
   refs?: Prisma.StorySceneRefUpdateManyWithoutSceneNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUpdateManyWithoutTargetSceneNestedInput
+  promiseBeats?: Prisma.StoryPromiseBeatUpdateManyWithoutSceneNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUpdateManyWithoutAnchorSceneNestedInput
 }
 
 export type StorySceneUncheckedUpdateWithoutStoryInput = {
@@ -1369,6 +1765,8 @@ export type StorySceneUncheckedUpdateWithoutStoryInput = {
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1381,6 +1779,8 @@ export type StorySceneUncheckedUpdateWithoutStoryInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   refs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutSceneNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutTargetSceneNestedInput
+  promiseBeats?: Prisma.StoryPromiseBeatUncheckedUpdateManyWithoutSceneNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedUpdateManyWithoutAnchorSceneNestedInput
 }
 
 export type StorySceneUncheckedUpdateManyWithoutStoryInput = {
@@ -1391,6 +1791,8 @@ export type StorySceneUncheckedUpdateManyWithoutStoryInput = {
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1411,6 +1813,8 @@ export type StorySceneCreateManyChapterInput = {
   chapterSortOrder?: number | null
   title: string
   status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
   summary?: string
   purpose?: string | null
   writingTip?: string | null
@@ -1428,6 +1832,8 @@ export type StorySceneUpdateWithoutChapterInput = {
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1442,6 +1848,8 @@ export type StorySceneUpdateWithoutChapterInput = {
   thread?: Prisma.StoryThreadUpdateOneRequiredWithoutScenesNestedInput
   refs?: Prisma.StorySceneRefUpdateManyWithoutSceneNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUpdateManyWithoutTargetSceneNestedInput
+  promiseBeats?: Prisma.StoryPromiseBeatUpdateManyWithoutSceneNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUpdateManyWithoutAnchorSceneNestedInput
 }
 
 export type StorySceneUncheckedUpdateWithoutChapterInput = {
@@ -1452,6 +1860,8 @@ export type StorySceneUncheckedUpdateWithoutChapterInput = {
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1464,6 +1874,8 @@ export type StorySceneUncheckedUpdateWithoutChapterInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   refs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutSceneNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutTargetSceneNestedInput
+  promiseBeats?: Prisma.StoryPromiseBeatUncheckedUpdateManyWithoutSceneNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedUpdateManyWithoutAnchorSceneNestedInput
 }
 
 export type StorySceneUncheckedUpdateManyWithoutChapterInput = {
@@ -1474,6 +1886,8 @@ export type StorySceneUncheckedUpdateManyWithoutChapterInput = {
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1494,6 +1908,8 @@ export type StorySceneCreateManyThreadInput = {
   chapterSortOrder?: number | null
   title: string
   status?: $Enums.StorySceneStatus
+  outcomeType?: $Enums.StorySceneOutcomeType | null
+  pacingRole?: $Enums.StoryScenePacingRole | null
   summary?: string
   purpose?: string | null
   writingTip?: string | null
@@ -1511,6 +1927,8 @@ export type StorySceneUpdateWithoutThreadInput = {
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1525,6 +1943,8 @@ export type StorySceneUpdateWithoutThreadInput = {
   chapter?: Prisma.StoryChapterUpdateOneWithoutScenesNestedInput
   refs?: Prisma.StorySceneRefUpdateManyWithoutSceneNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUpdateManyWithoutTargetSceneNestedInput
+  promiseBeats?: Prisma.StoryPromiseBeatUpdateManyWithoutSceneNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUpdateManyWithoutAnchorSceneNestedInput
 }
 
 export type StorySceneUncheckedUpdateWithoutThreadInput = {
@@ -1535,6 +1955,8 @@ export type StorySceneUncheckedUpdateWithoutThreadInput = {
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1547,6 +1969,8 @@ export type StorySceneUncheckedUpdateWithoutThreadInput = {
   updatedAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   refs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutSceneNestedInput
   incomingSceneRefs?: Prisma.StorySceneRefUncheckedUpdateManyWithoutTargetSceneNestedInput
+  promiseBeats?: Prisma.StoryPromiseBeatUncheckedUpdateManyWithoutSceneNestedInput
+  anchoredDecisions?: Prisma.StoryDecisionUncheckedUpdateManyWithoutAnchorSceneNestedInput
 }
 
 export type StorySceneUncheckedUpdateManyWithoutThreadInput = {
@@ -1557,6 +1981,8 @@ export type StorySceneUncheckedUpdateManyWithoutThreadInput = {
   chapterSortOrder?: Prisma.NullableIntFieldUpdateOperationsInput | number | null
   title?: Prisma.StringFieldUpdateOperationsInput | string
   status?: Prisma.EnumStorySceneStatusFieldUpdateOperationsInput | $Enums.StorySceneStatus
+  outcomeType?: Prisma.NullableEnumStorySceneOutcomeTypeFieldUpdateOperationsInput | $Enums.StorySceneOutcomeType | null
+  pacingRole?: Prisma.NullableEnumStoryScenePacingRoleFieldUpdateOperationsInput | $Enums.StoryScenePacingRole | null
   summary?: Prisma.StringFieldUpdateOperationsInput | string
   purpose?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   writingTip?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
@@ -1577,11 +2003,15 @@ export type StorySceneUncheckedUpdateManyWithoutThreadInput = {
 export type StorySceneCountOutputType = {
   refs: number
   incomingSceneRefs: number
+  promiseBeats: number
+  anchoredDecisions: number
 }
 
 export type StorySceneCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   refs?: boolean | StorySceneCountOutputTypeCountRefsArgs
   incomingSceneRefs?: boolean | StorySceneCountOutputTypeCountIncomingSceneRefsArgs
+  promiseBeats?: boolean | StorySceneCountOutputTypeCountPromiseBeatsArgs
+  anchoredDecisions?: boolean | StorySceneCountOutputTypeCountAnchoredDecisionsArgs
 }
 
 /**
@@ -1608,6 +2038,20 @@ export type StorySceneCountOutputTypeCountIncomingSceneRefsArgs<ExtArgs extends 
   where?: Prisma.StorySceneRefWhereInput
 }
 
+/**
+ * StorySceneCountOutputType without action
+ */
+export type StorySceneCountOutputTypeCountPromiseBeatsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.StoryPromiseBeatWhereInput
+}
+
+/**
+ * StorySceneCountOutputType without action
+ */
+export type StorySceneCountOutputTypeCountAnchoredDecisionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.StoryDecisionWhereInput
+}
+
 
 export type StorySceneSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -1618,6 +2062,8 @@ export type StorySceneSelect<ExtArgs extends runtime.Types.Extensions.InternalAr
   chapterSortOrder?: boolean
   title?: boolean
   status?: boolean
+  outcomeType?: boolean
+  pacingRole?: boolean
   summary?: boolean
   purpose?: boolean
   writingTip?: boolean
@@ -1633,6 +2079,8 @@ export type StorySceneSelect<ExtArgs extends runtime.Types.Extensions.InternalAr
   chapter?: boolean | Prisma.StoryScene$chapterArgs<ExtArgs>
   refs?: boolean | Prisma.StoryScene$refsArgs<ExtArgs>
   incomingSceneRefs?: boolean | Prisma.StoryScene$incomingSceneRefsArgs<ExtArgs>
+  promiseBeats?: boolean | Prisma.StoryScene$promiseBeatsArgs<ExtArgs>
+  anchoredDecisions?: boolean | Prisma.StoryScene$anchoredDecisionsArgs<ExtArgs>
   _count?: boolean | Prisma.StorySceneCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["storyScene"]>
 
@@ -1645,6 +2093,8 @@ export type StorySceneSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Ex
   chapterSortOrder?: boolean
   title?: boolean
   status?: boolean
+  outcomeType?: boolean
+  pacingRole?: boolean
   summary?: boolean
   purpose?: boolean
   writingTip?: boolean
@@ -1669,6 +2119,8 @@ export type StorySceneSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Ex
   chapterSortOrder?: boolean
   title?: boolean
   status?: boolean
+  outcomeType?: boolean
+  pacingRole?: boolean
   summary?: boolean
   purpose?: boolean
   writingTip?: boolean
@@ -1693,6 +2145,8 @@ export type StorySceneSelectScalar = {
   chapterSortOrder?: boolean
   title?: boolean
   status?: boolean
+  outcomeType?: boolean
+  pacingRole?: boolean
   summary?: boolean
   purpose?: boolean
   writingTip?: boolean
@@ -1705,13 +2159,15 @@ export type StorySceneSelectScalar = {
   updatedAt?: boolean
 }
 
-export type StorySceneOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "storyId" | "threadId" | "chapterId" | "threadSortOrder" | "chapterSortOrder" | "title" | "status" | "summary" | "purpose" | "writingTip" | "note" | "startInstant" | "endInstant" | "subjectIdsJson" | "locationSubjectId" | "createdAt" | "updatedAt", ExtArgs["result"]["storyScene"]>
+export type StorySceneOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "storyId" | "threadId" | "chapterId" | "threadSortOrder" | "chapterSortOrder" | "title" | "status" | "outcomeType" | "pacingRole" | "summary" | "purpose" | "writingTip" | "note" | "startInstant" | "endInstant" | "subjectIdsJson" | "locationSubjectId" | "createdAt" | "updatedAt", ExtArgs["result"]["storyScene"]>
 export type StorySceneInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   story?: boolean | Prisma.StoryDefaultArgs<ExtArgs>
   thread?: boolean | Prisma.StoryThreadDefaultArgs<ExtArgs>
   chapter?: boolean | Prisma.StoryScene$chapterArgs<ExtArgs>
   refs?: boolean | Prisma.StoryScene$refsArgs<ExtArgs>
   incomingSceneRefs?: boolean | Prisma.StoryScene$incomingSceneRefsArgs<ExtArgs>
+  promiseBeats?: boolean | Prisma.StoryScene$promiseBeatsArgs<ExtArgs>
+  anchoredDecisions?: boolean | Prisma.StoryScene$anchoredDecisionsArgs<ExtArgs>
   _count?: boolean | Prisma.StorySceneCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type StorySceneIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -1733,6 +2189,8 @@ export type $StoryScenePayload<ExtArgs extends runtime.Types.Extensions.Internal
     chapter: Prisma.$StoryChapterPayload<ExtArgs> | null
     refs: Prisma.$StorySceneRefPayload<ExtArgs>[]
     incomingSceneRefs: Prisma.$StorySceneRefPayload<ExtArgs>[]
+    promiseBeats: Prisma.$StoryPromiseBeatPayload<ExtArgs>[]
+    anchoredDecisions: Prisma.$StoryDecisionPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: number
@@ -1743,6 +2201,8 @@ export type $StoryScenePayload<ExtArgs extends runtime.Types.Extensions.Internal
     chapterSortOrder: number | null
     title: string
     status: $Enums.StorySceneStatus
+    outcomeType: $Enums.StorySceneOutcomeType | null
+    pacingRole: $Enums.StoryScenePacingRole | null
     summary: string
     purpose: string | null
     writingTip: string | null
@@ -2152,6 +2612,8 @@ export interface Prisma__StorySceneClient<T, Null = never, ExtArgs extends runti
   chapter<T extends Prisma.StoryScene$chapterArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryScene$chapterArgs<ExtArgs>>): Prisma.Prisma__StoryChapterClient<runtime.Types.Result.GetResult<Prisma.$StoryChapterPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | null, null, ExtArgs, GlobalOmitOptions>
   refs<T extends Prisma.StoryScene$refsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryScene$refsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$StorySceneRefPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   incomingSceneRefs<T extends Prisma.StoryScene$incomingSceneRefsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryScene$incomingSceneRefsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$StorySceneRefPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  promiseBeats<T extends Prisma.StoryScene$promiseBeatsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryScene$promiseBeatsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$StoryPromiseBeatPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  anchoredDecisions<T extends Prisma.StoryScene$anchoredDecisionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.StoryScene$anchoredDecisionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$StoryDecisionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -2189,6 +2651,8 @@ export interface StorySceneFieldRefs {
   readonly chapterSortOrder: Prisma.FieldRef<"StoryScene", 'Int'>
   readonly title: Prisma.FieldRef<"StoryScene", 'String'>
   readonly status: Prisma.FieldRef<"StoryScene", 'StorySceneStatus'>
+  readonly outcomeType: Prisma.FieldRef<"StoryScene", 'StorySceneOutcomeType'>
+  readonly pacingRole: Prisma.FieldRef<"StoryScene", 'StoryScenePacingRole'>
   readonly summary: Prisma.FieldRef<"StoryScene", 'String'>
   readonly purpose: Prisma.FieldRef<"StoryScene", 'String'>
   readonly writingTip: Prisma.FieldRef<"StoryScene", 'String'>
@@ -2657,6 +3121,54 @@ export type StoryScene$incomingSceneRefsArgs<ExtArgs extends runtime.Types.Exten
   take?: number
   skip?: number
   distinct?: Prisma.StorySceneRefScalarFieldEnum | Prisma.StorySceneRefScalarFieldEnum[]
+}
+
+/**
+ * StoryScene.promiseBeats
+ */
+export type StoryScene$promiseBeatsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the StoryPromiseBeat
+   */
+  select?: Prisma.StoryPromiseBeatSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the StoryPromiseBeat
+   */
+  omit?: Prisma.StoryPromiseBeatOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.StoryPromiseBeatInclude<ExtArgs> | null
+  where?: Prisma.StoryPromiseBeatWhereInput
+  orderBy?: Prisma.StoryPromiseBeatOrderByWithRelationInput | Prisma.StoryPromiseBeatOrderByWithRelationInput[]
+  cursor?: Prisma.StoryPromiseBeatWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.StoryPromiseBeatScalarFieldEnum | Prisma.StoryPromiseBeatScalarFieldEnum[]
+}
+
+/**
+ * StoryScene.anchoredDecisions
+ */
+export type StoryScene$anchoredDecisionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the StoryDecision
+   */
+  select?: Prisma.StoryDecisionSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the StoryDecision
+   */
+  omit?: Prisma.StoryDecisionOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.StoryDecisionInclude<ExtArgs> | null
+  where?: Prisma.StoryDecisionWhereInput
+  orderBy?: Prisma.StoryDecisionOrderByWithRelationInput | Prisma.StoryDecisionOrderByWithRelationInput[]
+  cursor?: Prisma.StoryDecisionWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.StoryDecisionScalarFieldEnum | Prisma.StoryDecisionScalarFieldEnum[]
 }
 
 /**

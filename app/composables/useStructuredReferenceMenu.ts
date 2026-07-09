@@ -75,6 +75,8 @@ const referenceMenuFallbacks = {
     "ide.referenceMenu.commandCompactDescription": "压缩当前 Agent Session 上下文。",
     "ide.referenceMenu.commandClearDescription": "清空当前 Session 视图并回到空历史。",
     "ide.referenceMenu.commandNewDescription": "新建 Agent Session。",
+    "ide.referenceMenu.commandRenameDescription": "手动重命名当前 Session，之后自动摘要不再改标题。",
+    "ide.referenceMenu.commandSummarizeDescription": "把标题交还给自动摘要，并立即重新生成标题与摘要。",
     "ide.referenceMenu.commandSettingsDescription": "保留设置入口。",
 } as const;
 
@@ -114,6 +116,8 @@ export function useStructuredReferenceMenu(options: UseStructuredReferenceMenuOp
         {id: "command:compact", label: "compact", description: t("ide.referenceMenu.commandCompactDescription"), iconClass: "i-lucide-archive", value: "/compact"},
         {id: "command:clear", label: "clear", description: t("ide.referenceMenu.commandClearDescription"), iconClass: "i-lucide-trash", value: "/clear"},
         {id: "command:new", label: "new", description: t("ide.referenceMenu.commandNewDescription"), iconClass: "i-lucide-plus", value: "/new"},
+        {id: "command:rename", label: "rename", description: t("ide.referenceMenu.commandRenameDescription"), iconClass: "i-lucide-pencil-line", value: "/rename "},
+        {id: "command:summarize", label: "summarize", description: t("ide.referenceMenu.commandSummarizeDescription"), iconClass: "i-lucide-sparkles", value: "/summarize"},
         {id: "command:settings", label: "settings", description: t("ide.referenceMenu.commandSettingsDescription"), iconClass: "i-lucide-settings", value: "/settings"},
     ]);
 

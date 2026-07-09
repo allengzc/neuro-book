@@ -48,11 +48,11 @@ describe("v3 file tools", () => {
             workspaceRoot,
             workspaceKey: "global",
         };
-    }, 30_000);
+    }, 60_000);
 
     afterEach(async () => {
-        await rm(root, {recursive: true, force: true});
-    });
+        await rm(root, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
+    }, 60_000);
 
     it("read 支持 offset/limit 和 continuation 提示", async () => {
         await writeFile(join(workspaceRoot, "notes.md"), "a\nb\nc\nd", "utf-8");

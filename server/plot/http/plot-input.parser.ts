@@ -1,12 +1,17 @@
 import {parseEntityId, parseNullableEntityId} from "nbook/server/utils/novel-chapter";
 import type {
     ParsedCreateStoryChapterInput,
+    ParsedCreateStoryDecisionInput,
+    ParsedCreateStoryPromiseInput,
     ParsedCreateStorySceneInput,
     ParsedCreateStoryThreadInput,
     ParsedReorderStoryPhaseItem,
     ParsedReorderStorySceneItem,
     ParsedReorderStoryThreadItem,
+    ParsedSetPromiseBeatInput,
     ParsedUpdateStoryChapterInput,
+    ParsedUpdateStoryDecisionInput,
+    ParsedUpdateStoryPromiseInput,
     ParsedUpdateStorySceneInput,
     ParsedUpdateStoryThreadInput,
     ResolvedStoryRefInput,
@@ -14,12 +19,17 @@ import type {
 } from "nbook/server/plot/core/types";
 import type {
     CreateStoryChapterRequestDto,
+    CreateStoryDecisionRequestDto,
+    CreateStoryPromiseRequestDto,
     CreateStorySceneRequestDto,
     CreateStoryThreadRequestDto,
     ReorderStoryPhasesRequestDto,
     ReorderStoryScenesRequestDto,
     ReorderStoryThreadsRequestDto,
+    SetPromiseBeatRequestDto,
     UpdateStoryChapterRequestDto,
+    UpdateStoryDecisionRequestDto,
+    UpdateStoryPromiseRequestDto,
     UpdateStorySceneRequestDto,
     UpdateStoryThreadRequestDto,
 } from "nbook/shared/dto/plot.dto";
@@ -134,5 +144,62 @@ export class PlotInputParser {
             threadSortOrder: item.threadSortOrder,
             chapterSortOrder: item.chapterSortOrder,
         }));
+    }
+
+    /**
+     * 解析 Promise 创建输入。deadlineChapterId 缺省与 null 都表示无兑现期限。
+     */
+    parseCreatePromise(input: CreateStoryPromiseRequestDto): ParsedCreateStoryPromiseInput {
+        return {
+            ...input,
+            deadlineChapterId: parseNullableEntityId("chapterId", input.deadlineChapterId),
+        };
+    }
+
+    /**
+     * 解析 Promise 更新输入。deadlineChapterId 为 undefined 不修改,null 显式清空。
+     */
+    parseUpdatePromise(input: UpdateStoryPromiseRequestDto): ParsedUpdateStoryPromiseInput {
+        return {
+            ...input,
+            deadlineChapterId: input.deadlineChapterId === undefined
+                ? undefined
+                : parseNullableEntityId("chapterId", input.deadlineChapterId),
+        };
+    }
+
+    /**
+     * 解析 beat set 输入(sceneId 转数字)。
+     */
+    parseSetPromiseBeat(input: SetPromiseBeatRequestDto): ParsedSetPromiseBeatInput {
+        return {
+            ...input,
+            sceneId: parseEntityId("sceneId", input.sceneId),
+        };
+    }
+
+    /**
+     * 解析 Decision 创建输入。deadlineChapterId 缺省与 null 都表示无拍板期限。
+     */
+    parseCreateDecision(input: CreateStoryDecisionRequestDto): ParsedCreateStoryDecisionInput {
+        return {
+            ...input,
+            deadlineChapterId: parseNullableEntityId("chapterId", input.deadlineChapterId),
+        };
+    }
+
+    /**
+     * 解析 Decision 更新输入。deadlineChapterId/supersededById 为 undefined 不修改,null 显式清空。
+     */
+    parseUpdateDecision(input: UpdateStoryDecisionRequestDto): ParsedUpdateStoryDecisionInput {
+        return {
+            ...input,
+            deadlineChapterId: input.deadlineChapterId === undefined
+                ? undefined
+                : parseNullableEntityId("chapterId", input.deadlineChapterId),
+            supersededById: input.supersededById === undefined
+                ? undefined
+                : parseNullableEntityId("decisionId", input.supersededById),
+        };
     }
 }

@@ -29,6 +29,7 @@ import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHo
 import type {ProfileTemplateNodeDto} from "nbook/shared/dto/profile-template.dto";
 import {buildProfilePromptRoot} from "nbook/server/agent/profiles/profile-dsl-source-parser";
 import {resolveSystemNbookRoot, resolveUserNbookRoot} from "nbook/server/workspace-files/workspace-assets-root";
+import {assertManagedProjectDataPlaneOpen} from "nbook/server/workspace-files/project-data-plane-guard";
 
 /**
  * 列出 v3 Agent Profile catalog，并适配旧 profile 工作台 DTO。
@@ -116,6 +117,9 @@ export async function previewAgentProfilePrepare(
     const effectiveConfig = await loadPreviewEffectiveConfig(sessionContext);
     const needsHome = profileNeedsHome(profile);
     const projectRoot = resolveProjectRootForProfileHome(sessionContext.projectPath);
+    if (projectRoot && needsHome) {
+        assertManagedProjectDataPlaneOpen(sessionContext.projectPath);
+    }
     const globalHome = needsHome
         ? await ensureGlobalProfileHome({
             workspaceRoot: sessionContext.workspaceRoot,

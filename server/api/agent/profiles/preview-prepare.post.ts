@@ -3,11 +3,12 @@ import {useAgentHarness} from "nbook/server/agent/http";
 import {previewAgentProfilePrepare} from "nbook/server/agent/profiles/profile-http-service";
 import {useProfileCompileWorker} from "nbook/server/agent/profiles/profile-compile-worker";
 import {AgentProfilePreparePreviewRequestDtoSchema} from "nbook/shared/dto/agent-profile.dto";
+import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
 
 /**
  * 调用真实 profile.prepare 生成 TSX Profile 预览。
  */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
     const body = await validateBody(event, AgentProfilePreparePreviewRequestDtoSchema);
     const harness = useAgentHarness();
     if (!body.sourceOverride) {
@@ -35,4 +36,4 @@ export default defineEventHandler(async (event) => {
         reportResultSchema: null,
         reportSidecarResultSchema: null,
     };
-});
+}));

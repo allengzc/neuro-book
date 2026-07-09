@@ -83,7 +83,8 @@ export function isReadonlyMode(mode: AgentMode): boolean; // discuss | plan
   "mode": "normal" | "discuss" | "plan",
   "fromMode": "normal" | "discuss" | "plan",   // 本次切换来源，exit 渲染分叉用
   "phase": "enter" | "reentry" | "steady" | "exit", // reminder 渲染档位
-  "hasExitedPlan": true,        // 曾从 plan 退出，plan 再进入时 phase=reentry
+  "hasExitedPlan": true,        // 曾结束过一个计划周期（途经 plan 后回到 normal），plan 再进入时 phase=reentry
+  "visitedPlan": false,         // 自上次回到 normal 后是否进入过 plan；回 normal 时结算进 hasExitedPlan 并重置
   "reason": "...",              // 可选，switch_mode 传入
   "workDirectory": "<.agent/plan 绝对路径>",   // plan 专用，沿用 plan-mode-path
   "lastTransition": "switch_mode" | "ui_mode_toggle",
@@ -94,8 +95,8 @@ export function isReadonlyMode(mode: AgentMode): boolean; // discuss | plan
 
 phase 生成规则（appendModeSwitchResolution 与 `/mode` 命令统一）：
 
-- 批准进 discuss/plan：`phase = "enter"`；例外 plan 且 `hasExitedPlan` → `"reentry"`。
-- 批准回 normal：`phase = "exit"`，`fromMode = 切换前模式`；若 fromMode=plan 置 `hasExitedPlan = true`。
+- 批准进 discuss/plan：`phase = "enter"`；例外 plan 且 `hasExitedPlan` → `"reentry"`。进入 plan 置 `visitedPlan = true`。
+- 批准回 normal：`phase = "exit"`，`fromMode = 切换前模式`；若 `fromMode=plan` **或 `visitedPlan=true`**（plan→discuss→normal 间接退出，2026-07-08 规格补充）置 `hasExitedPlan = true`，并重置 `visitedPlan = false`。plan↔discuss 互切不置位（决策 6：换脑子不换手）。
 - 拒绝（保持原模式）：`phase = "steady"`（状态有变化会触发 reminder emit，但只需轻提醒）。
 - **steady 的周期重放不靠写状态，靠 `ReminderChange.didChange` 推导**（审查修正，2026-07-06）：`Reminder` 的 emit 有两种触发——watch 值变化（`didChange=true`）和 `repeatEveryTurns` 周期到期（`didChange=false`）。ModeReminder 用 `render(change)` 而非 children：`didChange=true` 按 `state.phase` 渲染（enter/reentry/exit 全文）；`didChange=false`（周期重放）渲染 steady 文案（normal 渲染 null）。若不做此区分，周期重放会把 enter 全文重复注入。
 
@@ -292,25 +293,70 @@ You are in normal mode. switch_mode is available: propose "plan" before large, r
 
 ## Verification / Test
 
-- 待实现后填写实际结果。计划验证面：
-  - `control-tools.test.ts`：switch_mode schema（targetMode 枚举、planFilePath 校验）、审批表单生成、description 英文无 CJK。
-  - `neuro-agent-harness.test.ts` / `prepare-run.test.ts` / `write-plan.test.ts`：模式状态写入（phase/fromMode/hasExitedPlan）、只读模式 writer 挂起审批、**批准后 appendResolutions 消费点真实执行工具且以执行结果落库**、**注入审批的 pending 在恢复/投影路径可被识别**、plan 目录豁免路径判断、批准/拒绝分支、no-op 幂等与前置拦截、`/mode` 命令。
-  - `profile-dsl.test.ts`：ModeReminder 渲染矩阵（7 种 slot kind）、ModeSlot 校验、ModeAvailabilityReminder。
-  - 前端 `useAgentSession*` / `agent-message` / `agent-command-result` 测试适配 agentMode。
-  - typecheck 全链路。
+实际验证结果（2026-07-06，全部通过）：
+
+- `bun run typecheck`：本任务涉及文件 0 error。仓库仅剩 `server/low-code-form/index.ts(798)` 一处错误，属并发任务（theme-system-v2 会话）的未提交改动，不在本任务范围。
+- `control-tools.test.ts`（19 passed）：switch_mode schema（targetMode 必填枚举、非法值拒绝、planFilePath）、plan/discuss/normal 三种审批表单、normal+planFilePath 预览字段、非 normal 忽略 planFilePath、批准/拒绝 details、description 英文无 CJK。
+- `neuro-agent-harness.test.ts`（157 passed，含 4 个新增用例）：
+  - `/mode` 命令 live_state 返回、no-op 不追加 entry、timing 分段；
+  - switch_mode 审批链 + plan 文件预览 + 批准后 `agent.mode` 写入（mode/phase/fromMode）；
+  - 手动 `/mode` 退出写 exit phase + hasExitedPlan，再进 plan 得 reentry phase；
+  - 新增：讨论模式 write 挂起审批且 pending 可被快照识别，**批准后消费点真实执行工具**（文件落盘）；
+  - 新增：拒绝分支不写文件并落库英文引导文本；
+  - 新增：plan 模式 `.agent/plan/*.md` 豁免直接执行，plan 目录外仍挂起；
+  - 新增：switch_mode 目标与当前模式相同时前置拦截为 no-op 错误 toolResult；
+  - 未授权 switch_mode 不产生审批表单；switch_mode preview 拒绝 `.agent/plan` 外路径（需先进 plan，否则被 no-op 拦截——测试已调整）。
+- `profile-dsl.test.ts`（26 passed）：ModeAvailabilityReminder 仅 normal 注入；ModeReminder exit_from_plan/exit_plain/plan_reentry 文案分叉；didChange 全文 vs 周期重放 steady（通过 stateWrites 指纹回填模拟第 7 轮）；ModeSlot 插槽覆盖 + 未覆盖档位回落默认；ModeSlot 脱离 ModeReminder 报错；normal 模式不注入也不写指纹。
+- `prepare-run.test.ts` / `write-plan.test.ts` / `http.test.ts`（23 passed）：fixture agentMode 化 + `/mode` 命令透传。
+- profile 合同测试（94 passed）：catalog / leader-assets（rootToolKeys 换 switch_mode、新 reminder 文案断言）/ rp / simulation-director / world-engine / writer-contract（补 customTopSystemPrompt fixture，该字段来自其他功能）+ harness RunFrame fixtures。
+- 前端测试（72 passed）：useAgentSession* / agent-command-result / agent-message / useAgentSessionApi（command mode）/ agent-message-projection（switch_mode + switchTargetMode 断言）。
 
 ## Implementation Walkthrough
 
-- 实现顺序（分批补丁，避免超大补丁）：
-  1. shared 层：`AgentMode` + `isReadonlyMode` + DTO 字段替换。
-  2. 工具层：`control-tools.ts` switch_mode；`types.ts` mutatesWorkspace；`file-tools.ts` 标注。
-  3. harness 层：agentMode 全链路替换；执行循环只读审批注入；switch_mode resolution 消费；`/mode` 命令。
-  4. 提示词层：profile-dsl ModeReminder/ModeAvailabilityReminder/ModeSlot；文案矩阵；两个 leader profile 挂载。
-  5. 前端层：useAgentSession + AgentComposer 三态 + 气泡泛化 + i18n。
-  6. 测试适配与文档同步（reference/agent、docs/profile-tsx、PROJECT-STATUS.md）。
+按计划顺序分 6 批实现，全部完成（2026-07-06）：
+
+1. shared 层：`AgentModeSchema` / `AgentMode` / `isReadonlyMode`；DTO `planModeActive` → `agentMode`；命令 `{command: "mode", mode}`。
+2. 工具层：`switch_mode`（SWITCH_MODE_APPROVAL 文案表 + normal 目标 planPreviewNote 字段）；`mutatesWorkspace` 能力标记（write/edit/apply_patch）；`workspaceMutatingToolKeys()`。
+3. harness 层：agentMode 全链路（TurnSnapshot.sessionContext / RunFrame / runToolBatch）；执行循环只读写审批注入（含 plan 目录豁免 `planDirectoryWriteExempt`，fail-closed）；`writerApprovalToolResult` 在 appendResolutions 消费点真实执行；`userResolutionToolKeysForSnapshot` session 感知并入 mutatesWorkspace keys；switch_mode no-op 前置拦截；`appendModeSwitchResolution` 写 `ui.agentMode` + `agent.mode`；`/mode` 命令与工具切换共用状态写入。
+4. 提示词层：`ModeReminder`（didChange 全文 / steady 轻文案）+ `ModeAvailabilityReminder` + `ModeSlot`（7 kind）；4.6 文案矩阵全量落地 `renderModeReminderText`；两个 leader profile 挂载。
+5. 前端层：`AgentSwitchModeBubble.vue`（替换 AgentExitPlanModeBubble，按 targetMode 分叉状态文案，normal 目标保留计划预览）；三态循环按钮 + Shift+Tab + 按模式 placeholder + badge；`/mode`（支持 `/mode <mode>` 直达）+ `/plan` 别名；approvalAction `switch_mode` + `switchTargetMode`；profile 模板编辑器节点（ModeAvailabilityReminder/ModeReminder/ModeSlot）；i18n（agent.mode.* / agent.approval.switchMode* / agent.modeSwitch.* / composer 三模式 placeholder；移除 enterPlan/exitPlan/togglePlan 旧键）。
+6. 测试适配（详见 Verification）与文档同步（reference/agent/leader-default.md 的 Plan Mode 节改写为三模式节、profile-guide.md、sse.md、docs/profile-tsx/nodes.md + examples.md、profile-system-guide skill reference、TODOS.md、PROJECT-STATUS.md）。
+
+### 与计划的出入
+
+- 计划中的"soft toggle 无 customState 也出全文"旧行为**未保留**：`/mode` 与审批现在总是同时写 `ui.agentMode` 和 `agent.mode`，无状态缺失场景；对应旧测试改写为 didChange/steady 机制测试。
+- `switch_mode preview 拒绝坏路径`测试需先 `/mode plan` 进入 plan 模式，否则 targetMode normal 会先被 no-op 拦截——这是 no-op 拦截与 preview 校验的执行顺序带来的行为，符合设计（同模式切换根本不该发起）。
+- 前端 pending 投影中 `planFilePath`/`planContent` 对 switch_mode 不区分 targetMode 透传（服务端只在退出 plan 时才会附带），前端测试按真实服务端数据形状调整 fixture。
+- 任务编号从 89 改为 90（与并发的 89-theme-system-v2 冲突）。
+
+## 代码审查修复（2026-07-07）
+
+一轮多角度代码审查后修复了以下问题（同一任务后续调节，非新任务）。测试：apply-patch 单测新增 6 + control-tools 19、profile 套件 43、harness 160（+3 新测试）、前端 agent-message/command 22、approval/http/write-plan/prepare-run 32，全绿；typecheck 0 error（唯一剩余 `server/low-code-form/index.ts:798` 属并发主题任务，非本轮引入）。
+
+**P1 — apply_patch `Move to` 绕过只读写保护（正确性）**：`mutationTargetPaths` 原手写正则只抓 `Add/Update/Delete File:`，漏了 `*** Move to:` 目标，导致 plan 模式下 `Update .agent/plan/x.md` + `Move to manuscript/ch.md` 被误判"全在计划目录"而免审批、实际写到目录外；discuss 模式审批表单也只显示源路径。修复：`server/agent/tools/apply-patch.ts` 新增导出纯函数 `extractPatchTargetPaths`（复用 `parseCodexPatch`，含 `moveTo`，解析失败返回 `[]` fail-closed），harness `mutationTargetPaths` 改为复用它删掉手写正则。`planDirectoryWriteExempt` 与 `plan-mode-path.ts` 的 `resolvePlanModeFile` 因路径解析契约不同（工具路径 `resolveWorkspacePath` vs 计划文件 project-relative `join`）保留两套，加交叉引用注释不强行合并。
+
+**P2 — 重启恢复盲区：注入的写审批在多路径"隐身"（正确性）**：只读模式注入的写审批（保留原工具名）原只有模式感知的 snapshot 路径认识；列表恢复 `hydrateWaitingInvocationForList` 与 `prepareRun` 的 `assertNoUnclosedToolCallsForModel` 不认识，且识别依赖"当前模式"，导致重启后列表显示 idle（详情却 waiting）、发新消息误报"未闭合普通 tool call 请 session repair"、挂起期间 `/mode normal` 后 pending 消失。根因判断：静止状态下未闭合的 write/edit/apply_patch 只可能是只读模式注入的审批（normal 模式写工具永远立即产出 toolResult）。修复：`userResolutionToolKeysForProfile` 删掉 `includeWorkspaceMutating` 参数，**无条件**并入 mutatesWorkspace 工具；抽 `baseUserResolutionToolKeys()` 统一无 profile 兜底；注入仍由执行循环 `isReadonlyMode` 门控不变。顺带消除 `userResolutionToolKeysForSnapshot` 只为读 agentMode 的冗余 `reduce`。此改动**取代**了原批次 3 的"session 感知并入"写法。
+
+**P3 — hasExitedPlan 互切误置位（行为与规格不符）**：`agentModeState` 置位条件 `next.fromMode === "plan" && next.mode !== "plan"` 对 plan→discuss 也置 true，使随后 discuss→plan 被判 reentry（督促"重新规划"），违反决策 6 与 §4.1（互切=换脑子不换手、按目标模式 enter）。修复一行：`next.mode === "normal"`。
+
+**P4 — 只读模式非 writer 写工具无约束（提示词收口，用户拍板）**：discuss/plan 只名文件写工具和 bash，未约束 execute_sql（写库）/execute_world（写切面）/plot create-update/variable_patch。这些是读写混合工具、写状态而非 workspace 文件，`mutatesWorkspace` 布尔语义不贴合；按用户决策走"提示词收口"（与 bash 同级），不加硬审批、不新增能力标记。在 `profile-dsl.ts` 的 `discuss_enter`/`plan_enter`（挨 bash 约束行加专句）与 `discuss_steady`/`plan_steady`（轻文案补一句）+ `reference/agent/leader-default.md` 模式章节点名这四类工具"只读、写用 switch_mode 切 normal"。
+
+**P5 — 低 severity 技术债清理**：(a) 前端 8 处手写 AgentMode 枚举改用 shared `AgentModeSchema`/`AgentMode`（`AgentSwitchModeBubble.vue` schema+computed、`AgentChatSurface.vue` `/mode` 校验、`agent-message.ts` 类型+两处守卫经新 `parseAgentMode` 收敛；cycle 顺序数组保留但带 `AgentMode[]` 标注）；(b) `AgentSwitchModeBubble.vue` 参数解析改用 `parseToolArgsObject`，修复流式期间把 discuss/plan 切换误渲染成退出 normal 的瞬态；(c) `writerApprovalToolResult` 伪造 toolCall 补 `type: "toolCall"` 删 `as AgentToolCall` 断言；(d) `resolveModeSlotKind` 改 typed union + 穷尽 `never` 检查，未来新增 AgentMode 强制补全映射。
+
+**P6 — 过期文档**：`harness-profile-system.md`（`agent.planMode`→`agent.mode`、`PlanModeReminder`/`ActivePlanModeReminder`→`ModeReminder`/`ModeAvailabilityReminder`/`ModeSlot`、`ctx.session.planModeActive`→`ctx.session.agentMode`）、`sse.md`（命令 `plan`→`mode`、`session_state_changed` 的 `planMode`→`agentMode`）。此前 walkthrough 声称 `harness-profile-system.md` 已同步实为遗漏，本轮补上。
+
+### 本轮与计划的出入 / 已知后续
+
+- P2 采用"无条件识别"而非"各消费点传当前模式"：后者仍是当前模式依赖、修不了挂起期间切 normal 的 pending 丢失（candidate 3），前者一处改动修好全部三症状。语义上唯一变化是"normal 模式崩溃在写一半"的极罕见情形也会报 pending approval 而非 session repair，可接受。
+- `assertSessionIdle` 重启后只查内存 activeInvocations 的更深问题（挂起期间是否应禁止 `/mode`）本轮不实现——P2 已让 pending 在 `/mode` 后仍可解析、数据不丢；记为已知后续。
+- `reference/agent/profile-guide.md` 的 `WorkdirReminder`/`ProjectWorkspaceReminder`（应为 `RuntimeLocationReminder`/`WorkspaceFocusReminder`）经核对早于 Task 90 就存在，属独立过期 bug，不并入本轮。
+- `as unknown as AgentEvent`（注入事件不在 union）修它需扩展上游 pi-agent-core，与本轮不成比例，未改。
 
 ## TODO / Follow-ups
 
-- [ ] 按上述顺序实现（当前未开始）。
+- [x] 按顺序实现全部 6 批（2026-07-06 完成）。
+- [x] 代码审查修复 P1–P6（2026-07-07 完成，见上节）。
 - [ ] 未来优化（不在本任务）：给 `UserInputRequestContext` 注入 `agentMode`，支持只读互切免审批等模式感知工具行为。
-- [ ] 未来优化（不在本任务）：bash 命令静态分析拦截写操作（当前接受提示词约束的 tradeoff）。
+- [ ] 未来优化（不在本任务）：bash 命令静态分析拦截写操作（当前接受提示词约束的 tradeoff）；execute_sql/execute_world/plot/variable_patch 同为提示词约束，未来可考虑统一的"改状态"能力标记 + 参数级读写判定做硬约束。
+- [ ] 未来优化（不在本任务）：`assertSessionIdle` 重启后应基于 durable pending 而非仅内存 activeInvocations，挂起期间禁止 `/mode` 切换。
+- [ ] 建议浏览器手动验证：三态按钮循环、Shift+Tab、切换审批气泡、只读模式写文件审批弹层、退出 plan 的计划文件预览。

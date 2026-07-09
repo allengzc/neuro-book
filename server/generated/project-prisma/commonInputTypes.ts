@@ -172,6 +172,13 @@ export type EnumStoryThreadStatusFilter<$PrismaModel = never> = {
   not?: Prisma.NestedEnumStoryThreadStatusFilter<$PrismaModel> | $Enums.StoryThreadStatus
 }
 
+export type EnumStoryThreadMiceTypeNullableFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryThreadMiceType | Prisma.EnumStoryThreadMiceTypeFieldRefInput<$PrismaModel> | null
+  in?: $Enums.StoryThreadMiceType[] | null
+  notIn?: $Enums.StoryThreadMiceType[] | null
+  not?: Prisma.NestedEnumStoryThreadMiceTypeNullableFilter<$PrismaModel> | $Enums.StoryThreadMiceType | null
+}
+
 export type BoolWithAggregatesFilter<$PrismaModel = never> = {
   equals?: boolean | Prisma.BooleanFieldRefInput<$PrismaModel>
   not?: Prisma.NestedBoolWithAggregatesFilter<$PrismaModel> | boolean
@@ -190,11 +197,35 @@ export type EnumStoryThreadStatusWithAggregatesFilter<$PrismaModel = never> = {
   _max?: Prisma.NestedEnumStoryThreadStatusFilter<$PrismaModel>
 }
 
+export type EnumStoryThreadMiceTypeNullableWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryThreadMiceType | Prisma.EnumStoryThreadMiceTypeFieldRefInput<$PrismaModel> | null
+  in?: $Enums.StoryThreadMiceType[] | null
+  notIn?: $Enums.StoryThreadMiceType[] | null
+  not?: Prisma.NestedEnumStoryThreadMiceTypeNullableWithAggregatesFilter<$PrismaModel> | $Enums.StoryThreadMiceType | null
+  _count?: Prisma.NestedIntNullableFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumStoryThreadMiceTypeNullableFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumStoryThreadMiceTypeNullableFilter<$PrismaModel>
+}
+
 export type EnumStorySceneStatusFilter<$PrismaModel = never> = {
   equals?: $Enums.StorySceneStatus | Prisma.EnumStorySceneStatusFieldRefInput<$PrismaModel>
   in?: $Enums.StorySceneStatus[]
   notIn?: $Enums.StorySceneStatus[]
   not?: Prisma.NestedEnumStorySceneStatusFilter<$PrismaModel> | $Enums.StorySceneStatus
+}
+
+export type EnumStorySceneOutcomeTypeNullableFilter<$PrismaModel = never> = {
+  equals?: $Enums.StorySceneOutcomeType | Prisma.EnumStorySceneOutcomeTypeFieldRefInput<$PrismaModel> | null
+  in?: $Enums.StorySceneOutcomeType[] | null
+  notIn?: $Enums.StorySceneOutcomeType[] | null
+  not?: Prisma.NestedEnumStorySceneOutcomeTypeNullableFilter<$PrismaModel> | $Enums.StorySceneOutcomeType | null
+}
+
+export type EnumStoryScenePacingRoleNullableFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryScenePacingRole | Prisma.EnumStoryScenePacingRoleFieldRefInput<$PrismaModel> | null
+  in?: $Enums.StoryScenePacingRole[] | null
+  notIn?: $Enums.StoryScenePacingRole[] | null
+  not?: Prisma.NestedEnumStoryScenePacingRoleNullableFilter<$PrismaModel> | $Enums.StoryScenePacingRole | null
 }
 
 export type BigIntNullableFilter<$PrismaModel = never> = {
@@ -216,6 +247,26 @@ export type EnumStorySceneStatusWithAggregatesFilter<$PrismaModel = never> = {
   _count?: Prisma.NestedIntFilter<$PrismaModel>
   _min?: Prisma.NestedEnumStorySceneStatusFilter<$PrismaModel>
   _max?: Prisma.NestedEnumStorySceneStatusFilter<$PrismaModel>
+}
+
+export type EnumStorySceneOutcomeTypeNullableWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.StorySceneOutcomeType | Prisma.EnumStorySceneOutcomeTypeFieldRefInput<$PrismaModel> | null
+  in?: $Enums.StorySceneOutcomeType[] | null
+  notIn?: $Enums.StorySceneOutcomeType[] | null
+  not?: Prisma.NestedEnumStorySceneOutcomeTypeNullableWithAggregatesFilter<$PrismaModel> | $Enums.StorySceneOutcomeType | null
+  _count?: Prisma.NestedIntNullableFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumStorySceneOutcomeTypeNullableFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumStorySceneOutcomeTypeNullableFilter<$PrismaModel>
+}
+
+export type EnumStoryScenePacingRoleNullableWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryScenePacingRole | Prisma.EnumStoryScenePacingRoleFieldRefInput<$PrismaModel> | null
+  in?: $Enums.StoryScenePacingRole[] | null
+  notIn?: $Enums.StoryScenePacingRole[] | null
+  not?: Prisma.NestedEnumStoryScenePacingRoleNullableWithAggregatesFilter<$PrismaModel> | $Enums.StoryScenePacingRole | null
+  _count?: Prisma.NestedIntNullableFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumStoryScenePacingRoleNullableFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumStoryScenePacingRoleNullableFilter<$PrismaModel>
 }
 
 export type BigIntNullableWithAggregatesFilter<$PrismaModel = never> = {
@@ -266,6 +317,91 @@ export type EnumStoryRefVisibilityWithAggregatesFilter<$PrismaModel = never> = {
   _count?: Prisma.NestedIntFilter<$PrismaModel>
   _min?: Prisma.NestedEnumStoryRefVisibilityFilter<$PrismaModel>
   _max?: Prisma.NestedEnumStoryRefVisibilityFilter<$PrismaModel>
+}
+
+export type EnumStoryPromiseStatusFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryPromiseStatus | Prisma.EnumStoryPromiseStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryPromiseStatus[]
+  notIn?: $Enums.StoryPromiseStatus[]
+  not?: Prisma.NestedEnumStoryPromiseStatusFilter<$PrismaModel> | $Enums.StoryPromiseStatus
+}
+
+export type EnumStoryPromiseImportanceFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryPromiseImportance | Prisma.EnumStoryPromiseImportanceFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryPromiseImportance[]
+  notIn?: $Enums.StoryPromiseImportance[]
+  not?: Prisma.NestedEnumStoryPromiseImportanceFilter<$PrismaModel> | $Enums.StoryPromiseImportance
+}
+
+export type EnumStoryPromiseStatusWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryPromiseStatus | Prisma.EnumStoryPromiseStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryPromiseStatus[]
+  notIn?: $Enums.StoryPromiseStatus[]
+  not?: Prisma.NestedEnumStoryPromiseStatusWithAggregatesFilter<$PrismaModel> | $Enums.StoryPromiseStatus
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumStoryPromiseStatusFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumStoryPromiseStatusFilter<$PrismaModel>
+}
+
+export type EnumStoryPromiseImportanceWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryPromiseImportance | Prisma.EnumStoryPromiseImportanceFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryPromiseImportance[]
+  notIn?: $Enums.StoryPromiseImportance[]
+  not?: Prisma.NestedEnumStoryPromiseImportanceWithAggregatesFilter<$PrismaModel> | $Enums.StoryPromiseImportance
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumStoryPromiseImportanceFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumStoryPromiseImportanceFilter<$PrismaModel>
+}
+
+export type EnumStoryPromiseBeatKindFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryPromiseBeatKind | Prisma.EnumStoryPromiseBeatKindFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryPromiseBeatKind[]
+  notIn?: $Enums.StoryPromiseBeatKind[]
+  not?: Prisma.NestedEnumStoryPromiseBeatKindFilter<$PrismaModel> | $Enums.StoryPromiseBeatKind
+}
+
+export type EnumStoryPromiseBeatKindWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryPromiseBeatKind | Prisma.EnumStoryPromiseBeatKindFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryPromiseBeatKind[]
+  notIn?: $Enums.StoryPromiseBeatKind[]
+  not?: Prisma.NestedEnumStoryPromiseBeatKindWithAggregatesFilter<$PrismaModel> | $Enums.StoryPromiseBeatKind
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumStoryPromiseBeatKindFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumStoryPromiseBeatKindFilter<$PrismaModel>
+}
+
+export type EnumStoryDecisionStatusFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryDecisionStatus | Prisma.EnumStoryDecisionStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryDecisionStatus[]
+  notIn?: $Enums.StoryDecisionStatus[]
+  not?: Prisma.NestedEnumStoryDecisionStatusFilter<$PrismaModel> | $Enums.StoryDecisionStatus
+}
+
+export type EnumStoryDecisionAnchorKindFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryDecisionAnchorKind | Prisma.EnumStoryDecisionAnchorKindFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryDecisionAnchorKind[]
+  notIn?: $Enums.StoryDecisionAnchorKind[]
+  not?: Prisma.NestedEnumStoryDecisionAnchorKindFilter<$PrismaModel> | $Enums.StoryDecisionAnchorKind
+}
+
+export type EnumStoryDecisionStatusWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryDecisionStatus | Prisma.EnumStoryDecisionStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryDecisionStatus[]
+  notIn?: $Enums.StoryDecisionStatus[]
+  not?: Prisma.NestedEnumStoryDecisionStatusWithAggregatesFilter<$PrismaModel> | $Enums.StoryDecisionStatus
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumStoryDecisionStatusFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumStoryDecisionStatusFilter<$PrismaModel>
+}
+
+export type EnumStoryDecisionAnchorKindWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryDecisionAnchorKind | Prisma.EnumStoryDecisionAnchorKindFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryDecisionAnchorKind[]
+  notIn?: $Enums.StoryDecisionAnchorKind[]
+  not?: Prisma.NestedEnumStoryDecisionAnchorKindWithAggregatesFilter<$PrismaModel> | $Enums.StoryDecisionAnchorKind
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumStoryDecisionAnchorKindFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumStoryDecisionAnchorKindFilter<$PrismaModel>
 }
 
 export type BigIntFilter<$PrismaModel = never> = {
@@ -487,6 +623,13 @@ export type NestedEnumStoryThreadStatusFilter<$PrismaModel = never> = {
   not?: Prisma.NestedEnumStoryThreadStatusFilter<$PrismaModel> | $Enums.StoryThreadStatus
 }
 
+export type NestedEnumStoryThreadMiceTypeNullableFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryThreadMiceType | Prisma.EnumStoryThreadMiceTypeFieldRefInput<$PrismaModel> | null
+  in?: $Enums.StoryThreadMiceType[] | null
+  notIn?: $Enums.StoryThreadMiceType[] | null
+  not?: Prisma.NestedEnumStoryThreadMiceTypeNullableFilter<$PrismaModel> | $Enums.StoryThreadMiceType | null
+}
+
 export type NestedBoolWithAggregatesFilter<$PrismaModel = never> = {
   equals?: boolean | Prisma.BooleanFieldRefInput<$PrismaModel>
   not?: Prisma.NestedBoolWithAggregatesFilter<$PrismaModel> | boolean
@@ -505,11 +648,35 @@ export type NestedEnumStoryThreadStatusWithAggregatesFilter<$PrismaModel = never
   _max?: Prisma.NestedEnumStoryThreadStatusFilter<$PrismaModel>
 }
 
+export type NestedEnumStoryThreadMiceTypeNullableWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryThreadMiceType | Prisma.EnumStoryThreadMiceTypeFieldRefInput<$PrismaModel> | null
+  in?: $Enums.StoryThreadMiceType[] | null
+  notIn?: $Enums.StoryThreadMiceType[] | null
+  not?: Prisma.NestedEnumStoryThreadMiceTypeNullableWithAggregatesFilter<$PrismaModel> | $Enums.StoryThreadMiceType | null
+  _count?: Prisma.NestedIntNullableFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumStoryThreadMiceTypeNullableFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumStoryThreadMiceTypeNullableFilter<$PrismaModel>
+}
+
 export type NestedEnumStorySceneStatusFilter<$PrismaModel = never> = {
   equals?: $Enums.StorySceneStatus | Prisma.EnumStorySceneStatusFieldRefInput<$PrismaModel>
   in?: $Enums.StorySceneStatus[]
   notIn?: $Enums.StorySceneStatus[]
   not?: Prisma.NestedEnumStorySceneStatusFilter<$PrismaModel> | $Enums.StorySceneStatus
+}
+
+export type NestedEnumStorySceneOutcomeTypeNullableFilter<$PrismaModel = never> = {
+  equals?: $Enums.StorySceneOutcomeType | Prisma.EnumStorySceneOutcomeTypeFieldRefInput<$PrismaModel> | null
+  in?: $Enums.StorySceneOutcomeType[] | null
+  notIn?: $Enums.StorySceneOutcomeType[] | null
+  not?: Prisma.NestedEnumStorySceneOutcomeTypeNullableFilter<$PrismaModel> | $Enums.StorySceneOutcomeType | null
+}
+
+export type NestedEnumStoryScenePacingRoleNullableFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryScenePacingRole | Prisma.EnumStoryScenePacingRoleFieldRefInput<$PrismaModel> | null
+  in?: $Enums.StoryScenePacingRole[] | null
+  notIn?: $Enums.StoryScenePacingRole[] | null
+  not?: Prisma.NestedEnumStoryScenePacingRoleNullableFilter<$PrismaModel> | $Enums.StoryScenePacingRole | null
 }
 
 export type NestedBigIntNullableFilter<$PrismaModel = never> = {
@@ -531,6 +698,26 @@ export type NestedEnumStorySceneStatusWithAggregatesFilter<$PrismaModel = never>
   _count?: Prisma.NestedIntFilter<$PrismaModel>
   _min?: Prisma.NestedEnumStorySceneStatusFilter<$PrismaModel>
   _max?: Prisma.NestedEnumStorySceneStatusFilter<$PrismaModel>
+}
+
+export type NestedEnumStorySceneOutcomeTypeNullableWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.StorySceneOutcomeType | Prisma.EnumStorySceneOutcomeTypeFieldRefInput<$PrismaModel> | null
+  in?: $Enums.StorySceneOutcomeType[] | null
+  notIn?: $Enums.StorySceneOutcomeType[] | null
+  not?: Prisma.NestedEnumStorySceneOutcomeTypeNullableWithAggregatesFilter<$PrismaModel> | $Enums.StorySceneOutcomeType | null
+  _count?: Prisma.NestedIntNullableFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumStorySceneOutcomeTypeNullableFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumStorySceneOutcomeTypeNullableFilter<$PrismaModel>
+}
+
+export type NestedEnumStoryScenePacingRoleNullableWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryScenePacingRole | Prisma.EnumStoryScenePacingRoleFieldRefInput<$PrismaModel> | null
+  in?: $Enums.StoryScenePacingRole[] | null
+  notIn?: $Enums.StoryScenePacingRole[] | null
+  not?: Prisma.NestedEnumStoryScenePacingRoleNullableWithAggregatesFilter<$PrismaModel> | $Enums.StoryScenePacingRole | null
+  _count?: Prisma.NestedIntNullableFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumStoryScenePacingRoleNullableFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumStoryScenePacingRoleNullableFilter<$PrismaModel>
 }
 
 export type NestedBigIntNullableWithAggregatesFilter<$PrismaModel = never> = {
@@ -581,6 +768,91 @@ export type NestedEnumStoryRefVisibilityWithAggregatesFilter<$PrismaModel = neve
   _count?: Prisma.NestedIntFilter<$PrismaModel>
   _min?: Prisma.NestedEnumStoryRefVisibilityFilter<$PrismaModel>
   _max?: Prisma.NestedEnumStoryRefVisibilityFilter<$PrismaModel>
+}
+
+export type NestedEnumStoryPromiseStatusFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryPromiseStatus | Prisma.EnumStoryPromiseStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryPromiseStatus[]
+  notIn?: $Enums.StoryPromiseStatus[]
+  not?: Prisma.NestedEnumStoryPromiseStatusFilter<$PrismaModel> | $Enums.StoryPromiseStatus
+}
+
+export type NestedEnumStoryPromiseImportanceFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryPromiseImportance | Prisma.EnumStoryPromiseImportanceFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryPromiseImportance[]
+  notIn?: $Enums.StoryPromiseImportance[]
+  not?: Prisma.NestedEnumStoryPromiseImportanceFilter<$PrismaModel> | $Enums.StoryPromiseImportance
+}
+
+export type NestedEnumStoryPromiseStatusWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryPromiseStatus | Prisma.EnumStoryPromiseStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryPromiseStatus[]
+  notIn?: $Enums.StoryPromiseStatus[]
+  not?: Prisma.NestedEnumStoryPromiseStatusWithAggregatesFilter<$PrismaModel> | $Enums.StoryPromiseStatus
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumStoryPromiseStatusFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumStoryPromiseStatusFilter<$PrismaModel>
+}
+
+export type NestedEnumStoryPromiseImportanceWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryPromiseImportance | Prisma.EnumStoryPromiseImportanceFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryPromiseImportance[]
+  notIn?: $Enums.StoryPromiseImportance[]
+  not?: Prisma.NestedEnumStoryPromiseImportanceWithAggregatesFilter<$PrismaModel> | $Enums.StoryPromiseImportance
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumStoryPromiseImportanceFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumStoryPromiseImportanceFilter<$PrismaModel>
+}
+
+export type NestedEnumStoryPromiseBeatKindFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryPromiseBeatKind | Prisma.EnumStoryPromiseBeatKindFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryPromiseBeatKind[]
+  notIn?: $Enums.StoryPromiseBeatKind[]
+  not?: Prisma.NestedEnumStoryPromiseBeatKindFilter<$PrismaModel> | $Enums.StoryPromiseBeatKind
+}
+
+export type NestedEnumStoryPromiseBeatKindWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryPromiseBeatKind | Prisma.EnumStoryPromiseBeatKindFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryPromiseBeatKind[]
+  notIn?: $Enums.StoryPromiseBeatKind[]
+  not?: Prisma.NestedEnumStoryPromiseBeatKindWithAggregatesFilter<$PrismaModel> | $Enums.StoryPromiseBeatKind
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumStoryPromiseBeatKindFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumStoryPromiseBeatKindFilter<$PrismaModel>
+}
+
+export type NestedEnumStoryDecisionStatusFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryDecisionStatus | Prisma.EnumStoryDecisionStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryDecisionStatus[]
+  notIn?: $Enums.StoryDecisionStatus[]
+  not?: Prisma.NestedEnumStoryDecisionStatusFilter<$PrismaModel> | $Enums.StoryDecisionStatus
+}
+
+export type NestedEnumStoryDecisionAnchorKindFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryDecisionAnchorKind | Prisma.EnumStoryDecisionAnchorKindFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryDecisionAnchorKind[]
+  notIn?: $Enums.StoryDecisionAnchorKind[]
+  not?: Prisma.NestedEnumStoryDecisionAnchorKindFilter<$PrismaModel> | $Enums.StoryDecisionAnchorKind
+}
+
+export type NestedEnumStoryDecisionStatusWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryDecisionStatus | Prisma.EnumStoryDecisionStatusFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryDecisionStatus[]
+  notIn?: $Enums.StoryDecisionStatus[]
+  not?: Prisma.NestedEnumStoryDecisionStatusWithAggregatesFilter<$PrismaModel> | $Enums.StoryDecisionStatus
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumStoryDecisionStatusFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumStoryDecisionStatusFilter<$PrismaModel>
+}
+
+export type NestedEnumStoryDecisionAnchorKindWithAggregatesFilter<$PrismaModel = never> = {
+  equals?: $Enums.StoryDecisionAnchorKind | Prisma.EnumStoryDecisionAnchorKindFieldRefInput<$PrismaModel>
+  in?: $Enums.StoryDecisionAnchorKind[]
+  notIn?: $Enums.StoryDecisionAnchorKind[]
+  not?: Prisma.NestedEnumStoryDecisionAnchorKindWithAggregatesFilter<$PrismaModel> | $Enums.StoryDecisionAnchorKind
+  _count?: Prisma.NestedIntFilter<$PrismaModel>
+  _min?: Prisma.NestedEnumStoryDecisionAnchorKindFilter<$PrismaModel>
+  _max?: Prisma.NestedEnumStoryDecisionAnchorKindFilter<$PrismaModel>
 }
 
 export type NestedBigIntFilter<$PrismaModel = never> = {

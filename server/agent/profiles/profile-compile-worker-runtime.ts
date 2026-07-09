@@ -22,6 +22,7 @@ import type {
     AgentProfileCompileResultDto,
     AgentProfileIssueDto,
 } from "nbook/shared/dto/agent-profile.dto";
+import {ProjectNotOpenError} from "nbook/server/workspace-files/project-session";
 
 type InternalProfileCompileRequest = AgentProfileCompileRequestDto & {
     userProfileRoot?: string;
@@ -80,6 +81,9 @@ export async function runProfileCompile(input: InternalProfileCompileRequest): P
             elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
         };
     } catch (error) {
+        if (error instanceof ProjectNotOpenError) {
+            return lifecycleErrorResult(error, startedAt);
+        }
         if (error instanceof ProfileArtifactSourceMissingError) {
             return {
                 ok: false,
@@ -291,6 +295,21 @@ async function runDryRunProfilePreview(input: AgentProfileCompileRequestDto, use
     } finally {
         await rm(temporaryRoot, {recursive: true, force: true});
     }
+}
+
+function lifecycleErrorResult(error: ProjectNotOpenError, startedAt: number): ProfileCompileWorkerResult {
+    return {
+        ok: false,
+        stale: false,
+        detail: null,
+        preview: null,
+        issues: [],
+        lifecycleError: {
+            code: "PROJECT_NOT_OPEN",
+            projectPath: error.projectPath,
+        },
+        elapsedMs: Math.round((performance.now() - startedAt) * 100) / 100,
+    };
 }
 
 /**

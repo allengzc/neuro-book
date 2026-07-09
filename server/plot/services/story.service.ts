@@ -3,6 +3,8 @@ import type {
 } from "nbook/server/generated/project-prisma/client";
 import type {
     ChapterRepository,
+    DecisionRepository,
+    PromiseRepository,
     StoryRepository,
     ThreadRepository,
 } from "nbook/server/plot/contracts/plot-repositories";
@@ -29,6 +31,8 @@ export class StoryService {
         private readonly storyRepository: StoryRepository,
         private readonly threadRepository: ThreadRepository,
         private readonly chapterRepository: ChapterRepository,
+        private readonly promiseRepository: PromiseRepository,
+        private readonly decisionRepository: DecisionRepository,
         private readonly orderService: OrderService,
         private readonly assembler: PlotDtoAssembler,
         private readonly scopeGuard: PlotScopeGuard,
@@ -72,15 +76,17 @@ export class StoryService {
     }
 
     /**
-     * 读取剧情树(因果树 + 承载树)。
+     * 读取剧情树(因果树 + 承载树 + 规划层摘要 openPromiseCount/openDecisionCount)。
      */
     async getPlotTree(projectPath: string): Promise<PlotTreeDto> {
         const story = await this.ensureStory(projectPath);
-        const [phases, ungroupedThreads, acts, ungroupedChapters] = await Promise.all([
+        const [phases, ungroupedThreads, acts, ungroupedChapters, openPromiseCount, openDecisionCount] = await Promise.all([
             this.threadRepository.findPhaseThreadsWithScenes(story.id),
             this.threadRepository.findUngroupedThreads(story.id),
             this.chapterRepository.findActsWithChapters(story.id),
             this.chapterRepository.findUngroupedChapters(story.id),
+            this.promiseRepository.countOpenPromisesByStory(story.id),
+            this.decisionRepository.countOpenDecisionsByStory(story.id),
         ]);
 
         return this.assembler.toPlotTreeDto({
@@ -89,6 +95,8 @@ export class StoryService {
             ungroupedThreads,
             acts,
             ungroupedChapters,
+            openPromiseCount,
+            openDecisionCount,
         });
     }
 

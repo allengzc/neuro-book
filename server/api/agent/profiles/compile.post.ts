@@ -4,11 +4,12 @@ import {AgentProfileCompileRequestDtoSchema} from "nbook/shared/dto/agent-profil
 import {useAgentHarness} from "nbook/server/agent/http";
 import {previewAgentProfilePrepare} from "nbook/server/agent/profiles/profile-http-service";
 import {readProfileSource} from "nbook/server/agent/profiles/workbench-service";
+import {withProjectNotOpenHttpError} from "nbook/server/workspace-files/project-open-guard";
 
 /**
  * 手动编译用户 profile 源码。真实 TSX loader 在后台 worker 中执行。
  */
-export default defineEventHandler(async (event) => {
+export default defineEventHandler((event) => withProjectNotOpenHttpError(async () => {
     const body = await validateBody(event, AgentProfileCompileRequestDtoSchema);
     const harness = useAgentHarness();
     const result = await useProfileCompileWorker().compile(body, {
@@ -31,4 +32,4 @@ export default defineEventHandler(async (event) => {
         preview,
         issues: preview ? [...result.issues, ...preview.issues] : result.issues,
     };
-});
+}));

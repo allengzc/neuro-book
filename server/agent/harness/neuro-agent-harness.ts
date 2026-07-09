@@ -18,7 +18,7 @@ import {SessionWriteExecutor} from "nbook/server/agent/session/write-plan";
 import type {AppendManySessionEntryDraft, SessionWriteEntryBatch, SessionWritePlan, SessionWriteResult, SessionWriteTimingSink} from "nbook/server/agent/session/write-plan";
 import {ToolSessionWriteSink} from "nbook/server/agent/session/tool-session-write-sink";
 import {relationLedgerChange} from "nbook/server/agent/session/relation-ledger";
-import {AGENT_FOLLOW_UP_QUEUE_STATE_KEY, AGENT_MODE_STATE_KEY, AGENT_MODE_UI_STATE_KEY, AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX, SESSION_SUMMARIZER_STATE_KEY} from "nbook/server/agent/session/custom-state-keys";
+import {AGENT_FOLLOW_UP_QUEUE_STATE_KEY, AGENT_MODE_STATE_KEY, AGENT_MODE_UI_STATE_KEY, AGENT_PENDING_USER_RESOLUTION_STATE_PREFIX, SESSION_SUMMARIZER_STATE_KEY, SESSION_TITLE_OWNER_STATE_KEY, readTitleOwner, type SessionTitleOwnerState} from "nbook/server/agent/session/custom-state-keys";
 import type {InvocationErrorInfo, InvocationErrorPhase, ModelChangeEntry, NeuroSessionContext, SessionEntry, SessionEntryDraft, SessionEntryId, SessionSnapshot} from "nbook/server/agent/session/types";
 import type {AgentRuntimeHook, AgentRuntimeHookResult, RuntimeSessionFacade} from "nbook/server/agent/profiles/define-agent-runtime";
 import {SkillCatalog} from "nbook/server/agent/skills/skill-catalog";
@@ -49,6 +49,8 @@ import {resolveTurnContinuation} from "nbook/server/agent/harness/turn-continuat
 import {createFailedTurnIngestDraft, createRuntimeErrorAssistant, sanitizePartialAssistant} from "nbook/server/agent/harness/turn-failure";
 import {applyFailedTurnTransaction, applySuccessfulTurnTransaction} from "nbook/server/agent/harness/turn-transaction";
 import {applyNextTurnPreparation} from "nbook/server/agent/harness/prepare-next-turn";
+import {buildFileChangeReminder, resolveFileChangeAwareness, type FileChangeAwareness} from "nbook/server/agent/harness/file-change-reminder";
+import {advanceAgentCursor, readUnseenForAgent} from "nbook/server/workspace-history/project-history";
 import {assertValidProfileStateWrite, compilePrepareRunWritePlan} from "nbook/server/agent/harness/prepare-run";
 import {toRunKernelErrorInfo, withRunKernelPhase} from "nbook/server/agent/harness/run-kernel-error";
 import {consumeNextTurnModelMessages, createRunFrame} from "nbook/server/agent/harness/run-frame-state";
@@ -58,9 +60,13 @@ import {createLayeredProfileHomeFacade, ensureGlobalProfileHome, ensureProfileHo
 import {resolvePiApiKeyForModelFromConfig, resolvePiModelFromConfig} from "nbook/server/agent/harness/model-resolver";
 import {planModeDirectory, resolvePlanModeFile} from "nbook/server/agent/plan-mode-path";
 import {resolveWorkspacePath} from "nbook/server/agent/tools/file-tool-utils";
+import {extractPatchTargetPaths} from "nbook/server/agent/tools/apply-patch";
 import {isReadonlyMode, type AgentMode} from "nbook/shared/dto/agent-session.dto";
 import type {EffectiveConfig} from "nbook/server/config/types";
 import {WORKSPACE_CONTAINER_ROOT, USER_ASSETS_WORKSPACE_ROOT} from "nbook/server/workspace-files/novel-workspace";
+import {openProject, registerAgentPresenceProbe} from "nbook/server/workspace-files/project-session";
+import {normalizeProjectPath} from "nbook/server/workspace-files/project-workspace";
+import {assertManagedProjectDataPlaneOpen} from "nbook/server/workspace-files/project-data-plane-guard";
 import type {
     AgentAbortResult,
     AgentCommandResult,
@@ -148,6 +154,8 @@ type SessionSummarizerState = {
 type SessionSummarizerJob = {
     promise: Promise<void>;
     rerunRequested: boolean;
+    /** true 表示下一轮以 force 语义运行：跳过 fingerprint 判定并绕过配置禁用（用户显式 summarize 命令）。 */
+    forceRequested: boolean;
 };
 
 type PendingApprovalLookup = ReturnType<typeof findPendingApprovalCalls>;
@@ -165,6 +173,8 @@ type PendingUserResolutionState = {
 type PreparedRunProfile = {
     plan: ProfileTurnPlan;
     writePlan?: SessionWritePlan;
+    /** 从 resolved settings 读出的文件变更感知模式（未声明 profile 默认 minimal，D12）。 */
+    fileChangeAwareness: FileChangeAwareness;
 };
 
 type PreparedInvocationPayload = {
@@ -190,6 +200,7 @@ type PreparedRun = {
     executionToolKeys?: string[];
     thinkingLevel: ThinkingLevel;
     reportResultReminderEnabled: boolean;
+    fileChangeAwareness: FileChangeAwareness;
 };
 
 type SidecarRunContext = {
@@ -371,6 +382,8 @@ export class NeuroAgentHarness {
     private readonly toolExecution: ToolExecutionMode;
     private readonly enableSessionSummarizer: boolean;
     private readonly activeInvocations = new Map<number, AgentActiveInvocationDto>();
+    /** agent 在场探针的内存事实（仅本进程运行期，不落盘）：sessionId → 归一化 projectPath（`workspace/<slug>`）。 */
+    private readonly activeInvocationProjects = new Map<number, string>();
     private readonly steerableSessions = new Set<number>();
     private readonly steerQueues = new Map<number, AgentFollowUpQueueItemDto[]>();
     private readonly followUpQueues = new Map<number, AgentFollowUpQueueStateDto>();
@@ -436,6 +449,17 @@ export class NeuroAgentHarness {
                 });
             });
         }
+        // agent 在场探针（Task 94）：按「该 projectPath 是否有运行中 invocation」回答 ProjectSession 的休眠判定。
+        // waiting 不算在场：invocation 等用户输入时项目可休眠，resume 会重新走 invokeAgent 的 ensure-open 把项目重开。
+        // 探针是单槽覆盖式：多实例（如测试）时后建覆盖先建，无需在实例销毁时清理。
+        registerAgentPresenceProbe((projectPath) => {
+            for (const [sessionId, invocationProjectPath] of this.activeInvocationProjects) {
+                if (invocationProjectPath === projectPath && this.activeInvocations.get(sessionId)?.status !== "waiting") {
+                    return true;
+                }
+            }
+            return false;
+        });
     }
 
     /**
@@ -626,8 +650,9 @@ export class NeuroAgentHarness {
             throw new Error("block:false 第一版尚未实现");
         }
         const hasResolutions = (input.resolutions?.length ?? 0) > 0 || Boolean(input.resolution);
+        let preflightSnapshot: SessionSnapshot | null = null;
         if (!hasResolutions) {
-            const preflightSnapshot = await this.repo.readSession(input.sessionId);
+            preflightSnapshot = await this.repo.readSession(input.sessionId);
             const preflightProfile = await this.resolveProfileRuntime(preflightSnapshot.metadata.profileKey);
             if (!preflightProfile.profile) {
                 return this.profileUnavailableInvokeResult(input.sessionId, preflightSnapshot.metadata.profileKey);
@@ -638,7 +663,7 @@ export class NeuroAgentHarness {
         const admission = await this.withSessionAdmission(input.sessionId, () => this.admitInvocation(input));
         if ("queued" in admission) {
             if (invokeTitle) {
-                await this.writeInvokeTitle(input.sessionId, invokeTitle, admission.queued.invocationId);
+                await this.writeInvokeTitle(input.sessionId, invokeTitle, admission.queued.invocationId, preflightSnapshot ? this.repo.reduce(preflightSnapshot) : undefined);
             }
             void appLogger.info("agent.invoke.queued", {
                 sessionId: input.sessionId,
@@ -667,9 +692,19 @@ export class NeuroAgentHarness {
                 }
             }
             if (invokeTitle) {
-                await this.writeInvokeTitle(input.sessionId, invokeTitle, invocationId);
+                snapshot = snapshot ?? await this.repo.readSession(input.sessionId);
+                await this.writeInvokeTitle(input.sessionId, invokeTitle, invocationId, this.repo.reduce(snapshot));
             }
             snapshot = snapshot ?? await this.repo.readSession(input.sessionId);
+            // ensure-open（Task 94）：agent 触碰项目数据面之前先声明 ProjectSession。openProject 幂等且低开销，
+            // resume/follow-up 重复进入无害；正则预检挡掉遗留脏 projectPath，避免坏元数据把 invocation 炸掉
+            // （openProject 内部仍会严格归一化校验）。open 抛错沿既有 pre_loop 失败路径 fail-closed，是设计意图。
+            const invokeProjectPath = snapshot.metadata.projectPath;
+            if (invokeProjectPath && /^workspace\/[^/]+$/.test(invokeProjectPath)) {
+                await openProject(invokeProjectPath, {kind: "agent", sessionId: input.sessionId});
+                // 存归一化键：探针遍历时与 project-session 传入的归一形 key 按 === 比对必须闭合。
+                this.activeInvocationProjects.set(input.sessionId, normalizeProjectPath(invokeProjectPath));
+            }
             const preparedRun = await this.prepareRun({
                 sessionId: input.sessionId,
                 invocationId,
@@ -753,6 +788,7 @@ export class NeuroAgentHarness {
                 profileKey: preparedRun.context.profileKey,
                 profile: preparedRun.profile,
                 agentMode: preparedRun.context.agentMode,
+                fileChangeAwareness: preparedRun.fileChangeAwareness,
                 thinkingLevel: preparedRun.thinkingLevel,
                 runtimeState,
                 reportResultReminderEnabled: preparedRun.reportResultReminderEnabled,
@@ -830,8 +866,14 @@ export class NeuroAgentHarness {
 
     /**
      * 写入 invoke_agent 指定的 session 展示标题，不移动 active path。
+     * 用户手动改过名（titleOwner=user）后，invoke 传入的 title 不再覆盖。
+     * context 由调用方传入已 reduce 的会话上下文以复用读取；缺省时内部兜底读一次。
      */
-    private async writeInvokeTitle(sessionId: number, title: string, invocationId: string): Promise<void> {
+    private async writeInvokeTitle(sessionId: number, title: string, invocationId: string, context?: NeuroSessionContext): Promise<void> {
+        const resolved = context ?? this.repo.reduce(await this.repo.readSession(sessionId));
+        if (readTitleOwner(resolved.customState) === "user") {
+            return;
+        }
         await this.executeWritePlan({
             target: {sessionId},
             cause: "invoke_agent.title",
@@ -1283,6 +1325,7 @@ export class NeuroAgentHarness {
             executionToolKeys,
             thinkingLevel,
             reportResultReminderEnabled: prepareRunHooks.reportResultReminder === true,
+            fileChangeAwareness: prepared.fileChangeAwareness,
         };
     }
 
@@ -1500,7 +1543,7 @@ export class NeuroAgentHarness {
         if (cached) {
             return cached;
         }
-        const keys = profile ? this.userResolutionToolKeysForProfile(profile) : this.tools.userResolutionToolKeys();
+        const keys = profile ? this.userResolutionToolKeysForProfile(profile) : this.baseUserResolutionToolKeys();
         cache.set(profileKey, keys);
         return keys;
     }
@@ -2020,13 +2063,19 @@ export class NeuroAgentHarness {
         const previousRecord = previous && typeof previous === "object" && !Array.isArray(previous)
             ? previous as Record<string, JsonValue>
             : {};
-        // plan 退出过一次后，再进入 plan 使用 reentry 提示
-        const hasExitedPlan = Boolean(previousRecord.hasExitedPlan) || (next.fromMode === "plan" && next.mode !== "plan");
+        // visitedPlan：自上次回到 normal 后是否进入过 plan。plan↔discuss 互切不算"离开计划"
+        // （换脑子不换手，计划草稿仍有效），但只要途经 plan 后回到 normal——包括 plan→discuss→normal
+        // 的间接路径——就视为一个计划周期结束，置 hasExitedPlan，之后再进 plan 走 reentry
+        // （Task 90 决策 6 / README 4.1 + 2026-07-08 规格补充）。
+        const visitedPlan = next.mode === "normal" ? false : Boolean(previousRecord.visitedPlan) || next.mode === "plan";
+        const hasExitedPlan = Boolean(previousRecord.hasExitedPlan)
+            || (next.mode === "normal" && (next.fromMode === "plan" || Boolean(previousRecord.visitedPlan)));
         return {
             mode: next.mode,
             fromMode: next.fromMode,
             phase: next.phase,
             hasExitedPlan,
+            visitedPlan,
             workDirectory: planModeDirectory({
                 workspaceRoot: snapshot.metadata.workspaceRoot,
                 projectPath: snapshot.metadata.projectPath,
@@ -2103,6 +2152,61 @@ export class NeuroAgentHarness {
                 sessionId: forked.metadata.sessionId,
                 createdSession: (await this.resolveSessionRuntimeProjection(forked.metadata.sessionId, forked, timing)).summary,
             };
+        }
+        if (body.command === "rename") {
+            const title = this.normalizeSessionTitle(body.title, "command.rename.title");
+            // 手动改名后标题所有权归用户，summarizer 与 invoke title 都不再覆盖标题。
+            const result = await this.executeWritePlanResult({
+                target: {sessionId},
+                cause: "command.rename",
+                ops: [
+                    {
+                        kind: "append",
+                        projection: true,
+                        entry: {
+                            type: "session_update",
+                            updates: {title},
+                        },
+                    },
+                    {
+                        kind: "append",
+                        projection: true,
+                        entry: {
+                            type: "custom",
+                            key: SESSION_TITLE_OWNER_STATE_KEY,
+                            value: {owner: "user"} satisfies SessionTitleOwnerState,
+                        },
+                    },
+                ],
+            }, undefined, timing);
+            return this.commandLiveStateResult(sessionId, "completed", result, timing);
+        }
+        if (body.command === "summarize") {
+            // 预检：profile 必须声明 summarizer 才能手动生成摘要；预检失败时不动标题所有权。
+            const profile = await this.profiles.get(snapshot.metadata.profileKey);
+            if (!profile.summarizer) {
+                throw new Error(`agent profile ${snapshot.metadata.profileKey} 未声明会话摘要功能，无法手动生成摘要。`);
+            }
+            // 把标题所有权交还给 auto，并以 force 语义强制 summarizer 立即重跑一次（绕过 fingerprint 判定与配置禁用）。
+            await this.executeWritePlan({
+                target: {sessionId},
+                cause: "command.summarize",
+                ops: [{
+                    kind: "append",
+                    projection: true,
+                    entry: {
+                        type: "custom",
+                        key: SESSION_TITLE_OWNER_STATE_KEY,
+                        value: {owner: "auto"} satisfies SessionTitleOwnerState,
+                    },
+                }],
+            });
+            this.scheduleSessionSummarizer(sessionId, {force: true}).catch((error) => {
+                void appLogger.error("agent.summarizer.command.error", {
+                    sessionId,
+                }, error, "Agent summarize command schedule failed");
+            });
+            return this.commandLiveStateResult(sessionId, "started", undefined, timing);
         }
         if (body.command === "retry") {
             const targetId = body.entryId ?? snapshot.leafId;
@@ -2557,6 +2661,7 @@ export class NeuroAgentHarness {
         return {
             plan: prepared,
             writePlan,
+            fileChangeAwareness: resolveFileChangeAwareness(settings),
         };
     }
 
@@ -2572,10 +2677,13 @@ export class NeuroAgentHarness {
      *
      * 这里只负责调度和 preflight；摘要内容、runtime-only transcript 和写回由 summarizer profile 自己完成。
      */
-    private async scheduleSessionSummarizer(sourceSessionId: number): Promise<void> {
+    private async scheduleSessionSummarizer(sourceSessionId: number, options: {force?: boolean} = {}): Promise<void> {
         const running = this.summarizerRuns.get(sourceSessionId);
         if (running) {
             running.rerunRequested = true;
+            if (options.force) {
+                running.forceRequested = true;
+            }
             await this.writeSummarizerState(sourceSessionId, {
                 ...this.readSummarizerState(this.repo.reduce(await this.repo.readSession(sourceSessionId))),
                 dirty: true,
@@ -2585,6 +2693,7 @@ export class NeuroAgentHarness {
 
         const job: SessionSummarizerJob = {
             rerunRequested: false,
+            forceRequested: options.force === true,
             promise: Promise.resolve(),
         };
         job.promise = this.runSessionSummarizerJob(sourceSessionId, job).finally(() => {
@@ -2595,8 +2704,12 @@ export class NeuroAgentHarness {
     }
 
     private async runSessionSummarizerJob(sourceSessionId: number, job: SessionSummarizerJob): Promise<void> {
+        // 配置禁用检查每个 job 只做一次（不进 do/while，避免每轮 rerun 重复读配置文件）。
+        let configDisabled: boolean | null = null;
         do {
             job.rerunRequested = false;
+            const force = job.forceRequested;
+            job.forceRequested = false;
             const sourceSnapshot = await this.repo.readSession(sourceSessionId);
             if (sourceSnapshot.metadata.systemRole === "summarizer") {
                 return;
@@ -2606,13 +2719,24 @@ export class NeuroAgentHarness {
             if (!config || config.enabled === false) {
                 return;
             }
-            await this.runSessionSummarizer(sourceSnapshot, sourceProfile);
+            // 用户可在配置中按 profile 禁用后台摘要；force（用户显式 summarize 命令）绕过该禁用。
+            // 禁用时不 return 而是回到循环条件：运行中排队进来的 force 请求仍能被下一轮处理。
+            if (!force) {
+                if (configDisabled === null) {
+                    const effectiveConfig = await loadEffectiveConfig(sourceSnapshot.metadata);
+                    configDisabled = effectiveConfig.agent.profiles[sourceSnapshot.metadata.profileKey]?.summarizer?.enabled === false;
+                }
+                if (configDisabled) {
+                    continue;
+                }
+            }
+            await this.runSessionSummarizer(sourceSnapshot, sourceProfile, force);
             const latest = await this.repo.readSession(sourceSessionId);
             const latestState = this.readSummarizerState(this.repo.reduce(latest));
             if (latestState.dirty && this.shouldAttemptDirtySummarizerRerun(latestState)) {
                 job.rerunRequested = true;
             }
-        } while (job.rerunRequested);
+        } while (job.rerunRequested || job.forceRequested);
     }
 
     private shouldAttemptDirtySummarizerRerun(state: SessionSummarizerState): boolean {
@@ -2628,7 +2752,11 @@ export class NeuroAgentHarness {
         }
     }
 
-    private async runSessionSummarizer(sourceSnapshot: SessionSnapshot, sourceProfile: AgentProfile): Promise<void> {
+    /**
+     * 运行一次 summarizer preflight + 隐藏 run。force=true 时跳过 fingerprint/间隔判定
+     * （用户显式 summarize 命令），但仍受 maxDialogueContentTokens 上限约束。
+     */
+    private async runSessionSummarizer(sourceSnapshot: SessionSnapshot, sourceProfile: AgentProfile, force = false): Promise<void> {
         const config = sourceProfile.summarizer;
         if (!config || config.enabled === false) {
             return;
@@ -2648,7 +2776,7 @@ export class NeuroAgentHarness {
         const state = this.readSummarizerState(this.repo.reduce(sourceSnapshot));
         const interval = this.summarizerInterval(config.input);
         const sourcePromptUserTurnCount = this.countPromptUserTurns(sourceSnapshot);
-        if (!this.shouldRunSummarizer(state, dialogue, interval, summarizerInputFingerprint, sourcePromptUserTurnCount)) {
+        if (!force && !this.shouldRunSummarizer(state, dialogue, interval, summarizerInputFingerprint, sourcePromptUserTurnCount)) {
             if (state.running || state.dirty) {
                 await this.writeSummarizerState(sourceSnapshot.metadata.sessionId, {
                     ...state,
@@ -3093,6 +3221,8 @@ export class NeuroAgentHarness {
         profile: AgentProfile;
         /** 本 run 的 Agent 工作模式（Task 90）。 */
         agentMode: AgentMode;
+        /** 文件变更感知模式（Task 95）；缺省 off（sidecar 等路径不注入提醒）。 */
+        fileChangeAwareness?: FileChangeAwareness;
         thinkingLevel: ThinkingLevel;
         runtimeState: RunRuntimeState;
         reportResultReminderEnabled: boolean;
@@ -3112,7 +3242,7 @@ export class NeuroAgentHarness {
     }): Promise<RunLoopResult> {
         const frame = createRunFrame(input);
 
-        this.assertNoUnclosedToolCallsForModel(frame.messages, this.userResolutionToolKeysForProfile(frame.profile, isReadonlyMode(frame.agentMode)));
+        this.assertNoUnclosedToolCallsForModel(frame.messages, this.userResolutionToolKeysForProfile(frame.profile));
         await this.emitRuntimeEvent(frame, {type: "agent_start"});
         let shouldContinue = true;
         let failedResult: RunLoopResult | undefined;
@@ -3171,6 +3301,9 @@ export class NeuroAgentHarness {
         for (const steeredMessage of preModelSteers) {
             frame.messages.push(steeredMessage);
         }
+        // Task 95：pre-model 注入他人文件变更提醒。一个 turn 只有一次模型请求（N7），
+        // 这个单一挂点同时覆盖 turn 开始与工具批之后的下一轮感知。
+        await this.injectFileChangeNotice(frame);
 
         const turnSnapshot = await withRunKernelPhase("model", () => this.createTurnSnapshot(frame));
         const outcome = await this.executeTurn(frame, turnSnapshot);
@@ -3199,6 +3332,8 @@ export class NeuroAgentHarness {
         }));
         const transaction = applySuccessfulTurnTransaction(frame, outcome, ingest);
         this.clearPersistedTranscriptReplayAnchor(frame, ingest);
+        // notice 已随本轮 ingest 落盘：推进 unseen 游标（失败轮不会走到这里，N9）。
+        await this.settleFileChangeCursor(frame);
         if (!frame.disableSteer && !turn.waiting) {
             this.steerableSessions.delete(frame.sessionId);
         }
@@ -3235,6 +3370,56 @@ export class NeuroAgentHarness {
             kind: "next",
             shouldContinue: continuation.continue,
         };
+    }
+
+    /**
+     * pre-model 注入文件变更提醒（Task 95 S6）。
+     * off / 无 projectPath / sidecar 跳过；unseen 查询 fail-open（失败视为无变更，门面内已兜）。
+     * 注入后记 pendingHistoryCursorAdvance，本轮 ingest 成功后由 settleFileChangeCursor 推进（N9）。
+     */
+    private async injectFileChangeNotice(frame: RunFrame): Promise<void> {
+        if (frame.fileChangeAwareness === "off" || !frame.projectPath || frame.activeSidecar) {
+            return;
+        }
+        const groups = await readUnseenForAgent(frame.projectPath, frame.sessionId);
+        if (groups.length === 0) {
+            return;
+        }
+        const reminder = createUserMessage({text: buildFileChangeReminder(groups, frame.fileChangeAwareness)});
+        frame.messages.push(reminder);
+        // 游标语义 = last_seen_entry_id（unseen 为 id > 游标），按模块契约原样传 maxEntryId；
+        // 多传 1 会把回合进行中恰好落在 max+1 的他人写入永久吞出 unseen（验收轮修复的 off-by-one）。
+        frame.pendingHistoryCursorAdvance = Math.max(...groups.map((group) => group.maxEntryId));
+        if (frame.forceRuntimeOnlyTranscript || frame.lastTurnIngest?.transcript === "runtime_only") {
+            return;
+        }
+        // savePoint 持久化 + leaf 回填，照 report_result reminder 先例（prepare-next-turn.ts）。
+        const entries = await withRunKernelPhase("ingest", () => this.executeWritePlan({
+            target: {sessionId: frame.sessionId},
+            cause: "file-change-notice",
+            durability: "savePoint",
+            ops: [{
+                kind: "append",
+                entry: {type: "message", message: reminder, origin: "harness"},
+            }],
+        }, frame.invocationId));
+        const noticeEntry = entries.findLast((entry) => entry.type === "message");
+        if (noticeEntry) {
+            frame.transcriptParentLeafId = noticeEntry.id;
+        }
+    }
+
+    /**
+     * 本轮 ingest 成功后推进会话 unseen 游标。失败轮保留 pending，下轮 notice 重现
+     * （at-least-once，可能重复一条提醒，接受）。
+     */
+    private async settleFileChangeCursor(frame: RunFrame): Promise<void> {
+        if (frame.pendingHistoryCursorAdvance === undefined || !frame.projectPath) {
+            return;
+        }
+        const target = frame.pendingHistoryCursorAdvance;
+        frame.pendingHistoryCursorAdvance = undefined;
+        await advanceAgentCursor(frame.projectPath, frame.sessionId, target);
     }
 
     /**
@@ -4241,6 +4426,10 @@ export class NeuroAgentHarness {
     /**
      * plan 模式写豁免（Task 90 决策 10）：写目标全部是计划目录内的 .md 文件时免审批。
      * 解析失败或目标不可识别时不豁免（fail closed）。
+     *
+     * 注意：这里用 resolveWorkspacePath 解析工具写路径（可能带 manuscript/ 等 active-novel 映射），
+     * 与 plan-mode-path.ts 的 resolvePlanModeFile（按 Project Workspace 相对路径 join 解析 switch_mode
+     * planFilePath）是两套不同的路径契约，故不共用同一谓词。
      */
     private planDirectoryWriteExempt(toolCall: AgentToolCall, workspaceRoot: string, projectPath: string | undefined): boolean {
         const paths = this.mutationTargetPaths(toolCall);
@@ -4275,14 +4464,9 @@ export class NeuroAgentHarness {
             if (typeof patch !== "string") {
                 return [];
             }
-            const paths: string[] = [];
-            for (const line of patch.split(/\r?\n/)) {
-                const match = /^\*\*\* (?:Add|Update|Delete) File: (.+)$/.exec(line.trim());
-                if (match?.[1]) {
-                    paths.push(match[1].trim());
-                }
-            }
-            return paths;
+            // 复用 apply_patch 官方解析器，覆盖 Add/Update/Delete 与 Move to 目标；
+            // 手写正则曾漏掉 Move to，导致 plan 目录写豁免被移动操作绕过（Task 90 修复）。
+            return extractPatchTargetPaths(patch);
         }
         return [];
     }
@@ -4359,10 +4543,11 @@ export class NeuroAgentHarness {
             toolOverrides: {[pending.toolName]: tool},
             toolCallIndex: 0,
             toolCall: {
+                type: "toolCall",
                 id: pending.toolCallId,
                 name: pending.toolName,
                 arguments: pending.args,
-            } as AgentToolCall,
+            },
         });
         return createToolResultFromResult({
             toolCallId: pending.toolCallId,
@@ -4620,6 +4805,7 @@ export class NeuroAgentHarness {
         if (!this.profileNeedsHome(profile)) {
             return undefined;
         }
+        assertManagedProjectDataPlaneOpen(context.projectPath);
         const projectRoot = resolveProjectRootForProfileHome(context.projectPath);
         const globalHome = await ensureGlobalProfileHome({
             workspaceRoot: context.workspaceRoot,
@@ -4712,6 +4898,8 @@ export class NeuroAgentHarness {
     private finishInvocationState(sessionId: number, invocationId?: string): void {
         this.clearTranscriptReplayAnchor(sessionId);
         this.activeInvocations.delete(sessionId);
+        // 在场探针配套清理：invocation 收敛时同步移除 projectPath 事实（本方法是 activeInvocations 唯一的 delete 点）。
+        this.activeInvocationProjects.delete(sessionId);
         this.steerableSessions.delete(sessionId);
         this.steerQueues.delete(sessionId);
         this.abortControllers.delete(sessionId);
@@ -6227,31 +6415,45 @@ export class NeuroAgentHarness {
 
     /**
      * 当前 session 的"等待用户 resolution"工具集合。
-     * Task 90：只读模式下并入 mutatesWorkspace 工具，保证注入的写审批挂起在恢复/投影路径可被识别。
+     * Task 90：无条件并入 mutatesWorkspace 工具，保证注入的写审批挂起在恢复/投影/列表路径都可被识别。
      */
     private async userResolutionToolKeysForSnapshot(snapshot: SessionSnapshot, profile?: AgentProfile | null): Promise<string[]> {
-        const readonlyModeActive = isReadonlyMode(this.repo.reduce(snapshot).agentMode);
         if (profile) {
-            return this.userResolutionToolKeysForProfile(profile, readonlyModeActive);
+            return this.userResolutionToolKeysForProfile(profile);
         }
         const runtime = await this.resolveProfileRuntime(snapshot.metadata.profileKey);
         if (runtime.profile) {
-            return this.userResolutionToolKeysForProfile(runtime.profile, readonlyModeActive);
+            return this.userResolutionToolKeysForProfile(runtime.profile);
         }
+        return this.baseUserResolutionToolKeys();
+    }
+
+    /**
+     * 无 profile 可用时的 resolution 工具兜底集合：注册表声明的审批/输入工具 + 会写 workspace 的工具。
+     * 后者可能被只读模式注入为写审批，识别时无条件计入（理由见 userResolutionToolKeysForProfile）。
+     */
+    private baseUserResolutionToolKeys(): string[] {
         const keys = new Set(this.tools.userResolutionToolKeys());
-        if (readonlyModeActive) {
-            for (const key of this.tools.workspaceMutatingToolKeys()) {
-                keys.add(key);
-            }
+        for (const key of this.tools.workspaceMutatingToolKeys()) {
+            keys.add(key);
         }
         return [...keys].sort((left, right) => left.localeCompare(right));
     }
 
-    private userResolutionToolKeysForProfile(profile: AgentProfile, includeWorkspaceMutating = false): string[] {
+    /**
+     * 某 profile 的"等待用户 resolution"工具集合：审批工具 + userInputRequest 工具 + mutatesWorkspace 工具。
+     *
+     * mutatesWorkspace 工具（write/edit/apply_patch）无条件并入，与当前模式无关：只读模式注入的写审批
+     * 保留原工具名，而 normal 模式下写工具永远立即产出 toolResult，所以"静止状态下未闭合的写工具调用"
+     * 只可能是被注入的挂起审批。据此识别不依赖当前模式，修复重启/投影/列表路径认不出注入写审批、以及
+     * 挂起期间切回 normal 后 pending 消失的问题（Task 90）。注入是否发生仍由执行循环的 isReadonlyMode
+     * 门控，此集合只用于"识别一个已挂起的 resolution 点"。
+     */
+    private userResolutionToolKeysForProfile(profile: AgentProfile): string[] {
         const keys = new Set<string>();
         for (const toolKey of profile.rootToolKeys) {
             const tool = this.resolveProfileTool(profile, toolKey);
-            if (tool?.approvalRequired || tool?.userInputRequest || (includeWorkspaceMutating && tool?.mutatesWorkspace)) {
+            if (tool?.approvalRequired || tool?.userInputRequest || tool?.mutatesWorkspace) {
                 keys.add(tool.key);
             }
         }

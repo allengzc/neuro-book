@@ -34,6 +34,9 @@ describe("GET /api/workspace-files/download", () => {
         vi.doMock("nbook/server/workspace-files/workspace-archive", () => ({
             createWorkspaceZipStream,
         }));
+        vi.doMock("nbook/server/workspace-files/project-open-guard", () => ({
+            assertProjectOpenForRoot: vi.fn(),
+        }));
         vi.doMock("nbook/server/utils/prisma", () => ({
             prisma: {},
         }));
